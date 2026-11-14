@@ -949,6 +949,21 @@ internal sealed class CheckRunner
             return VerdictTcs.Task;
         }
 
+        Task<ClientCheckVerdict> ICheckRun.Skip(string reason)
+        {
+            if (Verdict is { } v) return Task.FromResult(v);
+            if (Finished || Canceled) return Task.FromCanceled<ClientCheckVerdict>(new CancellationToken(true));
+            Verdict = ClientCheckVerdict.Skip;
+            Note = _runner.Scrubber.Line(reason, MaxNote);
+            FinishBy = _runner._env.Now + FinishGrace;
+            Phase = RunPhase.Finishing;
+            VerdictTcs.TrySetResult(ClientCheckVerdict.Skip);
+            _runner.MarkDirty();
+            if (Game.IsTickThread) _runner.Emit(_runner.Event(RunEventKind.Changed, this, "skip given by the check"));
+            else _runner.Post(() => _runner.Emit(_runner.Event(RunEventKind.Changed, this, "skip given by the check")));
+            return Task.FromResult(ClientCheckVerdict.Skip);
+        }
+
         void ICheckRun.OnEnd(Func<Task> cleanup)
         {
             lock (_lock) _cleanups.Push(cleanup);

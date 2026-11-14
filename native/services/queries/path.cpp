@@ -26,14 +26,13 @@ namespace {
 
 constexpr char kPathFeature[] = "queries.path";
 constexpr size_t kQuerySize = 0x110, kResultSize = 0x28;
-// Fields of the game's query this build's tested settings use beside the four sigdb captures (docs/re/queries.md):
-// the target type, the vertical start and target search distances, and the free space, in half metres.
-constexpr size_t kTargetType = 0x36, kStartSearchV = 0xf4, kTargetSearchV = 0xfc, kSpaceH = 0x100, kSpaceV = 0x104;
-
 PathQueue g_queue;
 std::atomic<bool> g_path_on{false};
 uintptr_t g_defaults = 0, g_create = 0, g_result = 0, g_destroy = 0;
 int64_t c_start = 0, c_target = 0, c_iterations = 0, c_moves = 0, c_job_realm = 0;
+// The fields Kiln sets beside those (sigdb captures too; docs/re/queries.md): the target type, the vertical start and
+// target search distances and the free space, in half metres.
+int64_t c_target_type = 0, c_start_search_v = 0, c_target_search_v = 0, c_space_h = 0, c_space_v = 0;
 KilnHandle g_program = 0;
 int32_t s_transform = -1, s_stamp = -1, s_grid = -1;
 uint32_t h_transform = 0, h_stamp = 0;
@@ -41,6 +40,7 @@ double g_qpc_ns = 0;
 std::atomic<uint32_t> g_session{0};  // the server session the program may work for; 0 between worlds
 std::atomic<uint32_t> g_program_thread{0};  // the thread the program last ran on (0: it has not run)
 bool g_thread_said = false;                 // tick thread
+const char* g_path_start_failure = nullptr;
 
 uint64_t now_ns() {
     LARGE_INTEGER t;
@@ -49,11 +49,17 @@ uint64_t now_ns() {
 }
 
 // The path half is over for this process: what waits ends refused, and the game is not called again.
+void report_path_off(uint32_t cap_reason, KilnStr why) {
+    if (g_caps && g_caps->report)
+        for (const KilnStr name : {KQP_STR("queries.path"), KQP_STR("queries.reachability")})
+            g_caps->report(g_owner, name, KILN_CAP_UNAVAILABLE, cap_reason, why);
+}
+
 void path_off(uint32_t cap_reason, const char* reason, const char* why) {
     if (!g_path_on.exchange(false)) return;
     g_queue.fail_all(reason);
     logf(KILN_LOG_ERROR, "queries: %s: %s is off for this process", why, kPathFeature);
-    if (g_caps && g_caps->report) g_caps->report(g_owner, KQP_STR(kPathFeature), KILN_CAP_UNAVAILABLE, cap_reason, KilnStr{why, std::strlen(why)});
+    report_path_off(cap_reason, KilnStr{why, std::strlen(why)});
 }
 
 template <class T>
@@ -76,6 +82,10 @@ void KILN_CALL each(KilnProgramCtx* ctx, uint64_t* iter, KilnEntity, void*) {
     g_program_thread.store(GetCurrentThreadId(), std::memory_order_relaxed);
     const uint32_t session = g_session.load(std::memory_order_acquire);
     if (!session || !g_path_on.load(std::memory_order_acquire)) return;
+    if (!g_grid_ok.load(std::memory_order_acquire)) {
+        path_off(KILN_CAP_REASON_FAULTED, "ProgramUnavailable", "the shared voxel grid layout was disabled");
+        return;
+    }
     const std::vector<uint64_t> tokens = g_queue.tokens(session);
     if (tokens.empty()) return;
     void* const cb = g_world->command_buffer(ctx);
@@ -86,6 +96,7 @@ void KILN_CALL each(KilnProgramCtx* ctx, uint64_t* iter, KilnEntity, void*) {
         if (w.op == PathQueue::Op::None && !w.check_identity) continue;
         if (w.check_identity && !same_anchor(ctx, iter, w.params)) {
             g_queue.owner_gone(token);  // its game query, if any, is destroyed by the next update
+            if (w.op == PathQueue::Op::Create) g_queue.created(token, 0);
             continue;
         }
         switch (w.op) {
@@ -122,13 +133,13 @@ void KILN_CALL each(KilnProgramCtx* ctx, uint64_t* iter, KilnEntity, void*) {
                 put<uint32_t>(q, 0, w.params.anchor);
                 std::memcpy(q + c_start, w.params.from, 12);
                 std::memcpy(q + c_target, w.params.to, 12);
-                q[kTargetType] = w.params.fallback ? 2 : 0;  // UseClosestTargetNodeAsFallback
+                q[c_target_type] = w.params.fallback ? 2 : 0;  // UseClosestTargetNodeAsFallback
                 put<uint32_t>(q, c_iterations, w.params.max_iterations);
                 put<uint16_t>(q, c_moves, 1);  // walk only
-                put<uint32_t>(q, kStartSearchV, 4);
-                put<uint32_t>(q, kTargetSearchV, 4);
-                put<uint32_t>(q, kSpaceH, w.params.hspace);
-                put<uint32_t>(q, kSpaceV, w.params.vspace);
+                put<uint32_t>(q, c_start_search_v, 4);
+                put<uint32_t>(q, c_target_search_v, 4);
+                put<uint32_t>(q, c_space_h, w.params.hspace);
+                put<uint32_t>(q, c_space_v, w.params.vspace);
                 uint32_t id = 0;
                 if (!seh_path_create(g_create, cb, &id, q)) {
                     path_off(KILN_CAP_REASON_FAULTED, "GameCallFault", "the game's path query create faulted");
@@ -170,6 +181,8 @@ void KILN_CALL each(KilnProgramCtx* ctx, uint64_t* iter, KilnEntity, void*) {
                 break;
             }
         }
+        // End the Create reservation even when a preflight deferred/refused the call. A nonzero id was recorded above.
+        if (w.op == PathQueue::Op::Create) g_queue.created(token, 0);
     }
 }
 
@@ -214,14 +227,17 @@ void path_resolve() {
              !g_defaults || !g_create || !g_result || !g_destroy)
         why = "a path query function is missing";
     else if (!constant("queries/query.start", &c_start) || !constant("queries/query.target", &c_target) || !constant("queries/query.max_iterations", &c_iterations) ||
-             !constant("queries/query.moves", &c_moves) || !constant("queries/job.realm", &c_job_realm))
+             !constant("queries/query.moves", &c_moves) || !constant("queries/job.realm", &c_job_realm) ||
+             !constant("queries/query.target_type", &c_target_type) || !constant("queries/query.start_search_v", &c_start_search_v) ||
+             !constant("queries/query.target_search_v", &c_target_search_v) || !constant("queries/query.space_h", &c_space_h) ||
+             !constant("queries/query.space_v", &c_space_v))
         why = "a path query layout constant is missing";
     else {
-        auto inside = [](int64_t at, size_t n) { return at >= 4 && at + static_cast<int64_t>(n) <= static_cast<int64_t>(kQuerySize); };
-        if (!inside(c_start, 12) || !inside(c_target, 12) || !inside(c_iterations, 4) || !inside(c_moves, 2) || c_job_realm < 0 || c_job_realm > 0x1000)
+        if (!path_layout_supported({c_start, c_target, c_iterations, c_moves, c_job_realm, c_target_type, c_start_search_v, c_target_search_v, c_space_h, c_space_v}))
             why = "the captured path query layout is not a layout";
     }
     if (why) {
+        g_path_start_failure = why;
         logf(KILN_LOG_WARN, "queries: %s: paths are unavailable", why);
         return;
     }
@@ -229,11 +245,15 @@ void path_resolve() {
 }
 
 void path_ready() {
-    if (!g_path_on.load()) return;
+    if (!g_path_on.load()) {
+        if (g_path_start_failure && g_api->feature(KQP_STR(kPathFeature)))
+            report_path_off(KILN_CAP_REASON_FAULTED, kstr_of(g_path_start_failure));
+        return;
+    }
     auto off = [](const char* why) {
         g_path_on.store(false);
         logf(KILN_LOG_WARN, "queries: %s: paths are unavailable", why);
-        if (g_caps && g_caps->report) g_caps->report(g_owner, KQP_STR(kPathFeature), KILN_CAP_UNAVAILABLE, KILN_CAP_REASON_SERVICE_MISSING, KilnStr{why, std::strlen(why)});
+        report_path_off(KILN_CAP_REASON_SERVICE_MISSING, KilnStr{why, std::strlen(why)});
     };
     if (!g_world || !g_world->register_program || !g_world->read_other || !g_world->program_slot || !g_world->command_buffer)
         return off("kiln.world's programs are not here");
@@ -275,7 +295,15 @@ KilnResult KILN_CALL t_path_submit(KilnOwner owner, const KilnQueryPathRequest* 
     PathParams p;
     if (!owner || !request || request->size < sizeof(KilnQueryPathRequest) || !path_params(*request, &p)) return KILN_ERR_INVALID_ARGUMENT;
     if (!g_api->on_tick_thread()) return KILN_ERR_WRONG_THREAD;
-    if (!g_path_on.load(std::memory_order_acquire) || !g_grid_ok.load(std::memory_order_acquire)) return KILN_ERR_UNAVAILABLE;
+    // It reads realm 0's voxel grid box and the anchor's components below: not while the world is mid-step inside a
+    // program's update, a wrap stage or a system hook callback (internal.h), where kiln.world would also answer a
+    // present anchor as none.
+    if (in_program()) return out->reason = KQP_STR(kInsideProgram), KILN_ERR_WRONG_THREAD;
+    if (!g_path_on.load(std::memory_order_acquire)) return KILN_ERR_UNAVAILABLE;
+    if (!g_grid_ok.load(std::memory_order_acquire)) {
+        path_off(KILN_CAP_REASON_FAULTED, "ProgramUnavailable", "the shared voxel grid layout was disabled");
+        return KILN_ERR_UNAVAILABLE;
+    }
     const Clock c = now();
     if (!world_ready(c)) return KILN_ERR_UNAVAILABLE;
     if (g_queue.retired(owner) || g_api->post(owner, &noop, nullptr) == KILN_ERR_REVOKED) return KILN_ERR_REVOKED;

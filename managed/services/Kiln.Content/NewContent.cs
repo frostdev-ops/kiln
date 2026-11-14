@@ -273,7 +273,10 @@ public static unsafe class NewContent
     public static ContentDefinition Register(ItemDefinition def) => Register(def, Content.Owner());
 
     /// <summary>Registers a new item as a given owner (Kiln.Blocks: a data-only mod's blocks).</summary>
-    internal static ContentDefinition Register(ItemDefinition def, ulong owner)
+    internal static ContentDefinition Register(ItemDefinition def, ulong owner) => Define(ContentKind.Items, ToJson(def), owner);
+
+    /// <summary>The JSON kiln.content's define() takes for a new item (also what a boot generation's IR carries, chapter 08).</summary>
+    internal static JsonObject ToJson(ItemDefinition def)
     {
         ArgumentNullException.ThrowIfNull(def);
         var j = new JsonObject
@@ -327,7 +330,7 @@ public static unsafe class NewContent
             {
                 ["table"] = d.Table, ["countMin"] = d.CountMin, ["countMax"] = d.CountMax, ["chance"] = d.Chance, ["weight"] = d.Weight,
             }).ToArray());
-        return Define(ContentKind.Items, j, owner);
+        return j;
     }
 
     // a PNG icon relative to the calling mod's folder -> absolute (kiln.assets reads it)
@@ -343,7 +346,10 @@ public static unsafe class NewContent
     public static ContentDefinition Register(RecipeDefinition def) => Register(def, Content.Owner());
 
     /// <summary>Registers a new recipe as a given owner (Kiln.Blocks: a data-only mod's blocks).</summary>
-    internal static ContentDefinition Register(RecipeDefinition def, ulong owner)
+    internal static ContentDefinition Register(RecipeDefinition def, ulong owner) => Define(ContentKind.Recipes, ToJson(def), owner);
+
+    /// <summary>The JSON kiln.content's define() takes for a new recipe (also what a boot generation's IR carries, chapter 08).</summary>
+    internal static JsonObject ToJson(RecipeDefinition def)
     {
         ArgumentNullException.ThrowIfNull(def);
         var j = new JsonObject { ["guid"] = def.Guid.ToString("D"), ["name"] = def.Name };
@@ -360,7 +366,7 @@ public static unsafe class NewContent
         if (def.Fields is { Count: > 0 }) j["fields"] = FieldsJson(def.Fields);
         if (def.Props is { Count: > 0 })
             j["props"] = new JsonArray(def.Props.Select(x => (JsonNode)new JsonObject { ["id"] = x.Id, ["index"] = x.Index }).ToArray());
-        return Define(ContentKind.Recipes, j, owner);
+        return j;
     }
 
     /// <summary>Registers a definition given in the data-pack form (one entry of an <c>"add"</c> list).</summary>

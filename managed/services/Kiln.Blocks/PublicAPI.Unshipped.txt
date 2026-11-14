@@ -165,6 +165,8 @@ static Kiln.NpcPerceptionStats.operator ==(Kiln.NpcPerceptionStats? left, Kiln.N
 ~static Kiln.BlockRef<T>.operator ==(Kiln.BlockRef<T> left, Kiln.BlockRef<T> right) -> bool
 ~static Kiln.ResolvedBlock<T>.operator !=(Kiln.ResolvedBlock<T>? left, Kiln.ResolvedBlock<T>? right) -> bool
 ~static Kiln.ResolvedBlock<T>.operator ==(Kiln.ResolvedBlock<T>? left, Kiln.ResolvedBlock<T>? right) -> bool
+Kiln.ToolBlock.WearPerDebit.get -> int?
+Kiln.ToolBlock.WearPerDebit.init -> void
 Kiln.MoveApplicationResult
 Kiln.MoveApplicationResult.AppliedGeneration.get -> ulong
 Kiln.MoveApplicationResult.AppliedGeneration.init -> void
@@ -239,3 +241,151 @@ static Kiln.MoveFollowUpBlock.operator !=(Kiln.MoveFollowUpBlock? left, Kiln.Mov
 static Kiln.MoveFollowUpBlock.operator ==(Kiln.MoveFollowUpBlock? left, Kiln.MoveFollowUpBlock? right) -> bool
 [KILNX001]static Kiln.Blocks.LabRefuseMoveClones(int count) -> void
 [KILNX001]static Kiln.Blocks.LabRetryMoves(Kiln.BlockHandle<Kiln.WeaponBlock!>! weapon) -> bool
+Kiln.BootBlockId<T>
+Kiln.BootBlockId<T>.BootBlockId(string! Mod, string! Kind, string! Name) -> void
+Kiln.BootBlockId<T>.Deconstruct(out string! Mod, out string! Kind, out string! Name) -> void
+Kiln.BootBlockId<T>.Kind.get -> string!
+Kiln.BootBlockId<T>.Kind.init -> void
+Kiln.BootBlockId<T>.Mod.get -> string!
+Kiln.BootBlockId<T>.Mod.init -> void
+Kiln.BootBlockId<T>.Name.get -> string!
+Kiln.BootBlockId<T>.Name.init -> void
+Kiln.BootBlockId<T>.QualifiedName.get -> string!
+Kiln.BootDefinitionResult<T>
+Kiln.BootDefinitionResult<T>.BootDefinitionResult(bool Ok, string? Reason, Kiln.BootBlockId<T!>? Reference) -> void
+Kiln.BootDefinitionResult<T>.Deconstruct(out bool Ok, out string? Reason, out Kiln.BootBlockId<T!>? Reference) -> void
+Kiln.BootDefinitionResult<T>.Ok.get -> bool
+Kiln.BootDefinitionResult<T>.Ok.init -> void
+Kiln.BootDefinitionResult<T>.Reason.get -> string?
+Kiln.BootDefinitionResult<T>.Reason.init -> void
+Kiln.BootDefinitionResult<T>.Reference.get -> Kiln.BootBlockId<T!>?
+Kiln.BootDefinitionResult<T>.Reference.init -> void
+Kiln.BootDefinitions
+Kiln.BootDefinitions.Define<T>(string! name, T! definition) -> Kiln.BootDefinitionResult<T!>!
+Kiln.BootDefinitions.DefineJson(string! kind, string! name, string! json) -> Kiln.BootJsonDefinitionResult!
+Kiln.BootDefinitionsCommittedEvent
+Kiln.BootDefinitionsCommittedEvent.BootDefinitionsCommittedEvent(string! modId, ulong generation, System.Collections.Generic.IEnumerable<string!>! definitions) -> void
+Kiln.BootDefinitionsCommittedEvent.Definitions.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.BootDefinitionsCommittedEvent.Generation.get -> ulong
+Kiln.BootDefinitionsCommittedEvent.ModId.get -> string!
+Kiln.BootJsonDefinitionResult
+Kiln.BootJsonDefinitionResult.<Clone>$() -> Kiln.BootJsonDefinitionResult!
+Kiln.BootJsonDefinitionResult.BootJsonDefinitionResult(bool Ok, string? Reason, string! Kind, string! Key) -> void
+Kiln.BootJsonDefinitionResult.Deconstruct(out bool Ok, out string? Reason, out string! Kind, out string! Key) -> void
+Kiln.BootJsonDefinitionResult.Equals(Kiln.BootJsonDefinitionResult? other) -> bool
+Kiln.BootJsonDefinitionResult.Key.get -> string!
+Kiln.BootJsonDefinitionResult.Key.init -> void
+Kiln.BootJsonDefinitionResult.Kind.get -> string!
+Kiln.BootJsonDefinitionResult.Kind.init -> void
+Kiln.BootJsonDefinitionResult.Ok.get -> bool
+Kiln.BootJsonDefinitionResult.Ok.init -> void
+Kiln.BootJsonDefinitionResult.Reason.get -> string?
+Kiln.BootJsonDefinitionResult.Reason.init -> void
+Kiln.ResourcePatchBlock
+Kiln.ResourcePatchBlock.<Clone>$() -> Kiln.ResourcePatchBlock!
+Kiln.ResourcePatchBlock.Equals(Kiln.ResourcePatchBlock? other) -> bool
+Kiln.ResourcePatchBlock.Part.get -> int
+Kiln.ResourcePatchBlock.Part.init -> void
+Kiln.ResourcePatchBlock.Resource.get -> System.Guid
+Kiln.ResourcePatchBlock.Resource.init -> void
+Kiln.ResourcePatchBlock.ResourcePatchBlock() -> void
+Kiln.ResourcePatchBlock.Set.get -> System.Collections.Generic.Dictionary<string!, Kiln.ResourceValue>!
+Kiln.ResourcePatchBlock.Set.init -> void
+Kiln.ResourcePatchBlock.Type.get -> string!
+Kiln.ResourcePatchBlock.Type.init -> void
+Kiln.ResourceValue
+Kiln.ResourceValue.Add.get -> double?
+Kiln.ResourceValue.Add.init -> void
+Kiln.ResourceValue.Equals(Kiln.ResourceValue other) -> bool
+Kiln.ResourceValue.LowerOnly.get -> bool
+Kiln.ResourceValue.LowerOnly.init -> void
+Kiln.ResourceValue.Max.get -> double?
+Kiln.ResourceValue.Max.init -> void
+Kiln.ResourceValue.Min.get -> double?
+Kiln.ResourceValue.Min.init -> void
+Kiln.ResourceValue.Mul.get -> double?
+Kiln.ResourceValue.Mul.init -> void
+Kiln.ResourceValue.RaiseOnly.get -> bool
+Kiln.ResourceValue.RaiseOnly.init -> void
+Kiln.ResourceValue.ResourceValue() -> void
+Kiln.ResourceValue.Value.get -> object?
+Kiln.ResourceValue.Value.init -> void
+override Kiln.BootBlockId<T>.Equals(object? obj) -> bool
+override Kiln.BootBlockId<T>.GetHashCode() -> int
+override Kiln.BootBlockId<T>.ToString() -> string!
+override Kiln.BootDefinitionResult<T>.Equals(object? obj) -> bool
+override Kiln.BootDefinitionResult<T>.GetHashCode() -> int
+override Kiln.BootDefinitionResult<T>.ToString() -> string!
+override Kiln.BootJsonDefinitionResult.Equals(object? obj) -> bool
+override Kiln.BootJsonDefinitionResult.GetHashCode() -> int
+override Kiln.BootJsonDefinitionResult.ToString() -> string!
+override Kiln.ResourcePatchBlock.Equals(object? obj) -> bool
+override Kiln.ResourcePatchBlock.GetHashCode() -> int
+override Kiln.ResourcePatchBlock.ToString() -> string!
+override Kiln.ResourceValue.GetHashCode() -> int
+static Kiln.BootDefinitions.For(Kiln.BootContext! context) -> Kiln.BootDefinitions!
+static Kiln.BootJsonDefinitionResult.operator !=(Kiln.BootJsonDefinitionResult? left, Kiln.BootJsonDefinitionResult? right) -> bool
+static Kiln.BootJsonDefinitionResult.operator ==(Kiln.BootJsonDefinitionResult? left, Kiln.BootJsonDefinitionResult? right) -> bool
+static Kiln.ResourcePatchBlock.operator !=(Kiln.ResourcePatchBlock? left, Kiln.ResourcePatchBlock? right) -> bool
+static Kiln.ResourcePatchBlock.operator ==(Kiln.ResourcePatchBlock? left, Kiln.ResourcePatchBlock? right) -> bool
+static Kiln.ResourceValue.AtLeast(double min) -> Kiln.ResourceValue
+static Kiln.ResourceValue.AtMost(double max) -> Kiln.ResourceValue
+static Kiln.ResourceValue.Plus(double amount) -> Kiln.ResourceValue
+static Kiln.ResourceValue.Times(double factor) -> Kiln.ResourceValue
+static Kiln.ResourceValue.implicit operator Kiln.ResourceValue(bool value) -> Kiln.ResourceValue
+static Kiln.ResourceValue.implicit operator Kiln.ResourceValue(double value) -> Kiln.ResourceValue
+static Kiln.ResourceValue.implicit operator Kiln.ResourceValue(int value) -> Kiln.ResourceValue
+static Kiln.ResourceValue.implicit operator Kiln.ResourceValue(long value) -> Kiln.ResourceValue
+static Kiln.ResourceValue.implicit operator Kiln.ResourceValue(string! name) -> Kiln.ResourceValue
+static Kiln.ResourceValue.operator !=(Kiln.ResourceValue left, Kiln.ResourceValue right) -> bool
+static Kiln.ResourceValue.operator ==(Kiln.ResourceValue left, Kiln.ResourceValue right) -> bool
+~Kiln.BootBlockId<T>.<Clone>$() -> Kiln.BootBlockId<T>!
+~Kiln.BootBlockId<T>.Equals(Kiln.BootBlockId<T>? other) -> bool
+~Kiln.BootDefinitionResult<T>.<Clone>$() -> Kiln.BootDefinitionResult<T>!
+~Kiln.BootDefinitionResult<T>.Equals(Kiln.BootDefinitionResult<T>? other) -> bool
+~override Kiln.ResourceValue.Equals(object obj) -> bool
+~override Kiln.ResourceValue.ToString() -> string
+~static Kiln.BootBlockId<T>.operator !=(Kiln.BootBlockId<T>? left, Kiln.BootBlockId<T>? right) -> bool
+~static Kiln.BootBlockId<T>.operator ==(Kiln.BootBlockId<T>? left, Kiln.BootBlockId<T>? right) -> bool
+~static Kiln.BootDefinitionResult<T>.operator !=(Kiln.BootDefinitionResult<T>? left, Kiln.BootDefinitionResult<T>? right) -> bool
+~static Kiln.BootDefinitionResult<T>.operator ==(Kiln.BootDefinitionResult<T>? left, Kiln.BootDefinitionResult<T>? right) -> bool
+Kiln.BlockApplicationChangedEvent
+Kiln.BlockApplicationChangedEvent.After.get -> Kiln.BlockApplyResult!
+Kiln.BlockApplicationChangedEvent.Before.get -> Kiln.BlockApplyResult!
+Kiln.BlockApplicationChangedEvent.ModId.get -> string!
+Kiln.BlockApplicationChangedEvent.Name.get -> string!
+Kiln.BlockApplyResult
+Kiln.BlockApplyResult.<Clone>$() -> Kiln.BlockApplyResult!
+Kiln.BlockApplyResult.BlockApplyResult() -> void
+Kiln.BlockApplyResult.ContentGeneration.get -> ulong
+Kiln.BlockApplyResult.ContentGeneration.init -> void
+Kiln.BlockApplyResult.Equals(Kiln.BlockApplyResult? other) -> bool
+Kiln.BlockApplyResult.GameName.get -> string!
+Kiln.BlockApplyResult.GameName.init -> void
+Kiln.BlockApplyResult.Generation.get -> ulong
+Kiln.BlockApplyResult.Generation.init -> void
+Kiln.BlockApplyResult.Guid.get -> System.Guid
+Kiln.BlockApplyResult.Guid.init -> void
+Kiln.BlockApplyResult.Id.get -> uint
+Kiln.BlockApplyResult.Id.init -> void
+Kiln.BlockApplyResult.Ok.get -> bool
+Kiln.BlockApplyResult.Ok.init -> void
+Kiln.BlockApplyResult.Reason.get -> string!
+Kiln.BlockApplyResult.Reason.init -> void
+Kiln.BlockApplyResult.RequestId.get -> ulong
+Kiln.BlockApplyResult.RequestId.init -> void
+Kiln.BlockApplyResult.State.get -> Kiln.BlockApplyState
+Kiln.BlockApplyResult.State.init -> void
+Kiln.BlockApplyState
+Kiln.BlockApplyState.Applied = 1 -> Kiln.BlockApplyState
+Kiln.BlockApplyState.PendingContent = 0 -> Kiln.BlockApplyState
+Kiln.BlockApplyState.Refused = 2 -> Kiln.BlockApplyState
+Kiln.BlockApplyState.Removed = 3 -> Kiln.BlockApplyState
+override Kiln.BlockApplyResult.Equals(object? obj) -> bool
+override Kiln.BlockApplyResult.GetHashCode() -> int
+override Kiln.BlockApplyResult.ToString() -> string!
+static Kiln.BlockApplyResult.operator !=(Kiln.BlockApplyResult? left, Kiln.BlockApplyResult? right) -> bool
+static Kiln.BlockApplyResult.operator ==(Kiln.BlockApplyResult? left, Kiln.BlockApplyResult? right) -> bool
+static Kiln.Blocks.Application(Kiln.BlockHandle! block) -> Kiln.BlockApplyResult!
+static Kiln.Blocks.Application(Kiln.BlockPlan! plan) -> Kiln.BlockApplyResult!
+static Kiln.Blocks.Apply(Kiln.BlockPlan! plan) -> Kiln.BlockApplyResult!

@@ -784,14 +784,16 @@ internal static unsafe class UiEngine
         var peers = Network.Peers;
         if (peers.Count > 0 && ui.CollapsingHeader($"Clients ({peers.Count})", true))
         {
-            if (ui.BeginTable("kiln.peers", "Player", "State", "Kiln", "Mods", "RTT"))
+            if (ui.BeginTable("kiln.peers", "Player", "State", "Kiln", "Mods", "RTT", "Frames in/out"))
             {
                 foreach (var p in peers)
                     ui.Row(p.Name, p.State.ToString(), p.KilnVersion ?? "-", p.Mods.Count.ToString(),
-                        p.RoundTrip is { } r ? $"{r.TotalMilliseconds:F0} ms" : "-");
+                        p.RoundTrip is { } r ? $"{r.TotalMilliseconds:F0} ms" : "-", $"{p.FramesIn}/{p.FramesOut}");
                 ui.EndTable();
             }
         }
+        if (st.ServerRole && ui.CollapsingHeader("Admission"))
+            foreach (var line in NetAdmission.StatusLines()) ui.Text(line);
         if (Network.Channels.Count > 0 && ui.CollapsingHeader($"Channels ({Network.Channels.Count})"))
             foreach (var ch in Network.Channels)
                 ui.Text($"{ch.Name} v{ch.Version}{(ch.Required ? " (required)" : "")}: in {ch.MessagesIn}, out {ch.MessagesOut}");

@@ -519,6 +519,9 @@ void perks(const Schema& s, const json& v, const ItemFind& find, const Pools& p,
 
 }  // namespace
 
+// The mod folders of the load order (gamedata_bootpatch.cpp reads their blocks files).
+std::vector<std::filesystem::path> mod_folder_list() { return mod_folders(); }
+
 bool is_kitbash_key(const Schema& s, const std::string& key) {
     if (key == "icon" || key == "perks" || key == "refs" || key == "visualModels" || alias_path(key)) return true;
     const Field* f = s.find(key);

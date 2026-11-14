@@ -6,6 +6,13 @@
 //! What it never does: delete anything, replace an asset, move or create a tag by hand, publish as part of an apply,
 //! send the token anywhere but `api.github.com` and `uploads.github.com`, follow a redirect with the token.
 //!
+//! An asset GitHub lists without a digest. Reconciling an upload (and `--resolve-step` for one) compares the asset of
+//! the planned name by size and digest. When the list offers no digest and name, state and size match the plan, the
+//! provider downloads that one asset from `api.github.com/repos/…/releases/assets/<id>` and hashes it as it arrives
+//! (chapter 12b §4 "Provider recovery"): never more bytes than the plan says, never held in memory, at most one
+//! redirect, and only to GitHub's storage hosts ([`ASSET_HOSTS`], chapter 12c §4), which get no token. The same hash
+//! adopts the asset, other bytes are a conflict, a failed download leaves it to a person.
+//!
 //! Finding our own release again. A draft release has no tag in the repository yet, so it cannot be looked up by
 //! tag, and GitHub lets several drafts carry the same tag name. The provider therefore lists the repository's
 //! releases (drafts are listed for a token that may write) and recognises its own by the marker at the end of the
@@ -21,6 +28,9 @@ use serde_json::Value;
 
 pub const API_HOST: &str = "api.github.com";
 pub const UPLOAD_HOST: &str = "uploads.github.com";
+/// Where GitHub redirects the download of a release asset (chapter 12c §4): reached without a credential, and only as
+/// the one redirect of an asset download.
+pub const ASSET_HOSTS: [&str; 2] = ["release-assets.githubusercontent.com", "objects.githubusercontent.com"];
 const API_VERSION: &str = "2022-11-28";
 /// Releases are listed 100 a page, at most this many pages: beyond that "not found" cannot be claimed.
 const MAX_PAGES: u32 = 5;
@@ -33,7 +43,7 @@ pub trait TokenSource {
 }
 
 pub fn policy() -> Policy {
-    Policy::new("GitHub").credential_host(API_HOST).credential_host(UPLOAD_HOST)
+    Policy::new("GitHub").credential_host(API_HOST).credential_host(UPLOAD_HOST).plain_host(ASSET_HOSTS[0]).plain_host(ASSET_HOSTS[1])
 }
 
 pub struct GithubProvider<'a> {
@@ -49,9 +59,38 @@ enum Call {
     Unknown(String),
 }
 
+/// An asset object held against the planned file.
+enum Judged {
+    /// Decided by what GitHub listed.
+    Final(Reconcile),
+    /// Name, state `uploaded` and size match the plan, and GitHub offered no digest. Holds the asset's id.
+    NoDigest(String),
+}
+
+/// Hashes a download as it arrives and keeps nothing else.
+#[derive(Default)]
+struct HashSink {
+    hasher: sha2::Sha256,
+    bytes: u64,
+}
+
+impl std::io::Write for HashSink {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        use sha2::Digest;
+        self.hasher.update(buf);
+        self.bytes += buf.len() as u64;
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 fn refusal(r: &Response, what: &str) -> Option<String> {
     let rate = r.header("x-ratelimit-remaining") == Some("0") || r.header("retry-after").is_some();
-    let wait = r.header("retry-after").map(|s| format!(" (retry after {s} s)")).unwrap_or_default();
+    // A provider header is untrusted and may echo a credential or a signed URL. Persist only a parsed delay.
+    let wait = r.header("retry-after").and_then(|s| s.parse::<u64>().ok()).map(|s| format!(" (retry after {s} s)")).unwrap_or_default();
     Some(match r.status {
         401 => format!("GitHub did not accept the token (401) while {what}"),
         403 | 429 if rate => format!("GitHub's rate limit stopped {what} ({}){wait}", r.status),
@@ -69,20 +108,32 @@ impl<'a> GithubProvider<'a> {
         GithubProvider { client: Client::new(policy(), transport, user_agent), token }
     }
 
-    fn send(&self, req: Request, what: &str) -> Call {
+    /// The request with the token and GitHub's API headers, or why there is no token.
+    fn authorized(&self, req: Request, accept: &str) -> std::result::Result<Request, String> {
         let token = match self.token.token() {
             Ok(t) if !t.is_empty() => t,
-            _ => return Call::Refused("no GitHub token is stored for kiln publish".into()),
+            _ => return Err("no GitHub token is stored for kiln publish".into()),
         };
-        let req = req.header("Authorization", &format!("Bearer {token}")).header("Accept", "application/vnd.github+json").header("X-GitHub-Api-Version", API_VERSION);
-        match self.client.send(req) {
-            Err(e) if e.code == crate::ErrorCode::Network => Call::Unknown(format!("no answer while {what}")),
-            Err(e) => Call::Refused(e.message),
+        Ok(req.header("Authorization", &format!("Bearer {token}")).header("Accept", accept).header("X-GitHub-Api-Version", API_VERSION))
+    }
+
+    fn classify(answer: Result<Response>, what: &str) -> Call {
+        match answer {
+            // A bounded-body failure or a refused redirect can occur after a mutation reached GitHub, just like
+            // a network failure. A transport error never proves that a mutation did not happen.
+            Err(_) => Call::Unknown(format!("no usable answer while {what}")),
             Ok(r) if (200..300).contains(&r.status) => Call::Ok(r),
             Ok(r) => match refusal(&r, what) {
                 Some(why) => Call::Refused(why),
                 None => Call::Unknown(format!("GitHub answered {} while {what}", r.status)),
             },
+        }
+    }
+
+    fn send(&self, req: Request, what: &str) -> Call {
+        match self.authorized(req, "application/vnd.github+json") {
+            Ok(req) => Self::classify(self.client.send(req), what),
+            Err(why) => Call::Refused(why),
         }
     }
 
@@ -155,6 +206,7 @@ impl<'a> GithubProvider<'a> {
             Reconcile::Conflict(why) => return StepResult::Refused(why),
             Reconcile::Ambiguous(why) => return StepResult::Refused(why),
         }
+        if let Err(why) = self.check_tag(ctx.plan) { return StepResult::Refused(why); }
         let notes = match std::fs::read_to_string(ctx.dir.join(txdir::NOTES)) {
             Ok(n) => n,
             Err(_) => return StepResult::Refused("the frozen notes cannot be read".into()),
@@ -187,23 +239,59 @@ impl<'a> GithubProvider<'a> {
         [&f.artifact, &f.checksum, &f.release].into_iter().find(|x| x.path == name)
     }
 
-    /// An asset object against the planned file: ours, something else, or not decidable.
-    fn judge_asset(asset: &Value, file: &plan::FrozenFile) -> Reconcile {
-        let Some(id) = Self::id_of(asset) else { return Reconcile::Ambiguous("GitHub's answer had no asset id".into()) };
+    /// An asset object against the planned file: ours, something else, not decidable, or to be downloaded and hashed.
+    fn judge_asset(asset: &Value, file: &plan::FrozenFile) -> Judged {
+        let Some(id) = Self::id_of(asset) else { return Judged::Final(Reconcile::Ambiguous("GitHub's answer had no asset id".into())) };
         if asset["state"].as_str() != Some("uploaded") {
-            return Reconcile::Conflict("an unfinished upload holds the asset's name; remove it at GitHub, then resume".into());
+            return Judged::Final(Reconcile::Conflict("an unfinished upload holds the asset's name; remove it at GitHub, then resume".into()));
         }
         if asset["size"].as_u64() != Some(file.bytes) {
-            return Reconcile::Conflict("an asset of that name with another size exists".into());
+            return Judged::Final(Reconcile::Conflict("an asset of that name with another size exists".into()));
         }
         match asset["digest"].as_str() {
-            Some(d) if d == format!("sha256:{}", file.sha256) => Reconcile::Adopt(RemoteIds::from([("asset".into(), id)])),
-            Some(_) => Reconcile::Conflict("an asset of that name with other content exists".into()),
-            None => Reconcile::Ambiguous("GitHub gave no digest for the asset; compare it by hand".into()),
+            Some(d) if d == format!("sha256:{}", file.sha256) => Judged::Final(Reconcile::Adopt(RemoteIds::from([("asset".into(), id)]))),
+            Some(_) => Judged::Final(Reconcile::Conflict("an asset of that name with other content exists".into())),
+            None => Judged::NoDigest(id),
         }
     }
 
-    fn find_asset(&self, ctx: &StepCtx) -> Reconcile {
+    /// Downloads the draft asset `id` with the token and hashes it as it arrives (GitHub offered no digest). Bounded:
+    /// refused before anything is sent when the planned size is above the artifact policy's limit, and the answer may
+    /// be at most the planned size. One redirect, to [`ASSET_HOSTS`] only, without the token (the client strips it).
+    /// The same SHA-256 and size adopt it; other bytes are a conflict (never deleted, never uploaded over); a download
+    /// that fails or comes back short is for a person.
+    fn hash_asset(&self, plan: &PublishPlan, id: &str, file: &plan::FrozenFile) -> Reconcile {
+        let by_hand = |why: &str| Reconcile::Ambiguous(format!("GitHub gave no digest for the asset and {why}; compare it by hand"));
+        if file.bytes > super::policy::MAX_ZIP_BYTES {
+            return by_hand("it is larger than a published zip may be, so it was not downloaded");
+        }
+        if id.is_empty() || !id.bytes().all(|b| b.is_ascii_digit()) {
+            return by_hand("its id is not a number");
+        }
+        let url = self.repo_url(plan, &format!("/releases/assets/{id}"));
+        let req = Request::get(url).max_response(file.bytes).allow_redirect_to(&ASSET_HOSTS);
+        let req = match self.authorized(req, "application/octet-stream") {
+            Ok(r) => r,
+            Err(why) => return by_hand(&format!("it could not be downloaded ({why})")),
+        };
+        let mut sink = HashSink::default();
+        match Self::classify(self.client.download(req, &mut sink), "downloading the asset to compare it") {
+            Call::Ok(_) if sink.bytes != file.bytes => by_hand("its download was incomplete"),
+            Call::Ok(_) => {
+                use sha2::Digest;
+                if crate::hash::hex(&sink.hasher.finalize()) == file.sha256 {
+                    Reconcile::Adopt(RemoteIds::from([("asset".into(), id.to_string())]))
+                } else {
+                    Reconcile::Conflict("an asset of that name with other content exists (its download has another SHA-256)".into())
+                }
+            }
+            Call::Refused(why) | Call::Unknown(why) => by_hand(&format!("it could not be downloaded ({why})")),
+        }
+    }
+
+    /// The asset of the planned name in our draft. `expect`: the id a person gave (`--resolve-step`); another id is a
+    /// conflict before anything is downloaded.
+    fn find_asset(&self, ctx: &StepCtx, expect: Option<&str>) -> Reconcile {
         let (Some(release), Some(name), Some(file)) = (Self::release_id(ctx), ctx.op.asset.as_deref(), Self::planned_file(ctx)) else {
             return Reconcile::Ambiguous("the draft release of this transaction is not known".into());
         };
@@ -219,7 +307,11 @@ impl<'a> GithubProvider<'a> {
         let named: Vec<&Value> = items.iter().filter(|a| a["name"].as_str() == Some(name)).collect();
         match named.as_slice() {
             [] => Reconcile::NotThere,
-            [one] => Self::judge_asset(one, file),
+            [one] => match Self::judge_asset(one, file) {
+                Judged::Final(r) => r,
+                Judged::NoDigest(id) if expect.is_some_and(|want| want != id) => Reconcile::Conflict("that id is not the asset of this step".into()),
+                Judged::NoDigest(id) => self.hash_asset(ctx.plan, &id, file),
+            },
             _ => Reconcile::Ambiguous("several assets carry that name".into()),
         }
     }
@@ -228,25 +320,33 @@ impl<'a> GithubProvider<'a> {
         let (Some(release), Some(name), Some(file)) = (Self::release_id(ctx), ctx.op.asset.as_deref(), Self::planned_file(ctx)) else {
             return StepResult::Refused("the draft release of this transaction is not known".into());
         };
+        // A draft can have been published or edited by hand since the previous step. Resuming must not make an
+        // asset public as a side effect or write into a release whose identity no longer matches the plan.
+        match self.get_release(ctx.plan, &release) {
+            Ok(rel) if Self::is_ours(ctx.plan, &rel) && Self::id_of(&rel).as_deref() == Some(release.as_str())
+                && rel["draft"].as_bool() == Some(true) => {}
+            Ok(_) => return StepResult::Refused("the release is no longer this transaction's draft; no asset was uploaded".into()),
+            Err(_) => return StepResult::Refused("the draft release could not be verified; no asset was uploaded".into()),
+        }
         // The one opened, verified handle is what is streamed: the path is not opened again.
         let handle = match txdir::open_verified(ctx.dir, &file.path, &file.sha256, Some(file.bytes)) {
             Ok(h) => h,
             Err(e) => return StepResult::Refused(e.message),
         };
         let url = format!("https://{UPLOAD_HOST}/repos/{}/releases/{release}/assets?name={name}", ctx.plan.destination.repository);
-        let req = Request::new(Method::Post, url).header("Content-Type", "application/octet-stream").body(Body::File { file: handle, len: file.bytes });
+        let (reader, verified) = txdir::UploadReader::new(handle, file.bytes, &file.sha256);
+        let req = Request::new(Method::Post, url).header("Content-Type", "application/octet-stream").body(Body::Reader { reader: Box::new(reader), len: file.bytes });
         match self.send(req, "uploading an asset") {
             Call::Refused(why) => StepResult::Refused(why),
             Call::Unknown(why) => StepResult::Unknown(why),
+            Call::Ok(_) if !verified.load(std::sync::atomic::Ordering::Acquire) => StepResult::Unknown("the frozen upload was not streamed and verified in full".into()),
             Call::Ok(r) => match serde_json::from_slice::<Value>(&r.body) {
                 Ok(v) if v["name"].as_str() == Some(name) => match Self::judge_asset(&v, file) {
-                    Reconcile::Adopt(ids) => StepResult::Confirmed(ids),
-                    // No digest in the answer: size and name agree and these bytes were just streamed from the verified
-                    // handle, so it is ours.
-                    Reconcile::Ambiguous(_) if v["size"].as_u64() == Some(file.bytes) && v["state"].as_str() == Some("uploaded") => {
-                        StepResult::Confirmed(RemoteIds::from([("asset".into(), Self::id_of(&v).unwrap_or_default())]))
-                    }
-                    _ => StepResult::Unknown("GitHub's answer to the upload does not match what was sent".into()),
+                    Judged::Final(Reconcile::Adopt(ids)) => StepResult::Confirmed(ids),
+                    // No digest in the answer: id, state, size and name agree and these bytes were just streamed from
+                    // the verified handle, so it is ours (nothing is downloaded here).
+                    Judged::NoDigest(id) => StepResult::Confirmed(RemoteIds::from([("asset".into(), id)])),
+                    Judged::Final(_) => StepResult::Unknown("GitHub's answer to the upload does not match what was sent".into()),
                 },
                 _ => StepResult::Unknown("GitHub's answer to the upload could not be read".into()),
             },
@@ -264,6 +364,33 @@ impl<'a> GithubProvider<'a> {
         }
     }
 
+    /// GitHub ignores target_commitish when the tag already exists. Check the actual ref, peeling annotated tags,
+    /// before creating or publishing a release. Only GETs: an existing tag is never moved.
+    fn check_tag(&self, plan: &PublishPlan) -> std::result::Result<(), String> {
+        let url = self.repo_url(plan, &format!("/git/ref/tags/{}", plan.destination.tag));
+        let mut object = match self.send(Request::get(url), "checking the release tag") {
+            Call::Ok(r) => serde_json::from_slice::<Value>(&r.body).map_err(|_| "GitHub's tag reference could not be read".to_string())?,
+            Call::Refused(why) if why.contains("(404)") => return Ok(()), // GitHub will create the tag at the pinned commit.
+            Call::Refused(why) | Call::Unknown(why) => return Err(why),
+        };
+        for _ in 0..8 {
+            let target = &object["object"];
+            let sha = target["sha"].as_str().filter(|s| super::config::is_commit(s)).ok_or("GitHub's tag target has no valid SHA")?;
+            match target["type"].as_str() {
+                Some("commit") if sha == plan.target_commit => return Ok(()),
+                Some("commit") => return Err("the existing tag points at another commit; Kiln will not move it".into()),
+                Some("tag") => {
+                    object = match self.send(Request::get(self.repo_url(plan, &format!("/git/tags/{sha}"))), "reading an annotated tag") {
+                        Call::Ok(r) => serde_json::from_slice::<Value>(&r.body).map_err(|_| "GitHub's annotated tag could not be read".to_string())?,
+                        Call::Refused(why) | Call::Unknown(why) => return Err(why),
+                    };
+                }
+                _ => return Err("the existing tag does not point at a commit".into()),
+            }
+        }
+        Err("the existing tag has too many nested annotated tags".into())
+    }
+
     /// Draft or public, for the publish step: only ever the release this transaction made.
     fn published_state(&self, ctx: &StepCtx) -> Reconcile {
         let Some(id) = Self::release_id(ctx) else { return Reconcile::Ambiguous("the draft release of this transaction is not known".into()) };
@@ -276,7 +403,10 @@ impl<'a> GithubProvider<'a> {
             return Reconcile::Conflict("the release no longer carries this transaction's marker, tag or commit".into());
         }
         match rel["draft"].as_bool() {
-            Some(false) => Reconcile::Adopt(RemoteIds::from([("release".into(), id)])),
+            Some(false) => match self.check_tag(ctx.plan) {
+                Ok(()) => Reconcile::Adopt(RemoteIds::from([("release".into(), id)])),
+                Err(why) => Reconcile::Conflict(why),
+            },
             Some(true) => Reconcile::NotThere,
             None => Reconcile::Ambiguous("GitHub's answer does not say whether the release is a draft".into()),
         }
@@ -289,6 +419,7 @@ impl<'a> GithubProvider<'a> {
             Reconcile::Adopt(ids) => return StepResult::Confirmed(ids),
             Reconcile::Conflict(why) | Reconcile::Ambiguous(why) => return StepResult::Refused(why),
         }
+        if let Err(why) = self.check_tag(ctx.plan) { return StepResult::Refused(why); }
         let id = Self::release_id(ctx).unwrap_or_default();
         let req = Request::new(Method::Patch, self.repo_url(ctx.plan, &format!("/releases/{id}"))).json(&serde_json::json!({"draft": false}));
         match self.send(req, "publishing the draft") {
@@ -319,7 +450,7 @@ impl PublishProvider for GithubProvider<'_> {
     fn reconcile(&self, ctx: &StepCtx) -> Reconcile {
         match ctx.op.kind.as_str() {
             "create-draft" => self.find_release(ctx.plan),
-            "upload-asset" => self.find_asset(ctx),
+            "upload-asset" => self.find_asset(ctx, None),
             "publish-draft" => self.published_state(ctx),
             other => Reconcile::Ambiguous(format!("the GitHub provider has no step of kind {other}")),
         }
@@ -333,8 +464,9 @@ impl PublishProvider for GithubProvider<'_> {
                 Err(r) => r,
             },
             "upload-asset" => {
-                // the asset has to be one of our release's assets, by name, size and digest
-                match self.find_asset(ctx) {
+                // the asset has to be one of our release's assets, by name, size and digest (or, with no digest
+                // listed, by the SHA-256 of its download)
+                match self.find_asset(ctx, Some(remote_id)) {
                     Reconcile::Adopt(ids) if ids.get("asset").map(String::as_str) == Some(remote_id) => Reconcile::Adopt(ids),
                     Reconcile::Adopt(_) => Reconcile::Conflict("that id is not the asset of this step".into()),
                     other => other,
@@ -354,7 +486,7 @@ impl PublishProvider for GithubProvider<'_> {
         let repo = &ctx.plan.destination.repository;
         match ctx.op.kind.as_str() {
             "create-draft" => format!("open the releases of {repo} at GitHub and find the draft for tag {} whose text ends with \"{}\"; its id is the number in its edit address or in the API's list.", ctx.plan.destination.tag, Self::marker(ctx.plan)),
-            "upload-asset" => format!("open the draft release of {repo} for tag {} and compare the asset {} with the planned size and SHA-256; its id is in the API's asset list.", ctx.plan.destination.tag, ctx.op.asset.as_deref().unwrap_or("")),
+            "upload-asset" => format!("open the draft release of {repo} for tag {} and compare the asset {} with the planned size and SHA-256; its id is in the API's asset list (binding it downloads it again when GitHub lists no digest).", ctx.plan.destination.tag, ctx.op.asset.as_deref().unwrap_or("")),
             _ => format!("open the release of {repo} for tag {} and see whether it is still a draft.", ctx.plan.destination.tag),
         }
     }

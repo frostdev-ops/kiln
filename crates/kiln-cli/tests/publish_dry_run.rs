@@ -106,7 +106,7 @@ fn the_plan_step_and_every_refusal_before_the_network() {
     std::fs::write(project.join("kiln.publish.json"), r#"{"format": 1, "provider": "github", "github": {"repository": "example/dry-run", "tag": "v{version}", "commit": "0123456789abcdef0123456789abcdef01234567"}, "notes": "notes.md"}"#).unwrap();
 
     // plan: offline, a file to review
-    let o = kiln(&f, &["--json", "publish", "--artifact", "dry-run-0.3.1.zip", "--to", "github", "--plan", "plan.json"]);
+    let o = kiln(&f, &["--json", "publish", "--artifact", "dry-run-0.3.1.zip", "--config", "kiln.publish.json", "--to", "github", "--plan", "plan.json"]);
     assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
     let v = json(&o);
     assert_eq!((v["state"].as_str(), v["mod"]["version"].as_str(), v["destination"]["tag"].as_str()), (Some("planned"), Some("0.3.1"), Some("v0.3.1")));
@@ -159,4 +159,56 @@ fn the_plan_step_and_every_refusal_before_the_network() {
     assert_eq!(json(&o)["error"]["code"], "hash_mismatch");
     assert!(!dir.join("journal.json").exists());
     println!("PASS publish.immutable-artifact");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn storing_a_token_does_not_echo_it_to_the_terminal() {
+    use std::io::{Read, Write};
+    use std::os::{fd::FromRawFd, unix::fs::PermissionsExt};
+    use std::process::Stdio;
+    use std::time::{Duration, Instant};
+    let f = Fx { root: std::env::temp_dir().join(format!("kiln-cli-token-{}", std::process::id())) };
+    std::fs::create_dir_all(&f.root).unwrap();
+    let tool = f.root.join("secret-tool");
+    std::fs::write(&tool, "#!/bin/sh\ncase \"$1\" in store) /bin/cat > \"$KILN_TEST_TOKEN_FILE\";; *) exit 1;; esac\n").unwrap();
+    std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let captured = f.root.join("captured");
+    let (mut master_fd, mut slave_fd) = (-1, -1);
+    assert_eq!(unsafe { libc::openpty(&mut master_fd, &mut slave_fd, std::ptr::null_mut(), std::ptr::null(), std::ptr::null()) }, 0);
+    let mut master = unsafe { std::fs::File::from_raw_fd(master_fd) };
+    let slave = unsafe { std::fs::File::from_raw_fd(slave_fd) };
+    let flags = || {
+        let mut mode = std::mem::MaybeUninit::<libc::termios>::uninit();
+        assert_eq!(unsafe { libc::tcgetattr(slave_fd, mode.as_mut_ptr()) }, 0);
+        unsafe { mode.assume_init() }.c_lflag
+    };
+    let before = flags();
+    assert_ne!(before & libc::ECHO, 0);
+    let mut child = Command::new(env!("CARGO_BIN_EXE_kiln"))
+        .args(["publish", "--store-token", "github"])
+        .env("KILN_DATA_DIR", f.root.join("data"))
+        .env("PATH", &f.root).env("KILN_TEST_TOKEN_FILE", &captured).env_remove("KILN_PUBLISH_GITHUB_TOKEN")
+        .stdin(Stdio::from(slave.try_clone().unwrap())).stdout(Stdio::null())
+        .stderr(Stdio::from(std::fs::File::create(f.root.join("stderr")).unwrap())).spawn().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while flags() & libc::ECHO != 0 && Instant::now() < deadline { std::thread::sleep(Duration::from_millis(10)); }
+    const TOKEN: &str = "ghp_PRIVATE_PTY_TEST_TOKEN";
+    writeln!(master, "{TOKEN}").unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let status = loop {
+        if let Some(s) = child.try_wait().unwrap() { break s; }
+        if Instant::now() >= deadline {
+            child.kill().unwrap(); child.wait().unwrap();
+            panic!("token command did not finish against the fake credential store");
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    assert!(status.success(), "{}", std::fs::read_to_string(f.root.join("stderr")).unwrap());
+    assert_eq!(std::fs::read_to_string(captured).unwrap(), TOKEN);
+    assert_eq!(flags(), before, "terminal mode was not restored");
+    assert_ne!(unsafe { libc::fcntl(master_fd, libc::F_SETFL, libc::O_NONBLOCK) }, -1);
+    let mut echoed = String::new();
+    let _ = master.read_to_string(&mut echoed);
+    assert!(!echoed.contains(TOKEN), "the token was echoed to the terminal");
 }

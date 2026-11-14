@@ -1,7 +1,7 @@
 {
   "format": 1,
   "side": "server",
-  "comment": "kiln.queries, the path half (docs/re/queries.md): the game's path queries as a world program uses them (create, read the result, destroy), the query's defaults, and the job's realm. The voxel grid entries the feature also needs are dev28-01-world-queries.json's. Pattern leads from EMF's signatures (MIT), resolved and extended against both executables; every pattern matches the dedicated server and the game client once, so the client uses this file unchanged.",
+  "comment": "kiln.queries, the path half (docs/re/queries.md): the game's path queries as a world program uses them (create, read the result, destroy), the query's defaults and the fields Kiln sets beside them (the search distances and free space where the game halves them per grid, the target type where the search driver reads it), and the job's realm. The voxel grid entries the feature also needs are dev28-01-world-queries.json's. Pattern leads from EMF's signatures (MIT), resolved and extended against both executables; every pattern matches the dedicated server and the game client once, so the client uses this file unchanged.",
   "symbols": {
     "queries/CreatePathQuery": {
       "find": [
@@ -49,6 +49,20 @@
         }
       ]
     },
+    "@queries/query_normalize.layout": {
+      "find": [
+        {
+          "pattern": "F3 0F 11 81 ?? ?? ?? ?? 0F 57 C9 8B 8A ?? ?? ?? ?? 8B C1 D1 E8 41 80 B8 ?? ?? ?? ?? 02 0F 45 C8 41 89 8B ?? ?? ?? ?? 8B 8A {queries/query.start_search_v:d32} 8B C1 D1 E8 41 80 B8 ?? ?? ?? ?? 02 0F 45 C8 41 89 8B ?? ?? ?? ?? 8B 8A ?? ?? ?? ?? 8B C1 D1 E8 41 80 B8 ?? ?? ?? ?? 02 0F 45 C8 41 89 8B ?? ?? ?? ?? 8B 8A {queries/query.target_search_v:d32} 8B C1 D1 E8 41 80 B8 ?? ?? ?? ?? 02 0F 45 C8 41 89 8B ?? ?? ?? ?? 8B 8A {queries/query.space_h:d32} 8B C1 D1 E8 41 80 B8 ?? ?? ?? ?? 02 0F 45 C8 41 89 8B ?? ?? ?? ?? 8B 8A {queries/query.space_v:d32} 8B C1 D1 E8 41 80 B8 ?? ?? ?? ?? 02 0F 45 C8 41 89 8B ?? ?? ?? ??"
+        }
+      ]
+    },
+    "@queries/query_target_type.layout": {
+      "find": [
+        {
+          "pattern": "48 8B 7C 24 ?? 45 33 C9 41 0F B6 46 {queries/query.target_type:d8} 3C 01 0F 85 ?? ?? ?? ?? 48 85 FF 0F 84 ?? ?? ?? ?? 4C 8B CF"
+        }
+      ]
+    },
     "@queries/job_realm.call": {
       "find": [
         {
@@ -85,6 +99,11 @@
     "queries/query.target": {},
     "queries/query.max_iterations": {},
     "queries/query.moves": {},
+    "queries/query.target_type": {},
+    "queries/query.start_search_v": {},
+    "queries/query.target_search_v": {},
+    "queries/query.space_h": {},
+    "queries/query.space_v": {},
     "queries/job.realm": {}
   },
   "features": {
@@ -101,6 +120,8 @@
         "@queries/realm_count.layout",
         "@queries/ray.minimum",
         "queries/RayMinLength",
+        "@queries/query_normalize.layout",
+        "@queries/query_target_type.layout",
         "@queries/job_realm.call",
         "@queries/job_realm.layout",
         "queries/JobRealm"
@@ -124,6 +145,11 @@
         "queries/query.target",
         "queries/query.max_iterations",
         "queries/query.moves",
+        "queries/query.target_type",
+        "queries/query.start_search_v",
+        "queries/query.target_search_v",
+        "queries/query.space_h",
+        "queries/query.space_v",
         "queries/grid.realm_count",
         "queries/ray_grid.origin",
         "queries/ray_grid.shift",

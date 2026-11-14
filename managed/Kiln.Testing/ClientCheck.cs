@@ -198,6 +198,17 @@ public sealed class CheckContext
     /// runner.</summary>
     public Task<ClientCheckVerdict> Verdict() => _run.Verdict();
 
+    /// <summary>Ends the check with the verdict skip and <paramref name="reason"/> as its note, without asking the
+    /// player: for a check that can judge nothing here (a capability it tests is still held, a mod it needs is not
+    /// loaded). The player cannot turn it into a pass. A verdict the check already has stays; a later
+    /// <see cref="Verdict"/> returns skip.</summary>
+    /// <param name="reason">Why, in one line ("camera.fov is still held: game test pending").</param>
+    public Task<ClientCheckVerdict> Skip(string reason)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(reason);
+        return _run.Skip(reason);
+    }
+
     /// <summary>Registers <paramref name="cleanup"/> to run when the check ends, however it ends (verdict, stop,
     /// exception, unload): on the tick thread, last registered first, each on its own exception guard.</summary>
     public void OnEnd(Action cleanup)
@@ -278,5 +289,6 @@ internal interface ICheckRun
     void Instruct(string text);
     void Expect(bool condition, string what, string? detail);
     Task<ClientCheckVerdict> Verdict();
+    Task<ClientCheckVerdict> Skip(string reason);
     void OnEnd(Func<Task> cleanup);
 }

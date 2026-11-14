@@ -90,6 +90,19 @@ An item's kind follows from what you fill in: `Tool` makes a tool, `Ammo` an arr
 | `Torch` (`torch`) | Held, it lights and burns down | `Durability` (seconds it burns while held, the tooltip's Duration: 600), `BreaksInto` |
 
 `BreaksInto` is what it becomes when its durability runs out, as the game's torch becomes a burnt one: a game item or one of yours. Only a torch burns down over time; the game wears the other tools by its own rule (the world's durability setting), with no number of the item's own, so `Durability` on them is refused.
+
+`WearPerDebit` (`wearPerDebit`, since 0.2.0-dev.28) says what each of the game's wear debits costs the tool instead of
+the game's 1: 0 to 32767, where 0 means it does not wear. It is per debit of the game, not per swing: a swing that hits
+twice is debited twice (two debits at 7 spend 14), and a swing that hits nothing spends nothing. It takes an axe or a
+pickaxe (a tool with an item of its own). A torch (whose `Durability` stays its burn time), a glider, a hook or a rod
+is refused when the block compiles; for a rake or a sieve the game answers when the cost is set (`UnsupportedTool` in
+the mod's block errors when it has no item of its own). The cost is set on the server where the world runs
+(a dedicated server, or the host's own game), once the world is there; a game that joined someone else's server sets
+nothing. On a game client it waits for its guided check (`16b-g`, capability `items.tool_wear_debit`). What it does
+and does not change: [services/items.md](../services/items.md#tool-wear-per-debit-since-020-dev28).
+```csharp
+Blocks.Define("brittle-pick", new ItemBlock { Name = "Brittle Pick", Tool = new ToolBlock { Harvests = Harvest.Stone, Power = 18, WearPerDebit = 7 } });
+```
 ```csharp
 Blocks.Define("garden-rake", new ItemBlock { Name = "Garden Rake", Tool = new ToolBlock { Harvests = ToolClass.Rake, Power = 750, Range = 5 } });
 Blocks.Define("slow-torch", new ItemBlock { Name = "Slow Torch", Tool = new ToolBlock { Harvests = ToolClass.Torch, Durability = 1200, BreaksInto = "ash" } });
@@ -344,6 +357,8 @@ Block = new MoveBlock
 | `Applied` | true | the slots play generation `AppliedGeneration`; `LiveClones` has its sequences by `slot/link` |
 | `Refused` | false | the last attempt (`RequestedGeneration`) was refused, `Reason` says which field and why; `AppliedGeneration` and `LiveClones` are still what plays |
 | `Removed` | false | the mod unloaded; the game's layers of it are off |
+
+The switch is not a transaction of the game's data yet: if it fails part way, Kiln puts the previous slots back and reads them again. When they are what they were, the status is `Refused` and still names the generation that plays. When they are not (the put-back failed too), or when a later application of the game's content does not bring the applied generation back, the status says so: `Refused`, a `Reason` that starts with "the item's slots are mixed", `AppliedGeneration` 0, and `LiveClones` holds what each slot plays as read, under `slot/<index>`. The next attempt plans the weapon again from its class's sequences.
 
 The same moves on the same game data are the same generation: applying them again changes nothing and raises no event. A refused weapon is tried again when content is applied again (a world loaded later). The clones' GUIDs follow the moves and the game's data (they change with a game update that changes the motions), and are the same on a server and its clients. The game cannot take a clone out again, so the clones of a refused or replaced generation stay registered, unused, until the game ends; a weapon takes at most 16 different sets of moves per run, then `Reason` starts with `RestartRequired`.
 

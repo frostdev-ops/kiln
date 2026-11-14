@@ -57,11 +57,12 @@ public sealed partial class ClientPassMod
         var options = new BuildOptions { Flags = BuildFlags.Transient, Journal = false };
         var open = await QueriesAsk(c, () => Queries.RaycastVoxels(a, b), _ => true);
         c.Expect(open is { Ok: true, Hit: null }, $"before the wall the 8 m ray is loaded and clear (ok={open.Ok}, hit={open.Hit != null}, reason={open.Reason})");
-        var write = Build.Write(box, Enumerable.Repeat(Voxel.Of(1), (int)box.Count).ToArray(), options);
-        c.Expect(write.Changed && write.Verified, $"the test wall was written ({write.CellsChanged} cells, refusal {write.Refusal}): without it no wall ray counts");
-        if (!(write.Changed && write.Verified)) return;
         try
         {
+            // A failed verification can follow a partial write. Restore the snapshot on that path too.
+            var write = Build.Write(box, Enumerable.Repeat(Voxel.Of(1), (int)box.Count).ToArray(), options);
+            c.Expect(write.Changed && write.Verified, $"the test wall was written ({write.CellsChanged} cells, refusal {write.Refusal}): without it no wall ray counts");
+            if (!(write.Changed && write.Verified)) return;
             var hit = await QueriesAsk(c, () => Queries.RaycastVoxels(a, b), r => r.Hit != null);
             c.Expect(hit is { Ok: true, Hit: not null }, $"the ray stops at the wall (ok={hit.Ok}, reason={hit.Reason}, at {hit.Hit?.Position})");
             c.Instruct("A wall of earth, 1 m thick and 4 m high, now stands 4 m east of you (it is taken away again after this " +
@@ -167,11 +168,11 @@ public sealed partial class ClientPassMod
         if (!QueriesPlayerAt(c, out _, out var at)) return;
         // the anchor: a pickup of the check's own (a player may have no spawn marker)
         var anchor = await Spawn.Entity("Base_LootPickup_Generic_Gravity", new WorldPosition(at.X + 1, at.Y + 0.5, at.Z));
-        await c.Delay(TimeSpan.FromSeconds(1));
-        if (!World.TryGetPosition(anchor, out var from)) { c.Expect(false, "the anchor pickup has a position"); return; }
-        var to = new WorldPosition(from.X + 8, from.Y, from.Z);
         try
         {
+            await c.Delay(TimeSpan.FromSeconds(1));
+            if (!World.TryGetPosition(anchor, out var from)) { c.Expect(false, "the anchor pickup has a position"); return; }
+            var to = new WorldPosition(from.X + 8, from.Y, from.Z);
             var open = await QueriesPath(c, new QueryPathRequest(anchor, from, to));
             c.Log.Info($"client-pass: {c.Id}: open ground: {open.Status} reaches={open.ReachesTarget} points={open.Points.Count} length={open.Length:F2} steps={open.Steps}");
             c.Expect(open is { Ok: true, ReachesTarget: true }, $"a path over 8 m of open ground is found ({open.Status}, {open.Reason})");
@@ -185,11 +186,11 @@ public sealed partial class ClientPassMod
             if (!loaded) return;
             var before = Build.Read(box);
             var options = new BuildOptions { Flags = BuildFlags.Transient, Journal = false };
-            var write = Build.Write(box, Enumerable.Repeat(Voxel.Of(1), (int)box.Count).ToArray(), options);
-            c.Expect(write.Changed && write.Verified, $"the test wall was written ({write.CellsChanged} cells, refusal {write.Refusal})");
-            if (!(write.Changed && write.Verified)) return;
             try
             {
+                var write = Build.Write(box, Enumerable.Repeat(Voxel.Of(1), (int)box.Count).ToArray(), options);
+                c.Expect(write.Changed && write.Verified, $"the test wall was written ({write.CellsChanged} cells, refusal {write.Refusal})");
+                if (!(write.Changed && write.Verified)) return;
                 await c.Delay(TimeSpan.FromSeconds(2));   // the path grid takes the change in over a few steps
                 var round = await QueriesPath(c, new QueryPathRequest(anchor, from, to));
                 c.Log.Info($"client-pass: {c.Id}: with the wall: {round.Status} reaches={round.ReachesTarget} points={round.Points.Count} length={round.Length:F2}");
@@ -233,9 +234,9 @@ public sealed partial class ClientPassMod
         await c.Verdict();
         if (!QueriesPlayerAt(c, out _, out var at)) return;
         var anchor = await Spawn.Entity("Base_LootPickup_Generic_Gravity", new WorldPosition(at.X + 1, at.Y + 0.5, at.Z));
-        await c.Delay(TimeSpan.FromSeconds(1));
         try
         {
+            await c.Delay(TimeSpan.FromSeconds(1));
             if (!World.TryGetPosition(anchor, out var from)) { c.Expect(false, "the anchor pickup has a position"); return; }
             var to = new WorldPosition(from.X + 8, from.Y, from.Z);
             foreach (var (h, v) in new[] { (0.0, 0.0), (0.5, 2.0), (1.0, 2.0), (1.5, 2.0), (2.0, 2.0), (0.5, 3.0), (0.5, 4.0) })

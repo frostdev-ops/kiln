@@ -23,13 +23,17 @@ internal sealed class CreatureControlFake : IKitFake
     public void AddCoverage(List<CoverageRow> rows) => rows.Add(new CoverageRow("Creature control", CoverageKind.RecordingFake,
         [CreatureControlAbi.Service, CreatureControlAbi.Operational],
         "Kiln.CreatureControl's own code on the kit's kiln.creature_control: bodies are the fake world's entities (counter-range " +
-        "ids, no players); one lease per body; a lease is Pending at its Acquire and Active two steps later (the broker's removal " +
-        "step and its check), or after the body's scripted busy time (KilnHarness.CreatureControl.SetBusy; 5 s of simulation time " +
-        "fails it Quiescence); a release ends drive permission at once and is Released four steps later (three zeroed steps and " +
-        "the restore's check), Canceled the next step when it was not Active; a destroyed body fails its leases BodyGone; terminal " +
-        "leases stay queryable 10 minutes; notices per owner; KilnHarness.CreatureControl.Calls records each call. Offline: the " +
-        "game's components (nothing is removed or zeroed), roles beyond PetFollow, PetStay and Ridden, preemption, quarantine, " +
-        "retirement, root_policy"));
+        "ids, no players); the roles' priority (Ridden > Vehicle > PetCombat > PetFollow/PetStay/EngineGuard), one base lease per " +
+        "body (the same owner's next one replaces it, Released/Canceled \"Replaced\"; another owner's is Busy), one lease per other " +
+        "role, lower leases Preempted and resumed with a new transition sequence; an input lease is Active two steps after it " +
+        "takes the body (the broker's removal step and its check; at once when the body is held already), an AI-on lease four " +
+        "steps after it (three zeroed steps and the restore's check; at once when nothing was removed), and waits while the body " +
+        "is busy (KilnHarness.CreatureControl.SetBusy; 5 s fails it Quiescence); a release ends drive permission at once, the last " +
+        "one is Released four steps later (also for a Pending lease whose removal was queued; otherwise Canceled the next step); a Vehicle that was Active ends only " +
+        "with its body (body_retired); quarantine revokes at once, denies the root (root_policy) and ends the leases Retired once " +
+        "the body is gone; a destroyed body fails its leases BodyGone; terminal leases stay queryable 10 minutes; notices per " +
+        "owner; KilnHarness.CreatureControl.Calls records each call. Offline: the game's components (nothing is removed or " +
+        "zeroed), another owner's AI layer (AiInhibited), the entity counter's identity check, failure injection"));
 
     public static CreatureControlModel ModelOf(KilnHarness harness) => KitFakes.State<CreatureControlModel>(harness);
 }
@@ -37,7 +41,7 @@ internal sealed class CreatureControlFake : IKitFake
 /// <summary>One call a mod made to the fake kiln.creature_control.</summary>
 /// <param name="Step">The harness step.</param>
 /// <param name="Function">The table function (<c>bind_body</c>, <c>acquire_control</c>, <c>release_control</c>,
-/// <c>release_body</c>, <c>next_request</c>).</param>
+/// <c>release_body</c>, <c>next_request</c>, <c>quarantine</c>, <c>body_retired</c>).</param>
 /// <param name="Owner">The caller's native owner.</param>
 /// <param name="Entity">The body's entity (0 when none was named).</param>
 /// <param name="Lease">The lease (0 when none).</param>
@@ -45,7 +49,7 @@ internal sealed class CreatureControlFake : IKitFake
 /// <param name="Detail">The lease state or reason it answered, in words.</param>
 public sealed record FakeControlCall(ulong Step, string Function, ulong Owner, EntityId Entity, ulong Lease, int Result, string Detail);
 
-/// <summary>The broker of one harness (tick thread, except Query and CanDrive under the lock).</summary>
+/// <summary>The broker of one harness (tick thread, except Query, CanDrive, Quarantine and RootPolicy under the lock).</summary>
 internal sealed unsafe class CreatureControlModel
 {
     private const ulong StepsPerSecond = 25;  // a dedicated server's step rate, as the native service counts its bounds
@@ -55,18 +59,20 @@ internal sealed unsafe class CreatureControlModel
     private sealed class Body
     {
         public CreatureControlAbi.BodyKey Key;
+        public uint Kind;
         public readonly List<ulong> Refs = [];
         public readonly List<ulong> Leases = [];  // nonterminal
         public ulong Winner, Seq;
-        public ulong Target, TargetSince;
+        public ulong Target, TargetSince, TargetNeeds, QuiesceSince;
         public int RestoreLeft;
-        public bool Held;  // the broker's changes are on the body
-        public bool Gone;
+        public bool Held;       // the broker's input configuration is on the body (SteeringAgent removed, AI layer)
+        public bool Gone, BehaviorRemoved;
+        public uint Latch;      // quarantine cause
     }
 
     private sealed class Lease
     {
-        public ulong Handle, Owner, RequestId, TerminalStep;
+        public ulong Handle, Owner, RequestId, TerminalStep, Order;
         public uint Role, State = CreatureControlAbi.Pending, Result;
         public uint Entity;
         public CreatureControlAbi.BodyKey Key;
@@ -78,17 +84,21 @@ internal sealed unsafe class CreatureControlModel
     private sealed class Owner
     {
         public ulong Next, High, NoticeSeq;
+        public bool Resync;
         public readonly Dictionary<ulong, ulong> Requests = [];
         public readonly Queue<CreatureControlAbi.State> Notices = new();
     }
 
     private readonly object _lock = new();
     private KilnHarness? _harness;
-    private ulong _step, _generation, _serial;
+    private static long _nextHandle;  // native handles are process-unique, including across world/harness changes
+    private ulong _step, _generation, _order;
+    private uint _queued;
     private readonly Dictionary<uint, Body> _bodies = [];
     private readonly Dictionary<ulong, Lease> _leases = [];
     private readonly Dictionary<ulong, Owner> _owners = [];
     private readonly HashSet<uint> _busy = [];
+    private readonly HashSet<uint> _denied = [];
     private readonly List<FakeControlCall> _calls = [];
 
     public const ulong Epoch = 1;
@@ -127,6 +137,31 @@ internal sealed unsafe class CreatureControlModel
     private void Record(string function, ulong owner, uint entity, ulong lease, int result, string detail) =>
         _calls.Add(new FakeControlCall(_step, function, owner, new EntityId(entity), lease, result, detail));
 
+    private static int Priority(uint role) => role switch
+    {
+        CreatureControlAbi.Quarantine => 5,
+        CreatureControlAbi.Ridden => 4,
+        CreatureControlAbi.Vehicle => 3,
+        CreatureControlAbi.PetCombat => 2,
+        CreatureControlAbi.PetFollow or CreatureControlAbi.PetStay or CreatureControlAbi.EngineGuard => 1,
+        _ => 0,
+    };
+
+    private static bool BaseRole(uint role) => role is CreatureControlAbi.PetFollow or CreatureControlAbi.PetStay or CreatureControlAbi.EngineGuard;
+
+    private static bool AiRole(uint role) => role is CreatureControlAbi.PetCombat or CreatureControlAbi.EngineGuard;
+
+    private static string RoleName(uint role) => role switch
+    {
+        CreatureControlAbi.PetFollow => "PetFollow",
+        CreatureControlAbi.PetCombat => "PetCombat",
+        CreatureControlAbi.Ridden => "Ridden",
+        CreatureControlAbi.Vehicle => "Vehicle",
+        CreatureControlAbi.PetStay => "PetStay",
+        CreatureControlAbi.EngineGuard => "EngineGuard",
+        _ => "None",
+    };
+
     // ---- table functions ----
 
     public int Bind(ulong owner, uint entity, uint kind, uint retire, CreatureControlAbi.BodyKey* out_)
@@ -139,15 +174,20 @@ internal sealed unsafe class CreatureControlModel
             else if (entity < 1024 || entity > 0x7fffffff) rc = FakeTables.InvalidArgument;
             else if (_bodies.TryGetValue(entity, out var have) && !have.Gone)
             {
-                if (!have.Refs.Contains(owner)) have.Refs.Add(owner);
-                *out_ = have.Key;
-                rc = FakeTables.Ok;
+                if (have.Kind != kind) rc = FakeTables.InvalidArgument;
+                else
+                {
+                    if (!have.Refs.Contains(owner)) have.Refs.Add(owner);
+                    *out_ = have.Key;
+                    rc = FakeTables.Ok;
+                }
             }
             else if (!Exists(entity)) rc = FakeTables.NotFound;
-            else if (_bodies.Count(b => !b.Value.Gone) >= 256) rc = FakeTables.BufferTooSmall;
+            else if (_bodies.Count >= 256 || _denied.Count + _bodies.Count(b => !_denied.Contains(b.Key)) >= 65536)
+                rc = FakeTables.BufferTooSmall;
             else
             {
-                var b = new Body { Key = new CreatureControlAbi.BodyKey { WorldEpoch = Epoch, BodyGeneration = ++_generation, Entity = entity } };
+                var b = new Body { Kind = kind, Key = new CreatureControlAbi.BodyKey { WorldEpoch = Epoch, BodyGeneration = ++_generation, Entity = entity } };
                 b.Refs.Add(owner);
                 _bodies[entity] = b;
                 *out_ = b.Key;
@@ -164,7 +204,9 @@ internal sealed unsafe class CreatureControlModel
         lock (_lock)
         {
             var o = OwnerRec(owner);
-            o.Next = Math.Max(o.Next, o.High) + 1;
+            var last = Math.Max(o.Next, o.High);
+            if (last == ulong.MaxValue) return FakeTables.BufferTooSmall;
+            o.Next = last + 1;
             *out_ = o.Next;
             Record("next_request", owner, 0, 0, FakeTables.Ok, $"id {o.Next}");
             return FakeTables.Ok;
@@ -224,23 +266,47 @@ internal sealed unsafe class CreatureControlModel
         if (!body.Refs.Contains(owner))
             return Refuse(CreatureControlAbi.ResultNone, reason = "NotBound: the owner holds no binding of this body (bind_body first)",
                 FakeTables.InvalidArgument);
-        if (q->Role is not (CreatureControlAbi.PetFollow or CreatureControlAbi.PetStay or CreatureControlAbi.Ridden))
-            return Refuse(CreatureControlAbi.CapabilityOff, reason = "RoleUnavailable: PetCombat, Vehicle and EngineGuard leases are not served by this build yet");
-        if (body.Leases.Any(h => !_leases[h].Releasing)) return Refuse(CreatureControlAbi.Busy, reason = "Busy: the body has a lease already");
-        if (_leases.Values.Count(l => l.State is not (CreatureControlAbi.Released or CreatureControlAbi.Failed)) >= 1024)
+        if (body.Latch != 0) return Refuse(CreatureControlAbi.Busy, reason = "Quarantined: the body is quarantined and will be retired");
+        ulong replace = 0;
+        foreach (var h in body.Leases)
+        {
+            var l = _leases[h];
+            if (l.Releasing) continue;
+            if (BaseRole(q->Role) && BaseRole(l.Role))
+            {
+                if (l.Owner != owner) return Refuse(CreatureControlAbi.Busy, reason = "Busy: another owner holds the body's base lease");
+                replace = h;
+            }
+            else if (l.Role == q->Role) return Refuse(CreatureControlAbi.Busy, reason = $"Busy: the body has a {RoleName(q->Role)} lease already");
+        }
+        if (replace == 0 && _leases.Values.Count(l => !Terminal(l)) >= 1024)
             return Refuse(CreatureControlAbi.Busy, reason = "Capacity: 1024 leases are open");
+        if (_queued >= 1024)
+            return Refuse(CreatureControlAbi.Busy, reason = "QueueFull: the request queue is full this step; try again");
+        if (_leases.Count >= 2048)
+            return Refuse(CreatureControlAbi.Busy, reason = "Capacity: no lease slot is free");
+        if (replace != 0) End(_leases[replace], CreatureControlAbi.Released, CreatureControlAbi.Canceled, "Replaced: the owner asked for another base role");
+        var top = body.Leases.Select(h => _leases[h]).Where(l => !l.Releasing).OrderByDescending(l => Priority(l.Role)).FirstOrDefault();
         var lease = new Lease
         {
-            Handle = ++_serial, Owner = owner, RequestId = q->RequestId, Role = q->Role, Entity = q->Body.Entity, Key = body.Key,
+            Handle = (ulong)Interlocked.Increment(ref _nextHandle), Owner = owner, RequestId = q->RequestId, Role = q->Role, Entity = q->Body.Entity, Key = body.Key,
+            Order = ++_order,
         };
+        if (top is not null && Priority(top.Role) >= Priority(q->Role))
+        {
+            lease.State = CreatureControlAbi.Preempted;
+            lease.Result = CreatureControlAbi.ResultPreempted;
+            lease.Reason = $"Preempted: a {RoleName(top.Role)} lease holds the body";
+        }
         _leases[lease.Handle] = lease;
         body.Leases.Add(lease.Handle);
         o.High = q->RequestId;
         o.Next = Math.Max(o.Next, o.High);
         o.Requests[q->RequestId] = lease.Handle;
+        ++_queued;
         Notify(lease);
         Write(lease, out_);
-        reason = "Pending";
+        reason = lease.State == CreatureControlAbi.Preempted ? "Preempted" : "Pending";
         return FakeTables.Ok;
     }
 
@@ -269,7 +335,7 @@ internal sealed unsafe class CreatureControlModel
         lock (_lock)
             return seq != 0 && _leases.TryGetValue(handle, out var l) && l.Owner == owner && l.State == CreatureControlAbi.Active &&
                    !l.Releasing && l.Seq == seq && Same(l.Key, key) && _bodies.TryGetValue(key.Entity, out var b) && !b.Gone &&
-                   b.Winner == handle;
+                   b.Latch == 0 && b.Winner == handle;
     }
 
     public int Release(ulong owner, ulong handle)
@@ -279,6 +345,8 @@ internal sealed unsafe class CreatureControlModel
             int rc;
             if (owner == 0 || handle == 0) rc = FakeTables.InvalidArgument;
             else if (!_leases.TryGetValue(handle, out var l) || l.Owner != owner) rc = FakeTables.NotFound;
+            else if (l.Role == CreatureControlAbi.Vehicle && l.Seq != 0 && !Terminal(l) && _bodies.TryGetValue(l.Entity, out var vb) && !vb.Gone)
+                rc = FakeTables.InvalidArgument;  // RetireRequired: a Vehicle that held the body ends with it
             else
             {
                 if (!Terminal(l) && !l.Releasing)
@@ -312,6 +380,8 @@ internal sealed unsafe class CreatureControlModel
             uint n = 0;
             while (n < capacity && o.Notices.Count > 0) out_[n++] = o.Notices.Dequeue();
             *written = n;
+            if (resync != null) *resync = o.Resync ? 1u : 0u;
+            o.Resync = false;
             return FakeTables.Ok;
         }
     }
@@ -321,9 +391,9 @@ internal sealed unsafe class CreatureControlModel
         lock (_lock)
         {
             int rc;
-            if (owner == 0) rc = FakeTables.InvalidArgument;
+            if (owner == 0 || key.Reserved != 0) rc = FakeTables.InvalidArgument;
             else if (!_bodies.TryGetValue(key.Entity, out var b) || !Same(b.Key, key) || !b.Refs.Contains(owner)) rc = FakeTables.NotFound;
-            else if (b.Leases.Any(h => _leases[h].Owner == owner)) rc = FakeTables.InvalidArgument;
+            else if (b.Leases.Any(h => _leases[h].Owner == owner) || (b.Latch != 0 && !b.Gone)) rc = FakeTables.InvalidArgument;
             else
             {
                 b.Refs.Remove(owner);
@@ -335,6 +405,46 @@ internal sealed unsafe class CreatureControlModel
         }
     }
 
+    public int Quarantine(CreatureControlAbi.BodyKey key, uint cause)
+    {
+        if (cause is < 1 or > 9 || key.Reserved != 0 || key.Entity == 0 || key.BodyGeneration == 0)
+            return FakeTables.InvalidArgument;
+        lock (_lock)
+        {
+            if (key.WorldEpoch != Epoch || !_bodies.TryGetValue(key.Entity, out var b) || b.Gone || !Same(b.Key, key))
+                return FakeTables.NotFound;
+            if (b.Latch == 0 || (b.Latch >= 5 && cause < 5)) b.Latch = cause;  // a semantic down overrides a teardown cause
+            _denied.Add(key.Entity);
+            b.Winner = 0;
+            foreach (var h in b.Leases) Notify(_leases[h]);
+            Record("quarantine", 0, key.Entity, 0, FakeTables.Ok, $"cause {cause}");
+            return FakeTables.Ok;
+        }
+    }
+
+    public int BodyRetired(ulong owner, CreatureControlAbi.BodyKey key)
+    {
+        lock (_lock)
+        {
+            int rc;
+            if (owner == 0 || key.Reserved != 0) rc = FakeTables.InvalidArgument;
+            else if (!_bodies.TryGetValue(key.Entity, out var b) || !Same(b.Key, key) || !b.Refs.Contains(owner)) rc = FakeTables.NotFound;
+            else if (Exists(key.Entity)) rc = FakeTables.InvalidArgument;  // a live body is never retired by word
+            else
+            {
+                Retire(key.Entity, b, "Retired: the owner destroyed the body");
+                rc = FakeTables.Ok;
+            }
+            Record("body_retired", owner, key.Entity, 0, rc, rc == FakeTables.Ok ? "retired" : "refused");
+            return rc;
+        }
+    }
+
+    public uint RootPolicy(ulong epoch, uint root)
+    {
+        lock (_lock) return epoch == Epoch && _denied.Contains(root) ? 1u : 0u;
+    }
+
     // ---- the broker's Pre ----
 
     public void Step()
@@ -342,9 +452,15 @@ internal sealed unsafe class CreatureControlModel
         lock (_lock)
         {
             _step++;
+            _queued = 0;
             foreach (var (entity, b) in _bodies.ToList())
             {
                 if (b.Gone) continue;
+                if (b.Latch != 0)
+                {
+                    if (!Exists(entity)) Retire(entity, b, "Retired: the quarantined body is gone");
+                    continue;  // no transition, no restore: retirement only
+                }
                 if (!Exists(entity))
                 {
                     foreach (var h in b.Leases.ToList()) End(_leases[h], CreatureControlAbi.Failed, CreatureControlAbi.BodyGone, "BodyGone: the body no longer exists");
@@ -353,53 +469,67 @@ internal sealed unsafe class CreatureControlModel
                     if (b.Refs.Count == 0) _bodies.Remove(entity);
                     continue;
                 }
-                var want = b.Leases.FirstOrDefault(h => !_leases[h].Releasing);
-                if (want == 0)
+                var want = b.Leases.Select(h => _leases[h]).Where(l => !l.Releasing)
+                    .OrderByDescending(l => Priority(l.Role)).ThenBy(l => l.Order).FirstOrDefault();
+                if (b.Winner != 0 && b.Winner != want?.Handle)
+                {
+                    var old = _leases[b.Winner];
+                    b.Winner = 0;
+                    if (!old.Releasing && want is not null) Preempt(old, want);
+                }
+                if (want is not null)
+                    foreach (var l in b.Leases.Select(h => _leases[h]).Where(l => l != want && !l.Releasing && l.State == CreatureControlAbi.Pending).ToList())
+                        Preempt(l, want);
+                if (want is null)
                 {
                     if (b.RestoreLeft > 0 && --b.RestoreLeft > 0) continue;
                     b.Held = false;
-                    foreach (var h in b.Leases.ToList())
-                    {
-                        var l = _leases[h];
-                        End(l, CreatureControlAbi.Released, l.WasActive ? CreatureControlAbi.ResultReleased : CreatureControlAbi.Canceled,
-                            l.WasActive ? "Released" : "Canceled: released before it was Active");
-                    }
+                    SettleReleasing(b);
                     if (b.Refs.Count == 0) _bodies.Remove(entity);
                     continue;
                 }
-                if (b.Winner == want) continue;
-                // the new lease takes the body: releasing ones end when it is granted
-                if (b.Target != want)
+                if (b.Winner == want.Handle) continue;
+                if (b.Target != want.Handle)
                 {
-                    b.Target = want;
+                    b.Target = want.Handle;
                     b.TargetSince = _step;
+                    b.QuiesceSince = _step;
+                    // steps from taking the body to the grant, as the native broker's Pres count them
+                    b.TargetNeeds = AiRole(want.Role) ? (b.Held ? 3ul : 0ul) : (b.Held ? 0ul : 1ul);
+                    if (want.State == CreatureControlAbi.Preempted)
+                    {
+                        want.State = CreatureControlAbi.Pending;
+                        want.Result = CreatureControlAbi.ResultNone;
+                        want.Reason = "Resuming: waiting for the body's transition";
+                        Notify(want);
+                    }
                 }
-                b.Held = true;
-                var lease = _leases[want];
-                if (_busy.Contains(entity))
+                if (!AiRole(want.Role) && _busy.Contains(entity))
                 {
-                    if (_step - b.TargetSince >= QuiescenceSteps)
+                    if (_step - b.QuiesceSince >= QuiescenceSteps)
                     {
                         b.Target = 0;
-                        End(lease, CreatureControlAbi.Failed, CreatureControlAbi.TimedOut, "Quiescence: the body's current action did not end within 5 s");
+                        End(want, CreatureControlAbi.Failed, CreatureControlAbi.TimedOut, "Quiescence: the body's current action did not end within 5 s");
                     }
+                    else b.TargetSince = _step + 1;  // the removal is queued at the first quiet Pre, checked at the next
                     continue;
                 }
-                if (_step - b.TargetSince < 1) continue;  // the removal step; the next Pre checks it
-                lease.Seq = ++b.Seq;
-                lease.State = CreatureControlAbi.Active;
-                lease.Result = CreatureControlAbi.Granted;
-                lease.Reason = "Granted";
-                b.Winner = want;
-                b.Target = 0;
-                Notify(lease);
-                foreach (var h in b.Leases.ToList())
+                if (_step - b.TargetSince < b.TargetNeeds)
                 {
-                    var l = _leases[h];
-                    if (l.Releasing)
-                        End(l, CreatureControlAbi.Released, l.WasActive ? CreatureControlAbi.ResultReleased : CreatureControlAbi.Canceled,
-                            l.WasActive ? "Released" : "Canceled: released before it was Active");
+                    // The first quiet input step applies removal, before the next Pre verifies and grants it.
+                    if (!AiRole(want.Role)) b.Held = true;
+                    continue;
                 }
+                b.Held = !AiRole(want.Role);
+                if (want.Role == CreatureControlAbi.Vehicle) b.BehaviorRemoved = true;
+                want.Seq = ++b.Seq;
+                want.State = CreatureControlAbi.Active;
+                want.Result = CreatureControlAbi.Granted;
+                want.Reason = "Granted";
+                b.Winner = want.Handle;
+                b.Target = 0;
+                Notify(want);
+                SettleReleasing(b);
             }
             foreach (var l in _leases.Values.Where(l => Terminal(l) && _step - l.TerminalStep >= RetainSteps).ToList())
             {
@@ -410,6 +540,32 @@ internal sealed unsafe class CreatureControlModel
     }
 
     // ---- helpers (under the lock) ----
+
+    private void Preempt(Lease l, Lease by)
+    {
+        l.State = CreatureControlAbi.Preempted;
+        l.Result = CreatureControlAbi.ResultPreempted;
+        l.Reason = $"Preempted: a {RoleName(by.Role)} lease holds the body";
+        Notify(l);
+    }
+
+    private void SettleReleasing(Body b)
+    {
+        foreach (var h in b.Leases.ToList())
+        {
+            var l = _leases[h];
+            if (l.Releasing)
+                End(l, CreatureControlAbi.Released, l.WasActive ? CreatureControlAbi.ResultReleased : CreatureControlAbi.Canceled,
+                    l.WasActive ? "Released" : "Canceled: released before it was Active");
+        }
+    }
+
+    private void Retire(uint entity, Body b, string why)
+    {
+        _denied.Add(entity);
+        foreach (var h in b.Leases.ToList()) End(_leases[h], CreatureControlAbi.Failed, CreatureControlAbi.Retired, why);
+        _bodies.Remove(entity);
+    }
 
     private Owner OwnerRec(ulong owner)
     {
@@ -446,6 +602,7 @@ internal sealed unsafe class CreatureControlModel
         CreatureControlAbi.State s = default;
         Write(l, &s);
         if (o.Notices.Count < 1024) o.Notices.Enqueue(s);
+        else o.Resync = true;
     }
 
     private void Write(Lease l, CreatureControlAbi.State* s)
@@ -460,15 +617,24 @@ internal sealed unsafe class CreatureControlModel
         s->RequestId = l.RequestId;
         s->TransitionSequence = l.Seq;
         s->NoticeSequence = l.NoticeSeq;
+        var reason = l.Reason;
         if (!Terminal(l) && _bodies.TryGetValue(l.Entity, out var b) && !b.Gone)
         {
-            if (b.Winner != 0 && _leases.TryGetValue(b.Winner, out var w))
+            if (b.Latch != 0)
+            {
+                s->LeaseState = CreatureControlAbi.Preempted;  // the broker's own policy: lease 0, role Quarantine
+                s->Result = CreatureControlAbi.ResultPreempted;
+                s->EffectiveRole = CreatureControlAbi.Quarantine;
+                reason = $"Quarantined: cause {b.Latch}; the body will be retired";
+            }
+            else if (b.Winner != 0 && _leases.TryGetValue(b.Winner, out var w))
             {
                 s->WinningLease = w.Handle;
                 s->EffectiveRole = w.Role;
             }
             if (b.Held) s->ChangedMask = CreatureControlAbi.ChangedSteering | CreatureControlAbi.ChangedAiLayer;
+            if (b.BehaviorRemoved) s->ChangedMask |= CreatureControlAbi.ChangedVehicleBehavior;
         }
-        CreatureControlAbi.SetReason(s, l.Reason);
+        CreatureControlAbi.SetReason(s, reason);
     }
 }

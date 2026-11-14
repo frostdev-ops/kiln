@@ -25,6 +25,10 @@
  * at start). A refusal that makes no game call uses none of it.
  *
  * Threads: ray_voxels and entities on the tick thread (Pre, Post, a posted task).
+ *          ray_voxels and path_submit also answer KILN_ERR_WRONG_THREAD, with reason "InsideProgram", from inside a
+ *          Kiln world program's update, a wrap stage on a game program's slice or a kiln.types system_hook callback,
+ *          on the world's own thread too (the world is mid-step there; kiln.world's in_program, since 0.2.0-dev.28):
+ *          cast the ray or submit the request in a tick handler and hand the result in.
  * Capabilities: "kiln.queries" (this table), "queries.voxel_ray" (ray_voxels; a sigdb feature).
  */
 #ifndef KILN_QUERIES_H
@@ -134,7 +138,7 @@ typedef struct KilnQueryPathRequest { /* 80 bytes */
     KilnVec3 from, to;
     double horizontal_space, vertical_space; /* free space the route needs, metres, as the game's query takes it */
     uint32_t max_iterations;                 /* the search's iteration limit, 1..65535 */
-    uint32_t closest_fallback;               /* 1: when the target has no node, end at the closest one (PARTIAL) */
+    uint32_t closest_fallback;               /* 1: allow the closest target node; endpoint tolerance decides FOUND/PARTIAL */
 } KilnQueryPathRequest;
 
 typedef struct KilnQueryPathAdmission { /* 40 bytes */

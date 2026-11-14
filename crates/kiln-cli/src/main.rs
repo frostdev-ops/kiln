@@ -22,6 +22,7 @@ mod server;
 mod tools;
 mod skeleton;
 mod vfx;
+mod boot_snapshot;
 mod updates;
 
 #[cfg(feature = "catalog")]
@@ -77,6 +78,8 @@ enum Cmd {
     Vfx(vfx::VfxArgs),
     /// The player's skeleton from your installed game, as a glTF to weight a worn model against, with a body to model around.
     Skeleton(skeleton::SkeletonArgs),
+    /// Make the game-data snapshot Mod.OnBoot reads (items, templates, skill nodes, materials) for a game folder.
+    BootSnapshot(boot_snapshot::BootSnapshotArgs),
     /// Look for newer versions of the installed mods: a notice and a link per mod, never a download.
     Updates(updates::UpdatesArgs),
 }
@@ -180,6 +183,7 @@ fn main() {
         Cmd::Catalog(a) => catalog_cmd(a, json),
         Cmd::Vfx(a) => vfx::run(a, json),
         Cmd::Skeleton(a) => skeleton::run(a, json),
+        Cmd::BootSnapshot(a) => boot_snapshot::run(a, json),
         Cmd::Updates(a) => updates::run(a, json),
     });
     std::process::exit(match r {

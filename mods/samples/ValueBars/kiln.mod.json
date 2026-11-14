@@ -1,0 +1,9 @@
+{
+  "id": "valuebars",
+  "name": "Value bars sample",
+  "version": "1.0.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "ValueBars.dll",
+  "side": "client",
+  "description": "Ui.Values sample: a water container's detail number in charges with a label, its slot bar, the health pair as a percentage, tooltip lines in Kiln's Item details window (F8)."
+}

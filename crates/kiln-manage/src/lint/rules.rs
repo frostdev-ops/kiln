@@ -1344,7 +1344,7 @@ fn manifest_reader(out: &mut Out, m: &LMod, schema_errors: &HashSet<String>) {
     let known: Vec<&str> = vec![
         "$schema", "id", "name", "version", "authors", "author", "description", "license", "url", "apiVersion", "side", "clients",
         "dependencies", "loadBefore", "loadAfter", "incompatible", "features", "entryAssembly", "entryType", "exports", "advanced", "tests",
-        "kilnBuild", "updates",
+        "kilnBuild", "boot", "updates",
     ];
     for mem in root.as_object().into_iter().flatten().filter(|x| !known.contains(&x.key.as_str())) {
         let key = mem.key.as_str();

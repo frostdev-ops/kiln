@@ -235,6 +235,9 @@ fn global_v6(ip: Ipv6Addr) -> bool {
         // documentation
         return false;
     }
+    // Fail closed for the IETF special-purpose block (including benchmarking and ORCHID), and the additional
+    // documentation prefix. Membership in 2000::/3 alone does not make either range public unicast.
+    if (s[0] == 0x2001 && s[1] < 0x200) || (s[0] == 0x3fff && s[1] < 0x1000) { return false; }
     // Only 2000::/3 is global unicast. This drops fc00::/7 (unique local), fe80::/10 (link-local), ff00::/8
     // (multicast), 100::/64 (discard) and everything unassigned.
     (s[0] & 0xe000) == 0x2000
@@ -352,5 +355,13 @@ mod tests {
         assert!(is_credential_header("Authorization") && is_credential_header("COOKIE") && is_credential_header("apikey"));
         assert!(!is_credential_header("Accept") && !is_credential_header("Content-Type"));
         assert!(is_forbidden_header("Referer") && is_forbidden_header("host") && !is_forbidden_header("accept"));
+    }
+
+    #[test]
+    fn ipv6_protocol_and_documentation_ranges_are_not_public() {
+        for a in ["2001:2::1", "2001:10::1", "2001:20::1", "3fff::1", "3fff:fff::1"] {
+            assert!(!is_global(ip(a)), "{a} is special-purpose, not public unicast");
+        }
+        assert!(is_global(ip("2001:4860:4860::8888")));
     }
 }

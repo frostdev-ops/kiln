@@ -125,6 +125,8 @@ pub mod wine;
 pub mod cook;
 #[cfg(feature = "cooktools")]
 pub mod cooktools;
+#[cfg(feature = "cooktools")]
+pub mod boot_snapshot;
 
 #[cfg(feature = "gameart")]
 pub mod gameart;

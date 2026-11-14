@@ -23,6 +23,17 @@ Two things to know before anything else:
 
 All are `[ServerOnly]`, `[TickThreadOnly]`. They change nothing in the world, so there is no change event.
 
+**Not from inside a world program, a wrap or a system hook.** A ray (`RaycastVoxels`, `GroundBelow`,
+`VoxelLineOfSight`) and a path request (`RequestPath`, `FindPath`, `CanReach`) are refused inside a world program's
+update (`EcsPrograms`), a wrap stage on a game program, or a game system hook's callback (`GameSystems.Hook`), also when
+that runs on the world's own thread, which is the tick thread: the world is in the middle of its step there, and the
+game's own jobs may use the voxel data the ray reads. The member throws `InvalidOperationException` ("cannot be called
+from inside a world program's update, a wrap stage or a game system hook"), as it does off the tick thread; nothing is
+cast, nothing is queued, and no capability row changes. Cast the ray or ask for the path in a tick handler and hand the
+result in (a field the program reads, or `Scheduler.Post` from the program). Natively, `ray_voxels` and `path_submit`
+answer `KILN_ERR_WRONG_THREAD` with the reason `InsideProgram`; kiln.world's `in_program()` (0.2.0-dev.28) tells
+kiln.queries where it is, and with an older kiln.world the members behave as before.
+
 ## Three answers, never two
 
 A ray result (`VoxelRayResult`) is one of:
@@ -73,8 +84,8 @@ both defaults and one warning in `kiln.log`; the chosen limits are logged at sta
 
 `Queries.RequestPath`, `FindPath` and `CanReach` ask the game's own path search (the one its creatures use) for a
 **walking** route between two points at most 200 m apart. Nothing is moved: the answer is a copy of the route's points
-as they were at the step the game answered. It arrives some server steps later (four to six for a short walk; at most
-10 s and 150 steps, then `TimedOut`).
+as they were at the step the game answered. It arrives some server steps later (four to six observed for a short walk).
+A pending request times out once both 10 seconds and 150 server steps have passed.
 
 ```csharp
 var result = await Queries.FindPath(new QueryPathRequest(anchor, from, to));
@@ -86,7 +97,14 @@ if (result.Ok && result.ReachesTarget) foreach (var p in result.Points) { /* wal
 | `Queries.RequestPath(request)` | `queries.path` | a ticket: `Request` (the id) and `Completion` (the task) |
 | `Queries.FindPath(request, cancellationToken)` | `queries.path` | the task alone; cancelling the token cancels the request |
 | `Queries.CancelPath(request)` | `queries.path` | ends a request of the calling mod as `Cancelled` |
-| `Queries.CanReach(request, cancellationToken)` | `queries.reachability` | the same search, asked only whether it arrives; the same question twice in one step is one search |
+| `Queries.CanReach(request, cancellationToken)` | `queries.reachability` | the same search, asked only whether it arrives; repeated questions without a cancellable token share one search in a step |
+
+**Walking a route.** Nothing here walks for you. `mods/samples/NpcSample/PathWalker.cs` shows the whole loop for a
+creature with a brain ([npc-blocks.md](../modding/npc-blocks.md)): ask `FindPath` with the creature as its own anchor,
+keep the copied points, give them to `NpcControl.MoveTo` one after another, and treat the route as out of date when
+the goal moved, when it is some seconds old or when the creature is no longer near it. On `Ok = false`, or where
+`queries.path` is off, it stands still and asks again a few seconds later; it never walks straight at the goal
+instead. In game: `/npcsample walker`, `/npcsample walkto`.
 
 **The anchor.** A request names an entity the game's query is made for. It is not moved, and it need not be what
 will walk. It must carry the game's spawn marker (SpawnTime): entities the game or `Spawn` put into the world have it,
@@ -112,7 +130,8 @@ not `Ok` for everything else: "not known" is not "no".
 **Limits.** 8 requests open per mod and 32 in all, counting results that were not delivered yet; the game is asked for
 at most 8 new searches a step. The space a route needs is `HorizontalSpace` and `VerticalSpace`, in metres as the game's
 query takes them (0.5 and 2 by default). `PathQueryChangedEvent` follows each request (`Created -> Queued`,
-`Queued -> Searching`, its end); the event of the end is posted before the task completes.
+`Queued -> Searching`, its end); the event of the end is posted before the task completes. World close completes tasks
+immediately and defers its event to a later tick; retiring code receives no further events.
 
 A route is geometry at one moment: the world may change before a creature has walked it, and `NpcControl.MoveTo` is
 a straight step, not a follower.
@@ -120,7 +139,8 @@ a straight step, not a follower.
 On a game client `queries.path` and `queries.reachability` are held until the guided check `02-queries.path-hosted`.
 
 In unit tests: `kiln.Queries.Paths = request => FakePathAnswer.NoPath;` (or `Route(...)`), `PathSteps`,
-`PathRequests`, `WithoutSpawnTime(entity)`.
+`PathRequests`, `WithoutSpawnTime(entity)`. An anchor made with `kiln.Entities.Create` needs an 8-byte `SpawnTime`
+component (`kiln.Entities.SetBytes(anchor, "SpawnTime", BitConverter.GetBytes(1ul))`), just as the native service requires.
 
 ## What the hit does not say
 
@@ -144,7 +164,8 @@ the real game ([caps.md](caps.md#the-client-gate-dev28)); a dedicated server is 
 The test kit fakes `kiln.queries` (`KilnHarness.Queries`): a test scripts what a voxel ray answers
 (`kiln.Queries.Voxels = ray => FakeVoxelAnswer.Hit(...)`, `Clear` or `Refused("NotLoaded")`), sets the step's ray
 budget (`MaxRaysPerStep`) and reads the rays that were asked (`Rays`). Overlaps read the harness's fake world. There
-are no voxels offline: a test says what the game would answer, it does not find it out.
+are no voxels offline: a test says what the game would answer, it does not find it out. Without a `Voxels` script the
+ray capability is unavailable; use `ray => FakeVoxelAnswer.Clear` when a test needs a loaded, clear segment.
 
 ## Native table
 

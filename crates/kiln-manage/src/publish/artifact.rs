@@ -71,6 +71,31 @@ fn unreadable(e: impl std::fmt::Display) -> Error {
     Refusal::new("zip-unreadable", None, format!("it is not a zip Kiln can read ({e})")).into()
 }
 
+fn open_zip_source(path: &Path) -> Result<std::fs::File> {
+    let f = std::fs::File::open(path).map_err(crate::util::io_at(path, "opening"))?;
+    let meta = f.metadata().map_err(crate::util::io_at(path, "reading"))?;
+    if !meta.is_file() { return refuse("zip-unreadable", None, "the source is not a regular file"); }
+    if meta.len() > policy::MAX_ZIP_BYTES { return refuse("too-large", None, "the source zip is larger than 512 MiB"); }
+    Ok(f)
+}
+
+// Raw-copy normalization can duplicate compressed extents named by a hostile central directory. Bound the output
+// too, rather than allowing a small source to fill the disk before the normalized zip is audited.
+struct BoundedZipWriter(std::fs::File);
+impl std::io::Write for BoundedZipWriter {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        use std::io::Seek;
+        if self.0.stream_position()?.checked_add(bytes.len() as u64).is_none_or(|n| n > policy::MAX_ZIP_BYTES) {
+            return Err(std::io::Error::other("normalized zip exceeds 512 MiB"));
+        }
+        std::io::Write::write(&mut self.0, bytes)
+    }
+    fn flush(&mut self) -> std::io::Result<()> { std::io::Write::flush(&mut self.0) }
+}
+impl std::io::Seek for BoundedZipWriter {
+    fn seek(&mut self, to: std::io::SeekFrom) -> std::io::Result<u64> { std::io::Seek::seek(&mut self.0, to) }
+}
+
 struct Entry {
     index: usize,
     name: String,
@@ -106,10 +131,11 @@ fn list(a: &mut zip::ZipArchive<std::fs::File>) -> Result<Vec<Entry>> {
         out.push(Entry { index: i, name, is_dir: e.is_dir(), compressed: e.compressed_size() });
     }
     // a file may not also be a folder of another member ("a" and "a/b")
+    let file_names: HashSet<String> = out.iter().filter(|e| !e.is_dir).map(|e| e.name.to_lowercase()).collect();
     for e in &out {
         let mut at = e.name.as_str();
         while let Some((parent, _)) = at.rsplit_once('/') {
-            if out.iter().any(|o| !o.is_dir && o.name == parent) {
+            if file_names.contains(&parent.to_lowercase()) {
                 return refuse("duplicate-name", Some(&e.name), format!("{parent} is both a file and a folder"));
             }
             at = parent;
@@ -150,7 +176,7 @@ fn layout(entries: &[Entry]) -> Result<(String, &'static str)> {
         (false, false) => return refuse("manifest-missing", Some(&root), "it has neither kiln.mod.json nor native.json"),
     };
     // another mod further down
-    if let Some(deeper) = files.iter().find(|e| e.name.matches('/').count() > 1 && e.name.ends_with(&format!("/{}", manifest::KILN_MANIFEST))) {
+    if let Some(deeper) = files.iter().find(|e| e.name.matches('/').count() > 1 && e.name.rsplit('/').next().is_some_and(is_manifest_name)) {
         return refuse("manifest-multiple", Some(&deeper.name), "a second mod manifest");
     }
     Ok((root, found))
@@ -209,6 +235,7 @@ fn read_member(a: &mut zip::ZipArchive<std::fs::File>, e: &Entry, total: &mut u6
 
 /// Joins a recipe's `out` to the folder of its cook.json, resolving `..`. None when it leaves the mod.
 fn resolve_out(cook_dir: &str, out: &str) -> Option<String> {
+    if out.is_empty() || out.starts_with(['/', '\\']) || out.contains(':') || out.chars().any(char::is_control) { return None; }
     let mut parts: Vec<String> = cook_dir.split('/').filter(|p| !p.is_empty()).map(str::to_string).collect();
     for p in out.replace('\\', "/").split('/') {
         match p {
@@ -222,20 +249,30 @@ fn resolve_out(cook_dir: &str, out: &str) -> Option<String> {
     Some(parts.join("/").to_lowercase())
 }
 
-fn outs_of(v: &serde_json::Value, found: &mut Vec<String>) {
-    match v {
-        serde_json::Value::Object(o) => {
-            for (k, child) in o {
-                if k == "out"
-                    && let Some(s) = child.as_str()
-                {
-                    found.push(s.to_string());
-                }
-                outs_of(child, found);
+fn outs_of(v: &crate::jsonc::Node, found: &mut Vec<String>) -> std::result::Result<(), ()> {
+    match &v.value {
+        crate::jsonc::JValue::Object(o) => {
+            for m in o {
+                if m.key == "out" { found.push(m.value.as_str().ok_or(())?.to_string()); }
+                outs_of(&m.value, found)?;
             }
         }
-        serde_json::Value::Array(a) => a.iter().for_each(|c| outs_of(c, found)),
+        crate::jsonc::JValue::Array(a) => { for c in a { outs_of(&c.node, found)?; } }
         _ => {}
+    }
+    Ok(())
+}
+
+// Preserve every occurrence of a key: converting a JSONC tree to a Value discards earlier duplicate keys, whose
+// secret values would still be shipped verbatim in the zip.
+fn secret_tree(n: &crate::jsonc::Node, at: &str) -> Option<String> {
+    match &n.value {
+        crate::jsonc::JValue::Object(members) => members.iter().find_map(|m| {
+            let here = if at.is_empty() { m.key.clone() } else { format!("{at}.{}", m.key) };
+            policy::secret_value(&serde_json::json!({(m.key.as_str()): m.value.to_value()}), at).or_else(|| secret_tree(&m.value, &here))
+        }),
+        crate::jsonc::JValue::Array(a) => a.iter().enumerate().find_map(|(i, e)| secret_tree(&e.node, &format!("{at}[{i}]"))),
+        _ => None,
     }
 }
 
@@ -254,11 +291,23 @@ fn secret_line(text: &str) -> Option<String> {
 
 /// Audits `zip`. An `Err` made from a [`Refusal`] carries its reason in `detail.reason` ([`policy::reason_of`]).
 pub fn audit(zip: &Path, input: &AuditInput) -> Result<AuditReport> {
-    let (zip_sha256, zip_bytes) = crate::hash::sha256_file(zip)?;
+    use std::io::Seek;
+    let mut f = open_zip_source(zip)?;
+    let mut hasher = sha2::Sha256::new();
+    let mut zip_bytes = 0u64;
+    let mut buf = [0u8; 64 * 1024];
+    let mut bounded = (&mut f).take(policy::MAX_ZIP_BYTES + 1);
+    loop {
+        let n = bounded.read(&mut buf).map_err(crate::util::io_at(zip, "reading"))?;
+        if n == 0 { break; }
+        zip_bytes += n as u64;
+        hasher.update(&buf[..n]);
+    }
+    let zip_sha256 = crate::hash::hex(&hasher.finalize());
     if zip_bytes > policy::MAX_ZIP_BYTES {
         return refuse("too-large", None, format!("it is larger than {} MiB", policy::MAX_ZIP_BYTES >> 20));
     }
-    let f = std::fs::File::open(zip).map_err(crate::util::io_at(zip, "opening"))?;
+    f.rewind().map_err(crate::util::io_at(zip, "reading"))?;
     let mut a = zip::ZipArchive::new(f).map_err(unreadable)?;
     let entries = list(&mut a)?;
     let (root, manifest_name) = layout(&entries)?;
@@ -326,14 +375,16 @@ pub fn audit(zip: &Path, input: &AuditInput) -> Result<AuditReport> {
                 _ => return refuse("undeclared-default-config", Some(&e.name), "a shipped default config needs a packageFiles entry (path, sha256, purpose default-config)"),
             }
             let bytes = r.captured.as_deref().unwrap_or_default();
-            let text = String::from_utf8_lossy(bytes);
-            let hit = match crate::jsonc::parse(&text) {
-                Ok(v) => policy::secret_value(&v, ""),
-                Err(_) => secret_line(&text),
+            let text = std::str::from_utf8(bytes).map_err(|_| Error::from(Refusal::new("default-config-invalid", Some(&e.name), "a default config must be UTF-8 JSON or JSONC")))?;
+            let tree = crate::jsonc::parse_tree(text.strip_prefix('\u{feff}').unwrap_or(text));
+            let hit = match &tree {
+                Ok(v) => secret_tree(v, ""),
+                Err(_) => secret_line(text),
             };
             if let Some(key) = hit {
                 return refuse("secret-in-config", Some(&e.name), format!("its key {key} has a value; a shipped default may only leave such a key empty"));
             }
+            if tree.is_err() { return refuse("default-config-invalid", Some(&e.name), "only JSON or JSONC defaults can be checked for secrets"); }
         }
         if base.ends_with(".dll") {
             dlls.push((e.name.clone(), lower.clone(), r.sha256.clone()));
@@ -391,18 +442,16 @@ pub fn audit(zip: &Path, input: &AuditInput) -> Result<AuditReport> {
     for (cook_path, bytes) in &cooks {
         let dir = cook_path.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
         let mut outs = Vec::new();
-        if let Ok(v) = crate::jsonc::parse(&String::from_utf8_lossy(bytes)) {
-            outs_of(&v, &mut outs);
-        }
+        let invalid = || Error::from(Refusal::new("cook-recipe-invalid", Some(cook_path), "its output folders cannot be classified"));
+        let text = std::str::from_utf8(bytes).map_err(|_| invalid())?;
+        let v = crate::jsonc::parse_tree(text).map_err(|_| invalid())?;
+        outs_of(&v, &mut outs).map_err(|_| invalid())?;
         if outs.is_empty() {
             outs.push("cooked".into()); // the schema's default
         }
         for out in outs {
-            let Some(folder) = resolve_out(dir, &out) else { continue };
-            if folder.is_empty() {
-                continue;
-            }
-            let under = format!("{folder}/");
+            let folder = resolve_out(dir, &out).ok_or_else(invalid)?;
+            let under = if folder.is_empty() { String::new() } else { format!("{folder}/") };
             if let Some(m) = members.iter().find(|m| m.name.strip_prefix(&prefix).unwrap_or(&m.name).to_lowercase().starts_with(&under)) {
                 return refuse("cooked-output", Some(&m.name), format!("it is in the output folder of the cook recipe {cook_path}"));
             }
@@ -417,7 +466,7 @@ pub fn audit(zip: &Path, input: &AuditInput) -> Result<AuditReport> {
 /// compressed bytes untouched). Returns false and writes nothing when `src` already has one root folder. The result
 /// still has to pass [`audit`].
 pub fn normalize_root(src: &Path, dst: &Path) -> Result<bool> {
-    let f = std::fs::File::open(src).map_err(crate::util::io_at(src, "opening"))?;
+    let f = open_zip_source(src)?;
     let mut a = zip::ZipArchive::new(f).map_err(unreadable)?;
     let entries = list(&mut a)?;
     let top = entries.iter().find(|e| !e.is_dir && is_manifest_name(&e.name));
@@ -429,14 +478,14 @@ pub fn normalize_root(src: &Path, dst: &Path) -> Result<bool> {
     let invalid = |e: Error| Error::from(Refusal::new("manifest-invalid", Some(&top.name), e.message));
     let id = if top.name == manifest::KILN_MANIFEST { manifest::parse_kiln(text).map_err(invalid)?.id } else { manifest::parse_native(text).map_err(invalid)?.id };
     let out = std::fs::OpenOptions::new().write(true).create_new(true).open(dst).map_err(crate::util::io_at(dst, "writing"))?;
-    let mut w = zip::ZipWriter::new(std::io::BufWriter::new(out));
+    let mut w = zip::ZipWriter::new(std::io::BufWriter::new(BoundedZipWriter(out)));
     let werr = |e: zip::result::ZipError| Error::new(ErrorCode::Io, format!("{}: {e}", dst.display()));
     for e in entries.iter().filter(|e| !e.is_dir) {
         let file = a.by_index_raw(e.index).map_err(unreadable)?;
         w.raw_copy_file_rename(file, format!("{id}/{}", e.name)).map_err(werr)?;
     }
     let inner = w.finish().map_err(werr)?;
-    inner.into_inner().map_err(|e| Error::new(ErrorCode::Io, format!("{}: {e}", dst.display())))?.sync_all().map_err(crate::util::io_at(dst, "flushing"))?;
+    inner.into_inner().map_err(|e| Error::new(ErrorCode::Io, format!("{}: {e}", dst.display())))?.0.sync_all().map_err(crate::util::io_at(dst, "flushing"))?;
     Ok(true)
 }
 

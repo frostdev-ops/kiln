@@ -1,14 +1,22 @@
 // SPDX-License-Identifier: MIT
 // kiln.creature_control: the life of a lease and the transition of its body (19d §4.3).
-//   acquire  admission only: a Pending lease, never permission;
-//   Pre      per body, at a job barrier: the broker's AI-off layer first (no new decision), then the wait for the body's
-//            current action to end (5 s bound), the SteeringAgent snapshot (80 bytes), its removal through the broker's
-//            own world program, the check that it is gone (0.5 s bound), and only then a new transition_sequence and
-//            Active;
+//   acquire  admission only: Pending (or Preempted under a higher lease), never permission. Within the base group
+//            (PetFollow, PetStay, EngineGuard) one lease per body: the same owner's new base role replaces its old one at
+//            once (Released/Canceled "Replaced", no restore in between), another owner's is Busy. One lease per other role.
+//   Pre      per body, at a job barrier: the winner is the highest priority (Quarantine > Ridden > Vehicle > PetCombat >
+//            base), the earlier on a tie; the others are Preempted and kept. The winner's transition:
+//            - input roles (PetFollow, PetStay, Ridden, Vehicle): the broker's AI-off layer first (no new decision), then
+//              the wait for the body's current action to end (5 s), the SteeringAgent snapshot (80 bytes, once per round of
+//              leases), its removal through the broker's own world program (a Vehicle also loses its
+//              DynamicEnemy01BehaviorState, for good), the check that it is gone (0.5 s), and only then a new
+//              transition_sequence and Active;
+//            - AI-on roles (PetCombat, EngineGuard): the input zeroed for 3 steps and the SteeringAgent put back (when the
+//              broker had removed it), the broker's layer released, and Active only when the AI then runs: another
+//              owner's layer still holding it off fails the lease AiInhibited (never overridden).
 //   release  drive permission ends at once; when no lease is left the input is zeroed for 3 steps, the saved
 //            SteeringAgent goes back with queryId and both velocity vectors zeroed, the broker's AI layer is released,
-//            and only then the lease reports Released.
-// A body has one lease at a time in this slice (roles, priority and preemption come with S5).
+//            the baseline is used up, and only then the lease reports Released. A Vehicle that was Active is never
+//            released on a live body: the body is retired (body_retired).
 #include <algorithm>
 
 #include "registry.h"
@@ -21,9 +29,22 @@ bool same_key(const KilnControlBodyKey& a, const KilnControlBodyKey& b) {
     return a.world_epoch == b.world_epoch && a.body_generation == b.body_generation && a.entity == b.entity &&
            a.reserved == b.reserved;
 }
-// Roles that drive the body through ActorInput: SteeringAgent removed, the broker's AI layer held.
-bool input_role(uint32_t role) {
-    return role == KILN_CONTROL_ROLE_PET_FOLLOW || role == KILN_CONTROL_ROLE_PET_STAY || role == KILN_CONTROL_ROLE_RIDDEN;
+bool base_role(uint32_t role) {
+    return role == KILN_CONTROL_ROLE_PET_FOLLOW || role == KILN_CONTROL_ROLE_PET_STAY || role == KILN_CONTROL_ROLE_ENGINE_GUARD;
+}
+// The game's AI drives the body; the broker only gives the body back to it.
+bool ai_role(uint32_t role) { return role == KILN_CONTROL_ROLE_PET_COMBAT || role == KILN_CONTROL_ROLE_ENGINE_GUARD; }
+int priority(uint32_t role) {
+    switch (role) {
+        case KILN_CONTROL_ROLE_QUARANTINE: return 5;
+        case KILN_CONTROL_ROLE_RIDDEN: return 4;
+        case KILN_CONTROL_ROLE_VEHICLE: return 3;
+        case KILN_CONTROL_ROLE_PET_COMBAT: return 2;
+        case KILN_CONTROL_ROLE_PET_FOLLOW:
+        case KILN_CONTROL_ROLE_PET_STAY:
+        case KILN_CONTROL_ROLE_ENGINE_GUARD: return 1;
+        default: return 0;
+    }
 }
 }  // namespace
 
@@ -50,6 +71,7 @@ KilnResult Broker::acquire(KilnOwner owner, const KilnControlRequest* request, K
         return KILN_ERR_INVALID_ARGUMENT;
     }
     const KilnControlRequest& q = *request;
+    if (owner_gone(owner)) return KILN_ERR_REVOKED;
     OwnerRec& o = owners_[owner];
     // the same request id again: the same lease (also a terminal one) for the same payload
     if (const auto it = o.requests.find(q.request_id); it != o.requests.end()) {
@@ -82,21 +104,27 @@ KilnResult Broker::acquire(KilnOwner owner, const KilnControlRequest* request, K
         refuse(out, q, KILN_CONTROL_RESULT_NONE, "NotBound: the owner holds no binding of this body (bind_body first)");
         return KILN_ERR_INVALID_ARGUMENT;
     }
-    if (bodies_pub_[b].latch.load(std::memory_order_acquire)) {
+    if (body.quarantined || bodies_pub_[b].latch.load(std::memory_order_acquire)) {
         refuse(out, q, KILN_CONTROL_RESULT_BUSY, "Quarantined: the body is quarantined and will be retired");
         return KILN_OK;
     }
-    if (!input_role(q.role)) {
-        refuse(out, q, KILN_CONTROL_RESULT_CAPABILITY_OFF,
-               "RoleUnavailable: PetCombat, Vehicle and EngineGuard leases are not served by this build yet");
-        return KILN_OK;
-    }
-    for (uint32_t slot : body.leases)
-        if (!leases_[slot].releasing) {
-            refuse(out, q, KILN_CONTROL_RESULT_BUSY, "Busy: the body has a lease already");
+    // the roles already on the body
+    uint32_t replace = kNone;
+    for (uint32_t slot : body.leases) {
+        const Lease& l = leases_[slot];
+        if (l.releasing) continue;
+        if (base_role(q.role) && base_role(l.role)) {
+            if (l.owner != owner) {
+                refuse(out, q, KILN_CONTROL_RESULT_BUSY, "Busy: another owner holds the body's base lease");
+                return KILN_OK;
+            }
+            replace = slot;  // the same owner's: replaced atomically once this admission is sure
+        } else if (l.role == q.role) {
+            refuse(out, q, KILN_CONTROL_RESULT_BUSY, (std::string("Busy: the body has a ") + role_name(q.role) + " lease already").c_str());
             return KILN_OK;
         }
-    if (live_leases_.load(std::memory_order_relaxed) >= KILN_CONTROL_MAX_LEASES) {
+    }
+    if (replace == kNone && live_leases_.load(std::memory_order_relaxed) >= KILN_CONTROL_MAX_LEASES) {
         refuse(out, q, KILN_CONTROL_RESULT_BUSY, "Capacity: 1024 leases are open");
         return KILN_OK;
     }
@@ -109,6 +137,16 @@ KilnResult Broker::acquire(KilnOwner owner, const KilnControlRequest* request, K
         refuse(out, q, KILN_CONTROL_RESULT_BUSY, "Capacity: no lease slot is free");
         return KILN_OK;
     }
+    // admission is sure: the old base lease of this owner goes now, with no restore in between
+    if (replace != kNone)
+        terminate(replace, KILN_CONTROL_RELEASED, KILN_CONTROL_RESULT_CANCELED, "Replaced: the owner asked for another base role");
+    int top = 0;
+    uint32_t top_role = KILN_CONTROL_ROLE_NONE;
+    for (uint32_t s : body.leases)
+        if (!leases_[s].releasing && priority(leases_[s].role) > top) {
+            top = priority(leases_[s].role);
+            top_role = leases_[s].role;
+        }
     Lease& l = leases_[slot];
     l = Lease{};
     l.used = true;
@@ -119,9 +157,16 @@ KilnResult Broker::acquire(KilnOwner owner, const KilnControlRequest* request, K
     l.flags = q.flags;
     l.body = b;
     l.key = body.key;
-    l.state = KILN_CONTROL_PENDING;
-    l.result = KILN_CONTROL_RESULT_NONE;
-    l.reason = "Pending: waiting for the body's transition";
+    l.order = ++order_;
+    if (top >= priority(q.role)) {  // a lease of the same or higher priority holds the body: kept, not active
+        l.state = KILN_CONTROL_PREEMPTED;
+        l.result = KILN_CONTROL_RESULT_PREEMPTED;
+        l.reason = std::string("Preempted: a ") + role_name(top_role) + " lease holds the body";
+    } else {
+        l.state = KILN_CONTROL_PENDING;
+        l.result = KILN_CONTROL_RESULT_NONE;
+        l.reason = "Pending: waiting for the body's transition";
+    }
     body.leases.push_back(slot);
     o.high = q.request_id;
     o.next = std::max(o.next, o.high);
@@ -138,13 +183,19 @@ KilnResult Broker::release(KilnOwner owner, KilnHandle handle) {
     if (!l || l->owner != owner) return KILN_ERR_NOT_FOUND;
     if (terminal(l->state) || l->releasing) return KILN_OK;  // idempotent
     const uint32_t slot = static_cast<uint32_t>(handle & (kLeaseSlots - 1));
+    Body* body = l->body != kNone && bodies_[l->body].used ? &bodies_[l->body] : nullptr;
+    // a Vehicle that held the body keeps it for good: its behaviour is gone, so the body is retired, not handed back
+    if (l->role == KILN_CONTROL_ROLE_VEHICLE && l->seq != 0 && body && !body->gone) {
+        log(KILN_LOG_WARN, "lease %llu: RetireRequired: a Vehicle lease ends with its body (destroy it, then body_retired)",
+            static_cast<unsigned long long>(handle));
+        return KILN_ERR_INVALID_ARGUMENT;
+    }
     l->releasing = true;
     l->was_active = l->state == KILN_CONTROL_ACTIVE;
     l->reason = "Releasing: drive permission ended; the body is being restored";
-    if (l->body != kNone && bodies_[l->body].used) {
-        Body& b = bodies_[l->body];
-        if (b.winner == slot) b.winner = kNone;  // can_drive is false from this call on
-        if (b.target == slot) b.target = kNone;
+    if (body) {
+        if (body->winner == slot) body->winner = kNone;  // can_drive is false from this call on
+        if (body->target == slot) body->target = kNone;
         publish_body(l->body, true);
     } else {
         publish(slot, true);
@@ -171,9 +222,15 @@ void Broker::terminate(uint32_t slot, uint32_t state, uint32_t result, const std
 }
 
 uint32_t Broker::pick_winner(const Body& b) const {
-    for (uint32_t slot : b.leases)
-        if (!leases_[slot].releasing) return slot;
-    return kNone;
+    uint32_t best = kNone;
+    for (uint32_t slot : b.leases) {
+        const Lease& l = leases_[slot];
+        if (l.releasing) continue;
+        if (best == kNone || priority(l.role) > priority(leases_[best].role) ||
+            (priority(l.role) == priority(leases_[best].role) && l.order < leases_[best].order))
+            best = slot;
+    }
+    return best;
 }
 
 std::vector<uint8_t> Broker::restore_bytes(const Body& b) const { return steering_restore_bytes(b.steering, layout_); }
@@ -215,40 +272,59 @@ void Broker::settle_releasing(uint32_t b) {
     for (uint32_t slot : std::vector<uint32_t>(body.leases)) {
         const Lease& l = leases_[slot];
         if (!l.releasing) continue;
-        terminate(slot, KILN_CONTROL_RELEASED, l.was_active ? KILN_CONTROL_RESULT_RELEASED : KILN_CONTROL_RESULT_CANCELED,
-                  l.was_active ? "Released" : "Canceled: released before it was Active");
+        if (l.owner_unloaded)
+            terminate(slot, KILN_CONTROL_FAILED, KILN_CONTROL_RESULT_OWNER_UNLOADED, "OwnerUnloaded: the owner's lease was cleaned up");
+        else
+            terminate(slot, KILN_CONTROL_RELEASED, l.was_active ? KILN_CONTROL_RESULT_RELEASED : KILN_CONTROL_RESULT_CANCELED,
+                      l.was_active ? "Released" : "Canceled: released before it was Active");
     }
 }
 
 void Broker::enter(uint32_t b, const BodyRead& r, uint32_t want, std::vector<Op>* ops) {
     Body& body = bodies_[b];
     const KilnEntity e = body.key.entity;
+    const bool vehicle = leases_[want].role == KILN_CONTROL_ROLE_VEHICLE;
+    if (!body.have_base && body.kind == KILN_CONTROL_BASELINE_ENEMY && !r.steering) {
+        body.phase = Phase::Idle;
+        body.target = kNone;
+        terminate(want, KILN_CONTROL_FAILED, KILN_CONTROL_RESULT_NONE,
+                  "ExternalController: the Enemy body's SteeringAgent disappeared before the broker could snapshot it");
+        return;
+    }
     if (body.target != want || (body.phase != Phase::Quiesce && body.phase != Phase::Removing)) {
         body.phase = Phase::Quiesce;
         body.target = want;
         body.wait_start = now_;
+        body.asked_behavior = false;
     }
-    // the broker's AI-off layer first: no new decision while the current action ends
+    // the broker's AI-off layer first: no new decision while the current action ends. Without it an Enemy body is never
+    // granted: the entry waits (asking again each Pre) and the 5 s bound fails it.
     if (!body.ai_layer && r.enemy_ai) {
         const KilnResult rc = game_->ai_layer(e, true);
         if (rc == KILN_OK) {
             body.ai_layer = true;
             publish_body(b, true);
-        } else {
-            log(KILN_LOG_WARN, "body %u: the AI-off layer was refused (%d)", e, rc);
+        } else if (body.wait_start == now_) {
+            log(KILN_LOG_WARN, "body %u: the AI-off layer was refused (%d); the lease waits for it", e, rc);
         }
     }
+    const bool ai_off = body.ai_layer || !r.enemy_ai;
+    // the body is ours already (another lease had its SteeringAgent removed): hold it still while it changes hands
+    const bool ours = body.have_base && body.base_steering && !r.steering;
     if (body.phase == Phase::Quiesce) {
-        const bool quiet = r.readable && r.ready && !r.dead && !r.action_active && !r.trigger_queued;
+        const bool quiet = ai_off && r.readable && r.ready && !r.dead && !r.action_active && !r.trigger_queued;
         if (!quiet) {
             if (now_ - body.wait_start >= kQuiescenceNs) {
-                const char* why = !r.readable ? "BodyNotReady: the body's Actor could not be read"
-                                  : r.dead    ? "BodyNotReady: the body is dead"
-                                  : !r.ready  ? "BodyNotReady: the body is not ready for gameplay (no player near?) after 5 s"
-                                              : "Quiescence: the body's current action did not end within 5 s";
+                const char* why = !ai_off      ? "AiLayer: the AI-off layer was refused for 5 s (kiln.creatures ai_switch)"
+                                  : !r.readable ? "BodyNotReady: the body's Actor could not be read"
+                                  : r.dead      ? "BodyNotReady: the body is dead"
+                                  : !r.ready    ? "BodyNotReady: the body is not ready for gameplay (no player near?) after 5 s"
+                                                : "Quiescence: the body's current action did not end within 5 s";
                 body.phase = Phase::Idle;
                 body.target = kNone;
                 terminate(want, KILN_CONTROL_FAILED, KILN_CONTROL_RESULT_TIMED_OUT, why);
+            } else if (ours) {
+                ops->push_back(Op{e, OpKind::ZeroInput, {}});
             }
             return;
         }
@@ -256,89 +332,152 @@ void Broker::enter(uint32_t b, const BodyRead& r, uint32_t want, std::vector<Op>
             // the snapshot, at this job barrier: the SteeringAgent as it is now, and whether it is there
             body.base_steering = r.steering;
             body.steering.clear();
-            if (r.steering && !game_->steering_bytes(e, &body.steering)) return;  // read again next Pre
+            if (r.steering && (!game_->steering_bytes(e, &body.steering) || body.steering.size() != layout_.size)) {
+                if (now_ - body.wait_start >= kQuiescenceNs) {
+                    body.phase = Phase::Idle;
+                    body.target = kNone;
+                    terminate(want, KILN_CONTROL_FAILED, KILN_CONTROL_RESULT_TIMED_OUT,
+                              "BodyNotReady: the SteeringAgent snapshot could not be read within 5 s");
+                }
+                return;  // retry only within the same bounded entry wait
+            }
             body.have_base = true;
         }
-        if (!r.steering) {  // nothing to remove: an explicit no-AI body, or the broker removed it already
+        const bool remove_behavior = vehicle && r.enemy_ai;
+        if (!r.steering && !remove_behavior) {  // nothing to remove: a body without them, or the broker removed them already
             grant(b, want);
             return;
         }
         body.phase = Phase::Removing;
         body.op_start = now_;
-        ops->push_back(Op{e, OpKind::RemoveSteering, {}});
+        if (r.steering) ops->push_back(Op{e, OpKind::RemoveSteering, {}});
+        if (remove_behavior) {
+            ops->push_back(Op{e, OpKind::RemoveBehavior, {}});
+            body.asked_behavior = true;
+        }
         ops->push_back(Op{e, OpKind::ZeroInput, {}});
         return;
     }
-    // Removing: the program queued the removal; the engine applied it at the end of that step
-    if (!r.steering) {
+    // Removing: the program queued the removals; the engine applied them at the end of that step
+    if (!r.steering && !(vehicle && r.enemy_ai)) {
         body.steering_out = body.base_steering;
+        if (body.asked_behavior) body.behavior_removed = true;  // a Vehicle's: never put back on a live body
         grant(b, want);
         return;
     }
-    if (now_ - body.op_start >= kTransitionNs) {
+    if (now_ - body.op_start >= transition_ns_) {
         body.phase = Phase::Idle;
         body.target = kNone;
         terminate(want, KILN_CONTROL_FAILED, KILN_CONTROL_RESULT_TIMED_OUT,
-                  "Transition: the SteeringAgent was not removed within 0.5 s");
+                  vehicle && r.enemy_ai && !r.steering ? "Transition: the vehicle's behaviour was not removed within 0.5 s"
+                                                       : "Transition: the SteeringAgent was not removed within 0.5 s");
         return;
     }
-    ops->push_back(Op{e, OpKind::RemoveSteering, {}});
+    if (r.steering) ops->push_back(Op{e, OpKind::RemoveSteering, {}});
+    if (vehicle && r.enemy_ai) ops->push_back(Op{e, OpKind::RemoveBehavior, {}});
     ops->push_back(Op{e, OpKind::ZeroInput, {}});
 }
 
-void Broker::restore(uint32_t b, const BodyRead& r, std::vector<Op>* ops) {
+// The SteeringAgent the broker removed goes back: the input zeroed for 3 steps, the saved bytes (transient fields
+// zeroed) queued at the end of the third, then checked (0.5 s). Done also when nothing was removed.
+Broker::Back Broker::steering_back(uint32_t b, const BodyRead& r, std::vector<Op>* ops) {
     Body& body = bodies_[b];
     const KilnEntity e = body.key.entity;
-    if (body.phase == Phase::Quiesce || body.phase == Phase::Removing) {  // an entry that no lease wants any more
-        body.phase = Phase::Idle;
-        body.target = kNone;
-    }
     const bool out = body.have_base && body.base_steering && !r.steering;
-    if (body.phase == Phase::Idle) {
-        if (!body.have_base && !body.ai_layer) return;  // nothing of the broker's on the body
+    if (body.phase != Phase::Zeroing && body.phase != Phase::Restoring) {
         body.phase = Phase::Zeroing;
         body.zero_left = out ? kZeroSteps : 0;
     }
     if (body.phase == Phase::Zeroing) {
         if (body.zero_left > 0) {
             ops->push_back(Op{e, OpKind::ZeroInput, {}});
-            if (--body.zero_left > 0) return;
-            // the last zeroed step puts the SteeringAgent back at its end
+            if (--body.zero_left > 0) return Back::Waiting;
             body.phase = Phase::Restoring;
             body.op_start = now_;
-            if (out) ops->push_back(Op{e, OpKind::AddSteering, restore_bytes(body)});
-            return;
+            if (out && !fail_restore_) ops->push_back(Op{e, OpKind::AddSteering, restore_bytes(body)});
+            return Back::Waiting;
         }
         body.phase = Phase::Restoring;
         body.op_start = now_;
     }
-    // Restoring
     if (out) {
-        if (now_ - body.op_start >= kTransitionNs) {
-            // irrecoverable for this slice: the leases fail; S6 quarantines and retires the body instead
-            log(KILN_LOG_ERROR, "body %u#%llu: RestoreFailed: the SteeringAgent did not come back within 0.5 s", e,
-                static_cast<unsigned long long>(body.key.body_generation));
-            for (uint32_t slot : std::vector<uint32_t>(body.leases))
-                if (leases_[slot].releasing)
-                    terminate(slot, KILN_CONTROL_FAILED, KILN_CONTROL_RESULT_RESTORE_FAILED,
-                              "RestoreFailed: the SteeringAgent did not come back within 0.5 s");
-            if (body.ai_layer && game_->ai_layer(e, false) == KILN_OK) body.ai_layer = false;
-            body.ai_layer = false;
-            body.have_base = false;
-            body.steering.clear();
-            body.phase = Phase::Idle;
-            publish_body(b, true);
-            return;
+        if (now_ - body.op_start >= transition_ns_) return Back::Failed;
+        if (!fail_restore_) ops->push_back(Op{e, OpKind::AddSteering, restore_bytes(body)});  // kept if already there
+        return Back::Waiting;
+    }
+    if (body.steering_out) {
+        body.steering_out = false;
+        publish_body(b, true);
+    }
+    return Back::Done;
+}
+
+Broker::Back Broker::ai_back(uint32_t b) {
+    Body& body = bodies_[b];
+    if (!body.ai_layer) return Back::Done;
+    const KilnResult rc = game_->ai_layer(body.key.entity, false);
+    if (rc != KILN_OK) {
+        // Retain ownership until the service actually releases it. A refused release is a restore failure,
+        // not permission to forget a layer that still disables the game's AI.
+        if (now_ - body.op_start >= transition_ns_) {
+            restore_failed(b, "the broker's AI-off layer could not be released within 0.5 s");
+            return Back::Failed;
         }
-        ops->push_back(Op{e, OpKind::AddSteering, restore_bytes(body)});
+        return Back::Waiting;
+    }
+    body.ai_layer = false;
+    publish_body(b, true);
+    return Back::Done;
+}
+
+void Broker::ai_on(uint32_t b, const BodyRead& r, uint32_t want, std::vector<Op>* ops) {
+    Body& body = bodies_[b];
+    const KilnEntity e = body.key.entity;
+    if (body.target != want) {
+        if (body.phase == Phase::Quiesce || body.phase == Phase::Removing) body.phase = Phase::Idle;
+        body.target = want;
+        body.wait_start = now_;
+    }
+    if (!r.enemy_ai || body.behavior_removed) {
+        body.phase = Phase::Idle;
+        body.target = kNone;
+        terminate(want, KILN_CONTROL_FAILED, KILN_CONTROL_RESULT_AI_INHIBITED,
+                  "AiInhibited: the body has no AI to run (no DynamicEnemy01BehaviorState)");
         return;
     }
-    body.steering_out = false;
-    if (body.ai_layer) {
-        const KilnResult rc = game_->ai_layer(e, false);  // only the broker's own layer: another owner's stays
-        if (rc != KILN_OK) log(KILN_LOG_WARN, "body %u: releasing the AI-off layer answered %d", e, rc);
-        body.ai_layer = false;
+    const Back back = steering_back(b, r, ops);
+    if (back == Back::Waiting) return;
+    if (back == Back::Failed) {
+        body.target = kNone;
+        restore_failed(b, "the SteeringAgent did not come back within 0.5 s");
+        return;
     }
+    if (ai_back(b) != Back::Done) return;
+    const int on = game_->ai_enabled(e);
+    body.phase = Phase::Idle;
+    body.target = kNone;
+    if (on != 1) {
+        terminate(want, KILN_CONTROL_FAILED, KILN_CONTROL_RESULT_AI_INHIBITED,
+                  on == 0 ? "AiInhibited: another owner holds the creature's AI off; the broker does not override it"
+                          : "AiInhibited: the creature's AI switch cannot be read");
+        return;
+    }
+    grant(b, want);
+}
+
+void Broker::restore(uint32_t b, const BodyRead& r, std::vector<Op>* ops) {
+    Body& body = bodies_[b];
+    const KilnEntity e = body.key.entity;
+    if (body.phase == Phase::Quiesce || body.phase == Phase::Removing) body.phase = Phase::Idle;  // an entry nobody wants
+    body.target = kNone;
+    if (body.phase == Phase::Idle && !body.have_base && !body.ai_layer) return;  // nothing of the broker's on the body
+    const Back back = steering_back(b, r, ops);
+    if (back == Back::Waiting) return;
+    if (back == Back::Failed) {
+        restore_failed(b, "the SteeringAgent did not come back within 0.5 s");
+        return;
+    }
+    if (ai_back(b) != Back::Done) return;
     // the baseline is used up: a later lease of this live generation takes a new snapshot
     body.have_base = false;
     body.base_steering = false;
@@ -352,6 +491,10 @@ void Broker::restore(uint32_t b, const BodyRead& r, std::vector<Op>* ops) {
 void Broker::step_body(uint32_t b, std::vector<Op>* ops) {
     Body& body = bodies_[b];
     if (!body.used || body.gone) return;
+    if (const uint32_t cause = bodies_pub_[b].latch.load(std::memory_order_acquire)) {
+        quarantined_step(b, cause);
+        return;
+    }
     if (body.leases.empty() && body.phase == Phase::Idle && !body.have_base && !body.ai_layer) {
         maybe_free_body(b);
         return;
@@ -361,26 +504,91 @@ void Broker::step_body(uint32_t b, std::vector<Op>* ops) {
         lose_body(b, KILN_CONTROL_RESULT_BODY_GONE, "BodyGone: the body no longer exists");
         return;
     }
+    // Commands settle between Pres, including when their Pending lease was canceled or preempted meanwhile.
+    // Once Vehicle removed the behavior, restoring SteeringAgent cannot give this body back its AI.
+    if (body.asked_behavior && !r.enemy_ai) body.behavior_removed = true;
+    if (body.behavior_removed && std::none_of(body.leases.begin(), body.leases.end(), [&](uint32_t slot) {
+            return leases_[slot].role == KILN_CONTROL_ROLE_VEHICLE && !leases_[slot].releasing;
+        })) {
+        restore_failed(b, "a canceled or failed Vehicle transition permanently removed the body's AI behavior");
+        return;
+    }
     const bool out = body.have_base && body.base_steering && !r.steering;
     if (out != body.steering_out) {
         body.steering_out = out;
         publish_body(b, true);
     }
+    if (body.winner != kNone) {
+        const auto& winner = leases_[body.winner];
+        const bool expected_input = !ai_role(winner.role);
+        if (expected_input ? r.steering : !r.steering) {
+            terminate(body.winner, KILN_CONTROL_FAILED, KILN_CONTROL_RESULT_NONE,
+                      "ExternalController: the Active lease's SteeringAgent policy changed outside the broker");
+            publish_body(b, true);
+        }
+    }
     const uint32_t want = pick_winner(body);
-    if (body.winner != kNone && body.winner != want) {  // the winner lost the body (S5: preempted)
+    if (body.winner != kNone && body.winner != want) {  // the winner lost the body to a higher lease: kept, Preempted
+        Lease& old = leases_[body.winner];
         body.winner = kNone;
+        if (!old.releasing && want != kNone) {
+            old.state = KILN_CONTROL_PREEMPTED;
+            old.result = KILN_CONTROL_RESULT_PREEMPTED;
+            old.reason = std::string("Preempted: a ") + role_name(leases_[want].role) + " lease holds the body";
+        }
         publish_body(b, true);
     }
-    if (want == kNone) restore(b, r, ops);
-    else if (body.winner != want) enter(b, r, want, ops);
-    settle_releasing(b);
-    maybe_free_body(b);
+    if (want != kNone)
+        for (uint32_t slot : body.leases) {
+            Lease& l = leases_[slot];
+            if (slot == want || l.releasing || l.state != KILN_CONTROL_PENDING) continue;
+            l.state = KILN_CONTROL_PREEMPTED;
+            l.result = KILN_CONTROL_RESULT_PREEMPTED;
+            l.reason = std::string("Preempted: a ") + role_name(leases_[want].role) + " lease holds the body";
+            publish(slot, true);
+        }
+    if (want == kNone) {
+        restore(b, r, ops);
+    } else if (body.winner != want) {
+        Lease& w = leases_[want];
+        if (w.state == KILN_CONTROL_PREEMPTED) {  // resumed: through verification, with a new transition sequence
+            w.state = KILN_CONTROL_PENDING;
+            w.result = KILN_CONTROL_RESULT_NONE;
+            w.reason = "Resuming: waiting for the body's transition";
+            publish(want, true);
+        }
+        if (ai_role(w.role)) ai_on(b, r, want, ops);
+        else enter(b, r, want, ops);
+    }
+    if (body.used && !body.gone) {
+        settle_releasing(b);
+        maybe_free_body(b);
+    }
 }
 
 void Broker::pre(uint64_t now_ns, std::vector<Op>* ops) {
     now_ = now_ns;
     ops->clear();
     queued_ = 0;
+    if (epoch()) check_counter();
+    // The retiring observer can run on any thread: it only revokes authority. Cleanup belongs at this job barrier.
+    for (uint32_t b = 0; b < bodies_.size(); ++b) {
+        Body& body = bodies_[b];
+        if (!body.used) continue;
+        std::erase_if(body.refs, [&](KilnOwner owner) { return owner_gone(owner); });
+        for (uint32_t slot : body.leases) {
+            Lease& l = leases_[slot];
+            if (!owner_gone(l.owner)) continue;
+            l.owner_unloaded = true;
+            if (l.role == KILN_CONTROL_ROLE_VEHICLE && l.seq != 0 && !body.gone) {
+                body.fatal = true;
+                latch(b, KILN_CONTROL_CAUSE_OWNER_LEFT);
+            } else if (!l.releasing) {
+                release(l.owner, l.handle);
+            }
+        }
+        if (body.gone) maybe_free_body(b);
+    }
     for (uint32_t b = 0; b < bodies_.size(); ++b) step_body(b, ops);
     if ((++pre_count_ & 31) == 0) expire_terminal();
 }

@@ -52,6 +52,21 @@ public class ReflectedResourceTests : KilnTest
 
     private static ReflectedResource Res(Guid guid) => ReflectedResources.Get(guid, "Test::Item")!;
 
+    [Fact]
+    public void Resources_are_not_claimed_while_the_assets_resources_row_is_off()
+    {
+        Assert.True(ReflectedResources.Available);
+        Assert.NotNull(ReflectedResources.Get(Sword, "Test::Item"));
+        // kiln.assets is still here (its table, every function), but its resource hooks are off: its row says so
+        Backend.Features.Remove(ResourceStore.ResourcesRow);
+        Assert.NotEqual(0, Backend.Service("kiln.assets", 1));
+        Assert.False(ResourceStore.Available);
+        Assert.False(ReflectedResources.Available);
+        Assert.Null(ReflectedResources.Get(Sword, "Test::Item"));
+        Assert.Empty(ReflectedResources.All("Test::Item"));
+        Assert.Empty(ReflectedResources.FindByField("Test::Item", "stack", 1));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -710,6 +725,7 @@ public class ReflectedResourceTests : KilnTest
             Bind<ResourceStore.Table>(assets, "ResourcePut", new PutFn(Put));
             Bind<ResourceStore.Table>(assets, "ResourceRemove", new RemoveFn(Remove));
             _services.Add(new(backend.Tables, "kiln.assets", assets));
+            backend.Features.Add(ResourceStore.ResourcesRow);  // its resource hooks are on (ResourceStore.Available asks the row)
             ItemType = GameTypes.Find("Test::Item")!;
         }
 

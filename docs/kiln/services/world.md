@@ -177,7 +177,8 @@ Events.On<EntityScaleChangedEvent>(e => Log.Info(e.ToString()));
 - **What it is not.** The rendered transform only: colliders, attachments and `ScaleComponent` keep their size, and
   nothing is promised about physics. A creature's uniform size is `CreatureRef.Scale` (unchanged). What a player sees,
   and what a vanilla player sees, is check `13-world.transform-scale` of the guided game test; until it has run the docs
-  claim the tracked write and its readback only.
+  claim the tracked write and its readback only. `world.transform_scale` stays held on both sides until that check
+  confirms what a player sees; the client-pass profile's `"preview": true` opens it for testing.
 - **The place of the scale** is read from the game's type table when Kiln.World starts (its first use): `transform`, then
   `scale`, of one of two shapes (a struct of three float32 at 0, 4, 8, or a static array of three float32), 12 bytes,
   inside the component, 4-aligned. Any other shape turns `world.transform_scale` off with what was found; nothing is
@@ -281,6 +282,14 @@ Tick thread (Pre/Post) or inside your program: `component(e, hash, &size)`, `exi
 `find(hash, buf, cap, &count)` (KILN_ERR_BUFFER_TOO_SMALL with the full count when `cap` is short),
 `entity_count`. `teleport(owner, &req, &id)` from any thread; the callback runs once, on the tick thread in Pre.
 `teleport_cancel(id)` drops the callback. `status(&s)` tells what works.
+
+### Is this thread inside a program? (since 0.2.0-dev.28)
+`in_program()`, appended after `wrap_original` (version stays 4: check `header.size` first), answers 1 while the
+calling thread runs a Kiln world program's update, a wrap stage on a game program's slice, or a kiln.types system hook
+callback (`GameSystems.Hook`; kiln.types' `in_system_callback`, 0 for that part with an older kiln.types), else 0. The
+world is in the middle of its step there, maybe on a worker thread. Any thread, lock-free, no game call. A service whose calls must
+not run mid-step refuses them with `KILN_ERR_WRONG_THREAD` when it answers 1 (kiln.queries does so for its rays and
+path submits: [queries.md](queries.md)).
 
 ## Tests (lab)
 - `mods/tests/world-test`: waits for the world, checks hashes/find/positions, teleports the first teleportable villager

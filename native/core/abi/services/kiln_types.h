@@ -157,6 +157,10 @@ typedef struct KilnTypesApi {
      * KILN_ERR_UNAVAILABLE: the field did not validate on this build (capability types.impact_names says why);
      * KILN_ERR_INVALID_ARGUMENT: required is NULL, or out is NULL with cap > 0. Any thread. */
     KilnResult(KILN_CALL* type_impact_name)(const KilnType* type, char* out, size_t cap, size_t* required);
+    /* Since 0.2.0-dev.28 (check header.size): 1 while the calling thread runs a system_hook callback (before or after
+     * a game program's slice: the world is mid-step there, maybe on its own thread), else 0. kiln.world's in_program
+     * includes it. Any thread; lock-free, no game call. */
+    uint32_t(KILN_CALL* in_system_callback)(void);
 } KilnTypesApi;
 
 #ifdef __cplusplus

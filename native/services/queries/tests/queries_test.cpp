@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Host tests of kiln.queries' pure parts (run.sh). Each CHECK names what it proves; a failure prints the line and exits 1.
+// Host tests of kiln.queries (run.sh). Each CHECK names what it proves; a failure prints the line and exits 1.
 #include <array>
 #include <cstdio>
 #include <cstdlib>
@@ -7,12 +7,10 @@
 #include <string>
 #include <vector>
 
-#include "../budget.h"
-#include "../config.h"
-#include "../entities.h"
-#include "../grid.h"
+#include "../queries.cpp"
+
+// Both production service translation units are linked; only the game-memory and game-call leaves are fake.
 #include "../path_core.h"
-#include "../ray.h"
 
 static int g_checks = 0;
 #define CHECK(x)                                                              \
@@ -264,6 +262,231 @@ static void test_entities() {
     CHECK(!valid_shape(box));
 }
 
+// ---- the service itself, with fake memory and a fake guarded game call ----
+static uint32_t service_session = 1;
+static uint64_t service_step = 10;
+static bool service_tick = true, game_fault = false, game_reenter = false;
+static int game_calls = 0, ray_reports = 0;
+static std::string ray_report_text;
+static std::map<std::string, uint32_t> reported_rows;
+static uint32_t ray_report_state = KILN_CAP_AVAILABLE;
+static std::string service_feature_off;
+static bool path_feature_enabled = false;
+static std::map<std::string, int64_t> path_constants;
+static KilnResult find_result = KILN_OK, position_result = KILN_OK;
+static const uintptr_t kMinimum = 0x500000;
+static KilnWorldApi service_world{};
+static KilnCapsApi service_caps{};
+static KilnApi service_api{};
+
+namespace kq {
+bool seh_path_defaults(uintptr_t, void*) { ++game_calls; return false; }
+bool seh_path_create(uintptr_t, void*, uint32_t*, const void*) { ++game_calls; return false; }
+bool seh_path_result(uintptr_t, void*, void*, uint32_t, bool*) { ++game_calls; return false; }
+bool seh_path_destroy(uintptr_t, void*, uint32_t, uint32_t, bool*) { ++game_calls; return false; }
+bool seh_copy(uintptr_t address, void* out, size_t n) { return fake_read(address, out, n); }
+bool seh_ray(uintptr_t fn, void* out, uintptr_t grid, const float* from, const float* to, const uint8_t* options, unsigned long* code) {
+    CHECK(fn == 0x600000 && grid == kGrid);
+    CHECK((reinterpret_cast<uintptr_t>(out) & 15) == 0);
+    CHECK((reinterpret_cast<uintptr_t>(from) & 15) == 0 && (reinterpret_cast<uintptr_t>(to) & 15) == 0);
+    CHECK(from[3] == 0 && to[3] == 0);
+    CHECK(options[0] == 0 && options[1] == 0 && options[2] == 1 && options[3] == 1);
+    ++game_calls;
+    if (game_reenter) {
+        KilnQueryRayRequest r{sizeof r, 0, {1, 10, 1}, {2, 10, 1}};
+        KilnQueryRayResult answer{};
+        answer.size = sizeof answer;
+        CHECK(t_ray_voxels(&r, &answer) == KILN_OK && !answer.ok);
+        CHECK(std::string(answer.reason.ptr, answer.reason.len) == "ReentrantQuery");
+    }
+    if (game_fault) { *code = 0xc0000005; return false; }
+    hit(static_cast<unsigned char*>(out), true, false, false);
+    return true;
+}
+}
+
+static void service_start(uint32_t minimum) {
+    world(1, 0, 0, 0, 4, 8, 4);
+    g_mem[kMinimum].resize(sizeof minimum);
+    poke<uint32_t>(kMinimum, 0, minimum);
+    game_calls = ray_reports = 0;
+    ray_report_state = KILN_CAP_AVAILABLE;
+    ray_report_text.clear();
+    reported_rows.clear();
+    service_feature_off.clear();
+    find_result = position_result = KILN_OK;
+    service_session = 1;
+    service_step = 10;
+    service_tick = true;
+    game_fault = game_reenter = false;
+    g_ray_on = false;
+    g_stopped_session = 0;
+    g_grid = g_grid_session = 0;
+    g_budget = Budget{};
+    g_world = nullptr;
+    g_caps = nullptr;
+    service_caps = {};
+    service_caps.header = {sizeof service_caps, KILN_CAPS_VERSION};
+    service_caps.find = [](KilnStr, KilnCapRow*) -> KilnResult { return KILN_ERR_NOT_FOUND; };
+    service_caps.report = [](KilnOwner, KilnStr name, uint32_t state, uint32_t reason, KilnStr text) -> KilnResult {
+        const std::string row(name.ptr, name.len);
+        CHECK(row == "queries.voxel_ray" || row == "queries.ground" || row == "queries.line_of_sight" || row == "queries.path" || row == "queries.reachability");
+        CHECK(reason == KILN_CAP_REASON_FAULTED);
+        reported_rows[row] = state;
+        if (row == "queries.voxel_ray") {
+            ++ray_reports;
+            ray_report_state = state;
+            ray_report_text.assign(text.ptr, text.len);
+        }
+        return KILN_OK;
+    };
+    service_world = {};
+    service_world.header = {sizeof service_world, KILN_WORLD_VERSION};
+    service_world.component_hash = [](KilnStr) -> uint32_t { return 1; };
+    service_world.find = [](uint32_t, KilnEntity* ids, uint32_t, uint32_t* count) -> KilnResult { ids[0] = 1; *count = 1; return find_result; };
+    service_world.position = [](KilnEntity, KilnVec3* out) -> KilnResult { *out = {1, 10, 1}; return position_result; };
+    service_api = {};
+    service_api.size = sizeof service_api;
+    service_api.abi_version = KILN_ABI_VERSION;
+    service_api.log = [](KilnOwner, int32_t, KilnStr) {};
+    service_api.feature = [](KilnStr name) {
+        const std::string key(name.ptr, name.len);
+        return key != service_feature_off && (key != "queries.path" || path_feature_enabled);
+    };
+    service_api.path = [](int32_t, char*, size_t, size_t*) -> KilnResult { return KILN_ERR_UNAVAILABLE; };
+    service_api.on_tick_thread = [] { return service_tick; };
+    service_api.tick_info = [](KilnTickInfo* out) -> KilnResult { *out = {}; out->step = service_step; return KILN_OK; };
+    service_api.session = [](KilnSessionInfo* out) -> KilnResult {
+        out->sessions[KILN_WORLD_SERVER] = service_session;
+        out->worlds[KILN_WORLD_SERVER] = 0x700000;
+        return KILN_OK;
+    };
+    service_api.server_world = []() -> uintptr_t { return 0x700000; };
+    service_api.singleton = [](uintptr_t, KilnStr) -> uintptr_t { return kGrid; };
+    service_api.symbol = [](KilnStr name, uintptr_t* out) -> KilnResult {
+        *out = std::string(name.ptr, name.len) == "queries/RayMinLength" ? kMinimum : 0x600000;
+        return KILN_OK;
+    };
+    service_api.constant = [](KilnStr name, int64_t* out) -> KilnResult {
+        if (const auto it = path_constants.find(std::string(name.ptr, name.len)); it != path_constants.end()) {
+            *out = it->second;
+            return KILN_OK;
+        }
+        const std::map<std::string, int64_t> values = {
+            {"queries/grid.realms", kLayout.realms}, {"queries/grid.realm_count", kLayout.realm_count},
+            {"queries/realm.stride", kLayout.realm_stride}, {"queries/ray_grid.origin", kLayout.origin},
+            {"queries/ray_grid.shift", kLayout.shift}, {"queries/ray_grid.horizontal_count", kLayout.count_h},
+            {"queries/ray_grid.vertical_count", kLayout.count_v}, {"queries/ray.min_length_bits", kRayMinLengthBits}};
+        const auto it = values.find(std::string(name.ptr, name.len));
+        if (it == values.end()) return KILN_ERR_NOT_FOUND;
+        *out = it->second;
+        return KILN_OK;
+    };
+    service_api.service = [](KilnStr name, uint32_t) -> const void* {
+        return std::string(name.ptr, name.len) == KILN_CAPS_SERVICE ? static_cast<const void*>(&service_caps) : &service_world;
+    };
+    service_api.subscribe_world = [](KilnOwner, KilnWorldEventFn, void*, KilnHandle*) -> KilnResult { return KILN_OK; };
+    service_api.register_service = [](KilnOwner, KilnStr, const void*) -> KilnResult { return KILN_OK; };
+    KilnPluginInfo info{};
+    info.size = sizeof info;
+    CHECK(kiln_plugin_main(&service_api, 1, &info) == KILN_OK);
+    info.on_ready(nullptr);
+    KilnWorldEvent e{sizeof e, KILN_WORLD_STARTED, KILN_WORLD_SERVER, service_session, 0x700000};
+    on_world(&e, nullptr);
+}
+
+static void test_service() {
+    // Symbols still resolve, but the live minimum-length bytes no longer match: every reader must see the ray off.
+    service_start(0);
+    CHECK(!g_ray_on && ray_report_state == KILN_CAP_UNAVAILABLE && ray_reports == 1);
+    CHECK(reported_rows.size() == 3 && reported_rows.at("queries.ground") == KILN_CAP_UNAVAILABLE && reported_rows.at("queries.line_of_sight") == KILN_CAP_UNAVAILABLE);
+    CHECK(ray_report_text.find("minimum ray length") != std::string::npos);
+    CHECK(g_world != nullptr && g_transform_hash != 0); // origins survive a ray-only failure
+
+    service_start(kRayMinLengthBits);
+    CHECK(g_ray_on && ray_reports == 0);
+    KilnQueryRayRequest r{sizeof r, 0, {1, 10, 1}, {2, 10, 1}};
+    KilnQueryRayResult out{};
+    out.size = sizeof out;
+    CHECK(t_ray_voxels(&r, &out) == KILN_OK && !out.ok && game_calls == 0); // before the first Pre
+    ++service_step;
+    service_tick = false;
+    CHECK(t_ray_voxels(&r, &out) == KILN_ERR_WRONG_THREAD && game_calls == 0);
+    service_tick = true;
+    r.from.x = -1;
+    CHECK(t_ray_voxels(&r, &out) == KILN_OK && !out.ok && game_calls == 0 && g_budget.calls() == 0);
+    CHECK(std::string(out.reason.ptr, out.reason.len) == "OutOfGrid");
+    r.from.x = 1;
+    game_reenter = true;
+    CHECK(t_ray_voxels(&r, &out) == KILN_OK && out.ok && game_calls == 1 && g_budget.calls() == 1);
+    game_reenter = false;
+    game_fault = true;
+    CHECK(t_ray_voxels(&r, &out) == KILN_ERR_UNAVAILABLE && game_calls == 2);
+    CHECK(!g_in_ray && !g_ray_on && ray_report_state == KILN_CAP_UNAVAILABLE && ray_reports == 1);
+    CHECK(reported_rows.size() == 3 && reported_rows.at("queries.ground") == KILN_CAP_UNAVAILABLE && reported_rows.at("queries.line_of_sight") == KILN_CAP_UNAVAILABLE);
+    CHECK(t_ray_voxels(&r, &out) == KILN_ERR_UNAVAILABLE && game_calls == 2);
+}
+
+// kiln.world's in_program (0.2.0-dev.28): a ray from inside a program's update or a wrap stage is refused before anything
+// is read or charged; with 0, with no member, or with a kiln.world whose table ends before it, the ray is cast as before.
+static uint32_t world_in_program = 0;
+static void test_in_program() {
+    service_start(kRayMinLengthBits);
+    ++service_step;
+    KilnQueryRayRequest r{sizeof r, 0, {1, 10, 1}, {2, 10, 1}};
+    KilnQueryRayResult out{};
+    out.size = sizeof out;
+    service_world.in_program = [] { return world_in_program; };
+    world_in_program = 1;
+    const int reads = g_reads;
+    CHECK(t_ray_voxels(&r, &out) == KILN_ERR_WRONG_THREAD && !out.ok && game_calls == 0 && g_budget.calls() == 0 && g_reads == reads);
+    CHECK(std::string(out.reason.ptr, out.reason.len) == "InsideProgram");
+    CHECK(g_ray_on && reported_rows.empty()); // a thread refusal, not a row: nothing is lowered or reported
+    world_in_program = 0;
+    CHECK(t_ray_voxels(&r, &out) == KILN_OK && out.ok && out.reason.len == 0 && game_calls == 1 && g_budget.calls() == 1);
+    world_in_program = 1;
+    service_world.header.size = offsetof(KilnWorldApi, in_program); // an older kiln.world: the slot is not its
+    CHECK(t_ray_voxels(&r, &out) == KILN_OK && out.ok && game_calls == 2);
+    service_world.header.size = sizeof service_world;
+    service_world.in_program = nullptr;
+    CHECK(t_ray_voxels(&r, &out) == KILN_OK && out.ok && game_calls == 3);
+    service_world.in_program = [] { return world_in_program; };
+    service_tick = false; // off the tick thread the old refusal comes first, without a reason
+    CHECK(t_ray_voxels(&r, &out) == KILN_ERR_WRONG_THREAD && out.reason.len == 0 && game_calls == 3);
+    service_tick = true;
+    CHECK(t_ray_voxels(&r, &out) == KILN_ERR_WRONG_THREAD && game_calls == 3);
+    world_in_program = 0;
+    CHECK(t_ray_voxels(&r, &out) == KILN_OK && out.ok && game_calls == 4); // 0 again after the program: cast again
+}
+
+static void test_entity_dependencies() {
+    service_start(kRayMinLengthBits);
+    ++service_step;
+    KilnQueryEntityRequest r{};
+    r.size = sizeof r;
+    r.center = {1, 10, 1};
+    r.radius = 2;
+    KilnQueryEntityResult out{};
+    out.size = sizeof out;
+    KilnEntity id = 0;
+    for (const char* feature : {"world.entities", "world.find"}) {
+        service_feature_off = feature;
+        CHECK(t_entities(&r, &id, 1, &out) == KILN_ERR_UNAVAILABLE && !out.ok);
+    }
+    service_feature_off.clear();
+    for (KilnResult rc : {KILN_ERR_UNAVAILABLE, KILN_ERR_WRONG_THREAD}) {
+        find_result = rc;
+        CHECK(t_entities(&r, &id, 1, &out) == rc && !out.ok);
+        find_result = KILN_OK;
+        position_result = rc;
+        CHECK(t_entities(&r, &id, 1, &out) == rc && !out.ok);
+        position_result = KILN_OK;
+    }
+    position_result = KILN_ERR_NOT_FOUND;
+    CHECK(t_entities(&r, &id, 1, &out) == KILN_OK && out.ok && out.total == 0);
+    position_result = KILN_OK;
+    CHECK(t_entities(&r, &id, 1, &out) == KILN_OK && out.ok && out.total == 1 && id == 1);
+}
 
 // ---- paths -----------------------------------------------------------------------------------------------------------
 
@@ -329,6 +552,16 @@ static KilnQueryPathRequest request(double x = 3) {
 }
 
 static void test_path_params() {
+    const std::array<int64_t, 10> layout{0x10, 0x1c, 0x48, 0x54, 0xbb, 0x36, 0xf4, 0xfc, 0x100, 0x104};
+    CHECK(path_layout_supported(layout));
+    auto reordered = layout;
+    std::swap(reordered[8], reordered[9]);  // identical normalizer blocks can swap while every capture still resolves
+    CHECK(!path_layout_supported(reordered));
+    for (size_t i = 0; i < layout.size(); ++i) {
+        auto moved = layout;
+        ++moved[i];
+        CHECK(!path_layout_supported(moved));
+    }
     PathParams p;
     CHECK(path_params(request(), &p) && p.hspace == 1 && p.vspace == 4 && p.max_iterations == 2000 && !p.fallback && p.anchor == 2000 && p.target[0] == 3);
     CHECK(path_params(request(0), &p));      // the same point is a request (the game answers a same-start route)
@@ -359,6 +592,26 @@ static void test_path_params() {
     CHECK(path_params(r, &p) && p.fallback && p.hspace == 2);
     CHECK(sizeof(KilnQueryPathRequest) == 80 && sizeof(KilnQueryPathAdmission) == 40 && sizeof(KilnQueryPathUpdate) == 88 && sizeof(KilnQueryPathPoint) == 32 &&
           sizeof(KilnQueriesApi) == 56);
+}
+
+static void test_path_layout_refusal() {
+    service_start(kRayMinLengthBits);
+    ++service_step;
+    path_feature_enabled = true;
+    path_constants = {{"queries/query.start", 0x10}, {"queries/query.target", 0x1c}, {"queries/query.max_iterations", 0x48},
+                      {"queries/query.moves", 0x54}, {"queries/job.realm", 0xbb}, {"queries/query.target_type", 0x36},
+                      {"queries/query.start_search_v", 0xf4}, {"queries/query.target_search_v", 0xfc},
+                      {"queries/query.space_h", 0x104}, {"queries/query.space_v", 0x100}}; // reordered, still in bounds
+    path_resolve();
+    path_ready();
+    CHECK(reported_rows.at("queries.path") == KILN_CAP_UNAVAILABLE);
+    CHECK(reported_rows.at("queries.reachability") == KILN_CAP_UNAVAILABLE);
+    auto r = request();
+    KilnQueryPathAdmission a{};
+    a.size = sizeof a;
+    CHECK(t_path_submit(7, &r, &a) == KILN_ERR_UNAVAILABLE && !a.ok && game_calls == 0);
+    path_feature_enabled = false;
+    path_constants.clear();
 }
 
 static PathParams params() {
@@ -439,7 +692,10 @@ static void test_path_queue() {
     creates = 0;
     int made = 0;
     for (uint64_t token : full.tokens(1))
-        if (full.next(token, 1, &creates).op == PathQueue::Op::Create) ++made;
+        if (full.next(token, 1, &creates).op == PathQueue::Op::Create) {
+            ++made;
+            full.created(token, 0);  // this fake update's Create attempts were refused
+        }
     CHECK(made == 8 && creates == 8);
     // a cancelled request frees its slot once its terminal is polled (it never had a game query)
     CHECK(full.cancel(A, 1) == KILN_OK && full.cancel(A, 1) == KILN_ERR_NOT_FOUND && full.cancel(B, 2) == KILN_ERR_NOT_FOUND && full.cancel(A, 999) == KILN_ERR_NOT_FOUND);
@@ -475,6 +731,44 @@ static void test_path_queue() {
     w = race.next(t, 1, &creates);
     CHECK(w.op == PathQueue::Op::Destroy && w.game_id == 77);
     CHECK(race.queued(A) == 2);  // created->queued and the cancel: no "searching" after the end
+    // Retirement can race the unlocked Create call before its id is known. Keep the slot until that call returns.
+    PathQueue retiring_create;
+    retiring_create.submit(A, params(), 1, 100, 0, &t);
+    creates = 0;
+    CHECK(retiring_create.next(t, 1, &creates).op == PathQueue::Op::Create);
+    retiring_create.retire(A);
+    retiring_create.created(t, 78);
+    w = retiring_create.next(t, 1, &creates);
+    CHECK(w.op == PathQueue::Op::Destroy && w.game_id == 78);
+    retiring_create.destroyed(t);
+    CHECK(retiring_create.open() == 0);
+    // A concurrent consumer can take a cancellation terminal during Create too.
+    PathQueue consumed_create;
+    consumed_create.submit(A, params(), 1, 100, 0, &t);
+    creates = 0;
+    consumed_create.next(t, 1, &creates);
+    consumed_create.cancel(A, t);
+    while (take(consumed_create, A, &u) == KILN_OK) {}
+    consumed_create.created(t, 79);
+    w = consumed_create.next(t, 1, &creates);
+    CHECK(w.op == PathQueue::Op::Destroy && w.game_id == 79);
+    consumed_create.destroyed(t);
+    CHECK(consumed_create.open() == 0);
+    PathQueue refused_create;
+    refused_create.submit(A, params(), 1, 100, 0, &t);
+    creates = 0;
+    refused_create.next(t, 1, &creates);
+    refused_create.retire(A);
+    refused_create.created(t, 0);
+    CHECK(refused_create.open() == 0);
+    PathQueue closed_create;
+    closed_create.submit(A, params(), 1, 100, 0, &t);
+    creates = 0;
+    closed_create.next(t, 1, &creates);
+    closed_create.world_closed(1);
+    while (take(closed_create, A, &u) == KILN_OK) {}
+    closed_create.created(t, 80);  // the old-world call returned after its world was closed
+    CHECK(closed_create.open() == 0 && closed_create.tokens(2).empty());
     // the anchor went
     race.submit(A, params(), 1, 100, 0, &t);
     race.owner_gone(t);
@@ -539,8 +833,12 @@ int main() {
     test_budget();
     test_config();
     test_entities();
+    test_service();
+    test_in_program();
+    test_entity_dependencies();
     test_path_classify();
     test_path_params();
+    test_path_layout_refusal();
     test_path_queue();
     std::printf("queries-test: PASS (%d checks)\n", g_checks);
     return 0;

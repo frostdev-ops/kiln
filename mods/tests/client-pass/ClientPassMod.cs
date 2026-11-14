@@ -69,8 +69,8 @@ public sealed partial class ClientPassMod : Mod
         var list = string.Join(", ", missing);
         c.Log.Info($"client-pass: {c.Id} needs {list}, which is not loaded");
         c.Instruct($"This check needs the mod{(missing.Length > 1 ? "s" : "")} {list} (see the profile in " +
-                   "docs/kiln/client-pass.md). Add it to the profile for the next start. Press skip now.");
-        await c.Verdict();
+                   "docs/kiln/client-pass.md). Add it to the profile for the next start.");
+        await c.Skip($"needs {list}, which is not loaded");
         return false;
     }
 
@@ -78,8 +78,8 @@ public sealed partial class ClientPassMod : Mod
     private static async Task<bool> NeedPlayer(CheckContext c)
     {
         if (!c.Player.IsNone && World.Position(c.Player) is not null) return true;
-        c.Instruct("This check needs your character in the world. Host a world or join one, then run it again. Press skip now.");
-        await c.Verdict();
+        c.Instruct("This check needs your character in the world. Host a world or join one, then run it again.");
+        await c.Skip("needs a character in the world");
         return false;
     }
 

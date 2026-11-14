@@ -45,7 +45,8 @@ kiln publish --forget-token github    # removes it again
 
 Where there is no credential store (a CI job, a PC without `secret-tool`), set the environment variable
 `KILN_PUBLISH_GITHUB_TOKEN`. It is used only when the store has no entry; no other variable is read. The token goes
-to `api.github.com` and `uploads.github.com` and nowhere else, and is never written to a plan, a journal or a log.
+to `api.github.com` and `uploads.github.com` and nowhere else (a download that GitHub redirects to its storage goes
+there without it), and is never written to a plan, a journal or a log.
 
 ## 3. Plan (sends nothing)
 
@@ -74,11 +75,19 @@ back, and `kiln publish --resume <transaction> --confirm` goes on from there. Be
 GitHub what exists; it adopts its own draft or asset (recognised by a marker at the end of the release text, and by
 name, size and digest) and never creates a second one.
 
+When GitHub lists an asset of the planned name and size but gives no digest for it, Kiln downloads that one asset
+and compares its SHA-256 with the plan's: the same bytes are adopted, other bytes are a conflict. The download asks
+`api.github.com` with your token for at most the planned number of bytes and follows at most one redirect, only to
+GitHub's storage (`release-assets.githubusercontent.com` or `objects.githubusercontent.com`), which gets no token.
+Nothing is ever uploaded over the asset or deleted.
+
 If it says a step needs you to look ("manual reconciliation"): Kiln could not tell whether a request arrived, or
-something that it did not make is in the way (an asset of the same name with other content, a half-finished upload).
-Follow the line it prints, fix it at GitHub by hand if needed, then bind the step:
+something that it did not make is in the way (an asset of the same name with other content, a half-finished upload),
+or an asset without a digest could not be downloaded to compare. Follow the line it prints, fix it at GitHub by hand
+if needed, then bind the step:
 `kiln publish --resolve-step <step> --remote-id <id> --transaction <transaction> --confirm`. The id is checked
-against the plan, not trusted.
+against the plan, not trusted: for an asset GitHub lists without a digest, binding downloads it again the same way
+and accepts it only with the planned SHA-256.
 
 ## 5. Publish the draft
 
@@ -106,6 +115,10 @@ Refused, each with the file's name and a reason code (`--json` shows it):
 | `undeclared-default-config`, `secret-in-config` | a file under `config/defaults/` without a `packageFiles` entry, or with a value for a key that names a password, token, secret, API key or credential |
 | `vcs-or-build-folder` | `.git`, `bin/`, `obj/`, `.pdb` |
 | `encrypted`, `link`, `path-*`, `duplicate-name`, `case-collision`, `ratio`, `member-too-large`, ... | a zip that is not a plain archive of files |
+
+Default configs must be UTF-8 JSON or JSONC so every value, including duplicate keys, can be checked. Other formats
+are refused until a parser can audit them. An unreadable cook recipe is also refused because its outputs cannot
+be classified. Plans made under an older artifact policy must be made again.
 
 `packageFiles` in `kiln.publish.json` declares the two things that need a declaration; it cannot allow anything
 from the list above:
