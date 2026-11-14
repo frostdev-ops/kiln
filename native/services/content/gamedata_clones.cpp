@@ -1520,6 +1520,15 @@ void clones_tick(uint64_t step) {
     }
 }
 
+// A boot generation not published (chapter 08): owner's clones that no world registered are taken out; returns how many.
+uint32_t clones_forget_unbound(KilnOwner owner) {
+    std::lock_guard l1(store_mutex());
+    std::lock_guard lock(g_mu);
+    const size_t before = g_defs.size();
+    std::erase_if(g_defs, [&](const Def& d) { return d.owner == owner && !d.data; });
+    return static_cast<uint32_t>(before - g_defs.size());
+}
+
 KilnResult clones_define(KilnOwner owner, uint32_t section, const std::string& json, bool pack, const std::string& source,
                          std::string* report) {
     PhaseTimer pt(PH_GD_DEFINE);
