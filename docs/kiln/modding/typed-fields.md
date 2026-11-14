@@ -155,9 +155,13 @@ sword.Restore("maxStackSize");                      // the original comes back; 
   a warning that names both mods. The indexer (`sword["x"] = 1`) throws `InvalidOperationException` with the same message.
 - `Overrides.Active` lists every claim in force. `sword.HeldBy("path")` says who has a field. `sword.Original("path")` reads what the
   game had before any change.
-- The game uses a changed resource when it next loads it. Data it keeps resident is read at the start: change that in `OnLoad`
-  ([assets.md](../services/assets.md)). Each write is read back from kiln.assets; what a changed field does in play is up to the
-  game and is not checked for you.
+- The game uses a changed resource when it next loads it. **Data the game copies once at its start is out of reach of a
+  write in `OnLoad`:** the write changes what Kiln serves, and the game keeps the copy it made before any mod's `OnLoad` ran.
+  Seen with `keen::BalancingTable` on 0.2.0-dev.27, on a test server: `experienceNeedPerLevel[0]` set to 1234 in `OnLoad` left
+  `Progression.Diagnostics.ExperienceForLevel(1)` at 1000, and the same value patched before the game starts came back as 1234.
+  Until `Mod.OnBoot`'s field patches ship (0.2.0-dev.28), change such data with an EML-format data mod, which Kiln's EML part
+  applies before the game starts ([../eml.md](../eml.md)). Each write is read back from kiln.assets ([assets.md](../services/assets.md));
+  what a changed field does in play is up to the game and is not checked for you.
 - Don't mix field writes with `Assets.Override` of the same resource: the first field write takes what is served then (that
   override included) as the original, so a later change or removal of that whole-resource override is hidden until every field
   claim on the resource is given back.
