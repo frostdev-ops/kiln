@@ -211,12 +211,17 @@ internal static unsafe class BootPhase
         public void RunAuthors()
         {
             var candidates = mods.BootCandidates();
-            var ids = new HashSet<string>(candidates.Select(c => c.Manifest.Id), StringComparer.Ordinal);
+            var validRoles = mods.ResolveBootRoles(candidates, out var rejected);
+            var ids = new HashSet<string>(candidates.Where(c => validRoles.ContainsKey(c.Directory)).Select(c => c.Manifest.Id), StringComparer.Ordinal);
             foreach (var (m, dir) in candidates.Where(c => c.Manifest.Boot != ManifestBoot.None))
             {
                 var roles = mods.BootRoles(m);
                 if (roles == 0) continue;
-                _authors[m.Id] = new Author { Manifest = m, Directory = dir, Roles = roles, Fingerprint = ModManager.BootFingerprint(m, dir) };
+                if (_authors.ContainsKey(m.Id)) continue;  // the resolver keeps the first folder for an id, as runtime loading does
+                var a = new Author { Manifest = m, Directory = dir, Roles = validRoles.GetValueOrDefault(dir, roles), Fingerprint = ModManager.BootFingerprint(m, dir) };
+                _authors[m.Id] = a;
+                if (!validRoles.ContainsKey(dir))
+                    Exclude(a, BootModState.ExcludedDependency, "Dependency", rejected.GetValueOrDefault(dir, "no valid role in the boot graph"));
             }
             // required dependencies: a boot mod's run first; one missing from the load order excludes the dependent
             foreach (var a in _authors.Values)
@@ -372,7 +377,11 @@ internal static unsafe class BootPhase
             fixed (byte* n = nb)
             fixed (byte* j = jb)
                 src = t->Stage(host, generation, S(k, kb), S(n, nb), S(j, jb), &sr);
-            if (src != KilnAbi.Ok || sr.Ok != 1) log(LogLevel.Error, $"boot: kiln.boot refused the IR envelope (rc {src}): {Text(sr.Reason, 256)}");
+            if (src != KilnAbi.Ok || sr.Ok != 1)
+            {
+                log(LogLevel.Error, $"boot: kiln.boot refused the IR envelope (rc {src}): {Text(sr.Reason, 256)}; the generation stays unpublished");
+                return;  // after_clr stops the start; committing without the envelope would silently lose staged content
+            }
             var r = new KilnBootCommitResultV1 { Size = (uint)sizeof(KilnBootCommitResultV1) };
             var rc = t->Commit(host, generation, &r);
             if (rc != KilnAbi.Ok)
@@ -405,6 +414,18 @@ internal static unsafe class BootPhase
                 mods.SetBootFingerprint(id, a.Fingerprint);
             }
             BootGeneration.Record(gen, reports, committed);
+            BootGeneration.ReadState = CurrentReport;
+        }
+
+        private BootModReport CurrentReport(BootModReport report)
+        {
+            var state = new KilnBootOwnerStateV1 { Size = (uint)sizeof(KilnBootOwnerStateV1) };
+            int rc;
+            var id = U(report.ModId);
+            fixed (byte* p = id) rc = t->OwnerState(S(p, id), &state);
+            if (rc != KilnAbi.Ok || state.State == 0 || State(state.State) == report.State) return report;
+            var issues = report.Issues.Concat(NativeIssues(report.Generation).Where(i => i.ModId == report.ModId && !report.Issues.Contains(i))).ToList();
+            return report with { State = State(state.State), Issues = issues };
         }
 
         private List<BootIssue> NativeIssues(ulong gen)
@@ -490,6 +511,33 @@ internal sealed partial class ModManager
         if (m.Side is ManifestSide.Client or ManifestSide.Both) r |= Kiln.BootRoles.Client;
         if (m.Side is ManifestSide.Server or ManifestSide.Both && _options.HostedServerMods) r |= Kiln.BootRoles.HostedServer;
         return r;
+    }
+
+    // Resolve before any author runs: finding a readable manifest does not establish its API, features, dependency
+    // versions, incompatibilities or valid roles. Rejected authors still get a closed native frame so their files stay out.
+    internal Dictionary<string, BootRoles> ResolveBootRoles(List<(Manifest Manifest, string Directory)> candidates,
+        out Dictionary<string, string> rejected)
+    {
+        var input = candidates.Select(c => new ModCandidate { Manifest = c.Manifest, Directory = c.Directory }).ToList();
+        var roles = new Dictionary<string, BootRoles>(StringComparer.Ordinal);
+        var reasons = new Dictionary<string, string>(StringComparer.Ordinal);
+        void Resolve(bool hosting)
+        {
+            var env = new ResolveEnvironment(_kilnVersion, _apiVersion, _options.Side, _options.HasFeature, ResolveEnvironment.NoneLoaded)
+                { Hosting = hosting, Capability = _options.Capability };
+            var result = Resolver.Resolve(input, env);
+            foreach (var c in result.Order)
+            {
+                var role = _options.Side != ManifestSide.Client ? Kiln.BootRoles.DedicatedServer
+                    : hosting && c.Manifest!.Side != ManifestSide.Client ? Kiln.BootRoles.HostedServer : Kiln.BootRoles.Client;
+                roles[c.Directory] = roles.GetValueOrDefault(c.Directory) | role;
+            }
+            foreach (var r in result.Rejected) reasons.TryAdd(r.Candidate.Directory, r.Reason);
+        }
+        Resolve(false);
+        if (_options.Side == ManifestSide.Client && _options.HostedServerMods) Resolve(true);
+        rejected = reasons;
+        return roles;
     }
 
     /// <summary>What a later runtime load compares: the manifest and the entry assembly, hashed.</summary>

@@ -136,6 +136,9 @@ state and definition count, every issue (mod, kind, key, phase, code, reason) an
 - A server where the phase does not run (safe idle, .NET off) does not load boot mods either. The row `mods.boot.phase`
   says why.
 
+An enabled mod with `"boot": "required"` stops the start with 0x4B01 if the boot route is unavailable, including a
+held client gate. No world or save is loaded without its required content.
+
 ## Testing
 Unit tests of `OnBoot` without a game: the test kit's boot runner, `KilnHarness.BootPhase` ([unit-tests.md](unit-tests.md#boot-phase-since-020-dev28)).
 `kiln.BootPhase.SetRecord("item:Material_T1_Wood_Logs", """{"maxStackSize": 250}""")` scripts what `boot.GameData` reads;

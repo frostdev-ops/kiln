@@ -13,6 +13,127 @@ namespace Kiln.Host.Tests;
 [Collection("boot generation")]  // BootGeneration is process-wide
 public sealed class BootPhaseTests : ModsFixture
 {
+    private static int _stageResult, _commitCalls;
+    private static bool _lateFault;
+    private static uint _lastFinish;
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static unsafe int Begin(ulong owner, KilnStr id, uint roles, ulong* generation) { *generation = 1; return KilnAbi.Ok; }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int Finish(ulong owner, ulong generation, uint accept) { _lastFinish = accept; return KilnAbi.Ok; }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static unsafe int AcceptEnvelope(ulong owner, ulong gen, KilnStr kind, KilnStr key, KilnStr json, KilnBootStageResultV1* result)
+    { result->Ok = 1; return KilnAbi.Ok; }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static unsafe int Publish(ulong owner, ulong gen, KilnBootCommitResultV1* result)
+    { result->Status = BootPhase.StatusPublished; result->Generation = 1; return KilnAbi.Ok; }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static unsafe int OwnerState(KilnStr id, KilnBootOwnerStateV1* result)
+    { result->State = (uint)(_lateFault ? BootModState.ActivationFault : BootModState.Committed); return KilnAbi.Ok; }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static unsafe int NoIssues(ulong gen, KilnBootIssueV1* issues, uint capacity, uint stride, uint* required)
+    { *required = 0; return KilnAbi.Ok; }
+
+    [Fact]
+    public unsafe void A_late_native_activation_fault_updates_BootState_and_refuses_runtime_loading()
+    {
+        var dir = WriteManifest("boot-gallery", Boot);
+        var host = new FakeHost();
+        using var mods = NewManager(host);
+        _lateFault = false;
+        var table = new KilnBootApi { Size = (uint)sizeof(KilnBootApi), Version = 1, Status = &Collecting,
+            BeginOwner = &Begin, FinishOwner = &Finish, Stage = &AcceptEnvelope, Commit = &Publish,
+            OwnerState = &OwnerState, Issues = &NoIssues };
+        var address = (nint)(&table);
+        Capabilities.Report("mods.boot", CapabilityState.Available, CapabilityReason.None);
+        try
+        {
+            BootPhase.Run((_, _) => address, 1, mods, host.Log);
+            Assert.Equal(BootModState.Committed, Mods.BootState("boot-gallery").State);
+            _lateFault = true;
+            Assert.Equal(BootModState.ActivationFault, Mods.BootState("boot-gallery").State);
+            Assert.StartsWith("RestartRequiredBoot:", mods.BootLoadRefusal(Manifest.Read(dir), dir));
+        }
+        finally { Capabilities.Reset(); BootGeneration.Record(0, [], new Dictionary<string, IReadOnlyList<BootStaged>>()); }
+    }
+
+    [Theory]
+    [InlineData("api")]
+    [InlineData("feature")]
+    [InlineData("dependency-version")]
+    [InlineData("dependency-side")]
+    public unsafe void An_invalid_boot_graph_closes_the_author_as_excluded_before_running_it(string problem)
+    {
+        var manifest = problem switch
+        {
+            "api" => Boot.Replace("\"apiVersion\": \"0.2\"", "\"apiVersion\": \"99.0\""),
+            "feature" => Boot.Replace("\"boot\": true", "\"boot\": true, \"features\": [\"no.such.feature\"]"),
+            _ => Boot.Replace("\"boot\": true", "\"boot\": true, \"dependencies\": {\"helper\": \">=2.0.0\"}"),
+        };
+        WriteManifest("boot-gallery", manifest);
+        if (problem.StartsWith("dependency", StringComparison.Ordinal))
+            WriteManifest("helper", $$"""{ "id": "helper", "version": "{{(problem == "dependency-version" ? "1.0.0" : "2.0.0")}}", "apiVersion": "0.2", "side": "{{(problem == "dependency-side" ? "client" : "server")}}" }""");
+        var host = new FakeHost();
+        using var mods = NewManager(host);
+        _lateFault = false;
+        _lastFinish = uint.MaxValue;
+        var table = new KilnBootApi { Size = (uint)sizeof(KilnBootApi), Version = 1, Status = &Collecting,
+            BeginOwner = &Begin, FinishOwner = &Finish, Stage = &AcceptEnvelope, Commit = &Publish,
+            OwnerState = &OwnerState, Issues = &NoIssues };
+        var address = (nint)(&table);
+        Capabilities.Report("mods.boot", CapabilityState.Available, CapabilityReason.None);
+        try
+        {
+            BootPhase.Run((_, _) => address, 1, mods, host.Log);
+            Assert.Equal(2u, _lastFinish);  // KILN_BOOT_FINISH_DEPENDENCY, so its files stay out too
+        }
+        finally { Capabilities.Reset(); BootGeneration.Record(0, [], new Dictionary<string, IReadOnlyList<BootStaged>>()); }
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static unsafe int Collecting(KilnBootCommitResultV1* result)
+    {
+        result->Status = BootPhase.StatusCollecting;
+        result->Generation = 1;
+        return KilnAbi.Ok;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static unsafe int RefuseEnvelope(ulong owner, ulong gen, KilnStr kind, KilnStr key, KilnStr json, KilnBootStageResultV1* result)
+    {
+        result->Ok = 0;
+        return _stageResult;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static unsafe int UnexpectedCommit(ulong owner, ulong gen, KilnBootCommitResultV1* result)
+    {
+        ++_commitCalls;
+        return KilnAbi.ErrUnavailable;
+    }
+
+    [Theory]
+    [InlineData(KilnAbi.ErrInvalidArgument)]
+    [InlineData(KilnAbi.Ok)]
+    public unsafe void A_refused_envelope_is_never_committed_as_a_file_only_generation(int stageResult)
+    {
+        _stageResult = stageResult;
+        _commitCalls = 0;
+        var table = new KilnBootApi { Size = (uint)sizeof(KilnBootApi), Version = 1,
+            Status = &Collecting, Stage = &RefuseEnvelope, Commit = &UnexpectedCommit };
+        var address = (nint)(&table);
+        var host = new FakeHost();
+        using var mods = NewManager(host);
+        BootPhase.Run((_, _) => address, 1, mods, host.Log);
+        Assert.True(host.Has("refused the IR envelope"), host.Dump());
+        Assert.Equal(0, _commitCalls);
+    }
+
     public BootPhaseTests() => BootGeneration.Record(0, [], new Dictionary<string, IReadOnlyList<BootStaged>>());
 
     public override void Dispose()
@@ -108,6 +229,24 @@ public sealed class BootPhaseTests : ModsFixture
         using var mods = NewManager(new FakeHost());
         Assert.Equal(BootRoles.DedicatedServer, mods.BootRoles(Manifest.Parse(Boot)));
         Assert.Equal((BootRoles)0, mods.BootRoles(Manifest.Parse(Boot.Replace("\"both\"", "\"client\""))));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Resolved_boot_roles_union_the_menu_and_enabled_hosting_graphs(bool hosted)
+    {
+        var host = new FakeHost();
+        using var mods = NewManager(host, new ModManagerOptions { Side = ManifestSide.Client, HostedServerMods = hosted,
+            KilnVersion = host.Version, HasFeature = host.HasFeature });
+        var candidates = new List<(Manifest Manifest, string Directory)>();
+        foreach (var side in new[] { "both", "server", "client" })
+            candidates.Add((Manifest.Parse(Boot.Replace("boot-gallery", side).Replace("\"both\"", $"\"{side}\"")), side));
+        var roles = mods.ResolveBootRoles(candidates, out _);
+        Assert.Equal(hosted ? BootRoles.HostedServer | BootRoles.Client : BootRoles.Client, roles["both"]);
+        Assert.Equal(BootRoles.Client, roles["client"]);
+        if (hosted) Assert.Equal(BootRoles.HostedServer, roles["server"]);
+        else Assert.False(roles.ContainsKey("server"));
     }
 
     // ---- review B5: the C# mirror of KilnBootApiV1 keeps kiln_boot.h's member order ----
