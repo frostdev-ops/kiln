@@ -13,6 +13,7 @@ public sealed partial class KilnHarness
         StartItems();
         StartCombat();
         StartTime();
+        foreach (var fake in KitFakes.All) fake.Start(this);  // dev.28 on: Fakes/<Service>/ (IKitFake)
     }
 
     /// <summary>The native services' Pre, after the players' scan: what each fake's game does at the start of a step.</summary>
@@ -23,6 +24,7 @@ public sealed partial class KilnHarness
         ItemsFake?.BeforeStep(step);
         CombatFake?.BeforeStep(step);
         TimeFake?.BeforeStep();
+        foreach (var fake in KitFakes.All) fake.BeforeStep(this, step);
     }
 
     /// <summary>The budget of the process's first service tick (<see cref="StartServicesOnce"/>).</summary>
@@ -58,6 +60,8 @@ public sealed partial class KilnHarness
     /// <summary>The harness ends, before the players and the world go.</summary>
     private void EndRecordingFakes()
     {
+        var fakes = KitFakes.All;
+        for (var i = fakes.Count - 1; i >= 0; i--) fakes[i].End(this);  // the later ones first
         SpawnFake.Ended();
         ItemsFake?.Ended();
     }

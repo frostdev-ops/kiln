@@ -319,6 +319,27 @@ public sealed class CapabilitiesTests : KilnTest
     }
 
     [Fact]
+    public void A_row_held_for_its_game_test_is_unavailable_and_says_which_checks_open_it()
+    {
+        using var caps = Native();
+        caps.Core("camera.fov", CapabilityState.Unavailable, CapabilityReason.Policy, "game test pending: 03-c11, 03-c12", "core");
+        caps.Core("net.ban", CapabilityState.Unavailable, CapabilityReason.Policy, "switched off in kiln.json", "core");
+        Assert.False(Capabilities.Is("camera.fov"));
+        Assert.True(Capabilities.IsHeld("camera.fov"));
+        Assert.True(Capabilities.Get("camera.fov").IsHeld);
+        Assert.Equal("camera.fov is unavailable: game test pending: 03-c11, 03-c12 (policy, from core).", Capabilities.Why("camera.fov"));
+        Assert.False(Capabilities.IsHeld("net.ban"));      // off by policy for another reason
+        Assert.False(Capabilities.IsHeld("items.fuel"));   // off because a symbol is missing
+        Assert.False(Capabilities.IsHeld("net.kick"));     // available
+        Assert.False(Capabilities.IsHeld("no.such"));      // no row
+        Assert.False(default(Capability).IsHeld);
+        Assert.Throws<ArgumentNullException>(() => Capabilities.IsHeld(null!));
+        caps.Core("camera.fov", CapabilityState.Available);  // "preview" lifted it, or the gate entry was removed
+        Assert.False(Capabilities.IsHeld("camera.fov"));
+        Assert.True(Capabilities.Is("camera.fov"));
+    }
+
+    [Fact]
     public void Is_does_not_call_the_native_table_once_the_snapshot_exists()
     {
         using var caps = Native();
