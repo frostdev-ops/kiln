@@ -55,7 +55,7 @@ typedef struct KilnToolWearChange {
     uint32_t instance_stamp; /* kiln.items' stamp of that item entity, captured at the debit: (item_pide, stamp) names it */
     int32_t before, after, maximum;
     int32_t original_delta;  /* what the game asked for: -1 */
-    int32_t requested_delta; /* what the rule asked for: -cost. after - before may differ (the game clamps at 0) */
+    int32_t requested_delta; /* -cost, limited only to avoid signed overflow. after - before may differ (the game clamps at 0) */
     /* PROJECTILE_SPAWN: the action that spawned (the actor's current ActionSequence). 0 for WEAPON_HIT: no join of a
      * hit to an action is established. Never a promise that two records of one action are one use. */
     uint32_t sequence_id;

@@ -14,6 +14,8 @@
 #include <cstring>
 #include <mutex>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "engine.h"
@@ -42,6 +44,8 @@ struct Layer {
 const KilnApi* g_api = nullptr;
 std::mutex g_mu;  // the layers and the generation: tick thread writes, status() reads
 std::vector<Layer> g_layers;
+std::unordered_map<KilnOwner, std::string> g_mod_ids;  // bound for the owner lifetime, even with no live layers
+std::unordered_set<KilnOwner> g_retired;
 uint64_t g_generation = 0, g_next_order = 1;
 KilnHandle g_next_handle = 1;
 
@@ -103,6 +107,9 @@ KilnResult KILN_CALL t_define(KilnOwner owner, KilnStr mod, uint32_t item, uint3
     char why[192];
     if (const KilnResult rc = supported(item, why, sizeof why); rc != KILN_OK) return rc;
     std::lock_guard lock(g_mu);
+    if (g_retired.count(owner)) return KILN_ERR_REVOKED;
+    if (const auto id = g_mod_ids.find(owner); id != g_mod_ids.end() && id->second != std::string(mod.ptr, mod.len))
+        return KILN_ERR_INVALID_ARGUMENT;
     const Layer* was = winner_locked(item);
     const int32_t before = was ? was->cost : -1;
     for (Layer& l : g_layers)
@@ -126,6 +133,7 @@ KilnResult KILN_CALL t_define(KilnOwner owner, KilnStr mod, uint32_t item, uint3
         return KILN_TOOLWEAR_TOO_MANY_RULES;
     }
     if (before == static_cast<int32_t>(per_debit)) ++g_generation;  // an equal cost, but another owner's rule is in effect now
+    g_mod_ids.emplace(owner, std::string(mod.ptr, mod.len));
     *out = g_next_handle++;
     return KILN_OK;
 }
@@ -215,6 +223,8 @@ KilnResult KILN_CALL t_status(uint32_t item, KilnToolWearState* out) {
     s.spawn_applied = st.spawn_applied;
     if (!st.on) {
         std::snprintf(s.reason, sizeof s.reason, "%s", st.why[0] ? st.why : "items.tool_wear_debit is off");
+    } else if (item && !g_api->server_world()) {
+        std::snprintf(s.reason, sizeof s.reason, "NoAuthoritativeWorld");
     } else if (item) {
         const KilnResult rc = supported(item, s.reason, sizeof s.reason);
         s.pending = rc == KILN_TOOLWEAR_PENDING;
@@ -238,6 +248,8 @@ KilnResult KILN_CALL t_status(uint32_t item, KilnToolWearState* out) {
 // An owner went (a mod unloaded): its rules go with it, each item falling back to the rule before or the game's own.
 void KILN_CALL on_owner_retiring(KilnOwner retiring, void*) {
     std::lock_guard lock(g_mu);
+    g_retired.insert(retiring);
+    g_mod_ids.erase(retiring);
     remove_locked([retiring](const Layer& l) { return l.owner == retiring; });
 }
 
