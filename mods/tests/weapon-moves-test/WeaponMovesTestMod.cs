@@ -110,6 +110,7 @@ public sealed partial class WeaponMovesTestMod : Mod
         File.WriteAllText(Path.GetFullPath(Path.Combine(Context.DataDirectory, "..", "skills", "lab-ops")), "");   // the test-only requests of kiln.skills are off without it
         Directory.CreateDirectory(Context.DataDirectory);
         _wrong = File.Exists(Path.Combine(Context.DataDirectory, "fail-once"));
+        RoutesArm();
         Context.Tick.Pre += OnPre;
         Events.On<EntityHurtEvent>(e => _hurts.Add((e.Step, e.Target, e.Attacker, e.ImpactId, e.OriginalAmount)));
         Events.On<EntityDamagedEvent>(e => _damaged.Add((e.Step, e.Target, e.Attacker, e.Amount)));
@@ -170,6 +171,7 @@ public sealed partial class WeaponMovesTestMod : Mod
             await Part("player states", () => { StatesData(); return Task.CompletedTask; });
             await Part("the sample", () => { SampleLoads(); return Task.CompletedTask; });
             await Part("ids", () => { Ids(); return Task.CompletedTask; });
+            await Part("routes", Routes);
             await Part("in the world", World_);
         }
         catch (Exception e)

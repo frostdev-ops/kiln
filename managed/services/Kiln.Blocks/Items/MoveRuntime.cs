@@ -11,7 +11,7 @@ internal static class MoveRuntime
     private static readonly string[] Spans = ["lerpDuration", "hitStopDuration", "blendInDuration", "blendOutDuration"];
 
     /// <summary>What a read of the game's data can throw: reported by block, and the move keeps its class's.</summary>
-    private static bool Readable(Exception e) => e is KeyNotFoundException or ArgumentException or InvalidOperationException or NotSupportedException or FormatException;
+    internal static bool Readable(Exception e) => e is KeyNotFoundException or ArgumentException or InvalidOperationException or NotSupportedException or FormatException;
 
     public static void Weapon(ModBlocks mod, MovePlan plan, JsonObject json, Action<string> problem)
     {
@@ -64,6 +64,44 @@ internal static class MoveRuntime
         foreach (var (section, entry, rules) in w.Rules) BlockRuntime.AddRules(mod, section, entry, rules);
         lock (json) ((json["movesReady"] ??= new JsonObject()).AsObject())[path] = new JsonObject(w.Rules.Select(r => KeyValuePair.Create(r.Entry, (JsonNode?)r.Rules.DeepClone())));
         mod.ReportDirty = true;
+    }
+
+    // ---- a routed weapon's host: the running game, as MoveApplications asks for it ----
+
+    /// <summary>A node's current value: kiln.gamedata gives {path, value, original} for a field, or the value itself.</summary>
+    private static JsonNode? Current(JsonNode? node) => node is JsonObject o && o.ContainsKey("path") ? o["value"] : node;
+
+    internal static readonly IMoveHost Host = new GameHost();
+
+    private sealed class GameHost : IMoveHost
+    {
+        public ulong ContentGeneration => Content.Status()?.Generation ?? 0;
+        public IReadOnlyList<SlotRow>? Slots(string item) => MoveRuntime.Slots(item);
+        public Func<string, IReadOnlyList<SubSequence>?> Reader() => MoveRuntime.Reader();
+        public IPlayerStateLookup? Lookup => PlayerStateSeam.Lookup;
+
+        public IReadOnlyDictionary<Guid, (string State, string? Error)> Clones() =>
+            Content.GameDataDefinitions().Where(d => d.Section == GameDataSection.Sequences).GroupBy(d => d.Guid).ToDictionary(g => g.Key, g => (g.First().State, g.First().Error));
+
+        public void Define(JsonObject definition, ulong owner) => BlocksBridge.DefineClone(Content.Sequences, definition, owner);
+
+        public IReadOnlyList<string> Apply(ulong owner, JsonObject document, string source) => BlocksBridge.ApplyAs(owner, document.ToJsonString(), source).Errors;
+
+        public Guid? Link(string clone, int sub, int k)
+        {
+            if (Content.Sequences.Get(sub == 0 ? clone : $"{clone}#{sub}") is not { } e) return null;
+            return GuidOf(Current(e.GetJson($"events[SetActionOportunity#{k}].followUp"))) is var g && g != Guid.Empty ? g : null;
+        }
+
+        public Guid? Slot(string item, int index)
+        {
+            if (Content.ItemData.Get(item) is not { } data) return null;
+            return GuidOf(Current(data.GetJson($"sequences[{index}].sequence"))) is var g && g != Guid.Empty ? g : null;
+        }
+
+        public void Later(ModBlocks mod, Action<Action<string>> next) => BlockRuntime.AddReady(mod, next);
+        public void Keep(ModBlocks mod, IReadOnlyList<(string Section, string Entry, JsonObject Rules)> rules) => BlockRuntime.KeepRules(mod, rules);
+        public void Drop(ModBlocks mod, IReadOnlyList<(string Section, string Entry, JsonObject Rules)> rules) => BlockRuntime.DropRules(mod, rules);
     }
 
     // ---- reading the game's data ------------------------------------------------------------------------------------------------------------------

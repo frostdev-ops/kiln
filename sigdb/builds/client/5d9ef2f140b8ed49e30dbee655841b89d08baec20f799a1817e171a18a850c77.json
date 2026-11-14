@@ -9,9 +9,9 @@
   "verified": true,
   "note": "runtime-verified through Steam (GE-Proton11-11), policy any, core + every service + kiln-emf + probe + ui-test + menubuttons: side client, sigdb 306/306 symbols, 434/434 constants (client.d composed), SimStep + WorldDestroy hooked, boot complete, 0 errors; main menu entries Kiln / ui-test / Mods (the Kiln sample screen opened); hosted a LOCAL world offline (saves: world loaded: slot 0x0002 (world1.ksd)): server world 60 steps/s on the GameServer thread, client and prediction worlds on the main thread, local player 1; ui-test all checks PASS (screens MainMenu/Loading/InGame/PauseMenu/Map/Crafting, menu entries chosen, crafting state), Kiln crafting tabs and subcategories shown, Insert overlay; tick cost as on ce6fdba6 (server step p50 2.5 ms, Kiln Pre 0.037 ms; client 1.2 ms); back to the menu (worlds stopping, shutdown save), clean quit (Shutdown 'Steam'). Not covered: joining a remote server, service write paths on the client. Added in dev.22 from static analysis only (resolved offline with sigdb_check.py, not yet seen running): ui.menu_page, ui.menu_page_sound, ui.error_popup (ui/PreGameCredits, ui/PreGameCreditsRet, ui/UiPlaySound and their constants). Levels (record 2, refreshed offline on 2026-11-11, no client run): lab = the names the boot above resolved, as its record listed them (199 named symbols, 434 constants, 106 features), each resolving to the same value today; every service loaded in that boot, but only ui-test ran, so lab here means loaded with Kiln's checks passing, not that the service test mods ran on the client. static = everything else, resolved offline only: the 186 @ probes (the boot's record did not list probes), the dev.22 ui names above, and every name declared since (the services audio, characters, emf-net, npcai, pacing, progression, quests, render, rules, skills, types and vfx, and new names of combat, creatures, gamedata, items, net, players, time and ui): 158 symbols, 210 constants and 70 features. sigdb now declares 543 symbols (441 defined, 102 captured), 644 constants (595 defined, 49 captured) and 176 features; all of them resolve offline on this exe.",
   "declared": {
-    "symbols": 596,
-    "constants": 678,
-    "features": 187
+    "symbols": 635,
+    "constants": 708,
+    "features": 194
   },
   "features": {
     "abilities.attributes": true,
@@ -79,6 +79,7 @@
     "gameplay.recipes": true,
     "gameplay.spawn": true,
     "gameplay.terraform": true,
+    "hooks.owner_cleanup": true,
     "hooks.typed": true,
     "items.catalog": true,
     "items.equip": true,
@@ -91,11 +92,13 @@
     "items.read": true,
     "items.recipe": true,
     "items.scan": true,
+    "items.tool_wear_debit": true,
     "items.transaction": true,
     "items.transfer": true,
     "items.volume": true,
     "log.mirror": true,
     "log.write": true,
+    "mods.boot": true,
     "net.client": true,
     "net.client_guard": true,
     "net.client_ready": true,
@@ -119,6 +122,7 @@
     "players.singleton_map": true,
     "players.skill_knowledge": true,
     "players.skills": true,
+    "queries.path": true,
     "queries.voxel_ray": true,
     "quests.changes": true,
     "quests.client_input": true,
@@ -127,6 +131,8 @@
     "quests.knowledge": true,
     "quests.npc": true,
     "render.camera": true,
+    "repl.client": true,
+    "repl.observe": true,
     "rules.camera_check": true,
     "rules.consume": true,
     "rules.consume_buff": true,
@@ -199,6 +205,7 @@
     "world.programs": true,
     "world.queue": true,
     "world.read_other": true,
+    "world.systems": true,
     "world.teleport": true,
     "world.write": true
   },
@@ -344,16 +351,19 @@
     "gameplay/RandomSpawnerSpawnRet": "0x346c27",
     "gameplay/RecipeFind": "0xe997e0",
     "gameplay/TerraformImpact": "0x3ece10",
+    "items/ActorSpawnUpdate": "0x228130",
     "items/AddComponent": "0x960a20",
     "items/AreaDeposit": "0x412ed0",
     "items/AttrChanged": "0x2358c0",
     "items/AttrFind": "0x123a930",
     "items/ComponentMapFind": "0x9b1db0",
     "items/CreatePide": "0x411e20",
+    "items/EnableDurability": "0xea2e00",
     "items/EquipItem": "0x4152d0",
     "items/GetItemVolume": "0x41af40",
     "items/GuidToItemId": "0x223400",
     "items/HashMapFindEntity": "0x9b4dc0",
+    "items/HitCounterLimit": "0xe8f960",
     "items/InventoryAddItems": "0x412460",
     "items/InventoryCommit": "0x40fe30",
     "items/InventoryFreeArrays": "0x221b40",
@@ -379,7 +389,12 @@
     "items/RegisterProgram": "0x9e2e40",
     "items/SetString": "0xe6eb50",
     "items/SlotTransfer": "0x4149b0",
+    "items/SpawnWearCall": "0x22921c",
+    "items/ToolWearUpdate": "0x239740",
     "items/UnequipItem": "0x419740",
+    "items/WeaponWearReturn": "0x239984",
+    "items/WearDelta": "0x3b5d70",
+    "items/WearItem": "0x3b5ca0",
     "items/WriteOther": "0x9b2900",
     "net/ClientGameplayReady": "0x86d9f0",
     "net/ClientReceive": "0x874ed0",
@@ -437,7 +452,14 @@
     "players/TypeByHash": "0x8de860",
     "players/UpdatePlayers": "0xe62898",
     "players/XpForLevel": "0xe976e0",
+    "queries/CreatePathQuery": "0x95fa00",
+    "queries/DestroyPathQuery": "0x960310",
+    "queries/GetPathQueryResult": "0x9b7530",
+    "queries/JobRealm": "0x9c5350",
+    "queries/PathQueryBaseDefaults": "0x959400",
+    "queries/PathQueryDefaults": "0x982890",
     "queries/RayMinLength": "0x13d2a78",
+    "queries/ResetPathQueryResults": "0x960470",
     "queries/VoxelCellRead": "0x9c4e30",
     "queries/VoxelRay": "0xa0f770",
     "quests/BlockStore": "0x121b310",
@@ -456,6 +478,19 @@
     "quests/StaticPlayerFind": "0x121a820",
     "quests/StaticWorldFind": "0x121a950",
     "render/client.CameraWritten": "0x3af578",
+    "repl/AckReceive": "0x9c6140",
+    "repl/ClientStore": "0x9c69b0",
+    "repl/Decode": "0x9646d0",
+    "repl/DeltaWriter": "0x985610",
+    "repl/EcsReset": "0x9ed780",
+    "repl/EntityWriter": "0x990450",
+    "repl/PrepareInner": "0x98fdf0",
+    "repl/ProcessClientMessage": "0x9db7f0",
+    "repl/QueueReader": "0x98f530",
+    "repl/SendCallback": "0xe51e90",
+    "repl/SendStep": "0xe5f330",
+    "repl/SnapshotReturn": "0x9906a0",
+    "repl/StateIndex": "0x9afd40",
     "rules/ActorStateTest": "0x21e4f0",
     "rules/AmmoConsumed": "0x2252a5",
     "rules/ApplyMaterials": "0x495f20",
@@ -588,7 +623,10 @@
     "world/RegisterProgram": "0x9e2e40",
     "world/ResolveAccess": "0xa01e90",
     "world/ResolveEvents": "0x98a300",
-    "world/ResolveSingletons": "0x98a660"
+    "world/ResolveSingletons": "0x98a660",
+    "world/RunInitPrograms": "0x9acf40",
+    "world/SliceTaskFn": "0x9eebb0",
+    "world/StepPrograms": "0x9ade50"
   },
   "constants": {
     "abilities/actor.trigger_context": "0x8",
@@ -855,6 +893,12 @@
     "items/registry.items": "0x38",
     "items/setup.operator": "0xc8",
     "items/setup_c.initialized": "0x53",
+    "items/spawn.durability_accessor_local": "0x458",
+    "items/spawn.itemstate_slot": "0x1f0",
+    "items/spawn.iter_base": "0x280",
+    "items/spawn.iter_size": "0x218",
+    "items/spawn.request_local": "0x390",
+    "items/spawn.request_pide": "0x3c",
     "items/storage.entities": "0x148",
     "items/storage.next_id": "0x498",
     "items/strings.bitmap": "0x198",
@@ -956,6 +1000,23 @@
     "players/world.singletons": "0x7462d0",
     "queries/grid.realm_count": "0x1c00",
     "queries/grid.realms": "0x1bf8",
+    "queries/job.pathgrid": "0x28",
+    "queries/job.realm": "0xbb",
+    "queries/pathgrid.hash_capacity": "0x148",
+    "queries/pathgrid.map": "0x138",
+    "queries/pathgrid.records": "0x178",
+    "queries/pathrecord.aux": "0x150",
+    "queries/pathrecord.aux_count": "0x158",
+    "queries/pathrecord.counter": "0x178",
+    "queries/pathrecord.point_count": "0x130",
+    "queries/pathrecord.points": "0x128",
+    "queries/pathrecord.result": "0x191",
+    "queries/pathrecord.state": "0x120",
+    "queries/pathrecord.stride": "0x1a0",
+    "queries/query.max_iterations": "0x48",
+    "queries/query.moves": "0x54",
+    "queries/query.start": "0x10",
+    "queries/query.target": "0x1c",
     "queries/ray.min_length_bits": "0x1e3ce508",
     "queries/ray_grid.horizontal_count": "0x14",
     "queries/ray_grid.origin": "0x70",
@@ -1008,6 +1069,12 @@
     "render/client.cpi.near": "0x54",
     "render/client.cpi.position_z": "0x30",
     "render/client.cpi.rotation": "0x38",
+    "repl/obj.client_ctx": "0x8",
+    "repl/obj.count": "0x11",
+    "repl/obj.pred_ctx": "0x92c18",
+    "repl/obj.stride": "0x125850",
+    "repl/world.objects": "0x15fd2a8",
+    "repl/world.tick": "0xe17e9c",
     "rules/client.cam.distance": "0x14a4",
     "rules/client.cam.obj": "0x5c8",
     "rules/client.cam.offset": "0x148c",
@@ -1265,6 +1332,7 @@
     "world/storage.entities": "0x148",
     "world/storage.entities.cap": "0x158",
     "world/storage.entities.values": "0x188",
+    "world/storage.players_mask": "0x7ddc0a",
     "world/teleport.applied": "0x48",
     "world/teleport.find_ground": "0x49",
     "world/teleport.target_entity": "0x38",
@@ -1857,6 +1925,71 @@
         "queries.voxel_ray": "static"
       }
     },
+    "dev28-02-pathfinding": {
+      "level": "static",
+      "date": "2026-11-13",
+      "evidence": "resolved offline (tools/sigport/build_record.py)",
+      "symbols": {
+        "@queries/base_query.layout": "static",
+        "@queries/job_realm.call": "static",
+        "@queries/job_realm.layout": "static",
+        "queries/CreatePathQuery": "static",
+        "queries/DestroyPathQuery": "static",
+        "queries/GetPathQueryResult": "static",
+        "queries/JobRealm": "static",
+        "queries/PathQueryBaseDefaults": "static",
+        "queries/PathQueryDefaults": "static",
+        "queries/ResetPathQueryResults": "static"
+      },
+      "constants": {
+        "queries/job.pathgrid": "static",
+        "queries/job.realm": "static",
+        "queries/pathgrid.hash_capacity": "static",
+        "queries/pathgrid.map": "static",
+        "queries/pathgrid.records": "static",
+        "queries/pathrecord.aux": "static",
+        "queries/pathrecord.aux_count": "static",
+        "queries/pathrecord.counter": "static",
+        "queries/pathrecord.point_count": "static",
+        "queries/pathrecord.points": "static",
+        "queries/pathrecord.result": "static",
+        "queries/pathrecord.state": "static",
+        "queries/pathrecord.stride": "static",
+        "queries/query.max_iterations": "static",
+        "queries/query.moves": "static",
+        "queries/query.start": "static",
+        "queries/query.target": "static"
+      },
+      "features": {
+        "queries.path": "static"
+      }
+    },
+    "dev28-03-camera": {
+      "level": "static",
+      "date": "2026-11-13",
+      "evidence": "resolved offline (tools/sigport/build_record.py)",
+      "symbols": {},
+      "constants": {},
+      "features": {
+        "hooks.owner_cleanup": "static"
+      }
+    },
+    "dev28-06a-program-wraps": {
+      "level": "static",
+      "date": "2026-11-13",
+      "evidence": "resolved offline (tools/sigport/build_record.py)",
+      "symbols": {
+        "world/RunInitPrograms": "static",
+        "world/SliceTaskFn": "static",
+        "world/StepPrograms": "static"
+      },
+      "constants": {
+        "world/storage.players_mask": "static"
+      },
+      "features": {
+        "world.systems": "static"
+      }
+    },
     "dev28-06b-typed-hooks": {
       "level": "static",
       "date": "2026-11-13",
@@ -1871,6 +2004,79 @@
         "hooks.typed": "static",
         "items.volume": "static",
         "weather.sample": "static"
+      }
+    },
+    "dev28-08-onboot": {
+      "level": "static",
+      "date": "2026-11-13",
+      "evidence": "resolved offline (tools/sigport/build_record.py)",
+      "symbols": {},
+      "constants": {},
+      "features": {
+        "mods.boot": "static"
+      }
+    },
+    "dev28-11-replication-observe": {
+      "level": "static",
+      "date": "2026-11-13",
+      "evidence": "resolved offline (tools/sigport/build_record.py)",
+      "symbols": {
+        "@repl.layout": "static",
+        "@repl.tick": "static",
+        "repl/AckReceive": "static",
+        "repl/ClientStore": "static",
+        "repl/Decode": "static",
+        "repl/DeltaWriter": "static",
+        "repl/EcsReset": "static",
+        "repl/EntityWriter": "static",
+        "repl/PrepareInner": "static",
+        "repl/ProcessClientMessage": "static",
+        "repl/QueueReader": "static",
+        "repl/SendCallback": "static",
+        "repl/SendStep": "static",
+        "repl/SnapshotReturn": "static",
+        "repl/StateIndex": "static"
+      },
+      "constants": {
+        "repl/obj.client_ctx": "static",
+        "repl/obj.count": "static",
+        "repl/obj.pred_ctx": "static",
+        "repl/obj.stride": "static",
+        "repl/world.objects": "static",
+        "repl/world.tick": "static"
+      },
+      "features": {
+        "repl.client": "static",
+        "repl.observe": "static"
+      }
+    },
+    "dev28-16b-tool-durability": {
+      "level": "static",
+      "date": "2026-11-13",
+      "evidence": "resolved offline (tools/sigport/build_record.py)",
+      "symbols": {
+        "@items/SpawnIterator": "static",
+        "@items/SpawnWearTarget": "static",
+        "@items/WearSettings": "static",
+        "items/ActorSpawnUpdate": "static",
+        "items/EnableDurability": "static",
+        "items/HitCounterLimit": "static",
+        "items/SpawnWearCall": "static",
+        "items/ToolWearUpdate": "static",
+        "items/WeaponWearReturn": "static",
+        "items/WearDelta": "static",
+        "items/WearItem": "static"
+      },
+      "constants": {
+        "items/spawn.durability_accessor_local": "static",
+        "items/spawn.itemstate_slot": "static",
+        "items/spawn.iter_base": "static",
+        "items/spawn.iter_size": "static",
+        "items/spawn.request_local": "static",
+        "items/spawn.request_pide": "static"
+      },
+      "features": {
+        "items.tool_wear_debit": "static"
       }
     },
     "emf": {

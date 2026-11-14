@@ -1820,8 +1820,9 @@ void install_hooks() {
 }
 
 void KILN_CALL on_ready(void*) {
+    native_pack_boot();   // a boot profile: the mods' quest files are prepared with the boot generation (chapter 08)
     native_pack_ready();
-    flame_ready();
+    flame_ready();        // Flame mods: another loader's, not moved
     if (!g_know_ok) return;
     register_program();
 }

@@ -3,7 +3,7 @@
 // with a destructor, as __try requires.
 #include <windows.h>
 
-#include "world_internal.h"
+#include "wraps.h"
 
 namespace kw {
 
@@ -105,6 +105,26 @@ bool seh_read_u64(uintptr_t address, uint64_t* out) {
 bool seh_copy(void* out, const void* source, size_t size) {
     __try { std::memcpy(out,source,size); return true; }
     __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
+// ---- program wraps (wraps.cpp) ----
+bool seh_wrap_stage(KilnWrapStageFn f, KilnGameSlice* slice, void* user, unsigned long* code) {
+    __try {
+        f(slice, user);
+        return true;
+    } __except (*code = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+bool seh_cas_ptr(uintptr_t address, uintptr_t expected, uintptr_t desired, uintptr_t* seen) {
+    __try {
+        *seen = static_cast<uintptr_t>(InterlockedCompareExchange64(reinterpret_cast<volatile LONG64*>(address),
+                                                                    static_cast<LONG64>(desired), static_cast<LONG64>(expected)));
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
 }
 
 // ---- tracked writes (writes.cpp) ----

@@ -30,6 +30,7 @@
 #include "cook/vfxcook.h"
 #include "core.h"
 #include "generated.h"
+#include "kiln_boot_collector.hpp"
 #include "services/kiln_assets.h"
 #include "services/kiln_profile.h"
 
@@ -297,7 +298,9 @@ void add_limited(const fs::path& mod, const std::wstring& root, const fs::path& 
 }
 
 // One mod's folder -> its input. false: nothing to do here.
-bool read_mod(const std::string& dir, const fs::path& pending_root, kvb::ModInput* m) {
+// `boot`: a boot generation's prepare (chapter 08): a mod it excludes is left out; the mod's OnBoot documents (a blocks file's form) come after
+// its data files and baked blocks and before what Kiln kept from code at an earlier start.
+bool read_mod(const std::string& dir, const fs::path& pending_root, kvb::ModInput* m, const kiln::boot::Input* boot = nullptr) {
     const fs::path d = to_path(dir);
     std::error_code ec;
     const fs::path manifest = d / L"kiln.mod.json";
@@ -312,6 +315,10 @@ bool read_mod(const std::string& dir, const fs::path& pending_root, kvb::ModInpu
     m->side = j.value("side", "server");
     m->clients = j.value("clients", m->side == "server" ? "none" : "mod");
     m->advanced = j.contains("advanced") && j["advanced"].is_boolean() && j["advanced"].get<bool>();
+    if (boot && boot->out(m->id)) {
+        KV_I("vfx: %s is out of the boot generation: its VFX and materials are not built", m->id.c_str());
+        return false;
+    }
     // Kiln's own data (what it kept from code at an earlier start): read as before
     auto add_folder = [&](const fs::path& folder, const char* prefix) {
         std::vector<fs::path> files;
@@ -334,6 +341,8 @@ bool read_mod(const std::string& dir, const fs::path& pending_root, kvb::ModInpu
         add_limited(d, root, d / L"blocks", "blocks", kvx_generated::kBlocks, m);
         add_limited(d, root, d / L"blocks" / L"generated", "blocks/generated", kvx_generated::kGenerated, m);
     }
+    if (boot)
+        for (const auto& b : boot->docs("vfx", m->id)) m->documents.emplace_back("boot/" + b.key, b.document.dump());
     add_folder(pending_root / to_path(m->id), "pending");
     return !m->documents.empty();
 }
@@ -672,7 +681,7 @@ bool serve(const kvb::CookResult& r) {
 
 }  // namespace
 
-void build_on_ready(const KilnApi* api, KilnOwner self) {
+void build_on_ready(const KilnApi* api, KilnOwner self, const kiln::boot::Input* boot) {
     g_api = api;
     g_self = self;
     try {
@@ -707,7 +716,7 @@ void build_on_ready(const KilnApi* api, KilnOwner self) {
         std::vector<kvb::ModInput> mods;
         for (const std::string& dir : mod_folders()) {
             kvb::ModInput m;
-            if (!read_mod(dir, pending, &m)) continue;
+            if (!read_mod(dir, pending, &m, boot)) continue;
             if (std::find(skip.begin(), skip.end(), m.id) != skip.end()) {
                 KV_I("vfx: %s: skipped by kiln/config/vfx.json", m.id.c_str());
                 continue;
@@ -875,6 +884,24 @@ void build_on_ready(const KilnApi* api, KilnOwner self) {
         KV_E("vfx: building mods' VFX failed (%s): no Kiln VFX this session", e.what());
         set_status("not checked", e.what(), nullptr);
     }
+}
+
+// A boot generation's prepared build that is not published (chapter 08): what kiln.assets serves for it goes, and nothing is known built.
+void build_forget() {
+    std::lock_guard lk(g_mu);
+    if (g_assets) {
+        g_assets->revert_owner(g_self);
+        for (const Reskin& r : g_reskins)
+            if (r.owner) g_assets->revert_owner(r.owner);
+    }
+    g_built.clear();
+    g_reskins.clear();
+    g_reskin_defs.clear();
+    g_material_records.clear();
+    g_foreign.clear();
+    g_own_checks.store(0);
+    g_status = "{}";
+    KV_I("vfx: the boot generation's prepared VFX and materials are taken back");
 }
 
 // The game resolves a VFX GUID through its own table, filled when it listed the VFX at start. That each of Kiln's resolves to the bytes Kiln

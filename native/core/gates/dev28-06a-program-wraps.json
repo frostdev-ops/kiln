@@ -1,0 +1,4 @@
+{ "gates": [
+    { "name": "systems.wraps.client", "checks": ["06a-wraps.client"], "side": "client",
+      "note": "wraps on the client world's programs (06a, chapter 14): built, off until a guided check proves a client-world wrap on a real client" }
+] }

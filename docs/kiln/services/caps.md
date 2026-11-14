@@ -259,13 +259,31 @@ a held row reads `unavailable`, `policy`, `game test pending: <ids>` until then.
 
 | Row | Kind | Reported by | Held until | What it says |
 |---|---|---|---|---|
+| `types.impact_names` | service row | kiln.types at its start | not held | the Impact-name field of the game's type table validated on this build: `GameType.ImpactName`, `GameTypes.ByImpactName`, `FindAllByImpactName` ([types.md](types.md#impact-names-since-020-dev28)); off with the counts that failed, or missing with a kiln.types older than 0.2.0-dev.28 |
+| `world.transform_scale` | managed row | Kiln.World at its first use | not held (check `13-world.transform-scale` decides the docs' wording only) | `World.SetTransformScale` ([world.md](world.md#transform-scale)): the game's type table gives `CurrentTransform.transform.scale` as three contiguous float32; the text names the place, or the shape found when it is off |
+| `assets.blob_catalog` | managed row | Kiln.Assets at its start | game client: `13-assets.catalog-client` | the content blob catalog (`Assets.OpenBlobCatalog`, [assets.md](assets.md#the-content-blob-catalog)): kiln.assets' table has it and the content hooks are on; `service-older` with an older kiln.assets |
+| `repl.observe` | sigdb feature, static | core (sigdb); `kiln.repl` lowers it (`faulted`) when its send-step hook fails | — | what the server sends each peer can be read (server, and a hosted world's machine 0) |
+| `repl.client` | sigdb feature (client exe), static | core (sigdb); `kiln.repl` and `Kiln.Replication` lower it (`service-older`) while kiln.repl has no receive side; `wrong-side` on a server | `11-repl.receive-watch` | what this Kiln client receives can be watched |
+| `repl.loopback` | sigdb feature (server exe), static | core (sigdb); `kiln.repl` and `Kiln.Replication` lower it (`policy`) without kiln.json's policy `any` and kiln.net's lab port; `wrong-side` on a client | — | the loopback harness (`ReplicationLab`, lab servers only) answers |
+| `world.systems` | sigdb feature | sigdb | — | the program scheduler (`world/StepPrograms`, `RunInitPrograms`, `SliceTaskFn`) and the players mask resolved |
+| `systems.threads` | service row | kiln.world | — | the server world's players mask can be read (what puts its program slices on the game's workers) |
+| `systems.wraps` | service row | kiln.world | — | Before/After/Replace on the game's programs work on this build; unavailable while native SET is loaded |
+| `systems.wraps.client` | service row (client) | kiln.world | `06a-wraps.client` | wraps on the client world's programs; `wrong-side` on a dedicated server |
 | `hooks.typed` | sigdb feature | core | - | kiln.hooks has typed links (`detour_typed`, `call_with_frame`, `fingerprint`): a hook or call of a game function with float, stack and struct-return positions |
 | `sig/<symbol>` | sigdb feature | core | - | the symbol has a `sig` descriptor, resolved, and its function's code fits the descriptor on this build (one row per described symbol: `sig/time/SetTimeScale`, `sig/items/GetItemVolume`, ...). Off: the reason names the argument that no longer fits; the symbol itself may still resolve. Check it before a native hook relies on the described signature |
 | `items.volume` | sigdb feature | core | - | `items/GetItemVolume` resolved |
 | `weather.sample` | sigdb feature | core | - | `weather/SampleAt` resolved (captured from its call in `fuel_setup`) |
+| `hooks.owner_cleanup` | sigdb feature | core | - | kiln.hooks has `subscribe_owner_retiring`: a native service is told when an owner it keeps state for is revoked |
 | `kiln.queries` | service | core | - | kiln.queries' table is here ([queries.md](queries.md)) |
 | `queries.voxel_ray` | sigdb | sigdb; kiln.queries lowers it (faulted) | client: `01-queries.voxel-ray-hosted` | The game's voxel ray: `Queries.RaycastVoxels`. Off for the process after a fault in the ray or a voxel grid that does not match the build's layout |
 | `queries.ground` | managed | Kiln.Queries | client: `01-queries.voxel-ray-hosted` | `Queries.GroundBelow`; needs `queries.voxel_ray` |
 | `queries.line_of_sight` | managed | Kiln.Queries | client: `01-queries.voxel-ray-hosted` | `Queries.VoxelLineOfSight`; needs `queries.voxel_ray` and `kiln.world` |
+| `queries.path` | sigdb | sigdb; kiln.queries lowers it (faulted, program refused) | client: `02-queries.path-hosted` | The game's path search: `Queries.RequestPath`, `FindPath`, `CancelPath` |
+| `queries.reachability` | managed | Kiln.Queries | client: `02-queries.path-hosted` | `Queries.CanReach`; needs `queries.path` |
 | `queries.overlap_origins` | managed | Kiln.Queries | client: `01-queries.voxel-ray-hosted` | `Queries.EntitiesInSphere`, `EntitiesInBox`: entity origins from `kiln.world` |
+| `kiln.terrain` | managed | Kiln.Terrain | - | The library is loaded ([terrain.md](terrain.md)): `Terrain.Inspect` |
+| `terrain.overlays` | managed | Kiln.Terrain | client: `19f-overlay-client` | `Terrain.Apply`, `Forget`, `Applied`; needs `kiln.build`, `build.read`, `build.write`, `build.persist`, `kiln.saves` |
+| `terrain.baked` | managed | Kiln.Terrain | - | Always off in this version: baked terrain regions are not built |
+| `terrain.biomes` | managed | Kiln.Terrain | - | Always off in this version: biome changes are not built |
+| `blocks.move_followups` | managed | Kiln.Blocks, with the item blocks' rows | `16c-b`, `16c-d` | A weapon's moves with `FollowUps`, applied as one generation: `MoveBlock.FollowUps`, `Blocks.MovesStatus`, `WeaponMovesApplicationChangedEvent`. Both sides; the query on any thread, application and events on the tick. Needs kiln.gamedata (sequence clones, their rules, item data); a move that names a state by name also needs `anim.player_states` |
 | `creature_control` | static (lowered when the broker's world program does not run) | kiln.creature_control | not held | the creature control broker takes new leases: its layout guard matched through kiln.types, its world program is registered (kiln.world with `write_other`), kiln.creatures has the AI switch ([creature-control.md](creature-control.md)); the table row `kiln.creature_control` serves queries, waits and releases |
