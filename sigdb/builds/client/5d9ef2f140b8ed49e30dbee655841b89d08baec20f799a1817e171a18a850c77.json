@@ -11,7 +11,7 @@
   "declared": {
     "symbols": 589,
     "constants": 670,
-    "features": 186
+    "features": 187
   },
   "features": {
     "abilities.attributes": true,
@@ -79,6 +79,7 @@
     "gameplay.recipes": true,
     "gameplay.spawn": true,
     "gameplay.terraform": true,
+    "hooks.owner_cleanup": true,
     "hooks.typed": true,
     "items.catalog": true,
     "items.equip": true,
@@ -1816,6 +1817,16 @@
         "creatures.rules": "static",
         "creatures.slots": "lab",
         "creatures.table": "lab"
+      }
+    },
+    "dev28-03-camera": {
+      "level": "static",
+      "date": "2026-11-13",
+      "evidence": "resolved offline (tools/sigport/build_record.py)",
+      "symbols": {},
+      "constants": {},
+      "features": {
+        "hooks.owner_cleanup": "static"
       }
     },
     "dev28-06b-typed-hooks": {

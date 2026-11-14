@@ -210,6 +210,17 @@ returns the same text; `buf` may be null to ask for the length. Offsets and RVAs
   that fired) and `ruleFiles`; what they mean and how to fix an overlap:
   [../engines/README.md](../engines/README.md#closed-source-dll-mods). Schema: `schema/hooks-state.schema.json`.
 
+## Owner cleanup: `subscribe_owner_retiring` (dev.28)
+A native service that keeps state for other owners (leases, queued work, callbacks into a mod) asks to be told when
+one of them is revoked: `hooks->subscribe_owner_retiring(my_owner, fn, user, &handle)`; check `header.size` covers
+the member, the capability row is `hooks.owner_cleanup`. `fn(retiring, user)` runs once per revoked owner (a mod
+unloading, a plugin whose start failed), after the core marked the owner dead and removed its own subscriptions and
+tasks, on the thread that revoked it, with no core lock held and under a fault guard (an observer that faults is
+removed). It is not called for owner 0 nor for the observer's own owner. In the callback drop the retiring owner's
+state and never call into it again; do not wait and do not call game code. A call into the retiring owner that is
+already running on another thread is the service's own to guard. `unsubscribe_owner_retiring(handle)` may be called
+from inside the callback.
+
 ## Threads
 
 - A handler runs on whatever thread the game calls the target on.
