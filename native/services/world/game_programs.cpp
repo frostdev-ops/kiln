@@ -17,7 +17,7 @@
 #endif
 
 #include "services/kiln_caps.h"
-#include "world_internal.h"
+#include "wraps.h"
 
 namespace kw {
 namespace {
@@ -73,14 +73,6 @@ bool g_holding = false;                    // server world's Pre only
 std::atomic<uint32_t> g_steps_left{0};
 std::atomic<bool> g_forced{false};
 
-uint32_t this_thread_id() {
-#ifdef _WIN32
-    return GetCurrentThreadId();
-#else
-    return static_cast<uint32_t>(std::hash<std::thread::id>{}(std::this_thread::get_id()) | 1u);
-#endif
-}
-
 int64_t cst(const char* n) {
     int64_t v = -1;
     return g_api->constant(KilnStr{n, std::strlen(n)}, &v) == KILN_OK ? v : -1;
@@ -97,6 +89,17 @@ bool in_image(uintptr_t a) { return a && a >= g_image_lo && a < g_image_hi; }
 
 const std::string* intern(std::string_view s) {  // g_dir_mu held
     return &*g_names.emplace(s).first;
+}
+
+bool ref_of(const Directory& d, int32_t index, ProgramRef* out) {
+    if (index < 0 || static_cast<size_t>(index) >= d.entries.size()) return false;
+    const Entry& e = d.entries[static_cast<size_t>(index)];
+    out->index = e.index;
+    out->name = e.name;
+    out->entry = e.entry;
+    out->desc = e.desc;
+    out->no_update = !e.update;
+    return true;
 }
 
 void report(const char* name, uint32_t state, uint32_t reason, const char* text) {
@@ -129,6 +132,7 @@ std::shared_ptr<Directory> read_table(uint32_t kind, uintptr_t world, uint16_t c
         std::memcpy(&e.id, raw + L.entry_id, 2);
         std::memcpy(&e.entry_flags, raw + L.entry_flags, 4);
         std::memcpy(&e.update, raw + kEntryUpdate, 8);
+        e.update = wraps_resolve(e.entry, e.update);  // the game's own update, also under a wrap
         uintptr_t name_ptr = 0;
         uint64_t name_len = 0;
         std::memcpy(&name_ptr, raw + g_name_at, 8);
@@ -295,7 +299,6 @@ void game_programs_init() {
     else
         report("systems.threads", KILN_CAP_UNAVAILABLE, KILN_CAP_REASON_SYMBOL_MISSING,
                "sigdb feature world.systems (world/StepPrograms, world/storage.players_mask) is off on this build");
-    report("systems.wraps", KILN_CAP_UNAVAILABLE, KILN_CAP_REASON_SERVICE_OLDER, "this kiln.world has no program wraps");
     KW_I("game programs: directory %s, threads %s (players mask at storage+0x%llx), lab parallel switch %s",
          g_table_ok ? "on" : "off", g_threads_ok ? "on" : "off", static_cast<unsigned long long>(g_players_mask),
          g_switch_enabled ? "ENABLED" : "off");
@@ -303,17 +306,19 @@ void game_programs_init() {
 
 void game_programs_pre(uint32_t kind, const KilnTickInfo* tick) {
     if (kind >= kKinds || kind == KILN_WORLD_PREDICTION) return;
-    g_world_tid[kind].store(this_thread_id(), std::memory_order_relaxed);
+    g_world_tid[kind].store(current_thread_id(), std::memory_order_relaxed);
     if (tick) g_step[kind].store(tick->step, std::memory_order_relaxed);
     const uintptr_t world = world_of(kind);
     if (!world) return;
     if (g_table_ok) ensure_directory(kind, world);
     if (kind == KILN_WORLD_SERVER) mask_pre(world);
+    if (g_table_ok) wraps_pre(kind, world);
 }
 
 void game_programs_world_event(const KilnWorldEvent* event) {
     if (!event || event->kind >= kKinds) return;
     g_generation[event->kind].fetch_add(1);
+    wraps_world_event(event);
     if (event->event != KILN_WORLD_STOPPING) return;
     drop_directory(event->kind);
     if (event->kind == KILN_WORLD_SERVER && g_holding) {
@@ -323,6 +328,54 @@ void game_programs_world_event(const KilnWorldEvent* event) {
         KW_I("lab parallel switch: the server world stops; let go");
     }
     if (event->kind == KILN_WORLD_SERVER) g_mask.store(0xFFFFu);
+}
+
+uint32_t current_thread_id() {
+#ifdef _WIN32
+    return GetCurrentThreadId();
+#else
+    return static_cast<uint32_t>(std::hash<std::thread::id>{}(std::this_thread::get_id()) | 1u);
+#endif
+}
+
+std::string module_name(uintptr_t address) {
+#ifdef _WIN32
+    HMODULE m = nullptr;
+    wchar_t wide[MAX_PATH];
+    if (!address || !GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                        reinterpret_cast<LPCWSTR>(address), &m))
+        return {};
+    const DWORD n = GetModuleFileNameW(m, wide, MAX_PATH);
+    if (!n || n >= MAX_PATH) return {};
+    const wchar_t* leaf = wide;
+    for (const wchar_t* p = wide; *p; ++p)
+        if (*p == L'\\' || *p == L'/') leaf = p + 1;
+    char utf8[MAX_PATH * 3];
+    const int len = WideCharToMultiByte(CP_UTF8, 0, leaf, -1, utf8, sizeof utf8, nullptr, nullptr);
+    return len > 0 ? std::string(utf8) : std::string();
+#else
+    (void)address;
+    return {};
+#endif
+}
+
+bool game_program_lookup(uint32_t kind, std::string_view name, ProgramRef* out) {
+    const auto d = directory(kind);
+    if (!d) return false;
+    const auto it = d->by_name.find(name);
+    return it != d->by_name.end() && ref_of(*d, it->second, out);
+}
+
+bool game_program_at(uint32_t kind, int32_t index, ProgramRef* out) {
+    const auto d = directory(kind);
+    return d && ref_of(*d, index, out);
+}
+
+bool game_programs_has_directory(uint32_t kind) { return directory(kind) != nullptr; }
+
+const std::string* game_program_intern(std::string_view name) {
+    std::lock_guard lock(g_dir_mu);
+    return intern(name);
 }
 
 uint32_t game_programs_world_tid(uint32_t kind) { return kind < kKinds ? g_world_tid[kind].load(std::memory_order_relaxed) : 0; }
@@ -353,6 +406,7 @@ KilnResult KILN_CALL game_program_info(uint32_t kind, int32_t index, KilnGamePro
     out->entry_flags = e.entry_flags;
     out->update_rva = in_image(e.update) ? e.update - g_image_lo : 0;
     out->flags = e.flags;
+    game_program_wrap_stats(kind, e.name, out);
     return KILN_OK;
 }
 
@@ -374,16 +428,17 @@ KilnResult KILN_CALL game_programs_status(KilnGameProgramsStatus* out) {
     out->parallel_forced = g_forced.load();
     out->parallel_switch = g_switch_enabled;
     out->parallel_steps_left = g_steps_left.load();
+    game_wraps_status(out);
     std::string why;
     if (!g_table_ok) why = "the program table's layout did not resolve on this build (world.programs)";
     else if (!g_threads_ok) why = "the players mask did not resolve on this build (world.systems)";
-    std::snprintf(out->detail, sizeof out->detail, "%s", why.c_str());
+    std::snprintf(out->detail, sizeof out->detail, "%s", why.empty() ? game_wraps_off_reason() : why.c_str());
     return KILN_OK;
 }
 
 KilnResult KILN_CALL lab_parallel(uint32_t on, uint32_t steps) {
     if (!g_switch_enabled) return KILN_ERR_UNAVAILABLE;
-    if (t_in_program) return KILN_ERR_WRONG_THREAD;
+    if (t_in_program || game_in_slice()) return KILN_ERR_WRONG_THREAD;
     if (on && (steps == 0 || steps > kMaxForcedSteps)) return KILN_ERR_INVALID_ARGUMENT;
     std::lock_guard lock(g_switch_mu);
     g_switch_req = SwitchRequest{true, on != 0, on ? steps : 0};
