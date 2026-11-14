@@ -174,7 +174,8 @@ world-data directory.
 | Situation | What happens |
 |---|---|
 | No record, and no block shows an earlier apply | every block is written; "before" and "after" are recorded |
-| No record, but a block already holds this plan's result and shows its shape (the ledger was lost, or the plan was forgotten) | `Refused`: "ownership lost: …"; nothing is written or recorded (see "When the ledger is gone") |
+| No record, but a block already holds this plan's result and shows its shape (the ledger was lost) | `Refused`: "ownership lost: …"; nothing is written or recorded (see "When the ledger is gone") |
+| No record, and `Forget` left a tombstone for this id | a first install over whatever is there (the ground is not checked); the tombstone is used up |
 | Same id, same version, same content, state `applied` | `AlreadyApplied` |
 | Same id and version, other content | `Refused`: "content changed without a new version" |
 | Lower version than recorded | `Refused`: a downgrade is never applied |
@@ -191,8 +192,10 @@ world-data directory.
 
 Rules that follow from the engine:
 - **Removing a plan does not restore the ground.** `Terrain.Forget(id)` drops the record (the plan no longer owns
-  its blocks, and an `Apply` of the same id is a first install again: refused while its ground still shows the plan's
-  result, see "When the ledger is gone"); the cells stay. Nothing can delete
+  its blocks) and leaves a tombstone in the ledger (the id and when), so the next `Apply` of that id is a first install
+  over whatever is there, of any version, and not taken for a lost ledger; that apply uses the tombstone up. A ledger
+  keeps 64 tombstones per mod and world (past that the oldest goes, and that id is checked like any plan with no
+  record); a world copied without its Kiln data, or another mod, has none of them. The cells stay. Nothing can delete
   a saved block, so the terrain under an overlay never comes back by itself.
 - **A mod that is gone keeps its ground.** Its cells stay in the world. Its ledger is in its own world data, which
   no other mod can read: another mod's plan over the same blocks is refused only while the owning mod is loaded and
@@ -241,7 +244,7 @@ What it cannot see:
 What an operator can do: restore the world's Kiln data from a backup that matches the world save
 (`Saves.RestoreOnNextStart`, or a `kilnctl backup` archive); the ledger is back and the plan behaves as recorded.
 Adopting the ground as it stands (recording its cells as the plan's) is not available in this version, and
-`Terrain.Forget` does not help: after `Forget`, ground that still holds the plan's result is refused the same way.
+`Terrain.Forget` does not help either: with no record there is nothing to forget, so no tombstone.
 
 ### Inspect
 
