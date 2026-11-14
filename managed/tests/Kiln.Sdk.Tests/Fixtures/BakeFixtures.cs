@@ -68,7 +68,7 @@ public sealed class NeedsTheGame : Mod
     }
 }
 
-/// <summary>A boot mod: its OnBoot stages a status and an item, its OnLoad defines nothing.</summary>
+/// <summary>A boot mod: its OnBoot stages a status, an item and a game-tree talent, its OnLoad defines nothing.</summary>
 public sealed class BootStages : Mod
 {
     public override void OnBoot(BootContext boot)
@@ -76,6 +76,8 @@ public sealed class BootStages : Mod
         var d = BootDefinitions.For(boot);
         if (d.Define("chill", new StatusBlock { Name = "Chill", Seconds = 2 }) is { Ok: false } s) throw new InvalidOperationException(s.Reason);
         if (d.Define("chill-token", new ItemBlock { Name = "Chill Token", Stack = 10 }) is { Ok: false } i) throw new InvalidOperationException(i.Reason);
+        if (d.Define("chill-talent", new TalentBlock { Name = "Chill Talent", Keeps = "chill", Game = new GameTreePlace { From = ["0x8efcc472"], Offset = [170, 0] } }) is { Ok: false } t)
+            throw new InvalidOperationException(t.Reason);
     }
 }
 

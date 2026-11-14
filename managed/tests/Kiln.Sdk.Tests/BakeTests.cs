@@ -361,8 +361,10 @@ public sealed class BootBakeTests
             var result = Baker.Run(dir, new BakeOptions { DryRun = true });
             Assert.Empty(result.Warnings);
             var note = Assert.Single(result.Notes, n => n.StartsWith("a boot mod:", StringComparison.Ordinal));
-            Assert.Contains("statuses/chill, items/chill-token", note);
-            Assert.Empty(result.Written);  // no baked twin of what OnBoot staged: the boot generation has it at every start
+            Assert.Contains("statuses/chill, items/chill-token, talents/chill-talent", note);
+            // no baked twin of what OnBoot staged, the talent's node included (no skills/<id>.generated.json): the boot generation has it
+            Assert.Empty(result.Written);
+            Assert.Empty(result.Unchanged);
         }
         finally
         {
