@@ -518,6 +518,11 @@ internal static partial class KilnApis
         "M:Kiln.ReflectedValue.get_Bytes", // ReflectedValue.Bytes.get: via ReflectedValue.Span()
         "M:Kiln.ReflectedValue.get_Item(System.String)", // ReflectedValue.this[string].get: via ReflectedValue.Span()
         "M:Kiln.ReflectedValue.set_Item(System.String,System.Object)", // ReflectedValue.this[string].set: via ReflectedValue.Span()
+        "M:Kiln.ReplicationLab.AddFakePeers(System.Int32)", // ReplicationLab.AddFakePeers(int): Services.RequireTickThread
+        "M:Kiln.ReplicationLab.Decoded(System.Int32,Kiln.EntityId,System.String)", // ReplicationLab.Decoded(int, EntityId, string): Services.RequireTickThread
+        "M:Kiln.ReplicationLab.ForceRelevant(System.Int32,Kiln.EntityId)", // ReplicationLab.ForceRelevant(int, EntityId): Services.RequireTickThread
+        "M:Kiln.ReplicationLab.LoopbackStats", // ReplicationLab.LoopbackStats(): Services.RequireTickThread
+        "M:Kiln.ReplicationLab.RemoveFakePeers", // ReplicationLab.RemoveFakePeers(): Services.RequireTickThread
         "M:Kiln.RuleSet.Update(Kiln.PlayerRules)", // RuleSet.Update(PlayerRules): Game.AssertTickThread
         "M:Kiln.Rules.Apply(Kiln.EntityId,Kiln.PlayerRules,System.Nullable{System.TimeSpan},System.String)", // Rules.Apply(EntityId, PlayerRules, TimeSpan?, string?): via Rules.Apply(RuleScope, PlayerRules, TimeSpan?, string?)
         "M:Kiln.Rules.Apply(Kiln.RuleScope,Kiln.PlayerRules,System.Nullable{System.TimeSpan},System.String)", // Rules.Apply(RuleScope, PlayerRules, TimeSpan?, string?): via Rules.Apply(RuleScope, PlayerRules, TimeSpan?, string?, Action<RuleSet>?)
@@ -792,6 +797,7 @@ internal static partial class KilnApis
         "PlayerAnim",
         "Players",
         "Quests",
+        "Replication",
         "Rules",
         "Saves",
         "Settings",
