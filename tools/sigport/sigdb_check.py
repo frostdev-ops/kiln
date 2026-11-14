@@ -207,6 +207,8 @@ def main():
     ap.add_argument("definitions")
     ap.add_argument("exe")
     ap.add_argument("--json")
+    ap.add_argument("--fptool", help="kiln-fptool (tools/sigport/fptool/build.sh): also check every sig block against "
+                                     "the function's code, as the core does at load")
     a = ap.parse_args()
     # <side>.json + the per-service files the core would see in kiln/sigdb/<side>.d/ (duplicates are errors). The
     # client's .d set is composed from server.d + client.d overlays like the deploy does (tools/sigport/sides.py).
@@ -224,9 +226,67 @@ def main():
         print(f"  {'ok' if r['ok'] else 'FAIL'}  {n:24s} {('%#x' % r['value']) if r.get('ok') else r.get('error', '')}  {r.get('source', '')}")
         bad += not r["ok"]
     print("features: " + ", ".join(f"{n}={'on' if ok else 'OFF'}" for n, ok in feats.items()))
+    sigs, sig_bad = check_sigs(doc, syms, a.exe, a.fptool)
+    bad += sig_bad
     if a.json:
-        Path(a.json).write_text(json.dumps({"symbols": syms, "constants": consts, "features": feats}, indent=2))
+        Path(a.json).write_text(json.dumps({"symbols": syms, "constants": consts, "features": feats, "sigs": sigs}, indent=2))
     return 1 if bad else 0
+
+
+def sig_blocks(doc):
+    """symbol -> its sig block: "sig" in the symbol's entry, or the file's "sigs" section. A name in both is an error."""
+    out, twice = {}, []
+    for name, d in doc.get("symbols", {}).items():
+        if isinstance(d, dict) and "sig" in d:
+            out[name] = d["sig"]
+    for name, sig in doc.get("sigs", {}).items():
+        if name in out:
+            twice.append(name)
+        out[name] = sig
+    return out, twice
+
+
+def check_sigs(doc, syms, exe, fptool):
+    """Prints one line per described symbol. Without --fptool only the symbol's resolution is checked; with it the
+    descriptor is compared with the function's code by the core's own pass. Returns (results, number of failures)."""
+    blocks, twice = sig_blocks(doc)
+    bad = len(twice)
+    for name in twice:
+        print(f"FAIL  sig {name}: two sig blocks")
+    results = {}
+    if not blocks:
+        return results, bad
+    request = {"structs": doc.get("structs", {}), "sigs": {}}
+    for name, sig in blocks.items():
+        r = syms.get(name)
+        if not r or not r.get("ok") or "rva" not in r:
+            results[name] = {"verdict": "unresolved"}
+            print(f"FAIL  sig {name}: the symbol is not resolved")
+            bad += 1
+            continue
+        request["sigs"][name] = {"rva": r["rva"], "sig": sig}
+    if not fptool:
+        for name in request["sigs"]:
+            results[name] = {"verdict": "not checked"}
+            print(f"  --  sig {name}: resolved; not compared with the code (no --fptool)")
+        return results, bad
+    import subprocess
+    import tempfile
+    with tempfile.NamedTemporaryFile("w", suffix=".json") as f:
+        json.dump(request, f)
+        f.flush()
+        done = subprocess.run([fptool, exe, f.name], capture_output=True, text=True)
+    if done.returncode != 0:
+        print(f"FAIL  kiln-fptool: {done.stderr.strip()}")
+        return results, bad + 1
+    for name, r in json.loads(done.stdout)["sigs"].items():
+        results[name] = r
+        ok = r["verdict"] == "match"
+        bad += not ok
+        fpr = r.get("fingerprint", {})
+        print(f"  {'ok' if ok else 'FAIL'}  sig {name}: {r['verdict']}: {r.get('text', '')}"
+              + (f"  [passes {','.join(fpr.get('passes', []))}; ret {fpr.get('ret')}; {fpr.get('insns')} insns]" if fpr else ""))
+    return results, bad
 
 
 if __name__ == "__main__":
