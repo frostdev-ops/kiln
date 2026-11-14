@@ -15,19 +15,19 @@ public sealed class TransformScaleMod : Mod
 {
     public override void OnLoad()
     {
-        _ = World.SupportsTrackedWrites;  // Kiln.World reports its rows at its first use
         Log.Info($"transform-scale: {Capabilities.Why(World.TransformScaleCapability)}");
         Events.On<EntityScaleChangedEvent>(e => Log.Info($"transform-scale: {e}"));
     }
 
     [Command("tscale", Description = "an entity's transform scale: <entity> to show it, <entity> <x> <y> <z> to set it", Permission = CommandPermission.Admin)]
-    private async Task Scale(CommandContext c, uint entity, float x = float.NaN, float y = float.NaN, float z = float.NaN)
+    private async Task Scale(CommandContext c, long entity, float x = float.NaN, float y = float.NaN, float z = float.NaN)
     {
         if (!Capabilities.Is(World.TransformScaleCapability))
             throw new CommandException($"no transform scale here: {Capabilities.Why(World.TransformScaleCapability)}");
         if (!Capabilities.Is(World.TrackedWritesCapability))
             throw new CommandException($"no tracked writes here: {Capabilities.Why(World.TrackedWritesCapability)}");
-        var id = new EntityId(entity);
+        if (entity is < 1 or > uint.MaxValue) throw new CommandException("an entity id is a number from 1 to 4294967295");
+        var id = new EntityId((uint)entity);
         if (float.IsNaN(x))
         {
             c.Reply(World.WriteInfo("CurrentTransform") is { CanWrite: true } ? $"{id} can be scaled" : $"{id}: {World.WriteInfo("CurrentTransform").Reason}");

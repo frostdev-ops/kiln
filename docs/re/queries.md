@@ -56,7 +56,8 @@ five from two readers of the query:
   (PreferClosestTargetNode), which gives `queries/query.target_type`.
 
 Both match once on the server and once on the client (0xf4, 0xfc, 0x100, 0x104 and 0x36 on Steam builds 26430253 and
-26430625). kiln.queries checks each against the query's size before it writes.
+26430625). kiln.queries requires the audited offsets before it writes. The normalizer's identical blocks can be
+reordered without breaking the pattern; a changed capture therefore disables paths until the new layout is verified.
 
 ## Seen in the lab (dev28-01-world-queries, no player)
 1000 of 1000 downward rays hit natural ground (material 0x2f2607aa); a 2-cell wall of terrain voxels 0xff01 and one of

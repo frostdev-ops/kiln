@@ -60,6 +60,23 @@ internal static class BootLowering
                 }
                 var type = BootDefinitions.Kinds.First(k => k.Value == kind).Key;
                 sink.Key = key;
+                // a resource patch is not compiled: its record is the patches collector's document, which checks it in prepare
+                if (kind == BootDefinitions.ResourcePatches)
+                {
+                    try
+                    {
+                        var patch = JsonSerializer.Deserialize<ResourcePatchBlock>((string)s["json"]!, BlockJson.SharedOptions)!;
+                        if (patch.Resource == Guid.Empty || patch.Type.Length == 0 || patch.Set.Count == 0)
+                            return new JsonObject { ["ok"] = false, ["reason"] = $"{kind}/{key}: a resource patch names a resource, its type and at least one field to set" }.ToJsonString();
+                        sink.Patch(key, JsonNode.Parse((string)s["json"]!)!.AsObject());
+                    }
+                    catch (JsonException e)
+                    {
+                        return new JsonObject { ["ok"] = false, ["reason"] = $"{kind}/{key}: {e.Message}" }.ToJsonString();
+                    }
+                    definitions.Add($"{kind}/{key}");
+                    continue;
+                }
                 try
                 {
                     var block = (IBlock)JsonSerializer.Deserialize((string)s["json"]!, type, BlockJson.SharedOptions)!;
@@ -129,7 +146,7 @@ internal static class BootLowering
     internal sealed class BootSink : Lowered.ILoweredSink
     {
         public string Key = "";
-        private readonly JsonArray _assets = [], _content = [], _skills = [];
+        private readonly JsonArray _assets = [], _content = [], _skills = [], _patches = [];
         private int _n;
 
         private string Next() => $"{Key}#{++_n}";
@@ -152,9 +169,14 @@ internal static class BootLowering
         public void Skills(string key, JsonObject node) =>
             _skills.Add(new JsonObject { ["key"] = key, ["document"] = new JsonObject { ["nodes"] = new JsonArray(node.DeepClone()) } });
 
+        public void Patch(string key, JsonObject document) => _patches.Add(new JsonObject { ["key"] = key, ["document"] = document.DeepClone() });
+
         private JsonObject Doc(JsonObject document) => new() { ["key"] = Next(), ["document"] = document };
 
-        public JsonObject Docs() => new() { ["assets"] = _assets.DeepClone(), ["content"] = _content.DeepClone(), ["skills"] = _skills.DeepClone() };
+        public JsonObject Docs() => new()
+        {
+            ["assets"] = _assets.DeepClone(), ["content"] = _content.DeepClone(), ["skills"] = _skills.DeepClone(), ["patches"] = _patches.DeepClone(),
+        };
     }
 
     /// <summary>Registers nothing: the boot generation did (a committed definition defined again for its runtime instance).</summary>
@@ -208,6 +230,11 @@ internal static class BootLowering
             {
                 var type = BootDefinitions.Kinds.FirstOrDefault(k => k.Value == s.Kind).Key;
                 if (type == null) continue;
+                if (s.Kind == BootDefinitions.ResourcePatches)
+                {
+                    done.Add($"{s.Kind}/{s.Key}");  // written by kiln.content when the game's resources came up: nothing to define
+                    continue;
+                }
                 try
                 {
                     var block = (IBlock)JsonSerializer.Deserialize(s.Json, type, BlockJson.SharedOptions)!;

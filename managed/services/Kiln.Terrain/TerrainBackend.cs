@@ -13,6 +13,7 @@ internal interface ITerrainBackend
     /// <summary>Grid size in cells (x, z), or null while unknown.</summary>
     (int X, int Z)? GridCells { get; }
     string KilnVersion { get; }
+    DataMatch LoadedData => DataMatch.Exact;
     Task NextTick();
     Task<bool> Load(CellBox box, TimeSpan timeout);
     bool TryRead(CellBox box, out Voxel[] cells);
@@ -27,24 +28,37 @@ internal interface ITerrainBackend
 internal sealed class BuildTerrainBackend(ModContext mod) : ITerrainBackend
 {
     public string Mod => mod.Info.Id;
-    public bool WorldRunning => Spawn.Available ? Spawn.WorldRunning : Build.Grid is not null;
-    public string? WorldId => Saves.WorldId;
+    private readonly long _session = Lifecycle.ServerSession;
+    public bool WorldRunning => mod.Alive && _session == Lifecycle.ServerSession && Lifecycle.Phase is not (ServerPhase.Stopping or ServerPhase.Idle) &&
+        (Spawn.Available ? Spawn.WorldRunning : Build.Grid is not null);
+    public DataMatch LoadedData => WorldData.Loaded;
+    // A new world's GUID can be assigned by its first save. Its process session is stable across that save,
+    // and WorldRunning invalidates this backend when the session ends. WorldData selects the persistent GUID.
+    public string? WorldId => $"session:{_session}";
     public (int X, int Z)? GridCells => Build.Grid is { } g ? (g.CellsX, g.CellsZ) : null;
     public string KilnVersion => Game.KilnVersion;
     public async Task NextTick() => await mod.Scheduler.NextTick();
     public Task<bool> Load(CellBox box, TimeSpan timeout) => Build.Load(box, timeout);
     public bool TryRead(CellBox box, out Voxel[] cells) => Build.TryRead(box, out cells);
 
-    public Task<BuildResult> Write(CellBox box, Voxel[] cells, bool[] mask, bool inBases, bool transient, string label, TimeSpan timeout, bool dryRun = false)
+    public async Task<BuildResult> Write(CellBox box, Voxel[] cells, bool[] mask, bool inBases, bool transient, string label, TimeSpan timeout, bool dryRun = false)
     {
         var flags = BuildFlags.None;
         if (inBases) flags |= BuildFlags.InBases;
         if (transient) flags |= BuildFlags.Transient;
         if (dryRun) flags |= BuildFlags.DryRun;
         // no journal: an overlay is not a session edit to undo, and its cells would sit in the journal twice
-        return Build.WriteAsync(box, cells, new BuildOptions { Flags = flags, Journal = false, Label = label, LoadTimeout = timeout }, mask);
+        if (!await Build.Load(box, timeout) || !WorldRunning)
+            return new BuildResult(0, 0, false, false, box, 0, BuildRefusal.NotLoaded);
+        return Build.Write(box, cells, new BuildOptions { Flags = flags, Journal = false, Label = label, LoadTimeout = timeout }, mask);
     }
 
-    public TerrainBook Book() => WorldData.Get<TerrainBook>(TerrainBook.Key);
+    public TerrainBook Book()
+    {
+        if (!WorldData.Contains(TerrainBook.Key)) return WorldData.Get<TerrainBook>(TerrainBook.Key);
+        if (!WorldData.TryGet<TerrainBook>(TerrainBook.Key, out var book))
+            throw new InvalidDataException("terrain ledger is null; stored data was kept");
+        return book;
+    }
     public void Save(TerrainBook book) => WorldData.Set(TerrainBook.Key, book);
 }

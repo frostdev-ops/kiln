@@ -7,6 +7,92 @@ namespace Kiln.TestKit.Tests;
 
 public sealed unsafe class CreatureControlFakeTests
 {
+    [Fact]
+    public void InvalidBodyKeysMatchTheNativeArgumentRefusals()
+    {
+        using var kiln = new KilnHarness();
+        kiln.Boot();
+        var model = CreatureControlFake.ModelOf(kiln);
+        var reserved = new CreatureControlAbi.BodyKey { WorldEpoch = 1, BodyGeneration = 1, Entity = 1024, Reserved = 1 };
+        Assert.Multiple(
+            () => Assert.Equal(FakeTables.InvalidArgument, model.Quarantine(default, 1)),
+            () => Assert.Equal(FakeTables.InvalidArgument, model.ReleaseBody(77, reserved)),
+            () => Assert.Equal(FakeTables.InvalidArgument, model.BodyRetired(77, reserved)));
+    }
+
+    [Fact]
+    public void BindKeepsItsBaseline()
+    {
+        using var kiln = new KilnHarness();
+        kiln.Boot();
+        kiln.Step(2);
+        var entity = kiln.Entities.Create(new WorldPosition(1, 0, 1));
+        var model = CreatureControlFake.ModelOf(kiln);
+        CreatureControlAbi.BodyKey key = default, other = default;
+        Assert.Equal(FakeTables.Ok, model.Bind(77, entity.Value, 0, 1, &key));
+        Assert.Equal(FakeTables.InvalidArgument, model.Bind(78, entity.Value, 1, 1, &other));
+    }
+
+    [Fact]
+    public void RequestOverflowAndNoticeGapsMatchTheBroker()
+    {
+        using var kiln = new KilnHarness();
+        kiln.Boot();
+        kiln.Step(2);
+        var entity = kiln.Entities.Create(new WorldPosition(1, 0, 1));
+        var model = CreatureControlFake.ModelOf(kiln);
+        CreatureControlAbi.BodyKey key = default;
+        Assert.Equal(FakeTables.Ok, model.Bind(77, entity.Value, 0, 1, &key));
+        var q = new CreatureControlAbi.Request { Size = (uint)sizeof(CreatureControlAbi.Request), Body = key };
+        CreatureControlAbi.State s = default;
+        s.Size = (uint)sizeof(CreatureControlAbi.State);
+        for (ulong i = 1; i <= 1024; ++i)
+        {
+            q.RequestId = i;
+            q.Role = i % 2 == 0 ? CreatureControlAbi.PetFollow : CreatureControlAbi.PetStay;
+            Assert.Equal(FakeTables.Ok, model.Acquire(77, &q, &s));
+            Assert.NotEqual(0ul, s.Lease);
+        }
+        q.RequestId++;
+        q.Role = CreatureControlAbi.PetStay;
+        Assert.Equal(FakeTables.Ok, model.Acquire(77, &q, &s));
+        uint written = 0, resync = 0;
+        Assert.Equal(FakeTables.Ok, model.Notices(77, null, 0, &written, &resync));
+        var admitted = s.Lease;
+        var gotResync = resync;
+        Assert.Multiple(
+            () => Assert.Equal(0ul, admitted),
+            () => Assert.Equal(1u, gotResync));
+        Assert.StartsWith("QueueFull", Reason(&s));
+    }
+
+    [Fact]
+    public void RequestIdsRefuseExhaustion()
+    {
+        using var kiln = new KilnHarness();
+        kiln.Boot();
+        kiln.Step(2);
+        var entity = kiln.Entities.Create(new WorldPosition(1, 0, 1));
+        var model = CreatureControlFake.ModelOf(kiln);
+        CreatureControlAbi.BodyKey key = default;
+        Assert.Equal(FakeTables.Ok, model.Bind(77, entity.Value, 0, 1, &key));
+        var q = new CreatureControlAbi.Request { Size = (uint)sizeof(CreatureControlAbi.Request), Body = key,
+            Role = CreatureControlAbi.PetFollow, RequestId = ulong.MaxValue };
+        CreatureControlAbi.State s = default;
+        s.Size = (uint)sizeof(CreatureControlAbi.State);
+        Assert.Equal(FakeTables.Ok, model.Acquire(77, &q, &s));
+        ulong id = 5;
+        Assert.Equal(FakeTables.BufferTooSmall, model.NextRequest(77, &id));
+        Assert.Equal(5ul, id);
+    }
+
+    private static string Reason(CreatureControlAbi.State* state)
+    {
+        var n = 0;
+        while (n < 160 && state->Reason[n] != 0) ++n;
+        return System.Text.Encoding.UTF8.GetString(state->Reason, n);
+    }
+
     private static CreatureControlAbi.Table* T => (CreatureControlAbi.Table*)KitBackend.Instance.Service(CreatureControlAbi.Service, 1);
 
     [Fact]

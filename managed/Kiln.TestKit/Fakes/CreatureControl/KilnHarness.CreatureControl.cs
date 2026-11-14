@@ -17,17 +17,18 @@ public sealed partial class KilnHarness
 /// </summary>
 /// <remarks>
 /// <para><b>Modelled.</b> Bodies are entities of the fake world (<see cref="KilnHarness.Entities"/>) in the engine's
-/// counter range (from 1024; players are refused). One lease per body. A lease is Pending at its acquire and Active two
+/// counter range (from 1024; players are refused). Roles, replacement and preemption match the broker. A lease is Pending at its acquire and Active two
 /// steps later (the step the broker removes the body's SteeringAgent in, and the Pre that checks it), with transition
 /// sequence 1, 2, ... per body; while the body is busy (<see cref="SetBusy"/>: its current action keeps playing) it waits,
 /// and after 5 s of simulation time (125 steps) it fails with Quiescence. A release ends drive permission at once; the
-/// lease is Released four steps later (three steps of zeroed input and the restore's check), or Canceled at the next step
-/// when it was never Active. A body destroyed in the fake world fails its leases BodyGone at the next step. Terminal
+/// lease is Released four steps later (three steps of zeroed input and the restore's check), including a Pending lease
+/// whose removal was queued; when no removal ran, cancellation ends at the next step. A body destroyed in the fake world fails its leases BodyGone at the next step. Terminal
 /// leases stay queryable for 10 minutes of simulation time. Switching the row <c>creature_control</c> off
 /// (<c>Capabilities.Override</c>) makes new binds and admissions refuse as the native service does.</para>
-/// <para><b>Not modelled</b> (offline): the game's components (no SteeringAgent is removed, no input zeroed), the roles
-/// PetCombat, Vehicle and EngineGuard (refused RoleUnavailable, as this build's native service does), preemption,
-/// quarantine, retirement and the retired-root table.</para>
+/// <para>Bindings keep their baseline kind. Request ids refuse exhaustion; body, lease, request and retired-root
+/// capacities refuse new work before allocation. Dropped notices set needs_resync.</para>
+/// <para><b>Not modelled</b> (offline): the game's components (no SteeringAgent is removed, no input zeroed), another
+/// owner's AI-off layer, the entity counter's identity check, native owner-retiring notifications and failure injection.</para>
 /// </remarks>
 public sealed class HarnessCreatureControl
 {

@@ -10,8 +10,9 @@ public static unsafe partial class Queries
     public const double MaxPathDistance = 200;
 
     /// <summary>Asks for a walking route. The ticket's <see cref="QueryPathTicket.Completion"/> ends some server steps
-    /// later (at most 10 s) with a copy of the route as it was then. Nothing is moved. A refusal (the queue is full, the
-    /// anchor has no SpawnTime marker, an endpoint is outside the world's grid) is a ticket with <c>Ok = false</c>.</summary>
+    /// later with a copy of the route as it was then (timeout after both 10 s and 150 server steps). Nothing is moved.
+    /// A refusal (the queue is full, the anchor has no SpawnTime marker, an endpoint is outside the world's grid) is a
+    /// ticket with <c>Ok = false</c>.</summary>
     /// <exception cref="ArgumentException">Numbers that are no request: not finite, more than <see cref="MaxPathDistance"/>
     /// apart, a space outside 0..16 m, iterations outside 1..65535, no anchor.</exception>
     /// <exception cref="KilnUnavailableException"><c>queries.path</c> is off.</exception>
@@ -42,16 +43,21 @@ public static unsafe partial class Queries
     }
 
     /// <summary>Whether <c>To</c> can be walked to from <c>From</c>: the same search as <see cref="FindPath"/>, its route
-    /// thrown away. Asking the same thing again in the same step gives the same answer without another search.</summary>
+    /// thrown away. Repeated calls without a cancellable token share a search for one step; cancellable calls own
+    /// separate searches so that cancelling one does not cancel another.</summary>
     [ServerOnly, TickThreadOnly, RequiresCapability("queries.reachability")]
     public static Task<QueryReachabilityResult> CanReach(QueryPathRequest request, CancellationToken cancellationToken = default)
     {
+        Services.RequireTickThread("Queries.CanReach");
+        RequirePath(request, "Queries.CanReach");
+        QueriesCaps.Require(QueriesCaps.Reachability);
         var key = PathPump.ReachKey(request);
-        if (PathPump.Cached(key) is { } known) return known;
+        // Each cancellable call owns its cancellation; sharing its search would cancel an unrelated caller too.
+        if (!cancellationToken.CanBeCanceled && PathPump.Cached(key) is { } known) return known;
         var ticket = Submit(request, QueriesCaps.Reachability, "Queries.CanReach");
         if (ticket.Ok) PathPump.CancelWith(ticket.Request, cancellationToken);
         var task = PathMaps.Reachability(ticket.Completion);
-        if (ticket.Ok) PathPump.Cache(key, task);
+        if (ticket.Ok && !cancellationToken.CanBeCanceled) PathPump.Cache(key, task);
         return task;
     }
 

@@ -121,6 +121,7 @@ internal sealed class FakePath
 {
     public required ulong Token, Owner;
     public required FakePathRequest Request;
+    public ulong Stamp;
     public int Age;
     public uint Stage = 1;       // Queued
     public bool Terminal, Consumed;
