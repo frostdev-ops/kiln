@@ -60,6 +60,29 @@ Case-sensitive, 1 to 96 bytes of `[A-Za-z0-9._/-]`:
 | `session` | waits for the session (no world yet, world data not loaded); the usual reason of a pending row |
 | `unknown` | no row of this name; never stored, only `Capabilities.Get` answers it |
 
+## The client gate (dev.28)
+Some capabilities ship switched off because only a real game client can confirm them (a camera, a marker on the
+compass, what a joined vanilla player sees). Such a capability is **held** until its guided client checks
+([client-pass.md](../client-pass.md)) have passed in a real game.
+
+- **The list** is `native/core/gates/*.json` (one file per work area; `README.md` there has the format): a capability
+  name, the ids of the checks that open it, optionally the one side it is held on. It is compiled into
+  `kiln-core.dll`, so an install cannot lose it. `python3 native/core/gates/gen.py --list native/core/gates` prints it.
+- **While a name is held** the core's own report for it is `unavailable`, reason `policy`, text
+  `game test pending: <check ids>`. That is what every reader sees, whatever a service reports for the name and
+  although a sigdb feature's symbols resolved; `KilnApi.feature()` answers false for it. A held name may still be
+  reported pending by its service (the held row hides it).
+- **Reading it:** `Capabilities.IsHeld(name)` and `Capability.IsHeld` in C#; `kiln_caps_held(caps, name)` in
+  `kiln_caps.h`. A service installs the hooks of a held capability only when that says no. There is no second switch:
+  no config key of a service's own, no sigdb overlay.
+- **Lifting it:** `"preview"` in `kiln.json`, at the top level or in a side section (which replaces the top-level
+  one): `true` for every held capability, or a list of names. A name in the list that nothing holds is a warning in
+  `kiln.log`. The guided pass runs with `"preview": true`.
+  ```json
+  { "preview": ["camera.fov"], "client": { "preview": true } }
+  ```
+- **Opening a capability for good:** remove its entry from the list in the commit that records the passed checks.
+
 ## Rows the core fills
 - Every sigdb feature, source `sigdb`. An unavailable one says `symbol-missing` with the symbol, `policy` in safe idle,
   or `faulted` for the `tick*` features and `world.lifecycle` when their hook is not installed or faulted.
@@ -229,3 +252,10 @@ every row. Nothing in the launcher reads it yet; `tools/docs-site/status-tables.
   is refused with `needs feature gameplay.craft, unavailable: symbol gameplay/CraftRecipe: … [symbol-missing]` in
   `kiln/state/mods.json` and kiln.log. `--safe-idle`: every feature row says `policy`.
 - Not run: a game client, native Windows.
+
+## Rows added in dev.28
+Rows a dev.28 package adds, by service. "Held" names the guided checks of the client gate (above) that open the row;
+a held row reads `unavailable`, `policy`, `game test pending: <ids>` until then.
+
+| Row | Kind | Reported by | Held until | What it says |
+|---|---|---|---|---|

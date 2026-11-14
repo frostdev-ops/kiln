@@ -46,7 +46,21 @@ internal static class ServiceTick
          // core's kiln.<service> row says so from the start, and every assembly loaded here costs every start)
          ("Kiln.Assets", "Kiln.AssetsStartup"), ("Kiln.Settings", "Kiln.SettingsStartup"),
          ("Kiln.Gameplay", "Kiln.GameplayStartup"), ("Kiln.Combat", "Kiln.CombatStartup"),
-         ("Kiln.Abilities", "Kiln.AbilitiesStartup"), ("Kiln.Time", "Kiln.TimeStartup")];
+         ("Kiln.Abilities", "Kiln.AbilitiesStartup"), ("Kiln.Time", "Kiln.TimeStartup"),
+         // dev.28: the libraries its packages add, reserved here once so that no two packages edit this list. An
+         // entry whose assembly or type is not there is skipped (StartServices), so a library that has not landed
+         // costs nothing; its package names its startup type Kiln.<Library>Startup. A line whose library did not
+         // ship is removed at the wave's end.
+         ("Kiln.Queries", "Kiln.QueriesStartup"),
+         ("Kiln.Camera", "Kiln.CameraStartup"),
+         ("Kiln.Markers", "Kiln.MarkersStartup"),
+         ("Kiln.ModValues", "Kiln.ModValuesStartup"),
+         ("Kiln.Replication", "Kiln.ReplicationStartup"),
+         ("Kiln.Mounts", "Kiln.MountsStartup"),
+         ("Kiln.Pets", "Kiln.PetsStartup"),
+         ("Kiln.Terrain", "Kiln.TerrainStartup"),
+         ("Kiln.ClientOptions", "Kiln.ClientOptionsStartup"),
+         ("Kiln.SlotUi", "Kiln.SlotUiStartup")];
 
     private static readonly object Lock = new();
     private static Entry[] _entries = [];
