@@ -336,8 +336,10 @@ void trace(const std::string& s) {
 
 // The game's updates: each iterates its whole slice (ctx.index = count), counting its runs; one that starts with an
 // index other than 0 would read the wrong entities.
+std::atomic<bool> g_slow_update[8];
 template <int N>
 void game_update(void* raw) {
+    if (g_slow_update[N].load()) std::this_thread::sleep_for(std::chrono::microseconds(200));
     auto* ctx = static_cast<ProgramCtx*>(raw);
     if (ctx->index != 0) g_mid_start.fetch_add(1);
     uint64_t count = 0;
@@ -460,6 +462,14 @@ void KILN_CALL st_look(KilnGameSlice* s, void*) {
     g_inside.push_back(game_wraps_release(7, &pending));
 }
 void KILN_CALL st_slow(KilnGameSlice*, void*) { std::this_thread::sleep_for(std::chrono::microseconds(200)); }
+void KILN_CALL st_replace_runs_slow_original(KilnGameSlice* s, void*) { game_slice_run_original(s); }
+std::atomic<uint64_t> g_before_release{0};
+void KILN_CALL st_count_before_release(KilnGameSlice*, void*) { g_before_release.fetch_add(1); }
+std::atomic<uint64_t> g_entries{0};
+void KILN_CALL st_entry(KilnGameSlice*, void*) {
+    g_entries.fetch_add(1);
+    std::this_thread::sleep_for(std::chrono::microseconds(20));
+}
 // A foreign tool that swapped an entry after kiln.world: it calls whatever it found there.
 std::atomic<uintptr_t> g_foreign_next{0};
 std::atomic<uint64_t> g_foreign_calls{0};
@@ -528,7 +538,10 @@ void wraps_basics() {
     KilnResult rc = 0;
     const KilnHandle r1 = wrap(1, "fuel_network", KILN_WRAP_REPLACE, 0, &st_replace_skip, nullptr, &rc);
     const KilnHandle r2 = wrap(2, "fuel_network", KILN_WRAP_REPLACE, 0, &st_replace_skip, nullptr, &rc);
-    check(r1 && !r2 && rc == KILN_ERR_INVALID_ARGUMENT, "a second Replace is refused (kiln.log names the first's owner)");
+    check(r1 && r2 && rc == KILN_OK && winfo(r2).state == KILN_WRAP_REFUSED && winfo(r2).reason == KILN_WRAP_REPLACE_TAKEN &&
+              std::string(winfo(r2).detail).find("owner 1 ") != std::string::npos &&
+              std::string(winfo(r2).detail).find("wrap " + std::to_string(r1)) != std::string::npos,
+          "a second Replace is a refusal: a handle REFUSED at once, REPLACE_TAKEN, naming the owner and wrap that hold it");
     wpre();
     const uintptr_t e1 = wentry(1);
     const uint64_t runs1 = g_original_runs[1].load();
@@ -628,8 +641,25 @@ void wraps_basics() {
     for (int i = 0; i < 12; ++i) run_slice(wentry(4), job);
     check(winfo(slow).disabled == KILN_WRAP_BUDGET && winfo(slow).calls == 10 && winfo(slow).overruns == 10,
           "10 slices in a row over the budget disable the stage");
-    wraps_test_budget_ns(1000000);
     game_program_unwrap(slow);
+    wpre();
+    // A Replace is charged its own time, not the game's update it runs through game_slice_run_original.
+    g_slow_update[4] = true;
+    const KilnHandle rs = wrap(1, "despawn_link", KILN_WRAP_REPLACE, 0, &st_replace_runs_slow_original, nullptr);
+    wpre();
+    for (int i = 0; i < 12; ++i) run_slice(wentry(4), job);
+    check(winfo(rs).disabled == KILN_WRAP_OK && winfo(rs).calls == 12 && winfo(rs).overruns == 0 &&
+              winfo(rs).total_ns < 12ull * 150000,
+          "a Replace whose game update (run through it) is slow is not charged for it: not disabled, its own time only");
+    game_program_unwrap(rs);
+    wpre();
+    g_slow_update[4] = false;
+    const KilnHandle rslow = wrap(1, "despawn_link", KILN_WRAP_REPLACE, 0, &st_slow, nullptr);
+    wpre();
+    for (int i = 0; i < 12; ++i) run_slice(wentry(4), job);
+    check(winfo(rslow).disabled == KILN_WRAP_BUDGET, "a Replace that is slow itself is disabled by its budget");
+    wraps_test_budget_ns(1000000);
+    game_program_unwrap(rslow);
     wpre();
 }
 
@@ -747,15 +777,24 @@ void wraps_native_set() {
 }
 
 void wraps_owners() {
-    // release: queued, then 0 after the world's Pre
+    // release: no call starts after it returns (nothing runs here: out_pending 0 at once); the chains drop them in
+    // the world's Pre
     const KilnHandle a = wrap(40, "fuel_setup", KILN_WRAP_BEFORE, 0, &st_trace, nullptr);
     const KilnHandle b = wrap(40, "fuel_network", KILN_WRAP_AFTER, 0, &st_trace, nullptr);
     wpre();
     const KilnHandle c = wrap(40, "impact_prepare", KILN_WRAP_AFTER, 0, &st_trace, nullptr);
     uint32_t pending = 99;
-    check(game_wraps_release(40, &pending) == KILN_OK && pending == 1 && winfo(c).state == KILN_WRAP_REMOVED &&
-              winfo(a).remove_queued == 1,
-          "release: a pending wrap goes at once, the server world still holds two");
+    check(game_wraps_release(40, &pending) == KILN_OK && pending == 0 && winfo(c).state == KILN_WRAP_REMOVED &&
+              winfo(a).remove_queued == 1 && winfo(a).gone == 1 && winfo(b).gone == 1,
+          "release: a pending wrap goes at once, the live ones are gone (no call starts), out_pending 0");
+    {
+        Job job(10);
+        g_trace.clear();
+        g_tracing = true;
+        run_slice(wentry(0), job);
+        g_tracing = false;
+        check(g_trace == std::vector<std::string>({"orig"}), "a released stage is not called before the Pre either");
+    }
     wpre();
     check(game_wraps_release(40, &pending) == KILN_OK && pending == 0 && winfo(a).state == KILN_WRAP_REMOVED &&
               winfo(b).state == KILN_WRAP_REMOVED && update_of(wentry(0)) == reinterpret_cast<uintptr_t>(kWUpdates[0]),
@@ -769,6 +808,66 @@ void wraps_owners() {
     g_next_reap = {};
     wpre();
     check(winfo(d).state == KILN_WRAP_REMOVED && winfo(d).reason == KILN_WRAP_OWNER_GONE, "a revoked owner's wraps are removed");
+}
+
+// No call starts into a released owner's stages, also while its world keeps stepping (no Pre in between); a call that
+// had started is counted until it returns.
+void release_under_load() {
+    const KilnHandle h = wrap(80, "fuel_network", KILN_WRAP_AFTER, 0, &st_entry, nullptr);
+    const KilnHandle other = wrap(81, "fuel_network", KILN_WRAP_BEFORE, 0, &st_count_before_release, nullptr);
+    wpre();
+    std::atomic<bool> stop{false};
+    std::vector<std::thread> workers;
+    for (int t = 0; t < 8; ++t)
+        workers.emplace_back([&] {
+            Job job(4);
+            while (!stop.load(std::memory_order_relaxed)) run_slice(wentry(1), job);
+        });
+    while (g_entries.load() < 2000) std::this_thread::yield();
+    uint32_t pending = 99;
+    game_wraps_release(80, &pending);
+    const uint64_t at_return = g_entries.load();
+    const uint32_t running_at_return = winfo(h).running;
+    int polls = 0;
+    while (pending && polls < 100000) game_wraps_release(80, &pending), ++polls;
+    const uint64_t at_zero = g_entries.load();
+    const uint64_t others = g_before_release.load();
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));  // 8 threads keep running slices of the program
+    const uint64_t later = g_entries.load();
+    const uint64_t others_later = g_before_release.load();
+    stop = true;
+    for (auto& w : workers) w.join();
+    check(pending == 0 && later == at_zero && at_zero - at_return <= 8 && running_at_return <= 8,
+          "release under 8 threads: in-flight calls finish, then 0 entries in 50 ms of slices; out_pending reached 0 "
+          "with no Pre (the world kept stepping)");
+    check(others_later > others, "the other owner's stage on the same program kept running");
+    check(winfo(h).state == KILN_WRAP_ACTIVE && winfo(h).gone == 1 && winfo(h).remove_queued == 1 && winfo(h).running == 0,
+          "released: still in the chain until the Pre, gone, nothing running");
+    wpre();
+    check(winfo(h).state == KILN_WRAP_REMOVED && winfo(other).state == KILN_WRAP_ACTIVE, "the Pre takes it out of the chain");
+    // a single unwrap: the same gate
+    g_entries = 0;
+    const KilnHandle u = wrap(82, "fuel_network", KILN_WRAP_AFTER, 0, &st_entry, nullptr);
+    wpre();
+    stop = false;
+    workers.clear();
+    for (int t = 0; t < 8; ++t)
+        workers.emplace_back([&] {
+            Job job(4);
+            while (!stop.load(std::memory_order_relaxed)) run_slice(wentry(1), job);
+        });
+    while (g_entries.load() < 500) std::this_thread::yield();
+    game_program_unwrap(u);
+    for (int i = 0; i < 2000000 && winfo(u).running; ++i) std::this_thread::yield();
+    const uint64_t done = g_entries.load();
+    std::this_thread::sleep_for(std::chrono::milliseconds(30));
+    stop = true;
+    for (auto& w : workers) w.join();
+    check(g_entries.load() == done, "unwrap: once nothing runs, no call starts (30 ms of slices on 8 threads)");
+    game_program_unwrap(other);
+    wpre();
+    check(wraps_test_in_flight(0) == 0 && update_of(wentry(1)) == reinterpret_cast<uintptr_t>(kWUpdates[1]),
+          "in-flight 0 and the update back after the Pre");
 }
 
 // Stress, as the engine runs it: Pre on the main thread (4 wraps on entity programs come and go every 50 steps), then
@@ -920,7 +1019,8 @@ void abi(const char* path) {
         F(KilnGameWrapInfo, program_index); F(KilnGameWrapInfo, program); F(KilnGameWrapInfo, calls);
         F(KilnGameWrapInfo, entities); F(KilnGameWrapInfo, faults); F(KilnGameWrapInfo, overruns);
         F(KilnGameWrapInfo, total_ns); F(KilnGameWrapInfo, threads); F(KilnGameWrapInfo, fault_code);
-        F(KilnGameWrapInfo, remove_queued); F(KilnGameWrapInfo, reserved); F(KilnGameWrapInfo, detail);
+        F(KilnGameWrapInfo, remove_queued); F(KilnGameWrapInfo, gone); F(KilnGameWrapInfo, reserved);
+        F(KilnGameWrapInfo, running); F(KilnGameWrapInfo, detail);
     }
     {
         auto& l = list("KilnGameProgramInfo", sizeof(KilnGameProgramInfo));
@@ -964,6 +1064,7 @@ int main(int argc, char** argv) {
     wraps_worlds();
     wraps_native_set();
     wraps_owners();
+    release_under_load();
     stress_steps();
     stress_overlap();
     if (argc > 1) abi(argv[1]);

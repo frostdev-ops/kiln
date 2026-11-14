@@ -431,8 +431,8 @@ typedef struct KilnGameProgramsStatus {
  * game_slice_run_original, once. A stage that faults (a structured exception) or overruns its budget (1 ms per slice)
  * 10 slices in a row is disabled, alone; the slice goes on.
  *
- * Lifetime: install and remove are queued and done in the target world's next Pre (state PENDING -> ACTIVE ->
- * REMOVED). When the world stops, its wraps go back to PENDING and are applied again, by program name, in the next
+ * Lifetime: install is queued and done in the target world's next Pre (state PENDING -> ACTIVE); an unwrap stops new
+ * calls at once and takes the stage out of the chain in the next Pre (-> REMOVED). When the world stops, its wraps go back to PENDING and are applied again, by program name, in the next
  * world of that kind. A server world runs its own wraps; a CLIENT-world wrap needs capability systems.wraps.client;
  * prediction slices that pass a client-world trampoline go to the game's update untouched. While native SET is loaded
  * (kiln.types' external_runner), every wrap is refused and the live ones are removed in the next Pre. */
@@ -462,6 +462,7 @@ enum {
     KILN_WRAP_POOL_FULL = 7,    /* refused: every trampoline of that world kind is in use */
     KILN_WRAP_UNWRAPPED = 8,    /* removed: game_program_unwrap or game_wraps_release */
     KILN_WRAP_OWNER_GONE = 9,   /* removed: its owner was revoked */
+    KILN_WRAP_REPLACE_TAKEN = 10, /* refused: another wrap replaces the program (detail names its owner and handle) */
 };
 
 /* What a stage gets: valid during the call only. */
@@ -501,8 +502,10 @@ typedef struct KilnGameWrapInfo {
     uint64_t total_ns;      /* time spent in the stage */
     uint32_t threads;       /* distinct threads it ran on (counted up to 16) */
     uint32_t fault_code;    /* the exception code of its fault */
-    uint8_t remove_queued;  /* 1: an unwrap waits for the next Pre */
-    uint8_t reserved[7];
+    uint8_t remove_queued;  /* 1: unwrapped, still in its program's chain until the next Pre (no call starts) */
+    uint8_t gone;           /* 1: no call of the stage starts any more (unwrapped, released, owner revoked) */
+    uint16_t reserved;
+    uint32_t running;       /* calls of the stage running now (with gone: the last ones finishing) */
     char detail[128];       /* in words, NUL-terminated: why it was refused, removed or disabled */
 } KilnGameWrapInfo;
 
@@ -656,22 +659,25 @@ typedef struct KilnWorldApi {
     /* Wraps program `index` of the live world of `world_kind` (SERVER or CLIENT) with a `stage` (KILN_WRAP_*) that
      * calls fn(slice, user). *out = its handle. It is PENDING until the target world's next Pre, where kiln.world
      * applies it (or refuses it: game_wrap_info says why); later worlds of that kind get it again by program name.
-     * Any thread outside a stage or program update. KILN_ERR_INVALID_ARGUMENT: no owner, fn or out, a bad stage or
-     * kind, a program with no update in that world, a second Replace of a program (kiln.log names the first's owner);
+     * Any thread outside a stage or program update. A second Replace of a program is not an error: *out is a handle
+     * that is REFUSED at once (reason KILN_WRAP_REPLACE_TAKEN, detail names the owner and wrap that replace it).
+     * KILN_ERR_INVALID_ARGUMENT: no owner, fn or out, a bad stage or kind, a program with no update in that world;
      * KILN_ERR_NOT_FOUND: no such index in the live directory; KILN_ERR_UNAVAILABLE: wraps are off on this build,
      * native SET is loaded, or (CLIENT) capability systems.wraps.client is not available; KILN_ERR_WRONG_THREAD:
      * from inside a stage or program update. */
     KilnResult(KILN_CALL* game_program_wrap)(KilnOwner owner, uint32_t world_kind, int32_t index, int32_t stage,
                                              int32_t priority, KilnWrapStageFn fn, void* user, KilnHandle* out);
-    /* Queues the wrap's removal: out of its program's chain in the next Pre of its world (a PENDING one at once).
-     * Calls of fn may still come until then; game_wraps_release says when none can. Any thread outside a stage. */
+    /* Unwraps: no call of fn starts after this returns; one that had started finishes (game_wrap_info.running says
+     * when none runs). The stage leaves its program's chain in the next Pre of its world (a PENDING one at once).
+     * Any thread outside a stage. */
     KilnResult(KILN_CALL* game_program_unwrap)(KilnHandle wrap);
     /* State and counters of a wrap. KILN_ERR_NOT_FOUND: no such handle (removed and refused wraps are forgotten
      * after 1024 more have finished). Any thread. */
     KilnResult(KILN_CALL* game_wrap_info)(KilnHandle wrap, KilnGameWrapInfo* out);
-    /* Queues the removal of every wrap of `owner` and says, in *out_pending, how many worlds may still call one of
-     * its stages (each will not after its next Pre). 0: none can run any more; its code and user data may go. Call
-     * again to poll. Any thread outside a stage. */
+    /* Unwraps every wrap of `owner`: no call of its stages starts after this returns; calls that had started
+     * finish. *out_pending = how many worlds have a slice inside one of its stages now (also while they step; the
+     * stages leave their chains in each world's next Pre). 0: none runs or can start; its code and user data may go.
+     * Call again to poll. Any thread outside a stage. */
     KilnResult(KILN_CALL* game_wraps_release)(KilnOwner owner, uint32_t* out_pending);
     /* Inside a REPLACE stage: runs the game's update for this slice, once. KILN_ERR_INVALID_ARGUMENT: not a Replace,
      * or it ran already; KILN_ERR_WRONG_THREAD: not this stage's slice. */

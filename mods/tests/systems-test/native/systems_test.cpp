@@ -366,8 +366,9 @@ void wraps_phase(uint64_t n) {
             KilnHandle second = 0;
             const KilnResult r2 = W->game_program_wrap(g_owner + 1000, KILN_WORLD_SERVER, prog("fuel_setup"),
                                                        KILN_WRAP_REPLACE, 0, &st_replace, nullptr, &second);
-            row(r2 == KILN_ERR_INVALID_ARGUMENT && !second, "a second Replace of fuel_setup is refused (%d; kiln.log names "
-                "the first's owner)", r2);
+            const auto si = winfo(second);
+            row(r2 == KILN_OK && second && si.state == KILN_WRAP_REFUSED && si.reason == KILN_WRAP_REPLACE_TAKEN,
+                "a second Replace of fuel_setup is refused: state %u, reason %u, \"%s\"", si.state, si.reason, si.detail);
             (void)rc;
             w.fault.handle = wrap("move_colliders", KILN_WRAP_BEFORE, &st_fault, &w.fault);
             w.fault_after.handle = wrap("move_colliders", KILN_WRAP_AFTER, &st_after, &w.fault_after);

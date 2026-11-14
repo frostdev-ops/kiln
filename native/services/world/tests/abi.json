@@ -206,7 +206,9 @@
     ["threads", 88],
     ["fault_code", 92],
     ["remove_queued", 96],
-    ["reserved", 97],
+    ["gone", 97],
+    ["reserved", 98],
+    ["running", 100],
     ["detail", 104]
   ] }
 }

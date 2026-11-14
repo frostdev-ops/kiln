@@ -13,6 +13,9 @@
 // is published in Pre, the old one is freed once the slot's in-flight count reads 0 after the publish (the slice
 // path increments before it loads the chain, both sequentially consistent, so a slice either holds the new chain or
 // was counted). A stage that faults (SEH) or overruns its budget 10 times in a row is disabled at once, on its own.
+// A stage is entered only through call()'s gate: count up (calls_in), then check `gone`; an unwrap, a release or a
+// revoked owner sets `gone` first and then reads calls_in (both sequentially consistent), so once it reads 0 no call
+// of that stage runs or can start, also while its world steps; taking it out of the chain waits for the next Pre.
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -57,6 +60,8 @@ struct Stage {
     std::atomic<uint32_t> state{KILN_WRAP_PENDING};
     std::atomic<uint32_t> reason{KILN_WRAP_OK};
     std::atomic<uint32_t> disabled{KILN_WRAP_OK};  // set on the slice path: KILN_WRAP_FAULT or _BUDGET
+    std::atomic<bool> gone{false};                 // unwrapped, released or its owner revoked: no call starts
+    std::atomic<uint32_t> calls_in{0};             // calls past the gate and not yet returned
     std::atomic<uint32_t> fault_code{0};
     std::atomic<int32_t> index{-1};
     // g_mu
@@ -154,6 +159,7 @@ struct Frame {
     uint32_t count;
     int32_t stage;
     bool original_called;
+    uint64_t original_ns;  // the game's update inside game_slice_run_original: not charged to the Replace
 };
 thread_local Frame* t_frame = nullptr;
 
@@ -171,8 +177,15 @@ void add_tid(Stage& st, uint32_t tid) {
     }
 }
 
-// One stage. False when it faulted (it is disabled from now on).
-bool call(Slot& s, Stage& st, KilnGameSlice& slice, Frame& f, int32_t stage) {
+enum CallResult { CALL_RAN, CALL_FAULTED, CALL_SKIPPED };
+
+// One stage, through its gate. CALL_FAULTED: it faulted and is disabled from now on; CALL_SKIPPED: it is gone.
+CallResult call(Slot& s, Stage& st, KilnGameSlice& slice, Frame& f, int32_t stage) {
+    st.calls_in.fetch_add(1, std::memory_order_seq_cst);
+    if (st.gone.load(std::memory_order_seq_cst)) {
+        st.calls_in.fetch_sub(1, std::memory_order_release);
+        return CALL_SKIPPED;
+    }
     slice.stage = stage;
     f.stage = stage;
     Frame* const outer_frame = t_frame;
@@ -180,11 +193,14 @@ bool call(Slot& s, Stage& st, KilnGameSlice& slice, Frame& f, int32_t stage) {
     t_frame = &f;
     t_in_slice = true;
     unsigned long code = 0;
+    const uint64_t original_before = f.original_ns;
     const uint64_t t0 = now_ns();
     const bool ok = seh_wrap_stage(st.fn, &slice, st.user, &code);
-    const uint64_t dt = now_ns() - t0;
+    const uint64_t total = now_ns() - t0, original = f.original_ns - original_before;
+    const uint64_t dt = total > original ? total - original : 0;  // the stage's own time
     t_frame = outer_frame;
     t_in_slice = outer;
+    st.calls_in.fetch_sub(1, std::memory_order_release);
     st.calls.fetch_add(1, std::memory_order_relaxed);
     st.entities.fetch_add(slice.count, std::memory_order_relaxed);
     st.ns.fetch_add(dt, std::memory_order_relaxed);
@@ -194,7 +210,7 @@ bool call(Slot& s, Stage& st, KilnGameSlice& slice, Frame& f, int32_t stage) {
         s.faults.fetch_add(1, std::memory_order_relaxed);
         st.fault_code.store(static_cast<uint32_t>(code), std::memory_order_relaxed);
         st.disabled.store(KILN_WRAP_FAULT, std::memory_order_release);
-        return false;
+        return CALL_FAULTED;
     }
     if (dt > g_budget_ns.load(std::memory_order_relaxed)) {
         st.overruns.fetch_add(1, std::memory_order_relaxed);
@@ -203,10 +219,12 @@ bool call(Slot& s, Stage& st, KilnGameSlice& slice, Frame& f, int32_t stage) {
     } else {
         st.consecutive.store(0, std::memory_order_relaxed);
     }
-    return true;
+    return CALL_RAN;
 }
 
-bool live(const Stage* st) { return !st->disabled.load(std::memory_order_acquire); }
+bool live(const Stage* st) {
+    return !st->disabled.load(std::memory_order_acquire) && !st->gone.load(std::memory_order_relaxed);
+}
 
 // The engine aborts on an index between 0 and the slice's count; a stage that faulted mid-iteration leaves one.
 void finish_index(ProgramCtx* ctx, uint32_t count) {
@@ -220,7 +238,7 @@ void run(int pool, Slot& s, const Chain& c, ProgramCtx* ctx, UpdateFn orig) {
     const uint32_t count = count64 > UINT32_MAX ? UINT32_MAX : static_cast<uint32_t>(count64);
     s.slices.fetch_add(1, std::memory_order_relaxed);
     s.entities.fetch_add(count, std::memory_order_relaxed);
-    Frame f{orig, ctx, count, -1, false};
+    Frame f{orig, ctx, count, -1, false, 0};
     KilnGameSlice slice{};
     slice.size = sizeof slice;
     slice.world_kind = kind;
@@ -240,12 +258,13 @@ void run(int pool, Slot& s, const Chain& c, ProgramCtx* ctx, UpdateFn orig) {
         ctx->index = 0;  // the update starts from the slice's first entity, also after a Before that faulted mid-way
     }
     if (c.replace && live(c.replace)) {
-        if (call(s, *c.replace, slice, f, KILN_WRAP_REPLACE)) {
+        const CallResult r = call(s, *c.replace, slice, f, KILN_WRAP_REPLACE);
+        if (r == CALL_RAN) {
             finish_index(ctx, count);
         } else if (f.original_called) {
             ctx->index = count;  // the update ran; it never runs twice in a slice
         } else {
-            ctx->index = 0;      // the Replace is off from now on: this slice is the game's again
+            ctx->index = 0;      // the Replace is off (a fault) or gone: this slice is the game's again
             orig(ctx);
         }
     } else {
@@ -253,7 +272,7 @@ void run(int pool, Slot& s, const Chain& c, ProgramCtx* ctx, UpdateFn orig) {
     }
     for (Stage* st : c.after) {
         if (!live(st)) continue;
-        if (!call(s, *st, slice, f, KILN_WRAP_AFTER)) finish_index(ctx, count);
+        if (call(s, *st, slice, f, KILN_WRAP_AFTER) == CALL_FAULTED) finish_index(ctx, count);
     }
     finish_index(ctx, count);
 }
@@ -298,6 +317,7 @@ const char* reason_text(uint32_t r) {
         case KILN_WRAP_POOL_FULL: return "every trampoline of this world kind is taken";
         case KILN_WRAP_UNWRAPPED: return "unwrapped";
         case KILN_WRAP_OWNER_GONE: return "its owner was revoked";
+        case KILN_WRAP_REPLACE_TAKEN: return "another wrap replaces the program";
         default: return "";
     }
 }
@@ -527,7 +547,16 @@ void log_disabled(Stage& st) {
          st.program->c_str(), st.kind, static_cast<unsigned long long>(st.owner), st.detail);
 }
 
+// The core has no owner-liveness query: a post to a revoked owner fails. Probed at most once a second, so a revoked
+// owner's stages can run up to a second longer. To be replaced by kiln.hooks' subscribe_owner_retiring (03-camera S1,
+// row hooks.owner_cleanup) once that is on integration: then the stages go before the owner's code does.
 bool owner_revoked(KilnOwner owner) { return g_api->post(owner, [](void*) {}, nullptr) == KILN_ERR_REVOKED; }
+
+// Takes a stage out (g_mu): no call of it starts from here on; the next Pre removes it from its chain.
+void retire_stage(Stage& st, uint32_t reason) {
+    if (!st.remove) st.remove = true, st.remove_reason = reason;
+    st.gone.store(true, std::memory_order_seq_cst);
+}
 
 // Every stage of a pool back to PENDING (re-applied by name in the next world) or finished; slots restored (the world
 // is still there) or kept (it may be gone).
@@ -592,30 +621,42 @@ void wraps_pre(uint32_t kind, uintptr_t) {
     const int pool = wrap_pool(kind);
     if (pool < 0 || !g_ok) return;
     const uint32_t ext = external_runner();
+    // Revoked owners (at most once a second): probed outside g_mu (post() is the core's), retired under it.
+    std::vector<KilnOwner> owners, revoked;
+    {
+        std::lock_guard lock(g_mu);
+        const auto now = std::chrono::steady_clock::now();
+        if (now >= g_next_reap) {
+            g_next_reap = now + std::chrono::seconds(1);
+            for (auto& [h, st] : g_stages)
+                if ((st->state.load() == KILN_WRAP_PENDING || st->state.load() == KILN_WRAP_ACTIVE) && !st->remove &&
+                    std::find(owners.begin(), owners.end(), st->owner) == owners.end())
+                    owners.push_back(st->owner);
+        }
+    }
+    for (KilnOwner o : owners)
+        if (owner_revoked(o)) revoked.push_back(o);
+    // The capability row is reported after g_mu is released: kiln.caps calls its subscribers on this thread.
+    struct Row {
+        bool set = false;
+        uint32_t state = 0, reason = 0;
+        const char* text = "";
+    } row;
+    {
     std::lock_guard lock(g_mu);
     const uint32_t ext_before = g_external_pre;
     g_external_pre = ext;
     if (ext && ext != ext_before) {
         KW_W("%s: every wrap is removed", game_wraps_off_reason());
-        report_row("systems.wraps", KILN_CAP_UNAVAILABLE, KILN_CAP_REASON_POLICY, game_wraps_off_reason());
+        row = {true, KILN_CAP_UNAVAILABLE, KILN_CAP_REASON_POLICY, game_wraps_off_reason()};
     } else if (!ext && ext_before) {
         KW_I("wraps: native SET is not loaded after all; new wraps are taken again (removed ones are not restored)");
-        report_row("systems.wraps", KILN_CAP_AVAILABLE, KILN_CAP_REASON_NONE, "Before, After and Replace on the game's programs");
+        row = {true, KILN_CAP_AVAILABLE, KILN_CAP_REASON_NONE, "Before, After and Replace on the game's programs"};
     }
-    // Revoked owners (at most once a second): their wraps go.
-    const auto now = std::chrono::steady_clock::now();
-    if (now >= g_next_reap) {
-        g_next_reap = now + std::chrono::seconds(1);
-        std::vector<KilnOwner> owners;
+    for (KilnOwner o : revoked)
         for (auto& [h, st] : g_stages)
-            if ((st->state.load() == KILN_WRAP_PENDING || st->state.load() == KILN_WRAP_ACTIVE) && !st->remove &&
-                std::find(owners.begin(), owners.end(), st->owner) == owners.end())
-                owners.push_back(st->owner);
-        for (KilnOwner o : owners)
-            if (owner_revoked(o))
-                for (auto& [h, st] : g_stages)
-                    if (st->owner == o && !st->remove) st->remove = true, st->remove_reason = KILN_WRAP_OWNER_GONE;
-    }
+            if (st->owner == o && (st->state.load() == KILN_WRAP_PENDING || st->state.load() == KILN_WRAP_ACTIVE))
+                retire_stage(*st, KILN_WRAP_OWNER_GONE);
     std::vector<const std::string*> touched;
     auto touch = [&](const std::string* n) {
         if (std::find(touched.begin(), touched.end(), n) == touched.end()) touched.push_back(n);
@@ -627,7 +668,7 @@ void wraps_pre(uint32_t kind, uintptr_t) {
     for (Stage* st : order) {
         const uint32_t state = st->state.load();
         if (state != KILN_WRAP_PENDING && state != KILN_WRAP_ACTIVE) continue;
-        if (ext && !st->remove) st->remove = true, st->remove_reason = KILN_WRAP_NATIVE_SET;
+        if (ext && !st->remove) retire_stage(*st, KILN_WRAP_NATIVE_SET);
         if (state == KILN_WRAP_PENDING) {
             if (st->remove) {
                 finish(*st, KILN_WRAP_REMOVED, st->remove_reason);
@@ -664,6 +705,8 @@ void wraps_pre(uint32_t kind, uintptr_t) {
     }
     trim_finished();
     count_states();
+    }
+    if (row.set) report_row("systems.wraps", row.state, row.reason, row.text);
 }
 
 void wraps_world_event(const KilnWorldEvent* event) {
@@ -742,17 +785,6 @@ KilnResult KILN_CALL game_program_wrap(KilnOwner owner, uint32_t kind, int32_t i
     if (!game_program_at(kind, index, &ref)) return KILN_ERR_NOT_FOUND;
     if (ref.no_update) return KILN_ERR_INVALID_ARGUMENT;
     std::lock_guard lock(g_mu);
-    if (stage == KILN_WRAP_REPLACE)
-        for (const auto& [h, st] : g_stages) {
-            const uint32_t s = st->state.load();
-            if (st->pool == pool && st->program == ref.name && st->stage == KILN_WRAP_REPLACE && !st->remove &&
-                (s == KILN_WRAP_PENDING || s == KILN_WRAP_ACTIVE)) {
-                KW_W("a second Replace of %s (world %u) was refused: owner %llu asked, owner %llu replaces it (wrap %llu)",
-                     ref.name->c_str(), kind, static_cast<unsigned long long>(owner),
-                     static_cast<unsigned long long>(st->owner), static_cast<unsigned long long>(h));
-                return KILN_ERR_INVALID_ARGUMENT;
-            }
-        }
     auto st = std::make_unique<Stage>();
     st->handle = g_next++;
     st->owner = owner;
@@ -764,8 +796,27 @@ KilnResult KILN_CALL game_program_wrap(KilnOwner owner, uint32_t kind, int32_t i
     st->seq = ++g_seq;
     st->fn = fn;
     st->user = user;
+    // One Replace per program: a second one is a refusal (a handle in state REFUSED, reason REPLACE_TAKEN), not an
+    // argument error, so a caller can tell the mod that holds it.
+    if (stage == KILN_WRAP_REPLACE)
+        for (const auto& [h, other] : g_stages) {
+            const uint32_t s = other->state.load();
+            if (other->pool == pool && other->program == ref.name && other->stage == KILN_WRAP_REPLACE && !other->remove &&
+                (s == KILN_WRAP_PENDING || s == KILN_WRAP_ACTIVE)) {
+                std::snprintf(st->detail, sizeof st->detail, "owner %llu replaces %s already (wrap %llu)",
+                              static_cast<unsigned long long>(other->owner), ref.name->c_str(),
+                              static_cast<unsigned long long>(h));
+                KW_W("a second Replace of %s (world %u) was refused: owner %llu asked (wrap %llu), owner %llu replaces it "
+                     "(wrap %llu)", ref.name->c_str(), kind, static_cast<unsigned long long>(owner),
+                     static_cast<unsigned long long>(st->handle), static_cast<unsigned long long>(other->owner),
+                     static_cast<unsigned long long>(h));
+                finish(*st, KILN_WRAP_REFUSED, KILN_WRAP_REPLACE_TAKEN);
+                break;
+            }
+        }
     *out = st->handle;
     g_stages.emplace(st->handle, std::move(st));
+    trim_finished();
     count_states();
     return KILN_OK;
 }
@@ -780,9 +831,8 @@ KilnResult KILN_CALL game_program_unwrap(KilnHandle h) {
     if (s == KILN_WRAP_PENDING) {
         finish(st, KILN_WRAP_REMOVED, KILN_WRAP_UNWRAPPED);
         count_states();
-    } else if (s == KILN_WRAP_ACTIVE && !st.remove) {
-        st.remove = true;
-        st.remove_reason = KILN_WRAP_UNWRAPPED;
+    } else if (s == KILN_WRAP_ACTIVE) {
+        retire_stage(st, KILN_WRAP_UNWRAPPED);  // no call starts from here on
     }
     return KILN_OK;
 }
@@ -811,7 +861,9 @@ KilnResult KILN_CALL game_wrap_info(KilnHandle h, KilnGameWrapInfo* out) {
     out->total_ns = st.ns.load();
     for (const auto& t : st.tids) out->threads += t.load() != 0;
     out->fault_code = st.fault_code.load();
-    out->remove_queued = st.remove;
+    out->remove_queued = st.remove && st.state.load() == KILN_WRAP_ACTIVE;
+    out->gone = st.gone.load();
+    out->running = st.calls_in.load(std::memory_order_seq_cst);
     std::snprintf(out->detail, sizeof out->detail, "%s",
                   st.detail[0] ? st.detail : (out->reason ? reason_text(out->reason) : ""));
     return KILN_OK;
@@ -822,33 +874,22 @@ KilnResult KILN_CALL game_wraps_release(KilnOwner owner, uint32_t* out_pending) 
     if (!owner) return KILN_ERR_INVALID_ARGUMENT;
     if (t_in_slice) return KILN_ERR_WRONG_THREAD;
     std::lock_guard lock(g_mu);
-    bool holding[kWrapPools] = {};
+    std::vector<Stage*> mine;
     for (auto& [h, up] : g_stages) {
         Stage& st = *up;
         if (st.owner != owner) continue;
         const uint32_t s = st.state.load();
         if (s == KILN_WRAP_PENDING) finish(st, KILN_WRAP_REMOVED, KILN_WRAP_UNWRAPPED);
-        else if (s == KILN_WRAP_ACTIVE) {
-            if (!st.remove) st.remove = true, st.remove_reason = KILN_WRAP_UNWRAPPED;
-            holding[st.pool] = true;
-        }
-        if (st.refs) holding[st.pool] = true;  // a chain that holds it is still published or not freed yet
+        else if (s == KILN_WRAP_ACTIVE) retire_stage(st, KILN_WRAP_UNWRAPPED);
+        mine.push_back(&st);
     }
+    // After every `gone` is set: a call past a gate before that is still counted in calls_in, any later one is not
+    // let in. A world counts while one of its slices may be inside one of the owner's stages.
+    bool running[kWrapPools] = {};
+    for (Stage* st : mine)
+        if (st->calls_in.load(std::memory_order_seq_cst)) running[st->pool] = true;
     uint32_t pending = 0;
-    for (int p = 0; p < kWrapPools; ++p) {
-        if (!holding[p]) continue;
-        const uint32_t kind = g_pools[p].kind;
-        const bool world = g_api->size >= offsetof(KilnApi, session) + sizeof(void*) ? g_api->world(kind) != 0
-                                                                                     : kind == KILN_WORLD_SERVER;
-        if (!world) {
-            drop_pool(p, false);  // no world of that kind steps: nothing of it can run, and no Pre will come
-            reap_retired();
-            bool still = false;
-            for (const auto& r : g_retired) still |= r.pool == p;
-            if (!still) continue;
-        }
-        ++pending;
-    }
+    for (bool r : running) pending += r;
     count_states();
     if (out_pending) *out_pending = pending;
     return KILN_OK;
@@ -861,7 +902,9 @@ KilnResult KILN_CALL game_slice_run_original(KilnGameSlice* slice) {
     if (f->stage != KILN_WRAP_REPLACE || f->original_called) return KILN_ERR_INVALID_ARGUMENT;
     f->original_called = true;
     f->ctx->index = 0;
+    const uint64_t t0 = now_ns();
     f->orig(f->ctx);
+    f->original_ns += now_ns() - t0;  // the game's own time: call() does not charge it to the Replace's budget
     return KILN_OK;
 }
 
