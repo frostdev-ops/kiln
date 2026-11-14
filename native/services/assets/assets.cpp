@@ -780,7 +780,8 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     if (api->abi_version != KILN_ABI_VERSION || api->size < sizeof(KilnApi)) return KILN_ERR_UNAVAILABLE;
     g_api = api;
     g_self = owner;
-    if (!catalog_start()) LOGW("assets: blob catalog off: native owner cleanup is unavailable");
+    if (!catalog_start())
+        LOGW("assets: blob catalog off: native owner cleanup is unavailable (a revoked owner's registrations stay until revert_owner)");
     info->id = KilnStr{KILN_ASSETS_SERVICE, sizeof(KILN_ASSETS_SERVICE) - 1};
     info->version = KilnStr{"1", 1};
     info->on_ready = &on_ready;
