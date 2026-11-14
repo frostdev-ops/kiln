@@ -13,9 +13,10 @@ internal static unsafe class NetNative
     public const int Ok = 0, NotFound = 2, Unavailable = 3, WrongThread = 4, TooBig = 5;
     public const uint TransportGame = 1, TransportLab = 2;
     public const uint RoleServer = 1, RoleClient = 2;
-    public const uint PeerHasPlayer = 1, PeerProved = 4, PeerHeld = 8;
-    public const uint GateOff = 0, GateHold = 1, GateHoldAll = 2, GateCanHold = 1, GateCanWithhold = 2, GateCanGuard = 4, GateCanHoldAll = 8;
-    public const uint SelftestCreate = 1, SelftestSlot = 2, SelftestMask = 3, SelftestQueue = 4, SelftestBind = 5, SelftestHeap = 6, SelftestBindMachine = 7;
+    public const uint PeerHasPlayer = 1, PeerProved = 4, PeerHeld = 8, PeerRefused = 0x20, PeerEnding = 0x40, PeerBlocked = 0x80;
+    public const uint GateOff = 0, GateHold = 1, GateHoldAll = 2, GateCanHold = 1, GateCanWithhold = 2, GateCanGuard = 4, GateCanHoldAll = 8, GateCanDisconnect = 16;
+    public const uint SelftestCreate = 1, SelftestSlot = 2, SelftestMask = 3, SelftestQueue = 4, SelftestBind = 5, SelftestHeap = 6, SelftestBindMachine = 7,
+        SelftestKickFail = 8, SelftestSessionKick = 9;
 
     [StructLayout(LayoutKind.Sequential)]
     public struct PeerInfo

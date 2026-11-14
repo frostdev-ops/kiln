@@ -356,11 +356,24 @@ public sealed class NetTestMod : Mod
                     if (a[0] == "off") { _require?.Dispose(); _require = null; }
                     else _require ??= NetAdmission.Require("net-test-vanilla", () => _vanillaAllowed, "net-test refuses clients without Kiln");
                     return "ok";
-                case "gate-admit-peer":  // <peer>: its channel-12 frame counters
+                case "gate-admit-peer":  // <peer>: its channel-12 frame counters, and kiln.net's flags for it
                 {
                     var peer = Network.Peers.FirstOrDefault(p => p.Id == Hex(a[0]));
-                    return peer is null ? "no such peer" : $"in={peer.FramesIn} out={peer.FramesOut} state={peer.State}";
+                    var flags = NetNative.Info(Hex(a[0]))?.Flags;
+                    return peer is null ? "no such peer" : $"in={peer.FramesIn} out={peer.FramesOut} state={peer.State} flags={(flags is { } f ? $"0x{f:x}" : "none")}";
                 }
+                case "gate-admit-kickfail":  // 0 | 1 | 2: kiln.net's lab switch (1 the login failure fails, 2 the session kick too)
+                {
+                    var rc = NetNative.LabSelftest(NetNative.SelftestKickFail, ulong.Parse(a[0], System.Globalization.CultureInfo.InvariantCulture), 0, out var can);
+                    return $"rc={rc} disconnect={can}";
+                }
+                case "gate-admit-sessionkick":  // <machine handle, hex>: the game's session kick of the server's own machine index
+                {
+                    var rc = NetNative.LabSelftest(NetNative.SelftestSessionKick, Hex(a[0]), 0, out var queued);
+                    return $"rc={rc} queued={queued}";
+                }
+                case "gate-admit-status":  // the Network page's admission lines
+                    return string.Join(" | ", NetAdmission.StatusLines());
                 case "gate-admit-clear":
                     _joins?.End();
                     _joins = null;

@@ -241,6 +241,64 @@ public sealed class AdmissionTests : IDisposable
     }
 
     [Fact]
+    public void A_kick_the_game_s_session_kick_ended_counts_as_a_kick()
+    {
+        var p = Up(A, held: true);
+        NetAdmission.HoldPeer(p, "policy", "ack missing", Ten).Refuse("ack missing");
+        _gate.KickResult = NetNative.Ok; // kiln.net: no login failure on this build, the session kick ends it
+        _net.Flags[A] = NetNative.PeerHeld | NetNative.PeerRefused | NetNative.PeerEnding;
+        NetEngine.RunDueKicks(DateTime.UtcNow.AddSeconds(2));
+        Assert.Equal([A], _gate.Kicked);
+        Assert.Null(p.KickAt);
+        Assert.False(NetEngine.KicksPending);
+        NetEngine.RefreshInfo(p);
+        Assert.True(p.Ending);
+        Assert.Null(p.BlockedSince);
+        Assert.Contains(NetAdmission.StatusLines(), l => l.StartsWith("ending: ", StringComparison.Ordinal) && l.Contains("(0xa1)", StringComparison.Ordinal));
+        NetAdmission.UpdateGate(true, false, 0);
+        Assert.Equal(NetAdmission.GateHoldAll, _gate.Mode); // like any kicked peer: until it is gone
+    }
+
+    [Fact]
+    public void A_refused_peer_nothing_can_end_is_not_retried_is_named_and_stops_holding_the_gate_after_kiln_net_s_limit()
+    {
+        var p = Up(A, held: true);
+        NetAdmission.HoldPeer(p, "policy", "ack missing", Ten).Refuse("ack missing");
+        _gate.KickResult = NetNative.Unavailable;
+        _net.Flags[A] = NetNative.PeerHeld | NetNative.PeerRefused | NetNative.PeerBlocked;
+        NetEngine.RunDueKicks(DateTime.UtcNow.AddSeconds(2));
+        Assert.Equal([A], _gate.Kicked);
+        Assert.Null(p.KickAt); // another try changes nothing
+        Assert.False(NetEngine.KicksPending);
+        Assert.NotNull(p.BlockedSince);
+        Assert.True(p.BlockedLogged);
+        Assert.Contains(NetAdmission.StatusLines(), l => l.StartsWith("blocked: ", StringComparison.Ordinal) && l.Contains("(0xa1)", StringComparison.Ordinal));
+        NetAdmission.UpdateGate(true, false, 0);
+        Assert.Equal(NetAdmission.GateHoldAll, _gate.Mode); // within kiln.net's own hold limit it still holds the gate
+        p.BlockedSince = DateTime.UtcNow - NetAdmission.BlockedCountsFor - TimeSpan.FromSeconds(1);
+        NetAdmission.UpdateGate(true, false, 0);
+        Assert.NotEqual(NetAdmission.GateHoldAll, _gate.Mode); // then only kiln.net's refusal keeps it out
+        Assert.Equal(NetPeerState.Rejected, p.State);
+        Assert.Empty(_gate.Released);
+    }
+
+    [Fact]
+    public void A_failed_kick_kiln_net_does_not_call_blocked_is_retried_and_keeps_holding_the_gate()
+    {
+        var p = Up(A, held: true);
+        NetAdmission.HoldPeer(p, "policy", "ack missing", Ten).Refuse("ack missing");
+        _gate.KickResult = NetNative.Unavailable;
+        _net.Flags[A] = NetNative.PeerHeld; // an older kiln.net reports no refusal: only "hold all" keeps it out
+        NetEngine.RunDueKicks(DateTime.UtcNow.AddSeconds(2));
+        Assert.NotNull(p.KickAt);
+        Assert.True(NetEngine.KicksPending);
+        Assert.Null(p.BlockedSince);
+        p.HeldSince = DateTime.UtcNow - TimeSpan.FromMinutes(5);
+        NetAdmission.UpdateGate(true, false, 0);
+        Assert.Equal(NetAdmission.GateHoldAll, _gate.Mode);
+    }
+
+    [Fact]
     public void A_pending_vanilla_peer_rechecks_conditions_before_its_hold_ends()
     {
         var p = Up(A, held: true);
