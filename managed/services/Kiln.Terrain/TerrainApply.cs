@@ -231,13 +231,16 @@ internal sealed class TerrainEngine(ITerrainBackend backend, TerrainSession sess
         {
             Record(blocks);
             BuildResult r;
-            try { r = await backend.Write(box, cells, mask, options.InBases, transient, label, options.LoadTimeout); }
+            // guarded: kiln.build commits only if the masked cells still hold what this batch read, compared after its
+            // BuildEditingEvent handlers and right before the commit, so an edit made in between is never written over
+            try { r = await backend.Write(box, cells, mask, options.InBases, transient, label, options.LoadTimeout, expected: now); }
             catch (BuildException e) { return (e.Message, changed, wrote); }
             if (!SameWorld(world)) return ("the world stopped or changed", r.CellsChanged, !r.Refused);
-            if (r.Refusal == BuildRefusal.Base)
+            if (r.Refusal is BuildRefusal.Base or BuildRefusal.Changed)
             {
                 Undo(blocks);
-                // the batch touches a base: block by block, preserving receipts for each successful write
+                // the batch touches a base, or someone changed its cells: block by block, preserving receipts for each
+                // successful write
                 foreach (var block in blocks)
                 {
                     var (part, key, before) = block;
@@ -246,12 +249,15 @@ internal sealed class TerrainEngine(ITerrainBackend backend, TerrainSession sess
                     if (!SameWorld(world)) return ("the world stopped or changed", changed, wrote);
                     Record([block]);
                     BuildResult pr;
-                    try { pr = await backend.Write(part, pc, pm, false, transient, label, options.LoadTimeout); }
+                    try { pr = await backend.Write(part, pc, pm, options.InBases, transient, label, options.LoadTimeout, expected: Sub(box, now, mask, part).Cells); }
                     catch (BuildException e) { return (e.Message, changed, wrote); }
-                    if (pr.Refusal == BuildRefusal.Base)
+                    if (pr.Refusal is BuildRefusal.Base or BuildRefusal.Changed)
                     {
-                        conflicts.Add(new TerrainConflict(TerrainConflictKind.BaseZone, TerrainPlan.WholeBlock(part)));
-                        if (rec is not null) rec.Blocks[key] = new TerrainBlock { Before = before, After = before, GivenUp = true, Why = (int)TerrainConflictKind.BaseZone };
+                        // a base, or cells changed since this batch read them: nothing of the block is written, the plan
+                        // gives it up
+                        var why = pr.Refusal == BuildRefusal.Base ? TerrainConflictKind.BaseZone : TerrainConflictKind.PlayerEdit;
+                        conflicts.Add(new TerrainConflict(why, TerrainPlan.WholeBlock(part)));
+                        if (rec is not null) rec.Blocks[key] = new TerrainBlock { Before = before, After = before, GivenUp = true, Why = (int)why };
                         Committed([block]);
                     }
                     else if (pr.Refused)

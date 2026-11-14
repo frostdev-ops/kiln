@@ -126,7 +126,9 @@ public static Task<TerrainResult> Apply(TerrainPatch patch, TerrainApplyOptions?
 ```
 
 It waits for the world to run, then for each batch: asks for the tiles, reads the cells, records the intended
-fingerprints, loads and writes through `Kiln.Build`, checks readback availability and raises `Terrain.Changed`. It is **not atomic**:
+fingerprints, loads and writes through `Kiln.Build`'s guarded write (`Build.WriteIfUnchanged`: the cells it writes must
+still be what the batch read, compared after the `BuildEditingEvent` handlers and right before the commit), checks
+readback availability and raises `Terrain.Changed`. It is **not atomic**:
 a patch is spread over ticks, and a cancel or a failure leaves the batches already written in the world. The result
 says how many. A world stop or change ends the apply; a mod reload releases its running reservation so an explicit
 apply from the new instance can resume the stored record.
@@ -176,6 +178,7 @@ distinguished from a first installation: keep backups of both the world and its 
 | A block is addressed by a kept plan of **another mod** known in this session (applied, or being applied) | `Refused`, naming that mod and plan; nothing is written |
 | The same plan is being applied already | `Refused` |
 | A block lies in a player base and `InBases` is off | that block is listed as `BaseZone` and left alone |
+| A block's cells change while its batch is being written (another mod's `BuildEditingEvent` handler edits them, or anything between the batch's read and its commit) | kiln.build's guard refuses the write; the batch is then written block by block, and a block whose written cells changed is not written at all: listed as `PlayerEdit` and given up. The batch's other blocks are written. The guard compares the cells the batch writes; a changed cell it does not write (added on top: a cell already full) stays as it is, and the block's recorded "after" then no longer matches, so a later version leaves it alone |
 
 `TerrainConflict(TerrainConflictKind Kind, CellBox Block, string? Owner)`; kinds `PlayerEdit`, `OtherPlan`,
 `BaseZone`.
@@ -188,7 +191,8 @@ Rules that follow from the engine:
   no other mod can read: another mod's plan over the same blocks is refused only while the owning mod is loaded and
   has used `Kiln.Terrain` in this session. (A ledger shared by all mods needs a world bundle of Kiln's own in
   Kiln.Saves: about half a day, not in this version.)
-- A fresh plan does not know whether a player dug there before it: it writes. Only upgrades are guarded.
+- A fresh plan does not know whether a player dug there before it: it writes. Guarded are upgrades, resumes and
+  edits made while a batch is being written.
 - `Terrain.Applied` lists the calling mod's records in this world. `Forget` returns false while that plan is being
   applied, so it cannot discard the receipts of a running write.
 
@@ -209,8 +213,10 @@ A dry run: validates, loads the tiles, and reports `Box`, `Cells` (addressed), `
 `Terrain.Changed` (`Action<TerrainChangedEvent>`): once per committed batch, on the tick thread, after the write and
 the ledger update. `TerrainChangedEvent(string Mod, string Plan, int Version, CellBox Box, long CellsChanged,
 int Batch, int BatchCount, bool Last)`. A refusal, a conflict-only batch and an `AlreadyApplied` raise nothing.
-Every batch also raises kiln.build's own `BuildEditingEvent` and `BuildEditEvent` (origin `terrain`); a handler that
-cancels the first stops the patch as `Partial`. Terraforming is not part of the cancelable gameplay events.
+Every batch also raises kiln.build's own `BuildEditingEvent` and `BuildEditEvent` (label `terrain <plan> v<version>`,
+origin the mod that applies the patch); a handler that cancels the first stops the patch as `Partial`. A handler that
+changes cells the batch writes is not written over (the ledger row above); the batch is then written block by block,
+so each of its blocks raises the two events once more. Terraforming is not part of the cancelable gameplay events.
 
 ### Capability rows
 

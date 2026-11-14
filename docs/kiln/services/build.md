@@ -91,6 +91,7 @@ PlaceOnceResult once = await Build.PlaceOnce("my-outpost", s, new WorldPosition(
 | `IsLoaded(box)` (asks for missing tiles), `await Load(box, timeout)` | streaming |
 | `Read(box)` / `TryRead` / `await ReadAsync` / `ReadCell(cell)` | |
 | `Write(box, cells, options, mask)` / `await WriteAsync` | exact cells; mask: false = keep the world's cell |
+| `WriteIfUnchanged(box, cells, expected, options, mask)` | compare-and-write (since dev.28): writes only if the cells it sets still hold `expected` when it commits, else `BuildRefusal.Changed` and nothing is written ([below](#compare-and-write-since-dev28)) |
 | `await Dig / Add / Flatten / Smooth / Paint / Replace(shape, …)`, `ShapeBox(op, shape)` | `BuildShape.Box/Sphere/Cylinder` in metres; a one-cell smooth edge like the game's brushes |
 | `PlaceProp(template|guid, pos, rotation, itemId)`, `RemoveProp(e)`, `Prop(e)`, `Props(min, max | box, filter)` | `PropFilter.Placed` (default: what players placed), `Saved`, `All`, `Static`. A template is a game template, a clone (kiln.gamedata), or the item that places one |
 | `Bases` | `PlayerBase` (altar, build-zone centre and half size) |
@@ -113,9 +114,33 @@ The journal keeps the newest 64 entries and about 24 M cells; it is gone after a
 | Event | When | Thread | Cancel | Fields |
 |---|---|---|---|---|
 | `BuildEditingEvent` : cancelable | before a Kiln edit changes anything (cells, shapes, pastes, props) | tick, inside the call | the edit is skipped; the call returns `BuildRefusal.Canceled` (props: `EntityId.None`) | `Kind`, `Box`, `Actor`, `Origin` (mod id), `Label`; read-only |
-| `BuildEditEvent` | after a Kiln edit (also when the world refused it: zone, base, not loaded) | tick, inside the call | no | `Kind`, `Box`, `Actor`, `Origin`, `Label`, `Result`, `PropsPlaced`, `PropsRemoved`, `JournalId`, `Changed` |
+| `BuildEditEvent` | after a Kiln edit (also when the world refused it: zone, base, not loaded; and when `WriteIfUnchanged` found the cells changed) | tick, inside the call | no | `Kind`, `Box`, `Actor`, `Origin`, `Label`, `Result`, `PropsPlaced`, `PropsRemoved`, `JournalId`, `Changed` |
 
 Player edits with the build hammer are Kiln.Gameplay's `BuildEvent`s, not these.
+
+### Compare-and-write (since dev.28)
+A mod that reads cells, decides and then writes cannot know whether something changed them in between: a
+`BuildEditingEvent` handler of another mod runs inside the write, before the commit. `Build.WriteIfUnchanged(box,
+cells, expected, options, mask)` takes the cells the caller read and compares them with the world **after the editing
+handlers and right before the commit**, in the same call: where `mask` is true (every cell without a mask), the world
+must still hold `expected`. One cell that differs and the whole write is refused: `BuildRefusal.Changed`, nothing is
+written, `BuildEditEvent` carries the refusal. Unmasked cells are not compared; the writer keeps the world's values
+there anyway. Kiln.Terrain's overlays write this way.
+
+```csharp
+await Build.Load(box);
+var before = Build.Read(box);
+var r = Build.WriteIfUnchanged(box, Carve(before), before);
+if (r.Refusal == BuildRefusal.Changed) { /* someone edited it: read again, or leave it */ }
+```
+
+Why the compare and the commit are one step: both run on the tick thread inside one call, in Kiln's Pre or Post,
+where no job of the game's world runs (Pre runs before the step, Post after `WaitWorldJobs`). No other mod's code runs
+between them, and the game's own voxel writers (the terraforming impact and the brush kernels, which commit through the
+same store; `docs/re/build.md` §3) run inside the world's step, so they cannot fall between them either, also when a
+dedicated server runs that step's programs on worker threads. Not established: whether any other caller of the store's
+commit runs outside the world's jobs (the store commit's other callers and the streaming threads were not traced).
+The tiles must be loaded: a missing tile is `NotLoaded`, also with `BuildFlags.Unloaded`.
 
 ## The `.kschem` format (version 1)
 Little-endian binary:
@@ -258,7 +283,7 @@ Kiln.Build follows [the API contract](../modding/contract.md). Server side only 
   `[RequiresCapability("kiln.build")]` and throws `KilnUnavailableException` naming it (a `NotSupportedException`, as
   before).
 - **Results.** `BuildResult`, `PasteResult` and `PlaceOnceResult` implement `IKilnResult`. `BuildResult.Ok` is
-  `!Refused` and `Reason` puts `Refusal` in words (the zone or base altar id included); `PasteResult.Reason` is the
+  `!Refused` and `Reason` puts `Refusal` in words (the zone or base altar id included; `Changed` since dev.28); `PasteResult.Reason` is the
   cells' refusal or the count of props that could not be placed; `PlaceOnceResult.Ok` is `Placed || AlreadyPlaced`.
   `UndoResult` stays a count (an undo with nothing to undo is null, as before).
 - **Threads.** `[TickThreadOnly]` on everything that touches the world; `Build.Status` and `Available` are

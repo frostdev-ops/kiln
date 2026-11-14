@@ -76,6 +76,16 @@ public sealed class HarnessTerrain
         lock (State.Lock) State.Bases.Add(box);
     }
 
+    /// <summary>Runs inside every write of an overlay where kiln.build posts its <c>BuildEditingEvent</c>: after the
+    /// overlay read the cells and decided, before kiln.build's guard compares them and the write commits. A test makes
+    /// another mod's edit here (<see cref="Set"/>); the overlay then leaves that block alone. Null: nothing runs.</summary>
+    /// <remarks>Internal until its line is in the kit's public API record.</remarks>
+    internal Action<CellBox>? Editing
+    {
+        get { lock (State.Lock) return State.Editing; }
+        set { lock (State.Lock) State.Editing = value; }
+    }
+
     /// <summary>Every write overlays made, in order.</summary>
     public IReadOnlyList<FakeTerrainWrite> Writes { get { lock (State.Lock) return [.. State.Writes]; } }
 }
