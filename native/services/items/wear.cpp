@@ -54,6 +54,13 @@ bool resolve(const KilnApi* api, uint64_t owner) {
         items_log(KILN_LOG_INFO, "tool wear: off: %s", f.why);
         return false;
     }
+    if (!E.read_ok || !E.instances_ok || !E.program_ok) {
+        std::snprintf(f.why, sizeof f.why, "the item service's reads, program access or item instances are not available on this build");
+        g_facts = f;
+        items_log(KILN_LOG_WARN, "tool wear: off: %s", f.why);
+        lower(api, owner, KILN_CAP_REASON_SYMBOL_MISSING, f.why);
+        return false;
+    }
     const bool resolved =
         address(api, "items/WearItem", &wear_item, &f) && address(api, "items/WearDelta", &wear_delta, &f) &&
         address(api, "items/EnableDurability", &enable, &f) && address(api, "items/ToolWearUpdate", &f.hit_update, &f) &&

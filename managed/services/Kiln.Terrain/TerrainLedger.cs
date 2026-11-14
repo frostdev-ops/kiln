@@ -9,6 +9,40 @@ internal sealed class TerrainBook
     [System.Text.Json.Serialization.JsonRequired]
     public Dictionary<string, TerrainRecord> Plans { get; set; } = new();
 
+    /// <summary>Tombstones: plans this mod forgot on purpose (<c>Terrain.Forget</c>), by id, with when. The next apply of
+    /// such an id is a first install over whatever is there, not a lost ledger (TerrainLoss), and takes the tombstone
+    /// away. Optional: a ledger without the field has none.</summary>
+    public Dictionary<string, DateTimeOffset>? Forgotten { get; set; }
+
+    /// <summary>Tombstones kept per mod and world; past it the oldest goes.</summary>
+    public const int MaxForgotten = 64;
+
+    /// <summary><c>Terrain.Forget</c>: drops the record of <paramref name="id"/> and leaves its tombstone. False when the
+    /// book has no such record.</summary>
+    public bool Forget(string id)
+    {
+        if (!Plans.Remove(id)) return false;
+        var tombs = Forgotten ??= new(StringComparer.Ordinal);
+        tombs.Remove(id);
+        var now = DateTimeOffset.UtcNow;
+        var last = tombs.Count == 0 ? DateTimeOffset.MinValue : tombs.Values.Max();
+        tombs[id] = now > last ? now : last.AddTicks(1);   // strictly newer than every other: the oldest is the one to go
+        while (tombs.Count > MaxForgotten) tombs.Remove(tombs.MinBy(t => t.Value).Key);
+        return true;
+    }
+
+    /// <summary>Whether <paramref name="id"/> was forgotten on purpose (Inspect looks, and leaves the tombstone).</summary>
+    public bool WasForgotten(string id) => Forgotten?.ContainsKey(id) == true;
+
+    /// <summary>Takes the tombstone of <paramref name="id"/> away: the first install it allows (Apply). False when there
+    /// was none.</summary>
+    public bool Unforget(string id)
+    {
+        if (Forgotten?.Remove(id) != true) return false;
+        if (Forgotten.Count == 0) Forgotten = null;
+        return true;
+    }
+
     // WorldData is editable JSON, not a trusted object graph. Do not repair it into an empty/fresh ledger.
     public void Validate((int X, int Z)? grid)
     {
@@ -24,6 +58,12 @@ internal sealed class TerrainBook
                 Blocks(rec.EarlierBlocks, Box(rec.EarlierRegion!, grid));
             }
             else if (rec.EarlierRegion is not null) Bad();
+        }
+        if (Forgotten is not null)
+        {
+            if (Forgotten.Count > MaxForgotten) Bad();
+            foreach (var id in Forgotten.Keys)
+                if (!TerrainPlan.ValidId(id) || Plans.ContainsKey(id)) Bad();   // a forgotten plan has no record
         }
     }
 

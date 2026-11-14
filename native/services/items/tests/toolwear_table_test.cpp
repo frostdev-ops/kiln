@@ -11,6 +11,7 @@
 #include "../toolwear.h"
 #include "kiln_api.h"
 #include "services/kiln_items.h"
+#include "services/kiln_hooks.h"
 #include "services/kiln_toolwear.h"
 
 static int g_fail = 0;
@@ -23,6 +24,8 @@ bool hooks_on = true, tick = true, catalog = true, full = false;
 uintptr_t world = 0x1000;
 std::vector<kitems::toolwear::Change> queue;
 const KilnToolWearApi* table = nullptr;
+KilnOwnerRetiringFn retiring = nullptr;
+void* retiring_user = nullptr;
 constexpr uint32_t kPickaxe = 0x2525bb44u, kAxe = 0x1111aaaau, kTorch = 0x70707070u, kSword = 0x5555u, kRake = 0x6666u;
 }  // namespace fake
 
@@ -87,7 +90,21 @@ static KilnResult KILN_CALL session(KilnSessionInfo* out) {
     out->sessions[KILN_WORLD_SERVER] = 4;
     return KILN_OK;
 }
-static const void* KILN_CALL service(KilnStr, uint32_t) { return nullptr; }
+static KilnResult KILN_CALL subscribe_retiring(KilnOwner, KilnOwnerRetiringFn fn, void* user, KilnHandle* out) {
+    fake::retiring = fn;
+    fake::retiring_user = user;
+    *out = 1;
+    return KILN_OK;
+}
+static const void* KILN_CALL service(KilnStr name, uint32_t) {
+    static KilnHooksApi hooks = [] {
+        KilnHooksApi h{};
+        h.header = {sizeof h, KILN_HOOKS_VERSION};
+        h.subscribe_owner_retiring = &subscribe_retiring;
+        return h;
+    }();
+    return name.len == std::strlen(KILN_HOOKS_SERVICE) && !std::memcmp(name.ptr, KILN_HOOKS_SERVICE, name.len) ? &hooks : nullptr;
+}
 static KilnResult KILN_CALL register_service(KilnOwner, KilnStr name, const void* t) {
     if (name.len == std::strlen(KILN_TOOLWEAR_SERVICE) && !std::memcmp(name.ptr, KILN_TOOLWEAR_SERVICE, name.len))
         fake::table = static_cast<const KilnToolWearApi*>(t);
@@ -168,6 +185,8 @@ int main() {
     CHECK(t->define(A, S("m\xc3\xb6""d"), fake::kPickaxe, 7, &x) == KILN_ERR_INVALID_ARGUMENT);
     fake::world = 0;
     CHECK(t->define(A, S("mod-a"), fake::kPickaxe, 7, &x) == KILN_TOOLWEAR_NO_AUTHORITATIVE_WORLD);
+    s = state(fake::kPickaxe);
+    CHECK(!s.ok && !s.pending && !std::strcmp(s.reason, "NoAuthoritativeWorld"));
     fake::world = 0x1000;
     fake::catalog = false;
     CHECK(t->define(A, S("mod-a"), fake::kPickaxe, 7, &x) == KILN_TOOLWEAR_PENDING && state(fake::kPickaxe).pending == 1 && state(fake::kPickaxe).ok == 0);
@@ -249,6 +268,22 @@ int main() {
     CHECK(wrote == short_stride && narrow[short_stride] == 0xEE);
     CHECK(t->changes(rec, 1, 8, &n) == KILN_ERR_INVALID_ARGUMENT && t->changes(nullptr, 1, sizeof rec[0], &n) == KILN_ERR_INVALID_ARGUMENT &&
           t->changes(rec, 1, sizeof rec[0], nullptr) == KILN_ERR_INVALID_ARGUMENT);
+
+    // The defining mod id belongs to the owner lifetime, including across items and after its last layer is removed.
+    const auto original = state(fake::kAxe);
+    CHECK(t->define(A, S("impostor"), fake::kAxe, 8, &x) == KILN_ERR_INVALID_ARGUMENT && x == 0);
+    CHECK(t->define(A, S("impostor"), fake::kPickaxe, 8, &x) == KILN_ERR_INVALID_ARGUMENT && x == 0);
+    CHECK(state(fake::kAxe).generation == original.generation && !std::strcmp(state(fake::kAxe).owner_mod_id, "mod-a"));
+    CHECK(t->remove(A, a) == KILN_OK);
+    CHECK(t->define(A, S("impostor"), fake::kAxe, 8, &x) == KILN_ERR_INVALID_ARGUMENT && x == 0);
+    // Native owner retirement restores the lower rule; a stale caller cannot recreate its rule afterward.
+    CHECK(t->define(A, S("mod-a"), fake::kPickaxe, 7, &a) == KILN_OK);
+    CHECK(t->define(B, S("mod-b"), fake::kPickaxe, 3, &b) == KILN_OK);
+    CHECK(fake::retiring != nullptr);
+    if (fake::retiring) fake::retiring(B, fake::retiring_user);
+    s = state(fake::kPickaxe);
+    CHECK(s.per_debit == 7 && !std::strcmp(s.owner_mod_id, "mod-a"));
+    CHECK(t->define(B, S("mod-b"), fake::kPickaxe, 3, &x) == KILN_ERR_REVOKED && x == 0);
 
     std::printf("items-toolwear-table-test: %s\n", g_fail ? "FAILED" : "ok");
     return g_fail ? 1 : 0;

@@ -2,7 +2,8 @@
 // Kiln.Terrain lab test, player free. Prints "terrain-overlay-test: PASS|FAIL|INFO ..." lines, "READY stop" when the
 // driver (run.py) should stop the server, and "DONE" at the end. Three boots (kiln/data/terrain-overlay-test/state.json):
 //   1  world A, fresh: inspect, apply a vein (three blocks, one a tick), a transient cube of one full default batch (its
-//      timing is the INFO line the docs' "cells per tick" comes from), a patch inside the base (refused), a save.
+//      timing is the INFO line the docs' "cells per tick" comes from), a patch inside the base (refused), a two-block
+//      plan whose one block a BuildEditingEvent handler edits while the overlay writes it (that block is left), a save.
 //   2  world A after a restart: the vein is back and recorded, the same version is a no-op, and version 2 over one cell
 //      someone dug leaves that block alone. A save.
 //   3  world B (the driver moved world A's save away): no record, no overlay cells, and the vein applies there afresh.
@@ -151,10 +152,66 @@ public sealed class TerrainOverlayTestMod : Mod
                   && same && would.Would == TerrainState.Conflict,
                 "overlay.base-refused", $"state {b.State}, {b.ChangedCells} cells, conflicts {string.Join(",", b.Conflicts.Select(x => x.Kind))}, inspect {would.Would}, cells {(same ? "unchanged" : "CHANGED")}");
         }
+        await EditingHandlerEditKept(region, y0);
         var save = await Saves.Request();
         Info($"save: {save}");
         _s.Phase = 2;
     }
+
+    // Another mod's BuildEditingEvent handler writes one cell of a block while the overlay writes that block: kiln.build's
+    // guard (Build.WriteIfUnchanged) refuses it after the handler and before the commit, the overlay gives that block up,
+    // and the batch's other block is written.
+    private async Task EditingHandlerEditKept(CellBox vein, int y0)
+    {
+        // two blocks, one default batch (both inside one 32-cell cube), next to the vein and not sharing a block with it
+        var box = new CellBox(vein.X / 32 * 32, y0, vein.Z / 32 * 32 + 32, 16, 8, 8);
+        var chosen = box with { SizeX = 8 };
+        var at = new CellPos(box.X + 3, box.Y + 2, box.Z + 3);
+        var before = await Build.ReadAsync(box);
+        var mark = before[box.Index(3, 2, 3)] == Voxel.Of(_s.Two) ? Voxel.Air : Voxel.Of(_s.Two);   // a value the cell does not hold
+        var label = "terrain guarded v1";
+        var cells = new byte[box.Count];
+        Array.Fill(cells, (byte)1);
+        BuildResult? foreign = null;
+        string? origin = null;
+        var inside = false;
+        TerrainResult r;
+        using (Events.On<BuildEditingEvent>(e =>
+        {
+            // the overlay's own edit of the chosen block, once; the handler's own write posts the event again (re-entry)
+            if (inside || foreign is not null || e.Label != label || Apart(e.Box, chosen)) return;
+            inside = true;
+            origin = e.Origin;
+            try { foreign = Build.Write(new CellBox(at.X, at.Y, at.Z, 1, 1, 1), [mark], new BuildOptions { Journal = false, Label = "an editing handler's edit" }); }
+            finally { inside = false; }
+        }))
+        {
+            r = await Terrain.Apply(new TerrainPatch("guarded", 1, box, new TerrainVoxelVolume(cells), [new TerrainPaletteEntry(_s.One)]));
+        }
+        var now = await Build.ReadAsync(box);
+        var left = true;
+        var written = true;
+        for (var z = 0; z < 8; z++)
+        for (var y = 0; y < 8; y++)
+        for (var x = 0; x < 16; x++)
+        {
+            var i = box.Index(x, y, z);
+            if (x >= 8) written &= now[i] == Voxel.Of(_s.One);
+            else if ((x, y, z) != (3, 2, 3)) left &= now[i] == before[i];
+        }
+        var kept = now[box.Index(3, 2, 3)] == mark;
+        var plan = Terrain.Applied.FirstOrDefault(p => p.Plan == "guarded");
+        Check(foreign is { Changed: true } && r is { Ok: false, State: TerrainState.Conflict, Batches: 1 } && r.Conflicts.Count == 1
+              && r.Conflicts[0] == new TerrainConflict(TerrainConflictKind.PlayerEdit, chosen) && kept && left && written
+              && plan is { Complete: true, Blocks: 1, GivenUp: 1 },
+            "overlay.editing-handler-edit-kept",
+            $"handler wrote {mark} at {at} ({foreign?.CellsChanged} cell), apply {r.State} {r.ChangedCells} cells in {r.Batches} batch(es), conflicts " +
+            $"{string.Join(";", r.Conflicts.Select(x => $"{x.Kind} {x.Block}"))}, the handler's cell {(kept ? "kept" : $"OVERWRITTEN ({now[box.Index(3, 2, 3)]})")}, " +
+            $"the rest of its block {(left ? "as it was" : "TOUCHED")}, the other block {(written ? "written" : "NOT written")}, record {plan}, event origin {origin} {r.Reason}");
+    }
+
+    private static bool Apart(CellBox a, CellBox b) =>
+        a.X >= b.X + b.SizeX || b.X >= a.X + a.SizeX || a.Y >= b.Y + b.SizeY || b.Y >= a.Y + a.SizeY || a.Z >= b.Z + b.SizeZ || b.Z >= a.Z + a.SizeZ;
 
     private async Task AfterRestart()
     {

@@ -16,6 +16,9 @@ internal sealed class TerrainFakeState
     public readonly List<CellBox> Bases = [];
     public readonly Dictionary<string, TerrainBook> Books = new(StringComparer.Ordinal);
     public readonly List<FakeTerrainWrite> Writes = [];
+    /// <summary>Runs inside each write where kiln.build posts BuildEditingEvent: after the overlay read and decided, before
+    /// the guard compares and the write commits (<see cref="HarnessTerrain.Editing"/>).</summary>
+    public Action<CellBox>? Editing;
 
     public Voxel Get(int x, int y, int z) =>
         Cells.TryGetValue((x, y, z), out var v) ? v : y < GroundY ? Voxel.Of(GroundMaterial) : Voxel.Air;
@@ -90,10 +93,22 @@ internal sealed class TerrainFake : IKitFake
             }
         }
 
-        public Task<BuildResult> Write(CellBox box, Voxel[] cells, bool[] mask, bool inBases, bool transient, string label, TimeSpan timeout, bool dryRun = false)
+        public Task<BuildResult> Write(CellBox box, Voxel[] cells, bool[] mask, bool inBases, bool transient, string label, TimeSpan timeout, bool dryRun = false,
+            Voxel[]? expected = null)
         {
             lock (s.Lock)
             {
+                s.Editing?.Invoke(box);
+                // the guard, as Build.WriteIfUnchanged: every masked cell must still be what the overlay read
+                if (expected is not null)
+                    for (var z = 0; z < box.SizeZ; z++)
+                    for (var y = 0; y < box.SizeY; y++)
+                    for (var x = 0; x < box.SizeX; x++)
+                    {
+                        var i = box.Index(x, y, z);
+                        if (mask[i] && s.Get(box.X + x, box.Y + y, box.Z + z) != expected[i])
+                            return Task.FromResult(new BuildResult(0, 0, false, false, box, 0, BuildRefusal.Changed));
+                    }
                 if (!inBases && s.Bases.Any(b => !TerrainPlan.Intersect(b, box).IsEmpty))
                     return Task.FromResult(new BuildResult(0, 0, false, false, box, 0, BuildRefusal.Base));
                 if (dryRun) return Task.FromResult(new BuildResult(0, 0, false, false, box, 0, BuildRefusal.DryRun));
