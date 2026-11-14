@@ -84,6 +84,13 @@ public readonly record struct Capability(
 
     /// <summary><see cref="State"/> is <see cref="CapabilityState.Available"/>.</summary>
     public bool IsAvailable => State == CapabilityState.Available;
+
+    /// <summary>The capability is built but held back until it has been tested in a real game: it is
+    /// <see cref="CapabilityState.Unavailable"/> for <see cref="CapabilityReason.Policy"/> and
+    /// <see cref="ReasonText"/> begins with <c>game test pending:</c> followed by the guided checks that open it.
+    /// <c>"preview"</c> in <c>kiln.json</c> (true, or a list of names) switches such a capability on before then.</summary>
+    public bool IsHeld => State == CapabilityState.Unavailable && Reason == CapabilityReason.Policy &&
+                          ReasonText is not null && ReasonText.StartsWith(Capabilities.HeldText, StringComparison.Ordinal);
 }
 
 /// <summary>A row of the capability registry changed: posted on the bus (tick thread, at the start of the next step)
@@ -148,6 +155,7 @@ public static unsafe class Capabilities
     internal const uint ServiceVersion = 1;
     internal const int NameMax = 96;
     internal const int TextMax = 512;
+    internal const string HeldText = "game test pending: ";  // KILN_CAP_GATE_TEXT: how a held row's text begins
 
     /// <summary>The owner id Kiln's own reports are made with, and the source in-memory rows show.</summary>
     internal const string OwnerId = "capabilities";
@@ -210,6 +218,17 @@ public static unsafe class Capabilities
         if (s.Binding.Table == null && s.Binding.Backend.HasFeature(name))
             return ServiceCaps.LoweredClaim(name) ?? new Capability(name, CapabilityState.Available, CapabilityReason.None, "", "backend");
         return NoRow(name);
+    }
+
+    /// <summary>Whether <paramref name="name"/> is held back until its game test (<see cref="Capability.IsHeld"/>).
+    /// A name with no row is false. Kiln's services ask this before they install the hooks of such a capability; a
+    /// mod can use it to tell "not tested yet" from "does not work here". Any thread.</summary>
+    /// <exception cref="ArgumentNullException"><paramref name="name"/> is null.</exception>
+    [AnyThread]
+    public static bool IsHeld(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        return Current().Rows.TryGetValue(name, out var row) && row.IsHeld;
     }
 
     /// <summary>One sentence about <paramref name="name"/> a mod can log: the name, the state, the reason in words, the

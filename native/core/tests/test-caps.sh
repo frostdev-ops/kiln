@@ -12,6 +12,8 @@ flags=(-std=c++20 -O1 -g -Wall -Wextra -pthread -fsanitize=address,undefined -fn
        -I"$here/stubs" -I"$here/../abi" -I"$here/../../third_party")
 "$cxx" "${flags[@]}" -o "$out/sigdb_problem_test" "$here/sigdb_problem_test.cpp"
 "$out/sigdb_problem_test" "$out"
-"$cxx" "${flags[@]}" -o "$out/caps_test" "$here/caps_test.cpp"
+# the client gate's list, as the core's build generates it (a bad native/core/gates/*.json fails here too)
+python3 -I "$here/../gates/gen.py" "$here/../gates" "$out/kiln_gates.g.h"
+"$cxx" "${flags[@]}" -I"$out" -I"$here/../src" -o "$out/caps_test" "$here/caps_test.cpp"
 # a subscriber that deadlocks the registry hangs the test: the time limit turns that into a failure
 timeout 120 "$out/caps_test" "$out"
