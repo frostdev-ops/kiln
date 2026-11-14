@@ -146,7 +146,11 @@ public sealed class KindStagingTests
             Assert.Throws<InvalidOperationException>(() => KindTransaction.Begin(tx.Stage));
             Compiler.Define(target, "chilled", Chilled);
             // another thread has no transaction: its define is an ordinary one
-            var elsewhere = Task.Run(() => KindTransaction.Current).GetAwaiter().GetResult();
+            // (a thread of its own: a waited task may run inline on this one)
+            KindTransaction? elsewhere = tx;
+            var thread = new Thread(() => elsewhere = KindTransaction.Current);
+            thread.Start();
+            thread.Join();
             Assert.Null(elsewhere);
             tx.BeginCommit();
             Assert.Throws<InvalidOperationException>(() => Compiler.Define(target, "late", Chilled));
