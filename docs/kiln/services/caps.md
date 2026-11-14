@@ -259,6 +259,10 @@ a held row reads `unavailable`, `policy`, `game test pending: <ids>` until then.
 
 | Row | Kind | Reported by | Held until | What it says |
 |---|---|---|---|---|
+| `blocks.kinds` | managed | Kiln.Blocks | - | A mod can register a block kind (`Blocks.RegisterKind`). Off where blocks have nothing to compile to |
+| `blocks.compile` | managed | Kiln.Blocks | - | A block of a registered kind compiles to a frozen plan (`Blocks.Compile`, `Blocks.Application`) |
+| `blocks.apply` | managed | Kiln.Blocks | - | Plans are applied (`Blocks.Apply`, `Blocks.Define` with a block of an external kind). Needs a Kiln that can revoke a plan's owner |
+| `blocks.apply.item`, `.weapon`, `.spell`, `.status`, `.effect` | managed | Kiln.Blocks | - | A plan whose primary is this built-in block is applied |
 | `types.impact_names` | service row | kiln.types at its start | not held | the Impact-name field of the game's type table validated on this build: `GameType.ImpactName`, `GameTypes.ByImpactName`, `FindAllByImpactName` ([types.md](types.md#impact-names-since-020-dev28)); off with the counts that failed, or missing with a kiln.types older than 0.2.0-dev.28 |
 | `world.transform_scale` | managed row | Kiln.World at its first use | `13-world.transform-scale` (both sides) | `World.SetTransformScale` ([world.md](world.md#transform-scale)): the game's type table gives `CurrentTransform.transform.scale` as three contiguous float32; the text names the place, or the shape found when it is off |
 | `assets.blob_catalog` | managed row | Kiln.Assets at its start | game client: `13-assets.catalog-client` | the content blob catalog (`Assets.OpenBlobCatalog`, [assets.md](assets.md#the-content-blob-catalog)): kiln.assets' table has it and the content hooks are on; `service-older` with an older kiln.assets |

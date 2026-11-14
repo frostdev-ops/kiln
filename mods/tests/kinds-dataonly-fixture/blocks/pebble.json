@@ -1,0 +1,10 @@
+{
+  "$schema": "../../../../schema/kiln-blocks.schema.json",
+  "format": 1,
+  "items": {
+    "pebble": {
+      "name": "Lab pebble",
+      "recipe": { "needs": { "Material_T1_Twigs": 1 } }
+    }
+  }
+}

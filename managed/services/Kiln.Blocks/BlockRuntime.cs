@@ -94,9 +94,15 @@ internal static class BlockRuntime
         Hook(mod);
     }
 
-    private static void Hook(ModBlocks mod)
+    internal static void Hook(ModBlocks mod)
     {
         mod.RulesDirty = true;
+        // a kind's plan that is only staged runs nothing yet: its pass starts when the plan is applied (Promote)
+        if (mod.StagesFor != null && !mod.Promoted)
+        {
+            mod.HookWanted = true;
+            return;
+        }
         lock (Gate)
         {
             if (mod.ReadyHooked) return;
@@ -158,8 +164,16 @@ internal static class BlockRuntime
     }
 
     // Done once every clone of the mod is in the world: a rule can then name a clone.
+    /// <summary>A kind's plan was applied: its ledger takes part from now on.</summary>
+    internal static void Promote(ModBlocks plan)
+    {
+        plan.Promoted = true;
+        if (plan.HookWanted) Hook(plan);
+    }
+
     private static bool ApplyRules(ModBlocks mod)
     {
+        if (mod.Revoked) return true;   // a plan that was taken back: nothing of it is applied again
         if (!Mods.IsLoaded(mod.Id)) return true;
         var prefix = mod.Id + ".";
         var clones = Content.GameDataDefinitions().Where(d => d.Name.StartsWith(prefix, StringComparison.Ordinal)).ToList();
