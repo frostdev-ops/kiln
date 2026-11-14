@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "dialogues": {
+    "drop-talk": {
+      "start": "hello",
+      "nodes": {
+        "hello": { "text": { "en": "A dialogue of the mod the forced-drop lab drops." } }
+      }
+    }
+  }
+}

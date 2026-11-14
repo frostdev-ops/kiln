@@ -115,6 +115,24 @@ public sealed class BootPhaseTests : ModsFixture
         Path.GetFullPath(Path.Combine(Path.GetDirectoryName(here)!, "../../../native/core/abi/services/kiln_boot.h"));
 
     [Fact]
+    public unsafe void GameData_off_names_the_row_once()
+    {
+        _ = new FakeHost();  // also the backend: the registry keeps its rows in memory
+        Capabilities.Report("mods.boot.game_data", CapabilityState.Unavailable, CapabilityReason.Offline, "no game-data snapshot matches this game build");
+        try
+        {
+            var data = new BootGameData(null, 1);  // the row is off: the table is never touched
+            var e = Assert.Throws<KilnUnavailableException>(() => data.Read("item:Material_T1_Wood_Logs"));
+            Assert.Equal("mods.boot.game_data", e.Capability);
+            Assert.Equal("mods.boot.game_data is not available: no game-data snapshot matches this game build", e.Message);
+        }
+        finally
+        {
+            Capabilities.Reset();
+        }
+    }
+
+    [Fact]
     public void The_table_mirror_has_the_headers_members_in_its_order()
     {
         var text = File.ReadAllText(Header());

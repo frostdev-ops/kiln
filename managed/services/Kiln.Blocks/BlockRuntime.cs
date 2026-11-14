@@ -8,6 +8,30 @@ using System.Text.Json.Nodes;
 
 namespace Kiln;
 
+/// <summary>What the content-ready pass of a mod's blocks asks of the game: kiln.content's readiness and definitions, the late programs' game
+/// values, rules. The game's own by default; the tests of a kind's plan replace it (managed/tests/Kiln.Blocks.Tests/KindApplyTests.cs).</summary>
+internal interface IReadyHost
+{
+    /// <summary>Runs <paramref name="run"/> on the tick once content is ready, and again for each content application or while
+    /// <paramref name="again"/> says so; <paramref name="run"/> returns false to be tried again.</summary>
+    void OnReady(Func<bool> run, Func<bool> again);
+    /// <summary>Runs <paramref name="run"/> once, <paramref name="steps"/> steps from now, on the tick thread.</summary>
+    void After(int steps, Action run);
+    bool ModLoaded(string mod);
+    IReadOnlyList<GameDataDefinition> GameDataDefinitions();
+    IReadOnlyList<ContentDefinition> ContentDefinitions();
+    IReadOnlyList<ContentDefinition> Placeholders();
+    /// <summary>The GUID a late program's reference to the game's data stands for, or null when the game has no such entry.</summary>
+    Guid? ResolveLate(LateRef r);
+    /// <summary>Serves a finished program under <paramref name="owner"/>.</summary>
+    void RegisterProgram(ulong owner, Guid guid, byte[] blob);
+    /// <summary>Programs were served: kiln.abilities looks again.</summary>
+    void ProgramsChanged();
+    /// <summary>Applies a rules document under <paramref name="owner"/>; what could not be applied, one line each.</summary>
+    IReadOnlyList<string> ApplyRules(ulong owner, string json, string source);
+    void CheckBalancing();
+}
+
 internal static class BlockRuntime
 {
     private static readonly object Gate = new();
@@ -16,6 +40,27 @@ internal static class BlockRuntime
     private static readonly HashSet<(uint Actor, uint Item)> Starting = new();
     private static IDisposable? _tick;
     private static bool _checked;
+
+    /// <summary>The game, for the content-ready pass. Tests replace it.</summary>
+    internal static IReadyHost Host = new GameReadyHost();
+
+    private sealed class GameReadyHost : IReadyHost
+    {
+        public void OnReady(Func<bool> run, Func<bool> again) => BlocksBridge.OnReady(run, again);
+        public void After(int steps, Action run) => BlocksBridge.After(steps, run);
+        public bool ModLoaded(string mod) => Mods.IsLoaded(mod);
+        public IReadOnlyList<GameDataDefinition> GameDataDefinitions() => Content.GameDataDefinitions();
+        public IReadOnlyList<ContentDefinition> ContentDefinitions() => NewContent.Definitions();
+        public IReadOnlyList<ContentDefinition> Placeholders() => NewContent.Placeholders();
+        public Guid? ResolveLate(LateRef r) => BlockRuntime.ResolveLate(r);
+        public void RegisterProgram(ulong owner, Guid guid, byte[] blob) => Assets.RegisterAs(owner, new AssetKey(guid, 0xd4922d88u), blob);
+        public void ProgramsChanged()
+        {
+            if (Abilities.Available) Abilities.Programs.Refresh();
+        }
+        public IReadOnlyList<string> ApplyRules(ulong owner, string json, string source) => BlocksBridge.ApplyAs(owner, json, source).Errors;
+        public void CheckBalancing() => BlockRuntime.CheckBalancing();
+    }
 
     private const int EquipmentSlots = 11, SlotStride = 0x48;
 
@@ -108,10 +153,19 @@ internal static class BlockRuntime
             if (mod.ReadyHooked) return;
             mod.ReadyHooked = true;
         }
-        BlocksBridge.OnReady(() => ApplyRules(mod), () => mod.RulesDirty);
+        Host.OnReady(() =>
+        {
+            try { return ApplyRules(mod); }
+            catch (Exception e) when (e is not OutOfMemoryException && mod.Settle != null)
+            {
+                // a plan that waits for this pass is told: it does not stay pending for a pass that will not come again
+                if (Interlocked.Exchange(ref mod.Settle, null) is { } settle) settle([$"its pass at content ready failed: {e.Message}"]);
+                throw;
+            }
+        }, () => mod.RulesDirty);
     }
 
-    private static Guid? ResolveLate(LateRef r)
+    internal static Guid? ResolveLate(LateRef r)
     {
         if (r.Kind != "status") return Content.Templates.Get(r.Value)?.Guid;
         // the game's data has only a buff's id; its GUID is known when something refers to it. The natives only ever hash the reference to the id
@@ -131,7 +185,7 @@ internal static class BlockRuntime
         foreach (var guid in todo)
         {
             if (!mod.LateBuilders.TryGetValue(guid, out var b)) continue;
-            var blob = b.Finish(guid, ResolveLate, out var failed);
+            var blob = b.Finish(guid, Host.ResolveLate, out var failed);
             if (blob == null)
             {
                 lock (Gate) mod.LateFailed.Add(guid);
@@ -139,10 +193,10 @@ internal static class BlockRuntime
                 continue;
             }
             if (mod.Programs.TryGetValue(guid, out var had)) mod.Programs[guid] = (had.Key, blob, had.Listing);
-            Assets.RegisterAs(mod.Owner, new AssetKey(guid, 0xd4922d88u), blob);
+            Host.RegisterProgram(mod.Owner, guid, blob);
             BlocksBridge.Log(LogLevel.Info, $"blocks: {mod.Id}: program {had.Key} finished with the game's values");
         }
-        if (todo.Count > 0 && Abilities.Available) Abilities.Programs.Refresh();
+        if (todo.Count > 0) Host.ProgramsChanged();
     }
 
 
@@ -174,12 +228,12 @@ internal static class BlockRuntime
     private static bool ApplyRules(ModBlocks mod)
     {
         if (mod.Revoked) return true;   // a plan that was taken back: nothing of it is applied again
-        if (!Mods.IsLoaded(mod.Id)) return true;
+        if (!Host.ModLoaded(mod.Id)) return true;
         var prefix = mod.Id + ".";
-        var clones = Content.GameDataDefinitions().Where(d => d.Name.StartsWith(prefix, StringComparison.Ordinal)).ToList();
+        var clones = Host.GameDataDefinitions().Where(d => d.Name.StartsWith(prefix, StringComparison.Ordinal)).ToList();
         if (clones.Any(d => d.State is "pending" or "waiting")) return false;
         mod.RulesDirty = false;
-        CheckBalancing();
+        Host.CheckBalancing();
         void Problem(string text)
         {
             BlocksBridge.Log(LogLevel.Error, $"blocks: {mod.Id}: {text}");
@@ -242,26 +296,50 @@ internal static class BlockRuntime
         // game loads) waits for one part at most.
         foreach (var part in Parts(doc, 500))
         {
-            var report = BlocksBridge.ApplyAs(mod.Owner, part.ToJsonString(), $"blocks of {mod.Id}");
-            foreach (var e in report.Errors) Problem(e);
+            foreach (var e in Host.ApplyRules(mod.Owner, part.ToJsonString(), $"blocks of {mod.Id}")) Problem(e);
         }
         // the kept rules of routed weapons were in that document: a weapon whose applied generation did not come back says so in its status
         MoveApplications.Replayed(mod, Problem);
         // what kiln.content and kiln.gamedata could not take of a definition: a block's author reads it here, by name. An item's reference
         // to a clone is retried every 2 s: look when that has passed.
-        BlocksBridge.After(150, () =>
+        // A kind's plan looks at its own definitions only (its ledger shares the mod's id), takes their warnings as warnings, and is told
+        // once what its pass found: then it is applied, or refused and taken back (KindApply).
+        var plan = mod.PlanDefinitions;
+        bool Mine(string name) => plan == null ? name.StartsWith(prefix, StringComparison.Ordinal) : plan.Contains(name);
+        void Warn(string text)
         {
-            foreach (var d in Content.GameDataDefinitions().Where(d => d.Name.StartsWith(prefix, StringComparison.Ordinal)))
+            if (plan == null)
+            {
+                Problem(text);
+                return;
+            }
+            lock (mod.Warnings)
+            {
+                if (mod.Warnings.Contains(text)) return;
+                mod.Warnings.Add(text);
+            }
+            mod.ReportDirty = true;
+            BlocksBridge.Log(LogLevel.Warn, $"blocks: {mod.Id}: {text}");
+        }
+        Host.After(150, () =>
+        {
+            foreach (var d in Host.GameDataDefinitions().Where(d => Mine(d.Name)))
             {
                 if (d.Error is { Length: > 0 } err) Problem($"{d.Name}: {err}");
-                foreach (var w in d.Warnings) Problem($"{d.Name}: {w}");
+                foreach (var w in d.Warnings) Warn($"{d.Name}: {w}");
             }
-            foreach (var d in NewContent.Definitions().Where(d => !d.IsPlaceholder && d.Name.StartsWith(prefix, StringComparison.Ordinal)))
+            foreach (var d in Host.ContentDefinitions().Where(d => !d.IsPlaceholder && Mine(d.Name)))
             {
                 if (d.Problem is { Length: > 0 } err) Problem($"{d.Name}: {err}");
-                foreach (var w in d.Warnings) Problem($"{d.Name}: {w}");
+                foreach (var w in d.Warnings) Warn($"{d.Name}: {w}");
             }
-            WarnRenames(mod, prefix);
+            if (plan == null) WarnRenames(mod, prefix);
+            if (Interlocked.Exchange(ref mod.Settle, null) is { } settle)
+            {
+                List<string> errors;
+                lock (mod.Errors) errors = [.. mod.Errors];
+                settle(errors);
+            }
         });
         return true;
     }
@@ -294,7 +372,7 @@ internal static class BlockRuntime
     // A block's ids come from its name, so a rename without Was is a new item, and what the world holds of the old one stays as a placeholder.
     private static void WarnRenames(ModBlocks mod, string prefix)
     {
-        var gone = NewContent.Placeholders().Where(d => d.Mod == mod.Id && d.Name.StartsWith(prefix, StringComparison.Ordinal)).Select(d => d.Name[prefix.Length..]).OrderBy(x => x, StringComparer.Ordinal).ToList();
+        var gone = Host.Placeholders().Where(d => d.Mod == mod.Id && d.Name.StartsWith(prefix, StringComparison.Ordinal)).Select(d => d.Name[prefix.Length..]).OrderBy(x => x, StringComparer.Ordinal).ToList();
         if (gone.Count == 0) return;
         var text = $"this world holds items no block of {mod.Id} makes any more: {string.Join(", ", gone.Take(8))}{(gone.Count > 8 ? $" and {gone.Count - 8} more" : "")}. " +
                    $"They stay as [Missing: ...] so nothing is lost. If you renamed the block, say Was = \"{gone[0]}\" on it (\"was\" in JSON): saves keep it";
@@ -309,7 +387,7 @@ internal static class BlockRuntime
 
     // The two numbers a spell's and a weapon's power follow from are the game's. A game update that changes them must not silently
     // change what authors wrote: it is read once and reported.
-    private static void CheckBalancing()
+    internal static void CheckBalancing()
     {
         if (_checked) return;
         _checked = true;

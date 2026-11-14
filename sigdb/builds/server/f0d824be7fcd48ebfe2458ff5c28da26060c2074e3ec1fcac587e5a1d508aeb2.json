@@ -9,9 +9,9 @@
   "verified": true,
   "note": "runtime-verified in labs on this exe, 2026-11-11, Kiln 0.2.0-dev+20261112.68988ae, policy any, standard lab save copied fresh for each group, one group per boot (or per run of boots): the running core resolved sigdb 447/447 symbols (355 defined, 92 captured), 542/542 constants (493 defined, 49 captured) and 146/146 features, each to the same value as the offline resolve (compared per name from sigdb-report.json); base world 24/0, players 30/0, chat+time 50/0, hooks 17/0, content 33/0, newcontent 24/0; api 74/0; settings 70/0; items 95/0 (kiln.items self-test on); combat 203/0 (watch-all); spawn 57/0 over 3 boots; gameplay 48/0; creatures 63/0; assets 17/0; rules 53/0; pacing 21/0; types 32/0 + types-peer 8/0; progression 45/0 (no player); net 168/0 with nettest 95 PASS, 0 FAIL; quests 188/0 over 3 boots; skills 124/0 over 2 boots; characters 53/0 over 3 boots; gamedata 71/0 over 2 boots (reload, restart); saves 54/0 over 8 boots (SIGINT, kill -9 x3, restore, game backup); build 79/0 over 4 boots; placeholder 34/0 over 4 boots (kill -9). Failing, so their names stay static: abilities 70/3, 70/3, 71/2 over three runs (the bow shot is refused by the core's PlaySequence guard every time, the Greet emote ran 73/66/79 steps of the 80 the test wants, the staff cast 38/35 then passed, the PC under heavy load); npcai 25/6 twice (force ready unavailable on four spawned creatures, the peacekeeper's relations not applied). Not run: emf (its probe needs third-party EMF mods). Levels: lab 1093 names in 24 services, static 42 (abilities, npcai, emf). With this record under verified-only: build verified, SimStep hooked, every server service loaded (27; audio, screen, ui and vfx skipped as client-only), 0 error lines.",
   "declared": {
-    "symbols": 520,
-    "constants": 608,
-    "features": 162
+    "symbols": 523,
+    "constants": 609,
+    "features": 163
   },
   "features": {
     "abilities.attributes": true,
@@ -89,6 +89,7 @@
     "log.write": true,
     "mods.boot": true,
     "net.client_guard": true,
+    "net.disconnect": true,
     "net.gate": true,
     "net.kick": true,
     "net.players": true,
@@ -349,6 +350,7 @@
     "net/SessionAlloc": "0xa033b0",
     "net/SessionCommit": "0x9fa4b0",
     "net/SessionFree": "0x9fa450",
+    "net/SessionKickMachine": "0xa02c90",
     "net/SessionRead": "0xa03220",
     "net/SyncReturn": "0x7bdb48",
     "net/SyncSockets": "0x7bd3c0",
@@ -784,6 +786,7 @@
     "net/gs.machine_count": "0x11",
     "net/gs.machines": "0x16a0",
     "net/gs.records": "0x1e0",
+    "net/gs.session": "0x10",
     "net/gs.sockets": "0x30",
     "net/machine.sockets": "0x10",
     "net/machine.stride": "0x20",
@@ -1769,6 +1772,22 @@
       "features": {
         "repl.loopback": "static",
         "repl.observe": "static"
+      }
+    },
+    "dev28-15a-net-admission": {
+      "level": "static",
+      "date": "2026-11-14",
+      "evidence": "resolved offline (tools/sigport/build_record.py)",
+      "symbols": {
+        "@net.account_kick": "static",
+        "@net.session_kick_command": "static",
+        "net/SessionKickMachine": "static"
+      },
+      "constants": {
+        "net/gs.session": "static"
+      },
+      "features": {
+        "net.disconnect": "static"
       }
     },
     "dev28-16b-tool-durability": {

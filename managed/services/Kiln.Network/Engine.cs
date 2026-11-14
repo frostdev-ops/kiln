@@ -345,13 +345,16 @@ internal static class NetEngine
         return null;
     }
 
-    private static void RefreshInfo(NetPeer p)
+    internal static void RefreshInfo(NetPeer p)
     {
         if (NetNative.Info(p.Id) is not { } i) return;
         var name = i.NameString();
         if (name.Length > 0) p.Name = name;
         if ((i.Flags & NetNative.PeerHeld) != 0) p.HeldSince ??= DateTime.UtcNow;
         else p.HeldSince = null;
+        if ((i.Flags & NetNative.PeerBlocked) != 0) p.BlockedSince ??= DateTime.UtcNow;
+        else p.BlockedSince = null;
+        p.Ending = (i.Flags & NetNative.PeerEnding) != 0;
         if ((i.Flags & NetNative.PeerHasPlayer) != 0)
         {
             p.Player = p.HeldSince != null ? EntityId.None : new EntityId(i.Entity);
@@ -628,6 +631,17 @@ internal static class NetEngine
         var rc = NetAdmission.Kick(p, p.Kick is not null ? PlayerGate.KickReasonCode : _config.KickReason);
         if (rc != NetNative.Ok && p.Kick is null)
         {
+            RefreshInfo(p);
+            if (p.BlockedSince != null)
+            {
+                // kiln.net refused it for good and neither the login failure nor the game's session kick can end it here:
+                // another try changes nothing. It stays connected, blocked, with no world data, until it leaves.
+                if (!p.BlockedLogged)
+                    Log(LogLevel.Error, $"admission: {p.Name} (0x{p.Id:x}) is refused, but this server cannot end its connection (kick rc {rc}): " +
+                                        "it stays blocked, with no world data, until it leaves");
+                p.BlockedLogged = true;
+                return;
+            }
             p.KickAt = DateTime.UtcNow.AddSeconds(0.5);
             KicksPending = true;
         }

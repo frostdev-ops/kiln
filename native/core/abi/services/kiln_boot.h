@@ -196,7 +196,9 @@ typedef struct KilnBootApiV1 {
      * surfaces, resourcePatches), key matches ^[a-z][a-z0-9_.-]{0,95}$ without "..", canonical_json is one JSON object of
      * at most
      * KILN_BOOT_DEFINITION_MAX bytes. From the host (an owner that is not an author) kind "ir", key "envelope" stages
-     * the IR envelope, once. KILN_OK with ok 1: staged (the same bytes again are fine); KILN_OK with ok 0: refused
+     * the IR envelope, once. From an open author frame kind "ir", key "refusal", {"reason": "<text>"} says why the frame
+     * is about to fail (its OnBoot threw, its definitions do not lower): finish_owner(KILN_BOOT_FINISH_CALLBACK_FAILED)
+     * then gives that reason in the CallbackFailed issue instead of the generic one; the last one staged wins. KILN_OK with ok 1: staged (the same bytes again are fine); KILN_OK with ok 0: refused
      * (DuplicateDefinition, PhaseClosed, TooMany), reason says why. KILN_ERR_INVALID_ARGUMENT: a bad kind, key, JSON,
      * generation or owner, out too small. KILN_ERR_UNAVAILABLE: no deferred mode. */
     KilnResult(KILN_CALL* stage)(KilnOwner, uint64_t generation, KilnStr kind, KilnStr key, KilnStr canonical_json,

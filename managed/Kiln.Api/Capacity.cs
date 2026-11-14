@@ -7,6 +7,7 @@ namespace Kiln;
 
 /// <summary>The world a per-world budget belongs to. The values are the core's world kinds; the prediction world
 /// has no budget of its own.</summary>
+[System.Diagnostics.CodeAnalysis.Experimental("KILNX028")]
 public enum CapacityWorldKind : uint
 {
     /// <summary>The server world (a dedicated server's, or a host's).</summary>
@@ -19,9 +20,11 @@ public enum CapacityWorldKind : uint
 /// receipt for this process only: never save or send it; ask again after a restart or a new world.</summary>
 /// <param name="Kind">Which world.</param>
 /// <param name="Generation">The session's counter of that kind; never 0 for a real world.</param>
+[System.Diagnostics.CodeAnalysis.Experimental("KILNX028")]
 public readonly record struct CapacityWorldToken(CapacityWorldKind Kind, uint Generation);
 
 /// <summary>Whether a budget is one for the process or one per world.</summary>
+[System.Diagnostics.CodeAnalysis.Experimental("KILNX028")]
 public enum CapacityScope : uint
 {
     /// <summary>One budget for the whole process.</summary>
@@ -32,6 +35,7 @@ public enum CapacityScope : uint
 
 /// <summary>Whether a budget can be read now, and if not, why. The name of a value that is not
 /// <see cref="Ready"/> is the <see cref="CapacityQueryResult.Reason"/> of the query.</summary>
+[System.Diagnostics.CodeAnalysis.Experimental("KILNX028")]
 public enum CapacityReadiness : uint
 {
     /// <summary>The service has not counted yet (early in the start).</summary>
@@ -65,6 +69,7 @@ public enum CapacityReadiness : uint
 /// <param name="World">The world of a per-world budget; null for a process budget and when there is no world.</param>
 /// <param name="Revision">The answering service's own counter: it rises whenever what it publishes changes, so two
 /// reads with the same revision are the same.</param>
+[System.Diagnostics.CodeAnalysis.Experimental("KILNX028")]
 public sealed record CapacityInfo(uint Capacity, uint GameUsed, uint KilnUsed, uint Reserved, CapacityReadiness Readiness,
     bool Expanded, CapacityScope Scope, bool ExternalUsageUnknown, CapacityWorldToken? World, ulong Revision)
 {
@@ -85,11 +90,13 @@ public sealed record CapacityInfo(uint Capacity, uint GameUsed, uint KilnUsed, u
 /// (<c>NotReady</c>, <c>NoWorld</c>, <c>WorldEnded</c>, <c>UnknownExternalUsage</c>, <c>AccountingMismatch</c>,
 /// <c>NotFound</c>).</param>
 /// <param name="Budget">The budget; its counts are 0 when it is not ready.</param>
+[System.Diagnostics.CodeAnalysis.Experimental("KILNX028")]
 public sealed record CapacityQueryResult(bool Ok, string? Reason, CapacityInfo Budget) : IKilnResult;
 
 /// <summary>A budget changed: its capacity, readiness or one of its counts. Posted on the bus by the service that
 /// owns the quota, after the change is committed (at the owning world's next Post; at start, once mods had the
 /// chance to subscribe). A change of <see cref="CapacityInfo.Revision"/> alone posts nothing.</summary>
+[System.Diagnostics.CodeAnalysis.Experimental("KILNX028")]
 public sealed class CapacityChangedEvent : KilnEvent
 {
     internal CapacityChangedEvent(string quota, CapacityInfo previous, CapacityInfo current)

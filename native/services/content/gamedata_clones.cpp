@@ -126,7 +126,7 @@ bool valid_name(const std::string& n) {
 const char* wname(uintptr_t world) { return world == g_api->world(KILN_WORLD_CLIENT) ? "client" : "server"; }
 
 std::string mod_of_label(const std::string& label) {
-    for (const char* p : {"mod ", "pack "})
+    for (const char* p : {"mod ", "pack ", "boot:"})  // "boot:<mod>": the process owner of a boot generation's definitions
         if (label.rfind(p, 0) == 0) return label.substr(std::strlen(p));
     return {};
 }

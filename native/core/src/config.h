@@ -12,7 +12,11 @@
 // (only on a verified build), never.
 // preview: lifts the client gate (gates.h): true (or "all") for every capability that is held until its game test, or
 // a list of their names. A side section's "preview" replaces the top-level one.
+// "boot": { "testRefuse": { "<mod id>": "<collector>" } }: labs only (policy any, ignored otherwise): kiln.boot hands that
+// collector an unreadable document of that mod, so the collector refuses it and the mod is dropped from the boot generation
+// (the forced-drop proof of chapter 08; a release never sets it).
 #pragma once
+#include <map>
 #include <string>
 #include <vector>
 
@@ -30,6 +34,7 @@ struct Config {
     NativePolicy native_policy = NativePolicy::Always;
     bool preview_all = false;           // "preview": true
     std::vector<std::string> preview;   // "preview": [names]
+    std::map<std::string, std::string> boot_test_refuse;  // "boot": {"testRefuse": {mod: collector}} (labs, policy any)
 };
 
 const char* native_policy_name(NativePolicy p);  // "always" | "verified-only" | "never"

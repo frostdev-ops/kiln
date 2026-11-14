@@ -1,0 +1,15 @@
+{
+  "format": 1,
+  "gameTree": {
+    "nodes": [
+      {
+        "guid": "b0d0e9e1-3c2a-4f1e-9d7b-2a6c5e8f1d40",
+        "name": "bootdep_file_node",
+        "like": "0x0b61f08f",
+        "from": ["0x8efcc472"],
+        "offset": [-170, 60],
+        "cost": 0
+      }
+    ]
+  }
+}

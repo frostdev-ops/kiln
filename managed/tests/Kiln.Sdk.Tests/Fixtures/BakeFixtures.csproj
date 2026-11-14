@@ -12,5 +12,6 @@
     <ProjectReference Include="../../../services/Kiln.Quests/Kiln.Quests.csproj" Private="false" ExcludeAssets="runtime" />
     <ProjectReference Include="../../../services/Kiln.Ui/Kiln.Ui.csproj" Private="false" ExcludeAssets="runtime" />
     <ProjectReference Include="../../../services/Kiln.Assets/Kiln.Assets.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../services/Kiln.Blocks/Kiln.Blocks.csproj" Private="false" ExcludeAssets="runtime" />
   </ItemGroup>
 </Project>

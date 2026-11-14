@@ -1,0 +1,10 @@
+{
+  "id": "tk-boot",
+  "name": "Test kit boot mod",
+  "version": "1.0.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "TkBoot.dll",
+  "side": "server",
+  "clients": "mod",
+  "boot": true
+}

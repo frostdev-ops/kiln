@@ -107,6 +107,18 @@ Each refusal is a line in kiln.log (`vfx: <id>: blocks/<file>: not read: ...`), 
   kiln.content throws there: statuses, effects, items, spells and talent blocks. A talent block needs kiln.assets for its
   generated Impact program. The build says `not baked: the mod does not load without the game` and bakes nothing for that mod; set `KilnBake=false`
   to skip the try.
+- **What `OnBoot` stages (since 0.2.0-dev.28).** A boot mod's `OnBoot` runs first in the bake, through the test kit's boot
+  phase (`KilnHarness.BootPhase`), as a start runs it: once, on an instance of its own, with the same staging and the same
+  lowering. When it throws, or a definition it stages does not lower (one that names another mod's block, for example:
+  `BootReferenceOutside`), the bake fails with that reason (`error KILN032`), as the start would leave the mod out. What it
+  staged is not baked: on a server with the boot phase it is in from the first start ([onboot.md](onboot.md)), and a baked
+  copy would be a data file of the mod with the same names, which wins over the staged definition and moves it back to run
+  time. The build lists what it staged (`Kiln.Sdk.Bake: <id>: a boot mod: its OnBoot staged ...`); the mod then loads in
+  the harness as a committed boot mod, and what its `OnLoad` defines is baked as for any mod. A talent its `OnBoot` stages
+  gets no `skills/<id>.generated.json` (its node is in the boot generation), and one an earlier bake wrote is removed.
+  Where one identity has several sources, the collectors keep the first of: the mod's data file, its baked or generated
+  file, its `OnBoot` definition, the pending cache of earlier runs. A data file of the same kind and name wins over a staged
+  block, with a warning.
 - **A node whose `IconFile` lies outside the mod's folder.** That path is the build machine's, not the mod's. A path inside
   the folder is baked relative to it, as kiln.skills reads a mod file's paths. A relative path in a definition from code
   is the kiln folder's, as kiln.skills reads code definitions, and is resolved there first.

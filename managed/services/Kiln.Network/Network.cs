@@ -134,6 +134,9 @@ public sealed class NetPeer
     internal bool LoginSeen;      // server role: PlayerLoginEvent was posted for it (or it was banned)
     internal int KickFailures;    // server role: the game's kick call failed this often for it
     internal DateTime? KickRetryAt;  // server role: a failed kick is not tried again by the gate before this
+    internal DateTime? BlockedSince; // server role: kiln.net refused it before it was in the world and nothing could end it
+    internal bool BlockedLogged;     // ... and Kiln.Network said so (once)
+    internal bool Ending;            // server role: the login failure could not reach it, the game's session kick ends it
     internal double TokensMsgs, TokensBytes;
     internal DateTime TokensAt = DateTime.UtcNow;
     internal readonly Queue<DateTime> RecentDrops = new();

@@ -68,3 +68,33 @@ public sealed class NeedsTheGame : Mod
         Assets.RegisterIcon(Guid.NewGuid(), new byte[] { 1, 2, 3 });
     }
 }
+
+/// <summary>A boot mod: its OnBoot stages a status, an item and a game-tree talent, its OnLoad defines nothing.</summary>
+public sealed class BootStages : Mod
+{
+    public override void OnBoot(BootContext boot)
+    {
+        var d = BootDefinitions.For(boot);
+        if (d.Define("chill", new StatusBlock { Name = "Chill", Seconds = 2 }) is { Ok: false } s) throw new InvalidOperationException(s.Reason);
+        if (d.Define("chill-token", new ItemBlock { Name = "Chill Token", Stack = 10 }) is { Ok: false } i) throw new InvalidOperationException(i.Reason);
+        if (d.Define("chill-talent", new TalentBlock { Name = "Chill Talent", Keeps = "chill", Game = new GameTreePlace { From = ["0x8efcc472"], Offset = [170, 0] } }) is { Ok: false } t)
+            throw new InvalidOperationException(t.Reason);
+    }
+}
+
+/// <summary>A boot mod whose OnBoot stages an item and throws.</summary>
+public sealed class BootThrows : Mod
+{
+    public override void OnBoot(BootContext boot)
+    {
+        BootDefinitions.For(boot).Define("lost-token", new ItemBlock { Name = "Lost Token", Stack = 1 });
+        throw new InvalidOperationException("thrown on purpose in OnBoot");
+    }
+}
+
+/// <summary>A boot mod whose staged effect names another mod's status: it stages, and does not lower (BootReferenceOutside).</summary>
+public sealed class BootOutside : Mod
+{
+    public override void OnBoot(BootContext boot) =>
+        BootDefinitions.For(boot).Define("frost-hit", new EffectBlock { Applies = new StatusApply { Status = "other-mod:frost" } });
+}

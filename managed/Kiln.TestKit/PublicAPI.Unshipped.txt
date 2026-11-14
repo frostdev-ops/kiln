@@ -209,6 +209,50 @@ static Kiln.TestKit.FakePathAnswer.RouteWithMove(byte move, params Kiln.WorldPos
 static Kiln.TestKit.FakePathAnswer.TimedOut.get -> Kiln.TestKit.FakePathAnswer!
 static Kiln.TestKit.FakePathRequest.operator !=(Kiln.TestKit.FakePathRequest? left, Kiln.TestKit.FakePathRequest? right) -> bool
 static Kiln.TestKit.FakePathRequest.operator ==(Kiln.TestKit.FakePathRequest? left, Kiln.TestKit.FakePathRequest? right) -> bool
+Kiln.TestKit.BootRun
+Kiln.TestKit.BootRun.<Clone>$() -> Kiln.TestKit.BootRun!
+Kiln.TestKit.BootRun.BootRun(string! ModId, Kiln.BootModState State, string? Reason, System.Collections.Generic.IReadOnlyList<Kiln.TestKit.BootRunDefinition!>! Staged, System.Collections.Generic.IReadOnlyList<string!>! Definitions, System.Collections.Generic.IReadOnlyList<Kiln.BootIssue!>! Issues) -> void
+Kiln.TestKit.BootRun.Deconstruct(out string! ModId, out Kiln.BootModState State, out string? Reason, out System.Collections.Generic.IReadOnlyList<Kiln.TestKit.BootRunDefinition!>! Staged, out System.Collections.Generic.IReadOnlyList<string!>! Definitions, out System.Collections.Generic.IReadOnlyList<Kiln.BootIssue!>! Issues) -> void
+Kiln.TestKit.BootRun.Definitions.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.TestKit.BootRun.Definitions.init -> void
+Kiln.TestKit.BootRun.Equals(Kiln.TestKit.BootRun? other) -> bool
+Kiln.TestKit.BootRun.Issues.get -> System.Collections.Generic.IReadOnlyList<Kiln.BootIssue!>!
+Kiln.TestKit.BootRun.Issues.init -> void
+Kiln.TestKit.BootRun.ModId.get -> string!
+Kiln.TestKit.BootRun.ModId.init -> void
+Kiln.TestKit.BootRun.Ok.get -> bool
+Kiln.TestKit.BootRun.Reason.get -> string?
+Kiln.TestKit.BootRun.Reason.init -> void
+Kiln.TestKit.BootRun.Staged.get -> System.Collections.Generic.IReadOnlyList<Kiln.TestKit.BootRunDefinition!>!
+Kiln.TestKit.BootRun.Staged.init -> void
+Kiln.TestKit.BootRun.State.get -> Kiln.BootModState
+Kiln.TestKit.BootRun.State.init -> void
+Kiln.TestKit.BootRunDefinition
+Kiln.TestKit.BootRunDefinition.<Clone>$() -> Kiln.TestKit.BootRunDefinition!
+Kiln.TestKit.BootRunDefinition.BootRunDefinition(string! Kind, string! Key, string! Json) -> void
+Kiln.TestKit.BootRunDefinition.Deconstruct(out string! Kind, out string! Key, out string! Json) -> void
+Kiln.TestKit.BootRunDefinition.Equals(Kiln.TestKit.BootRunDefinition? other) -> bool
+Kiln.TestKit.BootRunDefinition.Json.get -> string!
+Kiln.TestKit.BootRunDefinition.Json.init -> void
+Kiln.TestKit.BootRunDefinition.Key.get -> string!
+Kiln.TestKit.BootRunDefinition.Key.init -> void
+Kiln.TestKit.BootRunDefinition.Kind.get -> string!
+Kiln.TestKit.BootRunDefinition.Kind.init -> void
+Kiln.TestKit.HarnessBootPhase
+Kiln.TestKit.HarnessBootPhase.Run(string! folder, bool commit = true) -> Kiln.TestKit.BootRun!
+Kiln.TestKit.HarnessBootPhase.Runs.get -> System.Collections.Generic.IReadOnlyList<Kiln.TestKit.BootRun!>!
+Kiln.TestKit.HarnessBootPhase.SetRecord(string! key, string! valueJson, System.Guid resourceId = default(System.Guid), uint typeHash = 0, int part = 0) -> void
+Kiln.TestKit.KilnHarness.BootPhase.get -> Kiln.TestKit.HarnessBootPhase!
+override Kiln.TestKit.BootRun.Equals(object? obj) -> bool
+override Kiln.TestKit.BootRun.GetHashCode() -> int
+override Kiln.TestKit.BootRun.ToString() -> string!
+override Kiln.TestKit.BootRunDefinition.Equals(object? obj) -> bool
+override Kiln.TestKit.BootRunDefinition.GetHashCode() -> int
+override Kiln.TestKit.BootRunDefinition.ToString() -> string!
+static Kiln.TestKit.BootRun.operator !=(Kiln.TestKit.BootRun? left, Kiln.TestKit.BootRun? right) -> bool
+static Kiln.TestKit.BootRun.operator ==(Kiln.TestKit.BootRun? left, Kiln.TestKit.BootRun? right) -> bool
+static Kiln.TestKit.BootRunDefinition.operator !=(Kiln.TestKit.BootRunDefinition? left, Kiln.TestKit.BootRunDefinition? right) -> bool
+static Kiln.TestKit.BootRunDefinition.operator ==(Kiln.TestKit.BootRunDefinition? left, Kiln.TestKit.BootRunDefinition? right) -> bool
 Kiln.TestKit.FakeBlobRegistration
 Kiln.TestKit.FakeBlobRegistration.FakeBlobRegistration() -> void
 Kiln.TestKit.FakeBlobRegistration.FakeBlobRegistration(string! Hash, ulong Owner, bool Override) -> void
