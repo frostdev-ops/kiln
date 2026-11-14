@@ -25,6 +25,7 @@ public sealed class BlockCompileContext
     private int _nodes;
     private long _bytes;
     private bool _closed, _planned;
+    private readonly List<KindCompiler.Identity> _dependencies = new();
 
     internal BlockCompileContext(KindEntry kind, KindOwner consumer, ulong request, string name, string recordJson, IReadOnlyDictionary<(string, string), KindCompiler.Identity> identities)
     {
@@ -77,6 +78,7 @@ public sealed class BlockCompileContext
             throw new BlockError(Label, value, colon > 0 ? $"no block \"{name}\" in mod {mod} (is it loaded before this one?)" : $"no block \"{name}\" in mod {mod}; define it before this one");
         if (found.BlockType != typeof(T))
             throw new BlockError(Label, value, $"\"{value}\" is a {found.BlockType.Name}, not a {typeof(T).Name}");
+        if (!_dependencies.Contains(found)) _dependencies.Add(found);
         return new ResolvedBlock<T> { ModId = mod, Name = name, Guid = found.Guid, Id = BlockIds.Fnv(found.Guid), GameName = found.GameName, KindId = found.KindId };
     }
 
@@ -144,7 +146,8 @@ public sealed class BlockCompileContext
                 throw new BlockError(Label, p.Key, $"a plan has one primary (\"{primaryKey}\"); every other product is an effect, and this is a {p.Kind.ToString().ToLowerInvariant()}");
         Array.Sort(copy, (a, b) => string.CompareOrdinal(a.Key, b.Key));
         _planned = true;
-        return new BlockPlan(_token, _kind, _consumer, _request, Name, primaryKey, KindCompiler.Hash(_recordJson, _kind.DescriptorJson, copy), copy, _recordJson);
+        return new BlockPlan(_token, _kind, _consumer, _request, Name, primaryKey, KindCompiler.Hash(_recordJson, _kind.DescriptorJson, primaryKey, copy), copy, _recordJson)
+        { Dependencies = _dependencies.ToArray() };
     }
 
     internal object Token => _token;
@@ -158,7 +161,11 @@ internal static partial class KindCompiler
     [ThreadStatic] private static BlockCompileContext? _active;
     private static long _requests;
 
-    internal sealed record Identity(Guid Guid, string GameName, Type BlockType, string KindId);
+    internal sealed record Identity(Guid Guid, string GameName, Type BlockType, string KindId)
+    {
+        // Captures the host's declaration instance, never the provider's code or the public identity strings.
+        internal Func<BlockApplyState>? Application { get; init; }
+    }
 
     [GeneratedRegex("^[A-Za-z0-9._-]{1,32}$", RegexOptions.CultureInvariant)]
     private static partial Regex KeyPattern();
@@ -187,7 +194,8 @@ internal static partial class KindCompiler
         var view = new Dictionary<(string, string), Identity>();
         foreach (var mod in Blocks.AllMods)
             foreach (var (name, h) in mod.Handles)
-                view[(mod.Id, name)] = new Identity(h.Guid, h.GameName, h.BlockType, KindRegistry.IsBuiltIn(h.BlockType) ? BuiltInKindId(h.BlockType) : KindRegistry.Find(h.BlockType)?.Id ?? "");
+                view[(mod.Id, name)] = new Identity(h.Guid, h.GameName, h.BlockType, KindRegistry.IsBuiltIn(h.BlockType) ? BuiltInKindId(h.BlockType) : KindRegistry.Find(h.BlockType)?.Id ?? "")
+                { Application = () => mod.Handles.TryGetValue(name, out var current) && ReferenceEquals(current, h) ? BlockApplyState.Applied : BlockApplyState.Removed };
         foreach (var (mod, name, identity) in provisional ?? []) view[(mod, name)] = identity;
         return view;
     }
@@ -216,10 +224,12 @@ internal static partial class KindCompiler
             throw new BlockError(label, null, $"a block of kind {kind.Id} must read back from its own JSON: {e.Message}");
         }
         var request = (ulong)Interlocked.Increment(ref _requests);
-        var context = new BlockCompileContext(kind, consumer, request, name, recordJson, Identities(provisional));
+        var context = new BlockCompileContext(kind, consumer, request, name, recordJson, Identities(provisional ?? KindApply.Provisional(consumer)));
         BlockPlan? plan;
         lock (kind.CallbackLock)
         {
+            if (kind.Retired || !kind.Provider.Alive())
+                throw new BlockError(label, null, $"block kind {kind.Id} is no longer registered: its provider mod was unloaded");
             _active = context;
             try { plan = compile(context, input); }
             finally
@@ -228,13 +238,15 @@ internal static partial class KindCompiler
                 _active = null;
             }
         }
+        if (kind.Retired || !kind.Provider.Alive())
+            throw new BlockError(label, null, $"block kind {kind.Id} retired during Compile: its result was discarded");
         if (plan == null) throw new ArgumentException($"block kind {kind.Id}: Compile returned null for \"{name}\"; it returns context.Plan(...)");
         if (!ReferenceEquals(plan.Context, context.Token)) throw new ArgumentException($"block kind {kind.Id}: Compile returned the plan of another compile for \"{name}\"");
         plan.Projection = projection;
         return plan;
     }
 
-    internal static string Hash(string recordJson, string descriptorJson, BlockProduct[] sorted)
+    internal static string Hash(string recordJson, string descriptorJson, string primaryKey, BlockProduct[] sorted)
     {
         using var h = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         void Add(string s)
@@ -245,6 +257,7 @@ internal static partial class KindCompiler
         }
         Add(recordJson);
         Add(descriptorJson);
+        Add(primaryKey);
         foreach (var p in sorted)
         {
             Add(p.Key);

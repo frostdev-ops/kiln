@@ -10,7 +10,12 @@ namespace Kiln;
 internal static class KindJson
 {
     /// <summary>Strict block options with caches of their own: a registration's types are not rooted in the shared ones.</summary>
-    internal static JsonSerializerOptions NewOptions() => new(BlockJson.SharedOptions);
+    internal static JsonSerializerOptions NewOptions() => new(BlockJson.SharedOptions)
+    {
+        // Equal options can share System.Text.Json's caching context. A resolver unique to this registration keeps
+        // collectible provider types out of the process-wide BlockJson metadata cache.
+        TypeInfoResolver = new System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver(),
+    };
 
     /// <summary>JSON with every object's keys in ordinal order and no white space: equal values give equal bytes.</summary>
     internal static string Canonical(JsonNode? node)
