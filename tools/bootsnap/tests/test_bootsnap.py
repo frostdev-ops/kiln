@@ -1,15 +1,20 @@
 # SPDX-License-Identifier: MIT
-"""tools/bootsnap tests on a synthetic archive and type graph the test builds (no game files): the decoder core.
+"""tools/bootsnap tests on a synthetic archive and type graph the test builds (no game files).
 
     python3 -m unittest discover -s tools/bootsnap/tests -v
 
 The expected JSON objects below are written by hand from the live reader's rules (native/services/content/
 gamedata_walk.cpp node_json / leaf_json / leaf_of, depth 12), not produced by the code under test.
 """
+import hashlib
 import json
+import os
+import signal
 import struct
+import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -19,11 +24,11 @@ sys.path.insert(0, str(TOOL))
 sys.path.insert(0, str(TOOL.parent / "kfc"))
 sys.path.insert(0, str(TOOL.parent / "kfc" / "tests"))
 
-from bootdata import kinds, live  # noqa: E402
-from kfc.archive import Kfc  # noqa: E402
+from bootdata import kinds, live, snapshot  # noqa: E402
 from kfc.util import guid_bytes  # noqa: E402
 from test_kfc import build_kfc  # noqa: E402  (tools/kfc's own synthetic KFC4 writer, read-only reuse)
 
+import bootsnap as cli  # noqa: E402
 
 fnv = kinds.fnv1a32
 
@@ -305,14 +310,18 @@ def make_game(d, res=None, exe=b"MZ synthetic server exe", name="enshrouded_serv
     return d
 
 
+def set_version(kfc_path, new):
+    """Rewrites the version string in place (same length)."""
+    b = bytearray(Path(kfc_path).read_bytes())
+    rel, n = struct.unpack_from("<II", b, 0x10)
+    assert len(new) == n
+    b[0x10 + rel:0x10 + rel + n] = new
+    Path(kfc_path).write_bytes(bytes(b))
+
+
 def source_for(exe):
-    """kinds.Source over the synthetic graph."""
-    graph = live.Graph(DUMP)
-    k = Kfc.unpatched(exe.with_suffix(".kfc")) or Kfc(exe.with_suffix(".kfc"))
-    configs = live.ConfigNames()
-    for key in k.resources_of_type(fnv("keen::ImpactProgram")):
-        configs.add_program(graph, k.read(key))
-    return kinds.Source(k, graph, live.Walker(graph, configs.finish()))
+    """The CLI's own open_source, with the synthetic type graph in place of the executable's reflection."""
+    return cli.open_source(exe, extract=lambda _exe: DUMP)
 
 
 # ================================================================ S1: the decoder core
@@ -401,7 +410,7 @@ class KindTests(unittest.TestCase):
         self.src = source_for(self.game / "enshrouded_server.exe")
 
     def tearDown(self):
-        self.src.kfc.close()
+        self.src.close()
         self.tmp.cleanup()
 
     def names(self, kind):
@@ -433,5 +442,256 @@ class KindTests(unittest.TestCase):
         self.assertIsNone(m("Material_T1_Wood_Logs"))
 
 
+# ================================================================ S2: the writer and the key
+class SnapshotTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.game = make_game(Path(self.tmp.name) / "game")
+        self.exe = self.game / "enshrouded_server.exe"
+        self.root = self.game / "kiln" / "data" / "boot-gamedata"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def make(self, **kw):
+        return snapshot.make(self.game, source_for, **kw)
+
+    def key(self):
+        return snapshot.snapshot_key(hashlib.sha256(self.exe.read_bytes()).hexdigest(), snapshot.kfc_version(self.game / "enshrouded_server.kfc"))
+
+    def test_key_is_the_contracts(self):
+        # exe SHA-256 as 64 lower-case hex, "\n", the version string; the first 32 hex digits of SHA-256 over that
+        exe = "9fd4f8cb69e9633a470922691c90d9c54174a82cde9479d9d580ef8df579bf10"
+        self.assertEqual(hashlib.sha256(b"MZ fixed exe for the key vector").hexdigest(), exe)
+        version = b"1287369|^/game38/branches/release_1.0|2026-11-04T11:17:54.051725Z"
+        self.assertEqual(snapshot.snapshot_key(exe, version), "f6f534acc0b48c8e981864a6322c43c5")
+        self.assertEqual(snapshot.snapshot_key(exe.upper(), version.decode()), "f6f534acc0b48c8e981864a6322c43c5")
+        self.assertEqual(snapshot.kfc_version(self.game / "enshrouded_server.kfc"), b"1|^/test|2026-11-04")
+
+    def test_layout_and_index(self):
+        r = self.make()
+        self.assertEqual(r["status"], "made")
+        key = self.key()
+        d = self.root / key
+        self.assertEqual(Path(r["path"]), d)
+        self.assertEqual(sorted(p.name for p in d.iterdir()), sorted(
+            ["index.json"] + [f"{k}.index.json" for k in kinds.KINDS] + [f"{k}.data" for k in kinds.KINDS]))
+        raw = (d / "index.json").read_bytes()
+        self.assertFalse(raw.startswith(b"\xef\xbb\xbf"))
+        idx = json.loads(raw)
+        self.assertEqual(idx["format"], 1)
+        self.assertEqual(idx["key"], key)
+        self.assertEqual(idx["side"], "server")
+        self.assertEqual(idx["exeSha256"], hashlib.sha256(self.exe.read_bytes()).hexdigest())
+        self.assertEqual(idx["kfcVersion"], "1|^/test|2026-11-04")
+        self.assertEqual(idx["gameBuild"], "1")
+        self.assertTrue(idx["tool"].startswith("kiln-bootsnap"))
+        self.assertRegex(idx["written"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
+        self.assertEqual(idx["counts"], {"items": 4, "templates": 2, "skills": 2, "materials": 5})
+        self.assertIn({"kind": "items", "name": "Material_T1_Wood_Logs", "reason": "duplicate name"}, idx["skipped"])
+        self.assertIn({"kind": "skills", "name": "0x8efcc472", "reason": "duplicate name"}, idx["skipped"])
+        self.assertTrue(any(s["kind"] == "items" and s["reason"].startswith("no name") for s in idx["skipped"]))
+        self.assertEqual(idx["runtimeOnly"], [])
+        items = json.loads((d / "items.index.json").read_text())
+        self.assertEqual(items["format"], 1)
+        self.assertEqual(items["kind"], "items")
+        e = items["entries"]["Material_T1_Wood_Logs"]
+        self.assertEqual(e[2:], ["00000001-0000-4000-8000-000000000000", f"{ITEM_T:08x}", 0], "the first of the two is stored")
+        data = (d / "items.data").read_bytes()
+        self.assertEqual(json.loads(data[e[0]:e[0] + e[1]]), EXPECTED_ITEM)
+        total = 0
+        for k in kinds.KINDS:  # every entry is one complete object; the values lie back to back
+            ix = json.loads((d / f"{k}.index.json").read_text())
+            blob = (d / f"{k}.data").read_bytes()
+            spans = sorted((v[0], v[1]) for v in ix["entries"].values())
+            at = 0
+            for off, n in spans:
+                self.assertEqual(off, at)
+                self.assertIsInstance(json.loads(blob[off:off + n]), dict)
+                at += n
+            self.assertEqual(at, len(blob))
+            total += len(ix["entries"])
+        self.assertEqual(total, sum(idx["counts"].values()))
+        got = snapshot.read_value(d, "skills", "0x8efcc472")
+        self.assertEqual(got[1], {"id": 0x8efcc472, "cost": 3})
+        self.assertEqual(got[0][3], f"{fnv('keen::SkillTreeResource'):08x}")
+
+    def test_same_key_writes_nothing(self):
+        self.make()
+        d = self.root / self.key()
+        stamp = {p.name: (p.stat().st_mtime_ns, p.stat().st_ino) for p in d.iterdir()}
+        (d / "marker").write_text("kept")
+        t = time.time()
+        r = self.make()
+        self.assertEqual(r["status"], "reused")
+        self.assertLess(time.time() - t, 1.0)
+        self.assertEqual((d / "marker").read_text(), "kept", "the same directory, untouched")
+        for p in d.iterdir():
+            if p.name != "marker":
+                self.assertEqual((p.stat().st_mtime_ns, p.stat().st_ino), stamp[p.name])
+
+    def test_another_key_replaces(self):
+        self.make()
+        old = self.key()
+        set_version(self.game / "enshrouded_server.kfc", b"2|^/test|2026-11-05")
+        new = self.key()
+        self.assertNotEqual(old, new)
+        r = self.make()
+        self.assertEqual((r["status"], r["key"]), ("made", new))
+        self.assertTrue(snapshot.valid(self.root / new, new))
+        self.assertFalse((self.root / old).exists(), "the snapshot of the other key is removed")
+        self.exe.write_bytes(b"MZ another exe")  # a new exe is a new key too
+        self.assertEqual(self.make()["status"], "made")
+        self.assertEqual([p.name for p in self.root.iterdir()], [self.key()])
+
+    def test_force_rebuilds(self):
+        self.make()
+        d = self.root / self.key()
+        (d / "marker").write_text("x")
+        self.assertEqual(self.make(force=True)["status"], "made")
+        self.assertFalse((d / "marker").exists())
+        self.assertTrue(snapshot.valid(d, self.key()))
+
+    def test_a_broken_snapshot_is_replaced(self):
+        self.make()
+        d = self.root / self.key()
+        (d / "index.json").write_text("{\"format\": 1, \"key\": \"x\"}")
+        self.assertFalse(snapshot.valid(d, self.key()))
+        self.assertEqual(self.make()["status"], "made")
+        (d / "materials.data").unlink()
+        self.assertFalse(snapshot.valid(d, self.key()), "all eight kind files")
+
+    def test_a_failed_run_leaves_no_snapshot(self):
+        def boom(kind, tmp):
+            if kind == "templates":
+                raise RuntimeError("stop")
+        with self.assertRaises(RuntimeError):
+            self.make(after_kind=boom)
+        self.assertFalse((self.root / self.key()).exists())
+        self.assertEqual(list(self.root.iterdir()), [], "its .tmp directory is gone too")
+
+    def test_a_killed_run_leaves_no_readable_snapshot(self):
+        mark = Path(self.tmp.name) / "items-written"
+        p = subprocess.Popen([sys.executable, "-I", str(Path(__file__)), "--driver", str(self.game), str(mark)])
+        try:
+            for _ in range(600):
+                if mark.exists() or p.poll() is not None:
+                    break
+                time.sleep(0.05)
+            self.assertTrue(mark.exists(), "the driver wrote its first kind")
+            os.kill(p.pid, signal.SIGKILL)
+            p.wait()
+        finally:
+            if p.poll() is None:
+                p.kill()
+        key = self.key()
+        self.assertFalse((self.root / key).exists(), "no directory of the key")
+        left = list(self.root.iterdir())
+        self.assertEqual(len(left), 1)
+        self.assertTrue(left[0].name.startswith(key + ".tmp-"))
+        self.assertTrue((left[0] / "items.data").exists() and not (left[0] / "index.json").exists())
+        self.assertFalse(snapshot.valid(left[0], key))
+        self.assertEqual(self.make()["status"], "made")
+        self.assertEqual([x.name for x in self.root.iterdir()], [key], "the next run removes what the killed one left")
+
+    def test_reads_the_archive_another_loader_kept_aside(self):
+        g = self.game
+        for n in ("enshrouded_server.kfc", "enshrouded_server.kfc_resources"):
+            (g / n).rename(g / (n + ".bak"))
+        res = resources()
+        res[0] = (res[0][0], res[0][1], 0, item_blob("Material_T1_Wood_Logs"))  # a loader's patched item
+        work = Path(tempfile.mkdtemp(dir=self.tmp.name))
+        build_kfc(work, res, [b"content"])
+        for n in ("kfc", "kfc_resources"):
+            (work / f"test.{n}").rename(g / f"enshrouded_server.{n}")
+        r = self.make()
+        d = Path(r["path"])
+        self.assertEqual(snapshot.read_value(d, "items", "Material_T1_Wood_Logs")[1], EXPECTED_ITEM, "the game's own item")
+        set_version(g / "enshrouded_server.kfc.bak", b"0|^/test|2026-11-01")
+        with self.assertRaisesRegex(snapshot.SnapshotError, "another game build"):
+            self.make(force=True)
+
+    def test_values_over_the_bound_are_skipped(self):
+        self.assertEqual(snapshot.VALUE_MAX, 4 * 1024 * 1024 - 256)
+        old = snapshot.VALUE_MAX
+        snapshot.VALUE_MAX = 60  # every value but the smallest is over it
+        try:
+            r = self.make()
+        finally:
+            snapshot.VALUE_MAX = old
+        idx = json.loads((Path(r["path"]) / "index.json").read_text())
+        self.assertIn({"kind": "items", "name": "Material_T1_Wood_Logs", "reason": "over 4 MiB"}, idx["skipped"])
+        items = json.loads((Path(r["path"]) / "items.index.json").read_text())
+        self.assertNotIn("Material_T1_Wood_Logs", items["entries"])
+        self.assertEqual(idx["counts"]["skills"], 2, "small values are kept")
+
+    def test_client_side_and_no_exe(self):
+        c = make_game(Path(self.tmp.name) / "client", name="enshrouded")
+        r = snapshot.make(c, source_for)
+        self.assertEqual(json.loads((Path(r["path"]) / "index.json").read_text())["side"], "client")
+        with self.assertRaisesRegex(snapshot.SnapshotError, "neither"):
+            snapshot.make(Path(self.tmp.name), source_for)
+
+
+class CliTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.game = make_game(Path(self.tmp.name) / "game")
+        self._extract = cli.refl.extract
+        cli.refl.extract = lambda exe: DUMP
+
+    def tearDown(self):
+        cli.refl.extract = self._extract
+        self.tmp.cleanup()
+
+    def run_cli(self, *args):
+        import contextlib
+        import io
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = cli.main(list(args))
+        return rc, out.getvalue(), err.getvalue()
+
+    def test_make_show_key(self):
+        rc, out, _ = self.run_cli("make", "--game", str(self.game), "--json")
+        self.assertEqual(rc, 0)
+        r = json.loads(out)
+        self.assertEqual(r["status"], "made")
+        rc, out, _ = self.run_cli("make", "--game", str(self.game), "--json")
+        self.assertEqual(json.loads(out)["status"], "reused")
+        rc, out, _ = self.run_cli("key", "--game", str(self.game))
+        self.assertEqual(out.strip(), r["key"])
+        rc, out, _ = self.run_cli("show", "--game", str(self.game), "item:Material_T1_Wood_Logs", "skill:0x8EFCC472")
+        self.assertEqual(rc, 0)
+        dec, at, values = json.JSONDecoder(), 0, []
+        while at < len(out):
+            v, at = dec.raw_decode(out, at)
+            values.append(v)
+            while at < len(out) and out[at].isspace():
+                at += 1
+        self.assertEqual(values[0]["value"], EXPECTED_ITEM)
+        self.assertEqual(values[1]["value"], {"id": 0x8efcc472, "cost": 3})
+        rc, out, _ = self.run_cli("show", "--game", str(self.game), "item:Nope")
+        self.assertEqual((rc, json.loads(out)), (1, {"query": "item:Nope", "found": False}))
+
+    def test_refusal(self):
+        rc, out, err = self.run_cli("make", "--game", str(Path(self.tmp.name) / "nothing"), "--json")
+        self.assertEqual(rc, 1)
+        self.assertEqual(json.loads(out)["status"], "refused")
+        self.assertIn("neither", err)
+
+
+def _driver(game, mark):
+    """For test_a_killed_run_leaves_no_readable_snapshot: writes the items, says so, then waits to be killed."""
+    def pause(kind, tmp):
+        if kind == "items":
+            Path(mark).write_text("1")
+            time.sleep(60)
+    snapshot.make(Path(game), source_for, after_kind=pause)
+
+
 if __name__ == "__main__":
-    unittest.main()
+    if len(sys.argv) == 4 and sys.argv[1] == "--driver":
+        _driver(sys.argv[2], sys.argv[3])
+    else:
+        unittest.main()

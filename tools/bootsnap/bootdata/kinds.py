@@ -62,6 +62,9 @@ class Source:
     def __init__(self, kfc, graph, walker):
         self.kfc, self.g, self.walker = kfc, graph, walker
 
+    def close(self):
+        self.kfc.close()
+
     def keys(self, type_name):
         return self.kfc.resources_of_type(fnv1a32(type_name))
 
