@@ -14,6 +14,7 @@ inline unsigned long GetCurrentProcessId() { return 4242; }
 #undef main
 #include "../src/sigdb.cpp"
 #include "../src/services/service.cpp"
+#include "../src/gates.cpp"  // kiln_gates.g.h: test-caps.sh generates it from native/core/gates
 #include "../src/services/caps.cpp"
 
 #include <cstdarg>
@@ -900,6 +901,134 @@ void idle_tick_fault(const std::filesystem::path& dir) {
 
 }  // namespace
 
+// The client gate (gates.h): held names read unavailable/policy with the check ids, whatever else reports them;
+// kiln.json's "preview" lifts them; a held name may be reported pending.
+void client_gate(const std::filesystem::path& dir) {
+    namespace gates = kiln::gates;
+    Loaded x;
+    sigdb::init_code();  // a second test image in this process; code()'s once_flag has already run
+    t_tick = t_lifecycle = true;
+    static const gates::Gate list[] = {
+        {"items.fuel", "99-fuel-a, 99-fuel-b", gates::kBoth},        // a sigdb feature whose symbols resolve
+        {"camera.fov", "03-c11", gates::kBoth},                      // a service's own row
+        {"markers.compass", "04-m03", gates::kClient},               // held on the client only
+        {"queries.server_only", "01-q1", gates::kServer},
+        {nullptr, nullptr, 0},
+    };
+    const auto boot = [&](uint32_t side, bool all, std::vector<std::string> names) {
+        reset();
+        resolve_with(dir, "48 B8 ?? ?? ?? ?? ?? ?? ?? ?? E8 {helper:rel32}");
+        gates::use_list_for_tests(list);
+        gates::configure(side, all, names);
+        caps::core_rows(true, true, "");
+    };
+    const auto warned = [](const std::string& part) {
+        std::lock_guard l(t_mutex);
+        for (const std::string& i : t_infos)
+            if (i.find(part) != std::string::npos) return true;
+        return false;
+    };
+
+    boot(KILN_SIDE_SERVER, false, {});
+    const Got fuel = get("items.fuel");
+    CHECK(fuel.rc == KILN_OK && fuel.state == U && fuel.reason == KILN_CAP_REASON_POLICY &&
+              fuel.text == "game test pending: 99-fuel-a, 99-fuel-b" && fuel.source == "core" && sigdb::feature("items.fuel"),
+          "gate: a held sigdb feature whose symbols resolved reads unavailable, policy, with its check ids (%s)",
+          fuel.text.c_str());
+    CHECK(gates::is_held("items.fuel") && gates::is_held("camera.fov") && !gates::is_held("net.kick") &&
+              !gates::is_held("items.fue") && !gates::is_held(""),
+          "gate: is_held answers for exactly the held names (KilnApi.feature() asks it)");
+    CHECK(is("net.kick", A, 0) && is("tick", A, 0), "gate: names that are not held are untouched");
+    CHECK(is("camera.fov", U, KILN_CAP_REASON_POLICY) && get("camera.fov").text == "game test pending: 03-c11",
+          "gate: a held name nobody else reports has its row already, before any service loads");
+    CHECK(is("queries.server_only", U, KILN_CAP_REASON_POLICY) && get("markers.compass").rc == KILN_ERR_NOT_FOUND &&
+              !gates::is_held("markers.compass"),
+          "gate: on a server, a client-only gate holds nothing and a server-only one holds");
+
+    // whatever a service reports, the held row is what a reader sees; the helper of kiln_caps.h says so
+    const KilnOwner svc = owner("service:kiln-camera.dll");
+    CHECK(rep(svc, "camera.fov", A, KILN_CAP_REASON_NONE, "v1") == KILN_OK && is("camera.fov", U, KILN_CAP_REASON_POLICY) &&
+              get("camera.fov").text == "game test pending: 03-c11",
+          "gate: a service's 'available' does not show while the name is held");
+    CHECK(kiln_caps_held(T, ks("camera.fov")) == 1 && kiln_caps_held(T, ks("items.fuel")) == 1 &&
+              kiln_caps_held(T, ks("net.kick")) == 0 && kiln_caps_held(T, ks("no.such.row")) == 0 &&
+              kiln_caps_held(nullptr, ks("camera.fov")) == 0,
+          "gate: kiln_caps_held is true for held rows only");
+    CHECK(rep(svc, "queries.server_only", KILN_CAP_PENDING, KILN_CAP_REASON_SESSION, "no world yet") == KILN_OK &&
+              is("queries.server_only", U, KILN_CAP_REASON_POLICY) && (get("queries.server_only").flags & KILN_CAP_FLAG_SESSION),
+          "gate: a held name may be reported pending (the gate's report does not make it a static core row)");
+    CHECK(rep(svc, "items.fuel", KILN_CAP_PENDING, KILN_CAP_REASON_SESSION) == KILN_OK,
+          "gate: also when the held name is a sigdb feature");
+    const KilnOwner other = owner("mod:policy");
+    rep(other, "net.kick", U, KILN_CAP_REASON_POLICY, "switched off by the server's rules");
+    CHECK(kiln_caps_held(T, ks("net.kick")) == 0, "gate: a row that is off for another policy reason is not 'held'");
+    revoke(svc);
+    revoke(other);
+    CHECK(is("camera.fov", U, KILN_CAP_REASON_POLICY), "gate: the held row stays when the reporting service goes");
+
+    // a tick refresh rebuilds feature rows: a held tick-family feature must stay held
+    static const gates::Gate tick_list[] = {{"tick.wait_jobs", "99-t1", gates::kBoth}, {nullptr, nullptr, 0}};
+    reset();
+    resolve_with(dir, "48 B8 ?? ?? ?? ?? ?? ?? ?? ?? E8 {helper:rel32}");
+    gates::use_list_for_tests(tick_list);
+    gates::configure(KILN_SIDE_SERVER, false, {});
+    caps::core_rows(true, true, "");
+    t_tick = false;
+    CHECK(is("tick", U, KILN_CAP_REASON_FAULTED) && is("tick.wait_jobs", U, KILN_CAP_REASON_POLICY), 
+          "gate: a refresh of the tick rows does not replace a held one");
+    t_tick = true;
+    CHECK(is("tick", A, 0) && is("tick.wait_jobs", U, KILN_CAP_REASON_POLICY) &&
+              get("tick.wait_jobs").text == "game test pending: 99-t1",
+          "gate: and when the hook is back the held row still says the game test is pending");
+
+    // the client side
+    boot(KILN_SIDE_CLIENT, false, {});
+    CHECK(is("markers.compass", U, KILN_CAP_REASON_POLICY) && get("queries.server_only").rc == KILN_ERR_NOT_FOUND &&
+              is("items.fuel", U, KILN_CAP_REASON_POLICY),
+          "gate: on a client, the client-only gate holds and the server-only one does not");
+
+    // kiln.json "preview": names
+    {
+        std::lock_guard l(t_mutex);
+        t_infos.clear();
+    }
+    boot(KILN_SIDE_SERVER, false, {"items.fuel", "markers.compass", "no.such.gate"});
+    CHECK(is("items.fuel", A, 0) && get("items.fuel").source == "sigdb" && !gates::is_held("items.fuel") &&
+              is("camera.fov", U, KILN_CAP_REASON_POLICY),
+          "preview: a named gate is lifted (the feature's own row shows), the others hold");
+    CHECK(warned("'no.such.gate'") && !warned("'markers.compass'") && !warned("'items.fuel'"),
+          "preview: a name the list does not hold is a warning; a gate of the other side is not");
+    // kiln.json "preview": true
+    boot(KILN_SIDE_SERVER, true, {});
+    CHECK(is("items.fuel", A, 0) && get("camera.fov").rc == KILN_ERR_NOT_FOUND && gates::held().empty() &&
+              !gates::is_held("camera.fov"),
+          "preview: true lifts every gate (a name nobody reports has no row)");
+
+    // safe idle: held rows keep the gate's text; everything else says why hooks are off
+    reset();
+    resolve_with(dir, "48 B8 ?? ?? ?? ?? ?? ?? ?? ?? E8 {helper:rel32}");
+    gates::use_list_for_tests(list);
+    gates::configure(KILN_SIDE_SERVER, false, {});
+    caps::core_rows(false, false, "the build is not verified");
+    t_tick = false;
+    CHECK(is("items.fuel", U, KILN_CAP_REASON_POLICY) && get("items.fuel").text == "game test pending: 99-fuel-a, 99-fuel-b" &&
+              get("net.kick").text == "the build is not verified",
+          "gate: in safe idle a held row still names its checks");
+    t_tick = true;
+
+    // the compiled list (native/core/gates/*.json): every name is a capability name, sorted, with checks
+    gates::use_list_for_tests(nullptr);
+    bool good = true;
+    std::string prev;
+    for (const gates::Held& h : gates::held()) {
+        good = good && caps::name_ok(h.name) && h.text.size() > std::strlen(KILN_CAP_GATE_TEXT) && prev < h.name;
+        prev = h.name;
+    }
+    CHECK(good, "gate: the compiled list holds %zu well-formed, distinct names", gates::held().size());
+    gates::configure(KILN_SIDE_SERVER, false, {});
+    reset();
+}
+
 int main(int argc, char** argv) {
     if (argc != 2) return 2;
     const std::filesystem::path dir = argv[1];
@@ -907,6 +1036,7 @@ int main(int argc, char** argv) {
     subscribers();
     reentrant_read_strings();
     core_rows(dir);
+    client_gate(dir);
     json_file();
     writer();
     writer_retry();

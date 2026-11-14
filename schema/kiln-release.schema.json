@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kiln-release.schema.json",
+  "title": "Kiln release binding (kiln-release.json, an asset of a release), format 1",
+  "description": "Says which mod, version and zip a release holds. 'kiln publish' writes it for the exact zip it uploads; the update check reads it to know what a release is before anything is downloaded. The reader (kiln_manage::release_binding) is strict: at most 256 KiB, plain JSON (no comments, no trailing commas, no BOM), no key given twice in any object. Keys not listed here are ignored. A mod id may appear in one record only: a file that names a mod twice is not trusted for that mod.",
+  "type": "object",
+  "required": ["format", "mods"],
+  "properties": {
+    "format": { "const": 1 },
+    "mods": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "required": ["id", "version", "side", "apiVersion", "artifact"],
+        "properties": {
+          "id": { "$ref": "common.schema.json#/$defs/modId" },
+          "version": { "$ref": "common.schema.json#/$defs/semver", "maxLength": 128, "description": "The mod's version, spelled as in the release tag and the zip's name." },
+          "side": { "$ref": "common.schema.json#/$defs/side" },
+          "apiVersion": { "$ref": "common.schema.json#/$defs/range", "minLength": 1, "maxLength": 128, "description": "The manifest's apiVersion: the Kiln API versions the mod runs on." },
+          "artifact": {
+            "type": "object",
+            "required": ["name", "sha256", "bytes"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1, "maxLength": 200, "pattern": "^(?!.*\\.\\.)(?!\\.$)[A-Za-z0-9._-]+$", "description": "The zip's file name among the release's assets. No folders." },
+              "sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+              "bytes": { "type": "integer", "minimum": 1, "maximum": 9007199254740991, "description": "The zip's size. A plain whole number (not 1e3, not 12.0)." }
+            }
+          }
+        }
+      }
+    }
+  }
+}

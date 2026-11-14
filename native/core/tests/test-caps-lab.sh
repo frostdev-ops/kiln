@@ -13,9 +13,14 @@
 #   4. (--safe-idle) hooks off, by the lab's own files only: its kiln.json says verified-only and its build record is
 #      moved aside. capabilities.json says hooks false with boot's safe-idle sentence, every feature row is policy
 #      with that sentence, kiln.profile / kiln.progress / kiln.caps are available, the service DLLs have policy rows.
+#   5. (--gate) the client gate (native/core/gates/*.json, compiled into the core that is deployed): every name of the
+#      list that is held on a server reads unavailable, policy, "game test pending: <its check ids>", source core;
+#      with "preview": [<the first held name>, <a name nothing holds>] in the lab's kiln.json that one row is no longer
+#      held, the others are, and kiln.log warns about the unknown name; with "preview": true no row is held. With an
+#      empty list the step says so and checks only that no row claims a pending game test.
 # gameplay.craft is optional for the server: kiln.gameplay only leaves crafting interception off without it.
 #
-#   KILN_OUT=<build dir> native/core/tests/test-caps-lab.sh <lab> [--with-mods] [--safe-idle] [--no-deploy]
+#   KILN_OUT=<build dir> native/core/tests/test-caps-lab.sh <lab> [--with-mods] [--safe-idle] [--gate] [--no-deploy]
 #
 # The lab must exist (tools/lab/lab.sh new <lab> <port>); this script starts and stops it and leaves it stopped, with
 # the lab's files put back. Environment:
@@ -26,13 +31,14 @@
 # Results: $KILN_OUT/caps-lab/<step>/ (the state files and kiln.log of each run). Exit 0 when every step passed.
 set -euo pipefail
 repo=$(cd "$(dirname "$0")/../../.." && pwd)
-lab=${1:?usage: KILN_OUT=<dir> $0 <lab> [--with-mods] [--safe-idle] [--no-deploy]}
+lab=${1:?usage: KILN_OUT=<dir> $0 <lab> [--with-mods] [--safe-idle] [--gate] [--no-deploy]}
 shift
-with_mods=0 deploy=1 safe_idle=0
+with_mods=0 deploy=1 safe_idle=0 gate=0
 while (($#)); do
   case $1 in
     --with-mods) with_mods=1 ;;
     --safe-idle) safe_idle=1 ;;
+    --gate) gate=1 ;;
     --no-deploy) deploy=0 ;;
     *) echo "unknown option $1" >&2; exit 2 ;;
   esac
@@ -167,6 +173,7 @@ bad = []
 for f, resolved in feats.items():
     r = rows.get(f)
     if r is None: bad.append(f + ": no row"); continue
+    if r["reason"] == "policy" and r["reasonText"].startswith("game test pending: "): continue  # held by the client gate
     if r["source"] != "sigdb": bad.append(f + ": source " + r["source"])
     if resolved and r["state"] != "available" and r["reason"] != "faulted": bad.append(f + ": " + r["state"] + " " + r["reason"])
     if not resolved and not (r["reason"] == "symbol-missing" and r["reasonText"].split(" ")[0] in ("symbol", "constant")):
@@ -321,6 +328,64 @@ ok("kiln.caps change subscriber" not in log and not crashes, "no kiln.caps subsc
 src = Counter((r["state"], r["reason"]) for r in caps["capabilities"])
 print("INFO 4: rows by state and reason %s" % dict(src))
 '
+  put_back
+fi
+
+# ---- step 5 ----
+if ((gate)); then
+  put_back
+  cp "$kiln_json" "$work/kiln.json.orig"
+  # the list as the core's build read it: name, side, checks
+  python3 -I "$repo/native/core/gates/gen.py" --list "$repo/native/core/gates" > "$work/gates.tsv"
+  first=$(awk -F'\t' '$2 != "client" { print $1; exit }' "$work/gates.tsv")
+  gate_check='
+held_text = "game test pending: "
+want = {}
+for line in open(os.path.join(work, "gates.tsv"), encoding="utf-8"):
+    name, side, checks = line.rstrip("\n").split("\t")
+    if side != "client": want[name] = checks
+is_held = lambda r: r is not None and r["state"] == "unavailable" and r["reason"] == "policy" and r["reasonText"].startswith(held_text)
+held = {r["name"] for r in caps["capabilities"] if is_held(r)}
+'
+  run 5a
+  validate 5a
+  check 5a "$gate_check"'
+bad = [n for n, c in want.items() if not (is_held(rows.get(n)) and rows[n]["reasonText"] == held_text + c and rows[n]["source"] == "core")]
+ok(not bad, "every name of the list held on a server reads unavailable, policy, with its check ids, source core (%d) %s" % (len(want), ", ".join(bad[:5])))
+ok(held == set(want), "no other row claims a pending game test %s" % ", ".join(sorted(held ^ set(want))[:5]))
+if want: ok(re.search(r"gate: %d of %d capabilities held" % (len(want), len(want)), log) is not None, "kiln.log says how many are held")
+else: print("INFO 5a: the gate list holds nothing on a server; steps 5b and 5c have nothing to lift")
+ok("kiln.caps change subscriber" not in log and not crashes, "no kiln.caps subscriber fault, no new crash report")
+'
+  if [[ -n $first ]]; then
+    python3 - "$kiln_json" "$first" <<'EOF'
+import json, sys
+f = sys.argv[1]
+cfg = json.load(open(f))
+cfg["preview"] = [sys.argv[2], "no.such.gate"]
+json.dump(cfg, open(f, "w"), indent=2)
+EOF
+    run 5b
+    validate 5b
+    check 5b "$gate_check"'
+first = "'"$first"'"
+ok(first not in held and held == set(want) - {first}, "\"preview\": [%s] lifts that row and no other (%d still held); it reads %s %s" % (first, len(held), rows.get(first, {}).get("state", "no row"), rows.get(first, {}).get("reason", "")))
+ok("no.such.gate" in log and "not a capability held for a game test" in log, "a name nothing holds is a warning in kiln.log")
+'
+    python3 - "$kiln_json" <<'EOF'
+import json, sys
+f = sys.argv[1]
+cfg = json.load(open(f))
+cfg["preview"] = True
+json.dump(cfg, open(f, "w"), indent=2)
+EOF
+    run 5c
+    validate 5c
+    check 5c "$gate_check"'
+ok(not held, "\"preview\": true lifts every gate %s" % ", ".join(sorted(held)[:5]))
+ok("all lifted" in log, "kiln.log says so")
+'
+  fi
   put_back
 fi
 
