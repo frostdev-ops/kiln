@@ -30,7 +30,8 @@ namespace Kiln;
 /// </example>
 public static class ReflectedResources
 {
-    /// <summary>Whether resources can be read: kiln.assets and kiln.types are both running on this build.</summary>
+    /// <summary>Whether resources can be read: kiln.assets (with its resource hooks on, row <c>assets.resources</c>) and
+    /// kiln.types are both running on this build.</summary>
     public static bool Available => ResourceStore.Available && GameTypes.Available;
 
     /// <summary>The resource with this GUID and type (part 0 unless the type has parts), or null when the game has none.</summary>
@@ -274,7 +275,13 @@ internal static unsafe class ResourceStore
 
     private static Table* T => Services.Get<Table>(Name, 1);
 
-    public static bool Available => T != null;
+    /// <summary>The row of kiln.assets' resource hooks (a sigdb feature, lowered by Kiln.Assets when they are off).</summary>
+    public const string ResourcesRow = "assets.resources";
+
+    /// <summary>Whether resources can be read and claimed: kiln.assets is here and its resource hooks are on (the table
+    /// alone is not enough: kiln.assets publishes it with its hooks off too, and the test kit's table models content
+    /// blobs only).</summary>
+    public static bool Available => T != null && Capabilities.Is(ResourcesRow);
 
     private static Key MakeKey(ResourceId id)
     {

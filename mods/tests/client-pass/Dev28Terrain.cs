@@ -23,11 +23,11 @@ public sealed partial class ClientPassMod
     {
         if (!await Need(c, OreVeinSample) || !await NeedOpen(c, "terrain.overlays") || !await NeedPlayer(c)) return;
         c.Expect(Capabilities.Is("terrain.overlays"), "terrain.overlays is available here", Capabilities.Why("terrain.overlays"));
-        c.Instruct("Stand on open, fairly flat ground away from any base, on a disposable world. Type /orevein in the chat. " +
+        c.Instruct("Stand on open, fairly flat ground away from any base, on a disposable world. Remember this exact starting position, including its height. Type /orevein in the chat. " +
                    "About 4 m from you (towards the east) a round mound of stone about 3 m high appears within a second or two; the chat " +
                    "says 'Completed' twice. Walk onto the mound: you stand on it and do not fall through. Dig into its middle " +
                    "with a pickaxe: a band of another material (the vein) is inside, and digging gives what that ground gives. " +
-                   "Type /orevein again without moving: the chat says 'AlreadyApplied' and nothing changes, and the hole you dug " +
+                   "Return to that exact starting position before typing /orevein again (the sample chooses its plan from your position): the chat says 'AlreadyApplied' and nothing changes, and the hole you dug " +
                    "is still there. Then leave to the main menu, load the world again and come back (on a dedicated server: " +
                    "restart the server and join again): the mound, the vein and your hole are as you left them. " +
                    "Was all of that so: the mound appeared, you could walk on it and dig it, the second /orevein changed nothing, " +

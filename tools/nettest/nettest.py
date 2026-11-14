@@ -21,6 +21,10 @@ import struct
 import sys
 import time
 import zlib
+import subprocess
+import tempfile
+import unittest
+from pathlib import Path
 
 MAGIC = b"KN"
 VERSION = 1
@@ -1396,6 +1400,137 @@ class Suite:
         c = ready_client(self.port, "status", self.verbose)
         r = self.control(c, "status")
         self.check("server.status", r is not None and "fail=0" in r, repr(r))
+
+
+class NativeAdmissionTests(unittest.TestCase):
+    """Host tests of the production gate bodies; no game, Windows runtime or socket.
+
+    Run with python3 -m unittest tools.nettest.nettest.NativeAdmissionTests.
+    """
+
+    def test_gate_holds_and_timeout_never_admits_after_a_failed_refusal(self):
+        source = (Path(__file__).resolve().parents[2] / "native/services/net/net.cpp").read_text()
+
+        def function(signature):
+            start = source.index(signature)
+            return source[start:source.index("\n}", start) + 2]
+
+        harness = r'''
+#include <atomic>
+#include <cstdint>
+#include <map>
+#include <mutex>
+#include <set>
+#include <vector>
+#include <cstdio>
+using KilnPeer = uint32_t;
+constexpr uint32_t KILN_NET_GATE_OFF=0, KILN_NET_GATE_HOLD=1, KILN_NET_GATE_HOLD_ALL=2;
+constexpr uint32_t KILN_NET_PEER_LAB=0x80000000u;
+constexpr int KILN_LOG_INFO=3, KILN_LOG_ERROR=1;
+constexpr uint8_t kLoginGameplayReady=2;
+constexpr uint64_t kHoldCapMs=30000;
+std::mutex g_mu;
+std::atomic<uint32_t> g_gate_mode{2};
+std::set<KilnPeer> g_proved, g_let_in, g_refused;
+std::map<KilnPeer, uint64_t> g_held;
+uint64_t clock_ms=0;
+uint64_t now_ms() { return clock_ms; }
+template<class... Args> void logf(int, const char*, Args...) {}
+int admissions=0, refusals=0;
+bool g_can_kick=true;
+namespace knet {
+using MachineLoginFn = void(*)();
+struct MachineSlot { KilnPeer peer=0; uint8_t flags=0; };
+struct Record { uint32_t connection=0, peer=0, entity=0, slot=0, state=0; char name[64]{}; };
+int read_machine_slots(uintptr_t, MachineSlot*, int) { return 0; }
+int read_records(uintptr_t, Record*, int) { return 0; }
+bool machine_login(MachineLoginFn, uintptr_t, KilnPeer, uint8_t) { ++admissions; return true; }
+bool login_failure(uintptr_t, KilnPeer, uint8_t) { ++refusals; return false; }
+}
+struct Hook {
+    explicit operator bool() const { return true; }
+    template<class T> T original() { return nullptr; }
+} g_machine_login;
+constexpr int KILN_WORLD_STOPPING=2, KILN_WORLD_CLIENT=1, KILN_WORLD_SERVER=0, KILN_NET_PEER_DOWN=2;
+#define KILN_CALL
+struct KilnWorldEvent { int event, kind; };
+struct Event { KilnPeer peer; uint32_t kind; };
+struct Frame {};
+constexpr uint32_t KILN_NET_TRANSPORT_GAME=1, KILN_NET_PEER_UP=1;
+bool g_have_players=false;
+struct Peer {
+    KilnPeer id=0;
+    uint32_t transport=KILN_NET_TRANSPORT_GAME;
+    uint64_t up_ms=0;
+    uint8_t slot_flags=0;
+    bool has_player=false;
+    knet::Record rec{};
+};
+std::map<KilnPeer, Peer> g_peers;
+std::map<uint64_t, KilnPeer> g_lab_by_key;
+std::vector<int> g_retry;
+std::vector<Frame> g_inbox;
+std::vector<std::pair<KilnPeer, uint32_t>> g_pending_events;
+std::set<KilnPeer> g_cleared;
+size_t g_inbox_bytes=0, downs=0;
+std::atomic<uintptr_t> g_gs{1};
+std::atomic<bool> g_server_seen{true};
+void forget_slot(uint32_t) {}
+void recompute_withheld_locked() {}
+void deliver(const std::vector<Event>& events, std::vector<Frame>&, bool) { downs+=events.size(); }
+void client_set_up(bool, uintptr_t) {}
+void client_deliver() {}
+'''
+        harness += function("bool gate_admit_locked(") + "\n" + function("void gate_pump(")
+        harness += "\n" + function("void refresh_game_peers(")
+        if "void server_stopped()" in source:
+            harness += "\n" + function("void server_stopped()")
+        harness += "\n" + function("void KILN_CALL on_world_event(")
+        harness += r'''
+#define CHECK(test, message) do { if (!(test)) { std::fprintf(stderr, "%s\n", message); return 1; } } while(0)
+int main() {
+    g_proved.insert(0x81);
+    CHECK(!gate_admit_locked(0x81), "proved peer bypassed hold-all");
+    clock_ms=100;
+    CHECK(!gate_admit_locked(0x81) && g_held.at(0x81)==0, "repeated Ready extended hold");
+    CHECK(!gate_admit_locked(0x82), "second peer bypassed hold-all");
+    for (KilnPeer peer=0x83; peer<=0x90; ++peer)
+        CHECK(!gate_admit_locked(peer), "concurrent peer bypassed hold-all");
+    gate_pump(1);
+    CHECK(admissions==0, "world entered while held");
+    g_let_in.insert(0x82);
+    gate_pump(1);
+    CHECK(admissions==1 && g_held.size()==15 && g_held.count(0x81), "releasing one peer released another");
+    clock_ms=kHoldCapMs+1;
+    gate_pump(1);
+    CHECK(refusals==1, "deadline did not attempt refusal");
+    CHECK(admissions==1, "failed refusal admitted the held peer");
+    g_gate_mode=KILN_NET_GATE_OFF;
+    CHECK(!gate_admit_locked(0x81), "refused peer retried Ready and entered");
+    std::vector<Event> events;
+    refresh_game_peers(events);
+    CHECK(g_refused.empty(), "peer that vanished before UP retained its refusal");
+    g_peers[0x81]=Peer{};
+    g_refused.insert(0x81);
+    g_retry.push_back(1);
+    g_held[0x81]=clock_ms;
+    KilnWorldEvent stop{KILN_WORLD_STOPPING, KILN_WORLD_SERVER};
+    on_world_event(&stop, nullptr);
+    CHECK(g_gs==0 && !g_server_seen, "stopped server retained its game pointer");
+    CHECK(g_peers.empty() && g_held.empty() && g_refused.empty() && g_retry.empty(), "stopped server retained admission state");
+    CHECK(downs==1, "stopped server did not notify managed admission of DOWN");
+    g_gate_mode=KILN_NET_GATE_HOLD_ALL;
+    CHECK(!gate_admit_locked(0x81), "new server session inherited an admission exemption");
+}
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            cpp = Path(directory) / "gate.cpp"
+            binary = Path(directory) / "gate-test"
+            cpp.write_text(harness)
+            build = subprocess.run(["c++", "-std=c++17", str(cpp), "-o", str(binary)], capture_output=True, text=True)
+            self.assertEqual(build.returncode, 0, build.stderr)
+            run = subprocess.run([str(binary)], capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stderr)
 
 
 def main():

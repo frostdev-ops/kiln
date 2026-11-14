@@ -36,7 +36,7 @@ its game test has passed). `Apply` waits for the world to run, so a mod may call
 
 ## What it cannot do
 - **Take ground away again.** `Forget` and removing the mod leave the cells. A plan that should be reversible keeps
-  what it replaced itself (`Build.Read` before, `Build.Write` after), or uses `Transient`.
+  what it replaced itself (`Build.Read` before, `Build.Write` after), or uses `Transient` where no other edit keeps the chunk (see below).
 - **A mod's own materials.** A palette names the game's materials only (1 to 116, 128 to 212). Materials a mod adds
   with Kiln.Blocks get their cell number per world (117 to 127 for terrain, 213 and up for building blocks) and a
   player without the mod has no look for them, so an overlay refuses those numbers with `ArgumentException`. Such
@@ -86,8 +86,9 @@ public sealed record TerrainPatch(string Id, int Version, CellBox Region, Terrai
     `Replace`: below the height the column becomes matter, above it air, up to the region's top.
     `AddOnTop`: only cells that hold less matter than the patch wants are written; nothing is dug.
   - A signed-distance source is not declared in this version.
-- `Persistence`: `Kept` (saved with the world, recorded in the ledger) or `Transient` (not saved, not recorded,
-  gone at the next restart: for ground that is meant to reset; it may be applied again whenever the mod asks).
+- `Persistence`: `Kept` (saved with the world, recorded in the ledger) or `Transient` (no ledger record and no
+  additional save region; it may be applied again whenever the mod asks). **Transient does not guarantee a reset:**
+  a player base or any kept edit in the same 32-cell store chunk can still cause those cells to be saved.
 
 The same shape in JSON (`TerrainPatch.FromJson`, `ToJson`); a byte array is base64:
 
@@ -124,10 +125,11 @@ cells on every machine (`AddOnTop` depends on the ground it finds).
 public static Task<TerrainResult> Apply(TerrainPatch patch, TerrainApplyOptions? options = null);
 ```
 
-It waits for the world to run, then for each batch: asks for the tiles, reads the cells, writes through
-`Build.WriteAsync`, reads back, records the batch in the ledger and raises `Terrain.Changed`. It is **not atomic**:
+It waits for the world to run, then for each batch: asks for the tiles, reads the cells, records the intended
+fingerprints, loads and writes through `Kiln.Build`, checks readback availability and raises `Terrain.Changed`. It is **not atomic**:
 a patch is spread over ticks, and a cancel or a failure leaves the batches already written in the world. The result
-says how many.
+says how many. A world stop or change ends the apply; a mod reload releases its running reservation so an explicit
+apply from the new instance can resume the stored record.
 
 `TerrainResult(bool Ok, string? Reason, TerrainState State, string Plan, int Version, long ChangedCells,
 int Batches, IReadOnlyList<TerrainConflict> Conflicts)`:
@@ -157,7 +159,10 @@ the cell values, first 8 bytes). A block is on the world's 8-cell grid. A patch 
 number is not 0 (a heightfield: every cell of the region; added on top: the cells below the height); a block with
 no addressed cell is not the plan's. The fingerprint covers all of the block's cells inside the region, so an edit
 next to a vein, in the same block and inside the region, also counts as "changed": the rule errs on the side of
-the player. The record and the cells reach the disk with the same world save, as `Build.PlaceOnce`'s do.
+the player. Fingerprints for an attempted write are recorded before calling Build, using the intended result;
+post-write callbacks cannot become part of the plan's recorded result. WorldData normally stages the ledger with the
+world save, as `Build.PlaceOnce` does. An older sidecar generation is refused. A wholly missing sidecar cannot be
+distinguished from a first installation: keep backups of both the world and its Kiln world-data directory.
 
 | Situation | What happens |
 |---|---|
@@ -166,7 +171,8 @@ the player. The record and the cells reach the disk with the same world save, as
 | Same id and version, other content | `Refused`: "content changed without a new version" |
 | Lower version than recorded | `Refused`: a downgrade is never applied |
 | Higher version | per block of the old record: the cells still equal its "after" → the block is this plan's and is written; anything else → the block is listed as `PlayerEdit` and left alone, and the plan gives up that block (later versions do not touch it either). Blocks the old version did not address are written as new. The record moves to the new version; the result is `Conflict` when any block was left |
-| Record not complete (canceled, stopped, or a save fell between batches before a crash) | resumed: a block that equals "after" is done, one that equals "before" is written, anything else is a conflict |
+| Record not complete (canceled, stopped, or a save fell between batches before a crash) | resumed: an attempted block that equals "after" is done; any other value is a conflict, including "before" (a player may have restored the original ground). Blocks never attempted may still be written |
+| Corrupt or oversized ledger, or an older sidecar generation | refused without replacing stored data; `Applied` returns an empty list and `Forget` returns false, with a warning in the log |
 | A block is addressed by a kept plan of **another mod** known in this session (applied, or being applied) | `Refused`, naming that mod and plan; nothing is written |
 | The same plan is being applied already | `Refused` |
 | A block lies in a player base and `InBases` is off | that block is listed as `BaseZone` and left alone |
@@ -183,7 +189,8 @@ Rules that follow from the engine:
   has used `Kiln.Terrain` in this session. (A ledger shared by all mods needs a world bundle of Kiln's own in
   Kiln.Saves: about half a day, not in this version.)
 - A fresh plan does not know whether a player dug there before it: it writes. Only upgrades are guarded.
-- `Terrain.Applied` lists the calling mod's records in this world.
+- `Terrain.Applied` lists the calling mod's records in this world. `Forget` returns false while that plan is being
+  applied, so it cannot discard the receipts of a running write.
 
 ### Inspect
 

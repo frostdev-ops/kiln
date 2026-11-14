@@ -112,7 +112,8 @@ public sealed unsafe class BakeReviewTests
 
     [Theory]
     [InlineData("Throws", "this mod's OnLoad throws")]
-    [InlineData("NeedsTheGame", "kiln.assets is unavailable")]
+    // the bake's harness has the kit's kiln.assets (content blobs only): the icon call fails on the row that is off
+    [InlineData("NeedsTheGame", "assets.ui_icons is not available")]
     public void AModThatDoesNotLoadLeavesNothingOfAnEarlierBake(string type, string why)
     {
         var dir = FixtureMod(type, "gone-test");

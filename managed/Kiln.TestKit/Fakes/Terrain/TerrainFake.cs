@@ -31,18 +31,27 @@ internal sealed class TerrainFake : IKitFake
     public void Start(KilnHarness harness)
     {
         var state = KitFakes.State<TerrainFakeState>(harness);
+        Terrain.ResetSession();
+        Terrain.CapabilityOverride = row =>
+        {
+            if (FakeTables.Off(row)) throw new KilnUnavailableException(row, "switched off by the test");
+        };
         Terrain.BackendFactory = () =>
         {
-            // a row the test switched off (Capabilities.Override): the member throws as it does in a game without it
-            foreach (var row in (ReadOnlySpan<string>)["kiln.terrain", "terrain.overlays"])
-                if (FakeTables.Off(row)) throw new KilnUnavailableException(row, "switched off by the test");
-            return new Backend(harness, state, HostAccess.Current);
+            var mod = HostAccess.Current;
+            if (mod is not null) Terrain.Watch(mod);
+            return new Backend(harness, state, mod);
         };
     }
 
     public void BeforeStep(KilnHarness harness, ulong step) { }
 
-    public void End(KilnHarness harness) => Terrain.BackendFactory = null;
+    public void End(KilnHarness harness)
+    {
+        Terrain.BackendFactory = null;
+        Terrain.CapabilityOverride = null;
+        Terrain.ResetSession();
+    }
 
     public void AddCoverage(List<CoverageRow> rows) =>
         rows.Add(new CoverageRow("Terrain", CoverageKind.RecordingFake, ["kiln.terrain", "terrain.overlays", "terrain.baked", "terrain.biomes"],
@@ -54,7 +63,8 @@ internal sealed class TerrainFake : IKitFake
     private sealed class Backend(KilnHarness harness, TerrainFakeState s, ModContext? mod) : ITerrainBackend
     {
         public string Mod => mod?.Info.Id ?? "kiln";
-        public bool WorldRunning => true;
+        private readonly long _session = Lifecycle.ServerSession;
+        public bool WorldRunning => (mod?.Alive ?? true) && _session == Lifecycle.ServerSession && Lifecycle.Phase is not (ServerPhase.Stopping or ServerPhase.Idle);
         public string? WorldId { get { lock (s.Lock) return s.WorldId; } }
         public (int X, int Z)? GridCells => (20480, 20480);
         public string KilnVersion => "testkit";

@@ -61,7 +61,8 @@ internal static class ServiceTick
          ("Kiln.Terrain", "Kiln.TerrainStartup"),
          ("Kiln.ClientOptions", "Kiln.ClientOptionsStartup"),
          ("Kiln.CreatureControl", "Kiln.CreatureControlStartup"),  // 19d-creature-control (not in the reserved set)
-         ("Kiln.SlotUi", "Kiln.SlotUiStartup")];
+         ("Kiln.SlotUi", "Kiln.SlotUiStartup"),
+         ("Kiln.World", "Kiln.WorldStartup")];
 
     private static readonly object Lock = new();
     private static Entry[] _entries = [];

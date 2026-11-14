@@ -354,7 +354,7 @@ internal static class NetEngine
         else p.HeldSince = null;
         if ((i.Flags & NetNative.PeerHasPlayer) != 0)
         {
-            p.Player = new EntityId(i.Entity);
+            p.Player = p.HeldSince != null ? EntityId.None : new EntityId(i.Entity);
             p.AccountId = i.Account;
             if (i.RecordState == 3) p.InGameSince ??= DateTime.UtcNow;
         }
@@ -421,6 +421,7 @@ internal static class NetEngine
 
     private static void HandleHello(NetPeer p, ReadOnlySpan<byte> frame)
     {
+        if (p.State is NetPeerState.Rejected or NetPeerState.Closed || p.KickAt != null) return;
         Wire.Hello hello;
         try
         {
@@ -536,6 +537,7 @@ internal static class NetEngine
         RemapServerChannels(p);
         SendWelcome(p, hello.Nonce, warnings);
         NetAdmission.Joined(p);  // OnJoin deciders, before it is let in (under "hold all")
+        if (p.State != NetPeerState.Ready) return;
         // A hosted world's own client (machine slot 0) shares this process's templates and gets no content state.
         var localMachine = !p.IsLab && (p.Id & 0x7F) == 0;
         if (!localMachine && VanillaGate.AwaitsDefinitions(NetNative.ReadGate().KilnTemplates, p.HasChannel(ContentChannel))) p.DefinitionsSince = DateTime.UtcNow;
@@ -613,9 +615,9 @@ internal static class NetEngine
         var left = false;
         foreach (var p in ServerPeers())
         {
-            if (p.Kick is null) continue;
-            if (p.KickAt is { } at && now >= at) RunKick(p);
-            else left = true;
+            if (p.KickAt is not { } at) continue;
+            if (now >= at) RunKick(p);
+            if (p.KickAt != null) left = true;
         }
         KicksPending = left;
     }
@@ -624,6 +626,11 @@ internal static class NetEngine
     {
         p.KickAt = null;
         var rc = NetAdmission.Kick(p, p.Kick is not null ? PlayerGate.KickReasonCode : _config.KickReason);
+        if (rc != NetNative.Ok && p.Kick is null)
+        {
+            p.KickAt = DateTime.UtcNow.AddSeconds(0.5);
+            KicksPending = true;
+        }
         Log(rc == NetNative.Ok ? LogLevel.Info : LogLevel.Warn, $"kick {p.Name} (0x{p.Id:x}): rc {rc}");
         if (p.Kick is not null) PlayerGate.Kicked(p, rc);
     }
