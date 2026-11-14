@@ -69,6 +69,7 @@ struct Owner {
     std::vector<std::string> needs;            // the envelope's "requires"
     KilnOwner process = 0;                     // "boot:<id>", from the commit on
     uint64_t read_bytes = 0;                   // game-data values read_resource gave it (KILN_BOOT_AUTHOR_READ_MAX)
+    std::string refusal;                       // why its frame fails, as its host said (stage "ir"/"refusal")
 };
 
 struct Issue {
@@ -467,6 +468,20 @@ KilnResult KILN_CALL b_stage(KilnOwner owner, uint64_t generation, KilnStr kind,
     if (!g_deferred) return KILN_ERR_UNAVAILABLE;
     if (!owner || generation != kGeneration) return KILN_ERR_INVALID_ARGUMENT;
     const auto author = g_by_author.find(owner);
+    if (k == "ir" && name == "refusal" && author != g_by_author.end()) {  // why this author's frame fails (finish_owner)
+        Owner& o = g_owners[author->second];
+        if (!o.open || g_status != KILN_BOOT_STATUS_COLLECTING)
+            return refuse("PhaseClosed: " + o.id + "'s OnBoot frame is closed");
+        const json doc = canonical_json.ptr && canonical_json.len <= KILN_BOOT_DEFINITION_MAX
+                             ? json::parse(sv(canonical_json), nullptr, false)
+                             : json();
+        if (!doc.is_object() || !doc.contains("reason") || !doc["reason"].is_string() || doc["reason"].get<std::string>().empty())
+            return KILN_ERR_INVALID_ARGUMENT;
+        o.refusal = doc["reason"].get<std::string>();
+        out->ok = 1;
+        out->reason[0] = 0;
+        return KILN_OK;
+    }
     if (k == "ir") {  // the host's envelope
         if (author != g_by_author.end() || name != "envelope") return KILN_ERR_INVALID_ARGUMENT;
         if (g_status != KILN_BOOT_STATUS_COLLECTING) return refuse("PhaseClosed: the boot generation is committed");
@@ -533,8 +548,9 @@ KilnResult KILN_CALL b_finish_owner(KilnOwner owner, uint64_t generation, uint32
             const bool dep = accept == KILN_BOOT_FINISH_DEPENDENCY;
             o.state = dep ? KILN_BOOT_STATE_EXCLUDED_DEPENDENCY : KILN_BOOT_STATE_EXCLUDED_CALLBACK;
             issue_locked({static_cast<uint32_t>(dep ? KILN_BOOT_ISSUE_DEPENDENCY : KILN_BOOT_ISSUE_CALLBACK_FAILED), o.id, "", "", "callback",
-                          dep ? "a mod it requires is out of the boot generation; none of its definitions or files are in"
-                              : "its OnBoot failed (kiln.log has the exception); none of its definitions or files are in"});
+                          dep            ? "a mod it requires is out of the boot generation; none of its definitions or files are in"
+                          : o.refusal.empty() ? "its OnBoot failed (kiln.log has the exception); none of its definitions or files are in"
+                                              : o.refusal + "; none of its definitions or files are in"});
             o.defs.clear();
         }
         phase = phase_row_locked();

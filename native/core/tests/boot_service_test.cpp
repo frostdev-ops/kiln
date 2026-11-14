@@ -782,6 +782,35 @@ void callback_cases() {
     c = commit_with("");
     CHECK(c.status == KILN_BOOT_STATUS_PUBLISHED && state_of("open") == KILN_BOOT_STATE_EXCLUDED_CALLBACK);
     pass_line("BOOT-CALLBACK-EXCLUDED (native side: optional, required, open frame)", f0);
+
+    // the host's reason for a failing frame goes into the CallbackFailed issue
+    t_case = "callback-refusal";
+    const int f1 = t_fail;
+    deferred_with({"low", "ok"});
+    KilnBootStageResultV1 r{};
+    r.size = sizeof r;
+    CHECK(B.stage(kHost, 1, ks("ir"), ks("refusal"), ks(R"({"reason":"x"})"), &r) == KILN_ERR_INVALID_ARGUMENT);  // not an author
+    CHECK(B.begin_owner(author_of("low"), ks("low"), 1, &gen) == KILN_OK);
+    CHECK(B.stage(author_of("low"), 1, ks("ir"), ks("refusal"), ks(R"({"why":"x"})"), &r) == KILN_ERR_INVALID_ARGUMENT);
+    CHECK(B.stage(author_of("low"), 1, ks("ir"), ks("refusal"), ks(R"({"reason":""})"), &r) == KILN_ERR_INVALID_ARGUMENT);
+    const std::string why = "its boot definitions do not lower: talents/cold-talent: needs \"clients\": \"mod\"";
+    CHECK(B.stage(author_of("low"), 1, ks("ir"), ks("refusal"), ks(json{{"reason", "first"}}.dump()), &r) == KILN_OK && r.ok == 1);
+    CHECK(B.stage(author_of("low"), 1, ks("ir"), ks("refusal"), ks(json{{"reason", why}}.dump()), &r) == KILN_OK && r.ok == 1);
+    CHECK(B.finish_owner(author_of("low"), 1, KILN_BOOT_FINISH_CALLBACK_FAILED) == KILN_OK);
+    CHECK(B.stage(author_of("low"), 1, ks("ir"), ks("refusal"), ks(R"({"reason":"late"})"), &r) == KILN_OK && r.ok == 0 &&
+          std::string(r.reason).rfind("PhaseClosed", 0) == 0);
+    run_authors({"ok"});
+    c = commit_with(envelope({"ok"}));
+    CHECK(c.status == KILN_BOOT_STATUS_PUBLISHED && state_of("low") == KILN_BOOT_STATE_EXCLUDED_CALLBACK);
+    uint32_t need = 0;
+    CHECK(B.issues(1, nullptr, 0, sizeof(KilnBootIssueV1), &need) == KILN_ERR_BUFFER_TOO_SMALL && need >= 1);
+    std::vector<KilnBootIssueV1> all(need);
+    for (auto& i : all) i.size = sizeof i;
+    CHECK(B.issues(1, all.data(), need, sizeof(KilnBootIssueV1), &need) == KILN_OK);
+    const auto it = std::find_if(all.begin(), all.end(), [](const KilnBootIssueV1& i) { return std::string(i.mod_id) == "low"; });
+    CHECK(it != all.end() && it->code == KILN_BOOT_ISSUE_CALLBACK_FAILED &&
+          std::string(it->reason) == why + "; none of its definitions or files are in");
+    pass_line("BOOT-CALLBACK-REASON the host's reason for a failing frame is the CallbackFailed issue's", f1);
 }
 
 void contract_cases() {
