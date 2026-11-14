@@ -54,6 +54,12 @@ public:
     virtual bool steering_bytes(KilnEntity entity, std::vector<uint8_t>* out) = 0;
     // The broker's own AI-off layer (kiln.creatures ai_switch under the broker's owner).
     virtual KilnResult ai_layer(KilnEntity entity, bool off) = 0;
+    // The creature's AI as it runs now: 1 on, 0 off (some owner holds it off), -1 no AI the broker can switch.
+    virtual int ai_enabled(KilnEntity entity) = 0;
+    // Destroys the body through kiln.spawn (tick thread, safe Pre); false when it could not.
+    virtual bool destroy(KilnEntity entity) = 0;
+    // The engine's entity id counter (the next id createEntity hands out); false when it cannot be read.
+    virtual bool entity_counter(uint32_t* out) = 0;
     virtual void log(int32_t level, const std::string& text) = 0;
 };
 
@@ -62,6 +68,7 @@ enum class OpKind : uint8_t {
     ZeroInput = 1,       // ActorInput movement fields to zero (write_other)
     RemoveSteering = 2,  // queue_remove SteeringAgent
     AddSteering = 3,     // queue_add SteeringAgent with `data`
+    RemoveBehavior = 4,  // queue_remove DynamicEnemy01BehaviorState (a Vehicle's; never put back)
 };
 struct Op {
     KilnEntity entity = 0;
@@ -80,10 +87,29 @@ struct PublishedLease {
     KilnControlState state{};
 };
 
-// Per body slot, lock-free for readers.
+// Per body slot, lock-free for readers (and for quarantine, which any thread may call).
 struct BodyPublished {
     std::atomic<uint64_t> generation{0};  // 0: free
-    std::atomic<uint32_t> latch{0};       // quarantine cause, 0 = none (S6)
+    std::atomic<uint32_t> entity{0};
+    std::atomic<uint32_t> latch{0};       // the quarantine cause that holds the body, 0 = none
+    std::atomic<uint32_t> causes{0};      // every cause reported (bit n = cause n)
+};
+
+// The retired-root deny table of the running world epoch: entity ids whose hits are denied whole (quarantined and
+// retired bodies). Insert from any thread (quarantine), never removed before the epoch ends. Open addressing over
+// 2 x 65,536 atomic slots; every binding reserves its entry, so the table is never more than half full.
+class DenyTable {
+public:
+    static constexpr uint32_t kSlots = 2 * KILN_CONTROL_MAX_TOMBSTONES;
+    DenyTable() : slots_(new std::atomic<uint32_t>[kSlots]) { clear(); }
+    bool insert(KilnEntity e);
+    bool contains(KilnEntity e) const;
+    void clear();
+    uint32_t count() const { return count_.load(std::memory_order_relaxed); }
+
+private:
+    std::unique_ptr<std::atomic<uint32_t>[]> slots_;
+    std::atomic<uint32_t> count_{0};
 };
 
 class Broker {
@@ -114,6 +140,12 @@ public:
     KilnResult query(KilnHandle lease, KilnControlState* out) const;  // any thread
     uint32_t can_drive(KilnOwner owner, KilnHandle lease, const KilnControlBodyKey& key,
                        uint64_t transition_sequence) const;  // any thread
+    KilnResult quarantine(const KilnControlBodyKey& key, uint32_t cause);  // any thread, no game call
+    KilnResult body_retired(KilnOwner owner, const KilnControlBodyKey& key);
+    uint32_t root_policy(uint64_t world_epoch, KilnEntity root) const;  // any thread
+    // Two-phase withdrawal (the broker cannot serve its bodies any more: its program stopped): new admissions are
+    // refused, every bound body is quarantined at once (its leases lose authority) and retired at the next Pre.
+    void withdraw(const std::string& why);
 
     // ---- the step (tick thread, Pre, no world job running) ----
     // Advances every body's transition at simulation time `now_ns` and fills `ops` with this step's program work.
@@ -123,10 +155,14 @@ public:
     uint32_t bodies() const { return body_count_.load(std::memory_order_relaxed); }
     uint32_t live_leases() const { return live_leases_.load(std::memory_order_relaxed); }
     uint32_t tombstones_reserved() const { return tomb_reserved_; }
+    uint32_t denied_roots() const { return deny_.count(); }
+    bool identity_fault() const { return identity_fault_; }
 
-    // ---- test surface (native only) ----
+    // ---- test surface (native only: the host tests, and the lab switch kiln/data/kiln.creature_control/inject) ----
     void set_request_capacity(uint32_t n) { request_cap_ = n; }
     void set_notice_capacity(uint32_t n) { notice_cap_ = n; }
+    void set_transition_timeout(uint64_t ns) { transition_ns_ = ns ? ns : kTransitionNs; }
+    void set_fail_restore(bool on) { fail_restore_ = on; }
 
 private:
     enum class Phase : uint8_t { Idle, Quiesce, Removing, Zeroing, Restoring };
@@ -145,6 +181,7 @@ private:
         bool releasing = false;    // release admitted, restore pending
         bool was_active = false;   // it was Active when released (Released vs Canceled)
         uint64_t terminal_ns = 0;
+        uint64_t order = 0;        // admission order (ties between equal priorities: the earlier wins)
         KilnControlState last{};   // the last published state (for notices)
         bool published = false;
     };
@@ -168,6 +205,11 @@ private:
         uint64_t wait_start = 0, op_start = 0;
         int zero_left = 0;
         bool tomb = false;             // a tombstone is reserved for it
+        bool behavior_removed = false; // a Vehicle removed its DynamicEnemy01BehaviorState (never put back)
+        bool asked_behavior = false;   // the running entry queued that removal
+        bool quarantined = false;      // the Pre has seen the latch: no transition, no restore, retirement only
+        bool fatal = false;            // the broker's own irrecoverable failure: it retires the body through kiln.spawn
+        bool retired = false;
     };
 
     struct OwnerRec {
@@ -201,6 +243,14 @@ private:
     void step_body(uint32_t b, std::vector<Op>* ops);
     void enter(uint32_t b, const BodyRead& r, uint32_t want, std::vector<Op>* ops);
     void restore(uint32_t b, const BodyRead& r, std::vector<Op>* ops);
+    enum class Back : uint8_t { Done, Waiting, Failed };
+    Back steering_back(uint32_t b, const BodyRead& r, std::vector<Op>* ops);
+    void ai_on(uint32_t b, const BodyRead& r, uint32_t want, std::vector<Op>* ops);
+    void restore_failed(uint32_t b, const char* why);
+    void quarantined_step(uint32_t b, uint32_t latch);
+    void retire_body(uint32_t b, const std::string& why);
+    void latch(uint32_t b, uint32_t cause);
+    void check_counter();
     void grant(uint32_t b, uint32_t slot);
     void lose_body(uint32_t b, uint32_t result, const std::string& why);
     void settle_releasing(uint32_t b);
@@ -230,6 +280,12 @@ private:
 
     std::unordered_map<KilnOwner, OwnerRec> owners_;
     uint32_t queued_ = 0;  // admissions since the last Pre
+    uint64_t order_ = 0;
+    DenyTable deny_;
+    bool identity_fault_ = false;  // the entity counter went down in this epoch: no new binding until it ends
+    uint32_t counter_ = 0;
+    uint64_t transition_ns_ = kTransitionNs;
+    bool fail_restore_ = false;
     uint32_t request_cap_ = KILN_CONTROL_REQUEST_QUEUE;
     uint32_t notice_cap_ = KILN_CONTROL_NOTICE_QUEUE;
     std::atomic<uint32_t> body_count_{0}, live_leases_{0};

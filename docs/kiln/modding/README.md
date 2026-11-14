@@ -113,6 +113,7 @@ first). `mods/samples/build.sh` builds the loader samples (`SampleLib`, `SampleC
 | `WeaponMoves` | a sword with moves of its own (a chain of two swings, a heavy and a block, each with its own clip and timing) and a held model with moving parts; each clip is the game's clip of the state it is placed like, retimed to the move, with the sword arm from the sample's own rig (retargeted, the second swing's mirrored) |
 | `LootBlocks` | loot tables, a creature that drops one, and recipes at the game's workbench |
 | `CreatureBlocks` | reusable bodies, animation, AI, behaviour and NPCs: a creature made of its own files, a Vukah that rallies, a sentinel driven by C#, a trader |
+| `CreatureControlSample` | kiln.creature_control: `/hold` takes a lease on a game Vukah by itself (Acquire, WaitActive, Inspect, Release: its AI off and its steering removed while held, both given back), `/pacer` a creature whose brain walks it to you under the lease Kiln.Blocks takes |
 | `StationBlocks` | a drying rack and a forge with workshops and recipes of their own, a bench, props on the game's art |
 | `MenuBlocks` | menu blocks: a forge that opens the drying rack's menu, a menu part two stations share |
 | `FurnitureBlocks` | a chest that wants a key, a door that opens only at night, a camp bed, seats, a wall shape with an arched window, a haircut |

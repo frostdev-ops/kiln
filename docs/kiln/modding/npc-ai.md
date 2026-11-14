@@ -136,8 +136,9 @@ the game's steering program wrote the creature's movement input after every othe
 drive: in the step or two before it is granted, and while a higher lease holds the body (a rider), nothing is
 written. When the brain stops (the creature is gone, the brain threw) or its mod unloads, the lease is released and
 the broker gives the body back: its `SteeringAgent` (with its transient fields zeroed) and the game's AI. With
-`creature_control` off the old behaviour stays: the AI is switched off, a warning is logged once, and the body does not
-walk.
+`creature_control` off, or when the broker refuses the lease or the lease fails before it drives (the body never got
+ready, its action did not end within 5 s), the old behaviour stays: the AI is switched off, a warning is logged once
+(and an info line for each failed lease), and the body does not walk.
 
 ## Mistakes, refused by name
 `block creature warden, ai.flee.below: 2 is outside 0..1`; `ai.senseFilter: no sense filter "tokens": register it with Blocks.SenseFilter(...)`;
