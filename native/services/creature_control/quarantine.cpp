@@ -60,6 +60,11 @@ void DenyTable::clear() {
 // ------------------------------------------------------------------------------------------------------ quarantine --
 
 void Broker::latch(uint32_t b, uint32_t cause) {
+    std::lock_guard lock(bodies_pub_[b].mu);
+    latch_locked(b, cause);
+}
+
+void Broker::latch_locked(uint32_t b, uint32_t cause) {
     BodyPublished& bp = bodies_pub_[b];
     bp.causes.fetch_or(1u << cause, std::memory_order_acq_rel);
     uint32_t cur = bp.latch.load(std::memory_order_acquire);
@@ -77,9 +82,11 @@ KilnResult Broker::quarantine(const KilnControlBodyKey& key, uint32_t cause) {
     if (key.world_epoch == 0 || key.world_epoch != epoch()) return KILN_ERR_NOT_FOUND;
     for (uint32_t b = 0; b < bodies_pub_.size(); ++b) {
         const BodyPublished& bp = bodies_pub_[b];
+        std::lock_guard lock(bp.mu);
+        if (key.world_epoch != epoch()) return KILN_ERR_NOT_FOUND;
         if (bp.generation.load(std::memory_order_acquire) != key.body_generation) continue;
         if (bp.entity.load(std::memory_order_acquire) != key.entity) return KILN_ERR_NOT_FOUND;
-        latch(b, cause);
+        latch_locked(b, cause);
         return KILN_OK;
     }
     return KILN_ERR_NOT_FOUND;
@@ -139,8 +146,9 @@ void Broker::quarantined_step(uint32_t b, uint32_t cause) {
         retire_body(b, "Retired: the quarantined body is gone");
         return;
     }
-    if (body.fatal) {
+    if (body.fatal && !identity_fault_) {
         // the broker's own irrecoverable failure, under the binder's retire_on_fatal consent: retired now, at this safe Pre
+        // An epoch identity fault is different: this id may now name someone else's body; retain quarantine until teardown.
         if (game_->destroy(e) && !game_->read(e).exists) retire_body(b, "Retired: the broker could not restore the body");
         else log(KILN_LOG_ERROR, "body %u: retiring it through kiln.spawn failed; retried at the next Pre", e);
     }

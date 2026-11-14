@@ -134,7 +134,7 @@ typedef struct KilnQueryPathRequest { /* 80 bytes */
     KilnVec3 from, to;
     double horizontal_space, vertical_space; /* free space the route needs, metres, as the game's query takes it */
     uint32_t max_iterations;                 /* the search's iteration limit, 1..65535 */
-    uint32_t closest_fallback;               /* 1: when the target has no node, end at the closest one (PARTIAL) */
+    uint32_t closest_fallback;               /* 1: allow the closest target node; endpoint tolerance decides FOUND/PARTIAL */
 } KilnQueryPathRequest;
 
 typedef struct KilnQueryPathAdmission { /* 40 bytes */

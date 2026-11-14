@@ -101,6 +101,31 @@ public sealed class KindStagingTests
     }
 
     [Fact]
+    public void Reading_a_pending_data_block_while_staging_does_not_cache_an_unpublished_handle()
+    {
+        using var sink = new CountingSink();
+        var target = KindKit.Mod("staging-data-cache");
+        var dir = Directory.CreateTempSubdirectory("kiln-kind-cache-").FullName;
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(dir, "blocks"));
+            File.WriteAllText(Path.Combine(dir, "blocks", "status.json"),
+                """{"format":1,"statuses":{"chilled":{"name":"Chilled","seconds":4}}}""");
+            BlockJson.Read(target, dir);
+            using (var tx = KindTransaction.Begin(target))
+            {
+                Compiler.Define(target, "outer", new EffectBlock { Applies = (StatusRef)"chilled" });
+                Assert.Equal(2, tx.Staged.Count);
+            }
+            Assert.Empty(sink.Writes);
+            Assert.Equal(1, BlockJson.LoadMod(target, dir));
+            Assert.True(target.Handles.ContainsKey("chilled"));
+            Assert.NotEmpty(sink.Writes);
+        }
+        finally { target.Data?.Dispose(); Directory.Delete(dir, recursive: true); }
+    }
+
+    [Fact]
     public void A_staged_block_names_the_mods_published_blocks_and_the_plans_own_products()
     {
         using var sink = new CountingSink();

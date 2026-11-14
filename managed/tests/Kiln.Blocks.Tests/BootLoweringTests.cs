@@ -35,6 +35,66 @@ public sealed class BootLoweringTests : IDisposable
     private static JsonObject Lower(string request) => JsonNode.Parse(BootLowering.LowerOwner(request))!.AsObject();
 
     [Fact]
+    public void A_resource_patch_is_staged_as_its_document_and_goes_to_the_patches_collector()
+    {
+        var f = new BootContext("boot-gallery", 1, BootRoles.DedicatedServer, new UnavailableGameData());
+        var d = BootDefinitions.For(f);
+        var table = Guid.Parse("82706b40-61b1-4b8f-8b23-dcec6971bda1");
+        var staged = d.Define("more-altars", new ResourcePatchBlock
+        {
+            Resource = table, Type = "keen::BalancingTable",
+            Set =
+            {
+                ["altarsPerFlameLevel[*]"] = ResourceValue.AtLeast(16), ["experienceNeedPerLevel[0]"] = 1500, ["someFlag"] = true,
+                ["someEnum"] = "Hard", ["scale"] = new ResourceValue { Mul = 2, Add = 1, Max = 9.5, RaiseOnly = true },
+            },
+        });
+        Assert.True(staged.Ok, staged.Reason);
+        var one = Assert.Single(f.Staged);
+        Assert.Equal("resourcePatches", one.Kind);
+        // the document kiln.content reads, keys sorted, member paths as written
+        Assert.Equal("""{"part":0,"resource":"82706b40-61b1-4b8f-8b23-dcec6971bda1","set":{"altarsPerFlameLevel[*]":{"min":16},"experienceNeedPerLevel[0]":1500,"scale":{"add":1,"max":9.5,"mul":2,"raiseOnly":true},"someEnum":"Hard","someFlag":true},"type":"keen::BalancingTable"}""", one.Json);
+        // the same from JSON
+        var g = new BootContext("boot-gallery", 1, BootRoles.DedicatedServer, new UnavailableGameData());
+        Assert.True(BootDefinitions.For(g).DefineJson("resourcePatches", "more-altars", one.Json).Ok);
+        Assert.Equal(one.Json, Assert.Single(g.Staged).Json);
+        // lowered: one document for the patches collector, nothing compiled, nothing registered
+        var sink = new CountingSink();
+        var previous = Lowered._sinkOverride;
+        Lowered._sinkOverride = sink;
+        try
+        {
+            var r = Lower(Request(f.Staged));
+            Assert.True(r["ok"]!.GetValue<bool>(), (string?)r["reason"]);
+            Assert.Equal(["resourcePatches/more-altars"], r["definitions"]!.AsArray().Select(x => (string)x!));
+            var doc = Assert.Single(r["docs"]!["patches"]!.AsArray())!;
+            Assert.Equal("more-altars", (string?)doc["key"]);
+            Assert.Equal("keen::BalancingTable", (string?)doc["document"]!["type"]);
+            Assert.Equal(16, (double)doc["document"]!["set"]!["altarsPerFlameLevel[*]"]!["min"]!);
+            Assert.Empty(r["docs"]!["content"]!.AsArray());
+            Assert.Equal(0, sink.Count);
+        }
+        finally { Lowered._sinkOverride = previous; }
+    }
+
+    [Fact]
+    public void A_resource_patch_that_names_nothing_or_mixes_a_value_with_a_change_is_refused()
+    {
+        var f = new BootContext("boot-gallery", 1, BootRoles.DedicatedServer, new UnavailableGameData());
+        var d = BootDefinitions.For(f);
+        Assert.ThrowsAny<Exception>(() => d.Define("both", new ResourcePatchBlock
+        {
+            Resource = Guid.NewGuid(), Type = "keen::BalancingTable", Set = { ["a"] = new ResourceValue { Value = 1L, Min = 2 } },
+        }));
+        Assert.Throws<ArgumentException>(() => d.DefineJson("resourcePatches", "bad-op", """{"resource":"82706b40-61b1-4b8f-8b23-dcec6971bda1","type":"keen::BalancingTable","set":{"a":{"double":2}}}"""));
+        // staged but empty: the lowering refuses the author
+        Assert.True(d.Define("empty", new ResourcePatchBlock { Resource = Guid.NewGuid(), Type = "keen::BalancingTable" }).Ok);
+        var r = Lower(Request(f.Staged));
+        Assert.False(r["ok"]!.GetValue<bool>());
+        Assert.Contains("at least one field", (string?)r["reason"]);
+    }
+
+    [Fact]
     public void The_sample_lowers_into_documents_of_assets_content_and_skills_and_registers_nothing()
     {
         var sink = new CountingSink();

@@ -18,6 +18,7 @@ internal sealed class KindTransaction : IDisposable
     public ModBlocks Stage { get; }
     /// <summary>What was staged, in the order it was defined (a nested block before the block that holds it).</summary>
     public List<StagedBlock> Staged { get; } = new();
+    private int _depth;
     /// <summary>Set while the owner of the transaction commits it: only then may a staged <see cref="Lowered"/> commit.</summary>
     public bool Committing => Stage.CommitOpen;
 
@@ -52,11 +53,20 @@ internal sealed class KindTransaction : IDisposable
         if (!ReferenceEquals(mod, Target) && !ReferenceEquals(mod, Stage)) throw new KindDependencyPending(mod.Id, name);
         if (Target.Handles.ContainsKey(name) || Stage.Handles.ContainsKey(name))
             throw new BlockError(name, null, $"a block \"{name}\" of mod {Target.Id} exists already: a kind's plan never replaces one");
-        var (handle, low, label) = Compiler.Lower(Stage, name, block);
-        Stage.Handles[name] = handle;
-        Stage.Lowered[name] = low.Json;
-        Staged.Add(new StagedBlock(name, handle, low, label));
-        return (BlockHandle<T>)handle;
+        // Named references have their own bound; inline statuses are already covered by the frozen JSON depth.
+        var named = Stage.Compiling.Contains(name) || Target.Compiling.Contains(name);
+        if (named && _depth >= KindCompiler.MaxDepth)
+            throw new BlockError(name, null, $"named block references nest more than {KindCompiler.MaxDepth} deep");
+        if (named) _depth++;
+        try
+        {
+            var (handle, low, label) = Compiler.Lower(Stage, name, block);
+            Stage.Handles[name] = handle;
+            Stage.Lowered[name] = low.Json;
+            Staged.Add(new StagedBlock(name, handle, low, label));
+            return (BlockHandle<T>)handle;
+        }
+        finally { if (named) _depth--; }
     }
 
     /// <summary>The owner of the transaction commits what was staged: from here to <see cref="Dispose"/> a staged <see cref="Lowered.Commit"/> is allowed.</summary>

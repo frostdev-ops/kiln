@@ -58,7 +58,8 @@ public sealed class Throws : Mod
     public override void OnLoad() => throw new InvalidOperationException("this mod's OnLoad throws");
 }
 
-/// <summary>Needs a service only the game has (kiln.assets).</summary>
+/// <summary>Needs a part of a service only the game has (kiln.assets' UI icons: the test kit's kiln.assets serves content
+/// blobs only).</summary>
 public sealed class NeedsTheGame : Mod
 {
     public override void OnLoad()

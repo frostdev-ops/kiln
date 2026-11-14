@@ -19,10 +19,63 @@ public static class Terrain
 
     /// <summary>For tests and the test kit: the world behind the calls. Null = Kiln.Build and Kiln.Saves.</summary>
     internal static Func<ITerrainBackend>? BackendFactory;
+    internal static Action<string>? CapabilityOverride;
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ModContext, object> Watched = new();
+    private static long _session = long.MinValue;
+
+    internal static void ResetSession() => Session.Clear();
+
+    internal static void Watch(ModContext mod)
+    {
+        Watched.GetValue(mod, m =>
+        {
+            var id = m.Info.Id;
+            m.Retiring += () =>
+            {
+                Session.Retire(id);
+                lock (EventGate)
+                {
+                    foreach (var owned in OwnedHandlers.Where(h => ReferenceEquals(h.Owner, m))) _changed -= owned.Handler;
+                    OwnedHandlers.RemoveAll(h => ReferenceEquals(h.Owner, m));
+                }
+            };
+            return new object();
+        });
+    }
+
+    private static readonly object EventGate = new();
+    private static Action<TerrainChangedEvent>? _changed;
+    private static readonly List<(ModContext Owner, Action<TerrainChangedEvent> Handler)> OwnedHandlers = [];
 
     /// <summary>One batch of an overlay reached the world. Tick thread, after the write and the ledger update; once per
-    /// written batch, nothing for a refusal or an <see cref="TerrainState.AlreadyApplied"/>.</summary>
-    public static event Action<TerrainChangedEvent>? Changed;
+    /// written batch, nothing for a refusal or an <see cref="TerrainState.AlreadyApplied"/>. Subscriptions made by a mod
+    /// are removed when it unloads.</summary>
+    public static event Action<TerrainChangedEvent>? Changed
+    {
+        add
+        {
+            if (value is null) return;
+            lock (EventGate)
+            {
+                _changed += value;
+                if (ModContext.CurrentMod is { } mod)
+                {
+                    OwnedHandlers.Add((mod, value));
+                    Watch(mod);
+                }
+            }
+        }
+        remove
+        {
+            if (value is null) return;
+            lock (EventGate)
+            {
+                _changed -= value;
+                var i = OwnedHandlers.FindLastIndex(h => h.Handler == value);
+                if (i >= 0) OwnedHandlers.RemoveAt(i);
+            }
+        }
+    }
 
     /// <summary>Applies <paramref name="patch"/>: waits for the world to run, then writes one batch per tick. Not
     /// all-or-nothing: a cancel or a failure leaves the batches already written in the world, and the result counts
@@ -101,12 +154,19 @@ public static class Terrain
     {
         if (BackendFactory is { } f) return f();
         var mod = ModContext.CurrentMod ?? throw new InvalidOperationException($"{api} needs a mod context (call it from mod code)");
+        if (_session != Lifecycle.ServerSession)
+        {
+            Session.Clear();
+            _session = Lifecycle.ServerSession;
+        }
+        Watch(mod);
         return new BuildTerrainBackend(mod);
     }
 
     private static void Raise(TerrainChangedEvent e)
     {
-        var handlers = Changed;
+        Action<TerrainChangedEvent>? handlers;
+        lock (EventGate) handlers = _changed;
         if (handlers is null) return;
         foreach (var h in handlers.GetInvocationList())
         {

@@ -985,6 +985,7 @@ void KILN_CALL on_resources_ready(void*) {
         std::lock_guard lock(g_mu);
         if (g_merge_started) return;
         g_merge_started = true;
+        WT_I("worldtables: the game's resource service is up: merging from the bytes kiln.assets serves now");
         try {
             merge_locked();
         } catch (const std::exception& e) {

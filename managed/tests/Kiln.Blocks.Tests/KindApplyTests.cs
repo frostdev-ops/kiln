@@ -291,6 +291,148 @@ public sealed class KindApplyTests
         Assert.Equal(["blocks.apply", "blocks.apply.item", "blocks.apply.weapon", "blocks.apply.spell", "blocks.apply.status", "blocks.apply.effect"], KindCapabilities.ApplyRows);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_resolved_pending_dependency_must_apply_before_its_consumer_and_a_refusal_propagates(bool foreign)
+    {
+        using var w = new KindWorld { Generation = null };
+        var (entry, kind, _, consumer, target) = Setup("apply-dependency");
+        var dependency = Submit(target, consumer, Camp(entry, consumer));
+        var dependentOwner = foreign ? KindKit.Owner("apply-foreign-dependent") : consumer;
+        var dependentTarget = foreign ? KindKit.Mod("apply-foreign-dependent") : target;
+        kind.Body = (c, b) =>
+        {
+            c.Resolve(new BlockRef<LanternBlock>(foreign ? $"{target.Id}:camp" : "camp"));
+            return LanternKind.Default(c, b);
+        };
+        // The ordinary Compile path must include provisional identities without a caller-supplied test view.
+        var plan = KindCompiler.Compile(dependentOwner, entry, "dependent", new LanternBlock { Name = "Dependent", Seconds = 600 });
+        var dependent = Submit(dependentTarget, dependentOwner, plan);
+        w.Generation = 1;
+        w.Sink.FailAt = 0;
+        KindApply.PumpAll();
+        Assert.Equal(BlockApplyState.Refused, dependency.State);
+        Assert.Equal(BlockApplyState.Refused, dependent.State);
+        Assert.StartsWith("DependencyRefused", dependent.Reason);
+        Assert.Empty(target.Handles);
+        Assert.Empty(w.Sink.Writes);
+    }
+
+    [Fact]
+    public void Plans_with_colliding_generated_names_cannot_replace_each_other()
+    {
+        using var w = new KindWorld();
+        var (entry, kind, _, consumer, target) = Setup("apply-product-collision");
+        kind.Body = (c, _) => c.Plan("b.c", [c.Effect("b.c", new EffectBlock { Heal = 1 })]);
+        var first = KindCompiler.Compile(consumer, entry, "a", new LanternBlock());
+        Submit(target, consumer, first);
+        kind.Body = (c, _) => c.Plan("c", [c.Effect("c", new EffectBlock { Heal = 2 })]);
+        var other = KindCompiler.Compile(consumer, entry, "a.b", new LanternBlock());
+        Assert.Throws<BlockError>(() => Submit(target, consumer, other));
+        Assert.Single(w.Created);
+        Assert.Equal(["a"], target.Handles.Keys);
+    }
+
+    [Fact]
+    public void A_plan_cannot_take_a_generated_name_declared_in_the_consumers_data()
+    {
+        using var w = new KindWorld();
+        var (entry, _, _, consumer, target) = Setup("apply-pending-collision");
+        target.Pending["kind-camp.light"] = () => throw new Exception("must not compile the authored block");
+        Assert.Throws<BlockError>(() => Submit(target, consumer, Camp(entry, consumer)));
+        Assert.Empty(w.Created);
+    }
+
+    [Fact]
+    public void Apply_refuses_the_selected_primary_when_its_reported_row_is_off()
+    {
+        using var w = new KindWorld();
+        var (entry, _, _, consumer, _) = Setup("apply-capability-row");
+        var plan = Camp(entry, consumer);
+        Capabilities.Reset();
+        try
+        {
+            KindCapabilities.RequireApply(plan);
+            Capabilities.Report("blocks.apply.item", CapabilityState.Unavailable, CapabilityReason.Policy, "item plans disabled");
+            Assert.False(Capabilities.Is("blocks.apply.item"));
+            var error = Assert.Throws<KilnUnavailableException>(() => KindCapabilities.RequireApply(plan));
+            Assert.Equal("blocks.apply.item", error.Capability);
+        }
+        finally { Capabilities.Reset(); KindCapabilities.Rearm(); }
+    }
+
+    [Fact]
+    public void Named_product_reference_depth_is_bounded_separately_from_JSON_depth()
+    {
+        using var w = new KindWorld();
+        var (entry, kind, _, consumer, target) = Setup("apply-reference-depth");
+        BlockPlan Chain(BlockCompileContext c, int count)
+        {
+            var products = new List<BlockProduct>();
+            for (var i = 0; i < count; i++)
+                products.Add(c.Effect($"e{i:00}", i == count - 1 ? new EffectBlock { Heal = 1 }
+                    : new EffectBlock { Then = [(EffectRef)c.ProductName($"e{i + 1:00}")] }));
+            return c.Plan("e00", products);
+        }
+        kind.Body = (c, _) => Chain(c, 32);
+        var good = KindCompiler.Compile(consumer, entry, "fits", new LanternBlock());
+        Assert.Equal(BlockApplyState.Applied, Submit(target, consumer, good).State);
+        kind.Body = (c, _) => Chain(c, 33);
+        var tooDeep = KindCompiler.Compile(consumer, entry, "too-deep", new LanternBlock());
+        Assert.Throws<BlockError>(() => Submit(target, consumer, tooDeep));
+        Assert.Single(w.Created);
+    }
+
+    [Fact]
+    public void An_authored_block_cannot_overwrite_an_applied_plans_private_product()
+    {
+        using var w = new KindWorld();
+        var (entry, _, _, consumer, target) = Setup("apply-authored-collision");
+        Submit(target, consumer, Camp(entry, consumer));
+        var writes = w.Sink.Writes.Count;
+        Assert.Throws<BlockError>(() => Compiler.Define(target, "kind-camp.light", new ItemBlock { Name = "Replacement" }));
+        Assert.Equal(writes, w.Sink.Writes.Count);
+    }
+
+    [Fact]
+    public void Replacing_a_pending_request_retires_its_provisional_handle_and_dependents()
+    {
+        using var w = new KindWorld { Generation = null };
+        var (entry, kind, _, consumer, target) = Setup("apply-replace-pending");
+        var old = Submit(target, consumer, Camp(entry, consumer));
+        kind.Body = (c, b) => { c.Resolve(new BlockRef<LanternBlock>("camp")); return LanternKind.Default(c, b); };
+        var dependent = Submit(target, consumer, KindCompiler.Compile(consumer, entry, "dependent", new LanternBlock { Name = "Dependent", Seconds = 600 }));
+        kind.Body = null;
+        Submit(target, consumer, Camp(entry, consumer, 900));
+        Assert.Equal(BlockApplyState.Removed, KindApply.Of(old.Handle)!.State);
+        w.Generation = 1;
+        KindApply.PumpAll();
+        Assert.Equal(BlockApplyState.Refused, dependent.State);
+        Assert.StartsWith("DependencyRefused", dependent.Reason);
+    }
+
+    [Fact]
+    public void Defining_the_same_external_record_through_different_generic_views_replays_one_application()
+    {
+        using var w = new KindWorld();
+        KindKit.Lantern();
+        var context = HostAccess.CreateContext(new ModInfo("generic-view", "Generic view", "1", AppContext.BaseDirectory), 1, AppContext.BaseDirectory);
+        var previous = ModContext.CurrentMod;
+        ModContext.CurrentMod = context;
+        try
+        {
+            var target = KindKit.Mod("generic-view");
+            var first = KindDefine.Define<IBlock>(target, "camp", new LanternBlock { Name = "Camp", Seconds = 600 });
+            Assert.Equal(typeof(LanternBlock), first.BlockType);
+            var second = KindDefine.Define(target, "camp", new LanternBlock { Name = "Camp", Seconds = 600 });
+            Assert.Equal(first.Guid, second.Guid);
+            Assert.Equal(KindApply.Of(first), KindApply.Of(second));
+            Assert.Single(w.Created);
+        }
+        finally { context.Retire(); ModContext.CurrentMod = previous; }
+    }
+
     // ---- a refusal at every registration, for each primary (16d S5) -------------------------------------------------
 
     private static StatusBlock Chilled => new() { Name = "Chilled", Seconds = 4, Kind = StatusKind.Debuff };
