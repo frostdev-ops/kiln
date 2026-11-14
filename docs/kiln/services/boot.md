@@ -125,5 +125,19 @@ code. kiln.log ends with `boot: the start stops before the game's entry point (e
   reverse destruction, the seven collectors, files-only participants, `activation_fault`, the game-data reader).
 - Offline: `managed/tests/Kiln.Blocks.Tests` (staging, lowering), `Kiln.Host.Tests` (`BootPhaseTests`, including the
   pin of `KilnBootApiV1`'s member order).
-- Lab: `mods/tests/boot-definitions-test` (the five kinds on a first start), `mods/tests/boot-patches-test` and
-  `boot-patches-other` (resource patches).
+- Offline, the test kit: `Kiln.TestKit.Tests` (`BootFakeTests`: `KilnHarness.BootPhase`), `Kiln.Sdk.Tests`
+  (`BootBakeTests`: the bake runs `OnBoot`).
+- Lab: `mods/tests/boot-definitions-test` (the five kinds on a first start, the same ids on the next start, and with the
+  fault mods `boot-callback-fail` and `boot-dependent` their exclusion), `mods/tests/boot-patches-test` and
+  `boot-patches-other` (resource patches), `mods/tests/boot-gamedata-test` (the snapshot against the live reader).
+
+## Lab switches
+- **`boot.testRefuse`** (kiln.json, honoured only with `"policy": "any"`; a release never sets it):
+  `"boot": { "testRefuse": { "<mod id>": "<collector>" } }`. Each round, kiln.boot hands that collector an unreadable
+  document of that mod (key `lab.test-refuse`), so the collector refuses the mod as it refuses any such document and the
+  mod is dropped (or the start stops, for a `"required"` mod); every collector prepared before it destroys its plan and
+  prepares again. kiln.log says `boot: lab switch boot.testRefuse: collector <c> gets an unreadable document of <mod>`.
+  It forces a collector's refusal in a lab start (the per-collector drop proof).
+- **The fault start's exit status**: `tools/lab/lab.sh start` writes the server process's exit status to
+  `<lab>/kiln/state/exit-code.txt`. A start stopped by a boot failure reads `1` there under Wine (the low byte of
+  0x4B01); `boot.json` says `"exitCode": 19201`.

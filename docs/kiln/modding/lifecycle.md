@@ -65,7 +65,8 @@ gone. What `OnBoot` staged with `BootDefinitions` is in the game by then, and `M
 
 - A **hot reload** of a boot mod runs `OnLoad` only. Its boot content stays as the start committed it; a changed
   manifest or entry assembly is refused (`RestartRequiredBoot`) until the next start.
-- `BootDefinitionsCommittedEvent` comes after each such load, at Kiln.Blocks' next step.
+- `BootDefinitionsCommittedEvent` comes after each such load, at Kiln.Blocks' next step; also for a mod whose `OnBoot`
+  staged nothing, with no definitions.
 
 ## The Mods API (Forge's `ModList`)
 ```csharp

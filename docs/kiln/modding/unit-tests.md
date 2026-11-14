@@ -250,6 +250,18 @@ false)`; the fake then answers as the native service does without it. The table 
   `kiln.Time.Calls` lists the mods' sets and speeds. Not modelled, and offline: the weather (`time.weather`,
   `time.weather_choose`: its table, layers, choice and reset), the sync probe, sleeping, saving the time with the world.
 
+- **Boot phase** (`kiln.BootPhase`, since 0.2.0-dev.28) <a id="boot-phase-since-020-dev28"></a>. `Run(folder)` runs a boot
+  mod's `OnBoot` as a start does: once, on an instance of its own in a load context of its own, with the same staging
+  (`BootDefinitions`: canonical JSON, `DuplicateDefinition`, `NotInBootKinds`; `Blocks.Define` throws in the frame) and
+  the same lowering through Kiln.Blocks (a definition that does not compile or names a block outside the `OnBoot`,
+  `BootReferenceOutside`, fails the run; a data file's block of the same name wins, `ShadowedByFile`). The `BootRun` it
+  returns has what was staged, what lowered, the state (`Committed`, or `ExcludedCallback` with the reason) and the
+  issues; the outcome is the process's boot generation, so `kiln.LoadFolder(folder)` then loads a committed mod (its
+  definitions' run-time parts and `BootDefinitionsCommittedEvent`) and refuses a failed one (`RestartRequiredBoot`), as a
+  start does. `SetRecord(key, json)` scripts what `boot.GameData.Read` answers (an unscripted key is `NotFound`).
+  Switching `mods.boot` off refuses the mod before its `OnBoot`; `mods.boot.game_data` off makes `Read` throw. Not
+  modelled: the native kiln.boot and its collectors, so the boot generation's items, clones and nodes do not reach the
+  kit's other fakes; several mods' drop rules; the stopped start of a `"required"` mod.
 - **Quests and talent trees** need no fake: Kiln.Quests' quest engine and Kiln.Skills' talent trees are Kiln's own
   managed code, and they run on the fake players and saves. A quest a mod defines is started, advanced and completed
   for a fake player through `Quests.Start`, `Advance` and `Complete`, with `QuestStartedEvent`, `QuestStepEvent` and

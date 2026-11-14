@@ -95,7 +95,8 @@ left out, and its path is listed once in `index.json` under `runtimeOnly`.
 | `resource:<GUID>/<8 hex type hash>/<part>` | the item or template whose resource this is; a resource of another type is not in the snapshot (not found) |
 
 The result is `{"resourceId","typeHash","part","value"}`: the GUID, the type hash as 8 lower-case hex digits, the part
-as a number and the value as stored. One result is at most 4 MiB; one mod reads at most 16 MiB of values during its
+as a number and the value as stored. For `skill:` the offline view's `resourceId` is the backing resource's; kiln.content's
+live reader reports none (an empty GUID) for the same entry, so compare skills by value. One result is at most 4 MiB; one mod reads at most 16 MiB of values during its
 `OnBoot`. An entry whose offset and length do not lie inside its data file, or whose bytes are not one JSON object, is
 refused as unavailable and never read out of range.
 

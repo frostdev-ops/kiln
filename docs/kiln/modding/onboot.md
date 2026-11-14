@@ -37,7 +37,9 @@ public override void OnBoot(BootContext boot) { ... }
 - It runs **once per process**, before the game's entry point, on Kiln's boot thread.
 - It runs on a **throwaway copy** of your mod: Kiln loads the mod's assembly on its own, creates an instance, calls
   `OnBoot`, and unloads it all again. The instance that later gets `OnLoad` is a new one. Nothing you keep in a field or
-  a static survives: hand everything over by staging it.
+  a static survives: hand everything over by staging it. What `OnBoot` read (`boot.GameData`) cannot be handed to
+  `OnLoad` in memory either: write what you need later into a file of your mod's data folder (`Context.DataDirectory`
+  is the same folder in `OnBoot` and in `OnLoad`; create it first), or read it again through the run-time services.
 - `boot.ModId`, `boot.Generation` (the process's boot generation), `boot.Roles` (where the mod runs: a dedicated
   server in this build) and `boot.GameData` (the game's data, read only, below).
 
@@ -75,7 +77,11 @@ definition is at most 1 MiB as JSON.
 
 **References:** a boot definition can name a definition the same mod staged before it (`OnHit = ["chill-touch"]` in the
 example). It cannot name another mod's block, or a block of your own data files: each mod's boot definitions are
-compiled on their own, before any block is registered. Such a definition does not compile, and the mod is left out.
+compiled on their own, before any block is registered. Such a definition does not compile, and the mod is left out, with
+the block error `BootReferenceOutside` in kiln.log and `state/boot.json`, for example: `BootReferenceOutside: "other-mod:frost"
+is a block of mod other-mod; a boot definition names only blocks its own OnBoot staged before it`, or `BootReferenceOutside:
+"frost" is a block of this mod's data files (blocks/*.json)`. Stage the block in the same `OnBoot`, before the definition
+that names it.
 
 **A data file wins.** If your `blocks/*.json` defines the same kind and name, the file's block is used and the staged
 one is dropped, with a warning (`ShadowedByFile`) in kiln.log and `state/boot.json`.
@@ -118,7 +124,7 @@ state and definition count, every issue (mod, kind, key, phase, code, reason) an
   `Committed` means its definitions are in the game. `NotParticipating` means no boot phase took it.
 - `BootDefinitionsCommittedEvent` goes out once each time the mod's run-time instance loads, on Kiln.Blocks' next step
   after `OnLoad`, when its committed definitions are active (their run-time parts: rules, icons). Subscribe in
-  `OnLoad`. A mod that committed no definitions gets no event: use `Mods.BootState`.
+  `OnLoad`. A mod whose `OnBoot` staged nothing gets the event too, with no definitions.
 - The staged blocks keep their names: `mod:name` from another mod, as for a block defined in `OnLoad`.
 
 ## Where it runs
@@ -131,7 +137,12 @@ state and definition count, every issue (mod, kind, key, phase, code, reason) an
   says why.
 
 ## Testing
-Unit tests of `OnBoot` without a game: the test kit's boot runner, see [unit-tests.md](unit-tests.md).
+Unit tests of `OnBoot` without a game: the test kit's boot runner, `KilnHarness.BootPhase` ([unit-tests.md](unit-tests.md#boot-phase-since-020-dev28)).
+`kiln.BootPhase.SetRecord("item:Material_T1_Wood_Logs", """{"maxStackSize": 250}""")` scripts what `boot.GameData` reads;
+`var run = kiln.BootPhase.Run(modFolder)` runs your `OnBoot` as a start does and gives what it staged (`run.Staged`: kind,
+key and the JSON Kiln lowers), what lowered (`run.Definitions`), and why it failed (`run.Reason`, `run.Issues`). Then
+`kiln.LoadFolder(modFolder)` loads the mod with its boot content counted as committed. The SDK's bake runs `OnBoot` the
+same way and fails the build when it fails ([baked.md](baked.md)).
 
 ## A complete example
 `kiln.mod.json` beside the project, with `"boot": true`:
