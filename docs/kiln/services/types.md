@@ -67,6 +67,12 @@ GameSystems.TurnAllOn();                                   // release this calle
   [set.md](../set.md)). Passive for that second reason only, it looks again every 5 s and turns the runner back on
   at the first clean look; disable and hook requests made before it went passive are gone and must be made again,
   and `status()` says which of the two it is.
+- A program that kiln.world wraps (dev.28: its update pointer in the world's program table swapped for a trampoline)
+  keeps its name: switches and the profiler ask kiln.world's `wrap_original` for the game's update behind the
+  trampoline. While native SET is loaded, kiln.world refuses every wrap (SET names programs by that pointer too);
+  kiln.types tells it through `external_runner()`.
+- `GameSystems.Hook` hooks the update function's code, so it runs for every world of the process that runs the
+  program (on a host: the server world and the client world), and it runs inside any wrap of that program.
 - The profiler measures CPU time summed over every thread (not frame time). `ms / ProfileSeconds` is ms per second.
 - Idle runner cost: two atomic checks per program slice, with no clock reads or metadata lookup. Profiling adds
   clock reads, guarded job reads and synchronization per timed slice; its measurements include that instrumentation.
@@ -125,7 +131,9 @@ Filters take SET's syntax: `a,b` matches either word, `-a` hides lines with `a`.
 ## C
 `kiln_types.h`: `status`, `type_count/type_at/type_by_hash/type_by_name/type_info/type_field/type_enum`,
 `component_type_count/at`, `event_type_count/at`, `system_count/system_info/system_find/system_set_enabled/profile`,
-`event_each`, `event_post`, `system_release_owner` (appended; check table size). Type handles are stable for the process.
+`event_each`, `event_post`, `system_release_owner`, `system_hook`, `system_unhook` (appended; check table size).
+`external_runner` (since 0.2.0-dev.28): 0 when kiln.types' runner is in charge, 1 when native SET owns the program
+runner, 2 when the loaded modules could not be read (runner passive). Type handles are stable for the process.
 
 ## How it finds things
 - The type table: a static table in the exe's `.rdata`, found by data alone (the `BlobString` and `uint32` descriptors
@@ -139,9 +147,11 @@ Filters take SET's syntax: `a,b` matches either word, `-a` hides lines with `a`.
 Credit: Shrouded Engine Tweaks (MIT) documented these structures; Kiln's implementation is its own.
 
 ## Tests
-- Host: `native/services/types/test-types.sh <server exe> <client exe>` (scanner over both exes).
+- Host: `native/services/types/test-types.sh <server exe> <client exe>` (scanner over both exes);
+  `test-system-hooks.sh` (hook lifetime, a wrapped program's identity, the external runner's answer).
 - Unit: `managed/tests/Kiln.Api.Tests/GameValueCodecTests.cs` (checked writes, fail soft).
 - Hostile-input tests: `native/services/types/test-types.sh` also covers truncated headers/tables, malformed fields,
   event maps/page chains/posters, payload validation, system ownership and profiler sessions.
 - Commands: `managed/services/Kiln.DevTools/tests` checks read/write parsing and non-admin rejection.
-- Lab: `mods/tests/types-test` (PASS/FAIL lines).
+- Lab: `mods/tests/types-test` (PASS/FAIL lines); `mods/tests/systems-test` (its native part: the profiler and a
+  system hook on wrapped programs).

@@ -1,0 +1,49 @@
+{
+  "format": 1,
+  "side": "server",
+  "comment": "kiln.world, game-program wraps (0.2.0-dev.28, chapter 06a): the program scheduler's live path and the players mask that decides whether a world's program slices run inline on the world's thread or as tasks on the game's workers. Wraps themselves need no symbol of their own (they swap the update pointer of a program-table entry, entry+0x28, with the world/programs.* constants); these resolve the scheduler for the threads report and the lab's parallel switch. SimStep (it sets storage+0x518 = 1 at entry, so it always takes this path) calls RunInitPrograms, then StepPrograms in a loop: StepPrograms' prologue decides parallel per world kind (server: the u16 players mask at storage+mask != 0; prediction: never; client: always), cuts slices and runs ProgramRunner (types/ProgramRunner) inline or posts SliceTaskFn tasks. The players mask holds bit (id-1) mod 16 for every live player entity (ids 1..1023). Same bytes on server 26430253 (f0d824be) and client 26430625 (5d9ef2f1); svn 1273043 (d7baa768) has another prologue frame size, which the second StepPrograms strategy (the kind dispatch, 0x22 bytes in) does not depend on.",
+  "symbols": {
+    "world/StepPrograms": {
+      "find": [
+        {
+          "pattern": "48 89 54 24 10 55 57 41 54 41 56 41 57 48 8D AC 24 B0 FE F7 FF B8 50 02 08 00 E8 ?? ?? ?? ?? 48 2B E0 44 0F B6 41 08 45 33 F6 44 89 B5 ?? ?? ?? ?? 4C 8B FA 44 89 B5 ?? ?? ?? ?? 4C 8B E1 45 85 C0 74 1B 41 83 E8 01 74 10 41 83 F8 01 0F 85 ?? ?? ?? ?? 41 0F B6 F8 EB 11 40 32 FF EB 0C 66 44 39 B1 {world/storage.players_mask:d32} 40 0F 95 C7"
+        },
+        {
+          "pattern": "44 0F B6 41 08 45 33 F6 44 89 B5 ?? ?? ?? ?? 4C 8B FA 44 89 B5 ?? ?? ?? ?? 4C 8B E1 45 85 C0 74 1B 41 83 E8 01 74 10 41 83 F8 01 0F 85 ?? ?? ?? ?? 41 0F B6 F8 EB 11 40 32 FF EB 0C 66 44 39 B1 {world/storage.players_mask:d32} 40 0F 95 C7",
+          "offset": -34
+        }
+      ]
+    },
+    "world/RunInitPrograms": {
+      "find": [
+        {
+          "pattern": "48 8B C4 41 56 48 81 EC 90 00 00 00 48 83 B9 F0 01 00 00 00 4C 8B F1 0F 84 ?? ?? ?? ?? 48 89 58 08"
+        }
+      ]
+    },
+    "world/SliceTaskFn": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 30 48 8B F9 33 D2 48 8D 4C 24 20 E8 ?? ?? ?? ?? 8B 47 10"
+        }
+      ]
+    }
+  },
+  "constants": {
+    "world/storage.players_mask": {
+      "min_votes": 1
+    }
+  },
+  "features": {
+    "world.systems": {
+      "symbols": [
+        "world/StepPrograms",
+        "world/RunInitPrograms",
+        "world/SliceTaskFn"
+      ],
+      "constants": [
+        "world/storage.players_mask"
+      ]
+    }
+  }
+}

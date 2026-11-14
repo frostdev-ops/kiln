@@ -175,6 +175,53 @@ updated in the patch when every capture agrees. A fixed constant nothing capture
 program table grew), +0x8 for 6 program-context slice fields. It also found a third family, -0x700000 for the pending
 event buffer (`gameplay/storage.pending` 0xeb9ef0 → 0x7b9ef0, 12 corroborating sites).
 
+## Descriptors of typed hooks (`sig` blocks)
+A symbol can carry a descriptor of its function for kiln.hooks' typed links ([hooks.md](services/hooks.md)): either
+`"sig"` inside the symbol's entry, or under a file's top-level `"sigs"` section (for a symbol another file defines,
+or a name that only a `rel32` hole captures). Structs they name are declared once under `"structs"`.
+
+```json
+"structs": { "OptS32": { "size": 8, "align": 4, "fields": [ { "name": "value", "type": "s32", "offset": 0 },
+                                                             { "name": "has", "type": "u8", "offset": 4 } ] } },
+"sigs": {
+  "time/SetTimeScale": {
+    "conv": "win64", "ret": "void",
+    "args": [ { "name": "daytime", "type": "keen::Daytime*" }, { "name": "scale", "type": "f32" },
+              { "name": "ecsNow", "type": "s64" } ],
+    "abi": { "reads": ["rcx", "xmm1", "r8"], "stack": [], "ret": "callee" },
+    "invoke": "tick"
+  },
+  "items/GetItemVolume": { "sret": "OptS32", "args": [ { "name": "item", "type": "keen::ItemInfo*" } ],
+                           "abi": { "reads": ["rcx", "rdx"], "stack": [], "ret": "rax" }, "invoke": "any" }
+}
+```
+
+- `args` lists the declared parameters only. Types: `s8` to `u64`, `f32`, `f64`, `bool`, `ptr`, `T*` (any pointer),
+  or a struct declared under `structs` (by value: 1, 2, 4 or 8 bytes travel in the register, any other size by
+  reference). A struct returned through a hidden buffer is `"sret": "<Struct>"`, never an argument. At most 20
+  positions (the hidden buffer included). Varargs functions cannot be described.
+- `abi` is the function's fingerprint when the descriptor was written: the argument registers it reads before it
+  writes them (in position order), `passes` (registers it hands on untouched; only needed for a function that just
+  jumps on, like `world/ReadOther`), the stack argument slots it reads (offsets from the entry `rsp`, `"0x28"` is the
+  fifth position) and what was written last before its returns. At load the core computes the fingerprint again from
+  the exe file's bytes and compares: other `reads` or `stack`, a declared position the code neither reads nor passes,
+  or a read the descriptor does not declare turn the feature `sig/<symbol>` off (the symbol itself still resolves)
+  and refuse every typed hook of it; kiln.log names the argument. `ret` is recorded for review and not compared.
+- `invoke`: `none` (hook only), `tick` (may be called on the tick thread) or `any`.
+- `"abi": "trust"` (a mod's own fragment only): accept a function whose code cannot be followed (it jumps through a
+  register before it uses an argument). A mismatch is never trusted.
+
+`sigdb_check.py --fptool <kiln-fptool>` checks every descriptor against an exe with the core's own pass
+(`tools/sigport/fptool/build.sh` builds the tool for the host and prints its path; the exe is read as a file):
+
+```
+  ok  sig time/SetTimeScale: match: 3 arguments (rcx, xmm1, r8), the function reads [rcx, xmm1, r8]  [passes ...; ret callee; 18 insns]
+```
+
+Without `--fptool` it only says whether each described symbol resolves. To write a new descriptor, leave `abi` out,
+run the check, and copy `reads`, `stack` and `ret` from the line it prints. `port.py` does not carry `sig` blocks to
+a new build yet.
+
 ## Benchmarks (`bench.py`)
 | Run | Symbols P / R | Constants P / R |
 |---|---|---|

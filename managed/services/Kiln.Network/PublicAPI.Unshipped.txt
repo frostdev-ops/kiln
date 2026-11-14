@@ -1,3 +1,1 @@
 #nullable enable
-static Kiln.Network.Kick(Kiln.NetPeer! peer, string! reason) -> System.Threading.Tasks.Task<Kiln.KickResult!>!
-static Kiln.DirHash.ModIdentity(string! root) -> string!

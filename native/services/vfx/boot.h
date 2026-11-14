@@ -7,11 +7,18 @@
 
 #include "kiln_api.h"
 
+namespace kiln::boot {
+struct Input;  // kiln_boot_collector.hpp
+}
+
 namespace kvx {
 
 // on_ready of the service: the fingerprint, the budget, then every mod in the load order. Nothing here can abort the game: a problem turns
 // a block, a mod or all Kiln VFX off with a log line.
-void build_on_ready(const KilnApi* api, KilnOwner self);
+// `boot`: a boot generation's prepare input (chapter 08; kiln_boot_collector.hpp): excluded mods are left out, its vfx documents read.
+void build_on_ready(const KilnApi* api, KilnOwner self, const kiln::boot::Input* boot = nullptr);
+// Takes back what a boot generation's prepare built and served (the generation was not published).
+void build_forget();
 
 // The checks that need the game's resident resources: the shader binding list and that what was served is what the game sees. Call it from
 // the FxController update, before the queue runs. Cheap after its one run.

@@ -78,6 +78,19 @@ Kiln.SpawnOptions.Level.init -> void
 Kiln.SpawnOptions.SpawnOptions() -> void
 Kiln.SpawnOptions.Tag.get -> string?
 Kiln.SpawnOptions.Tag.init -> void
+Kiln.SpawnResult
+Kiln.SpawnResult.<Clone>$() -> Kiln.SpawnResult!
+Kiln.SpawnResult.Code.get -> int
+Kiln.SpawnResult.Code.init -> void
+Kiln.SpawnResult.Deconstruct(out bool Ok, out Kiln.EntityRef Entity, out string? Reason, out int Code) -> void
+Kiln.SpawnResult.Entity.get -> Kiln.EntityRef
+Kiln.SpawnResult.Entity.init -> void
+Kiln.SpawnResult.Equals(Kiln.SpawnResult? other) -> bool
+Kiln.SpawnResult.Ok.get -> bool
+Kiln.SpawnResult.Ok.init -> void
+Kiln.SpawnResult.Reason.get -> string?
+Kiln.SpawnResult.Reason.init -> void
+Kiln.SpawnResult.SpawnResult(bool Ok, Kiln.EntityRef Entity, string? Reason, int Code) -> void
 Kiln.SpawnedKind
 Kiln.SpawnedKind.Entity = 0 -> Kiln.SpawnedKind
 Kiln.SpawnedKind.Item = 1 -> Kiln.SpawnedKind
@@ -145,6 +158,9 @@ override Kiln.EntitySpawnedEvent.ToString() -> string!
 override Kiln.SpawnComponent.Equals(object? obj) -> bool
 override Kiln.SpawnComponent.GetHashCode() -> int
 override Kiln.SpawnComponent.ToString() -> string!
+override Kiln.SpawnResult.Equals(object? obj) -> bool
+override Kiln.SpawnResult.GetHashCode() -> int
+override Kiln.SpawnResult.ToString() -> string!
 override Kiln.TemplateInfo.Equals(object? obj) -> bool
 override Kiln.TemplateInfo.GetHashCode() -> int
 override Kiln.TemplateInfo.ToString() -> string!
@@ -158,6 +174,7 @@ static Kiln.EntityInfo.operator ==(Kiln.EntityInfo? left, Kiln.EntityInfo? right
 static Kiln.Spawn.Available.get -> bool
 static Kiln.Spawn.CleanupTracked(string? tag = null, string? origin = null) -> Kiln.CleanupResult
 static Kiln.Spawn.Destroy(Kiln.EntityId entity) -> bool
+static Kiln.Spawn.DestroyIfAlive(Kiln.EntityRef entity) -> bool
 static Kiln.Spawn.Entity(System.Guid template, Kiln.WorldPosition position, float yawDegrees = 0, Kiln.SpawnOptions? options = null) -> System.Threading.Tasks.Task<Kiln.EntityId>!
 static Kiln.Spawn.Entity(string! template, Kiln.WorldPosition position, float yawDegrees = 0, Kiln.SpawnOptions? options = null) -> System.Threading.Tasks.Task<Kiln.EntityId>!
 static Kiln.Spawn.EntityCount.get -> int
@@ -173,6 +190,9 @@ static Kiln.Spawn.SupportsComponents.get -> bool
 static Kiln.Spawn.Template(System.Guid id) -> Kiln.TemplateInfo?
 static Kiln.Spawn.Templates.get -> System.Collections.Generic.IReadOnlyList<Kiln.TemplateInfo!>!
 static Kiln.Spawn.Tracked.get -> System.Collections.Generic.IReadOnlyList<Kiln.TrackedEntity!>!
+static Kiln.Spawn.TryEntity(System.Guid template, Kiln.WorldPosition position, float yawDegrees = 0, Kiln.SpawnOptions? options = null) -> Kiln.SpawnResult!
+static Kiln.Spawn.TryEntity(string! template, Kiln.WorldPosition position, float yawDegrees = 0, Kiln.SpawnOptions? options = null) -> Kiln.SpawnResult!
+static Kiln.Spawn.TryItem(Kiln.ItemId item, int amount, Kiln.WorldPosition position, int level = 0, Kiln.SpawnOptions? options = null) -> Kiln.SpawnResult!
 static Kiln.Spawn.WorldKey.get -> string?
 static Kiln.Spawn.WorldRunning.get -> bool
 static Kiln.SpawnComponent.HashOf(string! name) -> uint
@@ -180,6 +200,8 @@ static Kiln.SpawnComponent.Of(string! name, byte[]! data) -> Kiln.SpawnComponent
 static Kiln.SpawnComponent.Of<T>(string! name, T value) -> Kiln.SpawnComponent!
 static Kiln.SpawnComponent.operator !=(Kiln.SpawnComponent? left, Kiln.SpawnComponent? right) -> bool
 static Kiln.SpawnComponent.operator ==(Kiln.SpawnComponent? left, Kiln.SpawnComponent? right) -> bool
+static Kiln.SpawnResult.operator !=(Kiln.SpawnResult? left, Kiln.SpawnResult? right) -> bool
+static Kiln.SpawnResult.operator ==(Kiln.SpawnResult? left, Kiln.SpawnResult? right) -> bool
 static Kiln.TemplateInfo.operator !=(Kiln.TemplateInfo? left, Kiln.TemplateInfo? right) -> bool
 static Kiln.TemplateInfo.operator ==(Kiln.TemplateInfo? left, Kiln.TemplateInfo? right) -> bool
 static Kiln.TrackedEntity.operator !=(Kiln.TrackedEntity? left, Kiln.TrackedEntity? right) -> bool
