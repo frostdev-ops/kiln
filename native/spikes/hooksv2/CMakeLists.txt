@@ -15,3 +15,14 @@ set_target_properties(hooks_v2_test PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE
 add_library(foreign_stub SHARED foreign_stub.cpp)
 target_link_libraries(foreign_stub PRIVATE kiln-safetyhook)
 set_target_properties(foreign_stub PROPERTIES OUTPUT_NAME foreign-stub RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/hooksv2")
+
+# hooks_typed_test.exe: the typed link kind of kiln.hooks (dev.28), the same way: native/core/tests/test-hooks-typed.sh.
+add_executable(hooks_typed_test
+    ../../core/tests/hooks_typed_test.cpp
+    ../../core/src/services/hooks.cpp
+    ../../core/src/services/hooks_chain.cpp
+    ../../core/src/services/hooks_chain_asm.cpp
+    ../../core/src/services/hooks_seh.cpp)
+target_include_directories(hooks_typed_test PRIVATE ../../core/abi ../../core/src ../../third_party "${KILN_GENERATED_DIR}")
+target_link_libraries(hooks_typed_test PRIVATE kiln-safetyhook)
+set_target_properties(hooks_typed_test PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/hooksv2")

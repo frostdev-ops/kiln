@@ -249,6 +249,46 @@ KilnResult KILN_CALL h_mid2(KilnOwner owner, uintptr_t target, const KilnHookOrd
     KILN_GUARD("mid2", KILN_ERR_INTERNAL, return chain::install_mid(owner, target, order_of(order), fn, user, out););
 }
 
+// ---- typed links (dev.28) ----
+// The positions a KilnSig describes (the sret buffer included), or -1 when it is malformed.
+int sig_positions(const KilnSig* sig) {
+    if (!sig || sig->size < sizeof(KilnSig)) return -1;
+    if (sig->argc > KILN_SIG_MAX_ARGS || (sig->argc && !sig->args)) return -1;
+    for (uint32_t i = 0; i < sig->argc; ++i) {
+        const KilnSigArg& a = sig->args[i];
+        if (a.kind < KILN_SIG_S8 || a.kind > KILN_SIG_BYVAL) return -1;
+        if (a.kind == KILN_SIG_BYVAL && a.size == 0) return -1;
+        if (a.name.len && !a.name.ptr) return -1;
+    }
+    if (sig->ret_kind > KILN_SIG_STRUCT) return -1;
+    if (sig->sret > 1) return -1;
+    if (sig->sret && (sig->ret_kind != KILN_SIG_STRUCT || sig->ret_size == 0)) return -1;
+    if (!sig->sret && sig->ret_kind == KILN_SIG_STRUCT && sig->ret_size != 1 && sig->ret_size != 2 &&
+        sig->ret_size != 4 && sig->ret_size != 8)
+        return -1;
+    const uint32_t positions = sig->argc + sig->sret;
+    return positions > KILN_SIG_MAX_ARGS ? -1 : static_cast<int>(positions);
+}
+
+KilnResult KILN_CALL h_detour_typed(KilnOwner owner, uintptr_t target, const KilnHookOrder* order, const KilnSig* sig,
+                                    KilnTypedFn fn, void* user, KilnHandle* out) {
+    const int positions = sig_positions(sig);
+    if (!fn || positions < 0 || !valid_target(target)) return KILN_ERR_INVALID_ARGUMENT;
+    const uint32_t nstack = positions > 4 ? static_cast<uint32_t>(positions - 4) : 0;
+    KILN_GUARD("detour_typed", KILN_ERR_INTERNAL,
+               return chain::install_typed(owner, target, order_of(order), nstack, fn, user, out););
+}
+
+KilnResult KILN_CALL h_call_original_frame(KilnCallFrame* frame) { return chain::call_original_frame(frame); }
+
+KilnResult KILN_CALL h_call_with_frame(uintptr_t fn, KilnCallFrame* frame, uint32_t nstack) {
+    if (!fn || !frame || nstack > KILN_SIG_MAX_ARGS - 4 || (nstack && !frame->stack)) return KILN_ERR_INVALID_ARGUMENT;
+    kiln_hk_call_frame(reinterpret_cast<void*>(fn), frame, nstack);
+    return KILN_OK;
+}
+
+KilnResult KILN_CALL h_fingerprint(uintptr_t, char*, size_t, size_t*) { return KILN_ERR_UNAVAILABLE; }
+
 KilnResult KILN_CALL h_revoke(KilnHandle handle) {
     if (chain::is_link_handle(handle)) KILN_GUARD("revoke", KILN_ERR_INTERNAL, return chain::revoke(handle););
     return h_unpatch(handle);
@@ -411,6 +451,11 @@ const KilnHooksApi kTable = {
     &h_call_original2,
     &h_mid2,
     &h_map_json,
+    // typed links (dev.28)
+    &h_detour_typed,
+    &h_call_original_frame,
+    &h_call_with_frame,
+    &h_fingerprint,
 };
 
 std::mutex g_ready_mutex;
