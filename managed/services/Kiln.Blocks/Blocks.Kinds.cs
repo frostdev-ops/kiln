@@ -29,6 +29,44 @@ public static partial class Blocks
         return KindCompiler.Compile(caller, KindOf(block), name, block);
     }
 
+    /// <summary>Applies a plan the calling mod compiled: Kiln lowers its frozen products with its own compilers and
+    /// registers them under an owner of the plan's own. All of it or nothing: a registration that is refused takes the
+    /// others back. The same plan again answers the same and does nothing; another plan for a name that is applied is
+    /// refused (reload the mod to change it). A plan that waits for the game's content is applied when it is ready.</summary>
+    /// <exception cref="ArgumentException">The plan was compiled by another mod, or by an earlier load of this one.</exception>
+    /// <exception cref="BlockError">A product of the plan is not a block Kiln can compile here.</exception>
+    /// <exception cref="KilnUnavailableException"><c>blocks.apply</c> or the row of the plan's primary is off.</exception>
+    [TickThreadOnly, RequiresCapability("blocks.apply")]
+    public static BlockApplyResult Apply(BlockPlan plan)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        Services.RequireTickThread("Blocks.Apply");
+        var caller = KindOwner.Caller() ?? throw new InvalidOperationException("Blocks.Apply must be called from mod code");
+        if (!plan.Consumer.Same(caller))
+            throw new ArgumentException($"Blocks.Apply: the plan of \"{plan.Name}\" was compiled by {(plan.ConsumerModId == caller.ModId ? "an earlier load of this mod" : $"mod {plan.ConsumerModId}")}; a plan is applied by the mod instance that compiled it", nameof(plan));
+        KindCapabilities.RequireApply(plan);
+        return KindApply.Submit(CallerMod(), caller, plan, stage => KindDefine.HandleOf(caller.ModId, plan, stage)).Result;
+    }
+
+    /// <summary>Where a plan stands for the mod that compiled it. A snapshot; it applies nothing.</summary>
+    [AnyThread, RequiresCapability("blocks.compile")]
+    public static BlockApplyResult Application(BlockPlan plan)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        KindCapabilities.Require(KindCapabilities.Compile);
+        return KindApply.Of(plan);
+    }
+
+    /// <summary>Where a block of an external kind stands: the handle <see cref="Define{T}"/> gave for it.</summary>
+    /// <exception cref="ArgumentException">The handle is a built-in block's: those are applied when they are defined.</exception>
+    [AnyThread, RequiresCapability("blocks.compile")]
+    public static BlockApplyResult Application(BlockHandle block)
+    {
+        ArgumentNullException.ThrowIfNull(block);
+        KindCapabilities.Require(KindCapabilities.Compile);
+        return KindApply.Of(block) ?? throw new ArgumentException($"{block} is not a block of an external kind: a built-in block is applied when it is defined", nameof(block));
+    }
+
     /// <summary>The registered kind of a block's own type. A built-in block has none: <see cref="Define{T}"/> compiles those.</summary>
     internal static KindEntry KindOf(IBlock block)
     {

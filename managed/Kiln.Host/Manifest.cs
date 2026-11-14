@@ -27,6 +27,14 @@ internal enum ManifestClients
     Mod = 2,
 }
 
+/// <summary><c>"boot"</c> of kiln.mod.json: none, <c>true</c> (a failure drops the mod's boot content) or <c>"required"</c> (a failure stops the start).</summary>
+internal enum ManifestBoot
+{
+    None = 0,
+    Optional = 1,
+    Required = 2,
+}
+
 internal sealed record ManifestDependency(string Id, string RangeText, VersionRange Range, bool Optional);
 
 internal sealed record ManifestIncompatibility(string Id, string RangeText, VersionRange Range);
@@ -48,7 +56,7 @@ internal sealed class Manifest
     [
         "$schema", "id", "name", "version", "authors", "author", "description", "license", "url", "apiVersion", "side",
         "clients", "dependencies", "loadBefore", "loadAfter", "incompatible", "features", "entryAssembly", "entryType", "exports",
-        "advanced", "tests", "kilnBuild", "writes",
+        "advanced", "tests", "kilnBuild", "writes", "boot",
     ];
 
     /// <summary>A component's short name, as kiln.world takes it in <c>"writes"</c>.</summary>
@@ -87,6 +95,9 @@ internal sealed class Manifest
     public IReadOnlyList<string> Features { get; init; } = [];
     public IReadOnlyList<string> Exports { get; init; } = [];
     public bool Advanced { get; init; }
+
+    /// <summary><c>"boot"</c>: the mod's Mod.OnBoot runs before the game is entered (chapter 08).</summary>
+    public ManifestBoot Boot { get; init; }
     public ManifestTests? Tests { get; init; }
 
     /// <summary>The Kiln build the mod was compiled against (<c>"kilnBuild"</c>, written by Kiln.Sdk); null when unknown.</summary>
@@ -203,9 +214,22 @@ internal sealed class Manifest
                     _ => throw Bad("advanced must be true or false"),
                 };
 
+            // "boot": the mod's Mod.OnBoot runs before the game is entered (chapter 08); "required": a failure of its boot content stops the
+            // start, true: it drops only that mod's boot contribution
+            var boot = ManifestBoot.None;
+            if (root.TryGetProperty("boot", out var bt))
+                boot = bt.ValueKind switch
+                {
+                    JsonValueKind.True => ManifestBoot.Optional,
+                    JsonValueKind.False => ManifestBoot.None,
+                    JsonValueKind.String when bt.GetString() == "required" => ManifestBoot.Required,
+                    _ => throw Bad("boot must be true, false or \"required\""),
+                };
+
             return new Manifest
             {
                 Id = id,
+                Boot = boot,
                 Name = Str(root, "name") ?? id,
                 Version = version,
                 ParsedVersion = parsed,

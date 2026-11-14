@@ -15,6 +15,7 @@
 #include "internal.h"
 #include "services/kiln_caps.h"
 #include "services/kiln_creatures.h"
+#include "services/kiln_spawn.h"
 #include "services/kiln_types.h"
 
 namespace kcc {
@@ -43,6 +44,8 @@ constexpr char kRow[] = "creature_control";
 
 const KilnWorldApi* W = nullptr;
 const KilnCreaturesApi* C = nullptr;
+const KilnSpawnApi* S = nullptr;
+int64_t g_world_storage = -1, g_next_id = -1;  // the engine's entity counter (sigdb: world.storage, items/storage.next_id)
 const KilnCapsApi* g_caps = nullptr;
 bool g_ready = false;        // on_ready ran and everything the broker needs is there
 std::string g_off = "kiln.creature_control has not started";
@@ -111,6 +114,23 @@ public:
         return C ? C->ai_switch(g_owner, e, off ? 0u : 1u) : KILN_ERR_UNAVAILABLE;
     }
 
+    int ai_enabled(KilnEntity e) override {
+        uint32_t on = 0;
+        if (!C || !C->ai_switch_get || C->ai_switch_get(e, &on) != KILN_OK) return -1;
+        return on ? 1 : 0;
+    }
+
+    bool destroy(KilnEntity e) override { return S && S->destroy && S->destroy(e) == KILN_OK; }
+
+    bool entity_counter(uint32_t* out) override {
+        if (g_world_storage < 0 || g_next_id <= 0 || !g_api->world) return false;
+        // the world's storage is embedded at world.storage; its next-id counter at items/storage.next_id (as kiln.items
+        // reads it for its stamps)
+        const uintptr_t world = g_api->world(KILN_WORLD_SERVER);
+        if (!world) return false;
+        return seh_read(reinterpret_cast<const void*>(world + static_cast<uintptr_t>(g_world_storage + g_next_id)), out, 4);
+    }
+
     void log(int32_t level, const std::string& text) override { logf(level, "%s", text.c_str()); }
 };
 
@@ -144,16 +164,20 @@ void KILN_CALL on_pre(const KilnTickInfo* tick, void*) {
     const uint64_t epoch = current_epoch();
     g_broker->set_world(epoch, "the server world ended");
     // once a server world runs its programs, the broker's program must be in it, or nothing can be moved
-    if (g_ready && epoch && !g_program_checked.load(std::memory_order_relaxed)) {
+    if (g_ready && epoch && (!g_program_checked.load(std::memory_order_relaxed) || tick->step % 25 == 0)) {
         const uint32_t st = program_state();
         if (st == KILN_PROGRAM_ACTIVE) {
-            g_program_checked.store(true, std::memory_order_relaxed);
-            logf(KILN_LOG_INFO, "program kiln_creature_control is active in server world %llu", static_cast<unsigned long long>(epoch));
+            if (!g_program_checked.exchange(true, std::memory_order_relaxed))
+                logf(KILN_LOG_INFO, "program kiln_creature_control is active in server world %llu", static_cast<unsigned long long>(epoch));
         } else if (st != KILN_PROGRAM_PENDING) {
+            // two-phase withdrawal: nothing can be moved or restored without the program; the row goes off now, every
+            // bound body is quarantined (its leases lose authority at once) and retired from the next Pre on
             g_program_checked.store(true, std::memory_order_relaxed);
             g_ready = false;
-            go_off(KILN_CAP_REASON_FAULTED, "the world program kiln_creature_control is not running (state " + std::to_string(st) +
-                                                "): kiln.log says why");
+            const std::string why = "the world program kiln_creature_control is not running (state " + std::to_string(st) +
+                                    "): kiln.log says why";
+            go_off(KILN_CAP_REASON_FAULTED, why);
+            g_broker->withdraw(why);
         }
     }
     const uint32_t delta = tick ? std::min<uint32_t>(tick->clock_delta, 60u) : 0;  // 60 Hz clock; one step at most 1 s
@@ -207,10 +231,15 @@ KilnResult KILN_CALL t_notices(KilnOwner owner, KilnControlState* out, uint32_t 
     TICK_ONLY();
     return g_broker->notices(owner, out, capacity, written, resync);
 }
-// S6 (quarantine, retirement and the retired-root deny table) is not in this build yet: the three answer as off.
-KilnResult KILN_CALL t_quarantine(KilnControlBodyKey, uint32_t) { return KILN_ERR_UNAVAILABLE; }
-KilnResult KILN_CALL t_body_retired(KilnOwner, KilnControlBodyKey) { return KILN_ERR_UNAVAILABLE; }
-uint32_t KILN_CALL t_root_policy(uint64_t, KilnEntity) { return 0; }
+KilnResult KILN_CALL t_quarantine(KilnControlBodyKey body, uint32_t cause) {
+    if (!g_broker) return KILN_ERR_UNAVAILABLE;
+    return g_broker->quarantine(body, cause);  // any thread: atomics only
+}
+KilnResult KILN_CALL t_body_retired(KilnOwner owner, KilnControlBodyKey body) {
+    TICK_ONLY();
+    return g_broker->body_retired(owner, body);
+}
+uint32_t KILN_CALL t_root_policy(uint64_t epoch, KilnEntity root) { return g_broker ? g_broker->root_policy(epoch, root) : 0; }
 KilnResult KILN_CALL t_next_request(KilnOwner owner, uint64_t* out) {
     TICK_ONLY();
     return g_broker->next_request(owner, out);
@@ -263,6 +292,19 @@ void KILN_CALL on_ready(void*) {
         C = nullptr;
         return go_off(KILN_CAP_REASON_SERVICE_MISSING, "needs kiln.creatures with ai_switch");
     }
+    // optional: retiring a body the broker could not restore (kiln.spawn), the entity counter's identity check (sigdb)
+    S = static_cast<const KilnSpawnApi*>(g_api->service(KilnStr{KILN_SPAWN_SERVICE, sizeof(KILN_SPAWN_SERVICE) - 1}, 1));
+    if (S && S->header.size < offsetof(KilnSpawnApi, destroy) + sizeof(S->destroy)) S = nullptr;
+    if (!S) logf(KILN_LOG_WARN, "kiln.spawn is not here: a body the broker cannot restore is quarantined but not destroyed");
+    int64_t wst = -1, nid = -1;
+    if (g_api->constant(KilnStr{"world.storage", 13}, &wst) == KILN_OK && g_api->constant(KilnStr{"items/storage.next_id", 21}, &nid) == KILN_OK &&
+        wst >= 0 && nid > 0 && nid < 0x10000 && (nid & 3) == 0) {
+        g_world_storage = wst;
+        g_next_id = nid;
+    } else {
+        logf(KILN_LOG_INFO, "the entity counter is not resolved on this build: the identity check (a counter that goes down) is off");
+    }
+    inject_init();
     // 4. the program
     std::string why;
     if (!program_register(W, &why)) return go_off(KILN_CAP_REASON_FAULTED, why);

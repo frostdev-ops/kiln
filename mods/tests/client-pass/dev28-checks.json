@@ -1402,6 +1402,16 @@
    "state": "open"
   },
   {
+   "id": "19d-brain-walks",
+   "title": "A creature with a Kiln.Blocks brain walks to you and stops",
+   "chapter": "19d",
+   "packages": [
+    "19d-creature-control"
+   ],
+   "state": "open",
+   "added": "19d-creature-control"
+  },
+  {
    "id": "19e-t1",
    "title": "Selected food/tool and replay-safe cost",
    "chapter": "19e",
@@ -1512,6 +1522,16 @@
    ],
    "state": "open",
    "added": "06a-program-wraps"
+  },
+  {
+   "id": "00-sigdb.in-place-patches",
+   "title": "Kiln's functions are found next to a loader that patched the game first",
+   "chapter": "00",
+   "packages": [
+    "00-integration"
+   ],
+   "state": "open",
+   "added": "coordinator (sigdb fix, 14 Nov)"
   }
  ]
 }

@@ -108,6 +108,7 @@ public sealed class MoveFollowUpTests : IDisposable
         public Func<JsonObject, string?>? ApplyError;
         public Action<JsonObject>? AfterApply;
         public bool SwitchTakesOnlyFirst;
+        public bool FailPutBack;   // a put-back document is refused whole
         public bool ThrowLinkRead, ThrowSlotRead;
 
         // as the game: once a slot was switched it names the clone that plays there
@@ -129,6 +130,7 @@ public sealed class MoveFollowUpTests : IDisposable
         {
             Applied.Add(doc.DeepClone().AsObject());
             if (ApplyError?.Invoke(doc) is { } error) return [error];
+            if (FailPutBack && source.EndsWith("(put back)", StringComparison.Ordinal)) return ["the store is busy"];
             if (doc["sequences"] is JsonObject seqs)
                 foreach (var (entry, rules) in seqs)
                 {
@@ -159,7 +161,8 @@ public sealed class MoveFollowUpTests : IDisposable
         }
 
         public Guid? Link(string clone, int sub, int k) => ThrowLinkRead ? throw new InvalidOperationException("link read unavailable") : LinksNow.TryGetValue((clone, sub, k), out var g) ? g : null;
-        public Guid? Slot(string item, int index) => ThrowSlotRead ? throw new InvalidOperationException("slot read unavailable") : SlotsNow.TryGetValue(index, out var g) ? g : null;
+        public Guid? Slot(string item, int index) => ThrowSlotRead ? throw new InvalidOperationException("slot read unavailable") : SlotsNow.TryGetValue(index, out var g) ? g
+            : SlotRows is { } rows && index < rows.Count ? rows[index].Sequence : null;   // not switched: the class's sequence, as the game reads it
         public void Later(ModBlocks mod, Action<Action<string>> next) => Pending.Enqueue(next);
         public void Keep(ModBlocks mod, IReadOnlyList<(string Section, string Entry, JsonObject Rules)> rules) => Kept.AddRange(rules);
         public void Drop(ModBlocks mod, IReadOnlyList<(string Section, string Entry, JsonObject Rules)> rules) => Kept.RemoveAll(r => rules.Any(x => ReferenceEquals(x.Rules, r.Rules)));
@@ -553,6 +556,94 @@ public sealed class MoveFollowUpTests : IDisposable
         var entry = ((System.Collections.IDictionary)entries)[(Mod, "warden")]!;
         entry.GetType().GetField("Plan")!.SetValue(entry, plan);
         Assert.True(MoveApplications.Retry(Mod, "warden", _ => { }));
+    }
+
+    [Fact]
+    public void A_put_back_that_fails_leaves_mixed_slots_and_the_status_says_so_instead_of_naming_a_generation()
+    {
+        Start(Warden());
+        _game.Pump();
+        var first = Status();
+        Assert.Equal(1ul, first.AppliedGeneration);
+        Assert.True(Compiler.Plans.TryGetValue(Lower(Warden(Route(MoveFollowUpTrigger.Parried, WeaponMoveSlot.Parry))), out var other));
+        Replan(other!);
+        // the switch takes one slot of four and reports nothing; the put-back is refused whole
+        _game.SwitchTakesOnlyFirst = true;
+        _game.FailPutBack = true;
+        var problems = _game.Pump();
+        var now = Status();
+        Assert.Equal((false, MoveApplicationState.Refused, 2ul, 0ul), (now.Ok, now.State, now.RequestedGeneration, now.AppliedGeneration));
+        Assert.Contains("the item's slots are mixed: 1 of 4 play the moves that were refused", now.Reason);
+        Assert.Contains("putting the previous slots back failed: the store is busy", now.Reason);
+        Assert.Contains(problems, p => p.Contains("slots are mixed"));
+        // what the slots play, as read: one clone of the refused generation, three of the first
+        Assert.Equal(4, now.LiveClones.Count);
+        Assert.All(now.LiveClones.Keys, k => Assert.StartsWith("slot/", k));
+        Assert.Equal(3, now.LiveClones.Values.Count(g => first.LiveClones.Values.Contains(g)));
+        Assert.Equal(_game.SlotsNow.Values.Order(), now.LiveClones.Values.Order());
+        // nothing of the old generation is kept for a later content application
+        Assert.Empty(_game.Kept);
+        var ev = _events[^1];
+        Assert.Equal((MoveApplicationState.Applied, MoveApplicationState.Refused, 1ul, 0ul), (ev.Before.State, ev.After.State, ev.Before.AppliedGeneration, ev.After.AppliedGeneration));
+        // the next attempt plans from the class's sequences (the clones in the slots are read as what they were made from) and applies whole
+        (_game.SwitchTakesOnlyFirst, _game.FailPutBack) = (false, false);
+        Assert.True(MoveApplications.Retry(Mod, "warden", _ => { }));
+        Assert.Empty(_game.Pump());
+        Assert.Equal((MoveApplicationState.Applied, 3ul), (Status().State, Status().AppliedGeneration));
+        Assert.Equal(4, Status().LiveClones.Keys.Count(k => !k.StartsWith("slot/")));
+    }
+
+    [Fact]
+    public void A_switch_that_throws_after_changing_slots_is_settled_the_same_way()
+    {
+        Start(Warden());
+        _game.Pending.Dequeue()(_ => { });
+        // the slots' document is taken, then the read-back throws; the put-back is refused
+        _game.ThrowSlotRead = true;
+        _game.FailPutBack = true;
+        _game.Pump();
+        _game.ThrowSlotRead = false;
+        var now = Status();
+        Assert.Equal((MoveApplicationState.Refused, 0ul), (now.State, now.AppliedGeneration));
+        Assert.Contains("slots are mixed", now.Reason);
+        Assert.Contains("could not be read", now.Reason);   // the read still threw when the status was made: it says so rather than guess
+    }
+
+    [Fact]
+    public void A_replay_after_a_content_reload_that_does_not_bring_the_generation_back_updates_the_status()
+    {
+        var (mod, _) = Start(Warden());
+        _game.Pump();
+        var first = Status();
+        var problems = new List<string>();
+        // every replay that finds the generation in place changes nothing
+        MoveApplications.Replayed(mod, problems.Add);
+        Assert.Same(first, Status());
+        Assert.Empty(problems);
+        Assert.Single(_events);
+        // the game loaded its content again and one slot did not take the weapon's rule
+        _game.ContentGeneration = 9;
+        _game.SlotsNow.Remove(0);
+        MoveApplications.Replayed(mod, problems.Add);
+        var now = Status();
+        Assert.Equal((false, MoveApplicationState.Refused, 0ul, 9ul), (now.Ok, now.State, now.AppliedGeneration, now.ContentGeneration));
+        Assert.Contains("After the game's content was applied again", now.Reason);
+        Assert.Contains("slots are mixed", now.Reason);
+        Assert.Single(problems);
+        Assert.Equal(MoveApplicationState.Refused, _events[^1].After.State);
+        Assert.Empty(_game.Kept);
+        // a link that does not come back is seen too
+        // (the next ready pass plans the weapon again, on the same content, and it applies)
+        MoveApplications.Ready(mod, problems.Add);
+        Assert.Empty(_game.Pump());
+        Assert.Equal((MoveApplicationState.Applied, 2ul), (Status().State, Status().AppliedGeneration));
+        var applied = Status();
+        _game.LinksNow.Remove(_game.LinksNow.Keys.First());
+        MoveApplications.Replayed(mod, problems.Add);
+        Assert.Equal(MoveApplicationState.Refused, Status().State);
+        Assert.Contains("does not read back", Status().Reason);
+        Assert.Equal(0ul, Status().AppliedGeneration);
+        Assert.NotSame(applied, Status());
     }
 
     [Fact]
