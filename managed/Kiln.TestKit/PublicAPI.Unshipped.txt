@@ -1,4 +1,25 @@
 #nullable enable
+Kiln.TestKit.FakePathAnswer
+Kiln.TestKit.FakePathAnswer.FakePathAnswer() -> void
+Kiln.TestKit.FakePathRequest
+Kiln.TestKit.FakePathRequest.<Clone>$() -> Kiln.TestKit.FakePathRequest!
+Kiln.TestKit.FakePathRequest.Anchor.get -> Kiln.EntityId
+Kiln.TestKit.FakePathRequest.Anchor.init -> void
+Kiln.TestKit.FakePathRequest.ClosestFallback.get -> bool
+Kiln.TestKit.FakePathRequest.ClosestFallback.init -> void
+Kiln.TestKit.FakePathRequest.Deconstruct(out Kiln.EntityId Anchor, out Kiln.WorldPosition From, out Kiln.WorldPosition To, out double HorizontalSpace, out double VerticalSpace, out uint MaxIterations, out bool ClosestFallback) -> void
+Kiln.TestKit.FakePathRequest.Equals(Kiln.TestKit.FakePathRequest? other) -> bool
+Kiln.TestKit.FakePathRequest.FakePathRequest(Kiln.EntityId Anchor, Kiln.WorldPosition From, Kiln.WorldPosition To, double HorizontalSpace, double VerticalSpace, uint MaxIterations, bool ClosestFallback) -> void
+Kiln.TestKit.FakePathRequest.From.get -> Kiln.WorldPosition
+Kiln.TestKit.FakePathRequest.From.init -> void
+Kiln.TestKit.FakePathRequest.HorizontalSpace.get -> double
+Kiln.TestKit.FakePathRequest.HorizontalSpace.init -> void
+Kiln.TestKit.FakePathRequest.MaxIterations.get -> uint
+Kiln.TestKit.FakePathRequest.MaxIterations.init -> void
+Kiln.TestKit.FakePathRequest.To.get -> Kiln.WorldPosition
+Kiln.TestKit.FakePathRequest.To.init -> void
+Kiln.TestKit.FakePathRequest.VerticalSpace.get -> double
+Kiln.TestKit.FakePathRequest.VerticalSpace.init -> void
 Kiln.TestKit.FakeVoxelAnswer
 Kiln.TestKit.FakeVoxelAnswer.Equals(Kiln.TestKit.FakeVoxelAnswer other) -> bool
 Kiln.TestKit.FakeVoxelAnswer.FakeVoxelAnswer() -> void
@@ -16,12 +37,32 @@ Kiln.TestKit.FakeVoxelRay.To.init -> void
 Kiln.TestKit.HarnessQueries
 Kiln.TestKit.HarnessQueries.MaxRaysPerStep.get -> int
 Kiln.TestKit.HarnessQueries.MaxRaysPerStep.set -> void
+Kiln.TestKit.HarnessQueries.OpenPaths.get -> int
+Kiln.TestKit.HarnessQueries.PathRequests.get -> System.Collections.Generic.IReadOnlyList<Kiln.TestKit.FakePathRequest!>!
+Kiln.TestKit.HarnessQueries.PathSteps.get -> int
+Kiln.TestKit.HarnessQueries.PathSteps.set -> void
+Kiln.TestKit.HarnessQueries.Paths.get -> System.Func<Kiln.TestKit.FakePathRequest!, Kiln.TestKit.FakePathAnswer!>?
+Kiln.TestKit.HarnessQueries.Paths.set -> void
 Kiln.TestKit.HarnessQueries.Rays.get -> System.Collections.Generic.IReadOnlyList<Kiln.TestKit.FakeVoxelRay>!
 Kiln.TestKit.HarnessQueries.Voxels.get -> System.Func<Kiln.TestKit.FakeVoxelRay, Kiln.TestKit.FakeVoxelAnswer>?
 Kiln.TestKit.HarnessQueries.Voxels.set -> void
+Kiln.TestKit.HarnessQueries.WithoutSpawnTime(Kiln.EntityId entity) -> void
 Kiln.TestKit.KilnHarness.Queries.get -> Kiln.TestKit.HarnessQueries!
+override Kiln.TestKit.FakePathRequest.Equals(object? obj) -> bool
+override Kiln.TestKit.FakePathRequest.GetHashCode() -> int
+override Kiln.TestKit.FakePathRequest.ToString() -> string!
 override Kiln.TestKit.FakeVoxelAnswer.GetHashCode() -> int
 override Kiln.TestKit.FakeVoxelRay.GetHashCode() -> int
+static Kiln.TestKit.FakePathAnswer.IterationLimit.get -> Kiln.TestKit.FakePathAnswer!
+static Kiln.TestKit.FakePathAnswer.NoPath.get -> Kiln.TestKit.FakePathAnswer!
+static Kiln.TestKit.FakePathAnswer.NoStartNode.get -> Kiln.TestKit.FakePathAnswer!
+static Kiln.TestKit.FakePathAnswer.NoTargetNode.get -> Kiln.TestKit.FakePathAnswer!
+static Kiln.TestKit.FakePathAnswer.NotLoaded.get -> Kiln.TestKit.FakePathAnswer!
+static Kiln.TestKit.FakePathAnswer.Route(params Kiln.WorldPosition[]! points) -> Kiln.TestKit.FakePathAnswer!
+static Kiln.TestKit.FakePathAnswer.RouteWithMove(byte move, params Kiln.WorldPosition[]! points) -> Kiln.TestKit.FakePathAnswer!
+static Kiln.TestKit.FakePathAnswer.TimedOut.get -> Kiln.TestKit.FakePathAnswer!
+static Kiln.TestKit.FakePathRequest.operator !=(Kiln.TestKit.FakePathRequest? left, Kiln.TestKit.FakePathRequest? right) -> bool
+static Kiln.TestKit.FakePathRequest.operator ==(Kiln.TestKit.FakePathRequest? left, Kiln.TestKit.FakePathRequest? right) -> bool
 static Kiln.TestKit.FakeVoxelAnswer.Clear.get -> Kiln.TestKit.FakeVoxelAnswer
 static Kiln.TestKit.FakeVoxelAnswer.Hit(Kiln.WorldPosition at, uint material = 1, ushort voxel = 65281) -> Kiln.TestKit.FakeVoxelAnswer
 static Kiln.TestKit.FakeVoxelAnswer.Refused(string! reason) -> Kiln.TestKit.FakeVoxelAnswer

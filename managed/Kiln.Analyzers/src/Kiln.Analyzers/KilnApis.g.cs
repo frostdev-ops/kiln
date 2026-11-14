@@ -483,10 +483,14 @@ internal static partial class KilnApis
         "M:Kiln.Progression.Diagnostics.ProbeAttributes(System.Boolean,System.UInt32[],System.UInt32,System.UInt32)", // Progression.Diagnostics.ProbeAttributes(bool, uint[], uint, uint): Services.RequireTickThread
         "M:Kiln.Progression.Diagnostics.Simulate(System.Collections.Generic.IReadOnlyList{System.ValueTuple{Kiln.Progression.Diagnostics.SimOp,System.UInt32}})", // Progression.Diagnostics.Simulate(IReadOnlyList<(Progression.Diagnostics.SimOp Op, uint Node)>): Services.RequireTickThread
         "M:Kiln.Progression.UnlockedNodes(Kiln.EntityId)", // Progression.UnlockedNodes(EntityId): Services.RequireTickThread
+        "M:Kiln.Queries.CanReach(Kiln.QueryPathRequest,System.Threading.CancellationToken)", // Queries.CanReach(QueryPathRequest, CancellationToken): via Queries.Submit(QueryPathRequest, string, string)
+        "M:Kiln.Queries.CancelPath(System.UInt64)", // Queries.CancelPath(ulong): Services.RequireTickThread
         "M:Kiln.Queries.EntitiesInBox(Kiln.WorldPosition,Kiln.WorldPosition,Kiln.EntityId,System.Int32)", // Queries.EntitiesInBox(WorldPosition, WorldPosition, EntityId, int): via Queries.Overlap(QueriesNative.EntityRequest, WorldPosition, int, string)
         "M:Kiln.Queries.EntitiesInSphere(Kiln.WorldPosition,System.Double,Kiln.EntityId,System.Int32)", // Queries.EntitiesInSphere(WorldPosition, double, EntityId, int): via Queries.Overlap(QueriesNative.EntityRequest, WorldPosition, int, string)
+        "M:Kiln.Queries.FindPath(Kiln.QueryPathRequest,System.Threading.CancellationToken)", // Queries.FindPath(QueryPathRequest, CancellationToken): via Queries.Submit(QueryPathRequest, string, string)
         "M:Kiln.Queries.GroundBelow(Kiln.WorldPosition,System.Double,System.Byte)", // Queries.GroundBelow(WorldPosition, double, byte): via Queries.Ray(WorldPosition, WorldPosition, byte, string, string)
         "M:Kiln.Queries.RaycastVoxels(Kiln.WorldPosition,Kiln.WorldPosition,System.Byte)", // Queries.RaycastVoxels(WorldPosition, WorldPosition, byte): via Queries.Ray(WorldPosition, WorldPosition, byte, string, string)
+        "M:Kiln.Queries.RequestPath(Kiln.QueryPathRequest)", // Queries.RequestPath(QueryPathRequest): via Queries.Submit(QueryPathRequest, string, string)
         "M:Kiln.Queries.VoxelLineOfSight(Kiln.EntityId,Kiln.EntityId,Kiln.VoxelSightOptions)", // Queries.VoxelLineOfSight(EntityId, EntityId, VoxelSightOptions?): Services.RequireTickThread
         "M:Kiln.QuestInput.Build(Kiln.QuestHolder,System.String,System.Int32)", // QuestInput.Build(QuestHolder, string, int): Game.AssertTickThread
         "M:Kiln.QuestInput.Craft(Kiln.QuestHolder,System.String,System.Int32)", // QuestInput.Craft(QuestHolder, string, int): Game.AssertTickThread
