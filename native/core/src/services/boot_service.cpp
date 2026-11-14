@@ -1145,9 +1145,14 @@ bool after_clr(bool clr_started, void (*write_state)(void* user, const std::stri
             issue_locked({KILN_BOOT_ISSUE_NOT_COMMITTED, "", "", "", "commit", what});
             abort_locked({}, what);
         }
-        for (auto it = g_issues.rbegin(); it != g_issues.rend() && why.empty(); ++it)
-            if (!(it->code & KILN_BOOT_ISSUE_WARNING) && it->code != KILN_BOOT_ISSUE_GENERATION_ABORTED)
+        // the line names the cause: an issue of a required mod first (it stopped the start), else the latest error
+        for (const bool required_only : {true, false})
+            for (auto it = g_issues.rbegin(); it != g_issues.rend() && why.empty(); ++it) {
+                if ((it->code & KILN_BOOT_ISSUE_WARNING) || it->code == KILN_BOOT_ISSUE_GENERATION_ABORTED) continue;
+                const auto o = g_owners.find(it->mod);
+                if (required_only && (o == g_owners.end() || !o->second.required)) continue;
                 why = (it->mod.empty() ? std::string() : it->mod + ": ") + it->reason;
+            }
         g_exit_code = KILN_BOOT_EXIT_CODE;
     }
     char line[96];

@@ -807,6 +807,18 @@ void callback_cases() {
     CHECK(c.status == KILN_BOOT_STATUS_ABORTED && no_plan_published() && events_with("prepare:").empty());
     CHECK(state_of("req") == KILN_BOOT_STATE_EXCLUDED_CALLBACK && state_of("ok") == KILN_BOOT_STATE_GENERATION_ABORTED);
     CHECK(!kiln::boot_svc::after_clr(true, &fake_write_state, nullptr) && t_exits == std::vector<uint32_t>{0x4B01u});
+    // the stop names the required mod's failure, not a later issue of an optional dependent
+    deferred_with({"req!", "dep"});
+    run_authors({"req!"}, "req");
+    {
+        uint64_t g = 0;
+        CHECK(B.begin_owner(author_of("dep"), ks("dep"), 1, &g) == KILN_OK);
+        CHECK(B.finish_owner(author_of("dep"), 1, KILN_BOOT_FINISH_DEPENDENCY) == KILN_OK);
+    }
+    c = commit_with("");
+    CHECK(c.status == KILN_BOOT_STATUS_ABORTED);
+    CHECK(!kiln::boot_svc::after_clr(true, &fake_write_state, nullptr) && t_held.size() == 1 &&
+          t_held[0].find("(exit code 0x4B01): req: its OnBoot failed") != std::string::npos);
     // a frame still open at the commit counts as failed
     deferred_with({"open", "ok"});
     uint64_t gen = 0;
