@@ -261,6 +261,13 @@ A after 10 s: state 4 enabled 1 ... NetworkEnemy state 4 ... actor bits 0x100000
   move in that dormant-AI lab. Corrected 2026-11 (dev.28 RE): this is **not** a universal absence of terrain/path
   data without players. Explicit loading and a mod-owned query later returned paths with a nonplayer owner and no
   Player entity or client; see §13. The original readiness/dormancy observation remains valid. [lab]
+- Corrected again (dev.28, 19d-creature-control): a Kiln.Blocks brain's body stood still for a reason of its own, not for
+  a missing path grid. The game's steering program (`steering_locomotion`) copies the `SteeringAgent` velocity into
+  `ActorInput.desiredWorldMoveInput` after every other writer, so a brain's input write was overwritten each step (riding
+  runs A1-A4: 0.00 m). With the `SteeringAgent` removed by kiln.creature_control the same write walks the body (A5:
+  11.24 m in 40 steps; creature-control-test: 12.53 m in 40 steps). In a player-free lab a forced-ready body also needs
+  the two terrain checks of `actor_is_ready_for_gameplay` to answer "loaded" (the lab detour noclip-test and
+  creature-control-test use): with only bit 50 forced it never grounds and does not move at all. [lab]
 - Villagers are paused the same way: `state 1 ... closestPlayerDistance 1.8446743E+19` (the worker pauses at ≥ 150 m,
   EMF).
 - Consequences:

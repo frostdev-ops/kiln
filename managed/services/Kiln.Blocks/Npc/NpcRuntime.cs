@@ -306,8 +306,14 @@ internal static class NpcInput
         return _move >= 0;
     }
 
+    /// <summary>The broker's lease each brain-driven body is moved under (NpcRuntime.Spawned); none when creature_control is off.</summary>
+    internal static readonly System.Collections.Concurrent.ConcurrentDictionary<uint, ControlLeaseId> Leases = new();
+
     public static void Write(EntityId e, Vector3 move, Vector3? look, uint speed)
     {
+        // a body under a lease moves only while the broker says this lease drives it (its SteeringAgent removed, the AI held
+        // off): Pending, Preempted (a rider), released or lost, nothing is written
+        if (Leases.TryGetValue(e.Value, out var lease) && !CreatureControl.CanDriveNow(lease)) return;
         if (!Resolve())
         {
             if (!_warned) BlocksBridge.Log(LogLevel.Warn, "blocks: a brain asked a body to move, and this build's input fields were not found");
@@ -341,6 +347,7 @@ internal static class NpcRuntime
     private static IDisposable? _tick;
     private static long _ticks, _brainTicks;
     private static int _nextEffect = 1;
+    private static bool _unleased;
 
     /// <summary>Steps brains ran, all creatures together; and how many creatures are driven now.</summary>
     internal static (long Ticks, int Driven) Counters
@@ -426,16 +433,36 @@ internal static class NpcRuntime
             return;
         }
         var ctl = new NpcControl(e, c);
-        try
+        // The body's movement belongs to kiln.creature_control: a base lease (PetFollow) under Kiln.Blocks' own owner, for the mod
+        // that defined the creature. The broker holds the game's AI off (perception included: the target pass checks the same
+        // switch) and removes the SteeringAgent that overwrote every input write, so MoveTo walks; it gives both back when the
+        // lease ends. Without the broker the AI is switched off as before, and the body cannot walk.
+        NpcInput.Leases.TryRemove(e.Value, out _);
+        string? why = null;
+        if (CreatureControl.Available && Capabilities.Is("creature_control"))
         {
-            // The game's AI stops for this creature, perception included: the target pass checks the same switch and clears its targets.
-            Creatures.Of(e).As(c.Owner).AiEnabled = false;
+            try
+            {
+                var r = CreatureControl.AcquireAs("kiln.blocks", c.Context, new EntityRef(e, 0), ControlRole.PetFollow);
+                if (r.Ok) NpcInput.Leases[e.Value] = r.Lease;
+                else why = r.Reason;
+            }
+            catch (Exception x) when (x is ArgumentException or KilnUnavailableException or InvalidOperationException) { why = x.Message; }
         }
-        catch (Exception x) when (x is NotSupportedException or InvalidOperationException or KeyNotFoundException or ArgumentException)
-        {
-            BlocksBridge.Log(LogLevel.Error, $"blocks: creature {c.Name}: the game's AI could not be turned off for {e}, so its brain does not run: {x.Message}");
-            return;
-        }
+        else why = Capabilities.Is("creature_control") ? "kiln.creature_control is not loaded" : Capabilities.Why("creature_control");
+        if (why != null)
+            try
+            {
+                Creatures.Of(e).As(c.Owner).AiEnabled = false;
+                if (!_unleased)
+                    BlocksBridge.Log(LogLevel.Warn, $"blocks: creature {c.Name}: no movement lease for {e} ({why}): the game's AI is off, and its brain's MoveTo cannot walk the body");
+                _unleased = true;
+            }
+            catch (Exception x) when (x is NotSupportedException or InvalidOperationException or KeyNotFoundException or ArgumentException)
+            {
+                BlocksBridge.Log(LogLevel.Error, $"blocks: creature {c.Name}: the game's AI could not be turned off for {e}, so its brain does not run: {x.Message}");
+                return;
+            }
         lock (Gate) Driven[e.Value] = (ctl, brain);
         EnsureTick();
         var previous = ModContext.CurrentMod;
@@ -513,6 +540,8 @@ internal static class NpcRuntime
     private static void Release(NpcControl ctl, NpcBrain brain)
     {
         lock (Gate) Driven.Remove(ctl.Entity.Value);
+        // the body's lease ends: the broker restores its SteeringAgent and the game's AI (a body that is gone: its lease failed already)
+        if (NpcInput.Leases.TryRemove(ctl.Entity.Value, out var lease)) CreatureControl.ReleaseNow(lease);
         var previous = ModContext.CurrentMod;
         if (ctl.Block.Context is { Alive: true } owner) ModContext.CurrentMod = owner;
         try { brain.Stop(ctl); } catch (Exception) { }
