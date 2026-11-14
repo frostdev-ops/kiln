@@ -12,6 +12,8 @@ public sealed class ToolWearBlockTests : IDisposable
 {
     private const string Mod = "wear-test";
     private readonly Func<bool> _server = ToolWearRuntime.ServerHere;
+    private readonly Func<bool> _heldWas = ToolWearRuntime.Held;
+    private bool _held;
     private readonly Func<ModBlocks, uint, int, ToolWearResult> _set = ToolWearRuntime.Set;
     private readonly Action<ToolWearRule> _remove = ToolWearRuntime.Remove;
     private readonly Func<Action<ulong>, IDisposable?> _tick = ToolWearRuntime.AddTick;
@@ -24,6 +26,7 @@ public sealed class ToolWearBlockTests : IDisposable
     {
         ToolWearRuntime.Reset();
         ToolWearRuntime.ServerHere = () => true;
+        ToolWearRuntime.Held = () => _held;
         ToolWearRuntime.Set = (mod, item, cost) => { _sets.Add((mod.Id, item, cost)); return _answer(); };
         ToolWearRuntime.Remove = _removed.Add;
         ToolWearRuntime.AddTick = _ => { _ticks++; return new NoTick(); };
@@ -33,6 +36,7 @@ public sealed class ToolWearBlockTests : IDisposable
     {
         ToolWearRuntime.Reset();
         (ToolWearRuntime.ServerHere, ToolWearRuntime.Set, ToolWearRuntime.Remove, ToolWearRuntime.AddTick) = (_server, _set, _remove, _tick);
+        ToolWearRuntime.Held = _heldWas;
     }
 
     private sealed class NoTick : IDisposable
@@ -118,6 +122,35 @@ public sealed class ToolWearBlockTests : IDisposable
         ToolWearRuntime.ServerHere = () => true;
         ToolWearRuntime.Step(201);
         Assert.Single(_sets);
+    }
+
+    [Fact]
+    public void A_hosted_game_whose_row_is_held_waits_without_an_error_and_sets_the_rule_once_the_gate_lifts()
+    {
+        var mod = NewMod();
+        _held = true;
+        ToolWearRuntime.Add(mod, "pick", 0x1234, 7);
+        for (ulong s = 1; s < 200; s += 25) ToolWearRuntime.Step(s);
+        Assert.Empty(_sets);                     // the setter would throw: it is not asked
+        Assert.Empty(mod.Errors);
+        Assert.Equal(1, ToolWearRuntime.Waiting);
+        _held = false;
+        ToolWearRuntime.Step(201);
+        Assert.Single(_sets);
+        Assert.Equal(0, ToolWearRuntime.Waiting);
+    }
+
+    [Fact]
+    public void An_item_the_game_never_gets_is_said_once_as_a_warning_and_still_tried()
+    {
+        var mod = NewMod();
+        _answer = () => new ToolWearResult { Reason = "UnknownItem" };
+        ToolWearRuntime.Add(mod, "pick", 0x1234, 7);
+        for (ulong s = 1; s < 25 * 60; s += 25) ToolWearRuntime.Step(s);
+        Assert.Single(mod.Warnings);
+        Assert.Empty(mod.Errors);
+        Assert.Equal(60, _sets.Count);
+        Assert.Equal(1, ToolWearRuntime.Waiting);
     }
 
     [Fact]
