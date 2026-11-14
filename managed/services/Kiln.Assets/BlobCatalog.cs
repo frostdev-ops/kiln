@@ -239,11 +239,11 @@ public static unsafe partial class Assets
     {
         if (mode is not (BlobCatalogMode.RequireComplete or BlobCatalogMode.RegistrationsOnly))
             throw new ArgumentOutOfRangeException(nameof(mode), mode, "RequireComplete or RegistrationsOnly");
-        Require();
         Rows.Ensure();
         var ex = TEx;
         if (ex == null || ex->BlobCatalogOpen == null)
-            throw ServiceCaps.Unavailable(Caps.Catalog, "kiln.assets is older than 0.2.0-dev.28: it has no blob catalog");
+            throw ServiceCaps.Unavailable(Caps.Catalog, T == null ? "kiln.assets is not loaded"
+                : "kiln.assets is older than 0.2.0-dev.28: it has no blob catalog");
         if (!Capabilities.Is(Caps.Catalog)) throw ServiceCaps.Unavailable(Caps.Catalog);
         var owner = Owner();
         var raw = new AssetsNative.CatalogInfo { Size = (uint)sizeof(AssetsNative.CatalogInfo) };
@@ -266,7 +266,12 @@ public static unsafe partial class Assets
     [RequiresCapability(Caps.Content)]
     public static byte[]? ReadBlob(ContentHash hash)
     {
-        var t = Require();
+        var t = T;
+        if (t == null)
+        {
+            Rows.Ensure();
+            throw ServiceCaps.Unavailable(Caps.Content, "kiln.assets is not loaded");
+        }
         var h = new AssetsNative.ContentHash { Size = hash.Size, H0 = hash.H0, H1 = hash.H1, H2 = hash.H2 };
         nuint n = 0;
         var rc = t->BlobRead(&h, null, 0, &n);
