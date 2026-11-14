@@ -14,8 +14,65 @@ public sealed class QueriesTests
     private static KilnHarness Started()
     {
         var kiln = new KilnHarness();
+        kiln.Queries.Voxels = _ => FakeVoxelAnswer.Clear;
         kiln.Step(2);
         return kiln;
+    }
+
+    [Fact]
+    public void An_unscripted_ray_is_unavailable_and_costs_no_allowance()
+    {
+        using var kiln = new KilnHarness();
+        kiln.Step(2);
+        Assert.Equal("queries.voxel_ray", Assert.Throws<KilnUnavailableException>(() => kiln.Run(() => Queries.RaycastVoxels(A, B))).Capability);
+        Assert.Equal("queries.ground", Assert.Throws<KilnUnavailableException>(() => kiln.Run(() => Queries.GroundBelow(A))).Capability);
+        Assert.Empty(kiln.Queries.Rays);
+        kiln.Queries.MaxRaysPerStep = 1;
+        kiln.Queries.Voxels = _ => FakeVoxelAnswer.Clear;
+        Assert.True(kiln.Run(() => Queries.GroundBelow(A)).Ok);
+        Assert.Single(kiln.Queries.Rays);
+        kiln.Queries.Voxels = null;
+        Assert.Equal("queries.ground", Assert.Throws<KilnUnavailableException>(() => kiln.Run(() => Queries.GroundBelow(A))).Capability);
+        Assert.True(kiln.Run(() => Queries.EntitiesInSphere(A, 1)).Ok);
+    }
+
+    [Fact]
+    public unsafe void Unmodelled_paths_answer_unavailable()
+    {
+        using var kiln = Started();
+        kiln.Run(() =>
+        {
+            var t = QueriesNative.T;
+            Assert.Equal(QueriesNative.Unavailable, t->PathSubmit(1, null, null));
+            Assert.Equal(QueriesNative.Unavailable, t->PathCancel(1, 1));
+            Assert.Equal(QueriesNative.Unavailable, t->PathPoll(1, null, null, 0, null));
+            Assert.Equal(QueriesNative.Unavailable, t->PathRetire(1));
+        });
+    }
+
+    [Theory]
+    [InlineData("kiln.world")]
+    [InlineData("world.entities")]
+    [InlineData("world.find")]
+    public void A_dependency_lost_between_refreshes_refuses_by_the_queries_members_row(string dependency)
+    {
+        using var kiln = Started();
+        var a = kiln.Entities.Create(new WorldPosition(0, 10, 0));
+        var b = kiln.Entities.Create(new WorldPosition(20, 10, 0));
+        Assert.True(kiln.Run(() => Queries.VoxelLineOfSight(a, b)).Ok);
+        Assert.True(kiln.Run(() => Queries.EntitiesInSphere(A, 1)).Ok);
+        kiln.Run(() => Capabilities.Report(dependency, CapabilityState.Unavailable, CapabilityReason.Faulted, "dependency lost between refreshes"));
+        try
+        {
+            if (dependency != "world.find")
+                Assert.Equal("queries.line_of_sight", Assert.Throws<KilnUnavailableException>(() => kiln.Run(() => Queries.VoxelLineOfSight(a, b))).Capability);
+            Assert.Equal("queries.overlap_origins", Assert.Throws<KilnUnavailableException>(() => kiln.Run(() => Queries.EntitiesInSphere(A, 1))).Capability);
+            // The ray itself does not use kiln.world's entity functions.
+            Assert.True(kiln.Run(() => Queries.GroundBelow(A)).Ok);
+        }
+        finally { kiln.Run(() => Capabilities.Report(dependency, CapabilityState.Available)); }
+        Assert.True(kiln.Run(() => Queries.VoxelLineOfSight(a, b)).Ok);
+        Assert.True(kiln.Run(() => Queries.EntitiesInSphere(A, 1)).Ok);
     }
 
     [Fact]

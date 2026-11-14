@@ -42,8 +42,8 @@ public readonly record struct FakeVoxelAnswer
 /// <remarks>
 /// <para><b>Modelled.</b> The rules around a ray: its numbers, the tick thread, the capability rows, the shared budget
 /// per step (<see cref="MaxRaysPerStep"/>), refusals with their reasons. Entity origins come from the harness's fake world.</para>
-/// <para><b>Not modelled.</b> Voxels: a ray answers what <see cref="Voxels"/> says, and is loaded and clear without a
-/// script. The time part of the budget, realms, and paths.</para>
+/// <para><b>Not modelled.</b> Voxels: a ray answers what <see cref="Voxels"/> says, and is unavailable without a
+/// script. The time part of the budget, realm grids, and paths.</para>
 /// </remarks>
 public sealed class HarnessQueries
 {
@@ -53,11 +53,18 @@ public sealed class HarnessQueries
 
     private QueriesFakeState State => KitFakes.State<QueriesFakeState>(_harness);
 
-    /// <summary>What a voxel ray answers. Null: every ray is loaded and clear. Runs on the tick thread, inside the mod's call.</summary>
+    /// <summary>What a voxel ray answers. Null: voxel rays are unavailable. Runs on the tick thread, inside the mod's call.</summary>
     public Func<FakeVoxelRay, FakeVoxelAnswer>? Voxels
     {
         get { lock (State.Lock) return State.Voxels; }
-        set { lock (State.Lock) State.Voxels = value; }
+        set
+        {
+            lock (State.Lock)
+            {
+                State.Voxels = value;
+                if (ReferenceEquals(KitBackend.Instance.Harness, _harness)) QueriesFake.ReportRay(value != null);
+            }
+        }
     }
 
     /// <summary>How many rays the fake admits per step before it refuses with <c>BudgetExceeded</c> (the service's default: 64).</summary>
