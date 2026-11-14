@@ -3,7 +3,8 @@
 // ActorInput and SteeringAgent, which makes it serial and conflicting with every program that reads or writes either:
 // the scheduler runs it after the game's steering program (registration order), and a client's feed program registered
 // after it can never run beside it. It does only what the last Pre decided (Broker::pre): zero a body's movement input
-// (write_other), queue the removal of its SteeringAgent, queue the saved one back. The engine applies the queued
+// (write_other), queue the removal of its SteeringAgent (and a Vehicle's DynamicEnemy01BehaviorState), queue the saved
+// SteeringAgent back. The engine applies the queued
 // component changes at the end of the step; the next Pre checks them at its job barrier. It holds no lock while it
 // calls the game: the ops are taken out of the shared list first.
 #include <mutex>
@@ -18,12 +19,12 @@ namespace {
 const KilnWorldApi* W = nullptr;
 KilnHandle g_program = 0;
 int32_t g_slot_input = -1;
-uint32_t h_steering = 0;
+uint32_t h_steering = 0, h_behavior = 0;
 InputLayout g_input{};
 
 std::mutex g_mu;          // guards g_ops only
 std::vector<Op> g_ops;
-std::atomic<uint64_t> g_runs{0}, g_zeroed{0}, g_removed{0}, g_added{0}, g_failed{0};
+std::atomic<uint64_t> g_runs{0}, g_zeroed{0}, g_removed{0}, g_added{0}, g_failed{0}, g_behaviors{0};
 std::atomic<int> g_warned{0};
 
 void warn_once(const char* what, KilnEntity e, int rc) {
@@ -61,6 +62,15 @@ void KILN_CALL each(KilnProgramCtx* ctx, uint64_t* iter, KilnEntity, void*) {
                 }
                 break;
             }
+            case OpKind::RemoveBehavior: {
+                const KilnResult rc = W->queue_remove(ctx, op.entity, h_behavior);
+                if (rc == KILN_OK) g_behaviors.fetch_add(1, std::memory_order_relaxed);
+                else {
+                    g_failed.fetch_add(1, std::memory_order_relaxed);
+                    warn_once("queue_remove DynamicEnemy01BehaviorState", op.entity, rc);
+                }
+                break;
+            }
             case OpKind::AddSteering: {
                 const KilnResult rc = W->queue_add(ctx, op.entity, h_steering, op.data.data(), static_cast<uint32_t>(op.data.size()));
                 if (rc == KILN_OK) g_added.fetch_add(1, std::memory_order_relaxed);
@@ -79,6 +89,7 @@ void KILN_CALL each(KilnProgramCtx* ctx, uint64_t* iter, KilnEntity, void*) {
 bool program_register(const KilnWorldApi* world, std::string* why) {
     W = world;
     h_steering = W->component_hash(KilnStr{"SteeringAgent", 13});
+    h_behavior = W->component_hash(KilnStr{"DynamicEnemy01BehaviorState", 27});
     g_input.size = g_layout.input_size;
     g_input.local_move = g_layout.input_local_move;
     g_input.world_move = g_layout.input_world_move;

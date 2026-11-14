@@ -1,0 +1,7 @@
+{
+  "$schema": "../../../../schema/kiln-blocks.schema.json",
+  "format": 1,
+  "kinds-provider-test:lanterns": {
+    "long-night": { "format": 1, "name": "Long-night lantern", "seconds": 1800, "twigs": 6 }
+  }
+}

@@ -57,11 +57,12 @@ public sealed partial class ClientPassMod
         var options = new BuildOptions { Flags = BuildFlags.Transient, Journal = false };
         var open = await QueriesAsk(c, () => Queries.RaycastVoxels(a, b), _ => true);
         c.Expect(open is { Ok: true, Hit: null }, $"before the wall the 8 m ray is loaded and clear (ok={open.Ok}, hit={open.Hit != null}, reason={open.Reason})");
-        var write = Build.Write(box, Enumerable.Repeat(Voxel.Of(1), (int)box.Count).ToArray(), options);
-        c.Expect(write.Changed && write.Verified, $"the test wall was written ({write.CellsChanged} cells, refusal {write.Refusal}): without it no wall ray counts");
-        if (!(write.Changed && write.Verified)) return;
         try
         {
+            // A failed verification can follow a partial write. Restore the snapshot on that path too.
+            var write = Build.Write(box, Enumerable.Repeat(Voxel.Of(1), (int)box.Count).ToArray(), options);
+            c.Expect(write.Changed && write.Verified, $"the test wall was written ({write.CellsChanged} cells, refusal {write.Refusal}): without it no wall ray counts");
+            if (!(write.Changed && write.Verified)) return;
             var hit = await QueriesAsk(c, () => Queries.RaycastVoxels(a, b), r => r.Hit != null);
             c.Expect(hit is { Ok: true, Hit: not null }, $"the ray stops at the wall (ok={hit.Ok}, reason={hit.Reason}, at {hit.Hit?.Position})");
             c.Instruct("A wall of earth, 1 m thick and 4 m high, now stands 4 m east of you (it is taken away again after this " +

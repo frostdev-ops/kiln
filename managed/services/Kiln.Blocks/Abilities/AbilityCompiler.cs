@@ -433,6 +433,7 @@ internal static partial class Compiler
         var block = ctx.Block;
         low.AfterCommit(() =>
         {
+            if (BootLowering.Activating) return;  // a boot generation's node: kiln.skills prepared it before the game read its tree
             if (Kept(mod, guid, node)) return;
             foreach (var r in GameTree.DefineJson(document.ToJsonString()))
                 if (r.Error is { Length: > 0 } error) lock (ctx.Mod.Errors) ctx.Mod.Errors.Add($"block {block}: {error}");

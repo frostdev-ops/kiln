@@ -22,6 +22,7 @@
 #include <fstream>
 #include <map>
 #include <set>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -100,6 +101,13 @@ inline Input parse(const KilnBootPrepareInputV1* in) {
     r.ok = true;
     return r;
 }
+
+// Thrown by a collector's reading code for a document it cannot read; its prepare turns it into a refusal of that mod (refuse()).
+struct Refusal : std::runtime_error {
+    std::string mod, kind, key;
+    Refusal(std::string m, std::string k, std::string ky, const std::string& why)
+        : std::runtime_error(why), mod(std::move(m)), kind(std::move(k)), key(std::move(ky)) {}
+};
 
 template <size_t N>
 inline void put(char (&dst)[N], const std::string& s) {

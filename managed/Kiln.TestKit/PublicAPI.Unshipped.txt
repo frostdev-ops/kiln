@@ -18,23 +18,55 @@ Kiln.TestKit.FakeControlCall.Result.get -> int
 Kiln.TestKit.FakeControlCall.Result.init -> void
 Kiln.TestKit.FakeControlCall.Step.get -> ulong
 Kiln.TestKit.FakeControlCall.Step.init -> void
-Kiln.TestKit.FakeTerrainWrite
-Kiln.TestKit.FakeTerrainWrite.Box.get -> Kiln.CellBox
-Kiln.TestKit.FakeTerrainWrite.Box.init -> void
-Kiln.TestKit.FakeTerrainWrite.CellsChanged.get -> long
-Kiln.TestKit.FakeTerrainWrite.CellsChanged.init -> void
-Kiln.TestKit.FakeTerrainWrite.Deconstruct(out string! Mod, out string! Label, out Kiln.CellBox Box, out long CellsChanged, out bool Transient, out ulong Step) -> void
-Kiln.TestKit.FakeTerrainWrite.Equals(Kiln.TestKit.FakeTerrainWrite other) -> bool
-Kiln.TestKit.FakeTerrainWrite.FakeTerrainWrite() -> void
-Kiln.TestKit.FakeTerrainWrite.FakeTerrainWrite(string! Mod, string! Label, Kiln.CellBox Box, long CellsChanged, bool Transient, ulong Step) -> void
-Kiln.TestKit.FakeTerrainWrite.Label.get -> string!
-Kiln.TestKit.FakeTerrainWrite.Label.init -> void
-Kiln.TestKit.FakeTerrainWrite.Mod.get -> string!
-Kiln.TestKit.FakeTerrainWrite.Mod.init -> void
-Kiln.TestKit.FakeTerrainWrite.Step.get -> ulong
-Kiln.TestKit.FakeTerrainWrite.Step.init -> void
-Kiln.TestKit.FakeTerrainWrite.Transient.get -> bool
-Kiln.TestKit.FakeTerrainWrite.Transient.init -> void
+Kiln.TestKit.FakeUiBar
+Kiln.TestKit.FakeUiBar.Current.get -> uint
+Kiln.TestKit.FakeUiBar.Current.init -> void
+Kiln.TestKit.FakeUiBar.Deconstruct(out float Fraction, out uint Current, out uint Max, out string? Label) -> void
+Kiln.TestKit.FakeUiBar.Equals(Kiln.TestKit.FakeUiBar other) -> bool
+Kiln.TestKit.FakeUiBar.FakeUiBar() -> void
+Kiln.TestKit.FakeUiBar.FakeUiBar(float Fraction, uint Current, uint Max, string? Label = null) -> void
+Kiln.TestKit.FakeUiBar.Fraction.get -> float
+Kiln.TestKit.FakeUiBar.Fraction.init -> void
+Kiln.TestKit.FakeUiBar.Label.get -> string?
+Kiln.TestKit.FakeUiBar.Label.init -> void
+Kiln.TestKit.FakeUiBar.Max.get -> uint
+Kiln.TestKit.FakeUiBar.Max.init -> void
+Kiln.TestKit.FakeUiDecision
+Kiln.TestKit.FakeUiDecision.Deconstruct(out uint Kind, out int Result, out uint Edit, out bool Invalid) -> void
+Kiln.TestKit.FakeUiDecision.Edit.get -> uint
+Kiln.TestKit.FakeUiDecision.Edit.init -> void
+Kiln.TestKit.FakeUiDecision.Equals(Kiln.TestKit.FakeUiDecision other) -> bool
+Kiln.TestKit.FakeUiDecision.FakeUiDecision() -> void
+Kiln.TestKit.FakeUiDecision.FakeUiDecision(uint Kind, int Result, uint Edit, bool Invalid) -> void
+Kiln.TestKit.FakeUiDecision.Invalid.get -> bool
+Kiln.TestKit.FakeUiDecision.Invalid.init -> void
+Kiln.TestKit.FakeUiDecision.Kind.get -> uint
+Kiln.TestKit.FakeUiDecision.Kind.init -> void
+Kiln.TestKit.FakeUiDecision.Result.get -> int
+Kiln.TestKit.FakeUiDecision.Result.init -> void
+Kiln.TestKit.FakeUiItem
+Kiln.TestKit.FakeUiItem.ClientEntity.get -> uint
+Kiln.TestKit.FakeUiItem.ClientEntity.init -> void
+Kiln.TestKit.FakeUiItem.Count.get -> uint
+Kiln.TestKit.FakeUiItem.Count.init -> void
+Kiln.TestKit.FakeUiItem.Deconstruct(out uint Item, out uint Fuel, out uint FuelMax, out uint Count, out uint InventoryPage, out byte SlotIndex, out uint ClientEntity, out uint Flags, out uint UnitsPerCharge) -> void
+Kiln.TestKit.FakeUiItem.Equals(Kiln.TestKit.FakeUiItem other) -> bool
+Kiln.TestKit.FakeUiItem.FakeUiItem() -> void
+Kiln.TestKit.FakeUiItem.FakeUiItem(uint Item, uint Fuel = 0, uint FuelMax = 0, uint Count = 1, uint InventoryPage = 0, byte SlotIndex = 0, uint ClientEntity = 0, uint Flags = 0, uint UnitsPerCharge = 1) -> void
+Kiln.TestKit.FakeUiItem.Flags.get -> uint
+Kiln.TestKit.FakeUiItem.Flags.init -> void
+Kiln.TestKit.FakeUiItem.Fuel.get -> uint
+Kiln.TestKit.FakeUiItem.Fuel.init -> void
+Kiln.TestKit.FakeUiItem.FuelMax.get -> uint
+Kiln.TestKit.FakeUiItem.FuelMax.init -> void
+Kiln.TestKit.FakeUiItem.InventoryPage.get -> uint
+Kiln.TestKit.FakeUiItem.InventoryPage.init -> void
+Kiln.TestKit.FakeUiItem.Item.get -> uint
+Kiln.TestKit.FakeUiItem.Item.init -> void
+Kiln.TestKit.FakeUiItem.SlotIndex.get -> byte
+Kiln.TestKit.FakeUiItem.SlotIndex.init -> void
+Kiln.TestKit.FakeUiItem.UnitsPerCharge.get -> uint
+Kiln.TestKit.FakeUiItem.UnitsPerCharge.init -> void
 Kiln.TestKit.FakeVoxelAnswer
 Kiln.TestKit.FakeVoxelAnswer.Equals(Kiln.TestKit.FakeVoxelAnswer other) -> bool
 Kiln.TestKit.FakeVoxelAnswer.FakeVoxelAnswer() -> void
@@ -59,6 +91,64 @@ Kiln.TestKit.HarnessQueries.MaxRaysPerStep.set -> void
 Kiln.TestKit.HarnessQueries.Rays.get -> System.Collections.Generic.IReadOnlyList<Kiln.TestKit.FakeVoxelRay>!
 Kiln.TestKit.HarnessQueries.Voxels.get -> System.Func<Kiln.TestKit.FakeVoxelRay, Kiln.TestKit.FakeVoxelAnswer>?
 Kiln.TestKit.HarnessQueries.Voxels.set -> void
+Kiln.TestKit.HarnessUiValues
+Kiln.TestKit.HarnessUiValues.Decisions.get -> System.Collections.Generic.IReadOnlyList<Kiln.TestKit.FakeUiDecision>!
+Kiln.TestKit.HarnessUiValues.DetailLines(Kiln.TestKit.FakeUiItem item) -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.TestKit.HarnessUiValues.Draw(uint kind, Kiln.TestKit.FakeUiItem item, Kiln.TestKit.FakeUiBar game) -> Kiln.TestKit.FakeUiBar
+Kiln.TestKit.HarnessUiValues.Registrations.get -> int
+Kiln.TestKit.KilnHarness.CreatureControl.get -> Kiln.TestKit.HarnessCreatureControl!
+Kiln.TestKit.KilnHarness.Queries.get -> Kiln.TestKit.HarnessQueries!
+Kiln.TestKit.KilnHarness.UiValues.get -> Kiln.TestKit.HarnessUiValues!
+override Kiln.TestKit.FakeControlCall.Equals(object? obj) -> bool
+override Kiln.TestKit.FakeControlCall.GetHashCode() -> int
+override Kiln.TestKit.FakeControlCall.ToString() -> string!
+override Kiln.TestKit.FakeUiBar.GetHashCode() -> int
+override Kiln.TestKit.FakeUiDecision.GetHashCode() -> int
+override Kiln.TestKit.FakeUiItem.GetHashCode() -> int
+override Kiln.TestKit.FakeVoxelAnswer.GetHashCode() -> int
+override Kiln.TestKit.FakeVoxelRay.GetHashCode() -> int
+static Kiln.TestKit.FakeControlCall.operator !=(Kiln.TestKit.FakeControlCall? left, Kiln.TestKit.FakeControlCall? right) -> bool
+static Kiln.TestKit.FakeControlCall.operator ==(Kiln.TestKit.FakeControlCall? left, Kiln.TestKit.FakeControlCall? right) -> bool
+static Kiln.TestKit.FakeUiBar.operator !=(Kiln.TestKit.FakeUiBar left, Kiln.TestKit.FakeUiBar right) -> bool
+static Kiln.TestKit.FakeUiBar.operator ==(Kiln.TestKit.FakeUiBar left, Kiln.TestKit.FakeUiBar right) -> bool
+static Kiln.TestKit.FakeUiDecision.operator !=(Kiln.TestKit.FakeUiDecision left, Kiln.TestKit.FakeUiDecision right) -> bool
+static Kiln.TestKit.FakeUiDecision.operator ==(Kiln.TestKit.FakeUiDecision left, Kiln.TestKit.FakeUiDecision right) -> bool
+static Kiln.TestKit.FakeUiItem.operator !=(Kiln.TestKit.FakeUiItem left, Kiln.TestKit.FakeUiItem right) -> bool
+static Kiln.TestKit.FakeUiItem.operator ==(Kiln.TestKit.FakeUiItem left, Kiln.TestKit.FakeUiItem right) -> bool
+static Kiln.TestKit.FakeVoxelAnswer.Clear.get -> Kiln.TestKit.FakeVoxelAnswer
+static Kiln.TestKit.FakeVoxelAnswer.Hit(Kiln.WorldPosition at, uint material = 1, ushort voxel = 65281) -> Kiln.TestKit.FakeVoxelAnswer
+static Kiln.TestKit.FakeVoxelAnswer.Refused(string! reason) -> Kiln.TestKit.FakeVoxelAnswer
+static Kiln.TestKit.FakeVoxelAnswer.operator !=(Kiln.TestKit.FakeVoxelAnswer left, Kiln.TestKit.FakeVoxelAnswer right) -> bool
+static Kiln.TestKit.FakeVoxelAnswer.operator ==(Kiln.TestKit.FakeVoxelAnswer left, Kiln.TestKit.FakeVoxelAnswer right) -> bool
+static Kiln.TestKit.FakeVoxelRay.operator !=(Kiln.TestKit.FakeVoxelRay left, Kiln.TestKit.FakeVoxelRay right) -> bool
+static Kiln.TestKit.FakeVoxelRay.operator ==(Kiln.TestKit.FakeVoxelRay left, Kiln.TestKit.FakeVoxelRay right) -> bool
+~override Kiln.TestKit.FakeUiBar.Equals(object obj) -> bool
+~override Kiln.TestKit.FakeUiBar.ToString() -> string
+~override Kiln.TestKit.FakeUiDecision.Equals(object obj) -> bool
+~override Kiln.TestKit.FakeUiDecision.ToString() -> string
+~override Kiln.TestKit.FakeUiItem.Equals(object obj) -> bool
+~override Kiln.TestKit.FakeUiItem.ToString() -> string
+~override Kiln.TestKit.FakeVoxelAnswer.Equals(object obj) -> bool
+~override Kiln.TestKit.FakeVoxelAnswer.ToString() -> string
+~override Kiln.TestKit.FakeVoxelRay.Equals(object obj) -> bool
+~override Kiln.TestKit.FakeVoxelRay.ToString() -> string
+Kiln.TestKit.FakeTerrainWrite
+Kiln.TestKit.FakeTerrainWrite.Box.get -> Kiln.CellBox
+Kiln.TestKit.FakeTerrainWrite.Box.init -> void
+Kiln.TestKit.FakeTerrainWrite.CellsChanged.get -> long
+Kiln.TestKit.FakeTerrainWrite.CellsChanged.init -> void
+Kiln.TestKit.FakeTerrainWrite.Deconstruct(out string! Mod, out string! Label, out Kiln.CellBox Box, out long CellsChanged, out bool Transient, out ulong Step) -> void
+Kiln.TestKit.FakeTerrainWrite.Equals(Kiln.TestKit.FakeTerrainWrite other) -> bool
+Kiln.TestKit.FakeTerrainWrite.FakeTerrainWrite() -> void
+Kiln.TestKit.FakeTerrainWrite.FakeTerrainWrite(string! Mod, string! Label, Kiln.CellBox Box, long CellsChanged, bool Transient, ulong Step) -> void
+Kiln.TestKit.FakeTerrainWrite.Label.get -> string!
+Kiln.TestKit.FakeTerrainWrite.Label.init -> void
+Kiln.TestKit.FakeTerrainWrite.Mod.get -> string!
+Kiln.TestKit.FakeTerrainWrite.Mod.init -> void
+Kiln.TestKit.FakeTerrainWrite.Step.get -> ulong
+Kiln.TestKit.FakeTerrainWrite.Step.init -> void
+Kiln.TestKit.FakeTerrainWrite.Transient.get -> bool
+Kiln.TestKit.FakeTerrainWrite.Transient.init -> void
 Kiln.TestKit.HarnessTerrain
 Kiln.TestKit.HarnessTerrain.AddBase(Kiln.CellBox box) -> void
 Kiln.TestKit.HarnessTerrain.Get(Kiln.CellPos at) -> Kiln.Voxel
@@ -70,32 +160,12 @@ Kiln.TestKit.HarnessTerrain.Set(Kiln.CellPos at, Kiln.Voxel cell) -> void
 Kiln.TestKit.HarnessTerrain.WorldId.get -> string!
 Kiln.TestKit.HarnessTerrain.WorldId.set -> void
 Kiln.TestKit.HarnessTerrain.Writes.get -> System.Collections.Generic.IReadOnlyList<Kiln.TestKit.FakeTerrainWrite>!
-Kiln.TestKit.KilnHarness.CreatureControl.get -> Kiln.TestKit.HarnessCreatureControl!
-Kiln.TestKit.KilnHarness.Queries.get -> Kiln.TestKit.HarnessQueries!
 Kiln.TestKit.KilnHarness.Terrain.get -> Kiln.TestKit.HarnessTerrain!
-override Kiln.TestKit.FakeControlCall.Equals(object? obj) -> bool
-override Kiln.TestKit.FakeControlCall.GetHashCode() -> int
-override Kiln.TestKit.FakeControlCall.ToString() -> string!
 override Kiln.TestKit.FakeTerrainWrite.GetHashCode() -> int
-override Kiln.TestKit.FakeVoxelAnswer.GetHashCode() -> int
-override Kiln.TestKit.FakeVoxelRay.GetHashCode() -> int
-static Kiln.TestKit.FakeControlCall.operator !=(Kiln.TestKit.FakeControlCall? left, Kiln.TestKit.FakeControlCall? right) -> bool
-static Kiln.TestKit.FakeControlCall.operator ==(Kiln.TestKit.FakeControlCall? left, Kiln.TestKit.FakeControlCall? right) -> bool
 static Kiln.TestKit.FakeTerrainWrite.operator !=(Kiln.TestKit.FakeTerrainWrite left, Kiln.TestKit.FakeTerrainWrite right) -> bool
 static Kiln.TestKit.FakeTerrainWrite.operator ==(Kiln.TestKit.FakeTerrainWrite left, Kiln.TestKit.FakeTerrainWrite right) -> bool
-static Kiln.TestKit.FakeVoxelAnswer.Clear.get -> Kiln.TestKit.FakeVoxelAnswer
-static Kiln.TestKit.FakeVoxelAnswer.Hit(Kiln.WorldPosition at, uint material = 1, ushort voxel = 65281) -> Kiln.TestKit.FakeVoxelAnswer
-static Kiln.TestKit.FakeVoxelAnswer.operator !=(Kiln.TestKit.FakeVoxelAnswer left, Kiln.TestKit.FakeVoxelAnswer right) -> bool
-static Kiln.TestKit.FakeVoxelAnswer.operator ==(Kiln.TestKit.FakeVoxelAnswer left, Kiln.TestKit.FakeVoxelAnswer right) -> bool
-static Kiln.TestKit.FakeVoxelAnswer.Refused(string! reason) -> Kiln.TestKit.FakeVoxelAnswer
-static Kiln.TestKit.FakeVoxelRay.operator !=(Kiln.TestKit.FakeVoxelRay left, Kiln.TestKit.FakeVoxelRay right) -> bool
-static Kiln.TestKit.FakeVoxelRay.operator ==(Kiln.TestKit.FakeVoxelRay left, Kiln.TestKit.FakeVoxelRay right) -> bool
 ~override Kiln.TestKit.FakeTerrainWrite.Equals(object obj) -> bool
 ~override Kiln.TestKit.FakeTerrainWrite.ToString() -> string
-~override Kiln.TestKit.FakeVoxelAnswer.Equals(object obj) -> bool
-~override Kiln.TestKit.FakeVoxelAnswer.ToString() -> string
-~override Kiln.TestKit.FakeVoxelRay.Equals(object obj) -> bool
-~override Kiln.TestKit.FakeVoxelRay.ToString() -> string
 Kiln.TestKit.FakePathAnswer
 Kiln.TestKit.FakePathAnswer.FakePathAnswer() -> void
 Kiln.TestKit.FakePathRequest

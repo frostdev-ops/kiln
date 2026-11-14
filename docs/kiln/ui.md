@@ -4,7 +4,8 @@ The client-side UI for mods (Forge: Screens, GUI overlays, toasts, KeyMappings, 
 (`native/core/abi/services/kiln_ui.h`), which draws Dear ImGui 1.93 into the game's Vulkan presents and takes the game
 window's input, and hooks the game's own UI (its screens, its main and pause menus, its crafting menus). Managed:
 `managed/services/Kiln.Ui`. RE: `docs/re/client-render.md` (overlay, input), `docs/re/game-ui.md` (the game's UI).
-Samples: `mods/samples/UiSample` (overlay), `mods/samples/MenuButtons` (game menus, a screen, crafting). Test:
+Samples: `mods/samples/UiSample` (overlay), `mods/samples/MenuButtons` (game menus, a screen, crafting),
+`mods/samples/ValueBars` (values in the game's own UI). Test:
 `mods/tests/ui-test`. On a dedicated server `Ui.Available` is false and every call does nothing (a `side: both` mod may
 call it freely).
 
@@ -140,6 +141,73 @@ var now = Ui.Crafting.Current;   // CraftingScreen?: AtStation, Workshop (keen::
   thread every frame while a crafting menu is open.
 - Workshop ids: `Ui.Crafting.Current.Workshop` while a station's menu is open (MenuButtons' panel shows it; the
   Workbench is 0x4da88f73), or the recipes' own workshop (kiln.content). 0 = the player's own crafting menu.
+
+## Values in the game's own UI (dev.28)
+`Ui.Values` replaces what the game itself draws for an item and for the local player: the number and bar of the item
+detail view, the bar on an inventory slot, the held item's water indicator and the HUD's health, stamina and mana. It
+also adds lines for an item to Kiln's **Item details** window and reads the slots the game drew. **Picture only:** the
+server keeps the real values (no healing, no spending, no capacity); a player without the mod and every vanilla client
+see the game unchanged. Native: in-core `kiln.ui.values` (`native/core/abi/services/kiln_ui_values.h`). Sample:
+`mods/samples/ValueBars`. Guided checks: `05a-c1` to `05a-c5` in `mods/tests/client-pass/Dev28ValuesUi.cs`.
+
+| Member | Draws | Current / Max | Edit | Row (held until) |
+|---|---|---|---|---|
+| `ItemBar(item, provider)` | detail view number and bar, its label | what the game prints (water: **charges**; at most 2,147,483,647) | fraction, numbers, label | `ui.values.detail` (`05a-c1`) |
+| `SlotBar(item, provider)` | the slot bar (only its fraction shows) | raw fuel units | fraction, numbers | `ui.values.slot` (`05a-c1`) |
+| `HeldBar(provider)` | the held item's indicator | raw fuel units | numbers, Max above 0 | `ui.values.held` (`05a-c3`) |
+| `Hud(HudValue, provider)` | health / stamina / mana pair | the vital's units | numbers, Max above 0 | `ui.values.hud` (`05a-c2`) |
+| `TooltipLines(item, provider)`, `OpenTooltipDetails()`, `CloseTooltipDetails()` | lines in Kiln's Item details window | – | up to 16 lines per detail view | `ui.values.tooltip_lines` (`05a-c4-viewer`) |
+| `Slots()`, `SubscribeSlots(onFrame)` | (reads) the slots of the last completed UI frame | – | – | `ui.slots.inspect` (`05a-c5`) |
+
+`item` is an `ItemId`, `default` for every item. Every row is off on a server, on a build where its game code did not
+resolve, and **until its guided check passed** (the client gate: [services/caps.md](services/caps.md#the-client-gate-dev28));
+the pass and a preview profile switch them on.
+
+**A provider** (`UiBarProvider`) gets the context, the item (`UiItemView`) and the value as the earlier providers left
+it, and answers `UiProviderDecision.Pass`, `.Replace(new UiBarEdit(...))` (only its non-null fields change) or
+`.Refuse(reason)` (the earlier value stays). Providers run in registration order; the last one that writes a field wins.
+Fuel in a `UiItemView` is always raw fuel units; `UnitsPerCharge` is the detail view's divisor. A slot whose water is
+0/0 is drawn full by the game and stays full when providers pass. No provider is called for a held or HUD value whose
+game maximum is 0, nor without a local player. Five exceptions or invalid edits in a row remove a provider
+(`UiValueProviderChangedEvent`, `Faulted`). A label edit (`UiLabelEdit`: Set, Clear, Game) is for the detail view only.
+
+**Threads.** Providers and `SubscribeSlots` callbacks run on the **game client's main thread**, inside the game's UI
+frame (detail, slot, lines) or right after its player-UI update (held, HUD): read values a tick cached, never wait,
+never call server-world APIs, never keep the arguments. The events (`UiValueChangedEvent`, `UiValuesResetEvent`,
+`UiValueProviderChangedEvent`, `UiValueProviderRefusedEvent`, `UiTooltipPanelChangedEvent`) reach mods **on the tick
+thread at the next step**, like Kiln's other events, never inside the game's frame. `UiValueChangedEvent` reports what
+was shown per presentation identity (coalesced per frame; Removed after two frames without it, held and HUD values after
+two player-UI updates; one `UiValuesResetEvent` on a world change instead of a Removed per value); it is not an engine
+write and its identity is not an item's lifetime.
+
+**Text is kept for the process.** A label or a tooltip line is copied into a store that is never emptied while the game
+runs (the game keeps pointers to drawn text). Each mod may hold 8 MiB of it, at most 64 new texts a second (burst 128),
+4096 bytes a text, 64 KiB per call; over a limit the call is refused (the earlier value stays), nothing is evicted.
+**Never make a new label every frame**: keep the label fixed and put changing numbers into Current/Max; a tooltip line
+that names a number is interned once per distinct value, so keep such values few.
+
+**Item details.** Extra text is not drawn into the game's tooltip (its layout neither wraps nor makes room for added
+lines). It is collected while the game draws an item's detail view and shown in Kiln's own **Item details** window: the
+pause menu's "Item details" entry or `OpenTooltipDetails()` opens it on the last inspected item, frozen until its
+Refresh button (same item only) or close; a world change closes it. It wraps to its own width (words, then letters)
+and scrolls by itself. Kiln adds no hotkey; a mod may (the sample uses F8).
+
+**Slots.** `Slots()` copies the slots of the last completed UI frame (refused when older than 1000 ms or when the frame
+drew more than 4096 slots): page, slot, item, count, client entity, the outer and inner rectangles in UI units, the
+slot's 16 state bytes (byte 0 is only a candidate hover flag until `05a-c5`), and the page's holder with Kiln's lifetime
+serial of it. Pixel rectangles stay null until `05a-c5` verified the mapping. A slot rectangle is never inventory
+authority: a server decides what a slot key may do.
+
+**Identity.** `UiItemView.ClientEntity` is the stack's client-world entity; `ServerEntity` is always `EntityId.None` in
+this version: Kiln does not prove that a client entity is the server's, and a client-local id must never be matched to
+server data by its number. A synthetic detail (the game builds one for an item id alone, e.g. a recipe) has flag 16 and
+no slot, count or entity: a provider for one item's instance passes there.
+
+Limits: 128 registrations per mod (values, lines, slots and change subscriptions together; one more comes back with
+`Ok` false), 16 tooltip lines per detail view (all providers together). Bad arguments throw `ArgumentException`, a row
+that is off throws `KilnUnavailableException` naming it, a refusal comes back as a result. Not done: lines in the game's
+own tooltip (3-5 days of layout work), rows in the inventory header or character sheet, pet bars, values for a chest a
+player only opened (`InstanceData` Holder sync covers the holder only).
 
 ## Windows (immediate mode)
 ```csharp

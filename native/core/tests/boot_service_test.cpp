@@ -648,7 +648,9 @@ void publish_case() {
     KilnBootStageResultV1 r{};
     r.size = sizeof r;
     CHECK(B.stage(author_of("a"), 1, ks("items"), ks("late"), ks("{}"), &r) == KILN_OK && r.ok == 0);
-    CHECK(shown("mods.boot.phase") && shown("mods.boot.phase")->state == KILN_CAP_PENDING);
+    // the phase is over: unavailable (policy), not pending (review A1)
+    CHECK(shown("mods.boot.phase") && shown("mods.boot.phase")->state == KILN_CAP_UNAVAILABLE &&
+          shown("mods.boot.phase")->reason == KILN_CAP_REASON_POLICY);
     // the start goes on: no hold, no exit
     CHECK(kiln::boot_svc::after_clr(true, &fake_write_state, nullptr) && t_exits.empty() && t_held.empty());
     const json rep = kiln::boot_svc::report();
@@ -674,6 +676,7 @@ void atomic_required_case(int at) {
     CHECK(events_with("prepare:").size() == static_cast<size_t>(at + 1));
     CHECK(state_of("req") == KILN_BOOT_STATE_REJECTED_PREPARE);
     CHECK(state_of("other") == KILN_BOOT_STATE_GENERATION_ABORTED && state_of("third") == KILN_BOOT_STATE_GENERATION_ABORTED);
+    CHECK(shown("mods.boot.phase") && shown("mods.boot.phase")->state == KILN_CAP_UNAVAILABLE);
     // the entry point stays held: boot.json first, then the exit adapter with 0x4B01
     CHECK(!kiln::boot_svc::after_clr(true, &fake_write_state, nullptr));
     CHECK(t_exits == std::vector<uint32_t>{0x4B01u} && t_held.size() == 1 && t_held[0].find("0x4B01") != std::string::npos);
