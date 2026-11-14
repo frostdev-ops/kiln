@@ -15,7 +15,7 @@ namespace ClientPass;
 //     package of dev.28, Dev29 ... Dev33 for a later one. Area = the chapter's short name, Needs = the session;
 //   - Tags say what else it wants: TwoPlayers, VanillaClient, HostTools, Frameworks, Visual, Audio;
 //   - it starts with `if (!await Need(c, "<fixture mod id>")) return;` when it uses a fixture or sample mod, so a
-//     missing mod asks for skip and never passes;
+//     missing mod ends the check as skipped (c.Skip: the player cannot pass it);
 //   - when the capability it tests is held by the client gate (native/core/gates), it starts with
 //     `if (!await NeedOpen(c, "<capability>")) return;`: the pass runs with "preview": true in kiln.json, and a check
 //     that ran against a capability still switched off would test nothing.
@@ -40,7 +40,8 @@ public sealed partial class ClientPassMod
     private const string Frameworks = "frameworks";
 
     /// <summary>True when none of <paramref name="capabilities"/> is held by the client gate. Otherwise names the held
-    /// ones, says how the pass switches them on, asks for skip and returns false after the verdict.</summary>
+    /// ones, says how the pass switches them on, ends the check as skipped (the player cannot pass it) and returns
+    /// false.</summary>
     private static async Task<bool> NeedOpen(CheckContext c, params string[] capabilities)
     {
         var held = capabilities.Where(Capabilities.IsHeld).ToArray();
@@ -49,8 +50,8 @@ public sealed partial class ClientPassMod
         c.Log.Info($"client-pass: {c.Id} tests {list}, which is still held: {Capabilities.Why(held[0])}");
         c.Instruct($"This check tests {list}, which is switched off until this pass confirms it. The pass profile " +
                    "switches it on with \"preview\": true in kiln/kiln.json (docs/kiln/client-pass.md); this game was " +
-                   "started without it. Press skip now, add the key and start again.");
-        await c.Verdict();
+                   "started without it. Add the key and start again.");
+        await c.Skip($"{list} is still held: start the pass with \"preview\": true");
         return false;
     }
 }
