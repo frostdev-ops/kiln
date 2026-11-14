@@ -1122,6 +1122,9 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     // bind of a boot generation's content part (no definitions are read here either way); kiln.content without its registries takes none
     if (E.items && E.reflection && kiln::boot::collect(api, owner, "content", &prepare_boot, nullptr))
         LOGI("boot profile: the boot generation's content definitions are prepared before the game's entry point");
+#if KC_GAMEDATA
+    gd_boot_patches_bind();  // the seventh collector: fields of game resources, written when the resource service is up
+#endif
     if (!E.items || !E.reflection) {
         set_detail("the item registry or the game's reflection is not available on this build");
         LOGW("kiln.content unavailable on this build (items %s, reflection %s)", E.items ? "on" : "off",
