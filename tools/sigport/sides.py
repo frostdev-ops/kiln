@@ -24,6 +24,9 @@ import sys
 from pathlib import Path
 
 SECTIONS = ("symbols", "constants", "features")
+# Descriptors of typed links and the structs they name (dev.28): composed and merged like the sections above, but
+# they are not names a build record lists (a symbol's descriptor is judged at load: the feature sig/<symbol>).
+DESCRIPTOR_SECTIONS = ("sigs", "structs")
 REPO_SYMBOLS = Path(__file__).resolve().parents[2] / "sigdb" / "symbols"
 
 
@@ -37,7 +40,9 @@ def overlay(base, over, base_name, over_name):
     out["side"] = over.get("side", "client")
     note = over.get("comment", "")
     out["comment"] = (base.get("comment", "") + f" | {over_name} over {base_name}" + (f": {note}" if note else "")).strip()
-    for section in SECTIONS:
+    for section in SECTIONS + DESCRIPTOR_SECTIONS:
+        if section in DESCRIPTOR_SECTIONS and section not in base and section not in over:
+            continue
         dst = out.setdefault(section, {})
         for k, v in over.get(section, {}).items():
             dst[k] = copy.deepcopy(v)
@@ -76,7 +81,9 @@ def merged(definitions):
     side = definitions.stem
     doc = _load(definitions)
     for name, part, _src in compose(side, definitions.parent):
-        for section in SECTIONS:
+        for section in SECTIONS + DESCRIPTOR_SECTIONS:
+            if section in DESCRIPTOR_SECTIONS and section not in part:
+                continue
             for k, v in part.get(section, {}).items():
                 if k in doc.setdefault(section, {}):
                     print(f"FAIL  {side}.d/{name}: {section[:-1]} {k} is defined twice")

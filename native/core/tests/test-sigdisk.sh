@@ -10,9 +10,13 @@ mkdir -p "$out"
 cxx=${CXX:-$(command -v clang++ || command -v g++)}
 "$cxx" -std=c++20 -O2 -Wall -Wextra -I"$here/../../third_party" -o "$out/sigdisk_test" "$here/sigdisk_test.cpp"
 "$out/sigdisk_test" "$@"
-"$cxx" -std=c++20 -O1 -g -Wall -Wextra -pthread -fsanitize=address,undefined \
-    -I"$here/stubs" -I"$here/../abi" -I"$here/../../third_party" \
-    -o "$out/sigdb_runtime_test" "$here/sigdb_runtime_test.cpp"
+# sigdb checks `sig` descriptors against the function's code (services/hooks_fingerprint.cpp, decoded with Zydis)
+cc=${CC:-$(command -v clang || command -v gcc)}
+zy=$here/../../third_party/safetyhook
+[[ $out/zydis-host.o -nt $zy/Zydis.c ]] || "$cc" -O1 -w -DZYDIS_STATIC_BUILD -DZYCORE_STATIC_BUILD -I"$zy" -c -o "$out/zydis-host.o" "$zy/Zydis.c"
+"$cxx" -std=c++20 -O1 -g -Wall -Wextra -pthread -fsanitize=address,undefined -DZYDIS_STATIC_BUILD -DZYCORE_STATIC_BUILD \
+    -I"$here/stubs" -I"$here/../abi" -I"$here/../src" -I"$here/../../third_party" -I"$zy" \
+    -o "$out/sigdb_runtime_test" "$here/sigdb_runtime_test.cpp" "$here/../src/services/hooks_fingerprint.cpp" "$out/zydis-host.o"
 "$out/sigdb_runtime_test" "$out"
 "$cxx" -std=c++20 -O1 -g -Wall -Wextra -pthread -fsanitize=address,undefined \
     -I"$here/../../services/npcai/tests/stubs" -I"$here/../abi" \

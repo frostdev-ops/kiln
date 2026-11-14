@@ -58,6 +58,7 @@ row above and grows its own page.
 
 | Page | What |
 |---|---|
+| [queries.md](queries.md) | `Kiln.Queries`: voxel rays, ground below a point, voxel line of sight, entity origins in a sphere or box; the shared ray budget |
 
 ## Native rules
 - `kiln_plugin_main(api, owner, info)`: check `api->abi_version == KILN_ABI_VERSION`, resolve symbols with

@@ -1,0 +1,86 @@
+{
+  "format": 1,
+  "comment": "kiln.hooks typed links (dev.28, chapter 06b): two new symbols and the descriptors (\"sigs\") of the ten functions a mod can hook or call as functions. A descriptor lists the declared parameters only; a struct returned through a hidden buffer is \"sret\". \"abi\" is the function's fingerprint on the builds this file was checked against (tools/sigport/sigdb_check.py --fptool); the core compares it with the code at load and turns sig/<symbol> off when they differ. \"invoke\" says whether a direct call is offered (none, tick = tick thread only, any). Shared with the client (the fingerprints are the same on both exes). Evidence: docs/re/systems.",
+  "symbols": {
+    "items/GetItemVolume": {
+      "comment": "OptS32* GetItemVolume(OptS32* out /*hidden*/, const ItemInfo* item): the Volume impact value of an item; actor_interaction's TransferFuelEvent cap (its only caller). A null item gives {18, 1}",
+      "find": [{"pattern": "40 53 48 83 EC 20 48 8B D9 48 85 D2 75 ?? C7 01 12 00 00 00"}]
+    },
+    "@weather/SampleAt.site": {
+      "comment": "WeatherSample* SampleAt(WeatherSample* out /*hidden: four floats*/, const WeatherSystem*, const WorldTransform*, s64 now /*a value in r9*/): its prologue differs between the exes, so it is captured from its call in fuel_setup's update (the rain intensity at a well)",
+      "find": [{"pattern": "41 0F 10 48 10 4C 8B CB 4C 8D 45 00 0F 29 45 00 F2 0F 11 4D 10 E8 {weather/SampleAt:rel32}"}]
+    }
+  },
+  "structs": {
+    "OptS32": {"size": 8, "align": 4, "fields": [{"name": "value", "type": "s32", "offset": 0}, {"name": "has", "type": "u8", "offset": 4}]},
+    "AttrRef": {"size": 16, "align": 8, "fields": [{"name": "error", "type": "u8", "offset": 0}, {"name": "reserved", "type": "u32", "offset": 4}, {"name": "attr", "type": "ptr", "offset": 8}]},
+    "WeatherSample": {"size": 16, "align": 4, "fields": [{"name": "f0", "type": "f32", "offset": 0}, {"name": "f1", "type": "f32", "offset": 4}, {"name": "f2", "type": "f32", "offset": 8}, {"name": "f3", "type": "f32", "offset": 12}]}
+  },
+  "sigs": {
+    "items/GetItemVolume": {
+      "conv": "win64", "sret": "OptS32",
+      "args": [{"name": "item", "type": "keen::ItemInfo*"}],
+      "abi": {"reads": ["rcx", "rdx"], "stack": [], "ret": "rax"},
+      "invoke": "any"
+    },
+    "items/AttrFind": {
+      "conv": "win64", "sret": "AttrRef",
+      "args": [{"name": "attribute", "type": "u32"}, {"name": "registry", "type": "ptr"}],
+      "abi": {"reads": ["rcx", "rdx", "r8"], "stack": [], "ret": "rax"},
+      "invoke": "tick"
+    },
+    "items/AttrChanged": {
+      "conv": "win64", "ret": "void",
+      "args": [{"name": "component", "type": "ptr"}, {"name": "registry", "type": "ptr"}],
+      "abi": {"reads": ["rcx", "rdx"], "stack": [], "ret": "rax|callee"},
+      "invoke": "none"
+    },
+    "time/SetTimeScale": {
+      "conv": "win64", "ret": "void",
+      "args": [{"name": "daytime", "type": "keen::Daytime*"}, {"name": "scale", "type": "f32"}, {"name": "ecsNow", "type": "s64"}],
+      "abi": {"reads": ["rcx", "xmm1", "r8"], "stack": [], "ret": "callee"},
+      "invoke": "tick"
+    },
+    "time/GetGameTime": {
+      "conv": "win64", "ret": "s64",
+      "args": [{"name": "daytime", "type": "keen::Daytime*"}, {"name": "ecsNow", "type": "s64"}],
+      "abi": {"reads": ["rcx", "rdx"], "stack": [], "ret": "rax|xmm0"},
+      "invoke": "tick"
+    },
+    "abilities/RegisterNative": {
+      "conv": "win64", "ret": "bool",
+      "args": [{"name": "registry", "type": "ptr"}, {"name": "hash", "type": "u32"}, {"name": "fn", "type": "ptr"}, {"name": "name", "type": "ptr"}, {"name": "argc", "type": "u8"}],
+      "abi": {"reads": ["rcx", "rdx", "r8", "r9"], "stack": ["0x28"], "ret": "rax"},
+      "invoke": "none"
+    },
+    "world/ReadOther": {
+      "conv": "win64", "ret": "ptr",
+      "args": [{"name": "output", "type": "ptr"}, {"name": "storage", "type": "ptr"}, {"name": "accessor", "type": "u16*"}, {"name": "entity", "type": "u32"}],
+      "abi": {"reads": ["rcx"], "passes": ["rdx", "r8", "r9"], "stack": [], "ret": "rax"},
+      "invoke": "none"
+    },
+    "GetComponent": {
+      "conv": "win64", "ret": "void",
+      "args": [{"name": "output", "type": "ptr"}, {"name": "world", "type": "ptr"}, {"name": "componentHash", "type": "u32"}, {"name": "entity", "type": "u32"}],
+      "abi": {"reads": ["rcx", "rdx", "r8", "r9"], "stack": [], "ret": "rax"},
+      "invoke": "tick"
+    },
+    "rules/QuatRotate": {
+      "conv": "win64", "ret": "ptr",
+      "args": [{"name": "output", "type": "ptr"}, {"name": "rotation", "type": "ptr"}, {"name": "vector", "type": "ptr"}],
+      "abi": {"reads": ["rcx", "rdx", "r8"], "stack": [], "ret": "xmm0"},
+      "invoke": "any"
+    },
+    "weather/SampleAt": {
+      "conv": "win64", "sret": "WeatherSample",
+      "args": [{"name": "weather", "type": "keen::WeatherSystem*"}, {"name": "at", "type": "keen::WorldTransform*"}, {"name": "now", "type": "s64"}],
+      "abi": {"reads": ["rcx", "rdx", "r8", "r9"], "stack": [], "ret": "none"},
+      "invoke": "tick"
+    }
+  },
+  "features": {
+    "hooks.typed": {"symbols": []},
+    "items.volume": {"symbols": ["items/GetItemVolume"]},
+    "weather.sample": {"symbols": ["@weather/SampleAt.site"]}
+  }
+}

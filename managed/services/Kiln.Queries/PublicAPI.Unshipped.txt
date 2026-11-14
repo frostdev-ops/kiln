@@ -1,0 +1,98 @@
+#nullable enable
+Kiln.EntityQueryGeometry
+Kiln.EntityQueryGeometry.Origin = 0 -> Kiln.EntityQueryGeometry
+Kiln.EntityQueryResult
+Kiln.EntityQueryResult.<Clone>$() -> Kiln.EntityQueryResult!
+Kiln.EntityQueryResult.Deconstruct(out bool Ok, out string? Reason, out System.Collections.Generic.IReadOnlyList<Kiln.EntityId>! Entities, out int Total, out bool Truncated) -> void
+Kiln.EntityQueryResult.Entities.get -> System.Collections.Generic.IReadOnlyList<Kiln.EntityId>!
+Kiln.EntityQueryResult.Entities.init -> void
+Kiln.EntityQueryResult.EntityQueryResult(bool Ok, string? Reason, System.Collections.Generic.IReadOnlyList<Kiln.EntityId>! Entities, int Total, bool Truncated) -> void
+Kiln.EntityQueryResult.Equals(Kiln.EntityQueryResult? other) -> bool
+Kiln.EntityQueryResult.Ok.get -> bool
+Kiln.EntityQueryResult.Ok.init -> void
+Kiln.EntityQueryResult.Reason.get -> string?
+Kiln.EntityQueryResult.Reason.init -> void
+Kiln.EntityQueryResult.Total.get -> int
+Kiln.EntityQueryResult.Total.init -> void
+Kiln.EntityQueryResult.Truncated.get -> bool
+Kiln.EntityQueryResult.Truncated.init -> void
+Kiln.Queries
+Kiln.VoxelRayHit
+Kiln.VoxelRayHit.<Clone>$() -> Kiln.VoxelRayHit!
+Kiln.VoxelRayHit.Deconstruct(out Kiln.WorldPosition Position, out double Distance, out uint Material, out ushort Voxel) -> void
+Kiln.VoxelRayHit.Distance.get -> double
+Kiln.VoxelRayHit.Distance.init -> void
+Kiln.VoxelRayHit.Equals(Kiln.VoxelRayHit? other) -> bool
+Kiln.VoxelRayHit.Material.get -> uint
+Kiln.VoxelRayHit.Material.init -> void
+Kiln.VoxelRayHit.Position.get -> Kiln.WorldPosition
+Kiln.VoxelRayHit.Position.init -> void
+Kiln.VoxelRayHit.Voxel.get -> ushort
+Kiln.VoxelRayHit.Voxel.init -> void
+Kiln.VoxelRayHit.VoxelRayHit(Kiln.WorldPosition Position, double Distance, uint Material, ushort Voxel) -> void
+Kiln.VoxelRayResult
+Kiln.VoxelRayResult.<Clone>$() -> Kiln.VoxelRayResult!
+Kiln.VoxelRayResult.Deconstruct(out bool Ok, out string? Reason, out Kiln.VoxelRayHit? Hit) -> void
+Kiln.VoxelRayResult.Equals(Kiln.VoxelRayResult? other) -> bool
+Kiln.VoxelRayResult.Hit.get -> Kiln.VoxelRayHit?
+Kiln.VoxelRayResult.Hit.init -> void
+Kiln.VoxelRayResult.Ok.get -> bool
+Kiln.VoxelRayResult.Ok.init -> void
+Kiln.VoxelRayResult.Reason.get -> string?
+Kiln.VoxelRayResult.Reason.init -> void
+Kiln.VoxelRayResult.VoxelRayResult(bool Ok, string? Reason, Kiln.VoxelRayHit? Hit) -> void
+Kiln.VoxelSightOptions
+Kiln.VoxelSightOptions.<Clone>$() -> Kiln.VoxelSightOptions!
+Kiln.VoxelSightOptions.Equals(Kiln.VoxelSightOptions? other) -> bool
+Kiln.VoxelSightOptions.FromOffset.get -> Kiln.WorldPosition
+Kiln.VoxelSightOptions.FromOffset.init -> void
+Kiln.VoxelSightOptions.Realm.get -> byte
+Kiln.VoxelSightOptions.Realm.init -> void
+Kiln.VoxelSightOptions.ToOffset.get -> Kiln.WorldPosition
+Kiln.VoxelSightOptions.ToOffset.init -> void
+Kiln.VoxelSightOptions.VoxelSightOptions() -> void
+Kiln.VoxelSightResult
+Kiln.VoxelSightResult.<Clone>$() -> Kiln.VoxelSightResult!
+Kiln.VoxelSightResult.Deconstruct(out bool Ok, out string? Reason, out bool Visible, out Kiln.VoxelRayHit? Obstruction) -> void
+Kiln.VoxelSightResult.Equals(Kiln.VoxelSightResult? other) -> bool
+Kiln.VoxelSightResult.Obstruction.get -> Kiln.VoxelRayHit?
+Kiln.VoxelSightResult.Obstruction.init -> void
+Kiln.VoxelSightResult.Ok.get -> bool
+Kiln.VoxelSightResult.Ok.init -> void
+Kiln.VoxelSightResult.Reason.get -> string?
+Kiln.VoxelSightResult.Reason.init -> void
+Kiln.VoxelSightResult.Visible.get -> bool
+Kiln.VoxelSightResult.Visible.init -> void
+Kiln.VoxelSightResult.VoxelSightResult(bool Ok, string? Reason, bool Visible, Kiln.VoxelRayHit? Obstruction) -> void
+const Kiln.Queries.MaxEntities = 4096 -> int
+const Kiln.Queries.MaxRayLength = 256 -> double
+override Kiln.EntityQueryResult.Equals(object? obj) -> bool
+override Kiln.EntityQueryResult.GetHashCode() -> int
+override Kiln.EntityQueryResult.ToString() -> string!
+override Kiln.VoxelRayHit.Equals(object? obj) -> bool
+override Kiln.VoxelRayHit.GetHashCode() -> int
+override Kiln.VoxelRayHit.ToString() -> string!
+override Kiln.VoxelRayResult.Equals(object? obj) -> bool
+override Kiln.VoxelRayResult.GetHashCode() -> int
+override Kiln.VoxelRayResult.ToString() -> string!
+override Kiln.VoxelSightOptions.Equals(object? obj) -> bool
+override Kiln.VoxelSightOptions.GetHashCode() -> int
+override Kiln.VoxelSightOptions.ToString() -> string!
+override Kiln.VoxelSightResult.Equals(object? obj) -> bool
+override Kiln.VoxelSightResult.GetHashCode() -> int
+override Kiln.VoxelSightResult.ToString() -> string!
+static Kiln.EntityQueryResult.operator !=(Kiln.EntityQueryResult? left, Kiln.EntityQueryResult? right) -> bool
+static Kiln.EntityQueryResult.operator ==(Kiln.EntityQueryResult? left, Kiln.EntityQueryResult? right) -> bool
+static Kiln.Queries.EntitiesInBox(Kiln.WorldPosition center, Kiln.WorldPosition halfExtents, Kiln.EntityId exclude = default(Kiln.EntityId), int max = 4096) -> Kiln.EntityQueryResult!
+static Kiln.Queries.EntitiesInSphere(Kiln.WorldPosition center, double radius, Kiln.EntityId exclude = default(Kiln.EntityId), int max = 4096) -> Kiln.EntityQueryResult!
+static Kiln.Queries.GroundBelow(Kiln.WorldPosition from, double maxDown = 100, byte realm = 0) -> Kiln.VoxelRayResult!
+static Kiln.Queries.RaycastVoxels(Kiln.WorldPosition from, Kiln.WorldPosition to, byte realm = 0) -> Kiln.VoxelRayResult!
+static Kiln.Queries.VoxelLineOfSight(Kiln.EntityId from, Kiln.EntityId to, Kiln.VoxelSightOptions? options = null) -> Kiln.VoxelSightResult!
+static Kiln.VoxelRayHit.operator !=(Kiln.VoxelRayHit? left, Kiln.VoxelRayHit? right) -> bool
+static Kiln.VoxelRayHit.operator ==(Kiln.VoxelRayHit? left, Kiln.VoxelRayHit? right) -> bool
+static Kiln.VoxelRayResult.operator !=(Kiln.VoxelRayResult? left, Kiln.VoxelRayResult? right) -> bool
+static Kiln.VoxelRayResult.operator ==(Kiln.VoxelRayResult? left, Kiln.VoxelRayResult? right) -> bool
+static Kiln.VoxelSightOptions.operator !=(Kiln.VoxelSightOptions? left, Kiln.VoxelSightOptions? right) -> bool
+static Kiln.VoxelSightOptions.operator ==(Kiln.VoxelSightOptions? left, Kiln.VoxelSightOptions? right) -> bool
+static Kiln.VoxelSightResult.operator !=(Kiln.VoxelSightResult? left, Kiln.VoxelSightResult? right) -> bool
+static Kiln.VoxelSightResult.operator ==(Kiln.VoxelSightResult? left, Kiln.VoxelSightResult? right) -> bool

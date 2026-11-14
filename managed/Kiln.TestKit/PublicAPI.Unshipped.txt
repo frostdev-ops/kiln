@@ -1,1 +1,35 @@
 #nullable enable
+Kiln.TestKit.FakeVoxelAnswer
+Kiln.TestKit.FakeVoxelAnswer.Equals(Kiln.TestKit.FakeVoxelAnswer other) -> bool
+Kiln.TestKit.FakeVoxelAnswer.FakeVoxelAnswer() -> void
+Kiln.TestKit.FakeVoxelRay
+Kiln.TestKit.FakeVoxelRay.Deconstruct(out Kiln.WorldPosition From, out Kiln.WorldPosition To, out byte Realm) -> void
+Kiln.TestKit.FakeVoxelRay.Equals(Kiln.TestKit.FakeVoxelRay other) -> bool
+Kiln.TestKit.FakeVoxelRay.FakeVoxelRay() -> void
+Kiln.TestKit.FakeVoxelRay.FakeVoxelRay(Kiln.WorldPosition From, Kiln.WorldPosition To, byte Realm) -> void
+Kiln.TestKit.FakeVoxelRay.From.get -> Kiln.WorldPosition
+Kiln.TestKit.FakeVoxelRay.From.init -> void
+Kiln.TestKit.FakeVoxelRay.Realm.get -> byte
+Kiln.TestKit.FakeVoxelRay.Realm.init -> void
+Kiln.TestKit.FakeVoxelRay.To.get -> Kiln.WorldPosition
+Kiln.TestKit.FakeVoxelRay.To.init -> void
+Kiln.TestKit.HarnessQueries
+Kiln.TestKit.HarnessQueries.MaxRaysPerStep.get -> int
+Kiln.TestKit.HarnessQueries.MaxRaysPerStep.set -> void
+Kiln.TestKit.HarnessQueries.Rays.get -> System.Collections.Generic.IReadOnlyList<Kiln.TestKit.FakeVoxelRay>!
+Kiln.TestKit.HarnessQueries.Voxels.get -> System.Func<Kiln.TestKit.FakeVoxelRay, Kiln.TestKit.FakeVoxelAnswer>?
+Kiln.TestKit.HarnessQueries.Voxels.set -> void
+Kiln.TestKit.KilnHarness.Queries.get -> Kiln.TestKit.HarnessQueries!
+override Kiln.TestKit.FakeVoxelAnswer.GetHashCode() -> int
+override Kiln.TestKit.FakeVoxelRay.GetHashCode() -> int
+static Kiln.TestKit.FakeVoxelAnswer.Clear.get -> Kiln.TestKit.FakeVoxelAnswer
+static Kiln.TestKit.FakeVoxelAnswer.Hit(Kiln.WorldPosition at, uint material = 1, ushort voxel = 65281) -> Kiln.TestKit.FakeVoxelAnswer
+static Kiln.TestKit.FakeVoxelAnswer.Refused(string! reason) -> Kiln.TestKit.FakeVoxelAnswer
+static Kiln.TestKit.FakeVoxelAnswer.operator !=(Kiln.TestKit.FakeVoxelAnswer left, Kiln.TestKit.FakeVoxelAnswer right) -> bool
+static Kiln.TestKit.FakeVoxelAnswer.operator ==(Kiln.TestKit.FakeVoxelAnswer left, Kiln.TestKit.FakeVoxelAnswer right) -> bool
+static Kiln.TestKit.FakeVoxelRay.operator !=(Kiln.TestKit.FakeVoxelRay left, Kiln.TestKit.FakeVoxelRay right) -> bool
+static Kiln.TestKit.FakeVoxelRay.operator ==(Kiln.TestKit.FakeVoxelRay left, Kiln.TestKit.FakeVoxelRay right) -> bool
+~override Kiln.TestKit.FakeVoxelAnswer.Equals(object obj) -> bool
+~override Kiln.TestKit.FakeVoxelAnswer.ToString() -> string
+~override Kiln.TestKit.FakeVoxelRay.Equals(object obj) -> bool
+~override Kiln.TestKit.FakeVoxelRay.ToString() -> string
