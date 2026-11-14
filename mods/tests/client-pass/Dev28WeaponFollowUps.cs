@@ -6,6 +6,7 @@
 using System.Text.Json.Nodes;
 using Kiln;
 using Kiln.Testing;
+using static Kiln.Testing.ClientCheckTags;
 
 namespace ClientPass;
 
