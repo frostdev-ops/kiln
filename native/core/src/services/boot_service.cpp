@@ -30,6 +30,7 @@
 #include "nlohmann/json.hpp"
 #include "services/kiln_boot.h"
 #include "services/kiln_caps.h"
+#include "boot_gamedata.h"
 #include "service.h"
 
 namespace kiln::caps {
@@ -66,6 +67,7 @@ struct Owner {
     std::map<std::string, std::string> defs;  // "<kind>/<key>" -> the canonical JSON as staged
     std::vector<std::string> needs;            // the envelope's "requires"
     KilnOwner process = 0;                     // "boot:<id>", from the commit on
+    uint64_t read_bytes = 0;                   // game-data values read_resource gave it (KILN_BOOT_AUTHOR_READ_MAX)
 };
 
 struct Issue {
@@ -95,6 +97,9 @@ struct Row {  // a capability report, sent after the mutex is released
 void os_exit(uint32_t code) { ExitProcess(code); }
 
 std::mutex& g_mutex = *new std::mutex;  // never destroyed: a late reader at process exit must still find it
+// The offline game-data view: the boot snapshot's reader (boot_gamedata.h). Opened once in decide(); it has a lock of
+// its own, and g_mutex is never held across its file IO.
+boot_gd::Reader& g_gamedata = *new boot_gd::Reader;
 bool g_decided = false;
 bool g_deferred = false;
 bool g_bound = false;                  // registration is over (bound() or commit())
@@ -529,16 +534,42 @@ KilnResult KILN_CALL b_finish_owner(KilnOwner owner, uint64_t generation, uint32
     return KILN_OK;
 }
 
+// The offline game-data view over the boot snapshot (boot_gamedata.h). The frame and the budget are checked under
+// g_mutex, the files are read without it (boot-thread calls are serialized, kiln_boot.h), and the bytes are charged to
+// the author when the result is written: a BUFFER_TOO_SMALL answer costs nothing.
 KilnResult KILN_CALL b_read_resource(KilnOwner owner, KilnStr query, char* out, size_t capacity, size_t* required) {
-    static_cast<void>(out);
-    static_cast<void>(capacity);
-    std::lock_guard lk(g_mutex);
-    if (!g_deferred) return KILN_ERR_UNAVAILABLE;
-    if (!required || !query_ok(sv(query))) return KILN_ERR_INVALID_ARGUMENT;
-    const auto author = g_by_author.find(owner);
-    if (author == g_by_author.end()) return KILN_ERR_INVALID_ARGUMENT;
-    if (!g_owners[author->second].open || g_status != KILN_BOOT_STATUS_COLLECTING) return KILN_ERR_REVOKED;
-    return KILN_ERR_UNAVAILABLE;  // no offline reader in this build: row mods.boot.game_data says so
+    uint64_t left = 0;
+    std::string id;
+    {
+        std::lock_guard lk(g_mutex);
+        if (!g_deferred) return KILN_ERR_UNAVAILABLE;
+        if (!required || !query_ok(sv(query)) || (!out && capacity)) return KILN_ERR_INVALID_ARGUMENT;
+        const auto author = g_by_author.find(owner);
+        if (author == g_by_author.end()) return KILN_ERR_INVALID_ARGUMENT;
+        const Owner& o = g_owners[author->second];
+        if (!o.open || g_status != KILN_BOOT_STATUS_COLLECTING) return KILN_ERR_REVOKED;
+        id = o.id;
+        left = KILN_BOOT_AUTHOR_READ_MAX - std::min<uint64_t>(o.read_bytes, KILN_BOOT_AUTHOR_READ_MAX);
+    }
+    if (!g_gamedata.is_open()) return KILN_ERR_UNAVAILABLE;  // row mods.boot.game_data says why
+    std::string json, why;
+    size_t need = 0, value = 0;
+    const KilnResult rc = g_gamedata.read(sv(query), capacity, KILN_BOOT_RESULT_MAX, left, &json, &need, &value, &why);
+    if (rc == KILN_ERR_BUFFER_TOO_SMALL) {
+        *required = need;
+        return rc;
+    }
+    if (rc == KILN_ERR_UNAVAILABLE)
+        KLOG_W("boot: %s: game data %.*s: %s", id.c_str(), static_cast<int>(std::min<size_t>(query.len, 200)), query.ptr, why.c_str());
+    if (rc != KILN_OK) return rc;
+    {
+        std::lock_guard lk(g_mutex);
+        const auto author = g_by_author.find(owner);
+        if (author == g_by_author.end()) return KILN_ERR_REVOKED;
+        g_owners[author->second].read_bytes += value;
+    }
+    std::memcpy(out, json.c_str(), json.size() + 1);
+    return KILN_OK;
 }
 
 // ---- commit ----
@@ -888,6 +919,23 @@ const KilnBootApiV1 kTable = {
 
 const KilnBootApiV1* table() { return &kTable; }
 
+// The row mods.boot.game_data: available with a snapshot of exactly this game build (docs/kiln/modding/
+// boot-gamedata.md), which is looked for here, once; otherwise unavailable with what to run and the test that failed.
+// One read of at most 64 KiB of the game's .kfc, index.json and eight file checks: no index is loaded before a mod asks.
+static Row game_data_row(bool hooks, const std::string& idle) {
+    if (!hooks) return {"mods.boot.game_data", KILN_CAP_UNAVAILABLE, KILN_CAP_REASON_POLICY, idle};
+    std::filesystem::path kfc = paths().exe;
+    kfc.replace_extension(L".kfc");
+    std::string why;
+    if (g_gamedata.open(paths().data / L"boot-gamedata", image().sha256, kfc, &why)) {
+        KLOG_I("boot: game-data snapshot %s found: OnBoot can read the game's data", g_gamedata.key().c_str());
+        return {"mods.boot.game_data", KILN_CAP_AVAILABLE, KILN_CAP_REASON_NONE,
+                "the boot game-data snapshot " + g_gamedata.key() + " matches this game build"};
+    }
+    KLOG_I("boot: %s (%s)", boot_gd::kHint, why.c_str());
+    return {"mods.boot.game_data", KILN_CAP_UNAVAILABLE, KILN_CAP_REASON_SERVICE_MISSING, std::string(boot_gd::kHint) + " (" + why + ")"};
+}
+
 // boot.cpp, after caps::core_rows and before the service DLLs and plugins load: is this a boot profile? Also reports
 // the rows mods.boot.phase, mods.boot.game_data, mods.boot.client and mods.boot.vfx (mods.boot itself is the sigdb
 // feature row; bound() adds to it).
@@ -899,9 +947,7 @@ void decide(bool hooks, const std::string& safe_idle) {
     // what this build can do; the client gate (native/core/gates/dev28-08-onboot.json) holds them until the guided
     // checks 08-boot.first-start-definitions and 08-loader-order pass, and kiln.json "preview" lifts it.
     std::vector<Row> rows = {{"mods.boot.phase", KILN_CAP_PENDING, KILN_CAP_REASON_SESSION, "no boot-author frame is open"},
-                             {"mods.boot.game_data", KILN_CAP_UNAVAILABLE,
-                              hooks ? static_cast<uint32_t>(KILN_CAP_REASON_SERVICE_MISSING) : static_cast<uint32_t>(KILN_CAP_REASON_POLICY),
-                              hooks ? "no offline game-data reader is registered (kiln.content provides it)" : idle}};
+                             game_data_row(hooks, idle)};
     if (client) {
         rows.push_back({"mods.boot.client", KILN_CAP_AVAILABLE, KILN_CAP_REASON_NONE,
                         "boot mods on a game client, for the hosted world and the client"});
