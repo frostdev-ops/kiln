@@ -96,6 +96,9 @@ struct Row {  // a capability report, sent after the mutex is released
 };
 
 void os_exit(uint32_t code) { ExitProcess(code); }
+// The stop after the entry point (b_activation_fault): the game's and the CLR's threads are live, so the process is
+// ended without running any DLL's detach code under the loader lock. What the launcher reads is on disk before this.
+void os_exit_late(uint32_t code) { TerminateProcess(GetCurrentProcess(), code); }
 
 std::mutex& g_mutex = *new std::mutex;  // never destroyed: a late reader at process exit must still find it
 // The offline game-data view: the boot snapshot's reader (boot_gamedata.h). Opened once in decide(); it has a lock of
@@ -118,6 +121,7 @@ std::atomic<const Root*> g_root{nullptr};
 KilnOwner g_self = 0;     // kiln.boot's own owner, for its capability reports
 uint32_t g_exit_code = 0;  // the code the hold path ended the process with (boot.json)
 void (*g_exit)(uint32_t) = &os_exit;  // the OS-exit adapter (the host test replaces it)
+void (*g_exit_late)(uint32_t) = &os_exit_late;  // the same for the stop after the entry point
 void (*g_late_hold)(void* user, const std::string& last_line) = nullptr;  // boot.cpp: the state files of a stop after the entry point
 void* g_late_hold_user = nullptr;
 
@@ -941,7 +945,7 @@ KilnResult KILN_CALL b_activation_fault(KilnOwner collector, KilnStr mod_id, Kil
     }
     KLOG_E("%s", last.c_str());
     if (g_late_hold) g_late_hold(g_late_hold_user, last);
-    g_exit(KILN_BOOT_EXIT_CODE);
+    g_exit_late(KILN_BOOT_EXIT_CODE);
     return KILN_OK;  // the host test's exit adapter returned
 }
 

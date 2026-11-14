@@ -24,6 +24,8 @@ struct EXCEPTION_POINTERS;
 #define __except(x) catch (...)
 #endif
 [[noreturn]] inline void ExitProcess(unsigned int) { std::abort(); }  // the adapter is replaced before any call
+inline void* GetCurrentProcess() { return nullptr; }
+inline int TerminateProcess(void*, unsigned int) { std::abort(); }  // the late adapter is replaced too
 
 #include "../src/services/service.cpp"
 #include "../src/services/boot_service.cpp"
@@ -153,6 +155,8 @@ KilnStr ks(const std::string& s) { return KilnStr{s.data(), s.size()}; }
 // The OS-exit adapter: records the code and returns (production never returns from ExitProcess).
 std::vector<uint32_t> t_exits;
 void fake_exit(uint32_t code) { t_exits.push_back(code); }
+std::vector<uint32_t> t_late_exits;  // the stop after the entry point ends the process another way (no detach code)
+void fake_exit_late(uint32_t code) { t_late_exits.push_back(code); }
 std::vector<std::string> t_held;  // write_state's last lines
 void fake_write_state(void*, const std::string& last) { t_held.push_back(last); }
 
@@ -243,6 +247,8 @@ void reset_boot() {
     g_exit_code = 0;
     g_late_hold = nullptr;
     g_exit = &fake_exit;
+    g_exit_late = &fake_exit_late;
+    t_late_exits.clear();
     t_exits.clear();
     t_held.clear();
     t_events.clear();
@@ -889,7 +895,7 @@ void activation_fault_cases() {
     CHECK(named && rep["exitCode"].is_null());
     // a required mod: the state files are written, then the exit, once
     CHECK(B.activation_fault(56, ks("req"), ks("resourcePatches"), ks("cap"), ks("index 99 is past the array's 20 entries")) == KILN_OK);
-    CHECK(t_exits == std::vector<uint32_t>{0x4B01u} && t_held.size() == 1);
+    CHECK(t_late_exits == std::vector<uint32_t>{0x4B01u} && t_exits.empty() && t_held.size() == 1);  // never ExitProcess here
     CHECK(t_held.size() == 1 && t_held[0].find("req") != std::string::npos && t_held[0].find("index 99") != std::string::npos);
     CHECK(state_of("req") == KILN_BOOT_STATE_ACTIVATION_FAULT);
     rep = kiln::boot_svc::report();
