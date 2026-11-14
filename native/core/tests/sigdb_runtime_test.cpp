@@ -93,10 +93,24 @@ static void views_and_holes() {
     }
     {
         Loaded x;
-        // One byte differs, far below 1%, and layout/metadata are unchanged: this is not a hook.
+        // One byte differs, far below 1%, and layout/metadata are unchanged: no hook, another mod's in-place patch.
+        // The file is still the loaded build, so the scan stays on it and the place is counted.
         x.live[0x1050] ^= 1;
         sigdb::init_code();
-        CHECK(!sigdb::g_code.view.disk, "runtime: sparse non-hook exe difference selects live scan");
+        CHECK(sigdb::g_code.view.disk, "runtime: a byte patched in place keeps the disk scan");
+        CHECK(sigdb::g_code.in_place.sites == 1 && sigdb::g_code.in_place.bytes == 1 &&
+                  sigdb::g_code.in_place.first == std::vector<uint32_t>{0x1050 - x.ft.text_rva},
+              "runtime: the in-place patch is counted, with its offset in .text");
+    }
+    {
+        Loaded x;
+        auto* at = x.live.data() + TestPe::kFunc;
+        at[0] = 0xE9;
+        const int32_t rel = 0x7FFF0000;
+        std::memcpy(at + 1, &rel, 4);
+        sigdb::init_code();
+        CHECK(sigdb::g_code.view.disk && sigdb::g_code.in_place.sites == 0,
+              "runtime: a hook is not counted as an in-place patch");
     }
     {
         Loaded x;
@@ -357,6 +371,42 @@ static void sig_blocks(const char* dir) {
     std::filesystem::remove(file);
 }
 
+// Another mod changed a byte of the function in place before Kiln's scan (a player's report of 14 Nov 2026: The Worst
+// Map Mod's map marker patches). A scan of the live code no longer finds the function; the file's code does, and the
+// symbol is listed as patched in place.
+static void in_place_patch(const char* dir) {
+    Loaded x;
+    uint8_t* fn = x.live.data() + TestPe::kFunc;
+    fn[0] = 0x49;  // was 48: mov rax, imm64 became mov r8, imm64
+    test_query = true;
+    test_mbi = {x.live.data(), x.live.size(), MEM_COMMIT, 4};
+    sigdb::init_code();
+    sigdb::Pattern p;
+    std::string err;
+    sigdb::parse_pattern("48 B8 ?? ?? ?? ?? ?? ?? ?? ?? E8 {helper:rel32}", p, err);
+    const uint8_t* live_text = x.live.data() + x.ft.text_rva;
+    CHECK(sigdb::scan(p, live_text, live_text + x.ft.text_vsize, 2).empty(),
+          "in place: the patched live code hides the function from a live scan");
+    const auto file = std::filesystem::path(dir) / "inplace.json";
+    {
+        std::ofstream out(file);
+        out << R"({"format":1,"symbols":{"root":{"find":[{"pattern":"48 B8 ?? ?? ?? ?? ?? ?? ?? ?? E8 {helper:rel32}"}]}}})";
+    }
+    sigdb::Resolver r;
+    r.load(file, "");
+    r.resolve();
+    uintptr_t a = 0;
+    CHECK(sigdb::g_code.view.disk && r.symbol("root", &a) && a == kiln::test_image.base + TestPe::kFunc,
+          "in place: the symbol resolves on the file's code");
+    std::vector<sigdb::LiveDiff> d;
+    r.collect_live_diffs(d);
+    CHECK(d.size() == 1 && d[0].symbol == "root" && d[0].at == a && d[0].bytes_ok && d[0].bytes[0] == 0x49 &&
+              d[0].by == "bytes changed in place",
+          "in place: the symbol is listed with its live bytes, as changed in place");
+    test_query = false;
+    std::filesystem::remove(file);
+}
+
 static void hook_guard() {
     struct Hook { bool on = true; int restores = 0; bool enabled() { return on; }
                   bool disable() { ++restores; on = false; return true; } } h;
@@ -494,6 +544,7 @@ int main(int argc, char** argv) {
     pool_and_resolver(argv[1]);
     live_diff_accessors(argv[1]);
     sig_blocks(argv[1]);
+    in_place_patch(argv[1]);
     hook_guard();
     diff_budget();
     return g_fail ? 1 : 0;
