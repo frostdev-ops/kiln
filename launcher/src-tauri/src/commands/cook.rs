@@ -75,14 +75,17 @@ pub async fn cook_run(app: AppHandle, game_id: String, mod_id: Option<String>) -
             });
         }
         // Play's next step: the game data Mod.OnBoot reads, once per game build (kiln_manage::boot_snapshot; well under a
-        // second when it is there). Never an error and never longer than its limit: without it the game starts all the
-        // same and kiln.boot says why (`bootSnapshot` in the result: shell/cook.ts says it in one line).
+        // second when it is there), only when an enabled mod of this start asks for the boot phase ("no mod needs the boot
+        // snapshot" otherwise: nothing runs). Never an error and never longer than its limit: without it the game starts
+        // all the same and kiln.boot says why (`bootSnapshot` in the result: shell/cook.ts says it in one line).
         let snapshot = play.then(|| {
             use kiln_manage::boot_snapshot as bs;
-            let tools = kiln_manage::cooktools::locate(&locate).map_err(|e| e.message);
-            let s = bs::make_with(tools, &g.path, false, Some(bs::LAUNCHER_LIMIT), &mut |l| {
-                p.borrow_mut().report(None, &format!("Game data for OnBoot mods ({}, once per game build): {l}", bs::SIZE_TEXT));
-            }, &|| p.borrow().canceled());
+            let s = bs::make_if_needed(&bs::boot_mods(&g), || {
+                let tools = kiln_manage::cooktools::locate(&locate).map_err(|e| e.message);
+                bs::make_with(tools, &g.path, false, Some(bs::LAUNCHER_LIMIT), &mut |l| {
+                    p.borrow_mut().report(None, &format!("Game data for OnBoot mods ({}, once per game build): {l}", bs::SIZE_TEXT));
+                }, &|| p.borrow().canceled())
+            });
             p.borrow_mut().report(Some(1.0), &s.summary());
             s
         });

@@ -1,0 +1,3 @@
+{ "gates": [
+    { "name": "items.tool_wear_debit", "checks": ["16b-g"], "side": "client" }
+] }

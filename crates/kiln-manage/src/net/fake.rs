@@ -9,11 +9,13 @@
 //!   A host without an entry resolves to a public test address.
 //! - [`FakeTransport::offline`] makes a transport for code that must not use the network at all: any request is
 //!   recorded and fails, and the test asserts [`FakeTransport::requests`] is empty.
+//! - A download ([`Transport::download`]) plays the same script; the body of a 2xx answer reaches the sink in chunks
+//!   of [`DOWNLOAD_CHUNK`] bytes, as from a socket, and stops with the bound's error once it would pass the bound.
 
 use super::{policy, Body, Method, Response, Transport, WireRequest};
 use crate::{Error, ErrorCode, Result};
 use std::collections::{HashMap, VecDeque};
-use std::io::Read;
+use std::io::{Read, Write};
 use std::net::IpAddr;
 use std::sync::Mutex;
 
@@ -168,8 +170,13 @@ fn read_body(body: Body) -> std::io::Result<(u64, String, Vec<u8>)> {
     Ok((total, crate::hash::hex(&hasher.finalize()), keep))
 }
 
-impl Transport for FakeTransport {
-    fn exchange(&self, req: WireRequest) -> Result<Response> {
+/// The size of the pieces a download's body reaches its sink in.
+pub const DOWNLOAD_CHUNK: usize = 16 * 1024;
+
+impl FakeTransport {
+    /// Plays one request against the script: resolve and vet, record, consume the body. Returns the scripted answer
+    /// with its body not yet held against the bound, or the error the request ends in.
+    fn play(&self, req: WireRequest) -> Result<Response> {
         let wire = req.url.wire();
         let key = (req.method, wire.clone());
         let mut rec = Recorded {
@@ -221,14 +228,38 @@ impl Transport for FakeTransport {
         rec.sent = true;
         self.state.lock().unwrap().log.push(rec);
         match reply {
-            Reply::Response(r) => {
-                if r.body.len() as u64 > req.max_response {
-                    return Err(super::too_large(&url));
-                }
-                Ok(r)
-            }
+            Reply::Response(r) => Ok(r),
             Reply::Lost | Reply::NotSent => Err(super::network_error(&url)),
         }
+    }
+}
+
+impl Transport for FakeTransport {
+    fn exchange(&self, req: WireRequest) -> Result<Response> {
+        let (url, max) = (req.url.clone(), req.max_response);
+        let r = self.play(req)?;
+        if r.body.len() as u64 > max {
+            return Err(super::too_large(&url));
+        }
+        Ok(r)
+    }
+
+    fn download(&self, req: WireRequest, sink: &mut dyn Write) -> Result<Response> {
+        let (url, max) = (req.url.clone(), req.max_response);
+        let mut r = self.play(req)?;
+        let body = std::mem::take(&mut r.body);
+        if !(200..300).contains(&r.status) {
+            return Ok(r);
+        }
+        let mut total = 0u64;
+        for chunk in body.chunks(DOWNLOAD_CHUNK) {
+            total += chunk.len() as u64;
+            if total > max {
+                return Err(super::too_large(&url));
+            }
+            sink.write_all(chunk).map_err(|_| Error::new(ErrorCode::Io, format!("The download from {} could not be kept.", url.redacted())))?;
+        }
+        Ok(r)
     }
 }
 
@@ -484,5 +515,124 @@ mod tests {
             assert_eq!(e.code, ErrorCode::InvalidArgument, "{k}");
         }
         assert!(t.requests().is_empty());
+    }
+
+    /// A sink that keeps what it got and how it got it.
+    #[derive(Default)]
+    struct Pieces {
+        bytes: Vec<u8>,
+        writes: usize,
+    }
+
+    impl std::io::Write for Pieces {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.bytes.extend_from_slice(buf);
+            self.writes += 1;
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_download_streams_a_success_body_to_the_sink_and_returns_no_body() {
+        let t = FakeTransport::new();
+        let url = "https://api.provider.example/assets/9";
+        let data: Vec<u8> = (0..200_000u32).map(|i| (i % 253) as u8).collect();
+        t.reply(Method::Get, url, Reply::bytes(200, &data));
+        let mut sink = Pieces::default();
+        let r = client(&t).download(Request::get(url).header("Authorization", TOKEN).max_response(data.len() as u64), &mut sink).unwrap();
+        assert_eq!(r.status, 200);
+        assert!(r.body.is_empty(), "a download returned its body in memory");
+        assert_eq!(sink.bytes, data);
+        assert!(sink.writes >= data.len() / DOWNLOAD_CHUNK, "the body reached the sink in {} piece(s)", sink.writes);
+        assert_eq!(t.requests()[0].header("authorization"), Some(TOKEN));
+    }
+
+    #[test]
+    fn a_download_over_its_bound_fails_and_never_passes_the_bound_to_the_sink() {
+        let t = FakeTransport::new();
+        let url = "https://api.provider.example/assets/9";
+        let data = vec![5u8; 3 * DOWNLOAD_CHUNK + 1];
+        t.reply(Method::Get, url, Reply::bytes(200, &data)).reply(Method::Get, url, Reply::bytes(200, &data));
+        let mut sink = Pieces::default();
+        let e = client(&t).download(Request::get(url).max_response(data.len() as u64 - 1), &mut sink).unwrap_err();
+        assert_eq!(e.code, ErrorCode::Refused);
+        assert!(sink.bytes.len() < data.len(), "the sink got {} bytes, more than the bound", sink.bytes.len());
+        // exactly at the bound is fine
+        let mut sink = Pieces::default();
+        client(&t).download(Request::get(url).max_response(data.len() as u64), &mut sink).unwrap();
+        assert_eq!(sink.bytes.len(), data.len());
+    }
+
+    #[test]
+    fn a_refusal_or_a_redirect_body_never_reaches_the_sink() {
+        let t = FakeTransport::new();
+        let url = "https://api.provider.example/assets/9";
+        t.reply(Method::Get, url, Reply::json(404, r#"{"message": "Not Found"}"#));
+        t.reply(Method::Get, url, Reply::redirect(302, "https://assets.provider-cdn.example/blob/9?sig=SIGNEDSECRET").with_header("Content-Type", "text/html"));
+        let mut sink = Pieces::default();
+        let r = client(&t).download(Request::get(url), &mut sink).unwrap();
+        assert_eq!((r.status, r.body.len()), (404, 0));
+        // a redirect the call did not allow is refused, as with send
+        assert_eq!(client(&t).download(Request::get(url), &mut sink).unwrap_err().code, ErrorCode::Refused);
+        assert!(sink.bytes.is_empty() && sink.writes == 0);
+    }
+
+    #[test]
+    fn a_download_follows_one_allowed_redirect_without_the_credential() {
+        let t = FakeTransport::new();
+        let url = "https://api.provider.example/assets/9";
+        let target = "https://assets.provider-cdn.example/blob/9?sig=SIGNEDSECRET";
+        t.reply(Method::Get, url, Reply::redirect(302, target).with_header("Content-Length", "0"));
+        t.reply(Method::Get, target, Reply::bytes(200, b"payload"));
+        let mut sink = Pieces::default();
+        let req = Request::get(url).header("Authorization", &format!("Bearer {TOKEN}")).header("Accept", "application/octet-stream").allow_redirect_to(&[CDN]);
+        let r = client(&t).download(req, &mut sink).unwrap();
+        assert_eq!((r.status, sink.bytes.as_slice()), (200, &b"payload"[..]));
+        let log = t.requests();
+        assert_eq!(log.len(), 2);
+        assert_eq!(log[0].header("authorization"), Some(format!("Bearer {TOKEN}").as_str()));
+        assert_eq!((log[1].host.as_str(), log[1].url.as_str()), (CDN, target));
+        assert_eq!(log[1].header("authorization"), None, "the redirect hop carried the credential");
+        assert!(log[1].headers.iter().all(|(k, v)| !v.contains(TOKEN) && !policy::is_credential_header(k)));
+        assert_eq!(log[1].header("accept"), Some("application/octet-stream"));
+    }
+
+    #[test]
+    fn a_redirect_needs_the_call_and_the_policy_to_allow_its_host() {
+        let t = FakeTransport::new();
+        let url = "https://api.provider.example/assets/9";
+        // the call allows a host the provider's policy does not have
+        let elsewhere = "https://storage.elsewhere.example/blob/9";
+        t.reply(Method::Get, url, Reply::redirect(302, elsewhere)).reply(Method::Get, url, Reply::redirect(302, elsewhere));
+        t.reply(Method::Get, elsewhere, Reply::bytes(200, b"payload"));
+        let mut sink = Pieces::default();
+        let e = client(&t).download(Request::get(url).allow_redirect_to(&["storage.elsewhere.example"]), &mut sink).unwrap_err();
+        assert_eq!(e.code, ErrorCode::Refused);
+        let e = client(&t).send(Request::get(url).allow_redirect_to(&["storage.elsewhere.example"])).unwrap_err();
+        assert_eq!(e.code, ErrorCode::Refused);
+        assert!(t.requests().iter().all(|r| r.host == API), "a host outside the policy was asked");
+        assert!(sink.bytes.is_empty());
+        assert_eq!(t.unused(), [format!("GET {elsewhere}")]);
+    }
+
+    #[test]
+    fn a_transport_that_cannot_stream_refuses_a_download_before_sending() {
+        struct Buffered<'a>(&'a FakeTransport);
+        impl Transport for Buffered<'_> {
+            fn exchange(&self, req: WireRequest) -> Result<Response> {
+                self.0.exchange(req)
+            }
+        }
+        let t = FakeTransport::new();
+        let url = "https://api.provider.example/assets/9";
+        t.reply(Method::Get, url, Reply::bytes(200, b"payload"));
+        let b = Buffered(&t);
+        let mut sink = Pieces::default();
+        let e = Client::new(policy(), &b, "kiln-test/0").download(Request::get(url), &mut sink).unwrap_err();
+        assert_eq!(e.code, ErrorCode::Refused);
+        assert!(t.requests().is_empty() && sink.bytes.is_empty());
     }
 }

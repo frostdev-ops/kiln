@@ -36,6 +36,17 @@ public:
     // is when it was seen first (pruning keeps young entries).
     uint32_t stamp(uint32_t entity, uint32_t item, uint64_t step);
 
+    // stamp() and the table's epoch as one answer, under one lock: {stamp, epoch} names an item entity of one world.
+    // The epoch is resets() + 1 at that moment (never 0); a reset cannot fall between the two. A queued record keeps
+    // the pair and is dropped later unless the epoch is still current and peek() still gives that stamp (kiln.toolwear).
+    struct Captured {
+        uint32_t stamp;
+        uint64_t epoch;
+    };
+    Captured capture(uint32_t entity, uint32_t item, uint64_t step);
+    // The epoch a capture would get now.
+    uint64_t epoch() const;
+
     // The entry's stamp without making one; 0 = none (or gone).
     uint32_t peek(uint32_t entity) const;
 
@@ -75,6 +86,7 @@ private:
         bool gone;
     };
     uint32_t next_locked();
+    uint32_t stamp_locked(uint32_t entity, uint32_t item, uint64_t step);
 
     mutable std::mutex mu_;
     std::unordered_map<uint32_t, Entry> map_;

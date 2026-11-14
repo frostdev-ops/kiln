@@ -13,6 +13,77 @@ namespace Kiln.CreatureControlTests;
 
 public sealed unsafe class CreatureControlTests
 {
+    public sealed class EmptyMod : Mod { }
+
+    [Fact]
+    public void AnotherModCannotReleaseATrackedLease()
+    {
+        var (kiln, body) = Start();
+        using var cleanup = kiln;
+        var owner = kiln.Load<EmptyMod>(new ModManifest("control-owner"));
+        var other = kiln.Load<EmptyMod>(new ModManifest("control-other"));
+        var lease = kiln.As(owner, () => CreatureControl.Acquire(body, ControlRole.PetFollow, CreatureControl.NewRequestId()));
+        kiln.Step(3);
+        var denied = kiln.As(other, () => CreatureControl.Release(lease.Lease));
+        Assert.True(denied.IsCompletedSuccessfully);
+        Assert.False(denied.Result.Ok);
+        Assert.Contains("another owner", denied.Result.Reason);
+        Assert.True(kiln.Run(() => CreatureControl.Inspect(lease.Lease))!.CanDrive);
+        var release = kiln.As(owner, () => CreatureControl.Release(lease.Lease));
+        kiln.Step(6);
+        Assert.True(release.Result.Ok);
+    }
+
+    [Fact]
+    public void ARequestReplaysAfterTheImplicitBindingWasReleased()
+    {
+        var (kiln, body) = Start();
+        using var cleanup = kiln;
+        var id = kiln.Run(() => CreatureControl.NewRequestId());
+        var first = kiln.Run(() => CreatureControl.Acquire(body, ControlRole.PetFollow, id));
+        kiln.Step(3);
+        var release = kiln.Run(() => CreatureControl.Release(first.Lease));
+        kiln.Step(6);
+        Assert.True(release.Result.Ok);
+        var replay = kiln.Run(() => CreatureControl.Acquire(body, ControlRole.PetFollow, id));
+        Assert.True(replay.Ok);
+        Assert.Equal(first.Lease, replay.Lease);
+        Assert.Equal(ControlLeaseState.Released, replay.Initial!.State);
+    }
+
+    [Fact]
+    public void FakeLeaseHandlesDoNotAliasAcrossHarnesses()
+    {
+        ControlLeaseId previous;
+        var (first, body) = Start();
+        using (first) previous = Acquire(first, body).Lease;
+        var (second, nextBody) = Start();
+        using (second)
+        {
+            var next = Acquire(second, nextBody);
+            Assert.True(next.Ok, next.Reason);
+            Assert.NotEqual(previous, next.Lease);
+            Assert.Null(second.Run(() => CreatureControl.Inspect(previous)));
+        }
+    }
+
+    [Fact]
+    public void CancelingPendingAfterRemovalStillWaitsForRestore()
+    {
+        var (kiln, body) = Start();
+        using var cleanup = kiln;
+        var lease = Acquire(kiln, body);
+        kiln.Step();  // the removal ran, but the next Pre has not verified it
+        Assert.Equal(ControlLeaseState.Pending, kiln.Run(() => CreatureControl.Inspect(lease.Lease))!.State);
+        var release = kiln.Run(() => CreatureControl.Release(lease.Lease));
+        kiln.Step();
+        Assert.False(release.IsCompleted);
+        kiln.Step(3);
+        Assert.True(release.IsCompletedSuccessfully);
+        Assert.True(release.Result.Ok);
+        Assert.Equal(ControlResultCode.Canceled, release.Result.State!.Result);
+    }
+
     private static (KilnHarness Kiln, EntityRef Body) Start()
     {
         var kiln = new KilnHarness();

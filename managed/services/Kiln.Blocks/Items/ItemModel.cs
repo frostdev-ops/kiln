@@ -476,6 +476,13 @@ public sealed record ToolBlock
     public double? Durability { get; init; }
     /// <summary>What it becomes when its durability runs out, as the game's torch becomes a burnt one: a game item or an item of this mod. Null: the class's.</summary>
     public ItemRef? BreaksInto { get; init; }
+    /// <summary>What each of the game's wear debits costs this tool's durability: 1 is the game's own, 0 makes it not wear, at most 32767. The game debits
+    /// an axe or a pickaxe when a hit debits the weapon and when a projectile is spawned with it; each such debit spends this much, so two debits in one swing
+    /// spend twice, and a swing the game does not debit spends nothing. For a tool with a level and enhancement slots (an axe, a pickaxe, a sieve); a torch's
+    /// burning is <see cref="Durability"/>. The rule is the server's: it is set where the world runs (<c>Items.SetToolWearPerDebit</c> does the same).
+    /// Null: the game's own.</summary>
+    [RequiresCapability("items.tool_wear_debit")]
+    public int? WearPerDebit { get; init; }
     /// <summary>A fishing rod's pull and stamina. Null: the class's.</summary>
     public FishingBlock? Fishing { get; init; }
 }

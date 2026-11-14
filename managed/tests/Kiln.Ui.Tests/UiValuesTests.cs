@@ -34,6 +34,10 @@ internal static unsafe class FakeUiValues
     public static uint OpenOk;
     public static int Opens, Closes;
     public static nint SlotsUser;
+    public static UiValuesNative.TooltipDetails? Details;
+    public static Action? AfterRegistration;
+    public static Action? AfterOpen;
+    public static nint Caps;
 
     public static void Install()
     {
@@ -59,6 +63,10 @@ internal static unsafe class FakeUiValues
         SubscribeOk = 1;
         SubscribeReason = 0;
         InternRc = 0;
+        Details = null;
+        AfterRegistration = null;
+        AfterOpen = null;
+        Caps = 0;
         ChangeFn = 0;
         ChangeOwner = 0;
         lock (Subscribed) Subscribed.Clear();
@@ -83,6 +91,7 @@ internal static unsafe class FakeUiValues
         r->Ok = SubscribeRc == 0 ? SubscribeOk : 0;
         r->Reason = SubscribeReason;
         r->Handle = SubscribeRc == 0 && SubscribeOk != 0 ? NextHandle++ : 0;
+        AfterRegistration?.Invoke();
         return SubscribeRc;
     }
 
@@ -127,6 +136,7 @@ internal static unsafe class FakeUiValues
         LinesUser = (nint)user;
         r->Ok = 1;
         r->Handle = NextHandle++;
+        AfterRegistration?.Invoke();
         return 0;
     }
 
@@ -138,6 +148,7 @@ internal static unsafe class FakeUiValues
         o->Reason = OpenOk != 0 ? 0 : UiValuesNative.ReasonNoTooltip;
         o->Session = 7;
         o->SourceFrame = 1201;
+        AfterOpen?.Invoke();
         return 0;
     }
 
@@ -151,6 +162,7 @@ internal static unsafe class FakeUiValues
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static int GetDetails(ulong owner, uint which, UiValuesNative.TooltipDetails* d)
     {
+        if (Details is { } details) { *d = details; return 0; }
         d->Ok = OpenOk;
         d->Item = 0xAA;
         return 0;
@@ -164,6 +176,7 @@ internal static unsafe class FakeUiValues
         SlotsUser = (nint)user;
         r->Ok = 1;
         r->Handle = NextHandle++;
+        AfterRegistration?.Invoke();
         return 0;
     }
 
@@ -197,9 +210,75 @@ internal static unsafe class FakeUiValues
         public bool HasFeature(string name) => features.Contains(name);
         public void Log(ulong owner, LogLevel level, string text) { lock (Logs) Logs.Add($"{level}: {text}"); }
         public bool TableHidden;
-        public nint Service(string name, uint minVersion) => name == UiValuesNative.Service && !TableHidden ? (nint)Table : 0;
+        public nint Service(string name, uint minVersion) => name == UiValuesNative.Service && !TableHidden ? (nint)Table :
+            name == "kiln.ui" ? (nint)FakeUiTable.Table : name == "kiln.caps" ? Caps : 0;
         public ulong OwnerCreate(string id) => 99;
     }
+}
+
+// A registry with sigdb rows, rather than HasFeature's offline claims: managed lowering must be observable here.
+internal sealed unsafe class ValuesCaps : IDisposable
+{
+    private static readonly Dictionary<string, Capabilities.CapRow> Core = [];
+    private static readonly Dictionary<string, Capabilities.CapRow> Reports = [];
+    private static readonly List<nint> Strings = [];
+    private static ulong _generation;
+    private readonly Capabilities.CapsTable* _table;
+    private static NativeStr Text(string value)
+    {
+        var ptr = Marshal.StringToCoTaskMemUTF8(value);
+        Strings.Add(ptr);
+        return new NativeStr { Ptr = (byte*)ptr, Len = (nuint)System.Text.Encoding.UTF8.GetByteCount(value) };
+    }
+    public ValuesCaps()
+    {
+        Core.Clear(); Reports.Clear(); _generation = 1;
+        foreach (var name in UiCaps.ValueFeatures)
+            Core[name] = new Capabilities.CapRow { Size = (uint)sizeof(Capabilities.CapRow), State = 1, Name = Text(name), Source = Text("sigdb") };
+        _table = (Capabilities.CapsTable*)NativeMemory.AllocZeroed((nuint)sizeof(Capabilities.CapsTable));
+        *_table = new Capabilities.CapsTable { Header = new ServiceHeader { Size = (uint)sizeof(Capabilities.CapsTable), Version = 1 },
+            Count = &Count, At = &At, Find = &Find, Report = &Report, Subscribe = &Subscribe, Generation = &Generation };
+        FakeUiValues.Caps = (nint)_table;
+        Capabilities.Reset();
+    }
+    private static Dictionary<string, Capabilities.CapRow> Rows() => Core.Concat(Reports).GroupBy(x => x.Key).ToDictionary(g => g.Key, g => g.Last().Value);
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static uint Count() => (uint)Rows().Count;
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int At(uint index, Capabilities.CapRow* row) { *row = Rows().Values.ElementAt((int)index); return 0; }
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int Find(NativeStr name, Capabilities.CapRow* row)
+    {
+        if (!Rows().TryGetValue(name.ToString(), out var found)) return 2;
+        *row = found; return 0;
+    }
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int Report(ulong owner, NativeStr name, uint state, uint reason, NativeStr text)
+    {
+        var key = name.ToString();
+        if (state == 1 && Core.ContainsKey(key)) Reports.Remove(key);
+        else Reports[key] = new Capabilities.CapRow { Size = (uint)sizeof(Capabilities.CapRow), State = state, Reason = reason,
+            Name = Text(key), Text = Text(text.ToString()), Source = Text("capabilities") };
+        ++_generation; return 0;
+    }
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int Subscribe(ulong owner, delegate* unmanaged[Cdecl]<Capabilities.CapRow*, uint, void*, void> fn, void* user, ulong* handle) { *handle = 1; return 0; }
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static ulong Generation() => _generation;
+    public void Dispose()
+    {
+        FakeUiValues.Caps = 0; Capabilities.Reset(); NativeMemory.Free(_table);
+        foreach (var ptr in Strings) Marshal.FreeCoTaskMem(ptr);
+        Strings.Clear(); Core.Clear(); Reports.Clear();
+    }
+}
+
+// Loaded into a collectible mod context by the AnyThread ownership regression.
+public static class CollectibleValuesCallbacks
+{
+    public static UiBarProvider Value() => (in UiValueContext c, in UiItemView v, UiBarValue a) => UiProviderDecision.Pass;
+    public static UiTooltipProvider Lines() => (in UiValueContext c, in UiItemView v) => UiTooltipDecision.None;
+    public static Action<VisibleSlotsResult> Slots() => _ => { };
 }
 
 [Collection(UiSerial.Name)]
@@ -288,6 +367,39 @@ public sealed unsafe class UiValuesTests : IDisposable
         Assert.Equal("ui.values.detail", Assert.Throws<KilnUnavailableException>(() => Ui.Values.ItemBar(default, Pass)).Capability);
         b.TableHidden = false;  // published later, under the same registry
         Assert.True(Ui.Values.ItemBar(default, Pass).Ok);
+    }
+
+    [Fact]
+    public void Tooltip_capability_waits_for_the_overlay_and_decides_again_when_it_arrives()
+    {
+        using var caps = new ValuesCaps();
+        UiNative.ResetForTests();
+        UiCaps.Rows.Refresh();
+        Assert.False(Capabilities.Is(Ui.Values.TooltipCapability));
+        Assert.Throws<KilnUnavailableException>(() => Ui.Values.TooltipLines(default,
+            (in UiValueContext c, in UiItemView v) => UiTooltipDecision.None));
+        FakeUiTable.Install();  // same registry; the backend can now find the overlay table
+        try
+        {
+            using var reg = Ui.Values.TooltipLines(default, (in UiValueContext c, in UiItemView v) => UiTooltipDecision.None);
+            Assert.True(reg.Ok);
+            Assert.True(Capabilities.Is(Ui.Values.TooltipCapability));
+        }
+        finally { UiNative.ResetForTests(); FakeUiTable.Free(); }
+    }
+
+    [Fact]
+    public void A_sigdb_row_lowered_for_a_missing_values_table_recovers_before_refusing()
+    {
+        using var caps = new ValuesCaps();
+        _backend.TableHidden = true;
+        UiValuesNative.ResetForTests();
+        UiCaps.Rows.Refresh();
+        Assert.False(Capabilities.Is(Ui.Values.DetailCapability));
+        _backend.TableHidden = false;
+        using var reg = Ui.Values.ItemBar(default, Pass);
+        Assert.True(reg.Ok);
+        Assert.True(Capabilities.Is(Ui.Values.DetailCapability));
     }
 
     [Fact]
@@ -594,6 +706,74 @@ public sealed unsafe class UiValuesTests : IDisposable
         Assert.Throws<ArgumentNullException>(() => Ui.Values.SubscribeSlots(null!));
     }
 
+    [Fact]
+    public void Slot_subscriptions_release_the_mod_when_it_retires()
+    {
+        var mod = HostAccess.CreateContext(new ModInfo("values-unload", "Unload", "1.0.0", Path.GetTempPath()),
+            70, Path.GetTempPath());
+        UiValueRegistration reg;
+        var previous = HostAccess.Current;
+        HostAccess.Current = mod;
+        try { reg = Ui.Values.SubscribeSlots(_ => { }); }
+        finally { HostAccess.Current = previous; }
+        mod.Retire();
+        Assert.Contains(reg.Handle, FakeUiValues.Unsubscribed);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void Registration_racing_mod_retirement_does_not_keep_its_callback(int kind)
+    {
+        var mod = HostAccess.CreateContext(new ModInfo("values-racing-unload", "Unload", "1.0.0", Path.GetTempPath()),
+            71, Path.GetTempPath());
+        FakeUiValues.AfterRegistration = mod.Retire;
+        var previous = HostAccess.Current;
+        HostAccess.Current = mod;
+        try
+        {
+            var reg = kind switch
+            {
+                0 => Ui.Values.ItemBar(default, Pass),
+                1 => Ui.Values.TooltipLines(default, (in UiValueContext c, in UiItemView v) => UiTooltipDecision.None),
+                _ => Ui.Values.SubscribeSlots(_ => { }),
+            };
+            Assert.Contains(reg.Handle, FakeUiValues.Unsubscribed);
+        }
+        finally { HostAccess.Current = previous; FakeUiValues.AfterRegistration = null; }
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void AnyThread_registrations_belong_to_the_callbacks_mod_without_a_current_mod(int kind)
+    {
+        var mod = HostAccess.CreateContext(new ModInfo("values-background", "Background", "1.0.0", Path.GetTempPath()),
+            72, Path.GetTempPath());
+        var load = new System.Runtime.Loader.AssemblyLoadContext("values-background-" + kind, isCollectible: true);
+        load.Resolving += (_, name) => System.Runtime.Loader.AssemblyLoadContext.Default.Assemblies
+            .FirstOrDefault(a => a.GetName().Name == name.Name);
+        try
+        {
+            var assembly = load.LoadFromAssemblyPath(typeof(CollectibleValuesCallbacks).Assembly.Location);
+            ModContext.Remember(assembly, mod);
+            var factory = assembly.GetType(typeof(CollectibleValuesCallbacks).FullName!)!;
+            Assert.Null(HostAccess.Current);
+            var reg = kind switch
+            {
+                0 => Ui.Values.ItemBar(default, (UiBarProvider)factory.GetMethod("Value")!.Invoke(null, null)!),
+                1 => Ui.Values.TooltipLines(default, (UiTooltipProvider)factory.GetMethod("Lines")!.Invoke(null, null)!),
+                _ => Ui.Values.SubscribeSlots((Action<VisibleSlotsResult>)factory.GetMethod("Slots")!.Invoke(null, null)!),
+            };
+            if (kind == 0) Assert.Equal(72ul, FakeUiValues.Subscribed[^1].Owner);
+            mod.Retire();
+            Assert.Contains(reg.Handle, FakeUiValues.Unsubscribed);
+        }
+        finally { mod.Retire(); load.Unload(); }
+    }
+
     // ---- tooltip lines and the details window ----
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static int WriterAppend(UiValuesNative.LineWriter* w, ulong id)
@@ -674,6 +854,85 @@ public sealed unsafe class UiValuesTests : IDisposable
     }
 
     private static float Measure(string s) => new System.Globalization.StringInfo(s).LengthInTextElements * 7f;
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static void MeasureOverlay(NativeStr s, float size, float* w, float* h) { *w = s.Len * 7; *h = 16; }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static byte BeginPane(NativeStr id, float w, float h, uint flags) => 1;
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static void WindowBounds(float* x, float* y, float* w, float* h) { *x = *y = 0; *w = 700; *h = 500; }
+
+    [Fact]
+    public void The_details_viewer_wraps_to_the_childs_content_width()
+    {
+        FakeUiTable.Install();
+        UiNative.ResetForTests();
+        var line = new string('x', 95);  // 665 pixels: fits a 700-pixel window, exceeds its 600-pixel content area
+        var bytes = System.Text.Encoding.UTF8.GetBytes(line);
+        try
+        {
+            ref var t = ref FakeUiTable.Table->Base.Base.Base;
+            t.TextSize = &MeasureOverlay;
+            t.BeginChild = &BeginPane;
+            t.WindowRect = &WindowBounds;
+            fixed (byte* p = bytes)
+            {
+                var d = new UiValuesNative.TooltipDetails { Size = (uint)sizeof(UiValuesNative.TooltipDetails), Ok = 1,
+                    Open = 1, Count = 1, Session = 8, SourceFrame = 200 };
+                d.Lines[0] = new NativeStr { Ptr = p, Len = (nuint)bytes.Length };
+                FakeUiValues.Details = d;
+                var draw = new UiDraw { Frame = new UiNative.Frame { DpiScale = 1 } };
+                typeof(UiTooltipBridge).GetMethod("Draw", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
+                    .Invoke(null, [draw]);
+            }
+            var output = FakeUiTable.Texts.Where(s => s.StartsWith('x')).ToArray();
+            Assert.NotEmpty(output);
+            Assert.All(output, s => Assert.True(s.Length * 7 <= 600, $"line is {s.Length * 7} pixels for a 600-pixel pane"));
+            Assert.Equal(line, string.Concat(output));
+            Ui.Values.CloseTooltipDetails();
+            // Several detail occurrences can complete in one UI frame. A reopened snapshot must replace the layout.
+            bytes.AsSpan().Fill((byte)'z');
+            fixed (byte* p = bytes)
+            {
+                var d = FakeUiValues.Details!.Value;
+                d.Lines[0] = new NativeStr { Ptr = p, Len = (nuint)bytes.Length };
+                FakeUiValues.Details = d;
+                Assert.True(Ui.Values.OpenTooltipDetails().Ok);
+                FakeUiTable.Texts.Clear();
+                typeof(UiTooltipBridge).GetMethod("Draw", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
+                    .Invoke(null, [new UiDraw { Frame = new UiNative.Frame { DpiScale = 1 } }]);
+                Assert.Equal(new string('z', 95), string.Concat(FakeUiTable.Texts.Where(s => s.StartsWith('z'))));
+                var refreshed = Enumerable.Repeat((byte)'q', 95).ToArray();
+                fixed (byte* q = refreshed)
+                {
+                    var address = (nint)q;
+                    FakeUiValues.AfterOpen = () =>
+                    {
+                        var next = FakeUiValues.Details!.Value;
+                        next.Lines[0] = new NativeStr { Ptr = (byte*)address, Len = 95 };
+                        FakeUiValues.Details = next;
+                    };
+                    FakeUiTable.Click = "Refresh";
+                    FakeUiTable.Texts.Clear();
+                    typeof(UiTooltipBridge).GetMethod("Draw", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
+                        .Invoke(null, [new UiDraw { Frame = new UiNative.Frame { DpiScale = 1 } }]);
+                    Assert.Equal(new string('q', 95), string.Concat(FakeUiTable.Texts.Where(s => s.StartsWith('q'))));
+                }
+            }
+        }
+        finally
+        {
+            UiTooltipBridge.Close("test ended");
+            (typeof(UiTooltipBridge).GetField("_window", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
+                .GetValue(null) as UiWindow)?.Dispose();
+            FakeUiValues.Details = null;
+            FakeUiValues.AfterOpen = null;
+            UiNative.ResetForTests();
+            FakeUiTable.Free();
+        }
+    }
 
     [Fact]
     public void Wrapping_keeps_every_line_inside_the_pane_and_never_splits_a_text_element()

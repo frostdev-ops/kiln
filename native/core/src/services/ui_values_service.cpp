@@ -198,6 +198,8 @@ bool init() {
     }
     wire();
     g_owner = reg::owner_create("kiln.ui.values");
+    if (reg::add_owner_retiring(g_owner, [](KilnOwner owner, void*) { owner_retired(owner); }, nullptr, nullptr) != KILN_OK)
+        return false;
     // Each feature resolves on its own; the rows (and the client gate) decide at registration time.
     static const char* const kFeatures[] = {"ui.values.detail", "ui.values.slot",          "ui.values.held",
                                             "ui.values.hud",    "ui.values.tooltip_lines", "ui.slots.inspect"};

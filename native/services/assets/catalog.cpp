@@ -168,7 +168,12 @@ bool catalog_start() {
         if (!hooks || hooks->header.size < offsetof(KilnHooksApi, subscribe_owner_retiring) + sizeof(void*) ||
             !hooks->subscribe_owner_retiring) return;
         KilnHandle handle = 0;
-        watching = hooks->subscribe_owner_retiring(g_self, [](KilnOwner owner, void*) { catalog_release_owner(owner, true); },
+        // Neither call waits: the store only marks the owner (its revert is deferred), the catalog drops handles under g_cat_mu.
+        watching = hooks->subscribe_owner_retiring(g_self,
+                                                   [](KilnOwner owner, void*) {
+                                                       store_owner_retired(owner);
+                                                       catalog_release_owner(owner, true);
+                                                   },
                                                    nullptr, &handle) == KILN_OK;
     });
     return watching;
@@ -185,6 +190,7 @@ KilnResult op_catalog_open(KilnOwner owner, uint32_t mode, KilnHandle* handle, K
     std::shared_ptr<const Snapshot> snap;
     {
         std::lock_guard build_lock(g_build_mu);
+        store_drain_retired();  // a revoked owner's pending revert moves the generation first: no shared snapshot lists it
         {
             std::lock_guard lock(g_cat_mu);
             if (auto newest = g_newest[mode].lock(); newest && newest->generation == catalog_generation()) snap = newest;

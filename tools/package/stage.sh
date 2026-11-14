@@ -93,7 +93,9 @@ done
 # A successful command (or --no-build) is not evidence that its required output exists.
 for dir in "$repo"/native/services/*/; do
   svc=$(basename "$dir"); [[ -f $dir/CMakeLists.txt ]] || continue
-  [[ -s $bin/services/kiln-$svc.dll ]] || miss "native service kiln-$svc: no $bin/services/kiln-$svc.dll"
+  # a folder name with "_" may build a DLL named with "-" (native/services/creature_control -> kiln-creature-control.dll)
+  [[ -s $bin/services/kiln-$svc.dll || -s $bin/services/kiln-${svc//_/-}.dll ]] ||
+    miss "native service kiln-$svc: no $bin/services/kiln-$svc.dll (nor kiln-${svc//_/-}.dll)"
 done
 for proj in "$repo"/managed/services/*/*.csproj; do
   [[ -f $proj ]] || continue

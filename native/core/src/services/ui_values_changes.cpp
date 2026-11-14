@@ -148,7 +148,7 @@ void deliver(const std::vector<KilnUiValueChange>& out) {
     for (const auto& sp : *subs) {
         Provider& p = *sp;
         for (const KilnUiValueChange& c : out) {
-            if (!p.live.load(std::memory_order_acquire)) break;
+            if (!provider_live(p)) break;
             if (!env().call_changed || !env().call_changed(reinterpret_cast<KilnUiValueChangedFn>(p.fn), &c, p.user)) {
                 fault(p, "faulted");
                 break;

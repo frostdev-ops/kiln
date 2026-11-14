@@ -124,7 +124,8 @@ public static class Terrain
     }
 
     /// <summary>Drops the calling mod's record of plan <paramref name="id"/> in this world: the plan no longer owns its
-    /// blocks, and an <see cref="Apply"/> of that id starts fresh over whatever is there. <b>The cells stay.</b></summary>
+    /// blocks, and an <see cref="Apply"/> of that id is a first install again (refused while the ground still holds the
+    /// plan's result). <b>The cells stay.</b></summary>
     /// <returns>False when the world has no such plan.</returns>
     /// <exception cref="ArgumentException"><paramref name="id"/> is not a plan id.</exception>
     /// <exception cref="KilnUnavailableException"><c>terrain.overlays</c> is off.</exception>

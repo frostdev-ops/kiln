@@ -40,10 +40,10 @@ bool g_charges_tried = false;  // installers run one at a time (ensure_installed
 
 bool load_bar(BarLayout* b) {
     const bool ok = sig_constant("ui/bar.fraction", &b->fraction) && sig_constant("ui/bar.current", &b->current) &&
-                    sig_constant("ui/bar.max", &b->maximum) && sig_constant("ui/bar.label", &b->label);
+                    sig_constant("ui/bar.max", &b->maximum);
     // the descriptor is at least 0x50 bytes (the detail one ends at +0x4f): every field must sit inside it
     return ok && b->fraction >= 0 && b->fraction + 4 <= 0x50 && b->current >= 0 && b->current + 4 <= 0x50 &&
-           b->maximum >= 0 && b->maximum + 4 <= 0x50 && b->label >= 0 && b->label + 24 <= 0x50;
+           b->maximum >= 0 && b->maximum + 4 <= 0x50;
 }
 
 void load_charges(Charges* c) {
@@ -153,9 +153,10 @@ bool install_bars(uint32_t list) {
     load_charge_layout();
     uintptr_t at = 0;
     if (list == KUI_DETAIL) {
-        if (!sig_constant("ui/detail.view", &g_bars.detail_view) || g_bars.detail_view < 0 ||
+        if (!sig_constant("ui/bar.label", &g_bars.bar.label) || g_bars.bar.label < 0 || g_bars.bar.label > 0x50 - 24 ||
+            !sig_constant("ui/detail.view", &g_bars.detail_view) || g_bars.detail_view < 0 ||
             !sig_symbol("ui/DetailBarDraw", &at)) {
-            logf(KILN_LOG_ERROR, "ui.values: ui/DetailBarDraw or ui/detail.view did not resolve");
+            logf(KILN_LOG_ERROR, "ui.values: ui/DetailBarDraw, ui/detail.view or ui/bar.label did not resolve");
             return false;
         }
         if (!g_bars.charges.ok) logf(KILN_LOG_WARN, "ui.values: the charge divisor is not readable; views say 1");
