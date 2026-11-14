@@ -42,5 +42,46 @@ public sealed class WeaponMovesMod : Mod
             },
             Recipe = new RecipeBlock { Needs = { ["Material_T1_Twigs"] = 1 } },
         });
+
+        // Follow-ups (docs/kiln/modding/item-blocks.md, "Follow-ups"): the same blade, whose block hands over to its own parry when it parried a blow
+        // and to its first swing on the light attack. A weapon with follow-ups applies all its moves at once or none of them; the event says which.
+        // The capability is switched off until its game test has passed, and a weapon with follow-ups is refused while it is: so ask first.
+        if (Capabilities.IsHeld("blocks.move_followups"))
+        {
+            Log.Info("weapon-moves: blocks.move_followups is waiting for its game test: the Parrying Blade is left out");
+            return;
+        }
+        Blocks.Define("parrying-blade", new WeaponBlock
+        {
+            Name = "Parrying Blade", Description = "Its guard answers.", Class = WeaponClass.Sword,
+            Stats = new WeaponStats { Level = 5, Power = 30, Rarity = Rarity.Rare },
+            Visual = new VisualBlock { Model = BladeModel, Animated = new AnimatedModel { Model = "moves_blade_anim", Graph = "moves_blade" } },
+            Moves = new WeaponMoves
+            {
+                Primary =
+                [
+                    new MoveBlock { Animation = "slash-1", Like = "Attack_Player_1H_Single_LightChain1", HitAt = 0.42, Length = 1.0 },
+                    new MoveBlock { Animation = "slash-2", Like = "Attack_Player_1H_Single_LightChain2", HitAt = 0.37, Length = 0.87 },
+                ],
+                // the game's parry, as this weapon's own move: a route leads to a move of the same weapon
+                Parry = new MoveBlock { Like = "Ability_Player_Parry_AllWeapons" },
+                Block = new MoveBlock
+                {
+                    Animation = "guard",
+                    FollowUps =
+                    [
+                        new MoveFollowUpBlock { Trigger = MoveFollowUpTrigger.Parried, To = WeaponMoveSlot.Parry },
+                        new MoveFollowUpBlock { Trigger = MoveFollowUpTrigger.Primary, To = WeaponMoveSlot.Primary, Link = 1 },
+                    ],
+                },
+            },
+            Recipe = new RecipeBlock { Needs = { ["Material_T1_Twigs"] = 2 } },
+        });
+        Events.On<WeaponMovesApplicationChangedEvent>(e =>
+        {
+            if (e.ModId != Context.Info.Id) return;
+            if (e.After.Ok) Log.Info($"weapon-moves: {e.BlockName}: its moves are applied (generation {e.After.AppliedGeneration})");
+            else Log.Warn($"weapon-moves: {e.BlockName}: {e.After.State}: {e.After.Reason}");
+        });
     }
 }

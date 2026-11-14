@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Blocks' face for a weapon's moves with follow-ups: Items/MoveFollowUps.cs, Items/MoveApplications.cs. docs/kiln/modding/item-blocks.md, "Follow-ups".
+using System.ComponentModel;
+using System.Diagnostics.CodeAnalysis;
+
 namespace Kiln;
 
 public static partial class Blocks
@@ -20,5 +23,24 @@ public static partial class Blocks
             throw new ArgumentException($"{weapon} is not the block {weapon.Mod} has under that name now (the mod reloaded, or the handle was not made by Blocks.Define)", nameof(weapon));
         return MoveApplications.Status(weapon.Mod, weapon.Name)
             ?? throw new ArgumentException($"{weapon}: its moves have no followUps, so they are not applied as a generation and have no status", nameof(weapon));
+    }
+
+    /// <summary>For Kiln's own lab: the next <paramref name="count"/> sequence clones a routed weapon stages are refused as if kiln.gamedata had refused them.</summary>
+    [Experimental("KILNX001", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx001")]
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public static void LabRefuseMoveClones(int count)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(count);
+        MoveApplications.RefuseDefines = count;
+    }
+
+    /// <summary>For Kiln's own lab: plans and applies a routed weapon's moves again now, as a content application would. False: the weapon has no follow-ups.</summary>
+    [Experimental("KILNX001", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx001")]
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    [TickThreadOnly]
+    public static bool LabRetryMoves(BlockHandle<WeaponBlock> weapon)
+    {
+        ArgumentNullException.ThrowIfNull(weapon);
+        return MoveApplications.Retry(weapon.Mod, weapon.Name, text => BlocksBridge.Log(LogLevel.Error, $"blocks: {weapon.Mod}: {text}"));
     }
 }

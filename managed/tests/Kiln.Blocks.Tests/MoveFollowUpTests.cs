@@ -108,7 +108,8 @@ public sealed class MoveFollowUpTests : IDisposable
         public Func<JsonObject, string?>? ApplyError;
         public bool SwitchTakesOnlyFirst;
 
-        public IReadOnlyList<SlotRow>? Slots(string item) => SlotRows;
+        // as the game: once a slot was switched it names the clone that plays there
+        public IReadOnlyList<SlotRow>? Slots(string item) => SlotRows?.Select((r, i) => SlotsNow.TryGetValue(i, out var g) ? r with { Sequence = g } : r).ToList();
         public Func<string, IReadOnlyList<SubSequence>?> Reader() => key => Game.TryGetValue(key, out var s) ? s : null;
         public IPlayerStateLookup? Lookup => null;
         public IReadOnlyDictionary<Guid, (string State, string? Error)> Clones() => Defined;
@@ -199,6 +200,9 @@ public sealed class MoveFollowUpTests : IDisposable
         Assert.Equal("parry", (string)block["followUps"]![0]!["to"]!);
         // a routed weapon's clones are a set per generation: none is defined at compile, also not those with a like
         Assert.Null(a["sequences"]);
+        // lowering alone publishes nothing: the application starts when the block commits (a kind's plan lowers a staged block and may never commit it)
+        Assert.Null(MoveApplications.Status(Mod, "warden"));
+        Assert.Empty(_game.Pending);
     }
 
     [Fact]
@@ -534,6 +538,8 @@ public sealed class MoveFollowUpTests : IDisposable
         Start(Warden());
         _game.Pump();
         var (defines, applied, first) = (_game.Defines, _game.Applied.Count, Status());
+        // the slots name the generation's clones now (the block's own, which has no like, among them): the plan is still the same plan
+        Assert.Equal(first.LiveClones["block/1"], _game.Slots("x")![0].Sequence);
         Assert.True(MoveApplications.Retry(Mod, "warden", _ => { }));
         Assert.Empty(_game.Pending);
         Assert.Equal((defines, applied), (_game.Defines, _game.Applied.Count));

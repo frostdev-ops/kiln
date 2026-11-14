@@ -181,3 +181,5 @@ static Kiln.MoveApplicationResult.operator !=(Kiln.MoveApplicationResult? left, 
 static Kiln.MoveApplicationResult.operator ==(Kiln.MoveApplicationResult? left, Kiln.MoveApplicationResult? right) -> bool
 static Kiln.MoveFollowUpBlock.operator !=(Kiln.MoveFollowUpBlock? left, Kiln.MoveFollowUpBlock? right) -> bool
 static Kiln.MoveFollowUpBlock.operator ==(Kiln.MoveFollowUpBlock? left, Kiln.MoveFollowUpBlock? right) -> bool
+[KILNX001]static Kiln.Blocks.LabRefuseMoveClones(int count) -> void
+[KILNX001]static Kiln.Blocks.LabRetryMoves(Kiln.BlockHandle<Kiln.WeaponBlock!>! weapon) -> bool

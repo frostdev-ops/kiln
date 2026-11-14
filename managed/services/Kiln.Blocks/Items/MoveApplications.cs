@@ -63,6 +63,14 @@ internal static class MoveApplications
     // the plans a weapon has staged clones for in this process: it outlives a reload, as the clones do
     private static readonly ConcurrentDictionary<(string Mod, string Block), HashSet<string>> Staged = new();
 
+    // every generation clone staged in this process and the sequence it was made from: once a generation is applied the item's slots name its
+    // clones, and the next plan must still start from what the class has there, not from the clone (a clone of a clone, and another plan each time)
+    private static readonly ConcurrentDictionary<Guid, Guid> CloneBases = new();
+
+    /// <summary>The item's slots as the class has them: a slot that plays a generation clone of Kiln's reads as the sequence the clone was made from.</summary>
+    private static IReadOnlyList<SlotRow>? ClassSlots(IReadOnlyList<SlotRow>? rows) =>
+        rows?.Select(r => CloneBases.TryGetValue(r.Sequence, out var from) ? r with { Sequence = from } : r).ToList();
+
     /// <summary>The running game (tests set it).</summary>
     internal static IMoveHost Host = MoveRuntime.Host;
     /// <summary>Where the events go (tests set it): the tick pump delivers them.</summary>
@@ -75,6 +83,7 @@ internal static class MoveApplications
     {
         Entries.Clear();
         Staged.Clear();
+        CloneBases.Clear();
         RefuseDefines = 0;
     }
 
@@ -184,7 +193,7 @@ internal static class MoveApplications
             e.Attempted = content;
             RouteGeneration? gen;
             List<string> problems;
-            try { (gen, problems) = MoveRoutes.Plan(plan, Host.Slots(plan.Item), Host.Reader(), Host.Lookup); }
+            try { (gen, problems) = MoveRoutes.Plan(plan, ClassSlots(Host.Slots(plan.Item)), Host.Reader(), Host.Lookup); }
             catch (Exception x) when (MoveRuntime.Readable(x))
             {
                 (gen, problems) = (null, [$"block {plan.Block}, moves: the game's data could not be read: {x.Message}"]);
@@ -217,6 +226,7 @@ internal static class MoveApplications
             var have = Host.Clones();
             foreach (var def in gen.Clones)
             {
+                CloneBases[Guid.Parse((string)def["guid"]!)] = Guid.Parse((string)def["base"]!);
                 if (have.ContainsKey(Guid.Parse((string)def["guid"]!))) continue;     // staged by an earlier attempt with this plan
                 try
                 {
