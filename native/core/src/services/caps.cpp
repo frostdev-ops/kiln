@@ -123,6 +123,7 @@ uint64_t g_order_gen = 0;
 
 // What the core rows were built from (core_rows); read by every refresh.
 std::atomic<bool> g_rows_built{false};
+bool g_gates_built = false;  // under g_mutex: gate rows exist even before core_rows (early plugins, service init)
 std::atomic<bool> g_hooks{false};  // read by refresh_tick() before it takes the lock
 bool g_verified = false;
 std::string g_safe_idle;
@@ -265,6 +266,16 @@ void set_core_locked(const std::string& name, int kind, uint32_t state, uint32_t
     refresh_locked(it, ev);
 }
 
+// Gate rows must precede every table query/report, including calls before core_rows during service initialization.
+void ensure_gates_locked(std::vector<Event>& ev) {
+    if (g_gates_built) return;
+    for (const gates::Held& h : gates::held()) {
+        if (!name_ok(h.name)) continue;  // gen.py refuses such a name; a test list might not
+        set_core_locked(h.name, kGate, KILN_CAP_UNAVAILABLE, KILN_CAP_REASON_POLICY, h.text, "core", 0, ev);
+    }
+    g_gates_built = true;
+}
+
 // ---- change delivery ----
 // Holds no C++ object with a destructor, as __try requires (guard.cpp's pattern).
 bool call_guarded(KilnCapsChangedFn fn, const KilnCapRow* row, uint32_t change, void* user, unsigned long* code) {
@@ -331,6 +342,7 @@ auto op(F&& body) {
     };
     Done done{ev, subs};
     std::lock_guard lock(g_mutex);
+    ensure_gates_locked(ev);
     prune_dead_locked(ev);
     auto result = body(ev);
     if (!ev.empty()) subs = g_subs;
@@ -773,11 +785,6 @@ void core_rows(bool hooks, bool verified, const std::string& safe_idle) {
         }
         g_tick_seen.store(tick_bits(), std::memory_order_release);
         for (const std::string& f : g_feature_names) set_feature_locked(f, ev);
-        // The client gate, after the feature rows and before anything else reports: kGate outranks every other kind.
-        for (const gates::Held& h : gates::held()) {
-            if (!name_ok(h.name)) continue;  // gen.py refuses such a name; a test list might not
-            set_core_locked(h.name, kGate, KILN_CAP_UNAVAILABLE, KILN_CAP_REASON_POLICY, h.text, "core", 0, ev);
-        }
         for (const Svc& s : services) {
             if (!name_ok(s.name)) continue;
             const std::string v = "v" + std::to_string(s.version);

@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The record of the "lanterns" block kind (docs/kiln/modding/block-kinds.md). The provider mod exports this assembly
+       (kiln.mod.json "exports"): a consumer compiles against it and, at run time, gets the copy loaded with the provider. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../../managed/services/Kiln.Blocks/Kiln.Blocks.csproj" Private="false" ExcludeAssets="runtime" PrivateAssets="all" />
+  </ItemGroup>
+</Project>

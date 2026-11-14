@@ -1,0 +1,12 @@
+{
+  "id": "boot-patches-test",
+  "name": "resource patches lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "BootPatchesTest.dll",
+  "side": "server",
+  "clients": "none",
+  "boot": true,
+  "advanced": true,
+  "description": "PASS/FAIL lines: a boot generation's resource patches on keen::BalancingTable.experienceNeedPerLevel, read back through the game's own experience function after the world is up. The lab script writes blocks/patches.json and expect.json for each case."
+}

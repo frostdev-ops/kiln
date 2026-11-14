@@ -1,0 +1,8 @@
+{
+  "$schema": "../../../../../schema/kiln-blocks.schema.json",
+  "format": 1,
+  // a section of the kind's provider: "<provider mod>:<plural>". Every block says "format": 1.
+  "lanterns:lanterns": {
+    "long-night": { "format": 1, "name": "Long-night lantern", "seconds": 1800, "twigs": 6 }
+  }
+}

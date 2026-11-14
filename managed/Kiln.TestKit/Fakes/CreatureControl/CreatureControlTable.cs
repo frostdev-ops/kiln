@@ -15,10 +15,10 @@ internal static unsafe class CreatureControlAbi
     public const uint Version = 1;
 
     public const uint Pending = 0, Active = 1, Preempted = 2, Released = 3, Failed = 4;
-    public const uint ResultNone = 0, Granted = 1, ResultReleased = 2, Canceled = 4, Busy = 5, TimedOut = 6, BodyGone = 7,
-        WorldEnded = 8, CapabilityOff = 9, ExpiredHandle = 13;
-    public const uint RoleNone = 0, PetFollow = 1, Ridden = 3, Quarantine = 4, PetStay = 6, EngineGuard = 7;
-    public const uint ChangedSteering = 1, ChangedAiLayer = 2;
+    public const uint ResultNone = 0, Granted = 1, ResultReleased = 2, ResultPreempted = 3, Canceled = 4, Busy = 5, TimedOut = 6,
+        BodyGone = 7, WorldEnded = 8, CapabilityOff = 9, Retired = 12, ExpiredHandle = 13;
+    public const uint RoleNone = 0, PetFollow = 1, PetCombat = 2, Ridden = 3, Quarantine = 4, Vehicle = 5, PetStay = 6, EngineGuard = 7;
+    public const uint ChangedSteering = 1, ChangedAiLayer = 2, ChangedVehicleBehavior = 4;
 
     [StructLayout(LayoutKind.Sequential)]
     public struct BodyKey
@@ -71,8 +71,7 @@ internal static unsafe class CreatureControlAbi
     }
 }
 
-/// <summary>The C# functions behind the fake <c>kiln.creature_control</c> table. Modelled: every function of v1 but
-/// quarantine and body_retired (unavailable, as in this build's native service) and root_policy (always 0).</summary>
+/// <summary>The C# functions behind the fake <c>kiln.creature_control</c> table: every function of v1.</summary>
 internal static unsafe class CreatureControlTable
 {
     private static CreatureControlAbi.Table* _table;
@@ -145,16 +144,24 @@ internal static unsafe class CreatureControlTable
     private static int Notices(ulong owner, CreatureControlAbi.State* out_, uint capacity, uint* written, uint* resync) =>
         Guard(m => m.Notices(owner, out_, capacity, written, resync));
 
-    // S6 (quarantine, retirement, the deny table) is not modelled: the native service of this build does not serve it
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-    private static int Quarantine(CreatureControlAbi.BodyKey key, uint cause) => FakeTables.Unavailable;
+    private static int Quarantine(CreatureControlAbi.BodyKey key, uint cause) => Guard(m => m.Quarantine(key, cause), tick: false);
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-    private static int BodyRetired(ulong owner, CreatureControlAbi.BodyKey key) =>
-        FakeTables.OnTickThread ? FakeTables.Unavailable : FakeTables.WrongThread;
+    private static int BodyRetired(ulong owner, CreatureControlAbi.BodyKey key) => Guard(m => m.BodyRetired(owner, key));
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-    private static uint RootPolicy(ulong epoch, uint root) => 0;
+    private static uint RootPolicy(ulong epoch, uint root)
+    {
+        try
+        {
+            return Model is { } m ? m.RootPolicy(epoch, root) : 0;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static int NextRequest(ulong owner, ulong* out_) => Guard(m => m.NextRequest(owner, out_));

@@ -136,3 +136,55 @@ public sealed class BlockKindRegisteredEvent : KilnEvent
     public string ProviderModId { get; }
     public bool Removed { get; }
 }
+
+/// <summary>Where a block of an external kind stands for its consumer mod.</summary>
+public enum BlockApplyState
+{
+    /// <summary>Compiled, and waiting: for the game's content to be ready, or for a block of another mod it names.</summary>
+    PendingContent,
+    /// <summary>Every block of the plan is registered; <see cref="Blocks.Find"/> gives the block.</summary>
+    Applied,
+    /// <summary>Not applied, and nothing of the plan is registered. <see cref="BlockApplyResult.Reason"/> says why.</summary>
+    Refused,
+    /// <summary>It was there and went with its mod, or the plan was never submitted.</summary>
+    Removed,
+}
+
+/// <summary>A snapshot of where a plan stands. <see cref="Ok"/> only when <see cref="State"/> is
+/// <see cref="BlockApplyState.Applied"/>; otherwise <see cref="Reason"/> starts with one word for the cause
+/// (<c>PendingContent</c>, <c>ProviderRetired</c>, <c>NameAlreadyApplied</c>, <c>DependencyRefused</c>, <c>RequiresOff</c>,
+/// <c>ClientsTooLow</c>, <c>Refused</c>, <c>Removed</c>).</summary>
+public sealed record BlockApplyResult : IKilnResult
+{
+    public bool Ok { get; init; }
+    public string Reason { get; init; } = "";
+    public BlockApplyState State { get; init; }
+    /// <summary>The compile this answers for.</summary>
+    public ulong RequestId { get; init; }
+    /// <summary>Counts applications in this process: the same for a plan applied again, 0 before it is applied.</summary>
+    public ulong Generation { get; init; }
+    /// <summary>The game's content generation the plan was applied against.</summary>
+    public ulong ContentGeneration { get; init; }
+    /// <summary>The GUID, id and game name of the plan's primary block: known as soon as the plan is submitted.</summary>
+    public Guid Guid { get; init; }
+    public uint Id { get; init; }
+    public string GameName { get; init; } = "";
+}
+
+/// <summary>A block of an external kind changed state for its mod: applied, refused, or gone. Posted on the tick thread,
+/// once per change.</summary>
+public sealed class BlockApplicationChangedEvent : KilnEvent
+{
+    internal BlockApplicationChangedEvent(string modId, string name, BlockApplyResult before, BlockApplyResult after)
+    {
+        ModId = modId;
+        Name = name;
+        Before = before;
+        After = after;
+    }
+
+    public string ModId { get; }
+    public string Name { get; }
+    public BlockApplyResult Before { get; }
+    public BlockApplyResult After { get; }
+}

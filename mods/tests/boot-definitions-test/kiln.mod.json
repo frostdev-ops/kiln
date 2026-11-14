@@ -1,0 +1,10 @@
+{
+  "id": "boot-definitions-test",
+  "name": "Mod.OnBoot lab test (first-start definitions)",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "BootDefinitionsTest.dll",
+  "side": "server",
+  "clients": "mod",
+  "boot": true
+}

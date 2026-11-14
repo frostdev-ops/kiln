@@ -53,8 +53,12 @@ internal static class MoveApplications
         public ulong Requested;
         /// <summary>The content generation of the last attempt; null before the first.</summary>
         public ulong? Attempted;
+        /// <summary>Plan again at the next ready pass whatever the content generation (a replay found the applied generation gone).</summary>
+        public bool Retry;
         public RouteGeneration? Active;
         public IReadOnlyList<(string Section, string Entry, JsonObject Rules)> Kept = [];
+        // Include staged and replaced generations: a refused attempt may already have written inactive clone rules.
+        public readonly JsonObject Resets = new() { ["format"] = 1 };
         public bool Removed;
     }
 
@@ -112,7 +116,11 @@ internal static class MoveApplications
         foreach (var e in Entries.Values.Where(e => ReferenceEquals(e.Mod, mod)).ToList())
         {
             bool again;
-            lock (e) again = !e.Removed && e.Current.State == MoveApplicationState.Refused && e.Attempted is { } at && at != content;
+            lock (e)
+            {
+                again = !e.Removed && e.Current.State == MoveApplicationState.Refused && (e.Retry || (e.Attempted is { } at && at != content));
+                e.Retry = false;
+            }
             if (again) Run(e, problem);
         }
     }
@@ -142,7 +150,22 @@ internal static class MoveApplications
             e.Removed = true;
             Host.Drop(e.Mod, e.Kept);
             e.Kept = [];
+            try
+            {
+                if (e.Resets.Count > 1 && Host.Apply(e.Owner, e.Resets.DeepClone().AsObject(), $"remove moves of {e.Plan.Mod}:{e.Plan.Name}") is { Count: > 0 } errors)
+                {
+                    Refuse(e, e.Requested, e.Current.ContentGeneration, $"block {e.Plan.Block}, moves: removing the generation's layers failed: {errors[0]}", _ => { });
+                    return;
+                }
+            }
+            catch (Exception x) when (MoveRuntime.Readable(x))
+            {
+                Refuse(e, e.Requested, e.Current.ContentGeneration, $"block {e.Plan.Block}, moves: removing the generation's layers failed: {x.Message}", _ => { });
+                return;
+            }
             e.Active = null;
+            lock (e.Json) e.Json.Remove("movesReady");
+            e.Mod.ReportDirty = true;
             var now = e.Current;
             Publish(e, new MoveApplicationResult
             {
@@ -180,6 +203,117 @@ internal static class MoveApplications
             else sec[entry] = rules.DeepClone();
         }
         return new JsonObject { ["format"] = 1, [section] = sec };
+    }
+
+    private static void Track(Entry e, string section, IEnumerable<(string Entry, JsonObject Rules)> entries)
+    {
+        var sec = (e.Resets[section] ??= new JsonObject()).AsObject();
+        foreach (var (entry, rules) in entries)
+        {
+            var fields = (sec[entry] ??= new JsonObject()).AsObject();
+            foreach (var (path, _) in rules) fields[path] = new JsonObject { ["reset"] = true };
+        }
+    }
+
+    private static string PutBack(Entry e, RouteGeneration gen)
+    {
+        var back = new JsonObject();
+        foreach (var (path, _) in gen.SlotRules)
+            back[path] = e.Active?.SlotRules[path]?.DeepClone() ?? new JsonObject { ["reset"] = true };
+        try
+        {
+            var errors = Host.Apply(e.Owner, Document("itemdata", [(gen.Item, back)]), $"moves of {e.Plan.Mod}:{e.Plan.Name} (put back)");
+            return errors.Count > 0 ? $"; and putting the previous slots back failed: {errors[0]}" : "";
+        }
+        catch (Exception x) when (MoveRuntime.Readable(x)) { return $"; and putting the previous slots back failed: {x.Message}"; }
+    }
+
+    /// <summary>What the item's slots play now, for the slots a generation switches: index -> the sequence read (absent: it could not be read).</summary>
+    private static Dictionary<int, Guid> ReadSlots(RouteGeneration gen)
+    {
+        var now = new Dictionary<int, Guid>();
+        foreach (var index in gen.SlotGuids.Keys)
+        {
+            Guid? g;
+            try { g = Host.Slot(gen.Item, index); }
+            catch (Exception x) when (MoveRuntime.Readable(x)) { g = null; }
+            if (g is { } read) now[index] = read;
+        }
+        return now;
+    }
+
+    /// <summary>Whether the slots a failed switch touched are what they were before it: the last applied generation's clones, or with none applied,
+    /// no clone of any generation (the class's own sequences).</summary>
+    private static bool PutBackHeld(Entry e, RouteGeneration gen, Dictionary<int, Guid> now)
+    {
+        foreach (var index in gen.SlotGuids.Keys)
+        {
+            if (!now.TryGetValue(index, out var read)) return false;
+            if (e.Active is { } active ? !(active.SlotGuids.TryGetValue(index, out var was) && was == read) : CloneBases.ContainsKey(read)) return false;
+        }
+        return true;
+    }
+
+    /// <summary>The slots are neither the generation that was applied nor a whole new one: nothing is applied any more, and the status says what the
+    /// slots play. The weapon's kept rules are dropped, so a later content application does not put half a generation back; the next attempt plans
+    /// from the class's sequences again.</summary>
+    private static void Mixed(Entry e, RouteGeneration gen, ulong request, ulong content, string reason, Dictionary<int, Guid> now, Action<string> problem)
+    {
+        Host.Drop(e.Mod, e.Kept);
+        e.Kept = [];
+        e.Active = null;
+        lock (e.Json) e.Json.Remove("movesReady");
+        e.Mod.ReportDirty = true;
+        var news = gen.SlotGuids.Count(s => now.TryGetValue(s.Key, out var g) && g == s.Value);
+        var text = $"block {e.Plan.Block}, moves: the item's slots are mixed: {news} of {gen.SlotGuids.Count} play the moves that were refused, "
+            + $"{gen.SlotGuids.Count - now.Count} could not be read, the rest play what they played before. {reason}";
+        problem(text);
+        Publish(e, new MoveApplicationResult
+        {
+            State = MoveApplicationState.Refused, Reason = text, RequestedGeneration = request, AppliedGeneration = 0, ContentGeneration = content,
+            LiveClones = now.ToFrozenDictionary(s => $"slot/{s.Key}", s => s.Value, StringComparer.Ordinal),
+        });
+    }
+
+    /// <summary>After a failed switch and its put-back: a refusal that keeps the applied generation when the slots are what they were, else the
+    /// mixed state. The status never names a generation the slots do not play.</summary>
+    private static void Settle(Entry e, RouteGeneration gen, ulong request, ulong content, string reason, Action<string> problem)
+    {
+        var now = ReadSlots(gen);
+        if (PutBackHeld(e, gen, now)) Refuse(e, request, content, reason, problem);
+        else Mixed(e, gen, request, content, reason, now, problem);
+    }
+
+    /// <summary>After the mod's rules were applied again (a content application later in the process replays every kept rule): a weapon whose applied
+    /// generation no longer reads back is said so. Its status becomes a refusal with what the slots play, and the next ready pass plans it again.</summary>
+    public static void Replayed(ModBlocks mod, Action<string> problem)
+    {
+        if (Entries.IsEmpty) return;
+        foreach (var e in Entries.Values.Where(e => ReferenceEquals(e.Mod, mod)).ToList())
+            lock (e)
+            {
+                if (e.Removed || e.Active is not { } gen || e.Current.State != MoveApplicationState.Applied) continue;
+                var now = ReadSlots(gen);
+                var slots = gen.SlotGuids.All(s => now.TryGetValue(s.Key, out var g) && g == s.Value);
+                string? link = null;
+                if (slots)
+                    foreach (var ((clone, sub, k), want) in gen.Links)
+                    {
+                        Guid? read;
+                        try { read = Host.Link(clone, sub, k); }
+                        catch (Exception x) when (MoveRuntime.Readable(x)) { read = null; }
+                        if (read == want) continue;
+                        link = $"the follow-up of {clone}{(sub > 0 ? "#" + sub : "")}, window {k}, does not read back";
+                        break;
+                    }
+                if (slots && link == null) continue;
+                var content = Host.ContentGeneration;
+                var why = slots ? link! : "its slots do not play the applied generation";
+                // tried again at the next ready pass: Ready() retries a refusal whose attempt read other content than the game has now
+                e.Attempted = null;
+                e.Retry = true;
+                Mixed(e, gen, e.Current.RequestedGeneration, content, $"After the game's content was applied again the weapon's rules did not hold: {why}.", now, problem);
+            }
     }
 
     // Step 1 and 2: plan on the game's rows, then stage the clones.
@@ -252,75 +386,91 @@ internal static class MoveApplications
     {
         lock (e)
         {
-            if (e.Removed || e.Requested != request) return;      // stale: the weapon went, or a newer attempt owns it
-            if (Host.ContentGeneration != content)
+            var switching = false;
+            try
             {
-                // content was applied again since the rows were read: read them again
-                Run(e, problem);
-                return;
-            }
-            var plan = e.Plan;
-            var have = Host.Clones();
-            foreach (var def in gen.Clones)
-            {
-                var st = have.TryGetValue(Guid.Parse((string)def["guid"]!), out var s) ? s : ("missing", null);
-                if (st.Item1 == "registered") continue;
-                Refuse(e, request, content, $"block {plan.Block}, moves: the clone {def["name"]} is {st.Item1}{(st.Item2 is { Length: > 0 } err ? ": " + err : "")}", problem);
-                return;
-            }
-            var source = $"moves of {plan.Mod}:{plan.Name}";
-            if (gen.SequenceRules.Count > 0)
-            {
-                var errors = Host.Apply(e.Owner, Document("sequences", gen.SequenceRules), source);
-                if (errors.Count > 0)
+                if (e.Removed || e.Requested != request) return;      // stale: the weapon went, or a newer attempt owns it
+                if (Host.ContentGeneration != content)
                 {
-                    Refuse(e, request, content, $"block {plan.Block}, moves: a rule of the new moves was refused: {errors[0]}", problem);
+                    // content was applied again since the rows were read: read them again
+                    Run(e, problem);
                     return;
                 }
-            }
-            foreach (var ((clone, sub, k), want) in gen.Links)
-            {
-                if (Host.Link(clone, sub, k) == want) continue;
-                Refuse(e, request, content, $"block {plan.Block}, moves: the follow-up of {clone}{(sub > 0 ? "#" + sub : "")}, window {k}, did not read back as set", problem);
-                return;
-            }
-            // the switch: only the item's slots, and what they were is put back in this same tick if any of them does not take
-            var switchErrors = Host.Apply(e.Owner, Document("itemdata", [(gen.Item, gen.SlotRules)]), source);
-            var wrong = switchErrors.Count > 0 ? switchErrors[0] : null;
-            if (wrong == null)
-                foreach (var (index, want) in gen.SlotGuids)
-                    if (Host.Slot(gen.Item, index) != want)
-                    {
-                        wrong = $"slot {index} did not read back as set";
-                        break;
-                    }
-            if (wrong != null)
-            {
-                var back = new JsonObject();
-                foreach (var (path, _) in gen.SlotRules)
-                    back[path] = e.Active?.SlotRules[path]?.DeepClone() ?? new JsonObject { ["reset"] = true };
-                var undo = Host.Apply(e.Owner, Document("itemdata", [(gen.Item, back)]), source + " (put back)");
-                Refuse(e, request, content, $"block {plan.Block}, moves: the item's slots were not switched: {wrong}"
-                    + (undo.Count > 0 ? $"; and putting the previous slots back failed: {undo[0]}" : ""), problem);
-                return;
-            }
-            Host.Drop(e.Mod, e.Kept);
-            e.Kept = gen.SequenceRules.Select(r => ("sequences", r.Entry, r.Rules)).Append(("itemdata", gen.Item, gen.SlotRules)).ToList();
-            Host.Keep(e.Mod, e.Kept);
-            e.Active = gen;
-            lock (e.Json)
-                e.Json["movesReady"] = new JsonObject
+                var plan = e.Plan;
+                var have = Host.Clones();
+                foreach (var def in gen.Clones)
                 {
-                    ["generation"] = request, ["plan"] = gen.Hash,
-                    ["clones"] = new JsonObject(gen.LiveClones.Select(c => KeyValuePair.Create(c.Key, (JsonNode?)c.Value.ToString()))),
-                    ["rules"] = new JsonObject(e.Kept.Select(r => KeyValuePair.Create($"{r.Section} {r.Entry}", (JsonNode?)r.Rules.DeepClone()))),
-                };
-            e.Mod.ReportDirty = true;
-            Publish(e, new MoveApplicationResult
+                    var st = have.TryGetValue(Guid.Parse((string)def["guid"]!), out var s) ? s : ("missing", null);
+                    if (st.Item1 == "registered") continue;
+                    Refuse(e, request, content, $"block {plan.Block}, moves: the clone {def["name"]} is {st.Item1}{(st.Item2 is { Length: > 0 } err ? ": " + err : "")}", problem);
+                    return;
+                }
+                var source = $"moves of {plan.Mod}:{plan.Name}";
+                if (gen.SequenceRules.Count > 0)
+                {
+                    Track(e, "sequences", gen.SequenceRules);
+                    var errors = Host.Apply(e.Owner, Document("sequences", gen.SequenceRules), source);
+                    if (e.Removed || e.Requested != request) return; // ContentChangedEvent handlers run inline and may unload or retry.
+                    if (errors.Count > 0)
+                    {
+                        Refuse(e, request, content, $"block {plan.Block}, moves: a rule of the new moves was refused: {errors[0]}", problem);
+                        return;
+                    }
+                }
+                foreach (var ((clone, sub, k), want) in gen.Links)
+                {
+                    if (Host.Link(clone, sub, k) == want) continue;
+                    Refuse(e, request, content, $"block {plan.Block}, moves: the follow-up of {clone}{(sub > 0 ? "#" + sub : "")}, window {k}, did not read back as set", problem);
+                    return;
+                }
+                // the switch: only the item's slots, and what they were is put back in this same tick if any of them does not take
+                Track(e, "itemdata", [(gen.Item, gen.SlotRules)]);
+                switching = true;
+                var switchErrors = Host.Apply(e.Owner, Document("itemdata", [(gen.Item, gen.SlotRules)]), source);
+                if (e.Removed) return; // Remove reset the paths tracked above, including this in-flight switch.
+                if (e.Requested != request) { PutBack(e, gen); return; }
+                var wrong = switchErrors.Count > 0 ? switchErrors[0] : null;
+                if (wrong == null)
+                    foreach (var (index, want) in gen.SlotGuids)
+                        if (Host.Slot(gen.Item, index) != want)
+                        {
+                            wrong = $"slot {index} did not read back as set";
+                            break;
+                        }
+                if (wrong != null)
+                {
+                    var undo = PutBack(e, gen);
+                    if (e.Removed || e.Requested != request) return;
+                    Settle(e, gen, request, content, $"block {plan.Block}, moves: the item's slots were not switched: {wrong}" + undo, problem);
+                    return;
+                }
+                Host.Drop(e.Mod, e.Kept);
+                e.Kept = gen.SequenceRules.Select(r => ("sequences", r.Entry, r.Rules)).Append(("itemdata", gen.Item, gen.SlotRules)).ToList();
+                Host.Keep(e.Mod, e.Kept);
+                e.Active = gen;
+                lock (e.Json)
+                    e.Json["movesReady"] = new JsonObject
+                    {
+                        ["generation"] = request, ["plan"] = gen.Hash,
+                        ["clones"] = new JsonObject(gen.LiveClones.Select(c => KeyValuePair.Create(c.Key, (JsonNode?)c.Value.ToString()))),
+                        ["rules"] = new JsonObject(e.Kept.Select(r => KeyValuePair.Create($"{r.Section} {r.Entry}", (JsonNode?)r.Rules.DeepClone()))),
+                    };
+                e.Mod.ReportDirty = true;
+                Publish(e, new MoveApplicationResult
+                {
+                    Ok = true, State = MoveApplicationState.Applied, RequestedGeneration = request, AppliedGeneration = request, ContentGeneration = content,
+                    LiveClones = gen.LiveClones.ToFrozenDictionary(StringComparer.Ordinal),
+                });
+            }
+            catch (Exception x) when (MoveRuntime.Readable(x))
             {
-                Ok = true, State = MoveApplicationState.Applied, RequestedGeneration = request, AppliedGeneration = request, ContentGeneration = content,
-                LiveClones = gen.LiveClones.ToFrozenDictionary(StringComparer.Ordinal),
-            });
+                if (e.Removed || e.Requested != request) return;
+                var undo = switching ? PutBack(e, gen) : "";
+                if (e.Removed || e.Requested != request) return;
+                var reason = $"block {e.Plan.Block}, moves: applying the generation failed: {x.Message}{undo}";
+                if (switching) Settle(e, gen, request, content, reason, problem);
+                else Refuse(e, request, content, reason, problem);
+            }
         }
     }
 }

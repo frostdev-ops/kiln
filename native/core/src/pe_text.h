@@ -248,17 +248,26 @@ inline bool redirected_call_at(const uint8_t* file, const uint8_t* live, size_t 
     return in_code && outside && (!call_lands || call_lands(to));
 }
 
-// A small byte difference is not proof that a replacement exe is the loaded build. Accept only differences
-// covered by a familiar inline jump to outside the image (plus the hooker's instruction-padding NOPs), or by a
-// redirected call (above). ShroudForge's native runtime sends the main menu's two Settings calls to a relay next to
-// the image this way, before Kiln's scan; while the form was unknown, every client start that hosted ShroudForge
-// scanned the live code, the captures of ui/MainMenuEntry disagreed and the main menu had none of Kiln's entries
-// (players' reports of 10 and 13 Nov 2026).
-// Unrecognised patches conservatively select the live scan, even below the 1% budget.
-inline bool only_hook_differences(const uint8_t* file, const uint8_t* live, size_t size,
-                                  uintptr_t live_text, uintptr_t image_base, size_t image_size,
-                                  bool (*call_lands)(uintptr_t) = nullptr) {
+// Differences between the file's code and the live code that no hook form explains: bytes another mod changed in
+// place (a check skipped, a jump made unconditional, a number raised). `sites` counts them as places (changed bytes
+// closer than 16 bytes are one place), `first` holds the offsets of the first few.
+struct OtherDiffs {
+    size_t sites = 0, bytes = 0;
+    std::vector<uint32_t> first;
+};
+
+// Sorts the differences into hooks and the rest. A hook is a familiar inline jump to outside the image (plus the
+// hooker's instruction-padding NOPs) or a redirected call (above). ShroudForge's native runtime sends the main menu's
+// two Settings calls to a relay next to the image this way, before Kiln's scan (players' reports of 10 and 13 Nov
+// 2026). Everything else is returned: in-place patches, which is how many mods change the game (The Worst Map Mod's
+// four map marker patches, a player's report of 14 Nov 2026).
+inline OtherDiffs other_differences(const uint8_t* file, const uint8_t* live, size_t size,
+                                    uintptr_t live_text, uintptr_t image_base, size_t image_size,
+                                    bool (*call_lands)(uintptr_t) = nullptr, size_t keep = 8, bool first_only = false) {
     auto outside = [&](uintptr_t a) { return a < image_base || a - image_base >= image_size; };
+    OtherDiffs out;
+    size_t last = 0;
+    bool any = false;
     for (size_t i = 0; i < size;) {
         if (file[i] == live[i]) { ++i; continue; }
         bool covered = false;
@@ -293,9 +302,25 @@ inline bool only_hook_differences(const uint8_t* file, const uint8_t* live, size
             for (size_t pad = 0; pad < 20 && end < size && live[end] == 0x90; ++pad) ++end;
             if (i < end) { i = end; covered = true; break; }
         }
-        if (!covered) return false;
+        if (covered) continue;
+        ++out.bytes;
+        if (!any || i - last > 16) {
+            ++out.sites;
+            if (out.first.size() < keep) out.first.push_back(static_cast<uint32_t>(i));
+            if (first_only) return out;
+        }
+        any = true;
+        last = i;
+        ++i;
     }
-    return true;
+    return out;
+}
+
+// True when every difference is a hook (other_differences finds nothing else).
+inline bool only_hook_differences(const uint8_t* file, const uint8_t* live, size_t size,
+                                  uintptr_t live_text, uintptr_t image_base, size_t image_size,
+                                  bool (*call_lands)(uintptr_t) = nullptr) {
+    return other_differences(file, live, size, live_text, image_base, image_size, call_lands, 0, true).sites == 0;
 }
 
 // Live-vs-file differences in .text: [rva, rva + len) runs, sorted. Who patched the code (hooks) shows up here.

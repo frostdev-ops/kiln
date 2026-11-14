@@ -8,8 +8,9 @@ namespace NpcSample;
 /// boot on the server and on every client: quests/npcsample.json (the clone, his roster entry, his dialogue, the quest,
 /// the marker, a trade) and assets/cook.json (his voice lines: SoundSample's test tones). This code only adds a command for
 /// testing, because a world position in a data file cannot know where a player is: <c>/npcsample here</c>.
+/// PathWalker.cs is the sample's other half: a creature whose brain walks a route from the game's path search.
 /// </summary>
-public sealed class NpcSampleMod : Mod
+public sealed partial class NpcSampleMod : Mod
 {
     private const string Id = "npcsample";
     private static readonly Guid Tobin = new("299d68c5-10b9-4af9-91e0-194b308ee461");

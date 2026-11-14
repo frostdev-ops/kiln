@@ -6,7 +6,10 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 import os
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -82,6 +85,50 @@ class Fixture:
 
 
 class ReadPack(unittest.TestCase):
+    def test_comments_and_strings_cannot_supply_a_missing_check(self):
+        f = Fixture(SOURCE + '''
+// [ClientCheck("04-comment", "Not compiled", Since = Dev28)]
+/* [ClientCheck("04-block", "Not compiled", Since = Dev28)] */
+const string Example = """[ClientCheck("04-string", "Not compiled", Since = Dev28)]""";
+''')
+        checks = plan.read_pack(os.path.join(f.root, "mods", "tests", "client-pass"))
+        self.assertEqual(len(checks), 7)
+
+    def test_unsupported_order_is_reported_instead_of_becoming_zero(self):
+        f = Fixture(SOURCE.replace("Order = 2201", "Order = MissingOrder"))
+        with self.assertRaises(plan.PlanError):
+            f.plan()
+
+    def test_unknown_release_or_session_is_reported_instead_of_omitting_a_check(self):
+        for old, new in (("Since = Dev28", "Since = UnknownRelease"),
+                         ("Needs = ClientCheckNeeds.Joined", "Needs = UnknownSession"),
+                         ('Area = "Camera"', "Area = UnknownArea"),
+                         ("[TwoPlayers]", "[UnknownTag]")):
+            with self.subTest(new=new), self.assertRaises(plan.PlanError):
+                Fixture(SOURCE.replace(old, new)).plan()
+
+    def test_a_conditionally_compiled_attribute_is_not_claimed_as_a_product_check(self):
+        f = Fixture(SOURCE.replace('[ClientCheck("03-c10"', '#if CHECKS\n    [ClientCheck("03-c10"')
+                    .replace('public Task C(CheckContext c) => null;', 'public Task C(CheckContext c) => null;\n#endif'))
+        with self.assertRaises(plan.PlanError):
+            f.plan()
+
+    def test_unicode_and_csharp_escapes_keep_the_title(self):
+        p = Fixture(SOURCE.replace("Final snapshot,", r"é\t\u263a,")).plan()
+        self.assertTrue(p["sessions"][0]["checks"][0]["title"].startswith("é\t☺,"))
+
+    def test_a_constant_in_another_class_cannot_change_the_release_silently(self):
+        f = Fixture(SOURCE + '\nclass Other { const string Dev28 = "unrelated"; }\n')
+        with self.assertRaises(plan.PlanError):
+            f.plan()
+
+    def test_array_initializers_keep_their_session_tags(self):
+        for tags in ('new[] { TwoPlayers }', 'new string[] { ClientCheckTags.TwoPlayers }'):
+            with self.subTest(tags=tags):
+                p = Fixture(SOURCE.replace("[TwoPlayers]", tags)).plan()
+                session = next(s for s in p["sessions"] if s["key"] == "D")
+                self.assertEqual([c["id"] for c in session["checks"]], ["03-c10"])
+
     def test_attributes_are_read_with_constants_strings_and_tags(self):
         f = Fixture()
         checks = {c["id"]: c for c in plan.read_pack(os.path.join(f.root, "mods", "tests", "client-pass"))}
@@ -101,14 +148,17 @@ class ReadPack(unittest.TestCase):
                              '    private const int Base = 2000 + (28270 - 28000) * 10;\n'
                              '    private const int Next = Base + 5;')
         src = src.replace("Order = 2202)", "Order = Base + 2)").replace("Order = 2203)", "Order = Next)")
-        src = src.replace("Order = 3301)", "Order = (Next - 1) / 2)").replace("Order = 3401)", "Order = Base + Unknown)")
+        src = src.replace("Order = 3301)", "Order = (Next - 1) / 2)")
         f = Fixture(src)
         checks = {c["id"]: c for c in plan.read_pack(os.path.join(f.root, "mods", "tests", "client-pass"))}
         self.assertEqual(checks["03-c7"]["order"], 4702)
         self.assertEqual(checks["03-c10"]["order"], 4705)
         self.assertEqual(checks["11-join"]["order"], 2352)
-        self.assertEqual(checks["12-debug"]["order"], 0)     # a name it does not know: no order, not a wrong one
         self.assertEqual(plan._int("__import__('os')", {}), None)
+        # a name it does not know is no order at all: the read stops rather than guess
+        g = Fixture(src.replace("Order = 3401)", "Order = Base + Unknown)"))
+        with self.assertRaises(plan.PlanError):
+            plan.read_pack(os.path.join(g.root, "mods", "tests", "client-pass"))
 
     def test_an_id_that_is_not_a_constant_stops_the_read(self):
         f = Fixture(SOURCE.replace('"03-c10"', "Compute()"))
@@ -302,6 +352,45 @@ class Main(unittest.TestCase):
             self.assertEqual(plan.main(["--repo", str(REPO), "--json"]), 0)
         doc = json.loads(out.getvalue())
         self.assertEqual(doc["index"], len(plan.read_index(str(REPO / "mods" / "tests" / "client-pass" / "dev28-checks.json"))))
+
+
+class GateGenerator(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("cmake") and shutil.which("ninja"), "needs CMake and Ninja")
+    def test_deleting_a_gate_file_regenerates_the_compiled_list(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            gates = root / "core/gates"
+            gates.mkdir(parents=True)
+            shutil.copy(REPO / "native/core/gates/gen.py", gates)
+            held = gates / "dev28-test.json"
+            held.write_text(json.dumps({"gates": [{"name": "camera.fov", "checks": ["03-c11"]}]}))
+            cmake = (REPO / "native/CMakeLists.txt").read_text()
+            gate_rule = cmake[cmake.index("# The client gate's list:"):cmake.index("set(CMAKE_CXX_STANDARD")]
+            (root / "CMakeLists.txt").write_text(
+                'cmake_minimum_required(VERSION 3.20)\nproject(gate_test NONE)\n'
+                'set(KILN_GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")\n' + gate_rule +
+                '\nadd_custom_target(gates ALL DEPENDS "${KILN_GENERATED_DIR}/kiln_gates.g.h")\n')
+            build = root / "build"
+            def run(*args):
+                subprocess.run(args, check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            run("cmake", "-S", str(root), "-B", str(build), "-G", "Ninja")
+            run("cmake", "--build", str(build))
+            header = build / "generated/kiln_gates.g.h"
+            self.assertIn("camera.fov", header.read_text())
+            held.unlink()
+            run("cmake", "--build", str(build))
+            self.assertNotIn("camera.fov", header.read_text())
+
+    def test_trailing_newlines_cannot_reach_cpp_string_literals(self):
+        spec = importlib.util.spec_from_file_location("gate_gen", REPO / "native/core/gates/gen.py")
+        gen = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gen)
+        for key, value in (("name", "camera.fov\n"), ("checks", ["03-c11\n"])):
+            with self.subTest(key=key), tempfile.TemporaryDirectory() as folder:
+                row = {"name": "camera.fov", "checks": ["03-c11"], key: value}
+                Path(folder, "gate.json").write_text(json.dumps({"gates": [row]}))
+                with self.assertRaises(SystemExit):
+                    gen.load(folder)
 
 
 if __name__ == "__main__":

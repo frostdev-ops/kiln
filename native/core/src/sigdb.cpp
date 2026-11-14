@@ -11,6 +11,7 @@
 #include <set>
 #include <thread>
 
+#include "config.h"
 #include "image.h"
 #include "log.h"
 #include "nlohmann/json.hpp"
@@ -90,6 +91,8 @@ struct Code {
     size_t fixups = 0;            // base relocations applied to the file's copy
     size_t live_diff_bytes = 0;   // live .text bytes that differ from the file's, at the time of the check
     std::vector<pe::DiffRun> runs;
+    pe::OtherDiffs in_place;      // those of them that are no hook: another mod's in-place patches (offsets in .text)
+    uint32_t text_rva = 0;
     std::vector<uint8_t> private_text;  // relocation/zero-fill buffer; the hashed file view stays pristine
     double ms = 0;
 };
@@ -230,9 +233,25 @@ void init_code() {
         g_code.runs.clear();
         return fallback(b);
     }
-    if (!pe::only_hook_differences(text, img.text, size, live, img.base, img.size, call_lands)) {
+    // What differs is what other mods wrote before this check: hooks, and bytes changed in place (a check skipped, a
+    // number raised). Up to 0.2.0-dev.27 one in-place patch sent the whole scan to the live code, where the same
+    // start's hooks hid functions: a client with The Worst Map Mod (four map marker patches) and other loaders' hooks
+    // lost 20 symbols and 22 features, items.move and items.transaction among them, so two Kiln mods loaded and did
+    // nothing (a player's report of 14 Nov 2026).
+    // Whose bytes an in-place difference shows is decided by the file's hash. image().sha256 is taken over this very
+    // mapping; when it is a verified build record, the file is the game as shipped, the header matched above and at
+    // most 1% of the code differs, so the patch is in the live code and the file is what to read. Without a record
+    // the file itself may carry the patch (an exe changed on disk after the game started), and a capture read from
+    // it could name a place the loaded code does not use: the live scan, as before.
+    // The in-place patches are counted and named in kiln.log; a symbol whose own bytes are patched is named by
+    // check_live as before.
+    g_code.in_place = pe::other_differences(text, img.text, size, live, img.base, img.size, call_lands);
+    g_code.text_rva = ft.text_rva;
+    if (g_code.in_place.sites && !build_verified(img.side, img.sha256, nullptr)) {
         g_code.runs.clear();
-        return fallback("file/live differences are not recognised inline hooks; the exe may have changed on disk");
+        g_code.in_place = {};
+        return fallback("file/live differences are not recognised inline hooks and the exe file is no verified "
+                        "build; the exe may have changed on disk");
     }
     g_code.view = {text, size, live, true};
     g_code.note = "the exe file's code";
@@ -247,6 +266,14 @@ const pe::CodeView& code() {
             KLOG_I("sigdb: scanning %s (.text 0x%zx bytes, %zu base relocations applied); live code differs in %zu "
                    "bytes, %zu runs (hooks or patches made before this check) (%.1f ms)",
                    c.note.c_str(), c.view.size, c.fixups, c.live_diff_bytes, c.runs.size(), c.ms);
+            if (c.in_place.sites) {
+                std::string at;
+                for (uint32_t off : c.in_place.first) at += (at.empty() ? "" : ", ") + hex(int64_t{c.text_rva} + off);
+                KLOG_I("sigdb: %zu places (%zu bytes) of the live code are patched in place by another mod, not hooked: "
+                       "rva %s%s. The scan reads the file's code, so they hide nothing from Kiln",
+                       c.in_place.sites, c.in_place.bytes, at.c_str(),
+                       c.in_place.sites > c.in_place.first.size() ? ", ..." : "");
+            }
         } else {
             KLOG_W("sigdb: scanning the %s; another engine's hooks can hide functions from Kiln", c.note.c_str());
         }
@@ -761,6 +788,10 @@ public:
                 c["base_relocations_applied"] = g_code.fixups;
                 c["live_differs_bytes"] = g_code.live_diff_bytes;
                 c["live_differs_runs"] = g_code.runs.size();
+                c["live_patched_in_place"] = g_code.in_place.sites;
+                json at = json::array();
+                for (uint32_t off : g_code.in_place.first) at.push_back(hex(int64_t{g_code.text_rva} + off));
+                c["live_patched_in_place_at"] = at;
             }
             json hooked = json::array();
             for (auto& [n, r] : symbols_)

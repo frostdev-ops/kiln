@@ -160,6 +160,11 @@ report what happens to stored data: `InstanceDataRestoredEvent` (back on its ite
 and `/instances discard <record>`.
 
 ### Showing a value in the player's game (dev.27)
+(dev.28: to draw such a value in the game's own item detail view, slot bar or held indicator, or to list it in Kiln's
+Item details window, see `Ui.Values` in [../ui.md](../ui.md#values-in-the-games-own-ui-dev28). A synced value is keyed by
+the server's entity; `UiItemView.ServerEntity` is not proven in dev.28, so a provider that needs one item's instance
+passes, and a provider by item type works.)
+
 A value stays on the server unless its key says who may see it. `Sync = InstanceSync.Holder` sends it to the player who
 holds the item, `InstanceSync.Nearby` also to every player within `NearbyRadius` metres of the item's holder (another
 player, a chest). The mod then runs on both sides (`"side": "both"`): the same `InstanceData.Key` line declares the key

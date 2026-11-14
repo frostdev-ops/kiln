@@ -1,0 +1,10 @@
+{
+  "id": "kinds-dataonly-fixture",
+  "name": "a mod with blocks files and no code (lab fixture)",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "side": "server",
+  "clients": "kiln",
+  "advanced": true,
+  "description": "Fixture of kinds-fault-test: one item with a recipe from blocks/pebble.json, and no assembly. The test unloads and loads it and looks at what stays."
+}

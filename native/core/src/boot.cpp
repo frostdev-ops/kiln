@@ -49,6 +49,7 @@ void decide(bool hooks, const std::string& safe_idle);
 void bound();
 bool after_clr(bool clr_started, void (*write_state)(void* user, const std::string& last_line), void* user);
 nlohmann::json report();
+void late_hold(void (*write_state)(void* user, const std::string& last_line), void* user);
 }  // namespace kiln::boot_svc
 
 namespace kiln {
@@ -455,6 +456,20 @@ void hold_boot(void* user, const std::string& last_line) {
     wait_for_file_text(paths().logs / L"kiln.log", last_line);
 }
 
+// kiln.boot's stop after the entry point (a required boot mod whose published content could not be applied,
+// boot_svc b_activation_fault): the same state files as hold_boot, from the facts boot() ended with.
+BootFacts* g_late_facts = nullptr;
+void late_hold_boot(void*, const std::string& last_line) {
+    if (!g_late_facts) return;
+    const std::string why = "a required boot mod's content could not be applied, so Kiln stopped the start (no save loads "
+                            "without it); boot.json \"boot\" says which mod and why";
+    progress_state::failed(why);
+    g_late_facts->errors.push_back(why);
+    write_boot_json(*g_late_facts);
+    wait_for_file_text(paths().state / L"progress.json", "\"failed\"");
+    wait_for_file_text(paths().logs / L"kiln.log", last_line);
+}
+
 void boot() {
     snapshot_entry();  // before anything loads a DLL
     init_paths();
@@ -487,6 +502,7 @@ void boot() {
     // Server or client: its own definitions, build records and kiln.json section.
     const uint32_t side = image().side;
     apply_side(side);
+    gates::configure(side, config().preview_all, config().preview);  // before early plugins or any service init
     // after apply_side: kiln.json's side section may switch .NET (clr) off or on, and the plan follows what applies
     progress_state::begin(kiln_build, side_name(side), f.started_ms, started_utc, start_plan());
     std::string note;
@@ -541,7 +557,6 @@ void boot() {
     if (early_hooks && !hooks) hooks::withdraw_early();
     set_runtime_state(verified, hooks);
     if (hooks) svc::init_all();
-    gates::configure(side, config().preview_all, config().preview);  // the client gate, minus kiln.json's "preview"
     caps::core_rows(hooks, verified, f.safe_idle);  // before the service DLLs and plugins, which add their own rows
     for (const auto& feature : sigdb::failed_features()) KLOG_W("feature %s unavailable on this build", feature.c_str());
     // A boot profile (an enabled mod with "boot": true) defers the six collectors' definitions to one generation that
@@ -572,6 +587,8 @@ void boot() {
     native_mods::run_late();  // chain DLLs named in kiln/chain.ini [late]: after everything Kiln hosts hooked
     check_entry_patch(f);
     write_boot_json(f);
+    g_late_facts = new BootFacts(f);  // never freed: kiln.boot may need it at any later moment
+    boot_svc::late_hold(&late_hold_boot, nullptr);
     caps::boot_complete();  // capabilities.json, then a write after each change (at most one a second)
     hooks::boot_complete();  // state/hooks.json + the foreign-hook check (kiln.hooks v2)
     compat::boot_done();

@@ -99,6 +99,16 @@ public sealed class TransformScaleTests
     }
 
     [Fact]
+    public void Transform_scale_is_held_on_both_sides_until_the_player_check()
+    {
+        using var gates = JsonDocument.Parse(File.ReadAllText(Path.Combine(Repo(), "native", "core", "gates", "dev28-13b-shroudforge.json")));
+        var row = Assert.Single(gates.RootElement.GetProperty("gates").EnumerateArray(),
+            g => g.GetProperty("name").GetString() == World.TransformScaleCapability);
+        Assert.False(row.TryGetProperty("side", out _));
+        Assert.Equal(["13-world.transform-scale"], row.GetProperty("checks").EnumerateArray().Select(c => c.GetString()));
+    }
+
+    [Fact]
     public void Scale3_is_three_sequential_floats_and_its_JSON_is_lower_case()
     {
         Assert.Equal(12, Unsafe.SizeOf<Scale3>());

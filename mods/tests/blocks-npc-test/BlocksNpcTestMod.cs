@@ -464,9 +464,6 @@ public sealed class BlocksNpcTestMod : Mod
 
     private async Task BrainMoves()
     {
-        var ready = Symbols.FindAll("48 89 5C 24 08 57 48 83 EC 30 F3 0F 10 15 ?? ?? ?? ?? 0F 57 C0 F3 49 0F 2A 00 48 8B C2 48 8B F9 48 8D 54 24 20 48 8B C8 49 8B D8");
-        foreach (var r in ready) Hooks.Detour(r, _ => 1);  // goes with the mod
-        Info($"brain moves: terrain readiness checks detoured: {ready.Length}");
         var last = new Dictionary<uint, ControlChangedEvent>();
         using var sub = Events.On<ControlChangedEvent>(e => last[e.After.Body.Entity.Value] = e);
         var bases = Build.Bases;
@@ -475,6 +472,25 @@ public sealed class BlocksNpcTestMod : Mod
         try { await Build.Load(Build.BoxAround(at, 24, 60, 24)); } catch (Exception e) { Info($"brain moves: loading the terrain: {e.Message}"); }
         at = at with { Y = (GroundY(at) ?? at.Y) + 1 };  // just above the ground: a long fall would kill the body
         WalkMode = 2;
+        // a lease that fails while the brain lives (here BodyNotReady: no ForceReady and the terrain checks not detoured yet)
+        // leaves the body with the game's AI off, as a refused lease does: never the AI on and the brain's writes dropped
+        var unready = await _walker!.Spawn(at with { Z = at.Z - 6 }, 0, new CreatureSpawnOptions { Tag = Me, Flags = SpawnFlags.Transient });
+        _mine.Add(unready);
+        ControlLeaseSnapshot? nl = null;
+        for (var i = 0; i < 24 * 8 && nl is not { IsTerminal: true }; i++)
+        {
+            await Steps(1);
+            nl = last.TryGetValue(unready.Value, out var ue) ? ue.After : null;
+        }
+        await Steps(2);
+        var unreadyAi = Creatures.Of(unready).AiEnabled;
+        Check(nl is { State: ControlLeaseState.Failed, Result: ControlResultCode.TimedOut } && nl.Reason.StartsWith("BodyNotReady", StringComparison.Ordinal) && !unreadyAi,
+            $"brain: its lease failed while the brain lives ({nl?.State} {nl?.Result}: {nl?.Reason}) -> the game's AI is off (AI {unreadyAi})");
+        Spawn.Destroy(unready);
+        _mine.Remove(unready);
+        var ready = Symbols.FindAll("48 89 5C 24 08 57 48 83 EC 30 F3 0F 10 15 ?? ?? ?? ?? 0F 57 C0 F3 49 0F 2A 00 48 8B C2 48 8B F9 48 8D 54 24 20 48 8B C8 49 8B D8");
+        foreach (var r in ready) Hooks.Detour(r, _ => 1);  // goes with the mod
+        Info($"brain moves: terrain readiness checks detoured: {ready.Length}");
         async Task<EntityId> Body(WorldPosition where, bool outlivesTheMod = false)
         {
             var e = await _walker!.Spawn(where, 0, outlivesTheMod

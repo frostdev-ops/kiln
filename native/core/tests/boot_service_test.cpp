@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 // Host tests of kiln.boot (src/services/boot_service.cpp, abi/services/kiln_boot.h): the deferred-mode decision from
-// the mods' manifests, staging, and the commit protocol with six fake collectors (BOOT-PREPARE-ATOMIC with a failure
+// the mods' manifests, staging, and the commit protocol with seven fake collectors (BOOT-PREPARE-ATOMIC with a failure
 // injected at each collector, the per-mod drop of coordinator ruling 7, contract breaks, warnings), the hold path
-// through a fake OS-exit adapter (never the test runner's own exit), and the buffer rules.
+// through a fake OS-exit adapter (never the test runner's own exit), the buffer rules, and the offline game-data view
+// (read_resource, boot_gamedata.h) over snapshots the test writes itself.
 // Run by test-boot-service.sh (ASan/UBSan): test-boot-service.sh [scratch dir]. Prints one line per case and
 // "BOOT SERVICE TESTS <n> PASS <m> FAIL"; exits 1 when anything failed.
 #include <cstdint>
@@ -23,6 +24,8 @@ struct EXCEPTION_POINTERS;
 #define __except(x) catch (...)
 #endif
 [[noreturn]] inline void ExitProcess(unsigned int) { std::abort(); }  // the adapter is replaced before any call
+inline void* GetCurrentProcess() { return nullptr; }
+inline int TerminateProcess(void*, unsigned int) { std::abort(); }  // the late adapter is replaced too
 
 #include "../src/services/service.cpp"
 #include "../src/services/boot_service.cpp"
@@ -152,10 +155,12 @@ KilnStr ks(const std::string& s) { return KilnStr{s.data(), s.size()}; }
 // The OS-exit adapter: records the code and returns (production never returns from ExitProcess).
 std::vector<uint32_t> t_exits;
 void fake_exit(uint32_t code) { t_exits.push_back(code); }
+std::vector<uint32_t> t_late_exits;  // the stop after the entry point ends the process another way (no detach code)
+void fake_exit_late(uint32_t code) { t_late_exits.push_back(code); }
 std::vector<std::string> t_held;  // write_state's last lines
 void fake_write_state(void*, const std::string& last) { t_held.push_back(last); }
 
-// ---- six fake collectors ----
+// ---- seven fake collectors ----
 enum class Do { Ok, Refuse, RefuseNobody, Error, OkNoPlan, Throw, Warn, OkWithError };
 struct Fake {
     int index = 0;
@@ -165,7 +170,7 @@ struct Fake {
     int calls = 0;
     std::vector<json> seen;  // the IR of each call
 };
-Fake t_fake[6];
+Fake t_fake[7];
 std::vector<std::string> t_events;  // "prepare:<c>", "destroy:<c>:<round>"
 struct Plan {
     int collector, round;
@@ -225,6 +230,7 @@ void reset_boot() {
     g_decided = g_deferred = g_bound = false;
     g_why.clear();
     g_boot_mods.clear();
+    g_scanned.clear();
     g_status = KILN_BOOT_STATUS_COLLECTING;
     g_owners.clear();
     g_by_author.clear();
@@ -240,14 +246,17 @@ void reset_boot() {
     }
     g_self = 0;
     g_exit_code = 0;
+    g_late_hold = nullptr;
     g_exit = &fake_exit;
+    g_exit_late = &fake_exit_late;
+    t_late_exits.clear();
     t_exits.clear();
     t_held.clear();
     t_events.clear();
     t_revoked.clear();
     t_caps.clear();
     t_log.clear();
-    for (int i = 0; i < 6; ++i) {
+    for (int i = 0; i < 7; ++i) {
         t_fake[i] = Fake{};
         t_fake[i].index = i;
     }
@@ -301,7 +310,7 @@ void deferred_with(const std::vector<std::string>& ids) {
     profile_with(mods);
     server_rows(true);
     kiln::boot_svc::decide(true, "");
-    for (int i = 5; i >= 0; --i)  // registration order is not the prepare order
+    for (int i = 6; i >= 0; --i)  // registration order is not the prepare order
         B.collector(50 + i, ks(kiln::boot_svc::kCollectors[i]), &fake_prepare, &t_fake[i]);
     kiln::boot_svc::bound();
 }
@@ -632,7 +641,7 @@ void publish_case() {
     CHECK(state_of("a") == KILN_BOOT_STATE_COMMITTED && state_of("b") == KILN_BOOT_STATE_COMMITTED);
     // the fixed order, whatever the registration order
     CHECK(events_with("prepare:") == (std::vector<std::string>{"prepare:assets", "prepare:worldtables", "prepare:content",
-                                                               "prepare:skills", "prepare:knowledge", "prepare:vfx"}));
+                                                               "prepare:skills", "prepare:knowledge", "prepare:vfx", "prepare:patches"}));
     CHECK(events_with("destroy:").empty());  // a published plan lives until the process exits
     // what a prepare sees: the generation, nothing excluded, the process owners
     const json& ir = t_fake[2].seen.at(0);
@@ -648,12 +657,14 @@ void publish_case() {
     KilnBootStageResultV1 r{};
     r.size = sizeof r;
     CHECK(B.stage(author_of("a"), 1, ks("items"), ks("late"), ks("{}"), &r) == KILN_OK && r.ok == 0);
-    CHECK(shown("mods.boot.phase") && shown("mods.boot.phase")->state == KILN_CAP_PENDING);
+    // the phase is over: unavailable (policy), not pending (review A1)
+    CHECK(shown("mods.boot.phase") && shown("mods.boot.phase")->state == KILN_CAP_UNAVAILABLE &&
+          shown("mods.boot.phase")->reason == KILN_CAP_REASON_POLICY);
     // the start goes on: no hold, no exit
     CHECK(kiln::boot_svc::after_clr(true, &fake_write_state, nullptr) && t_exits.empty() && t_held.empty());
     const json rep = kiln::boot_svc::report();
     CHECK(rep["deferred"] == true && rep["status"] == "published" && rep["published"] == true && rep["exitCode"].is_null());
-    pass_line("BOOT-PUBLISH (six plans in one root, fixed order, generation 1)", f0);
+    pass_line("BOOT-PUBLISH (seven plans in one root, fixed order, generation 1)", f0);
 }
 
 // BOOT-PREPARE-ATOMIC: a required participant's refusal at collector `at` aborts everything.
@@ -674,6 +685,7 @@ void atomic_required_case(int at) {
     CHECK(events_with("prepare:").size() == static_cast<size_t>(at + 1));
     CHECK(state_of("req") == KILN_BOOT_STATE_REJECTED_PREPARE);
     CHECK(state_of("other") == KILN_BOOT_STATE_GENERATION_ABORTED && state_of("third") == KILN_BOOT_STATE_GENERATION_ABORTED);
+    CHECK(shown("mods.boot.phase") && shown("mods.boot.phase")->state == KILN_CAP_UNAVAILABLE);
     // the entry point stays held: boot.json first, then the exit adapter with 0x4B01
     CHECK(!kiln::boot_svc::after_clr(true, &fake_write_state, nullptr));
     CHECK(t_exits == std::vector<uint32_t>{0x4B01u} && t_held.size() == 1 && t_held[0].find("0x4B01") != std::string::npos);
@@ -713,7 +725,7 @@ void drop_case(int at) {
     std::vector<std::string> expect;
     for (int i = at - 1; i >= 0; --i) expect.push_back("destroy:" + std::string(kiln::boot_svc::kCollectors[i]) + ":1");
     CHECK(events_with("destroy:") == expect);
-    CHECK(events_with("prepare:").size() == static_cast<size_t>(at + 1 + 6));
+    CHECK(events_with("prepare:").size() == static_cast<size_t>(at + 1 + 7));
     CHECK(state_of("opt") == KILN_BOOT_STATE_REJECTED_PREPARE && state_of("dep") == KILN_BOOT_STATE_EXCLUDED_DEPENDENCY &&
           state_of("keep") == KILN_BOOT_STATE_COMMITTED);
     // what round 2 saw: neither dropped mod, in "excluded" so the collectors skip their files too
@@ -820,7 +832,8 @@ void missing_collector_cases() {
     profile_with({{"a", true}, {"b", true}});
     server_rows(true);
     kiln::boot_svc::decide(true, "");
-    for (int i = 0; i < 5; ++i) B.collector(50 + i, ks(kiln::boot_svc::kCollectors[i]), &fake_prepare, &t_fake[i]);
+    for (int i = 0; i < 7; ++i)
+        if (i != 5) B.collector(50 + i, ks(kiln::boot_svc::kCollectors[i]), &fake_prepare, &t_fake[i]);  // all but vfx
     kiln::boot_svc::bound();
     CHECK(shown("mods.boot") && shown("mods.boot")->state == KILN_CAP_UNAVAILABLE &&
           shown("mods.boot")->reason == KILN_CAP_REASON_SERVICE_MISSING);
@@ -832,19 +845,86 @@ void missing_collector_cases() {
           state_of("a") == KILN_BOOT_STATE_COMMITTED);
     uint64_t g = 7;
     CHECK(B.active_plan(ks("vfx"), &g) == nullptr && g == 0 && B.active_plan(ks("assets"), &g) && g == 1);
-    CHECK(events_with("prepare:").size() == 5);  // dropped before anything prepared
+    CHECK(events_with("prepare:").size() == 6);  // dropped before anything prepared
     // the same for a required mod: the start stops
     reset_boot();
     profile_with({{"a", true}, {"b", "required"}});
     server_rows(true);
     kiln::boot_svc::decide(true, "");
-    for (int i = 0; i < 5; ++i) B.collector(50 + i, ks(kiln::boot_svc::kCollectors[i]), &fake_prepare, &t_fake[i]);
+    for (int i = 0; i < 7; ++i)
+        if (i != 5) B.collector(50 + i, ks(kiln::boot_svc::kCollectors[i]), &fake_prepare, &t_fake[i]);  // all but vfx
     kiln::boot_svc::bound();
     run_authors({"a", "b!"});
     c = commit_with(e.dump());
     CHECK(c.status == KILN_BOOT_STATUS_ABORTED && no_plan_published());
     CHECK(!kiln::boot_svc::after_clr(true, &fake_write_state, nullptr) && t_exits == std::vector<uint32_t>{0x4B01u});
     pass_line("BOOT-COLLECTOR-MISSING (mods.boot off, owner dropped or start stopped)", f0);
+}
+
+// S10: a collector reports that published content could not be applied. An optional mod: recorded, the start goes on.
+// A required mod: the late hold writes the state and the process ends with the boot exit code.
+void activation_fault_cases() {
+    t_case = "activation-fault";
+    const int f0 = t_fail;
+    deferred_with({"opt", "req!"});
+    // before anything is published there is nothing to fault
+    CHECK(B.activation_fault(56, ks("opt"), ks("resourcePatches"), ks("xp"), ks("too early")) == KILN_ERR_UNAVAILABLE);
+    run_authors({"opt", "req!"});
+    const auto c = commit_with(envelope({"opt", "req!"}));
+    CHECK(c.status == KILN_BOOT_STATUS_PUBLISHED);
+    CHECK(kiln::boot_svc::after_clr(true, &fake_write_state, nullptr) && t_exits.empty());
+    kiln::boot_svc::late_hold(&fake_write_state, nullptr);
+    // who may report, and about whom
+    CHECK(B.activation_fault(999, ks("opt"), ks("resourcePatches"), ks("xp"), ks("x")) == KILN_ERR_INVALID_ARGUMENT);  // not a collector
+    CHECK(B.activation_fault(0, ks("opt"), ks("resourcePatches"), ks("xp"), ks("x")) == KILN_ERR_INVALID_ARGUMENT);
+    CHECK(B.activation_fault(56, ks("nobody"), ks("resourcePatches"), ks("xp"), ks("x")) == KILN_ERR_INVALID_ARGUMENT);
+    CHECK(B.activation_fault(56, ks("opt"), ks("resourcePatches"), ks("xp"), ks("")) == KILN_ERR_INVALID_ARGUMENT);
+    CHECK(state_of("opt") == KILN_BOOT_STATE_COMMITTED && t_exits.empty());
+    // an optional mod: an issue, its state, the phase status; no exit, and the plans stay published
+    CHECK(B.activation_fault(56, ks("opt"), ks("resourcePatches"), ks("xp"), ks("the resource is not in this game build")) == KILN_OK);
+    CHECK(state_of("opt") == KILN_BOOT_STATE_ACTIVATION_FAULT && state_of("req") == KILN_BOOT_STATE_COMMITTED);
+    KilnBootCommitResultV1 st{};
+    st.size = sizeof st;
+    CHECK(B.status(&st) == KILN_OK && st.status == KILN_BOOT_STATUS_ACTIVATION_FAULT);
+    CHECK(t_exits.empty() && t_held.empty());
+    uint64_t g = 0;
+    CHECK(B.active_plan(ks("assets"), &g) != nullptr && g == 1);
+    json rep = kiln::boot_svc::report();
+    bool named = false;
+    for (const auto& i : rep["issues"])
+        named |= i["code"] == "ActivationFault" && i["mod"] == "opt" && i["kind"] == "resourcePatches" && i["key"] == "xp" && i["phase"] == "activation";
+    CHECK(named && rep["exitCode"].is_null());
+    // a required mod: the state files are written, then the exit, once
+    CHECK(B.activation_fault(56, ks("req"), ks("resourcePatches"), ks("cap"), ks("index 99 is past the array's 20 entries")) == KILN_OK);
+    CHECK(t_late_exits == std::vector<uint32_t>{0x4B01u} && t_exits.empty() && t_held.size() == 1);  // never ExitProcess here
+    CHECK(t_held.size() == 1 && t_held[0].find("req") != std::string::npos && t_held[0].find("index 99") != std::string::npos);
+    CHECK(state_of("req") == KILN_BOOT_STATE_ACTIVATION_FAULT);
+    rep = kiln::boot_svc::report();
+    CHECK(rep["exitCode"] == 0x4B01);
+    pass_line("BOOT-ACTIVATION-FAULT (optional: recorded, start goes on; required: late hold and exit 0x4B01)", f0);
+}
+
+// A boot mod that ran no OnBoot and is in no envelope (blocks files only) takes part all the same: a collector can refuse
+// it by name (dropped, not an abort), the collectors get its process owner, and "required" holds for it.
+void files_only_cases() {
+    t_case = "files-only";
+    const int f0 = t_fail;
+    deferred_with({"data", "need!"});
+    t_fake[6].act = Do::Refuse;  // the patches collector refuses "data" in the first round
+    t_fake[6].act_round = 1;
+    t_fake[6].blame = "data";
+    const auto c = commit_with("");  // no author ran, no envelope
+    CHECK(c.status == KILN_BOOT_STATUS_PUBLISHED && c.owner_count == 2);
+    CHECK(state_of("data") == KILN_BOOT_STATE_REJECTED_PREPARE && state_of("need") == KILN_BOOT_STATE_COMMITTED);
+    const json& ir = t_fake[0].seen.back();
+    CHECK(ir["excluded"] == json::array({"data"}));
+    CHECK(ir["owners"].size() == 1 && ir["owners"][0]["id"] == "need" && ir["owners"][0]["filesOnly"] == true &&
+          ir["owners"][0]["owner"].is_number_unsigned() && ir["owners"][0]["owner"] != 0);
+    CHECK(kiln::boot_svc::after_clr(true, &fake_write_state, nullptr) && t_exits.empty());
+    kiln::boot_svc::late_hold(&fake_write_state, nullptr);
+    CHECK(B.activation_fault(56, ks("need"), ks("resourcePatches"), ks("xp"), ks("no such resource")) == KILN_OK);
+    CHECK(t_late_exits == std::vector<uint32_t>{0x4B01u} && t_held.size() == 1);  // required by its manifest alone
+    pass_line("BOOT-FILES-ONLY (a boot mod of files takes part: dropped by name, owner given, required holds)", f0);
 }
 
 void not_committed_cases() {
@@ -919,6 +999,373 @@ void buffer_cases() {
     CHECK(B.status(&st) == KILN_ERR_INVALID_ARGUMENT && st.status == 0xCDCDCDCDu && st.generation == 0xCDCDCDCDCDCDCDCDull);
     pass_line("BOOT-BUFFERS too-small outputs write nothing", f0);
 }
+
+// ---- the offline game-data view over a boot snapshot (docs/kiln/modding/boot-gamedata.md) ----
+// The test writes its own snapshot: invented names and values, nothing of the game's.
+const std::string kSha = [] { std::string s; for (int i = 0; i < 32; ++i) s += "ab"; return s; }();
+const std::string kVersion = "1287369|^/game38/test|2026-01-01T00:00:00Z";
+const std::string kGuidItem = "0f8fad5b-d9cb-469f-a165-70867728950e", kGuidTemplate = "11111111-2222-4333-8444-555555555555",
+                  kGuidRows = "99999999-8888-4777-8666-555555555555";
+
+struct Snap {
+    fs::path game, dir;
+    std::string key;
+    std::map<std::string, json> index;        // kind -> entries
+    std::map<std::string, std::string> data;  // kind -> bytes
+};
+
+void write_text(const fs::path& f, const std::string& text) {
+    fs::create_directories(f.parent_path());
+    std::ofstream(f, std::ios::binary) << text;
+}
+
+std::string kfc_bytes(const std::string& magic, const std::string& version, uint32_t rel = 0x30) {
+    std::string b(0x10 + rel, '\0');
+    std::memcpy(b.data(), magic.data(), 4);
+    const uint32_t len = static_cast<uint32_t>(version.size());
+    std::memcpy(b.data() + 0x10, &rel, 4);
+    std::memcpy(b.data() + 0x14, &len, 4);
+    return b + version;
+}
+
+void add(Snap& s, const std::string& kind, const std::string& name, const std::string& value, const std::string& guid,
+         const std::string& type, int part) {
+    s.index[kind][name] = json::array({s.data[kind].size(), value.size(), guid, type, part});
+    s.data[kind] += value;
+}
+
+// A game folder with an exe name, a .kfc and a finished snapshot of its key; the globals point at it.
+Snap make_snapshot(const std::string& name) {
+    Snap s;
+    s.game = t_root / name;
+    fs::remove_all(s.game);
+    t_paths.exe = s.game / "enshrouded_server.exe";
+    t_paths.data = s.game / "kiln" / "data";
+    t_image.sha256 = kSha;
+    write_text(s.game / "enshrouded_server.kfc", kfc_bytes("KFC4", kVersion));
+    s.key = kiln::boot_gd::key_of(kSha, kVersion);
+    s.dir = t_paths.data / "boot-gamedata" / s.key;
+    for (const char* k : kiln::boot_gd::kKinds) s.index[k] = json::object(), s.data[k] = "";
+    add(s, "items", "Test_Item_Logs", R"({"name":"Test_Item_Logs","stackSize":50,"tags":["wood","fuel"]})", kGuidItem, "1a2b3c4d", 0);
+    add(s, "items", "Test.Item-2", R"(  {"name":"second"})", "0f8fad5b-d9cb-469f-a165-70867728950f", "1a2b3c4d", 3);
+    add(s, "templates", "Test_Template_Trader", R"({"template":"trader","health":120.5})", kGuidTemplate, "0000beef", 0);
+    add(s, "skills", "0x8efcc472", R"({"hash":2398930034,"cost":2})", kGuidRows, "00c0ffee", 0);
+    add(s, "materials", "StoneRough", R"({"name":"StoneRough","hardness":3})", kGuidRows, "0000f00d", 1);
+    add(s, "materials", "Cell12", R"({"hardness":1})", kGuidRows, "0000f00d", 1);
+    return s;
+}
+
+void flush(const Snap& s, int format = 1, const std::string& key = "") {
+    for (const char* k : kiln::boot_gd::kKinds) {
+        write_text(s.dir / (std::string(k) + ".index.json"), json{{"format", 1}, {"kind", k}, {"entries", s.index.at(k)}}.dump());
+        write_text(s.dir / (std::string(k) + ".data"), s.data.at(k));
+    }
+    write_text(s.dir / "index.json",
+               json{{"format", format}, {"key", key.empty() ? s.key : key}, {"side", "server"}, {"exeSha256", kSha}, {"kfcVersion", kVersion},
+                    {"counts", json::object()}, {"skipped", json::array({json{{"kind", "items"}, {"name", "Test_Item_Logs"}, {"reason", "duplicate name"}}})}}
+                   .dump());
+}
+
+// decide() with this folder, one author "a" with an open frame.
+KilnOwner open_author() {
+    deferred_with({"a", "b"});
+    uint64_t gen = 0;
+    const KilnOwner a = 41;
+    B.begin_owner(a, ks("a"), 1, &gen);
+    return a;
+}
+
+bool row_is(uint32_t state, const std::string& part) {
+    const KilnCapRow* r = shown("mods.boot.game_data");
+    return r && r->state == state && std::string(r->text.ptr, r->text.len).find(part) != std::string::npos;
+}
+
+// read_resource into a buffer of exactly the size it asks for: the result, or "" with *rc.
+std::string read_all(KilnOwner a, const std::string& q, KilnResult* rc) {
+    size_t need = 0;
+    char none = 0x5A;
+    *rc = B.read_resource(a, ks(q), &none, 1, &need);
+    if (*rc != KILN_ERR_BUFFER_TOO_SMALL || none != 0x5A) return "";
+    std::string out(need, '\x5A');
+    size_t again = 777;
+    *rc = B.read_resource(a, ks(q), out.data(), out.size(), &again);
+    if (*rc != KILN_OK || again != 777 || out.back() != 0) return "";  // OK leaves *required alone; the NUL is the last byte
+    out.pop_back();
+    return out;
+}
+
+void gamedata_cases() {
+    t_case = "gamedata";
+    int f0 = t_fail;
+    const auto saved_exe = t_paths.exe, saved_data = t_paths.data;
+    const std::string saved_sha = t_image.sha256;
+    KilnResult rc = KILN_OK;
+    char buf[512];
+    size_t need = 0;
+
+    // the key: SHA-256 against known digests (computed with another implementation)
+    {
+        const auto d = kiln::boot_gd::sha256("abc");
+        CHECK(d[0] == 0xba && d[1] == 0x78 && d[31] == 0xad);
+        CHECK(kiln::boot_gd::key_of(kSha, kVersion) == "850a133514bf750c14e4997cf509ce50");
+        CHECK(kiln::boot_gd::key_of(kSha, kVersion + "x") != kiln::boot_gd::key_of(kSha, kVersion));
+        const std::string block(200, 'q');  // more than one block, and a length that pads into a second one
+        CHECK(kiln::boot_gd::sha256(block) != kiln::boot_gd::sha256(block.substr(1)));
+    }
+    pass_line("BOOT-GAMEDATA-KEY the key is SHA-256 over the exe hash, a newline and the kfc version", f0);
+
+    // a matching snapshot: the row, and each query form found and not found
+    f0 = t_fail;
+    Snap s = make_snapshot("gd-match");
+    flush(s);
+    KilnOwner a = open_author();
+    CHECK(row_is(KILN_CAP_AVAILABLE, s.key));
+    {
+        const json item = json::parse(read_all(a, "item:Test_Item_Logs", &rc), nullptr, false);
+        CHECK(rc == KILN_OK && item.is_object() && item.size() == 4);
+        CHECK(item.value("resourceId", "") == kGuidItem && item.value("typeHash", "") == "1a2b3c4d" && item.value("part", -1) == 0);
+        CHECK(item.contains("value") && item["value"] == json::parse(R"({"name":"Test_Item_Logs","stackSize":50,"tags":["wood","fuel"]})"));
+        const json second = json::parse(read_all(a, "item:Test.Item-2", &rc), nullptr, false);
+        CHECK(rc == KILN_OK && second.value("part", -1) == 3 && second["value"].value("name", "") == "second");
+        const json tpl = json::parse(read_all(a, "template:Test_Template_Trader", &rc), nullptr, false);
+        CHECK(rc == KILN_OK && tpl.value("resourceId", "") == kGuidTemplate && tpl["value"].value("health", 0.0) == 120.5);
+        const json skill = json::parse(read_all(a, "skill:0x8EFCC472", &rc), nullptr, false);  // the digits are lower-cased
+        CHECK(rc == KILN_OK && skill.value("typeHash", "") == "00c0ffee" && skill["value"].value("cost", 0) == 2);
+        const json mat = json::parse(read_all(a, "material:StoneRough", &rc), nullptr, false);
+        CHECK(rc == KILN_OK && mat.value("part", -1) == 1 && mat["value"].value("hardness", 0) == 3);
+        const json cell = json::parse(read_all(a, "material:Cell12", &rc), nullptr, false);
+        CHECK(rc == KILN_OK && cell["value"].value("hardness", 0) == 1);
+        // resource: over the item and template indexes, the type hash in either case
+        const json by_item = json::parse(read_all(a, "resource:" + kGuidItem + "/1A2B3C4D/0", &rc), nullptr, false);
+        CHECK(rc == KILN_OK && by_item == item);
+        const json by_tpl = json::parse(read_all(a, "resource:" + kGuidTemplate + "/0000beef/0", &rc), nullptr, false);
+        CHECK(rc == KILN_OK && by_tpl == tpl);
+    }
+    for (const std::string& q : std::vector<std::string>{"item:Test_Item_Missing", "item:test_item_logs", "template:Test_Item_Logs", "skill:0x00000001",
+                                "material:Cell13", "material:Test_Item_Logs", "resource:" + kGuidItem + "/1a2b3c4d/1",
+                                "resource:" + kGuidItem + "/1a2b3c4e/0", "resource:" + kGuidRows + "/00c0ffee/0"}) {
+        need = 99;
+        CHECK(B.read_resource(a, ks(q), buf, sizeof buf, &need) == KILN_ERR_NOT_FOUND && need == 99);
+    }
+    // outside the grammar: refused before any index is touched, also with a snapshot
+    for (const char* q : {"item:", "item:../index", "item:a/b", "skill:8efcc472", "npc:Fisher", "items:Test_Item_Logs",
+                          "resource:" "0F8FAD5B-D9CB-469F-A165-70867728950E/1a2b3c4d/0", "index.json", ""})
+        CHECK(B.read_resource(a, ks(q), buf, sizeof buf, &need) == KILN_ERR_INVALID_ARGUMENT);
+    CHECK(B.read_resource(a, ks("item:Test_Item_Logs"), buf, sizeof buf, nullptr) == KILN_ERR_INVALID_ARGUMENT);
+    CHECK(B.read_resource(a, ks("item:Test_Item_Logs"), nullptr, 64, &need) == KILN_ERR_INVALID_ARGUMENT);
+    CHECK(B.read_resource(999, ks("item:Test_Item_Logs"), buf, sizeof buf, &need) == KILN_ERR_INVALID_ARGUMENT);
+    pass_line("BOOT-GAMEDATA-QUERIES the five query forms, found and not found, over a matching snapshot", f0);
+
+    // BUFFER_TOO_SMALL sets *required and writes nothing; one byte less than required is still too small; then success
+    f0 = t_fail;
+    {
+        std::memset(buf, 0x5A, sizeof buf);
+        need = 0;
+        CHECK(B.read_resource(a, ks("material:Cell12"), buf, 8, &need) == KILN_ERR_BUFFER_TOO_SMALL && need > 8);
+        CHECK(std::all_of(buf, buf + sizeof buf, [](char c) { return c == 0x5A; }));
+        const size_t want = need;
+        need = 0;
+        CHECK(B.read_resource(a, ks("material:Cell12"), buf, want - 1, &need) == KILN_ERR_BUFFER_TOO_SMALL && need == want);
+        CHECK(std::all_of(buf, buf + sizeof buf, [](char c) { return c == 0x5A; }));
+        CHECK(B.read_resource(a, ks("material:Cell12"), nullptr, 0, &need) == KILN_ERR_BUFFER_TOO_SMALL && need == want);
+        need = 5;
+        CHECK(B.read_resource(a, ks("material:Cell12"), buf, want, &need) == KILN_OK && need == 5);
+        CHECK(std::strlen(buf) == want - 1 && buf[want] == 0x5A);
+        CHECK(std::string(buf) == R"({"resourceId":")" + kGuidRows + R"(","typeHash":"0000f00d","part":1,"value":{"hardness":1}})");
+    }
+    pass_line("BOOT-GAMEDATA-BUFFER too small sets required and writes nothing, then the exact size succeeds", f0);
+
+    // a closed frame reads nothing; an author that never began is not an author
+    f0 = t_fail;
+    CHECK(B.finish_owner(a, 1, KILN_BOOT_FINISH_ACCEPT) == KILN_OK);
+    CHECK(B.read_resource(a, ks("item:Test_Item_Logs"), buf, sizeof buf, &need) == KILN_ERR_REVOKED);
+    pass_line("BOOT-GAMEDATA-FRAME a closed frame is refused with a snapshot too", f0);
+
+    // no snapshot, for each test of the contract: the row says which, and nothing is read
+    f0 = t_fail;
+    auto refused = [&](const std::string& why) {
+        const KilnOwner o = open_author();
+        need = 99;
+        const bool off = B.read_resource(o, ks("item:Test_Item_Logs"), buf, sizeof buf, &need) == KILN_ERR_UNAVAILABLE && need == 99;
+        return off && row_is(KILN_CAP_UNAVAILABLE, "kiln boot-snapshot --game <dir>") && row_is(KILN_CAP_UNAVAILABLE, why);
+    };
+    s = make_snapshot("gd-none");  // no directory at all
+    CHECK(refused("no snapshot directory " + s.key));
+    s = make_snapshot("gd-otherkey");  // a finished snapshot of another build beside it: never opened
+    {
+        Snap other = s;
+        other.key = kiln::boot_gd::key_of(kSha, kVersion + "-other");
+        other.dir = t_paths.data / "boot-gamedata" / other.key;
+        flush(other);
+        CHECK(refused("no snapshot directory " + s.key));
+    }
+    s = make_snapshot("gd-wrongkey");  // the right directory name, an index.json of another key
+    flush(s, 1, kiln::boot_gd::key_of(kSha, kVersion + "-other"));
+    CHECK(refused("names another key"));
+    s = make_snapshot("gd-noindex");
+    flush(s);
+    fs::remove(s.dir / "index.json");
+    CHECK(refused("no index.json"));
+    for (const char* missing : {"items.data", "templates.index.json", "skills.data", "materials.index.json"}) {
+        s = make_snapshot("gd-missing");
+        flush(s);
+        fs::remove(s.dir / missing);
+        CHECK(refused(std::string("has no ") + missing));
+    }
+    s = make_snapshot("gd-format2");
+    flush(s, 2);
+    CHECK(refused("format is not 1"));
+    s = make_snapshot("gd-badjson");
+    flush(s);
+    write_text(s.dir / "index.json", "[1]");
+    CHECK(refused("not a JSON object"));
+    // the kfc: short, not KFC4, a version string outside the 64 KiB read, no file; and an unknown exe hash
+    s = make_snapshot("gd-kfc-short");
+    flush(s);
+    write_text(s.game / "enshrouded_server.kfc", "KFC4\x01\x02");
+    CHECK(refused("shorter than its header"));
+    s = make_snapshot("gd-kfc-magic");
+    flush(s);
+    write_text(s.game / "enshrouded_server.kfc", kfc_bytes("KFC3", kVersion));
+    CHECK(refused("does not start with KFC4"));
+    s = make_snapshot("gd-kfc-far");
+    flush(s);
+    write_text(s.game / "enshrouded_server.kfc", kfc_bytes("KFC4", kVersion, 70000));
+    CHECK(refused("outside its first 64 KiB"));
+    {
+        std::string cut = kfc_bytes("KFC4", kVersion);
+        cut.pop_back();  // the string's last byte is not in the file
+        write_text(s.game / "enshrouded_server.kfc", cut);
+        CHECK(refused("outside its first 64 KiB"));
+    }
+    s = make_snapshot("gd-kfc-none");
+    flush(s);
+    fs::remove(s.game / "enshrouded_server.kfc");
+    CHECK(refused("could not be opened"));
+    s = make_snapshot("gd-nosha");
+    flush(s);
+    t_image.sha256.clear();
+    CHECK(refused("SHA-256 is not known"));
+    // safe idle: the row is the policy's, and no snapshot is looked for
+    s = make_snapshot("gd-idle");
+    flush(s);
+    reset_boot();
+    kiln::boot_svc::decide(false, "the build is not verified");
+    CHECK(shown("mods.boot.game_data")->reason == KILN_CAP_REASON_POLICY && row_is(KILN_CAP_UNAVAILABLE, "safe idle"));
+    pass_line("BOOT-GAMEDATA-NO-SNAPSHOT every failed test of the contract leaves the row off with its reason", f0);
+
+    // broken entries and indexes: refused as unavailable, never read out of range, and the other kinds still answer
+    f0 = t_fail;
+    s = make_snapshot("gd-broken");
+    add(s, "items", "Past_End", R"({"x":1})", kGuidItem, "1a2b3c4d", 7);
+    s.index["items"]["Past_End"][0] = s.data["items"].size() - 3;          // the last 3 bytes exist, 4 more do not
+    add(s, "items", "Far_Offset", R"({"x":2})", kGuidItem, "1a2b3c4d", 8);
+    s.index["items"]["Far_Offset"][0] = 1ull << 40;
+    add(s, "items", "Not_Json", R"({"x":)", kGuidItem, "1a2b3c4d", 9);
+    add(s, "items", "Not_Object", R"([1,2,3])", kGuidItem, "1a2b3c4d", 10);
+    add(s, "items", "Two_Values", R"({"x":1}{"y":2})", kGuidItem, "1a2b3c4d", 11);
+    s.index["skills"]["0x00000002"] = json::array({0, 4, kGuidRows, "00c0ffee"});  // four members: the skills index is broken
+    flush(s);
+    a = open_author();
+    CHECK(row_is(KILN_CAP_AVAILABLE, s.key));
+    for (const char* q : {"item:Past_End", "item:Far_Offset", "item:Not_Json", "item:Not_Object", "item:Two_Values", "skill:0x8efcc472",
+                          "skill:0x00000002"}) {
+        std::memset(buf, 0x5A, sizeof buf);
+        need = 99;
+        CHECK(B.read_resource(a, ks(q), buf, sizeof buf, &need) == KILN_ERR_UNAVAILABLE && need == 99 && buf[0] == 0x5A);
+    }
+    read_all(a, "item:Test_Item_Logs", &rc);
+    CHECK(rc == KILN_OK);
+    read_all(a, "material:StoneRough", &rc);
+    CHECK(rc == KILN_OK);
+    for (const json& bad : {json::array({0, 4, "0F8FAD5B-D9CB-469F-A165-70867728950E", "1a2b3c4d", 0}), json::array({0, 4, kGuidItem, "1A2B3C4D", 0}),
+                           json::array({-1, 4, kGuidItem, "1a2b3c4d", 0}), json::array({0, 0, kGuidItem, "1a2b3c4d", 0}),
+                           json::array({0, 9007199254740992ull, kGuidItem, "1a2b3c4d", 0}), json::array({0, 4, kGuidItem, "1a2b3c4d", 2147483648ull}),
+                           json("0,4"), json::array({0.5, 4, kGuidItem, "1a2b3c4d", 0})}) {
+        s = make_snapshot("gd-badentry");
+        s.index["templates"]["Bad"] = bad;
+        flush(s);
+        a = open_author();
+        CHECK(B.read_resource(a, ks("template:Test_Template_Trader"), buf, sizeof buf, &need) == KILN_ERR_UNAVAILABLE);
+        CHECK(B.read_resource(a, ks("resource:" + kGuidItem + "/1a2b3c4d/0"), buf, sizeof buf, &need) == KILN_ERR_UNAVAILABLE);  // needs both indexes
+        CHECK(B.read_resource(a, ks("item:Test_Item_Logs"), buf, sizeof buf, &need) == KILN_OK);
+    }
+    for (const std::string& text : {std::string("{"), std::string(R"({"format":2,"kind":"items","entries":{}})"),
+                                   std::string(R"({"format":1,"kind":"templates","entries":{}})"), std::string(R"({"format":1,"kind":"items","entries":[]})")}) {
+        s = make_snapshot("gd-badindex");
+        flush(s);
+        write_text(s.dir / "items.index.json", text);
+        a = open_author();
+        CHECK(B.read_resource(a, ks("item:Test_Item_Logs"), buf, sizeof buf, &need) == KILN_ERR_UNAVAILABLE);
+    }
+    pass_line("BOOT-GAMEDATA-BROKEN an entry outside its data file or no JSON object, and a broken index, are refused", f0);
+
+    // the limits: one result of at most 4 MiB, 16 MiB of values per author, and a too-small answer costs nothing
+    f0 = t_fail;
+    s = make_snapshot("gd-limits");
+    const std::string head = R"({"resourceId":")" + kGuidItem + R"(","typeHash":"1a2b3c4d","part":0,"value":)";
+    auto sized = [](size_t bytes) { return R"({"s":")" + std::string(bytes - 8, 'x') + R"("})"; };  // one JSON object of `bytes` bytes
+    const size_t most = KILN_BOOT_RESULT_MAX - head.size() - 2;  // with '}' and the NUL the result is exactly 4 MiB
+    add(s, "items", "At_Limit", sized(most), kGuidItem, "1a2b3c4d", 0);
+    add(s, "items", "Over_Limit", sized(most + 1), kGuidItem, "1a2b3c4d", 0);
+    add(s, "items", "Half_Mib", sized(512u << 10), kGuidItem, "1a2b3c4d", 0);
+    flush(s);
+    a = open_author();
+    {
+        const KilnOwner b = 42;
+        uint64_t gen = 0;
+        CHECK(B.begin_owner(b, ks("b"), 1, &gen) == KILN_OK);
+        std::vector<char> big(KILN_BOOT_RESULT_MAX + 16, 0x5A);
+        need = 0;
+        CHECK(B.read_resource(a, ks("item:At_Limit"), big.data(), KILN_BOOT_RESULT_MAX - 1, &need) == KILN_ERR_BUFFER_TOO_SMALL &&
+              need == KILN_BOOT_RESULT_MAX);
+        CHECK(B.read_resource(a, ks("item:Over_Limit"), big.data(), big.size(), &need) == KILN_ERR_UNAVAILABLE && big[0] == 0x5A);
+        // three results at the limit, then half-MiB values until the 16 MiB are spent: what no longer fits is refused,
+        // a value that still fits is not, and too-small answers in between cost nothing
+        for (int i = 0; i < 3; ++i) {
+            CHECK(B.read_resource(a, ks("item:At_Limit"), big.data(), big.size(), &need) == KILN_OK);
+            CHECK(std::strlen(big.data()) == KILN_BOOT_RESULT_MAX - 1);
+        }
+        for (int i = 0; i < 4; ++i) CHECK(B.read_resource(a, ks("item:Half_Mib"), big.data(), 16, &need) == KILN_ERR_BUFFER_TOO_SMALL);
+        const uint64_t left = KILN_BOOT_AUTHOR_READ_MAX - 3ull * most;
+        int halves = 0;
+        while (B.read_resource(a, ks("item:Half_Mib"), big.data(), big.size(), &need) == KILN_OK && halves < 100) ++halves;
+        CHECK(halves == static_cast<int>(left / (512u << 10)) && halves == 8);
+        CHECK(left - 8ull * (512u << 10) < (512u << 10) && left - 8ull * (512u << 10) > 100);
+        need = 99;
+        CHECK(B.read_resource(a, ks("item:Half_Mib"), big.data(), big.size(), &need) == KILN_ERR_UNAVAILABLE && need == 99);
+        CHECK(B.read_resource(a, ks("item:At_Limit"), big.data(), big.size(), &need) == KILN_ERR_UNAVAILABLE);
+        CHECK(B.read_resource(a, ks("item:Half_Mib"), big.data(), 16, &need) == KILN_ERR_UNAVAILABLE);  // not "too small": it will never fit
+        CHECK(B.read_resource(a, ks("material:Cell12"), big.data(), big.size(), &need) == KILN_OK);    // 14 bytes still fit
+        CHECK(B.read_resource(a, ks("item:Test_Item_Missing"), big.data(), big.size(), &need) == KILN_ERR_NOT_FOUND);
+        // the budget is each author's own
+        CHECK(B.read_resource(b, ks("item:At_Limit"), big.data(), big.size(), &need) == KILN_OK);
+    }
+    pass_line("BOOT-GAMEDATA-LIMITS a result at 4 MiB, one byte over, and the 16 MiB of one author", f0);
+
+    // a name the producer skipped as a duplicate is stored once: found once, by name and by resource
+    f0 = t_fail;
+    s = make_snapshot("gd-duplicate");
+    flush(s);
+    a = open_author();
+    {
+        const std::string by_name = read_all(a, "item:Test_Item_Logs", &rc);
+        CHECK(rc == KILN_OK && by_name.find("\"value\":{\"name\":\"Test_Item_Logs\"") != std::string::npos);
+        CHECK(by_name.find("\"resourceId\"", by_name.find("\"resourceId\"") + 1) == std::string::npos);
+        CHECK(read_all(a, "resource:" + kGuidItem + "/1a2b3c4d/0", &rc) == by_name && rc == KILN_OK);
+    }
+    // nothing was written or removed under boot-gamedata by any of this
+    {
+        size_t files = 0;
+        for (const auto& e : fs::recursive_directory_iterator(t_paths.data / "boot-gamedata")) files += e.is_regular_file() ? 1 : 0;
+        CHECK(files == 9);
+    }
+    pass_line("BOOT-GAMEDATA-DUPLICATE a skipped duplicate is found once, and the reader leaves the folder as it was", f0);
+
+    t_paths.exe = saved_exe;
+    t_paths.data = saved_data;
+    t_image.sha256 = saved_sha;
+}
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -929,16 +1376,19 @@ int main(int argc, char** argv) {
     decision_cases();
     staging_cases();
     publish_case();
-    for (int i = 0; i < 6; ++i) atomic_required_case(i);
-    for (int i = 0; i < 6; ++i) atomic_unattributed_case(i);
-    for (int i = 0; i < 6; ++i) drop_case(i);
+    for (int i = 0; i < 7; ++i) atomic_required_case(i);
+    for (int i = 0; i < 7; ++i) atomic_unattributed_case(i);
+    for (int i = 0; i < 7; ++i) drop_case(i);
     dependent_required_case();
     callback_cases();
     contract_cases();
     warning_case();
     missing_collector_cases();
+    activation_fault_cases();
+    files_only_cases();
     not_committed_cases();
     buffer_cases();
+    gamedata_cases();
     reset_boot();
     fs::remove_all(t_root);
     std::printf("BOOT SERVICE TESTS %d PASS %d FAIL\n", t_pass, t_fail);

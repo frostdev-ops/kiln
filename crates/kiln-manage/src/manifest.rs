@@ -325,10 +325,10 @@ pub const ID_PATTERN: &str = "^[a-z0-9][a-z0-9._-]{0,63}$";
 /// The dependency id that is not a mod: the native core's version.
 pub const KILN_ID: &str = "kiln";
 const RESERVED: [&str; 6] = ["kiln", "kiln.api", "game", "enshrouded", "native", "permissions"];
-const KNOWN: [&str; 23] = [
+const KNOWN: [&str; 24] = [
     "$schema", "id", "name", "version", "authors", "author", "description", "license", "url", "apiVersion", "side",
     "clients", "dependencies", "loadBefore", "loadAfter", "incompatible", "features", "entryAssembly", "entryType", "exports",
-    "advanced", "tests", "kilnBuild",
+    "advanced", "tests", "kilnBuild", "boot",
 ];
 
 fn id_rule(s: &str) -> bool {

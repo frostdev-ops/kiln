@@ -309,6 +309,9 @@ internal static class NpcInput
     /// <summary>The broker's lease each brain-driven body is moved under (NpcRuntime.Spawned); none when creature_control is off.</summary>
     internal static readonly System.Collections.Concurrent.ConcurrentDictionary<uint, ControlLeaseId> Leases = new();
 
+    /// <summary>Whose creature each leased body is (its block's owner key and name), for the fallback when its lease fails.</summary>
+    internal static readonly System.Collections.Concurrent.ConcurrentDictionary<uint, (Creatures.OwnerKey Owner, string Name)> Leased = new();
+
     public static void Write(EntityId e, Vector3 move, Vector3? look, uint speed)
     {
         // a body under a lease moves only while the broker says this lease drives it (its SteeringAgent removed, the AI held
@@ -345,7 +348,7 @@ internal static class NpcRuntime
     private static IDisposable? _tick;
     private static long _ticks, _brainTicks;
     private static int _nextEffect = 1;
-    private static bool _unleased;
+    private static bool _unleased, _leaseWatch;
 
     /// <summary>Steps brains ran, all creatures together; and how many creatures are driven now.</summary>
     internal static (long Ticks, int Driven) Counters
@@ -436,13 +439,50 @@ internal static class NpcRuntime
         // switch) and removes the SteeringAgent that overwrote every input write, so MoveTo walks; it gives both back when the
         // lease ends. Without the broker the AI is switched off as before, and the body cannot walk.
         NpcInput.Leases.TryRemove(e.Value, out _);
+        NpcInput.Leased.TryRemove(e.Value, out _);
+        // A lease that was admitted can still fail while the brain lives (the broker's 5 s wait: BodyNotReady, AiLayer, ...):
+        // the brain then falls back as a refused lease does, the game's AI off and the one warning, never left with the AI on
+        // and its writes dropped. A body that is gone, or a lease the brain released, needs nothing.
+        if (!_leaseWatch)
+        {
+            _leaseWatch = true;
+            CreatureControl.LeaseEnded += ended =>
+            {
+                var id = ended.Body.Entity.Value;
+                if (ended.State != ControlLeaseState.Failed || !NpcInput.Leases.TryGetValue(id, out var mine) || mine != ended.Lease) return;
+                NpcInput.Leases.TryRemove(id, out _);
+                if (ended.Result is ControlResultCode.BodyGone or ControlResultCode.WorldEnded or ControlResultCode.Retired
+                    or ControlResultCode.ExpiredHandle or ControlResultCode.OwnerUnloaded)
+                {
+                    NpcInput.Leased.TryRemove(id, out _);
+                    return;
+                }
+                if (!NpcInput.Leased.TryRemove(id, out var who) || !World.Exists(ended.Body.Entity)) return;
+                try
+                {
+                    Creatures.Of(ended.Body.Entity).As(who.Owner).AiEnabled = false;
+                    BlocksBridge.Log(LogLevel.Info, $"blocks: creature {who.Name}: the movement lease of {ended.Body.Entity} ended {ended.Result} ({ended.Reason}): the game's AI is off without it");
+                    if (!_unleased)
+                        BlocksBridge.Log(LogLevel.Warn, $"blocks: creature {who.Name}: no movement lease for {ended.Body.Entity} ({ended.Reason}): the game's AI is off, and its brain's MoveTo cannot walk the body");
+                    _unleased = true;
+                }
+                catch (Exception x) when (x is NotSupportedException or InvalidOperationException or KeyNotFoundException or ArgumentException)
+                {
+                    BlocksBridge.Log(LogLevel.Error, $"blocks: creature {who.Name}: its lease ended and the game's AI could not be turned off for {ended.Body.Entity}: {x.Message}");
+                }
+            };
+        }
         string? why = null;
         if (CreatureControl.Available && Capabilities.Is("creature_control"))
         {
             try
             {
                 var r = CreatureControl.AcquireAs("kiln.blocks", c.Context, new EntityRef(e, 0), ControlRole.PetFollow);
-                if (r.Ok) NpcInput.Leases[e.Value] = r.Lease;
+                if (r.Ok)
+                {
+                    NpcInput.Leases[e.Value] = r.Lease;
+                    NpcInput.Leased[e.Value] = (c.Owner, c.Name);
+                }
                 else why = r.Reason;
             }
             catch (Exception x) when (x is ArgumentException or KilnUnavailableException or InvalidOperationException) { why = x.Message; }
@@ -539,6 +579,7 @@ internal static class NpcRuntime
     {
         lock (Gate) Driven.Remove(ctl.Entity.Value);
         // the body's lease ends: the broker restores its SteeringAgent and the game's AI (a body that is gone: its lease failed already)
+        NpcInput.Leased.TryRemove(ctl.Entity.Value, out _);
         if (NpcInput.Leases.TryRemove(ctl.Entity.Value, out var lease)) CreatureControl.ReleaseNow(lease);
         var previous = ModContext.CurrentMod;
         if (ctl.Block.Context is { Alive: true } owner) ModContext.CurrentMod = owner;
@@ -568,8 +609,17 @@ internal static class NpcRuntime
     private static void Look(NpcControl ctl)
     {
         ctl.SeenList.Clear();
+        // An unavailable LOS dependency can also make candidate collection unavailable. Count the refused update and
+        // clear the target before touching the world, rather than letting that exception stop the creature's brain.
+        if (ctl.PerceptionPolicy.Occlusion == NpcOcclusionMode.Voxels && SightOff() is { } off)
+        {
+            ctl.Perception.Look(ctl.Entity, default, [], () => off, Queries.VoxelLineOfSight);
+            Normalize(ctl);
+            return;
+        }
         if (!World.TryGetPosition(ctl.Entity, out var at))
         {
+            ctl.Perception.Look(ctl.Entity, default, [], SightOff, Queries.VoxelLineOfSight);
             Normalize(ctl);
             return;
         }
@@ -590,11 +640,17 @@ internal static class NpcRuntime
         Normalize(ctl);
     }
 
-    private static string? SightOff() => Capabilities.Is(NpcPerception.Capability) ? null : Capabilities.Why(NpcPerception.Capability);
+    private static string? SightOff()
+    {
+        // The snapshot of a composed row can predate its inputs. Use the same live decision as a direct LOS call.
+        try { QueriesCaps.Require(NpcPerception.Capability); return null; }
+        catch (KilnUnavailableException) { return Capabilities.Why(NpcPerception.Capability); }
+    }
 
     /// <summary>The target follows what is seen, on every way out of a look: nothing seen leaves no auto-chosen target alive.</summary>
     private static void Normalize(NpcControl ctl)
     {
+        if (ctl.SeenList.Count == 0) { ctl.Target = default; return; }
         if (ctl.Target.IsNone || !World.Exists(ctl.Target) || !ctl.SeenList.Contains(ctl.Target))
             ctl.Target = ctl.SeenList.Count > 0 ? ctl.SeenList[0] : default;
     }

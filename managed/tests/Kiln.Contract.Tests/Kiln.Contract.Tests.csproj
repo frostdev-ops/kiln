@@ -47,6 +47,7 @@
     <ProjectReference Include="../../services/Kiln.Rules/Kiln.Rules.csproj" />
     <ProjectReference Include="../../services/Kiln.World/Kiln.World.csproj" />
     <ProjectReference Include="../../services/Kiln.Blocks/Kiln.Blocks.csproj" />
+    <ProjectReference Include="../../services/Kiln.CreatureControl/Kiln.CreatureControl.csproj" />
   </ItemGroup>
   <ItemGroup>
     <!-- The analyzers' tick-thread table, generated from the services' code: the attributes are checked against it. -->

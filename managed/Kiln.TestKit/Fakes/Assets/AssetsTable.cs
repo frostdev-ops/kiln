@@ -2,7 +2,7 @@
 // The kit's kiln.assets (native/core/abi/services/kiln_assets.h, the table up to blob_catalog_close): content blobs (add,
 // override, remove, read, the 0.2.0-dev.28 ex slots), owner revert, status, and the content blob catalog over the test's
 // game index (AssetsState.Game). Resources, icons, textures, dumps and manifests are not modelled: they answer
-// KILN_ERR_UNAVAILABLE, as the native service does with those hooks off. Not registered in a KilnHarness (AssetsFake.cs). The catalog keeps the native rules
+// KILN_ERR_UNAVAILABLE, as the native service does with those hooks off. Registered in every KilnHarness (AssetsFake.cs). The catalog keeps the native rules
 // (catalog.cpp): one entry per hash, GAME plus every live registration's origin, the last registration served, sorted by
 // (size, hash0, hash1, hash2), 64 handles, NotReady while the index is not readable, snapshots that never change.
 using System.Runtime.CompilerServices;
@@ -134,8 +134,8 @@ internal static unsafe class AssetsTable
         return (nint)t;
     }
 
-    // the unit test's state; null: answered as kiln.assets with its content hooks off
-    private static AssetsState? S => AssetsFake.Unit;
+    // a unit test's state, else the running harness's; null: answered as kiln.assets with its content hooks off
+    private static AssetsState? S => AssetsFake.Current;
 
     /// <summary>The fake's content hash of some bytes: their size and the first 12 bytes of their SHA-256.</summary>
     public static AssetsAbi.Hash HashOf(ReadOnlySpan<byte> bytes)
