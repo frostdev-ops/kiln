@@ -11,7 +11,8 @@ One process has at most one boot generation. Every step runs on the boot thread,
 1. **Decide**, once, before the service DLLs load: the process has a boot generation ("deferred mode") when hooks and
    .NET are on, an enabled Kiln mod of this side has `"boot"` in its `kiln.mod.json`, `mods.boot` is available, and on
    a game client `mods.boot.client` is available too (held in this build). Otherwise nothing below happens, every
-   call answers `KILN_ERR_UNAVAILABLE`, and every collector keeps its `on_ready` path.
+   staging call answers `KILN_ERR_UNAVAILABLE`, and every collector keeps its `on_ready` path. An enabled mod with
+   `"boot": "required"` still stops the start with 0x4B01 when that route is unavailable; its content cannot be omitted.
 2. **Bind:** each collector calls `collector()` once, from `kiln_plugin_main` or `on_ready`. `KILN_OK` means it will be
    prepared and must not load its definitions in `on_ready`. Registration closes when every `on_ready` ran; a collector
    that did not register makes `mods.boot` unavailable (`service-missing`), and Kiln.Host then refuses boot mods.
@@ -92,7 +93,9 @@ resource patch cannot be written at `when_resources_ready`) reports it:
 `kiln::boot::activation_fault(api, owner, mod, kind, key, reason)`. kiln.boot records an issue (code
 `ActivationFault`, phase `activation`), and the mod's state and the phase status become `ACTIVATION_FAULT`; nothing is
 undone. For a mod whose boot content is required the call does not return: the state files are written and the
-process ends with exit code 0x4B01, as before the entry point. Only a registered collector's owner may call it.
+process ends with exit code 0x4B01, as before the entry point. A required transitive dependent also stops the start;
+dependent boot owners become `ACTIVATION_FAULT`, and managed `Mods.BootState` reads the native state so they cannot
+load against the failed content. Only a registered collector's owner may call it.
 
 ## The exit code
 `KILN_BOOT_EXIT_CODE` is 0x4B01 (19201). A start that kiln.boot stops ends with it, before the game's entry point or

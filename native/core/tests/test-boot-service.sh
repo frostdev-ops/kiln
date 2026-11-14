@@ -9,7 +9,8 @@ here=$(cd "$(dirname "$0")" && pwd)
 out=${KILN_OUT:-$here/../../build}/core-tests
 mkdir -p "$out"
 cxx=${CXX:-$(command -v clang++ || command -v g++)}
-flags=(-std=c++20 -O1 -g -Wall -Wextra -pthread -fsanitize=address,undefined -fno-sanitize-recover=undefined
+flags=(-std=c++20 -O1 -g -Wall -Wextra -Wno-unused-function -pthread -ffunction-sections -fdata-sections -Wl,--gc-sections
+       -fsanitize=address,undefined -fno-sanitize-recover=undefined
        -I"$here/stubs" -I"$here/../abi" -I"$here/../src" -I"$here/../../third_party")
 "$cxx" "${flags[@]}" -o "$out/boot_service_test" "$here/boot_service_test.cpp"
 timeout 120 "$out/boot_service_test" "$out"

@@ -427,7 +427,8 @@ KilnResult KILN_CALL b_begin_owner(KilnOwner author, KilnStr mod_id, uint32_t ro
 
 // The envelope as Kiln.Host stages it: checked whole before it is kept (header, "The IR envelope").
 bool envelope_ok(const json& e, std::string* why) {
-    if (!e.is_object() || e.value("schema", 0) != 1) return *why = "not an object with \"schema\": 1", false;
+    if (!e.is_object() || !e.contains("schema") || !e["schema"].is_number_integer() || e["schema"] != 1)
+        return *why = "not an object with \"schema\": 1", false;
     std::set<std::string> ids;
     if (e.contains("owners")) {
         if (!e["owners"].is_array()) return *why = "\"owners\" is not an array", false;
@@ -970,13 +971,32 @@ KilnResult KILN_CALL b_activation_fault(KilnOwner collector, KilnStr mod_id, Kil
         if (o.state == KILN_BOOT_STATE_COMMITTED) o.state = KILN_BOOT_STATE_ACTIVATION_FAULT;
         if (g_status == KILN_BOOT_STATUS_PUBLISHED) g_status = KILN_BOOT_STATUS_ACTIVATION_FAULT;
         issue_locked({KILN_BOOT_ISSUE_ACTIVATION_FAULT, id, std::string(sv(kind)), std::string(sv(key)), "activation", std::string(sv(reason))});
+        // A dependent cannot activate against content that failed to bind, including a required transitive dependent.
+        for (bool changed = true; changed;) {
+            changed = false;
+            for (auto& [dependent, d] : g_owners) {
+                if (d.state != KILN_BOOT_STATE_COMMITTED) continue;
+                for (const auto& need : d.needs) {
+                    const auto failed = g_owners.find(need);
+                    if (failed == g_owners.end() || failed->second.state != KILN_BOOT_STATE_ACTIVATION_FAULT) continue;
+                    d.state = KILN_BOOT_STATE_ACTIVATION_FAULT;
+                    issue_locked({KILN_BOOT_ISSUE_DEPENDENCY, dependent, "", "", "activation", "requires " + need + ", whose boot content could not be applied"});
+                    changed = true;
+                    break;
+                }
+            }
+        }
         rows.push_back(phase_row_locked());
-        stop = o.required && !g_exit_code;
+        std::string required;
+        for (const auto& [mod, d] : g_owners)
+            if (d.required && d.state == KILN_BOOT_STATE_ACTIVATION_FAULT) { required = mod; break; }
+        stop = !required.empty() && !g_exit_code;
         if (stop) {
             g_exit_code = KILN_BOOT_EXIT_CODE;
             char line[96];
             std::snprintf(line, sizeof line, "boot: the start stops (exit code 0x%04X)", KILN_BOOT_EXIT_CODE);
-            last = std::string(line) + ": " + id + "'s boot content is required and could not be applied: " + std::string(sv(reason)) +
+            last = std::string(line) + ": " + required + "'s boot content is required and could not be applied: " +
+                   (required == id ? std::string() : "dependency " + id + ": ") + std::string(sv(reason)) +
                    "; state/boot.json lists every boot mod's state and issue";
         }
     }
@@ -1051,7 +1071,8 @@ void decide(bool hooks, const std::string& safe_idle) {
                         "a dedicated server renders no VFX: its vfx collector prepares an empty plan"});
     }
     send(rows);
-    std::vector<BootMod> mods;
+    // Required content must fail closed even when hooks, .NET or the client boot route are unavailable.
+    const std::vector<BootMod> mods = scan(image().side);
     std::string why;
     bool deferred = false;
     if (!hooks) {
@@ -1059,7 +1080,6 @@ void decide(bool hooks, const std::string& safe_idle) {
     } else if (!config().clr) {
         why = ".NET is off (kiln.json \"clr\"), so no mod runs OnBoot";
     } else {
-        mods = scan(image().side);
         if (mods.empty()) why = "no enabled mod has \"boot\": true";
         else if (!row_available("mods.boot"))
             why = "mods.boot is unavailable (" + row_text("mods.boot") + "): boot mods are refused";
@@ -1081,7 +1101,7 @@ void decide(bool hooks, const std::string& safe_idle) {
         g_deferred = deferred;
         g_why = why;
         g_boot_mods = names;
-        g_scanned = deferred ? mods : std::vector<BootMod>();
+        g_scanned = mods;
         g_test_refuse.clear();
         if (deferred && !config().boot_test_refuse.empty()) {
             if (!config().policy_any) {
@@ -1153,7 +1173,19 @@ bool after_clr(bool clr_started, void (*write_state)(void* user, const std::stri
     std::string why;
     {
         std::lock_guard lk(g_mutex);
-        if (!g_deferred || g_status == KILN_BOOT_STATUS_PUBLISHED) return true;
+        if (!g_deferred) {
+            for (const BootMod& m : g_scanned) {
+                if (!m.required) continue;
+                Owner& o = g_owners[m.id];
+                o.id = m.id;
+                o.required = true;
+                issue_locked({KILN_BOOT_ISSUE_NOT_COMMITTED, m.id, "", "", "commit",
+                              "its boot content is required but the boot phase is unavailable: " + g_why});
+            }
+            if (g_owners.empty()) return true;
+            abort_locked({}, g_why);
+        }
+        if (g_status == KILN_BOOT_STATUS_PUBLISHED) return true;
         if (g_status == KILN_BOOT_STATUS_COLLECTING || g_status == KILN_BOOT_STATUS_PREPARING) {
             const std::string what = clr_started ? "Kiln.Host did not commit the boot generation (kiln.log, [host] lines)"
                                                  : "the .NET host did not start, so no OnBoot ran (kiln.log, [clr] lines)";
@@ -1212,7 +1244,7 @@ json report() {
     return {{"deferred", g_deferred},
             {"reason", g_why},
             {"bootMods", g_boot_mods},
-            {"status", g_deferred ? json(status_name(g_status)) : json(nullptr)},
+            {"status", g_deferred || g_exit_code ? json(status_name(g_status)) : json(nullptr)},
             {"generation", g_deferred ? json(kGeneration) : json(nullptr)},
             {"published", g_root.load(std::memory_order_acquire) != nullptr},
             {"exitCode", g_exit_code ? json(g_exit_code) : json(nullptr)},

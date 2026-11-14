@@ -30,6 +30,12 @@ inline int TerminateProcess(void*, unsigned int) { std::abort(); }  // the late 
 #include "../src/services/service.cpp"
 #include "../src/services/boot_service.cpp"
 
+// Exercise the resource-patch document validator too; unused game paths are discarded by the host linker.
+#ifndef _WIN32
+#define __fastcall
+#endif
+#include "../../services/content/gamedata_bootpatch.cpp"
+
 namespace fs = std::filesystem;
 using nlohmann::json;
 
@@ -605,6 +611,13 @@ void staging_cases() {
     auto stage_ir = [&](KilnOwner o, const std::string& e) { return B.stage(o, 1, ks("ir"), ks("envelope"), ks(e), &r); };
     CHECK(stage_ir(kHost, "{") == KILN_ERR_INVALID_ARGUMENT);
     CHECK(stage_ir(kHost, R"({"schema":2})") == KILN_ERR_INVALID_ARGUMENT);
+    for (const char* schema : {"null", "\"1\"", "[]", "{}", "true"}) {
+        bool threw = false;
+        KilnResult rc = KILN_OK;
+        try { rc = stage_ir(kHost, std::string("{\"schema\":") + schema + "}"); }
+        catch (const json::exception&) { threw = true; }
+        CHECK(!threw && rc == KILN_ERR_INVALID_ARGUMENT);
+    }
     CHECK(stage_ir(kHost, R"({"schema":1,"owners":[{"id":"a"}],"collectors":{"textures":[]}})") == KILN_ERR_INVALID_ARGUMENT);
     CHECK(stage_ir(kHost, R"({"schema":1,"owners":[{"id":"a"}],"collectors":{"items":[{"owner":"z","key":"k"}]}})") ==
           KILN_ERR_INVALID_ARGUMENT);
@@ -976,6 +989,20 @@ void activation_fault_cases() {
     rep = kiln::boot_svc::report();
     CHECK(rep["exitCode"] == 0x4B01);
     pass_line("BOOT-ACTIVATION-FAULT (optional: recorded, start goes on; required: late hold and exit 0x4B01)", f0);
+
+    t_case = "activation-fault-required-dependent";
+    const int f1 = t_fail;
+    deferred_with({"opt", "middle", "need!", "keep"});
+    run_authors({"opt", "middle", "need!", "keep"});
+    const auto ir = envelope({"opt", "middle", "need!", "keep"}, {{"middle", {"opt"}}, {"need", {"middle"}}});
+    CHECK(commit_with(ir).status == KILN_BOOT_STATUS_PUBLISHED);
+    kiln::boot_svc::late_hold(&fake_write_state, nullptr);
+    CHECK(B.activation_fault(56, ks("opt"), ks("resourcePatches"), ks("xp"), ks("MissingResource")) == KILN_OK);
+    CHECK(state_of("middle") == KILN_BOOT_STATE_ACTIVATION_FAULT);
+    CHECK(state_of("need") == KILN_BOOT_STATE_ACTIVATION_FAULT);
+    CHECK(state_of("keep") == KILN_BOOT_STATE_COMMITTED);
+    CHECK(t_late_exits == std::vector<uint32_t>{0x4B01u} && t_held.size() == 1);
+    pass_line("BOOT-ACTIVATION-FAULT required transitive dependent stops the start", f1);
 }
 
 // A boot mod that ran no OnBoot and is in no envelope (blocks files only) takes part all the same: a collector can refuse
@@ -1002,6 +1029,30 @@ void files_only_cases() {
 }
 
 void not_committed_cases() {
+    // Required content must stop the start even when the boot pipeline cannot be enabled.
+    for (int off = 0; off < 4; ++off) {
+        t_case = "required-boot-unavailable-" + std::to_string(off);
+        const int f0 = t_fail;
+        reset_boot();
+        t_image.side = off == 3 ? KILN_SIDE_CLIENT : KILN_SIDE_SERVER;
+        t_config.clr = off != 1;
+        profile_with({{"need", "required"}});
+        server_rows(off != 2);
+        if (off == 3)
+            fake_report(0, ks("mods.boot.client"), KILN_CAP_UNAVAILABLE, KILN_CAP_REASON_POLICY,
+                        ks("game test pending: 08-boot.first-start-definitions"));
+        kiln::boot_svc::decide(off != 0, "unverified build");
+        CHECK(!kiln::boot_svc::g_deferred);
+        CHECK(!kiln::boot_svc::after_clr(false, &fake_write_state, nullptr));
+        CHECK(t_exits == std::vector<uint32_t>{0x4B01u} && t_held.size() == 1);
+        CHECK(state_of("need") == KILN_BOOT_STATE_GENERATION_ABORTED);
+        const auto rep = kiln::boot_svc::report();
+        CHECK(rep["status"] == "aborted" && rep["exitCode"] == 0x4B01u);
+        CHECK(!t_held.empty() && t_held.front().find("need") != std::string::npos);
+        pass_line("BOOT-REQUIRED-UNAVAILABLE " + std::to_string(off), f0);
+    }
+    t_image.side = KILN_SIDE_SERVER;
+    t_config.clr = true;
     for (const bool clr : {true, false}) {
         t_case = clr ? "not-committed" : "clr-down";
         const int f0 = t_fail;
@@ -1496,12 +1547,30 @@ void gamedata_cases() {
 }
 }  // namespace
 
+void patch_value_cases() {
+    t_case = "patch-values";
+    const int f0 = t_fail;
+    kc::Field f{};
+    f.vt = KILN_CV_INT;
+    f.bytes = 4;
+    std::string why;
+    CHECK(!kc::check_value(f, json{{"min", 10}, {"max", 5}}, &why));
+    CHECK(!kc::check_value(f, json{{"set", json::object()}}, &why));
+    CHECK(kc::check_value(f, json{{"min", 5}, {"max", 10}}, &why));
+    f.enum_kind = KILN_CONTENT_FLAGS;
+    for (const auto& value : {json::array({-1}), json::array({64}), json::array({1.5}), json::array({nullptr})})
+        CHECK(!kc::check_value(f, value, &why));
+    CHECK(kc::check_value(f, json::array({0, 63, "Flag"}), &why));
+    pass_line("BOOT-PATCH-VALUES rejects reversed bounds and invalid flag shifts", f0);
+}
+
 int main(int argc, char** argv) {
     t_root = fs::path(argc > 1 ? argv[1] : ".") / "boot-service-test";
     fs::remove_all(t_root);
     fs::create_directories(t_root);
     t_paths.mods = t_root / "no-dropins";
     decision_cases();
+    patch_value_cases();
     staging_cases();
     publish_case();
     for (int i = 0; i < 7; ++i) atomic_required_case(i);

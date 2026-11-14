@@ -148,13 +148,24 @@ bool check_value(const Field& f, const nlohmann::json& v, std::string* err) {
         for (const auto& [k, x] : v.items()) {
             if (std::none_of(std::begin(known), std::end(known), [&](const char* n) { return k == n; }))
                 return *err = "unknown operation \"" + k + "\" (mul, add, min, max, raiseOnly, lowerOnly, set)", false;
-            if ((k == "raiseOnly" || k == "lowerOnly") ? !x.is_boolean() : (k != "set" && !x.is_number()))
+            if ((k == "raiseOnly" || k == "lowerOnly") ? !x.is_boolean() : !x.is_number())
                 return *err = "\"" + k + "\" has the wrong kind of value", false;
         }
         if (v.empty()) return *err = "an empty operation object", false;
+        if (v.contains("min") && v.contains("max") && v["min"].get<double>() > v["max"].get<double>())
+            return *err = "min must not be greater than max", false;  // parse_leaf uses std::clamp: inverted bounds are undefined
         return true;
     }
-    if (v.is_boolean() || v.is_number() || v.is_string() || (v.is_array() && f.enum_kind == KILN_CONTENT_FLAGS)) return true;
+    if (v.is_array() && f.enum_kind == KILN_CONTENT_FLAGS) {
+        for (const auto& flag : v) {
+            if (flag.is_string()) continue;
+            // parse_leaf turns a numeric flag index into 1ll << index. Reject invalid shifts before it runs.
+            if (!flag.is_number_integer() || flag < 0 || flag > 63)
+                return *err = "a flag is a name or an integer index from 0 to 63", false;
+        }
+        return true;
+    }
+    if (v.is_boolean() || v.is_number() || v.is_string()) return true;
     return *err = "unsupported value " + v.dump(), false;
 }
 

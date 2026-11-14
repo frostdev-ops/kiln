@@ -43,14 +43,13 @@ public sealed partial class ClientPassMod
             BootAuthorRanOnce(c);
             new BootStage(3, pid, generation, started).Write(stageFile);
             c.Instruct($"Part 2 of 3. You left the world and hosted it again in the same start. Are the Boot Token, the Boot Bolt and " +
-                       $"the talent still there and as before? If not, fail now. If they are, press skip (the pass is given in part 3 " +
-                       $"only) and make two more starts: (A) quit, enable boot-gallery's " +
+                       $"the talent still there and as before? Keep your observations for part 3, then make two more starts: (A) quit, enable boot-gallery's " +
                        $"server-only variant before the start (its README names it), start the game and join a dedicated server whose " +
                        $"profile has boot-gallery: the Boot items must be there without a second start; remember what you saw. (B) quit, " +
                        $"add {BootFailMod} to the profile (a required boot mod whose OnBoot throws) and start: the start must end before the " +
                        $"game shows any window or menu. Remove " +
                        $"{BootFailMod}, start again, host a world and run this check again: part 3 reads what the stopped start wrote.");
-            await c.Verdict();
+            await c.Skip("part 2 is incomplete: the joined and required-failure starts are checked in part 3");
             return;
         }
 
@@ -71,7 +70,8 @@ public sealed partial class ClientPassMod
             await BootGalleryCommitted(c);
             c.Instruct($"Part 3 of 3. Did the start with {BootFailMod} end before any game window or menu appeared (the launcher may " +
                        "show its exit code: 0x4B01 on Windows, 1 under a Unix wrapper)? And in (A), the joined start with the server-only " +
-                       "variant: were the Boot items there at once? Pass only if both were right; on a fail, say which in the note.");
+                       "variant: were the Boot items there at once? Pass only if those were right AND the inventory, spell and talent " +
+                       "observations from parts 1 and 2 all worked on first start and after rehosting; on a fail, say which in the note.");
             await c.Verdict();
             return;
         }
@@ -113,9 +113,9 @@ public sealed partial class ClientPassMod
         c.Instruct("Part 1 of 3. You got 5 Boot Token and the Boot Bolt spell. Open the inventory and look at them: names, icons and " +
                    "tooltips. Cast the Boot Bolt at a creature as any spell: the hit gives it Boot Cold for 4 s. Open the skill tree: a new " +
                    "node \"Boot Cold Talent\" sits next to an existing node and is linked to it. Is all of it there, drawn and working, " +
-                   "in this first start? If not, fail now. If it is, press skip (the pass is given in part 3 only), leave the world to the main menu, host it again (do not quit the game) and " +
+                   "in this first start? Keep your observations for part 3, leave the world to the main menu, host it again (do not quit the game) and " +
                    "run this check again.");
-        await c.Verdict();
+        await c.Skip("part 1 is incomplete: rehosting, joining and the required-failure start remain");
     }
 
     [ClientCheck("08-loader-order", "Other-loader consumer ordering", Area = BootArea, Since = Dev28,
@@ -148,9 +148,11 @@ public sealed partial class ClientPassMod
             new BootStage(2, Environment.ProcessId, (ulong)Array.IndexOf(orders, order), BootStage.ThisStart).Write(stageFile);
             c.Instruct($"Part 1 of 2, loader order: {(order == "kiln-first" ? "Kiln started first and loaded the other loader" : "the other loader started first")} " +
                        $"({detail}). Cast the Boot Bolt you just got and open the skill tree: are the Boot Bolt and the \"Boot Cold " +
-                       "Talent\" node there and working in this first world of the start? If not, fail now. If they are, press skip (the pass is given in part 2 only), quit, swap which loader " +
+                       "Talent\" node there and working in this first world of the start? Keep your observations for part 2, quit, swap which loader " +
                        "starts first (docs/kiln/universal-loader.md: the other loader's own dinput8.dll in front with Kiln chained from it, " +
                        "or the other way round), start again, host a world and run this check again.");
+            await c.Skip("part 1 is incomplete: the other loader order must be checked in another start");
+            return;
         }
         else
         {

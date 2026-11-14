@@ -144,11 +144,16 @@ internal static class BootGeneration
     /// generation, to run the definitions' runtime parts and deliver BootDefinitionsCommittedEvent.</summary>
     internal static Action<string>? Activated;
 
+    // The native collectors may fault after publication, before the first runtime mod loads. Read their current state
+    // rather than treating the host's commit-time report as permanent. The reader retains no boot-author instance.
+    internal static Func<BootModReport, BootModReport>? ReadState;
+
     internal static void Record(ulong generation, IEnumerable<BootModReport> reports, IReadOnlyDictionary<string, IReadOnlyList<BootStaged>> committed)
     {
         lock (Gate)
         {
             Number = generation;
+            ReadState = null;
             _reports = reports.ToDictionary(r => r.ModId, StringComparer.Ordinal);
             _committed = new Dictionary<string, IReadOnlyList<BootStaged>>(committed, StringComparer.Ordinal);
         }
@@ -161,7 +166,10 @@ internal static class BootGeneration
 
     internal static BootModReport? Report(string modId)
     {
-        lock (Gate) return _reports.GetValueOrDefault(modId);
+        BootModReport? report;
+        Func<BootModReport, BootModReport>? read;
+        lock (Gate) { report = _reports.GetValueOrDefault(modId); read = ReadState; }
+        return report is not null && read is not null ? read(report) : report;
     }
 
     internal static IReadOnlyList<BootStaged> Committed(string modId)
