@@ -60,6 +60,7 @@ row above and grows its own page.
 |---|---|
 | [../ui.md](../ui.md#values-in-the-games-own-ui-dev28) | kiln.ui.values / `Ui.Values` (in-core, client): values in the game's own UI, tooltip lines in Kiln's Item details window, the slots of each UI frame; the player-UI stage for 09 |
 | [queries.md](queries.md) | `Kiln.Queries`: voxel rays, ground below a point, voxel line of sight, entity origins in a sphere or box; the shared ray budget |
+| [terrain.md](terrain.md) | `Kiln.Terrain`: bounded terrain overlays (a vein, a mound, a tunnel) applied once per world with a ledger of owned blocks; managed only, over kiln.build |
 | [creature-control.md](creature-control.md) | kiln.creature_control / CreatureControl: the one broker that owns a controlled creature body's AI-off layer and SteeringAgent; leases for pets, mounts, vehicles and NPC brains |
 
 ## Native rules

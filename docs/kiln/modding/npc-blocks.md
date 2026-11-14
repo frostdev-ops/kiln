@@ -129,6 +129,11 @@ is off for that creature, and with it the game's perception: `NpcControl` sees f
 rule; `Target`, the nearest). `MoveTo`, `Stop`, `Face`, `Attack(name)`, `Pose(state)`, `Effect(...)`; `Creature` for its values. `Tick` runs on the tick
 thread every step. You lose what the game's combat states did; a creature still takes hits and plays its sequences.
 
+`MoveTo` is not pathfinding: each step it turns the creature toward the point and walks straight at it, into a wall if
+one is in the way. For a route around terrain and buildings, ask the game's path search with `Queries.FindPath`
+([queries.md](../services/queries.md#paths)) and give the brain its copied points one after another, each with
+`MoveTo`. A route is a copy from the step the game answered: ask again when the creature stops getting closer.
+
 ```csharp
 sealed class Sentinel : NpcBrain
 {

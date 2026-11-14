@@ -44,6 +44,7 @@ generated [../status.generated.md](../status.generated.md); what has no API yet 
 | [publishing.md](publishing.md) | `kiln publish`: releasing a packed mod at GitHub (plan, apply, publish), the token, what a published zip may hold |
 | [analyzers.md](analyzers.md) | KILN1xx: compiler warnings about threads, hot reload and the manifest, with code fixes |
 | [catalogs.md](catalogs.md) | The local game-data catalog and the game-id constants |
+| [../services/queries.md](../services/queries.md) | `Kiln.Queries`: what is on a line through the terrain, the ground below a point, voxel line of sight, the entities in a sphere or a box; the ray budget all mods share |
 | [../typegen.md](../typegen.md) | Typed reads of the game's ECS components: `Kiln.Ecs` (`TryGet`, `Get`, `Has`, `All`, `Supports`), generated per game build; example in §4.3 |
 | [typed-fields.md](typed-fields.md) | The game's data as typed C# structures, for what blocks don't cover: `GameFields`, `GameEnums`, checked string paths |
 | [player-states.md](player-states.md) | Every state and action a player can be in: `player.Is(...)`, `PlayerStateChangedEvent`, `PlayerActionEvent`, and what is left out |
@@ -130,6 +131,8 @@ first). `mods/samples/build.sh` builds the loader samples (`SampleLib`, `SampleC
 | `MenuButtons` | Kiln.Ui game UI: entries in the main and pause menus opening a screen, a crafting info panel, a subcategory and tab in the crafting menu |
 | `ValueBars` | `Ui.Values` (dev.28): a water container's detail number in charges with a label, its slot bar, the health pair as a percentage, tooltip lines in Kiln's Item details window (F8) |
 | `RenderSample` | render events: an FPS counter, a compass and waypoint markers in the world |
+| `BlobCatalog` | `Assets.OpenBlobCatalog`: `/blobs` counts the content blobs the game serves by where they come from, lists the ones mods registered, and writes the first entries as JSON |
+| `TransformScale` | `World.SetTransformScale`: `/tscale <entity> <x> <y> <z>` draws an entity larger or smaller on each axis (the drawn size only, not collision) |
 
 Templates: `kiln new --list` shows all 31 with their options. Block templates: `kiln-spell`, `kiln-item-blocks`,
 `kiln-ability-blocks`, `kiln-creature-blocks`, `kiln-world-blocks`, `kiln-npc`, `kiln-quest`, `kiln-body`, `kiln-vfx`,
