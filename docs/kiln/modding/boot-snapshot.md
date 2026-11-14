@@ -23,9 +23,10 @@ Windows `KILN_PYTHON`, a `python\python.exe` beside it, or `python` on `PATH`.
 
 ## What it costs
 
-- **The first start after a game update**: about a minute (44 s for a dedicated server's data on a busy PC; the
-  client's data is larger). Every later start: well under a second (one SHA-256 of the game's exe and one 64 KiB read).
-- **Disk**: about **200 MB** in the game folder (199 MB for game build 1287369: templates 158 MB, items 48 MB). One
+- **The first start after a game update**: half a minute to a minute (32 to 44 s measured on a busy PC, the client's
+  and a dedicated server's data alike). Every later start: well under a second (one SHA-256 of the game's exe and one
+  64 KiB read).
+- **Disk**: about **200 MB** in the game folder (209 MB for game build 1287369: templates 158 MB, items 48 MB). One
   snapshot is kept: the one of the current game build. An older one is deleted only after the new one is written and
   reads back.
 - It is written into the game folder you play (or serve) from; a client and a dedicated server each have their own.
