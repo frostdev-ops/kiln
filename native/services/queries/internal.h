@@ -3,6 +3,7 @@
 #ifndef KILN_QUERIES_INTERNAL_H
 #define KILN_QUERIES_INTERNAL_H
 #include <atomic>
+#include <cstddef>
 
 #include "kiln_api.h"
 #include "services/kiln_caps.h"
@@ -21,6 +22,17 @@ extern GridLayout g_layout;          // the voxel grid's layout, when g_grid_ok
 extern std::atomic<bool> g_grid_ok;  // the grid layout resolved and nothing showed it wrong
 
 void logf(int32_t level, const char* fmt, ...);
+
+// kiln.world's in_program (appended to its table since 0.2.0-dev.28): this thread runs a Kiln world program's update
+// or a wrap stage on a game program's slice. The world is mid-step there, also on its own thread, where engine jobs may
+// use the realm's voxel scratch: a ray and a path submit refuse KILN_ERR_WRONG_THREAD, reason "InsideProgram". A
+// kiln.world without the member (an older one, or none yet) answers false: the calls behave as before it existed.
+inline bool in_program() {
+    const KilnWorldApi* w = g_world;
+    return w && w->header.size >= offsetof(KilnWorldApi, in_program) + sizeof w->in_program && w->in_program &&
+           w->in_program() != 0;
+}
+inline constexpr char kInsideProgram[] = "InsideProgram";
 
 struct Clock {
     uint32_t session = 0;

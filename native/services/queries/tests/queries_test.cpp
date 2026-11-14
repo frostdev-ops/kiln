@@ -427,6 +427,38 @@ static void test_service() {
     CHECK(t_ray_voxels(&r, &out) == KILN_ERR_UNAVAILABLE && game_calls == 2);
 }
 
+// kiln.world's in_program (0.2.0-dev.28): a ray from inside a program's update or a wrap stage is refused before anything
+// is read or charged; with 0, with no member, or with a kiln.world whose table ends before it, the ray is cast as before.
+static uint32_t world_in_program = 0;
+static void test_in_program() {
+    service_start(kRayMinLengthBits);
+    ++service_step;
+    KilnQueryRayRequest r{sizeof r, 0, {1, 10, 1}, {2, 10, 1}};
+    KilnQueryRayResult out{};
+    out.size = sizeof out;
+    service_world.in_program = [] { return world_in_program; };
+    world_in_program = 1;
+    const int reads = g_reads;
+    CHECK(t_ray_voxels(&r, &out) == KILN_ERR_WRONG_THREAD && !out.ok && game_calls == 0 && g_budget.calls() == 0 && g_reads == reads);
+    CHECK(std::string(out.reason.ptr, out.reason.len) == "InsideProgram");
+    CHECK(g_ray_on && reported_rows.empty()); // a thread refusal, not a row: nothing is lowered or reported
+    world_in_program = 0;
+    CHECK(t_ray_voxels(&r, &out) == KILN_OK && out.ok && out.reason.len == 0 && game_calls == 1 && g_budget.calls() == 1);
+    world_in_program = 1;
+    service_world.header.size = offsetof(KilnWorldApi, in_program); // an older kiln.world: the slot is not its
+    CHECK(t_ray_voxels(&r, &out) == KILN_OK && out.ok && game_calls == 2);
+    service_world.header.size = sizeof service_world;
+    service_world.in_program = nullptr;
+    CHECK(t_ray_voxels(&r, &out) == KILN_OK && out.ok && game_calls == 3);
+    service_world.in_program = [] { return world_in_program; };
+    service_tick = false; // off the tick thread the old refusal comes first, without a reason
+    CHECK(t_ray_voxels(&r, &out) == KILN_ERR_WRONG_THREAD && out.reason.len == 0 && game_calls == 3);
+    service_tick = true;
+    CHECK(t_ray_voxels(&r, &out) == KILN_ERR_WRONG_THREAD && game_calls == 3);
+    world_in_program = 0;
+    CHECK(t_ray_voxels(&r, &out) == KILN_OK && out.ok && game_calls == 4); // 0 again after the program: cast again
+}
+
 static void test_entity_dependencies() {
     service_start(kRayMinLengthBits);
     ++service_step;
@@ -731,6 +763,7 @@ int main() {
     test_config();
     test_entities();
     test_service();
+    test_in_program();
     test_entity_dependencies();
     test_path_classify();
     test_path_params();

@@ -4,7 +4,11 @@
 // world's only base (3024, ~903, 1548): the walls it writes are transient, outside bases, checked for success before a ray
 // counts, and taken away again.
 // Rays are spread over steps: the service admits 64 per step for everyone.
+// kiln.programs.json declares ray_probe, an entity program whose update asks for a ray while a window is armed: refused
+// from inside the program (InsideProgram), also on a game worker with the lab parallel switch (kiln/control/systems.parallel).
+using System.Collections.Concurrent;
 using Kiln;
+using Kiln.Testing;
 
 namespace QueriesTest;
 
@@ -14,7 +18,12 @@ public sealed class QueriesTestMod : Mod
     private const int PerStep = 50, Wanted = 1000;
     private int _pass, _fail;
 
-    public override void OnLoad() => _ = Run();
+    public override void OnLoad()
+    {
+        try { _probeBinding = EcsPrograms.Bind("ray_probe", RayProbe); }
+        catch (Exception e) { _bindError = e.Message; }
+        _ = Run();
+    }
 
     private void Check(bool ok, string name, string detail)
     {
@@ -40,6 +49,7 @@ public sealed class QueriesTestMod : Mod
             var ground = await Ground();
             if (ground is not { } y) return;
             await Air(y);
+            await InsideProgram(y);
             await Wall(y, Voxel.Of(1), "queries.ray.wall.terrain");
             await Wall(y, Voxel.Of(0x81), "queries.ray.wall.building");
             await Arguments(y);
@@ -366,5 +376,93 @@ public sealed class QueriesTestMod : Mod
         foreach (var t in fresh) freshEnds.Add(await Ended(t.Completion));
         Check(fresh.All(t => t.Ok) && freshEnds.All(e => e.Status == QueryPathStatus.Found), "queries.path.cleanup-baseline", $"8 of 8 admitted and found after the earlier requests: {fresh.Count(t => t.Ok)}/{freshEnds.Count(e => e.Status == QueryPathStatus.Found)}");
         Spawn.Destroy(anchor);
+    }
+
+    // ---- from inside a world program (kiln.world's in_program, since 0.2.0-dev.28) ----
+    // ray_probe's update runs per entity; while a window is armed it asks for a ray (and once for a path) and records what
+    // came back and on which thread. An exception must not leave the callback (it would disable the program).
+    private IDisposable? _probeBinding;
+    private string? _bindError;
+    private int _probeArmed, _probeCalls, _probePath, _tickThread;
+    private WorldPosition _probeA, _probeB;
+    private readonly ConcurrentQueue<(int Thread, bool Tick, string Outcome)> _probe = new();
+
+    private void RayProbe(EcsProgramContext context)
+    {
+        if (Volatile.Read(ref _probeArmed) == 0 || Interlocked.Increment(ref _probeCalls) > 32) return;
+        var thread = Environment.CurrentManagedThreadId;
+        var tick = thread == Volatile.Read(ref _tickThread);
+        var entity = context.Entity;
+        _probe.Enqueue((thread, tick, Outcome(() =>
+        {
+            var r = Queries.RaycastVoxels(_probeA, _probeB);
+            return $"answered ok={r.Ok} hit={r.Hit != null} reason={r.Reason}";
+        })));
+        if (Interlocked.Exchange(ref _probePath, 0) == 1)
+            _probe.Enqueue((thread, tick, "path " + Outcome(() =>
+            {
+                var t = Queries.RequestPath(new QueryPathRequest(entity, _probeA, _probeB));
+                return $"answered ok={t.Ok} reason={t.Reason}";
+            })));
+    }
+
+    private static string Outcome(Func<string> call)
+    {
+        try { return call(); }
+        catch (Exception e) { return $"{e.GetType().Name}: {e.Message}"; }
+    }
+
+    // Arms the probe until it has answers (at most 5 s), then waits two steps for an update that had started.
+    private async Task<List<(int Thread, bool Tick, string Outcome)>> ProbeWindow(bool path)
+    {
+        while (_probe.TryDequeue(out _)) { }
+        Volatile.Write(ref _probeCalls, 0);
+        Volatile.Write(ref _probePath, path ? 1 : 0);
+        Volatile.Write(ref _probeArmed, 1);
+        for (var i = 0; i < 24 * 5 && _probe.Count < 8; i++) await Next();
+        Volatile.Write(ref _probeArmed, 0);
+        await Next();
+        await Next();
+        return [.. _probe];
+    }
+
+    private async Task InsideProgram(double ground)
+    {
+        await Next();
+        _tickThread = Environment.CurrentManagedThreadId;
+        _probeA = new WorldPosition(X, ground + 20, Z);
+        _probeB = new WorldPosition(X + 10, ground + 20, Z);
+        if (_probeBinding == null) { Check(false, "queries.ray.inside-program", $"ray_probe is not bound: {_bindError}"); return; }
+        const string inside = "inside a world program";
+
+        // serial (no player): the program runs on the world's thread, which is the tick thread; kiln.queries refuses there
+        var path = Capabilities.Is("queries.path");
+        var serial = await ProbeWindow(path);
+        var rays = serial.Where(p => !p.Outcome.StartsWith("path ")).ToList();
+        var fromTick = await One(() => Queries.RaycastVoxels(_probeA, _probeB));
+        Check(rays.Count > 0 && rays.All(p => p.Tick && p.Outcome.Contains(inside)) && fromTick is { Ok: true, Hit: null }, "queries.ray.inside-program",
+            $"program updates={rays.Count} on the tick thread={rays.Count(p => p.Tick)} refused={rays.Count(p => p.Outcome.Contains(inside))}; " +
+            $"the same ray from a tick handler: ok={fromTick.Ok} hit={fromTick.Hit != null} reason={fromTick.Reason}; first: {rays.FirstOrDefault().Outcome}");
+        if (path)
+        {
+            var request = serial.FirstOrDefault(x => x.Outcome.StartsWith("path "));
+            Check(request.Outcome != null && request.Outcome.Contains(inside), "queries.path.inside-program", request.Outcome ?? "the program made no path request");
+        }
+        else Info("queries.path is off here: the path request from inside a program is not run");
+
+        // parallel: the lab switch puts entity programs on the game's workers; the refusal holds there too
+        if (!LabSystems.Enabled) { Info("the lab parallel switch is off (no kiln/control/systems.parallel at start): queries.ray.inside-program.worker is not run"); return; }
+        var forced = LabSystems.ForceParallel(600);
+        await Next();
+        await Next();
+        var parallel = await ProbeWindow(false);
+        var mask = LabSystems.PlayersMask;
+        LabSystems.StopParallel();
+        var workers = parallel.Where(p => !p.Tick).ToList();
+        Check(forced && workers.Count > 0 && parallel.All(p => !p.Outcome.Contains("answered")) &&
+              workers.All(p => p.Outcome.Contains("must be called on the tick thread")), "queries.ray.inside-program.worker",
+            $"forced={forced} mask=0x{mask:x4} program updates={parallel.Count} on {parallel.Select(p => p.Thread).Distinct().Count()} threads, " +
+            $"{workers.Count} off the tick thread; answered={parallel.Count(p => p.Outcome.Contains("answered"))}; first off the tick thread: {workers.FirstOrDefault().Outcome}");
+        for (var i = 0; i < 4; i++) await Next();
     }
 }
