@@ -287,6 +287,8 @@ struct BootMod {
     bool required;
 };
 
+std::vector<BootMod> g_scanned;  // decide()'s manifest scan: every boot mod of the profile takes part, with its files at least
+
 // kiln.mod.json's "boot" of one folder: 0 none, 1 true, 2 "required". `id` gets the manifest's id.
 int manifest_boot(const std::filesystem::path& dir, uint32_t side, std::string* id) {
     std::error_code ec;
@@ -615,6 +617,13 @@ std::string build_ir_locked() {
             o["owner"] = g_owners[id].process;
             owners.push_back(o);
         }
+    // participants the envelope does not list (files only): the collectors still get their process owner
+    {
+        std::set<std::string> listed;
+        for (const auto& o : owners) listed.insert(o["id"].get<std::string>());
+        for (const auto& [id, o] : g_owners)
+            if (!excluded(o) && !listed.count(id)) owners.push_back({{"id", id}, {"owner", o.process}, {"filesOnly", true}});
+    }
     ir["owners"] = owners;
     if (!ir.contains("reservations")) ir["reservations"] = json::object();
     for (auto& [name, list] : ir["reservations"].items())
@@ -750,6 +759,14 @@ KilnResult KILN_CALL b_commit(KilnOwner host, uint64_t generation, KilnBootCommi
                 if (o.id.empty()) o.id = id;  // a participant with files only
                 o.envelope = true;
                 if (e.contains("requires")) o.needs = e["requires"].get<std::vector<std::string>>();
+            }
+        // A boot mod that neither ran OnBoot nor is named by the envelope (a mod of blocks files only; a build whose host
+        // stages no envelope) takes part with its files: a collector may refuse it by name, and "required" holds for it.
+        for (const BootMod& m : g_scanned)
+            if (!g_owners.count(m.id)) {
+                Owner& o = g_owners[m.id];
+                o.id = m.id;
+                o.required = m.required;
             }
         propagate_locked("callback");
         for (auto& [id, o] : g_owners)
@@ -1039,6 +1056,7 @@ void decide(bool hooks, const std::string& safe_idle) {
         g_deferred = deferred;
         g_why = why;
         g_boot_mods = names;
+        g_scanned = deferred ? mods : std::vector<BootMod>();
         g_status = KILN_BOOT_STATUS_COLLECTING;
     }
     if (deferred) {

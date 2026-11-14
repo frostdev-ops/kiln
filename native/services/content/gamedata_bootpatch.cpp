@@ -239,7 +239,16 @@ KilnResult KILN_CALL prepare_boot(void*, const KilnBootPrepareInputV1* in, KilnB
             docs.push_back(std::move(d));
         }
     }
+    std::set<std::string> not_boot;
     for (const auto& d : docs) {
+        // a mod that takes no part in the generation (no "boot" in its kiln.mod.json): its patches are not applied
+        if (!input.owner.count(d.owner)) {
+            if (not_boot.insert(d.owner).second)
+                LOGW("mod %s has \"resourcePatches\" in a blocks file and takes no part in the boot generation: they are not applied. Add \"boot\": true "
+                     "to its kiln.mod.json",
+                     d.owner.c_str());
+            continue;
+        }
         auto refused = [&](const std::string& path, const std::string& why) {
             return kiln::boot::refuse(out, issue, d.owner, kKind, d.key, (path.empty() ? std::string() : "\"" + path + "\": ") + why);
         };

@@ -230,6 +230,7 @@ void reset_boot() {
     g_decided = g_deferred = g_bound = false;
     g_why.clear();
     g_boot_mods.clear();
+    g_scanned.clear();
     g_status = KILN_BOOT_STATUS_COLLECTING;
     g_owners.clear();
     g_by_author.clear();
@@ -903,6 +904,29 @@ void activation_fault_cases() {
     pass_line("BOOT-ACTIVATION-FAULT (optional: recorded, start goes on; required: late hold and exit 0x4B01)", f0);
 }
 
+// A boot mod that ran no OnBoot and is in no envelope (blocks files only) takes part all the same: a collector can refuse
+// it by name (dropped, not an abort), the collectors get its process owner, and "required" holds for it.
+void files_only_cases() {
+    t_case = "files-only";
+    const int f0 = t_fail;
+    deferred_with({"data", "need!"});
+    t_fake[6].act = Do::Refuse;  // the patches collector refuses "data" in the first round
+    t_fake[6].act_round = 1;
+    t_fake[6].blame = "data";
+    const auto c = commit_with("");  // no author ran, no envelope
+    CHECK(c.status == KILN_BOOT_STATUS_PUBLISHED && c.owner_count == 2);
+    CHECK(state_of("data") == KILN_BOOT_STATE_REJECTED_PREPARE && state_of("need") == KILN_BOOT_STATE_COMMITTED);
+    const json& ir = t_fake[0].seen.back();
+    CHECK(ir["excluded"] == json::array({"data"}));
+    CHECK(ir["owners"].size() == 1 && ir["owners"][0]["id"] == "need" && ir["owners"][0]["filesOnly"] == true &&
+          ir["owners"][0]["owner"].is_number_unsigned() && ir["owners"][0]["owner"] != 0);
+    CHECK(kiln::boot_svc::after_clr(true, &fake_write_state, nullptr) && t_exits.empty());
+    kiln::boot_svc::late_hold(&fake_write_state, nullptr);
+    CHECK(B.activation_fault(56, ks("need"), ks("resourcePatches"), ks("xp"), ks("no such resource")) == KILN_OK);
+    CHECK(t_late_exits == std::vector<uint32_t>{0x4B01u} && t_held.size() == 1);  // required by its manifest alone
+    pass_line("BOOT-FILES-ONLY (a boot mod of files takes part: dropped by name, owner given, required holds)", f0);
+}
+
 void not_committed_cases() {
     for (const bool clr : {true, false}) {
         t_case = clr ? "not-committed" : "clr-down";
@@ -1361,6 +1385,7 @@ int main(int argc, char** argv) {
     warning_case();
     missing_collector_cases();
     activation_fault_cases();
+    files_only_cases();
     not_committed_cases();
     buffer_cases();
     gamedata_cases();
