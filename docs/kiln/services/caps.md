@@ -259,3 +259,8 @@ a held row reads `unavailable`, `policy`, `game test pending: <ids>` until then.
 
 | Row | Kind | Reported by | Held until | What it says |
 |---|---|---|---|---|
+| `kiln.queries` | service | core | - | kiln.queries' table is here ([queries.md](queries.md)) |
+| `queries.voxel_ray` | sigdb | sigdb; kiln.queries lowers it (faulted) | client: `01-queries.voxel-ray-hosted` | The game's voxel ray: `Queries.RaycastVoxels`. Off for the process after a fault in the ray or a voxel grid that does not match the build's layout |
+| `queries.ground` | managed | Kiln.Queries | client: `01-queries.voxel-ray-hosted` | `Queries.GroundBelow`; needs `queries.voxel_ray` |
+| `queries.line_of_sight` | managed | Kiln.Queries | client: `01-queries.voxel-ray-hosted` | `Queries.VoxelLineOfSight`; needs `queries.voxel_ray` and `kiln.world` |
+| `queries.overlap_origins` | managed | Kiln.Queries | client: `01-queries.voxel-ray-hosted` | `Queries.EntitiesInSphere`, `EntitiesInBox`: entity origins from `kiln.world` |
