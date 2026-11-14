@@ -132,7 +132,7 @@ requires the key to name the assembly it builds (KILN001).
 An exclusive upper bound `<X.Y.Z` also excludes the pre-releases of X.Y.Z (`<2` rejects `2.0.0-beta`); pre-releases
 inside a range match. **apiVersion** is special: a bare version means "this API or a later one with the same
 major" (the mod API stays additive within a major, 0.x included), so `"0.1"` mods load on API 0.2. The running
-Kiln's API: `Kiln.Mods.RuntimeApiVersion` (0.2.2). The const `Kiln.Mods.ApiVersion` is obsolete: it is copied into a
+Kiln's API: `Kiln.Mods.RuntimeApiVersion` (0.2.3). The const `Kiln.Mods.ApiVersion` is obsolete: it is copied into a
 mod when the mod is built, so it says the API the mod was built against. A release refuses to ship when a public
 member of the previous release was removed (`tools/release/api-gate.sh`, and `pack.sh` compares against
 `KILN_API_BASELINE`). A release also builds its SDK packages as a NuGet feed (`sdk/feed/`); its URL is given here once

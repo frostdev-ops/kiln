@@ -51,5 +51,27 @@
     <InternalsVisibleTo Include="Kiln.Rules" />
     <InternalsVisibleTo Include="Kiln.PlayerAnim" />
     <InternalsVisibleTo Include="Kiln.Blocks" />
+    <!-- dev.28: the libraries its packages add, and their unit test projects. Reserved here once, so that no two
+         packages edit this list. A line whose assembly did not ship is removed at the wave's end. -->
+    <InternalsVisibleTo Include="Kiln.Queries" />
+    <InternalsVisibleTo Include="Kiln.Camera" />
+    <InternalsVisibleTo Include="Kiln.Markers" />
+    <InternalsVisibleTo Include="Kiln.ModValues" />
+    <InternalsVisibleTo Include="Kiln.Replication" />
+    <InternalsVisibleTo Include="Kiln.Mounts" />
+    <InternalsVisibleTo Include="Kiln.Pets" />
+    <InternalsVisibleTo Include="Kiln.Terrain" />
+    <InternalsVisibleTo Include="Kiln.ClientOptions" />
+    <InternalsVisibleTo Include="Kiln.SlotUi" />
+    <InternalsVisibleTo Include="Kiln.Queries.Tests" />
+    <InternalsVisibleTo Include="Kiln.Camera.Tests" />
+    <InternalsVisibleTo Include="Kiln.Markers.Tests" />
+    <InternalsVisibleTo Include="Kiln.ModValues.Tests" />
+    <InternalsVisibleTo Include="Kiln.Replication.Tests" />
+    <InternalsVisibleTo Include="Kiln.Mounts.Tests" />
+    <InternalsVisibleTo Include="Kiln.Pets.Tests" />
+    <InternalsVisibleTo Include="Kiln.Terrain.Tests" />
+    <InternalsVisibleTo Include="Kiln.ClientOptions.Tests" />
+    <InternalsVisibleTo Include="Kiln.SlotUi.Tests" />
   </ItemGroup>
 </Project>
