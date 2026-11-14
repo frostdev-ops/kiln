@@ -156,12 +156,68 @@ def _attribute_bodies(source: str) -> list[tuple[int, str]]:
     return found
 
 
+def _int(expr: str, ints: dict[str, int]) -> int | None:
+    """An integer expression of literals, known int constants, + - * / and parentheses (2000 + (28270 - 28000) * 10,
+    FollowUpsOrder + 2); None for anything else. Nothing is evaluated by Python's eval."""
+    tokens = re.findall(r"\d+|[A-Za-z_]\w*|[-+*/()]|\S", expr)
+    pos = 0
+
+    def atom() -> int | None:
+        nonlocal pos
+        if pos >= len(tokens):
+            return None
+        t = tokens[pos]
+        pos += 1
+        if t.isdigit():
+            return int(t)
+        if t in ints:
+            return ints[t]
+        if t == "-":
+            v = atom()
+            return None if v is None else -v
+        if t == "(":
+            v = sum_()
+            if v is None or pos >= len(tokens) or tokens[pos] != ")":
+                return None
+            pos += 1
+            return v
+        return None
+
+    def product() -> int | None:
+        nonlocal pos
+        v = atom()
+        while v is not None and pos < len(tokens) and tokens[pos] in "*/":
+            op = tokens[pos]
+            pos += 1
+            w = atom()
+            if w is None or (op == "/" and w == 0):
+                return None
+            v = v * w if op == "*" else int(v / w)
+        return v
+
+    def sum_() -> int | None:
+        nonlocal pos
+        v = product()
+        while v is not None and pos < len(tokens) and tokens[pos] in "+-":
+            op = tokens[pos]
+            pos += 1
+            w = product()
+            if w is None:
+                return None
+            v = v + w if op == "+" else v - w
+        return v
+
+    value = sum_()
+    return value if value is not None and pos == len(tokens) else None
+
+
 def read_pack(folder: str) -> list[dict]:
     """Every [ClientCheck] of the pack's sources."""
     files = sorted(glob.glob(os.path.join(folder, "*.cs")))
     if not files:
         raise PlanError(f"no C# sources in {folder}")
     consts: dict[str, str] = {}
+    int_exprs: dict[str, str] = {}
     sources = {}
     for f in files:
         try:
@@ -169,8 +225,17 @@ def read_pack(folder: str) -> list[dict]:
                 sources[f] = fh.read()
         except OSError as e:
             raise PlanError(f"cannot read {f}: {e}") from e
-        for m in re.finditer(r'const\s+string\s+(\w+)\s*=\s*"((?:[^"\\]|\\.)*)"\s*;', sources[f]):
-            consts[m.group(1)] = m.group(2)
+        # const string A = "a"; and const string A = "a", B = "b";
+        for m in re.finditer(r'const\s+string\s+((?:\w+\s*=\s*"(?:[^"\\]|\\.)*"\s*,?\s*)+);', sources[f]):
+            for n in re.finditer(r'(\w+)\s*=\s*"((?:[^"\\]|\\.)*)"', m.group(1)):
+                consts[n.group(1)] = n.group(2)
+        for m in re.finditer(r'const\s+int\s+(\w+)\s*=\s*([^;]+);', sources[f]):
+            int_exprs[m.group(1)] = m.group(2)
+    ints: dict[str, int] = {}
+    for _ in range(4):                       # constants built on constants, a few levels deep
+        for k, e in int_exprs.items():
+            if k not in ints and (v := _int(e, ints)) is not None:
+                ints[k] = v
     checks = []
     for f, text in sources.items():
         for line, body in _attribute_bodies(text):
@@ -195,9 +260,8 @@ def read_pack(folder: str) -> list[dict]:
                     tags.append(TAG_NAMES.get(t) or lit or t)
             needs = named.get("Needs", "ClientCheckNeeds.Any").split(".")[-1].strip().lower()
             since = _string(named.get("Since", '""'), consts) or named.get("Since", "")
-            try:
-                order = int(named.get("Order", "0"))
-            except ValueError:
+            order = _int(named.get("Order", "0"), ints)
+            if order is None:
                 order = 0
             checks.append({"id": cid, "title": title or "", "area": _string(named.get("Area", '""'), consts) or "",
                            "since": since, "tags": tags, "needs": needs, "order": order, "where": where})

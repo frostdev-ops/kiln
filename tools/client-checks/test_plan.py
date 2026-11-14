@@ -95,6 +95,21 @@ class ReadPack(unittest.TestCase):
         self.assertEqual(checks["03-c10"]["needs"], "any")
         self.assertEqual(checks["old.check"]["since"], "0.2.0-dev.27")
 
+    def test_orders_and_constants_may_be_expressions(self):
+        src = SOURCE.replace('private const string Prefix = "03-";',
+                             'private const string Prefix = "03-", Other = "x";\n'
+                             '    private const int Base = 2000 + (28270 - 28000) * 10;\n'
+                             '    private const int Next = Base + 5;')
+        src = src.replace("Order = 2202)", "Order = Base + 2)").replace("Order = 2203)", "Order = Next)")
+        src = src.replace("Order = 3301)", "Order = (Next - 1) / 2)").replace("Order = 3401)", "Order = Base + Unknown)")
+        f = Fixture(src)
+        checks = {c["id"]: c for c in plan.read_pack(os.path.join(f.root, "mods", "tests", "client-pass"))}
+        self.assertEqual(checks["03-c7"]["order"], 4702)
+        self.assertEqual(checks["03-c10"]["order"], 4705)
+        self.assertEqual(checks["11-join"]["order"], 2352)
+        self.assertEqual(checks["12-debug"]["order"], 0)     # a name it does not know: no order, not a wrong one
+        self.assertEqual(plan._int("__import__('os')", {}), None)
+
     def test_an_id_that_is_not_a_constant_stops_the_read(self):
         f = Fixture(SOURCE.replace('"03-c10"', "Compute()"))
         with self.assertRaises(plan.PlanError):
