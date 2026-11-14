@@ -412,12 +412,12 @@ impl UreqTransport {
             .timeout_recv_response(Some(response))
             .timeout_per_read(Some(response))
             // the whole exchange, whatever phase stalls (a TLS handshake that never completes, a body that trickles)
-            .timeout_global(Some(connect + response))
+            .timeout_global(Some(connect.max(response)))
             .build()
     }
 
     /// The same transport as [`UreqTransport::new`] with its own time bounds: `connect` for reaching the host,
-    /// `response` for the answer, and `connect + response` for the whole exchange. For small reads that must not
+    /// `response` for the answer, and the larger of them for the whole exchange. For small reads that must not
     /// hold a check up (the update check: 10 s); uploads keep [`UreqTransport::new`].
     pub fn with_timeouts(connect: std::time::Duration, response: std::time::Duration) -> UreqTransport {
         let agent = ureq::Agent::with_parts(
@@ -441,6 +441,13 @@ mod timeout_tests {
     use super::*;
     use std::time::{Duration, Instant};
 
+    #[test]
+    fn phase_timeouts_do_not_double_the_update_request_deadline() {
+        let timeout = Duration::from_secs(10);
+        let limits = UreqTransport::bounded_config(timeout, timeout).timeouts();
+        assert_eq!(limits.global, Some(timeout), "the update check has one ten-second request budget");
+    }
+
     /// A server that accepts and never answers: the call fails within its bound instead of hanging. The listener is
     /// this test's own, on 127.0.0.1; the host name in the URL is never looked up.
     #[test]
@@ -462,7 +469,7 @@ mod timeout_tests {
         assert_eq!(e.code, ErrorCode::Network);
         assert!(!e.message.contains("per_page"), "the error holds the query: {}", e.message);
         assert!(took >= Duration::from_millis(400), "failed at once ({took:?}): the listener was not reached");
-        assert!(took < Duration::from_millis(3000), "took {took:?}, the bound is 1.2 s");
+        assert!(took < Duration::from_millis(3000), "took {took:?}, the bound is 0.7 s");
         let _ = accepted.join();
     }
 }

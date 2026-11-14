@@ -62,7 +62,7 @@ export function updatesMockHandlers(handlers: Record<string, Handler>, emit: Emi
       if (online) { githubRequests += 1; lastAnswer.set(key, now); }
       const at = lastAnswer.get(key);
       const newest = published.get(repo.toLowerCase());
-      s = { ...base, source: { provider: "github", destination: repo, origin: src.origin, authenticated: false }, pageUrl: `https://github.com/${repo}/releases`, state: "unknown", reason: "not_checked" };
+      s = { ...base, source: { provider: "github", destination: repo, origin: src.origin, authenticated: false, spec: src.spec }, pageUrl: `https://github.com/${repo}/releases`, state: "unknown", reason: "not_checked" };
       if (at !== undefined && !newest) s = { ...s, reason: "not_found", checkedAt: iso(at), coverage: "complete" };
       else if (at !== undefined && newest) {
         const newer = newest !== s.installedVersion;

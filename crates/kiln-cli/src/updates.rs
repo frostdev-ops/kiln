@@ -268,7 +268,8 @@ mod tests {
         let g = mods.iter().find(|m| m["libraryRef"]["id"] == "lantern-glow").unwrap();
         assert_eq!((g["state"].as_str(), g["compatibility"].as_str(), g["coverage"].as_str(), g["stale"].as_bool(), g["reason"].is_null()),
             (Some("available"), Some("compatible"), Some("complete"), Some(false), true));
-        assert_eq!(g["source"], serde_json::json!({"provider": "github", "destination": "example-org/lantern-glow", "origin": "manifest", "authenticated": false}));
+        assert_eq!(g["source"], serde_json::json!({"provider": "github", "destination": "example-org/lantern-glow", "origin": "manifest", "authenticated": false,
+            "spec": {"provider": "github", "repository": "example-org/lantern-glow", "tagPattern": "v{version}", "asset": "lantern-glow-{version}.zip", "channel": "stable"}}));
         assert_eq!(g["candidateIdentity"]["assetName"], "lantern-glow-1.10.0.zip");
         let l = mods.iter().find(|m| m["libraryRef"]["id"] == "local-tweaks").unwrap();
         assert!(l["source"].is_null() && l["candidateVersion"].is_null() && l["state"] == "unsupported");
@@ -306,7 +307,7 @@ mod tests {
         let mut s = ModUpdateStatus::new(
             kiln_manage::library::LibraryRef { kind: kiln_manage::manifest::ModKind::Kiln, id: "m".into(), version: "1.0.0\u{1b}]0;title\u{7}".into(), hash: "kdh1:0".into() },
             "M", None).with_state(UpdateState::Available);
-        s.source = Some(kiln_manage::updates::SourceInfo { provider: kiln_manage::updates::Provider::Github, destination: "a/b".into(), origin: kiln_manage::updates::SourceOrigin::Manifest, authenticated: false });
+        s.source = Some(kiln_manage::updates::SourceInfo { provider: kiln_manage::updates::Provider::Github, destination: "a/b".into(), origin: kiln_manage::updates::SourceOrigin::Manifest, authenticated: false, spec: None });
         s.candidate_version = Some("2.0.0\nMOD  INSTALLED".into());
         s.page_url = Some("https://github.com/a/b/releases/tag/v2\u{1b}[8m".into());
         let r = CheckReport { format: 1, checked_at: "2027-01-15T08:00:00Z".into(), offline: false, mods: vec![s] };

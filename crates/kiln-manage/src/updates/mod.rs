@@ -33,7 +33,7 @@ use std::path::PathBuf;
 
 /// The version of the rules a receipt or a cached answer was made under (source selection, release selection,
 /// comparison). Raised when a rule changes what an old record means; older records are then read as unbound.
-pub const POLICY_VERSION: u32 = 1;
+pub const POLICY_VERSION: u32 = 2;
 
 /// An answer older than this is stale: shown, marked, and never as "up to date". Also how often an automatic check
 /// asks a provider about one source.

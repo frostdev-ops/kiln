@@ -93,9 +93,10 @@ export function UpdateSourceModal({ target, onClose }: { target: { kind: ModKind
     setRepository(src?.provider === "github" ? src.destination : "");
     const nx = src?.provider === "nexus" ? src.destination.split("/") : [];
     setModId(nx[1] ?? ""); setFileChainId(nx[2] ?? "");
-    setTagPattern(""); setAsset(""); setChannel("stable"); setConflict(null); setError(null);
+    const gh = src?.spec?.provider === "github" ? src.spec : undefined;
+    setTagPattern(gh?.tagPattern ?? ""); setAsset(gh?.asset ?? ""); setChannel(gh?.channel ?? "stable"); setConflict(null); setError(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, status?.source]);
   if (!target) return null;
 
   const spec = (): UpdatesSpec => (provider === "github"

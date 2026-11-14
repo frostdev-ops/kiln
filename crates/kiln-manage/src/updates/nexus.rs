@@ -73,7 +73,9 @@ impl UpdateProvider for NexusProvider<'_> {
         Ok(items.iter().map(|item| {
             let mut s = item.status(true);
             s.page_url = page(&item.spec);
-            let Some(m) = mods.iter().find(|m| m.record.refs.contains(&item.target.library_ref)) else {
+            let Some(m) = mods.iter().find(|m| m.record.refs.contains(&item.target.library_ref)
+                && matches!(&item.spec, UpdatesSpec::Nexus { game_id, mod_id, file_chain_id }
+                    if *game_id == crate::manifest::NEXUS_GAME_ID && m.record.mod_id == mod_id.to_string() && m.record.file_id == *file_chain_id)) else {
                 return s.unknown(UnknownReason::NotChecked);
             };
             // Nexus versions are free text: the installed one is shown as Nexus names it, beside the candidate's
@@ -273,6 +275,25 @@ mod tests {
         *e.mock.fail.lock().unwrap() = Some(429);
         let s = e.check(Some(&cat), |o| o.refresh = true);
         assert_eq!((s.state, s.stale, s.reason), (UpdateState::Unknown, true, Some(UnknownReason::RateLimited)));
+    }
+
+    #[test]
+    fn a_manual_mapping_never_uses_another_nexus_chain() {
+        let mut e = env("mapped-chain");
+        let cat = e.catalog(Some("TOKEN"));
+        *e.mock.versions.lock().unwrap() = serde_json::json!([version("1009", "1.3.0", "3")]);
+        assert_eq!(e.check(Some(&cat), |_| {}).state, UpdateState::Available);
+        let requests = e.requests();
+        for spec in [
+            UpdatesSpec::Nexus { game_id: 5811, mod_id: 310, file_chain_id: "90311".into() },
+            UpdatesSpec::Nexus { game_id: 5811, mod_id: 311, file_chain_id: "90310".into() },
+        ] {
+            e.item.spec = spec;
+            e.item.origin = SourceOrigin::Manual;
+            let s = e.check(Some(&cat), |o| o.offline = true);
+            assert_eq!((s.state, s.reason, s.candidate_version), (UpdateState::Unknown, Some(UnknownReason::NotChecked), None));
+        }
+        assert_eq!(e.requests(), requests);
     }
 
     #[test]
