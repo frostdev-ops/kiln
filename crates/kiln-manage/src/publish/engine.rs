@@ -83,14 +83,32 @@ pub struct Engine<'a> {
 /// The exclusive lock of a transaction: one apply or resume at a time. Released when dropped.
 pub struct TxLock(#[allow(dead_code)] std::fs::File);
 
+/// How often [`lock`] tries a lock that is held, and how long it waits between tries (about a second in all).
+const LOCK_TRIES: u32 = 20;
+const LOCK_PAUSE: std::time::Duration = std::time::Duration::from_millis(50);
+
+/// Takes the transaction's lock, or answers Busy when another holder keeps it for about a second.
+///
+/// Why it waits at all: the lock belongs to the open file, and a child process that another thread of this program
+/// forks at that moment (a credential-store helper, a test's fake tool) holds an inherited copy of the descriptor
+/// until it execs, even when it is opened close-on-exec. For that short time a lock this program already released
+/// still counts as held. A real second `kiln publish` holds it for its whole run and is still answered Busy.
 pub fn lock(dir: &std::path::Path) -> Result<TxLock> {
+    lock_waiting(dir, LOCK_TRIES, LOCK_PAUSE)
+}
+
+fn lock_waiting(dir: &std::path::Path, tries: u32, pause: std::time::Duration) -> Result<TxLock> {
     txdir::check_directory(dir)?;
     let path = dir.join("lock");
     let f = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(&path).map_err(crate::util::io_at(&path, "locking"))?;
-    match f.try_lock() {
-        Ok(()) => Ok(TxLock(f)),
-        Err(_) => Err(Error::new(ErrorCode::Busy, "Another kiln publish is working on this transaction.")),
+    for attempt in 1..=tries.max(1) {
+        match f.try_lock() {
+            Ok(()) => return Ok(TxLock(f)),
+            Err(std::fs::TryLockError::WouldBlock) if attempt < tries => std::thread::sleep(pause),
+            Err(_) => break,
+        }
     }
+    Err(Error::new(ErrorCode::Busy, "Another kiln publish is working on this transaction."))
 }
 
 fn known_ids(j: &Journal) -> BTreeMap<String, RemoteIds> {

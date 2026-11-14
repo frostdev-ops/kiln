@@ -9,6 +9,8 @@
 //!   environment and keeps no cookies.
 //! - Request bodies can be streamed from an open file handle; responses are bounded, and a response over the bound
 //!   is an error, not a cut-off body.
+//! - A download ([`Client::download`]) passes the body of a success answer to a sink as it arrives instead of
+//!   holding it in memory, under the same bound and the same host, credential and redirect rules.
 //! - No message, `Debug` output or error holds a URL's query, a header value or a body.
 //! - There is no DELETE: nothing built on this layer can remove anything at a provider.
 //!
@@ -24,7 +26,7 @@ pub mod policy;
 pub use policy::{Policy, Url};
 
 use crate::{Error, ErrorCode, Result};
-use std::io::Read;
+use std::io::{Read, Write};
 
 /// The default bound of a response body.
 pub const DEFAULT_MAX_RESPONSE: u64 = 1024 * 1024;
@@ -173,6 +175,19 @@ pub struct WireRequest {
 /// - put no URL query, header value or body into an error.
 pub trait Transport: Send + Sync {
     fn exchange(&self, req: WireRequest) -> Result<Response>;
+
+    /// [`Transport::exchange`] for a download. The body of a 2xx answer goes to `sink` as it arrives and is never
+    /// held whole in memory: at most `max_response` bytes reach `sink`, and a longer body fails with [`too_large`]
+    /// (what was written before stays written: the caller treats any error as "no download"). A body that ends
+    /// before its stated length is an error, not a short download. The returned [`Response`] has an empty body. The
+    /// body of any other status (a refusal, a redirect) is not read and never reaches `sink`: its status and headers
+    /// are what a caller needs. Every other rule of `exchange` holds.
+    ///
+    /// The default refuses before anything is sent: a transport that cannot stream does not download.
+    fn download(&self, req: WireRequest, sink: &mut dyn Write) -> Result<Response> {
+        let _ = sink;
+        Err(Error::new(ErrorCode::Refused, format!("This connection cannot stream a download from {}. Nothing was sent.", req.url.redacted())))
+    }
 }
 
 /// The error for a response body over its bound.
@@ -204,9 +219,29 @@ impl<'a> Client<'a> {
 
     /// Sends one request. Refused before anything is sent: a URL that breaks the rules, a host outside the policy, a
     /// credential header for a host not marked for it, a header the client owns, a redirect allowance on anything
-    /// but a body-less GET. A redirect answer is an error unless this call allowed its target host; then it is
-    /// followed once, without credentials.
+    /// but a body-less GET. A redirect answer is an error unless this call allowed its target host and that host is
+    /// one of the policy's; then it is followed once, without credentials.
     pub fn send(&self, req: Request) -> Result<Response> {
+        self.dispatch(req, None)
+    }
+
+    /// [`Client::send`] for a download, with the same checks and the same redirect rule: the body of the final 2xx
+    /// answer is written to `sink` as it arrives instead of being held in memory, at most `req.max_response` bytes
+    /// (a longer body is an error). The returned [`Response`] has an empty body; another status comes back with its
+    /// status and headers and nothing written to `sink`. Any error means the download did not happen, whatever
+    /// `sink` received before it.
+    pub fn download(&self, req: Request, sink: &mut dyn Write) -> Result<Response> {
+        self.dispatch(req, Some(sink))
+    }
+
+    fn wire<'s>(&self, req: WireRequest, sink: Option<&mut (dyn Write + 's)>) -> Result<Response> {
+        match sink {
+            Some(sink) => self.transport.download(req, sink),
+            None => self.transport.exchange(req),
+        }
+    }
+
+    fn dispatch<'s>(&self, req: Request, mut sink: Option<&mut (dyn Write + 's)>) -> Result<Response> {
         let url = policy::parse_url(&req.url)?;
         let provider = &self.policy.provider;
         let rule = self.policy.rule(&url.host).ok_or_else(|| {
@@ -224,7 +259,7 @@ impl<'a> Client<'a> {
         if !req.redirect_hosts.is_empty() && (req.method != Method::Get || !req.body.is_empty()) {
             return Err(Error::invalid("only a GET without a body may allow a redirect"));
         }
-        let first = self.transport.exchange(WireRequest { method: req.method, url: url.clone(), headers: headers.clone(), body: req.body, max_response: req.max_response })?;
+        let first = self.wire(WireRequest { method: req.method, url: url.clone(), headers: headers.clone(), body: req.body, max_response: req.max_response }, sink.as_deref_mut())?;
         if !first.is_redirect() {
             return Ok(first);
         }
@@ -236,14 +271,15 @@ impl<'a> Client<'a> {
         let target = policy::parse_url(location).map_err(|_| {
             Error::new(ErrorCode::Refused, format!("{} redirected to an address that is not allowed.", url.redacted()))
         })?;
-        if !req.redirect_hosts.contains(&target.host) {
+        // The call names where it may go, and the provider's policy has to know that host too.
+        if !req.redirect_hosts.contains(&target.host) || self.policy.rule(&target.host).is_none() {
             return Err(Error::new(ErrorCode::Refused, format!("{} redirected to a host that is not allowed.", url.redacted())));
         }
         // The second request starts from nothing: no credential, no cookie, no referrer, only what a download needs.
         let mut clean: Vec<(String, String)> =
             headers.into_iter().filter(|(k, _)| k.eq_ignore_ascii_case("accept") || k.eq_ignore_ascii_case("user-agent")).collect();
         clean.retain(|(k, _)| !policy::is_credential_header(k));
-        let second = self.transport.exchange(WireRequest { method: Method::Get, url: target.clone(), headers: clean, body: Body::Empty, max_response: req.max_response })?;
+        let second = self.wire(WireRequest { method: Method::Get, url: target.clone(), headers: clean, body: Body::Empty, max_response: req.max_response }, sink)?;
         if second.is_redirect() {
             return Err(Error::new(ErrorCode::Refused, format!("{} redirected a second time, which is not followed.", target.redacted())));
         }
@@ -357,13 +393,61 @@ impl Default for UreqTransport {
 #[cfg(feature = "http")]
 impl Transport for UreqTransport {
     fn exchange(&self, req: WireRequest) -> Result<Response> {
+        let (url, max) = (req.url.clone(), req.max_response);
+        let mut resp = self.start(req)?;
+        let (status, headers) = Self::head(&resp);
+        let mut body = Vec::new();
+        // One byte over the bound is read so that "exactly at the bound" and "over it" differ.
+        let read = resp.body_mut().with_config().limit(max.saturating_add(1)).reader().read_to_end(&mut body);
+        if body.len() as u64 > max {
+            return Err(too_large(&url));
+        }
+        if read.is_err() {
+            return Err(network_error(&url));
+        }
+        Ok(Response { status, headers, body })
+    }
+
+    fn download(&self, req: WireRequest, sink: &mut dyn Write) -> Result<Response> {
+        let (url, max) = (req.url.clone(), req.max_response);
+        let mut resp = self.start(req)?;
+        let (status, headers) = Self::head(&resp);
+        if !(200..300).contains(&status) {
+            return Ok(Response { status, headers, body: Vec::new() });
+        }
+        // As in exchange, one byte over the bound is allowed through so that "over it" is seen, but never passed on.
+        let mut reader = resp.body_mut().with_config().limit(max.saturating_add(1)).reader();
+        let mut buf = vec![0u8; 64 * 1024];
+        let mut total = 0u64;
+        loop {
+            let n = match reader.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => n,
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                // ureq fails a length-delimited body that ends early: a short download is an error here.
+                Err(_) => return Err(network_error(&url)),
+            };
+            total = total.saturating_add(n as u64);
+            if total > max {
+                return Err(too_large(&url));
+            }
+            sink.write_all(&buf[..n]).map_err(|_| Error::new(ErrorCode::Io, format!("The download from {} could not be kept.", url.redacted())))?;
+        }
+        Ok(Response { status, headers, body: Vec::new() })
+    }
+}
+
+#[cfg(feature = "http")]
+impl UreqTransport {
+    /// Sends one request and returns the answer with its body not yet read.
+    fn start(&self, req: WireRequest) -> Result<ureq::http::Response<ureq::Body>> {
         let fail = |_e: ureq::Error| network_error(&req.url);
         let mut b = ureq::http::Request::builder().method(req.method.as_str()).uri(req.url.wire());
         for (k, v) in &req.headers {
             b = b.header(k.as_str(), v.as_str());
         }
         let len = req.body.len();
-        let mut resp = match req.body {
+        let resp = match req.body {
             Body::Empty => {
                 let r = b.body(()).map_err(|_| network_error(&req.url))?;
                 self.agent.run(r).map_err(fail)?
@@ -386,17 +470,11 @@ impl Transport for UreqTransport {
                 self.agent.run(r).map_err(fail)?
             }
         };
-        let status = resp.status().as_u16();
+        Ok(resp)
+    }
+
+    fn head(resp: &ureq::http::Response<ureq::Body>) -> (u16, Vec<(String, String)>) {
         let headers = resp.headers().iter().map(|(k, v)| (k.as_str().to_string(), v.to_str().unwrap_or("").to_string())).collect();
-        let mut body = Vec::new();
-        // One byte over the bound is read so that "exactly at the bound" and "over it" differ.
-        let read = resp.body_mut().with_config().limit(req.max_response.saturating_add(1)).reader().read_to_end(&mut body);
-        if body.len() as u64 > req.max_response {
-            return Err(too_large(&req.url));
-        }
-        if read.is_err() {
-            return Err(network_error(&req.url));
-        }
-        Ok(Response { status, headers, body })
+        (resp.status().as_u16(), headers)
     }
 }
