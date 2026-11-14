@@ -274,6 +274,38 @@ Lab with no `labPort`, real client through `play-once` mode vanilla unless noted
 15. **The game's log after 11**: no flood of `processMessage UpdateEntity`, frame rate unchanged near the missing NPC.
 16. **Same client, `modSync` not set (the default)**, also with net-test on the lab (no `clients`): Kiln's toast names the server and both mods (not net-test) before the game's dialog and stays over it, then shows again at the main menu; back to the menu, no crash. kiln.log: `ui: refusal shown: ...` and `ui: refusal shown again at the main menu`, `last-server.json: rejected ... missing npcsample, quests-sample`. Lab: `refusing ... quests-sample ...`, `kick`. `kiln/state/last-server.json`: `"outcome": "rejected"`, `missing` the two mods, `required` all three. The launcher's Play page shows the Refused banner without a modpack (Dismiss hides it); with a modpack published on the lab, the banner offers it.
 
+## Ending a machine (dev.28; server 26430253, `f0d824be…`) **[static] [lab]**
+The game's own kick of a machine, below the login result (`SendLoginResult` is a message the client acts on; this one
+does not need the client). kiln.net uses it only when the login failure cannot reach a refused peer (`net.disconnect`,
+`sigdb/symbols/server.d/dev28-15a-net-admission.json`). Full notes: the wave's `out/15a-net-admission/kick-fallback/NOTES.md`.
+- `SessionKickMachine(session, machine, ban)` `0xa02c90`: builds session command 3 (`+0x604` machine handle, `+0x608`
+  ban) on its stack, pushes it into the session's command queue (`session+0x78c8`, spin-locked ring of 0x640-byte
+  entries, `0xa08590`; it waits only while the ring is full) and counts it (`session+0x78c0`). The session object here is
+  `GameServer+0x10`, the same object as the socket set's first word (GameServer init `0x7ab000` stores the setup's
+  session in both). The session's own state lives at `session+0x4dd0` (SessionRead adds it too).
+- The game calls it on the GameServer thread, from the account actions `0x7a6e50` (inside `GameServer::update`
+  `0x7bbeb0`, which also calls `ServerReceive`): kick = ban 0 unless the player record's flag bit 0 (`+0x10`) is set,
+  ban = ban 1 (and the account goes on the ban list first). The handle is the player record's peer (`gs.records +
+  rec.peer`), the same handle as the machine slots.
+- The session thread (`0xa09c20`, about every 5 ms) pops the command at the start of its update (`0xa13130`) and runs
+  `kickMachine` `0xa00040`: the host machine (`[session] Host machine can't be kicked from the session.`) and a handle
+  that names no machine (`[session] Tried to kick out not registered machine with handle %i.`) are refused with an
+  error line; otherwise it sends the machine the session's kick message, ignores that machine's session messages from
+  now on, and arms a 1 s timer (`session+0x4dd0+0x11418`, 17 entries).
+- When the timer runs out (session update `0xa12de0`, while the session is in game) it calls the online layer's
+  `removePeer` `0x9cfeb0` through the provider (`0x9d0050` → vtable `0x132fee8` slot `0x108` → `0x9d0010`): Steam
+  `CloseConnection(connection, 1000, …, linger)` and the peer is gone. `removePeer` is also what the online layer calls
+  for a peer that timed out (`0x9ee8e0`, "[online] Timeout for peer %k") and for a peer's own disconnect message.
+- **[lab]** (no client; `nettest --only admission_fallback`): kiln.net's `lab_selftest` called it on the lab server for
+  the server's own machine index. The session thread answered in the game's log: handle 0 → `[E …] [session] Tried to kick
+  out not registered machine with handle 0.`, handle 0x80 → `[E …] [session] Host machine can't be kicked from the
+  session.` So the server's own machine is 0x80 (index 0, generation 1; the log's "Add local machine index 0 (id: 0)"
+  gives the index), the session pointer and the command reach `kickMachine`, and the server goes on. A remote machine was
+  never kicked: the lab has no game connection.
+- Not traced: the session's teardown after `removePeer` down to the GameServer's machine slot (expected as for a timed-out
+  peer). The client exe has the same functions (its record resolves `net/SessionKickMachine` at `0xa6edc0`), but its
+  command layout was not checked: `net.disconnect` is off there.
+
 ## Not verified / open
 1. The per-message maximum at runtime (expected 8192 or 16384 bytes): real-client frames were small (≤ 336 bytes);
    fragments were tested over the lab transport only. Kiln's protocol tolerates reordering (fragments carry indices)
