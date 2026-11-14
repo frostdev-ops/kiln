@@ -9,7 +9,7 @@ lies, what it costs, and what a mod sees when it is not there.
 
 | Who | When | What you see |
 |---|---|---|
-| The Kiln launcher | at Play, right after the cook, when an enabled Kiln mod of the start has `"boot": true` or `"required"` in its kiln.mod.json | a progress line ("Game data for OnBoot mods (about 200 MB, once per game build): …"); a notice in one line only when something went wrong. Without such a mod: "no mod needs the boot snapshot", and nothing runs |
+| The Kiln launcher | at Play (and Launch in a server's modpack offer), right after the cook, when an enabled Kiln mod of the start has `"boot": true` or `"required"` in its kiln.mod.json | a progress line ("Game data for OnBoot mods (about 200 MB, once per game build): …"); a notice in one line only when something went wrong. Without such a mod: "no mod needs the boot snapshot", and nothing runs |
 | `kiln boot-snapshot --game <dir> [--force] [--json]` | by hand, whatever the mods say: a server you start yourself, or to make it again | progress on stderr, then one line (or the JSON result) |
 | `tools/deploy-server.sh` | at each deploy into a server folder, when a mod in its `kiln/mods` has `"boot": true` or `"required"` (`KILN_NO_BOOT_SNAPSHOT=1` skips the step) | the tool's lines; "no mod needs the boot snapshot" without such a mod; a warning when it was not made |
 
@@ -78,7 +78,8 @@ after world load.
 ## When there is no snapshot
 
 On a start without a snapshot of the running game build (the tool could not run, it failed, or the game was started
-from Steam before the launcher made one), `OnBoot` still runs, and:
+from Steam, or with the launcher's "play once" with another profile, which makes none, before a Play made one),
+`OnBoot` still runs, and:
 
 - the capability row `mods.boot.game_data` is **unavailable**, with the reason "no game-data snapshot for this game
   build: start through the Kiln launcher, or run `kiln boot-snapshot --game <dir>`" and the test that failed (no
@@ -86,7 +87,7 @@ from Steam before the launcher made one), `OnBoot` still runs, and:
 - `boot.GameData.Read(...)` throws `KilnUnavailableException("mods.boot.game_data")`.
 
 A mod that can do without the game's data checks the row first (`Capabilities.Is("mods.boot.game_data")`;
-`Capabilities.Get(...)` gives the reason) and keeps its own defaults. The next start through the launcher makes the
+`Capabilities.Get(...)` gives the reason) and keeps its own defaults. The next Play through the launcher makes the
 snapshot (or run the command above), and from then on the reads work.
 
 ## The command
