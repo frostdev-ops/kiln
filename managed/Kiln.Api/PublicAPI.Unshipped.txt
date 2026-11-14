@@ -1,36 +1,4 @@
 #nullable enable
-Kiln.EventFilter
-Kiln.EventFilter.<Clone>$() -> Kiln.EventFilter!
-Kiln.EventFilter.Entities.get -> System.Collections.Generic.IReadOnlySet<Kiln.EntityId>?
-Kiln.EventFilter.Entities.init -> void
-Kiln.EventFilter.Equals(Kiln.EventFilter? other) -> bool
-Kiln.EventFilter.EventFilter() -> void
-Kiln.EventFilter.Passes(Kiln.KilnEvent! ev) -> bool
-Kiln.EventSubscription.Filter.get -> Kiln.EventFilter?
-Kiln.IEntityEvent
-Kiln.IEntityEvent.Involves(Kiln.EntityId entity) -> bool
-override Kiln.EventFilter.Equals(object? obj) -> bool
-override Kiln.EventFilter.GetHashCode() -> int
-override Kiln.EventFilter.ToString() -> string!
-static Kiln.EventFilter.ForEntities(System.Collections.Generic.IEnumerable<Kiln.EntityId>! entities) -> Kiln.EventFilter!
-static Kiln.EventFilter.ForEntity(Kiln.EntityId entity) -> Kiln.EventFilter!
-static Kiln.EventFilter.operator !=(Kiln.EventFilter? left, Kiln.EventFilter? right) -> bool
-static Kiln.EventFilter.operator ==(Kiln.EventFilter? left, Kiln.EventFilter? right) -> bool
-static Kiln.Events.On<T>(System.Action<T!>! handler, Kiln.EventFilter! filter, Kiln.EventPriority priority = Kiln.EventPriority.Normal, bool receiveCanceled = false) -> Kiln.EventSubscription!
-Kiln.IGameAttribute<TSelf, TValue>
-Kiln.IGameAttribute<TSelf, TValue>.ValuesOf(ref TSelf self) -> System.Span<TValue>
-Kiln.IGameComponent<TSelf>
-Kiln.IGameEvent<TSelf>
-Kiln.IGameStruct<TSelf>
-Kiln.IGameStruct<TSelf>.Hash.get -> uint
-Kiln.IGameStruct<TSelf>.Layout.get -> ulong
-Kiln.IGameStruct<TSelf>.Name.get -> string!
-Kiln.IGameStruct<TSelf>.QualifiedName.get -> string!
-Kiln.IGameStruct<TSelf>.Size.get -> int
-Kiln.EcsProgramContext.TryGet<T>(out T value, bool template = false) -> bool
-Kiln.EcsProgramContext.TryGetOther<T>(Kiln.EntityId entity, out T value) -> bool
-Kiln.EcsProgramContext.TrySet<T>(T value) -> bool
-Kiln.EcsProgramContext.TrySetOther<T>(Kiln.EntityId entity, T value) -> bool
 Kiln.Capability.IsHeld.get -> bool
 static Kiln.Capabilities.IsHeld(string! name) -> bool
 Kiln.GameType.ImpactName.get -> string?
