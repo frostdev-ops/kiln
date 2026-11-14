@@ -113,7 +113,9 @@ public:
         ring_[(head_ + count_) % kQueue] = c;
         ++count_;
     }
-    // Tick thread: up to `max` records, oldest first.
+    // Tick thread, every Pre: says a hook's fault once (kiln.log and the capability row).
+void tick();
+// Tick thread: up to `max` records, oldest first.
     size_t drain(Change* out, size_t max) {
         std::lock_guard lock(mu_);
         size_t n = 0;
@@ -384,8 +386,12 @@ void world_reset();
 // Tick thread: the rule of an item (cost 0..32767, -1 none). false: the rule table is full.
 bool set_rule(uint32_t item, int32_t cost);
 int32_t rule(uint32_t item);
+// Tick thread, every Pre: says a hook's fault once (kiln.log and the capability row).
+void tick();
 // Tick thread: up to `max` records whose item entity is still the one the hook saw (same epoch, same stamp); stale ones are dropped.
 size_t drain(Change* out, size_t max);
 Status status();
+// Publishes the kiln.toolwear table (toolwear_table.cpp), also where the hooks are off: its status then says why.
+bool publish(const KilnApi* api, uint64_t owner);
 
 }  // namespace kitems::toolwear

@@ -1050,6 +1050,7 @@ void KILN_CALL on_pre(const KilnTickInfo* tick, void*) {
     xfer_set_step(tick->step);
     instances_pre(g_world.load() ? g_world.load() : g_api->server_world(), tick->step);  // v4: the id counter check, prune
     poll_world_program();
+    if (E.wear_ok) toolwear::tick();
     if (E.wear_ok && g_api->server_world())  // dev.28: the debit's two programs, by the game's own directory
         toolwear::verify_programs(g_api->service(KilnStr{KILN_WORLD_SERVICE, std::strlen(KILN_WORLD_SERVICE)}, 1));
     expire();
@@ -1988,6 +1989,7 @@ void items_log(int level, const char* fmt, ...) {
     va_end(ap);
     if (g_api && n > 0) g_api->log(g_owner, level, KilnStr{b, static_cast<size_t>(std::min(n, int(sizeof b) - 1))});
 }
+KilnResult items_item_info(uint32_t id, KilnItemInfo* out) { return t_item_info(id, out); }
 const KilnApi* items_api() { return g_api; }
 KilnOwner items_owner() { return g_owner; }
 uint64_t current_step() { return g_step.load(std::memory_order_relaxed); }
@@ -2009,5 +2011,6 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     if (KilnResult rc = api->subscribe_tick(owner, KILN_TICK_PRE, &on_pre, nullptr, &h); rc != KILN_OK) return rc;
     // Published even when give/take are off on this build: their functions then return KILN_ERR_UNAVAILABLE, and
     // status() says why.
+    toolwear::publish(api, owner);  // kiln.toolwear: published also where its hooks are off (status says why)
     return api->register_service(owner, KilnStr{KILN_ITEMS_SERVICE, std::strlen(KILN_ITEMS_SERVICE)}, &kTable);
 }

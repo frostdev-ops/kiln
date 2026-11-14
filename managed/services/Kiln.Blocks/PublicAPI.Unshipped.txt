@@ -165,3 +165,5 @@ static Kiln.NpcPerceptionStats.operator ==(Kiln.NpcPerceptionStats? left, Kiln.N
 ~static Kiln.BlockRef<T>.operator ==(Kiln.BlockRef<T> left, Kiln.BlockRef<T> right) -> bool
 ~static Kiln.ResolvedBlock<T>.operator !=(Kiln.ResolvedBlock<T>? left, Kiln.ResolvedBlock<T>? right) -> bool
 ~static Kiln.ResolvedBlock<T>.operator ==(Kiln.ResolvedBlock<T>? left, Kiln.ResolvedBlock<T>? right) -> bool
+Kiln.ToolBlock.WearPerDebit.get -> int?
+Kiln.ToolBlock.WearPerDebit.init -> void

@@ -261,13 +261,16 @@ void world_reset() { g.queue.clear(); }
 bool set_rule(uint32_t item, int32_t cost) { return g.rules.set(item, cost); }
 int32_t rule(uint32_t item) { return g.rules.find(item); }
 
-size_t drain(Change* out, size_t max) {
+void tick() {
     // a fault is said once, here on the tick thread, never in the hook
     static bool told = false;
     if (g_faulted.load(std::memory_order_acquire) && !told) {
         told = true;
         off(KILN_CAP_REASON_FAULTED, "a hook of the durability debit faulted: tool wear rules are off until the game restarts, the game's own debits go on");
     }
+}
+
+size_t drain(Change* out, size_t max) {
     size_t n = g.queue.drain(out, max), kept = 0;
     const uint64_t epoch = instances_epoch();
     for (size_t i = 0; i < n; ++i)

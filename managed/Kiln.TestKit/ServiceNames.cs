@@ -53,6 +53,7 @@ internal static class ServiceNames
         "kiln.steamguard",
         "kiln.surfaces",
         "kiln.time",
+        "kiln.toolwear",
         "kiln.types",
         "kiln.ui",
         "kiln.ui.tick",

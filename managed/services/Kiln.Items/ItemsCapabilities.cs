@@ -43,6 +43,10 @@ public static unsafe partial class Items
         /// Kiln.Items lowers it when the table is older, kiln.world is missing, or kiln.items turned equip off.</summary>
         public const string Equip = "items.equip";
 
+        /// <summary>sigdb: what one of the game's wear debits costs a tool (<see cref="Items.SetToolWearPerDebit"/>); kiln.items lowers it when
+        /// its guards do not pass, Kiln.Items when the kiln.toolwear table is not here.</summary>
+        public const string ToolWear = "items.tool_wear_debit";
+
         // sigdb rows the ones above need
         public const string Transaction = "items.transaction";
         public const string Read = "items.read";
@@ -71,7 +75,7 @@ public static unsafe partial class Items
         {
             var (reason, text) = Cause(CapabilityReason.ServiceMissing, "kiln.items is not loaded", Caps.Service);
             Capabilities.Report(Caps.ResultPeek, CapabilityState.Unavailable, reason, text);
-            foreach (var name in (string[])[Caps.Fuel, Caps.Move, Caps.Names, Caps.Transfer, Caps.Moves, Caps.Instances, Caps.Equip, Caps.GearOptions]) Lower(name, reason, text);
+            foreach (var name in (string[])[Caps.Fuel, Caps.Move, Caps.Names, Caps.Transfer, Caps.Moves, Caps.Instances, Caps.Equip, Caps.GearOptions, Caps.ToolWear]) Lower(name, reason, text);
             return;
         }
         // equip (v5): kiln.items decides it at its start (the symbols, kiln.world, the program's registration)
@@ -121,6 +125,8 @@ public static unsafe partial class Items
                 RefreshEquip();
             });
         }
+        // tool wear (dev.28): its own table, published by the same DLL
+        if (ToolWear.Current == null) Lower(Caps.ToolWear, CapabilityReason.ServiceOlder, "kiln.items here has no kiln.toolwear table (update Kiln)");
         // give, take, moves and water all run through the game's inventory transaction
         if (Capabilities.Get(Caps.Transaction) is { State: CapabilityState.Unavailable, Reason: not CapabilityReason.Unknown } tx)
             foreach (var name in (string[])[Caps.Fuel, Caps.Move])

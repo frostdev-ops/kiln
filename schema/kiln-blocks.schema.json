@@ -1037,6 +1037,7 @@
         "range": { "type": "number", "exclusiveMinimum": 0, "maximum": 32, "description": "Metres: how far a rake flattens around where it aims (3), how far a grappling hook reaches (13.5)." },
         "durability": { "type": "number", "exclusiveMinimum": 0, "description": "Seconds a torch burns while held, the tooltip's Duration (600). Only a torch." },
         "breaksInto": { "$ref": "#/$defs/itemRef", "description": "What it becomes when its durability runs out: a game item or an item of this mod. A torch, or a tool with enhancement slots." },
+        "wearPerDebit": { "type": "integer", "minimum": 0, "maximum": 32767, "description": "What each of the game's wear debits costs the tool's durability (1: the game's own; 0: it does not wear). Per debit, not per swing. A tool with enhancement slots (an axe, a pickaxe, a sieve). Set where the world runs. Needs items.tool_wear_debit." },
         "fishing": {
           "type": "object", "additionalProperties": false, "description": "A fishing rod's pull and stamina.",
           "properties": {
