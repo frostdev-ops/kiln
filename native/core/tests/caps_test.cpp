@@ -18,6 +18,7 @@ inline unsigned long GetCurrentProcessId() { return 4242; }
 #include "../src/services/caps.cpp"
 
 #include <cstdarg>
+#include <barrier>
 #include <condition_variable>
 #include <future>
 
@@ -1029,6 +1030,39 @@ void client_gate(const std::filesystem::path& dir) {
     reset();
 }
 
+// The unconfigured path is also used after boot's early safe-idle exit. Its first callers may be worker threads.
+void client_gate_threads() {
+    namespace gates = kiln::gates;
+    std::vector<std::string> names;
+    for (int i = 0; i < 2048; ++i) names.push_back("gate." + std::to_string(i));
+    std::vector<gates::Gate> list;
+    for (const auto& name : names) list.push_back({name.c_str(), "99-thread", gates::kBoth});
+    list.push_back({nullptr, nullptr, 0});
+    gates::use_list_for_tests(list.data());
+    std::barrier start(16);
+    std::atomic<bool> good{true};
+    std::vector<std::thread> readers;
+    for (int i = 0; i < 16; ++i) readers.emplace_back([&] {
+        start.arrive_and_wait();
+        for (int n = 0; n < 20; ++n)
+            if (!gates::is_held("gate.1024") || gates::held().size() != names.size()) good = false;
+    });
+    for (auto& reader : readers) reader.join();
+    CHECK(good, "gate: concurrent first reads in safe idle keep every held name");
+    std::atomic<bool> done{false};
+    readers.clear();
+    for (int i = 0; i < 8; ++i) readers.emplace_back([&] {
+        while (!done)
+            if (!gates::is_held("gate.1024") || gates::held().size() != names.size()) good = false;
+    });
+    for (int i = 0; i < 100; ++i) gates::configure(KILN_SIDE_CLIENT, false, {});
+    done = true;
+    for (auto& reader : readers) reader.join();
+    CHECK(good, "gate: boot configuration can overlap readers without invalidating their lists");
+    gates::use_list_for_tests(nullptr);
+    gates::configure(KILN_SIDE_SERVER, false, {});
+}
+
 int main(int argc, char** argv) {
     if (argc != 2) return 2;
     const std::filesystem::path dir = argv[1];
@@ -1037,6 +1071,7 @@ int main(int argc, char** argv) {
     reentrant_read_strings();
     core_rows(dir);
     client_gate(dir);
+    client_gate_threads();
     json_file();
     writer();
     writer_retry();

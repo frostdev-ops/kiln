@@ -30,9 +30,9 @@ struct Held {
 // preview_all / preview: kiln.json's "preview". A name in `preview` that the list does not hold is logged as a warning.
 void configure(uint32_t side, bool preview_all, const std::vector<std::string>& preview);
 
-// What is held on this side after configure(), sorted by name. Before configure(): everything in the list.
-const std::vector<Held>& held();
-// `name` is held. Any thread once configure() has returned (the list does not change afterwards).
+// A snapshot of what is held on this side, sorted by name. Before configure(): everything in the list. Any thread.
+std::vector<Held> held();
+// `name` is held. Any thread, including before or during boot configuration.
 bool is_held(std::string_view name);
 
 // Host tests: another list than the compiled one (nullptr: the compiled one). Call before configure().
