@@ -45,6 +45,7 @@ public sealed class QueriesTestMod : Mod
             await Arguments(y);
             await Budget(y);
             await Overlap(y);
+            await Paths(y);
         }
         catch (Exception e)
         {
@@ -250,5 +251,114 @@ public sealed class QueriesTestMod : Mod
         var gone = Queries.VoxelLineOfSight(one, two);
         Check(!gone.Ok && gone.Reason == "EntityGone" && !gone.Visible, "queries.sight.entity-gone", $"ok={gone.Ok} reason={gone.Reason}");
         Spawn.Destroy(one);
+    }
+
+    // ---- paths (02): the game's own path search, with a pickup as the anchor and no player --------------------------------
+
+    private async Task<QueryPathResult> Ended(Task<QueryPathResult> task, int steps = 24 * 15)
+    {
+        for (var i = 0; i < steps && !task.IsCompleted; i++) await Next();
+        return task.IsCompleted ? task.Result : new QueryPathResult(false, "TestGaveUp", 0, 0, QueryPathStatus.Pending, null, false, [], 0, 0);
+    }
+
+    private static string Show(QueryPathResult r) =>
+        $"status={r.Status} ok={r.Ok} reason={r.Reason} game={r.GameResult} reaches={r.ReachesTarget} points={r.Points.Count} length={r.Length:F2} steps={r.Steps}";
+
+    private async Task Paths(double ground)
+    {
+        Info($"rows: queries.path={Capabilities.Is("queries.path")} queries.reachability={Capabilities.Is("queries.reachability")}");
+        if (!Capabilities.Is("queries.path")) { Check(false, "queries.path.rows", Capabilities.Why("queries.path")); return; }
+        var from = new WorldPosition(X, ground + 0.5, Z);
+        var anchor = await Spawn.Entity("Base_LootPickup_Generic_Gravity", from);
+        for (var i = 0; i < 24; i++) await Next();
+        if (!World.TryGetPosition(anchor, out var at)) { Check(false, "queries.path.short", "the anchor pickup has no position"); return; }
+        var to = new WorldPosition(at.X + 3, at.Y, at.Z);
+
+        // a short walk: found, with points, the states in order, the event of the end before the task
+        var states = new List<string>();
+        var endSeenBeforeTask = false;
+        QueryPathTicket? ticket = null;
+        using (Events.On<PathQueryChangedEvent>(e =>
+               {
+                   if (ticket == null || e.Request != ticket.Request) return;
+                   states.Add($"{e.Before}->{e.After}");
+                   if (e.TerminalStatus != null) endSeenBeforeTask = !ticket.Completion.IsCompleted;
+               }))
+        {
+            ticket = Queries.RequestPath(new QueryPathRequest(anchor, at, to));
+            var r = await Ended(ticket.Completion);
+            Check(ticket.Ok && r.Status == QueryPathStatus.Found && r.ReachesTarget && r.Points.Count >= 2 && r.Points.All(p => p.Move == QueryPathMove.Walk) && r.GameResult == 1,
+                "queries.path.short", $"{Show(r)} first={r.Points.FirstOrDefault()?.Position} last={r.Points.LastOrDefault()?.Position}");
+            Check(string.Join(",", states) == "Created->Queued,Queued->Searching,Searching->Completed" && endSeenBeforeTask, "queries.path.states",
+                $"{string.Join(",", states)}; the end's event came before the task: {endSeenBeforeTask}");
+            // the points are a copy: the game's query is destroyed by now, and they still read the same some steps later
+            var copy = r.Points.Select(p => p.Position).ToList();
+            for (var i = 0; i < 24; i++) await Next();
+            Check(copy.SequenceEqual(r.Points.Select(p => p.Position)) && copy.All(p => double.IsFinite(p.X) && double.IsFinite(p.Y) && double.IsFinite(p.Z)), "queries.path.copy-after-destroy",
+                $"{copy.Count} points unchanged 24 steps after the result");
+        }
+
+        // numbers that are no request, and what is refused as a ticket
+        var threw = 0;
+        void Throws(Action call) { try { call(); } catch (ArgumentException) { threw++; } }
+        Throws(() => Queries.RequestPath(new QueryPathRequest(anchor, at, new WorldPosition(at.X + 200.5, at.Y, at.Z))));
+        Throws(() => Queries.RequestPath(new QueryPathRequest(default, at, to)));
+        Throws(() => Queries.RequestPath(new QueryPathRequest(anchor, at, to) { MaxIterations = 0 }));
+        Check(threw == 3, "queries.path.arguments", $"{threw} of 3 bad requests threw ArgumentException");
+        var far = Queries.RequestPath(new QueryPathRequest(anchor, new WorldPosition(-1e6, at.Y, at.Z), new WorldPosition(-1e6 + 3, at.Y, at.Z)));
+        Check(!far.Ok && far.Completion.IsCompleted && far.Completion.Result.Status == QueryPathStatus.OutOfGrid && far.Request == 0, "queries.path.out-of-grid",
+            $"ok={far.Ok} reason={far.Reason} status={far.Completion.Result.Status}");
+
+        // a target the search cannot stand on (30 m up in the air): never "found", and an empty answer is not success
+        var air = await Ended(Queries.FindPath(new QueryPathRequest(anchor, at, new WorldPosition(at.X + 3, at.Y + 30, at.Z))));
+        Check(!air.ReachesTarget && air.Status != QueryPathStatus.Found && air.Status != QueryPathStatus.Pending && (air.Ok || air.Points.Count == 0), "queries.path.empty-not-success", Show(air));
+        var reachAir = Queries.CanReach(new QueryPathRequest(anchor, at, new WorldPosition(at.X + 3, at.Y + 30, at.Z)));
+        for (var i = 0; i < 24 * 15 && !reachAir.IsCompleted; i++) await Next();
+        var reachGround = Queries.CanReach(new QueryPathRequest(anchor, at, to));
+        for (var i = 0; i < 24 * 15 && !reachGround.IsCompleted; i++) await Next();
+        Check(reachGround.IsCompleted && reachGround.Result is { Ok: true, Reachable: true } && reachAir.IsCompleted && !reachAir.Result.Reachable, "queries.path.can-reach",
+            $"ground: ok={reachGround.Result.Ok} reachable={reachGround.Result.Reachable}; air: ok={reachAir.Result.Ok} reachable={reachAir.Result.Reachable} reason={reachAir.Result.Reason} status={reachAir.Result.Status}");
+
+        // the closest-node fallback ends somewhere: partial or found, never a refusal by itself
+        var fallback = await Ended(Queries.FindPath(new QueryPathRequest(anchor, at, new WorldPosition(at.X + 3, at.Y + 30, at.Z)) { ClosestFallback = true }));
+        Info($"closest fallback to a point in the air: {Show(fallback)}");
+
+        // an iteration limit of 1 on a longer walk
+        var limited = await Ended(Queries.FindPath(new QueryPathRequest(anchor, at, new WorldPosition(at.X + 9, at.Y, at.Z + 6)) { MaxIterations = 1 }));
+        Check(limited.Status is QueryPathStatus.IterationLimit or QueryPathStatus.Found or QueryPathStatus.Partial, "queries.path.iteration-limit", Show(limited));
+
+        // cancel: one end, as Cancelled; a second cancel finds nothing
+        var cancelled = Queries.RequestPath(new QueryPathRequest(anchor, at, new WorldPosition(at.X + 9, at.Y, at.Z + 6)));
+        var c1 = Queries.CancelPath(cancelled.Request);
+        var c2 = Queries.CancelPath(cancelled.Request);
+        var cr = await Ended(cancelled.Completion);
+        Check(c1.Ok && !c2.Ok && c2.Reason == "UnknownRequest" && cr.Status == QueryPathStatus.Cancelled, "queries.path.cancel-once", $"first={c1.Ok} second={c2.Ok}/{c2.Reason} end={cr.Status}");
+
+        // eight at once are admitted, the ninth is refused QueueFull; all eight end, and the slots come back
+        var many = Enumerable.Range(0, 9).Select(i => Queries.RequestPath(new QueryPathRequest(anchor, at, new WorldPosition(at.X + 2 + i * 0.5, at.Y, at.Z)))).ToList();
+        var admitted = many.Count(t => t.Ok);
+        var ninth = many[8];
+        var ends = new List<QueryPathResult>();
+        foreach (var t in many.Take(8)) ends.Add(await Ended(t.Completion));
+        var again = Queries.RequestPath(new QueryPathRequest(anchor, at, to));
+        var againEnd = await Ended(again.Completion);
+        Check(admitted == 8 && !ninth.Ok && ninth.Reason == "QueueFull" && ends.All(e => e.Status != QueryPathStatus.Pending) && again.Ok && againEnd.Status == QueryPathStatus.Found, "queries.path.queue-full",
+            $"{admitted} of 9 admitted, the ninth: {ninth.Reason}; ends: {string.Join(",", ends.Select(e => e.Status))}; after them: {againEnd.Status}");
+
+        // the anchor goes while a request waits
+        var doomed = await Spawn.Entity("Base_LootPickup_Generic_Gravity", from);
+        for (var i = 0; i < 12; i++) await Next();
+        var orphan = Queries.RequestPath(new QueryPathRequest(doomed, at, new WorldPosition(at.X + 9, at.Y, at.Z + 6)));
+        Spawn.Destroy(doomed);
+        var gone = await Ended(orphan.Completion);
+        Check(orphan.Ok && gone.Status is QueryPathStatus.OwnerGone or QueryPathStatus.Found or QueryPathStatus.Partial, "queries.path.owner-gone", Show(gone));
+
+        // everything this test asked for has ended and left nothing open: a fresh batch of eight is admitted
+        for (var i = 0; i < 24; i++) await Next();
+        var fresh = Enumerable.Range(0, 8).Select(_ => Queries.RequestPath(new QueryPathRequest(anchor, at, to))).ToList();
+        var freshEnds = new List<QueryPathResult>();
+        foreach (var t in fresh) freshEnds.Add(await Ended(t.Completion));
+        Check(fresh.All(t => t.Ok) && freshEnds.All(e => e.Status == QueryPathStatus.Found), "queries.path.cleanup-baseline", $"8 of 8 admitted and found after the earlier requests: {fresh.Count(t => t.Ok)}/{freshEnds.Count(e => e.Status == QueryPathStatus.Found)}");
+        Spawn.Destroy(anchor);
     }
 }

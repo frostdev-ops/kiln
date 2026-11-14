@@ -3,6 +3,7 @@
 #include "gates.h"
 
 #include <algorithm>
+#include <mutex>
 
 #include "kiln_api.h"
 #include "log.h"
@@ -13,6 +14,7 @@
 namespace kiln::gates {
 namespace {
 const Gate* g_list = kBuiltIn;
+std::mutex g_mutex;
 std::vector<Held> g_held;
 bool g_configured = false;
 
@@ -25,15 +27,26 @@ std::vector<Held> all_of(const Gate* list, int side_code) {
     std::sort(out.begin(), out.end(), [](const Held& a, const Held& b) { return a.name < b.name; });
     return out;
 }
+
+// g_mutex held. The early safe-idle exit never calls configure().
+const std::vector<Held>& held_locked() {
+    if (!g_configured) {
+        g_held = all_of(g_list, -1);
+        g_configured = true;
+    }
+    return g_held;
+}
 }  // namespace
 
 void use_list_for_tests(const Gate* list) {
+    std::lock_guard lock(g_mutex);
     g_list = list ? list : kBuiltIn;
     g_held.clear();
     g_configured = false;
 }
 
 void configure(uint32_t side, bool preview_all, const std::vector<std::string>& preview) {
+    std::lock_guard lock(g_mutex);
     const std::vector<Held> every = all_of(g_list, -1);
     std::vector<Held> mine = all_of(g_list, side == KILN_SIDE_CLIENT ? kClient : kServer);
     for (const std::string& p : preview)
@@ -51,18 +64,14 @@ void configure(uint32_t side, bool preview_all, const std::vector<std::string>& 
                preview_all ? " (kiln.json \"preview\": all lifted)" : total != g_held.size() ? " (the rest lifted by kiln.json \"preview\")" : "");
 }
 
-const std::vector<Held>& held() {
-    // Asked before boot configured it (the early safe-idle exit never does): everything in the list, on any side.
-    // Boot's thread only until then; read-only afterwards.
-    if (!g_configured) {
-        g_held = all_of(g_list, -1);
-        g_configured = true;
-    }
-    return g_held;
+std::vector<Held> held() {
+    std::lock_guard lock(g_mutex);
+    return held_locked();
 }
 
 bool is_held(std::string_view name) {
-    const std::vector<Held>& h = held();
+    std::lock_guard lock(g_mutex);
+    const std::vector<Held>& h = held_locked();
     const auto it = std::lower_bound(h.begin(), h.end(), name, [](const Held& a, std::string_view n) { return a.name < n; });
     return it != h.end() && it->name == name;
 }

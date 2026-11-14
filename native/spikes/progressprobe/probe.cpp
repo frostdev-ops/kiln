@@ -24,9 +24,16 @@
 #include "image.h"
 #include "log.h"
 #include "progress.h"
+#include "progress_state.h"
 #include "services/service.h"
 
 // ---- stubs for the rest of kiln-core ----
+// progress.json's writer (services/progress_file.cpp) is not part of this probe: the window is what it tests.
+namespace kiln::progress_state {
+void window_text(std::string_view) {}
+KilnResult KILN_CALL api_step(KilnStr, KilnStr, KilnStr, uint64_t, uint64_t) { return KILN_OK; }
+KilnResult KILN_CALL api_mark(uint32_t) { return KILN_OK; }
+}  // namespace kiln::progress_state
 namespace kiln {
 extern uint32_t g_image_side_for_probe;
 std::string to_utf8(std::wstring_view w) {

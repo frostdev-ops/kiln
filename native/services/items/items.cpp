@@ -31,6 +31,7 @@
 #include "moves.h"
 #include "names.h"
 #include "pide.h"
+#include "wear.h"
 #include "kiln_api.h"
 #include "kiln_hook.hpp"
 #include "services/kiln_items.h"
@@ -1929,6 +1930,8 @@ void resolve() {
          E.catalog_ok ? "on" : "OFF", E.scan_ok ? "on" : "OFF", E.program_ok ? "possible" : "OFF",
          E.recipe_apply ? "on" : "OFF", E.fuel_ok ? "on" : "OFF", E.move_ok ? "on" : "OFF", E.transfer_ok ? "possible" : "OFF",
          E.names_ok ? "on" : "OFF", E.instances_ok ? "on" : "OFF", E.equip_ok ? "possible" : "OFF");
+    // dev.28 (chapter 16b): the durability debit's functions and frames; needs the attribute lookup and the item reads
+    E.wear_ok = E.read_ok && E.instances_ok && wear::resolve(g_api, g_owner);
     xfer_init();  // after every symbol above: a lab switch may install the hooks right now
 }
 

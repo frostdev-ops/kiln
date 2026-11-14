@@ -9,10 +9,22 @@ namespace Kiln;
 
 /// <summary>One move of a block, as the compile made it.</summary>
 internal sealed record PlannedMove(MoveSlot? Slot, string Path, int Link, int Links, string CloneName, Guid Guid, string? Like,
-    IReadOnlyList<AnimationRef?>? Animation, double? HitAt, double? Length);
+    IReadOnlyList<AnimationRef?>? Animation, double? HitAt, double? Length)
+{
+    /// <summary>Where its follow-up windows lead (MoveBlock.FollowUps), checked offline. Null: none.</summary>
+    public IReadOnlyList<MoveFollowUpBlock>? FollowUps { get; init; }
+}
 
 /// <summary>A weapon's moves, waiting for content ready.</summary>
-internal sealed record MovePlan(string Mod, string Block, string Item, IReadOnlyDictionary<MoveSlot, SlotSelector> Slots, IReadOnlyList<PlannedMove> Moves, bool HeavyAirFollowsPrimary);
+internal sealed record MovePlan(string Mod, string Block, string Item, IReadOnlyDictionary<MoveSlot, SlotSelector> Slots, IReadOnlyList<PlannedMove> Moves, bool HeavyAirFollowsPrimary)
+{
+    /// <summary>The block's stable key (its name, or what it was renamed from): what the route clones' GUIDs derive from.</summary>
+    public string Key { get; init; } = Block;
+    /// <summary>The block's name in its mod (<see cref="Block"/> is how messages call it: "weapon cinderbrand").</summary>
+    public string Name { get; init; } = Block;
+    /// <summary>A move has follow-ups: the weapon's moves apply as one generation (MoveApplications), not move by move.</summary>
+    public bool Routed => Moves.Any(m => m.FollowUps is { Count: > 0 });
+}
 
 internal static partial class Compiler
 {
@@ -27,10 +39,11 @@ internal static partial class Compiler
     internal static readonly System.Runtime.CompilerServices.ConditionalWeakTable<JsonObject, MovePlan> Plans = new();
 
     /// <summary>A move's numbers and names, offline. <paramref name="blow"/>: the slot lands one (a block and a parry do not).</summary>
-    internal static IReadOnlyList<AnimationRef?>? CheckMove(BlockContext ctx, MoveAnimation? animation, string? like, double? hitAt, double? length, string path, bool blow = true)
+    internal static IReadOnlyList<AnimationRef?>? CheckMove(BlockContext ctx, MoveAnimation? animation, string? like, double? hitAt, double? length, string path, bool blow = true,
+        bool routes = false)
     {
-        if (animation == null && like == null && hitAt == null && length == null)
-            throw new BlockError(ctx.Block, path, "this move changes nothing: give it an animation, a like, a hitAt or a length");
+        if (animation == null && like == null && hitAt == null && length == null && !routes)
+            throw new BlockError(ctx.Block, path, "this move changes nothing: give it an animation, a like, a hitAt, a length or followUps");
         if (like is { } l && string.IsNullOrWhiteSpace(l)) throw new BlockError(ctx.Block, $"{path}.like", "like names a game sequence: a sub-sequence name or a sequence GUID");
         if (hitAt is { } h)
         {
@@ -59,6 +72,9 @@ internal static partial class Compiler
         var moves = new List<PlannedMove>();
         var written = Written(m).Where(w => w.Chain != null || w.One != null).ToList();
         if (written.Count == 0) throw new BlockError(ctx.Block, "moves", "no slot is named: leave moves out, or say which slot plays what (primary, heavy, block, ...)");
+        // a weapon with follow-ups applies as one generation: its clones are made when content is ready, a fresh set per generation, so none is made now
+        var routed = written.Any(w => (w.Chain?.ToList() ?? [w.One!]).Any(mv => mv?.FollowUps is { Count: > 0 }));
+        if (routed) BlockCapabilities.RequireFollowUps();
         foreach (var (slot, chain, one) in written)
         {
             var key = MoveSlots.Key(slot);
@@ -74,21 +90,27 @@ internal static partial class Compiler
             {
                 var mv = list[i] ?? throw new BlockError(ctx.Block, $"moves.{key}[{i}]", "a chain's link is a move, not null");
                 var path = list.Count > 1 ? $"moves.{key}[{i}]" : $"moves.{key}";
-                var anim = CheckMove(ctx, mv.Animation, mv.Like, mv.HitAt, mv.Length, path, blow: slot is not (MoveSlot.Block or MoveSlot.Parry));
+                var anim = CheckMove(ctx, mv.Animation, mv.Like, mv.HitAt, mv.Length, path, blow: slot is not (MoveSlot.Block or MoveSlot.Parry), routes: mv.FollowUps is { Count: > 0 });
                 var suffix = list.Count > 1 ? $"{key}.{i + 1}" : key;
                 var clone = $"{d.Game}.{suffix}";
                 var guid = BlockIds.Derive(mod, "sequence", $"{d.Key}.{suffix}");
                 // a move that names its sequence is cloned now; one that keeps the class's is cloned when content is ready, from the slot it replaces
-                if (mv.Like is { } like) low.Clone("sequences", guid, clone, like.Trim(), new JsonObject());
-                moves.Add(new PlannedMove(slot, path, i, list.Count, clone, guid, mv.Like?.Trim(), anim, mv.HitAt, mv.Length));
+                if (mv.Like is { } like && !routed) low.Clone("sequences", guid, clone, like.Trim(), new JsonObject());
+                moves.Add(new PlannedMove(slot, path, i, list.Count, clone, guid, mv.Like?.Trim(), anim, mv.HitAt, mv.Length) { FollowUps = mv.FollowUps?.ToList() });
             }
         }
+        if (routed) MoveRoutes.CheckOffline(ctx.Block, moves);
         var follows = m.Primary != null && m.HeavyAir == null && map.ContainsKey(MoveSlot.HeavyAir);
-        var plan = new MovePlan(mod, ctx.Block, d.Game, map, moves, follows);
+        var plan = new MovePlan(mod, ctx.Block, d.Game, map, moves, follows) { Key = d.Key, Name = d.Name };
         low.Json["moves"] = MovePlanJson(plan);
         var json = low.Json;
         Plans.AddOrUpdate(json, plan);
-        low.AfterCommit(() => BlockRuntime.AddReady(ctx.Mod, problem => MoveRuntime.Weapon(ctx.Mod, plan, json, problem)));
+        if (routed)
+        {
+            var blocks = ctx.Mod;
+            low.AfterCommit(() => MoveApplications.Start(blocks, plan, json));
+        }
+        else low.AfterCommit(() => BlockRuntime.AddReady(ctx.Mod, problem => MoveRuntime.Weapon(ctx.Mod, plan, json, problem)));
     }
 
     /// <summary>A cast's motion with moves (a wand attack's, a staff spell's): its clone is made by the caller; its states and retime wait for content ready.
@@ -129,9 +151,17 @@ internal static partial class Compiler
             if (AnimationJson(m.Animation) is { } a) c["animation"] = a;
             if (m.HitAt != null || m.Length != null) c["timing"] = new JsonObject { ["hitAt"] = m.HitAt, ["length"] = m.Length };
             c["links"] = LinkPlan(plan, m);
+            if (m.FollowUps is { Count: > 0 } routes)
+                c["followUps"] = new JsonArray(routes.Select(r => (JsonNode)new JsonObject
+                {
+                    ["trigger"] = r.Trigger.ToString(), ["subSequence"] = r.SubSequence, ["occurrence"] = r.Occurrence, ["to"] = MoveSlots.Key((MoveSlot)r.To), ["link"] = r.Link,
+                }).ToArray());
             clones.Add(c);
         }
-        return new JsonObject { ["slots"] = slots, ["clones"] = clones };
+        var o = new JsonObject { ["slots"] = slots, ["clones"] = clones };
+        // a routed weapon's sequences are a fresh set per generation: the names above are the stems, MovesStatus has the GUIDs that play
+        if (plan.Routed) o["generation"] = "applies whole or not at all: Blocks.MovesStatus";
+        return o;
     }
 
     // Where a clone's follow-ups go, by the input that triggers them: another clone, or "kept" (the motion's own).
@@ -303,8 +333,12 @@ internal static class MovePlanner
     }
 
     /// <summary>Phase two, once every clone is in the game: the clones' rules and the item's slots.</summary>
-    public static void Apply(MovePlan plan, MoveWork w, Dictionary<PlannedMove, IReadOnlyList<SubSequence>> bases, Dictionary<MoveSlot, int[]> at, IPlayerStateLookup? lookup)
+    /// <paramref name="name"/>: the clone a move is in the game (default: its own stable clone). <paramref name="routes"/>: explicit follow-ups by
+    /// (move, sub-sequence, the window's place among the SetActionOportunity events): they win over the primary and heavy chains' own links for the windows they name.
+    public static void Apply(MovePlan plan, MoveWork w, Dictionary<PlannedMove, IReadOnlyList<SubSequence>> bases, Dictionary<MoveSlot, int[]> at, IPlayerStateLookup? lookup,
+        Func<PlannedMove, string>? name = null, IReadOnlyDictionary<(PlannedMove Move, int Sub, int K), PlannedMove>? routes = null)
     {
+        name ??= x => x.CloneName;
         var p = plan.Moves.Where(m => m.Slot == MoveSlot.Primary && bases.ContainsKey(m)).OrderBy(m => m.Link).ToList();
         var h = plan.Moves.Where(m => m.Slot == MoveSlot.Heavy && bases.ContainsKey(m)).OrderBy(m => m.Link).ToList();
         foreach (var m in plan.Moves)
@@ -316,22 +350,29 @@ internal static class MovePlanner
             {
                 MoveSlot.Primary => e => e.TriggeredBy switch
                 {
-                    "Primary" => p[(p.IndexOf(m) + 1) % p.Count].CloneName,
-                    "Heavy" => h.Count > 0 ? h[0].CloneName : null,
+                    "Primary" => name(p[(p.IndexOf(m) + 1) % p.Count]),
+                    "Heavy" => h.Count > 0 ? name(h[0]) : null,
                     _ => null,
                 },
                 MoveSlot.Heavy => e => e.TriggeredBy switch
                 {
-                    "Heavy" => h.Count > 1 ? h[(h.IndexOf(m) + 1) % h.Count].CloneName : e.FollowUp == self ? m.CloneName : null,
-                    "Primary" => p.Count > 0 ? p[0].CloneName : null,
+                    "Heavy" => h.Count > 1 ? name(h[(h.IndexOf(m) + 1) % h.Count]) : e.FollowUp == self ? name(m) : null,
+                    "Primary" => p.Count > 0 ? name(p[0]) : null,
                     _ => null,
                 },
                 _ => null,
             };
             foreach (var s in subs)
             {
-                var rules = SubRules(plan.Block, m.Path, s, states, m.HitAt, m.Length, MoveTiming.Swing, link, w.Problems);
-                if (rules.Count > 0) w.Rules.Add(("sequences", Entry(m.CloneName, s), rules));
+                var own = link;
+                if (routes != null)
+                {
+                    var auto = link;
+                    var sub = s.Index;
+                    own = e => routes.TryGetValue((m, sub, e.K), out var to) ? name(to) : auto?.Invoke(e);
+                }
+                var rules = SubRules(plan.Block, m.Path, s, states, m.HitAt, m.Length, MoveTiming.Swing, own, w.Problems);
+                if (rules.Count > 0) w.Rules.Add(("sequences", Entry(name(m), s), rules));
             }
         }
         var items = new JsonObject();
@@ -340,7 +381,7 @@ internal static class MovePlanner
             var plays = slot == MoveSlot.HeavyAir && plan.HeavyAirFollowsPrimary ? p.FirstOrDefault()
                 : plan.Moves.FirstOrDefault(m => m.Slot == slot && m.Link == 0 && bases.ContainsKey(m));
             if (plays == null) continue;
-            foreach (var i in idx) items[$"sequences[{i}].sequence"] = plays.CloneName;
+            foreach (var i in idx) items[$"sequences[{i}].sequence"] = name(plays);
         }
         if (items.Count > 0) w.Rules.Add(("itemdata", plan.Item, items));
     }

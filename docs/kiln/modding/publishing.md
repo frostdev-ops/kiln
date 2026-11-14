@@ -107,6 +107,10 @@ Refused, each with the file's name and a reason code (`--json` shows it):
 | `vcs-or-build-folder` | `.git`, `bin/`, `obj/`, `.pdb` |
 | `encrypted`, `link`, `path-*`, `duplicate-name`, `case-collision`, `ratio`, `member-too-large`, ... | a zip that is not a plain archive of files |
 
+Default configs must be UTF-8 JSON or JSONC so every value, including duplicate keys, can be checked. Other formats
+are refused until a parser can audit them. An unreadable cook recipe is also refused because its outputs cannot
+be classified. Plans made under an older artifact policy must be made again.
+
 `packageFiles` in `kiln.publish.json` declares the two things that need a declaration; it cannot allow anything
 from the list above:
 
