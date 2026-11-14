@@ -49,11 +49,16 @@ The producer writes into `boot-gamedata/<key>.tmp-<pid>/` and renames the direct
   "tool": "<producer name and version>", "written": "<UTC ISO 8601>",
   "counts": { "items": 0, "templates": 0, "skills": 0, "materials": 0 },
   "skipped": [ { "kind": "items", "name": "<name>", "reason": "<why>" } ],
-  "runtimeOnly": [ "<Type>.<member>" ] }
+  "runtimeOnly": [ "<Type>.<member>" ],
+  "checksums": { "items.index.json": "<SHA-256, 64 hex>", "items.data": "<...>", ... } }
 ```
 `side` is `server` or `client`. kiln.boot requires `format` 1, `key` equal to the directory's name and to the key it
 computed, and all eight kind files present. Anything else is "no snapshot", and the row's reason names the test that
-failed.
+failed. `checksums` (written by the producer since the 08b review) holds the SHA-256 of each of the eight files: kiln.boot
+checks every file against it before anything is served (a start with a boot mod does it at once, about a second for a
+200 MB snapshot). A file that does not match, or a list that leaves one out, makes the snapshot not ready: the row
+`mods.boot.game_data` says `damaged` and names the file, and nothing of it is read. A snapshot written before checksums
+has none and is read as before.
 
 `<kind>.index.json`:
 ```json
