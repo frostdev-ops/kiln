@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "scale3.schema.json",
+  "title": "Kiln.World Scale3: the three scale factors of a transform",
+  "description": "The JSON of Kiln.World's Scale3 (managed/services/Kiln.World/TransformScale.cs; System.Text.Json writes and reads this shape): the factors along the entity's X, Y (up) and Z axes, as World.SetTransformScale takes them (each finite and above 0) and EntityScaleResult reports them. The game's own type is keen::float3, three float32. Docs: docs/kiln/services/world.md.",
+  "type": "object",
+  "x-kiln-docs": "docs/kiln/services/world.md#transform-scale",
+  "required": ["x", "y", "z"],
+  "properties": {
+    "x": { "type": "number", "exclusiveMinimum": 0, "description": "The factor along X." },
+    "y": { "type": "number", "exclusiveMinimum": 0, "description": "Along Y (up)." },
+    "z": { "type": "number", "exclusiveMinimum": 0, "description": "Along Z." }
+  },
+  "additionalProperties": false,
+  "examples": [{ "x": 1.25, "y": 0.75, "z": 1.5 }, { "x": 1, "y": 1, "z": 1 }]
+}

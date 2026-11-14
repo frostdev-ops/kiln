@@ -102,6 +102,8 @@ struct BlobItem {
     const uint8_t* bytes;
     size_t size;
     bool is_override;
+    uint32_t origin;    // KILN_BLOB_ORIGIN_* of the registration (since 0.2.0-dev.28)
+    uint64_t sequence;  // its number; a removed registration leaves g_blobs (the catalog lists live ones only)
 };
 struct IconItem {
     KilnOwner owner;
@@ -118,6 +120,12 @@ std::unordered_map<Key, std::vector<size_t>, KeyHash> g_item_at;  // g_items ind
 std::vector<BlobItem> g_blobs;
 std::vector<IconItem> g_iconv;
 uint32_t g_next_synth = 0;
+uint64_t g_next_sequence = 0;  // blob registrations, under g_mu
+
+// The catalog generation and the last change (catalog_changed): atomics, so the content hook can say "ready" lock-free.
+std::atomic<uint64_t> g_catalog_gen{1};
+std::atomic<uint32_t> g_catalog_why{kChangeNone};
+thread_local uint32_t t_origin = 0;  // OriginScope
 
 // ---- snapshot builders (under g_mu) -----------------------------------------------------------------------------
 void rebuild_content_locked() {
@@ -262,26 +270,58 @@ KilnResult put_resource_locked(KilnOwner owner, const Key& k, const void* data, 
     return KILN_OK;
 }
 
+// Precedence (unchanged by provenance): the content snapshot serves, for each hash, the last registration of it in g_blobs;
+// an owner's second registration of a hash replaces its first in place (keeps its place, takes a new sequence and origin).
 KilnResult add_blob_locked(KilnOwner owner, const void* data, size_t len, const HashK* fixed, bool is_override,
                            HashK* out) {
     const HashK h = fixed ? *fixed : content_hash_of(data, len);
     if (is_override && fixed && fixed->size != len) return KILN_ERR_INVALID_ARGUMENT;
     const uint8_t* copy = keep_copy(data, len);
     if (!copy && len) return KILN_ERR_INTERNAL;
+    const uint32_t origin = current_origin();
     for (auto& b : g_blobs)
         if (b.owner == owner && b.hash == h) {
             b.bytes = copy;
             b.size = len;
             b.is_override = is_override;
+            b.origin = origin;
+            b.sequence = ++g_next_sequence;
             if (out) *out = h;
             return KILN_OK;
         }
-    g_blobs.push_back({owner, h, copy, len, is_override});
+    g_blobs.push_back({owner, h, copy, len, is_override, origin, ++g_next_sequence});
     if (out) *out = h;
     return KILN_OK;
 }
 
 }  // namespace
+
+OriginScope::OriginScope(uint32_t origin) : prev_(t_origin) { t_origin = origin; }
+OriginScope::~OriginScope() { t_origin = prev_; }
+uint32_t current_origin() { return t_origin ? t_origin : static_cast<uint32_t>(KILN_BLOB_ORIGIN_NATIVE_API); }
+
+uint64_t catalog_generation() { return g_catalog_gen.load(std::memory_order_acquire); }
+void catalog_changed(CatalogChange why) {
+    g_catalog_why.store(why, std::memory_order_relaxed);
+    g_catalog_gen.fetch_add(1, std::memory_order_acq_rel);
+}
+std::string catalog_status_json() {
+    static const char* const names[] = {"none", "ready", "registration", "remove", "revoke"};
+    const uint32_t why = g_catalog_why.load(std::memory_order_relaxed);
+    char b[128];
+    std::snprintf(b, sizeof b, "\"catalog\":{\"generation\":%llu,\"change\":\"%s\"}",
+                  static_cast<unsigned long long>(catalog_generation()), names[why < 5 ? why : 0]);
+    return b;
+}
+
+std::vector<LedgerEntry> blob_ledger(uint64_t* generation) {
+    std::lock_guard lock(g_mu);  // the generation moves only under g_mu for ledger changes: the copy and it agree
+    if (generation) *generation = catalog_generation();
+    std::vector<LedgerEntry> out;
+    out.reserve(g_blobs.size());
+    for (const BlobItem& b : g_blobs) out.push_back({b.hash, b.owner, b.origin, b.sequence, b.is_override});
+    return out;
+}
 
 // The player's animation graph: 21319e83-5087-4fff-8795-22997843649e (game byte order below), keen::anim_graph::runtime_graph::
 // AnimationGraphResource2_0, part 0. Reserved: only a pinning put takes it (kiln.playeranim's merge, kiln_assets.h).
@@ -527,6 +567,7 @@ KilnResult op_blob_add(KilnOwner owner, const void* data, size_t len, KilnConten
     KilnResult r = add_blob_locked(owner, data, len, nullptr, false, &h);
     if (r == KILN_OK) {
         rebuild_content_locked();
+        catalog_changed(kChangeRegistration);
         if (out) std::memcpy(out, &h, 16);
     }
     return r;
@@ -539,8 +580,24 @@ KilnResult op_blob_override(KilnOwner owner, const KilnContentHash* hash, const 
     std::memcpy(&h, hash, 16);
     std::lock_guard lock(g_mu);
     KilnResult r = add_blob_locked(owner, data, len, &h, true, nullptr);
-    if (r == KILN_OK) rebuild_content_locked();
+    if (r == KILN_OK) {
+        rebuild_content_locked();
+        catalog_changed(kChangeRegistration);
+    }
     return r;
+}
+
+// The external slots name their origin: MANAGED or NATIVE_API only (MANIFEST is the manifest loader's own).
+static bool api_origin(uint32_t origin) { return origin == KILN_BLOB_ORIGIN_MANAGED || origin == KILN_BLOB_ORIGIN_NATIVE_API; }
+KilnResult op_blob_add_ex(KilnOwner owner, const void* data, size_t len, KilnContentHash* out, uint32_t origin) {
+    if (!api_origin(origin)) return KILN_ERR_INVALID_ARGUMENT;
+    OriginScope scope(origin);
+    return op_blob_add(owner, data, len, out);
+}
+KilnResult op_blob_override_ex(KilnOwner owner, const KilnContentHash* hash, const void* data, size_t len, uint32_t origin) {
+    if (!api_origin(origin)) return KILN_ERR_INVALID_ARGUMENT;
+    OriginScope scope(origin);
+    return op_blob_override(owner, hash, data, len);
 }
 
 KilnResult op_blob_remove(KilnOwner owner, const KilnContentHash* hash) {
@@ -552,7 +609,10 @@ KilnResult op_blob_remove(KilnOwner owner, const KilnContentHash* hash) {
     g_blobs.erase(std::remove_if(g_blobs.begin(), g_blobs.end(),
                                  [&](const BlobItem& b) { return b.owner == owner && b.hash == h; }),
                   g_blobs.end());
-    if (g_blobs.size() != n) rebuild_content_locked();
+    if (g_blobs.size() != n) {
+        rebuild_content_locked();
+        catalog_changed(kChangeRemove);
+    }
     return KILN_OK;
 }
 
@@ -634,6 +694,7 @@ KilnResult op_icon_register(KilnOwner owner, const uint8_t guid[16], const Rgba&
     bind_resources_locked(g_S.load());
     rebuild_resources_locked();
     rebuild_content_locked();
+    catalog_changed(kChangeRegistration);
     rebuild_icons_locked();
     return KILN_OK;
 }
@@ -671,6 +732,7 @@ int32_t op_icon_state(const uint8_t guid[16]) {
 }
 
 void op_revert_owner(KilnOwner owner) {
+    catalog_release_owner(owner);  // its catalog handles (the catalog's own lock, not g_mu)
     std::lock_guard lock(g_mu);
     bool res = false, blob = false, icon = false;
     auto re = [&](auto& v, auto pred, bool& flag) {
@@ -685,6 +747,7 @@ void op_revert_owner(KilnOwner owner) {
     re(g_iconv, [&](const IconItem& i) { return i.owner == owner; }, icon);
     if (res) reindex_locked(), rebuild_resources_locked();
     if (blob || icon) rebuild_content_locked();
+    if (blob) catalog_changed(kChangeRevoke);
     if (icon) rebuild_icons_locked();
 }
 
@@ -695,7 +758,7 @@ std::string store_status_json() {
     char b[384];
     std::snprintf(b, sizeof b, "\"resources\":%zu,\"resourcesNew\":%zu,\"resourcesOverride\":%zu,\"blobs\":%zu,\"icons\":%zu",
                   g_items.size(), new_res, over_res, g_blobs.size(), g_iconv.size());
-    return b;
+    return std::string(b) + "," + catalog_status_json();
 }
 
 }  // namespace ka

@@ -159,3 +159,6 @@ static Kiln.DefinitionRegistrationResult.operator !=(Kiln.DefinitionRegistration
 static Kiln.DefinitionRegistrationResult.operator ==(Kiln.DefinitionRegistrationResult? left, Kiln.DefinitionRegistrationResult? right) -> bool
 ~override Kiln.CapacityWorldToken.Equals(object obj) -> bool
 ~override Kiln.CapacityWorldToken.ToString() -> string
+Kiln.GameType.ImpactName.get -> string?
+static Kiln.GameTypes.ByImpactName(string! impactName) -> Kiln.GameType?
+static Kiln.GameTypes.FindAllByImpactName(string! impactName) -> System.Collections.Generic.IReadOnlyList<Kiln.GameType!>!
