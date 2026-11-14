@@ -213,6 +213,10 @@ internal static partial class KilnApis
         "M:Kiln.CreatureCommands.MoveTo(Kiln.WorldPosition)", // CreatureCommands.MoveTo(WorldPosition): via CreatureRef.Home.set
         "M:Kiln.CreatureCommands.Stay", // CreatureCommands.Stay(): via CreatureRef.Inspect()
         "M:Kiln.CreatureCommands.StopGuarding(Kiln.EntityId)", // CreatureCommands.StopGuarding(EntityId): via CreatureCommands.Send(uint, EntityId, float, uint)
+        "M:Kiln.CreatureControl.Acquire(Kiln.EntityRef,Kiln.ControlRole,Kiln.ControlRequestId)", // CreatureControl.Acquire(EntityRef, ControlRole, ControlRequestId): via CreatureControl.Table(string)
+        "M:Kiln.CreatureControl.NewRequestId", // CreatureControl.NewRequestId(): via CreatureControl.Table(string)
+        "M:Kiln.CreatureControl.Release(Kiln.ControlLeaseId)", // CreatureControl.Release(ControlLeaseId): via CreatureControl.Table(string)
+        "M:Kiln.CreatureControl.WaitActive(Kiln.ControlLeaseId,System.Double)", // CreatureControl.WaitActive(ControlLeaseId, double): via CreatureControl.Table(string)
         "M:Kiln.CreatureRef.FeatureAccess.Disable(Kiln.EnemyFeatures)", // CreatureRef.FeatureAccess.Disable(EnemyFeatures): via CreatureRef.SetRaw(uint, uint, CreaturesNative.Value, string)
         "M:Kiln.CreatureRef.FeatureAccess.Enable(Kiln.EnemyFeatures)", // CreatureRef.FeatureAccess.Enable(EnemyFeatures): via CreatureRef.SetRaw(uint, uint, CreaturesNative.Value, string)
         "M:Kiln.CreatureRef.FeatureAccess.Reset", // CreatureRef.FeatureAccess.Reset(): via CreatureRef.ResetField(uint, uint)
@@ -733,6 +737,7 @@ internal static partial class KilnApis
         "P:Kiln.Content.Available=kiln.content", // T != null: Services.Get("kiln.content")
         "P:Kiln.Content.GameDataAvailable=kiln.gamedata", // GD != null: Services.Get("kiln.gamedata")
         "P:Kiln.Content.StackGuard=kiln.content", // returns false first when the table of kiln.content is null
+        "P:Kiln.CreatureControl.Available=kiln.creature_control", // CreatureControlNative.T != null: Services.Get("kiln.creature_control")
         "P:Kiln.Creatures.Available=kiln.creatures", // CreaturesNative.T != null: Services.Get("kiln.creatures")
         "P:Kiln.EcsPrograms.Available=kiln.world", // Table != null: Services.Get("kiln.world")
         "P:Kiln.EcsPrograms.SupportsOtherWrites=kiln.world", // Table != null: Services.Get("kiln.world")
@@ -790,6 +795,7 @@ internal static partial class KilnApis
         "Client",
         "Combat",
         "Content",
+        "CreatureControl",
         "Creatures",
         "DevTools",
         "Eml",

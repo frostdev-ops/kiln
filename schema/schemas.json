@@ -198,6 +198,20 @@
       },
       "reader": "kiln_manage::release_binding (strict JSON, duplicate keys refused, 256 KiB limit)",
       "docs": "docs/kiln/modding/schemas/kiln-release.md"
+    },
+    {
+      "schema": "kiln-publish.schema.json",
+      "name": "Kiln publishing config",
+      "kind": "publish",
+      "fileMatch": [
+        "**/kiln.publish.json"
+      ],
+      "dialect": {
+        "comments": true,
+        "trailingCommas": true
+      },
+      "reader": "kiln_manage::publish::config (comments and trailing commas allowed, duplicate and unknown keys refused, 256 KiB limit)",
+      "docs": "docs/kiln/modding/publishing.md"
     }
   ]
 }
