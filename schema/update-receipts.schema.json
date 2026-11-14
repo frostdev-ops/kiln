@@ -1,0 +1,208 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "update-receipts.schema.json",
+  "title": "Kiln source receipts (<data>/updates/receipts.json), format 1",
+  "description": "Written by the launcher and kiln (kiln_manage::updates::receipt). What Kiln observed when a library entry was installed or imported, and which update source is accepted for a mod. Update checks read it to tell \"the same version, published again\" from \"up to date\", and to hold a changed source back until the player confirms it. Nothing here is a guess: a field nobody observed is null. The file never holds a credential, an account name or a path of this PC.",
+  "type": "object",
+  "required": [
+    "format",
+    "policyVersion",
+    "receipts",
+    "sources"
+  ],
+  "properties": {
+    "format": {
+      "const": 1
+    },
+    "policyVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "The version of the update-check rules this file was last written under."
+    },
+    "receipts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/receipt"
+      },
+      "description": "One per library entry Kiln saw arrive, by kind, id, version and hash."
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/source"
+      },
+      "description": "One per mod (kind and id, across versions): the source accepted for it."
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "libraryRef": {
+      "type": "object",
+      "required": [
+        "kind",
+        "id",
+        "version",
+        "hash"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "common.schema.json#/$defs/kind"
+        },
+        "id": {
+          "$ref": "common.schema.json#/$defs/modId"
+        },
+        "version": {
+          "type": "string"
+        },
+        "hash": {
+          "type": "string",
+          "description": "The entry's content hash (kdh1; sha256 for a plugin DLL)."
+        }
+      },
+      "additionalProperties": false
+    },
+    "receipt": {
+      "type": "object",
+      "required": [
+        "libraryRef",
+        "provider",
+        "destination",
+        "modId",
+        "installedVersion",
+        "releaseId",
+        "tag",
+        "assetId",
+        "artifactSha256",
+        "fileChainId",
+        "fileVersionId",
+        "metadataSha256",
+        "policyVersion"
+      ],
+      "properties": {
+        "libraryRef": {
+          "$ref": "#/$defs/libraryRef"
+        },
+        "provider": {
+          "enum": [
+            "local",
+            "github",
+            "nexus"
+          ],
+          "description": "local: an archive the player imported by hand (its digest is known, its origin is not)."
+        },
+        "destination": {
+          "type": "string",
+          "description": "owner/repo for github, enshrouded for nexus, empty for local."
+        },
+        "modId": {
+          "type": "string",
+          "description": "The mod's id at the provider (Nexus Mods: the page's number); the library id for local."
+        },
+        "installedVersion": {
+          "type": "string",
+          "description": "The version as the provider named it at install (Nexus versions are free text); the library version for local."
+        },
+        "releaseId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "GitHub: the release's id. null for an archive imported by hand."
+        },
+        "tag": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "assetId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "GitHub: the id of the release asset. null for an archive imported by hand."
+        },
+        "artifactSha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "SHA-256 of the archive the entry was unpacked from. One archive that holds several mods gives each the same value. null: imported from a folder, or installed before receipts existed."
+        },
+        "fileChainId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Nexus Mods: the global id of the file (the chain of its versions)."
+        },
+        "fileVersionId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Nexus Mods: the global id of the installed version of that file."
+        },
+        "metadataSha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "SHA-256 of the release's kiln-release.json, when an install read one."
+        },
+        "policyVersion": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "source": {
+      "type": "object",
+      "required": [
+        "kind",
+        "id",
+        "provider",
+        "destination",
+        "origin",
+        "accepted"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "common.schema.json#/$defs/kind"
+        },
+        "id": {
+          "$ref": "common.schema.json#/$defs/modId"
+        },
+        "provider": {
+          "enum": [
+            "github",
+            "nexus"
+          ]
+        },
+        "destination": {
+          "type": "string",
+          "description": "What \"the same source\" is compared by: owner/repo in lower case for github, enshrouded/<mod id>/<file chain id> for nexus."
+        },
+        "origin": {
+          "enum": [
+            "manual",
+            "receipt",
+            "manifest"
+          ],
+          "description": "Why this is the mod's source: the player's mapping, an install receipt, or the manifest's \"updates\". Also the order in which they win."
+        },
+        "spec": {
+          "type": "object",
+          "description": "A manual mapping's source, in the shape of the manifest's \"updates\" (kiln.mod.schema.json). Absent for the other origins: the source is read from the receipt or the manifest. A manual mapping says where to look; it is not evidence that the installed files came from there."
+        },
+        "accepted": {
+          "$ref": "common.schema.json#/$defs/time"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
