@@ -185,6 +185,32 @@ public sealed class QueriesTests
     }
 
     [Fact]
+    public void A_composed_row_reported_before_the_rays_row_was_there_does_not_outlive_it()
+    {
+        // What a gate run hit: Kiln.Queries' rows were reported under a harness's new registry before the kit's
+        // queries.voxel_ray row was visible, so ground, sight and origins read "kiln.queries is not loaded" for the next
+        // 25 steps although everything was there. The rows are planted so here; the members decide from what is true now.
+        using var kiln = Started();
+        var a = kiln.Entities.Create(new WorldPosition(0, 10, 0));
+        var b = kiln.Entities.Create(new WorldPosition(20, 10, 0));
+        kiln.Run(() =>
+        {
+            foreach (var row in new[] { "queries.ground", "queries.line_of_sight", "queries.overlap_origins" })
+                ServiceCaps.Static(row, false, CapabilityReason.ServiceMissing, "kiln.queries is not loaded");
+            Assert.False(Capabilities.Is("queries.ground"));
+        });
+        Assert.True(kiln.Run(() => Queries.GroundBelow(A)).Ok);
+        kiln.Run(() => ServiceCaps.Static("queries.line_of_sight", false, CapabilityReason.ServiceMissing, "kiln.queries is not loaded"));
+        Assert.True(kiln.Run(() => Queries.VoxelLineOfSight(a, b)).Ok);
+        kiln.Run(() => ServiceCaps.Static("queries.overlap_origins", false, CapabilityReason.ServiceMissing, "kiln.queries is not loaded"));
+        Assert.True(kiln.Run(() => Queries.EntitiesInSphere(A, 1)).Ok);
+        Assert.True(kiln.Run(() => Capabilities.Is("queries.ground") && Capabilities.Is("queries.line_of_sight") && Capabilities.Is("queries.overlap_origins")));
+        // and a row that is really off still refuses: the ray's row switched off by the test
+        kiln.Capabilities.Override("queries.voxel_ray", false, "switched off by the test");
+        Assert.Equal("queries.ground", Assert.Throws<KilnUnavailableException>(() => kiln.Run(() => Queries.GroundBelow(A))).Capability);
+    }
+
+    [Fact]
     public void Off_the_tick_thread_is_refused()
     {
         using var kiln = Started();
