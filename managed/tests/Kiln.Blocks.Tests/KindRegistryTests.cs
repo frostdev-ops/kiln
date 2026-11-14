@@ -237,3 +237,42 @@ public sealed class KindRegistryTests
         }
     }
 }
+
+[Collection("block kinds")]
+public sealed class KindCapabilityTests
+{
+    [Fact]
+    public void The_rows_follow_whether_blocks_compile_here_and_say_why_when_they_do_not()
+    {
+        var on = KindCapabilities.RowFor(true);
+        Assert.Equal((CapabilityState.Available, CapabilityReason.None), (on.State, on.Reason));
+        var off = KindCapabilities.RowFor(false);
+        Assert.Equal((CapabilityState.Unavailable, CapabilityReason.ServiceMissing), (off.State, off.Reason));
+        Assert.False(string.IsNullOrEmpty(off.Text));
+    }
+
+    [Fact]
+    public void A_row_that_is_off_throws_by_its_name_and_reports_both_rows()
+    {
+        var reported = new List<(string Name, CapabilityState State)>();
+        var (was, report) = (KindCapabilities.BlocksAvailable, BlockCapabilities.Report);
+        try
+        {
+            BlockCapabilities.Report = (name, row) => reported.Add((name, row.State));
+            KindCapabilities.BlocksAvailable = () => false;
+            KindCapabilities.Rearm();
+            Assert.Equal("blocks.compile", Assert.Throws<KilnUnavailableException>(() => KindCapabilities.Require(KindCapabilities.Compile)).Capability);
+            Assert.Contains(("blocks.kinds", CapabilityState.Unavailable), reported);
+            Assert.Contains(("blocks.compile", CapabilityState.Unavailable), reported);
+            KindCapabilities.BlocksAvailable = () => true;
+            KindCapabilities.Rearm();
+            KindCapabilities.Require(KindCapabilities.Kinds);
+            Assert.Contains(("blocks.kinds", CapabilityState.Available), reported);
+        }
+        finally
+        {
+            (KindCapabilities.BlocksAvailable, BlockCapabilities.Report) = (was, report);
+            KindCapabilities.Rearm();
+        }
+    }
+}
