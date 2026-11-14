@@ -1,4 +1,18 @@
 #nullable enable
+Kiln.ComponentWrittenEvent
+Kiln.ComponentWrittenEvent.Component.get -> string!
+Kiln.ComponentWrittenEvent.Entity.get -> Kiln.EntityId
+Kiln.ComponentWrittenEvent.Involves(Kiln.EntityId entity) -> bool
+Kiln.ComponentWrittenEvent.ModId.get -> string?
+Kiln.ComponentWrittenEvent.Result.get -> Kiln.WorldWriteResult!
+Kiln.EntitySet
+Kiln.EntitySet.Contains(Kiln.EntityId entity) -> bool
+Kiln.EntitySet.Count.get -> int
+Kiln.EntitySet.Entities.get -> System.Collections.Generic.IReadOnlyList<Kiln.EntityId>!
+Kiln.EntitySet.GetEnumerator() -> System.Collections.Generic.IEnumerator<Kiln.EntityId>!
+Kiln.EntitySet.Refresh() -> Kiln.EntitySet!
+Kiln.EntitySet.With.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.EntitySet.Without.get -> System.Collections.Generic.IReadOnlyList<string!>!
 Kiln.EntityTransform
 Kiln.EntityTransform.Deconstruct(out Kiln.WorldPosition Position, out System.Numerics.Quaternion Rotation, out System.Numerics.Vector3 Scale) -> void
 Kiln.EntityTransform.EntityTransform() -> void
@@ -39,6 +53,7 @@ Kiln.TeleportResult.Equals(Kiln.TeleportResult? other) -> bool
 Kiln.TeleportResult.Flags.get -> Kiln.TeleportFlags
 Kiln.TeleportResult.Flags.init -> void
 Kiln.TeleportResult.Moved.get -> bool
+Kiln.TeleportResult.Ok.get -> bool
 Kiln.TeleportResult.Position.get -> Kiln.WorldPosition
 Kiln.TeleportResult.Position.init -> void
 Kiln.TeleportResult.Reason.get -> string!
@@ -54,6 +69,7 @@ Kiln.TeleportStatus
 Kiln.TeleportStatus.Failed = 0 -> Kiln.TeleportStatus
 Kiln.TeleportStatus.Moved = 1 -> Kiln.TeleportStatus
 Kiln.World
+Kiln.WorldChange<T>
 Kiln.WorldStatus
 Kiln.WorldStatus.Deconstruct(out bool Programs, out bool WorldLive, out bool Teleport, out bool Find, out int KilnPrograms, out int EnginePrograms, out int EngineMax, out int TeleportsPending, out ulong WorldSteps) -> void
 Kiln.WorldStatus.EngineMax.get -> int
@@ -77,6 +93,76 @@ Kiln.WorldStatus.WorldStatus() -> void
 Kiln.WorldStatus.WorldStatus(bool Programs, bool WorldLive, bool Teleport, bool Find, int KilnPrograms, int EnginePrograms, int EngineMax, int TeleportsPending, ulong WorldSteps) -> void
 Kiln.WorldStatus.WorldSteps.get -> ulong
 Kiln.WorldStatus.WorldSteps.init -> void
+Kiln.WorldWriteInfo
+Kiln.WorldWriteInfo.<Clone>$() -> Kiln.WorldWriteInfo!
+Kiln.WorldWriteInfo.Attribute.get -> bool
+Kiln.WorldWriteInfo.Attribute.init -> void
+Kiln.WorldWriteInfo.CanWrite.get -> bool
+Kiln.WorldWriteInfo.Component.get -> string!
+Kiln.WorldWriteInfo.Component.init -> void
+Kiln.WorldWriteInfo.ComponentSize.get -> int
+Kiln.WorldWriteInfo.ComponentSize.init -> void
+Kiln.WorldWriteInfo.Deconstruct(out string! Component, out Kiln.WorldWriteState State, out string? Reason, out int GameWriterCount, out System.Collections.Generic.IReadOnlyList<string!>! GameWriters, out int InitWriterCount, out bool? SaveTracked, out bool? ReplicationTracked, out bool Attribute, out int ComponentSize) -> void
+Kiln.WorldWriteInfo.Equals(Kiln.WorldWriteInfo? other) -> bool
+Kiln.WorldWriteInfo.FactsKnown.get -> bool
+Kiln.WorldWriteInfo.FactsKnown.init -> void
+Kiln.WorldWriteInfo.GameWriterCount.get -> int
+Kiln.WorldWriteInfo.GameWriterCount.init -> void
+Kiln.WorldWriteInfo.GameWriters.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.WorldWriteInfo.GameWriters.init -> void
+Kiln.WorldWriteInfo.InitWriterCount.get -> int
+Kiln.WorldWriteInfo.InitWriterCount.init -> void
+Kiln.WorldWriteInfo.Reason.get -> string?
+Kiln.WorldWriteInfo.Reason.init -> void
+Kiln.WorldWriteInfo.ReplicationTracked.get -> bool?
+Kiln.WorldWriteInfo.ReplicationTracked.init -> void
+Kiln.WorldWriteInfo.SaveTracked.get -> bool?
+Kiln.WorldWriteInfo.SaveTracked.init -> void
+Kiln.WorldWriteInfo.State.get -> Kiln.WorldWriteState
+Kiln.WorldWriteInfo.State.init -> void
+Kiln.WorldWriteInfo.WorldWriteInfo(string! Component, Kiln.WorldWriteState State, string? Reason, int GameWriterCount, System.Collections.Generic.IReadOnlyList<string!>! GameWriters, int InitWriterCount, bool? SaveTracked, bool? ReplicationTracked, bool Attribute, int ComponentSize) -> void
+Kiln.WorldWriteResult
+Kiln.WorldWriteResult.<Clone>$() -> Kiln.WorldWriteResult!
+Kiln.WorldWriteResult.After.get -> System.ReadOnlyMemory<byte>
+Kiln.WorldWriteResult.Attribute.get -> bool
+Kiln.WorldWriteResult.Before.get -> System.ReadOnlyMemory<byte>
+Kiln.WorldWriteResult.Changed.get -> bool
+Kiln.WorldWriteResult.Component.get -> string!
+Kiln.WorldWriteResult.ComponentSize.get -> int
+Kiln.WorldWriteResult.Entity.get -> Kiln.EntityId
+Kiln.WorldWriteResult.Equals(Kiln.WorldWriteResult? other) -> bool
+Kiln.WorldWriteResult.GameWriterCount.get -> int
+Kiln.WorldWriteResult.GameWriters.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.WorldWriteResult.Kept.get -> bool?
+Kiln.WorldWriteResult.Offset.get -> int
+Kiln.WorldWriteResult.Ok.get -> bool
+Kiln.WorldWriteResult.Reason.get -> string?
+Kiln.WorldWriteResult.ReplicationTracked.get -> bool?
+Kiln.WorldWriteResult.SaveTracked.get -> bool?
+Kiln.WorldWriteResult.Status.get -> Kiln.WorldWriteStatus
+Kiln.WorldWriteResult.Steps.get -> int
+Kiln.WorldWriteResult.WrittenOverBy.get -> string?
+Kiln.WorldWriteState
+Kiln.WorldWriteState.ListRefused = 7 -> Kiln.WorldWriteState
+Kiln.WorldWriteState.NotDeclared = 2 -> Kiln.WorldWriteState
+Kiln.WorldWriteState.NotListed = 3 -> Kiln.WorldWriteState
+Kiln.WorldWriteState.Off = 6 -> Kiln.WorldWriteState
+Kiln.WorldWriteState.OverLimit = 5 -> Kiln.WorldWriteState
+Kiln.WorldWriteState.Pending = 1 -> Kiln.WorldWriteState
+Kiln.WorldWriteState.Ready = 0 -> Kiln.WorldWriteState
+Kiln.WorldWriteState.UnknownComponent = 4 -> Kiln.WorldWriteState
+Kiln.WorldWriteStatus
+Kiln.WorldWriteStatus.Dropped = 7 -> Kiln.WorldWriteStatus
+Kiln.WorldWriteStatus.Faulted = 6 -> Kiln.WorldWriteStatus
+Kiln.WorldWriteStatus.LayoutMismatch = 100 -> Kiln.WorldWriteStatus
+Kiln.WorldWriteStatus.NoComponent = 2 -> Kiln.WorldWriteStatus
+Kiln.WorldWriteStatus.NotDeclared = 4 -> Kiln.WorldWriteStatus
+Kiln.WorldWriteStatus.OutOfRange = 3 -> Kiln.WorldWriteStatus
+Kiln.WorldWriteStatus.Refused = 5 -> Kiln.WorldWriteStatus
+Kiln.WorldWriteStatus.Unchanged = 1 -> Kiln.WorldWriteStatus
+Kiln.WorldWriteStatus.Written = 0 -> Kiln.WorldWriteStatus
+const Kiln.EntitySet.Capability = "world.find" -> string!
+const Kiln.World.TrackedWritesCapability = "world.tracked_writes" -> string!
 override Kiln.EntityTransform.GetHashCode() -> int
 override Kiln.TeleportOptions.Equals(object? obj) -> bool
 override Kiln.TeleportOptions.GetHashCode() -> int
@@ -85,6 +171,12 @@ override Kiln.TeleportResult.Equals(object? obj) -> bool
 override Kiln.TeleportResult.GetHashCode() -> int
 override Kiln.TeleportResult.ToString() -> string!
 override Kiln.WorldStatus.GetHashCode() -> int
+override Kiln.WorldWriteInfo.Equals(object? obj) -> bool
+override Kiln.WorldWriteInfo.GetHashCode() -> int
+override Kiln.WorldWriteInfo.ToString() -> string!
+override Kiln.WorldWriteResult.Equals(object? obj) -> bool
+override Kiln.WorldWriteResult.GetHashCode() -> int
+override Kiln.WorldWriteResult.ToString() -> string!
 static Kiln.EntityTransform.operator !=(Kiln.EntityTransform left, Kiln.EntityTransform right) -> bool
 static Kiln.EntityTransform.operator ==(Kiln.EntityTransform left, Kiln.EntityTransform right) -> bool
 static Kiln.Nearby.Entities(Kiln.EntityId center, double radius, string! component) -> System.Collections.Generic.IReadOnlyList<Kiln.EntityId>!
@@ -107,15 +199,32 @@ static Kiln.World.Exists(Kiln.EntityId entity) -> bool
 static Kiln.World.Find(string! component) -> System.Collections.Generic.IReadOnlyList<Kiln.EntityId>!
 static Kiln.World.Has(Kiln.EntityId entity, string! component) -> bool
 static Kiln.World.Position(Kiln.EntityId entity) -> Kiln.WorldPosition?
+static Kiln.World.Query(System.Collections.Generic.IEnumerable<string!>! with, System.Collections.Generic.IEnumerable<string!>? without) -> Kiln.EntitySet!
+static Kiln.World.Query(params string![]! with) -> Kiln.EntitySet!
+static Kiln.World.Query<T1, T2>() -> Kiln.EntitySet!
+static Kiln.World.Query<T>() -> Kiln.EntitySet!
 static Kiln.World.ReadBytes(Kiln.EntityId entity, string! component) -> byte[]?
 static Kiln.World.Status.get -> Kiln.WorldStatus
+static Kiln.World.SupportsTrackedWrites.get -> bool
 static Kiln.World.Transform(Kiln.EntityId entity) -> Kiln.EntityTransform?
 static Kiln.World.TryGetPosition(Kiln.EntityId entity, out Kiln.WorldPosition position) -> bool
 static Kiln.World.TryRead<T>(Kiln.EntityId entity, string! component, out T value) -> bool
 static Kiln.World.TryWrite<T>(Kiln.EntityId entity, string! component, int offset, T value) -> bool
+static Kiln.World.Update<T>(Kiln.EntityId entity, Kiln.WorldChange<T>! change) -> System.Threading.Tasks.Task<Kiln.WorldWriteResult!>!
+static Kiln.World.Write<T>(Kiln.EntityId entity, T value) -> System.Threading.Tasks.Task<Kiln.WorldWriteResult!>!
+static Kiln.World.WriteAt<T>(Kiln.EntityId entity, string! component, int offset, T value) -> System.Threading.Tasks.Task<Kiln.WorldWriteResult!>!
+static Kiln.World.WriteField(Kiln.EntityId entity, string! component, string! path, object? value) -> System.Threading.Tasks.Task<Kiln.WorldWriteResult!>!
+static Kiln.World.WriteInfo(string! component) -> Kiln.WorldWriteInfo!
+static Kiln.World.WriteInfo<T>() -> Kiln.WorldWriteInfo!
+static Kiln.World.WriteRaw<T>(Kiln.EntityId entity, string! component, int offset, T value) -> bool
 static Kiln.WorldStatus.operator !=(Kiln.WorldStatus left, Kiln.WorldStatus right) -> bool
 static Kiln.WorldStatus.operator ==(Kiln.WorldStatus left, Kiln.WorldStatus right) -> bool
+static Kiln.WorldWriteInfo.operator !=(Kiln.WorldWriteInfo? left, Kiln.WorldWriteInfo? right) -> bool
+static Kiln.WorldWriteInfo.operator ==(Kiln.WorldWriteInfo? left, Kiln.WorldWriteInfo? right) -> bool
+static Kiln.WorldWriteResult.operator !=(Kiln.WorldWriteResult? left, Kiln.WorldWriteResult? right) -> bool
+static Kiln.WorldWriteResult.operator ==(Kiln.WorldWriteResult? left, Kiln.WorldWriteResult? right) -> bool
 static readonly Kiln.TeleportOptions.Default -> Kiln.TeleportOptions!
+virtual Kiln.WorldChange<T>.Invoke(ref T value) -> void
 ~override Kiln.EntityTransform.Equals(object obj) -> bool
 ~override Kiln.EntityTransform.ToString() -> string
 ~override Kiln.WorldStatus.Equals(object obj) -> bool

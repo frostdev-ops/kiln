@@ -18,12 +18,13 @@ internal static class ItemParts
         if (colon > 0)
             return Blocks.Find(name[(colon + 1)..], name[..colon])
                    ?? throw new BlockError(ctx.Block, path, $"no block \"{name[(colon + 1)..]}\" in mod {name[..colon]} (is it loaded before this one?)");
-        if (ctx.Mod.Handles.TryGetValue(name, out var h)) return h;
-        if (ctx.Mod.Pending.TryGetValue(name, out var pending))
+        if (ctx.Mod.TryHandle(name, out var h)) return h;
+        var authored = ctx.Mod.Authored;
+        if (authored.Pending.TryGetValue(name, out var pending))
         {
-            if (!ctx.Mod.Compiling.Add(name)) throw new BlockError(ctx.Block, path, $"\"{name}\" refers back to itself");
+            if (!authored.Compiling.Add(name)) throw new BlockError(ctx.Block, path, $"\"{name}\" refers back to itself");
             try { return pending(); }
-            finally { ctx.Mod.Compiling.Remove(name); }
+            finally { authored.Compiling.Remove(name); }
         }
         return null;
     }

@@ -1,14 +1,1 @@
 #nullable enable
-Kiln.ContentChange
-Kiln.ContentChange.Applied = 3 -> Kiln.ContentChange
-Kiln.ContentChange.Reset = 2 -> Kiln.ContentChange
-Kiln.ContentChange.Reverted = 4 -> Kiln.ContentChange
-Kiln.ContentChange.Set = 1 -> Kiln.ContentChange
-Kiln.ContentChangedEvent
-Kiln.ContentChangedEvent.Change.get -> Kiln.ContentChange
-Kiln.ContentChangedEvent.Id.get -> uint
-Kiln.ContentChangedEvent.Kind.get -> Kiln.ContentKind?
-Kiln.ContentChangedEvent.Name.get -> string!
-Kiln.ContentChangedEvent.Origin.get -> string!
-Kiln.ContentChangedEvent.Path.get -> string!
-override Kiln.ContentChangedEvent.ToString() -> string!
