@@ -188,8 +188,10 @@ Events.On<EntityScaleChangedEvent>(e => Log.Info(e.ToString()));
   nothing. ShroudForge's own Lua setter, hosted unchanged, keeps its broader rule.
 - **The answer** is the tracked write's: `Before` and `Now` are the 12 bytes the write read and left in the step it ran
   (null on a refusal), `Kept` is the readback one step later where the game writes the type too, `SaveTracked` and
-  `ReplicationTracked` are the game's own per-type bits from the same answer. Whether a save and restart bring the scale
-  back is recorded by the lab's `world-writes-test` (boot 2 logs it), not promised.
+  `ReplicationTracked` are the game's own per-type bits from the same answer. A save and restart did **not** bring the
+  scale back on the test server (build f0d824be, a placed chest, 2026-11-13: the write was `Written`, kept one step
+  later and marked for the save, and after the restart the chest stood at scale 1, 1, 1 again). Treat the scale as a
+  session value and set it again after a world loads; the lab's `world-writes-test` logs it at each run (boot 2).
 - **Capabilities:** `world.transform_scale` (Kiln.World's row: the layout) and `world.tracked_writes`; either off throws
   `KilnUnavailableException` naming it.
 
