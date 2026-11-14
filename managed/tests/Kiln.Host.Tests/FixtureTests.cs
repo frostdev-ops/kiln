@@ -55,8 +55,22 @@ public sealed class FixtureTests
 
     private static string Lower<T>(T value) where T : Enum => value.ToString().ToLowerInvariant();
 
-    /// <summary>A manifest as the fixtures describe it (every parsed field, normalized).</summary>
-    internal static JsonObject Describe(Manifest m) => new()
+    /// <summary>A manifest as the fixtures describe it (every parsed field, normalized). "updates" is listed only when the
+    /// manifest has a readable one, so a fixture without it reads as it did before the key existed.</summary>
+    internal static JsonObject Describe(Manifest m)
+    {
+        var o = DescribeFields(m);
+        if (m.Updates is { Provider: "github" } g)
+            o["updates"] = new JsonObject
+            {
+                ["provider"] = g.Provider, ["repository"] = g.Repository, ["tagPattern"] = g.TagPattern, ["asset"] = g.Asset, ["channel"] = g.Channel,
+            };
+        else if (m.Updates is { } n)
+            o["updates"] = new JsonObject { ["provider"] = n.Provider, ["gameId"] = n.GameId, ["modId"] = n.ModId, ["fileChainId"] = n.FileChainId };
+        return o;
+    }
+
+    private static JsonObject DescribeFields(Manifest m) => new()
     {
         ["id"] = m.Id,
         ["name"] = m.Name,

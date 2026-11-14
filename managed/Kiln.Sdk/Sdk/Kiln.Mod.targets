@@ -22,6 +22,11 @@
                          Kiln.GameTypes.targets)
       KilnTestsAutoRun   true: run the mod's [KilnTest] methods when the server has started
       KilnTestTimeoutSeconds
+      KilnUpdatesRepository  owner/repo on GitHub where releases of the mod are published: writes "updates" (manifest.md).
+                         With it: KilnUpdatesTagPattern (default v{version}), KilnUpdatesAsset (e.g. my-mod-{version}.zip),
+                         KilnUpdatesChannel (stable | prerelease)
+      KilnUpdatesNexusModId, KilnUpdatesNexusFileChainId  the same for one file of a Nexus Mods page
+      KilnUpdatesProvider    github | nexus (default: from which of the two is set)
       KilnServer         a server folder (with enshrouded_server.exe) for KilnDeploy, or KilnModsDir (its kiln/mods)
       KilnReload         true: KilnDeploy also asks the running server to hot-reload the mod (kiln/control)
       KilnPackageOutputPath  where KilnPack writes <id>-<version>.zip (default: next to the output folder)
@@ -151,6 +156,8 @@
                   Features="$(KilnFeatures)" Exports="$(KilnExports)" Dependencies="@(KilnDependency)"
                   LoadBefore="@(KilnLoadBefore)" LoadAfter="@(KilnLoadAfter)" Incompatible="@(KilnIncompatible)"
                   TestsAutoRun="$(KilnTestsAutoRun)" TestTimeoutSeconds="$(KilnTestTimeoutSeconds)"
+                  UpdatesProvider="$(KilnUpdatesProvider)" UpdatesRepository="$(KilnUpdatesRepository)" UpdatesTagPattern="$(KilnUpdatesTagPattern)" UpdatesAsset="$(KilnUpdatesAsset)" UpdatesChannel="$(KilnUpdatesChannel)"
+                  UpdatesNexusModId="$(KilnUpdatesNexusModId)" UpdatesNexusFileChainId="$(KilnUpdatesNexusFileChainId)"
                   KilnApiPath="@(ReferencePath->WithMetadataValue('Filename','Kiln.Api'))">
       <Output TaskParameter="ModId" PropertyName="KilnResolvedModId" />
       <Output TaskParameter="ModVersion" PropertyName="KilnResolvedModVersion" />

@@ -1,0 +1,182 @@
+[
+  {
+    "id": 9106,
+    "tag_name": "mods/example/v2.0.0-rc.1",
+    "target_commitish": "main",
+    "name": "mods/example/v2.0.0-rc.1",
+    "draft": false,
+    "prerelease": true,
+    "created_at": "2026-11-11T09:00:00Z",
+    "published_at": "2026-11-11T09:00:00Z",
+    "html_url": "https://github.com/example-org/kiln-mods/releases/tag/mods/example/v2.0.0-rc.1",
+    "url": "https://api.github.com/repos/example-org/kiln-mods/releases/9106",
+    "author": {
+      "login": "example-author",
+      "id": 1
+    },
+    "body": "Fixes.",
+    "assets": [
+      {
+        "id": 7161,
+        "name": "example-2.0.0-rc.1.zip",
+        "label": null,
+        "content_type": "application/zip",
+        "state": "uploaded",
+        "size": 2100,
+        "browser_download_url": "https://github.com/example-org/kiln-mods/releases/download/mods/example/v2.0.0-rc.1/example-2.0.0-rc.1.zip",
+        "url": "https://api.github.com/repos/example-org/kiln-mods/releases/assets/7161",
+        "digest": "sha256:5936a8d5daf7aa0217e2c7e3e17d0beb7109288b584714b9674e8d9445c77572"
+      }
+    ]
+  },
+  {
+    "id": 9105,
+    "tag_name": "mods/other/v9.0.0",
+    "target_commitish": "main",
+    "name": "mods/other/v9.0.0",
+    "draft": false,
+    "prerelease": false,
+    "created_at": "2026-11-09T09:00:00Z",
+    "published_at": "2026-11-09T09:00:00Z",
+    "html_url": "https://github.com/example-org/kiln-mods/releases/tag/mods/other/v9.0.0",
+    "url": "https://api.github.com/repos/example-org/kiln-mods/releases/9105",
+    "author": {
+      "login": "example-author",
+      "id": 1
+    },
+    "body": "Fixes.",
+    "assets": [
+      {
+        "id": 7151,
+        "name": "other-9.0.0.zip",
+        "label": null,
+        "content_type": "application/zip",
+        "state": "uploaded",
+        "size": 9000,
+        "browser_download_url": "https://github.com/example-org/kiln-mods/releases/download/mods/other/v9.0.0/other-9.0.0.zip",
+        "url": "https://api.github.com/repos/example-org/kiln-mods/releases/assets/7151",
+        "digest": "sha256:5da81328c751384f4d8cd8f87ea33976c70a4e11de8be5411072e32fcf789c39"
+      }
+    ]
+  },
+  {
+    "id": 9104,
+    "tag_name": "mods/example/v1.5.0",
+    "target_commitish": "main",
+    "name": "mods/example/v1.5.0",
+    "draft": false,
+    "prerelease": false,
+    "created_at": "2026-11-05T09:00:00Z",
+    "published_at": "2026-11-05T09:00:00Z",
+    "html_url": "https://github.com/example-org/kiln-mods/releases/tag/mods/example/v1.5.0",
+    "url": "https://api.github.com/repos/example-org/kiln-mods/releases/9104",
+    "author": {
+      "login": "example-author",
+      "id": 1
+    },
+    "body": "Fixes.",
+    "assets": [
+      {
+        "id": 7141,
+        "name": "example-1.5.0.zip",
+        "label": null,
+        "content_type": "application/zip",
+        "state": "uploaded",
+        "size": 1500,
+        "browser_download_url": "https://github.com/example-org/kiln-mods/releases/download/mods/example/v1.5.0/example-1.5.0.zip",
+        "url": "https://api.github.com/repos/example-org/kiln-mods/releases/assets/7141",
+        "digest": "sha256:ef14f29568d88436c0e61af34ae6540d1395e1f30c0c9fa6cd321c983fae02da"
+      }
+    ]
+  },
+  {
+    "id": 9103,
+    "tag_name": "v7.0.0",
+    "target_commitish": "main",
+    "name": "v7.0.0",
+    "draft": false,
+    "prerelease": false,
+    "created_at": "2026-11-01T09:00:00Z",
+    "published_at": "2026-11-01T09:00:00Z",
+    "html_url": "https://github.com/example-org/kiln-mods/releases/tag/v7.0.0",
+    "url": "https://api.github.com/repos/example-org/kiln-mods/releases/9103",
+    "author": {
+      "login": "example-author",
+      "id": 1
+    },
+    "body": "Fixes.",
+    "assets": [
+      {
+        "id": 7131,
+        "name": "all-mods-7.0.0.zip",
+        "label": null,
+        "content_type": "application/zip",
+        "state": "uploaded",
+        "size": 70000,
+        "browser_download_url": "https://github.com/example-org/kiln-mods/releases/download/v7.0.0/all-mods-7.0.0.zip",
+        "url": "https://api.github.com/repos/example-org/kiln-mods/releases/assets/7131",
+        "digest": "sha256:f2f98f2de8a56256b29b4a25408c94672101a66bff2d4cee8fde4b34d00df79a"
+      }
+    ]
+  },
+  {
+    "id": 9102,
+    "tag_name": "mods/example/v1.4.0",
+    "target_commitish": "main",
+    "name": "mods/example/v1.4.0",
+    "draft": false,
+    "prerelease": false,
+    "created_at": "2026-10-05T09:00:00Z",
+    "published_at": "2026-10-05T09:00:00Z",
+    "html_url": "https://github.com/example-org/kiln-mods/releases/tag/mods/example/v1.4.0",
+    "url": "https://api.github.com/repos/example-org/kiln-mods/releases/9102",
+    "author": {
+      "login": "example-author",
+      "id": 1
+    },
+    "body": "Fixes.",
+    "assets": [
+      {
+        "id": 7121,
+        "name": "example-1.4.0.zip",
+        "label": null,
+        "content_type": "application/zip",
+        "state": "uploaded",
+        "size": 1400,
+        "browser_download_url": "https://github.com/example-org/kiln-mods/releases/download/mods/example/v1.4.0/example-1.4.0.zip",
+        "url": "https://api.github.com/repos/example-org/kiln-mods/releases/assets/7121",
+        "digest": "sha256:d34261c7f4ccce1d9b3bff5cd2d64ec8614a51401e9150bef8446cef4beb2697"
+      }
+    ]
+  },
+  {
+    "id": 9101,
+    "tag_name": "mods/example-extras/v8.0.0",
+    "target_commitish": "main",
+    "name": "mods/example-extras/v8.0.0",
+    "draft": false,
+    "prerelease": false,
+    "created_at": "2026-10-01T09:00:00Z",
+    "published_at": "2026-10-01T09:00:00Z",
+    "html_url": "https://github.com/example-org/kiln-mods/releases/tag/mods/example-extras/v8.0.0",
+    "url": "https://api.github.com/repos/example-org/kiln-mods/releases/9101",
+    "author": {
+      "login": "example-author",
+      "id": 1
+    },
+    "body": "Fixes.",
+    "assets": [
+      {
+        "id": 7111,
+        "name": "example-extras-8.0.0.zip",
+        "label": null,
+        "content_type": "application/zip",
+        "state": "uploaded",
+        "size": 800,
+        "browser_download_url": "https://github.com/example-org/kiln-mods/releases/download/mods/example-extras/v8.0.0/example-extras-8.0.0.zip",
+        "url": "https://api.github.com/repos/example-org/kiln-mods/releases/assets/7111",
+        "digest": "sha256:4dde46498b0d43edeae3f04ee71a275a943a8f5bca055de0fabdcd24e5f05557"
+      }
+    ]
+  }
+]

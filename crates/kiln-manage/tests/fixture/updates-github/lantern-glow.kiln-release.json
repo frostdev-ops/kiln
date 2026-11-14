@@ -1,0 +1,16 @@
+{
+  "format": 1,
+  "mods": [
+    {
+      "id": "lantern-glow",
+      "version": "1.10.0",
+      "side": "both",
+      "apiVersion": "0.2",
+      "artifact": {
+        "name": "lantern-glow-1.10.0.zip",
+        "sha256": "ad9b19c4df20898a8b46b7793aeb81b779db01fc468b2768e193186a1eee003d",
+        "bytes": 48213
+      }
+    }
+  ]
+}
