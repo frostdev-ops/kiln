@@ -134,6 +134,8 @@ internal static unsafe class UiTooltipBridge
     private static UiWindow? _window;
     private static MenuEntry? _menu;
     private static (ulong Session, ulong Frame, float Width, float Scale) _cacheKey;
+    private static bool _watching;
+    private static readonly Action<UiDraw> Watch = WatchWindow;
     private static List<string> _cache = [];
 
     /// <summary>The usable screen (pixels and scale), null when Kiln's overlay is not here. Tests replace it.</summary>
@@ -252,7 +254,15 @@ internal static unsafe class UiTooltipBridge
                     ModContext.CurrentMod = outer;
                 }
             }
-            if (_window is not null) _window.Open = true;
+            if (_window is not null)
+            {
+                _window.Open = true;
+                if (!_watching)
+                {
+                    _watching = true;
+                    Ui.Frame += Watch;  // its X closes only the window: the frozen snapshot must end with it
+                }
+            }
         }
         UiValueEvents.TooltipPanel(true, o.Session, o.SourceFrame, item, null);
         return new UiTooltipOpenResult(true, null, o.Session, o.SourceFrame);
@@ -261,6 +271,27 @@ internal static unsafe class UiTooltipBridge
     /// <summary>The window's size: min(560 x dpi, width - 64) by min(600 x dpi, height - 64) pixels.</summary>
     internal static (float W, float H) Size((float Width, float Height, float Dpi) vp) =>
         (Math.Min(560 * vp.Dpi, vp.Width - 64), Math.Min(600 * vp.Dpi, vp.Height - 64));
+
+    // While the window is open (the overlay draws every frame anyway): a window closed by its X ends the native open state.
+    private static void WatchWindow(UiDraw ui)
+    {
+        lock (Lock)
+            if (_window is not { Open: false }) return;
+        StopWatch();
+        var t = UiValuesNative.T;
+        if (t != null) t->CloseTooltipDetails(UiValueBridge.OwnerOf(null));
+        UiValueEvents.TooltipPanel(false, 0, 0, default, "closed by its window's X");
+    }
+
+    private static void StopWatch()
+    {
+        lock (Lock)
+        {
+            if (!_watching) return;
+            _watching = false;
+        }
+        Ui.Frame -= Watch;
+    }
 
     internal static void Close(string? reason)
     {
@@ -277,6 +308,7 @@ internal static unsafe class UiTooltipBridge
                 wasOpen = true;
                 _window.Open = false;
             }
+        StopWatch();
         if (t != null) t->CloseTooltipDetails(UiValueBridge.OwnerOf(null));
         if (wasOpen) UiValueEvents.TooltipPanel(false, 0, 0, default, reason);
     }
@@ -417,6 +449,7 @@ internal static unsafe class UiTooltipBridge
     internal static void ResetForTests()
     {
         Regs.Clear();
+        StopWatch();
         lock (Lock)
         {
             _window = null;
