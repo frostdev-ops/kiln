@@ -3735,7 +3735,7 @@ std::string str_of(const json& j, const char* k) { return j.contains(k) && j[k].
 
 // "mod newitems" / "pack newitems" -> "newitems"
 std::string mod_of_label(const std::string& label) {
-    for (const char* p : {"mod ", "pack "})
+    for (const char* p : {"mod ", "pack ", "boot:"})  // "boot:<mod>": the process owner of a boot generation's definitions
         if (label.rfind(p, 0) == 0) return label.substr(std::strlen(p));
     return {};
 }
