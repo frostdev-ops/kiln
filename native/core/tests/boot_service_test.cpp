@@ -1140,6 +1140,19 @@ void flush(const Snap& s, int format = 1, const std::string& key = "") {
                    .dump());
 }
 
+// index.json with the producer's checksums of the eight files (since the 08b review); `drop` leaves one name out
+void add_checksums(const Snap& s, const std::string& drop = "") {
+    json idx = json::parse(std::ifstream(s.dir / "index.json"));
+    json sums = json::object();
+    for (const char* k : kiln::boot_gd::kKinds)
+        for (const char* ext : {".index.json", ".data"}) {
+            const std::string name = std::string(k) + ext;
+            if (name != drop) sums[name] = kiln::boot_gd::file_sha256(s.dir / name);
+        }
+    idx["checksums"] = sums;
+    write_text(s.dir / "index.json", idx.dump());
+}
+
 // decide() with this folder, one author "a" with an open frame.
 KilnOwner open_author() {
     deferred_with({"a", "b"});
@@ -1187,6 +1200,47 @@ void gamedata_cases() {
         CHECK(kiln::boot_gd::sha256(block) != kiln::boot_gd::sha256(block.substr(1)));
     }
     pass_line("BOOT-GAMEDATA-KEY the key is SHA-256 over the exe hash, a newline and the kfc version", f0);
+
+    // the files' checksums: the streaming hash, a snapshot that matches, one damaged byte, an incomplete checksum list,
+    // and an older snapshot without checksums (read as before)
+    f0 = t_fail;
+    {
+        kiln::boot_gd::Sha256 h;
+        const std::string a7(7, 'a');
+        for (int i = 0; i < 1000000 / 7; ++i) h.update(a7);
+        h.update(std::string(1000000 % 7, 'a'));
+        CHECK(kiln::boot_gd::hex_of(h.final()) == "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0");  // FIPS 180-2
+        CHECK(kiln::boot_gd::hex_of(kiln::boot_gd::sha256("")) == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+    }
+    {
+        Snap c = make_snapshot("gd-sums");
+        flush(c);
+        add_checksums(c);
+        KilnOwner ca = open_author();
+        CHECK(row_is(KILN_CAP_AVAILABLE, c.key));
+        const json item = json::parse(read_all(ca, "item:Test_Item_Logs", &rc), nullptr, false);
+        CHECK(rc == KILN_OK && item["value"].value("stackSize", 0) == 50);
+        // one byte of items.data changed (50 -> 57), the marker as it was: not ready, nothing served
+        std::string bytes = c.data.at("items");
+        bytes.replace(bytes.find("\"stackSize\":50"), 14, "\"stackSize\":57");
+        write_text(c.dir / "items.data", bytes);
+        ca = open_author();
+        CHECK(row_is(KILN_CAP_UNAVAILABLE, "damaged: items.data does not match its checksum"));
+        need = 99;
+        CHECK(B.read_resource(ca, ks("item:Test_Item_Logs"), buf, sizeof buf, &need) == KILN_ERR_UNAVAILABLE && need == 99);
+        CHECK(B.read_resource(ca, ks("template:Test_Template_Trader"), buf, sizeof buf, &need) == KILN_ERR_UNAVAILABLE);
+        // a checksum list that leaves a file out is damaged too
+        flush(c);
+        add_checksums(c, "skills.data");
+        ca = open_author();
+        CHECK(row_is(KILN_CAP_UNAVAILABLE, "damaged: index.json has no valid checksum of skills.data"));
+        // an older snapshot without checksums: read as before
+        flush(c);
+        ca = open_author();
+        CHECK(row_is(KILN_CAP_AVAILABLE, c.key));
+        CHECK(json::parse(read_all(ca, "item:Test_Item_Logs", &rc), nullptr, false)["value"].value("stackSize", 0) == 50 && rc == KILN_OK);
+    }
+    pass_line("BOOT-GAMEDATA-CHECKSUMS a file that does not match index.json's checksum makes the snapshot not ready; no checksums: read as before", f0);
 
     // a matching snapshot: the row, and each query form found and not found
     f0 = t_fail;

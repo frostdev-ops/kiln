@@ -13,6 +13,7 @@
 // boot.json. The host test (native/core/tests/boot_service_test.cpp) includes this file with stubs for the rest.
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <map>
@@ -1101,6 +1102,20 @@ void decide(bool hooks, const std::string& safe_idle) {
     if (deferred) {
         KLOG_I("boot: deferred generation on for %s: the collectors prepare after OnBoot, before the game's entry point",
                list.c_str());
+        // the game-data snapshot's files against their checksums, before any OnBoot reads them: a damaged snapshot is not
+        // ready (its row says so) and nothing of it is served
+        if (g_gamedata.is_open()) {
+            const auto t0 = std::chrono::steady_clock::now();
+            std::string bad;
+            if (!g_gamedata.verify(&bad)) {
+                KLOG_W("boot: %s; OnBoot cannot read the game's data", bad.c_str());
+                send({{"mods.boot.game_data", KILN_CAP_UNAVAILABLE, KILN_CAP_REASON_SERVICE_MISSING,
+                       std::string(boot_gd::kHint) + " (" + bad + ")"}});
+            } else if (g_gamedata.has_checksums()) {
+                KLOG_I("boot: game-data snapshot %s: its eight files match their checksums (%lld ms)", g_gamedata.key().c_str(),
+                       static_cast<long long>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count()));
+            }
+        }
         return;
     }
     KLOG_I("boot: no deferred generation (%s); the collectors keep their on_ready paths%s%s", why.c_str(),
