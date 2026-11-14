@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // 0.2.0-dev.28, package 13b-shroudforge (chapter 13 §13b): the C# equivalents of ShroudForge's rows. Orders 3800-3899.
 //   13-assets.catalog-client   the content blob catalog in a game client (holds assets.blob_catalog on the client side)
-//   13-world.transform-scale   a transform-scale write as players see and touch it (holds nothing; decides the docs' row)
+//   13-world.transform-scale   a transform-scale write as players see and touch it (holds world.transform_scale)
 // The pack does not reference Kiln.Assets (ClientPass.csproj is not this package's file), so the catalog is reached through
 // the shared Kiln.Assets assembly the host has loaded, by name: the same calls a mod makes.
 using System.Reflection;
@@ -128,6 +128,7 @@ public sealed partial class ClientPassMod
     public async Task WorldTransformScale(CheckContext c)
     {
         if (!await NeedPlayer(c)) return;
+        if (!await NeedOpen(c, World.TransformScaleCapability)) return;
         // the pack writes CurrentTransform only when its kiln.mod.json lists it under "writes" (routed with this package)
         if (World.WriteInfo("CurrentTransform") is { CanWrite: false } info)
         {
@@ -161,7 +162,9 @@ public sealed partial class ClientPassMod
         c.Expect(changed.Length > 0 && changed.All(i => i >= at && i < at + 12), $"only the 12 scale bytes (+{at}) changed", string.Join(",", changed));
         c.Instruct("The chest is now drawn 1.25 times as wide (X), 0.75 times as tall and 1.5 times as deep. 1) Is it drawn at that " +
                    "size, in place, without flicker? 2) Walk into it and jump on it: does its collision follow the new size or the " +
-                   "old one (say which; Kiln does not promise collision)? 3) Open it: does it still open? Answer in the note.");
+                   "old one (say which; Kiln does not promise collision)? 3) Open it: does it still open? Answer in the note. If a " +
+                   "player without Kiln is joined, add what that player sees (not required: the scale reaches every game " +
+                   "through the game's own replication of the transform).");
         await c.Verdict();
         var original = before.Length >= at + 12 ? MemoryMarshal.Read<Scale3>(before.AsSpan(at)) : Scale3.One;
         var back = await World.SetTransformScale(prop, original.IsValid ? original : Scale3.One);
@@ -169,8 +172,7 @@ public sealed partial class ClientPassMod
         c.Expect(back.Ok && (World.ReadBytes(prop, "CurrentTransform") ?? []).AsSpan().SequenceEqual(before), "restored: every byte as before", back.ToString());
         c.Instruct("The chest is back at its size. Is it drawn as before? Then set it once more with the transform-scale sample " +
                    "(/tscale <id> 1.25 0.75 1.5; the id is in kiln.log), save, quit to the menu, load the world again and say whether " +
-                   $"the chest came back scaled (chest {prop}). A vanilla viewer (a second player without Kiln), if you have one: what " +
-                   "does that player see?");
+                   $"the chest came back scaled (chest {prop}). A player without Kiln, if one is joined: what does that player see?");
         await c.Verdict();
     }
 }

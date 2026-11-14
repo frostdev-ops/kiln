@@ -130,7 +130,9 @@ enum {
  *   Only status COMPLETE or INCOMPLETE returns a handle (KILN_OK). Otherwise *handle = 0 and: NOT_READY and UNAVAILABLE
  *   return KILN_ERR_UNAVAILABLE, LIMIT_EXCEEDED returns KILN_ERR_BUFFER_TOO_SMALL (never a truncated snapshot).
  *   KILN_ERR_INVALID_ARGUMENT: owner 0, an unknown mode, a NULL handle or info, info->size < 32.
- *   Budgets: 1,000,000 entries and 64 MiB per snapshot, 128 MiB for every distinct snapshot handles hold, 64 handles.
+ *   KILN_ERR_REVOKED: the owner was revoked, or reverted during open (status UNAVAILABLE, reason NONE, no handle).
+ *   Budgets: 1,000,000 entries and 64 MiB per snapshot, 128 MiB for distinct snapshots handles or page copies hold,
+ *   64 handles. Allocated entry capacity counts, including unused slots.
  *   A snapshot never changes; its generation is the catalog's when it was built. Handles that open at the same
  *   generation and mode share one. owner's handles close when kiln.assets reverts the owner (revoked or revert_owner).
  * blob_catalog_read(handle, first, out, entry_size, cap, written): copies entries first.. (at most cap of them, each
