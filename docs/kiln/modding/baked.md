@@ -102,6 +102,17 @@ them.
 
 Each refusal is a line in kiln.log (`vfx: <id>: blocks/<file>: not read: ...`), and the file is left out.
 
+## Boot mods
+A mod whose kiln.mod.json says `"boot"` gets its `OnBoot` run first in the bake, through the test kit's boot phase
+(`KilnHarness.BootPhase`), as a start runs it: once, on an instance of its own, with the same staging and the same lowering.
+When it throws, or a definition it stages does not lower (one that names another mod's block, for example:
+`BootReferenceOutside`), the bake fails with that reason (`error KILN032`), as the start would leave the mod out. What it
+staged is **not** baked: the boot generation has it at every start, the first included, and a baked copy would be a data
+file of the mod with the same names, which wins over the staged definition and moves it back to run time. The build lists
+what it staged (`Kiln.Sdk.Bake: <id>: a boot mod: its OnBoot staged ...`). The mod then loads in the harness as a committed
+boot mod, and what its `OnLoad` defines is baked as for any mod; a talent its `OnBoot` stages gets no
+`skills/<id>.generated.json` (its node is in the boot generation), and one an earlier bake wrote is removed.
+
 ## What is not baked
 - **A mod that does not load without the game.** The harness has no game, and a block that lowers onto kiln.assets or
   kiln.content throws there: statuses, effects, items, spells and talent blocks. A talent block needs kiln.assets for its

@@ -123,6 +123,38 @@ internal sealed unsafe class BootGameData(KilnBootApi* table, ulong author) : IR
 
 internal static unsafe class BootPhase
 {
+    /// <summary>One author's staged definitions through Kiln.Blocks' lowering (BootLowering.LowerOwner, by reflection: Kiln.Host does not
+    /// reference Kiln.Blocks): its answer ({"ok": true, "docs", "definitions", "issues"}), or null and why not. The boot phase of a start and
+    /// the test kit's boot runner (KilnHarness.Boot) lower here, so both give the same documents and the same refusals.</summary>
+    internal static JsonObject? LowerStaged(Manifest m, string directory, IReadOnlyList<BootStaged> staged, out string why)
+    {
+        why = "";
+        var lower = Type.GetType("Kiln.BootLowering, Kiln.Blocks")?.GetMethod("LowerOwner", BindingFlags.Static | BindingFlags.NonPublic);
+        if (lower == null)
+        {
+            why = "Kiln.Blocks has no boot lowering in this build: its staged definitions cannot be lowered";
+            return null;
+        }
+        var request = new JsonObject
+        {
+            ["id"] = m.Id, ["clients"] = m.Clients.ToString().ToLowerInvariant(), ["dir"] = directory,
+            ["staged"] = new JsonArray(staged.Select(s => (JsonNode)new JsonObject { ["kind"] = s.Kind, ["key"] = s.Key, ["json"] = s.Json }).ToArray()),
+        };
+        JsonObject answer;
+        try { answer = JsonNode.Parse((string)lower.Invoke(null, [request.ToJsonString()])!)!.AsObject(); }
+        catch (TargetInvocationException e) when (e.InnerException is { } inner)
+        {
+            why = $"its boot definitions do not lower: {inner.GetType().Name}: {inner.Message}";
+            return null;
+        }
+        if (answer["ok"]?.GetValue<bool>() != true)
+        {
+            why = $"its boot definitions do not lower: {(string?)answer["reason"]}";
+            return null;
+        }
+        return answer;
+    }
+
     internal const uint StatusCollecting = 0, StatusPublished = 2;
     private static readonly string[] StatusNames = ["collecting", "preparing", "published", "aborted", "activation-fault"];
     private static readonly string[] StateCodes = ["NotParticipating", "Staged", "Committed", "ExcludedCallback", "ExcludedDependency", "RejectedPrepare",
@@ -304,29 +336,7 @@ internal static unsafe class BootPhase
         {
             why = "";
             if (boot.Staged.Count == 0) return true;
-            var lower = Type.GetType("Kiln.BootLowering, Kiln.Blocks")?.GetMethod("LowerOwner", BindingFlags.Static | BindingFlags.NonPublic);
-            if (lower == null)
-            {
-                why = "Kiln.Blocks has no boot lowering in this build: its staged definitions cannot be lowered";
-                return false;
-            }
-            var request = new JsonObject
-            {
-                ["id"] = a.Manifest.Id, ["clients"] = a.Manifest.Clients.ToString().ToLowerInvariant(), ["dir"] = a.Directory,
-                ["staged"] = new JsonArray(boot.Staged.Select(s => (JsonNode)new JsonObject { ["kind"] = s.Kind, ["key"] = s.Key, ["json"] = s.Json }).ToArray()),
-            };
-            JsonObject answer;
-            try { answer = JsonNode.Parse((string)lower.Invoke(null, [request.ToJsonString()])!)!.AsObject(); }
-            catch (TargetInvocationException e) when (e.InnerException is { } inner)
-            {
-                why = $"its boot definitions do not lower: {inner.GetType().Name}: {inner.Message}";
-                return false;
-            }
-            if (answer["ok"]?.GetValue<bool>() != true)
-            {
-                why = $"its boot definitions do not lower: {(string?)answer["reason"]}";
-                return false;
-            }
+            if (LowerStaged(a.Manifest, a.Directory, boot.Staged, out why) is not { } answer) return false;
             foreach (var issue in answer["issues"]!.AsArray())
                 a.Issues.Add(new BootIssue(a.Manifest.Id, (string)issue!["kind"]!, (string)issue["key"]!, "freeze", (string)issue["code"]!, (string)issue["reason"]!));
             var lowered = answer["definitions"]!.AsArray().Select(d => (string)d!).ToHashSet(StringComparer.Ordinal);

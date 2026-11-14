@@ -38,6 +38,7 @@
     <TkMod Include="mods/TkBlock/TkBlock.csproj" />
     <TkMod Include="mods/TkFakes/TkFakes.csproj" />
     <TkMod Include="mods/TkProgress/TkProgress.csproj" />
+    <TkMod Include="mods/TkBoot/TkBoot.csproj" />
     <ProjectReference Include="@(TkMod)" />
     <!-- Kiln.Hooks beside the kit, as in kiln/host: TkOffline reads it (a service that remembers a missing table). -->
     <ProjectReference Include="../../services/Kiln.Hooks/Kiln.Hooks.csproj" />
@@ -57,6 +58,8 @@
     <!-- Beside the kit for TkProgress: Kiln.Quests' and Kiln.Skills' engines on the kit's players and saves. -->
     <ProjectReference Include="../../services/Kiln.Quests/Kiln.Quests.csproj" />
     <ProjectReference Include="../../services/Kiln.Skills/Kiln.Skills.csproj" />
+    <!-- Kiln.Blocks beside the kit: tk-boot stages through BootDefinitions, and the kit lowers through it (BootFakeTests). -->
+    <ProjectReference Include="../../services/Kiln.Blocks/Kiln.Blocks.csproj" />
     <!-- Kiln's sample mods: built folders for LoadFolder; SampleTests also referenced so a suite can name its class. -->
     <TkSample Include="../../../mods/samples/SampleLib/SampleLib.csproj" />
     <TkSample Include="../../../mods/samples/SampleConsumer/SampleConsumer.csproj" />

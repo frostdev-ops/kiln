@@ -336,3 +336,67 @@ public sealed class BakeUnitTests
         }
     }
 }
+
+/// <summary>A boot mod's bake (chapter 08): its OnBoot runs through the kit's boot phase, as at a start; what it stages is not baked.</summary>
+[Collection("bake")]
+public sealed class BootBakeTests
+{
+    private static string FixturesDll => File.ReadAllLines(Path.Combine(AppContext.BaseDirectory, "bake-fixtures.txt")).First(l => l.Length > 0);
+
+    private static string BootMod(string type)
+    {
+        var dir = Directory.CreateTempSubdirectory("kiln-boot-fixture-").FullName;
+        File.Copy(FixturesDll, Path.Combine(dir, "BakeFixtures.dll"));
+        File.WriteAllText(Path.Combine(dir, "kiln.mod.json"),
+            $$"""{"id":"boot-{{type.ToLowerInvariant()}}","name":"{{type}}","version":"1.0.0","apiVersion":"0.2","entryAssembly":"BakeFixtures.dll","entryType":"BakeFixtures.{{type}}","side":"server","clients":"mod","boot":true}""");
+        return dir;
+    }
+
+    [Fact]
+    public void ABootModBakesAndItsNotesListWhatItsOnBootStaged()
+    {
+        var dir = BootMod("BootStages");
+        try
+        {
+            var result = Baker.Run(dir, new BakeOptions { DryRun = true });
+            Assert.Empty(result.Warnings);
+            var note = Assert.Single(result.Notes, n => n.StartsWith("a boot mod:", StringComparison.Ordinal));
+            Assert.Contains("statuses/chill, items/chill-token", note);
+            Assert.Empty(result.Written);  // no baked twin of what OnBoot staged: the boot generation has it at every start
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void ABakeWhoseOnBootThrowsFailsWithTheReason()
+    {
+        var dir = BootMod("BootThrows");
+        try
+        {
+            var e = Assert.Throws<InvalidOperationException>(() => Baker.Run(dir, new BakeOptions { DryRun = true }));
+            Assert.Contains("thrown on purpose in OnBoot", e.Message);
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void AStagedDefinitionThatDoesNotLowerFailsTheBake()
+    {
+        var dir = BootMod("BootOutside");
+        try
+        {
+            var e = Assert.Throws<InvalidOperationException>(() => Baker.Run(dir, new BakeOptions { DryRun = true }));
+            Assert.Contains("BootReferenceOutside", e.Message);
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+}
