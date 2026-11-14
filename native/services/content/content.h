@@ -377,6 +377,7 @@ bool nc_is_new(uint32_t kind, uint32_t id);
 void nc_drops_table(const Entry& table);           // a drop table seen for the first time (store_mutex held)        // a definition's entry (kitbash refs allowed without opt-in)
 bool nc_icon_alias(const uint8_t from[16], const uint8_t to[16]);  // false without the UI texture hook
 uint32_t nc_undefine_owner(KilnOwner owner);       // every definition of owner set aside (content sync: leave)
+uint32_t nc_forget_unbound(KilnOwner owner);       // a boot generation not published: owner's definitions taken out (no world yet)
 std::string nc_info_json(const std::string& refs_json);  // v4 info(): languages, placeholders, distribution
 // kiln.assets (any side; client for icons), looked up lazily: it may register after kiln.content. nullptr = none yet.
 const KilnAssetsApi* assets_api();

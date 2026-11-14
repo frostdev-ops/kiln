@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "kiln_api.h"
+#include "kiln_boot_collector.hpp"
 #include "merge.h"
 #include "reflect.h"
 #include "surfacecheck.h"
@@ -241,13 +242,18 @@ bool read_manifest(const fs::path& dir, Manifest* out) {
     return true;
 }
 
-// One mod: its data files, then what its build wrote, then what its code defined in an earlier run. A block a later source repeats stays the
-// first's: the data file or the fresh build is newer than a block kept from code.
-void read_mod(const std::string& dir, const fs::path& pending_root) {
+// One mod: its data files, then what its build wrote, then (a boot generation, chapter 08) what its OnBoot staged, then what its code defined
+// in an earlier run. A block a later source repeats stays the first's: the data file or the fresh build is newer than a block kept from code.
+// `boot`: the generation's prepare input; a mod it excludes is left out whole.
+void read_mod(const std::string& dir, const fs::path& pending_root, const kiln::boot::Input* boot = nullptr) {
     const fs::path d = to_path(dir);
     Manifest man;
     if (!read_manifest(d, &man)) return;
     if (!g_client && man.side == "client") return;  // a dedicated server doesn't load it
+    if (boot && boot->out(man.id)) {
+        WT_I("worldtables: %s is out of the boot generation: its blocks are not read", man.id.c_str());
+        return;
+    }
     std::vector<std::pair<std::string, fs::path>> files;
     const auto folder = [&](const fs::path& p, const std::string& prefix) {
         std::error_code ec;
@@ -260,20 +266,28 @@ void read_mod(const std::string& dir, const fs::path& pending_root) {
     folder(d / L"blocks", "blocks/");
     std::error_code ec;
     if (fs::exists(d / L"blocks.tables.json", ec)) files.emplace_back("blocks.tables.json", d / L"blocks.tables.json");
-    const size_t before_pending = files.size();
-    folder(pending_root / to_path(man.id), "kept from code: ");
-    if (files.size() > before_pending) g_pending_dirs[man.id] = pending_root / to_path(man.id);
-
     std::vector<std::pair<std::string, ojson>> docs;
     std::map<std::string, ojson> strengths, surfaces;
-    for (const auto& [label, path] : files) {
-        docs.emplace_back(label, parse_relaxed(read_text(path)));
+    const auto add = [&](const std::string& label, ojson doc) {
+        docs.emplace_back(label, std::move(doc));
         const ojson& d = docs.back().second;
-        if (d.is_discarded() || !d.is_object()) continue;
+        if (d.is_discarded() || !d.is_object()) return;
         if (d.contains("strengths") && d["strengths"].is_object())
             for (auto it = d["strengths"].begin(); it != d["strengths"].end(); ++it) strengths.emplace(it.key(), it.value());
         if (d.contains("surfaces") && d["surfaces"].is_object())
             for (auto it = d["surfaces"].begin(); it != d["surfaces"].end(); ++it) surfaces.emplace(it.key(), it.value());
+    };
+    for (const auto& [label, path] : files) add(label, parse_relaxed(read_text(path)));
+    if (boot)
+        for (const auto& b : boot->docs("worldtables", man.id)) add("boot code: " + b.key, ojson::parse(b.document.dump(), nullptr, false));
+    {
+        std::error_code e2;
+        std::vector<fs::path> found;
+        for (auto it = fs::directory_iterator(pending_root / to_path(man.id), e2); !e2 && it != fs::directory_iterator(); it.increment(e2))
+            if (it->path().extension() == L".json") found.push_back(it->path());
+        std::sort(found.begin(), found.end());
+        for (const fs::path& f : found) add("kept from code: " + to_utf8(f.filename()), parse_relaxed(read_text(f)));
+        if (!found.empty()) g_pending_dirs[man.id] = pending_root / to_path(man.id);
     }
     std::set<std::string> seen;
     for (const auto& [label, doc] : docs) {
@@ -1459,6 +1473,55 @@ Config read_config() {
     return c;
 }
 
+// The mods' blocks and what worlds remember (g_mu held): read in on_ready, or with a boot generation in its prepare.
+void read_all(const kiln::boot::Input* boot) {
+    try {
+        const fs::path pending = data_dir() / L"pending";
+        for (const std::string& dir : mod_folders()) read_mod(dir, pending, boot);
+        read_kept();
+    } catch (const std::exception& e) {
+        g_errors.push_back(std::string("reading the mods' blocks failed: ") + e.what());
+    }
+    g_state.store(KILN_WT_WAITING);
+    if (!g_tweaks.empty() || !g_live.empty() || !g_kept_read.empty())
+        WT_I("worldtables: read %zu tweak(s), %zu material(s) from mods, %zu remembered by worlds", g_tweaks.size(), g_live.size(), g_kept_read.size());
+}
+
+// A boot generation (chapter 08): the snapshot on_ready reads without a boot profile is read here, after OnBoot, before the game's entry
+// point; nothing merges it before the resource service is up (on_resources_ready), so destroy only forgets it.
+struct BootPlan {
+    size_t tweaks = 0, materials = 0, shapes = 0, props = 0;
+};
+void KILN_CALL destroy_boot(const void* p) {
+    {
+        std::lock_guard lock(g_mu);
+        g_tweaks.clear();
+        g_live.clear();
+        g_kept_read.clear();
+        g_shapes.clear();
+        g_craft_read.clear();
+        g_boot_definitions.clear();
+        g_from_code.clear();
+        g_pending_dirs.clear();
+        g_errors.clear();
+    }
+    WT_I("worldtables: the boot generation's prepared snapshot is dropped");
+    delete static_cast<const BootPlan*>(p);
+}
+KilnResult KILN_CALL prepare_boot(void*, const KilnBootPrepareInputV1* in, KilnBootPreparedV1* out, KilnBootIssueV1* issue) {
+    const kiln::boot::Input input = kiln::boot::parse(in);
+    if (!input.ok) return kiln::boot::refuse(out, issue, "", "", "", "kiln.worldtables: the boot envelope is not JSON");
+    auto* plan = new BootPlan;
+    {
+        std::lock_guard lock(g_mu);
+        read_all(&input);
+        *plan = BootPlan{g_tweaks.size(), g_live.size(), g_shapes.size(), g_craft_read.size()};
+    }
+    WT_I("worldtables: boot generation %llu prepared: %zu tweak(s), %zu material(s), %zu shape(s), %zu crafting prop(s)",
+         static_cast<unsigned long long>(input.generation), plan->tweaks, plan->materials, plan->shapes, plan->props);
+    return kiln::boot::prepared(out, plan, &destroy_boot);
+}
+
 // After every service's on_ready order is settled: kiln.assets is registered, S isn't up yet.
 void KILN_CALL on_ready(void*) {
     g_assets = static_cast<const KilnAssetsApi*>(g_api->service(KilnStr{KILN_ASSETS_SERVICE, sizeof(KILN_ASSETS_SERVICE) - 1}, KILN_ASSETS_VERSION));
@@ -1467,18 +1530,12 @@ void KILN_CALL on_ready(void*) {
         go_off("kiln.assets isn't there");
         return;
     }
-    {
+    if (kiln::boot::collect(g_api, g_self, "worldtables", &prepare_boot, nullptr)) {
+        // a boot profile: the snapshot is read in the boot generation's prepare; the merge below stays where it is
+        WT_I("worldtables: boot profile: the mods' blocks are read with the boot generation");
+    } else {
         std::lock_guard lock(g_mu);
-        try {
-            const fs::path pending = data_dir() / L"pending";
-            for (const std::string& dir : mod_folders()) read_mod(dir, pending);
-            read_kept();
-        } catch (const std::exception& e) {
-            g_errors.push_back(std::string("reading the mods' blocks failed: ") + e.what());
-        }
-        g_state.store(KILN_WT_WAITING);
-        if (!g_tweaks.empty() || !g_live.empty() || !g_kept_read.empty())
-            WT_I("worldtables: read %zu tweak(s), %zu material(s) from mods, %zu remembered by worlds", g_tweaks.size(), g_live.size(), g_kept_read.size());
+        read_all(nullptr);
     }
     g_saves = static_cast<const KilnSavesApi*>(g_api->service(KilnStr{KILN_SAVES_SERVICE, sizeof(KILN_SAVES_SERVICE) - 1}, KILN_SAVES_VERSION));
     if (g_assets->when_resources_ready(&on_resources_ready, nullptr) != KILN_OK) {

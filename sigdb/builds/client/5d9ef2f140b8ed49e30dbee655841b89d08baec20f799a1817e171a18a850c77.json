@@ -11,7 +11,7 @@
   "declared": {
     "symbols": 624,
     "constants": 702,
-    "features": 192
+    "features": 193
   },
   "features": {
     "abilities.attributes": true,
@@ -97,6 +97,7 @@
     "items.volume": true,
     "log.mirror": true,
     "log.write": true,
+    "mods.boot": true,
     "net.client": true,
     "net.client_guard": true,
     "net.client_ready": true,
@@ -1988,6 +1989,16 @@
         "hooks.typed": "static",
         "items.volume": "static",
         "weather.sample": "static"
+      }
+    },
+    "dev28-08-onboot": {
+      "level": "static",
+      "date": "2026-11-13",
+      "evidence": "resolved offline (tools/sigport/build_record.py)",
+      "symbols": {},
+      "constants": {},
+      "features": {
+        "mods.boot": "static"
       }
     },
     "dev28-11-replication-observe": {
