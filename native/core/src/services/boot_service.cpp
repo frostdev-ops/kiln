@@ -289,6 +289,8 @@ struct BootMod {
 };
 
 std::vector<BootMod> g_scanned;  // decide()'s manifest scan: every boot mod of the profile takes part, with its files at least
+// labs only (kiln.json "boot.testRefuse" with policy any): mod -> the collector that gets an unreadable document of it each round
+std::map<std::string, std::string> g_test_refuse;
 
 // kiln.mod.json's "boot" of one folder: 0 none, 1 true, 2 "required". `id` gets the manifest's id.
 int manifest_boot(const std::filesystem::path& dir, uint32_t side, std::string* id) {
@@ -656,6 +658,12 @@ std::string build_ir_locked() {
         for (auto& d : list)
             if (!out.count(d["owner"].get<std::string>())) kept.push_back(d);
         list = kept;
+    }
+    // the lab switch: an unreadable document of the mod, which the collector refuses as it refuses any such document
+    for (const auto& [mod, c] : g_test_refuse) {
+        const auto it = g_owners.find(mod);
+        if (it == g_owners.end() || excluded(it->second)) continue;
+        ir["collectors"][c].push_back({{"owner", mod}, {"key", "lab.test-refuse"}, {"document", json::array()}});
     }
     return ir.dump();
 }
@@ -1073,6 +1081,21 @@ void decide(bool hooks, const std::string& safe_idle) {
         g_why = why;
         g_boot_mods = names;
         g_scanned = deferred ? mods : std::vector<BootMod>();
+        g_test_refuse.clear();
+        if (deferred && !config().boot_test_refuse.empty()) {
+            if (!config().policy_any) {
+                KLOG_W("boot: kiln.json boot.testRefuse is ignored: it is a lab switch and needs policy \"any\"");
+            } else {
+                for (const auto& [mod, c] : config().boot_test_refuse) {
+                    if (collector_index(c) < 0) {
+                        KLOG_W("boot: kiln.json boot.testRefuse.%s: \"%s\" is not a collector; ignored", mod.c_str(), c.c_str());
+                        continue;
+                    }
+                    g_test_refuse[mod] = c;
+                    KLOG_W("boot: lab switch boot.testRefuse: collector %s gets an unreadable document of %s (the mod is dropped)", c.c_str(), mod.c_str());
+                }
+            }
+        }
         g_status = KILN_BOOT_STATUS_COLLECTING;
     }
     if (deferred) {

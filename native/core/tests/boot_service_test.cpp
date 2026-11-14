@@ -739,6 +739,39 @@ void drop_case(int at) {
     pass_line(std::string("BOOT-DROP-OPTIONAL (ruling 7) refusal at ") + kiln::boot_svc::kCollectors[at], f0);
 }
 
+// the lab switch kiln.json "boot.testRefuse": with policy any the named collector gets an unreadable document of the mod each
+// round until the mod is out; without policy any nothing changes
+void test_refuse_case() {
+    t_case = "test-refuse";
+    const int f0 = t_fail;
+    auto lab_entry = [](const json& ir, const char* c) {
+        if (!ir.contains("collectors") || !ir["collectors"].contains(c)) return false;
+        for (const auto& d : ir["collectors"][c])
+            if (d["owner"] == "opt" && d["key"] == "lab.test-refuse" && d["document"] == json::array()) return true;
+        return false;
+    };
+    t_config.boot_test_refuse = {{"opt", "skills"}, {"keep", "no-such-collector"}};
+    t_config.policy_any = false;
+    deferred_with({"opt", "keep"});
+    run_authors({"opt", "keep"});
+    auto c = commit_with(envelope({"opt", "keep"}));
+    CHECK(c.status == KILN_BOOT_STATUS_PUBLISHED && !lab_entry(t_fake[3].seen.at(0), "skills"));  // not a lab: ignored
+    t_config.policy_any = true;
+    deferred_with({"opt", "keep"});
+    run_authors({"opt", "keep"});
+    t_fake[3].act = Do::Refuse;  // the fake refuses as the real collector does an unreadable document
+    t_fake[3].act_round = 1;
+    t_fake[3].blame = "opt";
+    c = commit_with(envelope({"opt", "keep"}));
+    CHECK(c.status == KILN_BOOT_STATUS_PUBLISHED && lab_entry(t_fake[3].seen.at(0), "skills"));
+    CHECK(!lab_entry(t_fake[3].seen.back(), "skills"));  // round 2: opt is out, so is its lab document
+    CHECK(state_of("opt") == KILN_BOOT_STATE_REJECTED_PREPARE && state_of("keep") == KILN_BOOT_STATE_COMMITTED);
+    CHECK(!lab_entry(t_fake[0].seen.at(0), "assets"));  // only the named collector
+    t_config.boot_test_refuse.clear();
+    t_config.policy_any = false;
+    pass_line("BOOT-TEST-REFUSE the lab switch hands one collector an unreadable document of the mod (policy any only)", f0);
+}
+
 void dependent_required_case() {
     t_case = "drop-required-dependent";
     const int f0 = t_fail;
@@ -1408,6 +1441,7 @@ int main(int argc, char** argv) {
     for (int i = 0; i < 7; ++i) atomic_required_case(i);
     for (int i = 0; i < 7; ++i) atomic_unattributed_case(i);
     for (int i = 0; i < 7; ++i) drop_case(i);
+    test_refuse_case();
     dependent_required_case();
     callback_cases();
     contract_cases();
