@@ -9,9 +9,9 @@
   "verified": true,
   "note": "runtime-verified through Steam (GE-Proton11-11), policy any, core + every service + kiln-emf + probe + ui-test + menubuttons: side client, sigdb 306/306 symbols, 434/434 constants (client.d composed), SimStep + WorldDestroy hooked, boot complete, 0 errors; main menu entries Kiln / ui-test / Mods (the Kiln sample screen opened); hosted a LOCAL world offline (saves: world loaded: slot 0x0002 (world1.ksd)): server world 60 steps/s on the GameServer thread, client and prediction worlds on the main thread, local player 1; ui-test all checks PASS (screens MainMenu/Loading/InGame/PauseMenu/Map/Crafting, menu entries chosen, crafting state), Kiln crafting tabs and subcategories shown, Insert overlay; tick cost as on ce6fdba6 (server step p50 2.5 ms, Kiln Pre 0.037 ms; client 1.2 ms); back to the menu (worlds stopping, shutdown save), clean quit (Shutdown 'Steam'). Not covered: joining a remote server, service write paths on the client. Added in dev.22 from static analysis only (resolved offline with sigdb_check.py, not yet seen running): ui.menu_page, ui.menu_page_sound, ui.error_popup (ui/PreGameCredits, ui/PreGameCreditsRet, ui/UiPlaySound and their constants). Levels (record 2, refreshed offline on 2026-11-11, no client run): lab = the names the boot above resolved, as its record listed them (199 named symbols, 434 constants, 106 features), each resolving to the same value today; every service loaded in that boot, but only ui-test ran, so lab here means loaded with Kiln's checks passing, not that the service test mods ran on the client. static = everything else, resolved offline only: the 186 @ probes (the boot's record did not list probes), the dev.22 ui names above, and every name declared since (the services audio, characters, emf-net, npcai, pacing, progression, quests, render, rules, skills, types and vfx, and new names of combat, creatures, gamedata, items, net, players, time and ui): 158 symbols, 210 constants and 70 features. sigdb now declares 543 symbols (441 defined, 102 captured), 644 constants (595 defined, 49 captured) and 176 features; all of them resolve offline on this exe.",
   "declared": {
-    "symbols": 614,
-    "constants": 685,
-    "features": 191
+    "symbols": 625,
+    "constants": 691,
+    "features": 192
   },
   "features": {
     "abilities.attributes": true,
@@ -92,6 +92,7 @@
     "items.read": true,
     "items.recipe": true,
     "items.scan": true,
+    "items.tool_wear_debit": true,
     "items.transaction": true,
     "items.transfer": true,
     "items.volume": true,
@@ -348,16 +349,19 @@
     "gameplay/RandomSpawnerSpawnRet": "0x346c27",
     "gameplay/RecipeFind": "0xe997e0",
     "gameplay/TerraformImpact": "0x3ece10",
+    "items/ActorSpawnUpdate": "0x228130",
     "items/AddComponent": "0x960a20",
     "items/AreaDeposit": "0x412ed0",
     "items/AttrChanged": "0x2358c0",
     "items/AttrFind": "0x123a930",
     "items/ComponentMapFind": "0x9b1db0",
     "items/CreatePide": "0x411e20",
+    "items/EnableDurability": "0xea2e00",
     "items/EquipItem": "0x4152d0",
     "items/GetItemVolume": "0x41af40",
     "items/GuidToItemId": "0x223400",
     "items/HashMapFindEntity": "0x9b4dc0",
+    "items/HitCounterLimit": "0xe8f960",
     "items/InventoryAddItems": "0x412460",
     "items/InventoryCommit": "0x40fe30",
     "items/InventoryFreeArrays": "0x221b40",
@@ -383,7 +387,12 @@
     "items/RegisterProgram": "0x9e2e40",
     "items/SetString": "0xe6eb50",
     "items/SlotTransfer": "0x4149b0",
+    "items/SpawnWearCall": "0x22921c",
+    "items/ToolWearUpdate": "0x239740",
     "items/UnequipItem": "0x419740",
+    "items/WeaponWearReturn": "0x239984",
+    "items/WearDelta": "0x3b5d70",
+    "items/WearItem": "0x3b5ca0",
     "items/WriteOther": "0x9b2900",
     "net/ClientGameplayReady": "0x86d9f0",
     "net/ClientReceive": "0x874ed0",
@@ -875,6 +884,12 @@
     "items/registry.items": "0x38",
     "items/setup.operator": "0xc8",
     "items/setup_c.initialized": "0x53",
+    "items/spawn.durability_accessor_local": "0x458",
+    "items/spawn.itemstate_slot": "0x1f0",
+    "items/spawn.iter_base": "0x280",
+    "items/spawn.iter_size": "0x218",
+    "items/spawn.request_local": "0x390",
+    "items/spawn.request_pide": "0x3c",
     "items/storage.entities": "0x148",
     "items/storage.next_id": "0x498",
     "items/strings.bitmap": "0x198",
@@ -1958,6 +1973,35 @@
       "features": {
         "repl.client": "static",
         "repl.observe": "static"
+      }
+    },
+    "dev28-16b-tool-durability": {
+      "level": "static",
+      "date": "2026-11-13",
+      "evidence": "resolved offline (tools/sigport/build_record.py)",
+      "symbols": {
+        "@items/SpawnIterator": "static",
+        "@items/SpawnWearTarget": "static",
+        "@items/WearSettings": "static",
+        "items/ActorSpawnUpdate": "static",
+        "items/EnableDurability": "static",
+        "items/HitCounterLimit": "static",
+        "items/SpawnWearCall": "static",
+        "items/ToolWearUpdate": "static",
+        "items/WeaponWearReturn": "static",
+        "items/WearDelta": "static",
+        "items/WearItem": "static"
+      },
+      "constants": {
+        "items/spawn.durability_accessor_local": "static",
+        "items/spawn.itemstate_slot": "static",
+        "items/spawn.iter_base": "static",
+        "items/spawn.iter_size": "static",
+        "items/spawn.request_local": "static",
+        "items/spawn.request_pide": "static"
+      },
+      "features": {
+        "items.tool_wear_debit": "static"
       }
     },
     "emf": {

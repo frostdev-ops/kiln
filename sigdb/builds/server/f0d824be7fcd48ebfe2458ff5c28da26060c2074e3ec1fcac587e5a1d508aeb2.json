@@ -9,9 +9,9 @@
   "verified": true,
   "note": "runtime-verified in labs on this exe, 2026-11-11, Kiln 0.2.0-dev+20261112.68988ae, policy any, standard lab save copied fresh for each group, one group per boot (or per run of boots): the running core resolved sigdb 447/447 symbols (355 defined, 92 captured), 542/542 constants (493 defined, 49 captured) and 146/146 features, each to the same value as the offline resolve (compared per name from sigdb-report.json); base world 24/0, players 30/0, chat+time 50/0, hooks 17/0, content 33/0, newcontent 24/0; api 74/0; settings 70/0; items 95/0 (kiln.items self-test on); combat 203/0 (watch-all); spawn 57/0 over 3 boots; gameplay 48/0; creatures 63/0; assets 17/0; rules 53/0; pacing 21/0; types 32/0 + types-peer 8/0; progression 45/0 (no player); net 168/0 with nettest 95 PASS, 0 FAIL; quests 188/0 over 3 boots; skills 124/0 over 2 boots; characters 53/0 over 3 boots; gamedata 71/0 over 2 boots (reload, restart); saves 54/0 over 8 boots (SIGINT, kill -9 x3, restore, game backup); build 79/0 over 4 boots; placeholder 34/0 over 4 boots (kill -9). Failing, so their names stay static: abilities 70/3, 70/3, 71/2 over three runs (the bow shot is refused by the core's PlaySequence guard every time, the Greet emote ran 73/66/79 steps of the 80 the test wants, the staff cast 38/35 then passed, the PC under heavy load); npcai 25/6 twice (force ready unavailable on four spawned creatures, the peacekeeper's relations not applied). Not run: emf (its probe needs third-party EMF mods). Levels: lab 1093 names in 24 services, static 42 (abilities, npcai, emf). With this record under verified-only: build verified, SimStep hooked, every server service loaded (27; audio, screen, ui and vfx skipped as client-only), 0 error lines.",
   "declared": {
-    "symbols": 497,
-    "constants": 580,
-    "features": 159
+    "symbols": 508,
+    "constants": 586,
+    "features": 160
   },
   "features": {
     "abilities.attributes": true,
@@ -81,6 +81,7 @@
     "items.read": true,
     "items.recipe": true,
     "items.scan": true,
+    "items.tool_wear_debit": true,
     "items.transaction": true,
     "items.transfer": true,
     "items.volume": true,
@@ -290,16 +291,19 @@
     "gameplay/RandomSpawnerSpawnRet": "0x106287",
     "gameplay/RecipeFind": "0x940a20",
     "gameplay/TerraformImpact": "0x18e0b0",
+    "items/ActorSpawnUpdate": "0x454f0",
     "items/AddComponent": "0x5fc570",
     "items/AreaDeposit": "0x1b2a70",
     "items/AttrChanged": "0x52700",
     "items/AttrFind": "0x991810",
     "items/ComponentMapFind": "0x64dc40",
     "items/CreatePide": "0x1b1920",
+    "items/EnableDurability": "0x94a050",
     "items/EquipItem": "0x1b4e70",
     "items/GetItemVolume": "0x1bb380",
     "items/GuidToItemId": "0x40720",
     "items/HashMapFindEntity": "0x650c50",
+    "items/HitCounterLimit": "0x936aa0",
     "items/InventoryAddItems": "0x1b1f60",
     "items/InventoryCommit": "0x1af860",
     "items/InventoryFreeArrays": "0x3ee60",
@@ -325,7 +329,12 @@
     "items/RegisterProgram": "0x67ede0",
     "items/SetString": "0x915b80",
     "items/SlotTransfer": "0x1b4550",
+    "items/SpawnWearCall": "0x465dc",
+    "items/ToolWearUpdate": "0x56610",
     "items/UnequipItem": "0x1b9b80",
+    "items/WeaponWearReturn": "0x56854",
+    "items/WearDelta": "0x1609a0",
+    "items/WearItem": "0x1608d0",
     "items/WriteOther": "0x64e790",
     "net/CreateEntityReader": "0x5fd6e0",
     "net/CreateTemplateCall": "0x5fd857",
@@ -733,6 +742,12 @@
     "items/registry.items": "0x38",
     "items/setup.operator": "0xc8",
     "items/setup_c.initialized": "0x53",
+    "items/spawn.durability_accessor_local": "0x458",
+    "items/spawn.itemstate_slot": "0x1f0",
+    "items/spawn.iter_base": "0x280",
+    "items/spawn.iter_size": "0x218",
+    "items/spawn.request_local": "0x390",
+    "items/spawn.request_pide": "0x3c",
     "items/storage.entities": "0x148",
     "items/storage.next_id": "0x498",
     "items/strings.bitmap": "0x198",
@@ -1667,6 +1682,35 @@
       "features": {
         "repl.loopback": "static",
         "repl.observe": "static"
+      }
+    },
+    "dev28-16b-tool-durability": {
+      "level": "static",
+      "date": "2026-11-13",
+      "evidence": "resolved offline (tools/sigport/build_record.py)",
+      "symbols": {
+        "@items/SpawnIterator": "static",
+        "@items/SpawnWearTarget": "static",
+        "@items/WearSettings": "static",
+        "items/ActorSpawnUpdate": "static",
+        "items/EnableDurability": "static",
+        "items/HitCounterLimit": "static",
+        "items/SpawnWearCall": "static",
+        "items/ToolWearUpdate": "static",
+        "items/WeaponWearReturn": "static",
+        "items/WearDelta": "static",
+        "items/WearItem": "static"
+      },
+      "constants": {
+        "items/spawn.durability_accessor_local": "static",
+        "items/spawn.itemstate_slot": "static",
+        "items/spawn.iter_base": "static",
+        "items/spawn.iter_size": "static",
+        "items/spawn.request_local": "static",
+        "items/spawn.request_pide": "static"
+      },
+      "features": {
+        "items.tool_wear_debit": "static"
       }
     },
     "emf": {
