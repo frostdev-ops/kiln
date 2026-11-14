@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Kiln.Terrain: bounded terrain overlays (a vein, a mound, a tunnel) applied once per world over several ticks, with
+       a per-world ledger of who owns which 8-cell block at which version. Managed only: every cell goes through
+       Kiln.Build, the ledger through Kiln.Saves' WorldData. Deployed to kiln/host/ and shared by every mod. -->
+  <PropertyGroup>
+    <RootNamespace>Kiln</RootNamespace>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591;CS1573</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Build/Kiln.Build.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Saves/Kiln.Saves.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Spawn/Kiln.Spawn.csproj" Private="false" />
+    <InternalsVisibleTo Include="Kiln.Terrain.Tests" />
+    <InternalsVisibleTo Include="Kiln.TestKit" />
+    <InternalsVisibleTo Include="Kiln.Contract.Tests" />
+  </ItemGroup>
+</Project>

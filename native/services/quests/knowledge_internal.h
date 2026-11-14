@@ -70,6 +70,7 @@ std::string knowledge_resource_origin(uintptr_t res);
 // Mods' native quests and NPCs (native_pack.cpp): boot-time resource rebuilds.
 void native_pack_install();   // kiln_plugin_main: the hook on the game's resource service init
 void native_pack_ready();     // on_ready: the resource service may be up already (a client)
+bool native_pack_boot();      // on_ready, first: a boot profile (chapter 08) registers the prepare with kiln.boot
 std::string native_pack_manifest();
 bool native_pack_resolve(const std::string& lower_name, uint32_t* id);  // "<mod>:<name>" (lower case)
 

@@ -156,3 +156,25 @@ server record rests on is in each service's `evidence`; this table says which te
 Client records: the client-only files (`audio`, `render`, `ui`, `vfx`, `emf-net` and the client overlays) cannot run on
 a lab server. Their names are `static` until a real-client run; `lab` on the client record comes from a real-client
 boot, as its `evidence` says.
+
+## Program catalogs (`sigdb/programs/`)
+Next to a build record, `sigdb/programs/<side>/<sha256>.json` lists every ECS program that exe registers: its name,
+flags, interval, whether it has an update in that exe (a client program has none in the server exe), the names in
+each of its descriptor's 21 access lists (descriptor order), its three masks and its contract (FNV-1a-32 of the
+contract text, chapter 06a section 9.7; kiln.world checks a live descriptor the same way). Like `sigdb/types/`, a
+catalog is structure only, read from the exe file without running it: no address, RVA or call site, no default-value
+bytes, nothing from the game's data files. One file per exe; programs sorted by name.
+
+```sh
+python3 tools/typegen/catalog.py dump server "<path to enshrouded_server.exe>"   # needs python capstone
+python3 tools/typegen/catalog.py dump client "<path to enshrouded.exe>"
+python3 tools/typegen/catalog.py check                                           # every file under sigdb/programs
+```
+
+`dump` finds `world/RegisterProgram` through sigdb, takes every call and tail jump to it (816 calls and the one jump of
+`client_event_tracking` on svn 1287369), reads each descriptor and refuses to write a file its own check rejects.
+`check` (also run by `tools/typegen/tests/run.py`, so by `Kiln.Game.Tests`) allows only the keys and shapes above,
+recomputes every contract, and for a known exe compares the counts with the lab: server f0d824be… holds 817 programs,
+197 of them client programs (flag 0x1, no update), the numbers kiln.world's directory reported in the 06a lab row
+`find: 817 game programs, 197 client-only`; client 5d9ef2f1… holds the same 817, every one with an update. A new game
+build needs a new catalog (registration order and access lists move between builds); commit it with its build record.

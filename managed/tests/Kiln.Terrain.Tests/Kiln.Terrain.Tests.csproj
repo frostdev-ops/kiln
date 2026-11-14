@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Unit tests of Kiln.Terrain with no game: the overlay engine on an in-memory voxel world (lowering, batches and
+       budget, the ledger's rules, conflicts, events), and the JSON twin of a patch. -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>TerrainTests</RootNamespace>
+    <IsTestProject>true</IsTestProject>
+    <OutputType>Exe</OutputType>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit.v3" Version="3.1.0" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../services/Kiln.Terrain/Kiln.Terrain.csproj" />
+    <ProjectReference Include="../../services/Kiln.Build/Kiln.Build.csproj" />
+    <ProjectReference Include="../../Kiln.TestKit/Kiln.TestKit.csproj" />
+  </ItemGroup>
+</Project>
