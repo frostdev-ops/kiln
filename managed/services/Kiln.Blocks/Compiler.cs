@@ -512,9 +512,22 @@ internal sealed class Lowered(ModBlocks mod)
         public void Recipe(ulong owner, RecipeDefinition d) => BlocksBridge.Register(d, owner);
     }
 
+    /// <summary>Set while a boot generation is lowered (BootLowering.cs, chapter 08): a commit hands its registrations to the sink (the IR
+    /// envelope) and leaves the runtime parts (rules, late programs, after-commit actions) to the mod's runtime activation.</summary>
+    [ThreadStatic] internal static bool _bootLowering;
+
     public void Commit()
     {
         if (_staging is { Committing: false }) throw new InvalidOperationException("a block staged for a kind's plan was committed before the plan: nothing of a plan registers until all of it is checked");
+        if (_bootLowering)
+        {
+            foreach (var (guid, blob) in _programs)
+                if (!mod.LateBuilders.ContainsKey(guid)) Sink.Program(mod.Owner, guid, blob);
+            foreach (var (section, def) in _clones) Sink.Clone(mod.Owner, section, def);
+            foreach (var d in _items) Sink.Item(mod.Owner, d);
+            foreach (var d in _recipes) Sink.Recipe(mod.Owner, d);
+            return;
+        }
         foreach (var (guid, blob) in _programs)
         {
             if (mod.LateBuilders.ContainsKey(guid)) continue;     // BlockRuntime finishes it when content is ready

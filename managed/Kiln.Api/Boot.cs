@@ -140,6 +140,10 @@ internal static class BootGeneration
 
     internal static ulong Number { get; private set; }
 
+    /// <summary>A committed boot mod's runtime instance loaded (Kiln.Host, after its OnLoad): Kiln.Blocks sets it when it lowered a
+    /// generation, to run the definitions' runtime parts and deliver BootDefinitionsCommittedEvent.</summary>
+    internal static Action<string>? Activated;
+
     internal static void Record(ulong generation, IEnumerable<BootModReport> reports, IReadOnlyDictionary<string, IReadOnlyList<BootStaged>> committed)
     {
         lock (Gate)

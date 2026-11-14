@@ -29,6 +29,15 @@ internal static class BlockJson
             yield return make.Method.IsGenericMethod ? make.Method.GetGenericArguments()[0] : make.Method.Name == nameof(MakeVfx) ? typeof(VfxBlock) : typeof(MaterialBlock);
     }
 
+    /// <summary>The blocks/*.json section of a record type (BootDefinitions names a kind it refuses); null for none.</summary>
+    internal static string? SectionOf(Type type)
+    {
+        foreach (var (section, make) in Kinds)
+            if ((make.Method.IsGenericMethod ? make.Method.GetGenericArguments()[0] : make.Method.Name == nameof(MakeVfx) ? typeof(VfxBlock) : typeof(MaterialBlock)) == type)
+                return section;
+        return null;
+    }
+
     private static readonly JsonDocumentOptions Doc = new() { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true };
 
     // The limits of a mod's own blocks/ folder, as in native/services/vfx/generated.h.

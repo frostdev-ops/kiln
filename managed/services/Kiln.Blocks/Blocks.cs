@@ -43,6 +43,9 @@ public static partial class Blocks
     public static BlockHandle<T> Define<T>(string name, T block) where T : class, IBlock
     {
         ArgumentNullException.ThrowIfNull(block);
+        // Mod.OnBoot stages with BootDefinitions: a live definition there would register before the generation is checked
+        if (BootFrame.Current is { } boot)
+            throw new InvalidOperationException($"PhaseClosed: Blocks.Define is refused inside {boot.ModId}'s OnBoot; stage the block with BootDefinitions.For(boot).Define");
         var mod = CallerMod();
         return Compiler.Define(mod, name, block);
     }

@@ -208,6 +208,32 @@ bool in_cooked(const fs::path& base, const fs::path& fp) {
 std::vector<std::string> g_loaded_dirs;
 std::mutex g_loaded_mu;
 
+// Standard base64 (a boot document's inline resource); false on a character outside the alphabet.
+bool base64_decode(const std::string& in, std::vector<uint8_t>* out) {
+    auto val = [](char c) -> int {
+        if (c >= 'A' && c <= 'Z') return c - 'A';
+        if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+        if (c >= '0' && c <= '9') return c - '0' + 52;
+        return c == '+' ? 62 : c == '/' ? 63 : -1;
+    };
+    out->clear();
+    out->reserve(in.size() / 4 * 3);
+    uint32_t acc = 0;
+    int bits = 0;
+    for (const char c : in) {
+        if (c == '=') break;
+        const int v = val(c);
+        if (v < 0) return false;
+        acc = (acc << 6) | static_cast<uint32_t>(v);
+        bits += 6;
+        if (bits >= 8) {
+            bits -= 8;
+            out->push_back(static_cast<uint8_t>((acc >> bits) & 0xFF));
+        }
+    }
+    return true;
+}
+
 // `doc_in`: a manifest that is not the file (a boot generation's document, chapter 08), its files still the mod's own.
 KilnResult load_manifest(KilnOwner owner, const std::string& mod_dir, std::string* report, const CookTrust* trust_in = nullptr,
                          const CookedIds* cooked_ids_in = nullptr, const json* doc_in = nullptr) {
@@ -323,7 +349,9 @@ KilnResult load_manifest(KilnOwner owner, const std::string& mod_dir, std::strin
         }
         if (!g_client && clients_only[i]) { ++icons_server; continue; }
         fs::path fp;
-        if (kind != "blob" || !file.empty()) {  // every kind but a hash-only blob names a file
+        // a boot generation's resource carries its bytes (chapter 08: Kiln.Blocks' lowered programs), base64 in "data"
+        const bool inline_data = doc_in && kind == "resource" && e.contains("data") && e["data"].is_string();
+        if (!inline_data && (kind != "blob" || !file.empty())) {  // every kind but a hash-only blob names a file
             if (!safe_path(base, file, &fp, &why)) { fail(kind + ": " + why); continue; }
         }
         if (kind == "icon") {
@@ -373,8 +401,12 @@ KilnResult load_manifest(KilnOwner owner, const std::string& mod_dir, std::strin
             bool ok;
             if (!parse_guid(e.value("guid", ""), g)) { fail("resource: bad guid"); continue; }
             std::vector<uint8_t> bytes;
-            if (!read(fp, &bytes, &why)) { fail("resource " + file + ": " + why); continue; }
-            if (!made_here(fp, bytes)) continue;
+            if (inline_data) {
+                if (!base64_decode(e["data"].get<std::string>(), &bytes)) { fail("resource: \"data\" is not base64"); continue; }
+            } else {
+                if (!read(fp, &bytes, &why)) { fail("resource " + file + ": " + why); continue; }
+                if (!made_here(fp, bytes)) continue;
+            }
             // patch: write a referenced blob's ContentHash at the given offset. Every blob is read and judged before
             // anything is added: a resource whose blob this game's cook did not make is left out whole.
             std::vector<std::pair<size_t, std::vector<uint8_t>>> patches;
