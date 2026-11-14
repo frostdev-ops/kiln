@@ -201,6 +201,10 @@ Kiln.AttackControl.Force(int index) -> void
 Kiln.AttackControl.Force(string! name) -> void
 Kiln.AttackControl.Natural() -> void
 Kiln.CreatureAdminCommands
+Kiln.CreatureChangedEvent
+Kiln.CreatureChangedEvent.Entity.get -> Kiln.EntityId
+Kiln.CreatureChangedEvent.Origin.get -> string!
+Kiln.CreatureChangedEvent.What.get -> string!
 Kiln.CreatureCommands
 Kiln.CreatureCommands.Attack(Kiln.EntityId target, float threat = 1000) -> void
 Kiln.CreatureCommands.ControlTarget(Kiln.EntityId target) -> void
@@ -847,6 +851,7 @@ override Kiln.ArsenalInfo.ToString() -> string!
 override Kiln.ArsenalRulesStatus.Equals(object? obj) -> bool
 override Kiln.ArsenalRulesStatus.GetHashCode() -> int
 override Kiln.ArsenalRulesStatus.ToString() -> string!
+override Kiln.CreatureChangedEvent.ToString() -> string!
 override Kiln.CreatureInfo.Equals(object? obj) -> bool
 override Kiln.CreatureInfo.GetHashCode() -> int
 override Kiln.CreatureInfo.ToString() -> string!
