@@ -2,7 +2,7 @@
   "id": "npcsample",
   "name": "NPC Sample",
   "version": "0.1.0",
-  "apiVersion": "0.1",
+  "apiVersion": "0.2",
   "entryAssembly": "NpcSample.dll",
   "side": "both",
   "clients": "mod",
