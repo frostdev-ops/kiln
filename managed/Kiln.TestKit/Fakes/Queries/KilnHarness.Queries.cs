@@ -50,7 +50,6 @@ public sealed class FakePathAnswer
     internal double Length { get; private init; }
     internal string Reason { get; private init; } = "";
     internal IReadOnlyList<(WorldPosition Position, byte Move)> Points { get; private init; } = [];
-    private bool _route;
 
     /// <summary>A walking route through these points.</summary>
     /// <exception cref="ArgumentException">No point.</exception>
@@ -60,7 +59,7 @@ public sealed class FakePathAnswer
         if (points.Length == 0) throw new ArgumentException("a route has at least one point", nameof(points));
         var length = 0.0;
         for (var i = 1; i < points.Length; i++) length += points[i - 1].DistanceTo(points[i]);
-        return new FakePathAnswer { _route = true, Ok = true, GameResult = 1, Length = length, Points = [.. points.Select(p => (p, (byte)0))] };
+        return new FakePathAnswer { Ok = true, GameResult = 1, Length = length, Points = [.. points.Select(p => (p, (byte)0))] };
     }
 
     /// <summary>A route with a step that is not walking (<paramref name="move"/>: the game's move kind, 2 = jump up): the
@@ -89,10 +88,22 @@ public sealed class FakePathAnswer
     // a route is found when it ends at the target (1.5 m across, 3 m up or down), partial otherwise
     internal FakePathAnswer For(FakePathRequest request)
     {
-        if (!_route) return this;
+        if (GameResult != 1) return this;
+        FakePathAnswer Bad(QueryPathStatusFake status, string reason) => new() { Status = status, Reason = reason, GameResult = 1 };
+        if (Points.Count == 0) return Bad(QueryPathStatusFake.MalformedResult, "EmptyFoundPath");
+        if (Points.Count > 4096) return Bad(QueryPathStatusFake.Truncated, "PointLimitExceeded");
+        var length = 0.0;
+        for (var i = 0; i < Points.Count; i++)
+        {
+            var p = Points[i].Position;
+            if (!float.IsFinite((float)p.X) || !float.IsFinite((float)p.Y) || !float.IsFinite((float)p.Z)) return Bad(QueryPathStatusFake.MalformedResult, "MalformedPoints");
+            if (i > 0) length += Points[i - 1].Position.DistanceTo(p);
+        }
+        if (!double.IsFinite(length)) return Bad(QueryPathStatusFake.MalformedResult, "MalformedPoints");
+        if (Points.Any(p => p.Move != 0)) return new FakePathAnswer { Status = QueryPathStatusFake.UnsupportedTraversal, GameResult = 1, Reason = "UnsupportedTraversal", Points = Points };
         var last = Points[^1].Position;
         var reaches = Math.Sqrt((last.X - request.To.X) * (last.X - request.To.X) + (last.Z - request.To.Z) * (last.Z - request.To.Z)) <= 1.5 && Math.Abs(last.Y - request.To.Y) <= 3;
-        return new FakePathAnswer { _route = true, Ok = true, Reaches = reaches, Status = reaches ? QueryPathStatusFake.Found : QueryPathStatusFake.Partial, GameResult = 1, Length = Length, Points = Points };
+        return new FakePathAnswer { Ok = true, Reaches = reaches, Status = reaches ? QueryPathStatusFake.Found : QueryPathStatusFake.Partial, GameResult = 1, Length = length, Points = Points };
     }
 }
 
