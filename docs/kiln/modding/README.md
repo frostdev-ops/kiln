@@ -42,6 +42,7 @@ generated [../status.generated.md](../status.generated.md); what has no API yet 
 | [vscode.md](vscode.md) | The VS Code extension (tools/vscode): schemas, lint, game ids, build/deploy/reload, Testing view, kiln.log, KAP/1 console, Impact assembly |
 | [cli.md](cli.md) | The `kiln` command: new, build, cook, deploy, run, reload, test, debug, lint, pack, publish, logs, blocks, catalog, vfx, skeleton |
 | [publishing.md](publishing.md) | `kiln publish`: releasing a packed mod at GitHub (plan, apply, publish), the token, what a published zip may hold |
+| [boot-snapshot.md](boot-snapshot.md) | The boot snapshot: the game data Kiln reads from the game's files before a start, for mods that change data in `OnBoot`; `kiln boot-snapshot` |
 | [analyzers.md](analyzers.md) | KILN1xx: compiler warnings about threads, hot reload and the manifest, with code fixes |
 | [catalogs.md](catalogs.md) | The local game-data catalog and the game-id constants |
 | [../services/queries.md](../services/queries.md) | `Kiln.Queries`: what is on a line through the terrain, the ground below a point, voxel line of sight, the entities in a sphere or a box; the ray budget all mods share |

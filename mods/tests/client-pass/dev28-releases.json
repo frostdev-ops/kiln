@@ -93,6 +93,7 @@
   "19f-terrain-client": "0.2.0-dev.32",
   "19f-derived-companions": "0.2.0-dev.32",
   "19f-base-exposure": "0.2.0-dev.32",
-  "19f-outer-tile": "0.2.0-dev.32"
+  "19f-outer-tile": "0.2.0-dev.32",
+  "00-sigdb.in-place-patches": "0.2.0-dev.28"
  }
 }
