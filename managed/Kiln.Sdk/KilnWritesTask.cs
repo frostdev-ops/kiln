@@ -13,7 +13,8 @@ namespace Kiln.Sdk;
 /// <summary>
 /// Fills <c>"writes"</c> in the built mod's kiln.mod.json (<see cref="ManifestPath"/>, the copy in the output folder)
 /// from the mod's code: every generated component type of <c>Kiln.Game</c> that the built assembly passes to
-/// <c>World.Write&lt;T&gt;</c> or <c>World.Update&lt;T&gt;</c> (Kiln.World) is added by its game name, so the native
+/// <c>World.Write&lt;T&gt;</c> or <c>World.Update&lt;T&gt;</c> (Kiln.World) is added by its game name, and
+/// <c>CurrentTransform</c> for a call of <c>World.SetTransformScale</c> (<see cref="FixedWrites"/>), so the native
 /// world service gives its write program access to it when the server starts and the author keeps no list by hand.
 /// Names already in the manifest stay (a mod lists by hand what its code names only as a string:
 /// <c>World.WriteField</c>, <c>World.WriteAt</c>); the rest of the file keeps its text, comments included.
@@ -27,6 +28,10 @@ public sealed class KilnWrites : Microsoft.Build.Utilities.Task
 {
     /// <summary>The generic methods of <c>Kiln.World</c> whose type argument is a component the mod writes.</summary>
     public static readonly string[] Methods = ["Write", "Update"];
+
+    /// <summary>The methods of <c>Kiln.World</c> that write one fixed component (since 0.2.0-dev.28): a call adds the
+    /// component's game name whatever its arguments are. <c>World.SetTransformScale</c> writes <c>CurrentTransform</c>.</summary>
+    public static readonly (string Method, string Component)[] FixedWrites = [("SetTransformScale", "CurrentTransform")];
 
     /// <summary>The built mod assembly.</summary>
     [Required] public string AssemblyPath { get; set; } = "";
@@ -57,7 +62,7 @@ public sealed class KilnWrites : Microsoft.Build.Utilities.Task
             Log.LogWarning(null, "KILN030", null, AssemblyPath, 0, 0, 0, 0,
                 $"World.{call.Method}<{call.Type}> is called with a type the build cannot resolve to a component ({call.Why}): " +
                 "list the component it writes under \"writes\" in kiln.mod.json, or the write is refused at run time");
-        if (scan.Types.Count == 0) return true;
+        if (scan.Types.Count == 0 && scan.Fixed.Count == 0) return true;
 
         Dictionary<string, string>? components = null;  // C# full name -> the game's short name
         if (GameReference.Length > 0 && File.Exists(GameReference))
@@ -72,7 +77,7 @@ public sealed class KilnWrites : Microsoft.Build.Utilities.Task
                 return false;
             }
         }
-        var names = new SortedSet<string>(StringComparer.Ordinal);
+        var names = new SortedSet<string>(scan.Fixed, StringComparer.Ordinal);
         foreach (var (type, method) in scan.Types)
         {
             if (components is not null && components.TryGetValue(type, out var name)) names.Add(name);
@@ -112,6 +117,8 @@ public sealed class KilnWrites : Microsoft.Build.Utilities.Task
         public readonly List<(string Type, string Method)> Types = [];
         /// <summary>Type arguments the build cannot name: a type parameter, a generic or array type.</summary>
         public readonly List<(string Method, string Type, string Why)> Unresolved = [];
+        /// <summary>The game names of the components the assembly's calls of <see cref="FixedWrites"/> write.</summary>
+        public readonly SortedSet<string> Fixed = new(StringComparer.Ordinal);
     }
 
     /// <summary>Reads every instantiation of a generic method <see cref="Methods"/> of <c>Kiln.World</c> in the assembly.</summary>
@@ -121,16 +128,21 @@ public sealed class KilnWrites : Microsoft.Build.Utilities.Task
         var md = pe.GetMetadataReader();
         var scan = new Scan();
         var seen = new HashSet<(string, string)>();
+        // the non-generic writers: a member reference of Kiln.World's World named in FixedWrites
+        for (int row = 1, count = md.GetTableRowCount(TableIndex.MemberRef); row <= count; row++)
+        {
+            var member = md.GetMemberReference(MetadataTokens.MemberReferenceHandle(row));
+            if (member.Parent.Kind != HandleKind.TypeReference || !IsWorld(md, (TypeReferenceHandle)member.Parent)) continue;
+            foreach (var (method, component) in FixedWrites)
+                if (md.StringComparer.Equals(member.Name, method)) scan.Fixed.Add(component);
+        }
         for (int row = 1, count = md.GetTableRowCount(TableIndex.MethodSpec); row <= count; row++)
         {
             var spec = md.GetMethodSpecification(MetadataTokens.MethodSpecificationHandle(row));
             if (spec.Method.Kind != HandleKind.MemberReference) continue;
             var member = md.GetMemberReference((MemberReferenceHandle)spec.Method);
             if (member.Parent.Kind != HandleKind.TypeReference) continue;
-            var parent = md.GetTypeReference((TypeReferenceHandle)member.Parent);
-            if (!md.StringComparer.Equals(parent.Name, "World") || !md.StringComparer.Equals(parent.Namespace, "Kiln")) continue;
-            if (parent.ResolutionScope.Kind != HandleKind.AssemblyReference ||
-                !md.StringComparer.Equals(md.GetAssemblyReference((AssemblyReferenceHandle)parent.ResolutionScope).Name, "Kiln.World")) continue;
+            if (!IsWorld(md, (TypeReferenceHandle)member.Parent)) continue;
             var method = md.GetString(member.Name);
             if (Array.IndexOf(Methods, method) < 0) continue;
             var blob = md.GetBlobReader(spec.Signature);
@@ -164,6 +176,15 @@ public sealed class KilnWrites : Microsoft.Build.Utilities.Task
         {
             if (!list.Contains(item)) list.Add(item);
         }
+    }
+
+    // Kiln.World's World class (Kiln.World, assembly Kiln.World)
+    private static bool IsWorld(MetadataReader md, TypeReferenceHandle h)
+    {
+        var parent = md.GetTypeReference(h);
+        return md.StringComparer.Equals(parent.Name, "World") && md.StringComparer.Equals(parent.Namespace, "Kiln") &&
+               parent.ResolutionScope.Kind == HandleKind.AssemblyReference &&
+               md.StringComparer.Equals(md.GetAssemblyReference((AssemblyReferenceHandle)parent.ResolutionScope).Name, "Kiln.World");
     }
 
     private static string? NameOf(MetadataReader md, TypeReferenceHandle h, int depth)

@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "blob-catalog.schema.json",
+  "title": "kiln.assets content blob catalog: a snapshot page",
+  "description": "The JSON of Kiln.Assets' catalog records (managed/services/Kiln.Assets/BlobCatalog.cs: BlobCatalogInfo, BlobCatalogEntry; System.Text.Json writes and reads this shape). The C structs are KilnBlobCatalogInfo and KilnBlobCatalogEntry in native/core/abi/services/kiln_assets.h. uint64 fields are decimal strings. A page: the snapshot's info and some of its entries, sorted by (size, hash0, hash1, hash2). Docs: docs/kiln/services/assets.md.",
+  "type": "object",
+  "x-kiln-docs": "docs/kiln/services/assets.md#the-content-blob-catalog",
+  "required": ["info", "entries"],
+  "properties": {
+    "info": { "$ref": "#/$defs/info" },
+    "first": { "$ref": "#/$defs/u64", "description": "The index of entries[0] in the snapshot." },
+    "entries": { "type": "array", "items": { "$ref": "#/$defs/entry" } }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "u64": { "type": "string", "pattern": "^(0|[1-9][0-9]{0,19})$", "description": "An unsigned 64-bit number as a decimal string." },
+    "origin": { "enum": ["game", "manifest", "managed", "nativeApi"] },
+    "info": {
+      "type": "object",
+      "required": ["generation", "total", "status", "gameComplete", "registrationsComplete", "reason"],
+      "properties": {
+        "generation": { "$ref": "#/$defs/u64", "description": "The catalog's generation the snapshot was built at (it moves on every registration, removal, mod unload and readiness change)." },
+        "total": { "$ref": "#/$defs/u64", "description": "Entries in the snapshot; \"0\" without one." },
+        "status": { "enum": ["complete", "incomplete", "notReady", "limitExceeded", "unavailable"] },
+        "gameComplete": { "type": "boolean", "description": "The game's whole content index is in the snapshot." },
+        "registrationsComplete": { "type": "boolean", "description": "Every live registration is in the snapshot." },
+        "reason": { "enum": ["none", "gameNotReady", "unreadableMap", "entryBudget", "memoryBudget", "unsupportedTable"] }
+      },
+      "additionalProperties": false
+    },
+    "entry": {
+      "type": "object",
+      "required": ["contentHash", "origins", "selectedOrigin", "owner", "sequence", "overridden"],
+      "properties": {
+        "contentHash": { "type": "string", "pattern": "^[0-9]+-[0-9a-f]{8}-[0-9a-f]{8}-[0-9a-f]{8}$", "description": "<size>-<h0>-<h1>-<h2>: decimal size, hex words (as assets.json and ContentHash.ToString())." },
+        "origins": { "type": "array", "items": { "$ref": "#/$defs/origin" }, "uniqueItems": true, "minItems": 1, "description": "game when the game's index lists the hash (also when a mod overrides it), plus every live registration's origin." },
+        "selectedOrigin": { "$ref": "#/$defs/origin", "description": "Whose bytes are served now; game for the game's own." },
+        "owner": { "$ref": "#/$defs/u64", "description": "The served registration's native owner; \"0\" for the game's own." },
+        "sequence": { "$ref": "#/$defs/u64", "description": "The served registration's number; \"0\" for the game's own." },
+        "overridden": { "type": "boolean", "description": "The game lists the hash and a registration's bytes are served in its place." }
+      },
+      "additionalProperties": false
+    }
+  }
+}
