@@ -1,4 +1,4 @@
-kiln_service(items items.cpp engine.cpp pide.cpp moves.cpp xfer.cpp names.cpp stamps.cpp instances.cpp equip.cpp wear.cpp)
+kiln_service(items items.cpp engine.cpp pide.cpp moves.cpp xfer.cpp names.cpp stamps.cpp instances.cpp equip.cpp wear.cpp toolwear.cpp)
 
 # Host tests (no game): the move / ledger / rule / name logic, and the transfer hooks against a fake inventory world.
 # Run under Wine: native/services/items/tests/run.sh
@@ -24,3 +24,5 @@ target_include_directories(items-equip-test PRIVATE "${CMAKE_SOURCE_DIR}/core/ab
 set_target_properties(items-equip-test PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/items-tests")
 add_executable(items-wear-test tests/wear_test.cpp)
 set_target_properties(items-wear-test PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/items-tests")
+add_executable(items-toolwear-test tests/toolwear_test.cpp stamps.cpp)
+set_target_properties(items-toolwear-test PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/items-tests")

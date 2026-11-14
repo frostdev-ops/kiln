@@ -31,6 +31,7 @@
 #include "moves.h"
 #include "names.h"
 #include "pide.h"
+#include "toolwear.h"
 #include "wear.h"
 #include "kiln_api.h"
 #include "kiln_hook.hpp"
@@ -1017,6 +1018,7 @@ void drop_world(const char* why) {
     g_registry.store(nullptr);
     names_world_closed();
     instances_world_reset();  // v4: entity ids start again in the next world: every stamp is forgotten
+    toolwear::world_reset();  // its queued records name entities of the world that went
     equip_world_closed();     // v5: waiting equips end as dropped
     int expected = KILN_ITEMS_PROGRAM_RUNNING;
     if (g_program.compare_exchange_strong(expected, KILN_ITEMS_PROGRAM_ACTIVE))
@@ -1048,6 +1050,8 @@ void KILN_CALL on_pre(const KilnTickInfo* tick, void*) {
     xfer_set_step(tick->step);
     instances_pre(g_world.load() ? g_world.load() : g_api->server_world(), tick->step);  // v4: the id counter check, prune
     poll_world_program();
+    if (E.wear_ok && g_api->server_world())  // dev.28: the debit's two programs, by the game's own directory
+        toolwear::verify_programs(g_api->service(KilnStr{KILN_WORLD_SERVICE, std::strlen(KILN_WORLD_SERVICE)}, 1));
     expire();
     deliver();
     equip_pre(g_world.load() ? g_world.load() : g_api->server_world(), tick->step);  // v5
@@ -1932,6 +1936,8 @@ void resolve() {
          E.names_ok ? "on" : "OFF", E.instances_ok ? "on" : "OFF", E.equip_ok ? "possible" : "OFF");
     // dev.28 (chapter 16b): the durability debit's functions and frames; needs the attribute lookup and the item reads
     E.wear_ok = E.read_ok && E.instances_ok && wear::resolve(g_api, g_owner);
+    // the hooks only where the row is not held by the client gate on this side (S5 holds the hosted client)
+    if (E.wear_ok) toolwear::install(g_api, g_owner);
     xfer_init();  // after every symbol above: a lab switch may install the hooks right now
 }
 
