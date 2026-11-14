@@ -26,7 +26,7 @@ struct Held {
     std::string text;  // "game test pending: 03-c11, 03-c12"
 };
 
-// Once at boot, after kiln.json's side section was applied and before caps::core_rows. `side` is KILN_SIDE_*.
+// Once at boot, after kiln.json's side section was applied, before early plugins or service init. `side` is KILN_SIDE_*.
 // preview_all / preview: kiln.json's "preview". A name in `preview` that the list does not hold is logged as a warning.
 void configure(uint32_t side, bool preview_all, const std::vector<std::string>& preview);
 

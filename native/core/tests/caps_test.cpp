@@ -168,6 +168,7 @@ void reset() {
     caps::g_order.clear();
     caps::g_order_gen = 0;
     caps::g_rows_built = false;
+    caps::g_gates_built = false;
     caps::g_hooks = false;
     caps::g_verified = false;
     caps::g_safe_idle.clear();
@@ -930,6 +931,22 @@ void client_gate(const std::filesystem::path& dir) {
         return false;
     };
 
+    // Early plugins and in-core init callbacks can query the table before core_rows has run.
+    reset();
+    gates::use_list_for_tests(list);
+    gates::configure(KILN_SIDE_SERVER, false, {});
+    CHECK(kiln_caps_held(T, ks("camera.fov")) == 1,
+          "gate: an init callback sees the hold before core_rows and leaves its hook off");
+    const KilnOwner early = owner("plugin:early");
+    rep(early, "camera.fov", A, KILN_CAP_REASON_NONE);
+    CHECK(is("camera.fov", U, KILN_CAP_REASON_POLICY),
+          "gate: a service reporting before core_rows cannot expose a held row as available");
+    revoke(early);
+    reset();
+    gates::use_list_for_tests(list);  // init_image failed: configure is never called
+    CHECK(kiln_caps_held(T, ks("markers.compass")) == 1 && kiln_caps_held(T, ks("queries.server_only")) == 1,
+          "gate: early safe-idle readers see holds from both sides before core_rows");
+
     boot(KILN_SIDE_SERVER, false, {});
     const Got fuel = get("items.fuel");
     CHECK(fuel.rc == KILN_OK && fuel.state == U && fuel.reason == KILN_CAP_REASON_POLICY &&
@@ -1066,6 +1083,8 @@ void client_gate_threads() {
 int main(int argc, char** argv) {
     if (argc != 2) return 2;
     const std::filesystem::path dir = argv[1];
+    static const kiln::gates::Gate empty_gates[] = {{nullptr, nullptr, 0}};
+    kiln::gates::use_list_for_tests(empty_gates);  // the registry tests below supply their own rows
     rules();
     subscribers();
     reentrant_read_strings();

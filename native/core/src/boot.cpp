@@ -487,6 +487,7 @@ void boot() {
     // Server or client: its own definitions, build records and kiln.json section.
     const uint32_t side = image().side;
     apply_side(side);
+    gates::configure(side, config().preview_all, config().preview);  // before early plugins or any service init
     // after apply_side: kiln.json's side section may switch .NET (clr) off or on, and the plan follows what applies
     progress_state::begin(kiln_build, side_name(side), f.started_ms, started_utc, start_plan());
     std::string note;
@@ -541,7 +542,6 @@ void boot() {
     if (early_hooks && !hooks) hooks::withdraw_early();
     set_runtime_state(verified, hooks);
     if (hooks) svc::init_all();
-    gates::configure(side, config().preview_all, config().preview);  // the client gate, minus kiln.json's "preview"
     caps::core_rows(hooks, verified, f.safe_idle);  // before the service DLLs and plugins, which add their own rows
     for (const auto& feature : sigdb::failed_features()) KLOG_W("feature %s unavailable on this build", feature.c_str());
     // A boot profile (an enabled mod with "boot": true) defers the six collectors' definitions to one generation that
