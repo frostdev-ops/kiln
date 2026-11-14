@@ -215,4 +215,36 @@ public sealed unsafe class CreatureControlTests
         Assert.True(s.CanDrive);
         Assert.Equal(3ul, s.TransitionSequence);
     }
+
+    [Fact]
+    public void AServiceLeaseThatEndsIsReportedOnceToTheService()
+    {
+        // Kiln.Blocks watches its brains' leases this way: a lease that fails while the brain lives falls back to the AI off
+        var (kiln, body) = Start();
+        using var _k = kiln;
+        var ended = new List<ControlLeaseSnapshot>();
+        void Seen(ControlLeaseSnapshot s) => ended.Add(s);
+        CreatureControl.LeaseEnded += Seen;
+        try
+        {
+            var r = kiln.Run(() => CreatureControl.AcquireAs("kiln.blocks", null, body, ControlRole.PetFollow));
+            Assert.True(r.Ok, r.Reason);
+            kiln.Step(3);
+            Assert.Empty(ended);
+            kiln.Entities.Destroy(body.Id);
+            kiln.Step(4);
+            var one = Assert.Single(ended);
+            Assert.Equal((r.Lease, ControlLeaseState.Failed, ControlResultCode.BodyGone), (one.Lease, one.State, one.Result));
+
+            // a release is an end too, reported with its own result
+            var other = new EntityRef(kiln.Entities.Create(new WorldPosition(20, 0, 20)), 0);
+            var r2 = kiln.Run(() => CreatureControl.AcquireAs("kiln.blocks", null, other, ControlRole.PetFollow));
+            kiln.Step(3);
+            kiln.Run(() => CreatureControl.ReleaseNow(r2.Lease));
+            kiln.Step(6);
+            Assert.Equal(2, ended.Count);
+            Assert.Equal((r2.Lease, ControlLeaseState.Released), (ended[1].Lease, ended[1].State));
+        }
+        finally { CreatureControl.LeaseEnded -= Seen; }
+    }
 }
