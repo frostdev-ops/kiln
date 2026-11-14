@@ -9,9 +9,9 @@
   "verified": true,
   "note": "runtime-verified in labs on this exe, 2026-11-11, Kiln 0.2.0-dev+20261112.68988ae, policy any, standard lab save copied fresh for each group, one group per boot (or per run of boots): the running core resolved sigdb 447/447 symbols (355 defined, 92 captured), 542/542 constants (493 defined, 49 captured) and 146/146 features, each to the same value as the offline resolve (compared per name from sigdb-report.json); base world 24/0, players 30/0, chat+time 50/0, hooks 17/0, content 33/0, newcontent 24/0; api 74/0; settings 70/0; items 95/0 (kiln.items self-test on); combat 203/0 (watch-all); spawn 57/0 over 3 boots; gameplay 48/0; creatures 63/0; assets 17/0; rules 53/0; pacing 21/0; types 32/0 + types-peer 8/0; progression 45/0 (no player); net 168/0 with nettest 95 PASS, 0 FAIL; quests 188/0 over 3 boots; skills 124/0 over 2 boots; characters 53/0 over 3 boots; gamedata 71/0 over 2 boots (reload, restart); saves 54/0 over 8 boots (SIGINT, kill -9 x3, restore, game backup); build 79/0 over 4 boots; placeholder 34/0 over 4 boots (kill -9). Failing, so their names stay static: abilities 70/3, 70/3, 71/2 over three runs (the bow shot is refused by the core's PlaySequence guard every time, the Greet emote ran 73/66/79 steps of the 80 the test wants, the staff cast 38/35 then passed, the PC under heavy load); npcai 25/6 twice (force ready unavailable on four spawned creatures, the peacekeeper's relations not applied). Not run: emf (its probe needs third-party EMF mods). Levels: lab 1093 names in 24 services, static 42 (abilities, npcai, emf). With this record under verified-only: build verified, SimStep hooked, every server service loaded (27; audio, screen, ui and vfx skipped as client-only), 0 error lines.",
   "declared": {
-    "symbols": 470,
+    "symbols": 473,
     "constants": 571,
-    "features": 152
+    "features": 155
   },
   "features": {
     "abilities.attributes": true,
@@ -68,6 +68,7 @@
     "gameplay.recipes": true,
     "gameplay.spawn": true,
     "gameplay.terraform": true,
+    "hooks.typed": true,
     "items.catalog": true,
     "items.equip": true,
     "items.fuel": true,
@@ -81,6 +82,7 @@
     "items.scan": true,
     "items.transaction": true,
     "items.transfer": true,
+    "items.volume": true,
     "log.mirror": true,
     "log.write": true,
     "net.client_guard": true,
@@ -153,6 +155,7 @@
     "time.weather_choose": true,
     "types.events": true,
     "types.systems": true,
+    "weather.sample": true,
     "world.component_bits": true,
     "world.dead_check": true,
     "world.entities": true,
@@ -290,6 +293,7 @@
     "items/ComponentMapFind": "0x64dc40",
     "items/CreatePide": "0x1b1920",
     "items/EquipItem": "0x1b4e70",
+    "items/GetItemVolume": "0x1bb380",
     "items/GuidToItemId": "0x40720",
     "items/HashMapFindEntity": "0x650c50",
     "items/InventoryAddItems": "0x1b1f60",
@@ -458,6 +462,7 @@
     "time/WeatherUpdate": "0xa23800",
     "time/WeatherUpdateLayers": "0xa233d0",
     "types/ProgramRunner": "0x64ac00",
+    "weather/SampleAt": "0xa21940",
     "world/CurrentEntityId": "0x65b870",
     "world/FinalizePrograms": "0x6c2500",
     "world/GetComponentByType": "0x64ea80",
@@ -1545,6 +1550,22 @@
       },
       "features": {
         "queries.voxel_ray": "static"
+      }
+    },
+    "dev28-06b-typed-hooks": {
+      "level": "static",
+      "date": "2026-11-13",
+      "evidence": "resolved offline (tools/sigport/build_record.py)",
+      "symbols": {
+        "@weather/SampleAt.site": "static",
+        "items/GetItemVolume": "static",
+        "weather/SampleAt": "static"
+      },
+      "constants": {},
+      "features": {
+        "hooks.typed": "static",
+        "items.volume": "static",
+        "weather.sample": "static"
       }
     },
     "emf": {

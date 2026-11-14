@@ -8,6 +8,7 @@
 //                             pop; jmp [head cell]. First call of a thread: call kiln_hk_slow once (flags saved).
 //   adapter     (per structured link)  r11 = Link; jmp kiln_hk_structured
 //   mid stub    (per mid link)         push [next cell]; push Link; jmp kiln_hk_mid
+//   adapter     (per typed link)       r11 = Link; jmp kiln_hk_typed
 //   continuation(per raw/structured link)  jmp [next cell]
 //
 // Locking: g_mutex serialises every mutation (install, revoke, rebuild, map). Dispatch never takes it: it reads cells,
@@ -53,6 +54,8 @@ bool call_detour(KilnDetourFn fn, KilnHookCall* call, void* user, uintptr_t* out
                  volatile const bool* in_original);
 bool call_detour2(KilnDetourFn2 fn, KilnHookCall2* call, void* user, uintptr_t* out, unsigned long* code,
                   volatile const bool* in_original);
+bool call_typed(KilnTypedFn fn, KilnCallFrame* frame, void* user, uintptr_t* out, unsigned long* code,
+                volatile const bool* in_original);
 bool call_mid(KilnMidFn fn, KilnRegisters* regs, void* user, unsigned long* code);
 bool copy(void* dst, const void* src, size_t n);
 }  // namespace seh
@@ -64,6 +67,7 @@ namespace {
 using json = nlohmann::ordered_json;
 
 constexpr uint32_t kFrameMagic = 0x4B484B31;  // "KHK1"
+constexpr uint32_t kTypedMagic = 0x4B485431;  // "KHT1"
 constexpr size_t kCodeCap = 4u << 20, kDataCap = 2u << 20, kCommitStep = 64u << 10;
 constexpr size_t kFootprint = 16;  // bytes of the target compared/recorded for foreign detection
 
@@ -84,7 +88,7 @@ struct Link {
     uint32_t slot = 0;
     void* fn = nullptr;
     void* user = nullptr;
-    uint32_t arg_count = 0;
+    uint32_t arg_count = 0;                  // typed: the stack arguments forwarded (positions beyond the fourth)
     uint8_t* entry = nullptr;                // what the previous link / head cell jumps to
     uint8_t* cont = nullptr;                 // continuation stub (raw, structured, v1); null for mid
     std::atomic<uintptr_t>* next = nullptr;  // cell: entry of the following live link, or the trampoline
@@ -139,6 +143,7 @@ struct State {
     std::atomic<uintptr_t>* cell_slow = nullptr;
     std::atomic<uintptr_t>* cell_structured = nullptr;
     std::atomic<uintptr_t>* cell_mid = nullptr;
+    std::atomic<uintptr_t>* cell_typed = nullptr;
 
     std::mutex mutex;
     std::vector<Target*> targets;
@@ -1144,10 +1149,10 @@ KilnResult install(Kind kind, KilnOwner owner, uintptr_t addr, const Order& orde
             e.push_cell(made->next);  // ctx.rip: the continuation
             e.push_cell(&cells[1]);   // the Link* (kiln_hk_mid moves it out; the slot becomes ctx.trampoline_rsp)
             e.jmp_cell(s.cell_mid);
-        } else {  // structured, v1
+        } else {  // structured, v1, typed
             made->entry = stub;  // adapter
             e.b(0x49), e.b(0xBB), e.q(reinterpret_cast<uint64_t>(made.get()));  // mov r11, Link
-            e.jmp_cell(s.cell_structured);
+            e.jmp_cell(kind == Kind::Typed ? s.cell_typed : s.cell_structured);
             uint8_t* cont = stub + ((e.size() + 15) & ~size_t{15});
             Em c(cont);
             c.jmp_cell(made->next);
@@ -1226,6 +1231,7 @@ const char* kind_name(Kind k) {
         case Kind::Structured: return "structured";
         case Kind::V1: return "v1";
         case Kind::Mid: return "mid";
+        case Kind::Typed: return "typed";
     }
     return "?";
 }
@@ -1246,7 +1252,8 @@ bool init(const Env& env) {
     s.cell_slow = alloc_cells(1, reinterpret_cast<uintptr_t>(&kiln_hk_slow));
     s.cell_structured = alloc_cells(1, reinterpret_cast<uintptr_t>(&kiln_hk_structured));
     s.cell_mid = alloc_cells(1, reinterpret_cast<uintptr_t>(&kiln_hk_mid));
-    if (!s.cell_slow || !s.cell_structured || !s.cell_mid) return false;
+    s.cell_typed = alloc_cells(1, reinterpret_cast<uintptr_t>(&kiln_hk_typed));
+    if (!s.cell_slow || !s.cell_structured || !s.cell_mid || !s.cell_typed) return false;
     s.ready = true;
     return true;
 }
@@ -1271,6 +1278,12 @@ KilnResult install_v1(KilnOwner owner, uintptr_t target, int32_t priority, KilnD
 KilnResult install_mid(KilnOwner owner, uintptr_t target, const Order& order, KilnMidFn fn, void* user,
                        KilnHandle* out) {
     return install(Kind::Mid, owner, target, order, reinterpret_cast<void*>(fn), user, 0, nullptr, out);
+}
+
+KilnResult install_typed(KilnOwner owner, uintptr_t target, const Order& order, uint32_t nstack, KilnTypedFn fn,
+                         void* user, KilnHandle* out) {
+    if (nstack + 4 > KILN_SIG_MAX_ARGS) return KILN_ERR_INVALID_ARGUMENT;
+    return install(Kind::Typed, owner, target, order, reinterpret_cast<void*>(fn), user, nstack, nullptr, out);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -1349,6 +1362,76 @@ extern "C" uintptr_t kiln_hk_structured_dispatch(const uintptr_t* regs, const ui
            link->owner_name.c_str(), code);
     if (S().env.changed) S().env.changed();
     return f.called ? f.original_ret : run_rest(&f);
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Typed dispatch (dev.28). The frame is kiln_hk_typed's, on this thread's stack; TypedState lives next to it for the
+// length of the handler. Nothing here allocates or locks.
+namespace kiln::hooks::chain {
+namespace {
+
+struct TypedState {
+    uint32_t magic = kTypedMagic;
+    Link* link = nullptr;
+    bool in_original = false;  // read by the SEH filter: a fault in the rest of the chain is not this handler's
+    bool called = false;       // the once-only latch of call_original_frame
+    uint64_t rax = 0;          // the original's result, as it returned (what a handler that faults afterwards yields)
+    uint8_t xmm0[16] = {};
+};
+
+void typed_rest(KilnCallFrame* frame, TypedState* st) {
+    st->called = true;
+    st->in_original = true;
+    kiln_hk_call_frame(st->link->cont, frame, st->link->arg_count);
+    st->in_original = false;
+    st->rax = frame->rax;
+    std::memcpy(st->xmm0, frame->xmm0r, 16);
+}
+
+}  // namespace
+
+KilnResult call_original_frame(KilnCallFrame* frame) {
+    if (!frame || !frame->reserved) return KILN_ERR_INVALID_ARGUMENT;
+    auto* st = reinterpret_cast<TypedState*>(frame->reserved);
+    if (st->magic != kTypedMagic) return KILN_ERR_INVALID_ARGUMENT;
+    if (!st->called) typed_rest(frame, st);
+    return KILN_OK;
+}
+
+}  // namespace kiln::hooks::chain
+
+extern "C" void kiln_hk_typed_dispatch(KilnCallFrame* frame, void* lp) {
+    using namespace kiln::hooks::chain;
+    auto* link = static_cast<Link*>(lp);
+    TypedState st;
+    st.link = link;
+    if (!link->live.load(std::memory_order_acquire)) {  // revoked or disabled: just forward
+        typed_rest(frame, &st);
+        return;
+    }
+    if (Block* b = current_block())  // this thread's own count (no read-modify-write on a shared line)
+        b->detour_calls.store(b->detour_calls.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);
+    frame->slot = link->h();
+    frame->reserved = reinterpret_cast<uint64_t>(&st);
+    uintptr_t verdict = KILN_TYPED_CONTINUE;
+    unsigned long code = 0;
+    const bool ok = kiln::hooks::seh::call_typed(reinterpret_cast<KilnTypedFn>(link->fn), frame, link->user, &verdict,
+                                                 &code, &st.in_original);
+    frame->reserved = 0;  // the state dies with this function: a frame pointer kept by the handler finds nothing
+    if (!ok) {
+        link->live.store(false, std::memory_order_release);
+        link->target->dirty.store(true, std::memory_order_release);
+        KLOG_E("hooks: typed link \"%s\" (handle %llu, owner %s) faulted (0x%08lx) and was disabled",
+               link->label.c_str(), static_cast<unsigned long long>(link->h()), link->owner_name.c_str(), code);
+        if (S().env.changed) S().env.changed();
+        if (st.called) {  // the original ran once: the caller gets what it returned, whatever the handler wrote since
+            frame->rax = st.rax;
+            std::memcpy(frame->xmm0r, st.xmm0, 16);
+            return;
+        }
+        verdict = KILN_TYPED_CONTINUE;  // a handler that faulted decides nothing: the original runs
+    }
+    if (!st.called && verdict != KILN_TYPED_SKIP) typed_rest(frame, &st);
 }
 
 extern "C" void kiln_hk_mid_dispatch(void* ctx, void* lp) {

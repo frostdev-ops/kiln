@@ -140,6 +140,83 @@ typedef struct KilnHooksStats {
                                   when `targets` reaches it. Addresses already hooked still take links. 0 = not reported */
 } KilnHooksStats;
 
+/* ---- typed links (since 0.2.0-dev.28): hook or call a game function as a function, floats, stack arguments and
+ * struct returns included ----
+ *
+ * KilnCallFrame is one Win64 call laid out as data. Position k of a call (k = 0..3) is in gpr[k] when it is an
+ * integer or pointer and in xmm[k] (low 4 or 8 bytes) when it is a float or double; position 4 and later are
+ * stack[k - 4] (8 bytes each; a narrow integer's upper bytes are garbage, mask by type). A function that returns a
+ * struct through a hidden buffer ("sret") has the buffer pointer at position 0 and its declared arguments from
+ * position 1. The return value is `rax` (integers, pointers, the sret buffer) or the low bytes of `xmm0r` (float,
+ * double).
+ *
+ * In a typed handler the frame lives on the hook's own stack (16-aligned) and `stack` points at the caller's stack
+ * arguments: valid during the call only. `rax` and `xmm0r` are zero when the first handler starts. `slot` is the
+ * KilnHandle of the link whose handler runs; `reserved` is the chain cursor: do not touch it. */
+typedef struct KilnCallFrame {            /* 0x90 bytes */
+    uint64_t gpr[4];                      /* +0x00 rcx rdx r8 r9 */
+    uint8_t xmm[4][16];                   /* +0x20 xmm0..3 */
+    uint64_t* stack;                      /* +0x60 the 5th and later arguments */
+    uint64_t rax;                         /* +0x68 integer / pointer return */
+    uint8_t xmm0r[16];                    /* +0x70 float / double return */
+    uint64_t slot;                        /* +0x80 handle of the running link (0 outside a handler) */
+    uint64_t reserved;                    /* +0x88 opaque */
+} KilnCallFrame;
+
+/* Argument and return kinds of a KilnSig. */
+#define KILN_SIG_VOID 0u    /* return only */
+#define KILN_SIG_S8 1u
+#define KILN_SIG_U8 2u
+#define KILN_SIG_S16 3u
+#define KILN_SIG_U16 4u
+#define KILN_SIG_S32 5u
+#define KILN_SIG_U32 6u
+#define KILN_SIG_S64 7u
+#define KILN_SIG_U64 8u
+#define KILN_SIG_F32 9u
+#define KILN_SIG_F64 10u
+#define KILN_SIG_BOOL 11u
+#define KILN_SIG_PTR 12u
+#define KILN_SIG_BYVAL 13u  /* a struct by value: `size` 1/2/4/8 travels in the integer position, any other size by
+                               reference (the position holds a pointer to the caller's copy) */
+#define KILN_SIG_STRUCT 14u /* return only: a struct. With sret = 1 through the hidden buffer (ret_size = its size);
+                               with sret = 0 in rax (ret_size 1/2/4/8) */
+#define KILN_SIG_MAX_ARGS 20u /* positions a typed link forwards (the sret buffer included): 4 registers + 16 stack */
+
+typedef struct KilnSigArg {
+    KilnStr name;      /* for messages; may be empty */
+    uint32_t kind;     /* KILN_SIG_S8..KILN_SIG_BYVAL */
+    uint32_t size;     /* bytes (KILN_SIG_BYVAL: the struct's size; else the kind's own size or 0) */
+} KilnSigArg;
+
+/* The declared shape of a function. `args` lists the declared parameters only: a hidden return buffer is `sret = 1`
+ * (ret_kind KILN_SIG_STRUCT, ret_size = sizeof the struct) and is never in `args`. Varargs functions cannot be
+ * described. */
+typedef struct KilnSig {
+    uint32_t size;     /* sizeof(KilnSig) */
+    uint32_t argc;
+    const KilnSigArg* args;
+    uint32_t ret_kind; /* KILN_SIG_VOID..KILN_SIG_STRUCT */
+    uint32_t ret_size;
+    uint8_t sret;
+    uint8_t pad[7];
+} KilnSig;
+
+/* Typed handler. It may change the frame's arguments, call api->call_original_frame(frame) at most once (a second
+ * call does nothing), and set the return fields. It returns KILN_TYPED_CONTINUE: when it did not call the original,
+ * the rest of the chain and the real function run after it with the frame's arguments, and their result is the
+ * call's; or KILN_TYPED_SKIP: the real function does not run and the frame's rax / xmm0r (an sret buffer the handler
+ * filled) are the result. After call_original_frame the frame's return fields are the call's result either way.
+ * Runs on the calling thread (job threads too) under an SEH guard: a fault disables the link; when the original had
+ * already run its result is returned, else the original runs with the arguments as the handler left them. */
+/* detour_typed's refusals (KilnResult values of this service; the generic codes keep their meaning). */
+#define KILN_HOOKS_ERR_SIG_MISMATCH 100 /* the function's code does not fit the descriptor */
+#define KILN_HOOKS_ERR_SIG_UNKNOWN 101  /* the function's code could not be followed far enough to say */
+
+#define KILN_TYPED_CONTINUE ((uintptr_t)0)
+#define KILN_TYPED_SKIP ((uintptr_t)1)
+typedef uintptr_t(KILN_CALL* KilnTypedFn)(KilnCallFrame* frame, void* user);
+
 typedef struct KilnHooksApi {
     KilnServiceHeader header;
 
@@ -231,6 +308,43 @@ typedef struct KilnHooksApi {
     KilnResult(KILN_CALL* mid2)(KilnOwner owner, uintptr_t target, const KilnHookOrder* order, KilnMidFn fn, void* user,
                                 KilnHandle* out);
     KilnResult(KILN_CALL* map_json)(char* buf, size_t cap, size_t* len);
+
+    /* ======== typed links (since 0.2.0-dev.28): check header.size covers these before calling ========
+     *
+     * detour_typed: a link of the fourth kind on `target`. `fn` receives the call as a KilnCallFrame (see there and
+     * KilnTypedFn). Ordering, owner revocation, slot reuse, the caps and caller() are the chain's, as for every link.
+     * `sig` says how many positions the call has (stack arguments are forwarded by that count) and is checked against
+     * the function's code: when the target is a sigdb symbol with a `sig` block whose fingerprint did not match this
+     * build, or the code reads an argument register or stack slot `sig` does not declare (or the reverse), the hook
+     * is refused with KILN_HOOKS_ERR_SIG_MISMATCH; when the code could not be followed far enough to say (a jump
+     * through a register before an argument is used, or the exe file's code is not in use) with
+     * KILN_HOOKS_ERR_SIG_UNKNOWN, unless the target is a symbol of a mod's fragment whose descriptor says
+     * "abi": "trust". kiln.log and typed_refusal() name the argument. KILN_ERR_INVALID_ARGUMENT: a malformed `sig`.
+     *
+     * call_original_frame: inside a typed handler, with the handler's own frame: runs the rest of the chain and the
+     * real function once with the frame's arguments and stores rax / xmm0 in the frame. KILN_ERR_INVALID_ARGUMENT
+     * when `frame` is not a handler's frame.
+     *
+     * call_with_frame: calls `fn` (any Win64 function: a game function, or a hooked entry to go through its chain)
+     * with the frame's four integer and four xmm registers and `nstack` (<= 16) stack arguments read from
+     * frame->stack, and stores rax / xmm0 in the frame. No guard: a fault in `fn` is the caller's. The caller owns
+     * the frame (it need not be aligned) and every precondition of `fn` (thread, game state).
+     *
+     * fingerprint: what the code at `target` does with its arguments, read from the exe file's bytes (never the live,
+     * possibly hooked entry), as JSON: {"result":"ok"|"unknown","reads":["rcx","xmm1"],"passes":[..],"indirect":[..],
+     * "stack":["0x28"],"ret":"none"|"rax"|"xmm0"|"callee"|a|b,"insns":n}. *len receives the text length without the
+     * NUL; buf needs *len + 1 bytes (NUL-terminated), else KILN_ERR_BUFFER_TOO_SMALL; buf may be NULL to ask for the
+     * length. KILN_ERR_INVALID_ARGUMENT: `target` is not in the image's code.
+     *
+     * typed_refusal: why the last detour_typed on the calling thread was refused for its descriptor ("descriptor arg
+     * 2 'ecsNow' is rdx, the function reads [rcx, xmm1, r8]"), with the same buffer rules. Empty after a call that
+     * was not refused that way. */
+    KilnResult(KILN_CALL* detour_typed)(KilnOwner owner, uintptr_t target, const KilnHookOrder* order,
+                                        const KilnSig* sig, KilnTypedFn fn, void* user, KilnHandle* out);
+    KilnResult(KILN_CALL* call_original_frame)(KilnCallFrame* frame);
+    KilnResult(KILN_CALL* call_with_frame)(uintptr_t fn, KilnCallFrame* frame, uint32_t nstack);
+    KilnResult(KILN_CALL* fingerprint)(uintptr_t target, char* json, size_t cap, size_t* len);
+    KilnResult(KILN_CALL* typed_refusal)(char* buf, size_t cap, size_t* len);
 } KilnHooksApi;
 
 #ifdef __cplusplus

@@ -147,6 +147,8 @@ std::string symbol_name_at(uintptr_t) {
     return {};
 }
 std::vector<LiveDiff> live_differs() { return g_live_diffs; }
+bool sig_at(uintptr_t, SigInfo*) { return false; }
+bool fingerprint(uintptr_t, hooks::fp::Fingerprint*) { return false; }
 }  // namespace sigdb
 namespace svc {
 Registrar::Registrar(Service* s) { g_service = s; }
