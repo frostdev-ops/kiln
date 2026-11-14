@@ -264,7 +264,12 @@ fn one_engine_at_a_time_and_a_foreign_journal_is_refused() {
     let f = fx();
     let p = FakeProvider::new();
     let held = lock(&f.loaded.dir).unwrap();
+    // a lock another holder keeps is Busy, after a bounded wait (LOCK_TRIES x LOCK_PAUSE, about a second)
+    let started = std::time::Instant::now();
     assert_eq!(run(&f, &p, &no_faults, &mut Vec::new()).unwrap_err().code, ErrorCode::Busy);
+    let waited = started.elapsed();
+    assert!(waited >= LOCK_PAUSE * (LOCK_TRIES - 1), "answered Busy after {waited:?}, without waiting");
+    assert!(waited < std::time::Duration::from_secs(10), "waited {waited:?} for a held lock");
     drop(held);
     run(&f, &p, &no_faults, &mut Vec::new()).unwrap();
     // a journal that says another plan, or whose step means something else
@@ -276,6 +281,26 @@ fn one_engine_at_a_time_and_a_foreign_journal_is_refused() {
     j.plan_digest = "0".repeat(64);
     j.persist(&f.loaded.dir).unwrap();
     assert_eq!(run(&f, &p, &no_faults, &mut Vec::new()).unwrap_err().code, ErrorCode::HashMismatch);
+}
+
+/// The case the wait is for: a copy of the lock's descriptor (as a child forked by another thread holds until it
+/// execs) keeps the lock a little after its owner let go. The next run waits for it instead of answering Busy, and
+/// with no wait it would have been Busy.
+#[test]
+fn a_lock_still_held_by_an_inherited_descriptor_is_waited_for() {
+    let f = fx();
+    let held = lock(&f.loaded.dir).unwrap();
+    let inherited = held.0.try_clone().unwrap(); // the same open file, as after fork
+    drop(held);
+    assert_eq!(lock_waiting(&f.loaded.dir, 1, std::time::Duration::ZERO).err().map(|e| e.code), Some(ErrorCode::Busy), "the copy did not hold the lock");
+    let child = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        drop(inherited); // the child execs: its close-on-exec copy goes away
+    });
+    let p = FakeProvider::new();
+    let o = run(&f, &p, &no_faults, &mut Vec::new()).unwrap();
+    assert_eq!(o.state, OutcomeState::DraftReady);
+    child.join().unwrap();
 }
 
 #[test]
