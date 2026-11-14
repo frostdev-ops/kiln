@@ -1,0 +1,10 @@
+{
+  "id": "transform-scale",
+  "name": "Transform scale sample",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "TransformScale.dll",
+  "side": "server",
+  // World.SetTransformScale writes CurrentTransform: the game fixes a program's access when the world starts
+  "writes": ["CurrentTransform"]
+}

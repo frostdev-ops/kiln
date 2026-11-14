@@ -6,7 +6,8 @@
 // TypeMetadata pointers, preceded nowhere and followed nowhere, found because the descriptors of "BlobString" and
 // "uint32" sit next to each other at its start; the qword pointing at the start begins a {TypeMetadata**, u64 count}
 // header, followed by {"ecs.component", list, count} and {"ecs.event", list, count}.
-// TypeMetadata: +0x00 name {ptr,len}, +0x20 qualified name {ptr,len}, +0x38 inner (base class / element), +0x40 u32
+// TypeMetadata: +0x00 name {ptr,len}, +0x10 Impact name {ptr,len} ("ecs.Health": the name Impact scripts and
+// ImpactVariable.type use, docs/re/impact.md), +0x20 qualified name {ptr,len}, +0x38 inner (base class / element), +0x40 u32
 // size, +0x44 u16 alignment, +0x48 u32 field count, +0x4C u8 kind, +0x4D u8 flags, +0x50 u32 FNV-1a(qualified name),
 // +0x58 fields (stride 0x30: name {ptr,len}, type +0x10, offset u64 +0x18), +0x60 enum values (stride 0x28: name
 // {ptr,len}, value u64 +0x10), +0x70 default value {ptr,len}.
@@ -63,8 +64,8 @@ inline uint32_t fnv1a(std::string_view s) {
 }
 
 namespace td {  // TypeMetadata offsets
-constexpr uint64_t name = 0x00, qname = 0x20, inner = 0x38, size = 0x40, align = 0x44, count = 0x48, kind = 0x4C,
-                   flags = 0x4D, hash = 0x50, fields = 0x58, enums = 0x60, defaults = 0x70, bytes = 0x90;
+constexpr uint64_t name = 0x00, impact = 0x10, qname = 0x20, inner = 0x38, size = 0x40, align = 0x44, count = 0x48,
+                   kind = 0x4C, flags = 0x4D, hash = 0x50, fields = 0x58, enums = 0x60, defaults = 0x70, bytes = 0x90;
 constexpr uint64_t field_stride = 0x30, field_type = 0x10, field_offset = 0x18;
 constexpr uint64_t enum_stride = 0x28, enum_value = 0x10;
 }  // namespace td
@@ -208,6 +209,75 @@ inline uint64_t enum_entry(const Image& im, uint64_t t, uint32_t index) {
         index >= im.d(t + td::count)) return 0;
     const uint64_t p = im.q(t + td::enums), delta = uint64_t(index) * td::enum_stride;
     return p <= UINT64_MAX - delta && im.has(p + delta, td::enum_stride) && !str_at(im, p + delta).empty() ? p + delta : 0;
+}
+
+// ---- Impact names (kiln.types type_impact_name, capability types.impact_names) ----
+// A descriptor's Impact name is the {ptr,len} at +0x10, read through the same bounded reader as the other names.
+enum class ImpactField { empty, valid, malformed };
+inline ImpactField impact_name_at(const Image& im, uint64_t t, std::string_view& out) {
+    out = {};
+    if (!im.has(t + td::impact, 16)) return ImpactField::malformed;
+    const uint64_t p = im.q(t + td::impact), n = im.q(t + td::impact + 8);
+    if (n == 0) return ImpactField::empty;  // {0,0} or {ptr,0}: the type has no Impact name
+    out = str_at(im, t + td::impact);
+    return out.empty() || p == 0 ? (out = {}, ImpactField::malformed) : ImpactField::valid;
+}
+
+// The field holds Impact names on this build when at least 90 % of the table's types carry a readable one and some of
+// them differ from the short name (else the field is something else, or a copy of the short name). A malformed entry
+// of one type does not turn the field off; that type answers "no Impact name" (KILN_ERR_NOT_FOUND).
+struct ImpactNames {
+    bool ok = false;
+    uint32_t valid = 0, empty = 0, malformed = 0, differs = 0;
+    uint32_t distinct = 0, shared = 0;  // distinct names; names more than one type carries
+    std::vector<std::pair<std::string_view, uint32_t>> index;  // (name, table index), sorted ordinally: the multimap
+    std::string why;  // why not ok, "" when ok
+    // Every table index carrying `name` exactly (ordinal), in the game's order.
+    std::vector<uint32_t> all(std::string_view name) const {
+        std::vector<uint32_t> r;
+        auto lo = std::lower_bound(index.begin(), index.end(), std::pair<std::string_view, uint32_t>{name, 0});
+        for (; lo != index.end() && lo->first == name; ++lo) r.push_back(lo->second);
+        return r;
+    }
+    // The one table index carrying `name`; -1 when none or more than one.
+    int64_t single(std::string_view name) const {
+        const auto r = all(name);
+        return r.size() == 1 ? int64_t(r[0]) : -1;
+    }
+};
+inline ImpactNames index_impact_names(const Image& im, const TypeTable& t) {
+    ImpactNames r;
+    if (!t.error.empty() || !t.count) return r.why = "the type table was not found", r;
+    r.index.reserve(t.count);
+    for (uint32_t i = 0; i < t.count; ++i) {
+        const uint64_t d = im.q(t.table + 8ull * i);
+        std::string_view s;
+        switch (impact_name_at(im, d, s)) {
+            case ImpactField::empty: ++r.empty; break;
+            case ImpactField::malformed: ++r.malformed; break;
+            case ImpactField::valid:
+                ++r.valid;
+                r.differs += s != str_at(im, d + td::name);
+                r.index.emplace_back(s, i);
+                break;
+        }
+    }
+    std::sort(r.index.begin(), r.index.end());
+    for (size_t i = 0; i < r.index.size();) {
+        size_t j = i + 1;
+        while (j < r.index.size() && r.index[j].first == r.index[i].first) ++j;
+        ++r.distinct;
+        r.shared += j - i > 1;
+        i = j;
+    }
+    if (uint64_t(r.valid) * 10 < uint64_t(t.count) * 9)
+        r.why = "the Impact-name field did not validate on this build: " + std::to_string(r.valid) + " of " +
+                std::to_string(t.count) + " types carry a readable one (" + std::to_string(r.malformed) + " malformed)";
+    else if (!r.differs)
+        r.why = "the Impact-name field did not validate on this build: no Impact name differs from its type's short name";
+    r.ok = r.why.empty();
+    if (!r.ok) r.index.clear();
+    return r;
 }
 
 struct System {

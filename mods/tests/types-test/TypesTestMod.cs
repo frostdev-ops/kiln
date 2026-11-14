@@ -35,6 +35,7 @@ public sealed class TypesTestMod : Mod
         {
             if (n == 40) Basics();
             if (n == 43) Resources();
+            if (n == 44) ImpactNames();
             if (n == 50) ResourcesAgain();
             // Two 4-byte events in one step: both must come back (the stream packs them at 4 bytes, the poster at 8+8).
             if (n == 41)
@@ -156,6 +157,32 @@ public sealed class TypesTestMod : Mod
     private static object? Try(Func<object?> read)
     {
         try { return read(); } catch (Exception) { return null; }
+    }
+
+    // types.impact_names (0.2.0-dev.28): the name Impact scripts use, read from the game's own metadata. PASS only when a
+    // known type's Impact name differs from its short and qualified names and finds the type again.
+    private void ImpactNames()
+    {
+        const string cap = "types.impact_names";
+        Log.Info($"types-test: {Capabilities.Why(cap)}");
+        if (!Capabilities.Is(cap)) { Check("types.impact-names", false, Capabilities.Why(cap)); return; }
+        var health = GameTypes.Find("keen::ecs::Health")!;
+        var name = health.ImpactName;
+        var all = name is null ? [] : GameTypes.FindAllByImpactName(name);
+        var single = name is null ? null : GameTypes.ByImpactName(name);
+        var f32 = GameTypes.Find("keen::float32");
+        var f32Name = f32?.ImpactName;
+        var ok = name == "ecs.Health" && name != health.QualifiedName && name != health.Name && all.Contains(health) &&
+                 single == (all.Count == 1 ? health : null) && f32Name is not null && GameTypes.ByImpactName(f32Name) == f32 &&
+                 GameTypes.ByImpactName("keen::ecs::Health") is null && GameTypes.ByImpactName("Health") is null;
+        Check("types.impact-names", ok,
+              $"{health.QualifiedName} -> '{name}' (short '{health.Name}'); FindAll: {string.Join(", ", all.Select(t => t.QualifiedName))}; " +
+              $"ByImpactName: {single?.QualifiedName ?? "null (ambiguous)"}; keen::float32 -> '{f32Name}'");
+        var bad = false;
+        try { GameTypes.ByImpactName(""); } catch (ArgumentException) { bad = true; }
+        Check("types.impact-names: an empty name is a bad argument", bad);
+        var named = GameTypes.All.Count(t => t.ImpactName is not null);
+        Check("types.impact-names: every type has one", named == GameTypes.Count, $"{named} of {GameTypes.Count}");
     }
 
     private void Basics()
