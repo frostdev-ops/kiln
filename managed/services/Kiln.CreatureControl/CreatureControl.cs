@@ -467,3 +467,10 @@ public static unsafe partial class CreatureControl
         (ControlRole)s.RequestedRole, (ControlRole)s.EffectiveRole, (ControlLeaseState)s.LeaseState, (ControlResultCode)s.Result,
         s.TransitionSequence, s.NoticeSequence, s.ChangedMask, CreatureControlNative.ReasonOf(in s));
 }
+
+/// <summary>Started by Kiln (ServiceTick.AutoStart) at its first service tick: the rows kiln.creature_control and
+/// creature_control say why they are off before a mod asks (with no native service: "not loaded").</summary>
+internal static class CreatureControlStartup
+{
+    static CreatureControlStartup() => CreatureControl.Caps.Rows.Ensure();
+}
