@@ -8,6 +8,21 @@
 #include <vector>
 
 #include "../queries.cpp"
+
+// queries.cpp serves the path slots from path.cpp (02-pathfinding). The service tests here are about rays, rows and
+// entities; path.cpp's own parts are tested through path_core.h below. Its entry points are stubbed for the link.
+namespace kq {
+void path_resolve() {}
+void path_ready() {}
+void path_world_closed(uint32_t) {}
+KilnResult KILN_CALL t_path_submit(KilnOwner, const KilnQueryPathRequest*, KilnQueryPathAdmission*) { return KILN_ERR_UNAVAILABLE; }
+KilnResult KILN_CALL t_path_cancel(KilnOwner, uint64_t) { return KILN_ERR_UNAVAILABLE; }
+KilnResult KILN_CALL t_path_poll(KilnOwner, KilnQueryPathUpdate*, KilnQueryPathPoint*, uint32_t, uint32_t* needed) {
+    if (needed) *needed = 0;
+    return KILN_ERR_NOT_FOUND;
+}
+KilnResult KILN_CALL t_path_retire(KilnOwner) { return KILN_OK; }
+}  // namespace kq
 #include "../path_core.h"
 
 static int g_checks = 0;
