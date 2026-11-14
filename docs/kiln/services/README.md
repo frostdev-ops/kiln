@@ -52,6 +52,13 @@ available is generated from a boot's `capabilities.json`: [../status.generated.m
 | [world.md](world.md) | kiln.world: ECS programs, entity and component access, teleport |
 | [worldtables.md](worldtables.md) | kiln.worldtables: the game's shared building-material tables |
 
+### Service pages added in dev.28
+Each dev.28 package adds the page of its service here (sorted by page name); a service that existed before keeps its
+row above and grows its own page.
+
+| Page | What |
+|---|---|
+
 ## Native rules
 - `kiln_plugin_main(api, owner, info)`: check `api->abi_version == KILN_ABI_VERSION`, resolve symbols with
   `api->symbol` / constants with `api->constant` / features with `api->feature`, install hooks through `kiln.hooks`
