@@ -34,3 +34,15 @@ internal static unsafe class WorldRows
         WorldCapabilities.Is(World.TrackedWritesCapability);
     }
 }
+
+/// <summary>Started by Kiln (ServiceTick.AutoStart) at its first service tick (0.2.0-dev.28): <c>world.tracked_writes</c>,
+/// <c>world.transform_scale</c> and kiln.world's sigdb features have their rows before a mod first uses Kiln.World, so
+/// <c>Capabilities.Is</c> answers from the start (as World's static constructor does at the first use otherwise).</summary>
+internal static class WorldStartup
+{
+    static WorldStartup()
+    {
+        TransformScale.Start();
+        WorldRows.Rows.Ensure();
+    }
+}

@@ -25,6 +25,7 @@ public sealed class AdmissionHoldTestMod : Mod
     }
 
     private readonly List<Join> _joins = new();
+    private readonly string _session = Guid.NewGuid().ToString("N");
     private IDisposable? _decider;
 
     public override void OnLoad()
@@ -100,6 +101,7 @@ public sealed class AdmissionHoldTestMod : Mod
             list.Add(new JsonObject
             {
                 ["name"] = peer.Name, ["peer"] = $"0x{peer.Id:x}", ["outcome"] = outcome, ["heldMs"] = Math.Round(heldMs),
+                ["session"] = _session,
                 ["utc"] = DateTime.UtcNow.ToString("O"),
             });
             while (list.Count > 50) list.RemoveAt(0);
