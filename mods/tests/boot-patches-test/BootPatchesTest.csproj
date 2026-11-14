@@ -13,6 +13,7 @@
   <ItemGroup>
     <ProjectReference Include="../../../managed/Kiln.Api/Kiln.Api.csproj" Private="false" ExcludeAssets="runtime" />
     <ProjectReference Include="../../../managed/services/Kiln.Players/Kiln.Players.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Blocks/Kiln.Blocks.csproj" Private="false" ExcludeAssets="runtime" />
     <None Include="kiln.mod.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="expect.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="blocks/**" CopyToOutputDirectory="PreserveNewest" />

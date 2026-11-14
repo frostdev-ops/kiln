@@ -18,6 +18,19 @@ public sealed class BootPatchesTestMod : Mod
         else { _fail++; Log.Error($"boot-patches-test: FAIL {what}"); }
     }
 
+    // The case "onboot": the same kind staged from code, beside the blocks file's patch (another field of the same table).
+    public override void OnBoot(BootContext boot)
+    {
+        using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(Context.Info.Directory, "expect.json")));
+        if (doc.RootElement.GetProperty("case").GetString() != "onboot") return;
+        var staged = BootDefinitions.For(boot).Define("xp-code", new ResourcePatchBlock
+        {
+            Resource = Guid.Parse("82706b40-61b1-4b8f-8b23-dcec6971bda1"), Type = "keen::BalancingTable",
+            Set = { ["experienceNeedPerLevel[4]"] = ResourceValue.AtLeast(6000), ["experienceNeedPerLevel[1]"] = ResourceValue.Times(2) },
+        });
+        if (!staged.Ok) throw new InvalidOperationException(staged.Reason);
+    }
+
     public override void OnLoad()
     {
         if (Mods.Side != ModSide.Server) return;
@@ -34,6 +47,8 @@ public sealed class BootPatchesTestMod : Mod
             var sw = System.Diagnostics.Stopwatch.StartNew();
             while (!Progression.Available && sw.Elapsed.TotalSeconds < 240) await Context.Scheduler.NextTick();
             for (var i = 0; i < 120; i++) await Context.Scheduler.NextTick();
+            var state = Mods.BootState(Context.Info.Id);
+            Log.Info($"boot-patches-test: INFO boot state {state.State}, definitions [{string.Join(", ", state.Definitions)}], {state.Issues.Count} issue(s)");
             Check(Capabilities.Is("mods.boot.resource_patches"), $"{name}: mods.boot.resource_patches is on ({Capabilities.Why("mods.boot.resource_patches")})");
             foreach (var level in doc.RootElement.GetProperty("levels").EnumerateObject())
             {
