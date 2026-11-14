@@ -1,1 +1,103 @@
 #nullable enable
+Kiln.AssetsCatalogChange
+Kiln.AssetsCatalogChange.None = 0 -> Kiln.AssetsCatalogChange
+Kiln.AssetsCatalogChange.Ready = 1 -> Kiln.AssetsCatalogChange
+Kiln.AssetsCatalogChange.Registration = 2 -> Kiln.AssetsCatalogChange
+Kiln.AssetsCatalogChange.Remove = 3 -> Kiln.AssetsCatalogChange
+Kiln.AssetsCatalogChange.Revoke = 4 -> Kiln.AssetsCatalogChange
+Kiln.AssetsCatalogChangedEvent
+Kiln.AssetsCatalogChangedEvent.Generation.get -> ulong
+Kiln.AssetsCatalogChangedEvent.Reason.get -> Kiln.AssetsCatalogChange
+Kiln.BlobCatalogEntry
+Kiln.BlobCatalogEntry.<Clone>$() -> Kiln.BlobCatalogEntry!
+Kiln.BlobCatalogEntry.BlobCatalogEntry(Kiln.ContentHash ContentHash, Kiln.BlobOrigins Origins, Kiln.BlobOrigins SelectedOrigin, ulong Owner, ulong Sequence, bool Overridden) -> void
+Kiln.BlobCatalogEntry.ContentHash.get -> Kiln.ContentHash
+Kiln.BlobCatalogEntry.ContentHash.init -> void
+Kiln.BlobCatalogEntry.Deconstruct(out Kiln.ContentHash ContentHash, out Kiln.BlobOrigins Origins, out Kiln.BlobOrigins SelectedOrigin, out ulong Owner, out ulong Sequence, out bool Overridden) -> void
+Kiln.BlobCatalogEntry.Equals(Kiln.BlobCatalogEntry? other) -> bool
+Kiln.BlobCatalogEntry.Origins.get -> Kiln.BlobOrigins
+Kiln.BlobCatalogEntry.Origins.init -> void
+Kiln.BlobCatalogEntry.Overridden.get -> bool
+Kiln.BlobCatalogEntry.Overridden.init -> void
+Kiln.BlobCatalogEntry.Owner.get -> ulong
+Kiln.BlobCatalogEntry.Owner.init -> void
+Kiln.BlobCatalogEntry.SelectedOrigin.get -> Kiln.BlobOrigins
+Kiln.BlobCatalogEntry.SelectedOrigin.init -> void
+Kiln.BlobCatalogEntry.Sequence.get -> ulong
+Kiln.BlobCatalogEntry.Sequence.init -> void
+Kiln.BlobCatalogInfo
+Kiln.BlobCatalogInfo.<Clone>$() -> Kiln.BlobCatalogInfo!
+Kiln.BlobCatalogInfo.BlobCatalogInfo(ulong Generation, ulong Total, Kiln.BlobCatalogStatus Status, bool GameComplete, bool RegistrationsComplete, Kiln.BlobCatalogReason Reason) -> void
+Kiln.BlobCatalogInfo.Deconstruct(out ulong Generation, out ulong Total, out Kiln.BlobCatalogStatus Status, out bool GameComplete, out bool RegistrationsComplete, out Kiln.BlobCatalogReason Reason) -> void
+Kiln.BlobCatalogInfo.Equals(Kiln.BlobCatalogInfo? other) -> bool
+Kiln.BlobCatalogInfo.GameComplete.get -> bool
+Kiln.BlobCatalogInfo.GameComplete.init -> void
+Kiln.BlobCatalogInfo.Generation.get -> ulong
+Kiln.BlobCatalogInfo.Generation.init -> void
+Kiln.BlobCatalogInfo.Reason.get -> Kiln.BlobCatalogReason
+Kiln.BlobCatalogInfo.Reason.init -> void
+Kiln.BlobCatalogInfo.RegistrationsComplete.get -> bool
+Kiln.BlobCatalogInfo.RegistrationsComplete.init -> void
+Kiln.BlobCatalogInfo.Status.get -> Kiln.BlobCatalogStatus
+Kiln.BlobCatalogInfo.Status.init -> void
+Kiln.BlobCatalogInfo.Total.get -> ulong
+Kiln.BlobCatalogInfo.Total.init -> void
+Kiln.BlobCatalogMode
+Kiln.BlobCatalogMode.RegistrationsOnly = 1 -> Kiln.BlobCatalogMode
+Kiln.BlobCatalogMode.RequireComplete = 0 -> Kiln.BlobCatalogMode
+Kiln.BlobCatalogOpenResult
+Kiln.BlobCatalogOpenResult.<Clone>$() -> Kiln.BlobCatalogOpenResult!
+Kiln.BlobCatalogOpenResult.BlobCatalogOpenResult(bool Ok, string? Reason, Kiln.BlobCatalogSnapshot? Snapshot, Kiln.BlobCatalogInfo! Info) -> void
+Kiln.BlobCatalogOpenResult.Deconstruct(out bool Ok, out string? Reason, out Kiln.BlobCatalogSnapshot? Snapshot, out Kiln.BlobCatalogInfo! Info) -> void
+Kiln.BlobCatalogOpenResult.Equals(Kiln.BlobCatalogOpenResult? other) -> bool
+Kiln.BlobCatalogOpenResult.Info.get -> Kiln.BlobCatalogInfo!
+Kiln.BlobCatalogOpenResult.Info.init -> void
+Kiln.BlobCatalogOpenResult.Ok.get -> bool
+Kiln.BlobCatalogOpenResult.Ok.init -> void
+Kiln.BlobCatalogOpenResult.Reason.get -> string?
+Kiln.BlobCatalogOpenResult.Reason.init -> void
+Kiln.BlobCatalogOpenResult.Snapshot.get -> Kiln.BlobCatalogSnapshot?
+Kiln.BlobCatalogOpenResult.Snapshot.init -> void
+Kiln.BlobCatalogReason
+Kiln.BlobCatalogReason.EntryBudget = 3 -> Kiln.BlobCatalogReason
+Kiln.BlobCatalogReason.GameNotReady = 1 -> Kiln.BlobCatalogReason
+Kiln.BlobCatalogReason.MemoryBudget = 4 -> Kiln.BlobCatalogReason
+Kiln.BlobCatalogReason.None = 0 -> Kiln.BlobCatalogReason
+Kiln.BlobCatalogReason.UnreadableMap = 2 -> Kiln.BlobCatalogReason
+Kiln.BlobCatalogReason.UnsupportedTable = 5 -> Kiln.BlobCatalogReason
+Kiln.BlobCatalogSnapshot
+Kiln.BlobCatalogSnapshot.Dispose() -> void
+Kiln.BlobCatalogSnapshot.Info.get -> Kiln.BlobCatalogInfo!
+Kiln.BlobCatalogSnapshot.ReadPage(ulong first, int capacity = 256) -> System.Collections.Generic.IReadOnlyList<Kiln.BlobCatalogEntry!>!
+Kiln.BlobCatalogSnapshot.Total.get -> ulong
+Kiln.BlobCatalogStatus
+Kiln.BlobCatalogStatus.Complete = 0 -> Kiln.BlobCatalogStatus
+Kiln.BlobCatalogStatus.Incomplete = 1 -> Kiln.BlobCatalogStatus
+Kiln.BlobCatalogStatus.LimitExceeded = 3 -> Kiln.BlobCatalogStatus
+Kiln.BlobCatalogStatus.NotReady = 2 -> Kiln.BlobCatalogStatus
+Kiln.BlobCatalogStatus.Unavailable = 4 -> Kiln.BlobCatalogStatus
+Kiln.BlobOrigins
+Kiln.BlobOrigins.Game = 1 -> Kiln.BlobOrigins
+Kiln.BlobOrigins.Managed = 4 -> Kiln.BlobOrigins
+Kiln.BlobOrigins.Manifest = 2 -> Kiln.BlobOrigins
+Kiln.BlobOrigins.NativeApi = 8 -> Kiln.BlobOrigins
+Kiln.BlobOrigins.None = 0 -> Kiln.BlobOrigins
+const Kiln.BlobCatalogSnapshot.MaxPage = 256 -> int
+override Kiln.AssetsCatalogChangedEvent.ToString() -> string!
+override Kiln.BlobCatalogEntry.Equals(object? obj) -> bool
+override Kiln.BlobCatalogEntry.GetHashCode() -> int
+override Kiln.BlobCatalogEntry.ToString() -> string!
+override Kiln.BlobCatalogInfo.Equals(object? obj) -> bool
+override Kiln.BlobCatalogInfo.GetHashCode() -> int
+override Kiln.BlobCatalogInfo.ToString() -> string!
+override Kiln.BlobCatalogOpenResult.Equals(object? obj) -> bool
+override Kiln.BlobCatalogOpenResult.GetHashCode() -> int
+override Kiln.BlobCatalogOpenResult.ToString() -> string!
+static Kiln.Assets.OpenBlobCatalog(Kiln.BlobCatalogMode mode = Kiln.BlobCatalogMode.RequireComplete) -> Kiln.BlobCatalogOpenResult!
+static Kiln.Assets.ReadBlob(Kiln.ContentHash hash) -> byte[]?
+static Kiln.BlobCatalogEntry.operator !=(Kiln.BlobCatalogEntry? left, Kiln.BlobCatalogEntry? right) -> bool
+static Kiln.BlobCatalogEntry.operator ==(Kiln.BlobCatalogEntry? left, Kiln.BlobCatalogEntry? right) -> bool
+static Kiln.BlobCatalogInfo.operator !=(Kiln.BlobCatalogInfo? left, Kiln.BlobCatalogInfo? right) -> bool
+static Kiln.BlobCatalogInfo.operator ==(Kiln.BlobCatalogInfo? left, Kiln.BlobCatalogInfo? right) -> bool
+static Kiln.BlobCatalogOpenResult.operator !=(Kiln.BlobCatalogOpenResult? left, Kiln.BlobCatalogOpenResult? right) -> bool
+static Kiln.BlobCatalogOpenResult.operator ==(Kiln.BlobCatalogOpenResult? left, Kiln.BlobCatalogOpenResult? right) -> bool

@@ -61,17 +61,15 @@ public static unsafe partial class Assets
     private static AssetsNative.Table* T =>
         _table != null ? _table : (_table = Services.Get<AssetsNative.Table>(AssetsNative.Service, AssetsNative.Version));
 
-    // The table with the slots appended in 0.2.0-dev.28 (blob_add_ex, blob_override_ex), or null on an older kiln.assets.
-    // Asked for after T, so a smaller table never lowers kiln.assets' own row. Not remembered when null: a test's table
-    // may be published later.
-    private static AssetsNative.TableEx* _tableEx;
-    private static AssetsNative.TableEx* TEx
+    // The table with the slots appended in 0.2.0-dev.28 (blob_add_ex, blob_override_ex, the blob catalog), or null on an
+    // older kiln.assets: the v1 table itself when its header.size covers them (no lookup of its own, so it never lowers
+    // kiln.assets' row and follows whatever T is).
+    internal static AssetsNative.TableEx* TEx
     {
         get
         {
-            if (_tableEx != null) return _tableEx;
-            if (T == null) return null;
-            return _tableEx = Services.Get<AssetsNative.TableEx>(AssetsNative.Service, AssetsNative.Version);
+            var t = T;
+            return t != null && t->Header.Size >= (uint)sizeof(AssetsNative.TableEx) ? (AssetsNative.TableEx*)t : null;
         }
     }
 
