@@ -27,6 +27,7 @@
 #include "runtime.h"
 #include "system_hooks.h"
 #include "services/kiln_types.h"
+#include "services/kiln_world.h"
 #include "../../plugins/set/src/coexist.h"
 
 namespace {
@@ -72,6 +73,12 @@ bool g_external_runner = false;
 // clean inventory makes the runner active again (its detour stays installed while passive, passing every slice on).
 // Tick thread; status() reads it under g_sys_mu.
 bool g_runner_unsure = false;
+// external_runner(): the two flags above, for any thread (and the startup check's verdict, which sets neither).
+std::atomic<uint32_t> g_external_state{0};
+void publish_external() { g_external_state.store(external_state(g_external_runner, g_runner_unsure), std::memory_order_release); }
+// kiln.world's wrap_original (v4): the game's update behind a program-table entry kiln.world swapped, else 0. Set at
+// on_ready, read by the runner detour.
+std::atomic<uint64_t (KILN_CALL*)(uintptr_t)> g_wrap_original{nullptr};
 
 // Requested update-function hooks, separate from the slice runner so callbacks get its actual ProgramContext.
 constexpr size_t kMaxSystemHooks = 64;
@@ -318,6 +325,7 @@ int64_t sys_index_of_job(const void* job) {
     uint64_t prog, fn;
     if (!read_at(g_memory, reinterpret_cast<uint64_t>(job), 0x10, prog) || !prog ||
         !read_at(g_memory, prog, 0x28, fn)) return -1;
+    fn = program_update(prog, fn, g_wrap_original.load(std::memory_order_acquire));  // a wrapped program keeps its name
     auto it = std::lower_bound(g_sys_by_fn.begin(), g_sys_by_fn.end(), std::pair<uint64_t, uint32_t>{fn, 0});
     return it != g_sys_by_fn.end() && it->first == fn ? int64_t(it->second) : -1;
 }
@@ -501,6 +509,7 @@ void KILN_CALL on_pre(const KilnTickInfo*, void*) {
                     std::lock_guard lock(g_sys_mu);
                     g_runner_unsure = false;
                     g_external_runner = false;
+                    publish_external();
                 }
                 g_systems_ok = true;
                 logf(KILN_LOG_INFO, "native SET check: the loaded modules were read again (%zu modules, no SET): "
@@ -509,6 +518,7 @@ void KILN_CALL on_pre(const KilnTickInfo*, void*) {
                 {
                     std::lock_guard lock(g_sys_mu);
                     g_runner_unsure = false;
+                    publish_external();
                 }
                 logf(KILN_LOG_WARN, "native SET check: %s: runner left passive until exit", conflict.c_str());
             }
@@ -523,6 +533,7 @@ void KILN_CALL on_pre(const KilnTickInfo*, void*) {
         QueryPerformanceCounter(&now);
         if (!displace_runner(true, g_external_runner, g_system_owners, g_profile, now.QuadPart)) return;
         g_runner_unsure = unsure;
+        publish_external();
         g_systems_ok = false;
         g_prof = false;
         publish_system_switches();
@@ -651,11 +662,21 @@ KilnResult KILN_CALL event_post(uintptr_t world, uint32_t hash, const void* data
     }
 }
 
+uint32_t KILN_CALL external_runner() { return g_external_state.load(std::memory_order_acquire); }
+
 const KilnTypesApi kTable = {
     {sizeof(KilnTypesApi), KILN_TYPES_VERSION}, &status, &type_count, &type_at, &type_by_hash, &type_by_name, &type_info,
     &type_field, &type_enum, &component_type_count, &component_type_at, &event_type_count, &event_type_at,
     &system_count, &system_info, &system_find, &system_set_enabled, &profile, &event_each, &event_post, &system_release_owner, &system_hook, &system_unhook,
+    &external_runner,
 };
+
+// After every service's kiln_plugin_main: kiln.world (it loads after kiln.types) and its wrap_original.
+void KILN_CALL on_ready(void*) {
+    const auto* w = static_cast<const KilnWorldApi*>(g_api->service(KilnStr{KILN_WORLD_SERVICE, sizeof(KILN_WORLD_SERVICE) - 1}, 4));
+    if (w && w->header.size >= offsetof(KilnWorldApi, wrap_original) + sizeof(void*) && w->wrap_original)
+        g_wrap_original.store(w->wrap_original, std::memory_order_release);
+}
 
 bool sym(const char* n, uintptr_t* out) { return g_api->symbol(KilnStr{n, std::strlen(n)}, out) == KILN_OK; }
 bool cst(const char* n, int64_t* out) { return g_api->constant(KilnStr{n, std::strlen(n)}, out) == KILN_OK; }
@@ -670,6 +691,7 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     g_api = api;
     g_owner = owner;
     info->on_unload = &on_unload;
+    if (info->size >= offsetof(KilnPluginInfo, on_ready) + sizeof(info->on_ready)) info->on_ready = &on_ready;
     info->id = KilnStr{KILN_TYPES_SERVICE, sizeof(KILN_TYPES_SERVICE) - 1};
     info->version = KilnStr{"1", 1};
     LARGE_INTEGER f;
@@ -700,6 +722,8 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     g_modules.arm();  // before the startup check, so a DLL loading in between is re-checked
     const std::string conflict = g_conflicts.startup();
     if (!conflict.empty()) add_detail("system runner disabled: " + conflict);
+    // SET seen at start (or modules that could not be read): the runner is never installed, and wraps stay off
+    if (!conflict.empty()) g_external_state.store(g_conflicts.cannot_tell() ? 2u : 1u, std::memory_order_release);
     if (conflict.empty() && n && feat("types.systems") && sym("types/ProgramRunner", &runner) && g_im.text.has(runner, 40)) {
         g_runner.install(g_api, g_owner, runner, reinterpret_cast<void*>(&runner_detour), "types/ProgramRunner");
         g_systems_ok = static_cast<bool>(g_runner);

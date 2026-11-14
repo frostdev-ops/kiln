@@ -1,0 +1,6 @@
+{ "gates": [
+    { "name": "queries.voxel_ray", "checks": ["01-queries.voxel-ray-hosted"], "side": "client" },
+    { "name": "queries.ground", "checks": ["01-queries.voxel-ray-hosted"], "side": "client" },
+    { "name": "queries.line_of_sight", "checks": ["01-queries.voxel-ray-hosted"], "side": "client" },
+    { "name": "queries.overlap_origins", "checks": ["01-queries.voxel-ray-hosted"], "side": "client" }
+] }

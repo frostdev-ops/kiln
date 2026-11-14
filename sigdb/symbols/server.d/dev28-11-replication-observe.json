@@ -1,0 +1,263 @@
+{
+ "format": 1,
+ "side": "server",
+ "comment": "kiln.repl (dev.28, package 11): the game's ECS replication pipeline, send side, on the server exe (f0d824be, Steam 26430253); the same patterns match the client exe's copy for hosted worlds (client.d overlay). repl.observe = what the inspector hooks (send callback, writer, delta writer, acks, resets) and the send step that gives the GameServer; repl.loopback = the lab harness (fake players on free machine indices, decoded by the server exe's own copy of the client decoder). Reuses net/RelevanceStep (net.json) and net/gs.machines. Evidence: docs/re/network.md (dev.28 replication notes), the dev.28 dossier chapter 11.",
+ "symbols": {
+  "repl/SendStep": {
+   "find": [
+    {
+     "pattern": "4C 8B DC 55 56 57 41 54 41 57 49 8D AB 98 FB FF FF 48 81 EC"
+    }
+   ]
+  },
+  "repl/SendCallback": {
+   "find": [
+    {
+     "pattern": "48 8B C4 53 55 56 57 41 57 48 81 EC 90 00 00 00 48 8B 71 08"
+    }
+   ]
+  },
+  "repl/Prepare": {
+   "find": [
+    {
+     "pattern": "48 83 EC 38 49 8B 00 48 89 44 24 20 49 8B 40 08 4C 8D 44 24 20 48 89 44 24 28 E8 ?? ?? ?? ?? 48 83 C4 38 C3 CC CC CC CC CC CC CC CC CC CC CC CC 48 89 5C 24 08 4C"
+    }
+   ]
+  },
+  "repl/PrepareInner": {
+   "find": [
+    {
+     "pattern": "48 89 5C 24 08 44 88 4C 24 20 55 56 57 41 54 41 55 41 56 41"
+    }
+   ]
+  },
+  "repl/QueueReader": {
+   "find": [
+    {
+     "pattern": "48 89 5C 24 08 4C 89 4C 24 20 55 56 57 41 54 41 55 41 56 41 57 48 8D 6C 24 90"
+    }
+   ]
+  },
+  "repl/EntityWriter": {
+   "find": [
+    {
+     "pattern": "48 89 4C 24 08 55 53 56 57 41 55 41 57 48 8D AC 24 58 A7 FF"
+    }
+   ]
+  },
+  "repl/SnapshotReturn": {
+   "comment": "the address right after EntityWriter's call of the snapshot builder (rax = &{State*, u8 temp}); an ordinary symbol, since a @ probe never yields an address",
+   "find": [
+    {
+     "scope": {
+      "symbol": "repl/EntityWriter",
+      "size": 1024
+     },
+     "offset": 8,
+     "pattern": "88 45 00 E8 ?? ?? ?? ?? 33 D2 48 8D 8D ?? ?? ?? ?? 41 B8 D0 07 00 00 0F 10 30"
+    }
+   ]
+  },
+  "repl/TemplateState": {
+   "find": [
+    {
+     "pattern": "48 89 5C 24 20 48 89 54 24 10 48 89 4C 24 08 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 A0"
+    }
+   ]
+  },
+  "repl/StateIndex": {
+   "find": [
+    {
+     "pattern": "48 89 5C 24 08 4C 89 44 24 18 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 60"
+    }
+   ]
+  },
+  "repl/DeltaWriter": {
+   "find": [
+    {
+     "pattern": "4C 89 4C 24 20 4C 89 44 24 18 48 89 54 24 10 48 89 4C 24 08 55 53 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 08 FB"
+    }
+   ]
+  },
+  "repl/Decode": {
+   "find": [
+    {
+     "pattern": "48 89 5C 24 10 4C 89 4C 24 20 48 89 4C 24 08 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 00"
+    }
+   ]
+  },
+  "repl/RecordSent": {
+   "find": [
+    {
+     "pattern": "48 89 4C 24 08 55 56 57 41 54 41 55 41 57 48 83 EC 68 41 0F"
+    }
+   ]
+  },
+  "repl/AckReceive": {
+   "find": [
+    {
+     "pattern": "48 89 5C 24 08 48 89 74 24 10 48 89 7C 24 20 55 41 54 41 55 41 56 41 57 48 8D 6C 24 C9 48 81 EC B0"
+    }
+   ]
+  },
+  "repl/AckProcess": {
+   "find": [
+    {
+     "pattern": "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 41 56 41 57 48 83 EC 30 0F B6 C2"
+    }
+   ]
+  },
+  "repl/EcsReset": {
+   "find": [
+    {
+     "pattern": "4C 8B DC 49 89 4B 08 55 56 57 41 54 41 55 41 56 49 8D AB 78"
+    }
+   ]
+  },
+  "repl/ResetMachine": {
+   "find": [
+    {
+     "pattern": "48 89 5C 24 18 55 56 57 41 56 41 57 48 81 EC 80 00 00 00 48"
+    }
+   ]
+  },
+  "repl/RelevanceDriver": {
+   "find": [
+    {
+     "pattern": "48 89 5C 24 18 55 56 57 41 56 41 57 48 81 EC F0 00 00 00 48"
+    }
+   ]
+  },
+  "@repl.layout": {
+   "find": [
+    {
+     "scope": {
+      "symbol": "repl/PrepareInner",
+      "size": 512
+     },
+     "pattern": "48 8D 9E {repl/world.objects:d32} 48 C7 45 C0 20 00 00 00 49 8B FF 4C 89 64 24 20 48 89 5C 24 30 4D 3B FC 0F 84 ?? ?? ?? ?? 4C 8B 03 45 33 C9 0F B6 07 0F B6 4F 01 48 69 D0 {repl/obj.stride:d32} 4D 8D 68 {repl/obj.client_ctx:d8} 4C 03 EA 49 8D 98 {repl/obj.pred_ctx:d32} 48 03 DA"
+    }
+   ]
+  },
+  "@repl.slot_mask": {
+   "find": [
+    {
+     "scope": {
+      "symbol": "repl/PrepareInner",
+      "size": 512
+     },
+     "pattern": "66 D3 E3 48 8D 8E ?? ?? ?? ?? 66 09 9E {repl/world.slot_mask:d32}"
+    }
+   ]
+  },
+  "@repl.tick": {
+   "find": [
+    {
+     "scope": {
+      "symbol": "repl/QueueReader",
+      "size": 1280
+     },
+     "pattern": "45 8B B5 {repl/world.tick:d32}"
+    }
+   ]
+  },
+  "@repl.ctx": {
+   "find": [
+    {
+     "scope": {
+      "symbol": "repl/QueueReader",
+      "size": 96
+     },
+     "pattern": "48 8D B2 {repl/ctx.heap:d32}"
+    }
+   ]
+  }
+ },
+ "constants": {
+  "repl/world.objects": {
+   "min_votes": 1
+  },
+  "repl/obj.stride": {
+   "min_votes": 1
+  },
+  "repl/obj.client_ctx": {
+   "min_votes": 1
+  },
+  "repl/obj.pred_ctx": {
+   "min_votes": 1
+  },
+  "repl/world.slot_mask": {
+   "min_votes": 1
+  },
+  "repl/world.tick": {
+   "min_votes": 1
+  },
+  "repl/ctx.heap": {
+   "min_votes": 1
+  },
+  "repl/obj.count": {
+   "value": 17
+  }
+ },
+ "features": {
+  "repl.observe": {
+   "symbols": [
+    "repl/SendCallback",
+    "repl/SendStep",
+    "repl/EntityWriter",
+    "repl/DeltaWriter",
+    "repl/SnapshotReturn",
+    "repl/StateIndex",
+    "repl/AckReceive",
+    "repl/EcsReset",
+    "@repl.layout",
+    "@repl.tick"
+   ],
+   "constants": [
+    "repl/world.objects",
+    "repl/obj.stride",
+    "repl/obj.client_ctx",
+    "repl/obj.pred_ctx",
+    "repl/world.tick",
+    "repl/obj.count",
+    "net/gs.machines"
+   ]
+  },
+  "repl.loopback": {
+   "symbols": [
+    "@repl.ctx",
+    "@repl.layout",
+    "@repl.slot_mask",
+    "repl/AckProcess",
+    "repl/AckReceive",
+    "repl/Decode",
+    "repl/DeltaWriter",
+    "repl/EcsReset",
+    "repl/EntityWriter",
+    "repl/Prepare",
+    "repl/RecordSent",
+    "repl/RelevanceDriver",
+    "net/RelevanceStep",
+    "repl/ResetMachine",
+    "repl/SendCallback",
+    "repl/SendStep",
+    "repl/StateIndex",
+    "repl/TemplateState"
+   ],
+   "constants": [
+    "repl/world.objects",
+    "repl/obj.stride",
+    "repl/obj.client_ctx",
+    "repl/obj.pred_ctx",
+    "repl/world.slot_mask",
+    "repl/ctx.heap",
+    "repl/obj.count",
+    "net/gs.machines",
+    "world.storage",
+    "spawn/registry.template_map",
+    "spawn/registry.template_map_cap",
+    "spawn/registry.template_map_values"
+   ]
+  }
+ }
+}

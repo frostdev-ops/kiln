@@ -15,3 +15,8 @@ g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined -I"$here/v2" -I
 g++ -std=c++20 -O1 -g -pthread -Wall -Wextra -fsanitize=address,undefined -I"$here/../../../third_party" -I"$here/../../../core/abi" \
     "$here/writes_test.cpp" "$out/v2_consumer.o" -o "$out/writes_test"
 "$out/writes_test" "$here/parity.json"
+
+# wraps_test: kiln.world v4 (the game's programs: directory, lab switch, wraps) over a fake world table.
+g++ -std=c++20 -O1 -g -pthread -Wall -Wextra -fsanitize=address,undefined -D__fastcall= -I"$here/host" \
+    -I"$here/../../../third_party" -I"$here/../../../core/abi" "$here/wraps_test.cpp" -o "$out/wraps_test"
+"$out/wraps_test" "$here/abi.json"

@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Kiln.Queries: read-only questions about the server world for mods: the first voxel surface on a segment, the ground
+       below a point, voxel line of sight between two entities, and the entities whose origin is inside a sphere or a box.
+       Wrapper for the native kiln.queries service. Deployed to kiln/host/ and shared by every mod. -->
+  <PropertyGroup>
+    <RootNamespace>Kiln</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.World/Kiln.World.csproj" Private="false" />
+    <InternalsVisibleTo Include="Kiln.Queries.Tests" />
+    <InternalsVisibleTo Include="Kiln.Contract.Tests" />
+    <!-- the brain's perception shares the ray's number rules (RayNumbers) -->
+    <InternalsVisibleTo Include="Kiln.Blocks" />
+    <InternalsVisibleTo Include="Kiln.Blocks.Tests" />
+  </ItemGroup>
+</Project>

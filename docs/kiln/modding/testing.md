@@ -213,3 +213,41 @@ time}`, as the host's control folder writes). A command whose outcome comes late
 
 `mods/tests/client-check-test/fixtures/client_checks_lab.py` drives a lab server this way, and joins it as a scripted
 client on kiln.net's lab transport.
+
+## Fake players for lab tests
+A hook on a game program that replicates (a writer, a snapshot, a send callback) runs on the game's worker threads,
+in parallel per player and channel, and only while someone is being replicated to. A lab server has no player.
+`Kiln.Replication`'s `ReplicationLab` (lab only, `[Experimental("KILNX001")]`) gives it fake players: the game's own
+replication pipeline runs for each fake on a free machine index, and what the fake is sent is decoded by the server
+exe's own copy of the client decoder, compared with what the server coded, and acknowledged back, so baselines advance
+as with a real client.
+
+1. Make the lab and deploy it with policy `any`: `tools/lab/lab.sh new <name> <port>`, then
+   `tools/deploy-server.sh <lab> --policy any`, and put `labPort` in the lab's `kiln/config/network.json`
+   (`{"labPort": <port>}`; kiln.net's lab transport). No client and no `tools/nettest` client are needed. Without
+   both, every `ReplicationLab` member throws `KilnUnavailableException("repl.loopback")` (reason `policy`).
+2. Reference `Kiln.Replication` (`Private="false" ExcludeAssets="runtime"`) and opt in: `<NoWarn>$(NoWarn);KILNX001</NoWarn>`
+   or `#pragma warning disable KILNX001`.
+3. On the tick thread: `var fakes = ReplicationLab.AddFakePeers(4);` (each fake's machine index and player slot), then
+   `ReplicationLab.ForceRelevant(f.Machine, entity)` for each entity under test: a fake has no player entity, so
+   nothing is relevant to it by itself. It gets the entity's create from the next frame on, and an update after each
+   change, on both of its channels.
+4. Run the scenario. `ReplicationLab.LoopbackStats()` says what was decoded (`Decoded`, `ComponentsEqual`,
+   `ComponentsDiffer`, `CustomDiffer`, `DecodeFaults`, …); `ReplicationLab.Decoded(machine, entity, "NetworkFuel")` is
+   the component's bytes as that fake's client holds them now, with the tick of the message they came in.
+5. `ReplicationLab.RemoveFakePeers()` before the test ends: the game frees the fakes' replication objects and slot bits.
+   They also go when the mod that added them unloads, or the world stops.
+
+What it gives: the game's relevance, snapshot, writer, delta and send-callback jobs on its `Task-Default` workers every
+frame for those entities, per fake and channel, in parallel; acks and baselines that advance; the client decoder's
+result for every message. A hook in that path is exercised on worker threads with no player.
+
+What it does not give: a client world (the client's merge and apply), a player entity, a session (bandwidth, the
+receive dispatch), and the sim's parallel mode. The server world steps its ECS programs on the workers only while its
+mask of live player entities is not 0, and a fake creates no player entity. Measured on a lab server with four fakes
+active (0.2.0-dev.28): the players mask stayed `0x0000` while the replication slot mask was `0xf000`, and the game's
+`fuel_network` program ran its 120 slices of 120 steps on one thread, the tick thread, as before the fakes. So the
+harness covers the replication jobs only: to test a hook on a sim program on worker threads, use the sim's
+forced-parallel switch (a test-kit-only native call, package `06a-program-wraps`) as well.
+
+`mods/tests/repl-test` is the harness's own lab test (`repl-test: loopback decode PASS`, `repl-test: release PASS`).
