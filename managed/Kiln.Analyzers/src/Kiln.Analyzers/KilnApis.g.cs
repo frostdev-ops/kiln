@@ -605,6 +605,10 @@ internal static partial class KilnApis
         "M:Kiln.Teleport.To(Kiln.EntityId,Kiln.WorldPosition,Kiln.TeleportOptions)", // Teleport.To(EntityId, WorldPosition, TeleportOptions?): via Teleport.Start(EntityId, WorldPosition, EntityId, TeleportOptions)
         "M:Kiln.Teleport.ToEntity(Kiln.EntityId,Kiln.EntityId,System.Double,Kiln.TeleportOptions)", // Teleport.ToEntity(EntityId, EntityId, double, TeleportOptions?): Services.RequireTickThread
         "M:Kiln.Teleport.ToSpawnPoint(Kiln.EntityId,Kiln.EntityId,Kiln.TeleportOptions)", // Teleport.ToSpawnPoint(EntityId, EntityId, TeleportOptions?): via Teleport.Start(EntityId, WorldPosition, EntityId, TeleportOptions)
+        "M:Kiln.Terrain.Apply(Kiln.TerrainPatch,Kiln.TerrainApplyOptions)", // Terrain.Apply(TerrainPatch, TerrainApplyOptions?): via Terrain.Begin(TerrainPatch, TerrainApplyOptions?, string, string)
+        "M:Kiln.Terrain.Forget(System.String)", // Terrain.Forget(string): Services.RequireTickThread
+        "M:Kiln.Terrain.Inspect(Kiln.TerrainPatch,Kiln.TerrainApplyOptions)", // Terrain.Inspect(TerrainPatch, TerrainApplyOptions?): via Terrain.Begin(TerrainPatch, TerrainApplyOptions?, string, string)
+        "M:Kiln.Terrain.get_Applied", // Terrain.Applied.get: Services.RequireTickThread
         "M:Kiln.Time.ReleaseWeather(System.Nullable{System.Int32},System.Boolean)", // Time.ReleaseWeather(int?, bool): Services.RequireTickThread
         "M:Kiln.Time.ResetWeather", // Time.ResetWeather(): Services.RequireTickThread
         "M:Kiln.Time.Set(System.Double,Kiln.TimeSetMode)", // Time.Set(double, TimeSetMode): Services.RequireTickThread
@@ -816,6 +820,7 @@ internal static partial class KilnApis
         "Settings",
         "Skills",
         "Spawn",
+        "Terrain",
         "Time",
         "Ui",
         "Vfx",
