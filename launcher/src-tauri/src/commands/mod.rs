@@ -22,6 +22,7 @@ pub mod compat;
 pub mod found;
 pub mod cook;
 pub mod data_folder;
+pub mod updates;
 
 /// A background task id; the task reports through `kiln://task`.
 pub type TaskId = String;
@@ -194,6 +195,7 @@ pub const NAMES: &[&str] = &[
     "data_folder_restart",
     "app_started",
     "app_render_set",
+    "updates_check",
 ];
 
 #[cfg(test)]

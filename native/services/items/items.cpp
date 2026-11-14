@@ -1936,7 +1936,7 @@ void resolve() {
          E.recipe_apply ? "on" : "OFF", E.fuel_ok ? "on" : "OFF", E.move_ok ? "on" : "OFF", E.transfer_ok ? "possible" : "OFF",
          E.names_ok ? "on" : "OFF", E.instances_ok ? "on" : "OFF", E.equip_ok ? "possible" : "OFF");
     // dev.28 (chapter 16b): the durability debit's functions and frames; needs the attribute lookup and the item reads
-    E.wear_ok = E.read_ok && E.instances_ok && wear::resolve(g_api, g_owner);
+    E.wear_ok = wear::resolve(g_api, g_owner);  // resolve also lowers the row when an item-service prerequisite is off
     // the hooks only where the row is not held by the client gate on this side (S5 holds the hosted client)
     if (E.wear_ok) toolwear::install(g_api, g_owner);
     xfer_init();  // after every symbol above: a lab switch may install the hooks right now

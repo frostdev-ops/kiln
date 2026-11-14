@@ -102,10 +102,49 @@ public static class Game
     [AnyThread]
     public static bool HasFeature(string name) => Capabilities.Is(name);
 
+    /// <summary>Throws unless this is the tick thread. In <see cref="Mod.OnBoot"/> (before the game's first tick, where
+    /// Scheduler.Post cannot help) the message names the member and says to call it in OnLoad.</summary>
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]  // frame 1 is the caller
     public static void AssertTickThread()
     {
-        if (!IsTickThread) throw new InvalidOperationException("This must run on the tick thread; use Scheduler.Post.");
+        if (IsTickThread) return;
+        throw new InvalidOperationException(InBoot ? NotInBoot(CallerName()) : "This must run on the tick thread; use Scheduler.Post.");
     }
+
+    /// <summary>As <see cref="AssertTickThread()"/>, naming <paramref name="member"/> in OnBoot.</summary>
+    internal static void AssertTickThread(string member)
+    {
+        if (IsTickThread) return;
+        throw new InvalidOperationException(InBoot ? NotInBoot(member) : "This must run on the tick thread; use Scheduler.Post.");
+    }
+
+    // The member that called AssertTickThread() (two frames up from here), as "Type.Member".
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static string CallerName()
+    {
+        var method = new System.Diagnostics.StackFrame(2, false).GetMethod();
+        if (method is null || method.Name.Contains('<')) return "This call";
+        var type = method.DeclaringType;
+        while (type is { IsNested: true } && type.Name.Contains('<')) type = type.DeclaringType;  // a lambda or iterator of a member
+        var typeName = type is null ? "" : type.Name.Split('`')[0];
+        var name = method.Name switch
+        {
+            ".ctor" => "new " + typeName,
+            var n when n.StartsWith("get_", StringComparison.Ordinal) || n.StartsWith("set_", StringComparison.Ordinal) => n[4..],
+            var n when n.StartsWith("add_", StringComparison.Ordinal) => n[4..],
+            var n when n.StartsWith("remove_", StringComparison.Ordinal) => n[7..],
+            var n => n,
+        };
+        return method.Name == ".ctor" || typeName.Length == 0 ? name : typeName + "." + name;
+    }
+
+    /// <summary>A mod's <see cref="Mod.OnBoot"/> is running on this thread: its boot-author frame is open (Kiln.Host's boot phase,
+    /// <see cref="BootFrame"/>), before the game's first tick.</summary>
+    internal static bool InBoot => BootFrame.Current is { Open: true };
+
+    /// <summary>What a member says when it cannot run in OnBoot.</summary>
+    internal static string NotInBoot(string member) =>
+        $"{member} is not available in OnBoot (it runs before the game's first tick); call it in OnLoad";
 }
 
 /// <summary>Seam between the public API and whatever hosts it (the native core, or a test fake).</summary>

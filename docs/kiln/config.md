@@ -58,6 +58,28 @@ After a reload with changes: `ConfigFile.Changed` (in the context of the mod tha
 `ConfigChangedEvent` on the bus (tick thread; `Changed`, `PendingRestart`, `Source` File/Api). Entries marked
 `[RequiresRestart]` keep their running value: they show in `PendingRestart` and apply at the next load of the mod.
 
+## In `Mod.OnBoot`
+A boot mod (`"boot"` in kiln.mod.json, `KilnBoot` in the SDK) can read its settings in `OnBoot`, before the game's first tick,
+and stage boot content with them:
+```csharp
+public override void OnBoot(BootContext boot)
+{
+    var altars = Config.Register<Settings>().Value.Altars;   // the file's value, else the default
+    BootDefinitions.For(boot).Define("altars", new StatusBlock { Name = "Altars", Seconds = altars });
+}
+```
+- `Register` reads the file and its defaults as in `OnLoad` (values validated and clamped, the same warnings) and `Value`
+  holds them. Nothing is written in `OnBoot`: a missing file, the canonical form and the schema snapshot are written when the
+  mod's runtime instance registers the same config (in its `OnLoad`).
+- That runtime registration takes over what `OnBoot` read: the same text, not read again while the file is unchanged, so
+  `OnBoot` and the running mod see the same values. A file edited in between is read again and kiln.log says so ("changed after
+  the mod's OnBoot read it"); `OnBoot` used the earlier values.
+- `OnBoot` runs on an instance of the mod that is unloaded when it returns, so `Register` again in `OnLoad`: the object from
+  `OnBoot` is not the one the running mod keeps. The config is in `Config.All` from that registration on.
+- Refused in `OnBoot`, with "… is not available in OnBoot (it runs before the game's first tick); call it in OnLoad":
+  `Set`/`TrySet`, `Save`, `Reload`, adding a `Changed` handler, and `RegisterWorld` (no world exists yet). The same message
+  comes from every other tick-thread member called there.
+
 ## Per world
 `Config.RegisterWorld<T>()` (or `Mod.WorldConfig<T>()`) keeps one file of the config for each world, in the world's folder beside
 `WorldData`, and the values follow the world that is open: [modding/lifecycle.md](modding/lifecycle.md#per-world-config-worldconfigt).
@@ -70,5 +92,6 @@ The file is a server-kind config (`<modid>-world`); `ConfigFile.PerWorld`, `Worl
   out-of-range, writes the file, raises the change; values may be CLR values, `JsonElement`/`JsonNode` or text such as
   "12", "on", "Hard", "5m", "[1, 2]"), `Save()` (after changing `Value` in code), `Reload()`, `Schema()`/`SchemaJson()`,
   `ValuesJson()`, `SyncedValuesJson()`, `PendingRestart`, `Warnings`, `LastError`, `LoadedAt`.
-- Threads: `Register`, `Set`, `Save`, `Reload` on the tick thread; reads anywhere (values are plain objects).
+- Threads: `Register`, `Set`, `Save`, `Reload` on the tick thread (`Register` also in `Mod.OnBoot`, see above); reads anywhere
+  (values are plain objects).
 - A mod's configs leave the registry when it unloads; the file stays.

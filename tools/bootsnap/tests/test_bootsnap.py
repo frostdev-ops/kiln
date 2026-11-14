@@ -17,6 +17,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -403,6 +404,90 @@ class LiveJsonTests(unittest.TestCase):
         self.assertEqual(live.brief_of("keen::BlobArray<keen::X>"), "BlobArray<keen::X>")
         self.assertEqual(live.brief_of("Plain"), "Plain")
 
+    def test_branching_reflection_has_a_total_walk_budget(self):
+        g = live.Graph({"types": [T("Loop", K.K_ARRAY, 1, inner="Loop", count=4096)]})
+        w = live.Walker(g, self.c)
+        real = w.node
+        calls = 0
+        def counted(*a):
+            nonlocal calls
+            calls += 1
+            if calls > 200000:
+                raise AssertionError("no total work budget: depth 12 alone allows exponential expansion")
+            return real(*a)
+        w.node = counted
+        with self.assertRaisesRegex(ValueError, "budget"):
+            w.json("Loop", b"x")
+
+
+class ArchiveLimitTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.game = make_game(Path(self.tmp.name) / "game")
+        self.exe = self.game / "enshrouded_server.exe"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_oversize_chunks_are_refused_before_decompression(self):
+        path = self.exe.with_suffix(".kfc")
+        b = bytearray(path.read_bytes())
+        at = 0x88 + struct.unpack_from("<I", b, 0x88)[0]
+        struct.pack_into("<I", b, at + 16, 0x7fffffff)
+        path.write_bytes(b)
+        with mock.patch("kfc.archive.zstd_decompress", side_effect=AssertionError("unbounded decompression")):
+            with self.assertRaises(ValueError):
+                src = source_for(self.exe)
+                try:
+                    src.kfc._chunk(0)
+                finally:
+                    src.close()
+
+    def test_underreported_frame_is_decoded_with_a_hard_output_limit(self):
+        from compression import zstd
+        path = self.exe.with_suffix(".kfc")
+        b = bytearray(path.read_bytes())
+        at = 0x88 + struct.unpack_from("<I", b, 0x88)[0]
+        frame = zstd.compress(bytes(256 * 1024))
+        struct.pack_into("<I", b, at + 8, len(frame))  # the header still claims only 64 output bytes
+        path.write_bytes(b)
+        res = self.exe.with_suffix(".kfc_resources")
+        raw = bytearray(res.read_bytes())
+        raw[:len(frame)] = frame
+        res.write_bytes(raw)
+        with mock.patch("kfc.archive.zstd_decompress", side_effect=AssertionError("whole-frame allocation")):
+            with self.assertRaises(ValueError):
+                src = source_for(self.exe)
+                try:
+                    src.kfc._chunk(0)
+                finally:
+                    src.close()
+
+    def test_system_zstd_backend_obeys_the_same_bounds(self):
+        from kfc import archive
+        if not archive._system_libzstd():
+            self.skipTest("no system libzstd")
+        with mock.patch.object(archive, "_zstd", None), mock.patch.object(archive, "_zstandard", None):
+            src = source_for(self.exe)
+            try:
+                self.assertEqual(next(src.rows("items")).value(), EXPECTED_ITEM)
+            finally:
+                src.close()
+            # Same bomb with an underreported size, through the fixed-buffer ctypes backend.
+            self.test_underreported_frame_is_decoded_with_a_hard_output_limit()
+
+    def test_pe_image_extent_is_checked_before_mapping(self):
+        raw = bytearray(256)
+        raw[:2] = b"MZ"
+        struct.pack_into("<I", raw, 0x3c, 0x40)
+        raw[0x40:0x44] = b"PE\0\0"
+        struct.pack_into("<H", raw, 0x46, 1)
+        struct.pack_into("<4I", raw, 0x40 + 24 + 8, 0xffffffff, 0x1000, 0, 0)
+        self.exe.write_bytes(raw)
+        with mock.patch.object(cli, "PeImage", side_effect=AssertionError("allocated the PE image")):
+            with self.assertRaisesRegex(ValueError, "image budget"):
+                cli._check_reflection(self.exe)
+
 
 class KindTests(unittest.TestCase):
     def setUp(self):
@@ -562,6 +647,120 @@ class SnapshotTests(unittest.TestCase):
         (d / "materials.data").unlink()
         self.assertFalse(snapshot.valid(d, self.key()), "all eight kind files")
 
+    def test_corrupt_kind_files_are_never_reused(self):
+        self.make()
+        d = self.root / self.key()
+        for name, corrupt in (
+            ("items.data", b""),
+            ("items.index.json", b"{"),
+            ("templates.data", b"x"),
+            ("skills.index.json", b'{"format":1,"kind":"skills","entries":{}}'),
+        ):
+            with self.subTest(name=name):
+                (d / name).write_bytes(corrupt)
+                self.assertFalse(snapshot.valid(d, self.key()), "a corrupt kind is not a finished snapshot")
+                self.assertEqual(self.make()["status"], "made", "repair rather than reuse")
+                self.assertEqual(snapshot.read_value(d, "items", "Material_T1_Wood_Logs")[1], EXPECTED_ITEM)
+
+    def test_completed_marker_does_not_override_the_readers_entry_contract(self):
+        self.make()
+        d = self.root / self.key()
+        file = d / "items.index.json"
+        ix = json.loads(file.read_text())
+        ix["entries"]["Material_T1_Wood_Logs"][4] = 0xffffffff
+        file.write_text(json.dumps(ix))
+        marker = json.loads((d / "index.json").read_text())
+        marker["checksums"][file.name] = snapshot.file_sha256(file)
+        (d / "index.json").write_text(json.dumps(marker))
+        self.assertFalse(snapshot.valid(d, self.key()), "the native reader refuses parts above INT32_MAX")
+
+    def test_legacy_snapshots_without_integrity_metadata_are_rebuilt_once(self):
+        self.make()
+        d = self.root / self.key()
+        marker = json.loads((d / "index.json").read_text())
+        marker.pop("checksums")
+        (d / "index.json").write_text(json.dumps(marker))
+        self.assertEqual(self.make()["status"], "made")
+        self.assertEqual(self.make()["status"], "reused")
+
+    def test_non_object_values_are_skipped(self):
+        src = source_for(self.exe)
+        real = src.walker.json
+        src.walker.json = lambda ty, *a: None if ty == kinds.ITEM else real(ty, *a)
+        r = snapshot.make(self.game, lambda _exe: src)
+        self.assertEqual(r["counts"]["items"], 0, "the contract permits only complete JSON objects")
+        idx = json.loads((Path(r["path"]) / "index.json").read_text())
+        self.assertTrue(any(s["reason"].startswith("decode failed:") for s in idx["skipped"]))
+
+    def test_output_symlinks_are_refused_without_touching_the_target(self):
+        outside = Path(self.tmp.name) / "outside"
+        outside.mkdir()
+        (outside / "sentinel").write_text("keep")
+        for rel in ("kiln", "kiln/data", "kiln/data/boot-gamedata"):
+            with self.subTest(rel=rel):
+                p = self.game / rel
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.symlink_to(outside, target_is_directory=True)
+                with self.assertRaises(snapshot.SnapshotError):
+                    self.make()
+                self.assertEqual(sorted(x.name for x in outside.iterdir()), ["sentinel"])
+                p.unlink()
+
+    def test_symlinked_snapshot_files_are_not_reused(self):
+        self.make()
+        d = self.root / self.key()
+        outside = Path(self.tmp.name) / "outside.data"
+        (d / "items.data").rename(outside)
+        (d / "items.data").symlink_to(outside)
+        self.assertFalse(snapshot.valid(d, self.key()))
+        self.assertEqual(self.make()["status"], "made")
+        self.assertTrue(outside.is_file(), "repair never deletes a link's target")
+
+    def test_explicit_root_cannot_escape_the_game_data_folder(self):
+        outside = Path(self.tmp.name) / "outside"
+        with self.assertRaises(snapshot.SnapshotError):
+            self.make(root=outside)
+        self.assertFalse(outside.exists())
+
+    def test_failed_force_publish_restores_the_completed_snapshot(self):
+        self.make()
+        real = snapshot.os.rename
+        def rename(a, b):
+            if ".tmp-" in Path(a).name:
+                raise OSError("simulated publish failure")
+            return real(a, b)
+        snapshot.os.rename = rename
+        try:
+            with self.assertRaises(OSError):
+                self.make(force=True)
+        finally:
+            snapshot.os.rename = real
+        self.assertTrue(snapshot.valid(self.root / self.key(), self.key()), "a failed force preserves the last snapshot")
+
+    def test_a_second_producer_cannot_interfere_with_an_active_write(self):
+        seen = []
+        def attempt(kind, tmp):
+            if kind == "items":
+                with self.assertRaisesRegex(snapshot.SnapshotError, "lock"):
+                    self.make()
+                seen.append(kind)
+        r = self.make(after_kind=attempt)
+        self.assertEqual(seen, ["items"])
+        self.assertTrue(snapshot.valid(Path(r["path"]), r["key"]))
+
+    def test_parent_replaced_during_extraction_cannot_redirect_writes(self):
+        outside = Path(self.tmp.name) / "outside"
+        outside.mkdir()
+        moved = self.game / "kiln-original"
+        def redirect(kind, tmp):
+            if kind == "items":
+                (self.game / "kiln").rename(moved)
+                (self.game / "kiln").symlink_to(outside, target_is_directory=True)
+        with self.assertRaisesRegex(snapshot.SnapshotError, "directory changed"):
+            self.make(after_kind=redirect)
+        self.assertEqual(list(outside.iterdir()), [], "all writes stayed on the original directory descriptor")
+        self.assertTrue(snapshot.valid(moved / "data/boot-gamedata" / self.key(), self.key()))
+
     def test_a_failed_run_leaves_no_snapshot(self):
         def boom(kind, tmp):
             if kind == "templates":
@@ -700,11 +899,11 @@ class CliTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.game = make_game(Path(self.tmp.name) / "game")
-        self._extract = cli.refl.extract
-        cli.refl.extract = lambda exe: DUMP
+        self._extract = cli.reflection
+        cli.reflection = lambda exe: DUMP
 
     def tearDown(self):
-        cli.refl.extract = self._extract
+        cli.reflection = self._extract
         self.tmp.cleanup()
 
     def run_cli(self, *args):
@@ -767,6 +966,34 @@ class CliTests(unittest.TestCase):
         # a client counts its client-only boot mods; a server does not (above)
         self.assertEqual(snapshot.boot_mods(self.game, server=False), ["client-only"])
         self.assertEqual(snapshot.boot_mods(self.game, server=True), [])
+
+    def test_deploy_decision_uses_profile_entries_and_disabled_overrides(self):
+        kiln = self.game / "kiln"
+        lib = kiln / "lib" / "profile-boot"
+        drop = kiln / "mods" / "drop"
+        lib.mkdir(parents=True)
+        drop.mkdir(parents=True)
+        (lib / "kiln.mod.json").write_text('{"id":"profile-boot","boot":true}')
+        (drop / "kiln.mod.json").write_text('{"id":"drop","boot":true}')
+        def profile(entries, dropins):
+            (kiln / "profile.json").write_text(json.dumps({"format": 1, "id": "p", "generation": 1,
+                "dropins": dropins, "mods": {"kiln": entries}}))
+        profile([{"id":"profile-boot", "path":"lib/profile-boot", "enabled":True}], False)
+        self.assertEqual(snapshot.boot_mods(self.game, True), ["profile-boot"])
+        profile([{"id":"profile-boot", "path":"lib/profile-boot"}], False)
+        self.assertEqual(snapshot.boot_mods(self.game, True), ["profile-boot"], "enabled defaults to true, as the launcher writes it")
+        rc, out, _ = self.run_cli("make", "--game", str(self.game), "--if-needed", "--json")
+        self.assertEqual((rc, json.loads(out)["status"]), (0, "made"))
+        profile([{"id":"drop", "path":"mods/drop", "enabled":False}], ["kiln"])
+        self.assertEqual(snapshot.boot_mods(self.game, True), [], "a disabled profile entry shadows its drop-in")
+        profile([], ["kiln"])
+        self.assertEqual(snapshot.boot_mods(self.game, True), ["drop"])
+
+    def test_boot_manifest_jsonc_preserves_strings_and_accepts_inline_comments(self):
+        d = self.game / "kiln/mods/booter"
+        d.mkdir(parents=True)
+        (d / "kiln.mod.json").write_text('{"id":"booter", /* boot */ "boot":true, // phase\n"description":"x,} // text",}')
+        self.assertEqual(snapshot.boot_mods(self.game, True), ["booter"])
 
     def test_refusal(self):
         rc, out, err = self.run_cli("make", "--game", str(Path(self.tmp.name) / "nothing"), "--json")

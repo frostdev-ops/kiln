@@ -199,6 +199,11 @@ internal sealed class ModBlocks(string id, ulong owner)
     public volatile bool Revoked;
     /// <summary>The runtime wanted its content-ready pass while the ledger was only staged.</summary>
     public bool HookWanted;
+    /// <summary>A plan's ledger whose plan waits for its parts at content ready (KindApply): told once, after the first whole pass
+    /// and its check of the plan's definitions, with every error the ledger holds then (none: the plan is applied).</summary>
+    public Action<IReadOnlyList<string>>? Settle;
+    /// <summary>The names of the definitions a plan's blocks registered: the only ones its pass checks (null on a mod's own ledger).</summary>
+    public HashSet<string>? PlanDefinitions;
     /// <summary>The ledger whose data files and cycle check a lookup uses: this one, or the one it stages for.</summary>
     public ModBlocks Authored => StagesFor ?? this;
 

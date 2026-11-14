@@ -15,6 +15,7 @@ import { serverMockHandlers } from "../pages/servers/mockServers";
 import { updateMockHandlers } from "./mockUpdate";
 import { deckMockHandlers } from "../deck/mockDeck";
 import { nexusMockHandlers, NEXUS_MOCK_ENABLED } from "./mockNexus";
+import { updatesMockHandlers } from "./mockUpdates";
 import { chainMockHandlers } from "./mockChain";
 import { dataFolderBlocks, dataFolderMockHandlers, mockDataDir, mockPickFolder } from "./mockDataFolder";
 import { mockSpeak, bootJsonAt, clearStartHistory, mockBegin, mockProgress, mockStartEnded, ownerScript, processAt, scriptedStart, setStartScript, type StartScript } from "./mockProgress";
@@ -1303,6 +1304,7 @@ Object.assign(handlers, adminMockHandlers(mockEmit));
 Object.assign(handlers, updateMockHandlers(mockEmit, MOCK_DISTRIBUTION));
 Object.assign(handlers, deckMockHandlers(handlers));
 Object.assign(handlers, nexusMockHandlers(handlers, mockEmit, startTask, quickAdd));
+Object.assign(handlers, updatesMockHandlers(handlers, mockEmit));
 Object.assign(handlers, chainMockHandlers({ profiles, library, reject }));
 Object.assign(handlers, dataFolderMockHandlers(startTask, (id) => tasks.get(id)));
 // the save editor: synthetic character saves in memory, or a local fixture with ?editor=fixture (mockEditor.ts). Loaded

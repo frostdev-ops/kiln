@@ -126,6 +126,24 @@ test("nothing to cook: the cook ends at once, says nothing, and the game starts"
   await expect(page.locator(".k-toast", { hasText: /Cooking|cooked/ })).toHaveCount(0);
 });
 
+test("a server's modpack: its Launch cooks first as Play does (the cook, then the boot game-data step), then the game starts", async ({ page }) => {
+  await desktop(page);
+  // a mod of the modpack (the mock's modpack_install imports ember-lanterns and isle-weather) has something to cook
+  await setCook(page, "ember-lanterns", { reason: "notCooked" });
+  await page.locator(".k-hero-banner .k-banner").getByRole("button", { name: "Get modpack" }).click();
+  const offer = page.getByRole("dialog", { name: /uses mods$/ });
+  await offer.getByText(/^I trust .* and want its mods$/).click();
+  await offer.getByRole("button", { name: "Download and install" }).click();
+  const installed = page.getByRole("dialog", { name: "Modpack installed" });
+  await expect(installed).toBeVisible({ timeout: 8000 });
+  expect((await calls(page)).filter((c) => c === "cook_run" || c === "launch_play")).toEqual([]);
+  await installed.getByRole("button", { name: "Launch" }).click();
+  await expect(page.locator(".k-toast", { hasText: "Cooking Ember Lanterns" })).toContainText("then the game starts");
+  await expect.poll(async () => (await calls(page)).filter((c) => c === "cook_run" || c === "launch_play"), { timeout: 15_000 }).toEqual(["cook_run", "launch_play"]);
+  await expect(installed).toHaveCount(0);
+  await expect(page.locator(".k-head-state")).toHaveText(/Starting|Running/, { timeout: 10_000 });
+});
+
 // The Deck view (1280×800, the pad): Play cooks first there too, and a mod that could not be cooked comes as the notice
 // that stays, with the tools' lines on the screen and closed with B.
 test.describe("in the Deck view", () => {

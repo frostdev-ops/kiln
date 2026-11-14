@@ -11,6 +11,8 @@
       KilnSide           server (default) | client | both
       KilnClients        what joining players need: none | kiln | mod (default from the side: server none, else mod)
       KilnEntryType      full name of the Mod subclass (default: the only public one)
+      KilnBoot           true | required: the mod has boot content (Mod.OnBoot; "boot" in kiln.mod.json); required: a failure of
+                         it stops the start (default: none)
       KilnAdvanced       true: opt into the advanced tier (hooks, symbols)
       KilnFeatures       ;-list of required Kiln features (Game.HasFeature), e.g. tick;log.mirror
       KilnExports        ;-list of assembly file names other mods compile against (e.g. MyMod.Api.dll)
@@ -20,6 +22,11 @@
                          Kiln.GameTypes.targets)
       KilnTestsAutoRun   true: run the mod's [KilnTest] methods when the server has started
       KilnTestTimeoutSeconds
+      KilnUpdatesRepository  owner/repo on GitHub where releases of the mod are published: writes "updates" (manifest.md).
+                         With it: KilnUpdatesTagPattern (default v{version}), KilnUpdatesAsset (e.g. my-mod-{version}.zip),
+                         KilnUpdatesChannel (stable | prerelease)
+      KilnUpdatesNexusModId, KilnUpdatesNexusFileChainId  the same for one file of a Nexus Mods page
+      KilnUpdatesProvider    github | nexus (default: from which of the two is set)
       KilnServer         a server folder (with enshrouded_server.exe) for KilnDeploy, or KilnModsDir (its kiln/mods)
       KilnReload         true: KilnDeploy also asks the running server to hot-reload the mod (kiln/control)
       KilnPackageOutputPath  where KilnPack writes <id>-<version>.zip (default: next to the output folder)
@@ -145,10 +152,12 @@
     <KilnManifest Source="$(KilnManifestSource)" Output="$(IntermediateOutputPath)kiln.mod.json"
                   Id="$(KilnModId)" Name="$(KilnModName)" Version="$(Version)" ApiVersion="$(KilnApiVersion)" Side="$(KilnSide)" Clients="$(KilnClients)" ClientsFallback="$(_KilnClientsFallback)" AssemblyPath="$(TargetPath)" BlocksDirectory="$(MSBuildProjectDirectory)/blocks"
                   Authors="$(_KilnAuthors)" Description="$(Description)" License="$(PackageLicenseExpression)" Url="$(PackageProjectUrl)"
-                  EntryAssembly="$(TargetFileName)" EntryType="$(KilnEntryType)" Advanced="$(KilnAdvanced)"
+                  EntryAssembly="$(TargetFileName)" EntryType="$(KilnEntryType)" Boot="$(KilnBoot)" Advanced="$(KilnAdvanced)"
                   Features="$(KilnFeatures)" Exports="$(KilnExports)" Dependencies="@(KilnDependency)"
                   LoadBefore="@(KilnLoadBefore)" LoadAfter="@(KilnLoadAfter)" Incompatible="@(KilnIncompatible)"
                   TestsAutoRun="$(KilnTestsAutoRun)" TestTimeoutSeconds="$(KilnTestTimeoutSeconds)"
+                  UpdatesProvider="$(KilnUpdatesProvider)" UpdatesRepository="$(KilnUpdatesRepository)" UpdatesTagPattern="$(KilnUpdatesTagPattern)" UpdatesAsset="$(KilnUpdatesAsset)" UpdatesChannel="$(KilnUpdatesChannel)"
+                  UpdatesNexusModId="$(KilnUpdatesNexusModId)" UpdatesNexusFileChainId="$(KilnUpdatesNexusFileChainId)"
                   KilnApiPath="@(ReferencePath->WithMetadataValue('Filename','Kiln.Api'))">
       <Output TaskParameter="ModId" PropertyName="KilnResolvedModId" />
       <Output TaskParameter="ModVersion" PropertyName="KilnResolvedModVersion" />

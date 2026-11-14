@@ -25,7 +25,8 @@ REPO = HERE.parents[2]
 MOD = "terrain-overlay-test"
 LEAN = shutil.ignore_patterns("Kiln.*", "*.deps.json", "*.runtimeconfig.json")  # kiln/host has them
 WANT = {
-    1: ["overlay.inspect", "overlay.applied", "overlay.transient-not-recorded", "overlay.base-refused"],
+    1: ["overlay.inspect", "overlay.applied", "overlay.transient-not-recorded", "overlay.base-refused",
+        "overlay.editing-handler-edit-kept"],
     2: ["overlay.kept-after-restart", "overlay.rerun-noop", "overlay.upgrade-conflict"],
     3: ["overlay.world-b-clean"],
 }

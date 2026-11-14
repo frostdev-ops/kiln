@@ -169,13 +169,54 @@ may ship while approval is pending. Mock-provider tests demonstrate local flow b
    - Deck mode shows the same as a dialog: OK, Undo, Get.
 
 ## Updates
-- The Catalog page checks the installed mods' files once when it opens (`nexus_installed(check: true)`). Each file is
-  checked at most every 30 minutes.
+- The Catalog page asks for the shared update check once when it opens (`updates_check` with
+  `providers: ["nexus"]`, see "Update notices" below): the catalog's own check of the installed mods' files, as before.
+  Each file is checked at most every 30 minutes. Opening the page sends nothing to GitHub.
 - A mod has an update when the newest listed version of its file is another upload and its version string is not
   older ([`nexus::version`](../../../crates/kiln-manage/src/nexus/version.rs) compares Nexus's free-text versions).
 - The card says "Update 1.1.0", a banner lists the updates, and the details offer "Update to 1.1.0" (premium) or
   "Update on Nexus Mods" (free).
 - Updating is that click, never automatic.
+
+## Update notices (every mod, since 0.2.0-dev.28)
+One check covers every mod in the Library, whatever it was made for: `updates_check` (also `kiln updates check`,
+[../modding/updates.md](../modding/updates.md)). The Catalog's banner and the notices in the main screen's mod list
+read the same result (`CheckReport`, also sent as the event `kiln://mod-updates`).
+
+- **Where a mod is checked.** In this order: the source you set yourself (a mod's menu, Updates…), the record of its
+  install from the Catalog, the `updates` its author wrote into the manifest. Nothing else: Kiln never guesses a source
+  from a name or a homepage. A mod with none shows "No update source".
+- **What a check asks.** For a GitHub source: the repository's public release list, anonymously (no account, no
+  cookie, nothing about you, your PC or your other mods; one repository per request), and at most the small
+  `kiln-release.json` of the newest release. For a Nexus Mods source: the catalog's signed-in check, as above. A check
+  never requests a mod's zip.
+- **What it shows.** In a mod's row: "Update 1.1.0" (a link), "New upload" (the same version published again as
+  another file), or, for a mod with a source whose check could not tell, "Update unknown" / "Update check is stale".
+  A mod's Updates… dialog has the whole status in words: up to date, update, new upload, unknown with its reason, no
+  update source, checks off (its provider is switched off in this build), and "stale" when the answer is older than a
+  day or the last try failed. A stale or unknown status is never shown as up to date.
+- **What you can do with a notice.** Open its page in the browser (a release page on github.com or the mod's files on
+  nexusmods.com; Kiln builds the address itself and opens no other). That is all: a check never downloads, installs,
+  switches or reloads a mod, and the version your profile uses stays the one you chose. Text that comes from a provider
+  (versions, names) is shown as plain text.
+- **When it runs.** When you press **Check for updates** above your mods. Opening the Catalog asks Nexus Mods only
+  (as before this check existed); GitHub sources then show what the last check remembered. The list first shows
+  what the last check remembered, without asking anybody. Settings, Launcher, **Check for mod updates once a day**
+  (`LauncherSettings.modUpdatesDaily`, off by default) adds a background check: the first one 2 to 15 minutes after
+  the launcher starts, then about once a day (24 to 25 hours), and only while no task runs and the game is closed.
+  The daily check asks a source at most once a day; a check you start asks again after 30 minutes. GitHub's
+  anonymous limit is 60 requests an hour for your connection: when it is used up, checks stop until it resets
+  ("the provider's request limit is used up for now"), also for a check you start.
+- **A source that changes.** When a new version of a mod names another repository or file than the one it was checked
+  against, Kiln asks before it checks there ("Its update source changed", Use the new source). Setting a source by
+  hand to another place asks the same way ("Change where this mod is checked?"). A source you set is where Kiln
+  looks; it does not claim that your copy came from there.
+- **Not in the Deck UI yet:** the notices and the dialog are in the desktop UI only.
+
+Files: `<data>/updates/receipts.json` and `cache.json` ([contracts.md](contracts.md), section 3).
+
+Tests: `cargo test -p kiln-manage --features full updates` (fake transport; no request leaves the PC),
+`launcher/tests/updates.spec.ts` (browser mock: `src/api/mockUpdates.ts`), `launcher/unit/updates.test.ts`.
 
 ## Mod Manager Download links (nxm://)
 This is opt-in: Settings > Nexus Mods > "Mod Manager Download links". It never turns on at install or start.

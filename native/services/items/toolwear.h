@@ -31,6 +31,13 @@ constexpr uint32_t kSourceWeaponHit = 1, kSourceProjectileSpawn = 2;
 constexpr int32_t kMaxCost = 32767;
 constexpr size_t kMaxRules = 256, kQueue = 4096;
 
+// WearDelta adds the signed delta before recomputing/clamping attributes. Preserve that formula without letting
+// a negative value left by another modifier wrap to a large positive durability when our cost replaces -1.
+inline int32_t debit_delta(int32_t before, int32_t cost) {
+    const int64_t room = static_cast<int64_t>(before) - INT32_MIN;
+    return -static_cast<int32_t>(room < cost ? room : cost);
+}
+
 struct Slice {
     void* ptr;
     uint64_t size;
@@ -240,14 +247,14 @@ inline int32_t hit_before(State& s, uintptr_t caller, uint64_t durability_write,
     c.before = before;
     c.maximum = max;
     c.original_delta = delta;
-    c.requested_delta = -cost;
+    c.requested_delta = debit_delta(before, cost);
     p->applied = true;
     p->storage = storage;
     p->change = c;
     p->index = env->durability_index;
     p->max_index = max_index;
     s.hit_applied.fetch_add(1, std::memory_order_relaxed);
-    return -cost;
+    return c.requested_delta;
 }
 
 // After the original WearItem returned: the value is read again through the same accessor (the game may have moved
@@ -317,7 +324,7 @@ inline void spawn_before(State& s, SpawnRegs& r, Frame* f) {
     c.before = before;
     c.maximum = max;
     c.original_delta = -1;
-    c.requested_delta = -cost;
+    c.requested_delta = debit_delta(before, cost);
     std::memcpy(&c.sequence_id, action, 4);
     std::memcpy(&c.trigger_time, action + 8, 8);
     std::memcpy(&c.call_index, action + 0x14, 4);
@@ -329,18 +336,20 @@ inline void spawn_before(State& s, SpawnRegs& r, Frame* f) {
     f->max_index = max_index;
     f->size = static_cast<size_t>(dur.size);
     f->ctx = env->ctx;
-    r.r8 = static_cast<uint32_t>(-cost);
+    r.r8 = static_cast<uint32_t>(c.requested_delta);
     s.spawn_applied.fetch_add(1, std::memory_order_relaxed);
 }
 
 // The detour of WearDelta, before it calls on. True: this is the call the spawn site armed on this thread (then call
-// delta_after with the same frame once the original returned). Any other call of WearDelta is none of ours: the
+// delta_after with the saved local frame once the original returned). Any other call of WearDelta is none of ours: the
 // frame, if one was left armed by a call that never came, is dropped.
 inline bool delta_before(Frame* f, void* durability, uint32_t notify_actor, wear::WearEnv* env) {
     if (!f->armed) return false;
-    if (durability == f->durability && notify_actor == f->change.actor && env && env->ctx == f->ctx) return true;
+    const bool ours = durability == f->durability && notify_actor == f->change.actor && env && env->ctx == f->ctx;
+    // The caller keeps a local copy for after(). Consume the pending TLS frame before calling the original: a
+    // recursive WearDelta (or another spawn) then has its own frame and cannot steal this call's identity.
     *f = Frame{};
-    return false;
+    return ours;
 }
 
 inline void delta_after(State& s, Frame* f, void* durability) {

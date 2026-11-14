@@ -151,6 +151,8 @@ Kiln.TestKit.FakeTerrainWrite.Transient.get -> bool
 Kiln.TestKit.FakeTerrainWrite.Transient.init -> void
 Kiln.TestKit.HarnessTerrain
 Kiln.TestKit.HarnessTerrain.AddBase(Kiln.CellBox box) -> void
+Kiln.TestKit.HarnessTerrain.Editing.get -> System.Action<Kiln.CellBox>?
+Kiln.TestKit.HarnessTerrain.Editing.set -> void
 Kiln.TestKit.HarnessTerrain.Get(Kiln.CellPos at) -> Kiln.Voxel
 Kiln.TestKit.HarnessTerrain.GroundY.get -> int
 Kiln.TestKit.HarnessTerrain.GroundY.set -> void

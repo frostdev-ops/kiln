@@ -68,6 +68,8 @@ internal sealed class TerrainEngine(ITerrainBackend backend, TerrainSession sess
                     foreign.Add(new TerrainConflict(TerrainConflictKind.OtherPlan, TerrainPlan.WholeBlock(b), owner));
             if (foreign.Count > 0)
                 return Result(TerrainState.Refused, $"{foreign.Count} block(s) belong to {foreign[0].Owner}", conflicts: foreign);
+            // no record, but the ground may hold this plan already: its ledger was lost (TerrainLoss, "When the ledger is gone")
+            if (rec is null && !book.Unforget(patch.Id) && await TerrainLoss.Check(backend, plan, book, options.LoadTimeout) is { } lost) return Result(lost.State, lost.Reason);
 
             if (rec is null)
             {
@@ -231,13 +233,16 @@ internal sealed class TerrainEngine(ITerrainBackend backend, TerrainSession sess
         {
             Record(blocks);
             BuildResult r;
-            try { r = await backend.Write(box, cells, mask, options.InBases, transient, label, options.LoadTimeout); }
+            // guarded: kiln.build commits only if the masked cells still hold what this batch read, compared after its
+            // BuildEditingEvent handlers and right before the commit, so an edit made in between is never written over
+            try { r = await backend.Write(box, cells, mask, options.InBases, transient, label, options.LoadTimeout, expected: now); }
             catch (BuildException e) { return (e.Message, changed, wrote); }
             if (!SameWorld(world)) return ("the world stopped or changed", r.CellsChanged, !r.Refused);
-            if (r.Refusal == BuildRefusal.Base)
+            if (r.Refusal is BuildRefusal.Base or BuildRefusal.Changed)
             {
                 Undo(blocks);
-                // the batch touches a base: block by block, preserving receipts for each successful write
+                // the batch touches a base, or someone changed its cells: block by block, preserving receipts for each
+                // successful write
                 foreach (var block in blocks)
                 {
                     var (part, key, before) = block;
@@ -246,12 +251,15 @@ internal sealed class TerrainEngine(ITerrainBackend backend, TerrainSession sess
                     if (!SameWorld(world)) return ("the world stopped or changed", changed, wrote);
                     Record([block]);
                     BuildResult pr;
-                    try { pr = await backend.Write(part, pc, pm, false, transient, label, options.LoadTimeout); }
+                    try { pr = await backend.Write(part, pc, pm, options.InBases, transient, label, options.LoadTimeout, expected: Sub(box, now, mask, part).Cells); }
                     catch (BuildException e) { return (e.Message, changed, wrote); }
-                    if (pr.Refusal == BuildRefusal.Base)
+                    if (pr.Refusal is BuildRefusal.Base or BuildRefusal.Changed)
                     {
-                        conflicts.Add(new TerrainConflict(TerrainConflictKind.BaseZone, TerrainPlan.WholeBlock(part)));
-                        if (rec is not null) rec.Blocks[key] = new TerrainBlock { Before = before, After = before, GivenUp = true, Why = (int)TerrainConflictKind.BaseZone };
+                        // a base, or cells changed since this batch read them: nothing of the block is written, the plan
+                        // gives it up
+                        var why = pr.Refusal == BuildRefusal.Base ? TerrainConflictKind.BaseZone : TerrainConflictKind.PlayerEdit;
+                        conflicts.Add(new TerrainConflict(why, TerrainPlan.WholeBlock(part)));
+                        if (rec is not null) rec.Blocks[key] = new TerrainBlock { Before = before, After = before, GivenUp = true, Why = (int)why };
                         Committed([block]);
                     }
                     else if (pr.Refused)
@@ -346,6 +354,7 @@ internal sealed class TerrainEngine(ITerrainBackend backend, TerrainSession sess
                 if (session.OwnerOf(world, backend.Mod, TerrainPlan.BlockKey(b)) is { } owner)
                     foreign.Add(new TerrainConflict(TerrainConflictKind.OtherPlan, TerrainPlan.WholeBlock(b), owner));
             if (foreign.Count > 0) return Report(true, null, TerrainState.Refused, foreign);
+            if (rec is null && !book.WasForgotten(patch.Id) && await TerrainLoss.Check(backend, plan, book, options.LoadTimeout) is { } lost) return Report(lost.State == TerrainState.Refused, lost.Reason, lost.State);
         }
         if (session.Running(world, backend.Mod, patch.Id)) return Report(true, "the plan is being applied already", TerrainState.Refused);
         if (patch.Persistence == TerrainPersistence.Transient)
@@ -408,7 +417,7 @@ internal sealed class TerrainEngine(ITerrainBackend backend, TerrainSession sess
     {
         if (session.Running(backend.WorldId ?? "", backend.Mod, id)) return false;
         if (!TryBook(out var book, out _)) return false;
-        if (!book!.Plans.Remove(id)) return false;
+        if (!book!.Forget(id)) return false;
         backend.Save(book);
         session.Learn(backend.WorldId ?? "", backend.Mod, book);
         return true;

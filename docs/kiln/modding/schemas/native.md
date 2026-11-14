@@ -31,6 +31,7 @@ One per native mod folder (library/native/<id>/<version>+<hash8>/, kiln/native/<
 | `phase` | `"early"` \| `"boot"` \| `"world"` \| `"dllmain"` |  | kiln_native.h: early (start of kiln_boot, also in safe idle), boot (after Kiln plugins, no hooks needed), world (first world step, needs hooks), dllmain (loaded by the proxy in DllMain; chain.ini [profile]). Default `"early"`. |
 | `requires` | `common.schema.json ids` |  | Native mods that must be present and load first; else this one fails. |
 | `side` | `common.schema.json side` |  | Where it loads. Default client (most DLL mods are client mods; a hosting client runs the world). Default `"client"`. |
+| `updates` | object \| null |  | Where new versions of the mod are published, for the launcher's and `kiln updates check`'s update notice (a notice and a link: Kiln never downloads or installs a version by itself). A tagged union by provider; each provider takes only its own properties. Never a reason to refuse a mod: a value Kiln can't read is ignored with a warning (KL103), and a provider this Kiln does not know means "update checks unsupported". Docs: docs/kiln/modding/manifest.md, "updates". Kiln warns (not refused). |
 | `url` | string |  |  |
 | `version` | `common.schema.json semver` | yes |  |
 

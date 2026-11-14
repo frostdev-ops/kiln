@@ -1839,6 +1839,8 @@ pub fn import(dirs: &DataDirs, paths: &[PathBuf], progress: &mut dyn Progress) -
         if is_archive(p) && p.is_file() {
             std::fs::create_dir_all(dirs.library()).map_err(io(&dirs.library(), "creating"))?;
             progress.report(None, &format!("unpacking {}", file_name(p)));
+            // the archive's digest, taken before it is unpacked: what update checks compare a release with
+            let digest = crate::hash::sha256_file(p).ok().map(|x| x.0);
             let tmp = match unpack_to_temp(p, &dirs.library()) {
                 Ok(t) => t,
                 // an archive Kiln can't open (a rar without a tool, a password, a damaged file) is left out with
@@ -1856,7 +1858,16 @@ pub fn import(dirs: &DataDirs, paths: &[PathBuf], progress: &mut dyn Progress) -
                 report.skipped.push(Skipped { path: d.path.clone(), reason: d.reason.clone() });
                 continue;
             }
+            let (imported, existing) = (report.imported.len(), report.existing.len());
             import_detected(dirs, &d, p, tmp.path(), &from, &mut report, progress)?;
+            // Update checks: every entry this archive gave is bound to the archive's digest (updates::receipt). A
+            // modpack is not the archive a mod was released as. The import stands whether or not this can be written.
+            if d.kind != DetectKind::Modpack
+                && let Some(sha256) = &digest
+            {
+                let refs: Vec<LibraryRef> = report.imported[imported..].iter().chain(&report.existing[existing..]).cloned().collect();
+                let _ = crate::updates::receipt::capture_archive(dirs, &refs, sha256);
+            }
         } else {
             let d = detect(p)?;
             let from = source_of(p, if p.is_dir() { "folder" } else { "file" });
