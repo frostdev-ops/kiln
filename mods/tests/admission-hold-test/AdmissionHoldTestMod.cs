@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // The guided check 15a-hold-kiln's fixture (mods/tests/client-pass/Dev28NetAdmission.cs). On a test server it holds each
 // joining Kiln client through Kiln.Network's admission controller for holdSeconds (kiln/config/admission-hold-test.json,
-// read at each join; default 8), then lets it in. With 25 or more the hold's deadline (at most 25 s) passes first and the
+// read at each join; default 8), then lets it in. With 25 or more the hold's deadline (always 25 s) passes first and the
 // client is refused with this mod's text. Every outcome is written to kiln/data/admission-hold-test/joins.json, which the
 // check reads on the server.
 using System.Text.Json;
@@ -62,8 +62,9 @@ public sealed class AdmissionHoldTestMod : Mod
     private AdmissionHold? Decide(NetPeer peer)
     {
         var seconds = HoldSeconds();
-        var deadline = TimeSpan.FromSeconds(Math.Min(seconds, NetAdmission.MaxDeadline.TotalSeconds));
-        var hold = NetAdmission.HoldPeer(peer, Me, RefusalText, deadline);
+        // The deadline is always the longest one: under 25 s this mod ends the hold itself (a deadline of holdSeconds
+        // would fall due in the same step and refuse the join), from 25 s the deadline refuses it.
+        var hold = NetAdmission.HoldPeer(peer, Me, RefusalText, NetAdmission.MaxDeadline);
         if (hold.Ended) return null;
         _joins.Add(new Join(peer, hold, seconds));
         Log.Info($"{Me}: holding {peer.Name} (0x{peer.Id:x}) for {seconds:0.#} s");
