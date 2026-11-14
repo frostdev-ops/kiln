@@ -22,6 +22,9 @@ public sealed class TestMod : Mod
         Must(d.Define("wood-token", new ItemBlock { Name = "Boot Token", Stack = 20 }).Ok, "wood-token");
         Must(d.Define("cold-bolt", new SpellBlock { Name = "Boot Bolt", Cast = new CastBlock { ManaCost = 2 }, Delivery = new ProjectileBlock { OnHit = ["cold-hit"] } }).Ok, "cold-bolt");
         Must(d.Define("cold-talent", new TalentBlock { Name = "Boot Cold Talent", Keeps = "cold", Game = new GameTreePlace { From = ["0x8efcc472"], Offset = [170, 0] } }).Ok, "cold-talent");
+        // what OnBoot wants OnLoad to have goes through a file: the instance and its load context are thrown away
+        Directory.CreateDirectory(Context.DataDirectory);
+        File.WriteAllText(Path.Combine(Context.DataDirectory, "from-boot.txt"), $"generation {boot.Generation}, pid {Environment.ProcessId}");
     }
 
     public override void OnLoad()
@@ -64,6 +67,11 @@ public sealed class TestMod : Mod
         Check(pending.Count == 0, "BOOT-NO-PENDING", pending.Count == 0 ? "no pending cache of this mod" : $"pending caches: {string.Join(", ", pending)}");
         foreach (var (id, kind) in new[] { ("BOOT-NPC-FIRST", "npcs"), ("BOOT-WORLDTABLE-FIRST", "buildingMaterials"), ("BOOT-PROP-FIRST", "props") })
             Line("NOT BUILT", id, $"{kind} are not a boot kind in this build");
+
+        var fromBoot = Path.Combine(Context.DataDirectory, "from-boot.txt");
+        var handed = File.Exists(fromBoot) ? File.ReadAllText(fromBoot) : null;
+        Check(handed == $"generation {report.Generation}, pid {Environment.ProcessId}", "BOOT-DATA-DIR",
+            $"what OnBoot wrote into Context.DataDirectory ({Context.DataDirectory}): {handed ?? "nothing"}");
 
         // the same ids on the next start: this start's are kept in the mod's data folder, the next start compares
         var ids = new SortedDictionary<string, string>(StringComparer.Ordinal);
