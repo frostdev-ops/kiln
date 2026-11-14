@@ -107,6 +107,16 @@ enum {
  *   game's own graph is served). Overriding a running player's graph ends the server; mods add player animation
  *   states in assets/player-states.json and kiln.playeranim merges them into the graph once. */
 
+/* Where a content blob registration came from (since 0.2.0-dev.28): the provenance kiln.assets keeps for each one, and
+ * the bits of KilnBlobCatalogEntry.origins. Descriptive, not a security claim: a caller of blob_add_ex/override_ex
+ * says what it is. GAME is never a registration: it means "in the game's own content index". */
+enum {
+    KILN_BLOB_ORIGIN_GAME = 1,       /* the game's own content index lists the hash */
+    KILN_BLOB_ORIGIN_MANIFEST = 2,   /* a mod's assets/assets.json (load_manifest, the boot path; icons and textures of it too) */
+    KILN_BLOB_ORIGIN_MANAGED = 4,    /* Kiln's managed Assets (AddBlob, OverrideBlob) through blob_add_ex/override_ex */
+    KILN_BLOB_ORIGIN_NATIVE_API = 8, /* any other caller: blob_add/blob_override, icons and textures registered by call */
+};
+
 typedef struct KilnAssetsApi {
     KilnServiceHeader header; /* { sizeof(KilnAssetsApi), KILN_ASSETS_VERSION } */
 
@@ -190,6 +200,16 @@ typedef struct KilnAssetsApi {
      * thread, when it's already up. For a service that edits tables other mods share; a mod's own override belongs in
      * assets.json. KILN_ERR_UNAVAILABLE: resources are off on this build. Added v1 (appended); check header.size. */
     KilnResult(KILN_CALL* when_resources_ready)(void(KILN_CALL* fn)(void* user), void* user);
+
+    /* ---- since 0.2.0-dev.28 (check header.size before each) ----
+     * blob_add_ex / blob_override_ex: blob_add / blob_override with the registration's origin: KILN_BLOB_ORIGIN_MANAGED
+     *   or KILN_BLOB_ORIGIN_NATIVE_API (anything else, MANIFEST included, is KILN_ERR_INVALID_ARGUMENT). blob_add and
+     *   blob_override tag NATIVE_API; load_manifest tags MANIFEST. Which bytes are served is decided exactly as before
+     *   (the latest registration of a hash wins; an owner's second registration of a hash replaces its first in place). */
+    KilnResult(KILN_CALL* blob_add_ex)(KilnOwner owner, const void* data, size_t len, KilnContentHash* out_hash,
+                                       uint32_t api_origin);
+    KilnResult(KILN_CALL* blob_override_ex)(KilnOwner owner, const KilnContentHash* hash, const void* data, size_t len,
+                                            uint32_t api_origin);
 } KilnAssetsApi;
 
 #ifdef __cplusplus

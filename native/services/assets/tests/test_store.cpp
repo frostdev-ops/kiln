@@ -114,6 +114,100 @@ std::string flag_name(uint32_t f) {
     return s.substr(1);
 }
 
+KilnContentHash kch(const HashK& h) { return KilnContentHash{h.size, h.h0, h.h1, h.h2}; }
+std::string blob(const HashK& h) {  // what blob_read gives for a hash Kiln serves
+    const KilnContentHash c = kch(h);
+    std::vector<uint8_t> b(64);
+    size_t n = 0;
+    const KilnResult r = op_blob_read(&c, b.data(), b.size(), &n);
+    return r == KILN_OK ? std::string(b.begin(), b.begin() + n) : "<result " + std::to_string(r) + ">";
+}
+std::vector<LedgerEntry> ledger_of(const HashK& h) {
+    std::vector<LedgerEntry> r;
+    for (const LedgerEntry& e : blob_ledger(nullptr))
+        if (e.hash == h) r.push_back(e);
+    return r;
+}
+// The winner as the store decided it before provenance: the last registration of the hash in registration order, where an
+// owner's later registration of the same hash replaces its earlier one in place. Kept here as the reference the store must match.
+struct Reference {
+    struct Reg { KilnOwner owner; std::string bytes; };
+    std::vector<Reg> regs;
+    void add(KilnOwner o, const std::string& b) {
+        for (auto& r : regs) if (r.owner == o) { r.bytes = b; return; }
+        regs.push_back({o, b});
+    }
+    void remove(KilnOwner o) { std::erase_if(regs, [&](const Reg& r) { return r.owner == o; }); }
+    std::string winner() const { return regs.empty() ? "<result 2>" : regs.back().bytes; }
+};
+
+void blob_provenance(KilnOwner manifest, KilnOwner mod, KilnOwner native) {
+    const HashK game{8, 0x11111111, 0x22222222, 0x33333333};  // a game blob three registrations override
+    const KilnContentHash gc = kch(game);
+    Reference ref;
+    uint64_t gen = catalog_generation();
+    {
+        OriginScope scope(KILN_BLOB_ORIGIN_MANIFEST);  // as load_manifest
+        check(op_blob_override(manifest, &gc, "MANIFEST", 8) == KILN_OK, "a manifest override");
+    }
+    ref.add(manifest, "MANIFEST");
+    check(catalog_generation() > gen, "the catalog generation moves on a registration");
+    check(op_blob_override_ex(mod, &gc, "MANAGED!", 8, KILN_BLOB_ORIGIN_MANAGED) == KILN_OK, "a managed override (blob_override_ex)");
+    ref.add(mod, "MANAGED!");
+    check(op_blob_override(native, &gc, "NATIVE!!", 8) == KILN_OK, "a native override (legacy blob_override)");
+    ref.add(native, "NATIVE!!");
+    auto l = ledger_of(game);
+    check(l.size() == 3 && l[0].origin == KILN_BLOB_ORIGIN_MANIFEST && l[1].origin == KILN_BLOB_ORIGIN_MANAGED &&
+              l[2].origin == KILN_BLOB_ORIGIN_NATIVE_API && l[0].owner == manifest && l[1].owner == mod && l[2].owner == native &&
+              l[0].is_override && l[1].is_override && l[2].is_override && l[0].sequence < l[1].sequence && l[1].sequence < l[2].sequence,
+          "three registrations of the hash, each with its owner, origin, rising sequence and override flag");
+    check(blob(game) == ref.winner() && blob(game) == "NATIVE!!", "the last registration is served, as before");
+    // an owner registers again: in place (its place in the order stays), new sequence and origin
+    const uint64_t managed_seq = l[1].sequence;
+    check(op_blob_override_ex(mod, &gc, "MANAGED2", 8, KILN_BLOB_ORIGIN_NATIVE_API) == KILN_OK, "the managed owner registers again");
+    ref.add(mod, "MANAGED2");
+    l = ledger_of(game);
+    check(l.size() == 3 && l[1].owner == mod && l[1].origin == KILN_BLOB_ORIGIN_NATIVE_API && l[1].sequence > managed_seq,
+          "replaced in place: same place, the new origin, a new sequence");
+    check(blob(game) == ref.winner() && blob(game) == "NATIVE!!", "the winner is unchanged by an earlier owner's re-registration");
+    gen = catalog_generation();
+    check(op_blob_remove(native, &gc) == KILN_OK, "the winner removes its override");
+    ref.remove(native);
+    check(blob(game) == ref.winner() && blob(game) == "MANAGED2" && ledger_of(game).size() == 2 && catalog_generation() > gen,
+          "the next one down is served; the removed registration left the ledger; the generation moved");
+    gen = catalog_generation();
+    check(op_blob_remove(native, &gc) == KILN_OK && catalog_generation() == gen, "removing nothing moves nothing");
+    op_revert_owner(mod);
+    ref.remove(mod);
+    l = ledger_of(game);
+    check(blob(game) == ref.winner() && blob(game) == "MANIFEST" && l.size() == 1 && l[0].origin == KILN_BLOB_ORIGIN_MANIFEST &&
+              catalog_generation() > gen,
+          "revert_owner takes the owner's registration: the manifest's is served, its origin kept");
+    // the external slots never take MANIFEST, GAME or a combination: nothing is added
+    const size_t before = blob_ledger(nullptr).size();
+    KilnContentHash out{};
+    for (uint32_t bad : {0u, (uint32_t)KILN_BLOB_ORIGIN_GAME, (uint32_t)KILN_BLOB_ORIGIN_MANIFEST,
+                         (uint32_t)(KILN_BLOB_ORIGIN_MANAGED | KILN_BLOB_ORIGIN_NATIVE_API), 16u})
+        check(op_blob_add_ex(mod, "X", 1, &out, bad) == KILN_ERR_INVALID_ARGUMENT &&
+                  op_blob_override_ex(mod, &gc, "12345678", 8, bad) == KILN_ERR_INVALID_ARGUMENT,
+              "origin " + std::to_string(bad) + " refused on blob_add_ex and blob_override_ex");
+    check(blob_ledger(nullptr).size() == before && blob(game) == "MANIFEST", "nothing added, the served bytes unchanged");
+    // a new blob through blob_add_ex, then the same bytes from another owner: two registrations, one hash, the later served
+    check(op_blob_add_ex(mod, "SAME-BYTES", 10, &out, KILN_BLOB_ORIGIN_MANAGED) == KILN_OK, "a managed blob_add_ex");
+    const HashK added{out.size, out.hash0, out.hash1, out.hash2};
+    KilnContentHash out2{};
+    check(op_blob_add(native, "SAME-BYTES", 10, &out2) == KILN_OK && std::memcmp(&out, &out2, 16) == 0, "the same bytes again: the same hash");
+    l = ledger_of(added);
+    check(l.size() == 2 && l[0].origin == KILN_BLOB_ORIGIN_MANAGED && !l[0].is_override && l[1].origin == KILN_BLOB_ORIGIN_NATIVE_API &&
+              l[1].owner == native && blob(added) == "SAME-BYTES",
+          "two registrations of one added hash: MANAGED then NATIVE_API, neither an override");
+    // the thread's scope ends with it: the default is NATIVE_API again
+    check(current_origin() == KILN_BLOB_ORIGIN_NATIVE_API, "outside a scope the origin is NATIVE_API");
+    op_revert_owner(native);
+    op_revert_owner(mod);
+    op_revert_owner(manifest);
+}
+
 const char* kGraphGuid = "21319e83-5087-4fff-8795-22997843649e";
 const char* kGraphKeyText = "21319e83-5087-4fff-8795-22997843649e:keen::anim_graph::runtime_graph::AnimationGraphResource2_0:0";
 constexpr uint32_t kGraphHandle = 100, kOtherGraphHandle = 101, kItemHandle = 102, kIconHandle = 103;
@@ -299,6 +393,11 @@ int main() {
         {"resource", "cooked/other.bin", model, {"cooked/own.blob"}, false},
     };
     check(client_only_entries(fixed) == std::vector<bool>{false, true, true, true}, "a blob with a fixed hash is kept for the server, the model and a blob only it uses are not");
+
+    // 11. Blob provenance (0.2.0-dev.28): every registration keeps owner, origin, sequence and override; which bytes are served is
+    // decided as before (the last registration of a hash; an owner's second one replaces its first in place).
+    std::puts("-- 11: blob provenance and the served winner");
+    blob_provenance(manifest, mod, playeranim);
 
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;

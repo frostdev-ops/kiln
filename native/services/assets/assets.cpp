@@ -209,6 +209,7 @@ std::mutex g_loaded_mu;
 
 KilnResult load_manifest(KilnOwner owner, const std::string& mod_dir, std::string* report, const CookTrust* trust_in = nullptr,
                          const CookedIds* cooked_ids_in = nullptr) {
+    OriginScope origin(KILN_BLOB_ORIGIN_MANIFEST);  // every blob this registers (icons and textures too): catalog provenance
     const fs::path base = fs::path(widen(mod_dir)) / L"assets";
     const fs::path mf = base / L"assets.json";
     std::error_code ec;
@@ -518,6 +519,7 @@ KilnResult dump(const std::string& spec, std::string* report) {
 
 // Called by store.cpp's on_resource_system_ready, on the game's thread, once S is available.
 void flush_pending_textures() {
+    OriginScope origin(KILN_BLOB_ORIGIN_MANIFEST);  // only load_manifest queues icons and textures for this
     std::vector<PendingTexture> pend;
     std::vector<PendingIcon> icons;
     {
@@ -655,6 +657,12 @@ KilnResult KILN_CALL t_res_data(const KilnAssetKey* k, const void** ptr, size_t*
 int32_t KILN_CALL t_res_is_new(const KilnAssetKey* k) { return op_resource_is_new(k); }
 size_t KILN_CALL t_res_new_count(uint32_t t) { return op_resource_new_count(t); }
 KilnResult KILN_CALL t_when_ready(void(KILN_CALL* fn)(void*), void* user) { return op_when_resources_ready(fn, user); }
+KilnResult KILN_CALL t_blob_add_ex(KilnOwner o, const void* d, size_t n, KilnContentHash* h, uint32_t origin) {
+    return op_blob_add_ex(o, d, n, h, origin);
+}
+KilnResult KILN_CALL t_blob_over_ex(KilnOwner o, const KilnContentHash* h, const void* d, size_t n, uint32_t origin) {
+    return op_blob_override_ex(o, h, d, n, origin);
+}
 
 const KilnAssetsApi kTable = {
     {sizeof(KilnAssetsApi), KILN_ASSETS_VERSION},
@@ -667,6 +675,7 @@ const KilnAssetsApi kTable = {
     &t_res_is_new,
     &t_res_new_count,
     &t_when_ready,
+    &t_blob_add_ex, &t_blob_over_ex,  // since 0.2.0-dev.28
 };
 
 // ---- control commands: kiln/control/assets.cmd -> assets.result.json (handled by the core's console) ------------

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
-// Mirror of native/core/abi/services/kiln_assets.h (kiln.assets v1). Blittable only; the field order is the ABI.
+// Mirror of native/core/abi/services/kiln_assets.h (kiln.assets v1, with the slots appended since). Blittable only; the
+// field order is the ABI.
 using System.Runtime.InteropServices;
 
 namespace Kiln;
@@ -54,6 +55,21 @@ internal static unsafe class AssetsNative
         public delegate* unmanaged[Cdecl]<ulong, NativeStr, byte*, nuint, nuint*, int> LoadManifest;
         public delegate* unmanaged[Cdecl]<Key*, void**, nuint*, int> ResourceData;  // zero-copy live view (advanced)
     }
+
+    /// <summary>The table since 0.2.0-dev.28: v1 as far as <see cref="Table"/> mirrors it, the three v1 slots after it this
+    /// wrapper does not call, then blob_add_ex and blob_override_ex. Asked for with <c>Services.Get</c> after
+    /// <see cref="Table"/>, so an older kiln.assets answers null (header.size) and never lowers kiln.assets' row.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct TableEx
+    {
+        public Table Base;
+        public void* ResourceIsNew, ResourceNewCount, WhenResourcesReady;
+        public delegate* unmanaged[Cdecl]<ulong, void*, nuint, ContentHash*, uint, int> BlobAddEx;
+        public delegate* unmanaged[Cdecl]<ulong, ContentHash*, void*, nuint, uint, int> BlobOverrideEx;
+    }
+
+    // KILN_BLOB_ORIGIN_* (kiln_assets.h): the provenance a registration is tagged with
+    public const uint OriginGame = 1, OriginManifest = 2, OriginManaged = 4, OriginNativeApi = 8;
 
     public const int Ok = 0, InvalidArgument = 1, NotFound = 2, Unavailable = 3, BufferTooSmall = 5;
 
