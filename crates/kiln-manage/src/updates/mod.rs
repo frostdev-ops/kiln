@@ -7,12 +7,14 @@
 //! | [`status`] | [`ModUpdateStatus`]: the one result per installed mod that the CLI prints and the launcher shows |
 //! | [`receipt`] | source receipts (`<data>/updates/receipts.json`): what Kiln saw when a mod was installed or imported, the source accepted for a mod, manual mappings, the migration of Nexus install records |
 //! | [`coordinator`] | which source a mod has (manual mapping, then receipt, then manifest), the confirmation a changed source needs, the fan-out to providers, one result set |
+//! | [`github_select`] | which release of a GitHub repository is a mod's newest version and how it compares with the installed one: pure functions, no request |
 //! | [`nexus`] | the Nexus Mods provider: the existing signed-in check of the catalog, unchanged, as statuses |
 //!
 //! The rule every part keeps: a check that did not succeed never reads as "up to date". It is `unknown` with a
 //! reason, or an earlier "update available" kept and marked stale.
 
 pub mod coordinator;
+pub mod github_select;
 pub mod nexus;
 pub mod receipt;
 pub mod status;

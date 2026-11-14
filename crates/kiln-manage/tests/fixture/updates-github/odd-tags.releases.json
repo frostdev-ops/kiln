@@ -1,0 +1,74 @@
+[
+  {
+    "id": 9303,
+    "tag_name": "v1.x",
+    "target_commitish": "main",
+    "name": "v1.x",
+    "draft": false,
+    "prerelease": false,
+    "created_at": "2026-11-03T09:00:00Z",
+    "published_at": "2026-11-03T09:00:00Z",
+    "html_url": "https://github.com/example-org/odd-tags/releases/tag/v1.x",
+    "url": "https://api.github.com/repos/example-org/odd-tags/releases/9303",
+    "author": {
+      "login": "example-author",
+      "id": 1
+    },
+    "body": "Fixes.",
+    "assets": []
+  },
+  {
+    "id": 9302,
+    "tag_name": "vNext",
+    "target_commitish": "main",
+    "name": "vNext",
+    "draft": false,
+    "prerelease": false,
+    "created_at": "2026-11-02T09:00:00Z",
+    "published_at": "2026-11-02T09:00:00Z",
+    "html_url": "https://github.com/example-org/odd-tags/releases/tag/vNext",
+    "url": "https://api.github.com/repos/example-org/odd-tags/releases/9302",
+    "author": {
+      "login": "example-author",
+      "id": 1
+    },
+    "body": "Fixes.",
+    "assets": []
+  },
+  {
+    "id": 9301,
+    "tag_name": "release-2026-11",
+    "target_commitish": "main",
+    "name": "release-2026-11",
+    "draft": false,
+    "prerelease": false,
+    "created_at": "2026-11-01T09:00:00Z",
+    "published_at": "2026-11-01T09:00:00Z",
+    "html_url": "https://github.com/example-org/odd-tags/releases/tag/release-2026-11",
+    "url": "https://api.github.com/repos/example-org/odd-tags/releases/9301",
+    "author": {
+      "login": "example-author",
+      "id": 1
+    },
+    "body": "Fixes.",
+    "assets": []
+  },
+  {
+    "id": 9300,
+    "tag_name": "latest",
+    "target_commitish": "main",
+    "name": "latest",
+    "draft": false,
+    "prerelease": false,
+    "created_at": "2026-10-01T09:00:00Z",
+    "published_at": "2026-10-01T09:00:00Z",
+    "html_url": "https://github.com/example-org/odd-tags/releases/tag/latest",
+    "url": "https://api.github.com/repos/example-org/odd-tags/releases/9300",
+    "author": {
+      "login": "example-author",
+      "id": 1
+    },
+    "body": "Fixes.",
+    "assets": []
+  }
+]
