@@ -3,21 +3,31 @@
 """The plan of a guided client pass, read from the sources: which checks exist, in which session each is played, which
 capabilities they open, and what is still missing.
 
-    plan.py [--repo <dir>] [--since 0.2.0-dev.28] [--strict] [--json]
+    plan.py [--repo <dir>] [--since 0.2.0-dev.28] [--strict] [--json | --held-md]
 
-Reads three things of the repository:
+Reads four things of the repository:
   * the check pack, mods/tests/client-pass/*.cs: every [ClientCheck(...)] attribute (id, title, Area, Since, Tags,
     Needs, Order);
   * the index of the dossier's checks, mods/tests/client-pass/dev28-checks.json: id, state (open, settled), and
     optionally "deferred": "<reason>" for an id the release does not check;
+  * the release map, mods/tests/client-pass/dev28-releases.json: in which release each id is played (the dossier
+    ships as a release train). packages: work package -> release; owners: check id -> the package that writes it,
+    for an id whose chapter has several packages; ids: check id -> release, for a package that ships in parts. An id
+    the map says nothing about is planned for --since;
   * the client gate's list, native/core/gates/*.json: capability -> the check ids that open it.
 
-Prints the sessions of the pass with their checks and a time estimate, the capabilities held by the gate with the
-state of their checks, and the problems:
-  * an open id of the index with no check in the pack and no "deferred" reason;
+Prints the sessions of the pass with their checks and a time estimate, the capabilities held by the gate (the ones
+this pass can open, and the ones that wait for a later release and stay off in this one), and the problems:
+  * an open id of this release (or an earlier one) with no check in the pack and no "deferred" reason;
   * a check that claims --since but whose id the index does not have;
-  * a gate that names a check id the pack does not have, or a gate without any check;
-  * two checks with one id, or two checks of one release with one order.
+  * a check whose Since is not the release the map plans its id for;
+  * a gate that names a check id the pack does not have (unless the id is planned for a later release), or a gate
+    without any check;
+  * two checks with one id, or two checks of one release with one order;
+  * an id of a chapter with several packages that the map gives no owner.
+
+--held-md prints the release notes' list "Built, game test pending": the capabilities this pass can open, each with
+the titles of its checks.
 
 Sessions (a check is played in the first one that fits):
   F  frameworks profile          tag frameworks
@@ -206,6 +216,52 @@ def read_index(path: str) -> list[dict]:
     return rows
 
 
+def read_releases(path: str) -> dict:
+    """The release map. A missing file is an empty map (every id is planned for --since)."""
+    if not os.path.exists(path):
+        return {"packages": {}, "owners": {}, "ids": {}}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+    except (OSError, ValueError) as e:
+        raise PlanError(f"cannot read the release map {path}: {e}") from e
+    out = {}
+    for key in ("packages", "owners", "ids"):
+        part = doc.get(key, {}) if isinstance(doc, dict) else None
+        if not isinstance(part, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in part.items()):
+            raise PlanError(f"{path}: \"{key}\" must be an object of strings")
+        out[key] = part
+    return out
+
+
+def release_key(release: str) -> tuple:
+    """Orders releases: 0.2.0-dev.9 before 0.2.0-dev.28 before 0.2.0 (a release without a pre-release part is last)."""
+    core, _, pre = release.partition("-")
+    nums = tuple(int(n) if n.isdigit() else 0 for n in core.split("."))
+    if not pre:
+        return (nums, 1, ())
+    return (nums, 0, tuple((0, int(x), "") if x.isdigit() else (1, 0, x) for x in pre.split(".")))
+
+
+def release_of(row: dict, releases: dict, since: str) -> tuple[str, str | None]:
+    """(release, problem) of an index row: ids, then the owner's (or the only package's) release, else --since."""
+    i = row["id"]
+    if i in releases["ids"]:
+        return releases["ids"][i], None
+    packages = [p for p in row.get("packages") or [] if isinstance(p, str)]
+    owner = releases["owners"].get(i) or (packages[0] if len(packages) == 1 else None)
+    if owner is None:
+        if len(packages) > 1 and releases["packages"]:
+            return since, (f"{i} belongs to a chapter with several packages ({', '.join(packages)}) and the release "
+                           f"map names no owner for it: add it under \"owners\" in dev28-releases.json")
+        return since, None
+    if owner in releases["packages"]:
+        return releases["packages"][owner], None
+    if releases["packages"]:
+        return since, f"{i}: the release map has no release for its package {owner} (dev28-releases.json, \"packages\")"
+    return since, None
+
+
 def read_gates(folder: str) -> list[dict]:
     """The gate list, read as native/core/gates/gen.py reads it (name, side, checks), without its build-stopping checks."""
     gates = []
@@ -236,9 +292,16 @@ def session_of(check: dict) -> str:
     return "B" if check["needs"] == "joined" else "A"
 
 
-def build(pack: list[dict], index: list[dict], gates: list[dict], since: str) -> dict:
+def build(pack: list[dict], index: list[dict], gates: list[dict], since: str, releases: dict | None = None) -> dict:
     """The plan as data."""
+    releases = releases or {"packages": {}, "owners": {}, "ids": {}}
     problems: list[str] = []
+    planned: dict[str, str] = {}          # check id -> the release it is played in
+    for r in index:
+        planned[r["id"]], problem = release_of(r, releases, since)
+        if problem:
+            problems.append(problem)
+    now = release_key(since)
     by_id: dict[str, dict] = {}
     for c in pack:
         if c["id"] in by_id:
@@ -256,8 +319,17 @@ def build(pack: list[dict], index: list[dict], gates: list[dict], since: str) ->
             problems.append(f"{c['id']} ({c['where']}) is not in the check index: add it there, or correct the id")
         if c["id"] != c["id"].lower():
             problems.append(f"{c['id']} ({c['where']}): ids are lower-case")
+    for c in pack:
+        want = planned.get(c["id"])
+        if want is not None and c["since"] != want and (c["since"] == since or want == since):
+            problems.append(f"{c['id']} ({c['where']}) says Since = {c['since'] or '(none)'}, the release map plans it "
+                            f"for {want}: use that release's constant, or move the id in dev28-releases.json")
     missing, deferred, settled_unchecked = [], [], []
+    later: dict[str, int] = {}
     for r in index:
+        if release_key(planned[r["id"]]) > now:
+            later[planned[r["id"]]] = later.get(planned[r["id"]], 0) + 1
+            continue
         if r["id"] in by_id:
             continue
         if r.get("deferred"):
@@ -276,13 +348,22 @@ def build(pack: list[dict], index: list[dict], gates: list[dict], since: str) ->
     for g in gates:
         if not g["checks"]:
             problems.append(f"gate {g['name']} ({g['file']}) names no check")
+        # A gate waits for the latest release among its checks: until then it stays off, and a check that is not
+        # written yet is no problem of this pass.
+        waits = max((planned[c] for c in g["checks"] if c in planned and release_key(planned[c]) > now),
+                    key=release_key, default=None)
         unknown = [c for c in g["checks"] if c not in by_id]
         for c in unknown:
+            if c in planned and release_key(planned[c]) > now:
+                continue
             problems.append(f"gate {g['name']} ({g['file']}) names the check {c}, which the pack does not have")
         gate_rows.append({"name": g["name"], "side": g["side"], "checks": g["checks"], "file": g["file"],
                           "sessions": sorted({session_of(by_id[c]) for c in g["checks"] if c in by_id}),
-                          "unknown": unknown})
+                          "titles": [by_id[c]["title"] for c in g["checks"] if c in by_id],
+                          "unknown": unknown, "later": waits})
     return {"since": since, "checks": len(mine), "index": len(index),
+            "index_now": sum(1 for r in index if release_key(planned[r["id"]]) <= now),
+            "later": [{"release": k, "ids": later[k]} for k in sorted(later, key=release_key)],
             "sessions": [{"key": k, "what": what, "checks": sessions[k], "minutes": len(sessions[k]) * MINUTES}
                          for k, what in SESSIONS],
             "gates": gate_rows, "missing": missing, "deferred": deferred, "settled_without_check": settled_unchecked,
@@ -290,7 +371,10 @@ def build(pack: list[dict], index: list[dict], gates: list[dict], since: str) ->
 
 
 def render(plan: dict) -> str:
-    out = [f"Guided pass for {plan['since']}: {plan['checks']} check(s) in the pack, {plan['index']} id(s) in the index"]
+    out = [f"Guided pass for {plan['since']}: {plan['checks']} check(s) in the pack, {plan['index_now']} id(s) of "
+           f"{plan['index']} in the index are this release's"]
+    if plan["later"]:
+        out.append("Played in a later release: " + ", ".join(f"{x['ids']} in {x['release']}" for x in plan["later"]))
     total = 0
     for s in plan["sessions"]:
         total += s["minutes"]
@@ -302,11 +386,19 @@ def render(plan: dict) -> str:
     out.append("")
     out.append(f"About {total} min of checks in all (a planning figure: {MINUTES} min a check).")
     out.append("")
-    out.append(f"Held by the client gate: {len(plan['gates'])} capability(ies)")
-    for g in plan["gates"]:
+    opens = [g for g in plan["gates"] if not g["later"]]
+    waits = [g for g in plan["gates"] if g["later"]]
+    out.append(f"Held by the client gate, opened by this pass: {len(opens)} capability(ies)")
+    for g in opens:
         side = "" if g["side"] == "both" else f" ({g['side']} only)"
         where = f" session {'/'.join(g['sessions'])}" if g["sessions"] else ""
         out.append(f"  {g['name']}{side}: {', '.join(g['checks']) or '(no check)'}{where}")
+    if waits:
+        out.append("")
+        out.append(f"Held for a later release (stays off in {plan['since']}): {len(waits)} capability(ies)")
+        for g in waits:
+            side = "" if g["side"] == "both" else f" ({g['side']} only)"
+            out.append(f"  {g['name']}{side}: {', '.join(g['checks'])}; {g['later']}")
     if plan["deferred"]:
         out.append("")
         out.append(f"Deferred ({len(plan['deferred'])}):")
@@ -325,22 +417,39 @@ def render(plan: dict) -> str:
     return "\n".join(out) + "\n"
 
 
+def render_held_md(plan: dict) -> str:
+    """The release notes' list: the capabilities this pass can open, with the titles of their checks."""
+    out = []
+    for g in plan["gates"]:
+        if g["later"]:
+            continue
+        side = "" if g["side"] == "both" else f" (on a game client; a dedicated server has it)" if g["side"] == "client" \
+            else f" (on a dedicated server; a game client has it)"
+        checks = "; ".join(f"{t} (`{c}`)" for c, t in zip(g["checks"], g["titles"])) if len(g["titles"]) == len(g["checks"]) \
+            else ", ".join(f"`{c}`" for c in g["checks"])
+        out.append(f"- `{g['name']}`{side}: {checks}")
+    return "\n".join(out) + ("\n" if out else "")
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="The plan of a guided client pass, read from the sources.")
     p.add_argument("--repo", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
     p.add_argument("--since", default="0.2.0-dev.28", help="the release whose checks are planned")
     p.add_argument("--strict", action="store_true", help="exit 1 when there is a problem")
     p.add_argument("--json", action="store_true")
+    p.add_argument("--held-md", action="store_true", help="print the release notes' list of held capabilities")
     args = p.parse_args(argv)
     try:
         pack = read_pack(os.path.join(args.repo, "mods", "tests", "client-pass"))
         index = read_index(os.path.join(args.repo, "mods", "tests", "client-pass", "dev28-checks.json"))
         gates = read_gates(os.path.join(args.repo, "native", "core", "gates"))
+        releases = read_releases(os.path.join(args.repo, "mods", "tests", "client-pass", "dev28-releases.json"))
     except PlanError as e:
         print(f"plan: {e}", file=sys.stderr)
         return 2
-    plan = build(pack, index, gates, args.since)
-    sys.stdout.write(json.dumps(plan, indent=1) + "\n" if args.json else render(plan))
+    plan = build(pack, index, gates, args.since, releases)
+    sys.stdout.write(json.dumps(plan, indent=1) + "\n" if args.json else
+                     render_held_md(plan) if args.held_md else render(plan))
     return 1 if args.strict and plan["problems"] else 0
 
 
