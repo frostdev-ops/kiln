@@ -31,7 +31,18 @@ public sealed class NpcControl
     {
         Entity = entity;
         Block = block;
+        Perception = new NpcPerception(block.Perception);
     }
+
+    internal NpcPerception Perception { get; }
+
+    /// <summary>How this creature sees: its behaviour's <see cref="BehaviourBlock.Perception"/> as it was when the creature was spawned.</summary>
+    [ServerOnly, TickThreadOnly]
+    public NpcPerceptionPolicy PerceptionPolicy => Perception.Policy;
+
+    /// <summary>What its sight did so far: how many looks, and how each candidate's line of sight ended.</summary>
+    [ServerOnly, TickThreadOnly]
+    public NpcPerceptionStats PerceptionStats => Perception.Stats;
 
     internal NpcCreature Block { get; }
     internal readonly List<EntityId> SeenList = [];
@@ -253,6 +264,10 @@ internal sealed class NpcCreature
     public Func<NpcBrain>? Brain;
     public double Sight = 30;
     public Faction? Faction;
+    /// <summary>How its brain sees (BehaviourBlock.Perception), copied to each creature's control.</summary>
+    public NpcPerceptionPolicy Perception = new();
+    /// <summary>The mod instance that defined it: its brain's callbacks and its sight run as that mod.</summary>
+    public ModContext? Context;
     public Dictionary<string, uint> States = new(StringComparer.Ordinal);
     public Dictionary<string, Guid> AttackSequences = new(StringComparer.Ordinal);
     public Dictionary<string, (Guid Program, NpcEffectOn On)> Effects = new(StringComparer.Ordinal);
@@ -423,8 +438,11 @@ internal static class NpcRuntime
         }
         lock (Gate) Driven[e.Value] = (ctl, brain);
         EnsureTick();
+        var previous = ModContext.CurrentMod;
+        if (c.Context is { Alive: true } owner) ModContext.CurrentMod = owner;
         try { brain.Start(ctl); }
         catch (Exception x) { BlocksBridge.Log(LogLevel.Error, $"blocks: creature {c.Name}: its brain's Start threw: {x}"); }
+        finally { ModContext.CurrentMod = previous; }
         BlocksBridge.Log(LogLevel.Info, $"blocks: creature {c.Name}: {e} is driven by its brain");
     }
 
@@ -456,14 +474,17 @@ internal static class NpcRuntime
                 Release(ctl, brain);
                 continue;
             }
-            if (now >= ctl.NextLook)
-            {
-                ctl.NextLook = now + 250;
-                Look(ctl);
-            }
-            ctl.Time += 1.0 / 24.0;
+            // the look and the brain run as the mod that defined the creature (what they ask of Kiln is that mod's)
+            var previous = ModContext.CurrentMod;
+            if (ctl.Block.Context is { Alive: true } owner) ModContext.CurrentMod = owner;
             try
             {
+                if (now >= ctl.NextLook)
+                {
+                    ctl.NextLook = now + 250;
+                    Look(ctl);
+                }
+                ctl.Time += 1.0 / 24.0;
                 brain.Tick(ctl);
                 lock (Gate) _brainTicks++;
             }
@@ -472,6 +493,7 @@ internal static class NpcRuntime
                 BlocksBridge.Log(LogLevel.Error, $"blocks: creature {ctl.Name}: its brain threw, and is stopped for {ctl.Entity}: {x}");
                 Release(ctl, brain);
             }
+            finally { ModContext.CurrentMod = previous; }
         }
     }
 
@@ -491,7 +513,10 @@ internal static class NpcRuntime
     private static void Release(NpcControl ctl, NpcBrain brain)
     {
         lock (Gate) Driven.Remove(ctl.Entity.Value);
+        var previous = ModContext.CurrentMod;
+        if (ctl.Block.Context is { Alive: true } owner) ModContext.CurrentMod = owner;
         try { brain.Stop(ctl); } catch (Exception) { }
+        finally { ModContext.CurrentMod = previous; }
     }
 
     /// <summary>Creatures of a block with a brain that the game spawned, which no block call saw: by their variant, or a template of the block's own.</summary>
@@ -516,7 +541,11 @@ internal static class NpcRuntime
     private static void Look(NpcControl ctl)
     {
         ctl.SeenList.Clear();
-        if (!World.TryGetPosition(ctl.Entity, out var at)) return;
+        if (!World.TryGetPosition(ctl.Entity, out var at))
+        {
+            Normalize(ctl);
+            return;
+        }
         var mine = ctl.Block.Faction ?? SafeFaction(ctl.Entity);
         var found = new List<(EntityId E, double D)>();
         foreach (var p in Players.All)
@@ -528,7 +557,17 @@ internal static class NpcRuntime
             if (Creatures.Of(e).Inspect() is { HealthMax: > 0, Health: <= 0 }) continue;
             if (Hostile(mine, SafeFaction(e))) found.Add((e, ep.DistanceTo(at)));
         }
-        foreach (var (e, _) in found.OrderBy(x => x.D)) ctl.SeenList.Add(e);
+        // nearest first, then by id; with Voxels only those with a clear line (NpcPerception): never a fallback to distance alone
+        var candidates = found.OrderBy(x => x.D).ThenBy(x => x.E.Value).Select(x => (x.E, World.TryGetPosition(x.E, out var p) ? p : at)).ToList();
+        ctl.SeenList.AddRange(ctl.Perception.Look(ctl.Entity, at, candidates, SightOff, Queries.VoxelLineOfSight));
+        Normalize(ctl);
+    }
+
+    private static string? SightOff() => Capabilities.Is(NpcPerception.Capability) ? null : Capabilities.Why(NpcPerception.Capability);
+
+    /// <summary>The target follows what is seen, on every way out of a look: nothing seen leaves no auto-chosen target alive.</summary>
+    private static void Normalize(NpcControl ctl)
+    {
         if (ctl.Target.IsNone || !World.Exists(ctl.Target) || !ctl.SeenList.Contains(ctl.Target))
             ctl.Target = ctl.SeenList.Count > 0 ? ctl.SeenList[0] : default;
     }
