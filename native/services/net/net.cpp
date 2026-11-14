@@ -138,6 +138,7 @@ struct Peer {
     bool reported_up = false;
     bool logged_frame = false;
     bool bound = false;  // lab only: a lab peer standing in for the player of a free slot (lab_selftest BIND)
+    int32_t machine = -1;  // lab only: the loopback fake's machine it stands for (lab_selftest BIND_MACHINE)
     uint8_t slot_flags = 0;
     knet::Record rec{};
     bool has_player = false;
@@ -1551,6 +1552,27 @@ KilnResult KILN_CALL t_lab_selftest(uint32_t op, uint64_t a, uint64_t b, uint64_
             if (p.bound) forget_slot(slot);
             recompute_withheld_locked();
             logf(KILN_LOG_INFO, "net: lab peer 0x%x %s", peer, p.bound ? ("stands for the player of slot " + std::to_string(slot)).c_str() : "no longer stands for a player");
+            return KILN_OK;
+        }
+        case KILN_NET_SELFTEST_BIND_MACHINE: {
+            const KilnPeer peer = static_cast<KilnPeer>(a);
+            const uint32_t machine = static_cast<uint32_t>(b);
+            const bool valid = machine < static_cast<uint32_t>(L.machine_count > 0 ? L.machine_count : 17);
+            if ((peer && !(peer & KILN_NET_PEER_LAB)) || (!valid && !(peer && machine == 0xFFFFFFFFu))) return KILN_ERR_INVALID_ARGUMENT;
+            std::lock_guard<std::mutex> lk(g_mu);
+            if (peer) {
+                auto it = g_peers.find(peer);
+                if (it == g_peers.end()) return KILN_ERR_NOT_FOUND;
+                for (auto& [id, other] : g_peers)
+                    if (valid && other.machine == static_cast<int32_t>(machine)) other.machine = -1;  // one peer per machine
+                it->second.machine = valid ? static_cast<int32_t>(machine) : -1;
+                logf(KILN_LOG_INFO, "net: lab peer 0x%x %s", peer, valid ? ("stands for the fake player on machine " + std::to_string(machine)).c_str() : "no longer stands for a fake player");
+            }
+            for (const auto& [id, p] : g_peers)
+                if (valid && p.machine == static_cast<int32_t>(machine)) {
+                    *out = id;
+                    break;
+                }
             return KILN_OK;
         }
         default:

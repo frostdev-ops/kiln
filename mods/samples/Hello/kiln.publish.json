@@ -1,0 +1,11 @@
+{
+  // Sample: where `kiln publish` would release this mod. Replace the repository and the commit with your own
+  // (docs/kiln/modding/publishing.md); the token is never written here.
+  "format": 1,
+  "provider": "github",
+  "github": {
+    "repository": "example/hello",
+    "tag": "v{version}",
+    "commit": "0000000000000000000000000000000000000000"
+  }
+}

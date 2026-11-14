@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kiln-publish.schema.json",
+  "title": "Kiln publishing config (kiln.publish.json in the mod project), format 1",
+  "description": "Where and how 'kiln publish' releases the mod. The file never holds a secret: the provider's token is read from the PC's credential store when a plan is applied. 'kiln publish --plan' reads this file, audits the packed zip and freezes both into a plan; a change of this file after planning needs a new plan. Unknown keys are refused, so a typo cannot silently change what is published.",
+  "type": "object",
+  "required": ["format", "provider", "github"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "format": { "const": 1 },
+    "provider": { "const": "github", "description": "The provider. This Kiln publishes to GitHub releases." },
+    "github": {
+      "type": "object",
+      "required": ["repository", "tag", "commit"],
+      "additionalProperties": false,
+      "properties": {
+        "repository": { "type": "string", "pattern": "^(?!\\.{1,2}/)[A-Za-z0-9_.-]{1,100}/(?!\\.{1,2}$)[A-Za-z0-9_.-]{1,100}$", "description": "owner/repo. Not a URL." },
+        "tag": { "type": "string", "pattern": "^(?!/)(?!.*//)(?!.*\\.\\.)[A-Za-z0-9._/-]{0,64}\\{version\\}[A-Za-z0-9._/-]{0,64}(?<!/)$", "description": "The release tag with {version} once: v{version}, or mods/my-mod/v{version} in a repository of several mods. {version} is the version in the mod's manifest." },
+        "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$", "description": "The commit the tag is created at: the full id, never a branch name. An existing tag is never moved." },
+        "prerelease": { "type": "boolean", "default": false, "description": "Mark the release as a prerelease." }
+      }
+    },
+    "notes": { "type": ["string", "null"], "description": "Path of the release notes (UTF-8, at most 1 MiB), relative to this file. They become the text of the release." },
+    "packageFiles": {
+      "type": ["array", "null"],
+      "maxItems": 256,
+      "description": "Files of the zip that need a declaration: shipped default configs and third-party DLLs. A declaration never allows what the artifact policy forbids (game data, cooked output, saves, keys, Kiln's or .NET's own DLLs).",
+      "items": {
+        "type": "object",
+        "required": ["path", "sha256", "purpose"],
+        "additionalProperties": false,
+        "properties": {
+          "path": { "type": "string", "minLength": 1, "description": "Path inside the mod folder, e.g. config/defaults/my-mod.json or lib/Some.Library.dll." },
+          "sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+          "purpose": { "enum": ["default-config", "dependency"], "description": "default-config: a file under config/defaults/ (keys that name a password, token, secret, API key or credential must be empty). dependency: a third-party DLL the mod needs." },
+          "license": { "type": ["string", "null"], "maxLength": 128, "description": "Required for a dependency: the licence it is shipped under." }
+        }
+      }
+    }
+  }
+}

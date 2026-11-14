@@ -56,5 +56,13 @@ int main() {
     slots[31].claimed=false;
     check(system_hook_slot<64>(32,lookup)==31); // reuse the retained update function only
     check(system_hook_slot<64>(65,lookup)==-1); // distinct-function memory remains bounded even after retirement
-    std::printf("system hook lifetime: PASS %d checks (concurrent worlds, original-running retire/rebind, stale handles, 64-slot bound)\n",checks);
+    // A wrapped program keeps its name: kiln.world's wrap_original gives the game's update behind its trampoline.
+    static uint64_t wrapped_entry=0x5000,game_update=0x1400a000,trampoline=0x7ff00010;
+    auto original=[](uintptr_t entry) -> uint64_t { return entry==wrapped_entry?game_update:0; };
+    check(program_update(wrapped_entry,trampoline,original)==game_update); // swapped: the game's update
+    check(program_update(0x6000,0x1400b000,original)==0x1400b000);       // not swapped: what the entry holds
+    check(program_update(wrapped_entry,trampoline,nullptr)==trampoline);  // no kiln.world v4: as before
+    check(external_state(false,false)==0 && external_state(true,false)==1 && external_state(true,true)==2 &&
+          external_state(false,true)==0);
+    std::printf("system hook lifetime: PASS %d checks (concurrent worlds, original-running retire/rebind, stale handles, 64-slot bound, wrapped-program identity, external runner)\n",checks);
 }
