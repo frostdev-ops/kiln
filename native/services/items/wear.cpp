@@ -95,10 +95,10 @@ bool resolve(const KilnApi* api, uint64_t owner) {
     return false;
 }
 
-int durability_index(void* attributes) {
-    if (!attributes || !E.attr_find) return -1;
+int attribute_index(void* attributes, uint32_t attribute) {
+    if (!attributes || !attribute || !E.attr_find) return -1;
     AttrRef r{};
-    E.attr_find(&r, kAttrDurability, attributes);
+    E.attr_find(&r, attribute, attributes);
     if (r.error || !r.desc) return -1;
     uint16_t index = 0;
     std::memcpy(&index, r.desc + 0xC, sizeof index);

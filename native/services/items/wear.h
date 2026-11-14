@@ -54,19 +54,21 @@ constexpr uint32_t kTypeItemState = 0x3a2fac75u;
 constexpr size_t kDurabilitySize = 16, kItemStateSize = 20, kItemStateItemId = 8;
 constexpr size_t kHitIterator = 0x50, kSpawnIterator = 0x218;
 
-// The current and the largest value of a Durability container of `size` bytes, by the durability attribute's index
-// (the maximum is the next value, as the game's containers have it). false: not a writable container with both in range.
-inline bool durability_values(const void* durability, size_t size, uint16_t index, int32_t* current, int32_t* max) {
+// The current and the largest value of a Durability container of `size` bytes: the values at the durability
+// attribute's index and at the maximum's (each from the game's own attribute lookup; max_index < 0: not known, the
+// maximum is then given as the current value). false: not a writable container with the current value in range.
+inline bool durability_values(const void* durability, size_t size, uint16_t index, int max_index, int32_t* current, int32_t* max) {
     if (!durability || size < sizeof(AttrHeader)) return false;
     AttrHeader h;
     std::memcpy(&h, durability, sizeof h);
-    if (!(h.flags & 1) || index >= h.count) return false;
+    if (!(h.flags & 1) || index >= h.count || h.data_offset < sizeof(AttrHeader)) return false;
     const size_t at = h.data_offset + size_t{4} * index;
-    if (h.data_offset < sizeof(AttrHeader) || at + 4 > size) return false;
+    if (at + 4 > size) return false;
     std::memcpy(current, static_cast<const uint8_t*>(durability) + at, 4);
     if (max) {
         *max = *current;
-        if (index + 1u < h.count && at + 8 <= size) std::memcpy(max, static_cast<const uint8_t*>(durability) + at + 4, 4);
+        const size_t mat = h.data_offset + size_t{4} * static_cast<size_t>(max_index < 0 ? 0 : max_index);
+        if (max_index >= 0 && max_index < h.count && mat + 4 <= size) std::memcpy(max, static_cast<const uint8_t*>(durability) + mat, 4);
     }
     return true;
 }
@@ -135,7 +137,7 @@ inline constexpr char kFeature[] = "items.tool_wear_debit";
 bool resolve(const KilnApi* api, uint64_t owner);
 // The facts as resolved; ok false before resolve and whenever it failed.
 const Facts& facts();
-// The durability attribute's index in its container, through the game's own lookup (items/AttrFind). -1: not found.
-int durability_index(void* attributes);
+// An attribute's index in its container, through the game's own lookup (items/AttrFind). -1: not found.
+int attribute_index(void* attributes, uint32_t attribute);
 
 }  // namespace kitems::wear

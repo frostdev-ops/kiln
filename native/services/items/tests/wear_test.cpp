@@ -43,17 +43,18 @@ int main() {
     dur[7] = 2;
     std::memcpy(dur + 8, values, 8);
     int32_t cur = 0, max = 0;
-    CHECK(durability_values(dur, sizeof dur, 0, &cur, &max) && cur == 172 && max == 180);
-    CHECK(durability_values(dur, sizeof dur, 1, &cur, &max) && cur == 180 && max == 180);  // the last value has no next
-    CHECK(!durability_values(dur, sizeof dur, 2, &cur, &max));                             // index past the count
-    CHECK(!durability_values(dur, 11, 0, &cur, &max));                                     // the value is outside the slice
-    CHECK(!durability_values(nullptr, 16, 0, &cur, &max) && !durability_values(dur, 4, 0, &cur, &max));
+    CHECK(durability_values(dur, sizeof dur, 0, 1, &cur, &max) && cur == 172 && max == 180);
+    CHECK(durability_values(dur, sizeof dur, 0, -1, &cur, &max) && cur == 172 && max == 172);  // the maximum's index is not known
+    CHECK(durability_values(dur, sizeof dur, 0, 9, &cur, &max) && cur == 172 && max == 172);   // ... or outside the container
+    CHECK(!durability_values(dur, sizeof dur, 2, 1, &cur, &max));                             // index past the count
+    CHECK(!durability_values(dur, 11, 0, 1, &cur, &max));                                     // the value is outside the slice
+    CHECK(!durability_values(nullptr, 16, 0, 1, &cur, &max) && !durability_values(dur, 4, 0, 1, &cur, &max));
     dur[6] = 0;
-    CHECK(!durability_values(dur, sizeof dur, 0, &cur, &max));                             // not writable: the game ignores it too
+    CHECK(!durability_values(dur, sizeof dur, 0, 1, &cur, &max));                             // not writable: the game ignores it too
     dur[6] = 1;
     const uint16_t inside_header = 4;
     std::memcpy(dur + 4, &inside_header, 2);
-    CHECK(!durability_values(dur, sizeof dur, 0, &cur, &max));                             // values cannot start inside the header
+    CHECK(!durability_values(dur, sizeof dur, 0, 1, &cur, &max));                             // values cannot start inside the header
 
     // the approved builds: by hash and side, nothing else
     CHECK(approved_build("f0d824be7fcd48ebfe2458ff5c28da26060c2074e3ec1fcac587e5a1d508aeb2", 0) != nullptr);
