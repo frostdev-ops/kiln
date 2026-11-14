@@ -116,6 +116,8 @@ std::string owner_name(KilnOwner o) {
     auto it = g_owner_names.find(o);
     return it == g_owner_names.end() ? "(revoked)" : it->second;
 }
+KilnResult add_owner_retiring(KilnOwner, OwnerRetiringFn, void*, KilnHandle*) { return KILN_ERR_UNAVAILABLE; }
+KilnResult remove_owner_retiring(KilnHandle) { return KILN_ERR_NOT_FOUND; }
 }  // namespace reg
 namespace tick {
 KilnResult subscribe_world(KilnOwner, KilnWorldEventFn, void*, KilnHandle*) { return KILN_ERR_UNAVAILABLE; }

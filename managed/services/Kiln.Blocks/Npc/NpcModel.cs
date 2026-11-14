@@ -456,6 +456,10 @@ public sealed record BehaviourBlock : INpcBlock, IPremade
     public Func<NpcBrain>? Brain { get; init; }
     [JsonPropertyName("brain")]
     public string? BrainName { get; init; }
+    /// <summary>How the brain sees: distance and faction (the default), or also voxel line of sight. Only with a
+    /// <see cref="Brain"/>: the game's own AI sees as the game decides. Read when a creature is spawned.</summary>
+    [AnyThread]
+    public NpcPerceptionPolicy Perception { get; init; } = new();
 
     // the premades JSON names by key (ItemParts.Part reads this field)
     internal static readonly BehaviourBlock[] All = Behaviours.All;

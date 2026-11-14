@@ -217,6 +217,9 @@ typedef struct KilnSig {
 #define KILN_TYPED_SKIP ((uintptr_t)1)
 typedef uintptr_t(KILN_CALL* KilnTypedFn)(KilnCallFrame* frame, void* user);
 
+/* Owner-retiring observer (since 0.2.0-dev.28; see subscribe_owner_retiring). */
+typedef void(KILN_CALL* KilnOwnerRetiringFn)(KilnOwner retiring, void* user);
+
 typedef struct KilnHooksApi {
     KilnServiceHeader header;
 
@@ -345,6 +348,22 @@ typedef struct KilnHooksApi {
     KilnResult(KILN_CALL* call_with_frame)(uintptr_t fn, KilnCallFrame* frame, uint32_t nstack);
     KilnResult(KILN_CALL* fingerprint)(uintptr_t target, char* json, size_t cap, size_t* len);
     KilnResult(KILN_CALL* typed_refusal)(char* buf, size_t cap, size_t* len);
+
+    /* ======== owner cleanup (since 0.2.0-dev.28): check header.size covers these before calling ========
+     *
+     * A native service that keeps state on behalf of other owners (leases, queued work, callbacks into a mod) is
+     * told when one of them goes. subscribe_owner_retiring: `fn(retiring, user)` runs once for every owner that is
+     * revoked from now on (a mod unloading, a plugin whose start failed), after the core marked it dead and removed
+     * its own subscriptions and tasks, on the thread that revoked it, with no core lock held, under a fault guard (an
+     * observer that faults is removed). Not called for owner 0, nor for the observer's own owner (its subscription
+     * goes with it). In the callback: drop the retiring owner's state and never call into it again; do not wait,
+     * and do not call game code. It prevents future callback starts into the retiring owner; a call of the retiring
+     * owner that is already running on another thread is the service's to guard. unsubscribe_owner_retiring may be
+     * called from inside the callback. The capability row is `hooks.owner_cleanup`.
+     * KILN_ERR_REVOKED: `observer_owner` is gone. */
+    KilnResult(KILN_CALL* subscribe_owner_retiring)(KilnOwner observer_owner, KilnOwnerRetiringFn fn, void* user,
+                                                    KilnHandle* out);
+    KilnResult(KILN_CALL* unsubscribe_owner_retiring)(KilnHandle handle);
 } KilnHooksApi;
 
 #ifdef __cplusplus
