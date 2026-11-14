@@ -281,6 +281,13 @@ static void diff_budget() {
     CHECK(!pe::only_hook_differences(file.data(), live.data(), live.size(), text, base, 0x2000),
           "runtime: an unrelated code byte is not hidden by recognised hooks");
     live[200] ^= 1;
+    // The first difference no form covers is reported, so the fallback can name the patch that tripped it.
+    live[200] ^= 1;
+    size_t first = 9999;
+    CHECK(!pe::only_hook_differences(file.data(), live.data(), live.size(), text, base, 0x2000, nullptr, &first) &&
+              first == 200,
+          "runtime: the first uncovered difference is reported, past the recognised hooks");
+    live[200] ^= 1;
     // A redirected call (ShroudForge's native runtime and the main menu's two Settings calls): the opcode stays, the
     // operand goes from a place in the image to one outside it.
     auto call = [&](std::array<uint8_t, 1000>& code, size_t off, uintptr_t to) {
@@ -373,6 +380,50 @@ static void diff_budget() {
           static_cast<uintptr_t>(target) == text - 7, "runtime: negative rel32 at the section edge uses live address");
 }
 
+// A rel32 capture through a redirected call is skipped: the vote would name the hook's relay, not the function,
+// so a symbol another engine hooked still resolves from its own pattern. The live scan (fallback) is forced with
+// an unrelated changed byte; the file view is retained for the capture check on both paths.
+static void redirected_captures_skipped(const char* dir) {
+    Loaded x;
+    const uintptr_t base = kiln::test_image.base;
+    // A relay past the image (SizeOfImage 0x3000) but inside the same allocation: FF25 disp32==0 through a slot
+    // naming a landing pad of int3s, so the jump chain ends and the relay shape accepts it.
+    uint8_t* relay = x.live.data() + 0x3010;
+    relay[0] = 0xFF; relay[1] = 0x25;
+    std::memset(relay + 2, 0, 4);
+    const uintptr_t landing = base + 0x3020;
+    std::memcpy(relay + 6, &landing, 8);
+    std::memset(x.live.data() + 0x3020, 0xCC, 16);
+    // Redirect the live call in root's pattern (E8 at .text offset 0x1a) at the relay.
+    const size_t e8 = x.ft.text_rva + 0x1a;
+    const int32_t rel = static_cast<int32_t>(static_cast<int64_t>(base + 0x3010) -
+                                             static_cast<int64_t>(base + e8 + 5));
+    std::memcpy(x.live.data() + e8 + 1, &rel, 4);
+    // An unrelated changed byte forces the live-code fallback; the redirect alone would be recognised.
+    x.live[x.ft.text_rva + 200] ^= 1;
+    test_query = true;
+    test_mbi = {x.live.data(), 0x4000, MEM_COMMIT, 4};  // readable() needs the queried range inside one region
+    sigdb::init_code();
+    CHECK(!sigdb::g_code.view.disk && sigdb::g_code.file_text != nullptr,
+          "runtime: the fallback keeps the file view for the capture check");
+    const auto file = std::filesystem::path(dir) / "redirected.json";
+    {
+        std::ofstream out(file);
+        out << R"({"format":1,"symbols":{
+          "root":{"find":[{"pattern":"48 B8 ?? ?? ?? ?? ?? ?? ?? ?? E8 {helper:rel32}"}]},
+          "helper":{"find":[{"pattern":"8B 81 34 12 00 00 C3"}]}
+        }})";
+    }
+    sigdb::Resolver r;
+    CHECK(r.load(file, ""), "runtime: a cross-checked definition loads for the redirected capture");
+    r.resolve();
+    uintptr_t a = 0;
+    CHECK(r.symbol("helper", &a) && a == base + TestPe::kFunc + 15,
+          "runtime: a capture through a redirected call is skipped, the pattern value stands");
+    std::filesystem::remove(file);
+    test_query = false;
+}
+
 int main(int argc, char** argv) {
     if (argc != 2) return 2;
     views_and_holes();
@@ -380,5 +431,6 @@ int main(int argc, char** argv) {
     live_diff_accessors(argv[1]);
     hook_guard();
     diff_budget();
+    redirected_captures_skipped(argv[1]);
     return g_fail ? 1 : 0;
 }
