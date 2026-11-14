@@ -219,8 +219,11 @@ void collect_mods(std::vector<qb::ModInput>* mods, bool client, const kiln::boot
         }
         std::vector<std::pair<std::string, qb::ojson>> boot_docs;
         if (boot)
-            for (const auto& b : boot->docs("knowledge", mf["id"].get<std::string>()))
+            for (const auto& b : boot->docs("knowledge", mf["id"].get<std::string>())) {
+                if (!b.document.is_object())  // a document this collector cannot read refuses its mod (kiln.boot drops it, or stops the start)
+                    throw kiln::boot::Refusal(mf["id"].get<std::string>(), "knowledge", b.key, "kiln.knowledge: a boot document is not a quests file (a JSON object)");
                 boot_docs.emplace_back("boot:" + b.key, qb::ojson::parse(b.document.dump(), nullptr, false));
+            }
         // what the mod defined in code at an earlier start (Kiln.Quests/Native/NativeExport.cs)
         const fs::path code = fs::path(widen(path_of(KILN_PATH_DATA))) / L"kiln-quests" / L"native" / widen(mf["id"].get<std::string>() + ".json");
         // the NPC blocks it defined (Kiln.Blocks, Npc/NpcCompiler.cs), kept beside it so that a redeploy of the mod keeps them; the mod's own files win
@@ -542,6 +545,9 @@ KilnResult KILN_CALL prepare_boot(void*, const KilnBootPrepareInputV1* in, KilnB
     auto* plan = new BootPlan;
     try {
         collect_mods(&plan->mods, bi.side == KILN_SIDE_CLIENT, &input);
+    } catch (const kiln::boot::Refusal& r) {
+        delete plan;
+        return kiln::boot::refuse(out, issue, r.mod, r.kind, r.key, r.what());
     } catch (const std::exception& e) {
         delete plan;
         return kiln::boot::refuse(out, issue, "", "", "", std::string("kiln.knowledge: reading the mods' quest files failed: ") + e.what());

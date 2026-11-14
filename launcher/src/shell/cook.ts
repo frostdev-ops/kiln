@@ -8,6 +8,7 @@ import * as api from "../api/commands";
 import type { CookJob, CookRun, GameId, ModCook } from "../api/commands";
 import { toKilnError } from "../api/commands";
 import { toast, waitTask } from "../ui";
+import { bootSnapshotLine } from "./bootSnapshot";
 import { notifyActivation } from "./notices";
 
 /** Why a mod is cooked, as the end of "… because …" (kiln_manage::cook::CookReason::text). */
@@ -50,6 +51,8 @@ export async function cookBeforePlay(gameId: GameId, started?: (jobs: CookJob[])
     const run = await waitTask<CookRun>(await api.cookRun(gameId, null));
     void notifyActivation(run?.activation);
     notifyCook(run, { quietOk: true });
+    const line = bootSnapshotLine(run?.bootSnapshot);
+    if (line) toast.info("Game data for OnBoot mods", line, { ms: 0 });
     return run;
   } catch (e) {
     const k = toKilnError(e);

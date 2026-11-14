@@ -370,12 +370,52 @@ static void real_exe(const std::string& exe, const std::string& side, const std:
     CHECK(pe::only_hook_differences(text.data(), sf.data(), text.size(), l_text, live_base, ft.size_of_image),
           "client: with both Settings calls sent to a relay outside the image, the disk scan stays");
     sf[sf.size() / 2] ^= 1;
-    CHECK(!pe::only_hook_differences(text.data(), sf.data(), text.size(), l_text, live_base, ft.size_of_image),
-          "client: another changed byte beside the redirected calls still selects the live scan");
+    const auto beside = pe::other_differences(text.data(), sf.data(), text.size(), l_text, live_base, ft.size_of_image);
+    CHECK(!pe::only_hook_differences(text.data(), sf.data(), text.size(), l_text, live_base, ft.size_of_image) &&
+              beside.sites == 1 && beside.first == std::vector<uint32_t>{static_cast<uint32_t>(sf.size() / 2)},
+          "client: another changed byte beside the redirected calls is one in-place patch, the calls are not");
+    // The Worst Map Mod 1.3.49 patches four places of the client in place before Kiln's scan (its status file in a
+    // player's report of 14 Nov 2026, client build 26430625; on another build these are four other bytes, which is
+    // the same to the check). Up to 0.2.0-dev.27 that sent the whole scan to the live code.
+    std::vector<uint8_t> wm = text;
+    const uint32_t patched[] = {0x31629d, 0x3168c9, 0xd33058, 0xd331ee};
+    std::vector<uint32_t> offsets;
+    for (uint32_t rva : patched)
+        if (rva >= ft.text_rva && rva - ft.text_rva < wm.size()) wm[rva - ft.text_rva] ^= 0x01, offsets.push_back(rva - ft.text_rva);
+    const auto in_place = pe::other_differences(text.data(), wm.data(), text.size(), l_text, live_base, ft.size_of_image);
+    CHECK(offsets.size() == 4 && in_place.sites == 4 && in_place.bytes == 4 && in_place.first == offsets,
+          "client: four bytes patched in place are four in-place patches at their offsets (%zu found)", in_place.sites);
+    // The same four places in the shapes such patches usually have (the mod's own bytes are not known here): a
+    // conditional jump made unconditional, a short conditional jump turned into `jmp`, and instructions filled with
+    // NOPs. A jump that stays inside the image and NOPs behind no jump are no hook. Only on the build whose bytes
+    // these are (client 26430625).
+    std::vector<uint8_t> shaped = text;
+    const size_t skip = 0x31629d - ft.text_rva, vis = 0x3168c9 - ft.text_rva, quest = 0xd33058 - ft.text_rva,
+                 lore = 0xd331ee - ft.text_rva;
+    if (lore + 3 <= shaped.size() && shaped[skip] == 0x0F && shaped[skip + 1] == 0x84 && shaped[quest] == 0x75 &&
+        shaped[lore] == 0x0F && shaped[lore + 1] == 0x44 && shaped[vis] == 0x48 && shaped[vis + 1] == 0x8B) {
+        int32_t rel = 0;
+        std::memcpy(&rel, &shaped[skip + 2], 4);
+        ++rel;  // jz rel32 (6 bytes) -> jmp rel32 (5 bytes) to the same place, and a NOP
+        shaped[skip] = 0xE9;
+        std::memcpy(&shaped[skip + 1], &rel, 4);
+        shaped[skip + 5] = 0x90;
+        std::fill(shaped.begin() + vis, shaped.begin() + vis + 5, 0x90);    // mov rax, [rsp+58h]
+        shaped[quest] = 0xEB;                                               // jnz short -> jmp short
+        std::fill(shaped.begin() + lore, shaped.begin() + lore + 3, 0x90);  // cmovz ebx, ebp
+        const auto s4 = pe::other_differences(text.data(), shaped.data(), text.size(), l_text, live_base, ft.size_of_image);
+        CHECK(s4.sites == 4 && s4.first == offsets &&
+                  !pe::only_hook_differences(text.data(), shaped.data(), text.size(), l_text, live_base, ft.size_of_image),
+              "client: a jump inside the image, a flipped short jump and NOP fills are four in-place patches (%zu sites, %zu bytes)",
+              s4.sites, s4.bytes);
+    } else {
+        std::printf("INFO client: not build 26430625 at the four places; the shaped patches are skipped\n");
+    }
+    // The production view selection on this exe, hooked and patched: sigdb_runtime_test (real_client_in_place).
 }
 
 // A hook is a jump out of the image and the NOPs behind it. Greeneye Loader's is the longest: a 12-byte jump and up
-// to 20 NOPs (Find hooks 12 to 18 bytes). One NOP more than that is a change nobody explains: the live scan.
+// to 20 NOPs (Find hooks 12 to 18 bytes). One NOP more than that is not part of the hook: an in-place patch.
 static void padded_hooks() {
     const uintptr_t base = 0x140000000, l_text = base + 0x1000, out = 0x7ff600000000;
     std::vector<uint8_t> file(96);
@@ -389,7 +429,7 @@ static void padded_hooks() {
     };
     CHECK(hooked(0) && hooked(6) && hooked(13), "a 12-byte jump with up to 13 NOPs is a hook");
     CHECK(hooked(20), "a 12-byte jump with 20 NOPs (Greeneye Loader's longest hook) is a hook");
-    CHECK(!hooked(21), "21 NOPs behind a jump are more than any hook writes: the live scan");
+    CHECK(!hooked(21), "21 NOPs behind a jump are more than any hook writes: the last one is an in-place patch");
 }
 
 int main(int argc, char** argv) {

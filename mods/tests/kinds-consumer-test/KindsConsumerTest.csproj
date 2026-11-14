@@ -1,0 +1,19 @@
+<Project>
+  <!-- Lab test of block kinds, the consumer half (chapter 16d §6): lanterns of kinds-provider-test's kind from C# and from
+       blocks/lanterns.json, the PASS/FAIL lines, and the reloads in both orders. It references only the public SDK. -->
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.props" />
+  <PropertyGroup>
+    <KilnModId>kinds-consumer-test</KilnModId>
+    <KilnModName>block kinds lab test, consumer</KilnModName>
+    <Version>0.1.0</Version>
+    <Description>PASS/FAIL lines: an external block kind compiled, frozen, applied, replayed, refused and retired; both reload orders.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <KilnServices>Blocks;Content</KilnServices>
+    <DisableTransitiveProjectReferences>true</DisableTransitiveProjectReferences>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../kinds-provider-test/Api/KindsProviderTest.Api.csproj" Private="false" />
+    <KilnDependency Include="kinds-provider-test" Version="^0.1" />
+  </ItemGroup>
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.targets" />
+</Project>

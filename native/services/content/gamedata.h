@@ -32,6 +32,7 @@ constexpr uint32_t GD_KIND_BASE = 16;  // store slot kinds >= this are gamedata'
 
 // ---- hooks called by kiln.content (content.cpp, packs.cpp, store.cpp) ------------------------------------------
 void gd_boot();
+void gd_boot_patches_bind();  // the boot generation's resource patches (gamedata_bootpatch.cpp): collector "patches"
 void gd_world_ready(uintptr_t world, uint32_t kind);
 void gd_world_reset();
 void gd_tick(uint64_t step);

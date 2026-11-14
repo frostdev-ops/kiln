@@ -60,6 +60,12 @@ public abstract class Mod
     /// <summary>Called once after the mod is loaded.</summary>
     public virtual void OnLoad() { }
 
+    /// <summary>The mod's boot phase (its kiln.mod.json says <c>"boot": true</c> or <c>"required"</c>): called once per process, on the boot
+    /// thread before the game is entered, on a separate instance that is unloaded right after; stage block definitions with Kiln.Blocks'
+    /// <c>BootDefinitions.For(boot)</c>. No tick, world, player or live registry exists here; later instances get <see cref="OnLoad"/> only.</summary>
+    [BootThreadOnly, RequiresCapability("mods.boot")]
+    public virtual void OnBoot(BootContext boot) { }
+
     /// <summary>Called once before the mod is unloaded (server shutdown, reload, unload of a dependency, or disable).</summary>
     public virtual void OnUnload() { }
 }

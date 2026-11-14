@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// The collector side of kiln.boot (services/kiln_boot.h), header-only, for the six native collectors (assets,
+// The collector side of kiln.boot (services/kiln_boot.h), header-only, for the native collectors (assets,
 // worldtables, content, skills, knowledge, vfx). C++17, nlohmann::json (the services' third_party).
 //
 // A collector's three parts:
@@ -17,11 +17,13 @@
 // runs: a collector reads them in that order and keeps the first.
 #pragma once
 #include <algorithm>
+#include <cstddef>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <map>
 #include <set>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -34,7 +36,8 @@ namespace kiln::boot {
 // The kiln.boot table, or nullptr (no such service: an older core, safe idle).
 inline const KilnBootApiV1* table(const KilnApi* api) {
     const auto* t = static_cast<const KilnBootApiV1*>(api->service(KilnStr{KILN_BOOT_SERVICE, sizeof(KILN_BOOT_SERVICE) - 1}, 1));
-    return t && t->header.size >= sizeof(KilnBootApiV1) ? t : nullptr;
+    // the v1 table up to active_plan; what was appended later is asked for by its own offset
+    return t && t->header.size >= offsetof(KilnBootApiV1, active_plan) + sizeof(void*) ? t : nullptr;
 }
 
 // Bind: registers `fn` as collector `id`. True: this process has a boot generation and fn will prepare it.
@@ -47,6 +50,16 @@ inline bool collect(const KilnApi* api, KilnOwner owner, const char* id, KilnBoo
 inline const void* published(const KilnApi* api, const char* id, uint64_t* generation = nullptr) {
     const KilnBootApiV1* b = table(api);
     return b ? b->active_plan(KilnStr{id, std::strlen(id)}, generation) : nullptr;
+}
+
+// Reports that published content of `mod` could not be applied (kiln.boot activation_fault). For a mod whose boot
+// content is required this does not return: the start stops. false: this kiln.boot has no such call.
+inline bool activation_fault(const KilnApi* api, KilnOwner collector, const std::string& mod, const std::string& kind,
+                             const std::string& key, const std::string& reason) {
+    const KilnBootApiV1* b = table(api);
+    if (!b || b->header.size < offsetof(KilnBootApiV1, activation_fault) + sizeof(void*) || !b->activation_fault) return false;
+    return b->activation_fault(collector, KilnStr{mod.data(), mod.size()}, KilnStr{kind.data(), kind.size()},
+                               KilnStr{key.data(), key.size()}, KilnStr{reason.data(), reason.size()}) == KILN_OK;
 }
 
 struct Doc {
@@ -100,6 +113,13 @@ inline Input parse(const KilnBootPrepareInputV1* in) {
     r.ok = true;
     return r;
 }
+
+// Thrown by a collector's reading code for a document it cannot read; its prepare turns it into a refusal of that mod (refuse()).
+struct Refusal : std::runtime_error {
+    std::string mod, kind, key;
+    Refusal(std::string m, std::string k, std::string ky, const std::string& why)
+        : std::runtime_error(why), mod(std::move(m)), kind(std::move(k)), key(std::move(ky)) {}
+};
 
 template <size_t N>
 inline void put(char (&dst)[N], const std::string& s) {

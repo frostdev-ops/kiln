@@ -74,6 +74,22 @@ pub async fn cook_run(app: AppHandle, game_id: String, mod_id: Option<String>) -
                 f => format!("{} cooked, {f} not", run.mods.len() - f),
             });
         }
-        to_value(run)
+        // Play's next step: the game data Mod.OnBoot reads, once per game build (kiln_manage::boot_snapshot; well under a
+        // second when it is there). Never an error and never longer than its limit: without it the game starts all the
+        // same and kiln.boot says why (`bootSnapshot` in the result: shell/cook.ts says it in one line).
+        let snapshot = play.then(|| {
+            use kiln_manage::boot_snapshot as bs;
+            let tools = kiln_manage::cooktools::locate(&locate).map_err(|e| e.message);
+            let s = bs::make_with(tools, &g.path, false, Some(bs::LAUNCHER_LIMIT), &mut |l| {
+                p.borrow_mut().report(None, &format!("Game data for OnBoot mods ({}, once per game build): {l}", bs::SIZE_TEXT));
+            }, &|| p.borrow().canceled());
+            p.borrow_mut().report(Some(1.0), &s.summary());
+            s
+        });
+        let mut v = to_value(run)?;
+        if let (Some(s), Some(o)) = (snapshot, v.as_object_mut()) {
+            o.insert("bootSnapshot".into(), to_value(s)?);
+        }
+        Ok(v)
     }))
 }

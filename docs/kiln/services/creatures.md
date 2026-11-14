@@ -227,7 +227,7 @@ Villager commands (`NpcCommandEvent {Reset, GoToPosition}` → `npc_active_behav
 The game's Guard state (20) is a path follow: every 0.5-2 s, when the guarded entity is `guardSetup.startDistance` (10 m
 for the Vukah) or farther away, the AI enters Guard and asks the path walker for a path to it; when the walker answers
 TargetNotReachable or Stuck it gives up after 0.5 s (Guard → Idle, IsFinished). That is the loop a real client
-logged (the player stood where no path led) and what every lab run shows (no path grid without a player).
+logged (the player stood where no path led) and what every lab run shows (the walker finds no path without a player).
 Evidence: [docs/re/creatures.md §12](../../re/creatures.md).
 
 `Guard(target)` therefore sends the game's event **and** keeps an order (`Kiln.Creatures/Guarding.cs`, every ~0.4 s
@@ -281,13 +281,17 @@ A companion recipe: a guard-capable body + `Faction = PlayerAlly` + `Guard(playe
   where terrain is streamed, i.e. near a player (`actor_is_ready_for_gameplay`, captured as `creatures/actor.ready_bit`).
 - **Lab switch**: with the file `kiln/data/kiln.creatures/force-ready`, `CreatureRef.ForceReady()` (C:
   `set_ready(owner, e, KILN_CREATURE_READY_FORCE)`) sets the bit every Pre. The AI then leaves Spawning on its own
-  (Idle ↔ Roaming), takes guard orders and threat targets, enters Combat — but it does **not walk** (no path grid
-  without a player) and attacks never land (no collision events). Without the file it returns `KILN_ERR_UNAVAILABLE`:
+  (Idle ↔ Roaming), takes guard orders and threat targets, enters Combat — but its own AI does not walk it there (the
+  path walker finds no path) and attacks never land (no collision events). The body itself can walk: under a
+  [creature-control.md](creature-control.md) lease (its `SteeringAgent` removed, whose program overwrote every other
+  input write) direct input moved a forced-ready body 4.9-5.1 m in 2 s in the lab, once the two terrain checks of
+  `actor_is_ready_for_gameplay` were also detoured (lab only: without them the game does not simulate a body where the
+  terrain looks not streamed in). Without the file it returns `KILN_ERR_UNAVAILABLE`:
   forcing readiness on a production server would desync clients (the Actor state is replicated and the game marks it
   when it changes it).
 - Without a player Kiln can verify: values, health scaling, private copies being read, arsenal lookups, state machine
-  transitions, guard/threat bookkeeping, events. Movement, attacks, aggro at range, flee, loot rolls and how a client
-  draws scale need a joined player (client checklist).
+  transitions, guard/threat bookkeeping, events, a leased body walking under direct input. The AI's own movement, attacks,
+  aggro at range, flee, loot rolls and how a client draws scale need a joined player (client checklist).
 
 ## Rules and arsenals
 
