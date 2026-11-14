@@ -7,12 +7,14 @@
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
+#include <functional>
 #include <string>
 #include <thread>
 #include <tuple>
 #include <vector>
 
 #include "assets.h"
+#include "services/kiln_hooks.h"
 
 // ---- the game side, faked at the narrowest seam: the calls of the game's own functions and the feature switches --------------------
 namespace ka {
@@ -30,9 +32,30 @@ bool g_fake_content = true;
 GameIndex g_fake_index = GameIndex::not_ready;
 std::vector<HashK> g_fake_keys;
 uint64_t g_fake_total = 0;  // > 0: the index's count when it is "too_many"
+std::function<void()> g_index_copy;
+std::function<void()> g_catalog_read_copy;
+void catalog_read_acquired() { if (g_catalog_read_copy) g_catalog_read_copy(); }
+KilnOwnerRetiringFn g_owner_retiring = nullptr;
+void* g_owner_retiring_user = nullptr;
+KilnResult KILN_CALL observe_owner(KilnOwner, KilnOwnerRetiringFn fn, void* user, KilnHandle* handle) {
+    g_owner_retiring = fn;
+    g_owner_retiring_user = user;
+    *handle = 1;
+    return KILN_OK;
+}
+const void* KILN_CALL fake_service(KilnStr name, uint32_t) {
+    static const KilnHooksApi hooks = [] {
+        KilnHooksApi t{};
+        t.header = {sizeof t, KILN_HOOKS_VERSION};
+        t.subscribe_owner_retiring = &observe_owner;
+        return t;
+    }();
+    return std::string_view(name.ptr, name.len) == KILN_HOOKS_SERVICE ? &hooks : nullptr;
+}
 bool resources_on() { return true; }
 bool content_hooks_on() { return g_fake_content; }
 GameIndex game_index_keys(std::vector<HashK>* out, size_t max_keys, uint64_t* total, std::string* why) {
+    if (g_index_copy) g_index_copy();
     out->clear();
     *total = g_fake_total ? g_fake_total : g_fake_keys.size();
     *why = "fake";
@@ -406,6 +429,31 @@ void blob_catalog(KilnOwner manifest, KilnOwner mod, KilnOwner native) {
               op_catalog_read(shared, 0, reinterpret_cast<KilnBlobCatalogEntry*>(page.data()), 48, 1, &n) == KILN_OK && n == 1,
           "revert_owner closes that owner's handles only");
     check(op_catalog_close(shared) == KILN_OK, "the other owner closes its own");
+    // Deterministic interleaving: an open has started copying the index when its owner is reverted.
+    // The revert must also cancel the handle that has not been published yet.
+    catalog_changed(kChangeReady);  // force a build rather than reuse an existing snapshot
+    g_index_copy = [=] { op_revert_owner(mod); };
+    info = cat_info();
+    h = 99;
+    const KilnResult interrupted = op_catalog_open(mod, 0, &h, &info);
+    g_index_copy = {};
+    check(interrupted == KILN_ERR_REVOKED && h == 0 && info.status == KILN_BLOB_CATALOG_UNAVAILABLE,
+          "owner revert during open cancels the unpublished handle");
+    if (h) op_catalog_close(h);
+    info = cat_info();
+    check(op_catalog_open(mod, 0, &h, &info) == KILN_OK && op_catalog_close(h) == KILN_OK,
+          "an explicit revert permits a later open by the same live owner");
+    info = cat_info();
+    op_catalog_open(mod, 0, &h, &info);
+    if (g_owner_retiring) g_owner_retiring(mod, g_owner_retiring_user);  // the core's raw owner_revoke notification
+    check(g_owner_retiring && op_catalog_read(h, 0, reinterpret_cast<KilnBlobCatalogEntry*>(page.data()), 48, 1, &n) == KILN_ERR_NOT_FOUND,
+          "raw owner revoke closes catalog handles without a managed Retiring handler");
+    op_catalog_close(h);
+    info = cat_info();
+    h = 99;
+    check(op_catalog_open(mod, 0, &h, &info) == KILN_ERR_REVOKED && h == 0,
+          "a revoked owner cannot publish another handle after its cleanup callback");
+    if (h) op_catalog_close(h);
     // 128 MiB for every distinct snapshot held: two of 999,000 entries fit (96 MB), a third does not
     g_fake_keys = game_index(999000, 1);
     std::vector<KilnHandle> big;
@@ -421,6 +469,25 @@ void blob_catalog(KilnOwner manifest, KilnOwner mod, KilnOwner native) {
                    "a third distinct one would hold more than 128 MiB: LIMIT_EXCEEDED, memory budget");
         if (b) big.push_back(b);
     }
+    // Hold a read's reference after its last handle closes: those bytes still count against the global budget.
+    bool read_budget_refused = false;
+    g_catalog_read_copy = [&] {
+        op_catalog_close(big[0]);
+        KilnContentHash x{};
+        op_blob_add(native, "READ-IN-FLIGHT", 14, &x);
+        KilnHandle next = 0;
+        auto next_info = cat_info();
+        read_budget_refused = op_catalog_open(native, 0, &next, &next_info) == KILN_ERR_BUFFER_TOO_SMALL && next == 0 &&
+                              next_info.reason == KILN_BLOB_CATALOG_REASON_MEMORY_BUDGET;
+        if (next) op_catalog_close(next);
+    };
+    KilnBlobCatalogEntry held_entry{};
+    check(big.size() == 2 && op_catalog_read(big[0], 0, &held_entry, sizeof held_entry, 1, &n) == KILN_OK && n == 1 && read_budget_refused,
+          "a closed snapshot retained by a page copy still counts against 128 MiB");
+    g_catalog_read_copy = {};
+    info = cat_info();
+    check(op_catalog_open(native, 0, &h, &info) == KILN_OK && op_catalog_close(h) == KILN_OK,
+          "the page copy releases its snapshot budget when it finishes");
     for (KilnHandle b : big) op_catalog_close(b);
     // a close (and an owner's revert) while another thread copies pages: the copy finishes on its own reference
     g_fake_keys = game_index(60000, 2);
@@ -462,6 +529,7 @@ constexpr uint32_t kGraphHandle = 100, kOtherGraphHandle = 101, kItemHandle = 10
 int main() {
     KilnApi api{};
     api.log = log_line;
+    api.service = fake_service;
     g_api = &api;
     g_self = 1;
     bool ok;

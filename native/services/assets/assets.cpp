@@ -32,6 +32,7 @@ std::vector<PendingTexture> g_pending_tex;
 // the icon is registered as new and looked at again when S appears (a game item's: its own texture is retextured).
 struct PendingIcon {
     KilnOwner owner;
+    uint32_t origin;
     uint8_t guid[16];
     Rgba img;
     std::string label;
@@ -150,7 +151,7 @@ KilnResult icon_for_item(KilnOwner owner, const uint8_t g[16], const Rgba& img, 
     const KilnResult r = op_icon_register(owner, g, img);
     if (r == KILN_OK) {
         std::lock_guard lock(g_pending_mu);
-        PendingIcon p{owner, {}, img, label};
+        PendingIcon p{owner, current_origin(), {}, img, label};
         std::memcpy(p.guid, g, 16);
         g_pending_icons.push_back(std::move(p));
     }
@@ -526,7 +527,6 @@ KilnResult dump(const std::string& spec, std::string* report) {
 
 // Called by store.cpp's on_resource_system_ready, on the game's thread, once S is available.
 void flush_pending_textures() {
-    OriginScope origin(KILN_BLOB_ORIGIN_MANIFEST);  // only load_manifest queues icons and textures for this
     std::vector<PendingTexture> pend;
     std::vector<PendingIcon> icons;
     {
@@ -534,12 +534,15 @@ void flush_pending_textures() {
         pend.swap(g_pending_tex);
         icons.swap(g_pending_icons);
     }
-    for (auto& p : icons)
+    for (auto& p : icons) {
+        OriginScope origin(p.origin);
         if (is_game_icon(p.guid)) {  // registered as new at boot: the game has this key, so it is a game item's icon
             op_icon_remove(p.owner, p.guid);
             retexture_game_icon(p.owner, p.guid, p.img, p.label);
         }
+    }
     for (auto& p : pend) {
+        OriginScope origin(KILN_BLOB_ORIGIN_MANIFEST);  // only load_manifest queues texture overrides
         std::string why;
         if (texture_override(p.owner, &p.key, p.png.data(), p.png.size(), &why) == KILN_OK)
             LOGI("assets: %s applied", p.label.c_str());
@@ -777,6 +780,7 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     if (api->abi_version != KILN_ABI_VERSION || api->size < sizeof(KilnApi)) return KILN_ERR_UNAVAILABLE;
     g_api = api;
     g_self = owner;
+    if (!catalog_start()) LOGW("assets: blob catalog off: native owner cleanup is unavailable");
     info->id = KilnStr{KILN_ASSETS_SERVICE, sizeof(KILN_ASSETS_SERVICE) - 1};
     info->version = KilnStr{"1", 1};
     info->on_ready = &on_ready;

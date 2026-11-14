@@ -646,6 +646,12 @@ GameIndex game_index_keys(std::vector<HashK>* out, size_t max_keys, uint64_t* to
         *why = "the content index lists " + std::to_string(v.nk) + " blobs";
         return GameIndex::too_many;
     }
+    // view_map only requires a power-of-two bucket count. A moved/corrupt header must not turn an any-thread
+    // catalog query into an allocation of gigabytes before its guarded reads can refuse the map.
+    if (uint64_t(v.nb) * 8 > (uint64_t(64) << 20)) {
+        *why = "the content index bucket array exceeds 64 MiB";
+        return GameIndex::unsupported;
+    }
     // copies (the game's memory is read under a guard only), then the layout check on the copies
     std::vector<uint8_t> buckets(static_cast<size_t>(v.nb) * 8);
     out->resize(v.nk);
