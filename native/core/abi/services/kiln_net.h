@@ -79,6 +79,14 @@ enum {
     KILN_NET_PEER_PROVED = 0x04u,     /* a frame came from this peer: it has Kiln */
     KILN_NET_PEER_HELD = 0x08u,       /* its Gameplay Ready waits in the gate: the server sends it no world data */
     KILN_NET_PEER_WITHHELD = 0x10u,   /* entities of Kiln-only templates are withheld from its player */
+    /* since 0.2.0-dev.28: */
+    KILN_NET_PEER_REFUSED = 0x20u,    /* kick() or the gate's time limit refused it: until it leaves, its Gameplay Ready is
+                                         never processed (it gets no world data if it was not in the world yet) */
+    KILN_NET_PEER_ENDING = 0x40u,     /* refused; the login failure could not be sent, so the game's own session kick was
+                                         (feature net.disconnect): the game ends the connection about a second later */
+    KILN_NET_PEER_BLOCKED = 0x80u,    /* refused before it was in the world, and nothing could end it (no login failure and
+                                         no session kick on this build, or both faulted): it stays connected, blocked, with
+                                         no world data, until it leaves */
 };
 
 /* The proof frame, Kiln.Network's frame header with type 10. Four bytes: the game pads frames to a multiple of 4. */
@@ -99,6 +107,8 @@ enum {
     KILN_NET_GATE_CAN_WITHHOLD = 2u, /* feature net.withhold + kiln.assets: entities can be withheld on this build */
     KILN_NET_GATE_CAN_GUARD = 4u,    /* feature net.client_guard: this client drops creates of templates it lacks */
     KILN_NET_GATE_CAN_HOLD_ALL = 8u, /* since 0.2.0-dev.28: gate_set takes KILN_NET_GATE_HOLD_ALL (with CAN_HOLD) */
+    KILN_NET_GATE_CAN_DISCONNECT = 16u, /* since 0.2.0-dev.28: feature net.disconnect: kick() ends a peer the login failure
+                                           cannot reach through the game's own session kick (dedicated server only) */
 };
 
 typedef struct KilnNetGateInfo {
@@ -170,7 +180,10 @@ typedef struct KilnNetApi {
     KilnResult(KILN_CALL* peer_info)(KilnPeer peer, KilnNetPeerInfo* out);
     /* Server side: refuse a game peer with the game's own login-failure message (reason = keen::GameMessageLoginErrors:
      * 0 Authentication, 1 Version, 2 Full, 3 Shutdown, 4 SaveDataIssue, 5 Generic). Lab peers are forgotten (DOWN).
-     * Tick thread. */
+     * Tick thread. Since 0.2.0-dev.28 the peer is refused for good (KILN_NET_PEER_REFUSED) even when nothing can reach
+     * it; when the login failure is not on this build or faults, the game's own session kick ends it instead
+     * (KILN_NET_GATE_CAN_DISCONNECT, KILN_NET_PEER_ENDING) and the call answers KILN_OK; when neither works it answers
+     * KILN_ERR_UNAVAILABLE or KILN_ERR_INTERNAL and the peer is KILN_NET_PEER_BLOCKED. */
     KilnResult(KILN_CALL* kick)(KilnPeer peer, uint32_t reason);
     /* The peer of a connected player's entity (server side). Any thread (snapshot). */
     KilnResult(KILN_CALL* peer_of_entity)(KilnEntity entity, KilnPeer* out);
@@ -209,6 +222,11 @@ enum {
     KILN_NET_SELFTEST_BIND_MACHINE = 7, /* a = lab peer, b = machine index (0xFFFFFFFF: none): that peer stands for the
                                            loopback harness's fake player on that machine (kiln_repl.h), one peer per
                                            machine; a = 0 only asks. out = the lab peer bound to machine b now (0 = none) */
+    KILN_NET_SELFTEST_KICK_FAIL = 8, /* since 0.2.0-dev.28: a = 0 off, 1 kick()'s login failure fails (game and lab peers;
+                                        the gate's time limit too), 2 the session kick fails as well (net.disconnect off) */
+    KILN_NET_SELFTEST_SESSION_KICK = 9, /* since 0.2.0-dev.28: a = a machine handle of index 0 (the server's own machine):
+                                           the game's session kick of it, which the session refuses (host, or not a
+                                           machine) and logs; out = 1 when it was queued */
 };
 
 #ifdef __cplusplus

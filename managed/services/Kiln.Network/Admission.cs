@@ -118,8 +118,9 @@ internal static class NetAdmission
             gate ? "this kiln.net cannot hold Kiln clients (no gate mode hold-all)" : "kiln.net cannot hold a joining peer on this build (net.gate)");
     }
 
-    /// <summary>Status lines for the Kiln menu's Network page: the requirements, each held peer and what keeps it, and
-    /// the peers that wait for their content definitions (withholding, not admission).</summary>
+    /// <summary>Status lines for the Kiln menu's Network page: the requirements, each held peer and what keeps it, a
+    /// refused peer the game's session kick ends or nothing can end (blocked), and the peers that wait for their content
+    /// definitions (withholding, not admission).</summary>
     internal static IReadOnlyList<string> StatusLines()
     {
         var lines = new List<string>();
@@ -134,6 +135,11 @@ internal static class NetAdmission
             if (p.HeldSince is { } since && !InWorld(p))
                 lines.Add($"held: {p.Name} (0x{p.Id:x}) for {(now - since).TotalSeconds:0} s, " +
                           (p.State == NetPeerState.Rejected ? "refused" : MayRelease(p, out var h) ? "about to go in" : $"by {h}"));
+            if (p.Ending)
+                lines.Add($"ending: {p.Name} (0x{p.Id:x}) is refused; the login failure could not reach it, the game's session kick ends its connection");
+            if (p.BlockedSince is { } blocked)
+                lines.Add($"blocked: {p.Name} (0x{p.Id:x}) is refused and this server cannot end its connection: no world data until it leaves " +
+                          (now - blocked < BlockedCountsFor ? $"(keeps \"hold all\" on {Math.Max(0, (BlockedCountsFor - (now - blocked)).TotalSeconds):0} s more)" : "(no longer holds the gate)"));
             if (p.DefinitionsSince is { } wait)
                 lines.Add($"content: {p.Name} (0x{p.Id:x}) waits {(now - wait).TotalSeconds:0} s for its definitions (withholding)");
         }
@@ -439,16 +445,25 @@ internal static class NetAdmission
     }
 
     /// <summary>Whether some requirement needs each Kiln client decided before it enters the world, or a refused Kiln
-    /// client still waits for its kick: "hold all" stays on until it is gone, so lowering the gate never lets it in.</summary>
+    /// client still waits for its kick: "hold all" stays on until it is gone, so lowering the gate never lets it in. A
+    /// refused peer nothing can end stops counting <see cref="BlockedCountsFor"/> after kiln.net reported it blocked:
+    /// kiln.net itself keeps its Gameplay Ready out whatever the mode (KILN_NET_PEER_BLOCKED).</summary>
     internal static bool HoldsKilnPeers
     {
         get
         {
             lock (Lock)
                 if (JoinHolds.Count > 0 || PeerHolds.Count > 0 || Deciders.Count > 0 || Protocols.Count > 0) return true;
-            return NetEngine.ServerPeers().Any(p => p.State == NetPeerState.Rejected || p.KickAt != null);
+            var now = DateTime.UtcNow;
+            return NetEngine.ServerPeers().Any(p => (p.State == NetPeerState.Rejected || p.KickAt != null) && !NoLongerHolds(p, now));
         }
     }
+
+    /// <summary>How long a blocked peer (refused, nothing can end its connection) keeps "hold all" on: kiln.net's own hold
+    /// limit. After it only kiln.net's refusal keeps it out, which no mode lifts.</summary>
+    internal static readonly TimeSpan BlockedCountsFor = TimeSpan.FromSeconds(30);
+
+    private static bool NoLongerHolds(NetPeer p, DateTime now) => p.BlockedSince is { } b && now - b >= BlockedCountsFor;
 
     /// <summary>The gate mode the built-in rules and every requirement want, and sets it when it changed: "hold all"
     /// while a requirement must decide Kiln clients (when kiln.net can), else today's rule (VanillaGate.GateMode).</summary>
