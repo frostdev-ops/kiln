@@ -1,0 +1,11 @@
+{
+  "id": "boot-patches-other",
+  "name": "resource patches lab test, a second mod on the same field",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "side": "server",
+  "clients": "none",
+  "boot": true,
+  "advanced": true,
+  "description": "A data-only mod whose resource patch sets a field boot-patches-test sets too: its boot content is refused (two mods on one field are not combined). The lab script adds it for the conflict case only."
+}

@@ -20,6 +20,8 @@
 // Nothing here waits, and no lock is held across a call into kiln.boot or kiln.assets.
 #include <algorithm>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <map>
 #include <mutex>
 #include <set>
@@ -28,6 +30,7 @@
 
 #include "gamedata.h"
 #include "kiln_boot_collector.hpp"
+#include "refs.h"
 #include "services/kiln_assets.h"
 #include "services/kiln_caps.h"
 
@@ -181,6 +184,37 @@ std::string index_of(const std::string& path) {  // its indices, in order
 }
 bool overlap(const std::string& a, const std::string& b) { return a == b || a.find('*') != std::string::npos || b.find('*') != std::string::npos; }
 
+// The "resourcePatches" sections of the mods' blocks files, as documents, in load order (files by name within a mod).
+// A file that is not JSON is another reader's to report (Kiln.Blocks reads the same files).
+std::vector<kiln::boot::Doc> file_docs(const kiln::boot::Input* boot) {
+    namespace fs = std::filesystem;
+    std::vector<kiln::boot::Doc> out;
+    for (const fs::path& dir : mod_folder_list()) {
+        std::error_code ec;
+        if (!fs::is_directory(dir / L"blocks", ec)) continue;
+        const std::string id = kiln::boot::mod_id_of(dir);
+        if (id.empty() || (boot && boot->out(id))) continue;
+        std::vector<fs::path> files;
+        for (auto it = fs::directory_iterator(dir / L"blocks", ec); !ec && it != fs::directory_iterator(); it.increment(ec))
+            if (it->path().extension() == L".json") files.push_back(it->path());
+        std::sort(files.begin(), files.end());
+        for (const fs::path& f : files) {
+            std::ifstream in(f, std::ios::binary);
+            if (!in) continue;
+            const std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            if (text.find("resourcePatches") == std::string::npos) continue;
+            const nlohmann::json j = nlohmann::json::parse(text, nullptr, false, true);
+            if (!j.is_object() || !j.contains(kKind)) continue;
+            if (!j[kKind].is_object()) {
+                out.push_back({id, "", nlohmann::json()});  // refused by its shape, with the mod named
+                continue;
+            }
+            for (const auto& [key, doc] : j[kKind].items()) out.push_back({id, key, doc});
+        }
+    }
+    return out;
+}
+
 void KILN_CALL destroy_plan(const void* p) { delete static_cast<const BootPlan*>(p); }
 
 KilnResult KILN_CALL prepare_boot(void*, const KilnBootPrepareInputV1* in, KilnBootPreparedV1* out, KilnBootIssueV1* issue) {
@@ -192,7 +226,20 @@ KilnResult KILN_CALL prepare_boot(void*, const KilnBootPrepareInputV1* in, KilnB
         std::string index, mod, value;
     };
     std::map<std::string, std::vector<Claim>> claims;  // "<resource key>|<path without indices>"
-    for (const auto& d : input.docs("patches")) {
+    // each mod's files first, then what its OnBoot staged; a key both have stays the file's
+    std::vector<kiln::boot::Doc> docs = file_docs(&input);
+    {
+        std::set<std::string> have;
+        for (const auto& d : docs) have.insert(d.owner + "/" + d.key);
+        for (auto& d : input.docs("patches")) {
+            if (!have.insert(d.owner + "/" + d.key).second) {
+                LOGI("boot: resource patch %s/%s: the mod's blocks file has this key too: the file's stays", d.owner.c_str(), d.key.c_str());
+                continue;
+            }
+            docs.push_back(std::move(d));
+        }
+    }
+    for (const auto& d : docs) {
         auto refused = [&](const std::string& path, const std::string& why) {
             return kiln::boot::refuse(out, issue, d.owner, kKind, d.key, (path.empty() ? std::string() : "\"" + path + "\": ") + why);
         };
@@ -349,6 +396,18 @@ void gd_boot_patches_bind() {
     else if (!g_off)
         row(g_bound ? KILN_CAP_AVAILABLE : KILN_CAP_UNAVAILABLE, g_bound ? KILN_CAP_REASON_NONE : KILN_CAP_REASON_POLICY,
             g_bound ? "" : "no boot phase in this process (no enabled mod has \"boot\" in its kiln.mod.json)");
+    if (!g_bound) {
+        // no boot phase: a blocks file's patches would be read by nobody, so say it once per mod
+        std::set<std::string> said;
+        try {
+            for (const auto& d : file_docs(nullptr))
+                if (said.insert(d.owner).second)
+                    LOGW("mod %s has \"resourcePatches\" in a blocks file, and this start has no boot phase: they are not applied. Add \"boot\": true to "
+                         "its kiln.mod.json",
+                         d.owner.c_str());
+        } catch (const std::exception&) {
+        }
+    }
     if (g_bound) LOGI("boot profile: resource patches are applied when the game's resource service is up%s%s", g_off ? "; off: " : "", g_off ? g_off : "");
 }
 
