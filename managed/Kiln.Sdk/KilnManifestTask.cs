@@ -46,6 +46,21 @@ public sealed class KilnManifest : Microsoft.Build.Utilities.Task
     public ITaskItem[] Incompatible { get; set; } = [];
     public string TestsAutoRun { get; set; } = "";
     public string TestTimeoutSeconds { get; set; } = "";
+    /// <summary><c>"updates"</c>: where new versions are published. <c>github</c> or <c>nexus</c>; empty: github when
+    /// <see cref="UpdatesRepository"/> is set, nexus when <see cref="UpdatesNexusModId"/> is, else no <c>"updates"</c>.</summary>
+    public string UpdatesProvider { get; set; } = "";
+    /// <summary>GitHub: <c>owner/repo</c>.</summary>
+    public string UpdatesRepository { get; set; } = "";
+    /// <summary>GitHub: the release tag with <c>{version}</c> once (default <c>v{version}</c>).</summary>
+    public string UpdatesTagPattern { get; set; } = "";
+    /// <summary>GitHub: the zip's file name in a release, with <c>{version}</c> at most once.</summary>
+    public string UpdatesAsset { get; set; } = "";
+    /// <summary>GitHub: <c>stable</c> (default) or <c>prerelease</c>.</summary>
+    public string UpdatesChannel { get; set; } = "";
+    /// <summary>Nexus Mods: the number of the mod's page.</summary>
+    public string UpdatesNexusModId { get; set; } = "";
+    /// <summary>Nexus Mods: the id of the file whose versions are followed.</summary>
+    public string UpdatesNexusFileChainId { get; set; } = "";
     /// <summary>The Kiln.Api assembly the mod compiled against (its reference): its Kiln.Build metadata becomes <c>"kilnBuild"</c>.</summary>
     public string KilnApiPath { get; set; } = "";
 
@@ -268,6 +283,7 @@ public sealed class KilnManifest : Microsoft.Build.Utilities.Task
                 if (int.TryParse(TestTimeoutSeconds, out var t) && t > 0) w.WriteNumber("timeoutSeconds", t);
                 w.WriteEndObject();
             }
+            WriteUpdates(w);
             if (stamp != null)
             {
                 w.WriteStartObject("kilnBuild");
@@ -278,6 +294,35 @@ public sealed class KilnManifest : Microsoft.Build.Utilities.Task
             w.WriteEndObject();
         }
         return Encoding.UTF8.GetString(buffer.ToArray()) + "\n";
+    }
+
+    // "updates" from the KilnUpdates* properties, written as they are: Manifest.Parse reads the result, and what it
+    // cannot read comes back as a build warning (KILN003) naming the property's key.
+    private void WriteUpdates(Utf8JsonWriter w)
+    {
+        var provider = UpdatesProvider.Trim();
+        if (provider.Length == 0)
+            provider = UpdatesRepository.Trim().Length > 0 ? "github" : UpdatesNexusModId.Trim().Length > 0 ? "nexus" : "";
+        if (provider.Length == 0) return;
+        w.WriteStartObject("updates");
+        w.WriteString("provider", provider);
+        if (provider == "nexus")
+        {
+            w.WriteNumber("gameId", 5811);
+            // a number when it is one; else the text, so the reader names what is wrong with it
+            if (long.TryParse(UpdatesNexusModId.Trim(), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var mod))
+                w.WriteNumber("modId", mod);
+            else w.WriteString("modId", UpdatesNexusModId.Trim());
+            w.WriteString("fileChainId", UpdatesNexusFileChainId.Trim());
+        }
+        else
+        {
+            w.WriteString("repository", UpdatesRepository.Trim());
+            if (UpdatesTagPattern.Trim().Length > 0) w.WriteString("tagPattern", UpdatesTagPattern.Trim());
+            if (UpdatesAsset.Trim().Length > 0) w.WriteString("asset", UpdatesAsset.Trim());
+            if (UpdatesChannel.Trim().Length > 0) w.WriteString("channel", UpdatesChannel.Trim());
+        }
+        w.WriteEndObject();
     }
 
     private static void WriteIds(Utf8JsonWriter w, string name, ITaskItem[] items) =>

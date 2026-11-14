@@ -33,6 +33,21 @@ internal sealed record ManifestIncompatibility(string Id, string RangeText, Vers
 
 internal sealed record ManifestTests(bool AutoRun, int TimeoutSeconds, string? Filter);
 
+/// <summary>Where a mod's author publishes new versions (<c>"updates"</c>): a GitHub repository (<see cref="Repository"/>,
+/// <see cref="TagPattern"/>, <see cref="Asset"/>, <see cref="Channel"/>) or one file of a Nexus Mods page
+/// (<see cref="GameId"/>, <see cref="ModId"/>, <see cref="FileChainId"/>). Kiln.Host only reads and keeps it: the
+/// launcher and <c>kiln updates check</c> use it, nothing in the game does, and it never decides whether a mod loads.</summary>
+internal sealed record ManifestUpdates(string Provider)
+{
+    public string? Repository { get; init; }
+    public string? TagPattern { get; init; }
+    public string? Asset { get; init; }
+    public string? Channel { get; init; }
+    public int GameId { get; init; }
+    public long ModId { get; init; }
+    public string? FileChainId { get; init; }
+}
+
 internal sealed class Manifest
 {
     public const string FileName = "kiln.mod.json";
@@ -48,7 +63,7 @@ internal sealed class Manifest
     [
         "$schema", "id", "name", "version", "authors", "author", "description", "license", "url", "apiVersion", "side",
         "clients", "dependencies", "loadBefore", "loadAfter", "incompatible", "features", "entryAssembly", "entryType", "exports",
-        "advanced", "tests", "kilnBuild", "writes",
+        "advanced", "tests", "kilnBuild", "writes", "updates",
     ];
 
     /// <summary>A component's short name, as kiln.world takes it in <c>"writes"</c>.</summary>
@@ -100,6 +115,10 @@ internal sealed class Manifest
     /// <summary>Why <c>"writes"</c> was not read (it is then empty and the mod's tracked writes are refused); null when it was
     /// read or absent. The mod loads either way, with a warning.</summary>
     public string? WritesError { get; init; }
+
+    /// <summary>Where the author publishes new versions (<c>"updates"</c>); null when absent or not readable (a warning
+    /// says why). Read and kept for the tools outside the game; the mod loads the same with or without it.</summary>
+    public ManifestUpdates? Updates { get; init; }
 
     /// <summary>Non-fatal findings (unknown keys, odd values).</summary>
     public IReadOnlyList<string> Warnings { get; init; } = [];
@@ -203,6 +222,11 @@ internal sealed class Manifest
                     _ => throw Bad("advanced must be true or false"),
                 };
 
+            // never a reason to refuse a mod either: before update checks "updates" was a key nobody read
+            var (updates, updatesError) = ParseUpdates(root);
+            if (updatesError is not null)
+                warnings.Add($"\"updates\" is not read, so Kiln cannot look for new versions of this mod (the mod loads): {updatesError}");
+
             return new Manifest
             {
                 Id = id,
@@ -230,6 +254,7 @@ internal sealed class Manifest
                 BuiltWith = builtWith,
                 Writes = writes,
                 WritesError = writesError,
+                Updates = updates,
                 Warnings = warnings,
             };
         }
@@ -286,6 +311,117 @@ internal sealed class Manifest
             names.Add(name);
         }
         return ([.. names.Distinct(StringComparer.Ordinal)], null);
+    }
+
+    /// <summary>"updates": a tagged union by <c>provider</c>, each provider with its own closed set of properties. Absent
+    /// or null: no source and no finding. A value that breaks a rule: no source and the reason (the same rules, order
+    /// and texts as kiln_manage::manifest::parse_updates; schema/fixtures/manifest/updates-*.json holds the cases both
+    /// readers are tested on).</summary>
+    internal static (ManifestUpdates? Updates, string? Error) ParseUpdates(JsonElement root)
+    {
+        if (!root.TryGetProperty("updates", out var v) || v.ValueKind == JsonValueKind.Null) return (null, null);
+        if (v.ValueKind != JsonValueKind.Object) return (null, "it must be an object");
+        JsonElement? Present(string key) => v.TryGetProperty(key, out var x) && x.ValueKind != JsonValueKind.Null ? x : null;
+        static string? Text(JsonElement? e)
+        {
+            if (e is not { ValueKind: JsonValueKind.String } s) return null;
+            try
+            {
+                return s.GetString();
+            }
+            catch (InvalidOperationException)
+            {
+                return null;  // an escape that is no text (half a surrogate pair)
+            }
+        }
+        string? Only(string provider, params string[] known)
+        {
+            foreach (var p in v.EnumerateObject())
+                if (Array.IndexOf(known, p.Name) < 0)
+                    return $"'{p.Name}' is not a property of provider {provider}";
+            return null;
+        }
+
+        if (Text(Present("provider")) is not { } provider) return (null, "'provider' must be github or nexus");
+        switch (provider)
+        {
+            case "github":
+            {
+                if (Only(provider, "provider", "repository", "tagPattern", "asset", "channel") is { } extra) return (null, extra);
+                if (Text(Present("repository")) is not { } repository || !IsRepository(repository)) return (null, "'repository' must be owner/repo");
+                var tagPattern = "v{version}";
+                if (Present("tagPattern") is { } tp)
+                {
+                    if (Text(tp) is not { } t || !IsTagPattern(t)) return (null, "'tagPattern' must hold {version} exactly once, such as v{version}");
+                    tagPattern = t;
+                }
+                string? asset = null;
+                if (Present("asset") is { } ap)
+                {
+                    if (Text(ap) is not { } a || !IsAssetTemplate(a)) return (null, "'asset' must be a file name with {version} at most once, such as my-mod-{version}.zip");
+                    asset = a;
+                }
+                var channel = "stable";
+                if (Present("channel") is { } cp)
+                {
+                    if (Text(cp) is not ("stable" or "prerelease")) return (null, "'channel' must be stable or prerelease");
+                    channel = Text(cp)!;
+                }
+                return (new ManifestUpdates(provider) { Repository = repository, TagPattern = tagPattern, Asset = asset, Channel = channel }, null);
+            }
+            case "nexus":
+            {
+                if (Only(provider, "provider", "gameId", "modId", "fileChainId") is { } extra) return (null, extra);
+                if (Present("gameId") is not { ValueKind: JsonValueKind.Number } game || game.GetRawText() != "5811")
+                    return (null, "'gameId' must be 5811 (Enshrouded on Nexus Mods)");
+                if (Present("modId") is not { ValueKind: JsonValueKind.Number } mod || !IsSmallPositive(mod.GetRawText()))
+                    return (null, "'modId' must be the number of the mod's page on Nexus Mods");
+                if (Text(Present("fileChainId")) is not { Length: >= 1 and <= 32 } chain || !chain.All(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '-'))
+                    return (null, "'fileChainId' must be the id of the file on Nexus Mods (the file, not one version of it)");
+                return (new ManifestUpdates(provider) { GameId = 5811, ModId = long.Parse(mod.GetRawText(), System.Globalization.CultureInfo.InvariantCulture), FileChainId = chain }, null);
+            }
+            default:
+                return (null, $"provider '{provider}' is not known to this Kiln (github, nexus)");
+        }
+    }
+
+    /// <summary>A number token that is a whole number from 1 to 999999999: no sign, fraction, exponent or leading zero.</summary>
+    private static bool IsSmallPositive(string token) =>
+        token.Length is >= 1 and <= 9 && token[0] != '0' && token.All(char.IsAsciiDigit);
+
+    /// <summary><c>owner/repo</c>: two segments of 1 to 100 characters <c>A-Z a-z 0-9 _ . -</c>, neither <c>.</c> nor <c>..</c>
+    /// (kiln_manage::publish::config::is_repository).</summary>
+    internal static bool IsRepository(string s)
+    {
+        static bool Segment(string p) =>
+            p.Length is >= 1 and <= 100 && p != "." && p != ".." && p.All(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '.' or '-');
+        var slash = s.IndexOf('/');
+        return slash >= 0 && Segment(s[..slash]) && Segment(s[(slash + 1)..]);
+    }
+
+    private const string VersionPlaceholder = "{version}";
+
+    /// <summary>A tag pattern: <c>{version}</c> exactly once; before and after it at most 64 characters of
+    /// <c>A-Z a-z 0-9 . _ / -</c>; no other brace, no <c>..</c>, no leading slash, no <c>//</c>, no slash at the end
+    /// (kiln_manage::publish::config::is_tag_pattern).</summary>
+    internal static bool IsTagPattern(string s)
+    {
+        var at = s.IndexOf(VersionPlaceholder, StringComparison.Ordinal);
+        if (at < 0) return false;
+        static bool Part(string p) => p.Length <= 64 && p.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '_' or '/' or '-');
+        var (pre, post) = (s[..at], s[(at + VersionPlaceholder.Length)..]);
+        return Part(pre) && Part(post) && !s.Contains("..", StringComparison.Ordinal) && !s.StartsWith('/')
+            && !s.Contains("//", StringComparison.Ordinal) && !post.EndsWith('/');
+    }
+
+    /// <summary>An asset name template: 1 to 200 characters of <c>A-Z a-z 0-9 . _ -</c> with <c>{version}</c> at most once;
+    /// no other brace, no <c>..</c>, not <c>.</c> (kiln_manage::manifest::is_asset_template).</summary>
+    internal static bool IsAssetTemplate(string s)
+    {
+        var at = s.IndexOf(VersionPlaceholder, StringComparison.Ordinal);
+        var (pre, post) = at < 0 ? (s, "") : (s[..at], s[(at + VersionPlaceholder.Length)..]);
+        static bool Part(string p) => p.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '_' or '-');
+        return s.Length is >= 1 and <= 200 && s != "." && !s.Contains("..", StringComparison.Ordinal) && Part(pre) && Part(post);
     }
 
     private static List<string> Strings(JsonElement root, string key, bool allowSingle = false)

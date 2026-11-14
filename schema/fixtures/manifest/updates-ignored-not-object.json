@@ -1,0 +1,33 @@
+{
+  "raw": "{\"id\":\"m\",\"version\":\"1.2.0\",\"apiVersion\":\"0.2\",\"entryAssembly\":\"M.dll\",\"updates\":\"https://example.org/feed.json\"}",
+  "expect": {
+    "ok": true,
+    "manifest": {
+      "id": "m",
+      "name": "m",
+      "version": "1.2.0",
+      "parsedVersion": "1.2.0",
+      "apiVersion": "0.2",
+      "entryAssembly": "M.dll",
+      "entryType": null,
+      "side": "server",
+      "clients": "none",
+      "authors": [],
+      "description": "",
+      "license": null,
+      "url": null,
+      "dependencies": [],
+      "loadBefore": [],
+      "loadAfter": [],
+      "incompatible": [],
+      "features": [],
+      "exports": [],
+      "advanced": false,
+      "tests": null,
+      "kilnBuild": null,
+      "warnings": [
+        "\"updates\" is not read, so Kiln cannot look for new versions of this mod (the mod loads): it must be an object"
+      ]
+    }
+  }
+}

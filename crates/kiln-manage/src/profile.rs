@@ -880,6 +880,7 @@ fn native_as_manifest(n: &NativeManifest) -> KilnManifest {
         advanced: false,
         tests: None,
         kiln_build: None,
+        updates: n.updates.clone(),
         warnings: Vec::new(),
     }
 }

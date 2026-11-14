@@ -286,6 +286,159 @@ fn split_build(text: &str) -> (Option<SemVersion>, String) {
     (SemVersion::try_parse(core), day)
 }
 
+/// Which releases of a GitHub repository count (`updates.channel`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UpdateChannel {
+    /// Releases that are neither marked pre-release nor carry a pre-release version.
+    #[default]
+    Stable,
+    /// Stable and pre-release versions.
+    Prerelease,
+}
+
+impl UpdateChannel {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            UpdateChannel::Stable => "stable",
+            UpdateChannel::Prerelease => "prerelease",
+        }
+    }
+}
+
+fn default_tag_pattern() -> String {
+    DEFAULT_TAG_PATTERN.to_string()
+}
+
+/// The tag pattern of a GitHub source that gives none.
+pub const DEFAULT_TAG_PATTERN: &str = "v{version}";
+/// Enshrouded's game id on Nexus Mods: the only one a Nexus source may name.
+pub const NEXUS_GAME_ID: u32 = 5811;
+
+/// Manifest `"updates"` (kiln.mod.json and native.json): where new versions of the mod are published. A tagged union
+/// by `provider`; each provider has its own closed set of properties. The same shape in JSON.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "provider", rename_all = "lowercase")]
+pub enum UpdatesSpec {
+    /// Releases of a public GitHub repository.
+    #[serde(rename_all = "camelCase")]
+    Github {
+        /// `owner/repo` ([`crate::publish::config::is_repository`]).
+        repository: String,
+        /// The release tag with exactly one `{version}` ([`crate::publish::config::is_tag_pattern`]).
+        #[serde(default = "default_tag_pattern")]
+        tag_pattern: String,
+        /// The zip's file name in a release, with `{version}` at most once ([`is_asset_template`]). None: the name the
+        /// release's `kiln-release.json` gives.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        asset: Option<String>,
+        #[serde(default)]
+        channel: UpdateChannel,
+    },
+    /// One file of a mod page on Nexus Mods.
+    #[serde(rename_all = "camelCase")]
+    Nexus {
+        /// Always [`NEXUS_GAME_ID`].
+        game_id: u32,
+        /// The page's number in the game (`.../enshrouded/mods/<modId>`).
+        mod_id: u64,
+        /// The global id of the file (the chain of its versions), never the id of one version.
+        file_chain_id: String,
+    },
+}
+
+/// The file-name template of `updates.asset`: 1 to 200 characters of `A-Z a-z 0-9 . _ -` with `{version}` at most
+/// once; no other brace, no `..`, not `.`. The name it expands to is checked again ([`expand_asset`]).
+pub fn is_asset_template(s: &str) -> bool {
+    let (pre, post) = s.split_once("{version}").unwrap_or((s, ""));
+    let part = |p: &str| p.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'));
+    !s.is_empty() && s.len() <= 200 && s != "." && !s.contains("..") && part(pre) && part(post)
+}
+
+/// The asset name a template stands for with a tag's version (the version as the tag spells it); None when the
+/// result is not a plain file name of 1 to 200 characters ([`crate::release_binding::is_asset_name`]).
+pub fn expand_asset(template: &str, version: &str) -> Option<String> {
+    if !is_asset_template(template) {
+        return None;
+    }
+    let name = template.replacen("{version}", version, 1);
+    crate::release_binding::is_asset_name(&name).then_some(name)
+}
+
+/// A JSON number token that is a whole number from 1 to 999999999 (no sign, fraction, exponent or leading zero).
+fn small_positive(n: &Node) -> Option<u64> {
+    let t = n.as_number()?;
+    if t.is_empty() || t.len() > 9 || t.starts_with('0') || !t.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    t.parse().ok()
+}
+
+/// `"updates"` as both manifest readers take it (Manifest.cs ParseUpdates has the same rules, order and texts; the
+/// cases are schema/fixtures/manifest/updates-*.json). Absent or null: no source, no finding. A value that breaks a
+/// rule gives no source and the reason: the caller warns and goes on, a manifest is never refused for it.
+pub fn parse_updates(root: &Node) -> (Option<UpdatesSpec>, Option<String>) {
+    let Some(v) = root.get("updates").filter(|n| !n.is_null()) else { return (None, None) };
+    match updates_of(v) {
+        Ok(spec) => (Some(spec), None),
+        Err(why) => (None, Some(why)),
+    }
+}
+
+/// The warning for an `"updates"` that is not read.
+pub fn updates_warning(why: &str) -> String {
+    format!("\"updates\" is not read, so Kiln cannot look for new versions of this mod (the mod loads): {why}")
+}
+
+fn updates_of(v: &Node) -> std::result::Result<UpdatesSpec, String> {
+    if !v.is_object() {
+        return Err("it must be an object".into());
+    }
+    let present = |key: &str| v.get(key).filter(|n| !n.is_null());
+    let Some(provider) = present("provider").and_then(Node::as_str) else {
+        return Err("'provider' must be github or nexus".into());
+    };
+    let only = |known: &[&str]| match v.members().iter().find(|m| !known.contains(&m.key.as_str())) {
+        Some(m) => Err(format!("'{}' is not a property of provider {provider}", m.key)),
+        None => Ok(()),
+    };
+    match provider {
+        "github" => {
+            only(&["provider", "repository", "tagPattern", "asset", "channel"])?;
+            let repository = present("repository").and_then(Node::as_str).filter(|s| crate::publish::config::is_repository(s))
+                .ok_or("'repository' must be owner/repo")?;
+            let tag_pattern = match present("tagPattern") {
+                None => DEFAULT_TAG_PATTERN,
+                Some(n) => n.as_str().filter(|s| crate::publish::config::is_tag_pattern(s))
+                    .ok_or("'tagPattern' must hold {version} exactly once, such as v{version}")?,
+            };
+            let asset = match present("asset") {
+                None => None,
+                Some(n) => Some(n.as_str().filter(|s| is_asset_template(s))
+                    .ok_or("'asset' must be a file name with {version} at most once, such as my-mod-{version}.zip")?),
+            };
+            let channel = match present("channel").map(|n| n.as_str()) {
+                None | Some(Some("stable")) => UpdateChannel::Stable,
+                Some(Some("prerelease")) => UpdateChannel::Prerelease,
+                Some(_) => return Err("'channel' must be stable or prerelease".into()),
+            };
+            Ok(UpdatesSpec::Github { repository: repository.to_string(), tag_pattern: tag_pattern.to_string(), asset: asset.map(str::to_string), channel })
+        }
+        "nexus" => {
+            only(&["provider", "gameId", "modId", "fileChainId"])?;
+            if present("gameId").and_then(Node::as_number) != Some("5811") {
+                return Err("'gameId' must be 5811 (Enshrouded on Nexus Mods)".into());
+            }
+            let mod_id = present("modId").and_then(small_positive).ok_or("'modId' must be the number of the mod's page on Nexus Mods")?;
+            let chain = present("fileChainId").and_then(Node::as_str)
+                .filter(|s| !s.is_empty() && s.len() <= 32 && s.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-')))
+                .ok_or("'fileChainId' must be the id of the file on Nexus Mods (the file, not one version of it)")?;
+            Ok(UpdatesSpec::Nexus { game_id: NEXUS_GAME_ID, mod_id, file_chain_id: chain.to_string() })
+        }
+        other => Err(format!("provider '{other}' is not known to this Kiln (github, nexus)")),
+    }
+}
+
 /// A parsed, validated kiln.mod.json: the fields of schema/fixtures/manifest "expect.manifest".
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -316,6 +469,10 @@ pub struct KilnManifest {
     /// The Kiln build the mod was compiled against (`"kilnBuild"`); None when unknown.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kiln_build: Option<KilnBuild>,
+    /// Where the author publishes new versions (`"updates"`); None when absent or not readable (a warning says why).
+    /// It never decides whether the mod loads: only the launcher and `kiln updates check` read it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updates: Option<UpdatesSpec>,
     /// Non-fatal findings (unknown keys), same texts as Manifest.cs.
     pub warnings: Vec<String>,
 }
@@ -325,10 +482,10 @@ pub const ID_PATTERN: &str = "^[a-z0-9][a-z0-9._-]{0,63}$";
 /// The dependency id that is not a mod: the native core's version.
 pub const KILN_ID: &str = "kiln";
 const RESERVED: [&str; 6] = ["kiln", "kiln.api", "game", "enshrouded", "native", "permissions"];
-const KNOWN: [&str; 23] = [
+const KNOWN: [&str; 24] = [
     "$schema", "id", "name", "version", "authors", "author", "description", "license", "url", "apiVersion", "side",
     "clients", "dependencies", "loadBefore", "loadAfter", "incompatible", "features", "entryAssembly", "entryType", "exports",
-    "advanced", "tests", "kilnBuild",
+    "advanced", "tests", "kilnBuild", "updates",
 ];
 
 fn id_rule(s: &str) -> bool {
@@ -597,6 +754,11 @@ pub fn parse_kiln(text: &str) -> Result<KilnManifest> {
         None => false,
         Some(a) => a.as_bool().ok_or_else(|| bad("advanced must be true or false"))?,
     };
+    // never a reason to refuse a mod either: before update checks "updates" was a key nobody read
+    let (updates, updates_error) = parse_updates(&root);
+    if let Some(why) = updates_error {
+        warnings.push(updates_warning(&why));
+    }
     // the object initializer's order (Manifest.cs): name, entryType, description, license, url, incompatible,
     // features, tests
     let name = str_of(&root, "name")?.unwrap_or_else(|| id.clone());
@@ -630,6 +792,7 @@ pub fn parse_kiln(text: &str) -> Result<KilnManifest> {
         advanced,
         tests,
         kiln_build,
+        updates,
         warnings,
     })
 }
@@ -754,6 +917,10 @@ pub struct NativeManifest {
     pub kiln: Option<String>,
     #[serde(default)]
     pub builds: Vec<String>,
+    /// Where the author publishes new versions (`"updates"`, as in kiln.mod.json); None when absent or not readable.
+    /// It never decides whether the mod loads.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updates: Option<UpdatesSpec>,
 }
 
 fn nbad(message: impl std::fmt::Display) -> Error {
@@ -927,7 +1094,15 @@ pub fn parse_native(text: &str) -> Result<NativeManifest> {
             return Err(nbad("builds must be an array of lower-case sha256 hex strings"));
         }
     }
-    serde_json::from_value::<NativeManifest>(root.to_value()).map_err(nbad)
+    // "updates" is read by its own rules and never refuses the file: a value that breaks one is left out
+    let (updates, _) = parse_updates(&root);
+    let mut value = root.to_value();
+    if let Some(o) = value.as_object_mut() {
+        o.remove("updates");
+    }
+    let mut native = serde_json::from_value::<NativeManifest>(value).map_err(nbad)?;
+    native.updates = updates;
+    Ok(native)
 }
 
 /// `<dir>/native.json`, parsed and validated.
@@ -997,6 +1172,139 @@ mod tests {
         assert!(parse_native(r#"{"id": "m", "version": "1", "dlls": ["lib/m.DLL"],}"#).is_ok());
         assert_eq!(parse_native("{").unwrap_err().code, ErrorCode::Parse);
         assert_eq!(parse_native(r#"{"version": "1", "dlls": ["m.dll"]}"#).unwrap_err().message, "native.json: 'id' is required");
+    }
+
+    const BASE: &str = r#"{"id": "m", "version": "1.2.0", "apiVersion": "0.2", "entryAssembly": "M.dll""#;
+
+    fn with_updates(updates: &str) -> KilnManifest {
+        parse_kiln(&format!(r#"{BASE}, "updates": {updates}}}"#)).unwrap_or_else(|e| panic!("{updates} refused the manifest: {e}"))
+    }
+
+    #[test]
+    fn updates_is_read_into_its_union() {
+        let m = with_updates(r#"{"provider": "github", "repository": "example/mod", "tagPattern": "mods/example/v{version}", "asset": "mod-{version}.zip", "channel": "prerelease"}"#);
+        assert_eq!(m.updates, Some(UpdatesSpec::Github {
+            repository: "example/mod".into(), tag_pattern: "mods/example/v{version}".into(), asset: Some("mod-{version}.zip".into()), channel: UpdateChannel::Prerelease }));
+        assert!(m.warnings.is_empty());
+        let m = with_updates(r#"{"provider": "github", "repository": "example/mod"}"#);
+        assert_eq!(m.updates, Some(UpdatesSpec::Github { repository: "example/mod".into(), tag_pattern: "v{version}".into(), asset: None, channel: UpdateChannel::Stable }));
+        let m = with_updates(r#"{"provider": "nexus", "gameId": 5811, "modId": 310, "fileChainId": "90310"}"#);
+        assert_eq!(m.updates, Some(UpdatesSpec::Nexus { game_id: 5811, mod_id: 310, file_chain_id: "90310".into() }));
+        // the union has the same shape in JSON as in the manifest
+        let json = serde_json::to_value(m.updates.as_ref().unwrap()).unwrap();
+        assert_eq!(json, serde_json::json!({"provider": "nexus", "gameId": 5811, "modId": 310, "fileChainId": "90310"}));
+        assert_eq!(serde_json::from_value::<UpdatesSpec>(json).unwrap(), m.updates.unwrap());
+        let github: UpdatesSpec = serde_json::from_value(serde_json::json!({"provider": "github", "repository": "a/b"})).unwrap();
+        assert_eq!(github, UpdatesSpec::Github { repository: "a/b".into(), tag_pattern: "v{version}".into(), asset: None, channel: UpdateChannel::Stable });
+    }
+
+    /// The rule a reviewer looks at first: nothing in "updates" can cost a mod its loading, and every value that is
+    /// not read says so.
+    #[test]
+    fn a_bad_updates_never_refuses_the_manifest_and_always_warns() {
+        let plain = parse_kiln(&format!("{BASE}}}")).unwrap();
+        for updates in [
+            r#""https://example.org/feed.json""#, "[]", "7", "true", "{}",
+            r#"{"provider": 7}"#,
+            r#"{"provider": "gitlab", "project": "a/b"}"#,
+            r#"{"provider": "github"}"#,
+            r#"{"provider": "github", "repository": "https://github.com/a/b"}"#,
+            r#"{"provider": "github", "repository": "a/.."}"#,
+            r#"{"provider": "github", "repository": "a/b", "tagPattern": "{version}-{version}"}"#,
+            r#"{"provider": "github", "repository": "a/b", "tagPattern": "a/../v{version}"}"#,
+            r#"{"provider": "github", "repository": "a/b", "tagPattern": "release"}"#,
+            r#"{"provider": "github", "repository": "a/b", "tagPattern": "v{version}*"}"#,
+            r#"{"provider": "github", "repository": "a/b", "tagPattern": 1}"#,
+            r#"{"provider": "github", "repository": "a/b", "asset": "dist/mod-{version}.zip"}"#,
+            r#"{"provider": "github", "repository": "a/b", "asset": "mod-{version}-{version}.zip"}"#,
+            r#"{"provider": "github", "repository": "a/b", "asset": "mod-{tag}.zip"}"#,
+            r#"{"provider": "github", "repository": "a/b", "asset": "..zip"}"#,
+            r#"{"provider": "github", "repository": "a/b", "asset": ""}"#,
+            r#"{"provider": "github", "repository": "a/b", "channel": "nightly"}"#,
+            r#"{"provider": "github", "repository": "a/b", "url": "https://example.org"}"#,
+            r#"{"provider": "github", "repository": "a/b", "gameId": 5811}"#,
+            r#"{"provider": "nexus", "gameId": 1704, "modId": 310, "fileChainId": "90310"}"#,
+            r#"{"provider": "nexus", "gameId": 5811.0, "modId": 310, "fileChainId": "90310"}"#,
+            r#"{"provider": "nexus", "gameId": 5811, "modId": "310", "fileChainId": "90310"}"#,
+            r#"{"provider": "nexus", "gameId": 5811, "modId": 0, "fileChainId": "90310"}"#,
+            r#"{"provider": "nexus", "gameId": 5811, "modId": -3, "fileChainId": "90310"}"#,
+            r#"{"provider": "nexus", "gameId": 5811, "modId": 1e3, "fileChainId": "90310"}"#,
+            r#"{"provider": "nexus", "gameId": 5811, "modId": 310}"#,
+            r#"{"provider": "nexus", "gameId": 5811, "modId": 310, "fileChainId": "a/b"}"#,
+            r#"{"provider": "nexus", "gameId": 5811, "modId": 310, "fileChainId": "90310", "repository": "a/b"}"#,
+        ] {
+            let m = with_updates(updates);
+            assert_eq!(m.updates, None, "{updates}");
+            let w: Vec<&String> = m.warnings.iter().filter(|w| w.starts_with("\"updates\" is not read")).collect();
+            assert_eq!((w.len(), m.warnings.len()), (1, 1), "{updates}: {:?}", m.warnings);
+            // everything else of the manifest is what it is without the key
+            assert_eq!(KilnManifest { warnings: Vec::new(), ..m }, plain, "{updates}");
+        }
+        // null is "none", as for every optional key
+        let m = with_updates("null");
+        assert_eq!((m.updates.clone(), m.warnings.len()), (None, 0));
+        assert_eq!(m, plain);
+    }
+
+    /// A manifest without the key is what it was before the key existed: no field of it in the parsed value's JSON.
+    #[test]
+    fn a_manifest_without_updates_has_no_trace_of_the_key() {
+        let m = parse_kiln(&format!("{BASE}}}")).unwrap();
+        let v = serde_json::to_value(&m).unwrap();
+        assert!(v.get("updates").is_none(), "{v}");
+        assert!(m.warnings.is_empty());
+        let n = parse_native(r#"{"id": "m", "version": "1.0.0", "dlls": ["m.dll"]}"#).unwrap();
+        assert!(serde_json::to_value(&n).unwrap().get("updates").is_none());
+    }
+
+    #[test]
+    fn native_json_reads_updates_and_is_never_refused_for_it() {
+        let base = r#"{"id": "m", "version": "1.0.0", "dlls": ["m.dll"]"#;
+        let n = parse_native(&format!(r#"{base}, "updates": {{"provider": "github", "repository": "a/b", "asset": "m-{{version}}.zip"}}}}"#)).unwrap();
+        assert_eq!(n.updates, Some(UpdatesSpec::Github { repository: "a/b".into(), tag_pattern: "v{version}".into(), asset: Some("m-{version}.zip".into()), channel: UpdateChannel::Stable }));
+        let plain = parse_native(&format!("{base}}}")).unwrap();
+        for bad in [r#""x""#, "7", r#"{"provider": "github"}"#, r#"{"provider": "nexus", "gameId": 1}"#, r#"{"provider": "github", "repository": "a/b", "x": 1}"#] {
+            assert_eq!(parse_native(&format!(r#"{base}, "updates": {bad}}}"#)).unwrap(), plain, "{bad}");
+        }
+    }
+
+    #[test]
+    fn asset_templates() {
+        for ok in ["mod.zip", "mod-{version}.zip", "{version}", "a_b-{version}.7z", &"a".repeat(200)] {
+            assert!(is_asset_template(ok), "{ok}");
+        }
+        for bad in ["", ".", "..", "a..b", "a/b.zip", "a\\b.zip", "{version}{version}", "mod-{Version}.zip", "mod {version}.zip", "mod-{version", "m\u{e9}.zip", &"a".repeat(201)] {
+            assert!(!is_asset_template(bad), "{bad}");
+        }
+        // the name uses the version as the tag spells it, and is checked again once it is filled in
+        assert_eq!(expand_asset("mod-{version}.zip", "1.2").as_deref(), Some("mod-1.2.zip"));
+        assert_eq!(expand_asset("mod.zip", "1.2.3").as_deref(), Some("mod.zip"));
+        assert_eq!(expand_asset("mod-{version}.zip", "1.0.0+build.5"), None, "a + is not a file-name character here");
+        assert_eq!(expand_asset("mod-{version}.zip", "1/2"), None);
+        assert_eq!(expand_asset(&format!("{}{{version}}", "a".repeat(191)), "1.0.0-beta.10"), None, "over 200 once filled in");
+        assert_eq!(expand_asset("a/{version}", "1"), None);
+    }
+
+    /// kiln.mod.json and native.json describe "updates" with one text, and the schema's key lists are the reader's.
+    #[test]
+    fn both_schemas_describe_updates_alike_and_list_the_readers_keys() {
+        let schema = |name: &str| -> serde_json::Value {
+            serde_json::from_str(&std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schema").join(name)).unwrap()).unwrap()
+        };
+        let kiln = schema("kiln.mod.schema.json")["properties"]["updates"].clone();
+        assert!(kiln.is_object());
+        assert_eq!(kiln, schema("native.schema.json")["properties"]["updates"]);
+        let keys = |i: usize| -> Vec<String> {
+            let then = &kiln["allOf"][i]["then"];
+            assert_eq!(then["additionalProperties"], false);
+            let mut k: Vec<String> = then["properties"].as_object().unwrap().keys().cloned().collect();
+            k.sort();
+            k
+        };
+        assert_eq!(keys(0), ["asset", "channel", "provider", "repository", "tagPattern"]);
+        assert_eq!(keys(1), ["fileChainId", "gameId", "modId", "provider"]);
+        // a finding of the schema about "updates" is never an error: the mod loads
+        assert_eq!(kiln["x-kiln-severity"], "warning");
     }
 
     #[test]
