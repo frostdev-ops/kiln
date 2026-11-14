@@ -1,0 +1,10 @@
+{
+  "id": "creature-control-test",
+  "name": "Creature control broker lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "CreatureControlTest.dll",
+  "side": "server",
+  "advanced": true,
+  "description": "Lab test of kiln.creature_control (19d-creature-control S1-S2): a lease on a forced-ready creature is Pending, then Active with its SteeringAgent gone and its AI off; tick writes of ActorInput move it; a release restores the SteeringAgent (queryId zeroed, then made anew by the game) and the AI; a lease waits for a swing to end; a destroyed body fails its lease. Needs kiln/data/kiln.creatures/force-ready. PASS and FAIL lines in kiln.log."
+}
