@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Fault mod of Mod.OnBoot (chapter 08 §6): OnBoot stages an item, then throws. Its kiln.mod.json says "boot": "required", so the
+       start stops before the game's entry point (exit code 0x4B01; the client pass's check 08-boot.first-start-definitions, part 2 (B)).
+       With "boot": true (the lab's normal start sets it: out/08-onboot/labkit/run-d.sh) Kiln leaves it, and boot-dependent which requires
+       it, out of the boot generation: none of their definitions or files are in (BOOT-CALLBACK-EXCLUDED). -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <GenerateRuntimeConfigurationFiles>false</GenerateRuntimeConfigurationFiles>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <AssemblyName>BootCallbackFail</AssemblyName>
+    <NoWarn>$(NoWarn);KILNX001</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../managed/Kiln.Api/Kiln.Api.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Blocks/Kiln.Blocks.csproj" Private="false" ExcludeAssets="runtime" />
+    <None Include="kiln.mod.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

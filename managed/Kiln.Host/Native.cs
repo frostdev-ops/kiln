@@ -78,6 +78,7 @@ internal static class KilnAbi
 {
     public const uint Version = 1;
     public const int Ok = 0;
+    public const int ErrInvalidArgument = 1, ErrNotFound = 2, ErrUnavailable = 3, ErrWrongThread = 4, ErrBufferTooSmall = 5, ErrRevoked = 6, ErrInternal = 7;  // KILN_ERR_*
     public const int TickPre = 0;
     public const int TickPost = 1;
     public const int PathGame = 0, PathKiln = 1, PathMods = 2, PathLogs = 3, PathData = 4, PathControl = 5;

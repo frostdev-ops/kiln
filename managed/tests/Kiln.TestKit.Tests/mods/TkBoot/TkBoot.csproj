@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- tk-boot: a boot mod (Mod.OnBoot) for the kit's boot phase (BootFakeTests): OnBoot reads the game's data and stages a status and an
+       item; OnLoad logs the committed event. -->
+  <ItemGroup>
+    <ProjectReference Include="$(KilnManaged)services/Kiln.Blocks/Kiln.Blocks.csproj" Private="false" ExcludeAssets="runtime" />
+    <None Include="kiln.mod.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

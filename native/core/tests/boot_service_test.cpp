@@ -739,6 +739,39 @@ void drop_case(int at) {
     pass_line(std::string("BOOT-DROP-OPTIONAL (ruling 7) refusal at ") + kiln::boot_svc::kCollectors[at], f0);
 }
 
+// the lab switch kiln.json "boot.testRefuse": with policy any the named collector gets an unreadable document of the mod each
+// round until the mod is out; without policy any nothing changes
+void test_refuse_case() {
+    t_case = "test-refuse";
+    const int f0 = t_fail;
+    auto lab_entry = [](const json& ir, const char* c) {
+        if (!ir.contains("collectors") || !ir["collectors"].contains(c)) return false;
+        for (const auto& d : ir["collectors"][c])
+            if (d["owner"] == "opt" && d["key"] == "lab.test-refuse" && d["document"] == json::array()) return true;
+        return false;
+    };
+    t_config.boot_test_refuse = {{"opt", "skills"}, {"keep", "no-such-collector"}};
+    t_config.policy_any = false;
+    deferred_with({"opt", "keep"});
+    run_authors({"opt", "keep"});
+    auto c = commit_with(envelope({"opt", "keep"}));
+    CHECK(c.status == KILN_BOOT_STATUS_PUBLISHED && !lab_entry(t_fake[3].seen.at(0), "skills"));  // not a lab: ignored
+    t_config.policy_any = true;
+    deferred_with({"opt", "keep"});
+    run_authors({"opt", "keep"});
+    t_fake[3].act = Do::Refuse;  // the fake refuses as the real collector does an unreadable document
+    t_fake[3].act_round = 1;
+    t_fake[3].blame = "opt";
+    c = commit_with(envelope({"opt", "keep"}));
+    CHECK(c.status == KILN_BOOT_STATUS_PUBLISHED && lab_entry(t_fake[3].seen.at(0), "skills"));
+    CHECK(!lab_entry(t_fake[3].seen.back(), "skills"));  // round 2: opt is out, so is its lab document
+    CHECK(state_of("opt") == KILN_BOOT_STATE_REJECTED_PREPARE && state_of("keep") == KILN_BOOT_STATE_COMMITTED);
+    CHECK(!lab_entry(t_fake[0].seen.at(0), "assets"));  // only the named collector
+    t_config.boot_test_refuse.clear();
+    t_config.policy_any = false;
+    pass_line("BOOT-TEST-REFUSE the lab switch hands one collector an unreadable document of the mod (policy any only)", f0);
+}
+
 void dependent_required_case() {
     t_case = "drop-required-dependent";
     const int f0 = t_fail;
@@ -774,6 +807,18 @@ void callback_cases() {
     CHECK(c.status == KILN_BOOT_STATUS_ABORTED && no_plan_published() && events_with("prepare:").empty());
     CHECK(state_of("req") == KILN_BOOT_STATE_EXCLUDED_CALLBACK && state_of("ok") == KILN_BOOT_STATE_GENERATION_ABORTED);
     CHECK(!kiln::boot_svc::after_clr(true, &fake_write_state, nullptr) && t_exits == std::vector<uint32_t>{0x4B01u});
+    // the stop names the required mod's failure, not a later issue of an optional dependent
+    deferred_with({"req!", "dep"});
+    run_authors({"req!"}, "req");
+    {
+        uint64_t g = 0;
+        CHECK(B.begin_owner(author_of("dep"), ks("dep"), 1, &g) == KILN_OK);
+        CHECK(B.finish_owner(author_of("dep"), 1, KILN_BOOT_FINISH_DEPENDENCY) == KILN_OK);
+    }
+    c = commit_with("");
+    CHECK(c.status == KILN_BOOT_STATUS_ABORTED);
+    CHECK(!kiln::boot_svc::after_clr(true, &fake_write_state, nullptr) && t_held.size() == 1 &&
+          t_held[0].find("(exit code 0x4B01): req: its OnBoot failed") != std::string::npos);
     // a frame still open at the commit counts as failed
     deferred_with({"open", "ok"});
     uint64_t gen = 0;
@@ -782,6 +827,35 @@ void callback_cases() {
     c = commit_with("");
     CHECK(c.status == KILN_BOOT_STATUS_PUBLISHED && state_of("open") == KILN_BOOT_STATE_EXCLUDED_CALLBACK);
     pass_line("BOOT-CALLBACK-EXCLUDED (native side: optional, required, open frame)", f0);
+
+    // the host's reason for a failing frame goes into the CallbackFailed issue
+    t_case = "callback-refusal";
+    const int f1 = t_fail;
+    deferred_with({"low", "ok"});
+    KilnBootStageResultV1 r{};
+    r.size = sizeof r;
+    CHECK(B.stage(kHost, 1, ks("ir"), ks("refusal"), ks(R"({"reason":"x"})"), &r) == KILN_ERR_INVALID_ARGUMENT);  // not an author
+    CHECK(B.begin_owner(author_of("low"), ks("low"), 1, &gen) == KILN_OK);
+    CHECK(B.stage(author_of("low"), 1, ks("ir"), ks("refusal"), ks(R"({"why":"x"})"), &r) == KILN_ERR_INVALID_ARGUMENT);
+    CHECK(B.stage(author_of("low"), 1, ks("ir"), ks("refusal"), ks(R"({"reason":""})"), &r) == KILN_ERR_INVALID_ARGUMENT);
+    const std::string why = "its boot definitions do not lower: talents/cold-talent: needs \"clients\": \"mod\"";
+    CHECK(B.stage(author_of("low"), 1, ks("ir"), ks("refusal"), ks(json{{"reason", "first"}}.dump()), &r) == KILN_OK && r.ok == 1);
+    CHECK(B.stage(author_of("low"), 1, ks("ir"), ks("refusal"), ks(json{{"reason", why}}.dump()), &r) == KILN_OK && r.ok == 1);
+    CHECK(B.finish_owner(author_of("low"), 1, KILN_BOOT_FINISH_CALLBACK_FAILED) == KILN_OK);
+    CHECK(B.stage(author_of("low"), 1, ks("ir"), ks("refusal"), ks(R"({"reason":"late"})"), &r) == KILN_OK && r.ok == 0 &&
+          std::string(r.reason).rfind("PhaseClosed", 0) == 0);
+    run_authors({"ok"});
+    c = commit_with(envelope({"ok"}));
+    CHECK(c.status == KILN_BOOT_STATUS_PUBLISHED && state_of("low") == KILN_BOOT_STATE_EXCLUDED_CALLBACK);
+    uint32_t need = 0;
+    CHECK(B.issues(1, nullptr, 0, sizeof(KilnBootIssueV1), &need) == KILN_ERR_BUFFER_TOO_SMALL && need >= 1);
+    std::vector<KilnBootIssueV1> all(need);
+    for (auto& i : all) i.size = sizeof i;
+    CHECK(B.issues(1, all.data(), need, sizeof(KilnBootIssueV1), &need) == KILN_OK);
+    const auto it = std::find_if(all.begin(), all.end(), [](const KilnBootIssueV1& i) { return std::string(i.mod_id) == "low"; });
+    CHECK(it != all.end() && it->code == KILN_BOOT_ISSUE_CALLBACK_FAILED &&
+          std::string(it->reason) == why + "; none of its definitions or files are in");
+    pass_line("BOOT-CALLBACK-REASON the host's reason for a failing frame is the CallbackFailed issue's", f1);
 }
 
 void contract_cases() {
@@ -1066,6 +1140,19 @@ void flush(const Snap& s, int format = 1, const std::string& key = "") {
                    .dump());
 }
 
+// index.json with the producer's checksums of the eight files (since the 08b review); `drop` leaves one name out
+void add_checksums(const Snap& s, const std::string& drop = "") {
+    json idx = json::parse(std::ifstream(s.dir / "index.json"));
+    json sums = json::object();
+    for (const char* k : kiln::boot_gd::kKinds)
+        for (const char* ext : {".index.json", ".data"}) {
+            const std::string name = std::string(k) + ext;
+            if (name != drop) sums[name] = kiln::boot_gd::file_sha256(s.dir / name);
+        }
+    idx["checksums"] = sums;
+    write_text(s.dir / "index.json", idx.dump());
+}
+
 // decide() with this folder, one author "a" with an open frame.
 KilnOwner open_author() {
     deferred_with({"a", "b"});
@@ -1113,6 +1200,47 @@ void gamedata_cases() {
         CHECK(kiln::boot_gd::sha256(block) != kiln::boot_gd::sha256(block.substr(1)));
     }
     pass_line("BOOT-GAMEDATA-KEY the key is SHA-256 over the exe hash, a newline and the kfc version", f0);
+
+    // the files' checksums: the streaming hash, a snapshot that matches, one damaged byte, an incomplete checksum list,
+    // and an older snapshot without checksums (read as before)
+    f0 = t_fail;
+    {
+        kiln::boot_gd::Sha256 h;
+        const std::string a7(7, 'a');
+        for (int i = 0; i < 1000000 / 7; ++i) h.update(a7);
+        h.update(std::string(1000000 % 7, 'a'));
+        CHECK(kiln::boot_gd::hex_of(h.final()) == "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0");  // FIPS 180-2
+        CHECK(kiln::boot_gd::hex_of(kiln::boot_gd::sha256("")) == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+    }
+    {
+        Snap c = make_snapshot("gd-sums");
+        flush(c);
+        add_checksums(c);
+        KilnOwner ca = open_author();
+        CHECK(row_is(KILN_CAP_AVAILABLE, c.key));
+        const json item = json::parse(read_all(ca, "item:Test_Item_Logs", &rc), nullptr, false);
+        CHECK(rc == KILN_OK && item["value"].value("stackSize", 0) == 50);
+        // one byte of items.data changed (50 -> 57), the marker as it was: not ready, nothing served
+        std::string bytes = c.data.at("items");
+        bytes.replace(bytes.find("\"stackSize\":50"), 14, "\"stackSize\":57");
+        write_text(c.dir / "items.data", bytes);
+        ca = open_author();
+        CHECK(row_is(KILN_CAP_UNAVAILABLE, "damaged: items.data does not match its checksum"));
+        need = 99;
+        CHECK(B.read_resource(ca, ks("item:Test_Item_Logs"), buf, sizeof buf, &need) == KILN_ERR_UNAVAILABLE && need == 99);
+        CHECK(B.read_resource(ca, ks("template:Test_Template_Trader"), buf, sizeof buf, &need) == KILN_ERR_UNAVAILABLE);
+        // a checksum list that leaves a file out is damaged too
+        flush(c);
+        add_checksums(c, "skills.data");
+        ca = open_author();
+        CHECK(row_is(KILN_CAP_UNAVAILABLE, "damaged: index.json has no valid checksum of skills.data"));
+        // an older snapshot without checksums: read as before
+        flush(c);
+        ca = open_author();
+        CHECK(row_is(KILN_CAP_AVAILABLE, c.key));
+        CHECK(json::parse(read_all(ca, "item:Test_Item_Logs", &rc), nullptr, false)["value"].value("stackSize", 0) == 50 && rc == KILN_OK);
+    }
+    pass_line("BOOT-GAMEDATA-CHECKSUMS a file that does not match index.json's checksum makes the snapshot not ready; no checksums: read as before", f0);
 
     // a matching snapshot: the row, and each query form found and not found
     f0 = t_fail;
@@ -1379,6 +1507,7 @@ int main(int argc, char** argv) {
     for (int i = 0; i < 7; ++i) atomic_required_case(i);
     for (int i = 0; i < 7; ++i) atomic_unattributed_case(i);
     for (int i = 0; i < 7; ++i) drop_case(i);
+    test_refuse_case();
     dependent_required_case();
     callback_cases();
     contract_cases();

@@ -25,7 +25,11 @@ internal static class BlockFacts
     public static INamedTypeSymbol? DefinedType(InvocationExpressionSyntax call, SemanticModel model)
     {
         if (call.Expression is not MemberAccessExpressionSyntax { Name.Identifier.ValueText: "Define" }) return null;
-        if (model.GetSymbolInfo(call).Symbol is not IMethodSymbol { ContainingType: { Name: "Blocks", ContainingNamespace.Name: "Kiln" } } m) return null;
+        if (model.GetSymbolInfo(call).Symbol is not IMethodSymbol m) return null;
+        // a block OnBoot stages (BootDefinitions.Define<T>(name, block)) is a block of the mod by that name too
+        if (m.ContainingType is { Name: "BootDefinitions", ContainingNamespace.Name: "Kiln" })
+            return m.TypeArguments.Length == 1 ? m.TypeArguments[0] as INamedTypeSymbol : null;
+        if (m.ContainingType is not { Name: "Blocks", ContainingNamespace.Name: "Kiln" }) return null;
         // Define<T>, or an overload for one block type, whose handle does more
         return m.TypeArguments.Length == 1 ? m.TypeArguments[0] as INamedTypeSymbol : m.Parameters.Length == 2 ? m.Parameters[1].Type as INamedTypeSymbol : null;
     }

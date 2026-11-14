@@ -1,0 +1,16 @@
+{
+  "$schema": "../../../../../schema/kiln-blocks.schema.json",
+  "format": 1,
+  // worldtables: a material no other lab mod tweaks (the game has another health there); patches: level 2's need (the game: 2023)
+  "materialTweaks": {
+    "drop-fancy-stone": { "material": "StoneFancy", "strength": { "health": 4321 } }
+  },
+  "resourcePatches": {
+    "drop-xp": {
+      "format": 1,
+      "resource": "82706b40-61b1-4b8f-8b23-dcec6971bda1",
+      "type": "keen::BalancingTable",
+      "set": { "experienceNeedPerLevel[1]": 2500 }
+    }
+  }
+}

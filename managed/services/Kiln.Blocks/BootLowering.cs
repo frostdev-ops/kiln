@@ -25,6 +25,9 @@ internal static class BootLowering
     /// <summary>Set on the tick thread while a committed boot mod's definitions are defined again for its runtime instance.</summary>
     [ThreadStatic] internal static bool Activating;
 
+    /// <summary>The (kind, name) pairs of the lowering author's data files, while it lowers (a reference to one gets its own reason).</summary>
+    [ThreadStatic] private static HashSet<(string, string)>? _dataFiles;
+
     private static readonly object Gate = new();
     private static readonly Queue<string> Pending = new();
     private static IDisposable? _tick;
@@ -40,6 +43,7 @@ internal static class BootLowering
         var id = (string)req["id"]!;
         var mod = new ModBlocks(id, 0) { ManifestClients = (string?)req["clients"] };
         var shadow = DataFileNames((string?)req["dir"]);
+        _dataFiles = shadow;
         var sink = new BootSink();
         var definitions = new JsonArray();
         var issues = new JsonArray();
@@ -96,6 +100,7 @@ internal static class BootLowering
         {
             Lowered._sinkOverride = previousSink;
             Lowered._bootLowering = false;
+            _dataFiles = null;
         }
         return new JsonObject { ["ok"] = true, ["docs"] = sink.Docs(), ["definitions"] = definitions, ["issues"] = issues }.ToJsonString();
     }
@@ -121,6 +126,22 @@ internal static class BootLowering
             case TalentBlock b: Compiler.Define(mod, key, b); break;
             default: throw new ArgumentException($"{block.GetType().Name} is not a boot kind");
         }
+    }
+
+    /// <summary>A block a boot definition names (BlockContext.Lookup while a generation lowers): only one the same OnBoot staged before it.
+    /// Each author lowers alone, before any mod's runtime blocks or data files exist, so another mod's block or one of the mod's own data-file
+    /// blocks is refused with its own reason (BootReferenceOutside), not "no block".</summary>
+    internal static BlockHandle Reference(ModBlocks mod, string block, string name, string path)
+    {
+        var colon = name.IndexOf(':');
+        var owner = colon > 0 ? name[..colon] : mod.Id;
+        var local = colon > 0 ? name[(colon + 1)..] : name;
+        if (owner != mod.Id)
+            throw new BlockError(block, path, $"BootReferenceOutside: \"{name}\" is a block of mod {owner}; a boot definition names only blocks its own OnBoot staged before it (another mod's blocks are not in the boot generation's lowering). Stage it in this OnBoot too, or name the game's own resource");
+        if (mod.TryHandle(local, out var h)) return h;
+        if (_dataFiles is { } files && files.Any(f => f.Item2 == local))
+            throw new BlockError(block, path, $"BootReferenceOutside: \"{local}\" is a block of this mod's data files (blocks/*.json); a boot definition names only blocks its OnBoot staged before it. Stage \"{local}\" in OnBoot before this definition (and drop it from the data file)");
+        throw new BlockError(block, path, $"no block \"{local}\" staged before this one in OnBoot; a boot definition names only blocks its OnBoot staged before it; there are: {string.Join(", ", mod.Handles.Keys.Order())}");
     }
 
     /// <summary>The (kind, name) pairs the mod's blocks/*.json define: those win over staged code.</summary>
@@ -217,7 +238,11 @@ internal static class BootLowering
     internal static void ActivateNow(string id)
     {
         var committed = BootGeneration.Committed(id);
-        if (committed.Count == 0) return;
+        if (committed.Count == 0)  // committed with its files only (it staged nothing): the event still says so
+        {
+            Events.Post(new BootDefinitionsCommittedEvent(id, BootGeneration.Number, []));
+            return;
+        }
         var mod = Blocks.ModFor(id, () => BlocksBridge.ServiceOwner($"blocks:{id}"));
         if (mod.Owner == 0) mod.Owner = BlocksBridge.ServiceOwner($"blocks:{id}");
         var previous = Lowered._sinkOverride;

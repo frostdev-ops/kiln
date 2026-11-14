@@ -48,6 +48,15 @@ void read_preview(const nlohmann::json& sec, const char* where) {
         KLOG_W("config: %s \"preview\" is not true, false or a list of capability names; ignored", where);
     }
 }
+// "boot": {"testRefuse": {"<mod>": "<collector>"}}: kiln.boot honours it only with policy any (labs).
+void read_boot(const nlohmann::json& doc) {
+    if (!doc.contains("boot") || !doc["boot"].is_object() || !doc["boot"].contains("testRefuse")) return;
+    const auto& t = doc["boot"]["testRefuse"];
+    if (!t.is_object()) return KLOG_W("config: kiln.json boot.testRefuse is not an object of mod id -> collector; ignored");
+    for (const auto& [mod, collector] : t.items())
+        if (collector.is_string()) g_config.boot_test_refuse[mod] = collector.get<std::string>();
+        else KLOG_W("config: kiln.json boot.testRefuse.%s is not a collector name; ignored", mod.c_str());
+}
 }  // namespace
 
 const Config& config() { return g_config; }
@@ -73,6 +82,7 @@ void load_config() {
         log::set_level(g_config.log_level);
         read_native(doc, "kiln.json");
         read_preview(doc, "kiln.json");
+        read_boot(doc);
         KLOG_I("config: policy=%s clr=%d plugins=%d native.policy=%s", g_config.policy_any ? "any" : "verified-only",
                g_config.clr, g_config.plugins, native_policy_name(g_config.native_policy));
     } catch (const std::exception& e) {

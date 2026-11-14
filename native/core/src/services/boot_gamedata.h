@@ -11,6 +11,7 @@
 // Paths: a file name is always "<kind>.index.json" or "<kind>.data" of the four fixed kinds below; the query's text
 // is only ever a key into a loaded index, never part of a path.
 #pragma once
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstring>
@@ -20,6 +21,8 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
 #include "kiln_api.h"
 #include "nlohmann/json.hpp"
@@ -34,45 +37,90 @@ constexpr const char* kKinds[4] = {"items", "templates", "skills", "materials"};
 constexpr const char* kHint =
     "no game-data snapshot for this game build: start through the Kiln launcher, or run `kiln boot-snapshot --game <dir>`";
 
-// ---- SHA-256 (FIPS 180-4), for the key: the core's own hash is the OS's and the host test has none ----
-inline std::array<uint8_t, 32> sha256(std::string_view data) {
-    static constexpr uint32_t k[64] = {
-        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be,
-        0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa,
-        0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85,
-        0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3,
-        0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f,
-        0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2};
-    uint32_t h[8] = {0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19};
-    std::string m(data);
-    const uint64_t bits = static_cast<uint64_t>(data.size()) * 8;
-    m.push_back(static_cast<char>(0x80));
-    while (m.size() % 64 != 56) m.push_back(0);
-    for (int i = 7; i >= 0; --i) m.push_back(static_cast<char>(bits >> (i * 8)));
-    auto rotr = [](uint32_t x, int n) { return (x >> n) | (x << (32 - n)); };
-    for (size_t at = 0; at < m.size(); at += 64) {
-        uint32_t w[64];
-        for (int i = 0; i < 16; ++i) {
-            const auto* p = reinterpret_cast<const uint8_t*>(m.data() + at + i * 4);
-            w[i] = static_cast<uint32_t>(p[0]) << 24 | static_cast<uint32_t>(p[1]) << 16 | static_cast<uint32_t>(p[2]) << 8 | p[3];
+// ---- SHA-256 (FIPS 180-4), for the key and the files' checksums: the core's own hash is the OS's and the host test has
+// none. Streaming, so a data file of hundreds of MiB is hashed in blocks.
+class Sha256 {
+   public:
+    Sha256& update(const void* data, size_t n) {
+        const auto* p = static_cast<const uint8_t*>(data);
+        bytes_ += n;
+        while (n) {
+            const size_t take = std::min(n, sizeof block_ - fill_);
+            std::memcpy(block_ + fill_, p, take);
+            fill_ += take, p += take, n -= take;
+            if (fill_ == sizeof block_) compress(block_), fill_ = 0;
         }
+        return *this;
+    }
+    Sha256& update(std::string_view s) { return update(s.data(), s.size()); }
+    std::array<uint8_t, 32> final() {
+        const uint64_t bits = bytes_ * 8;
+        const uint8_t one = 0x80, zero = 0;
+        update(&one, 1);
+        while (fill_ != 56) update(&zero, 1);
+        uint8_t len[8];
+        for (int i = 0; i < 8; ++i) len[i] = static_cast<uint8_t>(bits >> (56 - i * 8));
+        update(len, 8);
+        std::array<uint8_t, 32> out{};
+        for (int i = 0; i < 8; ++i)
+            for (int j = 0; j < 4; ++j) out[static_cast<size_t>(i * 4 + j)] = static_cast<uint8_t>(h_[i] >> (24 - j * 8));
+        return out;
+    }
+
+   private:
+    void compress(const uint8_t* m) {
+        static constexpr uint32_t k[64] = {
+            0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be,
+            0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa,
+            0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85,
+            0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3,
+            0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f,
+            0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2};
+        auto rotr = [](uint32_t x, int n) { return (x >> n) | (x << (32 - n)); };
+        uint32_t w[64];
+        for (int i = 0; i < 16; ++i)
+            w[i] = static_cast<uint32_t>(m[i * 4]) << 24 | static_cast<uint32_t>(m[i * 4 + 1]) << 16 | static_cast<uint32_t>(m[i * 4 + 2]) << 8 | m[i * 4 + 3];
         for (int i = 16; i < 64; ++i) {
             const uint32_t s0 = rotr(w[i - 15], 7) ^ rotr(w[i - 15], 18) ^ (w[i - 15] >> 3);
             const uint32_t s1 = rotr(w[i - 2], 17) ^ rotr(w[i - 2], 19) ^ (w[i - 2] >> 10);
             w[i] = w[i - 16] + s0 + w[i - 7] + s1;
         }
-        uint32_t a = h[0], b = h[1], c = h[2], d = h[3], e = h[4], f = h[5], g = h[6], hh = h[7];
+        uint32_t a = h_[0], b = h_[1], c = h_[2], d = h_[3], e = h_[4], f = h_[5], g = h_[6], hh = h_[7];
         for (int i = 0; i < 64; ++i) {
             const uint32_t t1 = hh + (rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25)) + ((e & f) ^ (~e & g)) + k[i] + w[i];
             const uint32_t t2 = (rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22)) + ((a & b) ^ (a & c) ^ (b & c));
             hh = g, g = f, f = e, e = d + t1, d = c, c = b, b = a, a = t1 + t2;
         }
-        h[0] += a, h[1] += b, h[2] += c, h[3] += d, h[4] += e, h[5] += f, h[6] += g, h[7] += hh;
+        h_[0] += a, h_[1] += b, h_[2] += c, h_[3] += d, h_[4] += e, h_[5] += f, h_[6] += g, h_[7] += hh;
     }
-    std::array<uint8_t, 32> out{};
-    for (int i = 0; i < 8; ++i)
-        for (int j = 0; j < 4; ++j) out[static_cast<size_t>(i * 4 + j)] = static_cast<uint8_t>(h[i] >> (24 - j * 8));
+    uint32_t h_[8] = {0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19};
+    uint8_t block_[64] = {};
+    size_t fill_ = 0;
+    uint64_t bytes_ = 0;
+};
+
+inline std::array<uint8_t, 32> sha256(std::string_view data) { return Sha256().update(data).final(); }
+
+inline std::string hex_of(const std::array<uint8_t, 32>& d) {
+    static constexpr char digits[] = "0123456789abcdef";
+    std::string out;
+    for (const uint8_t b : d) out += digits[b >> 4], out += digits[b & 15];
     return out;
+}
+
+/// The SHA-256 of a whole file as lower-case hex, read in 1 MiB blocks; empty when it cannot be read.
+inline std::string file_sha256(const std::filesystem::path& file) {
+    std::ifstream in(file, std::ios::binary);
+    if (!in) return {};
+    Sha256 h;
+    std::string block(1u << 20, '\0');
+    while (in) {
+        in.read(block.data(), static_cast<std::streamsize>(block.size()));
+        const auto got = in.gcount();
+        if (got > 0) h.update(block.data(), static_cast<size_t>(got));
+    }
+    if (in.bad()) return {};
+    return hex_of(h.final());
 }
 
 inline bool lower_hex(std::string_view s, size_t n) {
@@ -171,8 +219,35 @@ class Reader {
             for (const char* ext : {".index.json", ".data"})
                 if (!std::filesystem::is_regular_file(dir_ / (std::string(kind) + ext), ec))
                     return *why = "the snapshot " + key_ + " has no " + kind + ext, false;
+        // the producer's checksums of the eight files (since the 08b review): checked by verify() before anything is
+        // served; a snapshot written before them has none and is read as before
+        checksums_.clear();
+        verified_ = false;
+        damaged_.clear();
+        if (const auto sums = j.find("checksums"); sums != j.end()) {
+            for (const char* kind : kKinds)
+                for (const char* ext : {".index.json", ".data"}) {
+                    const std::string name = std::string(kind) + ext;
+                    const auto it = sums->is_object() ? sums->find(name) : sums->end();
+                    if (it == sums->end() || !it->is_string() || !lower_hex(it->get_ref<const std::string&>(), 64))
+                        return *why = "the snapshot " + key_ + " is damaged: index.json has no valid checksum of " + name, false;
+                    checksums_.emplace_back(name, it->get<std::string>());
+                }
+        }
         open_ = true;
         return true;
+    }
+
+    /// Checks every file against index.json's checksums, once per process (a boot profile does it before any read; a
+    /// read does it at the latest). True: they match, or the snapshot predates checksums. False: *why says which file is
+    /// damaged, and the reader is closed (nothing of it is served).
+    bool verify(std::string* why) {
+        std::lock_guard lk(mutex_);
+        return verify_locked(why);
+    }
+    bool has_checksums() const {
+        std::lock_guard lk(mutex_);
+        return !checksums_.empty();
     }
 
     bool is_open() const {
@@ -193,7 +268,8 @@ class Reader {
     KilnResult read(std::string_view query, size_t capacity, size_t result_max, uint64_t budget_left, std::string* json,
                     size_t* required, size_t* value_bytes, std::string* why) {
         std::lock_guard lk(mutex_);
-        if (!open_) return *why = "no snapshot", KILN_ERR_UNAVAILABLE;
+        if (!open_) return *why = damaged_.empty() ? "no snapshot" : damaged_, KILN_ERR_UNAVAILABLE;
+        if (!verify_locked(why)) return KILN_ERR_UNAVAILABLE;
         const auto colon = query.find(':');
         if (colon == std::string_view::npos) return KILN_ERR_INVALID_ARGUMENT;
         const std::string_view form = query.substr(0, colon), arg = query.substr(colon + 1);
@@ -243,6 +319,22 @@ class Reader {
     }
 
    private:
+    bool verify_locked(std::string* why) {
+        if (!open_) return *why = damaged_.empty() ? "no snapshot" : damaged_, false;
+        if (verified_) return true;
+        for (const auto& [name, want] : checksums_)
+            if (file_sha256(dir_ / name) != want) {
+                damaged_ = "the snapshot " + key_ + " is damaged: " + name + " does not match its checksum in index.json";
+                open_ = false;
+                for (auto& k : kinds_) k = Kind{};
+                resources_loaded_ = false;
+                resources_.clear();
+                return *why = damaged_, false;
+            }
+        verified_ = true;
+        return true;
+    }
+
     struct Entry {
         uint64_t offset = 0, length = 0;
         std::string guid, type;
@@ -321,6 +413,9 @@ class Reader {
 
     mutable std::mutex mutex_;
     bool open_ = false;
+    bool verified_ = false;
+    std::string damaged_;                                      // why verify() closed the reader
+    std::vector<std::pair<std::string, std::string>> checksums_;  // file name -> SHA-256 hex (empty: an older snapshot)
     std::string key_;
     std::filesystem::path dir_;
     Kind kinds_[4];

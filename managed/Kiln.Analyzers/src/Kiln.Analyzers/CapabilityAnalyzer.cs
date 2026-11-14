@@ -105,7 +105,7 @@ public sealed class CapabilityAnalyzer : DiagnosticAnalyzer
         }
 
         /// <summary>The rows <paramref name="s"/> needs: [RequiresCapability] on it, on the property or event of an
-        /// accessor, and on the types around it.</summary>
+        /// accessor, on the methods it overrides, and on the types around it.</summary>
         public string[] RowsOf(ISymbol s) => _rows.GetOrAdd(s, m =>
         {
             if (m is IMethodSymbol { ReducedFrom: { } reduced }) m = reduced;
@@ -113,6 +113,8 @@ public sealed class CapabilityAnalyzer : DiagnosticAnalyzer
             var rows = new List<string>();
             Add(m);
             if (m is IMethodSymbol { AssociatedSymbol: { } assoc }) Add(assoc);
+            // an override has the rows of what it overrides: Kiln calls Mod.OnBoot ([RequiresCapability("mods.boot")]) only while the row is on
+            for (var o = (m as IMethodSymbol)?.OverriddenMethod; o != null; o = o.OverriddenMethod) Add(o.OriginalDefinition);
             for (var t = m.ContainingType; t != null; t = t.ContainingType) Add(t);
             return rows.Distinct(StringComparer.Ordinal).ToArray();
 

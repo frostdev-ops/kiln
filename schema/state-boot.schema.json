@@ -336,6 +336,52 @@
       },
       "description": "Boot errors worth showing to the player."
     },
+    "boot": {
+      "type": "object",
+      "description": "Mod.OnBoot's generation (kiln.boot, since 0.2.0-dev.28; docs/kiln/services/boot.md): whether this process took the deferred route, each boot mod's state and every issue.",
+      "required": ["deferred", "reason", "bootMods", "status", "generation", "published", "exitCode", "collectors", "owners", "issues"],
+      "properties": {
+        "deferred": { "type": "boolean", "description": "The boot phase ran in this process (an enabled boot mod, hooks and .NET on, mods.boot available)." },
+        "reason": { "type": "string", "description": "Why the phase is on or off, in plain words." },
+        "bootMods": { "type": "array", "items": { "type": "string" }, "description": "The boot mods of the profile scan, \"<id>\" or \"<id> (required)\"." },
+        "status": { "enum": ["collecting", "preparing", "published", "aborted", "activation-fault", null] },
+        "generation": { "type": ["integer", "null"], "description": "1 when the phase ran (one generation per process), else null." },
+        "published": { "type": "boolean" },
+        "exitCode": { "type": ["integer", "null"], "description": "19201 (0x4B01) when the start stopped, else null." },
+        "collectors": { "type": "array", "items": { "type": "string" }, "description": "The collectors registered: assets, worldtables, content, skills, knowledge, vfx, patches." },
+        "owners": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "state", "required", "author", "definitions", "issues"],
+            "properties": {
+              "id": { "type": "string" },
+              "state": { "enum": ["not-participating", "staged", "committed", "excluded-callback", "excluded-dependency", "rejected-prepare", "generation-aborted", "missed-phase", "activation-fault"] },
+              "required": { "type": "boolean", "description": "\"boot\": \"required\" in its kiln.mod.json." },
+              "author": { "type": "boolean", "description": "It ran OnBoot (false: it took part with its files only)." },
+              "definitions": { "type": "integer", "minimum": 0, "description": "What it staged (0 once it is out)." },
+              "issues": { "type": "integer", "minimum": 0 }
+            }
+          }
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["mod", "kind", "key", "phase", "code", "warning", "reason"],
+            "properties": {
+              "mod": { "type": ["string", "null"] },
+              "kind": { "type": ["string", "null"] },
+              "key": { "type": ["string", "null"] },
+              "phase": { "type": "string", "description": "stage, callback, prepare, commit, activate." },
+              "code": { "type": "string", "description": "DuplicateDefinition, CallbackFailed, Dependency, PrepareRefused, GenerationAborted, ..." },
+              "warning": { "type": "boolean" },
+              "reason": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
     "waitedFor": {
       "type": "array",
       "description": "Other loaders' modules Kiln waited for before it hooked, in order (foreign_scan.h: the shroudlink client addon's live-code scans; one 10-second budget for the whole boot). Empty when there was none to wait for; older cores do not write it.",

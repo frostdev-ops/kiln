@@ -3,7 +3,7 @@ using Microsoft.CodeAnalysis;
 
 namespace Kiln.Analyzers;
 
-/// <summary>The KILN1xx rules. Docs: docs/kiln/modding/analyzers.md (one section per rule, anchored by its id).</summary>
+/// <summary>The KILN1xx rules, and KILN034/KILN035 (Mod.OnBoot). Docs: docs/kiln/modding/analyzers.md (one section per rule, anchored by its id).</summary>
 public static class Descriptors
 {
     /// <summary>Where the rules are documented. Repository-relative until the docs have a public home.</summary>
@@ -83,6 +83,29 @@ public static class Descriptors
         "KilnServices is how a Kiln.Sdk mod declares the Kiln services it uses: the SDK references exactly those " +
         "assemblies (compile only, never shipped) in package builds. A service that reaches the build some other " +
         "way works here and breaks the mod's build from the NuGet feed.");
+
+    // Mod.OnBoot (chapter 08). The chapter names these two KILN034 and KILN035, outside the 1xx range of the other rules: the SDK's
+    // MSBuild codes stop at KILN032, and the ids stay as the dossier and its guided checks say them.
+    private const string Boot = "Kiln.Boot";
+
+    public static readonly DiagnosticDescriptor BootPhase = Rule("KILN034",
+        "OnBoot that never runs, or Blocks.Define in boot code",
+        "{0}",
+        Boot, DiagnosticSeverity.Error,
+        "Kiln calls Mod.OnBoot only for a mod whose kiln.mod.json says \"boot\": true (or \"required\"); without it the override is never " +
+        "called and its definitions are missing from every start. Inside OnBoot the run-time Blocks.Define throws " +
+        "InvalidOperationException (PhaseClosed): it would register a block before the boot generation is checked. Boot code stages blocks " +
+        "with BootDefinitions.For(boot).Define, which Kiln compiles and publishes with the mods' data files before the game is entered.");
+
+    public static readonly DiagnosticDescriptor BootThreadApi = Rule("KILN035",
+        "Tick, world or service API in boot code",
+        "'{0}' {1}, but {2} runs on the boot thread before the game is entered, where no tick, world, player or live registry exists; read the game's data with boot.GameData.Read, stage blocks with BootDefinitions.For(boot), and do the rest in OnLoad",
+        Boot, DiagnosticSeverity.Warning,
+        "OnBoot and [BootThreadOnly] code run once per process on the boot thread, before the game's entry point: the game has loaded none of " +
+        "its data and no world exists. A tick-thread API throws there, and a service's live API (World, Players, Content, Items, Chat, ...) " +
+        "has nothing to act on. The game's data is read through the offline view (BootContext.GameData), definitions are staged with " +
+        "BootDefinitions, and everything else waits for OnLoad. Members marked [BootThreadOnly] and capability checks are fine; [AnyThread] " +
+        "says which threads may call a member, not that a world exists.");
 
     private const string Contract = "Kiln.Contract";
 
