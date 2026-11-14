@@ -298,3 +298,43 @@ fn a_refusal_names_its_member_and_the_policy_version() {
     assert_eq!(detail["policyVersion"], policy::POLICY_VERSION);
     assert!(e.message.contains("good-mod/.env"));
 }
+
+#[test]
+fn duplicate_default_config_keys_cannot_hide_a_secret() {
+    let d = Dir::new();
+    let bytes: &[u8] = br#"{"password":"made-up-sensitive-value","password":""}"#;
+    let declared = [PackageFile { path: "config/defaults/good-mod.json".into(), sha256: crate::hash::sha256_hex(bytes), purpose: Purpose::DefaultConfig, license: None }];
+    let files = managed(&[("good-mod/config/defaults/good-mod.json", bytes)]);
+    assert_eq!(reason_with(&d, &files, &AuditInput { package_files: &declared, ..Default::default() }), "secret-in-config");
+    for bytes in [b"<config><password>made-up-secret</password></config>".as_slice(), b"\xff\xfep\0a\0s\0s\0w\0o\0r\0d\0", b"{unreadable config"] {
+        let declared = [PackageFile { path: "config/defaults/good-mod.json".into(), sha256: crate::hash::sha256_hex(bytes), purpose: Purpose::DefaultConfig, license: None }];
+        let files = [("good-mod/kiln.mod.json", MANIFEST.as_bytes()), ("good-mod/config/defaults/good-mod.json", bytes)];
+        assert_eq!(reason_with(&d, &files, &AuditInput { package_files: &declared, ..Default::default() }), "default-config-invalid");
+    }
+}
+
+#[test]
+fn cooked_outputs_cannot_escape_via_an_unresolved_recipe_or_root_output() {
+    let d = Dir::new();
+    for cook in [br#"{"out":"."}"#.as_slice(), br#"{"out":".."}"#, br#"{"out":"../.."}"#, b"{not valid json"] {
+        let files = [("good-mod/kiln.mod.json", MANIFEST.as_bytes()), ("good-mod/assets/cook.json", cook), ("good-mod/assets/model.bin", b"made-up".as_slice())];
+        let result = reason(&d, &files);
+        assert!(result == "cooked-output" || result == "cook-recipe-invalid", "unchecked cook output was allowed: {result}");
+    }
+}
+
+#[test]
+fn nested_native_manifests_and_case_insensitive_file_parents_are_refused() {
+    let d = Dir::new();
+    assert_eq!(reason(&d, &managed(&[("good-mod/sub/native.json", NATIVE.as_bytes())])), "manifest-multiple");
+    assert_eq!(reason(&d, &managed(&[("good-mod/LOCALE", b"file collides with locale folder")])), "duplicate-name");
+}
+
+#[test]
+fn an_oversized_source_is_refused_before_normalization_or_copy() {
+    let d = Dir::new();
+    let path = d.0.join("oversized.zip");
+    std::fs::File::create(&path).unwrap().set_len(policy::MAX_ZIP_BYTES + 1).unwrap();
+    assert_eq!(reason_of(&normalize_root(&path, &d.0.join("normalized.zip")).unwrap_err()), Some("too-large"));
+    assert!(!d.0.join("normalized.zip").exists());
+}
