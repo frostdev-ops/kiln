@@ -22,6 +22,7 @@ mod server;
 mod tools;
 mod skeleton;
 mod vfx;
+mod updates;
 
 #[cfg(feature = "catalog")]
 mod catalog;
@@ -76,6 +77,8 @@ enum Cmd {
     Vfx(vfx::VfxArgs),
     /// The player's skeleton from your installed game, as a glTF to weight a worn model against, with a body to model around.
     Skeleton(skeleton::SkeletonArgs),
+    /// Look for newer versions of the installed mods: a notice and a link per mod, never a download.
+    Updates(updates::UpdatesArgs),
 }
 
 #[derive(clap::Args)]
@@ -177,6 +180,7 @@ fn main() {
         Cmd::Catalog(a) => catalog_cmd(a, json),
         Cmd::Vfx(a) => vfx::run(a, json),
         Cmd::Skeleton(a) => skeleton::run(a, json),
+        Cmd::Updates(a) => updates::run(a, json),
     });
     std::process::exit(match r {
         Ok(code) => code,
