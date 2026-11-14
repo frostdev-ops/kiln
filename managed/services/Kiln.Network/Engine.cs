@@ -430,7 +430,13 @@ internal static class NetEngine
         p.Declared = hello.Channels.ToDictionary(c => c.Name, c => c.Version, StringComparer.Ordinal);
         if (p.State == NetPeerState.Ready)
         {
-            // a client re-announcing its channels (a client mod (un)loaded)
+            // a client re-announcing its channels (a client mod (un)loaded). A mandatory protocol is checked before this
+            // fast path: a client that dropped it is refused, whatever modSync says (NetAdmission)
+            if (NetAdmission.MissingProtocol(p) is { } dropped)
+            {
+                NetAdmission.RefusePeer(p, dropped, "kiln.network");
+                return;
+            }
             RemapServerChannels(p);
             SendWelcome(p, hello.Nonce, p.Warnings);
             return;
@@ -494,6 +500,14 @@ internal static class NetEngine
             var ev = Events.Post(new NetClientHandshakeEvent(p, missing, extra, refuse) { Reason = reason });
             refuse = ev.Refuse || ev.Canceled;
             if (refuse) reason = ev.Reason.Length > 0 ? ev.Reason : reason.Length > 0 ? reason : "Refused by the server.";
+        }
+        // Mandatory protocols (NetAdmission): checked after everything a policy or a handshake handler can waive, so
+        // neither modSync nor a handler lets a client without one in.
+        if (NetAdmission.MissingProtocol(p) is { } protocol)
+        {
+            reason = refuse && reason.Length > 0 ? reason + " " + protocol : protocol;
+            refuse = true;
+            refusedFor = [.. refusedFor, protocol];
         }
         var warnings = new List<string>();
         if (_config.ModSync != ModSyncPolicy.Off)
@@ -710,6 +724,9 @@ internal static class NetEngine
         p.ClearedTemplates = NetNative.ReadGate().KilnTemplates;
         NetNative.WithholdSet(p.Id, false);
     }
+
+    /// <summary>Tests: the policy without a network.json.</summary>
+    internal static void UseConfigForTests(NetworkConfig config) => _config = config;
 
     /// <summary>Tests only (net-test): Kiln.Network stops deciding, as if it had died, so kiln.net's own limit is seen.</summary>
     internal static bool TestFreezeVanillaDecisions;

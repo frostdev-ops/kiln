@@ -328,6 +328,17 @@ internal static class NetAdmission
         return false;
     }
 
+    /// <summary>The reason a mandatory protocol refuses <paramref name="p"/>: the first one it does not declare at that
+    /// exact version (its hello's channels); null when it has them all. The hosting player's own machine is never refused.</summary>
+    internal static string? MissingProtocol(NetPeer p)
+    {
+        if (IsLocalMachine(p)) return null;
+        lock (Lock)
+            foreach (var x in Protocols)
+                if (!(p.Declared.TryGetValue(x.Name, out var v) && v == x.Version)) return x.Reason;
+        return null;
+    }
+
     /// <summary>Whether some requirement needs each Kiln client decided before it enters the world, or a refused Kiln
     /// client still waits for its kick: "hold all" stays on until it is gone, so lowering the gate never lets it in.</summary>
     internal static bool HoldsKilnPeers

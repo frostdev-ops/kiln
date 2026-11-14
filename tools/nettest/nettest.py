@@ -953,6 +953,38 @@ class Suite:
                        "in the gate: Kiln.Network let it in" in self.log_since(m4), self.log_since(m4)[-300:])
             self.control(ctl, "gate-admit-onjoin off")
 
+            # ---- a mandatory protocol: a Kiln client without the channel is refused in its hello, with the reason; a client
+            # without Kiln is held, then refused, never let in. net-test:extra v2 is a channel every other nettest client has;
+            # enabling waits until no connected peer lacks it (idle vanilla peers of the earlier cases leave by themselves)
+            r = None
+            for _ in range(75):  # a lab peer that went quiet is forgotten after 60 s
+                r = self.control(ctl, "gate-admit-protocol net-test:extra 2 on")
+                if r == "control:ok":
+                    break
+                time.sleep(1)
+            self.check("admission.protocol-on", r == "control:ok", str(r))
+            m6 = self.log_mark()
+            x = Client(self.port, "adm-lacks", self.verbose)
+            x.send(KNOCK)
+            x.hello(FULL_MODS, [("net-test:echo", "1", True)])
+            ok = x.wait(lambda: x.reject is not None or x.welcome is not None, 8)
+            self.check("admission.protocol-reject", ok and x.reject is not None and "net-test:extra protocol 2 required" in x.reject[0] and x.welcome is None,
+                       f"{x.reject} welcome={x.welcome is not None}")
+            pid5 = self.peer_of(m6)
+            self.check("admission.protocol-kick", pid5 is not None and self.wait_log(m6, f"lab peer {pid5} kicked", 4), self.log_since(m6)[-300:])
+            m7 = self.log_mark()
+            v = self.vanilla_peer("adm-vanilla")
+            pid6 = self.peer_of(m7)
+            t0 = time.time()
+            v.send(LAB_READY)
+            self.check("admission.protocol-vanilla-held", self.wait_log(m7, "held, it gets no world data", 2), self.log_since(m7)[-300:])
+            ok = self.wait_log(m7, "has no Kiln (vanilla client): refusing", 12)
+            self.check("admission.protocol-vanilla-refused", ok and pid6 is not None and self.wait_log(m7, f"lab peer {pid6} kicked", 4),
+                       f"{time.time() - t0:.1f} s " + self.log_since(m7)[-300:])
+            self.check("admission.protocol-vanilla-never-let-in", pid6 is not None and f"lab peer {pid6} passed the gate" not in self.log_since(m7) and
+                       f"peer {pid6} goes on" not in self.log_since(m7), "")
+            self.check("admission.protocol-off", self.control(ctl, "gate-admit-protocol net-test:extra 2 off") == "control:ok", "")
+
             # ---- nothing registered: the gate is back to today's rule, a proved peer passes at once
             self.control(ctl, "gate-admit-clear")
             time.sleep(1.5)
