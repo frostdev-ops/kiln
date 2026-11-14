@@ -155,7 +155,7 @@ pub fn refuse_by_path(rel_lower: &str) -> Option<(&'static str, &'static str)> {
         return Some(("game-data", "it is a file of the game"));
     }
     // cooked output: made from the player's own game files on the player's PC, never shipped
-    if rel_lower.starts_with("assets/cooked/") || parts.iter().any(|p| *p == "cooked") {
+    if rel_lower.starts_with("assets/cooked/") || parts.contains(&"cooked") {
         return Some(("cooked-output", "it is cooked output (made from the game's files at install time, not shipped)"));
     }
     // saves and world data

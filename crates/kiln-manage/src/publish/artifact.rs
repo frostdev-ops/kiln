@@ -226,10 +226,10 @@ fn outs_of(v: &serde_json::Value, found: &mut Vec<String>) {
     match v {
         serde_json::Value::Object(o) => {
             for (k, child) in o {
-                if k == "out" {
-                    if let Some(s) = child.as_str() {
-                        found.push(s.to_string());
-                    }
+                if k == "out"
+                    && let Some(s) = child.as_str()
+                {
+                    found.push(s.to_string());
                 }
                 outs_of(child, found);
             }
