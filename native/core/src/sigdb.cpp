@@ -15,6 +15,7 @@
 #include "log.h"
 #include "nlohmann/json.hpp"
 #include "pe_text.h"
+#include "services/hooks_fingerprint.h"
 
 namespace kiln::sigdb {
 namespace {
@@ -33,6 +34,16 @@ struct SymbolDef {
     std::string name;
     bool probe = false;  // "@name": only captures, every strategy evaluated
     std::vector<FindSpec> find;
+};
+
+// A symbol's `sig` block (kiln.hooks typed links, dev.28): the text as loaded, and after resolve() what the
+// function's code said about it.
+struct SigDef {
+    std::string text;          // the block, as JSON
+    hooks::fp::Sig sig;        // parsed at resolve (struct declarations of every file are known then)
+    SigStatus status = SigStatus::Unresolved;
+    std::string note;          // the comparison in words, or why there is none
+    std::string fingerprint;   // the code's fingerprint as JSON ("" = none computed)
 };
 
 struct ConstDef {
@@ -274,6 +285,57 @@ void scan_many(const std::vector<const Pattern*>& patterns, const uint8_t* begin
     for (auto& t : pool) t.join();
 }
 
+// ---- ABI fingerprints (kiln.hooks typed links) ----
+// The function's code comes from the exe file's copy only (never the live bytes, which may carry a hook): on the live
+// fallback there is no fingerprint. Function bounds come from the image's exception table (read-only data).
+size_t fp_bytes(void*, uint64_t addr, uint8_t* out, size_t n) {
+    const pe::CodeView& cv = code();
+    if (!cv.disk) return 0;
+    const uint8_t* f = cv.to_scan(static_cast<uintptr_t>(addr));
+    if (!f) return 0;
+    n = std::min(n, static_cast<size_t>(cv.end() - f));
+    std::memcpy(out, f, n);
+    return n;
+}
+const hooks::fp::Pdata* fp_pdata() {
+    static hooks::fp::Pdata p;
+    static std::once_flag once;
+    std::call_once(once, [] {
+        const ImageInfo& img = image();
+        if (img.base && img.size) hooks::fp::pdata_init(&p, reinterpret_cast<const uint8_t*>(img.base), img.size);
+    });
+    return p.table ? &p : nullptr;
+}
+bool fp_function(void*, uint64_t addr, uint64_t* primary, uint64_t* next) {
+    const hooks::fp::Pdata* p = fp_pdata();
+    const uint64_t base = image().base;
+    if (!p || addr < base) {
+        *next = UINT64_MAX;
+        return false;
+    }
+    const bool in = hooks::fp::pdata_lookup(*p, addr - base, primary, next);
+    if (in) *primary += base;
+    if (*next != UINT64_MAX) *next += base;
+    return in;
+}
+hooks::fp::Fingerprint fingerprint_of(uintptr_t live_addr) {
+    hooks::fp::Reader r;
+    r.bytes = &fp_bytes;
+    r.function = fp_pdata() ? &fp_function : nullptr;
+    return hooks::fp::compute(r, live_addr);
+}
+
+const char* sig_status_name(SigStatus s) {
+    switch (s) {
+        case SigStatus::Match: return "match";
+        case SigStatus::Mismatch: return "mismatch";
+        case SigStatus::Unknown: return "unknown";
+        case SigStatus::Unresolved: return "unresolved";
+        case SigStatus::Bad: return "bad";
+    }
+    return "?";
+}
+
 // One self-contained set of definitions resolved against the running image. The core is one Resolver; each mod
 // fragment is another, with the core as its parent so a fragment strategy can be scoped to a core symbol.
 class Resolver {
@@ -313,6 +375,10 @@ public:
             SymbolDef def;
             def.name = name;
             def.probe = !name.empty() && name[0] == '@';
+            if (sym.contains("sig") && !add_sig(name, sym["sig"])) return false;
+            // A name that only other patterns capture has no strategies of its own: its entry then holds just the
+            // descriptor.
+            if (!sym.contains("find") && sym.contains("sig")) continue;
             for (auto& f : sym["find"]) {
                 FindSpec spec;
                 spec.text = f.value("pattern", "");
@@ -345,6 +411,21 @@ public:
                 }
             }
         }
+        // Descriptors of typed links (kiln.hooks, dev.28): "structs" declares the structs they name; "sigs" gives a
+        // symbol a descriptor outside its own entry (a symbol another file defines, or one only captures name).
+        if (doc.contains("structs")) {
+            std::string err;
+            if (!hooks::fp::parse_structs(doc["structs"].dump(), &structs_, &err)) {
+                load_error = err;
+                return false;
+            }
+        }
+        if (doc.contains("sigs")) {
+            for (auto& [name, sig] : doc["sigs"].items()) {
+                if (!check_prefix(name)) return false;
+                if (!add_sig(name, sig)) return false;
+            }
+        }
         if (doc.contains("features")) {
             for (auto& [name, f] : doc["features"].items()) {
                 if (!check_prefix(name)) return false;
@@ -354,6 +435,20 @@ public:
                 if (f.contains("constants")) def.constants = f["constants"].get<std::vector<std::string>>();
                 features_.push_back(std::move(def));
             }
+        }
+        return true;
+    }
+
+    bool add_sig(const std::string& name, const json& sig) {
+        if (!name.empty() && name[0] == '@') {
+            load_error = name + ": a probe has no descriptor (describe the symbol it captures)";
+            return false;
+        }
+        SigDef def;
+        def.text = sig.dump();
+        if (!sigs_.emplace(name, std::move(def)).second) {
+            load_error = "symbol " + name + " has two sig blocks";
+            return false;
         }
         return true;
     }
@@ -418,7 +513,94 @@ public:
         }
         if (cv.disk) check_live(cv);
         prescan_.clear();
+        check_sigs();
         ms_ = now_ms() - t0;
+    }
+
+    // Every described symbol against its function's code (hooks_fingerprint.h). A core descriptor whose function
+    // does not fit is off ("sig/<symbol>" is not a feature then); the symbol itself still resolves.
+    void check_sigs() {
+        namespace fp = hooks::fp;
+        fp::Structs structs = structs_;
+        if (parent_)
+            for (auto& [n, d] : parent_->structs_) structs.emplace(n, d);
+        for (auto& [name, def] : sigs_) {
+            def.fingerprint.clear();
+            std::string err;
+            if (!fp::parse_sig(def.text, structs, parent_ != nullptr, &def.sig, &err)) {
+                def.status = SigStatus::Bad;
+                def.note = err;
+                KLOG_E("hooks: %s: the descriptor is malformed: %s", name.c_str(), err.c_str());
+                continue;
+            }
+            int64_t addr = 0;
+            auto it = symbols_.find(name);
+            if (it == symbols_.end() || !it->second.ok) {
+                def.status = SigStatus::Unresolved;
+                def.note = it == symbols_.end() ? "not defined" : it->second.error.empty() ? "unresolved" : it->second.error;
+                continue;
+            }
+            addr = it->second.value;
+            const fp::Fingerprint f = fingerprint_of(static_cast<uintptr_t>(addr));
+            def.fingerprint = fp::to_json(f);
+            switch (fp::check_sig(def.sig, f, &def.note)) {
+                case fp::Verdict::Match:
+                    def.status = SigStatus::Match;
+                    KLOG_I("hooks: %s: %s: ok", name.c_str(), def.note.c_str());
+                    break;
+                case fp::Verdict::Mismatch:
+                    def.status = SigStatus::Mismatch;
+                    KLOG_W("hooks: %s: refused: %s; typed hooks and calls of it are off, the symbol still resolves",
+                           name.c_str(), def.note.c_str());
+                    break;
+                default:
+                    def.status = SigStatus::Unknown;
+                    KLOG_W("hooks: %s: refused: %s; typed hooks and calls of it are off, the symbol still resolves",
+                           name.c_str(), def.note.c_str());
+                    break;
+            }
+        }
+    }
+
+    bool sig(std::string_view name, SigInfo* out) const {
+        auto it = sigs_.find(std::string(name));
+        if (it == sigs_.end()) return false;
+        if (out) {
+            out->symbol = it->first;
+            out->status = it->second.status;
+            out->text = it->second.note;
+            out->json = it->second.text;
+            out->fingerprint = it->second.fingerprint;
+            out->address = 0;
+            auto s = symbols_.find(it->first);
+            if (s != symbols_.end() && s->second.ok) out->address = static_cast<uintptr_t>(s->second.value);
+        }
+        return true;
+    }
+    bool sig_at(uintptr_t a, SigInfo* out) const {
+        for (auto& [n, d] : sigs_) {
+            auto s = symbols_.find(n);
+            if (s != symbols_.end() && s->second.ok && static_cast<uintptr_t>(s->second.value) == a) return sig(n, out);
+        }
+        return false;
+    }
+    std::vector<std::string> sig_names() const {
+        std::vector<std::string> v;
+        for (auto& [n, d] : sigs_) v.push_back(n);
+        return v;
+    }
+    std::string structs_json() const {
+        json j = json::object();
+        for (auto& [n, d] : structs_) {
+            json s;
+            s["size"] = d.size;
+            s["align"] = d.align;
+            json fields = json::array();
+            for (auto& f : d.fields) fields.push_back({{"name", f.name}, {"type", f.type}, {"offset", f.offset}});
+            s["fields"] = fields;
+            j[n] = s;
+        }
+        return j.dump();
     }
 
     // Symbols whose live bytes differ from the file's: in the bytes a strategy matched on (that strategy would no
@@ -487,19 +669,30 @@ public:
         if (out) *out = it->second.value;
         return true;
     }
+    // "sig/<symbol>" is a feature by itself for every described symbol: on when the symbol resolved and its
+    // descriptor fits the function's code.
+    const SigDef* sig_feature(std::string_view name) const {
+        if (name.substr(0, kSigFeature.size()) != kSigFeature) return nullptr;
+        auto it = sigs_.find(std::string(name.substr(kSigFeature.size())));
+        return it == sigs_.end() ? nullptr : &it->second;
+    }
     bool feature(std::string_view name) const {
+        if (const SigDef* d = sig_feature(name)) return d->status == SigStatus::Match;
         auto it = feature_ok_.find(std::string(name));
         return it != feature_ok_.end() && it->second;
     }
     std::vector<std::string> feature_names() const {
         std::vector<std::string> v;
         for (auto& f : features_) v.push_back(f.name);
+        for (auto& [n, d] : sigs_) v.push_back(std::string(kSigFeature) + n);
         return v;
     }
     std::vector<std::string> failed_features() const {
         std::vector<std::string> v;
         for (auto& [n, ok] : feature_ok_)
             if (!ok) v.push_back(n);
+        for (auto& [n, d] : sigs_)
+            if (d.status != SigStatus::Match) v.push_back(std::string(kSigFeature) + n);
         return v;
     }
     double ms() const { return ms_; }
@@ -507,6 +700,13 @@ public:
     // The first piece of `feature` that did not resolve (see sigdb.h). A feature defined twice is judged by its last
     // definition, as resolve() does (feature_ok_ keeps the last one).
     bool feature_problem(std::string_view feature, std::string* name, std::string* text, bool* is_constant) const {
+        if (const SigDef* d = sig_feature(feature)) {
+            if (d->status == SigStatus::Match) return false;
+            if (name) *name = std::string(feature.substr(kSigFeature.size()));
+            if (text) *text = d->status == SigStatus::Bad ? "the descriptor is malformed: " + d->note : d->note;
+            if (is_constant) *is_constant = false;
+            return true;
+        }
         const FeatureDef* def = nullptr;
         for (const FeatureDef& f : features_)
             if (f.name == feature) def = &f;
@@ -587,6 +787,13 @@ public:
             doc["constants"][n] = j;
         }
         for (auto& [n, ok] : feature_ok_) doc["features"][n] = ok;
+        for (auto& [n, d] : sigs_) {
+            json j;
+            j["status"] = sig_status_name(d.status);
+            if (!d.note.empty()) j["text"] = d.note;
+            if (!d.fingerprint.empty()) j["fingerprint"] = json::parse(d.fingerprint, nullptr, false);
+            doc["sigs"][n] = j;
+        }
         std::ofstream out(file, std::ios::trunc);
         out << doc.dump(2) << '\n';
     }
@@ -643,7 +850,10 @@ public:
     size_t const_count() const { return constants_.size(); }
 
 private:
+    static constexpr std::string_view kSigFeature = "sig/";
     const Resolver* parent_;
+    std::map<std::string, SigDef> sigs_;
+    hooks::fp::Structs structs_;
     std::map<std::string, SymbolDef> defs_;
     std::map<std::string, ConstDef> const_defs_;
     std::vector<FeatureDef> features_;
@@ -974,6 +1184,34 @@ std::string symbol_name_at(uintptr_t live_addr) {
         if (!n.empty()) return n;
     }
     return {};
+}
+
+// ---- kiln.hooks typed links ----
+bool sig(std::string_view symbol, SigInfo* out) {
+    if (g_core.sig(symbol, out)) return true;
+    const std::string pfx = prefix_of(symbol);
+    if (pfx.empty()) return false;
+    std::lock_guard lock(g_frag_mutex);
+    auto it = g_fragments.find(pfx);
+    return it != g_fragments.end() && it->second->sig(symbol, out);
+}
+
+bool sig_at(uintptr_t live_addr, SigInfo* out) {
+    if (g_core.sig_at(live_addr, out)) return true;
+    std::lock_guard lock(g_frag_mutex);
+    for (auto& [id, res] : g_fragments)
+        if (res->sig_at(live_addr, out)) return true;
+    return false;
+}
+
+std::vector<std::string> sig_symbols() { return g_core.sig_names(); }
+std::string structs_json() { return g_core.structs_json(); }
+
+bool fingerprint(uintptr_t live_addr, hooks::fp::Fingerprint* out) {
+    const pe::CodeView& cv = code();
+    if (!cv.to_scan(live_addr)) return false;
+    *out = fingerprint_of(live_addr);
+    return true;
 }
 
 std::vector<LiveDiff> live_differs() {

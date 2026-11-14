@@ -1,0 +1,8 @@
+{
+  "format": 1,
+  "comment": "kiln.camera (dev.28, chapter 03). hooks.owner_cleanup: kiln.hooks has subscribe_owner_retiring / unsubscribe_owner_retiring (a feature without symbols: it says what this core can do). Shared with the client.",
+  "symbols": {},
+  "features": {
+    "hooks.owner_cleanup": {"symbols": []}
+  }
+}

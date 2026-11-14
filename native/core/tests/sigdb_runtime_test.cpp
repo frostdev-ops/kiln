@@ -242,6 +242,121 @@ static void live_diff_accessors(const char* dir) {
     std::filesystem::remove(file);
 }
 
+// Descriptors of typed links (dev.28): `sig` in a symbol's entry or under "sigs", checked against the function's code
+// as the exe file has it; "sig/<symbol>" is a feature. The test image's code: root = mov rax, imm64; call helper;
+// then "scoped" = mov eax, [rcx+0x1234]; ret.
+static void sig_blocks(const char* dir) {
+    Loaded x;
+    uint8_t* fn = x.live.data() + TestPe::kFunc + 15;  // "scoped", hooked in the live image by another engine
+    fn[0] = 0xE9;
+    const int32_t rel = 0x10000000;
+    std::memcpy(fn + 1, &rel, 4);
+    test_query = true;
+    test_mbi = {x.live.data(), x.live.size(), MEM_COMMIT, 4};
+    sigdb::init_code();
+    const auto file = std::filesystem::path(dir) / "sigs.json";
+    const char* symbols = R"("symbols":{
+          "root":{"find":[{"pattern":"48 B8 ?? ?? ?? ?? ?? ?? ?? ?? E8 {helper:rel32}"}],
+                  "sig":{"ret":"u32","args":[{"name":"self","type":"keen::Thing*"}],"invoke":"tick"}},
+          "helper":{"sig":{"args":[]}},
+          "scoped":{"find":[{"pattern":"8B 81 {field:d32} C3","scope":{"symbol":"root","size":64}}]}
+        })";
+    auto write = [&](const std::string& rest) {
+        std::ofstream out(file);
+        out << "{\"format\":1," << symbols << rest << "}";
+    };
+    write(R"(,"structs":{"Pair":{"size":16,"align":8,"fields":[{"name":"a","type":"u64","offset":0},{"name":"b","type":"u64","offset":8}]}},
+          "sigs":{"scoped":{"ret":"u32","args":[{"name":"self","type":"ptr"}],"abi":{"reads":["rcx"],"stack":[],"ret":"rax"}},
+                  "missing":{"sret":"Pair","args":[{"name":"x","type":"u8"}]}})");
+    sigdb::Resolver r;
+    CHECK(r.load(file, ""), "sig: a file with sig blocks, a sigs section and structs loads");
+    r.resolve();
+    uintptr_t a = 0;
+    sigdb::SigInfo info;
+    CHECK(r.symbol("scoped", &a) && r.sig("scoped", &info) && info.status == sigdb::SigStatus::Match && info.address == a &&
+              info.fingerprint.find(R"("reads":["rcx"])") != std::string::npos && fn[0] == 0xE9,
+          "sig: a descriptor under \"sigs\" matches its function, read from the file's bytes although the live entry is hooked");
+    CHECK(r.feature("sig/scoped") && !r.feature_problem("sig/scoped", nullptr, nullptr, nullptr),
+          "sig: sig/<symbol> is a feature that is on");
+    CHECK(r.sig("root", &info) && info.status == sigdb::SigStatus::Match && r.feature("sig/root"),
+          "sig: a descriptor in the symbol's own entry (the function passes rcx on to its callee)");
+    CHECK(r.symbol("helper", &a) && r.sig("helper", &info) && info.status != sigdb::SigStatus::Unresolved && info.address == a,
+          "sig: an entry that holds only a descriptor leaves the name to its capture");
+    std::string name, text;
+    bool constant = true;
+    CHECK(r.sig("missing", &info) && info.status == sigdb::SigStatus::Unresolved && !r.feature("sig/missing") &&
+              r.feature_problem("sig/missing", &name, &text, &constant) && name == "missing" && text == "not defined" && !constant,
+          "sig: a described symbol that does not resolve is off, and says why");
+    const auto names = r.feature_names();
+    const auto failed = r.failed_features();
+    CHECK(std::count(names.begin(), names.end(), "sig/scoped") == 1 && std::count(names.begin(), names.end(), "sig/missing") == 1 &&
+              std::count(failed.begin(), failed.end(), "sig/missing") == 1 && std::count(failed.begin(), failed.end(), "sig/scoped") == 0,
+          "sig: the features are listed");
+    CHECK(r.sig_at(kiln::test_image.base + TestPe::kFunc + 15, &info) && info.symbol == "scoped" && !r.sig_at(1, &info),
+          "sig: sig_at finds the described symbol at an address");
+    CHECK(!r.sig("nothing", &info) && !r.feature("sig/nothing"), "sig: a symbol without a descriptor has no feature");
+
+    // the function does not fit the descriptor: the feature is off, the symbol still resolves
+    write(R"(,"sigs":{"scoped":{"args":[{"name":"scale","type":"f32"}]}})");
+    sigdb::Resolver wrong;
+    CHECK(wrong.load(file, ""), "sig: a wrong descriptor loads");
+    wrong.resolve();
+    CHECK(wrong.symbol("scoped", &a) && wrong.sig("scoped", &info) && info.status == sigdb::SigStatus::Mismatch &&
+              !wrong.feature("sig/scoped") && wrong.feature_problem("sig/scoped", &name, &text, &constant) &&
+              text == "descriptor arg 1 'scale' is xmm0, the function reads [rcx]",
+          "sig: a float where the function reads rcx is a mismatch naming the argument; the symbol still resolves");
+    write(R"(,"sigs":{"scoped":{"args":[{"name":"self","type":"ptr"}],"abi":{"reads":["rcx","rdx"]}}})");
+    sigdb::Resolver stale;
+    stale.load(file, "");
+    stale.resolve();
+    CHECK(stale.sig("scoped", &info) && info.status == sigdb::SigStatus::Mismatch && info.text.find("review the descriptor") != std::string::npos,
+          "sig: a stored fingerprint that the code no longer has is a mismatch");
+    // malformed descriptors
+    write(R"(,"sigs":{"scoped":{"args":[{"name":"v","type":"Vec9"}]}})");
+    sigdb::Resolver bad;
+    CHECK(bad.load(file, ""), "sig: a descriptor with an unknown type still loads the file");
+    bad.resolve();
+    CHECK(bad.symbol("scoped", &a) && bad.sig("scoped", &info) && info.status == sigdb::SigStatus::Bad && !bad.feature("sig/scoped") &&
+              bad.feature_problem("sig/scoped", &name, &text, &constant) && text.find("Vec9") != std::string::npos,
+          "sig: ...and is off with the reason");
+    write(R"(,"sigs":{"scoped":{"args":[{"name":"self","type":"ptr"}],"abi":"trust"}})");
+    sigdb::Resolver core_trust;
+    core_trust.load(file, "");
+    core_trust.resolve();
+    CHECK(core_trust.sig("scoped", &info) && info.status == sigdb::SigStatus::Bad, "sig: a core descriptor may not say trust");
+    write(R"(,"sigs":{"root":{"args":[]}})");
+    sigdb::Resolver twice;
+    CHECK(!twice.load(file, "") && twice.load_error.find("two sig blocks") != std::string::npos, "sig: two descriptors for one symbol are refused");
+    write(R"(,"sigs":{"@probe":{"args":[]}})");
+    sigdb::Resolver probe;
+    CHECK(!probe.load(file, ""), "sig: a probe cannot carry a descriptor");
+    write(R"(,"structs":{"Pair":{"size":0}})");
+    sigdb::Resolver bad_struct;
+    CHECK(!bad_struct.load(file, ""), "sig: a malformed struct is refused at load");
+    // a fragment: names carry its prefix, trust is allowed, the core's structs are visible
+    {
+        std::ofstream out(file);
+        out << R"({"format":1,"symbols":{"mod/scoped":{"find":[{"pattern":"8B 81 34 12 00 00 C3"}],
+                 "sig":{"sret":"Pair","args":[],"abi":"trust"}}},
+                 "sigs":{"other/x":{"args":[]}}})";
+    }
+    sigdb::Resolver frag(&r);
+    CHECK(!frag.load(file, "mod/") && frag.load_error.find("other/x") != std::string::npos,
+          "sig: a fragment's sigs section may only describe its own names");
+    {
+        std::ofstream out(file);
+        out << R"({"format":1,"symbols":{"mod/scoped":{"find":[{"pattern":"8B 81 34 12 00 00 C3"}],
+                 "sig":{"sret":"Pair","args":[],"abi":"trust"}}}})";
+    }
+    sigdb::Resolver frag2(&r);
+    CHECK(frag2.load(file, "mod/"), "sig: a fragment with a trusted descriptor loads");
+    frag2.resolve();
+    CHECK(frag2.sig("mod/scoped", &info) && info.status == sigdb::SigStatus::Match && info.json.find("Pair") != std::string::npos,
+          "sig: a fragment's descriptor uses a struct the core declared; its sret buffer is the rcx the function reads");
+    test_query = false;
+    std::filesystem::remove(file);
+}
+
 static void hook_guard() {
     struct Hook { bool on = true; int restores = 0; bool enabled() { return on; }
                   bool disable() { ++restores; on = false; return true; } } h;
@@ -378,6 +493,7 @@ int main(int argc, char** argv) {
     views_and_holes();
     pool_and_resolver(argv[1]);
     live_diff_accessors(argv[1]);
+    sig_blocks(argv[1]);
     hook_guard();
     diff_budget();
     return g_fail ? 1 : 0;
