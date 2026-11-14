@@ -85,6 +85,58 @@ internal static class NetAdmission
 
     private const string Me = "kiln.network";
 
+    /// <summary>Capability rows: the controller decides joins here (a server role, kiln.net, net.gate), and kiln.net
+    /// can hold Kiln clients (hold all).</summary>
+    internal const string Row = "net.admission", HoldAllRow = "net.gate.hold_all";
+
+    // refreshed every ~5 s: a game client gets its server role when it starts to host
+    internal static readonly ServiceCapRows Rows = new(Row, ReportRows, everySteps: 125);
+
+    // Composed from what is true now (kiln.net's role and gate caps), never from another row that a fresh report could
+    // turn on: the members decide from the same live state, not from these rows.
+    private static void ReportRows()
+    {
+        if (!NetNative.Available && TestGate is null)
+        {
+            ServiceCaps.Report(Row, CapabilityState.Unavailable, CapabilityReason.ServiceMissing, "kiln.net is not loaded");
+            ServiceCaps.Report(HoldAllRow, CapabilityState.Unavailable, CapabilityReason.ServiceMissing, "kiln.net is not loaded");
+            return;
+        }
+        if (!ServerRole)
+        {
+            ServiceCaps.Report(Row, CapabilityState.Unavailable, CapabilityReason.WrongSide, "this process serves no clients");
+            ServiceCaps.Report(HoldAllRow, CapabilityState.Unavailable, CapabilityReason.WrongSide, "this process serves no clients");
+            return;
+        }
+        var caps = Gate.Read().Caps;
+        var gate = (caps & NetNative.GateCanHold) != 0;
+        ServiceCaps.Static(Row, gate, CapabilityReason.SymbolMissing, "kiln.net cannot hold a joining peer on this build (net.gate)");
+        ServiceCaps.Static(HoldAllRow, gate && (caps & GateCanHoldAll) != 0, gate ? CapabilityReason.ServiceOlder : CapabilityReason.SymbolMissing,
+            gate ? "this kiln.net cannot hold Kiln clients (no gate mode hold-all)" : "kiln.net cannot hold a joining peer on this build (net.gate)");
+    }
+
+    /// <summary>Status lines for the Kiln menu's Network page: the requirements, each held peer and what keeps it, and
+    /// the peers that wait for their content definitions (withholding, not admission).</summary>
+    internal static IReadOnlyList<string> StatusLines()
+    {
+        var lines = new List<string>();
+        var now = DateTime.UtcNow;
+        var g = Gate.Read();
+        lines.Add($"gate: {(g.Mode == GateHoldAll ? "hold all" : g.Mode == NetNative.GateHold ? "hold clients without Kiln" : "off")}, {g.Held} held");
+        foreach (var e in Active)
+            lines.Add($"{e.Kind}: {e.Holder}{(e.Peer != 0 ? $" on 0x{e.Peer:x}" : "")}: {e.Reason}" +
+                      (e.Deadline is { } d ? $" ({Math.Max(0, (d - now).TotalSeconds):0} s left)" : ""));
+        foreach (var p in NetEngine.ServerPeers())
+        {
+            if (p.HeldSince is { } since && !InWorld(p))
+                lines.Add($"held: {p.Name} (0x{p.Id:x}) for {(now - since).TotalSeconds:0} s, " +
+                          (p.State == NetPeerState.Rejected ? "refused" : MayRelease(p, out var h) ? "about to go in" : $"by {h}"));
+            if (p.DefinitionsSince is { } wait)
+                lines.Add($"content: {p.Name} (0x{p.Id:x}) waits {(now - wait).TotalSeconds:0} s for its definitions (withholding)");
+        }
+        return lines;
+    }
+
     private sealed class Protocol(string name, string version, string reason)
     {
         public readonly string Name = name, Version = version;

@@ -985,6 +985,20 @@ class Suite:
                        f"peer {pid6} goes on" not in self.log_since(m7), "")
             self.check("admission.protocol-off", self.control(ctl, "gate-admit-protocol net-test:extra 2 off") == "control:ok", "")
 
+            # ---- per-peer counters: a client without Kiln let in under modSync off got no channel-12 frame
+            self.control(ctl, "gate-admit-clear")
+            self.control(ctl, "policy off")
+            time.sleep(1.5)
+            m8 = self.log_mark()
+            w = self.vanilla_peer("adm-counters")
+            pid7 = self.peer_of(m8)
+            w.send(LAB_READY)
+            let_in = self.wait_log(m8, f"lab peer {pid7} passed the gate", 12)
+            c = (self.control(ctl, f"gate-admit-peer {pid7}") or "").removeprefix("control:")
+            kv = dict(x.split("=", 1) for x in c.split()) if "=" in c else {}
+            self.check("admission.vanilla-frames-out-0", let_in and kv.get("out") == "0" and kv.get("in") == "0", f"{c} let in={let_in}")
+            self.control(ctl, "policy warn")
+
             # ---- nothing registered: the gate is back to today's rule, a proved peer passes at once
             self.control(ctl, "gate-admit-clear")
             time.sleep(1.5)

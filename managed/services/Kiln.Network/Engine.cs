@@ -305,6 +305,16 @@ internal static class NetEngine
     public static void OnFrame(uint peer, ReadOnlySpan<byte> frame)
     {
         Interlocked.Increment(ref _framesIn);
+        NetPeer? p = null;
+        if (peer == NetNative.PeerServer)
+        {
+            if (_link is { } link) Interlocked.Increment(ref link.FramesInCount);
+        }
+        else
+        {
+            lock (Lock) Server.TryGetValue(peer, out p);
+            if (p is not null) Interlocked.Increment(ref p.FramesInCount);  // every channel-12 frame: only Kiln writes them
+        }
         if (!Wire.TryHeader(frame, out var type))
         {
             Interlocked.Increment(ref _badFrames);
@@ -315,8 +325,6 @@ internal static class NetEngine
             ClientFrame(type, frame);
             return;
         }
-        NetPeer? p;
-        lock (Lock) Server.TryGetValue(peer, out p);
         if (p is null) return;
         ServerFrame(p, type, frame);
     }
@@ -888,6 +896,7 @@ internal static class NetEngine
             if (p != null)
             {
                 p.BytesOut += frame.Length;
+                Interlocked.Increment(ref p.FramesOutCount);
             }
         }
         return rc;
@@ -1117,6 +1126,7 @@ internal static class NetworkStartup
     static NetworkStartup()
     {
         NetworkCaps.Rows.Ensure();  // the net.* features lowered when kiln.net is missing (docs/kiln/services/caps.md)
+        NetAdmission.Rows.Ensure();  // net.admission, net.gate.hold_all
         NetEngine.EnsureStarted();
         PlayerGate.Start();  // Players.Kick, the ban list, PlayerLoginEvent (docs/kiln/services/players.md)
         ConfigSync.Start();  // docs/kiln/sync.md

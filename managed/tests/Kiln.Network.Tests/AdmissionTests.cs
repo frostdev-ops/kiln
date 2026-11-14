@@ -375,6 +375,23 @@ public sealed class AdmissionTests : IDisposable
     }
 
     [Fact]
+    public void Frames_are_counted_per_peer_and_a_peer_that_never_spoke_has_none()
+    {
+        var a = Up(A);
+        var b = Up(B);
+        var hello = new Wire.Hello(Wire.Protocol, Game.KilnVersion, 1, [], [], new Dictionary<string, string>());
+        NetEngine.OnFrame(A, Wire.EncodeHello(hello));  // in: the hello; out: its Welcome
+        NetEngine.OnFrame(A, [1, 2, 3]);                // a frame without Kiln's header still came on channel 12
+        Assert.Equal(2, a.FramesIn);
+        Assert.Equal(1, a.FramesOut);
+        Assert.Equal(0, b.FramesIn);
+        Assert.Equal(0, b.FramesOut);
+        NetAdmission.DecideVanilla(b, refuse: true, "needs Kiln", DateTime.UtcNow);  // the REJECT its game discards
+        Assert.Equal(1, b.FramesOut);
+        Assert.Equal(0, b.FramesIn);
+    }
+
+    [Fact]
     public void Letting_a_vanilla_client_in_or_refusing_it_goes_through_one_place()
     {
         var p = Up(A, held: true);

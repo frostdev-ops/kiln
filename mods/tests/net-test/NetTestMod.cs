@@ -356,6 +356,11 @@ public sealed class NetTestMod : Mod
                     if (a[0] == "off") { _require?.Dispose(); _require = null; }
                     else _require ??= NetAdmission.Require("net-test-vanilla", () => _vanillaAllowed, "net-test refuses clients without Kiln");
                     return "ok";
+                case "gate-admit-peer":  // <peer>: its channel-12 frame counters
+                {
+                    var peer = Network.Peers.FirstOrDefault(p => p.Id == Hex(a[0]));
+                    return peer is null ? "no such peer" : $"in={peer.FramesIn} out={peer.FramesOut} state={peer.State}";
+                }
                 case "gate-admit-clear":
                     _joins?.End();
                     _joins = null;
