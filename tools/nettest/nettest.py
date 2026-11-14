@@ -850,6 +850,166 @@ class Suite:
             self.control(ctl, "gate-freeze off")
             self.control(ctl, "policy warn")
 
+    # ---- the admission controller (docs/kiln/network.md "Admission"): holds on Kiln clients, through net-test's controls
+    def admit_status(self, ctl):
+        r = (self.control(ctl, "gate-admit") or "").removeprefix("control:")
+        return dict(kv.split("=", 1) for kv in r.split()) if "=" in r else {}
+
+    def kiln_peer(self, name, mark, ready=False):
+        """A Kiln client (knock + hello, Welcome) and its peer id; with ready=True it sends its Gameplay Ready too."""
+        c = Client(self.port, name, self.verbose)
+        c.send(KNOCK)
+        c.hello(FULL_MODS, CHANNELS)
+        c.wait(lambda: c.welcome is not None or c.reject is not None, 8)
+        pid = None
+        for _ in range(20):
+            pid = self.peer_of(mark)
+            if pid:
+                break
+            time.sleep(0.1)
+        if ready:
+            c.send(LAB_READY)
+        return c, pid
+
+    def line_time(self, mark, text):
+        for line in self.log_since(mark).splitlines():
+            if text in line:
+                return log_time(line)
+        return None
+
+    def t_admission(self):
+        if not self.lab:
+            print("SKIP admission: needs --lab (reads kiln.log)", flush=True)
+            return
+        ctl = ready_client(self.port, "adm-ctl", self.verbose)
+        try:
+            st = self.admit_status(ctl)
+            self.check("admission.can-hold-kiln", st.get("kilnholds") == "True" and int(st.get("caps", "0")) & 8 == 8, str(st))
+
+            # ---- a join hold puts the gate in "hold all": a proved peer is held, by that holder
+            self.check("admission.joins-hold", self.control(ctl, "gate-admit-joins 20") == "control:ok", "")
+            self.check("admission.hold-all-mode", self.admit_status(ctl).get("mode") == "2", str(self.admit_status(ctl)))
+            m = self.log_mark()
+            k, pid = self.kiln_peer("adm-kiln", m, ready=True)
+            self.check("admission.welcome", k.welcome is not None and pid is not None, f"{pid} {k.reject}")
+            ok = self.wait_log(m, f"admission: proved peer lab-{int(pid, 16) & 0xFFFF} ({pid}) held by net-test", 3) if pid else False
+            self.check("admission.proved-peer-held", ok, self.log_since(m)[-400:])
+            self.check("admission.native-held", int(self.admit_status(ctl).get("held", "0")) >= 1, str(self.admit_status(ctl)))
+
+            # ---- 7.1: channel-12 frames both ways while held (a mod message and its answer; a Welcome again)
+            k.messages.clear()
+            k.data("net-test:echo", M_ECHO, W().string("while held").b)
+            body = k.take("net-test:echo", M_ECHO, 5)
+            got = R(body).string() if body else None
+            self.check("admission.frames-both-ways-while-held", got == "echo:while held", repr(got))
+            k.welcome = None
+            k.hello(FULL_MODS, CHANNELS)
+            self.check("admission.welcome-while-held", k.wait(lambda: k.welcome is not None, 5), "")
+            self.check("admission.no-world-while-held", f"lab peer {pid} passed the gate" not in self.log_since(m), "")
+
+            # ---- a second holder keeps it held when the first ends
+            self.check("admission.second-holder", self.control(ctl, f"gate-admit-hold {pid} second 20") == "control:ok", "")
+            self.control(ctl, "gate-admit-joins end")
+            ok = self.wait_log(m, f"({pid}) held by second", 3)
+            time.sleep(1.0)
+            self.check("admission.second-holder-keeps-it", ok and f"lab peer {pid} passed the gate" not in self.log_since(m), self.log_since(m)[-300:])
+
+            # ---- its end lets it in within one step
+            m2 = self.log_mark()
+            self.control(ctl, f"gate-admit-hold {pid} second end")
+            ok = self.wait_log(m2, f"lab peer {pid} passed the gate", 3)
+            t_end = self.line_time(m2, f"admission: second no longer holds")
+            t_in = self.line_time(m2, f"lab peer {pid} passed the gate")
+            dt = (t_in - t_end) * 1000 if t_end is not None and t_in is not None else None
+            self.check("admission.released-within-a-step", ok and dt is not None and dt <= 150, f"{dt} ms from the end to the release")
+            # its last hold ended: Kiln.Network lets it in, or (nothing left to hold for) the gate's mode falls back and
+            # kiln.net lets the proved peer go itself
+            self.check("admission.released-when-nothing-holds", "in the gate: Kiln.Network let it in" in self.log_since(m2) or
+                       "in the gate: it has Kiln" in self.log_since(m2) or "in the gate: the gate is off" in self.log_since(m2), "")
+
+            # ---- a deadline refuses the peer with the holder's reason
+            m3 = self.log_mark()
+            d, pid2 = self.kiln_peer("adm-deadline", m3)
+            self.control(ctl, f"gate-admit-hold {pid2} deadline 3")
+            d.send(LAB_READY)
+            t0 = time.time()
+            ok = d.wait(lambda: d.reject is not None, 8)
+            self.check("admission.deadline-refuses", ok and d.reject[0] == "deadline waits for its acknowledgement" and 2.5 <= time.time() - t0 <= 6,
+                       f"{d.reject} after {time.time() - t0:.1f} s")
+            self.check("admission.deadline-kick", self.wait_log(m3, f"lab peer {pid2} kicked", 4), self.log_since(m3)[-300:])
+            time.sleep(1.0)
+            self.check("admission.deadline-never-let-in", f"lab peer {pid2} passed the gate" not in self.log_since(m3) and
+                       f"peer {pid2} goes on" not in self.log_since(m3), self.log_since(m3)[-300:])
+
+            # ---- an OnJoin decider holds each joining peer until its own hold ends
+            self.control(ctl, "gate-admit-onjoin 20")
+            m4 = self.log_mark()
+            j, pid3 = self.kiln_peer("adm-join", m4, ready=True)
+            ok = self.wait_log(m4, f"({pid3}) held by net-test-join", 3)
+            self.check("admission.onjoin-holds", ok, self.log_since(m4)[-300:])
+            self.control(ctl, f"gate-admit-hold {pid3} net-test-join end")
+            self.check("admission.onjoin-released", self.wait_log(m4, f"lab peer {pid3} passed the gate", 3), self.log_since(m4)[-300:])
+            self.check("admission.onjoin-released-by-kiln-network", f"admission: lab-{int(pid3, 16) & 0xFFFF} ({pid3}) let in after" in self.log_since(m4) and
+                       "in the gate: Kiln.Network let it in" in self.log_since(m4), self.log_since(m4)[-300:])
+            self.control(ctl, "gate-admit-onjoin off")
+
+            # ---- a mandatory protocol: a Kiln client without the channel is refused in its hello, with the reason; a client
+            # without Kiln is held, then refused, never let in. net-test:extra v2 is a channel every other nettest client has;
+            # enabling waits until no connected peer lacks it (idle vanilla peers of the earlier cases leave by themselves)
+            r = None
+            for _ in range(75):  # a lab peer that went quiet is forgotten after 60 s
+                r = self.control(ctl, "gate-admit-protocol net-test:extra 2 on")
+                if r == "control:ok":
+                    break
+                time.sleep(1)
+            self.check("admission.protocol-on", r == "control:ok", str(r))
+            m6 = self.log_mark()
+            x = Client(self.port, "adm-lacks", self.verbose)
+            x.send(KNOCK)
+            x.hello(FULL_MODS, [("net-test:echo", "1", True)])
+            ok = x.wait(lambda: x.reject is not None or x.welcome is not None, 8)
+            self.check("admission.protocol-reject", ok and x.reject is not None and "net-test:extra protocol 2 required" in x.reject[0] and x.welcome is None,
+                       f"{x.reject} welcome={x.welcome is not None}")
+            pid5 = self.peer_of(m6)
+            self.check("admission.protocol-kick", pid5 is not None and self.wait_log(m6, f"lab peer {pid5} kicked", 4), self.log_since(m6)[-300:])
+            m7 = self.log_mark()
+            v = self.vanilla_peer("adm-vanilla")
+            pid6 = self.peer_of(m7)
+            t0 = time.time()
+            v.send(LAB_READY)
+            self.check("admission.protocol-vanilla-held", self.wait_log(m7, "held, it gets no world data", 2), self.log_since(m7)[-300:])
+            ok = self.wait_log(m7, "has no Kiln (vanilla client): refusing", 12)
+            self.check("admission.protocol-vanilla-refused", ok and pid6 is not None and self.wait_log(m7, f"lab peer {pid6} kicked", 4),
+                       f"{time.time() - t0:.1f} s " + self.log_since(m7)[-300:])
+            self.check("admission.protocol-vanilla-never-let-in", pid6 is not None and f"lab peer {pid6} passed the gate" not in self.log_since(m7) and
+                       f"peer {pid6} goes on" not in self.log_since(m7), "")
+            self.check("admission.protocol-off", self.control(ctl, "gate-admit-protocol net-test:extra 2 off") == "control:ok", "")
+
+            # ---- per-peer counters: a client without Kiln let in under modSync off got no channel-12 frame
+            self.control(ctl, "gate-admit-clear")
+            self.control(ctl, "policy off")
+            time.sleep(1.5)
+            m8 = self.log_mark()
+            w = self.vanilla_peer("adm-counters")
+            pid7 = self.peer_of(m8)
+            w.send(LAB_READY)
+            let_in = self.wait_log(m8, f"lab peer {pid7} passed the gate", 12)
+            c = (self.control(ctl, f"gate-admit-peer {pid7}") or "").removeprefix("control:")
+            kv = dict(x.split("=", 1) for x in c.split()) if "=" in c else {}
+            self.check("admission.vanilla-frames-out-0", let_in and kv.get("out") == "0" and kv.get("in") == "0", f"{c} let in={let_in}")
+            self.control(ctl, "policy warn")
+
+            # ---- nothing registered: the gate is back to today's rule, a proved peer passes at once
+            self.control(ctl, "gate-admit-clear")
+            time.sleep(1.5)
+            mode = self.admit_status(ctl).get("mode")
+            self.check("admission.mode-back", mode in ("0", "1"), str(self.admit_status(ctl)))
+            m5 = self.log_mark()
+            f, pid4 = self.kiln_peer("adm-free", m5, ready=True)
+            self.check("admission.free-peer-passes", self.wait_log(m5, f"lab peer {pid4} passed the gate", 2) and "held" not in self.log_since(m5), "")
+        finally:
+            self.control(ctl, "gate-admit-clear")
+
     def t_withheld(self):
         """Every way Kiln adds a template shows up, and the check reads real entities (needs a lab with such mods)."""
         ctl = ready_client(self.port, "van-audit", self.verbose)
@@ -1249,7 +1409,7 @@ def main():
     s = Suite(a.port, a.verbose, a.lab, a.game_templates)
     probe_server(a.port)
     order = ["handshake", "echo", "json", "fragments", "oversize", "garbage", "broadcast", "channel_mismatch", "ping",
-             "rate_limit", "policy", "advert", "missing_mod", "vanilla", "withheld", "definitions", "hotload", "reload", "netsample", "status"]
+             "rate_limit", "policy", "advert", "missing_mod", "vanilla", "admission", "withheld", "definitions", "hotload", "reload", "netsample", "status"]
     only = [x for x in a.only.split(",") if x]
     for name in order:
         if only and name not in only:

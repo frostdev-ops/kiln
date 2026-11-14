@@ -335,11 +335,17 @@ void note_proof_locked(KilnPeer peer) {
     logf(KILN_LOG_INFO, "net: peer 0x%x has Kiln (first frame on the channel)", peer);
 }
 
-// Whether `peer`'s Gameplay Ready goes on now; if not, it is held from here on.
+// Whether `peer`'s Gameplay Ready goes on now; if not, it is held from here on. HOLD holds a peer without proof;
+// HOLD_ALL holds every peer, and only Kiln.Network's release (or a kick, a lower mode, the time limit) ends it.
 bool gate_admit_locked(KilnPeer peer) {
-    if (g_gate_mode.load(std::memory_order_relaxed) != KILN_NET_GATE_HOLD || g_proved.count(peer) || g_let_in.count(peer)) return true;
+    const uint32_t mode = g_gate_mode.load(std::memory_order_relaxed);
+    const bool proved = g_proved.count(peer) != 0;
+    if (mode == KILN_NET_GATE_OFF || g_let_in.count(peer) || (mode == KILN_NET_GATE_HOLD && proved)) return true;
     g_held.emplace(peer, now_ms());
-    logf(KILN_LOG_INFO, "net: peer 0x%x sent Gameplay Ready with no proof of Kiln: held, it gets no world data for now", peer);
+    if (proved)
+        logf(KILN_LOG_INFO, "net: peer 0x%x (has Kiln) sent Gameplay Ready: held until Kiln.Network lets it in, it gets no world data for now", peer);
+    else
+        logf(KILN_LOG_INFO, "net: peer 0x%x sent Gameplay Ready with no proof of Kiln: held, it gets no world data for now", peer);
     return false;
 }
 
@@ -386,10 +392,15 @@ void gate_pump(uintptr_t gs) {
         std::lock_guard<std::mutex> lk(g_mu);
         if (g_held.empty()) return;
         const uint64_t t = now_ms();
-        const bool off = g_gate_mode.load(std::memory_order_relaxed) != KILN_NET_GATE_HOLD;
+        const uint32_t mode = g_gate_mode.load(std::memory_order_relaxed);
+        const bool off = mode == KILN_NET_GATE_OFF;
         for (auto it = g_held.begin(); it != g_held.end();) {
             const KilnPeer peer = it->first;
-            const char* why = g_proved.count(peer) ? "it has Kiln" : g_let_in.count(peer) ? "Kiln.Network let it in" : off ? "the gate is off" : nullptr;
+            // under HOLD_ALL proof does not end a hold: Kiln.Network decides each peer
+            const char* why = mode != KILN_NET_GATE_HOLD_ALL && g_proved.count(peer) ? "it has Kiln"
+                              : g_let_in.count(peer)                               ? "Kiln.Network let it in"
+                              : off                                                ? "the gate is off"
+                                                                                   : nullptr;
             if (why) {
                 logf(KILN_LOG_INFO, "net: peer 0x%x goes on after %llu ms in the gate: %s", peer, static_cast<unsigned long long>(t - it->second), why);
                 go.push_back(peer);
@@ -1360,7 +1371,7 @@ KilnResult KILN_CALL t_peer_of_entity(KilnEntity entity, KilnPeer* out) {
 }
 
 KilnResult KILN_CALL t_gate_set(uint32_t mode) {
-    if (mode != KILN_NET_GATE_OFF && mode != KILN_NET_GATE_HOLD) return KILN_ERR_INVALID_ARGUMENT;
+    if (mode != KILN_NET_GATE_OFF && mode != KILN_NET_GATE_HOLD && mode != KILN_NET_GATE_HOLD_ALL) return KILN_ERR_INVALID_ARGUMENT;
     if (!g_server_role) return KILN_ERR_UNAVAILABLE;
     // A lab transport simulates peers without the game's hook, so it can use the gate on any build.
     if (!g_can_hold && !knet::lab::is_open()) return KILN_ERR_UNAVAILABLE;
@@ -1373,7 +1384,8 @@ KilnResult KILN_CALL t_gate_info(KilnNetGateInfo* out) {
     std::memset(out, 0, sizeof(*out));
     out->size = sizeof(KilnNetGateInfo);
     const KilnAssetsApi* a = assets_api();
-    out->caps = ((g_can_hold || knet::lab::is_open()) ? KILN_NET_GATE_CAN_HOLD : 0u) | ((g_can_withhold && a) ? KILN_NET_GATE_CAN_WITHHOLD : 0u);
+    out->caps = ((g_can_hold || knet::lab::is_open()) ? KILN_NET_GATE_CAN_HOLD | KILN_NET_GATE_CAN_HOLD_ALL : 0u) |
+                ((g_can_withhold && a) ? KILN_NET_GATE_CAN_WITHHOLD : 0u);
     out->mode = g_gate_mode.load(std::memory_order_relaxed);
     out->kiln_templates = a ? static_cast<uint32_t>(a->resource_new_count(kTemplateType)) : 0;
     out->withheld_slots = g_withheld_slots.load(std::memory_order_relaxed);

@@ -20,6 +20,13 @@
     <InternalsVisibleTo Include="Kiln.Content" />
     <InternalsVisibleTo Include="Kiln.Ui" />
     <InternalsVisibleTo Include="NetTest" />
+    <!-- dev.28: the consumers of NetAdmission (docs/kiln/network.md "Admission"): 16a's station menus (Kiln.Blocks, with
+         Kiln.Content above), 18's base policy sync (Kiln.Build), 15's item remap and 11's lab binding (Kiln.Replication),
+         and the guided check's fixture -->
+    <InternalsVisibleTo Include="Kiln.Blocks" />
+    <InternalsVisibleTo Include="Kiln.Build" />
+    <InternalsVisibleTo Include="Kiln.Replication" />
+    <InternalsVisibleTo Include="AdmissionHoldTest" />
     <!-- the contract tests: the rows' names -->
     <InternalsVisibleTo Include="Kiln.Contract.Tests" />
   </ItemGroup>
