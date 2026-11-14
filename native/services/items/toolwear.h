@@ -113,9 +113,7 @@ public:
         ring_[(head_ + count_) % kQueue] = c;
         ++count_;
     }
-    // Tick thread, every Pre: says a hook's fault once (kiln.log and the capability row).
-void tick();
-// Tick thread: up to `max` records, oldest first.
+    // Tick thread: up to `max` records, oldest first.
     size_t drain(Change* out, size_t max) {
         std::lock_guard lock(mu_);
         size_t n = 0;
@@ -228,8 +226,9 @@ inline int32_t hit_before(State& s, uintptr_t caller, uint64_t durability_write,
     const int32_t cost = s.rules.find(item);
     if (cost < 0) return delta;
     int32_t before = 0, max = 0;
+    const int max_index = o.max_index(env->attributes);
     if (!read(o, storage, durability_write, item_entity, wear::kDurabilitySize, &dur) ||
-        !wear::durability_values(dur.ptr, static_cast<size_t>(dur.size), env->durability_index, o.max_index(env->attributes), &before, &max))
+        !wear::durability_values(dur.ptr, static_cast<size_t>(dur.size), env->durability_index, max_index, &before, &max))
         return delta;
     Change c{};
     c.source = kSourceWeaponHit;
@@ -246,7 +245,7 @@ inline int32_t hit_before(State& s, uintptr_t caller, uint64_t durability_write,
     p->storage = storage;
     p->change = c;
     p->index = env->durability_index;
-    p->max_index = o.max_index(env->attributes);
+    p->max_index = max_index;
     s.hit_applied.fetch_add(1, std::memory_order_relaxed);
     return -cost;
 }
@@ -383,6 +382,8 @@ bool install(const KilnApi* api, uint64_t owner);
 void verify_programs(const void* world);
 // A server world closed or started: queued records name entities of the world that went.
 void world_reset();
+// Tick thread, every Pre: says a hook's fault once (kiln.log and the capability row).
+void tick();
 // Tick thread: the rule of an item (cost 0..32767, -1 none). false: the rule table is full.
 bool set_rule(uint32_t item, int32_t cost);
 int32_t rule(uint32_t item);

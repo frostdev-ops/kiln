@@ -272,8 +272,14 @@ public static unsafe partial class Items
                     throw new ArgumentException($"kiln.toolwear refused the rule ({rc})");
             }
             // the same mod and tool again: the same rule object, as the native handle is the same
-            var rule = Rules.AddOrUpdate((owner, tool.Value), _ => Track(new ToolWearRule(tool, handle, mod, owner, modId)),
-                (_, old) => old.Handle == handle && !old.Gone ? old : Track(new ToolWearRule(tool, handle, mod, owner, modId)));
+            var rule = Rules.AddOrUpdate((owner, tool.Value), _ => Track(new ToolWearRule(tool, handle, mod, owner, modId)), (_, old) =>
+            {
+                if (old.Handle == handle && !old.Gone) return old;
+                // the native side had dropped the old layer (its owner's rules went): the old object is spent
+                old.Gone = true;
+                old.Detach?.Invoke();
+                return Track(new ToolWearRule(tool, handle, mod, owner, modId));
+            });
             Start();
             Changed(tool, before, Read(t, tool));
             return new ToolWearResult { Ok = true, Rule = rule };
