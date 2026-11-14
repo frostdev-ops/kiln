@@ -39,6 +39,8 @@ int32_t s_transform = -1, s_stamp = -1, s_grid = -1;
 uint32_t h_transform = 0, h_stamp = 0;
 double g_qpc_ns = 0;
 std::atomic<uint32_t> g_session{0};  // the server session the program may work for; 0 between worlds
+std::atomic<uint32_t> g_program_thread{0};  // the thread the program last ran on (0: it has not run)
+bool g_thread_said = false;                 // tick thread
 
 uint64_t now_ns() {
     LARGE_INTEGER t;
@@ -71,6 +73,7 @@ bool same_anchor(KilnProgramCtx* ctx, uint64_t* iter, const PathParams& p) {
 }
 
 void KILN_CALL each(KilnProgramCtx* ctx, uint64_t* iter, KilnEntity, void*) {
+    g_program_thread.store(GetCurrentThreadId(), std::memory_order_relaxed);
     const uint32_t session = g_session.load(std::memory_order_acquire);
     if (!session || !g_path_on.load(std::memory_order_acquire)) return;
     const std::vector<uint64_t> tokens = g_queue.tokens(session);
@@ -179,6 +182,11 @@ void KILN_CALL on_pre(const KilnTickInfo* tick, void*) {
     const bool ready = world_ready(c);
     g_session.store(ready ? c.session : 0, std::memory_order_release);
     if (ready) g_queue.deadlines(c.session, tick ? tick->step : c.step, now_ns());
+    if (!g_thread_said)
+        if (const uint32_t t = g_program_thread.load(std::memory_order_relaxed)) {
+            g_thread_said = true;
+            logf(KILN_LOG_INFO, "queries: kiln_queries_path runs on thread %u (the tick thread is %u)", t, static_cast<uint32_t>(GetCurrentThreadId()));
+        }
     // an owner that was revoked without path_retire: found by a post that the core refuses
     for (const KilnOwner owner : g_queue.owners())
         if (g_api->post(owner, &noop, nullptr) == KILN_ERR_REVOKED) g_queue.retire(owner);
