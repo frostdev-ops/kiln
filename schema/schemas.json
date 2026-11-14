@@ -211,7 +211,7 @@
         "trailingCommas": true
       },
       "reader": "kiln_manage::publish::config (comments and trailing commas allowed, duplicate and unknown keys refused, 256 KiB limit)",
-      "docs": "docs/kiln/modding/schemas/kiln-publish.md"
+      "docs": "docs/kiln/modding/publishing.md"
     }
   ]
 }
