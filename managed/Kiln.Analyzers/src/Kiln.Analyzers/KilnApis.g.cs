@@ -642,6 +642,7 @@ internal static partial class KilnApis
         "M:Kiln.World.Query``1", // World.Query<T>(): via World.Query(IEnumerable<string>, IEnumerable<string>?)
         "M:Kiln.World.Query``2", // World.Query<T1, T2>(): via World.Query(IEnumerable<string>, IEnumerable<string>?)
         "M:Kiln.World.ReadBytes(Kiln.EntityId,System.String)", // World.ReadBytes(EntityId, string): via World.Tick(string)
+        "M:Kiln.World.SetTransformScale(Kiln.EntityId,Kiln.Scale3)", // World.SetTransformScale(EntityId, Scale3): via World.WriteAt<T>(EntityId, string, int, T)
         "M:Kiln.World.Transform(Kiln.EntityId)", // World.Transform(EntityId): via World.Tick(string)
         "M:Kiln.World.TryGetPosition(Kiln.EntityId,Kiln.WorldPosition@)", // World.TryGetPosition(EntityId, out WorldPosition): via World.Tick(string)
         "M:Kiln.World.TryRead``1(Kiln.EntityId,System.String,``0@)", // World.TryRead<T>(EntityId, string, out T): via World.Tick(string)
