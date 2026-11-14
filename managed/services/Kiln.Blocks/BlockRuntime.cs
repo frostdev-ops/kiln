@@ -34,6 +34,19 @@ internal static class BlockRuntime
         Hook(mod);
     }
 
+    /// <summary>Rules that are in the game already (a routed weapon's applied generation): kept with the mod's, so a later content application puts
+    /// them back with the rest. Nothing is applied now.</summary>
+    public static void KeepRules(ModBlocks mod, IReadOnlyList<(string Section, string Entry, JsonObject Rules)> rules)
+    {
+        lock (Gate) mod.ReadyRules.AddRange(rules);
+    }
+
+    /// <summary>Takes rules given to <see cref="KeepRules"/> out again (the same objects).</summary>
+    public static void DropRules(ModBlocks mod, IReadOnlyList<(string Section, string Entry, JsonObject Rules)> rules)
+    {
+        lock (Gate) mod.ReadyRules.RemoveAll(r => rules.Any(x => ReferenceEquals(x.Rules, r.Item3)));
+    }
+
     /// <summary>A program with values only the running game knows: finished and registered when content is ready.</summary>
     public static void AddLate(ModBlocks mod, Guid program)
     {
@@ -81,9 +94,15 @@ internal static class BlockRuntime
         Hook(mod);
     }
 
-    private static void Hook(ModBlocks mod)
+    internal static void Hook(ModBlocks mod)
     {
         mod.RulesDirty = true;
+        // a kind's plan that is only staged runs nothing yet: its pass starts when the plan is applied (Promote)
+        if (mod.StagesFor != null && !mod.Promoted)
+        {
+            mod.HookWanted = true;
+            return;
+        }
         lock (Gate)
         {
             if (mod.ReadyHooked) return;
@@ -145,8 +164,16 @@ internal static class BlockRuntime
     }
 
     // Done once every clone of the mod is in the world: a rule can then name a clone.
+    /// <summary>A kind's plan was applied: its ledger takes part from now on.</summary>
+    internal static void Promote(ModBlocks plan)
+    {
+        plan.Promoted = true;
+        if (plan.HookWanted) Hook(plan);
+    }
+
     private static bool ApplyRules(ModBlocks mod)
     {
+        if (mod.Revoked) return true;   // a plan that was taken back: nothing of it is applied again
         if (!Mods.IsLoaded(mod.Id)) return true;
         var prefix = mod.Id + ".";
         var clones = Content.GameDataDefinitions().Where(d => d.Name.StartsWith(prefix, StringComparison.Ordinal)).ToList();
@@ -168,6 +195,7 @@ internal static class BlockRuntime
             mod.ReadyChecks.Clear();
         }
         foreach (var check in checks) check(Problem);
+        MoveApplications.Ready(mod, Problem);
         var doc = new JsonObject { ["format"] = 1 };
         lock (Gate)
         {
@@ -217,6 +245,8 @@ internal static class BlockRuntime
             var report = BlocksBridge.ApplyAs(mod.Owner, part.ToJsonString(), $"blocks of {mod.Id}");
             foreach (var e in report.Errors) Problem(e);
         }
+        // the kept rules of routed weapons were in that document: a weapon whose applied generation did not come back says so in its status
+        MoveApplications.Replayed(mod, Problem);
         // what kiln.content and kiln.gamedata could not take of a definition: a block's author reads it here, by name. An item's reference
         // to a clone is retried every 2 s: look when that has passed.
         BlocksBridge.After(150, () =>

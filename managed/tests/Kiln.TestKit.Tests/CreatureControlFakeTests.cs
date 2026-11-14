@@ -68,7 +68,7 @@ public sealed unsafe class CreatureControlFakeTests
             T->QueryControl(owner, lease, sp);
             Assert.Equal((CreatureControlAbi.Released, CreatureControlAbi.ResultReleased), (sp->LeaseState, sp->Result));
             Assert.Equal(FakeTables.Ok, kiln.Run(() => T->ReleaseBody(owner, key)));
-            Assert.Equal(FakeTables.Unavailable, T->Quarantine(key, 1));  // not served by this build
+            Assert.Equal(FakeTables.NotFound, T->Quarantine(key, 1));  // the body is unbound now
             Assert.Equal(["bind_body", "bind_body", "next_request", "acquire_control", "release_control", "release_body"],
                 kiln.CreatureControl.Calls.Select(c => c.Function));
         }

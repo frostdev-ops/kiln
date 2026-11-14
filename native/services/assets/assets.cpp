@@ -32,6 +32,7 @@ std::vector<PendingTexture> g_pending_tex;
 // the icon is registered as new and looked at again when S appears (a game item's: its own texture is retextured).
 struct PendingIcon {
     KilnOwner owner;
+    uint32_t origin;
     uint8_t guid[16];
     Rgba img;
     std::string label;
@@ -150,7 +151,7 @@ KilnResult icon_for_item(KilnOwner owner, const uint8_t g[16], const Rgba& img, 
     const KilnResult r = op_icon_register(owner, g, img);
     if (r == KILN_OK) {
         std::lock_guard lock(g_pending_mu);
-        PendingIcon p{owner, {}, img, label};
+        PendingIcon p{owner, current_origin(), {}, img, label};
         std::memcpy(p.guid, g, 16);
         g_pending_icons.push_back(std::move(p));
     }
@@ -237,6 +238,7 @@ bool base64_decode(const std::string& in, std::vector<uint8_t>* out) {
 // `doc_in`: a manifest that is not the file (a boot generation's document, chapter 08), its files still the mod's own.
 KilnResult load_manifest(KilnOwner owner, const std::string& mod_dir, std::string* report, const CookTrust* trust_in = nullptr,
                          const CookedIds* cooked_ids_in = nullptr, const json* doc_in = nullptr) {
+    OriginScope origin(KILN_BLOB_ORIGIN_MANIFEST);  // every blob this registers (icons and textures too): catalog provenance
     const fs::path base = fs::path(widen(mod_dir)) / L"assets";
     const fs::path mf = base / L"assets.json";
     std::error_code ec;
@@ -564,12 +566,15 @@ void flush_pending_textures() {
         pend.swap(g_pending_tex);
         icons.swap(g_pending_icons);
     }
-    for (auto& p : icons)
+    for (auto& p : icons) {
+        OriginScope origin(p.origin);
         if (is_game_icon(p.guid)) {  // registered as new at boot: the game has this key, so it is a game item's icon
             op_icon_remove(p.owner, p.guid);
             retexture_game_icon(p.owner, p.guid, p.img, p.label);
         }
+    }
     for (auto& p : pend) {
+        OriginScope origin(KILN_BLOB_ORIGIN_MANIFEST);  // only load_manifest queues texture overrides
         std::string why;
         if (texture_override(p.owner, &p.key, p.png.data(), p.png.size(), &why) == KILN_OK)
             LOGI("assets: %s applied", p.label.c_str());
@@ -755,6 +760,19 @@ KilnResult KILN_CALL t_res_data(const KilnAssetKey* k, const void** ptr, size_t*
 int32_t KILN_CALL t_res_is_new(const KilnAssetKey* k) { return op_resource_is_new(k); }
 size_t KILN_CALL t_res_new_count(uint32_t t) { return op_resource_new_count(t); }
 KilnResult KILN_CALL t_when_ready(void(KILN_CALL* fn)(void*), void* user) { return op_when_resources_ready(fn, user); }
+KilnResult KILN_CALL t_blob_add_ex(KilnOwner o, const void* d, size_t n, KilnContentHash* h, uint32_t origin) {
+    return op_blob_add_ex(o, d, n, h, origin);
+}
+KilnResult KILN_CALL t_blob_over_ex(KilnOwner o, const KilnContentHash* h, const void* d, size_t n, uint32_t origin) {
+    return op_blob_override_ex(o, h, d, n, origin);
+}
+KilnResult KILN_CALL t_cat_open(KilnOwner o, uint32_t mode, KilnHandle* h, KilnBlobCatalogInfo* info) {
+    return op_catalog_open(o, mode, h, info);
+}
+KilnResult KILN_CALL t_cat_read(KilnHandle h, uint64_t first, KilnBlobCatalogEntry* out, uint32_t entry_size, size_t cap, size_t* n) {
+    return op_catalog_read(h, first, out, entry_size, cap, n);
+}
+KilnResult KILN_CALL t_cat_close(KilnHandle h) { return op_catalog_close(h); }
 
 const KilnAssetsApi kTable = {
     {sizeof(KilnAssetsApi), KILN_ASSETS_VERSION},
@@ -767,6 +785,8 @@ const KilnAssetsApi kTable = {
     &t_res_is_new,
     &t_res_new_count,
     &t_when_ready,
+    &t_blob_add_ex, &t_blob_over_ex,  // since 0.2.0-dev.28
+    &t_cat_open, &t_cat_read, &t_cat_close,
 };
 
 // ---- control commands: kiln/control/assets.cmd -> assets.result.json (handled by the core's console) ------------
@@ -799,6 +819,7 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     if (api->abi_version != KILN_ABI_VERSION || api->size < sizeof(KilnApi)) return KILN_ERR_UNAVAILABLE;
     g_api = api;
     g_self = owner;
+    if (!catalog_start()) LOGW("assets: blob catalog off: native owner cleanup is unavailable");
     info->id = KilnStr{KILN_ASSETS_SERVICE, sizeof(KILN_ASSETS_SERVICE) - 1};
     info->version = KilnStr{"1", 1};
     info->on_ready = &on_ready;

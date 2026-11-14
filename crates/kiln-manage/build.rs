@@ -11,12 +11,13 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::{env, fs};
 
-const TOOLS: [(&str, &str); 5] = [
+const TOOLS: [(&str, &str); 6] = [
     ("animcook", "animcook.py"),
     ("impact", "impact.py"),
     ("kfc", "kfc/archive.py"),
     ("modelcook", "modelcook.py"),
     ("soundcook", "soundcook.py"),
+    ("bootsnap", "bootsnap.py"),
 ];
 // never shipped: tests and fixtures, a tool's lab mod and samples, build output, the helper's C sources
 const SKIP_DIRS: [&str; 6] = ["tests", "lab", "samples", "native", "__pycache__", "node_modules"];

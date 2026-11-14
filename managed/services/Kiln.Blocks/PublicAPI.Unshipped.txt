@@ -273,3 +273,117 @@ static Kiln.ResourceValue.operator ==(Kiln.ResourceValue left, Kiln.ResourceValu
 ~static Kiln.BootDefinitionResult<T>.operator ==(Kiln.BootDefinitionResult<T>? left, Kiln.BootDefinitionResult<T>? right) -> bool
 ~static Kiln.ResolvedBlock<T>.operator !=(Kiln.ResolvedBlock<T>? left, Kiln.ResolvedBlock<T>? right) -> bool
 ~static Kiln.ResolvedBlock<T>.operator ==(Kiln.ResolvedBlock<T>? left, Kiln.ResolvedBlock<T>? right) -> bool
+Kiln.BlockApplicationChangedEvent
+Kiln.BlockApplicationChangedEvent.After.get -> Kiln.BlockApplyResult!
+Kiln.BlockApplicationChangedEvent.Before.get -> Kiln.BlockApplyResult!
+Kiln.BlockApplicationChangedEvent.ModId.get -> string!
+Kiln.BlockApplicationChangedEvent.Name.get -> string!
+Kiln.BlockApplyResult
+Kiln.BlockApplyResult.<Clone>$() -> Kiln.BlockApplyResult!
+Kiln.BlockApplyResult.BlockApplyResult() -> void
+Kiln.BlockApplyResult.ContentGeneration.get -> ulong
+Kiln.BlockApplyResult.ContentGeneration.init -> void
+Kiln.BlockApplyResult.Equals(Kiln.BlockApplyResult? other) -> bool
+Kiln.BlockApplyResult.GameName.get -> string!
+Kiln.BlockApplyResult.GameName.init -> void
+Kiln.BlockApplyResult.Generation.get -> ulong
+Kiln.BlockApplyResult.Generation.init -> void
+Kiln.BlockApplyResult.Guid.get -> System.Guid
+Kiln.BlockApplyResult.Guid.init -> void
+Kiln.BlockApplyResult.Id.get -> uint
+Kiln.BlockApplyResult.Id.init -> void
+Kiln.BlockApplyResult.Ok.get -> bool
+Kiln.BlockApplyResult.Ok.init -> void
+Kiln.BlockApplyResult.Reason.get -> string!
+Kiln.BlockApplyResult.Reason.init -> void
+Kiln.BlockApplyResult.RequestId.get -> ulong
+Kiln.BlockApplyResult.RequestId.init -> void
+Kiln.BlockApplyResult.State.get -> Kiln.BlockApplyState
+Kiln.BlockApplyResult.State.init -> void
+Kiln.BlockApplyState
+Kiln.BlockApplyState.Applied = 1 -> Kiln.BlockApplyState
+Kiln.BlockApplyState.PendingContent = 0 -> Kiln.BlockApplyState
+Kiln.BlockApplyState.Refused = 2 -> Kiln.BlockApplyState
+Kiln.BlockApplyState.Removed = 3 -> Kiln.BlockApplyState
+override Kiln.BlockApplyResult.Equals(object? obj) -> bool
+override Kiln.BlockApplyResult.GetHashCode() -> int
+override Kiln.BlockApplyResult.ToString() -> string!
+static Kiln.BlockApplyResult.operator !=(Kiln.BlockApplyResult? left, Kiln.BlockApplyResult? right) -> bool
+static Kiln.BlockApplyResult.operator ==(Kiln.BlockApplyResult? left, Kiln.BlockApplyResult? right) -> bool
+static Kiln.Blocks.Application(Kiln.BlockHandle! block) -> Kiln.BlockApplyResult!
+static Kiln.Blocks.Application(Kiln.BlockPlan! plan) -> Kiln.BlockApplyResult!
+static Kiln.Blocks.Apply(Kiln.BlockPlan! plan) -> Kiln.BlockApplyResult!
+Kiln.MoveApplicationResult
+Kiln.MoveApplicationResult.AppliedGeneration.get -> ulong
+Kiln.MoveApplicationResult.AppliedGeneration.init -> void
+Kiln.MoveApplicationResult.<Clone>$() -> Kiln.MoveApplicationResult!
+Kiln.MoveApplicationResult.ContentGeneration.get -> ulong
+Kiln.MoveApplicationResult.ContentGeneration.init -> void
+Kiln.MoveApplicationResult.Equals(Kiln.MoveApplicationResult? other) -> bool
+Kiln.MoveApplicationResult.LiveClones.get -> System.Collections.Generic.IReadOnlyDictionary<string!, System.Guid>!
+Kiln.MoveApplicationResult.LiveClones.init -> void
+Kiln.MoveApplicationResult.MoveApplicationResult() -> void
+Kiln.MoveApplicationResult.Ok.get -> bool
+Kiln.MoveApplicationResult.Ok.init -> void
+Kiln.MoveApplicationResult.Reason.get -> string!
+Kiln.MoveApplicationResult.Reason.init -> void
+Kiln.MoveApplicationResult.RequestedGeneration.get -> ulong
+Kiln.MoveApplicationResult.RequestedGeneration.init -> void
+Kiln.MoveApplicationResult.State.get -> Kiln.MoveApplicationState
+Kiln.MoveApplicationResult.State.init -> void
+Kiln.MoveApplicationState
+Kiln.MoveApplicationState.Applied = 1 -> Kiln.MoveApplicationState
+Kiln.MoveApplicationState.PendingContent = 0 -> Kiln.MoveApplicationState
+Kiln.MoveApplicationState.Refused = 2 -> Kiln.MoveApplicationState
+Kiln.MoveApplicationState.Removed = 3 -> Kiln.MoveApplicationState
+Kiln.MoveBlock.FollowUps.get -> System.Collections.Generic.IReadOnlyList<Kiln.MoveFollowUpBlock!>?
+Kiln.MoveBlock.FollowUps.init -> void
+Kiln.MoveFollowUpBlock
+Kiln.MoveFollowUpBlock.<Clone>$() -> Kiln.MoveFollowUpBlock!
+Kiln.MoveFollowUpBlock.Equals(Kiln.MoveFollowUpBlock? other) -> bool
+Kiln.MoveFollowUpBlock.Link.get -> int
+Kiln.MoveFollowUpBlock.Link.init -> void
+Kiln.MoveFollowUpBlock.MoveFollowUpBlock() -> void
+Kiln.MoveFollowUpBlock.Occurrence.get -> int?
+Kiln.MoveFollowUpBlock.Occurrence.init -> void
+Kiln.MoveFollowUpBlock.SubSequence.get -> int
+Kiln.MoveFollowUpBlock.SubSequence.init -> void
+Kiln.MoveFollowUpBlock.To.get -> Kiln.WeaponMoveSlot
+Kiln.MoveFollowUpBlock.To.init -> void
+Kiln.MoveFollowUpBlock.Trigger.get -> Kiln.MoveFollowUpTrigger
+Kiln.MoveFollowUpBlock.Trigger.init -> void
+Kiln.MoveFollowUpTrigger
+Kiln.MoveFollowUpTrigger.Block = 2 -> Kiln.MoveFollowUpTrigger
+Kiln.MoveFollowUpTrigger.Heavy = 1 -> Kiln.MoveFollowUpTrigger
+Kiln.MoveFollowUpTrigger.Parried = 3 -> Kiln.MoveFollowUpTrigger
+Kiln.MoveFollowUpTrigger.Primary = 0 -> Kiln.MoveFollowUpTrigger
+Kiln.WeaponMovesApplicationChangedEvent
+Kiln.WeaponMovesApplicationChangedEvent.After.get -> Kiln.MoveApplicationResult!
+Kiln.WeaponMovesApplicationChangedEvent.Before.get -> Kiln.MoveApplicationResult!
+Kiln.WeaponMovesApplicationChangedEvent.BlockName.get -> string!
+Kiln.WeaponMovesApplicationChangedEvent.ModId.get -> string!
+Kiln.WeaponMoveSlot
+Kiln.WeaponMoveSlot.Block = 6 -> Kiln.WeaponMoveSlot
+Kiln.WeaponMoveSlot.DodgeAttack = 3 -> Kiln.WeaponMoveSlot
+Kiln.WeaponMoveSlot.Execution = 9 -> Kiln.WeaponMoveSlot
+Kiln.WeaponMoveSlot.Heavy = 1 -> Kiln.WeaponMoveSlot
+Kiln.WeaponMoveSlot.HeavyAir = 2 -> Kiln.WeaponMoveSlot
+Kiln.WeaponMoveSlot.JumpAttack = 4 -> Kiln.WeaponMoveSlot
+Kiln.WeaponMoveSlot.Parry = 7 -> Kiln.WeaponMoveSlot
+Kiln.WeaponMoveSlot.PlungeAttack = 5 -> Kiln.WeaponMoveSlot
+Kiln.WeaponMoveSlot.Primary = 0 -> Kiln.WeaponMoveSlot
+Kiln.WeaponMoveSlot.SneakAttack = 10 -> Kiln.WeaponMoveSlot
+Kiln.WeaponMoveSlot.Special = 8 -> Kiln.WeaponMoveSlot
+override Kiln.MoveApplicationResult.Equals(object? obj) -> bool
+override Kiln.MoveApplicationResult.GetHashCode() -> int
+override Kiln.MoveApplicationResult.ToString() -> string!
+override Kiln.MoveFollowUpBlock.Equals(object? obj) -> bool
+override Kiln.MoveFollowUpBlock.GetHashCode() -> int
+override Kiln.MoveFollowUpBlock.ToString() -> string!
+static Kiln.Blocks.MovesStatus(Kiln.BlockHandle<Kiln.WeaponBlock!>! weapon) -> Kiln.MoveApplicationResult!
+static Kiln.MoveApplicationResult.operator !=(Kiln.MoveApplicationResult? left, Kiln.MoveApplicationResult? right) -> bool
+static Kiln.MoveApplicationResult.operator ==(Kiln.MoveApplicationResult? left, Kiln.MoveApplicationResult? right) -> bool
+static Kiln.MoveFollowUpBlock.operator !=(Kiln.MoveFollowUpBlock? left, Kiln.MoveFollowUpBlock? right) -> bool
+static Kiln.MoveFollowUpBlock.operator ==(Kiln.MoveFollowUpBlock? left, Kiln.MoveFollowUpBlock? right) -> bool
+[KILNX001]static Kiln.Blocks.LabRefuseMoveClones(int count) -> void
+[KILNX001]static Kiln.Blocks.LabRetryMoves(Kiln.BlockHandle<Kiln.WeaponBlock!>! weapon) -> bool

@@ -2,11 +2,65 @@
 // A brain's sight with the perception policy (chapter 01 section 5.1): the default asks no ray; Voxels sees only what has
 // a clear line, counts every other outcome, and never falls back to distance alone.
 using Xunit;
+using System.Reflection;
+using System.Runtime.InteropServices;
 
 namespace Kiln.BlockTests;
 
 public sealed class NpcPerceptionTests
 {
+    private sealed class QueryBackend(nint table) : IKilnBackend
+    {
+        public string Version => "test";
+        public bool IsTickThread => true;
+        public bool HasFeature(string name) => true;
+        public nint Service(string name, uint minVersion) => name == "kiln.queries" ? table : 0;
+        public void Log(ulong owner, LogLevel level, string text) { }
+    }
+
+    [Fact]
+    public unsafe void Automatic_perception_rechecks_a_stale_composed_row_before_skipping_or_seeing()
+    {
+        var previous = Backend.Current;
+        var table = (QueriesNative.Table*)NativeMemory.AllocZeroed((nuint)sizeof(QueriesNative.Table));
+        table->Header = new ServiceHeader { Size = (uint)sizeof(QueriesNative.Table), Version = QueriesNative.Version };
+        string? Off() => (string?)typeof(NpcRuntime).GetMethod("SightOff", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, null);
+        try
+        {
+            Backend.Current = new QueryBackend((nint)table);
+            Capabilities.Reset();
+            QueriesNative.Forget();
+            QueriesCaps.Require(QueriesCaps.LineOfSight);
+            ServiceCaps.Static(QueriesCaps.LineOfSight, false, CapabilityReason.ServiceMissing, "reported before dependencies were ready");
+            var p = Voxels();
+            Assert.Equal([A], p.Look(Self, At, [Three[0]], Off, (_, _, _) => Open));
+            Assert.Equal(0ul, p.Stats.CapabilityUnavailableUpdates);
+            Capabilities.Report("queries.voxel_ray", CapabilityState.Unavailable, CapabilityReason.Faulted, "ray faulted");
+            Assert.Empty(p.Look(Self, At, [Three[0]], Off, (_, _, _) => Open));
+            Assert.Equal(1ul, p.Stats.CapabilityUnavailableUpdates);
+            Assert.Contains("ray faulted", p.Stats.LastRefusal);
+            // The real Look must handle an unavailable capability before asking the world for candidates. This backend
+            // has no world table; the automatic path still clears its old target and counts exactly one update.
+            var ctl = new NpcControl(Self, new NpcCreature
+            {
+                Mod = "perception-test", Name = "guard", Variant = "perception-test:guard", Template = "test", Owner = default,
+                Perception = new() { Occlusion = NpcOcclusionMode.Voxels },
+            }) { Target = A };
+            ctl.SeenList.Add(A);
+            typeof(NpcRuntime).GetMethod("Look", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [ctl]);
+            Assert.Empty(ctl.Seen);
+            Assert.True(ctl.Target.IsNone);
+            Assert.Equal((1ul, 1ul), (ctl.PerceptionStats.Updates, ctl.PerceptionStats.CapabilityUnavailableUpdates));
+        }
+        finally
+        {
+            QueriesNative.Forget();
+            Backend.Current = previous;
+            Capabilities.Reset();
+            NativeMemory.Free(table);
+        }
+    }
+
     private static readonly EntityId Self = new(2000), A = new(2001), B = new(2002), C = new(2003);
     private static readonly WorldPosition At = new(0, 10, 0);
 
@@ -124,6 +178,12 @@ public sealed class NpcPerceptionTests
         // without one the block is wrong, at the field
         var e = Assert.Throws<BlockError>(() => Compiler.Lower(Mod("perception-nobrain"), "guard", new CreatureBlock { Body = Bodies.Vukah, Behaviour = Behaviours.None with { Perception = voxels } }));
         Assert.Equal("behaviour.perception", e.Field);
+        var missing = Assert.Throws<BlockError>(() => Compiler.Lower(Mod("perception-missing-brain"), "guard", new CreatureBlock
+        {
+            Body = Bodies.Vukah,
+            Behaviour = Behaviours.None with { BrainName = "perception-brain-not-registered", Perception = voxels },
+        }));
+        Assert.Equal("behaviour.brain", missing.Field); // the existing named-brain validator runs before perception
         var bad = Assert.Throws<BlockError>(() => Compiler.Lower(Mod("perception-bad"), "guard",
             new CreatureBlock { Body = Bodies.Vukah, Behaviour = Behaviours.None with { Brain = () => new StillBrain(), Perception = voxels with { FromOffset = new(0, 99, 0) } } }));
         Assert.Equal("behaviour.perception", bad.Field);

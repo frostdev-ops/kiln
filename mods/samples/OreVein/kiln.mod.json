@@ -1,0 +1,10 @@
+{
+  "id": "ore-vein",
+  "name": "Ore Vein (Kiln.Terrain sample)",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "OreVein.dll",
+  "side": "server",
+  "clients": "none",
+  "description": "/orevein puts a small mound with an ore vein inside it next to you, once per spot and world, as a terrain overlay. Players without mods see it: it is made of the game's own materials."
+}

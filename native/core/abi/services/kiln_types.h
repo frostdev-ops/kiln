@@ -13,6 +13,8 @@
  * program runner and the event streams; Kiln's implementation is its own. Evidence: docs/re/shrouded-engine-tweaks.md.
  * Usage: docs/kiln/services/types.md.
  *
+ * Capability rows kiln.types reports itself (kiln.caps): types.impact_names (type_impact_name, since 0.2.0-dev.28).
+ *
  * Threads: type queries are any thread (immutable snapshot). System switches/releases: server tick thread.
  * Profiler: any thread. Events: that world's tick thread, Post (event_each) or Pre/Post (event_post). */
 #ifndef KILN_TYPES_H
@@ -146,6 +148,15 @@ typedef struct KilnTypesApi {
      * native SET may be loaded (when that happened after kiln.types' runner was installed, it looks again every 5 s
      * and answers 0 after a clean look; at start it stays 2). Any thread. */
     uint32_t(KILN_CALL* external_runner)(void);
+    /* Since 0.2.0-dev.28 (check header.size): the name Impact scripts use for `type` ("ecs.Health" for
+     * keen::ecs::Health, "float32" for keen::float32), the string at +0x10 of the type's reflection record. It is
+     * neither the short nor the qualified name, and several types may share one (keen::X and keen::ds::X do).
+     * Copies it as UTF-8, no NUL, into out[0..cap); *required = its length in bytes, also when cap is too small
+     * (KILN_ERR_BUFFER_TOO_SMALL; nothing is written then). An empty name (the type has none) is KILN_OK with
+     * *required = 0. KILN_ERR_NOT_FOUND: not a type of this table, or this type's entry is unreadable;
+     * KILN_ERR_UNAVAILABLE: the field did not validate on this build (capability types.impact_names says why);
+     * KILN_ERR_INVALID_ARGUMENT: required is NULL, or out is NULL with cap > 0. Any thread. */
+    KilnResult(KILN_CALL* type_impact_name)(const KilnType* type, char* out, size_t cap, size_t* required);
 } KilnTypesApi;
 
 #ifdef __cplusplus

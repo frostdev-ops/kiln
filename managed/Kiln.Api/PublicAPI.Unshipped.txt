@@ -1,5 +1,8 @@
 #nullable enable
 Kiln.Capability.IsHeld.get -> bool
+Kiln.ClientMainThreadAttribute
+Kiln.ClientMainThreadAttribute.ClientMainThreadAttribute() -> void
+static Kiln.Capabilities.IsHeld(string! name) -> bool
 Kiln.CapacityChangedEvent
 Kiln.CapacityChangedEvent.Current.get -> Kiln.CapacityInfo!
 Kiln.CapacityChangedEvent.Previous.get -> Kiln.CapacityInfo!
@@ -144,7 +147,6 @@ override Kiln.DefinitionRegistrationOptions.ToString() -> string!
 override Kiln.DefinitionRegistrationResult.Equals(object? obj) -> bool
 override Kiln.DefinitionRegistrationResult.GetHashCode() -> int
 override Kiln.DefinitionRegistrationResult.ToString() -> string!
-static Kiln.Capabilities.IsHeld(string! name) -> bool
 static Kiln.CapacityInfo.operator !=(Kiln.CapacityInfo? left, Kiln.CapacityInfo? right) -> bool
 static Kiln.CapacityInfo.operator ==(Kiln.CapacityInfo? left, Kiln.CapacityInfo? right) -> bool
 static Kiln.CapacityQueryResult.operator !=(Kiln.CapacityQueryResult? left, Kiln.CapacityQueryResult? right) -> bool
@@ -157,6 +159,9 @@ static Kiln.DefinitionRegistrationResult.operator !=(Kiln.DefinitionRegistration
 static Kiln.DefinitionRegistrationResult.operator ==(Kiln.DefinitionRegistrationResult? left, Kiln.DefinitionRegistrationResult? right) -> bool
 ~override Kiln.CapacityWorldToken.Equals(object obj) -> bool
 ~override Kiln.CapacityWorldToken.ToString() -> string
+Kiln.GameType.ImpactName.get -> string?
+static Kiln.GameTypes.ByImpactName(string! impactName) -> Kiln.GameType?
+static Kiln.GameTypes.FindAllByImpactName(string! impactName) -> System.Collections.Generic.IReadOnlyList<Kiln.GameType!>!
 Kiln.BootContext
 Kiln.BootContext.GameData.get -> Kiln.IReadOnlyGameData!
 Kiln.BootContext.Generation.get -> ulong

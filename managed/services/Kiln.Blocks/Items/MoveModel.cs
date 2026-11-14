@@ -37,7 +37,7 @@ public sealed record WeaponMoves
     public MoveBlock? SneakAttack { get; init; }
 }
 
-/// <summary>One move: the motion an attack slot plays, and when its blow lands. Each field is optional, but a move with none of them changes nothing and is refused.</summary>
+/// <summary>One move: the motion an attack slot plays, when its blow lands, and where its follow-up windows lead. Each field is optional, but a move with none of them changes nothing and is refused.</summary>
 public sealed record MoveBlock
 {
     /// <summary>The state the move's motion plays: a state of this mod by name, a game state by name (<c>"State"</c> or <c>"Machine/State"</c>), by its GUID, or by its id
@@ -51,6 +51,11 @@ public sealed record MoveBlock
     public double? HitAt { get; init; }
     /// <summary>Seconds the whole move lasts: what comes after the blow is scaled to end here. Null: the motion's own, shifted with <see cref="HitAt"/>.</summary>
     public double? Length { get; init; }
+    /// <summary>Where the motion's follow-up windows lead, when not where the class has them: each entry points the windows for one input at another move
+    /// of this weapon (a block, on a parried blow, into the weapon's own parry). A weapon with any applies all its moves at once or none of them:
+    /// <see cref="Blocks.MovesStatus"/> says which. At most 64 per move. Null: the windows stay (a primary and a heavy chain still link up by themselves).</summary>
+    [RequiresCapability("blocks.move_followups")]
+    public IReadOnlyList<MoveFollowUpBlock>? FollowUps { get; init; }
 }
 
 /// <summary>One move or a chain of them: <c>Primary = move</c>, <c>Primary = [first, second]</c>, in JSON an object or a list. One move and a list of one are the same.</summary>

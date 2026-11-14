@@ -271,13 +271,28 @@ internal static class BlockJson
     }
 
     /// <summary>Drop cached data of the old lifetime. A revoked mod owner must never be reused by the next data pass.
-    /// A data-only mod keeps its service owner, so repeated reloads don't allocate owners.</summary>
+    /// A data-only mod's blocks are under an owner of Kiln's own (the host revokes only a code mod's): it is revoked here,
+    /// so the mod's layers, definitions and rules go with it as a code mod's do, and the next load makes a new one. Where
+    /// the backend cannot revoke (no core), the owner is kept as before.</summary>
     internal static void Unloaded(ModBlocks mod)
     {
         mod.Reset();
+        if (!mod.OwnedByMod && mod.Owner != 0 && RevokeServiceOwner(mod.Owner)) mod.Owner = 0;
         if (mod.OwnedByMod) mod.Owner = 0;
         mod.OwnedByMod = false;
     }
+
+    /// <summary>Revokes a data-only mod's service owner. False: this backend cannot. Tests replace it.</summary>
+    internal static Func<ulong, bool> RevokeServiceOwner = owner =>
+    {
+        try
+        {
+            if (!Backend.Current.CanRevokeOwners) return false;
+            Backend.Current.OwnerRevoke(owner);
+            return true;
+        }
+        catch (Exception e) when (e is InvalidOperationException or NotSupportedException) { return false; }
+    };
 
     /// <summary>A mod's data files, read: what their blocks are, until each is compiled.</summary>
     internal sealed class DataFiles : IDisposable
