@@ -873,15 +873,12 @@ public sealed class FacadeTests
         kiln.Step(2);
         var foreign = new CellPos(66, 98, 66);
         var edited = false;
-        Action<CellBox> edit = _ =>
+        kiln.Terrain.Editing = _ =>
         {
             if (edited) return;
             edited = true;
             kiln.Terrain.Set(foreign, Voxel.Of(7));
         };
-        // HarnessTerrain.Editing is internal until its line is in the kit's public API record
-        typeof(Kiln.TestKit.HarnessTerrain).GetProperty("Editing", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
-            .SetValue(kiln.Terrain, edit);
         var r = Wait(kiln, () => Terrain.Apply(Vein()));
         Assert.Equal((TerrainState.Conflict, 512L), (r.State, r.ChangedCells));
         Assert.Equal(new TerrainConflict(TerrainConflictKind.PlayerEdit, new CellBox(64, 96, 64, 8, 8, 8)), Assert.Single(r.Conflicts));
