@@ -1,0 +1,16 @@
+<Project>
+  <!-- Sample: kiln.creature_control, the movement broker (docs/kiln/services/creature-control.md). /hold takes a lease on a game
+       Vukah by itself, holds the body still and gives it back; the pacer is a creature block whose brain walks its body under
+       the lease Kiln.Blocks takes for it (the fixture of the guided check 19d-brain-walks). Server side, game bodies: vanilla
+       clients watch. -->
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.props" />
+  <PropertyGroup>
+    <KilnModId>creature-control-sample</KilnModId>
+    <KilnModName>Creature control (broker sample)</KilnModName>
+    <Version>0.1.0</Version>
+    <Description>A lease of the creature control broker on a game Vukah (/hold), and a creature whose brain walks it to you (/pacer).</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <KilnServices>Blocks;Chat;Creatures;CreatureControl;Spawn;World</KilnServices>
+  </PropertyGroup>
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.targets" />
+</Project>

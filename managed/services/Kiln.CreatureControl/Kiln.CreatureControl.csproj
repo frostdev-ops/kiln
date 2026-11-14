@@ -11,5 +11,7 @@
   <ItemGroup>
     <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
     <InternalsVisibleTo Include="Kiln.CreatureControl.Tests" />
+    <!-- Kiln.Blocks' brains lease their bodies under Kiln.Blocks' own owner (AcquireAs, CanDriveNow, ReleaseNow) -->
+    <InternalsVisibleTo Include="Kiln.Blocks" />
   </ItemGroup>
 </Project>

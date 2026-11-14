@@ -28,9 +28,9 @@ def load(folder):
             if not isinstance(g, dict) or set(g) - {'name', 'checks', 'side', 'note'}:
                 sys.exit(f'gates: {where}: an object with name, checks and optionally side, note')
             name, checks, side = g.get('name'), g.get('checks'), g.get('side')
-            if not isinstance(name, str) or not NAME.match(name):
+            if not isinstance(name, str) or not NAME.fullmatch(name):
                 sys.exit(f'gates: {where}: name {name!r} is not a capability name')
-            if not isinstance(checks, list) or not checks or not all(isinstance(c, str) and CHECK.match(c) for c in checks):
+            if not isinstance(checks, list) or not checks or not all(isinstance(c, str) and CHECK.fullmatch(c) for c in checks):
                 sys.exit(f'gates: {where} ({name}): checks must be a non-empty list of lower-case check ids')
             if len(set(checks)) != len(checks):
                 sys.exit(f'gates: {where} ({name}): a check id is listed twice')

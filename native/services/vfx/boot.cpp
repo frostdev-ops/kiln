@@ -342,7 +342,11 @@ bool read_mod(const std::string& dir, const fs::path& pending_root, kvb::ModInpu
         add_limited(d, root, d / L"blocks" / L"generated", "blocks/generated", kvx_generated::kGenerated, m);
     }
     if (boot)
-        for (const auto& b : boot->docs("vfx", m->id)) m->documents.emplace_back("boot/" + b.key, b.document.dump());
+        for (const auto& b : boot->docs("vfx", m->id)) {
+            if (!b.document.is_object())
+                throw kiln::boot::Refusal(m->id, "vfx", b.key, "kiln.vfx: a boot document is not a blocks file (a JSON object)");
+            m->documents.emplace_back("boot/" + b.key, b.document.dump());
+        }
     add_folder(pending_root / to_path(m->id), "pending");
     return !m->documents.empty();
 }
@@ -880,6 +884,8 @@ void build_on_ready(const KilnApi* api, KilnOwner self, const kiln::boot::Input*
              r.used_vfx, static_cast<unsigned long long>(GetTickCount64() - t0), g_game.vfx, r.used_vfx, cap.vfx, g_game.meshes, r.used_meshes, cap.meshes,
              static_cast<unsigned long long>(cap.mesh_bytes - g_game.mesh_bytes - r.used_mesh_bytes), static_cast<unsigned long long>(cap.mesh_bytes), g_game.sounds,
              r.used_sounds, cap.sounds, g_game.curves, r.used_curves, cap.curves);
+    } catch (const kiln::boot::Refusal&) {
+        throw;  // a boot document: the boot generation's prepare refuses the mod
     } catch (const std::exception& e) {
         KV_E("vfx: building mods' VFX failed (%s): no Kiln VFX this session", e.what());
         set_status("not checked", e.what(), nullptr);

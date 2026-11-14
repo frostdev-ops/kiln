@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
-// Mirror of native/core/abi/services/kiln_assets.h (kiln.assets v1). Blittable only; the field order is the ABI.
+// Mirror of native/core/abi/services/kiln_assets.h (kiln.assets v1, with the slots appended since). Blittable only; the
+// field order is the ABI.
 using System.Runtime.InteropServices;
 
 namespace Kiln;
@@ -54,6 +55,48 @@ internal static unsafe class AssetsNative
         public delegate* unmanaged[Cdecl]<ulong, NativeStr, byte*, nuint, nuint*, int> LoadManifest;
         public delegate* unmanaged[Cdecl]<Key*, void**, nuint*, int> ResourceData;  // zero-copy live view (advanced)
     }
+
+    /// <summary>The table since 0.2.0-dev.28: v1 as far as <see cref="Table"/> mirrors it, the three v1 slots after it this
+    /// wrapper does not call, then blob_add_ex, blob_override_ex and the blob catalog. Read through the v1 pointer when
+    /// header.size covers it (an older kiln.assets: never).</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct TableEx
+    {
+        public Table Base;
+        public void* ResourceIsNew, ResourceNewCount, WhenResourcesReady;
+        public delegate* unmanaged[Cdecl]<ulong, void*, nuint, ContentHash*, uint, int> BlobAddEx;
+        public delegate* unmanaged[Cdecl]<ulong, ContentHash*, void*, nuint, uint, int> BlobOverrideEx;
+        public delegate* unmanaged[Cdecl]<ulong, uint, ulong*, CatalogInfo*, int> BlobCatalogOpen;
+        public delegate* unmanaged[Cdecl]<ulong, ulong, CatalogEntry*, uint, nuint, nuint*, int> BlobCatalogRead;
+        public delegate* unmanaged[Cdecl]<ulong, int> BlobCatalogClose;
+    }
+
+    /// <summary>KilnBlobCatalogInfo: 32 bytes.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct CatalogInfo
+    {
+        public uint Size, Status;
+        public ulong Generation, Total;
+        public uint Flags, Reason;
+    }
+
+    /// <summary>KilnBlobCatalogEntry: 48 bytes.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct CatalogEntry
+    {
+        public uint Size, Flags;
+        public ContentHash Hash;
+        public uint Origins, SelectedOrigin;
+        public ulong SelectedOwner, SelectedSequence;
+    }
+
+    // blob catalog modes, statuses, flags
+    public const uint CatalogRequireComplete = 0, CatalogRegistrationsOnly = 1;
+    public const uint CatalogComplete = 0, CatalogIncomplete = 1, CatalogNotReady = 2, CatalogLimitExceeded = 3, CatalogUnavailable = 4;
+    public const uint CatalogGameComplete = 1, CatalogRegistrationsComplete = 2, CatalogOverridden = 1;
+
+    // KILN_BLOB_ORIGIN_* (kiln_assets.h): the provenance a registration is tagged with
+    public const uint OriginGame = 1, OriginManifest = 2, OriginManaged = 4, OriginNativeApi = 8;
 
     public const int Ok = 0, InvalidArgument = 1, NotFound = 2, Unavailable = 3, BufferTooSmall = 5;
 

@@ -58,6 +58,7 @@ kiln pack                                     # bin/<config>/my-items-0.1.0.zip 
 | `kiln catalog path` | the catalog folder | `{dir, client, server, exists, current}` |
 | `kiln catalog search <query> [--section S] [--limit N] [--side S]` | entries whose name, display name, id or GUID contain every word | `{catalog, hits: [{section, name, id, guid, displayName}]}` |
 | `kiln vfx info <name\|guid>` | One game VFX from the catalog: what finds it, how long it runs, what it takes ([vfx.md](vfx.md)) | the catalog's entry |
+| `kiln boot-snapshot --game DIR [--force]` | makes the game-data snapshot `Mod.OnBoot` reads (items, templates, skill nodes, materials) in `<game>/kiln/data/boot-gamedata/<key>/`, once per game build: about a minute and about 200 MB the first time, under a second after (the launcher does it at Play, `tools/deploy-server.sh` at each deploy). Exit 0 when one is in place, also when a kind is empty (a warning names it); 1 when there is none ([boot-snapshot.md](boot-snapshot.md)) | `{status, key, path, counts, emptyKinds, skipped, archive, bytes, seconds, reason}` |
 
 Test filters: Kiln.Testing matches a case-insensitive **substring** of the test name (`[KilnTest(Name = …)]`, else
 `<Class>.<Method>`, no namespace), and the control folder splits on spaces, so a filter has none. `--exact` runs the

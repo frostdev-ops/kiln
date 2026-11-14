@@ -1,0 +1,8 @@
+{ "gates": [
+    { "name": "ui.values.detail", "checks": ["05a-c1"], "side": "client" },
+    { "name": "ui.values.slot", "checks": ["05a-c1"], "side": "client" },
+    { "name": "ui.values.hud", "checks": ["05a-c2"], "side": "client" },
+    { "name": "ui.values.held", "checks": ["05a-c3"], "side": "client" },
+    { "name": "ui.values.tooltip_lines", "checks": ["05a-c4-viewer"], "side": "client" },
+    { "name": "ui.slots.inspect", "checks": ["05a-c5"], "side": "client" }
+] }

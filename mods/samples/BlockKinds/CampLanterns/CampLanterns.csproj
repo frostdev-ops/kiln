@@ -1,0 +1,21 @@
+<Project>
+  <!-- Sample, the consumer half: two lanterns of the kind the "lanterns" mod adds, one in C# and one in blocks/camp.json
+       (docs/kiln/modding/block-kinds.md). It depends on the provider, so the kind is registered before these compile. -->
+  <Import Project="../../../../managed/Kiln.Sdk/Sdk/Sdk.props" />
+  <PropertyGroup>
+    <KilnModId>camp-lanterns</KilnModId>
+    <KilnModName>Camp lanterns (block kind sample, consumer)</KilnModName>
+    <Version>0.1.0</Version>
+    <Description>Two lanterns made with the lantern kind of the "lanterns" mod: one from code, one from blocks/camp.json.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <KilnServices>Blocks</KilnServices>
+    <!-- Lanterns.Api references Kiln.Blocks; what Kiln.Blocks references is Kiln's and is not copied into a mod -->
+    <DisableTransitiveProjectReferences>true</DisableTransitiveProjectReferences>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Compile against the provider's export; never ship it (the provider brings it). -->
+    <ProjectReference Include="../Lanterns.Api/Lanterns.Api.csproj" Private="false" />
+    <KilnDependency Include="lanterns" Version="^0.1" />
+  </ItemGroup>
+  <Import Project="../../../../managed/Kiln.Sdk/Sdk/Sdk.targets" />
+</Project>

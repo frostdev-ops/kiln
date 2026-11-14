@@ -69,6 +69,66 @@ A server operator changes the limits in `<config>/kiln.queries.json`, read once 
 `maxRaysPerStep` is 1 to 4096, `maxRayMicrosecondsPerStep` 1 to 10000. A file that is wrong in any of these gives
 both defaults and one warning in `kiln.log`; the chosen limits are logged at start.
 
+## Paths
+
+`Queries.RequestPath`, `FindPath` and `CanReach` ask the game's own path search (the one its creatures use) for a
+**walking** route between two points at most 200 m apart. Nothing is moved: the answer is a copy of the route's points
+as they were at the step the game answered. It arrives some server steps later (four to six for a short walk; at most
+10 s and 150 steps, then `TimedOut`).
+
+```csharp
+var result = await Queries.FindPath(new QueryPathRequest(anchor, from, to));
+if (result.Ok && result.ReachesTarget) foreach (var p in result.Points) { /* walk it yourself */ }
+```
+
+| Member | Capability | |
+|---|---|---|
+| `Queries.RequestPath(request)` | `queries.path` | a ticket: `Request` (the id) and `Completion` (the task) |
+| `Queries.FindPath(request, cancellationToken)` | `queries.path` | the task alone; cancelling the token cancels the request |
+| `Queries.CancelPath(request)` | `queries.path` | ends a request of the calling mod as `Cancelled` |
+| `Queries.CanReach(request, cancellationToken)` | `queries.reachability` | the same search, asked only whether it arrives; the same question twice in one step is one search |
+
+**Walking a route.** Nothing here walks for you. `mods/samples/NpcSample/PathWalker.cs` shows the whole loop for a
+creature with a brain ([npc-blocks.md](../modding/npc-blocks.md)): ask `FindPath` with the creature as its own anchor,
+keep the copied points, give them to `NpcControl.MoveTo` one after another, and treat the route as out of date when
+the goal moved, when it is some seconds old or when the creature is no longer near it. On `Ok = false`, or where
+`queries.path` is off, it stands still and asks again a few seconds later; it never walks straight at the goal
+instead. In game: `/npcsample walker`, `/npcsample walkto`.
+
+**The anchor.** A request names an entity the game's query is made for. It is not moved, and it need not be what
+will walk. It must carry the game's spawn marker (SpawnTime): entities the game or `Spawn` put into the world have it,
+saved entities, items and players may not (`OwnerIdentityUnavailable`). For those, spawn a helper pickup
+(`Base_LootPickup_Generic_Gravity`) at the start, use it as the anchor and destroy it afterwards. If the anchor goes
+while the request waits, the request ends `OwnerGone`.
+
+**What a result says.**
+
+| `Status` | `Ok` | Meaning |
+|---|---|---|
+| `Found` | yes | a walking route whose last point is at the target (within 1.5 m across, 3 m up or down) |
+| `Partial` | yes | a walking route that ends elsewhere (`ReachesTarget` is false) |
+| `NoPath`, `NoStartNode`, `NoTargetNode`, `IterationLimit`, `OutOfMemory` | no | the game's own answers; `Reason` has its word |
+| `NotLoadedOrUnknown` | no | the game gave no answer it stands behind: load the area (`Build.Load`) and ask again |
+| `UnsupportedTraversal` | no | the route needs a jump, a door or swimming; its points are given for diagnosis only |
+| `QueueFull`, `OwnerIdentityUnavailable`, `OutOfGrid` | no | refused at once: the ticket is `Ok = false` and its task is complete |
+| `Cancelled`, `OwnerGone`, `TimedOut`, `WorldClosed`, `OwnerRetired`, `Refused`, `Truncated`, `MalformedResult` | no | how else a request ends |
+
+`CanReach` is `Ok` with `Reachable = true` for `Found`, `Ok` with `Reachable = false` for `Partial` and `NoPath`, and
+not `Ok` for everything else: "not known" is not "no".
+
+**Limits.** 8 requests open per mod and 32 in all, counting results that were not delivered yet; the game is asked for
+at most 8 new searches a step. The space a route needs is `HorizontalSpace` and `VerticalSpace`, in metres as the game's
+query takes them (0.5 and 2 by default). `PathQueryChangedEvent` follows each request (`Created -> Queued`,
+`Queued -> Searching`, its end); the event of the end is posted before the task completes.
+
+A route is geometry at one moment: the world may change before a creature has walked it, and `NpcControl.MoveTo` is
+a straight step, not a follower.
+
+On a game client `queries.path` and `queries.reachability` are held until the guided check `02-queries.path-hosted`.
+
+In unit tests: `kiln.Queries.Paths = request => FakePathAnswer.NoPath;` (or `Route(...)`), `PathSteps`,
+`PathRequests`, `WithoutSpawnTime(entity)`.
+
 ## What the hit does not say
 
 No surface normal, no cell coordinate, no entity. The position lies a hair before the voxel's face
@@ -91,9 +151,10 @@ the real game ([caps.md](caps.md#the-client-gate-dev28)); a dedicated server is 
 The test kit fakes `kiln.queries` (`KilnHarness.Queries`): a test scripts what a voxel ray answers
 (`kiln.Queries.Voxels = ray => FakeVoxelAnswer.Hit(...)`, `Clear` or `Refused("NotLoaded")`), sets the step's ray
 budget (`MaxRaysPerStep`) and reads the rays that were asked (`Rays`). Overlaps read the harness's fake world. There
-are no voxels offline: a test says what the game would answer, it does not find it out.
+are no voxels offline: a test says what the game would answer, it does not find it out. Without a `Voxels` script the
+ray capability is unavailable; use `ray => FakeVoxelAnswer.Clear` when a test needs a loaded, clear segment.
 
 ## Native table
 
-`native/core/abi/services/kiln_queries.h`: `ray_voxels`, `entities`, and four `path_*` members that answer
-unavailable until the path feature fills them.
+`native/core/abi/services/kiln_queries.h`: `ray_voxels`, `entities`, and the path queue (`path_submit`, `path_cancel`,
+`path_poll`, `path_retire`): owner-scoped, pulled by the caller, with no callback into caller code.

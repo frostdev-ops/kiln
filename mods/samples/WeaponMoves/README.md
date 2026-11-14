@@ -43,4 +43,10 @@ the states the same way with `--game <the server's folder>`; its model steps are
 An earlier form of this sample has been seen in a game client: the moves played after a join check that passed, with the body in the
 skeleton's bind pose outside the arm. This form, on the game's clips, has not been seen in a client yet.
 
-Docs: `docs/kiln/modding/item-blocks.md` ("Moves", "Parts"), `docs/kiln/modding/animations.md` ("`clips`", "Retargeting", "Player states").
+**Follow-ups:** the Parrying Blade (C# only) is the same blade with two routes on its block: a parried blow leads to the weapon's own parry,
+and the light attack while blocking to its first swing. A weapon with follow-ups applies all its moves at once or none; the sample logs what
+`WeaponMovesApplicationChangedEvent` says. The capability `blocks.move_followups` is switched off until its game test has passed, and the
+sample leaves the Parrying Blade out while it is (`"preview": ["blocks.move_followups"]` in `kiln.json` switches it on to try it). Not seen
+in a game client.
+
+Docs: `docs/kiln/modding/item-blocks.md` ("Moves", "Follow-ups", "Parts"), `docs/kiln/modding/animations.md` ("`clips`", "Retargeting", "Player states").

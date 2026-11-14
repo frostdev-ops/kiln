@@ -1,1 +1,60 @@
 #nullable enable
+Kiln.EntityScaleChangedEvent
+Kiln.EntityScaleChangedEvent.Before.get -> Kiln.Scale3
+Kiln.EntityScaleChangedEvent.Entity.get -> Kiln.EntityId
+Kiln.EntityScaleChangedEvent.Involves(Kiln.EntityId entity) -> bool
+Kiln.EntityScaleChangedEvent.ModId.get -> string?
+Kiln.EntityScaleChangedEvent.Now.get -> Kiln.Scale3
+Kiln.EntityScaleChangedEvent.Result.get -> Kiln.EntityScaleResult!
+Kiln.EntityScaleResult
+Kiln.EntityScaleResult.<Clone>$() -> Kiln.EntityScaleResult!
+Kiln.EntityScaleResult.Before.get -> Kiln.Scale3?
+Kiln.EntityScaleResult.Before.init -> void
+Kiln.EntityScaleResult.Changed.get -> bool
+Kiln.EntityScaleResult.Deconstruct(out Kiln.EntityId Entity, out Kiln.Scale3? Before, out Kiln.Scale3 Requested, out Kiln.Scale3? Now, out bool? Kept, out Kiln.WorldWriteStatus WorldWriteStatus, out string? Reason, out bool? SaveTracked, out bool? ReplicationTracked) -> void
+Kiln.EntityScaleResult.Entity.get -> Kiln.EntityId
+Kiln.EntityScaleResult.Entity.init -> void
+Kiln.EntityScaleResult.EntityScaleResult(Kiln.EntityId Entity, Kiln.Scale3? Before, Kiln.Scale3 Requested, Kiln.Scale3? Now, bool? Kept, Kiln.WorldWriteStatus WorldWriteStatus, string? Reason, bool? SaveTracked, bool? ReplicationTracked) -> void
+Kiln.EntityScaleResult.Equals(Kiln.EntityScaleResult? other) -> bool
+Kiln.EntityScaleResult.Kept.get -> bool?
+Kiln.EntityScaleResult.Kept.init -> void
+Kiln.EntityScaleResult.Now.get -> Kiln.Scale3?
+Kiln.EntityScaleResult.Now.init -> void
+Kiln.EntityScaleResult.Ok.get -> bool
+Kiln.EntityScaleResult.Reason.get -> string?
+Kiln.EntityScaleResult.Reason.init -> void
+Kiln.EntityScaleResult.ReplicationTracked.get -> bool?
+Kiln.EntityScaleResult.ReplicationTracked.init -> void
+Kiln.EntityScaleResult.Requested.get -> Kiln.Scale3
+Kiln.EntityScaleResult.Requested.init -> void
+Kiln.EntityScaleResult.SaveTracked.get -> bool?
+Kiln.EntityScaleResult.SaveTracked.init -> void
+Kiln.EntityScaleResult.WorldWriteStatus.get -> Kiln.WorldWriteStatus
+Kiln.EntityScaleResult.WorldWriteStatus.init -> void
+Kiln.Scale3
+Kiln.Scale3.Deconstruct(out float X, out float Y, out float Z) -> void
+Kiln.Scale3.Equals(Kiln.Scale3 other) -> bool
+Kiln.Scale3.IsValid.get -> bool
+Kiln.Scale3.Scale3() -> void
+Kiln.Scale3.Scale3(float X, float Y, float Z) -> void
+Kiln.Scale3.X.get -> float
+Kiln.Scale3.X.init -> void
+Kiln.Scale3.Y.get -> float
+Kiln.Scale3.Y.init -> void
+Kiln.Scale3.Z.get -> float
+Kiln.Scale3.Z.init -> void
+const Kiln.World.TransformScaleCapability = "world.transform_scale" -> string!
+override Kiln.EntityScaleChangedEvent.ToString() -> string!
+override Kiln.EntityScaleResult.Equals(object? obj) -> bool
+override Kiln.EntityScaleResult.GetHashCode() -> int
+override Kiln.EntityScaleResult.ToString() -> string!
+override Kiln.Scale3.GetHashCode() -> int
+override Kiln.Scale3.ToString() -> string!
+static Kiln.EntityScaleResult.operator !=(Kiln.EntityScaleResult? left, Kiln.EntityScaleResult? right) -> bool
+static Kiln.EntityScaleResult.operator ==(Kiln.EntityScaleResult? left, Kiln.EntityScaleResult? right) -> bool
+static Kiln.Scale3.One.get -> Kiln.Scale3
+static Kiln.Scale3.Uniform(float factor) -> Kiln.Scale3
+static Kiln.Scale3.operator !=(Kiln.Scale3 left, Kiln.Scale3 right) -> bool
+static Kiln.Scale3.operator ==(Kiln.Scale3 left, Kiln.Scale3 right) -> bool
+static Kiln.World.SetTransformScale(Kiln.EntityId entity, Kiln.Scale3 scale) -> System.Threading.Tasks.Task<Kiln.EntityScaleResult!>!
+~override Kiln.Scale3.Equals(object obj) -> bool

@@ -21,6 +21,11 @@ public sealed class ClientOnlyAttribute : Attribute;
 [AttributeUsage(AttributeTargets.All)]
 public sealed class AnyThreadAttribute : Attribute;
 
+/// <summary>Call this only inside <see cref="Mod.OnBoot"/>, on the boot thread, before the game's entry point (a boot-author frame); no
+/// tick, world or player exists there.</summary>
+[AttributeUsage(AttributeTargets.All)]
+public sealed class BootThreadOnlyAttribute : Attribute;
+
 /// <summary>Call this on the game's render thread only (client).</summary>
 [AttributeUsage(AttributeTargets.All)]
 public sealed class RenderThreadAttribute : Attribute;
@@ -28,3 +33,9 @@ public sealed class RenderThreadAttribute : Attribute;
 /// <summary>Runs on, or may be called from, a worker thread; never touch game state there.</summary>
 [AttributeUsage(AttributeTargets.All)]
 public sealed class WorkerThreadAttribute : Attribute;
+
+/// <summary>Runs on, or must be called from, the game client's main thread: the thread that runs the game's own UI frame
+/// and steps the client world. Not the render thread of Kiln's overlay (<see cref="RenderThreadAttribute"/>), not the
+/// server tick. Code there reads what was cached on a tick; it never waits, blocks or calls server-world APIs.</summary>
+[AttributeUsage(AttributeTargets.All)]
+public sealed class ClientMainThreadAttribute : Attribute;

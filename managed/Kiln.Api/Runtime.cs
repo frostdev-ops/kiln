@@ -121,6 +121,12 @@ internal interface IKilnBackend
 
     /// <summary>A new native owner (everything registered with it can be revoked together); 0 when there is no core.</summary>
     ulong OwnerCreate(string id) => 0;
+
+    /// <summary>True when <see cref="OwnerRevoke"/> takes back what an owner registered (there is a core, or a test kit that plays one).</summary>
+    bool CanRevokeOwners => false;
+
+    /// <summary>Revokes an owner made by <see cref="OwnerCreate"/>: everything registered with it comes off. The owner is dead afterwards.</summary>
+    void OwnerRevoke(ulong owner) { }
 }
 
 internal static class Backend

@@ -1,0 +1,163 @@
+{
+  "format": 1,
+  "side": "server",
+  "comment": "kiln.queries, the path half (docs/re/queries.md): the game's path queries as a world program uses them (create, read the result, destroy), the query's defaults and the fields Kiln sets beside them (the search distances and free space where the game halves them per grid, the target type where the search driver reads it), and the job's realm. The voxel grid entries the feature also needs are dev28-01-world-queries.json's. Pattern leads from EMF's signatures (MIT), resolved and extended against both executables; every pattern matches the dedicated server and the game client once, so the client uses this file unchanged.",
+  "symbols": {
+    "queries/CreatePathQuery": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 30 41 8B 00 49 8B D8 48 8B FA 89 44 24 20 48 8D 51 10 41 B0 05 41 B9 28 01 00 00 48 8B F1 E8 ?? ?? ?? ?? 48 8B D0 48 85 C0 75 ?? 89 07 48 8B C7 48 8B 5C 24 40 48 8B 74 24 48 48 83 C4 30 5F C3 48 8B 4E 38 B8 01 00 00 00 F0 0F C1 41 04 FF C0 48 8D 4A 10 89 42 0C"
+        }
+      ]
+    },
+    "queries/DestroyPathQuery": {
+      "find": [
+        {
+          "pattern": "40 53 48 83 EC 30 8B C2 41 8B D8 48 8D 51 10 89 44 24 20 41 B0 08 41 B9 10 00 00 00 E8 ?? ?? ?? ?? 48 85 C0 75 ?? 48 83 C4 30 5B C3 89 58 0C B0 01 48 83 C4 30 5B C3"
+        }
+      ]
+    },
+    "queries/GetPathQueryResult": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 8B 01 41 0F B6 F1 48 8B FA 44 89 44 24 40 48 8B 58 {queries/job.pathgrid:d8} 48 85 DB 0F 84 ?? ?? ?? ?? 48 8D 54 24 40 48 8D 8B {queries/pathgrid.map:d32} E8 ?? ?? ?? ?? 48 3B 83 {queries/pathgrid.hash_capacity:d32} 0F 83 ?? ?? ?? ?? 48 8B 93 {queries/pathgrid.records:d32} 48 69 C8 {queries/pathrecord.stride:d32} 48 03 D1 74 ?? 0F B6 82 {queries/pathrecord.state:d32} 3C 03 74 ?? 40 84 F6 74 ?? 3C 04 75 ?? 48 83 BA 30 01 00 00 00 74 ?? 48 8B 82 {queries/pathrecord.points:d32} 48 89 07 48 8B 82 {queries/pathrecord.point_count:d32} 48 89 47 08 48 8B 82 {queries/pathrecord.aux:d32} 48 89 47 10 48 8B 82 {queries/pathrecord.aux_count:d32} 48 89 47 18 8B 82 {queries/pathrecord.counter:d32} 89 47 20 0F B6 82 {queries/pathrecord.result:d32} 88 47 24 B0 01"
+        }
+      ]
+    },
+    "queries/PathQueryDefaults": {
+      "find": [
+        {
+          "pattern": "40 53 48 83 EC 20 48 8B D9 E8 {queries/PathQueryBaseDefaults:rel32} 66 0F 6F 05 ?? ?? ?? ?? 33 C0 C7 83 F0 00 00 00 02 00 00 00 C7 83 F4 00 00 00 02 00 00 00 C7 83 F8 00 00 00 04 00 00 00 48 C7 83 FC 00 00 00 02 00 00 00 48 89 83 04 01 00 00 89 83 0C 01 00 00 48 8B C3 0F 11 43 6C 0F 11 43 7C 0F 11 83 8C 00 00 00 0F 11 83 9C 00 00 00 0F 11 83 AC 00 00 00 48 83 C4 20 5B C3"
+        }
+      ]
+    },
+    "queries/ResetPathQueryResults": {
+      "find": [
+        {
+          "pattern": "40 53 48 83 EC 30 8B C2 41 8B D8 48 8D 51 10 89 44 24 20 41 B0 07 41 B9 10 00 00 00 E8 ?? ?? ?? ?? 48 85 C0 75 ?? 48 83 C4 30 5B C3 89 58 0C B0 01 48 83 C4 30 5B C3"
+        }
+      ]
+    },
+    "@queries/base_query.layout": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "queries/PathQueryBaseDefaults",
+            "size": 176
+          },
+          "pattern": "33 C0 33 D2 48 89 41 04 0F 57 C0 89 41 0C 48 89 41 {queries/query.start:d8} 89 41 18 48 89 41 {queries/query.target:d8} 89 41 24 C7 41 28 01 00 01 01 48 89 51 2C C7 41 34 01 01 00 00 48 89 41 38 48 89 41 40 89 51 {queries/query.max_iterations:d8} 48 89 41 4C C7 41 {queries/query.moves:d8} 01 00 00 00"
+        }
+      ]
+    },
+    "@queries/query_normalize.layout": {
+      "find": [
+        {
+          "pattern": "F3 0F 11 81 ?? ?? ?? ?? 0F 57 C9 8B 8A ?? ?? ?? ?? 8B C1 D1 E8 41 80 B8 ?? ?? ?? ?? 02 0F 45 C8 41 89 8B ?? ?? ?? ?? 8B 8A {queries/query.start_search_v:d32} 8B C1 D1 E8 41 80 B8 ?? ?? ?? ?? 02 0F 45 C8 41 89 8B ?? ?? ?? ?? 8B 8A ?? ?? ?? ?? 8B C1 D1 E8 41 80 B8 ?? ?? ?? ?? 02 0F 45 C8 41 89 8B ?? ?? ?? ?? 8B 8A {queries/query.target_search_v:d32} 8B C1 D1 E8 41 80 B8 ?? ?? ?? ?? 02 0F 45 C8 41 89 8B ?? ?? ?? ?? 8B 8A {queries/query.space_h:d32} 8B C1 D1 E8 41 80 B8 ?? ?? ?? ?? 02 0F 45 C8 41 89 8B ?? ?? ?? ?? 8B 8A {queries/query.space_v:d32} 8B C1 D1 E8 41 80 B8 ?? ?? ?? ?? 02 0F 45 C8 41 89 8B ?? ?? ?? ??"
+        }
+      ]
+    },
+    "@queries/query_target_type.layout": {
+      "find": [
+        {
+          "pattern": "48 8B 7C 24 ?? 45 33 C9 41 0F B6 46 {queries/query.target_type:d8} 3C 01 0F 85 ?? ?? ?? ?? 48 85 FF 0F 84 ?? ?? ?? ?? 4C 8B CF"
+        }
+      ]
+    },
+    "@queries/job_realm.call": {
+      "find": [
+        {
+          "pattern": "E8 {queries/JobRealm:rel32} F3 0F 10 05 ?? ?? ?? ?? 4C 8D 4C 24 40 0F 57 C9 88 84 24 D0 00 00 00"
+        }
+      ]
+    },
+    "@queries/job_realm.layout": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "queries/JobRealm",
+            "size": 11
+          },
+          "pattern": "48 8B 01 0F B6 80 {queries/job.realm:d32} C3"
+        }
+      ]
+    }
+  },
+  "constants": {
+    "queries/job.pathgrid": {},
+    "queries/pathgrid.map": {},
+    "queries/pathgrid.hash_capacity": {},
+    "queries/pathgrid.records": {},
+    "queries/pathrecord.stride": {},
+    "queries/pathrecord.state": {},
+    "queries/pathrecord.points": {},
+    "queries/pathrecord.point_count": {},
+    "queries/pathrecord.aux": {},
+    "queries/pathrecord.aux_count": {},
+    "queries/pathrecord.counter": {},
+    "queries/pathrecord.result": {},
+    "queries/query.start": {},
+    "queries/query.target": {},
+    "queries/query.max_iterations": {},
+    "queries/query.moves": {},
+    "queries/query.target_type": {},
+    "queries/query.start_search_v": {},
+    "queries/query.target_search_v": {},
+    "queries/query.space_h": {},
+    "queries/query.space_v": {},
+    "queries/job.realm": {}
+  },
+  "features": {
+    "queries.path": {
+      "symbols": [
+        "queries/CreatePathQuery",
+        "queries/DestroyPathQuery",
+        "queries/GetPathQueryResult",
+        "queries/PathQueryDefaults",
+        "queries/VoxelRay",
+        "@queries/ray.layout",
+        "queries/VoxelCellRead",
+        "@queries/ray_grid.bounds",
+        "@queries/realm_count.layout",
+        "@queries/ray.minimum",
+        "queries/RayMinLength",
+        "@queries/query_normalize.layout",
+        "@queries/query_target_type.layout",
+        "@queries/job_realm.call",
+        "@queries/job_realm.layout",
+        "queries/JobRealm"
+      ],
+      "constants": [
+        "queries/realm.stride",
+        "queries/grid.realms",
+        "queries/job.pathgrid",
+        "queries/pathgrid.map",
+        "queries/pathgrid.hash_capacity",
+        "queries/pathgrid.records",
+        "queries/pathrecord.stride",
+        "queries/pathrecord.state",
+        "queries/pathrecord.points",
+        "queries/pathrecord.point_count",
+        "queries/pathrecord.aux",
+        "queries/pathrecord.aux_count",
+        "queries/pathrecord.counter",
+        "queries/pathrecord.result",
+        "queries/query.start",
+        "queries/query.target",
+        "queries/query.max_iterations",
+        "queries/query.moves",
+        "queries/query.target_type",
+        "queries/query.start_search_v",
+        "queries/query.target_search_v",
+        "queries/query.space_h",
+        "queries/query.space_v",
+        "queries/grid.realm_count",
+        "queries/ray_grid.origin",
+        "queries/ray_grid.shift",
+        "queries/ray_grid.horizontal_count",
+        "queries/ray_grid.vertical_count",
+        "queries/ray.min_length_bits",
+        "queries/job.realm"
+      ]
+    }
+  }
+}
