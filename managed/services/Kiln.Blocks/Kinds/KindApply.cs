@@ -46,7 +46,19 @@ internal static class KindApply
     /// <summary>A native owner for one plan.</summary>
     internal static Func<string, ulong> CreateOwner = BlocksBridge.ServiceOwner;
     /// <summary>Revokes a plan's owner: every layer it registered comes off. Null: this build cannot (then nothing is applied).</summary>
-    internal static Action<ulong>? RevokeOwner;
+    internal static Action<ulong>? RevokeOwner
+    {
+        get => _revokeSet ? _revoke : BackendRevokes() ? BackendRevoke : null;
+        set { _revoke = value; _revokeSet = true; }
+    }
+    private static Action<ulong>? _revoke;
+    private static bool _revokeSet;
+    private static readonly Action<ulong> BackendRevoke = owner => Backend.Current.OwnerRevoke(owner);
+    private static bool BackendRevokes()
+    {
+        try { return Backend.Current.CanRevokeOwners; }
+        catch (Exception e) when (e is InvalidOperationException or NotSupportedException) { return false; }
+    }
     internal static Func<string, bool> CapabilityIs = Capabilities.Is;
     internal static Func<bool> OnTickThread = () => Game.IsTickThread;
 

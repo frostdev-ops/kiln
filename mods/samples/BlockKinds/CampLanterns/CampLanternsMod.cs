@@ -10,12 +10,17 @@ public sealed class CampLanternsMod : Mod
 {
     public override void OnLoad()
     {
-        if (!Capabilities.Is("blocks.apply") || !Capabilities.Is("blocks.compile"))
+        // where plans of a block kind cannot be applied, Define throws KilnUnavailableException naming the row (blocks.apply)
+        BlockHandle camp;
+        try
         {
-            Log.Warn($"lanterns are off here: {Capabilities.Why("blocks.apply")}");
+            camp = Blocks.Define("camp", new LanternBlock { Name = "Camp lantern", Seconds = 600 });
+        }
+        catch (KilnUnavailableException e)
+        {
+            Log.Warn($"lanterns are off here: {e.Message}");
             return;
         }
-        var camp = Blocks.Define("camp", new LanternBlock { Name = "Camp lantern", Seconds = 600 });
         Log.Info($"camp lantern: {camp.GameName} ({Blocks.Application(camp).State})");
 
         Events.On<BlockApplicationChangedEvent>(e =>

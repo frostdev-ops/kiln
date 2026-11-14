@@ -27,12 +27,24 @@ public sealed class LanternsMod : Mod
 
     public override void OnLoad()
     {
-        if (!Capabilities.Is("blocks.kinds"))
+        // Kiln.Blocks reports its capability rows at its first use, so the answer is read from the call itself: where block
+        // kinds are off, RegisterKind throws KilnUnavailableException naming the row (blocks.kinds).
+        BlockKindResult result;
+        try
         {
-            Log.Warn($"block kinds are off here: {Capabilities.Why("blocks.kinds")}");
+            result = Register();
+        }
+        catch (KilnUnavailableException e)
+        {
+            Log.Warn($"block kinds are off here: {e.Message}");
             return;
         }
-        var result = Blocks.RegisterKind(new BlockKindDescriptor
+        if (result.Ok) Log.Info($"block kind {result.Registration!.Id} registered");
+        else Log.Warn($"the lantern kind is not registered: {result.Reason}");
+    }
+
+    private static BlockKindResult Register() =>
+        Blocks.RegisterKind(new BlockKindDescriptor
         {
             Id = "lanterns:lantern",
             JsonSection = "lanterns:lanterns",
@@ -50,7 +62,4 @@ public sealed class LanternsMod : Mod
                 """,
             Clients = ClientsLevel.Kiln,   // a new item: players need Kiln, which sends them the definitions
         }, new LanternKind());
-        if (result.Ok) Log.Info($"block kind {result.Registration!.Id} registered");
-        else Log.Warn($"the lantern kind is not registered: {result.Reason}");
-    }
 }

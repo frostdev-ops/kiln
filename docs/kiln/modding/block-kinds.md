@@ -126,6 +126,11 @@ change a block.
 All are off (with the reason) where Kiln has nothing to compile blocks to. A member whose row is off throws
 `KilnUnavailableException` naming the row.
 
+Kiln.Blocks reports its rows at its first use, not at the start of the game. So in `OnLoad`, before your mod's first
+call into `Blocks`, `Capabilities.Is("blocks.kinds")` still answers false (no row of that name yet). Do not guard
+your first call with it: make the call and catch `KilnUnavailableException`, as the sample does. After the first call
+the rows read as they are.
+
 ## Not in this version
 
 A kind cannot make VFX, materials, NPCs, quests, UI or anything read by the game before mods load, cannot register
