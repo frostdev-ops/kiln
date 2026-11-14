@@ -15,6 +15,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "kiln_api.h"
@@ -87,8 +88,9 @@ struct PublishedLease {
     KilnControlState state{};
 };
 
-// Per body slot, lock-free for readers (and for quarantine, which any thread may call).
+// Per body slot: the short lock makes key validation + quarantine atomic with retirement/reuse. No game call under it.
 struct BodyPublished {
+    mutable std::mutex mu;
     std::atomic<uint64_t> generation{0};  // 0: free
     std::atomic<uint32_t> entity{0};
     std::atomic<uint32_t> latch{0};       // the quarantine cause that holds the body, 0 = none
@@ -146,6 +148,7 @@ public:
     // Two-phase withdrawal (the broker cannot serve its bodies any more: its program stopped): new admissions are
     // refused, every bound body is quarantined at once (its leases lose authority) and retired at the next Pre.
     void withdraw(const std::string& why);
+    void owner_retiring(KilnOwner owner);  // any thread: revoke now, restore/retire at the next Pre
 
     // ---- the step (tick thread, Pre, no world job running) ----
     // Advances every body's transition at simulation time `now_ns` and fills `ops` with this step's program work.
@@ -180,6 +183,7 @@ private:
         uint64_t seq = 0;          // transition_sequence when last Active
         bool releasing = false;    // release admitted, restore pending
         bool was_active = false;   // it was Active when released (Released vs Canceled)
+        bool owner_unloaded = false;
         uint64_t terminal_ns = 0;
         uint64_t order = 0;        // admission order (ties between equal priorities: the earlier wins)
         KilnControlState last{};   // the last published state (for notices)
@@ -235,6 +239,7 @@ private:
     void log(int32_t level, const char* fmt, ...);
     static const char* state_name(uint32_t s);
     static const char* role_name(uint32_t r);
+    bool owner_gone(KilnOwner owner) const;
 
     // lease.cpp
     void refuse(KilnControlState* out, const KilnControlRequest& request, uint32_t result, const char* reason) const;
@@ -245,11 +250,13 @@ private:
     void restore(uint32_t b, const BodyRead& r, std::vector<Op>* ops);
     enum class Back : uint8_t { Done, Waiting, Failed };
     Back steering_back(uint32_t b, const BodyRead& r, std::vector<Op>* ops);
+    Back ai_back(uint32_t b);
     void ai_on(uint32_t b, const BodyRead& r, uint32_t want, std::vector<Op>* ops);
     void restore_failed(uint32_t b, const char* why);
     void quarantined_step(uint32_t b, uint32_t latch);
     void retire_body(uint32_t b, const std::string& why);
     void latch(uint32_t b, uint32_t cause);
+    void latch_locked(uint32_t b, uint32_t cause);
     void check_counter();
     void grant(uint32_t b, uint32_t slot);
     void lose_body(uint32_t b, uint32_t result, const std::string& why);
@@ -279,6 +286,8 @@ private:
     std::vector<uint32_t> free_slots_;
 
     std::unordered_map<KilnOwner, OwnerRec> owners_;
+    mutable std::mutex owner_mu_;
+    std::unordered_set<KilnOwner> retired_owners_;  // process-unique owner ids, retained after world switches
     uint32_t queued_ = 0;  // admissions since the last Pre
     uint64_t order_ = 0;
     DenyTable deny_;

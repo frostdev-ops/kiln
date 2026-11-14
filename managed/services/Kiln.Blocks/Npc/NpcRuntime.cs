@@ -332,6 +332,7 @@ internal static class NpcInput
 
     public static void Pose(EntityId e, uint state)
     {
+        if (Leases.TryGetValue(e.Value, out var lease) && !CreatureControl.CanDriveNow(lease)) return;
         if (Resolve() && _state >= 0) World.TryWrite(e, "ActorInput", _state, state);
     }
 }
@@ -580,11 +581,17 @@ internal static class NpcRuntime
         lock (Gate) Driven.Remove(ctl.Entity.Value);
         // the body's lease ends: the broker restores its SteeringAgent and the game's AI (a body that is gone: its lease failed already)
         NpcInput.Leased.TryRemove(ctl.Entity.Value, out _);
-        if (NpcInput.Leases.TryRemove(ctl.Entity.Value, out var lease)) CreatureControl.ReleaseNow(lease);
+        if (NpcInput.Leases.TryGetValue(ctl.Entity.Value, out var lease)) CreatureControl.ReleaseNow(lease);
         var previous = ModContext.CurrentMod;
         if (ctl.Block.Context is { Alive: true } owner) ModContext.CurrentMod = owner;
         try { brain.Stop(ctl); } catch (Exception) { }
-        finally { ModContext.CurrentMod = previous; }
+        finally
+        {
+            // Stop runs after revocation too: retain the gate until it returns so a Stop/Pose cannot write through
+            // the legacy unleased path while a rider or the broker is restoring this body.
+            NpcInput.Leases.TryRemove(ctl.Entity.Value, out _);
+            ModContext.CurrentMod = previous;
+        }
     }
 
     /// <summary>Creatures of a block with a brain that the game spawned, which no block call saw: by their variant, or a template of the block's own.</summary>
