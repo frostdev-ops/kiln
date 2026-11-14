@@ -36,6 +36,15 @@
  * the session gets a row of its own ("items.fuel" stays what this build can do; "items.fuel_program" could say
  * whether it runs right now), so a manifest can go on requiring the static one.
  *
+ * The client gate (since 0.2.0-dev.28). Some capabilities ship switched off because only a real game client can
+ * confirm them (native/core/gates/README.md). While such a name is held, the core's own report for it is
+ * KILN_CAP_UNAVAILABLE, KILN_CAP_REASON_POLICY, text KILN_CAP_GATE_TEXT followed by the ids of the guided client
+ * checks that open it; that is what every reader sees, whatever a service reports for the name, and KilnApi.feature()
+ * answers false for it. kiln.json's "preview" (true, or a list of names) lifts it. A service whose slice is held
+ * installs that slice's hooks only when kiln_caps_held() says no, and reports its own row as usual (a held name may
+ * be reported pending: the held row hides it). The gate is the only switch for "off until the game test": do not
+ * read kiln.json for it and do not add a second one.
+ *
  * Threads: every function may be called on any thread. Strings in a KilnCapRow filled by at() or find() point into
  * storage of the calling thread and stay valid until that thread's next call of at() or find(); copy what you keep.
  * A subscriber runs on the thread that caused the change (the reporter's, the thread that revoked an owner, a core
@@ -55,6 +64,7 @@ extern "C" {
 #define KILN_CAP_NAME_MAX 96u  /* bytes in a name */
 #define KILN_CAP_TEXT_MAX 512u /* bytes in a reason text; report() cuts a longer one at a UTF-8 boundary */
 #define KILN_CAP_OWNER_MAX 256u /* reports one owner may hold (the core's own are not counted) */
+#define KILN_CAP_GATE_TEXT "game test pending: " /* how the text of a row held by the client gate begins */
 
 /* KilnCapRow.state. capabilities.json: "unavailable", "available", "pending". */
 enum {
@@ -140,6 +150,23 @@ typedef struct KilnCapsApi {
     /* Counts the changes a reader can see, from 1. Equal values mean equal rows. */
     uint64_t(KILN_CALL* generation)(void);
 } KilnCapsApi;
+
+/* since 0.2.0-dev.28. True when `name` is held by the client gate in this process: its row is unavailable for policy
+ * with a text that begins with KILN_CAP_GATE_TEXT. False for a name without a row, for a row that is unavailable for
+ * another reason, and when `caps` is NULL. Call it before you install the hooks of a client-gated slice. */
+static inline int kiln_caps_held(const KilnCapsApi* caps, KilnStr name) {
+    static const char prefix[] = KILN_CAP_GATE_TEXT;
+    KilnCapRow row;
+    size_t i;
+    if (!caps || !caps->find) return 0;
+    row.size = (uint32_t)sizeof row;
+    if (caps->find(name, &row) != KILN_OK) return 0;
+    if (row.state != KILN_CAP_UNAVAILABLE || row.reason != KILN_CAP_REASON_POLICY) return 0;
+    if (row.text.len < sizeof prefix - 1 || !row.text.ptr) return 0;
+    for (i = 0; i < sizeof prefix - 1; ++i)
+        if (row.text.ptr[i] != prefix[i]) return 0;
+    return 1;
+}
 
 #ifdef __cplusplus
 }

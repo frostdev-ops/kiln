@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "crash.h"
+#include "gates.h"
 #include "guard.h"
 #include "image.h"
 #include "log.h"
@@ -64,8 +65,9 @@ KilnResult KILN_CALL api_build_info(KilnBuildInfo* out) {
 
 bool KILN_CALL api_feature(KilnStr name) {
     const std::string_view n = sv(name);
+    // A feature held by the client gate (gates.h) answers false until its game test, like its kiln.caps row.
     const bool on = g_hooks && sigdb::feature(n) && (n.substr(0, 4) != "tick" || tick::installed()) &&
-                    (n != "world.lifecycle" || tick::lifecycle());
+                    (n != "world.lifecycle" || tick::lifecycle()) && !gates::is_held(n);
     if (!on && g_hooks) caps::feature_off(n);  // a tick hook that faulted since boot: its kiln.caps rows follow
     return on;
 }

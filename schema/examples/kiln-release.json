@@ -1,0 +1,16 @@
+{
+  "format": 1,
+  "mods": [
+    {
+      "id": "example",
+      "version": "1.2.3",
+      "side": "both",
+      "apiVersion": "0.2",
+      "artifact": {
+        "name": "example-1.2.3.zip",
+        "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "bytes": 12345
+      }
+    }
+  ]
+}

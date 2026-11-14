@@ -202,7 +202,9 @@ Counts: 33 areas, 33 hosted. Of the 199 entries, 199 are served by Enshwick's ow
 `Kiln.Points`, per-world config, reflected resources and `StatusLines` have Kiln C# APIs.
 Per-item data has a Kiln C# API since dev.26, `InstanceData` ([inventory.md](../modding/inventory.md#data-on-one-item-instancedata)):
 data that travels with a character (`Persist.Carried`), and two identical items swapped where Kiln did not see (they
-trade their data), are its limits. Affixes, survivor recruit/assign and base-limit increases remain gaps. Gear
+trade their data), are its limits. Affixes have a Kiln API since dev.27 ([affixes.md](../modding/affixes.md)); what
+remains there is its other kinds, its UI and the game checks. Survivor recruit/assign and base-limit increases remain
+gaps (in work for dev.28). Gear
 `EntityData` is limited to its item entity in the current world session; use `InstanceData` for items. `Pacing` has native loop/server-wait hooks and startup worker caps on supported server builds. Its lab changed
 server waits from 40 to 80 to 10 ms, then restored 40 ms; disposal left no callbacks. Both Enshwick hook orders
 ran in the lab. Client wait sites have static matches only; check `Pacing.Sites` and the client checklist.
