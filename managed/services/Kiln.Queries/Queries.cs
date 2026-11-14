@@ -22,8 +22,8 @@ public static unsafe partial class Queries
     /// <exception cref="ArgumentException">A coordinate is not finite, or the segment has no length or is longer than
     /// <see cref="MaxRayLength"/> (also as the floats the game gets).</exception>
     /// <exception cref="KilnUnavailableException"><c>queries.voxel_ray</c> is off.</exception>
-    /// <exception cref="InvalidOperationException">Not on the tick thread, or inside a world program's update or a wrap
-    /// stage (the world is mid-step there).</exception>
+    /// <exception cref="InvalidOperationException">Not on the tick thread, or inside a world program's update, a wrap
+    /// stage or a game system hook (the world is mid-step there).</exception>
     [ServerOnly, TickThreadOnly, RequiresCapability("queries.voxel_ray")]
     public static VoxelRayResult RaycastVoxels(WorldPosition from, WorldPosition to, byte realm = 0) =>
         Ray(from, to, realm, QueriesCaps.VoxelRay, "Queries.RaycastVoxels");
@@ -33,8 +33,8 @@ public static unsafe partial class Queries
     /// <exception cref="ArgumentException"><paramref name="maxDown"/> is not above 0 and at most <see cref="MaxRayLength"/>,
     /// or a coordinate is not finite.</exception>
     /// <exception cref="KilnUnavailableException"><c>queries.ground</c> is off.</exception>
-    /// <exception cref="InvalidOperationException">Not on the tick thread, or inside a world program's update or a wrap
-    /// stage (the world is mid-step there).</exception>
+    /// <exception cref="InvalidOperationException">Not on the tick thread, or inside a world program's update, a wrap
+    /// stage or a game system hook (the world is mid-step there).</exception>
     [ServerOnly, TickThreadOnly, RequiresCapability("queries.ground")]
     public static VoxelRayResult GroundBelow(WorldPosition from, double maxDown = 100, byte realm = 0)
     {
@@ -47,8 +47,8 @@ public static unsafe partial class Queries
     /// <exception cref="ArgumentException">An offset is not finite, or the two points are the same or more than
     /// <see cref="MaxRayLength"/> apart.</exception>
     /// <exception cref="KilnUnavailableException"><c>queries.line_of_sight</c> is off.</exception>
-    /// <exception cref="InvalidOperationException">Not on the tick thread, or inside a world program's update or a wrap
-    /// stage (the world is mid-step there).</exception>
+    /// <exception cref="InvalidOperationException">Not on the tick thread, or inside a world program's update, a wrap
+    /// stage or a game system hook (the world is mid-step there).</exception>
     [ServerOnly, TickThreadOnly, RequiresCapability("queries.line_of_sight")]
     public static VoxelSightResult VoxelLineOfSight(EntityId from, EntityId to, VoxelSightOptions? options = null)
     {
@@ -137,10 +137,11 @@ public static unsafe partial class Queries
         return new EntityQueryResult(true, null, list, (int)result.Total, result.Total > result.Written);
     }
 
-    // The native wrong-thread answer: off the tick thread, or (reason InsideProgram) inside a world program's update or a
-    // wrap stage on a game program's slice, where the world is mid-step, also on its own thread.
+    // The native wrong-thread answer: off the tick thread, or (reason InsideProgram) inside a world program's update, a
+    // wrap stage on a game program's slice or a game system hook's callback, where the world is mid-step, also on its own
+    // thread.
     internal static InvalidOperationException WrongThread(string api, NativeStr reason) => reason.ToString() == "InsideProgram"
-        ? new InvalidOperationException($"{api} cannot be called from inside a world program's update or a wrap stage (the world is mid-step): call it from a tick handler and hand the result in")
+        ? new InvalidOperationException($"{api} cannot be called from inside a world program's update, a wrap stage or a game system hook (the world is mid-step): call it from a tick handler and hand the result in")
         : new InvalidOperationException($"{api} must be called on the tick thread (use Scheduler.Post)");
 
     // a refusal always has a reason: the service's own word, or that it gave none

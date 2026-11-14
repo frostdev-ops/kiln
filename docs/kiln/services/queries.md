@@ -23,15 +23,16 @@ Two things to know before anything else:
 
 All are `[ServerOnly]`, `[TickThreadOnly]`. They change nothing in the world, so there is no change event.
 
-**Not from inside a world program or a wrap.** A ray (`RaycastVoxels`, `GroundBelow`, `VoxelLineOfSight`) and a path
-request (`RequestPath`, `FindPath`, `CanReach`) are refused inside a world program's update (`EcsPrograms`) or a wrap
-stage on a game program, also when that runs on the world's own thread, which is the tick thread: the world is in the
-middle of its step there, and the game's own jobs may use the voxel data the ray reads. The member throws
-`InvalidOperationException` ("cannot be called from inside a world program's update or a wrap stage"), as it does off
-the tick thread; nothing is cast, nothing is queued, and no capability row changes. Cast the ray or ask for the path in a
-tick handler and hand the result in (a field the program reads, or `Scheduler.Post` from the program). Natively,
-`ray_voxels` and `path_submit` answer `KILN_ERR_WRONG_THREAD` with the reason `InsideProgram`; kiln.world's
-`in_program()` (0.2.0-dev.28) tells kiln.queries where it is, and with an older kiln.world the members behave as before.
+**Not from inside a world program, a wrap or a system hook.** A ray (`RaycastVoxels`, `GroundBelow`,
+`VoxelLineOfSight`) and a path request (`RequestPath`, `FindPath`, `CanReach`) are refused inside a world program's
+update (`EcsPrograms`), a wrap stage on a game program, or a game system hook's callback (`GameSystems.Hook`), also when
+that runs on the world's own thread, which is the tick thread: the world is in the middle of its step there, and the
+game's own jobs may use the voxel data the ray reads. The member throws `InvalidOperationException` ("cannot be called
+from inside a world program's update, a wrap stage or a game system hook"), as it does off the tick thread; nothing is
+cast, nothing is queued, and no capability row changes. Cast the ray or ask for the path in a tick handler and hand the
+result in (a field the program reads, or `Scheduler.Post` from the program). Natively, `ray_voxels` and `path_submit`
+answer `KILN_ERR_WRONG_THREAD` with the reason `InsideProgram`; kiln.world's `in_program()` (0.2.0-dev.28) tells
+kiln.queries where it is, and with an older kiln.world the members behave as before.
 
 ## Three answers, never two
 

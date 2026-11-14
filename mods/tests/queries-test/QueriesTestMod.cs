@@ -5,7 +5,8 @@
 // counts, and taken away again.
 // Rays are spread over steps: the service admits 64 per step for everyone.
 // kiln.programs.json declares ray_probe, an entity program whose update asks for a ray while a window is armed: refused
-// from inside the program (InsideProgram), also on a game worker with the lab parallel switch (kiln/control/systems.parallel).
+// from inside the program (InsideProgram), also on a game worker with the lab parallel switch (kiln/control/systems.parallel),
+// and from a GameSystems.Hook callback on a game system.
 using System.Collections.Concurrent;
 using Kiln;
 using Kiln.Testing;
@@ -455,6 +456,37 @@ public sealed class QueriesTestMod : Mod
             Check(request.Outcome != null && request.Outcome.Contains(inside), "queries.path.inside-program", request.Outcome ?? "the program made no path request");
         }
         else Info("queries.path is off here: the path request from inside a program is not run");
+
+        // a game system hook's callback (GameSystems.Hook, kiln.types) on the world's thread: refused the same way. Several
+        // systems are hooked, since which ones run depends on what the world holds; the first callback that runs answers.
+        var hookSeen = new ConcurrentQueue<(string System, bool Tick, string Outcome)>();
+        var hookArmed = 1;
+        var hooks = new List<IDisposable>();
+        void FromHook(string system)
+        {
+            if (Interlocked.Exchange(ref hookArmed, 0) == 0) return;
+            hookSeen.Enqueue((system, Environment.CurrentManagedThreadId == _tickThread, Outcome(() =>
+            {
+                var r = Queries.RaycastVoxels(_probeA, _probeB);
+                return $"answered ok={r.Ok} hit={r.Hit != null} reason={r.Reason}";
+            })));
+        }
+        try
+        {
+            foreach (var system in new[] { "impact_prepare", "move_colliders", "despawn_link", "is_actor_in_shape", "environment_sensor", "network_level_attribute", "fuel_setup" })
+            {
+                try { hooks.Add(GameSystems.Hook(system, before: () => FromHook(system))); }
+                catch (Exception e) { Info($"no hook on {system}: {e.Message}"); }
+            }
+            for (var i = 0; i < 24 * 5 && hookSeen.IsEmpty; i++) await Next();
+        }
+        finally
+        {
+            foreach (var x in hooks) x.Dispose();
+        }
+        var seen = hookSeen.TryPeek(out var h) ? h : default;
+        Check(seen.Tick && seen.Outcome != null && seen.Outcome.Contains(inside), "queries.ray.inside-system-hook",
+            $"{hooks.Count} systems hooked; {seen.System ?? "none"}'s before callback on the tick thread={seen.Tick}: {seen.Outcome ?? "none ran in 5 s"}");
 
         // parallel: the lab switch puts entity programs on the game's workers; the refusal holds there too
         if (!LabSystems.Enabled) { Info("the lab parallel switch is off (no kiln/control/systems.parallel at start): queries.ray.inside-program.worker is not run"); return; }

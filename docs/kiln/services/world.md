@@ -285,8 +285,9 @@ Tick thread (Pre/Post) or inside your program: `component(e, hash, &size)`, `exi
 
 ### Is this thread inside a program? (since 0.2.0-dev.28)
 `in_program()`, appended after `wrap_original` (version stays 4: check `header.size` first), answers 1 while the
-calling thread runs a Kiln world program's update or a wrap stage on a game program's slice, else 0. The world is in
-the middle of its step there, maybe on a worker thread. Any thread, lock-free, no game call. A service whose calls must
+calling thread runs a Kiln world program's update, a wrap stage on a game program's slice, or a kiln.types system hook
+callback (`GameSystems.Hook`; kiln.types' `in_system_callback`, 0 for that part with an older kiln.types), else 0. The
+world is in the middle of its step there, maybe on a worker thread. Any thread, lock-free, no game call. A service whose calls must
 not run mid-step refuses them with `KILN_ERR_WRONG_THREAD` when it answers 1 (kiln.queries does so for its rays and
 path submits: [queries.md](queries.md)).
 

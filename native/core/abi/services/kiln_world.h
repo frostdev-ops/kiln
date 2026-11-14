@@ -688,10 +688,11 @@ typedef struct KilnWorldApi {
     uint64_t(KILN_CALL* wrap_original)(uintptr_t entry);
 
     /* ---- appended since 0.2.0-dev.28 (version stays 4). Check header.size ---- */
-    /* 1 when the calling thread is inside a Kiln world program's update (register_program, bind_program) or inside a
-     * wrap stage on a game program's slice (game_program_wrap), else 0. The world is in the middle of its step there
-     * (maybe on a worker): a service whose calls must not run mid-step refuses them with KILN_ERR_WRONG_THREAD when
-     * this answers 1. Any thread; lock-free, no game call. */
+    /* 1 when the calling thread is inside a Kiln world program's update (register_program, bind_program), inside a
+     * wrap stage on a game program's slice (game_program_wrap), or inside a kiln.types system_hook callback (kiln.types'
+     * in_system_callback; 0 for that part with a kiln.types that lacks it), else 0. The world is in the middle of its
+     * step there (maybe on a worker): a service whose calls must not run mid-step refuses them with
+     * KILN_ERR_WRONG_THREAD when this answers 1. Any thread; lock-free, no game call. */
     uint32_t(KILN_CALL* in_program)(void);
 } KilnWorldApi;
 

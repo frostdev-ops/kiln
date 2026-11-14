@@ -581,7 +581,18 @@ void drop_pool(int pool, bool touch_entries) {
 // ---- service ----
 
 bool game_in_slice() { return t_in_slice; }
-uint32_t KILN_CALL in_program() { return (t_in_program || t_in_slice) ? 1u : 0u; }
+// kiln.types' in_system_callback (since 0.2.0-dev.28): a system_hook callback runs on this thread. Set from on_ready,
+// when every service's table is there; null for a kiln.types without the member (or none): its part answers 0.
+std::atomic<uint32_t(KILN_CALL*)(void)> g_types_in_callback{nullptr};
+void in_program_resolve(const KilnTypesApi* types) {
+    const bool has = types && types->header.size >= offsetof(KilnTypesApi, in_system_callback) + sizeof(void*);
+    g_types_in_callback.store(has ? types->in_system_callback : nullptr, std::memory_order_release);
+}
+uint32_t KILN_CALL in_program() {
+    if (t_in_program || t_in_slice) return 1u;
+    const auto in_callback = g_types_in_callback.load(std::memory_order_acquire);
+    return in_callback && in_callback() ? 1u : 0u;
+}
 
 void wraps_init() {
     g_by_address.clear();

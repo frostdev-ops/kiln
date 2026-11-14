@@ -96,7 +96,7 @@ std::mutex g_hooks_mu;
 KilnHandle g_next_hook = 1;
 bool g_retained_updates = false;
 std::atomic<bool> g_have_step{false};
-thread_local bool t_system_callback = false;
+// t_system_callback (a system_hook callback runs on this thread) is system_hooks.h's, so its host test sees it.
 
 // Events
 int64_t g_ev_map = 0, g_ev_streams = 0, g_storage = 0;  // world.storage: Kiln's world pointer -> the ECS storage
@@ -374,10 +374,9 @@ void runner_detour(uintptr_t world, void* job, uint64_t index, uint64_t slot) {
 
 // Only the callback frame holds SEH: no C++ destructors can be skipped by a structured exception.
 bool guarded_system_hook(KilnSystemHookFn fn, void* ctx, void* user) {
-    const bool previous = t_system_callback;
-    t_system_callback = true;
-    __try { fn(ctx, user); t_system_callback = previous; return true; }
-    __except (EXCEPTION_EXECUTE_HANDLER) { t_system_callback = previous; return false; }
+    const bool previous = enter_system_callback();
+    __try { fn(ctx, user); leave_system_callback(previous); return true; }
+    __except (EXCEPTION_EXECUTE_HANDLER) { leave_system_callback(previous); return false; }
 }
 void call_system_hook(size_t index, void* ctx) {
     auto hook = g_hooks[index].load(std::memory_order_acquire);
@@ -687,6 +686,7 @@ const KilnTypesApi kTable = {
     &system_count, &system_info, &system_find, &system_set_enabled, &profile, &event_each, &event_post, &system_release_owner, &system_hook, &system_unhook,
     &external_runner,
     &type_impact_name,
+    &in_system_callback,
 };
 
 // After every service's kiln_plugin_main: kiln.world (it loads after kiln.types) and its wrap_original.

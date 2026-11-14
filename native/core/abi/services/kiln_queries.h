@@ -26,9 +26,9 @@
  *
  * Threads: ray_voxels and entities on the tick thread (Pre, Post, a posted task).
  *          ray_voxels and path_submit also answer KILN_ERR_WRONG_THREAD, with reason "InsideProgram", from inside a
- *          Kiln world program's update or a wrap stage on a game program's slice, on the world's own thread too (the
- *          world is mid-step there; kiln.world's in_program, since 0.2.0-dev.28): cast the ray or submit the request in
- *          a tick handler and hand the result in.
+ *          Kiln world program's update, a wrap stage on a game program's slice or a kiln.types system_hook callback,
+ *          on the world's own thread too (the world is mid-step there; kiln.world's in_program, since 0.2.0-dev.28):
+ *          cast the ray or submit the request in a tick handler and hand the result in.
  * Capabilities: "kiln.queries" (this table), "queries.voxel_ray" (ray_voxels; a sigdb feature).
  */
 #ifndef KILN_QUERIES_H

@@ -15,8 +15,8 @@ public static unsafe partial class Queries
     /// <exception cref="ArgumentException">Numbers that are no request: not finite, more than <see cref="MaxPathDistance"/>
     /// apart, a space outside 0..16 m, iterations outside 1..65535, no anchor.</exception>
     /// <exception cref="KilnUnavailableException"><c>queries.path</c> is off.</exception>
-    /// <exception cref="InvalidOperationException">Not on the tick thread, or inside a world program's update or a wrap
-    /// stage (the world is mid-step there).</exception>
+    /// <exception cref="InvalidOperationException">Not on the tick thread, or inside a world program's update, a wrap
+    /// stage or a game system hook (the world is mid-step there).</exception>
     [ServerOnly, TickThreadOnly, RequiresCapability("queries.path")]
     public static QueryPathTicket RequestPath(QueryPathRequest request) => Submit(request, QueriesCaps.Path, "Queries.RequestPath");
 

@@ -714,6 +714,27 @@ void in_program_rows() {
     check(winfo(f).faults == 1 && g_ip_inside.load() == 5 && in_program() == 0, "in_program: 0 after a stage that faulted");
     game_program_unwrap(f);
     wpre();
+
+    // kiln.types' in_system_callback (0.2.0-dev.28), resolved in on_ready: a system_hook callback counts as inside too
+    static uint32_t types_says = 0;
+    KilnTypesApi types{};
+    types.header = {sizeof(KilnTypesApi), KILN_TYPES_VERSION};
+    types.in_system_callback = [] { return types_says; };
+    types_says = 1;
+    in_program_resolve(&types);
+    check(in_program() == 1, "in_program: 1 while kiln.types says a system_hook callback runs on this thread");
+    types_says = 0;
+    check(in_program() == 0, "in_program: 0 when kiln.types says none runs");
+    types_says = 1;
+    types.header.size = offsetof(KilnTypesApi, in_system_callback);  // an older kiln.types: the slot is not its
+    in_program_resolve(&types);
+    check(in_program() == 0, "in_program: a kiln.types table too small for in_system_callback is not asked");
+    types.header.size = sizeof(KilnTypesApi);
+    types.in_system_callback = nullptr;
+    in_program_resolve(&types);
+    const uint32_t no_member = in_program();
+    in_program_resolve(nullptr);
+    check(no_member == 0 && in_program() == 0, "in_program: no member, or no kiln.types: that part answers 0");
 }
 
 void wraps_foreign() {
