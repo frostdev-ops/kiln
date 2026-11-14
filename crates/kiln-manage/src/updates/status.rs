@@ -44,6 +44,10 @@ pub struct SourceInfo {
     pub origin: SourceOrigin,
     /// True when the check uses the player's account at the provider (Nexus Mods); false for an anonymous read.
     pub authenticated: bool,
+    /// The source's complete settings, so editing it preserves its tag pattern, asset and channel. Optional when
+    /// reading an older result.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spec: Option<crate::manifest::UpdatesSpec>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -274,7 +278,7 @@ mod tests {
 
     fn status() -> ModUpdateStatus {
         let r = LibraryRef { kind: ModKind::Kiln, id: "m".into(), version: "1.0.0".into(), hash: "kdh1:0".into() };
-        let source = SourceInfo { provider: Provider::Github, destination: "example/mod".into(), origin: SourceOrigin::Manifest, authenticated: false };
+        let source = SourceInfo { provider: Provider::Github, destination: "example/mod".into(), origin: SourceOrigin::Manifest, authenticated: false, spec: None };
         ModUpdateStatus::new(r, "M", Some(source))
     }
 

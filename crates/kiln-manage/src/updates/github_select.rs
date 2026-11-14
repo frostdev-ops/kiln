@@ -69,6 +69,9 @@ fn id_of(v: &serde_json::Value) -> Option<String> {
 /// notes and every URL included, is ignored. An answer of another shape is refused as a whole.
 pub fn parse_page(body: &[u8]) -> Option<Vec<Release>> {
     let serde_json::Value::Array(items) = serde_json::from_slice::<serde_json::Value>(body).ok()? else { return None };
+    if items.len() > super::github::PER_PAGE {
+        return None;
+    }
     let mut out = Vec::with_capacity(items.len());
     for r in &items {
         let mut assets = Vec::new();
@@ -287,7 +290,7 @@ pub fn finish(source: &GithubSource, mod_id: &str, c: &Candidate, binding: Bindi
             let Ok(parsed) = ReleaseBinding::parse(bytes) else { return Outcome::Unknown(UnknownReason::InvalidMetadata) };
             // exactly one record of this mod; a file that names it twice, or not at all, is not about this release
             let Ok(record) = parsed.record_for(mod_id) else { return Outcome::Unknown(UnknownReason::InvalidMetadata) };
-            if record.semver().compare(&c.tag.version) != Ordering::Equal {
+            if record.semver() != c.tag.version {
                 return Outcome::Unknown(UnknownReason::InvalidMetadata);
             }
             if expected.as_deref().is_some_and(|name| name != record.artifact.name) {
@@ -684,6 +687,27 @@ mod tests {
         // a file that only looks like the binding by its name's case is not the binding
         let cased = vec![with(with(rel(1, "v1.0.0"), "lantern-glow-1.0.0.zip", 10, None), "Kiln-Release.json", 300, None)];
         assert!(candidate(&select(&stable, "lantern-glow", &cased, true, None, no_read)).declared.is_none());
+    }
+
+    #[test]
+    fn a_binding_keeps_the_tags_build_identity() {
+        let releases = [with(with(rel(1, "v1.0.0+linux"), "mod.zip", 10, None), "kiln-release.json", 300, None)];
+        let src = source(GLOW, "v{version}", Some("mod.zip"), UpdateChannel::Stable);
+        let binding = |version: &str| serde_json::json!({"format": 1, "mods": [{"id": "m", "version": version, "side": "both", "apiVersion": "0.2",
+            "artifact": {"name": "mod.zip", "sha256": GLOW_SHA, "bytes": 10}}]}).to_string().into_bytes();
+        for version in ["1.0.0+windows", "1.0.0"] {
+            let sel = select(&src, "m", &releases, true, None, |_, _| Fetched::Bytes(binding(version)));
+            assert_eq!(sel.outcome, Outcome::Unknown(UnknownReason::InvalidMetadata), "{version}");
+        }
+        let sel = select(&src, "m", &releases, true, None, |_, _| Fetched::Bytes(binding("1.0+linux")));
+        assert!(matches!(sel.outcome, Outcome::Candidate(_)), "normalized spelling with the same build is accepted");
+    }
+
+    #[test]
+    fn a_page_cannot_exceed_the_requested_release_count() {
+        let release = serde_json::json!({"id": 1, "tag_name": "v1.0.0", "draft": false, "prerelease": false, "assets": []});
+        let body = serde_json::to_vec(&vec![release; 101]).unwrap();
+        assert!(parse_page(&body).is_none());
     }
 
     #[test]

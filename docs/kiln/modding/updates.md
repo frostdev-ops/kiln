@@ -37,6 +37,7 @@ The sample `mods/samples/Hello` has the key (with a made-up repository).
    record of the mod, name the tag's version and a file of the release with the stated size; otherwise the release
    is not selectable (`invalid_metadata`), and no older release is taken instead. Without one, the result is a version
    and a link, with compatibility unknown.
+   The binding's normalized version must retain the tag's build metadata too (`+linux` and `+windows` are different identities).
 6. The zip is the one file named by `asset` (with the version as the tag spells it) or by `kiln-release.json`: none
    is `missing_asset`, several are `ambiguous_asset`.
 
@@ -75,6 +76,9 @@ seen earlier stays (`available`, stale); an earlier `current` becomes `unknown`.
 this Kiln's mod API, the side against the installed copy's); otherwise `unknown`. `coverage` is `incomplete` when the
 list was not read to its end.
 
+`source.spec` carries the complete source settings so the launcher's source dialog preserves its release tag,
+file name and channel when reopened. It is absent in older results.
+
 ## Which file is installed
 When a player adds a mod as an archive (zip, 7z, rar), Kiln records the archive's SHA-256 for every mod it held
 (`<data>/updates/receipts.json`). A release's `kiln-release.json` states its zip's SHA-256. Equal version and equal
@@ -92,7 +96,7 @@ digest: `current`. Equal version and another digest: `new-upload`. No record (a 
 - On disk: `<data>/updates/cache.json` (the last answer per source, its ETag, waits after failures and request
   limits; at most 10 MiB, rebuilt when unreadable). A source answered within 30 minutes is not asked again by a manual
   check (within a day by the daily one); `--refresh` asks anyway. After a failed request the next try waits 5 minutes,
-  doubling up to a day. A request has 10 seconds to connect and 10 to answer.
+  doubling up to a day. Each request has a 10-second total deadline, including its connection and answer.
 
 ## Not there yet
 - Kiln does not install an update: get it from its page and add it like any mod.

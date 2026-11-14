@@ -258,6 +258,18 @@ mod tests {
     }
 
     #[test]
+    fn the_source_dialog_gets_the_complete_source_spec() {
+        let (_t, dirs) = library("source-spec");
+        let gh = Fake(Provider::Github, Mutex::default());
+        let spec = serde_json::json!({"provider": "github", "repository": "example-org/lantern-glow",
+            "tagPattern": "mods/glow/v{version}", "asset": "glow-{version}.zip", "channel": "prerelease"});
+        let req = request(serde_json::json!({"offline": true, "source": {"action": "map", "kind": "kiln", "id": "lantern-glow", "spec": spec}}));
+        let r = run(&dirs, &[&gh], &req, NOW).unwrap();
+        let json = serde_json::to_value(of(&r, "lantern-glow")).unwrap();
+        assert_eq!(json["source"]["spec"], spec, "opening and saving the dialog must preserve the source's tag, asset and channel");
+    }
+
+    #[test]
     fn a_mapping_is_read_by_the_manifests_rules_and_a_changed_source_needs_the_players_yes() {
         let (_t, dirs) = library("mapping");
         let gh = Fake(Provider::Github, Mutex::default());
