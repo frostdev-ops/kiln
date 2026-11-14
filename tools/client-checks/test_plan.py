@@ -81,6 +81,50 @@ class Fixture:
 
 
 class ReadPack(unittest.TestCase):
+    def test_comments_and_strings_cannot_supply_a_missing_check(self):
+        f = Fixture(SOURCE + '''
+// [ClientCheck("04-comment", "Not compiled", Since = Dev28)]
+/* [ClientCheck("04-block", "Not compiled", Since = Dev28)] */
+const string Example = """[ClientCheck("04-string", "Not compiled", Since = Dev28)]""";
+''')
+        checks = plan.read_pack(os.path.join(f.root, "mods", "tests", "client-pass"))
+        self.assertEqual(len(checks), 7)
+
+    def test_unsupported_order_is_reported_instead_of_becoming_zero(self):
+        f = Fixture(SOURCE.replace("Order = 2201", "Order = MissingOrder"))
+        with self.assertRaises(plan.PlanError):
+            f.plan()
+
+    def test_unknown_release_or_session_is_reported_instead_of_omitting_a_check(self):
+        for old, new in (("Since = Dev28", "Since = UnknownRelease"),
+                         ("Needs = ClientCheckNeeds.Joined", "Needs = UnknownSession"),
+                         ('Area = "Camera"', "Area = UnknownArea"),
+                         ("[TwoPlayers]", "[UnknownTag]")):
+            with self.subTest(new=new), self.assertRaises(plan.PlanError):
+                Fixture(SOURCE.replace(old, new)).plan()
+
+    def test_a_conditionally_compiled_attribute_is_not_claimed_as_a_product_check(self):
+        f = Fixture(SOURCE.replace('[ClientCheck("03-c10"', '#if CHECKS\n    [ClientCheck("03-c10"')
+                    .replace('public Task C(CheckContext c) => null;', 'public Task C(CheckContext c) => null;\n#endif'))
+        with self.assertRaises(plan.PlanError):
+            f.plan()
+
+    def test_unicode_and_csharp_escapes_keep_the_title(self):
+        p = Fixture(SOURCE.replace("Final snapshot,", r"é\t\u263a,")).plan()
+        self.assertTrue(p["sessions"][0]["checks"][0]["title"].startswith("é\t☺,"))
+
+    def test_a_constant_in_another_class_cannot_change_the_release_silently(self):
+        f = Fixture(SOURCE + '\nclass Other { const string Dev28 = "unrelated"; }\n')
+        with self.assertRaises(plan.PlanError):
+            f.plan()
+
+    def test_array_initializers_keep_their_session_tags(self):
+        for tags in ('new[] { TwoPlayers }', 'new string[] { ClientCheckTags.TwoPlayers }'):
+            with self.subTest(tags=tags):
+                p = Fixture(SOURCE.replace("[TwoPlayers]", tags)).plan()
+                session = next(s for s in p["sessions"] if s["key"] == "D")
+                self.assertEqual([c["id"] for c in session["checks"]], ["03-c10"])
+
     def test_attributes_are_read_with_constants_strings_and_tags(self):
         f = Fixture()
         checks = {c["id"]: c for c in plan.read_pack(os.path.join(f.root, "mods", "tests", "client-pass"))}

@@ -62,6 +62,19 @@ class PlanError(Exception):
     """A source cannot be read; the message says why."""
 
 
+# Mask comments and C# literals before looking for code. Keep offsets and line numbers intact.
+NON_CODE = re.compile(r'//[^\n]*|/\*.*?\*/|(?P<raw>"{3,}).*?(?P=raw)|@"(?:[^"]|"")*"|'
+                      r'"(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'', re.S)
+
+
+def _masked(source: str, comments_only: bool = False) -> str:
+    def mask(m):
+        if comments_only and not m.group().startswith(("//", "/*")):
+            return m.group()
+        return re.sub(r"[^\n]", " ", m.group())
+    return NON_CODE.sub(mask, source)
+
+
 def _split_args(text: str) -> list[str]:
     """The top-level, comma-separated arguments of an attribute, strings and brackets respected."""
     out, depth, cur, i, n = [], 0, [], 0, len(text)
@@ -89,16 +102,25 @@ def _split_args(text: str) -> list[str]:
     return out
 
 
-def _string(expr: str, consts: dict[str, str]) -> str | None:
+def _string(expr: str, consts: dict[str, str | None]) -> str | None:
     """A C# string expression made of literals and known constants joined by +; None when it is something else."""
     parts = []
     for piece in _split_plus(expr):
         piece = piece.strip()
         m = re.fullmatch(r'"((?:[^"\\]|\\.)*)"', piece, re.S)
         if m:
-            parts.append(bytes(m.group(1), "utf-8").decode("unicode_escape") if "\\" in m.group(1) else m.group(1))
+            escapes = {'0': '\0', 'a': '\a', 'b': '\b', 'f': '\f', 'n': '\n', 'r': '\r', 't': '\t', 'v': '\v',
+                       '"': '"', "'": "'", '\\': '\\'}
+            def decode(e):
+                value = e.group()[1:]
+                return escapes[value] if value in escapes else chr(int(value[1:], 16))
+            parts.append(re.sub(r'\\(?:[0abfnrtv"\'\\]|u[0-9a-fA-F]{4}|U[0-9a-fA-F]{8}|x[0-9a-fA-F]{1,4})',
+                                decode, m.group(1)))
         elif piece in consts:
-            parts.append(consts[piece])
+            value = consts[piece]
+            if value is None:
+                raise PlanError(f"ambiguous string constant {piece}: use a literal in the attribute")
+            parts.append(value)
         else:
             return None
     return "".join(parts)
@@ -128,21 +150,25 @@ def _split_plus(expr: str) -> list[str]:
 def _attribute_bodies(source: str) -> list[tuple[int, str]]:
     """(line, text between the parentheses) of every [ClientCheck(...)] in a C# source."""
     found = []
-    for m in re.finditer(r"\[ClientCheck\(", source):
+    code = _masked(source)
+    for m in re.finditer(r"\[\s*(?:(?:global::)?Kiln\.Testing\.)?ClientCheck(?:Attribute)?\s*\(", code):
+        conditional = 0
+        for directive in re.finditer(r"^[ \t]*#(if|endif)\b", code[:m.start()], re.M):
+            conditional += 1 if directive.group(1) == "if" else -1
+        if conditional:
+            raise PlanError("a [ClientCheck] is conditionally compiled: the plan cannot decide its build symbols")
         i, depth, n = m.end(), 1, len(source)
         while i < n and depth:
-            c = source[i]
-            if c == '"':
-                i += 1
-                while i < n and source[i] != '"':
-                    i += 2 if source[i] == "\\" else 1
-            elif c == "(":
+            c = code[i]
+            if c == "(":
                 depth += 1
             elif c == ")":
                 depth -= 1
             i += 1
         if depth == 0:
             found.append((source.count("\n", 0, m.start()) + 1, source[m.end():i - 1]))
+        else:
+            raise PlanError(f"line {source.count(chr(10), 0, m.start()) + 1}: unclosed [ClientCheck]")
     return found
 
 
@@ -151,16 +177,19 @@ def read_pack(folder: str) -> list[dict]:
     files = sorted(glob.glob(os.path.join(folder, "*.cs")))
     if not files:
         raise PlanError(f"no C# sources in {folder}")
-    consts: dict[str, str] = {}
+    consts: dict[str, str | None] = {}
     sources = {}
     for f in files:
         try:
             with open(f, encoding="utf-8") as fh:
-                sources[f] = fh.read()
+                sources[f] = _masked(fh.read(), comments_only=True)
         except OSError as e:
             raise PlanError(f"cannot read {f}: {e}") from e
-        for m in re.finditer(r'const\s+string\s+(\w+)\s*=\s*"((?:[^"\\]|\\.)*)"\s*;', sources[f]):
-            consts[m.group(1)] = m.group(2)
+        code = _masked(sources[f])
+        for m in re.finditer(r'const\s+string\s+(\w+)\s*=\s*("(?:[^"\\]|\\.)*")\s*;', sources[f]):
+            if code[m.start():m.start() + 5] == "const":
+                name, value = m.group(1), _string(m.group(2), {})
+                consts[name] = None if name in consts and consts[name] != value else value
     checks = []
     for f, text in sources.items():
         for line, body in _attribute_bodies(text):
@@ -171,25 +200,42 @@ def read_pack(folder: str) -> list[dict]:
             cid, title = _string(args[0], consts), _string(args[1], consts)
             if cid is None:
                 raise PlanError(f"{where}: the check's id is not a string literal or a known constant")
+            if title is None:
+                raise PlanError(f"{where}: the check's title is not a string literal or a known constant")
             named = {}
             for a in args[2:]:
-                k, _, v = a.partition("=")
+                k, sep, v = a.partition("=")
+                if not sep or k.strip() not in {"Area", "Since", "Tags", "Needs", "Order", "Confirm"}:
+                    raise PlanError(f"{where}: unsupported [ClientCheck] argument {a}")
                 named[k.strip()] = v.strip()
             tags = []
             raw = named.get("Tags", "").strip()
             if raw:
-                inner = raw[raw.find("[") + 1:raw.rfind("]")] if "[" in raw else raw
+                array = re.fullmatch(r'\[(.*)\]|new\s*(?:string\s*)?\[\s*\]\s*\{(.*)\}', raw, re.S)
+                if not array:
+                    raise PlanError(f"{where}: unsupported Tags expression {raw}")
+                inner = array.group(1) if array.group(1) is not None else array.group(2)
                 for t in _split_args(inner):
-                    t = t.split(".")[-1].strip()
                     lit = _string(t, consts)
-                    tags.append(TAG_NAMES.get(t) or lit or t)
-            needs = named.get("Needs", "ClientCheckNeeds.Any").split(".")[-1].strip().lower()
-            since = _string(named.get("Since", '""'), consts) or named.get("Since", "")
+                    known = re.fullmatch(r'(?:(?:global::)?(?:Kiln\.Testing\.)?ClientCheckTags\.)?(\w+)', t)
+                    tag = lit if lit is not None else TAG_NAMES.get(known.group(1)) if known else None
+                    if tag is None:
+                        raise PlanError(f"{where}: unsupported tag {t}")
+                    tags.append(tag)
+            need = re.fullmatch(r'(?:(?:global::)?Kiln\.Testing\.)?ClientCheckNeeds\.(Any|Hosted|Joined)',
+                                named.get("Needs", "ClientCheckNeeds.Any"))
+            if not need:
+                raise PlanError(f"{where}: unsupported Needs expression {named['Needs']}")
+            needs = need.group(1).lower()
+            since = _string(named.get("Since", '""'), consts)
+            area = _string(named.get("Area", '""'), consts)
+            if since is None or area is None:
+                raise PlanError(f"{where}: Since and Area must be string literals or known constants")
             try:
                 order = int(named.get("Order", "0"))
             except ValueError:
-                order = 0
-            checks.append({"id": cid, "title": title or "", "area": _string(named.get("Area", '""'), consts) or "",
+                raise PlanError(f"{where}: unsupported Order expression {named['Order']}") from None
+            checks.append({"id": cid, "title": title, "area": area,
                            "since": since, "tags": tags, "needs": needs, "order": order, "where": where})
     return checks
 
