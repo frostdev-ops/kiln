@@ -85,6 +85,10 @@ enemy AI cannot take an AI-on role (`AiInhibited`).
   read through sigdb's `items/storage.next_id`; without it the check is off.
 - **Two-phase withdrawal:** when the broker's world program stops running in a server world, `creature_control` goes off
   (new admissions are refused), every bound body is quarantined at once and retired at the next Pre.
+- In plain words: a body under a lease is removed from the world when the broker cannot give it back as it was, and
+  when the broker itself has to stop, every body it holds is removed at the next step. A creature with a Kiln.Blocks
+  brain is leased ([npc-ai.md](../modding/npc-ai.md#how-a-brain-moves-its-body-since-020-dev28)), so this includes
+  brain creatures.
 
 ## Native table (v1)
 `bind_body`, `acquire_control`, `query_control` (any thread), `can_drive` (any thread), `release_control`, `notices`,
