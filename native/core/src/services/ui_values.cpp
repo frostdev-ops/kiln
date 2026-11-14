@@ -29,11 +29,11 @@ namespace {
 
 constexpr KilnHandle kHandleTag = 0x5576ull << 48;  // kiln.ui.values handles ("Uv"): another service's are not found
 constexpr KilnHandle kHandleMask = (1ull << 48) - 1;
-constexpr uint32_t kCallMagic = 0x55564331u;        // "UVC1"
+constexpr uint32_t kCallMagic = 0x55564331u;  // "UVC1"
 
 // The capability row of each list (change subscriptions follow the value rows: none of their own).
-const char* const kRows[kLists] = {"ui.values.detail", "ui.values.slot", "ui.values.held",
-                                   "ui.values.hud",    "ui.values.hud",  "ui.values.hud",
+const char* const kRows[kLists] = {"ui.values.detail",        "ui.values.slot",   "ui.values.held",
+                                   "ui.values.hud",           "ui.values.hud",    "ui.values.hud",
                                    "ui.values.tooltip_lines", "ui.slots.inspect", nullptr};
 const char* const kListNames[kLists] = {"detail", "slot",  "held",  "health", "stamina",
                                         "mana",   "lines", "slots", "changes"};
@@ -41,11 +41,11 @@ const char* const kListNames[kLists] = {"detail", "slot",  "held",  "health", "s
 // Edit masks per value kind (chapter 05a §5.1).
 constexpr uint32_t kMask[kValueKinds] = {
     KUI_FRACTION | KUI_CURRENT | KUI_MAXIMUM | KUI_LABEL | KUI_GAME_LABEL,  // detail
-    KUI_FRACTION | KUI_CURRENT | KUI_MAXIMUM,                              // slot
-    KUI_CURRENT | KUI_MAXIMUM,                                             // held
-    KUI_CURRENT | KUI_MAXIMUM,                                             // health
-    KUI_CURRENT | KUI_MAXIMUM,                                             // stamina
-    KUI_CURRENT | KUI_MAXIMUM,                                             // mana
+    KUI_FRACTION | KUI_CURRENT | KUI_MAXIMUM,                               // slot
+    KUI_CURRENT | KUI_MAXIMUM,                                              // held
+    KUI_CURRENT | KUI_MAXIMUM,                                              // health
+    KUI_CURRENT | KUI_MAXIMUM,                                              // stamina
+    KUI_CURRENT | KUI_MAXIMUM,                                              // mana
 };
 
 struct Registry {
@@ -147,9 +147,8 @@ KilnResult KILN_CALL t_subscribe(KilnOwner owner, uint32_t kind, uint32_t item_f
     clear_registration(out);
     if (owner == 0 || !fn || kind >= kValueKinds) return KILN_ERR_INVALID_ARGUMENT;
     if (kind >= KUI_HEALTH && item_filter != 0) return KILN_ERR_INVALID_ARGUMENT;  // HUD kinds: no item
-    return guarded("subscribe", [&] {
-        return register_in(owner, kind, item_filter, reinterpret_cast<void*>(fn), user, out);
-    });
+    return guarded("subscribe",
+                   [&] { return register_in(owner, kind, item_filter, reinterpret_cast<void*>(fn), user, out); });
 }
 
 KilnResult KILN_CALL t_tooltip_lines(KilnOwner owner, uint32_t item_filter, KilnUiLinesFn fn, void* user,
@@ -157,9 +156,8 @@ KilnResult KILN_CALL t_tooltip_lines(KilnOwner owner, uint32_t item_filter, Kiln
     if (!out || out->size < sizeof(KilnUiRegistration)) return KILN_ERR_INVALID_ARGUMENT;
     clear_registration(out);
     if (owner == 0 || !fn) return KILN_ERR_INVALID_ARGUMENT;
-    return guarded("tooltip_lines", [&] {
-        return register_in(owner, kListLines, item_filter, reinterpret_cast<void*>(fn), user, out);
-    });
+    return guarded("tooltip_lines",
+                   [&] { return register_in(owner, kListLines, item_filter, reinterpret_cast<void*>(fn), user, out); });
 }
 
 KilnResult KILN_CALL t_unsubscribe(KilnHandle h) {
@@ -176,9 +174,8 @@ KilnResult KILN_CALL t_subscribe_slots(KilnOwner owner, KilnUiSlotsFn fn, void* 
     if (!out || out->size < sizeof(KilnUiRegistration)) return KILN_ERR_INVALID_ARGUMENT;
     clear_registration(out);
     if (owner == 0 || !fn) return KILN_ERR_INVALID_ARGUMENT;
-    return guarded("subscribe_slots", [&] {
-        return register_in(owner, kListSlots, 0, reinterpret_cast<void*>(fn), user, out);
-    });
+    return guarded("subscribe_slots",
+                   [&] { return register_in(owner, kListSlots, 0, reinterpret_cast<void*>(fn), user, out); });
 }
 
 KilnResult KILN_CALL t_subscribe_changes(KilnOwner owner, KilnUiValueChangedFn fn, void*, KilnUiRegistration* out) {
@@ -228,11 +225,12 @@ KilnResult KILN_CALL op_intern(const KilnUiProviderContext* c, KilnStr s, KilnUi
         cs->latched = KUI_TEXT_BUDGET;
         return KILN_ERR_BUFFER_TOO_SMALL;
     }
-    const KilnResult rc = guarded("intern", [&] {
-        return text::intern(cs->provider->mod, std::string_view(s.ptr ? s.ptr : "", s.len), out);
-    });
-    if (rc == KILN_OK) cs->bytes += s.len;
-    else if (rc == KILN_ERR_BUFFER_TOO_SMALL) cs->latched = KUI_TEXT_BUDGET;
+    const KilnResult rc = guarded(
+        "intern", [&] { return text::intern(cs->provider->mod, std::string_view(s.ptr ? s.ptr : "", s.len), out); });
+    if (rc == KILN_OK)
+        cs->bytes += s.len;
+    else if (rc == KILN_ERR_BUFFER_TOO_SMALL)
+        cs->latched = KUI_TEXT_BUDGET;
     return rc;
 }
 
@@ -350,8 +348,9 @@ void fault(Provider& p, const char* what) {
             }
     }
     if (removed)
-        logf(KILN_LOG_WARN, "ui.values: %s provider of %s removed after %u faults in a row (last: %s); the game's "
-                            "own value is drawn again",
+        logf(KILN_LOG_WARN,
+             "ui.values: %s provider of %s removed after %u faults in a row (last: %s); the game's "
+             "own value is drawn again",
              kListNames[p.list], p.mod.c_str(), kFaultLimit, what);
 }
 
@@ -384,8 +383,8 @@ bool ensure_installed(uint32_t list) {
     if (ok) {
         logf(KILN_LOG_INFO, "ui.values: %s hooks installed (%s)", kListNames[list], row);
     } else {
-        logf(KILN_LOG_ERROR, "ui.values: %s hooks could not be installed; %s is off for this process",
-             kListNames[list], row);
+        logf(KILN_LOG_ERROR, "ui.values: %s hooks could not be installed; %s is off for this process", kListNames[list],
+             row);
         if (env().row_off) env().row_off(row, "kiln.ui.values could not install its game hooks; kiln.log says why");
     }
     return ok;
@@ -398,8 +397,8 @@ bool apply_edit(uint32_t kind, const KilnUiBarEdit& e, const std::string& mod, K
     if (f & ~kMask[kind]) return false;
     if ((f & KUI_LABEL) && (f & KUI_GAME_LABEL)) return false;
     if ((f & KUI_FRACTION) && !(std::isfinite(e.fraction) && e.fraction >= 0.0f && e.fraction <= 1.0f)) return false;
-    if (kind == KUI_DETAIL && (((f & KUI_CURRENT) && e.current > 0x7FFFFFFFu) ||
-                               ((f & KUI_MAXIMUM) && e.maximum > 0x7FFFFFFFu)))
+    if (kind == KUI_DETAIL &&
+        (((f & KUI_CURRENT) && e.current > 0x7FFFFFFFu) || ((f & KUI_MAXIMUM) && e.maximum > 0x7FFFFFFFu)))
         return false;
     if (kind >= KUI_HELD && (f & KUI_MAXIMUM) && e.maximum == 0) return false;
     if ((f & KUI_LABEL) && e.label_id != 0) {
@@ -451,7 +450,7 @@ KilnUiBarValue run_chain(uint32_t kind, const KilnUiItemView& view, const KilnUi
         ctx.owner = p.owner;
         ctx.text = &kTextOps;
         ctx.reserved = &cs;
-        KilnUiItemView v = view;     // the provider's own copies: a write through a cast-away const reaches nothing
+        KilnUiItemView v = view;  // the provider's own copies: a write through a cast-away const reaches nothing
         KilnUiBarValue in = acc;
         KilnUiBarEdit e{};
         e.size = sizeof e;

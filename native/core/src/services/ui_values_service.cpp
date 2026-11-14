@@ -3,8 +3,8 @@
 // links, kiln.client's local player and session, kiln.ui's last screen, guarded game-memory access, the log), the SEH
 // guard around providers, and the service's registration.
 //
-// Client only: on a dedicated server init() says no (there is no game UI to hook). On the client it never hooks at boot:
-// each kind installs its links when the first provider of that kind registers and kiln.caps shows the kind's row
+// Client only: on a dedicated server init() says no (there is no game UI to hook). On the client nothing is hooked at
+// boot: each kind installs its links when the first provider of that kind registers and kiln.caps shows the kind's row
 // available and not held by the client gate, so a row held until the owner's client pass never reaches game code.
 #include <cstddef>
 #include <cstring>
@@ -140,22 +140,22 @@ bool init() {
     wire();
     g_owner = reg::owner_create("kiln.ui.values");
     // Each feature resolves on its own; the rows (and the client gate) decide at registration time.
-    static const char* const kFeatures[] = {"ui.values.detail", "ui.values.slot", "ui.values.held", "ui.values.hud",
-                                            "ui.values.tooltip_lines", "ui.slots.inspect"};
+    static const char* const kFeatures[] = {"ui.values.detail", "ui.values.slot",          "ui.values.held",
+                                            "ui.values.hud",    "ui.values.tooltip_lines", "ui.slots.inspect"};
     std::string on, off;
     for (const char* f : kFeatures) {
         std::string& to = sigdb::feature(f) ? on : off;
         to += ' ';
         to += f;
     }
-    KLOG_I("ui.values: features resolved:%s; not resolved:%s. A kind hooks the game when its first provider "
-           "registers and its row is available",
-           on.empty() ? " none" : on.c_str(), off.empty() ? " none" : off.c_str());
+    KLOG_I(
+        "ui.values: features resolved:%s; not resolved:%s. A kind hooks the game when its first provider "
+        "registers and its row is available",
+        on.empty() ? " none" : on.c_str(), off.empty() ? " none" : off.c_str());
     return true;
 }
 
 }  // namespace
 }  // namespace kiln::uivalues
 
-KILN_SERVICE(ui_values, KILN_UI_VALUES_SERVICE, KILN_UI_VALUES_VERSION, kiln::uivalues::table(),
-             &kiln::uivalues::init);
+KILN_SERVICE(ui_values, KILN_UI_VALUES_SERVICE, KILN_UI_VALUES_VERSION, kiln::uivalues::table(), &kiln::uivalues::init);

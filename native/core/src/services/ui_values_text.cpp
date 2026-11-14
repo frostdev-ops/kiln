@@ -30,8 +30,11 @@ constexpr uint64_t kIdTag = 0x5554ull << 48;  // "UT": an id is never a small in
 constexpr uint64_t kIdIndex = (1ull << 48) - 1;
 
 enum Refusal : uint32_t { kRefNone = 0, kRefLength, kRefModBudget, kRefStoreBudget, kRefStoreStrings, kRefRate };
-const char* const kRefusalText[] = {"", "a string over 4096 bytes", "the mod's 8 MiB text budget is used up",
-                                    "the 64 MiB text store is full", "the store holds 65,536 strings",
+const char* const kRefusalText[] = {"",
+                                    "a string over 4096 bytes",
+                                    "the mod's 8 MiB text budget is used up",
+                                    "the 64 MiB text store is full",
+                                    "the store holds 65,536 strings",
                                     "more than 64 new strings a second (burst 128)"};
 
 struct Entry {
@@ -49,10 +52,10 @@ struct Mod {
 };
 struct Store {
     std::mutex mu;
-    std::deque<Entry> entries;                              // id index = position; never shrinks or moves
-    std::unordered_map<std::string_view, uint32_t> index;   // views into entries' bytes
+    std::deque<Entry> entries;                             // id index = position; never shrinks or moves
+    std::unordered_map<std::string_view, uint32_t> index;  // views into entries' bytes
     std::unordered_map<std::string, Mod> mods;
-    std::unordered_set<uint64_t> members;                   // (mod index << 32) | entry index
+    std::unordered_set<uint64_t> members;  // (mod index << 32) | entry index
     uint64_t charged = 0;
     uint32_t memberships = 0;
 };
@@ -106,10 +109,14 @@ bool valid_utf8(std::string_view s) {
         }
         size_t len;
         unsigned cp;
-        if (c >= 0xC2 && c <= 0xDF) len = 2, cp = c & 0x1F;
-        else if (c >= 0xE0 && c <= 0xEF) len = 3, cp = c & 0x0F;
-        else if (c >= 0xF0 && c <= 0xF4) len = 4, cp = c & 0x07;
-        else return false;  // a continuation byte, an overlong lead (C0, C1) or above U+10FFFF (F5..FF)
+        if (c >= 0xC2 && c <= 0xDF)
+            len = 2, cp = c & 0x1F;
+        else if (c >= 0xE0 && c <= 0xEF)
+            len = 3, cp = c & 0x0F;
+        else if (c >= 0xF0 && c <= 0xF4)
+            len = 4, cp = c & 0x07;
+        else
+            return false;  // a continuation byte, an overlong lead (C0, C1) or above U+10FFFF (F5..FF)
         if (i + len > n) return false;
         for (size_t k = 1; k < len; ++k) {
             if ((p[i + k] & 0xC0) != 0x80) return false;
@@ -143,10 +150,14 @@ KilnResult intern(const std::string& mod, std::string_view s, KilnUiTextId* out)
         }
         const uint64_t mod_charge = s.size() + kEntryOverhead + kMembershipCharge;
         const uint64_t store_charge = (exists ? 0 : s.size() + kEntryOverhead) + kMembershipCharge;
-        if (s.size() > kTextMaxBytes) refusal = kRefLength;
-        else if (m.charged + mod_charge > kModTextBudget) refusal = kRefModBudget;
-        else if (!exists && st.entries.size() >= kGlobalStrings) refusal = kRefStoreStrings;
-        else if (st.charged + store_charge > kGlobalTextBudget) refusal = kRefStoreBudget;
+        if (s.size() > kTextMaxBytes)
+            refusal = kRefLength;
+        else if (m.charged + mod_charge > kModTextBudget)
+            refusal = kRefModBudget;
+        else if (!exists && st.entries.size() >= kGlobalStrings)
+            refusal = kRefStoreStrings;
+        else if (st.charged + store_charge > kGlobalTextBudget)
+            refusal = kRefStoreBudget;
         else {
             refill(m, env().now_ms ? env().now_ms() : 0);
             if (m.tokens < 1) refusal = kRefRate;
@@ -177,8 +188,9 @@ KilnResult intern(const std::string& mod, std::string_view s, KilnUiTextId* out)
         }
     }
     if (log_refusal)
-        logf(KILN_LOG_WARN, "ui.values: text from %s refused (%s); its providers' edits that need new text are refused "
-                            "until it fits (nothing is evicted)",
+        logf(KILN_LOG_WARN,
+             "ui.values: text from %s refused (%s); its providers' edits that need new text are refused "
+             "until it fits (nothing is evicted)",
              mod.c_str(), kRefusalText[refusal]);
     return rc;
 }

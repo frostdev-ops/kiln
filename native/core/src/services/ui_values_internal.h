@@ -3,6 +3,7 @@
 //
 //   ui_values.cpp          the table, the owner registry (quotas, ordered provider lists, faults), the value chain
 //   ui_values_text.cpp     the process-lifetime text store
+//   ui_values_bars.cpp     the item detail bar and the slot bar (mids before the game draws a temporary Bar)
 //   ui_values_service.cpp  the production environment (owners, kiln.caps, sigdb, kiln.hooks, kiln.client, kiln.ui),
 //                          the SEH guards and the service's registration with the core
 //
@@ -23,17 +24,17 @@
 namespace kiln::uivalues {
 
 // ---- limits (chapter 05a §5.1, §5.2) ----
-inline constexpr uint32_t kValueKinds = 6;            // KUI_DETAIL .. KUI_MANA
-inline constexpr uint32_t kRegistrationsPerMod = 128; // value, line, slot and change subscriptions together
-inline constexpr uint32_t kFaultLimit = 5;            // consecutive faults that remove a registration
-inline constexpr size_t kTextMaxBytes = 4096;         // one string, without the NUL
+inline constexpr uint32_t kValueKinds = 6;             // KUI_DETAIL .. KUI_MANA
+inline constexpr uint32_t kRegistrationsPerMod = 128;  // value, line, slot and change subscriptions together
+inline constexpr uint32_t kFaultLimit = 5;             // consecutive faults that remove a registration
+inline constexpr size_t kTextMaxBytes = 4096;          // one string, without the NUL
 inline constexpr size_t kCallbackTextBytes = 64 * 1024;
 inline constexpr uint64_t kModTextBudget = 8ull << 20;
 inline constexpr uint64_t kGlobalTextBudget = 64ull << 20;
 inline constexpr uint32_t kGlobalStrings = 65536;
-inline constexpr uint64_t kEntryOverhead = 1 + 64;    // charged per string on top of its bytes
-inline constexpr uint64_t kMembershipCharge = 16;     // charged per mod holding a string
-inline constexpr double kNewStringsPerSecond = 64;    // per mod
+inline constexpr uint64_t kEntryOverhead = 1 + 64;  // charged per string on top of its bytes
+inline constexpr uint64_t kMembershipCharge = 16;   // charged per mod holding a string
+inline constexpr double kNewStringsPerSecond = 64;  // per mod
 inline constexpr double kNewStringsBurst = 128;
 
 // Registration lists: the value kinds (KilnUiValueKind), then these.
@@ -49,17 +50,17 @@ struct ClientNow {
     uint64_t step = 0;          // client-world steps since boot
 };
 struct Env {
-    std::string (*owner_name)(KilnOwner) = nullptr;   // the stable mod id ("mod:<id>", "native:<id>")
+    std::string (*owner_name)(KilnOwner) = nullptr;  // the stable mod id ("mod:<id>", "native:<id>")
     bool (*owner_alive)(KilnOwner) = nullptr;
-    uint64_t (*registry_version)() = nullptr;         // moves when an owner is revoked
-    double (*now_ms)() = nullptr;                     // monotonic milliseconds (text rate)
-    uint64_t (*tick_ms)() = nullptr;                  // GetTickCount64 (capture times)
+    uint64_t (*registry_version)() = nullptr;  // moves when an owner is revoked
+    double (*now_ms)() = nullptr;              // monotonic milliseconds (text rate)
+    uint64_t (*tick_ms)() = nullptr;           // GetTickCount64 (capture times)
     bool (*client_side)() = nullptr;
-    bool (*row_available)(const char* name) = nullptr;               // kiln.caps shows the row available
-    void (*row_off)(const char* name, const char* text) = nullptr;   // reports the row unavailable (faulted)
+    bool (*row_available)(const char* name) = nullptr;              // kiln.caps shows the row available
+    void (*row_off)(const char* name, const char* text) = nullptr;  // reports the row unavailable (faulted)
     bool (*client)(ClientNow* out) = nullptr;
-    bool (*screen)(KilnUiScreen* out) = nullptr;      // kiln.ui's last completed screen
-    bool (*read)(void* dst, uintptr_t src, size_t n) = nullptr;      // game memory, guarded
+    bool (*screen)(KilnUiScreen* out) = nullptr;                 // kiln.ui's last completed screen
+    bool (*read)(void* dst, uintptr_t src, size_t n) = nullptr;  // game memory, guarded
     bool (*write)(uintptr_t dst, const void* src, size_t n) = nullptr;
     bool (*symbol)(const char* name, uintptr_t* out) = nullptr;
     bool (*constant)(const char* name, int64_t* out) = nullptr;
@@ -77,15 +78,15 @@ void logf(int level, const char* fmt, ...);
 struct Provider {
     KilnHandle handle = 0;
     KilnOwner owner = 0;
-    std::string mod;            // stable mod id at registration (quotas and text are charged to it)
+    std::string mod;  // stable mod id at registration (quotas and text are charged to it)
     uint32_t list = 0;
-    uint32_t item = 0;          // 0 = any nonempty item
+    uint32_t item = 0;  // 0 = any nonempty item
     void* fn = nullptr;
     void* user = nullptr;
-    uint64_t seq = 0;           // accepted registration order
+    uint64_t seq = 0;  // accepted registration order
     std::atomic<bool> live{true};
-    std::atomic<uint32_t> faults{0};    // consecutive
-    std::atomic<uint32_t> refusal{0};   // the last refusal reason logged (once per transition)
+    std::atomic<uint32_t> faults{0};   // consecutive
+    std::atomic<uint32_t> refusal{0};  // the last refusal reason logged (once per transition)
 };
 using ProviderList = std::vector<std::shared_ptr<Provider>>;
 
@@ -96,7 +97,7 @@ KilnResult remove(KilnHandle h);
 // The live providers of a list in registration order, as one immutable snapshot (changes made while a dispatch holds
 // it apply to the next one). Never null.
 std::shared_ptr<const ProviderList> providers(uint32_t list);
-bool any(uint32_t list);  // lock-free: false = nothing registered (the hot path's early out)
+bool any(uint32_t list);              // lock-free: false = nothing registered (the hot path's early out)
 size_t active(std::string_view mod);  // registrations the mod holds (tests)
 
 // A fault of `p` (SEH, invalid edit, KILN_ERR_INTERNAL): the fifth in a row removes it.
@@ -118,9 +119,31 @@ bool ensure_installed(uint32_t list);
 struct ChainStamp {
     uint64_t session = 0, frame = 0, step = 0;
 };
-KilnUiBarValue run_chain(uint32_t kind, const KilnUiItemView& view, const KilnUiBarValue& game, const ChainStamp& stamp);
+KilnUiBarValue run_chain(uint32_t kind, const KilnUiItemView& view, const KilnUiBarValue& game,
+                         const ChainStamp& stamp);
 // Validates `e` against the kind's mask and the input; on success applies it to *acc. False = KUI_INVALID_EDIT.
 bool apply_edit(uint32_t kind, const KilnUiBarEdit& e, const std::string& mod, KilnUiBarValue* acc);
+
+// ---- game memory and sigdb through Env ----
+inline bool sig_constant(const char* name, int64_t* out) { return env().constant && env().constant(name, out); }
+inline bool sig_symbol(const char* name, uintptr_t* out) { return env().symbol && env().symbol(name, out) && *out; }
+template <class T>
+bool game_read(uintptr_t at, T* out) {
+    return at && env().read && env().read(out, at, sizeof(T));
+}
+
+// ---- the item view (ui_values_bars.cpp) ----
+inline constexpr size_t kViewBytes = 0x48;  // the ItemView prefix (ui/view.stride); a detail record's first 0x48 bytes
+struct ViewLayout {                         // offsets inside the prefix (sigdb ui/view.*)
+    int64_t page = 0, index = 0, item = 0, count = 0, pide = 0, durability = 0, durability_max = 0, fuel = 0,
+            fuel_max = 0, level = 0, rarity = 0;
+};
+bool load_view_layout(ViewLayout* out);  // false when a constant is missing or does not fit the prefix
+// Fills identity, flags and values of `v` from a copied prefix. base_flags: KUI_DETAIL_COPY for a detail record (an
+// all-zero identity then makes it KUI_SYNTHETIC), 0 for a slot's or a model's view. server_entity stays 0.
+void fill_view(const uint8_t* raw, const ViewLayout& layout, uint32_t base_flags, KilnUiItemView* v);
+void load_charge_layout();                  // once; the balancing offsets for units_per_charge
+uint32_t units_per_charge(uintptr_t play);  // max(1, the water charge amount) through play's balancing registry
 
 // ---- text (ui_values_text.cpp) ----
 namespace text {
@@ -135,12 +158,12 @@ bool valid_utf8(std::string_view s);  // also refuses NUL
 // Interns `s` for `mod`: KILN_OK + *out (0 for ""); KILN_ERR_INVALID_ARGUMENT (not UTF-8, a NUL);
 // KILN_ERR_BUFFER_TOO_SMALL (a length, budget or rate limit: KUI_TEXT_BUDGET).
 KilnResult intern(const std::string& mod, std::string_view s, KilnUiTextId* out);
-bool held_by(KilnUiTextId id, std::string_view mod);    // id 0 counts as held
-bool bytes(KilnUiTextId id, std::string_view* out);     // any id of the store; process-stable bytes
-bool game_text(KilnUiTextId id, GameText* out);         // for a descriptor's label: permanent bytes
+bool held_by(KilnUiTextId id, std::string_view mod);  // id 0 counts as held
+bool bytes(KilnUiTextId id, std::string_view* out);   // any id of the store; process-stable bytes
+bool game_text(KilnUiTextId id, GameText* out);       // for a descriptor's label: permanent bytes
 struct Usage {
-    uint64_t charged = 0;   // bytes charged
-    uint32_t strings = 0;   // strings (store) or memberships (a mod)
+    uint64_t charged = 0;  // bytes charged
+    uint32_t strings = 0;  // strings (store) or memberships (a mod)
 };
 Usage usage(std::string_view mod);
 Usage usage_all();
@@ -151,9 +174,9 @@ void reset_for_tests();
 struct CallState {
     uint32_t magic = 0;
     const Provider* provider = nullptr;
-    KilnUiTextId input_label = 0;   // the accumulated input's label: resolvable and usable by this callback
-    size_t bytes = 0;               // interned during this callback
-    uint32_t latched = 0;           // KUI_TEXT_BUDGET after a refused intern: the callback is refused
+    KilnUiTextId input_label = 0;  // the accumulated input's label: resolvable and usable by this callback
+    size_t bytes = 0;              // interned during this callback
+    uint32_t latched = 0;          // KUI_TEXT_BUDGET after a refused intern: the callback is refused
 };
 const KilnUiTextOps* text_ops();
 // Binds `cs` to the calling thread for the callback's duration (restores the previous one: nested calls).

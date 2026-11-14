@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Host tests of kiln.ui.values (src/services/ui_values*.cpp, abi/services/kiln_ui_values.h): the registry (quotas,
 // order, queued add/remove, retired owners, faults), the text store (budgets, rate, UTF-8, dedupe, lifetime) and the
-// value chain. The service's environment (owners, kiln.caps, kiln.client, kiln.hooks, game memory) is the fake below;
+// value chain; the detail and slot bars against fake descriptors. The service's environment (owners, kiln.caps, kiln.client, kiln.hooks, game memory) is the fake below;
 // "game memory" is this process's memory. Run by test-ui-values.sh (ASan/UBSan, host compiler, no Wine).
 #include <cmath>
 #include <cstdio>
@@ -14,6 +14,7 @@
 
 #include "../src/services/ui_values.cpp"
 #include "../src/services/ui_values_text.cpp"
+#include "../src/services/ui_values_bars.cpp"
 
 using namespace kiln::uivalues;
 
@@ -37,8 +38,8 @@ uint64_t version = 1;
 double clock_ms = 1000;
 uint64_t ticks = 5000;
 bool client_side = true;
-std::set<std::string> rows;           // rows kiln.caps shows available
-std::vector<std::string> rows_off;    // row_off reports
+std::set<std::string> rows;         // rows kiln.caps shows available
+std::vector<std::string> rows_off;  // row_off reports
 ClientNow client{};
 bool have_client = true;
 KilnUiScreen screen{};
@@ -60,7 +61,7 @@ std::vector<Raw> raws;
 std::vector<Mid> mids;
 KilnResult hook_result = KILN_OK;
 std::vector<std::string> logs;
-std::set<uintptr_t> unreadable;       // addresses whose reads fail (a guarded read of unmapped memory)
+std::set<uintptr_t> unreadable;  // addresses whose reads fail (a guarded read of unmapped memory)
 size_t writes = 0;
 
 KilnOwner owner(const std::string& name) {
@@ -199,7 +200,7 @@ KilnResult KILN_CALL pass(const KilnUiProviderContext*, const KilnUiItemView*, c
 
 struct Script {  // what a scripted provider does on each call
     const char* name = "";
-    int throws = 0;            // the next n calls throw
+    int throws = 0;  // the next n calls throw
     KilnResult result = KILN_OK;
     uint32_t reason = 0;
     uint32_t flags = 0;
@@ -210,10 +211,10 @@ struct Script {  // what a scripted provider does on each call
     bool label_from_intern = false;
     KilnUiTextId interned = 0;
     KilnResult intern_rc = KILN_OK;
-    KilnUiBarValue seen{};         // the input of the last call
+    KilnUiBarValue seen{};  // the input of the last call
     KilnUiItemView view{};
-    KilnHandle unsubscribe = 0;    // removed during the call
-    bool subscribe_more = false;   // registers another provider during the call
+    KilnHandle unsubscribe = 0;   // removed during the call
+    bool subscribe_more = false;  // registers another provider during the call
     int calls = 0;
 };
 
@@ -328,9 +329,11 @@ void quota() {
     for (int i = 0; i < 128; ++i) {
         auto r = reg_record();
         const KilnResult rc = (i % 2) ? T()->subscribe(a, KUI_SLOT, 0, &pass, nullptr, &r)
-                                      : T()->tooltip_lines(a, 0, [](const KilnUiProviderContext*, const KilnUiItemView*,
-                                                                    KilnUiLineWriter*, void*) -> KilnResult { return KILN_OK; },
-                                                           nullptr, &r);
+                                      : T()->tooltip_lines(
+                                            a, 0,
+                                            [](const KilnUiProviderContext*, const KilnUiItemView*, KilnUiLineWriter*,
+                                               void*) -> KilnResult { return KILN_OK; },
+                                            nullptr, &r);
         if (rc == KILN_OK && r.ok) hs.push_back(r.handle);
     }
     CHECK(hs.size() == 128 && active("mod:greedy") == 128, "quota: 128 registrations (value and line lists together)");
@@ -356,10 +359,10 @@ void quota() {
           "quota: a removal frees one place");
     fake::revoke(a);
     r = reg_record();
-    CHECK(T()->subscribe(reload, KUI_DETAIL, 0, &pass, nullptr, &r) == KILN_OK && r.ok == 1 &&
-              active("mod:greedy") == 1,
-          "quota: the retired owner's registrations are dropped and free the mod's places (%zu held)",
-          active("mod:greedy"));
+    CHECK(
+        T()->subscribe(reload, KUI_DETAIL, 0, &pass, nullptr, &r) == KILN_OK && r.ok == 1 && active("mod:greedy") == 1,
+        "quota: the retired owner's registrations are dropped and free the mod's places (%zu held)",
+        active("mod:greedy"));
 }
 
 void order_and_queued_changes() {
@@ -383,7 +386,8 @@ void order_and_queued_changes() {
     run_chain(KUI_DETAIL, item_view(42), game_value(KUI_DETAIL, 0.5f, 5, 10), {});
     CHECK(g_calls.order == (std::vector<std::string>{"first", "third"}),
           "queued: a provider removed during a dispatch is not called again; one added runs from the next dispatch "
-          "(%zu calls)", g_calls.order.size());
+          "(%zu calls)",
+          g_calls.order.size());
     s1.unsubscribe = 0;
     s1.subscribe_more = false;
     g_calls.order.clear();
@@ -408,7 +412,8 @@ void order_and_queued_changes() {
     fake::revoke(o);
     g_calls.order.clear();
     run_chain(KUI_DETAIL, item_view(42), game_value(KUI_DETAIL, 0.5f, 5, 10), {});
-    CHECK(g_calls.order.empty() && !any(KUI_DETAIL), "revoke: a retired owner's providers are gone at the next dispatch");
+    CHECK(g_calls.order.empty() && !any(KUI_DETAIL),
+          "revoke: a retired owner's providers are gone at the next dispatch");
 }
 
 uint32_t faults_of(uint32_t list) {
@@ -476,7 +481,8 @@ void text_store() {
     CHECK(intern_as("mod:u", "Fuel", &c) == KILN_OK && c == a && text::usage("mod:u").charged == 85 &&
               text::usage_all().strings == 1 && text::usage_all().charged == 4 + 65 + 16 + 16,
           "text: another mod's identical bytes share the string; that mod pays its full charge, the store one entry "
-          "+ two memberships (%llu)", (unsigned long long)text::usage_all().charged);
+          "+ two memberships (%llu)",
+          (unsigned long long)text::usage_all().charged);
     CHECK(intern_as("mod:t", "fuel", &b) == KILN_OK && b != a, "text: exact bytes, no case folding");
     std::string_view v;
     CHECK(text::bytes(a, &v) && v == "Fuel" && text::held_by(a, "mod:t") && text::held_by(a, "mod:u") &&
@@ -487,8 +493,10 @@ void text_store() {
     const char* bad[] = {"\xff", "\xc0\x80", "\xe0\x80\xaf", "\xed\xa0\x80", "\xf4\x90\x80\x80", "abc\xe2\x82", "\x80"};
     int refused = 0;
     for (const char* s : bad) refused += intern_as("mod:t", s, &b) == KILN_ERR_INVALID_ARGUMENT && b == 0;
-    CHECK(refused == 7, "text: invalid UTF-8 (bad byte, overlong, surrogate, above U+10FFFF, cut, lone continuation) "
-                        "-> INVALID_ARGUMENT (%d of 7)", refused);
+    CHECK(refused == 7,
+          "text: invalid UTF-8 (bad byte, overlong, surrogate, above U+10FFFF, cut, lone continuation) "
+          "-> INVALID_ARGUMENT (%d of 7)",
+          refused);
     CHECK(intern_as("mod:t", std::string_view("a\0b", 3), &b) == KILN_ERR_INVALID_ARGUMENT,
           "text: an embedded NUL -> INVALID_ARGUMENT");
     CHECK(intern_as("mod:t", "Wasserkanne \xc3\x9c\xc3\xb6\xc3\x9f \xe2\x82\xac \xf0\x9f\x94\xa5", &b) == KILN_OK,
@@ -501,13 +509,13 @@ void text_store() {
     CHECK(fake::logged("text from mod:t refused") == 1, "text: the same refusal again is not logged again");
     // the canonical empty text and game tuples
     text::GameText gt{};
-    CHECK(text::game_text(0, &gt) && gt.n == 0 && gt.p && gt.fnv == 0xcbf29ce484222325ull &&
-              text::game_text(a, &gt) && gt.n == 4 && std::memcmp(gt.p, "Fuel", 4) == 0 && gt.p[4] == 0 &&
-              gt.fnv == text::fnv64("Fuel", 4),
+    CHECK(text::game_text(0, &gt) && gt.n == 0 && gt.p && gt.fnv == 0xcbf29ce484222325ull && text::game_text(a, &gt) &&
+              gt.n == 4 && std::memcmp(gt.p, "Fuel", 4) == 0 && gt.p[4] == 0 && gt.fnv == text::fnv64("Fuel", 4),
           "text: GameText tuples point at permanent NUL-terminated bytes with the signed-byte FNV");
     CHECK(text::fnv64("\xc3\x9c", 2) != 0xcbf29ce484222325ull &&
-              text::fnv64("\xc3\x9c", 2) == ((((0xcbf29ce484222325ull ^ 0xffffffffffffffc3ull) * 0x100000001b3ull) ^
-                                             0xffffffffffffff9cull) * 0x100000001b3ull),
+              text::fnv64("\xc3\x9c", 2) ==
+                  ((((0xcbf29ce484222325ull ^ 0xffffffffffffffc3ull) * 0x100000001b3ull) ^ 0xffffffffffffff9cull) *
+                   0x100000001b3ull),
           "text: non-ASCII bytes hash sign-extended (kiln.ui's convention)");
 }
 
@@ -668,8 +676,7 @@ void text_through_providers() {
     s4.want = "Charges";
     add_value(again, KUI_DETAIL, 0, &text_provider, &s4);
     run_chain(KUI_DETAIL, item_view(3), game_value(KUI_DETAIL, 1, 1, 1), {});
-    CHECK(s4.id == s.id && text::usage("mod:labels").strings == 1 &&
-              text::usage("mod:labels").charged == 7 + 65 + 16,
+    CHECK(s4.id == s.id && text::usage("mod:labels").strings == 1 && text::usage("mod:labels").charged == 7 + 65 + 16,
           "reload: the same mod id gets the same id back with no new charge");
 }
 
@@ -716,6 +723,379 @@ void text_latch() {
           "latch: 64 KiB per callback (%d strings of 4096 taken), and the callback is refused", many.ok);
 }
 
+// ========================================================================================= S2: detail and slot bars
+// Fake game memory: a temporary Bar descriptor, a thumbnail descriptor whose +0x18 points at ItemDetail's record, a
+// slot's ItemView and the UI frame's chain to the water charge amount. Offsets are the client's (sigdb).
+struct alignas(16) Mem {
+    uint8_t bar[0x50];
+    uint8_t thumb[0x40];
+    uint8_t record[0x180];
+    uint8_t slot_view[0x48];
+    uint8_t app[0x100], data[0x10], state[0x40], play[0x80], registry[0x40], resource[0x100];
+    uintptr_t ui_app;
+};
+Mem g_mem;
+
+template <class T>
+void put(uint8_t* base, size_t at, T v) {
+    std::memcpy(base + at, &v, sizeof v);
+}
+template <class T>
+T get(const uint8_t* base, size_t at) {
+    T v;
+    std::memcpy(&v, base + at, sizeof v);
+    return v;
+}
+uintptr_t addr(const void* p) { return reinterpret_cast<uintptr_t>(p); }
+
+const text::GameText kGameLabel{"Water", 5, 0x1234};
+
+void fill_bar(float fraction, uint32_t current, uint32_t maximum) {
+    std::memset(g_mem.bar, 0xCD, sizeof g_mem.bar);
+    put(g_mem.bar, 0, fraction);
+    put(g_mem.bar, 4, current);
+    put(g_mem.bar, 8, maximum);
+    put(g_mem.bar, 0x38, kGameLabel);
+}
+// An ItemView prefix: page, index, item, count, pide, fuel / max (u16).
+void fill_view_bytes(uint8_t* v, uint32_t page, uint8_t index, uint32_t item, uint32_t count, uint32_t pide,
+                     uint16_t fuel, uint16_t fuel_max) {
+    std::memset(v, 0, 0x48);
+    put(v, 0, page);
+    put(v, 4, index);
+    put(v, 8, item);
+    put(v, 0x10, count);
+    put(v, 0x14, pide);
+    put(v, 0x18, uint32_t{70});
+    put(v, 0x1c, uint32_t{100});
+    put(v, 0x20, fuel);
+    put(v, 0x22, fuel_max);
+    put(v, 0x24, uint32_t{3});
+    put(v, 0x2c, uint8_t{2});
+}
+
+void prime_bars() {
+    fake::reset();
+    kiln::uivalues::g_bars = {};
+    kiln::uivalues::g_charges_tried = false;
+    set_installer(KUI_DETAIL, &kiln::uivalues::install_bars);
+    set_installer(KUI_SLOT, &kiln::uivalues::install_bars);
+    fake::symbols = {{"ui/DetailBarDraw", 0x140c1401aull}, {"ui/SlotBarDraw", 0x140c05895ull}};
+    fake::constants = {{"ui/bar.fraction", 0},
+                       {"ui/bar.current", 4},
+                       {"ui/bar.max", 8},
+                       {"ui/bar.label", 0x38},
+                       {"ui/detail.view", 0x18},
+                       {"ui/view.stride", 0x48},
+                       {"ui/view.inventoryPage", 0},
+                       {"ui/view.slotIndex", 4},
+                       {"ui/view.item", 8},
+                       {"ui/view.count", 0x10},
+                       {"ui/view.pide", 0x14},
+                       {"ui/view.durability", 0x18},
+                       {"ui/view.durabilityMax", 0x1c},
+                       {"ui/view.fuel", 0x20},
+                       {"ui/view.fuelMax", 0x22},
+                       {"ui/view.level", 0x24},
+                       {"ui/view.rarity", 0x2c},
+                       {"ui/ui.data", 0xd0},
+                       {"ui/state.play", 0x38},
+                       {"ui/play.balancing", 0x40},
+                       {"ui/balancing.rootData", 0x20},
+                       {"ui/balancing.waterChargeAmount", 0xfc}};
+    // the UI frame's chain: UiApp -> app; app+0xd0 -> data; *data = state; state+0x38 -> play; play+0x40 -> registry;
+    // registry+0x20 -> resource; resource+0xfc = 64 raw fuel units a charge
+    std::memset(&g_mem, 0, sizeof g_mem);
+    g_mem.ui_app = addr(g_mem.app);
+    fake::symbols["ui/UiApp"] = addr(&g_mem.ui_app);
+    put(g_mem.app, 0xd0, addr(g_mem.data));
+    put(g_mem.data, 0, addr(g_mem.state));
+    put(g_mem.state, 0x38, addr(g_mem.play));
+    put(g_mem.play, 0x40, addr(g_mem.registry));
+    put(g_mem.registry, 0x20, addr(g_mem.resource));
+    put(g_mem.resource, 0xfc, uint32_t{64});
+    put(g_mem.thumb, 0x18, addr(g_mem.record));
+    fake::client = ClientNow{77, 3, 9000};
+    fake::screen.frame = 500;
+    fake::screen.ui_state = KILN_UI_STATE_PLAY;
+}
+
+KilnMidFn mid_at(const char* label) {
+    for (const auto& m : fake::mids)
+        if (m.label == label) return m.fn;
+    return nullptr;
+}
+void draw_detail() {
+    KilnRegisters r{};
+    r.rcx = addr(g_mem.bar);
+    r.rdi = addr(g_mem.thumb);
+    if (KilnMidFn fn = mid_at("ui.values/DetailBarDraw")) fn(&r, nullptr);
+}
+void draw_slot() {
+    KilnRegisters r{};
+    r.rcx = addr(g_mem.bar);
+    r.rbx = addr(g_mem.slot_view);
+    if (KilnMidFn fn = mid_at("ui.values/SlotBarDraw")) fn(&r, nullptr);
+}
+
+struct Seen {  // what a provider was handed, and where
+    KilnUiItemView view{};
+    KilnUiBarValue in{};
+    KilnUiProviderContext ctx{};
+    uintptr_t view_at = 0, in_at = 0;
+    int calls = 0;
+};
+KilnResult KILN_CALL observe(const KilnUiProviderContext* c, const KilnUiItemView* v, const KilnUiBarValue* in,
+                             KilnUiBarEdit*, void* user) {
+    auto* s = static_cast<Seen*>(user);
+    s->view = *v;
+    s->in = *in;
+    s->ctx = *c;
+    s->view_at = addr(v);
+    s->in_at = addr(in);
+    ++s->calls;
+    return KILN_OK;
+}
+bool inside(uintptr_t a, const void* p, size_t n) { return a >= addr(p) && a < addr(p) + n; }
+
+void bars_install_and_view() {
+    prime_bars();
+    const KilnOwner o = fake::owner("mod:bars");
+    Seen seen;
+    add_value(o, KUI_DETAIL, 0, &observe, &seen);
+    add_value(o, KUI_DETAIL, 0xAA, &observe, &seen);
+    CHECK(fake::mids.size() == 1 && fake::mids[0].target == 0x140c1401aull && fake::raws.empty(),
+          "install: the first detail provider places one mid at DetailBarDraw, the second none (%zu)",
+          fake::mids.size());
+    fill_bar(0.0f, 0, 100);  // detail water: charges
+    fill_view_bytes(g_mem.record, 0x5000, 3, 0xAA, 1, 17500, 0, 6400);
+    std::memset(g_mem.record + 0x48, 0xEE, 0x180 - 0x48);  // the rest of ItemDetail's record is not an ItemView
+    draw_detail();
+    const KilnUiItemView& v = seen.view;
+    CHECK(seen.calls == 2 && v.size == sizeof(KilnUiItemView) && v.item == 0xAA && v.inventory_page == 0x5000 &&
+              v.slot_index == 3 && v.count == 1 && v.client_entity == 17500 && v.server_entity == 0 &&
+              v.flags == (KUI_DETAIL_COPY | KUI_INVENTORY_SLOT | KUI_CLIENT_ENTITY),
+          "detail view: the record's ItemView prefix, a client entity, no server entity (flags %u)", v.flags);
+    CHECK(v.fuel == 0 && v.fuel_max == 6400 && v.units_per_charge == 64 && v.durability == 70 &&
+              v.durability_max == 100 && v.level == 3 && v.rarity == 2,
+          "detail view: raw fuel units widened from u16, the charge divisor through the frame's play (%u)",
+          v.units_per_charge);
+    CHECK(seen.in.kind == KUI_DETAIL && seen.in.current == 0 && seen.in.maximum == 100 && seen.in.fraction == 0.0f &&
+              seen.in.label_is_override == 0,
+          "detail input: the bar's own numbers (charges) and the game's label");
+    CHECK(v.local_player == 77 && v.session == 3 && v.frame == 501 && seen.ctx.frame == 501 &&
+              seen.ctx.client_step == 9000 && seen.ctx.session == 3 && v.screen.ui_state == KILN_UI_STATE_PLAY,
+          "detail stamp: the frame being drawn (last completed + 1), the client session, step and local player");
+    CHECK(!inside(seen.view_at, &g_mem, sizeof g_mem) && !inside(seen.in_at, &g_mem, sizeof g_mem),
+          "pointers: a provider gets copies, never a game pointer");
+    CHECK(fake::writes == 0 && get<uint32_t>(g_mem.bar, 8) == 100, "pass-through: nothing is written");
+    // the slot: its own mid, installed by its own first provider
+    Seen slot;
+    add_value(o, KUI_SLOT, 0, &observe, &slot);
+    CHECK(fake::mids.size() == 2 && fake::mids[1].target == 0x140c05895ull,
+          "install: the slot kind places its own mid");
+    fill_bar(0.5f, 3200, 6400);  // slot water: raw fuel units
+    fill_view_bytes(g_mem.slot_view, 0x5000, 4, 0xBB, 1, 0, 3200, 6400);
+    draw_slot();
+    CHECK(slot.calls == 1 && slot.view.flags == KUI_INVENTORY_SLOT && slot.view.client_entity == 0 &&
+              slot.view.count == 1 && slot.in.current == 3200 && slot.in.maximum == 6400 && slot.in.fraction == 0.5f,
+          "slot view: a stack without a pide is a slot without a client entity; input in raw fuel units");
+    // an unreadable record: no provider is called, nothing is written
+    const int before = seen.calls;
+    fake::unreadable.insert(addr(g_mem.record) + 0x10);
+    draw_detail();
+    CHECK(seen.calls == before && fake::writes == 0, "guard: an unreadable record is skipped");
+    fake::unreadable.clear();
+}
+
+void bars_synthetic() {
+    prime_bars();
+    const KilnOwner o = fake::owner("mod:synthetic");
+    Seen seen;
+    add_value(o, KUI_DETAIL, 0, &observe, &seen);
+    fill_bar(1.0f, 7, 7);
+    fill_view_bytes(g_mem.record, 0, 0, 0xCC, 0, 0, 0, 0);  // the game's prefix for an item id alone
+    draw_detail();
+    const KilnUiItemView& v = seen.view;
+    CHECK(seen.calls == 1 && v.item == 0xCC && v.flags == (KUI_DETAIL_COPY | KUI_SYNTHETIC) && v.client_entity == 0 &&
+              v.server_entity == 0 && v.inventory_page == 0 && v.slot_index == 0 && v.count == 0,
+          "synthetic: an item id with no slot, count or entity (flags %u)", v.flags);
+    fill_view_bytes(g_mem.record, 0x5000, 0, 0xCC, 5, 0, 0, 0);  // a real stack without a pide
+    draw_detail();
+    CHECK(v.flags == (KUI_DETAIL_COPY | KUI_INVENTORY_SLOT) && v.count == 5 && v.client_entity == 0,
+          "non-pide stack: an inventory slot without a client entity, not synthetic");
+}
+
+void bars_chain_writes() {
+    prime_bars();
+    const KilnOwner a = fake::owner("mod:a"), b = fake::owner("mod:b");
+    Script s1, s2;
+    s1.name = "a";
+    s1.flags = KUI_CURRENT | KUI_FRACTION;
+    s1.current = 5;
+    s1.fraction = 0.25f;
+    s2.name = "b";
+    s2.flags = KUI_CURRENT;
+    s2.current = 9;
+    const KilnHandle h1 = add_value(a, KUI_DETAIL, 0, &scripted, &s1);
+    const KilnHandle h2 = add_value(b, KUI_DETAIL, 0, &scripted, &s2);
+    fill_bar(0.5f, 50, 100);
+    fill_view_bytes(g_mem.record, 0x5000, 1, 0xAA, 1, 900, 3200, 6400);
+    draw_detail();
+    CHECK(get<uint32_t>(g_mem.bar, 4) == 9 && get<float>(g_mem.bar, 0) == 0.25f && get<uint32_t>(g_mem.bar, 8) == 100 &&
+              s2.seen.current == 5 && s2.seen.fraction == 0.25f,
+          "last provider wins: the second sees the first's output (current %u, fraction %.2f) and its CURRENT stands",
+          get<uint32_t>(g_mem.bar, 4), get<float>(g_mem.bar, 0));
+    CHECK(fake::writes == 2, "commit: only the changed fields are written (%zu writes)", fake::writes);
+    // a refusal keeps its predecessor's output
+    s2.flags = KUI_FRACTION | KUI_CURRENT;
+    s2.fraction = 0.75f;
+    s2.current = 11;
+    s2.result = KILN_ERR_UNAVAILABLE;
+    fill_bar(0.5f, 50, 100);
+    draw_detail();
+    CHECK(get<float>(g_mem.bar, 0) == 0.25f && get<uint32_t>(g_mem.bar, 4) == 5,
+          "refusal: the refused edit is dropped, the earlier provider's stands");
+    T()->unsubscribe(h1);
+    // an invalid edit writes nothing
+    const uint8_t* bar = g_mem.bar;
+    uint8_t snapshot[sizeof g_mem.bar];
+    struct Bad {
+        uint32_t flags;
+        float fraction;
+        uint32_t current, maximum;
+        KilnUiTextId label;
+        const char* what;
+    } bad[] = {{KUI_FRACTION, 1.5f, 0, 0, 0, "fraction 1.5"},
+               {KUI_FRACTION, NAN, 0, 0, 0, "fraction NaN"},
+               {KUI_FRACTION, -0.1f, 0, 0, 0, "fraction -0.1"},
+               {KUI_CURRENT, 0, 0x80000000u, 0, 0, "detail current 2147483648"},
+               {KUI_MAXIMUM, 0, 0, 0xFFFFFFFFu, 0, "detail maximum 4294967295"},
+               {KUI_LABEL | KUI_GAME_LABEL, 0, 0, 0, 0, "LABEL and GAME_LABEL"},
+               {KUI_LABEL, 0, 0, 0, 0x5554000000000001ull, "a foreign text id"},
+               {0x20, 0, 0, 0, 0, "an unknown flag"}};
+    int clean = 0;
+    for (const Bad& x : bad) {
+        T()->unsubscribe(h2);
+        Script s;
+        s.name = "bad";
+        s.flags = x.flags | KUI_CURRENT;  // a valid field with the invalid one: the whole edit goes
+        s.current = 1;
+        if (x.flags & KUI_CURRENT) s.current = x.current;
+        s.fraction = x.fraction;
+        s.maximum = x.maximum;
+        s.label = x.label;
+        const KilnHandle h = add_value(b, KUI_DETAIL, 0, &scripted, &s);
+        fill_bar(0.5f, 50, 100);
+        std::memcpy(snapshot, bar, sizeof snapshot);
+        const size_t w = fake::writes;
+        draw_detail();
+        const bool ok = s.calls == 1 && std::memcmp(snapshot, bar, sizeof snapshot) == 0 && fake::writes == w;
+        if (!ok) std::printf("  (%s wrote)\n", x.what);
+        clean += ok;
+        T()->unsubscribe(h);
+    }
+    CHECK(clean == 8,
+          "invalid edit: nothing written for %d of 8 (fraction out of range or NaN, detail numbers above "
+          "Int32.MaxValue, both label bits, a foreign text id, an unknown flag)",
+          clean);
+    Script edge;
+    edge.flags = KUI_CURRENT | KUI_MAXIMUM;
+    edge.current = 0x7FFFFFFFu;
+    edge.maximum = 0x7FFFFFFFu;
+    add_value(b, KUI_DETAIL, 0, &scripted, &edge);
+    fill_bar(0.5f, 50, 100);
+    draw_detail();
+    CHECK(get<uint32_t>(g_mem.bar, 4) == 0x7FFFFFFFu && get<uint32_t>(g_mem.bar, 8) == 0x7FFFFFFFu,
+          "detail numbers: Int32.MaxValue itself is taken");
+}
+
+void bars_slot_zero() {
+    prime_bars();
+    const KilnOwner o = fake::owner("mod:slot");
+    Seen seen;
+    add_value(o, KUI_SLOT, 0, &observe, &seen);
+    fill_bar(1.0f, 0, 0);  // fuel 0/0: the game draws it full
+    fill_view_bytes(g_mem.slot_view, 0x5000, 0, 0xBB, 1, 600, 0, 0);
+    uint8_t snapshot[sizeof g_mem.bar];
+    std::memcpy(snapshot, g_mem.bar, sizeof snapshot);
+    draw_slot();
+    CHECK(seen.calls == 1 && seen.in.fraction == 1.0f && seen.in.current == 0 && seen.in.maximum == 0 &&
+              seen.view.fuel == 0 && seen.view.fuel_max == 0,
+          "slot 0/0: the provider is called with the full bar");
+    CHECK(
+        std::memcmp(snapshot, g_mem.bar, sizeof snapshot) == 0 && fake::writes == 0 && get<float>(g_mem.bar, 0) == 1.0f,
+        "slot 0/0: a pass-through leaves it full, nothing written");
+    Script label;
+    label.flags = KUI_LABEL;  // no label on a slot
+    add_value(o, KUI_SLOT, 0, &scripted, &label);
+    draw_slot();
+    CHECK(std::memcmp(snapshot, g_mem.bar, sizeof snapshot) == 0 && fake::writes == 0, "slot: a label edit is invalid");
+}
+
+void bars_labels() {
+    prime_bars();
+    const KilnOwner a = fake::owner("mod:label-a"), b = fake::owner("mod:label-b");
+    Script s1;
+    s1.intern = "Charges";
+    s1.label_from_intern = true;
+    s1.flags = KUI_LABEL;
+    add_value(a, KUI_DETAIL, 0, &scripted, &s1);
+    fill_bar(0.5f, 50, 100);
+    fill_view_bytes(g_mem.record, 0x5000, 1, 0xAA, 1, 900, 0, 0);
+    draw_detail();
+    const auto written = get<text::GameText>(g_mem.bar, 0x38);
+    std::string_view stored;
+    text::bytes(s1.interned, &stored);
+    CHECK(s1.intern_rc == KILN_OK && written.p == stored.data() && written.n == 7 &&
+              written.fnv == text::fnv64("Charges", 7),
+          "label: LABEL writes a GameText over the store's permanent bytes, not the provider's");
+    Script s2;
+    s2.flags = KUI_GAME_LABEL;
+    const KilnHandle h2 = add_value(b, KUI_DETAIL, 0, &scripted, &s2);
+    fill_bar(0.5f, 50, 100);
+    const size_t w0 = fake::writes;
+    draw_detail();
+    const auto kept = get<text::GameText>(g_mem.bar, 0x38);
+    CHECK(s2.seen.label_is_override == 1 && s2.seen.label_id == s1.interned && kept.p == kGameLabel.p &&
+              kept.n == kGameLabel.n && kept.fnv == kGameLabel.fnv && fake::writes == w0,
+          "label: GAME_LABEL after another provider's LABEL keeps the game's own text (nothing written)");
+    T()->unsubscribe(h2);
+    Script s3;
+    s3.flags = KUI_LABEL;  // id 0: cleared
+    add_value(b, KUI_DETAIL, 0, &scripted, &s3);
+    fill_bar(0.5f, 50, 100);
+    draw_detail();
+    const auto cleared = get<text::GameText>(g_mem.bar, 0x38);
+    CHECK(cleared.n == 0 && cleared.p != nullptr && cleared.fnv == text::fnv64("", 0),
+          "label: LABEL with id 0 clears it to the empty text");
+}
+
+void bars_kinds_alone() {
+    prime_bars();
+    fake::symbols.erase("ui/DetailBarDraw");
+    const KilnOwner o = fake::owner("mod:alone");
+    auto r = reg_record();
+    CHECK(T()->subscribe(o, KUI_DETAIL, 0, &pass, nullptr, &r) == KILN_ERR_UNAVAILABLE && fake::rows_off.size() == 1 &&
+              fake::rows_off[0] == "ui.values.detail",
+          "kinds: a detail site that did not resolve turns ui.values.detail off");
+    r = reg_record();
+    CHECK(T()->subscribe(o, KUI_SLOT, 0, &pass, nullptr, &r) == KILN_OK && r.ok == 1 && fake::mids.size() == 1,
+          "kinds: the slot kind still installs and registers");
+    prime_bars();
+    fake::constants.erase("ui/view.rarity");
+    r = reg_record();
+    CHECK(T()->subscribe(fake::owner("mod:alone2"), KUI_SLOT, 0, &pass, nullptr, &r) == KILN_ERR_UNAVAILABLE &&
+              fake::mids.empty(),
+          "kinds: a missing view constant installs nothing");
+    prime_bars();
+    fake::rows.erase("ui.values.slot");  // held by the client gate
+    r = reg_record();
+    CHECK(T()->subscribe(fake::owner("mod:held"), KUI_SLOT, 0, &pass, nullptr, &r) == KILN_ERR_UNAVAILABLE &&
+              fake::mids.empty(),
+          "gate: a held row never reaches game code");
+}
+
 }  // namespace
 
 int main() {
@@ -728,6 +1108,12 @@ int main() {
     text_rate_and_budgets();
     text_through_providers();
     text_latch();
+    bars_install_and_view();
+    bars_synthetic();
+    bars_chain_writes();
+    bars_slot_zero();
+    bars_labels();
+    bars_kinds_alone();
     std::printf(g_fail ? "%d FAILED\n" : "all passed\n", g_fail);
     return g_fail ? 1 : 0;
 }
