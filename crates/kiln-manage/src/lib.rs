@@ -57,6 +57,8 @@
 //! | [`catalog`] | local game-data catalogs (items, templates, ...) for the linter, VS Code, Kiln.GameIds |
 //! | [`lint`] | `kiln lint`: mod files against schema/*.schema.json, ids, references, manifest consistency, licences |
 //! | [`nexus`] | the online mod catalog on Nexus Mods, Mod Manager Download (nxm://) links, the API key store |
+//! | [`net`] | the HTTP layer of `kiln publish` and the update check: fixed hosts per provider, public addresses only, no redirects, a fake transport for tests |
+//! | [`release_binding`] | `kiln-release.json`: which mod, version and zip a release holds |
 
 pub mod error;
 pub mod task;
@@ -133,6 +135,8 @@ pub mod lint;
 
 // the online catalog on Nexus Mods (network calls need feature `http`)
 pub mod nexus;
+pub mod net;
+pub mod release_binding;
 
 pub use error::{Error, ErrorCode, Result};
 
