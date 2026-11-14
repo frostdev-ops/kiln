@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Lab test of the game-program surface (chapter 06a; docs in native/core/abi/services/kiln_world.h v4 until
+       Kiln.Systems has its page). Player-free. The managed part checks Kiln.Testing.LabSystems (the lab parallel
+       switch); the native part (native/, kiln-systems-test.dll in kiln/plugins) checks kiln.world's C table. Both print
+       PASS/FAIL lines to kiln.log; the lab needs kiln/control/systems.parallel. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <GenerateRuntimeConfigurationFiles>false</GenerateRuntimeConfigurationFiles>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <!-- LabSystems is a lab member (KILNX001) -->
+    <NoWarn>$(NoWarn);KILNX001</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../managed/Kiln.Api/Kiln.Api.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/Kiln.Testing/Kiln.Testing.csproj" Private="false" ExcludeAssets="runtime" />
+    <None Include="kiln.mod.json" CopyToOutputDirectory="PreserveNewest" />
+    <Compile Remove="native/**" />
+  </ItemGroup>
+</Project>

@@ -262,6 +262,10 @@ a held row reads `unavailable`, `policy`, `game test pending: <ids>` until then.
 | `repl.observe` | sigdb feature, static | core (sigdb); `kiln.repl` lowers it (`faulted`) when its send-step hook fails | — | what the server sends each peer can be read (server, and a hosted world's machine 0) |
 | `repl.client` | sigdb feature (client exe), static | core (sigdb); `kiln.repl` and `Kiln.Replication` lower it (`service-older`) while kiln.repl has no receive side; `wrong-side` on a server | `11-repl.receive-watch` | what this Kiln client receives can be watched |
 | `repl.loopback` | sigdb feature (server exe), static | core (sigdb); `kiln.repl` and `Kiln.Replication` lower it (`policy`) without kiln.json's policy `any` and kiln.net's lab port; `wrong-side` on a client | — | the loopback harness (`ReplicationLab`, lab servers only) answers |
+| `world.systems` | sigdb feature | sigdb | — | the program scheduler (`world/StepPrograms`, `RunInitPrograms`, `SliceTaskFn`) and the players mask resolved |
+| `systems.threads` | service row | kiln.world | — | the server world's players mask can be read (what puts its program slices on the game's workers) |
+| `systems.wraps` | service row | kiln.world | — | Before/After/Replace on the game's programs work on this build; unavailable while native SET is loaded |
+| `systems.wraps.client` | service row (client) | kiln.world | `06a-wraps.client` | wraps on the client world's programs; `wrong-side` on a dedicated server |
 | `hooks.typed` | sigdb feature | core | - | kiln.hooks has typed links (`detour_typed`, `call_with_frame`, `fingerprint`): a hook or call of a game function with float, stack and struct-return positions |
 | `sig/<symbol>` | sigdb feature | core | - | the symbol has a `sig` descriptor, resolved, and its function's code fits the descriptor on this build (one row per described symbol: `sig/time/SetTimeScale`, `sig/items/GetItemVolume`, ...). Off: the reason names the argument that no longer fits; the symbol itself may still resolve. Check it before a native hook relies on the described signature |
 | `items.volume` | sigdb feature | core | - | `items/GetItemVolume` resolved |
