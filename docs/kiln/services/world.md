@@ -177,7 +177,8 @@ Events.On<EntityScaleChangedEvent>(e => Log.Info(e.ToString()));
 - **What it is not.** The rendered transform only: colliders, attachments and `ScaleComponent` keep their size, and
   nothing is promised about physics. A creature's uniform size is `CreatureRef.Scale` (unchanged). What a player sees,
   and what a vanilla player sees, is check `13-world.transform-scale` of the guided game test; until it has run the docs
-  claim the tracked write and its readback only.
+  claim the tracked write and its readback only. `world.transform_scale` stays held on both sides until that check
+  confirms what a player sees; the client-pass profile's `"preview": true` opens it for testing.
 - **The place of the scale** is read from the game's type table when Kiln.World starts (its first use): `transform`, then
   `scale`, of one of two shapes (a struct of three float32 at 0, 4, 8, or a static array of three float32), 12 bytes,
   inside the component, 4-aligned. Any other shape turns `world.transform_scale` off with what was found; nothing is

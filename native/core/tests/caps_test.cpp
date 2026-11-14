@@ -15,9 +15,11 @@ inline unsigned long GetCurrentProcessId() { return 4242; }
 #include "../src/sigdb.cpp"
 #include "../src/services/service.cpp"
 #include "../src/gates.cpp"  // kiln_gates.g.h: test-caps.sh generates it from native/core/gates
+#include "../src/config.cpp"
 #include "../src/services/caps.cpp"
 
 #include <cstdarg>
+#include <barrier>
 #include <condition_variable>
 #include <future>
 
@@ -67,6 +69,7 @@ ImageInfo test_image;
 const ImageInfo& image() { return test_image; }
 double now_ms() { return 0; }
 std::string to_utf8(std::wstring_view w) { return std::string(w.begin(), w.end()); }
+std::wstring to_wide(std::string_view s) { return std::wstring(s.begin(), s.end()); }
 const char* side_name(uint32_t side) { return side == KILN_SIDE_CLIENT ? "client" : "server"; }
 const Paths& paths() { return t_paths; }
 std::string utc_now() { return "2026-11-11T22:40:00Z"; }
@@ -88,6 +91,7 @@ bool write_file_atomic(const std::filesystem::path& file, std::string_view text)
     return true;
 }
 namespace log {
+void set_level(int) {}
 void writef(int level, const char*, const char* fmt, ...) {
     char b[512];
     va_list ap;
@@ -167,6 +171,7 @@ void reset() {
     caps::g_order.clear();
     caps::g_order_gen = 0;
     caps::g_rows_built = false;
+    caps::g_gates_built = false;
     caps::g_hooks = false;
     caps::g_verified = false;
     caps::g_safe_idle.clear();
@@ -929,6 +934,22 @@ void client_gate(const std::filesystem::path& dir) {
         return false;
     };
 
+    // Early plugins and in-core init callbacks can query the table before core_rows has run.
+    reset();
+    gates::use_list_for_tests(list);
+    gates::configure(KILN_SIDE_SERVER, false, {});
+    CHECK(kiln_caps_held(T, ks("camera.fov")) == 1,
+          "gate: an init callback sees the hold before core_rows and leaves its hook off");
+    const KilnOwner early = owner("plugin:early");
+    rep(early, "camera.fov", A, KILN_CAP_REASON_NONE);
+    CHECK(is("camera.fov", U, KILN_CAP_REASON_POLICY),
+          "gate: a service reporting before core_rows cannot expose a held row as available");
+    revoke(early);
+    reset();
+    gates::use_list_for_tests(list);  // init_image failed: configure is never called
+    CHECK(kiln_caps_held(T, ks("markers.compass")) == 1 && kiln_caps_held(T, ks("queries.server_only")) == 1,
+          "gate: early safe-idle readers see holds from both sides before core_rows");
+
     boot(KILN_SIDE_SERVER, false, {});
     const Got fuel = get("items.fuel");
     CHECK(fuel.rc == KILN_OK && fuel.state == U && fuel.reason == KILN_CAP_REASON_POLICY &&
@@ -1029,14 +1050,84 @@ void client_gate(const std::filesystem::path& dir) {
     reset();
 }
 
+void client_preview(const std::filesystem::path& dir) {
+    const auto old = t_paths.kiln;
+    t_paths.kiln = dir / "preview-config";
+    std::filesystem::create_directories(t_paths.kiln);
+    const auto read = [&](const char* text) {
+        kiln::g_config = kiln::Config{};
+        kiln::g_doc = nlohmann::json{};
+        write(t_paths.kiln / "kiln.json", text);
+        kiln::load_config();
+        kiln::apply_side(KILN_SIDE_CLIENT);
+        return kiln::config();
+    };
+    CHECK(read(R"({"preview":true})").preview_all && read(R"({"preview":"all"})").preview_all,
+          "preview config: true and all lift every gate");
+    CHECK(read(R"({"preview":["camera.fov",7,"items.fuel"]})").preview ==
+              std::vector<std::string>({"camera.fov", "items.fuel"}),
+          "preview config: a list keeps names and ignores non-strings");
+    CHECK(!read(R"({"preview":true,"client":{"preview":["camera.fov"]}})").preview_all &&
+              kiln::config().preview == std::vector<std::string>({"camera.fov"}) &&
+              !read(R"({"preview":true,"client":{"preview":false}})").preview_all,
+          "preview config: the side list or false replaces top-level true");
+    for (const char* text : {R"({"preview":7})", R"({"preview":"true"})", R"({"preview":{}})",
+                             R"({"preview":true,"client":{"preview":null}})"}) {
+        const auto cfg = read(text);
+        CHECK(!cfg.preview_all && cfg.preview.empty(), "preview config: a wrong type leaves all gates held (%s)", text);
+    }
+    const auto bad = read(R"({"preview":true,"client":{"clr":"bad","preview":false}})");
+    CHECK(!bad.preview_all && bad.preview.empty(),
+          "preview config: an unrelated malformed side key cannot discard preview false");
+    std::filesystem::remove_all(t_paths.kiln);
+    t_paths.kiln = old;
+}
+
+// The unconfigured path is also used after boot's early safe-idle exit. Its first callers may be worker threads.
+void client_gate_threads() {
+    namespace gates = kiln::gates;
+    std::vector<std::string> names;
+    for (int i = 0; i < 2048; ++i) names.push_back("gate." + std::to_string(i));
+    std::vector<gates::Gate> list;
+    for (const auto& name : names) list.push_back({name.c_str(), "99-thread", gates::kBoth});
+    list.push_back({nullptr, nullptr, 0});
+    gates::use_list_for_tests(list.data());
+    std::barrier start(16);
+    std::atomic<bool> good{true};
+    std::vector<std::thread> readers;
+    for (int i = 0; i < 16; ++i) readers.emplace_back([&] {
+        start.arrive_and_wait();
+        for (int n = 0; n < 20; ++n)
+            if (!gates::is_held("gate.1024") || gates::held().size() != names.size()) good = false;
+    });
+    for (auto& reader : readers) reader.join();
+    CHECK(good, "gate: concurrent first reads in safe idle keep every held name");
+    std::atomic<bool> done{false};
+    readers.clear();
+    for (int i = 0; i < 8; ++i) readers.emplace_back([&] {
+        while (!done)
+            if (!gates::is_held("gate.1024") || gates::held().size() != names.size()) good = false;
+    });
+    for (int i = 0; i < 100; ++i) gates::configure(KILN_SIDE_CLIENT, false, {});
+    done = true;
+    for (auto& reader : readers) reader.join();
+    CHECK(good, "gate: boot configuration can overlap readers without invalidating their lists");
+    gates::use_list_for_tests(nullptr);
+    gates::configure(KILN_SIDE_SERVER, false, {});
+}
+
 int main(int argc, char** argv) {
     if (argc != 2) return 2;
     const std::filesystem::path dir = argv[1];
+    static const kiln::gates::Gate empty_gates[] = {{nullptr, nullptr, 0}};
+    kiln::gates::use_list_for_tests(empty_gates);  // the registry tests below supply their own rows
     rules();
     subscribers();
     reentrant_read_strings();
     core_rows(dir);
     client_gate(dir);
+    client_gate_threads();
+    client_preview(dir);
     json_file();
     writer();
     writer_retry();
