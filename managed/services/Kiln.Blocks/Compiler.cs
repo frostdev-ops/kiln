@@ -125,6 +125,7 @@ internal static partial class Compiler
         // A kind's plan is being staged on this thread: whoever asked (an inline status, a data file's block named for the
         // first time, a closure over the mod's own ledger), the block joins the plan and nothing is committed.
         if (KindTransaction.Current is { } staging) return staging.Define(mod, name, block);
+        if (KindApply.NameReserved(mod, name)) throw new BlockError(name, null, "the name belongs to a block kind's pending or applied plan");
         var (handle, low, label) = Lower(mod, name, block);
         low.Commit();
         mod.Handles[name] = handle;

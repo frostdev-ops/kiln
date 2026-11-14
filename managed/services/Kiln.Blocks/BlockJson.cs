@@ -132,6 +132,8 @@ internal static class BlockJson
                 foreach (var p in doc.RootElement.EnumerateObject())
                 {
                     if (p.Name is "format" or "comment" or "$schema") continue;
+                    // resource patches are not blocks: kiln.content reads this section itself, in a boot generation (docs/kiln/modding/resource-patches.md)
+                    if (p.Name == "resourcePatches") continue;
                     var kind = Kinds.FirstOrDefault(k => k.Section == p.Name);
                     // "provider-mod:plural": a kind another mod registered (Blocks.RegisterKind). Its provider is a dependency, so it loaded first.
                     if (kind.Make == null && KindRegistry.IsExternalSection(p.Name))
@@ -159,7 +161,10 @@ internal static class BlockJson
                     {
                         var (name, value, make, section) = (b.Name, b.Value, kind.Make, p.Name);
                         BlockHandle? done = null;
-                        Func<BlockHandle> compile = () => done ??= CompileOne(mod, section, name, value, make);
+                        // A staging attempt may be rolled back. Its handle must never satisfy a later ordinary data pass.
+                        Func<BlockHandle> compile = () => done ?? (KindTransaction.Current != null
+                            ? CompileOne(mod, section, name, value, make)
+                            : done = CompileOne(mod, section, name, value, make));
                         mod.Pending[name] = compile;
                         entries.Add((rel, p.Name, name, compile));
                     }

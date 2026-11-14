@@ -80,7 +80,12 @@ public sealed class BootDefinitions
     {
         [typeof(StatusBlock)] = "statuses", [typeof(EffectBlock)] = "effects", [typeof(ItemBlock)] = "items", [typeof(SpellBlock)] = "spells",
         [typeof(TalentBlock)] = "talents",
+        // not a block Kiln.Blocks compiles: the staged record is the document kiln.content's patches collector reads
+        [typeof(ResourcePatchBlock)] = ResourcePatches,
     };
+
+    /// <summary>The kind of <see cref="ResourcePatchBlock"/>: fields of a game resource, set before the game reads it.</summary>
+    internal const string ResourcePatches = "resourcePatches";
 
     /// <summary>The kinds of chapter 08 §4.1 that this build does not lower yet (they need id reservations or a pack the boot lowering does
     /// not build): staging them answers <c>NotInBootKinds</c>.</summary>

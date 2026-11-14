@@ -49,6 +49,7 @@ void decide(bool hooks, const std::string& safe_idle);
 void bound();
 bool after_clr(bool clr_started, void (*write_state)(void* user, const std::string& last_line), void* user);
 nlohmann::json report();
+void late_hold(void (*write_state)(void* user, const std::string& last_line), void* user);
 }  // namespace kiln::boot_svc
 
 namespace kiln {
@@ -455,6 +456,20 @@ void hold_boot(void* user, const std::string& last_line) {
     wait_for_file_text(paths().logs / L"kiln.log", last_line);
 }
 
+// kiln.boot's stop after the entry point (a required boot mod whose published content could not be applied,
+// boot_svc b_activation_fault): the same state files as hold_boot, from the facts boot() ended with.
+BootFacts* g_late_facts = nullptr;
+void late_hold_boot(void*, const std::string& last_line) {
+    if (!g_late_facts) return;
+    const std::string why = "a required boot mod's content could not be applied, so Kiln stopped the start (no save loads "
+                            "without it); boot.json \"boot\" says which mod and why";
+    progress_state::failed(why);
+    g_late_facts->errors.push_back(why);
+    write_boot_json(*g_late_facts);
+    wait_for_file_text(paths().state / L"progress.json", "\"failed\"");
+    wait_for_file_text(paths().logs / L"kiln.log", last_line);
+}
+
 void boot() {
     snapshot_entry();  // before anything loads a DLL
     init_paths();
@@ -572,6 +587,8 @@ void boot() {
     native_mods::run_late();  // chain DLLs named in kiln/chain.ini [late]: after everything Kiln hosts hooked
     check_entry_patch(f);
     write_boot_json(f);
+    g_late_facts = new BootFacts(f);  // never freed: kiln.boot may need it at any later moment
+    boot_svc::late_hold(&late_hold_boot, nullptr);
     caps::boot_complete();  // capabilities.json, then a write after each change (at most one a second)
     hooks::boot_complete();  // state/hooks.json + the foreign-hook check (kiln.hooks v2)
     compat::boot_done();

@@ -10,8 +10,8 @@ Two mods take part:
 - the **provider** registers the kind in its `OnLoad`;
 - the **consumer** lists the provider in its `dependencies` (so the provider loads first) and defines blocks of the kind.
 
-Players need nothing extra: a Kiln client gets the items and statuses the kind became from the server, as for any
-block. It never runs the provider's code.
+The server sends lowered definitions through the existing content sync; it does not send provider code. Joined-client
+use without the provider installed still awaits guided check `16d-external-kind-client`.
 
 ## The provider
 
@@ -89,12 +89,14 @@ block only once it is applied. `Blocks.Application(handle)` says where it stands
 | State | Meaning |
 |---|---|
 | `PendingContent` | compiled; waits for the game's content to be ready |
-| `Applied` | every block of the plan is registered |
+| `Applied` | the initial registration pass completed; see the content-ready limitation below |
 | `Refused` | nothing of the plan is registered; `Reason` starts with the cause |
 | `Removed` | it went with its mod |
 
-A plan is applied whole or not at all: its blocks are registered under an owner of the plan's own, and when the game
-or a service refuses one of them, the others are taken back. `BlockApplicationChangedEvent` is posted once per change.
+The initial registration pass uses an owner of the plan's own, and an immediate refusal revokes that owner's registrations.
+`BlockApplicationChangedEvent` is posted once per change. Built-in content-ready work currently runs after publication:
+a late program/reference or rules failure is logged without revoking the plan or changing `Applied`. Until that completion
+path is transactional, `Applied` alone does not prove that a plan needing such work completed successfully.
 
 `Blocks.Compile(name, block)` and `Blocks.Apply(plan)` are the two halves of `Define`, for a mod that wants the plan
 (`plan.Products`, `plan.InputHash`) before it is applied. A plan belongs to the mod instance that compiled it: another
