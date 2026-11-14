@@ -91,7 +91,7 @@ internal static class NetEngine
             Log(LogLevel.Warn, $"no service tick: {e.Message}");
         }
         TryHookClientTick();
-        NetNative.GateSet(NetNative.GateHold);  // until the first server tick knows the mod list (VanillaGate.GateMode)
+        NetAdmission.Start();  // the gate holds until the first server tick knows the mod list (VanillaGate.GateMode)
         var s = NetNative.ReadStatus();
         Log(LogLevel.Info, $"Kiln.Network {Wire.Protocol} on kiln.net: roles {(s?.Roles ?? 0)}, channel {s?.Channel}, max frame {s?.MaxFrame}, " +
                            $"policy {_config.ModSync}/{_config.VersionMatch}{(_config.RequireKiln ? ", Kiln required" : "")}");
@@ -295,6 +295,7 @@ internal static class NetEngine
             if (p is null) return;
             var was = p.State;
             p.State = NetPeerState.Closed;
+            NetAdmission.PeerLeft(p);
             if (p.Kick is not null) PlayerGate.Kicked(p, NetNative.Ok);  // it left on Kiln's refusal before the login failure
             Log(LogLevel.Info, $"peer {p.Name} (0x{peer:x}) left ({was})");
             if (Events.HasSubscribers<NetPeerLeftEvent>()) Events.Post(new NetPeerLeftEvent(p));
@@ -599,23 +600,29 @@ internal static class NetEngine
     private static void RunKick(NetPeer p)
     {
         p.KickAt = null;
-        var rc = NetNative.Kick(p.Id, p.Kick is not null ? PlayerGate.KickReasonCode : _config.KickReason);
+        var rc = NetAdmission.Kick(p, p.Kick is not null ? PlayerGate.KickReasonCode : _config.KickReason);
         Log(rc == NetNative.Ok ? LogLevel.Info : LogLevel.Warn, $"kick {p.Name} (0x{p.Id:x}): rc {rc}");
         if (p.Kick is not null) PlayerGate.Kicked(p, rc);
     }
+
+    /// <summary>A requirement of NetAdmission came or went: the next tick looks at the gate at once.</summary>
+    internal static bool AdmissionChanged;
 
     private static void ServerTick(in TickInfo tick)
     {
         if (_tableDirty) BroadcastChannelTable();
         if (KicksPending) RunDueKicks(DateTime.UtcNow);
-        if (tick.Step % 25 != 0) return;  // ~1 s on a dedicated server
+        if (tick.Step % 25 != 0 && !AdmissionChanged) return;  // ~1 s on a dedicated server
+        AdmissionChanged = false;
         NetAdvertise.Tick();
         var now = DateTime.UtcNow;
         var requiredExist = RequiredServerMods().Count > 0 || AllChannels().Any(c => c.Required);
-        var gate = NetNative.ReadGate();
+        var gate = NetAdmission.ReadGate();
         var kilnClientMods = NetAdvertise.KilnClientMods.Count;
-        var refuse = VanillaGate.ShouldRefuse(_config, requiredExist, kilnClientMods, gate.KilnTemplates, gate.CanWithhold);
-        UpdateGate(gate, refuse);
+        var builtInRefuse = VanillaGate.ShouldRefuse(_config, requiredExist, kilnClientMods, gate.KilnTemplates, gate.CanWithhold);
+        UpdateGate(gate, builtInRefuse);
+        var refuse = NetAdmission.VanillaRefused(builtInRefuse, out var requirementReason);
+        NetAdmission.Expire(now);
         foreach (var p in ServerPeers())
         {
             RefreshInfo(p);
@@ -627,18 +634,7 @@ internal static class NetEngine
                 var kick = refuse;
                 if (Events.HasSubscribers<NetVanillaClientEvent>()) kick = Events.Post(new NetVanillaClientEvent(p, kick)).Kick;
                 Log(kick ? LogLevel.Warn : LogLevel.Info, $"{p.Name} (0x{p.Id:x}) has no Kiln (vanilla client){(kick ? ": refusing" : held ? ": letting it in" : "")}");
-                if (kick)
-                {
-                    // A vanilla game frees this frame unread; a Kiln build too old to prove itself shows the reason, so
-                    // it gets the time REJECT normally gets before the game's own login error.
-                    SendFrame(p.Id, EncodeRejectAdvertised(new Wire.Reject(VanillaGate.RefusalReason(kilnClientMods), [])), p);
-                    p.KickAt = held ? now.AddSeconds(1.5) : now;
-                }
-                else if (held)
-                {
-                    var rc = NetNative.GateRelease(p.Id);
-                    if (rc != NetNative.Ok) Log(LogLevel.Warn, $"letting {p.Name} (0x{p.Id:x}) in: rc {rc}");
-                }
+                NetAdmission.DecideVanilla(p, kick, builtInRefuse || requirementReason is null ? VanillaGate.RefusalReason(kilnClientMods) : requirementReason, now);
             }
             if (p.KickAt is { } at && now >= at) RunKick(p);
             if (p.State == NetPeerState.Ready && p.Cleared && p.DefinitionsSince == null && p.ClearedTemplates != gate.KilnTemplates)
@@ -708,15 +704,13 @@ internal static class NetEngine
     /// <summary>Tests only (net-test): Kiln.Network stops deciding, as if it had died, so kiln.net's own limit is seen.</summary>
     internal static bool TestFreezeVanillaDecisions;
 
-    private static uint _gateMode = uint.MaxValue;
     private static string _gateNote = "";
 
     /// <summary>Keeps the native gate in step with the policy and says, once per change, what that means for a client
     /// without Kiln. See docs/kiln/network.md "Clients without Kiln".</summary>
     private static void UpdateGate(in NetNative.GateInfo gate, bool refuse)
     {
-        var mode = VanillaGate.GateMode(NetAdvertise.RequiredReady, refuse, gate.KilnTemplates);
-        if (mode != _gateMode && NetNative.GateSet(mode) == NetNative.Ok) _gateMode = mode;
+        NetAdmission.UpdateGate(NetAdvertise.RequiredReady, refuse, gate.KilnTemplates);
         if (!NetAdvertise.RequiredReady) return;  // the first seconds after boot: the mods that could refuse aren't known
         var note =
             gate.KilnTemplates > 0 && !gate.CanWithhold ? $"vanilla clients are refused: the server has {gate.KilnTemplates} template(s) only Kiln has, and this build can't keep them from a vanilla client" :
