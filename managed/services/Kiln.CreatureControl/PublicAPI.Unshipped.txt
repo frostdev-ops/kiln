@@ -1,0 +1,155 @@
+#nullable enable
+Kiln.ControlBodyKey
+Kiln.ControlBodyKey.BodyGeneration.get -> ulong
+Kiln.ControlBodyKey.BodyGeneration.init -> void
+Kiln.ControlBodyKey.ControlBodyKey() -> void
+Kiln.ControlBodyKey.ControlBodyKey(ulong WorldEpoch, ulong BodyGeneration, Kiln.EntityId Entity) -> void
+Kiln.ControlBodyKey.Deconstruct(out ulong WorldEpoch, out ulong BodyGeneration, out Kiln.EntityId Entity) -> void
+Kiln.ControlBodyKey.Entity.get -> Kiln.EntityId
+Kiln.ControlBodyKey.Entity.init -> void
+Kiln.ControlBodyKey.Equals(Kiln.ControlBodyKey other) -> bool
+Kiln.ControlBodyKey.WorldEpoch.get -> ulong
+Kiln.ControlBodyKey.WorldEpoch.init -> void
+Kiln.ControlChangedEvent
+Kiln.ControlChangedEvent.After.get -> Kiln.ControlLeaseSnapshot!
+Kiln.ControlChangedEvent.Before.get -> Kiln.ControlLeaseSnapshot?
+Kiln.ControlChangedEvent.Cause.get -> Kiln.ControlResultCode
+Kiln.ControlChangedEvent.Lease.get -> Kiln.ControlLeaseId
+Kiln.ControlLeaseId
+Kiln.ControlLeaseId.ControlLeaseId() -> void
+Kiln.ControlLeaseId.ControlLeaseId(ulong Value) -> void
+Kiln.ControlLeaseId.Deconstruct(out ulong Value) -> void
+Kiln.ControlLeaseId.Equals(Kiln.ControlLeaseId other) -> bool
+Kiln.ControlLeaseId.Value.get -> ulong
+Kiln.ControlLeaseId.Value.init -> void
+Kiln.ControlLeaseResult
+Kiln.ControlLeaseResult.<Clone>$() -> Kiln.ControlLeaseResult!
+Kiln.ControlLeaseResult.ControlLeaseResult(bool Ok, string? Reason, Kiln.ControlLeaseSnapshot? State) -> void
+Kiln.ControlLeaseResult.Deconstruct(out bool Ok, out string? Reason, out Kiln.ControlLeaseSnapshot? State) -> void
+Kiln.ControlLeaseResult.Equals(Kiln.ControlLeaseResult? other) -> bool
+Kiln.ControlLeaseResult.Ok.get -> bool
+Kiln.ControlLeaseResult.Ok.init -> void
+Kiln.ControlLeaseResult.Reason.get -> string?
+Kiln.ControlLeaseResult.Reason.init -> void
+Kiln.ControlLeaseResult.State.get -> Kiln.ControlLeaseSnapshot?
+Kiln.ControlLeaseResult.State.init -> void
+Kiln.ControlLeaseSnapshot
+Kiln.ControlLeaseSnapshot.<Clone>$() -> Kiln.ControlLeaseSnapshot!
+Kiln.ControlLeaseSnapshot.Body.get -> Kiln.ControlBodyKey
+Kiln.ControlLeaseSnapshot.Body.init -> void
+Kiln.ControlLeaseSnapshot.CanDrive.get -> bool
+Kiln.ControlLeaseSnapshot.ChangedMask.get -> uint
+Kiln.ControlLeaseSnapshot.ChangedMask.init -> void
+Kiln.ControlLeaseSnapshot.ControlLeaseSnapshot(Kiln.ControlBodyKey Body, Kiln.ControlLeaseId Lease, Kiln.ControlLeaseId WinningLease, Kiln.ControlRequestId Request, Kiln.ControlRole RequestedRole, Kiln.ControlRole EffectiveRole, Kiln.ControlLeaseState State, Kiln.ControlResultCode Result, ulong TransitionSequence, ulong NoticeSequence, uint ChangedMask, string! Reason) -> void
+Kiln.ControlLeaseSnapshot.Deconstruct(out Kiln.ControlBodyKey Body, out Kiln.ControlLeaseId Lease, out Kiln.ControlLeaseId WinningLease, out Kiln.ControlRequestId Request, out Kiln.ControlRole RequestedRole, out Kiln.ControlRole EffectiveRole, out Kiln.ControlLeaseState State, out Kiln.ControlResultCode Result, out ulong TransitionSequence, out ulong NoticeSequence, out uint ChangedMask, out string! Reason) -> void
+Kiln.ControlLeaseSnapshot.EffectiveRole.get -> Kiln.ControlRole
+Kiln.ControlLeaseSnapshot.EffectiveRole.init -> void
+Kiln.ControlLeaseSnapshot.Equals(Kiln.ControlLeaseSnapshot? other) -> bool
+Kiln.ControlLeaseSnapshot.IsTerminal.get -> bool
+Kiln.ControlLeaseSnapshot.Lease.get -> Kiln.ControlLeaseId
+Kiln.ControlLeaseSnapshot.Lease.init -> void
+Kiln.ControlLeaseSnapshot.NoticeSequence.get -> ulong
+Kiln.ControlLeaseSnapshot.NoticeSequence.init -> void
+Kiln.ControlLeaseSnapshot.Reason.get -> string!
+Kiln.ControlLeaseSnapshot.Reason.init -> void
+Kiln.ControlLeaseSnapshot.Request.get -> Kiln.ControlRequestId
+Kiln.ControlLeaseSnapshot.Request.init -> void
+Kiln.ControlLeaseSnapshot.RequestedRole.get -> Kiln.ControlRole
+Kiln.ControlLeaseSnapshot.RequestedRole.init -> void
+Kiln.ControlLeaseSnapshot.Result.get -> Kiln.ControlResultCode
+Kiln.ControlLeaseSnapshot.Result.init -> void
+Kiln.ControlLeaseSnapshot.State.get -> Kiln.ControlLeaseState
+Kiln.ControlLeaseSnapshot.State.init -> void
+Kiln.ControlLeaseSnapshot.TransitionSequence.get -> ulong
+Kiln.ControlLeaseSnapshot.TransitionSequence.init -> void
+Kiln.ControlLeaseSnapshot.WinningLease.get -> Kiln.ControlLeaseId
+Kiln.ControlLeaseSnapshot.WinningLease.init -> void
+Kiln.ControlLeaseState
+Kiln.ControlLeaseState.Active = 1 -> Kiln.ControlLeaseState
+Kiln.ControlLeaseState.Failed = 4 -> Kiln.ControlLeaseState
+Kiln.ControlLeaseState.Pending = 0 -> Kiln.ControlLeaseState
+Kiln.ControlLeaseState.Preempted = 2 -> Kiln.ControlLeaseState
+Kiln.ControlLeaseState.Released = 3 -> Kiln.ControlLeaseState
+Kiln.ControlRequestId
+Kiln.ControlRequestId.ControlRequestId() -> void
+Kiln.ControlRequestId.ControlRequestId(ulong Value) -> void
+Kiln.ControlRequestId.Deconstruct(out ulong Value) -> void
+Kiln.ControlRequestId.Equals(Kiln.ControlRequestId other) -> bool
+Kiln.ControlRequestId.Value.get -> ulong
+Kiln.ControlRequestId.Value.init -> void
+Kiln.ControlRequestResult
+Kiln.ControlRequestResult.<Clone>$() -> Kiln.ControlRequestResult!
+Kiln.ControlRequestResult.ControlRequestResult(bool Ok, string? Reason, Kiln.ControlLeaseId Lease, Kiln.ControlLeaseSnapshot? Initial) -> void
+Kiln.ControlRequestResult.Deconstruct(out bool Ok, out string? Reason, out Kiln.ControlLeaseId Lease, out Kiln.ControlLeaseSnapshot? Initial) -> void
+Kiln.ControlRequestResult.Equals(Kiln.ControlRequestResult? other) -> bool
+Kiln.ControlRequestResult.Initial.get -> Kiln.ControlLeaseSnapshot?
+Kiln.ControlRequestResult.Initial.init -> void
+Kiln.ControlRequestResult.Lease.get -> Kiln.ControlLeaseId
+Kiln.ControlRequestResult.Lease.init -> void
+Kiln.ControlRequestResult.Ok.get -> bool
+Kiln.ControlRequestResult.Ok.init -> void
+Kiln.ControlRequestResult.Reason.get -> string?
+Kiln.ControlRequestResult.Reason.init -> void
+Kiln.ControlResultCode
+Kiln.ControlResultCode.AiInhibited = 14 -> Kiln.ControlResultCode
+Kiln.ControlResultCode.BodyGone = 7 -> Kiln.ControlResultCode
+Kiln.ControlResultCode.Busy = 5 -> Kiln.ControlResultCode
+Kiln.ControlResultCode.Canceled = 4 -> Kiln.ControlResultCode
+Kiln.ControlResultCode.CapabilityOff = 9 -> Kiln.ControlResultCode
+Kiln.ControlResultCode.ExpiredHandle = 13 -> Kiln.ControlResultCode
+Kiln.ControlResultCode.Granted = 1 -> Kiln.ControlResultCode
+Kiln.ControlResultCode.None = 0 -> Kiln.ControlResultCode
+Kiln.ControlResultCode.OwnerUnloaded = 10 -> Kiln.ControlResultCode
+Kiln.ControlResultCode.Preempted = 3 -> Kiln.ControlResultCode
+Kiln.ControlResultCode.Released = 2 -> Kiln.ControlResultCode
+Kiln.ControlResultCode.RestoreFailed = 11 -> Kiln.ControlResultCode
+Kiln.ControlResultCode.Retired = 12 -> Kiln.ControlResultCode
+Kiln.ControlResultCode.TimedOut = 6 -> Kiln.ControlResultCode
+Kiln.ControlResultCode.WorldEnded = 8 -> Kiln.ControlResultCode
+Kiln.ControlRole
+Kiln.ControlRole.EngineGuard = 7 -> Kiln.ControlRole
+Kiln.ControlRole.None = 0 -> Kiln.ControlRole
+Kiln.ControlRole.PetCombat = 2 -> Kiln.ControlRole
+Kiln.ControlRole.PetFollow = 1 -> Kiln.ControlRole
+Kiln.ControlRole.PetStay = 6 -> Kiln.ControlRole
+Kiln.ControlRole.Quarantine = 4 -> Kiln.ControlRole
+Kiln.ControlRole.Ridden = 3 -> Kiln.ControlRole
+Kiln.ControlRole.Vehicle = 5 -> Kiln.ControlRole
+Kiln.CreatureControl
+override Kiln.ControlBodyKey.GetHashCode() -> int
+override Kiln.ControlChangedEvent.ToString() -> string!
+override Kiln.ControlLeaseId.GetHashCode() -> int
+override Kiln.ControlLeaseResult.Equals(object? obj) -> bool
+override Kiln.ControlLeaseResult.GetHashCode() -> int
+override Kiln.ControlLeaseResult.ToString() -> string!
+override Kiln.ControlLeaseSnapshot.Equals(object? obj) -> bool
+override Kiln.ControlLeaseSnapshot.GetHashCode() -> int
+override Kiln.ControlLeaseSnapshot.ToString() -> string!
+override Kiln.ControlRequestId.GetHashCode() -> int
+override Kiln.ControlRequestResult.Equals(object? obj) -> bool
+override Kiln.ControlRequestResult.GetHashCode() -> int
+override Kiln.ControlRequestResult.ToString() -> string!
+static Kiln.ControlBodyKey.operator !=(Kiln.ControlBodyKey left, Kiln.ControlBodyKey right) -> bool
+static Kiln.ControlBodyKey.operator ==(Kiln.ControlBodyKey left, Kiln.ControlBodyKey right) -> bool
+static Kiln.ControlLeaseId.operator !=(Kiln.ControlLeaseId left, Kiln.ControlLeaseId right) -> bool
+static Kiln.ControlLeaseId.operator ==(Kiln.ControlLeaseId left, Kiln.ControlLeaseId right) -> bool
+static Kiln.ControlLeaseResult.operator !=(Kiln.ControlLeaseResult? left, Kiln.ControlLeaseResult? right) -> bool
+static Kiln.ControlLeaseResult.operator ==(Kiln.ControlLeaseResult? left, Kiln.ControlLeaseResult? right) -> bool
+static Kiln.ControlLeaseSnapshot.operator !=(Kiln.ControlLeaseSnapshot? left, Kiln.ControlLeaseSnapshot? right) -> bool
+static Kiln.ControlLeaseSnapshot.operator ==(Kiln.ControlLeaseSnapshot? left, Kiln.ControlLeaseSnapshot? right) -> bool
+static Kiln.ControlRequestId.operator !=(Kiln.ControlRequestId left, Kiln.ControlRequestId right) -> bool
+static Kiln.ControlRequestId.operator ==(Kiln.ControlRequestId left, Kiln.ControlRequestId right) -> bool
+static Kiln.ControlRequestResult.operator !=(Kiln.ControlRequestResult? left, Kiln.ControlRequestResult? right) -> bool
+static Kiln.ControlRequestResult.operator ==(Kiln.ControlRequestResult? left, Kiln.ControlRequestResult? right) -> bool
+static Kiln.CreatureControl.Acquire(Kiln.EntityRef body, Kiln.ControlRole role, Kiln.ControlRequestId requestId) -> Kiln.ControlRequestResult!
+static Kiln.CreatureControl.Available.get -> bool
+static Kiln.CreatureControl.Inspect(Kiln.ControlLeaseId lease) -> Kiln.ControlLeaseSnapshot?
+static Kiln.CreatureControl.NewRequestId() -> Kiln.ControlRequestId
+static Kiln.CreatureControl.Release(Kiln.ControlLeaseId lease) -> System.Threading.Tasks.Task<Kiln.ControlLeaseResult!>!
+static Kiln.CreatureControl.WaitActive(Kiln.ControlLeaseId lease, double timeoutSimSeconds = 0.5) -> System.Threading.Tasks.Task<Kiln.ControlLeaseResult!>!
+~override Kiln.ControlBodyKey.Equals(object obj) -> bool
+~override Kiln.ControlBodyKey.ToString() -> string
+~override Kiln.ControlLeaseId.Equals(object obj) -> bool
+~override Kiln.ControlLeaseId.ToString() -> string
+~override Kiln.ControlRequestId.Equals(object obj) -> bool
+~override Kiln.ControlRequestId.ToString() -> string
