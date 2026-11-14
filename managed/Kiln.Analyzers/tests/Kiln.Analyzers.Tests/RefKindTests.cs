@@ -25,6 +25,34 @@ public sealed class RefKindTests
         "public sealed class M : Mod { public override void OnLoad() {\n" + body + "\n} }\n" + (gameIds ? GameIds : "");
 
     [Fact]
+    public async Task A_name_staged_in_OnBoot_is_a_block_of_the_mod()
+    {
+        // the guide's example (docs/kiln/modding/onboot.md): names staged with BootDefinitions.Define are the mod's blocks
+        var d = await Run(A, """
+            public sealed class M : Mod
+            {
+                public override void OnBoot(BootContext boot)
+                {
+                    var defs = BootDefinitions.For(boot);
+                    defs.Define("chill", new StatusBlock { Name = "Chill", Seconds = 3 });
+                    defs.Define("chill-touch", new EffectBlock { Applies = new StatusApply { Status = "chill" } });
+                    defs.Define("chill-bolt", new SpellBlock { Name = "Chill Bolt", Cast = new CastBlock { ManaCost = 2 }, Delivery = new ProjectileBlock { OnHit = ["chill-touch"] } });
+                }
+            }
+            """);
+        Assert.Empty(d);
+        d = await Run(A, """
+            public sealed class M : Mod
+            {
+                public override void OnBoot(BootContext boot) =>
+                    BootDefinitions.For(boot).Define("chill-touch", new EffectBlock { Applies = new StatusApply { Status = "chil" } });
+            }
+            """);
+        Ids(d, "KILN111");
+        Assert.Contains("chil", d[0].GetMessage());
+    }
+
+    [Fact]
     public async Task A_misspelled_sound()
     {
         var d = await Run(A, Mod("""
