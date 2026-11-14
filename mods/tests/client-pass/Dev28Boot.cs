@@ -28,7 +28,7 @@ public sealed partial class ClientPassMod
         Tags = [Visual], Needs = ClientCheckNeeds.Hosted, Order = 3000)]
     public async Task BootFirstStartDefinitions(CheckContext c)
     {
-        if (!await Need(c, BootGallery) || !await NeedOpen(c, "mods.boot.client", "mods.boot.vfx")) return;
+        if (!await Need(c, BootGallery) || !await NeedOpen(c, "mods.boot.client", "mods.boot.vfx", "mods.boot.resource_patches")) return;
         var stageFile = Path.Combine(c.Mod.DataDirectory, "boot-first-start.stage");
         var stage = BootStage.Read(stageFile);
         var pid = Environment.ProcessId;
@@ -197,8 +197,21 @@ public sealed partial class ClientPassMod
         var node = GameTree.Definitions.FirstOrDefault(n => n.Name == $"{BootGallery}.cold-talent");
         c.Expect(node != null && node.Error == null && node.Index >= 0, "the talent boot-gallery.cold-talent is a node of the game's tree",
             $"{node?.State ?? "missing"}, index {node?.Index}");
+        // the row mods.boot.resource_patches this check holds: boot-gallery's patch friction-mark, read back from the resource this game
+        // client is served (1.0 in the game, 0.999 patched)
+        c.Expect(report.Definitions.Contains($"resourcePatches/{FrictionPatch}"), $"the boot report lists resourcePatches/{FrictionPatch}");
+        var friction = ReflectedResources.Get(FrictionResource, FrictionType);
+        var value = friction is { Exists: true } ? friction.Get<double>(FrictionPath) : double.NaN;
+        c.Expect(Math.Abs(value - 0.999) < 1e-4, $"boot-gallery's resource patch is applied in this game client ({FrictionPath} = 0.999)",
+            friction is { Exists: true } ? $"{value}" : $"{FrictionType} not readable (ReflectedResources available: {ReflectedResources.Available})");
         return report.Generation;
     }
+
+    // boot-gallery's resource patch (mods/samples/boot-gallery/BootGallery.cs)
+    private const string FrictionPatch = "friction-mark";
+    private static readonly Guid FrictionResource = Guid.Parse("15506ca1-f0b2-8a43-a087-75a7c83d5596");
+    private const string FrictionType = "keen::TerraformingEfficiencyRegistryResource";
+    private const string FrictionPath = "terrainConfigs[0].frictionFactor";
 
     /// <summary>Asserts that this start ran boot-gallery's OnBoot exactly once (Kiln.Host's "boot: &lt;id&gt;: OnBoot staged" line in
     /// kiln.log, which starts empty with each start).</summary>
