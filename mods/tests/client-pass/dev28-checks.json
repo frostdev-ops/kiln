@@ -1402,6 +1402,16 @@
    "state": "open"
   },
   {
+   "id": "19d-brain-walks",
+   "title": "A creature with a Kiln.Blocks brain walks to you and stops",
+   "chapter": "19d",
+   "packages": [
+    "19d-creature-control"
+   ],
+   "state": "open",
+   "added": "19d-creature-control"
+  },
+  {
    "id": "19e-t1",
    "title": "Selected food/tool and replay-safe cost",
    "chapter": "19e",

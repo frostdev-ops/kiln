@@ -124,6 +124,10 @@ A native client (the mount service) feeds the body from its own world program: r
   `Acquire`, the table missing throws it naming `kiln.creature_control` from every member.
 - `ControlChangedEvent` (tick thread, the start of the step after the broker moved) carries the lease's snapshot before
   and after, for every lease acquired through this face or named to `WaitActive`. Observe only.
+- Sample: `mods/samples/CreatureControlSample`. `/hold` is a standalone lease on a spawned Vukah (Acquire, WaitActive,
+  Release: it stands while held and is itself again after); `/pacer` is a creature block whose brain walks its body
+  under the lease Kiln.Blocks takes for it ([npc-ai.md](../modding/npc-ai.md#how-a-brain-moves-its-body-since-020-dev28)).
+  The guided check `19d-brain-walks` uses the pacer.
 
 ## Capabilities
 | Row | Says |
@@ -162,4 +166,8 @@ part of the table and no mod API reaches it.
   type dumps).
 - Offline: `managed/tests/Kiln.CreatureControl.Tests` on the kit's fake (`KilnHarness.CreatureControl`).
 - Lab: `mods/tests/creature-control-test` (`creature-control-test: PASS` lines in kiln.log; needs
-  `kiln/data/kiln.creatures/force-ready`, as the creatures tests do).
+  `kiln/data/kiln.creatures/force-ready`, as the creatures tests do; with `kiln/control/systems.parallel` it also
+  counts the AnyThread reads made from worker threads, while the broker's own SYSTEM program stays on the world's
+  thread). `mods/tests/blocks-npc-test`, section "brain moves": a brain's body walks under its lease, and a lease that
+  fails before it drives leaves the game's AI off.
+- Guided client check: `19d-brain-walks` (the sample's pacer walks to the player and stops).
