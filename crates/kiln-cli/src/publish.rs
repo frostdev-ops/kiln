@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: MIT
 //! `kiln publish`: release a packed mod zip at GitHub, as a plan first and an explicit apply second.
 //!
-//! This file is the plan step: it audits the zip against the artifact policy, freezes it with the config and the
-//! notes into a transaction folder under Kiln's data folder, and writes the plan for review. It sends nothing and
-//! reads no credential.
+//! The plan step audits the zip against the artifact policy, freezes it with the config and the notes into a
+//! transaction folder under Kiln's data folder, and writes the plan for review. It sends nothing and reads no
+//! credential. Everything that sends (--apply, --resume, --publish-draft, --resolve-step) needs --confirm, and is the
+//! only place a real transport and the token are made.
 
 use crate::out::{self, CliError};
 use anyhow::Result;
-use kiln_manage::publish::{config, plan, policy};
+use kiln_manage::publish::engine::{self, Engine, OutcomeState, Progress, PublishOutcome};
+use kiln_manage::publish::token::{self, Origin, StoredToken};
+use kiln_manage::publish::{config, github, plan, policy};
 use serde_json::json;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -46,9 +49,18 @@ pub struct PublishArgs {
     pub resolve_step: Option<String>,
     #[arg(long, value_name = "ID")]
     pub remote_id: Option<String>,
+    /// The transaction a --resolve-step belongs to.
+    #[arg(long, value_name = "TRANSACTION")]
+    pub transaction: Option<String>,
     /// Required by every action that sends something.
     #[arg(long)]
     pub confirm: bool,
+    /// Store the provider's token in this PC's credential store; the token is read from standard input.
+    #[arg(long, value_name = "PROVIDER")]
+    pub store_token: Option<String>,
+    /// Remove the provider's token from this PC's credential store.
+    #[arg(long, value_name = "PROVIDER")]
+    pub forget_token: Option<String>,
 }
 
 /// Packs the project in Release into a folder of its own and returns the zip. Runs `kiln pack` as a child so that
@@ -112,7 +124,108 @@ fn plan_step(a: &PublishArgs, json: bool) -> Result<i32> {
     Ok(0)
 }
 
+fn report(o: &PublishOutcome, json: bool) -> Result<i32> {
+    if json {
+        out::print_json(&serde_json::to_value(o)?);
+    } else {
+        let head = match o.state {
+            OutcomeState::DraftReady => "The draft release is complete (not public yet).",
+            OutcomeState::Published => "The release is public.",
+            OutcomeState::Partial => "Stopped part way: what is listed as confirmed exists at GitHub; nothing was rolled back.",
+            OutcomeState::ManualReconcile => "Stopped: a step needs you to look at GitHub. Nothing was sent twice and nothing was rolled back.",
+            OutcomeState::Refused => "Refused: nothing exists at GitHub from this transaction.",
+        };
+        println!("{head}");
+        println!("  transaction {}", o.tx_id);
+        if !o.confirmed_steps.is_empty() {
+            println!("  confirmed   {}", o.confirmed_steps.join(", "));
+        }
+        if !o.unknown_steps.is_empty() {
+            println!("  unknown     {}", o.unknown_steps.join(", "));
+        }
+        if let Some(r) = &o.reason {
+            println!("  reason      {r}");
+        }
+        for m in &o.manual_steps {
+            println!("  to do       {m}");
+        }
+        match o.state {
+            OutcomeState::DraftReady => println!("Look at the draft at GitHub, then: kiln publish --publish-draft {} --confirm", o.tx_id),
+            OutcomeState::Partial | OutcomeState::Refused => println!("When the reason is dealt with: kiln publish --resume {} --confirm", o.tx_id),
+            _ => {}
+        }
+    }
+    Ok(if o.ok { 0 } else { 1 })
+}
+
+fn token_cmd(a: &PublishArgs, json: bool) -> Result<i32> {
+    let provider = a.store_token.as_deref().or(a.forget_token.as_deref()).unwrap_or("");
+    if provider != "github" {
+        return Err(CliError::usage("the provider is github").into());
+    }
+    let source = StoredToken::from_system();
+    if a.forget_token.is_some() {
+        source.forget()?;
+        out::say(json, "The stored GitHub token was removed.");
+    } else {
+        // from standard input only: an argument would end up in the shell's history and in the process list
+        let mut line = String::new();
+        std::io::stdin().read_line(&mut line)?;
+        source.store(&line)?;
+        out::say(json, format!("The GitHub token is stored in this PC's credential store as {}.", token::STORE_NAME));
+    }
+    if json {
+        out::print_json(&json!({"ok": true}));
+    }
+    Ok(0)
+}
+
+fn send_step(a: &PublishArgs, json: bool) -> Result<i32> {
+    let dirs = kiln_manage::paths::DataDirs::locate()?;
+    let loaded = match (&a.apply, &a.resume, &a.publish_draft, &a.resolve_step) {
+        (Some(plan_file), None, None, None) => {
+            let given = plan::PublishPlan::parse(&std::fs::read(plan_file)?)?;
+            plan::load(&dirs.root, &given)?
+        }
+        (None, Some(tx), None, None) | (None, None, Some(tx), None) => engine::load_by_id(&dirs.root, tx)?,
+        (None, None, None, Some(_)) => {
+            let tx = a.transaction.as_deref().ok_or_else(|| CliError::usage("--resolve-step needs --transaction <id> and --remote-id <id>"))?;
+            engine::load_by_id(&dirs.root, tx)?
+        }
+        _ => return Err(CliError::usage("give one of --apply, --resume, --publish-draft, --resolve-step").into()),
+    };
+    if loaded.plan.provider != "github" {
+        return Err(CliError::new("unsupported", "This transaction is for a provider this kiln does not publish to.").into());
+    }
+    // Everything was verified offline above. Only now: the token, then the one real transport of this command.
+    let source = StoredToken::from_system();
+    let (_, origin) = source.resolve()?;
+    if origin == Origin::Environment && !json {
+        eprintln!("kiln: using the GitHub token from the environment ({}).", token::ENV);
+    }
+    let transport = kiln_manage::net::UreqTransport::new();
+    let provider = github::GithubProvider::new(&transport, &source, concat!("kiln/", env!("CARGO_PKG_VERSION")));
+    let mut events = |p: &Progress| {
+        if !json {
+            eprintln!("  {} {:?}{}", p.step, p.state, p.reason.as_deref().map(|r| format!(": {r}")).unwrap_or_default());
+        }
+    };
+    let mut eng = Engine { provider: &provider, events: &mut events, fault: &engine::no_faults };
+    let outcome = if a.publish_draft.is_some() {
+        eng.publish_draft(&loaded)?
+    } else if let Some(step) = &a.resolve_step {
+        let id = a.remote_id.as_deref().ok_or_else(|| CliError::usage("--resolve-step needs --remote-id <id>"))?;
+        eng.resolve_step(&loaded, step, id)?
+    } else {
+        eng.apply(&loaded)?
+    };
+    report(&outcome, json)
+}
+
 pub fn run(a: PublishArgs, json: bool) -> Result<i32> {
+    if a.store_token.is_some() || a.forget_token.is_some() {
+        return token_cmd(&a, json);
+    }
     let sending = a.apply.is_some() || a.resume.is_some() || a.publish_draft.is_some() || a.resolve_step.is_some();
     if sending {
         if a.artifact.is_some() || a.project.is_some() || a.plan.is_some() {
@@ -121,10 +234,10 @@ pub fn run(a: PublishArgs, json: bool) -> Result<i32> {
         if !a.confirm {
             return Err(CliError::usage("this sends requests to the provider: add --confirm once you have read the plan").into());
         }
-        return Err(CliError::new("not_implemented", "This build of kiln makes publish plans only; --apply, --resume, --publish-draft and --resolve-step are not in it yet.").into());
+        return send_step(&a, json);
     }
-    if a.confirm || a.remote_id.is_some() {
-        return Err(CliError::usage("--confirm and --remote-id belong to --apply, --resume, --publish-draft or --resolve-step").into());
+    if a.confirm || a.remote_id.is_some() || a.transaction.is_some() {
+        return Err(CliError::usage("--confirm, --remote-id and --transaction belong to --apply, --resume, --publish-draft or --resolve-step").into());
     }
     plan_step(&a, json)
 }

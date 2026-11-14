@@ -20,7 +20,7 @@ catalog = []
 lint = []
 
 [dependencies]
-kiln-manage = { path = "../kiln-manage", features = ["server", "cooktools", "zip"] }
+kiln-manage = { path = "../kiln-manage", features = ["server", "cooktools", "zip", "http"] }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }

@@ -10,6 +10,7 @@
 //! | [`txdir`] | the transaction folder and its frozen files |
 //! | [`journal`], [`engine`], [`provider`] | apply, resume, publish-draft and resolve-step: intent on disk before every request, reconcile before any retry (feature `zip`) |
 //! | [`fake_provider`] | the provider tests use |
+//! | [`token`] | where the GitHub token comes from: the OS credential store, else one environment variable |
 //! | [`github`] | the GitHub provider: draft release, three assets, publish as its own step (feature `zip`) |
 //! | [`plan`] | the publish plan, format 1: making one (no network) and loading one for apply (feature `zip`) |
 
@@ -32,3 +33,5 @@ pub mod engine;
 pub mod fake_provider;
 #[cfg(feature = "zip")]
 pub mod github;
+#[cfg(feature = "zip")]
+pub mod token;

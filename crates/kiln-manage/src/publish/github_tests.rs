@@ -342,3 +342,39 @@ fn nothing_written_or_reported_holds_the_token_and_the_token_goes_to_github_only
     println!("PASS publish.no-credential-leak");
     println!("PASS publish.github-fixtures");
 }
+
+/// The same with the token coming from the environment fallback: it reaches GitHub's two hosts as a header and
+/// nothing else, and is in nothing that is written or reported.
+#[test]
+fn a_token_from_the_environment_fallback_leaks_nowhere_either() {
+    use crate::publish::token::{Origin, StoredToken};
+    const ENV_TOKEN: &str = "ghp_ENVFALLBACKTOKEN0123456789";
+    let source = StoredToken::new(None, Some(ENV_TOKEN.into()));
+    assert_eq!(source.resolve().unwrap().1, Origin::Environment);
+    let f = fx();
+    let t = FakeTransport::new();
+    script_clean(&f, &t);
+    // one answer echoes the token, one upload answer is lost
+    let all = assets(&f);
+    let provider = GithubProvider::new(&t, &source, "kiln-test/0");
+    let mut events = Vec::new();
+    let mut sink = |p: &Progress| events.push(p.clone());
+    let o = Engine { provider: &provider, events: &mut sink, fault: &no_faults }.apply(&f.loaded).unwrap();
+    assert_eq!(o.state, OutcomeState::DraftReady);
+    let log = t.requests();
+    assert_eq!(log.len(), 2 + all.len());
+    for r in &log {
+        assert!(r.host == API_HOST || r.host == UPLOAD_HOST);
+        assert_eq!(r.header("authorization"), Some(format!("Bearer {ENV_TOKEN}").as_str()));
+        assert!(!r.url.contains(ENV_TOKEN) && !String::from_utf8_lossy(&r.body).contains(ENV_TOKEN));
+        assert!(r.headers.iter().filter(|(_, v)| v.contains(ENV_TOKEN)).count() == 1);
+    }
+    let mut text = serde_json::to_string(&events).unwrap() + &serde_json::to_string(&o).unwrap();
+    for e in std::fs::read_dir(&f.loaded.dir).unwrap().flatten() {
+        if e.file_name() != txdir::ARTIFACT {
+            text += &String::from_utf8_lossy(&std::fs::read(e.path()).unwrap());
+        }
+    }
+    assert!(!text.contains(ENV_TOKEN) && !text.contains("ghp_") && !text.contains(crate::publish::token::ENV));
+    println!("PASS publish.no-credential-leak (environment fallback)");
+}

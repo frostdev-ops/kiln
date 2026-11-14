@@ -54,7 +54,7 @@ enum Cmd {
     Deploy(build::DeployArgs),
     /// Package the mod: <id>-<version>.zip (never with cooked game files).
     Pack(build::PackArgs),
-    /// Plan the release of a packed mod at GitHub (audit, freeze, a plan to review); sends nothing.
+    /// Release a packed mod at GitHub: a plan to review first (sends nothing), then --apply, --publish-draft.
     Publish(publish::PublishArgs),
     /// Start (or stop, restart, check) a local server: a dev lab or a launcher/kilnctl server instance.
     Run(server::RunArgs),
