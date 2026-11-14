@@ -272,9 +272,13 @@ class CoverageTests(unittest.TestCase):
         self.assertEqual(len(keys), len(set(keys)), "a row is listed twice")
 
     def test_ids_follow_the_rule(self):
+        # An id is area.slug. The ids of the dev.28 dossier are taken as the dossier wrote them (01-los-eye-height,
+        # 19d-c1): the index dev28-checks.json lists them, and an id it lists needs no dot.
+        dossier = {r["id"] for r in json.loads((PACK / "dev28-checks.json").read_text("utf-8"))["checks"]}
         for cid in self.ids:
             self.assertRegex(cid, r"^[a-z0-9][a-z0-9._-]{0,63}$")
-            self.assertIn(".", cid, f"{cid}: ids are area.slug")
+            if cid not in dossier:
+                self.assertIn(".", cid, f"{cid}: ids are area.slug")
 
     def test_the_coverage_check_can_fail(self):
         rows = {"rows": [{"section": "S", "key": "empty", "checks": []},

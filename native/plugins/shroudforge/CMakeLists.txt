@@ -17,6 +17,7 @@ add_executable(sf_host_chain_test
     ../../core/src/services/hooks.cpp
     ../../core/src/services/hooks_chain.cpp
     ../../core/src/services/hooks_chain_asm.cpp
+    ../../core/src/services/hooks_fingerprint.cpp
     ../../core/src/services/hooks_seh.cpp)
 target_include_directories(sf_host_chain_test PRIVATE src ../../core/abi ../../core/src ../../third_party "${KILN_GENERATED_DIR}")
 target_link_libraries(sf_host_chain_test PRIVATE kiln-safetyhook)

@@ -1,1 +1,1 @@
-kiln_service(queries queries.cpp seh.cpp)
+kiln_service(queries queries.cpp path.cpp seh.cpp)

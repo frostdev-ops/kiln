@@ -1,0 +1,15 @@
+{
+  "format": 1,
+  "side": "server",
+  "comment": "08-onboot (dev.28): Mod.OnBoot's definition phase (kiln.boot). One feature row over baseline symbols only: the resource service's init, the item registry's loader and singleton registration, the three boundaries chapter 08 measured the boot order against. No symbol of its own; the client uses this file unchanged (sides.py), as the three symbols resolve there through the assets and content overlays and client.json.",
+  "symbols": {},
+  "features": {
+    "mods.boot": {
+      "symbols": [
+        "assets/ResourceInit",
+        "content/ItemRegistryUpdate",
+        "RegisterSingleton"
+      ]
+    }
+  }
+}

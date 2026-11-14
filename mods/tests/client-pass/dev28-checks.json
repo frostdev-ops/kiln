@@ -45,7 +45,8 @@
    "packages": [
     "02-pathfinding"
    ],
-   "state": "open"
+   "state": "open",
+   "deferred": "belongs to the optional follower of 02-pathfinding (a creature that walks a path by itself), which is not built in this release; 02-queries.path-hosted covers the path search itself"
   },
   {
    "id": "02-body-clearance",

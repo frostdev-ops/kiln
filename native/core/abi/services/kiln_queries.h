@@ -4,8 +4,7 @@
  *                entity colliders, props or creatures.
  *   entities     the entities whose origin (CurrentTransform position) is inside a sphere or an axis-aligned box.
  *                Origin geometry only: not a collider overlap.
- *   path_*       the game's path search as an owner-scoped pull queue (kiln_queries.h's path structs and their rules
- *                are added by the path feature; until then every path member answers KILN_ERR_UNAVAILABLE).
+ *   path_*       the game's path search as an owner-scoped pull queue (below, "paths").
  *
  * Server world only: a dedicated server, or the server world of a game client that hosts. Nothing here reads a
  * client's rendering or prediction world.
@@ -77,10 +76,89 @@ typedef struct KilnQueryEntityResult {
     uint32_t total;   /* ids that matched: more than written = the buffer was too small */
 } KilnQueryEntityResult;
 
-typedef struct KilnQueryPathRequest KilnQueryPathRequest;
-typedef struct KilnQueryPathAdmission KilnQueryPathAdmission;
-typedef struct KilnQueryPathUpdate KilnQueryPathUpdate;
-typedef struct KilnQueryPathPoint KilnQueryPathPoint;
+/* ---- paths (since 0.2.0-dev.28) ---------------------------------------------------------------------------------
+ * The game's own path search between two points, as an owner-scoped pull queue. Nothing is moved; a result is a copy
+ * of the route's points as they were at the step the game answered.
+ *
+ * A request belongs to `owner` (the caller's core owner: its lease) and names an `anchor` entity the game's query is
+ * created for. The anchor is not moved and need not be alive; it must have a CurrentTransform and a SpawnTime
+ * component (entities the game or kiln.spawn spawned into the world have one; saved entities, items and players may
+ * not). The pair (entity id, SpawnTime) is its identity: an anchor that goes, or whose id comes to name another
+ * entity, ends the request with OWNER_GONE.
+ *
+ * path_submit  tick thread. KILN_OK with ok = 1 and a token: the request is queued and the first update
+ *              (CREATED -> QUEUED) waits in the owner's queue. KILN_OK with ok = 0: refused, nothing was queued; status
+ *              and reason say why (QUEUE_FULL: 32 open requests in all or 8 for this owner, counting results not yet
+ *              polled; IDENTITY_UNAVAILABLE; OUT_OF_GRID: an endpoint outside realm 0's voxel grid).
+ *              KILN_ERR_INVALID_ARGUMENT: numbers that are no request (not finite, more than 200 m apart, clearance
+ *              outside 0..16 m, iterations outside 1..65535). KILN_ERR_UNAVAILABLE: "queries.path" is off or there is
+ *              no server world. KILN_ERR_REVOKED: the owner is gone or retired.
+ * path_cancel  tick thread. KILN_OK: an own request that had no result yet ends CANCELLED (one terminal update).
+ *              KILN_ERR_NOT_FOUND: unknown, another owner's, or already ended.
+ * path_poll    any thread, one consumer per owner. Copies the oldest update and, for a terminal one, its points, and
+ *              takes it out of the queue. KILN_ERR_NOT_FOUND: the queue is empty (*needed = 0).
+ *              KILN_ERR_BUFFER_TOO_SMALL: *needed = the head's point count; nothing is taken. Works with no world.
+ * path_retire  any thread, no game call. The owner's queue is dropped and its requests end without a result; the
+ *              game's queries are still destroyed by the service. Every later call for the owner is KILN_ERR_REVOKED.
+ *
+ * A request lives at most 10 s and 150 server steps (both must pass); then it ends TIMED_OUT. Each request yields at
+ * most three updates: CREATED -> QUEUED, QUEUED -> SEARCHING (the game took the query), and one terminal.
+ * Only walking routes are results: a route with any other move kind is UNSUPPORTED (its points are kept for
+ * diagnosis). FOUND: the last point is within 1.5 m (XZ) and 3 m (Y) of `to`; PARTIAL: a walking route that ends
+ * elsewhere. Capability: "queries.path" (a sigdb feature). */
+typedef enum KilnQueryPathStatus {
+    KQ_PENDING = 0, KQ_FOUND = 1, KQ_PARTIAL = 2, KQ_NO_PATH = 3, KQ_NO_START = 4, KQ_NO_TARGET = 5,
+    KQ_ITERATION_LIMIT = 6, KQ_OUT_OF_MEMORY = 7, KQ_UNKNOWN = 8, KQ_CANCELLED = 9, KQ_OWNER_GONE = 10,
+    KQ_TIMED_OUT = 11, KQ_TRUNCATED = 12, KQ_REFUSED = 13, KQ_UNSUPPORTED = 14, KQ_MALFORMED = 15,
+    KQ_QUEUE_FULL = 16, KQ_IDENTITY_UNAVAILABLE = 17, KQ_OUT_OF_GRID = 18, KQ_WORLD_CLOSED = 19,
+    KQ_OWNER_RETIRED = 20
+} KilnQueryPathStatus;
+
+typedef enum KilnQueryPathStage {
+    KQS_CREATED = 0, KQS_QUEUED = 1, KQS_SEARCHING = 2, KQS_COMPLETED = 3, KQS_CANCELLED = 4, KQS_TIMED_OUT = 5
+} KilnQueryPathStage;
+
+#define KILN_QUERY_PATH_MAX_POINTS 4096u
+#define KILN_QUERY_PATH_MAX_DISTANCE 200.0 /* metres between from and to */
+#define KILN_QUERY_PATH_NO_GAME_RESULT 0xffffffffu
+
+typedef struct KilnQueryPathPoint { /* 32 bytes */
+    KilnVec3 position;
+    uint32_t raw_move; /* the game's PathMoveType of the step to this point: 0 = walk */
+    uint32_t reserved;
+} KilnQueryPathPoint;
+
+typedef struct KilnQueryPathRequest { /* 80 bytes */
+    uint32_t size;
+    KilnEntity anchor;
+    KilnVec3 from, to;
+    double horizontal_space, vertical_space; /* free space the route needs, metres, as the game's query takes it */
+    uint32_t max_iterations;                 /* the search's iteration limit, 1..65535 */
+    uint32_t closest_fallback;               /* 1: when the target has no node, end at the closest one (PARTIAL) */
+} KilnQueryPathRequest;
+
+typedef struct KilnQueryPathAdmission { /* 40 bytes */
+    uint32_t size, ok;
+    uint64_t request; /* the token; 0 when refused */
+    uint32_t status;  /* KQ_PENDING when ok; else the refusal */
+    uint32_t reserved;
+    KilnStr reason;
+} KilnQueryPathAdmission;
+
+typedef struct KilnQueryPathUpdate { /* 88 bytes */
+    uint32_t size;
+    uint32_t before, after; /* KilnQueryPathStage */
+    uint32_t status;        /* KQ_PENDING for a nonterminal update */
+    uint64_t request, sequence;
+    uint32_t generation;    /* the server session the request belongs to */
+    KilnEntity anchor;
+    uint32_t terminal, ok;
+    uint32_t game_result;   /* the game's raw PathfindingResult, or KILN_QUERY_PATH_NO_GAME_RESULT */
+    uint32_t reaches_target;
+    uint32_t point_count, steps;
+    double length;          /* metres along the points (FOUND and PARTIAL) */
+    KilnStr reason;
+} KilnQueryPathUpdate;
 
 typedef struct KilnQueriesApi {
     KilnServiceHeader header; /* { sizeof(KilnQueriesApi) = 56, KILN_QUERIES_VERSION } */

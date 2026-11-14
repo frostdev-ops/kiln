@@ -1,5 +1,9 @@
 #nullable enable
 Kiln.Capability.IsHeld.get -> bool
+static Kiln.Capabilities.IsHeld(string! name) -> bool
+Kiln.GameType.ImpactName.get -> string?
+static Kiln.GameTypes.ByImpactName(string! impactName) -> Kiln.GameType?
+static Kiln.GameTypes.FindAllByImpactName(string! impactName) -> System.Collections.Generic.IReadOnlyList<Kiln.GameType!>!
 Kiln.CapacityChangedEvent
 Kiln.CapacityChangedEvent.Current.get -> Kiln.CapacityInfo!
 Kiln.CapacityChangedEvent.Previous.get -> Kiln.CapacityInfo!
@@ -144,7 +148,6 @@ override Kiln.DefinitionRegistrationOptions.ToString() -> string!
 override Kiln.DefinitionRegistrationResult.Equals(object? obj) -> bool
 override Kiln.DefinitionRegistrationResult.GetHashCode() -> int
 override Kiln.DefinitionRegistrationResult.ToString() -> string!
-static Kiln.Capabilities.IsHeld(string! name) -> bool
 static Kiln.CapacityInfo.operator !=(Kiln.CapacityInfo? left, Kiln.CapacityInfo? right) -> bool
 static Kiln.CapacityInfo.operator ==(Kiln.CapacityInfo? left, Kiln.CapacityInfo? right) -> bool
 static Kiln.CapacityQueryResult.operator !=(Kiln.CapacityQueryResult? left, Kiln.CapacityQueryResult? right) -> bool

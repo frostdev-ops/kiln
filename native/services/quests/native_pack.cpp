@@ -21,6 +21,7 @@
 
 #include "knowledge_internal.h"
 #include "questpack.h"
+#include "kiln_boot_collector.hpp"
 #include "kiln_hook.hpp"
 #include "services/kiln_assets.h"
 #include "services/kiln_content.h"
@@ -199,8 +200,10 @@ qb::ojson npcs_from_blocks(const std::string& mod, const std::vector<qb::ojson>&
     return out;
 }
 
-// Every enabled mod of the load order with a quests/ folder, as kiln.assets finds its assets.json.
-void collect_mods(std::vector<qb::ModInput>* mods, bool client) {
+// Every enabled mod of the load order with a quests/ folder, as kiln.assets finds its assets.json. `boot`: a boot generation's prepare
+// (chapter 08): a mod it excludes is left out, and each mod's OnBoot documents (the quests file's format) follow its own files and blocks,
+// before what its code defined at an earlier start.
+void collect_mods(std::vector<qb::ModInput>* mods, bool client, const kiln::boot::Input* boot = nullptr) {
     auto one = [&](const std::string& dir) {
         std::error_code ec;
         const fs::path base(widen(dir));
@@ -210,6 +213,14 @@ void collect_mods(std::vector<qb::ModInput>* mods, bool client) {
             if (fs::is_directory(qdir, ec)) KW("native: %s has quests/ but no readable kiln.mod.json: skipped", dir.c_str());
             return;
         }
+        if (boot && boot->out(mf["id"].get<std::string>())) {
+            KI("native: %s is out of the boot generation: its quests and NPCs are not built", mf["id"].get_ref<const std::string&>().c_str());
+            return;
+        }
+        std::vector<std::pair<std::string, qb::ojson>> boot_docs;
+        if (boot)
+            for (const auto& b : boot->docs("knowledge", mf["id"].get<std::string>()))
+                boot_docs.emplace_back("boot:" + b.key, qb::ojson::parse(b.document.dump(), nullptr, false));
         // what the mod defined in code at an earlier start (Kiln.Quests/Native/NativeExport.cs)
         const fs::path code = fs::path(widen(path_of(KILN_PATH_DATA))) / L"kiln-quests" / L"native" / widen(mf["id"].get<std::string>() + ".json");
         // the NPC blocks it defined (Kiln.Blocks, Npc/NpcCompiler.cs), kept beside it so that a redeploy of the mod keeps them; the mod's own files win
@@ -277,7 +288,9 @@ void collect_mods(std::vector<qb::ModInput>* mods, bool client) {
         }
         ec.clear();
         const qb::ojson block_npcs = block_docs.empty() ? qb::ojson::object() : npcs_from_blocks(mf["id"].get<std::string>(), block_docs);
-        if (!fs::is_directory(qdir, ec) && !fs::exists(code, ec) && !fs::exists(npc_blocks, ec) && block_npcs.empty() && block_quests.empty()) return;
+        if (!fs::is_directory(qdir, ec) && !fs::exists(code, ec) && !fs::exists(npc_blocks, ec) && block_npcs.empty() && block_quests.empty() &&
+            boot_docs.empty())
+            return;
         const std::string side = mf.value("side", "both");
         if ((side == "server" && client) || (side == "client" && !client)) return;
         qb::ModInput m;
@@ -306,10 +319,20 @@ void collect_mods(std::vector<qb::ModInput>* mods, bool client) {
                 m.documents.push_back(std::move(d));
                 m.files.push_back(label);
             }
+            for (auto& [label, d] : boot_docs) {
+                if (d.is_discarded() || !d.is_object()) {
+                    KW("native: %s: %s is not a JSON object: skipped", m.id.c_str(), label.c_str());
+                    continue;
+                }
+                m.documents.push_back(std::move(d));
+                m.files.push_back(label);
+            }
         };
+        const bool has_blocks_or_boot = has_blocks || !boot_docs.empty();
         for (size_t i = 0; i < files.size(); ++i) {
-            // the mod's own quests files first (they win), then its NPC, quest and dialogue blocks, then what its code defined at an earlier start
-            if (i == own_files && has_blocks) push_blocks();
+            // the mod's own quests files first (they win), then its NPC, quest and dialogue blocks, then (a boot generation) what its OnBoot
+            // staged, then what its code defined at an earlier start
+            if (i == own_files && has_blocks_or_boot) push_blocks();
             const fs::path& f = files[i];
             qb::ojson doc = qb::ojson::parse(read_file(f), nullptr, false, true);
             if (doc.is_discarded() || !doc.is_object()) {
@@ -319,7 +342,7 @@ void collect_mods(std::vector<qb::ModInput>* mods, bool client) {
             m.documents.push_back(std::move(doc));
             m.files.push_back(reinterpret_cast<const char*>(f.filename().u8string().c_str()));
         }
-        if (files.size() == own_files && has_blocks) push_blocks();
+        if (files.size() == own_files && has_blocks_or_boot) push_blocks();
         const qb::ojson audio = qb::ojson::parse(read_file(base / L"assets" / L"cooked" / L"audio.json"), nullptr, false, true);
         if (!audio.is_discarded()) m.audio = audio;
         const qb::ojson cook = qb::ojson::parse(read_file(base / L"assets" / L"cook.json"), nullptr, false, true);
@@ -360,18 +383,37 @@ void put_resource(const char* what, const qb::Guid& g, uint32_t type, const qb::
     if (r != KILN_OK) KW("native: %s (%s, %zu bytes): kiln.assets refused it (%d)", what, qb::guid_text(g).c_str(), data.size(), r);
 }
 
-void build_locked() {
+// A boot generation's part of kiln.knowledge (chapter 08): the mods' inputs, read in prepare; the build (it needs the game's own
+// resources) runs when the resource service is up, from the published plan.
+struct BootPlan {
+    std::vector<qb::ModInput> mods;
+    bool built_early = false;  // the resource service was up at prepare (a client that loaded Kiln late): built then
+};
+bool g_boot = false;  // this process has a boot generation: the build takes the published plan's mods
+
+void build_locked(const std::vector<qb::ModInput>* prepared = nullptr) {
     if (g_built) return;
     g_built = true;
     KilnBuildInfo bi{sizeof bi};
     g_api->build_info(&bi);
     const bool client = bi.side == KILN_SIDE_CLIENT;
     std::vector<qb::ModInput> mods;
-    try {
-        collect_mods(&mods, client);  // the mods' files: nothing they hold may throw out of the game's resource init
-    } catch (const std::exception& e) {
-        KW("native: reading the mods' quest files failed: %s", e.what());
-        return;
+    if (prepared) {
+        mods = *prepared;
+    } else if (g_boot) {
+        const auto* plan = static_cast<const BootPlan*>(kiln::boot::published(g_api, "knowledge"));
+        if (!plan) {
+            KW("native: the boot generation is not published: mods' native quests and NPCs are off");
+            return;
+        }
+        mods = plan->mods;
+    } else {
+        try {
+            collect_mods(&mods, client);  // the mods' files: nothing they hold may throw out of the game's resource init
+        } catch (const std::exception& e) {
+            KW("native: reading the mods' quest files failed: %s", e.what());
+            return;
+        }
     }
     if (mods.empty()) return;
     qb::GameData game;
@@ -478,10 +520,59 @@ void native_pack_install() {
     }
 }
 
+namespace {
+void KILN_CALL destroy_boot(const void* p) {
+    const auto* plan = static_cast<const BootPlan*>(p);
+    if (plan->built_early) {  // what the early build served and defined goes with it
+        std::lock_guard lock(g_mu);
+        if (A) A->revert_owner(g_owner);
+        if (const auto* C = static_cast<const KilnContentApi*>(g_api->service(KilnStr{"kiln.content", 12}, 4))) C->undefine_owner(g_owner);
+        g_built = false;
+        g_names.clear();
+        g_manifest = "{\"mods\":[],\"errors\":[]}";
+    }
+    delete plan;
+}
+
+KilnResult KILN_CALL prepare_boot(void*, const KilnBootPrepareInputV1* in, KilnBootPreparedV1* out, KilnBootIssueV1* issue) {
+    const kiln::boot::Input input = kiln::boot::parse(in);
+    if (!input.ok) return kiln::boot::refuse(out, issue, "", "", "", "kiln.knowledge: the boot envelope is not JSON");
+    KilnBuildInfo bi{sizeof bi};
+    g_api->build_info(&bi);
+    auto* plan = new BootPlan;
+    try {
+        collect_mods(&plan->mods, bi.side == KILN_SIDE_CLIENT, &input);
+    } catch (const std::exception& e) {
+        delete plan;
+        return kiln::boot::refuse(out, issue, "", "", "", std::string("kiln.knowledge: reading the mods' quest files failed: ") + e.what());
+    }
+    // A client whose resource service was up before Kiln loaded: the ResourceInit hook will not fire, so the pack is built now.
+    std::lock_guard lock(g_mu);
+    if (!A) A = static_cast<const KilnAssetsApi*>(g_api->service(kstr(KILN_ASSETS_SERVICE), 1));
+    qb::Guid gk;
+    qb::parse_guid(qb::kGuidKnowledge, &gk);
+    const uint8_t* p = nullptr;
+    size_t n = 0;
+    if (!g_built && A && A->header.size >= sizeof(KilnAssetsApi) && A->resource_data && res_read(gk, qb::kTypeKnowledge, &p, &n)) {
+        build_locked(&plan->mods);
+        plan->built_early = true;
+    }
+    KI("native: boot generation %llu prepared: %zu mod(s) with quests or NPCs%s", static_cast<unsigned long long>(input.generation),
+       plan->mods.size(), plan->built_early ? " (built at once: the resource service was up)" : "");
+    return kiln::boot::prepared(out, plan, &destroy_boot);
+}
+}  // namespace
+
+bool native_pack_boot() {
+    g_boot = kiln::boot::collect(g_api, g_owner, "knowledge", &prepare_boot, nullptr);
+    if (g_boot) KI("native: boot profile: the mods' quest files are read with the boot generation");
+    return g_boot;
+}
+
 void native_pack_ready() {
     // A client whose resource service was up before Kiln loaded: the hook will not fire.
     std::lock_guard lock(g_mu);
-    if (g_built) return;
+    if (g_built || g_boot) return;  // a boot generation builds in its prepare or at the hook
     if (!A) A = static_cast<const KilnAssetsApi*>(g_api->service(kstr(KILN_ASSETS_SERVICE), 1));
     if (!A || A->header.size < sizeof(KilnAssetsApi) || !A->resource_data) return;
     qb::Guid gk;
