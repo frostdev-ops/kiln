@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Key bindings (Forge: KeyMapping + the Controls screen). Remappable in the Kiln menu and in <configDir>/keybinds.json (kiln/config, or the profile's configDir).
+using System.Globalization;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -16,12 +17,14 @@ public enum KeyMods
     Alt = 4,
 }
 
-/// <summary>A key with modifiers, written like "F8", "Ctrl+K", "Shift+Alt+F2", "Insert", "Numpad5", "Backquote", or a mouse
+/// <summary>A key with modifiers, written like "F8", "Ctrl+K", "Shift+Alt+F2", "Insert", "Numpad5", "Backquote", "Key223", or a mouse
 /// input (since 0.2.0-dev.27): "Mouse4", "Mouse5", "MouseMiddle" (the side and middle buttons), "WheelUp", "WheelDown",
 /// "WheelLeft", "WheelRight" (one press per notch of the wheel), with modifiers too: "Ctrl+WheelUp", "Shift+Mouse4". The
 /// left and right buttons cannot be bound: Kiln's screens need them. <see cref="VirtualKey"/> is the Windows virtual-key
 /// code; the mouse buttons have theirs (0x04 middle, 0x05 Mouse4, 0x06 Mouse5), and the wheel, which has none, uses 0x100
-/// (up), 0x101 (down), 0x102 (left), 0x103 (right), above every key. keybinds.json stores the names, not the codes. A
+/// (up), 0x101 (down), 0x102 (left), 0x103 (right), above every key. KeyN is the name for an otherwise
+/// unnamed Windows virtual key (3..255, excluding left and right click), such as Key223 on some keyboard layouts.
+/// keybinds.json stores the names, not the codes. A
 /// Kiln older than 0.2.0-dev.27 does not know the mouse names (<see cref="TryParse"/> says false there).</summary>
 public readonly record struct KeyChord(uint VirtualKey, KeyMods Mods)
 {
@@ -74,7 +77,15 @@ public readonly record struct KeyChord(uint VirtualKey, KeyMods Mods)
                 case "shift": mods |= KeyMods.Shift; continue;
                 case "alt": mods |= KeyMods.Alt; continue;
             }
-            if (vk != 0 || !Names.TryGetValue(part, out vk)) return false;
+            if (vk != 0) return false;
+            // kiln.ui names an otherwise unknown Windows VK as "Key223" etc. Its
+            // own keybinds.json must be able to read those names on the next start.
+            // 0 is None; 1 and 2 are the left/right clicks, which cannot be bound.
+            if (!Names.TryGetValue(part, out vk) &&
+                !(part.StartsWith("Key", StringComparison.OrdinalIgnoreCase) &&
+                  uint.TryParse(part.AsSpan(3), NumberStyles.None, CultureInfo.InvariantCulture, out vk) &&
+                  vk is >= 3 and <= 0xFF))
+                return false;
         }
         if (vk == 0) return false;
         chord = new KeyChord(vk, mods);
