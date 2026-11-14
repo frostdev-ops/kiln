@@ -56,7 +56,17 @@ bool seh_cas_ptr(uintptr_t address, uintptr_t expected, uintptr_t desired, uintp
     *seen = expected;
     return true;
 }
-const KilnTypesApi* program_types() { return nullptr; }
+// kiln.types with only what kiln.world asks of it here: whether native SET owns the program runner.
+std::atomic<uint32_t> g_fake_external{0};
+const KilnTypesApi* program_types() {
+    static KilnTypesApi t = [] {
+        KilnTypesApi v{};
+        v.header = {sizeof(KilnTypesApi), KILN_TYPES_VERSION};
+        v.external_runner = [] { return g_fake_external.load(); };
+        return v;
+    }();
+    return &t;
+}
 }  // namespace kw
 
 using namespace kw;
@@ -699,6 +709,43 @@ void wraps_worlds() {
     check(update_of(wentry(7)) == orig7, "unwrapped in the new world");
 }
 
+// Native SET (kiln.types' external_runner): no new wrap; the live ones go in the next Pre, entries restored.
+void wraps_native_set() {
+    const KilnHandle a = wrap(50, "fuel_setup", KILN_WRAP_BEFORE, 0, &st_trace, nullptr);
+    const KilnHandle b = wrap(50, "fuel_network", KILN_WRAP_REPLACE, 0, &st_replace_skip, nullptr);
+    wpre();
+    const KilnHandle c = wrap(50, "impact_prepare", KILN_WRAP_AFTER, 0, &st_trace, nullptr);  // still pending
+    check(winfo(a).state == KILN_WRAP_ACTIVE && winfo(b).state == KILN_WRAP_ACTIVE && winfo(c).state == KILN_WRAP_PENDING,
+          "SET: two wraps live, one pending");
+    g_fake_external = 1;
+    KilnResult rc = 0;
+    check(!wrap(51, "base_comfort", KILN_WRAP_BEFORE, 0, &st_trace, nullptr, &rc) && rc == KILN_ERR_UNAVAILABLE,
+          "SET: a wrap request while native SET is loaded is refused (unavailable)");
+    wpre();
+    KilnGameProgramsStatus st{};
+    st.size = sizeof st;
+    game_programs_status(&st);
+    check(winfo(a).state == KILN_WRAP_REMOVED && winfo(a).reason == KILN_WRAP_NATIVE_SET &&
+              winfo(b).reason == KILN_WRAP_NATIVE_SET && winfo(c).state == KILN_WRAP_REMOVED &&
+              winfo(c).reason == KILN_WRAP_NATIVE_SET && st.wraps_active == 0 && st.wraps_pending == 0 &&
+              std::string(st.detail).find("native SET") != std::string::npos,
+          "SET: every wrap is removed in one Pre, the status says why");
+    check(update_of(wentry(0)) == reinterpret_cast<uintptr_t>(kWUpdates[0]) &&
+              update_of(wentry(1)) == reinterpret_cast<uintptr_t>(kWUpdates[1]) && wrap_original(wentry(0)) == 0,
+          "SET: the entries hold the game's updates again (SET names programs by them)");
+    g_fake_external = 2;
+    check(!wrap(51, "base_comfort", KILN_WRAP_BEFORE, 0, &st_trace, nullptr, &rc) && rc == KILN_ERR_UNAVAILABLE,
+          "SET: modules that could not be read also refuse wraps");
+    g_fake_external = 0;
+    wpre();
+    const KilnHandle d = wrap(51, "base_comfort", KILN_WRAP_BEFORE, 0, &st_trace, nullptr);
+    wpre();
+    check(d && winfo(d).state == KILN_WRAP_ACTIVE && winfo(a).state == KILN_WRAP_REMOVED,
+          "SET gone: new wraps are taken again, the removed ones stay removed");
+    game_program_unwrap(d);
+    wpre();
+}
+
 void wraps_owners() {
     // release: queued, then 0 after the world's Pre
     const KilnHandle a = wrap(40, "fuel_setup", KILN_WRAP_BEFORE, 0, &st_trace, nullptr);
@@ -915,6 +962,7 @@ int main(int argc, char** argv) {
     wraps_basics();
     wraps_foreign();
     wraps_worlds();
+    wraps_native_set();
     wraps_owners();
     stress_steps();
     stress_overlap();

@@ -111,6 +111,7 @@ KilnHandle g_next = 1;
 uint64_t g_seq = 0;
 bool g_ok = false;                    // the layout wraps need resolved
 std::atomic<uint32_t> g_external{0};  // kiln.types' external runner, as last seen
+uint32_t g_external_pre = 0;          // as the last Pre saw it (g_mu): what the capability row says
 const KilnCapsApi* g_wrap_caps = nullptr;
 std::atomic<uint32_t> g_active{0}, g_pending{0};
 std::chrono::steady_clock::time_point g_next_reap{};
@@ -303,9 +304,16 @@ const char* reason_text(uint32_t r) {
 
 // kiln.types' answer to "does another runtime own the program runner?" (native SET names programs by their update
 // pointer, which a wrap changes).
+const KilnTypesApi* g_types = nullptr;
+std::once_flag g_types_once;
 uint32_t external_runner() {
-    g_external.store(0, std::memory_order_relaxed);
-    return 0;
+    std::call_once(g_types_once, [] {
+        g_types = program_types();
+        if (g_types && g_types->header.size < offsetof(KilnTypesApi, external_runner) + sizeof(void*)) g_types = nullptr;
+    });
+    const uint32_t v = g_types && g_types->external_runner ? g_types->external_runner() : 0;
+    g_external.store(v, std::memory_order_relaxed);
+    return v;
 }
 
 void report_row(const char* name, uint32_t state, uint32_t reason, const char* text) {
@@ -583,9 +591,10 @@ const char* game_wraps_off_reason() {
 void wraps_pre(uint32_t kind, uintptr_t) {
     const int pool = wrap_pool(kind);
     if (pool < 0 || !g_ok) return;
-    const uint32_t ext_before = g_external.load();
     const uint32_t ext = external_runner();
     std::lock_guard lock(g_mu);
+    const uint32_t ext_before = g_external_pre;
+    g_external_pre = ext;
     if (ext && ext != ext_before) {
         KW_W("%s: every wrap is removed", game_wraps_off_reason());
         report_row("systems.wraps", KILN_CAP_UNAVAILABLE, KILN_CAP_REASON_POLICY, game_wraps_off_reason());

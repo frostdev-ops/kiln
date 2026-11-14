@@ -10,11 +10,15 @@
 //   10        find: the directory (817 game programs, 197 of them client programs with no update in the server world)
 //   20-840    the switch: kiln.types system hooks count the threads of a few entity programs' slices; serial, then
 //             the switch on for 300 steps (the parallel window), then serial again
+//   0         an After wrap on the INIT program init_spawn_time, made at the world's first Pre with a directory (it runs
+//             while the world creates its entities)
 //   900-1260  wraps, serial: Before/After on fuel_network, Replace on fuel_setup (a kiln.types hook on its update counts
-//             the game's runs), an INIT program, a stage that faults, a second Replace; then every wrap goes and the
-//             table holds the game's own updates again
-//   1300-3760 wraps with the switch on (2,600 steps): Before/After on 4 entity programs (threads, index, counters), then
+//             the game's runs), a stage that faults, a second Replace; then every wrap goes and the table holds the
+//             game's own updates again
+//   1300-3712 wraps with the switch on (2,600 steps): Before/After on 4 entity programs (threads, index, counters), then
 //             the stress: 4 wraps on entity programs made and removed every 50 steps for 2,000 steps
+//   3720-4030 kiln.types under wraps: the profiler still names a wrapped program (wrap_original), and a kiln.types
+//             system hook on a wrapped program's update still runs once per slice
 #include <windows.h>
 
 #include <algorithm>
@@ -254,7 +258,7 @@ KilnGameProgramInfo pinfo(const char* name) {
 }
 
 // Every entry of the server world's table holds its descriptor's update (read from the table itself).
-void restore_row(const char* when) {
+void restore_row(const char* when, int wrapped = 0) {
     int64_t table = -1, stride = -1, count_at = -1;
     g_api->constant(ks("world/programs.table"), &table);
     g_api->constant(ks("world/programs.stride"), &stride);
@@ -274,8 +278,8 @@ void restore_row(const char* when) {
         (update == own ? same : differ)++;
         if (W->wrap_original(e)) ++ours;
     }
-    row(differ == 0 && ours == 0, "restore (%s): entry+0x28 equals the descriptor's update for %d of %u programs, %d differ, "
-        "%d kiln.world trampolines left", when, same, n, differ, ours);
+    row(differ == wrapped && ours == wrapped, "restore (%s): entry+0x28 equals the descriptor's update for %d of %u programs, "
+        "%d differ, %d kiln.world trampolines (%d expected)", when, same, n, differ, ours, wrapped);
 }
 
 struct {
@@ -289,6 +293,65 @@ struct {
     uint64_t stress_slices = 0, stress_cycles = 0, stress_refused = 0;
     uint64_t stress_faults = 0;
 } g_w;
+
+// ---- S3: kiln.types under wraps ----
+struct {
+    Seen setup, net_before;
+    KilnHandle hook = 0;
+    uint64_t calls0 = 0;
+} g_id;
+uint64_t profiled_calls(const char* name) {
+    const int32_t i = T ? T->system_find(ks(name)) : -1;
+    KilnSystemInfo si{};
+    si.size = sizeof si;
+    return i >= 0 && T->system_info(static_cast<uint32_t>(i), &si) == KILN_OK ? si.calls : 0;
+}
+void identity_phase(uint64_t n) {
+    auto& d = g_id;
+    switch (n) {
+        case 3720: {
+            const bool types_ok = T && T->header.size >= offsetof(KilnTypesApi, external_runner) + sizeof(void*);
+            row(types_ok && T->external_runner() == 0, "kiln.types: external_runner %u (no native SET here)",
+                types_ok ? T->external_runner() : 99u);
+            if (!T) break;
+            T->profile(true);
+            d.setup.handle = wrap("fuel_setup", KILN_WRAP_BEFORE, &st_before, &d.setup);
+            d.net_before.handle = wrap("fuel_network", KILN_WRAP_BEFORE, &st_before, &d.net_before);
+            const int32_t i = T->system_find(ks("fuel_network"));
+            if (i < 0 || T->system_hook(g_owner, static_cast<uint32_t>(i), &hook_count, nullptr, nullptr, &d.hook) != KILN_OK)
+                d.hook = 0;
+            break;
+        }
+        case 3722:  // both wraps live since the last Pre: count from here
+            d.setup.reset();
+            d.net_before.reset();
+            g_hook_runs = 0;
+            d.calls0 = profiled_calls("fuel_setup");
+            break;
+        case 4020: {
+            if (!T) break;
+            const uint64_t calls = profiled_calls("fuel_setup") - d.calls0, slices = d.setup.slices.load();
+            row(slices > 0 && calls == slices && winfo(d.setup.handle).state == KILN_WRAP_ACTIVE,
+                "identity: kiln.types' profiler names the wrapped fuel_setup: %llu calls, %llu wrapped slices",
+                static_cast<unsigned long long>(calls), static_cast<unsigned long long>(slices));
+            const uint64_t hooked = g_hook_runs.load(), wrapped = d.net_before.slices.load();
+            row(d.hook && wrapped > 0 && hooked == wrapped,
+                "GameSystems.Hook callbacks still run under a wrap: fuel_network's kiln.types hook ran %llu times, its "
+                "wrap's Before %llu", static_cast<unsigned long long>(hooked), static_cast<unsigned long long>(wrapped));
+            W->game_program_unwrap(d.setup.handle);
+            W->game_program_unwrap(d.net_before.handle);
+            if (d.hook) T->system_unhook(d.hook), d.hook = 0;
+            T->profile(false);
+            break;
+        }
+        case 4022: restore_row("the end"); break;
+        case 4030:
+            g_done = true;
+            say("done, %d PASS, %d FAIL", g_pass, g_fail);
+            break;
+        default: break;
+    }
+}
 
 void wraps_phase(uint64_t n) {
     auto& w = g_w;
@@ -306,7 +369,6 @@ void wraps_phase(uint64_t n) {
             row(r2 == KILN_ERR_INVALID_ARGUMENT && !second, "a second Replace of fuel_setup is refused (%d; kiln.log names "
                 "the first's owner)", r2);
             (void)rc;
-            w.init.handle = wrap("init_spawn_time", KILN_WRAP_AFTER, &st_after, &w.init);
             w.fault.handle = wrap("move_colliders", KILN_WRAP_BEFORE, &st_fault, &w.fault);
             w.fault_after.handle = wrap("move_colliders", KILN_WRAP_AFTER, &st_after, &w.fault_after);
             if (T) {
@@ -346,7 +408,7 @@ void wraps_phase(uint64_t n) {
             for (Seen* s : {&w.fn_before, &w.fn_after, &w.replace, &w.fault, &w.fault_after})
                 W->game_program_unwrap(s->handle);
             break;
-        case 1202: restore_row("fuel_setup, fuel_network and move_colliders unwrapped; the INIT wrap stays"); break;
+        case 1202: restore_row("fuel_setup, fuel_network and move_colliders unwrapped; the INIT wrap stays", 1); break;
         case 1250: {
             w.hook_after = g_hook_runs.load() - w.hook_during;
             const KilnGameProgramInfo ii = pinfo("init_spawn_time");
@@ -430,9 +492,8 @@ void wraps_phase(uint64_t n) {
                 W->lab_parallel(0, 0);
             } else if (n == 3712) {
                 restore_row("after the stress");
-            } else if (n == 3720) {
-                g_done = true;
-                say("done, %d PASS, %d FAIL", g_pass, g_fail);
+            } else if (n >= 3720) {
+                identity_phase(n);
             }
             break;
     }
@@ -441,6 +502,11 @@ void wraps_phase(uint64_t n) {
 void KILN_CALL on_pre(const KilnTickInfo* tick, void*) {
     if (g_done || !W) return;
     g_tick_tid = GetCurrentThreadId();
+    if (!g_w.init.handle && status().directory[KILN_WORLD_SERVER]) {
+        // INIT programs run for archetype groups that gain entities: wrap one while the world loads its entities
+        g_w.init.handle = wrap("init_spawn_time", KILN_WRAP_AFTER, &st_after, &g_w.init);
+        say("INIT wrap on init_spawn_time made at world step %llu", static_cast<unsigned long long>(tick->step));
+    }
     if (!g_start) {
         // The world's entities load a while after its first step (no player); the managed part uses the switch at
         // world steps 60-64. Start after both.
