@@ -9,8 +9,8 @@
   "verified": true,
   "note": "runtime-verified through Steam (GE-Proton11-11), policy any, core + every service + kiln-emf + probe + ui-test + menubuttons: side client, sigdb 306/306 symbols, 434/434 constants (client.d composed), SimStep + WorldDestroy hooked, boot complete, 0 errors; main menu entries Kiln / ui-test / Mods (the Kiln sample screen opened); hosted a LOCAL world offline (saves: world loaded: slot 0x0002 (world1.ksd)): server world 60 steps/s on the GameServer thread, client and prediction worlds on the main thread, local player 1; ui-test all checks PASS (screens MainMenu/Loading/InGame/PauseMenu/Map/Crafting, menu entries chosen, crafting state), Kiln crafting tabs and subcategories shown, Insert overlay; tick cost as on ce6fdba6 (server step p50 2.5 ms, Kiln Pre 0.037 ms; client 1.2 ms); back to the menu (worlds stopping, shutdown save), clean quit (Shutdown 'Steam'). Not covered: joining a remote server, service write paths on the client. Added in dev.22 from static analysis only (resolved offline with sigdb_check.py, not yet seen running): ui.menu_page, ui.menu_page_sound, ui.error_popup (ui/PreGameCredits, ui/PreGameCreditsRet, ui/UiPlaySound and their constants). Levels (record 2, refreshed offline on 2026-11-11, no client run): lab = the names the boot above resolved, as its record listed them (199 named symbols, 434 constants, 106 features), each resolving to the same value today; every service loaded in that boot, but only ui-test ran, so lab here means loaded with Kiln's checks passing, not that the service test mods ran on the client. static = everything else, resolved offline only: the 186 @ probes (the boot's record did not list probes), the dev.22 ui names above, and every name declared since (the services audio, characters, emf-net, npcai, pacing, progression, quests, render, rules, skills, types and vfx, and new names of combat, creatures, gamedata, items, net, players, time and ui): 158 symbols, 210 constants and 70 features. sigdb now declares 543 symbols (441 defined, 102 captured), 644 constants (595 defined, 49 captured) and 176 features; all of them resolve offline on this exe.",
   "declared": {
-    "symbols": 635,
-    "constants": 708,
+    "symbols": 637,
+    "constants": 713,
     "features": 194
   },
   "features": {
@@ -1015,8 +1015,13 @@
     "queries/pathrecord.stride": "0x1a0",
     "queries/query.max_iterations": "0x48",
     "queries/query.moves": "0x54",
+    "queries/query.space_h": "0x100",
+    "queries/query.space_v": "0x104",
     "queries/query.start": "0x10",
+    "queries/query.start_search_v": "0xf4",
     "queries/query.target": "0x1c",
+    "queries/query.target_search_v": "0xfc",
+    "queries/query.target_type": "0x36",
     "queries/ray.min_length_bits": "0x1e3ce508",
     "queries/ray_grid.horizontal_count": "0x14",
     "queries/ray_grid.origin": "0x70",
@@ -1933,6 +1938,8 @@
         "@queries/base_query.layout": "static",
         "@queries/job_realm.call": "static",
         "@queries/job_realm.layout": "static",
+        "@queries/query_normalize.layout": "static",
+        "@queries/query_target_type.layout": "static",
         "queries/CreatePathQuery": "static",
         "queries/DestroyPathQuery": "static",
         "queries/GetPathQueryResult": "static",
@@ -1957,8 +1964,13 @@
         "queries/pathrecord.stride": "static",
         "queries/query.max_iterations": "static",
         "queries/query.moves": "static",
+        "queries/query.space_h": "static",
+        "queries/query.space_v": "static",
         "queries/query.start": "static",
-        "queries/query.target": "static"
+        "queries/query.start_search_v": "static",
+        "queries/query.target": "static",
+        "queries/query.target_search_v": "static",
+        "queries/query.target_type": "static"
       },
       "features": {
         "queries.path": "static"
