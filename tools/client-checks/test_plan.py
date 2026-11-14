@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 import os
 import sys
 import tempfile
@@ -180,6 +181,19 @@ class Main(unittest.TestCase):
             self.assertEqual(plan.main(["--repo", str(REPO), "--json"]), 0)
         doc = json.loads(out.getvalue())
         self.assertEqual(doc["index"], len(plan.read_index(str(REPO / "mods" / "tests" / "client-pass" / "dev28-checks.json"))))
+
+
+class GateGenerator(unittest.TestCase):
+    def test_trailing_newlines_cannot_reach_cpp_string_literals(self):
+        spec = importlib.util.spec_from_file_location("gate_gen", REPO / "native/core/gates/gen.py")
+        gen = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gen)
+        for key, value in (("name", "camera.fov\n"), ("checks", ["03-c11\n"])):
+            with self.subTest(key=key), tempfile.TemporaryDirectory() as folder:
+                row = {"name": "camera.fov", "checks": ["03-c11"], key: value}
+                Path(folder, "gate.json").write_text(json.dumps({"gates": [row]}))
+                with self.assertRaises(SystemExit):
+                    gen.load(folder)
 
 
 if __name__ == "__main__":
