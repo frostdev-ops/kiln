@@ -260,14 +260,13 @@ public sealed partial class ClientPassMod
         }
     }
 
-    /// <summary>Ends a check that cannot judge in this start. This branch's Kiln.Testing has no CheckContext.Skip yet (it comes with the next
-    /// merge of dev28/integration): until then it asks the player for skip. After that merge the last two lines become
-    /// <c>c.Instruct(instruction); await c.Skip(why);</c>.</summary>
+    /// <summary>Ends a check that cannot judge in this start: it says what to do, and the check ends skipped (CheckContext.Skip), so it
+    /// cannot be passed from here.</summary>
     private static async Task BootCannotJudge(CheckContext c, string why, string instruction)
     {
         c.Log.Info($"client-pass: {c.Id} cannot judge in this start: {why}");
-        c.Instruct(instruction + " Press skip now.");
-        await c.Verdict();
+        c.Instruct(instruction);
+        await c.Skip(why);
     }
 
     /// <summary>The part of a check that runs over several starts, kept in the mod's data folder: "&lt;part&gt; &lt;pid&gt; &lt;value&gt;
