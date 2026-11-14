@@ -98,6 +98,13 @@ if (result.Ok && result.ReachesTarget) foreach (var p in result.Points) { /* wal
 | `Queries.CancelPath(request)` | `queries.path` | ends a request of the calling mod as `Cancelled` |
 | `Queries.CanReach(request, cancellationToken)` | `queries.reachability` | the same search, asked only whether it arrives; the same question twice in one step is one search |
 
+**Walking a route.** Nothing here walks for you. `mods/samples/NpcSample/PathWalker.cs` shows the whole loop for a
+creature with a brain ([npc-blocks.md](../modding/npc-blocks.md)): ask `FindPath` with the creature as its own anchor,
+keep the copied points, give them to `NpcControl.MoveTo` one after another, and treat the route as out of date when
+the goal moved, when it is some seconds old or when the creature is no longer near it. On `Ok = false`, or where
+`queries.path` is off, it stands still and asks again a few seconds later; it never walks straight at the goal
+instead. In game: `/npcsample walker`, `/npcsample walkto`.
+
 **The anchor.** A request names an entity the game's query is made for. It is not moved, and it need not be what
 will walk. It must carry the game's spawn marker (SpawnTime): entities the game or `Spawn` put into the world have it,
 saved entities, items and players may not (`OwnerIdentityUnavailable`). For those, spawn a helper pickup

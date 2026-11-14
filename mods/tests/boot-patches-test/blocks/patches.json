@@ -1,0 +1,13 @@
+{
+  "$schema": "../../../../schema/kiln-blocks.schema.json",
+  "format": 1,
+  // The lab script replaces this file for each case. This one is the first: the game's table says 1000 for level 1.
+  "resourcePatches": {
+    "xp": {
+      "format": 1,
+      "resource": "82706b40-61b1-4b8f-8b23-dcec6971bda1",
+      "type": "keen::BalancingTable",
+      "set": { "experienceNeedPerLevel[0]": 1500 }
+    }
+  }
+}

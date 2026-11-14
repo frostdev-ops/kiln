@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!-- Sample: a friendly NPC with a voiced quest (docs/kiln/services/npcs.md). The data is quests/npcsample.json (read natively
-       at boot by kiln-quests.dll on both sides) and assets/cook.json (tools/soundcook); this assembly only adds /npcsample. -->
+       at boot by kiln-quests.dll on both sides) and assets/cook.json (tools/soundcook); this assembly adds /npcsample
+       and, in PathWalker.cs, a creature whose brain walks a route from the game's path search (docs/kiln/services/queries.md). -->
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
@@ -19,6 +20,9 @@
     <ProjectReference Include="../../../managed/services/Kiln.Content/Kiln.Content.csproj" Private="false" ExcludeAssets="runtime" />
     <ProjectReference Include="../../../managed/services/Kiln.Chat/Kiln.Chat.csproj" Private="false" ExcludeAssets="runtime" />
     <ProjectReference Include="../../../managed/services/Kiln.Items/Kiln.Items.csproj" Private="false" ExcludeAssets="runtime" />
+    <!-- PathWalker.cs: a creature block with a brain (Kiln.Blocks) that walks a route from Queries.FindPath (Kiln.Queries) -->
+    <ProjectReference Include="../../../managed/services/Kiln.Blocks/Kiln.Blocks.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Queries/Kiln.Queries.csproj" Private="false" ExcludeAssets="runtime" />
     <None Include="kiln.mod.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="quests/**" CopyToOutputDirectory="PreserveNewest" />
     <None Include="assets/**" CopyToOutputDirectory="PreserveNewest" />

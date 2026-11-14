@@ -1,0 +1,9 @@
+{
+  "format": 1,
+  "programs": {
+    "cct_feed": {
+      "flags": ["hostOnly"],
+      "read": ["ActorInput"]
+    }
+  }
+}
