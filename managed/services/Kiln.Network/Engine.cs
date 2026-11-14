@@ -513,6 +513,7 @@ internal static class NetEngine
         p.State = NetPeerState.Ready;
         RemapServerChannels(p);
         SendWelcome(p, hello.Nonce, warnings);
+        NetAdmission.Joined(p);  // OnJoin deciders, before it is let in (under "hold all")
         // A hosted world's own client (machine slot 0) shares this process's templates and gets no content state.
         var localMachine = !p.IsLab && (p.Id & 0x7F) == 0;
         if (!localMachine && VanillaGate.AwaitsDefinitions(NetNative.ReadGate().KilnTemplates, p.HasChannel(ContentChannel))) p.DefinitionsSince = DateTime.UtcNow;
@@ -612,6 +613,7 @@ internal static class NetEngine
     {
         if (_tableDirty) BroadcastChannelTable();
         if (KicksPending) RunDueKicks(DateTime.UtcNow);
+        if (NetAdmission.StepNeeded) AdmissionStep();  // every step while a requirement can hold a peer
         if (tick.Step % 25 != 0 && !AdmissionChanged) return;  // ~1 s on a dedicated server
         AdmissionChanged = false;
         NetAdvertise.Tick();
@@ -652,6 +654,14 @@ internal static class NetEngine
             ExpirePartial(p, now);
             if (p.State == NetPeerState.Ready && (now - p.PingSentAt).TotalSeconds >= 10) Ping(p);
         }
+    }
+
+    /// <summary>NetAdmission's per-step pass: the held peers' state from kiln.net, then its decisions.</summary>
+    private static void AdmissionStep()
+    {
+        var now = DateTime.UtcNow;
+        foreach (var p in ServerPeers()) RefreshInfo(p);
+        NetAdmission.Step(now);
     }
 
     private const string ContentChannel = "kiln:content";

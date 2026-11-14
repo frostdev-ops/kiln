@@ -81,7 +81,7 @@ internal static class NetAdmission
     internal static readonly TimeSpan MaxDeadline = TimeSpan.FromSeconds(25);
 
     // kiln_net.h: the gate mode that holds every peer, proved ones too, and its caps bit (kiln.net 0.2.0-dev.28)
-    internal const uint GateHoldAll = 2, GateCanHoldAll = 8;
+    internal const uint GateHoldAll = NetNative.GateHoldAll, GateCanHoldAll = NetNative.GateCanHoldAll;
 
     private const string Me = "kiln.network";
 
@@ -328,12 +328,15 @@ internal static class NetAdmission
         return false;
     }
 
-    /// <summary>Whether some requirement needs each Kiln client decided before it enters the world.</summary>
+    /// <summary>Whether some requirement needs each Kiln client decided before it enters the world, or a refused Kiln
+    /// client still waits for its kick: "hold all" stays on until it is gone, so lowering the gate never lets it in.</summary>
     internal static bool HoldsKilnPeers
     {
         get
         {
-            lock (Lock) return JoinHolds.Count > 0 || PeerHolds.Count > 0 || Deciders.Count > 0 || Protocols.Count > 0;
+            lock (Lock)
+                if (JoinHolds.Count > 0 || PeerHolds.Count > 0 || Deciders.Count > 0 || Protocols.Count > 0) return true;
+            return NetEngine.ServerPeers().Any(p => p.State == NetPeerState.Rejected && p.KickAt != null);
         }
     }
 
@@ -372,9 +375,87 @@ internal static class NetAdmission
         }
         else if (held)
         {
-            var rc = Gate.Release(p.Id);
-            if (rc != NetNative.Ok) NetEngine.Log(LogLevel.Warn, $"letting {p.Name} (0x{p.Id:x}) in: rc {rc}");
-            else lock (Lock) Released.Add(p.Id);
+            if (MayRelease(p, out _)) Release(p);
+            else lock (Lock) PendingVanilla.Add(p.Id);  // let in once the holds that live now end
+        }
+    }
+
+    private static readonly HashSet<uint> PendingVanilla = new();
+
+    private static void Release(NetPeer p)
+    {
+        var rc = Gate.Release(p.Id);
+        if (rc != NetNative.Ok) NetEngine.Log(LogLevel.Warn, $"letting {p.Name} (0x{p.Id:x}) in: rc {rc}");
+        else
+            lock (Lock)
+            {
+                Released.Add(p.Id);
+                PendingVanilla.Remove(p.Id);
+            }
+    }
+
+    // ---- joining Kiln clients (hold all) ----
+
+    private static readonly Dictionary<uint, string> LoggedHolder = new();
+
+    /// <summary>A Kiln client's hello passed and it got Welcome: every OnJoin decider is asked now, before it is let in.
+    /// A decider that throws refuses it (fail closed). Tick thread.</summary>
+    internal static void Joined(NetPeer p)
+    {
+        if (IsLocalMachine(p)) return;
+        Decider[] ds;
+        lock (Lock) ds = Deciders.ToArray();
+        foreach (var d in ds)
+        {
+            try
+            {
+                d.Decide(p);  // a decider holds the peer through HoldPeer; what it returns is that hold
+            }
+            catch (Exception e)
+            {
+                NetEngine.Log(LogLevel.Error, $"admission: {d.Holder}'s join decision for {p.Name} (0x{p.Id:x}) threw: {e.Message}");
+                RefusePeer(p, "The server could not decide your join. Try again.", d.Holder);
+                return;
+            }
+        }
+    }
+
+    /// <summary>Whether the engine must run <see cref="Step"/> this tick: a requirement holds Kiln clients, or a client
+    /// without Kiln waits for holds to end.</summary>
+    internal static bool StepNeeded
+    {
+        get
+        {
+            lock (Lock) return JoinHolds.Count > 0 || PeerHolds.Count > 0 || Deciders.Count > 0 || Protocols.Count > 0 || PendingVanilla.Count > 0;
+        }
+    }
+
+    /// <summary>Every step while something can hold a peer: deadlines, then each held peer whose decision is made goes
+    /// in (a Kiln client whose hello passed, a client without Kiln that was let in) once no hold is left on it. Under
+    /// "hold all" this is the only way a held peer enters the world. Tick thread.</summary>
+    internal static void Step(DateTime now)
+    {
+        Expire(now);
+        var holdAll = Gate.Read().Mode == GateHoldAll;
+        foreach (var p in NetEngine.ServerPeers())
+        {
+            if (p.HeldSince == null || InWorld(p) || p.KickAt != null) continue;
+            bool pending;
+            lock (Lock) pending = PendingVanilla.Contains(p.Id);
+            if (!(pending || (holdAll && p.State == NetPeerState.Ready))) continue;
+            if (MayRelease(p, out var holder))
+            {
+                var since = p.HeldSince.Value;
+                Release(p);
+                if (InWorld(p)) NetEngine.Log(LogLevel.Info, $"admission: {p.Name} (0x{p.Id:x}) let in after {(now - since).TotalMilliseconds:0} ms held");
+                lock (Lock) LoggedHolder.Remove(p.Id);
+                continue;
+            }
+            bool fresh;
+            lock (Lock) fresh = !LoggedHolder.TryGetValue(p.Id, out var was) || was != holder;
+            if (!fresh) continue;
+            lock (Lock) LoggedHolder[p.Id] = holder!;
+            NetEngine.Log(LogLevel.Info, $"admission: {(p.State == NetPeerState.Ready ? "proved" : "vanilla")} peer {p.Name} (0x{p.Id:x}) held by {holder}");
         }
     }
 
@@ -478,7 +559,10 @@ internal static class NetAdmission
             foreach (var h in PeerHolds.Where(h => ReferenceEquals(h.Peer, p))) h.MarkEnded();
             PeerHolds.RemoveAll(h => ReferenceEquals(h.Peer, p));
             Released.Remove(p.Id);
+            PendingVanilla.Remove(p.Id);
+            LoggedHolder.Remove(p.Id);
         }
+        Changed();  // a refused peer that kept "hold all" on is gone
     }
 
     // peers admission let into the world (gate_release answered ok)
@@ -496,8 +580,13 @@ internal static class NetAdmission
         lock (Lock) return Conditions.ToArray();
     }
 
-    /// <summary>The engine's next pass looks at the gate at once (not at the next second).</summary>
-    private static void Changed() => NetEngine.AdmissionChanged = true;
+    /// <summary>A requirement came or went: the gate's mode follows at once (a proved peer must not slip through before
+    /// "hold all" is on), and the engine's next tick runs a full pass.</summary>
+    private static void Changed()
+    {
+        NetEngine.AdmissionChanged = true;
+        if (ServerRole) UpdateGate(_modListKnown, _builtInRefuse, _kilnTemplates);
+    }
 
     internal static bool IsLocalMachine(NetPeer p) => !p.IsLab && !p.IsServer && (p.Id & 0x7F) == 0;
 
@@ -512,6 +601,8 @@ internal static class NetAdmission
             Deciders.Clear();
             Conditions.Clear();
             Released.Clear();
+            PendingVanilla.Clear();
+            LoggedHolder.Clear();
         }
         _mode = uint.MaxValue;
         _modListKnown = _builtInRefuse = false;

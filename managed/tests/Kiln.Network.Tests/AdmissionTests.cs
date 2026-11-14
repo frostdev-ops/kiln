@@ -207,6 +207,20 @@ public sealed class AdmissionTests : IDisposable
     }
 
     [Fact]
+    public void A_refused_kiln_client_keeps_hold_all_on_until_it_is_gone()
+    {
+        var p = Up(A, held: true);
+        p.State = NetPeerState.Ready;
+        var h = NetAdmission.HoldPeer(p, "policy", "ack missing", TimeSpan.FromSeconds(1));
+        Assert.Equal(NetAdmission.GateHoldAll, _gate.Mode);
+        NetAdmission.Expire(DateTime.UtcNow.AddSeconds(2));
+        Assert.True(h.Ended);
+        Assert.Equal(NetAdmission.GateHoldAll, _gate.Mode);  // lowering the gate now would let the refused peer in
+        NetEngine.OnPeer(A, false);  // kicked: it left
+        Assert.NotEqual(NetAdmission.GateHoldAll, _gate.Mode);
+    }
+
+    [Fact]
     public void A_join_hold_past_its_deadline_ends_and_lets_the_others_decide()
     {
         var p = Up(A, held: true);
@@ -226,6 +240,8 @@ public sealed class AdmissionTests : IDisposable
         h.Refuse("the policy change failed");
         Assert.Equal(NetPeerState.Rejected, a.State);
         Assert.NotEqual(NetPeerState.Rejected, b.State);
+        Assert.True(NetAdmission.HoldsKilnPeers);  // "hold all" stays on until the refused peer is kicked
+        NetEngine.OnPeer(A, false);
         Assert.False(NetAdmission.HoldsKilnPeers);
     }
 
@@ -290,6 +306,72 @@ public sealed class AdmissionTests : IDisposable
         NetEngine.OnPeer(B, false);
         Assert.True(h.Ended);
         Assert.False(NetAdmission.HoldsKilnPeers);
+    }
+
+    [Fact]
+    public void Under_hold_all_a_held_kiln_client_goes_in_when_its_last_hold_ends()
+    {
+        var p = Up(A, held: true);
+        p.State = NetPeerState.Ready;
+        var decider = NetAdmission.OnJoin("late-join", _ => null);  // keeps "hold all" on after the holds end
+        var joins = NetAdmission.HoldJoins("menus", "menus", Ten);
+        var mine = NetAdmission.HoldPeer(p, "ack", "waits for the ack", Ten);
+        Assert.Equal(NetAdmission.GateHoldAll, _gate.Mode);
+        NetAdmission.Step(DateTime.UtcNow);
+        Assert.Empty(_gate.Released);
+        joins.End();
+        NetAdmission.Step(DateTime.UtcNow);
+        Assert.Empty(_gate.Released);  // its own hold still lives
+        mine.End();
+        NetAdmission.Step(DateTime.UtcNow);
+        Assert.Equal([A], _gate.Released);
+        NetAdmission.Step(DateTime.UtcNow);
+        Assert.Single(_gate.Released);  // once
+        decider.Dispose();
+        Assert.NotEqual(NetAdmission.GateHoldAll, _gate.Mode);  // nothing left: kiln.net's own rule lets proved peers go
+    }
+
+    [Fact]
+    public void Under_hold_all_a_peer_whose_hello_did_not_pass_is_never_let_in()
+    {
+        var connecting = Up(A, held: true);  // no hello yet
+        var rejected = Up(B, held: true);
+        rejected.State = NetPeerState.Rejected;
+        using var onJoin = NetAdmission.OnJoin("x", _ => null);
+        NetAdmission.Step(DateTime.UtcNow);
+        Assert.Empty(_gate.Released);
+        Assert.Equal(NetPeerState.Connecting, connecting.State);
+    }
+
+    [Fact]
+    public void A_vanilla_client_let_in_while_a_hold_lives_waits_for_it()
+    {
+        var p = Up(A, held: true);
+        var joins = NetAdmission.HoldJoins("menus", "menus", Ten);
+        NetAdmission.DecideVanilla(p, refuse: false, "unused", DateTime.UtcNow);
+        Assert.Empty(_gate.Released);
+        Assert.True(NetAdmission.StepNeeded);
+        joins.End();
+        NetAdmission.Step(DateTime.UtcNow);
+        Assert.Equal([A], _gate.Released);
+    }
+
+    [Fact]
+    public void An_onjoin_decider_holds_a_joining_peer_and_one_that_throws_refuses_it()
+    {
+        var p = Up(A, held: true);
+        p.State = NetPeerState.Ready;
+        using (NetAdmission.OnJoin("late-join", peer => NetAdmission.HoldPeer(peer, "late-join", "waits for the ack", Ten)))
+        {
+            NetAdmission.Joined(p);
+            Assert.False(NetAdmission.MayRelease(p, out var holder));
+            Assert.Equal("late-join", holder);
+        }
+        var q = Up(B, held: true);
+        q.State = NetPeerState.Ready;
+        using (NetAdmission.OnJoin("broken", _ => throw new InvalidOperationException("boom")))
+            NetAdmission.Joined(q);
+        Assert.Equal(NetPeerState.Rejected, q.State);
     }
 
     [Fact]
