@@ -1472,9 +1472,10 @@ export interface CookRun {
   /** Play's cook only: the game data Mod.OnBoot reads, made or found after the cook (kiln_manage::boot_snapshot). */
   bootSnapshot?: BootSnapshot;
 }
-/** What making the boot game-data snapshot came to: made | reused | refused | failed | unavailable. */
+/** What making the boot game-data snapshot came to: made | reused | skipped (no mod needs it) | refused | failed |
+ *  unavailable. */
 export interface BootSnapshot {
-  status: "made" | "reused" | "refused" | "failed" | "unavailable";
+  status: "made" | "reused" | "skipped" | "refused" | "failed" | "unavailable";
   key?: string;
   path?: string;
   counts?: Record<string, number>;
