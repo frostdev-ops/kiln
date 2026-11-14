@@ -49,8 +49,8 @@ public sealed partial class NpcSampleMod
 /// <summary>
 /// Walks to its goal on a route it asked the game's path search for. The route is a copy from the step the game
 /// answered, so the brain treats it as out of date when the goal moved, when it is old, or when the creature is no
-/// longer near it, and asks again. Without a route (the search is off, refused the question or found no way) it
-/// stands still and asks again a little later: it never walks straight at the goal instead.
+/// longer near it, and asks again. Without a route (the search is off, refused the question or found no way, or the goal
+/// is more than 200 m away) it stands still and asks again a little later: it never walks straight at the goal instead.
 /// </summary>
 internal sealed class PathWalkerBrain : NpcBrain
 {
@@ -110,6 +110,13 @@ internal sealed class PathWalkerBrain : NpcBrain
     private void Ask(NpcControl npc, WorldPosition here, WorldPosition goal)
     {
         if (_asking != null || npc.Time < _askAgainAt) return;
+        // FindPath throws ArgumentException for ends more than Queries.MaxPathDistance (200 m) apart, and a brain that
+        // throws is stopped for good: a goal that far away is one it stands for until it comes closer
+        if (here.DistanceTo(goal) > Queries.MaxPathDistance)
+        {
+            _askAgainAt = npc.Time + RetryAfter;
+            return;
+        }
         // the row first: FindPath throws KilnUnavailableException where the path search is off
         if (!Capabilities.Is("queries.path"))
         {
