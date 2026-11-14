@@ -200,9 +200,10 @@ them (dev.27, `shell/cook.ts`, `cook_plan` / `cook_run`, `kiln_manage::cook`):
 - **The game data for OnBoot mods** (dev.28, `kiln_manage::boot_snapshot`, `shell/bootSnapshot.ts`): Play's
   `cook_run` then makes the snapshot of the game's data that `Mod.OnBoot` reads, when an enabled Kiln mod of the start
   has `"boot": true` or `"required"` in its kiln.mod.json (a server leaves out client-only mods). Once per game build:
-  about half a minute and about 200 MB the first time, with a progress line; under a second after. Without such a mod
-  the line says "no mod needs the boot snapshot" and nothing runs (a snapshot that is there stays). It never stops the
-  start: when it was not made, one notice says why and the game starts without it
+  about half a minute and about 200 MB the first time, with a progress line; later starts verify file checksums.
+  Without such a mod the line says "no mod needs the boot snapshot" and nothing runs (a snapshot that is there stays).
+  A producer failure does not refuse the start: one notice says why and the launcher continues without it. An OnBoot callback
+  must handle unavailable data under the boot failure policy. Play-once and modpack-offer Launch bypass this step
   ([../modding/boot-snapshot.md](../modding/boot-snapshot.md)).
 - **From nothing, and nothing lost.** A mod that needs a cook gets its `assets/cooked` moved aside (to
   `assets/.kiln-cooked-prev-<hex>/cooked`) and every recipe run, also one whose own check calls it up to date (that check

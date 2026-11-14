@@ -12,6 +12,8 @@ impact configurations by their alias, "..." below depth 12. A read outside the b
 The type graph is the game's own reflection read from the executable (tools/kfc/kfc/refl.py `extract`).
 """
 import struct
+import json
+import time
 
 # Kinds: the low byte of the reflection record's kind word (gamedata.h, refl.py).
 K_BOOL, K_U8, K_S8, K_U16, K_S16, K_U32, K_S32, K_U64, K_S64, K_F32, K_F64 = range(1, 12)
@@ -70,7 +72,10 @@ class Graph:
     """The type graph of one executable: a refl.py dump ({"types": [...]})."""
 
     def __init__(self, dump):
+        if len(dump["types"]) > 100000 or sum(len(r.get("fields", [])) + len(r.get("values", [])) for r in dump["types"]) > 1000000:
+            raise ValueError("boot reflection graph exceeds its budget")
         self.by_name = {}
+        self._field_budget = 1000000
         self.by_hash = {}
         recs = {}
         for rec in dump["types"]:
@@ -116,6 +121,9 @@ class Graph:
                     for f in self._recs[c.name].get("fields", []):
                         if f["name"] and f["offset"] < (1 << 24):
                             out.append((f["name"], f["type"], f["offset"]))
+            self._field_budget -= len(out)
+            if self._field_budget < 0:
+                raise ValueError("boot reflection exceeds its inherited field budget")
             t.fields = out
         return t.fields
 
@@ -232,6 +240,7 @@ class ConfigNames:
     name that names no other id (ties: the first in byte order), else "0x%08x"."""
 
     def __init__(self):
+        self._variables_left = 1000000
         self.names = {}   # id -> {name: uses}
         self.alias = {}   # lower(name) -> {ids}
         self.best = {}
@@ -239,6 +248,9 @@ class ConfigNames:
             self.add(i, n, 1000000)
 
     def add(self, cid, name, weight):
+        self._variables_left -= 1
+        if self._variables_left < 0:
+            raise ValueError("boot impact vocabulary exceeds its variable budget")
         if not cid or not name:
             return
         self.alias.setdefault(lower(name), set()).add(cid)
@@ -288,14 +300,29 @@ class ConfigNames:
         return self.best.get(cid) or f"0x{cid:08x}"
 
 
+class Elements:
+    """An array view: preserve the live reader's count limits without allocating a list of element addresses."""
+    def __init__(self, el, at, count, stride):
+        self.el, self.at, self.count, self.stride = el, at, count, stride
+
+    def __len__(self):
+        return self.count
+
+    def __iter__(self):
+        return ((self.el, self.at + i * self.stride) for i in range(self.count))
+
+
 class Walker:
     """node_json over one blob."""
 
-    def __init__(self, graph, configs):
+    def __init__(self, graph, configs, deadline=None):
         self.g = graph
         self.configs = configs
+        self.deadline = deadline
 
     def json(self, type_name, blob, offset=0, depth=ROOT_DEPTH):
+        self.nodes_left = 100000
+        self.bytes_left = 4 * 1024 * 1024 - 256
         t = self.g.named(type_name) if isinstance(type_name, str) else type_name
         return self.node(t, Blob(blob), offset, depth)
 
@@ -367,7 +394,7 @@ class Walker:
             return None
         if t.kind == K_ARRAY:
             es = er.size or (t.size // t.count if t.count else 0)
-            return [(el, at + i * es) for i in range(min(t.count, 4096))]
+            return Elements(el, at, min(t.count, 4096), es)
         if t.kind == K_BLOBARRAY:
             rel, n = b.i32(at), b.u32(at + 4)
             if rel is None or n is None or n > 1000000:
@@ -375,10 +402,28 @@ class Walker:
             count = n if rel else 0
             data = at + rel if rel and n else 0
             es = er.size or 12
-            return [(el, data + i * es) for i in range(min(count, 100000))]
+            return Elements(el, data, min(count, 100000), es)
         return None
 
     def node(self, t, b, at, depth):
+        self.nodes_left -= 1
+        if self.nodes_left < 0:
+            raise ValueError("boot JSON exceeds its node budget")
+        if self.deadline is not None and self.nodes_left % 1024 == 0 and time.monotonic() >= self.deadline:
+            raise TimeoutError("boot snapshot exceeded its ten-minute decoding budget")
+        v = self._node(t, b, at, depth)
+        if isinstance(v, dict):
+            size = 2 + len(v) + sum(len(json.dumps(k, ensure_ascii=False).encode("utf-8")) + 1 for k in v)
+        elif isinstance(v, list):
+            size = 2 + len(v)
+        else:
+            size = len(json.dumps(v, ensure_ascii=False).encode("utf-8"))
+        self.bytes_left -= size
+        if self.bytes_left < 0:
+            raise ValueError("boot JSON exceeds its byte budget")
+        return v
+
+    def _node(self, t, b, at, depth):
         r = self.g.resolved(t) if t is not None else None
         if r is not None and r.kind != K_BLOBVAR:
             f = self.g.leaf(t)
