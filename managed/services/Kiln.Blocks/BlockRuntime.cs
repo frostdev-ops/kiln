@@ -34,6 +34,19 @@ internal static class BlockRuntime
         Hook(mod);
     }
 
+    /// <summary>Rules that are in the game already (a routed weapon's applied generation): kept with the mod's, so a later content application puts
+    /// them back with the rest. Nothing is applied now.</summary>
+    public static void KeepRules(ModBlocks mod, IReadOnlyList<(string Section, string Entry, JsonObject Rules)> rules)
+    {
+        lock (Gate) mod.ReadyRules.AddRange(rules);
+    }
+
+    /// <summary>Takes rules given to <see cref="KeepRules"/> out again (the same objects).</summary>
+    public static void DropRules(ModBlocks mod, IReadOnlyList<(string Section, string Entry, JsonObject Rules)> rules)
+    {
+        lock (Gate) mod.ReadyRules.RemoveAll(r => rules.Any(x => ReferenceEquals(x.Rules, r.Item3)));
+    }
+
     /// <summary>A program with values only the running game knows: finished and registered when content is ready.</summary>
     public static void AddLate(ModBlocks mod, Guid program)
     {
@@ -182,6 +195,7 @@ internal static class BlockRuntime
             mod.ReadyChecks.Clear();
         }
         foreach (var check in checks) check(Problem);
+        MoveApplications.Ready(mod, Problem);
         var doc = new JsonObject { ["format"] = 1 };
         lock (Gate)
         {

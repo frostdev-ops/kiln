@@ -98,6 +98,35 @@ public sealed unsafe class GameType
     /// <summary>An enum's or bitmask's values (name, value).</summary>
     public IReadOnlyList<(string Name, long Value)> EnumValues => _enum ??= LoadEnum();
 
+    private object? _impactName;  // null: not read yet; NoImpactName: the type has none; else the string
+
+    /// <summary>The name Impact scripts use for this type: <c>"ecs.Health"</c> for <c>keen::ecs::Health</c>,
+    /// <c>"float32"</c> for <c>keen::float32</c> (the name an Impact variable's type hash is made from). It is neither
+    /// <see cref="Name"/> nor <see cref="QualifiedName"/>. Several types can carry the same one: a <c>keen::ds::</c>
+    /// mirror carries its runtime type's name, so <see cref="GameTypes.ByImpactName"/> finds most ECS names ambiguous and
+    /// <see cref="GameTypes.FindAllByImpactName"/> lists them all. Null when the game gives the type none (an empty or
+    /// unreadable entry). Read-only, any thread.</summary>
+    /// <exception cref="KilnUnavailableException"><c>types.impact_names</c> is off: kiln.types is older than
+    /// 0.2.0-dev.28, or the name field did not validate on this game build.</exception>
+    [AnyThread]
+    [RequiresCapability(GameTypes.ImpactNamesCapability)]
+    public string? ImpactName
+    {
+        get
+        {
+            var table = GameTypes.RequireImpactNames();
+            var known = Volatile.Read(ref _impactName);
+            if (known is null)
+            {
+                known = (object?)GameTypes.ReadImpactName(table, Handle) ?? NoImpactName;
+                Volatile.Write(ref _impactName, known);
+            }
+            return known as string;
+        }
+    }
+
+    private static readonly object NoImpactName = new();
+
     /// <summary>A static array's element count (0 for other kinds).</summary>
     public int ArrayLength => Kind == GameTypeKind.StaticArray && Inner is { Size: > 0 } e ? Size / e.Size : 0;
 
@@ -180,6 +209,110 @@ public static unsafe class GameTypes
     {
         var table = Table;
         return table == null ? null : Of(table->TypeByHash(hash));
+    }
+
+    // ---- Impact names (types.impact_names, since 0.2.0-dev.28) ----
+
+    /// <summary>The capability of <see cref="GameType.ImpactName"/>, <see cref="ByImpactName"/> and
+    /// <see cref="FindAllByImpactName"/>: kiln.types reports it when the Impact-name field validated on this game build.</summary>
+    internal const string ImpactNamesCapability = "types.impact_names";
+
+    /// <summary>The one type whose <see cref="GameType.ImpactName"/> is <paramref name="impactName"/> exactly (ordinal,
+    /// case-sensitive; a short or qualified name never matches). Null when no type or more than one carries it: a
+    /// <c>keen::ds::</c> mirror shares its runtime type's name (<c>"ecs.Health"</c> is <c>keen::ecs::Health</c> and
+    /// <c>keen::ds::ecs::Health</c>), so ask <see cref="FindAllByImpactName"/> for those. Read-only, any thread; the index is
+    /// built once per process at the first call.</summary>
+    /// <exception cref="ArgumentException"><paramref name="impactName"/> is null or empty.</exception>
+    /// <exception cref="KilnUnavailableException"><c>types.impact_names</c> is off.</exception>
+    [AnyThread]
+    [RequiresCapability(ImpactNamesCapability)]
+    public static GameType? ByImpactName(string impactName)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(impactName);
+        var all = ImpactIndex(RequireImpactNames());
+        return all.TryGetValue(impactName, out var handles) && handles.Length == 1 ? Of((void*)handles[0]) : null;
+    }
+
+    /// <summary>Every type whose <see cref="GameType.ImpactName"/> is <paramref name="impactName"/> exactly (ordinal), in
+    /// the game's order; empty when none. Read-only, any thread.</summary>
+    /// <exception cref="ArgumentException"><paramref name="impactName"/> is null or empty.</exception>
+    /// <exception cref="KilnUnavailableException"><c>types.impact_names</c> is off.</exception>
+    [AnyThread]
+    [RequiresCapability(ImpactNamesCapability)]
+    public static IReadOnlyList<GameType> FindAllByImpactName(string impactName)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(impactName);
+        var all = ImpactIndex(RequireImpactNames());
+        if (!all.TryGetValue(impactName, out var handles)) return [];
+        var list = new List<GameType>(handles.Length);
+        foreach (var h in handles)
+            if (Of((void*)h) is { } t) list.Add(t);
+        return list;
+    }
+
+    // kiln.types with the type_impact_name slot. The v1 table is asked first, so a smaller table never lowers kiln.types'
+    // own row (Services.Get records a miss only for a name no caller has found).
+    internal static TypesNative.ImpactTable* RequireImpactNames()
+    {
+        var table = Table == null ? null : Services.Get<TypesNative.ImpactTable>(TypesNative.Name, TypesNative.Version);
+        if (table == null || table->TypeImpactName == null)
+            throw ServiceCaps.Unavailable(ImpactNamesCapability,
+                Table == null ? "kiln.types is not running" : "kiln.types has no Impact names (it is older than 0.2.0-dev.28)");
+        if (!Capabilities.Is(ImpactNamesCapability)) throw ServiceCaps.Unavailable(ImpactNamesCapability);
+        return table;
+    }
+
+    /// <summary>One type's Impact name, or null when it has none (empty, or the entry is unreadable).</summary>
+    internal static string? ReadImpactName(TypesNative.ImpactTable* table, void* handle)
+    {
+        const int Ok = 0, Unavailable = 3, BufferTooSmall = 5, MaxBytes = 4096;
+        var buffer = stackalloc byte[256];
+        nuint need = 0;
+        var rc = table->TypeImpactName(handle, buffer, 256, &need);
+        if (rc == BufferTooSmall && need <= MaxBytes)
+        {
+            var big = new byte[(int)need];
+            fixed (byte* p = big) rc = table->TypeImpactName(handle, p, need, &need);
+            return rc == Ok && need == (nuint)big.Length && need > 0 ? System.Text.Encoding.UTF8.GetString(big) : null;
+        }
+        if (rc == Unavailable) throw ServiceCaps.Unavailable(ImpactNamesCapability, "kiln.types turned Impact names off");
+        return rc == Ok && need > 0 && need <= 256 ? System.Text.Encoding.UTF8.GetString(buffer, (int)need) : null;
+    }
+
+    private sealed record ImpactIndexState(nint Table, uint Count, Dictionary<string, nint[]> ByName);
+    private static ImpactIndexState? _impactIndex;
+    private static readonly object ImpactGate = new();
+
+    // Impact name -> every type carrying it, in the game's order. Built once per process registry (the table and its
+    // count); a test's or a new process's table builds its own.
+    private static Dictionary<string, nint[]> ImpactIndex(TypesNative.ImpactTable* table)
+    {
+        var count = table->Base.TypeCount();
+        var known = Volatile.Read(ref _impactIndex);
+        if (known is not null && known.Table == (nint)table && known.Count == count) return known.ByName;
+        lock (ImpactGate)
+        {
+            known = _impactIndex;
+            if (known is not null && known.Table == (nint)table && known.Count == count) return known.ByName;
+            var lists = new Dictionary<string, List<nint>>(StringComparer.Ordinal);
+            for (uint i = 0; i < count; i++)
+            {
+                var h = table->Base.TypeAt(i);
+                if (h == null || ReadImpactName(table, h) is not { } name) continue;
+                if (!lists.TryGetValue(name, out var list)) lists[name] = list = [];
+                if (!list.Contains((nint)h)) list.Add((nint)h);
+            }
+            var byName = new Dictionary<string, nint[]>(lists.Count, StringComparer.Ordinal);
+            foreach (var (name, list) in lists) byName[name] = [.. list];
+            Volatile.Write(ref _impactIndex, new ImpactIndexState((nint)table, count, byName));
+            return byName;
+        }
+    }
+
+    /// <summary>Forgets the Impact-name index (tests that publish a new fake table at an old address).</summary>
+    internal static void ResetImpactIndex()
+    {
+        lock (ImpactGate) _impactIndex = null;
     }
 
     /// <summary>The reflected type of a value (EML's <c>types.of</c>): a <see cref="ReflectedValue"/> (a component or an event
@@ -814,6 +947,16 @@ internal static unsafe class TypesNative
         public delegate* unmanaged[Cdecl]<ulong, uint, delegate* unmanaged[Cdecl]<void*, void*, void>,
             delegate* unmanaged[Cdecl]<void*, void*, void>, void*, ulong*, int> SystemHook;
         public delegate* unmanaged[Cdecl]<ulong, int> SystemUnhook;
+    }
+
+    /// <summary>The table since 0.2.0-dev.28: v1 plus external_runner (06a) and type_impact_name, in the header's
+    /// order (asked for with <c>Services.Get</c>, which checks header.size, so an older kiln.types answers null).</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct ImpactTable
+    {
+        public Table Base;
+        public delegate* unmanaged[Cdecl]<uint> ExternalRunner;
+        public delegate* unmanaged[Cdecl]<void*, byte*, nuint, nuint*, int> TypeImpactName;
     }
 }
 

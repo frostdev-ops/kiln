@@ -108,6 +108,7 @@ struct Engine {
     JobTrackerFn job_tracker = nullptr;
     JobWriteFlagFn job_write_flag = nullptr;
     AttrFindFn attr_find = nullptr;
+    bool wear_ok = false;  // wear.h's facts resolved on an approved build (items.tool_wear_debit)
     AttrChangedFn attr_changed = nullptr;
     SlotTransferFn slot_transfer = nullptr;  // feature items.move
     QuickStackFn quick_stack = nullptr;      // features items.move (quick stack by a mod), items.transfer (hook)

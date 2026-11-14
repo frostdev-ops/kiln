@@ -70,8 +70,107 @@ public sealed class AssetsTestMod : Mod
         {
             Check(false, $"test aborted: {ex}");
         }
+        try
+        {
+            FullCatalog();
+        }
+        catch (Exception ex)
+        {
+            Check(false, $"assets.full-catalog aborted: {ex}");
+        }
         Log.Info($"assets-test done: {_pass} PASS, {_fail} FAIL");
     }
+
+    // ---- 6. the content blob catalog (0.2.0-dev.28, assets.blob_catalog) ------------------------------------------------
+    // PASS assets.full-catalog only when the snapshot holds the game's whole index (its blob count as Kiln's own KFC reader
+    // counts it, catalog_fixture.py), a game blob no mod registered with the game origin, whose bytes read through
+    // Assets.ReadBlob hash to the SHA-256 the independent reader computed; plus a managed addition, a managed override (of a
+    // game blob, with its own bytes: nothing changes for a player) and a manifest addition with their origins, an
+    // unchanged open snapshot after a registration, and a visibly incomplete registrations-only view.
+    private void FullCatalog()
+    {
+        const string cap = "assets.blob_catalog";
+        Log.Info($"assets-test: {Capabilities.Why(cap)}");
+        var fixtureFile = Path.Combine(Context.DataDirectory, "catalog-fixture.json");
+        if (!File.Exists(fixtureFile))
+        {
+            Check(false, $"assets.full-catalog: no fixture at {fixtureFile} (python3 mods/tests/assets-test/catalog_fixture.py <game folder> <that file>)");
+            return;
+        }
+        using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(fixtureFile));
+        var fixture = doc.RootElement;
+        var gameTotal = fixture.GetProperty("total").GetUInt64();
+        var gameHash = (System.Text.Json.JsonSerializer.Deserialize<BlobCatalogEntry>(
+            $"{{\"contentHash\":\"{fixture.GetProperty("hash").GetString()}\",\"origins\":[\"game\"],\"selectedOrigin\":\"game\",\"owner\":\"0\",\"sequence\":\"0\",\"overridden\":false}}")!).ContentHash;
+        var gameSha = fixture.GetProperty("sha256").GetString();
+        if (!Capabilities.Is(cap)) { Check(false, $"assets.full-catalog: {Capabilities.Why(cap)}"); return; }
+
+        // registrations of three origins: a managed addition, a managed override of a game blob (its own bytes), a manifest addition
+        var gameBytes = Assets.ReadBlob(gameHash);
+        var managedAdd = new byte[3000];
+        new Random(2813).NextBytes(managedAdd);
+        var added = Assets.AddBlob(managedAdd);
+        if (gameBytes != null) Assets.OverrideBlob(gameHash, gameBytes);
+        var manifestDir = Path.Combine(Context.DataDirectory, "catalog-manifest");
+        Directory.CreateDirectory(Path.Combine(manifestDir, "assets"));
+        var manifestBytes = new byte[2000];
+        new Random(2814).NextBytes(manifestBytes);
+        File.WriteAllBytes(Path.Combine(manifestDir, "assets", "probe.blob"), manifestBytes);
+        File.WriteAllText(Path.Combine(manifestDir, "assets", "assets.json"), "{\"format\":1,\"entries\":[{\"kind\":\"blob\",\"file\":\"probe.blob\"}]}");
+        Log.Info($"assets-test: manifest: {Assets.LoadManifest(manifestDir)}");
+
+        var r = Assets.OpenBlobCatalog();
+        Check(r.Ok && r.Snapshot != null && r.Info.Status == BlobCatalogStatus.Complete && r.Info.GameComplete && r.Info.RegistrationsComplete,
+              $"catalog: a complete snapshot: {r.Info}");
+        if (r.Snapshot is not { } snap) return;
+        var all = new List<BlobCatalogEntry>((int)snap.Total);
+        for (ulong at = 0; at < snap.Total;)
+        {
+            var page = snap.ReadPage(at);
+            all.AddRange(page);
+            at += (ulong)page.Count;
+        }
+        var sorted = all.Zip(all.Skip(1)).All(p => Order(p.First.ContentHash).CompareTo(Order(p.Second.ContentHash)) < 0);
+        var games = (ulong)all.Count(e => (e.Origins & BlobOrigins.Game) != 0);
+        Check(all.Count == (int)snap.Total && sorted, $"catalog: {all.Count} entries paged in 256s, sorted by size and hash");
+        Check(games == gameTotal, $"catalog: {games} entries carry the game origin; Kiln's KFC reader counts {gameTotal} in the index");
+        var g = all.FirstOrDefault(e => e.ContentHash == gameHash);
+        var a = all.FirstOrDefault(e => e.ContentHash == added);
+        var m = all.FirstOrDefault(e => e.ContentHash.Size == 2000 && e.Origins == BlobOrigins.Manifest);
+        Check(a is { Origins: BlobOrigins.Managed, SelectedOrigin: BlobOrigins.Managed, Overridden: false }, $"catalog: the managed addition: {a}");
+        Check(m is { SelectedOrigin: BlobOrigins.Manifest, Overridden: false }, $"catalog: the manifest addition: {m}");
+        Check(g is { Origins: BlobOrigins.Game | BlobOrigins.Managed, SelectedOrigin: BlobOrigins.Managed, Overridden: true },
+              $"catalog: the overridden game blob keeps the game origin: {g}");
+        var sha = gameBytes is null ? "" : Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(gameBytes));
+        var untouched = all.FirstOrDefault(e => e.Origins == BlobOrigins.Game && e.SelectedOrigin == BlobOrigins.Game && e.Owner == 0 && !e.Overridden);
+        var full = r.Info.Status == BlobCatalogStatus.Complete && games == gameTotal && g is not null && sha == gameSha && untouched is not null;
+        Log.Info($"assets-test: ReadBlob({gameHash}) sha256 {sha}, the independent reader's {gameSha}; a game-only entry {untouched}");
+
+        // an open snapshot never changes; a new one has a newer generation
+        var second = new byte[1500];
+        new Random(2815).NextBytes(second);
+        var later = Assets.AddBlob(second);
+        var again = snap.ReadPage(0, 1)[0] == all[0] && snap.Total == (ulong)all.Count;
+        using (var newer = Assets.OpenBlobCatalog().Snapshot)
+            Check(again && newer is not null && newer.Info.Generation > snap.Info.Generation && newer.Total == snap.Total + 1,
+                  $"catalog: the open snapshot is unchanged after a registration; a new one: generation {newer?.Info.Generation} > {snap.Info.Generation}, {newer?.Total} entries");
+        var regs = Assets.OpenBlobCatalog(BlobCatalogMode.RegistrationsOnly);
+        using (var rs = regs.Snapshot)
+            Check(rs is { Info: { Status: BlobCatalogStatus.Incomplete, GameComplete: false, RegistrationsComplete: true } } &&
+                  rs.ReadPage(0, Math.Min(256, (int)Math.Max(1ul, rs.Total))).All(e => (e.Origins & BlobOrigins.Game) == 0),
+                  $"catalog: registrations only is incomplete and names no game blob: {rs?.Info}");
+        snap.Dispose();
+        var closed = false;
+        try { snap.ReadPage(0, 1); } catch (ObjectDisposedException) { closed = true; }
+        Check(closed, "catalog: a disposed snapshot refuses reads");
+        Check(full, full ? "assets.full-catalog" : $"assets.full-catalog: status {r.Info.Status}, game entries {games} of {gameTotal}, " +
+                                                   $"game blob {(g is null ? "missing" : "listed")}, sha256 {(sha == gameSha ? "equal" : "differs")}");
+        Assets.RemoveBlob(added);
+        Assets.RemoveBlob(later);
+        if (gameBytes != null) Assets.RemoveBlob(gameHash);
+    }
+
+    private static (uint, uint, uint, uint) Order(ContentHash h) => (h.Size, h.H0, h.H1, h.H2);
 
     private void Run()
     {

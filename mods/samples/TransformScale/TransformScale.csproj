@@ -1,0 +1,15 @@
+<Project>
+  <!-- Transform scale sample (docs/kiln/services/world.md, "Transform scale"): a prop or creature drawn larger or smaller
+       on one axis (World.SetTransformScale, Scale3, EntityScaleChangedEvent). Built with Kiln.Sdk, which adds
+       "CurrentTransform" to the output's kiln.mod.json "writes" from the call; the project's manifest lists it as well,
+       for a build without the SDK.
+       Build: dotnet build mods/samples/TransformScale -c Release -o $KILN_OUT/mods/transform-scale -artifacts-path $KILN_OUT/dotnet -->
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.props" />
+  <PropertyGroup>
+    <AssemblyName>TransformScale</AssemblyName>
+    <KilnModId>transform-scale</KilnModId>
+    <Version>0.1.0</Version>
+    <KilnServices>World;Chat</KilnServices>
+  </PropertyGroup>
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.targets" />
+</Project>

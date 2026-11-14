@@ -332,8 +332,67 @@ static void regressions() {
     CHECK(!map_pe_bytes(pe, mapped), "section header count bounded");
 }
 
+// Impact names (types.impact_names): the +0x10 string, a multimap by exact ordinal name, the boot validation.
+static void impact_names() {
+    Fixture f;
+    f.registry();
+    const TypeTable t = find_type_table(f.im);
+    ImpactNames r = index_impact_names(f.im, t);
+    CHECK(!r.ok && r.valid == 0 && r.empty == 1000 && !r.why.empty() && r.index.empty(),
+          "a table whose types carry no Impact name leaves the field off (%s)", r.why.c_str());
+    CHECK(!index_impact_names(f.im, TypeTable{.error = "x"}).ok, "no table: off");
+    // a descriptor with three different names
+    auto described = [&](uint64_t at, std::string_view shortn, std::string_view qn, std::string_view impact) {
+        f.name(at + td::name, shortn); f.name(at + td::qname, qn); f.put(at + td::kind, uint8_t(18));
+        f.put(at + td::hash, fnv1a(qn));
+        if (!impact.empty()) f.name(at + td::impact, impact);
+        return at;
+    };
+    const uint64_t health = described(0x10c000, "Health", "keen::ecs::Health", "ecs.Health");
+    const uint64_t ach = described(0x10c100, "Achievement", "keen::Achievement", "Achievement");
+    const uint64_t ach_ds = described(0x10c200, "Achievement", "keen::ds::Achievement", "Achievement");
+    const uint64_t empty = described(0x10c300, "Empty", "keen::Empty", "");
+    const uint64_t broken = described(0x10c400, "Broken", "keen::Broken", "");
+    f.put(broken + td::impact, uint64_t(0xdead0000)); f.put(broken + td::impact + 8, uint64_t(5));  // outside the image
+    const uint64_t huge = described(0x10c500, "Huge", "keen::Huge", "x");
+    f.put(huge + td::impact + 8, uint64_t(5000));  // longer than any name the reader accepts
+    const uint64_t listed[] = {health, ach, ach_ds, empty, broken, huge};
+    // entries 2..7 (the table must still start with BlobString, uint32: the scanner's anchor)
+    for (uint32_t i = 0; i < 6; ++i) f.put(0x108000 + 8ull * (i + 2), listed[i]);
+    f.name(0x102000 + td::impact, "BlobString");
+    f.name(0x102100 + td::impact, "uint32");
+    r = index_impact_names(f.im, find_type_table(f.im));
+    CHECK(r.ok && r.valid == 997 && r.empty == 1 && r.malformed == 2 && r.why.empty(),
+          "the field validates: %u valid, %u empty, %u malformed (%s)", r.valid, r.empty, r.malformed, r.why.c_str());
+    std::string_view s;
+    CHECK(impact_name_at(f.im, health, s) == ImpactField::valid && s == "ecs.Health" &&
+          s != str_at(f.im, health + td::name) && s != str_at(f.im, health + td::qname),
+          "short, qualified and Impact name differ in all three forms");
+    CHECK(r.single("ecs.Health") == 2 && r.all("ecs.Health") == std::vector<uint32_t>{2}, "unique Impact name found");
+    CHECK(r.single("Health") == -1 && r.single("keen::ecs::Health") == -1 && r.single("ecs.health") == -1,
+          "never aliased to the short or qualified name; ordinal, case-sensitive");
+    CHECK(r.single("Achievement") == -1 && r.all("Achievement") == (std::vector<uint32_t>{3, 4}),
+          "a shared Impact name: the single lookup is ambiguous (-1), all() lists both in the game's order");
+    CHECK(r.shared >= 2 && r.distinct == 4, "distinct %u, shared %u", r.distinct, r.shared);
+    CHECK(impact_name_at(f.im, empty, s) == ImpactField::empty && s.empty() && r.all("").empty(), "an empty Impact name is not indexed");
+    CHECK(impact_name_at(f.im, broken, s) == ImpactField::malformed && s.empty(), "a pointer outside the image is malformed");
+    CHECK(impact_name_at(f.im, huge, s) == ImpactField::malformed && s.empty(), "an over-long name is malformed");
+    CHECK(impact_name_at(f.im, f.im.all.hi - 0x18, s) == ImpactField::malformed, "a record cut off by the image end is malformed");
+    // a moved field: too few readable names, or names that only copy the short name
+    for (uint32_t i = 8; i < 121; ++i) f.put(0x108000 + 8ull * i, broken);
+    r = index_impact_names(f.im, find_type_table(f.im));
+    CHECK(!r.ok && r.index.empty() && r.why.find("did not validate") != std::string::npos,
+          "below 90 %% readable names the field is off (%s)", r.why.c_str());
+    for (uint32_t i = 8; i < 121; ++i) f.put(0x108000 + 8ull * i, uint64_t(0x102100));
+    for (uint64_t d : {health, ach, ach_ds}) f.name(d + td::impact, str_at(f.im, d + td::name));
+    f.name(0x102000 + td::impact, "BlobString");
+    r = index_impact_names(f.im, find_type_table(f.im));
+    CHECK(!r.ok && r.why.find("differs") != std::string::npos, "a field that only copies short names is off (%s)", r.why.c_str());
+}
+
 int main(int argc, char** argv) {
     regressions();
+    impact_names();
     CHECK(fnv1a("keen::ecs::Health") == 0xdc101091u, "known FNV-1a hash");
     CHECK(system_name("fall_damage_infliction") && !system_name("Fall") && !system_name("a-b"), "system names");
     for (int a = 1; a < argc; ++a) {
@@ -363,6 +422,23 @@ int main(int argc, char** argv) {
         uint32_t with_defaults = 0;
         for (uint32_t i = 0; i < t.count; ++i) with_defaults += im.q(im.q(t.table + 8ull * i) + td::defaults) != 0;
         CHECK(with_defaults > 500, "%u types have defaults", with_defaults);
+        // Impact names: the field validates on this build; three known types read as the Impact scripts name them.
+        // keen::ds:: mirrors share the runtime type's name ("ecs.Health": keen::ecs::Health and keen::ds::ecs::Health), so
+        // the single lookup of most ECS names is ambiguous and all() lists every carrier.
+        const ImpactNames imp = index_impact_names(im, t);
+        CHECK(imp.ok && imp.malformed == 0 && imp.shared > 0 && imp.single("float32") >= 0 && imp.single("ecs.Health") == -1, "%s: impact names %u valid, %u malformed, %u shared (%s)",
+              argv[a], imp.valid, imp.malformed, imp.shared, imp.why.c_str());
+        const std::pair<std::string_view, std::string_view> known_names[] = {
+            {"keen::ecs::Health", "ecs.Health"}, {"keen::ecs::EntityId", "ecs.EntityId"}, {"keen::float32", "float32"}};
+        for (auto [qn, want] : known_names) {
+            const uint64_t d = type_named(im, t, qn);
+            std::string_view got;
+            CHECK(d && impact_name_at(im, d, got) == ImpactField::valid && got == want, "%.*s: Impact name '%.*s'",
+                  int(qn.size()), qn.data(), int(got.size()), got.data());
+            bool listed = false;
+            for (uint32_t i : imp.all(want)) listed |= im.q(t.table + 8ull * i) == d;
+            CHECK(listed, "%.*s found by its Impact name", int(qn.size()), qn.data());
+        }
         const auto sys = scan_systems(im);
         CHECK(sys.size() > 500, "%s: %zu systems", argv[a], sys.size());
         bool sprint = false, fall = false;
@@ -371,8 +447,8 @@ int main(int argc, char** argv) {
             fall |= s.name == "fall_damage_infliction";
         }
         CHECK(sprint && fall, "known systems are listed");
-        std::printf("%s: %u types (%u with defaults), %u components, %u events, %zu systems\n", argv[a], t.count,
-                    with_defaults, t.component_count, t.event_count, sys.size());
+        std::printf("%s: %u types (%u with defaults), %u components, %u events, %zu systems, %u Impact names (%u distinct)\n",
+                    argv[a], t.count, with_defaults, t.component_count, t.event_count, sys.size(), imp.valid, imp.distinct);
     }
     std::printf(g_fail ? "types_test: %d FAILED\n" : "types_test: PASS\n", g_fail);
     return g_fail != 0;

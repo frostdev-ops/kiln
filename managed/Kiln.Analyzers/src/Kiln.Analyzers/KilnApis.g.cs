@@ -483,10 +483,14 @@ internal static partial class KilnApis
         "M:Kiln.Progression.Diagnostics.ProbeAttributes(System.Boolean,System.UInt32[],System.UInt32,System.UInt32)", // Progression.Diagnostics.ProbeAttributes(bool, uint[], uint, uint): Services.RequireTickThread
         "M:Kiln.Progression.Diagnostics.Simulate(System.Collections.Generic.IReadOnlyList{System.ValueTuple{Kiln.Progression.Diagnostics.SimOp,System.UInt32}})", // Progression.Diagnostics.Simulate(IReadOnlyList<(Progression.Diagnostics.SimOp Op, uint Node)>): Services.RequireTickThread
         "M:Kiln.Progression.UnlockedNodes(Kiln.EntityId)", // Progression.UnlockedNodes(EntityId): Services.RequireTickThread
+        "M:Kiln.Queries.CanReach(Kiln.QueryPathRequest,System.Threading.CancellationToken)", // Queries.CanReach(QueryPathRequest, CancellationToken): via Queries.Submit(QueryPathRequest, string, string)
+        "M:Kiln.Queries.CancelPath(System.UInt64)", // Queries.CancelPath(ulong): Services.RequireTickThread
         "M:Kiln.Queries.EntitiesInBox(Kiln.WorldPosition,Kiln.WorldPosition,Kiln.EntityId,System.Int32)", // Queries.EntitiesInBox(WorldPosition, WorldPosition, EntityId, int): via Queries.Overlap(QueriesNative.EntityRequest, WorldPosition, int, string)
         "M:Kiln.Queries.EntitiesInSphere(Kiln.WorldPosition,System.Double,Kiln.EntityId,System.Int32)", // Queries.EntitiesInSphere(WorldPosition, double, EntityId, int): via Queries.Overlap(QueriesNative.EntityRequest, WorldPosition, int, string)
+        "M:Kiln.Queries.FindPath(Kiln.QueryPathRequest,System.Threading.CancellationToken)", // Queries.FindPath(QueryPathRequest, CancellationToken): via Queries.Submit(QueryPathRequest, string, string)
         "M:Kiln.Queries.GroundBelow(Kiln.WorldPosition,System.Double,System.Byte)", // Queries.GroundBelow(WorldPosition, double, byte): via Queries.Ray(WorldPosition, WorldPosition, byte, string, string)
         "M:Kiln.Queries.RaycastVoxels(Kiln.WorldPosition,Kiln.WorldPosition,System.Byte)", // Queries.RaycastVoxels(WorldPosition, WorldPosition, byte): via Queries.Ray(WorldPosition, WorldPosition, byte, string, string)
+        "M:Kiln.Queries.RequestPath(Kiln.QueryPathRequest)", // Queries.RequestPath(QueryPathRequest): via Queries.Submit(QueryPathRequest, string, string)
         "M:Kiln.Queries.VoxelLineOfSight(Kiln.EntityId,Kiln.EntityId,Kiln.VoxelSightOptions)", // Queries.VoxelLineOfSight(EntityId, EntityId, VoxelSightOptions?): Services.RequireTickThread
         "M:Kiln.QuestInput.Build(Kiln.QuestHolder,System.String,System.Int32)", // QuestInput.Build(QuestHolder, string, int): Game.AssertTickThread
         "M:Kiln.QuestInput.Craft(Kiln.QuestHolder,System.String,System.Int32)", // QuestInput.Craft(QuestHolder, string, int): Game.AssertTickThread
@@ -605,6 +609,10 @@ internal static partial class KilnApis
         "M:Kiln.Teleport.To(Kiln.EntityId,Kiln.WorldPosition,Kiln.TeleportOptions)", // Teleport.To(EntityId, WorldPosition, TeleportOptions?): via Teleport.Start(EntityId, WorldPosition, EntityId, TeleportOptions)
         "M:Kiln.Teleport.ToEntity(Kiln.EntityId,Kiln.EntityId,System.Double,Kiln.TeleportOptions)", // Teleport.ToEntity(EntityId, EntityId, double, TeleportOptions?): Services.RequireTickThread
         "M:Kiln.Teleport.ToSpawnPoint(Kiln.EntityId,Kiln.EntityId,Kiln.TeleportOptions)", // Teleport.ToSpawnPoint(EntityId, EntityId, TeleportOptions?): via Teleport.Start(EntityId, WorldPosition, EntityId, TeleportOptions)
+        "M:Kiln.Terrain.Apply(Kiln.TerrainPatch,Kiln.TerrainApplyOptions)", // Terrain.Apply(TerrainPatch, TerrainApplyOptions?): via Terrain.Begin(TerrainPatch, TerrainApplyOptions?, string, string)
+        "M:Kiln.Terrain.Forget(System.String)", // Terrain.Forget(string): Services.RequireTickThread
+        "M:Kiln.Terrain.Inspect(Kiln.TerrainPatch,Kiln.TerrainApplyOptions)", // Terrain.Inspect(TerrainPatch, TerrainApplyOptions?): via Terrain.Begin(TerrainPatch, TerrainApplyOptions?, string, string)
+        "M:Kiln.Terrain.get_Applied", // Terrain.Applied.get: Services.RequireTickThread
         "M:Kiln.Time.ReleaseWeather(System.Nullable{System.Int32},System.Boolean)", // Time.ReleaseWeather(int?, bool): Services.RequireTickThread
         "M:Kiln.Time.ResetWeather", // Time.ResetWeather(): Services.RequireTickThread
         "M:Kiln.Time.Set(System.Double,Kiln.TimeSetMode)", // Time.Set(double, TimeSetMode): Services.RequireTickThread
@@ -642,6 +650,7 @@ internal static partial class KilnApis
         "M:Kiln.World.Query``1", // World.Query<T>(): via World.Query(IEnumerable<string>, IEnumerable<string>?)
         "M:Kiln.World.Query``2", // World.Query<T1, T2>(): via World.Query(IEnumerable<string>, IEnumerable<string>?)
         "M:Kiln.World.ReadBytes(Kiln.EntityId,System.String)", // World.ReadBytes(EntityId, string): via World.Tick(string)
+        "M:Kiln.World.SetTransformScale(Kiln.EntityId,Kiln.Scale3)", // World.SetTransformScale(EntityId, Scale3): via World.WriteAt<T>(EntityId, string, int, T)
         "M:Kiln.World.Transform(Kiln.EntityId)", // World.Transform(EntityId): via World.Tick(string)
         "M:Kiln.World.TryGetPosition(Kiln.EntityId,Kiln.WorldPosition@)", // World.TryGetPosition(EntityId, out WorldPosition): via World.Tick(string)
         "M:Kiln.World.TryRead``1(Kiln.EntityId,System.String,``0@)", // World.TryRead<T>(EntityId, string, out T): via World.Tick(string)
@@ -815,6 +824,7 @@ internal static partial class KilnApis
         "Settings",
         "Skills",
         "Spawn",
+        "Terrain",
         "Time",
         "Ui",
         "Vfx",

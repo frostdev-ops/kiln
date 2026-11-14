@@ -79,6 +79,8 @@ public sealed partial class WorldWritesTestMod : Mod
 
         var chest = await Chest();
         if (chest.IsNone) return;
+        var scaleBefore = ScaleOf(chest, ScaleOffset());
+        var scaleLeft = await ScaleVector(chest);  // 0.2.0-dev.28: World.SetTransformScale (ScaleVector.cs)
         var canId = Items.Lookup(Can)!.Id;
         var can = await Give(chest, canId);
         var control = await Give(chest, canId);
@@ -199,6 +201,7 @@ public sealed partial class WorldWritesTestMod : Mod
         File.WriteAllText(StateFile, new JsonObject
         {
             ["phase"] = "write", ["chest"] = Place(chest),
+            ["scaleLeft"] = scaleLeft && scaleBefore is not null, ["scaleX"] = scaleBefore?.X ?? 1f, ["scaleY"] = scaleBefore?.Y ?? 1f, ["scaleZ"] = scaleBefore?.Z ?? 1f,
             ["can"] = Where(invs, can.Slot), ["control"] = Where(invs, control.Slot),
             ["chests"] = new JsonArray([.. chests.Select(Place)]),
             ["stations"] = new JsonArray([.. stations.Select(Place)]),
@@ -266,6 +269,7 @@ public sealed partial class WorldWritesTestMod : Mod
 
         if (st["phase"]!.GetValue<string>() == "write")
         {
+            await ScaleAfterRestart(chest, st);  // 0.2.0-dev.28 (ScaleVector.cs)
             Check(FuelUnits(can) == 6400 && FuelUnits(control) == 1000, $"boot 1's values came back: can {FuelUnits(can)}, control {FuelUnits(control)}");
             var a = await World.Update<Ecs.Fuel>(can, (ref Ecs.Fuel f) => f.Values[0] = 4321);
             var raw = World.WriteRaw(control, "Fuel", 8, 3000);

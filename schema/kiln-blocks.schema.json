@@ -915,7 +915,24 @@
         "animation": { "$ref": "#/$defs/moveAnimation" },
         "like": { "type": "string", "minLength": 1, "description": "The game sequence it starts from: a sub-sequence name or a sequence GUID. Default: the class's in this slot." },
         "hitAt": { "type": "number", "exclusiveMinimum": 0, "description": "Seconds into the move its blow lands: the first damage event moves here." },
-        "length": { "type": "number", "exclusiveMinimum": 0, "description": "Seconds the whole move lasts." }
+        "length": { "type": "number", "exclusiveMinimum": 0, "description": "Seconds the whole move lasts." },
+        "followUps": {
+          "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/moveFollowUp" },
+          "description": "Where the motion's follow-up windows lead, when not where the class has them. A weapon with any applies all its moves at once or none (Blocks.MovesStatus). Needs blocks.move_followups."
+        }
+      },
+      "additionalProperties": false
+    },
+    "moveFollowUp": {
+      "type": "object",
+      "required": ["trigger", "to"],
+      "description": "One route: the windows of this move that wait for trigger lead to another move of the same weapon. Only windows the motion has, with a follow-up of their own. Two routes that select the same window are refused, also when they say the same.",
+      "properties": {
+        "trigger": { "enum": ["primary", "heavy", "block", "parried"], "description": "The input the windows wait for; parried is the outcome of a block that parried a blow." },
+        "subSequence": { "type": "integer", "minimum": 0, "description": "Which sub-sequence of the motion, from 0. Default 0." },
+        "occurrence": { "type": ["integer", "null"], "minimum": 0, "description": "Which of the trigger's windows in that sub-sequence, from 0 by time. Default: all." },
+        "to": { "enum": ["primary", "heavy", "heavyAir", "dodgeAttack", "jumpAttack", "plungeAttack", "block", "parry", "special", "execution", "sneakAttack"], "description": "The slot of this weapon the windows lead to; the weapon's moves must name it." },
+        "link": { "type": "integer", "minimum": 1, "maximum": 16, "description": "Which link of that slot's chain, from 1. Default 1." }
       },
       "additionalProperties": false
     },
