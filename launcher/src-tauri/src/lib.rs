@@ -222,7 +222,8 @@ pub fn run() {
             commands::data_folder::data_folder_notice_ack,
             commands::data_folder::data_folder_restart,
             commands::app::app_started,
-            commands::app::app_render_set
+            commands::app::app_render_set,
+            commands::updates::updates_check
         ]))
         .build(tauri::generate_context!())
         .expect("error while building the Kiln Launcher")

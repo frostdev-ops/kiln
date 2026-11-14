@@ -1,0 +1,8 @@
+{
+  "id": "updates-fixture-local",
+  "name": "Updates fixture: no source",
+  "version": "0.4.0",
+  "apiVersion": "0.2",
+  "side": "both",
+  "description": "A mod of data only, with nothing that says where it is published."
+}

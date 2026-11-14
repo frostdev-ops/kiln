@@ -79,6 +79,10 @@ pub struct LauncherSettings {
     /// Off: none is raised, except the first notice of a folder that may still run although its mod is off.
     #[serde(default = "yes")]
     pub mod_folder_notes: bool,
+    /// "Check for mod updates once a day" (Settings, Launcher): the background check of the installed mods' sources
+    /// (commands/updates.rs). Off by default: a check runs only when the player asks for one.
+    #[serde(default)]
+    pub mod_updates_daily: bool,
 }
 
 impl Default for LauncherSettings {
@@ -94,6 +98,7 @@ impl Default for LauncherSettings {
             add_to_active_profile: true,
             ui_mode: None,
             mod_folder_notes: true,
+            mod_updates_daily: false,
         }
     }
 }

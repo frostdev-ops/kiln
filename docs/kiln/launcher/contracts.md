@@ -1251,6 +1251,7 @@ or emits `kiln://update`; its UI calls none of these commands.
 | data_folder | `data_folder_reset` | - | `DataFolder` at the default place (`reset`; only with a broken pointer); the restart follows |
 | data_folder | `data_folder_notice_ack` | - | null, never fails (the notice is gone for this process; the move's journal is acknowledged only for a finished removal; an unclear record stays until its committed folder is in use again; a removal that stopped or was refused, and an unfinished move's partial copy that could not be removed, keep it for the next start) |
 | data_folder | `data_folder_restart` | - | does not return (the watcher stops, the lock goes, Tauri's `restart()`) |
+| updates | `updates_check` | request?: `{offline?, refresh?, automatic?, providers?, source?}`; `providers`: the providers asked (`"github"`, `"nexus"`; absent: all), the others answer from what is remembered with no request; `source`: `{action: "map", kind, id, spec, confirm?}` (spec: the manifest's `updates` shape), `{action: "confirm", kind, id}` or `{action: "unmap", kind, id}` | `CheckReport {format, checkedAt, offline, mods: ModUpdateStatus[]}` (dev.28; the document of `kiln updates check --json`, [../modding/updates.md](../modding/updates.md)); also emitted as `kiln://mod-updates`. The source change is applied first: a mapping to another place than the mod is checked against is `conflict` without `confirm`, a spec the manifest's rules refuse is `invalid_argument`. `offline`: no request to any provider. Nothing is downloaded, installed or switched |
 `ImportReport {imported: LibraryRef[], existing: LibraryRef[], skipped: {path, reason}[], notes: {path, text}[], names:
 {"<kind>/<id>": string}}`, `AddReport {import: ImportReport, profileId, profileName, created (My mods made now), added:
 AddedMod[], already: AddedMod[], changes: ProfileChange[], applied (profile.json written now), running (the game runs:
@@ -1269,7 +1270,8 @@ allowHttpModpacks: boolean, savesKeep: number, updateCheck: boolean (default tru
 a dropped mod goes through `library_add`; off: `library_import` only), uiMode?: "auto"|"deck"|"desktop" (the UI to start
 in; absent or auto: the Deck UI when `AppInfo.deck.detected`; [deck.md](deck.md)), modFolderNotes: boolean (dev.26,
 default true: "Show notes about mod folders"; off: an activation raises none of its notices except the first of a folder
-that may still run although its mod is off; [app.md](app.md) "Notices about mod folders")}` (`checkUpdates`, never used, is gone;
+that may still run although its mod is off; [app.md](app.md) "Notices about mod folders"), modUpdatesDaily: boolean
+(dev.28, default false: "Check for mod updates once a day"; [catalog.md](catalog.md) "Update notices")}` (`checkUpdates`, never used, is gone;
 readers ignore it), `UpdateStatus` (`launcher/src-tauri/src/selfupdate/mod.rs`; [releasing.md](releasing.md); `distribution`
 "direct", or in the Nexus build "nexus" with `phase: "disabled"`, `commands/update.rs`),
 `Task {id, kind (the command), title, state: 'queued'|'running'|'done'|'failed'|'canceled', progress: number|null,
@@ -1353,6 +1355,7 @@ Emitted with `app.emit(name, payload)`; `launcher/src/api/commands.ts` exports `
 | `kiln://console` | `{subscription, serverId, reset: boolean, source, path: string \| null, truncated, lines: ConsoleLine[]}` (`reset`: `lines` replace everything shown: a start, a stop, a start outside the launcher) |
 | `kiln://gamepad` | `{kind: 'button', button: 'a'\|'b'\|'x'\|'y'\|'lb'\|'rb'\|'lt'\|'rt'\|'select'\|'start'\|'guide'\|'ls'\|'rs'\|'up'\|'down'\|'left'\|'right', pressed, repeat, device} \| {kind: 'axis', axis: 'rx'\|'ry', value: -1..1, device} \| {kind: 'connected', device, name, vendor, product} \| {kind: 'disconnected', device, name}` (the Deck UI's native reader while `deck_gamepad(true)`: directions merge the D-pad and the left stick and repeat while held (`repeat: true`); the right stick is sent for scrolling, at most ~25 a second, then one 0; [deck.md](deck.md)) |
 | `kiln://nxm` | `{count}` (an Enshrouded Mod Manager Download link arrived; `count` links wait in `nexus_links`; the window comes to the front) |
+| `kiln://mod-updates` | `CheckReport` (the result of every `updates_check`, also the daily one) |
 | `kiln://activation` | `{gameId}` (a profile was written again without `profile_activate`: after `profile_save`, `profile_revert` or `chain_set_late`, a change of `profile.json` outside the launcher, the watcher's start-up pass, `profile_ensure_default`; its `Activation` waits until the window takes it with `activation_notices`, which the launcher also calls once its listener is up) |
 
 ## 11. Errors

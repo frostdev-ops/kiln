@@ -4,5 +4,6 @@
   "version": "0.1.0",
   "apiVersion": "0.1",
   "entryAssembly": "Hello.dll",
-  "side": "server"
+  "side": "server",
+  "updates": { "provider": "github", "repository": "example-org/hello", "asset": "hello-{version}.zip" }
 }

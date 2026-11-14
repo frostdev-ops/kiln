@@ -128,6 +128,8 @@ export interface LauncherSettings {
    *  notices about kept folders, kept files and notes on mods, except the first one about a folder that may still run
    *  although its mod is off (shell/notices.ts). */
   modFolderNotes?: boolean;
+  /** "Check for mod updates once a day" (default off; api/updates.ts). */
+  modUpdatesDaily?: boolean;
 }
 export type TaskState = "queued" | "running" | "done" | "failed" | "canceled";
 export interface Task<R = unknown> {
@@ -1851,6 +1853,7 @@ export const COMMANDS = [
   "data_folder_get", "data_folder_size", "data_folder_check", "data_folder_move", "data_folder_use", "data_folder_reset",
   "data_folder_notice_ack", "data_folder_restart",
   "app_started", "app_render_set",
+  "updates_check",
 ] as const;
 export type CommandName = (typeof COMMANDS)[number];
 
@@ -1870,6 +1873,8 @@ export interface KilnEvents {
   "kiln://gamepad": GamepadEvent;
   /** An Enshrouded Mod Manager Download (nxm://) link arrived: `count` wait in nexus_links (api/nexus.ts). */
   "kiln://nxm": { count: number };
+  /** The result of a mod update check (updates_check; api/updates.ts). */
+  "kiln://mod-updates": import("./updates").CheckReport;
   /** A profile was written again without profile_activate and its notices wait: take them with activation_notices. */
   "kiln://activation": { gameId: GameId };
 }
