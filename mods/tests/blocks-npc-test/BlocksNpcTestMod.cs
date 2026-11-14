@@ -15,7 +15,7 @@ public sealed class BlocksNpcTestMod : Mod
     private static readonly WorldPosition Pos = new(3855.8, 833.0, 1399.8);
     private readonly List<EntityId> _mine = [];
     private int _pass, _fail;
-    private CreatureHandle? _stoneling, _vukahMind, _brainy;
+    private CreatureHandle? _stoneling, _vukahMind, _brainy, _walker;
     internal static long CsCount, JsonCount, BrainTicks, BrainAttacks, BrainSaw;
 
     private void Check(bool ok, string what)
@@ -69,6 +69,13 @@ public sealed class BlocksNpcTestMod : Mod
         {
             Name = "Stone brain", Body = "stone-body", Animation = "stone-moves", AI = AIs.Vukah with { Sight = 20, Faction = Faction.Vukah },
             Behaviour = new BehaviourBlock { Attacks = [new AttackBlock { Name = "slam", Plays = "slam", Range = 3, HitAt = 0.6, OnHit = [blow] }], Brain = () => new StoneMind() },
+        });
+
+        // a brain on a game body (the Vukah's model and graph), for the walking checks
+        _walker = (CreatureHandle)Blocks.Define("walker-brain", new CreatureBlock
+        {
+            Name = "Walker brain", Body = Bodies.Vukah, AI = AIs.Vukah with { Sight = 20, Faction = Faction.Vukah },
+            Behaviour = new BehaviourBlock { Brain = () => new StoneMind() },
         });
 
         // an NPC whose dialogue is defined here, as quests define them in code
@@ -465,12 +472,17 @@ public sealed class BlocksNpcTestMod : Mod
         var bases = Build.Bases;
         var anchor = bases.Count > 0 ? bases[0].Center : new WorldPosition(3685, 835, 1480);
         var at = anchor with { X = Math.Floor(anchor.X) + 140.25, Z = Math.Floor(anchor.Z) + 20.25 };
-        try { await Build.Load(Build.BoxAround(at, 40, 60, 40)); } catch (Exception e) { Info($"brain moves: loading the terrain: {e.Message}"); }
+        try { await Build.Load(Build.BoxAround(at, 24, 60, 24)); } catch (Exception e) { Info($"brain moves: loading the terrain: {e.Message}"); }
+        at = at with { Y = (GroundY(at) ?? at.Y) + 1 };  // just above the ground: a long fall would kill the body
         WalkMode = 2;
-        async Task<EntityId> Body(WorldPosition where)
+        async Task<EntityId> Body(WorldPosition where, bool outlivesTheMod = false)
         {
-            var e = await _brainy!.Spawn(where, 0, new CreatureSpawnOptions { Tag = Me, Flags = SpawnFlags.Transient });
+            var e = await _walker!.Spawn(where, 0, outlivesTheMod
+                ? new CreatureSpawnOptions { Tag = Me, Flags = SpawnFlags.Transient | SpawnFlags.NoTrack, DespawnOnUnload = false }
+                : new CreatureSpawnOptions { Tag = Me, Flags = SpawnFlags.Transient });
             Creatures.Of(e).ForceReady();
+            for (var i = 0; i < 50 && Combat.GetHealth(e) is null; i++) await Steps(1);
+            try { Combat.SetInvulnerable(e); } catch (Exception x) { Info($"brain moves: invulnerable: {x.Message}"); }
             for (var i = 0; i < 250 && World.Has(e, "SteeringAgent"); i++) await Steps(1);
             for (var i = 0; i < 250 && (Grounded(e) is false); i++) await Steps(1);
             return e;
@@ -480,10 +492,16 @@ public sealed class BlocksNpcTestMod : Mod
         var lease = last.TryGetValue(b.Value, out var ev) ? ev.After : null;
         Check(!World.Has(b, "SteeringAgent") && lease is { CanDrive: true, RequestedRole: ControlRole.PetFollow } && !Creatures.Of(b).AiEnabled,
             $"brain: the broker took the body (SteeringAgent removed, lease {lease?.Lease.Value} {lease?.State} {lease?.RequestedRole}, AI off, grounded {Grounded(b)})");
+        await Compare(at with { X = at.X + 8 });
         WalkGoal = PosOf(b) with { X = PosOf(b).X + 30 };
         WalkMode = 1;
         var p0 = PosOf(b);
-        await Steps(48);  // 2 s at 24 steps a second
+        await Steps(10);
+        var input = World.ReadBytes(b, "ActorInput");
+        var loco = World.ReadBytes(b, "DynamicLocomotion");
+        Info($"brain moves: after 10 steps: input move ({(input is null ? "-" : $"{BitConverter.ToSingle(input, 0x198):0.00},{BitConverter.ToSingle(input, 0x1a0):0.00}")}) speed {(input is null ? -1 : input[0x1c4])}, " +
+             $"inputVelocity ({(loco is null ? "-" : $"{BitConverter.ToSingle(loco, 0):0.00},{BitConverter.ToSingle(loco, 8):0.00}")}), moved {Flat(p0, PosOf(b)):0.00} m; {Diag(b)}");
+        await Steps(38);  // 2 s at 24 steps a second in all
         var moved = Flat(p0, PosOf(b));
         Check(moved >= 3, $"brain: MoveTo moved {moved:0.00} m in 2 s");
         WalkMode = 2;
@@ -499,11 +517,63 @@ public sealed class BlocksNpcTestMod : Mod
         var now = lost is null ? null : CreatureControl.Inspect(lost.Lease);
         Check(lost is { State: ControlLeaseState.Failed, Result: ControlResultCode.BodyGone, CanDrive: false } && now is { CanDrive: false },
             $"brain: body destroyed -> lease {lost?.Result}, no write ({lost?.Reason})");
-        // the unload check: one more body, standing, until the mod unloads (unload blocks-npc-test through kiln/control, then read
-        // the broker's lines for this body: Releasing, restored, Released)
-        var stay = await Body(at with { Z = at.Z + 6 });
+        // the unload check: one more body, standing, that outlives the mod (not despawned with it): unload blocks-npc-test through
+        // kiln/control, then read the broker's lines for this body: Releasing, restored, Released
+        var stay = await Body(at with { Z = at.Z + 6 }, outlivesTheMod: true);
         var sl = last.TryGetValue(stay.Value, out var se) ? se.After : null;
         Info($"brain moves: unload check: body {stay} lease {sl?.Lease.Value} {sl?.State}; SteeringAgent {World.Has(stay, "SteeringAgent")}, AI {Creatures.Of(stay).AiEnabled}");
+    }
+
+    // the body's movement state, for the log: Actor state and ability mask, locomotion state, the AI's state
+    private static string Diag(EntityId e)
+    {
+        var a = World.ReadBytes(e, "Actor");
+        var l = World.ReadBytes(e, "DynamicLocomotion");
+        var state = a is { Length: > 0xc04 } ? BitConverter.ToUInt64(a, 0xbf8) : 0;
+        var mask = a is { Length: > 0xc04 } ? BitConverter.ToUInt32(a, 0xc00) : 0;
+        string ai;
+        try { ai = Creatures.Of(e).State.ToString(); } catch (Exception x) { ai = x.GetType().Name; }
+        return $"actor state 0x{state:x} abilities 0x{mask:x} (CanMove {(mask >> 26) & 1}), loco state {(l is { Length: > 0x59 } ? l[0x59] : -1)}, AI state {ai}";
+    }
+
+    // the same input on a game Vukah whose AI ran before its lease: does that body walk?
+    private async Task Compare(WorldPosition where)
+    {
+        var e = await Spawn.Entity("Enemy_Vukah_Melee", where, 0, new SpawnOptions { Tag = Me, Flags = SpawnFlags.Transient });
+        _mine.Add(e);
+        Creatures.Of(e).ForceReady();
+        for (var i = 0; i < 50 && Combat.GetHealth(e) is null; i++) await Steps(1);
+        try { Combat.SetInvulnerable(e); } catch (Exception x) { Info($"brain moves: invulnerable: {x.Message}"); }
+        await Steps(120);
+        Info($"brain moves: compare: game Vukah {e} before its lease: {Diag(e)}");
+        var r = CreatureControl.Acquire(new EntityRef(e, 0), ControlRole.PetFollow, CreatureControl.NewRequestId());
+        var w = r.Ok ? await CreatureControl.WaitActive(r.Lease, 5) : null;
+        var p0 = PosOf(e);
+        for (var i = 0; i < 48 && w is { Ok: true }; i++)
+        {
+            if (CreatureControl.Inspect(r.Lease) is { CanDrive: true })
+            {
+                World.WriteRaw(e, "ActorInput", 0x198, new System.Numerics.Vector3(1, 0, 0));
+                World.WriteRaw(e, "ActorInput", 0x1c4, (byte)2);
+            }
+            await Steps(1);
+        }
+        Info($"brain moves: compare: game Vukah leased after its AI ran, Walk input from the mod: moved {Flat(p0, PosOf(e)):0.00} m in 2 s ({w?.Reason ?? "granted"}); {Diag(e)}");
+        if (r.Ok) await CreatureControl.Release(r.Lease);
+    }
+
+    private static double? GroundY(WorldPosition at)
+    {
+        try
+        {
+            var box = Build.BoxAround(at with { Y = at.Y + 100 - 128 }, 0.1, 128, 0.1);
+            if (!Build.TryRead(box, out var cells) || cells is null) return null;
+            var layer = Math.Max(1, box.SizeX * box.SizeZ);
+            for (var i = cells.Length - 1; i >= 0; i--)
+                if (!cells[i].IsAir) return Build.CornerOf(new CellPos(box.X, box.Y + i / layer, box.Z)).Y + (Build.Grid?.CellSize ?? 0.5);
+        }
+        catch (Exception) { }
+        return null;
     }
 
     private static WorldPosition PosOf(EntityId e) => World.Position(e) ?? new WorldPosition(double.NaN, double.NaN, double.NaN);

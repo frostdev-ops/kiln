@@ -322,11 +322,9 @@ internal static class NpcInput
         }
         World.TryWrite(e, "ActorInput", _move, move);
         if (look is { } l && _look >= 0) World.TryWrite(e, "ActorInput", _look, l);
-        if (_speed >= 0)
-        {
-            if (_speedSize == 1) World.TryWrite(e, "ActorInput", _speed, (byte)speed);
-            else World.TryWrite(e, "ActorInput", _speed, speed);
-        }
+        // locomotionSpeed is a one-byte LocomotionSpeedSelector (kiln.creature_control's layout guard checks it): a wider store
+        // would overwrite lastLocomotionSpeed beside it
+        if (_speed >= 0) World.TryWrite(e, "ActorInput", _speed, (byte)speed);
     }
 
     public static void Pose(EntityId e, uint state)
