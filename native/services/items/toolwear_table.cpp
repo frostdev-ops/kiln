@@ -45,7 +45,7 @@ std::vector<Layer> g_layers;
 uint64_t g_generation = 0, g_next_order = 1;
 KilnHandle g_next_handle = 1;
 
-constexpr uint8_t kCategoryTools = 3;
+constexpr uint8_t kCategoryTools = 3, kCategoryBuildTools = 6;  // the game files its pickaxes under build tools (with an item entity)
 constexpr uint32_t kFlagHasPide = 0x2;
 
 const Layer* winner_locked(uint32_t item) {
@@ -84,9 +84,11 @@ KilnResult supported(uint32_t item, char* why, size_t cap) {
         std::snprintf(why, cap, "UnknownItem: the game has no item 0x%08x", item);
         return KILN_ERR_NOT_FOUND;
     }
-    if (info.category != kCategoryTools || !(info.item_flags & kFlagHasPide) || !info.gear) {
+    // a tool of either category that has an item entity of its own (HasPIDE) and is gear (durability): axes, pickaxes. A
+    // build tool without an item entity (a rake) and a torch (no item entity; it burns down by another path) are refused.
+    if ((info.category != kCategoryTools && info.category != kCategoryBuildTools) || !(info.item_flags & kFlagHasPide) || !info.gear) {
         std::snprintf(why, cap, "UnsupportedTool: %.*s is not a tool with an item entity and durability of its own (a torch burns down by another "
-                                "path; build tools and other categories are not debited per use)", static_cast<int>(info.name.len), info.name.ptr);
+                                "path; build tools without one and other categories are not debited per use)", static_cast<int>(info.name.len), info.name.ptr);
         return KILN_TOOLWEAR_UNSUPPORTED_TOOL;
     }
     return KILN_OK;
@@ -206,6 +208,11 @@ KilnResult KILN_CALL t_status(uint32_t item, KilnToolWearState* out) {
     s.size = size;
     const Status st = status();
     s.dropped_events = st.dropped;
+    s.hook_threads = st.threads;  // the tail: copied below only as far as the caller's size reaches
+    s.hit_seen = st.hit_seen;
+    s.hit_applied = st.hit_applied;
+    s.spawn_seen = st.spawn_seen;
+    s.spawn_applied = st.spawn_applied;
     if (!st.on) {
         std::snprintf(s.reason, sizeof s.reason, "%s", st.why[0] ? st.why : "items.tool_wear_debit is off");
     } else if (item) {

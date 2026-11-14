@@ -171,6 +171,17 @@ public static unsafe partial class Items
         return ToolWear.Read(ToolWear.Require("Items.ToolWearStatus"), tool);
     }
 
+    /// <summary>Lab only: what the hooks have seen since the process started: the distinct threads they ran on (up to 8 are told
+    /// apart), and per debit site the calls looked at and the debits a rule changed. Zeros where kiln.toolwear is older or not here.</summary>
+    [System.Diagnostics.CodeAnalysis.Experimental("KILNX001", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx001")]
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    [ServerOnly, AnyThread]
+    public static (uint HookThreads, ulong HitSeen, ulong HitApplied, ulong SpawnSeen, ulong SpawnApplied) LabToolWearCounters()
+    {
+        if (ToolWear.Current is not { } t || !t.Status(0, out var s) || s.Size < (uint)sizeof(ToolWearNative.State)) return default;
+        return (s.HookThreads, s.HitSeen, s.HitApplied, s.SpawnSeen, s.SpawnApplied);
+    }
+
     /// <summary>What the managed side asks of kiln.toolwear: the native table on a game, a made-up one in tests.</summary>
     internal interface IToolWearTable
     {
@@ -394,12 +405,14 @@ internal static unsafe class ToolWearNative
     }
 
     [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
-    public struct State  // 360 bytes
+    public struct State  // 400 bytes (360 in its first form; the lab counters were appended)
     {
         public uint Size, Ok, Pending, HasRule, PerDebit;
         public ulong Generation, DroppedEvents;
         public fixed byte OwnerModId[128];
         public fixed byte Reason[192];
+        public uint HookThreads, Reserved2;
+        public ulong HitSeen, HitApplied, SpawnSeen, SpawnApplied;
 
         public readonly string OwnerText
         {

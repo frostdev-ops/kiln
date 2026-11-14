@@ -35,7 +35,7 @@ KilnResult items_item_info(uint32_t id, KilnItemInfo* out) {
     i.id = id;
     int n;
     switch (id) {
-        case fake::kPickaxe: i.category = 3, i.item_flags = 0x2, i.gear = 1, n = 0; break;
+        case fake::kPickaxe: i.category = 6, i.item_flags = 0x82, i.gear = 1, n = 0; break;  // the game's catalog: a build tool with an item entity
         case fake::kAxe: i.category = 3, i.item_flags = 0x2, i.gear = 1, n = 1; break;
         case fake::kTorch: i.category = 3, i.item_flags = 0, i.gear = 0, n = 2; break;    // a tool without an item entity
         case fake::kSword: i.category = 2, i.item_flags = 0x2, i.gear = 1, n = 3; break;  // an item entity, not a tool
@@ -71,6 +71,11 @@ Status status() {
     Status s;
     s.on = fake::hooks_on;
     s.dropped = 3;
+    s.threads = 2;
+    s.hit_seen = 11;
+    s.hit_applied = 5;
+    s.spawn_seen = 9;
+    s.spawn_applied = 4;
     if (!s.on) std::snprintf(s.why, sizeof s.why, "this game build has no approved description");
     return s;
 }
@@ -192,6 +197,15 @@ int main() {
     CHECK(fake::table->status(fake::kAxe, &small) == KILN_OK && small.has_rule == 1 && small.owner_mod_id[0] == 0);
     small.size = 8;
     CHECK(fake::table->status(fake::kAxe, &small) == KILN_ERR_INVALID_ARGUMENT);
+    // the appended lab counters: a full reader gets them, a reader of the first form (360 bytes) gets nothing past it
+    KilnToolWearState full{};
+    full.size = sizeof full;
+    CHECK(fake::table->status(0, &full) == KILN_OK && full.size == 400 && full.hook_threads == 2 && full.hit_seen == 11 && full.hit_applied == 5 &&
+          full.spawn_seen == 9 && full.spawn_applied == 4);
+    KilnToolWearState first{};
+    std::memset(&first, 0xAB, sizeof first);
+    first.size = 360;
+    CHECK(fake::table->status(0, &first) == KILN_OK && first.size == 360 && first.hook_threads == 0xABABABABu && first.spawn_applied == 0xABABABABABABABABull);
 
     // change records: values copied, the world's session, the stride honoured
     kitems::toolwear::Change c{};

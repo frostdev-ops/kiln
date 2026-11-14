@@ -84,7 +84,8 @@ public sealed unsafe class ToolWearTests : IDisposable
 
         public bool Status(uint item, out ToolWearNative.State state)
         {
-            var s = new ToolWearNative.State { Generation = Generation, DroppedEvents = 5 };
+            var s = new ToolWearNative.State { Size = (uint)sizeof(ToolWearNative.State), Generation = Generation, DroppedEvents = 5, HookThreads = 3,
+                HitSeen = 12, HitApplied = 7, SpawnSeen = 4, SpawnApplied = 2 };
             var reason = !Catalog ? "PendingContent" : item == Torch ? "UnsupportedTool: Torch is not a tool with an item entity" : item == Unknown ? "UnknownItem" : "";
             s.Ok = reason.Length == 0 ? 1u : 0u;
             s.Pending = Catalog ? 0u : 1u;
@@ -298,10 +299,23 @@ public sealed unsafe class ToolWearTests : IDisposable
     }
 
     [Fact]
+#pragma warning disable KILNX001  // the lab member under test
+    public void The_lab_counters_come_from_the_states_tail()
+    {
+        Assert.Equal((3u, 12ul, 7ul, 4ul, 2ul), Items.LabToolWearCounters());
+        Items.ToolWear.Table = null;
+        Items.ToolWear.Reset();
+        Items.ToolWear.Table = null;
+        Assert.Equal(default, Items.LabToolWearCounters());  // no table here: zeros, never a throw
+    }
+#pragma warning restore KILNX001
+
+    [Fact]
     public void The_native_records_have_the_sizes_of_the_header()
     {
         Assert.Equal(88, sizeof(ToolWearNative.Change));
-        Assert.Equal(360, sizeof(ToolWearNative.State));
+        Assert.Equal(400, sizeof(ToolWearNative.State));
+        Assert.Equal(360, (int)System.Runtime.InteropServices.Marshal.OffsetOf<ToolWearNative.State>(nameof(ToolWearNative.State.HookThreads)));
         Assert.Equal(8 + 4 * 8, sizeof(ToolWearNative.Table));
     }
 }

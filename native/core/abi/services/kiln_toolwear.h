@@ -31,7 +31,7 @@ extern "C" {
 /* define/remove results besides KILN_OK and the common codes (KILN_ERR_INVALID_ARGUMENT: a cost over 32767, item 0,
  * a mod id that is empty, over 127 bytes or not ASCII; KILN_ERR_NOT_FOUND: no such item, or no such rule handle;
  * KILN_ERR_UNAVAILABLE: the capability is off; KILN_ERR_WRONG_THREAD). */
-#define KILN_TOOLWEAR_UNSUPPORTED_TOOL 100 /* not a tool with an item entity and durability of its own (a torch, a build tool, another category) */
+#define KILN_TOOLWEAR_UNSUPPORTED_TOOL 100 /* not a tool with an item entity and durability of its own (a torch, a build tool without one, another category) */
 #define KILN_TOOLWEAR_NO_AUTHORITATIVE_WORLD 101 /* no server world in this process now */
 #define KILN_TOOLWEAR_TOO_MANY_RULES 102 /* 256 tools have had a rule in this process */
 #define KILN_TOOLWEAR_NOT_OWNER 103      /* remove: the handle is another owner's */
@@ -75,6 +75,11 @@ typedef struct KilnToolWearState {
     uint64_t dropped_events; /* change records the full queue did not take, since the process started */
     char owner_mod_id[128];  /* the mod whose rule is in effect; "" without one */
     char reason[192];        /* why ok is 0; "" otherwise */
+    /* ---- appended in 0.2.0-dev.28 (lab counters; written only when `size` covers them) ---- */
+    uint32_t hook_threads;   /* distinct threads the hooks have run on since the process started (up to 8 are told apart) */
+    uint32_t reserved2;
+    uint64_t hit_seen, hit_applied;     /* WearItem at the weapon site: calls looked at, debits a rule changed */
+    uint64_t spawn_seen, spawn_applied; /* the projectile spawn's debit: calls looked at, debits a rule changed */
 } KilnToolWearState;
 
 typedef struct KilnToolWearApi {
@@ -99,7 +104,8 @@ typedef struct KilnToolWearApi {
 
 #ifdef __cplusplus
 static_assert(sizeof(KilnToolWearChange) == 88, "KilnToolWearChange is 88 bytes");
-static_assert(sizeof(KilnToolWearState) == 360, "KilnToolWearState is 360 bytes");
+static_assert(sizeof(KilnToolWearState) == 400, "KilnToolWearState is 400 bytes (360 in its first form)");
+static_assert(offsetof(KilnToolWearState, hook_threads) == 360, "the lab counters follow the first form");
 #endif
 
 #endif /* KILN_TOOLWEAR_H */

@@ -62,3 +62,4 @@ static Kiln.ToolWearResult.operator !=(Kiln.ToolWearResult? left, Kiln.ToolWearR
 static Kiln.ToolWearResult.operator ==(Kiln.ToolWearResult? left, Kiln.ToolWearResult? right) -> bool
 static Kiln.ToolWearState.operator !=(Kiln.ToolWearState? left, Kiln.ToolWearState? right) -> bool
 static Kiln.ToolWearState.operator ==(Kiln.ToolWearState? left, Kiln.ToolWearState? right) -> bool
+[KILNX001]static Kiln.Items.LabToolWearCounters() -> (uint HookThreads, ulong HitSeen, ulong HitApplied, ulong SpawnSeen, ulong SpawnApplied)
