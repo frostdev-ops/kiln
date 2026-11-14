@@ -86,6 +86,7 @@ KilnOwner owner(const std::string& name) {
 void revoke(KilnOwner o) {
     alive.erase(o);
     ++version;
+    owner_retired(o);  // production reg::add_owner_retiring calls this synchronously
 }
 size_t logged(const char* part) {
     size_t n = 0;
@@ -208,7 +209,7 @@ void reset() {
     clock_ms = 1000;
     client_side = true;
     rows = {"ui.values.detail", "ui.values.slot",          "ui.values.held",
-            "ui.values.hud",    "ui.values.tooltip_lines", "ui.slots.inspect"};
+            "ui.values.hud",    "ui.values.tooltip_lines", "ui.slots.inspect", "kiln.ui"};
     rows_off.clear();
     client = ClientNow{};
     have_client = true;
@@ -2248,6 +2249,132 @@ void lines_window() {
     CHECK(T()->open_tooltip_details(o, &op) == KILN_ERR_UNAVAILABLE, "window: the row held -> UNAVAILABLE");
 }
 
+void lines_writer_tampering() {
+    prime_lines();
+    const KilnOwner o = fake::owner("mod:writer-tamper");
+    auto r = reg_record();
+    T()->tooltip_lines(o, 0,
+        [](const KilnUiProviderContext*, const KilnUiItemView*, KilnUiLineWriter* w, void*) -> KilnResult {
+            // The public record is borrowed: changing capacity must never enlarge the service's staging array.
+            w->capacity = 17;
+            for (int i = 0; i < 17; ++i) w->append(w, 0);
+            w->status = KUI_REASON_NONE;  // a failed append must stay latched in service-owned state
+            return KILN_OK;
+        }, nullptr, &r);
+    arm_lines();
+    fill_view_bytes(g_mem.record, 0x5000, 2, 0xAA, 1, 900, 0, 0);
+    g_detail_hook(g_mem.record, 0);
+    CHECK(read_details(o, 1).count == 0 && faults_of(kListLines) == 1,
+          "writer: edited capacity cannot overrun staging or commit lines, even with cleared status");
+}
+
+void retire_during_dispatch() {
+    fake::reset();
+    const auto a = fake::owner("mod:retirer"), b = fake::owner("mod:retired");
+    add_value(a, KUI_SLOT, 0,
+        [](const KilnUiProviderContext*, const KilnUiItemView*, const KilnUiBarValue*, KilnUiBarEdit*, void* user) -> KilnResult {
+            fake::revoke(*static_cast<KilnOwner*>(user));
+            return KILN_OK;
+        }, const_cast<KilnOwner*>(&b));
+    Script later;
+    add_value(b, KUI_SLOT, 0, &scripted, &later);
+    run_chain(KUI_SLOT, item_view(1), game_value(KUI_SLOT, 1, 0, 0), {});
+    CHECK(later.calls == 0, "revoke: a later provider in an already captured dispatch is never called");
+}
+
+void snapshot_lifetimes() {
+    prime_lines();
+    const auto o = fake::owner("mod:snapshots");
+    LinesScript old, replacement;
+    old.lines = {"old generation"};
+    replacement.lines = {"replacement"};
+    const auto h = add_lines(o, 0, &old);
+    arm_lines();
+    fill_view_bytes(g_mem.record, 0x5000, 2, 0xAA, 1, 900, 0, 0);
+    g_detail_hook(g_mem.record, 0);
+    KilnUiTooltipOpen op{};
+    op.size = sizeof op;
+    T()->open_tooltip_details(o, &op);
+    T()->unsubscribe(h);
+    const auto h2 = add_lines(o, 0, &replacement);  // same count, different registry
+    CHECK(read_details(o, 0).open == 0 && read_details(o, 1).ok == 0,
+          "snapshot: replacing a provider at the same count invalidates both frozen and latest lines");
+    g_detail_hook(g_mem.record, 0);
+    T()->open_tooltip_details(o, &op);
+    ++fake::client.session;
+    T()->refresh_tooltip_details(o, &op);
+    CHECK(op.ok == 0, "snapshot: refresh cannot resurrect a previous client session");
+    --fake::client.session;
+    T()->unsubscribe(h2);
+    T()->open_tooltip_details(o, &op);
+    CHECK(op.ok == 0, "snapshot: no providers cannot reopen old lines");
+    LinesScript empty;
+    add_lines(o, 0, &empty);
+    g_detail_hook(g_mem.record, 0);
+    T()->open_tooltip_details(o, &op);
+    CHECK(op.ok == 0, "snapshot: no accepted tooltip lines returns NoTooltip");
+
+    prime_slots();
+    const auto s = fake::owner("mod:stale-slots");
+    copy(s, 1);  // installs the collector
+    arm_slots();
+    FakeSlot slot;
+    g_frame_script = {desc(&slot, 0x5000, 0, 0xAA, 900)};
+    ui_frame(100);
+    ++fake::client.session;
+    auto stale = copy(s, 1);
+    CHECK(stale.frame.ok == 0 && stale.slots[0].occurrence == 0xABABABAB,
+          "slots: a world change without a new UI frame cannot return the old session");
+    ui_frame(101);
+    CHECK(copy(s, 1, 5, 100).frame.ok == 0,
+          "slots: the retained previous frame cannot cross client sessions");
+}
+
+void holder_model_lifetimes() {
+    prime_slots();
+    const auto o = fake::owner("mod:holder-lifetimes");
+    copy(o, 4);
+    arm_slots();
+    FakeSlot slot;
+    g_frame_script = {desc(&slot, 0x5000, 0, 0xAA, 900), desc(&slot, 0x5001, 0, 0xBB, 901)};
+    g_slots_play.set_models({{77, {{0x5000, 0, 0xAA, 1, 900}}}, {77, {{0x5001, 0, 0xBB, 1, 901}}}});
+    ui_frame(100);
+    const auto before = copy(o, 4);
+    CHECK(before.slots[0].page_ordinal == 0 && before.slots[1].page_ordinal == 1,
+          "holder: page ordinals span all models of one holder");
+    g_slots_play.set_models({});
+    ui_frame(101);
+    g_slots_play.set_models({{77, {{0x5000, 0, 0xAA, 1, 900}}}});
+    ui_frame(102);
+    CHECK(copy(o, 4).slots[0].holder_serial != before.slots[0].holder_serial,
+          "holder: an empty model snapshot retires every previous holder serial");
+}
+
+void lines_need_overlay() {
+    prime_lines();
+    const auto o = fake::owner("mod:overlay-dependency");
+    LinesScript s;
+    s.lines = {"line"};
+    fake::rows.erase("kiln.ui");
+    auto r = reg_record();
+    CHECK(T()->tooltip_lines(o, 0, &lines_provider, &s, &r) == KILN_ERR_UNAVAILABLE && fake::raws.empty() && fake::mids.empty(),
+          "lines: no overlay backend refuses registration without installing game hooks");
+    fake::rows.insert("kiln.ui");
+    CHECK(add_lines(o, 0, &s) != 0, "lines: a backend published later allows a retry");
+}
+
+void slot_layout_is_independent() {
+    prime_bars();
+    const auto o = fake::owner("mod:independent-slot");
+    fake::constants.erase("ui/bar.label");
+    auto r = reg_record();
+    CHECK(T()->subscribe(o, KUI_SLOT, 0, &pass, nullptr, &r) == KILN_OK && r.ok,
+          "slot: a missing detail-only label offset does not disable slot bars");
+    r = reg_record();
+    CHECK(T()->subscribe(o, KUI_DETAIL, 0, &pass, nullptr, &r) == KILN_ERR_UNAVAILABLE,
+          "detail: its missing label offset still refuses safely");
+}
+
 }  // namespace
 
 int main() {
@@ -2281,6 +2408,12 @@ int main() {
     slots_holders();
     lines_collect();
     lines_window();
+    retire_during_dispatch();
+    snapshot_lifetimes();
+    holder_model_lifetimes();
+    lines_need_overlay();
+    slot_layout_is_independent();
+    lines_writer_tampering();
     std::printf(g_fail ? "%d FAILED\n" : "all passed\n", g_fail);
     return g_fail ? 1 : 0;
 }

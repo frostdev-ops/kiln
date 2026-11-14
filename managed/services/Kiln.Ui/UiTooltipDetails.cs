@@ -133,7 +133,8 @@ internal static unsafe class UiTooltipBridge
     private static readonly object Lock = new();
     private static UiWindow? _window;
     private static MenuEntry? _menu;
-    private static (ulong Session, ulong Frame, float Width, float Scale) _cacheKey;
+    private static (ulong Session, ulong Frame, float Width, float Scale, float FontSize, long Revision) _cacheKey;
+    private static long _layoutRevision;
     private static bool _watching;
     private static readonly Action<UiDraw> Watch = WatchWindow;
     private static List<string> _cache = [];
@@ -158,7 +159,7 @@ internal static unsafe class UiTooltipBridge
         UiValueBridge.RequireCapability(row);
         var t = UiValuesNative.T;
         if (t == null) throw new KilnUnavailableException(row, Capabilities.Why(UiValuesNative.Service));
-        var mod = UiModCalls.Caller;
+        var mod = UiModCalls.Caller ?? ModContext.OwnerOf(provider);
         UiModCalls.RequireAlive(mod);
         var reg = new UiValueBridge.Reg
         {
@@ -193,9 +194,12 @@ internal static unsafe class UiTooltipBridge
             if (table != null) table->Unsubscribe(handle);
             UiValueEvents.ProviderChanged(gone, UiValueProviderChange.Removed);
         });
-        if (mod is not null)
-            mod.Retiring += () => reg.Public.Dispose();
         UiValueEvents.ProviderChanged(reg, UiValueProviderChange.Added);
+        if (mod is not null)
+        {
+            mod.Retiring += () => reg.Public.Dispose();
+            if (!mod.Alive) reg.Public.Dispose();
+        }
         EnsureMenuEntry();
         return reg.Public;
     }
@@ -238,6 +242,7 @@ internal static unsafe class UiTooltipBridge
         if (rc == UiValuesNative.Unavailable) throw new KilnUnavailableException(row, Capabilities.Why(row));
         if (rc != UiValuesNative.Ok) throw new InvalidOperationException($"kiln.ui.values: open_tooltip_details failed ({rc})");
         if (o.Ok == 0) return new UiTooltipOpenResult(false, "no tooltip", 0, 0);
+        Interlocked.Increment(ref _layoutRevision);
         var item = Read(0) is { Ok: not 0 } d ? new ItemId(d.Item) : default;
         lock (Lock)
         {
@@ -309,6 +314,7 @@ internal static unsafe class UiTooltipBridge
                 _window.Open = false;
             }
         StopWatch();
+        Interlocked.Increment(ref _layoutRevision);
         if (t != null) t->CloseTooltipDetails(UiValueBridge.OwnerOf(null));
         if (wasOpen) UiValueEvents.TooltipPanel(false, 0, 0, default, reason);
     }
@@ -333,6 +339,7 @@ internal static unsafe class UiTooltipBridge
     // The window (render thread): the frozen snapshot, wrapped to the pane's measured width and scrolled in its child.
     private static void Draw(UiDraw ui)
     {
+        var revision = Volatile.Read(ref _layoutRevision);  // capture before the snapshot: a concurrent reopen misses next frame
         var d = Read(0);
         if (d.Open == 0)
         {
@@ -345,15 +352,20 @@ internal static unsafe class UiTooltipBridge
             UiValuesNative.TooltipOpen o = default;
             o.Size = (uint)sizeof(UiValuesNative.TooltipOpen);
             UiValuesNative.T->RefreshTooltipDetails(UiValueBridge.OwnerOf(null), &o);
+            if (o.Ok != 0)
+            {
+                revision = Interlocked.Increment(ref _layoutRevision);
+                d = Read(0);
+            }
         }
         ui.SameLine();
         if (ui.Button("Close")) Close(null);
         ui.Separator();
         if (ui.BeginChild("##kiln.item.details.lines"))
         {
-            var (_, _, width, _) = ui.WindowRect;
-            width = Math.Max(1, width - 24 * ui.Scale);
-            var key = (d.Session, d.SourceFrame, MathF.Round(width), ui.Scale);
+            var cursor = ui.Cursor;
+            var width = Math.Max(1, cursor.AvailWidth);
+            var key = (d.Session, d.SourceFrame, width, ui.Scale, cursor.FontSize, revision);
             if (key != _cacheKey)
             {
                 _cache = UiTooltipWrap.Wrap(LinesOf(d), width, s => ui.MeasureText(s).Width);
@@ -454,6 +466,8 @@ internal static unsafe class UiTooltipBridge
         {
             _window = null;
             _menu = null;
+            _cacheKey = default;
+            _cache = [];
         }
         Viewport = ReadViewport;
     }

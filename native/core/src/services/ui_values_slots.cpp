@@ -67,6 +67,7 @@ struct FrameCollector {
     std::vector<KilnUiVisibleSlot>* slots = nullptr;  // reused buffer of the UI thread
     bool overflow = false;
     bool holders_read = false;
+    bool holders_valid = false;
     std::unordered_map<uint32_t, PageInfo>* pages = nullptr;
 };
 thread_local FrameCollector* t_frame = nullptr;
@@ -94,16 +95,17 @@ bool rect_ok(const float* r) {
 }
 
 // The pages of the frame's play data: holder and ordinal of each page entity.
-void read_holders(std::unordered_map<uint32_t, PageInfo>& pages) {
+bool read_holders(std::unordered_map<uint32_t, PageInfo>& pages) {
     const SlotsLayout& L = g_sl;
-    if (!L.holders) return;
+    if (!L.holders) return false;
     uintptr_t app = 0, data = 0, state = 0, play = 0, models = 0;
     uint64_t count = 0;
     if (!game_read(L.ui_app, &app) || !game_read(app + L.data, &data) || !game_read(data, &state) ||
         !game_read(state + L.play, &play) || !game_read(play + L.models, &models) ||
         !game_read(play + L.models_count, &count) || count > 64 || (count && !models))
-        return;
+        return false;
     uint8_t view[kViewBytes];
+    std::unordered_map<uint32_t, uint32_t> ordinals;
     for (uint64_t m = 0; m < count; ++m) {
         const uintptr_t model = models + m * static_cast<uint64_t>(L.stride);
         uint32_t owner = 0;
@@ -111,15 +113,16 @@ void read_holders(std::unordered_map<uint32_t, PageInfo>& pages) {
         uint64_t n = 0;
         if (!game_read(model + L.owner, &owner) || !game_read(model + L.views, &views) ||
             !game_read(model + L.views_count, &n) || n > 4096 || (n && !views))
-            return;
-        uint32_t ordinal = 0;
+            return false;
+        uint32_t& ordinal = ordinals[owner];
         for (uint64_t i = 0; i < n; ++i) {
-            if (!env().read(view, views + i * kViewBytes, kViewBytes)) return;
+            if (!env().read(view, views + i * kViewBytes, kViewBytes)) return false;
             uint32_t page;
             std::memcpy(&page, view + L.view.page, 4);
-            if (page && pages.try_emplace(page, PageInfo{owner, ordinal}).second) ++ordinal;
+            if (owner && page && pages.try_emplace(page, PageInfo{owner, ordinal}).second) ++ordinal;
         }
     }
+    return true;
 }
 
 void record(FrameCollector& f, const SlotCollector& c, uintptr_t out) {
@@ -159,7 +162,8 @@ void record(FrameCollector& f, const SlotCollector& c, uintptr_t out) {
         s.view_flags = v.flags;
         if (!f.holders_read) {
             f.holders_read = true;
-            read_holders(*f.pages);  // UiApp is the frame context only while the frame runs
+            f.holders_valid = read_holders(*f.pages);  // UiApp exists only while the frame runs
+            if (!f.holders_valid) f.pages->clear();  // never publish a partial holder map
         }
         const auto it = f.pages->find(page);
         if (page && it != f.pages->end()) {
@@ -229,13 +233,15 @@ void publish(FrameCollector& f, uintptr_t sys10) {
             r.holders.clear();
             r.holders_session = now.session;
         }
-        if (f.holders_read && !f.pages->empty()) {
+        if (f.holders_read && !f.holders_valid) r.holders.clear();
+        if (f.holders_valid) {
             const uint64_t read = ++r.reads;
             for (const auto& [page, info] : *f.pages) {  // every holder of this frame's models, drawn or not
                 auto [it, fresh] = r.holders.try_emplace(info.holder, std::make_pair(0ull, 0ull));
                 if (fresh || it->second.second + 1 < read) it->second.first = r.next_serial++;  // new, or back again
                 it->second.second = read;
             }
+            std::erase_if(r.holders, [&](const auto& kv) { return kv.second.second != read; });
             for (auto& s : frame->slots) {
                 if (!(s.holder_flags & KUI_HOLDER_KNOWN)) continue;
                 s.holder_serial = r.holders[s.holder].first;
@@ -251,7 +257,7 @@ void publish(FrameCollector& f, uintptr_t sys10) {
     const auto subs = providers(kListSlots);
     for (const auto& sp : *subs) {
         Provider& p = *sp;
-        if (!p.live.load(std::memory_order_acquire)) continue;
+        if (!provider_live(p)) continue;
         if (env().call_slots &&
             env().call_slots(reinterpret_cast<KilnUiSlotsFn>(p.fn), &m, frame->slots.data(), m.count, p.user))
             succeeded(p);
@@ -338,6 +344,8 @@ KilnResult slots_copy(KilnOwner owner, uint64_t expected_session, uint64_t expec
     if (!env().owner_alive(owner)) return KILN_ERR_REVOKED;
     if (!ensure_installed(kListSlots)) return KILN_ERR_UNAVAILABLE;
     *required = 0;
+    ClientNow now{};
+    const bool have_client = env().client && env().client(&now);
     std::shared_ptr<const Frame> pick;
     {
         Ring& r = ring();
@@ -356,6 +364,7 @@ KilnResult slots_copy(KilnOwner owner, uint64_t expected_session, uint64_t expec
                 if (f && f->meta.session == expected_session && f->meta.frame == expected_frame) pick = f;
         }
     }
+    if (!have_client || (pick && pick->meta.session != now.session)) pick.reset();
     const uint32_t size = frame->size;
     if (!pick) {
         *frame = KilnUiSlotsFrame{};

@@ -40,20 +40,33 @@ thread_local DetailCopy* t_detail = nullptr;
 struct WriterState {
     uint32_t magic = kWriterMagic;
     const Provider* provider = nullptr;
-    uint32_t count = 0;
+    KilnUiLineWriter* writer = nullptr;
+    uint32_t capacity = 0, count = 0, status = KUI_REASON_NONE;
     KilnUiTextId staged[kMaxLines] = {};
 };
+thread_local WriterState* t_writer = nullptr;
+KilnResult KILN_CALL writer_append(KilnUiLineWriter*, KilnUiTextId);
+
+bool writer_matches(const KilnUiLineWriter& w, const WriterState& st) {
+    if (w.size != sizeof w || w.capacity != st.capacity || w.count != st.count || w.status != st.status ||
+        w.reserved != &st || w.append != &writer_append) return false;
+    for (uint32_t i = 0; i < kMaxLines; ++i) {
+        const auto& line = w.lines[i];
+        if (line.size != (i < st.count ? sizeof(KilnUiLine) : 0) || line.flags != 0 ||
+            line.text != (i < st.count ? st.staged[i] : 0)) return false;
+    }
+    return true;
+}
 
 struct Snapshot {
     KilnUiItemView view{};
-    uint64_t session = 0, frame = 0, capture_ms = 0;
+    uint64_t session = 0, frame = 0, capture_ms = 0, revision = 0;
     uint32_t count = 0;
     KilnUiTextId lines[kMaxLines] = {};
 };
 struct Details {
     std::mutex mu;
     std::shared_ptr<const Snapshot> latest, open;
-    uint64_t providers_seen = 0;  // the lines registry's size when the window opened (a change closes it)
 };
 Details& details() {
     static Details* d = new Details;  // never destroyed: the UI thread may collect while the process ends
@@ -61,6 +74,8 @@ Details& details() {
 }
 
 bool same_identity(const KilnUiItemView& a, const KilnUiItemView& b) {
+    if (a.screen.ui_state != b.screen.ui_state || a.screen.hud_screen != b.screen.hud_screen ||
+        a.screen.crafting != b.screen.crafting || a.screen.station != b.screen.station) return false;
     if ((a.flags & KUI_SYNTHETIC) || (b.flags & KUI_SYNTHETIC))
         return (a.flags & KUI_SYNTHETIC) && (b.flags & KUI_SYNTHETIC) && a.item == b.item && a.session == b.session;
     return a.item == b.item && a.inventory_page == b.inventory_page && a.slot_index == b.slot_index &&
@@ -68,18 +83,21 @@ bool same_identity(const KilnUiItemView& a, const KilnUiItemView& b) {
 }
 
 KilnResult KILN_CALL writer_append(KilnUiLineWriter* w, KilnUiTextId id) {
-    if (!w || w->size < sizeof(KilnUiLineWriter)) return KILN_ERR_INVALID_ARGUMENT;
-    auto* st = static_cast<WriterState*>(w->reserved);
-    if (!st || st->magic != kWriterMagic || !st->provider) return KILN_ERR_INVALID_ARGUMENT;
-    if (w->status != KUI_REASON_NONE)
-        return w->status == KUI_TEXT_BUDGET ? KILN_ERR_BUFFER_TOO_SMALL : KILN_ERR_INVALID_ARGUMENT;
-    std::string_view probe;
-    if (id != 0 && (!text::held_by(id, st->provider->mod) || !text::bytes(id, &probe))) {
-        w->status = KUI_INVALID_EDIT;  // a foreign or unknown token
+    auto* st = t_writer;
+    if (!w || !st || st->writer != w) return KILN_ERR_INVALID_ARGUMENT;
+    if (!writer_matches(*w, *st)) {
+        st->status = w->status = KUI_INVALID_EDIT;
         return KILN_ERR_INVALID_ARGUMENT;
     }
-    if (st->count >= w->capacity) {
-        w->status = KUI_TEXT_BUDGET;  // 16 entries per detail occurrence, all providers together
+    if (st->status != KUI_REASON_NONE)
+        return st->status == KUI_TEXT_BUDGET ? KILN_ERR_BUFFER_TOO_SMALL : KILN_ERR_INVALID_ARGUMENT;
+    std::string_view probe;
+    if (id != 0 && (!text::held_by(id, st->provider->mod) || !text::bytes(id, &probe))) {
+        st->status = w->status = KUI_INVALID_EDIT;  // a foreign or unknown token
+        return KILN_ERR_INVALID_ARGUMENT;
+    }
+    if (st->count >= st->capacity) {
+        st->status = w->status = KUI_TEXT_BUDGET;  // 16 entries per detail occurrence, all providers together
         return KILN_ERR_BUFFER_TOO_SMALL;
     }
     st->staged[st->count] = id;
@@ -112,10 +130,11 @@ void collect(const DetailCopy& c) {
     snap->session = st.session;
     snap->frame = st.frame;
     snap->capture_ms = env().tick_ms ? env().tick_ms() : 0;
+    snap->revision = providers_revision(kListLines);
     const auto list = providers(kListLines);
     for (const auto& sp : *list) {
         Provider& p = *sp;
-        if (!p.live.load(std::memory_order_acquire)) continue;
+        if (!provider_live(p)) continue;
         if (p.item != 0 && p.item != v.item) continue;
         if (snap->count >= kMaxLines) break;
         WriterState ws;
@@ -126,6 +145,8 @@ void collect(const DetailCopy& c) {
         w.status = KUI_REASON_NONE;
         w.reserved = &ws;
         w.append = &writer_append;
+        ws.writer = &w;
+        ws.capacity = w.capacity;
         CallState cs;
         cs.magic = kCallMagic;
         cs.provider = &p;
@@ -143,14 +164,20 @@ void collect(const DetailCopy& c) {
         bool called;
         {
             CallScope scope(&cs);
+            struct WriterScope {
+                WriterState* previous;
+                explicit WriterScope(WriterState* current) : previous(t_writer) { t_writer = current; }
+                ~WriterScope() { t_writer = previous; }
+            } writer_scope(&ws);
             called = env().call_lines &&
                      env().call_lines(reinterpret_cast<KilnUiLinesFn>(p.fn), &ctx, &view, &w, p.user, &rc);
         }
+        if (!env().owner_alive(p.owner)) continue;
         if (!called || rc == KILN_ERR_INTERNAL) {
             fault(p, called ? "returned an internal error" : "faulted");
             continue;
         }
-        if (w.status == KUI_INVALID_EDIT || w.count != ws.count) {  // a foreign token, or the writer edited directly
+        if (ws.status == KUI_INVALID_EDIT || !writer_matches(w, ws)) {  // a foreign token, or direct writer edits
             fault(p, "wrote an invalid line");
             continue;
         }
@@ -164,8 +191,9 @@ void collect(const DetailCopy& c) {
     }
     Details& d = details();
     std::lock_guard lk(d.mu);
-    if (d.open && d.open->session != snap->session) d.open.reset();  // a world/session change closes the window
-    d.latest = std::move(snap);
+    if (d.open && (d.open->session != snap->session || d.open->revision != providers_revision(kListLines)))
+        d.open.reset();
+    d.latest = snap->count && snap->revision == providers_revision(kListLines) ? std::move(snap) : nullptr;
 }
 
 void hk_item_detail(void* detail, uint8_t flag) {
@@ -211,6 +239,7 @@ KilnResult check_caller(KilnOwner owner) {
     if (!env().client_side || !env().client_side()) return KILN_ERR_UNAVAILABLE;
     if (!env().owner_alive(owner)) return KILN_ERR_REVOKED;
     if (!env().row_available || !env().row_available(row_of(kListLines))) return KILN_ERR_UNAVAILABLE;
+    if (!env().row_available("kiln.ui")) return KILN_ERR_UNAVAILABLE;
     return KILN_OK;
 }
 
@@ -226,7 +255,11 @@ void open_result(KilnUiTooltipOpen* out, const Snapshot* s, uint32_t reason) {
     }
 }
 
-uint64_t lines_registered() { return providers(kListLines)->size(); }
+void invalidate(Details& d, uint64_t session) {  // d.mu held
+    const auto revision = providers_revision(kListLines);
+    for (auto* s : {&d.latest, &d.open})
+        if (*s && ((*s)->session != session || (*s)->revision != revision || !(*s)->count)) s->reset();
+}
 
 }  // namespace
 
@@ -234,15 +267,16 @@ KilnResult tooltip_open(KilnOwner owner, KilnUiTooltipOpen* out) {
     if (const KilnResult rc = check_caller(owner)) return rc;
     ClientNow now{};
     if (env().client) env().client(&now);
+    providers(kListLines);  // also prunes retired owners in hosts without retirement notifications
     Details& d = details();
     std::lock_guard lk(d.mu);
+    invalidate(d, now.session);
     if (!d.latest || d.latest->session != now.session) {
         open_result(out, nullptr, KUI_NO_TOOLTIP);
         return KILN_OK;
     }
     if (!d.open) {  // opening again keeps the frozen snapshot (idempotent)
         d.open = d.latest;
-        d.providers_seen = lines_registered();
     }
     open_result(out, d.open.get(), KUI_NO_TOOLTIP);
     return KILN_OK;
@@ -259,8 +293,12 @@ KilnResult tooltip_close(KilnOwner owner) {
 
 KilnResult tooltip_refresh(KilnOwner owner, KilnUiTooltipOpen* out) {
     if (const KilnResult rc = check_caller(owner)) return rc;
+    ClientNow now{};
+    if (env().client) env().client(&now);
+    providers(kListLines);
     Details& d = details();
     std::lock_guard lk(d.mu);
+    invalidate(d, now.session);
     if (!d.open) {
         open_result(out, nullptr, KUI_NO_TOOLTIP);
         return KILN_OK;
@@ -279,13 +317,14 @@ KilnResult tooltip_details(KilnOwner owner, uint32_t which, KilnUiTooltipDetails
     if (const KilnResult rc = check_caller(owner)) return rc;
     ClientNow now{};
     if (env().client) env().client(&now);
+    providers(kListLines);
     std::shared_ptr<const Snapshot> s;
     bool open = false;
     {
         Details& d = details();
         std::lock_guard lk(d.mu);
         // a world/session change or a provider registry change closes the window
-        if (d.open && (d.open->session != now.session || d.providers_seen != lines_registered())) d.open.reset();
+        invalidate(d, now.session);
         open = d.open != nullptr;
         s = which == 0 ? d.open : d.latest;
         if (s && s->session != now.session) s.reset();
@@ -320,7 +359,6 @@ void lines_reset_for_tests() {
     std::lock_guard lk(d.mu);
     d.latest.reset();
     d.open.reset();
-    d.providers_seen = 0;
     g_ll = {};
     g_detail_next = nullptr;
 }

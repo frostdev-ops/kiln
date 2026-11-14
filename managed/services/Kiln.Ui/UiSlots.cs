@@ -149,7 +149,7 @@ internal static unsafe class UiSlotsBridge
         UiValueBridge.RequireCapability(Ui.Values.SlotsCapability);
         var t = UiValuesNative.T;
         if (t == null) throw new KilnUnavailableException(Ui.Values.SlotsCapability, Capabilities.Why(UiValuesNative.Service));
-        var mod = UiModCalls.Caller;
+        var mod = UiModCalls.Caller ?? ModContext.OwnerOf(onFrame);
         UiModCalls.RequireAlive(mod);
         var id = Interlocked.Increment(ref _next);
         Subs[id] = (onFrame, mod);
@@ -160,7 +160,7 @@ internal static unsafe class UiSlotsBridge
         var handle = r.Handle;
         var accepted = r.Ok != 0;
         var reason = r.Reason;
-        return rc switch
+        var result = rc switch
         {
             UiValuesNative.Ok when accepted => new UiValueRegistration(true, null, handle, Remove(id, handle)),
             UiValuesNative.Ok => new UiValueRegistration(false, UiValueBridge.ReasonText(reason), 0, null),
@@ -169,6 +169,12 @@ internal static unsafe class UiSlotsBridge
             UiValuesNative.Revoked => throw new InvalidOperationException("the mod is unloading"),
             _ => throw new ArgumentException($"kiln.ui.values refused subscribe_slots ({rc})"),
         };
+        if (result.Ok && mod is not null)
+        {
+            mod.Retiring += result.Dispose;
+            if (!mod.Alive) result.Dispose();  // retirement may have happened before the handler was attached
+        }
+        return result;
     }
 
     private static Action<UiValueRegistration> Remove(long id, ulong handle) => _ =>
