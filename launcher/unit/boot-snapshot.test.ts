@@ -2,6 +2,10 @@
 import { expect, test } from "bun:test";
 import { bootSnapshotLine } from "../src/shell/bootSnapshot";
 
+test("no mod needs it: skipped says nothing", () => {
+  expect(bootSnapshotLine({ status: "skipped", emptyKinds: [], reason: "no mod needs the boot snapshot" })).toBeNull();
+});
+
 test("a snapshot in place says nothing", () => {
   expect(bootSnapshotLine(undefined)).toBeNull();
   expect(bootSnapshotLine({ status: "reused", emptyKinds: [] })).toBeNull();

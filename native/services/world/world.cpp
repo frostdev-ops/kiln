@@ -342,6 +342,7 @@ const KilnWorldApi kTable = {
     &game_wraps_release,
     &game_slice_run_original,
     &wrap_original,
+    &in_program,
 };
 
 void KILN_CALL on_client_pre(const KilnTickInfo* tick, void*) { game_programs_pre(KILN_WORLD_CLIENT, tick); }
@@ -356,7 +357,10 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     g_api = api;
     g_owner = owner;
     if (info->size >= offsetof(KilnPluginInfo, on_ready) + sizeof(info->on_ready))
-        info->on_ready = [](void*) { boot_programs_init(); };
+        info->on_ready = [](void*) {
+            boot_programs_init();
+            in_program_resolve(program_types());
+        };
     info->id = KilnStr{KILN_WORLD_SERVICE, sizeof(KILN_WORLD_SERVICE) - 1};
     info->version = KilnStr{"4", 1};
     resolve();

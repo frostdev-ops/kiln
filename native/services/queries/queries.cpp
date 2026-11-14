@@ -188,6 +188,8 @@ KilnResult KILN_CALL t_ray_voxels(const KilnQueryRayRequest* req, KilnQueryRayRe
     out->size = size;
     out->reason = KilnStr{"", 0};
     if (!g_api->on_tick_thread()) return KILN_ERR_WRONG_THREAD;
+    // on the world's thread too: inside a program's update or a wrap stage the world is mid-step (internal.h)
+    if (kq::in_program()) return out->reason = KQ_STR(kq::kInsideProgram), KILN_ERR_WRONG_THREAD;
     const double from[3] = {req->from.x, req->from.y, req->from.z}, to[3] = {req->to.x, req->to.y, req->to.z};
     for (int i = 0; i < 3; ++i)
         if (!std::isfinite(from[i]) || !std::isfinite(to[i])) return KILN_ERR_INVALID_ARGUMENT;

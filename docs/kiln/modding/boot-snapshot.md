@@ -9,9 +9,9 @@ lies, what it costs, and what a mod sees when it is not there.
 
 | Who | When | What you see |
 |---|---|---|
-| The Kiln launcher | at Play, right after the cook, for a start with mods | a progress line ("Game data for OnBoot mods (about 200 MB, once per game build): …"); a notice in one line only when something went wrong |
-| `kiln boot-snapshot --game <dir> [--force] [--json]` | by hand: a server you start yourself, or to make it again | progress on stderr, then one line (or the JSON result) |
-| `tools/deploy-server.sh` | at each deploy into a server folder (`KILN_NO_BOOT_SNAPSHOT=1` skips it) | the tool's lines; a warning when it was not made |
+| The Kiln launcher | at Play (and Launch in a server's modpack offer), right after the cook, when an enabled Kiln mod of the start has `"boot": true` or `"required"` in its kiln.mod.json | a progress line ("Game data for OnBoot mods (about 200 MB, once per game build): …"); a notice in one line only when something went wrong. Without such a mod: "no mod needs the boot snapshot", and nothing runs |
+| `kiln boot-snapshot --game <dir> [--force] [--json]` | by hand, whatever the mods say: a server you start yourself, or to make it again | progress on stderr, then one line (or the JSON result) |
+| `tools/deploy-server.sh` | at each deploy into a server folder, when a mod in its `kiln/mods` has `"boot": true` or `"required"` (`KILN_NO_BOOT_SNAPSHOT=1` skips the step) | the tool's lines; "no mod needs the boot snapshot" without such a mod; a warning when it was not made |
 
 All three run the same tool (`tools/bootsnap/bootsnap.py`, carried by the launcher and by `kiln`) with Kiln's Python:
 the launcher's own on Windows (python.org's embeddable 3.14, in the launcher's folder), the system's `python3` on Linux
@@ -22,6 +22,11 @@ Windows `KILN_PYTHON`, a `python\python.exe` beside it, or `python` on `PATH`.
 10 minutes (the launcher stops it then), the game starts without a snapshot and the launcher says so in one line.
 
 ## What it costs
+
+**Only a game or server with an OnBoot mod pays it**: the launcher and the deploy step make the snapshot only when an
+enabled Kiln mod has `"boot": true` (or `"required"`); a dedicated server does not count client-only mods. Mods of other
+loaders (EML, SET, ShroudForge, Flame, ...) never need it. When no mod needs it, a snapshot already there is left as it
+is (a later start with an OnBoot mod reuses it).
 
 - **The first start after a game update**: half a minute to a minute (32 to 44 s measured on a busy PC, the client's
   and a dedicated server's data alike). Every later start: well under a second (one SHA-256 of the game's exe and one
@@ -73,7 +78,8 @@ after world load.
 ## When there is no snapshot
 
 On a start without a snapshot of the running game build (the tool could not run, it failed, or the game was started
-from Steam before the launcher made one), `OnBoot` still runs, and:
+from Steam, or with the launcher's "play once" with another profile, which makes none, before a Play made one),
+`OnBoot` still runs, and:
 
 - the capability row `mods.boot.game_data` is **unavailable**, with the reason "no game-data snapshot for this game
   build: start through the Kiln launcher, or run `kiln boot-snapshot --game <dir>`" and the test that failed (no
@@ -81,7 +87,7 @@ from Steam before the launcher made one), `OnBoot` still runs, and:
 - `boot.GameData.Read(...)` throws `KilnUnavailableException("mods.boot.game_data")`.
 
 A mod that can do without the game's data checks the row first (`Capabilities.Is("mods.boot.game_data")`;
-`Capabilities.Get(...)` gives the reason) and keeps its own defaults. The next start through the launcher makes the
+`Capabilities.Get(...)` gives the reason) and keeps its own defaults. The next Play through the launcher makes the
 snapshot (or run the command above), and from then on the reads work.
 
 ## The command
@@ -94,7 +100,7 @@ kiln boot-snapshot --game ~/srv/enshrouded --force --json
 Exit 0 when a snapshot of this game build is in place (made now, or current), also when a kind is empty (a warning
 names it); 1 when there is none (the reason is printed). `--json` prints the result: `{status, key, path, counts,
 emptyKinds, skipped, archive, bytes, seconds, reason}`, `status` one of `made`, `reused`, `refused`, `failed`,
-`unavailable`.
+`unavailable` (the launcher and the deploy step also give `skipped`: no mod needs it).
 
 From a Kiln checkout the tool also runs by itself: `python3 -I tools/bootsnap/bootsnap.py make --game <dir>` (and
 `show --game <dir> item:<name> …` prints entries of the snapshot there).

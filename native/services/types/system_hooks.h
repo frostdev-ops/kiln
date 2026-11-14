@@ -41,6 +41,12 @@ public:
         if (generation==generation_ && active_ && after_ && !guard(after_,ctx,user_,handle_)) active_=false;
     }
 };
+// The calling thread runs a system_hook callback (the table's in_system_callback). The guard around each callback sets
+// it and puts the outer value back, also after a fault; plain functions, so a guard with SEH holds no C++ destructor.
+inline thread_local bool t_system_callback = false;
+inline bool enter_system_callback() { const bool previous = t_system_callback; t_system_callback = true; return previous; }
+inline void leave_system_callback(bool previous) { t_system_callback = previous; }
+inline uint32_t KILN_CALL in_system_callback() { return t_system_callback ? 1u : 0u; }
 template<class Original,class Guard>
 void run_system_update(SystemHookCallbacks& callbacks,void* ctx,Original original,Guard guard) {
     const uint64_t generation=callbacks.before(ctx,guard);

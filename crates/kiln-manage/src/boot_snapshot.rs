@@ -6,7 +6,9 @@
 //! files, by `tools/bootsnap/bootsnap.py` (one of the Python tools this crate carries, run like the cook tools:
 //! [`crate::cooktools`]). It lands in `<game>/kiln/data/boot-gamedata/<key>/` (about 200 MB per game build), once per
 //! game build: a later start finds it by its key in well under a second. The launcher makes it at Play right after the
-//! cook, `kiln boot-snapshot --game <dir>` by hand, `tools/deploy-server.sh` for a lab.
+//! cook and `tools/deploy-server.sh` at a deploy, both only when an enabled mod of the start asks for the boot phase
+//! ([`boot_mods`]; otherwise [`make_if_needed`] skips it and leaves a snapshot that is there alone);
+//! `kiln boot-snapshot --game <dir>` makes it by hand whatever the mods say.
 //!
 //! Nothing here stops a start: a missing Python, a tool this build does not carry, a refusal of the tool, a run past
 //! its limit all come back as a [`BootSnapshot`] that says so (status and reason). The game then starts without a
@@ -21,6 +23,8 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 
 use crate::cooktools::CookTools;
+use crate::game::GameInstall;
+use crate::manifest::{ModKind, Side};
 
 /// The tool, under the tools' root.
 pub const SCRIPT: &str = "tools/bootsnap/bootsnap.py";
@@ -31,9 +35,13 @@ pub const LAUNCHER_LIMIT: Duration = Duration::from_secs(10 * 60);
 /// How big a snapshot is on disk, for the lines a player reads (a real server archive of game build 1287369: 199 MB).
 pub const SIZE_TEXT: &str = "about 200 MB";
 
+/// Why the Play step and the deploy step made none: no enabled mod of the start asks for the boot phase.
+pub const NOT_NEEDED: &str = "no mod needs the boot snapshot";
+
 /// What a run of the producer came to. `status`: `made` (written now), `reused` (the snapshot of this game build was
-/// there), `refused` (the tool said why it did not make one), `failed` (it did not end well, or said nothing usable),
-/// `unavailable` (it could not run: no Python, no zstd, or this build carries no boot snapshot tool).
+/// there), `skipped` (no mod of the start needs it: nothing ran, nothing was touched; not a failure), `refused` (the
+/// tool said why it did not make one), `failed` (it did not end well, or said nothing usable), `unavailable` (it could
+/// not run: no Python, no zstd, or this build carries no boot snapshot tool).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BootSnapshot {
@@ -67,6 +75,11 @@ impl BootSnapshot {
         BootSnapshot { status: status.into(), reason: Some(reason.into()), ..Default::default() }
     }
 
+    /// Nothing was needed: no enabled mod of the start asks for the boot phase ([`NOT_NEEDED`]).
+    pub fn skipped() -> BootSnapshot {
+        BootSnapshot::not("skipped", NOT_NEEDED)
+    }
+
     /// A snapshot of this game build is in place (it may still lack a kind: [`BootSnapshot::empty_kinds`]).
     pub fn ready(&self) -> bool {
         self.status == "made" || self.status == "reused"
@@ -75,6 +88,9 @@ impl BootSnapshot {
     /// The one line a player or an operator should read, when something is not right: no snapshot (OnBoot reads of the
     /// game's data are unavailable on this start), or a snapshot without some kinds. None when all is well.
     pub fn warning(&self) -> Option<String> {
+        if self.status == "skipped" {
+            return None;  // nobody needs it: no failure to report
+        }
         if !self.ready() {
             let why = self.reason.as_deref().unwrap_or("no reason given");
             return Some(format!("The game data for OnBoot mods was not made ({why}). The game starts without it: a mod that reads the game's data in OnBoot is told it is unavailable."));
@@ -92,6 +108,7 @@ impl BootSnapshot {
     pub fn summary(&self) -> String {
         match self.status.as_str() {
             "reused" => "The game data for OnBoot mods is current".into(),
+            "skipped" => format!("Game data for OnBoot mods: {NOT_NEEDED}"),
             "made" => format!(
                 "The game data for OnBoot mods is made ({}{})",
                 self.bytes.map(|b| format!("{} MB", (b + 500_000) / 1_000_000)).unwrap_or_else(|| SIZE_TEXT.into()),
@@ -217,6 +234,53 @@ pub fn make(runner: &dyn Runner, game: &Path, force: bool, limit: Option<Duratio
             })
         }
     }
+}
+
+/// The enabled Kiln mods of the start that ask for the boot phase (`"boot": true` or `"required"` in their
+/// kiln.mod.json), by id, as kiln.boot finds them (native/core/src/services/boot_service.cpp `scan`): the enabled kiln
+/// entries of the game's `kiln/profile.json`, then the drop-in folders `kiln/mods/<folder>` (without `.disabled`) when
+/// the profile loads Kiln drop-ins and does not list that id; without a profile file every drop-in folder (the
+/// legacy layout). A dedicated server leaves out client-only mods. A mod of another loader (EML, SET, ShroudForge,
+/// Flame, ...) never needs the snapshot: only kiln entries are read.
+pub fn boot_mods(install: &GameInstall) -> Vec<String> {
+    let server = install.exe.eq_ignore_ascii_case("enshrouded_server.exe");
+    let boot_id = |dir: &Path| {
+        crate::manifest::read_kiln(dir).ok().filter(|m| m.boot && !(server && m.side == Side::Client)).map(|m| m.id)
+    };
+    let mut out: Vec<String> = Vec::new();
+    let mut listed = std::collections::HashSet::new();
+    let dropins = match crate::profile::read_game_profile(&install.path) {
+        Ok(Some(file)) => {
+            listed.extend(file.mods.kiln.iter().map(|m| m.id.clone()));
+            for (m, folder) in crate::launch::kiln_folders(install, &file) {
+                if boot_id(&folder).as_deref() == Some(m.id.as_str()) && !out.contains(&m.id) {
+                    out.push(m.id.clone());
+                }
+            }
+            file.dropins.names(ModKind::Kiln)
+        }
+        Ok(None) => true,
+        Err(_) => false,  // a profile file this Kiln cannot read: kiln.boot does not run its mods either
+    };
+    if dropins {
+        let mut dirs: Vec<std::path::PathBuf> = std::fs::read_dir(install.path.join(crate::paths::game::DROPIN_KILN)).into_iter().flatten().flatten()
+            .map(|e| e.path()).filter(|p| p.is_dir() && !p.join(crate::paths::game::DISABLED_MARKER).exists()).collect();
+        dirs.sort();
+        for d in dirs {
+            if let Some(id) = boot_id(&d)
+                && !listed.contains(&id) && !out.contains(&id)
+            {
+                out.push(id);
+            }
+        }
+    }
+    out
+}
+
+/// The Play step and the deploy step: `make()` only when some mod needs the snapshot (`mods`, from [`boot_mods`]);
+/// else [`BootSnapshot::skipped`] without running anything, and a snapshot that is there is left as it is.
+pub fn make_if_needed(mods: &[String], make: impl FnOnce() -> BootSnapshot) -> BootSnapshot {
+    if mods.is_empty() { BootSnapshot::skipped() } else { make() }
 }
 
 /// [`make`] with the tools as the launcher and `kiln` locate them ([`crate::cooktools::locate`]): `tools` is that
@@ -364,5 +428,93 @@ mod tests {
         let run = ToolRunner { tools: &tools }.run(&["--slow".into()], None, &mut |_| {}, &|| true).unwrap();
         assert_eq!(run.stopped.as_deref(), Some("stopped: the start was canceled"));
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // ---- who needs it: the boot mods of a start ----
+
+    fn manifest(dir: &Path, id: &str, extra: &str) {
+        std::fs::create_dir_all(dir).unwrap();
+        std::fs::write(dir.join("kiln.mod.json"), format!("{{\"id\": \"{id}\", \"version\": \"1.0.0\", \"apiVersion\": \"0.2\"{extra}}}")).unwrap();
+    }
+
+    fn game_at(name: &str, exe: &str) -> (PathBuf, GameInstall) {
+        let root = std::env::temp_dir().join(format!("kiln-bootsnap-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join(exe), b"MZ").unwrap();
+        let g = crate::game::inspect_with(&root, &[], &root.join("data")).unwrap();
+        (root, g)
+    }
+
+    fn profile(root: &Path, kiln: &[(&str, bool)], eml: &[&str], dropins: bool) {
+        let entry = |id: &str, on: bool| format!("{{\"id\": \"{id}\", \"path\": \"lib/{id}\", \"enabled\": {on}}}");
+        let kiln: Vec<String> = kiln.iter().map(|(id, on)| entry(id, *on)).collect();
+        let eml: Vec<String> = eml.iter().map(|id| entry(id, true)).collect();
+        std::fs::write(root.join("kiln/profile.json"), format!(
+            "{{\"format\": 1, \"id\": \"p\", \"generation\": 1, \"dropins\": {dropins}, \"mods\": {{\"kiln\": [{}], \"eml\": [{}]}}}}",
+            kiln.join(", "), eml.join(", "))).unwrap();
+    }
+
+    #[test]
+    fn the_manifest_says_boot_as_kiln_boot_reads_it() {
+        let m = |extra: &str| crate::manifest::parse_kiln(&format!("{{\"id\": \"m\", \"version\": \"1.0.0\", \"apiVersion\": \"0.2\"{extra}}}")).unwrap();
+        assert!(m(", \"boot\": true").boot);
+        assert!(m(", \"boot\": \"required\"").boot);
+        for no in ["", ", \"boot\": false", ", \"boot\": \"yes\"", ", \"boot\": 1", ", \"boot\": null"] {
+            assert!(!m(no).boot, "{no}");
+        }
+        assert!(m(", \"boot\": true").warnings.is_empty(), "boot is a known key");
+        assert!(serde_json::to_value(m("")).unwrap().get("boot").is_none(), "absent from the parity shape when false");
+    }
+
+    #[test]
+    fn a_start_with_a_boot_mod_makes_it_and_one_without_skips_it() {
+        let (root, g) = game_at("profile", "enshrouded.exe");
+        let lib = root.join("kiln/lib");
+        manifest(&lib.join("plain"), "plain", "");
+        manifest(&lib.join("booter"), "booter", ", \"boot\": true");
+        manifest(&lib.join("off"), "off", ", \"boot\": \"required\"");
+        manifest(&lib.join("emlmod"), "emlmod", ", \"boot\": true");  // not a Kiln mod in this profile: never counts
+        profile(&root, &[("plain", true), ("off", false)], &["emlmod"], false);
+        assert!(boot_mods(&g).is_empty(), "no enabled Kiln mod asks for it");
+        let calls = std::cell::Cell::new(0);
+        let r = make_if_needed(&boot_mods(&g), || { calls.set(calls.get() + 1); BootSnapshot::default() });
+        assert_eq!((r.status.as_str(), r.reason.as_deref(), calls.get()), ("skipped", Some(NOT_NEEDED), 0), "nothing runs");
+        assert_eq!(r.warning(), None, "a skip is no failure");
+        assert_eq!(r.summary(), "Game data for OnBoot mods: no mod needs the boot snapshot");
+        assert!(!r.ready());
+        // the runner itself is never called on a skip
+        let f = Fake::new(Some(0), "{\"status\": \"made\"}", vec![]);
+        make_if_needed(&[], || make(&f, &root, false, None, &mut |_| {}, &|| false));
+        assert!(f.args.borrow().is_empty());
+
+        profile(&root, &[("plain", true), ("booter", true), ("off", false)], &["emlmod"], false);
+        assert_eq!(boot_mods(&g), ["booter"]);
+        let r = make_if_needed(&boot_mods(&g), || make(&f, &root, false, None, &mut |_| {}, &|| false));
+        assert_eq!(r.status, "made");
+        assert_eq!(f.args.borrow()[0], "make", "the runner ran");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn drop_ins_and_sides_count_as_kiln_boot_counts_them() {
+        let (root, g) = game_at("dropins", "enshrouded_server.exe");
+        let mods = root.join("kiln/mods");
+        manifest(&mods.join("a"), "dropin-boot", ", \"boot\": true");
+        manifest(&mods.join("b"), "client-boot", ", \"boot\": true, \"side\": \"client\"");
+        manifest(&mods.join("c"), "disabled-boot", ", \"boot\": true");
+        std::fs::write(mods.join("c/.disabled"), b"").unwrap();
+        assert_eq!(boot_mods(&g), ["dropin-boot"], "no profile: every drop-in folder; a server leaves out client-only mods");
+        profile(&root, &[], &[], false);
+        assert!(boot_mods(&g).is_empty(), "a profile that does not load drop-ins");
+        profile(&root, &[], &[], true);
+        assert_eq!(boot_mods(&g), ["dropin-boot"]);
+        profile(&root, &[("dropin-boot", false)], &[], true);
+        assert!(boot_mods(&g).is_empty(), "the profile lists it (switched off): its drop-in copy does not count");
+        let (croot, cg) = game_at("client", "enshrouded.exe");
+        manifest(&croot.join("kiln/mods/b"), "client-boot", ", \"boot\": true, \"side\": \"client\"");
+        assert_eq!(boot_mods(&cg), ["client-boot"], "a client counts its client-only mods");
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&croot);
     }
 }
