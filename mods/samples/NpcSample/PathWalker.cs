@@ -57,7 +57,7 @@ internal sealed class PathWalkerBrain : NpcBrain
     private const double Reach = 0.7;        // metres from a point at which the next one is taken
     private const double Arrive = 1.5;       // metres from the goal at which it is there
     private const double GoalMoved = 2;      // the goal moved this far: the route leads somewhere else
-    private const double Strayed = 4;        // this far from the point it walks to: something pushed it off the route
+    private const double Strayed = 4;        // this far from the leg it walks: something pushed it off the route
     private const double MaxAge = 10;        // seconds a route is trusted
     private const double RetryAfter = 3;     // seconds to stand after a refusal before asking again
 
@@ -84,7 +84,7 @@ internal sealed class PathWalkerBrain : NpcBrain
         }
         // a route that no longer fits is dropped before another step is taken on it
         var have = _next < _route.Count;
-        if (have && (Flat(_routeGoal, goal) > GoalMoved || npc.Time - _routeAt > MaxAge || Flat(here, _route[_next].Position) > Strayed))
+        if (have && (Flat(_routeGoal, goal) > GoalMoved || npc.Time - _routeAt > MaxAge || OffLeg(here) > Strayed))
         {
             _route = [];
             have = false;
@@ -137,6 +137,17 @@ internal sealed class PathWalkerBrain : NpcBrain
         _next = 0;
         _routeGoal = _askedFor;
         _routeAt = npc.Time;
+    }
+
+    // How far it is from the leg it walks: the line from the point before to the one it walks to. Points of a route can
+    // lie metres apart, so the distance to the next point alone says nothing about leaving the route.
+    private double OffLeg(WorldPosition here)
+    {
+        var to = _route[_next].Position;
+        var from = _next > 0 ? _route[_next - 1].Position : to;
+        double dx = to.X - from.X, dz = to.Z - from.Z, length2 = dx * dx + dz * dz;
+        var t = length2 > 0 ? Math.Clamp(((here.X - from.X) * dx + (here.Z - from.Z) * dz) / length2, 0, 1) : 0;
+        return Flat(here, new WorldPosition(from.X + t * dx, here.Y, from.Z + t * dz));
     }
 
     private static double Flat(WorldPosition a, WorldPosition b) => Math.Sqrt((a.X - b.X) * (a.X - b.X) + (a.Z - b.Z) * (a.Z - b.Z));
