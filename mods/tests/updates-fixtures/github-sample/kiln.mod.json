@@ -1,0 +1,9 @@
+{
+  "id": "updates-fixture-github",
+  "name": "Updates fixture: GitHub",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "side": "both",
+  "description": "A mod of data only whose manifest names where its releases are.",
+  "updates": { "provider": "github", "repository": "example-org/kiln-updates-fixture" }
+}

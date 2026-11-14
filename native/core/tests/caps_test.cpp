@@ -14,9 +14,12 @@ inline unsigned long GetCurrentProcessId() { return 4242; }
 #undef main
 #include "../src/sigdb.cpp"
 #include "../src/services/service.cpp"
+#include "../src/gates.cpp"  // kiln_gates.g.h: test-caps.sh generates it from native/core/gates
+#include "../src/config.cpp"
 #include "../src/services/caps.cpp"
 
 #include <cstdarg>
+#include <barrier>
 #include <condition_variable>
 #include <future>
 
@@ -66,6 +69,7 @@ ImageInfo test_image;
 const ImageInfo& image() { return test_image; }
 double now_ms() { return 0; }
 std::string to_utf8(std::wstring_view w) { return std::string(w.begin(), w.end()); }
+std::wstring to_wide(std::string_view s) { return std::wstring(s.begin(), s.end()); }
 const char* side_name(uint32_t side) { return side == KILN_SIDE_CLIENT ? "client" : "server"; }
 const Paths& paths() { return t_paths; }
 std::string utc_now() { return "2026-11-11T22:40:00Z"; }
@@ -87,6 +91,7 @@ bool write_file_atomic(const std::filesystem::path& file, std::string_view text)
     return true;
 }
 namespace log {
+void set_level(int) {}
 void writef(int level, const char*, const char* fmt, ...) {
     char b[512];
     va_list ap;
@@ -166,6 +171,7 @@ void reset() {
     caps::g_order.clear();
     caps::g_order_gen = 0;
     caps::g_rows_built = false;
+    caps::g_gates_built = false;
     caps::g_hooks = false;
     caps::g_verified = false;
     caps::g_safe_idle.clear();
@@ -900,13 +906,228 @@ void idle_tick_fault(const std::filesystem::path& dir) {
 
 }  // namespace
 
+// The client gate (gates.h): held names read unavailable/policy with the check ids, whatever else reports them;
+// kiln.json's "preview" lifts them; a held name may be reported pending.
+void client_gate(const std::filesystem::path& dir) {
+    namespace gates = kiln::gates;
+    Loaded x;
+    sigdb::init_code();  // a second test image in this process; code()'s once_flag has already run
+    t_tick = t_lifecycle = true;
+    static const gates::Gate list[] = {
+        {"items.fuel", "99-fuel-a, 99-fuel-b", gates::kBoth},        // a sigdb feature whose symbols resolve
+        {"camera.fov", "03-c11", gates::kBoth},                      // a service's own row
+        {"markers.compass", "04-m03", gates::kClient},               // held on the client only
+        {"queries.server_only", "01-q1", gates::kServer},
+        {nullptr, nullptr, 0},
+    };
+    const auto boot = [&](uint32_t side, bool all, std::vector<std::string> names) {
+        reset();
+        resolve_with(dir, "48 B8 ?? ?? ?? ?? ?? ?? ?? ?? E8 {helper:rel32}");
+        gates::use_list_for_tests(list);
+        gates::configure(side, all, names);
+        caps::core_rows(true, true, "");
+    };
+    const auto warned = [](const std::string& part) {
+        std::lock_guard l(t_mutex);
+        for (const std::string& i : t_infos)
+            if (i.find(part) != std::string::npos) return true;
+        return false;
+    };
+
+    // Early plugins and in-core init callbacks can query the table before core_rows has run.
+    reset();
+    gates::use_list_for_tests(list);
+    gates::configure(KILN_SIDE_SERVER, false, {});
+    CHECK(kiln_caps_held(T, ks("camera.fov")) == 1,
+          "gate: an init callback sees the hold before core_rows and leaves its hook off");
+    const KilnOwner early = owner("plugin:early");
+    rep(early, "camera.fov", A, KILN_CAP_REASON_NONE);
+    CHECK(is("camera.fov", U, KILN_CAP_REASON_POLICY),
+          "gate: a service reporting before core_rows cannot expose a held row as available");
+    revoke(early);
+    reset();
+    gates::use_list_for_tests(list);  // init_image failed: configure is never called
+    CHECK(kiln_caps_held(T, ks("markers.compass")) == 1 && kiln_caps_held(T, ks("queries.server_only")) == 1,
+          "gate: early safe-idle readers see holds from both sides before core_rows");
+
+    boot(KILN_SIDE_SERVER, false, {});
+    const Got fuel = get("items.fuel");
+    CHECK(fuel.rc == KILN_OK && fuel.state == U && fuel.reason == KILN_CAP_REASON_POLICY &&
+              fuel.text == "game test pending: 99-fuel-a, 99-fuel-b" && fuel.source == "core" && sigdb::feature("items.fuel"),
+          "gate: a held sigdb feature whose symbols resolved reads unavailable, policy, with its check ids (%s)",
+          fuel.text.c_str());
+    CHECK(gates::is_held("items.fuel") && gates::is_held("camera.fov") && !gates::is_held("net.kick") &&
+              !gates::is_held("items.fue") && !gates::is_held(""),
+          "gate: is_held answers for exactly the held names (KilnApi.feature() asks it)");
+    CHECK(is("net.kick", A, 0) && is("tick", A, 0), "gate: names that are not held are untouched");
+    CHECK(is("camera.fov", U, KILN_CAP_REASON_POLICY) && get("camera.fov").text == "game test pending: 03-c11",
+          "gate: a held name nobody else reports has its row already, before any service loads");
+    CHECK(is("queries.server_only", U, KILN_CAP_REASON_POLICY) && get("markers.compass").rc == KILN_ERR_NOT_FOUND &&
+              !gates::is_held("markers.compass"),
+          "gate: on a server, a client-only gate holds nothing and a server-only one holds");
+
+    // whatever a service reports, the held row is what a reader sees; the helper of kiln_caps.h says so
+    const KilnOwner svc = owner("service:kiln-camera.dll");
+    CHECK(rep(svc, "camera.fov", A, KILN_CAP_REASON_NONE, "v1") == KILN_OK && is("camera.fov", U, KILN_CAP_REASON_POLICY) &&
+              get("camera.fov").text == "game test pending: 03-c11",
+          "gate: a service's 'available' does not show while the name is held");
+    CHECK(kiln_caps_held(T, ks("camera.fov")) == 1 && kiln_caps_held(T, ks("items.fuel")) == 1 &&
+              kiln_caps_held(T, ks("net.kick")) == 0 && kiln_caps_held(T, ks("no.such.row")) == 0 &&
+              kiln_caps_held(nullptr, ks("camera.fov")) == 0,
+          "gate: kiln_caps_held is true for held rows only");
+    CHECK(rep(svc, "queries.server_only", KILN_CAP_PENDING, KILN_CAP_REASON_SESSION, "no world yet") == KILN_OK &&
+              is("queries.server_only", U, KILN_CAP_REASON_POLICY) && (get("queries.server_only").flags & KILN_CAP_FLAG_SESSION),
+          "gate: a held name may be reported pending (the gate's report does not make it a static core row)");
+    CHECK(rep(svc, "items.fuel", KILN_CAP_PENDING, KILN_CAP_REASON_SESSION) == KILN_OK,
+          "gate: also when the held name is a sigdb feature");
+    const KilnOwner other = owner("mod:policy");
+    rep(other, "net.kick", U, KILN_CAP_REASON_POLICY, "switched off by the server's rules");
+    CHECK(kiln_caps_held(T, ks("net.kick")) == 0, "gate: a row that is off for another policy reason is not 'held'");
+    revoke(svc);
+    revoke(other);
+    CHECK(is("camera.fov", U, KILN_CAP_REASON_POLICY), "gate: the held row stays when the reporting service goes");
+
+    // a tick refresh rebuilds feature rows: a held tick-family feature must stay held
+    static const gates::Gate tick_list[] = {{"tick.wait_jobs", "99-t1", gates::kBoth}, {nullptr, nullptr, 0}};
+    reset();
+    resolve_with(dir, "48 B8 ?? ?? ?? ?? ?? ?? ?? ?? E8 {helper:rel32}");
+    gates::use_list_for_tests(tick_list);
+    gates::configure(KILN_SIDE_SERVER, false, {});
+    caps::core_rows(true, true, "");
+    t_tick = false;
+    CHECK(is("tick", U, KILN_CAP_REASON_FAULTED) && is("tick.wait_jobs", U, KILN_CAP_REASON_POLICY), 
+          "gate: a refresh of the tick rows does not replace a held one");
+    t_tick = true;
+    CHECK(is("tick", A, 0) && is("tick.wait_jobs", U, KILN_CAP_REASON_POLICY) &&
+              get("tick.wait_jobs").text == "game test pending: 99-t1",
+          "gate: and when the hook is back the held row still says the game test is pending");
+
+    // the client side
+    boot(KILN_SIDE_CLIENT, false, {});
+    CHECK(is("markers.compass", U, KILN_CAP_REASON_POLICY) && get("queries.server_only").rc == KILN_ERR_NOT_FOUND &&
+              is("items.fuel", U, KILN_CAP_REASON_POLICY),
+          "gate: on a client, the client-only gate holds and the server-only one does not");
+
+    // kiln.json "preview": names
+    {
+        std::lock_guard l(t_mutex);
+        t_infos.clear();
+    }
+    boot(KILN_SIDE_SERVER, false, {"items.fuel", "markers.compass", "no.such.gate"});
+    CHECK(is("items.fuel", A, 0) && get("items.fuel").source == "sigdb" && !gates::is_held("items.fuel") &&
+              is("camera.fov", U, KILN_CAP_REASON_POLICY),
+          "preview: a named gate is lifted (the feature's own row shows), the others hold");
+    CHECK(warned("'no.such.gate'") && !warned("'markers.compass'") && !warned("'items.fuel'"),
+          "preview: a name the list does not hold is a warning; a gate of the other side is not");
+    // kiln.json "preview": true
+    boot(KILN_SIDE_SERVER, true, {});
+    CHECK(is("items.fuel", A, 0) && get("camera.fov").rc == KILN_ERR_NOT_FOUND && gates::held().empty() &&
+              !gates::is_held("camera.fov"),
+          "preview: true lifts every gate (a name nobody reports has no row)");
+
+    // safe idle: held rows keep the gate's text; everything else says why hooks are off
+    reset();
+    resolve_with(dir, "48 B8 ?? ?? ?? ?? ?? ?? ?? ?? E8 {helper:rel32}");
+    gates::use_list_for_tests(list);
+    gates::configure(KILN_SIDE_SERVER, false, {});
+    caps::core_rows(false, false, "the build is not verified");
+    t_tick = false;
+    CHECK(is("items.fuel", U, KILN_CAP_REASON_POLICY) && get("items.fuel").text == "game test pending: 99-fuel-a, 99-fuel-b" &&
+              get("net.kick").text == "the build is not verified",
+          "gate: in safe idle a held row still names its checks");
+    t_tick = true;
+
+    // the compiled list (native/core/gates/*.json): every name is a capability name, sorted, with checks
+    gates::use_list_for_tests(nullptr);
+    bool good = true;
+    std::string prev;
+    for (const gates::Held& h : gates::held()) {
+        good = good && caps::name_ok(h.name) && h.text.size() > std::strlen(KILN_CAP_GATE_TEXT) && prev < h.name;
+        prev = h.name;
+    }
+    CHECK(good, "gate: the compiled list holds %zu well-formed, distinct names", gates::held().size());
+    gates::configure(KILN_SIDE_SERVER, false, {});
+    reset();
+}
+
+void client_preview(const std::filesystem::path& dir) {
+    const auto old = t_paths.kiln;
+    t_paths.kiln = dir / "preview-config";
+    std::filesystem::create_directories(t_paths.kiln);
+    const auto read = [&](const char* text) {
+        kiln::g_config = kiln::Config{};
+        kiln::g_doc = nlohmann::json{};
+        write(t_paths.kiln / "kiln.json", text);
+        kiln::load_config();
+        kiln::apply_side(KILN_SIDE_CLIENT);
+        return kiln::config();
+    };
+    CHECK(read(R"({"preview":true})").preview_all && read(R"({"preview":"all"})").preview_all,
+          "preview config: true and all lift every gate");
+    CHECK(read(R"({"preview":["camera.fov",7,"items.fuel"]})").preview ==
+              std::vector<std::string>({"camera.fov", "items.fuel"}),
+          "preview config: a list keeps names and ignores non-strings");
+    CHECK(!read(R"({"preview":true,"client":{"preview":["camera.fov"]}})").preview_all &&
+              kiln::config().preview == std::vector<std::string>({"camera.fov"}) &&
+              !read(R"({"preview":true,"client":{"preview":false}})").preview_all,
+          "preview config: the side list or false replaces top-level true");
+    for (const char* text : {R"({"preview":7})", R"({"preview":"true"})", R"({"preview":{}})",
+                             R"({"preview":true,"client":{"preview":null}})"}) {
+        const auto cfg = read(text);
+        CHECK(!cfg.preview_all && cfg.preview.empty(), "preview config: a wrong type leaves all gates held (%s)", text);
+    }
+    const auto bad = read(R"({"preview":true,"client":{"clr":"bad","preview":false}})");
+    CHECK(!bad.preview_all && bad.preview.empty(),
+          "preview config: an unrelated malformed side key cannot discard preview false");
+    std::filesystem::remove_all(t_paths.kiln);
+    t_paths.kiln = old;
+}
+
+// The unconfigured path is also used after boot's early safe-idle exit. Its first callers may be worker threads.
+void client_gate_threads() {
+    namespace gates = kiln::gates;
+    std::vector<std::string> names;
+    for (int i = 0; i < 2048; ++i) names.push_back("gate." + std::to_string(i));
+    std::vector<gates::Gate> list;
+    for (const auto& name : names) list.push_back({name.c_str(), "99-thread", gates::kBoth});
+    list.push_back({nullptr, nullptr, 0});
+    gates::use_list_for_tests(list.data());
+    std::barrier start(16);
+    std::atomic<bool> good{true};
+    std::vector<std::thread> readers;
+    for (int i = 0; i < 16; ++i) readers.emplace_back([&] {
+        start.arrive_and_wait();
+        for (int n = 0; n < 20; ++n)
+            if (!gates::is_held("gate.1024") || gates::held().size() != names.size()) good = false;
+    });
+    for (auto& reader : readers) reader.join();
+    CHECK(good, "gate: concurrent first reads in safe idle keep every held name");
+    std::atomic<bool> done{false};
+    readers.clear();
+    for (int i = 0; i < 8; ++i) readers.emplace_back([&] {
+        while (!done)
+            if (!gates::is_held("gate.1024") || gates::held().size() != names.size()) good = false;
+    });
+    for (int i = 0; i < 100; ++i) gates::configure(KILN_SIDE_CLIENT, false, {});
+    done = true;
+    for (auto& reader : readers) reader.join();
+    CHECK(good, "gate: boot configuration can overlap readers without invalidating their lists");
+    gates::use_list_for_tests(nullptr);
+    gates::configure(KILN_SIDE_SERVER, false, {});
+}
+
 int main(int argc, char** argv) {
     if (argc != 2) return 2;
     const std::filesystem::path dir = argv[1];
+    static const kiln::gates::Gate empty_gates[] = {{nullptr, nullptr, 0}};
+    kiln::gates::use_list_for_tests(empty_gates);  // the registry tests below supply their own rows
     rules();
     subscribers();
     reentrant_read_strings();
     core_rows(dir);
+    client_gate(dir);
+    client_gate_threads();
+    client_preview(dir);
     json_file();
     writer();
     writer_retry();

@@ -33,7 +33,7 @@ Everything not tagged **[hyp]** is proven by one of the first three.
 | Bosses, phases, shields, adds? | Arsenal behaviours: `IsInPhaseConstrain` (293 uses), `SetPhaseAction` (124), `EnemyHealthPercentageConstrain`, `SetImmuneAction`, `SendToggleEventAction`, `SpawnedEntitiesAliveConstraint`. Phase GUIDs live in `EnemyPhases`/`DynamicEnemyPhases`. Weak spots are child entities with their own `DamageSusceptibility` that pass hits to the parent. | data |
 | Looks? | Client-only template data: `ModelResource` → RenderModel (skinned, names its skeleton), `AnimationGraphResourceComponent2` (same skeleton), VFX. The server has **no** model component. Scale is a per-entity `ScaleComponent` plus the transform scale (both sides). Monsters have no tint component; humanoid NPCs have `CharacterSetup` colour presets. | data, rt, emf |
 | Can a mod change things live? | Yes, on the server:<br>• template data is shared, read-only resource memory; a write through `VirtualProtect` reaches every entity of the template at once;<br>• the per-entity template slot can point **one** entity at a private copy, and `enemy01` reads the copy for that entity only;<br>• dynamic components (faction, level, scale, resistances, loot labels, speed) are per entity and writable. | rt |
-| Why don't enemies act in the lab? | They are created and their AI program runs. They stay in state `Spawning` until `Actor+0xBF8` bit 50 (IsReadyForGameplay) is set, which happens only where terrain is streamed (near a player). Forced, the AI picks Roaming/Idle on its own; it does not walk because there is no path grid. | dis, rt |
+| Why don't enemies act in the lab? | Ordinary spawned AI waits for gameplay readiness/streaming. The old forced-ready lab did not walk, but dev.28 loaded nonplayer path queries succeeded (§13). Direct ActorInput control has a separate blocker: steering_locomotion overwrites movement while SteeringAgent remains (§15). | dis, rt, static, lab |
 | New creatures? | `createEntity` locks the template **resource** by GUID, then looks up a `TemplateInfo`; both are needed, on the server and on the client. A clone therefore needs a new resource (kiln.assets can serve new resources of any type) plus a TemplateInfo; clients need the same definition. | dis |
 | Vanilla clients? | They see server-side changes (stats, level, faction, AI, attacks, loot, spawns) through the normal replicated components (NetworkHealth, NetworkLevel, NetworkEnemy, NetworkActor, transforms). New templates, model changes and anything client-only need Kiln on the client. | rt for the server half, hyp for the client half |
 
@@ -258,11 +258,21 @@ A after 10 s: state 4 enabled 1 ... NetworkEnemy state 4 ... actor bits 0x100000
   A behavior updates 735, HandleCondition 874: 3:4 8:689 15:181; SetState (all enemies) 10: 2:4 4:2 15:4
   ```
   It alternated Roaming(15) ↔ Idle(2) on its own (IsReadyForRoaming 181×), but `movementTarget valid 0` and it did not
-  move: no path grid or terrain is streamed without a player.
+  move in that dormant-AI lab. Corrected 2026-11 (dev.28 RE): this is **not** a universal absence of terrain/path
+  data without players. Explicit loading and a mod-owned query later returned paths with a nonplayer owner and no
+  Player entity or client; see §13. The original readiness/dormancy observation remains valid. [lab]
+- Corrected again (dev.28, 19d-creature-control): a Kiln.Blocks brain's body stood still for a reason of its own, not for
+  a missing path grid. The game's steering program (`steering_locomotion`) copies the `SteeringAgent` velocity into
+  `ActorInput.desiredWorldMoveInput` after every other writer, so a brain's input write was overwritten each step (riding
+  runs A1-A4: 0.00 m). With the `SteeringAgent` removed by kiln.creature_control the same write walks the body (A5:
+  11.24 m in 40 steps; creature-control-test: 12.53 m in 40 steps). In a player-free lab a forced-ready body also needs
+  the two terrain checks of `actor_is_ready_for_gameplay` to answer "loaded" (the lab detour noclip-test and
+  creature-control-test use): with only bit 50 forced it never grounds and does not move at all. [lab]
 - Villagers are paused the same way: `state 1 ... closestPlayerDistance 1.8446743E+19` (the worker pauses at ≥ 150 m,
   EMF).
 - Consequences:
-  - any behaviour test with movement or combat needs a joined player (client checklist);
+  - ordinary AI movement/combat and presentation still need a joined-player acceptance check; this does not
+    prevent player-free, explicitly loaded geometry/path queries (§13);
   - Kiln can still test decision logic, stats, loot rolls and spawns player-free;
   - forcing readiness is a lab tool only, never for production.
 
@@ -622,7 +632,9 @@ template-info init and `createEntity` get the override from the resource service
 **The summon path.** `Building_Npc_Place`'s null-template SpawnEntityEvent spawns the tool's `equipment.placedEntity`:
 - **[data]** for all 28 roster tools, FNV-1a(`placedEntity`) = the NPC's id, and all have `placementConsume`. That the null template resolves through this field is
   **[hyp]**: the field is what prop items place (build.md), and the code path between them was not followed.
-- **[dis]** `0x425b0`, the actor's spawn of one event: FNV(template GUID) is looked up in the NpcRegistry (`0x93eeb0`) and the PlayerBases NPC map
+- **[dis]** actor spawn-event branch near `0x447c0..0x448b0`: FNV(template GUID) is looked up in the NpcRegistry (`0x93eeb0`) and the PlayerBases NPC map
+  (corrected 2026-11, dev.28 RE [static]: the previously named `0x425b0` is interior code; chained unwind roots the
+  function at `0x42390`, not a qualified raw-call API)
   (`0x209840`). **Both found: no spawn**; it emits `NpcCommandEvent` (`0x4b001be5`, 72 B) with type Reset, that id and the spawn transform: the existing NPC moves
   to the cursor. Otherwise it creates the entity (`0x5fb340`).
 
@@ -654,7 +666,7 @@ that an unpatched clone would answer its base's commands, was not tried.
   clones return after a restart (`native: NPC quest-native-test:lab_clone is in the world: 1167`). Without the mod they are gone and the server starts normally (`Initialized 12,269 template infos`,
   no entity of the template).
 
-**Not run:** dialogue selection on a new line (needs a client), the NPC directory [`0x45d160`] with a new entry (a hash map at `G38UiPlayData+0x463e90` whose capacity was not read), the summon tool, beds. The path walker for GoTo (no grid without a player, section 12).
+**Not run in that earlier lab:** dialogue selection on a new line (needs a client), the NPC directory [`0x45d160`] with a new entry (a hash map at `G38UiPlayData+0x463e90` whose capacity was not read), the summon tool, beds, and the GoTo walker. Dev.28 later exercised native summon-tool input and tracked bed assignment (§14); their native UI and walking remain unchecked. A player is not a universal path-query prerequisite (§13).
 
 ### 7.7 Vanilla client vs Kiln client
 - Vanilla clients work with: server-side knowledge grants for vanilla ids (their journal, NPC directory, dialogue
@@ -804,9 +816,11 @@ functions did not move); decompiles from the Ghidra project of 1285601, checked 
      pw state 9 res 2 tgt (3877.8,833.0,1433.8) ... arrive 2.0 node 2.5 moves 0x1d
   state 2542: Guard -> Idle (IsFinished)                  (0.5 s later; then NeedsToGuard again)
   ```
-  The walker answers TargetNotReachable / `lastPathfindingResult` NoPathFound: there is no path grid without a player
-  (§2.3). That is exactly the pattern a real client shows; there the player had just been teleported to a spot with no ground
-  (`raw target: no ground found`, then the game's emergency teleport), so the walker had no reachable target either.
+  The walker answered TargetNotReachable / `lastPathfindingResult` NoPathFound in that lab. Corrected 2026-11
+  (dev.28 RE): it does **not** prove “no path grid without a player”; explicitly loaded, mod-owned queries succeeded
+  with no Player entity (§13). Ordinary AI dormancy/streaming remains a separate observation. A real client showed
+  the same failure pattern after a teleport to a spot with no ground (`raw target: no ground found`, then emergency
+  teleport), where the walker likewise had no reachable target. [lab] [seen]
   A spawned player-template entity (`1_Player`) does not stream terrain: Vukahs next to it stay in Spawning.
 - **What Kiln adds (Kiln.Creatures `Guarding.cs`, lab-verified in `creatures-test`):** the order is kept (resent
   when guardEntityId is dropped), the guard's home zone follows the target (roaming and leash centre on it), a
@@ -824,3 +838,261 @@ functions did not move); decompiles from the Ghidra project of 1285601, checked 
   loop came from the player's position (no reachable ground). An ally Vukah also keeps leaving the player through
   `NeedsToInvestigate` (its template has Awareness + Investigate; the game's own necromancy companions have no
   Awareness): with Investigate off it stayed 2-3 m from the player. Kiln's `GuardOptions.Focus` turns both off.
+
+
+## 13. Mod-owned path queries (dev.28; server 26430253 / client 26430625)
+
+S `f0d824be…`, C `5d9ef2f1…`. Source: dev.28 dossier, chapter 02, queries REPORT/VERIFY. All five contracts and
+layouts below independently confirmed; Reset count-clearing and map-growth qualifications are incorporated.
+See [build.md](build.md) for voxel-ray/domain checks: a clear voxel ray is not body-clearance or connectivity proof.
+
+### Calls (Windows x64) [static] [lab]
+
+| Function | S / C RVA | Contract |
+|---|---|---|
+| PathQueryDefaults | `0x61e720` / `0x982890` | `void* f(void* q)`; 0x110 B, owner +0 preserved; returns q |
+| CreatePathQuery | `0x5fb550` / `0x95fa00` | `u32* f(CmdBuf*, u32* outId, const void* q)`; returns outId, zero id on reservation failure; no fourth arg |
+| GetPathQueryResult | `0x6533c0` / `0x9b7530` | `bool f(ProgramContext*, void* out /*0x28 B*/, u32 id, bool acceptDirty)` |
+| DestroyPathQuery | `0x5fbe60` / `0x960310` | `bool f(CmdBuf*, u32 ownerForLog, u32 id)`; true = queued, not destroyed yet |
+| ResetPathQueryResults | `0x5fbfc0` / `0x960470` | same bool signature; makes Inactive, **not** cancel/recompute |
+
+Zero an aligned 0x110-byte query; call Defaults **once before** filling coordinates. Its internal base initializer
+S `0x5f4f50` / C `0x959400` is a layout guard, not a required extra call. Create queues kind 5 / 0x128 B, id `+0xc`,
+query `+0x10`; atomically increments `*(u32*)(*(cb+0x38)+4)`. The flush requires the owner still exists, but no
+creature PathFinder component. Destroy queues kind 8 / 0x10 B; Reset kind 7 / 0x10 B. Owner on destroy/reset is
+**diagnostic only**, so cleanup can use it after the entity disappears. [static] [lab]
+
+| Query offset | Meaning |
+|---|---|
+| `+0` u32 | owner entity |
+| `+0x10/+0x1c` float3 | absolute start/target metres |
+| `+0x36` u8 | target type: Default 0, PreferClosestTargetNode 1, UseClosestTargetNodeAsFallback 2 [refl] |
+| `+0x48` u32 | max iterations; zero means 500 [static] |
+| `+0x54` u16; `+0x56/+0x57` u8 | move mask; jump-up/down heights |
+| `+0x6c..+0xbb` | 20 internal cost floats; preserve defaults, not the reflected 17-category PathNodeCostFactors |
+| `+0xca` u8 | default 1; time-slicing name [inferred], complete toggle semantics untested |
+| `+0xf0/+0xf4`; `+0xf8/+0xfc` u32 | start radii (defaults 2/2), target radii (4/2), half-metres |
+| `+0x100/+0x104`; `+0x108/+0x10c` u32 | min horizontal/vertical space; extra target-space requirements (defaults zero) |
+
+Offsets from game callers/defaults/normalizer [static], walking subset [lab]. Preserve unexposed defaults; the engine
+normalizes half-metre units, so do not do it twice. Request mask is `1 << PathMoveType`, while each point stores a
+**value**: Move 0, Fly 1, JumpUp 2, JumpDown 3, JumpHorizontal 4, OpenDoor 5, Swim 6, Dive 7, MoveOnWaterGround 8,
+FlyThroughWater 9. Only Move was exercised. [refl] [lab]
+
+### Context, result and lifetime [static] [refl] [lab]
+
+Use a real scheduler ProgramContext: `*(ctx+0)=job`, job `+8` command buffer, `+0x28` PathGridSystem, realm byte
+`+0xbb`. The realm getter S `0x661300` / C `0x9c5350` and its ray-options caller guard that last field; it is not
+an arbitrary request realm. System: id map `+0x138`, **bucket capacity** u64 `+0x148`, records pointer `+0x178`,
+occupied count u32 `+0x18c`. Record stride 0x1a0: state `+0x120`, points/count `+0x128/+0x130`, auxiliary/count
+`+0x150/+0x158`, update counter `+0x178`, result byte `+0x191`.
+
+Get returns true for state 3, or state 4 **with points** and acceptDirty. Output: points/count `+0/+8`,
+auxiliary/count `+0x10/+0x18`, counter u32 `+0x20`, result byte `+0x24`. Point stride 16: float XYZ `+0/+4/+8`,
+move byte `+0xc`. Arrays are **borrowed**: copy inside this callback before destroy/reset or a later update.
+Auxiliary element format, dirty-result branch and non-Move traversal are not lab-proved. False Get leaves the
+output unchanged, not a measured zero-count result.
+
+PathQueryState: Requested 0, PrepareAdditionalSpaceSearch 1, AdditionalSpaceSearch 2, Processed 3, Dirty 4,
+Inactive 5. PathfindingResult: None 0, PathFound 1, NoPathFound 2, NoFreePath 3, NoOccupiedPath 4, NoStartNodeFound 5,
+NoTargetNodeFound 6, MaxIterationsReached 7, OpenListOutOfMemory 8, NodesOutOfMemory 9. **True Get is not PathFound.**
+Reset flush clears stored point count and sets state 5 without erasing; unreadable polling for 241 steps was observed,
+but clearing count is static evidence, not the zero-initialized false-result log.
+
+The map constructor S `0x628680` requests 1024 entries; allocator `0x6173b0` creates 2048 buckets / load limit 1024.
+Insertion `0x675b90` attempts 4× bucket growth through `0x6b64a0`: **neither is a hard query cap or residency radius**.
+Core grid `system+0x130`, unit bytes `+0xd1..+0xd6`, dimensions `+0x110/+0x114`, origin float3 `+0x120`; lab snapshot
+16,8 / 2,1,2,2 / 2048,512 / (-1024,-1024,-1024). Search driver S `0x60f430` can yield across steps; busy polling
+cannot advance it. Constructors/search-driver addresses are analysis anchors, not direct public calls. [static] [lab]
+
+[lab] Explicit loading, nonplayer `Base_LootPickup_Generic_Gravity` owner, PlayerInput=null, no Player entity or
+network client: 3 m route **12 points / 4 steps**, fallback 12 / 6, final map count 0. This corrects the universal
+no-player grid claim, not ordinary AI dormancy. A 213 m request returned readable None/empty in one step;
+200 m is conservative proposed service policy, not a measured exact engine cutoff. Idle/pressure eviction is unmeasured.
+No cheaper general region/flood-fill reachability call was established; a clear ray or shared cell residency does not
+prove connectivity. Returned paths were queried, not followed by an external mod-owned walker.
+
+[seen] Hosted session 2 exercised all five client addresses: short path 12 points / 3 steps, fallback 12 / 5.
+Destroy was queued for each id; final **shared** map count 7 proves neither a leak nor complete per-id removal.
+Reset timeout was expected; the later unconditional deadline was a probe false failure **before** reload. Module
+state prevented a second-world test, and the server-world pointer was reused across generations. Hosted wall writes
+were base-refused, not failed collision tests. No follower, per-id hosted cleanup or reload-safe query service was proved.
+
+The game consumers remain S `path_walking=0x1ff610`, `pathfinding=0x203ab0` [static]. PathWalker is 92 B
+(usePathFinding `+0x20`, radius/height `+0x38/+0x3c`, tolerances `+0x40/+0x44`); DynamicPathFinder 0x110 B
+(target `+8`, queryId `+0x38`, moves `+0xe8`), DynamicPathWalker 0x1c8 B (state `+0`, pathIndex `+0x10`, move
+`+0x14`, last result `+0x24`, target `+0xb0`, disablePathfinding `+0xf1`, moves `+0x1a4`). [refl]
+Returned points do not move an entity and no external-array ownership field was established. CreatureCommands.MoveTo
+sets Home; NpcControl.MoveTo writes normalized per-tick XZ input, not a route. Existing custom-brain perception is
+faction/distance only, not voxel LOS. [code checked] Full enum/layout catalogs and signature captures stay in chapter 02.
+
+## 14. Survivor recruitment and beds (dev.28; server 26430253 / client 26430625)
+
+S `f0d824be…`, C `5d9ef2f1…`. Source: dev.28 dossier chapter 18, survivors VERIFY (11 confirmed, 3 corrected).
+These are native mechanisms and bounded lab evidence, not a shipped survivor service or native-UI acceptance.
+
+### Unlock and tool delivery [static] [refl] [lab]
+
+Unlock knowledge, roster confirmation and inventory tool delivery are separate operations. `npc_unlock_state_server`
+S `0x1fa330` / hosted C `0x45fb10` evaluates world knowledge; presentation twin C `0x45fa90`. Granting rescue Bool
+`0x1c68d6ae` unlocked Blacksmith assistant NpcId `0x672da6c9`, and it survived uniqueness/unlock programs. Its summon
+ItemId was `0x171d1f69`. No new physical rescue scene or two-player personal-progression result is claimed.
+
+`inventory_actions` S `0x1a5af0` / C `0x4047f0` consumes CreateItemAction (12 B): version `+0`, ItemId `+4`,
+type byte `+8` (Npc 0, ClaimQuestItem 1). In PlayerInput these are **`+0x208/+0x20c/+0x210`**; consumed version is
+ServerConsumedPlayerInput `+0x34`. Injecting the actual Npc action on a spawned player-template entity granted a second
+tool in the lab; it was not a real player's UI interaction. The internal six-argument claim helper S `0x1b12d0`
+requires an inventory transaction and incompletely typed descriptors: do not fabricate a raw call.
+
+`u32 NpcFromTool(NpcRegistry*, u32 itemId)` S `0x92ff80` / C `0xe88db0`; `u32 FindNpc(PlayerBasesSystemServer*,
+const u32* npcId)` S `0x209840` / C `0x470fe0`; both return 0 on miss. The latter signature is captured from the
+assignment caller because the neighboring body is identical. Use live registries at a safe world phase, not stale
+pointers. NpcId is stable FNV(template GUID), **not entity id**. Reset uses NpcCommandEvent (72 B): Time `+0`,
+command `+8` (Reset 0 / GoTo 1), NpcId `+0xc`, WorldTransform `+0x10`; never raw-call the interior `0x425b0` (§7.8).
+
+### Bed relationship and maintenance [static] [refl] [lab]
+
+| Program | S / C RVA | Contract |
+|---|---|---|
+| player_assign_npc | `0xc4170` / `0x2d81d0` | `void(ProgramContext*)`; held tool → NpcId → unique entity; selected bed; tracked writes to both endpoints |
+| npc_bed_init | `0x1f9610` / `0x45ed70` | real INIT context; restore runtime relationship from saved stable NpcId |
+| npc_bed | `0x1f92a0` / `0x45ea00` | real program context; range/consistency maintenance |
+
+NpcBed is 4 B, associatedNpc (NpcId) `+0`. NpcCommon is 0x698 B, bedId (EntityId) `+0x48`, target position `+0x64`.
+Native reassignment clears the target bed's displaced NPC, writes both new endpoints, and leaves the NPC's old bed
+for maintenance. In range, maintenance fills common.bedId when zero or frees this bed when it names another.
+**Correction:** NpcId lookup miss keeps a stale associatedNpc (init S `0x1f96e8`, maintenance `0x1f9373`); init clears
+it at `0x1f972f` only when a returned entity id fails ECS record lookup. Do not equate lookup miss with cleanup.
+
+Bed radius is template ActiveNpcState.searchTargetSetup `+0xb8`, bedRadius absolute `+0xbc`. With nonzero saved
+home, maintenance compares squared bed-to-home distance to radius²; out-of-range queues common.bedId=0 and clears
+the bed. Out-of-range behavior is [static], not lab-tested. ActiveNpcStateSaved is 48 B: spawnPosition float3 `+0`,
+overrideRoamingRange `+0xc`, happiness `+0xe`, roamingRange `+0x10`, teleportPositionAfterFinishing `+0x18`.
+Double-bed StoreAssociatedNpcIds is 12 B: initialized `+0`, two stable NpcIds `+4/+8`; not itself an NpcBed. [refl]
+
+[lab] A tracked **two-sided writer**, not direct invocation of player_assign_npc, survived assign/reassign/unassign.
+Restart changed NPC/bed entity ids 2023/2024 → 1026/1027 and rebuilt common.bedId. Removing the altar did not break
+the link; destroying the bed cleared it. No sleeping/walking, station animation or native assignment UI was observed.
+Stations are AI-discovered targets, not an established persistent player-assigned job link.
+
+Runtime metadata [lab]: NpcBed and StoreAssociatedNpcIds saved, not directly replicated; NpcCommon neither;
+ClientNpcBed replicated, not saved. Relationship entity ids are runtime-only; resolve stable NpcId again after load.
+Base count/size contracts and TriggerShape replication are in [build.md](build.md).
+
+### The roster's 64-bit cache (chapter 17.3) [static] [refl] [data] [lab]
+
+Caps VERIFY confirmed the common evaluator/setter/query contracts. Vanilla NpcCollection has 35 entries, stride 0x88:
+NpcId `+0`, unlockRequirement `+0x10`, workshop `+0x1c`, ItemId `+0x24`. It is knowledge, not a saved raw unlock mask,
+that drives recomputation independently on server/client.
+
+| Contract | S / C RVA |
+|---|---|
+| `ResultU64* Eval(out /*16 B*/, knowledgeContext, u16* seenVersion, const SpanNpc* {ptr,u64 count})` | `0xa2ef90` / `0xf0c510` |
+| `void SetUnlocks(NpcRegistry*, u64 mask, u16 version)` | `0x96c6a0` / `0xec4800` |
+| `ResultBool* IsUnlocked(out, NpcRegistry*, u32 npcId)` | `0x94bf00` / `0xea4cb0` |
+| `const NpcResource* Find(NpcRegistry*, u32 npcId)` | `0x93eeb0` / `0xe97c70` |
+
+Result status byte `+0`, payload `+8`; registry collection `+0x20`, id map `+0x38`, knowledge version `+0x90`,
+result wrapper `+0x98`, mask `+0xa0`. Eval returns status 6 when unchanged, 0 on success. Query returns 1 for invalid
+cache, `0x1f` for unknown id, 0 on success. Producer `bts rbx,rsi` S `0xa2f0f0` / C `0xf0c670` and consumer
+`shr rax,cl` both wrap at **64**. Thus simply removing the roster guard aliases index 64 to 0; u32 NPC ids do not
+solve it. This is a **derived cache** bound, not proof that save/wire fields need widening. No >64 outcome was tested.
+
+[lab] 5,425 evaluator calls, setter and read-only query forwarding confirmed 16-byte out/return ABI on the existing
+35-entry roster, not client or expanded-roster behavior. Use the world's scheduler registry/context; no arbitrary
+thread API is proved. Client has two relocated-identical unlock programs: `@quests/NpcUnlock.calls` is ambiguous
+there. Common Eval/IsUnlocked/SetUnlocks signatures are unique on S/C and old server `d7baa768…`; use those rather
+than treating one copied caller as unique. Full widening design and consumer audit remain in dossier chapter 17.3.
+
+## 15. Direct control, pet survival and native taming (dev.28; server 26430253 / client 26430625)
+
+S `f0d824be…`, C `5d9ef2f1…`. Dossier chapters 19a/19d/19e, riding/pets REPORT deltas and VERIFY. Pets VERIFY:
+15 confirmed/two corrected (offer override fields and non-diagnostic constant pet ID). Later safety restart proof is
+bounded below. All scheduler/EnemyContext pointers are invocation-local, not tick-call APIs.
+
+### Direct input has a steering owner [static] [refl] [lab]
+
+`void steering_locomotion(ProgramContext*)` S `0x112f00` / C `0x3538a0` writes ActorInput movement `+0x198` from
+SteeringAgent.velocity `+0x1c`, including idle zero. AI-off alone does not remove that writer. Tick/program/tracked
+input writes and steering-velocity writes produced no movement in the early probes; with SteeringAgent removed,
+AI-off sabertooth moved 12.4 m/40 steps, turned toward movement; vultures/dragon climbed in 3D. Tested sabertooth
+Sneak/Walk/Run/Sprint speeds .5/2.3/7/10 m/s are **body-specific**, not engine constants.
+
+ActorInput 456 B: movement float3 `+0x198`, look `+0x1b8`, speed byte `+0x1c4`. SteeringAgent 80 B: queryId u32 `+0`,
+active `+4`, desiredVelocity float3 `+8`, velocity float3 `+0x1c`, maxSpeed `+0x28`. DynamicLocomotion 456 B:
+inputVelocity `+0`, rootMotionMode `+0x58`, state `+0x59`. Locomotion velocity program S `0x1e0db0` / C `0x4414f0`
+normalizes full XYZ input for Flying 3/BuildingFlying 11; walking uses horizontal movement. Read/modify through declared
+access and queued structural changes, not NativeOfferWorld.Change (that native whitelist accepts only three offer types).
+
+[lab] Riding run 7 restored saved SteeringAgent bytes and AI roamed 10.7 m; a zero queryId was recreated within 20 steps.
+The dossier's **restoration safety rule** resets queryId `+0`, desiredVelocity `+8` and velocity `+0x1c` before adding
+saved configuration back, avoiding expired query handles/stale movement; absence-at-baseline stays absent. The full
+broker/lease contract is a **design**, not an engine API installed by this wave. Do not run direct path/input control
+and the existing EngineGuard keeper concurrently. AI-off also does **not abort an active action sequence**; quiescence
+or actor retirement is distinct from disabling the next AI decision. Riding/carry/flight details are in [mounts.md](mounts.md).
+
+### Guard, death and revival are different mechanisms [static] [refl] [lab]
+
+Enemy StateDispatch S `0x13a7f0` / C `0x37b100` is `void(EnemyContext*,u8 state,u8 phase)`; enter/execute/exit 0/1/2.
+Guard handler S `0x1371e0` / C `0x377af0` is `void(ctx*,u8 phase)`. Context pointers dynamic/template/arsenal
+`+0x48/+0x50/+0x58`; tracked records `+8`, template table `+0x28`. DynamicEnemy01BehaviorState 0x4e8 B has guard
+entity `+0x454`, distance `+0x468`, next check Time `+0x480`; template 0x9d8 B GuardSetup `+0x598`, DeathSetup `+0x854`,
+revive sequence `+0x858`. Start/StopGuardingEvent 16 B has time `+0`, guarding/guarded ids `+8/+0xc`.
+
+Guard target/faction do not confer persistent ownership. OwnerRelationship **exists**, 4 B session owner EntityId
+`+0`, not CharacterKey. [lab] Guard bound a synthetic player-template target and keeper catch-up teleported the wolf;
+no path following or terrain-safe placement was shown. Existing keeper already retains order, focus, defend/assist
+and catch-up; it is not a missing native primitive.
+
+Enemy states Dead 3/Guard 20/Revive 28; **enemy01** StateCondition.Revive 29. Revive case enters the configured sequence
+and waits for Actor flags; no owner, cost/channel or health restoration was established there. A healed Skeleton Hound
+remained AI Dead after 30 steps despite HP 20, zero Revive transitions. Player Revive 32 B (six float storage values `+8`)
+and NetworkReviveData 12 B (state/duration/left `+0/+4/+8`) are not a general pet revive API.
+
+Health>0 clears raw Actor Dead but may still emit **pending EntityDiedEvent**; after-the-mark healing is too late
+for a no-death guarantee. See [combat.md](combat.md), pre-death MID S `0x8971a` / C `0x277a1a`, next entity
+S `0x89b30` / C `0x277e30`. Oxygen update S `0x59210` / C `0x23c340` writes Health directly, without ApplyHit;
+fall infliction also bypasses ApplyHit. Hurt-only clamps miss direct Health 0, drowning and destruction. Injected
+50 m/100% fall was canceled/clamped to HP 1; not an actual falling trajectory or universal hazard proof.
+
+Later native safety prototype [lab]: active Vukah swing, pre-death skip retained raw dead/pending clear beyond 8 steps,
+outgoing/root and queued post-retirement hits denied, then existing Spawn.Destroy removed actor in same safe Pre;
+no later death event/victim loss. ApplyHit S `0x190fb0` / C `0x3efd10` has native propagate-byte early-return seam;
+DestroyEntity S `0x63e8a0` / C `0x9a2a10` takes Storage*, entity, mode 1 (real destroy), skipReplication 0 through existing service;
+only its low-byte result is used here. It returns a bool in AL (0/1, upper RAX unspecified) on both exes; see
+[network.md](network.md) [static]. **AI-off alone was not this protection.**
+Dossier's Downed retires combat body/keeps a virtual recovery
+anchor; Revive creates a new protected generation. Those lifecycle choices are not claims of a native corpse-revive
+mechanic or completed service. Full root-provenance/retirement design stays in chapter 19d.
+
+[lab] Original CharacterData restart tests proved Template/FeedSteps/boot counter, **not logical-ID retention**:
+initializer supplied the same constant GUID. Later safety first/restart runs each 23 checks passed with a random ID
+and separately persisted Guid.Empty-default witness. This closes synthetic-record identity only; authenticated
+character relog/crash durability and cross-store cost atomicity remain unproved.
+
+### Wildlife taming [static] [refl], threshold injection [lab]
+
+| Program `void(ProgramContext*)` | S / C RVA | Role |
+|---|---|---|
+| wildlife | `0x21f880` / `0x488400` | separate wildlife FSM; can stop when IsTame and activeWhileTamed=false |
+| wildlife_farm_animal_transformer | `0x21fe70` / `0x4889f0` | Tameable bit 3 + progress>=required → FarmAnimal 12 and queued IsTame |
+| wildlife_enemy_transformer | `0x21fa80` / `0x488600` | hit/no-hit behavior switch, including enemy enabled `+0x498` |
+| interaction_taming | `0xa8320` / `0x2aaeb0` | no IsTame, state FoodBaitEat 15, bait!=0, Actor not Dead → offer overrides |
+
+Wildlife 736 B: feature mask `+0x80`, TamingSetup 72 B `+0x1c0`, sequence/verb GUIDs `+0x2c0/+0x2d0`.
+TamingSetup: activeWhileTamed `+0`, favoriteFood reference `+4`, required steps byte `+0x14`, sensor range `+0x18`,
+eat/alert Times `+0x20/+0x28/+0x30`, approach/flee tuning `+0x38/+0x3c/+0x40`.
+DynamicWildlife 176 B: state/last `+0/+1`, eat timer `+0x60`, bait EntityId `+0x88`, sensed/fully-eaten flags
+`+0x8c/+0x8d`, progress byte `+0x8e`. NetworkWildlife 24 B: alert `+0`, Time `+8`, progress/eating `+0x10/+0x11`.
+IsTame/FoodBait are 1-byte markers; wildlife Dead 12/Pursue 14/Eat 15 are **not enemy state numbers**.
+
+Corrected by VERIFY: taming program hashes template sequence/verb into InteractionOfferRuntime **overrideSequence
+`+0xc` / overrideVerbLocaId `+0x14`**, not defaults `+8/+0x10`. It writes no food debit/progress/player ownership.
+AnimalSaved 56 B stores needs/times/home, no CharacterKey. Native farm registration S `0x4ecc0` is an inspection
+lead, not a qualified call. [lab] Injected dog progress 2 led to IsTame/faction 12, while network progress remained 0:
+no natural feeding or client progress proof. Existing dog offer was not replaceable through Offers.TryAdd.
+
+A separate weakened Heavy Wolf fixture consumed three exact-slot custom tokens and saved a synthetic pet record
+(12 checks); full-health refusal consumed nothing. Token was not verified native bait; tool wear, natural tamer
+attribution, real-player authority and crash-safe cost+ownership commit remain unproved. Byte counters are
+representation widths, not validated 255-step gameplay. Full custom taming/protocol designs stay in chapter 19e.

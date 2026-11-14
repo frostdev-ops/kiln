@@ -12,7 +12,7 @@ internal static class NetworkCaps
 
     /// <summary>The sigdb features kiln.net serves.</summary>
     public static readonly string[] Features =
-        ["net.client_guard", "net.gate", "net.kick", "net.players", "net.transport", "net.withhold"];
+        ["net.client_guard", "net.disconnect", "net.gate", "net.kick", "net.players", "net.transport", "net.withhold"];
 
     internal static readonly ServiceCapRows Rows = new(Service, Report);
 

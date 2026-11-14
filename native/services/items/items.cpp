@@ -31,6 +31,8 @@
 #include "moves.h"
 #include "names.h"
 #include "pide.h"
+#include "toolwear.h"
+#include "wear.h"
 #include "kiln_api.h"
 #include "kiln_hook.hpp"
 #include "services/kiln_items.h"
@@ -1016,6 +1018,7 @@ void drop_world(const char* why) {
     g_registry.store(nullptr);
     names_world_closed();
     instances_world_reset();  // v4: entity ids start again in the next world: every stamp is forgotten
+    toolwear::world_reset();  // its queued records name entities of the world that went
     equip_world_closed();     // v5: waiting equips end as dropped
     int expected = KILN_ITEMS_PROGRAM_RUNNING;
     if (g_program.compare_exchange_strong(expected, KILN_ITEMS_PROGRAM_ACTIVE))
@@ -1047,6 +1050,9 @@ void KILN_CALL on_pre(const KilnTickInfo* tick, void*) {
     xfer_set_step(tick->step);
     instances_pre(g_world.load() ? g_world.load() : g_api->server_world(), tick->step);  // v4: the id counter check, prune
     poll_world_program();
+    if (E.wear_ok) toolwear::tick();
+    if (E.wear_ok && g_api->server_world())  // dev.28: the debit's two programs, by the game's own directory
+        toolwear::verify_programs(g_api->service(KilnStr{KILN_WORLD_SERVICE, std::strlen(KILN_WORLD_SERVICE)}, 1));
     expire();
     deliver();
     equip_pre(g_world.load() ? g_world.load() : g_api->server_world(), tick->step);  // v5
@@ -1929,6 +1935,10 @@ void resolve() {
          E.catalog_ok ? "on" : "OFF", E.scan_ok ? "on" : "OFF", E.program_ok ? "possible" : "OFF",
          E.recipe_apply ? "on" : "OFF", E.fuel_ok ? "on" : "OFF", E.move_ok ? "on" : "OFF", E.transfer_ok ? "possible" : "OFF",
          E.names_ok ? "on" : "OFF", E.instances_ok ? "on" : "OFF", E.equip_ok ? "possible" : "OFF");
+    // dev.28 (chapter 16b): the durability debit's functions and frames; needs the attribute lookup and the item reads
+    E.wear_ok = wear::resolve(g_api, g_owner);  // resolve also lowers the row when an item-service prerequisite is off
+    // the hooks only where the row is not held by the client gate on this side (S5 holds the hosted client)
+    if (E.wear_ok) toolwear::install(g_api, g_owner);
     xfer_init();  // after every symbol above: a lab switch may install the hooks right now
 }
 
@@ -1979,6 +1989,7 @@ void items_log(int level, const char* fmt, ...) {
     va_end(ap);
     if (g_api && n > 0) g_api->log(g_owner, level, KilnStr{b, static_cast<size_t>(std::min(n, int(sizeof b) - 1))});
 }
+KilnResult items_item_info(uint32_t id, KilnItemInfo* out) { return t_item_info(id, out); }
 const KilnApi* items_api() { return g_api; }
 KilnOwner items_owner() { return g_owner; }
 uint64_t current_step() { return g_step.load(std::memory_order_relaxed); }
@@ -2000,5 +2011,6 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     if (KilnResult rc = api->subscribe_tick(owner, KILN_TICK_PRE, &on_pre, nullptr, &h); rc != KILN_OK) return rc;
     // Published even when give/take are off on this build: their functions then return KILN_ERR_UNAVAILABLE, and
     // status() says why.
+    toolwear::publish(api, owner);  // kiln.toolwear: published also where its hooks are off (status says why)
     return api->register_service(owner, KilnStr{KILN_ITEMS_SERVICE, std::strlen(KILN_ITEMS_SERVICE)}, &kTable);
 }

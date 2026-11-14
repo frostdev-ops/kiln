@@ -31,7 +31,7 @@ public sealed class BlockError(string block, string? field, string problem)
 /// The ids come from your mod id and the block's name: never write a GUID, and keep the names (a rename says <c>Was</c>).
 /// docs/kiln/modding/blocks.md.
 /// </summary>
-public static class Blocks
+public static partial class Blocks
 {
     private static readonly ConcurrentDictionary<string, ModBlocks> Mods_ = new();
 
@@ -43,7 +43,12 @@ public static class Blocks
     public static BlockHandle<T> Define<T>(string name, T block) where T : class, IBlock
     {
         ArgumentNullException.ThrowIfNull(block);
+        // Mod.OnBoot stages with BootDefinitions: a live definition there would register before the generation is checked
+        if (BootFrame.Current is { } boot)
+            throw new InvalidOperationException($"PhaseClosed: Blocks.Define is refused inside {boot.ModId}'s OnBoot; stage the block with BootDefinitions.For(boot).Define");
         var mod = CallerMod();
+        // a block of a kind a mod registered (by its own type, not by T): compiled by its provider, applied by Kiln
+        if (!KindRegistry.IsBuiltIn(block.GetType())) return KindDefine.Define(mod, name, block);
         return Compiler.Define(mod, name, block);
     }
 
@@ -182,6 +187,29 @@ internal sealed class ModBlocks(string id, ulong owner)
     public string? ManifestClients;
     /// <summary>The owner is the mod's own, not one of Kiln's for a mod with only data files.</summary>
     public bool OwnedByMod;
+    /// <summary>Set on the isolated ledger of a kind's plan (Kinds/KindTransaction.cs): the consumer's real ledger, whose blocks
+    /// and data files a staged block may name. Null on every ledger a mod's own blocks compile into.</summary>
+    public ModBlocks? StagesFor;
+    /// <summary>A plan's ledger whose plan is being committed: only then do its blocks register.</summary>
+    public volatile bool CommitOpen;
+    /// <summary>A plan's ledger that was applied: it is the live ledger of the plan's blocks from then on (its rules and late
+    /// programs run as a mod's do).</summary>
+    public volatile bool Promoted;
+    /// <summary>A plan's ledger whose owner was revoked: nothing of it runs again.</summary>
+    public volatile bool Revoked;
+    /// <summary>The runtime wanted its content-ready pass while the ledger was only staged.</summary>
+    public bool HookWanted;
+    /// <summary>A plan's ledger whose plan waits for its parts at content ready (KindApply): told once, after the first whole pass
+    /// and its check of the plan's definitions, with every error the ledger holds then (none: the plan is applied).</summary>
+    public Action<IReadOnlyList<string>>? Settle;
+    /// <summary>The names of the definitions a plan's blocks registered: the only ones its pass checks (null on a mod's own ledger).</summary>
+    public HashSet<string>? PlanDefinitions;
+    /// <summary>The ledger whose data files and cycle check a lookup uses: this one, or the one it stages for.</summary>
+    public ModBlocks Authored => StagesFor ?? this;
+
+    /// <summary>A block by name: this ledger's, or (when staging) the consumer's.</summary>
+    public bool TryHandle(string name, out BlockHandle handle) =>
+        Handles.TryGetValue(name, out handle!) || (StagesFor != null && StagesFor.Handles.TryGetValue(name, out handle!));
     /// <summary>A rule was added since they were last applied: they are applied again though content did not change.</summary>
     public volatile bool RulesDirty;
 
@@ -205,6 +233,8 @@ internal sealed class ModBlocks(string id, ulong owner)
         PlayerTriggers.Forget(Id);
         LootRuntime.Forget(Id);
         AffixRuntime.Forget(Id);
+        MoveApplications.Forget(Id);
+        ToolWearRuntime.Forget(this);
         UiRuntime.Forget(Id);
         ContainerRuntime.Forget(Id);
         InteractRuntime.Forget(Id);

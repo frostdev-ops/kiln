@@ -184,6 +184,34 @@
       },
       "reader": "managed/services/Kiln.Build/Schematic.cs (System.Text.Json JsonNode)",
       "docs": "docs/kiln/services/build.md#the-kschem-format-version-1"
+    },
+    {
+      "schema": "kiln-release.schema.json",
+      "name": "Kiln release binding",
+      "kind": "release",
+      "fileMatch": [
+        "**/kiln-release.json"
+      ],
+      "dialect": {
+        "comments": false,
+        "trailingCommas": false
+      },
+      "reader": "kiln_manage::release_binding (strict JSON, duplicate keys refused, 256 KiB limit)",
+      "docs": "docs/kiln/modding/schemas/kiln-release.md"
+    },
+    {
+      "schema": "kiln-publish.schema.json",
+      "name": "Kiln publishing config",
+      "kind": "publish",
+      "fileMatch": [
+        "**/kiln.publish.json"
+      ],
+      "dialect": {
+        "comments": true,
+        "trailingCommas": true
+      },
+      "reader": "kiln_manage::publish::config (comments and trailing commas allowed, duplicate and unknown keys refused, 256 KiB limit)",
+      "docs": "docs/kiln/modding/publishing.md"
     }
   ]
 }

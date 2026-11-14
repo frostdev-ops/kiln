@@ -1,0 +1,92 @@
+[
+  {
+    "id": 9202,
+    "tag_name": "v1.3.0+build.2",
+    "target_commitish": "main",
+    "name": "v1.3.0+build.2",
+    "draft": false,
+    "prerelease": false,
+    "created_at": "2026-11-03T09:00:00Z",
+    "published_at": "2026-11-03T09:00:00Z",
+    "html_url": "https://github.com/example-org/build-tags/releases/tag/v1.3.0+build.2",
+    "url": "https://api.github.com/repos/example-org/build-tags/releases/9202",
+    "author": {
+      "login": "example-author",
+      "id": 1
+    },
+    "body": "Fixes.",
+    "assets": [
+      {
+        "id": 7221,
+        "name": "build-tags-1.3.0.zip",
+        "label": null,
+        "content_type": "application/zip",
+        "state": "uploaded",
+        "size": 3002,
+        "browser_download_url": "https://github.com/example-org/build-tags/releases/download/v1.3.0+build.2/build-tags-1.3.0.zip",
+        "url": "https://api.github.com/repos/example-org/build-tags/releases/assets/7221",
+        "digest": "sha256:196cec2fe85a936dc572bd1fefc941f202e2be596c8d83626f6141d2cbdce4f7"
+      }
+    ]
+  },
+  {
+    "id": 9201,
+    "tag_name": "v1.3.0+build.1",
+    "target_commitish": "main",
+    "name": "v1.3.0+build.1",
+    "draft": false,
+    "prerelease": false,
+    "created_at": "2026-11-02T09:00:00Z",
+    "published_at": "2026-11-02T09:00:00Z",
+    "html_url": "https://github.com/example-org/build-tags/releases/tag/v1.3.0+build.1",
+    "url": "https://api.github.com/repos/example-org/build-tags/releases/9201",
+    "author": {
+      "login": "example-author",
+      "id": 1
+    },
+    "body": "Fixes.",
+    "assets": [
+      {
+        "id": 7211,
+        "name": "build-tags-1.3.0.zip",
+        "label": null,
+        "content_type": "application/zip",
+        "state": "uploaded",
+        "size": 3001,
+        "browser_download_url": "https://github.com/example-org/build-tags/releases/download/v1.3.0+build.1/build-tags-1.3.0.zip",
+        "url": "https://api.github.com/repos/example-org/build-tags/releases/assets/7211",
+        "digest": "sha256:87d901022bc82ed2a3b84e3560223fc710010ea041a234437ef4870469b8b449"
+      }
+    ]
+  },
+  {
+    "id": 9200,
+    "tag_name": "v1.2.0",
+    "target_commitish": "main",
+    "name": "v1.2.0",
+    "draft": false,
+    "prerelease": false,
+    "created_at": "2026-10-02T09:00:00Z",
+    "published_at": "2026-10-02T09:00:00Z",
+    "html_url": "https://github.com/example-org/build-tags/releases/tag/v1.2.0",
+    "url": "https://api.github.com/repos/example-org/build-tags/releases/9200",
+    "author": {
+      "login": "example-author",
+      "id": 1
+    },
+    "body": "Fixes.",
+    "assets": [
+      {
+        "id": 7201,
+        "name": "build-tags-1.2.0.zip",
+        "label": null,
+        "content_type": "application/zip",
+        "state": "uploaded",
+        "size": 2900,
+        "browser_download_url": "https://github.com/example-org/build-tags/releases/download/v1.2.0/build-tags-1.2.0.zip",
+        "url": "https://api.github.com/repos/example-org/build-tags/releases/assets/7201",
+        "digest": "sha256:62fd7a6bfe1791fce6a71c572e449752172f27f818a68f64b17802422fe66a30"
+      }
+    ]
+  }
+]

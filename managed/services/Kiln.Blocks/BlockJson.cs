@@ -19,6 +19,25 @@ internal static class BlockJson
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase), new Vec3Converter() },
     };
 
+    /// <summary>The strict options every block is read with (Kinds/KindJson.cs clones them per registered kind).</summary>
+    internal static JsonSerializerOptions SharedOptions => Options;
+
+    /// <summary>The record type of every section: what Kiln compiles itself.</summary>
+    internal static IEnumerable<Type> KindTypes()
+    {
+        foreach (var (_, make) in Kinds)
+            yield return make.Method.IsGenericMethod ? make.Method.GetGenericArguments()[0] : make.Method.Name == nameof(MakeVfx) ? typeof(VfxBlock) : typeof(MaterialBlock);
+    }
+
+    /// <summary>The blocks/*.json section of a record type (BootDefinitions names a kind it refuses); null for none.</summary>
+    internal static string? SectionOf(Type type)
+    {
+        foreach (var (section, make) in Kinds)
+            if ((make.Method.IsGenericMethod ? make.Method.GetGenericArguments()[0] : make.Method.Name == nameof(MakeVfx) ? typeof(VfxBlock) : typeof(MaterialBlock)) == type)
+                return section;
+        return null;
+    }
+
     private static readonly JsonDocumentOptions Doc = new() { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true };
 
     // The limits of a mod's own blocks/ folder, as in native/services/vfx/generated.h.
@@ -113,7 +132,19 @@ internal static class BlockJson
                 foreach (var p in doc.RootElement.EnumerateObject())
                 {
                     if (p.Name is "format" or "comment" or "$schema") continue;
+                    // resource patches are not blocks: kiln.content reads this section itself, in a boot generation (docs/kiln/modding/resource-patches.md)
+                    if (p.Name == "resourcePatches") continue;
                     var kind = Kinds.FirstOrDefault(k => k.Section == p.Name);
+                    // "provider-mod:plural": a kind another mod registered (Blocks.RegisterKind). Its provider is a dependency, so it loaded first.
+                    if (kind.Make == null && KindRegistry.IsExternalSection(p.Name))
+                    {
+                        if (KindRegistry.FindSection(p.Name) is not { } external)
+                        {
+                            Fail(mod, $"{rel}: \"{p.Name}\" is a block kind of mod {p.Name[..p.Name.IndexOf(':')]}, and no such kind is registered: is that mod in this mod's dependencies, and loaded?");
+                            continue;
+                        }
+                        kind = (p.Name, (m, name, e) => KindDefine.FromJson(m, external, name, e));
+                    }
                     if (kind.Make == null)
                     {
                         Fail(mod, $"{rel}: \"{p.Name}\" is not a kind of block; there are {string.Join(", ", Kinds.Select(k => k.Section))}");
@@ -130,7 +161,10 @@ internal static class BlockJson
                     {
                         var (name, value, make, section) = (b.Name, b.Value, kind.Make, p.Name);
                         BlockHandle? done = null;
-                        Func<BlockHandle> compile = () => done ??= CompileOne(mod, section, name, value, make);
+                        // A staging attempt may be rolled back. Its handle must never satisfy a later ordinary data pass.
+                        Func<BlockHandle> compile = () => done ?? (KindTransaction.Current != null
+                            ? CompileOne(mod, section, name, value, make)
+                            : done = CompileOne(mod, section, name, value, make));
                         mod.Pending[name] = compile;
                         entries.Add((rel, p.Name, name, compile));
                     }
@@ -170,7 +204,7 @@ internal static class BlockJson
                 using var doc = JsonDocument.Parse(text, Doc);
                 if (doc.RootElement.ValueKind != JsonValueKind.Object) continue;
                 foreach (var p in doc.RootElement.EnumerateObject())
-                    if (p.Value.ValueKind == JsonValueKind.Object && Kinds.Any(k => k.Section == p.Name))
+                    if (p.Value.ValueKind == JsonValueKind.Object && (Kinds.Any(k => k.Section == p.Name) || KindRegistry.FindSection(p.Name) != null))
                         foreach (var _ in p.Value.EnumerateObject()) n++;
             }
             catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException)
@@ -240,13 +274,28 @@ internal static class BlockJson
     }
 
     /// <summary>Drop cached data of the old lifetime. A revoked mod owner must never be reused by the next data pass.
-    /// A data-only mod keeps its service owner, so repeated reloads don't allocate owners.</summary>
+    /// A data-only mod's blocks are under an owner of Kiln's own (the host revokes only a code mod's): it is revoked here,
+    /// so the mod's layers, definitions and rules go with it as a code mod's do, and the next load makes a new one. Where
+    /// the backend cannot revoke (no core), the owner is kept as before.</summary>
     internal static void Unloaded(ModBlocks mod)
     {
         mod.Reset();
+        if (!mod.OwnedByMod && mod.Owner != 0 && RevokeServiceOwner(mod.Owner)) mod.Owner = 0;
         if (mod.OwnedByMod) mod.Owner = 0;
         mod.OwnedByMod = false;
     }
+
+    /// <summary>Revokes a data-only mod's service owner. False: this backend cannot. Tests replace it.</summary>
+    internal static Func<ulong, bool> RevokeServiceOwner = owner =>
+    {
+        try
+        {
+            if (!Backend.Current.CanRevokeOwners) return false;
+            Backend.Current.OwnerRevoke(owner);
+            return true;
+        }
+        catch (Exception e) when (e is InvalidOperationException or NotSupportedException) { return false; }
+    };
 
     /// <summary>A mod's data files, read: what their blocks are, until each is compiled.</summary>
     internal sealed class DataFiles : IDisposable

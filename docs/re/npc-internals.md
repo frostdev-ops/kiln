@@ -120,10 +120,14 @@ Two ways of having a body exist:
 - **`CharacterSetup` + `NewCharacterSetup`** (all 58 villagers, 0 enemies) with **`RenderEquipment` + `Inventory`** (30 villagers, 4 of them also with a `ModelResource`, 1 villager with neither): the player's character system: gender, presets, colours, items as skinned armor on the player skeleton `87b29df6-…` (102 joints), with `hideMask` and `blendShapeMask` per body part.
 
 So armor binds through **the same skeleton**, by joint index: a custom skinned armor is cooked against the skeleton the wearer uses (`models.md` 7). On a custom body, rigid gear on a slot is the working route: it needs only `slotBoneIndexMapping` (2.4).
-Blend shape data remains undecoded (`models.md` 8), needed only to adapt armor to the player's body shapes.
+Blend-shape data is decoded in [building.md](building.md) §3.4 (correction to the older undecoded note);
+it adapts armor to the player's body shapes. Optional cloth/chain formats are in [models.md](models.md), dev.28.
 
 ### 1.5 Is an author's skinned glTF possible?
-Yes, and it's written: `tools/modelcook`, with no unknown format left except blend shapes and cloth, which are optional. Unverified: the client drawing it (section 8).
+Yes, and it's written: `tools/modelcook`. Blend-shape format is in [building.md](building.md) §3.4;
+cloth/chains containers, quantization and canonical chain frame were recovered in dev.28 ([models.md](models.md)).
+Those cosmetic features remain optional and new authored cloth/chain client behavior is unverified. A creature body
+being drawn is still a separate check (section 8); the held skinned-staff proof is not a creature-body proof.
 
 ## 2. AnimationBlock
 
@@ -299,7 +303,7 @@ Two graph rules from those runs: a global transition on a chain's first state pu
 | Awareness, noise | `awarenessSetup`, `investigateSetup`, `notifierSetup`; TriggerNoise events | `0x1329e0` awareness, `0x125f70` noise and projectiles |
 
 ### 3.2 Pathfinding **[refl] [data] [dis] [rt]**
-- **A dynamic 3D grid built from the voxels and colliders**, `ecs::PathGridSystem`, in half-metre units (`PathGridDistance {halfMeters}`); cells appear on demand (`PathGridCellCreationReason`: PathQuery, FindWalkablePosition...), and the system has low memory states. Hence no path without streamed terrain (`creatures.md` 2.3).
+- **A dynamic 3D grid built from the voxels and colliders**, `ecs::PathGridSystem`, in half-metre units (`PathGridDistance {halfMeters}`); cells appear on demand (`PathGridCellCreationReason`: PathQuery, FindWalkablePosition...), and the system has low memory states. A path needs streamed (or explicitly loaded) terrain. Corrected (dev.28): this is **not** why a Kiln.Blocks brain's body stood still without a player; that was the `SteeringAgent` program overwriting its input, which kiln.creature_control now removes for a brain's body (`creatures.md` 2.3).
 - **Each node has a type:** `PathNodeType` {TerrainEdge, Tar, Mud, Road, RoadCenter, Fog, DeadlyFog, Lava, Building, Collider, WalkablePlatform, NoNpcMovementCollider, NoNpcMovementTerrain, NoNpcMovementBuilding, NpcAvoid, WaterSurface, UnderWater, WaterGround, ClosedDoor}. `PathWalker.pathNodeRequirements {requiredTypes, forbiddenTypes}` per template: forbid Tar + DeadlyFog + Lava (327), nothing (151), everything wet and no-NPC-marked (128), Tar + DeadlyFog (82), require Tar + Mud (1 creature). Data, per body.
 - **Body size is two numbers:** `PathWalker.horizontalRadius` and `height`, which become `DynamicPathWalker.minHorizontalSpace` / `minVerticalSpace`. Game values: radius 0 (674 of 689), 0.5 (4), 1 (8), 2 (3); height 0.5 (28), 2 (658), 3.5 (3). Node search only rejects nodes without the space. **No fixed size classes**: other values should work at a search cost **[hyp]**. A large body on tight terrain gets `NoPathFound`.
 - **`usePathFinding` false (24 templates, e.g. `Enemy_Boss_Fog_Dragon`):** moves straight at its target. The usual route for very large bodies.
@@ -307,7 +311,9 @@ Two graph rules from those runs: a global transition on a chain's first state pu
 - **Flying:** `Flying` + `FlyingEnemy` on 84 templates (heights, arrive distances, flap, start, stop, hover sequences), arsenal `StartFlyingAction` (31 uses). Data on top of the same walker.
 - **Swimming:** `LocomotionWaterConfig` on all (685 + 4 of two kinds) with animations by state id, `canSwim` / `canDive` at run time, enemies usually forbid water nodes and use the `AvoidWater` state.
 - **Limits in the search** (`0x60900b`): `PathGrid : Max path node limit reached`, `OpenNodes capacity limit reached`, `DynamicPathWalker.maxIterations`.
-- **Taking it over:** `disablePathfinding +0xf1`, `targetPosition +0xb0` and friends are plain fields, read by `path_walking`. A mod can walk a body along its own path by writing `ActorInput` and leaving the walker idle, or just ask for targets.
+- **Taking it over:** `disablePathfinding +0xf1`, `targetPosition +0xb0` and friends are read by `path_walking`.
+  Direct ActorInput control also requires exclusive steering ownership: dev.28 proved SteeringAgent's program overwrites
+  movement even with enemy AI off. Removing/restoring steering is separate from obtaining a path; see [creatures.md](creatures.md) §15.
 
 ### 3.3 Friendly NPCs against enemies **[data] [dis]**
 | | Enemy | Villager | Wildlife | Farm animal |
@@ -324,7 +330,8 @@ Two graph rules from those runs: a global transition on a chain's first state pu
 Friendly here means faction: 43 enemy-AI templates are Player or PlayerAlly, and `guardSetup.canGuardPlayer` is on 79 (`creatures.md` 2.6). **A "friendly with attacks" NPC is the enemy program with a friendly faction**; a villager cannot fight without new code.
 
 ### 3.4 Schedules and routines **[dis] [refl]**
-Villagers have no schedule data beyond `sleepSetup` (`NpcCommon.sleepTime`, `wakeUpTime`, `bedId`). `DecideTask` `0x1fb8c0` in order: three scripted flags (`0x1ebea0`, `0x1ebe80`, `0x1ebe90`), sleep check `0x1f0490` → WantsToSleep + FindBed, a pending target → WantsToSocialize + GoToTarget, then a weighted random over the four weights, skipping the last action. "Work" is `Crafting {workshop}` + `npc_update_important_locations` picking what to stand at, not a job system. A real daily routine is the clearest case for a hook on `DecideTask` or for driving by `NpcCommandEvent`.
+Villagers have no schedule data beyond `sleepSetup` (`NpcCommon.sleepTime`, `wakeUpTime`, `bedId`). `DecideTask` `0x1fb8c0` in order: three scripted flags (`0x1ebea0`, `0x1ebe80`, `0x1ebe90`), sleep check `0x1f0490` → WantsToSleep + FindBed, a pending target → WantsToSocialize + GoToTarget, then a weighted random over the four weights, skipping the last action. "Work" is `Crafting {workshop}` + `npc_update_important_locations` picking what to stand at, not a job system. Corrected 2026-11 (dev.28 RE): `DecideTask` alone cannot keep an NPC awake: a separate per-update interrupt
+also calls the side-effecting SleepCheck. See the current routine contracts below for phase/interrupt/command ordering.
 
 ### 3.5 Hook map: every decision point (server 26430253 / client 26430625, svn 1287369)
 **Reads and writes** at the program level are the game's own access lists (the 0x188-byte descriptors, section 7). **Thread:** everything here runs on the game's job threads inside the step, except flag `0x4` programs **[hyp: serial]**. A handler must be thread-safe and must not call tick-thread APIs (`docs/kiln/hooks.md`). **Rates** are from the lab with 3 forced-ready Vukahs; a joined player raises the step rate (60/s seen, `services/creatures.md`). **Signature:** a prologue pattern with RIP displacements and branch targets masked, found exactly once on each of svn 1287369, 1285601 and 1273043.
@@ -543,7 +550,10 @@ C AI on again: Idle
 - **Turn off:** one byte, per entity, no hook. **Perception stops with it [dis] [rt]:** `enemy_combat_targets` runs its pass only with `enabled` on, and otherwise clears the target: `target was 2912, is now 0`. A brain needs its own perception, or the sensors' components. `NetworkEnemy.state` freezes at the last value **[rt]**; if client presentation reads it (`link_toggle_state_to_enemy_states`), set it **[hyp]**.
 - **Drive:** `ActorInput`: `desiredWorldMoveInput +0x198`, `desiredWorldLookDirection +0x1b8`, `locomotionSpeed +0x1c4` (Zero, Sneak, Walk, Run, Sprint, Swim, Dive...), `defaultAnimationStateId +0`; `DynamicPathWalker` for walking on paths; `Abilities.PlaySequence`, `Cast`, `RunImpact` for actions.
 - **Replicates correctly:** position, velocity, `NetworkActor`, `NetworkAnimationGraphInput`, `NetworkHealth`: the same fields the AI's result goes through. kiln.creatures' `kiln_creatures_marks` already handles `MarkWritten` for what Kiln changes (`services/creatures.md`).
-- **Not shown:** that `ActorInput` writes produce walking. In the lab the entity is in LocomotionState Falling with no terrain (`vel -20`, `inputVelocity 0`), as expected without a player. On the client checklist.
+- **Corrected 2026-11 (dev.28 RE) [static] [lab]:** the old zero-motion result did not establish a universal
+  no-player movement limit. `steering_locomotion` overwrites ActorInput movement while SteeringAgent remains.
+  With that component removed and AI off, later ground/flyer probes moved by input; see [creatures.md](creatures.md)
+  §15. Missing terrain/readiness remains a separate precondition; these are not automatic brain walking/client proofs.
 - **Villagers** have no enable byte. Skip the worker `0x1f7850` per entity with a table the tick publishes (1 hook, 1 per villager per step), or use `NpcCommandEvent` GoTo and Reset (no hook, already in `Villagers`, ignored in state Start).
 
 ### 4.6 Hook costs in numbers
@@ -676,7 +686,7 @@ Join the lab from the DEDICATED SERVER tab, as an admin. Run H6 and H7 from chat
 | **Body:** skinned mesh from glTF | data | Skin support in `tools/modelcook` (1.1) | modelcook; kiln.assets as is | S (days) | low: format stable since KFC4, 91,904 of 91,909 byte-exact | high offline; client draw unseen |
 | Body: new skeleton | data | `animgraph.skeleton_value`, glTF armature to it | `tools/animcook` | S | low | high **[rt server]** |
 | Body: materials, textures | data | existing | modelcook | none | low | high (`models.md`) |
-| Body: blend shapes, cloth, chains | data, format partly unknown | leave out first; RE blend data when armor needs it | RE, modelcook | M-L per feature, optional | low | medium; not needed for NPCs: 0 of 267 creature models use blend shapes |
+| Body: blend shapes, cloth, chains | data; dev.28 cloth/chain format and frame recovered | optional; new physical cooker/client acceptance remains separate | modelcook; [models.md](models.md) | M-L per feature, optional | low | medium; no authored cloth/chain client proof |
 | Body: colliders, hit zones | data | JSON → `ColliderResourceData` per mode; weak spot child templates per slot | `templates` writer | S | low: reflection | high data; **[rt]** untested from scratch |
 | Body: ragdoll | absent | not built; Jolt from Kiln on the client | client-side physics project | **L-XL**: everything is new | medium | low, and unnecessary |
 | **Animation:** clip from glTF | data, codec solved | **`animcook`**: glTF sampler + `anim.encode`, tangents tuning | new tool around `anim.py`; kiln.assets | S-M | low: format unchanged across builds | high **[rt server]** |
@@ -730,3 +740,82 @@ S = up to a few days for one developer, M = a week or two, L = weeks, XL = a pro
 | A new AI state | table bound | a `CustomBehavior` combat state, or `ControlledByAttack`, driven by rules and sequences |
 | Own path grid | large RE | own A* on `FindGround`, `ActorInput`, or `usePathFinding` false |
 | New faction relations | leaf + possible inlining | `AddThreatTargetEvent`, per-entity faction writes, guard orders |
+
+## 10. Villager bodies and routine calls (dev.28; server 26430253 / client 26430625)
+
+S `f0d824be…`, C `5d9ef2f1…`; dossier chapters 16f/16g, blocks-b REPORT delta/VERIFY (16 confirmed/four corrected).
+Later clone-only and sleep-prefix labs supersede the original proof limitations **only as described below**.
+
+### Body publication [data] [refl] [lab]
+
+Fisher template has zero ModelResource.model but human CharacterSetup/NewCharacterSetup/RenderEquipment producers;
+Gunther has no ModelResource. Thus model/graph replacement alone does not remove the human appearance. Preserve
+villager Actor/Input, active/saved NPC state, dialogue/identity, path/locomotion/network chassis; only selected appearance
+producers are removed/replaced. New model, hierarchy, graph and all clips must agree; no player graph override is needed.
+
+Fisher's direct motion closure is **21 sequence resources / 27 SetAnimationEvents**: sit/sleep entry-loop-exit,
+inspect, idle gestures, socializing, greetings/turns, dialogue/refusal/farewell, path jump/open-door and named object
+interactions. Replacing only first animation event misses exit/loop poses; retain flags/attachments/finish semantics.
+Full closure/retiming is in chapter 16f, not an enemy attack-only lowering.
+
+VERIFY corrected the original lab: it **overrode vanilla Fisher in place** before cloning, and a nonzero server
+graph handle proved existence, not resource identity. Overridden vanilla GUIDs are not withheld by the new-template
+network gate. Later lab 9 used **only a new clone**, published post-ResourceInit after native quest cloning but before
+world/template initialization; 25 managed + 2 native checks passed. Vanilla Fisher bytes/hash/human producers remained
+unchanged, clone stayed marked new, authored model/graph metadata and .75/2 geometry matched, and the live entity's
+graph **selector** named the authored graph. Handle-to-resource internals and authored pose output were not traversed.
+This proves clone-only boot publication, not typed compiler/atomic bridge implementation or client rendering.
+New bodies still need client assets; unknown new-template withholding must remain intact.
+
+### Routine entry points (Win64) [static], bounded server execution [lab]
+
+| Role | S / hosted-C RVA | Contract |
+|---|---|---|
+| worker | `0x1f7850` / `0x45c8f0` | `void(VillagerContext*)`; commands before readiness/distance gate |
+| DecideTask | `0x1fb8c0` / `0x4631a0` | `void(ctx*,u8 phase)`; phase 2 no-op, others active |
+| SetDecision | `0x1f65b0` / `0x45a8a0` | `void(ctx*,u8 decision)`; mark writes, clear taskFailures, store decision |
+| SetState | `0x1f6da0` / `0x45b320` | `void(ctx*,u8 state)`; same-state no-op, synchronous exit/reset/enter |
+| FinishState | `0x1f7750` / `0x45bcd0` | `bool(ctx*,u8 condition)`; 0 finished/1 failed, false if no target transition |
+| SleepCheck | `0x1f0490` / **`0x453160`** | `bool(ctx*)`, **side-effecting**, not old interior 0x453200 |
+| FSM / dispatch | `0x1fe460/0x1ef600` / `0x465d40/0x452370` | `(ctx*,u8 phase)`, no separate state arg; dispatch return opaque |
+| commands | `0x1f3320` / `0x4565f0` | `void(ctx*)`, first matching NpcCommandEvent only |
+| important locations | `0x1fa3b0` / `0x45fb90` | `void(ProgramContext*)`, **not VillagerContext** |
+
+Context is ephemeral **worker stack storage**, not entity/component/tick context. Pointers: dynamic writable data
+`+0x1b0`, common `+0x300`, template ActiveNpcState `+0x450`, path walker `+0x360`, time `+0x148`, RNG `+0x4e0`.
+Write trackers `+0x1d8/+0x328` are objects, not function pointers. Mark through existing S `0x66f040` / C `0x9d3150`
+with copied six bookkeeping lanes, then reload data pointer (copy-on-write may change it). Never keep context or use
+world tick APIs inside worker. Non-null tracker branch remains **static ABI**, live routine jobs had null trackers.
+
+SetState exits/enters through **FSM phases 2/0**, resets path/timers, and preserves previousState when leaving
+FinishTask 17: X→FinishTask→Y leaves previous=X. FSM pause/resume dispatch phases 3/4; DecideTask treats those as
+active too. FinishState uses a runtime-initialized table (zero on disk), increments failures for condition 1; do not
+copy a supposed baked transition table. Lab explicitly invoked chooser/FinishState on its live clone context and
+observed 220 worker calls; this is not autonomous navigation/sleep proof.
+
+### Sleep interrupts, commands and limits [static] [refl] [data]
+
+SleepCheck true already does SetDecision(Sleep 5)/SetState(FindBed 2). It is called both by DecideTask and by per-update
+interrupt S `0x1efca0` / C `0x452970` **before FSM execute**; that pass also handles cursor/water interrupts.
+A DecideTask-only detour cannot keep an NPC awake. False SleepCheck can mark data and clear common byte 0 bit 0x10;
+a bare false return omits bookkeeping. Later labs 8/9 exercised a transition-free prefix: expired bit cleared while
+state/decision/failure count 42 stayed unchanged; no non-null mark calls occurred. Do not call original then undo its
+transitions, and do not skip the entire water/cursor interrupt pass.
+
+Pure sleep-window S `0x1ecf40` / C `0x44f690` reads common sleep/wake hours `+0x50/+0x54`, time+0x48; true when
+now>=sleep OR now<=wake (hours×3.6e12 ns). Fisher defaults weights idle/inspect/sit/roam 2/6/3/1, sleep 21–22,
+wake 5–6.5 h, roam 10 m, target 8 m, bed 50 m; template defaults, not engine limits. FSM forces Roam/home beyond
+max(targetRadius,bedRadius)+1 m from saved home (51 m Fisher), so distant task anchors can be undone.
+
+Reflected types: ActiveNpcState 456 B (sequences `+4/+0x14/+0x24`, weights `+0x38`, sleep `+0xa8`);
+DynamicActiveNpcState 136 B (state/previous/decision `+0/+1/+2`, social count `+0x30`, eight entries `+0x38`, pause
+`+0x79`); NpcCommon 1688 B (bed `+0x48`, target float3 `+0x64`, currentSequence GUID `+0x67c`, failures byte `+0x68e`);
+ActiveNpcStateSaved 48 B (home `+0`, sleep flag `+0xd`, deferred teleport `+0x18`). Decisions 0..7 are
+None/Roam/Sit/Interact/Socialize/Sleep/Eat/Idle; 18 states 0..17, FinishTask 17.
+
+NpcCommandEvent 72 B: Time `+0`, type byte `+8`, stable NpcId `+0xc`, transform `+0x10`. Reset 0 updates home and
+teleports/restarts Start; GoTo 1 enters Roam/target, ignored during Start. Only **first matching command per worker
+call** applies; GoTo writes decision directly after enter, without SetDecision's failure reset. Commands precede the
+150 m/readiness pause, but do not force readiness in product. No factory production/inventory transaction follows
+from this chooser: menu workshop, important interaction locations and productive jobs are different systems.
+Client navigation/bed/pose/hosted acceptance remains unverified; full routine policies stay in chapter 16g.

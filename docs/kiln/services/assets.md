@@ -112,13 +112,67 @@ public override void OnLoad()
 ```
 - Everything a mod registers is owned by it and reverted when it unloads (`Assets.RemoveIcon/RemoveResource/RemoveBlob`
   do it sooner). Calls may be made from any thread; game lookups are thread-safe reads.
+- Since 0.2.0-dev.28 a native owner the core revokes (a plugin whose `kiln_plugin_main` failed, say) loses its resources,
+  blobs and icons without anyone calling `revert_owner`: from the revocation on its registrations are refused
+  (`KILN_ERR_REVOKED`), and what it had registered is taken off moments later, by kiln.assets' next call or its own
+  cleanup thread (until then the game may still be served its bytes, for a few milliseconds). A `revert_owner` before
+  or after does nothing more.
 - `Assets.Reflect(key)` and `ReflectedResources` read any resource by field path, find resources by a field's value, and change a
   field claim-backed and reversible: [typed-fields.md](../modding/typed-fields.md#any-resource). `ListBlobs` lists what this
-  mod supplied through `Assets`; blobs from `assets.json` and the game's own are not listed.
+  mod supplied through `Assets`; blobs from `assets.json` and the game's own are not listed: the
+  [content blob catalog](#the-content-blob-catalog) lists every one.
 - `Assets.IconStateOf(guid)` → `None` / `Pending` / `Served` / `Failed`: content code aliases a new item's GUID to its
   base item's only until `Served` (the UI cache is fatal on a key it was never told about). kiln.content already does
   this; a mod does not need to.
-- `Assets.Status()` returns JSON (hooks on, counts, container, reads).
+- `Assets.Status()` returns JSON (hooks on, counts, container, reads, and the catalog's generation and last change).
+
+## The content blob catalog
+Since 0.2.0-dev.28. Every content blob the game serves, and where each one comes from: the game's own content index and
+every live registration (`assets.json`, `AddBlob`/`OverrideBlob`, native callers), one entry per hash. It is the C#
+equivalent of ShroudForge's file-content listing and EML's `get_all_contents` as a **live served catalog** (what the game
+reads now), not a listing of the archive on disk. Sample: `mods/samples/BlobCatalog` (`/blobs`).
+```csharp
+var opened = Assets.OpenBlobCatalog();                     // BlobCatalogMode.RequireComplete: the game's index + registrations
+if (!opened.Ok) { Log.Warn(opened.Reason); return; }       // a budget would be exceeded: a result, never a truncated list
+using var snapshot = opened.Snapshot!;                     // immutable: registrations made later do not show in it
+for (ulong at = 0; at < snapshot.Total;)
+{
+    var page = snapshot.ReadPage(at);                      // up to 256 entries, sorted by (size, hash0, hash1, hash2)
+    foreach (var e in page) { /* e.ContentHash, e.Origins, e.SelectedOrigin, e.Owner, e.Sequence, e.Overridden */ }
+    at += (ulong)page.Count;
+}
+byte[]? bytes = Assets.ReadBlob(hash);                     // the bytes the game reads for one hash now
+```
+| Member | Threads | Answers |
+|---|---|---|
+| `Assets.OpenBlobCatalog(mode)` | any (from mod code: the mod owns the snapshot) | `BlobCatalogOpenResult(Ok, Reason, Snapshot, Info)` |
+| `BlobCatalogSnapshot.ReadPage(first, capacity)` | any | bounded copies of entries `first..`; empty when `first == Total` |
+| `BlobCatalogSnapshot.Info`, `Total`, `Dispose()` | any | the header (generation, total, status, completeness); closes it |
+| `Assets.ReadBlob(hash)` | any | a registration's bytes, else the game's own from its container; null when no blob has the hash |
+| `AssetsCatalogChangedEvent(Generation, Reason)` | tick thread | the catalog changed (registration, removal, a mod's unload, the game's index became readable) |
+
+- **What an entry says.** `Origins` has `Game` when the game's index lists the hash (also when a mod overrides it), plus
+  the origin of every live registration: `Manifest` (a mod's `assets.json`, its icons and textures too), `Managed`
+  (`AddBlob`, `OverrideBlob`), `NativeApi` (any other caller, and icons and textures registered by call).
+  `SelectedOrigin`, `Owner` and `Sequence` name whose bytes the game reads now: the latest registration of the hash
+  (kiln.assets' rule, unchanged), else the game's own (owner 0, sequence 0). `Overridden`: the game lists the hash and a
+  registration's bytes are served in its place. Origins are descriptive: a native caller says what it is.
+- **Modes.** `RequireComplete` (the default) needs the game's content index; before the game has opened it the call
+  throws `KilnUnavailableException("assets.blob_catalog")`. `RegistrationsOnly` lists the registrations alone and says so:
+  `Status = Incomplete`, `GameComplete = false`.
+- **Budgets.** 1,000,000 entries and 64 MiB per snapshot, 128 MiB for every snapshot held, 64 open at once. Over a budget
+  the result is `Ok = false` with `Info.Status = LimitExceeded` and the reason; nothing is opened. The server build
+  f0d824be's index lists 39,818 blobs, the game client's about 101,000.
+- **Lifetime.** A snapshot never changes; two opens at the same generation share one. Dispose it when done; a mod's open
+  snapshots close when it unloads, and a read after that throws `ObjectDisposedException`. The event is posted by a
+  check every 25 steps, only while someone subscribes; several changes between two checks are one event.
+- **JSON.** `JsonSerializer.Serialize(info)` / `(entry)` writes the shape of
+  [`schema/blob-catalog.schema.json`](../../../schema/blob-catalog.schema.json) (uint64 fields as decimal strings).
+- **Capability** `assets.blob_catalog` (Kiln.Assets' row): kiln.assets' table has the catalog and its content hooks are
+  on. In a game client it is held by the client gate until check `13-assets.catalog-client` passes; on a server it is
+  open (lab-proven).
+- Registrations made through `AddBlob` and `OverrideBlob` are tagged `Managed` (a kiln.assets older than 0.2.0-dev.28
+  records them as native). Which bytes are served did not change.
 
 ## C (native plugins / services)
 ```c
@@ -132,6 +186,13 @@ resolver calls it. `resource_data(key, &ptr, &len)` (appended last) gives a **ze
 resource's live loaded bytes (a Kiln override/new resource if registered, else the game's resident copy), valid until
 the next tick — for workers that read lots of game resource data cheaply (gamedata, abilities, creatures). Do not
 write through it.
+
+Since 0.2.0-dev.28 (check `header.size` before each): `blob_add_ex` / `blob_override_ex` are `blob_add` /
+`blob_override` with the registration's origin (`KILN_BLOB_ORIGIN_MANAGED` or `_NATIVE_API`; anything else is
+`KILN_ERR_INVALID_ARGUMENT`), and `blob_catalog_open` / `blob_catalog_read` / `blob_catalog_close` are the
+[content blob catalog](#the-content-blob-catalog) (`KilnBlobCatalogInfo`, 32 bytes; `KilnBlobCatalogEntry`, 48 bytes;
+statuses, reasons and result codes in the header). `blob_add` and `blob_override` tag `NATIVE_API`, `load_manifest`
+tags `MANIFEST`.
 
 ## Icons for model overrides
 The game's icons are baked: a `keen::UiTextureResource` per item GUID (BC7 256×256 with mips on client 26430625),
@@ -199,6 +260,11 @@ tools/lab/lab.sh new assets 26060 --save <savegame dir>
 tools/deploy-server.sh ~/srv/enshrouded/labs/assets --policy any --samples
 tools/lab/lab.sh start assets        # assets-test: 8 PASS, 0 FAIL (resources, blobs, overrides, dump)
 ```
+The catalog (0.2.0-dev.28): `native/services/assets/tests/run.sh` (host, no game: provenance, the served winner,
+`PASS assets.catalog-snapshot`); `managed/tests/Kiln.Api.Tests/BlobCatalogTests.cs` over the test kit's kiln.assets table
+(`managed/Kiln.TestKit/Fakes/Assets`; not in a `KilnHarness` yet: see the note there); in a lab, before the start,
+`python3 mods/tests/assets-test/catalog_fixture.py <lab> <lab>/kiln/data/assets-test/catalog-fixture.json` (the game's
+index read by Kiln's own KFC reader), then assets-test logs `PASS assets.full-catalog`.
 Client (icons, retextures, meshes): deploy with
 `tools/client/client.sh deploy --real --policy any --mod $KILN_OUT/mods/asset-sample`.
 

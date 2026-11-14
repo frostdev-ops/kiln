@@ -17,6 +17,7 @@ Validated by Kiln.Host at load time and by Kiln.Sdk at build time (managed/Kiln.
 | `apiVersion` | string | yes | Kiln mod API the mod needs. A bare version ("0.2") means that version or any later one with the same major (the API is additive within a major, 0.x included); anything else is a range checked against Kiln.Mods.ApiVersion. |
 | `author` | string |  | Shorthand for a single author. |
 | `authors` | string or array of string |  |  |
+| `boot` | boolean or `"required"` |  | The mod's Mod.OnBoot stages block definitions before the game is entered (docs/kiln/modding/manifest.md). true: a failure of its boot content drops that content; "required": it stops the start. Default `false`. |
 | `clients` | `"none"` \| `"kiln"` \| `"mod"` |  | What a player's game needs to join a server running this mod: none (vanilla clients join), kiln (Kiln on the client; the server sends the mod's definitions), mod (the mod itself, delivered by the server's modpack). Default from side: server -> none, client and both -> mod. |
 | `dependencies` | object or array of object |  | Mods (or "kiln", the core version) this mod needs. Required ones load first and must match; optional ones load first when present and must match when present. |
 | `description` | string |  |  |
@@ -33,6 +34,7 @@ Validated by Kiln.Host at load time and by Kiln.Sdk at build time (managed/Kiln.
 | `name` | string |  | Display name (default: the id). |
 | `side` | `"server"` \| `"client"` \| `"both"` |  | Where the mod loads; mods for the other side are skipped. Default `"server"`. |
 | `tests` | boolean or object |  | Kiln.Testing: true = autoRun. |
+| `updates` | object \| null |  | Where new versions of the mod are published, for the launcher's and `kiln updates check`'s update notice (a notice and a link: Kiln never downloads or installs a version by itself). A tagged union by provider; each provider takes only its own properties. Never a reason to refuse a mod: a value Kiln can't read is ignored with a warning (KL103), and a provider this Kiln does not know means "update checks unsupported". Docs: docs/kiln/modding/manifest.md, "updates". Kiln warns (not refused). |
 | `url` | string |  |  |
 | `version` | string | yes | Semantic version (MAJOR.MINOR.PATCH[-pre][+build]); 1 and 1.2 are read as 1.0.0 and 1.2.0. |
 | `writes` | array of string |  | Component types the mod writes through the game's write tracking (World.Write, World.Update, World.WriteField, World.WriteAt): short names such as Fuel. At most 64 entries, a repeated name counted each time and read once. A value that breaks these rules is not read: the mod still loads (a warning), and each of its tracked writes is refused with what is wrong with the list. kiln.world reads the list when the server starts, because the game fixes a program's access then; a write to a type that is not listed is refused. Kiln.Sdk adds the types the mod's code passes to World.Write<T> and World.Update<T>; list by hand what the code names only as a string. max items 64 |

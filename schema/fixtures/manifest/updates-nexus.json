@@ -1,0 +1,37 @@
+{
+  "raw": "{\"id\":\"m\",\"version\":\"1.2.0\",\"apiVersion\":\"0.2\",\"entryAssembly\":\"M.dll\",\"updates\":{\"provider\":\"nexus\",\"gameId\":5811,\"modId\":310,\"fileChainId\":\"90310\"}}",
+  "expect": {
+    "ok": true,
+    "manifest": {
+      "id": "m",
+      "name": "m",
+      "version": "1.2.0",
+      "parsedVersion": "1.2.0",
+      "apiVersion": "0.2",
+      "entryAssembly": "M.dll",
+      "entryType": null,
+      "side": "server",
+      "clients": "none",
+      "authors": [],
+      "description": "",
+      "license": null,
+      "url": null,
+      "dependencies": [],
+      "loadBefore": [],
+      "loadAfter": [],
+      "incompatible": [],
+      "features": [],
+      "exports": [],
+      "advanced": false,
+      "tests": null,
+      "kilnBuild": null,
+      "warnings": [],
+      "updates": {
+        "provider": "nexus",
+        "gameId": 5811,
+        "modId": 310,
+        "fileChainId": "90310"
+      }
+    }
+  }
+}

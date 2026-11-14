@@ -249,3 +249,37 @@ Every one of these format strings is also in build 1273043's exe (checked byte f
 3. User-group id -> group name (the ctor `0x7ab000` copies the table from its config argument; the conversion from the
    config's 0x58-byte group entries was not traced).
 4. The kick path for `AccountActionType::Kick` on the dedicated server.
+
+## Carried-player fall detection (dev.28; server 26430253 / client 26430625)
+
+S `f0d824be…`, C `5d9ef2f1…`; dossier chapter 19a §2.7, riding VERIFY Session-5 V-S5b/c confirmed with
+qualifications. Carry/input/client behavior is in [mounts.md](mounts.md); damage interception in [combat.md](combat.md).
+
+[static] `fall_damage_detection` S **`0x89e50`**, descriptor `0x1341390`, reads Actor/CurrentTransform/
+DynamicLocomotion/MovementCollider/Velocity, writes DynamicFallDamage. It is `void(ProgramContext*)`, not a tick-call
+helper. DynamicFallDamage **16 B** (metadata `0xee3900`): wasFalling u8 `+0`, resetFallAltitudeOnApex u8 `+1`,
+fallStartAltitude f32 `+4`, detectedFallDistance f32 `+8`, detectedFallDamagePercentage f32 `+0xc`. Fields agree
+with reflection on both builds; no new client detection RVA is asserted here.
+
+Falling condition: DynamicLocomotion.state `+0x59` is Falling 2, or Sliding 1 when S `0x94c3f0` terrain config's
+isSlidingMaterial byte `+0x2d` is false. Start altitude persists while falling. With apex-reset byte set, positive
+Velocity.y updates start altitude (S `0x8a1c5..0x8a252`). ResetFallAltitudeOnApexEvent **`0x790aaee4`** and
+ResetFallDamageEvent **`0xab025386`** reset the tracked altitude/state.
+
+Distance is computed **only on a Grounded (Actor flag 0), non-falling step**, with wasFalling set and
+MovementCollider `+0x48 results.preventFallDamage` clear (checks S `0x89ef9/0x89fc6/0x89f47`). Converts world Y
+signed 32.32 using 2^-32, stores start−current at `+8` (S `0x8a015..0x8a04d`); final wasFalling store `0x8a35a`.
+Calculation S `0x89cb0` turns distance into percentage; infliction `0x8a3c0` writes Health directly, no ApplyHit.
+Gravity-off/velocity-zero does **not** by itself reset this fall history. A rider may flicker grounded on its mount
+and be charged for a long carried descent when grounded returns.
+
+[lab] Controlled mortal rider on .3 Fog Dragon: start held 1003.4 m, later grounded at 978.3 → **25.50 m**, fraction 1,
+damage 100/lethal, HP 0/100. Combined per-step writes `+0=0,+1=0,+4=currentY,+8=0` **and EntityFallEvent cancel**
+kept 593 lab rows at 100/100 and 671 outdoor client rows at 313/313. `+0xc` was not reset; retain cancellation backstop.
+Neither reset-only nor event-only was tested, and emitting ResetFallDamageEvent every carried step was a proposed
+service path, not the proven mechanism of that combined probe.
+
+[seen] Original outdoor session 5 rider death had **no fall telemetry**: it is strongly consistent with this reproduced
+mechanism, not directly attributed. Mount still sank 3 m/s when horizontal speed reached 0. Later guarded/pinned run
+survived and landed; render pin fixed drawn rider alignment but not camera or prediction. Full product fall waiver,
+dismount/teleport and guard-removal behavior remains unimplemented/unverified.

@@ -10,8 +10,16 @@ mkdir -p "$out"
 cxx=${CXX:-$(command -v clang++ || command -v g++)}
 flags=(-std=c++20 -O1 -g -Wall -Wextra -pthread -fsanitize=address,undefined -fno-sanitize-recover=undefined
        -I"$here/stubs" -I"$here/../abi" -I"$here/../../third_party")
-"$cxx" "${flags[@]}" -o "$out/sigdb_problem_test" "$here/sigdb_problem_test.cpp"
+# sigdb checks `sig` descriptors against the function's code (services/hooks_fingerprint.cpp, decoded with Zydis)
+cc=${CC:-$(command -v clang || command -v gcc)}
+zy=$here/../../third_party/safetyhook
+[[ $out/zydis-host.o -nt $zy/Zydis.c ]] || "$cc" -O1 -w -DZYDIS_STATIC_BUILD -DZYCORE_STATIC_BUILD -I"$zy" -c -o "$out/zydis-host.o" "$zy/Zydis.c"
+flags+=(-DZYDIS_STATIC_BUILD -DZYCORE_STATIC_BUILD -I"$here/../src" -I"$zy")
+fp=("$here/../src/services/hooks_fingerprint.cpp" "$out/zydis-host.o")
+"$cxx" "${flags[@]}" -o "$out/sigdb_problem_test" "$here/sigdb_problem_test.cpp" "${fp[@]}"
 "$out/sigdb_problem_test" "$out"
-"$cxx" "${flags[@]}" -o "$out/caps_test" "$here/caps_test.cpp"
+# the client gate's list, as the core's build generates it (a bad native/core/gates/*.json fails here too)
+python3 -I "$here/../gates/gen.py" "$here/../gates" "$out/kiln_gates.g.h"
+"$cxx" "${flags[@]}" -I"$out" -o "$out/caps_test" "$here/caps_test.cpp" "${fp[@]}"
 # a subscriber that deadlocks the registry hangs the test: the time limit turns that into a failure
 timeout 120 "$out/caps_test" "$out"

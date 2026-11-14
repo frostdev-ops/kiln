@@ -14,7 +14,9 @@
 namespace kiln {
 ImageInfo test_image;
 bool test_log_throw = false;
+bool test_verified = true;  // what config.cpp's build_verified answers for the mapped file's sha256
 const ImageInfo& image() { return test_image; }
+bool build_verified(uint32_t, const std::string&, std::string*) { return test_verified; }
 double now_ms() { return 0; }
 std::string to_utf8(std::wstring_view w) { return std::string(w.begin(), w.end()); }
 namespace log {
@@ -46,6 +48,7 @@ struct Loaded {
         img.file = pe.file.data();
         img.file_size = pe.file.size();
         sigdb::g_code = {};
+        kiln::test_verified = true;
     }
 };
 
@@ -93,10 +96,35 @@ static void views_and_holes() {
     }
     {
         Loaded x;
-        // One byte differs, far below 1%, and layout/metadata are unchanged: this is not a hook.
+        // One byte differs, far below 1%, and layout/metadata are unchanged: no hook, another mod's in-place patch.
+        // The file is still the loaded build, so the scan stays on it and the place is counted.
         x.live[0x1050] ^= 1;
         sigdb::init_code();
-        CHECK(!sigdb::g_code.view.disk, "runtime: sparse non-hook exe difference selects live scan");
+        CHECK(sigdb::g_code.view.disk, "runtime: a byte patched in place keeps the disk scan");
+        CHECK(sigdb::g_code.in_place.sites == 1 && sigdb::g_code.in_place.bytes == 1 &&
+                  sigdb::g_code.in_place.first == std::vector<uint32_t>{0x1050 - x.ft.text_rva},
+              "runtime: the in-place patch is counted, with its offset in .text");
+    }
+    {
+        Loaded x;
+        // The same byte, but the file's hash is no verified build record: the file itself may be the changed one
+        // (an exe replaced on disk after the game started), so the live code is scanned as before.
+        x.live[0x1050] ^= 1;
+        kiln::test_verified = false;
+        sigdb::init_code();
+        CHECK(!sigdb::g_code.view.disk && sigdb::g_code.in_place.sites == 0 && sigdb::g_code.runs.empty(),
+              "runtime: a byte patched in place with no verified build record selects the live scan");
+    }
+    {
+        Loaded x;
+        auto* at = x.live.data() + TestPe::kFunc;
+        at[0] = 0xE9;
+        const int32_t rel = 0x7FFF0000;
+        std::memcpy(at + 1, &rel, 4);
+        kiln::test_verified = false;
+        sigdb::init_code();
+        CHECK(sigdb::g_code.view.disk && sigdb::g_code.in_place.sites == 0,
+              "runtime: a hook is not counted as an in-place patch, and needs no build record to keep the disk scan");
     }
     {
         Loaded x;
@@ -242,6 +270,242 @@ static void live_diff_accessors(const char* dir) {
     std::filesystem::remove(file);
 }
 
+// Descriptors of typed links (dev.28): `sig` in a symbol's entry or under "sigs", checked against the function's code
+// as the exe file has it; "sig/<symbol>" is a feature. The test image's code: root = mov rax, imm64; call helper;
+// then "scoped" = mov eax, [rcx+0x1234]; ret.
+static void sig_blocks(const char* dir) {
+    Loaded x;
+    uint8_t* fn = x.live.data() + TestPe::kFunc + 15;  // "scoped", hooked in the live image by another engine
+    fn[0] = 0xE9;
+    const int32_t rel = 0x10000000;
+    std::memcpy(fn + 1, &rel, 4);
+    test_query = true;
+    test_mbi = {x.live.data(), x.live.size(), MEM_COMMIT, 4};
+    sigdb::init_code();
+    const auto file = std::filesystem::path(dir) / "sigs.json";
+    const char* symbols = R"("symbols":{
+          "root":{"find":[{"pattern":"48 B8 ?? ?? ?? ?? ?? ?? ?? ?? E8 {helper:rel32}"}],
+                  "sig":{"ret":"u32","args":[{"name":"self","type":"keen::Thing*"}],"invoke":"tick"}},
+          "helper":{"sig":{"args":[]}},
+          "scoped":{"find":[{"pattern":"8B 81 {field:d32} C3","scope":{"symbol":"root","size":64}}]}
+        })";
+    auto write = [&](const std::string& rest) {
+        std::ofstream out(file);
+        out << "{\"format\":1," << symbols << rest << "}";
+    };
+    write(R"(,"structs":{"Pair":{"size":16,"align":8,"fields":[{"name":"a","type":"u64","offset":0},{"name":"b","type":"u64","offset":8}]}},
+          "sigs":{"scoped":{"ret":"u32","args":[{"name":"self","type":"ptr"}],"abi":{"reads":["rcx"],"stack":[],"ret":"rax"}},
+                  "missing":{"sret":"Pair","args":[{"name":"x","type":"u8"}]}})");
+    sigdb::Resolver r;
+    CHECK(r.load(file, ""), "sig: a file with sig blocks, a sigs section and structs loads");
+    r.resolve();
+    uintptr_t a = 0;
+    sigdb::SigInfo info;
+    CHECK(r.symbol("scoped", &a) && r.sig("scoped", &info) && info.status == sigdb::SigStatus::Match && info.address == a &&
+              info.fingerprint.find(R"("reads":["rcx"])") != std::string::npos && fn[0] == 0xE9,
+          "sig: a descriptor under \"sigs\" matches its function, read from the file's bytes although the live entry is hooked");
+    CHECK(r.feature("sig/scoped") && !r.feature_problem("sig/scoped", nullptr, nullptr, nullptr),
+          "sig: sig/<symbol> is a feature that is on");
+    CHECK(r.sig("root", &info) && info.status == sigdb::SigStatus::Match && r.feature("sig/root"),
+          "sig: a descriptor in the symbol's own entry (the function passes rcx on to its callee)");
+    CHECK(r.symbol("helper", &a) && r.sig("helper", &info) && info.status != sigdb::SigStatus::Unresolved && info.address == a,
+          "sig: an entry that holds only a descriptor leaves the name to its capture");
+    std::string name, text;
+    bool constant = true;
+    CHECK(r.sig("missing", &info) && info.status == sigdb::SigStatus::Unresolved && !r.feature("sig/missing") &&
+              r.feature_problem("sig/missing", &name, &text, &constant) && name == "missing" && text == "not defined" && !constant,
+          "sig: a described symbol that does not resolve is off, and says why");
+    const auto names = r.feature_names();
+    const auto failed = r.failed_features();
+    CHECK(std::count(names.begin(), names.end(), "sig/scoped") == 1 && std::count(names.begin(), names.end(), "sig/missing") == 1 &&
+              std::count(failed.begin(), failed.end(), "sig/missing") == 1 && std::count(failed.begin(), failed.end(), "sig/scoped") == 0,
+          "sig: the features are listed");
+    CHECK(r.sig_at(kiln::test_image.base + TestPe::kFunc + 15, &info) && info.symbol == "scoped" && !r.sig_at(1, &info),
+          "sig: sig_at finds the described symbol at an address");
+    CHECK(!r.sig("nothing", &info) && !r.feature("sig/nothing"), "sig: a symbol without a descriptor has no feature");
+
+    // the function does not fit the descriptor: the feature is off, the symbol still resolves
+    write(R"(,"sigs":{"scoped":{"args":[{"name":"scale","type":"f32"}]}})");
+    sigdb::Resolver wrong;
+    CHECK(wrong.load(file, ""), "sig: a wrong descriptor loads");
+    wrong.resolve();
+    CHECK(wrong.symbol("scoped", &a) && wrong.sig("scoped", &info) && info.status == sigdb::SigStatus::Mismatch &&
+              !wrong.feature("sig/scoped") && wrong.feature_problem("sig/scoped", &name, &text, &constant) &&
+              text == "descriptor arg 1 'scale' is xmm0, the function reads [rcx]",
+          "sig: a float where the function reads rcx is a mismatch naming the argument; the symbol still resolves");
+    write(R"(,"sigs":{"scoped":{"args":[{"name":"self","type":"ptr"}],"abi":{"reads":["rcx","rdx"]}}})");
+    sigdb::Resolver stale;
+    stale.load(file, "");
+    stale.resolve();
+    CHECK(stale.sig("scoped", &info) && info.status == sigdb::SigStatus::Mismatch && info.text.find("review the descriptor") != std::string::npos,
+          "sig: a stored fingerprint that the code no longer has is a mismatch");
+    // malformed descriptors
+    write(R"(,"sigs":{"scoped":{"args":[{"name":"v","type":"Vec9"}]}})");
+    sigdb::Resolver bad;
+    CHECK(bad.load(file, ""), "sig: a descriptor with an unknown type still loads the file");
+    bad.resolve();
+    CHECK(bad.symbol("scoped", &a) && bad.sig("scoped", &info) && info.status == sigdb::SigStatus::Bad && !bad.feature("sig/scoped") &&
+              bad.feature_problem("sig/scoped", &name, &text, &constant) && text.find("Vec9") != std::string::npos,
+          "sig: ...and is off with the reason");
+    write(R"(,"sigs":{"scoped":{"args":[{"name":"self","type":"ptr"}],"abi":"trust"}})");
+    sigdb::Resolver core_trust;
+    core_trust.load(file, "");
+    core_trust.resolve();
+    CHECK(core_trust.sig("scoped", &info) && info.status == sigdb::SigStatus::Bad, "sig: a core descriptor may not say trust");
+    write(R"(,"sigs":{"root":{"args":[]}})");
+    sigdb::Resolver twice;
+    CHECK(!twice.load(file, "") && twice.load_error.find("two sig blocks") != std::string::npos, "sig: two descriptors for one symbol are refused");
+    write(R"(,"sigs":{"@probe":{"args":[]}})");
+    sigdb::Resolver probe;
+    CHECK(!probe.load(file, ""), "sig: a probe cannot carry a descriptor");
+    write(R"(,"structs":{"Pair":{"size":0}})");
+    sigdb::Resolver bad_struct;
+    CHECK(!bad_struct.load(file, ""), "sig: a malformed struct is refused at load");
+    // a fragment: names carry its prefix, trust is allowed, the core's structs are visible
+    {
+        std::ofstream out(file);
+        out << R"({"format":1,"symbols":{"mod/scoped":{"find":[{"pattern":"8B 81 34 12 00 00 C3"}],
+                 "sig":{"sret":"Pair","args":[],"abi":"trust"}}},
+                 "sigs":{"other/x":{"args":[]}}})";
+    }
+    sigdb::Resolver frag(&r);
+    CHECK(!frag.load(file, "mod/") && frag.load_error.find("other/x") != std::string::npos,
+          "sig: a fragment's sigs section may only describe its own names");
+    {
+        std::ofstream out(file);
+        out << R"({"format":1,"symbols":{"mod/scoped":{"find":[{"pattern":"8B 81 34 12 00 00 C3"}],
+                 "sig":{"sret":"Pair","args":[],"abi":"trust"}}}})";
+    }
+    sigdb::Resolver frag2(&r);
+    CHECK(frag2.load(file, "mod/"), "sig: a fragment with a trusted descriptor loads");
+    frag2.resolve();
+    CHECK(frag2.sig("mod/scoped", &info) && info.status == sigdb::SigStatus::Match && info.json.find("Pair") != std::string::npos,
+          "sig: a fragment's descriptor uses a struct the core declared; its sret buffer is the rcx the function reads");
+    test_query = false;
+    std::filesystem::remove(file);
+}
+
+// Another mod changed a byte of the function in place before Kiln's scan (a player's report of 14 Nov 2026: The Worst
+// Map Mod's map marker patches). A scan of the live code no longer finds the function; the file's code does, and the
+// symbol is listed as patched in place.
+static void in_place_patch(const char* dir) {
+    Loaded x;
+    uint8_t* fn = x.live.data() + TestPe::kFunc;
+    fn[0] = 0x49;  // was 48: mov rax, imm64 became mov r8, imm64
+    test_query = true;
+    test_mbi = {x.live.data(), x.live.size(), MEM_COMMIT, 4};
+    sigdb::init_code();
+    sigdb::Pattern p;
+    std::string err;
+    sigdb::parse_pattern("48 B8 ?? ?? ?? ?? ?? ?? ?? ?? E8 {helper:rel32}", p, err);
+    const uint8_t* live_text = x.live.data() + x.ft.text_rva;
+    CHECK(sigdb::scan(p, live_text, live_text + x.ft.text_vsize, 2).empty(),
+          "in place: the patched live code hides the function from a live scan");
+    const auto file = std::filesystem::path(dir) / "inplace.json";
+    {
+        std::ofstream out(file);
+        out << R"({"format":1,"symbols":{"root":{"find":[{"pattern":"48 B8 ?? ?? ?? ?? ?? ?? ?? ?? E8 {helper:rel32}"}]}}})";
+    }
+    sigdb::Resolver r;
+    r.load(file, "");
+    r.resolve();
+    uintptr_t a = 0;
+    CHECK(sigdb::g_code.view.disk && r.symbol("root", &a) && a == kiln::test_image.base + TestPe::kFunc,
+          "in place: the symbol resolves on the file's code");
+    std::vector<sigdb::LiveDiff> d;
+    r.collect_live_diffs(d);
+    CHECK(d.size() == 1 && d[0].symbol == "root" && d[0].at == a && d[0].bytes_ok && d[0].bytes[0] == 0x49 &&
+              d[0].by == "bytes changed in place",
+          "in place: the symbol is listed with its live bytes, as changed in place");
+    test_query = false;
+    std::filesystem::remove(file);
+}
+
+// The real client exe through the production view selection (a player's report of 14 Nov 2026): every function Kiln
+// resolves is hooked by another engine, and The Worst Map Mod's four places (client build 26430625; on another build
+// four other bytes) are patched in place, all before Kiln's scan.
+static void real_client_in_place(const std::string& exe, const std::filesystem::path& sigdb_dir) {
+    std::ifstream in(exe, std::ios::binary);
+    if (!in) {
+        std::printf("SKIP client view selection: cannot read %s\n", exe.c_str());
+        return;
+    }
+    std::vector<uint8_t> file((std::istreambuf_iterator<char>(in)), {});
+    pe::FileText ft;
+    std::string err;
+    if (!pe::parse_file_text(file.data(), file.size(), ft, err) || ft.file_bytes() < ft.text_vsize ||
+        !ft.relocs64.empty() || !ft.relocs32.empty()) {
+        std::printf("SKIP client view selection: %s\n", err.empty() ? "the exe needs a private copy of .text" : err.c_str());
+        return;
+    }
+    std::vector<uint8_t> live(ft.size_of_image, 0);
+    uint8_t* l_text = live.data() + ft.text_rva;
+    const uint8_t* f_text = file.data() + ft.text_raw;
+    std::memcpy(l_text, f_text, ft.text_vsize);
+    auto& img = kiln::test_image;
+    img = {};
+    img.base = reinterpret_cast<uintptr_t>(live.data());
+    img.size = ft.size_of_image;
+    img.text = l_text;
+    img.text_size = ft.text_vsize;
+    img.timestamp = ft.timestamp;
+    img.side = KILN_SIDE_CLIENT;
+    img.file = file.data();
+    img.file_size = file.size();
+
+    const auto defs = unscoped_defs(sigdb_dir, "client");
+    const pe::CodeView on_file{f_text, ft.text_vsize, reinterpret_cast<uintptr_t>(l_text), true};
+    std::map<std::string, uintptr_t> want;
+    for (const Def& d : defs) {
+        const auto h = sigdb::scan(d.p, on_file.scan, on_file.end(), 2);
+        if (h.size() == 1) want[d.name] = on_file.to_live(h[0]) + d.offset;
+    }
+    for (auto& [name, addr] : want) {
+        auto* at = reinterpret_cast<uint8_t*>(addr);
+        if (at < l_text || at + 5 > l_text + ft.text_vsize) continue;
+        at[0] = 0xE9;
+        const int32_t rel = 0x7FFF0000;
+        std::memcpy(at + 1, &rel, 4);
+    }
+    // Hooks closer than five bytes overwrite each other and read as no hook; count those before the patches.
+    const size_t before = pe::other_differences(f_text, l_text, ft.text_vsize, reinterpret_cast<uintptr_t>(l_text), img.base,
+                                                img.size).sites;
+    size_t patched = 0;
+    for (uint32_t rva : {0x31629du, 0x3168c9u, 0xd33058u, 0xd331eeu})
+        if (rva >= ft.text_rva && rva - ft.text_rva < ft.text_vsize) live[rva] ^= 0x01, ++patched;
+    auto resolved = [&](const pe::CodeView& cv) {
+        size_t n = 0;
+        for (const Def& d : defs) {
+            const auto it = want.find(d.name);
+            if (it == want.end()) continue;
+            const auto h = sigdb::scan(d.p, cv.scan, cv.end(), 2);
+            if (h.size() == 1 && cv.to_live(h[0]) + d.offset == it->second) ++n;
+        }
+        return n;
+    };
+
+    sigdb::g_code = {};
+    kiln::test_verified = true;
+    sigdb::init_code();
+    CHECK(patched == 4 && sigdb::g_code.view.disk && sigdb::g_code.in_place.sites == before + 4,
+          "client: %zu hooked functions and four in-place patches on a verified build keep the disk scan (%zu in-place "
+          "places, %zu of them hooks that overwrite each other)",
+          want.size(), sigdb::g_code.in_place.sites, before);
+    const size_t on_disk = resolved(sigdb::g_code.view);
+    CHECK(!want.empty() && on_disk == want.size(), "client: the selected view resolves all %zu symbols (%zu)", want.size(), on_disk);
+
+    sigdb::g_code = {};
+    kiln::test_verified = false;
+    sigdb::init_code();
+    const size_t on_live = resolved(sigdb::g_code.view);
+    CHECK(!sigdb::g_code.view.disk && on_live < want.size(),
+          "client: the same code with no verified build record is scanned live, where the hooks hide %zu of %zu symbols",
+          want.size() - on_live, want.size());
+    kiln::test_verified = true;
+    sigdb::g_code = {};
+    img = {};
+}
+
 static void hook_guard() {
     struct Hook { bool on = true; int restores = 0; bool enabled() { return on; }
                   bool disable() { ++restores; on = false; return true; } } h;
@@ -373,12 +637,21 @@ static void diff_budget() {
           static_cast<uintptr_t>(target) == text - 7, "runtime: negative rel32 at the section edge uses live address");
 }
 
+// sigdb_runtime_test <scratch folder> [--client <enshrouded.exe>] [--sigdb <sigdb/symbols>]
 int main(int argc, char** argv) {
-    if (argc != 2) return 2;
+    if (argc < 2) return 2;
     views_and_holes();
     pool_and_resolver(argv[1]);
     live_diff_accessors(argv[1]);
+    sig_blocks(argv[1]);
+    in_place_patch(argv[1]);
     hook_guard();
     diff_budget();
+    std::filesystem::path sigdb_dir = std::filesystem::path(__FILE__).parent_path() / "../../../sigdb/symbols";
+    for (int i = 2; i + 1 < argc; i += 2) {
+        const std::string opt = argv[i];
+        if (opt == "--sigdb") sigdb_dir = argv[i + 1];
+        else if (opt == "--client") real_client_in_place(argv[i + 1], sigdb_dir);
+    }
     return g_fail ? 1 : 0;
 }

@@ -29,6 +29,34 @@ void read_native(const nlohmann::json& sec, const char* where) {
     else if (p == "never") g_config.native_policy = NativePolicy::Never;
     else KLOG_W("config: %s native.policy '%s' is not always, verified-only or never; ignored", where, p.c_str());
 }
+// "preview": true | "all" | [names]. Present in a section, it replaces what an earlier section said.
+void read_preview(const nlohmann::json& sec, const char* where) {
+    if (!sec.contains("preview")) return;
+    const auto& p = sec["preview"];
+    g_config.preview_all = false;
+    g_config.preview.clear();
+    if (p.is_boolean()) {
+        g_config.preview_all = p.get<bool>();
+    } else if (p.is_string() && p.get<std::string>() == "all") {
+        g_config.preview_all = true;
+    } else if (p.is_array()) {
+        for (const auto& n : p) {
+            if (n.is_string()) g_config.preview.push_back(n.get<std::string>());
+            else KLOG_W("config: %s \"preview\" holds an entry that is not a capability name; ignored", where);
+        }
+    } else {
+        KLOG_W("config: %s \"preview\" is not true, false or a list of capability names; ignored", where);
+    }
+}
+// "boot": {"testRefuse": {"<mod>": "<collector>"}}: kiln.boot honours it only with policy any (labs).
+void read_boot(const nlohmann::json& doc) {
+    if (!doc.contains("boot") || !doc["boot"].is_object() || !doc["boot"].contains("testRefuse")) return;
+    const auto& t = doc["boot"]["testRefuse"];
+    if (!t.is_object()) return KLOG_W("config: kiln.json boot.testRefuse is not an object of mod id -> collector; ignored");
+    for (const auto& [mod, collector] : t.items())
+        if (collector.is_string()) g_config.boot_test_refuse[mod] = collector.get<std::string>();
+        else KLOG_W("config: kiln.json boot.testRefuse.%s is not a collector name; ignored", mod.c_str());
+}
 }  // namespace
 
 const Config& config() { return g_config; }
@@ -53,6 +81,8 @@ void load_config() {
         g_config.log_level = parse_level(doc.value("log_level", "info"));
         log::set_level(g_config.log_level);
         read_native(doc, "kiln.json");
+        read_preview(doc, "kiln.json");
+        read_boot(doc);
         KLOG_I("config: policy=%s clr=%d plugins=%d native.policy=%s", g_config.policy_any ? "any" : "verified-only",
                g_config.clr, g_config.plugins, native_policy_name(g_config.native_policy));
     } catch (const std::exception& e) {
@@ -65,6 +95,9 @@ void apply_side(uint32_t side) {
     if (!g_doc.is_object() || !g_doc.contains(name) || !g_doc[name].is_object()) return;
     try {
         const auto& sec = g_doc[name];
+        // Apply the gate override even if another side option has the wrong type. In particular, preview:false
+        // must not inherit a top-level preview:true because e.g. clr could not be read.
+        read_preview(sec, name);
         if (sec.contains("policy")) g_config.policy_any = sec.value("policy", "verified-only") == "any";
         g_config.clr = sec.value("clr", g_config.clr);
         g_config.plugins = sec.value("plugins", g_config.plugins);
@@ -77,7 +110,7 @@ void apply_side(uint32_t side) {
                g_config.policy_any ? "any" : "verified-only", g_config.clr, g_config.plugins,
                native_policy_name(g_config.native_policy));
     } catch (const std::exception& e) {
-        KLOG_E("config: kiln.json \"%s\" section unreadable (%s); top-level values stay", name, e.what());
+        KLOG_E("config: kiln.json \"%s\" section partly unreadable (%s); readable values stay", name, e.what());
     }
 }
 

@@ -1,0 +1,237 @@
+#nullable enable
+abstract Kiln.TerrainSource.<Clone>$() -> Kiln.TerrainSource!
+Kiln.Terrain
+Kiln.TerrainApplyOptions
+Kiln.TerrainApplyOptions.Cancel.get -> System.Threading.CancellationToken
+Kiln.TerrainApplyOptions.Cancel.init -> void
+Kiln.TerrainApplyOptions.CellsPerTick.get -> int
+Kiln.TerrainApplyOptions.CellsPerTick.init -> void
+Kiln.TerrainApplyOptions.InBases.get -> bool
+Kiln.TerrainApplyOptions.InBases.init -> void
+Kiln.TerrainApplyOptions.LoadTimeout.get -> System.TimeSpan
+Kiln.TerrainApplyOptions.LoadTimeout.init -> void
+Kiln.TerrainApplyOptions.Progress.get -> System.IProgress<Kiln.TerrainProgress>?
+Kiln.TerrainApplyOptions.Progress.init -> void
+Kiln.TerrainApplyOptions.TerrainApplyOptions() -> void
+Kiln.TerrainChangedEvent
+Kiln.TerrainChangedEvent.Batch.get -> int
+Kiln.TerrainChangedEvent.BatchCount.get -> int
+Kiln.TerrainChangedEvent.Box.get -> Kiln.CellBox
+Kiln.TerrainChangedEvent.CellsChanged.get -> long
+Kiln.TerrainChangedEvent.Last.get -> bool
+Kiln.TerrainChangedEvent.Mod.get -> string!
+Kiln.TerrainChangedEvent.Plan.get -> string!
+Kiln.TerrainChangedEvent.Version.get -> int
+Kiln.TerrainConflict
+Kiln.TerrainConflict.<Clone>$() -> Kiln.TerrainConflict!
+Kiln.TerrainConflict.Block.get -> Kiln.CellBox
+Kiln.TerrainConflict.Block.init -> void
+Kiln.TerrainConflict.Deconstruct(out Kiln.TerrainConflictKind Kind, out Kiln.CellBox Block, out string? Owner) -> void
+Kiln.TerrainConflict.Equals(Kiln.TerrainConflict? other) -> bool
+Kiln.TerrainConflict.Kind.get -> Kiln.TerrainConflictKind
+Kiln.TerrainConflict.Kind.init -> void
+Kiln.TerrainConflict.Owner.get -> string?
+Kiln.TerrainConflict.Owner.init -> void
+Kiln.TerrainConflict.TerrainConflict(Kiln.TerrainConflictKind Kind, Kiln.CellBox Block, string? Owner = null) -> void
+Kiln.TerrainConflictKind
+Kiln.TerrainConflictKind.BaseZone = 2 -> Kiln.TerrainConflictKind
+Kiln.TerrainConflictKind.OtherPlan = 1 -> Kiln.TerrainConflictKind
+Kiln.TerrainConflictKind.PlayerEdit = 0 -> Kiln.TerrainConflictKind
+Kiln.TerrainHeightfield
+Kiln.TerrainHeightfield.Deconstruct(out float[]! Heights, out byte Fill, out Kiln.TerrainHeightMode Mode, out byte Surface, out int SurfaceDepth) -> void
+Kiln.TerrainHeightfield.Equals(Kiln.TerrainHeightfield? other) -> bool
+Kiln.TerrainHeightfield.Fill.get -> byte
+Kiln.TerrainHeightfield.Fill.init -> void
+Kiln.TerrainHeightfield.Heights.get -> float[]!
+Kiln.TerrainHeightfield.Heights.init -> void
+Kiln.TerrainHeightfield.Mode.get -> Kiln.TerrainHeightMode
+Kiln.TerrainHeightfield.Mode.init -> void
+Kiln.TerrainHeightfield.Surface.get -> byte
+Kiln.TerrainHeightfield.Surface.init -> void
+Kiln.TerrainHeightfield.SurfaceDepth.get -> int
+Kiln.TerrainHeightfield.SurfaceDepth.init -> void
+Kiln.TerrainHeightfield.TerrainHeightfield(float[]! Heights, byte Fill, Kiln.TerrainHeightMode Mode = Kiln.TerrainHeightMode.Replace, byte Surface = 0, int SurfaceDepth = 0) -> void
+Kiln.TerrainHeightMode
+Kiln.TerrainHeightMode.AddOnTop = 1 -> Kiln.TerrainHeightMode
+Kiln.TerrainHeightMode.Replace = 0 -> Kiln.TerrainHeightMode
+Kiln.TerrainPaletteEntry
+Kiln.TerrainPaletteEntry.<Clone>$() -> Kiln.TerrainPaletteEntry!
+Kiln.TerrainPaletteEntry.Deconstruct(out byte Material, out byte Fill) -> void
+Kiln.TerrainPaletteEntry.Equals(Kiln.TerrainPaletteEntry? other) -> bool
+Kiln.TerrainPaletteEntry.Fill.get -> byte
+Kiln.TerrainPaletteEntry.Fill.init -> void
+Kiln.TerrainPaletteEntry.Material.get -> byte
+Kiln.TerrainPaletteEntry.Material.init -> void
+Kiln.TerrainPaletteEntry.TerrainPaletteEntry(byte Material, byte Fill = 255) -> void
+Kiln.TerrainPatch
+Kiln.TerrainPatch.<Clone>$() -> Kiln.TerrainPatch!
+Kiln.TerrainPatch.Deconstruct(out string! Id, out int Version, out Kiln.CellBox Region, out Kiln.TerrainSource! Source, out System.Collections.Generic.IReadOnlyList<Kiln.TerrainPaletteEntry!>! Palette, out Kiln.TerrainPersistence Persistence) -> void
+Kiln.TerrainPatch.Equals(Kiln.TerrainPatch? other) -> bool
+Kiln.TerrainPatch.Id.get -> string!
+Kiln.TerrainPatch.Id.init -> void
+Kiln.TerrainPatch.Palette.get -> System.Collections.Generic.IReadOnlyList<Kiln.TerrainPaletteEntry!>!
+Kiln.TerrainPatch.Palette.init -> void
+Kiln.TerrainPatch.Persistence.get -> Kiln.TerrainPersistence
+Kiln.TerrainPatch.Persistence.init -> void
+Kiln.TerrainPatch.Region.get -> Kiln.CellBox
+Kiln.TerrainPatch.Region.init -> void
+Kiln.TerrainPatch.Source.get -> Kiln.TerrainSource!
+Kiln.TerrainPatch.Source.init -> void
+Kiln.TerrainPatch.TerrainPatch(string! Id, int Version, Kiln.CellBox Region, Kiln.TerrainSource! Source, System.Collections.Generic.IReadOnlyList<Kiln.TerrainPaletteEntry!>! Palette, Kiln.TerrainPersistence Persistence = Kiln.TerrainPersistence.Kept) -> void
+Kiln.TerrainPatch.ToJson() -> string!
+Kiln.TerrainPatch.Version.get -> int
+Kiln.TerrainPatch.Version.init -> void
+Kiln.TerrainPersistence
+Kiln.TerrainPersistence.Kept = 0 -> Kiln.TerrainPersistence
+Kiln.TerrainPersistence.Transient = 1 -> Kiln.TerrainPersistence
+Kiln.TerrainPlanInfo
+Kiln.TerrainPlanInfo.<Clone>$() -> Kiln.TerrainPlanInfo!
+Kiln.TerrainPlanInfo.AppliedAt.get -> System.DateTimeOffset
+Kiln.TerrainPlanInfo.AppliedAt.init -> void
+Kiln.TerrainPlanInfo.Blocks.get -> int
+Kiln.TerrainPlanInfo.Blocks.init -> void
+Kiln.TerrainPlanInfo.Complete.get -> bool
+Kiln.TerrainPlanInfo.Complete.init -> void
+Kiln.TerrainPlanInfo.Deconstruct(out string! Plan, out int Version, out Kiln.CellBox Region, out bool Complete, out int Blocks, out int GivenUp, out System.DateTimeOffset AppliedAt) -> void
+Kiln.TerrainPlanInfo.Equals(Kiln.TerrainPlanInfo? other) -> bool
+Kiln.TerrainPlanInfo.GivenUp.get -> int
+Kiln.TerrainPlanInfo.GivenUp.init -> void
+Kiln.TerrainPlanInfo.Plan.get -> string!
+Kiln.TerrainPlanInfo.Plan.init -> void
+Kiln.TerrainPlanInfo.Region.get -> Kiln.CellBox
+Kiln.TerrainPlanInfo.Region.init -> void
+Kiln.TerrainPlanInfo.TerrainPlanInfo(string! Plan, int Version, Kiln.CellBox Region, bool Complete, int Blocks, int GivenUp, System.DateTimeOffset AppliedAt) -> void
+Kiln.TerrainPlanInfo.Version.get -> int
+Kiln.TerrainPlanInfo.Version.init -> void
+Kiln.TerrainPlanReport
+Kiln.TerrainPlanReport.<Clone>$() -> Kiln.TerrainPlanReport!
+Kiln.TerrainPlanReport.Batches.get -> int
+Kiln.TerrainPlanReport.Batches.init -> void
+Kiln.TerrainPlanReport.Blocks.get -> int
+Kiln.TerrainPlanReport.Blocks.init -> void
+Kiln.TerrainPlanReport.Box.get -> Kiln.CellBox
+Kiln.TerrainPlanReport.Box.init -> void
+Kiln.TerrainPlanReport.Cells.get -> long
+Kiln.TerrainPlanReport.Cells.init -> void
+Kiln.TerrainPlanReport.Conflicts.get -> System.Collections.Generic.IReadOnlyList<Kiln.TerrainConflict!>!
+Kiln.TerrainPlanReport.Conflicts.init -> void
+Kiln.TerrainPlanReport.Deconstruct(out bool Ok, out string? Reason, out Kiln.CellBox Box, out long Cells, out int Blocks, out int Batches, out long EstimatedBytes, out Kiln.TerrainState Would, out System.Collections.Generic.IReadOnlyList<Kiln.TerrainConflict!>! Conflicts) -> void
+Kiln.TerrainPlanReport.Equals(Kiln.TerrainPlanReport? other) -> bool
+Kiln.TerrainPlanReport.EstimatedBytes.get -> long
+Kiln.TerrainPlanReport.EstimatedBytes.init -> void
+Kiln.TerrainPlanReport.Ok.get -> bool
+Kiln.TerrainPlanReport.Ok.init -> void
+Kiln.TerrainPlanReport.Reason.get -> string?
+Kiln.TerrainPlanReport.Reason.init -> void
+Kiln.TerrainPlanReport.TerrainPlanReport(bool Ok, string? Reason, Kiln.CellBox Box, long Cells, int Blocks, int Batches, long EstimatedBytes, Kiln.TerrainState Would, System.Collections.Generic.IReadOnlyList<Kiln.TerrainConflict!>! Conflicts) -> void
+Kiln.TerrainPlanReport.Would.get -> Kiln.TerrainState
+Kiln.TerrainPlanReport.Would.init -> void
+Kiln.TerrainProgress
+Kiln.TerrainProgress.BatchCount.get -> int
+Kiln.TerrainProgress.BatchCount.init -> void
+Kiln.TerrainProgress.Batches.get -> int
+Kiln.TerrainProgress.Batches.init -> void
+Kiln.TerrainProgress.ChangedCells.get -> long
+Kiln.TerrainProgress.ChangedCells.init -> void
+Kiln.TerrainProgress.Deconstruct(out int Batches, out int BatchCount, out long ChangedCells) -> void
+Kiln.TerrainProgress.Equals(Kiln.TerrainProgress other) -> bool
+Kiln.TerrainProgress.TerrainProgress() -> void
+Kiln.TerrainProgress.TerrainProgress(int Batches, int BatchCount, long ChangedCells) -> void
+Kiln.TerrainResult
+Kiln.TerrainResult.<Clone>$() -> Kiln.TerrainResult!
+Kiln.TerrainResult.Batches.get -> int
+Kiln.TerrainResult.Batches.init -> void
+Kiln.TerrainResult.ChangedCells.get -> long
+Kiln.TerrainResult.ChangedCells.init -> void
+Kiln.TerrainResult.Conflicts.get -> System.Collections.Generic.IReadOnlyList<Kiln.TerrainConflict!>!
+Kiln.TerrainResult.Conflicts.init -> void
+Kiln.TerrainResult.Deconstruct(out bool Ok, out string? Reason, out Kiln.TerrainState State, out string! Plan, out int Version, out long ChangedCells, out int Batches, out System.Collections.Generic.IReadOnlyList<Kiln.TerrainConflict!>! Conflicts) -> void
+Kiln.TerrainResult.Equals(Kiln.TerrainResult? other) -> bool
+Kiln.TerrainResult.Ok.get -> bool
+Kiln.TerrainResult.Ok.init -> void
+Kiln.TerrainResult.Plan.get -> string!
+Kiln.TerrainResult.Plan.init -> void
+Kiln.TerrainResult.Reason.get -> string?
+Kiln.TerrainResult.Reason.init -> void
+Kiln.TerrainResult.State.get -> Kiln.TerrainState
+Kiln.TerrainResult.State.init -> void
+Kiln.TerrainResult.TerrainResult(bool Ok, string? Reason, Kiln.TerrainState State, string! Plan, int Version, long ChangedCells, int Batches, System.Collections.Generic.IReadOnlyList<Kiln.TerrainConflict!>! Conflicts) -> void
+Kiln.TerrainResult.Version.get -> int
+Kiln.TerrainResult.Version.init -> void
+Kiln.TerrainSource
+Kiln.TerrainSource.TerrainSource(Kiln.TerrainSource! original) -> void
+Kiln.TerrainState
+Kiln.TerrainState.AlreadyApplied = 1 -> Kiln.TerrainState
+Kiln.TerrainState.Completed = 0 -> Kiln.TerrainState
+Kiln.TerrainState.Conflict = 2 -> Kiln.TerrainState
+Kiln.TerrainState.Partial = 3 -> Kiln.TerrainState
+Kiln.TerrainState.Refused = 4 -> Kiln.TerrainState
+Kiln.TerrainVoxelVolume
+Kiln.TerrainVoxelVolume.Cells.get -> byte[]!
+Kiln.TerrainVoxelVolume.Cells.init -> void
+Kiln.TerrainVoxelVolume.Deconstruct(out byte[]! Cells) -> void
+Kiln.TerrainVoxelVolume.Equals(Kiln.TerrainVoxelVolume? other) -> bool
+Kiln.TerrainVoxelVolume.TerrainVoxelVolume(byte[]! Cells) -> void
+override Kiln.TerrainConflict.Equals(object? obj) -> bool
+override Kiln.TerrainConflict.GetHashCode() -> int
+override Kiln.TerrainConflict.ToString() -> string!
+override Kiln.TerrainHeightfield.<Clone>$() -> Kiln.TerrainHeightfield!
+override Kiln.TerrainHeightfield.Equals(object? obj) -> bool
+override Kiln.TerrainHeightfield.GetHashCode() -> int
+override Kiln.TerrainHeightfield.ToString() -> string!
+override Kiln.TerrainPaletteEntry.Equals(object? obj) -> bool
+override Kiln.TerrainPaletteEntry.GetHashCode() -> int
+override Kiln.TerrainPaletteEntry.ToString() -> string!
+override Kiln.TerrainPatch.Equals(object? obj) -> bool
+override Kiln.TerrainPatch.GetHashCode() -> int
+override Kiln.TerrainPatch.ToString() -> string!
+override Kiln.TerrainPlanInfo.Equals(object? obj) -> bool
+override Kiln.TerrainPlanInfo.GetHashCode() -> int
+override Kiln.TerrainPlanInfo.ToString() -> string!
+override Kiln.TerrainPlanReport.Equals(object? obj) -> bool
+override Kiln.TerrainPlanReport.GetHashCode() -> int
+override Kiln.TerrainPlanReport.ToString() -> string!
+override Kiln.TerrainProgress.GetHashCode() -> int
+override Kiln.TerrainResult.Equals(object? obj) -> bool
+override Kiln.TerrainResult.GetHashCode() -> int
+override Kiln.TerrainResult.ToString() -> string!
+override Kiln.TerrainSource.Equals(object? obj) -> bool
+override Kiln.TerrainSource.GetHashCode() -> int
+override Kiln.TerrainSource.ToString() -> string!
+override Kiln.TerrainVoxelVolume.<Clone>$() -> Kiln.TerrainVoxelVolume!
+override Kiln.TerrainVoxelVolume.Equals(object? obj) -> bool
+override Kiln.TerrainVoxelVolume.GetHashCode() -> int
+override Kiln.TerrainVoxelVolume.ToString() -> string!
+override sealed Kiln.TerrainHeightfield.Equals(Kiln.TerrainSource? other) -> bool
+override sealed Kiln.TerrainVoxelVolume.Equals(Kiln.TerrainSource? other) -> bool
+static Kiln.Terrain.Applied.get -> System.Collections.Generic.IReadOnlyList<Kiln.TerrainPlanInfo!>!
+static Kiln.Terrain.Apply(Kiln.TerrainPatch! patch, Kiln.TerrainApplyOptions? options = null) -> System.Threading.Tasks.Task<Kiln.TerrainResult!>!
+static Kiln.Terrain.Changed -> System.Action<Kiln.TerrainChangedEvent!>?
+static Kiln.Terrain.Forget(string! id) -> bool
+static Kiln.Terrain.Inspect(Kiln.TerrainPatch! patch, Kiln.TerrainApplyOptions? options = null) -> System.Threading.Tasks.Task<Kiln.TerrainPlanReport!>!
+static Kiln.TerrainConflict.operator !=(Kiln.TerrainConflict? left, Kiln.TerrainConflict? right) -> bool
+static Kiln.TerrainConflict.operator ==(Kiln.TerrainConflict? left, Kiln.TerrainConflict? right) -> bool
+static Kiln.TerrainHeightfield.operator !=(Kiln.TerrainHeightfield? left, Kiln.TerrainHeightfield? right) -> bool
+static Kiln.TerrainHeightfield.operator ==(Kiln.TerrainHeightfield? left, Kiln.TerrainHeightfield? right) -> bool
+static Kiln.TerrainPaletteEntry.operator !=(Kiln.TerrainPaletteEntry? left, Kiln.TerrainPaletteEntry? right) -> bool
+static Kiln.TerrainPaletteEntry.operator ==(Kiln.TerrainPaletteEntry? left, Kiln.TerrainPaletteEntry? right) -> bool
+static Kiln.TerrainPatch.FromJson(string! json) -> Kiln.TerrainPatch!
+static Kiln.TerrainPatch.operator !=(Kiln.TerrainPatch? left, Kiln.TerrainPatch? right) -> bool
+static Kiln.TerrainPatch.operator ==(Kiln.TerrainPatch? left, Kiln.TerrainPatch? right) -> bool
+static Kiln.TerrainPlanInfo.operator !=(Kiln.TerrainPlanInfo? left, Kiln.TerrainPlanInfo? right) -> bool
+static Kiln.TerrainPlanInfo.operator ==(Kiln.TerrainPlanInfo? left, Kiln.TerrainPlanInfo? right) -> bool
+static Kiln.TerrainPlanReport.operator !=(Kiln.TerrainPlanReport? left, Kiln.TerrainPlanReport? right) -> bool
+static Kiln.TerrainPlanReport.operator ==(Kiln.TerrainPlanReport? left, Kiln.TerrainPlanReport? right) -> bool
+static Kiln.TerrainProgress.operator !=(Kiln.TerrainProgress left, Kiln.TerrainProgress right) -> bool
+static Kiln.TerrainProgress.operator ==(Kiln.TerrainProgress left, Kiln.TerrainProgress right) -> bool
+static Kiln.TerrainResult.operator !=(Kiln.TerrainResult? left, Kiln.TerrainResult? right) -> bool
+static Kiln.TerrainResult.operator ==(Kiln.TerrainResult? left, Kiln.TerrainResult? right) -> bool
+static Kiln.TerrainSource.operator !=(Kiln.TerrainSource? left, Kiln.TerrainSource? right) -> bool
+static Kiln.TerrainSource.operator ==(Kiln.TerrainSource? left, Kiln.TerrainSource? right) -> bool
+static Kiln.TerrainVoxelVolume.operator !=(Kiln.TerrainVoxelVolume? left, Kiln.TerrainVoxelVolume? right) -> bool
+static Kiln.TerrainVoxelVolume.operator ==(Kiln.TerrainVoxelVolume? left, Kiln.TerrainVoxelVolume? right) -> bool
+virtual Kiln.TerrainSource.EqualityContract.get -> System.Type!
+virtual Kiln.TerrainSource.Equals(Kiln.TerrainSource? other) -> bool
+virtual Kiln.TerrainSource.PrintMembers(System.Text.StringBuilder! builder) -> bool
+~override Kiln.TerrainProgress.Equals(object obj) -> bool
+~override Kiln.TerrainProgress.ToString() -> string

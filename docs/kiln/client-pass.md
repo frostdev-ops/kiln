@@ -40,6 +40,7 @@ assets built first: their descriptions say so).
 | `ability-blocks` | `mods/samples/AbilityBlocks` | an ability on G |
 | `creature-ai` | `mods/samples/CreatureAi` | who fights whom, the caller |
 | `creature-blocks` | `mods/samples/CreatureBlocks` | a skinned creature from glTF |
+| `creature-control-sample` | `mods/samples/CreatureControlSample` | `19d-brain-walks`: a brain creature that walks to you |
 | `retarget-test` | `mods/tests/retarget-test` | retargeted animations |
 | `npcsample` | `mods/samples/NpcSample` | an NPC and a quest in the game's UI |
 | `rules-sample` | `mods/samples/RulesSample` | `/flight` |

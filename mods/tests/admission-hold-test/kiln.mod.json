@@ -1,0 +1,10 @@
+{
+  "id": "admission-hold-test",
+  "name": "admission hold fixture",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "AdmissionHoldTest.dll",
+  "side": "server",
+  "advanced": true,
+  "description": "Fixture of the guided check 15a-hold-kiln: holds each joining Kiln client for holdSeconds (kiln/config/admission-hold-test.json, default 8) before it enters the world; 25 or more and the hold's deadline refuses it with a text. Test servers only."
+}

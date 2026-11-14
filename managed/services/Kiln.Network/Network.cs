@@ -102,6 +102,18 @@ public sealed class NetPeer
 
     public long MessagesIn, MessagesOut, BytesIn, BytesOut, Dropped;
 
+    /// <summary>Channel-12 frames this peer sent us (server side: one client; on a client: the server), every type,
+    /// the HELLO and the pings too. 0 for a client without Kiln: its game never writes channel 12.</summary>
+    [AnyThread]
+    public long FramesIn => Interlocked.Read(ref FramesInCount);
+
+    /// <summary>Channel-12 frames we sent this peer that kiln.net took. A client without Kiln gets none, or the one
+    /// REJECT its game discards when it is refused.</summary>
+    [AnyThread]
+    public long FramesOut => Interlocked.Read(ref FramesOutCount);
+
+    internal long FramesInCount, FramesOutCount;
+
     /// <summary>Whether the peer has channel <paramref name="name"/> (with a matching version).</summary>
     public bool HasChannel(string name) => Channels.ContainsKey(name);
 
@@ -122,6 +134,9 @@ public sealed class NetPeer
     internal bool LoginSeen;      // server role: PlayerLoginEvent was posted for it (or it was banned)
     internal int KickFailures;    // server role: the game's kick call failed this often for it
     internal DateTime? KickRetryAt;  // server role: a failed kick is not tried again by the gate before this
+    internal DateTime? BlockedSince; // server role: kiln.net refused it before it was in the world and nothing could end it
+    internal bool BlockedLogged;     // ... and Kiln.Network said so (once)
+    internal bool Ending;            // server role: the login failure could not reach it, the game's session kick ends it
     internal double TokensMsgs, TokensBytes;
     internal DateTime TokensAt = DateTime.UtcNow;
     internal readonly Queue<DateTime> RecentDrops = new();

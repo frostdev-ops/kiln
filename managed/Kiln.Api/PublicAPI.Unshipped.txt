@@ -1,1 +1,265 @@
 #nullable enable
+Kiln.Capability.IsHeld.get -> bool
+Kiln.ClientMainThreadAttribute
+Kiln.ClientMainThreadAttribute.ClientMainThreadAttribute() -> void
+static Kiln.Capabilities.IsHeld(string! name) -> bool
+[KILNX028]Kiln.CapacityChangedEvent
+[KILNX028]Kiln.CapacityChangedEvent.Current.get -> Kiln.CapacityInfo!
+[KILNX028]Kiln.CapacityChangedEvent.Previous.get -> Kiln.CapacityInfo!
+[KILNX028]Kiln.CapacityChangedEvent.Quota.get -> string!
+[KILNX028]Kiln.CapacityInfo
+[KILNX028]Kiln.CapacityInfo.<Clone>$() -> Kiln.CapacityInfo!
+[KILNX028]Kiln.CapacityInfo.Available.get -> uint?
+[KILNX028]Kiln.CapacityInfo.Capacity.get -> uint
+[KILNX028]Kiln.CapacityInfo.Capacity.init -> void
+[KILNX028]Kiln.CapacityInfo.CapacityInfo(uint Capacity, uint GameUsed, uint KilnUsed, uint Reserved, Kiln.CapacityReadiness Readiness, bool Expanded, Kiln.CapacityScope Scope, bool ExternalUsageUnknown, Kiln.CapacityWorldToken? World, ulong Revision) -> void
+[KILNX028]Kiln.CapacityInfo.Deconstruct(out uint Capacity, out uint GameUsed, out uint KilnUsed, out uint Reserved, out Kiln.CapacityReadiness Readiness, out bool Expanded, out Kiln.CapacityScope Scope, out bool ExternalUsageUnknown, out Kiln.CapacityWorldToken? World, out ulong Revision) -> void
+[KILNX028]Kiln.CapacityInfo.Equals(Kiln.CapacityInfo? other) -> bool
+[KILNX028]Kiln.CapacityInfo.Expanded.get -> bool
+[KILNX028]Kiln.CapacityInfo.Expanded.init -> void
+[KILNX028]Kiln.CapacityInfo.ExternalUsageUnknown.get -> bool
+[KILNX028]Kiln.CapacityInfo.ExternalUsageUnknown.init -> void
+[KILNX028]Kiln.CapacityInfo.GameUsed.get -> uint
+[KILNX028]Kiln.CapacityInfo.GameUsed.init -> void
+[KILNX028]Kiln.CapacityInfo.KilnUsed.get -> uint
+[KILNX028]Kiln.CapacityInfo.KilnUsed.init -> void
+[KILNX028]Kiln.CapacityInfo.Readiness.get -> Kiln.CapacityReadiness
+[KILNX028]Kiln.CapacityInfo.Readiness.init -> void
+[KILNX028]Kiln.CapacityInfo.Ready.get -> bool
+[KILNX028]Kiln.CapacityInfo.Reserved.get -> uint
+[KILNX028]Kiln.CapacityInfo.Reserved.init -> void
+[KILNX028]Kiln.CapacityInfo.Revision.get -> ulong
+[KILNX028]Kiln.CapacityInfo.Revision.init -> void
+[KILNX028]Kiln.CapacityInfo.Scope.get -> Kiln.CapacityScope
+[KILNX028]Kiln.CapacityInfo.Scope.init -> void
+[KILNX028]Kiln.CapacityInfo.World.get -> Kiln.CapacityWorldToken?
+[KILNX028]Kiln.CapacityInfo.World.init -> void
+[KILNX028]Kiln.CapacityQueryResult
+[KILNX028]Kiln.CapacityQueryResult.<Clone>$() -> Kiln.CapacityQueryResult!
+[KILNX028]Kiln.CapacityQueryResult.Budget.get -> Kiln.CapacityInfo!
+[KILNX028]Kiln.CapacityQueryResult.Budget.init -> void
+[KILNX028]Kiln.CapacityQueryResult.CapacityQueryResult(bool Ok, string? Reason, Kiln.CapacityInfo! Budget) -> void
+[KILNX028]Kiln.CapacityQueryResult.Deconstruct(out bool Ok, out string? Reason, out Kiln.CapacityInfo! Budget) -> void
+[KILNX028]Kiln.CapacityQueryResult.Equals(Kiln.CapacityQueryResult? other) -> bool
+[KILNX028]Kiln.CapacityQueryResult.Ok.get -> bool
+[KILNX028]Kiln.CapacityQueryResult.Ok.init -> void
+[KILNX028]Kiln.CapacityQueryResult.Reason.get -> string?
+[KILNX028]Kiln.CapacityQueryResult.Reason.init -> void
+[KILNX028]Kiln.CapacityReadiness
+[KILNX028]Kiln.CapacityReadiness.AccountingMismatch = 5 -> Kiln.CapacityReadiness
+[KILNX028]Kiln.CapacityReadiness.NotFound = 6 -> Kiln.CapacityReadiness
+[KILNX028]Kiln.CapacityReadiness.NotReady = 0 -> Kiln.CapacityReadiness
+[KILNX028]Kiln.CapacityReadiness.NoWorld = 2 -> Kiln.CapacityReadiness
+[KILNX028]Kiln.CapacityReadiness.Ready = 1 -> Kiln.CapacityReadiness
+[KILNX028]Kiln.CapacityReadiness.UnknownExternalUsage = 4 -> Kiln.CapacityReadiness
+[KILNX028]Kiln.CapacityReadiness.WorldEnded = 3 -> Kiln.CapacityReadiness
+[KILNX028]Kiln.CapacityScope
+[KILNX028]Kiln.CapacityScope.Process = 0 -> Kiln.CapacityScope
+[KILNX028]Kiln.CapacityScope.World = 1 -> Kiln.CapacityScope
+[KILNX028]Kiln.CapacityWorldKind
+[KILNX028]Kiln.CapacityWorldKind.Client = 2 -> Kiln.CapacityWorldKind
+[KILNX028]Kiln.CapacityWorldKind.Server = 0 -> Kiln.CapacityWorldKind
+[KILNX028]Kiln.CapacityWorldToken
+[KILNX028]Kiln.CapacityWorldToken.CapacityWorldToken() -> void
+[KILNX028]Kiln.CapacityWorldToken.CapacityWorldToken(Kiln.CapacityWorldKind Kind, uint Generation) -> void
+[KILNX028]Kiln.CapacityWorldToken.Deconstruct(out Kiln.CapacityWorldKind Kind, out uint Generation) -> void
+[KILNX028]Kiln.CapacityWorldToken.Equals(Kiln.CapacityWorldToken other) -> bool
+[KILNX028]Kiln.CapacityWorldToken.Generation.get -> uint
+[KILNX028]Kiln.CapacityWorldToken.Generation.init -> void
+[KILNX028]Kiln.CapacityWorldToken.Kind.get -> Kiln.CapacityWorldKind
+[KILNX028]Kiln.CapacityWorldToken.Kind.init -> void
+[KILNX028]Kiln.DefinitionRefusalCode
+[KILNX028]Kiln.DefinitionRefusalCode.CapacityExceeded = 1 -> Kiln.DefinitionRefusalCode
+[KILNX028]Kiln.DefinitionRefusalCode.GameRefused = 14 -> Kiln.DefinitionRefusalCode
+[KILNX028]Kiln.DefinitionRefusalCode.IdCollision = 3 -> Kiln.DefinitionRefusalCode
+[KILNX028]Kiln.DefinitionRefusalCode.NameTaken = 4 -> Kiln.DefinitionRefusalCode
+[KILNX028]Kiln.DefinitionRefusalCode.None = 0 -> Kiln.DefinitionRefusalCode
+[KILNX028]Kiln.DefinitionRefusalCode.NotFound = 9 -> Kiln.DefinitionRefusalCode
+[KILNX028]Kiln.DefinitionRefusalCode.NotReady = 7 -> Kiln.DefinitionRefusalCode
+[KILNX028]Kiln.DefinitionRefusalCode.NoWorld = 6 -> Kiln.DefinitionRefusalCode
+[KILNX028]Kiln.DefinitionRefusalCode.OwnerInactive = 10 -> Kiln.DefinitionRefusalCode
+[KILNX028]Kiln.DefinitionRefusalCode.RegistrationFailedRetained = 11 -> Kiln.DefinitionRefusalCode
+[KILNX028]Kiln.DefinitionRefusalCode.RegistryClosed = 5 -> Kiln.DefinitionRefusalCode
+[KILNX028]Kiln.DefinitionRefusalCode.Removed = 13 -> Kiln.DefinitionRefusalCode
+[KILNX028]Kiln.DefinitionRefusalCode.StorageFailure = 8 -> Kiln.DefinitionRefusalCode
+[KILNX028]Kiln.DefinitionRefusalCode.Superseded = 12 -> Kiln.DefinitionRefusalCode
+[KILNX028]Kiln.DefinitionRefusalCode.UnknownBase = 2 -> Kiln.DefinitionRefusalCode
+[KILNX028]Kiln.DefinitionRegistrationChangedEvent
+[KILNX028]Kiln.DefinitionRegistrationChangedEvent.Current.get -> Kiln.DefinitionRegistrationResult!
+[KILNX028]Kiln.DefinitionRegistrationChangedEvent.ModId.get -> string!
+[KILNX028]Kiln.DefinitionRegistrationChangedEvent.PreviousSlotsConsumed.get -> uint
+[KILNX028]Kiln.DefinitionRegistrationChangedEvent.PreviousState.get -> Kiln.DefinitionRegistrationState?
+[KILNX028]Kiln.DefinitionRegistrationChangedEvent.World.get -> Kiln.CapacityWorldToken?
+[KILNX028]Kiln.DefinitionRegistrationKind
+[KILNX028]Kiln.DefinitionRegistrationKind.Buff = 1 -> Kiln.DefinitionRegistrationKind
+[KILNX028]Kiln.DefinitionRegistrationKind.BuildingMaterialPool = 2 -> Kiln.DefinitionRegistrationKind
+[KILNX028]Kiln.DefinitionRegistrationKind.Vfx = 0 -> Kiln.DefinitionRegistrationKind
+[KILNX028]Kiln.DefinitionRegistrationOptions
+[KILNX028]Kiln.DefinitionRegistrationOptions.<Clone>$() -> Kiln.DefinitionRegistrationOptions!
+[KILNX028]Kiln.DefinitionRegistrationOptions.Deconstruct(out Kiln.DefinitionTiming Timing) -> void
+[KILNX028]Kiln.DefinitionRegistrationOptions.DefinitionRegistrationOptions(Kiln.DefinitionTiming Timing = Kiln.DefinitionTiming.RequireRegistered) -> void
+[KILNX028]Kiln.DefinitionRegistrationOptions.Equals(Kiln.DefinitionRegistrationOptions? other) -> bool
+[KILNX028]Kiln.DefinitionRegistrationOptions.Timing.get -> Kiln.DefinitionTiming
+[KILNX028]Kiln.DefinitionRegistrationOptions.Timing.init -> void
+[KILNX028]Kiln.DefinitionRegistrationResult
+[KILNX028]Kiln.DefinitionRegistrationResult.<Clone>$() -> Kiln.DefinitionRegistrationResult!
+[KILNX028]Kiln.DefinitionRegistrationResult.Code.get -> Kiln.DefinitionRefusalCode
+[KILNX028]Kiln.DefinitionRegistrationResult.Code.init -> void
+[KILNX028]Kiln.DefinitionRegistrationResult.Deconstruct(out bool Ok, out string? Reason, out Kiln.DefinitionRefusalCode Code, out System.Guid RegistrationId, out System.Guid Definition, out Kiln.DefinitionRegistrationKind Kind, out Kiln.DefinitionRegistrationState State, out uint SlotsConsumed, out ulong SnapshotRevision, out System.Collections.Generic.IReadOnlyList<string!>! Warnings) -> void
+[KILNX028]Kiln.DefinitionRegistrationResult.Definition.get -> System.Guid
+[KILNX028]Kiln.DefinitionRegistrationResult.Definition.init -> void
+[KILNX028]Kiln.DefinitionRegistrationResult.DefinitionRegistrationResult(bool Ok, string? Reason, Kiln.DefinitionRefusalCode Code, System.Guid RegistrationId, System.Guid Definition, Kiln.DefinitionRegistrationKind Kind, Kiln.DefinitionRegistrationState State, uint SlotsConsumed, ulong SnapshotRevision, System.Collections.Generic.IReadOnlyList<string!>! Warnings) -> void
+[KILNX028]Kiln.DefinitionRegistrationResult.Equals(Kiln.DefinitionRegistrationResult? other) -> bool
+[KILNX028]Kiln.DefinitionRegistrationResult.Kind.get -> Kiln.DefinitionRegistrationKind
+[KILNX028]Kiln.DefinitionRegistrationResult.Kind.init -> void
+[KILNX028]Kiln.DefinitionRegistrationResult.Ok.get -> bool
+[KILNX028]Kiln.DefinitionRegistrationResult.Ok.init -> void
+[KILNX028]Kiln.DefinitionRegistrationResult.Reason.get -> string?
+[KILNX028]Kiln.DefinitionRegistrationResult.Reason.init -> void
+[KILNX028]Kiln.DefinitionRegistrationResult.RegistrationId.get -> System.Guid
+[KILNX028]Kiln.DefinitionRegistrationResult.RegistrationId.init -> void
+[KILNX028]Kiln.DefinitionRegistrationResult.SlotsConsumed.get -> uint
+[KILNX028]Kiln.DefinitionRegistrationResult.SlotsConsumed.init -> void
+[KILNX028]Kiln.DefinitionRegistrationResult.SnapshotRevision.get -> ulong
+[KILNX028]Kiln.DefinitionRegistrationResult.SnapshotRevision.init -> void
+[KILNX028]Kiln.DefinitionRegistrationResult.State.get -> Kiln.DefinitionRegistrationState
+[KILNX028]Kiln.DefinitionRegistrationResult.State.init -> void
+[KILNX028]Kiln.DefinitionRegistrationResult.Warnings.get -> System.Collections.Generic.IReadOnlyList<string!>!
+[KILNX028]Kiln.DefinitionRegistrationResult.Warnings.init -> void
+[KILNX028]Kiln.DefinitionRegistrationState
+[KILNX028]Kiln.DefinitionRegistrationState.AcceptedNextStart = 2 -> Kiln.DefinitionRegistrationState
+[KILNX028]Kiln.DefinitionRegistrationState.Refused = 0 -> Kiln.DefinitionRegistrationState
+[KILNX028]Kiln.DefinitionRegistrationState.Registered = 1 -> Kiln.DefinitionRegistrationState
+[KILNX028]Kiln.DefinitionRegistrationState.Retained = 3 -> Kiln.DefinitionRegistrationState
+[KILNX028]Kiln.DefinitionTiming
+[KILNX028]Kiln.DefinitionTiming.AllowNextStart = 1 -> Kiln.DefinitionTiming
+[KILNX028]Kiln.DefinitionTiming.RequireRegistered = 0 -> Kiln.DefinitionTiming
+[KILNX028]override Kiln.CapacityInfo.Equals(object? obj) -> bool
+[KILNX028]override Kiln.CapacityInfo.GetHashCode() -> int
+[KILNX028]override Kiln.CapacityInfo.ToString() -> string!
+[KILNX028]override Kiln.CapacityQueryResult.Equals(object? obj) -> bool
+[KILNX028]override Kiln.CapacityQueryResult.GetHashCode() -> int
+[KILNX028]override Kiln.CapacityQueryResult.ToString() -> string!
+[KILNX028]override Kiln.CapacityWorldToken.GetHashCode() -> int
+[KILNX028]override Kiln.DefinitionRegistrationOptions.Equals(object? obj) -> bool
+[KILNX028]override Kiln.DefinitionRegistrationOptions.GetHashCode() -> int
+[KILNX028]override Kiln.DefinitionRegistrationOptions.ToString() -> string!
+[KILNX028]override Kiln.DefinitionRegistrationResult.Equals(object? obj) -> bool
+[KILNX028]override Kiln.DefinitionRegistrationResult.GetHashCode() -> int
+[KILNX028]override Kiln.DefinitionRegistrationResult.ToString() -> string!
+[KILNX028]static Kiln.CapacityInfo.operator !=(Kiln.CapacityInfo? left, Kiln.CapacityInfo? right) -> bool
+[KILNX028]static Kiln.CapacityInfo.operator ==(Kiln.CapacityInfo? left, Kiln.CapacityInfo? right) -> bool
+[KILNX028]static Kiln.CapacityQueryResult.operator !=(Kiln.CapacityQueryResult? left, Kiln.CapacityQueryResult? right) -> bool
+[KILNX028]static Kiln.CapacityQueryResult.operator ==(Kiln.CapacityQueryResult? left, Kiln.CapacityQueryResult? right) -> bool
+[KILNX028]static Kiln.CapacityWorldToken.operator !=(Kiln.CapacityWorldToken left, Kiln.CapacityWorldToken right) -> bool
+[KILNX028]static Kiln.CapacityWorldToken.operator ==(Kiln.CapacityWorldToken left, Kiln.CapacityWorldToken right) -> bool
+[KILNX028]static Kiln.DefinitionRegistrationOptions.operator !=(Kiln.DefinitionRegistrationOptions? left, Kiln.DefinitionRegistrationOptions? right) -> bool
+[KILNX028]static Kiln.DefinitionRegistrationOptions.operator ==(Kiln.DefinitionRegistrationOptions? left, Kiln.DefinitionRegistrationOptions? right) -> bool
+[KILNX028]static Kiln.DefinitionRegistrationResult.operator !=(Kiln.DefinitionRegistrationResult? left, Kiln.DefinitionRegistrationResult? right) -> bool
+[KILNX028]static Kiln.DefinitionRegistrationResult.operator ==(Kiln.DefinitionRegistrationResult? left, Kiln.DefinitionRegistrationResult? right) -> bool
+~[KILNX028]override Kiln.CapacityWorldToken.Equals(object obj) -> bool
+~[KILNX028]override Kiln.CapacityWorldToken.ToString() -> string
+Kiln.GameType.ImpactName.get -> string?
+static Kiln.GameTypes.ByImpactName(string! impactName) -> Kiln.GameType?
+static Kiln.GameTypes.FindAllByImpactName(string! impactName) -> System.Collections.Generic.IReadOnlyList<Kiln.GameType!>!
+Kiln.BootContext
+Kiln.BootContext.GameData.get -> Kiln.IReadOnlyGameData!
+Kiln.BootContext.Generation.get -> ulong
+Kiln.BootContext.ModId.get -> string!
+Kiln.BootContext.Roles.get -> Kiln.BootRoles
+Kiln.BootDataResult
+Kiln.BootDataResult.BootDataResult(bool Ok, string? Reason, Kiln.BootDataValue? Data) -> void
+Kiln.BootDataResult.<Clone>$() -> Kiln.BootDataResult!
+Kiln.BootDataResult.Data.get -> Kiln.BootDataValue?
+Kiln.BootDataResult.Data.init -> void
+Kiln.BootDataResult.Deconstruct(out bool Ok, out string? Reason, out Kiln.BootDataValue? Data) -> void
+Kiln.BootDataResult.Equals(Kiln.BootDataResult? other) -> bool
+Kiln.BootDataResult.Ok.get -> bool
+Kiln.BootDataResult.Ok.init -> void
+Kiln.BootDataResult.Reason.get -> string?
+Kiln.BootDataResult.Reason.init -> void
+Kiln.BootDataValue
+Kiln.BootDataValue.BootDataValue(System.Guid ResourceId, uint TypeHash, int Part, System.Text.Json.JsonElement Value) -> void
+Kiln.BootDataValue.<Clone>$() -> Kiln.BootDataValue!
+Kiln.BootDataValue.Deconstruct(out System.Guid ResourceId, out uint TypeHash, out int Part, out System.Text.Json.JsonElement Value) -> void
+Kiln.BootDataValue.Equals(Kiln.BootDataValue? other) -> bool
+Kiln.BootDataValue.Part.get -> int
+Kiln.BootDataValue.Part.init -> void
+Kiln.BootDataValue.ResourceId.get -> System.Guid
+Kiln.BootDataValue.ResourceId.init -> void
+Kiln.BootDataValue.TypeHash.get -> uint
+Kiln.BootDataValue.TypeHash.init -> void
+Kiln.BootDataValue.Value.get -> System.Text.Json.JsonElement
+Kiln.BootDataValue.Value.init -> void
+Kiln.BootIssue
+Kiln.BootIssue.BootIssue(string! ModId, string! Kind, string! Key, string! Phase, string! Code, string! Reason) -> void
+Kiln.BootIssue.<Clone>$() -> Kiln.BootIssue!
+Kiln.BootIssue.Code.get -> string!
+Kiln.BootIssue.Code.init -> void
+Kiln.BootIssue.Deconstruct(out string! ModId, out string! Kind, out string! Key, out string! Phase, out string! Code, out string! Reason) -> void
+Kiln.BootIssue.Equals(Kiln.BootIssue? other) -> bool
+Kiln.BootIssue.Key.get -> string!
+Kiln.BootIssue.Key.init -> void
+Kiln.BootIssue.Kind.get -> string!
+Kiln.BootIssue.Kind.init -> void
+Kiln.BootIssue.ModId.get -> string!
+Kiln.BootIssue.ModId.init -> void
+Kiln.BootIssue.Phase.get -> string!
+Kiln.BootIssue.Phase.init -> void
+Kiln.BootIssue.Reason.get -> string!
+Kiln.BootIssue.Reason.init -> void
+Kiln.BootModReport
+Kiln.BootModReport.BootModReport(string! ModId, ulong Generation, Kiln.BootModState State, System.Collections.Generic.IReadOnlyList<string!>! Definitions, System.Collections.Generic.IReadOnlyList<Kiln.BootIssue!>! Issues) -> void
+Kiln.BootModReport.<Clone>$() -> Kiln.BootModReport!
+Kiln.BootModReport.Deconstruct(out string! ModId, out ulong Generation, out Kiln.BootModState State, out System.Collections.Generic.IReadOnlyList<string!>! Definitions, out System.Collections.Generic.IReadOnlyList<Kiln.BootIssue!>! Issues) -> void
+Kiln.BootModReport.Definitions.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.BootModReport.Definitions.init -> void
+Kiln.BootModReport.Equals(Kiln.BootModReport? other) -> bool
+Kiln.BootModReport.Generation.get -> ulong
+Kiln.BootModReport.Generation.init -> void
+Kiln.BootModReport.Issues.get -> System.Collections.Generic.IReadOnlyList<Kiln.BootIssue!>!
+Kiln.BootModReport.Issues.init -> void
+Kiln.BootModReport.ModId.get -> string!
+Kiln.BootModReport.ModId.init -> void
+Kiln.BootModReport.State.get -> Kiln.BootModState
+Kiln.BootModReport.State.init -> void
+Kiln.BootModState
+Kiln.BootModState.ActivationFault = 8 -> Kiln.BootModState
+Kiln.BootModState.Committed = 2 -> Kiln.BootModState
+Kiln.BootModState.ExcludedCallback = 3 -> Kiln.BootModState
+Kiln.BootModState.ExcludedDependency = 4 -> Kiln.BootModState
+Kiln.BootModState.GenerationAborted = 6 -> Kiln.BootModState
+Kiln.BootModState.MissedPhase = 7 -> Kiln.BootModState
+Kiln.BootModState.NotParticipating = 0 -> Kiln.BootModState
+Kiln.BootModState.RejectedPrepare = 5 -> Kiln.BootModState
+Kiln.BootModState.Staged = 1 -> Kiln.BootModState
+Kiln.BootRoles
+Kiln.BootRoles.Client = 4 -> Kiln.BootRoles
+Kiln.BootRoles.DedicatedServer = 1 -> Kiln.BootRoles
+Kiln.BootRoles.HostedServer = 2 -> Kiln.BootRoles
+Kiln.BootThreadOnlyAttribute
+Kiln.BootThreadOnlyAttribute.BootThreadOnlyAttribute() -> void
+Kiln.IReadOnlyGameData
+Kiln.IReadOnlyGameData.Read(string! key) -> Kiln.BootDataResult!
+override Kiln.BootDataResult.Equals(object? obj) -> bool
+override Kiln.BootDataResult.GetHashCode() -> int
+override Kiln.BootDataResult.ToString() -> string!
+override Kiln.BootDataValue.Equals(object? obj) -> bool
+override Kiln.BootDataValue.GetHashCode() -> int
+override Kiln.BootDataValue.ToString() -> string!
+override Kiln.BootIssue.Equals(object? obj) -> bool
+override Kiln.BootIssue.GetHashCode() -> int
+override Kiln.BootIssue.ToString() -> string!
+override Kiln.BootModReport.Equals(object? obj) -> bool
+override Kiln.BootModReport.GetHashCode() -> int
+override Kiln.BootModReport.ToString() -> string!
+static Kiln.BootDataResult.operator !=(Kiln.BootDataResult? left, Kiln.BootDataResult? right) -> bool
+static Kiln.BootDataResult.operator ==(Kiln.BootDataResult? left, Kiln.BootDataResult? right) -> bool
+static Kiln.BootDataValue.operator !=(Kiln.BootDataValue? left, Kiln.BootDataValue? right) -> bool
+static Kiln.BootDataValue.operator ==(Kiln.BootDataValue? left, Kiln.BootDataValue? right) -> bool
+static Kiln.BootIssue.operator !=(Kiln.BootIssue? left, Kiln.BootIssue? right) -> bool
+static Kiln.BootIssue.operator ==(Kiln.BootIssue? left, Kiln.BootIssue? right) -> bool
+static Kiln.BootModReport.operator !=(Kiln.BootModReport? left, Kiln.BootModReport? right) -> bool
+static Kiln.BootModReport.operator ==(Kiln.BootModReport? left, Kiln.BootModReport? right) -> bool
+static Kiln.Mods.BootState(string! modId) -> Kiln.BootModReport!
+virtual Kiln.Mod.OnBoot(Kiln.BootContext! boot) -> void

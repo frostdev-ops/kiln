@@ -503,7 +503,7 @@ chained pieces, so a linear `.pdata` dump stops early):
   (`+0x10`), `BalancingRegistry` (`+0x18`), no `AttributeRegistry` (`+0x20` = 0), the seven accessors, no `Fuel`, no
   PickupEvent, `InventoryFull`'s sender (`+0xA8`), no knowledge queue, operator = the current entity; `InventoryTxCtor`,
   `InventoryTxInit`; `type = PlayerInput+0x1d5` (`ChangeEquipmentAction.type`): 0 calls equip `0x1b4e70`, 1 calls
-  unequip `0x1b9b80`, both `(Result12* out, tx, u64 PlayerInput+0x1c8 (inventorySlotId), u8 PlayerInput+0x1d4
+  unequip `0x1b9b80`, both `(EquipResult8* out, tx, u64 PlayerInput+0x1c8 (inventorySlotId), u8 PlayerInput+0x1d4
   (equipmentSlot))`; `out.error == 0` commits, anything else rolls back; then the consumed version is stored whatever
   happened. Nothing else: the `Equipment` component (visuals, impact masks) is not written here.
 - equip `0x1b4e70` (client `0x4152d0`): the player is **the program's current entity** (`0x65b870(ctx)` = `ctx+8` index
@@ -513,7 +513,7 @@ chained pieces, so a linear `.pdata` dump stops early):
   `0x936c30(slot)` must equal `ItemInfo+0x104` (EquipmentSlotType), else 0x11; then moveStack `0x1b4550` into the slot
   `0x936d80(slot, SlotSelection)` names, `0x1b28f0` for the selection, and for a backpack the move all `0x1b3fb0` of the
   old backpack's contents (the two calls `0x1b5457`, `0x1b548a`). Errors: 0 ok, 0x11 refused, 0x15 no item, 0x1f no
-  equipment / no inventory / no free slot.
+  equipment / no inventory / no free slot; also 0x27 and pass-through getItemStack errors (dev.28 verification).
 - unequip `0x1b9b80` (client `0x419740`): the same current entity; a slot of 24 or more is looked up by the slot id it
   holds; the stack in the equipment slot (getItemStack); a free slot in a Generic (4) link of the player's inventory
   (`0x1b5a50`: the first slot with count 0, none: 0x11, and with tx flag `0x04` an `InventoryFull` event to the player);
@@ -579,3 +579,99 @@ equipment slot from the committed selection. A dry run therefore cannot say whic
 - No inventory in this world carries the IsNpc flag; whether villagers / companions have one was not checked.
 - `tools/sigport/sigdb_check.py` counts non-overlapping matches (Python `finditer`), the core counts overlapping ones:
   a pattern can pass offline and fail at boot (it happened with the first InventoryTxCtor probe).
+
+## 17. Equipment transaction recheck (dev.28; server 26430253 / client 26430625)
+
+S `f0d824be…`, C `5d9ef2f1…`. Dossier chapters 07/10, events VERIFY (equip output corrected).
+[static] **EquipResult8**, not Result12, is `{u8 error,pad[3],u32 zero}`; EquipItem/UnequipItem write only +0/+4,
+return out, and have no payload at +8. Existing service's Result12 allocation is oversized backing storage, not a
+native ABI. Refusal hooks must write exactly 8 B; +8 can be another caller's temporary. Errors include 0x27 and
+pass-through lookup statuses as well as 0/0x11/0x15/0x1f. Add/remove Result12 contracts in §1 are separate.
+
+[static] Current S/C transaction entries: ctor `0x3ed10/0x2219f0`, init `0x1b9300/0x419140`, commit
+`0x1af860/0x40fe30`, rollback `0x1b8310/0x418150`, array cleanup `0x3ee60/0x221b40`.
+Storage 0x71b0, setup 0xf0, flags `+0x71a8`; 512 inline **growable** 0x34-byte ops, not a hard operation cap.
+Commit itself rolls back if tx `+0xb0 & 0x40`, or InventoryEmptyState accessor `+0xa0` is null with touched inventories.
+Calling commit alone does not prove success; verify final state. Always finalize once and free grown arrays once.
+Current entity still supplies player identity, not tx.operator; a valid declared entity-program context is required.
+
+[static] Vanilla `swap_equipment_set_actions` S `0x147ee0` / C `0x3895b0` transfers from a collection inventory,
+not named saved loadouts. Constructor/init/op/commit-or-rollback is **inside its slot loop**: a later failure does
+not roll back earlier committed slots. It is not atomic. ChangeEquipmentAction at PlayerInput `+0x1c8` contains slot
+u64, version `+8`, equipment slot/type `+0xc/+0xd`; consumed version `+0x78`. SwapEquipmentSetAction `+0x1d8` is
+12 B `{u32 targetInventory,u32 ActiveEquipmentOrVanity,u32 version}`, consumed `+0x7c`. Both versioned inputs can
+already be refused through the existing PlayerClientActionEvent path; autonomous equip coverage is not established.
+
+[refl] SlotSelection 216 B holds **20 physical equipment IDs**, not 24: enums 0..16 and 21..23. Material selectors
+17..20 are not physical slots; MainHand=25 is not one. Actionbars `+0xa0`, actionItem `+0xa8`, disabled equipment
+`+0xbc`, actionbar selection `+0xc0`, material selection `+0xc8`. Inventory is 96 B (8×{item,count,pide} u32);
+InventorySetup 84 B, initialized `+0x53`; ItemState 20 B, contained slot u64 `+0`, item `+8`, rarity/level `+0x10/+0x11`.
+
+[lab] One real Items.Equip invocation was extended to **two operations on the same tx**: invalid sword in Ring1
+rolled back the first ring move, while two valid rings committed together. Every inventory slot's item/count/pide/
+equipped state was compared. This does not prove arbitrary backpack/cyclic atomicity, durability/perk/fuel-byte
+identity, persistence or client visual atomicity. Forced live-player-mask repeat ran custom equip refusal on a worker;
+ordinary CHUNKED equipment_actions/set-swap are world-thread under pin-main=1, not universally safe tick calls.
+Full snapshot-token/loadout designs and broader acceptance cases remain in dossier chapter 10.
+
+## 18. Durability debit producers (dev.28; server 26430253 / client 26430625)
+
+S `f0d824be…`, C `5d9ef2f1…`. Dossier chapter 16b, blocks-a REPORT deltas/VERIFY. VERIFY corrected thread role,
+weapon-only hit cap, reflected action identity and armor actor; later producer labs supersede original static-only status.
+
+### Functions and call rules [static], bounded server calls [lab]
+
+| Role | S / C RVA | Win64 contract |
+|---|---|---|
+| durability_loss | `0x56610` / `0x239740` | `void(ProgramContext*)`; 0x50-byte unpacked iterator, HitEvent reader |
+| WearItem | `0x1608d0` / `0x3b5ca0` | `void(u64 durWrite,u64 skillsRead,u32 actor,u32 itemPide,i32 delta,WearEnv*)` |
+| WearDelta | `0x1609a0` / `0x3b5d70` | `void(Durability*,const PlayerSkillsUi*,i32 delta,u32 notifyActor,WearEnv*)` |
+| EnableDurability | `0x94a050` / `0xea2e00` | `bool(const BalancingRegistry*)`, settings pointer `+0x90`, byte `+0x14` |
+| HitCounterLimit | `0x936aa0` / `0xe8f960` | `u32(const BalancingRegistry*)`, table `+0x20`, u32 table `+0x23c`, null→1 |
+| actor_spawn_entity | `0x454f0` / `0x228130` | scheduled program; direct WearDelta call **`0x465dc` / `0x22921c`** |
+
+**WearItem actor is third, item PIDE fourth; WearDelta fourth is notification actor, never PIDE.** WearItem resolves
+tracked Durability on the item, PlayerSkillsUi on actor, then calls the helper. WearEnv 0x28 B: notification accessor
+`+0`, durability index u16 `+8`, ProgramContext* `+0x10`, AttributeRegistry* `+0x18`, SkillTree* `+0x20`.
+Borrow context/accessors only during the originating update. Hit wrapper has no ItemState accessor argument;
+re-unpack env+0x10 with existing items/IterBegin S `0x663b30` / C `0x9c7b80` (0x50 bytes) to obtain q5 ItemState,
+q6 skills, q7 Durability, q8 HitEvents, q9 notifications. Resolve attr `0xed71dc01` via items/AttrFind
+S `0x991810` / C `0x123a930`; result ptr `+8`, record index u16 `+0xc` (lab index 0).
+
+WearDelta ignores null/uninitialized Durability, adds signed delta at resolved attribute index and recomputes
+formulas. Negative delta with skill `0x50a97a32` retains RNG saving branch (Random(0,100)>=80 returns; random
+upper-bound inclusivity unproved). Crossing zero can notify actor. Preserve original skill/formula/notification path.
+[lab] Real pickaxe PIDE 2032 current 180→179→172→172 for costs 1/7/0, max 180 unchanged, independent managed read.
+Observed thread 432 was **tick thread, not a worker**; this does not make arbitrary helper calls safe in Pre.
+
+### Gates and layouts [static] [refl]
+
+GameSettings 144 B exposes **enableDurability bool**, not a wear multiplier. Hit cap does not cap delta or mutate
+hitCounter: it gates **weapon debit iff hitCounter<=cap**, inclusive. Armor is not gated. HitEvent 248 B: rootSource
+`+0x90`, **targetId `+0x94`**, rootTarget `+0xa0`, weaponPide `+0xac`, armorPide `+0xb0`, counter u16 `+0xd0`.
+Armor uses **targetId/armorPide**, not rootTarget; weapon uses rootSource/weaponPide. Missing ItemState skips the
+category/slot filter and debits anyway; ItemRegistry miss skips. WeaponGem category 15 excluded; Weapons category 2 require
+slot 1; other categories pass. Torch durability_burndown S `0x55ed0` calls WearDelta at `0x564ec` **without** the
+world-enable getter. A global negative-delta multiplier would also change this unrelated producer.
+
+Durability 16 B: rootId u32 `+0`, data offset u16 `+4`, flags/count bytes `+6/+7`, two signed i32 values `+8`.
+ItemState 20 B uses itemId `+8` (not UsedItem); PlayerSkillsUi 136 B; NetworkDurability only 4 B u16 current/max,
+separate from the UI's widened u32 presentation fields ([game-ui.md](game-ui.md)).
+
+Spawn debit occurs after successful isProjectile event (`SpawnEntityCommomEvent+0x148`) with durability enabled.
+At S call `0x465dc`: RCX=Durability*, RDX=skills*, R8D=-1, R9D=actor, env stack argument 5.
+`[RBP+0x390]` is current **ActionSequence***, `[RBP+0x458]` durability accessor; slots +0x110/+0x1d8 in 0x218-byte
+unpacked iterator. Reflected triggerContext: sequenceRuntimeId (sequenceId `+0`, triggerTime `+8`, actor `+0x10`,
+callIndex `+0x14`), triggerType u16 `+0x18`, usedItem `+0x30` with itemId/PIDE **`+0x38/+0x3c`**. These are
+reflected identity fields; only the stack slots are compiler-specific. They do not by themselves deduplicate hits.
+
+### Later producer proof and remaining scope [lab]
+
+Final 21-assertion producer run recovered matching live usedItem/ItemState/PIDE/Durability, iterator/context and
+authoritative storage (kind 0, equal to core server world+0xe179c0). Actual cloned projectile event debited 173→166
+at cost 7, then cost 0 stayed166. Actual HitEvents through durability_loss spent 7 for one eligible event, **14 for two
+in the same tick**, zero for over-cap event. Fixture explicitly supplied projectile template/isProjectile and
+ActorInput usedItem PIDE `+0x44` because LabUseItem omitted it; this is controlled producer proof, not natural
+swing/harvest/build acceptance. Supported primitive is **per debit**, not once per physical action. Client prediction,
+bars, break/repair/save regressions remain untested. Scratch signature `items.tool_wear_debit` is not a shipped API;
+full service/status/dedup designs remain in chapter 16b.

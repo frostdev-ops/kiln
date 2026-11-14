@@ -298,6 +298,62 @@ pub fn rename_replace(from: &Path, to: &Path) -> Result<()> {
     std::fs::rename(from, to).map_err(io_at(to, "renaming to"))
 }
 
+/// [`write_atomic`] for a file whose new content must be on disk when this returns, a crash or power cut later
+/// included (the publish journal: an intent written here is what keeps a request from being sent twice). The temp file
+/// `<name>.tmp` is written and flushed (`fsync`; `FlushFileBuffers` on Windows), then it replaces `path` durably: on
+/// Unix `rename` and an `fsync` of the folder, on Windows `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING |
+/// MOVEFILE_WRITE_THROUGH`. The folder must exist (a folder made here would need its own parent flushed). The temp
+/// file is removed when the write fails. [`write_atomic`] and its callers are unchanged.
+pub fn write_atomic_durable(path: &Path, data: &[u8]) -> Result<()> {
+    use std::io::Write;
+    let dir = path.parent().ok_or_else(|| Error::invalid(format!("{}: no parent folder", path.display())))?;
+    let name = path.file_name().ok_or_else(|| Error::invalid(format!("{}: no file name", path.display())))?;
+    let mut tmp_name = name.to_os_string();
+    tmp_name.push(".tmp");
+    let tmp = dir.join(tmp_name);
+    let written = std::fs::File::create(&tmp).map_err(io_at(&tmp, "writing")).and_then(|mut f| {
+        f.write_all(data).map_err(io_at(&tmp, "writing"))?;
+        f.sync_all().map_err(io_at(&tmp, "flushing"))
+    });
+    written.and_then(|_| replace_durable(&tmp, path)).inspect_err(|_| {
+        let _ = std::fs::remove_file(&tmp);
+    })
+}
+
+/// Unix: the rename is made durable by flushing the folder that holds both names.
+#[cfg(unix)]
+fn replace_durable(from: &Path, to: &Path) -> Result<()> {
+    std::fs::rename(from, to).map_err(io_at(to, "renaming to"))?;
+    let dir = to.parent().ok_or_else(|| Error::invalid(format!("{}: no parent folder", to.display())))?;
+    std::fs::File::open(dir).and_then(|d| d.sync_all()).map_err(io_at(dir, "flushing"))
+}
+
+/// Windows: the folder cannot be flushed like on Unix; the replace itself is written through before it returns.
+#[cfg(windows)]
+fn replace_durable(from: &Path, to: &Path) -> Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::{MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH};
+    let wide = |p: &Path| -> Result<Vec<u16>> {
+        let w: Vec<u16> = p.as_os_str().encode_wide().collect();
+        if w.contains(&0) {
+            return Err(Error::invalid(format!("{}: the path holds a NUL character", p.display())));
+        }
+        Ok(w.into_iter().chain(std::iter::once(0)).collect())
+    };
+    let (src, dst) = (wide(from)?, wide(to)?);
+    // SAFETY: both are NUL-terminated UTF-16 strings that live until the call returns.
+    if unsafe { MoveFileExW(src.as_ptr(), dst.as_ptr(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) } == 0 {
+        return Err(io_at(to, "renaming to")(std::io::Error::last_os_error()));
+    }
+    Ok(())
+}
+
+/// Elsewhere: the plain replace (no Kiln build targets such a system).
+#[cfg(not(any(unix, windows)))]
+fn replace_durable(from: &Path, to: &Path) -> Result<()> {
+    rename_replace(from, to)
+}
+
 /// JSON (pretty, two spaces, trailing newline) written atomically.
 pub fn write_json_atomic<T: serde::Serialize>(path: &Path, value: &T) -> Result<()> {
     let mut text = serde_json::to_string_pretty(value)?;
@@ -400,6 +456,64 @@ mod tests {
         assert_eq!(u.len(), 36);
         assert_eq!(&u[14..15], "4");
         assert_ne!(u, uuid_v4().unwrap());
+    }
+
+    #[test]
+    fn durable_writes_replace_and_leave_no_temp_file() {
+        let d = std::env::temp_dir().join(format!("km-util-durable-{}", uuid_v4().unwrap()));
+        std::fs::create_dir_all(&d).unwrap();
+        let f = d.join("journal.json");
+        write_atomic_durable(&f, b"first\n").unwrap();
+        assert_eq!(std::fs::read(&f).unwrap(), b"first\n");
+        write_atomic_durable(&f, b"second, longer than the first\n").unwrap();
+        assert_eq!(std::fs::read(&f).unwrap(), b"second, longer than the first\n");
+        // a stale temp file from a crash is overwritten, not appended to
+        std::fs::write(d.join("journal.json.tmp"), vec![b'x'; 4096]).unwrap();
+        write_atomic_durable(&f, b"third\n").unwrap();
+        assert_eq!(std::fs::read(&f).unwrap(), b"third\n");
+        assert!(!d.join("journal.json.tmp").exists());
+        let names: Vec<String> = std::fs::read_dir(&d).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+        assert_eq!(names, ["journal.json"]);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_failed_durable_write_keeps_what_was_there_and_creates_no_folder() {
+        let d = std::env::temp_dir().join(format!("km-util-durable-{}", uuid_v4().unwrap()));
+        // no folder: an error, and nothing is created (write_atomic would create it)
+        assert!(write_atomic_durable(&d.join("journal.json"), b"x").is_err());
+        assert!(!d.exists());
+        // the target cannot be replaced (a folder with something in it): the error leaves the target and no temp file
+        std::fs::create_dir_all(d.join("journal.json")).unwrap();
+        std::fs::write(d.join("journal.json").join("keep"), b"kept").unwrap();
+        assert!(write_atomic_durable(&d.join("journal.json"), b"new").is_err());
+        assert_eq!(std::fs::read(d.join("journal.json").join("keep")).unwrap(), b"kept");
+        assert!(!d.join("journal.json.tmp").exists());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// The folder is flushed after the rename: a folder that can be written and entered but not opened for reading
+    /// lets the rename through and fails the flush, which must be reported (a write whose rename may not be on disk
+    /// is not a durable write). Root can open any folder, so the check means nothing there.
+    #[cfg(unix)]
+    #[test]
+    fn a_durable_write_flushes_the_folder_and_reports_when_it_cannot() {
+        use std::os::unix::fs::PermissionsExt;
+        if unsafe { libc::geteuid() } == 0 {
+            return;
+        }
+        let d = std::env::temp_dir().join(format!("km-util-durable-{}", uuid_v4().unwrap()));
+        std::fs::create_dir_all(&d).unwrap();
+        let f = d.join("journal.json");
+        write_atomic_durable(&f, b"before\n").unwrap();
+        std::fs::set_permissions(&d, std::fs::Permissions::from_mode(0o300)).unwrap();
+        let e = write_atomic_durable(&f, b"after\n");
+        std::fs::set_permissions(&d, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let e = e.expect_err("the folder could not be flushed and that was not reported");
+        assert!(e.message.starts_with("flushing"), "{}", e.message);
+        // the rename itself happened; only its durability is not proven
+        assert_eq!(std::fs::read(&f).unwrap(), b"after\n");
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]

@@ -52,7 +52,8 @@ public sealed class BuildEditingEvent : CancelableEvent
     public string? Label { get; }
 }
 
-/// <summary>Posted after a Kiln edit changed the world (or was refused by the world: zone, base, not loaded).</summary>
+/// <summary>Posted after a Kiln edit changed the world (or was refused by the world: zone, base, not loaded; or
+/// <see cref="Build.WriteIfUnchanged"/> found the cells changed).</summary>
 /// <remarks>Tick thread, right after the edit, before the call returns. Read-only.</remarks>
 public sealed class BuildEditEvent : KilnEvent
 {

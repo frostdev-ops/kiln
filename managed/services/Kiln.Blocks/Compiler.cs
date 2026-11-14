@@ -77,16 +77,31 @@ internal sealed class BlockContext(ModBlocks mod, string block)
 
     private BlockHandle Lookup(string name, string path)
     {
+        if (Lowered._bootLowering) return BootLowering.Reference(Mod, Block, name, path);  // only what this OnBoot staged before it
         var colon = name.IndexOf(':');
+        // a product of a kind's plan names another by "consumer-mod:kind-...": staged with it, not published yet
+        if (colon > 0 && Mod.StagesFor != null && name.AsSpan(0, colon).SequenceEqual(Mod.Id))
+        {
+            var local = name[(colon + 1)..];
+            if (Mod.Handles.TryGetValue(local, out var staged)) return staged;
+            // a product of the plan that is not staged yet: staged now, whatever order the plan lists them in
+            if (Mod.Pending.TryGetValue(local, out var product))
+            {
+                if (!Mod.Compiling.Add(local)) throw new BlockError(Block, path, $"\"{name}\" refers back to itself");
+                try { return product(); }
+                finally { Mod.Compiling.Remove(local); }
+            }
+        }
         if (colon > 0)
             return Blocks.Find(name[(colon + 1)..], name[..colon])
                    ?? throw new BlockError(Block, path, $"no block \"{name[(colon + 1)..]}\" in mod {name[..colon]} (is it loaded before this one?)");
-        if (Mod.Handles.TryGetValue(name, out var h)) return h;
-        if (Mod.Pending.TryGetValue(name, out var pending))
+        if (Mod.TryHandle(name, out var h)) return h;
+        var authored = Mod.Authored;
+        if (authored.Pending.TryGetValue(name, out var pending))
         {
-            if (!Mod.Compiling.Add(name)) throw new BlockError(Block, path, $"\"{name}\" refers back to itself");
+            if (!authored.Compiling.Add(name)) throw new BlockError(Block, path, $"\"{name}\" refers back to itself");
             try { return pending(); }
-            finally { Mod.Compiling.Remove(name); }
+            finally { authored.Compiling.Remove(name); }
         }
         throw new BlockError(Block, path, $"no block \"{name}\" in this mod; define it first, or say \"other-mod:{name}\"; there are: {string.Join(", ", Mod.Handles.Keys.Order())}");
     }
@@ -108,6 +123,10 @@ internal static partial class Compiler
 
     public static BlockHandle<T> Define<T>(ModBlocks mod, string name, T block) where T : class, IBlock
     {
+        // A kind's plan is being staged on this thread: whoever asked (an inline status, a data file's block named for the
+        // first time, a closure over the mod's own ledger), the block joins the plan and nothing is committed.
+        if (KindTransaction.Current is { } staging) return staging.Define(mod, name, block);
+        if (KindApply.NameReserved(mod, name)) throw new BlockError(name, null, "the name belongs to a block kind's pending or applied plan");
         var (handle, low, label) = Lower(mod, name, block);
         low.Commit();
         mod.Handles[name] = handle;
@@ -470,26 +489,84 @@ internal sealed class Lowered(ModBlocks mod)
 
     public void AfterCommit(Action a) => _after.Add(a);
 
+    /// <summary>Where a commit's registrations go: the services. Tests count them and make one fail (Kinds: a plan that is
+    /// refused part way is revoked whole).</summary>
+    internal static ILoweredSink Sink => _sinkOverride ?? Services;
+
+    private static readonly ILoweredSink Services = new ServiceSink();
+    /// <summary>Another sink for this thread's commits (tests, and a plan's commit that may be refused part way).</summary>
+    [ThreadStatic] internal static ILoweredSink? _sinkOverride;
+
+    internal interface ILoweredSink
+    {
+        void Program(ulong owner, Guid guid, byte[] blob);
+        void Clone(ulong owner, string section, JsonObject def);
+        void Item(ulong owner, ItemDefinition d);
+        void Recipe(ulong owner, RecipeDefinition d);
+    }
+
+    private sealed class ServiceSink : ILoweredSink
+    {
+        public void Program(ulong owner, Guid guid, byte[] blob)
+        {
+            Assets.RegisterAs(owner, new AssetKey(guid, 0xd4922d88u), blob);
+            if (Abilities.Available) Abilities.Programs.Refresh();
+        }
+
+        public void Clone(ulong owner, string section, JsonObject def)
+        {
+            var registry = section switch { "buffs" => Content.Buffs, "sequences" => Content.Sequences, "perks" => Content.Perks, _ => Content.Templates };
+            BlocksBridge.DefineClone(registry, def, owner);
+        }
+
+        public void Item(ulong owner, ItemDefinition d) => BlocksBridge.Register(d, owner);
+        public void Recipe(ulong owner, RecipeDefinition d) => BlocksBridge.Register(d, owner);
+    }
+
+    /// <summary>Set while a boot generation is lowered (BootLowering.cs, chapter 08): a commit hands its registrations to the sink (the IR
+    /// envelope) and leaves the runtime parts (rules, late programs, after-commit actions) to the mod's runtime activation.</summary>
+    [ThreadStatic] internal static bool _bootLowering;
+
     public void Commit()
     {
+        CommitRegistrations();
+        CommitAfter();
+    }
+
+    /// <summary>The first half of a commit: what the services register, and the ledger rows of the block's own mod. A kind's
+    /// plan runs this half for every block of the plan before the second half of any: a refusal here leaves nothing running.</summary>
+    internal void CommitRegistrations()
+    {
+        if (mod.StagesFor != null && !mod.CommitOpen) throw new InvalidOperationException("a block staged for a kind's plan was committed before the plan: nothing of a plan registers until all of it is checked");
+        if (_bootLowering)
+        {
+            foreach (var (guid, blob) in _programs)
+                if (!mod.LateBuilders.ContainsKey(guid)) Sink.Program(mod.Owner, guid, blob);
+            foreach (var (section, def) in _clones) Sink.Clone(mod.Owner, section, def);
+            foreach (var d in _items) Sink.Item(mod.Owner, d);
+            foreach (var d in _recipes) Sink.Recipe(mod.Owner, d);
+            return;
+        }
         foreach (var (guid, blob) in _programs)
         {
             if (mod.LateBuilders.ContainsKey(guid)) continue;     // BlockRuntime finishes it when content is ready
             // kiln.assets serves it: kiln.abilities registers what it serves, and kiln.gamedata's reference checks find it
-            Assets.RegisterAs(mod.Owner, new AssetKey(guid, 0xd4922d88u), blob);
-            if (Abilities.Available) Abilities.Programs.Refresh();
+            Sink.Program(mod.Owner, guid, blob);
         }
         foreach (var (guid, _) in _programs)
             if (mod.LateBuilders.ContainsKey(guid)) BlockRuntime.AddLate(mod, guid);
         foreach (var rule in _lateRules) BlockRuntime.AddLateRule(mod, rule.Section, rule.Entry, rule.Path, rule.Program);
-        foreach (var (section, def) in _clones)
-        {
-            var registry = section switch { "buffs" => Content.Buffs, "sequences" => Content.Sequences, "perks" => Content.Perks, _ => Content.Templates };
-            BlocksBridge.DefineClone(registry, def, mod.Owner);
-        }
-        foreach (var d in _items) BlocksBridge.Register(d, mod.Owner);
-        foreach (var d in _recipes) BlocksBridge.Register(d, mod.Owner);
+        foreach (var (section, def) in _clones) Sink.Clone(mod.Owner, section, def);
+        foreach (var d in _items) Sink.Item(mod.Owner, d);
+        foreach (var d in _recipes) Sink.Recipe(mod.Owner, d);
         foreach (var (section, entry, rules) in _rules) BlockRuntime.AddRules(mod, section, entry, rules);
+    }
+
+    /// <summary>The second half: what runs in Kiln because the block exists (triggers, icons, checks at content ready).</summary>
+    internal void CommitAfter()
+    {
+        if (mod.StagesFor != null && !mod.CommitOpen) throw new InvalidOperationException("a block staged for a kind's plan was committed before the plan");
+        if (_bootLowering) return;  // a boot generation lowers registrations only; the runtime parts wait for the mod's runtime activation
         foreach (var a in _after) a();
         foreach (var (section, entry, rules, late) in _vfxLates)
         {
@@ -497,6 +574,13 @@ internal sealed class Lowered(ModBlocks mod)
             BlockRuntime.AddVfxLate(mod, late);
         }
     }
+
+    /// <summary>The names of the game-data clones and new items this block registers (a kind's plan checks them at content ready).</summary>
+    internal IEnumerable<string> DefinitionNames =>
+        _clones.Select(c => c.Def["name"]?.GetValue<string>() ?? "").Concat(_items.Select(d => d.Name)).Where(n => n.Length > 0);
+
+    /// <summary>How many bytes of programs this block made (a plan's bound).</summary>
+    internal long GeneratedBytes => _programs.Sum(p => (long)p.Blob.Length) + Json.ToJsonString().Length;
 
     public string Summary()
     {

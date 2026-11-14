@@ -5,12 +5,15 @@
  *      table the exe carries in .rdata, located by data alone (no code pattern), so it survives code moves.
  *   2. Systems: every ECS system by name (the .rdata system descriptors), switched off and on, and profiled. One
  *      detour on the game's program runner does both; while nothing is off and the profiler is idle it costs two
- *      atomic loads per program slice.
+ *      atomic loads per program slice. A program kiln.world wraps (its update pointer swapped for a trampoline) is
+ *      still named by its own update (kiln.world's wrap_original). system_hook runs for every world of the process.
  *   3. Events: read a world's ECS events of one type after its step, and post events into its queue (checked).
  * Fail soft: each part reports itself in status(); a part that is not found returns KILN_ERR_UNAVAILABLE.
  * Technique credit: Shrouded Engine Tweaks (MIT, Cacaida) documents the type table, the system descriptors, the
  * program runner and the event streams; Kiln's implementation is its own. Evidence: docs/re/shrouded-engine-tweaks.md.
  * Usage: docs/kiln/services/types.md.
+ *
+ * Capability rows kiln.types reports itself (kiln.caps): types.impact_names (type_impact_name, since 0.2.0-dev.28).
  *
  * Threads: type queries are any thread (immutable snapshot). System switches/releases: server tick thread.
  * Profiler: any thread. Events: that world's tick thread, Post (event_each) or Pre/Post (event_post). */
@@ -139,6 +142,25 @@ typedef struct KilnTypesApi {
      * data/code. WRONG_THREAD from inside a hook callback.
      * system_release_owner also removes/drains this owner's hooks. */
     KilnResult(KILN_CALL* system_unhook)(KilnHandle hook);
+    /* Appended in 0.2.0-dev.28: whether another runtime owns the program runner, so that a program can no longer be
+     * named by its update pointer while it is wrapped (kiln.world refuses program wraps while this is not 0).
+     * 0: no; 1: native SET is loaded (seen; for the rest of the process); 2: the loaded modules could not be read, so
+     * native SET may be loaded (when that happened after kiln.types' runner was installed, it looks again every 5 s
+     * and answers 0 after a clean look; at start it stays 2). Any thread. */
+    uint32_t(KILN_CALL* external_runner)(void);
+    /* Since 0.2.0-dev.28 (check header.size): the name Impact scripts use for `type` ("ecs.Health" for
+     * keen::ecs::Health, "float32" for keen::float32), the string at +0x10 of the type's reflection record. It is
+     * neither the short nor the qualified name, and several types may share one (keen::X and keen::ds::X do).
+     * Copies it as UTF-8, no NUL, into out[0..cap); *required = its length in bytes, also when cap is too small
+     * (KILN_ERR_BUFFER_TOO_SMALL; nothing is written then). An empty name (the type has none) is KILN_OK with
+     * *required = 0. KILN_ERR_NOT_FOUND: not a type of this table, or this type's entry is unreadable;
+     * KILN_ERR_UNAVAILABLE: the field did not validate on this build (capability types.impact_names says why);
+     * KILN_ERR_INVALID_ARGUMENT: required is NULL, or out is NULL with cap > 0. Any thread. */
+    KilnResult(KILN_CALL* type_impact_name)(const KilnType* type, char* out, size_t cap, size_t* required);
+    /* Since 0.2.0-dev.28 (check header.size): 1 while the calling thread runs a system_hook callback (before or after
+     * a game program's slice: the world is mid-step there, maybe on its own thread), else 0. kiln.world's in_program
+     * includes it. Any thread; lock-free, no game call. */
+    uint32_t(KILN_CALL* in_system_callback)(void);
 } KilnTypesApi;
 
 #ifdef __cplusplus

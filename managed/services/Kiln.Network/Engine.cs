@@ -91,7 +91,7 @@ internal static class NetEngine
             Log(LogLevel.Warn, $"no service tick: {e.Message}");
         }
         TryHookClientTick();
-        NetNative.GateSet(NetNative.GateHold);  // until the first server tick knows the mod list (VanillaGate.GateMode)
+        NetAdmission.Start();  // the gate holds until the first server tick knows the mod list (VanillaGate.GateMode)
         var s = NetNative.ReadStatus();
         Log(LogLevel.Info, $"Kiln.Network {Wire.Protocol} on kiln.net: roles {(s?.Roles ?? 0)}, channel {s?.Channel}, max frame {s?.MaxFrame}, " +
                            $"policy {_config.ModSync}/{_config.VersionMatch}{(_config.RequireKiln ? ", Kiln required" : "")}");
@@ -295,6 +295,7 @@ internal static class NetEngine
             if (p is null) return;
             var was = p.State;
             p.State = NetPeerState.Closed;
+            NetAdmission.PeerLeft(p);
             if (p.Kick is not null) PlayerGate.Kicked(p, NetNative.Ok);  // it left on Kiln's refusal before the login failure
             Log(LogLevel.Info, $"peer {p.Name} (0x{peer:x}) left ({was})");
             if (Events.HasSubscribers<NetPeerLeftEvent>()) Events.Post(new NetPeerLeftEvent(p));
@@ -304,6 +305,16 @@ internal static class NetEngine
     public static void OnFrame(uint peer, ReadOnlySpan<byte> frame)
     {
         Interlocked.Increment(ref _framesIn);
+        NetPeer? p = null;
+        if (peer == NetNative.PeerServer)
+        {
+            if (_link is { } link) Interlocked.Increment(ref link.FramesInCount);
+        }
+        else
+        {
+            lock (Lock) Server.TryGetValue(peer, out p);
+            if (p is not null) Interlocked.Increment(ref p.FramesInCount);  // every channel-12 frame: only Kiln writes them
+        }
         if (!Wire.TryHeader(frame, out var type))
         {
             Interlocked.Increment(ref _badFrames);
@@ -314,8 +325,6 @@ internal static class NetEngine
             ClientFrame(type, frame);
             return;
         }
-        NetPeer? p;
-        lock (Lock) Server.TryGetValue(peer, out p);
         if (p is null) return;
         ServerFrame(p, type, frame);
     }
@@ -336,16 +345,19 @@ internal static class NetEngine
         return null;
     }
 
-    private static void RefreshInfo(NetPeer p)
+    internal static void RefreshInfo(NetPeer p)
     {
         if (NetNative.Info(p.Id) is not { } i) return;
         var name = i.NameString();
         if (name.Length > 0) p.Name = name;
         if ((i.Flags & NetNative.PeerHeld) != 0) p.HeldSince ??= DateTime.UtcNow;
         else p.HeldSince = null;
+        if ((i.Flags & NetNative.PeerBlocked) != 0) p.BlockedSince ??= DateTime.UtcNow;
+        else p.BlockedSince = null;
+        p.Ending = (i.Flags & NetNative.PeerEnding) != 0;
         if ((i.Flags & NetNative.PeerHasPlayer) != 0)
         {
-            p.Player = new EntityId(i.Entity);
+            p.Player = p.HeldSince != null ? EntityId.None : new EntityId(i.Entity);
             p.AccountId = i.Account;
             if (i.RecordState == 3) p.InGameSince ??= DateTime.UtcNow;
         }
@@ -412,6 +424,7 @@ internal static class NetEngine
 
     private static void HandleHello(NetPeer p, ReadOnlySpan<byte> frame)
     {
+        if (p.State is NetPeerState.Rejected or NetPeerState.Closed || p.KickAt != null) return;
         Wire.Hello hello;
         try
         {
@@ -429,7 +442,13 @@ internal static class NetEngine
         p.Declared = hello.Channels.ToDictionary(c => c.Name, c => c.Version, StringComparer.Ordinal);
         if (p.State == NetPeerState.Ready)
         {
-            // a client re-announcing its channels (a client mod (un)loaded)
+            // a client re-announcing its channels (a client mod (un)loaded). A mandatory protocol is checked before this
+            // fast path: a client that dropped it is refused, whatever modSync says (NetAdmission)
+            if (NetAdmission.MissingProtocol(p) is { } dropped)
+            {
+                NetAdmission.RefusePeer(p, dropped, "kiln.network");
+                return;
+            }
             RemapServerChannels(p);
             SendWelcome(p, hello.Nonce, p.Warnings);
             return;
@@ -494,6 +513,14 @@ internal static class NetEngine
             refuse = ev.Refuse || ev.Canceled;
             if (refuse) reason = ev.Reason.Length > 0 ? ev.Reason : reason.Length > 0 ? reason : "Refused by the server.";
         }
+        // Mandatory protocols (NetAdmission): checked after everything a policy or a handshake handler can waive, so
+        // neither modSync nor a handler lets a client without one in.
+        if (NetAdmission.MissingProtocol(p) is { } protocol)
+        {
+            reason = refuse && reason.Length > 0 ? reason + " " + protocol : protocol;
+            refuse = true;
+            refusedFor = [.. refusedFor, protocol];
+        }
         var warnings = new List<string>();
         if (_config.ModSync != ModSyncPolicy.Off)
         {
@@ -512,6 +539,8 @@ internal static class NetEngine
         p.State = NetPeerState.Ready;
         RemapServerChannels(p);
         SendWelcome(p, hello.Nonce, warnings);
+        NetAdmission.Joined(p);  // OnJoin deciders, before it is let in (under "hold all")
+        if (p.State != NetPeerState.Ready) return;
         // A hosted world's own client (machine slot 0) shares this process's templates and gets no content state.
         var localMachine = !p.IsLab && (p.Id & 0x7F) == 0;
         if (!localMachine && VanillaGate.AwaitsDefinitions(NetNative.ReadGate().KilnTemplates, p.HasChannel(ContentChannel))) p.DefinitionsSince = DateTime.UtcNow;
@@ -589,9 +618,9 @@ internal static class NetEngine
         var left = false;
         foreach (var p in ServerPeers())
         {
-            if (p.Kick is null) continue;
-            if (p.KickAt is { } at && now >= at) RunKick(p);
-            else left = true;
+            if (p.KickAt is not { } at) continue;
+            if (now >= at) RunKick(p);
+            if (p.KickAt != null) left = true;
         }
         KicksPending = left;
     }
@@ -599,23 +628,46 @@ internal static class NetEngine
     private static void RunKick(NetPeer p)
     {
         p.KickAt = null;
-        var rc = NetNative.Kick(p.Id, p.Kick is not null ? PlayerGate.KickReasonCode : _config.KickReason);
+        var rc = NetAdmission.Kick(p, p.Kick is not null ? PlayerGate.KickReasonCode : _config.KickReason);
+        if (rc != NetNative.Ok && p.Kick is null)
+        {
+            RefreshInfo(p);
+            if (p.BlockedSince != null)
+            {
+                // kiln.net refused it for good and neither the login failure nor the game's session kick can end it here:
+                // another try changes nothing. It stays connected, blocked, with no world data, until it leaves.
+                if (!p.BlockedLogged)
+                    Log(LogLevel.Error, $"admission: {p.Name} (0x{p.Id:x}) is refused, but this server cannot end its connection (kick rc {rc}): " +
+                                        "it stays blocked, with no world data, until it leaves");
+                p.BlockedLogged = true;
+                return;
+            }
+            p.KickAt = DateTime.UtcNow.AddSeconds(0.5);
+            KicksPending = true;
+        }
         Log(rc == NetNative.Ok ? LogLevel.Info : LogLevel.Warn, $"kick {p.Name} (0x{p.Id:x}): rc {rc}");
         if (p.Kick is not null) PlayerGate.Kicked(p, rc);
     }
+
+    /// <summary>A requirement of NetAdmission came or went: the next tick looks at the gate at once.</summary>
+    internal static bool AdmissionChanged;
 
     private static void ServerTick(in TickInfo tick)
     {
         if (_tableDirty) BroadcastChannelTable();
         if (KicksPending) RunDueKicks(DateTime.UtcNow);
-        if (tick.Step % 25 != 0) return;  // ~1 s on a dedicated server
+        if (NetAdmission.StepNeeded) AdmissionStep();  // every step while a requirement can hold a peer
+        if (tick.Step % 25 != 0 && !AdmissionChanged) return;  // ~1 s on a dedicated server
+        AdmissionChanged = false;
         NetAdvertise.Tick();
         var now = DateTime.UtcNow;
         var requiredExist = RequiredServerMods().Count > 0 || AllChannels().Any(c => c.Required);
-        var gate = NetNative.ReadGate();
+        var gate = NetAdmission.ReadGate();
         var kilnClientMods = NetAdvertise.KilnClientMods.Count;
-        var refuse = VanillaGate.ShouldRefuse(_config, requiredExist, kilnClientMods, gate.KilnTemplates, gate.CanWithhold);
-        UpdateGate(gate, refuse);
+        var builtInRefuse = VanillaGate.ShouldRefuse(_config, requiredExist, kilnClientMods, gate.KilnTemplates, gate.CanWithhold);
+        UpdateGate(gate, builtInRefuse);
+        var refuse = NetAdmission.VanillaRefused(builtInRefuse, out var requirementReason);
+        NetAdmission.Expire(now);
         foreach (var p in ServerPeers())
         {
             RefreshInfo(p);
@@ -627,18 +679,7 @@ internal static class NetEngine
                 var kick = refuse;
                 if (Events.HasSubscribers<NetVanillaClientEvent>()) kick = Events.Post(new NetVanillaClientEvent(p, kick)).Kick;
                 Log(kick ? LogLevel.Warn : LogLevel.Info, $"{p.Name} (0x{p.Id:x}) has no Kiln (vanilla client){(kick ? ": refusing" : held ? ": letting it in" : "")}");
-                if (kick)
-                {
-                    // A vanilla game frees this frame unread; a Kiln build too old to prove itself shows the reason, so
-                    // it gets the time REJECT normally gets before the game's own login error.
-                    SendFrame(p.Id, EncodeRejectAdvertised(new Wire.Reject(VanillaGate.RefusalReason(kilnClientMods), [])), p);
-                    p.KickAt = held ? now.AddSeconds(1.5) : now;
-                }
-                else if (held)
-                {
-                    var rc = NetNative.GateRelease(p.Id);
-                    if (rc != NetNative.Ok) Log(LogLevel.Warn, $"letting {p.Name} (0x{p.Id:x}) in: rc {rc}");
-                }
+                NetAdmission.DecideVanilla(p, kick, builtInRefuse || requirementReason is null ? VanillaGate.RefusalReason(kilnClientMods) : requirementReason, now);
             }
             if (p.KickAt is { } at && now >= at) RunKick(p);
             if (p.State == NetPeerState.Ready && p.Cleared && p.DefinitionsSince == null && p.ClearedTemplates != gate.KilnTemplates)
@@ -656,6 +697,14 @@ internal static class NetEngine
             ExpirePartial(p, now);
             if (p.State == NetPeerState.Ready && (now - p.PingSentAt).TotalSeconds >= 10) Ping(p);
         }
+    }
+
+    /// <summary>NetAdmission's per-step pass: the held peers' state from kiln.net, then its decisions.</summary>
+    private static void AdmissionStep()
+    {
+        var now = DateTime.UtcNow;
+        foreach (var p in ServerPeers()) RefreshInfo(p);
+        NetAdmission.Step(now);
     }
 
     private const string ContentChannel = "kiln:content";
@@ -705,18 +754,19 @@ internal static class NetEngine
         NetNative.WithholdSet(p.Id, false);
     }
 
+    /// <summary>Tests: the policy without a network.json.</summary>
+    internal static void UseConfigForTests(NetworkConfig config) => _config = config;
+
     /// <summary>Tests only (net-test): Kiln.Network stops deciding, as if it had died, so kiln.net's own limit is seen.</summary>
     internal static bool TestFreezeVanillaDecisions;
 
-    private static uint _gateMode = uint.MaxValue;
     private static string _gateNote = "";
 
     /// <summary>Keeps the native gate in step with the policy and says, once per change, what that means for a client
     /// without Kiln. See docs/kiln/network.md "Clients without Kiln".</summary>
     private static void UpdateGate(in NetNative.GateInfo gate, bool refuse)
     {
-        var mode = VanillaGate.GateMode(NetAdvertise.RequiredReady, refuse, gate.KilnTemplates);
-        if (mode != _gateMode && NetNative.GateSet(mode) == NetNative.Ok) _gateMode = mode;
+        NetAdmission.UpdateGate(NetAdvertise.RequiredReady, refuse, gate.KilnTemplates);
         if (!NetAdvertise.RequiredReady) return;  // the first seconds after boot: the mods that could refuse aren't known
         var note =
             gate.KilnTemplates > 0 && !gate.CanWithhold ? $"vanilla clients are refused: the server has {gate.KilnTemplates} template(s) only Kiln has, and this build can't keep them from a vanilla client" :
@@ -867,6 +917,7 @@ internal static class NetEngine
             if (p != null)
             {
                 p.BytesOut += frame.Length;
+                Interlocked.Increment(ref p.FramesOutCount);
             }
         }
         return rc;
@@ -1096,6 +1147,7 @@ internal static class NetworkStartup
     static NetworkStartup()
     {
         NetworkCaps.Rows.Ensure();  // the net.* features lowered when kiln.net is missing (docs/kiln/services/caps.md)
+        NetAdmission.Rows.Ensure();  // net.admission, net.gate.hold_all
         NetEngine.EnsureStarted();
         PlayerGate.Start();  // Players.Kick, the ban list, PlayerLoginEvent (docs/kiln/services/players.md)
         ConfigSync.Start();  // docs/kiln/sync.md

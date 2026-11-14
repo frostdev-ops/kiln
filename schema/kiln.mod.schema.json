@@ -82,6 +82,7 @@
     "entryType": { "type": "string", "description": "Full name of the Kiln.Mod subclass (default: the only public one)." },
     "exports": { "type": "array", "items": { "$ref": "#/$defs/dll" }, "description": "Assemblies dependents compile against; at run time they get these copies (shared types and state)." },
     "advanced": { "type": "boolean", "default": false, "description": "Opt into the advanced tier (raw hooks, symbols, coremod-style patches); exposed as ModInfo.Advanced." },
+    "boot": { "oneOf": [{ "type": "boolean" }, { "const": "required" }], "default": false, "description": "The mod's Mod.OnBoot stages block definitions before the game is entered (docs/kiln/modding/manifest.md). true: a failure of its boot content drops that content; \"required\": it stops the start." },
     "writes": {
       "type": "array",
       "maxItems": 64,
@@ -109,6 +110,59 @@
         "version": { "description": "The build as the runtime bundle names it: <semver>+<yyyymmdd>.<git>, e.g. 0.2.0-dev+20261106.0f0a3f6." },
         "created": { "description": "The commit's time, yyyy-MM-ddTHH:mm:ssZ (the runtime bundle's created): it orders two builds of one day. Another form is dropped." }
       }
+    },
+    "updates": {
+      "description": "Where new versions of the mod are published, for the launcher's and `kiln updates check`'s update notice (a notice and a link: Kiln never downloads or installs a version by itself). A tagged union by provider; each provider takes only its own properties. Never a reason to refuse a mod: a value Kiln can't read is ignored with a warning (KL103), and a provider this Kiln does not know means \"update checks unsupported\". Docs: docs/kiln/modding/manifest.md, \"updates\".",
+      "x-kiln-severity": "warning",
+      "type": ["object", "null"],
+      "required": ["provider"],
+      "properties": {
+        "provider": { "type": "string", "description": "github (releases of a public repository) or nexus (one file of a Nexus Mods page)." }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "provider": { "const": "github" } }, "required": ["provider"] },
+          "then": {
+            "required": ["repository"],
+            "properties": {
+              "provider": {},
+              "repository": {
+                "type": "string",
+                "pattern": "^(?!\\.{1,2}/)(?![\\s\\S]*/\\.{1,2}$)[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$",
+                "description": "owner/repo on github.com. Not a URL."
+              },
+              "tagPattern": {
+                "type": "string",
+                "default": "v{version}",
+                "pattern": "^(?!/)(?![\\s\\S]*//)(?![\\s\\S]*\\.\\.)[A-Za-z0-9._/-]{0,64}\\{version\\}([A-Za-z0-9._/-]{0,63}[A-Za-z0-9._-])?$",
+                "description": "The tag of a release, with {version} exactly once where the version stands: v{version}, or mods/my-mod/v{version} in a repository of several mods. A tag counts only when it matches from its first to its last character and the version is a semantic version. No wildcards."
+              },
+              "asset": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^(?!\\.$)(?![\\s\\S]*\\.\\.)[A-Za-z0-9._-]*(\\{version\\})?[A-Za-z0-9._-]*$",
+                "description": "The file name of the mod's zip in a release, with {version} at most once (the version as the tag spells it): my-mod-{version}.zip. Leave it out when the release carries a kiln-release.json (kiln publish writes one): it names the zip."
+              },
+              "channel": { "enum": ["stable", "prerelease"], "default": "stable", "description": "stable: releases that are not marked pre-release and whose version has no pre-release part. prerelease: those too." }
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": { "properties": { "provider": { "const": "nexus" } }, "required": ["provider"] },
+          "then": {
+            "required": ["gameId", "modId", "fileChainId"],
+            "properties": {
+              "provider": {},
+              "gameId": { "const": 5811, "description": "Enshrouded's game id on Nexus Mods." },
+              "modId": { "type": "integer", "minimum": 1, "maximum": 999999999, "description": "The number of the mod's page (.../enshrouded/mods/<modId>)." },
+              "fileChainId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,32}$", "description": "The id of the file whose versions are followed (the file itself, which keeps its id from upload to upload; not the id of one version, and not the page's main file by default)." }
+            },
+            "additionalProperties": false
+          }
+        }
+      ]
     }
   },
   "additionalProperties": true

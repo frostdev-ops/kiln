@@ -127,6 +127,10 @@ public enum BuildRefusal
     DryRun,
     /// <summary>A <see cref="BuildEditingEvent"/> handler canceled it.</summary>
     Canceled,
+    /// <summary><see cref="Build.WriteIfUnchanged"/>: when the edit was about to commit, the world no longer held the
+    /// expected cells (a <see cref="BuildEditingEvent"/> handler, or another edit since the caller read them, changed
+    /// them). Nothing was written. Since 0.2.0-dev.28.</summary>
+    Changed,
 }
 
 /// <summary>What an edit did.</summary>
@@ -155,6 +159,7 @@ public sealed record BuildResult(long CellsChanged, int BlocksWritten, bool Veri
         BuildRefusal.Base => $"the box touches a player base (altar {Zone})",
         BuildRefusal.NotLoaded => "the voxel tiles did not stream in in time",
         BuildRefusal.Canceled => "a BuildEditingEvent handler canceled the edit",
+        BuildRefusal.Changed => "the cells changed after they were read (a BuildEditingEvent handler or another edit); nothing was written",
         _ => Refusal.ToString(),
     };
 }

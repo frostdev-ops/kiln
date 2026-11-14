@@ -9,6 +9,8 @@
 //    game hash. Resources reference blobs; the client streams a blob when it needs the resource's pixels / mesh.
 // An icon is a blob (RGBA8 pixels) + a new UiTextureResource that references it, plus a tracked UI state for the GUID.
 #include <algorithm>
+#include <thread>
+#include <unordered_set>
 
 #include "assets.h"
 
@@ -23,6 +25,9 @@ std::atomic<uint64_t> g_content_gen{0};
 std::atomic<const IconSnap*> g_icons{nullptr};
 std::atomic<uint64_t> g_icon_want{0};
 std::atomic<uint64_t> g_icon_served{0};
+#ifdef KILN_ASSETS_CATALOG_TEST
+void cleanup_worker_started();  // the host test can hold the cleanup thread before it takes g_mu
+#endif
 
 // ---- readers and reclamation ----------------------------------------------------------------------------------
 namespace {
@@ -102,6 +107,8 @@ struct BlobItem {
     const uint8_t* bytes;
     size_t size;
     bool is_override;
+    uint32_t origin;    // KILN_BLOB_ORIGIN_* of the registration (since 0.2.0-dev.28)
+    uint64_t sequence;  // its number; a removed registration leaves g_blobs (the catalog lists live ones only)
 };
 struct IconItem {
     KilnOwner owner;
@@ -118,6 +125,23 @@ std::unordered_map<Key, std::vector<size_t>, KeyHash> g_item_at;  // g_items ind
 std::vector<BlobItem> g_blobs;
 std::vector<IconItem> g_iconv;
 uint32_t g_next_synth = 0;
+uint64_t g_next_sequence = 0;  // blob registrations, under g_mu
+
+// The catalog generation and the last change (catalog_changed): atomics, so the content hook can say "ready" lock-free.
+std::atomic<uint64_t> g_catalog_gen{1};
+std::atomic<uint32_t> g_catalog_why{kChangeNone};
+thread_local uint32_t t_origin = 0;  // OriginScope
+
+// Owners the core revoked (kiln.hooks' owner-retiring observer), whether or not anyone calls revert_owner for them. The
+// observer must not wait, and taking their registrations off rebuilds snapshots, which waits for readers: so the observer
+// only marks the owner here, and the revert runs later under g_mu, from the next store operation or from a cleanup thread
+// the mark starts, whichever comes first. A marked owner's registrations are refused from the mark on (a call racing the
+// mark either lands before the revert, which takes it off, or is refused).
+std::mutex g_retire_mu;                  // the marks only: held for bookkeeping, never while waiting; taken after g_mu, never before
+std::unordered_set<KilnOwner> g_retired; // every owner marked (native owner ids are never reused)
+std::vector<KilnOwner> g_retire_queue;   // marked, not reverted yet
+std::atomic<bool> g_retire_due{false};   // g_retire_queue is not empty (read without the lock)
+std::atomic<bool> g_retire_worker{false};  // a cleanup thread is started or running
 
 // ---- snapshot builders (under g_mu) -----------------------------------------------------------------------------
 void rebuild_content_locked() {
@@ -262,26 +286,155 @@ KilnResult put_resource_locked(KilnOwner owner, const Key& k, const void* data, 
     return KILN_OK;
 }
 
+// Precedence (unchanged by provenance): the content snapshot serves, for each hash, the last registration of it in g_blobs;
+// an owner's second registration of a hash replaces its first in place (keeps its place, takes a new sequence and origin).
 KilnResult add_blob_locked(KilnOwner owner, const void* data, size_t len, const HashK* fixed, bool is_override,
                            HashK* out) {
     const HashK h = fixed ? *fixed : content_hash_of(data, len);
     if (is_override && fixed && fixed->size != len) return KILN_ERR_INVALID_ARGUMENT;
     const uint8_t* copy = keep_copy(data, len);
     if (!copy && len) return KILN_ERR_INTERNAL;
+    const uint32_t origin = current_origin();
     for (auto& b : g_blobs)
         if (b.owner == owner && b.hash == h) {
             b.bytes = copy;
             b.size = len;
             b.is_override = is_override;
+            b.origin = origin;
+            b.sequence = ++g_next_sequence;
             if (out) *out = h;
             return KILN_OK;
         }
-    g_blobs.push_back({owner, h, copy, len, is_override});
+    g_blobs.push_back({owner, h, copy, len, is_override, origin, ++g_next_sequence});
     if (out) *out = h;
     return KILN_OK;
 }
 
+// Takes the owners' registrations off (pinned keys stay), with one rebuild of each snapshot it touched and one catalog
+// generation step when blobs went (under g_mu).
+struct Reverted {
+    size_t resources = 0, blobs = 0, icons = 0;
+};
+Reverted revert_owners_locked(const std::vector<KilnOwner>& owners) {
+    const auto of = [&](KilnOwner o) { return std::find(owners.begin(), owners.end(), o) != owners.end(); };
+    const auto re = [](auto& v, auto pred) {
+        const size_t n = v.size();
+        v.erase(std::remove_if(v.begin(), v.end(), pred), v.end());
+        return n - v.size();
+    };
+    Reverted r;
+    r.resources = re(g_items, [&](const ResItem& it) { return of(it.owner) && !g_pinned.count(it.key); });
+    r.blobs = re(g_blobs, [&](const BlobItem& b) { return of(b.owner); });
+    for (auto& i : g_iconv)
+        if (of(i.owner)) i.state->store(KILN_ICON_NONE);
+    r.icons = re(g_iconv, [&](const IconItem& i) { return of(i.owner); });
+    if (r.resources) reindex_locked(), rebuild_resources_locked();
+    if (r.blobs || r.icons) rebuild_content_locked();
+    if (r.blobs) catalog_changed(kChangeRevoke);
+    if (r.icons) rebuild_icons_locked();
+    return r;
+}
+
+// The deferred half of a revocation (under g_mu): reverts every owner marked since the last time. One atomic load when
+// nothing is due, so every store operation can afford it.
+void drain_retired_locked() {
+    if (!g_retire_due.load()) return;
+    std::vector<KilnOwner> owners;
+    {
+        std::lock_guard lock(g_retire_mu);
+        owners.swap(g_retire_queue);
+        g_retire_due.store(false);
+    }
+    if (owners.empty()) return;
+    const Reverted r = revert_owners_locked(owners);
+    for (const KilnOwner o : owners)
+        LOGD("assets: owner %llu was revoked: its registrations are taken off", static_cast<unsigned long long>(o));
+    if (r.resources || r.blobs || r.icons)
+        LOGI("assets: %zu revoked owner(s) without revert_owner: %zu resource(s), %zu blob(s), %zu icon(s) taken off",
+             owners.size(), r.resources, r.blobs, r.icons);
+}
+
+// Admission (under g_mu, after drain_retired_locked): a revoked owner registers nothing more.
+bool retired_locked(KilnOwner owner, const char* what, const Key* k = nullptr) {
+    {
+        std::lock_guard lock(g_retire_mu);
+        if (!g_retired.count(owner)) return false;
+    }
+    LOGW("assets: owner %llu %s%s%s refused: the owner was revoked", static_cast<unsigned long long>(owner), what, k ? " " : "",
+         k ? key_str(*k).c_str() : "");
+    return true;
+}
+
+// The cleanup thread: runs the deferred revert as soon as g_mu and the readers allow, then ends (a mark that comes in
+// while it finishes is seen by the check after it clears its flag, or starts a new thread).
+void cleanup_worker() {
+#ifdef KILN_ASSETS_CATALOG_TEST
+    cleanup_worker_started();
+#endif
+    for (;;) {
+        {
+            std::lock_guard lock(g_mu);
+            drain_retired_locked();
+        }
+        g_retire_worker.store(false);
+        if (!g_retire_due.load() || g_retire_worker.exchange(true)) return;
+    }
+}
+
 }  // namespace
+
+void store_owner_retired(KilnOwner owner) {
+    {
+        std::lock_guard lock(g_retire_mu);
+        if (!g_retired.insert(owner).second) return;  // marked before
+        g_retire_queue.push_back(owner);
+        g_retire_due.store(true);
+    }
+    if (g_retire_worker.exchange(true)) return;  // the running thread sees the mark before it ends
+    try {
+        std::thread(cleanup_worker).detach();  // starting a thread does not wait for it
+    } catch (...) {
+        g_retire_worker.store(false);
+        LOGW("assets: no cleanup thread for revoked owner %llu: its registrations go with the next store call",
+             static_cast<unsigned long long>(owner));
+    }
+}
+
+void store_drain_retired() {
+    if (!g_retire_due.load()) return;
+    std::lock_guard lock(g_mu);
+    drain_retired_locked();
+}
+
+bool store_cleanup_idle() { return !g_retire_due.load() && !g_retire_worker.load(); }
+
+OriginScope::OriginScope(uint32_t origin) : prev_(t_origin) { t_origin = origin; }
+OriginScope::~OriginScope() { t_origin = prev_; }
+uint32_t current_origin() { return t_origin ? t_origin : static_cast<uint32_t>(KILN_BLOB_ORIGIN_NATIVE_API); }
+
+uint64_t catalog_generation() { return g_catalog_gen.load(std::memory_order_acquire); }
+void catalog_changed(CatalogChange why) {
+    g_catalog_why.store(why, std::memory_order_relaxed);
+    g_catalog_gen.fetch_add(1, std::memory_order_acq_rel);
+}
+std::string catalog_status_json() {
+    static const char* const names[] = {"none", "ready", "registration", "remove", "revoke"};
+    const uint32_t why = g_catalog_why.load(std::memory_order_relaxed);
+    char b[128];
+    std::snprintf(b, sizeof b, "\"catalog\":{\"generation\":%llu,\"change\":\"%s\"}",
+                  static_cast<unsigned long long>(catalog_generation()), names[why < 5 ? why : 0]);
+    return b;
+}
+
+std::vector<LedgerEntry> blob_ledger(uint64_t* generation) {
+    std::lock_guard lock(g_mu);  // the generation moves only under g_mu for ledger changes: the copy and it agree
+    drain_retired_locked();      // a revoked owner's registrations are not listed once it is marked
+    if (generation) *generation = catalog_generation();
+    std::vector<LedgerEntry> out;
+    out.reserve(g_blobs.size());
+    for (const BlobItem& b : g_blobs) out.push_back({b.hash, b.owner, b.origin, b.sequence, b.is_override});
+    return out;
+}
 
 // The player's animation graph: 21319e83-5087-4fff-8795-22997843649e (game byte order below), keen::anim_graph::runtime_graph::
 // AnimationGraphResource2_0, part 0. Reserved: only a pinning put takes it (kiln.playeranim's merge, kiln_assets.h).
@@ -321,6 +474,7 @@ void run_ready_callbacks() {
 void on_resource_system_ready(uintptr_t S) {
     {
         std::lock_guard lock(g_mu);
+        drain_retired_locked();
         bind_resources_locked(S);
         rebuild_resources_locked();
         if (!g_items.empty()) LOGI("assets: bound %zu resource(s) to the game", g_items.size());
@@ -363,6 +517,8 @@ KilnResult op_resource_put(KilnOwner owner, const KilnAssetKey* key, const void*
     k.type = key->type;
     k.part = key->part;
     std::lock_guard lock(g_mu);
+    drain_retired_locked();
+    if (retired_locked(owner, "resource", &k)) return KILN_ERR_REVOKED;
     // Refusals come before anything is added: a pinned key, or the reserved player graph, never gets a second item.
     if (const auto p = g_pinned.find(k); p != g_pinned.end()) {
         LOGW("assets: owner %llu resource %s refused: key pinned for this process by owner %llu",
@@ -405,6 +561,7 @@ KilnResult op_resource_remove(KilnOwner owner, const KilnAssetKey* key) {
     k.type = key->type;
     k.part = key->part;
     std::lock_guard lock(g_mu);
+    drain_retired_locked();
     if (const auto p = g_pinned.find(k); p != g_pinned.end()) {
         LOGW("assets: owner %llu resource %s removal refused: key pinned for this process by owner %llu",
              static_cast<unsigned long long>(owner), key_str(k).c_str(), static_cast<unsigned long long>(p->second));
@@ -523,10 +680,13 @@ KilnResult op_blob_add(KilnOwner owner, const void* data, size_t len, KilnConten
     if (!data && len) return KILN_ERR_INVALID_ARGUMENT;
     if (!content_hooks_on()) return KILN_ERR_UNAVAILABLE;
     std::lock_guard lock(g_mu);
+    drain_retired_locked();
+    if (retired_locked(owner, "blob")) return KILN_ERR_REVOKED;
     HashK h;
     KilnResult r = add_blob_locked(owner, data, len, nullptr, false, &h);
     if (r == KILN_OK) {
         rebuild_content_locked();
+        catalog_changed(kChangeRegistration);
         if (out) std::memcpy(out, &h, 16);
     }
     return r;
@@ -538,9 +698,27 @@ KilnResult op_blob_override(KilnOwner owner, const KilnContentHash* hash, const 
     HashK h;
     std::memcpy(&h, hash, 16);
     std::lock_guard lock(g_mu);
+    drain_retired_locked();
+    if (retired_locked(owner, "blob override")) return KILN_ERR_REVOKED;
     KilnResult r = add_blob_locked(owner, data, len, &h, true, nullptr);
-    if (r == KILN_OK) rebuild_content_locked();
+    if (r == KILN_OK) {
+        rebuild_content_locked();
+        catalog_changed(kChangeRegistration);
+    }
     return r;
+}
+
+// The external slots name their origin: MANAGED or NATIVE_API only (MANIFEST is the manifest loader's own).
+static bool api_origin(uint32_t origin) { return origin == KILN_BLOB_ORIGIN_MANAGED || origin == KILN_BLOB_ORIGIN_NATIVE_API; }
+KilnResult op_blob_add_ex(KilnOwner owner, const void* data, size_t len, KilnContentHash* out, uint32_t origin) {
+    if (!api_origin(origin)) return KILN_ERR_INVALID_ARGUMENT;
+    OriginScope scope(origin);
+    return op_blob_add(owner, data, len, out);
+}
+KilnResult op_blob_override_ex(KilnOwner owner, const KilnContentHash* hash, const void* data, size_t len, uint32_t origin) {
+    if (!api_origin(origin)) return KILN_ERR_INVALID_ARGUMENT;
+    OriginScope scope(origin);
+    return op_blob_override(owner, hash, data, len);
 }
 
 KilnResult op_blob_remove(KilnOwner owner, const KilnContentHash* hash) {
@@ -548,11 +726,15 @@ KilnResult op_blob_remove(KilnOwner owner, const KilnContentHash* hash) {
     HashK h;
     std::memcpy(&h, hash, 16);
     std::lock_guard lock(g_mu);
+    drain_retired_locked();
     const size_t n = g_blobs.size();
     g_blobs.erase(std::remove_if(g_blobs.begin(), g_blobs.end(),
                                  [&](const BlobItem& b) { return b.owner == owner && b.hash == h; }),
                   g_blobs.end());
-    if (g_blobs.size() != n) rebuild_content_locked();
+    if (g_blobs.size() != n) {
+        rebuild_content_locked();
+        catalog_changed(kChangeRemove);
+    }
     return KILN_OK;
 }
 
@@ -612,6 +794,8 @@ KilnResult op_icon_register(KilnOwner owner, const uint8_t guid[16], const Rgba&
     k.type = KILN_ASSET_TYPE_UI_TEXTURE;
     k.part = 0;
     std::lock_guard lock(g_mu);
+    drain_retired_locked();
+    if (retired_locked(owner, "icon", &k)) return KILN_ERR_REVOKED;
     if (g_pinned.count(k)) {
         LOGW("assets: owner %llu icon %s refused: key pinned for this process", static_cast<unsigned long long>(owner), key_str(k).c_str());
         return KILN_ERR_UNAVAILABLE;
@@ -634,6 +818,7 @@ KilnResult op_icon_register(KilnOwner owner, const uint8_t guid[16], const Rgba&
     bind_resources_locked(g_S.load());
     rebuild_resources_locked();
     rebuild_content_locked();
+    catalog_changed(kChangeRegistration);
     rebuild_icons_locked();
     return KILN_OK;
 }
@@ -646,6 +831,7 @@ KilnResult op_icon_remove(KilnOwner owner, const uint8_t guid[16]) {
     k.type = KILN_ASSET_TYPE_UI_TEXTURE;
     k.part = 0;
     std::lock_guard lock(g_mu);
+    drain_retired_locked();
     for (auto& i : g_iconv)
         if (i.owner == owner && i.guid == g) i.state->store(KILN_ICON_NONE);
     g_iconv.erase(std::remove_if(g_iconv.begin(), g_iconv.end(),
@@ -670,22 +856,12 @@ int32_t op_icon_state(const uint8_t guid[16]) {
     return it == s->state.end() ? KILN_ICON_NONE : it->second->load(std::memory_order_relaxed);
 }
 
+// Also for an owner the core revoked: whichever of this and the deferred revert comes second finds nothing left.
 void op_revert_owner(KilnOwner owner) {
+    catalog_release_owner(owner);  // its catalog handles (the catalog's own lock, not g_mu)
     std::lock_guard lock(g_mu);
-    bool res = false, blob = false, icon = false;
-    auto re = [&](auto& v, auto pred, bool& flag) {
-        const size_t n = v.size();
-        v.erase(std::remove_if(v.begin(), v.end(), pred), v.end());
-        flag = v.size() != n;
-    };
-    re(g_items, [&](const ResItem& it) { return it.owner == owner && !g_pinned.count(it.key); }, res);
-    re(g_blobs, [&](const BlobItem& b) { return b.owner == owner; }, blob);
-    for (auto& i : g_iconv)
-        if (i.owner == owner) i.state->store(KILN_ICON_NONE);
-    re(g_iconv, [&](const IconItem& i) { return i.owner == owner; }, icon);
-    if (res) reindex_locked(), rebuild_resources_locked();
-    if (blob || icon) rebuild_content_locked();
-    if (icon) rebuild_icons_locked();
+    drain_retired_locked();
+    revert_owners_locked({owner});
 }
 
 std::string store_status_json() {
@@ -695,7 +871,7 @@ std::string store_status_json() {
     char b[384];
     std::snprintf(b, sizeof b, "\"resources\":%zu,\"resourcesNew\":%zu,\"resourcesOverride\":%zu,\"blobs\":%zu,\"icons\":%zu",
                   g_items.size(), new_res, over_res, g_blobs.size(), g_iconv.size());
-    return b;
+    return std::string(b) + "," + catalog_status_json();
 }
 
 }  // namespace ka

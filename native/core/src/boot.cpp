@@ -19,6 +19,7 @@
 #include "native_mods.h"
 #include "early_plugins.h"
 #include "foreign_scan.h"
+#include "gates.h"
 #include "nlohmann/json.hpp"
 #include "profile.h"
 #include "progress_state.h"
@@ -41,6 +42,15 @@ namespace kiln::caps {
 void core_rows(bool hooks, bool verified, const std::string& safe_idle);
 void boot_complete();
 }  // namespace kiln::caps
+
+// kiln.boot, Mod.OnBoot's definition phase (services/boot_service.cpp, abi/services/kiln_boot.h).
+namespace kiln::boot_svc {
+void decide(bool hooks, const std::string& safe_idle);
+void bound();
+bool after_clr(bool clr_started, void (*write_state)(void* user, const std::string& last_line), void* user);
+nlohmann::json report();
+void late_hold(void (*write_state)(void* user, const std::string& last_line), void* user);
+}  // namespace kiln::boot_svc
 
 namespace kiln {
 
@@ -262,6 +272,7 @@ void write_boot_json(const BootFacts& f) {
     for (const auto& w : foreign::waits())
         waits.push_back({{"module", w.module}, {"end", foreign::wait_end_name(w.end)}, {"ms", w.ms}, {"line", null_if_empty(w.line)}});
     doc["waitedFor"] = waits;
+    doc["boot"] = boot_svc::report();  // Mod.OnBoot's generation (kiln.boot): deferred or not, each mod's state, issues
     for (uint32_t k = 0; k < KILN_PROFILE_KINDS; ++k)
         if (profile::dropins(k)) doc["profile"]["dropins"].push_back(profile::kind_name(k));
     for (uint32_t i = 0; i < profile::kEngineKindCount; ++i)  // other engines' lists, when the profile has them
@@ -419,6 +430,46 @@ const char* game_label(uint32_t side) {
     return side == KILN_SIDE_CLIENT ? "The game is loading its main menu" : "The server is starting its world";
 }
 
+// `file` holds `text`: waited for, bounded, before the process ends. kiln.log's and progress.json's writers are threads
+// of their own with no flush (each writes in order), so their last words are on disk once the text is there.
+void wait_for_file_text(const std::filesystem::path& file, const std::string& text) {
+    const double until = now_ms() + 1000;
+    std::string got;
+    while (now_ms() < until) {
+        if (read_file(file, &got) && got.find(text) != std::string::npos) return;
+        Sleep(10);
+    }
+}
+
+// boot_svc::after_clr's hold path: the start stops before the game's entry point. What the launcher reads is written
+// first (progress.json "failed", boot.json with the boot section, capabilities.json), then the process ends with the
+// exit code.
+void hold_boot(void* user, const std::string& last_line) {
+    auto& f = *static_cast<BootFacts*>(user);
+    const std::string why = "the boot mods' content was not published, so Kiln stopped the start before the game's "
+                            "entry point (no save loads without it); boot.json \"boot\" says which mod and why";
+    progress_state::failed(why);
+    f.errors.push_back(why);
+    write_boot_json(f);
+    caps::boot_complete();
+    wait_for_file_text(paths().state / L"progress.json", "\"failed\"");
+    wait_for_file_text(paths().logs / L"kiln.log", last_line);
+}
+
+// kiln.boot's stop after the entry point (a required boot mod whose published content could not be applied,
+// boot_svc b_activation_fault): the same state files as hold_boot, from the facts boot() ended with.
+BootFacts* g_late_facts = nullptr;
+void late_hold_boot(void*, const std::string& last_line) {
+    if (!g_late_facts) return;
+    const std::string why = "a required boot mod's content could not be applied, so Kiln stopped the start (no save loads "
+                            "without it); boot.json \"boot\" says which mod and why";
+    progress_state::failed(why);
+    g_late_facts->errors.push_back(why);
+    write_boot_json(*g_late_facts);
+    wait_for_file_text(paths().state / L"progress.json", "\"failed\"");
+    wait_for_file_text(paths().logs / L"kiln.log", last_line);
+}
+
 void boot() {
     snapshot_entry();  // before anything loads a DLL
     init_paths();
@@ -451,6 +502,7 @@ void boot() {
     // Server or client: its own definitions, build records and kiln.json section.
     const uint32_t side = image().side;
     apply_side(side);
+    gates::configure(side, config().preview_all, config().preview);  // before early plugins or any service init
     // after apply_side: kiln.json's side section may switch .NET (clr) off or on, and the plan follows what applies
     progress_state::begin(kiln_build, side_name(side), f.started_ms, started_utc, start_plan());
     std::string note;
@@ -507,9 +559,13 @@ void boot() {
     if (hooks) svc::init_all();
     caps::core_rows(hooks, verified, f.safe_idle);  // before the service DLLs and plugins, which add their own rows
     for (const auto& feature : sigdb::failed_features()) KLOG_W("feature %s unavailable on this build", feature.c_str());
+    // A boot profile (an enabled mod with "boot": true) defers the six collectors' definitions to one generation that
+    // is published after OnBoot: decided here, so the collectors know it in kiln_plugin_main and on_ready.
+    boot_svc::decide(hooks, f.safe_idle);
 
     if (hooks) load_plugins();  // kiln/services/*.dll, then plugins (profile-aware), then on_ready
     else progress_state::step("plugins");
+    if (hooks) boot_svc::bound();  // every on_ready ran: the collectors are registered
     if (hooks) arm_unload();    // on_unload at the process's exit call
     for (const auto& p : plugin_records())
         if (std::string_view(p.status) == "failed") f.errors.push_back("plugin " + p.file + ": " + p.error);
@@ -524,9 +580,15 @@ void boot() {
         f.clr_started = clr::boot(api());
         if (!f.clr_started) f.clr_error = "the .NET host did not start (kiln.log, [clr] lines)";
     }
+    // Kiln.Host ran the boot mods' OnBoot and committed their generation inside clr::boot. In a boot profile anything but
+    // a published generation keeps the entry point held and ends the process (KILN_BOOT_EXIT_CODE): no save loads
+    // without its mods' content. The commit sits before chain.ini [late] DLLs and before the game's entry point.
+    if (!boot_svc::after_clr(f.clr_started, &hold_boot, &f)) return;  // the exit adapter returned (host tests only)
     native_mods::run_late();  // chain DLLs named in kiln/chain.ini [late]: after everything Kiln hosts hooked
     check_entry_patch(f);
     write_boot_json(f);
+    g_late_facts = new BootFacts(f);  // never freed: kiln.boot may need it at any later moment
+    boot_svc::late_hold(&late_hold_boot, nullptr);
     caps::boot_complete();  // capabilities.json, then a write after each change (at most one a second)
     hooks::boot_complete();  // state/hooks.json + the foreign-hook check (kiln.hooks v2)
     compat::boot_done();

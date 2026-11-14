@@ -1,0 +1,90 @@
+{
+  "format": 1,
+  "policyVersion": 1,
+  "receipts": [
+    {
+      "libraryRef": {
+        "kind": "kiln",
+        "id": "lantern-glow",
+        "version": "1.2.0",
+        "hash": "kdh1:1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      "provider": "nexus",
+      "destination": "enshrouded",
+      "modId": "310",
+      "installedVersion": "1.2.0",
+      "releaseId": null,
+      "tag": null,
+      "assetId": null,
+      "artifactSha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "fileChainId": "90310",
+      "fileVersionId": "8010012",
+      "metadataSha256": null,
+      "policyVersion": 1
+    },
+    {
+      "libraryRef": {
+        "kind": "kiln",
+        "id": "sample-lib",
+        "version": "1.4.0",
+        "hash": "kdh1:2222222222222222222222222222222222222222222222222222222222222222"
+      },
+      "provider": "local",
+      "destination": "",
+      "modId": "sample-lib",
+      "installedVersion": "1.4.0",
+      "releaseId": null,
+      "tag": null,
+      "assetId": null,
+      "artifactSha256": "4444444444444444444444444444444444444444444444444444444444444444",
+      "fileChainId": null,
+      "fileVersionId": null,
+      "metadataSha256": null,
+      "policyVersion": 1
+    },
+    {
+      "libraryRef": {
+        "kind": "native",
+        "id": "sample-native",
+        "version": "0.3.0",
+        "hash": "kdh1:5555555555555555555555555555555555555555555555555555555555555555"
+      },
+      "provider": "local",
+      "destination": "",
+      "modId": "sample-native",
+      "installedVersion": "0.3.0",
+      "releaseId": null,
+      "tag": null,
+      "assetId": null,
+      "artifactSha256": "4444444444444444444444444444444444444444444444444444444444444444",
+      "fileChainId": null,
+      "fileVersionId": null,
+      "metadataSha256": null,
+      "policyVersion": 1
+    }
+  ],
+  "sources": [
+    {
+      "kind": "emf",
+      "id": "better-loot",
+      "provider": "github",
+      "destination": "example/better-loot",
+      "origin": "manual",
+      "spec": {
+        "provider": "github",
+        "repository": "Example/Better-Loot",
+        "tagPattern": "v{version}",
+        "channel": "stable"
+      },
+      "accepted": "2026-11-13T10:00:00Z"
+    },
+    {
+      "kind": "kiln",
+      "id": "lantern-glow",
+      "provider": "nexus",
+      "destination": "enshrouded/310/90310",
+      "origin": "receipt",
+      "accepted": "2026-11-13T10:00:00Z"
+    }
+  ]
+}

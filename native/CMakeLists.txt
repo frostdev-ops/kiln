@@ -23,6 +23,20 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${KILN_VERSION_F
 set(KILN_GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")
 configure_file(cmake/kiln_version.h.in "${KILN_GENERATED_DIR}/kiln_version.h" @ONLY)
 
+# The client gate's list: core/gates/*.json -> generated/kiln_gates.g.h (core/gates/README.md), compiled into the
+# core so an install cannot lose it. A bad file stops the build.
+find_program(KILN_PYTHON NAMES python3 python REQUIRED NO_CMAKE_FIND_ROOT_PATH)
+file(GLOB KILN_GATE_FILES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/core/gates/*.json")
+# A removed input must also rebuild the header; the remaining files may all be older than it.
+file(GENERATE OUTPUT "${KILN_GENERATED_DIR}/kiln_gates.inputs" CONTENT "${KILN_GATE_FILES}\n")
+add_custom_command(
+    OUTPUT "${KILN_GENERATED_DIR}/kiln_gates.g.h"
+    COMMAND "${KILN_PYTHON}" -I "${CMAKE_SOURCE_DIR}/core/gates/gen.py" "${CMAKE_SOURCE_DIR}/core/gates"
+            "${KILN_GENERATED_DIR}/kiln_gates.g.h"
+    DEPENDS ${KILN_GATE_FILES} "${CMAKE_SOURCE_DIR}/core/gates/gen.py" "${KILN_GENERATED_DIR}/kiln_gates.inputs"
+    COMMENT "client gate list -> kiln_gates.g.h"
+    VERBATIM)
+
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
@@ -62,6 +76,8 @@ add_library(kiln-core SHARED
     core/src/config.cpp
     core/src/crash.cpp
     core/src/foreign_scan.cpp
+    core/src/gates.cpp
+    "${KILN_GENERATED_DIR}/kiln_gates.g.h"
     core/src/guard.cpp
     core/src/image.cpp
     core/src/log.cpp

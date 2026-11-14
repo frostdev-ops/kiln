@@ -126,7 +126,7 @@ bool valid_name(const std::string& n) {
 const char* wname(uintptr_t world) { return world == g_api->world(KILN_WORLD_CLIENT) ? "client" : "server"; }
 
 std::string mod_of_label(const std::string& label) {
-    for (const char* p : {"mod ", "pack "})
+    for (const char* p : {"mod ", "pack ", "boot:"})  // "boot:<mod>": the process owner of a boot generation's definitions
         if (label.rfind(p, 0) == 0) return label.substr(std::strlen(p));
     return {};
 }
@@ -1518,6 +1518,15 @@ void clones_tick(uint64_t step) {
             if (x.world == w) buff_world(w, &err);  // the registry reloaded its collection? point it back
         buffs_sync();
     }
+}
+
+// A boot generation not published (chapter 08): owner's clones that no world registered are taken out; returns how many.
+uint32_t clones_forget_unbound(KilnOwner owner) {
+    std::lock_guard l1(store_mutex());
+    std::lock_guard lock(g_mu);
+    const size_t before = g_defs.size();
+    std::erase_if(g_defs, [&](const Def& d) { return d.owner == owner && !d.data; });
+    return static_cast<uint32_t>(before - g_defs.size());
 }
 
 KilnResult clones_define(KilnOwner owner, uint32_t section, const std::string& json, bool pack, const std::string& source,

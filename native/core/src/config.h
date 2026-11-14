@@ -2,6 +2,7 @@
 // <game>/kiln/kiln.json (all keys optional):
 //   { "policy": "verified-only" | "any", "clr": true, "plugins": true, "log_level": "info",
 //     "native": { "policy": "always" | "verified-only" | "never" },
+//     "preview": true | ["<capability>", ...],
 //     "server": { ...same keys... }, "client": { ...same keys... } }
 // The "server" / "client" section, when present, overrides the top-level keys on that side (apply_side, once the
 // exe's identity is known), so one kiln.json can say e.g. verified-only for servers and any for a test client.
@@ -9,8 +10,15 @@
 // "verified": true. Otherwise Kiln stays in "safe idle": it resolves and reports, and the game runs vanilla.
 // native.policy (native mods, docs/kiln/native-mods.md): always (default: they load in safe idle too), verified-only
 // (only on a verified build), never.
+// preview: lifts the client gate (gates.h): true (or "all") for every capability that is held until its game test, or
+// a list of their names. A side section's "preview" replaces the top-level one.
+// "boot": { "testRefuse": { "<mod id>": "<collector>" } }: labs only (policy any, ignored otherwise): kiln.boot hands that
+// collector an unreadable document of that mod, so the collector refuses it and the mod is dropped from the boot generation
+// (the forced-drop proof of chapter 08; a release never sets it).
 #pragma once
+#include <map>
 #include <string>
+#include <vector>
 
 #include "common.h"
 
@@ -24,6 +32,9 @@ struct Config {
     bool plugins = true;
     int log_level = KILN_LOG_INFO;
     NativePolicy native_policy = NativePolicy::Always;
+    bool preview_all = false;           // "preview": true
+    std::vector<std::string> preview;   // "preview": [names]
+    std::map<std::string, std::string> boot_test_refuse;  // "boot": {"testRefuse": {mod: collector}} (labs, policy any)
 };
 
 const char* native_policy_name(NativePolicy p);  // "always" | "verified-only" | "never"

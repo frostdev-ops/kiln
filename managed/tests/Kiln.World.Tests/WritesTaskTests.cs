@@ -63,6 +63,8 @@ public class WritesTaskTests
         Assert.Equal(
             [("Kiln.Ecs+Fuel", "Update"), ("Kiln.Ecs+ScaleComponent", "Update"), ("Kiln.Ecs+ScaleComponent", "Write"), ("WritesMod.Homemade", "Write")],
             scan.Types.Order().ToArray());
+        // World.SetTransformScale writes CurrentTransform whatever its arguments (0.2.0-dev.28)
+        Assert.Equal(["CurrentTransform"], scan.Fixed);
         // the mod's own generic helper: the build cannot know its type
         var open = Assert.Single(scan.Unresolved);
         Assert.Equal("Write", open.Method);
@@ -91,8 +93,8 @@ public class WritesTaskTests
     {
         var (ok, engine, task, manifest) = Run(Minimal);
         Assert.True(ok, string.Join("\n", engine.Errors.Select(e => e.Message)));
-        Assert.Equal("Fuel;ScaleComponent", task.Added);
-        Assert.Equal(["Fuel", "ScaleComponent"], Writes(manifest));
+        Assert.Equal("CurrentTransform;Fuel;ScaleComponent", task.Added);
+        Assert.Equal(["CurrentTransform", "Fuel", "ScaleComponent"], Writes(manifest));
         Assert.Contains("// a mod's own manifest", manifest);   // the rest of the file keeps its text
         // one warning for the generic helper, one for the mod's own struct
         Assert.Equal(2, engine.Warnings.Count);
@@ -107,11 +109,11 @@ public class WritesTaskTests
         var own = Minimal.Replace("\"id\"", "\"writes\": [\"Health\", \"Fuel\", /* by hand */ ],\n  \"id\"");
         var (ok, _, task, manifest) = Run(own);
         Assert.True(ok);
-        Assert.Equal("ScaleComponent", task.Added);
-        Assert.Equal(["Health", "Fuel", "ScaleComponent"], Writes(manifest));
+        Assert.Equal("CurrentTransform;ScaleComponent", task.Added);
+        Assert.Equal(["Health", "Fuel", "CurrentTransform", "ScaleComponent"], Writes(manifest));
         Assert.Contains("/* by hand */", manifest);
 
-        var (text, added) = KilnWrites.Fill(manifest, ["Fuel", "ScaleComponent", "Health"]);
+        var (text, added) = KilnWrites.Fill(manifest, ["Fuel", "ScaleComponent", "Health", "CurrentTransform"]);
         Assert.Empty(added);
         Assert.Equal(manifest, text);
     }
@@ -138,6 +140,15 @@ public class WritesTaskTests
         Assert.False(ok);
         Assert.Equal("KILN031", Assert.Single(engine.Errors).Code);
         Assert.Contains("\"writes\": 7", manifest);   // left as it was
+    }
+
+    [Fact]
+    public void A_transform_scale_call_alone_adds_CurrentTransform_also_without_Kiln_Game()
+    {
+        var (ok, engine, task, manifest) = Run(Minimal, game: "");
+        Assert.True(ok, string.Join("\n", engine.Errors.Select(e => e.Message)));
+        Assert.Contains("CurrentTransform", task.Added.Split(';'));
+        Assert.Contains("CurrentTransform", Writes(manifest));
     }
 
     [Fact]

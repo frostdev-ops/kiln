@@ -57,6 +57,10 @@
 //! | [`catalog`] | local game-data catalogs (items, templates, ...) for the linter, VS Code, Kiln.GameIds |
 //! | [`lint`] | `kiln lint`: mod files against schema/*.schema.json, ids, references, manifest consistency, licences |
 //! | [`nexus`] | the online mod catalog on Nexus Mods, Mod Manager Download (nxm://) links, the API key store |
+//! | [`net`] | the HTTP layer of `kiln publish` and the update check: fixed hosts per provider, public addresses only, no redirects, a fake transport for tests |
+//! | [`publish`] | `kiln publish`: the artifact policy and audit of a mod zip (`zip`) |
+//! | [`release_binding`] | `kiln-release.json`: which mod, version and zip a release holds |
+//! | [`updates`] | update checks for installed mods: source receipts, one status per mod from every provider; a notice and a link, never a download |
 
 pub mod error;
 pub mod task;
@@ -121,6 +125,8 @@ pub mod wine;
 pub mod cook;
 #[cfg(feature = "cooktools")]
 pub mod cooktools;
+#[cfg(feature = "cooktools")]
+pub mod boot_snapshot;
 
 #[cfg(feature = "gameart")]
 pub mod gameart;
@@ -133,6 +139,10 @@ pub mod lint;
 
 // the online catalog on Nexus Mods (network calls need feature `http`)
 pub mod nexus;
+pub mod net;
+pub mod release_binding;
+pub mod publish;
+pub mod updates;
 
 pub use error::{Error, ErrorCode, Result};
 

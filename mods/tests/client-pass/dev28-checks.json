@@ -1,0 +1,1537 @@
+{
+ "format": 1,
+ "comment": "The guided client checks of the dev.28 dossier, by id (lower-case, as [ClientCheck] takes them). state: open (the pass has to answer it) or settled (a research session answered the research question; the built feature may still want a re-check). packages: the work packages of the id's chapter; the package whose plan names the id writes the check in mods/tests/client-pass/Dev28<Name>.cs. Read by tools/client-checks (the pass's plan and the 'every open id is implemented or listed with a reason' test).",
+ "checks": [
+  {
+   "id": "01-queries.voxel-ray-hosted",
+   "title": "Ground, wall and query-only safety",
+   "chapter": "01",
+   "packages": [
+    "01-world-queries"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "01-queries.voxel-only-prop",
+   "title": "Props are not voxel hits",
+   "chapter": "01",
+   "packages": [
+    "01-world-queries"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "01-los-eye-height",
+   "title": "Short and tall creatures at low walls",
+   "chapter": "01",
+   "packages": [
+    "01-world-queries"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "02-queries.path-hosted",
+   "title": "Route around a wall without moving the owner",
+   "chapter": "02",
+   "packages": [
+    "02-pathfinding"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "02-queries.path-follow-walk",
+   "title": "Follow, cancel and unsupported movement",
+   "chapter": "02",
+   "packages": [
+    "02-pathfinding"
+   ],
+   "state": "open",
+   "deferred": "belongs to the optional follower of 02-pathfinding (a creature that walks a path by itself), which is not built in this release; 02-queries.path-hosted covers the path search itself"
+  },
+  {
+   "id": "02-body-clearance",
+   "title": "Match navigation clearance to the creature",
+   "chapter": "02",
+   "packages": [
+    "02-pathfinding"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "03-c1",
+   "title": "Input/render separation and original hook threads",
+   "chapter": "03",
+   "packages": [
+    "03-camera"
+   ],
+   "state": "settled"
+  },
+  {
+   "id": "03-c2",
+   "title": "Corrected rendered FOV",
+   "chapter": "03",
+   "packages": [
+    "03-camera"
+   ],
+   "state": "settled"
+  },
+  {
+   "id": "03-c3",
+   "title": "Historical distance/height profile",
+   "chapter": "03",
+   "packages": [
+    "03-camera"
+   ],
+   "state": "settled"
+  },
+  {
+   "id": "03-c4",
+   "title": "Historical cutscene pose",
+   "chapter": "03",
+   "packages": [
+    "03-camera"
+   ],
+   "state": "settled"
+  },
+  {
+   "id": "03-c5",
+   "title": "Historical shake",
+   "chapter": "03",
+   "packages": [
+    "03-camera"
+   ],
+   "state": "settled"
+  },
+  {
+   "id": "03-c6",
+   "title": "Camera lifetime after address reuse",
+   "chapter": "03",
+   "packages": [
+    "03-camera"
+   ],
+   "state": "settled"
+  },
+  {
+   "id": "03-c7",
+   "title": "Server stock-mode lock on vanilla",
+   "chapter": "03",
+   "packages": [
+    "03-camera"
+   ],
+   "state": "settled"
+  },
+  {
+   "id": "03-c8",
+   "title": "Vanilla hand-back after the lock",
+   "chapter": "03",
+   "packages": [
+    "03-camera"
+   ],
+   "state": "settled"
+  },
+  {
+   "id": "03-c9",
+   "title": "Product renderer-only follow and trajectory",
+   "chapter": "03",
+   "packages": [
+    "03-camera"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "03-c10",
+   "title": "Host-self, guest and visual transport",
+   "chapter": "03",
+   "packages": [
+    "03-camera"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "03-c11",
+   "title": "Final visual snapshot and screen alignment",
+   "chapter": "03",
+   "packages": [
+    "03-camera"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "03-s9",
+   "title": "Outdoor flyer camera regression",
+   "chapter": "03",
+   "packages": [
+    "03-camera"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "03-resource-profile",
+   "title": "Optional native state ownership",
+   "chapter": "03",
+   "packages": [
+    "03-camera"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "04-world-label",
+   "title": "Fixed world-space label",
+   "chapter": "04",
+   "packages": [
+    "04-markers"
+   ],
+   "state": "settled"
+  },
+  {
+   "id": "04-custom-pin",
+   "title": "Native cache across map close/reopen",
+   "chapter": "04",
+   "packages": [
+    "04-markers"
+   ],
+   "state": "settled"
+  },
+  {
+   "id": "04-local-map",
+   "title": "Injected native icon and cleanup",
+   "chapter": "04",
+   "packages": [
+    "04-markers"
+   ],
+   "state": "settled"
+  },
+  {
+   "id": "04-vanilla-waypoint",
+   "title": "Server waypoint on vanilla compass",
+   "chapter": "04",
+   "packages": [
+    "04-markers"
+   ],
+   "state": "settled"
+  },
+  {
+   "id": "04-vanilla-spawn",
+   "title": "Unique shipped marker creation/removal",
+   "chapter": "04",
+   "packages": [
+    "04-markers"
+   ],
+   "state": "settled"
+  },
+  {
+   "id": "04-m05",
+   "title": "Moving world label/nameplate",
+   "chapter": "04",
+   "packages": [
+    "04-markers"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "04-m06",
+   "title": "Reused IDs and relevance loss",
+   "chapter": "04",
+   "packages": [
+    "04-markers"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "04-m07",
+   "title": "Kiln's rendered compass",
+   "chapter": "04",
+   "packages": [
+    "04-markers"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "04-m08",
+   "title": "Receiver without the server author's mod",
+   "chapter": "04",
+   "packages": [
+    "04-markers"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "04-m09",
+   "title": "Target and broadcast visual layers",
+   "chapter": "04",
+   "packages": [
+    "04-markers"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "04-m10",
+   "title": "Vanilla refusal and late/reconnected receiver",
+   "chapter": "04",
+   "packages": [
+    "04-markers"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "04-m11",
+   "title": "Loss, duplicate and resnapshot visuals",
+   "chapter": "04",
+   "packages": [
+    "04-markers"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "04-m12",
+   "title": "World/unload visual cleanup",
+   "chapter": "04",
+   "packages": [
+    "04-markers"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "04-markers.capacity_restore",
+   "title": "Visual capacity recovery",
+   "chapter": "04",
+   "packages": [
+    "04-markers"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "04-m15",
+   "title": "Display-only native icon interaction",
+   "chapter": "04",
+   "packages": [
+    "04-markers"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "04-marker-range",
+   "title": "Optional vanilla range and multiplayer reach",
+   "chapter": "04",
+   "packages": [
+    "04-markers"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "04-map-text",
+   "title": "Optional custom native tooltip",
+   "chapter": "04",
+   "packages": [
+    "04-markers"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "04-native-compass",
+   "title": "Optional selected-ID integration",
+   "chapter": "04",
+   "packages": [
+    "04-markers"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "04-waypoint-restore",
+   "title": "Conditional restore versus player edit",
+   "chapter": "04",
+   "packages": [
+    "04-markers"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "04-boss-name",
+   "title": "Optional vanilla boss rename",
+   "chapter": "04",
+   "packages": [
+    "04-markers"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "04-pin-ownership",
+   "title": "Character/world ownership of native saved pins",
+   "chapter": "04",
+   "packages": [
+    "04-markers"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "04-discovery-mask",
+   "title": "Optional explored-map boundary",
+   "chapter": "04",
+   "packages": [
+    "04-markers"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "05a-c1",
+   "title": "Detail numbers and slot bars",
+   "chapter": "05a",
+   "packages": [
+    "05a-value-providers"
+   ],
+   "state": "settled"
+  },
+  {
+   "id": "05a-c2",
+   "title": "Retained post-update HUD writes",
+   "chapter": "05a",
+   "packages": [
+    "05a-value-providers"
+   ],
+   "state": "settled"
+  },
+  {
+   "id": "05a-c3",
+   "title": "Nonzero held water and visible stamina identity",
+   "chapter": "05a",
+   "packages": [
+    "05a-value-providers"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "05a-c4-short",
+   "title": "Short native line primitive",
+   "chapter": "05a",
+   "packages": [
+    "05a-value-providers"
+   ],
+   "state": "settled"
+  },
+  {
+   "id": "05a-c4-native",
+   "title": "Native long/Unicode/multiline layout",
+   "chapter": "05a",
+   "packages": [
+    "05a-value-providers"
+   ],
+   "state": "settled"
+  },
+  {
+   "id": "05a-c4-viewer",
+   "title": "Replacement owned details viewer",
+   "chapter": "05a",
+   "packages": [
+    "05a-value-providers"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "05a-c5",
+   "title": "Cursor, gamepad, geometry and chest transfer",
+   "chapter": "05a",
+   "packages": [
+    "05a-value-providers"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "05b-stats-ui",
+   "title": "Live XP/currency and exact large values",
+   "chapter": "05b",
+   "packages": [
+    "05b-mod-stats"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "06a-wraps.waterworks",
+   "title": "Visible wrapped well refill",
+   "chapter": "06a",
+   "packages": [
+    "06a-program-wraps"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "06a-q1",
+   "title": "Real-player scheduling/thread census",
+   "chapter": "06a",
+   "packages": [
+    "06a-program-wraps"
+   ],
+   "state": "settled"
+  },
+  {
+   "id": "06b-typed-client",
+   "title": "Typed thunk on the client binary",
+   "chapter": "06b",
+   "packages": [
+    "06b-typed-hooks"
+   ],
+   "state": "settled"
+  },
+  {
+   "id": "06b-terrain-args",
+   "title": "Optional terrain-damage descriptor",
+   "chapter": "06b",
+   "packages": [
+    "06b-typed-hooks"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "06c-impact-thread",
+   "title": "Hosted Impact thread",
+   "chapter": "06c",
+   "packages": [
+    "06c-impact-natives"
+   ],
+   "state": "settled"
+  },
+  {
+   "id": "06c-impact-damage",
+   "title": "Synchronous perk damage on a weapon",
+   "chapter": "06c",
+   "packages": [
+    "06c-impact-natives"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "07-events.decision-rollback",
+   "title": "Refused death, pickup and equip",
+   "chapter": "07",
+   "packages": [
+    "07-cancelable-events"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "07-piece-rollback",
+   "title": "Supported building primitive correction",
+   "chapter": "07",
+   "packages": [
+    "07-cancelable-events"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "07-native-terraform",
+   "title": "Separate native policy presentation",
+   "chapter": "07",
+   "packages": [
+    "07-cancelable-events"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "08-boot.first-start-definitions",
+   "title": "First-start content and rehosting",
+   "chapter": "08",
+   "packages": [
+    "08-onboot"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "08-loader-order",
+   "title": "Other-loader consumer ordering",
+   "chapter": "08",
+   "packages": [
+    "08-onboot"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "09-ui-blocks",
+   "title": "Rich rows, input and joined commands",
+   "chapter": "09",
+   "packages": [
+    "09-ui-blocks"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "10-items.equip-set",
+   "title": "One decision and visible atomic set swap",
+   "chapter": "10",
+   "packages": [
+    "10-equipment-sets"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "11-h1",
+   "title": "Host's own replication route",
+   "chapter": "11",
+   "packages": [
+    "11-replication-observe"
+   ],
+   "state": "settled"
+  },
+  {
+   "id": "11-q3",
+   "title": "Joined state application path",
+   "chapter": "11",
+   "packages": [
+    "11-replication-observe"
+   ],
+   "state": "settled"
+  },
+  {
+   "id": "11-tick-lag",
+   "title": "Actual joined-client tick lead",
+   "chapter": "11",
+   "packages": [
+    "11-replication-observe"
+   ],
+   "state": "settled"
+  },
+  {
+   "id": "11-q5",
+   "title": "Prediction-channel entity membership",
+   "chapter": "11",
+   "packages": [
+    "11-replication-observe"
+   ],
+   "state": "settled"
+  },
+  {
+   "id": "11-destroy-reasons",
+   "title": "Both destroy-list paths",
+   "chapter": "11",
+   "packages": [
+    "11-replication-observe"
+   ],
+   "state": "settled"
+  },
+  {
+   "id": "11-m1",
+   "title": "Observe with a real remote peer",
+   "chapter": "11",
+   "packages": [
+    "11-replication-observe"
+   ],
+   "state": "settled"
+  },
+  {
+   "id": "11-receive-sites",
+   "title": "Real client/server receive dispatch",
+   "chapter": "11",
+   "packages": [
+    "11-replication-observe"
+   ],
+   "state": "settled"
+  },
+  {
+   "id": "11-repl.receive-watch",
+   "title": "Real chest inventory equality",
+   "chapter": "11",
+   "packages": [
+    "11-replication-observe"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "11-transform-interpolation",
+   "title": "Optional stored versus drawn transform",
+   "chapter": "11",
+   "packages": [
+    "11-replication-observe"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "11-prediction-template",
+   "title": "Identify persistent prediction entity 6851",
+   "chapter": "11",
+   "packages": [
+    "11-replication-observe"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "11-q6",
+   "title": "Purely client-created entity IDs",
+   "chapter": "11",
+   "packages": [
+    "11-replication-observe"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "11-allocation-refusal",
+   "title": "Queued versus delivered message loss",
+   "chapter": "11",
+   "packages": [
+    "11-replication-observe"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "12-debug.client-windows",
+   "title": "Windows debugger lifecycle",
+   "chapter": "12",
+   "packages": [
+    "12a-debugger",
+    "12b-publish",
+    "12c-update-check"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "12-debug.client-proton",
+   "title": "Proton debugger lifecycle and runner",
+   "chapter": "12",
+   "packages": [
+    "12a-debugger",
+    "12b-publish",
+    "12c-update-check"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "12-updates-launcher",
+   "title": "Manual updates without installation",
+   "chapter": "12",
+   "packages": [
+    "12a-debugger",
+    "12b-publish",
+    "12c-update-check"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "13-options.apply-undo",
+   "title": "Live supported option and restore",
+   "chapter": "13",
+   "packages": [
+    "13a-set",
+    "13b-shroudforge",
+    "13c-eml",
+    "13d-shroudlink",
+    "13f-emf",
+    "13e-enshwick"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "13-options.menu-ownership",
+   "title": "Player menu wins over mod layers",
+   "chapter": "13",
+   "packages": [
+    "13a-set",
+    "13b-shroudforge",
+    "13c-eml",
+    "13d-shroudlink",
+    "13f-emf",
+    "13e-enshwick"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "13-options.user-switch",
+   "title": "Root/user invalidation",
+   "chapter": "13",
+   "packages": [
+    "13a-set",
+    "13b-shroudforge",
+    "13c-eml",
+    "13d-shroudlink",
+    "13f-emf",
+    "13e-enshwick"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "13-set.admin-authority",
+   "title": "Hosted raw admin seam",
+   "chapter": "13",
+   "packages": [
+    "13a-set",
+    "13b-shroudforge",
+    "13c-eml",
+    "13d-shroudlink",
+    "13f-emf",
+    "13e-enshwick"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "13-set.debug-ui",
+   "title": "Metrics/style UI and capture",
+   "chapter": "13",
+   "packages": [
+    "13a-set",
+    "13b-shroudforge",
+    "13c-eml",
+    "13d-shroudlink",
+    "13f-emf",
+    "13e-enshwick"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "13-set.ini-coexist",
+   "title": "Settings editor versus upstream controls",
+   "chapter": "13",
+   "packages": [
+    "13a-set",
+    "13b-shroudforge",
+    "13c-eml",
+    "13d-shroudlink",
+    "13f-emf",
+    "13e-enshwick"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "13-assets.catalog-client",
+   "title": "Client asset catalog acceptance",
+   "chapter": "13",
+   "packages": [
+    "13a-set",
+    "13b-shroudforge",
+    "13c-eml",
+    "13d-shroudlink",
+    "13f-emf",
+    "13e-enshwick"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "13-world.transform-scale",
+   "title": "Rendered scale versus collision and save",
+   "chapter": "13",
+   "packages": [
+    "13a-set",
+    "13b-shroudforge",
+    "13c-eml",
+    "13d-shroudlink",
+    "13f-emf",
+    "13e-enshwick"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "13-assets.codec-override",
+   "title": "Authored texture color and alpha",
+   "chapter": "13",
+   "packages": [
+    "13a-set",
+    "13b-shroudforge",
+    "13c-eml",
+    "13d-shroudlink",
+    "13f-emf",
+    "13e-enshwick"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "13-slots.rim-slot-bound",
+   "title": "Rims stay with slots, not items",
+   "chapter": "13",
+   "packages": [
+    "13a-set",
+    "13b-shroudforge",
+    "13c-eml",
+    "13d-shroudlink",
+    "13f-emf",
+    "13e-enshwick"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "13-slots.keys-focus",
+   "title": "L, text focus and stale intents",
+   "chapter": "13",
+   "packages": [
+    "13a-set",
+    "13b-shroudforge",
+    "13c-eml",
+    "13d-shroudlink",
+    "13f-emf",
+    "13e-enshwick"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "13-slots.addon-coexist",
+   "title": "Original shroudlink and overlapping mods",
+   "chapter": "13",
+   "packages": [
+    "13a-set",
+    "13b-shroudforge",
+    "13c-eml",
+    "13d-shroudlink",
+    "13f-emf",
+    "13e-enshwick"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "13-enshwick.progress",
+   "title": "Custom progress without vanilla XP changes",
+   "chapter": "13",
+   "packages": [
+    "13a-set",
+    "13b-shroudforge",
+    "13c-eml",
+    "13d-shroudlink",
+    "13f-emf",
+    "13e-enshwick"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "13-emf.disable-ui",
+   "title": "Logical disable state in the UI",
+   "chapter": "13",
+   "packages": [
+    "13a-set",
+    "13b-shroudforge",
+    "13c-eml",
+    "13d-shroudlink",
+    "13f-emf",
+    "13e-enshwick"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "13-emf.portrait-ready",
+   "title": "Existing portrait appearance",
+   "chapter": "13",
+   "packages": [
+    "13a-set",
+    "13b-shroudforge",
+    "13c-eml",
+    "13d-shroudlink",
+    "13f-emf",
+    "13e-enshwick"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "13-emf.partial-presentation",
+   "title": "Retained partial-family behavior",
+   "chapter": "13",
+   "packages": [
+    "13a-set",
+    "13b-shroudforge",
+    "13c-eml",
+    "13d-shroudlink",
+    "13f-emf",
+    "13e-enshwick"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "14-client-world-programs",
+   "title": "Product program and EMF event/world-switch matrix",
+   "chapter": "14",
+   "packages": [
+    "14-client-world-programs"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "14-q1",
+   "title": "Research client-world registration",
+   "chapter": "14",
+   "packages": [
+    "14-client-world-programs"
+   ],
+   "state": "settled"
+  },
+  {
+   "id": "14-q2",
+   "title": "Prediction table and executed program set",
+   "chapter": "14",
+   "packages": [
+    "14-client-world-programs"
+   ],
+   "state": "settled"
+  },
+  {
+   "id": "14-q3",
+   "title": "Hosted versus joined scheduler split",
+   "chapter": "14",
+   "packages": [
+    "14-client-world-programs"
+   ],
+   "state": "settled"
+  },
+  {
+   "id": "14-q4",
+   "title": "Named client event membership",
+   "chapter": "14",
+   "packages": [
+    "14-client-world-programs"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "15-m5",
+   "title": "Sidecars, vanilla filtering and receive rewrite",
+   "chapter": "15",
+   "packages": [
+    "15-replication-sidecars",
+    "15a-net-admission"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "16a-a",
+   "title": "Station tabs, empty menus and navigation",
+   "chapter": "16a",
+   "packages": [
+    "15a-net-admission",
+    "16a-station-tabs"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "16b-g",
+   "title": "Per-debit wear and predicted durability bar",
+   "chapter": "16b",
+   "packages": [
+    "16b-tool-durability"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "16c-b",
+   "title": "Follow-up routes and graph exits",
+   "chapter": "16c",
+   "packages": [
+    "16c-weapon-follow-ups"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "16c-c",
+   "title": "Staff full-body/overlay and release",
+   "chapter": "16c",
+   "packages": [
+    "16c-weapon-follow-ups"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "16c-d",
+   "title": "Held block, parry and shield recovery",
+   "chapter": "16c",
+   "packages": [
+    "16c-weapon-follow-ups"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "16c-e",
+   "title": "Dropped authored weapon and rejoin",
+   "chapter": "16c",
+   "packages": [
+    "16c-weapon-follow-ups"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "16c-f",
+   "title": "New clip identity versus global game-GUID override",
+   "chapter": "16c",
+   "packages": [
+    "16c-weapon-follow-ups"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "16d-external-kind-client",
+   "title": "Synced composition without provider code",
+   "chapter": "16d",
+   "packages": [
+    "16d-block-kinds"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "16e-cc16e",
+   "title": "Novel cloth and chains on screen",
+   "chapter": "16e",
+   "packages": [
+    "16e-cloth-chains"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "16f-cc16f",
+   "title": "One authored NPC body and complete poses",
+   "chapter": "16f",
+   "packages": [
+    "16f-npc-bodies"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "16f-missing-model",
+   "title": "Optional defeated-content-gate fallback",
+   "chapter": "16f",
+   "packages": [
+    "16f-npc-bodies"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "16g-cc16g",
+   "title": "Natural routines, interruptions and arrival",
+   "chapter": "16g",
+   "packages": [
+    "16g-villager-routines"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "17-vfx-boundary",
+   "title": "VFX capacity, activation and second world",
+   "chapter": "17",
+   "packages": [
+    "17b-kiln-quotas",
+    "17a-vfx-cap",
+    "17c-roster-cap",
+    "17d-material-pools"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "17-vfx-boot-order",
+   "title": "Expansion installed before first constructor",
+   "chapter": "17",
+   "packages": [
+    "17b-kiln-quotas",
+    "17a-vfx-cap",
+    "17c-roster-cap",
+    "17d-material-pools"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "17-buffs-client",
+   "title": "Large buff pack UI and sync",
+   "chapter": "17",
+   "packages": [
+    "17b-kiln-quotas",
+    "17a-vfx-cap",
+    "17c-roster-cap",
+    "17d-material-pools"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "17-roster-client",
+   "title": "NPC entries across the 64-bit page boundary",
+   "chapter": "17",
+   "packages": [
+    "17b-kiln-quotas",
+    "17a-vfx-cap",
+    "17c-roster-cap",
+    "17d-material-pools"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "17-programs-vanilla",
+   "title": "Server-only programs with a vanilla peer",
+   "chapter": "17",
+   "packages": [
+    "17b-kiln-quotas",
+    "17a-vfx-cap",
+    "17c-roster-cap",
+    "17d-material-pools"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "17-material-pools",
+   "title": "Custom shape's native material selection",
+   "chapter": "17",
+   "packages": [
+    "17b-kiln-quotas",
+    "17a-vfx-cap",
+    "17c-roster-cap",
+    "17d-material-pools"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "17-material-worlds",
+   "title": "Optional world-local allocation lifetime",
+   "chapter": "17",
+   "packages": [
+    "17b-kiln-quotas",
+    "17a-vfx-cap",
+    "17c-roster-cap",
+    "17d-material-pools"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "18-c18.1",
+   "title": "Rescue, summon tool and personal credit",
+   "chapter": "18",
+   "packages": [
+    "15a-net-admission",
+    "18-survivors"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "18-c18.2",
+   "title": "Real third altar and policy synchronization",
+   "chapter": "18",
+   "packages": [
+    "15a-net-admission",
+    "18-survivors"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "18-c18.3",
+   "title": "Size, border and real building permission",
+   "chapter": "18",
+   "packages": [
+    "15a-net-admission",
+    "18-survivors"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "18-c18.4",
+   "title": "Assignment, displacement and authorization",
+   "chapter": "18",
+   "packages": [
+    "15a-net-admission",
+    "18-survivors"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "18-base-extensions",
+   "title": "Optional beyond-16, per-base size and station work",
+   "chapter": "18",
+   "packages": [
+    "15a-net-admission",
+    "18-survivors"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "19a-s14",
+   "title": "AI-off creature walking near a real player",
+   "chapter": "19a",
+   "packages": [
+    "19a-riding"
+   ],
+   "state": "settled"
+  },
+  {
+   "id": "19a-s7",
+   "title": "Unscaled rider glue and loopback delay",
+   "chapter": "19a",
+   "packages": [
+    "19a-riding"
+   ],
+   "state": "settled"
+  },
+  {
+   "id": "19a-mounts.ride",
+   "title": "Product mount/dismount and custom pose",
+   "chapter": "19a",
+   "packages": [
+    "19a-riding"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "19a-slot-replication",
+   "title": "Scaled slot carry and render-pin primitive",
+   "chapter": "19a",
+   "packages": [
+    "19a-riding"
+   ],
+   "state": "settled"
+  },
+  {
+   "id": "19a-product-pin",
+   "title": "Prediction write and airborne prompt",
+   "chapter": "19a",
+   "packages": [
+    "19a-riding"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "19a-prediction-carry",
+   "title": "Distinguish absent from unavailable",
+   "chapter": "19a",
+   "packages": [
+    "19a-riding"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "19a-vanilla-scaled-carry",
+   "title": "Optional vanilla-safe scaled seat",
+   "chapter": "19a",
+   "packages": [
+    "19a-riding"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "19a-real-network",
+   "title": "Ground glue/delay off loopback",
+   "chapter": "19a",
+   "packages": [
+    "19a-riding"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "19a-carry-save",
+   "title": "Real-player carry after logout",
+   "chapter": "19a",
+   "packages": [
+    "19a-riding"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "19b-s5",
+   "title": "Outdoor speed and rider survival",
+   "chapter": "19b",
+   "packages": [
+    "19b-flight"
+   ],
+   "state": "settled"
+  },
+  {
+   "id": "19b-mounts.flight",
+   "title": "Product flight controls and animation",
+   "chapter": "19b",
+   "packages": [
+    "19b-flight"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "19b-banked-turn",
+   "title": "Optional moving turn one-shot",
+   "chapter": "19b",
+   "packages": [
+    "19b-flight"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "19c-mounts.vehicle",
+   "title": "Joined deck under player prediction",
+   "chapter": "19c",
+   "packages": [
+    "19c-vehicles"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "19d-c1",
+   "title": "Real character identity and durable pet record",
+   "chapter": "19d",
+   "packages": [
+    "19d-creature-control",
+    "19d-pets"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "19d-c2",
+   "title": "Follow/ridden/downed control handoff",
+   "chapter": "19d",
+   "packages": [
+    "19d-creature-control",
+    "19d-pets"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "19d-c3",
+   "title": "Bodyless downed and recovery UX",
+   "chapter": "19d",
+   "packages": [
+    "19d-creature-control",
+    "19d-pets"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "19d-c4",
+   "title": "Private owner HUD and stale-data expiry",
+   "chapter": "19d",
+   "packages": [
+    "19d-creature-control",
+    "19d-pets"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "19d-c5",
+   "title": "PvE protection and vanilla presentation",
+   "chapter": "19d",
+   "packages": [
+    "19d-creature-control",
+    "19d-pets"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "19d-c6",
+   "title": "Physical clearance calibration (release gate per definition, scale and build)",
+   "chapter": "19d",
+   "packages": [
+    "19d-creature-control",
+    "19d-pets"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "19d-brain-walks",
+   "title": "A creature with a Kiln.Blocks brain walks to you and stops",
+   "chapter": "19d",
+   "packages": [
+    "19d-creature-control"
+   ],
+   "state": "open",
+   "added": "19d-creature-control"
+  },
+  {
+   "id": "19e-t1",
+   "title": "Selected food/tool and replay-safe cost",
+   "chapter": "19e",
+   "packages": [
+    "19e-taming"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "19e-t2",
+   "title": "Cancellation, timeout and spent receipts",
+   "chapter": "19e",
+   "packages": [
+    "19e-taming"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "19e-t3",
+   "title": "Finalization, retry and reconnect",
+   "chapter": "19e",
+   "packages": [
+    "19e-taming"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "19e-t4",
+   "title": "Native dog coexistence",
+   "chapter": "19e",
+   "packages": [
+    "19e-taming"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "19f-terrain-client",
+   "title": "Fully cooked tile, seams and persistence",
+   "chapter": "19f",
+   "packages": [
+    "19f-terrain"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "19f-derived-companions",
+   "title": "Stale versus rebuilt terrain companions",
+   "chapter": "19f",
+   "packages": [
+    "19f-terrain"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "19f-base-exposure",
+   "title": "Optional owned saved-block removal",
+   "chapter": "19f",
+   "packages": [
+    "19f-terrain"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "19f-outer-tile",
+   "title": "Optional extent expansion",
+   "chapter": "19f",
+   "packages": [
+    "19f-terrain"
+   ],
+   "state": "open"
+  },
+  {
+   "id": "15a-hold-kiln",
+   "title": "A Kiln client held at admission until its sidecars are ready",
+   "chapter": "15",
+   "packages": [
+    "15a-net-admission"
+   ],
+   "state": "open",
+   "added": "build plan"
+  },
+  {
+   "id": "19f-overlay-client",
+   "title": "A terrain overlay as a joined client sees it",
+   "chapter": "19f",
+   "packages": [
+    "19f-terrain"
+   ],
+   "state": "open",
+   "added": "build plan"
+  },
+  {
+   "id": "01-queries.brain-perception-opt-in",
+   "title": "A creature brain that opts in to line-of-sight perception",
+   "chapter": "01",
+   "packages": [
+    "01-world-queries"
+   ],
+   "state": "open",
+   "added": "build plan"
+  },
+  {
+   "id": "06a-wraps.client",
+   "title": "A client-world wrap that counts slices on workers",
+   "chapter": "06a",
+   "packages": [
+    "06a-program-wraps"
+   ],
+   "state": "open",
+   "added": "06a-program-wraps"
+  },
+  {
+   "id": "00-sigdb.in-place-patches",
+   "title": "Kiln's functions are found next to a loader that patched the game first",
+   "chapter": "00",
+   "packages": [
+    "00-integration"
+   ],
+   "state": "open",
+   "added": "coordinator (sigdb fix, 14 Nov)"
+  }
+ ]
+}

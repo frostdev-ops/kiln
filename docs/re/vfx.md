@@ -499,9 +499,12 @@ ECS programs, UI, game code
   failure. Without user parameters it copies the VFX's defaults.
 - Stop: `0x1a93e0`, reached through `0xf7250`. Destroy at once: `0x19c9f0`, reached through `0xf6820`. Flags: `0x196100` sets
   `VfxBaseEffectParametersFlag` (`IsActive`, `IsHidden`).
-- The registered set is a map in the system: occupancy bits `+0x1be0`, capacity `+0x1be8`, keys `+0x1c00` (16 B), values `+0x1c18`, count
-  `+0x1c2c`; slot = low 32 bits of the GUID & (capacity - 1), then linear. A value indexes the VFX table `+0x1c38` (0xc0 B each, the resource
-  at `+0x10`). The only other `VfxResolve` caller is the system's own 11 global VFX, from a static table (`0x1b1610`).
+- Corrected 2026-11 (dev.28 RE [static], caps VERIFY): map `+0x1bd8`, occupancy bits `+0x1be0`, **physical slot
+  count** u64 `+0x1be8` = 4096, keys `+0x1c00` (16 B), u32 values `+0x1c18`, **count limit** u32 `+0x1c28` = 2048,
+  current count `+0x1c2c`. Initial bucket = low GUID u32 & (slots-1), then linear probing. A value indexes the heap
+  VFX table at `+0x1c38` (stride 0xc0, resource +0x10); base alias `+0x2118`, pending bitset `+0x20f8`.
+  Neither map slot count nor table metadata `+0x1c40` is the enforcing count limit. See §4.3.1.
+  The other identified `VfxResolve` caller is the system's 11 global VFX, from static table `0x1b1610`.
 - FX entries, in a pool at `FxController+0x98`: type `+0`, parameters `+4` (72 B), transform or attachment `+0x50`, second one `+0xc8`, GUID
   `+0x160`, VFX instance `+0x170`, sound `+0x174`, end time `+0x180` with flag `+0x188`, finish time `+0x190` with flag `+0x198`.
 - An attachment is {u32 entity, u8 `AttachmentSlot`, `keen::ecs::Offset` at +8, u8 follow at +0x30}, 52 B. An unresolved one waits.
@@ -545,6 +548,47 @@ Emitting from a whole body uses `VfxJointCollectionResource` (`g_vfxJoints`).
 
 All VFX, meshes, curves and sounds are registered at init whether used or not. Refcounts free a VFX's GPU data when idle.
 `killTimeInSeconds` is the upper limit between a stop and the instance going (§3.5, §4.5).
+
+### 4.3.1 Resource-count storage (dev.28; client 26430625, `5d9ef2f1…`)
+
+Source: dev.28 dossier chapter 17.1 and caps VERIFY (claim 1 corrected; former four-site expansion plan **refuted**).
+Server 26430253 `f0d824be…` has zero VfxResource assets and no identified counterpart of this render registry [data]
+[static]; no server patch-site mapping is asserted.
+
+[static] VfxSystemCreate C `0x198590` allocates the GUID map, **heap** record table and separate pending-activation
+bitset. This is not an inline array or an established 11-bit resource id. Records use u32 index/LRU links and u16
+refcount `+0xc`; the examined callers store the index as a dword. Resource-file VfxResource size 216 B differs from
+runtime slot size 192 B. [refl] [data]
+
+| Operand instruction (C RVA) | Vanilla | Role |
+|---|---|---|
+| `0x199574` | `0x800` | map reserve request/count limit; reserve `0x196ab0` at `0x19957d` allocates twice the rounded slots |
+| `0x19959c` | `0x60000` bytes | record-table allocator call `0x1995b1`; base stored to sys+0x1c38 at `0x1995b6` |
+| `0x1995bd` | `0x800` | record initialization count, stride 0xc0 |
+| `0x1995c2` | `0x800` | table capacity metadata sys+0x1c40, copied to +0x2120, not the enforcement test |
+| **`0x1996ea`** | **`0x800` bits** | pending set resize `0x437b0` at `0x1996fa`, pointer sys+0x20f8 / bit count +0x2100 |
+
+**Five**, not four, coordinated operands are needed for any boot expansion. The pending set is only 256 B at
+vanilla. Resolve `0x1a0200` indexes it without a bounds check at `0x1a0311`; expanding the table/map alone permits
+out-of-bounds read-modify-write at index>=2048, and pending iteration at `0x1b181c` never visits those indices.
+This is a statically demonstrated heap-corruption path, not a safe capacity patch. No expansion/client boundary
+run was done in this wave. Full alias/lifetime audit remains open; no runtime growth or relocation is established.
+
+Enforcement: find-slot `0x1a2500` compares current count with map+0x50 (=sys+0x1c28) at `0x1a258a`; grow `0x1ab9e0`
+fails because the map allocator is null; find-slot returns physical slot count as sentinel. RegisterVfx `0x1981d0`
+compares it at `0x198212` and reaches fatal `0x198348`. `void RegisterVfx(VfxSystem*,const Guid*)` requires a nonzero
+GUID and initialized resources, on the owning engine path, not an arbitrary worker call. [static]
+
+Resolve is **an acquire**, not a read-only lookup: increments refcount, sets pending bit and may activate
+`0x1afb50`; pair with matching release. The table's constructor initializes alias sys+0x2118. A 32-direct-access /
+19-pdata-body census excluded 13 alias readers and pending-bitset consumers: it is not whole-program completeness.
+Soft LRU resource-data heap at sys+0x1c60 is a separate budget, as are the mesh, pipeline, sound and curve limits.
+
+Scratch `caps/VfxCreateSystem`, `caps/VfxInitResources` (`0x1b0ed0`), `caps/VfxRegisterGuid`,
+`caps/VfxTableAllocationSite`, `caps/VfxMapReserveSite` (`0x199563` anchor; operand `0x199574`), and
+`caps/VfxPendingResizeSite` (`0x1996e2` anchor; operand `0x1996ea`) resolve uniquely on this client. These are
+inspection/patch-site signatures, not callable APIs or proof an expansion is installed. See dossier chapter 17.1
+for the complete safety gates rather than copying the superseded REPORT four-site summary.
 
 ### 4.4 Activation **[dis]**
 1. `VfxInitResources 0x1b0ed0`, state `+0x2138`: 0 → enumerate through `S+0x7d0` three lists (mesh, curve, VFX), register all;

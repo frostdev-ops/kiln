@@ -1,0 +1,10 @@
+{
+  "id": "systems-test",
+  "name": "game program wraps lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "SystemsTest.dll",
+  "side": "server",
+  "advanced": true,
+  "description": "PASS/FAIL lines: Kiln.Testing.LabSystems, the lab parallel switch (on, held, let go). The native part (native/build.sh, kiln-systems-test.dll in kiln/plugins) checks kiln.world's game-program table. A lab with kiln/control/systems.parallel and no player."
+}

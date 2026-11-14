@@ -24,6 +24,7 @@
 #if KC_GAMEDATA
 #include "gamedata.h"
 #endif
+#include "kiln_boot_collector.hpp"
 #include "kiln_hook.hpp"
 
 using namespace kc;
@@ -1030,6 +1031,85 @@ void resolve() {
 
 }  // namespace
 
+// ---- the boot generation's content collector (chapter 08) ----
+// kiln.content reads no definition files at boot: its definitions come from code (Kiln.Blocks) and from data packs at world ready. A boot
+// generation's content documents are what Kiln.Blocks would have sent from OnLoad, prepared here before the game's entry point so the
+// worlds have them from their first load (they register at registry load as any definition does):
+//   {"op": "define", "kind": "items" | "recipes" | <KILN_CONTENT_*>, "definition": {...}}   kiln.content's define()
+//   {"op": "clone", "section": "templates" | "sequences" | "perks" | "buffs" | <KILN_GD_*>, "definition": {...}}   kiln.gamedata's define()
+// each under the mod's process owner "boot:<mod>". A refused definition refuses its mod (dropped from the generation, or the start stops when
+// its content is required). destroy takes the prepared definitions out again (no world has bound before the entry point).
+namespace {
+struct BootPlan {
+    std::vector<KilnOwner> owners;
+    size_t defined = 0, cloned = 0;
+};
+void KILN_CALL destroy_boot(const void* p) {
+    const auto* plan = static_cast<const BootPlan*>(p);
+    for (const KilnOwner o : plan->owners) {
+        nc_forget_unbound(o);
+#if KC_GAMEDATA
+        gd::clones_forget_unbound(o);
+#endif
+    }
+    delete plan;
+}
+uint32_t kind_of(const nlohmann::json& k) {
+    if (k.is_number_unsigned()) return k.get<uint32_t>();
+    const std::string n = k.is_string() ? k.get<std::string>() : std::string();
+    return n == "items" ? KILN_CONTENT_ITEMS : n == "recipes" ? KILN_CONTENT_RECIPES : 0;
+}
+uint32_t section_of_name(const nlohmann::json& k) {
+    if (k.is_number_unsigned()) return k.get<uint32_t>();
+    const std::string n = k.is_string() ? k.get<std::string>() : std::string();
+    return n == "templates" ? KILN_GD_TEMPLATES : n == "sequences" ? KILN_GD_SEQUENCES : n == "perks" ? KILN_GD_PERKS : n == "buffs" ? KILN_GD_BUFFS : 0;
+}
+KilnResult KILN_CALL prepare_boot(void*, const KilnBootPrepareInputV1* in, KilnBootPreparedV1* out, KilnBootIssueV1* issue) {
+    const kiln::boot::Input input = kiln::boot::parse(in);
+    if (!input.ok) return kiln::boot::refuse(out, issue, "", "", "", "kiln.content: the boot envelope is not JSON");
+    auto* plan = new BootPlan;
+    for (const auto& d : input.docs("content")) {
+        const auto o = input.owner.find(d.owner);
+        const KilnOwner owner = o != input.owner.end() ? o->second : 0;
+        auto refused = [&](const std::string& why) {
+            destroy_boot(plan);
+            return kiln::boot::refuse(out, issue, d.owner, "content", d.key, why);
+        };
+        if (!owner) return refused("kiln.content: no process owner for " + d.owner);
+        if (std::find(plan->owners.begin(), plan->owners.end(), owner) == plan->owners.end()) {
+            plan->owners.push_back(owner);
+            set_owner_label(owner, "boot:" + d.owner);  // its definitions are listed with their mod (mod_of_label)
+        }
+        const nlohmann::json& doc = d.document;
+        const std::string op = doc.is_object() ? doc.value("op", std::string()) : std::string();
+        if (!doc.is_object() || !doc.contains("definition") || !doc["definition"].is_object())
+            return refused("a content document is {\"op\", \"definition\": {...}}");
+        const std::string text = doc["definition"].dump();
+        const std::string source = "boot:" + d.owner + "/" + d.key;
+        std::string report;
+        if (op == "define") {
+            const uint32_t kind = kind_of(doc.value("kind", nlohmann::json()));
+            if (kind != KILN_CONTENT_ITEMS && kind != KILN_CONTENT_RECIPES) return refused("\"kind\": items or recipes");
+            if (nc_define(owner, kind, text, false, source, &report) != KILN_OK) return refused("kiln.content refused it: " + report);
+            ++plan->defined;
+        } else if (op == "clone") {
+#if KC_GAMEDATA
+            const uint32_t section = section_of_name(doc.value("section", nlohmann::json()));
+            if (gd::clones_define(owner, section, text, false, source, &report) != KILN_OK) return refused("kiln.gamedata refused it: " + report);
+            ++plan->cloned;
+#else
+            return refused("clones are not in this build of kiln.content");
+#endif
+        } else {
+            return refused("unknown content document \"op\": \"" + op + "\" (define, clone)");
+        }
+    }
+    LOGI("boot generation %llu prepared: %zu definition(s), %zu clone(s)", static_cast<unsigned long long>(input.generation), plan->defined,
+         plan->cloned);
+    return kiln::boot::prepared(out, plan, &destroy_boot);
+}
+}  // namespace
+
 extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api, KilnOwner owner, KilnPluginInfo* info) {
     if (api->abi_version != KILN_ABI_VERSION || api->size < sizeof(KilnApi)) return KILN_ERR_UNAVAILABLE;
     g_api = api;
@@ -1041,6 +1121,12 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     if (E.items && E.reflection) nc_boot();
 #if KC_GAMEDATA
     gd_boot();  // registers kiln.gamedata (available or not)
+#endif
+    // bind of a boot generation's content part (no definitions are read here either way); kiln.content without its registries takes none
+    if (E.items && E.reflection && kiln::boot::collect(api, owner, "content", &prepare_boot, nullptr))
+        LOGI("boot profile: the boot generation's content definitions are prepared before the game's entry point");
+#if KC_GAMEDATA
+    gd_boot_patches_bind();  // the seventh collector: fields of game resources, written when the resource service is up
 #endif
     if (!E.items || !E.reflection) {
         set_detail("the item registry or the game's reflection is not available on this build");

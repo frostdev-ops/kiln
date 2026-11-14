@@ -386,6 +386,87 @@ Creature bodies are cooked today (docs/kiln/modding/models.md, Skinned models). 
   Settled there: the streamer reads a kiln.assets blob for renderData.
 - `boundingSphere` algorithm (the cooker writes a conservative sphere); meshlets (never cooked: `createMeshlets` exists as a converter option).
 - Material flag bit 6 ("Foliage") on weapons; `RenderModelMaterial.materialFlags` = the material's own flags (sword: equal).
-- Joint name hash; blend shape data; cloth data (section 7).
+- Joint name hash remains open. Blend-shape format is in [building.md](building.md) §3.4; dev.28 cloth/chain
+  containers, packed scalars and chain frame are below. New authored cosmetic simulation still needs a client check.
 - How the renderer culls a skinned mesh animated outside its stored `boundingBox`, which is the exact bind-pose bounds on the game's own models.
 - Pickup models (an item lying on the ground): which reference the pickup entity draws (`overridePickupEntity` is null on weapons).
+
+## 9. Cloth and chains2 (dev.28; client 26430625 / server 26430253)
+
+C `5d9ef2f1…`, S `f0d824be…`; dossier chapter 16e, blocks-b REPORT delta/VERIFY. Backend pairing was corrected
+by VERIFY; later chapter closes the chain canonical frame and extent clamp. These are format/inspection contracts,
+not an installed physical cooker or proof of a novel model being drawn.
+
+### Containers [refl] [data]
+
+RenderModel 0x160 B/align16: hierarchy GUID `+0x80`, globalScale `+0x9c`, skinningMap `+0xd4`, optional cloth/chain
+`+0xdc/+0xe0`, colliders `+0xe4`, sleeves `+0x100`, joint counts u16 `+0x108/+0x10a`. Mesh 56 B has clothMeshIndex
+byte `+0x36`: **0 rigid, 1..N selects cloth mesh**, not zero-based. Corpus: 235/10470 models, 320 cloth meshes;
+particle counts 22–817 are observations, not engine maxima. Matrix43 is **64 B/align16**, three padded rotation
+columns plus translation `+0x30`, not packed 12 floats.
+
+ClothData 20 B: hasSkinning `+0`, meshes BlobArray `+4`, total simulation triangles/render vertices `+0xc/+0x10`.
+RenderClothMesh 232 B begins with 164-byte MeshResource; gravity/wind/drag/lift/damping `+0xa4..+0xb4`, inertias
+`+0xb8/+0xbc/+0xc0`, tether stiffness `+0xc4`, phase stiffness/compression/stretch `+0xc8/+0xcc/+0xd0`, motion stiffness
+`+0xd4`, friction `+0xd8`, solver frequency `+0xdc`, unlimited/max motion radii `+0xe0/+0xe4`.
+MeshResource: Fabric 68 B `+0`, simulation float3 positions/inverse masses/stiffness/weights `+0x44/+0x4c/+0x54/+0x5c`,
+triangles `+0x64`, blend deltas `+0x6c`, skin records 8 B `+0x74`, pinned indices u16 `+0x7c`, render positions/UV/
+triangles/render-to-simulation indices `+0x84/+0x8c/+0x94/+0x9c`.
+Fabric: particle count u32 `+0`, BlobArrays phases/sets/rest values/stiffness/pair indices/anchors/tether lengths/
+triangles `+4/+0xc/+0x14/+0x1c/+0x24/+0x2c/+0x34/+0x3c`. Pair count=2×rest count; final set endpoint=rest count;
+parallel particle/render arrays must agree; pinned skinned indices address inverse-mass-zero particles.
+
+ClothColliderData 28 B: flags `+0/+1`, spheres/capsules/instances `+4/+0xc/+0x14`. Sphere 24 B has center/radius `+0/+0xc`,
+skin `+0x10`; Capsule 40 B has center/radius pairs `+0/+0xc` and `+0x10/+0x1c`, skin `+0x20`. Skin is four u8 joints
+then four u8 weights. Runtime allows **spheres+2×capsules<=32** after expansion, otherwise clears collision lists;
+raw lists>32 reject setup. globalScale multiplies centers/radii; do not scale bind geometry twice.
+
+### Chain2 palette, packing and frame [refl] [data] [static]
+
+All 52 chain-bearing models use **chains2** (139 chains); legacy chains/config arrays are empty. ChainData 104 B
+has chains2 `+8`, anchors (u8 hierarchy joints/default Matrix43/rest float3) `+0x20/+0x28/+0x30`, joints/modelMatrices/
+inverse binds/rest positions `+0x38/+0x40/+0x48/+0x50`. Chain2 stride 140: rotation flag `+0`, gravity `+4`, Config2
+108 B `+8`, GUID `+0x74`, collider index byte `+0x84`, half-open joint range u16 `+0x86/+0x88`.
+
+**joints index reserved skin-palette slots**, not hierarchy bones. All 52 models satisfy skinningMap[joint]==0 at
+these placeholders; sorting/deduplicating them with ordinary bones destroys physical slots. Range length=config.count,
+rest-position count=count−1. Config2: packed rests BlobArray `+0x30`, motionRadius[7] `+0x38`, extentRest u16 `+0x54`,
+extentMaxAllowedDist u16 `+0x56`, radius u16 `+0x58`, tip/gravity bytes `+0x5a/+0x5b`, angleCos u16[7] `+0x5c`,
+count u16 `+0x6a`; horizontal/vertical linear inertia u16 `+0x18/+0x1a`.
+
+- Signed 10-bit XYZ in bits 0/10/20 → component×extentRestPosition/**511000** metres. Not half-floats.
+- Linear inertia=u16×2/65535; angleCos=u16×2/65535−1; radius=u16×0.001 m; tip=u8/255; gravity=u8/100.
+- Setup C `0xe7e30` copies count−1 into seven-slot fixed arrays **without a bounds check**. Writer must reject
+  count>8 (shipped 2..8); malformed data can overrun, not safely fail.
+- **extentMaxAllowedDist is radial post-solve millimetres**, not rest quantization. C **`0x11e4b20`**, read
+  `0x11e4bf7`, expands to R=u16×0.001 and clamps particles 1..count−1 about canonical root 0: if |p|²>R²,
+  p*=R/|p| before serializing queued packet. Direct solver add does not use this field as a bound.
+
+Canonical frame (C `0xe6320`, matrix multiply `0xe8fa0`, quaternion `0xe5370`): column vectors; game X reflected
+from glTF. A=anchor global bind, B_i=physical global binds, stored M0=A^-1 B0, Mi=B_(i−1)^-1 Bi. Reconstruct those
+B_i. Shortest-arc Q rotates (0,−1,0) to normalize(B1.pos−B0.pos); rest r_i=R(Q)^T(B_i.pos−B0.pos), root=0.
+Antiparallel branch uses perpendicular axis (0,0,−1), w=0. Anchors/default poses and inverse binds remain distinct.
+[data] Canonical reconstruction covered all 139; re-encoding with each stored extent and signed saturation agrees
+within one integer code step. Vanilla truncates extent to whole mm (within 1.001 mm); safer ceil-based authored policy
+in chapter 16e is not byte-identical vanilla cooking. Full tuning/encoder algorithms remain there, not copied here.
+
+### Runtime ownership and backend correction [static]
+
+| C RVA | Reconstructed inspection contract |
+|---|---|
+| `0xe7360` | `bool CreateCloth(RenderSystem*,ClothFactory*,RenderInstance*)` |
+| `0xe8770` | `void GatherColliders(out,sphereScratch,capsuleScratch,const RenderModel*,float globalScale)` |
+| `0x11ddfa0` | `ClothFactory*(Allocator*,TaskQueueSetup*)`, null on failure |
+| `0x11e0e50` | `void StepCloth(adapter*,s64 deltaNs)`, **upper-only 100000000 ns clamp** |
+| `0xe7e30` | `bool CreateChains2(RenderSystem*,RenderInstance*)`, expands config to 128 B |
+| `0x11e2480` | `u16 AddSoftwareChain(pool*,const Config128*,const InitialStateViews*)`, 0xffff exhausted |
+| `0x11e6c30` | direct pool step `(pool,opaque0,opaque0,s64 dt)`, upper 33 ms clamp → `0x1cd30` |
+| `0x11e1ca0` / `0x11e44a0` | queued add / `void StepQueuedChains(frontEnd*)`; not direct-pool step |
+
+Render pass `0xee380` uses software pool RenderSystem `+0x9e0`, or optional job front end `+0x9e8` (setting
+cfg byte `+0x3e`, pool held at frontEnd+8). Queued path calls `0x11e6e80` then `0x11e44a0`; both add/unpack paths
+use extent/511000. Chains are **not NvCloth**. Cloth begins solver, executes queued chunks, ends; OS-thread split was
+not observed. Do not call render-task solvers from a managed tick, retain instance pointers or mutate loaded bytes.
+No server counterpart is qualified; reflected server types alone do not prove cosmetic simulation. Novel authored
+cloth/chain behavior remains unverified in client. Scratch `models.cloth.readers` / `models.chain2.readers` are
+inspection features, not production capabilities.

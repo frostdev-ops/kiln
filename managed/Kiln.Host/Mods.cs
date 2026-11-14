@@ -170,7 +170,7 @@ internal sealed class ModRecord
 
 /// <summary>Discovers, resolves, loads, runs, reloads and unloads managed mods. Tick-thread only, except the
 /// <see cref="IModsBackend"/> reads and <see cref="Send"/>, which are thread-safe.</summary>
-internal sealed class ModManager : IModsBackend, IDisposable
+internal sealed partial class ModManager : IModsBackend, IDisposable
 {
     public const int MaxFaults = 5;
     private readonly IHostServices _host;
@@ -475,6 +475,13 @@ internal sealed class ModManager : IModsBackend, IDisposable
     private bool LoadCore(string directory, Manifest manifest, out string error)
     {
         error = "";
+        // a boot mod loads only with its boot content in this process (chapter 08 §4.4): RestartRequiredBoot otherwise
+        if (BootLoadRefusal(manifest, directory) is { } boot)
+        {
+            error = boot;
+            _host.Log(LogLevel.Warn, $"mod {manifest.Id} not loaded: {boot}");
+            return false;
+        }
         // its layout stamp against this game build's Kiln.Game, before any of its code loads
         if (manifest.HasCode && !GameTypes.CheckMod(manifest.Id, directory, manifest.EntryAssembly, _host.Log, out var refusal))
         {
@@ -518,7 +525,12 @@ internal sealed class ModManager : IModsBackend, IDisposable
                 record.Error = null;
             }
             if (Invoke(mod, static m => { Kiln.Events.Register(m.Instance); m.Instance.OnLoad(); }, "OnLoad"))
+            {
                 mod.Loaded = true;
+                // a committed boot mod's runtime activation: its definitions' runtime parts and BootDefinitionsCommittedEvent (Kiln.Blocks)
+                if (manifest.Boot != ManifestBoot.None && BootGeneration.Report(manifest.Id) is { State: BootModState.Committed })
+                    ActivateBoot(manifest.Id);
+            }
             else
             {
                 var why = mod.LastFaultMessage;
@@ -653,6 +665,9 @@ internal sealed class ModManager : IModsBackend, IDisposable
     {
         var record = RecordById(id);
         var mod = Find(id);
+        // a committed boot mod's boot content stays as committed until the process ends: reloading it needs a restart (before OnUnload)
+        if (mod is { Manifest.Boot: not ManifestBoot.None } && BootGeneration.Report(id) is { State: BootModState.Committed })
+            return new ModOperationResult(false, $"RestartRequiredBoot: mod {id} has boot content in this process's boot generation; restart to load a new version", [id]);
         if (record is null && mod is null)
         {
             // first deploy (KilnDeploy -p:KilnReload=true): nothing to reload, but the profile or kiln/mods/<id> may

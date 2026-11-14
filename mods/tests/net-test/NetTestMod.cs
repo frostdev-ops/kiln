@@ -289,7 +289,108 @@ public sealed class NetTestMod : Mod
                 _gateSpawns.Clear();
                 return "ok";
             default:
-                return "unknown";
+                return op.StartsWith("gate-admit", StringComparison.Ordinal) ? RunAdmissionControl(op, arg) : "unknown";
+        }
+    }
+
+    // ---- NetAdmission's requirements, one of each kind (docs/kiln/network.md "Admission", tools/nettest t_admission) ----
+
+    private AdmissionHold? _joins;
+    private readonly Dictionary<string, AdmissionHold> _peerHolds = new(StringComparer.Ordinal);
+    private IDisposable? _onJoin, _require;
+    private bool _vanillaAllowed = true;
+
+    private static uint Hex(string s) => uint.Parse(s.StartsWith("0x", StringComparison.Ordinal) ? s[2..] : s, System.Globalization.NumberStyles.HexNumber,
+        System.Globalization.CultureInfo.InvariantCulture);
+
+    private string RunAdmissionControl(string op, string arg)
+    {
+        var a = arg.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        try
+        {
+            switch (op)
+            {
+                case "gate-admit":
+                {
+                    var g = NetNative.ReadGate();
+                    return $"mode={g.Mode} caps={g.Caps} held={g.Held} kilnholds={NetAdmission.CanHoldKilnPeers} active=" +
+                           string.Join(";", NetAdmission.Active.Select(e => $"{e.Kind}:{e.Holder}{(e.Peer != 0 ? $"@0x{e.Peer:x}" : "")}"));
+                }
+                case "gate-admit-joins":  // <seconds> | end | refuse <reason>
+                    if (a[0] == "end") { _joins?.End(); _joins = null; return "ok"; }
+                    if (a[0] == "refuse") { _joins?.Refuse(string.Join(' ', a.Skip(1))); _joins = null; return "ok"; }
+                    _joins = NetAdmission.HoldJoins("net-test", "net-test holds every join", TimeSpan.FromSeconds(double.Parse(a[0], System.Globalization.CultureInfo.InvariantCulture)));
+                    return "ok";
+                case "gate-admit-hold":  // <peer> <holder> <seconds> | <peer> <holder> end
+                {
+                    var key = a[0] + "/" + a[1];
+                    if (a[2] == "end")
+                    {
+                        if (_peerHolds.Remove(key, out var h)) h.End();
+                        return "ok";
+                    }
+                    var peer = Network.Peers.FirstOrDefault(p => p.Id == Hex(a[0]));
+                    if (peer is null) return "no such peer";
+                    _peerHolds[key] = NetAdmission.HoldPeer(peer, a[1], $"{a[1]} waits for its acknowledgement", TimeSpan.FromSeconds(double.Parse(a[2], System.Globalization.CultureInfo.InvariantCulture)));
+                    return _peerHolds[key].Ended ? "ended" : "ok";
+                }
+                case "gate-admit-onjoin":  // <seconds> | off
+                    _onJoin?.Dispose();
+                    _onJoin = null;
+                    if (a[0] == "off") return "ok";
+                    var secs = TimeSpan.FromSeconds(double.Parse(a[0], System.Globalization.CultureInfo.InvariantCulture));
+                    _onJoin = NetAdmission.OnJoin("net-test-join", p =>
+                    {
+                        var h = NetAdmission.HoldPeer(p, "net-test-join", "net-test-join waits for its acknowledgement", secs);
+                        _peerHolds[$"0x{p.Id:x}/net-test-join"] = h;
+                        return h;
+                    });
+                    return "ok";
+                case "gate-admit-protocol":  // <name> <version> on|off
+                {
+                    var r = NetAdmission.SetMandatoryProtocol(a[0], a[1], a[2] == "on", $"{a[0]} protocol {a[1]} required (net-test)");
+                    return r.Ok ? "ok" : "refused " + r.Reason;
+                }
+                case "gate-admit-require":  // allow | deny | off
+                    _vanillaAllowed = a[0] == "allow";
+                    if (a[0] == "off") { _require?.Dispose(); _require = null; }
+                    else _require ??= NetAdmission.Require("net-test-vanilla", () => _vanillaAllowed, "net-test refuses clients without Kiln");
+                    return "ok";
+                case "gate-admit-peer":  // <peer>: its channel-12 frame counters, and kiln.net's flags for it
+                {
+                    var peer = Network.Peers.FirstOrDefault(p => p.Id == Hex(a[0]));
+                    var flags = NetNative.Info(Hex(a[0]))?.Flags;
+                    return peer is null ? "no such peer" : $"in={peer.FramesIn} out={peer.FramesOut} state={peer.State} flags={(flags is { } f ? $"0x{f:x}" : "none")}";
+                }
+                case "gate-admit-kickfail":  // 0 | 1 | 2: kiln.net's lab switch (1 the login failure fails, 2 the session kick too)
+                {
+                    var rc = NetNative.LabSelftest(NetNative.SelftestKickFail, ulong.Parse(a[0], System.Globalization.CultureInfo.InvariantCulture), 0, out var can);
+                    return $"rc={rc} disconnect={can}";
+                }
+                case "gate-admit-sessionkick":  // <machine handle, hex>: the game's session kick of the server's own machine index
+                {
+                    var rc = NetNative.LabSelftest(NetNative.SelftestSessionKick, Hex(a[0]), 0, out var queued);
+                    return $"rc={rc} queued={queued}";
+                }
+                case "gate-admit-status":  // the Network page's admission lines
+                    return string.Join(" | ", NetAdmission.StatusLines());
+                case "gate-admit-clear":
+                    _joins?.End();
+                    _joins = null;
+                    foreach (var h in _peerHolds.Values) h.End();
+                    _peerHolds.Clear();
+                    _onJoin?.Dispose();
+                    _onJoin = null;
+                    _require?.Dispose();
+                    _require = null;
+                    return "ok";
+                default:
+                    return "unknown";
+            }
+        }
+        catch (Exception e) when (e is KilnUnavailableException or ArgumentException or FormatException or IndexOutOfRangeException)
+        {
+            return $"error {e.GetType().Name}: {e.Message}";
         }
     }
 

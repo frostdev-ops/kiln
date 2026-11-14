@@ -60,6 +60,29 @@ Case-sensitive, 1 to 96 bytes of `[A-Za-z0-9._/-]`:
 | `session` | waits for the session (no world yet, world data not loaded); the usual reason of a pending row |
 | `unknown` | no row of this name; never stored, only `Capabilities.Get` answers it |
 
+## The client gate (dev.28)
+Some capabilities ship switched off because only a real game client can confirm them (a camera, a marker on the
+compass, what a joined vanilla player sees). Such a capability is **held** until its guided client checks
+([client-pass.md](../client-pass.md)) have passed in a real game.
+
+- **The list** is `native/core/gates/*.json` (one file per work area; `README.md` there has the format): a capability
+  name, the ids of the checks that open it, optionally the one side it is held on. It is compiled into
+  `kiln-core.dll`, so an install cannot lose it. `python3 native/core/gates/gen.py --list native/core/gates` prints it.
+- **While a name is held** the core's own report for it is `unavailable`, reason `policy`, text
+  `game test pending: <check ids>`. That is what every reader sees, whatever a service reports for the name and
+  although a sigdb feature's symbols resolved; `KilnApi.feature()` answers false for it. A held name may still be
+  reported pending by its service (the held row hides it).
+- **Reading it:** `Capabilities.IsHeld(name)` and `Capability.IsHeld` in C#; `kiln_caps_held(caps, name)` in
+  `kiln_caps.h`. A service installs the hooks of a held capability only when that says no. There is no second switch:
+  no config key of a service's own, no sigdb overlay.
+- **Lifting it:** `"preview"` in `kiln.json`, at the top level or in a side section (which replaces the top-level
+  one): `true` for every held capability, or a list of names. A name in the list that nothing holds is a warning in
+  `kiln.log`. The guided pass runs with `"preview": true`.
+  ```json
+  { "preview": ["camera.fov"], "client": { "preview": true } }
+  ```
+- **Opening a capability for good:** remove its entry from the list in the commit that records the passed checks.
+
 ## Rows the core fills
 - Every sigdb feature, source `sigdb`. An unavailable one says `symbol-missing` with the symbol, `policy` in safe idle,
   or `faulted` for the `tick*` features and `world.lifecycle` when their hook is not installed or faulted.
@@ -229,3 +252,59 @@ every row. Nothing in the launcher reads it yet; `tools/docs-site/status-tables.
   is refused with `needs feature gameplay.craft, unavailable: symbol gameplay/CraftRecipe: … [symbol-missing]` in
   `kiln/state/mods.json` and kiln.log. `--safe-idle`: every feature row says `policy`.
 - Not run: a game client, native Windows.
+
+## Rows added in dev.28
+Rows a dev.28 package adds, by service. "Held" names the guided checks of the client gate (above) that open the row;
+a held row reads `unavailable`, `policy`, `game test pending: <ids>` until then.
+
+| Row | Kind | Reported by | Held until | What it says |
+|---|---|---|---|---|
+| `blocks.kinds` | managed | Kiln.Blocks | - | A mod can register a block kind (`Blocks.RegisterKind`). Off where blocks have nothing to compile to |
+| `blocks.compile` | managed | Kiln.Blocks | - | A block of a registered kind compiles to a frozen plan (`Blocks.Compile`, `Blocks.Application`) |
+| `blocks.apply` | managed | Kiln.Blocks | - | Plans are applied (`Blocks.Apply`, `Blocks.Define` with a block of an external kind). Needs a Kiln that can revoke a plan's owner |
+| `blocks.apply.item`, `.weapon`, `.spell`, `.status`, `.effect` | managed | Kiln.Blocks | - | A plan whose primary is this built-in block is applied |
+| `types.impact_names` | service row | kiln.types at its start | not held | the Impact-name field of the game's type table validated on this build: `GameType.ImpactName`, `GameTypes.ByImpactName`, `FindAllByImpactName` ([types.md](types.md#impact-names-since-020-dev28)); off with the counts that failed, or missing with a kiln.types older than 0.2.0-dev.28 |
+| `world.transform_scale` | managed row | Kiln.World at its first use | `13-world.transform-scale` (both sides) | `World.SetTransformScale` ([world.md](world.md#transform-scale)): the game's type table gives `CurrentTransform.transform.scale` as three contiguous float32; the text names the place, or the shape found when it is off |
+| `assets.blob_catalog` | managed row | Kiln.Assets at its start | game client: `13-assets.catalog-client` | the content blob catalog (`Assets.OpenBlobCatalog`, [assets.md](assets.md#the-content-blob-catalog)): kiln.assets' table has it and the content hooks are on; `service-older` with an older kiln.assets |
+| `repl.observe` | sigdb feature, static | core (sigdb); `kiln.repl` lowers it (`faulted`) when its send-step hook fails | — | what the server sends each peer can be read (server, and a hosted world's machine 0) |
+| `repl.client` | sigdb feature (client exe), static | core (sigdb); `kiln.repl` and `Kiln.Replication` lower it (`service-older`) while kiln.repl has no receive side; `wrong-side` on a server | `11-repl.receive-watch` | what this Kiln client receives can be watched |
+| `repl.loopback` | sigdb feature (server exe), static | core (sigdb); `kiln.repl` and `Kiln.Replication` lower it (`policy`) without kiln.json's policy `any` and kiln.net's lab port; `wrong-side` on a client | — | the loopback harness (`ReplicationLab`, lab servers only) answers |
+| `world.systems` | sigdb feature | sigdb | — | the program scheduler (`world/StepPrograms`, `RunInitPrograms`, `SliceTaskFn`) and the players mask resolved |
+| `systems.threads` | service row | kiln.world | — | the server world's players mask can be read (what puts its program slices on the game's workers) |
+| `systems.wraps` | service row | kiln.world | — | Before/After/Replace on the game's programs work on this build; unavailable while native SET is loaded |
+| `systems.wraps.client` | service row (client) | kiln.world | `06a-wraps.client` | wraps on the client world's programs; `wrong-side` on a dedicated server |
+| `hooks.typed` | sigdb feature | core | - | kiln.hooks has typed links (`detour_typed`, `call_with_frame`, `fingerprint`): a hook or call of a game function with float, stack and struct-return positions |
+| `sig/<symbol>` | sigdb feature | core | - | the symbol has a `sig` descriptor, resolved, and its function's code fits the descriptor on this build (one row per described symbol: `sig/time/SetTimeScale`, `sig/items/GetItemVolume`, ...). Off: the reason names the argument that no longer fits; the symbol itself may still resolve. Check it before a native hook relies on the described signature |
+| `items.volume` | sigdb feature | core | - | `items/GetItemVolume` resolved |
+| `weather.sample` | sigdb feature | core | - | `weather/SampleAt` resolved (captured from its call in `fuel_setup`) |
+| `hooks.owner_cleanup` | sigdb feature | core | - | kiln.hooks has `subscribe_owner_retiring`: a native service is told when an owner it keeps state for is revoked |
+| `kiln.queries` | service | core | - | kiln.queries' table is here ([queries.md](queries.md)) |
+| `queries.voxel_ray` | sigdb | sigdb; kiln.queries lowers it (faulted) | client: `01-queries.voxel-ray-hosted` | The game's voxel ray: `Queries.RaycastVoxels`. Off for the process after a fault in the ray or a voxel grid that does not match the build's layout |
+| `queries.ground` | managed | Kiln.Queries; kiln.queries lowers it on ray failure | client: `01-queries.voxel-ray-hosted` | `Queries.GroundBelow`; needs `queries.voxel_ray` |
+| `queries.line_of_sight` | managed | Kiln.Queries; kiln.queries lowers it on ray failure | client: `01-queries.voxel-ray-hosted` | `Queries.VoxelLineOfSight`; needs `queries.voxel_ray`, `kiln.world` and `world.entities` |
+| `queries.path` | sigdb | sigdb; kiln.queries lowers it (faulted, program refused) | client: `02-queries.path-hosted` | The game's path search: `Queries.RequestPath`, `FindPath`, `CancelPath` |
+| `queries.reachability` | managed | Kiln.Queries | client: `02-queries.path-hosted` | `Queries.CanReach`; needs `queries.path` |
+| `queries.overlap_origins` | managed | Kiln.Queries | client: `01-queries.voxel-ray-hosted` | `Queries.EntitiesInSphere`, `EntitiesInBox`: entity origins from `kiln.world`; needs `world.entities` and `world.find` |
+| `kiln.terrain` | managed | Kiln.Terrain | - | The library is loaded ([terrain.md](terrain.md)): `Terrain.Inspect` |
+| `terrain.overlays` | managed | Kiln.Terrain | client: `19f-overlay-client` | `Terrain.Apply`, `Forget`, `Applied`; needs `kiln.build`, `build.read`, `build.write`, `build.persist`, `kiln.saves` |
+| `terrain.baked` | managed | Kiln.Terrain | - | Always off in this version: baked terrain regions are not built |
+| `terrain.biomes` | managed | Kiln.Terrain | - | Always off in this version: biome changes are not built |
+| `blocks.move_followups` | managed | Kiln.Blocks, with the item blocks' rows | `16c-b`, `16c-d` | A weapon's moves with `FollowUps`, applied as one generation: `MoveBlock.FollowUps`, `Blocks.MovesStatus`, `WeaponMovesApplicationChangedEvent`. Both sides; the query on any thread, application and events on the tick. Needs kiln.gamedata (sequence clones, their rules, item data); a move that names a state by name also needs `anim.player_states` |
+| `creature_control` | static (lowered when the broker's world program does not run) | kiln.creature_control | not held | the creature control broker takes new leases: its layout guard matched through kiln.types, its world program is registered (kiln.world with `write_other`), kiln.creatures has the AI switch ([creature-control.md](creature-control.md)); the table row `kiln.creature_control` serves queries, waits and releases |
+| `mods.boot` | sigdb feature (both exes), static | core (sigdb: `assets/ResourceInit`, `content/ItemRegistryUpdate`, `RegisterSingleton`); kiln.boot lowers it (`service-missing`) when a collector did not register in a boot process | on a game client the boot phase also needs `mods.boot.client` | Mod.OnBoot's phase can run in this process ([../modding/onboot.md](../modding/onboot.md)); off: boot mods are refused (`RestartRequiredBoot`) |
+| `mods.boot.phase` | service row (session) | kiln.boot | - | Informational: `available` while a boot mod's OnBoot frame is open (the text names it), `pending` while the generation collects, `unavailable` (`policy`) once the phase is over or when this process has none (the text says why: safe idle, .NET off, no boot mod, a held client) |
+| `mods.boot.game_data` | service row | kiln.boot, at its start | - | `BootContext.GameData.Read` has a game-data snapshot of exactly this game build ([../modding/boot-gamedata.md](../modding/boot-gamedata.md)); `service-missing` with the command that makes one otherwise, `policy` in safe idle |
+| `mods.boot.client` | service row | kiln.boot, at its start | `08-boot.first-start-definitions`, `08-loader-order` | Boot mods on a game client (the hosted world and the client); `wrong-side` on a dedicated server, whose boot mods are `mods.boot`. While held, a game client runs no boot phase and does not load boot mods |
+| `mods.boot.vfx` | service row | kiln.boot, at its start | `08-boot.first-start-definitions` | The vfx collector cooks VFX and materials into a client's boot generation; `wrong-side` on a dedicated server (it renders none: an empty plan) |
+| `mods.boot.resource_patches` | native, static | kiln.content, at its start (and again with a note when a write of this start was not applied) | on a game client: `08-boot.first-start-definitions` | Fields of a game resource stated as resource patches (a boot mod's `OnBoot` or its blocks files) are written before the game reads its resources. Off without a boot phase in this process, and where kiln.assets' resources are off |
+| `kiln.ui.values` | service row | core | — | the in-core service is here (client only; on a server its init says no) |
+| `ui.values.detail` | sigdb feature (client), static | core (sigdb); kiln.ui.values lowers it (`faulted`) when its hook cannot be installed | `05a-c1` | providers can replace the item detail view's number, bar and label |
+| `ui.values.slot` | sigdb feature (client), static | core (sigdb); kiln.ui.values lowers it (`faulted`) | `05a-c1` | providers can replace the inventory slot bar |
+| `ui.values.hud` | sigdb feature (client), static | core (sigdb); kiln.ui.values lowers it (`faulted`) | `05a-c2` | providers can replace the local player's health, stamina and mana pairs; also the player-UI stage 09 reads |
+| `ui.values.held` | sigdb feature (client), static | core (sigdb); kiln.ui.values lowers it (`faulted`) | `05a-c3` | providers can replace the held item's water indicator |
+| `ui.values.tooltip_lines` | sigdb feature (client), static | core (sigdb); kiln.ui.values lowers it (`faulted`); Kiln.Ui requires the `kiln.ui` window backend | `05a-c4-viewer` | tooltip lines and Kiln's Item details window |
+| `ui.slots.inspect` | sigdb feature (client), static | core (sigdb); kiln.ui.values lowers it (`faulted`); needs `ui.screens` | `05a-c5` | the slots of each completed UI frame (UI units; pixels also need the verified mapping) |
+| `net.gate.hold_all` | service row, static | Kiln.Network, at its start | — | kiln.net can hold a Kiln client that already proved itself (gate mode "hold all", kiln.net since 0.2.0-dev.28) and the gate hook resolved: `NetAdmission.HoldJoins`, `HoldPeer` and `OnJoin` work ([network.md](../network.md#admission)). Off: needs `net.gate`, or this kiln.net is older; `wrong-side` on a client that only joins |
+| `net.admission` | service row, static | Kiln.Network, at its start | — | the admission controller decides joins in this process: a server role, kiln.net and `net.gate`. Services that register requirements (mandatory protocols, holds, vanilla conditions) check it; `wrong-side` on a client that only joins |
+| `net.disconnect` | sigdb feature (dedicated server), static | core (sigdb); Kiln.Network lowers it when kiln.net is missing | — | kiln.net can end a refused client the game's login failure cannot reach (not on the build, or it faulted) with the game's own session kick, which closes the connection about a second later ([network.md](../network.md#admission)). Off (a hosted world, or the symbol did not resolve): such a client stays connected but blocked, with no world data, until it leaves |
+| `items.tool_wear_debit` | sigdb feature | core (sigdb); kiln-items.dll lowers it (its guards, a hook fault: `faulted`) | client: `16b-g` | `Items.SetToolWearPerDebit`, `ToolBlock.WearPerDebit`: a cost per game debit of an axe or pickaxe ([items.md](items.md#tool-wear-per-debit-since-020-dev28)); off on a build whose frames are not approved |

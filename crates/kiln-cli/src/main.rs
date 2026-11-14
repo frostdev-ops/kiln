@@ -17,10 +17,13 @@ mod logs;
 mod new;
 mod out;
 mod project;
+mod publish;
 mod server;
 mod tools;
 mod skeleton;
 mod vfx;
+mod boot_snapshot;
+mod updates;
 
 #[cfg(feature = "catalog")]
 mod catalog;
@@ -53,6 +56,8 @@ enum Cmd {
     Deploy(build::DeployArgs),
     /// Package the mod: <id>-<version>.zip (never with cooked game files).
     Pack(build::PackArgs),
+    /// Release a packed mod at GitHub: a plan to review first (sends nothing), then --apply, --publish-draft.
+    Publish(publish::PublishArgs),
     /// Start (or stop, restart, check) a local server: a dev lab or a launcher/kilnctl server instance.
     Run(server::RunArgs),
     /// Hot-reload a mod in the running server (control folder `reload <id>`).
@@ -73,6 +78,10 @@ enum Cmd {
     Vfx(vfx::VfxArgs),
     /// The player's skeleton from your installed game, as a glTF to weight a worn model against, with a body to model around.
     Skeleton(skeleton::SkeletonArgs),
+    /// Make the game-data snapshot Mod.OnBoot reads (items, templates, skill nodes, materials) for a game folder.
+    BootSnapshot(boot_snapshot::BootSnapshotArgs),
+    /// Look for newer versions of the installed mods: a notice and a link per mod, never a download.
+    Updates(updates::UpdatesArgs),
 }
 
 #[derive(clap::Args)]
@@ -163,6 +172,7 @@ fn main() {
         Cmd::Cook(a) => build::cook(a, json),
         Cmd::Deploy(a) => build::deploy(a, json),
         Cmd::Pack(a) => build::pack(a, json),
+        Cmd::Publish(a) => publish::run(a, json),
         Cmd::Run(a) => server::run(a, json),
         Cmd::Reload(a) => control::reload(a, json),
         Cmd::Test(a) => control::test(a, json),
@@ -173,6 +183,8 @@ fn main() {
         Cmd::Catalog(a) => catalog_cmd(a, json),
         Cmd::Vfx(a) => vfx::run(a, json),
         Cmd::Skeleton(a) => skeleton::run(a, json),
+        Cmd::BootSnapshot(a) => boot_snapshot::run(a, json),
+        Cmd::Updates(a) => updates::run(a, json),
     });
     std::process::exit(match r {
         Ok(code) => code,

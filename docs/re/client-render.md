@@ -119,7 +119,7 @@ Verified, with a synthetic absolute pointer and a virtual keyboard:
 7. Not verified: resize / alt-tab / minimise / fullscreen toggle, HDR (format 64, expected too bright), Windows.
 
 ## The camera
-Client 26430625 (`enshrouded.exe` sha256 `5d9ef2f1…`). Static (python capstone, sigdb_check); not yet watched at run time.
+Client 26430625 (`enshrouded.exe` sha256 `5d9ef2f1…`). Static (python capstone, sigdb_check); dev.28 client observations and corrected rendered-lens path are below.
 Used by kiln.render (`sigdb/symbols/client.d/render.json`, feature `render.camera`; usage `docs/kiln/render.md`).
 - **Where:** `0x3af340` fills the local player's `ClientPlayerInput` each client frame on the main thread
   ([client.md](client.md), "The camera, health-bar line of sight"). With `rbp` = the client game and `r14` = the
@@ -137,15 +137,121 @@ Used by kiln.render (`sigdb/symbols/client.d/render.json`, feature `render.camer
   reached by both branches; `r14` and `rbp` are unchanged there (`r14` is read again at `0x3af5a1`). kiln.rules'
   camera check hooks `0x3af55f` (a 7-byte instruction), so the two never overlap. The pattern captures every store's
   offset and fixes it, so a build with another layout turns the feature off.
-- **Units:** the camera object's constructor (`0x8388df..0x8388fd`) sets aspect 1.0, near 0.1, far 100.0 and **fovY
-  60.0**: degrees. kiln.render takes a value above pi as degrees. Whether the game's aspect value is kept up to date was
-  not found statically: kiln.render projects with the swapchain's width / height.
+- **Corrected 2026-11 (dev.28 RE) [static] [seen]:** constructor `0x8388df..0x8388fd` sets metadata
+  aspect/near/far/FOV to 1.0/0.1/100.0/60.0, but live input metadata FOV is 1.13446 radians. `+0x20c4` is
+  **not the rendered FOV**, and camera_update does not recompute it every step. The historical above-pi conversion
+  is a kiln.render heuristic, not an engine units contract. Use the selected renderer lens below for visual projection.
 - **Spaces:** left-handed, x east, y up, z north ([models.md](models.md)); `kiln.rules` rotates (0, 0, 1) by the
   camera's quaternion for the view direction (its glide pitch), which fixes the forward axis.
 - **Not in it:** `player_camera_transform` (`0x2b7900`) adds camera shake (a glider wobble) to the render camera only.
 - **Threads:** written on the main thread; presents run on the render thread, typically a frame behind. kiln.render
   copies the camera and its metadata under a mutex; readers try the mutex once and return unavailable on contention
   rather than waiting on the render thread.
-- **To confirm in the game:** that the vertical fov reading is right (markers stay on their spot at the screen's
-  edges; `Render.FieldOfViewIsHorizontal` flips it for the check) and how far behind the scene markers lag while
-  turning fast.
+- **Still open:** final-camera overlay alignment and lag while turning. The input snapshot is not the final
+  shaken renderer snapshot; changing a horizontal/vertical interpretation cannot fix that distinction.
+
+## Camera control and final renderer selection (dev.28; server 26430253 / client 26430625)
+
+S `f0d824be…`, C `5d9ef2f1…`. Source: dev.28 dossier chapter 03, camera REPORT/VERIFY and sessions 1/2/4/5.
+VERIFY confirmed the original 13 contracts with two corrections (update-context offset and basis rows); the later
+chapter **refutes the original rendered-FOV target**. `[seen]` is the dossier's coordinator-run client evidence.
+These are engine seams, not an implemented camera service.
+
+### Authoritative mode control [static] [refl] [lab]
+
+| Program, `void(ProgramContext*)` | S / C RVA | Effect |
+|---|---|---|
+| actor_camera | `0x77d20` / `0x264be0` | sequence camera events → ServerCameraControl; clears lock when no lock event remains |
+| server_camera_control | `0xd6ff0` / `0x2eb050` | signed game-nanosecond expiry; clears at now>=end, INT64_MAX indefinite |
+| network_camera_control | `0xc3980` / `0x2d79e0` | tracked SCC offsets 0/1/0x10 → NCC offsets 0/1/2; times do not replicate |
+| player_camera_control | — / `0x2b5ee0` | consumes NCC, selects local mode, prepares update context |
+| animated_camera | — / `0x303560` | another local ClientCameraControl pose writer |
+| player_camera_transform | — / `0x2b7900` | samples pose, then adds stock shake/extra rotation |
+
+Reflected layouts (both builds): SCC 32 B/align 8, lock bool `+0`, CameraId u8 `+1`, unlock Time `+8`,
+CameraOverride u8 `+0x10`, override-end Time `+0x18`. NCC is **3 B/align 1** `{lock,id,override}`; it contains no
+pose, target, FOV, distance or profile. Override enum: None 0 / BlinkLerpSpeed 1 / CameraTransitionLerpSpeed 2.
+ClientCameraControl is 56 B: active id `+0`, three delay floats `+4/+8/+0xc`, position `+0x10`, quaternion `+0x28`.
+There are 46 CameraIds (0..45); BuildingFirstPerson=34, Glider=22. NCC.override enters camera update context
+**+0x100, not +0x168** (C `0x2b779a`, consumed `0xec502c`).
+
+[lab] One SCC lock write was cleared by actor_camera within eight steps. Direct tracked NCC `{1,34,2}` appeared
+in the game's per-player-format snapshot, but was overwritten on later steps. Maintain any override after game
+writers each step; a one-shot SCC write is not durable. Snapshot construction alone was not peer delivery (the
+shared snapshot/index ABI is in [network.md](network.md)). [seen, session 4] A maintained `{1,34,2}` on a real
+player moved a **vanilla** client to first-person and handed back to third-person. This proves stock mode control,
+not arbitrary vanilla-client camera transport.
+
+### Shared camera versus render-only output [static], observations [seen]
+
+`void camera_update(Camera3C*,const CameraUpdateContext*)` C `0xec4f60` runs from the ECS program, not Present.
+`void camera_transform(WorldTransform* out,const Camera3C*)` C `0xe98ea0` writes 52 meaningful bytes of 56-byte,
+align-8 output: signed 32.32 XYZ `+0`, quaternion `+0x18`, scale float3 `+0x28`; padding `+0x34` untouched.
+Exactly two direct call continuations: render `0x2b7a37`, input `0x3af4ea`. Render output is **before stock shake**;
+shake update `0xec02e0` operates on camera `+0x1508`, then player_camera_transform adds it to the render singleton.
+
+Corrected 2026-11: camera `+0x14b0/+0x14c0/+0x14d0` are **float4 basis rows, not three quaternions**.
+Pivot `+0x1468`, offset float3 `+0x148c`, distance `+0x14a4`; negative angles `+0x1498/+0x149c/+0x14a0` rotate about
+rows 1/0/2, then the matrix is converted to the output quaternion. Those angles are updated each step.
+
+[seen] Session 1's render-only transform substitution raised render Y by 5 m while input Y stayed unchanged;
+Update and both consumers ran on thread 392. Distance/height and shake were visible, but the scalar profile also
+changed shared input fields: it is **not** proof of a fully visual-only profile. Session 2 saw world/camera addresses
+reused across generations (STARTED 1 → STOPPING 2 → STARTED 3); pointer equality is not lifetime identity.
+
+### Rendered vertical FOV and final snapshot [static], FOV primitive [seen]
+
+Session 2 wrote `+0x20c4=0.698132` radians with unchanged framing: **refuted as rendered-FOV control**. Session 1's
+40/75 degree writes and subjective zoom were invalid evidence. Saving/restoring that metadata can clobber settings;
+the game does not refresh it on each update.
+
+Mode evaluator C `0xe76340` reads config `+0x368` in degrees, multiplies by pi/180 and writes pose `+0x14`.
+Blend `0xe85b20` accumulates this into Camera3C `+0x4c`. Camera3C is embedded at renderer `+0x467300` and exported
+to clientGame `+0x5c8`; thus active mode FOV is renderer `+0x46734c`. Extraction `0x87a290` selects active/fallback
+pose/lens; fallback is 65° in radians.
+
+- **Selection MID C `0x87b9fd`**: R13=renderer, XMM6.low=selected vertical radians; original instruction
+  `movss [r13+0x4672e8],xmm6`. Preserve upper lanes/registers and execute the store. Selected WorldTransform is
+  renderer `+0x4672a8`. This is a register-site hook, not a guessed whole-function C++ prototype.
+- **Final acquisition MID C `0x86098f`**: RSI=renderer, after descriptor stores. Read selected pose `+0x4672a8`,
+  aspect `+0x4693b8`, near/far `+0x4693bc/+0x4693c0`, vertical-radian FOV `+0x4693c4`. Descriptor prefix
+  `+0x4693b4` has kind=0. This captures logical unjittered geometry, not pixel TAA/postprocess distortion.
+- `const WorldTransform* selected_client_pose(const ClientGame*)` C `0x3aaaf0` returns clientGame `+0x5d0`, the
+  **post-shake** singleton selected by extraction. It is not the earlier transform-call result.
+- `float* perspective_raw(float out[16],float fovY,float aspect,float near,float far)` C `0xf6a050`: RCX/XMM1/
+  XMM2/XMM3/stack argument 5, returns out. Computes `1/tan(fovY/2)`; out[5]=vertical scale, out[0]=scale/aspect.
+  It and descriptor wrapper `0xf69ae0` are inspection anchors, not qualified arbitrary-thread calls.
+
+[seen, session 4 joined client] The corrected selection MID gave visible narrow/wide views for 0.698132/1.309
+radians; releasing the request used fresh game output, without saved-lens restoration. **Final acquisition and
+combined renderer-only follow/profile were still static/unseen** (C11/C9); server visual RPC/host routing was not
+proved. Never call game methods or managed callbacks from these renderer MID hooks.
+
+### Bounds, profiles and ownership [static] [refl] [data]
+
+Camera3C total sizeof/alignment is unknown; referenced timestamp establishes only minimum extent `0x161b0`.
+Do not allocate/clone/memcpy the opaque camera or renderer. Diagnostic camera regions: mode `[0x38,0x88)`,
+transform `[0x1468,0x14e0)`, input metadata `[0x20b8,0x20c8)`, profile table/owner `[0x2558,0x161b0)`.
+Renderer borrowed regions: world identity `[0x1d0,0x1d8)`, pose `[0x4672a8,0x4672e0)`, near/far/FOV
+`[0x4672e0,0x4672ec)`, descriptor `[0x4693b4,0x4693c8)`. These are known field ranges, not sizeof contracts.
+Discard pointers before return; follow poses use copied RenderTransform (176 B), not retained ECS pointers.
+
+Optional resource methods: C `0xe75ef0` `u8 apply(Camera3C*,const CameraStatesOverrideConfig*,u32 tag,s64 now)`;
+C `0xeb0250` `u8 remove(Camera3C*,u32 tag,s64 now)`, bool in AL. Apply synchronously copies configs into
+`camera+0x2558+id*0x6e0`; mask `+0x16198`, owner `+0x161a0`, timestamp `+0x161a8`. **One owner, no stack.**
+Caller must validate nonempty relative array, all ids<46, unique **nonzero** tag and empty existing mask. Engine
+has no id bound: id>=46 overwrites mask/owner/beyond; bit selection wraps mod 64. Same-tag apply is refused even
+with empty mask; remove requires matching owner/nonempty mask and resets owner=0. Never trample another owner.
+
+CameraStatesOverrideConfig is 8 B with relative BlobArray; CameraStateConfig stride 0x6e8 (id `+0`, config `+8`),
+CameraModifierConfig 0x6e0. Distance config `+0x300`, FOV `+0x368`, offset `+0x36c`; distance settings 32 B
+(start/end `+4/+8`, Time `+0x10`), FOV float degrees, offset local float3/worldY `+0/+0xc`.
+CombatLifetimeCameraOverride is 20 B (resource GUID `+0`, wasApplied bool `+0x10`); consumer C `0x2b5ba0`.
+Fog Dragon resource `d798778e-fc58-433c-b936-50b57b703042` changes only modes 5/6/14: 10–16 m, 50°, worldY+3.
+It is combat-state-driven, not a generic per-player mount profile. Actor camera spans are baked sequence events;
+collector C `0x2aef70` is not a network profile receiver.
+
+[seen, session 5] Stock camera sat inside/under the 0.3-scale Fog Dragon at 10–25 m/s, rider height 2.6 m.
+Collider self-hit versus short boom/pivot is **[inferred]**, not isolated. No size-aware rendered mount profile or
+collision exclusion was tested. Full configuration layouts, scratch signatures (`camera/VisualFrameReady`,
+`camera/RenderPoseGetter`) and proposed profile/transport designs remain in dossier chapter 03.

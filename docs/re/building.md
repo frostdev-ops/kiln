@@ -50,7 +50,11 @@ One client session checked the surface tables (1.4, **[rt client]**); everything
 `SolidVoxelMaterial` (304 B) and `PbrBuildingMaterial` (1,392 B) are editor types: they appear in reflection, and no resource of those types ships. `placeVoxelMaterial` is only a GUID to
 compare with the table. **[refl] [data]**
 
-Six building ids have no item (`materialItem` empty): 1, 3, 6, 9, 11, 28. Their slots hold `_DEPRECATED_` or `OLD_` surfaces. They are free for reuse. **[data]**
+Six **relative building slots** have no item (`materialItem` empty): 1, 3, 6, 9, 11, 28, absolute ids
+129, 131, 134, 137, 139, 156. Their slots hold `_DEPRECATED_` or `OLD_` surfaces. Corrected 2026-11 (dev.28 RE,
+caps VERIFY) **[data]**: these are **reuse candidates**, not unused byte values; old saves/appearance can still depend
+on their GUIDs. The 43 genuinely unused ids 213..255 plus these six candidates give the often-quoted 49, not 49
+never-used ids.
 
 ### 1.2 Pieces and the build menu **[data] [dec]**
 A wall is two items and three resources:
@@ -97,6 +101,26 @@ world, right after `Receive building zones`, the stack `0x3cd60f` ← `0x2bae75`
 
 **Unlocks.** The menu lists what a player can make: recipes, as for any item (`knowledgeRequirement`). Configs carry a `knowledgeQuery` too: `0xa2fd6b` evaluates them into two
 256-bit sets of known terrain and building ids (`update_terraforming_queries_*`). What reads those sets wasn't followed. **[dec]**
+
+### 1.2.1 Namespace versus selector storage (dev.28; server 26430253 / client 26430625)
+
+S `f0d824be…`, C `5d9ef2f1…`; dossier chapter 17.5, caps VERIFY claims 11–13 confirmed. [data] Both archives
+have 116 terrain / 85 building configs and pools 61/14/56/5. **11 new terrain ids** and **eight extra placeable
+terrain items in the existing pool** are independent limits; unused id room does not enlarge a selector.
+
+[refl] VoxelBlueprintMaterialPool stride 24 B: equipmentSlot `+0`, poolId `+4`, BlobArray<ItemId> materials `+8`,
+BlobString debugName `+0x10`; registry is 8 B with materialPools at `+0`. [static] C `0xe9eba0` hashes selected
+ItemInfo pool reference `+0x4a4` through `0x223400` and probes a runtime map with its actual capacity, returning
+row materials `+8`; no fixed four-pool restriction was found in **this lookup**. This does not establish arbitrary
+appended rows were ingested/drawn. The 64-record builder/cache remains separate and must stay within its bound.
+
+[static] Current paired inspection anchors: SaveRegion S `0x83d200` / C `0x10b89b0`, LoadStore
+S `0x830e30` / C `0x10ac730`, per-peer store serializer S `0x83ba40` / C `0x10b7200`, StoreCommit
+S `0x83f6e0` / C `0x10baca0`; full raw serializer ABIs are unqualified (see [build.md](build.md)).
+Client PoolBuilder `0x3cca80`, compare `0x3ccd97`, fatal `0x3cd60f`, cache stride 0x610 / count `+0x600`
+were independently rechecked; no callable PoolBuilder ABI or complete cache-reader audit was recovered.
+The dossier contains pool-partitioning/format-expansion designs, not evidence that the byte namespace or native
+selector has already been widened.
 
 ### 1.3 Hardness **[dec] [data] [rt]**
 ```
@@ -213,10 +237,17 @@ So a new id that looks like a game terrain material is three u32 copies and no n
 layers past 499 (269 free); growing the 224 wasn't tested. A dedicated server ships the registry, the particle table, the world and the biome map, not the
 look tables.
 
-**Where terrain comes from.** The world is baked. `VoxelWorldResource` `509feadb…` part 0 (part 1 is the fog) names 7 levels of tiles as content blobs: level 6
-is 80 × 80 tiles of 256 × 256 columns, 150..360 KB each, in a column format of the game's (a 32 × 32 table of 3-byte offsets, then the groups); levels 0..5
-are coarser copies. `voxelHashes` holds 1,024 B per level-6 tile, `cpuDisplacement` 98 KB. Generated cells are read from these blobs as tiles stream in
-(docs/re/build.md 2); only edits are stored. `BiomeMapResource` `509feadb…` is 1280 × 1280 at 8 m, a `keen::Biome` (9 values) per pixel, on both sides.
+**Where terrain comes from** (corrected 2026-11, dev.28 RE, server 26430253 `f0d824be…` / client 26430625
+`5d9ef2f1…`). **[static] [data] [lab]** Base terrain is baked, not generated from a new-world seed.
+`VoxelWorldResource` `509feadb…` part 0 (part 1 is fog) names seven levels of content tiles. Level 6 is 80 × 80 tiles
+of **256 × 256 cells** (128 m), each with 32 × 32 block-columns. Tile sizes range **132,098–5,306,764 B**, median
+440,227 B; the old 150..360 KB estimate was wrong. Envelope is **two dimension bytes**, then u24 offsets relative
+to payload: a finest header is 3,074 B, not 3,072. Levels 0..5 are coarser; edge dimensions can differ.
+`voxelHashes` is 6,553,600 B (1,024 B per finest tile), `cpuDisplacement` 98,680 B; generation of these companions
+remains incomplete. Streamed baked cells are overlaid by saved edited blocks; only edits are saved. See
+[build.md](build.md) §9 for decoded format, native anchors and the three-boot replacement proof.
+`BiomeMapResource` `509feadb…` is 1280 × 1280 at 8 m, a `keen::Biome` (nine enum values, eight present) per pixel,
+identical on both sides. Changing these bytes alone does not change voxel materials or ground shape.
 Biomes are baked into the cells: each biome's dirt is an id of its own (1 grassland, 10 wetlands, 11 steppes, 12 deep forest). The editor's per-biome
 material types (`BiomeVoxelMaterial`) don't ship. **[data]**
 

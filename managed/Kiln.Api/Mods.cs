@@ -113,7 +113,7 @@ public static class Mods
     /// A const is copied into the mod when it is built, so a mod reading it sees the API it was built against, not the
     /// running one: read <see cref="RuntimeApiVersion"/>.</summary>
     [Obsolete("Use Mods.RuntimeApiVersion: a const is copied into the mod at build time.")]
-    public const string ApiVersion = "0.2.2";
+    public const string ApiVersion = "0.2.3";
 
     /// <summary>The Kiln mod API version of the Kiln that is running (for example <c>0.2.0</c>); a manifest's
     /// <c>apiVersion</c> is checked against it. Read at run time, so a mod built against an older SDK still sees the
@@ -168,6 +168,17 @@ public static class Mods
 
     /// <summary>Loads the mod folder <c>kiln/mods/&lt;folder&gt;</c> at the start of the next step.</summary>
     public static Task<ModOperationResult> LoadAsync(string folder) => Request(ModOperation.Load, folder);
+
+    /// <summary>A mod's part in this process's boot generation (Mod.OnBoot, chapter 08): its state, its committed definitions
+    /// (<c>kind/key</c>) and its issues. <see cref="BootModState.NotParticipating"/> for a mod that takes none.</summary>
+    /// <exception cref="ArgumentException"><paramref name="modId"/> is not a mod id.</exception>
+    [AnyThread]
+    public static BootModReport BootState(string modId)
+    {
+        ArgumentNullException.ThrowIfNull(modId);
+        if (!BootGeneration.IdPattern.IsMatch(modId)) throw new ArgumentException($"\"{modId}\" is not a mod id", nameof(modId));
+        return BootGeneration.Report(modId) ?? new BootModReport(modId, BootGeneration.Number, BootModState.NotParticipating, [], []);
+    }
 
     /// <summary>Callback forms for code without a synchronization context (services, chat commands): the operation
     /// runs at the start of the next step and <paramref name="done"/> runs right after it on the tick thread, in the

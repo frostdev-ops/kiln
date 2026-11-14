@@ -95,8 +95,22 @@ fn semver_has_no_unknown_files() {
     assert_eq!(names, ["api.json", "order.json", "parse.json", "ranges.json"]);
 }
 
-/// FixtureTests.Describe.
+/// FixtureTests.Describe: "updates" only when the manifest has a readable one.
 fn describe(m: &KilnManifest) -> Value {
+    let mut v = describe_fields(m);
+    match &m.updates {
+        Some(manifest::UpdatesSpec::Github { repository, tag_pattern, asset, channel }) => {
+            v["updates"] = json!({"provider": "github", "repository": repository, "tagPattern": tag_pattern, "asset": asset, "channel": channel.as_str()});
+        }
+        Some(manifest::UpdatesSpec::Nexus { game_id, mod_id, file_chain_id }) => {
+            v["updates"] = json!({"provider": "nexus", "gameId": game_id, "modId": mod_id, "fileChainId": file_chain_id});
+        }
+        None => {}
+    }
+    v
+}
+
+fn describe_fields(m: &KilnManifest) -> Value {
     json!({
         "id": m.id, "name": m.name, "version": m.version, "parsedVersion": m.parsed_version, "apiVersion": m.api_version,
         "entryAssembly": m.entry_assembly, "entryType": m.entry_type,

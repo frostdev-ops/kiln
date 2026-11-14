@@ -90,6 +90,19 @@ An item's kind follows from what you fill in: `Tool` makes a tool, `Ammo` an arr
 | `Torch` (`torch`) | Held, it lights and burns down | `Durability` (seconds it burns while held, the tooltip's Duration: 600), `BreaksInto` |
 
 `BreaksInto` is what it becomes when its durability runs out, as the game's torch becomes a burnt one: a game item or one of yours. Only a torch burns down over time; the game wears the other tools by its own rule (the world's durability setting), with no number of the item's own, so `Durability` on them is refused.
+
+`WearPerDebit` (`wearPerDebit`, since 0.2.0-dev.28) says what each of the game's wear debits costs the tool instead of
+the game's 1: 0 to 32767, where 0 means it does not wear. It is per debit of the game, not per swing: a swing that hits
+twice is debited twice (two debits at 7 spend 14), and a swing that hits nothing spends nothing. It takes an axe or a
+pickaxe (a tool with an item of its own). A torch (whose `Durability` stays its burn time), a glider, a hook or a rod
+is refused when the block compiles; for a rake or a sieve the game answers when the cost is set (`UnsupportedTool` in
+the mod's block errors when it has no item of its own). The cost is set on the server where the world runs
+(a dedicated server, or the host's own game), once the world is there; a game that joined someone else's server sets
+nothing. On a game client it waits for its guided check (`16b-g`, capability `items.tool_wear_debit`). What it does
+and does not change: [services/items.md](../services/items.md#tool-wear-per-debit-since-020-dev28).
+```csharp
+Blocks.Define("brittle-pick", new ItemBlock { Name = "Brittle Pick", Tool = new ToolBlock { Harvests = Harvest.Stone, Power = 18, WearPerDebit = 7 } });
+```
 ```csharp
 Blocks.Define("garden-rake", new ItemBlock { Name = "Garden Rake", Tool = new ToolBlock { Harvests = ToolClass.Rake, Power = 750, Range = 5 } });
 Blocks.Define("slow-torch", new ItemBlock { Name = "Slow Torch", Tool = new ToolBlock { Harvests = ToolClass.Torch, Durability = 1200, BreaksInto = "ash" } });
@@ -311,10 +324,52 @@ A block is entered by the sequence: `Ability_Block`'s `SetAnimationEvent` names 
 ### Wands and staff casts
 A wand attack's `Moves` takes a premade as before, or one changed: `WandMoves.Heavy with { Animation = …, HitAt = 1.1 }`, in JSON `"moves": { "like": "heavy", "animation": …, "hitAt": 1.1 }` (no `like`: the attack's own premade). A spell's `CastBlock.Animation` the same: `CastAnimation.Lob with { Animation = …, HitAt = 1.2 }`, `"animation": { "like": "lob", "animation": …, "hitAt": 1.2 }`. `HitAt` is the release, the same thing as `releaseAt`: give one, or the same number (two numbers are refused). With `releaseAt` alone the shots (and on a staff the cost, the VFX and the sound) move to it as before; with `hitAt` the whole motion is retimed when content is ready, its first firing shot (a wand premade's shots that fire, a staff cast's shot) landing on it. A `like` other than the premades is refused: a wand motion's shots are a mix of the one that fires, the ones the premade silences and the per-element ones, and only the premades say which is which. Supporting any wand sequence would mean reading each shot's template when content is ready and telling a projectile from the rest by its components: about a day, with a lab check per element, and a game update that adds a shot would need the same check again. Where they work: a spell's `CastBlock.Animation` and a wand attack's `Moves`. An ability's cast (`AbilityBlock.Cast`) refuses them, by block and field (`cast.animation.animation`, `cast.animation.hitAt`): not yet on an ability's cast; its premade alone (`"lob"`) is still its motion.
 
+### Follow-ups
+A motion of the game has timed windows: "between here and there, on this input, go on with that sequence". They are what makes a combo, and what lets a block hand over to a parry. A move's `FollowUps` points windows the motion **already has** at another move of the same weapon:
+
+```csharp
+Block = new MoveBlock
+{
+    FollowUps =
+    [
+        new MoveFollowUpBlock { Trigger = MoveFollowUpTrigger.Parried, To = WeaponMoveSlot.Parry },      // a parried blow: this weapon's own parry
+        new MoveFollowUpBlock { Trigger = MoveFollowUpTrigger.Primary, To = WeaponMoveSlot.Primary },   // light attack while blocking: the first link
+    ],
+},
+```
+```json
+"block": { "followUps": [ { "trigger": "parried", "to": "parry" }, { "trigger": "primary", "to": "primary", "link": 1 } ] }
+```
+
+- **`Trigger`**: `Primary`, `Heavy`, `Block`, or `Parried` (the outcome of a block that parried a blow, not the parry's input). **`To`** and **`Link`** (from 1): a slot this weapon's moves name, and the link of its chain. A slot the moves do not name is refused: give it a move (one with only a `like` plays the class's own there).
+- **Which windows**: only windows of that input that have a follow-up of their own. A motion often has several for one input, one per skill a player may have; they keep their times, skills, tags and costs. `Occurrence` picks one, counted from 0 in the motion's own order by time; left out, the route takes all of them. `SubSequence` (from 0) is for a motion with several sub-sequences.
+- **No window is made.** A window with no follow-up (the dodge out of a swing) stays as it is, and a route that finds no window is refused. A route does not change when a move can be cancelled.
+- **No overlap.** Two routes of one move that select the same window are refused, both named, also when they say the same thing; there is no "the last one wins". A route does win over the chain's own link (primary and heavy chains still link up by themselves) for the windows it names.
+- At most 64 routes per move.
+
+**All or nothing.** A weapon with any `FollowUps` applies its moves, slots and routes as one *generation*: everything is checked on the game's data first, then a fresh set of sequence clones is made that no slot points at, their rules are set and read back, and only then the weapon's slots are switched, in one step. If any part is refused, nothing of it plays: the weapon keeps the generation it had, or its class's moves when it had none. (A weapon without `FollowUps` applies move by move as before, with the same clone GUIDs as before.)
+
+`Blocks.MovesStatus(handle)` says where a weapon is, and `WeaponMovesApplicationChangedEvent` is raised on the tick for every change:
+
+| `State` | `Ok` | What it means |
+|---|---|---|
+| `PendingContent` | false | waiting for the game's data; `Reason` is `"PendingContent"` |
+| `Applied` | true | the slots play generation `AppliedGeneration`; `LiveClones` has its sequences by `slot/link` |
+| `Refused` | false | the last attempt (`RequestedGeneration`) was refused, `Reason` says which field and why; `AppliedGeneration` and `LiveClones` are still what plays |
+| `Removed` | false | the mod unloaded; the game's layers of it are off |
+
+The switch is not a transaction of the game's data yet: if it fails part way, Kiln puts the previous slots back and reads them again. When they are what they were, the status is `Refused` and still names the generation that plays. When they are not (the put-back failed too), or when a later application of the game's content does not bring the applied generation back, the status says so: `Refused`, a `Reason` that starts with "the item's slots are mixed", `AppliedGeneration` 0, and `LiveClones` holds what each slot plays as read, under `slot/<index>`. The next attempt plans the weapon again from its class's sequences.
+
+The same moves on the same game data are the same generation: applying them again changes nothing and raises no event. A refused weapon is tried again when content is applied again (a world loaded later). The clones' GUIDs follow the moves and the game's data (they change with a game update that changes the motions), and are the same on a server and its clients. The game cannot take a clone out again, so the clones of a refused or replaced generation stay registered, unused, until the game ends; a weapon takes at most 16 different sets of moves per run, then `Reason` starts with `RestartRequired`.
+
+Checked in a lab (a dedicated server, `mods/tests/weapon-moves-test` with the sword of `mods/tests/weapon-routes-fixture`): a sword whose routes overlap is refused naming both; with the sword's first clone refused on purpose, all its slots stay the class's and the status says `Refused` with the reason; the next attempt applies generation 2, the slots play its clones, every Parried and Primary window of the block leads where the routes say, the light chain links up and the game's own sequences are untouched; the same plan again raises no event; unloading the mod reports `Removed` and the slots are the class's again. Not checked in a game: that a player's character enters the routed moves and recovers (guided checks 16c-b, 16c-d).
+
+Capability `blocks.move_followups`. While its game test is pending it is switched off ([caps](../services/caps.md#the-client-gate-dev28)): a weapon with `FollowUps` is then refused with `KilnUnavailableException` naming the row (a block file records it as that block's error), and `MovesStatus` throws the same. `MovesStatus` also throws `ArgumentException` for another mod's handle, a handle from before a reload, and a weapon without `FollowUps`.
+
 ### Limits
 - Checked in a lab (`mods/tests/weapon-moves-test`, a dedicated server, fresh and after a restart): on the game's data the clones exist under their names and GUIDs, start from their `like`, name the state given by GUID or `0x` id, sit in the slots their selectors name (and `heavyAir` plays the first primary link) while every other slot and the game's own weapons keep their sequences; every event, window end, `followUpTime` and the length follow the map, in order; the chain's and the heavy's follow-ups name the clones; a spawned player character pressing the attack button gets link 1, link 2, link 1 from the game itself, and holding it gets the heavy; the damage window of a retimed clone opens within one step of `hitAt`. With player states in the build (`Kiln.PlayerAnim`), a move names a state of its mod or a game state by name: the clones name the state's GUID, and the server's graph enters the mod's states (a two-link chain, a heavy, a guard) and a game state named by name when a player character presses the attack, heavy and block inputs, the plain sword entering the game's own state; a name nobody has, a name several machines have, a state no id enters, a state with several ids and a mod state the service refused are each reported by block and slot, the move keeping its `like`'s state; a wand move on a mod's overlay state names it in its `SetAnimationOverlayEvent` (the lab cannot read which overlay the graph plays). Not checked in a game: that a player sees the motions (guided checks below), that sub-sequence rules reach the second sub-sequence of a clone (`<clone>#1`). A move on an overlay applies: the wand's bolt plays the overlay its move names (kiln.content takes an overlay's GUID as it takes a state's, both only hashed into the graph's id), checked in the lab. The offline tests (`managed/tests/Kiln.Blocks.Tests`: `WeaponMovesTests`, `MoveTimingTests`, `CastMovesTests`) check what the compile and the content-ready planner make, over made-up slots and events, and replay kiln.gamedata's re-sort after every rule.
 - A plunge's and a special's fall loop is retimed as any window: the loop holds until landing, so the map moves its start and end, not how long a fall lasts.
-- The jump attack's follow-up to the plunge, and every other slot's follow-ups, stay the game's: only the primary and heavy chains are linked to each other.
+- The jump attack's follow-up to the plunge, and every other slot's follow-ups, stay the game's unless a move's `FollowUps` routes them ([Follow-ups](#follow-ups)): by themselves only the primary and heavy chains are linked to each other.
 - A move whose only change could not be made (a name that cannot be looked up) still plays its clone, which is the class's sequence unchanged.
 - A second cast of a mod's wand state started before the first has ended continues its clip rather than restarting it (player-anim's limit, [animations.md](animations.md) "Limits").
 - Capabilities: `blocks.weapon_moves` (moves, and `animation` and `hitAt` on a wand's moves and a spell's cast) needs kiln.gamedata; `blocks.animated_held` (`VisualBlock.Animated`) needs kiln.gamedata and kiln.assets. Item blocks report both rows when the first of them compiles: a row a managed service registers exists only after the service is first used, so a manifest's `features` cannot require it; check `Capabilities.Is` at run time.

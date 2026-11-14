@@ -29,6 +29,8 @@ the same file). v1 manifests (id, name, version, apiVersion, entryAssembly, entr
   "advanced": false,                    // opt into the advanced tier (ModInfo.Advanced)
   "writes": ["Fuel", "ScaleComponent"], // component types the mod writes through the game's write tracking (see "writes")
   "tests": { "autoRun": true, "timeoutSeconds": 20 },  // Kiln.Testing (testing.md)
+  "boot": false,                        // true | "required": Mod.OnBoot runs before the game starts (see "Boot content")
+  "updates": { "provider": "github", "repository": "me/my-mod" },  // where new versions are published (see "updates")
   "kilnBuild": { "version": "0.2.0-dev+20261106.0f0a3f6", "created": "2026-11-06T12:12:16Z" }  // written by the build
 }
 ```
@@ -52,6 +54,53 @@ newer than the player's Kiln; the stamp can:
 
 Order: the semantic version, then `created` when both sides have it, else the day. A runtime or mod built from a tree
 without git has no stamp, and nothing is compared before the load.
+
+## Where new versions are published (`updates`, since 0.2.0-dev.28)
+`updates` tells Kiln where to look for a newer version of the mod. The launcher and `kiln updates check`
+([cli.md](cli.md)) read it and show a notice with a link to the release page. That is all they do with it: nothing is
+downloaded, installed or switched on by a check, and nothing in the game reads the key or makes a request. A mod loads
+the same with or without it.
+
+Two providers. Each takes only its own properties; a property it does not know makes the whole `updates` unreadable.
+
+```jsonc
+// releases of a public GitHub repository
+"updates": {
+  "provider": "github",
+  "repository": "me/my-mod",            // required: owner/repo, not a URL
+  "tagPattern": "v{version}",           // the release tag; {version} exactly once (default v{version})
+  "asset": "my-mod-{version}.zip",      // the zip's file name in a release; {version} at most once (optional)
+  "channel": "stable"                   // stable (default) | prerelease
+}
+// one file of a Nexus Mods page
+"updates": { "provider": "nexus", "gameId": 5811, "modId": 310, "fileChainId": "90310" }
+```
+
+| Property | Rule |
+|---|---|
+| `repository` | Two parts `owner/repo`, each 1 to 100 characters of `A-Z a-z 0-9 _ . -`, neither `.` nor `..`. |
+| `tagPattern` | `{version}` exactly once; before and after it at most 64 characters of `A-Z a-z 0-9 . _ / -`; no `..`, no `//`, no slash at the start or the end. A tag counts only when the whole tag matches and the part at `{version}` is a semantic version (as `version` above; a leading `v` only when the pattern has none before `{version}`). In a repository of several mods give each its own prefix: `mods/my-mod/v{version}`. There are no wildcards. |
+| `asset` | A file name, 1 to 200 characters of `A-Z a-z 0-9 . _ -` once `{version}` is filled in (with the version as the tag spells it); no `..`. Leave it out when your releases carry a `kiln-release.json` (`kiln publish` writes one, [publishing.md](publishing.md)): that file names the zip. |
+| `channel` | `stable`: releases that are not marked pre-release on GitHub and whose version has no pre-release part. `prerelease`: those too. Drafts never count. |
+| `gameId` | 5811 (Enshrouded). |
+| `modId` | The number of the mod's page: `nexusmods.com/enshrouded/mods/<modId>`. |
+| `fileChainId` | The id of the file whose versions are followed: the file itself, which keeps its id from upload to upload, not one version of it. A page's optional file is followed as that file, never replaced by the page's main file. |
+
+What Kiln does when it cannot read `updates` (a rule above is broken, or `provider` is one this Kiln does not know): the
+mod loads, the key is ignored with a warning (`"updates" is not read, so Kiln cannot look for new versions of this mod
+(the mod loads): 'repository' must be owner/repo`), `kiln lint` reports it (KL103, and the schema's finding for the
+property), and `kiln updates check` lists the mod as `unsupported`. Kiln never guesses a source from `url`.
+
+From a project, Kiln.Sdk writes the key from build properties:
+
+| Property | Manifest |
+|---|---|
+| `KilnUpdatesRepository` | `updates.repository` (and `provider` github) |
+| `KilnUpdatesTagPattern`, `KilnUpdatesAsset`, `KilnUpdatesChannel` | `tagPattern`, `asset`, `channel` |
+| `KilnUpdatesNexusModId`, `KilnUpdatesNexusFileChainId` | `modId`, `fileChainId` (and `provider` nexus, `gameId` 5811) |
+| `KilnUpdatesProvider` | `provider`, when both groups are set |
+
+The same key, with the same rules, is read from a native mod's `native.json`.
 
 ## Components the mod writes (`writes`, since 0.2.0-dev.27)
 `World.Write<T>`, `World.Update<T>`, `World.WriteField` and `World.WriteAt` change a component through the game's own
@@ -81,6 +130,23 @@ every enabled server mod when the server starts.
 
 Reserved ids: `kiln` (the core, usable as a dependency), `kiln.api`, `game`, `enshrouded`, `native`
 and `permissions` (they would collide with the config files `<configDir>/native.json` and `permissions.json`).
+
+## Boot content (`boot`, since 0.2.0-dev.28)
+`"boot": true` makes Kiln run the mod's `Mod.OnBoot` once before the game starts, on a copy of the mod that is thrown
+away afterwards; what it stages is in the game from the first start ([onboot.md](onboot.md)). Leave it out (or `false`)
+for a mod without boot content.
+
+- `true`: a failure of the mod's boot content leaves this mod (and the mods that require it) out; the server starts
+  without them.
+- `"required"`: such a failure stops the start before the game's entry point (exit code `0x4B01`, `kiln/state/boot.json`
+  says why).
+- **Restarts.** A boot mod loads only with its boot content in this process. Enabled after the start, left out by a
+  failure, or changed since (Kiln compares a hash of `kiln.mod.json` and the entry assembly with the one the boot phase
+  took): it does not load, and kiln.log says `RestartRequiredBoot: ...`. Restart the server.
+- Dedicated servers only in this build: on a game client a mod with `boot` does not load while `mods.boot.client` is
+  held. A server without the boot phase (safe idle, .NET off) does not load it either.
+- A Kiln.Sdk project has no property for it: keep a `kiln.mod.json` of your own beside the project with the key; the
+  build checks that file and ships it.
 
 ## Clients
 `clients` tells servers and the launcher what a player's game needs to join a server that runs the mod:
@@ -132,7 +198,7 @@ requires the key to name the assembly it builds (KILN001).
 An exclusive upper bound `<X.Y.Z` also excludes the pre-releases of X.Y.Z (`<2` rejects `2.0.0-beta`); pre-releases
 inside a range match. **apiVersion** is special: a bare version means "this API or a later one with the same
 major" (the mod API stays additive within a major, 0.x included), so `"0.1"` mods load on API 0.2. The running
-Kiln's API: `Kiln.Mods.RuntimeApiVersion` (0.2.2). The const `Kiln.Mods.ApiVersion` is obsolete: it is copied into a
+Kiln's API: `Kiln.Mods.RuntimeApiVersion` (0.2.3). The const `Kiln.Mods.ApiVersion` is obsolete: it is copied into a
 mod when the mod is built, so it says the API the mod was built against. A release refuses to ship when a public
 member of the previous release was removed (`tools/release/api-gate.sh`, and `pack.sh` compares against
 `KILN_API_BASELINE`). A release also builds its SDK packages as a NuGet feed (`sdk/feed/`); its URL is given here once

@@ -312,6 +312,9 @@ internal sealed unsafe class HostRuntime : IHostServices, IKilnBackend
         {
             host.Log(LogLevel.Warn, $"kiln.pacing is not available: {e.Message}");
         }
+        // Mod.OnBoot's generation (kiln.boot, chapter 08): in a boot profile Kiln.Host commits it here, on the boot thread, before the tick
+        // subscriptions and the game's entry point (BootPhase.cs)
+        BootPhase.Run(host.Service, host._owner, host._mods, host.Log);
         AppDomain.CurrentDomain.UnhandledException += (_, e) => host.Unhandled(e.ExceptionObject as Exception, e.IsTerminating);
         TaskScheduler.UnobservedTaskException += (_, e) =>
         {
@@ -374,6 +377,7 @@ internal sealed unsafe class HostRuntime : IHostServices, IKilnBackend
     public nint Service(string name, uint minVersion) => NativeCalls.WithUtf8(name, s => (nint)_api->Service(s, minVersion));
     public ulong OwnerCreate(string id) => NativeCalls.WithUtf8(id, s => _api->OwnerCreate(s));
     public void OwnerRevoke(ulong owner) => _api->OwnerRevoke(owner);
+    public bool CanRevokeOwners => true;
 
     // ---- game log mirror (core log thread) ----
     public void EnqueueGameLine(int level, string text)

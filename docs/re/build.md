@@ -14,7 +14,7 @@ Tags: **[dis]** disassembly, **[dec]** decompile, **[refl]** reflection, **[cap]
 | Question | Answer |
 |---|---|
 | Cell format | u16 per 0.5 m cell: low byte material, high byte fill 0..255 (255 solid, 0 no matter). Materials 1..127 terrain, 128..255 building-block materials. The game writes a surface's material on the air cells next to it (fill 0). |
-| Grid | level 6 of a 7-level pyramid; cell = 32 m / 2^6 = 0.5 m; origin (0, 0, 0); 20480 x 20480 cells (10240 m); streaming tiles of 256 x 256 cells (128 m), 80 x 80 of them; y has no engine bound (below 0 reads solid `ff01`). |
+| Grid | level 6 of a 7-level baked pyramid; cell = 32 m / 2^6 = 0.5 m; origin (0, 0, 0); 20480 x 20480 cells (10240 m); streaming tiles of 256 x 256 cells (128 m), 80 x 80. Corrected dev.28 [static] [data]: below 0 falls back to `ff01`, but that is not an unbounded usable world; scene reset bounds and packed store coordinates impose separate limits (§9). |
 | Read | the `ecs::VoxelGrid` singleton's published interface, slot `read(Request*, wrapper)` |
 | Write | the engine's block writer `0x83fa70(VoxelWorld*, Span*, dims, origin)`, which commits 8x8x8 blocks through the store commit `0x83f6e0`, the sink shared by the building and terraforming kernels; it tracks changes per peer (replication). |
 | Streaming | a dedicated server keeps only tiles near bases (and players) resident. Reading a cell touches its tile's chunk resource and the resource system loads it within ~1-3 s; an unloaded tile reads only the store's edited blocks (generated terrain reads as air). |
@@ -45,7 +45,8 @@ Tags: **[dis]** disassembly, **[dec]** decompile, **[refl]** reflection, **[cap]
   generated tile (`0x82f840`, the chunk resource via `0x8450e0`); y < 0 → `0xff01`. Output index `(z*dy + y)*dx + x`.
   Returns false when a tile was not resident (the cells are still filled from what was).
 - VoxelWorld layout, from `0x840b70` **[dec] [cap]**: `+0x14` initialized, `+0x30` origin float3, `+0x40 + level*0x28`
-  levels `{u32 tile_x, tile_z, count_x, count_z; …; u32* handles @+0x18}`, `+0x160` resources, `+0x174` reader lock,
+  levels `{u32 tile_size_x_cells, tile_size_z_cells, count_x, count_z; …; u32* handles @+0x18}`,
+  `+0x160` resources, `+0x174` reader lock (dev.28 correction [static]: the first pair are tile sizes, not coordinates),
   `+0x1220` store, `+0x1a34` global task; store `+0x118` lock, `+0x2c0` layer flag, `+0x2c1` "resync all peers",
   `+0x2c3` unavailable. Cell size = `32.0` (`0xbe8e5c`) / 2^level **[cap build/voxel.base_size]**.
 - **[rt]** `voxel world: VoxelWorld 00000000AE4119D0, origin (0.00, 0.00, 0.00), level 6 cell 0.500 m, tiles 80 x 80 of
@@ -161,3 +162,204 @@ column (3800, 1430) = a player's house:       column (3024, 1552) = an empty pla
 - Client exe (build 26404966): every `build.*` feature resolves offline from the shared `server.d/build.json` (the
   interface builder exists twice there, the client world's and the hosted GameServer's; the pattern is anchored on the
   GameServer's `cmp [rdi+0x1770], 0` after the call). Not run in a hosted world yet.
+
+
+## 9. Baked terrain and current call contracts (dev.28; server 26430253 / client 26430625)
+
+S `f0d824be…`, C `5d9ef2f1…`. Source: dev.28 dossier chapter 19f, terrain REPORT/VERIFY (18 confirmed, one
+corrected for ready-point alignment/in-out behavior). These named current-build RVAs supersede the older wrappers
+and save-region builder above; unrelated older addresses retain their original build scope.
+
+### Baked base, overlays and scale [static] [refl] [data] [lab]
+
+The main terrain is **baked and streamed, not generated from a new-world seed**. Main SceneResource, solid/fog
+VoxelWorldResource and BiomeMapResource are byte-identical on server/client. An independently decoded 2,000-cell
+column matched a fresh live world byte-for-byte. This does not establish how the editor authored the terrain or
+exclude randomness in spawners/decoration; no seed-to-terrain generator was identified on the traced path. [inferred]
+
+Main GUID `509feadb-4c60-425f-9c7c-deeefd9b6920`:
+- VoxelWorldResource type `0x75f48072`, reflected header **4360 B** (328648 B including arrays); part 0 Solid,
+  part 1 Fog. Material GUIDs[256] `+0x1c`, default material `+0x101c`, CPU-displacement reference `+0x1020`, seven
+  inline levels `+0x1040`, voxelHashes reference `+0x10e8`.
+- Resource VoxelWorldLevel stride **24 B**: tileSize uint2 `+0`, tileCount uint2 `+8`, BlobArray of 32-byte content
+  references `+0x10`. Runtime level stride is **40 B**, not 24.
+- Finest level 6: 0.5 m cells, 256² cells / **128 m tile**, 80² = 6400 tiles. Pyramid levels 0..6 use
+  32,16,8,4,2,1,0.5 m cells. Solid tile sizes at level 6 are **132098..5306764 B**, median 440227, not 150–360 KB.
+  All-level referenced bytes: solid 4401626408, fog 1269065268 (not deduplicated archive sizes).
+- Scene entities are a separate **256 m** partition: SceneResource type `0x2bc68ebe`, 208 B header,
+  entityChunkCount `+0x6c=40²`; 1600 regular parts plus global part 1600. See [map.md](map.md) for quantization tolerance.
+- BiomeMapResource type `0x6287e034`, 28 B header: origin int2 `+0`, size uint2 `+8=1280²`, scale `+0x10=8 m`,
+  byte-enum array `+0x14`. Biome bytes alone neither reshape nor repaint terrain voxels.
+- Solid size `(10240,2508,10240)`, fog `(10240,2188,10240)`; scene reset bounds `(0,0,0)..(10240,2560,10240)` m,
+  horizontal/vertical margins 10/2. These are distinct height limits. Edited-store chunks are **32 cells / 16 m**;
+  edit blocks **8 cells / 4 m**. Do not mix any of these scales.
+
+VoxelWorldChunkResource (224 B, seven content references) and SceneScatterResource exist in reflection but have
+**zero shipped instances on both sides**; this world references tiles directly. voxelHashes is 6553600 B,
+CPU-displacement 98680 B; their generation/consumer contracts remain incomplete. No new LOD/nav/water/relief-map
+regeneration is established by the base-tile experiment.
+
+### Tile envelope and decoder [static] [data]
+
+`u8 blocksX; u8 blocksZ; u24le offsets[blocksX*blocksZ]; payload[]`. Offsets are relative to **payload**, starting
+at `2+3*blocksX*blocksZ`, not tile start. A finest 32²-column header is **3074 B**, not 3072. Column index is
+`bz*blocksX+bx`; end is the next offset or payload end. Levels 1–4 use 16² columns (770 B); level 0's last row/column
+has 8×16, 16×8 or 8² (386/194 B), so dimensions are per-tile, not constant for a level.
+
+Column: `{u16 verticalBlockCount,u16 controlByteCount,controls[],data[]}`. LSB-first continuation/value run codes;
+uniform material/fill runs or **10-bit compressed-block byte lengths**. The compressed 8³ codec separates material
+and fill runs, reading control bits at the front and literal bytes at the tail; it is not zstd/generic RLE. Output
+X-fastest, then Y, then Z. The independent verifier's decoder matched all 2000 live column cells. Full codec and
+bounded decoder stay in dossier chapter 19f, not a supported terrain encoder.
+
+### Current native anchors (Win64) [static]; Build calls also [lab]
+
+| Role | S / C RVA | Contract / limitation |
+|---|---|---|
+| `build/VoxelGridRead` | `0xa3f520` / `0xa94c20` | `bool(ReadRequest*, VoxelWrapper*)`; wrapper +8 holds VoxelWorld |
+| batch reader | `0x836910` / `0x10b20e0` | `bool(Span<ReadRequest>*, VoxelWorld*)`; ANDs base-column readiness |
+| `build/VoxelGridReady` | `0xa44b50` / `0xa9a250` | `bool(VoxelWrapper*, float point4[4])`; **16-byte-aligned input**, fixed level 6 |
+| ready implementation | `0x840b70` / `0x10bc130` | `bool(VoxelWorld*, float point4[4], u32 level)`; point is **in/out** |
+| `build/VoxelWrite` | `0x83fa70` / `0x10bb030` | `void(VoxelWorld*, Span<const u16>*, const u32 dims[3], const i32 origin[3])`; whole 8³ blocks, level 6 |
+| `build/StoreCommit` | `0x83f6e0` / `0x10baca0` | `void(Store*, const Int3*, u32 level, const SpanU16*, u8 layer)`; 512 cells |
+| `build/SaveRegions` | `0x932a30` / `0xe8b8f0` | `KeenResult*(out, GameArray<Region>*, BuildZoneSystem*)` |
+| VoxelWorld factory | `0x834510` / `0x10afdc0` | apparent `VoxelWorld*(opaque Config*)`; lifetime/config ABI not qualified |
+| acquire column | `0x82f840` / `0x10ab270` | `ColumnCursor*(out, VoxelWorld*, u32 level, packed{u32 blockX,blockZ})`; borrowed locks/resources |
+| touch tile span | `0x8450e0` / `0x10c06a0` | `Span<const u8>*(out, streamingResources*, u32 generationHandle)`; borrowed, locked |
+| seek vertical block | `0x84adc0` / `0x10c6170` | low-byte bool `(columnIterator*, u32 blockY)`; mutates cursor |
+| decode block | `0x8514b0` / `0x10cc7d0` | `KeenResult*(out, Span<u16>* dst, Span<const u8>* compressed)`; codes 0/9 |
+| save/load edited store | `0x83d200` / `0x10b89b0`; `0x830e30` / `0x10ac730` | analysis anchors, raw stream/allocator ABI unqualified |
+| replicate edited store | `0x83ba40` / `0x10b7200` | per-peer edited blocks, **not baked asset distribution**; raw ABI unqualified |
+
+Factory/column/touch/seek/codec/save/load/replication are inspection anchors, not newly safe mod calls. Use existing
+Build/Assets routes. Ready wrapper uses `movaps` and protects its caller with a stack copy; the inner implementation
+writes origin-relative XYZ back. An ordinary unaligned float[4] can fault. Ready also gates initialized/global-task/
+store availability, **not game Run state**. Build.Write separately requires Run; an early lab read succeeded while
+its write was correctly refused. Raw writer checks neither multiples-of-8 nor span count: preserve caller guards.
+
+ReadRequest 48 B: data pointer `+0`, count u64 `+8`, dims uint3 `+0x10`, level `+0x1c`, origin int3 `+0x20`, pad
+`+0x2c`. Cell index `(z*dy+y)*dx+x`. Runtime world: initialized `+0x14`, origin `+0x30`, levels `+0x40` stride 0x28
+(tile **sizes in cells**, counts, handles `+0x18`), resources `+0x160`, lock `+0x174`, edited store `+0x1220`, global
+task `+0x1a34`; store lock `+0x118`, alternate layer `+0x2c0`, unavailable `+0x2c3`. [static]
+
+Save-region builder **clears** the output list, skips abandoned zones, grows 0x30-byte records; success error 0,
+grow failure `0x27`. Region `{BaseId[16],float3 min @0x10,pad,float3 max @0x20,pad}`; game array `{data,count,cap,grow}`
+qwords, grow `(array*, negativeRequiredCount, u8 mode=1)`. Save writes version 6 and a **4096 B / 256-GUID** table;
+load accepts versions 2..6 and remaps material bytes. [static]
+
+### Read precedence, bounds and retained edits [static] [lab]
+
+Reader acquires the base column, but chooses each block from alternate edited store (when selected), ordinary store,
+then baked base. An unavailable in-grid base tile makes the result false **even when store hits filled all cells**.
+Outside the tile grid, cursor/Ready can report true with air (or `ff01` below Y=0). **Readiness is not bounds validation.**
+TouchTile requires a nonzero, current-generation handle: zero/stale can try to lock address `0x44` and fault; a
+successful borrowed span retains its lock until release. Do not invoke this as a generic resource reader.
+
+Store lookup S `0x845310` key is `(level<<48) | ((z&0xffe0)<<32) | ((y&0xffe0)<<16) | (x&0xffe0)`; coordinate
+fields are 16-bit, chunk-aligned. Expanding tile bounds alone allows coordinate aliases. Failed decode of a stored
+block is **fatal**, not a skipped edit. Store lookup is level-specific: level-6 precedence does not prove that a
+commit masks coarser LODs (coarser propagation through `0x83ea70` was not checked).
+
+[lab] Three boots, 16 PASS: one kept and one transient 512-cell block; restart kept the former, dropped the latter,
+and untouched terrain matched its original hash. A 7170-byte air-only baked tile override removed the original
+ground while the saved edit above it and adjacent tile remained. A stored block shadows all its cells, not only
+changed ones; one-cell edits can retain old surrounding terrain across a base patch. This establishes existing-world
+base replacement where saves do not mask it, **not** a complete cooker, rendered client result or per-world isolation.
+Boot override was process-wide; no custom tile was distributed to a client. [inferred] Matching client data is needed.
+
+The air fixture used **Assets' SHA-256-prefix key**, not native ContentHash. The same bytes already ship in 624 fog
+references under native key `021c0000 89b408f3 7ff5bfd7 deb84d26` (the game's AES-round hash). Server acceptance of
+the fixture does not prove a universal hash rule or client acceptance. See chapter 19f for native-hash qualification,
+all eight unique S/C inspection signatures and remaining derived-data gaps; no production sigdb change is implied.
+
+## 10. Server voxel rays (dev.28; server 26430253 / client 26430625)
+
+S `f0d824be…`, C `5d9ef2f1…`. Dossier chapter 01; queries VERIFY confirmed ABI/layout and corrected the raw
+outside-grid behavior. **No client-to-server port is needed:** the server already contains this ray. [static] [lab]
+
+`queries/VoxelRay` S `0x6ac7e0` / C `0xa0f770` (Win64):
+`void* f(void* hitOut, VoxelGrid*, const float fromAligned4[4], const float toAligned4[4], const u8 options[4])`.
+**Output first, grid second**; returns hitOut, not bool. Absolute float metres/Y-up, both endpoints 16-byte aligned
+and 16 readable bytes. Options are a **pointer**, not by-value: `{realm,0,1,1}`; option 1 unestablished/unused,
+option 2 stops on unavailable, option 3 skips terrain material indices <0x80 with fill 1..8. Not a prop/water filter.
+
+Grid realms pointer `+0x1bf8`, live u64 count `+0x1c00`, stride 0x3870; each realm's first qword is its ray-grid
+pointer. No native realm-index bounds check. Cache `realm+0x3858..0x3868` is **mutated per call** and can queue
+missing chunks at `realm+0x2030`. Serialize with engine jobs: Post tick was tested; a mod mutex does not exclude
+engine workers. Resolve the current server world, including on a host, and do not retain pointers across sessions.
+[static] [lab] Live counts were 10 dedicated / 8 hosted [seen], not fixed maxima.
+
+Hit prefix: float XYZ `+0/+4/+8`, material u32 `+0xc` (lookup through grid `+0x60`, not raw material byte), packed
+voxel u16 `+0x10`, available byte `+0x12`, hit byte `+0x13`, **last-cell-outside** byte `+0x14`.
+21 meaningful bytes, not a proven C++ sizeof; an aligned zeroed 32-byte allocation is sufficient for this prefix.
+No normal, exact cell, entity or distance is stored. Expanded cell boxes can put a forward hit at x=3846.999 for a
+boundary at 3847: `floor(hit*2)` does not recover the exact cell. [static] [lab]
+
+**Corrected by verification:** per-cell reader S `0x660de0` / C `0x9c4e30` returns 0 for data/known-empty, 3 for
+missing/queued, **0x47 for outside the ray grid**. The ray treats 0x47 as **loaded and empty**; hit+0x14 remembers
+only the last cell, not the whole segment. Thus available=1/hit=0 alone does not prove clear. [static]
+
+Before native entry, validate realm<count and a live grid. Let `g=*(realms+realm*0x3870)`; ray-grid origin float3
+`g+0x70`, shift u32 `g+0x10`, horizontal count u32 `+0x14` (X/Z), vertical `+0x18`. For **both actual narrowed float
+endpoints**, per-axis `d=p-origin` must be finite, `0<=d<2^31`, and `(int32(d)>>shift)<count`; validate shift 0..30,
+positive counts and finite origin. This is the lower-inclusive/upper-exclusive convex box from the reader; refuse an
+outside endpoint before calling, not a clear ray. Last-cell flag is only an extra post-call guard. [static]
+
+Also reject zero/float-collapsed segments: length<=`1e-20f` exits without testing anything, still available/no hit.
+The captured minimum data is S `0xbd8628` / C `0x13d2a78`, bits `0x1e3ce508`. `@queries/ray.minimum`,
+`@queries/ray_grid.bounds`, `@queries/realm_count.layout` guard these fields; realm-count anchors S `0x6c982c` /
+C `0xa2cf7c`. Validating only the original double endpoints misses float collapse/boundary rounding. These are
+safety checks derived from static code; outside-grid refusal wrapper was not itself lab-tested.
+
+[lab] Explicitly loaded, no connected player: 1000/1000 ground hits, clear air misses, and terrain/building-wall
+hits. Build.Ready and ray-cache readiness can differ across steps; unavailable is **not air**. [seen] Hosted session 2
+confirmed ground/air calls, but wall writes were base-protection refusals (`write=6 flags=8`), so subsequent misses
+were invalid obstruction tests. No hosted-wall or reload proof follows. This ray reads **voxels, not colliders**:
+server `path_check=0x8ed50` has ColliderSystem/VoxelGrid access, and `0x66d2c0` calls both ray and collider query
+`0x6a99d0`, but that collider ABI/filter/lifetime remains unqualified. Entity-origin overlaps are not collider overlap.
+Path queries and their result lifetimes are in [creatures.md](creatures.md) §13.
+
+## 11. Altar count and build-zone size (dev.28; server 26430253 / client 26430625)
+
+S `f0d824be…`, C `5d9ef2f1…`; dossier chapter 18, survivors VERIFY claims 1–3/11–13. [static] [refl] [data]
+Count is a world Mother-Flame-level rule, not per-player. Size is separately indexed by the altar's own level.
+
+| Function | S / C RVA | Win64 contract |
+|---|---|---|
+| count limit | `0x93dea0` / `0xe96c80` | **`uint32_t(BalancingRegistry*, uint32_t flameLevel)`**, zero-extended EAX |
+| full size | `0x933b90` / `0xe8ca50` | `SizeResult*(out /*16 B*/, BalancingRegistry*, uint8_t altarLevel)` |
+| upgrade_building_range | `0x95400` / `0x283710` | `void(ProgramContext*)`; full size ×0.5 → TriggerShape ranges |
+| add_buildzones_server | `0xee2f0` / `0x32e600` | real program context; rebuilds zones from transform/TriggerShape |
+| add_buildzones_client | — / `0x32e0f0` | presentation program, flags `0x201` |
+| base_player_action | `0xc0950` / `0x2d49b0` | real program context; reserve/deactivate altar input |
+
+BalancingRegistry table pointer `+0x20`; table BlobArray<u8> altarsPerFlameLevel `+0x1b8`,
+BlobArray<float3> buildzoneSizesPerAltarLevel `+0x1c8` (count `+0x1cc`). Count = min(table[level],16), null table
+returns 1, **no level bounds check**; zero self-relative displacement is unsafe. Every caller consumes full EAX,
+not AL: uint8_t was a decompiler/probe mistake corrected by verification. Size returns out, XYZ `+0/+4/+8`,
+has byte `+0xc`; failure initializes **only has=0**, so do not read XYZ then. Both leaves lack .pdata and contain
+initial short conditional branches; detour trampolines must relocate them. [static]
+
+[data] Flame max 20, altar max 5. Flame-level counts 0..20: `[1,2,4,6,8,10,11,12,13,14,15,16,16,16,16,16,16,16,16,16,16]`.
+Full cube sizes at altar levels 0..5: `[0,40,80,120,160,160]` m. **12 is level 7's value, not the hard maximum**;
+16 is reached at level 11. Placement also adds nonempty entries in the 16 **peer-reservation** slots (24 B stride,
+PlayerBasesSystemServer `+0x1bf0`, S helper `0x208df0`) to ServerProgressSystem.currentAltars `+0x1c`; those slots are
+not a 16-base storage array. Client cursor helper `0x29ad70` calls its local getter at `0x29aebc` and sets
+MaxAltarCountReached `0x40` when current>=limit. A server-only count override does not remove that refusal. [static]
+
+TriggerShape is 56 B: kind `+0`, half-range XYZ `+4/+8/+0xc`, offset `+0x10`. BaseIdComponent is 48 B: BaseId `+0`,
+**non-authoritative** buildZoneSize `+0x10`, endOfTimeout `+0x20`, abandoned `+0x28`. ClientBaseIdComponent 56 B has
+BaseId `+8`, abandoned `+0x18`, bed count `+0x30`, **no size field**. ServerProgressSystem: progressEntity `+0x10`,
+flame level `+0x14`, count `+0x1c`; NetworkServerProgress count is u16 `+4`. Do not set these mirrors to change policy.
+[refl] [static]
+
+[lab] Actual size consumers saw 40→80 full size, 20→40 TriggerShape half extents, and matching server zones. Count
+hook installation/trampoline/pass-through worked, but **all four count calls were probe-owned**, zero from game
+consumers. Direct spawning bypassed that gate; the old preflight log claim was false. Static consumer coverage
+supports the seam (server calls `0x9e99c`, `0xc0d36`, `0xc6655`), not observed normal third-altar placement.
+
+Runtime metadata [lab]: TriggerShape and ClientBaseIdComponent replicated/not saved; Level saved attribute/not
+directly replicated. UpgradeRange has flags `0x0`, while client zone builder has client bit `0x1`. Larger shape
+therefore **has a replication path to vanilla clients [inferred]**, but arrival/presentation (C18.3) was not tested;
+metadata is not client evidence. >16 bases, per-base sizes and native UI remain unqualified. Full service/preservation/
+synchronization designs stay in dossier chapter 18, not these engine contracts.

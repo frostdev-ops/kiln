@@ -15,7 +15,11 @@ internal static class BlocksRows
     private static void Report()
     {
         if (!ServiceCaps.Probe("kiln.npcai")) ServiceCaps.NoteMissing("kiln.npcai");  // Factions needs it: its row says whether it is here
+        // BootDefinitions needs mods.boot, the core's row (sigdb and kiln.boot): with no core it has none, so it is reported here
+        if (!ServiceCaps.Probe("kiln.boot"))
+            ServiceCaps.Report("mods.boot", CapabilityState.Unavailable, CapabilityReason.Offline, "kiln.boot is not here (no Kiln core): no boot phase in this process");
         BlockCapabilities.Ensure();
+        KindCapabilities.Ensure();
         AffixRuntime.RefreshCapabilities();
     }
 }

@@ -27,6 +27,8 @@
 #include "runtime.h"
 #include "system_hooks.h"
 #include "services/kiln_types.h"
+#include "services/kiln_world.h"
+#include "services/kiln_caps.h"
 #include "../../plugins/set/src/coexist.h"
 
 namespace {
@@ -45,6 +47,9 @@ std::unordered_map<std::string_view, uint64_t> g_by_short;  // unique short name
 std::unordered_map<std::string_view, uint64_t> g_by_short_nods;
 std::unordered_map<uint64_t, uint32_t> g_index_of;
 std::string g_detail;
+// Impact names (since 0.2.0-dev.28): validated once at boot over the immutable image snapshot; read-only afterwards.
+ImpactNames g_impact;
+constexpr const char* kImpactCap = "types.impact_names";
 
 // Systems
 std::vector<System> g_sys;
@@ -72,6 +77,12 @@ bool g_external_runner = false;
 // clean inventory makes the runner active again (its detour stays installed while passive, passing every slice on).
 // Tick thread; status() reads it under g_sys_mu.
 bool g_runner_unsure = false;
+// external_runner(): the two flags above, for any thread (and the startup check's verdict, which sets neither).
+std::atomic<uint32_t> g_external_state{0};
+void publish_external() { g_external_state.store(external_state(g_external_runner, g_runner_unsure), std::memory_order_release); }
+// kiln.world's wrap_original (v4): the game's update behind a program-table entry kiln.world swapped, else 0. Set at
+// on_ready, read by the runner detour.
+std::atomic<uint64_t (KILN_CALL*)(uintptr_t)> g_wrap_original{nullptr};
 
 // Requested update-function hooks, separate from the slice runner so callbacks get its actual ProgramContext.
 constexpr size_t kMaxSystemHooks = 64;
@@ -85,7 +96,7 @@ std::mutex g_hooks_mu;
 KilnHandle g_next_hook = 1;
 bool g_retained_updates = false;
 std::atomic<bool> g_have_step{false};
-thread_local bool t_system_callback = false;
+// t_system_callback (a system_hook callback runs on this thread) is system_hooks.h's, so its host test sees it.
 
 // Events
 int64_t g_ev_map = 0, g_ev_streams = 0, g_storage = 0;  // world.storage: Kiln's world pointer -> the ECS storage
@@ -300,6 +311,19 @@ uint32_t KILN_CALL event_type_count() { return g_tt.event_count; }
 const KilnType* KILN_CALL event_type_at(uint32_t i) {
     return i < g_tt.event_count ? handle(g_im.q(g_tt.events + 8ull * i)) : nullptr;
 }
+// Any thread: g_impact and the image snapshot are fixed once kiln_plugin_main returned.
+KilnResult KILN_CALL type_impact_name(const KilnType* type, char* out, size_t cap, size_t* required) {
+    if (!required || (cap && !out)) return KILN_ERR_INVALID_ARGUMENT;
+    *required = 0;
+    if (!g_impact.ok) return KILN_ERR_UNAVAILABLE;
+    if (!known(type)) return KILN_ERR_NOT_FOUND;
+    std::string_view s;
+    if (impact_name_at(g_im, raw(type), s) == ImpactField::malformed) return KILN_ERR_NOT_FOUND;
+    *required = s.size();
+    if (cap < s.size()) return KILN_ERR_BUFFER_TOO_SMALL;
+    if (!s.empty()) std::memcpy(out, s.data(), s.size());
+    return KILN_OK;
+}
 
 // ---- systems ----
 void publish_system_switches();
@@ -318,6 +342,7 @@ int64_t sys_index_of_job(const void* job) {
     uint64_t prog, fn;
     if (!read_at(g_memory, reinterpret_cast<uint64_t>(job), 0x10, prog) || !prog ||
         !read_at(g_memory, prog, 0x28, fn)) return -1;
+    fn = program_update(prog, fn, g_wrap_original.load(std::memory_order_acquire));  // a wrapped program keeps its name
     auto it = std::lower_bound(g_sys_by_fn.begin(), g_sys_by_fn.end(), std::pair<uint64_t, uint32_t>{fn, 0});
     return it != g_sys_by_fn.end() && it->first == fn ? int64_t(it->second) : -1;
 }
@@ -349,10 +374,9 @@ void runner_detour(uintptr_t world, void* job, uint64_t index, uint64_t slot) {
 
 // Only the callback frame holds SEH: no C++ destructors can be skipped by a structured exception.
 bool guarded_system_hook(KilnSystemHookFn fn, void* ctx, void* user) {
-    const bool previous = t_system_callback;
-    t_system_callback = true;
-    __try { fn(ctx, user); t_system_callback = previous; return true; }
-    __except (EXCEPTION_EXECUTE_HANDLER) { t_system_callback = previous; return false; }
+    const bool previous = enter_system_callback();
+    __try { fn(ctx, user); leave_system_callback(previous); return true; }
+    __except (EXCEPTION_EXECUTE_HANDLER) { leave_system_callback(previous); return false; }
 }
 void call_system_hook(size_t index, void* ctx) {
     auto hook = g_hooks[index].load(std::memory_order_acquire);
@@ -501,6 +525,7 @@ void KILN_CALL on_pre(const KilnTickInfo*, void*) {
                     std::lock_guard lock(g_sys_mu);
                     g_runner_unsure = false;
                     g_external_runner = false;
+                    publish_external();
                 }
                 g_systems_ok = true;
                 logf(KILN_LOG_INFO, "native SET check: the loaded modules were read again (%zu modules, no SET): "
@@ -509,6 +534,7 @@ void KILN_CALL on_pre(const KilnTickInfo*, void*) {
                 {
                     std::lock_guard lock(g_sys_mu);
                     g_runner_unsure = false;
+                    publish_external();
                 }
                 logf(KILN_LOG_WARN, "native SET check: %s: runner left passive until exit", conflict.c_str());
             }
@@ -523,6 +549,7 @@ void KILN_CALL on_pre(const KilnTickInfo*, void*) {
         QueryPerformanceCounter(&now);
         if (!displace_runner(true, g_external_runner, g_system_owners, g_profile, now.QuadPart)) return;
         g_runner_unsure = unsure;
+        publish_external();
         g_systems_ok = false;
         g_prof = false;
         publish_system_switches();
@@ -651,17 +678,46 @@ KilnResult KILN_CALL event_post(uintptr_t world, uint32_t hash, const void* data
     }
 }
 
+uint32_t KILN_CALL external_runner() { return g_external_state.load(std::memory_order_acquire); }
+
 const KilnTypesApi kTable = {
     {sizeof(KilnTypesApi), KILN_TYPES_VERSION}, &status, &type_count, &type_at, &type_by_hash, &type_by_name, &type_info,
     &type_field, &type_enum, &component_type_count, &component_type_at, &event_type_count, &event_type_at,
     &system_count, &system_info, &system_find, &system_set_enabled, &profile, &event_each, &event_post, &system_release_owner, &system_hook, &system_unhook,
+    &external_runner,
+    &type_impact_name,
+    &in_system_callback,
 };
+
+// After every service's kiln_plugin_main: kiln.world (it loads after kiln.types) and its wrap_original.
+void KILN_CALL on_ready(void*) {
+    const auto* w = static_cast<const KilnWorldApi*>(g_api->service(KilnStr{KILN_WORLD_SERVICE, sizeof(KILN_WORLD_SERVICE) - 1}, 4));
+    if (w && w->header.size >= offsetof(KilnWorldApi, wrap_original) + sizeof(void*) && w->wrap_original)
+        g_wrap_original.store(w->wrap_original, std::memory_order_release);
+}
 
 bool sym(const char* n, uintptr_t* out) { return g_api->symbol(KilnStr{n, std::strlen(n)}, out) == KILN_OK; }
 bool cst(const char* n, int64_t* out) { return g_api->constant(KilnStr{n, std::strlen(n)}, out) == KILN_OK; }
 bool feat(const char* n) { return g_api->feature(KilnStr{n, std::strlen(n)}); }
 
 void add_detail(const std::string& s) { g_detail += (g_detail.empty() ? "" : "; ") + s; }
+
+// types.impact_names to kiln.caps (in the core, there before any service DLL loads). An older core has no kiln.caps:
+// then the row is missing and Kiln.Api answers the capability off.
+void report_impact_row() {
+    auto* caps = static_cast<const KilnCapsApi*>(g_api->service(KilnStr{KILN_CAPS_SERVICE, sizeof(KILN_CAPS_SERVICE) - 1}, KILN_CAPS_VERSION));
+    if (!caps || caps->header.size < offsetof(KilnCapsApi, report) + sizeof(void*) || !caps->report) return;
+    std::string text;
+    if (g_impact.ok)
+        text = std::to_string(g_impact.valid) + " types, " + std::to_string(g_impact.distinct) + " distinct Impact names, " +
+               std::to_string(g_impact.shared) + " shared by several types";
+    else
+        text = g_impact.why;
+    const KilnResult rc = caps->report(g_owner, KilnStr{kImpactCap, std::strlen(kImpactCap)},
+                                       g_impact.ok ? KILN_CAP_AVAILABLE : KILN_CAP_UNAVAILABLE,
+                                       g_impact.ok ? KILN_CAP_REASON_NONE : KILN_CAP_REASON_SYMBOL_MISSING, ks(text));
+    if (rc != KILN_OK) logf(KILN_LOG_WARN, "types: kiln.caps refused the row %s (%d)", kImpactCap, rc);
+}
 
 }  // namespace
 
@@ -670,6 +726,7 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     g_api = api;
     g_owner = owner;
     info->on_unload = &on_unload;
+    if (info->size >= offsetof(KilnPluginInfo, on_ready) + sizeof(info->on_ready)) info->on_ready = &on_ready;
     info->id = KilnStr{KILN_TYPES_SERVICE, sizeof(KILN_TYPES_SERVICE) - 1};
     info->version = KilnStr{"1", 1};
     LARGE_INTEGER f;
@@ -687,6 +744,8 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     } else {
         index_types();
     }
+    g_impact = index_impact_names(g_im, g_tt);
+    if (!g_impact.ok && g_tt.error.empty()) add_detail(g_impact.why);
     if (!g_tt.component_count) add_detail("the ECS component/event lists were not found");
     g_sys = scan_systems(g_im);
     const size_t n = g_sys.size();
@@ -700,6 +759,8 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     g_modules.arm();  // before the startup check, so a DLL loading in between is re-checked
     const std::string conflict = g_conflicts.startup();
     if (!conflict.empty()) add_detail("system runner disabled: " + conflict);
+    // SET seen at start (or modules that could not be read): the runner is never installed, and wraps stay off
+    if (!conflict.empty()) g_external_state.store(g_conflicts.cannot_tell() ? 2u : 1u, std::memory_order_release);
     if (conflict.empty() && n && feat("types.systems") && sym("types/ProgramRunner", &runner) && g_im.text.has(runner, 40)) {
         g_runner.install(g_api, g_owner, runner, reinterpret_cast<void*>(&runner_detour), "types/ProgramRunner");
         g_systems_ok = static_cast<bool>(g_runner);
@@ -728,8 +789,13 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     else add_detail("event streams not found (sigdb types.events)");
     const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
     logf(g_detail.empty() ? KILN_LOG_INFO : KILN_LOG_WARN,
-         "types: %u types (%u components, %u events), %zu systems%s, events %s; %.1f ms%s%s", g_tt.count,
+         "types: %u types (%u components, %u events), %zu systems%s, events %s, impact names %s; %.1f ms%s%s", g_tt.count,
          g_tt.component_count, g_tt.event_count, n, g_systems_ok ? " (runner hooked)" : " (switching off)",
-         g_events_ok ? "on" : "off", ms, g_detail.empty() ? "" : "; ", g_detail.c_str());
-    return api->register_service(owner, KilnStr{KILN_TYPES_SERVICE, sizeof(KILN_TYPES_SERVICE) - 1}, &kTable);
+         g_events_ok ? "on" : "off", g_impact.ok ? "on" : "off", ms, g_detail.empty() ? "" : "; ", g_detail.c_str());
+    if (g_impact.ok)
+        logf(KILN_LOG_INFO, "types: impact names: %u of %u types (%u distinct, %u shared by several types, %u empty, %u malformed)",
+             g_impact.valid, g_tt.count, g_impact.distinct, g_impact.shared, g_impact.empty, g_impact.malformed);
+    const KilnResult registered = api->register_service(owner, KilnStr{KILN_TYPES_SERVICE, sizeof(KILN_TYPES_SERVICE) - 1}, &kTable);
+    if (registered == KILN_OK) report_impact_row();
+    return registered;
 }

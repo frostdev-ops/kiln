@@ -22,6 +22,31 @@ GameTypes.Components; GameTypes.Events;                    // the game's ECS com
 Any thread. Fail soft: `GameTypes.Available` is false and every query returns nothing when the table is not found;
 `GameTypes.Status` says why.
 
+### Impact names (since 0.2.0-dev.28)
+The name Impact scripts use for a type (the name an Impact variable's type hash is made from): `ecs.Health` for
+`keen::ecs::Health`, `float32` for `keen::float32`, `impact.DamageSetup` for `keen::impact::DamageSetup`. It is neither
+the short nor the qualified name. ShroudForge mods have it as `types.get_by_impact_name`; this is the C# equivalent.
+```csharp
+string? impact = GameTypes.Find("keen::ecs::Health")!.ImpactName;     // "ecs.Health"
+GameType? one = GameTypes.ByImpactName("float32");                     // keen::float32
+IReadOnlyList<GameType> all = GameTypes.FindAllByImpactName("ecs.Health");  // keen::ecs::Health, keen::ds::ecs::Health
+```
+| Member | Threads | Answers |
+|---|---|---|
+| `GameType.ImpactName` | any | the type's Impact name; null when the game gives it none (an empty or unreadable entry) |
+| `GameTypes.ByImpactName(name)` | any | the one type carrying `name` exactly (ordinal, case-sensitive); null when none or several do |
+| `GameTypes.FindAllByImpactName(name)` | any | every type carrying `name`, in the game's order; empty when none |
+
+- Capability `types.impact_names`, reported by kiln.types at its start: available when the name field of the type table
+  validated on this build (at least 90 % of the types carry a readable name and some differ from their short name;
+  11,184 of 11,184 on the server build f0d824be, 12,658 of 12,658 in the game build 5d9ef2f1). Off: every member throws
+  `KilnUnavailableException("types.impact_names")`; also with a kiln.types older than 0.2.0-dev.28.
+- A null or empty `name` throws `ArgumentException`. A short or qualified name never matches.
+- Shared names: each `keen::ds::` mirror carries its runtime type's Impact name (`ecs.Health` is `keen::ecs::Health`
+  and `keen::ds::ecs::Health`), so most ECS names are ambiguous for `ByImpactName`; pick from `FindAllByImpactName`. On
+  the server build 7,056 distinct names cover the 11,184 types.
+- Read-only: no event. The index is built at the first lookup, once per process.
+
 ## Components by name, checked writes
 ```csharp
 foreach (var e in Reflected.All("Health"))                 // loaded entities that have it (tick thread)
@@ -67,6 +92,12 @@ GameSystems.TurnAllOn();                                   // release this calle
   [set.md](../set.md)). Passive for that second reason only, it looks again every 5 s and turns the runner back on
   at the first clean look; disable and hook requests made before it went passive are gone and must be made again,
   and `status()` says which of the two it is.
+- A program that kiln.world wraps (dev.28: its update pointer in the world's program table swapped for a trampoline)
+  keeps its name: switches and the profiler ask kiln.world's `wrap_original` for the game's update behind the
+  trampoline. While native SET is loaded, kiln.world refuses every wrap (SET names programs by that pointer too);
+  kiln.types tells it through `external_runner()`.
+- `GameSystems.Hook` hooks the update function's code, so it runs for every world of the process that runs the
+  program (on a host: the server world and the client world), and it runs inside any wrap of that program.
 - The profiler measures CPU time summed over every thread (not frame time). `ms / ProfileSeconds` is ms per second.
 - Idle runner cost: two atomic checks per program slice, with no clock reads or metadata lookup. Profiling adds
   clock reads, guarded job reads and synchronization per timed slice; its measurements include that instrumentation.
@@ -125,7 +156,14 @@ Filters take SET's syntax: `a,b` matches either word, `-a` hides lines with `a`.
 ## C
 `kiln_types.h`: `status`, `type_count/type_at/type_by_hash/type_by_name/type_info/type_field/type_enum`,
 `component_type_count/at`, `event_type_count/at`, `system_count/system_info/system_find/system_set_enabled/profile`,
-`event_each`, `event_post`, `system_release_owner` (appended; check table size). Type handles are stable for the process.
+`event_each`, `event_post`, `system_release_owner`, `system_hook`, `system_unhook` (appended; check table size).
+Since 0.2.0-dev.28, in this order (check `header.size`): `external_runner`: 0 when kiln.types' runner is in charge,
+1 when native SET owns the program runner, 2 when the loaded modules could not be read (runner passive);
+`type_impact_name(type, out, cap, required)`: `KILN_ERR_UNAVAILABLE` when `types.impact_names` is off,
+`KILN_ERR_NOT_FOUND` for an unreadable entry, `KILN_OK` with `*required = 0` for an empty one. Type handles are stable
+for the process. `in_system_callback()`: 1 while the calling thread runs a `system_hook` callback (the world is mid-step
+there, maybe on its own thread), else 0; any thread, lock-free. kiln.world's `in_program()` includes it, so kiln.queries
+refuses a ray or a path request from such a callback (`InsideProgram`).
 
 ## How it finds things
 - The type table: a static table in the exe's `.rdata`, found by data alone (the `BlobString` and `uint32` descriptors
@@ -136,12 +174,21 @@ Filters take SET's syntax: `a,b` matches either word, `-a` hides lines with `a`.
 - Systems: `.rdata` descriptors `{name, length, update function}`; the program runner (sigdb `types/ProgramRunner`)
   is detoured to skip and time them.
 - Events: the offsets of the world's event streams and the event map, captured by sigdb (`@types/EventStreams`).
+- Impact names: the `{ptr, len}` string at +0x10 of each type record, read through the same bounded reader as the other
+  names, validated over the whole table at start (`index_impact_names` in `scan.h`).
 Credit: Shrouded Engine Tweaks (MIT) documented these structures; Kiln's implementation is its own.
 
 ## Tests
-- Host: `native/services/types/test-types.sh <server exe> <client exe>` (scanner over both exes).
+- Host: `native/services/types/test-types.sh <server exe> <client exe>` (scanner over both exes);
+  `test-system-hooks.sh` (hook lifetime, a wrapped program's identity, the external runner's answer).
 - Unit: `managed/tests/Kiln.Api.Tests/GameValueCodecTests.cs` (checked writes, fail soft).
+- Host: `native/services/types/test-types.sh <server exe> <client exe>` (scanner over both exes).
+- Unit: `managed/tests/Kiln.Api.Tests/GameValueCodecTests.cs` (checked writes, fail soft),
+  `ImpactNameTests.cs` (Impact names over a fake table: three different names, shared, empty, unreadable, long, the
+  capability off, an older table).
 - Hostile-input tests: `native/services/types/test-types.sh` also covers truncated headers/tables, malformed fields,
   event maps/page chains/posters, payload validation, system ownership and profiler sessions.
 - Commands: `managed/services/Kiln.DevTools/tests` checks read/write parsing and non-admin rejection.
-- Lab: `mods/tests/types-test` (PASS/FAIL lines).
+- Lab: `mods/tests/types-test` (PASS/FAIL lines); `mods/tests/systems-test` (its native part: the profiler and a
+  system hook on wrapped programs).
+- Lab: `mods/tests/types-test` (PASS/FAIL lines; `PASS types.impact-names`).

@@ -128,6 +128,8 @@ export interface LauncherSettings {
    *  notices about kept folders, kept files and notes on mods, except the first one about a folder that may still run
    *  although its mod is off (shell/notices.ts). */
   modFolderNotes?: boolean;
+  /** "Check for mod updates once a day" (default off; api/updates.ts). */
+  modUpdatesDaily?: boolean;
 }
 export type TaskState = "queued" | "running" | "done" | "failed" | "canceled";
 export interface Task<R = unknown> {
@@ -1469,6 +1471,23 @@ export interface CookRun {
   mods: ModCook[];
   /** The active profile written again before the cook (it changed since its activation): its notices, as Play's. */
   activation?: Activation | null;
+  /** Play's cook only: the game data Mod.OnBoot reads, made or found after the cook (kiln_manage::boot_snapshot). */
+  bootSnapshot?: BootSnapshot;
+}
+/** What making the boot game-data snapshot came to: made | reused | skipped (no mod needs it) | refused | failed |
+ *  unavailable. */
+export interface BootSnapshot {
+  status: "made" | "reused" | "skipped" | "refused" | "failed" | "unavailable";
+  key?: string;
+  path?: string;
+  counts?: Record<string, number>;
+  /** Kinds the game's archive could not give: every OnBoot read of them finds nothing. */
+  emptyKinds: string[];
+  skipped?: number;
+  archive?: string;
+  bytes?: number;
+  seconds?: number;
+  reason?: string;
 }
 /** The mods of the game's profile with something to cook, each with whether it needs a cook now. Reads only. */
 export const cookPlan = (gameId: GameId) => call<CookJob[]>("cook_plan", { gameId });
@@ -1851,6 +1870,7 @@ export const COMMANDS = [
   "data_folder_get", "data_folder_size", "data_folder_check", "data_folder_move", "data_folder_use", "data_folder_reset",
   "data_folder_notice_ack", "data_folder_restart",
   "app_started", "app_render_set",
+  "updates_check",
 ] as const;
 export type CommandName = (typeof COMMANDS)[number];
 
@@ -1870,6 +1890,8 @@ export interface KilnEvents {
   "kiln://gamepad": GamepadEvent;
   /** An Enshrouded Mod Manager Download (nxm://) link arrived: `count` wait in nexus_links (api/nexus.ts). */
   "kiln://nxm": { count: number };
+  /** The result of a mod update check (updates_check; api/updates.ts). */
+  "kiln://mod-updates": import("./updates").CheckReport;
   /** A profile was written again without profile_activate and its notices wait: take them with activation_notices. */
   "kiln://activation": { gameId: GameId };
 }

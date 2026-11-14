@@ -55,6 +55,7 @@ A mod's blocks: spells, weapons, wands, armor, items, stations, statuses, effect
 | `props` | object |  | Things placed that stand there: furniture, banners, lamps. |
 | `quests` | object |  | Quest chains in the game's own journal: steps, objectives, conditions, rewards. Needs "clients": "mod". |
 | `recipes` | object |  | Recipes of their own: one more way to make any item at a station, such as a game item at the game's workbench. |
+| `resourcePatches` | object |  | Fields of the game's own resources, set before the game reads them (a mod with "boot": true; docs/kiln/modding/resource-patches.md). Not blocks: kiln.content applies them. |
 | `rules` | object |  | Rules, for behaviours to name. |
 | `screenEffects` | object |  | Full-screen effects: colour grading, a tint, a vignette, fades and flashes. Drawn by each Kiln client; players' games need nothing for them. |
 | `seats` | object |  | Seats: the game's sitting, comfort of the chair category. |
@@ -391,6 +392,7 @@ What a creature does: attacks and rules on top of the game's combat AI, or a bra
 | `attacks` | array of [ref](#ref) or [creatureAttack](#creatureattack) |  | max items 32 |
 | `brain` | string |  | A brain registered with Blocks.Brain. |
 | `like` | `"vukah-melee"` \| `"scavenger-melee"` \| `"none"` |  |  |
+| `perception` | object |  | How the brain sees. Only with a brain. Left out: distance and faction. |
 | `phases` | array of string |  |  |
 | `pickAttack` | string |  |  |
 | `pickEvery` | number |  | Seconds. min 0 max 60 |
@@ -945,6 +947,7 @@ One move. At least one field: a move with none changes nothing.
 | Key | Type | Required | Notes |
 |---|---|---|---|
 | `animation` | [moveAnimation](#moveanimation) |  |  |
+| `followUps` | array of [moveFollowUp](#movefollowup) |  | Where the motion's follow-up windows lead, when not where the class has them. A weapon with any applies all its moves at once or none (Blocks.MovesStatus). Needs blocks.move_followups. max items 64 |
 | `hitAt` | number |  | Seconds into the move its blow lands: the first damage event moves here. |
 | `length` | number |  | Seconds the whole move lasts. |
 | `like` | string |  | The game sequence it starts from: a sub-sequence name or a sequence GUID. Default: the class's in this slot. min length 1 |
@@ -958,6 +961,18 @@ Type: string or array of string \| null
 ## moveChain
 
 Type: [move](#move) or array of [move](#move)
+
+## moveFollowUp
+
+One route: the windows of this move that wait for trigger lead to another move of the same weapon. Only windows the motion has, with a follow-up of their own. Two routes that select the same window are refused, also when they say the same.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `link` | integer |  | Which link of that slot's chain, from 1. Default 1. min 1 max 16 |
+| `occurrence` | integer \| null |  | Which of the trigger's windows in that sub-sequence, from 0 by time. Default: all. min 0 |
+| `subSequence` | integer |  | Which sub-sequence of the motion, from 0. Default 0. min 0 |
+| `to` | `"primary"` \| `"heavy"` \| `"heavyAir"` \| `"dodgeAttack"` \| `"jumpAttack"` \| `"plungeAttack"` \| `"block"` \| `"parry"` \| `"special"` \| `"execution"` \| `"sneakAttack"` | yes | The slot of this weapon the windows lead to; the weapon's moves must name it. |
+| `trigger` | `"primary"` \| `"heavy"` \| `"block"` \| `"parried"` | yes | The input the windows wait for; parried is the outcome of a block that parried a blow. |
 
 ## name
 
@@ -991,6 +1006,16 @@ What an item does to what its wearer hits.
 |---|---|---|---|
 | `effects` | [effects](#effects) | yes |  |
 | `vfx` | [vfx](#vfx) |  | A VFX where each hit lands. |
+
+## perceptionOffset
+
+Metres along the world's axes (y up), added to the entity's position. Default 0, 1.5, 0.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `x` | number |  | min -32 max 32 |
+| `y` | number |  | min -32 max 32 |
+| `z` | number |  | min -32 max 32 |
 
 ## perk
 
@@ -1317,6 +1342,18 @@ What it takes to use it. item, count, uses and time are the game's own lock, sho
 | `uses` | boolean |  | The use takes item from the bag, as a lockpick goes. |
 | `when` | [states](#states) |  | Only while the player is in one of these. |
 
+## resourcePatch
+
+One resource and the fields to set in it.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `format` | `1` |  |  |
+| `part` | integer |  | The part index; 0 when left out. min 0 |
+| `resource` | string | yes | The resource's GUID. |
+| `set` | object | yes | Member path to value. A path: members by name, [i] an element of a list, [*] every element. |
+| `type` | string | yes | The resource's qualified type name, as keen::BalancingTable. min length 1 |
+
 ## rule
 
 On a trigger, every so often, when its conditions hold, do something.
@@ -1623,6 +1660,7 @@ What a tool does: what it is for, and how well. Each class takes the fields it h
 | `power` | integer |  | How hard it bites: an axe's wood damage, a pickaxe's or a sieve's stone damage (the rest scales along), a rake's flattening strength (the game's: 500, 1000). |
 | `range` | number |  | Metres: how far a rake flattens around where it aims (3), how far a grappling hook reaches (13.5). max 32 |
 | `staminaCost` | integer |  | Stamina each use costs; the tooltip follows. Not for a fishing rod or a torch. min 0 |
+| `wearPerDebit` | integer |  | What each of the game's wear debits costs the tool's durability (1: the game's own; 0: it does not wear). Per debit, not per swing. A tool with enhancement slots (an axe, a pickaxe, a sieve). Set where the world runs. Needs items.tool_wear_debit. min 0 max 32767 |
 
 ## trigger
 

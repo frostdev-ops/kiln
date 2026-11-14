@@ -173,12 +173,70 @@ crash them that way. A mod that adds items should state `clients`, and then the 
 **Not proven yet.** The real-client hold, refusal, let-in and the two hooks have not run: client launches are on hold.
 Lab results and "Client checks" are in docs/re/network.md.
 
+## Admission
+Since 0.2.0-dev.28 one internal class, `NetAdmission` (`managed/services/Kiln.Network/Admission.cs`), is the only code
+that sets kiln.net's gate, lets a held peer into the world or refuses a joining one. Kiln's own services register
+**requirements** with it; there is no mod API (only the per-peer counters below are public). With no requirement
+registered, the gate behaves exactly as before: the three built-in rules of [Clients without Kiln](#clients-without-kiln)
+(the mod list not known yet; a vanilla client refused; a vanilla client held for proof) run unchanged on it.
+
+| Requirement | Registered by | What it does |
+|---|---|---|
+| mandatory protocol (`SetMandatoryProtocol(name, version, …)`) | a service whose clients must speak a channel (16a's `kiln:station-menu`) | a client without that channel at that version is refused in its hello, before Welcome, under every `modSync`; a Ready client that announces its channels again without it is refused; a vanilla client is refused. Enabling it answers `Ok=false` (not installed) while a connected peer lacks it (`PeersLacking`) |
+| join hold (`HoldJoins`) | a service that must finish something before anyone enters (18's policy change, 16a's menu latch) | no peer is let in while it lives; at its deadline it ends with an error line |
+| peer hold (`HoldPeer`, from an `OnJoin` decider) | a service that needs one client's acknowledgement first (18's late join) | that peer stays out until the hold ends; at its deadline the peer is refused with the holder's reason |
+| vanilla condition (`Require`) | a service that keeps vanilla clients safe only while something holds (15's item remap) | while it answers false, vanilla clients are refused |
+
+**Order for a joining peer:** hello → built-in checks (mods, channels, world tables, player graph) → mandatory protocols →
+Welcome → every `OnJoin` decider → holds end → let in. A refusal at any step sends REJECT with the reason (a Kiln client
+shows it), then the game's login error 1.5 s later. Each hold has a deadline of at most 25 s, under kiln.net's own 30 s
+limit for a held peer; it is never extended.
+
+**Hold all.** While a requirement must decide Kiln clients (a hold, a decider or a mandatory protocol), kiln.net's gate is
+in mode `KILN_NET_GATE_HOLD_ALL` (`kiln_net.h`, kiln.net since 0.2.0-dev.28): every Gameplay Ready is held, a proved
+one's too, and only Kiln.Network's release (or a kick, a lower mode, the 30 s limit) ends it. The controller looks at the
+held peers every step while a requirement lives and lets a peer in as soon as no hold is left on it: a compatible client
+waits at most one step for that. When the last requirement goes, the gate returns to today's mode and kiln.net lets the
+proved peers it holds go by itself. A kiln.net without the mode (`KILN_NET_GATE_CAN_HOLD_ALL` missing) makes `HoldJoins`,
+`HoldPeer` and `OnJoin` throw `KilnUnavailableException("net.gate.hold_all")`; a build without the gate hook makes them
+throw for `net.gate`, and `SetMandatoryProtocol` answers `Ok=false`. Capability rows: `net.admission`, `net.gate.hold_all`.
+
+**When the login error cannot reach a refused peer** (kiln.net since 0.2.0-dev.28): kiln.net refuses the peer for good
+first (`KILN_NET_PEER_REFUSED`: until it leaves, its Gameplay Ready is never processed, whatever the gate's mode). If the
+game's login failure is not on the build or faults, kiln.net ends the peer with the game's own session kick instead
+(sigdb feature `net.disconnect`, dedicated server only): what an admin's kick does. The game sends the machine its kick
+message and closes its connection about a second later, the way it drops a peer that timed out; the peer then leaves
+like a kicked one. If it is still connected 10 s later, kiln.net sends the session kick once more. Without
+`net.disconnect` (a hosted world, or a build where it did not resolve), or when that faults too, the peer stays connected
+but **blocked** (`KILN_NET_PEER_BLOCKED`): no world data until it leaves. kiln.log says so once
+(`admission: … is refused, but this server cannot end its connection …`), the Network page lists it (`blocked: …`),
+Kiln.Network does not try the kick again, and 30 s after kiln.net reported it blocked (kiln.net's own hold limit) it no
+longer keeps the gate in "hold all": kiln.net's refusal keeps it out on its own. A peer the session kick ends is listed
+as `ending: …` until it is gone. What a real client sees when the session kick ends it (expected: the game's own "kicked"
+message) is not verified; the lab peers of `nettest` are UDP fakes with no game connection.
+
+**While held**, a Kiln client keeps its channel-12 frames in both directions (a Welcome, a mod's message and its answer):
+that is how an acknowledgement reaches the server before the client enters. It has no player entity yet
+(`NetPeer.Player` is `None`). Measured on the lab transport; what a real client shows while held (its loading screen) is
+the guided check `15a-hold-kiln`.
+
+**Per-peer counters** (public): `NetPeer.FramesIn` and `NetPeer.FramesOut` count the channel-12 frames from and to a peer
+(server side; on a client the server's link). A client without Kiln has `FramesIn` 0 and `FramesOut` 0, or 1 for the
+REJECT its game discards. `NetPeer.BytesIn` (data message bytes received) and `BytesOut` (frame bytes sent) existed
+before.
+
+**Status:** the Kiln menu's Network page lists every requirement (holder, reason, deadline left) and each held peer with
+the holder that keeps it; kiln.log has a line for each requirement that comes or goes (`admission: …`) and for each held
+peer and its holder (`admission: proved peer lab-5 (0x80000005) held by …`). The content definitions wait (withholding
+Kiln-only entities until a client's content ack) is not admission: the page lists the peers that wait for it, and it
+works as described above.
+
 ## The contract (dev.27)
 
 Kiln.Network follows [the API contract](modding/contract.md).
 
-- **Capabilities.** `kiln.net` (the core's row) and its sigdb features (`net.client_guard`, `net.gate`, `net.kick`,
-  `net.players`, `net.transport`, `net.withhold`), lowered at Kiln.Network's start (the first service tick) when
+- **Capabilities.** `kiln.net` (the core's row) and its sigdb features (`net.client_guard`, `net.disconnect` (dev.28),
+  `net.gate`, `net.kick`, `net.players`, `net.transport`, `net.withhold`), lowered at Kiln.Network's start (the first service tick) when
   kiln.net is missing; `players.kick` and `players.bans` (managed, PlayerGate, at the same start).
 - **Errors.** Nothing throws for a missing transport (channels open, sends return false, peer lists are empty);
   `Network.Kick` throws `KilnUnavailableException` naming `players.kick` (dev.27).
@@ -310,6 +368,18 @@ Each UDP source address is one fake client (peer `0x8000000n`, "lab-n"). The sui
 - NetSample's ping and announce;
 - clients without Kiln (`vanilla`, needs `--lab`), with simulated peers: no wait when nothing is at stake; hold, REJECT and kick at the
   deadline; proof first; late proof; HELLO without proof; kiln.net's own time limit; let in;
+- the admission controller (`admission`, needs `--lab`; net-test registers one requirement of each kind through its
+  `gate-admit-*` controls): a join hold puts the gate in "hold all"; a proved client is held by that holder and keeps its
+  frames both ways (a Welcome, a message and its answer); a second holder keeps it held; its end lets it in within a step;
+  a deadline refuses it with the holder's reason and it is never let in; an OnJoin decider holds a joining client; a
+  mandatory protocol refuses a client without the channel in its hello, and a client without Kiln is held, then refused;
+  a client without Kiln let in under `modSync: off` has `FramesOut` 0;
+- a refused peer the login error cannot reach (`admission_fallback`, needs `--lab`; net-test's `gate-admit-kickfail` sets
+  kiln.net's lab switch): the game's session kick runs on the server's own machine index and the session refuses it in
+  the game's log (the host, then a handle no machine has); with the login failure failing, a refused Kiln client and a
+  refused client without Kiln are ended by the session kick and never let in (lab peers have no game connection: theirs
+  is being forgotten); with the session kick failing too, both stay blocked, flagged, named on the Network page, logged
+  once, and never let in, also after Kiln.Network stops holding the gate for them;
 - what is withheld (`withheld`, add `--game-templates <n>` from a lab without mods): every template in the world against what
   kiln.assets reports, a real entity of each Kiln-only template, their children, a template resource added and removed at run time;
 - the client guard and the held-back resend (part of `withheld`), on the game's own create reader and relevance step, which the server exe

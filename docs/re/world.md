@@ -53,9 +53,12 @@ register if they move). Struct: `native/services/world/world_internal.h` (`Engin
   registration, and refuses the program if they differ (never seen).
 
 ### The update and its iterator
-- Slice runner check (`0x64ab18`): after `call [entry+0x28]` it reads `ctx.index` (`ProgramContext {J*, u32 index}`); 0 is
-  fine, otherwise `index < J+0x838` → fatal `Not all entities were updated in program '%s'` (`0x64abcf`). kiln.world
-  sets `index = J+0x838` after a fault mid-iteration and disables the program.
+- Corrected 2026-11 (dev.28 RE, server 26430253 `f0d824be…`, client 26430625 `5d9ef2f1…`): `0x64ab18` is the
+  check on the **dead RunSlice path**. Live `ProgramRunner` is S `0x64ac00` / C `0x9aed70`; its indirect update call
+  is S `0x64b171` / C `0x9af2e1`, and the server's post-call check is `0x64b173..0x64b190`. It accepts index 0 or
+  **index >= count**, failing only for `0 < index < J+0x838`. `ProgramContext = {J*, u32 index, u32 pad}`.
+  Kiln should still leave exactly 0 or count; after a mid-iteration fault it sets count and disables the program.
+  [static] [lab]; systems VERIFY claim 5 confirmed with correction. See Scheduler and threads below.
 - `IterBegin` `0x663b30` (EMF sig 15 unchanged; the size argument is ignored). Group counts it reads from J (captured):
   T u8 `+0x4B0`, R u16 `+0x4B8`, W u16 `+0x4BA` (records 0x30 bytes), singletons `*(J+0xC0)` count u8 `+0x400`, other-tpl
   u8 `+0x7F8`, other u8 `+0x7A8`, events-in u64 `+0x1A8`, events-out u32 `+0x1B0`, in that order after the ctx slot.
@@ -237,6 +240,7 @@ was seen (ids grow at every spawn in the lab) **[hyp]**.
 | `Fuel` of a can a player character carries (in its backpack) | kept like any other: none of the 9 game writers writes it back on the server; `fuel_network` copies it to `NetworkFuel` | lab, a spawned `1_Player` with no client, below [rt] |
 | A container a kiln.items water refill covers (`Items.Fuel.Refill`, `KeepFull`, a player's `Water` rule) | written back to its level one step later by Kiln's own `kiln_items` (`#823`, registered before `kiln_world_writes` `#831`, so it runs first in each step and refills in the step after the write); the answer names the refill (`WrittenOverBy`) | lab, below [rt]; native/services/items/items.cpp `run_fuel_jobs` [src] |
 | Replication to a player's screen | not proven here: a lab has no client. The replication mark is taken on the same path as the game's own writes [dis] | guided checks `world-writes-test/world.tracked-water`, `world.tracked-water-rejoin` (and `-after`) |
+| Replication transport | Corrected 2026-11 (dev.28 RE): [lab] tracked Fuel → NetworkFuel updates were decoded through the game's replication pipeline (10,004 live-byte comparisons, 0 differences). A byte-neutral tracked touch caused 40 re-snapshots on four fake peers; see [network.md](network.md), dev.28 replication. This establishes transport/re-queue behavior, not a rendered HUD check | dev.28 dossier, chapters 11/15; the original screen checks remain separate |
 
 ### What the save does with it (lab) **[rt]**
 The save mark (`0x66f360`) works per entity: it compare-exchanges a stamp in the entity's slot of its chunk and puts
@@ -290,10 +294,16 @@ INFO ServerToggleState.lastChange, written tracked with the same component: read
   `PerkContainer`, `SpawnTime`, `TeleportZoneConnection`, `UsedItem`), 91 for replication (the `Network*` and
   `Client*` mirrors, transforms, inventories, item state, `ScaleComponent`, `UsedItem`); 20 for both; 63 are
   attributes. The first run said 88 and 19: kiln.world then read a listed type's bits inside the world's setup, where
-  the game has not set the replication bits yet (every type reads "no" there), and the three listed types that have
-  the bit (`NetworkFuel`, `ScaleComponent`, `UsedItem`) came out "no". Since the review fixes the bits are read at the
-  world's first live step; the other 684 types read the same at both times **[rt]**, so the bits are set between
-  `RegisterAllPrograms` and the first step and do not change after.
+  the game has not set the replication bits yet (every type reads "no" there), and the three listed types that the
+  historical catalog reported with the bit (`NetworkFuel`, `ScaleComponent`, `UsedItem`) came out "no". Since the review fixes the bits are read at the
+  world's first live step; the other 684 types read the same at both times **[rt]**, placing initialization between
+  `RegisterAllPrograms` and the first step in those observations.
+  **Corrected 2026-11 (dev.28 RE, server 26430253 `f0d824be…`, client 26430625 `5d9ef2f1…`) [static] [lab]:**
+  the direct registry census in dossier chapter 11 finds **98 replication-bit components and UsedItem is not among
+  them**. UsedItem still travels on the client channel through the entity's network row; without another tracked
+  carrier moving the entity version it can remain stale. The older 91-type World.WriteInfo census/log is retained
+  as historical evidence, not a current bit-membership authority; the packet does not reconcile that census with
+  the newer registry count. See [network.md](network.md), Channel sets, tracked writes and wire format.
 - `Fuel` is not tracked for replication, and `fuel_network` copies it every step into `NetworkFuel`, which is: so a
   player's game gets the value through the derived component. A clear replication bit therefore does not say
   "players never see it" **[rt for the bits; the route is what fuel_network does, not proven on a screen]**.
@@ -339,9 +349,111 @@ client's character behaves as the spawned one (client prediction of inventory mo
 
 ### Still open
 - A player's screen: whether and when a tracked write shows there. Guided checks, above (run them with no water
-  rule on the player: the checks now refuse to start while one is).
-- A client host: the write program is HOST_ONLY in the server world of a hosting game, as kiln.items' is; no run yet.
-  `World.Update`'s callback may then run on a game worker thread.
+  rule on the player: the checks now refuse to start while one is). The dev.28 replication work establishes the
+  decoded transport, not these screen checks.
+- A client host: the write program is HOST_ONLY in the server world of a hosting game, as kiln.items' is: HOST_ONLY
+  selects the hosted server world, not its presentation world. dev.28 observed hosted server programs on workers;
+  the pin/affinity rule below determines a particular program's thread, so `World.Update`'s callback may run on a
+  game worker thread. A direct `World.Update` hosted acceptance check is not established by that census.
 - Which fields each type's save record holds (seen: `ServerToggleState` keeps `state`, not `lastChange`).
 - The conflict rule of `0x645470` for `other_write` against `read_opt` and `other_write_unser` is taken from the
   earlier decompile, not re-read here.
+
+
+## Scheduler and threads (dev.28; server 26430253 / client 26430625)
+
+Builds: S `f0d824be…`, C `5d9ef2f1…`; old server O `d7baa768…` (svn 1273043) only where stated.
+Source: dev.28 dossier, chapters 06a/14; systems VERIFY confirmed the scheduler, with the live-call/index corrections
+above. `[seen]` below is coordinator-run real-client evidence, not a new run for these notes.
+
+### Live dispatch [static] [lab]
+
+| Role / signature | Server RVA | Client RVA |
+|---|---|---|
+| `SimStep(Storage*, bool ticked)` | `0x6c8f10` | `0xa2c660` |
+| `RunInitPrograms(Storage*)` | `0x648dd0` | `0x9acf40` |
+| `bool StepPrograms(Storage*, u32* nextProgram)` | `0x649ce0` | `0x9ade50` |
+| `void ProgramRunner(Storage*, Slice*, u32 index, u32 workerArea)` | `0x64ac00` | `0x9aed70` |
+| `void SliceTaskFn(Task*)` | `0x68ad50` | `0x9eebb0` |
+| Dead `RunPrograms` / `RunSlice` | `0x64b260` / `0x64a5b0` | `0x9af3d0` / `0x9ae720` |
+
+SimStep sets byte `storage+0x518=1` at S `0x6c8f49` / C `0xa2c699`, selecting the stepper rather than the old
+runner path. Dead RunSlice recorded zero calls in dedicated and hosted probes. INIT programs also reach the live
+ProgramRunner and `entry+0x28` (e.g. 41 `init_spawn_time` slices in the dedicated census). [static] [lab] [seen]
+
+`R=*(Storage+0)=world+0x928`; table `R+0x745a28=world+0x746350`, u16 count `R+0xe16628=world+0xe16f50`.
+Entry `+0x28` is fetched anew per slice. Slice is 0x38 B: entry pointer `+0x10`, archetype group `+0x20`, first/end
+rows u32 `+0x28/+0x2c`. Job J: Storage `+0`, command buffer `+8`, entity list `+0x830` (16 B/entry), count `+0x838`.
+Task: Storage `+0`, slices `+8`, slice index u32 `+0x10`, worker value u32 `+0x14`. [static] [lab]
+
+### Parallel selection and affinity [static] [lab] [seen]
+
+StepPrograms S `0x649d02` / C `0x9ade72` selects by byte `storage+8`:
+- kind 0 (server): parallel iff **u16 `storage+0x7ddc0a != 0`**;
+- kind 1 (prediction): serial;
+- kind 2 (client): always the task path, regardless of the player mask.
+
+Corrected 2026-11: `+0x7ddc0a` is the **live-player mask**, not a worker count or a host-only switch. Set at
+S `0x625730` in creation `0x623ce0` for ids 1..1023 using `(id-1) mod 16`; cleared for player ids 1..16 at
+S `0x63edd8` in destruction `0x63e8a0`. The removed-player mask is `storage+0x7ddc08`. [static]
+
+In parallel mode, flag `0x400` (PINNED), or `0x4` (SYSTEM) / `0x200` (CHUNKED) with byte
+`storage+0x3d17f8 != 0`, receives affinity mask 1 (world thread), S `0x64a2f2..0x64a327`. The byte is copied from
+world config `+0x23` at S `0x62d8cc`. It was 1 in the dedicated, hosted server and client worlds. [static] [lab] [seen]
+
+An empty dedicated server ran on one thread. With a **real player** (session 5), mask `0x0001`, 265–270 of about 430
+active programs ran off the world thread across seven threads; zero bad iterator indices. After leaving, one thread
+again. Forced-mask tests separately reproduced the split, and managed GameSystems.Hook callbacks ran on six workers.
+Hosted session 2 showed the same split; its `impact_simulation` stayed on GameServer because it is CHUNKED and pinned
+by this configuration. Different non-conflicting programs and slices can execute concurrently. [lab] [seen]
+
+`entry+0x28` swaps in the world's Pre covered 634 updates, restored 634/634, and Replace skipped the original for
+600 slices; no trampoline calls after restoration. An inline detour on an update affects **every world** using that
+function; a table swap is per-world. Swaps hide the original update identity from pointer-based profilers/switches
+(kiln.types and native SET), so they are not transparent to such consumers. No arbitrary mid-step swap is proved.
+Pre is after the previous tasks have been waited for. [lab] [static]; design details stay in chapter 06a.
+
+### Client and prediction registration [static] [seen]
+
+Client setup C `0x3a60b0` (caller `0x84d681`) calls attribute registration `0x124afe0`, then
+RegisterAllPrograms `0x4acf80` at `0x3a85a5`. Hosted server setup C `0x49be10` / S `0x233ee0` calls it at
+C `0x4a0126` / S `0x2381f6`. RegisterProgram C `0x9e2e40` / S `0x67ede0` is shared by the worlds. No
+RegisterAllPrograms call exists for kind 1: prediction uses the **client world's table**, not the hosted server's.
+This table ownership was observed in both hosted session 2 and joined session 4.
+
+Server kind 0 selects programs without flag `0x1`; client kind 2 selects flag `0x1`; prediction excludes `0x1`,
+`0x10` and engine bit `0x40`. A test SYSTEM program with flags `0x5` ran in the client world on its main thread,
+including after reload and on a joined client (systems VERIFY claim 21 was initially unverified, then settled by
+these sessions). Prediction ran 205 distinct eligible programs, all main-thread, zero bad indices; no
+`impact_simulation`. The client world had 35–36 ordinary entity programs on workers. All 108 vanilla RegisterNative
+calls occur in server setup; joined clients logged none. [static] [seen]
+
+### Capacity, identity and signature anchors [static] [lab]
+
+The **engine** inline table holds 896 entries, not 64: u16 count `+0xe16f50`, stride `0x1f28`, 1-based id `+8`.
+FinalizePrograms S `0x6c2500` / C `0xa25c50` builds **0x70-byte = 896-bit dependency rows** (multiply at
+S `0x6c27af`). Descriptor flag `0x2` at `+0x180` returns true without insertion; inspect the resulting count/entry.
+Registration is before finalization. The dev.28 baseline had 817 game entries; one full deployment added 13
+Kiln/compat entries, total 830/896. Its 19 free Kiln slots (32 total) and 66 engine slots were configuration-specific.
+Kiln's 32-program / 8-per-file quotas are separate source guards, not engine storage limits. Caps VERIFY claims 8–10
+confirmed. Full catalog/access lists stay in chapters 06a/17.4.
+
+The static catalog's E8-only scan misses tail-registered `client_event_tracking`: S `0x249d1b` / C `0x4b133b`,
+client update `0x481200` (server null). Include that registration when counting 817 total / 197 client programs.
+Old server comparison: names unchanged, 72 registration positions and seven access/flag contracts changed; numeric
+positions are not stable identities. [static]
+
+Scratch names: `world/StepPrograms`, `world/storage.players_mask`, `world/RunInitPrograms`, `world/SliceTaskFn`,
+`@caps/ProgramDependency` (capture-only dependency-stride probe). Current S/C patterns resolve uniquely with equal constants. The
+StepPrograms/player-mask prologue does **not** resolve on old server O; INIT/task anchors do. These are dossier
+signatures, not new production sigdb entries.
+
+### Weather sampling ABI (dev.28 correction) [static]
+
+`weather/SampleAt`: S `0xa21940`, C `0xaaa4d0`, O `0xa16cc0`:
+`WeatherSample* f(WeatherSample* out, const WeatherSystem*, const WorldTransform*, int64_t now)`.
+Output is **four floats** at `+0/+4/+8/+0xc`, returned in RAX; argument 4 is a **64-bit time value in R9**, not a
+Time pointer. Systems VERIFY refuted the earlier prototype; chapter 06b now carries this correction. It is the eighth
+call in `fuel_setup` (S `0xf73e0`, C `0x3378e0`), fed by GetGameTime. `@weather/SampleAt.site` uniquely captures the
+callee on all three builds. No arbitrary-thread call or runtime weather-sampling proof was established here.
+Other current helper prototypes and Win64 lane/return-buffer evidence are in [hooks.md](hooks.md).

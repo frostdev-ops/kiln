@@ -143,7 +143,9 @@ Use in vanilla programs **[data]**:
 
 ## 4. Natives
 **Registration** **[dis]**:
-- `registerNative(registry, u32 hash, fn, Slice<char>* displayName, u8 argc)` (`0x996b80`, client `0x123fbc0`).
+- `bool registerNative(registry, u32 hash, fn, Slice<char>* displayName, u8 argc)` (`0x996b80`, client `0x123fbc0`
+  on these older builds). Corrected 2026-11 (dev.28 RE): success is returned in AL, not void; argc is the fifth
+  argument on the stack. Current-build addresses and call evidence are in §9 below. [static] [lab]
 - Called 108 times from the world setup (`0x233ee0`, sites `0x23650a..0x2381ce`), with the **same 108 (hash, argc,
   name) on server and client** (`tools/impact` `scan_natives`, found through the `applyDamage` name string).
 - The registry is a hash map at `registry+0x20`:
@@ -316,3 +318,49 @@ So a cloned program with inserted code works end to end, and so do a query loop 
 5. What a query native does at a site missing from queryCallIds (refused by the verifier, not tested).
 6. Whether a program registered at run time can call a Kiln native registered later in the same step (abilities-runtime:
    an unregistered hash errors only that instance, §4).
+
+
+## 9. ECALL and synchronous natives (dev.28; server 26430253 / client 26430625)
+
+S `f0d824be…`, C `5d9ef2f1…`; source: dev.28 dossier, chapter 06c and systems VERIFY (ECALL/context confirmed;
+RegisterNative confirmed with the bool-return correction). These addresses supersede the older-build RVAs above
+for the named entry points only. [static]
+
+| Role | Server | Client | Contract |
+|---|---|---|---|
+| `abilities/Interpreter` | `0x990910` | `0x1239a30` | `interp(Instance*, Slice<u32>*, ImpactProgram*, EcsIterCtx*)` |
+| RunImpact | `0x99c1d0` | `0x1245000` | calls interpreter at S `0x99c235` / C `0x1245065` |
+| ECALL `call r10` | `0x991271` | `0x123a391` | `fn(Result*, ArgSlice*, NativeCtx*)`; setup site S `0x99125e` / C `0x123a37e` |
+| `abilities/RegisterNative` | `0x996b70` | `0x123fc90` | `bool(Registry*, u32 hash, NativeFn, const Slice<char>* name, u8 argc)` |
+
+At ECALL: Result is `rbp-0x68`, ArgSlice `rbp-0x50` (`{u32* data=rbp+0x38,u64 count}`), NativeCtx `rbp-0x30`.
+Result is error byte `+0`, zero u32 `+4`, value byte `+8`. Args pop top-first. Error 0 pushes value byte; 1..3
+suspends without consuming this ECALL, other errors stop the instance; a null native pushes 1. Variable/out
+parameters, not that pushed status byte, carry typed results. [static]
+
+NativeCtx: layout/count `+0/+8`, instance data/size `+0x10/+0x18`, **impact_simulation's iterator** `+0x30`, RNG
+`+0x38`, instance id `+0x40`, GUID `+0x44`, ProgramId `+0x54`, call-site id `+0x58`. The iterator is passed by
+impact_simulation's RunImpact call at S `0x197ee8`; its registry is at iterator `+0x110`. It is a borrowed callback
+context, not a world pointer or a context valid in a later tick. [static]
+
+Registry values have fn `+0`, name `+8`, argc `+0x48`. Capacity 256, 107 vanilla keys (108 registrations).
+All 108 calls are in **server-world setup** S `0x233ee0` / C `0x49be10`, never client-world setup C `0x3a60b0`.
+Hosted execution observed RegisterNative's fifth stack argument; joined session 4 registered no natives. Narrow argc
+must be read as u8: upper stack-slot bytes are garbage. [static] [lab] [seen]
+
+Natives execute on the `impact_simulation` slice's thread, not a universally safe mod tick. Flags `0x1200`
+(CHUNKED | `0x1000`) and the world's pin byte kept this program on the world thread on the dedicated and hosted
+worlds observed; it did not run in client or prediction worlds. See [world.md](world.md), Scheduler and threads.
+This is not proof of arbitrary-thread/re-entrant access to world APIs. [static] [lab] [seen]
+
+[lab] Existing managed `Natives.Register` suspended and answered **one step later** (14 cycles). A synchronous
+vanilla-native wrap checking sint32 arguments, writing an out-variable and returning 1 answered in the **same step**
+(14 cycles). A filtered getTransform wrap saw vanilla Fireball explosion ProgramId `0x7a120ee8`, site `0xfcce4e0a`,
+`FromKiln=false`, without cloning the program. These prove the native-call shape, not a shipped new synchronous API.
+A site is not a unique occurrence: main/shutdown apply/revert can share it. Identify an attachment by
+**(ProgramId, site, native hash)**, optionally stream, not site alone. [data] [static]
+
+Scratch `@abilities/ECall.site` captures displacements `ctx=0xd0`, `args=0xb0`, `result=0x98` from its anchor;
+`abilities/Interpreter` and this site resolve once on S/C and old server `d7baa768…` (svn 1273043). They are fallback
+inspection/hook anchors: the tested wrap works through the registry, with no ECALL instruction patch. Typed-hook
+Win64 lane/hidden-return evidence is in [hooks.md](hooks.md); full API proposals remain in dossier chapters 06b/06c.
