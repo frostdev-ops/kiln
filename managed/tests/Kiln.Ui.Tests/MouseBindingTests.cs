@@ -157,6 +157,64 @@ public sealed class MouseBindingTests : IDisposable
         Assert.Equal("F8", KeyChord.Parse("F8").ToString());
     }
 
+    // ---- unfamiliar Windows virtual keys (GitHub issue #33) ----
+
+    [Theory]
+    [InlineData("Key223", 223u, KeyMods.None, "Key223")]
+    [InlineData("key223", 223u, KeyMods.None, "Key223")]
+    [InlineData("Ctrl+Key223", 223u, KeyMods.Ctrl, "Ctrl+Key223")]
+    [InlineData("shift+alt+key223", 223u, KeyMods.Shift | KeyMods.Alt, "Shift+Alt+Key223")]
+    [InlineData("Key255", 255u, KeyMods.None, "Key255")]
+    public void Unnamed_windows_virtual_keys_parse_and_print(string text, uint vk, KeyMods mods, string printed)
+    {
+        var chord = KeyChord.Parse(text);
+        Assert.Equal(new KeyChord(vk, mods), chord);
+        Assert.Equal(printed, chord.ToString());  // kiln.ui calls these otherwise unknown VKs KeyN
+        Assert.Equal(chord, KeyChord.Parse(chord.ToString()));
+    }
+
+    [Theory]
+    [InlineData("Key0")]                 // no binding
+    [InlineData("Key1")]                 // left click, forbidden
+    [InlineData("Key2")]                 // right click, forbidden
+    [InlineData("Key256")]               // not a Windows keyboard VK (wheel names are separate)
+    [InlineData("Key4294967295")]
+    [InlineData("Key-1")]
+    [InlineData("Key+1")]
+    [InlineData("Key223extra")]
+    [InlineData("Key 223")]
+    [InlineData("Key")]
+    public void Invalid_numeric_windows_keys_are_refused(string text)
+    {
+        Assert.False(KeyChord.TryParse(text, out var chord));
+        Assert.True(chord.IsNone);
+    }
+
+    [Fact]
+    public void Remapped_Key223_survives_keybinds_json_and_fires_after_restart()
+    {
+        var presses = 0;
+        var original = Register("t.layout.grave", "Backquote", () => presses++);
+        Assert.Equal(new KeyChord(0xC0, KeyMods.None), original.Default);
+        FakeUiTable.MenuOpen = true;
+        Remapping.SetValue(null, original.Id);
+        Assert.True(Send(223, captured: true));  // Windows layout: grave/backtick gives VK_OEM_8
+        FakeUiTable.MenuOpen = false;
+        Assert.Equal("Key223", original.Key.ToString());
+        Assert.Equal("Key223", (string?)SavedBindings()[original.Id]);
+        Assert.True(Send(223));
+        Assert.Equal(1, presses);
+        Assert.False(Send(0xC0));  // Backquote's US-layout VK is not the remapped key
+
+        original.Dispose();
+        ForgetSaved(); // simulate the next launch with the same profile keybinds.json
+        var restored = Register("t.layout.grave", "Backquote", () => presses++);
+        Assert.Equal(new KeyChord(223, KeyMods.None), restored.Key);
+        Assert.Equal(new KeyChord(0xC0, KeyMods.None), restored.Default);
+        Assert.True(Send(223));
+        Assert.Equal(2, presses);
+    }
+
     // ---- keybinds.json ----
 
     [Fact]
