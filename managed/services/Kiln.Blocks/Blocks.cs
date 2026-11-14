@@ -31,7 +31,7 @@ public sealed class BlockError(string block, string? field, string problem)
 /// The ids come from your mod id and the block's name: never write a GUID, and keep the names (a rename says <c>Was</c>).
 /// docs/kiln/modding/blocks.md.
 /// </summary>
-public static class Blocks
+public static partial class Blocks
 {
     private static readonly ConcurrentDictionary<string, ModBlocks> Mods_ = new();
 
@@ -182,6 +182,15 @@ internal sealed class ModBlocks(string id, ulong owner)
     public string? ManifestClients;
     /// <summary>The owner is the mod's own, not one of Kiln's for a mod with only data files.</summary>
     public bool OwnedByMod;
+    /// <summary>Set on the isolated ledger of a kind's plan (Kinds/KindTransaction.cs): the consumer's real ledger, whose blocks
+    /// and data files a staged block may name. Null on every ledger a mod's own blocks compile into.</summary>
+    public ModBlocks? StagesFor;
+    /// <summary>The ledger whose data files and cycle check a lookup uses: this one, or the one it stages for.</summary>
+    public ModBlocks Authored => StagesFor ?? this;
+
+    /// <summary>A block by name: this ledger's, or (when staging) the consumer's.</summary>
+    public bool TryHandle(string name, out BlockHandle handle) =>
+        Handles.TryGetValue(name, out handle!) || (StagesFor != null && StagesFor.Handles.TryGetValue(name, out handle!));
     /// <summary>A rule was added since they were last applied: they are applied again though content did not change.</summary>
     public volatile bool RulesDirty;
 
