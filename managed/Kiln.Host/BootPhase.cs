@@ -67,7 +67,7 @@ internal unsafe struct KilnBootApi
     public delegate* unmanaged[Cdecl]<ulong, KilnBootIssueV1*, uint, uint, uint*, int> Issues;
     public delegate* unmanaged[Cdecl]<ulong, KilnStr, void*, void*, int> Collector;
     public delegate* unmanaged[Cdecl]<KilnStr, ulong*, void*> ActivePlan;
-    public delegate* unmanaged[Cdecl]<ulong, KilnStr, KilnStr, KilnStr, KilnStr, int> ActivationFault;  // a collector's, not Kiln.Host's
+    // activation_fault follows in the native table: a collector's call, which the host does not make (the mirror ends here)
 }
 
 /// <summary>The offline game-data view over kiln.boot's read_resource (chapter 08 §4.1): one query per call, the author's frame.</summary>

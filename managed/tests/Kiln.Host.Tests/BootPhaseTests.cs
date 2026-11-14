@@ -122,9 +122,12 @@ public sealed class BootPhaseTests : ModsFixture
         body = body[..body.IndexOf("} KilnBootApiV1;", StringComparison.Ordinal)];
         var native = Regex.Matches(body, @"\(KILN_CALL\s*\*\s*(\w+)\)").Select(m => m.Groups[1].Value.Replace("_", "")).ToList();
         var managed = typeof(KilnBootApi).GetFields().Where(f => f.Name is not "Size" and not "Version").Select(f => f.Name.ToLowerInvariant()).ToList();
+        // the mirror is the table up to active_plan: what was appended after it (activation_fault, which collectors call)
+        // the host does not use, and it reads no member beyond its own size
         Assert.Equal(11, native.Count);
-        Assert.Equal(native, managed);
-        Assert.Equal(8 + 11 * IntPtr.Size, Marshal.SizeOf<KilnBootApi>());
+        Assert.Equal("activationfault", native[10]);
+        Assert.Equal(native.Take(10), managed);
+        Assert.Equal(8 + 10 * IntPtr.Size, Marshal.SizeOf<KilnBootApi>());
         Assert.Equal(24, Marshal.SizeOf<KilnBootCommitResultV1>());
         Assert.Equal(264, Marshal.SizeOf<KilnBootStageResultV1>());
         Assert.Equal(152, Marshal.SizeOf<KilnBootOwnerStateV1>());

@@ -304,6 +304,7 @@ KilnResult KILN_CALL prepare_boot(void*, const KilnBootPrepareInputV1* in, KilnB
 void KILN_CALL apply(void*) {
     const auto* plan = static_cast<const BootPlan*>(kiln::boot::published(g_api, "patches"));
     if (!plan || plan->resources.empty()) return;
+    LOGI("boot: the game's resource service is up: resource patches of %zu resource(s) are written into copies of the bytes kiln.assets serves now", plan->resources.size());
     const KilnAssetsApi* A = assets();
     size_t written = 0, failed = 0;
     // a fault names its mod: for a required mod kiln.boot ends the process inside the call
