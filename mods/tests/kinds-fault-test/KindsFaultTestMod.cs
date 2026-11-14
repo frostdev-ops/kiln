@@ -45,12 +45,39 @@ public sealed class KindsFaultTestMod : Mod
             while (Content.Status() is not { Ready: true } && sw.Elapsed.TotalSeconds < 240) await Context.Scheduler.NextTick();
             await Steps(90);
             await KindFaults();
+            await DataOnlyUnload();
         }
         catch (Exception e)
         {
             Check(false, $"exception: {e}");
         }
         Log.Info($"kinds-fault-test: DONE pass={_pass} fail={_fail}");
+    }
+
+    // A mod with blocks files and no code has an owner of Kiln's own: unloading it takes its recipe and rules back as a
+    // code mod's unload does, and loading it again makes them once.
+    private async Task DataOnlyUnload()
+    {
+        const string fixture = "kinds-dataonly-fixture", item = "kinds-dataonly-fixture.pebble";
+        if (!Mods.IsLoaded(fixture))
+        {
+            Info($"{fixture} is not in this profile: the data-only unload checks did not run");
+            return;
+        }
+        for (var i = 0; i < 240 && Content.Items.Get(item) == null; i++) await Steps(1);
+        int Recipes() => Content.Recipes.Count(r => r.Name.StartsWith(item, StringComparison.Ordinal));
+        if (!Check(Content.Items.Get(item) != null && Recipes() == 1, $"data-only: the fixture's item and its recipe are defined ({Recipes()} recipe(s))")) return;
+        var folder = Path.GetFileName(Mods.Get(fixture)!.Directory.TrimEnd('/', '\\'));
+        var unloaded = await Mods.UnloadAsync(fixture);
+        await Steps(30);
+        // kiln.content keeps a definition whose owner went listed until the game restarts, as "orphaned"
+        string States() => string.Join(", ", NewContent.Definitions().Where(d => d.Name.StartsWith(item, StringComparison.Ordinal)).Select(d => $"{d.Kind} {d.State}"));
+        bool All(string state) => NewContent.Definitions().Where(d => d.Name.StartsWith(item, StringComparison.Ordinal)).ToList() is { Count: >= 2 } ds && ds.All(d => d.State == state);
+        Check(unloaded.Ok && All("orphaned") && Blocks.Find("pebble", fixture) == null, $"data-only: unloaded, its block is gone and its definitions are orphaned ({unloaded.Message}; {States()})");
+        var loaded = await Mods.LoadAsync(folder);
+        for (var i = 0; i < 240 && !All("registered"); i++) await Steps(1);
+        await Steps(30);
+        Check(loaded.Ok && All("registered") && Recipes() == 1, $"data-only: loaded again, the item and one recipe are registered ({loaded.Message}; {States()})");
     }
 
     private sealed class KindProbe : IBlockKind<KindProbeBlock>

@@ -216,14 +216,15 @@ public sealed class KindsConsumerTestMod : Mod
         var (camp, night) = Lanterns("consumer reloaded alone");
         Check(camp.Guid.ToString() == phase[1] && night.Guid.ToString() == phase[2], "consumer-reload: the lanterns have the identities they had before the reload");
         // what the earlier instance applied with Blocks.Apply went with its owner: probe and after are no blocks, and their
-        // recipes are gone. An item of a running game cannot be taken out of its registry: Kiln keeps it as a placeholder
-        // (as for any mod's item), so the item count stays and is only logged.
+        // definitions are orphaned. kiln.content keeps an orphaned definition listed until the game restarts (an item or a
+        // recipe cannot be taken out of a running game's registries), so the counts stay.
         var items = Content.Items.Count;
-        var recipesLeft = Content.Recipes.Count(r => r.Name.Contains("kind-probe", StringComparison.Ordinal) || r.Name.Contains("kind-after", StringComparison.Ordinal));
-        var itemsLeft = Content.Items.Count(i => i.Name.Contains("kind-probe", StringComparison.Ordinal) || i.Name.Contains("kind-after", StringComparison.Ordinal));
-        Info($"after the reload: {phase[6]} item(s) before, {items} now; of probe and after: {itemsLeft} item(s) listed, {recipesLeft} recipe(s)");
-        Check(Blocks.Find("probe") == null && Blocks.Find("after") == null && recipesLeft == 0,
-            $"consumer-reload: the earlier instance's applied plans were taken back with it (no block, {recipesLeft} recipe(s) of them left)");
+        var gone = NewContent.Definitions().Where(d => d.Name.Contains("kind-probe", StringComparison.Ordinal) || d.Name.Contains("kind-after", StringComparison.Ordinal)).ToList();
+        Info($"after the reload: {phase[6]} item(s) before, {items} now; of probe and after: {string.Join(", ", gone.Select(d => $"{d.Kind} {d.Name} {d.State}"))}");
+        Check(Blocks.Find("probe") == null && Blocks.Find("after") == null && gone.Count >= 2 && gone.All(d => d.State == "orphaned"),
+            $"consumer-reload: the earlier instance's applied plans were taken back with it (no block, {gone.Count} definition(s), all orphaned: {gone.All(d => d.State == "orphaned")})");
+        var kept = NewContent.Definitions().Where(d => d.Name.Contains("kind-camp", StringComparison.Ordinal) || d.Name.Contains("kind-long-night", StringComparison.Ordinal)).ToList();
+        Check(kept.Count >= 2 && kept.All(d => d.State == "registered"), $"consumer-reload: this load's lanterns are registered ({string.Join(", ", kept.Select(d => $"{d.Name} {d.State}"))})");
         var left = LanternProbe.Left;
         var said = "no plan was left";
         if (left != null)
