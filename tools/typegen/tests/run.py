@@ -355,6 +355,85 @@ def test_programs_refuse_what_the_dump_cannot_name():
 
 # --- the legacy mode ------------------------------------------------------------------------------------------------
 
+# ---- the program catalog (tools/typegen/catalog.py; sigdb/programs/) ----
+CATALOG_PY = os.path.join(ROOT, "tools", "typegen", "catalog.py")
+CATALOGS = os.path.join(ROOT, "sigdb", "programs")
+
+
+def catalog_run(*args):
+    p = subprocess.run([sys.executable, "-I", CATALOG_PY] + list(args), capture_output=True, text=True)
+    return p.returncode, p.stdout, p.stderr
+
+
+def a_catalog():
+    """A made-up catalog of two programs the check accepts (the made-up exe hash is not one of the known builds)."""
+    sys.path.insert(0, os.path.dirname(CATALOG_PY))
+    import catalog  # noqa: E402
+    progs = []
+    for name, lists, flags in (("alpha_update", {"read": ["Lantern"], "write": ["Glow", "Wick"]}, 0x10),
+                               ("beta_client", {"sys_read": ["g38_test::Registry"], "events_in": ["LitEvent"]}, 0x1)):
+        p = {"name": name, "flags": flags, "interval": 1, "update": not flags & 1, "lists": lists,
+             "sys_read_opt": "0x0000000000000001", "sys_write_opt": "0x0000000000000000",
+             "sys_write_parallel": "0x0000000000000000"}
+        p["contract"] = catalog.contract(p)
+        progs.append(p)
+    return {"comment": "made up", "format": 1, "side": "server", "exe_sha256": "ab" * 32, "programs": progs}
+
+
+def catalog_refused(name, mutate, needle):
+    d = a_catalog()
+    mutate(d)
+    path = os.path.join(work(name), "server", d["exe_sha256"] + ".json")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(json.dumps(d, indent=1) + "\n")
+    rc, so, se = catalog_run("check", path)
+    assert rc == 1 and needle in so, f"expected a refusal naming {needle!r}, got rc {rc}: {so}{se}"
+
+
+def test_catalog_the_committed_catalogs_pass_their_check():
+    rc, so, se = catalog_run("check")
+    assert rc == 0, so + se
+    files = sorted(f for _, _, fs in os.walk(CATALOGS) for f in fs)
+    assert so.count(": ok") == len(files) >= 2, so
+    assert "817 programs, 197 with flag 0x1, 197 with no update" in so, so
+
+
+def test_catalog_a_made_up_catalog_passes():
+    d = a_catalog()
+    path = os.path.join(work("catalog-good"), "server", d["exe_sha256"] + ".json")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(json.dumps(d, indent=1) + "\n")
+    rc, so, se = catalog_run("check", path)
+    assert rc == 0, so + se
+
+
+def test_catalog_refuses_an_address_or_any_other_key():
+    catalog_refused("catalog-site", lambda d: d["programs"][0].update(site="0x2464c5"), "the keys are")
+    catalog_refused("catalog-top", lambda d: d.update(image_base="0x140000000"), "the keys are")
+
+
+def test_catalog_refuses_a_wrong_contract():
+    catalog_refused("catalog-contract", lambda d: d["programs"][0]["lists"]["write"].reverse(), "contract")
+
+
+def test_catalog_refuses_a_value_that_is_not_a_name():
+    catalog_refused("catalog-name", lambda d: d["programs"][0]["lists"]["read"].append("0x1363970"), "a non-empty list of names")
+    catalog_refused("catalog-list", lambda d: d["programs"][0]["lists"].update(defaults=["Glow"]), "21 lists")
+
+
+def test_catalog_contract_text_is_the_chapter_s():
+    sys.path.insert(0, os.path.dirname(CATALOG_PY))
+    import catalog  # noqa: E402
+    p = a_catalog()["programs"][0]
+    text = catalog.contract_text(p)
+    assert text.startswith("tpl=\ntpl_opt=\nread=Lantern\nread_opt=\nwrite=Glow,Wick\n"), text
+    assert text.endswith("sys_read_opt=0000000000000001\nsys_write_opt=0000000000000000\n"
+                         "sys_write_parallel=0000000000000000\nflags=00000010\ninterval=1\n"), text
+    assert text.count("\n") == 21 + 5 and catalog.fnv1a32("a") == 0xE40C292C
+
+
 def test_legacy_mode_on_the_old_dump_is_generated_cs():
     out = os.path.join(work("legacy"), "Generated.cs")
     os.makedirs(os.path.dirname(out))
