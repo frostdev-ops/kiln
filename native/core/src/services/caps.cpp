@@ -21,6 +21,11 @@
 // Rows of the tick hook: the hook can fault at run time (tick::installed() / tick::lifecycle() turn false) and tick.cpp
 // does not say so. Registry calls, KilnApi.feature() answering false, and the writer (at least once a second while
 // hooks are on) compare the bits with what the rows were built from and rebuild the tick rows when they moved.
+//
+// The client gate (gates.h): for every capability held until its game test the core's own report is "unavailable,
+// policy, game test pending: <check ids>", whatever the name is otherwise (a sigdb feature, a service's row, a managed
+// row). It is the core's report of the highest kind, so nothing the core derives replaces it, and as an unavailable
+// report it is what a reader sees. A service may still report such a name pending: the held row hides it.
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -35,6 +40,7 @@
 #include <vector>
 
 #include "../crash.h"
+#include "../gates.h"
 #include "../image.h"
 #include "../log.h"
 #include "../registry.h"
@@ -60,7 +66,7 @@ const char* const kReasonName[kReasonNames] = {"none",   "symbol-missing", "serv
                                                "offline", "session"};
 
 // The kinds of the core's own reports, by precedence: a name the core reports from two lists shows the higher one.
-enum Kind : int { kNotCore = 0, kIdleDll = 1, kDll = 2, kPublished = 3, kService = 4, kFeature = 5 };
+enum Kind : int { kNotCore = 0, kIdleDll = 1, kDll = 2, kPublished = 3, kService = 4, kFeature = 5, kGate = 6 };
 
 struct Report {
     KilnOwner owner = 0;
@@ -502,7 +508,9 @@ KilnResult KILN_CALL c_report(KilnOwner owner, KilnStr name, uint32_t state, uin
             auto it = g_names.find(n);
             Report* mine = nullptr;
             if (it != g_names.end()) {
-                if (state == KILN_CAP_PENDING && core_report(it->second)) return KILN_ERR_INVALID_ARGUMENT;
+                // a name the core reports itself is static; the client gate's report does not make it so
+                const Report* core = core_report(it->second);
+                if (state == KILN_CAP_PENDING && core && core->kind != kGate) return KILN_ERR_INVALID_ARGUMENT;
                 for (Report& r : it->second.reports)
                     if (r.owner == owner) mine = &r;
             }
@@ -765,6 +773,11 @@ void core_rows(bool hooks, bool verified, const std::string& safe_idle) {
         }
         g_tick_seen.store(tick_bits(), std::memory_order_release);
         for (const std::string& f : g_feature_names) set_feature_locked(f, ev);
+        // The client gate, after the feature rows and before anything else reports: kGate outranks every other kind.
+        for (const gates::Held& h : gates::held()) {
+            if (!name_ok(h.name)) continue;  // gen.py refuses such a name; a test list might not
+            set_core_locked(h.name, kGate, KILN_CAP_UNAVAILABLE, KILN_CAP_REASON_POLICY, h.text, "core", 0, ev);
+        }
         for (const Svc& s : services) {
             if (!name_ok(s.name)) continue;
             const std::string v = "v" + std::to_string(s.version);

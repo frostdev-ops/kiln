@@ -19,6 +19,7 @@
 #include "native_mods.h"
 #include "early_plugins.h"
 #include "foreign_scan.h"
+#include "gates.h"
 #include "nlohmann/json.hpp"
 #include "profile.h"
 #include "progress_state.h"
@@ -505,6 +506,7 @@ void boot() {
     if (early_hooks && !hooks) hooks::withdraw_early();
     set_runtime_state(verified, hooks);
     if (hooks) svc::init_all();
+    gates::configure(side, config().preview_all, config().preview);  // the client gate, minus kiln.json's "preview"
     caps::core_rows(hooks, verified, f.safe_idle);  // before the service DLLs and plugins, which add their own rows
     for (const auto& feature : sigdb::failed_features()) KLOG_W("feature %s unavailable on this build", feature.c_str());
 
