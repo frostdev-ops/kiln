@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstring>
 #include <map>
+#include <limits>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -320,9 +321,10 @@ static int32_t spawn(SpawnFrame& f, Frame* frame, bool saved = false) {
     spawn_before(s, f.regs, frame);
     const int32_t delta = static_cast<int32_t>(static_cast<uint32_t>(f.regs.r8));
     void* dur = reinterpret_cast<void*>(f.regs.rcx);
+    Frame active = *frame;
     const bool ours = delta_before(frame, dur, static_cast<uint32_t>(f.regs.r9), &f.env);
     fake::game_debit(fake::kTool, delta, saved);
-    if (ours) delta_after(s, frame, dur);
+    if (ours) delta_after(s, &active, dur);
     return delta;
 }
 
@@ -472,6 +474,48 @@ static void test_capture() {
     CHECK(ok);
 }
 
+static void test_signed_debit_bounds() {
+    State& s = *g_state;
+    const int32_t low = std::numeric_limits<int32_t>::min();
+    CHECK(debit_delta(low, 7) == 0);
+    CHECK(debit_delta(low + 32767, 32767) == -32767);
+    CHECK(debit_delta(1, 32767) == -32767);  // leave the game's zero clamp and break notification in charge
+    CHECK(debit_delta(std::numeric_limits<int32_t>::max(), 32767) == -32767);
+    CHECK(debit_delta(low, 0) == 0 && debit_delta(180, 0) == 0);
+    fake::reset(s);
+    s.rules.set(fake::kPickaxe, 7);
+    fake::g_components[{fake::acc_durability(), fake::kTool}] = fake::durability(low + 3, 180);
+    auto e = fake::env();
+    HitPending hit;
+    const int32_t delta = hit_before(s, 0x56854, fake::acc_durability(), fake::kActor, fake::kTool, -1, &e, &hit);
+    CHECK(delta == -3 && hit.change.requested_delta == -3);
+    CHECK(static_cast<int64_t>(low + 3) + delta >= low);
+    SpawnFrame spawn;
+    Frame frame;
+    spawn_before(s, spawn.regs, &frame);
+    CHECK(static_cast<int32_t>(spawn.regs.r8) == -3 && frame.change.requested_delta == -3);
+    CHECK(static_cast<int64_t>(low + 3) + static_cast<int32_t>(spawn.regs.r8) >= low);
+}
+
+static void test_spawn_frame_is_consumed_before_original() {
+    State& s = *g_state;
+    fake::reset(s);
+    s.rules.set(fake::kPickaxe, 7);
+    SpawnFrame spawn;
+    Frame pending;
+    spawn_before(s, spawn.regs, &pending);
+    void* dur = reinterpret_cast<void*>(spawn.regs.rcx);
+    Frame active = pending;
+    CHECK(delta_before(&pending, dur, fake::kActor, &spawn.env));
+    CHECK(!pending.armed && active.armed);
+    // Another loader calls WearDelta recursively before the original returns: it must not consume the outer record.
+    CHECK(!delta_before(&pending, dur, fake::kActor, &spawn.env));
+    fake::game_debit(fake::kTool, -7);
+    delta_after(s, &active, dur);
+    Change changes[8];
+    CHECK(drained(changes) == 1 && changes[0].before == 180 && changes[0].after == 173 && !active.armed);
+}
+
 int main() {
     test_weapon_site();
     test_authority();
@@ -479,6 +523,8 @@ int main() {
     test_wear_delta_of_others();
     test_rules_and_queue();
     test_capture();
+    test_signed_debit_bounds();
+    test_spawn_frame_is_consumed_before_original();
     std::printf("items-toolwear-test: %s\n", g_fail ? "FAILED" : "ok");
     return g_fail ? 1 : 0;
 }

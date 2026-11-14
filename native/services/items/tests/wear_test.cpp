@@ -5,13 +5,53 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <initializer_list>
+#include <string_view>
 
 #include "../wear.h"
+#include "../engine.h"
+#include "services/kiln_caps.h"
 
 using namespace kitems::wear;
 
 static int g_fail = 0;
 #define CHECK(c) do { if (!(c)) { std::printf("FAIL %s:%d %s\n", __FILE__, __LINE__, #c); g_fail++; } } while (0)
+
+namespace kitems {
+Engine E;
+void items_log(int, const char*, ...) {}
+}
+
+static int lowered = 0;
+static KilnResult KILN_CALL report(KilnOwner, KilnStr name, uint32_t state, uint32_t, KilnStr) {
+    if (std::string_view(name.ptr, name.len) == kFeature && state == KILN_CAP_UNAVAILABLE) ++lowered;
+    return KILN_OK;
+}
+static const void* KILN_CALL service(KilnStr, uint32_t) {
+    static KilnCapsApi caps = [] { KilnCapsApi c{}; c.header = {sizeof c, KILN_CAPS_VERSION}; c.report = &report; return c; }();
+    return &caps;
+}
+static bool KILN_CALL feature(KilnStr) { return true; }
+static KilnResult KILN_CALL symbol(KilnStr, uintptr_t* out) { *out = 0x1000; return KILN_OK; }
+static KilnResult KILN_CALL constant(KilnStr name, int64_t* out) {
+    const std::string_view n(name.ptr, name.len);
+    if (n == "items/spawn.request_local") *out = 0x390;
+    else if (n == "items/spawn.durability_accessor_local") *out = 0x458;
+    else if (n == "items/spawn.request_pide") *out = 0x3c;
+    else if (n == "items/spawn.iter_size") *out = 0x218;
+    else if (n == "items/spawn.iter_base") *out = 0x280;
+    else if (n == "items/spawn.itemstate_slot") *out = 0x1f0;
+    else if (n == "world.storage") *out = 0xe179c0;
+    else if (n == "storage.kind") *out = 8;
+    else if (n == "items/registry.components") *out = 0x88;
+    else return KILN_ERR_NOT_FOUND;
+    return KILN_OK;
+}
+static KilnResult KILN_CALL build_info(KilnBuildInfo* out) {
+    out->side = 0;
+    std::snprintf(out->exe_sha256, sizeof out->exe_sha256, "%s", kApproved[0].exe_sha256);
+    return KILN_OK;
+}
 
 static Facts approved() {
     Facts f;
@@ -74,6 +114,19 @@ int main() {
     { auto f = approved(); f.storage_kind = 0x10; CHECK(check_constants(f) != nullptr); }
     { auto f = approved(); f.world_storage = 0; CHECK(check_constants(f) != nullptr); }
     { auto f = approved(); f.registry_components = 0; CHECK(check_constants(f) != nullptr); }
+
+    // Even if this feature's signatures resolve, any missing item-service prerequisite must lower the row.
+    KilnApi api{};
+    api.size = sizeof api;
+    api.feature = &feature; api.symbol = &symbol; api.constant = &constant; api.build_info = &build_info; api.service = &service;
+    kitems::E.read_ok = kitems::E.instances_ok = kitems::E.program_ok = true;
+    CHECK(resolve(&api, 1) && facts().ok);
+    for (bool* prerequisite : {&kitems::E.read_ok, &kitems::E.instances_ok, &kitems::E.program_ok}) {
+        *prerequisite = false;
+        const int before = lowered;
+        CHECK(!resolve(&api, 1) && !facts().ok && lowered == before + 1);
+        *prerequisite = true;
+    }
 
     std::printf("items-wear-test: %s\n", g_fail ? "FAILED" : "ok");
     return g_fail ? 1 : 0;
