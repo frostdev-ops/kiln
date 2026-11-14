@@ -52,6 +52,15 @@ bool call_typed(KilnTypedFn fn, KilnCallFrame* frame, void* user, uintptr_t* out
     }
 }
 
+bool call_owner_retiring(KilnOwnerRetiringFn fn, KilnOwner retiring, void* user, unsigned long* code) {
+    __try {
+        fn(retiring, user);
+        return true;
+    } __except (*code = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
 bool call_mid(KilnMidFn fn, KilnRegisters* regs, void* user, unsigned long* code) {
     __try {
         fn(regs, user);

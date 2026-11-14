@@ -17,6 +17,7 @@ mod logs;
 mod new;
 mod out;
 mod project;
+mod publish;
 mod server;
 mod tools;
 mod skeleton;
@@ -53,6 +54,8 @@ enum Cmd {
     Deploy(build::DeployArgs),
     /// Package the mod: <id>-<version>.zip (never with cooked game files).
     Pack(build::PackArgs),
+    /// Release a packed mod at GitHub: a plan to review first (sends nothing), then --apply, --publish-draft.
+    Publish(publish::PublishArgs),
     /// Start (or stop, restart, check) a local server: a dev lab or a launcher/kilnctl server instance.
     Run(server::RunArgs),
     /// Hot-reload a mod in the running server (control folder `reload <id>`).
@@ -163,6 +166,7 @@ fn main() {
         Cmd::Cook(a) => build::cook(a, json),
         Cmd::Deploy(a) => build::deploy(a, json),
         Cmd::Pack(a) => build::pack(a, json),
+        Cmd::Publish(a) => publish::run(a, json),
         Cmd::Run(a) => server::run(a, json),
         Cmd::Reload(a) => control::reload(a, json),
         Cmd::Test(a) => control::test(a, json),

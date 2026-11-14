@@ -58,6 +58,7 @@
 //! | [`lint`] | `kiln lint`: mod files against schema/*.schema.json, ids, references, manifest consistency, licences |
 //! | [`nexus`] | the online mod catalog on Nexus Mods, Mod Manager Download (nxm://) links, the API key store |
 //! | [`net`] | the HTTP layer of `kiln publish` and the update check: fixed hosts per provider, public addresses only, no redirects, a fake transport for tests |
+//! | [`publish`] | `kiln publish`: the artifact policy and audit of a mod zip (`zip`) |
 //! | [`release_binding`] | `kiln-release.json`: which mod, version and zip a release holds |
 
 pub mod error;
@@ -137,6 +138,7 @@ pub mod lint;
 pub mod nexus;
 pub mod net;
 pub mod release_binding;
+pub mod publish;
 
 pub use error::{Error, ErrorCode, Result};
 

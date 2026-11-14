@@ -423,9 +423,15 @@ internal static class NpcCompiler
         }
         else template = body.Template!;
 
+        // how its brain sees: checked here, with no world; without a brain it would claim to change the game's own AI
+        if (NpcPerception.Problem(bh.Perception) is { } wrong) throw new BlockError(ctx.Block, "behaviour.perception", wrong);
+        if (bh.Perception != new NpcPerceptionPolicy() && bh.Brain == null && bh.BrainName == null)
+            throw new BlockError(ctx.Block, "behaviour.perception", "perception is how a brain sees: this behaviour has no brain, and the game's own AI sees as the game decides");
         var owner = OwnerFor(ctx);
+        var live = ModContext.CurrentMod is { } current && current.Info.Id == mod ? current : Mods.Get(mod)?.Info is { } modInfo ? ModContext.FindLive(modInfo) : null;
         var info = new NpcCreature
         {
+            Perception = bh.Perception, Context = live,
             Mod = mod, Name = name, Variant = $"{mod}:{name}", Template = template, TemplateGuid = templateGuid, Owner = owner,
             Sight = ai.Sight ?? 30, Faction = ai.Faction,
             Brain = bh.Brain ?? (bh.BrainName is { } bn ? NpcRuntime.Lookup(NpcRuntime.Brains, bn) : null),

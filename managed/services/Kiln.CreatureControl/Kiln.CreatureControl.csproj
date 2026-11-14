@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- kiln.creature_control's managed face (native/services/creature_control, native/core/abi/services/
+       kiln_creature_control.h): leases on a creature body for the code that drives it. Deployed to kiln/host/ and shared
+       by every mod (mods reference it with Private="false" ExcludeAssets="runtime"). -->
+  <PropertyGroup>
+    <RootNamespace>Kiln</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
+    <InternalsVisibleTo Include="Kiln.CreatureControl.Tests" />
+  </ItemGroup>
+</Project>

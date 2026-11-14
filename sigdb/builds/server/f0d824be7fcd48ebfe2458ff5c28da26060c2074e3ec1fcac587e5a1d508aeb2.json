@@ -9,9 +9,9 @@
   "verified": true,
   "note": "runtime-verified in labs on this exe, 2026-11-11, Kiln 0.2.0-dev+20261112.68988ae, policy any, standard lab save copied fresh for each group, one group per boot (or per run of boots): the running core resolved sigdb 447/447 symbols (355 defined, 92 captured), 542/542 constants (493 defined, 49 captured) and 146/146 features, each to the same value as the offline resolve (compared per name from sigdb-report.json); base world 24/0, players 30/0, chat+time 50/0, hooks 17/0, content 33/0, newcontent 24/0; api 74/0; settings 70/0; items 95/0 (kiln.items self-test on); combat 203/0 (watch-all); spawn 57/0 over 3 boots; gameplay 48/0; creatures 63/0; assets 17/0; rules 53/0; pacing 21/0; types 32/0 + types-peer 8/0; progression 45/0 (no player); net 168/0 with nettest 95 PASS, 0 FAIL; quests 188/0 over 3 boots; skills 124/0 over 2 boots; characters 53/0 over 3 boots; gamedata 71/0 over 2 boots (reload, restart); saves 54/0 over 8 boots (SIGINT, kill -9 x3, restore, game backup); build 79/0 over 4 boots; placeholder 34/0 over 4 boots (kill -9). Failing, so their names stay static: abilities 70/3, 70/3, 71/2 over three runs (the bow shot is refused by the core's PlaySequence guard every time, the Greet emote ran 73/66/79 steps of the 80 the test wants, the staff cast 38/35 then passed, the PC under heavy load); npcai 25/6 twice (force ready unavailable on four spawned creatures, the peacekeeper's relations not applied). Not run: emf (its probe needs third-party EMF mods). Levels: lab 1093 names in 24 services, static 42 (abilities, npcai, emf). With this record under verified-only: build verified, SimStep hooked, every server service loaded (27; audio, screen, ui and vfx skipped as client-only), 0 error lines.",
   "declared": {
-    "symbols": 473,
-    "constants": 571,
-    "features": 155
+    "symbols": 497,
+    "constants": 580,
+    "features": 160
   },
   "features": {
     "abilities.attributes": true,
@@ -68,6 +68,7 @@
     "gameplay.recipes": true,
     "gameplay.spawn": true,
     "gameplay.terraform": true,
+    "hooks.owner_cleanup": true,
     "hooks.typed": true,
     "items.catalog": true,
     "items.equip": true,
@@ -85,6 +86,7 @@
     "items.volume": true,
     "log.mirror": true,
     "log.write": true,
+    "mods.boot": true,
     "net.client_guard": true,
     "net.gate": true,
     "net.kick": true,
@@ -112,6 +114,8 @@
     "quests.journal": true,
     "quests.knowledge": true,
     "quests.npc": true,
+    "repl.loopback": true,
+    "repl.observe": true,
     "rules.consume": true,
     "rules.consume_buff": true,
     "rules.costs": true,
@@ -167,6 +171,7 @@
     "world.programs": true,
     "world.queue": true,
     "world.read_other": true,
+    "world.systems": true,
     "world.teleport": true,
     "world.write": true
   },
@@ -396,6 +401,23 @@
     "quests/QueryEval": "0xa2d5f0",
     "quests/StaticPlayerFind": "0x99fdb0",
     "quests/StaticWorldFind": "0x99fee0",
+    "repl/AckProcess": "0x677080",
+    "repl/AckReceive": "0x6620f0",
+    "repl/Decode": "0x6002e0",
+    "repl/DeltaWriter": "0x6214a0",
+    "repl/EcsReset": "0x689920",
+    "repl/EntityWriter": "0x62c2e0",
+    "repl/Prepare": "0x62b390",
+    "repl/PrepareInner": "0x62bc80",
+    "repl/QueueReader": "0x62b3c0",
+    "repl/RecordSent": "0x64d620",
+    "repl/RelevanceDriver": "0x6c8c10",
+    "repl/ResetMachine": "0x686af0",
+    "repl/SendCallback": "0x7adb70",
+    "repl/SendStep": "0x7bb770",
+    "repl/SnapshotReturn": "0x62c530",
+    "repl/StateIndex": "0x64bbd0",
+    "repl/TemplateState": "0x6237a0",
     "rules/ActorStateTest": "0x3b7a0",
     "rules/AmmoConsumed": "0x42665",
     "rules/ApplyMaterials": "0x22d480",
@@ -477,7 +499,10 @@
     "world/RegisterProgram": "0x67ede0",
     "world/ResolveAccess": "0x69ef00",
     "world/ResolveEvents": "0x626190",
-    "world/ResolveSingletons": "0x6264f0"
+    "world/ResolveSingletons": "0x6264f0",
+    "world/RunInitPrograms": "0x648dd0",
+    "world/SliceTaskFn": "0x68ad50",
+    "world/StepPrograms": "0x649ce0"
   },
   "constants": {
     "abilities/actor.trigger_context": "0x8",
@@ -851,6 +876,14 @@
     "quests/reg.world_version": "0xc0",
     "quests/static.expected_flags": "0x8",
     "quests/static.type": "0x7",
+    "repl/ctx.heap": "0x8f0",
+    "repl/obj.client_ctx": "0x8",
+    "repl/obj.count": "0x11",
+    "repl/obj.pred_ctx": "0x92c18",
+    "repl/obj.stride": "0x125850",
+    "repl/world.objects": "0x15fd2a8",
+    "repl/world.slot_mask": "0x15d3c90",
+    "repl/world.tick": "0xe17e9c",
     "rules/collider.enabled": "0x5",
     "rules/collider.results_set": "0x50",
     "rules/cursor.actor": "0xf8",
@@ -1047,6 +1080,7 @@
     "world/storage.entities": "0x148",
     "world/storage.entities.cap": "0x158",
     "world/storage.entities.values": "0x188",
+    "world/storage.players_mask": "0x7ddc0a",
     "world/teleport.applied": "0x48",
     "world/teleport.find_ground": "0x49",
     "world/teleport.target_entity": "0x38",
@@ -1552,6 +1586,32 @@
         "queries.voxel_ray": "static"
       }
     },
+    "dev28-03-camera": {
+      "level": "static",
+      "date": "2026-11-13",
+      "evidence": "resolved offline (tools/sigport/build_record.py)",
+      "symbols": {},
+      "constants": {},
+      "features": {
+        "hooks.owner_cleanup": "static"
+      }
+    },
+    "dev28-06a-program-wraps": {
+      "level": "static",
+      "date": "2026-11-13",
+      "evidence": "resolved offline (tools/sigport/build_record.py)",
+      "symbols": {
+        "world/RunInitPrograms": "static",
+        "world/SliceTaskFn": "static",
+        "world/StepPrograms": "static"
+      },
+      "constants": {
+        "world/storage.players_mask": "static"
+      },
+      "features": {
+        "world.systems": "static"
+      }
+    },
     "dev28-06b-typed-hooks": {
       "level": "static",
       "date": "2026-11-13",
@@ -1566,6 +1626,58 @@
         "hooks.typed": "static",
         "items.volume": "static",
         "weather.sample": "static"
+      }
+    },
+    "dev28-08-onboot": {
+      "level": "static",
+      "date": "2026-11-13",
+      "evidence": "resolved offline (tools/sigport/build_record.py)",
+      "symbols": {},
+      "constants": {},
+      "features": {
+        "mods.boot": "static"
+      }
+    },
+    "dev28-11-replication-observe": {
+      "level": "static",
+      "date": "2026-11-13",
+      "evidence": "resolved offline (tools/sigport/build_record.py)",
+      "symbols": {
+        "@repl.ctx": "static",
+        "@repl.layout": "static",
+        "@repl.slot_mask": "static",
+        "@repl.tick": "static",
+        "repl/AckProcess": "static",
+        "repl/AckReceive": "static",
+        "repl/Decode": "static",
+        "repl/DeltaWriter": "static",
+        "repl/EcsReset": "static",
+        "repl/EntityWriter": "static",
+        "repl/Prepare": "static",
+        "repl/PrepareInner": "static",
+        "repl/QueueReader": "static",
+        "repl/RecordSent": "static",
+        "repl/RelevanceDriver": "static",
+        "repl/ResetMachine": "static",
+        "repl/SendCallback": "static",
+        "repl/SendStep": "static",
+        "repl/SnapshotReturn": "static",
+        "repl/StateIndex": "static",
+        "repl/TemplateState": "static"
+      },
+      "constants": {
+        "repl/ctx.heap": "static",
+        "repl/obj.client_ctx": "static",
+        "repl/obj.count": "static",
+        "repl/obj.pred_ctx": "static",
+        "repl/obj.stride": "static",
+        "repl/world.objects": "static",
+        "repl/world.slot_mask": "static",
+        "repl/world.tick": "static"
+      },
+      "features": {
+        "repl.loopback": "static",
+        "repl.observe": "static"
       }
     },
     "emf": {
