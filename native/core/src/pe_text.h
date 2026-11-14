@@ -254,10 +254,12 @@ inline bool redirected_call_at(const uint8_t* file, const uint8_t* live, size_t 
 // the image this way, before Kiln's scan; while the form was unknown, every client start that hosted ShroudForge
 // scanned the live code, the captures of ui/MainMenuEntry disagreed and the main menu had none of Kiln's entries
 // (players' reports of 10 and 13 Nov 2026).
-// Unrecognised patches conservatively select the live scan, even below the 1% budget.
+// Unrecognised patches conservatively select the live scan, even below the 1% budget. When one does,
+// `first_uncovered` (when given) takes the offset of the first difference no form covered, so the caller can say
+// which patch tripped the check instead of clearing the evidence with the fallback.
 inline bool only_hook_differences(const uint8_t* file, const uint8_t* live, size_t size,
                                   uintptr_t live_text, uintptr_t image_base, size_t image_size,
-                                  bool (*call_lands)(uintptr_t) = nullptr) {
+                                  bool (*call_lands)(uintptr_t) = nullptr, size_t* first_uncovered = nullptr) {
     auto outside = [&](uintptr_t a) { return a < image_base || a - image_base >= image_size; };
     for (size_t i = 0; i < size;) {
         if (file[i] == live[i]) { ++i; continue; }
@@ -293,7 +295,10 @@ inline bool only_hook_differences(const uint8_t* file, const uint8_t* live, size
             for (size_t pad = 0; pad < 20 && end < size && live[end] == 0x90; ++pad) ++end;
             if (i < end) { i = end; covered = true; break; }
         }
-        if (!covered) return false;
+        if (!covered) {
+            if (first_uncovered) *first_uncovered = i;
+            return false;
+        }
     }
     return true;
 }

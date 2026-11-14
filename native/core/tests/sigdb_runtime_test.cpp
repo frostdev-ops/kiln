@@ -281,6 +281,13 @@ static void diff_budget() {
     CHECK(!pe::only_hook_differences(file.data(), live.data(), live.size(), text, base, 0x2000),
           "runtime: an unrelated code byte is not hidden by recognised hooks");
     live[200] ^= 1;
+    // The first difference no form covers is reported, so the fallback can name the patch that tripped it.
+    live[200] ^= 1;
+    size_t first = 9999;
+    CHECK(!pe::only_hook_differences(file.data(), live.data(), live.size(), text, base, 0x2000, nullptr, &first) &&
+              first == 200,
+          "runtime: the first uncovered difference is reported, past the recognised hooks");
+    live[200] ^= 1;
     // A redirected call (ShroudForge's native runtime and the main menu's two Settings calls): the opcode stays, the
     // operand goes from a place in the image to one outside it.
     auto call = [&](std::array<uint8_t, 1000>& code, size_t off, uintptr_t to) {

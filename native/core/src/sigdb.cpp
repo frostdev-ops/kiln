@@ -167,9 +167,57 @@ std::string patched_by(uintptr_t a) {
     return b;
 }
 
-// Where a redirected call may go (pe::redirected_call_at): into a loaded module, or to a relay as hookers write them.
+// Where a redirected call may go (pe::redirected_call_at): into a loaded module, or to a relay as hookers write
+// them. Relays take more than one layout — an indirect jump through a pointer slot at any displacement (greeneye's
+// sits 10 bytes past the instruction, XHL's is a per-page pointer table), a trampoline, a generated stub — so follow
+// the target's jumps to the landing module instead of matching one byte shape. The shape check stays as a fallback,
+// so no previously accepted form is lost. The pristine-build checks around this (file identity, the 1% budget, the
+// conservative live fallback) are untouched: a changed exe still fails them, because its differences are not jumps
+// into loaded modules.
 bool call_lands(uintptr_t to) {
-    return readable(to, 14) && (!module_at(to).empty() || pe::relay_shape(reinterpret_cast<const uint8_t*>(to)));
+    if (!readable(to, 14)) return false;
+    if (!module_at(to).empty()) return true;
+    uintptr_t t = jump_target(to);
+    for (int hop = 0; hop < 4 && t; ++hop) {
+        if (!module_at(t).empty()) return true;
+        const uintptr_t next = jump_target(t);
+        if (!next) break;
+        t = next;
+    }
+    return pe::relay_shape(reinterpret_cast<const uint8_t*>(to));
+}
+
+// One line naming the first difference the hook check rejected: RVA, file/live bytes, and who patched it. Without
+// this the fallback clears the diff runs and the log can only say the check failed, never which patch tripped it.
+std::string first_difference_note(const uint8_t* file, const uint8_t* live, size_t size, uintptr_t live_text,
+                                  uintptr_t image_base, size_t image_size, uint32_t text_rva, size_t off) {
+    if (off >= size) return "";
+    const size_t n = std::min<size_t>(8, size - off);
+    std::string fb, lb;
+    for (size_t i = 0; i < n; ++i) {
+        char h[4];
+        std::snprintf(h, sizeof h, "%02x ", file[off + i]);
+        fb += h;
+        std::snprintf(h, sizeof h, "%02x ", live[off + i]);
+        lb += h;
+    }
+    // Attribute from the patch site. A redirected call's first differing byte is in the operand, so the bytes there
+    // decode as nothing: back up to the E8 and attribute from the call. The shape check runs without call_lands —
+    // the call was rejected, so the landing test is what failed; the targets are what identify it.
+    std::string by = patched_by(live_text + off);
+    if (by == "bytes changed in place") {
+        for (uintptr_t back = 1; back <= 4 && off >= back; ++back) {
+            const size_t start = off - back;
+            if (!pe::redirected_call_at(file, live, size, start, live_text, image_base, image_size)) continue;
+            const std::string call_by = patched_by(live_text + start);
+            if (call_by.rfind("jmp to ", 0) == 0) by = "call redirected to " + call_by.substr(7);
+            break;
+        }
+    }
+    char b[320];
+    std::snprintf(b, sizeof b, " (first unrecognised difference at RVA 0x%x: file [%s] live [%s], %s)",
+                  text_rva + static_cast<uint32_t>(off), fb.c_str(), lb.c_str(), by.c_str());
+    return b;
 }
 
 // Applies the file's fixups to its mapped copy; false if the view can't be written (no C++ objects here: SEH).
@@ -219,9 +267,12 @@ void init_code() {
         g_code.runs.clear();
         return fallback(b);
     }
-    if (!pe::only_hook_differences(text, img.text, size, live, img.base, img.size, call_lands)) {
+    size_t first_uncovered = 0;
+    if (!pe::only_hook_differences(text, img.text, size, live, img.base, img.size, call_lands, &first_uncovered)) {
         g_code.runs.clear();
-        return fallback("file/live differences are not recognised inline hooks; the exe may have changed on disk");
+        return fallback("file/live differences are not recognised inline hooks; the exe may have changed on disk" +
+                        first_difference_note(text, img.text, size, live, img.base, img.size, ft.text_rva,
+                                              first_uncovered));
     }
     g_code.view = {text, size, live, true};
     g_code.note = "the exe file's code";
