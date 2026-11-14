@@ -263,11 +263,10 @@ void send(const std::vector<Row>& rows) {
 Row phase_row_locked() {
     for (const auto& [id, o] : g_owners)
         if (o.open) return {"mods.boot.phase", KILN_CAP_AVAILABLE, KILN_CAP_REASON_NONE, "boot-author frame open: " + id};
-    std::string text = g_status == KILN_BOOT_STATUS_COLLECTING
-                           ? "no boot-author frame is open (generation 1 collecting)"
-                           : std::string("no boot-author frame: the boot phase is over (generation 1 ") +
-                                 status_name(g_status) + ")";
-    return {"mods.boot.phase", KILN_CAP_PENDING, KILN_CAP_REASON_SESSION, std::move(text)};
+    if (g_status != KILN_BOOT_STATUS_COLLECTING)
+        return {"mods.boot.phase", KILN_CAP_UNAVAILABLE, KILN_CAP_REASON_POLICY,
+                std::string("the boot phase of this process is over (generation 1 ") + status_name(g_status) + ")"};
+    return {"mods.boot.phase", KILN_CAP_PENDING, KILN_CAP_REASON_SESSION, "no boot-author frame is open (generation 1 collecting)"};
 }
 
 // ---- deferred mode: the manifest scan ----
