@@ -162,3 +162,104 @@ static Kiln.DefinitionRegistrationResult.operator ==(Kiln.DefinitionRegistration
 Kiln.GameType.ImpactName.get -> string?
 static Kiln.GameTypes.ByImpactName(string! impactName) -> Kiln.GameType?
 static Kiln.GameTypes.FindAllByImpactName(string! impactName) -> System.Collections.Generic.IReadOnlyList<Kiln.GameType!>!
+Kiln.BootContext
+Kiln.BootContext.GameData.get -> Kiln.IReadOnlyGameData!
+Kiln.BootContext.Generation.get -> ulong
+Kiln.BootContext.ModId.get -> string!
+Kiln.BootContext.Roles.get -> Kiln.BootRoles
+Kiln.BootDataResult
+Kiln.BootDataResult.BootDataResult(bool Ok, string? Reason, Kiln.BootDataValue? Data) -> void
+Kiln.BootDataResult.<Clone>$() -> Kiln.BootDataResult!
+Kiln.BootDataResult.Data.get -> Kiln.BootDataValue?
+Kiln.BootDataResult.Data.init -> void
+Kiln.BootDataResult.Deconstruct(out bool Ok, out string? Reason, out Kiln.BootDataValue? Data) -> void
+Kiln.BootDataResult.Equals(Kiln.BootDataResult? other) -> bool
+Kiln.BootDataResult.Ok.get -> bool
+Kiln.BootDataResult.Ok.init -> void
+Kiln.BootDataResult.Reason.get -> string?
+Kiln.BootDataResult.Reason.init -> void
+Kiln.BootDataValue
+Kiln.BootDataValue.BootDataValue(System.Guid ResourceId, uint TypeHash, int Part, System.Text.Json.JsonElement Value) -> void
+Kiln.BootDataValue.<Clone>$() -> Kiln.BootDataValue!
+Kiln.BootDataValue.Deconstruct(out System.Guid ResourceId, out uint TypeHash, out int Part, out System.Text.Json.JsonElement Value) -> void
+Kiln.BootDataValue.Equals(Kiln.BootDataValue? other) -> bool
+Kiln.BootDataValue.Part.get -> int
+Kiln.BootDataValue.Part.init -> void
+Kiln.BootDataValue.ResourceId.get -> System.Guid
+Kiln.BootDataValue.ResourceId.init -> void
+Kiln.BootDataValue.TypeHash.get -> uint
+Kiln.BootDataValue.TypeHash.init -> void
+Kiln.BootDataValue.Value.get -> System.Text.Json.JsonElement
+Kiln.BootDataValue.Value.init -> void
+Kiln.BootIssue
+Kiln.BootIssue.BootIssue(string! ModId, string! Kind, string! Key, string! Phase, string! Code, string! Reason) -> void
+Kiln.BootIssue.<Clone>$() -> Kiln.BootIssue!
+Kiln.BootIssue.Code.get -> string!
+Kiln.BootIssue.Code.init -> void
+Kiln.BootIssue.Deconstruct(out string! ModId, out string! Kind, out string! Key, out string! Phase, out string! Code, out string! Reason) -> void
+Kiln.BootIssue.Equals(Kiln.BootIssue? other) -> bool
+Kiln.BootIssue.Key.get -> string!
+Kiln.BootIssue.Key.init -> void
+Kiln.BootIssue.Kind.get -> string!
+Kiln.BootIssue.Kind.init -> void
+Kiln.BootIssue.ModId.get -> string!
+Kiln.BootIssue.ModId.init -> void
+Kiln.BootIssue.Phase.get -> string!
+Kiln.BootIssue.Phase.init -> void
+Kiln.BootIssue.Reason.get -> string!
+Kiln.BootIssue.Reason.init -> void
+Kiln.BootModReport
+Kiln.BootModReport.BootModReport(string! ModId, ulong Generation, Kiln.BootModState State, System.Collections.Generic.IReadOnlyList<string!>! Definitions, System.Collections.Generic.IReadOnlyList<Kiln.BootIssue!>! Issues) -> void
+Kiln.BootModReport.<Clone>$() -> Kiln.BootModReport!
+Kiln.BootModReport.Deconstruct(out string! ModId, out ulong Generation, out Kiln.BootModState State, out System.Collections.Generic.IReadOnlyList<string!>! Definitions, out System.Collections.Generic.IReadOnlyList<Kiln.BootIssue!>! Issues) -> void
+Kiln.BootModReport.Definitions.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.BootModReport.Definitions.init -> void
+Kiln.BootModReport.Equals(Kiln.BootModReport? other) -> bool
+Kiln.BootModReport.Generation.get -> ulong
+Kiln.BootModReport.Generation.init -> void
+Kiln.BootModReport.Issues.get -> System.Collections.Generic.IReadOnlyList<Kiln.BootIssue!>!
+Kiln.BootModReport.Issues.init -> void
+Kiln.BootModReport.ModId.get -> string!
+Kiln.BootModReport.ModId.init -> void
+Kiln.BootModReport.State.get -> Kiln.BootModState
+Kiln.BootModReport.State.init -> void
+Kiln.BootModState
+Kiln.BootModState.ActivationFault = 8 -> Kiln.BootModState
+Kiln.BootModState.Committed = 2 -> Kiln.BootModState
+Kiln.BootModState.ExcludedCallback = 3 -> Kiln.BootModState
+Kiln.BootModState.ExcludedDependency = 4 -> Kiln.BootModState
+Kiln.BootModState.GenerationAborted = 6 -> Kiln.BootModState
+Kiln.BootModState.MissedPhase = 7 -> Kiln.BootModState
+Kiln.BootModState.NotParticipating = 0 -> Kiln.BootModState
+Kiln.BootModState.RejectedPrepare = 5 -> Kiln.BootModState
+Kiln.BootModState.Staged = 1 -> Kiln.BootModState
+Kiln.BootRoles
+Kiln.BootRoles.Client = 4 -> Kiln.BootRoles
+Kiln.BootRoles.DedicatedServer = 1 -> Kiln.BootRoles
+Kiln.BootRoles.HostedServer = 2 -> Kiln.BootRoles
+Kiln.BootThreadOnlyAttribute
+Kiln.BootThreadOnlyAttribute.BootThreadOnlyAttribute() -> void
+Kiln.IReadOnlyGameData
+Kiln.IReadOnlyGameData.Read(string! key) -> Kiln.BootDataResult!
+override Kiln.BootDataResult.Equals(object? obj) -> bool
+override Kiln.BootDataResult.GetHashCode() -> int
+override Kiln.BootDataResult.ToString() -> string!
+override Kiln.BootDataValue.Equals(object? obj) -> bool
+override Kiln.BootDataValue.GetHashCode() -> int
+override Kiln.BootDataValue.ToString() -> string!
+override Kiln.BootIssue.Equals(object? obj) -> bool
+override Kiln.BootIssue.GetHashCode() -> int
+override Kiln.BootIssue.ToString() -> string!
+override Kiln.BootModReport.Equals(object? obj) -> bool
+override Kiln.BootModReport.GetHashCode() -> int
+override Kiln.BootModReport.ToString() -> string!
+static Kiln.BootDataResult.operator !=(Kiln.BootDataResult? left, Kiln.BootDataResult? right) -> bool
+static Kiln.BootDataResult.operator ==(Kiln.BootDataResult? left, Kiln.BootDataResult? right) -> bool
+static Kiln.BootDataValue.operator !=(Kiln.BootDataValue? left, Kiln.BootDataValue? right) -> bool
+static Kiln.BootDataValue.operator ==(Kiln.BootDataValue? left, Kiln.BootDataValue? right) -> bool
+static Kiln.BootIssue.operator !=(Kiln.BootIssue? left, Kiln.BootIssue? right) -> bool
+static Kiln.BootIssue.operator ==(Kiln.BootIssue? left, Kiln.BootIssue? right) -> bool
+static Kiln.BootModReport.operator !=(Kiln.BootModReport? left, Kiln.BootModReport? right) -> bool
+static Kiln.BootModReport.operator ==(Kiln.BootModReport? left, Kiln.BootModReport? right) -> bool
+static Kiln.Mods.BootState(string! modId) -> Kiln.BootModReport!
+virtual Kiln.Mod.OnBoot(Kiln.BootContext! boot) -> void

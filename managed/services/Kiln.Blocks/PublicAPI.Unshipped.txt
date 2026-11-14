@@ -279,3 +279,63 @@ static Kiln.MoveFollowUpBlock.operator !=(Kiln.MoveFollowUpBlock? left, Kiln.Mov
 static Kiln.MoveFollowUpBlock.operator ==(Kiln.MoveFollowUpBlock? left, Kiln.MoveFollowUpBlock? right) -> bool
 [KILNX001]static Kiln.Blocks.LabRefuseMoveClones(int count) -> void
 [KILNX001]static Kiln.Blocks.LabRetryMoves(Kiln.BlockHandle<Kiln.WeaponBlock!>! weapon) -> bool
+Kiln.BootBlockId<T>
+Kiln.BootBlockId<T>.BootBlockId(string! Mod, string! Kind, string! Name) -> void
+~Kiln.BootBlockId<T>.<Clone>$() -> Kiln.BootBlockId<T>!
+Kiln.BootBlockId<T>.Deconstruct(out string! Mod, out string! Kind, out string! Name) -> void
+~Kiln.BootBlockId<T>.Equals(Kiln.BootBlockId<T>? other) -> bool
+Kiln.BootBlockId<T>.Kind.get -> string!
+Kiln.BootBlockId<T>.Kind.init -> void
+Kiln.BootBlockId<T>.Mod.get -> string!
+Kiln.BootBlockId<T>.Mod.init -> void
+Kiln.BootBlockId<T>.Name.get -> string!
+Kiln.BootBlockId<T>.Name.init -> void
+Kiln.BootBlockId<T>.QualifiedName.get -> string!
+Kiln.BootDefinitionResult<T>
+Kiln.BootDefinitionResult<T>.BootDefinitionResult(bool Ok, string? Reason, Kiln.BootBlockId<T!>? Reference) -> void
+~Kiln.BootDefinitionResult<T>.<Clone>$() -> Kiln.BootDefinitionResult<T>!
+Kiln.BootDefinitionResult<T>.Deconstruct(out bool Ok, out string? Reason, out Kiln.BootBlockId<T!>? Reference) -> void
+~Kiln.BootDefinitionResult<T>.Equals(Kiln.BootDefinitionResult<T>? other) -> bool
+Kiln.BootDefinitionResult<T>.Ok.get -> bool
+Kiln.BootDefinitionResult<T>.Ok.init -> void
+Kiln.BootDefinitionResult<T>.Reason.get -> string?
+Kiln.BootDefinitionResult<T>.Reason.init -> void
+Kiln.BootDefinitionResult<T>.Reference.get -> Kiln.BootBlockId<T!>?
+Kiln.BootDefinitionResult<T>.Reference.init -> void
+Kiln.BootDefinitions
+Kiln.BootDefinitionsCommittedEvent
+Kiln.BootDefinitionsCommittedEvent.BootDefinitionsCommittedEvent(string! modId, ulong generation, System.Collections.Generic.IEnumerable<string!>! definitions) -> void
+Kiln.BootDefinitionsCommittedEvent.Definitions.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.BootDefinitionsCommittedEvent.Generation.get -> ulong
+Kiln.BootDefinitionsCommittedEvent.ModId.get -> string!
+Kiln.BootDefinitions.DefineJson(string! kind, string! name, string! json) -> Kiln.BootJsonDefinitionResult!
+Kiln.BootDefinitions.Define<T>(string! name, T! definition) -> Kiln.BootDefinitionResult<T!>!
+Kiln.BootJsonDefinitionResult
+Kiln.BootJsonDefinitionResult.BootJsonDefinitionResult(bool Ok, string? Reason, string! Kind, string! Key) -> void
+Kiln.BootJsonDefinitionResult.<Clone>$() -> Kiln.BootJsonDefinitionResult!
+Kiln.BootJsonDefinitionResult.Deconstruct(out bool Ok, out string? Reason, out string! Kind, out string! Key) -> void
+Kiln.BootJsonDefinitionResult.Equals(Kiln.BootJsonDefinitionResult? other) -> bool
+Kiln.BootJsonDefinitionResult.Key.get -> string!
+Kiln.BootJsonDefinitionResult.Key.init -> void
+Kiln.BootJsonDefinitionResult.Kind.get -> string!
+Kiln.BootJsonDefinitionResult.Kind.init -> void
+Kiln.BootJsonDefinitionResult.Ok.get -> bool
+Kiln.BootJsonDefinitionResult.Ok.init -> void
+Kiln.BootJsonDefinitionResult.Reason.get -> string?
+Kiln.BootJsonDefinitionResult.Reason.init -> void
+override Kiln.BootBlockId<T>.Equals(object? obj) -> bool
+override Kiln.BootBlockId<T>.GetHashCode() -> int
+override Kiln.BootBlockId<T>.ToString() -> string!
+override Kiln.BootDefinitionResult<T>.Equals(object? obj) -> bool
+override Kiln.BootDefinitionResult<T>.GetHashCode() -> int
+override Kiln.BootDefinitionResult<T>.ToString() -> string!
+override Kiln.BootJsonDefinitionResult.Equals(object? obj) -> bool
+override Kiln.BootJsonDefinitionResult.GetHashCode() -> int
+override Kiln.BootJsonDefinitionResult.ToString() -> string!
+~static Kiln.BootBlockId<T>.operator !=(Kiln.BootBlockId<T>? left, Kiln.BootBlockId<T>? right) -> bool
+~static Kiln.BootBlockId<T>.operator ==(Kiln.BootBlockId<T>? left, Kiln.BootBlockId<T>? right) -> bool
+~static Kiln.BootDefinitionResult<T>.operator !=(Kiln.BootDefinitionResult<T>? left, Kiln.BootDefinitionResult<T>? right) -> bool
+~static Kiln.BootDefinitionResult<T>.operator ==(Kiln.BootDefinitionResult<T>? left, Kiln.BootDefinitionResult<T>? right) -> bool
+static Kiln.BootDefinitions.For(Kiln.BootContext! context) -> Kiln.BootDefinitions!
+static Kiln.BootJsonDefinitionResult.operator !=(Kiln.BootJsonDefinitionResult? left, Kiln.BootJsonDefinitionResult? right) -> bool
+static Kiln.BootJsonDefinitionResult.operator ==(Kiln.BootJsonDefinitionResult? left, Kiln.BootJsonDefinitionResult? right) -> bool

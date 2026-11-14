@@ -169,6 +169,17 @@ public static class Mods
     /// <summary>Loads the mod folder <c>kiln/mods/&lt;folder&gt;</c> at the start of the next step.</summary>
     public static Task<ModOperationResult> LoadAsync(string folder) => Request(ModOperation.Load, folder);
 
+    /// <summary>A mod's part in this process's boot generation (Mod.OnBoot, chapter 08): its state, its committed definitions
+    /// (<c>kind/key</c>) and its issues. <see cref="BootModState.NotParticipating"/> for a mod that takes none.</summary>
+    /// <exception cref="ArgumentException"><paramref name="modId"/> is not a mod id.</exception>
+    [AnyThread]
+    public static BootModReport BootState(string modId)
+    {
+        ArgumentNullException.ThrowIfNull(modId);
+        if (!BootGeneration.IdPattern.IsMatch(modId)) throw new ArgumentException($"\"{modId}\" is not a mod id", nameof(modId));
+        return BootGeneration.Report(modId) ?? new BootModReport(modId, BootGeneration.Number, BootModState.NotParticipating, [], []);
+    }
+
     /// <summary>Callback forms for code without a synchronization context (services, chat commands): the operation
     /// runs at the start of the next step and <paramref name="done"/> runs right after it on the tick thread, in the
     /// caller's mod context; it is dropped when the caller's own mod was unloaded by the operation.</summary>

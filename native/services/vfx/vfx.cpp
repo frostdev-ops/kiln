@@ -80,6 +80,9 @@ void KILN_CALL destroy_boot(const void* p) {
 KilnResult KILN_CALL prepare_empty(void* why, const KilnBootPrepareInputV1* in, KilnBootPreparedV1* out, KilnBootIssueV1* issue) {
     const kiln::boot::Input input = kiln::boot::parse(in);
     const auto docs = input.docs("vfx");
+    for (const auto& d : docs)  // read or not, a document that is no blocks file refuses its mod, as everywhere
+        if (!d.document.is_object())
+            return kiln::boot::refuse(out, issue, d.owner, "vfx", d.key, "kiln.vfx: a boot document is not a blocks file (a JSON object)");
     if (!docs.empty()) {
         issue->code = KILN_BOOT_ISSUE_WARNING | 0x10001u;
         kiln::boot::put(issue->mod_id, docs.front().owner);
@@ -94,7 +97,12 @@ KilnResult KILN_CALL prepare_empty(void* why, const KilnBootPrepareInputV1* in, 
 KilnResult KILN_CALL prepare_build(void*, const KilnBootPrepareInputV1* in, KilnBootPreparedV1* out, KilnBootIssueV1* issue) {
     const kiln::boot::Input input = kiln::boot::parse(in);
     if (!input.ok) return kiln::boot::refuse(out, issue, "", "", "", "kiln.vfx: the boot envelope is not JSON");
-    build_on_ready(g_api, g_owner, &input);
+    try {
+        build_on_ready(g_api, g_owner, &input);
+    } catch (const kiln::boot::Refusal& r) {
+        build_forget();
+        return kiln::boot::refuse(out, issue, r.mod, r.kind, r.key, r.what());
+    }
     return kiln::boot::prepared(out, new BootPlan{true}, &destroy_boot);
 }
 bool vfx_held(const KilnApi* api) {
@@ -154,6 +162,7 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     const Config cfg = read_config();
     if (!cfg.enabled) {
         KV_I("vfx: off by kiln/config/vfx.json: nothing hooked, mods play nothing");
+        // the empty plan as on a dedicated server (the module stays mapped; see there)
         kiln::boot::collect(api, owner, "vfx", &prepare_empty, const_cast<char*>("kiln.vfx is off by kiln/config/vfx.json"));
         return KILN_ERR_UNAVAILABLE;
     }
@@ -165,7 +174,10 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     } else {
         if (api->side() != KILN_SIDE_CLIENT && !cfg.test_fail_soft) {
             KV_I("vfx: not a game client (the dedicated server has no VFX): kiln.vfx unavailable here; Kiln.Vfx relays server calls to Kiln clients");
-            // a boot generation's vfx part here: the empty validated plan (chapter 08 §4.3 step 4)
+            // A boot generation's vfx part here: the empty validated plan (chapter 08 §4.3 step 4), so a both-sides mod's staged VFX is not a
+            // missing collector on a server. Registered although this function answers UNAVAILABLE: kiln-core keeps a plugin that answers so
+            // mapped for the process (api.cpp load_one: no FreeLibrary) and only revokes its owner, which kiln.boot uses for log names alone;
+            // prepare_empty reads nothing but its input.
             kiln::boot::collect(api, owner, "vfx", &prepare_empty, const_cast<char*>("a dedicated server renders no VFX"));
             return KILN_ERR_UNAVAILABLE;
         }
