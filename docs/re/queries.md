@@ -43,6 +43,21 @@ entry is `queries/realm.stride` bytes and starts with the pointer to its ray gri
 (`queries/ray_grid.origin`), u32 chunk shift, horizontal and vertical chunk counts. These are the ray cache's grid
 values, not the `VoxelWorld` tile geometry `Build.Grid` reports.
 
+### The path query's fields
+The path half (`sigdb/symbols/server.d/dev28-02-pathfinding.json`) writes nine fields of the game's path query, all
+captured: start, target, the iteration limit and the moves from the base defaults (`@queries/base_query.layout`), and
+five from two readers of the query:
+- `@queries/query_normalize.layout`: the function that copies a query for one path grid and halves each search
+  distance and free-space value unless that grid's cell size says otherwise, one block per field, horizontal and
+  vertical in turn. Its second, fourth, fifth and sixth blocks give `queries/query.start_search_v`,
+  `queries/query.target_search_v`, `queries/query.space_h` and `queries/query.space_v`. The pattern starts at the
+  instruction before the first block, since the blocks differ only in their offsets.
+- `@queries/query_target_type.layout`: the search driver's test of the target type against 1
+  (PreferClosestTargetNode), which gives `queries/query.target_type`.
+
+Both match once on the server and once on the client (0xf4, 0xfc, 0x100, 0x104 and 0x36 on Steam builds 26430253 and
+26430625). kiln.queries checks each against the query's size before it writes.
+
 ## Seen in the lab (dev28-01-world-queries, no player)
 1000 of 1000 downward rays hit natural ground (material 0x2f2607aa); a 2-cell wall of terrain voxels 0xff01 and one of
 building voxels 0xff81 both stop a ray 1 mm before their face, from either side; before `Build.Load` every ray is "not
