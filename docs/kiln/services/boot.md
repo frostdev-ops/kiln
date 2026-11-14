@@ -96,8 +96,11 @@ process ends with exit code 0x4B01, as before the entry point. Only a registered
 
 ## The exit code
 `KILN_BOOT_EXIT_CODE` is 0x4B01 (19201). A start that kiln.boot stops ends with it, before the game's entry point or
-at an activation fault of a required mod. Windows reports the whole code; a Linux parent of the Wine process sees only
-its low byte, 1. kiln.log ends with `boot: the start stops before the game's entry point (exit code 0x4B01)` (or
+at an activation fault of a required mod; `boot.json` says `"exitCode": 19201`. Under Wine the Linux parent gets only
+the low byte as the exit status: 1. Seen on a test server (the lab's wrapper writes it to `kiln/state/exit-code.txt`):
+1 for a stop before the entry point (a required mod's patch of an unknown type) and for one after it (a required mod's
+patch of a missing resource), 0 for a normal stop with Ctrl-C. Not run on Windows, where a parent sees the whole
+code. kiln.log ends with `boot: the start stops before the game's entry point (exit code 0x4B01)` (or
 `boot: the start stops (exit code 0x4B01)` after the entry point).
 
 ## boot.json

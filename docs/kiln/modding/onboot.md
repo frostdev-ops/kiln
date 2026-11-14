@@ -98,7 +98,7 @@ one is dropped, with a warning (`ShadowedByFile`) in kiln.log and `state/boot.js
 - An excluded mod does not load later in this process either: kiln.log says `RestartRequiredBoot: ... restart after
   fixing it`. Fix it and restart the server.
 - **A mod with `"boot": "required"`** that fails stops the start. The game is never entered: no world or save is loaded.
-  The process ends with exit code `0x4B01` (a Linux parent such as Wine's shell sees its low byte, 1). kiln.log says
+  The process ends with exit code `0x4B01`; on Linux, under Wine, the exit status is its low byte, 1. kiln.log says
   `boot: the start stops before the game's entry point (exit code 0x4B01)`, and `kiln/state/boot.json` names the mod,
   the definition and the reason. A required mod's resource patch that cannot be written when the game's data comes up
   stops the start the same way.

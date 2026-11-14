@@ -6,7 +6,8 @@
 # bin folder). Never touches a Steam-installed server.
 #
 #   tools/lab/lab.sh new <name> <queryPort> [--save <savegame dir to copy>]
-#   tools/lab/lab.sh start|stop|pid|status <name>   start keeps the lab at the caller's priority (nice -n 19 ... start)
+#   tools/lab/lab.sh start|stop|pid|status <name>   start keeps the lab at the caller's priority (nice -n 19 ... start);
+#                                                the server's exit status goes to <lab>/kiln/state/exit-code.txt when it ends
 #   tools/lab/lab.sh log <name> [lines]          tail the game log
 #   tools/lab/lab.sh rm <name>                   stop and delete the lab (game files, prefix, save)
 #   tools/lab/lab.sh list
@@ -86,7 +87,12 @@ EOF
     cd "$LABS/$name"; mkdir -p logs
     mark=$(mktemp)
     keep_priority
-    setsid "$GE/wine" ./enshrouded_server.exe > "$LABS/$name.wine.log" 2>&1 < /dev/null &
+    # the server's exit status as its Linux parent gets it, in kiln/state/exit-code.txt once the process has ended
+    # (Wine passes on the low byte of the Windows exit code: kiln.boot's 0x4B01 arrives as 1, a stop with SIGINT as 0).
+    # The waiting shell holds none of this script's output open, so a caller that pipes it is not kept waiting.
+    rm -f kiln/state/exit-code.txt
+    setsid bash -c '"$1" ./enshrouded_server.exe > "$2" 2>&1 < /dev/null; rc=$?; mkdir -p kiln/state; echo "$rc" > kiln/state/exit-code.txt' \
+      lab-server "$GE/wine" "$LABS/$name.wine.log" > /dev/null 2>&1 < /dev/null &
     for i in $(seq 1 360); do
       if [[ logs/enshrouded_server.log -nt $mark ]] && tr -d '\r' < logs/enshrouded_server.log | grep -q 'LoadEcsScene to Run'; then
         rm -f "$mark"; echo "lab $name up after $((i / 2)) s (pid $(pid_of "$name"))"; exit 0
