@@ -80,6 +80,9 @@ void KILN_CALL destroy_boot(const void* p) {
 KilnResult KILN_CALL prepare_empty(void* why, const KilnBootPrepareInputV1* in, KilnBootPreparedV1* out, KilnBootIssueV1* issue) {
     const kiln::boot::Input input = kiln::boot::parse(in);
     const auto docs = input.docs("vfx");
+    for (const auto& d : docs)  // read or not, a document that is no blocks file refuses its mod, as everywhere
+        if (!d.document.is_object())
+            return kiln::boot::refuse(out, issue, d.owner, "vfx", d.key, "kiln.vfx: a boot document is not a blocks file (a JSON object)");
     if (!docs.empty()) {
         issue->code = KILN_BOOT_ISSUE_WARNING | 0x10001u;
         kiln::boot::put(issue->mod_id, docs.front().owner);
@@ -94,7 +97,12 @@ KilnResult KILN_CALL prepare_empty(void* why, const KilnBootPrepareInputV1* in, 
 KilnResult KILN_CALL prepare_build(void*, const KilnBootPrepareInputV1* in, KilnBootPreparedV1* out, KilnBootIssueV1* issue) {
     const kiln::boot::Input input = kiln::boot::parse(in);
     if (!input.ok) return kiln::boot::refuse(out, issue, "", "", "", "kiln.vfx: the boot envelope is not JSON");
-    build_on_ready(g_api, g_owner, &input);
+    try {
+        build_on_ready(g_api, g_owner, &input);
+    } catch (const kiln::boot::Refusal& r) {
+        build_forget();
+        return kiln::boot::refuse(out, issue, r.mod, r.kind, r.key, r.what());
+    }
     return kiln::boot::prepared(out, new BootPlan{true}, &destroy_boot);
 }
 bool vfx_held(const KilnApi* api) {

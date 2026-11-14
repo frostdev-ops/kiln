@@ -279,7 +279,11 @@ void read_mod(const std::string& dir, const fs::path& pending_root, const kiln::
     };
     for (const auto& [label, path] : files) add(label, parse_relaxed(read_text(path)));
     if (boot)
-        for (const auto& b : boot->docs("worldtables", man.id)) add("boot code: " + b.key, ojson::parse(b.document.dump(), nullptr, false));
+        for (const auto& b : boot->docs("worldtables", man.id)) {
+            if (!b.document.is_object())
+                throw kiln::boot::Refusal(man.id, "worldtables", b.key, "kiln.worldtables: a boot document is not a blocks file (a JSON object)");
+            add("boot code: " + b.key, ojson::parse(b.document.dump(), nullptr, false));
+        }
     {
         std::error_code e2;
         std::vector<fs::path> found;
@@ -1479,6 +1483,8 @@ void read_all(const kiln::boot::Input* boot) {
         const fs::path pending = data_dir() / L"pending";
         for (const std::string& dir : mod_folders()) read_mod(dir, pending, boot);
         read_kept();
+    } catch (const kiln::boot::Refusal&) {
+        throw;  // a boot document: its prepare refuses the mod
     } catch (const std::exception& e) {
         g_errors.push_back(std::string("reading the mods' blocks failed: ") + e.what());
     }
@@ -1492,18 +1498,21 @@ void read_all(const kiln::boot::Input* boot) {
 struct BootPlan {
     size_t tweaks = 0, materials = 0, shapes = 0, props = 0;
 };
+void forget_locked() {
+    g_tweaks.clear();
+    g_live.clear();
+    g_kept_read.clear();
+    g_shapes.clear();
+    g_craft_read.clear();
+    g_boot_definitions.clear();
+    g_from_code.clear();
+    g_pending_dirs.clear();
+    g_errors.clear();
+}
 void KILN_CALL destroy_boot(const void* p) {
     {
         std::lock_guard lock(g_mu);
-        g_tweaks.clear();
-        g_live.clear();
-        g_kept_read.clear();
-        g_shapes.clear();
-        g_craft_read.clear();
-        g_boot_definitions.clear();
-        g_from_code.clear();
-        g_pending_dirs.clear();
-        g_errors.clear();
+        forget_locked();
     }
     WT_I("worldtables: the boot generation's prepared snapshot is dropped");
     delete static_cast<const BootPlan*>(p);
@@ -1514,7 +1523,13 @@ KilnResult KILN_CALL prepare_boot(void*, const KilnBootPrepareInputV1* in, KilnB
     auto* plan = new BootPlan;
     {
         std::lock_guard lock(g_mu);
-        read_all(&input);
+        try {
+            read_all(&input);
+        } catch (const kiln::boot::Refusal& r) {
+            forget_locked();
+            delete plan;
+            return kiln::boot::refuse(out, issue, r.mod, r.kind, r.key, r.what());
+        }
         *plan = BootPlan{g_tweaks.size(), g_live.size(), g_shapes.size(), g_craft_read.size()};
     }
     WT_I("worldtables: boot generation %llu prepared: %zu tweak(s), %zu material(s), %zu shape(s), %zu crafting prop(s)",

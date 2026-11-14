@@ -610,6 +610,8 @@ void load_profile_manifests(const kiln::boot::Input* boot = nullptr, BootPlan* p
         }
         if (!boot || id.empty()) continue;
         for (const auto& d : boot->docs("assets", id)) {  // the mod's OnBoot code: after its own file
+            if (!d.document.is_object() || (d.document.contains("entries") && !d.document["entries"].is_array()))
+                throw kiln::boot::Refusal(id, "assets", d.key, "kiln.assets: a boot document is not an assets.json manifest");
             const auto it = boot->owner.find(id);
             const KilnOwner o = it != boot->owner.end() && it->second ? it->second : g_api->owner_create(KilnStr{dir.c_str(), dir.size()});
             if (std::find(plan->owners.begin(), plan->owners.end(), o) == plan->owners.end()) plan->owners.push_back(o);
@@ -644,7 +646,12 @@ KilnResult KILN_CALL prepare_boot(void*, const KilnBootPrepareInputV1* in, KilnB
     const kiln::boot::Input input = kiln::boot::parse(in);
     if (!input.ok) return kiln::boot::refuse(out, issue, "", "", "", "kiln.assets: the boot envelope is not JSON");
     auto* plan = new BootPlan;
-    load_profile_manifests(&input, plan);
+    try {
+        load_profile_manifests(&input, plan);
+    } catch (const kiln::boot::Refusal& r) {
+        destroy_boot(plan);  // what was loaded before the refusal goes with it
+        return kiln::boot::refuse(out, issue, r.mod, r.kind, r.key, r.what());
+    }
     LOGI("assets: boot generation %llu prepared: %zu manifest(s), %zu document(s)", static_cast<unsigned long long>(input.generation),
          plan->manifests, plan->documents);
     return kiln::boot::prepared(out, plan, &destroy_boot);
