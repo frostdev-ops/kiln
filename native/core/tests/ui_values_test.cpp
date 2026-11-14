@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: MIT
 // Host tests of kiln.ui.values (src/services/ui_values*.cpp, abi/services/kiln_ui_values.h): the registry (quotas,
 // order, queued add/remove, retired owners, faults), the text store (budgets, rate, UTF-8, dedupe, lifetime) and the
-// value chain; the detail and slot bars against fake descriptors. The service's environment (owners, kiln.caps, kiln.client, kiln.hooks, game memory) is the fake below;
-// "game memory" is this process's memory. Run by test-ui-values.sh (ASan/UBSan, host compiler, no Wine).
+// value chain; the detail and slot bars against fake descriptors; the player-UI update (HUD pairs, the held item, the
+// pre-provider stage) against fake play data and a scripted update. The service's environment (owners, kiln.caps,
+// kiln.client, kiln.hooks, game memory) is the fake below; "game memory" is this process's memory. Run by
+// test-ui-values.sh (ASan/UBSan, host compiler, no Wine).
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -15,6 +17,7 @@
 #include "../src/services/ui_values.cpp"
 #include "../src/services/ui_values_text.cpp"
 #include "../src/services/ui_values_bars.cpp"
+#include "../src/services/ui_values_update.cpp"
 
 using namespace kiln::uivalues;
 
@@ -82,6 +85,8 @@ size_t logged(const char* part) {
     return n;
 }
 
+void no_original(void*) {}
+
 void install() {
     Env& e = env();
     e.owner_name = [](KilnOwner o) { return alive.count(o) ? owners[o] : std::string("(revoked)"); };
@@ -126,7 +131,10 @@ void install() {
         return true;
     };
     e.hook_raw = [](uintptr_t t, const char* label, void* fn, void** original) {
-        if (hook_result == KILN_OK) raws.push_back({t, label, fn, original});
+        if (hook_result == KILN_OK) {
+            raws.push_back({t, label, fn, original});
+            *original = reinterpret_cast<void*>(&no_original);  // kiln.hooks sets the continuation before it links
+        }
         return hook_result;
     };
     e.hook_mid = [](uintptr_t t, const char* label, KilnMidFn fn) {
@@ -1096,6 +1104,408 @@ void bars_kinds_alone() {
           "gate: a held row never reaches game code");
 }
 
+// ===================================================================== S3: the player-UI update, HUD and held item
+// Fake play data (the client's offsets) and a scripted "game update": the raw link's continuation runs a list of
+// events (the loop storing the iterated entity, the two capture mids, a nested update) as the game's update would.
+struct FakePlay {
+    std::vector<uint8_t> b = std::vector<uint8_t>(0x3100, 0);
+    std::vector<uint8_t> models;  // contiguous models of stride 0x8f70
+    std::vector<std::vector<uint8_t>> views;
+    uintptr_t at() { return addr(b.data()); }
+    void entity(uint32_t e) { put(b.data(), 0x18, e); }
+    void pair(uint32_t kind, uint32_t cur, uint32_t max) {
+        static const size_t off[] = {0, 0, 0x2e40, 0x578, 0x584, 0x59c};
+        put(b.data(), off[kind], cur);
+        put(b.data(), off[kind] + 4, max);
+    }
+    std::pair<uint32_t, uint32_t> pair_of(uint32_t kind) {
+        static const size_t off[] = {0, 0, 0x2e40, 0x578, 0x584, 0x59c};
+        return {get<uint32_t>(b.data(), off[kind]), get<uint32_t>(b.data(), off[kind] + 4)};
+    }
+    // models: one per owner, each with its views (page, index, item, count, pide)
+    struct V {
+        uint32_t page;
+        uint8_t index;
+        uint32_t item, count, pide;
+    };
+    void set_models(const std::vector<std::pair<uint32_t, std::vector<V>>>& ms) {
+        models.assign(ms.size() * 0x8f70 + 16, 0);
+        views.clear();
+        for (size_t m = 0; m < ms.size(); ++m) {
+            uint8_t* model = models.data() + m * 0x8f70;
+            put(model, 0, ms[m].first);
+            auto& vb = views.emplace_back(ms[m].second.size() * 0x48 + 1, 0);
+            for (size_t i = 0; i < ms[m].second.size(); ++i) {
+                const V& v = ms[m].second[i];
+                fill_view_bytes(vb.data() + i * 0x48, v.page, v.index, v.item, v.count, v.pide, 3200, 6400);
+            }
+            put(model, 0x2d8, addr(vb.data()));
+            put(model, 0x2e0, static_cast<uint64_t>(ms[m].second.size()));
+        }
+        put(b.data(), 0x3060, addr(models.data()));
+        put(b.data(), 0x3068, static_cast<uint64_t>(ms.size()));
+    }
+};
+
+struct Event {
+    enum Kind { Entity, Capture, Held, Nested } kind;
+    FakePlay* play = nullptr;
+    uint32_t value = 0;  // Entity: the entity; Held: the pide
+    bool fuel = false;   // Held: rbx set
+    const std::vector<Event>* nested = nullptr;
+};
+using UpdateHook = void (*)(void*);
+UpdateHook g_hook = nullptr;
+int g_original_calls = 0;
+
+void run_mid(const char* label, uintptr_t rsi, uintptr_t rdi, uintptr_t rbx) {
+    KilnRegisters r{};
+    r.rsi = rsi;
+    r.rdi = rdi;
+    r.rbx = rbx;
+    if (KilnMidFn fn = mid_at(label)) fn(&r, nullptr);
+}
+// The game's update as the raw link's continuation sees it.
+void game_update(void* it) {
+    ++g_original_calls;
+    for (const Event& e : *static_cast<const std::vector<Event>*>(it)) {
+        switch (e.kind) {
+            case Event::Entity:
+                e.play->entity(e.value);
+                break;
+            case Event::Capture:
+                run_mid("ui.values/PlayerUiPlayCapture", e.play->at(), 0, 0);
+                break;
+            case Event::Held:
+                run_mid("ui.values/HeldItemCapture", e.play->at(), 0xFFFFFFFF00000000ull | e.value,
+                        e.fuel ? 0x1000 : 0);
+                break;
+            case Event::Nested:
+                g_hook(const_cast<std::vector<Event>*>(e.nested));
+                break;
+        }
+    }
+}
+void update(const std::vector<Event>& script) { g_hook(const_cast<std::vector<Event>*>(&script)); }
+
+uint8_t g_regbuf[0x40], g_resource[0x100];
+
+void prime_update() {
+    prime_bars();  // the view and charge constants, a clean registry
+    using namespace kiln::uivalues;
+    g_upd = {};
+    g_base = false;
+    g_hud = false;
+    g_held = false;
+    g_models = false;
+    g_update_next = nullptr;
+    g_stage.list.clear();
+    g_stage_count = 0;
+    g_held_missing_logged = false;
+    for (uint32_t k = KUI_HELD; k <= KUI_MANA; ++k) set_installer(k, &install_update);
+    fake::symbols["ui/PlayerUiUpdate"] = 0x1402b8430ull;
+    fake::symbols["ui/PlayerUiPlayCapture"] = 0x1402b8c1eull;
+    fake::symbols["ui/HeldItemCapture"] = 0x1402bbb70ull;
+    const std::map<std::string, int64_t> c = {
+        {"ui/play.localEntity", 0x18}, {"ui/play.health", 0x578},       {"ui/play.healthMax", 0x57c},
+        {"ui/play.stamina", 0x584},    {"ui/play.staminaMax", 0x588},   {"ui/play.mana", 0x59c},
+        {"ui/play.manaMax", 0x5a0},    {"ui/play.heldFuel", 0x2e40},    {"ui/play.heldFuelMax", 0x2e44},
+        {"ui/play.models", 0x3060},    {"ui/play.modelsCount", 0x3068}, {"ui/model.owner", 0},
+        {"ui/model.stride", 0x8f70},   {"ui/model.views", 0x2d8},       {"ui/model.viewsCount", 0x2e0}};
+    for (const auto& [k, v] : c) fake::constants[k] = v;
+    put(g_regbuf, 0x20, addr(g_resource));
+    put(g_resource, 0xfc, uint32_t{64});
+    fake::client = ClientNow{77, 4, 12000};
+    fake::screen.frame = 900;
+    g_original_calls = 0;
+}
+// Installs the update (through a HUD or held registration) and hooks the scripted game behind the raw link.
+bool arm() {
+    for (const auto& r : fake::raws)
+        if (r.label == "ui.values/PlayerUiUpdate") {
+            g_hook = reinterpret_cast<UpdateHook>(r.fn);
+            *r.original = reinterpret_cast<void*>(&game_update);
+            return true;
+        }
+    return false;
+}
+void give_balancing(FakePlay& p) { put(p.b.data(), 0x40, addr(g_regbuf)); }
+
+void update_install() {
+    prime_update();
+    const KilnOwner o = fake::owner("mod:hud");
+    add_value(o, KUI_HEALTH, 0, &pass, nullptr);
+    add_value(o, KUI_MANA, 0, &pass, nullptr);
+    CHECK(fake::raws.size() == 1 && fake::raws[0].target == 0x1402b8430ull && fake::mids.size() == 1 &&
+              fake::mids[0].target == 0x1402b8c1eull && arm(),
+          "install: the HUD kinds place one raw link on PlayerUiUpdate and the play capture, once (%zu raw, %zu mid)",
+          fake::raws.size(), fake::mids.size());
+    add_value(o, KUI_HELD, 0, &pass, nullptr);
+    CHECK(fake::raws.size() == 1 && fake::mids.size() == 2 && fake::mids[1].target == 0x1402bbb70ull,
+          "install: the held kind adds only its own mid (HeldItemCapture)");
+    prime_update();
+    fake::rows.erase("ui.values.held");
+    auto r = reg_record();
+    CHECK(T()->subscribe(fake::owner("mod:x"), KUI_HELD, 0, &pass, nullptr, &r) == KILN_ERR_UNAVAILABLE &&
+              fake::raws.empty() && fake::mids.empty(),
+          "gate: ui.values.held held -> UNAVAILABLE, nothing hooked");
+    prime_update();
+    fake::rows.erase("ui.values.hud");
+    KilnHandle h = 0;
+    CHECK(stage_subscribe(
+              0, [](const Stage*, void*) {}, nullptr, &h) == KILN_ERR_UNAVAILABLE &&
+              h == 0 && fake::raws.empty(),
+          "stage: needs ui.values.hud (held: UNAVAILABLE, nothing hooked)");
+    prime_update();
+    fake::constants.erase("ui/play.manaMax");
+    r = reg_record();
+    CHECK(T()->subscribe(fake::owner("mod:y"), KUI_HEALTH, 0, &pass, nullptr, &r) == KILN_ERR_UNAVAILABLE &&
+              fake::raws.empty(),
+          "install: a missing HUD constant turns ui.values.hud off before anything is hooked");
+}
+
+void update_hud() {
+    prime_update();
+    const KilnOwner o = fake::owner("mod:hud");
+    Script health, stamina, mana;
+    health.name = "health";
+    health.flags = KUI_CURRENT | KUI_MAXIMUM;
+    health.current = 37;
+    health.maximum = 100;
+    stamina.name = "stamina";
+    mana.name = "mana";
+    mana.flags = KUI_MAXIMUM;  // 0: an invalid HUD maximum
+    add_value(o, KUI_HEALTH, 0, &scripted, &health);
+    add_value(o, KUI_STAMINA, 0, &scripted, &stamina);
+    add_value(o, KUI_MANA, 0, &scripted, &mana);
+    arm();
+    FakePlay p;
+    p.entity(77);
+    p.pair(KUI_HEALTH, 413, 500);
+    p.pair(KUI_STAMINA, 80, 100);
+    p.pair(KUI_MANA, 20, 40);
+    update({{Event::Capture, &p}});
+    CHECK(g_original_calls == 1 && p.pair_of(KUI_HEALTH) == std::make_pair(37u, 100u),
+          "hud: the original runs once; health's provider writes the captured pair (%u/%u)",
+          p.pair_of(KUI_HEALTH).first, p.pair_of(KUI_HEALTH).second);
+    CHECK(health.seen.current == 413 && health.seen.maximum == 500 && std::fabs(health.seen.fraction - 0.826f) < 1e-3 &&
+              health.view.local_player == 77 && health.view.item == 0 && health.view.frame == 900 &&
+              health.view.session == 4,
+          "hud: the input is the game's pair, the fraction derived; the view names the local player and the last "
+          "completed frame");
+    CHECK(stamina.calls == 1 && p.pair_of(KUI_STAMINA) == std::make_pair(80u, 100u) && mana.calls == 1 &&
+              p.pair_of(KUI_MANA) == std::make_pair(20u, 40u) && fake::writes == 2,
+          "hud: a pass-through and an invalid MAXIMUM 0 write nothing (%zu writes in all)", fake::writes);
+    p.pair(KUI_MANA, 0, 0);
+    const int mana_calls = mana.calls;
+    update({{Event::Capture, &p}});
+    CHECK(mana.calls == mana_calls, "hud: no callback for a pair whose game maximum is 0");
+    fake::client.local_player = 0;
+    const int calls = health.calls;
+    update({{Event::Capture, &p}});
+    CHECK(health.calls == calls && g_original_calls == 3, "hud: no local player -> nothing captured, no callback");
+}
+
+void update_entities() {
+    prime_update();
+    const KilnOwner o = fake::owner("mod:entities");
+    Script health;
+    health.flags = KUI_CURRENT;
+    health.current = 1;
+    add_value(o, KUI_HEALTH, 0, &scripted, &health);
+    arm();
+    FakePlay x, l, y;
+    x.entity(5);
+    l.entity(77);
+    y.entity(6);
+    for (FakePlay* p : {&x, &l, &y}) p->pair(KUI_HEALTH, 50, 60);
+    update({{Event::Capture, &x}, {Event::Capture, &l}, {Event::Capture, &y}});
+    CHECK(health.calls == 1 && l.pair_of(KUI_HEALTH).first == 1 && x.pair_of(KUI_HEALTH).first == 50 &&
+              y.pair_of(KUI_HEALTH).first == 50,
+          "entities: of three iterated entities, only the local player's play data is patched");
+    // one play data reused for every iterated entity: the last one written is not the local player
+    FakePlay shared;
+    shared.pair(KUI_HEALTH, 50, 60);
+    update({{Event::Entity, &shared, 5},
+            {Event::Capture, &shared},
+            {Event::Entity, &shared, 77},
+            {Event::Capture, &shared},
+            {Event::Entity, &shared, 6},
+            {Event::Capture, &shared}});
+    CHECK(health.calls == 1 && shared.pair_of(KUI_HEALTH).first == 50,
+          "entities: play data that holds another entity after the update is not patched");
+    update({{Event::Entity, &shared, 5},
+            {Event::Capture, &shared},
+            {Event::Entity, &shared, 77},
+            {Event::Capture, &shared}});
+    CHECK(health.calls == 2 && shared.pair_of(KUI_HEALTH).first == 1,
+          "entities: the same play data ending on the local player is patched");
+    FakePlay a, b;
+    a.entity(77);
+    b.entity(77);
+    a.pair(KUI_HEALTH, 50, 60);
+    b.pair(KUI_HEALTH, 50, 60);
+    update({{Event::Capture, &a}, {Event::Capture, &b}});
+    CHECK(health.calls == 2 && a.pair_of(KUI_HEALTH).first == 50 && b.pair_of(KUI_HEALTH).first == 50,
+          "entities: two play datas claiming the local player -> ambiguous, nothing patched");
+}
+
+void update_recursion() {
+    prime_update();
+    const KilnOwner o = fake::owner("mod:nested");
+    Script health, held;
+    health.flags = KUI_CURRENT;
+    health.current = 1;
+    held.flags = KUI_CURRENT;
+    held.current = 2;
+    add_value(o, KUI_HEALTH, 0, &scripted, &health);
+    add_value(o, KUI_HELD, 0, &scripted, &held);
+    arm();
+    FakePlay outer, inner;
+    outer.entity(77);
+    inner.entity(77);
+    outer.pair(KUI_HEALTH, 300, 300);
+    inner.pair(KUI_HEALTH, 200, 200);
+    outer.pair(KUI_HELD, 3200, 6400);
+    give_balancing(outer);
+    outer.set_models({{77, {{0x5000, 0, 0xAA, 1, 17500}}}});
+    const std::vector<Event> nested = {{Event::Capture, &inner}};
+    update({{Event::Capture, &outer}, {Event::Nested, nullptr, 0, false, &nested}, {Event::Held, &outer, 17500, true}});
+    CHECK(g_original_calls == 2 && health.calls == 2 && inner.pair_of(KUI_HEALTH).first == 1 &&
+              outer.pair_of(KUI_HEALTH).first == 1,
+          "recursion: the nested update patches its own capture, the outer update its own (calls %d)", health.calls);
+    CHECK(held.calls == 1 && outer.pair_of(KUI_HELD).first == 2 && held.view.client_entity == 17500,
+          "recursion: a capture made after the nested update returned still belongs to the outer one");
+    CHECK(!kiln::uivalues::t_capture.active, "recursion: the thread's capture is idle again after the outer update");
+}
+
+void update_held() {
+    prime_update();
+    const KilnOwner o = fake::owner("mod:held");
+    Script held;
+    held.flags = KUI_CURRENT | KUI_MAXIMUM;
+    held.current = 1;
+    held.maximum = 4;
+    add_value(o, KUI_HELD, 0, &scripted, &held);
+    Script other;  // filtered to another item
+    add_value(o, KUI_HELD, 0xBB, &scripted, &other);
+    arm();
+    FakePlay p;
+    p.entity(77);
+    give_balancing(p);
+    p.pair(KUI_HELD, 3200, 6400);
+    p.set_models({{77, {{0x5000, 0, 0xAA, 1, 17500}, {0x5000, 1, 0, 0, 0}, {0x5001, 2, 0xAB, 3, 0}}},
+                  {99, {{0x6000, 0, 0xBB, 1, 17600}}}});
+    update({{Event::Capture, &p}, {Event::Held, &p, 17500, true}});
+    const KilnUiItemView& v = held.view;
+    CHECK(held.calls == 1 && v.item == 0xAA && v.client_entity == 17500 &&
+              v.flags == (KUI_INVENTORY_SLOT | KUI_CLIENT_ENTITY) && v.inventory_page == 0x5000 &&
+              v.units_per_charge == 64 && v.fuel == 3200 && v.fuel_max == 6400 && held.seen.current == 3200 &&
+              held.seen.maximum == 6400,
+          "held: the held pide's view from the local inventory; the pair in raw fuel units (%d calls)", held.calls);
+    CHECK(p.pair_of(KUI_HELD) == std::make_pair(1u, 4u) && other.calls == 0,
+          "held: the pair is written; a provider for another item is not called");
+    // a pide only in another owner's model (an open container): rejected, not invented
+    p.pair(KUI_HELD, 3200, 6400);
+    update({{Event::Capture, &p}, {Event::Held, &p, 17600, true}});
+    CHECK(held.calls == 1 && other.calls == 0 && p.pair_of(KUI_HELD) == std::make_pair(3200u, 6400u) &&
+              fake::logged("held stack's view was not found") == 1,
+          "held: a held view missing from the local inventory -> no callback, nothing written");
+    // two views with the pide naming different items: rejected
+    p.set_models({{77, {{0x5000, 0, 0xAA, 1, 17500}, {0x5000, 1, 0xAC, 1, 17500}}}});
+    update({{Event::Capture, &p}, {Event::Held, &p, 17500, true}});
+    CHECK(held.calls == 1 && p.pair_of(KUI_HELD) == std::make_pair(3200u, 6400u),
+          "held: two views of the pide with different items -> rejected");
+    // nothing held: the game's no-item branch reaches the mid with pide 0 and no fuel, and the pair is 0/0
+    p.set_models({{77, {{0x5000, 0, 0xAA, 1, 17500}}}});
+    p.pair(KUI_HELD, 0, 0);
+    update({{Event::Capture, &p}, {Event::Held, &p, 0, false}});
+    update({{Event::Capture, &p}, {Event::Held, &p, 17500, true}});
+    CHECK(held.calls == 1 && p.pair_of(KUI_HELD) == std::make_pair(0u, 0u),
+          "held: no callback when the held maximum is 0 (nothing held, or a stack without fuel)");
+    p.pair(KUI_HELD, 3200, 6400);
+    update({{Event::Capture, &p}});
+    CHECK(held.calls == 1, "held: no held capture in the update -> no callback");
+    held.flags = KUI_MAXIMUM;
+    held.maximum = 0;
+    update({{Event::Capture, &p}, {Event::Held, &p, 17500, true}});
+    CHECK(held.calls == 2 && p.pair_of(KUI_HELD) == std::make_pair(3200u, 6400u),
+          "held: an edit with MAXIMUM 0 is invalid, nothing written");
+}
+
+struct StageLog {
+    std::vector<std::string>* order = nullptr;
+    Stage last{};
+    std::vector<StageRow> rows;
+    int calls = 0;
+};
+void stage_observer(const Stage* s, void* user) {
+    auto* log = static_cast<StageLog*>(user);
+    ++log->calls;
+    log->last = *s;
+    log->rows.assign(s->rows, s->rows + s->row_count);
+    g_calls.order.push_back("stage");
+}
+
+void update_stage() {
+    prime_update();
+    const KilnOwner o = fake::owner("mod:stage");
+    Script health;
+    health.name = "health";
+    health.flags = KUI_CURRENT;
+    health.current = 37;
+    StageLog log;
+    KilnHandle h = 0;
+    CHECK(stage_subscribe(0, &stage_observer, &log, &h) == KILN_OK && h != 0 && arm(),
+          "stage: an observer installs the update hook (ui.values.hud available)");
+    add_value(o, KUI_HEALTH, 0, &scripted, &health);
+    FakePlay p;
+    p.entity(77);
+    p.pair(KUI_HEALTH, 413, 500);
+    p.pair(KUI_STAMINA, 80, 100);
+    p.pair(KUI_MANA, 20, 40);
+    p.set_models(
+        {{77, {{0x5001, 2, 0xAB, 3, 0}, {0x5000, 7, 0xAA, 1, 17500}, {0x5000, 1, 0, 0, 0}, {0x5000, 0, 0xAC, 5, 900}}},
+         {99, {{0x6000, 0, 0xBB, 1, 17600}}}});
+    g_calls.order.clear();
+    update({{Event::Capture, &p}});
+    const Stage& s = log.last;
+    CHECK(log.calls == 1 && g_calls.order == (std::vector<std::string>{"stage", "health"}) &&
+              p.pair_of(KUI_HEALTH).first == 37,
+          "stage: delivered after the original, before the providers");
+    CHECK(s.health == 413 && s.health_max == 500 && s.stamina == 80 && s.mana_max == 40 && s.local_player == 77 &&
+              s.session == 4 && s.step == 12000 && s.capture_ms == fake::ticks &&
+              s.available == (kStageVitals | kStageInventory),
+          "stage: the game's original pairs, tagged with the client session and step");
+    CHECK(log.rows.size() == 3 && s.rows_total == 3 && log.rows[0].slot_index == 0 && log.rows[0].item == 0xAC &&
+              log.rows[0].count == 5 && log.rows[0].pide == 900 && log.rows[1].slot_index == 7 &&
+              log.rows[1].pide == 17500 && log.rows[2].inventory_page == 0x5001 && log.rows[0].holder == 77,
+          "stage: the local player's own nonempty slots sorted by (page, index), no container's (%zu rows)",
+          log.rows.size());
+    std::vector<FakePlay::V> many;
+    for (uint32_t i = 0; i < 600; ++i) many.push_back({0x7000 + i / 8, static_cast<uint8_t>(i % 8), 0xAA, 1, 0});
+    p.set_models({{77, many}});
+    update({{Event::Capture, &p}});
+    CHECK(log.calls == 2 && log.last.rows_total == 600 && log.last.row_count == 512 &&
+              log.rows.back().inventory_page == 0x7000 + 511 / 8,
+          "stage: 600 slots -> the first 512 rows and rows_total 600");
+    fake::constants.clear();  // unchanged layout: the update keeps what it loaded
+    CHECK(stage_unsubscribe(h) == KILN_OK && stage_unsubscribe(h) == KILN_ERR_NOT_FOUND, "stage: unsubscribe once");
+    update({{Event::Capture, &p}});
+    CHECK(log.calls == 2, "stage: no call after unsubscribe");
+    prime_update();
+    const KilnOwner gone = fake::owner("mod:gone");
+    StageLog log2;
+    stage_subscribe(gone, &stage_observer, &log2, &h);
+    arm();
+    fake::revoke(gone);
+    FakePlay q;
+    q.entity(77);
+    q.pair(KUI_HEALTH, 1, 2);
+    update({{Event::Capture, &q}});
+    CHECK(log2.calls == 0 && g_stage_count == 0, "stage: a retired owner's observer is dropped");
+}
+
 }  // namespace
 
 int main() {
@@ -1114,6 +1524,12 @@ int main() {
     bars_slot_zero();
     bars_labels();
     bars_kinds_alone();
+    update_install();
+    update_hud();
+    update_entities();
+    update_recursion();
+    update_held();
+    update_stage();
     std::printf(g_fail ? "%d FAILED\n" : "all passed\n", g_fail);
     return g_fail ? 1 : 0;
 }

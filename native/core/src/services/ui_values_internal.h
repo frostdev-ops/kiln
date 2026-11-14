@@ -4,6 +4,7 @@
 //   ui_values.cpp          the table, the owner registry (quotas, ordered provider lists, faults), the value chain
 //   ui_values_text.cpp     the process-lifetime text store
 //   ui_values_bars.cpp     the item detail bar and the slot bar (mids before the game draws a temporary Bar)
+//   ui_values_update.cpp   the player-UI update: HUD pairs, the held item, the pre-provider stage (below)
 //   ui_values_service.cpp  the production environment (owners, kiln.caps, sigdb, kiln.hooks, kiln.client, kiln.ui),
 //                          the SEH guards and the service's registration with the core
 //
@@ -144,6 +145,41 @@ bool load_view_layout(ViewLayout* out);  // false when a constant is missing or 
 void fill_view(const uint8_t* raw, const ViewLayout& layout, uint32_t base_flags, KilnUiItemView* v);
 void load_charge_layout();                  // once; the balancing offsets for units_per_charge
 uint32_t units_per_charge(uintptr_t play);  // max(1, the water charge amount) through play's balancing registry
+
+// ---- the pre-provider stage of the player-UI update (ui_values_update.cpp) ----
+// For 09-ui-blocks' snapshot service (chapter 09 §4.4: local vitals and inventory), so it never edits the update hook.
+// What the game's player-UI update copied for the local player, BEFORE any held or HUD provider patched it: the
+// original u32 pairs and the local player's own inventory (its own models only: no open container, no detail copy),
+// nonempty slots sorted by (page, index). Called on the thread of the update (the client's main thread) right after
+// the update's original returned and play+localEntity was checked against kiln.client's local player, before the
+// providers run. Everything is borrowed for the call and holds no game pointer: copy what you keep. Tagged with the
+// client world's session and step (kiln.client) and GetTickCount64 milliseconds. Not called without a local player or
+// when the update's capture was ambiguous. The observer must not fault (it is core code; no SEH guard).
+struct StageRow {  // the layout of chapter 09's KilnUiInventoryRow
+    uint32_t holder, inventory_page, slot_index, item, count, pide;
+};
+static_assert(sizeof(StageRow) == 24);
+inline constexpr uint32_t kStageRowsMax = 512;  // rows carried; rows_total says when there were more
+enum : uint32_t {
+    kStageVitals = 1,     // health / stamina / mana and their maxima are the game's
+    kStageInventory = 2,  // rows / rows_total are the local player's inventory (0 rows = nothing in it)
+};
+struct Stage {
+    uint32_t size;
+    uint32_t available;  // kStage*: the parts that are valid (inventory needs the model layout to resolve)
+    uint32_t local_player;
+    uint32_t health, health_max, stamina, stamina_max, mana, mana_max;
+    uint32_t rows_total;  // nonempty own slots found; above kStageRowsMax only the first 512 by (page, index) are here
+    uint32_t row_count;
+    const StageRow* rows;
+    uint64_t session, step, capture_ms;
+};
+using StageFn = void (*)(const Stage* stage, void* user);
+// Adds an observer (any thread). It needs the update hook, which comes with ui.values.hud: KILN_ERR_UNAVAILABLE while
+// that row is held by the client gate or off. Owner 0 is the core's own; another owner's observers stop when it is
+// revoked. Remove with stage_unsubscribe.
+KilnResult stage_subscribe(KilnOwner owner, StageFn fn, void* user, KilnHandle* out);
+KilnResult stage_unsubscribe(KilnHandle h);
 
 // ---- text (ui_values_text.cpp) ----
 namespace text {
