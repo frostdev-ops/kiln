@@ -46,7 +46,7 @@ impl CheckItem {
             UpdatesSpec::Github { repository, .. } => repository.clone(),
             UpdatesSpec::Nexus { .. } => id.destination,
         };
-        SourceInfo { provider: id.provider, destination, origin: self.origin, authenticated }
+        SourceInfo { provider: id.provider, destination, origin: self.origin, authenticated, spec: Some(self.spec.clone()) }
     }
 
     /// The item's status before anything is known: `unknown / not_checked`.

@@ -450,6 +450,77 @@ fn one_release(binding_size: u64) -> String {
     Value::Array(vec![release(1, "v2.0.0", &[(11, "m-2.0.0.zip", 500), (12, "kiln-release.json", binding_size)])]).to_string()
 }
 
+#[test]
+fn an_exhausted_budget_stops_pagination_and_binding_reads() {
+    for binding in [false, true] {
+        let (_tmp, dirs) = tmp(if binding { "budget-binding" } else { "budget-page" });
+        let t = FakeTransport::new();
+        let body = if binding { one_release(100) } else { page_of(1, 100) };
+        t.reply(Method::Get, &list_url(GLOW, 1), Reply::json(200, &body)
+            .with_header("x-ratelimit-remaining", "0")
+            .with_header("x-ratelimit-reset", &(NOW + 900).to_string()));
+        let s = one(&dirs, &t, &glow("0.0.1", None), &opts(NOW));
+        assert_eq!(urls(&t), [list_url(GLOW, 1)], "nothing follows the answer that exhausted the budget");
+        assert_eq!((s.state, s.reason), (UpdateState::Unknown, Some(UnknownReason::RateLimited)));
+        done(&t);
+        one(&dirs, &t, &glow("0.0.1", None), &refresh(NOW + 60));
+        assert_eq!(t.requests().len(), 1, "refresh cannot bypass the wait");
+    }
+}
+
+#[test]
+fn a_huge_retry_after_is_bounded_without_panicking() {
+    let (_tmp, dirs) = tmp("huge-retry");
+    let t = FakeTransport::new();
+    t.reply(Method::Get, &list_url(GLOW, 1), Reply::status(429).with_header("Retry-After", &i64::MAX.to_string()));
+    let s = one(&dirs, &t, &glow("1.0.0", None), &opts(NOW));
+    assert_eq!(s.reason, Some(UnknownReason::RateLimited));
+    assert_eq!(cache::load(&dirs).limit_left(github::API_HOST, NOW), DAY);
+    done(&t);
+}
+
+#[test]
+fn a_cached_selection_is_rechecked_for_a_different_receipt_release() {
+    let (_tmp, dirs) = tmp("receipt-release");
+    let t = FakeTransport::new();
+    let mut it = item("m", "1.3.0", github(GLOW, "v{version}", None, UpdateChannel::Stable), Some(GLOW_SHA));
+    let body = json!([release(40, "v1.2.0", &[])]).to_string();
+    t.reply(Method::Get, &list_url(GLOW, 1), Reply::json(200, &body).with_header("ETag", "\"one\""));
+    assert_eq!(one(&dirs, &t, &it, &opts(NOW)).state, UpdateState::Current);
+    let receipt = it.receipt.as_mut().unwrap();
+    receipt.provider = ReceiptProvider::Github;
+    receipt.destination = GLOW.into();
+    receipt.release_id = Some("41".into());
+    let offline = one(&dirs, &t, &it, &off(NOW + 60));
+    assert_eq!((offline.state, offline.reason), (UpdateState::Unknown, Some(UnknownReason::NotChecked)));
+    // A failed recheck cannot make the old selection speak for the new receipt either.
+    t.reply(Method::Get, &list_url(GLOW, 1), Reply::Lost);
+    assert_eq!(one(&dirs, &t, &it, &opts(NOW + 60)).state, UpdateState::Unknown);
+    assert_eq!(one(&dirs, &t, &it, &off(NOW + 61)).state, UpdateState::Unknown);
+    t.reply(Method::Get, &list_url(GLOW, 1), Reply::json(200, &body).with_header("ETag", "\"one\""));
+    let online = one(&dirs, &t, &it, &refresh(NOW + 62));
+    assert_eq!((online.state, online.reason), (UpdateState::Unknown, Some(UnknownReason::ReleaseRemoved)));
+    assert!(t.requests().last().unwrap().header("if-none-match").is_none(), "304 cannot recheck a different receipt");
+    done(&t);
+}
+
+#[test]
+fn a_first_page_validator_never_confirms_later_pages() {
+    let (_tmp, dirs) = tmp("later-page-validator");
+    let t = FakeTransport::new();
+    let it = item("m", "1.0.0", github(GLOW, "v{version}", None, UpdateChannel::Stable), None);
+    for (now, version) in [(NOW, "v1.0.0"), (NOW + DAY * 2, "v2.0.0")] {
+        // The first page stays identical; an older release on page two gets a higher semantic version.
+        t.reply(Method::Get, &list_url(GLOW, 1), Reply::json(200, &page_of(1, 100)).with_header("ETag", "\"page-one\""));
+        t.reply(Method::Get, &list_url(GLOW, 2), Reply::json(200, &json!([release(9000, version, &[])]).to_string()));
+        one(&dirs, &t, &it, &opts(now));
+    }
+    let requests = t.requests();
+    assert!(requests[2].header("if-none-match").is_none(), "a 304 for page one says nothing about page two");
+    assert!(requests[2].header("if-modified-since").is_none());
+    done(&t);
+}
+
 fn binding_for(id: &str, version: &str, name: &str, bytes: u64) -> String {
     json!({"format": 1, "mods": [{"id": id, "version": version, "side": "both", "apiVersion": "0.2", "artifact": {"name": name, "sha256": "e".repeat(64), "bytes": bytes}}]}).to_string()
 }

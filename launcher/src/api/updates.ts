@@ -19,6 +19,8 @@ export interface UpdateSourceInfo {
   origin: "manual" | "receipt" | "manifest";
   /** The check uses the player's account at the provider (Nexus Mods); false: an anonymous read. */
   authenticated: boolean;
+  /** Complete settings for the source dialog; optional in older results. */
+  spec?: UpdatesSpec;
 }
 
 export interface CandidateIdentity {

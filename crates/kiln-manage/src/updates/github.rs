@@ -101,7 +101,7 @@ fn limit_of(r: &Response, now: i64) -> Option<i64> {
         return None;
     }
     // a minute at least; an hour when GitHub names no time
-    Some(retry_after.map(|s| now + s).or(reset.filter(|_| exhausted)).unwrap_or(now + 3600).max(now + 60))
+    Some(retry_after.map(|s| now.saturating_add(s)).or(reset.filter(|_| exhausted)).unwrap_or(now + 3600).max(now + 60))
 }
 
 /// The last answer used up the budget: stop before the next request is refused.
@@ -145,6 +145,9 @@ impl<'a> GithubProvider<'a> {
             if progress.canceled() {
                 return Err(Error::new(ErrorCode::Canceled, "canceled"));
             }
+            if run.cache.limit_left(API_HOST, now) > 0 {
+                return Ok(Listing::Failed { reason: UnknownReason::RateLimited, until: run.cache.limits.get(API_HOST).map(|l| l.until) });
+            }
             let mut req = self.get(format!("https://{API_HOST}/repos/{repository}/releases?per_page={PER_PAGE}&page={page}")).max_response(MAX_PAGE_BYTES);
             if page == 1
                 && let Some((e, m)) = &conditional
@@ -182,7 +185,8 @@ impl<'a> GithubProvider<'a> {
             let Some(items) = select::parse_page(&r.body) else {
                 return Ok(Listing::Failed { reason: UnknownReason::Network, until: None });
             };
-            if page == 1 {
+            // A page's validator says nothing about later pages. Only a short first page covers the whole list.
+            if page == 1 && items.len() < PER_PAGE {
                 etag = validator(&r, "etag");
                 last_modified = validator(&r, "last-modified");
             }
@@ -253,6 +257,9 @@ impl<'a> GithubProvider<'a> {
 
     /// Reads the candidate's `kiln-release.json` through the asset endpoint.
     fn read_binding(&self, repository: &str, asset_id: &str, run: &mut Run) -> Fetched {
+        if run.cache.limit_left(API_HOST, run.opts.now) > 0 {
+            return Fetched::Unreadable;
+        }
         // GitHub's asset ids are numbers; anything else does not go into a URL
         if asset_id.is_empty() || !asset_id.bytes().all(|b| b.is_ascii_digit()) {
             return Fetched::Refused;
@@ -281,7 +288,14 @@ impl<'a> GithubProvider<'a> {
     /// Asks GitHub about one source and writes the outcome into its entry.
     fn refresh(&self, item: &CheckItem, src: &GithubSource, entry: &mut CacheEntry, run: &mut Run, progress: &mut dyn Progress) -> Result<()> {
         let now = run.opts.now;
-        match self.listing(src.repository, entry, run, progress)? {
+        let mut conditional_entry = entry.clone();
+        if entry.receipt.release_id.as_deref() != item.receipt.as_ref().and_then(|r| r.release_id.as_deref()) {
+            // The selection only checked whether the receipt known then was deleted. A 304 cannot answer for a
+            // different receipt: read the list again and check that release's presence too.
+            conditional_entry.etag = None;
+            conditional_entry.last_modified = None;
+        }
+        match self.listing(src.repository, &conditional_entry, run, progress)? {
             Listing::Failed { reason, until } => entry.failed(now, reason, until),
             Listing::NotModified { .. } => entry.succeeded(now, Attempt::NotModified),
             Listing::Read { releases, complete, etag, last_modified, digest } => {
@@ -340,6 +354,8 @@ impl<'a> GithubProvider<'a> {
             selection: None,
         });
         let before = entry.clone();
+        let receipt_release = item.receipt.as_ref().and_then(|r| r.release_id.as_deref());
+        let receipt_changed = entry.selection.is_some() && entry.receipt.release_id.as_deref() != receipt_release;
 
         // Whether to ask, and if not, why not (None: because the remembered answer is recent enough).
         let ttl = if opts.automatic { STALE_AFTER_SECS } else { MANUAL_TTL_SECS };
@@ -359,7 +375,7 @@ impl<'a> GithubProvider<'a> {
             } else if entry_wait > 0 && (entry.reason == Some(UnknownReason::RateLimited) || !opts.refresh) {
                 // the wait after a failure; --refresh skips it unless the failure was a request limit
                 Some(entry.reason)
-            } else if !opts.refresh && entry.status != Some(Attempt::Failed) && entry.success_within(now, ttl) {
+            } else if !opts.refresh && !receipt_changed && entry.status != Some(Attempt::Failed) && entry.success_within(now, ttl) {
                 Some(None)
             } else {
                 None
@@ -370,11 +386,12 @@ impl<'a> GithubProvider<'a> {
             self.refresh(item, &src, &mut entry, run, progress)?;
         }
         let receipt = item.receipt.as_ref();
+        let receipt_confirmed = !receipt_changed || (held.is_none() && entry.status != Some(Attempt::Failed));
         entry.receipt = InstalledIdentity {
             version: item.target.library_ref.version.clone(),
             hash: item.target.library_ref.hash.clone(),
             artifact_sha256: receipt.and_then(|r| r.artifact_sha256.clone()),
-            release_id: receipt.and_then(|r| r.release_id.clone()),
+            release_id: if receipt_confirmed { receipt_release.map(str::to_string) } else { before.receipt.release_id.clone() },
         };
         if entry != before && !opts.offline {
             run.changed.insert(key, entry.clone());
@@ -383,6 +400,9 @@ impl<'a> GithubProvider<'a> {
         // The status: the remembered selection compared with what is installed now.
         let mut s = item.status(false);
         s.page_url = Some(select::release_page(repository, None));
+        if !receipt_confirmed {
+            return Ok(s.unknown(entry.reason.or(held.flatten().filter(|_| !opts.offline)).unwrap_or(UnknownReason::NotChecked)));
+        }
         let failed = entry.status == Some(Attempt::Failed);
         let Some(selection) = &entry.selection else {
             // never answered: the failure's reason, the request limit, or simply "not checked yet"

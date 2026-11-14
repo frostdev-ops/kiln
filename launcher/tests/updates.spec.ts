@@ -105,6 +105,29 @@ test("offline: what was seen stays, marked stale, and nothing reads as up to dat
   console.log("PASS updates.offline (launcher)");
 });
 
+test("editing a source preserves its tag pattern, asset and channel", async ({ page }) => {
+  await desktop(page);
+  await expect(row(page, "New Items")).toContainText("Update 1.1.0");
+  let dialog = await openUpdates(page, "New Items");
+  await dialog.getByLabel("Release tag").fill("mods/new-items/v{version}");
+  await dialog.getByLabel("File name").fill("items-{version}.zip");
+  await dialog.getByLabel("Versions", { exact: true }).selectOption("prerelease");
+  await dialog.getByRole("button", { name: "Save and check" }).click();
+  await expect(dialog).toContainText("set by you");
+  await page.keyboard.press("Escape");
+  dialog = await openUpdates(page, "New Items");
+  await expect(dialog.getByLabel("Release tag")).toHaveValue("mods/new-items/v{version}");
+  await expect(dialog.getByLabel("File name")).toHaveValue("items-{version}.zip");
+  await expect(dialog.getByLabel("Versions", { exact: true })).toHaveValue("prerelease");
+  await dialog.getByLabel("Versions", { exact: true }).selectOption("stable");
+  await dialog.getByRole("button", { name: "Save and check" }).click();
+  await expect(dialog.getByRole("button", { name: "Save and check" })).toBeEnabled();
+  const sent = (await requests(page)).filter((r) => r.source?.action === "map");
+  expect((sent.at(-1)!.source as unknown as { spec: unknown }).spec).toEqual({
+    provider: "github", repository: "example-org/new-items", tagPattern: "mods/new-items/v{version}", asset: "items-{version}.zip", channel: "stable",
+  });
+});
+
 test("a source set by hand, and the yes a changed source needs", async ({ page }) => {
   await desktop(page);
   await expect(row(page, "New Items")).toContainText("Update 1.1.0", { timeout: 10_000 });
