@@ -32,6 +32,86 @@ pub fn check_token(t: &str) -> Result<()> {
     Ok(())
 }
 
+/// Reads one token from stdin, disabling echo while reading from a terminal. A failure to protect the terminal
+/// stops before reading the secret; piped input needs no terminal mode change.
+pub fn read_stdin() -> Result<String> {
+    use std::io::{BufRead, IsTerminal, Read};
+    let input = std::io::stdin();
+    let _guard = if input.is_terminal() {
+        #[cfg(unix)]
+        { Some(EchoGuard::disable(0)?) }
+        #[cfg(windows)]
+        { Some(EchoGuard::disable()?) }
+        #[cfg(not(any(unix, windows)))]
+        { return Err(Error::new(ErrorCode::Unsupported, "Pipe the token into stdin on this platform.")); }
+    } else { None::<EchoGuard> };
+    let mut line = String::new();
+    input.lock().take(1024).read_line(&mut line)?;
+    check_token(line.trim())?;
+    Ok(line)
+}
+
+#[cfg(unix)]
+struct EchoGuard { fd: libc::c_int, saved: libc::termios }
+
+#[cfg(unix)]
+impl EchoGuard {
+    fn disable(fd: libc::c_int) -> Result<Self> {
+        let mut saved = std::mem::MaybeUninit::<libc::termios>::uninit();
+        // SAFETY: tcgetattr initializes saved on success; the borrowed fd remains open while the guard lives.
+        if unsafe { libc::tcgetattr(fd, saved.as_mut_ptr()) } != 0 {
+            return Err(Error::new(ErrorCode::Io, "Could not read the terminal mode; pipe the token into stdin."));
+        }
+        let saved = unsafe { saved.assume_init() };
+        let mut hidden = saved;
+        hidden.c_lflag &= !(libc::ECHO | libc::ECHONL);
+        if unsafe { libc::tcsetattr(fd, libc::TCSANOW, &hidden) } != 0 {
+            return Err(Error::new(ErrorCode::Io, "Could not disable terminal echo; pipe the token into stdin."));
+        }
+        Ok(Self { fd, saved })
+    }
+}
+
+#[cfg(unix)]
+impl Drop for EchoGuard {
+    fn drop(&mut self) { unsafe { libc::tcsetattr(self.fd, libc::TCSANOW, &self.saved); } }
+}
+
+#[cfg(windows)]
+mod console {
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        pub fn GetStdHandle(n: u32) -> *mut std::ffi::c_void;
+        pub fn GetConsoleMode(h: *mut std::ffi::c_void, mode: *mut u32) -> i32;
+        pub fn SetConsoleMode(h: *mut std::ffi::c_void, mode: u32) -> i32;
+    }
+}
+
+#[cfg(windows)]
+struct EchoGuard { handle: *mut std::ffi::c_void, saved: u32 }
+
+#[cfg(windows)]
+impl EchoGuard {
+    fn disable() -> Result<Self> {
+        // SAFETY: the standard input handle is borrowed and the mode pointer is valid for the call.
+        let handle = unsafe { console::GetStdHandle(-10i32 as u32) };
+        let mut saved = 0;
+        if unsafe { console::GetConsoleMode(handle, &mut saved) } == 0
+            || unsafe { console::SetConsoleMode(handle, saved & !4) } == 0 {
+            return Err(Error::new(ErrorCode::Io, "Could not disable console echo; pipe the token into stdin."));
+        }
+        Ok(Self { handle, saved })
+    }
+}
+
+#[cfg(windows)]
+impl Drop for EchoGuard {
+    fn drop(&mut self) { unsafe { console::SetConsoleMode(self.handle, self.saved); } }
+}
+
+#[cfg(not(any(unix, windows)))]
+struct EchoGuard;
+
 /// The token source of the CLI. `env` is the value of [`ENV`] as the caller read it (so tests do not touch the
 /// process environment).
 pub struct StoredToken {
@@ -107,7 +187,7 @@ impl SecretTool {
 
     /// Runs secret-tool with a 5 s limit (a keyring waiting for an unlock nobody answers must not hang the command).
     /// The secret goes in through stdin, never through an argument.
-    fn run(&self, args: &[&str], stdin: Option<&str>) -> Result<(bool, String)> {
+    fn run(&self, args: &[&str], stdin: Option<&str>) -> Result<(std::process::ExitStatus, String, bool)> {
         use std::io::{Read, Write};
         use std::process::Stdio;
         let mut child = crate::hostenv::command(&self.exe)
@@ -115,7 +195,7 @@ impl SecretTool {
             .args(Self::ATTRS)
             .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::piped())
             .spawn()
             .map_err(|e| Error::new(ErrorCode::Unsupported, format!("secret-tool: {e}")))?;
         if let Some(s) = stdin
@@ -130,7 +210,10 @@ impl SecretTool {
                 if let Some(o) = child.stdout.take() {
                     let _ = o.take(4096).read_to_string(&mut out);
                 }
-                return Ok((st.success(), out));
+                let mut diagnostic = Vec::new();
+                if let Some(e) = child.stderr.take() { let _ = e.take(4096).read_to_end(&mut diagnostic); }
+                // Only the presence of a diagnostic leaves this function, never its text (it can echo a secret).
+                return Ok((st, out, !diagnostic.is_empty()));
             }
             if std::time::Instant::now() > deadline {
                 let _ = child.kill();
@@ -145,15 +228,19 @@ impl SecretTool {
 #[cfg(target_os = "linux")]
 impl SecretStore for SecretTool {
     fn get(&self) -> Result<Option<String>> {
-        let (ok, out) = self.run(&["lookup"], None)?;
-        Ok((ok && !out.trim().is_empty()).then(|| out.trim().to_string()))
+        let (status, out, diagnostic) = self.run(&["lookup"], None)?;
+        if status.success() { return Ok(Some(out.trim().to_string())); }
+        if status.code() == Some(1) && !diagnostic && out.is_empty() { return Ok(None); }
+        Err(Error::new(ErrorCode::Io, "The credential store could not be read; the environment token was not used."))
     }
     fn set(&self, secret: &str) -> Result<()> {
-        let (ok, _) = self.run(&["store", "--label=Kiln: GitHub token for kiln publish"], Some(secret))?;
-        if ok { Ok(()) } else { Err(Error::new(ErrorCode::Io, "The keyring did not take the token.")) }
+        let (status, _, _) = self.run(&["store", "--label=Kiln: GitHub token for kiln publish"], Some(secret))?;
+        if status.success() { Ok(()) } else { Err(Error::new(ErrorCode::Io, "The keyring did not take the token.")) }
     }
     fn clear(&self) -> Result<()> {
-        self.run(&["clear"], None).map(|_| ())
+        let (status, _, diagnostic) = self.run(&["clear"], None)?;
+        if status.success() || (status.code() == Some(1) && !diagnostic) { Ok(()) }
+        else { Err(Error::new(ErrorCode::Io, "The keyring could not remove the token.")) }
     }
 }
 
@@ -294,5 +381,46 @@ mod tests {
         let src = include_str!("token.rs");
         assert_eq!(src.matches(concat!("env::", "var(")).count(), 1);
         assert!(src.contains(concat!("std::env::", "var(ENV)")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn reading_a_token_disables_terminal_echo_and_restores_it() {
+        use std::os::fd::FromRawFd;
+        let (mut master, mut slave) = (-1, -1);
+        // A private pseudo-terminal, never the user's terminal or keyring.
+        assert_eq!(unsafe { libc::openpty(&mut master, &mut slave, std::ptr::null_mut(), std::ptr::null(), std::ptr::null()) }, 0);
+        let _master = unsafe { std::fs::File::from_raw_fd(master) };
+        let _slave = unsafe { std::fs::File::from_raw_fd(slave) };
+        let flags = || {
+            let mut mode = std::mem::MaybeUninit::<libc::termios>::uninit();
+            assert_eq!(unsafe { libc::tcgetattr(slave, mode.as_mut_ptr()) }, 0);
+            unsafe { mode.assume_init() }.c_lflag
+        };
+        let before = flags();
+        assert_ne!(before & libc::ECHO, 0);
+        {
+            let _guard = EchoGuard::disable(slave).unwrap();
+            assert_eq!(flags() & libc::ECHO, 0, "pasted credentials would be echoed");
+        }
+        assert_eq!(flags(), before);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_keyring_failure_does_not_silently_use_the_environment_token() {
+        use std::os::unix::fs::PermissionsExt;
+        for (body, failed) in [("exit 1\n", false), ("printf 'keyring unavailable with ghp_FAKESTORETOKEN0123456789' >&2\nexit 1\n", true), ("exit 2\n", true), ("exit 0\n", true)] {
+            let exe = std::env::temp_dir().join(format!("kiln-secret-tool-{}", crate::util::uuid_v4().unwrap()));
+            std::fs::write(&exe, format!("#!/bin/sh\n{body}")).unwrap();
+            std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o700)).unwrap();
+            let source = StoredToken::new(Some(Box::new(SecretTool { exe: exe.clone() })), Some(B.into()));
+            let result = source.resolve();
+            std::fs::remove_file(exe).unwrap();
+            if failed {
+                let e = result.expect_err("a keyring error was treated as an absent entry");
+                assert!(!format!("{e:?}").contains(A) && !format!("{e:?}").contains(B));
+            } else { assert_eq!(result.unwrap(), (B.into(), Origin::Environment)); }
+        }
     }
 }

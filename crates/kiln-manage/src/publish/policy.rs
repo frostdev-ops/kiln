@@ -10,7 +10,7 @@
 use crate::{Error, ErrorCode};
 
 /// Bumped with every change of a rule or a limit in this file.
-pub const POLICY_VERSION: u32 = 1;
+pub const POLICY_VERSION: u32 = 2;
 
 pub const MAX_ZIP_BYTES: u64 = 512 * 1024 * 1024;
 pub const MAX_EXPANDED_BYTES: u64 = 2 * 1024 * 1024 * 1024;

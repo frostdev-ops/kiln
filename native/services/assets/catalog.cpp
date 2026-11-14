@@ -11,8 +11,10 @@
 // in the store's order), else the game's own (owner 0, sequence 0). OVERRIDDEN: the game lists it and a registration wins.
 #include <algorithm>
 #include <memory>
+#include <unordered_set>
 
 #include "assets.h"
+#include "services/kiln_hooks.h"
 
 namespace ka {
 namespace {
@@ -26,7 +28,7 @@ struct Snapshot {
     uint64_t generation = 0;
     uint32_t mode = 0, status = 0, flags = 0;
     std::vector<KilnBlobCatalogEntry> entries;
-    size_t bytes() const { return entries.size() * sizeof(KilnBlobCatalogEntry); }
+    size_t bytes() const { return entries.capacity() * sizeof(KilnBlobCatalogEntry); }
 };
 struct Open {
     KilnHandle id;
@@ -39,6 +41,25 @@ std::mutex g_cat_mu;    // the handles and the shared snapshots; held for bookke
 std::vector<Open> g_open;
 KilnHandle g_next = 1;
 std::weak_ptr<const Snapshot> g_newest[2];  // per mode: what the next open at the same generation shares
+std::vector<std::weak_ptr<const Snapshot>> g_snapshots;  // includes snapshots still retained by a read after close
+std::unordered_set<KilnOwner> g_revoked;  // native owner ids are never reused; a late call must not reopen a dead owner's handle
+
+// Registered before waiting for the build lock: revert also cancels opens that have not published a handle yet.
+struct Opening;
+std::vector<Opening*> g_opening;  // under g_cat_mu; pointers live until the call returns
+struct Opening {
+    KilnOwner owner;
+    bool released = false;
+    explicit Opening(KilnOwner o) : owner(o) {
+        std::lock_guard lock(g_cat_mu);
+        released = g_revoked.contains(owner);
+        g_opening.push_back(this);
+    }
+    ~Opening() {
+        std::lock_guard lock(g_cat_mu);
+        std::erase(g_opening, this);
+    }
+};
 
 bool hash_less(const HashK& a, const HashK& b) {
     if (a.size != b.size) return a.size < b.size;
@@ -119,7 +140,7 @@ KilnResult refuse(KilnBlobCatalogInfo* info, uint32_t status, uint32_t reason) {
     return status == KILN_BLOB_CATALOG_LIMIT_EXCEEDED ? KILN_ERR_BUFFER_TOO_SMALL : KILN_ERR_UNAVAILABLE;
 }
 
-// The bytes the distinct snapshots that handles hold take up (under g_cat_mu).
+// The bytes all surviving snapshots take up, including page copies whose handles closed (under g_cat_mu).
 size_t held_bytes_locked(const Snapshot* extra) {
     std::vector<const Snapshot*> seen;
     size_t n = 0;
@@ -128,19 +149,39 @@ size_t held_bytes_locked(const Snapshot* extra) {
         seen.push_back(s);
         n += s->bytes();
     };
-    for (const Open& o : g_open) count(o.snap.get());
+    std::erase_if(g_snapshots, [](const auto& w) { return w.expired(); });
+    for (const auto& w : g_snapshots)
+        if (auto s = w.lock()) count(s.get());
     count(extra);
     return n;
 }
 
 }  // namespace
 
+bool catalog_start() {
+    static std::once_flag once;
+    static bool watching = false;
+    std::call_once(once, [] {
+        if (!g_api || !g_api->service) return;
+        const auto* hooks = static_cast<const KilnHooksApi*>(
+            g_api->service(KilnStr{KILN_HOOKS_SERVICE, sizeof(KILN_HOOKS_SERVICE) - 1}, KILN_HOOKS_VERSION));
+        if (!hooks || hooks->header.size < offsetof(KilnHooksApi, subscribe_owner_retiring) + sizeof(void*) ||
+            !hooks->subscribe_owner_retiring) return;
+        KilnHandle handle = 0;
+        watching = hooks->subscribe_owner_retiring(g_self, [](KilnOwner owner, void*) { catalog_release_owner(owner, true); },
+                                                   nullptr, &handle) == KILN_OK;
+    });
+    return watching;
+}
+
 KilnResult op_catalog_open(KilnOwner owner, uint32_t mode, KilnHandle* handle, KilnBlobCatalogInfo* info) {
     if (handle) *handle = 0;
     if (!handle || !info || info->size < sizeof(KilnBlobCatalogInfo) || !owner ||
         (mode != KILN_BLOB_CATALOG_REQUIRE_COMPLETE && mode != KILN_BLOB_CATALOG_REGISTRATIONS_ONLY))
         return KILN_ERR_INVALID_ARGUMENT;
-    if (!content_hooks_on()) return refuse(info, KILN_BLOB_CATALOG_UNAVAILABLE, KILN_BLOB_CATALOG_REASON_UNSUPPORTED_TABLE);
+    if (!content_hooks_on() || !catalog_start())
+        return refuse(info, KILN_BLOB_CATALOG_UNAVAILABLE, KILN_BLOB_CATALOG_REASON_UNSUPPORTED_TABLE);
+    Opening opening(owner);
     std::shared_ptr<const Snapshot> snap;
     {
         std::lock_guard build_lock(g_build_mu);
@@ -187,8 +228,14 @@ KilnResult op_catalog_open(KilnOwner owner, uint32_t mode, KilnHandle* handle, K
             snap = std::move(built);
         }
         std::lock_guard lock(g_cat_mu);
+        if (opening.released) {
+            fill(info, KILN_BLOB_CATALOG_UNAVAILABLE, catalog_generation(), 0, 0, KILN_BLOB_CATALOG_REASON_NONE);
+            return KILN_ERR_REVOKED;
+        }
         if (g_open.size() >= kMaxHandles || held_bytes_locked(snap.get()) > kMaxHeldBytes)
             return refuse(info, KILN_BLOB_CATALOG_LIMIT_EXCEEDED, KILN_BLOB_CATALOG_REASON_MEMORY_BUDGET);
+        if (std::none_of(g_snapshots.begin(), g_snapshots.end(), [&](const auto& w) { return w.lock() == snap; }))
+            g_snapshots.push_back(snap);
         if (auto newest = g_newest[mode].lock(); !newest || newest->generation <= snap->generation) g_newest[mode] = snap;
         *handle = g_next++;
         g_open.push_back({*handle, owner, snap});
@@ -208,6 +255,11 @@ KilnResult op_catalog_read(KilnHandle handle, uint64_t first, KilnBlobCatalogEnt
             if (o.id == handle) snap = o.snap;
     }
     if (!snap) return KILN_ERR_NOT_FOUND;
+#ifdef KILN_ASSETS_CATALOG_TEST
+    // The host test can hold the read at the same point a concurrent thread can close its last handle.
+    extern void catalog_read_acquired();
+    catalog_read_acquired();
+#endif
     const uint64_t total = snap->entries.size();
     if (first > total) return KILN_ERR_INVALID_ARGUMENT;
     const size_t n = static_cast<size_t>(std::min<uint64_t>(cap, total - first));
@@ -232,9 +284,12 @@ KilnResult op_catalog_close(KilnHandle handle) {
     return KILN_ERR_NOT_FOUND;
 }
 
-void catalog_release_owner(KilnOwner owner) {
+void catalog_release_owner(KilnOwner owner, bool revoked) {
     std::vector<std::shared_ptr<const Snapshot>> dropped;  // released after the lock
     std::lock_guard lock(g_cat_mu);
+    if (revoked) g_revoked.insert(owner);
+    for (Opening* opening : g_opening)
+        if (opening->owner == owner) opening->released = true;
     for (auto it = g_open.begin(); it != g_open.end();)
         if (it->owner == owner) {
             dropped.push_back(std::move(it->snap));

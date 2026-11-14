@@ -12,7 +12,7 @@ public sealed class DiscoveryTests
     {
         using var h = new Harness();
         var all = CheckRegistry.All;
-        Assert.Equal(19, all.Count);  // 16 on CheckMod, one on OtherChecks, one static
+        Assert.Equal(20, all.Count);  // 17 on CheckMod, one on OtherChecks, one static
         var proof = all.Single(c => c.Id == "t.proof");
         Assert.Equal("Cheats", proof.Area);
         Assert.True(proof.Cheats && proof.GuardProof);
@@ -57,7 +57,7 @@ public sealed class DiscoveryTests
     public void A_second_registration_of_the_same_instance_does_nothing_and_an_unload_removes_it()
     {
         using var h = new Harness();
-        Assert.Equal(19, ClientChecks.Register(h.Mod));
+        Assert.Equal(20, ClientChecks.Register(h.Mod));
         Assert.Single(CheckRegistry.Mods);
         TestHooks.Retire(h.Context);
         Assert.Empty(CheckRegistry.All);

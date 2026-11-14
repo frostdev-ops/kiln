@@ -87,8 +87,61 @@ public static unsafe partial class CreatureControl
         if (requestId.Value == 0) throw new ArgumentException("request id 0", nameof(requestId));
         var t = Table("CreatureControl.Acquire");
         if (!Capabilities.Is(Caps.Operational)) throw Off(Caps.Operational, "the creature control broker cannot take new leases");
+        return AcquireCore(t, OwnerOfCaller(), ModContext.CurrentMod, body, role, requestId);
+    }
+
+    // Kiln's own services (Kiln.Blocks' brains): a lease under the service's own native owner, for a body the mod `mod`
+    // defined (released when that mod unloads). Tick thread; the caller checked the row creature_control.
+    internal static ControlRequestResult AcquireAs(string service, ModContext? mod, EntityRef body, ControlRole role)
+    {
+        var t = Table("CreatureControl.Acquire");
+        var owner = ServiceOwner(service);
+        ulong id = 0;
+        if (t->NextRequest(owner, &id) != CreatureControlNative.Ok) return Refused("the request ids of this service are used up");
+        return AcquireCore(t, owner, mod, body, role, new ControlRequestId(id));
+    }
+
+    // can_drive, the broker's authority, for a lease this face tracks (any thread): the lease's own owner, key and the
+    // transition sequence it is Active with. False for every lease it does not track.
+    internal static bool CanDriveNow(ControlLeaseId lease)
+    {
+        var t = CreatureControlNative.T;
+        if (t == null || lease.Value == 0) return false;
+        Lease? known;
+        lock (Gate) Tracked.TryGetValue(lease.Value, out known);
+        if (known is null || Query(t, lease.Value) is not { CanDrive: true } now) return false;
+        uint drive = 0;
+        return t->CanDrive(known.Owner, lease.Value, known.Key, now.TransitionSequence, &drive) == CreatureControlNative.Ok && drive == 1;
+    }
+
+    // Releases a lease this face tracks under its own owner, without a task to wait on (tick thread).
+    internal static void ReleaseNow(ControlLeaseId lease)
+    {
+        var t = CreatureControlNative.T;
+        if (t == null || lease.Value == 0 || !Game.IsTickThread) return;
+        ulong owner;
+        lock (Gate) owner = Tracked.TryGetValue(lease.Value, out var known) ? known.Owner : 0;
+        if (owner != 0) t->ReleaseControl(owner, lease.Value);
+    }
+
+    private static readonly Dictionary<string, ulong> ServiceOwners = new(StringComparer.Ordinal);
+
+    private static ulong ServiceOwner(string service)
+    {
+        lock (Gate)
+        {
+            if (ServiceOwners.TryGetValue(service, out var have)) return have;
+            var made = Backend.Current.OwnerCreate(service);
+            if (made == 0) made = OwnerOfCaller();
+            ServiceOwners[service] = made;
+            return made;
+        }
+    }
+
+    private static ControlRequestResult AcquireCore(CreatureControlNative.Table* t, ulong owner, ModContext? mod, EntityRef body,
+        ControlRole role, ControlRequestId requestId)
+    {
         if (body.HasSerial && !StillThere(body)) return Refused($"BodyGone: entity {body} is not the body it was");
-        var owner = OwnerOfCaller();
         CreatureControlNative.BodyKey key;
         var rc = t->BindBody(owner, body.Id.Value, CreatureControlNative.BaselineEnemy, 1, &key);
         switch (rc)
@@ -124,7 +177,7 @@ public static unsafe partial class CreatureControl
             DropBindingIfUnused(owner, key);
             return new ControlRequestResult(false, snapshot!.Reason, default, snapshot);
         }
-        Track(s.Lease, owner, key, ModContext.CurrentMod, mine: true, snapshot!);
+        Track(s.Lease, owner, key, mod, mine: true, snapshot!);
         return new ControlRequestResult(true, null, new ControlLeaseId(s.Lease), snapshot);
     }
 

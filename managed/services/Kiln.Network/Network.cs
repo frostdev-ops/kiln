@@ -102,6 +102,18 @@ public sealed class NetPeer
 
     public long MessagesIn, MessagesOut, BytesIn, BytesOut, Dropped;
 
+    /// <summary>Channel-12 frames this peer sent us (server side: one client; on a client: the server), every type,
+    /// the HELLO and the pings too. 0 for a client without Kiln: its game never writes channel 12.</summary>
+    [AnyThread]
+    public long FramesIn => Interlocked.Read(ref FramesInCount);
+
+    /// <summary>Channel-12 frames we sent this peer that kiln.net took. A client without Kiln gets none, or the one
+    /// REJECT its game discards when it is refused.</summary>
+    [AnyThread]
+    public long FramesOut => Interlocked.Read(ref FramesOutCount);
+
+    internal long FramesInCount, FramesOutCount;
+
     /// <summary>Whether the peer has channel <paramref name="name"/> (with a matching version).</summary>
     public bool HasChannel(string name) => Channels.ContainsKey(name);
 

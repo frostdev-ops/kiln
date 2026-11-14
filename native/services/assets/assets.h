@@ -277,7 +277,8 @@ enum CatalogChange : uint32_t { kChangeNone = 0, kChangeReady = 1, kChangeRegist
 uint64_t catalog_generation();
 void catalog_changed(CatalogChange why);  // any thread (hooks.cpp: the game's content index became readable)
 std::string catalog_status_json();        // "catalog":{...} for status (the generation and the last change)
-void catalog_release_owner(KilnOwner owner);  // catalog.cpp: closes the owner's catalog handles (op_revert_owner)
+void catalog_release_owner(KilnOwner owner, bool revoked = false);  // closes handles and pending opens; a native revoke is terminal
+bool catalog_start();  // subscribes to native owner revocation before the service table is published
 KilnResult op_catalog_open(KilnOwner owner, uint32_t mode, KilnHandle* handle, KilnBlobCatalogInfo* info);
 KilnResult op_catalog_read(KilnHandle handle, uint64_t first, KilnBlobCatalogEntry* out, uint32_t entry_size, size_t cap,
                            size_t* written);

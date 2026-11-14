@@ -168,6 +168,9 @@ public sealed class QueriesTests
         using var kiln = Started();
         var a = kiln.Entities.Create(new WorldPosition(0, 10, 0));
         var b = kiln.Entities.Create(new WorldPosition(20, 10, 0));
+        // the composed rows are decided when a member needs them or at the service's refresh (every 25 steps): right after
+        // a new harness the row alone may still read as the report before the kit's ray row left it
+        for (var i = 0; i < 30 && !kiln.Run(() => Capabilities.Is("queries.ground")); i++) kiln.Step(1);
         Assert.True(kiln.Run(() => Capabilities.Is("queries.ground")));
         kiln.Capabilities.Override("queries.voxel_ray", false, "switched off by the test");
         kiln.Step(30);   // the rows built on the ray follow at the service's refresh

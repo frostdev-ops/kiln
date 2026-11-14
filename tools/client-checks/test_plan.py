@@ -6,7 +6,10 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 import os
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -53,7 +56,8 @@ public sealed partial class ClientPassMod
 
 
 class Fixture:
-    def __init__(self, source: str = SOURCE, index: list[dict] | None = None, gates: dict | None = None):
+    def __init__(self, source: str = SOURCE, index: list[dict] | None = None, gates: dict | None = None,
+                 releases: dict | None = None):
         self.dir = tempfile.TemporaryDirectory()
         root = Path(self.dir.name)
         pack = root / "mods" / "tests" / "client-pass"
@@ -62,6 +66,8 @@ class Fixture:
         ids = ["03-c11", "03-c7", "03-c10", "11-join", "12-debug", "13-set"]
         (pack / "dev28-checks.json").write_text(json.dumps(
             {"format": 1, "checks": index if index is not None else [{"id": i, "state": "open"} for i in ids]}))
+        if releases is not None:
+            (pack / "dev28-releases.json").write_text(json.dumps({"format": 1, **releases}))
         gdir = root / "native" / "core" / "gates"
         gdir.mkdir(parents=True)
         for name, doc in (gates or {}).items():
@@ -72,12 +78,57 @@ class Fixture:
         self.dir.cleanup()
 
     def plan(self) -> dict:
-        return plan.build(plan.read_pack(os.path.join(self.root, "mods", "tests", "client-pass")),
-                          plan.read_index(os.path.join(self.root, "mods", "tests", "client-pass", "dev28-checks.json")),
-                          plan.read_gates(os.path.join(self.root, "native", "core", "gates")), "0.2.0-dev.28")
+        pack = os.path.join(self.root, "mods", "tests", "client-pass")
+        return plan.build(plan.read_pack(pack), plan.read_index(os.path.join(pack, "dev28-checks.json")),
+                          plan.read_gates(os.path.join(self.root, "native", "core", "gates")), "0.2.0-dev.28",
+                          plan.read_releases(os.path.join(pack, "dev28-releases.json")))
 
 
 class ReadPack(unittest.TestCase):
+    def test_comments_and_strings_cannot_supply_a_missing_check(self):
+        f = Fixture(SOURCE + '''
+// [ClientCheck("04-comment", "Not compiled", Since = Dev28)]
+/* [ClientCheck("04-block", "Not compiled", Since = Dev28)] */
+const string Example = """[ClientCheck("04-string", "Not compiled", Since = Dev28)]""";
+''')
+        checks = plan.read_pack(os.path.join(f.root, "mods", "tests", "client-pass"))
+        self.assertEqual(len(checks), 7)
+
+    def test_unsupported_order_is_reported_instead_of_becoming_zero(self):
+        f = Fixture(SOURCE.replace("Order = 2201", "Order = MissingOrder"))
+        with self.assertRaises(plan.PlanError):
+            f.plan()
+
+    def test_unknown_release_or_session_is_reported_instead_of_omitting_a_check(self):
+        for old, new in (("Since = Dev28", "Since = UnknownRelease"),
+                         ("Needs = ClientCheckNeeds.Joined", "Needs = UnknownSession"),
+                         ('Area = "Camera"', "Area = UnknownArea"),
+                         ("[TwoPlayers]", "[UnknownTag]")):
+            with self.subTest(new=new), self.assertRaises(plan.PlanError):
+                Fixture(SOURCE.replace(old, new)).plan()
+
+    def test_a_conditionally_compiled_attribute_is_not_claimed_as_a_product_check(self):
+        f = Fixture(SOURCE.replace('[ClientCheck("03-c10"', '#if CHECKS\n    [ClientCheck("03-c10"')
+                    .replace('public Task C(CheckContext c) => null;', 'public Task C(CheckContext c) => null;\n#endif'))
+        with self.assertRaises(plan.PlanError):
+            f.plan()
+
+    def test_unicode_and_csharp_escapes_keep_the_title(self):
+        p = Fixture(SOURCE.replace("Final snapshot,", r"é\t\u263a,")).plan()
+        self.assertTrue(p["sessions"][0]["checks"][0]["title"].startswith("é\t☺,"))
+
+    def test_a_constant_in_another_class_cannot_change_the_release_silently(self):
+        f = Fixture(SOURCE + '\nclass Other { const string Dev28 = "unrelated"; }\n')
+        with self.assertRaises(plan.PlanError):
+            f.plan()
+
+    def test_array_initializers_keep_their_session_tags(self):
+        for tags in ('new[] { TwoPlayers }', 'new string[] { ClientCheckTags.TwoPlayers }'):
+            with self.subTest(tags=tags):
+                p = Fixture(SOURCE.replace("[TwoPlayers]", tags)).plan()
+                session = next(s for s in p["sessions"] if s["key"] == "D")
+                self.assertEqual([c["id"] for c in session["checks"]], ["03-c10"])
+
     def test_attributes_are_read_with_constants_strings_and_tags(self):
         f = Fixture()
         checks = {c["id"]: c for c in plan.read_pack(os.path.join(f.root, "mods", "tests", "client-pass"))}
@@ -90,6 +141,24 @@ class ReadPack(unittest.TestCase):
         self.assertEqual(checks["12-debug"]["tags"], ["host-tools"])             # a literal
         self.assertEqual(checks["03-c10"]["needs"], "any")
         self.assertEqual(checks["old.check"]["since"], "0.2.0-dev.27")
+
+    def test_orders_and_constants_may_be_expressions(self):
+        src = SOURCE.replace('private const string Prefix = "03-";',
+                             'private const string Prefix = "03-", Other = "x";\n'
+                             '    private const int Base = 2000 + (28270 - 28000) * 10;\n'
+                             '    private const int Next = Base + 5;')
+        src = src.replace("Order = 2202)", "Order = Base + 2)").replace("Order = 2203)", "Order = Next)")
+        src = src.replace("Order = 3301)", "Order = (Next - 1) / 2)")
+        f = Fixture(src)
+        checks = {c["id"]: c for c in plan.read_pack(os.path.join(f.root, "mods", "tests", "client-pass"))}
+        self.assertEqual(checks["03-c7"]["order"], 4702)
+        self.assertEqual(checks["03-c10"]["order"], 4705)
+        self.assertEqual(checks["11-join"]["order"], 2352)
+        self.assertEqual(plan._int("__import__('os')", {}), None)
+        # a name it does not know is no order at all: the read stops rather than guess
+        g = Fixture(src.replace("Order = 3401)", "Order = Base + Unknown)"))
+        with self.assertRaises(plan.PlanError):
+            plan.read_pack(os.path.join(g.root, "mods", "tests", "client-pass"))
 
     def test_an_id_that_is_not_a_constant_stops_the_read(self):
         f = Fixture(SOURCE.replace('"03-c10"', "Compute()"))
@@ -160,6 +229,109 @@ class Problems(unittest.TestCase):
         self.assertNotIn("camera.fov", text)
 
 
+class Releases(unittest.TestCase):
+    """The dossier ships as a release train: a pass asks only for its own release's checks."""
+    IDS = ("03-c11", "03-c7", "03-c10", "11-join", "12-debug", "13-set")
+
+    def index(self, *more: dict) -> list[dict]:
+        return [{"id": i, "state": "open", "packages": ["03-camera"]} for i in self.IDS] + list(more)
+
+    def test_releases_are_ordered_by_number_not_by_text(self):
+        order = ["0.2.0-dev.9", "0.2.0-dev.28", "0.2.0-dev.29", "0.2.0-dev.100", "0.2.0", "0.3.0-dev.1"]
+        self.assertEqual(sorted(reversed(order), key=plan.release_key), order)
+
+    def test_an_id_of_a_later_release_is_not_missing_and_is_counted(self):
+        index = self.index({"id": "19a-ride", "state": "open", "packages": ["19a-riding"]},
+                           {"id": "19f-outer", "state": "open", "packages": ["03-camera"]},
+                           {"id": "02-path", "state": "open", "packages": ["02-pathfinding"]})
+        p = Fixture(index=index, releases={
+            "packages": {"03-camera": "0.2.0-dev.28", "19a-riding": "0.2.0-dev.33", "02-pathfinding": "0.2.0-dev.28"},
+            "ids": {"19f-outer": "0.2.0-dev.32"}}).plan()
+        self.assertEqual(p["missing"], ["02-path"])      # this release's open id still is
+        self.assertEqual(p["later"], [{"release": "0.2.0-dev.32", "ids": 1}, {"release": "0.2.0-dev.33", "ids": 1}])
+        self.assertEqual(p["index_now"], 7)
+        self.assertEqual(len(p["problems"]), 1)
+        self.assertIn("Played in a later release: 1 in 0.2.0-dev.32, 1 in 0.2.0-dev.33", plan.render(p))
+
+    def test_an_id_of_an_earlier_release_without_a_check_is_still_missing(self):
+        index = self.index({"id": "old-1", "state": "open", "packages": ["00-old"]})
+        p = Fixture(index=index, releases={"packages": {"03-camera": "0.2.0-dev.28", "00-old": "0.2.0-dev.27"}}).plan()
+        self.assertEqual(p["missing"], ["old-1"])
+
+    def test_a_check_says_the_release_the_map_plans_it_for(self):
+        index = self.index()
+        index[3] = {"id": "11-join", "state": "open", "packages": ["11-replication-observe"]}
+        p = Fixture(index=index, releases={
+            "packages": {"03-camera": "0.2.0-dev.28", "11-replication-observe": "0.2.0-dev.31"}}).plan()
+        self.assertEqual(len(p["problems"]), 1)
+        self.assertIn("11-join", p["problems"][0])
+        self.assertIn("says Since = 0.2.0-dev.28, the release map plans it for 0.2.0-dev.31", p["problems"][0])
+        # ... and the other way round: planned for this release, written for another
+        src = SOURCE.replace('private const string Dev27', 'private const string Dev31 = "0.2.0-dev.31";\n    private const string Dev27')
+        src = src.replace('"Replication", Since = Dev28', '"Replication", Since = Dev31')
+        p = Fixture(src, index=self.index(), releases={"packages": {"03-camera": "0.2.0-dev.28"}}).plan()
+        self.assertEqual(len([x for x in p["problems"] if "says Since = 0.2.0-dev.31" in x]), 1)
+
+    def test_an_id_of_a_chapter_with_several_packages_needs_an_owner(self):
+        shared = {"id": "13-x", "state": "settled", "packages": ["13a-set", "13b-shroudforge"]}
+        releases = {"packages": {"03-camera": "0.2.0-dev.28", "13a-set": "0.2.0-dev.30", "13b-shroudforge": "0.2.0-dev.28"}}
+        p = Fixture(index=self.index(shared), releases=releases).plan()
+        self.assertEqual(len(p["problems"]), 1)
+        self.assertIn("names no owner", p["problems"][0])
+        p = Fixture(index=self.index(shared), releases={**releases, "owners": {"13-x": "13a-set"}}).plan()
+        self.assertEqual(p["problems"], [])
+        self.assertEqual(p["later"], [{"release": "0.2.0-dev.30", "ids": 1}])
+        p = Fixture(index=self.index({"id": "20-x", "state": "settled", "packages": ["20-new"]}), releases=releases).plan()
+        self.assertIn("no release for its package 20-new", "\n".join(p["problems"]))
+
+    def test_a_gate_of_a_later_release_waits_and_is_no_problem(self):
+        gates = {"dev28-11.json": {"gates": [{"name": "repl.client", "checks": ["11-watch"], "side": "client"}]},
+                 "dev28-03.json": {"gates": [{"name": "camera.fov", "checks": ["03-c11", "03-c7"]},
+                                             {"name": "camera.both", "checks": ["03-c11", "11-watch"]},
+                                             {"name": "camera.gone", "checks": ["03-nowhere"]}]}}
+        index = self.index({"id": "11-watch", "state": "open", "packages": ["11-replication-observe"]})
+        p = Fixture(index=index, gates=gates, releases={
+            "packages": {"03-camera": "0.2.0-dev.28", "11-replication-observe": "0.2.0-dev.31"}}).plan()
+        rows = {g["name"]: g for g in p["gates"]}
+        self.assertEqual(rows["repl.client"]["later"], "0.2.0-dev.31")
+        self.assertEqual(rows["camera.both"]["later"], "0.2.0-dev.31")   # it opens with its last check
+        self.assertIsNone(rows["camera.fov"]["later"])
+        self.assertEqual(len(p["problems"]), 1)                          # only the id nobody plans
+        self.assertIn("03-nowhere", p["problems"][0])
+        text = plan.render(p)
+        self.assertIn("Held by the client gate, opened by this pass: 2 capability(ies)", text)
+        self.assertIn("Held for a later release (stays off in 0.2.0-dev.28): 2 capability(ies)", text)
+        self.assertIn("  repl.client (client only): 11-watch; 0.2.0-dev.31", text)
+
+    def test_the_release_notes_list_names_what_this_pass_opens(self):
+        gates = {"dev28-03.json": {"gates": [{"name": "camera.fov", "checks": ["03-c11", "03-c7"], "side": "client"},
+                                             {"name": "repl.client", "checks": ["11-watch"]}]}}
+        index = self.index({"id": "11-watch", "state": "open", "packages": ["11-replication-observe"]})
+        f = Fixture(index=index, gates=gates, releases={
+            "packages": {"03-camera": "0.2.0-dev.28", "11-replication-observe": "0.2.0-dev.31"}})
+        text = plan.render_held_md(f.plan())
+        self.assertEqual(text, "- `camera.fov` (on a game client; a dedicated server has it): Final snapshot, with "
+                               "(parentheses) and a \"quote\" (`03-c11`); Stock-mode lock on vanilla (`03-c7`)\n")
+
+    def test_a_broken_release_map_stops_the_read(self):
+        f = Fixture(releases={"packages": ["not", "an", "object"]})
+        with self.assertRaises(plan.PlanError):
+            plan.read_releases(os.path.join(f.root, "mods", "tests", "client-pass", "dev28-releases.json"))
+
+    def test_the_repository_map_places_every_id(self):
+        pack = REPO / "mods" / "tests" / "client-pass"
+        index = plan.read_index(str(pack / "dev28-checks.json"))
+        releases = plan.read_releases(str(pack / "dev28-releases.json"))
+        self.assertTrue(releases["packages"], "the release map is there")
+        for row in index:
+            release, problem = plan.release_of(row, releases, "0.2.0-dev.28")
+            self.assertIsNone(problem, problem)
+            self.assertRegex(release, r"^0\.2\.0-dev\.(2[89]|3[0-3])$")
+        known = {r["id"] for r in index}
+        for key in ("owners", "ids"):
+            self.assertEqual(sorted(set(releases[key]) - known), [], f"\"{key}\" names ids the index does not have")
+
+
 class Main(unittest.TestCase):
     def test_strict_exits_1_only_with_problems_and_2_without_sources(self):
         import contextlib
@@ -180,6 +352,45 @@ class Main(unittest.TestCase):
             self.assertEqual(plan.main(["--repo", str(REPO), "--json"]), 0)
         doc = json.loads(out.getvalue())
         self.assertEqual(doc["index"], len(plan.read_index(str(REPO / "mods" / "tests" / "client-pass" / "dev28-checks.json"))))
+
+
+class GateGenerator(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("cmake") and shutil.which("ninja"), "needs CMake and Ninja")
+    def test_deleting_a_gate_file_regenerates_the_compiled_list(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            gates = root / "core/gates"
+            gates.mkdir(parents=True)
+            shutil.copy(REPO / "native/core/gates/gen.py", gates)
+            held = gates / "dev28-test.json"
+            held.write_text(json.dumps({"gates": [{"name": "camera.fov", "checks": ["03-c11"]}]}))
+            cmake = (REPO / "native/CMakeLists.txt").read_text()
+            gate_rule = cmake[cmake.index("# The client gate's list:"):cmake.index("set(CMAKE_CXX_STANDARD")]
+            (root / "CMakeLists.txt").write_text(
+                'cmake_minimum_required(VERSION 3.20)\nproject(gate_test NONE)\n'
+                'set(KILN_GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")\n' + gate_rule +
+                '\nadd_custom_target(gates ALL DEPENDS "${KILN_GENERATED_DIR}/kiln_gates.g.h")\n')
+            build = root / "build"
+            def run(*args):
+                subprocess.run(args, check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            run("cmake", "-S", str(root), "-B", str(build), "-G", "Ninja")
+            run("cmake", "--build", str(build))
+            header = build / "generated/kiln_gates.g.h"
+            self.assertIn("camera.fov", header.read_text())
+            held.unlink()
+            run("cmake", "--build", str(build))
+            self.assertNotIn("camera.fov", header.read_text())
+
+    def test_trailing_newlines_cannot_reach_cpp_string_literals(self):
+        spec = importlib.util.spec_from_file_location("gate_gen", REPO / "native/core/gates/gen.py")
+        gen = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gen)
+        for key, value in (("name", "camera.fov\n"), ("checks", ["03-c11\n"])):
+            with self.subTest(key=key), tempfile.TemporaryDirectory() as folder:
+                row = {"name": "camera.fov", "checks": ["03-c11"], key: value}
+                Path(folder, "gate.json").write_text(json.dumps({"gates": [row]}))
+                with self.assertRaises(SystemExit):
+                    gen.load(folder)
 
 
 if __name__ == "__main__":
