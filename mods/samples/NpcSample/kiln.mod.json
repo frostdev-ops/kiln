@@ -6,5 +6,5 @@
   "entryAssembly": "NpcSample.dll",
   "side": "both",
   "clients": "mod",
-  "description": "Sample for friendly NPCs and native quests (docs/kiln/services/npcs.md): Tobin, a new NPC (a clone of the fisher trader with its own GUID, name, dialogue and roster entry), a short voiced quest in the game's own journal with map markers, a trade at the fisher's workshop, and a summon tool. Install on the server and on every player's game: the client builds its journal and templates from quests/*.json at boot. Voice clips are SoundSample's test tones: build the assets first (build-assets.sh). In game: /npcsample here."
+  "description": "Sample for friendly NPCs and native quests (docs/kiln/services/npcs.md): Tobin, a new NPC (a clone of the fisher trader with its own GUID, name, dialogue and roster entry), a short voiced quest in the game's own journal with map markers, a trade at the fisher's workshop, and a summon tool. Install on the server and on every player's game: the client builds its journal and templates from quests/*.json at boot. Voice clips are SoundSample's test tones: build the assets first (build-assets.sh). Also a path walker (docs/kiln/services/queries.md): a creature whose brain asks the game's path search for a route and walks it with its own steps, on the server. In game: /npcsample here, /npcsample walker, /npcsample walkto."
 }

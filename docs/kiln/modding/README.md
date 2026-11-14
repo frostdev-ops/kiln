@@ -103,7 +103,7 @@ first). `mods/samples/build.sh` builds the loader samples (`SampleLib`, `SampleC
 | `FireNova` | kiln.abilities: a key ability (G or `/nova`) with mana and cooldown, a ring of the game's Fireball explosions; Fireball damage doubled at night |
 | `ImpactSample` | Impact programs: a heal-over-time buff written from scratch, a Fireball that chains to a second enemy, a managed Kiln native |
 | `SkillTreeSample` | kiln.skills: two nodes in the game's own skill tree and a Kiln talent tree, "Ember Arts", from `skills/sample.json` |
-| `NpcSample` | a friendly NPC (Tobin, a fisher clone with its own name, dialogue and roster entry), a voiced quest in the game's journal, a trade |
+| `NpcSample` | a friendly NPC (Tobin, a fisher clone with its own name, dialogue and roster entry), a voiced quest in the game's journal, a trade; a creature whose brain walks a route from `Queries.FindPath` (`PathWalker.cs`) |
 | `quests-sample` | a quest chain in the game's own UI from one file, `quests/sample.json`: the Warden, his topics and voice, journal, HUD and map markers; one more quest in C# |
 | `FrostboltBlock` | the first blocks: a staff spell, a sword and a status sharing one Frost Burst effect, with VFX of its own; Frostlance as data |
 | `AbilityBlocks` | shared effects, perks, abilities, talent trees and triggers in C# and JSON |
