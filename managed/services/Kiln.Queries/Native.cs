@@ -55,14 +55,55 @@ internal static unsafe class QueriesNative
     }
 
     [StructLayout(LayoutKind.Sequential)]
+    public struct PathRequest
+    {
+        public uint Size, Anchor;
+        public Vec3 From, To;
+        public double HorizontalSpace, VerticalSpace;
+        public uint MaxIterations, ClosestFallback;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct PathAdmission
+    {
+        public uint Size, Ok;
+        public ulong Request;
+        public uint Status, Reserved;
+        public NativeStr Reason;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct PathUpdate
+    {
+        public uint Size, Before, After, Status;
+        public ulong Request, Sequence;
+        public uint Generation, Anchor;
+        public uint Terminal, Ok, GameResult, ReachesTarget;
+        public uint PointCount, Steps;
+        public double Length;
+        public NativeStr Reason;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct PathPoint
+    {
+        public Vec3 Position;
+        public uint RawMove, Reserved;
+    }
+
+    public const int BufferTooSmall = 5, Revoked = 6;
+    public const uint NoGameResult = 0xffffffff;
+    public const int MaxPathPoints = 4096;
+
+    [StructLayout(LayoutKind.Sequential)]
     public struct Table
     {
         public ServiceHeader Header;
         public delegate* unmanaged[Cdecl]<RayRequest*, RayResult*, int> RayVoxels;
         public delegate* unmanaged[Cdecl]<EntityRequest*, uint*, uint, EntityResult*, int> Entities;
-        public delegate* unmanaged[Cdecl]<ulong, void*, void*, int> PathSubmit;
+        public delegate* unmanaged[Cdecl]<ulong, PathRequest*, PathAdmission*, int> PathSubmit;
         public delegate* unmanaged[Cdecl]<ulong, ulong, int> PathCancel;
-        public delegate* unmanaged[Cdecl]<ulong, void*, void*, uint, uint*, int> PathPoll;
+        public delegate* unmanaged[Cdecl]<ulong, PathUpdate*, PathPoint*, uint, uint*, int> PathPoll;
         public delegate* unmanaged[Cdecl]<ulong, int> PathRetire;
     }
 

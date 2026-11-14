@@ -215,7 +215,7 @@ kiln.gameplay's inject uses); their readers get them in the next sim step.
 | `Guard(target[, GuardOptions])` | `StartGuardingEvent` → `enemy01` (its Guard state walks to the target), kept by Kiln (below) | `guardEntityId 2543 (B = 2543)`; follow, catch-up, defend, assist: below |
 | `StopGuarding(target)` | `StopGuardingEvent` → `enemy01`; ends Kiln's order (its home goes back) | guard cleared |
 | `Stay()` | StopGuarding + Kiln's order ends + `Home` = where it stands | |
-| `MoveTo(pos)` | `Home` = pos (roaming/return-home walk it there; the enemy AI has no path command) | home moved |
+| `MoveTo(pos)` | `Home` = pos (roaming/return-home walk it there; the enemy AI has no path command). It is not pathfinding: the game's own AI decides how it gets there, or whether. For a route, `Queries.FindPath` ([queries.md](queries.md#paths)) | home moved |
 | `Heal(seconds)` | `RestoreEnemyHealthEvent` → `enemy01_pre_update` | a hurt, ready creature's health did not change in 6 s; use `Combat.Heal` |
 | `ControlTarget(target)` | `RegisterControlledCombatTargetEvent` → `control_combat_target` | not observed |
 
