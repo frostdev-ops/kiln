@@ -202,6 +202,9 @@ enum {
     KILN_NET_SELFTEST_BIND = 5,   /* a = lab peer, b = a free slot (0xFFFFFFFF: none): that peer stands for the slot's player, so
                                      withholding and withhold_set act on that slot as for a joined player */
     KILN_NET_SELFTEST_HEAP = 6,   /* a = slot: out = the size of that player's replication heap */
+    KILN_NET_SELFTEST_BIND_MACHINE = 7, /* a = lab peer, b = machine index (0xFFFFFFFF: none): that peer stands for the
+                                           loopback harness's fake player on that machine (kiln_repl.h), one peer per
+                                           machine; a = 0 only asks. out = the lab peer bound to machine b now (0 = none) */
 };
 
 #ifdef __cplusplus

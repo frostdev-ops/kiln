@@ -9,9 +9,9 @@
   "verified": true,
   "note": "runtime-verified through Steam (GE-Proton11-11), policy any, core + every service + kiln-emf + probe + ui-test + menubuttons: side client, sigdb 306/306 symbols, 434/434 constants (client.d composed), SimStep + WorldDestroy hooked, boot complete, 0 errors; main menu entries Kiln / ui-test / Mods (the Kiln sample screen opened); hosted a LOCAL world offline (saves: world loaded: slot 0x0002 (world1.ksd)): server world 60 steps/s on the GameServer thread, client and prediction worlds on the main thread, local player 1; ui-test all checks PASS (screens MainMenu/Loading/InGame/PauseMenu/Map/Crafting, menu entries chosen, crafting state), Kiln crafting tabs and subcategories shown, Insert overlay; tick cost as on ce6fdba6 (server step p50 2.5 ms, Kiln Pre 0.037 ms; client 1.2 ms); back to the menu (worlds stopping, shutdown save), clean quit (Shutdown 'Steam'). Not covered: joining a remote server, service write paths on the client. Added in dev.22 from static analysis only (resolved offline with sigdb_check.py, not yet seen running): ui.menu_page, ui.menu_page_sound, ui.error_popup (ui/PreGameCredits, ui/PreGameCreditsRet, ui/UiPlaySound and their constants). Levels (record 2, refreshed offline on 2026-11-11, no client run): lab = the names the boot above resolved, as its record listed them (199 named symbols, 434 constants, 106 features), each resolving to the same value today; every service loaded in that boot, but only ui-test ran, so lab here means loaded with Kiln's checks passing, not that the service test mods ran on the client. static = everything else, resolved offline only: the 186 @ probes (the boot's record did not list probes), the dev.22 ui names above, and every name declared since (the services audio, characters, emf-net, npcai, pacing, progression, quests, render, rules, skills, types and vfx, and new names of combat, creatures, gamedata, items, net, players, time and ui): 158 symbols, 210 constants and 70 features. sigdb now declares 543 symbols (441 defined, 102 captured), 644 constants (595 defined, 49 captured) and 176 features; all of them resolve offline on this exe.",
   "declared": {
-    "symbols": 596,
-    "constants": 678,
-    "features": 188
+    "symbols": 611,
+    "constants": 684,
+    "features": 190
   },
   "features": {
     "abilities.attributes": true,
@@ -128,6 +128,8 @@
     "quests.knowledge": true,
     "quests.npc": true,
     "render.camera": true,
+    "repl.client": true,
+    "repl.observe": true,
     "rules.camera_check": true,
     "rules.consume": true,
     "rules.consume_buff": true,
@@ -457,6 +459,19 @@
     "quests/StaticPlayerFind": "0x121a820",
     "quests/StaticWorldFind": "0x121a950",
     "render/client.CameraWritten": "0x3af578",
+    "repl/AckReceive": "0x9c6140",
+    "repl/ClientStore": "0x9c69b0",
+    "repl/Decode": "0x9646d0",
+    "repl/DeltaWriter": "0x985610",
+    "repl/EcsReset": "0x9ed780",
+    "repl/EntityWriter": "0x990450",
+    "repl/PrepareInner": "0x98fdf0",
+    "repl/ProcessClientMessage": "0x9db7f0",
+    "repl/QueueReader": "0x98f530",
+    "repl/SendCallback": "0xe51e90",
+    "repl/SendStep": "0xe5f330",
+    "repl/SnapshotReturn": "0x9906a0",
+    "repl/StateIndex": "0x9afd40",
     "rules/ActorStateTest": "0x21e4f0",
     "rules/AmmoConsumed": "0x2252a5",
     "rules/ApplyMaterials": "0x495f20",
@@ -1009,6 +1024,12 @@
     "render/client.cpi.near": "0x54",
     "render/client.cpi.position_z": "0x30",
     "render/client.cpi.rotation": "0x38",
+    "repl/obj.client_ctx": "0x8",
+    "repl/obj.count": "0x11",
+    "repl/obj.pred_ctx": "0x92c18",
+    "repl/obj.stride": "0x125850",
+    "repl/world.objects": "0x15fd2a8",
+    "repl/world.tick": "0xe17e9c",
     "rules/client.cam.distance": "0x14a4",
     "rules/client.cam.obj": "0x5c8",
     "rules/client.cam.offset": "0x148c",
@@ -1882,6 +1903,40 @@
         "hooks.typed": "static",
         "items.volume": "static",
         "weather.sample": "static"
+      }
+    },
+    "dev28-11-replication-observe": {
+      "level": "static",
+      "date": "2026-11-13",
+      "evidence": "resolved offline (tools/sigport/build_record.py)",
+      "symbols": {
+        "@repl.layout": "static",
+        "@repl.tick": "static",
+        "repl/AckReceive": "static",
+        "repl/ClientStore": "static",
+        "repl/Decode": "static",
+        "repl/DeltaWriter": "static",
+        "repl/EcsReset": "static",
+        "repl/EntityWriter": "static",
+        "repl/PrepareInner": "static",
+        "repl/ProcessClientMessage": "static",
+        "repl/QueueReader": "static",
+        "repl/SendCallback": "static",
+        "repl/SendStep": "static",
+        "repl/SnapshotReturn": "static",
+        "repl/StateIndex": "static"
+      },
+      "constants": {
+        "repl/obj.client_ctx": "static",
+        "repl/obj.count": "static",
+        "repl/obj.pred_ctx": "static",
+        "repl/obj.stride": "static",
+        "repl/world.objects": "static",
+        "repl/world.tick": "static"
+      },
+      "features": {
+        "repl.client": "static",
+        "repl.observe": "static"
       }
     },
     "emf": {

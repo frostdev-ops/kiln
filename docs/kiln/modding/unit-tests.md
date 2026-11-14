@@ -380,6 +380,7 @@ time with them sees almost none pass between steps, and an `await Task.Delay(...
 | kiln.progression | unavailable | `kiln.progression` | no fake: the service finds no native table, so its own Available is false and its row says offline |
 | kiln.questmark | unavailable | `kiln.questmark` | no fake: the service finds no native table, so its own Available is false and its row says offline |
 | kiln.render | unavailable | `kiln.render` | no fake: the service finds no native table, so its own Available is false and its row says offline |
+| kiln.repl | unavailable | `kiln.repl` | no fake: the service finds no native table, so its own Available is false and its row says offline |
 | kiln.rules | unavailable | `kiln.rules` | no fake: the service finds no native table, so its own Available is false and its row says offline |
 | kiln.screen | unavailable | `kiln.screen` | no fake: the service finds no native table, so its own Available is false and its row says offline |
 | kiln.settings | unavailable | `kiln.settings` | no fake: the service finds no native table, so its own Available is false and its row says offline |
