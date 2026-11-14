@@ -85,7 +85,7 @@ internal sealed unsafe class BootGameData(KilnBootApi* table, ulong author) : IR
     {
         ArgumentNullException.ThrowIfNull(key);
         if (Frame is { Open: false }) return new BootDataResult(false, "PhaseClosed: the boot-author frame is closed; the game's data is read inside OnBoot only", null);
-        if (!Kiln.Capabilities.Is("mods.boot.game_data")) throw new KilnUnavailableException("mods.boot.game_data", Kiln.Capabilities.Why("mods.boot.game_data"));
+        if (!Kiln.Capabilities.Is("mods.boot.game_data")) throw ServiceCaps.Unavailable("mods.boot.game_data");
         var bytes = Encoding.UTF8.GetBytes(key);
         nuint capacity = FirstBuffer;
         while (true)
@@ -114,7 +114,7 @@ internal sealed unsafe class BootGameData(KilnBootApi* table, ulong author) : IR
                 case KilnAbi.ErrRevoked: return new BootDataResult(false, "PhaseClosed: the boot-author frame is closed", null);
                 case KilnAbi.ErrInvalidArgument: throw new ArgumentException($"\"{key}\" is not a game-data query (item:, template:, skill:0x..., material:, resource:)", nameof(key));
                 default:
-                    if (!Kiln.Capabilities.Is("mods.boot.game_data")) throw new KilnUnavailableException("mods.boot.game_data", Kiln.Capabilities.Why("mods.boot.game_data"));
+                    if (!Kiln.Capabilities.Is("mods.boot.game_data")) throw ServiceCaps.Unavailable("mods.boot.game_data");
                     return new BootDataResult(false, $"Unavailable: kiln.boot could not answer {key} (rc {rc}): a type the view cannot decode, or the budget is spent", null);
             }
         }
