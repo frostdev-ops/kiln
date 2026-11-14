@@ -1,0 +1,9 @@
+{
+  "id": "queries-test",
+  "name": "kiln.queries lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "QueriesTest.dll",
+  "side": "server",
+  "clients": "none"
+}

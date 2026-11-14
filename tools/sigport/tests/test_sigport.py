@@ -213,6 +213,49 @@ class SyntheticPort(unittest.TestCase):
         self.assertFalse(r["symbols"]["GetThing"]["ok_new"])
 
 
+class Descriptors(unittest.TestCase):
+    """sig blocks (kiln.hooks typed links): composed like the other sections, found in either place."""
+
+    def test_sigs_and_structs_compose_and_overlay(self):
+        from sigdb_check import sig_blocks
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "server.d").mkdir()
+            (root / "client.d").mkdir()
+            (root / "server.json").write_text(json.dumps({"format": 1, "symbols": {
+                "A": {"find": [{"pattern": "90"}], "sig": {"args": []}}}}))
+            (root / "client.json").write_text(json.dumps({"format": 1, "symbols": {}}))
+            (root / "server.d" / "x.json").write_text(json.dumps({"format": 1, "symbols": {},
+                "structs": {"S": {"size": 8}}, "sigs": {"A2": {"sret": "S", "args": []}, "B": {"args": []}}}))
+            (root / "server.d" / "y.json").write_text(json.dumps({"format": 1, "symbols": {}, "sigs": {"C": {"args": []}}}))
+            (root / "client.d" / "y.json").write_text(json.dumps({"format": 1, "side": "client",
+                "extends": "server.d/y.json", "sigs": {"C": {"args": [{"name": "c", "type": "u8"}]}}}))
+            server = merged(root / "server.json")
+            self.assertEqual(sorted(server["sigs"]), ["A2", "B", "C"])
+            self.assertEqual(server["structs"], {"S": {"size": 8}})
+            blocks, twice = sig_blocks(server)
+            self.assertEqual(sorted(blocks), ["A", "A2", "B", "C"])  # the in-entry one and the three of the sections
+            self.assertEqual(twice, [])
+            client = merged(root / "client.json")
+            self.assertEqual(client["sigs"]["C"]["args"][0]["name"], "c")       # the overlay's descriptor wins
+            self.assertEqual(sorted(client["sigs"]), ["A2", "B", "C"])           # shared files come along
+            server["sigs"]["A"] = {"args": []}
+            self.assertEqual(sig_blocks(server)[1], ["A"])                         # in the entry and in "sigs": an error
+
+    def test_check_sigs_without_the_tool_only_needs_resolution(self):
+        from sigdb_check import check_sigs
+        doc = {"sigs": {"ok": {"args": []}, "gone": {"args": []}}}
+        syms = {"ok": {"ok": True, "rva": 0x1000}, "gone": {"ok": False, "error": "unresolved"}}
+        import contextlib
+        import io
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            results, bad = check_sigs(doc, syms, "unused.exe", None)
+        self.assertEqual(bad, 1)
+        self.assertEqual(results["gone"]["verdict"], "unresolved")
+        self.assertEqual(results["ok"]["verdict"], "not checked")
+        self.assertIn("FAIL  sig gone", out.getvalue())
+
+
 class Strategies(unittest.TestCase):
     """A symbol with a second strategy anchored in the function's body: the one in use when another engine has hooked
     the function's first bytes (GitHub PR 27). The offline resolver asks more than the core: both must agree."""

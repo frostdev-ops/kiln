@@ -263,3 +263,14 @@ a held row reads `unavailable`, `policy`, `game test pending: <ids>` until then.
 | `systems.threads` | service row | kiln.world | — | the server world's players mask can be read (what puts its program slices on the game's workers) |
 | `systems.wraps` | service row | kiln.world | — | Before/After/Replace on the game's programs work on this build; unavailable while native SET is loaded |
 | `systems.wraps.client` | service row (client) | kiln.world | `06a-wraps.client` | wraps on the client world's programs; `wrong-side` on a dedicated server |
+| `hooks.typed` | sigdb feature | core | - | kiln.hooks has typed links (`detour_typed`, `call_with_frame`, `fingerprint`): a hook or call of a game function with float, stack and struct-return positions |
+| `sig/<symbol>` | sigdb feature | core | - | the symbol has a `sig` descriptor, resolved, and its function's code fits the descriptor on this build (one row per described symbol: `sig/time/SetTimeScale`, `sig/items/GetItemVolume`, ...). Off: the reason names the argument that no longer fits; the symbol itself may still resolve. Check it before a native hook relies on the described signature |
+| `items.volume` | sigdb feature | core | - | `items/GetItemVolume` resolved |
+| `weather.sample` | sigdb feature | core | - | `weather/SampleAt` resolved (captured from its call in `fuel_setup`) |
+| `hooks.owner_cleanup` | sigdb feature | core | - | kiln.hooks has `subscribe_owner_retiring`: a native service is told when an owner it keeps state for is revoked |
+| `kiln.queries` | service | core | - | kiln.queries' table is here ([queries.md](queries.md)) |
+| `queries.voxel_ray` | sigdb | sigdb; kiln.queries lowers it (faulted) | client: `01-queries.voxel-ray-hosted` | The game's voxel ray: `Queries.RaycastVoxels`. Off for the process after a fault in the ray or a voxel grid that does not match the build's layout |
+| `queries.ground` | managed | Kiln.Queries | client: `01-queries.voxel-ray-hosted` | `Queries.GroundBelow`; needs `queries.voxel_ray` |
+| `queries.line_of_sight` | managed | Kiln.Queries | client: `01-queries.voxel-ray-hosted` | `Queries.VoxelLineOfSight`; needs `queries.voxel_ray` and `kiln.world` |
+| `queries.overlap_origins` | managed | Kiln.Queries | client: `01-queries.voxel-ray-hosted` | `Queries.EntitiesInSphere`, `EntitiesInBox`: entity origins from `kiln.world` |
+| `creature_control` | static (lowered when the broker's world program does not run) | kiln.creature_control | not held | the creature control broker takes new leases: its layout guard matched through kiln.types, its world program is registered (kiln.world with `write_other`), kiln.creatures has the AI switch ([creature-control.md](creature-control.md)); the table row `kiln.creature_control` serves queries, waits and releases |

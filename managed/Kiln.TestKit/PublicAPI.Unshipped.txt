@@ -1,1 +1,64 @@
 #nullable enable
+Kiln.TestKit.FakeVoxelAnswer
+Kiln.TestKit.FakeVoxelAnswer.Equals(Kiln.TestKit.FakeVoxelAnswer other) -> bool
+Kiln.TestKit.FakeVoxelAnswer.FakeVoxelAnswer() -> void
+Kiln.TestKit.FakeVoxelRay
+Kiln.TestKit.FakeVoxelRay.Deconstruct(out Kiln.WorldPosition From, out Kiln.WorldPosition To, out byte Realm) -> void
+Kiln.TestKit.FakeVoxelRay.Equals(Kiln.TestKit.FakeVoxelRay other) -> bool
+Kiln.TestKit.FakeVoxelRay.FakeVoxelRay() -> void
+Kiln.TestKit.FakeVoxelRay.FakeVoxelRay(Kiln.WorldPosition From, Kiln.WorldPosition To, byte Realm) -> void
+Kiln.TestKit.FakeVoxelRay.From.get -> Kiln.WorldPosition
+Kiln.TestKit.FakeVoxelRay.From.init -> void
+Kiln.TestKit.FakeVoxelRay.Realm.get -> byte
+Kiln.TestKit.FakeVoxelRay.Realm.init -> void
+Kiln.TestKit.FakeVoxelRay.To.get -> Kiln.WorldPosition
+Kiln.TestKit.FakeVoxelRay.To.init -> void
+Kiln.TestKit.HarnessQueries
+Kiln.TestKit.HarnessQueries.MaxRaysPerStep.get -> int
+Kiln.TestKit.HarnessQueries.MaxRaysPerStep.set -> void
+Kiln.TestKit.HarnessQueries.Rays.get -> System.Collections.Generic.IReadOnlyList<Kiln.TestKit.FakeVoxelRay>!
+Kiln.TestKit.HarnessQueries.Voxels.get -> System.Func<Kiln.TestKit.FakeVoxelRay, Kiln.TestKit.FakeVoxelAnswer>?
+Kiln.TestKit.HarnessQueries.Voxels.set -> void
+Kiln.TestKit.KilnHarness.Queries.get -> Kiln.TestKit.HarnessQueries!
+override Kiln.TestKit.FakeVoxelAnswer.GetHashCode() -> int
+override Kiln.TestKit.FakeVoxelRay.GetHashCode() -> int
+static Kiln.TestKit.FakeVoxelAnswer.Clear.get -> Kiln.TestKit.FakeVoxelAnswer
+static Kiln.TestKit.FakeVoxelAnswer.Hit(Kiln.WorldPosition at, uint material = 1, ushort voxel = 65281) -> Kiln.TestKit.FakeVoxelAnswer
+static Kiln.TestKit.FakeVoxelAnswer.Refused(string! reason) -> Kiln.TestKit.FakeVoxelAnswer
+static Kiln.TestKit.FakeVoxelAnswer.operator !=(Kiln.TestKit.FakeVoxelAnswer left, Kiln.TestKit.FakeVoxelAnswer right) -> bool
+static Kiln.TestKit.FakeVoxelAnswer.operator ==(Kiln.TestKit.FakeVoxelAnswer left, Kiln.TestKit.FakeVoxelAnswer right) -> bool
+static Kiln.TestKit.FakeVoxelRay.operator !=(Kiln.TestKit.FakeVoxelRay left, Kiln.TestKit.FakeVoxelRay right) -> bool
+static Kiln.TestKit.FakeVoxelRay.operator ==(Kiln.TestKit.FakeVoxelRay left, Kiln.TestKit.FakeVoxelRay right) -> bool
+~override Kiln.TestKit.FakeVoxelAnswer.Equals(object obj) -> bool
+~override Kiln.TestKit.FakeVoxelAnswer.ToString() -> string
+~override Kiln.TestKit.FakeVoxelRay.Equals(object obj) -> bool
+~override Kiln.TestKit.FakeVoxelRay.ToString() -> string
+Kiln.TestKit.FakeControlCall
+Kiln.TestKit.FakeControlCall.<Clone>$() -> Kiln.TestKit.FakeControlCall!
+Kiln.TestKit.FakeControlCall.Deconstruct(out ulong Step, out string! Function, out ulong Owner, out Kiln.EntityId Entity, out ulong Lease, out int Result, out string! Detail) -> void
+Kiln.TestKit.FakeControlCall.Detail.get -> string!
+Kiln.TestKit.FakeControlCall.Detail.init -> void
+Kiln.TestKit.FakeControlCall.Entity.get -> Kiln.EntityId
+Kiln.TestKit.FakeControlCall.Entity.init -> void
+Kiln.TestKit.FakeControlCall.Equals(Kiln.TestKit.FakeControlCall? other) -> bool
+Kiln.TestKit.FakeControlCall.FakeControlCall(ulong Step, string! Function, ulong Owner, Kiln.EntityId Entity, ulong Lease, int Result, string! Detail) -> void
+Kiln.TestKit.FakeControlCall.Function.get -> string!
+Kiln.TestKit.FakeControlCall.Function.init -> void
+Kiln.TestKit.FakeControlCall.Lease.get -> ulong
+Kiln.TestKit.FakeControlCall.Lease.init -> void
+Kiln.TestKit.FakeControlCall.Owner.get -> ulong
+Kiln.TestKit.FakeControlCall.Owner.init -> void
+Kiln.TestKit.FakeControlCall.Result.get -> int
+Kiln.TestKit.FakeControlCall.Result.init -> void
+Kiln.TestKit.FakeControlCall.Step.get -> ulong
+Kiln.TestKit.FakeControlCall.Step.init -> void
+Kiln.TestKit.HarnessCreatureControl
+Kiln.TestKit.HarnessCreatureControl.Calls.get -> System.Collections.Generic.IReadOnlyList<Kiln.TestKit.FakeControlCall!>!
+Kiln.TestKit.HarnessCreatureControl.IsControlled(Kiln.EntityId body) -> bool
+Kiln.TestKit.HarnessCreatureControl.SetBusy(Kiln.EntityId body, bool busy = true) -> void
+Kiln.TestKit.KilnHarness.CreatureControl.get -> Kiln.TestKit.HarnessCreatureControl!
+override Kiln.TestKit.FakeControlCall.Equals(object? obj) -> bool
+override Kiln.TestKit.FakeControlCall.GetHashCode() -> int
+override Kiln.TestKit.FakeControlCall.ToString() -> string!
+static Kiln.TestKit.FakeControlCall.operator !=(Kiln.TestKit.FakeControlCall? left, Kiln.TestKit.FakeControlCall? right) -> bool
+static Kiln.TestKit.FakeControlCall.operator ==(Kiln.TestKit.FakeControlCall? left, Kiln.TestKit.FakeControlCall? right) -> bool

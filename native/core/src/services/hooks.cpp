@@ -31,6 +31,7 @@
 #include "../sigdb.h"
 #include "../tick.h"
 #include "hooks_chain.h"
+#include "hooks_fingerprint.h"
 #include "hooks_internal.h"
 #include "service.h"
 #include "services/kiln_hooks.h"
@@ -249,6 +250,115 @@ KilnResult KILN_CALL h_mid2(KilnOwner owner, uintptr_t target, const KilnHookOrd
     KILN_GUARD("mid2", KILN_ERR_INTERNAL, return chain::install_mid(owner, target, order_of(order), fn, user, out););
 }
 
+// ---- typed links (dev.28) ----
+// The positions a KilnSig describes (the sret buffer included), or -1 when it is malformed.
+int sig_positions(const KilnSig* sig) {
+    if (!sig || sig->size < sizeof(KilnSig)) return -1;
+    if (sig->argc > KILN_SIG_MAX_ARGS || (sig->argc && !sig->args)) return -1;
+    for (uint32_t i = 0; i < sig->argc; ++i) {
+        const KilnSigArg& a = sig->args[i];
+        if (a.kind < KILN_SIG_S8 || a.kind > KILN_SIG_BYVAL) return -1;
+        if (a.kind == KILN_SIG_BYVAL && a.size == 0) return -1;
+        if (a.name.len && !a.name.ptr) return -1;
+    }
+    if (sig->ret_kind > KILN_SIG_STRUCT) return -1;
+    if (sig->sret > 1) return -1;
+    if (sig->sret && (sig->ret_kind != KILN_SIG_STRUCT || sig->ret_size == 0)) return -1;
+    if (!sig->sret && sig->ret_kind == KILN_SIG_STRUCT && sig->ret_size != 1 && sig->ret_size != 2 &&
+        sig->ret_size != 4 && sig->ret_size != 8)
+        return -1;
+    const uint32_t positions = sig->argc + sig->sret;
+    return positions > KILN_SIG_MAX_ARGS ? -1 : static_cast<int>(positions);
+}
+
+// Why the last detour_typed of this thread was refused for its descriptor (typed_refusal).
+std::string& typed_refusal_text() {
+    static thread_local std::string text;
+    return text;
+}
+
+KilnResult copy_text(const std::string& text, char* buf, size_t cap, size_t* len) {
+    if (len) *len = text.size();
+    if (!buf || cap < text.size() + 1) return KILN_ERR_BUFFER_TOO_SMALL;
+    std::memcpy(buf, text.data(), text.size());
+    buf[text.size()] = 0;
+    return KILN_OK;
+}
+
+// The descriptor against the function's code (chapter 06b §4.3, §9.7). KILN_OK when the hook may be installed.
+KilnResult typed_check(uintptr_t target, const KilnSig* sig, const KilnHookOrder* order) {
+    std::string& why = typed_refusal_text();
+    why.clear();
+    sigdb::SigInfo info;
+    const bool described = sigdb::sig_at(target, &info);
+    std::string name = described ? info.symbol : order_of(order).label;
+    if (name.empty()) {
+        char b[40];
+        std::snprintf(b, sizeof b, "rva 0x%llx", static_cast<unsigned long long>(target - image().base));
+        name = b;
+    }
+    // A described symbol whose own descriptor does not fit this build is off for every typed hook.
+    if (described && info.status != sigdb::SigStatus::Match) {
+        why = info.symbol + ": " + (info.text.empty() ? std::string("its descriptor is not usable on this build") : info.text);
+        KLOG_W("hooks: typed hook on %s refused: %s", name.c_str(), why.c_str());
+        return info.status == sigdb::SigStatus::Mismatch ? KILN_HOOKS_ERR_SIG_MISMATCH : KILN_HOOKS_ERR_SIG_UNKNOWN;
+    }
+    fp::Fingerprint f;
+    if (!sigdb::fingerprint(target, &f)) {
+        f = fp::Fingerprint{};
+        f.why = "the exe file's code is not available";
+    }
+    std::string text;
+    const fp::Verdict v = fp::check(fp::shape_of(*sig), f, &text);
+    if (v == fp::Verdict::Match) return KILN_OK;
+    // Unknown is accepted only for a symbol whose own descriptor passed (a fragment's "abi": "trust").
+    if (v == fp::Verdict::Unknown && described) return KILN_OK;
+    why = text;
+    KLOG_W("hooks: typed hook on %s refused: %s", name.c_str(), why.c_str());
+    return v == fp::Verdict::Mismatch ? KILN_HOOKS_ERR_SIG_MISMATCH : KILN_HOOKS_ERR_SIG_UNKNOWN;
+}
+
+KilnResult KILN_CALL h_detour_typed(KilnOwner owner, uintptr_t target, const KilnHookOrder* order, const KilnSig* sig,
+                                    KilnTypedFn fn, void* user, KilnHandle* out) {
+    const int positions = sig_positions(sig);
+    if (!fn || positions < 0 || !valid_target(target)) return KILN_ERR_INVALID_ARGUMENT;
+    const uint32_t nstack = positions > 4 ? static_cast<uint32_t>(positions - 4) : 0;
+    KILN_GUARD("detour_typed", KILN_ERR_INTERNAL, {
+        const KilnResult checked = typed_check(target, sig, order);
+        if (checked != KILN_OK) return checked;
+        return chain::install_typed(owner, target, order_of(order), nstack, fn, user, out);
+    });
+}
+
+KilnResult KILN_CALL h_typed_refusal(char* buf, size_t cap, size_t* len) {
+    KILN_GUARD("typed_refusal", KILN_ERR_INTERNAL, return copy_text(typed_refusal_text(), buf, cap, len););
+}
+
+KilnResult KILN_CALL h_call_original_frame(KilnCallFrame* frame) { return chain::call_original_frame(frame); }
+
+KilnResult KILN_CALL h_call_with_frame(uintptr_t fn, KilnCallFrame* frame, uint32_t nstack) {
+    if (!fn || !frame || nstack > KILN_SIG_MAX_ARGS - 4 || (nstack && !frame->stack)) return KILN_ERR_INVALID_ARGUMENT;
+    kiln_hk_call_frame(reinterpret_cast<void*>(fn), frame, nstack);
+    return KILN_OK;
+}
+
+KilnResult KILN_CALL h_fingerprint(uintptr_t target, char* json, size_t cap, size_t* len) {
+    if (!valid_target(target)) return KILN_ERR_INVALID_ARGUMENT;
+    KILN_GUARD("fingerprint", KILN_ERR_INTERNAL, {
+        fp::Fingerprint f;
+        if (!sigdb::fingerprint(target, &f)) return KILN_ERR_INVALID_ARGUMENT;
+        return copy_text(fp::to_json(f), json, cap, len);
+    });
+}
+
+// ---- owner cleanup (dev.28) ----
+KilnResult KILN_CALL h_subscribe_owner_retiring(KilnOwner observer, KilnOwnerRetiringFn fn, void* user, KilnHandle* out) {
+    KILN_GUARD("subscribe_owner_retiring", KILN_ERR_INTERNAL, return reg::add_owner_retiring(observer, fn, user, out););
+}
+KilnResult KILN_CALL h_unsubscribe_owner_retiring(KilnHandle handle) {
+    KILN_GUARD("unsubscribe_owner_retiring", KILN_ERR_INTERNAL, return reg::remove_owner_retiring(handle););
+}
+
 KilnResult KILN_CALL h_revoke(KilnHandle handle) {
     if (chain::is_link_handle(handle)) KILN_GUARD("revoke", KILN_ERR_INTERNAL, return chain::revoke(handle););
     return h_unpatch(handle);
@@ -411,6 +521,15 @@ const KilnHooksApi kTable = {
     &h_call_original2,
     &h_mid2,
     &h_map_json,
+    // typed links (dev.28)
+    &h_detour_typed,
+    &h_call_original_frame,
+    &h_call_with_frame,
+    &h_fingerprint,
+    &h_typed_refusal,
+    // owner cleanup (dev.28)
+    &h_subscribe_owner_retiring,
+    &h_unsubscribe_owner_retiring,
 };
 
 std::mutex g_ready_mutex;

@@ -67,7 +67,8 @@
           "**/assets/assets.json",
           "**/skills/*.json",
           "**/quests/*.json",
-          "**/blocks/*.json"
+          "**/blocks/*.json",
+          "**/kiln.publish.json"
         ]
       }
     ],
@@ -126,6 +127,12 @@
       },
       {
         "fileMatch": [
+          "**/assets/player-states.json"
+        ],
+        "url": "./data/schemas/player-states.schema.json"
+      },
+      {
+        "fileMatch": [
           "**/impact/natives.json"
         ],
         "url": "./data/schemas/impact-natives.schema.json"
@@ -159,6 +166,18 @@
           "**/*.kschem"
         ],
         "url": "./data/schemas/kschem-header.schema.json"
+      },
+      {
+        "fileMatch": [
+          "**/kiln-release.json"
+        ],
+        "url": "./data/schemas/kiln-release.schema.json"
+      },
+      {
+        "fileMatch": [
+          "**/kiln.publish.json"
+        ],
+        "url": "./data/schemas/kiln-publish.schema.json"
       },
       {
         "fileMatch": [

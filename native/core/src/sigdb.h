@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "common.h"
+#include "services/hooks_fingerprint.h"
 #include "sigdb_pattern.h"  // Hole, Pattern, parse_pattern, scan, hole_value
 
 namespace kiln::sigdb {
@@ -85,5 +86,32 @@ struct LiveDiff {
     std::string by;
 };
 std::vector<LiveDiff> live_differs();
+
+// ---- kiln.hooks typed links (dev.28) ----
+// A symbol may carry a descriptor of its function ("sig" in its entry, or under the file's "sigs" section when the
+// entry is in another file or the name is only captured). At resolve each one is compared with the function's code
+// (services/hooks_fingerprint.h). Every described core symbol is a feature "sig/<symbol>", on when the symbol
+// resolved and the descriptor fits; a fragment's descriptors are read with sig() by their prefixed names.
+enum class SigStatus : uint8_t {
+    Match,       // resolved, and the code fits the descriptor
+    Mismatch,    // the code reads other positions than the descriptor declares (a game update changed the function)
+    Unknown,     // the code could not be followed far enough (or the exe file's code is not in use)
+    Unresolved,  // the symbol did not resolve on this build
+    Bad,         // the descriptor itself is malformed
+};
+struct SigInfo {
+    std::string symbol;
+    SigStatus status = SigStatus::Unresolved;
+    std::string text;         // the comparison in words, or why there is none
+    std::string json;         // the descriptor block
+    std::string fingerprint;  // the code's fingerprint as JSON ("" when none was computed)
+    uintptr_t address = 0;    // live address (0 = unresolved)
+};
+bool sig(std::string_view symbol, SigInfo* out);   // core first, then the fragment named by the prefix
+bool sig_at(uintptr_t live_addr, SigInfo* out);    // the described symbol resolved to exactly this address
+std::vector<std::string> sig_symbols();            // core symbols with a descriptor
+std::string structs_json();                        // the core's "structs" sections, merged
+// The fingerprint of the code at a live address, from the exe file's bytes. False when the address is not code.
+bool fingerprint(uintptr_t live_addr, hooks::fp::Fingerprint* out);
 
 }  // namespace kiln::sigdb

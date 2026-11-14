@@ -7,8 +7,21 @@
 #include "guard.h"
 #include "log.h"
 
+namespace kiln::hooks::seh {
+// hooks_seh.cpp: the observer call under a structured-exception guard (false = it faulted).
+bool call_owner_retiring(void(KILN_CALL* fn)(KilnOwner, void*), KilnOwner retiring, void* user, unsigned long* code);
+}  // namespace kiln::hooks::seh
+
 namespace kiln::reg {
 namespace {
+
+struct RetiringSub {
+    KilnHandle handle;
+    KilnOwner owner;  // the observer
+    OwnerRetiringFn fn;
+    void* user;
+    std::atomic<bool> live{true};
+};
 
 struct Task {
     KilnOwner owner;
@@ -24,6 +37,7 @@ std::vector<std::shared_ptr<TickSub>> g_tick[2];
 std::vector<std::shared_ptr<LogSub>> g_log;
 std::atomic<uint64_t> g_version{1};
 std::atomic<size_t> g_log_count{0};
+std::vector<std::shared_ptr<RetiringSub>> g_retiring;  // under g_mutex
 
 std::mutex g_task_mutex;
 std::vector<Task> g_tasks;
@@ -55,9 +69,17 @@ bool owner_alive(KilnOwner owner) {
 void owner_revoke(KilnOwner owner) {
     if (owner == 0) return;
     size_t removed = 0;
+    std::vector<std::shared_ptr<RetiringSub>> observers;  // called below, outside the locks
     {
         std::lock_guard lock(g_mutex);
-        g_owners.erase(owner);
+        const bool was_alive = g_owners.erase(owner) != 0;
+        std::erase_if(g_retiring, [&](const std::shared_ptr<RetiringSub>& s) {
+            if (s->owner != owner) return false;
+            s->live.store(false, std::memory_order_release);
+            ++removed;
+            return true;
+        });
+        if (was_alive) observers = g_retiring;  // a second revoke of the same owner tells nobody again
         for (auto& list : g_tick) {
             std::erase_if(list, [&](const std::shared_ptr<TickSub>& s) {
                 if (s->owner != owner) return false;
@@ -80,6 +102,43 @@ void owner_revoke(KilnOwner owner) {
     }
     bump();
     KLOG_D("owner %llu revoked (%zu subscriptions)", static_cast<unsigned long long>(owner), removed);
+    for (const auto& s : observers) {
+        if (!s->live.load(std::memory_order_acquire)) continue;  // unsubscribed (perhaps by an earlier callback)
+        unsigned long code = 0;
+        if (hooks::seh::call_owner_retiring(s->fn, owner, s->user, &code)) continue;
+        KLOG_E("an owner-retiring observer of owner %llu faulted (0x%08lx) and was removed",
+               static_cast<unsigned long long>(s->owner), code);
+        remove_owner_retiring(s->handle);
+    }
+}
+
+KilnResult add_owner_retiring(KilnOwner observer, OwnerRetiringFn fn, void* user, KilnHandle* out) {
+    if (!fn) return KILN_ERR_INVALID_ARGUMENT;
+    std::lock_guard lock(g_mutex);
+    if (observer != 0 && !g_owners.count(observer)) return KILN_ERR_REVOKED;
+    auto s = std::make_shared<RetiringSub>();
+    s->handle = g_next_handle++;
+    s->owner = observer;
+    s->fn = fn;
+    s->user = user;
+    g_retiring.push_back(s);
+    if (out) *out = s->handle;
+    return KILN_OK;
+}
+
+KilnResult remove_owner_retiring(KilnHandle handle) {
+    std::lock_guard lock(g_mutex);
+    const size_t n = std::erase_if(g_retiring, [&](const std::shared_ptr<RetiringSub>& s) {
+        if (s->handle != handle) return false;
+        s->live.store(false, std::memory_order_release);
+        return true;
+    });
+    return n ? KILN_OK : KILN_ERR_NOT_FOUND;
+}
+
+size_t owner_retiring_count() {
+    std::lock_guard lock(g_mutex);
+    return g_retiring.size();
 }
 
 KilnResult add_tick(KilnOwner owner, int phase, KilnTickFn fn, void* user, KilnHandle* out) {
