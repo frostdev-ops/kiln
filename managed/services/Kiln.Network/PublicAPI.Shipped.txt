@@ -341,6 +341,7 @@ static Kiln.ConfigSync.ServerConfigs.get -> int
 static Kiln.ConfigSync.Serving.get -> (uint StateId, int Configs)?
 static Kiln.DirHash.Compute(string! root) -> string!
 static Kiln.DirHash.Files(string! root) -> System.Collections.Generic.List<(byte[]! Key, string! Path)>!
+static Kiln.DirHash.ModIdentity(string! root) -> string!
 static Kiln.DirHash.Signature(string! root) -> string!
 static Kiln.NetModpack.operator !=(Kiln.NetModpack? left, Kiln.NetModpack? right) -> bool
 static Kiln.NetModpack.operator ==(Kiln.NetModpack? left, Kiln.NetModpack? right) -> bool
@@ -357,6 +358,7 @@ static Kiln.Network.Channels.get -> System.Collections.Generic.IReadOnlyList<Kil
 static Kiln.Network.Config.get -> Kiln.NetworkConfig!
 static Kiln.Network.ConfigError.get -> string?
 static Kiln.Network.Disconnected -> System.Action<Kiln.NetPeer!>?
+static Kiln.Network.Kick(Kiln.NetPeer! peer, string! reason) -> System.Threading.Tasks.Task<Kiln.KickResult!>!
 static Kiln.Network.PeerOf(Kiln.EntityId player) -> Kiln.NetPeer?
 static Kiln.Network.Peers.get -> System.Collections.Generic.IReadOnlyList<Kiln.NetPeer!>!
 static Kiln.Network.RefreshRequired() -> void
