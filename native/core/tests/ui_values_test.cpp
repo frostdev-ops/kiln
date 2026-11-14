@@ -7,6 +7,7 @@
 // test-ui-values.sh (ASan/UBSan, host compiler, no Wine).
 #include <cmath>
 #include <cstdio>
+#include <deque>
 #include <cstring>
 #include <map>
 #include <set>
@@ -19,6 +20,7 @@
 #include "../src/services/ui_values_bars.cpp"
 #include "../src/services/ui_values_update.cpp"
 #include "../src/services/ui_values_changes.cpp"
+#include "../src/services/ui_values_slots.cpp"
 
 using namespace kiln::uivalues;
 
@@ -55,6 +57,7 @@ struct Raw {
     std::string label;
     void* fn;
     void** original;
+    int32_t priority;
 };
 struct Mid {
     uintptr_t target;
@@ -134,9 +137,9 @@ void install() {
         *out = it->second;
         return true;
     };
-    e.hook_raw = [](uintptr_t t, const char* label, void* fn, void** original) {
+    e.hook_raw = [](uintptr_t t, const char* label, int32_t priority, void* fn, void** original) {
         if (hook_result == KILN_OK) {
-            raws.push_back({t, label, fn, original});
+            raws.push_back({t, label, fn, original, priority});
             *original = reinterpret_cast<void*>(&no_original);  // kiln.hooks sets the continuation before it links
         }
         return hook_result;
@@ -158,6 +161,15 @@ void install() {
     e.call_changed = [](KilnUiValueChangedFn fn, const KilnUiValueChange* c, void* user) {
         try {
             fn(c, user);
+            return true;
+        } catch (...) {
+            return false;
+        }
+    };
+    e.call_slots = [](KilnUiSlotsFn fn, const KilnUiSlotsFrame* f, const KilnUiVisibleSlot* sl, uint32_t n,
+                      void* user) {
+        try {
+            fn(f, sl, n, user);
             return true;
         } catch (...) {
             return false;
@@ -349,9 +361,10 @@ void table_and_arguments() {
     KilnUiSlotsFrame fr{};
     fr.size = sizeof fr;
     uint32_t req = 0;
-    CHECK(T()->copy_slots(o, 0, 0, &fr, nullptr, 0, &req) == KILN_ERR_UNAVAILABLE &&
-              T()->copy_slots(o, 0, 0, nullptr, nullptr, 0, &req) == KILN_ERR_INVALID_ARGUMENT,
-          "copy_slots: arguments checked, UNAVAILABLE until the slot collector exists");
+    CHECK(T()->copy_slots(o, 0, 0, &fr, nullptr, 0, &req) == KILN_OK && fr.ok == 0 && fr.reason == KUI_NO_FRAME &&
+              T()->copy_slots(o, 0, 0, nullptr, nullptr, 0, &req) == KILN_ERR_INVALID_ARGUMENT &&
+              T()->copy_slots(0, 0, 0, &fr, nullptr, 0, &req) == KILN_ERR_INVALID_ARGUMENT,
+          "copy_slots: arguments checked; no frame yet -> KUI_NO_FRAME");
 }
 
 void quota() {
@@ -1754,6 +1767,271 @@ void changes_from_the_bars() {
           "bars: a drawn slot publishes the provider's final value once per frame");
 }
 
+// ============================================================================================ S5: visible slots
+// A scripted game UI frame: the frame link's continuation draws slots through the ItemSlot link; each slot's own
+// continuation calls the geometry mid (rax -> inner xywh, r15 = descriptor), may draw a nested slot, then writes the
+// 0x20-byte result (outer xywh + 16 state bytes).
+struct FakeSlot {
+    float outer[4] = {10, 20, 80, 80};
+    float inner[4] = {12, 22, 76, 76};
+    uint8_t state[16] = {1, 0, 0, 1};
+    bool geometry = true;
+    struct FakeSlotDesc* nested = nullptr;  // drawn inside this one, before its geometry
+};
+struct FakeSlotDesc {
+    uintptr_t view = 0;  // descriptor +0: the ItemView
+    FakeSlot* slot = nullptr;
+    uint8_t view_bytes[0x48] = {};
+};
+using SlotHookFn = void* (*)(void*, void*, const void*, void*);
+using FrameHookFn = void (*)(void*, void*);
+SlotHookFn g_slot_hook = nullptr;
+FrameHookFn g_frame_hook = nullptr;
+std::vector<FakeSlotDesc*> g_frame_script;
+uint8_t g_system[0x100];  // the UI system: canvas +0x30/+0x34, viewport +0x38, ppu +0x48; sys10 = system + 0x10
+
+void* game_item_slot(void* out, void* descriptor, const void*, void*) {
+    auto* d = static_cast<FakeSlotDesc*>(descriptor);
+    if (d->slot->nested) {
+        uint8_t inner_out[0x20];
+        g_slot_hook(inner_out, d->slot->nested, nullptr, nullptr);
+    }
+    if (d->slot->geometry) {
+        KilnRegisters r{};
+        r.rax = addr(d->slot->inner);
+        r.r15 = addr(d);
+        if (KilnMidFn fn = mid_at("ui.values/SlotGeometry")) fn(&r, nullptr);
+    }
+    std::memcpy(out, d->slot->outer, 16);
+    std::memcpy(static_cast<uint8_t*>(out) + 0x10, d->slot->state, 16);
+    return out;
+}
+void game_frame(void*, void*) {
+    for (FakeSlotDesc* d : g_frame_script) {
+        uint8_t out[0x20];
+        g_slot_hook(out, d, nullptr, nullptr);
+    }
+}
+void ui_frame(uint64_t frame) {
+    fake::screen.frame = frame;  // kiln.ui publishes its screen inside the chain
+    g_frame_hook(g_system + 0x10, nullptr);
+}
+std::deque<FakeSlotDesc> g_descs;  // owns every descriptor a test made (stable addresses)
+FakeSlotDesc* desc(FakeSlot* slot, uint32_t page, uint8_t index, uint32_t item, uint32_t pide) {
+    auto* d = &g_descs.emplace_back();
+    d->slot = slot;
+    fill_view_bytes(d->view_bytes, page, index, item, item ? 1 : 0, pide, 0, 0);
+    d->view = addr(d->view_bytes);
+    return d;
+}
+
+FakePlay g_slots_play;
+void prime_slots() {
+    prime_bars();  // view constants, the UiApp chain (app -> data -> state -> play)
+    set_installer(kListSlots, &kiln::uivalues::install_slots);
+    fake::rows.insert("ui.screens");
+    fake::symbols["ui/ItemSlot"] = 0x140c046c0ull;
+    fake::symbols["ui/SlotGeometry"] = 0x140c05433ull;
+    fake::symbols["ui/GameUiFrame"] = 0x140bd0f90ull;
+    const std::map<std::string, int64_t> c = {
+        {"ui/slot.resultBytes", 0x20}, {"ui/slot.hoverCandidate", 0x10}, {"ui/sys.frame_arg", 0x10},
+        {"ui/sys.canvas_w", 0x30},     {"ui/sys.canvas_h", 0x34},        {"ui/sys.viewport", 0x38},
+        {"ui/sys.px_per_unit", 0x48},  {"ui/play.models", 0x3060},       {"ui/play.modelsCount", 0x3068},
+        {"ui/model.owner", 0},         {"ui/model.stride", 0x8f70},      {"ui/model.views", 0x2d8},
+        {"ui/model.viewsCount", 0x2e0}};
+    for (const auto& [k, v] : c) fake::constants[k] = v;
+    std::memset(g_system, 0, sizeof g_system);
+    put(g_system, 0x30, 1920.0f);
+    put(g_system, 0x34, 1080.0f);
+    put(g_system, 0x38, 0.0f);
+    put(g_system, 0x3c, 0.0f);
+    put(g_system, 0x40, 2560.0f);
+    put(g_system, 0x44, 1440.0f);
+    put(g_system, 0x48, 1.3333f);
+    put(g_mem.state, 0x38, g_slots_play.at());  // the frame's play data has the inventory models
+    g_slots_play.set_models({{77, {{0x5000, 0, 0xAA, 1, 900}, {0x5001, 0, 0, 0, 0}}}, {99, {{0x6000, 0, 0xBB, 1, 0}}}});
+    fake::client = ClientNow{77, 5, 100};
+    g_frame_script.clear();
+}
+bool arm_slots() {
+    for (const auto& r : fake::raws) {
+        if (r.label == "ui.values/ItemSlot") {
+            g_slot_hook = reinterpret_cast<SlotHookFn>(r.fn);
+            *r.original = reinterpret_cast<void*>(&game_item_slot);
+        }
+        if (r.label == "ui.values/GameUiFrame") {
+            g_frame_hook = reinterpret_cast<FrameHookFn>(r.fn);
+            *r.original = reinterpret_cast<void*>(&game_frame);
+        }
+    }
+    return g_slot_hook && g_frame_hook;
+}
+struct SlotsBuffer {
+    KilnUiSlotsFrame frame{};
+    std::vector<KilnUiVisibleSlot> slots;
+    uint32_t required = 0;
+    KilnResult rc = KILN_ERR_INTERNAL;
+};
+SlotsBuffer copy(KilnOwner o, uint32_t capacity, uint64_t session = 0, uint64_t frame = 0) {
+    SlotsBuffer b;
+    b.frame.size = sizeof b.frame;
+    b.slots.assign(capacity + 1, KilnUiVisibleSlot{});
+    for (auto& s : b.slots) {
+        std::memset(&s, 0xAB, sizeof s);  // a record that was not written keeps this
+        s.size = sizeof s;
+    }
+    b.rc = T()->copy_slots(o, session, frame, &b.frame, b.slots.data(), capacity, &b.required);
+    return b;
+}
+struct SlotsSeen {
+    std::vector<KilnUiSlotsFrame> frames;
+    std::vector<uint32_t> counts;
+};
+void KILN_CALL on_slots(const KilnUiSlotsFrame* f, const KilnUiVisibleSlot*, uint32_t n, void* user) {
+    auto* s = static_cast<SlotsSeen*>(user);
+    s->frames.push_back(*f);
+    s->counts.push_back(n);
+}
+
+void slots_basics() {
+    prime_slots();
+    const KilnOwner o = fake::owner("mod:slots");
+    uint32_t req = 0;
+    KilnUiSlotsFrame fr{};
+    fr.size = sizeof fr;
+    fake::rows.erase("ui.slots.inspect");  // held by the client gate
+    CHECK(T()->copy_slots(o, 0, 0, &fr, nullptr, 0, &req) == KILN_ERR_UNAVAILABLE && fake::raws.empty(),
+          "slots: ui.slots.inspect held -> UNAVAILABLE, nothing hooked");
+    fake::rows.insert("ui.slots.inspect");
+    CHECK(T()->copy_slots(o, 0, 0, &fr, nullptr, 0, &req) == KILN_OK && fr.ok == 0 && fr.reason == KUI_NO_FRAME,
+          "slots: before the first frame -> KUI_NO_FRAME");
+    CHECK(fake::mids.size() == 1 && fake::raws.size() == 2 && arm_slots() && fake::raws[1].priority == 100 &&
+              fake::raws[0].priority == 0,
+          "install: the geometry mid, the ItemSlot link and the frame link at +100 (outside kiln.ui's)");
+    SlotsSeen seen;
+    auto r = reg_record();
+    CHECK(T()->subscribe_slots(o, &on_slots, &seen, &r) == KILN_OK && r.ok == 1, "slots: subscribe_slots registered");
+    FakeSlot a, b, c;
+    b.outer[2] = 0;    // zero width: no outer rect
+    c.inner[1] = NAN;  // non-finite: no inner rect
+    c.geometry = true;
+    g_frame_script = {desc(&a, 0x5000, 0, 0xAA, 900), desc(&b, 0x5001, 3, 0, 0), desc(&c, 0x6000, 0, 0xBB, 0)};
+    ui_frame(700);
+    auto got = copy(o, 8);
+    const KilnUiVisibleSlot* s = got.slots.data();
+    CHECK(got.rc == KILN_OK && got.frame.ok == 1 && got.frame.count == 3 && got.required == 3 &&
+              got.frame.frame == 700 && got.frame.session == 5 && got.frame.local_player == 77 &&
+              got.frame.capture_ms == fake::ticks && got.frame.transform_flags == KUI_VIEWPORT &&
+              got.frame.canvas_width == 1920.0f && got.frame.viewport_px.width == 2560.0f,
+          "copy: a whole completed frame, its metadata and the viewport transform (no pixel mapping before 05a-c5)");
+    CHECK(s[0].occurrence == 0 && s[0].inventory_page == 0x5000 && s[0].item == 0xAA && s[0].client_entity == 900 &&
+              s[0].outer_ui.width == 80 && s[0].inner_ui.x == 12 && s[0].native_state[0] == 1 &&
+              s[0].available == (KUI_OUTER_RECT | KUI_INNER_RECT | KUI_NATIVE_STATE | KUI_VIEWPORT) &&
+              s[0].size == sizeof(KilnUiVisibleSlot),
+          "copy: the slot record: identity, outer and inner rectangles, the state bytes");
+    CHECK(!(s[1].available & KUI_OUTER_RECT) && (s[1].available & KUI_INNER_RECT) && s[1].slot_index == 3 &&
+              s[1].item == 0 && !(s[2].available & KUI_INNER_RECT) && (s[2].available & KUI_OUTER_RECT) &&
+              s[2].item == 0xBB,
+          "rects: zero width clears the outer bit, a NaN the inner bit; identity and the other rect stay (empty "
+          "slots too)");
+    CHECK(got.slots[3].size == sizeof(KilnUiVisibleSlot) && got.slots[3].occurrence == 0xABABABAB,
+          "copy: nothing written past the frame's count");
+    CHECK(seen.counts == (std::vector<uint32_t>{3}) && seen.frames[0].frame == 700,
+          "subscribe: one publication after the frame");
+
+    // a small buffer: metadata and required, no record
+    auto small = copy(o, 2);
+    CHECK(small.rc == KILN_ERR_BUFFER_TOO_SMALL && small.required == 3 && small.frame.count == 3 &&
+              small.frame.frame == 700 && small.slots[0].occurrence == 0xABABABAB &&
+              small.slots[1].occurrence == 0xABABABAB,
+          "copy: capacity 2 for 3 -> BUFFER_TOO_SMALL with the metadata and required 3, no record written");
+    // stale ids: the last two frames are kept
+    ui_frame(701);
+    CHECK(copy(o, 8, 5, 700).frame.ok == 1, "copy: the previous frame by its ids");
+    ui_frame(702);
+    auto stale = copy(o, 8, 5, 700);
+    CHECK(stale.rc == KILN_OK && stale.frame.ok == 0 && stale.frame.reason == KUI_STALE_FRAME &&
+              stale.slots[0].occurrence == 0xABABABAB,
+          "copy: a frame older than the last two -> KUI_STALE_FRAME, no record");
+    CHECK(copy(o, 8, 4, 702).frame.reason == KUI_STALE_FRAME,
+          "copy: the right frame number of another session is stale");
+}
+
+void slots_budget_and_nesting() {
+    prime_slots();
+    const KilnOwner o = fake::owner("mod:slots");
+    uint32_t req = 0;
+    KilnUiSlotsFrame fr{};
+    fr.size = sizeof fr;
+    T()->copy_slots(o, 0, 0, &fr, nullptr, 0, &req);
+    arm_slots();
+    SlotsSeen seen;
+    auto r = reg_record();
+    T()->subscribe_slots(o, &on_slots, &seen, &r);
+    FakeSlot one;
+    auto* d = desc(&one, 0x5000, 0, 0xAA, 900);
+    g_frame_script.assign(4097, d);
+    ui_frame(800);
+    auto over = copy(o, 8);
+    CHECK(over.rc == KILN_OK && over.frame.ok == 0 && over.frame.reason == KUI_FRAME_BUDGET && over.frame.count == 0 &&
+              over.required == 0 && over.slots[0].occurrence == 0xABABABAB && seen.counts.back() == 0,
+          "budget: 4097 slot draws -> KUI_FRAME_BUDGET, no partial list (subscriber gets 0)");
+    g_frame_script.assign(4096, d);
+    ui_frame(801);
+    CHECK(copy(o, 4096).frame.count == 4096, "budget: 4096 draws are a whole frame");
+    // nested: the outer slot's geometry comes after the inner slot was drawn
+    FakeSlot outer, inner;
+    outer.inner[0] = 111;
+    inner.inner[0] = 222;
+    auto* in = desc(&inner, 0x5000, 1, 0xAB, 901);
+    outer.nested = in;
+    g_frame_script = {desc(&outer, 0x5000, 0, 0xAA, 900)};
+    ui_frame(802);
+    auto nest = copy(o, 4);
+    CHECK(nest.frame.count == 2 && nest.slots[0].item == 0xAB && nest.slots[0].inner_ui.x == 222 &&
+              nest.slots[1].item == 0xAA && nest.slots[1].inner_ui.x == 111 &&
+              (nest.slots[1].available & KUI_INNER_RECT),
+          "nesting: a slot drawn inside another gets its own geometry; the outer one keeps its own after it");
+}
+
+void slots_holders() {
+    prime_slots();
+    const KilnOwner o = fake::owner("mod:holders");
+    uint32_t req = 0;
+    KilnUiSlotsFrame fr{};
+    fr.size = sizeof fr;
+    T()->copy_slots(o, 0, 0, &fr, nullptr, 0, &req);
+    arm_slots();
+    FakeSlot a;
+    g_frame_script = {desc(&a, 0x5000, 0, 0xAA, 900), desc(&a, 0x5001, 2, 0, 0), desc(&a, 0x6000, 0, 0xBB, 0),
+                      desc(&a, 0x7000, 0, 0xCC, 0)};
+    ui_frame(900);
+    auto f1 = copy(o, 8);
+    const auto* s = f1.slots.data();
+    CHECK(s[0].holder == 77 && s[0].page_ordinal == 0 && s[1].holder == 77 && s[1].page_ordinal == 1 &&
+              s[0].holder_flags == (KUI_HOLDER_KNOWN | KUI_HOLDER_ORDINAL | KUI_HOLDER_LOCAL_PLAYER) &&
+              s[2].holder == 99 && !(s[2].holder_flags & KUI_HOLDER_LOCAL_PLAYER) && s[3].holder_flags == 0 &&
+              s[3].holder == 0 && s[0].holder_serial != 0 && s[0].holder_serial == s[1].holder_serial &&
+              s[2].holder_serial != s[0].holder_serial,
+          "holder: the page's model owner and ordinal, the local player flagged, an unknown page without holder");
+    const uint64_t own = s[0].holder_serial, chest = s[2].holder_serial;
+    ui_frame(901);
+    auto f2 = copy(o, 8);
+    CHECK(f2.slots[0].holder_serial == own && f2.slots[2].holder_serial == chest,
+          "holder: the serials stay while the holders stay");
+    g_slots_play.set_models({{77, {{0x5000, 0, 0xAA, 1, 900}, {0x5001, 0, 0, 0, 0}}}});  // the chest closed
+    ui_frame(902);
+    g_slots_play.set_models({{77, {{0x5000, 0, 0xAA, 1, 900}, {0x5001, 0, 0, 0, 0}}}, {99, {{0x6000, 0, 0xBB, 1, 0}}}});
+    ui_frame(903);
+    auto f3 = copy(o, 8);
+    CHECK(f3.slots[0].holder_serial == own && f3.slots[2].holder == 99 && f3.slots[2].holder_serial != chest &&
+              f3.slots[2].holder_serial > own,
+          "holder: a holder back after a frame without it gets a new serial (never reused)");
+    fake::client.session = 6;
+    ui_frame(904);
+    CHECK(copy(o, 8).slots[0].holder_serial != own, "holder: a new client session starts new serials");
+}
+
 }  // namespace
 
 int main() {
@@ -1782,6 +2060,9 @@ int main() {
     changes_reset_and_hud();
     changes_eviction_and_faults();
     changes_from_the_bars();
+    slots_basics();
+    slots_budget_and_nesting();
+    slots_holders();
     std::printf(g_fail ? "%d FAILED\n" : "all passed\n", g_fail);
     return g_fail ? 1 : 0;
 }

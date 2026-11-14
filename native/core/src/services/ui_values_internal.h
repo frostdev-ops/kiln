@@ -6,6 +6,7 @@
 //   ui_values_bars.cpp     the item detail bar and the slot bar (mids before the game draws a temporary Bar)
 //   ui_values_update.cpp   the player-UI update: HUD pairs, the held item, the pre-provider stage (below)
 //   ui_values_changes.cpp  change publication: identities, the 4096-entry cache, Added/Updated/Removed/Evicted/Reset
+//   ui_values_slots.cpp    the drawn slots of each completed UI frame (copy_slots, subscribe_slots)
 //   ui_values_service.cpp  the production environment (owners, kiln.caps, sigdb, kiln.hooks, kiln.client, kiln.ui),
 //                          the SEH guards and the service's registration with the core
 //
@@ -66,12 +67,15 @@ struct Env {
     bool (*write)(uintptr_t dst, const void* src, size_t n) = nullptr;
     bool (*symbol)(const char* name, uintptr_t* out) = nullptr;
     bool (*constant)(const char* name, int64_t* out) = nullptr;
-    KilnResult (*hook_raw)(uintptr_t target, const char* label, void* fn, void** original) = nullptr;
+    // priority: higher runs first (outer); kiln.ui's own links are at 0
+    KilnResult (*hook_raw)(uintptr_t target, const char* label, int32_t priority, void* fn, void** original) = nullptr;
     KilnResult (*hook_mid)(uintptr_t target, const char* label, KilnMidFn fn) = nullptr;
     // A provider called under a structured-exception guard: false = it faulted (*rc untouched).
     bool (*call_value)(KilnUiValueFn fn, const KilnUiProviderContext* c, const KilnUiItemView* v,
                        const KilnUiBarValue* in, KilnUiBarEdit* e, void* user, KilnResult* rc) = nullptr;
     bool (*call_changed)(KilnUiValueChangedFn fn, const KilnUiValueChange* c, void* user) = nullptr;
+    bool (*call_slots)(KilnUiSlotsFn fn, const KilnUiSlotsFrame* f, const KilnUiVisibleSlot* s, uint32_t n,
+                       void* user) = nullptr;
     // fn(frame) on the UI thread after every completed game UI frame (kiln.ui's subscribe_ui_tick); false = none
     bool (*subscribe_frames)(void (*fn)(uint64_t frame, void* user), void* user) = nullptr;
     void (*log)(int level, const char* text) = nullptr;
@@ -128,6 +132,11 @@ KilnUiBarValue run_chain(uint32_t kind, const KilnUiItemView& view, const KilnUi
                          const ChainStamp& stamp);
 // Validates `e` against the kind's mask and the input; on success applies it to *acc. False = KUI_INVALID_EDIT.
 bool apply_edit(uint32_t kind, const KilnUiBarEdit& e, const std::string& mod, KilnUiBarValue* acc);
+
+// ---- visible slots (ui_values_slots.cpp) ----
+KilnResult slots_copy(KilnOwner owner, uint64_t expected_session, uint64_t expected_frame, KilnUiSlotsFrame* frame,
+                      KilnUiVisibleSlot* slots, uint32_t capacity, uint32_t* required);
+void slots_reset_for_tests();
 
 // ---- change publication (ui_values_changes.cpp) ----
 bool changes_wanted();  // a change subscriber exists: the chains stage their results

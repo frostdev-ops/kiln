@@ -78,9 +78,10 @@ bool screen(KilnUiScreen* out) {
     return ui->screen(out) == KILN_OK;
 }
 
-KilnResult hook_raw(uintptr_t target, const char* label, void* fn, void** original) {
+KilnResult hook_raw(uintptr_t target, const char* label, int32_t priority, void* fn, void** original) {
     if (!target || !hooks::ensure_ready()) return KILN_ERR_UNAVAILABLE;
     hooks::chain::Order o;
+    o.priority = priority;
     o.label = label;
     KilnHandle h = 0;
     return hooks::chain::install_raw(0, target, o, fn, original, &h);
@@ -116,6 +117,18 @@ bool call_changed(KilnUiValueChangedFn fn, const KilnUiValueChange* c, void* use
         return true;
     } __except (crash::filter(GetExceptionInformation(), &cap, &code)) {
         crash::report(cap, "kiln.ui.values change subscriber", reinterpret_cast<const void*>(fn));
+        return false;
+    }
+}
+
+bool call_slots(KilnUiSlotsFn fn, const KilnUiSlotsFrame* f, const KilnUiVisibleSlot* s, uint32_t n, void* user) {
+    crash::Capture cap{};
+    unsigned long code = 0;
+    __try {
+        fn(f, s, n, user);
+        return true;
+    } __except (crash::filter(GetExceptionInformation(), &cap, &code)) {
+        crash::report(cap, "kiln.ui.values slots subscriber", reinterpret_cast<const void*>(fn));
         return false;
     }
 }
@@ -159,6 +172,7 @@ void wire() {
     e.hook_mid = &hook_mid;
     e.call_value = &call_value;
     e.call_changed = &call_changed;
+    e.call_slots = &call_slots;
     e.subscribe_frames = &subscribe_frames;
     e.log = [](int level, const char* text) { kiln::log::write(level, "kiln", text); };
 }

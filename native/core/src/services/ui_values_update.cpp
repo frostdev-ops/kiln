@@ -336,7 +336,7 @@ bool install_base() {
     // the capture first: the raw link is what makes it record anything
     KilnResult rc = env().hook_mid(capture, "ui.values/PlayerUiPlayCapture", &on_play_capture);
     if (rc == KILN_OK)
-        rc = env().hook_raw(update, "ui.values/PlayerUiUpdate", reinterpret_cast<void*>(&hk_update),
+        rc = env().hook_raw(update, "ui.values/PlayerUiUpdate", 0, reinterpret_cast<void*>(&hk_update),
                             reinterpret_cast<void**>(&g_update_next));
     if (rc != KILN_OK || !g_update_next) {
         logf(KILN_LOG_ERROR, "ui.values: hooking the player-UI update failed (%d)", rc);

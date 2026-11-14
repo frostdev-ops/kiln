@@ -25,6 +25,11 @@ internal static unsafe class FakeUiValues
     public static ulong NextHandle = 100;
     public static readonly Dictionary<ulong, string> Texts = [];
     public static int InternRc;
+    public static UiValuesNative.SlotsFrame SlotsMeta;
+    public static UiValuesNative.VisibleSlot[] SlotList = [];
+    public static readonly List<(ulong Session, ulong Frame, uint Capacity)> Copies = [];
+    public static nint SlotsFn;
+    public static nint SlotsUser;
 
     public static void Install()
     {
@@ -34,6 +39,8 @@ internal static unsafe class FakeUiValues
         Table->Subscribe = &Subscribe;
         Table->Unsubscribe = &Unsubscribe;
         Table->SubscribeChanges = &SubscribeChanges;
+        Table->CopySlots = &CopySlots;
+        Table->SubscribeSlots = &SubscribeSlots;
         Ops = (UiValuesNative.TextOps*)NativeMemory.AllocZeroed((nuint)sizeof(UiValuesNative.TextOps));
         Ops->Size = (uint)sizeof(UiValuesNative.TextOps);
         Ops->Version = 1;
@@ -83,6 +90,31 @@ internal static unsafe class FakeUiValues
     {
         ChangeFn = (nint)fn;
         ChangeOwner = owner;
+        r->Ok = 1;
+        r->Handle = NextHandle++;
+        return 0;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int CopySlots(ulong owner, ulong session, ulong frame, UiValuesNative.SlotsFrame* f, UiValuesNative.VisibleSlot* s,
+        uint capacity, uint* required)
+    {
+        lock (Copies) Copies.Add((session, frame, capacity));
+        var size = f->Size;
+        *f = SlotsMeta;
+        f->Size = size;
+        *required = SlotsMeta.Count;
+        if (capacity < SlotsMeta.Count) return UiValuesNative.BufferTooSmall;
+        for (var i = 0; i < SlotsMeta.Count; i++) s[i] = SlotList[i];
+        return 0;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int SubscribeSlots(ulong owner, delegate* unmanaged[Cdecl]<UiValuesNative.SlotsFrame*, UiValuesNative.VisibleSlot*, uint, void*, void> fn,
+        void* user, UiValuesNative.Registration* r)
+    {
+        SlotsFn = (nint)fn;
+        SlotsUser = (nint)user;
         r->Ok = 1;
         r->Handle = NextHandle++;
         return 0;
@@ -139,11 +171,14 @@ public sealed unsafe class UiValuesTests : IDisposable
         UiValuesNative.ResetForTests();
         UiValueBridge.ResetForTests();
         UiValueEvents.ResetForTests();
+        UiSlotsBridge.ResetForTests();
+        UiSlotsBridge.Now = () => 10_000;
         Events.Reset();
     }
 
     public void Dispose()
     {
+        UiSlotsBridge.Now = () => Environment.TickCount64;
         Events.Reset();
         UiValueBridge.ResetForTests();
         UiValueEvents.ResetForTests();
@@ -163,6 +198,8 @@ public sealed unsafe class UiValuesTests : IDisposable
         Assert.Equal(56, sizeof(UiValuesNative.Identity));
         Assert.Equal(200, sizeof(UiValuesNative.ValueChange));
         Assert.Equal(72, sizeof(UiValuesNative.Table));
+        Assert.Equal(112, sizeof(UiValuesNative.VisibleSlot));
+        Assert.Equal(120, sizeof(UiValuesNative.SlotsFrame));
     }
 
     [Fact]
@@ -401,5 +438,93 @@ public sealed unsafe class UiValuesTests : IDisposable
         Assert.Equal(42ul, got[1].Frame);
         var reset = Assert.Single(resets);
         Assert.Equal((UiValuesResetReason.World, 1ul, 2ul), (reset.Reason, reset.OldSession, reset.NewSession));
+    }
+
+    // ---- visible slots ----
+    private static void Frame(uint count, ulong captureMs = 9_500, uint transform = UiValuesNative.Viewport)
+    {
+        FakeUiValues.SlotsMeta = new UiValuesNative.SlotsFrame
+        {
+            Ok = 1, Count = count, LocalPlayer = 77, Session = 5, Frame = 700, CaptureMs = captureMs, CanvasWidth = 1920,
+            CanvasHeight = 1080, ViewportPx = new UiValuesNative.Rect { X = 100, Y = 50, Width = 2560, Height = 1440 },
+            PixelsPerUnit = 2, TransformFlags = transform,
+        };
+        FakeUiValues.SlotList = new UiValuesNative.VisibleSlot[count];
+        for (var i = 0; i < count; i++)
+        {
+            ref var s = ref FakeUiValues.SlotList[i];
+            s.Size = (uint)sizeof(UiValuesNative.VisibleSlot);
+            s.Occurrence = (uint)i;
+            s.InventoryPage = 0x5000;
+            s.SlotIndex = (uint)(i % 8);
+            s.Item = 0xAA;
+            s.Count = 1;
+            s.Available = UiValuesNative.OuterRect | UiValuesNative.NativeState | (i == 0 ? UiValuesNative.InnerRect : 0) | transform;
+            s.OuterUi = new UiValuesNative.Rect { X = 10, Y = 20, Width = 80, Height = 80 };
+            s.InnerUi = new UiValuesNative.Rect { X = 12, Y = 22, Width = 76, Height = 76 };
+            s.NativeState[0] = 1;
+            s.Holder = 77;
+            s.HolderFlags = 7;
+            s.HolderSerial = 3;
+            s.PageOrdinal = 1;
+        }
+    }
+
+    [Fact]
+    public void Slots_copies_the_latest_frame_without_pixels_before_the_mapping_is_verified()
+    {
+        Frame(3);
+        var r = Ui.Values.Slots();
+        Assert.True(r.Ok, r.Reason);
+        var snap = r.Snapshot!;
+        Assert.Equal((5ul, 700ul, new EntityId(77), 3), (snap.Session, snap.Frame, snap.LocalPlayer, snap.Slots.Count));
+        var s = snap.Slots[0];
+        Assert.Equal(new UiRect(10, 20, 80, 80), s.OuterUi);
+        Assert.Equal(new UiRect(12, 22, 76, 76), s.InnerUi);
+        Assert.Null(snap.Slots[1].InnerUi);
+        Assert.Null(s.OuterPixels);
+        Assert.Equal(1, s.NativeState[0]);
+        Assert.Equal((new EntityId(77), 3ul, 1u, 7u), (s.Holder, s.HolderSerial, s.PageOrdinal, s.HolderFlags));
+        Frame(1, transform: UiValuesNative.Viewport | UiValuesNative.PixelMappingVerified);
+        var px = Ui.Values.Slots().Snapshot!.Slots[0].OuterPixels;
+        Assert.Equal(new UiRect(100 + 10 * 2, 50 + 20 * 2, 160, 160), px);
+    }
+
+    [Fact]
+    public void Slots_retries_a_small_buffer_with_the_same_frame_and_refuses_an_old_frame()
+    {
+        Frame(100);
+        lock (FakeUiValues.Copies) FakeUiValues.Copies.Clear();
+        var r = Ui.Values.Slots();
+        Assert.True(r.Ok);
+        Assert.Equal(100, r.Snapshot!.Slots.Count);
+        Assert.Equal([(0ul, 0ul, 64u), (5ul, 700ul, 128u)], FakeUiValues.Copies);  // the retry names the frame it saw
+        Frame(2, captureMs: 8_000);  // 2000 ms before "now"
+        var old = Ui.Values.Slots();
+        Assert.False(old.Ok);
+        Assert.Contains("ms old", old.Reason);
+        FakeUiValues.SlotsMeta = new UiValuesNative.SlotsFrame { Ok = 0, Reason = UiValuesNative.ReasonFrameBudget };
+        Assert.Contains("4096", Ui.Values.Slots().Reason);
+        Backend.Current = new FakeUiValues.Backend(["ui.values.detail"]);
+        Assert.Equal("ui.slots.inspect", Assert.Throws<KilnUnavailableException>(() => Ui.Values.Slots()).Capability);
+    }
+
+    [Fact]
+    public void SubscribeSlots_delivers_each_frame_as_a_snapshot()
+    {
+        var got = new List<VisibleSlotsResult>();
+        var reg = Ui.Values.SubscribeSlots(got.Add);
+        Assert.True(reg.Ok);
+        Frame(2);
+        var fn = (delegate* unmanaged[Cdecl]<UiValuesNative.SlotsFrame*, UiValuesNative.VisibleSlot*, uint, void*, void>)FakeUiValues.SlotsFn;
+        var meta = FakeUiValues.SlotsMeta;
+        fixed (UiValuesNative.VisibleSlot* p = FakeUiValues.SlotList) fn(&meta, p, 2, (void*)FakeUiValues.SlotsUser);
+        var r = Assert.Single(got);
+        Assert.Equal(2, r.Snapshot!.Slots.Count);
+        reg.Dispose();
+        fixed (UiValuesNative.VisibleSlot* p = FakeUiValues.SlotList) fn(&meta, p, 2, (void*)FakeUiValues.SlotsUser);
+        Assert.Single(got);  // nothing after Dispose
+        Assert.Contains(reg.Handle, FakeUiValues.Unsubscribed);
+        Assert.Throws<ArgumentNullException>(() => Ui.Values.SubscribeSlots(null!));
     }
 }

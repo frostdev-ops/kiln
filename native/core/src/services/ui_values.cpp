@@ -164,10 +164,14 @@ KilnResult KILN_CALL t_unsubscribe(KilnHandle h) {
     return guarded("unsubscribe", [&] { return remove(h); });
 }
 
-KilnResult KILN_CALL t_copy_slots(KilnOwner owner, uint64_t, uint64_t, KilnUiSlotsFrame* frame, KilnUiVisibleSlot*,
-                                  uint32_t, uint32_t* required) {
-    if (owner == 0 || !frame || frame->size < sizeof(KilnUiSlotsFrame) || !required) return KILN_ERR_INVALID_ARGUMENT;
-    return KILN_ERR_UNAVAILABLE;  // the slot collector is not built in this version: ui.slots.inspect stays off
+KilnResult KILN_CALL t_copy_slots(KilnOwner owner, uint64_t expected_session, uint64_t expected_frame,
+                                  KilnUiSlotsFrame* frame, KilnUiVisibleSlot* slots, uint32_t capacity,
+                                  uint32_t* required) {
+    if (owner == 0 || !frame || frame->size < sizeof(KilnUiSlotsFrame) || !required || (capacity && !slots))
+        return KILN_ERR_INVALID_ARGUMENT;
+    return guarded("copy_slots", [&] {
+        return slots_copy(owner, expected_session, expected_frame, frame, slots, capacity, required);
+    });
 }
 
 KilnResult KILN_CALL t_subscribe_slots(KilnOwner owner, KilnUiSlotsFn fn, void* user, KilnUiRegistration* out) {
@@ -511,6 +515,7 @@ void reset_for_tests() {  // host tests only: nothing dispatches while it runs
     }
     text::reset_for_tests();
     changes_reset_for_tests();
+    slots_reset_for_tests();
 }
 
 }  // namespace kiln::uivalues

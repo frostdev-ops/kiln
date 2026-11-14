@@ -93,6 +93,19 @@ Kiln.UiProviderDecision.Ok.init -> void
 Kiln.UiProviderDecision.Reason.get -> string?
 Kiln.UiProviderDecision.Reason.init -> void
 Kiln.UiProviderDecision.UiProviderDecision(bool Ok, string? Reason, Kiln.UiBarEdit! Edit) -> void
+Kiln.UiRect
+Kiln.UiRect.Deconstruct(out float X, out float Y, out float Width, out float Height) -> void
+Kiln.UiRect.Equals(Kiln.UiRect other) -> bool
+Kiln.UiRect.Height.get -> float
+Kiln.UiRect.Height.init -> void
+Kiln.UiRect.UiRect() -> void
+Kiln.UiRect.UiRect(float X, float Y, float Width, float Height) -> void
+Kiln.UiRect.Width.get -> float
+Kiln.UiRect.Width.init -> void
+Kiln.UiRect.X.get -> float
+Kiln.UiRect.X.init -> void
+Kiln.UiRect.Y.get -> float
+Kiln.UiRect.Y.init -> void
 Kiln.UiScreenKey
 Kiln.UiScreenKey.Crafting.get -> byte
 Kiln.UiScreenKey.Crafting.init -> void
@@ -191,10 +204,86 @@ Kiln.UiValuesResetReason
 Kiln.UiValuesResetReason.Capability = 1 -> Kiln.UiValuesResetReason
 Kiln.UiValuesResetReason.Registry = 2 -> Kiln.UiValuesResetReason
 Kiln.UiValuesResetReason.World = 0 -> Kiln.UiValuesResetReason
+Kiln.VisibleSlot
+Kiln.VisibleSlot.<Clone>$() -> Kiln.VisibleSlot!
+Kiln.VisibleSlot.Availability.get -> uint
+Kiln.VisibleSlot.Availability.init -> void
+Kiln.VisibleSlot.ClientEntity.get -> Kiln.EntityId
+Kiln.VisibleSlot.ClientEntity.init -> void
+Kiln.VisibleSlot.Count.get -> uint
+Kiln.VisibleSlot.Count.init -> void
+Kiln.VisibleSlot.Deconstruct(out uint Occurrence, out Kiln.EntityId InventoryPage, out byte SlotIndex, out Kiln.ItemId Item, out uint Count, out Kiln.EntityId ClientEntity, out Kiln.EntityId ServerEntity, out uint ViewFlags, out Kiln.UiRect? OuterUi, out Kiln.UiRect? InnerUi, out System.Collections.Generic.IReadOnlyList<byte>! NativeState, out uint Availability, out Kiln.UiRect? OuterPixels, out Kiln.UiRect? InnerPixels) -> void
+Kiln.VisibleSlot.Equals(Kiln.VisibleSlot? other) -> bool
+Kiln.VisibleSlot.Holder.get -> Kiln.EntityId
+Kiln.VisibleSlot.Holder.init -> void
+Kiln.VisibleSlot.HolderFlags.get -> uint
+Kiln.VisibleSlot.HolderFlags.init -> void
+Kiln.VisibleSlot.HolderSerial.get -> ulong
+Kiln.VisibleSlot.HolderSerial.init -> void
+Kiln.VisibleSlot.InnerPixels.get -> Kiln.UiRect?
+Kiln.VisibleSlot.InnerPixels.init -> void
+Kiln.VisibleSlot.InnerUi.get -> Kiln.UiRect?
+Kiln.VisibleSlot.InnerUi.init -> void
+Kiln.VisibleSlot.InventoryPage.get -> Kiln.EntityId
+Kiln.VisibleSlot.InventoryPage.init -> void
+Kiln.VisibleSlot.Item.get -> Kiln.ItemId
+Kiln.VisibleSlot.Item.init -> void
+Kiln.VisibleSlot.NativeState.get -> System.Collections.Generic.IReadOnlyList<byte>!
+Kiln.VisibleSlot.NativeState.init -> void
+Kiln.VisibleSlot.Occurrence.get -> uint
+Kiln.VisibleSlot.Occurrence.init -> void
+Kiln.VisibleSlot.OuterPixels.get -> Kiln.UiRect?
+Kiln.VisibleSlot.OuterPixels.init -> void
+Kiln.VisibleSlot.OuterUi.get -> Kiln.UiRect?
+Kiln.VisibleSlot.OuterUi.init -> void
+Kiln.VisibleSlot.PageOrdinal.get -> uint
+Kiln.VisibleSlot.PageOrdinal.init -> void
+Kiln.VisibleSlot.ServerEntity.get -> Kiln.EntityId
+Kiln.VisibleSlot.ServerEntity.init -> void
+Kiln.VisibleSlot.SlotIndex.get -> byte
+Kiln.VisibleSlot.SlotIndex.init -> void
+Kiln.VisibleSlot.ViewFlags.get -> uint
+Kiln.VisibleSlot.ViewFlags.init -> void
+Kiln.VisibleSlot.VisibleSlot(uint Occurrence, Kiln.EntityId InventoryPage, byte SlotIndex, Kiln.ItemId Item, uint Count, Kiln.EntityId ClientEntity, Kiln.EntityId ServerEntity, uint ViewFlags, Kiln.UiRect? OuterUi, Kiln.UiRect? InnerUi, System.Collections.Generic.IReadOnlyList<byte>! NativeState, uint Availability, Kiln.UiRect? OuterPixels, Kiln.UiRect? InnerPixels) -> void
+Kiln.VisibleSlotsResult
+Kiln.VisibleSlotsResult.<Clone>$() -> Kiln.VisibleSlotsResult!
+Kiln.VisibleSlotsResult.Deconstruct(out bool Ok, out string? Reason, out Kiln.VisibleSlotsSnapshot? Snapshot) -> void
+Kiln.VisibleSlotsResult.Equals(Kiln.VisibleSlotsResult? other) -> bool
+Kiln.VisibleSlotsResult.Ok.get -> bool
+Kiln.VisibleSlotsResult.Ok.init -> void
+Kiln.VisibleSlotsResult.Reason.get -> string?
+Kiln.VisibleSlotsResult.Reason.init -> void
+Kiln.VisibleSlotsResult.Snapshot.get -> Kiln.VisibleSlotsSnapshot?
+Kiln.VisibleSlotsResult.Snapshot.init -> void
+Kiln.VisibleSlotsResult.VisibleSlotsResult(bool Ok, string? Reason, Kiln.VisibleSlotsSnapshot? Snapshot) -> void
+Kiln.VisibleSlotsSnapshot
+Kiln.VisibleSlotsSnapshot.<Clone>$() -> Kiln.VisibleSlotsSnapshot!
+Kiln.VisibleSlotsSnapshot.CaptureMs.get -> ulong
+Kiln.VisibleSlotsSnapshot.CaptureMs.init -> void
+Kiln.VisibleSlotsSnapshot.Deconstruct(out ulong Session, out ulong Frame, out ulong CaptureMs, out Kiln.EntityId LocalPlayer, out Kiln.GameScreen Screen, out Kiln.UiRect ViewportPixels, out float PixelsPerUnit, out uint TransformFlags, out System.Collections.Generic.IReadOnlyList<Kiln.VisibleSlot!>! Slots) -> void
+Kiln.VisibleSlotsSnapshot.Equals(Kiln.VisibleSlotsSnapshot? other) -> bool
+Kiln.VisibleSlotsSnapshot.Frame.get -> ulong
+Kiln.VisibleSlotsSnapshot.Frame.init -> void
+Kiln.VisibleSlotsSnapshot.LocalPlayer.get -> Kiln.EntityId
+Kiln.VisibleSlotsSnapshot.LocalPlayer.init -> void
+Kiln.VisibleSlotsSnapshot.PixelsPerUnit.get -> float
+Kiln.VisibleSlotsSnapshot.PixelsPerUnit.init -> void
+Kiln.VisibleSlotsSnapshot.Screen.get -> Kiln.GameScreen
+Kiln.VisibleSlotsSnapshot.Screen.init -> void
+Kiln.VisibleSlotsSnapshot.Session.get -> ulong
+Kiln.VisibleSlotsSnapshot.Session.init -> void
+Kiln.VisibleSlotsSnapshot.Slots.get -> System.Collections.Generic.IReadOnlyList<Kiln.VisibleSlot!>!
+Kiln.VisibleSlotsSnapshot.Slots.init -> void
+Kiln.VisibleSlotsSnapshot.TransformFlags.get -> uint
+Kiln.VisibleSlotsSnapshot.TransformFlags.init -> void
+Kiln.VisibleSlotsSnapshot.ViewportPixels.get -> Kiln.UiRect
+Kiln.VisibleSlotsSnapshot.ViewportPixels.init -> void
+Kiln.VisibleSlotsSnapshot.VisibleSlotsSnapshot(ulong Session, ulong Frame, ulong CaptureMs, Kiln.EntityId LocalPlayer, Kiln.GameScreen Screen, Kiln.UiRect ViewportPixels, float PixelsPerUnit, uint TransformFlags, System.Collections.Generic.IReadOnlyList<Kiln.VisibleSlot!>! Slots) -> void
 const Kiln.Ui.Values.DetailCapability = "ui.values.detail" -> string!
 const Kiln.Ui.Values.HeldCapability = "ui.values.held" -> string!
 const Kiln.Ui.Values.HudCapability = "ui.values.hud" -> string!
 const Kiln.Ui.Values.SlotCapability = "ui.values.slot" -> string!
+const Kiln.Ui.Values.SlotsCapability = "ui.slots.inspect" -> string!
 override Kiln.UiBarEdit.Equals(object? obj) -> bool
 override Kiln.UiBarEdit.GetHashCode() -> int
 override Kiln.UiBarEdit.ToString() -> string!
@@ -208,13 +297,25 @@ override Kiln.UiLabelEdit.ToString() -> string!
 override Kiln.UiProviderDecision.Equals(object? obj) -> bool
 override Kiln.UiProviderDecision.GetHashCode() -> int
 override Kiln.UiProviderDecision.ToString() -> string!
+override Kiln.UiRect.GetHashCode() -> int
 override Kiln.UiScreenKey.GetHashCode() -> int
 override Kiln.UiValueContext.GetHashCode() -> int
 override Kiln.UiValueIdentity.GetHashCode() -> int
+override Kiln.VisibleSlot.Equals(object? obj) -> bool
+override Kiln.VisibleSlot.GetHashCode() -> int
+override Kiln.VisibleSlot.ToString() -> string!
+override Kiln.VisibleSlotsResult.Equals(object? obj) -> bool
+override Kiln.VisibleSlotsResult.GetHashCode() -> int
+override Kiln.VisibleSlotsResult.ToString() -> string!
+override Kiln.VisibleSlotsSnapshot.Equals(object? obj) -> bool
+override Kiln.VisibleSlotsSnapshot.GetHashCode() -> int
+override Kiln.VisibleSlotsSnapshot.ToString() -> string!
 static Kiln.Ui.Values.HeldBar(Kiln.UiBarProvider! provider) -> Kiln.UiValueRegistration!
 static Kiln.Ui.Values.Hud(Kiln.HudValue vital, Kiln.UiBarProvider! provider) -> Kiln.UiValueRegistration!
 static Kiln.Ui.Values.ItemBar(Kiln.ItemId item, Kiln.UiBarProvider! provider) -> Kiln.UiValueRegistration!
 static Kiln.Ui.Values.SlotBar(Kiln.ItemId item, Kiln.UiBarProvider! provider) -> Kiln.UiValueRegistration!
+static Kiln.Ui.Values.Slots() -> Kiln.VisibleSlotsResult!
+static Kiln.Ui.Values.SubscribeSlots(System.Action<Kiln.VisibleSlotsResult!>! onFrame) -> Kiln.UiValueRegistration!
 static Kiln.UiBarEdit.operator !=(Kiln.UiBarEdit? left, Kiln.UiBarEdit? right) -> bool
 static Kiln.UiBarEdit.operator ==(Kiln.UiBarEdit? left, Kiln.UiBarEdit? right) -> bool
 static Kiln.UiBarValue.operator !=(Kiln.UiBarValue? left, Kiln.UiBarValue? right) -> bool
@@ -227,17 +328,27 @@ static Kiln.UiProviderDecision.Refuse(string! reason) -> Kiln.UiProviderDecision
 static Kiln.UiProviderDecision.Replace(Kiln.UiBarEdit! edit) -> Kiln.UiProviderDecision!
 static Kiln.UiProviderDecision.operator !=(Kiln.UiProviderDecision? left, Kiln.UiProviderDecision? right) -> bool
 static Kiln.UiProviderDecision.operator ==(Kiln.UiProviderDecision? left, Kiln.UiProviderDecision? right) -> bool
+static Kiln.UiRect.operator !=(Kiln.UiRect left, Kiln.UiRect right) -> bool
+static Kiln.UiRect.operator ==(Kiln.UiRect left, Kiln.UiRect right) -> bool
 static Kiln.UiScreenKey.operator !=(Kiln.UiScreenKey left, Kiln.UiScreenKey right) -> bool
 static Kiln.UiScreenKey.operator ==(Kiln.UiScreenKey left, Kiln.UiScreenKey right) -> bool
 static Kiln.UiValueContext.operator !=(Kiln.UiValueContext left, Kiln.UiValueContext right) -> bool
 static Kiln.UiValueContext.operator ==(Kiln.UiValueContext left, Kiln.UiValueContext right) -> bool
 static Kiln.UiValueIdentity.operator !=(Kiln.UiValueIdentity left, Kiln.UiValueIdentity right) -> bool
 static Kiln.UiValueIdentity.operator ==(Kiln.UiValueIdentity left, Kiln.UiValueIdentity right) -> bool
+static Kiln.VisibleSlot.operator !=(Kiln.VisibleSlot? left, Kiln.VisibleSlot? right) -> bool
+static Kiln.VisibleSlot.operator ==(Kiln.VisibleSlot? left, Kiln.VisibleSlot? right) -> bool
+static Kiln.VisibleSlotsResult.operator !=(Kiln.VisibleSlotsResult? left, Kiln.VisibleSlotsResult? right) -> bool
+static Kiln.VisibleSlotsResult.operator ==(Kiln.VisibleSlotsResult? left, Kiln.VisibleSlotsResult? right) -> bool
+static Kiln.VisibleSlotsSnapshot.operator !=(Kiln.VisibleSlotsSnapshot? left, Kiln.VisibleSlotsSnapshot? right) -> bool
+static Kiln.VisibleSlotsSnapshot.operator ==(Kiln.VisibleSlotsSnapshot? left, Kiln.VisibleSlotsSnapshot? right) -> bool
 static readonly Kiln.UiBarEdit.None -> Kiln.UiBarEdit!
 static readonly Kiln.UiProviderDecision.Pass -> Kiln.UiProviderDecision!
 virtual Kiln.UiBarProvider.Invoke(in Kiln.UiValueContext context, in Kiln.UiItemView item, Kiln.UiBarValue! accumulated) -> Kiln.UiProviderDecision!
 ~override Kiln.UiItemView.Equals(object obj) -> bool
 ~override Kiln.UiItemView.ToString() -> string
+~override Kiln.UiRect.Equals(object obj) -> bool
+~override Kiln.UiRect.ToString() -> string
 ~override Kiln.UiScreenKey.Equals(object obj) -> bool
 ~override Kiln.UiScreenKey.ToString() -> string
 ~override Kiln.UiValueContext.Equals(object obj) -> bool

@@ -88,6 +88,39 @@ internal static unsafe class UiValuesNative
         public NativeStr BeforeLabel, AfterLabel;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Rect
+    {
+        public float X, Y, Width, Height;
+    }
+
+    // KilnUiSlotAvailability
+    public const uint OuterRect = 1, InnerRect = 2, NativeState = 4, Viewport = 8, PixelMappingVerified = 16;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct VisibleSlot
+    {
+        public uint Size, Available, Occurrence, InventoryPage, SlotIndex;
+        public uint Item, Count, ClientEntity, ServerEntity, ViewFlags;
+        public Rect OuterUi, InnerUi;
+        public fixed byte NativeState[16];
+        public uint Holder, HolderFlags;
+        public ulong HolderSerial;
+        public uint PageOrdinal, Reserved2;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct SlotsFrame
+    {
+        public uint Size, Ok, Reason, Count, LocalPlayer, Reserved;
+        public UiNative.Screen Screen;
+        public ulong Session, Frame, CaptureMs;
+        public float CanvasWidth, CanvasHeight;
+        public Rect ViewportPx;
+        public float PixelsPerUnit;
+        public uint TransformFlags;
+    }
+
     public const uint ChangeAdded = 0, ChangeUpdated = 1, ChangeRemoved = 2, ChangeEvicted = 3, ChangeReset = 4;
 
     [StructLayout(LayoutKind.Sequential)]
@@ -98,8 +131,8 @@ internal static unsafe class UiValuesNative
             delegate* unmanaged[Cdecl]<ProviderContext*, ItemView*, BarValue*, BarEdit*, void*, int>, void*, Registration*, int> Subscribe;
         public void* TooltipLines;  // typed where it is used (UiTooltipDetails.cs)
         public delegate* unmanaged[Cdecl]<ulong, int> Unsubscribe;
-        public void* CopySlots;     // typed where it is used (UiSlots.cs)
-        public void* SubscribeSlots;
+        public delegate* unmanaged[Cdecl]<ulong, ulong, ulong, SlotsFrame*, VisibleSlot*, uint, uint*, int> CopySlots;
+        public delegate* unmanaged[Cdecl]<ulong, delegate* unmanaged[Cdecl]<SlotsFrame*, VisibleSlot*, uint, void*, void>, void*, Registration*, int> SubscribeSlots;
         public delegate* unmanaged[Cdecl]<ulong, delegate* unmanaged[Cdecl]<ValueChange*, void*, void>, void*, Registration*, int> SubscribeChanges;
         public void* OpenTooltipDetails;
         public void* CloseTooltipDetails;

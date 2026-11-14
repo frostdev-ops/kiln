@@ -170,11 +170,31 @@ enum KilnUiSlotAvailability {
     KUI_VIEWPORT = 8,
     KUI_PIXEL_MAPPING_VERIFIED = 16,
 };
+/* KilnUiVisibleSlot.holder_flags */
+enum KilnUiHolderFlags {
+    KUI_HOLDER_KNOWN = 1,          /* holder / holder_serial name the inventory's holder (from the game's UI models) */
+    KUI_HOLDER_LOCAL_PLAYER = 2,   /* the holder is kiln.client's local player */
+    KUI_HOLDER_ORDINAL = 4,        /* page_ordinal is set */
+    KUI_HOLDER_SERVER_PROVEN = 8,  /* the holder is proven to be the server's entity of that id: never set in v1 */
+};
+/* One slot the game drew in a completed UI frame (a copy). occurrence is the draw order, not an identity; a page/index
+ * can appear twice in one frame (two screen regions). outer_ui / inner_ui are UI units, valid only with their
+ * KUI_OUTER_RECT / KUI_INNER_RECT bit (zero, negative or non-finite geometry clears it). native_state is the slot
+ * record's 16 state bytes; state[0] is only the candidate hover byte until check 05a-c5 passed. A missing identity
+ * leaves usable geometry valid. */
 typedef struct KilnUiVisibleSlot {
     uint32_t size, available, occurrence, inventory_page, slot_index;
     uint32_t item, count, client_entity, server_entity, view_flags;
     KilnUiRect outer_ui, inner_ui;
     uint8_t native_state[16];
+    /* the holder (since the first release; for slot marks, 13d-shroudlink): the client-world entity whose inventory
+     * model holds the page (the model's owner), Kiln's lifetime serial of that holder in this process (a new one when
+     * the holder first shows in a client session or shows again after a frame without it: a destroyed and recreated
+     * holder never keeps its serial; never reused), and the page's position among the holder's pages in the game's
+     * model order (not proven to be the saved inventory's page ordinal). Server identity is not proven in v1. */
+    uint32_t holder, holder_flags;
+    uint64_t holder_serial;
+    uint32_t page_ordinal, reserved2;
 } KilnUiVisibleSlot;
 typedef struct KilnUiSlotsFrame {
     uint32_t size, ok, reason, count, local_player, reserved;
@@ -214,9 +234,17 @@ typedef struct KilnUiValuesApi {
     /* Removes any registration of this service (KILN_ERR_NOT_FOUND when unknown or already gone). Any thread; a
      * provider removed from inside a callback is not called again. */
     KilnResult(KILN_CALL* unsubscribe)(KilnHandle);
-    /* One completed frame of drawn slots: (0, 0) = the latest, else one of the last two. Any thread. */
+    /* One completed frame of drawn slots (ui.slots.inspect): (0, 0) = the latest, else exactly one of the last two
+     * retained frames. Any thread. slots[0].size (when capacity > 0) is the caller's record size (at least the 88
+     * bytes up to native_state). KILN_OK with frame->ok = 0: KUI_NO_FRAME (none yet), KUI_STALE_FRAME (the ids are not
+     * retained: start again from the latest), KUI_FRAME_BUDGET (more than 4096 slot draws in that frame: no partial
+     * list). capacity below the count: KILN_ERR_BUFFER_TOO_SMALL with the whole frame metadata and *required, no
+     * record written; retry with the same ids. A copy freezes one retained frame: metadata and records belong together.
+     * capture_ms is GetTickCount64 at publication. Pixel rectangles need KUI_VIEWPORT and KUI_PIXEL_MAPPING_VERIFIED
+     * in transform_flags; the latter waits for check 05a-c5 (never set in v1). */
     KilnResult(KILN_CALL* copy_slots)(KilnOwner, uint64_t expected_session, uint64_t expected_frame,
                                       KilnUiSlotsFrame*, KilnUiVisibleSlot*, uint32_t capacity, uint32_t* required);
+    /* fn(frame, slots, count) once per completed UI frame, on the UI thread after the frame; borrowed for the call. */
     KilnResult(KILN_CALL* subscribe_slots)(KilnOwner, KilnUiSlotsFn, void* user, KilnUiRegistration*);
     KilnResult(KILN_CALL* subscribe_changes)(KilnOwner, KilnUiValueChangedFn, void* user, KilnUiRegistration*);
     KilnResult(KILN_CALL* open_tooltip_details)(KilnOwner, KilnUiTooltipOpen*);
