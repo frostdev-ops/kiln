@@ -9,9 +9,9 @@
   "verified": true,
   "note": "runtime-verified through Steam (GE-Proton11-11), policy any, core + every service + kiln-emf + probe + ui-test + menubuttons: side client, sigdb 306/306 symbols, 434/434 constants (client.d composed), SimStep + WorldDestroy hooked, boot complete, 0 errors; main menu entries Kiln / ui-test / Mods (the Kiln sample screen opened); hosted a LOCAL world offline (saves: world loaded: slot 0x0002 (world1.ksd)): server world 60 steps/s on the GameServer thread, client and prediction worlds on the main thread, local player 1; ui-test all checks PASS (screens MainMenu/Loading/InGame/PauseMenu/Map/Crafting, menu entries chosen, crafting state), Kiln crafting tabs and subcategories shown, Insert overlay; tick cost as on ce6fdba6 (server step p50 2.5 ms, Kiln Pre 0.037 ms; client 1.2 ms); back to the menu (worlds stopping, shutdown save), clean quit (Shutdown 'Steam'). Not covered: joining a remote server, service write paths on the client. Added in dev.22 from static analysis only (resolved offline with sigdb_check.py, not yet seen running): ui.menu_page, ui.menu_page_sound, ui.error_popup (ui/PreGameCredits, ui/PreGameCreditsRet, ui/UiPlaySound and their constants). Levels (record 2, refreshed offline on 2026-11-11, no client run): lab = the names the boot above resolved, as its record listed them (199 named symbols, 434 constants, 106 features), each resolving to the same value today; every service loaded in that boot, but only ui-test ran, so lab here means loaded with Kiln's checks passing, not that the service test mods ran on the client. static = everything else, resolved offline only: the 186 @ probes (the boot's record did not list probes), the dev.22 ui names above, and every name declared since (the services audio, characters, emf-net, npcai, pacing, progression, quests, render, rules, skills, types and vfx, and new names of combat, creatures, gamedata, items, net, players, time and ui): 158 symbols, 210 constants and 70 features. sigdb now declares 543 symbols (441 defined, 102 captured), 644 constants (595 defined, 49 captured) and 176 features; all of them resolve offline on this exe.",
   "declared": {
-    "symbols": 589,
-    "constants": 670,
-    "features": 187
+    "symbols": 596,
+    "constants": 678,
+    "features": 188
   },
   "features": {
     "abilities.attributes": true,
@@ -120,6 +120,7 @@
     "players.singleton_map": true,
     "players.skill_knowledge": true,
     "players.skills": true,
+    "queries.voxel_ray": true,
     "quests.changes": true,
     "quests.client_input": true,
     "quests.dialogue": true,
@@ -437,6 +438,9 @@
     "players/TypeByHash": "0x8de860",
     "players/UpdatePlayers": "0xe62898",
     "players/XpForLevel": "0xe976e0",
+    "queries/RayMinLength": "0x13d2a78",
+    "queries/VoxelCellRead": "0x9c4e30",
+    "queries/VoxelRay": "0xa0f770",
     "quests/BlockStore": "0x121b310",
     "quests/ChangeListAppend": "0x121a360",
     "quests/DialogLineFound": "0x462d58",
@@ -951,6 +955,14 @@
     "players/world.singleton_map.keys": "0x746320",
     "players/world.singleton_map.values": "0x746338",
     "players/world.singletons": "0x7462d0",
+    "queries/grid.realm_count": "0x1c00",
+    "queries/grid.realms": "0x1bf8",
+    "queries/ray.min_length_bits": "0x1e3ce508",
+    "queries/ray_grid.horizontal_count": "0x14",
+    "queries/ray_grid.origin": "0x70",
+    "queries/ray_grid.shift": "0x10",
+    "queries/ray_grid.vertical_count": "0x18",
+    "queries/realm.stride": "0x3870",
     "quests/block.bits": "0x8",
     "quests/block.cap": "0x10",
     "quests/block.changes": "0x58",
@@ -1817,6 +1829,33 @@
         "creatures.rules": "static",
         "creatures.slots": "lab",
         "creatures.table": "lab"
+      }
+    },
+    "dev28-01-world-queries": {
+      "level": "static",
+      "date": "2026-11-13",
+      "evidence": "resolved offline (tools/sigport/build_record.py)",
+      "symbols": {
+        "@queries/ray.layout": "static",
+        "@queries/ray.minimum": "static",
+        "@queries/ray_grid.bounds": "static",
+        "@queries/realm_count.layout": "static",
+        "queries/RayMinLength": "static",
+        "queries/VoxelCellRead": "static",
+        "queries/VoxelRay": "static"
+      },
+      "constants": {
+        "queries/grid.realm_count": "static",
+        "queries/grid.realms": "static",
+        "queries/ray.min_length_bits": "static",
+        "queries/ray_grid.horizontal_count": "static",
+        "queries/ray_grid.origin": "static",
+        "queries/ray_grid.shift": "static",
+        "queries/ray_grid.vertical_count": "static",
+        "queries/realm.stride": "static"
+      },
+      "features": {
+        "queries.voxel_ray": "static"
       }
     },
     "dev28-03-camera": {
