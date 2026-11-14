@@ -1,0 +1,9 @@
+{
+  "id": "boot-gamedata-test",
+  "name": "Boot game-data snapshot against the live reader (lab)",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "BootGamedataTest.dll",
+  "side": "server",
+  "boot": true
+}
