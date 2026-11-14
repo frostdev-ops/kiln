@@ -250,4 +250,18 @@ KilnResult teleport_force_stuck(KilnEntity entity, KilnTeleportFn cb, void* user
 void selftest_init();
 void selftest_pre(const KilnTickInfo* tick);
 
+// ---- game_programs.cpp: the game's own programs per world kind (v4, since 0.2.0-dev.28) ----
+void game_programs_resolve();                                  // boot, after resolve()
+void game_programs_init();                                     // boot: capability rows
+void game_programs_pre(uint32_t kind, const KilnTickInfo* tick);  // that world's thread, Pre
+void game_programs_world_event(const KilnWorldEvent* event);   // world started / stopping
+uint32_t game_programs_world_tid(uint32_t kind);               // the thread of that world's last Pre
+uint64_t game_programs_step(uint32_t kind);                    // that world's step at its last Pre
+int32_t KILN_CALL game_program_find(uint32_t kind, KilnStr name);
+KilnResult KILN_CALL game_program_info(uint32_t kind, int32_t index, KilnGameProgramInfo* out);
+KilnResult KILN_CALL game_programs_status(KilnGameProgramsStatus* out);
+KilnResult KILN_CALL lab_parallel(uint32_t on, uint32_t steps);
+void game_programs_test_setup(uintptr_t image_lo, uintptr_t image_hi, bool table_ok, int64_t players_mask,
+                              bool switch_enabled);  // host tests only
+
 }  // namespace kw

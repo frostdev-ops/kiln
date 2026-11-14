@@ -47,6 +47,16 @@ void run_system_update(SystemHookCallbacks& callbacks,void* ctx,Original origina
     original(ctx);
     callbacks.after(ctx,generation,guard);
 }
+// The update that names a program for the switches and the profiler: what the table entry holds (entry+0x28), or,
+// when kiln.world's wrap trampoline sits there, the game's update behind it (kiln.world's wrap_original answers it,
+// 0 for an entry it did not swap).
+inline uint64_t program_update(uint64_t entry, uint64_t current, uint64_t (KILN_CALL* wrap_original)(uintptr_t)) {
+    if (wrap_original)
+        if (const uint64_t game = wrap_original(static_cast<uintptr_t>(entry))) return game;
+    return current;
+}
+// external_runner(): 0 the runner is kiln.types', 1 native SET owns it, 2 the modules could not be read (passive).
+inline uint32_t external_state(bool external, bool unsure) { return !external ? 0u : unsure ? 2u : 1u; }
 struct SystemHookSlot { uint64_t function; bool claimed; };
 // -2 duplicate active owner; -1 bounded distinct-function capacity exhausted. Retired slots keep their function.
 template<size_t Capacity,class Lookup>
