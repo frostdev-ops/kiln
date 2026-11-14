@@ -8,6 +8,8 @@ from __future__ import annotations
 import json
 import importlib.util
 import os
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -184,6 +186,32 @@ class Main(unittest.TestCase):
 
 
 class GateGenerator(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("cmake") and shutil.which("ninja"), "needs CMake and Ninja")
+    def test_deleting_a_gate_file_regenerates_the_compiled_list(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            gates = root / "core/gates"
+            gates.mkdir(parents=True)
+            shutil.copy(REPO / "native/core/gates/gen.py", gates)
+            held = gates / "dev28-test.json"
+            held.write_text(json.dumps({"gates": [{"name": "camera.fov", "checks": ["03-c11"]}]}))
+            cmake = (REPO / "native/CMakeLists.txt").read_text()
+            gate_rule = cmake[cmake.index("# The client gate's list:"):cmake.index("set(CMAKE_CXX_STANDARD")]
+            (root / "CMakeLists.txt").write_text(
+                'cmake_minimum_required(VERSION 3.20)\nproject(gate_test NONE)\n'
+                'set(KILN_GENERATED_DIR "${CMAKE_BINARY_DIR}/generated")\n' + gate_rule +
+                '\nadd_custom_target(gates ALL DEPENDS "${KILN_GENERATED_DIR}/kiln_gates.g.h")\n')
+            build = root / "build"
+            def run(*args):
+                subprocess.run(args, check=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            run("cmake", "-S", str(root), "-B", str(build), "-G", "Ninja")
+            run("cmake", "--build", str(build))
+            header = build / "generated/kiln_gates.g.h"
+            self.assertIn("camera.fov", header.read_text())
+            held.unlink()
+            run("cmake", "--build", str(build))
+            self.assertNotIn("camera.fov", header.read_text())
+
     def test_trailing_newlines_cannot_reach_cpp_string_literals(self):
         spec = importlib.util.spec_from_file_location("gate_gen", REPO / "native/core/gates/gen.py")
         gen = importlib.util.module_from_spec(spec)
