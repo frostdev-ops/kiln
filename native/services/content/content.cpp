@@ -1076,7 +1076,10 @@ KilnResult KILN_CALL prepare_boot(void*, const KilnBootPrepareInputV1* in, KilnB
             return kiln::boot::refuse(out, issue, d.owner, "content", d.key, why);
         };
         if (!owner) return refused("kiln.content: no process owner for " + d.owner);
-        if (std::find(plan->owners.begin(), plan->owners.end(), owner) == plan->owners.end()) plan->owners.push_back(owner);
+        if (std::find(plan->owners.begin(), plan->owners.end(), owner) == plan->owners.end()) {
+            plan->owners.push_back(owner);
+            set_owner_label(owner, "boot:" + d.owner);  // its definitions are listed with their mod (mod_of_label)
+        }
         const nlohmann::json& doc = d.document;
         const std::string op = doc.is_object() ? doc.value("op", std::string()) : std::string();
         if (!doc.is_object() || !doc.contains("definition") || !doc["definition"].is_object())
