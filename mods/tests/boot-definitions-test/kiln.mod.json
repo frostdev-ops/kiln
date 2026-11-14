@@ -5,6 +5,6 @@
   "apiVersion": "0.2",
   "entryAssembly": "BootDefinitionsTest.dll",
   "side": "server",
-  "clients": "kiln",
+  "clients": "mod",
   "boot": true
 }
