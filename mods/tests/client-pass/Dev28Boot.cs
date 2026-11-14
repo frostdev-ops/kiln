@@ -32,17 +32,19 @@ public sealed partial class ClientPassMod
         var stageFile = Path.Combine(c.Mod.DataDirectory, "boot-first-start.stage");
         var stage = BootStage.Read(stageFile);
         var pid = Environment.ProcessId;
+        var started = BootStage.ThisStart;
 
-        if (stage is { Part: 2 } && stage.Pid == pid)
+        if (stage is { Part: 2 } && stage.SameStart)
         {
             // part 2: the same start, after leaving to the main menu and hosting again
             var generation = await BootGalleryCommitted(c);
             c.Expect(generation == stage.Generation, "hosting again kept the boot generation (nothing was committed again)",
                 $"part 1: {stage.Generation}, now: {generation}");
             BootAuthorRanOnce(c);
-            new BootStage(3, pid, generation, DateTime.UtcNow).Write(stageFile);
+            new BootStage(3, pid, generation, started).Write(stageFile);
             c.Instruct($"Part 2 of 3. You left the world and hosted it again in the same start. Are the Boot Token, the Boot Bolt and " +
-                       $"the talent still there and as before? Then, after your answer, two more starts: (A) quit, enable boot-gallery's " +
+                       $"the talent still there and as before? If not, fail now. If they are, press skip (the pass is given in part 3 " +
+                       $"only) and make two more starts: (A) quit, enable boot-gallery's " +
                        $"server-only variant before the start (its README names it), start the game and join a dedicated server whose " +
                        $"profile has boot-gallery: the Boot items must be there without a second start; remember what you saw. (B) quit, " +
                        $"add {BootFailMod} to the profile (a required boot mod whose OnBoot throws) and start: the start must end before the " +
@@ -52,7 +54,7 @@ public sealed partial class ClientPassMod
             return;
         }
 
-        if (stage is { Part: 3 } && stage.Pid != pid)
+        if (stage is { Part: 3 } && !stage.SameStart)
         {
             // part 3: the start after the one the failure mod stopped
             BootStage.Clear(stageFile);
@@ -107,11 +109,11 @@ public sealed partial class ClientPassMod
             await GiveBlock(c, BootGallery, "wood-token", 5);
             await GiveBlock(c, BootGallery, "cold-bolt");
         }
-        if (first != 0) new BootStage(2, pid, first, DateTime.UtcNow).Write(stageFile);
+        if (first != 0) new BootStage(2, pid, first, started).Write(stageFile);
         c.Instruct("Part 1 of 3. You got 5 Boot Token and the Boot Bolt spell. Open the inventory and look at them: names, icons and " +
                    "tooltips. Cast the Boot Bolt at a creature as any spell: the hit gives it Boot Cold for 4 s. Open the skill tree: a new " +
                    "node \"Boot Cold Talent\" sits next to an existing node and is linked to it. Is all of it there, drawn and working, " +
-                   "in this first start? After your answer, leave the world to the main menu, host it again (do not quit the game) and " +
+                   "in this first start? If not, fail now. If it is, press skip (the pass is given in part 3 only), leave the world to the main menu, host it again (do not quit the game) and " +
                    "run this check again.");
         await c.Verdict();
     }
@@ -134,7 +136,7 @@ public sealed partial class ClientPassMod
 
         var stageFile = Path.Combine(c.Mod.DataDirectory, "boot-loader-order.stage");
         var stage = BootStage.Read(stageFile);
-        var part = stage is { Part: 2 } && stage.Pid != Environment.ProcessId ? 2 : 1;
+        var part = stage is { Part: 2 } && !stage.SameStart ? 2 : 1;
         var orders = new[] { "kiln-first", "other-first" };
         if (part == 2)
             c.Expect(stage!.Generation != (ulong)Array.IndexOf(orders, order), "part 2 runs with the other loader order",
@@ -143,10 +145,10 @@ public sealed partial class ClientPassMod
         if (!c.Player.IsNone) await GiveBlock(c, BootGallery, "cold-bolt");
         if (part == 1)
         {
-            new BootStage(2, Environment.ProcessId, (ulong)Array.IndexOf(orders, order), DateTime.UtcNow).Write(stageFile);
+            new BootStage(2, Environment.ProcessId, (ulong)Array.IndexOf(orders, order), BootStage.ThisStart).Write(stageFile);
             c.Instruct($"Part 1 of 2, loader order: {(order == "kiln-first" ? "Kiln started first and loaded the other loader" : "the other loader started first")} " +
                        $"({detail}). Cast the Boot Bolt you just got and open the skill tree: are the Boot Bolt and the \"Boot Cold " +
-                       "Talent\" node there and working in this first world of the start? After your answer, quit, swap which loader " +
+                       "Talent\" node there and working in this first world of the start? If not, fail now. If they are, press skip (the pass is given in part 2 only), quit, swap which loader " +
                        "starts first (docs/kiln/universal-loader.md: the other loader's own dinput8.dll in front with Kiln chained from it, " +
                        "or the other way round), start again, host a world and run this check again.");
         }
@@ -269,9 +271,29 @@ public sealed partial class ClientPassMod
     }
 
     /// <summary>The part of a check that runs over several starts, kept in the mod's data folder: "&lt;part&gt; &lt;pid&gt; &lt;value&gt;
-    /// &lt;UTC time&gt;". <see cref="Generation"/> carries the check's own value (a boot generation, a loader order).</summary>
+    /// &lt;UTC start time of the game process&gt;". <see cref="Generation"/> carries the check's own value (a boot generation, a loader order).</summary>
     private sealed record BootStage(int Part, int Pid, ulong Generation, DateTime Since)
     {
+        /// <summary>When this game process started (UTC). With the pid it names one start: a pid alone repeats between starts under
+        /// Wine. If the start time cannot be read, the default: the pid then decides alone.</summary>
+        public static readonly DateTime ThisStart = ProcessStart();
+
+        /// <summary>The stage was written in this start of the game.</summary>
+        public bool SameStart => Pid == Environment.ProcessId && Since == ThisStart;
+
+        private static DateTime ProcessStart()
+        {
+            try
+            {
+                using var p = System.Diagnostics.Process.GetCurrentProcess();
+                return p.StartTime.ToUniversalTime();
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or NotSupportedException or System.ComponentModel.Win32Exception)
+            {
+                return default;
+            }
+        }
+
         public static BootStage? Read(string file)
         {
             try

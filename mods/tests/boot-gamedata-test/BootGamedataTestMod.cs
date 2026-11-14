@@ -151,6 +151,8 @@ public sealed class BootGamedataTestMod : Mod
             return;
         }
         using var reading = doc;
+        // the reads are used once: a later start whose OnBoot does not run (and whose pid happens to repeat) finds no file and skips
+        try { File.Delete(Path.Combine(Context.DataDirectory, ReadsFile)); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
         var reads = doc.RootElement.GetProperty("reads").EnumerateArray().ToList();
         if (!doc.RootElement.GetProperty("gameDataOn").GetBoolean())
         {
