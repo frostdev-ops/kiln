@@ -1469,6 +1469,22 @@ export interface CookRun {
   mods: ModCook[];
   /** The active profile written again before the cook (it changed since its activation): its notices, as Play's. */
   activation?: Activation | null;
+  /** Play's cook only: the game data Mod.OnBoot reads, made or found after the cook (kiln_manage::boot_snapshot). */
+  bootSnapshot?: BootSnapshot;
+}
+/** What making the boot game-data snapshot came to: made | reused | refused | failed | unavailable. */
+export interface BootSnapshot {
+  status: "made" | "reused" | "refused" | "failed" | "unavailable";
+  key?: string;
+  path?: string;
+  counts?: Record<string, number>;
+  /** Kinds the game's archive could not give: every OnBoot read of them finds nothing. */
+  emptyKinds: string[];
+  skipped?: number;
+  archive?: string;
+  bytes?: number;
+  seconds?: number;
+  reason?: string;
 }
 /** The mods of the game's profile with something to cook, each with whether it needs a cook now. Reads only. */
 export const cookPlan = (gameId: GameId) => call<CookJob[]>("cook_plan", { gameId });
