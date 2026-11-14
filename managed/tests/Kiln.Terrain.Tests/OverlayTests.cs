@@ -509,26 +509,117 @@ public sealed class OverlayTests
     }
 }
 
-/// <summary>The public face on the test kit's harness: rows, the error rule's order, the tick thread.</summary>
+/// <summary>The public face on the test kit's fake world (KilnHarness.Terrain): rows, the error rule, the calls end to end.</summary>
 public sealed class FacadeTests
 {
-    private static TerrainPatch Vein => new("vein", 1, new CellBox(64, 96, 64, 1, 1, 1), new TerrainVoxelVolume([1]), [new TerrainPaletteEntry(12)]);
+    private static readonly CellBox Box = new(64, 96, 64, 16, 8, 8);
+
+    private static TerrainPatch Vein(int version = 1, byte material = 12)
+    {
+        var cells = new byte[Box.Count];
+        Array.Fill(cells, (byte)1);
+        return new TerrainPatch("vein", version, Box, new TerrainVoxelVolume(cells), [new TerrainPaletteEntry(material)]);
+    }
+
+    private static T Wait<T>(Kiln.TestKit.KilnHarness kiln, Func<Task<T>> call)
+    {
+        var task = kiln.Run(call);
+        kiln.StepUntil(() => task.IsCompleted, 200);
+        return task.GetAwaiter().GetResult();
+    }
 
     [Fact]
-    public void Without_kiln_build_the_overlay_members_throw_naming_their_row()
+    public void An_overlay_runs_end_to_end_on_the_kits_world()
     {
         using var kiln = new Kiln.TestKit.KilnHarness();
         kiln.Step(2);
         Assert.True(kiln.Run(() => Capabilities.Is("kiln.terrain")));
-        Assert.False(kiln.Run(() => Capabilities.Is("terrain.overlays")));
+        Assert.True(kiln.Run(() => Capabilities.Is("terrain.overlays")), kiln.Run(() => Capabilities.Why("terrain.overlays")));
         Assert.False(kiln.Run(() => Capabilities.Is("terrain.baked")));
         Assert.False(kiln.Run(() => Capabilities.Is("terrain.biomes")));
-        Assert.Equal("terrain.overlays", Assert.Throws<KilnUnavailableException>(() => kiln.Run(() => (object)Terrain.Apply(Vein))).Capability);
+
+        var events = new List<TerrainChangedEvent>();
+        void On(TerrainChangedEvent e) => events.Add(e);
+        Terrain.Changed += On;
+        try
+        {
+            var seen = Wait(kiln, () => Terrain.Inspect(Vein()));
+            Assert.Equal((true, TerrainState.Completed, 1024L, 2), (seen.Ok, seen.Would, seen.Cells, seen.Blocks));
+            Assert.Empty(kiln.Terrain.Writes);
+
+            var r = Wait(kiln, () => Terrain.Apply(Vein(), new TerrainApplyOptions { CellsPerTick = 512 }));
+            Assert.Equal((true, TerrainState.Completed, 1024L, 2), (r.Ok, r.State, r.ChangedCells, r.Batches));
+            Assert.Equal(Voxel.Of(12), kiln.Terrain.Get(new CellPos(70, 98, 66)));
+            Assert.Equal(2, kiln.Terrain.Writes.Count);
+            Assert.Equal(("kiln", "terrain vein v1", 512L), (kiln.Terrain.Writes[0].Mod, kiln.Terrain.Writes[0].Label, kiln.Terrain.Writes[0].CellsChanged));
+            Assert.Equal(2, events.Count);
+            var info = Assert.Single(kiln.Run(() => Terrain.Applied));
+            Assert.Equal(("vein", 1, true, 2), (info.Plan, info.Version, info.Complete, info.Blocks));
+
+            Assert.Equal(TerrainState.AlreadyApplied, Wait(kiln, () => Terrain.Apply(Vein())).State);
+            kiln.Terrain.Set(new CellPos(66, 98, 66), Voxel.Air);              // a player digs
+            var up = Wait(kiln, () => Terrain.Apply(Vein(2, 20)));
+            Assert.Equal(TerrainState.Conflict, up.State);
+            Assert.Equal(new CellBox(64, 96, 64, 8, 8, 8), Assert.Single(up.Conflicts).Block);
+            Assert.Equal(Voxel.Of(12), kiln.Terrain.Get(new CellPos(65, 98, 66)));
+            Assert.Equal(Voxel.Of(20), kiln.Terrain.Get(new CellPos(73, 98, 66)));
+
+            kiln.Terrain.WorldId = "another-world";
+            Assert.Empty(kiln.Run(() => Terrain.Applied));
+            kiln.Terrain.WorldId = "fake-world";
+            Assert.True(kiln.Run(() => Terrain.Forget("vein")));
+            Assert.Empty(kiln.Run(() => Terrain.Applied));
+        }
+        finally
+        {
+            Terrain.Changed -= On;
+        }
+    }
+
+    [Fact]
+    public void A_base_and_tiles_that_are_not_there_are_what_the_test_says()
+    {
+        using var kiln = new Kiln.TestKit.KilnHarness();
+        kiln.Step(2);
+        kiln.Terrain.AddBase(new CellBox(66, 90, 60, 4, 20, 20));
+        var r = Wait(kiln, () => Terrain.Apply(Vein()));
+        Assert.Equal(TerrainState.Conflict, r.State);
+        Assert.Equal(TerrainConflictKind.BaseZone, Assert.Single(r.Conflicts).Kind);
+        kiln.Terrain.Loaded = false;
+        var off = Wait(kiln, () => Terrain.Apply(Vein() with { Id = "other", Region = Box.Offset(new CellPos(64, 0, 0)) }));
+        Assert.Equal(TerrainState.Partial, off.State);
+        Assert.Throws<ArgumentException>(() => kiln.Terrain.AddBase(default));
+    }
+
+    [Fact]
+    public void A_new_harness_starts_with_untouched_ground_and_no_ledger()
+    {
+        using (var first = new Kiln.TestKit.KilnHarness())
+        {
+            first.Step(2);
+            Assert.Equal(TerrainState.Completed, Wait(first, () => Terrain.Apply(Vein())).State);
+        }
+        using var kiln = new Kiln.TestKit.KilnHarness();
+        kiln.Step(2);
+        Assert.Equal(Voxel.Of(1), kiln.Terrain.Get(new CellPos(70, 98, 66)));
+        Assert.Empty(kiln.Run(() => Terrain.Applied));
+        Assert.Empty(kiln.Terrain.Writes);
+    }
+
+    [Fact]
+    public void A_row_that_is_off_throws_by_its_name_and_a_bad_argument_is_a_bad_argument_first()
+    {
+        using var kiln = new Kiln.TestKit.KilnHarness();
+        kiln.Step(2);
+        kiln.Capabilities.Override("terrain.overlays", false, "switched off by the test");
+        Assert.Equal("terrain.overlays", Assert.Throws<KilnUnavailableException>(() => kiln.Run(() => (object)Terrain.Apply(Vein()))).Capability);
         Assert.Equal("terrain.overlays", Assert.Throws<KilnUnavailableException>(() => kiln.Run(() => Terrain.Forget("vein"))).Capability);
         Assert.Equal("terrain.overlays", Assert.Throws<KilnUnavailableException>(() => kiln.Run(() => Terrain.Applied)).Capability);
-        // a bad argument is a bad argument whatever the rows say
-        Assert.Throws<ArgumentException>(() => kiln.Run(() => (object)Terrain.Apply(Vein with { Version = 0 })));
-        Assert.Throws<ArgumentException>(() => kiln.Run(() => (object)Terrain.Apply(Vein, new TerrainApplyOptions { CellsPerTick = 1 })));
+        Assert.Empty(kiln.Terrain.Writes);
+        Assert.Throws<ArgumentException>(() => kiln.Run(() => (object)Terrain.Apply(Vein() with { Version = 0 })));
+        Assert.Throws<ArgumentException>(() => kiln.Run(() => (object)Terrain.Apply(Vein(), new TerrainApplyOptions { CellsPerTick = 1 })));
         Assert.Throws<ArgumentException>(() => kiln.Run(() => Terrain.Forget("No Such Id")));
+        kiln.Capabilities.Override("kiln.terrain", false, "switched off by the test");
+        Assert.Equal("kiln.terrain", Assert.Throws<KilnUnavailableException>(() => kiln.Run(() => (object)Terrain.Inspect(Vein()))).Capability);
     }
 }
