@@ -66,6 +66,15 @@ public sealed class ItemBlocksMod : Mod
             Tool = new ToolBlock { Harvests = Harvest.Stone, Power = 18 },
             Recipe = new RecipeBlock { Needs = { [shard] = 3 } },
         });
+        // the same pick, worn 7 by each of the game's debits instead of 1 (the game's own ember pick above keeps 1). Per debit,
+        // not per swing: a swing whose hit the game debits twice spends 14. Set where the world runs; on a game client it waits
+        // for its guided check (16b-g).
+        Blocks.Define("brittle-ember-pick", new ItemBlock
+        {
+            Name = "Brittle Ember Pick", Level = 10,
+            Tool = new ToolBlock { Harvests = Harvest.Stone, Power = 18, WearPerDebit = 7 },
+            Recipe = new RecipeBlock { Needs = { [shard] = 2 } },
+        });
 
         // a weapon of every class. Stats are the tooltip's: level and damage, made exactly so
         foreach (var (name, display, cls) in new[]

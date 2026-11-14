@@ -64,6 +64,13 @@ internal static class KindApply
 
     private static string Staged(BlockPlan plan, string key) => KindCompiler.StagedName(plan.Name, key);
 
+    /// <summary>Private products occupy names too, until their consumer or pending request goes away.</summary>
+    internal static bool NameReserved(ModBlocks target, string name, string? exceptPlan = null)
+    {
+        lock (Gate) return Apps.Values.Any(a => ReferenceEquals(a.Target, target) && a.Plan.Name != exceptPlan
+            && a.State is BlockApplyState.PendingContent or BlockApplyState.Applied && a.Stage.Blocks.Any(b => b.Name == name));
+    }
+
     private static IBlock Parse(BlockProduct p) => p.Kind switch
     {
         BuiltInBlockProductKind.Item => BlockJson.Parse<ItemBlock>(p.CanonicalJson),
@@ -95,7 +102,8 @@ internal static class KindApply
             foreach (var p in plan.Products)
             {
                 var (name, product) = (Staged(plan, p.Key), p);
-                if (target.Handles.ContainsKey(name)) throw new BlockError(label, p.Key, $"mod {target.Id} has a block \"{name}\" already: a kind's plan never replaces one");
+                if (target.Handles.ContainsKey(name) || target.Pending.ContainsKey(name) || NameReserved(target, name, plan.Name))
+                    throw new BlockError(label, p.Key, $"mod {target.Id} has a block \"{name}\" already: a kind's plan never replaces one");
                 BlockHandle? done = null;
                 tx.Stage.Pending[name] = () => done ??= Define(target, name, Parse(product));
             }
@@ -123,12 +131,13 @@ internal static class KindApply
         return new KindStage(tx.Stage, [.. tx.Staged], primary, ContentGeneration(), bytes);
     }
 
-    /// <summary>The identities of the consumer's plans that are compiled and not refused: a later compile may name them.</summary>
+    /// <summary>The identities of live plans that are compiled and not refused: a later compile may name them.</summary>
     internal static List<(string, string, KindCompiler.Identity)> Provisional(KindOwner consumer)
     {
         lock (Gate)
-            return [.. Apps.Where(a => ReferenceEquals(a.Key.Consumer, consumer.Token) && a.Value.State is BlockApplyState.PendingContent or BlockApplyState.Applied)
-                .Select(a => (consumer.ModId, a.Key.Name, new KindCompiler.Identity(a.Value.Handle.Guid, a.Value.Handle.GameName, a.Value.Handle.BlockType, a.Value.Plan.KindId)))];
+            return [.. Apps.Where(a => a.Value.Plan.Consumer.Alive() && a.Value.State is BlockApplyState.PendingContent or BlockApplyState.Applied)
+                .Select(a => (a.Value.Plan.ConsumerModId, a.Key.Name, new KindCompiler.Identity(a.Value.Handle.Guid, a.Value.Handle.GameName, a.Value.Handle.BlockType, a.Value.Plan.KindId)
+                { Application = () => a.Value.Plan.Consumer.Alive() ? a.Value.State : BlockApplyState.Removed }))];
     }
 
     private static void CheckCaller(BlockPlan plan, KindOwner caller, string api)
@@ -157,12 +166,13 @@ internal static class KindApply
             if (plan.RequestId < before.Plan.RequestId)
                 return new KindApplication { Plan = plan, Target = target, Handle = before.Handle, Stage = before.Stage, State = BlockApplyState.Refused, Reason = "StaleRequest: a later compile of this block was submitted" };
         }
-        if (target.Handles.ContainsKey(plan.Name)) throw new BlockError($"{plan.KindId} {plan.Name}", null, $"mod {target.Id} has a block \"{plan.Name}\" already");
+        if (target.Handles.ContainsKey(plan.Name) || NameReserved(target, plan.Name)) throw new BlockError($"{plan.KindId} {plan.Name}", null, $"mod {target.Id} has a block \"{plan.Name}\" already");
         var stage = Stage(target, plan);
         long others;
         lock (Gate) others = Apps.Where(a => ReferenceEquals(a.Key.Consumer, plan.Consumer.Token) && a.Key.Name != plan.Name && a.Value.State != BlockApplyState.Refused).Sum(a => a.Value.Stage.Bytes);
         if (others + stage.Bytes > MaxConsumerBytes) throw new BlockError($"{plan.KindId} {plan.Name}", null, $"mod {target.Id}'s plans make more than {MaxConsumerBytes >> 20} MiB together");
         var app = new KindApplication { Plan = plan, Target = target, Stage = stage, Handle = handle(stage) };
+        if (before != null) Set(before, BlockApplyState.Removed, "Removed: a later compile replaced the pending or refused request");
         lock (Gate)
         {
             Apps[key] = app;
@@ -190,6 +200,16 @@ internal static class KindApply
     }
 
     internal static BlockApplyResult? Of(BlockHandle handle) => ByHandle.TryGetValue(handle, out var app) ? app.Result : null;
+
+    /// <summary>A byte-identical replay can have a different generic view of the same record. Its handle still tracks the one application.</summary>
+    internal static BlockHandle<T> HandleAs<T>(BlockHandle handle) where T : class, IBlock
+    {
+        if (handle is BlockHandle<T> typed) return typed;
+        var app = ByHandle.TryGetValue(handle, out var found) ? found : throw new ArgumentException("the handle has no block kind application", nameof(handle));
+        var view = new BlockHandle<T>(handle.Mod, handle.Name, handle.Guid, handle.GameName, (T)app.Plan.Projection!);
+        ByHandle.AddOrUpdate(view, app);
+        return view;
+    }
 
     private static KindApplication Pump(KindApplication app)
     {
@@ -226,6 +246,10 @@ internal static class KindApply
         var label = $"{plan.KindId} {plan.Name}";
         if (!plan.Consumer.Alive()) return;   // its retirement takes it away
         if (plan.Kind.Retired) { Set(app, BlockApplyState.Refused, $"ProviderRetired: kind {plan.KindId} was taken away before the plan was applied"); return; }
+        var dependencies = plan.Dependencies.Select(d => d.Application?.Invoke() ?? BlockApplyState.Applied).ToArray();
+        if (dependencies.Any(s => s is BlockApplyState.Refused or BlockApplyState.Removed))
+        { Set(app, BlockApplyState.Refused, "DependencyRefused: a block resolved during Compile was refused, replaced or unloaded"); return; }
+        if (dependencies.Any(s => s == BlockApplyState.PendingContent)) return;
         if (ContentGeneration() is not { } generation) return;   // PendingContent: tried again on the tick
         foreach (var need in plan.Requires)
             if (!CapabilityIs(need)) { Set(app, BlockApplyState.Refused, $"RequiresOff: kind {plan.KindId} needs {need}, which is off here"); return; }
@@ -240,6 +264,8 @@ internal static class KindApply
             catch (KindDependencyPending) { return; }
             catch (BlockError e) { Set(app, BlockApplyState.Refused, $"DependencyRefused: {e.Message}"); return; }
         }
+        if (app.Stage.Blocks.Any(b => app.Target.Handles.ContainsKey(b.Name) || NameReserved(app.Target, b.Name, plan.Name)))
+        { Set(app, BlockApplyState.Refused, "NameTaken: a generated block name was defined while the plan waited"); return; }
         ulong owner = 0;
         var ledger = app.Stage.Ledger;
         var tx = KindTransaction.Resume(app.Target, ledger);

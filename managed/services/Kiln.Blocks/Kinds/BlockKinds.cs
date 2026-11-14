@@ -85,6 +85,7 @@ public sealed class BlockPlan
     internal string RecordJson { get; }
     internal IReadOnlyList<string> Requires { get; }
     internal ClientsLevel Clients { get; }
+    internal IReadOnlyList<KindCompiler.Identity> Dependencies { get; init; } = [];
     /// <summary>A copy of the author's record, for the handle's <c>Block</c>. Informational: the plan does not read it.</summary>
     internal IBlock? Projection { get; set; }
     internal BlockProduct Primary => _products.First(p => p.Key == PrimaryKey);
@@ -94,7 +95,7 @@ public sealed class BlockPlan
     /// <summary>The block's name in the consumer mod.</summary>
     public string Name { get; }
     public string PrimaryKey { get; }
-    /// <summary>SHA-256 (hex) of the canonical record, the descriptor and the frozen products.</summary>
+    /// <summary>SHA-256 (hex) of the canonical record, the descriptor, the frozen products and the selected primary.</summary>
     public string InputHash { get; }
     /// <summary>The products, in key order. A copy.</summary>
     public IReadOnlyList<BlockProduct> Products => Array.AsReadOnly((BlockProduct[])_products.Clone());

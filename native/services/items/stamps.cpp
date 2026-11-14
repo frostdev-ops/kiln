@@ -16,6 +16,20 @@ uint32_t StampTable::next_locked() {
 uint32_t StampTable::stamp(uint32_t entity, uint32_t item, uint64_t step) {
     if (!stampable(entity)) return 0;
     std::lock_guard lock(mu_);
+    return stamp_locked(entity, item, step);
+}
+
+StampTable::Captured StampTable::capture(uint32_t entity, uint32_t item, uint64_t step) {
+    std::lock_guard lock(mu_);
+    return Captured{stampable(entity) ? stamp_locked(entity, item, step) : 0, resets_ + 1};
+}
+
+uint64_t StampTable::epoch() const {
+    std::lock_guard lock(mu_);
+    return resets_ + 1;
+}
+
+uint32_t StampTable::stamp_locked(uint32_t entity, uint32_t item, uint64_t step) {
     auto it = map_.find(entity);
     if (it != map_.end()) {
         Entry& e = it->second;

@@ -231,8 +231,11 @@ internal static unsafe class UiValueBridge
     internal static void RequireCapability(string row)
     {
         UiCaps.Rows.Ensure();
-        if (!Capabilities.Is(row) && UiValuesNative.T != null)
-            ServiceCaps.LowerFeatures(UiValuesNative.Service, UiCaps.ValueFeatures);  // found now: withdraws the lowering
+        if (!Capabilities.Is(row))
+        {
+            ServiceCaps.LookAgain();  // withdraw stale missing-service reports under this same registry
+            UiCaps.Rows.Refresh();  // composed rows decide again before refusing
+        }
         if (!Capabilities.Is(row)) throw new KilnUnavailableException(row, Capabilities.Why(row));
     }
 
@@ -243,7 +246,7 @@ internal static unsafe class UiValueBridge
         RequireCapability(row);
         var t = UiValuesNative.T;
         if (t == null) throw new KilnUnavailableException(row, Capabilities.Why(UiValuesNative.Service));
-        var mod = UiModCalls.Caller;
+        var mod = UiModCalls.Caller ?? ModContext.OwnerOf(provider);
         UiModCalls.RequireAlive(mod);
         var reg = new Reg
         {
@@ -274,8 +277,8 @@ internal static unsafe class UiValueBridge
         }
         reg.Handle = r.Handle;
         reg.Public = new UiValueRegistration(true, null, r.Handle, Remove);
-        Watch(mod);
         UiValueEvents.ProviderChanged(reg, UiValueProviderChange.Added);
+        Watch(mod);
         return reg.Public;
     }
 
@@ -310,13 +313,15 @@ internal static unsafe class UiValueBridge
     {
         if (mod is null) return;
         lock (Watched)
-            if (!Watched.Add(mod)) return;
-        mod.Retiring += () =>
-        {
-            lock (Watched) Watched.Remove(mod);
-            foreach (var (id, reg) in Regs)
-                if (ReferenceEquals(reg.Mod, mod)) Drop(id, UiValueProviderChange.Removed);
-        };
+            if (Watched.Add(mod)) mod.Retiring += () => Retire(mod);
+        if (!mod.Alive) Retire(mod);  // its retirement may have run before the handler was attached
+    }
+
+    private static void Retire(ModContext mod)
+    {
+        lock (Watched) Watched.Remove(mod);
+        foreach (var (id, reg) in Regs)
+            if (ReferenceEquals(reg.Mod, mod)) Drop(id, UiValueProviderChange.Removed);
     }
 
     internal static int Count => Regs.Count;

@@ -33,6 +33,7 @@
     "ember-arrow-json": { "name": "Ember Arrow", "level": 5, "stack": 200, "ammo": { "damage": { "pierce": 8, "fire": 4 } }, "recipe": { "makes": 20, "needs": { "ember-shard-json": 1, "Material_T1_Twigs": 5 } } },
     "ember-axe-json": { "name": "Ember Axe", "level": 10, "rarity": "uncommon", "tool": { "harvests": "wood", "power": 30, "staminaCost": 2 }, "recipe": { "needs": { "ember-shard-json": 3 } } },
     "ember-pick-json": { "name": "Ember Pick", "level": 10, "tool": { "harvests": "stone", "power": 18 }, "recipe": { "needs": { "ember-shard-json": 3 } } },
+    "brittle-ember-pick-json": { "name": "Brittle Ember Pick", "level": 10, "tool": { "harvests": "stone", "power": 18, "wearPerDebit": 7 }, "recipe": { "needs": { "ember-shard-json": 2 } } },
     "ember-gem-json": {
       "name": "Ember Gem", "source": "Pried from cooled embers", "rarity": "rare", "stack": 20,
       "texts": { "de": { "name": "Glutstein", "description": "Noch warm." } },

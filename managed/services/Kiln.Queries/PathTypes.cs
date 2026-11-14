@@ -63,7 +63,8 @@ public sealed record QueryPathRequest(EntityId Anchor, WorldPosition From, World
     public double VerticalSpace { get; init; } = 2;
     /// <summary>The search's iteration limit, 1 to 65535.</summary>
     public uint MaxIterations { get; init; } = 2000;
-    /// <summary>When the target has no node, end at the closest one: the result is then <see cref="QueryPathStatus.Partial"/>.</summary>
+    /// <summary>When the target has no node, allow the closest one. Endpoint tolerance still determines whether the
+    /// result is <see cref="QueryPathStatus.Found"/> or <see cref="QueryPathStatus.Partial"/>.</summary>
     public bool ClosestFallback { get; init; }
 }
 
@@ -85,7 +86,8 @@ public sealed record QueryReachabilityResult(bool Ok, string? Reason, bool Reach
 public sealed record QueryCancelResult(bool Ok, string? Reason, ulong Request) : IKilnResult;
 
 /// <summary>A path request of this mod moved on: queued, searching, or ended (<see cref="TerminalStatus"/>). Posted on the
-/// tick thread; for an end, before the request's task completes.</summary>
+/// tick thread; normally before the request's task completes. World close completes tasks immediately and defers the
+/// event to a later tick; retired mod code receives no further events.</summary>
 public sealed class PathQueryChangedEvent(ulong request, uint generation, EntityId anchor, QueryPathState before, QueryPathState after, QueryPathStatus? terminalStatus, string? reason) : KilnEvent
 {
     public ulong Request { get; } = request;

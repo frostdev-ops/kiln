@@ -97,11 +97,12 @@ impl Journal {
         Ok(j)
     }
 
-    /// Writes the journal and flushes it and its folder. Called before every request and after every answer.
+    /// Writes the journal durably: when this returns, the new journal is on disk and replaces the old one even across
+    /// a crash or a power cut (flushed temp file, then rename and a folder flush on Unix, a write-through replace on
+    /// Windows: [`crate::util::write_atomic_durable`]). Called before every request and after every answer.
     pub fn persist(&self, dir: &Path) -> Result<()> {
         let path = dir.join(txdir::JOURNAL);
-        crate::util::write_atomic(&path, (serde_json::to_string_pretty(self)? + "\n").as_bytes())?;
-        txdir::sync_dir(dir)
+        crate::util::write_atomic_durable(&path, (serde_json::to_string_pretty(self)? + "\n").as_bytes())
     }
 
     pub fn step_mut(&mut self, id: &str) -> Option<&mut JournalStep> {

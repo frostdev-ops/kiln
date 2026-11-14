@@ -737,6 +737,37 @@ class CliTests(unittest.TestCase):
         rc, out, _ = self.run_cli("show", "--game", str(self.game), "item:Nope")
         self.assertEqual((rc, json.loads(out)), (1, {"query": "item:Nope", "found": False}))
 
+    def test_if_needed_skips_without_a_boot_mod_and_makes_with_one(self):
+        mods = self.game / "kiln" / "mods"
+
+        def mod(folder, text):
+            (mods / folder).mkdir(parents=True, exist_ok=True)
+            (mods / folder / "kiln.mod.json").write_text(text)
+        mod("plain", '{"id": "plain", "version": "1.0.0", "apiVersion": "0.2"}')
+        mod("client", '{"id": "client-only", "version": "1.0.0", "apiVersion": "0.2", "boot": true, "side": "client"}')
+        mod("off", '{"id": "off", "version": "1.0.0", "apiVersion": "0.2", "boot": "required"}')
+        (mods / "off" / ".disabled").write_text("")
+        mod("other", '{"id": "other", "boot": "yes"}')
+        rc, out, err = self.run_cli("make", "--game", str(self.game), "--if-needed", "--json")
+        self.assertEqual((rc, json.loads(out)), (0, {"status": "skipped", "reason": "no mod needs the boot snapshot", "emptyKinds": []}))
+        self.assertFalse((self.game / "kiln" / "data").exists(), "nothing ran, nothing was written")
+        rc, out, _ = self.run_cli("make", "--game", str(self.game), "--if-needed")
+        self.assertEqual((rc, out.strip()), (0, "boot-snapshot: no mod needs the boot snapshot"))
+        # a boot mod (with a comment line and a trailing comma, as kiln.mod.json allows): made
+        mod("booter", '{\n  // OnBoot\n  "id": "booter", "version": "1.0.0", "apiVersion": "0.2", "boot": true,\n}')
+        rc, out, err = self.run_cli("make", "--game", str(self.game), "--if-needed", "--json")
+        self.assertEqual((rc, json.loads(out)["status"]), (0, "made"))
+        self.assertIn("needed by booter", err)
+        # a skip later leaves the snapshot alone
+        (mods / "booter" / ".disabled").write_text("")
+        key = json.loads(out)["key"]
+        rc, out, _ = self.run_cli("make", "--game", str(self.game), "--if-needed", "--json")
+        self.assertEqual(json.loads(out)["status"], "skipped")
+        self.assertTrue(snapshot.valid(self.game / "kiln" / "data" / "boot-gamedata" / key, key), "an existing snapshot is not deleted")
+        # a client counts its client-only boot mods; a server does not (above)
+        self.assertEqual(snapshot.boot_mods(self.game, server=False), ["client-only"])
+        self.assertEqual(snapshot.boot_mods(self.game, server=True), [])
+
     def test_refusal(self):
         rc, out, err = self.run_cli("make", "--game", str(Path(self.tmp.name) / "nothing"), "--json")
         self.assertEqual(rc, 1)
