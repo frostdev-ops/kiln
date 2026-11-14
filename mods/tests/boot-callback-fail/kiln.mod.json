@@ -1,0 +1,10 @@
+{
+  "id": "boot-callback-fail",
+  "name": "Mod.OnBoot fault mod (OnBoot throws)",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "BootCallbackFail.dll",
+  "side": "server",
+  "clients": "mod",
+  "boot": true
+}

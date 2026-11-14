@@ -1,0 +1,12 @@
+{
+  "id": "boot-gallery",
+  "name": "Boot Gallery (Mod.OnBoot sample)",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "license": "MIT",
+  "entryAssembly": "BootGallery.dll",
+  "side": "both",
+  "clients": "mod",
+  "boot": true,
+  "description": "Mod.OnBoot: a status, an effect, an item, a spell and a game-tree talent that a first start already has, with numbers read from the game's data before the game starts. Needs the boot game-data snapshot."
+}

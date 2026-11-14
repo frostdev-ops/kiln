@@ -1,0 +1,10 @@
+{
+  "id": "boot-dependent",
+  "name": "Mod.OnBoot fault mod (requires boot-callback-fail)",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "side": "server",
+  "clients": "mod",
+  "boot": true,
+  "dependencies": { "boot-callback-fail": "*" }
+}

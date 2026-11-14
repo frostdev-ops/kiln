@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Mod.OnBoot lab test (chapter 08 §6): OnBoot stages a status, an effect, an item, a spell and a game-tree talent; OnLoad defines nothing.
 // Once content is ready it checks that the first start already has them, registered by the boot generation, and that no pending cache was
-// written for them. One line per assertion: "boot-definitions-test: PASS|FAIL|NOT BUILT <ID> ...".
+// written for them. One line per assertion: "boot-definitions-test: PASS|FAIL|NOT BUILT|NOT RUN|RECORDED <ID> ...". BOOT-SAME-IDS-RESTART needs
+// two starts (the first records, the second compares); BOOT-CALLBACK-EXCLUDED runs when the fault mods are in the start.
 using Kiln;
 
 namespace BootDefinitionsTest;
@@ -63,6 +64,42 @@ public sealed class TestMod : Mod
         Check(pending.Count == 0, "BOOT-NO-PENDING", pending.Count == 0 ? "no pending cache of this mod" : $"pending caches: {string.Join(", ", pending)}");
         foreach (var (id, kind) in new[] { ("BOOT-NPC-FIRST", "npcs"), ("BOOT-WORLDTABLE-FIRST", "buildingMaterials"), ("BOOT-PROP-FIRST", "props") })
             Line("NOT BUILT", id, $"{kind} are not a boot kind in this build");
+
+        // the same ids on the next start: this start's are kept in the mod's data folder, the next start compares
+        var ids = new SortedDictionary<string, string>(StringComparer.Ordinal);
+        foreach (var x in items.Where(x => x.Name.StartsWith(Id + ".", StringComparison.Ordinal))) ids[$"item {x.Name}"] = $"{x.Guid} {x.Id}";
+        if (cold != null) ids[$"buff {cold.Name}"] = $"{cold.Guid} {cold.Id}";
+        foreach (var t in templates) ids[$"template {t.Name}"] = $"{t.Guid} {t.Id}";
+        if (node != null) ids[$"node {node.Name}"] = $"{node.Guid} {node.Id} {node.Index}";
+        var file = Path.Combine(Context.DataDirectory, "boot-ids.json");
+        var now = System.Text.Json.JsonSerializer.Serialize(ids);
+        if (File.Exists(file))
+        {
+            var before = System.Text.Json.JsonSerializer.Deserialize<SortedDictionary<string, string>>(File.ReadAllText(file)) ?? [];
+            var changed = ids.Keys.Union(before.Keys).Where(k => ids.GetValueOrDefault(k) != before.GetValueOrDefault(k)).ToList();
+            Check(changed.Count == 0 && ids.Count > 0, "BOOT-SAME-IDS-RESTART",
+                changed.Count == 0 ? $"{ids.Count} ids as on the start before" : $"changed: {string.Join("; ", changed.Select(k => $"{k}: {before.GetValueOrDefault(k) ?? "none"} -> {ids.GetValueOrDefault(k) ?? "none"}"))}");
+        }
+        else
+        {
+            Directory.CreateDirectory(Context.DataDirectory);
+            File.WriteAllText(file, now);
+            Line("RECORDED", "BOOT-SAME-IDS-RESTART", $"first start: {ids.Count} ids kept; the next start compares");
+        }
+
+        // the fault mods (a separate set: boot-callback-fail throws after staging, boot-dependent requires it and has a skills file)
+        var fail = Mods.BootState("boot-callback-fail");
+        var dependent = Mods.BootState("boot-dependent");
+        if (fail.State == BootModState.NotParticipating && dependent.State == BootModState.NotParticipating)
+            Line("NOT RUN", "BOOT-CALLBACK-EXCLUDED", "boot-callback-fail and boot-dependent are not in this start");
+        else
+        {
+            var leftovers = items.Where(x => x.Name.StartsWith("boot-callback-fail.", StringComparison.Ordinal)).Select(x => x.Name)
+                .Concat(GameTree.Definitions.Where(n => n.Name == "bootdep_file_node").Select(n => n.Name)).ToList();
+            Check(fail.State == BootModState.ExcludedCallback && dependent.State == BootModState.ExcludedDependency && leftovers.Count == 0, "BOOT-CALLBACK-EXCLUDED",
+                $"boot-callback-fail {fail.State} ({fail.Issues.FirstOrDefault()?.Reason}), boot-dependent {dependent.State}; " +
+                (leftovers.Count == 0 ? "none of their staged or file definitions is there" : $"still there: {string.Join(", ", leftovers)}"));
+        }
         Context.Log.Info($"{Id}: done: {_pass} PASS, {_fail} FAIL");
     }
 }
