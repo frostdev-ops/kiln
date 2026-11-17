@@ -4,9 +4,9 @@ using static Kiln.Analyzers.Tests.Harness;
 
 namespace Kiln.Analyzers.Tests;
 
-/// <summary>KILN101 inside Kiln tasks (issue #50, T5): a delegate handed to <c>Context.Tasks.Run</c> runs on a Kiln
-/// worker until a genuine tick hop. The API here is the real one of <c>tasks/core</c> (Kiln.Api's
-/// <c>KilnTasks</c>/<c>KilnTaskContext</c>), not a name look-alike.</summary>
+/// <summary>KILN101 inside Kiln tasks: a delegate handed to <c>Context.Tasks.Run</c> runs on a Kiln worker until a
+/// genuine tick hop. The tests compile against the real Kiln.Api (<c>KilnTasks</c>/<c>KilnTaskContext</c>), not a
+/// name look-alike.</summary>
 public sealed class TaskThreadingTests
 {
     private static readonly TickThreadAnalyzer A = new();
@@ -42,7 +42,7 @@ public sealed class TaskThreadingTests
     [Fact]
     public async Task After_ToTick_is_tick_legal_and_stays_there()
     {
-        // tasks/core semantics: after the hop, later plain awaits come back to the tick through the task's own
+        // The task contract: after the hop, later plain awaits come back to the tick through the task's own
         // tick context; only NextGateWindow (or ConfigureAwait(false)) takes the work back to a worker.
         var d = await Run(A, """
             public sealed class M : Mod
@@ -533,5 +533,150 @@ public sealed class TaskThreadingTests
             }
             """);
         Ids(d, "KILN101");
+    }
+
+    [Fact]
+    public async Task A_hop_kept_in_a_variable_still_hops()
+    {
+        // The awaited value decides, not the call text: a TickHop or GateWindow held in a local, or handed back by
+        // the mod's own helper, moves the work just the same.
+        var d = await Run(A, """
+            public sealed class M : Mod
+            {
+                private static KilnTaskContext.TickHop Hop(KilnTaskContext ctx) => ctx.ToTick();
+                public override void OnLoad()
+                {
+                    Context.Tasks.Run("local", async ctx =>
+                    {
+                        var hop = ctx.ToTick();
+                        await hop;
+                        Chat.Broadcast("on the tick");
+                        var gate = ctx.NextGateWindow();
+                        await gate;
+                        Chat.Broadcast("back on a worker");
+                    });
+                    Context.Tasks.Run("helper", async ctx =>
+                    {
+                        await Hop(ctx);
+                        Chat.Broadcast("on the tick");
+                    });
+                }
+            }
+            """);
+        Ids(d, "KILN101");
+        Assert.Contains("NextGateWindow", d[0].GetMessage());
+    }
+
+    [Fact]
+    public async Task Scheduler_NextTick_kept_in_a_variable_ends_ConfigureAwait_false()
+    {
+        var d = await Run(A, """
+            public sealed class M : Mod
+            {
+                public override void OnLoad() => _ = Work();
+                private async Task Work()
+                {
+                    await Task.Delay(1).ConfigureAwait(false);
+                    var next = Context.Scheduler.NextTick();
+                    await next;
+                    Chat.Broadcast("back on the tick");
+                }
+            }
+            """);
+        Ids(d);
+    }
+
+    [Fact]
+    public async Task An_awaited_helper_that_hops_does_not_move_its_caller()
+    {
+        // The helper's own continuation runs on the tick, but the caller's await resumes in the task, on a worker.
+        var d = await Run(A, """
+            public sealed class M : Mod
+            {
+                private static async Task HopAndApply(KilnTaskContext ctx) { await ctx.ToTick(); }
+                public override void OnLoad()
+                {
+                    Context.Tasks.Run("scan", async ctx =>
+                    {
+                        await HopAndApply(ctx);
+                        Chat.Broadcast("still on a worker");
+                    });
+                }
+            }
+            """);
+        Ids(d, "KILN101");
+    }
+
+    [Fact]
+    public async Task Foreach_loops_hop_before_inside_and_after()
+    {
+        var d = await Run(A, """
+            public sealed class M : Mod
+            {
+                public override void OnLoad()
+                {
+                    Context.Tasks.Run("hop-at-end", async ctx =>
+                    {
+                        foreach (var i in new[] { 1, 2 })
+                        {
+                            Chat.Broadcast("first pass on a worker");
+                            await ctx.ToTick();
+                        }
+                    });
+                    Context.Tasks.Run("gate-at-end", async ctx =>
+                    {
+                        await ctx.ToTick();
+                        foreach (var i in new[] { 1, 2 })
+                        {
+                            Chat.Broadcast("second pass on a worker");
+                            await ctx.NextGateWindow();
+                        }
+                    });
+                    Context.Tasks.Run("empty", async ctx =>
+                    {
+                        foreach (var i in new int[0]) await ctx.ToTick();
+                        Chat.Broadcast("the loop may not run at all");
+                    });
+                    Context.Tasks.Run("each-pass", async ctx =>
+                    {
+                        await ctx.ToTick();
+                        foreach (var i in new[] { 1, 2 })
+                        {
+                            Chat.Broadcast("on the tick every pass");
+                            await ctx.NextGateWindow();
+                            await ctx.ToTick();
+                        }
+                        Chat.Broadcast("after the loop, on the tick");
+                    });
+                }
+            }
+            """);
+        Ids(d, "KILN101", "KILN101", "KILN101");
+        Assert.All(d, x => Assert.Equal("Broadcast", x.At()));
+    }
+
+    [Fact]
+    public async Task Stays_quiet_when_the_thread_is_not_settled()
+    {
+        var d = await Run(A, """
+            public sealed class M : Mod
+            {
+                private static void Later(Action a) { }
+                public override void OnLoad()
+                {
+                    Func<KilnTaskContext, Task> stored = async ctx => { Chat.Broadcast("a stored delegate"); await Task.Yield(); };
+                    Context.Tasks.Run("stored", stored);
+                    Context.Tasks.Run("guarded", ctx => { if (Game.IsTickThread) Chat.Broadcast("checks its thread"); });
+                    Context.Tasks.Run("handed-out", ctx => Later(() => Chat.Broadcast("runs who knows where")));
+                    Context.Tasks.Run("both-hop", async ctx =>
+                    {
+                        try { await ctx.ToTick(); }
+                        catch (InvalidOperationException) { await ctx.ToTick(); }
+                        Chat.Broadcast("every path hopped");
+                    });
+                }
+            }
+            """);
+        Ids(d);
     }
 }

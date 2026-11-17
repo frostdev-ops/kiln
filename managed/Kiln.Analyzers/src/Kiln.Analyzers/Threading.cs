@@ -276,8 +276,10 @@ internal sealed class ThreadClassifier
     }
 
     /// <summary>What finishing this await does to the thread, or null when the continuation simply comes back to
-    /// wherever the await was made. Only the real Kiln members hop: a look-alike named ToTick on a user type, an
-    /// awaited <c>ctx.OnTick(...)</c> (it resumes in the task) and any other await leave the thread as it was.</summary>
+    /// wherever the await was made. Decided by the type of the awaited value, so a hop kept in a variable
+    /// (<c>var hop = ctx.ToTick(); await hop;</c>) counts too. Only the real Kiln awaitables hop: a look-alike named
+    /// ToTick on a user type, an awaited <c>ctx.OnTick(...)</c> (it resumes in the task) and any other await leave the
+    /// thread as it was.</summary>
     private static ThreadContext? AwaitChange(AwaitExpressionSyntax aw, SemanticModel model)
     {
         var expr = Unwrap(aw.Expression);
@@ -286,13 +288,10 @@ internal sealed class ThreadClassifier
             var line = aw.GetLocation().GetLineSpan().StartLinePosition.Line + 1;
             return new ThreadContext(ThreadKind.Off, $"after 'await ...ConfigureAwait(false)' (line {line}), on a thread-pool thread");
         }
-        if (expr is not InvocationExpressionSyntax inv) return null;
-        var symbol = (model.GetSymbolInfo(inv).Symbol ?? model.GetSymbolInfo(inv).CandidateSymbols.FirstOrDefault()) as IMethodSymbol;
-        if (symbol is null) return null;
-        symbol = symbol.OriginalDefinition;
-        if (IsKilnMember(symbol, "KilnTaskContext", "ToTick") || IsKilnMember(symbol, "Scheduler", "NextTick"))
+        var type = model.GetTypeInfo(expr).Type;
+        if (IsKilnType(type, "KilnTaskContext.TickHop") || IsKilnType(type, "Scheduler.NextTickAwaitable"))
             return new ThreadContext(ThreadKind.Tick, "the tick thread (a tick hop)");
-        if (IsKilnMember(symbol, "KilnTaskContext", "NextGateWindow"))
+        if (IsKilnType(type, "KilnTaskContext.GateWindow"))
             return new ThreadContext(ThreadKind.Off, "after 'await ...NextGateWindow()', on a Kiln task worker");
         return null;
     }
@@ -305,7 +304,11 @@ internal sealed class ThreadClassifier
 
     /// <summary>A member of one exact Kiln type, by symbol: never a name look-alike on somebody else's type.</summary>
     internal static bool IsKilnMember(IMethodSymbol symbol, string type, string name) =>
-        symbol.Name == name && symbol.ContainingType?.ToDisplayString() == "Kiln." + type;
+        symbol.Name == name && IsKilnType(symbol.ContainingType, type);
+
+    /// <summary>One exact type of a Kiln assembly (nested types as <c>Outer.Inner</c>).</summary>
+    private static bool IsKilnType(ITypeSymbol? type, string name) =>
+        type is not null && KilnApis.IsKilnAssembly(type.ContainingAssembly) && type.OriginalDefinition.ToDisplayString() == "Kiln." + name;
 
     /// <summary>Must-analysis over one function's graph: a point is on the tick only when every path to it is.</summary>
     private sealed class FlowGraph
@@ -550,7 +553,7 @@ internal sealed class ThreadClassifier
         var tn = type?.Name;
         var name = target.Name;
         if (ns == "Kiln" && tn == "Scheduler" && name == "Post") return new ThreadContext(ThreadKind.Tick, "the tick thread (Scheduler.Post)");
-        // Kiln tasks (tasks/core): the Run delegate starts on a Kiln worker; an OnTick/PostToTick delegate runs on the tick.
+        // Kiln tasks: the Run delegate starts on a Kiln worker; an OnTick/PostToTick delegate runs on the tick.
         if (IsKilnMember(target.OriginalDefinition, "KilnTasks", "Run")) return Off("on a Kiln task worker (Context.Tasks.Run)");
         if (IsKilnMember(target.OriginalDefinition, "KilnTaskContext", "OnTick")) return new ThreadContext(ThreadKind.Tick, "the tick thread (ctx.OnTick)");
         if (IsKilnMember(target.OriginalDefinition, "KilnTaskContext", "PostToTick")) return new ThreadContext(ThreadKind.Tick, "the tick thread (ctx.PostToTick)");
@@ -620,33 +623,6 @@ internal sealed class ThreadClassifier
     private static bool MentionsThreadCheck(ExpressionSyntax cond) =>
         cond.DescendantNodesAndSelf().OfType<IdentifierNameSyntax>()
             .Any(id => id.Identifier.ValueText is "IsTickThread" or "IsClientThread");
-
-    /// <summary>True when <paramref name="node"/> comes after an <c>await x.ConfigureAwait(false)</c> in
-    /// <paramref name="body"/> (outside nested functions) with no <c>await Scheduler.NextTick()</c> in between: from
-    /// there on the code continues on a thread-pool thread.</summary>
-    public static bool AfterConfigureAwaitFalse(SyntaxNode? body, SyntaxNode node, SemanticModel model, out string why)
-    {
-        why = "";
-        if (body is null) return false;
-        var off = false;
-        foreach (var aw in body.DescendantNodes(n => n == body || n is not (AnonymousFunctionExpressionSyntax or LocalFunctionStatementSyntax))
-                     .OfType<AwaitExpressionSyntax>())
-        {
-            if (aw.Span.End > node.SpanStart) break;
-            if (IsConfigureAwaitFalse(aw.Expression, model))
-            {
-                off = true;
-                var line = aw.GetLocation().GetLineSpan().StartLinePosition.Line + 1;
-                why = $"after 'await ...ConfigureAwait(false)' (line {line}), on a thread-pool thread";
-            }
-            else if (model.GetTypeInfo(aw.Expression).Type is { Name: "NextTickAwaitable" } t &&
-                     t.ContainingType?.Name == "Scheduler")
-            {
-                off = false;
-            }
-        }
-        return off;
-    }
 
     private static bool IsConfigureAwaitFalse(ExpressionSyntax e, SemanticModel model)
     {

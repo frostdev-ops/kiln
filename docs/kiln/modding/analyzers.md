@@ -153,8 +153,11 @@ early returns, `try`/`catch`/`finally`, `using`):
   (the thread pool), until it hops again. A call after an `if` where only one branch hopped is still off the tick.
 - The delegate of `ctx.OnTick(...)` / `ctx.PostToTick(...)` runs on the tick. Awaiting the `OnTick` result does not
   hop the caller: the code after it resumes in the task, where it was.
-- Hops are recognised by symbol, on the real `Kiln.KilnTaskContext` / `Kiln.Scheduler`: a user method that happens
-  to be named `ToTick` or `NextGateWindow` hops nothing, and `Scheduler.NextTick` still counts.
+- Hops are recognised by the type of what is awaited, the real `Kiln.KilnTaskContext` / `Kiln.Scheduler` awaitables:
+  a user method that happens to be named `ToTick` or `NextGateWindow` hops nothing, `Scheduler.NextTick` still
+  counts, and a hop kept in a variable (`var hop = ctx.ToTick(); await hop;`) counts too.
+- Awaiting your own async helper does not move the caller, even when the helper hops inside: the caller's `await`
+  resumes in the task where it was.
 - A local function called from a task body runs where its call has got to, so it is judged by its calls. An
   ordinary helper method called from the body is not followed: when the rule cannot tell, it stays quiet.
 
