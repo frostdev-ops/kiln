@@ -216,8 +216,10 @@ seqlock, and readers copy with a bounded retry and then write `(task snapshot un
 blocks the tick, never takes the pool lock and allocates nothing on a crash path. A segment's cost is two clock
 reads (wall, and the executing thread's CPU) and a few relaxed atomic updates.
 
-CPU time on Windows comes from `GetThreadTimes` (kernel + user): the units are exact but the values advance only
-at the scheduler quantum (~15.6 ms), so a segment's `cpu_ms` is quantum-granular — usually 0 for a short segment,
-a whole quantum for one that crosses a boundary. (`QueryThreadCycleTime` advances continuously but has no
-documented frequency to convert its cycles to time.) Wall time excludes nothing; CPU excludes the time the
-thread spent awaiting IO, because the thread was not executing then.
+CPU time on Windows comes from `GetThreadTimes` (kernel + user). The units are exact, but the values advance in
+steps: at the scheduler quantum (~15.6 ms) on Windows, and at 10 ms under Wine and Proton, which read the Linux
+thread's tick count. So a segment's `cpu_ms` is coarse: usually 0 for a short segment, and a whole step for one
+that crosses a boundary. Summed over a minute's window it is still a fair measure of a mod's CPU. `QueryThreadCycleTime`
+was not used: it has no documented frequency to convert cycles to time, and under Wine it does not advance at all
+(the Wine host test prints both clocks). Wall time excludes nothing. CPU time excludes the time a thread spent
+awaiting IO, because the thread was not executing then.

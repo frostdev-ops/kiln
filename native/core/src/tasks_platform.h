@@ -71,10 +71,10 @@ public:
     virtual uint64_t now_ns() = 0;
     // This thread's CPU time in nanoseconds (the executing thread only: time awaiting IO, where the
     // thread is not scheduled, does not advance it). 0 when the platform cannot say. The Windows
-    // implementation uses GetThreadTimes, whose kernel+user times advance at the scheduler quantum
-    // (~15.6 ms), so a segment's CPU is quantum-granular there: a segment shorter than a quantum
-    // usually reads 0 and one that crosses a quantum boundary reads a whole quantum. That is a
-    // documented property of the number, not a conversion error (tasks.md, Diagnostics).
+    // implementation uses GetThreadTimes, whose kernel+user times advance in steps (the ~15.6 ms
+    // scheduler quantum on Windows, 10 ms under Wine), so a segment's CPU is coarse there: a short
+    // segment usually reads 0 and one that crosses a step reads a whole step. That is a documented
+    // property of the number, not a conversion error (docs/kiln/services/tasks.md).
     virtual uint64_t thread_cpu_ns() { return 0; }
 };
 

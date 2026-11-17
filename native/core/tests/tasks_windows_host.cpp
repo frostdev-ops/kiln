@@ -40,18 +40,40 @@ SubmitArgs named(const char* n, bool long_running = false) {
 }
 
 // Issue #49: the CPU clock (GetThreadTimes) must advance for a body that actually burns CPU,
-// on native Windows and under Wine alike (it is quantum-granular, so the body spins well past
-// one ~15.6 ms quantum). The bodies are this exe's own: no module-lifetime point is made here.
+// on native Windows and under Wine alike (it advances in steps, ~15.6 ms on Windows and 10 ms
+// under Wine, so the body spins well past one). The bodies are this exe's own: no module-lifetime
+// point is made here.
 volatile long g_cpu_done = 0;
+// What the spin saw of the two candidate clocks: GetThreadTimes' smallest step (its granularity
+// here) and whether QueryThreadCycleTime advanced at all. Printed, so a run shows which advances.
+uint64_t g_times_step_100ns = 0, g_times_steps = 0, g_cycles = 0;
+uint64_t thread_times_100ns() {
+    FILETIME c, e, k, u;
+    if (!GetThreadTimes(GetCurrentThread(), &c, &e, &k, &u)) return 0;
+    return ((static_cast<uint64_t>(k.dwHighDateTime) << 32) | k.dwLowDateTime) +
+           ((static_cast<uint64_t>(u.dwHighDateTime) << 32) | u.dwLowDateTime);
+}
 void KILN_CALL spin_body(const KilnTaskRun*, void*) {
     LARGE_INTEGER freq, start, now;
     QueryPerformanceFrequency(&freq);
     QueryPerformanceCounter(&start);
+    ULONG64 cycles0 = 0, cycles1 = 0;
+    QueryThreadCycleTime(GetCurrentThread(), &cycles0);
+    uint64_t last = thread_times_100ns();
     volatile double sink = 0;
     do {
         for (int i = 0; i < 10000; ++i) sink += i * 1.0000001;
+        const uint64_t t = thread_times_100ns();
+        if (t > last) {
+            const uint64_t step = t - last;
+            if (!g_times_step_100ns || step < g_times_step_100ns) g_times_step_100ns = step;
+            ++g_times_steps;
+            last = t;
+        }
         QueryPerformanceCounter(&now);
     } while (now.QuadPart - start.QuadPart < freq.QuadPart / 5);  // ~200 ms of executing thread
+    QueryThreadCycleTime(GetCurrentThread(), &cycles1);
+    g_cycles = cycles1 - cycles0;
     (void)sink;
 }
 void KILN_CALL spin_done(KilnHandle, uint32_t, void*) { InterlockedIncrement(&g_cpu_done); }
@@ -189,6 +211,9 @@ int main() {
     std::printf("cpu check: cpu %.3f ms, wall %.3f ms for a ~200 ms spin\n", static_cast<double>(cpu_ns) / 1e6,
                 static_cast<double>(wall_ns) / 1e6);
     check(cpu_ns > 0 && wall_ns > 0, "the executing thread's CPU time advances (quantum-granular GetThreadTimes)");
+    std::printf("cpu clocks: GetThreadTimes advanced %llu times, smallest step %.3f ms; QueryThreadCycleTime advanced %llu cycles\n",
+                static_cast<unsigned long long>(g_times_steps), static_cast<double>(g_times_step_100ns) / 1e4,
+                static_cast<unsigned long long>(g_cycles));
 
     std::printf("tasks windows host: %d failure(s)\n", failures);
     return failures ? 1 : 0;
