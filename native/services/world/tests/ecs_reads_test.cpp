@@ -41,7 +41,7 @@ struct Fake {
     std::map<uint32_t, Ent> ents;
     uint64_t session = 7, layout_stamp = 99, revision = 1, epoch = 5;
     bool present = true, exact = true, fault_copy = false, partial_then_fault = false, diverge = false, bump = false,
-         grow = false;
+         grow = false, pos_fault = false;
     int copies = 0, listings = 0;
     uint64_t stamp = 1;
     Status context_status = KILN_ECS_OK, entity_status = KILN_ECS_OK;
@@ -134,13 +134,14 @@ Status ids_op(void* u, const ContextFact&, std::vector<KilnEntity>* out) {
     F.fire();
     return KILN_ECS_OK;
 }
-bool pos_op(void* u, const ContextFact&, KilnEntity id, double out[3]) {
+uint32_t pos_op(void* u, const ContextFact&, KilnEntity id, double out[3]) {
     auto& F = *static_cast<Fake*>(u);
+    if (F.pos_fault) return KILN_ECS_UNREADABLE;
     std::unique_lock lock(F.mu);
     auto it = F.ents.find(id);
-    if (it == F.ents.end() || !it->second.has_pos) return false;
+    if (it == F.ents.end() || !it->second.has_pos) return KILN_ECS_ABSENT;
     std::memcpy(out, it->second.pos, sizeof it->second.pos);
-    return true;
+    return KILN_ECS_OK;
 }
 Backend backend(Fake& F) {
     return Backend{&F, &ctx_op, &ent_op, &comp_op, &copy_op, &ids_op, &pos_op};
@@ -161,12 +162,14 @@ void identity() {
     check(entity_validate(b, &r, &info) == KILN_OK && info.status == KILN_ECS_OK && (info.flags & KILN_OBJECT_ALIVE), "validate ok");
     // Recycled id: same id, new generation is always stale.
     F.ents[10].generation = 2;
-    check(entity_validate(b, &r, &info) == KILN_ECS_ERR_STALE && info.status == KILN_ECS_STALE, "recycled id is stale");
+    check(entity_validate(b, &r, &info) == KILN_ECS_ERR_STALE && info.status == KILN_ECS_STALE && info.generation == 2 &&
+              info.session == 7 && !(info.flags & KILN_OBJECT_ALIVE) && (info.flags & KILN_OBJECT_HAS_TEMPLATE),
+          "recycled id is stale and the info names the generation it is now");
     KilnObjectRef r2 = open_ok(b, 10);
     check(r2.generation == 2 && entity_validate(b, &r2, &info) == KILN_OK, "reopened ref validates");
     // Session change and layout change are stale; a save-loaded entity (no template) opens fine.
     F.session = 8;
-    check(entity_validate(b, &r2, &info) == KILN_ECS_ERR_STALE, "session change is stale");
+    check(entity_validate(b, &r2, &info) == KILN_ECS_ERR_STALE && info.session == 8, "session change is stale and the info names the session it is now");
     F.session = 7; F.ents[10].layout = 12;
     check(entity_validate(b, &r2, &info) == KILN_ECS_ERR_STALE, "layout change is stale");
     F.ents[10].layout = 11; F.ents[10].has_template = false;
@@ -177,6 +180,7 @@ void identity() {
     KilnObjectRef out{};
     check(entity_open(b, 5, KILN_WORLD_SERVER, 0, 999, &out) == KILN_ERR_NOT_FOUND, "open absent entity");
     check(entity_open(b, 5, KILN_WORLD_SERVER, 42, 10, &out) == KILN_ECS_ERR_STALE, "open with wrong expected session is stale");
+    check(entity_open(b, 4, KILN_WORLD_SERVER, 0, 10, &out) == KILN_ECS_ERR_STALE && out.entity == 0, "open with another reload epoch is stale and writes no ref");
     F.present = false;
     check(entity_open(b, 5, KILN_WORLD_SERVER, 0, 10, &out) == KILN_ERR_UNAVAILABLE, "no world: unavailable");
     F.present = true; F.context_status = KILN_ECS_UNAVAILABLE;
@@ -187,6 +191,12 @@ void identity() {
     F.present = false;
     check(ecs_context_snapshot(b, &ci) == KILN_OK && ci.present_mask == 0 && ci.exact_profile == 1, "no world is an answer: exact profile still reported");
     F.present = true;
+    F.phase = 0;
+    F.hook = [&](int p) { if (p == 1) F.session = 99; };
+    check(ecs_context_snapshot(b, &ci) == KILN_ECS_ERR_UNREADABLE && ci.status == KILN_ECS_UNREADABLE && ci.present_mask == 0,
+          "a world that changes between the two context samples is unreadable and publishes nothing");
+    F.hook = nullptr;
+    F.session = 7;
 }
 
 void snapshots() {
@@ -236,6 +246,10 @@ void snapshots() {
     KilnEcsSnapshotSpec both[2] = {{kA, 0}, {kB, 0}};
     buf.assign(8, 0xAA);
     check(ecs_snapshot_many(b, &r, both, 2, buf.data(), 3, &req, presence) == KILN_ERR_BUFFER_TOO_SMALL && req == 6 && all_eq(buf, 0xAA), "snapshot_many short buffer: nothing copied");
+    uint32_t kept[2] = {7, 7};
+    KilnEcsSnapshotSpec bad_spec[1] = {{kA, 1}};
+    check(ecs_snapshot_many(b, &r, bad_spec, 1, buf.data(), 8, &req, kept) == KILN_ERR_INVALID_ARGUMENT && kept[0] == 7 && kept[1] == 7,
+          "a bad snapshot_many leaves presence untouched");
 }
 
 void queries() {
@@ -268,6 +282,11 @@ void queries() {
     q.flags = KILN_ECS_QUERY_BOUNDS; q.center = {std::numeric_limits<double>::quiet_NaN(), 0, 0}; q.radius = 1; q.components = comps;
     state = 7;
     check(ecs_query(b, &q, out, 4, &req, &state) == KILN_ERR_INVALID_ARGUMENT && state == 7, "a NaN centre is an argument error and does not write state");
+    q.center = {0, 0, 0}; q.radius = 10; q.components = comps; q.component_count = 1;
+    F.pos_fault = true;
+    for (auto& o : out) o.entity = 0xFFFF;
+    check(ecs_query(b, &q, out, 4, &req, &state) == KILN_ECS_ERR_UNREADABLE && state == KILN_ECS_UNREADABLE && out[0].entity == 0xFFFF,
+          "a position read that fails fails the query and copies nothing");
 }
 
 void concurrent() {

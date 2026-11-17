@@ -1033,10 +1033,11 @@ typedef struct KilnWorldApi {
     /* Which worlds and sessions exist right now, and whether Kiln has an exact engine profile for them. */
     KilnResult(KILN_CALL* ecs_context_snapshot)(KilnEcsContextInfo* out);
     /* Verified query: the entities of request->world_kind that have every listed component (and, with
-     * KILN_ECS_QUERY_BOUNDS, a position within radius of center), as KilnObjectRefs. Complete results only: a
-     * membership change during the walk is KILN_WORLD_ERR_CHANGED and copies nothing. *required (when non-NULL)
-     * is the match count, also when capacity is short (KILN_ERR_BUFFER_TOO_SMALL, nothing copied). *state (when
-     * non-NULL) is the KILN_ECS_* status. */
+     * KILN_ECS_QUERY_BOUNDS, a position within radius of center), as KilnObjectRefs, in ascending entity id.
+     * Complete results only: a membership change during the walk is KILN_WORLD_ERR_CHANGED and copies nothing.
+     * A position read that fails fails the query; an entity with no position is not a match. *required (when
+     * non-NULL) is the match count, also when capacity is short (KILN_ERR_BUFFER_TOO_SMALL, nothing copied).
+     * *state (when non-NULL) is the KILN_ECS_* status. An invalid argument leaves *state untouched. */
     KilnResult(KILN_CALL* ecs_query)(KilnOwner owner, const KilnEcsQueryRequest* request, KilnObjectRef* out,
                                      uint32_t capacity, uint32_t* required, uint32_t* state);
     /* One component's bytes of the ref's entity, validated before and after the copy. *required is the component
@@ -1044,7 +1045,10 @@ typedef struct KilnWorldApi {
     KilnResult(KILN_CALL* ecs_snapshot)(KilnOwner owner, const KilnObjectRef* ref, uint32_t component, void* out,
                                         uint32_t capacity, uint32_t* required);
     /* Several components, packed in spec order (see KilnEcsSnapshotSpec). presence[i] (when non-NULL) is the
-     * KILN_ECS_* status of spec i. *required is the total packed size. Not atomic across components. */
+     * KILN_ECS_* status of spec i, written only after the arguments are accepted. A later failure does not leave
+     * an earlier spec at OK: that spec becomes the failure, and a spec that was absent stays absent. *required
+     * is the total packed size on success and on a short buffer, and 0 when the call fails. Not atomic across
+     * components. An invalid argument leaves presence untouched. */
     KilnResult(KILN_CALL* ecs_snapshot_many)(KilnOwner owner, const KilnObjectRef* ref,
                                              const KilnEcsSnapshotSpec* specs, uint32_t count, void* out,
                                              uint32_t capacity, uint32_t* required, uint32_t* presence);

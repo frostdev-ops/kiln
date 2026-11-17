@@ -703,6 +703,7 @@ bool row(void*, uint32_t i, KilnEcsRegistryRow* out) {
 } // namespace ecs_registry_src
 KilnResult KILN_CALL ecs_registry(uint32_t world_kind, KilnEcsRegistryInfo* info, KilnEcsRegistryRow* rows,
                                   uint32_t capacity, uint32_t* required) {
+    if (world_kind >= KILN_WORLD_KINDS) return KILN_ERR_INVALID_ARGUMENT;
     if (!g_tt.component_count) {
         if (info && info->size >= sizeof(KilnEcsRegistryInfo)) {
             const uint32_t size = info->size;

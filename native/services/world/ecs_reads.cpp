@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
 #include "ecs_reads.h"
 
+#include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 
 namespace kw::ecs {
@@ -16,19 +18,25 @@ uint32_t get_context(const Backend& b, uint32_t kind, ContextFact& c) {
     return c.present ? KILN_ECS_OK : KILN_ECS_UNAVAILABLE;
 }
 
-// Validate `ref` against the live world. On KILN_ECS_OK, ctx/fact hold the facts the ref was checked against.
+// Validate `ref`. ctx/fact are filled from the reads that succeeded, including when the status is stale, so the
+// caller can report the generation the id names now. KILN_OBJECT_ALIVE is only for a ref that still matches.
 uint32_t validate(const Backend& b, const KilnObjectRef& ref, ContextFact& ctx, EntityFact& fact) {
+    fact = {};
     if (uint32_t s = get_context(b, ref.world_kind, ctx); s != KILN_ECS_OK) return s;
-    if (ctx.session != ref.session) return KILN_ECS_STALE;
-    if (ctx.reload_epoch && ref.reload_epoch != ctx.reload_epoch) return KILN_ECS_STALE;
+    uint32_t status = KILN_ECS_OK;
+    if (ctx.session != ref.session) status = KILN_ECS_STALE;
+    else if (ctx.reload_epoch && ref.reload_epoch != ctx.reload_epoch) status = KILN_ECS_STALE;
     EntityFact f{};
-    if (uint32_t s = b.entity(b.user, ctx, ref.entity, &f); s != KILN_ECS_OK) return s;
+    const uint32_t es = b.entity(b.user, ctx, ref.entity, &f);
+    if (es == KILN_ECS_OK) fact = f;
+    else if (status == KILN_ECS_OK) return es;
+    if (status != KILN_ECS_OK) return status;
     if (!f.alive) return KILN_ECS_ABSENT;
     if (f.generation != ref.generation || f.layout_stamp != ref.layout_stamp) return KILN_ECS_STALE;
     ContextFact after{};
     if (uint32_t s = get_context(b, ref.world_kind, after); s != KILN_ECS_OK) return s;
-    if (after.session != ctx.session || after.layout_stamp != ctx.layout_stamp) return KILN_ECS_STALE;
-    fact = f;
+    if (after.session != ctx.session || after.layout_stamp != ctx.layout_stamp || after.reload_epoch != ctx.reload_epoch)
+        return KILN_ECS_STALE;
     ctx = after;
     return KILN_ECS_OK;
 }
@@ -43,15 +51,16 @@ void fill_info(const KilnObjectRef& ref, uint32_t status, const ContextFact& ctx
     out.world_kind = ref.world_kind;
     out.session = ctx.session;
     out.reload_epoch = ref.reload_epoch;
-    if (status == KILN_ECS_OK) {
-        out.generation = fact.generation;
-        out.layout_stamp = fact.layout_stamp;
-        out.flags = (uint32_t)KILN_OBJECT_ALIVE | (fact.has_template ? (uint32_t)KILN_OBJECT_HAS_TEMPLATE : 0u);
-    }
+    if (!fact.alive && status != KILN_ECS_OK) return;
+    out.generation = fact.generation;
+    out.layout_stamp = fact.layout_stamp;
+    uint32_t flags = fact.has_template ? (uint32_t)KILN_OBJECT_HAS_TEMPLATE : 0u;
+    if (status == KILN_ECS_OK) flags |= (uint32_t)KILN_OBJECT_ALIVE;
+    out.flags = flags;
 }
 
-// Two copies of one component, each followed by a fresh validation. The copies must match: a value that changed
-// or tore between them is unreadable, and nothing is published. `out` is filled only on success.
+// Stamp, copy, stamp, and do that twice. The stamp has to match on both sides of each copy and the two copies
+// have to be identical. `out` is filled only then.
 uint32_t copy_stable(const Backend& b, const KilnObjectRef& ref, uint32_t hash, const ComponentFact& cf,
                      std::vector<uint8_t>& out) {
     // Stamp, then copy, then stamp, twice. The stamp has to be the same value on both sides of a copy, and the
@@ -112,6 +121,7 @@ KilnResult entity_open(const Backend& b, uint64_t reload_epoch, uint32_t world_k
     ContextFact ctx{};
     if (uint32_t s = get_context(b, world_kind, ctx); s != KILN_ECS_OK) return result_of(s);
     if (expected_session && expected_session != ctx.session) return KILN_ECS_ERR_STALE;
+    if (ctx.reload_epoch && reload_epoch != ctx.reload_epoch) return KILN_ECS_ERR_STALE;
     EntityFact f{};
     if (uint32_t s = b.entity(b.user, ctx, entity, &f); s != KILN_ECS_OK) return result_of(s);
     if (!f.alive) return KILN_ERR_NOT_FOUND;
@@ -120,7 +130,8 @@ KilnResult entity_open(const Backend& b, uint64_t reload_epoch, uint32_t world_k
     ContextFact ctx2{};
     EntityFact again{};
     if (uint32_t s = get_context(b, world_kind, ctx2); s != KILN_ECS_OK) return result_of(s);
-    if (ctx2.session != ctx.session || ctx2.layout_stamp != ctx.layout_stamp) return KILN_ECS_ERR_STALE;
+    if (ctx2.session != ctx.session || ctx2.layout_stamp != ctx.layout_stamp || ctx2.reload_epoch != ctx.reload_epoch)
+        return KILN_ECS_ERR_STALE;
     if (uint32_t s = b.entity(b.user, ctx2, entity, &again); s != KILN_ECS_OK) return result_of(s);
     if (!again.alive) return KILN_ERR_NOT_FOUND;
     if (again.generation != f.generation || again.layout_stamp != f.layout_stamp) return KILN_ECS_ERR_STALE;
@@ -145,23 +156,43 @@ KilnResult entity_validate(const Backend& b, const KilnObjectRef* ref, KilnObjec
 
 KilnResult ecs_context_snapshot(const Backend& b, KilnEcsContextInfo* out) {
     if (bad_backend(b) || !out || out->size < sizeof(KilnEcsContextInfo)) return KILN_ERR_INVALID_ARGUMENT;
+    struct Sample {
+        uint32_t status = KILN_ECS_UNAVAILABLE;
+        ContextFact fact{};
+    };
+    const auto read_kind = [&](uint32_t kind) {
+        Sample s;
+        s.status = b.context(b.user, kind, &s.fact);
+        return s;
+    };
+    Sample first[KILN_WORLD_KINDS], second[KILN_WORLD_KINDS];
+    for (uint32_t kind = 0; kind < KILN_WORLD_KINDS; ++kind) first[kind] = read_kind(kind);
+    for (uint32_t kind = 0; kind < KILN_WORLD_KINDS; ++kind) second[kind] = read_kind(kind);
     const uint32_t size = out->size;
     *out = KilnEcsContextInfo{};
     out->size = size;
+    for (uint32_t kind = 0; kind < KILN_WORLD_KINDS; ++kind) {
+        const Sample& a = first[kind];
+        const Sample& c = second[kind];
+        if (a.status != c.status || a.fact.present != c.fact.present || a.fact.session != c.fact.session ||
+            a.fact.exact_profile != c.fact.exact_profile || a.fact.layout_stamp != c.fact.layout_stamp) {
+            out->status = KILN_ECS_UNREADABLE;
+            return KILN_ECS_ERR_UNREADABLE;
+        }
+    }
     out->status = KILN_ECS_UNAVAILABLE;
     uint32_t result = KILN_ERR_UNAVAILABLE;
     for (uint32_t kind = 0; kind < KILN_WORLD_KINDS; ++kind) {
-        ContextFact c{};
-        const uint32_t s = b.context(b.user, kind, &c);
-        if (s != KILN_ECS_OK) continue;
+        const Sample& c = second[kind];
+        if (c.status != KILN_ECS_OK) continue;
         // A world that is simply absent is still an answer: the exact-profile flag is a property of the build.
-        if (c.exact_profile) out->exact_profile = 1;
+        if (c.fact.exact_profile) out->exact_profile = 1;
         out->status = KILN_ECS_OK;
         result = KILN_OK;
-        if (!c.present) continue;
+        if (!c.fact.present) continue;
         out->present_mask |= 1u << kind;
-        out->sessions[kind] = c.session;
-        if (!out->layout_stamp) out->layout_stamp = c.layout_stamp;
+        out->sessions[kind] = c.fact.session;
+        if (!out->layout_stamp) out->layout_stamp = c.fact.layout_stamp;
     }
     return result;
 }
@@ -189,7 +220,7 @@ KilnResult ecs_snapshot(const Backend& b, const KilnObjectRef* ref, uint32_t com
 KilnResult ecs_snapshot_many(const Backend& b, const KilnObjectRef* ref, const KilnEcsSnapshotSpec* specs,
                              uint32_t count, void* out, uint32_t capacity, uint32_t* required, uint32_t* presence) {
     if (required) *required = 0;
-    if (presence && count) std::memset(presence, 0, count * sizeof(uint32_t));
+    // KILN_ECS_OK is 0, so presence must not be cleared before the arguments are accepted: a zeroed slot reads as OK.
     if (bad_backend(b) || !ref || ref->size < sizeof(KilnObjectRef) || !count || !specs || (capacity && !out))
         return KILN_ERR_INVALID_ARGUMENT;
     for (uint32_t i = 0; i < count; ++i)
@@ -201,27 +232,28 @@ KilnResult ecs_snapshot_many(const Backend& b, const KilnObjectRef* ref, const K
         return result_of(s);
     }
     std::vector<uint8_t> packed;
+    std::vector<uint32_t> got(count, KILN_ECS_UNAVAILABLE);
     uint32_t fatal = KILN_ECS_OK;
-    for (uint32_t i = 0; i < count; ++i) {
-        if (fatal != KILN_ECS_OK) {
-            if (presence) presence[i] = fatal;
-            continue;
-        }
+    for (uint32_t i = 0; i < count && fatal == KILN_ECS_OK; ++i) {
         ComponentFact cf{};
         uint32_t s = b.component(b.user, ctx, fact, ref->entity, specs[i].component, &cf);
-        if (s != KILN_ECS_OK) { fatal = s; if (presence) presence[i] = s; continue; }
-        if (!cf.present) { if (presence) presence[i] = KILN_ECS_ABSENT; continue; }
+        if (s != KILN_ECS_OK) { fatal = s; got[i] = s; break; }
+        if (!cf.present) { got[i] = KILN_ECS_ABSENT; continue; }
+        if (cf.size > UINT32_MAX - packed.size()) { fatal = KILN_ECS_UNREADABLE; got[i] = fatal; break; }
         std::vector<uint8_t> staging;
         s = copy_stable(b, *ref, specs[i].component, cf, staging);
-        if (s != KILN_ECS_OK) { fatal = s; if (presence) presence[i] = s; continue; }
+        if (s != KILN_ECS_OK) { fatal = s; got[i] = s; break; }
         packed.insert(packed.end(), staging.begin(), staging.end());
-        if (presence) presence[i] = KILN_ECS_OK;
+        got[i] = KILN_ECS_OK;
     }
     if (fatal != KILN_ECS_OK) {
-        if (presence) for (uint32_t i = 0; i < count; ++i) presence[i] = fatal;
+        for (uint32_t i = 0; i < count; ++i)
+            if (got[i] != KILN_ECS_ABSENT) got[i] = fatal;
+        if (presence) std::memcpy(presence, got.data(), count * sizeof(uint32_t));
         if (required) *required = 0;
         return result_of(fatal);
     }
+    if (presence) std::memcpy(presence, got.data(), count * sizeof(uint32_t));
     if (required) *required = static_cast<uint32_t>(packed.size());
     if (capacity < packed.size()) return KILN_ERR_BUFFER_TOO_SMALL;
     if (!packed.empty()) std::memcpy(out, packed.data(), packed.size());
@@ -264,9 +296,12 @@ KilnResult ecs_query(const Backend& b, const KilnEcsQueryRequest* request, KilnO
         }
         if (request->flags & KILN_ECS_QUERY_BOUNDS) {
             double p[3] = {};
-            if (!b.position(b.user, world, id, p)) return KILN_ECS_ABSENT;
+            const uint32_t ps = b.position(b.user, world, id, p);
+            if (ps == KILN_ECS_ABSENT) return KILN_ECS_ABSENT;
+            if (ps != KILN_ECS_OK) return ps;
             const double dx = p[0] - request->center.x, dy = p[1] - request->center.y, dz = p[2] - request->center.z;
-            if (dx * dx + dy * dy + dz * dz > request->radius * request->radius) return KILN_ECS_ABSENT;
+            const double dist2 = dx * dx + dy * dy + dz * dz;
+            if (!std::isfinite(dist2) || dist2 > request->radius * request->radius) return KILN_ECS_ABSENT;
         }
         if (slot) {
             KilnObjectRef probe{};
@@ -307,18 +342,26 @@ KilnResult ecs_query(const Backend& b, const KilnEcsQueryRequest* request, KilnO
         if (state) *state = s == KILN_ECS_STALE ? (uint32_t)KILN_ECS_UNREADABLE : s;
         return s == KILN_ECS_STALE ? KILN_WORLD_ERR_CHANGED : result_of(s);
     }
+    const auto by_id = [](const KilnObjectRef& a, const KilnObjectRef& b) { return a.entity < b.entity; };
+    std::sort(matches.begin(), matches.end(), by_id);
+    std::sort(again.begin(), again.end(), by_id);
     auto same = matches.size() == again.size();
-    for (size_t i = 0; same && i < matches.size(); ++i)
-        same = matches[i].entity == again[i].entity && matches[i].generation == again[i].generation &&
-               matches[i].layout_stamp == again[i].layout_stamp && matches[i].session == again[i].session;
-    if (!same || ctx2.session != ctx.session || ctx2.revision != ctx.revision) {
+    for (size_t i = 0; same && i < matches.size(); ++i) {
+        const KilnObjectRef& m = matches[i];
+        const KilnObjectRef& n = again[i];
+        same = m.entity == n.entity && m.generation == n.generation && m.layout_stamp == n.layout_stamp &&
+               m.session == n.session && m.reload_epoch == n.reload_epoch &&
+               (i == 0 || matches[i - 1].entity != m.entity);
+    }
+    if (!same || ctx2.session != ctx.session || ctx2.revision != ctx.revision || ctx2.layout_stamp != ctx.layout_stamp ||
+        ctx2.reload_epoch != ctx.reload_epoch) {
         if (state) *state = KILN_ECS_UNREADABLE;
         return KILN_WORLD_ERR_CHANGED;
     }
     if (state) *state = KILN_ECS_OK;
-    if (required) *required = static_cast<uint32_t>(matches.size());
-    if (matches.size() > capacity) return KILN_ERR_BUFFER_TOO_SMALL;
-    if (!matches.empty()) std::memcpy(out, matches.data(), matches.size() * sizeof(KilnObjectRef));
+    if (required) *required = static_cast<uint32_t>(again.size());
+    if (again.size() > capacity) return KILN_ERR_BUFFER_TOO_SMALL;
+    if (!again.empty()) std::memcpy(out, again.data(), again.size() * sizeof(KilnObjectRef));
     return KILN_OK;
 }
 

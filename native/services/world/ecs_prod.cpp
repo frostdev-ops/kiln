@@ -40,6 +40,8 @@ uint32_t prod_context(void*, uint32_t kind, ecs::ContextFact* out) {
     if (session_a != session_b || first.worlds[kind] != second.worlds[kind] ||
         first.sessions[kind] != second.sessions[kind])
         return KILN_ECS_UNREADABLE;
+    // A live world with session 0 would alias "no session" on a ref. The two clocks disagree: unreadable.
+    if (first.worlds[kind] != 0 && session_a == 0) return KILN_ECS_UNREADABLE;
     out->present = first.worlds[kind] != 0;
     out->session = session_a;
     // Absence is an answer (present = false). Entity reads still refuse: get_context requires a live world.

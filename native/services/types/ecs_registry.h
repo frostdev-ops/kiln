@@ -45,7 +45,7 @@ inline KilnResult build(const Source& src, uint32_t world_kind, KilnEcsRegistryI
     for (uint32_t i = 0; i < count; ++i) {
         KilnEcsRegistryRow staging{};
         if (!src.row(src.user, i, &staging) || staging.index != i) {
-            wipe(i); // rows[0..i) were published; rows[i] was not
+            wipe(count); // the whole result region, not only the prefix already written
             return KILN_ECS_ERR_UNREADABLE;
         }
         rows[i] = staging;

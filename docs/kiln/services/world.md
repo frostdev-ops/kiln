@@ -413,9 +413,9 @@ result, or one of four refusals, and never a torn or partial buffer.
 | Member | What it returns |
 |---|---|
 | `entity_open` | a `KilnObjectRef`: id, generation, world session, layout stamp and the caller's reload epoch. A value, not a handle; nothing is pinned |
-| `entity_validate` | the same ref re-checked, as a `KilnObjectInfo` |
+| `entity_validate` | the same ref re-checked, as a `KilnObjectInfo` that names the generation and session seen now |
 | `ecs_context_snapshot` | which worlds and sessions exist now, and whether this build has an exact engine profile |
-| `ecs_query` | every entity that has all of the named components, optionally inside a radius, as refs. Complete or nothing |
+| `ecs_query` | every entity that has all of the named components, optionally inside a radius, as refs in ascending entity id. Complete or nothing |
 | `ecs_snapshot` | one component's bytes, checked before and after the copy |
 | `ecs_snapshot_many` | several components, each with its own presence. Not one atomic read across components |
 | `ecs_template_uuid` | the template the entity was spawned from, 16 bytes, checked before and after |

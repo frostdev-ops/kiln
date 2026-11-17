@@ -42,7 +42,8 @@ struct ComponentFact {
 
 // Every op returns a KILN_ECS_* status. `component`/`entity` may be called several times per read; `copy` is the
 // engine gate's guarded copy (false = unreadable; the destination may hold anything, callers stage). `position`
-// may be null (spatial bounds then report unavailable). Ops never wait and never call back into this file.
+// may be null (spatial bounds then report unavailable). A position that returns ABSENT means "no position"; any
+// other non-OK status fails the query. Ops never wait and never call back into this file.
 struct Backend {
     void* user = nullptr;
     uint32_t (*context)(void* user, uint32_t world_kind, ContextFact* out);
@@ -51,7 +52,7 @@ struct Backend {
                           uint32_t component, ComponentFact* out);
     bool (*copy)(void* user, uintptr_t address, void* out, size_t bytes);
     uint32_t (*entity_ids)(void* user, const ContextFact& ctx, std::vector<KilnEntity>* out);
-    bool (*position)(void* user, const ContextFact& ctx, KilnEntity entity, double out[3]);
+    uint32_t (*position)(void* user, const ContextFact& ctx, KilnEntity entity, double out[3]);
 };
 
 uint32_t result_of(uint32_t status); // KILN_ECS_* -> KilnResult (changed queries refine it at the call site)
