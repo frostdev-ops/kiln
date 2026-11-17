@@ -298,7 +298,9 @@ impl PhaseAcc {
     }
 }
 
-/// Parses tick-stats text: valid lines, and the count of non-blank lines that did not read.
+/// Parses tick-stats text: valid lines, and the count of non-blank lines that did not read. A line must be a JSON
+/// object with `steps` and `step_ms` (every version of the line has both): every field of [`TickStat`] has a default,
+/// so any other JSON (`{}`, `[]`, another log's object) would otherwise read as a phantom zero-step window.
 pub fn parse_text(text: &str) -> (Vec<TickStat>, u64) {
     let mut out = Vec::new();
     let mut malformed = 0u64;
@@ -307,9 +309,13 @@ pub fn parse_text(text: &str) -> (Vec<TickStat>, u64) {
         if line.is_empty() {
             continue;
         }
-        match serde_json::from_str::<TickStat>(line) {
-            Ok(s) => out.push(s),
-            Err(_) => malformed += 1,
+        let stat = serde_json::from_str::<serde_json::Value>(line)
+            .ok()
+            .filter(|v| v.get("steps").is_some_and(|s| s.is_u64()) && v.get("step_ms").is_some_and(|s| s.is_object()))
+            .and_then(|v| serde_json::from_value::<TickStat>(v).ok());
+        match stat {
+            Some(s) => out.push(s),
+            None => malformed += 1,
         }
     }
     (out, malformed)

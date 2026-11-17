@@ -106,7 +106,7 @@ fn tasks_section_present_in_one_file_only() {
     assert!(text.contains("apply (after): 30 applied, 5 deferred"), "{text}");
 
     // neither file has one: no section at all
-    let (a, _) = parse_text("{}"); // not a stat line's fields, but reads (all defaults)
+    let (a, _) = parse_text(r#"{"steps":10,"step_ms":{"p50":1.0,"p99":1.0,"max":1.0}}"#);
     let r = compare(summarize("a", &a, 0), summarize("b", &a, 0));
     assert!(r.tasks.is_none());
     assert!(kiln_manage::tick_compare::render_text(&r).contains("no tasks section in either file"));
@@ -189,4 +189,11 @@ fn logs_tick_stat_reads_the_tasks_section_leniently() {
     let odd = kiln_manage::logs::tick_stats(r#"{"time":"t","steps":3,"tasks":"later"}"#);
     assert_eq!(odd[0].steps, 3);
     assert!(odd[0].tasks.is_none());
+}
+
+#[test]
+fn json_that_is_not_a_tick_stats_line_is_malformed() {
+    // every field of TickStat has a default, so these would otherwise read as phantom zero-step windows
+    let (stats, bad) = parse_text("{}\n[]\n{\"level\":\"info\"}\n42\n\"steps\"\n");
+    assert_eq!((stats.len(), bad), (0, 5));
 }
