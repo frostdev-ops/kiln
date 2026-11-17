@@ -118,7 +118,11 @@ public sealed class TaskUnloadTests : HostTaskTest
         Assert.Equal(KilnTaskState.Queued, queued.State);  // the one worker is the blocked task's
         var unloading = WatchUnloading(mods, "sample-tasks");
 
+        var onTick = Stopwatch.StartNew();
         UnloadOnTick(mods, "sample-tasks");  // returns with the gate still closed: the tick never waited
+        onTick.Stop();
+        Assert.True(onTick.Elapsed < ModManager.TaskJoinBudget, $"the unload took {onTick.Elapsed} on the tick");
+        Assert.False(Host.Has("stays pinned"));  // the join's budget runs off the tick, after the unload returned
         Assert.True(Host.Has("sample-tasks: unloading"));  // OnUnload ran on the tick, not deferred by the tasks
         Assert.Equal(KilnTaskState.Cancelled, queued.State);
         Assert.False(queuedRan);

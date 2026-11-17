@@ -134,6 +134,15 @@ A C# exception that ends a task faults only that task (`kiln.log` names the mod 
 fault of the mod and does not count toward the fault policy that disables a mod. When a mod unloads or is disabled, its
 tasks' cancellation is signalled first; their cancellation and `finally` continuations still run on the pool afterwards.
 
+Unloading or reloading a mod never waits for its tasks on the tick. When the unload begins, before `OnUnload`, the mod
+takes no new task, its queued tasks end cancelled and its running and suspended ones are signalled through their token;
+a hop or a tick apply of an unloading mod never runs. `OnUnload` then runs on the tick as usual. The mod's load context
+is torn down once its tasks are quiescent: at once when they already are, otherwise by a Kiln maintenance thread that
+joins them off the tick. A task still running 2 s later is logged once (`tasks: mod <id>: task '<name>' (<state>) did
+not stop within 2 s; its load context stays pinned until its tasks finish`): the context stays loaded, other mods keep
+ticking, and it unloads when the task ends. A dependency's context is torn down only after its dependents' tasks have
+stopped. A reload loads the new instance at once, beside an old context that may still be pinned.
+
 ## Exit
 
 Once the process's exit begins, queued tasks may never start and a `done` is not guaranteed: only the exit cleanup
