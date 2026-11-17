@@ -331,6 +331,39 @@ public sealed class TasksTests : TaskTest
     }
 
     [Fact]
+    public void BeginUnload_seals_the_mod_signals_its_tasks_and_cancels_the_queued_one()
+    {
+        UsePool(1);  // one worker: the blocked task holds it, the third task stays queued
+        var mod = NewMod("alpha");
+        var waits = mod.Tasks.Run("waits", async ctx => await Task.Delay(Timeout.Infinite, ctx.Cancellation));
+        using var started = new ManualResetEventSlim();
+        using var gate = new ManualResetEventSlim();
+        var blocked = mod.Tasks.Run("blocked", ctx =>
+        {
+            started.Set();
+            gate.Wait();  // ignores its token: it stops only when the test lets it
+        });
+        Assert.True(started.Wait(Long));
+        var queuedRan = false;
+        var queued = mod.Tasks.Run("queued", _ => queuedRan = true);
+        Assert.Equal(KilnTaskState.Queued, queued.State);
+
+        mod.BeginUnload();  // on no thread does this wait for the blocked task
+
+        Ended(queued);
+        Assert.Equal(KilnTaskState.Cancelled, queued.State);
+        Assert.False(queuedRan);
+        Assert.Equal(KilnTaskState.Running, blocked.State);  // signalled, still running: joined off the tick by the host
+        Assert.Equal(KilnTaskState.Running, waits.State);  // signalled too: its resumption queues behind the blocked worker
+        Assert.Throws<InvalidOperationException>(() => mod.Tasks.Run("late", ctx => { }));
+        gate.Set();
+        Ended(blocked);
+        Assert.Equal(KilnTaskState.Completed, blocked.State);  // it returned normally after the signal
+        Ended(waits);
+        Assert.Equal(KilnTaskState.Cancelled, waits.State);
+    }
+
+    [Fact]
     public void Options_reach_the_pool()
     {
         var mod = NewMod("alpha");

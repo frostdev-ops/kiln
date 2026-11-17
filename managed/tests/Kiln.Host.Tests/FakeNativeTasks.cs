@@ -94,7 +94,7 @@ internal sealed unsafe class FakeNativeTasks : IDisposable
             OnPoolThread = &HOnPoolThread,
             ServerSession = &HServerSession,
         };
-        *_tasks = new KilnTasksApi { Size = (uint)sizeof(KilnTasksApi), Version = 1, Cancel = &TCancel, Status = &TStatus };
+        *_tasks = new KilnTasksApi { Size = (uint)sizeof(KilnTasksApi), Version = 1, Cancel = &TCancel, Status = &TStatus, DrainOwner = &TDrainOwner };
         s_current = this;
         for (var i = 0; i < workers; i++)
         {
@@ -382,6 +382,33 @@ internal sealed unsafe class FakeNativeTasks : IDisposable
             f.CancelLocked(l);
             if (state != null) *state = l.State;
             return KilnAbi.Ok;
+        }
+    }
+
+    /// <summary>kiln.tasks' drain_owner, as the core has it: seal, cancel queued, signal running, then wait up to
+    /// the timeout for quiescence (what is left is reported, nothing is forced). A timed drain on the tick or a
+    /// pool worker is WRONG_THREAD.</summary>
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int TDrainOwner(ulong owner, uint timeoutMs, uint* running)
+    {
+        var f = s_current!;
+        if (running != null) *running = 0;
+        if (owner == 0) return KilnAbi.ErrInvalidArgument;
+        if (timeoutMs > 0 && (f.IsTickThread || t_worker == f)) return KilnAbi.ErrWrongThread;
+        var deadline = Environment.TickCount64 + timeoutMs;
+        lock (f._lock)
+        {
+            f._sealed.Add(owner);
+            f.SignalOwner(owner);
+            while (true)
+            {
+                var left = (uint)f._leases.Values.Count(l => l.Owner == owner && !l.Terminal);
+                if (running != null) *running = left;
+                if (left == 0 || timeoutMs == 0) return KilnAbi.Ok;
+                var leftMs = deadline - Environment.TickCount64;
+                if (leftMs <= 0) return KilnAbi.Ok;
+                Monitor.Wait(f._lock, TimeSpan.FromMilliseconds(Math.Min(leftMs, 20)));
+            }
         }
     }
 
