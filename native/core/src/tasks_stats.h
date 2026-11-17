@@ -149,8 +149,8 @@ public:
     void note_hop_refused();
 
     // ---- readers (no pool lock, no allocation, bounded retries) ----
-    // Once a minute: copies at most 64 slots, then resets the window fields of the slots it copied
-    // (maxima restart from the current values). `backlog`: tick hops pending at collection.
+    // Once a minute: copies at most 64 slots and takes their window counters out by exchange (maxima
+    // restart from the current values). Never waits on a writer. `backlog`: tick hops pending then.
     WindowSnapshot collect_window(uint64_t now_ns, uint64_t backlog, uint64_t queue_current);
     CrashSnapshot snapshot_crash(uint64_t now_ns) const;
     Totals totals(uint64_t now_ns) const;
@@ -169,6 +169,9 @@ public:
     // Test seam: called at the start of each reader's copy attempt (after its active check), so a
     // test can land a writer's update between the check and the copy. nullptr: none.
     void set_copy_hook_for_test(void (*fn)(void*), void* user);
+    // Test seams: a writer that holds a slot's writer flag and never lets go (a wedged thread).
+    bool try_hold_writer_for_test(int owner_slot);
+    void release_writer_for_test(int owner_slot);
     ~Store();
 
 private:
@@ -180,7 +183,7 @@ private:
     Entry& entry_at(int i) { return *entries_[static_cast<std::size_t>(i)]; }
     const Entry& entry_at(int i) const { return *entries_[static_cast<std::size_t>(i)]; }
     bool copy_slot(const Slot& s, OwnerSnapshot* out) const;
-    bool reset_window(Slot& s);
+    void take_window(Slot& s, OwnerSnapshot* o);
     void record_fault(const Entry& e, uint32_t final_state, uint32_t code, uint64_t now_ns);
 
     // Fixed storage, allocated once at construction and never again (the production store lives in

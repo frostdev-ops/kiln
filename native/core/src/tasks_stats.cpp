@@ -484,28 +484,31 @@ bool Store::copy_slot(const Slot& s, OwnerSnapshot* out) const {
     return false;
 }
 
-bool Store::reset_window(Slot& s) {
-    // A slot whose copy failed is not reset: its next window keeps the numbers.
-    Writer w(s.writer, s.seq);
-    if (!s.active.load(std::memory_order_relaxed)) return true;
-    s.queued_max_w.store(s.queued_cur.load(std::memory_order_relaxed), std::memory_order_relaxed);
-    s.running_max_w.store(s.running_cur.load(std::memory_order_relaxed), std::memory_order_relaxed);
-    s.completed_w.store(0, std::memory_order_relaxed);
-    s.faulted_w.store(0, std::memory_order_relaxed);
-    s.cancelled_w.store(0, std::memory_order_relaxed);
-    s.cpu_ns_w.store(0, std::memory_order_relaxed);
-    s.wall_ns_w.store(0, std::memory_order_relaxed);
-    s.longest_ns_w.store(0, std::memory_order_relaxed);
-    s.longest_name_len.store(0, std::memory_order_relaxed);
-    s.longest_name[0].store(0, std::memory_order_relaxed);
-    s.queued_too_long_w.store(0, std::memory_order_relaxed);
-    s.running_too_long_w.store(0, std::memory_order_relaxed);
-    s.queue_full_w.store(0, std::memory_order_relaxed);
-    s.unload_blocked_w.store(0, std::memory_order_relaxed);
-    if (s.closed.load(std::memory_order_relaxed) && !s.queued_cur.load(std::memory_order_relaxed) &&
-        !s.running_cur.load(std::memory_order_relaxed))
-        s.active.store(false, std::memory_order_relaxed);
-    return true;
+void Store::take_window(Slot& s, OwnerSnapshot* o) {
+    // The window's counters leave the slot by exchange, so an update that lands after the copy is
+    // counted in this window or the next, never lost. No writer flag is waited for here (the tick
+    // calls this): the maxima restart from the current values, and a closed idle slot is retired
+    // only when its writer flag is free at once (else at a later window).
+    constexpr auto r = std::memory_order_relaxed;
+    o->completed = s.completed_w.exchange(0, r);
+    o->faulted = s.faulted_w.exchange(0, r);
+    o->cancelled = s.cancelled_w.exchange(0, r);
+    o->cpu_ns = s.cpu_ns_w.exchange(0, r);
+    o->wall_ns = s.wall_ns_w.exchange(0, r);
+    const uint64_t longest = s.longest_ns_w.exchange(0, r);
+    if (longest > o->longest_ns) o->longest_ns = longest;  // its name is the copy's (or none)
+    if (!o->longest_ns) o->longest_name[0] = '\0';
+    o->queued_too_long = s.queued_too_long_w.exchange(0, r);
+    o->running_too_long = s.running_too_long_w.exchange(0, r);
+    o->queue_full = s.queue_full_w.exchange(0, r);
+    o->unload_blocked = s.unload_blocked_w.exchange(0, r);
+    s.queued_max_w.store(s.queued_cur.load(r), r);
+    s.running_max_w.store(s.running_cur.load(r), r);
+    if (!s.closed.load(r) || s.writer.test_and_set(std::memory_order_acquire)) return;
+    s.seq.fetch_add(1, std::memory_order_acq_rel);
+    if (!s.queued_cur.load(r) && !s.running_cur.load(r)) s.active.store(false, r);
+    s.seq.fetch_add(1, std::memory_order_release);
+    s.writer.clear(std::memory_order_release);
 }
 
 WindowSnapshot Store::collect_window(uint64_t now_ns, uint64_t backlog, uint64_t queue_current) {
@@ -529,11 +532,12 @@ WindowSnapshot Store::collect_window(uint64_t now_ns, uint64_t backlog, uint64_t
             continue;
         }
         if (!o.present) continue;
+        copy_hook();  // test seam: an update between the copy and the take
+        take_window(s, &o);
         const bool activity = o.queued_current || o.running_current || o.completed || o.faulted || o.cancelled ||
                               o.cpu_ns || o.wall_ns || o.queued_too_long || o.running_too_long || o.queue_full ||
                               o.unload_blocked;
         if (activity && w.owner_count < kMaxOwners) w.owners[w.owner_count++] = o;
-        reset_window(s);
     }
     w.apply.applied = apply_applied_.exchange(0, std::memory_order_relaxed);
     w.apply.deferred = apply_deferred_.exchange(0, std::memory_order_relaxed);
@@ -758,6 +762,14 @@ void Store::set_copy_hook_for_test(void (*fn)(void*), void* user) {
 
 void Store::copy_hook() const {
     if (auto* fn = copy_hook_.load(std::memory_order_acquire)) fn(copy_hook_user_.load(std::memory_order_relaxed));
+}
+
+bool Store::try_hold_writer_for_test(int owner_slot) {
+    return owner_slot >= 0 && !slot_at(owner_slot).writer.test_and_set(std::memory_order_acquire);
+}
+
+void Store::release_writer_for_test(int owner_slot) {
+    if (owner_slot >= 0) slot_at(owner_slot).writer.clear(std::memory_order_release);
 }
 
 void Store::clear_entry_seq_odd_for_test(int entry) {

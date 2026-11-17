@@ -411,6 +411,51 @@ int main() {
         pool.set_test_hook(nullptr);
     }
 
+
+    // ---- the window take: nothing lost between the copy and the reset; a wedged writer never stalls it ----
+    {
+        Store t;
+        t.begin(0);
+        const auto r = t.admit(4, 1, "four", "x", 1, 0);
+        struct Late {
+            Store* store;
+            AdmitResult r;
+            int calls = 0;
+        } late{&t, r};
+        t.set_copy_hook_for_test(
+            [](void* u) {
+                auto* l = static_cast<Late*>(u);
+                if (++l->calls == 2) l->store->terminal(l->r.owner_slot, l->r.entry, kStateCompleted, 0, 0);  // after the copy
+            },
+            &late);
+        const WindowSnapshot w1 = t.collect_window(1, 0, 0);
+        t.set_copy_hook_for_test(nullptr, nullptr);
+        const WindowSnapshot w2 = t.collect_window(2, 0, 0);
+        uint64_t completed = 0;
+        for (std::size_t i = 0; i < w1.owner_count; ++i) completed += w1.owners[i].completed;
+        for (std::size_t i = 0; i < w2.owner_count; ++i) completed += w2.owners[i].completed;
+        check(late.calls >= 2 && completed == 1, "a task ending between the window copy and its reset is still counted once");
+
+        // A writer flag held for good (a thread wedged inside an update, sequence even): the
+        // once-a-minute collection still returns, and keeps the slot's numbers.
+        const auto b = t.admit(5, 1, "five", "y", 2, 0);
+        t.terminal(b.owner_slot, b.entry, kStateCompleted, 0, 0);
+        check(t.try_hold_writer_for_test(b.owner_slot), "test: the writer flag is held");
+        std::atomic<bool> returned{false};
+        WindowSnapshot w3;
+        std::thread collector([&] {
+            w3 = t.collect_window(3, 0, 0);
+            returned.store(true);
+        });
+        for (int i = 0; i < 2000 && !returned.load(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        const bool ok = returned.load();
+        t.release_writer_for_test(b.owner_slot);  // let a hung collector finish so the test can end
+        collector.join();
+        bool five = false;
+        for (std::size_t i = 0; i < w3.owner_count; ++i) five = five || (w3.owners[i].owner == 5 && w3.owners[i].completed == 1);
+        check(ok && five, "a wedged writer flag never stalls the window collection, and its row is kept");
+    }
+
     std::printf("tasks_stats_test: %d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
 }
