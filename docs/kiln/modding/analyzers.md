@@ -350,6 +350,69 @@ Not reported:
 In a synchronous handler, start the work and react when it completes:
 `Context.Scheduler.Post` or `ContinueWith(…, TaskScheduler.FromCurrentSynchronizationContext())`.
 
+### Around Kiln tasks
+The same id covers the ways of waiting on, or escaping, a Kiln task (`Context.Tasks`, since T1). The thread
+classifier ([Where code runs](#where-code-runs-kiln101-kiln105)) also follows a task's scope: a task segment
+and its tick hops run with the task's execution scope installed; code after
+`await …ConfigureAwait(false)` still belongs to the task body, but its scope is gone.
+
+**Blocking on a task.** `KilnTask.Wait()` on the tick, on a game thread or inside a task body (a lambda,
+method group or local function handed to `Context.Tasks.Run`, on a worker, on one of its tick hops, or
+after it escaped), and blocking on the plain `Task` that `AsTask()` hands out — `job.AsTask().Result`,
+`job.AsTask().Wait()`, `job.AsTask().GetAwaiter().GetResult()`, also through a local whose only value is
+that call (`var t = job.AsTask(); … t.Result`, until the local is written again). At run time
+`KilnTask.Wait()` refuses on the tick and on a task worker; `AsTask()` escapes that refusal, so blocking on
+its `Task` can deadlock the tick or starve the pool and only this rule sees it. **Fix:** `await` the
+`KilnTask` (in an async function the code fix rewrites the `Wait` and `Result` forms as above).
+
+Not reported:
+- `KilnTask<T>.Result` and `job.GetAwaiter().GetResult()` themselves: they never block, they throw until
+  the task has ended;
+- a plain `Task` that is not from `AsTask()` inside a task (`Task.FromResult(…)` above, `Task.Run` work a
+  task waits on), a look-alike `Wait()` or `AsTask()` on one of the mod's own types, and `KilnTask.Wait()`
+  on a thread of the mod's own (`Task.Run`, a thread it started), where `Wait` is allowed.
+
+**A hop that never happens.** `ctx.ToTick()` whose result runs nothing: the call as a statement, under
+`_ =`, as the body of a void task lambda, or in a local nobody reads again. A `TickHop` does nothing until
+it is awaited — its awaiter is what hands the continuation to the tick — so the code after such a call
+still runs where it ran before. This is reported anywhere, in a task or in a helper that takes a
+`KilnTaskContext`. Not reported: a hop that is awaited, kept in a local and awaited later
+(`var hop = ctx.ToTick(); await hop;`), returned, passed on, or driven by hand through `GetAwaiter()`; and
+a look-alike `ToTick()` on one of the mod's own types.
+
+```csharp
+Context.Tasks.Run("loot-scan", async ctx =>
+{
+    var found = ScanNearbyContainers(area);
+    ctx.ToTick();                                   // KILN105: never awaited, the hop never happens
+    job.Wait();                                     // KILN105: refused in a task
+    var path = other.AsTask().Result;               // KILN105: AsTask() escapes the refusal
+    await ctx.ToTick();
+    foreach (var c in found) Inventory.Transfer(c, player);   // on the tick after the hop
+});
+```
+
+**Gated world calls (T9/T10).** The gated world face reads and writes game state through the engine's
+gates from a task, and every call checks the task's execution scope. The face has not landed yet; this rule
+already reads its documented shape — the members of `Kiln.WorldConcurrent` (or `Concurrent` nested in
+`Kiln.World`) in a Kiln assembly, its `TryCompareExchange`/`CompareExchange` being the gated write and the
+rest gated reads — so the cases below turn on by themselves when T9/T10 ship that face, with no change
+here:
+- a gated call (read or write) where no task scope is live: on a raw thread, in `Task.Run`, or in a task
+  after `await …ConfigureAwait(false)` (until a hop, `ctx.ToTick()` or `ctx.NextGateWindow()`, brings the
+  work back into the task). At run time the call is refused. `WorldConcurrent.IsAvailable` is only a
+  check, and is not reported;
+- a gated **write** from tick code (a `Tick.Pre`/`Post` handler, `Scheduler.Post` work, a task after
+  `await ctx.ToTick()`, or the delegate of `ctx.OnTick(...)`/`ctx.PostToTick(...)`): the engine holds its
+  scene gate for the whole update, so an in-frame write is always refused as "busy". Do the write from a
+  task instead, retrying after `await ctx.NextGateWindow()`, or use the tick API.
+
+Not reported: gated reads on the tick, gated reads and writes inside a task before it leaves the task
+(including after `await ctx.NextGateWindow()` and after `await …ConfigureAwait(true)`, which keeps the
+thread it was made on), and code the classifier cannot place (ordinary helpers called from a task are not
+followed). Matched by symbol against a Kiln assembly: a type named `WorldConcurrent` of the mod's own or
+of another library is not the gated face.
+
 <a id="kiln106"></a>
 ## KILN106: thread, timer or subscription never released
 **What.** Something the mod creates is never released. The tracked types and calls:

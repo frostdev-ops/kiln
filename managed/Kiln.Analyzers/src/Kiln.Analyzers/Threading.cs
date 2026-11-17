@@ -33,18 +33,36 @@ internal enum ThreadKind
     Continue,
 }
 
+/// <summary>A Kiln task's execution scope at a point, for the rules that care whether a task still owns the
+/// code (KILN105's task rows). <see cref="Active"/>: a task segment or tick hop runs here, with the scope
+/// Kiln installs around it. <see cref="Escaped"/>: the code belongs to a task body, but it left the task
+/// (<c>await …ConfigureAwait(false)</c>), so no scope is installed any more. <see cref="None"/>: no task
+/// body in sight.</summary>
+internal enum TaskScope
+{
+    None,
+    Active,
+    Escaped,
+}
+
 internal readonly struct ThreadContext
 {
-    public ThreadContext(ThreadKind kind, string where)
+    public ThreadContext(ThreadKind kind, string where, TaskScope task = TaskScope.None)
     {
         Kind = kind;
         Where = where;
+        Task = task;
     }
 
     public ThreadKind Kind { get; }
 
     /// <summary>Human text that completes "this code runs ...", e.g. "on a thread-pool thread (Task.Run)".</summary>
     public string Where { get; }
+
+    /// <summary>The Kiln task scope here (a task worker, a tick hop, or code that escaped its task).</summary>
+    public TaskScope Task { get; }
+
+    public ThreadContext WithTask(TaskScope task) => new(Kind, Where, task);
 
     public static readonly ThreadContext Unknown = new(ThreadKind.Unknown, "");
     public static readonly ThreadContext Continue = new(ThreadKind.Continue, "");
@@ -179,13 +197,20 @@ internal sealed class ThreadClassifier
     /// <summary>The least tick-sure of several ways execution can arrive: Tick only when every way is the tick.</summary>
     private static ThreadContext Meet(IEnumerable<ThreadContext> contexts)
     {
+        var seen = contexts.ToList();
+        if (seen.Count == 0) return ThreadContext.Unknown;
         ThreadContext? best = null;
-        foreach (var c in contexts)
+        foreach (var c in seen)
         {
             if (best is null) { best = c; continue; }
             if (Rank(c.Kind) > Rank(best.Value.Kind)) best = c;
         }
-        return best ?? ThreadContext.Unknown;
+        // The task scope survives a join only when every way in has it; a mix of in-task and other
+        // ways (or one escaped way) leaves the code in a task body without a proven scope.
+        var task = seen.All(c => c.Task == TaskScope.Active) ? TaskScope.Active
+            : seen.All(c => c.Task == TaskScope.None) ? TaskScope.None
+            : TaskScope.Escaped;
+        return best!.Value.WithTask(task);
     }
 
     private static int Rank(ThreadKind kind) => kind switch
@@ -271,7 +296,7 @@ internal sealed class ThreadClassifier
 
     private static ThreadContext ApplyAwait(ThreadContext state, AwaitExpressionSyntax aw, SemanticModel model)
     {
-        var change = AwaitChange(aw, model);
+        var change = AwaitChange(state, aw, model);
         return change ?? state;
     }
 
@@ -279,20 +304,24 @@ internal sealed class ThreadClassifier
     /// wherever the await was made. Decided by the type of the awaited value, so a hop kept in a variable
     /// (<c>var hop = ctx.ToTick(); await hop;</c>) counts too. Only the real Kiln awaitables hop: a look-alike named
     /// ToTick on a user type, an awaited <c>ctx.OnTick(...)</c> (it resumes in the task) and any other await leave the
-    /// thread as it was.</summary>
-    private static ThreadContext? AwaitChange(AwaitExpressionSyntax aw, SemanticModel model)
+    /// thread as it was. A task's own hops (<c>ctx.ToTick()</c>, <c>ctx.NextGateWindow()</c>) run under the
+    /// task's scope; <c>ConfigureAwait(false)</c> is where that scope ends, and only a task hop brings it back.</summary>
+    private static ThreadContext? AwaitChange(ThreadContext state, AwaitExpressionSyntax aw, SemanticModel model)
     {
         var expr = Unwrap(aw.Expression);
         if (IsConfigureAwaitFalse(expr, model))
         {
             var line = aw.GetLocation().GetLineSpan().StartLinePosition.Line + 1;
-            return new ThreadContext(ThreadKind.Off, $"after 'await ...ConfigureAwait(false)' (line {line}), on a thread-pool thread");
+            return new ThreadContext(ThreadKind.Off, $"after 'await ...ConfigureAwait(false)' (line {line}), on a thread-pool thread",
+                state.Task == TaskScope.None ? TaskScope.None : TaskScope.Escaped);
         }
         var type = model.GetTypeInfo(expr).Type;
-        if (IsKilnType(type, "KilnTaskContext.TickHop") || IsKilnType(type, "Scheduler.NextTickAwaitable"))
-            return new ThreadContext(ThreadKind.Tick, "the tick thread (a tick hop)");
+        if (IsKilnType(type, "KilnTaskContext.TickHop"))
+            return new ThreadContext(ThreadKind.Tick, "the tick thread (a tick hop)", TaskScope.Active);
+        if (IsKilnType(type, "Scheduler.NextTickAwaitable"))
+            return new ThreadContext(ThreadKind.Tick, "the tick thread (a tick hop)", state.Task);
         if (IsKilnType(type, "KilnTaskContext.GateWindow"))
-            return new ThreadContext(ThreadKind.Off, "after 'await ...NextGateWindow()', on a Kiln task worker");
+            return new ThreadContext(ThreadKind.Off, "after 'await ...NextGateWindow()', on a Kiln task worker", TaskScope.Active);
         return null;
     }
 
@@ -307,7 +336,7 @@ internal sealed class ThreadClassifier
         symbol.Name == name && IsKilnType(symbol.ContainingType, type);
 
     /// <summary>One exact type of a Kiln assembly (nested types as <c>Outer.Inner</c>).</summary>
-    private static bool IsKilnType(ITypeSymbol? type, string name) =>
+    internal static bool IsKilnType(ITypeSymbol? type, string name) =>
         type is not null && KilnApis.IsKilnAssembly(type.ContainingAssembly) && type.OriginalDefinition.ToDisplayString() == "Kiln." + name;
 
     /// <summary>Must-analysis over one function's graph: a point is on the tick only when every path to it is.</summary>
@@ -554,9 +583,9 @@ internal sealed class ThreadClassifier
         var name = target.Name;
         if (ns == "Kiln" && tn == "Scheduler" && name == "Post") return new ThreadContext(ThreadKind.Tick, "the tick thread (Scheduler.Post)");
         // Kiln tasks: the Run delegate starts on a Kiln worker; an OnTick/PostToTick delegate runs on the tick.
-        if (IsKilnMember(target.OriginalDefinition, "KilnTasks", "Run")) return Off("on a Kiln task worker (Context.Tasks.Run)");
-        if (IsKilnMember(target.OriginalDefinition, "KilnTaskContext", "OnTick")) return new ThreadContext(ThreadKind.Tick, "the tick thread (ctx.OnTick)");
-        if (IsKilnMember(target.OriginalDefinition, "KilnTaskContext", "PostToTick")) return new ThreadContext(ThreadKind.Tick, "the tick thread (ctx.PostToTick)");
+        if (IsKilnMember(target.OriginalDefinition, "KilnTasks", "Run")) return Off("on a Kiln task worker (Context.Tasks.Run)", TaskScope.Active);
+        if (IsKilnMember(target.OriginalDefinition, "KilnTaskContext", "OnTick")) return new ThreadContext(ThreadKind.Tick, "the tick thread (ctx.OnTick)", TaskScope.Active);
+        if (IsKilnMember(target.OriginalDefinition, "KilnTaskContext", "PostToTick")) return new ThreadContext(ThreadKind.Tick, "the tick thread (ctx.PostToTick)", TaskScope.Active);
         if (ns == "Kiln" && (tn, name) is ("Events", "On") or ("ModMessages", "On"))
             return new ThreadContext(ThreadKind.Tick, $"the tick thread (a {tn}.On handler)");
         switch (ns, tn, name)
@@ -618,7 +647,7 @@ internal sealed class ThreadClassifier
         return ThreadContext.Unknown;
     }
 
-    private static ThreadContext Off(string where) => new(ThreadKind.Off, where);
+    private static ThreadContext Off(string where, TaskScope task = TaskScope.None) => new(ThreadKind.Off, where, task);
 
     private static bool MentionsThreadCheck(ExpressionSyntax cond) =>
         cond.DescendantNodesAndSelf().OfType<IdentifierNameSyntax>()
