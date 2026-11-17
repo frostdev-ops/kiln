@@ -28,7 +28,7 @@ for kind in asan tsan; do
   "$cxx" "${common[@]}" "${san[@]}" "$here/tasks_api_test.cpp" "${pool[@]}" -o "$out/tasks_api_test_$kind"
   "$cxx" "${common[@]}" "${san[@]}" "$here/tasks_edges_test.cpp" "${pool[@]}" -o "$out/tasks_edges_test_$kind"
   "$cxx" "${common[@]}" "${san[@]}" "$here/tasks_host_test.cpp" "${pool[@]}" -o "$out/tasks_host_test_$kind"
-  "$cxx" "${common[@]}" "${san[@]}" "$here/tasks_stats_test.cpp" "${pool[@]}" -o "$out/tasks_stats_test_$kind"
+  "$cxx" "${common[@]}" "${san[@]}" -I"$here/../../third_party" "$here/tasks_stats_test.cpp" "${pool[@]}" -o "$out/tasks_stats_test_$kind"
   # the binding against the real owner registry (src/registry.cpp, included by the test with host stubs)
   "$cxx" "${common[@]}" "${san[@]}" -I"$here/stubs" -I"$here/../../third_party" "$here/tasks_registry_test.cpp" "${pool[@]}" \
     -o "$out/tasks_registry_test_$kind"

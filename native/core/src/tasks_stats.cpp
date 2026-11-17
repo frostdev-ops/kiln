@@ -16,8 +16,12 @@ namespace {
 
 using Name = std::array<std::atomic<unsigned char>, kNameBytes + 1>;
 
+// Copies at most kNameBytes, cut before a UTF-8 character that would not fit whole (task names are
+// at most 128 bytes by contract; owner names are registry text and may be longer).
 void write_name(Name& dst, std::atomic<uint32_t>& len, std::string_view s) {
-    const std::size_t n = std::min(s.size(), kNameBytes);
+    std::size_t n = std::min(s.size(), kNameBytes);
+    if (n < s.size())
+        while (n > 0 && (static_cast<unsigned char>(s[n]) & 0xC0) == 0x80) --n;
     for (std::size_t i = 0; i < n; ++i) dst[i].store(static_cast<unsigned char>(s[i]), std::memory_order_relaxed);
     dst[n].store(0, std::memory_order_relaxed);
     len.store(static_cast<uint32_t>(n), std::memory_order_relaxed);
@@ -46,6 +50,13 @@ struct Writer {
     Writer(const Writer&) = delete;
     Writer& operator=(const Writer&) = delete;
 };
+
+// A seqlock reader's closing check: the acquire fence keeps the relaxed field loads above it from
+// moving past the second sequence read (an acquire load alone would not order them).
+bool unchanged(const std::atomic<uint64_t>& seq, uint64_t before) {
+    std::atomic_thread_fence(std::memory_order_acquire);
+    return seq.load(std::memory_order_relaxed) == before;
+}
 
 struct Claim {
     std::atomic_flag& flag;
@@ -440,6 +451,7 @@ bool Store::copy_slot(const Slot& s, OwnerSnapshot* out) const {
     for (int attempt = 0; attempt < kCopyRetries; ++attempt) {
         const uint64_t before = s.seq.load(std::memory_order_acquire);
         if (before & 1) continue;
+        copy_hook();
         OwnerSnapshot o;
         o.present = s.active.load(std::memory_order_relaxed);
         if (!o.present) {
@@ -464,7 +476,7 @@ bool Store::copy_slot(const Slot& s, OwnerSnapshot* out) const {
         o.running_too_long = s.running_too_long_w.load(std::memory_order_relaxed);
         o.queue_full = s.queue_full_w.load(std::memory_order_relaxed);
         o.unload_blocked = s.unload_blocked_w.load(std::memory_order_relaxed);
-        if (s.seq.load(std::memory_order_acquire) == before) {
+        if (unchanged(s.seq, before)) {
             *out = o;
             return true;
         }
@@ -547,6 +559,7 @@ CrashSnapshot Store::snapshot_crash(uint64_t now_ns) const {
         for (int attempt = 0; attempt < kCopyRetries && !ok; ++attempt) {
             const uint64_t before = e.seq.load(std::memory_order_acquire);
             if (before & 1) continue;
+            copy_hook();
             r = RunningSnapshot{};
             r.present = e.active.load(std::memory_order_relaxed);
             r.owner = e.owner.load(std::memory_order_relaxed);
@@ -561,13 +574,14 @@ CrashSnapshot Store::snapshot_crash(uint64_t now_ns) const {
             const uint64_t since =
                 (r.state == EntryState::Running || r.state == EntryState::OnTick) ? segment : r.started_ns;
             r.elapsed_ns = now_ns >= since ? now_ns - since : 0;
-            ok = e.seq.load(std::memory_order_acquire) == before;
+            ok = unchanged(e.seq, before);
         }
-        if (!ok || !r.present) {
+        if (!ok) {
             out.unavailable = true;
             out.running_count = 0;
             return out;
         }
+        if (!r.present) continue;  // it ended between the active check and the copy
         if (r.state == EntryState::DonePending) continue;  // terminal, its done is next: not running
         all[n++] = r;
     }
@@ -593,7 +607,7 @@ CrashSnapshot Store::snapshot_crash(uint64_t now_ns) const {
             fs.code = f.code.load(std::memory_order_relaxed);
             read_name(f.owner_name, f.owner_name_len, fs.owner_name);
             read_name(f.task_name, f.task_name_len, fs.task_name);
-            ok = f.seq.load(std::memory_order_acquire) == before;
+            ok = unchanged(f.seq, before);
         }
         if (!ok) {
             out.unavailable = true;
@@ -619,13 +633,22 @@ Totals Store::totals(uint64_t) const {
         for (int attempt = 0; attempt < kCopyRetries && !ok; ++attempt) {
             const uint64_t before = s.seq.load(std::memory_order_acquire);
             if (before & 1) continue;
-            ++t.owners;
-            t.queued += s.queued_cur.load(std::memory_order_relaxed);
-            t.running += s.running_cur.load(std::memory_order_relaxed);
-            t.completed += s.completed_t.load(std::memory_order_relaxed);
-            t.faulted += s.faulted_t.load(std::memory_order_relaxed);
-            t.cancelled += s.cancelled_t.load(std::memory_order_relaxed);
-            ok = s.seq.load(std::memory_order_acquire) == before;
+            copy_hook();
+            // Read into locals: only a copy that passed its check is added (a retry adds nothing twice).
+            const uint64_t queued = s.queued_cur.load(std::memory_order_relaxed);
+            const uint64_t running = s.running_cur.load(std::memory_order_relaxed);
+            const uint64_t completed = s.completed_t.load(std::memory_order_relaxed);
+            const uint64_t faulted = s.faulted_t.load(std::memory_order_relaxed);
+            const uint64_t cancelled = s.cancelled_t.load(std::memory_order_relaxed);
+            ok = unchanged(s.seq, before);
+            if (ok) {
+                ++t.owners;
+                t.queued += queued;
+                t.running += running;
+                t.completed += completed;
+                t.faulted += faulted;
+                t.cancelled += cancelled;
+            }
         }
         if (!ok) {
             t.unavailable = true;
@@ -695,7 +718,7 @@ bool Store::running_row(uint32_t index, uint64_t now_ns, RunningSnapshot* out) c
             read_name(e.task_name, e.task_name_len, r.task_name);
             const uint64_t since = (r.state == EntryState::Running || r.state == EntryState::OnTick) ? segment : r.started_ns;
             r.elapsed_ns = now_ns >= since ? now_ns - since : 0;
-            if (e.seq.load(std::memory_order_acquire) == before) {
+            if (unchanged(e.seq, before)) {
                 *out = r;
                 return r.present;
             }
@@ -726,6 +749,15 @@ void Store::clear_seq_odd_for_test(int owner_slot) {
 void Store::force_entry_seq_odd_for_test(int entry) {
     if (entry < 0) return;
     entry_at(entry).seq.fetch_add(1, std::memory_order_acq_rel);
+}
+
+void Store::set_copy_hook_for_test(void (*fn)(void*), void* user) {
+    copy_hook_user_.store(user, std::memory_order_relaxed);
+    copy_hook_.store(fn, std::memory_order_release);
+}
+
+void Store::copy_hook() const {
+    if (auto* fn = copy_hook_.load(std::memory_order_acquire)) fn(copy_hook_user_.load(std::memory_order_relaxed));
 }
 
 void Store::clear_entry_seq_odd_for_test(int entry) {

@@ -166,6 +166,9 @@ public:
     void clear_seq_odd_for_test(int owner_slot);
     void force_entry_seq_odd_for_test(int entry);
     void clear_entry_seq_odd_for_test(int entry);
+    // Test seam: called at the start of each reader's copy attempt (after its active check), so a
+    // test can land a writer's update between the check and the copy. nullptr: none.
+    void set_copy_hook_for_test(void (*fn)(void*), void* user);
     ~Store();
 
 private:
@@ -194,6 +197,9 @@ private:
     std::atomic<uint64_t> apply_owner_stops_{0}, apply_step_stops_{0}, apply_owners_served_{0};
     std::atomic<uint64_t> hops_refused_{0};
     std::atomic<uint64_t> fault_sequence_{0};
+    std::atomic<void (*)(void*)> copy_hook_{nullptr};
+    std::atomic<void*> copy_hook_user_{nullptr};
+    void copy_hook() const;
 };
 
 // The `"tasks":{...}` JSON object for a collected window (no leading comma), owner and task names

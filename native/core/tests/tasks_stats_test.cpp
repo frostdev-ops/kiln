@@ -4,8 +4,11 @@
 // the bounded fallback when a writer is stuck mid-update. Fake clocks are just the ns values handed in.
 #include <chrono>
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <thread>
+
+#include <nlohmann/json.hpp>
 
 #include "../src/tasks.h"
 #include "../src/tasks_stats.h"
@@ -212,6 +215,200 @@ int main() {
         t1.join();
         t2.join();
         check(completed_sum.load() == 1, "concurrent windows: the completed task is counted once in total (the retired owner's queued task was cancelled, not completed)");
+    }
+
+
+    // ---- a writer's update between a reader's check and its copy ----
+    {
+        // totals(): a retried copy must not add the slot's numbers twice.
+        Store t;
+        t.begin(0);
+        const auto x = t.admit(1, 1, "one", "a", 1, 0);
+        t.admit(1, 1, "one", "b", 2, 0);
+        struct Bump {
+            Store* store;
+            int slot;
+            int calls = 0;
+        } bump{&t, x.owner_slot};
+        t.set_copy_hook_for_test(
+            [](void* u) {
+                auto* b = static_cast<Bump*>(u);
+                if (b->calls++ == 0) {  // one whole update lands mid-copy: the copy retries
+                    b->store->force_seq_odd_for_test(b->slot);
+                    b->store->clear_seq_odd_for_test(b->slot);
+                }
+            },
+            &bump);
+        const Totals tt = t.totals(0);
+        t.set_copy_hook_for_test(nullptr, nullptr);
+        check(!tt.unavailable && bump.calls >= 2 && tt.owners == 1 && tt.queued == 2,
+              "totals: a retried copy counts the slot once (owners 1, queued 2)");
+
+        // snapshot_crash(): a task ending between the active check and the copy is skipped, not
+        // reported as an unavailable snapshot.
+        Store c;
+        c.begin(0);
+        const auto first = c.admit(2, 1, "two", "ends", 3, 0);
+        c.admit(2, 1, "two", "stays", 4, 0);
+        struct End {
+            Store* store;
+            AdmitResult r;
+            int calls = 0;
+        } end{&c, first};
+        c.set_copy_hook_for_test(
+            [](void* u) {
+                auto* e = static_cast<End*>(u);
+                if (e->calls++ == 0) e->store->terminal(e->r.owner_slot, e->r.entry, kStateCompleted, 0, 0);
+            },
+            &end);
+        const CrashSnapshot cs = c.snapshot_crash(0);
+        c.set_copy_hook_for_test(nullptr, nullptr);
+        check(!cs.unavailable && cs.running_count == 1 && std::string(cs.running[0].task_name) == "stays",
+              "crash snapshot: a task ending mid-copy is skipped; the snapshot stays available");
+    }
+
+    // ---- names at the 128-byte limit: never cut inside a UTF-8 character ----
+    {
+        Store n;
+        n.begin(0);
+        const std::string task = std::string(126, 'a') + "\xc3\xa9";          // 128 bytes, ends multi-byte
+        const std::string owner = std::string(127, 'o') + "\xc3\xa9";         // 129 bytes: cut to 127
+        const auto r = n.admit(3, 1, owner, task, 5, 0);
+        n.segment_started(r.owner_slot, r.entry, 1, 0);
+        CrashSnapshot cs = n.snapshot_crash(0);
+        check(cs.running_count == 1 && std::string(cs.running[0].task_name) == task,
+              "a 128-byte task name ending in a multi-byte character is copied whole (running row)");
+        check(cs.running_count == 1 && std::string(cs.running[0].owner_name) == std::string(127, 'o'),
+              "an over-long owner name is cut before its last whole character, never inside one");
+        n.segment_ended(r.owner_slot, r.entry, 1, 1, false);
+        n.terminal(r.owner_slot, r.entry, kStateFaulted, 0xC0000005u, 0);
+        cs = n.snapshot_crash(0);
+        check(cs.fault_count == 1 && std::string(cs.faults[0].task_name) == task &&
+                  std::string(cs.faults[0].owner_name) == std::string(127, 'o'),
+              "the fault row keeps the whole names");
+        const WindowSnapshot w = n.collect_window(1, 0, 0);
+        check(w.owner_count == 1 && std::string(w.owners[0].longest_name) == task &&
+                  std::string(w.owners[0].owner_name) == std::string(127, 'o'),
+              "the window row keeps the whole names");
+        const std::string json = "{" + format_window_json(w) + "}";
+        check(json.find('?') == std::string::npos, "no name byte was replaced in the JSON");
+    }
+
+    // ---- name safety through the pool: refused at submit, escaped in JSON, flattened in crash text ----
+    {
+        using namespace kiln::tasks;
+        test::HostPlatform platform;
+        PoolConfig cfg;
+        cfg.normal_workers = 1;
+        cfg.long_running_workers = 1;
+        Pool pool(cfg, &platform);
+        pool.open_owner(8, "mod-eight");
+        auto body = [](const KilnTaskRun*, void*) {};
+        auto done = [](KilnHandle, uint32_t, void*) {};
+        for (const std::string& bad : {std::string("tab\there"), std::string("nl\nhere"), std::string("del\x7f"),
+                                       std::string("c1\xc2\x85"), std::string("bad\xff"), std::string("cut\xc3"),
+                                       std::string("over\xc0\xaf"), std::string("sur\xed\xa0\x80")}) {
+            SubmitArgs a;
+            a.name = bad;
+            KilnHandle h = 0;
+            Refusal why = Refusal::None;
+            check(pool.submit(8, a, body, done, nullptr, &h, &why) == KILN_ERR_INVALID_ARGUMENT && why == Refusal::Argument,
+                  "a task name with a control character or invalid UTF-8 is refused at submit");
+        }
+        check(pool.stats_store().owner_count() == 0 && pool.stats_store().snapshot_crash(0).running_total == 0,
+              "a refused name never reaches the diagnostics store");
+
+        // A name with quotes and backslashes: escaped in the JSON (which still parses, and gives the
+        // name back), flattened to '?' in crash text.
+        test::Gate gate;
+        struct Held {
+            test::Gate* gate;
+            test::HostPlatform* platform;
+        } held_job{&gate, &platform};
+        auto held = [](const KilnTaskRun*, void* user) {
+            auto* j = static_cast<Held*>(user);
+            j->gate->wait();
+            j->platform->advance(2'000'000ull);  // a segment with wall time names the window's longest
+        };
+        SubmitArgs a;
+        const std::string quoted = "say \"hi\" \\ back";
+        a.name = quoted;
+        KilnHandle h = 0;
+        Refusal why = Refusal::None;
+        check(pool.submit(8, a, held, done, &held_job, &h, &why) == KILN_OK, "a quoted name is accepted");
+        for (int i = 0; i < 5000 && pool.stats_store().snapshot_crash(0).running_total == 0; ++i)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        for (int i = 0; i < 5000; ++i) {
+            const CrashSnapshot s = pool.stats_store().snapshot_crash(0);
+            if (s.running_count == 1 && s.running[0].state == EntryState::Running) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        static char text[8192];
+        const CrashSnapshot s = pool.stats_store().snapshot_crash(platform.now_ns());
+        const std::size_t len = format_crash(s, text, sizeof text);
+        const std::string crash(text, len);
+        check(crash.find("task=\"say ?hi? ? back\"") != std::string::npos && crash.find("owner=\"mod-eight\"") != std::string::npos,
+              "crash text flattens quotes and backslashes to '?'");
+        gate.open();
+        for (int i = 0; i < 5000 && pool.stats_store().snapshot_crash(0).running_total != 0; ++i)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        platform.advance(1'000'000ull);
+        const WindowSnapshot w = pool.collect_tasks_window(0);
+        const std::string line = "{" + format_window_json(w) + "}";
+        bool parsed = false, same = false;
+        try {
+            const auto j = nlohmann::json::parse(line);
+            parsed = true;
+            same = j["tasks"]["owners"].size() == 1 && j["tasks"]["owners"][0]["longest_name"] == quoted &&
+                   j["tasks"]["owners"][0]["owner"] == "mod-eight";
+        } catch (...) {
+        }
+        check(parsed && same, "the tasks JSON parses and gives the quoted name back exactly");
+        if (!(parsed && same)) std::printf("  line: %s\n", line.c_str());
+    }
+
+    // ---- crash path: another thread holds the pool lock; a slot stuck at an odd sequence ----
+    {
+        using namespace kiln::tasks;
+        test::HostPlatform platform;
+        PoolConfig cfg;
+        cfg.normal_workers = 1;
+        cfg.long_running_workers = 1;
+        Pool pool(cfg, &platform);
+        pool.open_owner(9, "mod-nine");
+        test::Gate inside, release;
+        pool.set_test_hook([&](Pool::Point p) {
+            if (p != Pool::Point::SubmitPublished) return;
+            inside.open();
+            release.wait();  // the pool mutex stays held until the main thread's report is written
+        });
+        std::thread submitter([&] {
+            SubmitArgs a;
+            a.name = "held";
+            KilnHandle h = 0;
+            Refusal why = Refusal::None;
+            pool.submit(9, a, [](const KilnTaskRun*, void*) {}, [](KilnHandle, uint32_t, void*) {}, nullptr, &h, &why);
+        });
+        inside.wait();
+        static char text[8192];
+        const auto t0 = std::chrono::steady_clock::now();
+        CrashSnapshot s = pool.stats_store().snapshot_crash(platform.now_ns());
+        std::size_t len = format_crash(s, text, sizeof text);
+        const auto took = std::chrono::steady_clock::now() - t0;
+        check(!s.unavailable && std::string(text, len).find("task=\"held\"") != std::string::npos &&
+                  took < std::chrono::seconds(2),
+              "a crash snapshot while another thread holds the pool lock returns at once and lists the task");
+        // The same task's entry stuck mid-update (a writer that crashed inside it): bounded, then the fallback.
+        const int entry = pool.stats_store().entry_of_handle(s.running_count ? s.running[0].handle : 0);
+        pool.stats_store().force_entry_seq_odd_for_test(entry);
+        s = pool.stats_store().snapshot_crash(platform.now_ns());
+        len = format_crash(s, text, sizeof text);
+        check(entry >= 0 && std::string(text, len) == "(task snapshot unavailable)\n",
+              "a running entry stuck at an odd sequence: the section reads (task snapshot unavailable)");
+        pool.stats_store().clear_entry_seq_odd_for_test(entry);
+        release.open();
+        submitter.join();
+        pool.set_test_hook(nullptr);
     }
 
     std::printf("tasks_stats_test: %d checks, %d failures\n", checks, failures);
