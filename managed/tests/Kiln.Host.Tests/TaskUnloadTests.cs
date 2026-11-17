@@ -71,14 +71,6 @@ public sealed class TaskUnloadTests : HostTaskTest
         return box;
     }
 
-    /// <summary>Steps the tick until every lease's pin is gone (a cancelled hop is flushed by a step).</summary>
-    private void StepUntilNoPins(ModManager mods) =>
-        Assert.True(Until(() =>
-        {
-            Step(mods, 0);
-            return Tasks.LivePins == 0;
-        }), Host.Dump());
-
     [MethodImpl(MethodImplOptions.NoInlining)]
     private void UnloadOnTick(ModManager mods, string id) =>
         Native.OnTick(() => Assert.True(mods.Unload(id, out _)));
@@ -175,8 +167,7 @@ public sealed class TaskUnloadTests : HostTaskTest
         Assert.Equal(KilnTaskState.Cancelled, suspended.State);
         Assert.Equal(0, Volatile.Read(ref applied));  // the old hop never applied on the new instance
         UnloadOnTick(mods, "sample-tasks");
-        StepUntilNoPins(mods);  // the new instance's own suspended scan is flushed cancelled by a step
-        Quiesce();
+        QuiesceAfterUnload();  // the new instance's own suspended scan is flushed cancelled by a step
     }
 
     /// <summary>Reloads sample-tasks and checks, inside this frame, that the new instance and its context are
@@ -336,8 +327,7 @@ public sealed class TaskUnloadTests : HostTaskTest
         Ended(consumer);
         Ended(lib);
         Assert.True(Until(() => Host.Has("mod sample-lib's load context unloaded") && Collect(mods) == 0), Host.Dump());
-        StepUntilNoPins(mods);
-        Quiesce();
+        QuiesceAfterUnload();
     }
 
     [Fact]

@@ -102,6 +102,20 @@ public abstract class HostTaskTest : ModsFixture
             $"{Tasks.LivePins} pin(s) and {Native.Records} record(s) left");
     }
 
+    /// <summary><see cref="Quiesce"/> after a mod's unload: a tick hop of its tasks still pending at the core (a
+    /// sample's scan that reached <c>ToTick</c> after the test's last step) is only flushed, cancelled, by a later step,
+    /// so the tick steps until every pin is gone.</summary>
+    internal void QuiesceAfterUnload()
+    {
+        Native.WaitIdle();
+        Assert.True(Until(() =>
+        {
+            Native.Step();
+            return Tasks.LivePins == 0 && Native.Records == 0;
+        }), $"{Tasks.LivePins} pin(s), {Native.Records} record(s) and {Native.PendingHops} hop(s) left");
+        Quiesce();
+    }
+
     internal static bool Until(Func<bool> done) => SpinWait.SpinUntil(done, Long);
 
     public override void Dispose()
