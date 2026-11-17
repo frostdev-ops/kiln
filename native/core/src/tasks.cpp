@@ -1215,7 +1215,7 @@ std::size_t Service::run_tick_hops() {
     uint64_t served = 0, cancelled_ran = 0;
     for (std::size_t turn = 0; turn < owners; ++turn) {
         if (pool_.now_ns() - step_start >= kHopStepNs) {
-            step_stop = pending_tick_hops() > 0;
+            step_stop = true;  // counted below only if hops were left behind
             break;
         }
         KilnOwner owner = 0;
@@ -1227,46 +1227,51 @@ std::size_t Service::run_tick_hops() {
             hop_turn_ = (hop_turn_ + 1) % hops_.size();
         }
         const uint64_t owner_start = pool_.now_ns();
-        bool owner_ran = false;
-        for (std::size_t n = 0; n < kHopsPerOwner; ++n) {
+        std::size_t n = 0;
+        bool emptied = false, step_over = false;
+        for (; n < kHopsPerOwner; ++n) {
             const uint64_t now = pool_.now_ns();
-            if (now - owner_start >= kHopOwnerNs || now - step_start >= kHopStepNs) {
-                // A budget stopped this owner with hops of its own still queued.
-                std::lock_guard lock(lease_mutex_);
-                const auto it = std::find_if(hops_.begin(), hops_.end(), [&](const auto& q) { return q.first == owner; });
-                if (it != hops_.end() && !it->second.empty()) {
-                    if (now - step_start >= kHopStepNs) step_stop = true;
-                    else owner_stop = true;
-                }
-                break;
-            }
+            step_over = now - step_start >= kHopStepNs;
+            if (step_over || now - owner_start >= kHopOwnerNs) break;
             Hop hop{};
             {
                 std::lock_guard lock(lease_mutex_);
                 const auto it = std::find_if(hops_.begin(), hops_.end(), [&](const auto& q) { return q.first == owner; });
-                if (it == hops_.end() || it->second.empty()) break;
+                if (it == hops_.end() || it->second.empty()) {
+                    emptied = true;
+                    break;
+                }
                 hop = it->second.front();
                 it->second.pop_front();
             }
             const uint32_t cancelled = pool_.cancel_requested(hop.lease) ? 1 : 0;
             dispatch_hop(dispatch, hop.lease, hop.host_state, cancelled, false);
             if (cancelled) ++cancelled_ran;
-            owner_ran = true;
             ++ran;
         }
-        if (owner_ran) ++served;
+        if (n > 0) ++served;
+        if (!emptied) {
+            // A budget (its 64 hops, its 2 ms, or the step's 4 ms) ended this owner's turn: a stop is
+            // counted only when hops of its own were left behind.
+            std::lock_guard lock(lease_mutex_);
+            const auto it = std::find_if(hops_.begin(), hops_.end(), [&](const auto& q) { return q.first == owner; });
+            if (it != hops_.end() && !it->second.empty()) (step_over ? step_stop : owner_stop) = true;
+        }
     }
+    uint64_t pending = 0;
     {
         std::lock_guard lock(lease_mutex_);  // owners without pending hops leave the rotation
         const KilnOwner next = hops_.empty() ? 0 : hops_[hop_turn_ % hops_.size()].first;
         hops_.erase(std::remove_if(hops_.begin(), hops_.end(), [](const auto& q) { return q.second.empty(); }), hops_.end());
         hop_turn_ = 0;
-        for (std::size_t i = 0; i < hops_.size(); ++i)
+        for (std::size_t i = 0; i < hops_.size(); ++i) {
             if (hops_[i].first == next) hop_turn_ = i;
+            pending += hops_[i].second.size();  // the same pass: no second walk over the owners
+        }
     }
+    step_stop = step_stop && pending > 0;
     // The window's apply account (issue #49): this round's dispatches, its whole duration, the
     // owners it served, and the hops a budget left behind (counted once per round they wait out).
-    const uint64_t pending = pending_tick_hops();
     pool_.stats_store().record_apply(ran - cancelled_ran, cancelled_ran, pool_.now_ns() - step_start, served, owner_stop,
                                      step_stop, (owner_stop || step_stop) ? pending : 0);
     return ran;
