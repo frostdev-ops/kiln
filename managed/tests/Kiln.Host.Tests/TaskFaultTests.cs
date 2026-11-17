@@ -64,7 +64,7 @@ public sealed class TaskFaultTests : HostTaskTest
             return Host.Has("scan applied (computed off the tick: True, applied on the tick: True");
         }), Host.Dump());
         Native.OnTick(() => Assert.True(mods.Unload("sample-tasks", out _)));
-        Quiesce();
+        QuiesceAfterUnload();
     }
 
     [Fact]
@@ -90,7 +90,7 @@ public sealed class TaskFaultTests : HostTaskTest
         Assert.False(mod.Disabled);
         Assert.Equal(1, Host.Count("task 'bad apply' faulted"));
         Native.OnTick(() => Assert.True(mods.Unload("sample-tasks", out _)));
-        Quiesce();
+        QuiesceAfterUnload();
     }
 
     [Fact]
@@ -108,7 +108,7 @@ public sealed class TaskFaultTests : HostTaskTest
         Assert.True(booked >= 25, $"{booked:F1} ms booked to the mod's Pre cost");
         Assert.Equal(before.TotalCalls, mod.TotalCalls);  // a hop is not a step of the mod
         Native.OnTick(() => Assert.True(mods.Unload("sample-tasks", out _)));
-        Quiesce();
+        QuiesceAfterUnload();
     }
 
     [Fact]

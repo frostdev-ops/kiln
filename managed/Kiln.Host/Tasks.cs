@@ -243,7 +243,7 @@ internal sealed unsafe class HostTasks : TaskBackend
         for (var i = 1; i <= 15; i++)
             if (((nint*)host)[i] == 0) return Off("the core's task table has an empty member");
         var tasks = (KilnTasksApi*)env.Service(KilnTasksApi.Name, 1);
-        if (tasks == null || tasks->Size < (uint)sizeof(KilnTasksApi) || tasks->Cancel == null || tasks->Status == null)
+        if (tasks == null || tasks->Size < (uint)sizeof(KilnTasksApi) || tasks->Cancel == null || tasks->Status == null || tasks->DrainOwner == null)
             return Off("the core's kiln.tasks table is missing or short");
         return new HostTasks(env, host, tasks, null);
     }
@@ -255,12 +255,32 @@ internal sealed unsafe class HostTasks : TaskBackend
     internal IReadOnlyList<AssemblyLoadContext?> PinnedContexts(ulong owner) =>
         [.. _pins.Values.Where(p => p.Owner == owner).Select(p => p.Context)];
 
+    /// <summary>Leases of <paramref name="owner"/> whose end the core has not reported yet: while any is left, a
+    /// segment, a tick hop or a continuation of it can still run, so its load context is not quiescent. The pin
+    /// itself holds that context until then; a mod's unload joins this off the tick, never on it.</summary>
+    internal int OwnerPins(ulong owner) => _pins.Values.Count(p => p.Owner == owner);
+
     // The load context the task's code lives in, when it is a collectible one (a mod's): held by the pin so it cannot
     // finish unloading while the task can still run. Kiln's own code (the default context) needs no pin.
     private static AssemblyLoadContext? LoadContextOf(object hostState) =>
         TaskRun.WorkAssemblyOf(hostState) is { } assembly && AssemblyLoadContext.GetLoadContext(assembly) is { IsCollectible: true } context
             ? context
             : null;
+
+    /// <summary>The core's <c>drain_owner</c>: seals <paramref name="owner"/> (again; it is already sealed by the
+    /// unload) and then waits up to <paramref name="budget"/> for its leases to be quiescent, returning how many
+    /// are not. This is the off-tick join behind a mod's load-context teardown, so it may only run on a thread
+    /// that is neither the tick, a world thread nor a pool worker (the core refuses those with WRONG_THREAD);
+    /// -1 when the core refused or no pool is bound, in which case the caller falls back to looking at the pins.
+    /// A revoked owner whose tasks are still running also reports them here (ERR_REVOKED with the count set).</summary>
+    internal int DrainOwner(ulong owner, TimeSpan budget)
+    {
+        if (_unavailable is not null || _tasks is null) return -1;
+        uint running = 0;
+        var ms = budget <= TimeSpan.Zero ? 0u : (uint)Math.Min(uint.MaxValue, Math.Max(1, Math.Ceiling(budget.TotalMilliseconds)));
+        var rc = _tasks->DrainOwner(owner, ms, &running);
+        return rc is KilnAbi.Ok or KilnAbi.ErrRevoked ? (int)running : -1;
+    }
 
     /// <summary>The owner is going away (unload, disable): its tasks' cancellation is signalled, so work that waits on its
     /// token ends, and the core takes no new task of it. Never waits. Cancellation and finalization continuations of
