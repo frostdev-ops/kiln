@@ -122,7 +122,8 @@ The analyzers decide which thread runs a piece of code.
 - `Context.Tick.Pre` and `Post` handlers;
 - `Context.GameLog.Line` handlers;
 - `Scheduler.Post` work;
-- `Events.On` and `Context.Messages.On` handlers.
+- `Events.On` and `Context.Messages.On` handlers;
+- the delegate handed to a task's `ctx.OnTick(...)` or `ctx.PostToTick(...)`, and task code after a tick hop (below).
 
 Method groups count too: `Context.Tick.Pre += OnPre` makes `OnPre` tick-thread code.
 
@@ -142,9 +143,24 @@ known.
 | timer thread | `System.Threading.Timer`, `System.Timers.Timer.Elapsed` |
 | BCL events | `FileSystemWatcher`; `Process` output and exit; `AppDomain.ProcessExit` and `UnhandledException`; `TaskScheduler.UnobservedTaskException`; `Console.CancelKeyPress`; `SocketAsyncEventArgs.Completed`; `BackgroundWorker.DoWork` |
 | after `ConfigureAwait(false)` | everything after `await x.ConfigureAwait(false)`, up to the next `await Context.Scheduler.NextTick()`. A plain `await` off the tick thread does not come back: there is no Kiln synchronization context there. |
+| Kiln task worker | the delegate handed to `Context.Tasks.Run(...)` (a lambda, a method group, or a local function handed out that way), until a tick hop takes it to the tick |
+
+**Inside a Kiln task** the thread is followed through the function's own control flow (branches and joins, loops,
+early returns, `try`/`catch`/`finally`, `using`):
+- `await ctx.ToTick()` and `await Context.Scheduler.NextTick()` land on the tick, on every path that reaches the
+  call after them. From there the code stays on the tick: its later plain `await`s come back to the tick too. It
+  leaves the tick at `await ctx.NextGateWindow()` (back to a worker) or at an `await …ConfigureAwait(false)`
+  (the thread pool), until it hops again. A call after an `if` where only one branch hopped is still off the tick.
+- The delegate of `ctx.OnTick(...)` / `ctx.PostToTick(...)` runs on the tick. Awaiting the `OnTick` result does not
+  hop the caller: the code after it resumes in the task, where it was.
+- Hops are recognised by symbol, on the real `Kiln.KilnTaskContext` / `Kiln.Scheduler`: a user method that happens
+  to be named `ToTick` or `NextGateWindow` hops nothing, and `Scheduler.NextTick` still counts.
+- A local function called from a task body runs where its call has got to, so it is judged by its calls. An
+  ordinary helper method called from the body is not followed: when the rule cannot tell, it stays quiet.
 
 **Not reported (unknown):**
 - lambdas the mod stores or hands to its own helpers;
+- calls through ordinary helper methods (above), and code whose thread no path settles;
 - code under `if (Game.IsTickThread)` or `Client.IsClientThread`.
 
 Lambdas passed to library calls that run them at once (LINQ, `List.ForEach`) take the thread of the code around
@@ -183,6 +199,22 @@ await Context.Scheduler.NextTick();
 ```
 The fix uses `Context.Scheduler` in a `Mod`; otherwise it uses a `ModContext` or `Scheduler` field or property of
 the type. No fix without one.
+
+Inside a Kiln task the same rule reads the task's hops ([Where code runs](#where-code-runs-kiln101-kiln105)):
+```csharp
+Context.Tasks.Run("loot-scan", async ctx =>
+{
+    var found = ScanNearbyContainers(area);            // a worker: compute and IO are fine here
+    Chat.Broadcast("scan done");                       // KILN101: runs on a Kiln task worker (Context.Tasks.Run)
+    await ctx.ToTick();
+    foreach (var c in found) Inventory.Transfer(c, player);   // on the tick after the hop
+    await ctx.NextGateWindow();
+    Chat.Broadcast("applied");                         // KILN101: NextGateWindow took the work back to a worker
+});
+```
+**Fix in a task.** Hop first (`await ctx.ToTick()`), or hand the call to the tick (`ctx.PostToTick(() => ...)`,
+`await ctx.OnTick(() => ...)`). Those keep the work tracked by the task; the `Scheduler.Post` code fix above
+also works, as ordinary tick work that the task does not wait for.
 
 <a id="kiln102"></a>
 ## KILN102: async void
@@ -595,8 +627,9 @@ runs.
   - `CodeFixes/` (+ Workspaces);
   - `tools/ApiScan` and `managed/Kiln.Analyzers/tools/gen-apis.sh`.
 - Limits:
-  - The thread analysis follows syntax and one level of method groups inside a type. A method that becomes
-    off-thread code through another type or a stored delegate is not seen.
+  - The thread analysis follows a function's control-flow graph and one level of method groups inside a type,
+    plus local functions at their call sites inside a function. A method that becomes off-thread code through
+    another type, an ordinary helper call or a stored delegate is not seen.
   - KILN106 checks that a release exists somewhere in the type, not that it runs in `OnUnload`.
   - KILN120 and KILN121: their own sections above.
 
