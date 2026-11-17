@@ -385,6 +385,11 @@ internal sealed unsafe class FakeNativeTasks : IDisposable
         }
     }
 
+    private int _drains;
+
+    /// <summary>How many times drain_owner was called.</summary>
+    public int Drains => Volatile.Read(ref _drains);
+
     /// <summary>kiln.tasks' drain_owner, as the core has it: seal, cancel queued, signal running, then wait up to
     /// the timeout for quiescence (what is left is reported, nothing is forced). A timed drain on the tick or a
     /// pool worker is WRONG_THREAD.</summary>
@@ -392,6 +397,7 @@ internal sealed unsafe class FakeNativeTasks : IDisposable
     private static int TDrainOwner(ulong owner, uint timeoutMs, uint* running)
     {
         var f = s_current!;
+        Interlocked.Increment(ref f._drains);
         if (running != null) *running = 0;
         if (owner == 0) return KilnAbi.ErrInvalidArgument;
         if (timeoutMs > 0 && (f.IsTickThread || t_worker == f)) return KilnAbi.ErrWrongThread;

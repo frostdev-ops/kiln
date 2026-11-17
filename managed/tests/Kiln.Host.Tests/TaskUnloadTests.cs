@@ -62,6 +62,23 @@ public sealed class TaskUnloadTests : HostTaskTest
     private KilnTask StartOn(ModManager mods, string id, string name, Func<KilnTaskContext, Task> work) =>
         mods.Find(id)!.ModContext.Tasks.Run(name, work);
 
+    /// <summary>Counts the calls of the mod's load context's Unloading event (raised by AssemblyLoadContext.Unload).</summary>
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static StrongBox<int> WatchUnloading(ModManager mods, string id)
+    {
+        var box = new StrongBox<int>();
+        mods.Find(id)!.Context.Unloading += _ => Interlocked.Increment(ref box.Value);
+        return box;
+    }
+
+    /// <summary>Steps the tick until every lease's pin is gone (a cancelled hop is flushed by a step).</summary>
+    private void StepUntilNoPins(ModManager mods) =>
+        Assert.True(Until(() =>
+        {
+            Step(mods, 0);
+            return Tasks.LivePins == 0;
+        }), Host.Dump());
+
     [MethodImpl(MethodImplOptions.NoInlining)]
     private void UnloadOnTick(ModManager mods, string id) =>
         Native.OnTick(() => Assert.True(mods.Unload(id, out _)));
@@ -99,6 +116,7 @@ public sealed class TaskUnloadTests : HostTaskTest
         var queuedRan = false;
         var queued = StartOn(mods, "sample-tasks", "queued", _ => queuedRan = true);
         Assert.Equal(KilnTaskState.Queued, queued.State);  // the one worker is the blocked task's
+        var unloading = WatchUnloading(mods, "sample-tasks");
 
         UnloadOnTick(mods, "sample-tasks");  // returns with the gate still closed: the tick never waited
         Assert.True(Host.Has("sample-tasks: unloading"));  // OnUnload ran on the tick, not deferred by the tasks
@@ -117,6 +135,7 @@ public sealed class TaskUnloadTests : HostTaskTest
         Assert.True(Host.Has("'blocked' (Running)"), Host.Dump());
         Assert.Equal(1, Host.Count("stays pinned"));
         Assert.Equal(1, Collect(mods));
+        Assert.Equal(0, Volatile.Read(ref unloading.Value));  // pinned: AssemblyLoadContext.Unload was not called
 
         gate.Set();
         Ended(blocked);
@@ -128,6 +147,7 @@ public sealed class TaskUnloadTests : HostTaskTest
             Native.Step();
             return Host.Has("load context unloaded") && Tasks.LivePins == 0;
         }), Host.Dump());
+        Assert.Equal(1, Volatile.Read(ref unloading.Value));
         Assert.True(Until(() => Collect(mods) == 0), Host.Dump());
         Quiesce();
     }
@@ -151,6 +171,7 @@ public sealed class TaskUnloadTests : HostTaskTest
         Assert.Equal(KilnTaskState.Cancelled, suspended.State);
         Assert.Equal(0, Volatile.Read(ref applied));  // the old hop never applied on the new instance
         UnloadOnTick(mods, "sample-tasks");
+        StepUntilNoPins(mods);  // the new instance's own suspended scan is flushed cancelled by a step
         Quiesce();
     }
 
@@ -278,6 +299,68 @@ public sealed class TaskUnloadTests : HostTaskTest
         Ended(blocked);
         Native.StopSession();  // the world is gone: the sample's pending hop is flushed cancelled, as at a real stop
         Assert.True(Until(() => Host.Has("load context unloaded") && Tasks.LivePins == 0), Host.Dump());
+        Quiesce();
+    }
+    [Fact]
+    public void A_dependency_with_its_own_blocked_task_is_reported_too_while_its_dependent_still_holds_it()
+    {
+        InstallLibSet();
+        using var mods = NewMods();
+        Native.OnTick(mods.LoadAll);
+        using var gate = new ManualResetEventSlim();
+        var started = new CountdownEvent(2);
+        var consumer = StartOn(mods, "sample-consumer", "consumer-blocked", _ =>
+        {
+            started.Signal();
+            gate.Wait();
+        });
+        var lib = StartOn(mods, "sample-lib", "lib-blocked", _ =>
+        {
+            started.Signal();
+            gate.Wait();
+        });
+        Assert.True(started.Wait(Long));
+
+        UnloadOnTick(mods, "sample-lib");
+        // each mod's blocked task is named once, the dependency's too, though its join waits behind its dependent's
+        Assert.True(Until(() => Host.Has("mod sample-consumer: task 'consumer-blocked' (Running)") &&
+                                Host.Has("mod sample-lib: task 'lib-blocked' (Running)")), Host.Dump());
+        Assert.Equal(1, Host.Count("mod sample-lib: task"));
+        Assert.Equal(1, Host.Count("mod sample-consumer: task"));
+
+        gate.Set();
+        Ended(consumer);
+        Ended(lib);
+        Assert.True(Until(() => Host.Has("mod sample-lib's load context unloaded") && Collect(mods) == 0), Host.Dump());
+        StepUntilNoPins(mods);
+        Quiesce();
+    }
+
+    [Fact]
+    public void Disposing_the_mod_manager_stops_its_task_join()
+    {
+        using var gate = new ManualResetEventSlim();
+        var started = new ManualResetEventSlim();
+        KilnTask blocked;
+        using (var mods = LoadSampleTasks())
+        {
+            blocked = StartOn(mods, "sample-tasks", "blocked", _ =>
+            {
+                started.Set();
+                gate.Wait();
+            });
+            Assert.True(started.Wait(Long));
+            UnloadOnTick(mods, "sample-tasks");
+            Assert.True(Until(() => Host.Has("stays pinned")), Host.Dump());  // its join keeps visiting the pinned context
+        }
+        // the manager is gone (a test's end): its join no longer calls into the core, which may be another one by now
+        var drains = Native.Drains;
+        Thread.Sleep(300);
+        Assert.Equal(drains, Native.Drains);
+        gate.Set();
+        Ended(blocked);
+        Native.StopSession();  // flushes the sample's own pending hop
+        Assert.True(Until(() => Tasks.LivePins == 0), Host.Dump());
         Quiesce();
     }
 }
