@@ -29,6 +29,9 @@ void session_started(uint32_t session);
 void post_edge(uint32_t session, uint64_t step);
 void session_stopping(uint32_t session);
 void tick_hops();  // the managed host's queued tick hops, bounded, on the server world's tick before its Pre
+// Issue #49: the task pool's diagnostics window for this line; false when the pool does not exist
+// (the line then keeps its older shape). Never takes a pool lock.
+bool tasks_window(kiln::tasks_stats::WindowSnapshot* out);
 }  // namespace kiln::tasks_svc
 
 namespace kiln::tick {
@@ -190,9 +193,10 @@ float pct(std::vector<float>& v, double q) {
 
 float maxof(const std::vector<float>& v) { return v.empty() ? 0 : *std::max_element(v.begin(), v.end()); }
 
-// One tick-stats.jsonl line of the window (write_window).
+// One tick-stats.jsonl line of the window (write_window). `with_tasks`: the server world's line
+// also carries the kiln.tasks window (issue #49), collected here, once a minute, never on a step.
 void write_line(Window& w, const stats::Subs& slots, const char* world, double span, size_t pre_subs, size_t post_subs,
-                bool waits) {
+                bool waits, bool with_tasks) {
     SYSTEMTIME t;
     GetLocalTime(&t);
     stats::Line l;
@@ -235,6 +239,7 @@ void write_line(Window& w, const stats::Subs& slots, const char* world, double s
         l.worst_pre_subs = stats::by_owner(w.worst.pre_subs, name);
         stats::top(l.worst_pre_subs, stats::kPreTop);
     }
+    if (with_tasks) l.has_tasks = tasks_svc::tasks_window(&l.tasks);
     const std::string line = stats::format(l);
     {
         std::lock_guard lock(g_stats_mutex);
@@ -249,13 +254,14 @@ void write_line(Window& w, const stats::Subs& slots, const char* world, double s
 // ("server", ...); null on a dedicated server, whose lines keep their original shape. `waits`: this world's Post waits for
 // its jobs (the server world with WaitWorldJobs), so the line has the wait and the window services' end. Owner names are
 // looked up here, once a minute, not on each step.
-void write_window(Window& w, stats::Subs& slots, const char* world, size_t pre_subs, size_t post_subs, bool waits) {
+void write_window(Window& w, stats::Subs& slots, const char* world, size_t pre_subs, size_t post_subs, bool waits,
+                  bool with_tasks = false) {
     const double now = now_ms();
     if (w.start == 0) w.start = now;
     const double span = now - w.start;
     if (span < 60000.0) return;
     try {  // a line that cannot be built (out of memory) is skipped; it never stops the tick
-        write_line(w, slots, world, span, pre_subs, post_subs, waits);
+        write_line(w, slots, world, span, pre_subs, post_subs, waits, with_tasks);
     } catch (...) {
     }
     reset(w);
@@ -721,7 +727,7 @@ KilnResult last(KilnTickInfo* out) {
 
 void write_stats_if_due() {
     write_window(g_win, g_slots, image().side == KILN_SIDE_CLIENT ? "server" : nullptr, g_pre.size(), g_post.size(),
-                 g_wait_jobs != nullptr);
+                 g_wait_jobs != nullptr, true);
 }
 
 KilnResult subscribe_world_tick(KilnOwner owner, uint32_t kind, int32_t phase, KilnTickFn fn, void* user,

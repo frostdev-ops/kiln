@@ -73,6 +73,52 @@ typedef struct KilnLeaseSnapshot {
     char reserved[7];
 } KilnLeaseSnapshot;
 
+/* Diagnostics rows (issue #49): fixed-size copies out of the core's lock-free tasks_stats store.
+ * Names are the admission copies (at most 128 bytes, NUL-terminated). Times are nanoseconds on the
+ * pool's monotonic clock; cpu_ns is the executing threads' CPU (on Windows, GetThreadTimes:
+ * quantum-granular, see tasks_win.cpp). */
+typedef struct KilnTaskStatsOwnerRow {
+    uint32_t size, reserved;
+    KilnOwner owner;
+    uint64_t instance;
+    uint64_t queued_current, queued_max, running_current, running_max;
+    uint64_t completed, faulted, cancelled; /* the owner instance's totals */
+    uint64_t cpu_ns, wall_ns, longest_ns;   /* the current tick-stats window */
+    uint64_t queued_too_long, running_too_long, queue_full, unload_blocked;
+    char owner_name[129];
+    char longest_name[129];
+    char reserved2[6];
+} KilnTaskStatsOwnerRow;
+
+typedef struct KilnTaskStatsRunningRow {
+    uint32_t size, reserved;
+    KilnOwner owner;
+    KilnLease lease;
+    uint64_t thread_id;   /* 0 while suspended */
+    uint64_t started_ns;  /* the task's admission on the pool clock */
+    uint64_t elapsed_ns;  /* the current segment's (or the task's, while suspended) age */
+    uint32_t state;       /* 1 running, 2 suspended, 3 on-tick (tasks_stats EntryState) */
+    uint32_t reserved3;
+    char owner_name[129];
+    char task_name[129];
+    char reserved2[6];
+} KilnTaskStatsRunningRow;
+
+typedef struct KilnTaskStatsFaultRow {
+    uint32_t size, reserved;
+    uint64_t sequence, owner, handle, at_ns;
+    uint32_t state, code;  /* KILN_TASK_* and the structured fault code (0 when none) */
+    char owner_name[129];
+    char task_name[129];
+    char reserved2[6];
+} KilnTaskStatsFaultRow;
+
+typedef struct KilnTaskStatsTotals {
+    uint32_t size, owners;
+    uint32_t workers, long_running;
+    uint64_t queued, running, completed, faulted, cancelled, running_tasks, faults;
+} KilnTaskStatsTotals;
+
 typedef struct KilnTasksHostApi {
     KilnServiceHeader header;  /* size, version (KILN_TASKS_HOST_VERSION) */
     /* The core's build identity ("<version><build metadata>", "" without metadata: then the host refuses tasks). */
@@ -125,11 +171,23 @@ typedef struct KilnTasksHostApi {
     /* The live server world's session (the one tick hops and after-step resumptions use); 0 with none, from its
      * STOPPING on. Any thread; never blocks on a task. */
     uint32_t(KILN_CALL* server_session)(void);
+    /* ---- appended (issue #49; same version, checked by size and build stamp): task diagnostics
+     * for Kiln.Host's crash reports. All read the lock-free stats store: no pool lock, no allocation,
+     * bounded retries; UNAVAILABLE when a snapshot could not be copied, NOT_FOUND past the last row. */
+    /* The number of owner-instance rows (at most 64). */
+    uint32_t(KILN_CALL* stats_owner_count)(void);
+    KilnResult(KILN_CALL* stats_owner_row)(uint32_t index, KilnTaskStatsOwnerRow* row);
+    KilnResult(KILN_CALL* stats_running_row)(uint32_t index, KilnTaskStatsRunningRow* row);
+    KilnResult(KILN_CALL* stats_fault_row)(uint32_t index, KilnTaskStatsFaultRow* row);
+    KilnResult(KILN_CALL* stats_totals)(KilnTaskStatsTotals* totals);
 } KilnTasksHostApi;
 }
 
 static_assert(sizeof(KilnLeaseSnapshot) == 168, "KilnLeaseSnapshot v1");
-static_assert(sizeof(KilnTasksHostApi) == 128 && offsetof(KilnTasksHostApi, build_stamp) == 8 &&
+static_assert(sizeof(KilnTaskStatsOwnerRow) == 400 && sizeof(KilnTaskStatsRunningRow) == 320 &&
+                  sizeof(KilnTaskStatsFaultRow) == 312 && sizeof(KilnTaskStatsTotals) == 72,
+              "kiln.tasks diagnostics rows (issue #49)");
+static_assert(sizeof(KilnTasksHostApi) == 168 && offsetof(KilnTasksHostApi, build_stamp) == 8 &&
                   offsetof(KilnTasksHostApi, bind) == 16 && offsetof(KilnTasksHostApi, admit) == 24 &&
                   offsetof(KilnTasksHostApi, arm) == 32 && offsetof(KilnTasksHostApi, resume) == 40 &&
                   offsetof(KilnTasksHostApi, resume_after_step) == 48 && offsetof(KilnTasksHostApi, tick_hop) == 56 &&
@@ -138,7 +196,12 @@ static_assert(sizeof(KilnTasksHostApi) == 128 && offsetof(KilnTasksHostApi, buil
                   offsetof(KilnTasksHostApi, bind_ended) == 96 &&
                   offsetof(KilnTasksHostApi, resume_after_step_in) == 104 &&
                   offsetof(KilnTasksHostApi, on_pool_thread) == 112 &&
-                  offsetof(KilnTasksHostApi, server_session) == 120,
+                  offsetof(KilnTasksHostApi, server_session) == 120 &&
+                  offsetof(KilnTasksHostApi, stats_owner_count) == 128 &&
+                  offsetof(KilnTasksHostApi, stats_owner_row) == 136 &&
+                  offsetof(KilnTasksHostApi, stats_running_row) == 144 &&
+                  offsetof(KilnTasksHostApi, stats_fault_row) == 152 &&
+                  offsetof(KilnTasksHostApi, stats_totals) == 160,
               "kiln.internal.tasks.host v1 (Kiln-internal; checked with the build stamp, not an ABI promise)");
 
 /* Not a member: the core-side bootstrap (api.cpp). Returns the managed host's KilnApi view (a copy of the public one

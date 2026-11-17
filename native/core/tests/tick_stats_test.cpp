@@ -232,6 +232,50 @@ int main(int argc, char** argv) {
                  "quotes, backslashes and control characters escaped; well-formed UTF-8 kept, other bytes '?'");
     }
 
+    // ---- the tasks section (issue #49): appended last, absent without a pool ----
+    {
+        Line l = base(nullptr);
+        check(format(l).find("\"tasks\"") == std::string::npos, "no pool: no tasks object, the old line unchanged");
+        l.has_tasks = true;
+        l.tasks.id = 7;
+        l.tasks.span_ns = 60'000'000'000ull;
+        l.tasks.pool.workers = 3;
+        l.tasks.pool.long_running = 1;
+        l.tasks.pool.queue_max = 12;
+        l.tasks.owner_count = 1;
+        auto& o = l.tasks.owners[0];
+        o.present = true;
+        std::strcpy(o.owner_name, "kiln-auto-loot");
+        o.queued_max = 4;
+        o.running_current = 1;
+        o.running_max = 2;
+        o.completed = 120;
+        o.cancelled = 2;
+        o.cpu_ns = 830'500'000ull;
+        o.wall_ns = 910'200'000ull;
+        o.longest_ns = 44'100'000ull;
+        std::strcpy(o.longest_name, "loot-scan");
+        l.tasks.apply.applied = 96;
+        l.tasks.apply.deferred = 3;
+        l.tasks.apply.apply_ns = 4'200'000ull;
+        l.tasks.apply.owner_budget_stops = 1;
+        l.tasks.apply.owners_served = 1;
+        const std::string got = format(l);
+        const std::string want_tasks =
+            ",\"tasks\":{\"window\":{\"id\":7,\"span_ms\":60000.000,\"age_ms\":0.000},"
+            "\"pool\":{\"workers\":3,\"long_running\":1,\"queue_max\":12},"
+            "\"owners\":[{\"owner\":\"kiln-auto-loot\",\"queued\":{\"current\":0,\"max\":4},"
+            "\"running\":{\"current\":1,\"max\":2},\"completed\":120,\"faulted\":0,\"cancelled\":2,"
+            "\"cpu_ms\":830.500,\"wall_ms\":910.200,\"longest_ms\":44.100,\"longest_name\":\"loot-scan\","
+            "\"queued_too_long\":0,\"running_too_long\":0,\"queue_full\":0,\"unload_blocked\":0}],"
+            "\"apply\":{\"applied\":96,\"deferred\":3,\"cancelled\":0,\"ms\":4.200,\"owner_budget_stops\":1,"
+            "\"step_budget_stops\":0,\"owners_served\":1,\"backlog\":0},\"hops\":{\"refused\":0}}}\n";
+        check(got.size() > want_tasks.size() && got.compare(got.size() - want_tasks.size(), want_tasks.size(), want_tasks) == 0,
+              "with a pool: the tasks object is appended after the existing fields, exactly");
+        if (got.size() <= want_tasks.size() || got.compare(got.size() - want_tasks.size(), want_tasks.size(), want_tasks) != 0)
+            std::printf("  got tail: %s", got.c_str());
+    }
+
     // ---- no number that is not a number ----
     {
         Line l = base(nullptr);

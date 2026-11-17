@@ -194,3 +194,30 @@ body that outlives its revoked owner; it only reports and never stops a task. Wh
 worker (a fault, then its replacement could not start) `kiln.log` says so once, with the number of queued tasks that
 wait, and once again when a retried start brings a worker back. While a task runs its worker's thread description is
 `<mod>/<task>`.
+
+Since issue #49 the pool is also visible where Kiln already reports performance and crashes:
+
+- **`tick-stats.jsonl`** (server world's line only): an optional `"tasks"` object appended after the existing
+  fields — the window's id, span and age; the pool's workers, LongRunning workers and deepest queue; one row per
+  owner *instance* (a reload starts a new row, never mixed with the old one; at most 64 rows, then
+  `"owners_truncated":true`) with queued/running current and window max, completed/faulted/cancelled in the
+  window, `cpu_ms` and `wall_ms`, the window's longest segment and its name, and the watchdog, queue-full and
+  blocked-unload counts; the tick hops' apply account (applied, deferred, cancelled, its time, the budget stops,
+  the owners served and the backlog); and hops refused. The object is absent when the pool does not exist, so a
+  line without a pool keeps its older shape byte for byte.
+- **Crash reports**, native and managed alike: a `-- Tasks --` section with up to 16 running tasks (thread, mod,
+  task name, handle, start, elapsed, running / suspended / on-tick) and the last 16 fault summaries. A managed
+  report reads the same store through five members appended to the Kiln-internal host table (owner count, owner
+  row, running row, fault row, totals); a supplier that throws still leaves a written report.
+
+Both read an immortal, fixed-size, lock-free store (64 owner slots, 64 running entries, 16 faults;
+`native/core/src/tasks_stats.{h,cpp}`): every field is atomic, compound updates publish through a per-slot
+seqlock, and readers copy with a bounded retry and then write `(task snapshot unavailable)`. Collecting never
+blocks the tick, never takes the pool lock and allocates nothing on a crash path. A segment's cost is two clock
+reads (wall, and the executing thread's CPU) and a few relaxed atomic updates.
+
+CPU time on Windows comes from `GetThreadTimes` (kernel + user): the units are exact but the values advance only
+at the scheduler quantum (~15.6 ms), so a segment's `cpu_ms` is quantum-granular — usually 0 for a short segment,
+a whole quantum for one that crosses a boundary. (`QueryThreadCycleTime` advances continuously but has no
+documented frequency to convert its cycles to time.) Wall time excludes nothing; CPU excludes the time the
+thread spent awaiting IO, because the thread was not executing then.

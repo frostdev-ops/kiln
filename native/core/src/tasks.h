@@ -34,6 +34,7 @@
 #include "tasks_host.h"
 #include "tasks_model.h"
 #include "tasks_platform.h"
+#include "tasks_stats.h"
 
 namespace kiln::tasks {
 
@@ -139,6 +140,13 @@ public:
     // PoolNote lines (slot lost / recovered), on the maintenance thread outside every lock. nullptr stops them.
     void set_note_sink(NoteFn fn, void* user);
 
+    // Diagnostics (issue #49): this pool's lock-free stats store (tasks_stats.h). The tick-stats
+    // writer and crash reports read it without the pool or model lock; collect_tasks_window is the
+    // once-a-minute window copy (backlog: tick hops pending then).
+    tasks_stats::Store& stats_store();
+    const tasks_stats::Store& stats_store() const;
+    tasks_stats::WindowSnapshot collect_tasks_window(uint64_t backlog);
+
     // Diagnostics / test seams.
     Counts counts() const;
     std::size_t tracked_tasks() const;  // tasks whose metadata (module references, watchdog clocks) is still held
@@ -151,6 +159,7 @@ public:
     bool can_run(Slot slot) const;
     int health() const;  // lock-free: 1 while normal work can run (can_run(Normal)), else 0
     uint64_t now_ns() const;  // the platform clock (the tick hops' budget clock; a test's fake one in tests)
+    uint64_t current_thread_id() const;  // the platform's id of the calling thread
     // Runs fn(context) inside the platform's fault boundary (the tick hops' dispatcher calls).
     void guarded(GuardedFn fn, void* context, FaultInfo* info);
     uint64_t start_failures() const;
@@ -221,6 +230,8 @@ public:
     };
     Snapshot snapshot() const;
     uint64_t refused_edges() const;
+    // tick-stats (issue #49): the pool's diagnostics window, collected without a pool lock.
+    tasks_stats::WindowSnapshot collect_tasks_window() { return pool_.collect_tasks_window(pending_tick_hops()); }
 
     // ---- kiln.internal.tasks.host v1 (tasks_host.h): the managed host's leases on the same pool ----
     KilnResult host_bind(KilnHostDispatchFn dispatch);
@@ -282,7 +293,10 @@ private:
     std::vector<std::pair<KilnOwner, std::deque<Hop>>> hops_;  // per owner, in the order owners first queued
     std::size_t hop_turn_ = 0;                                // the owner whose turn comes first next step
     bool hops_open_ = false;  // a live server session takes hops (under lease_mutex_; its STOPPING closes it)
-    void dispatch_hop(KilnHostDispatchFn dispatch, KilnLease lease, void* host_state, uint32_t cancelled);
+    // `count_apply`: the dispatch is accounted in the window's apply stats here (the tick's
+    // run_tick_hops accounts its whole round itself, so it passes false).
+    void dispatch_hop(KilnHostDispatchFn dispatch, KilnLease lease, void* host_state, uint32_t cancelled,
+                      bool count_apply = true);
     void dispatch_hops_cancelled();                            // a session's STOPPING: every pending hop, cancelled
 
     std::function<void(Point)> hook_;

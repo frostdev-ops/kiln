@@ -262,7 +262,8 @@ internal sealed unsafe class HostRuntime : IHostServices, IKilnBackend
             Capability = Service(Kiln.Capabilities.ServiceName, Kiln.Capabilities.ServiceVersion) != 0 ? Kiln.Capabilities.Get : null,
             Faults = new FaultPolicy { Limit = _config.FaultLimit, WindowSeconds = _config.FaultWindowSeconds },
             CrashReports = _config.CrashReports
-                ? _crash = new CrashReports(Path.Combine(kiln, "crash-reports"), Path.Combine(logs, "kiln.log"), SystemReport, () => _mods!.Describe(), Log)
+                ? _crash = new CrashReports(Path.Combine(kiln, "crash-reports"), Path.Combine(logs, "kiln.log"), SystemReport, () => _mods!.Describe(), Log,
+                    () => HostTasks.Bound?.CrashTasksSection() ?? "(task snapshot unavailable)\n")
                 : null,
             StateFile = Path.Combine(logs, "mods.txt"),
             TestResultsDirectory = Path.Combine(logs, "tests"),

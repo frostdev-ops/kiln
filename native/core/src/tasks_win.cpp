@@ -85,6 +85,19 @@ public:
         QueryPerformanceFrequency(&freq);
         return freq.QuadPart ? static_cast<uint64_t>(count.QuadPart * 1000000000.0 / freq.QuadPart) : 0;
     }
+
+    // GetThreadTimes (kernel + user, 100 ns units): exact units, but the values only advance when
+    // the scheduler accounts the thread, at the ~15.6 ms quantum, on native Windows and under Wine
+    // alike. QueryThreadCycleTime would advance continuously, but its cycles have no documented
+    // frequency to convert to nanoseconds with, so the quantum-granular clock wins (issue #49).
+    uint64_t thread_cpu_ns() override {
+        FILETIME created, exited, kernel, user;
+        if (!GetThreadTimes(GetCurrentThread(), &created, &exited, &kernel, &user)) return 0;
+        const auto ticks = [](const FILETIME& f) {
+            return (static_cast<uint64_t>(f.dwHighDateTime) << 32) | f.dwLowDateTime;
+        };
+        return (ticks(kernel) + ticks(user)) * 100ull;
+    }
 };
 
 }  // namespace

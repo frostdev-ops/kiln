@@ -25,7 +25,7 @@ cl=(clang-cl --target=x86_64-pc-windows-msvc /std:c++20 /EHsc /W4 /WX /O1 /MT -W
 # the test module DLL
 "${cl[@]}" /LD "$here/tasks_test_module.cpp" /Fe:"$out/tasks_test_module.dll" /link "${libdirs[@]}" >/dev/null
 # the host exe: pool + model + Windows platform + SEH shim + the host test
-"${cl[@]}" "$here/tasks_windows_host.cpp" "$src/tasks.cpp" "$src/tasks_model.cpp" "$src/tasks_win.cpp" "$src/tasks_seh.cpp" \
+"${cl[@]}" "$here/tasks_windows_host.cpp" "$src/tasks.cpp" "$src/tasks_model.cpp" "$src/tasks_stats.cpp" "$src/tasks_win.cpp" "$src/tasks_seh.cpp" \
   /Fe:"$out/tasks_windows_host.exe" /link "${libdirs[@]}" >/dev/null
 
 # Always this run's own private prefix under the output folder: an inherited WINEPREFIX (it could be a game's prefix)

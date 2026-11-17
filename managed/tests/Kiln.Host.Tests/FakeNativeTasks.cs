@@ -61,6 +61,9 @@ internal sealed unsafe class FakeNativeTasks : IDisposable
 
     public readonly List<string> Errors = [];
     public readonly List<string> Leaks = [];
+    /// <summary>Ended leases by final state, and the fault ring the diagnostics members serve.</summary>
+    public readonly Dictionary<ulong, (ulong Completed, ulong Faulted, ulong Cancelled)> OwnerTotals = [];
+    public readonly List<(ulong Sequence, Lease Lease, uint State)> Faults = [];
     public readonly List<(ulong Owner, string Name, uint Flags, uint Priority)> Admitted = [];
     public readonly List<(ulong Lease, uint State, bool OnWorker)> Ends = [];
     public readonly List<(ulong Owner, ulong Lease, bool Cancelled)> HopsRun = [];
@@ -93,6 +96,11 @@ internal sealed unsafe class FakeNativeTasks : IDisposable
             ResumeAfterStepIn = &HResumeAfterStepIn,
             OnPoolThread = &HOnPoolThread,
             ServerSession = &HServerSession,
+            StatsOwnerCount = &HStatsOwnerCount,
+            StatsOwnerRow = &HStatsOwnerRow,
+            StatsRunningRow = &HStatsRunningRow,
+            StatsFaultRow = &HStatsFaultRow,
+            StatsTotals = &HStatsTotals,
         };
         *_tasks = new KilnTasksApi { Size = (uint)sizeof(KilnTasksApi), Version = 1, Cancel = &TCancel, Status = &TStatus };
         s_current = this;
@@ -353,6 +361,108 @@ internal sealed unsafe class FakeNativeTasks : IDisposable
             }
             return KilnAbi.Ok;
         }
+    }
+
+    // ---- the appended diagnostics members (issue #49) ----
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static uint HStatsOwnerCount()
+    {
+        var f = s_current!;
+        lock (f._lock) return (uint)f._leases.Values.Select(l => l.Owner).Union(f.OwnerTotals.Keys).Distinct().Count();
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int HStatsOwnerRow(uint index, KilnTaskStatsOwnerRow* row)
+    {
+        var f = s_current!;
+        lock (f._lock)
+        {
+            var owners = f._leases.Values.Select(l => l.Owner).Union(f.OwnerTotals.Keys).Distinct().Order().ToList();
+            if (index >= owners.Count) return KilnAbi.ErrNotFound;
+            var owner = owners[(int)index];
+            var mine = f._leases.Values.Where(l => l.Owner == owner).ToList();
+            var totals = f.OwnerTotals.GetValueOrDefault(owner);
+            *row = default;
+            row->Size = (uint)sizeof(KilnTaskStatsOwnerRow);
+            row->Owner = owner;
+            row->Instance = 1;
+            row->QueuedCurrent = (ulong)mine.Count(l => l.State == Queued);
+            row->RunningCurrent = (ulong)mine.Count(l => l.State == Running);
+            row->Completed = totals.Completed;
+            row->Faulted = totals.Faulted;
+            row->Cancelled = totals.Cancelled;
+            WriteName(row->OwnerName, owner.ToString());
+            return KilnAbi.Ok;
+        }
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int HStatsRunningRow(uint index, KilnTaskStatsRunningRow* row)
+    {
+        var f = s_current!;
+        lock (f._lock)
+        {
+            var live = f._leases.Values.Where(l => l.State == Running).OrderBy(l => l.Id).ToList();
+            if (index >= live.Count) return KilnAbi.ErrNotFound;
+            var l = live[(int)index];
+            *row = default;
+            row->Size = (uint)sizeof(KilnTaskStatsRunningRow);
+            row->Owner = l.Owner;
+            row->Lease = l.Id;
+            row->State = l.SegmentRunning ? 1u : 2u;
+            row->ElapsedNs = l.SegmentRunning ? 1_000_000ul : 0ul;
+            WriteName(row->OwnerName, l.Owner.ToString());
+            WriteName(row->TaskName, l.Name);
+            return KilnAbi.Ok;
+        }
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int HStatsFaultRow(uint index, KilnTaskStatsFaultRow* row)
+    {
+        var f = s_current!;
+        lock (f._lock)
+        {
+            if (index >= f.Faults.Count) return KilnAbi.ErrNotFound;
+            var (sequence, l, state) = f.Faults[(int)index];
+            *row = default;
+            row->Size = (uint)sizeof(KilnTaskStatsFaultRow);
+            row->Sequence = sequence;
+            row->Owner = l.Owner;
+            row->Handle = l.Id;
+            row->State = state;
+            WriteName(row->OwnerName, l.Owner.ToString());
+            WriteName(row->TaskName, l.Name);
+            return KilnAbi.Ok;
+        }
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int HStatsTotals(KilnTaskStatsTotals* totals)
+    {
+        var f = s_current!;
+        lock (f._lock)
+        {
+            *totals = default;
+            totals->Size = (uint)sizeof(KilnTaskStatsTotals);
+            totals->Owners = (uint)f._leases.Values.Select(l => l.Owner).Union(f.OwnerTotals.Keys).Distinct().Count();
+            totals->Workers = (uint)f._workers.Count;
+            totals->Queued = (ulong)f._leases.Values.Count(l => l.State == Queued);
+            totals->Running = (ulong)f._leases.Values.Count(l => l.State == Running);
+            totals->RunningTasks = totals->Running;
+            totals->Completed = (ulong)f.OwnerTotals.Values.Sum(t => (long)t.Completed);
+            totals->Faulted = (ulong)f.OwnerTotals.Values.Sum(t => (long)t.Faulted);
+            totals->Cancelled = (ulong)f.OwnerTotals.Values.Sum(t => (long)t.Cancelled);
+            totals->Faults = (ulong)f.Faults.Count;
+            return KilnAbi.Ok;
+        }
+    }
+
+    private static void WriteName(byte* dst, string value)
+    {
+        var bytes = Encoding.UTF8.GetBytes(value);
+        for (var i = 0; i < bytes.Length && i < 128; i++) dst[i] = bytes[i];
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
@@ -756,6 +866,15 @@ internal sealed unsafe class FakeNativeTasks : IDisposable
                 lock (_lock)
                 {
                     Ends.Add((end.Id, end.State, true));
+                    var totals = OwnerTotals.GetValueOrDefault(end.Owner);
+                    OwnerTotals[end.Owner] = end.State switch
+                    {
+                        Completed => (totals.Completed + 1, totals.Faulted, totals.Cancelled),
+                        Faulted => (totals.Completed, totals.Faulted + 1, totals.Cancelled),
+                        Cancelled => (totals.Completed, totals.Faulted, totals.Cancelled + 1),
+                        _ => totals,
+                    };
+                    if (end.State == Faulted) Faults.Add(((ulong)Faults.Count + 1, end, end.State));
                     if (_ended != null) _leases.Remove(end.Id);  // the core releases the record after the notification
                     _running--;
                     Monitor.PulseAll(_lock);

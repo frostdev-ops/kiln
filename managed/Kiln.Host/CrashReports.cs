@@ -11,7 +11,7 @@ namespace Kiln.Host;
 /// (SEH guards, native/core/src/crash.cpp) in the same format. Never throws.
 /// </summary>
 internal sealed class CrashReports(string directory, string? logFile, Func<string> system, Func<string> mods,
-    Action<LogLevel, string>? log = null)
+    Action<LogLevel, string>? log = null, Func<string>? tasks = null)
 {
     public const int MaxPerRun = 20;
     public const int Keep = 100;
@@ -38,6 +38,13 @@ internal sealed class CrashReports(string directory, string? logFile, Func<strin
             sb.Append(Safe(mods));
             sb.Append("\n-- Details --\n");
             sb.Append(Lines(details).TrimEnd()).Append('\n');
+            if (tasks is not null)
+            {
+                // A supplier that throws (or faults reading the core's table) can never stop the
+                // report: the section degrades to the same fallback the native reports write.
+                sb.Append("\n-- Tasks --\n");
+                sb.Append(Lines(Safe(tasks, "(task snapshot unavailable)\n")).TrimEnd()).Append('\n');
+            }
             sb.Append("\n-- Last kiln.log lines --\n");
             foreach (var line in logFile is null ? [] : Tail(logFile, 60)) sb.Append(line).Append('\n');
             File.WriteAllText(path + ".tmp", sb.ToString());
@@ -64,6 +71,18 @@ internal sealed class CrashReports(string directory, string? logFile, Func<strin
         catch (Exception e)
         {
             return $"(unavailable: {e.Message})\n";
+        }
+    }
+
+    private static string Safe(Func<string> f, string fallback)
+    {
+        try
+        {
+            return f();
+        }
+        catch
+        {
+            return fallback;
         }
     }
 

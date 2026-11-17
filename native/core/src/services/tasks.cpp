@@ -8,6 +8,7 @@
 // ExitProcess has already ended every other thread: a pool joined there would wait for workers that no longer exist.
 // The pool is never shut down; the process exit ends its workers (tasks::Service::exiting() only seals and signals).
 #include <atomic>
+#include <cstring>
 #include <exception>
 
 #include "../config.h"
@@ -210,6 +211,108 @@ uint32_t KILN_CALL h_server_session() {
     }
 }
 
+// ---- appended (issue #49): diagnostics for Kiln.Host's crash reports, out of the pool's
+// lock-free stats store (tasks_stats.h). No pool lock, no allocation; a copy that cannot be made
+// within its bounded retries is UNAVAILABLE, an index past the last row NOT_FOUND.
+tasks_stats::Store* stats_or_null() {
+    return g_service.load(std::memory_order_acquire) && g_pool ? &g_pool->stats_store() : nullptr;
+}
+uint32_t KILN_CALL h_stats_owner_count() {
+    const tasks_stats::Store* store = stats_or_null();
+    return store ? store->owner_count() : 0;
+}
+KilnResult KILN_CALL h_stats_owner_row(uint32_t index, KilnTaskStatsOwnerRow* row) {
+    if (!row) return KILN_ERR_INVALID_ARGUMENT;
+    tasks_stats::Store* store = stats_or_null();
+    if (!store) return KILN_ERR_UNAVAILABLE;
+    tasks_stats::OwnerSnapshot o;
+    if (!store->owner_row(index, &o)) return index >= store->owner_count() ? KILN_ERR_NOT_FOUND : KILN_ERR_UNAVAILABLE;
+    *row = KilnTaskStatsOwnerRow{};
+    row->size = sizeof(KilnTaskStatsOwnerRow);
+    row->owner = o.owner;
+    row->instance = o.instance;
+    row->queued_current = o.queued_current;
+    row->queued_max = o.queued_max;
+    row->running_current = o.running_current;
+    row->running_max = o.running_max;
+    row->completed = o.completed;
+    row->faulted = o.faulted;
+    row->cancelled = o.cancelled;
+    row->cpu_ns = o.cpu_ns;
+    row->wall_ns = o.wall_ns;
+    row->longest_ns = o.longest_ns;
+    row->queued_too_long = o.queued_too_long;
+    row->running_too_long = o.running_too_long;
+    row->queue_full = o.queue_full;
+    row->unload_blocked = o.unload_blocked;
+    std::memcpy(row->owner_name, o.owner_name, sizeof(row->owner_name));
+    std::memcpy(row->longest_name, o.longest_name, sizeof(row->longest_name));
+    return KILN_OK;
+}
+KilnResult KILN_CALL h_stats_running_row(uint32_t index, KilnTaskStatsRunningRow* row) {
+    if (!row) return KILN_ERR_INVALID_ARGUMENT;
+    tasks_stats::Store* store = stats_or_null();
+    if (!store) return KILN_ERR_UNAVAILABLE;
+    tasks_stats::RunningSnapshot r;
+    if (!store->running_row(index, g_pool->now_ns(), &r)) {
+        const tasks_stats::CrashSnapshot c = store->snapshot_crash(g_pool->now_ns());
+        if (c.unavailable) return KILN_ERR_UNAVAILABLE;
+        return index >= c.running_total ? KILN_ERR_NOT_FOUND : KILN_ERR_UNAVAILABLE;
+    }
+    *row = KilnTaskStatsRunningRow{};
+    row->size = sizeof(KilnTaskStatsRunningRow);
+    row->owner = r.owner;
+    row->lease = r.handle;
+    row->thread_id = r.thread_id;
+    row->started_ns = r.started_ns;
+    row->elapsed_ns = r.elapsed_ns;
+    row->state = static_cast<uint32_t>(r.state);
+    std::memcpy(row->owner_name, r.owner_name, sizeof(row->owner_name));
+    std::memcpy(row->task_name, r.task_name, sizeof(row->task_name));
+    return KILN_OK;
+}
+KilnResult KILN_CALL h_stats_fault_row(uint32_t index, KilnTaskStatsFaultRow* row) {
+    if (!row) return KILN_ERR_INVALID_ARGUMENT;
+    tasks_stats::Store* store = stats_or_null();
+    if (!store) return KILN_ERR_UNAVAILABLE;
+    tasks_stats::FaultSnapshot f;
+    if (!store->fault_row(index, &f)) {
+        const tasks_stats::CrashSnapshot c = store->snapshot_crash(0);
+        return c.unavailable ? KILN_ERR_UNAVAILABLE : KILN_ERR_NOT_FOUND;
+    }
+    *row = KilnTaskStatsFaultRow{};
+    row->size = sizeof(KilnTaskStatsFaultRow);
+    row->sequence = f.sequence;
+    row->owner = f.owner;
+    row->handle = f.handle;
+    row->at_ns = f.at_ns;
+    row->state = f.state;
+    row->code = f.code;
+    std::memcpy(row->owner_name, f.owner_name, sizeof(row->owner_name));
+    std::memcpy(row->task_name, f.task_name, sizeof(row->task_name));
+    return KILN_OK;
+}
+KilnResult KILN_CALL h_stats_totals(KilnTaskStatsTotals* totals) {
+    if (!totals) return KILN_ERR_INVALID_ARGUMENT;
+    tasks_stats::Store* store = stats_or_null();
+    if (!store) return KILN_ERR_UNAVAILABLE;
+    const tasks_stats::Totals t = store->totals(g_pool->now_ns());
+    if (t.unavailable) return KILN_ERR_UNAVAILABLE;
+    *totals = KilnTaskStatsTotals{};
+    totals->size = sizeof(KilnTaskStatsTotals);
+    totals->owners = t.owners;
+    totals->workers = t.workers;
+    totals->long_running = t.long_running;
+    totals->queued = t.queued;
+    totals->running = t.running;
+    totals->completed = t.completed;
+    totals->faulted = t.faulted;
+    totals->cancelled = t.cancelled;
+    totals->running_tasks = t.running_tasks;
+    totals->faults = t.faults;
+    return KILN_OK;
+}
+
 const KilnTasksHostApi kHostTable = {{sizeof(KilnTasksHostApi), KILN_TASKS_HOST_VERSION},
                                      &h_build_stamp,
                                      &h_bind,
@@ -225,7 +328,12 @@ const KilnTasksHostApi kHostTable = {{sizeof(KilnTasksHostApi), KILN_TASKS_HOST_
                                      &h_bind_ended,
                                      &h_resume_after_step_in,
                                      &h_on_pool_thread,
-                                     &h_server_session};
+                                     &h_server_session,
+                                     &h_stats_owner_count,
+                                     &h_stats_owner_row,
+                                     &h_stats_running_row,
+                                     &h_stats_fault_row,
+                                     &h_stats_totals};
 
 // tasks.pool's source (caps.cpp reads it lock-free at every registry call): -1 no pool, 0 no worker, 1 available.
 int pool_state() {
@@ -305,6 +413,38 @@ void tick_hops() {
         }
     }
 }
+
+// Issue #49: the diagnostics window for a tick-stats line. False when the pool does not exist.
+bool tasks_window(tasks_stats::WindowSnapshot* out) {
+    if (!out) return false;
+    tasks::Service* service = g_service.load(std::memory_order_acquire);
+    if (!service) return false;
+    try {
+        *out = service->collect_tasks_window();
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+// Issue #49: the crash snapshot (running tasks and the last faults). False when the pool does not
+// exist; `out->unavailable` says a copy could not be made within its bounded retries.
+bool tasks_crash(tasks_stats::CrashSnapshot* out, uint64_t now_ns) {
+    if (!out) return false;
+    tasks::Service* service = g_service.load(std::memory_order_acquire);
+    if (!service || !g_pool) return false;
+    *out = g_pool->stats_store().snapshot_crash(now_ns);
+    return true;
+}
+
+// The pool's stats store for the managed host's crash supplier (tasks_host.h's appended members).
+tasks_stats::Store* tasks_store() {
+    return g_service.load(std::memory_order_acquire) && g_pool ? &g_pool->stats_store() : nullptr;
+}
+
+bool tasks_present() { return g_service.load(std::memory_order_acquire) != nullptr; }
+
+uint64_t tasks_now_ns() { return g_pool ? g_pool->now_ns() : 0; }
 
 void exit_begins() {  // lock-free: also on a crash's exit
     if (tasks::Service* service = g_service.load(std::memory_order_acquire)) service->refuse_new();

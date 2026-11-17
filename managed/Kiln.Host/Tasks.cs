@@ -52,7 +52,65 @@ internal unsafe struct KilnLeaseSnapshot
     public fixed byte Reserved[7];
 }
 
-/// <summary>kiln.internal.tasks.host v1 (native/core/src/tasks_host.h), 128 bytes: field order is the table's.</summary>
+/// <summary>KilnTaskStatsOwnerRow (tasks_host.h, issue #49), 400 bytes.</summary>
+[StructLayout(LayoutKind.Sequential)]
+internal unsafe struct KilnTaskStatsOwnerRow
+{
+    public uint Size;
+    public uint Reserved;
+    public ulong Owner;
+    public ulong Instance;
+    public ulong QueuedCurrent, QueuedMax, RunningCurrent, RunningMax;
+    public ulong Completed, Faulted, Cancelled;
+    public ulong CpuNs, WallNs, LongestNs;
+    public ulong QueuedTooLong, RunningTooLong, QueueFull, UnloadBlocked;
+    public fixed byte OwnerName[129];
+    public fixed byte LongestName[129];
+    public fixed byte Reserved2[6];
+}
+
+/// <summary>KilnTaskStatsRunningRow (tasks_host.h, issue #49), 320 bytes.</summary>
+[StructLayout(LayoutKind.Sequential)]
+internal unsafe struct KilnTaskStatsRunningRow
+{
+    public uint Size;
+    public uint Reserved;
+    public ulong Owner;
+    public ulong Lease;
+    public ulong ThreadId;
+    public ulong StartedNs;
+    public ulong ElapsedNs;
+    public uint State;  // 1 running, 2 suspended, 3 on-tick
+    public uint Reserved3;
+    public fixed byte OwnerName[129];
+    public fixed byte TaskName[129];
+    public fixed byte Reserved2[6];
+}
+
+/// <summary>KilnTaskStatsFaultRow (tasks_host.h, issue #49), 312 bytes.</summary>
+[StructLayout(LayoutKind.Sequential)]
+internal unsafe struct KilnTaskStatsFaultRow
+{
+    public uint Size;
+    public uint Reserved;
+    public ulong Sequence, Owner, Handle, AtNs;
+    public uint State, Code;
+    public fixed byte OwnerName[129];
+    public fixed byte TaskName[129];
+    public fixed byte Reserved2[6];
+}
+
+/// <summary>KilnTaskStatsTotals (tasks_host.h, issue #49), 72 bytes.</summary>
+[StructLayout(LayoutKind.Sequential)]
+internal struct KilnTaskStatsTotals
+{
+    public uint Size, Owners, Workers, LongRunning;
+    public ulong Queued, Running, Completed, Faulted, Cancelled, RunningTasks, Faults;
+}
+
+/// <summary>kiln.internal.tasks.host v1 (native/core/src/tasks_host.h), 168 bytes: field order is the table's.
+/// The last five members are the diagnostics appended for issue #49; a shorter table (an older core of
+/// another build) is refused by the size check before any of them is read.</summary>
 [StructLayout(LayoutKind.Sequential)]
 internal unsafe struct KilnTasksHostApi
 {
@@ -73,6 +131,11 @@ internal unsafe struct KilnTasksHostApi
     public delegate* unmanaged[Cdecl]<ulong, ulong, uint, uint*, int> ResumeAfterStepIn;
     public delegate* unmanaged[Cdecl]<uint> OnPoolThread;
     public delegate* unmanaged[Cdecl]<uint> ServerSession;
+    public delegate* unmanaged[Cdecl]<uint> StatsOwnerCount;
+    public delegate* unmanaged[Cdecl]<uint, KilnTaskStatsOwnerRow*, int> StatsOwnerRow;
+    public delegate* unmanaged[Cdecl]<uint, KilnTaskStatsRunningRow*, int> StatsRunningRow;
+    public delegate* unmanaged[Cdecl]<uint, KilnTaskStatsFaultRow*, int> StatsFaultRow;
+    public delegate* unmanaged[Cdecl]<KilnTaskStatsTotals*, int> StatsTotals;
 
     public const string Name = "kiln.internal.tasks.host";
     public const uint Version1 = 1;
@@ -174,7 +237,10 @@ internal sealed unsafe class HostTasks : TaskBackend
             return Off("Kiln.Api was built without a build stamp, so Kiln.Host cannot tell that the core is the same build");
         if (!string.Equals(stamp, own, StringComparison.Ordinal))
             return Off($"the core is build {stamp}, Kiln.Host is build {own}: the task table is only used within one build");
-        for (var i = 1; i < sizeof(KilnTasksHostApi) / sizeof(nint); i++)
+        // Members through server_session (index 15) must all be there; the five diagnostics members
+        // appended after them are checked where the crash supplier uses them (a table built before
+        // them is already refused by the size check above when it is shorter).
+        for (var i = 1; i <= 15; i++)
             if (((nint*)host)[i] == 0) return Off("the core's task table has an empty member");
         var tasks = (KilnTasksApi*)env.Service(KilnTasksApi.Name, 1);
         if (tasks == null || tasks->Size < (uint)sizeof(KilnTasksApi) || tasks->Cancel == null || tasks->Status == null)
@@ -406,6 +472,71 @@ internal sealed unsafe class HostTasks : TaskBackend
             return result;
         }
         return [];
+    }
+
+    /// <summary>The crash reports' Tasks section (issue #49), read through the table's five appended
+    /// diagnostics members. Fixed-size rows out of the core's lock-free store: no pool lock is taken
+    /// here, and any failure (no pool, a short table, a snapshot the core could not copy) degrades to
+    /// "(task snapshot unavailable)" — a crash report is never held up by its tasks section.</summary>
+    internal string CrashTasksSection()
+    {
+        if (_unavailable is not null || _host->StatsOwnerCount == null || _host->StatsOwnerRow == null ||
+            _host->StatsRunningRow == null || _host->StatsFaultRow == null || _host->StatsTotals == null)
+            return "(task snapshot unavailable)\n";
+        KilnTaskStatsTotals totals;
+        if (_host->StatsTotals(&totals) != KilnAbi.Ok) return "(task snapshot unavailable)\n";
+        var sb = new StringBuilder();
+        sb.Append($"pool: {totals.Workers} worker(s), {totals.LongRunning} long-running, {totals.Owners} owner(s), " +
+                  $"{totals.Queued} queued, {totals.RunningTasks} running, {totals.Completed} completed, " +
+                  $"{totals.Faulted} faulted, {totals.Cancelled} cancelled\n");
+        var owners = _host->StatsOwnerCount();
+        for (uint i = 0; i < owners; i++)
+        {
+            KilnTaskStatsOwnerRow row;
+            if (_host->StatsOwnerRow(i, &row) != KilnAbi.Ok) break;
+            var name = Name(row.OwnerName);
+            var longest = Name(row.LongestName);
+            sb.Append($"  owner \"{name}\" (instance {row.Instance}): queued {row.QueuedCurrent}/{row.QueuedMax}, " +
+                      $"running {row.RunningCurrent}/{row.RunningMax}, completed {row.Completed}, faulted {row.Faulted}, " +
+                      $"cancelled {row.Cancelled}, cpu {row.CpuNs / 1e6:F3} ms, wall {row.WallNs / 1e6:F3} ms, " +
+                      $"longest {row.LongestNs / 1e6:F3} ms \"{longest}\"\n");
+        }
+        for (uint i = 0; i < 16; i++)
+        {
+            KilnTaskStatsRunningRow row;
+            var rc = _host->StatsRunningRow(i, &row);
+            if (rc == KilnAbi.ErrNotFound) break;
+            if (rc != KilnAbi.Ok) return "(task snapshot unavailable)\n";
+            var ownerName = Name(row.OwnerName);
+            var taskName = Name(row.TaskName);
+            var state = row.State switch { 1 => "running", 2 => "suspended", 3 => "on-tick", _ => "queued" };
+            sb.Append($"  running thread={row.ThreadId} owner=\"{ownerName}\" task=\"{taskName}\" " +
+                      $"handle=0x{row.Lease:x} started_ns={row.StartedNs} elapsed_ms={row.ElapsedNs / 1e6:F3} state={state}\n");
+        }
+        if (totals.RunningTasks > 16) sb.Append($"  ... and {totals.RunningTasks - 16} more running (at most 16 shown)\n");
+        for (uint i = 0; i < 16; i++)
+        {
+            KilnTaskStatsFaultRow row;
+            var rc = _host->StatsFaultRow(i, &row);
+            if (rc == KilnAbi.ErrNotFound) break;
+            if (rc != KilnAbi.Ok) break;
+            var ownerName = Name(row.OwnerName);
+            var taskName = Name(row.TaskName);
+            sb.Append($"  fault #{row.Sequence} owner=\"{ownerName}\" task=\"{taskName}\" handle=0x{row.Handle:x} " +
+                      $"state={(KilnTaskState)row.State} code=0x{row.Code:x8} at_ns={row.AtNs}\n");
+        }
+        return sb.ToString();
+
+        // A copied name as crash text: quotes and controls flattened, ill-formed bytes replaced by
+        // the decoder, so one task name cannot forge a report line.
+        static string Name(byte* p)
+        {
+            var s = Marshal.PtrToStringUTF8((nint)p) ?? "";
+            var chars = s.ToCharArray();
+            for (var i = 0; i < chars.Length; i++)
+                if (chars[i] < 0x20 || chars[i] == '"' || chars[i] == '\\') chars[i] = '?';
+            return new string(chars);
+        }
     }
 
     // The table's INTERNAL (and anything else unexpected) is a bug in Kiln, as the contract says.

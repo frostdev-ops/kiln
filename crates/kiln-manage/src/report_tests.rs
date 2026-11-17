@@ -301,7 +301,11 @@ fn tick_stats_are_collected_newest_lines_whole_and_bounded() {
          \"post_ms\":{{\"p50\":0.0110,\"p99\":0.0500,\"max\":0.200}},\"interval_ms\":{{\"p50\":16.67,\"p99\":33.40,\"max\":2402.10}},\
          \"subs\":{{\"pre\":12,\"post\":9}}}}\n");
     let old = line("22:45:00", 59.67);
-    let last = line("00:33:00", 24.46);
+    // issue #49: the newest line carries a tasks object; the collector keeps it whole like the rest
+    let base = line("00:33:00", 24.46);
+    let last = format!(
+        "{},\"tasks\":{{\"window\":{{\"id\":7,\"span_ms\":60000.0,\"age_ms\":0.0}},\"pool\":{{\"workers\":3,\"long_running\":1,\"queue_max\":12}},\"owners\":[{{\"owner\":\"kiln-auto-loot\",\"queued\":{{\"current\":0,\"max\":4}},\"running\":{{\"current\":1,\"max\":2}},\"completed\":120,\"faulted\":0,\"cancelled\":2,\"cpu_ms\":830.5,\"wall_ms\":910.2,\"longest_ms\":44.1,\"longest_name\":\"loot-scan\",\"queued_too_long\":0,\"running_too_long\":0,\"queue_full\":0,\"unload_blocked\":0}}],\"apply\":{{\"applied\":96,\"deferred\":3,\"cancelled\":0,\"ms\":4.2,\"owner_budget_stops\":1,\"step_budget_stops\":0,\"owners_served\":1,\"backlog\":0}},\"hops\":{{\"refused\":0}}}}}}\n",
+        base.strip_suffix("}\n").unwrap());
     let n = TICK_STATS_MAX as usize / old.len() + 50;
     f.w("kiln/logs/tick-stats.jsonl", old.repeat(n) + &last);
     let r = build(&f.input());
@@ -315,6 +319,9 @@ fn tick_stats_are_collected_newest_lines_whole_and_bounded() {
         serde_json::from_str::<serde_json::Value>(l).unwrap_or_else(|e| panic!("every line after the note is whole JSON ({e}): {l}"));
     }
     assert_eq!(rest.last().copied(), Some(last.trim_end()), "the newest line is kept");
+    let parsed = crate::logs::tick_stats(rest.last().unwrap());
+    assert_eq!(parsed[0].tasks.as_ref().map(|t| (t.window.id, t.owners[0].completed)), Some((7, 120)),
+        "the kept line's tasks object still parses, old fields with it");
     assert_eq!(std::fs::read_to_string(f.game.join("kiln/logs/tick-stats.jsonl")).unwrap(), old.repeat(n) + &last, "collection is read-only");
     // a short file whole, without the note
     f.w("kiln/logs/tick-stats.jsonl", last.clone());
@@ -738,12 +745,14 @@ fn failed_mods_and_crash() {
     assert!(!ids(&build(&f.input())).contains(&"mod-failed"));
     f.w("kiln/state/mods.json", br#"{"format":1,"pid":412,"written":"2026-11-10T11:00:01Z","generation":3,"mods":[{"id":"chat-plus","state":"failed","reason":"missing dependency kiln.ui >= 2"}]}"#);
     f.w("kiln/state/flame.json", br#"{"status":"running","mods":[{"name":"BiggerTorch","status":"failed","error":"LoadLibrary 126"}]}"#);
-    f.w("kiln/crash-reports/crash-20261110T110500Z.txt", "chat-plus faulted 5 times\n");
+    f.w("kiln/crash-reports/crash-20261110T110500Z.txt",
+        "chat-plus faulted 5 times\n\n-- Tasks --\n  running thread=42 owner=\"kiln-auto-loot\" task=\"loot-scan\" handle=0x1234 started_ns=99 elapsed_ms=12.500 state=running\n");
     let r = build(&f.input());
     let m = finding(&r, "mod-failed");
     assert!(m.text.contains("missing dependency kiln.ui") && m.text.contains("BiggerTorch") && m.text.contains("LoadLibrary 126"), "{}", m.text);
     assert!(finding(&r, "crash").text.contains("crash-20261110T110500Z.txt"));
-    assert!(file(&r, "game/kiln/crash-reports/crash-20261110T110500Z.txt").is_some());
+    let crash = file(&r, "game/kiln/crash-reports/crash-20261110T110500Z.txt").expect("the crash report is collected");
+    assert!(crash.contains("-- Tasks --") && crash.contains("task=\"loot-scan\""), "the crash report's task lines are kept: {crash}");
 }
 
 /// Player report (Nexus, 2026-11-11): a client's server mods (Loot Leveler) are "skipped" in the menu's mods.json and

@@ -16,7 +16,7 @@ fi
 cxx=${CXX:-$(command -v clang++ || command -v g++)}
 common=(-std=c++20 -O1 -g -Wall -Wextra -Werror -pthread -I"$here/../src" -I"$here/../abi" -I"$here")
 model=("$here/../src/tasks_model.cpp")
-pool=("$here/../src/tasks_model.cpp" "$here/../src/tasks.cpp")
+pool=("$here/../src/tasks_model.cpp" "$here/../src/tasks.cpp" "$here/../src/tasks_stats.cpp")
 for kind in asan tsan; do
   if [[ $kind == asan ]]; then
     san=(-fsanitize=address,undefined -fno-sanitize-recover=undefined)
@@ -28,10 +28,11 @@ for kind in asan tsan; do
   "$cxx" "${common[@]}" "${san[@]}" "$here/tasks_api_test.cpp" "${pool[@]}" -o "$out/tasks_api_test_$kind"
   "$cxx" "${common[@]}" "${san[@]}" "$here/tasks_edges_test.cpp" "${pool[@]}" -o "$out/tasks_edges_test_$kind"
   "$cxx" "${common[@]}" "${san[@]}" "$here/tasks_host_test.cpp" "${pool[@]}" -o "$out/tasks_host_test_$kind"
+  "$cxx" "${common[@]}" "${san[@]}" "$here/tasks_stats_test.cpp" "${pool[@]}" -o "$out/tasks_stats_test_$kind"
   # the binding against the real owner registry (src/registry.cpp, included by the test with host stubs)
   "$cxx" "${common[@]}" "${san[@]}" -I"$here/stubs" -I"$here/../../third_party" "$here/tasks_registry_test.cpp" "${pool[@]}" \
     -o "$out/tasks_registry_test_$kind"
-  for bin in tasks_model_test tasks_pool_test tasks_api_test tasks_edges_test tasks_host_test tasks_registry_test; do
+  for bin in tasks_model_test tasks_pool_test tasks_api_test tasks_edges_test tasks_host_test tasks_registry_test tasks_stats_test; do
     printf '[%s] ' "$kind"
     rc=0
     TSAN_OPTIONS=halt_on_error=1:exitcode=66 ASAN_OPTIONS=halt_on_error=1 "$out/${bin}_$kind" "$@" || rc=$?

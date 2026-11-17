@@ -38,6 +38,23 @@ SubmitArgs named(const char* n, bool long_running = false) {
     a.long_running = long_running;
     return a;
 }
+
+// Issue #49: the CPU clock (GetThreadTimes) must advance for a body that actually burns CPU,
+// on native Windows and under Wine alike (it is quantum-granular, so the body spins well past
+// one ~15.6 ms quantum). The bodies are this exe's own: no module-lifetime point is made here.
+volatile long g_cpu_done = 0;
+void KILN_CALL spin_body(const KilnTaskRun*, void*) {
+    LARGE_INTEGER freq, start, now;
+    QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&start);
+    volatile double sink = 0;
+    do {
+        for (int i = 0; i < 10000; ++i) sink += i * 1.0000001;
+        QueryPerformanceCounter(&now);
+    } while (now.QuadPart - start.QuadPart < freq.QuadPart / 5);  // ~200 ms of executing thread
+    (void)sink;
+}
+void KILN_CALL spin_done(KilnHandle, uint32_t, void*) { InterlockedIncrement(&g_cpu_done); }
 }  // namespace
 
 int main() {
@@ -155,6 +172,23 @@ int main() {
               },
               8000),
           "the pool stays responsive after the stack-overflow task");
+
+    // Issue #49: a spinning body's CPU time shows in its owner's diagnostics window (GetThreadTimes
+    // advances, at the scheduler quantum, under Wine as on native Windows).
+    pool.open_owner(6, "mod.cpu");
+    KilnHandle ch = 0;
+    check(pool.submit(6, named("spin"), &spin_body, &spin_done, nullptr, &ch, &why) == KILN_OK, "submit a spinning task");
+    check(until([&] { return g_cpu_done == 1; }), "the spinning task finished");
+    const ::kiln::tasks_stats::WindowSnapshot window = pool.collect_tasks_window(0);
+    uint64_t cpu_ns = 0, wall_ns = 0;
+    for (std::size_t i = 0; i < window.owner_count; ++i)
+        if (window.owners[i].owner == 6) {
+            cpu_ns = window.owners[i].cpu_ns;
+            wall_ns = window.owners[i].wall_ns;
+        }
+    std::printf("cpu check: cpu %.3f ms, wall %.3f ms for a ~200 ms spin\n", static_cast<double>(cpu_ns) / 1e6,
+                static_cast<double>(wall_ns) / 1e6);
+    check(cpu_ns > 0 && wall_ns > 0, "the executing thread's CPU time advances (quantum-granular GetThreadTimes)");
 
     std::printf("tasks windows host: %d failure(s)\n", failures);
     return failures ? 1 : 0;
