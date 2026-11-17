@@ -30,6 +30,41 @@ public sealed class TaskCrashReportTests : HostTaskTest
         Quiesce();
     }
 
+    [Theory]
+    [InlineData("tab\there")]
+    [InlineData("nl\nhere")]
+    [InlineData("nul\0here")]
+    [InlineData("del\u007f")]
+    [InlineData("c1\u0085")]
+    [InlineData("lone-surrogate")]  // built below: a lone surrogate does not survive test-case serialization
+    public void A_task_name_with_a_control_character_or_invalid_text_is_refused_at_submit(string name)
+    {
+        if (name == "lone-surrogate") name = "lone" + (char)0xD800;
+        var mod = NewMod("alpha");
+        Assert.Throws<ArgumentException>(() => mod.Tasks.Run(name, _ => { }));
+        Assert.DoesNotContain(Native.Admitted, a => a.Name == name);
+        Assert.Empty(Native.Admitted);
+    }
+
+    [Fact]
+    public void Quotes_and_backslashes_in_a_name_are_flattened_and_a_full_length_name_stays_whole()
+    {
+        var mod = NewMod("alpha");
+        var gate = new TaskCompletionSource();
+        var quoted = mod.Tasks.Run("say \"hi\" \\ back", async _ => await gate.Task);
+        var longest = new string('a', 126) + "\u00e9";  // 128 UTF-8 bytes, the last character two of them
+        var full = mod.Tasks.Run(longest, async _ => await gate.Task);
+        Native.WaitIdle();
+
+        var section = Tasks.CrashTasksSection();
+        Assert.Contains("task=\"say ?hi? ? back\"", section);
+        Assert.Contains("task=\"" + longest + "\"", section);
+        gate.SetResult();
+        Ended(quoted);
+        Ended(full);
+        Quiesce();
+    }
+
     [Fact]
     public void A_throwing_tasks_supplier_never_stops_a_crash_report()
     {
