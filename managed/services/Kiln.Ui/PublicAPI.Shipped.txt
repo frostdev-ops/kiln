@@ -35,6 +35,8 @@ Kiln.CraftingPanelOptions.Interactive.get -> bool
 Kiln.CraftingPanelOptions.Interactive.init -> void
 Kiln.CraftingPanelOptions.Style.get -> Kiln.UiStyle
 Kiln.CraftingPanelOptions.Style.init -> void
+Kiln.CraftingPanelOptions.Theme.get -> Kiln.UiTheme?
+Kiln.CraftingPanelOptions.Theme.init -> void
 Kiln.CraftingPanelOptions.When.get -> System.Func<Kiln.CraftingScreen, bool>?
 Kiln.CraftingPanelOptions.When.init -> void
 Kiln.CraftingPanelOptions.Width.get -> float
@@ -319,6 +321,8 @@ Kiln.RenderDraw.FillRect(float x0, float y0, float x1, float y1, Kiln.Color colo
 Kiln.RenderDraw.FillTriangle(System.Numerics.Vector2 a, System.Numerics.Vector2 b, System.Numerics.Vector2 c, Kiln.Color color) -> void
 Kiln.RenderDraw.Image(Kiln.UiImage! image, float x0, float y0, float x1, float y1, Kiln.Color? tint = null) -> void
 Kiln.RenderDraw.ImageCentered(Kiln.UiImage! image, float x, float y, float width = 0, float height = 0, Kiln.Color? tint = null) -> void
+Kiln.RenderDraw.ImagePart(Kiln.UiImage! image, float x0, float y0, float x1, float y1, float u0, float v0, float u1, float v1, Kiln.Color? tint = null) -> void
+Kiln.RenderDraw.ImageTrimmed(Kiln.UiImage! image, float x0, float y0, float x1, float y1, Kiln.Color? tint = null) -> void
 Kiln.RenderDraw.Line(System.Numerics.Vector2 a, System.Numerics.Vector2 b, Kiln.Color color, float thickness = 1) -> void
 Kiln.RenderDraw.Line(float x0, float y0, float x1, float y1, Kiln.Color color, float thickness = 1) -> void
 Kiln.RenderDraw.MeasureText(string! text, float size = 0) -> (float Width, float Height)
@@ -408,6 +412,7 @@ Kiln.Ui
 Kiln.Ui.Crafting
 Kiln.Ui.Menus
 Kiln.Ui.Screens
+Kiln.Ui.Themes
 Kiln.Ui.Values
 Kiln.UiBarEdit
 Kiln.UiBarEdit.<Clone>$() -> Kiln.UiBarEdit!
@@ -457,12 +462,20 @@ Kiln.UiColorSlot.Header = 11 -> Kiln.UiColorSlot
 Kiln.UiColorSlot.HeaderActive = 13 -> Kiln.UiColorSlot
 Kiln.UiColorSlot.HeaderHovered = 12 -> Kiln.UiColorSlot
 Kiln.UiColorSlot.NavCursor = 17 -> Kiln.UiColorSlot
+Kiln.UiColorSlot.PopupBg = 22 -> Kiln.UiColorSlot
 Kiln.UiColorSlot.ScrollbarBg = 15 -> Kiln.UiColorSlot
 Kiln.UiColorSlot.ScrollbarGrab = 16 -> Kiln.UiColorSlot
 Kiln.UiColorSlot.Separator = 14 -> Kiln.UiColorSlot
 Kiln.UiColorSlot.SliderGrab = 19 -> Kiln.UiColorSlot
+Kiln.UiColorSlot.Tab = 23 -> Kiln.UiColorSlot
+Kiln.UiColorSlot.TabHovered = 24 -> Kiln.UiColorSlot
+Kiln.UiColorSlot.TabSelected = 25 -> Kiln.UiColorSlot
+Kiln.UiColorSlot.TableHeaderBg = 26 -> Kiln.UiColorSlot
 Kiln.UiColorSlot.Text = 0 -> Kiln.UiColorSlot
 Kiln.UiColorSlot.TextDisabled = 1 -> Kiln.UiColorSlot
+Kiln.UiColorSlot.TextSelectedBg = 27 -> Kiln.UiColorSlot
+Kiln.UiColorSlot.TitleBg = 20 -> Kiln.UiColorSlot
+Kiln.UiColorSlot.TitleBgActive = 21 -> Kiln.UiColorSlot
 Kiln.UiColorSlot.WindowBg = 2 -> Kiln.UiColorSlot
 Kiln.UiCursor
 Kiln.UiCursor.AvailHeight.get -> float
@@ -543,11 +556,15 @@ Kiln.UiDraw.IdScope.Dispose() -> void
 Kiln.UiDraw.IdScope.IdScope() -> void
 Kiln.UiDraw.Image(Kiln.UiImage! image, float width = 0, float height = 0) -> void
 Kiln.UiDraw.ImageButton(string! id, Kiln.UiImage! image, float width = 0, float height = 0) -> bool
+Kiln.UiDraw.ImageButtonTrimmed(string! id, Kiln.UiImage! image, float width, float height) -> bool
+Kiln.UiDraw.ImagePart(Kiln.UiImage! image, float width, float height, float u0, float v0, float u1, float v1) -> void
+Kiln.UiDraw.ImageTrimmed(Kiln.UiImage! image, float width, float height) -> void
 Kiln.UiDraw.InputMultiline(string! label, ref string! value, int maxBytes = 4096, float width = -1, float height = 0) -> bool
 Kiln.UiDraw.InputText(string! label, ref string! value, int maxBytes = 256) -> bool
 Kiln.UiDraw.ItemClicked(Kiln.UiMouseButton button = Kiln.UiMouseButton.Left) -> bool
 Kiln.UiDraw.ItemHovered.get -> bool
 Kiln.UiDraw.ItemIcon(Kiln.ItemId item, float size = 0) -> void
+Kiln.UiDraw.ItemIconTrimmed(Kiln.ItemId item, float size) -> void
 Kiln.UiDraw.KeyPressed(Kiln.UiKey key, bool repeat = false, bool claim = false) -> bool
 Kiln.UiDraw.LastItem.get -> Kiln.UiItem
 Kiln.UiDraw.Look(Kiln.UiStyle style) -> Kiln.UiDraw.LookScope
@@ -557,9 +574,11 @@ Kiln.UiDraw.LookScope.LookScope() -> void
 Kiln.UiDraw.MeasureText(string! text, float size = 0) -> (float Width, float Height)
 Kiln.UiDraw.MeasureText(string! text, float size, float wrap) -> (float Width, float Height)
 Kiln.UiDraw.MenuOpen.get -> bool
+Kiln.UiDraw.ModFont(Kiln.UiFontFile! font) -> Kiln.UiDraw.FontChoice
 Kiln.UiDraw.NextColumn() -> bool
 Kiln.UiDraw.NextItemWidth(float width) -> void
 Kiln.UiDraw.NextRow() -> void
+Kiln.UiDraw.Palette.get -> Kiln.UiPalette
 Kiln.UiDraw.PopScope
 Kiln.UiDraw.PopScope.Dispose() -> void
 Kiln.UiDraw.PopScope.PopScope() -> void
@@ -585,6 +604,7 @@ Kiln.UiDraw.Text(Kiln.Color color, string! text) -> void
 Kiln.UiDraw.Text(string! text) -> void
 Kiln.UiDraw.TextDisabled(string! text) -> void
 Kiln.UiDraw.TextWrapped(string! text) -> void
+Kiln.UiDraw.Theme(Kiln.UiTheme! theme) -> Kiln.UiDraw.LookScope
 Kiln.UiDraw.Tooltip(string! text) -> void
 Kiln.UiDraw.TreeNode(string! label) -> bool
 Kiln.UiDraw.TreePop() -> void
@@ -594,6 +614,9 @@ Kiln.UiFont
 Kiln.UiFont.Default = 0 -> Kiln.UiFont
 Kiln.UiFont.Game = 1 -> Kiln.UiFont
 Kiln.UiFont.GameBold = 2 -> Kiln.UiFont
+Kiln.UiFontFile
+Kiln.UiFontFile.Bytes.get -> int
+Kiln.UiFontFile.Dispose() -> void
 Kiln.UiImage
 Kiln.UiImage.Dispose() -> void
 Kiln.UiImage.Height.get -> int
@@ -706,10 +729,60 @@ Kiln.UiLayer
 Kiln.UiLayer.Background = 1 -> Kiln.UiLayer
 Kiln.UiLayer.Foreground = 2 -> Kiln.UiLayer
 Kiln.UiLayer.Window = 0 -> Kiln.UiLayer
+Kiln.UiLook
+Kiln.UiLook.Game = 0 -> Kiln.UiLook
+Kiln.UiLook.Kiln = 2 -> Kiln.UiLook
+Kiln.UiLook.Theme = 3 -> Kiln.UiLook
+Kiln.UiLook.Translucent = 1 -> Kiln.UiLook
 Kiln.UiMouseButton
 Kiln.UiMouseButton.Left = 0 -> Kiln.UiMouseButton
 Kiln.UiMouseButton.Middle = 2 -> Kiln.UiMouseButton
 Kiln.UiMouseButton.Right = 1 -> Kiln.UiMouseButton
+Kiln.UiPalette
+Kiln.UiPalette.Accent.get -> Kiln.Color
+Kiln.UiPalette.Accent.init -> void
+Kiln.UiPalette.Attention.get -> Kiln.Color
+Kiln.UiPalette.Attention.init -> void
+Kiln.UiPalette.Border.get -> Kiln.Color
+Kiln.UiPalette.Border.init -> void
+Kiln.UiPalette.Button.get -> Kiln.Color
+Kiln.UiPalette.Button.init -> void
+Kiln.UiPalette.Deconstruct(out Kiln.Color Text, out Kiln.Color TextMuted, out Kiln.Color WindowBackground, out Kiln.Color PanelBackground, out Kiln.Color FrameBackground, out Kiln.Color Border, out Kiln.Color Accent, out Kiln.Color Button, out Kiln.Color Header, out Kiln.Color Attention, out Kiln.Color Warning, out Kiln.Color Ok) -> void
+Kiln.UiPalette.Equals(Kiln.UiPalette other) -> bool
+Kiln.UiPalette.FrameBackground.get -> Kiln.Color
+Kiln.UiPalette.FrameBackground.init -> void
+Kiln.UiPalette.Header.get -> Kiln.Color
+Kiln.UiPalette.Header.init -> void
+Kiln.UiPalette.Ok.get -> Kiln.Color
+Kiln.UiPalette.Ok.init -> void
+Kiln.UiPalette.PanelBackground.get -> Kiln.Color
+Kiln.UiPalette.PanelBackground.init -> void
+Kiln.UiPalette.Text.get -> Kiln.Color
+Kiln.UiPalette.Text.init -> void
+Kiln.UiPalette.TextMuted.get -> Kiln.Color
+Kiln.UiPalette.TextMuted.init -> void
+Kiln.UiPalette.UiPalette() -> void
+Kiln.UiPalette.UiPalette(Kiln.Color Text, Kiln.Color TextMuted, Kiln.Color WindowBackground, Kiln.Color PanelBackground, Kiln.Color FrameBackground, Kiln.Color Border, Kiln.Color Accent, Kiln.Color Button, Kiln.Color Header, Kiln.Color Attention, Kiln.Color Warning, Kiln.Color Ok) -> void
+Kiln.UiPalette.Warning.get -> Kiln.Color
+Kiln.UiPalette.Warning.init -> void
+Kiln.UiPalette.WindowBackground.get -> Kiln.Color
+Kiln.UiPalette.WindowBackground.init -> void
+Kiln.UiPalette.this[Kiln.UiThemeRole role].get -> Kiln.Color
+Kiln.UiPlayerLook
+Kiln.UiPlayerLook.Background.get -> float
+Kiln.UiPlayerLook.Background.init -> void
+Kiln.UiPlayerLook.Deconstruct(out Kiln.UiLook Look, out string? ThemeId, out float Background, out float Opacity, out float Scale) -> void
+Kiln.UiPlayerLook.Equals(Kiln.UiPlayerLook other) -> bool
+Kiln.UiPlayerLook.Look.get -> Kiln.UiLook
+Kiln.UiPlayerLook.Look.init -> void
+Kiln.UiPlayerLook.Opacity.get -> float
+Kiln.UiPlayerLook.Opacity.init -> void
+Kiln.UiPlayerLook.Scale.get -> float
+Kiln.UiPlayerLook.Scale.init -> void
+Kiln.UiPlayerLook.ThemeId.get -> string?
+Kiln.UiPlayerLook.ThemeId.init -> void
+Kiln.UiPlayerLook.UiPlayerLook() -> void
+Kiln.UiPlayerLook.UiPlayerLook(Kiln.UiLook Look, string? ThemeId, float Background, float Opacity, float Scale) -> void
 Kiln.UiProviderDecision
 Kiln.UiProviderDecision.<Clone>$() -> Kiln.UiProviderDecision!
 Kiln.UiProviderDecision.Deconstruct(out bool Ok, out string? Reason, out Kiln.UiBarEdit! Edit) -> void
@@ -775,6 +848,8 @@ Kiln.UiScreenOptions.Resizable.get -> bool
 Kiln.UiScreenOptions.Resizable.init -> void
 Kiln.UiScreenOptions.Style.get -> Kiln.UiStyle
 Kiln.UiScreenOptions.Style.init -> void
+Kiln.UiScreenOptions.Theme.get -> Kiln.UiTheme?
+Kiln.UiScreenOptions.Theme.init -> void
 Kiln.UiScreenOptions.TitleBar.get -> bool
 Kiln.UiScreenOptions.TitleBar.init -> void
 Kiln.UiScreenOptions.UiScreenOptions() -> void
@@ -819,6 +894,7 @@ Kiln.UiStatus.Window.init -> void
 Kiln.UiStyle
 Kiln.UiStyle.Game = 1 -> Kiln.UiStyle
 Kiln.UiStyle.Kiln = 0 -> Kiln.UiStyle
+Kiln.UiStyle.Player = 2 -> Kiln.UiStyle
 Kiln.UiStyleVar
 Kiln.UiStyleVar.ButtonTextAlign = 9 -> Kiln.UiStyleVar
 Kiln.UiStyleVar.ChildBorderSize = 7 -> Kiln.UiStyleVar
@@ -837,6 +913,49 @@ Kiln.UiText.For(string! languageKey) -> string!
 Kiln.UiText.Languages.get -> System.Collections.Generic.IReadOnlyCollection<string!>!
 Kiln.UiText.UiText(System.Collections.Generic.IReadOnlyDictionary<string!, string!>! texts) -> void
 Kiln.UiText.UiText(string! text) -> void
+Kiln.UiTheme
+Kiln.UiTheme.Base.get -> Kiln.UiStyle
+Kiln.UiTheme.DisplayName.get -> Kiln.UiText!
+Kiln.UiTheme.Dispose() -> void
+Kiln.UiTheme.Id.get -> string!
+Kiln.UiTheme.IsDisposed.get -> bool
+Kiln.UiTheme.Name.get -> string!
+Kiln.UiTheme.OfferedToPlayer.get -> bool
+Kiln.UiThemeRole
+Kiln.UiThemeRole.Accent = 6 -> Kiln.UiThemeRole
+Kiln.UiThemeRole.Attention = 9 -> Kiln.UiThemeRole
+Kiln.UiThemeRole.Border = 5 -> Kiln.UiThemeRole
+Kiln.UiThemeRole.Button = 7 -> Kiln.UiThemeRole
+Kiln.UiThemeRole.FrameBackground = 4 -> Kiln.UiThemeRole
+Kiln.UiThemeRole.Header = 8 -> Kiln.UiThemeRole
+Kiln.UiThemeRole.Ok = 11 -> Kiln.UiThemeRole
+Kiln.UiThemeRole.PanelBackground = 3 -> Kiln.UiThemeRole
+Kiln.UiThemeRole.Text = 0 -> Kiln.UiThemeRole
+Kiln.UiThemeRole.TextMuted = 1 -> Kiln.UiThemeRole
+Kiln.UiThemeRole.Warning = 10 -> Kiln.UiThemeRole
+Kiln.UiThemeRole.WindowBackground = 2 -> Kiln.UiThemeRole
+Kiln.UiThemeSpec
+Kiln.UiThemeSpec.<Clone>$() -> Kiln.UiThemeSpec!
+Kiln.UiThemeSpec.Background.get -> float?
+Kiln.UiThemeSpec.Background.init -> void
+Kiln.UiThemeSpec.Base.get -> Kiln.UiStyle
+Kiln.UiThemeSpec.Base.init -> void
+Kiln.UiThemeSpec.Colors.get -> System.Collections.Generic.Dictionary<Kiln.UiColorSlot, Kiln.Color>!
+Kiln.UiThemeSpec.Colors.init -> void
+Kiln.UiThemeSpec.Equals(Kiln.UiThemeSpec? other) -> bool
+Kiln.UiThemeSpec.Font.get -> Kiln.UiFontFile?
+Kiln.UiThemeSpec.Font.init -> void
+Kiln.UiThemeSpec.Name.get -> Kiln.UiText?
+Kiln.UiThemeSpec.Name.init -> void
+Kiln.UiThemeSpec.OfferToPlayer.get -> bool
+Kiln.UiThemeSpec.OfferToPlayer.init -> void
+Kiln.UiThemeSpec.Roles.get -> System.Collections.Generic.Dictionary<Kiln.UiThemeRole, Kiln.Color>!
+Kiln.UiThemeSpec.Roles.init -> void
+Kiln.UiThemeSpec.Rounding.get -> float?
+Kiln.UiThemeSpec.Rounding.init -> void
+Kiln.UiThemeSpec.UiThemeSpec() -> void
+Kiln.UiThemeSpec.Vars.get -> System.Collections.Generic.Dictionary<Kiln.UiStyleVar, (float X, float Y)>!
+Kiln.UiThemeSpec.Vars.init -> void
 Kiln.UiTooltipDecision
 Kiln.UiTooltipDecision.<Clone>$() -> Kiln.UiTooltipDecision!
 Kiln.UiTooltipDecision.Deconstruct(out bool Ok, out string? Reason, out System.Collections.Generic.IReadOnlyList<Kiln.UiText!>! Lines) -> void
@@ -1000,6 +1119,10 @@ Kiln.UiWindowOptions.Position.get -> (float X, float Y)?
 Kiln.UiWindowOptions.Position.init -> void
 Kiln.UiWindowOptions.StartOpen.get -> bool
 Kiln.UiWindowOptions.StartOpen.init -> void
+Kiln.UiWindowOptions.Style.get -> Kiln.UiStyle
+Kiln.UiWindowOptions.Style.init -> void
+Kiln.UiWindowOptions.Theme.get -> Kiln.UiTheme?
+Kiln.UiWindowOptions.Theme.init -> void
 Kiln.UiWindowOptions.TitleBar.get -> bool
 Kiln.UiWindowOptions.TitleBar.init -> void
 Kiln.UiWindowOptions.UiWindowOptions() -> void
@@ -1139,6 +1262,8 @@ override Kiln.UiItemView.GetHashCode() -> int
 override Kiln.UiLabelEdit.Equals(object? obj) -> bool
 override Kiln.UiLabelEdit.GetHashCode() -> int
 override Kiln.UiLabelEdit.ToString() -> string!
+override Kiln.UiPalette.GetHashCode() -> int
+override Kiln.UiPlayerLook.GetHashCode() -> int
 override Kiln.UiProviderDecision.Equals(object? obj) -> bool
 override Kiln.UiProviderDecision.GetHashCode() -> int
 override Kiln.UiProviderDecision.ToString() -> string!
@@ -1149,6 +1274,9 @@ override Kiln.UiScreenOptions.GetHashCode() -> int
 override Kiln.UiScreenOptions.ToString() -> string!
 override Kiln.UiStatus.GetHashCode() -> int
 override Kiln.UiText.ToString() -> string!
+override Kiln.UiThemeSpec.Equals(object? obj) -> bool
+override Kiln.UiThemeSpec.GetHashCode() -> int
+override Kiln.UiThemeSpec.ToString() -> string!
 override Kiln.UiTooltipDecision.Equals(object? obj) -> bool
 override Kiln.UiTooltipDecision.GetHashCode() -> int
 override Kiln.UiTooltipDecision.ToString() -> string!
@@ -1235,6 +1363,8 @@ static Kiln.Ui.Crafting.MenuAvailable.get -> bool
 static Kiln.Ui.Frame -> System.Action<Kiln.UiDraw!>?
 static Kiln.Ui.ItemIconsAvailable.get -> bool
 static Kiln.Ui.ItemImage(Kiln.ItemId item) -> Kiln.UiImage?
+static Kiln.Ui.LoadFont(byte[]! ttf) -> Kiln.UiFontFile?
+static Kiln.Ui.LoadFont(string! path) -> Kiln.UiFontFile?
 static Kiln.Ui.LoadImage(byte[]! png) -> Kiln.UiImage?
 static Kiln.Ui.LoadImage(string! path) -> Kiln.UiImage?
 static Kiln.Ui.MenuOpen.get -> bool
@@ -1251,6 +1381,9 @@ static Kiln.Ui.Screens.Changed -> System.Action<Kiln.GameScreen, Kiln.GameScreen
 static Kiln.Ui.Screens.Current.get -> Kiln.GameScreen
 static Kiln.Ui.Screens.UiTick -> System.Action<Kiln.GameScreen>?
 static Kiln.Ui.Status.get -> Kiln.UiStatus
+static Kiln.Ui.Themes.Define(string! name, Kiln.UiThemeSpec! spec) -> Kiln.UiTheme!
+static Kiln.Ui.Themes.Offered.get -> System.Collections.Generic.IReadOnlyList<Kiln.UiTheme!>!
+static Kiln.Ui.Themes.Player.get -> Kiln.UiPlayerLook
 static Kiln.Ui.Values.CloseTooltipDetails() -> void
 static Kiln.Ui.Values.GemForgeCandidates() -> Kiln.GemForgeCandidatesResult!
 static Kiln.Ui.Values.HeldBar(Kiln.UiBarProvider! provider) -> Kiln.UiValueRegistration!
@@ -1275,6 +1408,10 @@ static Kiln.UiItemView.operator !=(Kiln.UiItemView left, Kiln.UiItemView right) 
 static Kiln.UiItemView.operator ==(Kiln.UiItemView left, Kiln.UiItemView right) -> bool
 static Kiln.UiLabelEdit.operator !=(Kiln.UiLabelEdit? left, Kiln.UiLabelEdit? right) -> bool
 static Kiln.UiLabelEdit.operator ==(Kiln.UiLabelEdit? left, Kiln.UiLabelEdit? right) -> bool
+static Kiln.UiPalette.operator !=(Kiln.UiPalette left, Kiln.UiPalette right) -> bool
+static Kiln.UiPalette.operator ==(Kiln.UiPalette left, Kiln.UiPalette right) -> bool
+static Kiln.UiPlayerLook.operator !=(Kiln.UiPlayerLook left, Kiln.UiPlayerLook right) -> bool
+static Kiln.UiPlayerLook.operator ==(Kiln.UiPlayerLook left, Kiln.UiPlayerLook right) -> bool
 static Kiln.UiProviderDecision.Refuse(string! reason) -> Kiln.UiProviderDecision!
 static Kiln.UiProviderDecision.Replace(Kiln.UiBarEdit! edit) -> Kiln.UiProviderDecision!
 static Kiln.UiProviderDecision.operator !=(Kiln.UiProviderDecision? left, Kiln.UiProviderDecision? right) -> bool
@@ -1289,6 +1426,8 @@ static Kiln.UiStatus.operator !=(Kiln.UiStatus left, Kiln.UiStatus right) -> boo
 static Kiln.UiStatus.operator ==(Kiln.UiStatus left, Kiln.UiStatus right) -> bool
 static Kiln.UiText.Of(params (string! Language, string! Text)[]! texts) -> Kiln.UiText!
 static Kiln.UiText.implicit operator Kiln.UiText!(string! text) -> Kiln.UiText!
+static Kiln.UiThemeSpec.operator !=(Kiln.UiThemeSpec? left, Kiln.UiThemeSpec? right) -> bool
+static Kiln.UiThemeSpec.operator ==(Kiln.UiThemeSpec? left, Kiln.UiThemeSpec? right) -> bool
 static Kiln.UiTooltipDecision.Refuse(string! reason) -> Kiln.UiTooltipDecision!
 static Kiln.UiTooltipDecision.With(params Kiln.UiText![]! lines) -> Kiln.UiTooltipDecision!
 static Kiln.UiTooltipDecision.operator !=(Kiln.UiTooltipDecision? left, Kiln.UiTooltipDecision? right) -> bool
@@ -1343,6 +1482,10 @@ virtual Kiln.UiTooltipProvider.Invoke(in Kiln.UiValueContext context, in Kiln.Ui
 ~override Kiln.UiItem.ToString() -> string
 ~override Kiln.UiItemView.Equals(object obj) -> bool
 ~override Kiln.UiItemView.ToString() -> string
+~override Kiln.UiPalette.Equals(object obj) -> bool
+~override Kiln.UiPalette.ToString() -> string
+~override Kiln.UiPlayerLook.Equals(object obj) -> bool
+~override Kiln.UiPlayerLook.ToString() -> string
 ~override Kiln.UiRect.Equals(object obj) -> bool
 ~override Kiln.UiRect.ToString() -> string
 ~override Kiln.UiScreenKey.Equals(object obj) -> bool

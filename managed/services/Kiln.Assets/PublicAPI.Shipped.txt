@@ -146,6 +146,7 @@ static Kiln.Assets.Override(Kiln.AssetKey key, byte[]! bytes) -> void
 static Kiln.Assets.OverrideBlob(Kiln.ContentHash hash, byte[]! bytes) -> void
 static Kiln.Assets.OverrideTexture(Kiln.AssetKey key, byte[]! png) -> void
 static Kiln.Assets.ReadBlob(Kiln.ContentHash hash) -> byte[]?
+static Kiln.Assets.ReadResidentBlob(Kiln.ContentHash hash) -> byte[]?
 static Kiln.Assets.ReadResource(Kiln.AssetKey key) -> byte[]?
 static Kiln.Assets.Reflect(Kiln.AssetKey key) -> Kiln.ReflectedResource?
 static Kiln.Assets.Register(Kiln.AssetKey key, byte[]! bytes, bool? mustBeNew = null) -> void
