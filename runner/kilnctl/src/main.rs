@@ -17,6 +17,7 @@ mod run;
 mod server;
 mod sigport;
 mod steam;
+mod tick_compare;
 mod util;
 mod wine;
 
@@ -287,6 +288,17 @@ enum Cmd {
         #[command(subcommand)]
         cmd: ProfileCmd,
     },
+    /// Compare two tick-stats.jsonl files (before/after moving a mod's work into tasks): per-world step time and
+    /// steps over budget, per-mod Pre/Post time and share of the step, and the tasks section when present (T12)
+    TickCompare {
+        /// The "before" tick-stats.jsonl (kiln/logs/tick-stats.jsonl of the first run)
+        before: PathBuf,
+        /// The "after" tick-stats.jsonl, same save and route as the first
+        after: PathBuf,
+        /// Print the report as one JSON document instead of the text tables
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -518,6 +530,9 @@ fn dispatch(cmd: Cmd) -> anyhow::Result<i32> {
                 ClientCmd::PlayOnce { mode, profile, dir, real } => client::play_once(&mode, profile, dir, real),
             };
         }
+        Cmd::TickCompare { before, after, json } => {
+            return tick_compare::run(tick_compare::TickCompareArgs { before, after, json });
+        }
         Cmd::Cmd { name, line, source, complete, json, timeout } => {
             return console::run(console::CmdArgs {
                 target: name,
@@ -544,7 +559,7 @@ fn data_use(cmd: &Cmd) -> lock::Use {
     match cmd {
         Cmd::Init { .. } | Cmd::Install { .. } | Cmd::Prefix { .. } | Cmd::Preflight { .. } | Cmd::Run { .. } => Use::None,
         Cmd::Start { .. } | Cmd::Stop { .. } | Cmd::Status { .. } | Cmd::Logs { .. } | Cmd::Port { .. } | Cmd::Gate { .. } => Use::None,
-        Cmd::List | Cmd::Cmd { .. } => Use::None,
+        Cmd::List | Cmd::Cmd { .. } | Cmd::TickCompare { .. } => Use::None,
         Cmd::Deploy { bundle, .. } => if bundle.is_some() { Use::Whole } else { Use::None },
         Cmd::Update { .. } => Use::Part,
         Cmd::Backup { .. } | Cmd::Report { .. } | Cmd::Library { .. } | Cmd::Profile { .. } | Cmd::Client { .. } => Use::Whole,
@@ -600,7 +615,7 @@ mod data_use_tests {
         for args in [
             &["run", "s"][..], &["start", "s"], &["stop", "s"], &["logs", "s", "--follow"], &["port", "s"], &["gate", "s"],
             &["install", "s"], &["prefix", "s"], &["status", "s"], &["list"], &["deploy", "s"], &["bundle", "verify", "k.zip"],
-            &["cmd", "s", "help"],
+            &["cmd", "s", "help"], &["tick-compare", "a.jsonl", "b.jsonl"],
         ] {
             assert_eq!(use_of(args), Use::None, "{args:?}");
         }

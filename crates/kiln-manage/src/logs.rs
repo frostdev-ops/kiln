@@ -482,6 +482,122 @@ pub struct TickStat {
     /// Since 0.2.0-dev.29: the window's worst step (Pre + step + Post) broken down.
     #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
     pub worst: Option<WorstStep>,
+    /// From the tasks plan (T4, issue #49; not written yet on `main`): the task pool's window. Absent when the pool
+    /// does not exist, and None here when the section does not read; the rest of the line still does.
+    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub tasks: Option<TasksSection>,
+}
+
+/// `tasks.window` (T4): which diagnostics window a line carries, so a reader can avoid counting one window twice
+/// when several worlds write a line for it.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct TasksWindow {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ms: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub age_ms: Option<f64>,
+}
+
+/// `tasks.pool` (T4).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct TasksPool {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workers: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub long_running: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queue_max: Option<u64>,
+}
+
+/// A `current`/`max` gauge of a task owner (T4).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct TaskGauge {
+    #[serde(default)]
+    pub current: u64,
+    #[serde(default)]
+    pub max: u64,
+}
+
+/// One owner's task numbers in a window (T4): `cpu_ms` is executing-thread time of its segments (awaiting IO is
+/// excluded), `wall_ms` the sum of segment wall times, `longest_ms` its longest segment.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct TaskOwner {
+    #[serde(default)]
+    pub owner: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queued: Option<TaskGauge>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub running: Option<TaskGauge>,
+    #[serde(default)]
+    pub completed: u64,
+    #[serde(default)]
+    pub faulted: u64,
+    #[serde(default)]
+    pub cancelled: u64,
+    #[serde(default)]
+    pub cpu_ms: f64,
+    #[serde(default)]
+    pub wall_ms: f64,
+    #[serde(default)]
+    pub longest_ms: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub longest_name: Option<String>,
+    #[serde(default)]
+    pub queued_too_long: u64,
+    #[serde(default)]
+    pub running_too_long: u64,
+    #[serde(default)]
+    pub queue_full: u64,
+    #[serde(default)]
+    pub unload_blocked: u64,
+}
+
+/// `tasks.apply` (T4): the tick hops dispatched in the window; `deferred` waited for a later step, `ms` is the time
+/// spent dispatching them.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct TaskApply {
+    #[serde(default)]
+    pub applied: u64,
+    #[serde(default)]
+    pub deferred: u64,
+    #[serde(default)]
+    pub cancelled: u64,
+    #[serde(default)]
+    pub ms: f64,
+    #[serde(default)]
+    pub owner_budget_stops: u64,
+    #[serde(default)]
+    pub step_budget_stops: u64,
+    #[serde(default)]
+    pub owners_served: u64,
+    #[serde(default)]
+    pub backlog: u64,
+}
+
+/// `tasks.hops` (T4).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct TaskHops {
+    #[serde(default)]
+    pub refused: u64,
+}
+
+/// The `tasks` section of a tick-stats line (T4, issue #49), as the before/after report (`tick_compare`) reads it.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct TasksSection {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window: Option<TasksWindow>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pool: Option<TasksPool>,
+    #[serde(default)]
+    pub owners: Vec<TaskOwner>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owners_truncated: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub apply: Option<TaskApply>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hops: Option<TaskHops>,
 }
 
 /// A timed part of a tick-stats window: its longest call, the sum, the calls over 50 ms (and p50/p99 for the job wait).
