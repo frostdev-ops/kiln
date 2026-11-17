@@ -140,11 +140,6 @@ internal sealed class TaskRun
         }
     }
 
-    /// <summary>A live task's name and state for the host's diagnostics; null when <paramref name="hostState"/> is
-    /// no task or its task has ended.</summary>
-    internal static (string Name, KilnTaskState State)? InfoOf(object hostState) =>
-        hostState is TaskRun run && !run.Task.IsTerminal ? (run.Name, run.Task.State) : null;
-
     internal CancellationToken Token => _cts.Token;
 
     internal ulong Lease => (ulong)Interlocked.Read(ref _lease);
@@ -169,10 +164,13 @@ internal sealed class TaskRun
         if (owner.Mod is { } mod && (mod.Unloading || !mod.Alive))
             throw new InvalidOperationException("the mod is unloading: it cannot start tasks");
         var run = new TaskRun(backend, owner, name, work, task);
+        run.RegisterLive();  // before the admit: its end, which unregisters it, can come before the admit returns
         var refusal = backend.Admit(owner.Id, name, o, run, out var lease);
-        if (refusal != TaskRefusal.None) throw Refused(refusal, backend);
-        run.RegisterLive();  // only an admitted task is live; its end may already have been reported meanwhile
-        if (run.Task.IsTerminal) run.UnregisterLive();
+        if (refusal != TaskRefusal.None)
+        {
+            run.UnregisterLive();
+            throw Refused(refusal, backend);
+        }
         run.SetLease(lease);
         return task;
     }

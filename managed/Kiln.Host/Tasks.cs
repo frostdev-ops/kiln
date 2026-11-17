@@ -194,14 +194,6 @@ internal sealed unsafe class HostTasks : TaskBackend
     /// itself holds that context until then; a mod's unload joins this off the tick, never on it.</summary>
     internal int OwnerPins(ulong owner) => _pins.Values.Count(p => p.Owner == owner);
 
-    /// <summary>The live tasks of <paramref name="owner"/> (name and state), for the log line that names what an
-    /// unload still waits for. Tasks that have ended are not listed, even while their pin is still draining.</summary>
-    internal IReadOnlyList<(string Name, KilnTaskState State)> LiveTasks(ulong owner) =>
-        [.. _pins.Values.Where(p => p.Owner == owner)
-            .Select(p => TaskRun.InfoOf(p.State))
-            .Where(i => i is not null)
-            .Select(i => i!.Value)];
-
     // The load context the task's code lives in, when it is a collectible one (a mod's): held by the pin so it cannot
     // finish unloading while the task can still run. Kiln's own code (the default context) needs no pin.
     private static AssemblyLoadContext? LoadContextOf(object hostState) =>
