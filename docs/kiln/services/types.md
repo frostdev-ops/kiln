@@ -47,6 +47,14 @@ IReadOnlyList<GameType> all = GameTypes.FindAllByImpactName("ecs.Health");  // k
   the server build 7,056 distinct names cover the 11,184 types.
 - Read-only: no event. The index is built at the first lookup, once per process.
 
+### Component catalog for task-thread reads (since 0.2.0-dev.30)
+
+`ecs_registry` (appended; check `header.size`) copies the engine's component registration catalog for one world kind:
+index, component hash, reflected size, type identity, and the save/replication tracking bits only when
+`KILN_ECS_REGISTRY_TRACKING_KNOWN` is set. The type table does not carry those bits, so the flag stays clear rather
+than being guessed. The catalog's stamp is read before and after the rows; a catalog replaced during the read returns
+`KILN_ECS_ERR_UNREADABLE` and copies nothing. A short buffer sets `*required` and writes nothing. Any thread.
+
 ## Components by name, checked writes
 ```csharp
 foreach (var e in Reflected.All("Health"))                 // loaded entities that have it (tick thread)

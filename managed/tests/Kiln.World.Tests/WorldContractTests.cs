@@ -67,6 +67,11 @@ public sealed unsafe class WorldContractTests
         SameLayout(abi, "KilnWorldWriteResult", typeof(WriteResultNative));
         SameLayout(abi, "KilnWorldWriteInfo", typeof(WriteInfoNative));
         SameLayout(abi, "KilnWorldWriteStatus", typeof(WriteStatusNative));
+        SameLayout(abi, "KilnObjectRef", typeof(EcsObjectRefNative));
+        SameLayout(abi, "KilnObjectInfo", typeof(EcsObjectInfoNative));
+        SameLayout(abi, "KilnEcsContextInfo", typeof(EcsContextInfoNative));
+        SameLayout(abi, "KilnEcsQueryRequest", typeof(EcsQueryRequestNative));
+        SameLayout(abi, "KilnEcsSnapshotSpec", typeof(EcsSnapshotSpecNative));
         // the consumers built before v3: Kiln.Api's program table (v2) and Kiln.World's own (v1)
         SameLayout(abi, "KilnWorldApi", typeof(EcsWorldTable), (int)abi["v2Entries"]!);
         SameLayout(abi, "KilnWorldApi", typeof(WorldNative.Table), 24);

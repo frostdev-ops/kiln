@@ -29,6 +29,7 @@
 #include "services/kiln_types.h"
 #include "services/kiln_world.h"
 #include "services/kiln_caps.h"
+#include "ecs_registry.h"
 #include "../../plugins/set/src/coexist.h"
 
 namespace {
@@ -680,6 +681,40 @@ KilnResult KILN_CALL event_post(uintptr_t world, uint32_t hash, const void* data
 
 uint32_t KILN_CALL external_runner() { return g_external_state.load(std::memory_order_acquire); }
 
+// ---- ecs_registry (T8): the component catalog as copied records. The game's type table is immutable for the
+// process, so its stamp never changes; tracking bits are not in it, so TRACKING_KNOWN stays clear (kiln.types
+// does not guess them from another table). ----
+namespace ecs_registry_src {
+uint32_t count(void*) { return g_tt.component_count; }
+uint64_t stamp(void*) { return static_cast<uint64_t>(g_tt.component_count) << 32 | g_tt.count; }
+bool row(void*, uint32_t i, KilnEcsRegistryRow* out) {
+    const KilnType* type = component_type_at(i);
+    if (!type) return false;
+    KilnTypeInfo info{}; info.size = sizeof info;
+    if (type_info(type, &info) != KILN_OK) return false;
+    *out = KilnEcsRegistryRow{};
+    out->size = sizeof *out;
+    out->index = i;
+    out->component = info.hash;
+    out->type_size = info.type_size;
+    out->type_identity = info.index;
+    return true;
+}
+} // namespace ecs_registry_src
+KilnResult KILN_CALL ecs_registry(uint32_t world_kind, KilnEcsRegistryInfo* info, KilnEcsRegistryRow* rows,
+                                  uint32_t capacity, uint32_t* required) {
+    if (!g_tt.component_count) {
+        if (info && info->size >= sizeof(KilnEcsRegistryInfo)) {
+            const uint32_t size = info->size;
+            *info = KilnEcsRegistryInfo{}; info->size = size; info->status = KILN_ECS_UNAVAILABLE;
+        }
+        if (required) *required = 0;
+        return KILN_ERR_UNAVAILABLE;
+    }
+    const ktypes::ecs::Source src{nullptr, &ecs_registry_src::count, &ecs_registry_src::stamp, &ecs_registry_src::row};
+    return ktypes::ecs::build(src, world_kind, info, rows, capacity, required);
+}
+
 const KilnTypesApi kTable = {
     {sizeof(KilnTypesApi), KILN_TYPES_VERSION}, &status, &type_count, &type_at, &type_by_hash, &type_by_name, &type_info,
     &type_field, &type_enum, &component_type_count, &component_type_at, &event_type_count, &event_type_at,
@@ -687,6 +722,7 @@ const KilnTypesApi kTable = {
     &external_runner,
     &type_impact_name,
     &in_system_callback,
+    &ecs_registry,
 };
 
 // After every service's kiln_plugin_main: kiln.world (it loads after kiln.types) and its wrap_original.

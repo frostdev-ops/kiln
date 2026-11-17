@@ -560,6 +560,90 @@ typedef struct KilnForeignLayout {
     char why[128];        /* when foreign_layout said KILN_ERR_UNAVAILABLE */
 } KilnForeignLayout;
 
+/* ======================================================================================= ECS reads (T8) ====== */
+/* Since 0.2.0-dev.30 (version stays 4). Check header.size. Verified-copy world reads for task threads: every member
+ * works from any thread, the tick included, none posts work to a tick or waits on one, and none returns torn or
+ * partial data (docs/kiln/services/world.md, "World reads from task threads"). A read copies the bytes under the
+ * engine gate's rules (kiln.engine), then re-validates the entity, its generation, the component layout and the
+ * world session; it returns a complete result or a precise refusal. On a game build without an exact engine profile
+ * every member returns KILN_ECS_UNAVAILABLE with the capability row `world.ecs_read` saying why.
+ *
+ * Distinct refusals (KilnObjectInfo.status, a query's `state` and snapshot_many's `presence` carry the same codes):
+ * absent (the entity or component does not exist), stale (the id names a new entity now: same id, new generation;
+ * also a changed session, reload epoch or layout), unreadable (the copy faulted, or the world changed during the
+ * read) and unavailable (no exact profile, no such world, or the read path is not validated on this build). The
+ * KilnResult mirrors it: KILN_OK, KILN_ERR_NOT_FOUND (absent), KILN_ECS_ERR_STALE, KILN_ECS_ERR_UNREADABLE (or
+ * KILN_WORLD_ERR_CHANGED for a query the membership changed under), KILN_ERR_UNAVAILABLE. Buffers are the caller's:
+ * a result that does not fit reports *required and copies nothing. */
+enum {
+    KILN_ECS_OK = 0,
+    KILN_ECS_ABSENT = 1,
+    KILN_ECS_STALE = 2,
+    KILN_ECS_UNREADABLE = 3,
+    KILN_ECS_UNAVAILABLE = 4
+};
+#define KILN_ECS_ERR_STALE 101
+#define KILN_ECS_ERR_UNREADABLE 102
+
+/* A self-validating entity value (entity_open): id, generation, world session and layout stamp. Not a retained
+ * handle: nothing is pinned, and every use re-validates. Copy it freely; do not edit it. */
+typedef struct KilnObjectRef {
+    uint32_t size;         /* sizeof(KilnObjectRef) */
+    KilnEntity entity;
+    uint32_t generation;   /* the entity id's generation when opened */
+    uint32_t world_kind;   /* KILN_WORLD_* */
+    uint64_t session;      /* game_world_session(world_kind) when opened */
+    uint64_t layout_stamp; /* the entity's component-layout stamp when opened */
+    uint64_t reload_epoch; /* the caller's reload epoch the ref was opened under */
+} KilnObjectRef;
+
+/* KilnObjectInfo.flags */
+enum {
+    KILN_OBJECT_ALIVE = 1u << 0,       /* the entity exists with the ref's generation */
+    KILN_OBJECT_HAS_TEMPLATE = 1u << 1 /* the entity names a template it was spawned from */
+};
+
+typedef struct KilnObjectInfo {
+    uint32_t size;   /* set to sizeof(KilnObjectInfo) before calling */
+    uint32_t status; /* KILN_ECS_* */
+    KilnEntity entity;
+    uint32_t generation; /* current generation (the ref's when alive) */
+    uint32_t world_kind;
+    uint32_t flags;        /* KILN_OBJECT_* */
+    uint64_t session;      /* current session of world_kind */
+    uint64_t layout_stamp; /* current layout stamp of the entity */
+    uint64_t reload_epoch; /* the ref's epoch */
+} KilnObjectInfo;
+
+typedef struct KilnEcsContextInfo {
+    uint32_t size;          /* set to sizeof(KilnEcsContextInfo) before calling */
+    uint32_t status;        /* KILN_ECS_*: OK when at least the context could be read */
+    uint32_t present_mask;  /* bit (1 << KILN_WORLD_*): a world of that kind exists now */
+    uint32_t exact_profile; /* 1: Kiln has an exact engine profile for this build */
+    uint64_t sessions[KILN_WORLD_KINDS]; /* game_world_session of each kind (0: none) */
+    uint64_t layout_stamp;               /* the running world's component-layout stamp (0: none) */
+} KilnEcsContextInfo;
+
+/* ecs_query's request. Components are component hashes (component_hash); the AND of them must all be present. */
+enum { KILN_ECS_QUERY_BOUNDS = 1u << 0 }; /* centre/radius bound the result (needs the world's positions) */
+typedef struct KilnEcsQueryRequest {
+    uint32_t size; /* sizeof(KilnEcsQueryRequest) */
+    uint32_t world_kind;
+    uint32_t flags; /* KILN_ECS_QUERY_* */
+    uint32_t component_count;
+    const uint32_t* components; /* component_count hashes */
+    KilnVec3 center;            /* with KILN_ECS_QUERY_BOUNDS: metres */
+    double radius;              /* with KILN_ECS_QUERY_BOUNDS: metres, above 0 */
+} KilnEcsQueryRequest;
+
+/* One component of an ecs_snapshot_many: its bytes are packed into `out` in spec order (a component that is
+ * absent takes no room; its presence says so). Not claimed atomic across components: each is validated before
+ * and after its own copy, so one entity or layout change marks every remaining spec stale and nothing is copied. */
+typedef struct KilnEcsSnapshotSpec {
+    uint32_t component; /* component hash */
+    uint32_t reserved;  /* 0 */
+} KilnEcsSnapshotSpec;
+
 typedef struct KilnWorldApi {
     KilnServiceHeader header; /* { sizeof(KilnWorldApi), KILN_WORLD_VERSION } */
 
@@ -933,6 +1017,40 @@ typedef struct KilnWorldApi {
      * next Pre or stop; keep the code and user data alive (call again later: KILN_OK once it has finished).
      * KILN_ERR_NOT_FOUND: no such handle. Any thread outside a program update or wrap stage. */
     KilnResult(KILN_CALL* unbind_program_world)(KilnHandle binding);
+
+    /* ---- ECS reads from task threads: appended since 0.2.0-dev.30 (version stays 4), at offsets 528..576 (the
+     * table is 584 bytes with them). Check header.size for each member you use. All any-thread; see the records
+     * above. `owner` is the caller's own live owner (owner 0 is refused KILN_ERR_INVALID_ARGUMENT before any
+     * engine memory is read; Kiln trusts a plugin's owner as everywhere else). ---- */
+    /* Turns an entity id into a self-validating KilnObjectRef. `reload_epoch` is the caller's own epoch (a mod
+     * reload bumps it: refs of an earlier epoch validate stale). `expected_session` 0 accepts the live session; a
+     * nonzero one that differs is stale. Absent: no such entity. */
+    KilnResult(KILN_CALL* entity_open)(KilnOwner owner, uint64_t reload_epoch, uint32_t world_kind,
+                                       uint64_t expected_session, KilnEntity entity, KilnObjectRef* out);
+    /* Re-checks a ref: alive, same generation, same session, same layout, same epoch. *out (size set) always gets
+     * the current facts and the KILN_ECS_* status. */
+    KilnResult(KILN_CALL* entity_validate)(KilnOwner owner, const KilnObjectRef* ref, KilnObjectInfo* out);
+    /* Which worlds and sessions exist right now, and whether Kiln has an exact engine profile for them. */
+    KilnResult(KILN_CALL* ecs_context_snapshot)(KilnEcsContextInfo* out);
+    /* Verified query: the entities of request->world_kind that have every listed component (and, with
+     * KILN_ECS_QUERY_BOUNDS, a position within radius of center), as KilnObjectRefs. Complete results only: a
+     * membership change during the walk is KILN_WORLD_ERR_CHANGED and copies nothing. *required (when non-NULL)
+     * is the match count, also when capacity is short (KILN_ERR_BUFFER_TOO_SMALL, nothing copied). *state (when
+     * non-NULL) is the KILN_ECS_* status. */
+    KilnResult(KILN_CALL* ecs_query)(KilnOwner owner, const KilnEcsQueryRequest* request, KilnObjectRef* out,
+                                     uint32_t capacity, uint32_t* required, uint32_t* state);
+    /* One component's bytes of the ref's entity, validated before and after the copy. *required is the component
+     * size, also when capacity is short (nothing copied). Absent: the entity has no such component. */
+    KilnResult(KILN_CALL* ecs_snapshot)(KilnOwner owner, const KilnObjectRef* ref, uint32_t component, void* out,
+                                        uint32_t capacity, uint32_t* required);
+    /* Several components, packed in spec order (see KilnEcsSnapshotSpec). presence[i] (when non-NULL) is the
+     * KILN_ECS_* status of spec i. *required is the total packed size. Not atomic across components. */
+    KilnResult(KILN_CALL* ecs_snapshot_many)(KilnOwner owner, const KilnObjectRef* ref,
+                                             const KilnEcsSnapshotSpec* specs, uint32_t count, void* out,
+                                             uint32_t capacity, uint32_t* required, uint32_t* presence);
+    /* The template an entity was spawned from (its definition uuid), validated directly before and after the
+     * read. Absent: the entity names no template. guid is 16 bytes. */
+    KilnResult(KILN_CALL* ecs_template_uuid)(KilnOwner owner, const KilnObjectRef* ref, uint8_t guid[16]);
 } KilnWorldApi;
 
 enum {
@@ -940,9 +1058,30 @@ enum {
     KILN_WORLD_CAP_MULTI_EVENTS = 1u << 1,
     KILN_WORLD_CAP_BIND_PROGRAM = 1u << 2,
     KILN_WORLD_CAP_TRACKED_WRITES = 1u << 3, /* since 0.2.0-dev.27: write_submit works on this build */
+    KILN_WORLD_CAP_ECS_READ = 1u << 4,        /* since 0.2.0-dev.30: the ECS-read members above work on this build */
 };
 
 #ifdef __cplusplus
 }
+static_assert(sizeof(KilnObjectRef) == 40 && offsetof(KilnObjectRef, entity) == 4 &&
+                  offsetof(KilnObjectRef, generation) == 8 && offsetof(KilnObjectRef, world_kind) == 12 &&
+                  offsetof(KilnObjectRef, session) == 16 && offsetof(KilnObjectRef, layout_stamp) == 24 &&
+                  offsetof(KilnObjectRef, reload_epoch) == 32,
+              "KilnObjectRef T8 layout");
+static_assert(sizeof(KilnObjectInfo) == 48 && offsetof(KilnObjectInfo, status) == 4 &&
+                  offsetof(KilnObjectInfo, session) == 24 && offsetof(KilnObjectInfo, reload_epoch) == 40,
+              "KilnObjectInfo T8 layout");
+static_assert(sizeof(KilnEcsContextInfo) == 48 && offsetof(KilnEcsContextInfo, sessions) == 16 &&
+                  offsetof(KilnEcsContextInfo, layout_stamp) == 40,
+              "KilnEcsContextInfo T8 layout");
+static_assert(sizeof(KilnEcsQueryRequest) == 56 && offsetof(KilnEcsQueryRequest, components) == 16 &&
+                  offsetof(KilnEcsQueryRequest, center) == 24 && offsetof(KilnEcsQueryRequest, radius) == 48,
+              "KilnEcsQueryRequest T8 layout");
+static_assert(sizeof(KilnEcsSnapshotSpec) == 8, "KilnEcsSnapshotSpec T8 layout");
+static_assert(offsetof(KilnWorldApi, entity_open) == 528 && offsetof(KilnWorldApi, entity_validate) == 536 &&
+                  offsetof(KilnWorldApi, ecs_context_snapshot) == 544 && offsetof(KilnWorldApi, ecs_query) == 552 &&
+                  offsetof(KilnWorldApi, ecs_snapshot) == 560 && offsetof(KilnWorldApi, ecs_snapshot_many) == 568 &&
+                  offsetof(KilnWorldApi, ecs_template_uuid) == 576 && sizeof(KilnWorldApi) == 584,
+              "kiln.world T8 members append at 528 (table 584 bytes, x64)");
 #endif
 #endif

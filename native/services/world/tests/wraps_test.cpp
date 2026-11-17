@@ -2284,6 +2284,39 @@ void abi(const char* path) {
         F(KilnWorldApi, foreign_read); F(KilnWorldApi, foreign_write); F(KilnWorldApi, foreign_attr_changed);
     }
     {
+        // T8 (#53): the ECS-read members appended after the client-world members, and their records.
+        auto& l = list("KilnWorldApiT8", sizeof(KilnWorldApi));
+        F(KilnWorldApi, entity_open); F(KilnWorldApi, entity_validate); F(KilnWorldApi, ecs_context_snapshot);
+        F(KilnWorldApi, ecs_query); F(KilnWorldApi, ecs_snapshot); F(KilnWorldApi, ecs_snapshot_many);
+        F(KilnWorldApi, ecs_template_uuid);
+    }
+    {
+        auto& l = list("KilnObjectRef", sizeof(KilnObjectRef));
+        F(KilnObjectRef, size); F(KilnObjectRef, entity); F(KilnObjectRef, generation); F(KilnObjectRef, world_kind);
+        F(KilnObjectRef, session); F(KilnObjectRef, layout_stamp); F(KilnObjectRef, reload_epoch);
+    }
+    {
+        auto& l = list("KilnObjectInfo", sizeof(KilnObjectInfo));
+        F(KilnObjectInfo, size); F(KilnObjectInfo, status); F(KilnObjectInfo, entity); F(KilnObjectInfo, generation);
+        F(KilnObjectInfo, world_kind); F(KilnObjectInfo, flags); F(KilnObjectInfo, session);
+        F(KilnObjectInfo, layout_stamp); F(KilnObjectInfo, reload_epoch);
+    }
+    {
+        auto& l = list("KilnEcsContextInfo", sizeof(KilnEcsContextInfo));
+        F(KilnEcsContextInfo, size); F(KilnEcsContextInfo, status); F(KilnEcsContextInfo, present_mask);
+        F(KilnEcsContextInfo, exact_profile); F(KilnEcsContextInfo, sessions); F(KilnEcsContextInfo, layout_stamp);
+    }
+    {
+        auto& l = list("KilnEcsQueryRequest", sizeof(KilnEcsQueryRequest));
+        F(KilnEcsQueryRequest, size); F(KilnEcsQueryRequest, world_kind); F(KilnEcsQueryRequest, flags);
+        F(KilnEcsQueryRequest, component_count); F(KilnEcsQueryRequest, components); F(KilnEcsQueryRequest, center);
+        F(KilnEcsQueryRequest, radius);
+    }
+    {
+        auto& l = list("KilnEcsSnapshotSpec", sizeof(KilnEcsSnapshotSpec));
+        F(KilnEcsSnapshotSpec, component); F(KilnEcsSnapshotSpec, reserved);
+    }
+    {
         auto& l = list("KilnForeignLayout", sizeof(KilnForeignLayout));
         F(KilnForeignLayout, size); F(KilnForeignLayout, world_kind); F(KilnForeignLayout, session);
         F(KilnForeignLayout, program); F(KilnForeignLayout, iter_size); F(KilnForeignLayout, counts);

@@ -6,7 +6,7 @@
 static_assert(offsetof(KilnWorldApi,status)==184 && offsetof(KilnWorldApi,write_other)==192);
 // v3 appended the tracked-write entries (tests/writes_test.cpp pins each): the v2 table is its first 240 bytes.
 static_assert(offsetof(KilnWorldApi,write_submit)==240 && offsetof(KilnWorldApi,game_program_find)==280);  // v4 (0.2.0-dev.28) appends from 280
-static_assert(offsetof(KilnTypesApi,system_hook)==168 && offsetof(KilnTypesApi,external_runner)==184 && offsetof(KilnTypesApi,type_impact_name)==192 && offsetof(KilnTypesApi,in_system_callback)==200 && sizeof(KilnTypesApi)==208);  // 0.2.0-dev.28 appends from 184
+static_assert(offsetof(KilnTypesApi,system_hook)==168 && offsetof(KilnTypesApi,external_runner)==184 && offsetof(KilnTypesApi,type_impact_name)==192 && offsetof(KilnTypesApi,in_system_callback)==200 && offsetof(KilnTypesApi,ecs_registry)==208 && sizeof(KilnTypesApi)==216);  // 0.2.0-dev.28 appends from 184, T8 ecs_registry at 208
 using namespace kw;
 int main() {
     int checks = 0;

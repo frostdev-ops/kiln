@@ -26,6 +26,15 @@ g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined -D__fastcall= -
     -I"$here/../../../third_party" -I"$here/../../../core/abi" "$here/budget_test.cpp" -o "$out/budget_test"
 "$out/budget_test"
 
+# ecs_reads_test: T8 verified-copy ECS reads over a fake engine memory model (identity, snapshots, queries,
+# concurrency), under ASan/UBSan and ThreadSanitizer.
+g++ -std=c++20 -O1 -g -pthread -Wall -Wextra -fsanitize=address,undefined -I"$here/../../../core/abi" \
+    "$here/ecs_reads_test.cpp" "$here/../ecs_reads.cpp" -o "$out/ecs_reads_test_asan"
+"$out/ecs_reads_test_asan"
+g++ -std=c++20 -O1 -g -pthread -Wall -Wextra -fsanitize=thread -I"$here/../../../core/abi" \
+    "$here/ecs_reads_test.cpp" "$here/../ecs_reads.cpp" -o "$out/ecs_reads_test_tsan"
+TSAN_OPTIONS=halt_on_error=1:exitcode=66 "$out/ecs_reads_test_tsan"
+
 # wraps_test: kiln.world v4 (the game's programs: directory, lab switch, wraps) over a fake world table.
 g++ -std=c++20 -O1 -g -pthread -Wall -Wextra -fsanitize=address,undefined -D__fastcall= -I"$here/host" \
     -I"$here/../../../third_party" -I"$here/../../../core/abi" "$here/wraps_test.cpp" -o "$out/wraps_test"

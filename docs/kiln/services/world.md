@@ -401,6 +401,46 @@ if (W->register_program(owner, &d, &g_prog) == KILN_OK)
 - Limits: tpl 8, read+write 42, singletons 64 per list, other_tpl 9, other 92, events 24, iterator 4096 bytes; a name
   may appear once per access group. events_in slots resolve only when the list has a single event.
 
+### World reads from task threads (since 0.2.0-dev.30, T8)
+
+A task thread can read entities and components through seven members appended to `kiln.world` (offsets 528 to 576; the
+table is 584 bytes; version stays 4, so check `header.size`) and `kiln.types`' `ecs_registry`. Every one of them runs
+on the calling thread, the tick included: none posts work to a tick and none waits on one. A read is a verified copy.
+Kiln reads the component's content stamp, copies the bytes, and reads the stamp again, and does that twice. The
+stamps on either side of a copy must match and the two copies must be identical. The caller gets a complete
+result, or one of four refusals, and never a torn or partial buffer.
+
+| Member | What it returns |
+|---|---|
+| `entity_open` | a `KilnObjectRef`: id, generation, world session, layout stamp and the caller's reload epoch. A value, not a handle; nothing is pinned |
+| `entity_validate` | the same ref re-checked, as a `KilnObjectInfo` |
+| `ecs_context_snapshot` | which worlds and sessions exist now, and whether this build has an exact engine profile |
+| `ecs_query` | every entity that has all of the named components, optionally inside a radius, as refs. Complete or nothing |
+| `ecs_snapshot` | one component's bytes, checked before and after the copy |
+| `ecs_snapshot_many` | several components, each with its own presence. Not one atomic read across components |
+| `ecs_template_uuid` | the template the entity was spawned from, 16 bytes, checked before and after |
+| `kiln.types` `ecs_registry` | the component catalog: index, hash, size, type identity, and tracking flags only when they were actually read |
+
+The refusals stay distinct. **Absent**: no such entity, or the entity has no such component. **Stale**: the same id
+now names a new entity (a new generation), or the session, the layout or the caller's reload epoch changed. **Unreadable**:
+the copy faulted, or a query's membership changed while it was being read (`KILN_WORLD_ERR_CHANGED`; nothing is
+copied). **Unavailable**: this build has no exact engine profile, no world of that kind is live, or the profile's
+entity-table fields are not yet validated for task-thread reads. A short buffer is `KILN_ERR_BUFFER_TOO_SMALL` with
+`*required` set and nothing written.
+
+`world.ecs_read` (and `KILN_WORLD_CAP_ECS_READ`) is on only once those entity-table reads are validated for the running
+build. Until then the row is unavailable, `symbol-missing`, and the text says why: no exact profile, or an exact
+profile whose entity records are not yet a proven task-thread read. `ecs_context_snapshot` still answers (worlds,
+sessions, the exact-profile flag). Every other member answers unavailable rather than guessing an offset. The copy
+itself, when a build does read, is `kiln.internal.engine`'s guarded copy: a fault inside it fails the call and the
+caller's buffer is left untouched.
+
+Host tests, no game: `KILN_OUT=… native/services/world/tests/run.sh` runs `ecs_reads_test` under ASan/UBSan and
+ThreadSanitizer (a recycled id, a session change, a layout change, a save-loaded entity, a component removed between
+the two checks, a query whose membership changes, a template replaced mid-read, a faulting copy, and a writer flipping
+generations beside a reader). `native/services/types/test-types.sh` runs `ecs_registry_test` (a catalog replaced while
+it is being read copies nothing).
+
 ### Entities and teleport from native code
 Tick thread (Pre/Post) or inside your program: `component(e, hash, &size)`, `exists`, `transform`, `position`,
 `find(hash, buf, cap, &count)` (KILN_ERR_BUFFER_TOO_SMALL with the full count when `cap` is short),
