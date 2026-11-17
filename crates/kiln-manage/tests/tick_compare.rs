@@ -29,14 +29,21 @@ fn fixture_worlds_means_percentiles_and_over_budget() {
     close(w.step_p99_ms, 30.0);
     close(w.step_max_ms, 50.0);
     assert_eq!(w.budget_ms, Some(40.9));
-    // window 1's max (50) is over, window 2's (35) is not; p99 never is, so at least that one step
-    assert_eq!((w.windows_over_budget, w.steps_over_budget_min), (1, 1));
+    // the whole step (Pre + step + Post): steps-weighted p50 sums (100*11.5 + 100*23.5) / 200, and the longest
+    // worst step taken apart (2 + 50 + 1)
+    close(w.tick_mean_ms, 17.5);
+    close(w.tick_max_ms, 53.0);
+    // both windows' worst whole steps (53, and 40 + 3 + 1 = 44) are over the budget, though window 2's game step
+    // never is (max 35); no part's p99 is over it, so at least one step in each
+    assert_eq!((w.windows_over_budget, w.steps_over_budget_min), (2, 2));
 
     let after = summarize_file(&fixture("after.jsonl")).unwrap();
     let w = &after.worlds[&key()];
     close(w.step_mean_ms, 6.0); // (100*5 + 100*7) / 200
     close(w.step_p99_ms, 10.0);
     close(w.step_max_ms, 12.0);
+    close(w.tick_mean_ms, 6.85); // (100*5.75 + 100*7.95) / 200
+    close(w.tick_max_ms, 18.5); // 7 + 11 + 0.5
     assert_eq!((w.windows_over_budget, w.steps_over_budget_min), (0, 0));
 }
 
@@ -49,7 +56,7 @@ fn fixture_mods_mean_p99_max_and_share() {
     close(pre.mean_ms, 3.0); // (200+400)/200
     close(pre.p99_ms, 4.0); // per-window means 2 and 4, nearest-rank p99
     close(pre.max_ms, 40.0);
-    close(pre.share_pct, 20.0); // 3.0 over the same windows' step mean 15.0
+    close(pre.share_pct, 17.142857143); // 3.0 over the same windows' whole step mean 17.5
     let post = a.post.as_ref().unwrap();
     close(post.mean_ms, 1.0);
     close(post.p99_ms, 1.5);
@@ -58,7 +65,7 @@ fn fixture_mods_mean_p99_max_and_share() {
     // a mod of one file only is in the summary, and in the comparison with the other side missing
     let only = &before.mods[&(key(), "mod-only-before".into())];
     close(only.pre.as_ref().unwrap().mean_ms, 1.0);
-    close(only.pre.as_ref().unwrap().share_pct, 10.0); // 1.0 over window 1's step p50 10.0
+    close(only.pre.as_ref().unwrap().share_pct, 8.695652174); // 1.0 over window 1's whole step p50 1 + 10 + 0.5
     assert!(only.post.is_none());
 
     let after = summarize_file(&fixture("after.jsonl")).unwrap();
@@ -70,13 +77,15 @@ fn fixture_mods_mean_p99_max_and_share() {
     close(m.pre.mean.after, 0.6); // (50+70)/200
     close(m.pre.mean.delta, -2.4);
     close(m.pre.mean.delta_pct, -80.0);
-    close(m.pre.share.after, 10.0); // 0.6 over 6.0
+    close(m.pre.share.after, 8.759124088); // 0.6 over 6.85
     let w = &r.worlds[0];
     close(w.step_mean.delta_pct, -60.0); // 15 -> 6
+    close(w.tick_mean.delta_pct, -60.857142857); // 17.5 -> 6.85
+    close(w.tick_max.delta, -34.5); // 53 -> 18.5
 
     // the text names the one-file-only mod and both worlds' numbers
     let text = kiln_manage::tick_compare::render_text(&r);
-    assert!(text.contains("mod-only-before") && text.contains("over budget >= 1 steps in 1 windows"), "{text}");
+    assert!(text.contains("mod-only-before") && text.contains("over budget >= 2 steps in 2 windows"), "{text}");
 }
 
 #[test]
@@ -196,4 +205,26 @@ fn json_that_is_not_a_tick_stats_line_is_malformed() {
     // every field of TickStat has a default, so these would otherwise read as phantom zero-step windows
     let (stats, bad) = parse_text("{}\n[]\n{\"level\":\"info\"}\n42\n\"steps\"\n");
     assert_eq!((stats.len(), bad), (0, 5));
+}
+
+#[test]
+fn over_budget_judges_the_whole_step_pre_step_and_post() {
+    // The budget covers Pre + the game's step + Post (the mods' handlers run inside it). Here the game's step alone
+    // never reaches 40.9 ms, but the worst step taken apart (Pre 20 + step 30 + Post 5 = 55) does, and Pre's p99
+    // alone is over the budget: at least steps - floor(0.99 * steps) = 2 steps of 200 were over.
+    let line = r#"{"time":"t","steps":200,"step_ms":{"p50":10.000,"p99":30.000,"max":30.000},"pre_ms":{"p50":1.0000,"p99":45.0000,"max":50.000},"post_ms":{"p50":0.5000,"p99":1.0000,"max":5.000},"post_parts":{"subs":[]},"pre_parts":{"subs":[]},"worst":{"at":"12:00:00.000","pre":20.000,"step":30.000,"post":5.000,"post_subs":[],"pre_subs":[]}}"#;
+    let (stats, bad) = parse_text(line);
+    assert_eq!((stats.len(), bad), (1, 0));
+    let s = summarize("x", &stats, 0);
+    let w = &s.worlds[&key()];
+    close(w.step_max_ms, 30.0);
+    close(w.tick_max_ms, 55.0); // the worst step: 20 + 30 + 5
+    close(w.tick_mean_ms, 11.5); // p50s: 1 + 10 + 0.5
+    assert_eq!((w.windows_over_budget, w.steps_over_budget_min), (1, 2));
+
+    // an older line without `worst`: the longest part is the least the longest whole step can have been
+    let (stats, _) = parse_text(r#"{"time":"t","steps":100,"step_ms":{"p50":10.0,"p99":20.0,"max":30.0},"pre_ms":{"p50":1.0,"p99":2.0,"max":42.0},"post_ms":{"p50":0.0,"p99":0.0,"max":0.0}}"#);
+    let w = &summarize("old", &stats, 0).worlds[&key()];
+    close(w.tick_max_ms, 42.0);
+    assert_eq!((w.windows_over_budget, w.steps_over_budget_min), (1, 1));
 }

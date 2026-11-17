@@ -8,20 +8,27 @@
 //! ## What the file does and does not hold
 //!
 //! One line is one ~60 s window of one world (`native/core/src/tick_stats.h`): `step_ms`/`pre_ms`/`post_ms` are
-//! p50/p99/max of that window, a subscriber part is `{max, total, over50}` summed over the window, and there are no
-//! per-step samples. So some numbers below are exact and some are the best a window summary allows, and the report
-//! never pretends otherwise:
+//! p50/p99/max of that window, a subscriber part is `{max, total, over50}` summed over the window, `worst` is the
+//! window's longest whole step (Pre + step + Post) taken apart, and there are no per-step samples. So some numbers
+//! below are exact and some are the best a window summary allows, and the report never pretends otherwise:
 //!
+//! - two "steps": the game's step (`step_ms`, the original SimStep alone) and the whole step, Pre + step + Post.
+//!   The budget is the whole step's: every mod's Pre/Post handler (and the Post wait for the world's jobs) runs
+//!   inside it, so that is where moving a mod's work into tasks shows;
 //! - exact: a part's `max` (the longest call), a part's mean per step (`total / steps`, one Pre/Post call per step),
-//!   the sums of the `tasks` counters, and every maximum;
-//! - window aggregates: the step's mean is the steps-weighted mean of the windows' `step_ms.p50`, its p99 is the
-//!   worst window's p99 (the pooled p99 cannot be rebuilt from window p99s), and a mod's p99 is the p99 of its
-//!   per-window means (`total / steps` of each window). A mod's share of the step is its mean per step over the
-//!   step mean of the same windows, so it inherits the p50 proxy;
-//! - over budget is a lower bound, not a count: a window whose `max` is over the budget had at least one step over
-//!   it, and a window whose p99 is over it had at least `steps - floor(0.99 * steps)` (the native percentile picks
-//!   that element, `tick.cpp` `pct`). The exact count is not in the file; [`WorldSummary::steps_over_budget_min`]
-//!   is the least it can be, with [`WorldSummary::windows_over_budget`] beside it.
+//!   the whole step's max (the largest `worst.pre + worst.step + worst.post`), the sums of the `tasks` counters, and
+//!   every maximum. A line without `worst` (before 0.2.0-dev.29) gives the largest of the three maxima instead, the
+//!   least its longest whole step can have been;
+//! - window aggregates: the game step's mean is the steps-weighted mean of the windows' `step_ms.p50`, its p99 is the
+//!   worst window's p99 (the pooled p99 cannot be rebuilt from window p99s), the whole step's mean is the
+//!   steps-weighted mean of `pre_ms.p50 + step_ms.p50 + post_ms.p50`, and a mod's p99 is the p99 of its per-window
+//!   means (`total / steps` of each window). A mod's share of the step is its mean per step over the whole step's
+//!   mean of the same windows, so it inherits the p50 proxy;
+//! - over budget is a lower bound, not a count: a window whose longest whole step is over the budget had at least
+//!   one step over it, and a window where the p99 of Pre, the step or Post alone is over it had at least
+//!   `steps - floor(0.99 * steps)` (the native percentile picks that element, `tick.cpp` `pct`). The exact count is
+//!   not in the file; [`WorldSummary::steps_over_budget_min`] is the least it can be, with
+//!   [`WorldSummary::windows_over_budget`] beside it.
 //!
 //! Budgets: 40.9 ms for a dedicated server (its lines have no `world`), 16.8 ms for a hosting client's server
 //! world (`"world":"server"`). Other worlds (`client`, `prediction`) get no budget: none is defined for them.
@@ -100,16 +107,32 @@ fn mean(values: &[f64]) -> Option<f64> {
     (!values.is_empty()).then(|| values.iter().sum::<f64>() / values.len() as f64)
 }
 
-/// The least number of steps of one window that were over `budget`, from its p99 and max alone (see module docs).
-fn steps_over_min(steps: u64, p99: f64, max: f64, budget: f64) -> u64 {
-    if steps == 0 || max <= budget {
+/// The least number of steps of one window that were over `budget` (see module docs), from the p99s of the parts of
+/// a step (Pre, the game's step, Post: one part over the budget puts the whole step over it) and the longest whole
+/// step.
+fn steps_over_min(steps: u64, p99s: &[f64], whole_max: f64, budget: f64) -> u64 {
+    if steps == 0 || whole_max <= budget {
         0
-    } else if p99 > budget {
+    } else if p99s.iter().any(|&p| p > budget) {
         // pct(v, 0.99) is element floor(0.99 * n): that element and every later one are >= p99.
         steps - ((0.99 * steps as f64) as u64).min(steps - 1)
     } else {
         1
     }
+}
+
+/// A window's longest whole step (Pre + step + Post): exact from `worst`, else the least it can have been.
+fn whole_max(stat: &TickStat) -> f64 {
+    let parts = stat.step_ms.max.max(stat.pre_ms.max).max(stat.post_ms.max);
+    match &stat.worst {
+        Some(w) => parts.max(w.pre + w.step + w.post),
+        None => parts,
+    }
+}
+
+/// A window's whole-step p50 proxy: the parts' p50s added.
+fn whole_p50(stat: &TickStat) -> f64 {
+    stat.pre_ms.p50 + stat.step_ms.p50 + stat.post_ms.p50
 }
 
 /// One world's step time over a whole file.
@@ -118,13 +141,19 @@ fn steps_over_min(steps: u64, p99: f64, max: f64, budget: f64) -> u64 {
 pub struct WorldSummary {
     pub windows: u64,
     pub steps: u64,
-    /// Steps-weighted mean of the windows' `step_ms.p50` (the file holds no step total; see module docs).
+    /// The game's step alone: steps-weighted mean of the windows' `step_ms.p50` (the file holds no step total; see
+    /// module docs).
     pub step_mean_ms: Option<f64>,
     /// The worst window's `step_ms.p99`.
     pub step_p99_ms: Option<f64>,
     pub step_max_ms: Option<f64>,
+    /// The whole step (Pre + step + Post): steps-weighted mean of the windows' `pre_ms.p50 + step_ms.p50 +
+    /// post_ms.p50`.
+    pub tick_mean_ms: Option<f64>,
+    /// The longest whole step (from `worst`; see module docs for lines without it).
+    pub tick_max_ms: Option<f64>,
     pub budget_ms: Option<f64>,
-    /// Windows whose longest step was over the budget (at least one step over).
+    /// Windows whose longest whole step was over the budget (at least one step over).
     pub windows_over_budget: u64,
     /// Lower bound on the steps over the budget (see module docs).
     pub steps_over_budget_min: u64,
@@ -147,7 +176,7 @@ pub struct PhaseSummary {
     pub max_ms: Option<f64>,
     /// Calls longer than 50 ms, summed.
     pub over50: u64,
-    /// `mean_ms` as a percentage of the step mean of the same windows (which uses the p50 proxy).
+    /// `mean_ms` as a percentage of the whole step's mean of the same windows (which uses the p50 proxy).
     pub share_pct: Option<f64>,
 }
 
@@ -264,8 +293,8 @@ struct PhaseAcc {
     window_means: Vec<f64>,
     max_ms: f64,
     over50: u64,
-    // the step mean of the same windows: sum of steps * step_ms.p50, and its steps
-    step_weighted_p50: f64,
+    // the whole step's mean of the same windows: sum of steps * (pre + step + post p50)
+    tick_weighted_p50: f64,
 }
 
 impl PhaseAcc {
@@ -278,7 +307,7 @@ impl PhaseAcc {
         }
         self.max_ms = self.max_ms.max(max);
         self.over50 += over50;
-        self.step_weighted_p50 += stat.steps as f64 * stat.step_ms.p50;
+        self.tick_weighted_p50 += stat.steps as f64 * whole_p50(stat);
     }
     fn finish(mut self) -> PhaseSummary {
         let mean_ms = (self.steps > 0).then(|| self.total_ms / self.steps as f64);
@@ -291,7 +320,7 @@ impl PhaseAcc {
             max_ms: (self.windows > 0).then_some(self.max_ms),
             over50: self.over50,
             share_pct: match (mean_ms, self.steps) {
-                (Some(m), s) if s > 0 && self.step_weighted_p50 > 0.0 => Some(100.0 * m / (self.step_weighted_p50 / s as f64)),
+                (Some(m), s) if s > 0 && self.tick_weighted_p50 > 0.0 => Some(100.0 * m / (self.tick_weighted_p50 / s as f64)),
                 _ => None,
             },
         }
@@ -323,7 +352,8 @@ pub fn parse_text(text: &str) -> (Vec<TickStat>, u64) {
 
 /// Summarises parsed lines under `label`.
 pub fn summarize(label: &str, stats: &[TickStat], malformed: u64) -> FileSummary {
-    let mut worlds: BTreeMap<WorldKey, (WorldSummary, f64)> = BTreeMap::new();
+    // per world: the summary, and the steps-weighted p50 sums of the game step and of the whole step
+    let mut worlds: BTreeMap<WorldKey, (WorldSummary, f64, f64)> = BTreeMap::new();
     let mut phases: BTreeMap<(WorldKey, String, bool), PhaseAcc> = BTreeMap::new(); // bool: true = Pre
     let mut tasks: Option<TasksSummary> = None;
     let mut seen_task_windows: HashSet<u64> = HashSet::new();
@@ -331,31 +361,35 @@ pub fn summarize(label: &str, stats: &[TickStat], malformed: u64) -> FileSummary
     for stat in stats {
         let key = WorldKey::of(stat);
         let budget = key.budget_ms();
-        let (w, weighted_p50) = worlds.entry(key.clone()).or_insert_with(|| {
-            (WorldSummary { budget_ms: budget, ..Default::default() }, 0.0)
+        let (w, weighted_p50, weighted_tick_p50) = worlds.entry(key.clone()).or_insert_with(|| {
+            (WorldSummary { budget_ms: budget, ..Default::default() }, 0.0, 0.0)
         });
         w.windows += 1;
         w.steps += stat.steps;
         *weighted_p50 += stat.steps as f64 * stat.step_ms.p50;
+        *weighted_tick_p50 += stat.steps as f64 * whole_p50(stat);
+        let tick_max = whole_max(stat);
         w.step_p99_ms = Some(w.step_p99_ms.unwrap_or(0.0).max(stat.step_ms.p99));
         w.step_max_ms = Some(w.step_max_ms.unwrap_or(0.0).max(stat.step_ms.max));
+        w.tick_max_ms = Some(w.tick_max_ms.unwrap_or(0.0).max(tick_max));
         if let Some(b) = budget {
-            if stat.step_ms.max > b {
+            if stat.steps > 0 && tick_max > b {
                 w.windows_over_budget += 1;
             }
-            w.steps_over_budget_min += steps_over_min(stat.steps, stat.step_ms.p99, stat.step_ms.max, b);
+            let p99s = [stat.pre_ms.p99, stat.step_ms.p99, stat.post_ms.p99];
+            w.steps_over_budget_min += steps_over_min(stat.steps, &p99s, tick_max, b);
         }
         if let Some(pre) = &stat.pre_parts {
             for s in &pre.subs {
                 phases.entry((key.clone(), s.owner.clone(), true)).or_insert_with(|| PhaseAcc {
-                    windows: 0, steps: 0, total_ms: 0.0, window_means: Vec::new(), max_ms: 0.0, over50: 0, step_weighted_p50: 0.0,
+                    windows: 0, steps: 0, total_ms: 0.0, window_means: Vec::new(), max_ms: 0.0, over50: 0, tick_weighted_p50: 0.0,
                 }).add(stat, s.total, s.max, s.over50);
             }
         }
         if let Some(post) = &stat.post_parts {
             for s in &post.subs {
                 phases.entry((key.clone(), s.owner.clone(), false)).or_insert_with(|| PhaseAcc {
-                    windows: 0, steps: 0, total_ms: 0.0, window_means: Vec::new(), max_ms: 0.0, over50: 0, step_weighted_p50: 0.0,
+                    windows: 0, steps: 0, total_ms: 0.0, window_means: Vec::new(), max_ms: 0.0, over50: 0, tick_weighted_p50: 0.0,
                 }).add(stat, s.total, s.max, s.over50);
             }
         }
@@ -388,8 +422,9 @@ pub fn summarize(label: &str, stats: &[TickStat], malformed: u64) -> FileSummary
 
     let worlds = worlds
         .into_iter()
-        .map(|(k, (mut w, weighted))| {
+        .map(|(k, (mut w, weighted, weighted_tick))| {
             w.step_mean_ms = (w.steps > 0 && weighted > 0.0).then(|| weighted / w.steps as f64);
+            w.tick_mean_ms = (w.steps > 0 && weighted_tick > 0.0).then(|| weighted_tick / w.steps as f64);
             (k, w)
         })
         .collect();
@@ -476,6 +511,9 @@ pub struct WorldCompare {
     pub step_mean: Delta,
     pub step_p99: Delta,
     pub step_max: Delta,
+    /// The whole step (Pre + step + Post), which the budget judges.
+    pub tick_mean: Delta,
+    pub tick_max: Delta,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
@@ -547,10 +585,12 @@ pub struct Report {
 
 fn notes() -> Vec<String> {
     vec![
-        "step mean: steps-weighted mean of the windows' step_ms.p50 (tick-stats holds no step total)".into(),
-        "step p99: the worst window's p99; a mod's p99: p99 of its per-window means (total/steps)".into(),
-        "a mod's mean is total/steps and its share is that mean over the step mean of the same windows".into(),
-        "over budget: a lower bound (windows with max over the budget, and the least steps that must be over it); the file holds no per-step samples".into(),
+        "whole step = Pre + the game's step + Post; the budget judges the whole step (the mods' handlers run inside it)".into(),
+        "game step mean: steps-weighted mean of the windows' step_ms.p50; whole step mean: the same of pre_ms.p50 + step_ms.p50 + post_ms.p50 (tick-stats holds no step total)".into(),
+        "whole step max: the longest worst.pre + worst.step + worst.post (lines without worst: the longest part, a lower bound)".into(),
+        "game step p99: the worst window's p99; a mod's p99: p99 of its per-window means (total/steps)".into(),
+        "a mod's mean is total/steps and its share is that mean over the whole step's mean of the same windows".into(),
+        "over budget: a lower bound (windows whose longest whole step is over the budget, and the least steps that must be over it); the file holds no per-step samples".into(),
         "budgets: 40.9 ms dedicated server, 16.8 ms hosting client's server world; other worlds have none".into(),
         "pre_parts lists only the eight slowest Pre subscribers per window: a missing Pre owner was not among them, not necessarily idle".into(),
     ]
@@ -571,6 +611,8 @@ pub fn compare(before: FileSummary, after: FileSummary) -> Report {
                 step_mean: delta(b.and_then(|w| w.step_mean_ms), a.and_then(|w| w.step_mean_ms)),
                 step_p99: delta(b.and_then(|w| w.step_p99_ms), a.and_then(|w| w.step_p99_ms)),
                 step_max: delta(b.and_then(|w| w.step_max_ms), a.and_then(|w| w.step_max_ms)),
+                tick_mean: delta(b.and_then(|w| w.tick_mean_ms), a.and_then(|w| w.tick_mean_ms)),
+                tick_max: delta(b.and_then(|w| w.tick_max_ms), a.and_then(|w| w.tick_max_ms)),
                 before: b.cloned(),
                 after: a.cloned(),
             }
@@ -665,15 +707,20 @@ pub fn render_text(r: &Report) -> String {
         }
     }
 
-    s.push_str("\nworlds (step time in ms; over budget is a lower bound, see notes)\n");
+    s.push_str("\nworlds (ms; whole step = Pre + game step + Post, judged by the budget; over budget is a lower bound, see notes)\n");
     if r.worlds.is_empty() {
         s.push_str("  (no windows in either file)\n");
     }
     for w in &r.worlds {
         s.push_str(&format!(
-            "  {}: budget {} ms\n    step mean {} -> {} [{}], p99 {} -> {}, max {} -> {}\n",
+            "  {}: budget {} ms\n    whole step mean {} -> {} [{}], max {} -> {}\n    game step mean {} -> {} [{}], p99 {} -> {}, max {} -> {}\n",
             w.label,
             fmt(w.budget_ms, 1),
+            fmt(w.tick_mean.before, 3),
+            fmt(w.tick_mean.after, 3),
+            fmt_delta(&w.tick_mean),
+            fmt(w.tick_max.before, 3),
+            fmt(w.tick_max.after, 3),
             fmt(w.step_mean.before, 3),
             fmt(w.step_mean.after, 3),
             fmt_delta(&w.step_mean),
@@ -694,7 +741,7 @@ pub fn render_text(r: &Report) -> String {
         }
     }
 
-    s.push_str("\nmods (ms per step; share = share of the step mean of the same windows)\n");
+    s.push_str("\nmods (ms per step; share = share of the whole step's mean of the same windows)\n");
     if r.mods.is_empty() {
         s.push_str("  (no pre_parts/post_parts in either file)\n");
     }
@@ -792,11 +839,14 @@ mod tests {
     #[test]
     fn over_budget_lower_bound_follows_the_native_percentile() {
         // p99 is element floor(0.99 * n): n=100 -> element 99, so exactly 1 step is >= p99
-        assert_eq!(steps_over_min(100, 50.0, 60.0, 40.9), 1);
-        assert_eq!(steps_over_min(1000, 50.0, 60.0, 40.9), 10);
-        // only the max over: at least the one longest step
-        assert_eq!(steps_over_min(1000, 10.0, 60.0, 40.9), 1);
-        assert_eq!(steps_over_min(1000, 10.0, 40.0, 40.9), 0);
-        assert_eq!(steps_over_min(0, 50.0, 60.0, 40.9), 0);
+        assert_eq!(steps_over_min(100, &[50.0], 60.0, 40.9), 1);
+        assert_eq!(steps_over_min(1000, &[50.0], 60.0, 40.9), 10);
+        assert_eq!(steps_over_min(250, &[50.0], 60.0, 40.9), 3); // floor(247.5) = 247 -> 3 elements
+        // any part's p99 over the budget puts those steps over it (Pre here, not the game step)
+        assert_eq!(steps_over_min(1000, &[45.0, 10.0, 1.0], 60.0, 40.9), 10);
+        // only the longest whole step over: at least that one step
+        assert_eq!(steps_over_min(1000, &[10.0], 60.0, 40.9), 1);
+        assert_eq!(steps_over_min(1000, &[10.0], 40.0, 40.9), 0);
+        assert_eq!(steps_over_min(0, &[50.0], 60.0, 40.9), 0);
     }
 }

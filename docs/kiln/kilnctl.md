@@ -97,7 +97,7 @@ runtime opens assemblies through it, and every managed load then fails with `0x8
 | `client install ZIP`, `client uninstall` `[--dir D] [--real]` | `bundle install/uninstall` for the client; without `--dir` the Steam client folder, which needs `--real` |
 | `client activate PROFILE \| --deactivate [--dir D] [--real]` | Profile activation: `kiln/profile.json`, chain.ini `[profile]`, `<configDir>/native.json` (Z: or copy mode) |
 | `client play-once vanilla\|no-mods\|profile\|clear [--profile P] [--dir D] [--real]` | Writes `kiln/play-once.ini` for the next start (profile: also `kiln/profile.once.json` + `kiln/chain/once.ini`). Never starts the game and never touches Steam's config |
-| `tick-compare BEFORE AFTER [--json]` | The before/after tick-cost report of two `tick-stats.jsonl` files (T12, below): per-world step time and steps over budget, per-mod Pre/Post time (mean, p99, max) and share of the step, and per-mod task CPU/wall time, apply time and deferred items from the `tasks` section (T4) when a file has one. Text tables by default; `--json` prints one JSON document (`{ok, before, after, worlds, mods, tasks, notes}`). Malformed lines are skipped and counted; a mod or world of one file only is reported as such. Reads only the two files |
+| `tick-compare BEFORE AFTER [--json]` | The before/after tick-cost report of two `tick-stats.jsonl` files (T12, below): per-world step time (the whole step, Pre + game step + Post, and the game step alone) and steps over budget, per-mod Pre/Post time (mean, p99, max) and share of the step, and per-mod task CPU/wall time, apply time and deferred items from the `tasks` section (T4) when a file has one. Text tables by default; `--json` prints one JSON document (`{ok, before, after, worlds, mods, tasks, notes}`). Malformed lines are skipped and counted; a mod or world of one file only is reported as such. Reads only the two files |
 | `library import PATH...`, `library list [KIND]` | The launcher's content-addressed mod library (`$KILN_DATA_DIR`, else `~/.local/share/kiln`); `list` marks an earlier version an update kept "(kept for a roll back)" |
 | `library rollback P kind:id[@version]` | (dev.29) Puts the earlier version an update kept back into profile P (the newest kept one unless named), as the launcher's "Roll back to" does; the version rolled away from is kept. Saves the profile only: the game's `kiln/profile.json` and the mod's settings in the game folder follow at its next activation ([launcher/catalog.md](launcher/catalog.md), "Rolling back an update") |
 | `library replace-dll native:ID FILE --profile P [--confirm]` | (dev.29) Makes a new Library build of a native DLL mod with one DLL swapped, as the launcher's "Replace DLL…" does; the build before it is kept for a roll back. `--confirm` accepts the two questions (another file name; another kind of DLL). Saves the profile only: the game folder follows at the profile's next activation ([launcher/catalog.md](launcher/catalog.md), "Replace DLL…") |
@@ -124,23 +124,28 @@ route, not the change:
    not during loading, chunk generation or a first-visit scan.
 3. About 10 minutes per run (about 10 tick-stats windows; a window is ~60 s). Longer is better; the two runs do
    not need the same length — the report compares rates and per-step means, and says how many windows and steps
-   each side has. Keep the two `tick-stats.jsonl` files apart (copy the file between runs, or use two instances
-   of the same save): the second run appends to the same file.
+   each side has. Copy `tick-stats.jsonl` away after the first run, before the next start: Kiln starts the file
+   afresh each time the game or server starts.
 4. Run both shapes this feature serves: a dedicated server (`kilnctl start`, no `world` field in its lines,
    40.9 ms budget) and a hosting client (the game client hosting a world; its `"world":"server"` lines, 16.8 ms
    budget). A client file also carries `client`/`prediction` worlds; they are reported per world, without a
    budget, and only its server world judges the hosted game.
-5. Read the step first (did the world's step mean/p99 and over-budget windows move?), then the mod (its Pre/Post
-   mean and share of the step should fall by about what its `tasks` CPU gained), then `tasks` (CPU/wall per
-   window, longest segment, apply time and deferred items: work deferred every window is work the tick still
-   waits on in instalments).
+5. Read the whole step first (Pre + the game's step + Post: did its mean, max and over-budget windows move?), then
+   the mod (its Pre/Post mean and share of the step should fall by about what its `tasks` CPU gained), then
+   `tasks` (CPU/wall per window, longest segment, apply time and deferred items: work deferred every window is
+   work the tick still waits on in instalments). The game's step alone is listed too; a mod's work does not run
+   in it, so it should not move much.
 
-**What the numbers are.** One line is one ~60 s window and holds only window summaries (p50/p99/max of the step,
-`{max, total, over50}` per subscriber), never per-step samples, so the report is exact where the file is and
-says so where it is not: a mod's mean is `total/steps` and its max is the longest call; the step mean is the
-steps-weighted mean of the windows' p50 and the step p99 is the worst window's p99; a mod's p99 is the p99 of
-its per-window means; over-budget steps are a lower bound (windows whose max is over the budget, and the least
-steps that must be over it from the p99) because the exact count is not in the file. The `--json` document
+**What the numbers are.** One line is one ~60 s window and holds only window summaries (p50/p99/max of Pre, the
+game's step and Post, `{max, total, over50}` per subscriber, and the window's worst step taken apart), never
+per-step samples, so the report is exact where the file is and says so where it is not. The budget judges the
+whole step, Pre + the game's step + Post, since every mod's Pre/Post handler runs inside it. A mod's mean is
+`total/steps` and its max is the longest call; the whole step's max is the window's worst step (`worst`) and
+its mean is the steps-weighted mean of the windows' Pre, step and Post p50s added; the game step's mean is the
+same over its p50 alone and its p99 is the worst window's p99; a mod's p99 is the p99 of its per-window means
+and its share is its mean over the whole step's mean. Over-budget steps are a lower bound (windows whose worst
+step is over the budget, and the least steps that must be over it from the p99s of Pre, the step and Post)
+because the exact count is not in the file. The `--json` document
 carries the same caveats in its `notes`. `pre_parts` lists only the eight slowest Pre subscribers per window,
 so a Pre mod missing from a window was not among them (or has no Pre subscriber), not necessarily idle; compare
 its Pre over several windows, not one. The `tasks` section (T4) does not exist on `main` yet: files without it
