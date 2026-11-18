@@ -169,7 +169,7 @@ internal static unsafe class FakeEcsReads
         info->Entity = r->Entity;
         info->Generation = e?.Generation ?? 0;
         info->WorldKind = r->WorldKind;
-        info->Flags = e is not null && s is EcsReadConstants.Ok or EcsReadConstants.Stale ? EcsReadConstants.ObjectAlive : 0;
+        info->Flags = e is not null && s == EcsReadConstants.Ok ? EcsReadConstants.ObjectAlive : 0;  // fill_info: alive only for a ref that matches
         return ResultOf(s);
     }
 
@@ -194,17 +194,21 @@ internal static unsafe class FakeEcsReads
     {
         Count(nameof(Query), owner);
         if (required != null) *required = 0;
-        if (owner == 0 || q == null || q->Size != (uint)sizeof(EcsQueryRequestNative) || q->ComponentCount == 0 || q->Components == 0 ||
-            (q->Flags & ~(EcsReadConstants.QueryBounds | EcsReadConstants.QueryFrameQuiet)) != 0 ||
-            ((q->Flags & EcsReadConstants.QueryBounds) != 0 && !(q->Radius > 0)) || (capacity != 0 && o == null))
+        var bounds = q != null && (q->Flags & EcsReadConstants.QueryBounds) != 0;
+        var badBounds = bounds && (!double.IsFinite(q->Radius) || q->Radius <= 0 || !double.IsFinite(q->Center.X) ||
+            !double.IsFinite(q->Center.Y) || !double.IsFinite(q->Center.Z) || !double.IsFinite(q->Radius * q->Radius));
+        if (owner == 0 || q == null || q->Size < (uint)sizeof(EcsQueryRequestNative) || q->WorldKind > 2 ||
+            (q->ComponentCount != 0 && q->Components == 0) ||
+            (q->Flags & ~(EcsReadConstants.QueryBounds | EcsReadConstants.QueryFrameQuiet)) != 0 || badBounds ||
+            (capacity != 0 && o == null))
             return InvalidArgument;
         uint Refuse(uint s)
         {
             if (state != null) *state = s;
             return s;
         }
-        if ((q->Flags & EcsReadConstants.QueryFrameQuiet) != 0 && q->WorldKind != 0) return ResultOf(Refuse(EcsReadConstants.Unsupported));
         if (Context(q->WorldKind) is var c && c != EcsReadConstants.Ok) return ResultOf(Refuse(c));
+        if ((q->Flags & EcsReadConstants.QueryFrameQuiet) != 0 && q->WorldKind != 0) return ResultOf(Refuse(EcsReadConstants.Unsupported));
         if ((q->Flags & EcsReadConstants.QueryFrameQuiet) != 0 && FrameRunning) return ResultOf(Refuse(EcsReadConstants.Busy));
         if (ChangedNext > 0)
         {
@@ -212,7 +216,7 @@ internal static unsafe class FakeEcsReads
             Refuse(EcsReadConstants.Unreadable);
             return ErrChanged;
         }
-        var hashes = new ReadOnlySpan<uint>((void*)q->Components, (int)q->ComponentCount).ToArray();
+        var hashes = q->ComponentCount == 0 ? [] : new ReadOnlySpan<uint>((void*)q->Components, (int)q->ComponentCount).ToArray();
         List<(uint Id, Entity E)> matches;
         lock (Entities)
             matches = [.. Entities.Where(p => p.Key.Kind == q->WorldKind && hashes.All(h => p.Value.Components.ContainsKey(h)))
@@ -284,14 +288,19 @@ internal static unsafe class FakeEcsReads
             if (presence != null) for (var i = 0; i < count; i++) presence[i] = s;
             return ResultOf(s);
         }
-        if (quiet && r->WorldKind != 0) return RefuseAll(EcsReadConstants.Unsupported);
         if (Validate(owner, r, out var e) is var v && v != EcsReadConstants.Ok) return RefuseAll(v);
+        if (quiet && r->WorldKind != 0) return RefuseAll(EcsReadConstants.Unsupported);
         if (quiet && FrameRunning) return RefuseAll(EcsReadConstants.Busy);
         var total = 0;
         for (var i = 0; i < count; i++)
             if (e!.Components.TryGetValue(specs[i].Component, out var b)) total += b.Length;
         if (required != null) *required = (uint)total;
-        if (capacity < total) return BufferTooSmall;
+        if (capacity < total)
+        {
+            if (presence != null)
+                for (var i = 0; i < count; i++) presence[i] = e!.Components.ContainsKey(specs[i].Component) ? EcsReadConstants.Ok : EcsReadConstants.Absent;
+            return BufferTooSmall;
+        }
         if (UnreadableNext > 0)
         {
             UnreadableNext--;
