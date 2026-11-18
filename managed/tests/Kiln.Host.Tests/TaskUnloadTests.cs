@@ -148,6 +148,56 @@ public sealed class TaskUnloadTests : HostTaskTest
         Quiesce();
     }
 
+    // The next round of a loop: one call of one way to the tick.
+    private static async Task NextRound(KilnTaskContext ctx, string hop)
+    {
+        switch (hop)
+        {
+            case "ToTick":
+                await ctx.ToTick();
+                break;
+            case "OnTick":
+                await ctx.OnTick(() => 1);
+                break;
+            case "PostToTick":
+                ctx.PostToTick(() => { });
+                break;
+            case "NextGateWindow":
+                await ctx.NextGateWindow();
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(hop), hop, null);
+        }
+    }
+
+    [Theory]
+    [InlineData("ToTick")]
+    [InlineData("OnTick")]
+    [InlineData("PostToTick")]
+    [InlineData("NextGateWindow")]
+    public void A_loop_that_hops_while_its_mod_unloads_ends_Cancelled_and_kiln_log_says_nothing_of_it(string hop)
+    {
+        using var mods = LoadSampleTasks();
+        using var inRound = new ManualResetEventSlim();
+        using var go = new ManualResetEventSlim();
+        var task = StartOn(mods, "sample-tasks", "loop", async ctx =>
+        {
+            while (!ctx.Cancellation.IsCancellationRequested)
+            {
+                inRound.Set();
+                go.Wait(Long);  // the unload lands between the loop's check and its next hop
+                await NextRound(ctx, hop);
+            }
+        });
+        Assert.True(inRound.Wait(Long));
+        UnloadOnTick(mods, "sample-tasks");
+        go.Set();
+        Ended(task);
+        Assert.Equal(KilnTaskState.Cancelled, task.State);
+        QuiesceAfterUnload();
+        Assert.False(Host.Has("'loop'"), Host.Dump());  // no fault line, no stuck-task line
+    }
+
     [Fact]
     public void Reload_while_a_task_is_suspended_in_ToTick_never_runs_the_old_instance_on_the_new_one()
     {

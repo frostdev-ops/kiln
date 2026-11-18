@@ -265,6 +265,83 @@ KILN_TASKS_TEST(exit_signals_and_refuses) {
           "a waiting AFTER_STEP task was cancelled (its done ran here; at a real exit it may not)");
 }
 
+// A plugin's retry loop (a body that resubmits itself AFTER_STEP until its work is done: the native way to wait for a
+// later step) meets its owner's drain, as an unload does. The copy waiting for its edge is cancelled (its done says
+// CANCELLED); the running body sees cancelled(), and its own resubmit, made after its check, is refused OWNER_SEALED.
+// That refusal is the drain's answer, not a fault: the body returns as usual (COMPLETED), nothing faults or is
+// quarantined, and the owner is quiescent at once after.
+struct Retry {
+    Service* s = nullptr;
+    Gate release;
+    Job spare;  // the user of a resubmit the drain should have refused (never accepted)
+    std::atomic<int> done_calls{0};
+    std::atomic<uint32_t> done_state{0}, saw_cancel{0}, why{99};
+    std::atomic<KilnResult> resubmit{KILN_OK};
+    std::atomic<KilnHandle> next{77};
+};
+void KILN_CALL retry_body(const KilnTaskRun* run, void* user) {
+    auto* r = static_cast<Retry*>(user);
+    r->release.wait();  // the drain lands here, after the round's check of cancelled()
+    r->saw_cancel.store(run->cancelled(run));
+    const KilnTaskInfo i = after_step("retry");
+    KilnHandle h = 77;
+    uint32_t why = 99;
+    r->resubmit.store(r->s->submit(run->owner, &i, &body, &done, &r->spare, &h, &why));
+    r->why.store(why);
+    r->next.store(h);
+}
+void KILN_CALL retry_done(KilnHandle, uint32_t state, void* user) {
+    auto* r = static_cast<Retry*>(user);
+    r->done_state.store(state);
+    r->done_calls.fetch_add(1);
+}
+
+KILN_TASKS_TEST(drain_meets_an_after_step_retry_quietly) {
+    HostPlatform p;
+    Env env;
+    Pool pool(config(), &p);
+    Service s(pool, env);
+    s.session_started(1);
+    s.post_edge(1, 1);
+    const KilnTaskInfo waits = after_step("retry");
+    Job waiting;
+    KilnHandle hw = 0;
+    check(s.submit(1, &waits, &body, &done, &waiting, &hw, nullptr) == KILN_OK, "a retry waits for its next edge");
+    KilnTaskInfo plain = after_step("retry");
+    plain.flags = 0;
+    Retry running;
+    running.s = &s;
+    KilnHandle hr = 0;
+    check(s.submit(1, &plain, &retry_body, &retry_done, &running, &hr, nullptr) == KILN_OK, "a retry runs");
+    check(until([&] {
+              uint32_t st = 0;
+              s.status(1, hr, &st);
+              return st == KILN_TASK_RUNNING;
+          }),
+          "its body is running");
+    uint32_t left = 0;
+    check(s.drain_owner(1, 0, &left) == KILN_OK && left >= 1, "the owner's drain: sealed, the running body outstanding");
+    check(until([&] { return waiting.done_calls.load() == 1; }) && waiting.done_state.load() == KILN_TASK_CANCELLED &&
+              waiting.body_runs.load() == 0,
+          "the retry waiting for its edge is cancelled, its done says CANCELLED, its body never runs");
+    running.release.open();
+    check(until([&] { return running.done_calls.load() == 1; }), "the running retry returns");
+    check(running.saw_cancel.load() == 1, "it saw cancelled()");
+    check(running.resubmit.load() == KILN_ERR_UNAVAILABLE && running.why.load() == KILN_TASK_REFUSAL_OWNER_SEALED &&
+              running.next.load() == 0 && running.spare.body_runs.load() == 0,
+          "its resubmit is refused UNAVAILABLE + OWNER_SEALED and nothing was accepted (got " +
+              std::to_string(running.resubmit.load()) + "/" + std::to_string(running.why.load()) + ")");
+    check(running.done_state.load() == KILN_TASK_COMPLETED, "the refusal is no fault: the body's done says COMPLETED");
+    const kiln::tasks_stats::Totals t = pool.stats_store().totals(0);
+    check(!t.unavailable && t.faulted == 0 && t.faults == 0, "no fault counted, no fault recorded");
+    check(s.drain_owner(1, 5000, &left) == KILN_OK && left == 0, "the owner is quiescent");
+    Job other;
+    KilnHandle ho = 0;
+    check(s.submit(2, &plain, &body, &done, &other, &ho, nullptr) == KILN_OK &&
+              until([&] { return other.done_calls.load() == 1; }),
+          "another owner's tasks run on: nothing was quarantined");
+}
+
 }  // namespace
 
 int main(int argc, char** argv) { return kiln::tasks::test::run(argc, argv, "tasks edges"); }

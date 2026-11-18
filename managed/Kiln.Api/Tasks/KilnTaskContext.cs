@@ -5,8 +5,11 @@ namespace Kiln;
 
 /// <summary>
 /// What a task's work gets from Kiln: its cancellation, and the ways back to the server tick. It belongs to one task and
-/// works only while that task's work runs: once the work has returned, or while the mod unloads, its members throw
-/// <see cref="InvalidOperationException"/>.
+/// works only while that task's work runs: once the work has returned its members throw
+/// <see cref="InvalidOperationException"/>. While the mod unloads, the task is cancelled: a way to the tick then ends it
+/// <see cref="KilnTaskState.Cancelled"/> through its own token, as after <see cref="KilnTask.Cancel"/>, with nothing in
+/// <c>kiln.log</c>; used then from code outside the task's work (a raw thread, <c>Task.Run</c>, code after
+/// <c>ConfigureAwait(false)</c>) its members throw <see cref="InvalidOperationException"/>.
 /// </summary>
 /// <remarks>
 /// <para>Inside a task, <c>await</c> resumes in the task, on a Kiln worker, like the rest of its work. Work that leaves
@@ -15,9 +18,9 @@ namespace Kiln;
 /// <para>Tick work lands on the server world's tick, before the mods' Pre handlers, a bounded amount per mod and step;
 /// the rest waits for the next step and is never dropped. With no live server world here (the main menu, or a client
 /// joined to someone else's server) <see cref="ToTick"/>, <see cref="OnTick{T}"/>, <see cref="PostToTick"/> and
-/// <see cref="NextGateWindow"/> throw <see cref="KilnUnavailableException"/> naming <c>tasks.pool</c> at once. Tick work
-/// that was accepted but can no longer run (the task was cancelled, the mod unloads, the server world stops) never runs
-/// and cancels the task.</para>
+/// <see cref="NextGateWindow"/> throw <see cref="KilnUnavailableException"/> naming <c>tasks.pool</c> at once (a
+/// cancelled task's own <see cref="OperationCanceledException"/> comes first). Tick work that was accepted but can no
+/// longer run (the task was cancelled, the mod unloads, the server world stops) never runs and cancels the task.</para>
 /// </remarks>
 public sealed class KilnTaskContext
 {
@@ -37,24 +40,30 @@ public sealed class KilnTaskContext
     /// the task is cancelled, or the mod unloads or the world stops before the hop runs, nothing runs on the tick: the
     /// await throws the task's <see cref="OperationCanceledException"/> on a worker, so <c>finally</c> blocks still
     /// run.</summary>
-    /// <exception cref="KilnUnavailableException">No live server world here (tasks.pool).</exception>
-    /// <exception cref="InvalidOperationException">The task's work has ended, or the mod is unloading.</exception>
+    /// <exception cref="KilnUnavailableException">No live server world here (tasks.pool), and the task is not
+    /// cancelled.</exception>
+    /// <exception cref="InvalidOperationException">The task's work has ended; or the mod is unloading and this is not the
+    /// task's own work.</exception>
     [RequiresCapability(TaskRun.Capability)]
     public TickHop ToTick()
     {
         _run.CheckUsable();
-        if (!_run.OnOwnTick) _run.RequireServerWorld();
+        // a cancelled task's hop never runs: its await throws the task's own OperationCanceledException, world or not
+        if (!_run.OnOwnTick && !_run.Token.IsCancellationRequested) _run.RequireServerWorld();
         return new TickHop(new TaskRun.HopState(_run));
     }
 
-    /// <summary>Runs <paramref name="apply"/> once on the server tick and gives its result back: <c>var n = await
-    /// ctx.OnTick(() =&gt; Inventory.Count(player));</c>. The code after the await continues where it was (on a worker
-    /// inside the task). Called on this task's tick, <paramref name="apply"/> runs at once. If the task is cancelled, or the
-    /// world stops, before it ran, it never runs and the Task is cancelled; an exception from <paramref name="apply"/>
-    /// comes back through the Task.</summary>
+    /// <summary>Runs <paramref name="apply"/> once on the server tick and gives its result back: <c>var near = await
+    /// ctx.OnTick(() =&gt; NearOnTick(at));</c>, where <c>NearOnTick</c> is the mod's own tick-only code (as in the
+    /// FetchNearby sample). The code after the await continues where it was (on a worker inside the task). Called on this
+    /// task's tick, <paramref name="apply"/> runs at once. If the task is cancelled (also by its mod's unload), or the world
+    /// stops, before it ran, it never runs and the Task is cancelled with the task's own token; an exception from
+    /// <paramref name="apply"/> comes back through the Task.</summary>
     /// <exception cref="ArgumentNullException"><paramref name="apply"/> is null.</exception>
-    /// <exception cref="KilnUnavailableException">No live server world here (tasks.pool).</exception>
-    /// <exception cref="InvalidOperationException">The task's work has ended, or the mod is unloading.</exception>
+    /// <exception cref="KilnUnavailableException">No live server world here (tasks.pool), and the task is not
+    /// cancelled.</exception>
+    /// <exception cref="InvalidOperationException">The task's work has ended; or the mod is unloading and this is not the
+    /// task's own work.</exception>
     [RequiresCapability(TaskRun.Capability)]
     public Task<T> OnTick<T>(Func<T> apply)
     {
@@ -68,9 +77,12 @@ public sealed class KilnTaskContext
     /// task was cancelled, the mod unloads, the world stops) is dropped, and the task then ends
     /// <see cref="KilnTaskState.Cancelled"/>, never <see cref="KilnTaskState.Completed"/>.</summary>
     /// <exception cref="ArgumentNullException"><paramref name="apply"/> is null.</exception>
-    /// <exception cref="KilnUnavailableException">No live server world here (tasks.pool): nothing was queued.</exception>
-    /// <exception cref="OperationCanceledException">The task was cancelled: nothing was queued.</exception>
-    /// <exception cref="InvalidOperationException">The task's work has ended, or the mod is unloading.</exception>
+    /// <exception cref="KilnUnavailableException">No live server world here (tasks.pool), and the task is not cancelled:
+    /// nothing was queued.</exception>
+    /// <exception cref="OperationCanceledException">The task was cancelled (also by its mod's unload): nothing was queued.
+    /// It is the task's own, so letting it end the work ends the task <see cref="KilnTaskState.Cancelled"/>.</exception>
+    /// <exception cref="InvalidOperationException">The task's work has ended; or the mod is unloading and this is not the
+    /// task's own work.</exception>
     [RequiresCapability(TaskRun.Capability)]
     public void PostToTick(Action apply)
     {
@@ -81,15 +93,19 @@ public sealed class KilnTaskContext
     /// <summary><c>await ctx.NextGateWindow()</c> continues the work on a worker after a later Post edge of the server
     /// session that is live now, without holding a worker while it waits. It is a scheduling hint for retrying between
     /// steps, not a promise that the game's state is free. From the tick it takes the work back to a worker. When the
-    /// task is cancelled or that session ends first, the await throws the task's <see cref="OperationCanceledException"/>;
-    /// it never resumes in another world. Never continues inline on a game thread.</summary>
-    /// <exception cref="KilnUnavailableException">No live server world here (tasks.pool).</exception>
-    /// <exception cref="InvalidOperationException">The task's work has ended, or the mod is unloading.</exception>
+    /// task is cancelled (also by its mod's unload) or that session ends first, the await throws the task's
+    /// <see cref="OperationCanceledException"/>; it never resumes in another world. Never continues inline on a game
+    /// thread.</summary>
+    /// <exception cref="KilnUnavailableException">No live server world here (tasks.pool), and the task is not
+    /// cancelled.</exception>
+    /// <exception cref="InvalidOperationException">The task's work has ended; or the mod is unloading and this is not the
+    /// task's own work.</exception>
     [RequiresCapability(TaskRun.Capability)]
     public GateWindow NextGateWindow()
     {
         _run.CheckUsable();
-        var session = _run.RequireServerWorld();
+        // a cancelled task waits for no window: its await throws the task's own OperationCanceledException, world or not
+        var session = _run.Token.IsCancellationRequested ? 0 : _run.RequireServerWorld();
         return new GateWindow(new TaskRun.GateState(_run, session));
     }
 

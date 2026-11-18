@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
 // The ways back to the tick over the fake pool: ToTick (a real hop to the tick thread, the fast path, a hop that loses to
 // a cancel, an unload or the world's end), OnTick, PostToTick (accounting, faults, cancellation) and NextGateWindow
-// (Post edges, STOPPING, a new session, never inline on a game thread), and the refusals without a live server world.
+// (Post edges, STOPPING, a new session, never inline on a game thread), the refusals without a live server world, and
+// each way to the tick while the mod unloads (the task's own work ends Cancelled, with nothing logged; code outside the
+// task is refused loudly).
 using Xunit;
 
 // The task bodies stand in for mod code (their own delays, no test token), and the test thread is the mod's own thread,
@@ -569,31 +571,256 @@ public sealed class TaskTickTests : TaskTest
         Assert.Equal(0, Pool.HopsQueued);
     }
 
-    [Fact]
-    public void A_KilnTaskContext_of_an_unloading_mod_refuses()
+    // ---- a way to the tick while the mod unloads ----
+
+    public enum Hop { ToTick, OnTick, PostToTick, NextGateWindow }
+
+    // The next round of a loop: one call of one way to the tick.
+    private static async Task NextRound(KilnTaskContext ctx, Hop hop)
+    {
+        switch (hop)
+        {
+            case Hop.ToTick:
+                await ctx.ToTick();
+                break;
+            case Hop.OnTick:
+                await ctx.OnTick(() => 1);
+                break;
+            case Hop.PostToTick:
+                ctx.PostToTick(() => { });
+                break;
+            case Hop.NextGateWindow:
+                await ctx.NextGateWindow();
+                break;
+        }
+    }
+
+    private void NoFaultLogged()
+    {
+        Pool.WaitIdle();  // the task's last segment, which would log a fault, has returned
+        lock (Backend.Lines) Assert.DoesNotContain(Backend.Lines, l => l.Contains("faulted", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(Hop.ToTick, false)]
+    [InlineData(Hop.OnTick, false)]
+    [InlineData(Hop.PostToTick, false)]
+    [InlineData(Hop.NextGateWindow, false)]
+    [InlineData(Hop.ToTick, true)]
+    [InlineData(Hop.OnTick, true)]
+    [InlineData(Hop.PostToTick, true)]
+    [InlineData(Hop.NextGateWindow, true)]
+    public void A_loop_that_hops_while_its_mod_unloads_ends_Cancelled_by_its_own_token_and_logs_nothing(Hop hop, bool worldGone)
     {
         var mod = NewMod("alpha");
-        using var started = new ManualResetEventSlim();
+        using var inRound = new ManualResetEventSlim();
         using var go = new ManualResetEventSlim();
         Exception? thrown = null;
-        var task = mod.Tasks.Run("unloading", ctx =>
+        var token = CancellationToken.None;
+        var finallyThread = 0;
+        var task = mod.Tasks.Run("loop", async ctx =>
         {
-            started.Set();
-            go.Wait(Long);
+            token = ctx.Cancellation;
             try
             {
-                ctx.PostToTick(() => { });
+                while (!ctx.Cancellation.IsCancellationRequested)
+                {
+                    inRound.Set();
+                    go.Wait(Long);  // the unload lands between the loop's check and its next hop
+                    await NextRound(ctx, hop);
+                }
             }
             catch (Exception e)
             {
                 thrown = e;
+                throw;
+            }
+            finally
+            {
+                finallyThread = Environment.CurrentManagedThreadId;
             }
         });
-        Assert.True(started.Wait(Long));
+        Assert.True(inRound.Wait(Long));
+        if (worldGone) Pool.StopSession();  // a hosting client leaving its world: the world stops, then its server-side mods unload
         mod.BeginUnload();
         go.Set();
         Ended(task);
-        Assert.IsType<InvalidOperationException>(thrown);
+        Assert.Equal(KilnTaskState.Cancelled, task.State);
+        var oce = Assert.IsAssignableFrom<OperationCanceledException>(thrown);
+        Assert.Equal(token, oce.CancellationToken);
+        Assert.True(Pool.IsWorker(finallyThread));
+        Assert.Equal(0, Pool.HopsQueued);  // nothing was handed to the tick
+        NoFaultLogged();
+    }
+
+    [Theory]
+    [InlineData(Hop.ToTick)]
+    [InlineData(Hop.OnTick)]
+    [InlineData(Hop.PostToTick)]
+    [InlineData(Hop.NextGateWindow)]
+    public void A_hop_after_the_unload_began_but_before_it_signalled_the_task_still_ends_it_Cancelled(Hop hop)
+    {
+        var mod = NewMod("alpha");
+        using var inRound = new ManualResetEventSlim();
+        using var go = new ManualResetEventSlim();
+        var token = CancellationToken.None;
+        var task = mod.Tasks.Run("loop", async ctx =>
+        {
+            token = ctx.Cancellation;
+            inRound.Set();
+            go.Wait(Long);
+            await NextRound(ctx, hop);
+        });
+        Assert.True(inRound.Wait(Long));
+        mod.UnloadTaskSeal = null;  // the moment between the unload's start and its signal to the mod's tasks
+        mod.BeginUnload();
+        Assert.False(token.IsCancellationRequested);
+        go.Set();
+        Ended(task);
+        Assert.Equal(KilnTaskState.Cancelled, task.State);
+        Assert.True(token.IsCancellationRequested);
         Assert.Equal(0, Pool.HopsQueued);
+        NoFaultLogged();
+    }
+
+    [Fact]
+    public void A_KilnTaskContext_used_outside_its_task_while_the_mod_unloads_throws_InvalidOperationException()
+    {
+        var mod = NewMod("alpha");
+        KilnTaskContext? kept = null;
+        var hold = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var task = mod.Tasks.Run("holds", async ctx =>
+        {
+            kept = ctx;
+            await hold.Task;  // suspended: its work has not ended
+        });
+        Pool.WaitIdle();
+        mod.BeginUnload();
+        // this thread is not the task's work: the mod's own mistake stays loud
+        var refused = new List<InvalidOperationException>
+        {
+            Assert.Throws<InvalidOperationException>(() => kept!.ToTick()),
+            Assert.Throws<InvalidOperationException>(() => Called(kept!.OnTick(() => 1))),
+            Assert.Throws<InvalidOperationException>(() => kept!.PostToTick(() => { })),
+            Assert.Throws<InvalidOperationException>(() => kept!.NextGateWindow()),
+        };
+        Assert.All(refused, e => Assert.Contains("the mod is unloading", e.Message));
+        Assert.Equal(0, Pool.HopsQueued);
+        hold.SetResult();
+        Ended(task);
+        Assert.Equal(KilnTaskState.Completed, task.State);  // it returned normally after the signal
+    }
+
+    [Fact]
+    public void Work_that_left_the_task_and_hops_while_the_mod_unloads_faults_the_task_loudly()
+    {
+        var mod = NewMod("alpha");
+        using var left = new ManualResetEventSlim();
+        using var go = new ManualResetEventSlim();
+        var task = mod.Tasks.Run("leaves", async ctx =>
+        {
+            await Task.Delay(1).ConfigureAwait(false);  // the rest runs on a .NET thread-pool thread, outside the task
+            left.Set();
+            go.Wait(Long);
+            await ctx.NextGateWindow();
+        });
+        Assert.True(left.Wait(Long));
+        mod.BeginUnload();
+        go.Set();
+        Ended(task);
+        Assert.Equal(KilnTaskState.Faulted, task.State);
+        Assert.Contains("the mod is unloading", Assert.IsType<InvalidOperationException>(task.Fault).Message);
+        Assert.True(SpinWait.SpinUntil(() => Backend.Logged("task 'leaves' faulted"), 20000));
+    }
+
+    [Theory]
+    [InlineData(Hop.ToTick)]
+    [InlineData(Hop.OnTick)]
+    [InlineData(Hop.PostToTick)]
+    [InlineData(Hop.NextGateWindow)]
+    public void A_child_task_that_hops_with_its_parents_KilnTaskContext_while_the_mod_unloads_faults_loudly(Hop hop)
+    {
+        var mod = NewMod("alpha");
+        KilnTaskContext? parentContext = null;
+        var hold = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var parent = mod.Tasks.Run("parent", async ctx =>
+        {
+            parentContext = ctx;
+            await hold.Task;  // suspended: its work has not ended
+        });
+        Pool.WaitIdle();
+        using var inChild = new ManualResetEventSlim();
+        using var go = new ManualResetEventSlim();
+        var child = mod.Tasks.Run("child", async ctx =>
+        {
+            inChild.Set();
+            go.Wait(Long);
+            await NextRound(parentContext!, hop);  // the parent's context, inside another task's work: the mod's mistake
+        });
+        Assert.True(inChild.Wait(Long));
+        mod.BeginUnload();
+        go.Set();
+        Ended(child);
+        Assert.Equal(KilnTaskState.Faulted, child.State);
+        var refused = Assert.IsType<InvalidOperationException>(child.Fault);
+        Assert.Contains("this is the task 'child', not 'parent'", refused.Message);
+        Assert.Equal(0, Pool.HopsQueued);
+        Assert.True(SpinWait.SpinUntil(() => Backend.Logged("task 'child' faulted"), 20000));
+        hold.SetResult();
+        Ended(parent);
+        Assert.Equal(KilnTaskState.Completed, parent.State);  // the child's misuse ended nothing of the parent
+    }
+
+    [Theory]
+    [InlineData(Hop.ToTick, false)]
+    [InlineData(Hop.OnTick, false)]
+    [InlineData(Hop.PostToTick, false)]
+    [InlineData(Hop.NextGateWindow, false)]
+    [InlineData(Hop.ToTick, true)]
+    [InlineData(Hop.OnTick, true)]
+    [InlineData(Hop.PostToTick, true)]
+    [InlineData(Hop.NextGateWindow, true)]
+    public void A_hop_after_a_continuation_that_resumed_while_the_mod_unloads_ends_the_task_Cancelled(Hop hop, bool fromTick)
+    {
+        var mod = NewMod("alpha");
+        using var waiting = new ManualResetEventSlim();
+        var resume = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Exception? thrown = null;
+        var token = CancellationToken.None;
+        var resumedInTask = false;
+        var task = mod.Tasks.Run("resumes", async ctx =>
+        {
+            token = ctx.Cancellation;
+            try
+            {
+                if (fromTick) await ctx.ToTick();  // the await below then captures the task's tick context
+                waiting.Set();
+                await resume.Task.ConfigureAwait(true);  // resumes during the unload, in the task (a worker)
+                resumedInTask = TaskExecutionScope.Current is not null && !TaskExecutionScope.OnTick;
+                await NextRound(ctx, hop);
+            }
+            catch (Exception e)
+            {
+                thrown = e;
+                throw;
+            }
+        });
+        Assert.True(SpinWait.SpinUntil(() =>
+        {
+            if (fromTick) Pool.Step();  // the hop to the tick, once the worker has queued it
+            return waiting.IsSet;
+        }, 20000));
+        Pool.WaitIdle();
+        mod.BeginUnload();
+        resume.SetResult();
+        Assert.True(SpinWait.SpinUntil(() =>
+        {
+            if (!task.IsTerminal) Pool.Step();  // a continuation queued for the tick is dispatched cancelled there
+            return task.IsTerminal;
+        }, 20000), $"the task did not end ({task.State})");
+        Assert.Equal(KilnTaskState.Cancelled, task.State);
+        Assert.True(resumedInTask);
+        Assert.Equal(token, Assert.IsAssignableFrom<OperationCanceledException>(thrown).CancellationToken);
+        NoFaultLogged();
     }
 }

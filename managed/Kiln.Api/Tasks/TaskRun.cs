@@ -521,11 +521,24 @@ internal sealed class TaskRun
 
     // ---- usable context ----
 
+    /// <summary>The check every way to the tick starts with. A context kept after its work returned throws. While the
+    /// mod unloads, the task's own work finds its task cancelled (the unload signals the token; this makes sure it is
+    /// signalled by now), so the way to the tick ends the task Cancelled through its own token, as after a cancel, and
+    /// nothing is logged. Code outside the task's work (a raw thread, Task.Run, code after ConfigureAwait(false)) that
+    /// uses the context then throws instead: that is the mod's mistake, and it stays loud.</summary>
     internal void CheckUsable()
     {
         if (Volatile.Read(ref _bodyEnded)) throw new InvalidOperationException($"the task '{Name}' has ended: its KilnTaskContext no longer works");
-        if (!OwnerAlive) throw new InvalidOperationException("the mod is unloading");
+        if (OwnerAlive) return;
+        if (TaskExecutionScope.Current != this) throw new InvalidOperationException(UsedOutsideDuringUnload());
+        RequestCancel();
     }
+
+    private string UsedOutsideDuringUnload() => TaskExecutionScope.Current is { } other
+        ? $"the mod is unloading, and this is the task '{other.Name}', not '{Name}': a KilnTaskContext works only inside its own task's work"
+        : TaskExecutionScope.FlowedIdentity is { } from
+            ? $"the mod is unloading, and this code left the task {from} (ConfigureAwait(false), Task.Run or a thread it started): only the task's own work ends cancelled here. Keep the awaits in the task: drop ConfigureAwait(false)."
+            : $"the mod is unloading, and this thread is not running the task '{Name}': its KilnTaskContext works only inside the task's own work";
 
     /// <summary>The live server session, or <see cref="KilnUnavailableException"/> naming tasks.pool.</summary>
     internal ulong RequireServerWorld()
