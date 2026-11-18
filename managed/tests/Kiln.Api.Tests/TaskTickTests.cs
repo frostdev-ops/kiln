@@ -641,7 +641,7 @@ public sealed class TaskTickTests : TaskTest
             }
         });
         Assert.True(inRound.Wait(Long));
-        if (worldGone) Pool.StopSession();  // a hosting client leaving its world: the world stops, then its mods unload
+        if (worldGone) Pool.StopSession();  // a hosting client leaving its world: the world stops, then its server-side mods unload
         mod.BeginUnload();
         go.Set();
         Ended(task);

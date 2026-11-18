@@ -53,11 +53,12 @@ public sealed class KilnTaskContext
         return new TickHop(new TaskRun.HopState(_run));
     }
 
-    /// <summary>Runs <paramref name="apply"/> once on the server tick and gives its result back: <c>var n = await
-    /// ctx.OnTick(() =&gt; Inventory.Count(player));</c>. The code after the await continues where it was (on a worker
-    /// inside the task). Called on this task's tick, <paramref name="apply"/> runs at once. If the task is cancelled (also by
-    /// its mod's unload), or the world stops, before it ran, it never runs and the Task is cancelled with the task's own
-    /// token; an exception from <paramref name="apply"/> comes back through the Task.</summary>
+    /// <summary>Runs <paramref name="apply"/> once on the server tick and gives its result back: <c>var near = await
+    /// ctx.OnTick(() =&gt; NearOnTick(at));</c>, where <c>NearOnTick</c> is the mod's own tick-only code (as in the
+    /// FetchNearby sample). The code after the await continues where it was (on a worker inside the task). Called on this
+    /// task's tick, <paramref name="apply"/> runs at once. If the task is cancelled (also by its mod's unload), or the world
+    /// stops, before it ran, it never runs and the Task is cancelled with the task's own token; an exception from
+    /// <paramref name="apply"/> comes back through the Task.</summary>
     /// <exception cref="ArgumentNullException"><paramref name="apply"/> is null.</exception>
     /// <exception cref="KilnUnavailableException">No live server world here (tasks.pool), and the task is not
     /// cancelled.</exception>

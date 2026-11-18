@@ -192,6 +192,10 @@ A client mod's tasks run on the same pool, also on a client joined to someone el
   `NextGateWindow` throw `KilnUnavailableException` (`tasks.pool`).
 - **While this client hosts**, they land on the server world's tick, the game's server thread, not on its main thread,
   where the client world and the UI run.
+- **When the hosted world stops**, a `client` or `both` mod stays loaded ([lifecycle.md](lifecycle.md)), so nothing
+  cancels its tasks. A hop still pending then ends its task `Cancelled`, but a new one throws
+  `KilnUnavailableException`, which faults the task. A task that should outlive the world catches it; a side `server`
+  mod unloads with the world, and its tasks end `Cancelled` as above.
 
 To hand a result to the game's main thread, call `Client.Post` (Kiln.Client: `Client` in `<KilnServices>`) from the
 task. It works from any thread and runs the work on the main thread before the client world's next step:
