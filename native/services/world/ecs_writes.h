@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -147,7 +148,8 @@ public:
     Writer(const Writer&) = delete;
     Writer& operator=(const Writer&) = delete;
 
-    // Whether writes can work on this build at all (exact profile, the gate members, an enabled write gate, the reads).
+    // Whether writes can work on this build at all (exact profile, the gate members, an enabled write gate, the reads,
+    // kiln.types).
     bool available() const;
     const char* unavailable_reason() const;
 
@@ -156,13 +158,18 @@ public:
                                 const void* mask, const void* desired, uint32_t bytes, void* confirmed,
                                 KilnMutationReply* reply);
     KilnResult subscribe(KilnOwner owner, KilnEcsWriteEventFn fn, void* user, KilnHandle* out);
+    // No callback of the subscription starts after it returns. Called from a thread other than the draining one, it
+    // also waits for a callback of it that is running there to return (a callback that waits on that thread
+    // deadlocks); from inside a callback it does not wait. The drains run on the server world's thread only, so on
+    // the tick outside a drain no callback is running and it never waits.
     KilnResult unsubscribe(KilnHandle handle);
 
     // Delivers the published events to the live subscriptions, in order, under fault containment. One thread at a time
     // (a second caller returns at once). The server tick's Pre and the server world's STOPPING.
     size_t drain();
     // The owner unloads or reloads (kiln.hooks' owner-retiring observer): its calls answer stale from now on and its
-    // subscriptions end.
+    // subscriptions end. It never waits (the observer must not): a callback of the owner already under way on the
+    // draining thread may still finish.
     void owner_retired(KilnOwner owner);
 
     // For tests and diagnostics.
@@ -180,6 +187,7 @@ private:
         KilnEcsWriteEventFn fn = nullptr;
         void* user = nullptr;
         std::atomic<bool> alive{true};
+        std::atomic<uint32_t> calls{0};  // callbacks of it running now (the drain's; unsubscribe waits for them)
     };
     struct CachedPolicy {
         KilnEcsWritePolicy policy{};
@@ -201,6 +209,7 @@ private:
     KilnHandle next_handle_ = 0;
     std::atomic<uint64_t> retirements_{0};
     std::mutex drain_mu_;
+    std::atomic<std::thread::id> drainer_{};  // the thread inside drain() now (none: default)
     std::atomic<uint64_t> faults_{0};
     std::atomic<bool> widened_logged_{false};
 };

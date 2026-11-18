@@ -132,7 +132,8 @@ public sealed unsafe class UiLanguageTests : IDisposable
         Assert.Equal(24, (int)Marshal.OffsetOf<UiNative.Texts>(nameof(UiNative.Texts.Keys)));
         Assert.Equal(1008, (int)Marshal.OffsetOf<UiNative.TableTexts>(nameof(UiNative.TableTexts.SetTexts)));
         var h = File.ReadAllText(Path.Combine(RepoRoot(), "native", "core", "abi", "services", "kiln_ui.h"));
-        Assert.Contains("KilnResult(KILN_CALL* set_texts)(const KilnUiTexts* texts);\n} KilnUiApi;", h, StringComparison.Ordinal);
+        // the graphics tail (0.2.0-dev.29.18) follows it: GraphicsTests checks that one
+        Assert.Contains("KilnResult(KILN_CALL* set_texts)(const KilnUiTexts* texts);\n", h, StringComparison.Ordinal);
     }
 
     private static string RepoRoot([CallerFilePath] string source = "")

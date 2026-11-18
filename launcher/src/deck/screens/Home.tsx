@@ -4,12 +4,12 @@ import { StoppedStartNotice } from "../../shell/StoppedStartNotice";
 // the default is named; profiles are switched in Settings (the desktop UI's, or the Deck's).
 // When ShroudForge's startup pass failed at the last start (engine_status `startupFailed`, sf_startup.rs), a line says
 // so and a button opens the whole text (what happened, the mods it left out, what to change) in a dialog the right stick
-// scrolls: on a Deck nothing else shows it (player report 327).
+// scrolls: on a Deck nothing else shows it (player report 327). When the pass failed in one mod and ran again without it
+// (`startupSkipped`), the same line and dialog name that mod; the other mods loaded.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import * as api from "../../api/commands";
-import type { SfStartupNote } from "../../api/commands";
 import { useGame, useGameStatus, useLaunchState, usePoll, useRuntimeChanges } from "../../api/hooks";
 import { engineStatusKey } from "../../components/EngineStatus";
 import { errorText } from "../../ui";
@@ -43,10 +43,18 @@ export default function Home() {
   const change = useRuntimeChanges((s) => (game ? s.last[game.id] : undefined));
   const engines = useQuery({ queryKey: engineStatusKey(game?.id ?? ""), queryFn: () => api.engineStatus(game!.id), enabled: !!game,
     refetchInterval: usePoll(10_000) });
-  const sfStartup = engines.data?.find((e) => e.kind === "shroudforge")?.startupFailed ?? null;
+  const sfRow = engines.data?.find((e) => e.kind === "shroudforge");
+  const sfStartup = sfRow?.startupFailed ?? null;
+  const sfSkipped = sfStartup ? null : sfRow?.startupSkipped ?? null;
+  // what the line and its dialog say: a failed pass, or a pass that ran without one mod
+  const sfNote: SfNote | null = sfStartup
+    ? { title: sfStartup.mods.length ? t("deck.home.sfModsTitle") : t("deck.home.sfPassTitle"), text: sfStartup.text,
+        word: sfStartup.mods.length ? t("deck.home.sfModsFailed") : t("deck.home.sfPassFailed") }
+    : sfSkipped ? { title: t("deck.home.sfSkippedTitle"), text: sfSkipped.text,
+        word: t("deck.home.sfModSkipped", { count: Math.max(1, sfSkipped.skipped.length) }) } : null;
   const [open, setOpen] = useState<Open>(null);
   // the note the dialog shows: the one A was pressed on (a poll that changes it neither closes nor reopens the dialog)
-  const [sfOpen, setSfOpen] = useState<SfStartupNote | null>(null);
+  const [sfOpen, setSfOpen] = useState<SfNote | null>(null);
   const s = status.data;
   const rt = s?.runtime;
   const v = ctl.view;
@@ -109,12 +117,12 @@ export default function Home() {
           </div>
         )}
         {game && !tl && <p className="deck-line" data-testid="deck-last-boot"><span className="deck-label">{t("deck.home.lastBoot")}</span> <Word tone={boot.tone}>{boot.text}</Word></p>}
-        {game && sfStartup && (
-          <p className="deck-line" data-testid="deck-sf-startup"><span className="deck-label">{t("deck.home.shroudforge")}</span> <Word tone="warn">{sfStartup.mods.length ? t("deck.home.sfModsFailed") : t("deck.home.sfPassFailed")}</Word></p>
+        {game && sfNote && (
+          <p className="deck-line" data-testid="deck-sf-startup"><span className="deck-label">{t("deck.home.shroudforge")}</span> <Word tone="warn">{sfNote.word}</Word></p>
         )}
         <div className="deck-home-actions">
           {/* once the game's state is known, as the other actions: the arch takes the first focus (it is disabled before) */}
-          {game && rt && v.phase !== "none" && sfStartup && <DeckButton id="sf-startup" a={t("deck.shared.read")} onClick={() => setSfOpen(sfStartup)}>{t("deck.home.sfWhy")}</DeckButton>}
+          {game && rt && v.phase !== "none" && sfNote && <DeckButton id="sf-startup" a={t("deck.shared.read")} onClick={() => setSfOpen(sfNote)}>{t("deck.home.sfWhy")}</DeckButton>}
           {!game && !looking && tried && <DeckButton id="pick-folder" a={t("common.open")} onClick={() => setOpen("find")}>{t("deck.home.pickFolder")}</DeckButton>}
           {game && rt && !rt.installed && !kiln.shroudforge && !kiln.installing && ctl.canPlay && (
             <DeckButton id="install" onClick={() => setOpen("install")}>{t("deck.shared.installKiln")}</DeckButton>
@@ -146,12 +154,15 @@ export default function Home() {
   );
 }
 
-/** ShroudForge's failed startup pass in full: a long text (the mods it left out, the cure), so the body scrolls with the
- *  right stick, as the Deck's notices do; A on OK or B closes it. */
-function SfStartupDialog({ note, onClose }: { note: SfStartupNote; onClose: () => void }) {
+/** What Home's ShroudForge line says: its word, and the dialog's title and text. */
+type SfNote = { title: string; text: string; word: string };
+
+/** ShroudForge's failed startup pass, or its pass that ran without one mod, in full: a long text (the mods it left out,
+ *  the cure or what to do), so the body scrolls with the right stick, as the Deck's notices do; A on OK or B closes it. */
+function SfStartupDialog({ note, onClose }: { note: SfNote; onClose: () => void }) {
   const t = useT();
   return (
-    <Dialog name="sf-startup" title={note.mods.length ? t("deck.home.sfModsTitle") : t("deck.home.sfPassTitle")} wide onClose={onClose}
+    <Dialog name="sf-startup" title={note.title} wide onClose={onClose}
       backLabel={t("common.close")} buttons={<DeckButton primary onClick={onClose}>{t("common.ok")}</DeckButton>}>
       <div className="deck-scroll" data-kind="warn" style={{ overflowWrap: "anywhere" }}>{note.text}.</div>
     </Dialog>

@@ -71,9 +71,10 @@ inline bool capturing() {
 // Something to draw this frame. The native fallback menu counts too.
 extern std::atomic<uint32_t> g_render_demand;  // kiln.render acquire_frames handles (render.cpp)
 extern std::atomic<uint32_t> g_footer_demand;  // Kiln's mark next to its line in the main menu's footer (menu_footer.cpp)
+extern std::atomic<uint32_t> g_graphics_demand;  // the graphics readout (graphics.cpp)
 inline bool want_draw() {
     return overlay_drawing_on() && (capturing() || g_demand.load(std::memory_order_relaxed) > 0 || g_render_demand.load(std::memory_order_relaxed) > 0 ||
-                                    g_footer_demand.load(std::memory_order_relaxed) > 0);
+                                    g_footer_demand.load(std::memory_order_relaxed) > 0 || g_graphics_demand.load(std::memory_order_relaxed) > 0);
 }
 bool in_frame();  // the calling thread is inside the overlay frame's callbacks (drawing calls work)
 
@@ -231,8 +232,25 @@ bool image_texture(KilnHandle h, ImTextureRef* out);  // render thread
 bool render_install();                 // plugin main: the camera hook (feature render.camera)
 const void* render_table();            // the KilnRenderApi
 
+// ---- graphics.cpp (Kiln's own graphics tools: the frame cap, DLSS settings, the readout; docs/kiln/graphics.md) ----
+void graphics_start(bool optiscaler, bool streamline);  // plugin main, after overlay_guard_start: kiln.json, what steps aside
+bool graphics_wants_load_hook();  // DLSS is to be hooked when NVIDIA's DLSS core loads (the LoadLibraryExW hook must be in)
+void graphics_after_load();       // after every library load (load_hook.h; may hold the loader lock): NVIDIA's DLSS core
+void graphics_present();          // render thread, right after the game's frame went to vkQueuePresentKHR (no lock held):
+                                  // the frame counts, and the frame cap's wait for the game's next slot
+extern std::atomic<bool> g_graphics_present;  // graphics_present has work: the cap or the readout is on, or was just
+                                              // turned off (its counts are cleared once)
+// vk.cpp's present hook, after the game's present: one relaxed load while the frame cap and the readout are off.
+inline void graphics_after_present() {
+    if (g_graphics_present.load(std::memory_order_relaxed)) graphics_present();
+}
+void graphics_overlay();          // render thread, inside the ImGui frame: the readout
+KilnResult graphics_set(const KilnUiGraphics* settings);  // any thread (Kiln.Ui; ui.cpp refuses native plugins)
+KilnResult graphics_status(KilnUiGraphicsStatus* out);     // any thread
+
 // ---- vk.cpp ----
 bool vk_install();  // called once vulkan-1.dll is loaded (from the LoadLibraryExW hook)
+void vk_extent(uint32_t* width, uint32_t* height);  // the game window's swapchain (any thread; 0 before one exists)
 void vk_status(KilnUiStatus* out);
 uint64_t vk_presents();  // frames the game presented through Kiln's present hook (the overlay crash guard)
 KilnResult vk_subscribe_pre_overlay(KilnUiPreOverlayFn fn, KilnUiSwapchainGoneFn gone, void* user, KilnHandle* out);

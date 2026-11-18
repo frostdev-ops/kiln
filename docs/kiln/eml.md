@@ -125,6 +125,7 @@ Each candidate is classified. Only EML mods run; everything else is logged and l
 |---|---|---|
 | `mod.json` (valid EML manifest) + `src/mod.lua`, or such a `.zip` | run | |
 | no `mod.json` | skipped | not an EML mod (logged quietly) |
+| no `mod.json` but a `kiln.mod.json` (a Kiln mod, folder or zip), or a subfolder of a Kiln mod unzipped loose (a `kiln.mod.json` next to it) | skipped | a Kiln mod: add its zip in the launcher's Library, or on a server unzip it into `kiln/mods/<mod>/` (logged as a warning) |
 | `flame.json` | skipped | a Flame mod |
 | `mod.json` with `dll`/`main`/`emf`/`emfMin`/`emf_api` | skipped | an EMF mod |
 | `extended.mod.json` whose `launcher` is not `"EML"` | skipped | a ShroudForge package (ShroudForge's runtime runs it) |
@@ -721,7 +722,7 @@ focused test commands are in `gpl/kiln-eml/README.md`; the existing 89-function 
   prints the state JSON.
 
 ### Offline content check (2026-11-07, server build 1287369)
-Test mods (in `/mnt/Dongus/kiln-wave/eml/testmods/`, not in the repo):
+Test mods (kept outside the repository):
 - `kiln_eml_slice` sets `keen::BalancingTable.playerBaseStamina` = 777;
 - `kiln_eml_verify` (export) reads it back;
 - `kiln_eml_probe` calls the whole API;

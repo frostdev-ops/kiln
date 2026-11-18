@@ -906,7 +906,11 @@ VkResult VKAPI_CALL hk_present(VkQueue queue, const VkPresentInfoKHR* info) {
         if (g_failed && wheel_active()) wheel_cancel_undrawable();  // it can never be drawn or picked: release the input
         // capture just ended with nothing left to draw: still give the game its cursor clip back (render thread)
         if (imgui_ready()) input_capture_changed();
-        return R.present.load()(queue, info);
+        const VkResult result = R.present.load()(queue, info);
+        // Kiln's frame cap: the frame is shown as soon as it is done, then the game waits for its next slot before it
+        // starts the next one, as a limiter in the game would (one relaxed load while off). No lock is held here.
+        graphics_after_present();
+        return result;
     }
     // the crash guard watches the overlay's first draw attempt of this process (its resources and ImGui are made there,
     // also when the frame turns out empty), also when the start already counted as fine; one atomic read after that
@@ -926,12 +930,17 @@ VkResult VKAPI_CALL hk_present(VkQueue queue, const VkPresentInfoKHR* info) {
                   wcsrchr(path, L'\\') ? wcsrchr(path, L'\\') + 1 : path,
                   m ? static_cast<unsigned long long>(reinterpret_cast<uintptr_t>(g_fault_addr) - reinterpret_cast<uintptr_t>(m)) : 0ull);
     }
-    if (!drew) return R.present.load()(queue, info);
+    if (!drew) {
+        const VkResult result = R.present.load()(queue, info);
+        graphics_after_present();  // Kiln's frame cap after the present (g_mu was released by guarded_draw)
+        return result;
+    }
     VkPresentInfoKHR p = *info;
     p.waitSemaphoreCount = 1;
     p.pWaitSemaphores = &wait;
     const VkResult result = R.present.load()(queue, &p);
     if (result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR) overlay_guard_stage(overlay_guard::Stage::frame);
+    graphics_after_present();  // Kiln's frame cap after the present (g_mu was released by guarded_draw)
     return result;
 }
 
@@ -1312,6 +1321,10 @@ void vk_set_pre_overlay_demand(uint32_t count) { if (!overlay_drawing_on()) retu
 void vk_add_swapchain_usage(uint32_t usage) { if (!overlay_drawing_on()) return; g_extra_usage.fetch_or(usage); }
 
 uint64_t vk_presents() { return g_presents.load(std::memory_order_relaxed); }
+void vk_extent(uint32_t* width, uint32_t* height) {
+    if (width) *width = g_width.load();
+    if (height) *height = g_height.load();
+}
 
 void vk_status(KilnUiStatus* out) {
     if (!overlay_drawing_on()) return;

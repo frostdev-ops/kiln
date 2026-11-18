@@ -1343,8 +1343,9 @@ public sealed class ModCatalogTests : IDisposable
     public void Sections_wrap_both_ways()
     {
         Assert.Equal(ModManagerSection.Network, ModManagerLogic.Step(ModManagerSection.Mods, 1));
-        Assert.Equal(ModManagerSection.Overlay, ModManagerLogic.Step(ModManagerSection.Mods, -1));
-        Assert.Equal(ModManagerSection.Mods, ModManagerLogic.Step(ModManagerSection.Overlay, 1));
+        Assert.Equal(ModManagerSection.Graphics, ModManagerLogic.Step(ModManagerSection.Mods, -1));
+        Assert.Equal(ModManagerSection.Graphics, ModManagerLogic.Step(ModManagerSection.Overlay, 1));
+        Assert.Equal(ModManagerSection.Mods, ModManagerLogic.Step(ModManagerSection.Graphics, 1));
     }
 
     [Fact]

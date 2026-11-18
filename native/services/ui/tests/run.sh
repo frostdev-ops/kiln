@@ -8,6 +8,10 @@ export KILN_OUT
 out=$KILN_OUT/ui-host-test
 mkdir -p "$out"
 bash "$here/run-window-constraints.sh"
+# Kiln's graphics tools: the frame cap's pacing, kiln.json "graphics", the DLSS render size, when they step aside, NGX's
+# parameter slots (frame_pacer.h, graphics_settings.h, graphics_aside.h, ngx_param.h): plain logic
+g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined -I"$here/../../../third_party" "$here/graphics_test.cpp" -o "$out/graphics_test"
+"$out/graphics_test" "$out"
 # the overlay's image budget: the descriptor pool holds every image Kiln lets exist, uploads spread over frames (image_budget.h)
 g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined "$here/image_budget_test.cpp" -o "$out/image_budget_test"
 "$out/image_budget_test" "$here/../vk.cpp"

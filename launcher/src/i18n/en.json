@@ -1344,6 +1344,10 @@
       "lastBoot": "Last boot",
       "sfModsFailed": "mods did not load",
       "sfPassFailed": "startup pass failed",
+      "sfModSkipped": {
+        "one": "one mod left out, the others loaded",
+        "other": "{count} mods left out, the others loaded"
+      },
       "sfWhy": "ShroudForge: why, and what to do",
       "pickFolder": "Pick folder",
       "updateKiln": "Update Kiln",
@@ -1352,7 +1356,8 @@
       "notLoading": "Kiln is not loading",
       "mouthAria": "{word}: {sub}",
       "sfModsTitle": "ShroudForge mods did not load",
-      "sfPassTitle": "ShroudForge's startup pass failed"
+      "sfPassTitle": "ShroudForge's startup pass failed",
+      "sfSkippedTitle": "ShroudForge left a mod out"
     },
     "mods": {
       "notTaken": "not taken",
@@ -2453,6 +2458,7 @@
         "one": "{names} needs a newer Kiln.",
         "other": "{names} need a newer Kiln."
       },
+      "graphicsTool": "{name} is installed ({file})",
       "settingAsi": "One Steam setting for Ultimate ASI Loader",
       "notLoading": "Kiln is not loading",
       "didNotStart": "Kiln did not start",
@@ -2770,6 +2776,32 @@
       "notInstalledHint": "Install it on Runtime first.",
       "unavailable": "kiln.json unavailable",
       "overrides": "\"client\" and \"server\" override sections are kept as they are."
+    },
+    "graphics": {
+      "title": "Graphics",
+      "sub": "Kiln's own graphics tools in the game, also in the game's Kiln menu (Insert) under Graphics. The frame cap and the readout apply at once, DLSS settings when the game next sets up DLSS.",
+      "aside": {
+        "line": "{tool}: {effect}",
+        "optiscaler": "OptiScaler is installed ({file})",
+        "streamline": "NVIDIA Streamline is in the game folder ({file})",
+        "vkfg": "A DLSS frame generation mod is installed ({file})",
+        "dlsstweaks": "DLSSTweaks is installed ({file})",
+        "nvngx": "Another DLSS loader is in the game folder ({file})",
+        "unknown": "Another graphics tool is in the game folder ({file})",
+        "frameCap": "Kiln's frame cap and DLSS settings step aside; the readout still works.",
+        "dlss": "Kiln's DLSS settings step aside; the frame cap and the readout still work."
+      },
+      "labels": {
+        "fpsCap": "Frame cap",
+        "dlssPreset": "DLSS render preset",
+        "dlssScale": "DLSS render size",
+        "dlssRenderScale": "DLSS render scale, every mode",
+        "dlssQualityScale": "DLSS render scale, Quality",
+        "dlssBalancedScale": "DLSS render scale, Balanced",
+        "dlssPerformanceScale": "DLSS render scale, Performance",
+        "dlssUltraPerformanceScale": "DLSS render scale, Ultra Performance",
+        "readout": "Readout"
+      }
     },
     "art": {
       "icons": "{count:N0} icons",

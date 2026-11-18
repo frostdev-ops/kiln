@@ -159,6 +159,7 @@ const char* Writer::unavailable_reason() const {
         return "this build's engine profile does not locate the change-tracking bits";
     engine::Reader* reader = src_.reader ? src_.reader(src_.user) : nullptr;
     if (!reader || !reader->source().reads) return "entity reads are off on this build (see world.ecs_read)";
+    if (!src_.types) return "kiln.types is not here (the policy needs its reflection)";
     return nullptr;
 }
 
@@ -419,14 +420,24 @@ KilnResult Writer::subscribe(KilnOwner owner, KilnEcsWriteEventFn fn, void* user
 }
 
 KilnResult Writer::unsubscribe(KilnHandle handle) {
-    std::lock_guard lock(mu_);
-    for (auto it = subs_.begin(); it != subs_.end(); ++it) {
-        if ((*it)->handle != handle) continue;
-        (*it)->alive.store(false, std::memory_order_release);
-        subs_.erase(it);
-        return KILN_OK;
+    std::shared_ptr<Subscription> gone;
+    {
+        std::lock_guard lock(mu_);
+        for (auto it = subs_.begin(); it != subs_.end(); ++it) {
+            if ((*it)->handle != handle) continue;
+            gone = *it;
+            gone->alive.store(false, std::memory_order_seq_cst);
+            subs_.erase(it);
+            break;
+        }
     }
-    return KILN_ERR_NOT_FOUND;
+    if (!gone) return KILN_ERR_NOT_FOUND;
+    // A callback the drain started before it saw `alive` cleared runs to its end first (drain() raises `calls` before it
+    // reads `alive`, both sequentially consistent, so one of the two sees the other). Not from inside a callback: the
+    // draining thread would wait for itself.
+    if (drainer_.load(std::memory_order_seq_cst) != std::this_thread::get_id())
+        while (gone->calls.load(std::memory_order_seq_cst) != 0) std::this_thread::yield();
+    return KILN_OK;
 }
 
 size_t Writer::subscriptions() const {
@@ -442,7 +453,7 @@ void Writer::owner_retired(KilnOwner owner) {
         retired_.insert(owner);
         for (auto it = subs_.begin(); it != subs_.end();) {
             if ((*it)->owner == owner) {
-                (*it)->alive.store(false, std::memory_order_release);
+                (*it)->alive.store(false, std::memory_order_seq_cst);
                 it = subs_.erase(it);
             } else {
                 ++it;
@@ -467,6 +478,11 @@ void deliver(void* p) {
 size_t Writer::drain() {
     std::unique_lock drain(drain_mu_, std::try_to_lock);
     if (!drain.owns_lock()) return 0;
+    drainer_.store(std::this_thread::get_id(), std::memory_order_seq_cst);
+    struct Done {
+        std::atomic<std::thread::id>& drainer;
+        ~Done() { drainer.store(std::thread::id{}, std::memory_order_seq_cst); }
+    } done{drainer_};
     size_t total = 0;
     KilnEcsWriteEvent batch[64];
     for (size_t n; (n = ring_.take(batch, 64)) > 0;) {
@@ -477,10 +493,17 @@ size_t Writer::drain() {
         }
         for (size_t i = 0; i < n; ++i) {
             for (const auto& s : subs) {
-                if (!s->alive.load(std::memory_order_acquire)) continue;  // unsubscribed, also during this drain
+                // Unsubscribed, also during this drain. `calls` first: an unsubscribe on another thread that clears
+                // `alive` after this read sees the call and waits for it.
+                s->calls.fetch_add(1, std::memory_order_seq_cst);
+                if (!s->alive.load(std::memory_order_seq_cst)) {
+                    s->calls.fetch_sub(1, std::memory_order_seq_cst);
+                    continue;
+                }
                 Delivery d{s->fn, &batch[i], s->user};
                 unsigned long code = 0;
                 const bool ok = src_.guarded ? src_.guarded(&deliver, &d, &code) : (deliver(&d), true);
+                s->calls.fetch_sub(1, std::memory_order_seq_cst);
                 if (ok) continue;
                 // A faulting subscriber is ended and the drain goes on.
                 faults_.fetch_add(1, std::memory_order_relaxed);

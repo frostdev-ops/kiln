@@ -679,7 +679,7 @@ public sealed unsafe class GameDataRegistry : IReadOnlyList<GameDataEntry>
 
 /// <summary>One template, arsenal, sub-sequence, buff, perk, skill node or item. A handle: values are read from the
 /// game each time; changes are layers of the calling mod (reverted when it unloads).</summary>
-public sealed unsafe class GameDataEntry
+public sealed unsafe partial class GameDataEntry
 {
     internal GameDataEntry(GameDataSection section, in GameDataNative.Entry e)
     {

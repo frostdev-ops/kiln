@@ -582,7 +582,7 @@ Nothing waits: a call that cannot take the gate now answers busy at once.
 | `ecs_write_policy(world_kind, component, &policy)` | whether a task may write this component, and why not. Any thread |
 | `ecs_compare_exchange(owner, &ref, component, expected, mask, desired, bytes, confirmed, &reply)` | compare the whole component with `expected`; when equal, write `desired` under `mask`. Any thread but a world's own |
 | `ecs_write_subscribe(owner, fn, user, &handle)` | `fn` once per committed write, on the server tick, after the write's gate was released |
-| `ecs_write_unsubscribe(handle)` | no later event reaches it; safe during a delivery, also from inside the callback |
+| `ecs_write_unsubscribe(handle)` | no later event reaches it. From another thread it waits for a callback of it that is running to return, so a callback must never wait on a thread that may unsubscribe it (a deadlock); from inside a callback it returns at once; on the tick outside a delivery it never waits |
 
 **What may be written.** Only what the policy admits, decided by rules, never by a list of names:
 
@@ -628,7 +628,7 @@ from the engine at run time, and the in-game check below lists them.
 | `STALE` | `KILN_ECS_ERR_STALE` | the generation, session, layout or reload epoch changed, the ref is another owner's, or the calling owner is unloading or unloaded | no: open the entity again |
 | `NOT_WRITABLE` | `KILN_ECS_ERR_NOT_WRITABLE` | the policy refuses the component, `bytes` is not its size, or a tracking bit was set when the hold read it | no |
 | `UNCERTAIN` | `KILN_ECS_ERR_UNCERTAIN` | a write was attempted and neither its readback nor a rollback proved the bytes; also every later call on that target this session (`TARGET_LATCHED`) | no |
-| `UNAVAILABLE` | `KILN_ERR_UNAVAILABLE` | no exact profile or write gate, not the server world, no server world, or the server world is stopping | use the tick |
+| `UNAVAILABLE` | `KILN_ERR_UNAVAILABLE` | no exact profile or write gate, no kiln.types, not the server world, no server world, or the server world is stopping | use the tick |
 | `ABSENT` | `KILN_ERR_NOT_FOUND` | the entity is gone, or has no such component | |
 | `UNREADABLE` | `KILN_ECS_ERR_UNREADABLE` | a read faulted before any write; or a write was rolled back and the rollback proven (`ROLLED_BACK`): the bytes are as they were | yes |
 
@@ -644,7 +644,7 @@ server session answers uncertain (one `kiln.log` line says so). A new session cl
 wrote, session, step), delivered in the order of the holds, on the server tick in kiln.world's Pre, after the write's
 gate was released; at the server world's STOPPING what is left is delivered on the stopping thread. Callbacks run under
 kiln.world's fault containment: one that faults is logged, its subscription ends, and the others still get the event.
-An owner's subscriptions end when it unloads or reloads. The queue holds 4,096 events; a full queue makes writes answer
+An owner's subscriptions end when it unloads or reloads (a callback already under way then may still finish). The queue holds 4,096 events; a full queue makes writes answer
 busy until the next delivery.
 
 **Threads.** From a task's worker, between frames. On the server tick (tick handlers, a task's tick hops) a
@@ -653,12 +653,16 @@ compare-exchange always answers busy (`IN_FRAME`) before touching an engine word
 so the two paths never write the same component type. Stable reads from other tasks may meet a write between their two
 copies and answer unreadable (retry); frame-quiet reads see the gate taken and answer busy.
 
-**How long the gate is held.** The work inside the hold is fixed: two to three lookups of the entity (about 70 guarded
-reads with the gate's own checks) plus one read of the component, its write and its readback; a rollback adds a write
-and a read. Measured with Kiln's real Windows primitives under Wine (the fake engine of the tests laid out from the server
+**How long the gate is held.** The work inside the hold is fixed: up to three lookups of the entity (about 70 guarded
+reads with the gate's own checks when the entity's id is found at the first slot it hashes to) plus one read of the
+component, its write and its readback; a rollback adds a write and a read. Each lookup's id probe stops at 8,192 slots,
+so a long run of occupied slots in the entity table adds reads up to that bound, never beyond it. Measured with Kiln's real Windows primitives under Wine (the fake engine of the tests laid out from the server
 profile, 1,000 writes each, three runs): the largest plain component (4,328 bytes) held the gate 12 to 15 µs at the
 median and 24 to 92 µs at worst; a 64 KiB component 44 to 48 µs at the median and 93 to 176 µs at worst. The GameServer thread that wants its next frame meanwhile spins (pause, then `SwitchToThread`); the
-holder runs above normal priority.
+holder runs above normal priority. On a heavily loaded host (load average about 45, the test at the lowest CPU
+priority, three runs under Wine) the medians stayed the same (15 to 18 µs for 4,328 bytes, 68 to 72 µs for 64 KiB) and
+the worst holds reached 0.5 to 2.5 ms: the host's scheduler preempting the holder inside the hold. How long a hold can
+last on native Windows under load, with the priority raise, is measured by the tester kit (#58). The 64 KiB cap stays.
 
 **Relies on, per build.** For the components the policy admits, the engine's change recorder only reads and returns on
 both exact builds (docs/re/world.md, "The change recorder for untracked components"), so the write does not call it and
@@ -671,7 +675,7 @@ outcome above forced (a frame holding the gate, the busy latch, a call from the 
 full queue, a generation bump inside the hold, a tracking bit set after the policy was cached, a rogue write between the
 write and its readback, a write fault part-way through a page, pages that turn unreadable, the latch and its full
 table), no allocation and no core call inside the hold, the id probe's bound, events (order, a faulting subscriber,
-unsubscribing during a delivery, owners retiring), four writers racing on one counter against a simulated frame, and
+unsubscribing during a delivery, owners retiring), four writers racing on one counter against a simulated frame and a drain, and
 the plain-bytes rule over sigdb's reflection of both builds against an independent walk of the same data.
 `tests/lint_hold.py` checks the code that runs inside the hold; `tests/mutate_writes.py <scratch dir>` breaks each
 check alone and expects the suite to fail. `native/build.sh world-ecs-fault` and `WINEPREFIX=<private prefix>

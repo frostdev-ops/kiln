@@ -26,6 +26,7 @@ Code: `crates/kiln-manage/src/report.rs` (`build`, `redact`, `write_zip`), the T
 | `game/kiln/logs/tick-stats.jsonl` | the last 1 MiB (whole lines), when present: Kiln's step times per world and minute, rewritten at every game start (since dev.29) |
 | `game/kiln/logs/greeneye-loader.log`, `game/greeneye/loader.log`, `game/greeneye/loader.second-copy.log` | kiln-greeneye's log and Greeneye Loader's own, the last 64 KiB of each, when present |
 | `greeneye-mods/<id>/game/*.log`, `.../game/*.status`, `greeneye-mods/<id>/library/...` | each Greeneye mod's own log and status files, one zip folder per mod folder (`game`: its folder in `greeneye/`, `library`: a Library entry; one id may have both) (top level of its folder, at most 4 per mod and 12 mods, the last 64 KiB of each): a Greeneye mod writes what it found and patched only there (The Worst Map Mod: `unlock_map_markers.log`, `UnlockMapMarkers.status`). The folders are those `kiln/state/greeneye.json` names and those in `greeneye/`, read only inside `<game>/greeneye/` or the launcher's `library/greeneye/` (resolved, no links); any other folder is left out with a note (`greeneye-log-skipped`). Compared resolved, so a different spelling of the same folder is the same. Its settings (`.ini`) and data are not read |
+| `game/OptiScaler.ini`, `game/OptiScaler.log` | (dev.29.18) only with OptiScaler in the game folder (`engines::optiscaler_in`): its settings as they are, redacted, at most 1 MiB, and the last 192 KiB of its own log when it writes one (`[Log] LogToFile=true`), each under its name on disk |
 | `game/kiln/crash-reports/<newest>` | the last 64 KiB of the newest crash report |
 | `game/kiln/state/*.json` | every state file (boot, mods, native, last-server, hooks, each engine's), at most 1 MiB each |
 | `game/kiln/profile.json`, `kiln/chain.ini`, `kiln/kiln.json`, `kiln/.install.json`, `dinput8-chain.ini` | as they are, redacted; a link in a file's place, and a state file that is a link, is not followed ("a link, not followed") |
@@ -81,6 +82,7 @@ Each is one plain sentence. `problem` explains why mods don't load, `warning` ma
 | `crash` | there is a crash report (the newest is in the zip) |
 | `profile-invalid` | `kiln/profile.json` does not parse, or the last start found it invalid |
 | `newer-mods` | Kiln mods of the profile built against a newer Kiln (`game::newer_mods`, the Play page's "Update Kiln") |
+| `optiscaler` | (dev.29.18) a note: OptiScaler is in the game folder (`game::graphics_tools`), with the file and what Kiln's overlay does next to it with its OptiScaler.ini (the Play page's words): steps aside with OptiScaler's own menu on or frame generation set, draws with `OverlayMenu=false`. summary.txt says the same in a "Graphics tool:" line under the proxies |
 | `no-game` | the report was made without a game (note) |
 
 ## Privacy

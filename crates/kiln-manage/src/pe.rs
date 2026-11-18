@@ -75,6 +75,8 @@ pub enum ProxyKind {
     ChainLoader,
     /// CharosDX's dinput8.dll loader: loads every `mods\<mod>\native\*.dll` (Sparkworks Enhanced, Cross-Base Storage).
     NativeFolders,
+    /// OptiScaler, the upscaler and frame generation tool (dxgi.dll, winmm.dll, version.dll, dbghelp.dll ...).
+    OptiScaler,
     /// Some other DLL mod or proxy.
     Unknown,
     /// Not a 64-bit PE DLL.

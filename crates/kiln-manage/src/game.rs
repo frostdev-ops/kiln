@@ -75,6 +75,12 @@ pub struct LaunchOptionsInfo {
     pub chained_override_missing: bool,
     /// What the user should change, e.g. `WINEDLLOVERRIDES="dinput8=n,b" %command%`.
     pub advice: Option<String>,
+    /// The remedy retained for a real "No Kiln" failure, even on a runner that normally loads dinput8.
+    #[serde(default)]
+    pub fallback_advice: Option<String>,
+    /// The selected, known Steam compatibility tool prefers native dinput8 without an override.
+    #[serde(default)]
+    pub dinput8_native_by_runner: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -111,6 +117,112 @@ pub struct GameStatus {
     /// told (the exe unreadable, no runtime in the game and none in the launcher).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub build: Option<crate::direct::BuildCheck>,
+    /// (dev.29.18) Graphics tools in the game folder that run on their own next to Kiln and change what Kiln's in-game
+    /// overlay does (OptiScaler: `graphics_tools`), one note each. Left out when there is none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub graphics_tools: Vec<GraphicsToolNote>,
+    /// (dev.29.18) Tools in the game folder that hook what Kiln's graphics tools hook (kiln.json "graphics": the frame
+    /// cap, DLSS settings): Kiln's step aside next to them (`graphics_step_aside`). Left out when there is none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub graphics_step_aside: Vec<GraphicsStepAside>,
+}
+
+/// `GameStatus.graphics_step_aside`: a tool in the game folder that makes Kiln's graphics tools step aside.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphicsStepAside {
+    /// "optiscaler", "streamline", "vkfg", "dlsstweaks" or "nvngx".
+    pub kind: String,
+    /// The tool's file relative to the game folder, forward slashes, as it is named on disk.
+    pub file: String,
+    /// Kiln's frame cap steps aside too (else only Kiln's DLSS settings do; the readout always works).
+    pub frame_cap: bool,
+}
+
+/// The entry in `dir` whose name is `name` in any case (Windows and Wine match names so; the game folder may sit on a
+/// case-sensitive file system) and that is a file (`want_dir` false) or a folder, a symbolic link followed as the game
+/// follows it (Linux mod managers link mods into the game folder). The first in sorted order when several match.
+fn entry_named(dir: &Path, name: &str, want_dir: bool) -> Option<String> {
+    let mut found: Vec<String> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().eq_ignore_ascii_case(name))
+        .filter(|e| std::fs::metadata(e.path()).is_ok_and(|m| if want_dir { m.is_dir() } else { m.is_file() }))
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    found.sort();
+    found.into_iter().next()
+}
+
+/// The file in `dir` whose name is `name` in any case (`entry_named`).
+fn file_named(dir: &Path, name: &str) -> Option<String> {
+    entry_named(dir, name, false)
+}
+
+/// The directory in `dir` whose name is `name` in any case (`entry_named`).
+fn dir_named(dir: &Path, name: &str) -> Option<String> {
+    entry_named(dir, name, true)
+}
+
+/// The tools in a game folder next to which Kiln's graphics tools (kiln.json "graphics") step aside, in this order:
+/// OptiScaler (`engines::optiscaler_in`), NVIDIA Streamline (`sl.interposer.dll` in the folder or `Streamline/`), a DLSS
+/// frame generation mod (`EnshroudedVKFG.ini`), DLSSTweaks (`dlsstweaks.ini`) and another DLSS loader (`nvngx.dll` or
+/// `_nvngx.dll`; the game's own `nvngx_dlss.dll` is not one). The first three take the frame cap too. Names match in
+/// any case.
+pub fn graphics_step_aside(game_dir: &Path) -> Vec<GraphicsStepAside> {
+    let entry = |kind: &str, file: String, frame_cap: bool| GraphicsStepAside { kind: kind.to_string(), file, frame_cap };
+    let mut out = Vec::new();
+    if let Some(file) = crate::engines::optiscaler_in(game_dir) {
+        out.push(entry("optiscaler", file, true));
+    }
+    let streamline = file_named(game_dir, "sl.interposer.dll").or_else(|| {
+        let sub = dir_named(game_dir, "Streamline")?;
+        file_named(&game_dir.join(&sub), "sl.interposer.dll").map(|f| format!("{sub}/{f}"))
+    });
+    if let Some(file) = streamline {
+        out.push(entry("streamline", file, true));
+    }
+    if let Some(file) = file_named(game_dir, "EnshroudedVKFG.ini") {
+        out.push(entry("vkfg", file, true));
+    }
+    if let Some(file) = file_named(game_dir, "dlsstweaks.ini") {
+        out.push(entry("dlsstweaks", file, false));
+    }
+    if let Some(file) = file_named(game_dir, "nvngx.dll").or_else(|| file_named(game_dir, "_nvngx.dll")) {
+        out.push(entry("nvngx", file, false));
+    }
+    out
+}
+
+/// `GameStatus.graphics_tools`: one tool and what to expect from Kiln's overlay next to it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphicsToolNote {
+    pub engine: crate::engines::Engine,
+    /// The tool's file directly in the game folder (`dxgi.dll`, `OptiScaler.asi`).
+    pub file: String,
+    /// What to expect from Kiln's overlay, one or two sentences for the Play page (its title names the tool and file).
+    pub text: String,
+    /// Kiln's overlay draws next to it (OptiScaler: its own overlay menu off in OptiScaler.ini); false: kiln.ui's
+    /// drawing steps aside on its own.
+    pub kiln_overlay: bool,
+}
+
+/// The graphics tools in a game folder that change what Kiln's overlay does (`GameStatus.graphics_tools`).
+pub fn graphics_tools(game_dir: &Path) -> Vec<GraphicsToolNote> {
+    crate::engines::optiscaler_in(game_dir)
+        .map(|file| {
+            let ini = crate::engines::OptiScalerIni::read(game_dir);
+            GraphicsToolNote {
+                engine: crate::engines::Engine::OptiScaler,
+                text: crate::engines::optiscaler_overlay_note(&ini),
+                kiln_overlay: ini.kiln_overlay_draws(),
+                file,
+            }
+        })
+        .into_iter()
+        .collect()
 }
 
 /// `GameStatus.other_folder_profile`: the id of another data folder's profile active in the game, and the data folder
@@ -624,12 +736,29 @@ pub fn user_reg_native(user_reg: &str, name: &str) -> bool {
     native
 }
 
+/// Known Steam runners that load the game's native dinput8.dll without WINEDLLOVERRIDES.
+/// Keep this in one place: unknown runners still get conservative advice.
+fn runner_loads_native_dinput8(tool: &str) -> bool {
+    matches!(crate::wine::ge_version(tool).as_deref(), Some([major, minor, ..]) if (*major, *minor) >= (11, 11))
+}
+
 /// Launch options facts of an install (read-only): Proton clients only; None elsewhere.
 pub fn launch_options_info(install: &GameInstall, roots: &[SteamRoot]) -> Option<LaunchOptionsInfo> {
     if install.platform != Platform::Proton {
         return None;
     }
-    let candidates: Vec<SteamRoot> = match install.library.as_deref().and_then(|l| steam::root_of_library(roots, l)) {
+    // Having GE-Proton installed does not mean Steam selected it for this app.
+    // Prefer the per-app mapping, then Steam's global default (CompatToolMapping/0).
+    // Keep compat_tool itself per-app-only for every other caller.
+    let root = install.library.as_deref().and_then(|l| steam::root_of_library(roots, l));
+    let dinput8_native_by_runner = root.as_ref()
+        .and_then(|r| {
+            steam::compat_tool(r, install.app_id).ok().flatten()
+                .or_else(|| steam::compat_tool(r, 0).ok().flatten())
+        })
+        .as_deref()
+        .is_some_and(runner_loads_native_dinput8);
+    let candidates: Vec<SteamRoot> = match root {
         Some(r) => vec![r],
         None => roots.to_vec(),
     };
@@ -648,11 +777,15 @@ pub fn launch_options_info(install: &GameInstall, roots: &[SteamRoot]) -> Option
     let chained = asi_loader_chained(install);
     let has = native("dinput8");
     let chained_override_missing = chained && !native("xinput9_1_0");
+    let remedy = if chained { CHAINED_DLL_OVERRIDE_ADVICE } else { DLL_OVERRIDE_ADVICE };
     Some(LaunchOptionsInfo {
         value,
         has_dll_override: has,
         chained_override_missing,
-        advice: (!has || chained_override_missing).then(|| if chained { CHAINED_DLL_OVERRIDE_ADVICE } else { DLL_OVERRIDE_ADVICE }.to_string()),
+        advice: ((!has && !dinput8_native_by_runner) || chained_override_missing).then(|| remedy.to_string()),
+        // If the game actually fails to load Kiln, always offer the override as a fallback.
+        fallback_advice: (!has || chained_override_missing).then(|| remedy.to_string()),
+        dinput8_native_by_runner,
     })
 }
 
@@ -713,6 +846,8 @@ pub fn status_with(dirs: &DataDirs, install: &GameInstall, roots: &[SteamRoot]) 
         newer_mods,
         start,
         build,
+        graphics_tools: if install.kind == GameKind::Client { graphics_tools(&install.path) } else { Vec::new() },
+        graphics_step_aside: if install.kind == GameKind::Client { graphics_step_aside(&install.path) } else { Vec::new() },
     })
 }
 
@@ -756,8 +891,20 @@ mod override_tests {
     }
 
     #[test]
+    fn native_dinput8_runner_policy() {
+        for tool in ["GE-Proton11-11-x86_64", "GE-Proton11-12-x86_64", "GE-Proton12-1-x86_64"] {
+            assert!(runner_loads_native_dinput8(tool), "{tool}");
+        }
+        for tool in ["GE-Proton11-10-x86_64", "GE-Proton11-0.2", "GE-Proton10-25", "proton_experimental", "UMU-Proton10-4", ""] {
+            assert!(!runner_loads_native_dinput8(tool), "{tool}");
+        }
+    }
+
+    #[test]
     fn older_launch_options_info_defaults_chained_flag() {
         let info: LaunchOptionsInfo = serde_json::from_str(r#"{"value":null,"hasDllOverride":false,"advice":null}"#).unwrap();
         assert!(!info.chained_override_missing);
+        assert!(!info.dinput8_native_by_runner);
+        assert!(info.fallback_advice.is_none());
     }
 }

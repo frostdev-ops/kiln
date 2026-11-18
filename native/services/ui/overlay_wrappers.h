@@ -62,7 +62,9 @@ inline std::string wrapper_path(const std::filesystem::path& file) {
 #endif
     return wrapper_path_key(path.generic_u8string());
 }
-inline Wrappers detect_wrappers(const std::filesystem::path& game, const LoadedWrappers& loaded = {}) {
+// `extra`: other wrappers found by their contents (OptiScaler's DLL: overlay_optiscaler.h), counted like the named ones.
+inline Wrappers detect_wrappers(const std::filesystem::path& game, const LoadedWrappers& loaded = {},
+                                const std::vector<std::filesystem::path>& extra = {}) {
     Wrappers out;
     struct File { std::string name; std::filesystem::path path; };
     std::vector<File> files;
@@ -93,6 +95,7 @@ inline Wrappers detect_wrappers(const std::filesystem::path& game, const LoadedW
         }
         if (!i) out.streamline = found;
     }
+    for (const auto& file : extra) if (!file.empty()) add(file);
     std::sort(files.begin(), files.end(), [](const File& a, const File& b) { return a.name < b.name; });
     // FNV-1a is a change detector, not an authenticity check. Size and sampled contents catch
     // ordinary replacements; a timestamp-only touch does not grant another crashing attempt.

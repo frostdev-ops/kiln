@@ -3820,6 +3820,10 @@ pub struct EngineStatus {
     /// row whoever ran it, on the `eml` row as a pointer while ShroudForge runs the EML mods.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub startup_failed: Option<crate::sf_startup::SfStartupNote>,
+    /// ShroudForge's startup pass failed in one mod and ran again without it ([`crate::sf_startup::skipped`]): on the
+    /// `shroudforge` row, a warning (the other mods of the pass loaded).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub startup_skipped: Option<crate::sf_startup::SfSkipNote>,
 }
 
 /// The state file name of a kind's plugin.
@@ -3851,7 +3855,8 @@ pub fn status(game_dir: &Path) -> Vec<EngineStatus> {
         .filter_map(|k| {
             if k == ModKind::Xhl {
                 return Some(EngineStatus { kind: k, plugin: String::new(), state: None, error: None,
-                    file: String::new(), own_loader: None, effects: None, prerequisite: Some(xhl_host(game_dir)), startup_failed: None });
+                    file: String::new(), own_loader: None, effects: None, prerequisite: Some(xhl_host(game_dir)), startup_failed: None,
+                    startup_skipped: None });
             }
             let f = game_dir.join("kiln").join("state").join(state_file(k)?);
             let (state, error) = match read_json_checked(game_dir, &f) {
@@ -3878,6 +3883,7 @@ pub fn status(game_dir: &Path) -> Vec<EngineStatus> {
                 effects,
                 prerequisite: None,
                 startup_failed: sf_startup.of(k),
+                startup_skipped: sf_startup.skip_of(k),
             })
         })
         .collect()

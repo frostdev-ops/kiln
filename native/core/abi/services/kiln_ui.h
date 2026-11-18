@@ -10,7 +10,8 @@
  * The size-guarded tail after v7 appends set_next_window_size_constraints, menu_footer (0.2.0-dev.29.11),
  * image_load_rgba, screen_target and image_state (0.2.0-dev.29.15), and looks, themes and fonts (0.2.0-dev.29.16:
  * theme_create, theme_free, push_theme, set_look, look_info, font_load, font_free, push_font_handle; then image_ex and
- * image_opaque_rect: part of an image, trimmed item icons; then set_texts: Kiln's own texts in the player's language).
+ * image_opaque_rect: part of an image, trimmed item icons; then set_texts: Kiln's own texts in the player's language), and
+ * graphics_set and graphics_status (0.2.0-dev.29.18): Kiln's own graphics tools, the frame cap, DLSS settings and readout.
  *
  * How (docs/re/client-render.md):
  *  - The game loads vulkan-1.dll at run time and presents with vkQueuePresentKHR on queue family 0 (no static Vulkan
@@ -654,6 +655,65 @@ typedef struct KilnUiTexts {
     const KilnStr* texts;   /* their texts, UTF-8 */
 } KilnUiTexts;              /* 40 bytes */
 
+/* graphics_set (0.2.0-dev.29.18): the player's graphics settings (Kiln.Ui sets them from kiln.json "graphics"; docs/kiln/graphics.md). */
+enum {
+    KILN_UI_DLSS_SCALE_GAME = 0,      /* DLSS's own render size for the game's DLSS mode */
+    KILN_UI_DLSS_SCALE_PER_MODE = 1,  /* mode_scale[] by DLSS mode */
+    KILN_UI_DLSS_SCALE_CUSTOM = 2,    /* custom_scale for every DLSS mode */
+};
+typedef struct KilnUiGraphics {
+    uint32_t size;          /* sizeof(KilnUiGraphics) */
+    uint32_t fps_cap;       /* the most frames a second the game renders: 0 off, else 20..500 (1..19 count as 20) */
+    uint32_t dlss_preset;   /* 0: the game's and DLSS's own; else a DLSS render preset: 10 J, 11 K, 12 L, 13 M (others: 0) */
+    uint32_t dlss_scale;    /* KILN_UI_DLSS_SCALE_* */
+    float custom_scale;     /* SCALE_CUSTOM: the render width and height as a share of the output's, 0.33..1 */
+    float mode_scale[4];    /* SCALE_PER_MODE: Quality, Balanced, Performance, Ultra Performance; 0.33..1 each */
+    uint32_t readout;       /* 1: the readout in the top right corner of the game */
+    uint32_t reserved[2];
+} KilnUiGraphics;           /* 48 bytes */
+
+/* KilnUiGraphicsStatus.flags */
+enum {
+    KILN_UI_GFX_CAP_ACTIVE = 1u << 0,     /* the frame cap paces the game's frames now */
+    KILN_UI_GFX_DLSS_HOOKED = 1u << 1,    /* Kiln's hooks on NVIDIA's DLSS are in (a DLSS setting or the readout was on at start) */
+    KILN_UI_GFX_DLSS_ACTIVE = 1u << 2,    /* the game upscaled with DLSS in the last two seconds */
+    KILN_UI_GFX_DLSS_RESTART = 1u << 3,   /* a DLSS setting or the readout is on now, but was not at start: DLSS is hooked
+                                             from the next start of the game */
+    KILN_UI_GFX_DLSS_PRESET = 1u << 4,    /* the DLSS in use got Kiln's render preset */
+    KILN_UI_GFX_DLSS_SCALED = 1u << 5,    /* the DLSS in use got Kiln's render size */
+    KILN_UI_GFX_COUNTING = 1u << 6,       /* the frame counts below are kept (the frame cap or the readout is on) */
+    KILN_UI_GFX_DLSS_LIMITED = 1u << 7,   /* the player's render scale was outside DLSS's range for the mode in use: DLSS
+                                             renders at the nearest size it allows (render_width/height) */
+};
+/* KilnUiGraphicsStatus.aside_cap / aside_dlss: what the frame cap and the DLSS settings step aside for (bits). */
+enum {
+    KILN_UI_GFX_ASIDE_OPTISCALER = 1u << 0,   /* OptiScaler in the game folder */
+    KILN_UI_GFX_ASIDE_STREAMLINE = 1u << 1,   /* NVIDIA Streamline (sl.interposer.dll; frame generation mods) */
+    KILN_UI_GFX_ASIDE_VKFG = 1u << 2,         /* EnshroudedVKFG.ini: a DLSS frame generation mod */
+    KILN_UI_GFX_ASIDE_DLSSTWEAKS = 1u << 3,   /* dlsstweaks.ini: DLSSTweaks */
+    KILN_UI_GFX_ASIDE_NVNGX = 1u << 4,        /* nvngx.dll or _nvngx.dll next to the game: another DLSS loader */
+    KILN_UI_GFX_ASIDE_NGX_PATCHED = 1u << 5,  /* NVIDIA's DLSS functions were already patched by another module */
+    KILN_UI_GFX_ASIDE_OVERLAY_OFF = 1u << 6,  /* Kiln's overlay hooks are off (KilnUiStatus.error says why) */
+};
+/* graphics_status: what Kiln's graphics tools do now. */
+typedef struct KilnUiGraphicsStatus {
+    uint32_t size;            /* sizeof(KilnUiGraphicsStatus) */
+    uint32_t flags;           /* KILN_UI_GFX_* */
+    uint32_t aside_cap;       /* KILN_UI_GFX_ASIDE_* that keep the frame cap off (0: none) */
+    uint32_t aside_dlss;      /* KILN_UI_GFX_ASIDE_* that keep the DLSS settings off (0: none) */
+    uint32_t fps_cap;         /* the frame cap set (0 off) */
+    float rendered_fps;       /* the game's frames a second over the last half second (GFX_COUNTING) */
+    float output_fps;         /* frames presented a second: rendered_fps until a frame generation phase exists */
+    float frame_ms;           /* the mean time between the game's frames */
+    uint32_t output_width, output_height;    /* the game window's swapchain */
+    int32_t dlss_quality;     /* the DLSS in use (GFX_DLSS_HOOKED): NVSDK_NGX_PerfQuality_Value, 0 Performance, 1 Balanced,
+                                 2 Quality, 3 Ultra Performance, 4 Ultra Quality, 5 DLAA; -1 none */
+    uint32_t dlss_preset;     /* its render preset as asked (Kiln's, else the game's hint); 0: DLSS's default */
+    uint32_t render_width, render_height;    /* DLSS's input this frame (dynamic resolution may lower it) */
+    uint32_t dlss_output_width, dlss_output_height;
+    uint32_t reserved[2];
+} KilnUiGraphicsStatus;     /* 72 bytes */
+
 typedef struct KilnUiApi {
     KilnServiceHeader header; /* { sizeof(KilnUiApi), KILN_UI_VERSION } */
     KilnResult(KILN_CALL* status)(KilnUiStatus* out);
@@ -1051,6 +1111,18 @@ typedef struct KilnUiApi {
      * overlay's font atlas. Copied; any thread. A call from a native plugin is refused (KILN_ERR_UNAVAILABLE): the player
      * chooses the language. INVALID_ARGUMENT: NULL, size too small, count over 4096 or NULL arrays with a count. */
     KilnResult(KILN_CALL* set_texts)(const KilnUiTexts* texts);
+    /* Additive size-guarded tail (0.2.0-dev.29.18; check header.size >= offsetof(KilnUiApi, x) + sizeof(void*) and the
+     * pointer for each): Kiln's own graphics tools (docs/kiln/graphics.md).
+     * graphics_set: the player's settings (KilnUiGraphics, set size first; values are clamped). Kiln.Ui calls it from
+     *   kiln.json "graphics" and its Graphics page; a call from a native plugin is refused (KILN_ERR_UNAVAILABLE): the
+     *   player chooses them. The frame cap and the readout follow at once; DLSS settings when the game next sets up
+     *   DLSS, and only when Kiln hooked DLSS at start (KILN_UI_GFX_DLSS_RESTART). Any thread. INVALID_ARGUMENT: NULL or
+     *   size too small.
+     * graphics_status: what the tools do now (set out->size first): the frame cap, the frame rates (while the cap or the
+     *   readout is on), the DLSS in use (its mode, preset, render and output size) and what they step aside for. Mods may
+     *   read it. Any thread. INVALID_ARGUMENT: NULL or size too small. */
+    KilnResult(KILN_CALL* graphics_set)(const KilnUiGraphics* settings);
+    KilnResult(KILN_CALL* graphics_status)(KilnUiGraphicsStatus* out);
 } KilnUiApi;
 
 /* ====================================================================================================================

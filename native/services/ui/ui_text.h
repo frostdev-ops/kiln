@@ -37,6 +37,14 @@ inline constexpr English kEnglish[] = {
      "Kiln's managed host (Kiln.Ui) is not running in this session, so the mod list and mod screens are unavailable here. "
      "Check kiln/logs/kiln.log."},
     {"native.fallback.close", "Press {key} to close."},
+    {"native.graphics.fps", "Rendered {rendered} fps | Output {output} fps | {ms} ms"},
+    {"native.graphics.dlss", "DLSS {mode}: {render} -> {output}, preset {preset}"},
+    {"native.graphics.preset_default", "default"},
+    {"native.graphics.not_dlss", "Not DLSS now (the game's FSR 3, XeSS or none): {output}"},
+    {"native.graphics.unknown", "Upscaler: read from the next game start: {output}"},
+    {"native.graphics.aside", "Upscaler: left to {tools}: {output}"},
+    {"native.graphics.cap", "Frame cap {fps} fps"},
+    {"native.graphics.cap_aside", "Frame cap {fps} fps: off for {tools}"},
 };
 
 inline std::string english(std::string_view key) {

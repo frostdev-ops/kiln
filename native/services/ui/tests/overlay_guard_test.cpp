@@ -2,6 +2,8 @@
 #include "../overlay_guard_file.h"
 #include "../overlay_mode.h"
 #include "../overlay_wrappers.h"
+#include "../overlay_optiscaler.h"
+#include <sstream>
 #include <cassert>
 #include <string_view>
 #include <vector>
@@ -296,6 +298,94 @@ int main() {
         expect(!write_record(refused, L"g.guard", encode(r)) && refused.calls.size() == 2, "a refused rename asks for no flush");
         FakeFs none;
         expect(write_record(none, L"", encode(r)) && none.calls.empty(), "no state folder: nothing written");
+    }
+    {  // OptiScaler (overlay_optiscaler.h): found by its contents, never by a proxy name alone; its ini decides the mode
+        auto contents = [](const std::string& data) {
+            std::istringstream in(data);
+            return optiscaler_contents(in, data.size());
+        };
+        auto utf16 = [](std::string_view a) { std::string w; for (char c : a) { w += c; w += '\0'; } return w; };
+        expect(contents("MZ...OptiScaler.ini..."), "the ASCII name of its ini marks OptiScaler");
+        expect(contents("MZ" + utf16("OPTISCALER.INI")), "the UTF-16 name, any case, marks OptiScaler");
+        expect(!contents("MZ ReShade OptiScaler optiscaler.log"), "other texts do not");
+        std::string across(65536 - 5, 'x');
+        across += "optiscaler.ini";
+        across += std::string(70000, 'y');
+        expect(contents(across), "a name across two read chunks is seen");
+        std::string across_wide(65536 - 9, 'x');
+        across_wide += utf16("optiscaler.ini");
+        expect(contents(across_wide), "a UTF-16 name across two read chunks is seen");
+        {
+            std::istringstream in("optiscaler.ini");
+            expect(!optiscaler_contents(in, optiscaler_max_bytes + 1), "an oversized file is not read");
+        }
+        const auto stock = parse_optiscaler_ini("; OptiScaler.ini as it ships\n[FrameGen]\nEnabled=auto\nFGInput=auto\nFGOutput=auto\n"
+                                                "[Menu]\n; Enables new Overlay ImGui menus\nOverlayMenu=auto\nShortcutKey=auto\n");
+        expect(stock.read && stock.overlay_menu == -1 && !stock.frame_gen(), "the stock ini: menu on by default, no frame generation");
+        const auto menu_off = parse_optiscaler_ini("\xEF\xBB\xBF[menu]\r\n  overlaymenu = FALSE \r\n");
+        expect(menu_off.overlay_menu == 0 && !menu_off.frame_gen(), "sections, keys and values ignore case and spaces, after a BOM");
+        const auto other_section = parse_optiscaler_ini("[Hotfix]\nOverlayMenu=false\n[Menu]\n#OverlayMenu=false\n");
+        expect(other_section.overlay_menu == -1, "the key counts only in [Menu], never in a comment");
+        const auto fg = parse_optiscaler_ini("[Menu]\nOverlayMenu=false\n[FrameGen]\nFGInput=upscaler\nFGOutput=fsrfg\n");
+        expect(fg.overlay_menu == 0 && fg.frame_gen(), "frame generation needs an input and an output");
+        expect(!parse_optiscaler_ini("[FrameGen]\nFGInput=upscaler\nFGOutput=nofg\n").frame_gen(), "no output: no frame generation");
+        expect(parse_optiscaler_ini("[Menu]\nOverlayMenu=false\nOverlayMenu=true\n").overlay_menu == 1, "the last of two keys wins");
+
+        const auto game = root / "game-optiscaler";
+        std::filesystem::create_directories(game);
+        auto opti_bytes = "MZ OptiScaler " + utf16("OptiScaler.ini") + " ReShade64.dll";
+        expect(!detect_optiscaler(game).found() && !detect_optiscaler(game).ini_only, "an empty game folder: none");
+        write(game / "dxgi.dll", "ReShade 6.3");
+        write(game / "winmm.dll", "shroudtopia.dll");
+        expect(!detect_optiscaler(game).found(), "ReShade's dxgi.dll and a loader's winmm.dll are not OptiScaler");
+        const auto before = detect_wrappers(game);
+        write(game / "OptiScaler.ini", "[Menu]\nOverlayMenu=auto\n");
+        const auto leftover = detect_optiscaler(game);
+        expect(!leftover.found() && leftover.ini_only, "its ini alone (an uninstall's leftover) is not OptiScaler");
+        expect(kui::choose_overlay_mode(false, false, leftover.found() && !leftover.coexists(), -1) == kui::OverlayMode::on,
+               "a leftover ini does not turn the overlay off");
+        std::ofstream(game / "version.dll", std::ios::binary) << opti_bytes;
+        auto o = detect_optiscaler(game);
+        expect(o.found() && o.file.filename() == "version.dll" && o.ini.read && !o.coexists(), "OptiScaler as version.dll, menu on");
+        expect(kui::choose_overlay_mode(false, false, o.found() && !o.coexists(), -1) == kui::OverlayMode::drawing_off,
+               "OptiScaler with its menu on: drawing steps aside");
+        expect(kui::choose_overlay_mode(false, false, o.found() && !o.coexists(), 1) == kui::OverlayMode::on,
+               "KILN_UI_OVERLAY=1 still draws next to it");
+        const auto with = detect_wrappers(game, {}, {o.file});
+        expect(with.identity != before.identity && !with.streamline, "OptiScaler joins the guard's wrapper identity");
+        expect(detect_wrappers(game, {}, {o.file, game / "." / "version.dll"}).identity == with.identity,
+               "one file found twice is counted once");
+        expect(detect_wrappers(game, {}, {game / "dxgi.dll"}).identity == before.identity,
+               "OptiScaler as dxgi.dll, a wrapper name already, is counted once");
+        write(game / "OptiScaler.ini", "[Menu]\nOverlayMenu=false\n");
+        o = detect_optiscaler(game);
+        expect(o.coexists(), "OverlayMenu=false and no frame generation: Kiln draws next to it");
+        expect(kui::choose_overlay_mode(false, false, o.found() && !o.coexists(), -1) == kui::OverlayMode::on,
+               "its menu off: drawing stays on");
+        expect(kui::choose_overlay_mode(false, false, o.found() && !o.coexists(), 0) == kui::OverlayMode::drawing_off,
+               "KILN_UI_OVERLAY=0 still turns drawing off");
+        write(game / "OptiScaler.ini", "[Menu]\nOverlayMenu=false\n[FrameGen]\nFGInput=upscaler\nFGOutput=fsrfg\n");
+        expect(!detect_optiscaler(game).coexists(), "frame generation set: drawing steps aside");
+        std::filesystem::remove(game / "version.dll");
+        std::filesystem::remove(game / "OptiScaler.ini");
+        std::ofstream(game / "OptiScaler.asi", std::ios::binary) << opti_bytes;
+        o = detect_optiscaler(game);
+        expect(o.found() && !o.ini.read && !o.coexists(), "OptiScaler.asi without an ini: found by its name and contents, menu on");
+        std::filesystem::remove(game / "OptiScaler.asi");
+        // a loaded copy elsewhere (Ultimate ASI Loader's plugins folder), with its ini next to it (looked up by name: the
+        // host's folders are case sensitive, Windows and Wine find any spelling of it)
+        const auto plugins = game / "plugins";
+        std::filesystem::create_directories(plugins);
+        std::ofstream(plugins / "d3d12.dll", std::ios::binary) << opti_bytes;
+        write(plugins / "OptiScaler.ini", "[menu]\noverlaymenu=false\n");
+        expect(!detect_optiscaler(game).found(), "subfolders are not scanned");
+        o = detect_optiscaler(game, {plugins / "d3d12.dll", game / "missing.dll"});
+        expect(o.found() && o.file == plugins / "d3d12.dll" && o.coexists(), "a loaded copy counts, with the ini next to it");
+        // Windows' own copy of a name: no ini next to it, never read
+        const auto system32 = root / "Windows/System32";
+        std::filesystem::create_directories(system32);
+        std::ofstream(system32 / "dxgi.dll", std::ios::binary) << opti_bytes;
+        expect(!detect_optiscaler(root / "empty-game", {system32 / "dxgi.dll"}).found(), "a copy without an ini next to it is not read");
     }
     std::filesystem::remove_all(root);
     std::printf("overlay_guard: %u checks, %u failures\n", checks, failures);

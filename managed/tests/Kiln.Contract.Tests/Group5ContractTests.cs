@@ -16,10 +16,14 @@ public sealed class ContentContractTests : ContractTest
         Assert.False(NewContent.Available);
         AssertOffline("kiln.content");
         AssertOffline("kiln.gamedata");
-        foreach (var name in (string[])["content.items", "content.recipes", "content.new", "content.references", "content.ready"])
+        foreach (var name in (string[])["content.items", "content.recipes", "content.new", "content.references", "content.ready", "content.text"])
             AssertOffOffline(name, "needs kiln.content");
         AssertOffOffline("gamedata.template_clones", "needs kiln.gamedata");
         Assert.False(Capabilities.Get("content.ready").SessionDependent);
+        // the game's own texts: null, never a throw, with no service
+        Assert.False(Content.TextAvailable);
+        Assert.Null(Content.TextLanguage);
+        Assert.Null(Content.Text(0xbe5b2600));
     }
 
     [Fact]
