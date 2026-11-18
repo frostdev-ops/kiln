@@ -1236,10 +1236,14 @@ typedef struct KilnWorldApi {
      * owner's subscriptions end when it retires (unload, reload); a callback already under way then may still finish.
      * Any thread. */
     KilnResult(KILN_CALL* ecs_write_subscribe)(KilnOwner owner, KilnEcsWriteEventFn fn, void* user, KilnHandle* out);
-    /* Safe during a drain, also from inside the callback: no later event reaches it. From any other thread it returns
-     * only after a callback of this subscription that is running on the draining thread has returned (do not call it
-     * while holding a lock that callback takes); from inside a callback it does not wait. KILN_ERR_NOT_FOUND: no such
-     * subscription. Any thread. */
+    /* No later event reaches the subscription once this returns. Safe during a drain.
+     *   - From another thread it WAITS for a callback of this subscription that is running on the draining thread to
+     *     return. So a callback must never wait on a thread that may unsubscribe it (a lock that thread holds, a task
+     *     it joins): that is a deadlock.
+     *   - From inside a callback (its own or another subscription's, on the draining thread) it returns at once.
+     *   - On the server tick outside a drain it never waits: the drains run only on the server world's thread (its Pre
+     *     and its STOPPING), so no callback can be running then.
+     * KILN_ERR_NOT_FOUND: no such subscription. Any thread. */
     KilnResult(KILN_CALL* ecs_write_unsubscribe)(KilnHandle subscription);
 } KilnWorldApi;
 

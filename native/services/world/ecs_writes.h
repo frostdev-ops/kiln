@@ -159,7 +159,9 @@ public:
                                 KilnMutationReply* reply);
     KilnResult subscribe(KilnOwner owner, KilnEcsWriteEventFn fn, void* user, KilnHandle* out);
     // No callback of the subscription starts after it returns. Called from a thread other than the draining one, it
-    // also waits for a callback of it that is running there to return; from inside a callback it does not wait.
+    // also waits for a callback of it that is running there to return (a callback that waits on that thread
+    // deadlocks); from inside a callback it does not wait. The drains run on the server world's thread only, so on
+    // the tick outside a drain no callback is running and it never waits.
     KilnResult unsubscribe(KilnHandle handle);
 
     // Delivers the published events to the live subscriptions, in order, under fault containment. One thread at a time

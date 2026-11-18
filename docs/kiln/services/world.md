@@ -582,7 +582,7 @@ Nothing waits: a call that cannot take the gate now answers busy at once.
 | `ecs_write_policy(world_kind, component, &policy)` | whether a task may write this component, and why not. Any thread |
 | `ecs_compare_exchange(owner, &ref, component, expected, mask, desired, bytes, confirmed, &reply)` | compare the whole component with `expected`; when equal, write `desired` under `mask`. Any thread but a world's own |
 | `ecs_write_subscribe(owner, fn, user, &handle)` | `fn` once per committed write, on the server tick, after the write's gate was released |
-| `ecs_write_unsubscribe(handle)` | no later event reaches it; safe during a delivery, also from inside the callback. From another thread it returns after a callback of it that is running has returned |
+| `ecs_write_unsubscribe(handle)` | no later event reaches it. From another thread it waits for a callback of it that is running to return, so a callback must never wait on a thread that may unsubscribe it (a deadlock); from inside a callback it returns at once; on the tick outside a delivery it never waits |
 
 **What may be written.** Only what the policy admits, decided by rules, never by a list of names:
 
@@ -659,7 +659,10 @@ component, its write and its readback; a rollback adds a write and a read. Each 
 so a long run of occupied slots in the entity table adds reads up to that bound, never beyond it. Measured with Kiln's real Windows primitives under Wine (the fake engine of the tests laid out from the server
 profile, 1,000 writes each, three runs): the largest plain component (4,328 bytes) held the gate 12 to 15 µs at the
 median and 24 to 92 µs at worst; a 64 KiB component 44 to 48 µs at the median and 93 to 176 µs at worst. The GameServer thread that wants its next frame meanwhile spins (pause, then `SwitchToThread`); the
-holder runs above normal priority.
+holder runs above normal priority. On a heavily loaded host (load average about 45, the test at the lowest CPU
+priority, three runs under Wine) the medians stayed the same (15 to 18 µs for 4,328 bytes, 68 to 72 µs for 64 KiB) and
+the worst holds reached 0.5 to 2.5 ms: the host's scheduler preempting the holder inside the hold. How long a hold can
+last on native Windows under load, with the priority raise, is measured by the tester kit (#58). The 64 KiB cap stays.
 
 **Relies on, per build.** For the components the policy admits, the engine's change recorder only reads and returns on
 both exact builds (docs/re/world.md, "The change recorder for untracked components"), so the write does not call it and
