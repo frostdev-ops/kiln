@@ -4,7 +4,7 @@ using static Kiln.Analyzers.Tests.Harness;
 
 namespace Kiln.Analyzers.Tests;
 
-/// <summary>KILN105 around Kiln tasks (T6): <c>KilnTask.Wait</c>, blocking on the <c>Task</c> that
+/// <summary>KILN105 around Kiln tasks: <c>KilnTask.Wait</c>, blocking on the <c>Task</c> that
 /// <c>AsTask()</c> hands out, and a <c>ctx.ToTick()</c> that is never awaited. Kiln tasks compile against
 /// the real Kiln.Api.</summary>
 public sealed class TaskBlockingTests
