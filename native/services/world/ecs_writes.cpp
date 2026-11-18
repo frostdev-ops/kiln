@@ -407,7 +407,11 @@ KilnResult Writer::compare_exchange(KilnOwner owner, const KilnObjectRef* ref, u
 KilnResult Writer::subscribe(KilnOwner owner, KilnEcsWriteEventFn fn, void* user, KilnHandle* out) {
     if (!owner || !fn || !out) return KILN_ERR_INVALID_ARGUMENT;
     *out = 0;
-    std::lock_guard lock(mu_);
+    std::unique_lock lock(mu_);
+    if (Writer* to = forward_) {
+        lock.unlock();
+        return to->subscribe(owner, fn, user, out);
+    }
     if (retired_.count(owner)) return KILN_ERR_UNAVAILABLE;
     auto s = std::make_shared<Subscription>();
     s->handle = ++next_handle_;
@@ -422,7 +426,11 @@ KilnResult Writer::subscribe(KilnOwner owner, KilnEcsWriteEventFn fn, void* user
 KilnResult Writer::unsubscribe(KilnHandle handle) {
     std::shared_ptr<Subscription> gone;
     {
-        std::lock_guard lock(mu_);
+        std::unique_lock lock(mu_);
+        if (Writer* to = forward_) {
+            lock.unlock();
+            return to->unsubscribe(handle);
+        }
         for (auto it = subs_.begin(); it != subs_.end(); ++it) {
             if ((*it)->handle != handle) continue;
             gone = *it;
@@ -441,13 +449,33 @@ KilnResult Writer::unsubscribe(KilnHandle handle) {
 }
 
 size_t Writer::subscriptions() const {
-    std::lock_guard lock(mu_);
+    std::unique_lock lock(mu_);
+    if (const Writer* to = forward_) {
+        lock.unlock();
+        return to->subscriptions();
+    }
     return subs_.size();
+}
+
+void Writer::adopt(Writer& earlier) {
+    if (&earlier == this) return;
+    std::scoped_lock lock(earlier.mu_, mu_);
+    if (earlier.forward_) return;
+    for (auto& s : earlier.subs_) subs_.push_back(std::move(s));
+    earlier.subs_.clear();
+    retired_.insert(earlier.retired_.begin(), earlier.retired_.end());
+    next_handle_ = std::max(next_handle_, earlier.next_handle_);
+    earlier.forward_ = this;  // from here, the earlier writer's subscribe/unsubscribe/retire come here
 }
 
 void Writer::owner_retired(KilnOwner owner) {
     {
-        std::lock_guard lock(mu_);
+        std::unique_lock lock(mu_);
+        if (Writer* to = forward_) {
+            lock.unlock();
+            to->owner_retired(owner);
+            return;
+        }
         constexpr size_t kMaxRetired = 4096;  // owners are never reused; the oldest (lowest) is forgotten first
         if (retired_.size() >= kMaxRetired) retired_.erase(std::min_element(retired_.begin(), retired_.end()));
         retired_.insert(owner);

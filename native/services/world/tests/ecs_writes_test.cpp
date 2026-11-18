@@ -895,6 +895,44 @@ void event_cases(Env& v) {
     put<uint64_t>(at, 0);
 }
 
+// kiln.world's boot writer answers until on_ready publishes the real one: a subscription made before then, and an
+// owner retired before then, carry over to it (Writer::adopt), so an early subscriber misses no event.
+void adopt_cases(Env& v, const WriterSource& ready) {
+    const std::string k = std::string(v.p.id) + ": adopt: ";
+    WriterSource early;  // as ecs_prod.cpp's boot writer: the reader, nothing of the engine
+    early.reader = ready.reader;
+    early.user = ready.user;
+    early.server_step = ready.server_step;
+    early.guarded = ready.guarded;
+    early.log = ready.log;
+    Writer boot(early);
+    Seen first, later;
+    KilnHandle h1 = 0, h2 = 0, h3 = 0;
+    check(!boot.available() && boot.subscribe(kOther, &record, &first, &h1) == KILN_OK && h1 != 0,
+          k + "the boot writer takes a subscription before kiln.world is ready");
+    boot.owner_retired(kOwner + 200);
+    Writer real(ready);
+    real.adopt(boot);
+    check(real.subscriptions() == 1 && boot.subscriptions() == 1, k + "the subscription is the real writer's now");
+    check(boot.subscribe(kOther, &record, &later, &h2) == KILN_OK && h2 != h1 && real.subscriptions() == 2,
+          k + "a subscribe on the boot writer after on_ready lands in the real one");
+    check(real.subscribe(kOwner + 200, &record, &later, &h3) == KILN_ERR_UNAVAILABLE, k + "an owner retired before on_ready stays retired");
+    // a write through the real writer reaches the early subscriber
+    const uint32_t counter = H(v.w, "Counter");
+    const uintptr_t at = component_address(v.w, 7000, "Counter");
+    put<uint64_t>(at, 70);
+    next_step(v);
+    KilnObjectRef r = open(v, kOwner, 7000);
+    Call c = cx(real, kOwner, r, counter, le64(70), le64(71));
+    check(c.rc == KILN_OK && real.drain() == 1 && first.events.size() == 1 && later.events.size() == 1 &&
+              first.events[0].entity == 7000,
+          k + "a write after on_ready reaches the subscriber that came before it");
+    check(boot.unsubscribe(h1) == KILN_OK && real.subscriptions() == 1 && boot.unsubscribe(h1) == KILN_ERR_NOT_FOUND,
+          k + "the early handle still unsubscribes, through either writer");
+    real.unsubscribe(h2);
+    put<uint64_t>(at, 0);
+}
+
 // Racing writers (each its own owner) incrementing one counter by compare-exchange while a simulated frame holds the
 // Scene word Shared and reads the counter, and a tick bumps the step. Under ThreadSanitizer.
 void race(Env& v) {
@@ -1089,6 +1127,7 @@ void exact(const Profile& p) {
     unavailable_cases(v);
     bounded_probe(v);
     event_cases(v);
+    adopt_cases(v, ws);
     race(v);
     // The hold time: the largest writable component of this build (from sigdb's reflection) and the 64 KiB worst case.
     const Timing a = hold_time(v, "Largest", 7002, largest, 1000);

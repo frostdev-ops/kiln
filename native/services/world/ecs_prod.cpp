@@ -207,6 +207,7 @@ void ecs_prod_ready() {
             if (types && types->header.size >= offsetof(KilnTypesApi, type_field) + sizeof(void*)) ws.types = types;
         }
         auto* writer = new ecs::writes::Writer(ws);  // process lifetime (see g_reader)
+        writer->adopt(g_boot_writer);  // the subscriptions made before on_ready, and owners retired by then
         g_writer.store(writer, std::memory_order_release);
         const char* off = writer->unavailable_reason();
         g_writes.store(off == nullptr, std::memory_order_release);
@@ -296,11 +297,8 @@ KilnResult KILN_CALL t_ecs_compare_exchange(KilnOwner owner, const KilnObjectRef
         ->compare_exchange(owner, ref, component, expected, mask, desired, bytes, confirmed, reply);
 }
 KilnResult KILN_CALL t_ecs_write_subscribe(KilnOwner owner, KilnEcsWriteEventFn fn, void* user, KilnHandle* out) {
-    // Subscriptions live in the writer on_ready publishes: one made before it would be lost.
-    if (g_writer.load(std::memory_order_acquire) == &g_boot_writer) {
-        if (out) *out = 0;
-        return fn && out && owner ? KILN_ERR_UNAVAILABLE : KILN_ERR_INVALID_ARGUMENT;
-    }
+    // Before on_ready the boot writer keeps the subscription; on_ready's writer adopts it (Writer::adopt), so a
+    // subscriber that came early misses no event.
     return g_writer.load(std::memory_order_acquire)->subscribe(owner, fn, user, out);
 }
 KilnResult KILN_CALL t_ecs_write_unsubscribe(KilnHandle subscription) {

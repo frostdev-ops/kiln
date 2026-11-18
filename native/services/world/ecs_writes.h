@@ -172,6 +172,11 @@ public:
     // draining thread may still finish.
     void owner_retired(KilnOwner owner);
 
+    // Takes over `earlier`'s subscriptions (their handles stay valid) and retired owners, and makes `earlier` hand every
+    // later subscribe, unsubscribe and retirement to this writer. kiln.world's boot writer answers until on_ready
+    // publishes the real one: a subscription made before then carries over, so no event is lost. Once.
+    void adopt(Writer& earlier);
+
     // For tests and diagnostics.
     UncertainLatch& latch() { return latch_; }
     EventRing& ring() { return ring_; }
@@ -212,6 +217,7 @@ private:
     std::atomic<std::thread::id> drainer_{};  // the thread inside drain() now (none: default)
     std::atomic<uint64_t> faults_{0};
     std::atomic<bool> widened_logged_{false};
+    Writer* forward_ = nullptr;  // set (under mu_) once a later writer adopted this one's subscriptions
 };
 
 } // namespace kw::ecs::writes
