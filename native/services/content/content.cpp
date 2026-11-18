@@ -35,6 +35,8 @@ static_assert(sizeof(KilnContentField) == 56 && offsetof(KilnContentField, enum_
 static_assert(sizeof(KilnContentEntry) == 56 && offsetof(KilnContentEntry, guid) == 40);
 static_assert(sizeof(KilnContentStack) == 32);
 static_assert(sizeof(KilnContentStatus) == 208 && offsetof(KilnContentStatus, detail) == 48);
+static_assert(sizeof(KilnContentTextInfo) == 192 && offsetof(KilnContentTextInfo, language_key) == 16 && offsetof(KilnContentTextInfo, detail) == 32);
+static_assert(offsetof(KilnContentApi, text) == offsetof(KilnContentApi, txn_end) + sizeof(void*) && offsetof(KilnContentApi, text_info) == offsetof(KilnContentApi, text) + sizeof(void*));
 
 namespace kc {
 const KilnApi* g_api = nullptr;
@@ -1027,6 +1029,7 @@ const KilnContentApi kTable = {
     /* v4 */ &t_set_ref, &t_undefine_owner, &t_info,
     /* appended to v4 */ &t_icon_alias,
     /* appended to v4, since 0.2.0-dev.28 */ &t_txn_begin, &t_txn_end,
+    /* appended to v4, since 0.2.0-dev.29.18 */ &nc_text_api, &nc_text_info_api,
 };
 
 // ============================================================================================= boot ============
@@ -1234,6 +1237,7 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     near_alloc_boot();
     resolve();
     if (E.items && E.reflection) nc_boot();
+    nc_text_boot();  // the row content.text (also where nc_boot did not run: unavailable, with why)
 #if KC_GAMEDATA
     gd_boot();  // registers kiln.gamedata (available or not)
 #endif

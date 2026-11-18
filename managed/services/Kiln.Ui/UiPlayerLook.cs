@@ -43,7 +43,10 @@ internal sealed record LookSettings(string Look, string Theme, float Background,
 
 internal static unsafe class PlayerLook
 {
-    private static readonly object FileLock = new();
+    /// <summary>Held while kiln.json is read or written in this process: by the look and by Kiln's graphics settings
+    /// (GraphicsTools), which write their sections of the same file (each reads the file, changes its section, writes it
+    /// back: two at once would lose one's change).</summary>
+    internal static readonly object FileLock = new();
     private static volatile LookSettings _current = LookSettings.Default;
     private static int _started;
     private static Timer? _watch, _save;

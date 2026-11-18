@@ -76,13 +76,14 @@ Creative Mode's loader has no public source. Its facts come from the static note
 | Name | Holders |
 |---|---|
 | `dinput8.dll` | **Kiln**, EMF, ShroudForge, Flame (Creative client), shroudlink addon, ModLoader Proxy, XHL-Core, stand-alone mods, EML (fallback) |
-| `dbghelp.dll` | EML, ShroudForge |
-| `winmm.dll` | ShroudForge (helper), Shroudtopia, Shroudweave, Shroudscaler |
+| `dbghelp.dll` | EML, ShroudForge, OptiScaler |
+| `winmm.dll` | ShroudForge (helper), Shroudtopia, Shroudweave, Shroudscaler (by its Nexus summary it loads Shroudtopia and OptiScaler together), OptiScaler |
 | `powrprof.dll` | SET, Enshwick, Ember, Shared XP, Creative (server) |
 | `dbgcore.dll` / `umpdc.dll` / `cfgmgr32.dll` | Greeneye Loader |
 | `iphlpapi.dll` | Live Map (and Ember as an option) |
 | `steam_api64.dll` | shroudlink server (replaces Steam's own DLL: a Steam file check or game update puts the original back) |
-| `dxgi.dll` | ReShade |
+| `dxgi.dll` | ReShade, OptiScaler |
+| `version.dll`, `d3d12.dll`, `wininet.dll`, `winhttp.dll` | OptiScaler (`version.dll` is Ultimate ASI Loader's too). Under any of its names it is found by its contents, never the name, and Kiln's overlay steps aside for its menu: [ui.md](ui.md#optiscaler) |
 | `xinput9_1_0.dll` | Ultimate ASI Loader, as EMF chains it |
 
 ## 2. Per engine: API surface, Kiln coverage, and the work to full parity

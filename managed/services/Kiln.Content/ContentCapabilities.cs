@@ -35,6 +35,13 @@ internal static unsafe class ContentCaps
     /// <summary>The 4,096-clone buff room is reserved (native session row, since 0.2.0-dev.29).</summary>
     public const string ExpandedBuffRoom = "gamedata.expanded_buff_room";
 
+    /// <summary>The game's own texts (<see cref="Content.Text(uint)"/>; native session row, since 0.2.0-dev.29.18). kiln.content
+    /// reports it; this file only when its table is missing or older.</summary>
+    public const string Text = Content.TextCapability;
+
+    /// <summary>Why the row is off with a kiln.content from before the game-text slots.</summary>
+    public const string TextOlder = "this kiln.content has no game-text lookup (0.2.0-dev.29.18; update Kiln)";
+
     /// <summary>The server-side sigdb features kiln.content serves.</summary>
     public static readonly string[] Features =
     [
@@ -60,6 +67,8 @@ internal static unsafe class ContentCaps
         }
         ServiceCaps.Static(References, t != null && ContentNative.Has(t, 4) && t->SetRef != null, CapabilityReason.ServiceOlder,
             "this kiln.content has no reference support (v4; update Kiln)", Service);
+        // kiln.content reports content.text itself (pending, then available; wrong-side on a server); said here only when it cannot
+        ServiceCaps.Static(Text, t != null && ContentNative.HasText(t), CapabilityReason.ServiceOlder, TextOlder, Service);
         ServiceCaps.Session(Ready, Content.Ready, "the registries load with the world's game data; the data packs are applied after that", Service);
     }
 

@@ -39,6 +39,8 @@ pub mod shapes {
     pub fn st_mod() -> Vec<u8> { build_test_dll(&["CreateModInstance"], b"") }
     pub fn plain_dinput8() -> Vec<u8> { build_test_dll(&["DirectInput8Create"], b"a mod's own proxy") }
     pub fn plain_winmm() -> Vec<u8> { build_test_dll(&["timeGetTime"], b"a mod's own proxy") }
+    /// OptiScaler's DLL: it reads OptiScaler.ini and can load ReShade itself, so it names both.
+    pub fn optiscaler_dll() -> Vec<u8> { build_test_dll(&["CreateDXGIFactory"], b"OptiScaler.ini ReShade64.dll") }
     pub fn plain_powrprof() -> Vec<u8> { build_test_dll(&["PowerGetActiveScheme"], b"a mod's own proxy") }
 
     pub fn eml_json(id: &str, name: &str) -> Vec<u8> {
@@ -136,6 +138,22 @@ pub mod shapes {
                 put(root, "aldrich-modmenu/aldrich-modmenu.ini", b"[menu]\n");
                 put(root, "aldrich-modmenu/VK_LAYER_ALDRICH_modmenu.json", b"{}");
                 put(root, "aldrich-modmenu/aldrich_modmenu_layer.dll", &build_test_dll(&["vkNegotiateLoaderLayerInterfaceVersion"], b""));
+            }
+            // OptiScaler's release archive (github.com/optiscaler/OptiScaler): its DLL as it ships, its settings, the
+            // upscaler DLLs it loads and its setup scripts; the player renames OptiScaler.dll to dxgi.dll and so on
+            "optiscaler" => {
+                put(root, "OptiScaler.dll", &optiscaler_dll());
+                put(root, "OptiScaler.ini", b"[Upscalers]\nDx11Upscaler=auto\n");
+                put(root, "amd_fidelityfx_vk.dll", &build_test_dll(&["ffxCreateContext"], b""));
+                put(root, "amd_fidelityfx_dx12.dll", &build_test_dll(&["ffxCreateContext"], b""));
+                put(root, "libxess.dll", &build_test_dll(&["xessD3D12CreateContext"], b""));
+                put(root, "setup_windows.bat", b"@echo off\n");
+                put(root, "remove_optiscaler.bat", b"@echo off\n");
+            }
+            // the same DLL renamed OptiScaler.asi for Ultimate ASI Loader, packed with its settings only
+            "optiscaler-asi" => {
+                put(root, "OptiScaler.asi", &optiscaler_dll());
+                put(root, "OptiScaler.ini", b"[Menu]\nOverlayMenu=false\n");
             }
             "141-dlss-fg" => {
                 put(root, "powrprof.dll", &plain_powrprof());
@@ -510,11 +528,48 @@ fn a_tools_package_is_left_out_whole_with_one_reason() {
 }
 
 #[test]
+fn optiscalers_package_is_left_out_whole_with_one_reason() {
+    // a player imports OptiScaler's archive: it runs on its own next to Kiln, none of its upscaler DLLs is a mod
+    let (_t, packed) = ways("optiscaler");
+    for (how, path) in packed {
+        let (_k, _d, r) = import(&[path]);
+        assert!(r.imported.is_empty(), "{how}: OptiScaler's DLLs are no mods: {r:?}");
+        assert_eq!(r.skipped.len(), 1, "{how}: {:?}", r.skipped);
+        assert!(r.skipped[0].reason.contains("OptiScaler") && r.skipped[0].reason.contains("runs on its own next to Kiln"),
+            "{}", r.skipped[0].reason);
+    }
+    // its .asi build with its settings (renamed for Ultimate ASI Loader): left out as the tool, never an .asi package that
+    // Kiln places in scripts\ and loads (a lone OptiScaler.asi is left out the same way: engines::detect_file)
+    let (_t, ways_asi) = ways("optiscaler-asi");
+    for (how, path) in ways_asi {
+        let (_k, _d, r) = import(&[path]);
+        assert!(r.imported.is_empty(), "{how}: OptiScaler.asi is no .asi package: {r:?}");
+        assert_eq!(r.skipped.len(), 1, "{how}: {:?}", r.skipped);
+        assert!(r.skipped[0].reason.contains("is OptiScaler, which runs on its own next to Kiln"), "{how}: {}", r.skipped[0].reason);
+    }
+    // in a scripts folder of its package, as Ultimate ASI Loader reads it, and next to the upscaler DLLs it loads
+    let s = tmp("optiscaler-scripts");
+    put(&s.0, "pack/scripts/OptiScaler.asi", &optiscaler_dll());
+    put(&s.0, "pack/amd_fidelityfx_vk.dll", &build_test_dll(&["ffxCreateContext"], b""));
+    let (_k, _d, r) = import(&[s.0.join("pack")]);
+    assert!(r.imported.is_empty() && r.skipped.len() == 1, "{r:?}");
+    assert!(r.skipped[0].reason.contains("OptiScaler.asi is OptiScaler"), "{}", r.skipped[0].reason);
+    // renamed to one of its proxy names, alone: OptiScaler too, never a DLL mod and never ReShade
+    let t = tmp("optiscaler-renamed");
+    for name in ["dxgi.dll", "winmm.dll", "version.dll", "dbghelp.dll", "d3d12.dll", "winhttp.dll", "wininet.dll"] {
+        put(&t.0, &format!("{name}/{name}"), &optiscaler_dll());
+        let (_k, _d, r) = import(&[t.0.join(name).join(name)]);
+        assert!(r.imported.is_empty() && r.skipped.len() == 1, "{name}: {r:?}");
+        assert!(r.skipped[0].reason.contains("is OptiScaler"), "{name}: {}", r.skipped[0].reason);
+    }
+}
+
+#[test]
 fn reasons_are_one_sentence_a_player_can_read() {
     use kiln_manage::engines::{loader_reason, Engine};
     for e in [Engine::Eml, Engine::Emf, Engine::ShroudForge, Engine::Set, Engine::Greeneye, Engine::Flame, Engine::Shroudtopia,
         Engine::Enshwick, Engine::Shroudlink, Engine::Ember, Engine::ModLoaderProxy, Engine::ChainLoader, Engine::LiveMap, Engine::SharedXp,
-        Engine::ReShade, Engine::Aldrich, Engine::UltimateAsiLoader, Engine::Kiln] {
+        Engine::ReShade, Engine::Aldrich, Engine::UltimateAsiLoader, Engine::OptiScaler, Engine::Kiln] {
         let r = loader_reason(e, "x.dll");
         assert!(!r.ends_with('.') && !r.contains(". ") && r.len() < 160, "{e:?}: {r}");
         assert!(!r.contains("not a mod to import") && !r.contains("chains it when installed over"), "{e:?}: {r}");
@@ -526,7 +581,7 @@ fn a_loader_named_like_kilns_own_dll_is_never_to_be_copied_into_the_game() {
     // 0.2.0-dev.29 said "copy it into the Enshrouded folder yourself" for Ultimate ASI Loader's dinput8.dll: that
     // replaces Kiln's own loader (HadToRegister, 2026-11-16)
     use kiln_manage::engines::{loader_is_note, loader_reason, Engine};
-    for e in [Engine::UltimateAsiLoader, Engine::Aldrich, Engine::ReShade, Engine::LiveMap, Engine::SharedXp] {
+    for e in [Engine::UltimateAsiLoader, Engine::Aldrich, Engine::ReShade, Engine::LiveMap, Engine::SharedXp, Engine::OptiScaler] {
         for file in ["dinput8.dll", "DINPUT8.DLL"] {
             let r = loader_reason(e, file);
             assert!(!r.contains("yourself") && !r.contains("copy it into") && !r.contains("copy its files"), "{e:?} {file}: {r}");

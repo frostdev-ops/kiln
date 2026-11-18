@@ -246,6 +246,15 @@ fn every_engine_kind_is_detected_with_its_reason() {
         (put(r, "f/world.ksd", b"x"), DetectKind::Save, None, "a save file"),
         (put(r, "f/Enshrouded.CT", b"x"), DetectKind::CheatTable, None, "Cheat Engine table"),
         (put(r, "f/MyReShade.ini", b"x"), DetectKind::Reshade, Some(Engine::ReShade), "ReShade preset"),
+        // OptiScaler: its DLL under its own names, its settings and its .asi build; a tool that runs on its own
+        (put(r, "os/dxgi.dll", &build_test_dll(&["CreateDXGIFactory"], b"OptiScaler.ini ReShade64.dll")), DetectKind::Proxy,
+         Some(Engine::OptiScaler), "is OptiScaler, which runs on its own next to Kiln"),
+        (put(r, "os2/OptiScaler.dll", &build_test_dll(&["CreateDXGIFactory"], &utf16("OptiScaler.ini"))), DetectKind::Proxy,
+         Some(Engine::OptiScaler), "is OptiScaler"),
+        (put(r, "os3/d3d12.dll", &build_test_dll(&["D3D12CreateDevice"], b"OptiScaler.log")), DetectKind::Proxy,
+         Some(Engine::OptiScaler), "is OptiScaler"),
+        (put(r, "f/OptiScaler.ini", b"[Menu]\n"), DetectKind::Proxy, Some(Engine::OptiScaler), "is OptiScaler"),
+        (put(r, "f/OptiScaler.asi", b"x"), DetectKind::Proxy, Some(Engine::OptiScaler), "is OptiScaler"),
         (put(r, "f/data_0001.kfc", b"x"), DetectKind::Data, None, "patched game data file"),
         (put(r, "f/plugin.asi", b"x"), DetectKind::Asi, Some(Engine::UltimateAsiLoader), "Ultimate ASI Loader"),
     ];
@@ -263,6 +272,8 @@ fn every_engine_kind_is_detected_with_its_reason() {
     // Kiln's own kinds are untouched: a stand-alone dinput8 mod and a plain DLL stay bare DLLs
     assert_eq!(detect(&put(r, "s/dinput8.dll", &build_test_dll(&["DirectInput8Create"], b"sprint toggle"))).kind, DetectKind::BareDll);
     assert_eq!(detect(&put(r, "s/fps.dll", &build_test_dll(&["x"], b"mentions reshade"))).kind, DetectKind::BareDll);
+    // a DLL mod that merely mentions OptiScaler.ini under its own name stays a DLL mod
+    assert_eq!(detect(&put(r, "s/upscale-helper.dll", &build_test_dll(&["x"], b"reads OptiScaler.ini"))).kind, DetectKind::BareDll);
 }
 
 /// Creative Mode's zip as it is laid out: the Flame loader as dinput8.dll and mods/creative/. Before, both were imported
@@ -296,3 +307,85 @@ fn creative_mode_is_never_imported_as_plain_dlls() {
     assert!(l[0].versions[0].folder.join("creative.dll").is_file() && l[0].versions[0].folder.join("flame.json").is_file());
 }
 
+
+fn utf16(s: &str) -> Vec<u8> {
+    s.encode_utf16().flat_map(|c| c.to_le_bytes()).collect()
+}
+
+/// OptiScaler in the game folder (engines::optiscaler_in, game::graphics_tools): found by its contents under any of its
+/// names, never by a name alone; the proxy-name rules other loaders share stay as they were.
+#[test]
+fn optiscaler_in_the_game_folder_is_found_by_its_contents() {
+    use kiln_manage::engines::{optiscaler_in, scan_proxies};
+    use kiln_manage::pe::ProxyKind;
+    let t = tmp("optiscaler-game");
+    let g = &t.0;
+    assert_eq!(optiscaler_in(g), None);
+    assert!(kiln_manage::game::graphics_tools(g).is_empty());
+    // its settings left behind by an uninstall, ReShade's dxgi.dll, Shroudtopia's winmm.dll and a plain version.dll
+    put(g, "OptiScaler.ini", b"[Menu]\n");
+    put(g, "dxgi.dll", &build_test_dll(&["CreateDXGIFactory"], b"ReShade 6.3"));
+    put(g, "winmm.dll", &build_test_dll(&["timeGetTime"], b"shroudtopia.dll"));
+    put(g, "version.dll", &build_test_dll(&["GetFileVersionInfoW"], b"a mod's own proxy"));
+    put(g, "d3d12.dll", &build_test_dll(&["D3D12CreateDevice"], b"not OptiScaler"));
+    assert_eq!(optiscaler_in(g), None, "no OptiScaler DLL: nothing");
+    let kinds = |g: &Path| scan_proxies(g).into_iter().map(|s| (s.name, s.class.kind)).collect::<Vec<_>>();
+    let before = kinds(g);
+    assert_eq!(before, [("winmm.dll".to_string(), ProxyKind::Shroudtopia), ("version.dll".to_string(), ProxyKind::Unknown),
+        ("dxgi.dll".to_string(), ProxyKind::ReShade)]);
+    // OptiScaler as d3d12.dll (no proxy name of a mod loader): found, and scan_proxies does not list it
+    put(g, "d3d12.dll", &build_test_dll(&["D3D12CreateDevice"], b"OptiScaler.ini"));
+    assert_eq!(optiscaler_in(g).as_deref(), Some("d3d12.dll"));
+    assert_eq!(kinds(g), before);
+    std::fs::remove_file(g.join("d3d12.dll")).unwrap();
+    // OptiScaler as winmm.dll instead of Shroudtopia: the proxy scan names it (Kiln's installer leaves it in place)
+    put(g, "winmm.dll", &build_test_dll(&["timeGetTime"], &utf16("OptiScaler.ini")));
+    assert_eq!(optiscaler_in(g).as_deref(), Some("winmm.dll"));
+    assert_eq!(kinds(g)[0], ("winmm.dll".to_string(), ProxyKind::OptiScaler));
+    let notes = kiln_manage::game::graphics_tools(g);
+    assert_eq!(notes.len(), 1);
+    assert_eq!((notes[0].engine, notes[0].file.as_str()), (Engine::OptiScaler, "winmm.dll"));
+    assert!(notes[0].text.contains("KILN_UI_OVERLAY"), "{}", notes[0].text);
+    let json = serde_json::to_value(&notes[0]).unwrap();
+    assert_eq!(json["engine"], "optiscaler");
+    assert!(!notes[0].kiln_overlay && notes[0].text.contains("steps aside") && notes[0].text.contains("OverlayMenu=false"));
+    // its own menu off in its ini: Kiln's overlay draws next to it (kiln.ui decides the same from the same ini)
+    put(g, "OptiScaler.ini", b"[Menu]\r\nOverlayMenu=false\r\n");
+    let notes = kiln_manage::game::graphics_tools(g);
+    assert!(notes[0].kiln_overlay && notes[0].text.contains("draws next to it"), "{}", notes[0].text);
+    assert_eq!(serde_json::to_value(&notes[0]).unwrap()["kilnOverlay"], true);
+    // its .asi build, loaded by Ultimate ASI Loader
+    std::fs::remove_file(g.join("winmm.dll")).unwrap();
+    put(g, "OptiScaler.asi", &build_test_dll(&["x"], b"OptiScaler.log"));
+    assert_eq!(optiscaler_in(g).as_deref(), Some("OptiScaler.asi"));
+}
+
+/// OptiScaler.ini as kiln.ui reads it (native/services/ui/overlay_optiscaler.h, its host test has the same cases).
+#[test]
+fn optiscaler_ini_decides_kilns_overlay() {
+    use kiln_manage::engines::OptiScalerIni;
+    let stock = OptiScalerIni::parse("; OptiScaler.ini as it ships\n[FrameGen]\nEnabled=auto\nFGInput=auto\nFGOutput=auto\n[Menu]\nOverlayMenu=auto\n");
+    assert_eq!(stock, OptiScalerIni { overlay_menu: None, frame_gen: false });
+    assert!(!stock.kiln_overlay_draws(), "OptiScaler's menu is on by default");
+    let off = OptiScalerIni::parse("\u{feff}[menu]\r\n  overlaymenu = FALSE \r\n");
+    assert!(off.kiln_overlay_draws());
+    assert_eq!(OptiScalerIni::parse("[Hotfix]\nOverlayMenu=false\n[Menu]\n#OverlayMenu=false\n").overlay_menu, None);
+    let fg = OptiScalerIni::parse("[Menu]\nOverlayMenu=false\n[FrameGen]\nFGInput=upscaler\nFGOutput=fsrfg\n");
+    assert!(fg.frame_gen && !fg.kiln_overlay_draws(), "frame generation: Kiln steps aside");
+    assert!(!OptiScalerIni::parse("[FrameGen]\nFGInput=upscaler\nFGOutput=nofg\n").frame_gen);
+    assert_eq!(OptiScalerIni::parse("[Menu]\nOverlayMenu=false\nOverlayMenu=true\n").overlay_menu, Some(true));
+    // no ini: the defaults
+    let t = tmp("optiscaler-ini");
+    assert_eq!(OptiScalerIni::read(&t.0), OptiScalerIni::default());
+    put(&t.0, "optiscaler.INI", b"[Menu]\nOverlayMenu=false\n");
+    assert!(OptiScalerIni::read(&t.0).kiln_overlay_draws(), "its name in any case");
+    // larger than kiln.ui reads: neither reads it, both take OptiScaler's menu for on
+    let big = tmp("optiscaler-ini-big");
+    let mut text = b"[Menu]\nOverlayMenu=false\n".to_vec();
+    text.resize(kiln_manage::engines::OPTISCALER_INI_MAX as usize + 1, b'\n');
+    put(&big.0, "OptiScaler.ini", &text);
+    assert_eq!(OptiScalerIni::read(&big.0), OptiScalerIni::default());
+    text.truncate(kiln_manage::engines::OPTISCALER_INI_MAX as usize);
+    put(&big.0, "OptiScaler.ini", &text);
+    assert!(OptiScalerIni::read(&big.0).kiln_overlay_draws(), "up to the limit it is read");
+}

@@ -251,3 +251,43 @@ mod setting_line_tests {
         assert_eq!(one_line(&"k".repeat(300)).chars().count(), 123);
     }
 }
+
+#[cfg(test)]
+mod kiln_graphics_tests {
+    use super::*;
+    use serde_json::json;
+
+    /// (dev.29.18) kiln.json "graphics" (Settings, Graphics): the snapshot holds the keys the game reads, kiln_set
+    /// writes them into a commented kiln.json and refuses values out of range.
+    #[test]
+    fn the_graphics_section_is_set_and_checked() {
+        let schema = kiln_snapshot();
+        let keys: Vec<&str> = schema.entries.iter().map(|e| e.path.as_str()).filter(|p| p.starts_with("graphics.")).collect();
+        assert_eq!(keys, ["graphics.fpsCap", "graphics.dlssPreset", "graphics.dlssScale", "graphics.dlssRenderScale",
+            "graphics.dlssQualityScale", "graphics.dlssBalancedScale", "graphics.dlssPerformanceScale",
+            "graphics.dlssUltraPerformanceScale", "graphics.readout"]);
+        let dir = std::env::temp_dir().join(format!("kiln-launcher-graphics-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("kiln.json");
+        std::fs::write(&path, "{\n  // keep me\n  \"policy\": \"verified-only\"\n}\n").unwrap();
+        let doc = kiln_set(&path, "graphics.fpsCap", Some(&json!(144))).unwrap();
+        assert_eq!(doc.values["graphics"]["fpsCap"], 144);
+        let doc = kiln_set(&path, "graphics.dlssPreset", Some(&json!("K"))).unwrap();
+        assert_eq!(doc.values["graphics"]["dlssPreset"], "K");
+        let doc = kiln_set(&path, "graphics.dlssScale", Some(&json!("perMode"))).unwrap();
+        assert_eq!(doc.values["graphics"]["dlssScale"], "perMode");
+        let doc = kiln_set(&path, "graphics.dlssQualityScale", Some(&json!(0.75))).unwrap();
+        assert_eq!(doc.values["graphics"]["dlssQualityScale"], 0.75);
+        let doc = kiln_set(&path, "graphics.readout", Some(&json!(true))).unwrap();
+        assert!(doc.errors.is_empty(), "{:?}", doc.errors);
+        assert!(doc.text.contains("// keep me"));
+        for (key, bad) in [("graphics.fpsCap", json!(501)), ("graphics.fpsCap", json!(1.5)), ("graphics.dlssPreset", json!("N")),
+            ("graphics.dlssRenderScale", json!(0.2)), ("graphics.dlssRenderScale", json!(1.1)), ("graphics.readout", json!(1))] {
+            assert!(kiln_set(&path, key, Some(&bad)).is_err(), "{key} = {bad}");
+        }
+        let doc = kiln_set(&path, "graphics.fpsCap", None).unwrap();
+        assert!(doc.values["graphics"].get("fpsCap").is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

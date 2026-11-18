@@ -2,7 +2,8 @@
 // Controls by entry type: bool → Toggle; int/float → number (slider when min and max are set); enum → Select;
 // duration ("5m", "1h30m") → text with a check; list<T> → chips; string → text. Words, not badges: Restart, Synced,
 // Pending. A changed row has a gold diamond before its label and shows the default with Reset; an invalid row shows an
-// iron-red message under the field. One column, max 720 wide; section heads in small caps.
+// iron-red message under the field. One column, max 720 wide; section heads in small caps. A row's label is its key in
+// words ("chatHistory": "Chat History") unless the card gives its own (`labels`).
 // The form never writes: it calls onChange(path, value) / onReset(path) and the page saves (config_set).
 import { Plus, X } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
@@ -24,6 +25,9 @@ export interface SchemaFormProps {
   disabled?: boolean;
   /** Substring filter over path and comment. */
   filter?: string;
+  /** Field labels by path, for a card whose key names do not read as words ("graphics.fpsCap": "Frame cap"); an entry
+   *  without one is named from its key. */
+  labels?: Record<string, string>;
 }
 
 const DURATION = /^(\d+(\.\d+)?(ms|s|m|h|d))+$/;
@@ -74,7 +78,7 @@ const label = (path: string) => {
   return words.charAt(0).toUpperCase() + words.slice(1);
 };
 
-export function SchemaForm({ schema, values, onChange, onReset, errors = [], pending = [], disabled, filter }: SchemaFormProps) {
+export function SchemaForm({ schema, values, onChange, onReset, errors = [], pending = [], disabled, filter, labels }: SchemaFormProps) {
   const t = useT();
   const groups = useMemo(() => {
     const secs = [...(schema.sections ?? [])].sort((a, b) => b.path.length - a.path.length);
@@ -103,7 +107,7 @@ export function SchemaForm({ schema, values, onChange, onReset, errors = [], pen
           )}
           {g.entries.map((e) => (
             <EntryRow key={e.path} entry={e} value={getPath(values, e.path)} onChange={onChange} onReset={onReset} disabled={disabled}
-              error={errors.find((x) => x.path === e.path)?.message} pending={pending.includes(e.path)} />
+              error={errors.find((x) => x.path === e.path)?.message} pending={pending.includes(e.path)} name={labels?.[e.path]} />
           ))}
         </div>
       ))}
@@ -119,10 +123,13 @@ interface RowProps {
   error?: string;
   pending?: boolean;
   disabled?: boolean;
+  /** The field's label (SchemaFormProps.labels); else from its key. */
+  name?: string;
 }
 
-function EntryRow({ entry: e, value, onChange, onReset, error, pending, disabled }: RowProps) {
+function EntryRow({ entry: e, value, onChange, onReset, error, pending, disabled, name: given }: RowProps) {
   const t = useT();
+  const name = given ?? label(e.path);
   const v = value === undefined ? e.default : value;
   const changed = value !== undefined && !same(value, e.default);
   const local = checkValue(e, v);
@@ -133,7 +140,7 @@ function EntryRow({ entry: e, value, onChange, onReset, error, pending, disabled
     <div className={"k-sform-row" + (changed ? " changed" : "") + (shownError ? " invalid" : "")}>
       <div className="k-sform-meta">
         <div className="k-sform-label">
-          <label htmlFor={id}>{label(e.path)}</label>
+          <label htmlFor={id}>{name}</label>
           {e.requiresRestart && <span className="k-word-sm k-tone-warn" title={t("ui.schemaForm.restartTitle")}>{t("ui.schemaForm.restart")}</span>}
           {e.synced && <span className="k-word-sm k-tone-info" title={t("ui.schemaForm.syncedTitle")}>{t("ui.schemaForm.synced")}</span>}
           {pending && <span className="k-word-sm k-tone-ember" title={t("ui.schemaForm.pendingTitle")}>{t("ui.schemaForm.pending")}</span>}
@@ -147,7 +154,7 @@ function EntryRow({ entry: e, value, onChange, onReset, error, pending, disabled
         {changed && (
           <span className="k-sform-default">
             {rich("ui.schemaForm.default", { value: <span className="k-mono">{fmt(e.default)}</span> })}
-            {onReset && <> · <button type="button" className="k-link" aria-label={t("ui.schemaForm.resetLabel", { name: label(e.path) })} onClick={() => onReset(e.path)} disabled={disabled}>{t("common.reset")}</button></>}
+            {onReset && <> · <button type="button" className="k-link" aria-label={t("ui.schemaForm.resetLabel", { name })} onClick={() => onReset(e.path)} disabled={disabled}>{t("common.reset")}</button></>}
           </span>
         )}
       </div>

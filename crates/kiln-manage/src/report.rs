@@ -520,7 +520,8 @@ pub enum Level {
 pub struct Finding {
     /// Stable name: `not-installed`, `proxy-not-kiln`, `files-missing`, `files-changed`, `not-loaded`,
     /// `proton-override`, `proton-chained-override`, `unknown-build`, `safe-idle`, `own-loader`, `loader-in-folder`, `unlisted-mods`,
-    /// `mod-failed`, `hosted-mods`, `hosted-off`, `crash`, `profile-invalid`, `newer-mods`, `no-game`, `sf-startup-failed`.
+    /// `mod-failed`, `hosted-mods`, `hosted-off`, `crash`, `profile-invalid`, `newer-mods`, `no-game`, `sf-startup-failed`, `sf-startup-skipped`,
+    /// `optiscaler`.
     pub id: String,
     pub level: Level,
     pub text: String,
@@ -1069,11 +1070,12 @@ pub fn build(input: &ReportInput) -> Report {
         }
         if let Some(lo) = (!direct).then(|| crate::game::launch_options_info(i, &roots)).flatten() {
             let _ = writeln!(g, "Launch opts:   {} (dinput8 override: {}; chained xinput9_1_0 override missing: {})", lo.value.as_deref().unwrap_or("(none)"), if lo.has_dll_override { "yes" } else { "no" }, if lo.chained_override_missing { "yes" } else { "no" });
-            facts.override_missing = !lo.has_dll_override;
+            facts.override_missing = !lo.has_dll_override && !lo.dinput8_native_by_runner;
+            facts.has_dinput8_override = lo.has_dll_override;
             if lo.chained_override_missing {
                 cx.find("proton-chained-override", Level::Warning, format!("Ultimate ASI Loader is chained as xinput9_1_0.dll and neither Steam's launch options nor the prefix registry sets xinput9_1_0 to native first: under Valve's Proton, Wine loads its own xinput9_1_0 instead and the loader with its .asi plugins does not start (GE-Proton loads it without). Set: {}", lo.advice.as_deref().unwrap_or(crate::game::CHAINED_DLL_OVERRIDE_ADVICE)));
             }
-            facts.override_advice = lo.advice;
+            facts.override_advice = lo.fallback_advice;
         }
         let running = crate::proc::find_game(i).ok().flatten();
         facts.running = running.is_some();
@@ -1138,6 +1140,24 @@ pub fn build(input: &ReportInput) -> Report {
     }
     for p in &proxies {
         let _ = writeln!(k, "  {:<16} {}", p.name, proxy_text(&p.class));
+    }
+    // (dev.29.18) OptiScaler next to the game, under any of its names: what Kiln's overlay does next to it (kiln.ui
+    // decides the same from the same OptiScaler.ini: native/services/ui/overlay_optiscaler.h)
+    for g in crate::game::graphics_tools(&game) {
+        let _ = writeln!(k, "Graphics tool: {} ({}): Kiln's overlay {}", g.engine.name(), g.file,
+            if g.kiln_overlay { "draws next to it (its own menu is off in OptiScaler.ini)" } else { "drawing steps aside" });
+        cx.find("optiscaler", Level::Info, format!("{} is installed ({}). {}", g.engine.name(), g.file, g.text));
+        // its settings (OverlayMenu, frame generation), and the tail of its own log when it writes one ([Log]
+        // LogToFile=true; it can grow large, so a log's budget, as for the other tools' logs), under their names on disk
+        // (a Linux folder is case sensitive; the finding read the ini in any case)
+        let on_disk = |name: &str| {
+            std::fs::read_dir(&game).into_iter().flatten().flatten()
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .find(|n| n.eq_ignore_ascii_case(name))
+                .unwrap_or_else(|| name.to_string())
+        };
+        cx.add_file(&on_disk("OptiScaler.ini"));
+        cx.add_tail(&on_disk("OptiScaler.log"), SMALL_LOG_MAX);
     }
     match crate::chain::read_raw(&game) {
         Ok(t) if t.trim().is_empty() => {
@@ -1408,6 +1428,11 @@ pub fn build(input: &ReportInput) -> Report {
         let _ = writeln!(ls, "ShroudForge's record of its startup pass (state.json \"assets\"): {}", f.line());
         cx.find("sf-startup-failed", Level::Problem, format!("{}.", f.text()));
     }
+    // Kiln's ShroudForge ran the pass once more without the mod it failed in: the others loaded, that one did not.
+    if let Some(s) = crate::sf_startup::skipped(game).map(|s| s.redacted(|t| redact(t, cx.red))) {
+        let _ = writeln!(ls, "ShroudForge's record of its startup pass (state.json \"assets\"): {}", s.line());
+        cx.find("sf-startup-skipped", Level::Warning, format!("{}.", s.text()));
+    }
     let aside: Vec<ModKind> = engines.iter()
         .filter(|e| e.state.as_ref().is_some_and(|st| stood_aside(st) && !eml_under_hosted_shroudforge(e.kind, st, sf_hosted_pid)))
         .map(|e| e.kind).collect();
@@ -1565,6 +1590,8 @@ struct Facts {
     kiln: Option<String>,
     proton: Option<String>,
     override_missing: bool,
+    /// Whether an explicit dinput8 override is already configured, not whether the runner needs one.
+    has_dinput8_override: bool,
     override_advice: Option<String>,
     /// The launcher starts this client directly (direct.rs), not through Steam.
     direct: bool,
@@ -1799,10 +1826,11 @@ fn check_not_loaded(cx: &mut Ctx, install: Option<&GameInstall>, dirs: Option<&D
     let why = if facts.direct && i.platform != Platform::Windows {
         // a direct start sets WINEDLLOVERRIDES itself (direct.rs): its own output says what went wrong
         " The launcher starts this game directly with dinput8 native first: see launcher/game-start.log for what umu-run, Proton or Wine said, and check that dinput8.dll in the game folder is Kiln's.".to_string()
-    } else if proton && facts.override_missing {
-        format!(" Under Proton the game loads Kiln's dinput8.dll only with this in Steam's launch options for Enshrouded: {}", facts.override_advice.as_deref().unwrap_or(crate::game::DLL_OVERRIDE_ADVICE))
-    } else if proton {
+    } else if proton && facts.has_dinput8_override {
+        // The override is already set: repeating it cannot fix a failed start.
         " Check Steam's launch options for Enshrouded (WINEDLLOVERRIDES) and the Proton version.".to_string()
+    } else if proton {
+        format!(" If Steam did not load Kiln's dinput8.dll, try this fallback in Enshrouded's Steam launch options: {}. If Kiln still does not load, check the Proton version and kiln/logs/proxy.log.", facts.override_advice.as_deref().unwrap_or(crate::game::DLL_OVERRIDE_ADVICE))
     } else {
         " Check that dinput8.dll in the game folder is Kiln's and that no antivirus blocks it.".to_string()
     };

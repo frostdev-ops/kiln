@@ -2,6 +2,7 @@
 // launcher never writes Steam's files (launch options, shortcuts.vdf, localconfig.vdf): the player sets them, these
 // are the steps. Each block is focusable, so the D-pad walks through them; the right stick scrolls.
 import { useGame, useGameStatus } from "../../api/hooks";
+import { usePlayControl } from "../../shell/play";
 import { Glyph, useGlyphStyle } from "../glyphs";
 import { Screen, Word } from "../ui";
 import { LAUNCH_OPTION } from "../status";
@@ -12,11 +13,12 @@ export default function Help() {
   const t = useT();
   const { game } = useGame();
   const status = useGameStatus(game?.id);
+  const { kilnMissing, stuck } = usePlayControl();
   const style = useGlyphStyle();
   const lo = status.data?.launchOptions ?? null;
-  const option = lo?.advice ?? LAUNCH_OPTION;
+  const option = lo?.advice ?? lo?.fallbackAdvice ?? LAUNCH_OPTION;
   const state = !lo ? null : lo.chainedOverrideMissing ? { tone: "warn" as const, text: lo.hasDllOverride ? t("deck.help.addXinput") : t("deck.help.needed") } : lo.hasDllOverride ? { tone: "ok" as const, text: t("deck.help.alreadySet") }
-    : lo.advice ? { tone: "warn" as const, text: t("deck.help.needed") } : { tone: "ok" as const, text: t("deck.help.notNeeded") };
+    : (kilnMissing || stuck || lo.advice) ? { tone: "warn" as const, text: t("deck.help.needed") } : { tone: "ok" as const, text: t("deck.help.notNeeded") };
   const controls: [PadButton | "dpad" | "stick-l" | "stick-r", string][] = [
     ["dpad", t("deck.app.move")], ["stick-l", t("deck.app.move")], ["a", t("deck.app.select")], ["b", t("common.back")], ["x", t("deck.help.screenAction")], ["y", t("deck.help.screenAction")],
     ["lb", t("deck.app.previousTab")], ["rb", t("deck.app.nextTab")], ["start", t("deck.app.menu")], ["select", t("deck.app.tabs.help")], ["stick-r", t("deck.help.scroll")],

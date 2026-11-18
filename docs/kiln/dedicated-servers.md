@@ -56,7 +56,13 @@ Things that can go wrong on rented hosts:
 | still no log, and the host runs Linux | some hosts run the Windows server under Wine; Wine needs `WINEDLLOVERRIDES="dinput8=n,b"` | ask the host's support to set it |
 | the host deletes or blocks the DLL | some hosts don't allow custom DLLs | ask support; there's no way around it |
 
-We haven't tried Kiln on any specific rented host yet. If you do, please tell us how it went.
+Known hosts:
+
+| Host | Kiln works? | Why |
+|---|---|---|
+| Nitrado | no | Nitrado never runs custom DLLs uploaded to the server folder (a security policy), doesn't support outside mod frameworks, and won't set `WINEDLLOVERRIDES`. Confirmed by Nitrado's support, 2026-11-18. |
+
+We haven't tried any other rented host yet. If you do, please tell us how it went.
 
 ## Your own Windows PC
 
@@ -335,7 +341,7 @@ settings, data and logs; delete it if you don't need them.
 ## What hasn't been tested
 
 - A real Windows PC: the server side ran under Wine only.
-- Rented hosts: none tried yet (GTXGaming, G-Portal or others). Hosts that run Windows servers under Wine need the
+- Rented hosts: none tried yet (GTXGaming, G-Portal or others); Nitrado is known not to work (see [Rented server](#rented-server)). Hosts that run Windows servers under Wine need the
   `WINEDLLOVERRIDES` setting from the host.
 - A modpack built for a rented server from a local copy of its folder.
 

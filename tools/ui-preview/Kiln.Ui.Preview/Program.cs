@@ -130,6 +130,7 @@ internal static unsafe class Program
             ModCatalog.WaitForSnapshot();
             var look = scene.Look ?? LookSettings.Default;
             PlayerLook.Use(language is null ? look : look with { Language = language });  // the player's look (and language) of this scene
+            GraphicsTools.Use(scene.Graphics ?? GraphicsSettings.Default);  // Kiln's graphics settings of this scene
             Samples.Windows(scene.Windows);
             var page = ModManagerHost.Page;
             page.Section = scene.Section;
@@ -509,6 +510,8 @@ internal sealed record Scene(string Name, Func<string, IReadOnlyList<KilnModInpu
     public LookSettings? Look { get; init; }
     /// <summary>The Kiln menu closed: a mod's themed window, a Kiln window, a HUD line and a toast instead.</summary>
     public bool Windows { get; init; }
+    /// <summary>Kiln's graphics settings in this scene (null: the defaults, all off).</summary>
+    public GraphicsSettings? Graphics { get; init; }
 }
 
 internal static class Scenes
@@ -554,6 +557,17 @@ internal static class Scenes
         new("network", Typical) { Section = ModManagerSection.Network, OnlyAt = "1920x1080" },
         new("keys", Typical) { Section = ModManagerSection.Keys, OnlyAt = "1920x1080" },
         new("overlay", Typical) { Section = ModManagerSection.Overlay, OnlyAt = "1920x1080" },
+        // Kiln's graphics tools (0.2.0-dev.29.18): the frame cap, DLSS preset K and a custom render scale, the readout on
+        new("graphics", Typical)
+        {
+            Section = ModManagerSection.Graphics, OnlyAt = "1920x1080",
+            Graphics = GraphicsSettings.Default with { FpsCap = 60, DlssPreset = "K", DlssScale = DlssScaleMode.Custom, RenderScale = 0.75f, Readout = true },
+        },
+        new("graphics-per-mode", Typical)
+        {
+            Section = ModManagerSection.Graphics, OnlyAt = "1920x1080",
+            Graphics = GraphicsSettings.Default with { DlssScale = DlssScaleMode.PerMode, PerformanceScale = 0.6f },
+        },
         new("game-page", Typical) { Selected = "kiln/storage-labels", GamePage = true },
         new("game-page-bright", Typical) { Selected = "kiln/storage-labels", GamePage = true, Bright = true },
         new("game-page-problems", Problems) { Filter = EngineFilter.Attention, GamePage = true, OnlyAt = "1920x1080" },

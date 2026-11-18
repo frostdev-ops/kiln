@@ -94,5 +94,6 @@ int main(int argc,char** argv) {
     }
     CHECK(!kg::build_reason().empty());
     const auto before=installs; kg::build_request(33); kg::hooks_poll(); CHECK(installs==before);
+    kg::zones_retire(); // the snapshots a Post would free: the test has no Post (LeakSanitizer at exit)
     std::printf("build_hooks_test %s: %d checks, %d failures\n",mode.c_str(),checks,failures); return failures ? 1 : 0;
 }

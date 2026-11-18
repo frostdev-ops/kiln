@@ -232,6 +232,7 @@ int main(int argc,char** argv) {
         }
         }
         if(mode=="r4-build-unmarked") std::filesystem::remove_all(control_path);
+        kg::zones_retire(); // the snapshots a Post would free (LeakSanitizer at exit)
         std::printf("remaining %s: %u checks, %u failures\n",mode.c_str(),checks,failed); return failed ? 1 : 0;
     }
     if(mode=="idle") {
@@ -296,6 +297,7 @@ int main(int argc,char** argv) {
         CHECK(!kg::hooks_request(group,99)); ready=2; kg::hooks_poll_no_world(); kg::hooks_poll();
         CHECK(installs==1); CHECK(unchecked_installs==0); CHECK(seen("installed unchecked")==0);
         if(mode.find("replace")!=std::string::npos) CHECK(kg::hooks_spawn_replace_clear(77)==1u);  // the inert rule is still removable
+        kg::zones_retire(); // the snapshots a Post would free (LeakSanitizer at exit)
         std::printf("remaining %s: %u checks, %u failures\n",mode.c_str(),checks,failed); return failed ? 1 : 0;
     }
     if(denied) {
@@ -326,5 +328,6 @@ int main(int argc,char** argv) {
         KilnCallFrame frame{}; frame.slot=1; uint64_t stack[2]{}; frame.stack=stack;
         CHECK(links[0].fn(&frame,links[0].user)==KILN_TYPED_SKIP); CHECK(originals==1); CHECK(frame.rax==7);
     }
+    kg::zones_retire(); // the snapshots a Post would free (LeakSanitizer at exit)
     std::printf("remaining %s: %u checks, %u failures\n",mode.c_str(),checks,failed); return failed ? 1 : 0;
 }
