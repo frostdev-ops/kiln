@@ -1,0 +1,29 @@
+<Project>
+  <!-- Fetch nearby (docs/kiln/modding/tasks.md): /fetch <item> [count] brings items from the containers near a player
+       into the player's inventory. The search runs in a Kiln task, off the server's tick; the items move on the tick.
+       A Kiln.Sdk mod (repository mode): its build writes kiln.mod.json and runs Kiln's analyzers on it. Its tests are in
+       managed/tests/Kiln.TestKit.Tests (FetchNearbyTests), on the test kit's fakes.
+       Build: dotnet build mods/samples/FetchNearby -c Release -o $KILN_OUT/mods/fetch-nearby -artifacts-path $KILN_OUT/dotnet -->
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.props" />
+  <PropertyGroup>
+    <KilnModId>fetch-nearby</KilnModId>
+    <KilnModName>Fetch nearby</KilnModName>
+    <Version>0.1.0</Version>
+    <Description>/fetch &lt;item&gt; [count]: brings items from the containers within 12 m into your inventory. The search runs off the server's tick.</Description>
+    <KilnSide>server</KilnSide>
+    <KilnServices>World;Items;Chat</KilnServices>
+    <!-- Kiln's task pool: without it the mod does not load (it is there on every booted server) -->
+    <KilnFeatures>tasks.pool</KilnFeatures>
+    <KilnGameIds>None</KilnGameIds>
+    <!-- WorldConcurrent, the task-thread world reads, is experimental -->
+    <NoWarn>$(NoWarn);KILNX001</NoWarn>
+  </PropertyGroup>
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.targets" />
+  <!-- In repository mode the services' own project references land in the output; kiln/host has them, and the loader
+       takes its own, so the mod folder leaves every Kiln.* out (as the test kit's TkWorld does). -->
+  <Target Name="_FetchNearbySharedOut" AfterTargets="_KilnModFiles">
+    <ItemGroup>
+      <_KilnModFile Remove="$(OutDir)Kiln.*" />
+    </ItemGroup>
+  </Target>
+</Project>
