@@ -75,6 +75,7 @@ internal sealed class TickAwareBackend(Kiln.TestKit.RecordingBackend inner, Fake
     public bool HasFeature(string name) => inner.HasFeature(name);
     public void Log(ulong owner, LogLevel level, string text) => inner.Log(owner, level, text);
     public nint Service(string name, uint minVersion) => inner.Service(name, minVersion);
+    public ulong OwnerCreate(string id) => inner.OwnerCreate(id);
 }
 
 /// <summary>Fresh Kiln state plus a fake pool with a live server session, bound as Kiln's task backend.</summary>

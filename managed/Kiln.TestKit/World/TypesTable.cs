@@ -71,6 +71,62 @@ internal static unsafe class TypesFake
     /// <summary>The type is a component of the game (the dump's component list).</summary>
     public static bool IsComponent(uint hash) => Find(hash) is { Component: true };
 
+    /// <summary>kiln.world's plain-bytes rule (native/services/world/ecs_write_policy.cpp, classify_plain) over this table:
+    /// true when every base class, field, typedef and static-array element is a boolean, integer, float, enum, bit mask or
+    /// GUID; false at the first other kind (<paramref name="why"/> says which); null when a type is not in the table or the
+    /// walk goes past kiln.world's bounds. <paramref name="size"/>: the type's size (0 when unknown).</summary>
+    public static bool? Plain(uint hash, out int size, out string? why)
+    {
+        size = 0;
+        why = "kiln.types cannot describe the component's type";
+        if (Find(hash) is not { } root) return null;
+        size = root.Size;
+        var stack = new Stack<(Row Row, int Depth)>();
+        stack.Push((root, 0));
+        var nodes = 0;
+        while (stack.Count > 0)
+        {
+            var (row, depth) = stack.Pop();
+            if (++nodes > 4096 || depth > 32) return null;
+            switch (row.Kind)
+            {
+                case >= 1 and <= 16:
+                case 29:  // GUID
+                    continue;
+                case 17 or 19:  // TYPEDEF, STATIC_ARRAY
+                    if (row.Inner < 0) return null;
+                    stack.Push((_rows[row.Inner], depth + 1));
+                    continue;
+                case KindStruct:
+                    if (row.InnerName is not null)
+                    {
+                        if (row.Inner < 0) return null;
+                        stack.Push((_rows[row.Inner], depth + 1));
+                    }
+                    foreach (var f in row.RawFields)
+                    {
+                        if (!ByName.TryGetValue(f.Type, out var i)) return null;
+                        stack.Push((_rows[i], depth + 1));
+                    }
+                    continue;
+                case >= 20 and <= 23:
+                    why = "the type holds a dynamic array, string, optional or variant (it owns heap memory)";
+                    return false;
+                case >= 24 and <= 27:
+                    why = "the type holds a blob array, string, optional or variant (offsets into blob data)";
+                    return false;
+                case 28:
+                    why = "the type holds an object reference (a pointer)";
+                    return false;
+                default:
+                    why = "the type holds a kind kiln.types does not name";
+                    return false;
+            }
+        }
+        why = null;
+        return true;
+    }
+
     /// <summary>An attribute: a component whose base chain runs through <c>keen::ecs::AttributeComponent</c>.</summary>
     public static bool IsAttribute(uint hash)
     {

@@ -237,6 +237,26 @@ internal sealed unsafe class EntitiesFake : IDisposable
     public Slot? Block(uint entity, uint hash) =>
         Live(entity) is { } e && e.Components.TryGetValue(hash, out var slot) ? slot : null;
 
+    /// <summary>What the compare-exchange policy reads of a component type: its size (Kiln.Game's types, or the bytes a
+    /// test set) and its tracking, known only when a test gave it (<see cref="Track"/>: the kit reads no engine, and
+    /// kiln.world never guesses the bits). Any thread.</summary>
+    public (int? Size, bool TrackingKnown, bool Save, bool Replication) WriteFactsOf(uint hash)
+    {
+        var meta = Volatile.Read(ref _meta);
+        var known = meta.Tracking.TryGetValue(hash, out var t);
+        int? size = TypesFake.Find(hash) is { Component: true } row ? row.Size : meta.Sizes.TryGetValue(hash, out var s) ? s : null;
+        return (size, known, t.Save, t.Replication);
+    }
+
+    /// <summary>A task's compare-exchange: the bytes replaced in place (the same length). Between the tick thread's work
+    /// items (TickThread.WorldGate), as every task-thread read of this world.</summary>
+    public bool Overwrite(uint entity, uint hash, ReadOnlySpan<byte> bytes)
+    {
+        if (Block(entity, hash) is not { } slot || slot.Size != bytes.Length) return false;
+        bytes.CopyTo(new Span<byte>((void*)slot.Data, slot.Size));
+        return true;
+    }
+
     // A fake player's CurrentTransform is where the test says the player stands, written as the game's movement writes it:
     // when the world steps, never on a read.
     private void FollowPlayer(uint entity)
@@ -561,6 +581,7 @@ internal sealed unsafe class EntitiesFake : IDisposable
         if (_meta.Lists is null) Boot();
         _steps = step;
         RetireDeparted();
+        EcsReadsFake.Drain(this);  // kiln.world's Pre: the committed-write events since the last step
         foreach (var p in _harness.PlayersFake?.Present ?? []) FollowPlayer(p.Entity.Value);
         foreach (var writer in _writers.ToArray())
             if (writer.Each is { } each)

@@ -94,6 +94,56 @@ public sealed unsafe class WorldContractTests
     }
 
     [Fact]
+    public void The_write_mirrors_put_the_members_and_records_where_the_header_does()
+    {
+        var abi = Abi();
+        Assert.Equal((int)abi["KilnWorldApiEcsWrites"]!["size"]!, sizeof(EcsWritesTable));
+        Assert.Equal((int)abi["KilnWorldApiEcsReads"]!["size"]!, (int)Marshal.OffsetOf<EcsWritesTable>(nameof(EcsWritesTable.WritePolicy)));
+        var members = abi["KilnWorldApiEcsWrites"]!["fields"]!.AsArray().Select(f => ((string)f![0]!, (int)f[1]!)).ToList();
+        string[] mine = [nameof(EcsWritesTable.WritePolicy), nameof(EcsWritesTable.CompareExchange), nameof(EcsWritesTable.WriteSubscribe),
+            nameof(EcsWritesTable.WriteUnsubscribe)];
+        Assert.Equal(members.Count, mine.Length);
+        for (var i = 0; i < mine.Length; i++)
+            Assert.True(members[i].Item2 == (int)Marshal.OffsetOf<EcsWritesTable>(mine[i]), $"{mine[i]} is not at {members[i].Item1}'s {members[i].Item2}");
+        SameLayout(abi, "KilnEcsWritePolicy", typeof(EcsWritePolicyNative));
+        SameLayout(abi, "KilnMutationReply", typeof(MutationReplyNative));
+        SameLayout(abi, "KilnEcsWriteEvent", typeof(EcsWriteEventNative));
+    }
+
+#pragma warning disable KILNX001  // the public enums mirror the header's values
+    [Fact]
+    public void The_ecs_write_constants_match_the_header()
+    {
+        var mine = new Dictionary<string, long>
+        {
+            ["KILN_ECS_CONFLICT"] = EcsWriteConstants.Conflict, ["KILN_ECS_NOT_WRITABLE"] = EcsWriteConstants.NotWritable,
+            ["KILN_ECS_UNCERTAIN"] = EcsWriteConstants.Uncertain, ["KILN_ECS_ERR_CONFLICT"] = EcsWriteConstants.ErrConflict,
+            ["KILN_ECS_ERR_NOT_WRITABLE"] = EcsWriteConstants.ErrNotWritable, ["KILN_ECS_ERR_UNCERTAIN"] = EcsWriteConstants.ErrUncertain,
+            ["KILN_WORLD_CAP_ECS_WRITE"] = EcsWriteConstants.CapEcsWrite,
+            ["KILN_ECS_WRITE_POLICY_WRITABLE"] = EcsWriteConstants.PolicyWritable,
+            ["KILN_ECS_WRITE_POLICY_TRACKING_KNOWN"] = EcsWriteConstants.PolicyTrackingKnown,
+            ["KILN_ECS_WRITE_POLICY_TRACKED_A"] = EcsWriteConstants.PolicyTrackedA,
+            ["KILN_ECS_WRITE_POLICY_TRACKED_B"] = EcsWriteConstants.PolicyTrackedB,
+            ["KILN_ECS_WRITE_POLICY_PLAIN"] = EcsWriteConstants.PolicyPlain,
+            ["KILN_ECS_WRITE_POLICY_OVER_BUDGET"] = EcsWriteConstants.PolicyOverBudget,
+        };
+        foreach (ExchangeFlags f in Enum.GetValues<ExchangeFlags>())
+            if (f != ExchangeFlags.None) mine["KILN_MUTATION_" + Snake(f.ToString())] = (long)f;
+        foreach (WriteReason r in Enum.GetValues<WriteReason>()) mine["KILN_ECS_WRITE_WHY_" + Snake(r.ToString())] = (long)r;
+        var listed = Abi()["KilnEcsWriteConstants"]!["values"]!.AsArray().ToDictionary(v => (string)v![0]!, v => (long)v![1]!);
+        Assert.Equal(listed.OrderBy(p => p.Key), mine.OrderBy(p => p.Key));
+        // ExchangeStatus is the native statuses a write can give
+        Assert.Equal([0L, 1, 2, 3, 4, 5, 7, 8, 9], Enum.GetValues<ExchangeStatus>().Select(v => (long)v).Order());
+        Assert.Equal(EcsWriteConstants.Conflict, (uint)ExchangeStatus.Conflict);
+        Assert.Equal(EcsWriteConstants.NotWritable, (uint)ExchangeStatus.NotWritable);
+        Assert.Equal(EcsWriteConstants.Uncertain, (uint)ExchangeStatus.Uncertain);
+    }
+#pragma warning restore KILNX001
+
+    private static string Snake(string name) =>
+        string.Concat(name.Select((c, i) => i > 0 && char.IsUpper(c) ? "_" + c : c.ToString())).ToUpperInvariant();
+
+    [Fact]
     public void The_ecs_read_constants_match_the_header()
     {
         var mine = new Dictionary<string, long>

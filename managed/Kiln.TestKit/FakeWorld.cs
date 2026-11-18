@@ -160,7 +160,10 @@ public sealed unsafe class FakeWorld
 
     /// <summary>Says what the game's write tracking does with a component type, which the kit cannot know: a tracked
     /// write of it then answers <see cref="WorldWriteResult.SaveTracked"/> and
-    /// <see cref="WorldWriteResult.ReplicationTracked"/> with these values instead of null.</summary>
+    /// <see cref="WorldWriteResult.ReplicationTracked"/> with these values instead of null. A task's compare-exchange
+    /// (<c>WorldConcurrent.TryCompareExchange</c>) needs it too: until a test says, a component's tracking is unknown and
+    /// it is not writable, as kiln.world answers when it cannot read the bits; tracked either way, it is not writable
+    /// either. The in-game check (docs/kiln/services/world.md) lists what the game really lets a task write.</summary>
     /// <exception cref="ArgumentException"><paramref name="component"/> is null or empty.</exception>
     public void Track(string component, bool save, bool replication)
     {
@@ -184,6 +187,25 @@ public sealed unsafe class FakeWorld
             ArgumentOutOfRangeException.ThrowIfNegative(value);
             var m = Fake.Reads;
             lock (m.Gate) m.BusyNext = value;
+        }
+    }
+
+    /// <summary>The next <paramref name="value"/> compare-exchanges from tasks (<c>WorldConcurrent.TryCompareExchange</c>)
+    /// meet the engine's gate taken and answer <see cref="ExchangeStatus.Busy"/>, as when a server frame runs; each such
+    /// refusal latches the mod for the rest of the step, as the gate does. Default 0.</summary>
+    [System.Diagnostics.CodeAnalysis.Experimental("KILNX001", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/services/world.md#world-writes-from-task-threads")]
+    public int BusyWrites
+    {
+        get
+        {
+            var m = Fake.Reads;
+            lock (m.Gate) return m.GateBusyNext;
+        }
+        set
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(value);
+            var m = Fake.Reads;
+            lock (m.Gate) m.GateBusyNext = value;
         }
     }
 

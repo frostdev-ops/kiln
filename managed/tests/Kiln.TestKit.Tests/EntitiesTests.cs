@@ -30,10 +30,14 @@ public sealed class EntitiesTests
     public void The_kit_s_mirror_of_the_table_has_the_header_s_sizes_and_Kiln_World_s()
     {
         // v4 since 0.2.0-dev.29 (the game-program members, Fakes/Systems; the foreign views of 06c S5 at 448..488; the
-        // client-world members at 496..520; the ECS reads at 528..576); Kiln.World reads the v3 prefix and the reads,
-        // Kiln.Systems the 496 bytes through the foreign views
-        Assert.Equal(584, Unsafe.SizeOf<WorldAbi.Table>());
-        Assert.Equal(Unsafe.SizeOf<EcsReadsTable>(), Unsafe.SizeOf<WorldAbi.Table>());
+        // client-world members at 496..520; the ECS reads at 528..576; the compare-exchange writes at 584..608); Kiln.World
+        // reads the v3 prefix, the reads and the writes, Kiln.Systems the 496 bytes through the foreign views
+        Assert.Equal(616, Unsafe.SizeOf<WorldAbi.Table>());
+        Assert.Equal(Unsafe.SizeOf<EcsWritesTable>(), Unsafe.SizeOf<WorldAbi.Table>());
+        Assert.Equal(Unsafe.SizeOf<EcsReadsTable>(), (int)Marshal.OffsetOf<WorldAbi.Table>(nameof(WorldAbi.Table.EcsWritePolicy)));
+        foreach (var (kit, world) in new[] { ("EcsWritePolicy", "WritePolicy"), ("EcsCompareExchange", "CompareExchange"),
+                     ("EcsWriteSubscribe", "WriteSubscribe"), ("EcsWriteUnsubscribe", "WriteUnsubscribe") })
+            Assert.Equal((int)Marshal.OffsetOf<EcsWritesTable>(world), (int)Marshal.OffsetOf<WorldAbi.Table>(kit));
         foreach (var (kit, world) in new[] { ("EntityOpen", "EntityOpen"), ("EntityValidate", "EntityValidate"), ("EcsContextSnapshot", "ContextSnapshot"),
                      ("EcsQuery", "Query"), ("EcsSnapshot", "Snapshot"), ("EcsSnapshotMany", "SnapshotMany"), ("EcsTemplateUuid", "TemplateUuid") })
             Assert.Equal((int)Marshal.OffsetOf<EcsReadsTable>(world), (int)Marshal.OffsetOf<WorldAbi.Table>(kit));

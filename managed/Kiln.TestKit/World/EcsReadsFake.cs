@@ -38,7 +38,26 @@ internal static unsafe class EcsReadsFake
         public override WorldPosition? Position(uint kind, uint id) => kind == (uint)WorldKind.Server ? world.PositionOf(id) : null;
 
         public override IEnumerable<uint> Ids(uint kind) => kind == (uint)WorldKind.Server ? world.Entities : [];
+
+        // The compare-exchange policy's facts: the size from Kiln.Game's types (or the bytes the test set), the tracking
+        // only as a test gave it with FakeWorld.Track (unknown otherwise, so not writable: the kit reads no engine), plain
+        // bytes from Kiln.Game's types only, as kiln.types answers.
+        public override EcsWriteFacts WriteFacts(uint hash)
+        {
+            var (size, known, save, replication) = world.WriteFactsOf(hash);
+            if (size is not { } s) return new(false, 0, false, false, false, false, 0, null);
+            var plain = TypesFake.Plain(hash, out var reflected, out var why);
+            return new(true, s, known, save, replication, plain == true, reflected, why);
+        }
+
+        public override bool WriteComponent(uint kind, uint id, uint hash, ReadOnlySpan<byte> bytes) =>
+            kind == (uint)WorldKind.Server && world.Overwrite(id, hash, bytes);
+
+        public override ulong Step => world.Steps;
     }
+
+    /// <summary>The capability row of the compare-exchange writes: a fake feature row (off: a build without them).</summary>
+    public const string WriteRow = "world.ecs_write";
 
     public static void Fill(WorldAbi.Table* t)
     {
@@ -49,20 +68,32 @@ internal static unsafe class EcsReadsFake
         t->EcsSnapshot = &Snapshot;
         t->EcsSnapshotMany = &SnapshotMany;
         t->EcsTemplateUuid = &TemplateUuid;
+        t->EcsWritePolicy = &WritePolicy;
+        t->EcsCompareExchange = &CompareExchange;
+        t->EcsWriteSubscribe = &WriteSubscribe;
+        t->EcsWriteUnsubscribe = &WriteUnsubscribe;
     }
 
     /// <summary>The capability word with the reads' bit while the row is on.</summary>
     public static uint Capabilities(EntitiesFake fake, uint others)
     {
         Sync(fake.Reads);
-        return EcsReadsLogic.Capabilities(fake.Reads, others);
+        return EcsWritesLogic.Capabilities(fake.Reads, EcsReadsLogic.Capabilities(fake.Reads, others));
     }
+
+    /// <summary>kiln.world's drain in its server Pre: the committed-write events to their subscribers (tick thread).</summary>
+    public static void Drain(EntitiesFake fake) => EcsWritesLogic.Drain(fake.Reads);
 
     // the test's switch: the row off is a build with no exact profile (and no capability bit)
     private static void Sync(Model m)
     {
         var on = !FakeTables.Off(Row);
-        lock (m.Gate) m.Capable = m.ExactProfile = on;
+        var writes = !FakeTables.Off(WriteRow);
+        lock (m.Gate)
+        {
+            m.Capable = m.ExactProfile = on;
+            m.WritesCapable = writes;
+        }
     }
 
     // One read, between the tick thread's work items (or inline on it). No harness, a stopped one, or a world gate not free
@@ -140,4 +171,30 @@ internal static unsafe class EcsReadsFake
         var (pr, pg) = ((nint)r, (nint)guid);
         return Read(m => EcsReadsLogic.TemplateUuid(m, owner, (EcsObjectRefNative*)pr, (byte*)pg));
     }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int WritePolicy(uint kind, uint component, EcsWritePolicyNative* o)
+    {
+        var p = (nint)o;
+        return Read(m => EcsWritesLogic.WritePolicy(m, kind, component, (EcsWritePolicyNative*)p));
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int CompareExchange(ulong owner, EcsObjectRefNative* r, uint component, void* expected, void* mask, void* desired, uint bytes,
+        void* confirmed, MutationReplyNative* reply)
+    {
+        var (pr, pe, pm, pd, pc, prep) = ((nint)r, (nint)expected, (nint)mask, (nint)desired, (nint)confirmed, (nint)reply);
+        return Read(m => EcsWritesLogic.CompareExchange(m, owner, (EcsObjectRefNative*)pr, component, (byte*)pe, (byte*)pm, (byte*)pd, bytes,
+            (byte*)pc, (MutationReplyNative*)prep));
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int WriteSubscribe(ulong owner, delegate* unmanaged[Cdecl]<EcsWriteEventNative*, void*, void> fn, void* user, ulong* handle)
+    {
+        var (pf, pu, ph) = ((nint)fn, (nint)user, (nint)handle);
+        return Read(m => EcsWritesLogic.Subscribe(m, owner, pf, pu, (ulong*)ph));
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int WriteUnsubscribe(ulong handle) => Read(m => EcsWritesLogic.Unsubscribe(m, handle));
 }

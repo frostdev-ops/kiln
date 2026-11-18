@@ -34,6 +34,17 @@ public static partial class Coverage
             "profile (everything Unavailable, OrOnTick takes the tick path); FakeWorld.BusyReads makes the next frame-quiet reads Busy. " +
             "Not modelled: the client and prediction worlds, template names (Template is Absent), torn or unreadable copies",
             EcsReadsFake.Row);
+        Row("World: writes from tasks (WorldConcurrent)", CoverageKind.RecordingFake,
+            "kiln.world's compare-exchange writes from task threads with the native service's rules (shared with Kiln's own unit tests): " +
+            "WritePolicy, TryCompareExchange and TryCompareExchangeBytes (compare, masked merge, no-op, conflict with the current bytes) " +
+            "on the fake server world's components, from a task's worker between the harness's work items; another mod's ref, a stale ref " +
+            "and an unloaded mod are refused stale; on the tick always Busy; ComponentExchangedEvent at the next step, naming the mod. " +
+            "The policy: plain bytes from Kiln.Game's types, the size from them or the test's bytes, and the tracking only as " +
+            "FakeWorld.Track gives it (until then not writable, as kiln.world answers when it cannot read the bits). FakeWorld.BusyWrites " +
+            "makes the next writes meet a busy gate (and latches the mod for the step). kiln.Capabilities.Override(\"world.ecs_write\", " +
+            "false) is a build without them. Not modelled: the engine's gate and frames, faults, rollbacks and uncertain writes, the event " +
+            "queue's limit, which components the game really tracks (the in-game check lists them)",
+            EcsReadsFake.WriteRow);
         Row("Game types (Kiln.Ecs, Reflected, GameTypes)", CoverageKind.RecordingFake,
             "the kit's kiln.types holds the types of the Kiln.Game beside the tests (the layouts the mod was compiled against: about 1,500 " +
             "structs, enums and arrays of the game's components and events), so Ecs.TryGet, Ecs.Has, Ecs.All, Reflected.Component and " +
