@@ -179,7 +179,8 @@ KILN_TASKS_TEST(lease_lifecycle) {
         s.host_seal_owner(1, &left);
         return left == 0;
     }), "seal_owner: quiescent (the core's done trampoline ran)");
-    check(p.acquires() == p.releases(), "the trampolines' module references were released");
+    // quiescence is counted before the worker releases the references: wait for the release itself
+    check(until([&] { return p.acquires() == p.releases(); }), "the trampolines' module references were released");
 }
 
 // Continuations are never refused by capacity or a seal; a sealed lease resumes with its cancellation set.

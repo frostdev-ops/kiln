@@ -121,9 +121,11 @@ KILN_TASKS_TEST(runs_off_thread) {
     check(job.done_state.load() == static_cast<uint32_t>(State::Completed), "done saw Completed");
     check(job.done_thread.load() != 0 && job.done_thread.load() != platform.current_thread_id(),
           "done also ran on a worker, not the submitter");
-    check(platform.module_refcount(reinterpret_cast<uintptr_t>(&job_body)) == 0 &&
-              platform.module_refcount(reinterpret_cast<uintptr_t>(&job_done)) == 0,
-          "module references released after done returned");
+    // the worker releases them just after the done returned (it counted the done first): wait for that, not timing
+    check(until([&] {
+        return platform.module_refcount(reinterpret_cast<uintptr_t>(&job_body)) == 0 &&
+               platform.module_refcount(reinterpret_cast<uintptr_t>(&job_done)) == 0;
+    }), "module references released after done returned");
     check(platform.acquires() == 2 && platform.releases() == 2, "every acquire was released");
     State s = State::None;
     check(pool.status(1, h, &s) == KILN_OK && s == State::Completed && pool.release(1, h) == KILN_OK, "terminal, released");
@@ -220,12 +222,12 @@ KILN_TASKS_TEST(drain_thread_rules) {
 // A faulting body quarantines its owner, retires its worker thread; another owner keeps running on a fresh thread.
 KILN_TASKS_TEST(fault_quarantines_owner) {
     HostPlatform platform;
+    Job faulter, other, queued;  // before the pool: the test ends on a state, while `other`'s done may still run
+    faulter.platform = other.platform = queued.platform = &platform;
     Pool pool(config(2), &platform);
     pool.open_owner(1, "bad");
     pool.open_owner(2, "good");
     platform.fault_next_call_of(reinterpret_cast<uintptr_t>(&job_body));
-    Job faulter, other;
-    faulter.platform = other.platform = &platform;
     faulter.release.open();
     other.release.open();
     const KilnHandle fh = submit(pool, 1, named("faulter"), faulter);
@@ -234,8 +236,6 @@ KILN_TASKS_TEST(fault_quarantines_owner) {
         pool.status(1, fh, &s);
         return s == State::Faulted;
     }), "the faulting task becomes Faulted");
-    Job queued;
-    queued.platform = &platform;
     KilnHandle qh = 0;
     Refusal why = Refusal::None;
     check(pool.submit(1, named("after"), &job_body, &job_done, &queued, &qh, &why) == KILN_ERR_UNAVAILABLE &&
@@ -257,12 +257,12 @@ KILN_TASKS_TEST(fault_quarantines_owner) {
 // The faulting worker's OS thread is retired and replaced: later work runs on a different worker id.
 KILN_TASKS_TEST(fault_retires_worker) {
     HostPlatform platform;
+    Job first, faulter, after;  // before the pool: the faulter's done may still run when the test ends
+    first.platform = faulter.platform = after.platform = &platform;
     Pool pool(config(1), &platform);  // one normal worker, so "a different id" means the thread was replaced
     pool.open_owner(1, "a");
     pool.open_owner(2, "bad");
     // a first task establishes the worker id
-    Job first;
-    first.platform = &platform;
     first.release.open();
     const KilnHandle fh = submit(pool, 1, named("first"), first);
     check(until([&] { return first.done_calls.load() == 1; }), "the first task completed");
@@ -271,8 +271,6 @@ KILN_TASKS_TEST(fault_retires_worker) {
     pool.release(1, fh);
     // the next body faults: its owner is quarantined and that worker thread retires
     platform.fault_next_call_of(reinterpret_cast<uintptr_t>(&job_body));
-    Job faulter;
-    faulter.platform = &platform;
     KilnHandle bh = 0;
     Refusal why = Refusal::None;
     pool.submit(2, named("faulter"), &job_body, &job_done, &faulter, &bh, &why);
@@ -282,8 +280,6 @@ KILN_TASKS_TEST(fault_retires_worker) {
         return s == State::Faulted;
     }), "the faulting task is Faulted");
     // a later task runs on the replacement worker, a different OS thread id
-    Job after;
-    after.platform = &platform;
     after.release.open();
     const KilnHandle ah = submit(pool, 1, named("after"), after);
     check(until([&] { return after.done_calls.load() == 1; }), "a later task completed on the single-worker pool");
@@ -307,9 +303,11 @@ KILN_TASKS_TEST(fault_in_done) {
         pool.drain_owner(1, 0, &out);
         return out == 0;
     }), "a faulting done still reaches quiescence (one attempt)");
-    check(platform.module_refcount(reinterpret_cast<uintptr_t>(&job_body)) == 0 &&
-              platform.module_refcount(reinterpret_cast<uintptr_t>(&job_done)) == 0,
-          "pins released after the faulting done");
+    // quiescence is counted before the worker releases the pins: wait for the release itself
+    check(until([&] {
+        return platform.module_refcount(reinterpret_cast<uintptr_t>(&job_body)) == 0 &&
+               platform.module_refcount(reinterpret_cast<uintptr_t>(&job_done)) == 0;
+    }), "pins released after the faulting done");
     (void)h;
 }
 
@@ -343,10 +341,10 @@ KILN_TASKS_TEST(watchdog) {
 // A managed-style suspend: the body arms a resumption, suspends (freeing the worker), the continuation runs on resume.
 KILN_TASKS_TEST(suspend_frees_worker) {
     HostPlatform platform;
+    Job lease, other;  // before the pool: the test ends on Completed, while their dones may still run
+    lease.platform = other.platform = &platform;
     Pool pool(config(1), &platform);  // a single worker
     pool.open_owner(1, "a");
-    Job lease, other;
-    lease.platform = other.platform = &platform;
     lease.pool = &pool;
     lease.arm_on_run.store(true);
     lease.release.open();
@@ -505,10 +503,12 @@ KILN_TASKS_TEST(publish_before_metadata) {
     pool.set_test_hook(nullptr);
     check(until([&] { return job.done_calls.load() == 1; }), "the task completed");
     check(until([&] { return pool.counts().outstanding == 0; }), "quiescent");
-    check(platform.module_refcount(reinterpret_cast<uintptr_t>(&job_body)) == 0 &&
-              platform.module_refcount(reinterpret_cast<uintptr_t>(&job_done)) == 0 &&
-              platform.acquires() == platform.releases(),
-          "no module reference leaks when the worker wins the race");
+    // quiescence is counted before the worker releases the references: wait for the release itself
+    check(until([&] {
+        return platform.module_refcount(reinterpret_cast<uintptr_t>(&job_body)) == 0 &&
+               platform.module_refcount(reinterpret_cast<uintptr_t>(&job_done)) == 0 &&
+               platform.acquires() == platform.releases();
+    }), "no module reference leaks when the worker wins the race");
     bool named_right = false;
     for (auto& [id, text] : platform.description_log()) named_right |= text == "mod.f1/racer";
     check(named_right, "the worker described the task with its real name");
@@ -1135,11 +1135,11 @@ KILN_TASKS_TEST(exit_park_waits_for_the_running_body) {
 // A body that ignores its cancel past the bound is named and left running; nothing else runs after it returns.
 KILN_TASKS_TEST(exit_park_bound) {
     HostPlatform platform;
+    Job stuck, idle_owner;  // before the pool: the released body still reads its job on its way out
+    stuck.platform = idle_owner.platform = &platform;
     Pool pool(config(2, 1), &platform);
     pool.open_owner(1, "mod.one");
     pool.open_owner(2, "mod.two");
-    Job stuck, idle_owner;
-    stuck.platform = idle_owner.platform = &platform;
     idle_owner.release.open();
     submit(pool, 1, named("stuck"), stuck);
     check(until([&] { return stuck.body_runs.load() == 1; }), "the body is running");
@@ -1186,10 +1186,10 @@ KILN_TASKS_TEST(exit_park_drain_does_not_wait) {
 // The exit can come from inside a body (a task that ends the process): park never waits for its own caller.
 KILN_TASKS_TEST(exit_park_from_a_body) {
     HostPlatform platform;
+    Job self;  // before the pool: the body still reads its job after it parked the pool
+    self.platform = &platform;
     Pool pool(config(1, 1), &platform);
     pool.open_owner(1, "mod.one");
-    Job self;
-    self.platform = &platform;
     self.release.open();
     Pool::ParkResult inner;
     std::chrono::steady_clock::duration took{};
@@ -1215,12 +1215,12 @@ KILN_TASKS_TEST(exit_park_stops_maintenance) {
     c.watchdog_interval_ns = 1000 * 1000;              // 1 ms (real time)
     c.running_watchdog_ns = 1000ull * 1000 * 1000;     // 1 s on the fake clock
     c.queued_watchdog_ns = 1000;
+    Job stuck, queued;  // before the pool: the test ends by releasing the body, which still reads its job
+    stuck.platform = queued.platform = &platform;
     Pool pool(c, &platform);
     pool.open_owner(1, "mod.one");
     std::atomic<int> reports{0};
     pool.set_watch_sink(+[](const Watch&, void* user) { static_cast<std::atomic<int>*>(user)->fetch_add(1); }, &reports);
-    Job stuck, queued;
-    stuck.platform = queued.platform = &platform;
     queued.release.open();
     submit(pool, 1, named("stuck"), stuck);
     check(until([&] { return stuck.body_runs.load() == 1; }), "the body is running");
