@@ -54,6 +54,8 @@ internal static unsafe class EcsReadsFake
             kind == (uint)WorldKind.Server && world.Overwrite(id, hash, bytes);
 
         public override ulong Step => world.Steps;
+
+        public override bool TypesAvailable => TypesFake.Available;
     }
 
     /// <summary>The capability row of the compare-exchange writes: a fake feature row (off: a build without them).</summary>

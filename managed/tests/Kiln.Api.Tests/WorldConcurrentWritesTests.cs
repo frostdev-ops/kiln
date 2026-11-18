@@ -291,4 +291,60 @@ public sealed class WorldConcurrentWritesTests : TaskTest
         Assert.True(e.Is("Counter") && e.Involves(new EntityId(12)) && !e.Involves(new EntityId(13)));
         Assert.Equal(WorldKind.Server, e.World);
     }
+
+    [Fact]
+    public void Without_kiln_types_the_writes_are_unavailable()
+    {
+        var mod = NewMod("alpha");
+        FakeEcsReads.Add(12, WorldKind.Server, ("Counter", Le(5)));
+        var r = Opened(mod, 12);
+        FakeEcsReads.TypesAvailable = false;
+        WorldConcurrent.Reset();
+        Assert.False(WorldConcurrent.CanWrite);
+        var policy = WorldConcurrent.WritePolicy("Counter");
+        Assert.Equal((ExchangeStatus.Unavailable, WriteReason.NoProfile), (policy.Status, policy.Reason));
+        Assert.Contains("kiln.types", policy.Text);
+        Assert.Equal(ExchangeStatus.Unavailable, InTask(mod, () => WorldConcurrent.TryCompareExchange(r, "Counter", 5L, 6L)).Status);
+        Assert.Equal(5L, Counter(12));
+    }
+
+    // ---- the shared rules' unsubscribe: from another thread it waits for a running callback ----
+
+    private static readonly ManualResetEventSlim CallbackEntered = new(), CallbackRelease = new();
+
+    [System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = [typeof(System.Runtime.CompilerServices.CallConvCdecl)])]
+    private static unsafe void Blocking(EcsWriteEventNative* e, void* user)
+    {
+        CallbackEntered.Set();
+        CallbackRelease.Wait(TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
+    public unsafe void Unsubscribe_from_another_thread_waits_for_a_running_callback()
+    {
+        var mod = NewMod("alpha");
+        FakeEcsReads.Add(12, WorldKind.Server, ("Counter", Le(5)));
+        var r = Opened(mod, 12);
+        CallbackEntered.Reset();
+        CallbackRelease.Reset();
+        delegate* unmanaged[Cdecl]<EcsWriteEventNative*, void*, void> fn = &Blocking;
+        Assert.Equal(0, FakeEcsReads.Subscribe(99, (nint)fn, 0, out var handle));
+        var written = InTask(mod, () => WorldConcurrent.TryCompareExchange(r, "Counter", 5L, 6L));
+        Assert.True(written.Written, written.ToString());
+        var drain = new Thread(() => FakeEcsReads.Drain());
+        drain.Start();
+        Assert.True(CallbackEntered.Wait(TimeSpan.FromSeconds(10)));
+        var unsubscribed = new ManualResetEventSlim();
+        var other = new Thread(() =>
+        {
+            FakeEcsReads.Unsubscribe(handle);
+            unsubscribed.Set();
+        });
+        other.Start();
+        Assert.False(unsubscribed.Wait(TimeSpan.FromMilliseconds(200)));  // the callback still runs: it waits
+        CallbackRelease.Set();
+        Assert.True(unsubscribed.Wait(TimeSpan.FromSeconds(10)));
+        drain.Join();
+        other.Join();
+    }
 }

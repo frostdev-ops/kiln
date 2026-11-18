@@ -86,6 +86,8 @@ internal static unsafe class FakeEcsReads
         }
 
         public override ulong Step => FakeEcsReads.Step;
+
+        public override bool TypesAvailable => FakeEcsReads.TypesAvailable;
     }
 
     private static readonly Dict M = new();
@@ -101,6 +103,15 @@ internal static unsafe class FakeEcsReads
     public static List<ulong> Owners => M.Owners;  // the owner of every entity call, in order
     public static readonly Dictionary<uint, EcsWriteFacts> Policies = [];  // a component's policy facts, when a test sets them
     public static ulong Step;
+    public static bool TypesAvailable = true;  // kiln.types is here
+    public static int Subscribe(ulong owner, nint fn, nint user, out ulong handle)
+    {
+        ulong h = 0;
+        var rc = EcsWritesLogic.Subscribe(M, owner, fn, user, &h);
+        handle = h;
+        return rc;
+    }
+    public static int Unsubscribe(ulong handle) => EcsWritesLogic.Unsubscribe(M, handle);
     public static bool WritesCapable { get => M.WritesCapable; set { lock (M.Gate) M.WritesCapable = value; } }
     public static int GateBusyNext { get => M.GateBusyNext; set { lock (M.Gate) M.GateBusyNext = value; } }
     public static int UncertainNext { get => M.UncertainNext; set { lock (M.Gate) M.UncertainNext = value; } }
@@ -127,6 +138,7 @@ internal static unsafe class FakeEcsReads
         }
         M.Reset();
         Step = 1;
+        TypesAvailable = true;
         *Writes4 = default;
         Sessions[0] = 1;
         Sessions[1] = 0;

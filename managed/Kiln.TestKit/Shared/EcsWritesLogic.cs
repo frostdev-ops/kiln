@@ -52,6 +52,13 @@ internal abstract partial class EcsReadsModel
     /// <summary>The server step now (the busy latch is per owner and step).</summary>
     public virtual ulong Step => 0;
 
+    /// <summary>kiln.types (the policy's reflection) is here: without it every write is unavailable.</summary>
+    public virtual bool TypesAvailable => true;
+
+    // the subscription whose callback runs now, and the draining thread (unsubscribe from another thread waits for it)
+    public ulong RunningHandle;
+    public int DrainThread;
+
     private void ResetWrites()
     {
         WritesCapable = true;
@@ -63,8 +70,9 @@ internal abstract partial class EcsReadsModel
         BusyLatch.Clear();
         Pending.Clear();
         Subscriptions.Clear();
-        NextHandle = 0;
-        Writes = 0;
+        Writes = 0;  // NextHandle goes on: a handle is never reused, as in kiln.world (a stale one finds nothing)
+        RunningHandle = 0;
+        DrainThread = 0;
     }
 }
 
@@ -90,7 +98,7 @@ internal static unsafe class EcsWritesLogic
     {
         bool on;
         lock (m.Gate) on = m.WritesCapable && m.ExactProfile;
-        return on ? others | EcsWriteConstants.CapEcsWrite : others;
+        return on && m.TypesAvailable ? others | EcsWriteConstants.CapEcsWrite : others;
     }
 
     private static void Why(EcsWritePolicyNative* o, string text)
@@ -112,6 +120,7 @@ internal static unsafe class EcsWritesLogic
         bool writes;
         int budget;
         lock (m.Gate) (writes, budget) = (m.WritesCapable && m.ExactProfile, m.Budget);
+        writes = writes && m.TypesAvailable;
         o->Budget = writes ? (uint)budget : 0;
         int Refuse(uint status, uint why, string text)
         {
@@ -122,7 +131,10 @@ internal static unsafe class EcsWritesLogic
         }
         if (kind != (uint)WorldKind.Server)
             return Refuse(EcsReadConstants.Unavailable, WhyNotServerWorld, "only the server world is written from tasks");
-        if (!writes) return Refuse(EcsReadConstants.Unavailable, WhyNoProfile, "no exact engine profile for this build");
+        if (!writes)
+            return Refuse(EcsReadConstants.Unavailable, WhyNoProfile, m.TypesAvailable
+                ? "no exact engine profile for this build"
+                : "kiln.types is not here (the policy needs its reflection)");
         if (m.Session(kind) == 0) return Refuse(EcsReadConstants.Unavailable, WhyNoWorld, "no server world runs now");
         var f = m.WriteFacts(hash);
         if (!f.Registered) return Refuse(EcsWriteConstants.NotWritable, WhyUnregistered, "no component is registered under this hash");
@@ -179,7 +191,7 @@ internal static unsafe class EcsWritesLogic
         if (r->WorldKind != (uint)WorldKind.Server) return Finish(EcsReadConstants.Unavailable, WhyNotServerWorld);
         bool writes;
         lock (m.Gate) writes = m.WritesCapable && m.ExactProfile;
-        if (!writes) return Finish(EcsReadConstants.Unavailable, WhyNoProfile);
+        if (!writes || !m.TypesAvailable) return Finish(EcsReadConstants.Unavailable, WhyNoProfile);
         if (m.Session(r->WorldKind) == 0) return Finish(EcsReadConstants.Unavailable, WhyNoWorld);
         var step = m.Step;
         reply->Step = step;
@@ -259,7 +271,13 @@ internal static unsafe class EcsWritesLogic
     public static int Unsubscribe(EcsReadsModel m, ulong handle)
     {
         m.Count(nameof(Unsubscribe));
-        lock (m.Gate) return m.Subscriptions.RemoveAll(s => s.Handle == handle) > 0 ? OkRc : NotFound;
+        lock (m.Gate)
+        {
+            if (m.Subscriptions.RemoveAll(s => s.Handle == handle) == 0) return NotFound;
+            // from another thread: wait for its callback that runs now to return (from inside a callback: at once)
+            while (m.RunningHandle == handle && m.DrainThread != Environment.CurrentManagedThreadId) Monitor.Wait(m.Gate);
+            return OkRc;
+        }
     }
 
     /// <summary>The owner unloads or reloads: its calls answer stale and its subscriptions end.</summary>
@@ -289,8 +307,23 @@ internal static unsafe class EcsWritesLogic
             foreach (var s in subs)
             {
                 lock (m.Gate)
+                {
                     if (!m.Subscriptions.Exists(x => x.Handle == s.Handle)) continue;  // ended during this drain
-                ((delegate* unmanaged[Cdecl]<EcsWriteEventNative*, void*, void>)s.Fn)(&e, (void*)s.User);
+                    m.RunningHandle = s.Handle;
+                    m.DrainThread = Environment.CurrentManagedThreadId;
+                }
+                try
+                {
+                    ((delegate* unmanaged[Cdecl]<EcsWriteEventNative*, void*, void>)s.Fn)(&e, (void*)s.User);
+                }
+                finally
+                {
+                    lock (m.Gate)
+                    {
+                        m.RunningHandle = 0;
+                        Monitor.PulseAll(m.Gate);
+                    }
+                }
             }
         }
     }

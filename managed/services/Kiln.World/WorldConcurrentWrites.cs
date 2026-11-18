@@ -83,7 +83,8 @@ public enum WriteReason
     None = 0,
     /// <summary>Only the server world is written from tasks.</summary>
     NotServerWorld = 1,
-    /// <summary>No exact engine profile for this build, or its write gate is off.</summary>
+    /// <summary>No exact engine profile for this build, its write gate is off, or kiln.types (the policy's reflection) is
+    /// not here.</summary>
     NoProfile = 2,
     /// <summary>No server world runs now.</summary>
     NoWorld = 3,
