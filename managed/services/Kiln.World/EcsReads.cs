@@ -1,10 +1,26 @@
 // SPDX-License-Identifier: MIT
-// Records of kiln.world's verified-copy reads (kiln_world.h). Layout only: no C# call uses them yet. Field order matches native/services/world/tests/abi.json, which the native host test checks
-// against the header. A caller uses a member only when kiln.world's header.size covers it (the table is 584 bytes
-// with these members, the first at offset 528).
+// Records of kiln.world's verified-copy reads (kiln_world.h), used by WorldConcurrent. Field order matches
+// native/services/world/tests/abi.json, which the native host test checks against the header. A caller uses a member
+// only when kiln.world's header.size covers it (the table is 584 bytes with these members, the first at offset 528).
 using System.Runtime.InteropServices;
 
 namespace Kiln;
+
+/// <summary>kiln.world's table as far as the ECS reads (kiln_world.h v4, 584 bytes): the v3 part, which holds
+/// <c>capabilities</c>, the rest of v4 up to offset 528, then the seven read members.</summary>
+[StructLayout(LayoutKind.Sequential)]
+internal unsafe struct EcsReadsTable
+{
+    public WorldWritesTable V3;    // 0..280
+    public fixed long V4[31];       // 280..528: game programs, foreign views, programs in a client's worlds
+    public delegate* unmanaged[Cdecl]<ulong, ulong, uint, ulong, uint, EcsObjectRefNative*, int> EntityOpen;
+    public delegate* unmanaged[Cdecl]<ulong, EcsObjectRefNative*, EcsObjectInfoNative*, int> EntityValidate;
+    public delegate* unmanaged[Cdecl]<EcsContextInfoNative*, int> ContextSnapshot;
+    public delegate* unmanaged[Cdecl]<ulong, EcsQueryRequestNative*, EcsObjectRefNative*, uint, uint*, uint*, int> Query;
+    public delegate* unmanaged[Cdecl]<ulong, EcsObjectRefNative*, uint, void*, uint, uint*, int> Snapshot;
+    public delegate* unmanaged[Cdecl]<ulong, EcsObjectRefNative*, EcsSnapshotSpecNative*, uint, void*, uint, uint*, uint*, int> SnapshotMany;
+    public delegate* unmanaged[Cdecl]<ulong, EcsObjectRefNative*, byte*, int> TemplateUuid;
+}
 
 [StructLayout(LayoutKind.Sequential)]
 internal struct EcsObjectRefNative

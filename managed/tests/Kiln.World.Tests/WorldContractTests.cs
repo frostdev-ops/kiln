@@ -78,6 +78,22 @@ public sealed unsafe class WorldContractTests
     }
 
     [Fact]
+    public void WorldConcurrents_table_mirror_puts_the_read_members_and_capabilities_where_the_header_does()
+    {
+        var abi = Abi();
+        Assert.Equal((int)abi["KilnWorldApiEcsReads"]!["size"]!, sizeof(EcsReadsTable));
+        var members = abi["KilnWorldApiEcsReads"]!["fields"]!.AsArray().Select(f => ((string)f![0]!, (int)f[1]!)).ToList();
+        string[] mine = [nameof(EcsReadsTable.EntityOpen), nameof(EcsReadsTable.EntityValidate), nameof(EcsReadsTable.ContextSnapshot),
+            nameof(EcsReadsTable.Query), nameof(EcsReadsTable.Snapshot), nameof(EcsReadsTable.SnapshotMany), nameof(EcsReadsTable.TemplateUuid)];
+        Assert.Equal(members.Count, mine.Length);
+        for (var i = 0; i < mine.Length; i++)
+            Assert.True(members[i].Item2 == (int)Marshal.OffsetOf<EcsReadsTable>(mine[i]), $"{mine[i]} is not at {members[i].Item1}'s {members[i].Item2}");
+        var capabilities = abi["KilnWorldApi"]!["fields"]!.AsArray().Single(f => (string)f![0]! == "capabilities")![1]!;
+        Assert.Equal((int)capabilities, (int)Marshal.OffsetOf<EcsReadsTable>(nameof(EcsReadsTable.V3)) +
+            (int)Marshal.OffsetOf<WorldWritesTable>(nameof(WorldWritesTable.Capabilities)));
+    }
+
+    [Fact]
     public void The_ecs_read_constants_match_the_header()
     {
         var mine = new Dictionary<string, long>

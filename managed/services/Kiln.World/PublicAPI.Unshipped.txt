@@ -1,1 +1,77 @@
 #nullable enable
+[KILNX001]Kiln.ComponentSet
+[KILNX001]Kiln.ComponentSet.ComponentSet(params string![]! components) -> void
+[KILNX001]Kiln.ComponentSet.Count.get -> int
+[KILNX001]Kiln.ComponentSet.this[int index].get -> string!
+[KILNX001]Kiln.ConcurrentCopy
+[KILNX001]Kiln.ConcurrentCopy.ConcurrentCopy() -> void
+[KILNX001]Kiln.ConcurrentCopy.Required.get -> int
+[KILNX001]Kiln.ConcurrentCopy.Status.get -> Kiln.ReadStatus
+[KILNX001]Kiln.ConcurrentCopy.Written.get -> int
+[KILNX001]Kiln.ConcurrentEntity
+[KILNX001]Kiln.ConcurrentEntity.ConcurrentEntity() -> void
+[KILNX001]Kiln.ConcurrentEntity.Equals(Kiln.ConcurrentEntity other) -> bool
+[KILNX001]Kiln.ConcurrentEntity.Generation.get -> uint
+[KILNX001]Kiln.ConcurrentEntity.Id.get -> Kiln.EntityId
+[KILNX001]Kiln.ConcurrentEntity.IsNone.get -> bool
+[KILNX001]Kiln.ConcurrentEntity.Session.get -> ulong
+[KILNX001]Kiln.ConcurrentEntity.World.get -> Kiln.WorldKind
+[KILNX001]Kiln.ConcurrentQueryResult
+[KILNX001]Kiln.ConcurrentQueryResult.ConcurrentQueryResult() -> void
+[KILNX001]Kiln.ConcurrentQueryResult.Count.get -> int
+[KILNX001]Kiln.ConcurrentQueryResult.Required.get -> int
+[KILNX001]Kiln.ConcurrentQueryResult.Status.get -> Kiln.ReadStatus
+[KILNX001]Kiln.ConcurrentRead<T>
+[KILNX001]Kiln.ConcurrentRead<T>.ConcurrentRead() -> void
+[KILNX001]Kiln.ConcurrentRead<T>.IsOk.get -> bool
+[KILNX001]Kiln.ConcurrentRead<T>.Status.get -> Kiln.ReadStatus
+[KILNX001]Kiln.ConcurrentRead<T>.Value.get -> T
+[KILNX001]Kiln.ConcurrentSnapshot
+[KILNX001]Kiln.ConcurrentSnapshot.Bytes(int index) -> System.ReadOnlySpan<byte>
+[KILNX001]Kiln.ConcurrentSnapshot.Count.get -> int
+[KILNX001]Kiln.ConcurrentSnapshot.Status.get -> Kiln.ReadStatus
+[KILNX001]Kiln.ConcurrentSnapshot.StatusOf(int index) -> Kiln.ReadStatus
+[KILNX001]Kiln.ConcurrentSnapshot.TryGet<T>(int index, out T value) -> bool
+[KILNX001]Kiln.EntityQuery
+[KILNX001]Kiln.EntityQuery.Center.get -> Kiln.WorldPosition?
+[KILNX001]Kiln.EntityQuery.Center.init -> void
+[KILNX001]Kiln.EntityQuery.Components.get -> System.Collections.Generic.IReadOnlyList<string!>!
+[KILNX001]Kiln.EntityQuery.EntityQuery() -> void
+[KILNX001]Kiln.EntityQuery.EntityQuery(Kiln.WorldKind world, params string![]! components) -> void
+[KILNX001]Kiln.EntityQuery.Mode.get -> Kiln.ReadMode
+[KILNX001]Kiln.EntityQuery.Mode.init -> void
+[KILNX001]Kiln.EntityQuery.Radius.get -> double
+[KILNX001]Kiln.EntityQuery.Radius.init -> void
+[KILNX001]Kiln.EntityQuery.World.get -> Kiln.WorldKind
+[KILNX001]Kiln.ReadMode
+[KILNX001]Kiln.ReadMode.FrameQuiet = 1 -> Kiln.ReadMode
+[KILNX001]Kiln.ReadMode.Stable = 0 -> Kiln.ReadMode
+[KILNX001]Kiln.ReadStatus
+[KILNX001]Kiln.ReadStatus.Absent = 1 -> Kiln.ReadStatus
+[KILNX001]Kiln.ReadStatus.Busy = 5 -> Kiln.ReadStatus
+[KILNX001]Kiln.ReadStatus.Changed = 7 -> Kiln.ReadStatus
+[KILNX001]Kiln.ReadStatus.Ok = 0 -> Kiln.ReadStatus
+[KILNX001]Kiln.ReadStatus.SizeMismatch = 9 -> Kiln.ReadStatus
+[KILNX001]Kiln.ReadStatus.Stale = 2 -> Kiln.ReadStatus
+[KILNX001]Kiln.ReadStatus.TooSmall = 8 -> Kiln.ReadStatus
+[KILNX001]Kiln.ReadStatus.Unavailable = 4 -> Kiln.ReadStatus
+[KILNX001]Kiln.ReadStatus.Unreadable = 3 -> Kiln.ReadStatus
+[KILNX001]Kiln.ReadStatus.Unsupported = 6 -> Kiln.ReadStatus
+[KILNX001]Kiln.WorldConcurrent
+[KILNX001]const Kiln.WorldConcurrent.Capability = "world.ecs_read" -> string!
+[KILNX001]override Kiln.ConcurrentEntity.Equals(object? obj) -> bool
+[KILNX001]override Kiln.ConcurrentEntity.GetHashCode() -> int
+[KILNX001]override Kiln.ConcurrentEntity.ToString() -> string!
+[KILNX001]override Kiln.ConcurrentRead<T>.ToString() -> string!
+[KILNX001]static Kiln.ConcurrentEntity.operator !=(Kiln.ConcurrentEntity left, Kiln.ConcurrentEntity right) -> bool
+[KILNX001]static Kiln.ConcurrentEntity.operator ==(Kiln.ConcurrentEntity left, Kiln.ConcurrentEntity right) -> bool
+[KILNX001]static Kiln.WorldConcurrent.IsAvailable.get -> bool
+[KILNX001]static Kiln.WorldConcurrent.IsPresent(Kiln.WorldKind world) -> bool
+[KILNX001]static Kiln.WorldConcurrent.Open(Kiln.EntityId id, Kiln.WorldKind world = Kiln.WorldKind.Server) -> Kiln.ConcurrentRead<Kiln.ConcurrentEntity>
+[KILNX001]static Kiln.WorldConcurrent.OrOnTick<T>(Kiln.KilnTaskContext! ctx, System.Func<T>! offTick, System.Func<T>! onTick) -> System.Threading.Tasks.Task<T>!
+[KILNX001]static Kiln.WorldConcurrent.Query(in Kiln.EntityQuery query, System.Span<Kiln.ConcurrentEntity> into) -> Kiln.ConcurrentQueryResult
+[KILNX001]static Kiln.WorldConcurrent.Read<T>(Kiln.ConcurrentEntity entity, string! component, Kiln.ReadMode mode = Kiln.ReadMode.Stable) -> Kiln.ConcurrentRead<T>
+[KILNX001]static Kiln.WorldConcurrent.ReadBytes(Kiln.ConcurrentEntity entity, string! component, System.Span<byte> into, Kiln.ReadMode mode = Kiln.ReadMode.Stable) -> Kiln.ConcurrentCopy
+[KILNX001]static Kiln.WorldConcurrent.ReadMany(Kiln.ConcurrentEntity entity, Kiln.ComponentSet! components, Kiln.ReadMode mode = Kiln.ReadMode.Stable) -> Kiln.ConcurrentSnapshot!
+[KILNX001]static Kiln.WorldConcurrent.Template(Kiln.ConcurrentEntity entity) -> Kiln.ConcurrentRead<System.Guid>
+[KILNX001]static Kiln.WorldConcurrent.Validate(Kiln.ConcurrentEntity entity) -> Kiln.ReadStatus

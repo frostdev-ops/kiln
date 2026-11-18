@@ -37,12 +37,14 @@
        lets a member go or change when the baseline DLL marks it (or its property, event or a type around it)
        experimental; it reports those as EXPERIMENTAL lines.
        Ids (a package that takes a new id adds its row here, in the same commit):
-         KILNX001  lab and test members on public classes (with EditorBrowsable Never)
+         KILNX001  lab and test members on public classes (with EditorBrowsable Never); and, visible to mods, the
+                   task-thread world reads (Kiln.World's WorldConcurrent and its types) until the owner's in-game check of
+                   the reads (docs/kiln/services/world.md) has passed on both exact builds
          KILNX002  API not yet proven in a real client
          KILNX028  groundwork of 0.2.0-dev.28 whose package was not whole yet (17b's capacity contract); in use by nothing since
                    0.2.0-dev.29, where 17b shipped whole and its types became normal API
        In use today: KILNX001 on lab and test members in Kiln.Creatures, Kiln.Items, Kiln.Players, Kiln.Quests,
-       Kiln.Rules, Kiln.Saves, Kiln.Skills and Kiln.Vfx; KILNX002 on Kiln.Client's SteamGuard and Kiln.Network's
+       Kiln.Rules, Kiln.Saves, Kiln.Skills and Kiln.Vfx, and on Kiln.World's task-thread world reads; KILNX002 on Kiln.Client's SteamGuard and Kiln.Network's
        SteamGuardRelay. A mod that calls such API has to opt in with NoWarn for the id. -->
   <PropertyGroup Condition="Exists('$(MSBuildProjectDirectory)/PublicAPI.Shipped.txt')">
     <KilnPublicApi>true</KilnPublicApi>

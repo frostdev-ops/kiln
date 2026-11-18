@@ -14,6 +14,8 @@
     <InternalsVisibleTo Include="Kiln.Game" />
     <InternalsVisibleTo Include="Kiln.TestKit" />
     <InternalsVisibleTo Include="Kiln.World.Tests" />
+    <!-- WorldConcurrent's tests run real Kiln tasks on the task API's fake pool (Kiln.Api.Tests/FakeTaskBackend.cs) -->
+    <InternalsVisibleTo Include="Kiln.Api.Tests" />
     <InternalsVisibleTo Include="Kiln.TestKit.Tests" />
     <!-- the contract tests: the rows' names -->
     <InternalsVisibleTo Include="Kiln.Contract.Tests" />

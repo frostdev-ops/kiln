@@ -505,6 +505,67 @@ compares: `world ecs-read check: ...` lines in `kiln.log`, one `PASS` or `FAIL` 
 3. Send `kiln.log` if any round says `FAIL`, or if `world.ecs_read` is off (its text says why). Remove the file again
    afterwards.
 
+#### From C#: `WorldConcurrent` (experimental)
+
+`WorldConcurrent` (Kiln.World) is the C# face of these members, for code in a Kiln task. It is
+`[Experimental("KILNX001")]`: opt in with `<NoWarn>$(NoWarn);KILNX001</NoWarn>` in the mod's project. It can change
+until it leaves experimental, and that waits for the in-game check above to pass on both exact builds.
+
+```csharp
+// CurrentTransform starts with x, y, z as 32.32 fixed-point metres (layouts depend on the game build)
+struct TransformHead { public long X, Y, Z; }
+
+var scan = Context.Tasks.Run("chest-scan", async ctx =>
+{
+    var near = new ConcurrentEntity[64];
+    var query = new EntityQuery(WorldKind.Server, "Inventory") { Center = playerPos, Radius = 10 };
+    var found = WorldConcurrent.Query(query, near);
+    if (found.Status == ReadStatus.Unavailable) { await ctx.OnTick(() => ScanOnTick()); return; }   // no exact profile
+    for (var i = 0; i < found.Count; i++)
+    {
+        var t = WorldConcurrent.Read<TransformHead>(near[i], "CurrentTransform", ReadMode.FrameQuiet);
+        while (t.Status == ReadStatus.Busy)                     // a server frame ran during the read
+        {
+            await ctx.NextGateWindow();
+            t = WorldConcurrent.Read<TransformHead>(near[i], "CurrentTransform", ReadMode.FrameQuiet);
+        }
+        if (t.IsOk) Remember(near[i], t.Value);                  // the mod's own; Stale, Absent, Unreadable: skip this one
+    }
+});
+```
+
+| Member | Native member | Notes |
+|---|---|---|
+| `IsAvailable` | `capabilities` (`KILN_WORLD_CAP_ECS_READ`), `ecs_context_snapshot` | the members are here, their capability bit is set, and the build has an exact profile. Any thread |
+| `IsPresent(world)` | `ecs_context_snapshot` | a world of that kind exists now. Any thread |
+| `Open(id, world)` | `entity_open` | a `ConcurrentEntity`: a value, not a handle. `EntityId.None` is `Absent` |
+| `Validate(entity)` | `entity_validate` | the ref's status now |
+| `Read<T>(entity, component, mode)` | `ecs_snapshot`, or `ecs_snapshot_many` with the frame-quiet flag | the first `sizeof(T)` bytes of a verified whole-component copy, as `World.TryRead`; `SizeMismatch` when the component is smaller |
+| `ReadBytes(entity, component, into, mode)` | the same | the whole component; `TooSmall` with `Required` and nothing copied when `into` is short |
+| `ReadMany(entity, set, mode)` | `ecs_snapshot_many` | a `ConcurrentSnapshot`: each component's status and bytes; one frame-quiet window for all of them |
+| `Query(query, into)` | `ecs_query` | refs in ascending id; `TooSmall` with `Required` (the match count), `Changed` when the membership moved; complete or nothing |
+| `Template(entity)` | `ecs_template_uuid` | the template's GUID; `Absent` when it names none |
+| `OrOnTick(ctx, offTick, onTick)` | | the fallback in one line: `offTick` in the task when `IsAvailable`, else `onTick` on the server tick through `ctx.OnTick` |
+
+**Statuses.** `ReadStatus` 0 to 6 are the native `KILN_ECS_*` values (`Ok`, `Absent`, `Stale`, `Unreadable`,
+`Unavailable`, `Busy`, `Unsupported`). Three more come from the C# side: `Changed` (a query whose membership changed,
+`KILN_WORLD_ERR_CHANGED`), `TooSmall` (the caller's buffer) and `SizeMismatch` (a component smaller than `T`). An
+ordinary miss never throws. Only misuse does: a `default` `ConcurrentEntity` or `EntityQuery`, an empty component name,
+a query `Center` without a radius above 0, or the wrong thread.
+
+**Where it may be called.** Inside a Kiln task (its work on a worker, or after `await ctx.ToTick()`) and on the tick,
+from a mod's code. Anywhere else it throws `InvalidOperationException`: a `new Thread`, `Task.Run`, or code after
+`ConfigureAwait(false)` (the message names the task the code came from). The reads are made for the task's mod, or for
+the mod whose code runs on the tick.
+
+**Frame-quiet on the tick.** The server tick runs inside the server frame (tick handlers, and a task's tick hops), so a
+`ReadMode.FrameQuiet` read there would always meet the frame. There it answers `Busy` at once, without reading the
+engine. Read `Stable` on the tick, or retry from a worker: `await ctx.NextGateWindow()` takes the work back to one, so
+the retry loop above also works when it starts in a tick hop.
+
+**Reloads.** A mod's owner id is the reload epoch of its reads, and every load of a mod gets a new owner id. Refs taken
+before a reload come back `Stale` after it: open the entities again.
+
 ### Entities and teleport from native code
 Tick thread (Pre/Post) or inside your program: `component(e, hash, &size)`, `exists`, `transform`, `position`,
 `find(hash, buf, cap, &count)` (KILN_ERR_BUFFER_TOO_SMALL with the full count when `cap` is short),
