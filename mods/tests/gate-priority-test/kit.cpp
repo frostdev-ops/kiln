@@ -881,11 +881,12 @@ void KILN_CALL batch_done(KilnHandle task, uint32_t state, void*) {
         if (L.started && state != KILN_TASK_FAULTED) L.finish(L.end_reason, nullptr);
         L.finished = true;
     }
-    if (!L.finished && !submit_batch()) L.finish("kiln.tasks refused the next batch", nullptr);
-    if (L.finished) {
-        g->recording.store(false);
-        g->phase.store(Phase::Done);
+    if (!L.finished) {
+        if (submit_batch()) return;  // the next batch owns the loop from here on: nothing of it is touched below
+        L.finish("kiln.tasks refused the next batch", nullptr);
     }
+    g->recording.store(false);
+    g->phase.store(Phase::Done);
 }
 
 // ---- the tick and the world ----
