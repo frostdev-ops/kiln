@@ -653,9 +653,10 @@ compare-exchange always answers busy (`IN_FRAME`) before touching an engine word
 so the two paths never write the same component type. Stable reads from other tasks may meet a write between their two
 copies and answer unreadable (retry); frame-quiet reads see the gate taken and answer busy.
 
-**How long the gate is held.** The work inside the hold is fixed: two to three lookups of the entity (about 70 guarded
-reads with the gate's own checks) plus one read of the component, its write and its readback; a rollback adds a write
-and a read. Measured with Kiln's real Windows primitives under Wine (the fake engine of the tests laid out from the server
+**How long the gate is held.** The work inside the hold is fixed: up to three lookups of the entity (about 70 guarded
+reads with the gate's own checks when the entity's id is found at the first slot it hashes to) plus one read of the
+component, its write and its readback; a rollback adds a write and a read. Each lookup's id probe stops at 8,192 slots,
+so a long run of occupied slots in the entity table adds reads up to that bound, never beyond it. Measured with Kiln's real Windows primitives under Wine (the fake engine of the tests laid out from the server
 profile, 1,000 writes each, three runs): the largest plain component (4,328 bytes) held the gate 12 to 15 µs at the
 median and 24 to 92 µs at worst; a 64 KiB component 44 to 48 µs at the median and 93 to 176 µs at worst. The GameServer thread that wants its next frame meanwhile spins (pause, then `SwitchToThread`); the
 holder runs above normal priority.
@@ -671,7 +672,7 @@ outcome above forced (a frame holding the gate, the busy latch, a call from the 
 full queue, a generation bump inside the hold, a tracking bit set after the policy was cached, a rogue write between the
 write and its readback, a write fault part-way through a page, pages that turn unreadable, the latch and its full
 table), no allocation and no core call inside the hold, the id probe's bound, events (order, a faulting subscriber,
-unsubscribing during a delivery, owners retiring), four writers racing on one counter against a simulated frame, and
+unsubscribing during a delivery, owners retiring), four writers racing on one counter against a simulated frame and a drain, and
 the plain-bytes rule over sigdb's reflection of both builds against an independent walk of the same data.
 `tests/lint_hold.py` checks the code that runs inside the hold; `tests/mutate_writes.py <scratch dir>` breaks each
 check alone and expects the suite to fail. `native/build.sh world-ecs-fault` and `WINEPREFIX=<private prefix>

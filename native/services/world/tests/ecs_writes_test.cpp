@@ -8,8 +8,9 @@
 // (policy rules, a tracking bit set after the policy was cached, the size), uncertain (a rogue write and a failed
 // rollback, a fault that hides the bytes; then the latch for the session, a full latch table), unavailable, unreadable
 // (a faulting read; a rolled-back write that is proven). Inside the hold: no allocation and no call into the core, a
-// bounded id probe. Events after the release, in order, under fault containment, unsubscribe during a drain, owner
-// retirement. Racing writers against a simulated frame under ThreadSanitizer. The policy's plain-bytes rule over
+// bounded id probe. Events after the release, in order, under fault containment, unsubscribe during a drain (also from
+// another thread while the callback runs), owner retirement. Racing writers against a simulated frame and a drain under
+// ThreadSanitizer. The policy's plain-bytes rule over
 // sigdb's reflection of both exact builds, and the hold time of the largest writable component of each.
 #include <algorithm>
 #include <cstdlib>
@@ -494,6 +495,17 @@ void stale_cases(Env& v) {
     check(h.rc == KILN_ECS_ERR_STALE && u64_at(at) == 20 && kiln::engine::mem::test_writes.load() == writes,
           k + "a generation bump inside the hold: nothing written");
     put<uint32_t>(rec + E.entity_generation, 2);
+    // the same before the hold's first lookup (the id reused for a new entity at the same place, after the ref was
+    // checked and before the gate was taken): stale, nothing written
+    g_point = [&](HoldPoint p) {
+        if (p == HoldPoint::Begin) put<uint32_t>(rec + E.entity_generation, 3);
+    };
+    Call first = cx(v.wr, kOwner, r, counter, le64(20), le64(21));
+    g_point = nullptr;
+    put<uint32_t>(rec + E.entity_generation, 2);
+    check(first.rc == KILN_ECS_ERR_STALE && first.reply.why_code == KILN_ECS_WRITE_WHY_REF && u64_at(at) == 20 &&
+              kiln::engine::mem::test_writes.load() == writes,
+          k + "a generation bump before the hold's first lookup: nothing written");
     // an entity that is gone
     v.w.remove(7000);
     Call gone = cx(v.wr, kOwner, r, counter, le64(20), le64(21));
@@ -897,6 +909,20 @@ void race(Env& v) {
             std::this_thread::sleep_for(std::chrono::microseconds(50));
         }
     });
+    // The drain runs while the writers publish (the ring's consumer against its producers): every ok gets exactly one
+    // event.
+    struct Delivered {
+        std::atomic<long> events{0}, wrong{0};
+    } delivered;
+    KilnHandle drain_sub = 0;
+    v.wr.subscribe(kOther, [](const KilnEcsWriteEvent* e, void* u) {
+        auto* d = static_cast<Delivered*>(u);
+        d->events.fetch_add(1);
+        if (e->entity != 7000 || e->size != sizeof(KilnEcsWriteEvent) || e->session != 41) d->wrong.fetch_add(1);
+    }, &delivered, &drain_sub);
+    std::thread drainer([&] {
+        while (!stop.load()) v.wr.drain();
+    });
     constexpr int kThreads = 4, kEach = 150;
     std::atomic<long> oks{0}, conflicts{0}, busy{0}, bad{0}, impossible{0};
     std::vector<std::thread> writers;
@@ -926,7 +952,12 @@ void race(Env& v) {
     stop = true;
     frame.join();
     tick.join();
+    drainer.join();
     v.wr.drain();
+    v.wr.unsubscribe(drain_sub);
+    check(delivered.events.load() == oks.load() && delivered.wrong.load() == 0 && v.wr.ring().in_use() == 0,
+          k + "a drain racing the writers: one event per ok (" + std::to_string(delivered.events.load()) + " events, " +
+              std::to_string(oks.load()) + " ok)");
     std::printf("  [%s] race: %ld ok, %ld conflicts, %ld busy, %ld frames\n", v.p.id, oks.load(), conflicts.load(), busy.load(),
                 frames.load());
     check(bad.load() == 0 && impossible.load() == 0 && torn.load() == 0, k + "only ok, conflict and busy; every confirmed value real");
