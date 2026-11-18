@@ -109,6 +109,9 @@ public sealed class TasksKitTests
             }
         }));
         kiln.Step(3);
+        // the round the last step's Post edge released is over, the task waits for the next edge: the unload cancels it
+        // there (an unload that meets the round itself makes its NextGateWindow throw "the mod is unloading")
+        Assert.True(kiln.TaskPool.TryWaitIdle(TimeSpan.FromSeconds(10)));
         kiln.Unload(mod, checkCollected: false);  // the cancelled task may still be finishing on a worker
         kiln.Tasks.Settle();
         Assert.Equal(KilnTaskState.Cancelled, task.State);
