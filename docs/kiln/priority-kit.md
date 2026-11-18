@@ -40,7 +40,7 @@ contained (SEH).
   - `logs\gate-priority-test\`: its measurements.
 - **The measurement switch** turns the priority raise off for one game start, so the two modes can be compared. It
   is for measurements only and not supported for play. Kiln logs a warning at every start while it is there. The
-  collection script deletes it at the end.
+  collection script deletes it at the end, also when the collection fails.
 - **The CPU-load helper** keeps your CPU busy in timed phases and stops by itself. The game may stutter while it runs;
   that is what's being measured.
 
@@ -50,7 +50,9 @@ Before unzipping, right-click the zip, choose Properties and tick "Unblock" if i
 before it runs the kit's files. Unzip the kit, for example to `Desktop\kiln-priority-kit`. Open PowerShell in that
 folder: Shift + right-click inside the folder, then "Open PowerShell window here" or "Open in Terminal". Each command below starts with
 `powershell -ExecutionPolicy Bypass -File`, which runs one of the kit's scripts without changing your system's
-settings. Every script takes `-Game "<the Enshrouded folder>"` if it can't find the game in your Steam libraries.
+settings. `powershell` is Windows PowerShell 5.1, which comes with Windows 10 and 11; the scripts need nothing newer
+(PowerShell 7's `pwsh` works too). Every script takes `-Game "<the Enshrouded folder>"` if it can't find the game in
+your Steam libraries.
 
 1. **The check without the game** (a few seconds):
 
@@ -112,6 +114,19 @@ settings. Every script takes `-Game "<the Enshrouded folder>"` if it can't find 
    This removes the mod, its run file, the switch and the measurements. Then put back your usual Kiln build if you
    installed the test build only for this.
 
+   To undo by hand instead (for example if a script won't run), quit the game, then delete these from the game
+   folder's `kiln` folder:
+   1. `native\gate-priority-test` (the mod);
+   2. `data\gate-priority-test` (its run file);
+   3. `data\kiln.engine\gate-priority-raise` (the switch, if it's there);
+   4. `logs\gate-priority-test` (the measurements, once you've sent them).
+
+   Nothing else on your PC was changed. The CPU-load helper leaves nothing running: it stops at its own time limit, at
+   Ctrl+C or when you close its window. The kit's folder and zips can be deleted at any time.
+
+   To check that the raise is back on: `kit.ps1 status` says `Switch: none: the raise is on`, and after the next start
+   `kiln\logs\kiln.log` has no line saying `the write gate's priority raise is off`.
+
 If you have time for more, run more pairs: the numbers get better with every pair. You can also try a load of
 `-Priority AboveNormal`, or `-Threads` less than your number of logical CPUs.
 
@@ -150,7 +165,8 @@ decide whether Wine passes thread priorities on.
 - `system.json`: Windows version or Linux distribution and kernel, Proton version, CPU, cores, memory, power plan or
   CPU governor, the time-zone offset, and whether the switch was set.
 
-Your user name, the computer's name, home folders, Steam ids and world GUIDs are replaced before anything is written.
+Lines that name players (joins, chat) or worlds stay out. Your user name, the computer's name, home folders, Steam ids
+(also the account folder under Steam's `userdata`) and world GUIDs are replaced before anything is written.
 Open the zip and look before you post it.
 
 ## If something goes wrong
@@ -165,6 +181,7 @@ Look for `gate-priority-test:` lines in `<game>\kiln\logs\kiln.log`:
 | `kiln.world's compare-exchange writes are off on this build` | The game has updated past the builds Kiln knows; say so in #58 with the line `kiln.engine: ...` above it |
 | `... it runs no-op exchanges instead` | No component of your character has a usable padding byte. The run still takes the gate (no write) and is still useful |
 | `done (...)` | The summary: outcome counts, hold times, whether the byte is back |
+| `done (...)` with `the last change could not be put back` | A write could not be proven, or the world stopped between a change and its restore. The changed bit is in a padding byte of an untracked component, so it is only in memory and never saved: quit the game, and it's gone. Say so in #58 |
 
 If the game crashes, attach the crash report Kiln writes in `kiln\logs` together with the zip.
 
@@ -179,7 +196,7 @@ If the game crashes, attach the crash report Kiln writes in `kiln\logs` together
 | `warmup` | 30 | Seconds of steps recorded before the first write |
 | `rate` | 50 | Change-and-restore pairs a second (1 to 1000) |
 | `mode` | `write` | `noop`: compare-exchanges that change nothing; they still take the gate |
-| `component`, `offset` | the automatic pick | Another component, and optionally its byte (advanced: only for a component you know is harmless) |
+| `component`, `offset` | the automatic pick | Another component, and optionally its byte. The byte must be one of that component's padding bytes; any other byte stops the run before it writes |
 | `label` | none | Free text for the analysis |
 
 ## The analysis
