@@ -85,7 +85,7 @@ internal static partial class KilnApis
         "M:Kiln.Bases.Of(Kiln.EntityId)", // Bases.Of(EntityId): via StationsCore.CheckRead(string)
         "M:Kiln.Bases.Stock(Kiln.BaseId)", // Bases.Stock(BaseId): via StationsCore.CheckRead(string)
         "M:Kiln.Bases.Stock(Kiln.BaseId,Kiln.ItemId)", // Bases.Stock(BaseId, ItemId): via Bases.Stock(BaseId)
-        "M:Kiln.Bases.StockWithStations(Kiln.BaseId)", // Bases.StockWithStations(BaseId): via Bases.Stock(BaseId)
+        "M:Kiln.Bases.StockWithStations(Kiln.BaseId)", // Bases.StockWithStations(BaseId): via StationsCore.CheckRead(string)
         "M:Kiln.Bases.Storage(Kiln.BaseId,System.Boolean)", // Bases.Storage(BaseId, bool): via StationsCore.List(BaseId, bool, string)
         "M:Kiln.Bases.TryGet(Kiln.BaseId,Kiln.BaseInfo@)", // Bases.TryGet(BaseId, out BaseInfo?): via Bases.Get(BaseId)
         "M:Kiln.Bases.WaterSources(Kiln.BaseId)", // Bases.WaterSources(BaseId): via StationsCore.List(BaseId, bool, string)
@@ -877,6 +877,7 @@ internal static partial class KilnApis
         "P:Kiln.Villagers.Available=kiln.creatures", // t != null: Services.Get("kiln.creatures")
         "P:Kiln.World.Available=kiln.world", // WorldNative.T != null: Services.Get("kiln.world")
         "P:Kiln.World.SupportsTrackedWrites=world.tracked_writes", // Is("world.tracked_writes")
+        "P:Kiln.WorldConcurrent.IsAvailable=kiln.world", // returns false first when the table of kiln.world is null
         "P:Kiln.WorldProgress.Available=kiln.knowledge", // via Kiln.Knowledge.Available
     };
 
