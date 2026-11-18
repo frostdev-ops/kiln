@@ -307,7 +307,7 @@ public sealed class ConcurrentSnapshot
 /// too while it hosts. The prediction world is never readable.</para>
 /// </remarks>
 [Experimental("KILNX001", UrlFormat = Url)]
-public static unsafe class WorldConcurrent
+public static unsafe partial class WorldConcurrent
 {
     internal const string Url = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/services/world.md#world-reads-from-task-threads";
 
@@ -618,6 +618,7 @@ public static unsafe class WorldConcurrent
         _members = null;
         Volatile.Write(ref _state, 0);
         Sizes.Clear();
+        ResetWrites();
     }
 
     private static EcsReadsTable* Table()

@@ -9,7 +9,7 @@ namespace Kiln.TestKit;
 
 /// <summary>The world the ECS reads answer from, and the knobs a test turns. The logic calls the world's members on the
 /// thread it runs on; <see cref="Gate"/> guards the epochs, the counters and the knobs.</summary>
-internal abstract class EcsReadsModel
+internal abstract partial class EcsReadsModel
 {
     public readonly object Gate = new();
     public readonly Dictionary<ulong, ulong> Epochs = [];
@@ -53,6 +53,7 @@ internal abstract class EcsReadsModel
             Capable = ExactProfile = true;
             FrameRunning = false;
             UnreadableNext = ChangedNext = BusyNext = 0;
+            ResetWrites();
         }
     }
 
@@ -138,7 +139,7 @@ internal static unsafe class EcsReadsLogic
         return !exact || kind == (uint)WorldKind.Prediction || kind > 2 || m.Session(kind) == 0 ? EcsReadConstants.Unavailable : EcsReadConstants.Ok;
     }
 
-    private static uint Validate(EcsReadsModel m, ulong owner, EcsObjectRefNative* r)
+    internal static uint Validate(EcsReadsModel m, ulong owner, EcsObjectRefNative* r)
     {
         if (Context(m, r->WorldKind) is var c && c != EcsReadConstants.Ok) return c;
         if (r->Session != m.Session(r->WorldKind)) return EcsReadConstants.Stale;
@@ -148,7 +149,7 @@ internal static unsafe class EcsReadsLogic
         return EcsReadConstants.Ok;
     }
 
-    private static bool BadRef(EcsObjectRefNative* r) => r == null || r->Size != (uint)sizeof(EcsObjectRefNative) || r->Entity == 0;
+    internal static bool BadRef(EcsObjectRefNative* r) => r == null || r->Size != (uint)sizeof(EcsObjectRefNative) || r->Entity == 0;
 
     public static int EntityOpen(EcsReadsModel m, ulong owner, ulong epoch, uint kind, ulong expectedSession, uint entity, EcsObjectRefNative* o)
     {

@@ -63,8 +63,8 @@ public sealed unsafe class FakeWorldParityTests
             if (native == "KilnWorldApiV4")
             {
                 // the whole table: v4 up to game_program_contract, then the client-world members of 0.2.0-dev.29, then
-                // the ECS reads from task threads
-                foreach (var part in new[] { "KilnWorldApiClientPrograms", "KilnWorldApiEcsReads" })
+                // the ECS reads and the compare-exchange writes from task threads
+                foreach (var part in new[] { "KilnWorldApiClientPrograms", "KilnWorldApiEcsReads", "KilnWorldApiEcsWrites" })
                 {
                     var tail = abi[part]!;
                     fields.AddRange(tail["fields"]!.AsArray().Select(f => ((string)f![0]!, (int)f[1]!)));

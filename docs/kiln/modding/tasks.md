@@ -323,8 +323,11 @@ while ((where = WorldConcurrent.Read<Position>(entity, "CurrentTransform", ReadM
 - A `ConcurrentEntity` is a value, not a handle: nothing is pinned, and every read checks it again.
 - Refs taken before your mod reloads come back `Stale` after the reload: open the entities again.
 
-**Tasks don't write to the world.** Change it on the tick (`World.Write`, `Items.Give`, ...), with `ToTick`,
-`OnTick` or `PostToTick`, or in the mod's own tick code once the task has handed over its result.
+**Tasks change the world on the tick.** Change it there (`World.Write`, `Items.Give`, ...), with `ToTick`, `OnTick`
+or `PostToTick`, or in the mod's own tick code once the task has handed over its result. The one exception is
+experimental: a whole component that the game neither saves nor replicates, of plain values, can be changed from the
+task by compare-exchange (`WorldConcurrent.TryCompareExchange`,
+[world.md](../services/world.md#from-c-compare-exchange-experimental)). Anything else stays on the tick.
 
 ## Lifecycle: unload, reload, exit
 

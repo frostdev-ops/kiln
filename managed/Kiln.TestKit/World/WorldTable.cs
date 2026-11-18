@@ -194,7 +194,7 @@ internal static unsafe class WorldAbi
         public delegate* unmanaged[Cdecl]<ulong, uint, int*, NativeStr*, int> ProgramWorldState;
         public delegate* unmanaged[Cdecl]<ulong, NativeStr, NativeStr, uint, void*, void*, void*, ulong*, int> BindProgramWorld;
         public delegate* unmanaged[Cdecl]<ulong, int> UnbindProgramWorld;
-        // appended in v4 (528..576, the table is 584 bytes): the ECS reads from task threads (World/EcsReadsFake.cs)
+        // appended in v4 (528..576): the ECS reads from task threads (World/EcsReadsFake.cs)
         public delegate* unmanaged[Cdecl]<ulong, ulong, uint, ulong, uint, EcsObjectRefNative*, int> EntityOpen;
         public delegate* unmanaged[Cdecl]<ulong, EcsObjectRefNative*, EcsObjectInfoNative*, int> EntityValidate;
         public delegate* unmanaged[Cdecl]<EcsContextInfoNative*, int> EcsContextSnapshot;
@@ -202,6 +202,11 @@ internal static unsafe class WorldAbi
         public delegate* unmanaged[Cdecl]<ulong, EcsObjectRefNative*, uint, void*, uint, uint*, int> EcsSnapshot;
         public delegate* unmanaged[Cdecl]<ulong, EcsObjectRefNative*, EcsSnapshotSpecNative*, uint, void*, uint, uint*, uint*, int> EcsSnapshotMany;
         public delegate* unmanaged[Cdecl]<ulong, EcsObjectRefNative*, byte*, int> EcsTemplateUuid;
+        // appended in v4 (584..608, the table is 616 bytes): the compare-exchange writes from task threads
+        public delegate* unmanaged[Cdecl]<uint, uint, EcsWritePolicyNative*, int> EcsWritePolicy;
+        public delegate* unmanaged[Cdecl]<ulong, EcsObjectRefNative*, uint, void*, void*, void*, uint, void*, MutationReplyNative*, int> EcsCompareExchange;
+        public delegate* unmanaged[Cdecl]<ulong, delegate* unmanaged[Cdecl]<EcsWriteEventNative*, void*, void>, void*, ulong*, int> EcsWriteSubscribe;
+        public delegate* unmanaged[Cdecl]<ulong, int> EcsWriteUnsubscribe;
     }
 
     /// <summary>FNV-1a-32 of "keen::ecs::" + name (the name as given when it contains "::"): the engine's component hash.</summary>
@@ -231,7 +236,7 @@ internal static unsafe partial class WorldTable
     internal static void ModuleInit()
     {
         KitBackend.Instance.RegisterTable(WorldAbi.Service, Create());
-        FakeTables.Features([EcsReadsFake.Row]);  // the ECS reads from task threads: a test may switch them off
+        FakeTables.Features([EcsReadsFake.Row, EcsReadsFake.WriteRow]);  // the ECS reads and writes from task threads: a test may switch them off
     }
 
     public static nint Create()

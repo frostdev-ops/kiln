@@ -6,7 +6,8 @@
 // build Kiln has no exact profile for) the same search runs on the tick instead. What a container holds and every item
 // that moves are the tick's: the task hops back to read the contents, and the mod's own tick code moves the items once
 // the task has handed over its plan. A fetch that is cancelled before then (a new /fetch of the same player, the mod
-// unloading) moves nothing. docs/kiln/modding/tasks.md walks through it.
+// unloading) moves nothing. Items that fit neither the player nor, given back, their container wait in the mod and are
+// placed as soon as one of them has room. docs/kiln/modding/tasks.md walks through it.
 using System.Runtime.InteropServices;
 using Kiln;
 
@@ -18,6 +19,18 @@ public sealed class FetchNearbyMod : Mod
 
     // the fetch each player has running (tick thread only)
     private readonly Dictionary<EntityId, KilnTask> _running = [];
+
+    // items taken that fit neither the player nor their container: tried again every step (tick thread only)
+    private readonly List<Waiting> _waiting = [];
+
+    private sealed class Waiting(EntityId player, EntityId container, ItemId item, string name, int maxStack, int count)
+    {
+        public readonly EntityId Player = player, Container = container;
+        public readonly ItemId Item = item;
+        public readonly string Name = name;
+        public readonly int MaxStack = maxStack;
+        public int Count = count;
+    }
 
     /// <summary>CurrentTransform starts with where the entity stands: x, y and z as 32.32 fixed-point metres.</summary>
     [StructLayout(LayoutKind.Sequential)]
@@ -36,6 +49,10 @@ public sealed class FetchNearbyMod : Mod
         // Kiln cancels an unloading mod's tasks anyway; cancelling them here says so in the mod's own code
         foreach (var task in _running.Values) task.Cancel();
         _running.Clear();
+        // what still waits for room cannot be kept past the mod: say so rather than lose it quietly
+        foreach (var w in _waiting)
+            Log.Warn($"fetch for {w.Player}: {w.Count} x {w.Name} were still waiting for room in the player or container {w.Container} when the mod unloaded; they are lost");
+        _waiting.Clear();
     }
 
     [Command("fetch", Description = "bring items from the containers within 12 m into your inventory")]
@@ -48,11 +65,14 @@ public sealed class FetchNearbyMod : Mod
         var info = Items.Lookup(item) ?? throw new CommandException($"there is no item called {item}");
         var player = c.Source.Player;
         var at = World.Position(player) ?? throw new CommandException("you are not in the world yet");
+        // what waits for room is bounded: nothing more is fetched for a player until their waiting items are placed
+        if (_waiting.Find(w => w.Player == player) is { } held)
+            throw new CommandException($"{held.Count} {held.Name} are still waiting for room in your inventory or their container: make room first");
         // one fetch per player: a new one replaces the last
         if (_running.Remove(player, out var last)) last.Cancel();
         var search = Context.Tasks.Run("fetch-search", ctx => SearchAsync(ctx, player, at, info.Id));
         _running[player] = search;
-        _ = DeliverAsync(player, search, info.Id, info.Name, count);
+        _ = DeliverAsync(player, search, info, count);
         return $"looking for {count} x {info.Name} within {Reach:0} m";
     }
 
@@ -115,8 +135,9 @@ public sealed class FetchNearbyMod : Mod
 
     // ---- the mod's own tick code: it moves the items once the task has handed over its plan ----
 
-    private async Task DeliverAsync(EntityId player, KilnTask<IReadOnlyList<Source>> search, ItemId item, string name, int count)
+    private async Task DeliverAsync(EntityId player, KilnTask<IReadOnlyList<Source>> search, ItemInfo info, int count)
     {
+        var (item, name) = (info.Id, info.Name);
         IReadOnlyList<Source> sources;
         try
         {
@@ -147,17 +168,48 @@ public sealed class FetchNearbyMod : Mod
             moved += given.Done;
             if (given.Done < taken.Done)
             {
-                // no room: back where it came from; if the container filled up meanwhile, say so rather than lose them quietly
+                // no room: back where it came from; if the container filled up meanwhile, they wait for room
                 var rest = taken.Done - given.Done;
                 var back = await Items.Give(source.Container, item, rest);
                 if (back.Done < rest)
                 {
-                    Log.Warn($"fetch for {player}: {rest - back.Done} x {name} fitted neither the player nor container {source.Container}; they are lost");
-                    if (Chat.Available) Chat.Tell(player, $"{rest - back.Done} {name} could not go back into the container and were lost");
+                    var waiting = new Waiting(player, source.Container, item, name, info.MaxStack, rest - back.Done);
+                    _waiting.Add(waiting);
+                    if (Chat.Available)
+                        Chat.Tell(player, $"{waiting.Count} {name} fit neither you nor the container; they go to whichever has room first");
+                    _ = PlaceAsync(waiting);
                 }
                 break;
             }
         }
         if (Chat.Available) Chat.Tell(player, moved == 0 ? $"no {name} found within {Reach:0} m" : $"fetched {moved} of {count} {name}");
     }
+
+    /// <summary>Items that fit nowhere: every step, into the player when the player has room, else back into the container
+    /// when it has, until all are placed (or the mod unloads: OnUnload says what was left). A give is only asked for where
+    /// a read of the inventory shows room, so none waits in kiln.items while there is none.</summary>
+    private async Task PlaceAsync(Waiting w)
+    {
+        while (w.Count > 0)
+        {
+            await Context.Scheduler.NextTick();
+            if (!_waiting.Contains(w)) return;  // the mod is unloading
+            if (HasRoom(w.Player, w))
+            {
+                var toPlayer = await Items.Give(w.Player, w.Item, w.Count);
+                w.Count -= toPlayer.Done;
+                if (toPlayer.Done > 0 && Chat.Available) Chat.Tell(w.Player, $"{toPlayer.Done} {w.Name} that were waiting are in your inventory now");
+            }
+            else if (HasRoom(w.Container, w))
+            {
+                var toContainer = await Items.Give(w.Container, w.Item, w.Count);
+                w.Count -= toContainer.Done;
+            }
+        }
+        _waiting.Remove(w);
+    }
+
+    // an empty slot, or a stack of the item with room on it
+    private static bool HasRoom(EntityId target, Waiting w) =>
+        Items.Read(target) is { } inv && inv.Slots.Any(s => (s.IsEmpty && s.Category == InventoryCategory.Generic) || (s.Item == w.Item && s.Count < w.MaxStack));
 }
