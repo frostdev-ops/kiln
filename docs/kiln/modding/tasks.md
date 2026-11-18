@@ -129,8 +129,8 @@ thread" (`World.Position`, `Items.Read`, `Chat.Tell`, ...). Off the tick they th
 
 The analyzers check this at build time:
 - [KILN101](analyzers.md#kiln101) reports a tick-thread API used in a task's work.
-- [KILN105](analyzers.md#kiln105) reports blocking on a task, a `ToTick()` nobody awaits, and a world read where the
-  task's scope is gone (next section).
+- [KILN105](analyzers.md#kiln105) reports blocking on a task, a `ToTick()` nobody awaits, a world read or write where
+  the task's scope is gone (next section), and a compare-exchange write in tick code, which is always busy there.
 
 ## Getting back to the tick
 

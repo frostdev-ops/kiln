@@ -92,13 +92,24 @@ public static class Descriptors
         "a worker (or wherever it ran) with no warning from the tick-thread rules about that fact alone.");
 
     public static readonly DiagnosticDescriptor GatedCallOutOfScope = Rule("KILN105",
-        "Task-thread world read outside a Kiln task",
-        "'{0}' is refused {1}: the task-thread world reads work only inside a Kiln task or on the tick, and this code has no task scope; {2}",
+        "Task-thread world call outside a Kiln task",
+        "'{0}' is refused {1}: the task-thread world calls (WorldConcurrent's reads and compare-exchange writes) work only inside a Kiln task or on the tick, and this code has no task scope; {2}",
         Threading, DiagnosticSeverity.Warning,
-        "WorldConcurrent's reads check, on every call, that a Kiln task's scope is installed on the calling thread (a " +
-        "task segment or a tick hop) or that the call runs on the tick. Code after 'await ...ConfigureAwait(false)' " +
+        "WorldConcurrent's reads and writes check, on every call, that a Kiln task's scope is installed on the calling " +
+        "thread (a task segment or a tick hop) or that the call runs on the tick. Code after 'await ...ConfigureAwait(false)' " +
         "still belongs to the task body but has left the task, and Task.Run work, threads, timers and thread-pool " +
-        "callbacks never had one: Kiln refuses the read there with InvalidOperationException.");
+        "callbacks never had one: Kiln refuses the call there with InvalidOperationException.");
+
+    public static readonly DiagnosticDescriptor GatedWriteOnTick = Rule("KILN105",
+        "Compare-exchange write in tick code",
+        "'{0}' never writes {1}: the server frame holds the engine's write gate for its whole update, so from tick code a compare-exchange always answers Busy (and a client's world, which the writes never touch, answers Unavailable); call it from a Kiln task's worker (Context.Tasks.Run, or after 'await ctx.NextGateWindow()'), or use World.Write on the tick",
+        Threading, DiagnosticSeverity.Warning,
+        "WorldConcurrent.TryCompareExchange and TryCompareExchangeBytes write under the engine's own write gate, which " +
+        "the GameServer frame holds for its whole update. Tick code (OnLoad, tick and event handlers, command and chat " +
+        "handlers, Scheduler.Post work, a task after 'await ctx.ToTick()', ctx.OnTick and ctx.PostToTick delegates) " +
+        "runs inside that frame, so the write is refused Busy (WriteReason.InFrame) every time, without reaching the " +
+        "engine (on a client the writes answer Unavailable: they write the server world only). World.Write is the tick's way " +
+        "to write; a compare-exchange belongs on a task's worker.");
 
     public static readonly DiagnosticDescriptor Unreleased = Rule("KILN106",
         "Thread, timer or subscription is never released",
