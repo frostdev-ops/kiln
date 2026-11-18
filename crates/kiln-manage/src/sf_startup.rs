@@ -18,6 +18,13 @@
 //! wrote a newer record. ShroudForge does not take a failed pass as done (`calculate_preparation_fingerprint.rs`
 //! `matches` wants `applied`), so every start in which it runs writes `preparing` and then the new outcome over it.
 //!
+//! Kiln's ShroudForge (since 0.2.0-dev.29.18) runs a pass that failed in one mod's own code once more without that mod
+//! (and the mods that need it). The record then says `applied` with the mods left out in `skipped` (id, name, version,
+//! error), or, when the second pass failed too, `failed` with the first error in `error`, `skipped` and the second error
+//! in `retryError`. [`skipped`] reads the first case for a warning: the other mods loaded. ShroudForge keeps an `applied`
+//! record while the next starts' passes are unchanged, so that one counts however old it is, while Kiln's adapter hosted
+//! ShroudForge at Kiln's last start and its preparation returned.
+//!
 //! One failure has a cure worth naming. ShroudForge up to 1.7.9 replaces `<exe>.kfc_resources` while its own reader
 //! still has that file open (`game_file_transaction.rs` `replace`, kfc's `KFCCursor`). Windows lets that pass; Wine and
 //! Proton answer "Access denied (os error 5)", at every start, for every startup mod. The ShroudForge that comes with
@@ -36,6 +43,8 @@ use std::path::{Path, PathBuf};
 const MAX_ERROR: usize = 300;
 /// Mod ids named in a sentence.
 const MAX_NAMES: usize = 5;
+/// Entries of the record's `skipped` read.
+const MAX_SKIPPED: usize = 20;
 /// Seconds a pass of Kiln's last start may end before boot.json's `started`: ShroudForge's own loader holds the game's
 /// entry point for its pass (about 16 s in report 327) and Kiln boots at that entry point, so its pass can end just
 /// before Kiln's start. A record older than this is an earlier start's.
@@ -70,10 +79,95 @@ pub struct SfStartupFailure {
     /// sentence without its full stop.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cure: Option<String>,
+    /// Kiln's ShroudForge (0.2.0-dev.29.18 on) ran the pass once more without the mod it failed in, and that failed too:
+    /// the mod (then the mods left out with it), the record's `skipped`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub skipped: Vec<SfSkippedMod>,
+    /// The second pass's error (the record's `retryError`), on one line as `error` is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_error: Option<String>,
     /// ShroudForge's words as the record has them, whole: a report redacts these, then puts them on one line and cuts
     /// them ([`SfStartupFailure::redacted`]).
     #[serde(skip)]
     raw_error: String,
+    #[serde(skip)]
+    raw_retry_error: Option<String>,
+}
+
+/// A mod ShroudForge's startup pass ran without (the record's `skipped`, written by Kiln's ShroudForge since
+/// 0.2.0-dev.29.18): the pass failed in it, so ShroudForge ran the pass once more without it (the fork's
+/// `asset_preparation/retry_without_failed_mod.rs`). The first is the mod the pass failed in; any after it were left out
+/// because they need it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SfSkippedMod {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    /// Its error on one line, at most [`MAX_ERROR`] characters ("needs <id>, which failed in the pregame pass" for a mod
+    /// left out with it).
+    pub error: String,
+    #[serde(skip)]
+    raw_error: String,
+}
+
+impl SfSkippedMod {
+    /// "Wisp Light Timer (wisp_light_timer_a9 1.0.3)", "wisp_light_timer_a9 1.0.3", "wisp_light_timer_a9".
+    pub fn label(&self) -> String {
+        let id = match &self.version {
+            Some(v) => format!("{} {v}", self.id),
+            None => self.id.clone(),
+        };
+        match self.name.as_deref().filter(|n| !n.is_empty() && *n != self.id) {
+            Some(name) => format!("{name} ({id})"),
+            None => id,
+        }
+    }
+
+    /// The name a person knows it by: its name, else its id.
+    fn called(&self) -> &str {
+        self.name.as_deref().filter(|n| !n.is_empty()).unwrap_or(&self.id)
+    }
+
+    fn redacted(&self, redact: &impl Fn(&str) -> String) -> SfSkippedMod {
+        let raw_error = redact(&self.raw_error);
+        SfSkippedMod { error: one_line(&raw_error), raw_error, ..self.clone() }
+    }
+}
+
+/// The record's `skipped` (at most [`MAX_SKIPPED`] entries; one without an id is no entry).
+fn skipped_mods(assets: &serde_json::Map<String, serde_json::Value>) -> Vec<SfSkippedMod> {
+    let Some(list) = assets.get("skipped").and_then(|v| v.as_array()) else { return Vec::new() };
+    list.iter().filter_map(|m| {
+        // an id, name or version: its words on one line, at most 100 characters (they come from a file in the game folder)
+        let word = |k: &str| m.get(k).and_then(|v| v.as_str())
+            .map(|v| v.split(|c: char| c.is_whitespace() || c.is_control()).filter(|w| !w.is_empty()).collect::<Vec<_>>().join(" "))
+            .filter(|v| !v.is_empty()).map(|v| v.chars().take(100).collect::<String>());
+        let raw_error = m.get("error").and_then(|v| v.as_str()).unwrap_or("it gave no reason").to_string();
+        Some(SfSkippedMod { id: word("id")?, name: word("name"), version: word("version"), error: one_line(&raw_error), raw_error })
+    }).take(MAX_SKIPPED).collect()
+}
+
+/// ShroudForge's last startup pass failed in one mod and ran again without it (Kiln's ShroudForge since
+/// 0.2.0-dev.29.18): the other mods of the pass loaded, that one did not. A warning, not a failure.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SfStartupSkipped {
+    /// The mod the pass failed in, then the mods left out because they need it, as far as they are still switched on.
+    pub skipped: Vec<SfSkippedMod>,
+    /// How many mods that need the pass loaded (the record's `mods`).
+    pub loaded: usize,
+    /// The record's `completedAt`, RFC 3339 (UTC).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<String>,
+    /// ShroudForge's own loader ran the pass (true), or the runtime kiln-shroudforge hosts (false).
+    pub own_loader: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build: Option<String>,
 }
 
 /// ShroudForge's state file: `<paths.state>/state.json`, by default `<game>/shroudforge/state.json` (as
@@ -179,30 +273,44 @@ impl LastBoot {
     }
 }
 
-/// The failed startup pass of ShroudForge's last start in this game folder, or None: no record, a pass that applied or
-/// is still `preparing`, or a record of an earlier start (see the module's text: one older than Kiln's last start, or
-/// one Kiln's adapter does not place in it). `wine`: the game runs under Wine or Proton. Reads only; starts nothing.
-pub fn failure(game_dir: &Path, wine: bool) -> Option<SfStartupFailure> {
+/// ShroudForge's record of its startup pass (`assets` of its state file), when there is one.
+fn record(game_dir: &Path) -> Option<serde_json::Map<String, serde_json::Value>> {
     let file = state_file(game_dir)?;
     let doc = crate::shroudforge::read_effect_json(game_dir, &file).ok()??;
-    let assets = doc.get("assets")?.as_object()?;
-    if assets.get("status")?.as_str()? != "failed" {
-        return None;
-    }
-    let completed = assets.get("completedAt").and_then(|v| v.as_u64());
+    doc.get("assets")?.as_object().cloned()
+}
+
+/// Who ran the pass a record describes, when it is Kiln's last start's pass.
+struct Ran {
+    own_loader: bool,
+    /// Kiln hosted the player's installed ShroudForge ("Use my installed ShroudForge").
+    hosted_installed: bool,
+    /// The ShroudForge that ran the pass.
+    build: Build,
+    /// kiln-shroudforge's word (`kiln/state/shroudforge.json`).
+    status: Option<serde_json::Value>,
+}
+
+/// Ties a record of ShroudForge's pass, written at `completed`, to Kiln's last start (see the module's text): None when
+/// it is an earlier start's. `kept`: an `applied` record, which ShroudForge leaves as it is at a later start whose pass
+/// is unchanged. Older than that start, it still describes the game data of the start in which Kiln's adapter hosted
+/// ShroudForge and its startup preparation returned (`startupPrepared`).
+fn ran(game_dir: &Path, completed: Option<u64>, kept: bool) -> Option<Ran> {
     let boot = last_boot(game_dir);
-    // written before Kiln's last start: a start without ShroudForge came after it
-    if let (Some(c), Some(start)) = (completed, boot.as_ref().and_then(|b| b.start)) {
-        if c.saturating_add(BOOT_SLACK) < start {
-            return None;
-        }
-    }
     let status = crate::shroudforge::status(game_dir).ok().flatten();
     let word = |key: &str| status.as_ref().and_then(|s| s.get(key)).and_then(|v| v.as_str());
     let number = |key: &str| status.as_ref().and_then(|s| s.get(key)).and_then(|v| v.as_u64());
     let updated = number("updated");
     // the adapter's word is about Kiln's last start (no boot.json: nothing to compare it with)
     let current = status.is_some() && boot.as_ref().is_none_or(|b| b.wrote(number("pid"), updated));
+    let prepared = kept && current && word("mode") == Some("hosted")
+        && status.as_ref().and_then(|s| s.get("startupPrepared")).and_then(|v| v.as_bool()) == Some(true);
+    // written before Kiln's last start: a start without ShroudForge came after it
+    if let (Some(c), Some(start)) = (completed, boot.as_ref().and_then(|b| b.start)) {
+        if c.saturating_add(BOOT_SLACK) < start && !prepared {
+            return None;
+        }
+    }
     let installed = crate::shroudforge::detect(game_dir);
     let own_files = installed.as_ref().is_some_and(|i| i.bootstrap || i.dbghelp);
     let hosted = current && word("mode") == Some("hosted");
@@ -220,13 +328,27 @@ pub fn failure(game_dir: &Path, wine: bool) -> Option<SfStartupFailure> {
         return None;
     }
     let hosted_installed = !own_loader && word("source") == Some("installed");
-    let bundled_dir = game_dir.join("kiln/plugins/shroudforge");
-    let ran = if own_loader || hosted_installed {
+    let build = if own_loader || hosted_installed {
         read_build(game_dir, &game_dir.join("shroudforge")).unwrap_or_default()
     } else {
         let reported = |k: &str| status.as_ref().and_then(|s| s.pointer(&format!("/bundled/{k}"))).and_then(|v| v.as_str()).map(str::to_owned);
-        read_build(game_dir, &bundled_dir).unwrap_or(Build { version: reported("version"), build: reported("build"), host: None })
+        read_build(game_dir, &game_dir.join("kiln/plugins/shroudforge"))
+            .unwrap_or(Build { version: reported("version"), build: reported("build"), host: None })
     };
+    Some(Ran { own_loader, hosted_installed, build, status })
+}
+
+/// The failed startup pass of ShroudForge's last start in this game folder, or None: no record, a pass that applied or
+/// is still `preparing`, or a record of an earlier start (see the module's text: one older than Kiln's last start, or
+/// one Kiln's adapter does not place in it). `wine`: the game runs under Wine or Proton. Reads only; starts nothing.
+pub fn failure(game_dir: &Path, wine: bool) -> Option<SfStartupFailure> {
+    let assets = record(game_dir)?;
+    if assets.get("status")?.as_str()? != "failed" {
+        return None;
+    }
+    let completed = assets.get("completedAt").and_then(|v| v.as_u64());
+    let Ran { own_loader, hosted_installed, build: ran, status } = ran(game_dir, completed, false)?;
+    let bundled_dir = game_dir.join("kiln/plugins/shroudforge");
     let raw_error = assets.get("error").and_then(|v| v.as_str()).unwrap_or("it gave no reason").to_string();
     let error = one_line(&raw_error);
     let server = match assets.get("target").and_then(|v| v.as_str()) {
@@ -262,26 +384,113 @@ pub fn failure(game_dir: &Path, wine: bool) -> Option<SfStartupFailure> {
             format!("{why}. To use that one, {setting}")
         }
     });
+    let raw_retry_error = assets.get("retryError").and_then(|v| v.as_str()).map(str::to_owned);
     Some(SfStartupFailure { error, at: completed.and_then(|c| i64::try_from(c).ok()).map(crate::util::rfc3339), own_loader,
-        version: ran.version, build: ran.build, mods, cure, raw_error })
+        version: ran.version, build: ran.build, mods, cure, skipped: skipped_mods(&assets), retry_error: raw_retry_error.as_deref().map(one_line),
+        raw_error, raw_retry_error })
+}
+
+/// The mod ShroudForge's last startup pass in this game folder ran without, after the pass failed in it, or None: no such
+/// record, the mod has been switched off (or removed) since, or the record is an earlier start's. An `applied` record
+/// stays as it is while the next starts' passes are unchanged, so it counts while Kiln's adapter says it hosted
+/// ShroudForge at Kiln's last start and its preparation returned, however old it is ([`ran`]). Reads only.
+pub fn skipped(game_dir: &Path) -> Option<SfStartupSkipped> {
+    let assets = record(game_dir)?;
+    if assets.get("status")?.as_str()? != "applied" {
+        return None;
+    }
+    let list = skipped_mods(&assets);
+    let first = list.first()?;
+    let completed = assets.get("completedAt").and_then(|v| v.as_u64());
+    let ran = ran(game_dir, completed, true)?;
+    // a mod switched off since is no longer left out: the next pass runs without it anyway
+    let on: std::collections::HashSet<String> = crate::shroudforge::list_mods(game_dir).0.into_iter().filter(|m| m.enabled).map(|m| m.id).collect();
+    if !on.contains(&first.id) {
+        return None;
+    }
+    let skipped = list.into_iter().filter(|m| on.contains(&m.id)).collect();
+    Some(SfStartupSkipped {
+        skipped,
+        loaded: assets.get("mods").and_then(|v| v.as_array()).map_or(0, Vec::len),
+        at: completed.and_then(|c| i64::try_from(c).ok()).map(crate::util::rfc3339),
+        own_loader: ran.own_loader,
+        version: ran.build.version,
+        build: ran.build.build,
+    })
+}
+
+/// "ShroudForge 1.7.9's own loader", "ShroudForge, hosted by Kiln,".
+fn who(own_loader: bool, version: Option<&str>) -> String {
+    match (own_loader, version) {
+        (true, Some(v)) => format!("ShroudForge {v}'s own loader"),
+        (true, None) => "ShroudForge's own loader".into(),
+        (false, Some(v)) => format!("ShroudForge {v}, hosted by Kiln,"),
+        (false, None) => "ShroudForge, hosted by Kiln,".into(),
+    }
+}
+
+/// "the mod that needs it (a)", "the 2 mods that need it (a, b)".
+fn needing(mods: &[SfSkippedMod]) -> String {
+    let ids: Vec<&str> = mods.iter().map(|m| m.id.as_str()).collect();
+    let names = if ids.len() > MAX_NAMES { format!("{} and {} more", ids[..MAX_NAMES].join(", "), ids.len() - MAX_NAMES) } else { ids.join(", ") };
+    if ids.len() == 1 { format!("the mod that needs it ({names})") } else { format!("the {} mods that need it ({names})", ids.len()) }
+}
+
+impl SfStartupSkipped {
+    /// What happened, what loaded and what to do, for a person. No full stop at the end.
+    pub fn text(&self) -> String {
+        let Some(failed) = self.skipped.first() else { return String::new() };
+        let mut t = format!("{} left {} out of its startup pass{}: the pass failed in that mod ({}), so ShroudForge put the game data back \
+            and ran the pass again without it", who(self.own_loader, self.version.as_deref()), failed.label(),
+            self.at.as_deref().map(|a| format!(" ({a})")).unwrap_or_default(), failed.error);
+        if self.skipped.len() > 1 {
+            t.push_str(&format!(" and without {}", needing(&self.skipped[1..])));
+        }
+        t.push_str(&match self.loaded {
+            0 => ". No other mod needs that step".to_string(),
+            1 => ". The other mod that needs that step loaded".to_string(),
+            n => format!(". The other {n} mods that need that step loaded"),
+        });
+        t.push_str(&format!(". Turn {} off, or check whether it clashes with another mod: one that changes the same game data can make its \
+            check fail", failed.called()));
+        t
+    }
+
+    /// The record in one line for a list of facts: "applied at 2026-11-18T06:24:48Z without wisp_light_timer_a9 1.0.3
+    /// (runtime error: ...); 4 other mods loaded (ShroudForge 1.7.9, build kiln.4b1ab16, hosted by Kiln)".
+    pub fn line(&self) -> String {
+        let failed = self.skipped.first();
+        format!("applied{} without {} ({}){}; {} loaded (ShroudForge {}{}, {})", self.at.as_deref().map(|a| format!(" at {a}")).unwrap_or_default(),
+            failed.map(|m| m.label()).unwrap_or_default(), failed.map(|m| m.error.as_str()).unwrap_or_default(),
+            if self.skipped.len() > 1 { format!(" and {}", needing(&self.skipped[1..])) } else { String::new() },
+            match self.loaded { 1 => "1 other mod".to_string(), n => format!("{n} other mods") },
+            self.version.as_deref().unwrap_or("of unknown version"), self.build.as_deref().map(|b| format!(", build {b}")).unwrap_or_default(),
+            if self.own_loader { "its own loader" } else { "hosted by Kiln" })
+    }
+
+    /// The same with the mods' errors passed whole through `redact` before they are put on one line and cut.
+    pub fn redacted(&self, redact: impl Fn(&str) -> String) -> SfStartupSkipped {
+        SfStartupSkipped { skipped: self.skipped.iter().map(|m| m.redacted(&redact)).collect(), ..self.clone() }
+    }
 }
 
 impl SfStartupFailure {
     /// "ShroudForge 1.7.9's own loader", "ShroudForge, hosted by Kiln,".
     fn who(&self) -> String {
-        match (self.own_loader, &self.version) {
-            (true, Some(v)) => format!("ShroudForge {v}'s own loader"),
-            (true, None) => "ShroudForge's own loader".into(),
-            (false, Some(v)) => format!("ShroudForge {v}, hosted by Kiln,"),
-            (false, None) => "ShroudForge, hosted by Kiln,".into(),
-        }
+        who(self.own_loader, self.version.as_deref())
     }
 
     /// What happened, which mods that leaves out and what to change, for a person. No full stop at the end (the
     /// launcher's notes and the report add their own).
     pub fn text(&self) -> String {
-        let mut t = format!("{} could not write its mods' changes into the game's data files at its last start{}: {}. It put the game data back \
-            and the game started without them", self.who(), self.at.as_deref().map(|a| format!(" ({a})")).unwrap_or_default(), self.error);
+        let mut t = format!("{} could not write its mods' changes into the game's data files at its last start{}: {}", self.who(),
+            self.at.as_deref().map(|a| format!(" ({a})")).unwrap_or_default(), self.error);
+        // Kiln's ShroudForge tried once more without the mod the pass failed in
+        if let Some(second) = &self.retry_error {
+            t.push_str(&format!(". It tried again without {}, and that failed too: {second}",
+                self.skipped.first().map(|m| m.label()).unwrap_or_else(|| "the mod it failed in".into())));
+        }
+        t.push_str(". It put the game data back and the game started without them");
         match self.mods.len() {
             0 => {}
             n => {
@@ -304,7 +513,12 @@ impl SfStartupFailure {
     /// The record in one line for a list of facts: "failed at 2026-11-10T11:00:14Z: pregame phase failed: ... (ShroudForge
     /// 1.7.9, build kiln.63b8862, hosted by Kiln)".
     pub fn line(&self) -> String {
-        format!("failed{}: {} (ShroudForge {}{}, {})", self.at.as_deref().map(|a| format!(" at {a}")).unwrap_or_default(), self.error,
+        let again = match (&self.retry_error, self.skipped.first()) {
+            (Some(second), Some(m)) => format!("; again without {}: {second}", m.id),
+            (Some(second), None) => format!("; again: {second}"),
+            _ => String::new(),
+        };
+        format!("failed{}: {}{again} (ShroudForge {}{}, {})", self.at.as_deref().map(|a| format!(" at {a}")).unwrap_or_default(), self.error,
             self.version.as_deref().unwrap_or("of unknown version"), self.build.as_deref().map(|b| format!(", build {b}")).unwrap_or_default(),
             if self.own_loader { "its own loader" } else { "hosted by Kiln" })
     }
@@ -314,7 +528,9 @@ impl SfStartupFailure {
     /// match it.
     pub fn redacted(&self, redact: impl Fn(&str) -> String) -> SfStartupFailure {
         let raw_error = redact(&self.raw_error);
-        SfStartupFailure { error: one_line(&raw_error), raw_error, ..self.clone() }
+        let raw_retry_error = self.raw_retry_error.as_deref().map(&redact);
+        SfStartupFailure { error: one_line(&raw_error), raw_error, retry_error: raw_retry_error.as_deref().map(one_line), raw_retry_error,
+            skipped: self.skipped.iter().map(|m| m.redacted(&redact)).collect(), ..self.clone() }
     }
 }
 
@@ -329,9 +545,21 @@ pub struct SfStartupNote {
     pub text: String,
 }
 
+/// ShroudForge's startup pass ran without a mod at the last start, on ShroudForge's line of the launcher's engine list
+/// (`engine_status` `startupSkipped`): a warning.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SfSkipNote {
+    #[serde(flatten)]
+    pub skipped: SfStartupSkipped,
+    /// [`SfStartupSkipped::text`], without its full stop.
+    pub text: String,
+}
+
 /// The engine list's word on ShroudForge's last startup pass: read once for all its lines.
 pub struct EngineNotes {
     failure: Option<SfStartupFailure>,
+    skipped: Option<SfStartupSkipped>,
     /// ShroudForge runs the EML mods here (its own loader carries EML, or Kiln hosts it for the profile): they go through
     /// the same pass.
     runs_eml: bool,
@@ -341,7 +569,13 @@ impl EngineNotes {
     /// `loaders`: [`crate::own_loaders::find`] for the active profile. A launcher built for Linux manages games under
     /// Wine or Proton.
     pub fn read(game_dir: &Path, loaders: &[OwnLoader]) -> EngineNotes {
-        EngineNotes { failure: failure(game_dir, cfg!(not(windows))), runs_eml: crate::own_loaders::shroudforge_runs_eml(loaders) }
+        EngineNotes { failure: failure(game_dir, cfg!(not(windows))), skipped: skipped(game_dir), runs_eml: crate::own_loaders::shroudforge_runs_eml(loaders) }
+    }
+
+    /// The note for ShroudForge's line when its last pass ran without a mod (none on the other lines).
+    pub fn skip_of(&self, kind: ModKind) -> Option<SfSkipNote> {
+        let s = self.skipped.as_ref().filter(|_| kind == ModKind::ShroudForge)?;
+        Some(SfSkipNote { skipped: s.clone(), text: s.text() })
     }
 
     /// The note for one engine's line: ShroudForge's, whoever ran the pass (whatever own loaders there are), and EML's
@@ -620,6 +854,152 @@ mod tests {
         assert!(f.cure.is_some(), "{f:?}");
         assert_eq!((f.version.as_deref(), f.build.as_deref()), (Some("1.7.9"), Some("42095151546")), "the build that ran is kept");
         assert!(f.line().ends_with("(ShroudForge 1.7.9, build 42095151546, its own loader)"), "{}", f.line());
+    }
+
+    /// The record Kiln's ShroudForge writes after a pass that failed in one mod (`wisp`, which `lamp-pack` needs) and ran
+    /// again without them: `applied`, `skipped`, and `mods` without the two.
+    fn retried(g: &Game, at: u64) {
+        g.w("shroudforge/state.json", &serde_json::json!({"schemaVersion": 1, "assets": {
+            "schemaVersion": 1, "status": "applied", "phase": "startup", "target": "enshrouded", "completedAt": at, "fingerprint": "f",
+            "mods": [{"id": "bone-caller", "version": "1.0.0"}, {"id": "ore-sheet", "version": "1.0.0"}],
+            "skipped": [
+                {"id": "wisp", "name": "Wisp Light Timer", "version": "1.0.3",
+                    "error": "runtime error: [string \"wisp\"]:719: Missing base localization: keenglish"},
+                {"id": "lamp-pack", "name": "Lamp Pack", "version": "2.0.0", "error": "needs wisp, which failed in the pregame pass"}]},
+            "runtime": {"running": false}}).to_string());
+    }
+
+    /// Kiln's ShroudForge hosted at the start of `T0` (pid 412) and its preparation returned.
+    fn hosted_start(g: &Game) {
+        g.boot(T0, 412, "active");
+        g.status(&format!(r#"{{"mode":"hosted","source":"bundled","pid":412,"updated":{},"bundled":{{"version":"1.7.9","build":"kiln.4b1ab16"}},"startupPrepared":true}}"#, T0 + 30));
+    }
+
+    /// dev.29.18 (inbox 79): one mod's own check failed, Kiln's ShroudForge ran the pass again without it, and the
+    /// other mods loaded. That is a warning naming the mod, its error and what to do, not a failure.
+    #[test]
+    fn a_pass_that_ran_without_a_mod_is_a_warning_that_names_it() {
+        let g = Game::new("skipped");
+        g.bundled();
+        for id in ["bone-caller", "ore-sheet", "wisp", "lamp-pack"] {
+            g.package(id, &["patch"], true, &["client"]);
+        }
+        hosted_start(&g);
+        retried(&g, T0 + 5);
+        assert_eq!(failure(&g.0, true), None, "applied: no failure");
+        let s = skipped(&g.0).expect("the last start's pass ran without wisp");
+        assert_eq!(s.skipped.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["wisp", "lamp-pack"]);
+        assert_eq!((s.loaded, s.own_loader, s.version.as_deref(), s.at.as_deref()), (2, false, Some("1.7.9"), Some("2026-11-10T11:00:05Z")));
+        assert_eq!(s.text(), "ShroudForge 1.7.9, hosted by Kiln, left Wisp Light Timer (wisp 1.0.3) out of its startup pass (2026-11-10T11:00:05Z): \
+            the pass failed in that mod (runtime error: [string \"wisp\"]:719: Missing base localization: keenglish), so ShroudForge put the game \
+            data back and ran the pass again without it and without the mod that needs it (lamp-pack). The other 2 mods that need that step \
+            loaded. Turn Wisp Light Timer off, or check whether it clashes with another mod: one that changes the same game data can make its \
+            check fail");
+        assert_eq!(s.line(), "applied at 2026-11-10T11:00:05Z without Wisp Light Timer (wisp 1.0.3) (runtime error: [string \"wisp\"]:719: \
+            Missing base localization: keenglish) and the mod that needs it (lamp-pack); 2 other mods loaded (ShroudForge 1.7.9, build \
+            kiln.63b8862, hosted by Kiln)", "the build of the bundle's version.json");
+        // the launcher's rows: the warning on ShroudForge's, nothing on EML's
+        let notes = EngineNotes { failure: None, skipped: Some(s.clone()), runs_eml: true };
+        let note = notes.skip_of(ModKind::ShroudForge).unwrap();
+        assert_eq!(note.text, s.text());
+        let json = serde_json::to_value(&note).unwrap();
+        assert_eq!((json["skipped"][0]["id"].as_str(), json["loaded"].as_u64(), json["text"].is_string()), (Some("wisp"), Some(2), true), "{json}");
+        assert_eq!(notes.skip_of(ModKind::Eml), None);
+        assert_eq!(notes.of(ModKind::ShroudForge), None);
+        // a mod left out with it that is off now is not named; the failed one off: nothing to say any more
+        g.package("lamp-pack", &["patch"], false, &["client"]);
+        assert_eq!(skipped(&g.0).unwrap().skipped.len(), 1);
+        assert!(!skipped(&g.0).unwrap().text().contains("lamp-pack"));
+        g.package("wisp", &["patch"], false, &["client"]);
+        assert_eq!(skipped(&g.0), None, "switched off since: the next pass runs without it anyway");
+    }
+
+    /// ShroudForge keeps an applied record as it is while the next starts' passes are unchanged: the mod stays out of the
+    /// game data, so the warning stays while Kiln hosted ShroudForge at its last start, however old the record is.
+    #[test]
+    fn a_kept_record_counts_while_kiln_hosted_shroudforge_at_its_last_start() {
+        let g = Game::new("kept");
+        g.bundled();
+        g.package("wisp", &["patch"], true, &["client"]);
+        retried(&g, T0 - 86_400);
+        hosted_start(&g);
+        assert!(skipped(&g.0).is_some(), "an unchanged pass a day later");
+        // ... but not when the adapter's preparation did not return, or the last start did not host ShroudForge
+        g.status(&format!(r#"{{"mode":"hosted","source":"bundled","pid":412,"updated":{},"bundled":{{"version":"1.7.9"}}}}"#, T0 + 30));
+        assert_eq!(skipped(&g.0), None);
+        hosted_start(&g);
+        g.boot(T0 + 3600, 412, "no-mods");
+        assert_eq!(skipped(&g.0), None, "a start without mods came after it");
+        // a fresh record needs no word on the preparation (as a failed one)
+        retried(&g, T0 + 3605);
+        g.status(&format!(r#"{{"mode":"hosted","source":"bundled","pid":412,"updated":{}}}"#, T0 + 3630));
+        assert!(skipped(&g.0).is_some());
+    }
+
+    /// Records of ShroudForge without the retry (upstream's, and Kiln's before dev.29.18) read as before; the new fields
+    /// are additive, and serialize only when present.
+    #[test]
+    fn old_records_read_as_before_and_the_new_fields_only_add() {
+        let g = Game::new("old-record");
+        g.bundled();
+        g.package("wisp", &["patch"], true, &["client"]);
+        hosted_start(&g);
+        g.record("applied", T0 + 5, None);
+        assert_eq!(skipped(&g.0), None);
+        g.record("failed", T0 + 5, Some("pregame phase failed: runtime error: [string \"wisp\"]:719: Missing base localization: keenglish"));
+        let f = failure(&g.0, true).unwrap();
+        assert!(f.skipped.is_empty() && f.retry_error.is_none(), "{f:?}");
+        assert!(!f.text().contains("tried again"), "{}", f.text());
+        let json = serde_json::to_value(&f).unwrap();
+        assert!(json.get("skipped").is_none() && json.get("retryError").is_none(), "{json}");
+        // what a launcher of before dev.29.18 reads from a note of this one (it knows neither field)
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        #[allow(dead_code)]
+        struct OldNote { error: String, own_loader: bool, mods: Vec<String>, text: String }
+        g.w("shroudforge/state.json", &serde_json::json!({"schemaVersion": 1, "assets": {"status": "failed", "phase": "startup",
+            "target": "enshrouded", "completedAt": T0 + 5, "error": "pregame phase failed: first",
+            "skipped": [{"id": "wisp", "error": "first"}], "retryError": "pregame phase failed: second"}}).to_string());
+        let note = EngineNotes { failure: failure(&g.0, true), skipped: None, runs_eml: false }.of(ModKind::ShroudForge).unwrap();
+        let old: OldNote = serde_json::from_value(serde_json::to_value(&note).unwrap()).unwrap();
+        assert_eq!(old.error, "pregame phase failed: first");
+    }
+
+    /// The second pass failed too: no mod of the pass loaded, as before, and the text gives both errors.
+    #[test]
+    fn a_retry_that_failed_too_gives_both_errors() {
+        let g = Game::new("retry-failed");
+        g.bundled();
+        g.package("wisp", &["patch"], true, &["client"]);
+        g.package("bone-caller", &["patch"], true, &["client"]);
+        hosted_start(&g);
+        g.w("shroudforge/state.json", &serde_json::json!({"schemaVersion": 1, "assets": {"schemaVersion": 1, "status": "failed",
+            "phase": "startup", "target": "enshrouded", "completedAt": T0 + 5,
+            "error": "pregame phase failed: runtime error: [string \"wisp\"]:719: Missing base localization: keenglish\nstack traceback:\n\t[C]: in ?",
+            "skipped": [{"id": "wisp", "name": "Wisp Light Timer", "version": "1.0.3", "error": "runtime error: [string \"wisp\"]:719: Missing base localization: keenglish"}],
+            "retryError": "pregame phase failed: runtime error: [string \"bone-caller\"]:3: bones\nstack traceback:\n\t[C]: in ?"}}).to_string());
+        assert_eq!(skipped(&g.0), None, "failed: no warning");
+        let f = failure(&g.0, true).unwrap();
+        assert_eq!(f.retry_error.as_deref(), Some("pregame phase failed: runtime error: [string \"bone-caller\"]:3: bones stack traceback: [C]: in ?"));
+        assert!(f.text().starts_with("ShroudForge 1.7.9, hosted by Kiln, could not write its mods' changes into the game's data files at its last \
+            start (2026-11-10T11:00:05Z): pregame phase failed: runtime error: [string \"wisp\"]:719: Missing base localization: keenglish stack \
+            traceback: [C]: in ?. It tried again without Wisp Light Timer (wisp 1.0.3), and that failed too: pregame phase failed: runtime error: \
+            [string \"bone-caller\"]:3: bones stack traceback: [C]: in ?. It put the game data back and the game started without them, so the 2 \
+            mods that need that step did not load (bone-caller, wisp)"), "{}", f.text());
+        assert!(f.line().contains("; again without wisp: pregame phase failed: runtime error: [string \"bone-caller\"]:3: bones"), "{}", f.line());
+        let json = serde_json::to_value(&f).unwrap();
+        assert_eq!((json["skipped"][0]["id"].as_str(), json["retryError"].is_string()), (Some("wisp"), true), "{json}");
+        // a report redacts every word ShroudForge quotes
+        g.w("shroudforge/state.json", &serde_json::json!({"schemaVersion": 1, "assets": {"status": "failed", "phase": "startup",
+            "target": "enshrouded", "completedAt": T0 + 5, "error": "pregame phase failed: /home/frostling/a",
+            "skipped": [{"id": "wisp", "error": "/home/frostling/b"}], "retryError": "pregame phase failed: /home/frostling/c"}}).to_string());
+        let r = failure(&g.0, true).unwrap().redacted(|t| t.replace("/home/frostling", "<home>"));
+        assert!(!r.text().contains("frostling") && r.text().contains("<home>/c"), "{}", r.text());
+        assert_eq!(r.skipped[0].error, "<home>/b");
+        retried(&g, T0 + 5);
+        g.w("shroudforge/state.json", &std::fs::read_to_string(g.0.join("shroudforge/state.json")).unwrap().replace("keenglish", "/home/frostling/x"));
+        let r = skipped(&g.0).unwrap().redacted(|t| t.replace("/home/frostling", "<home>"));
+        assert!(r.text().contains("<home>/x") && !r.text().contains("frostling"), "{}", r.text());
     }
 
     #[test]

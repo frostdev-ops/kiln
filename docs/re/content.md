@@ -325,6 +325,12 @@ newcontent-test done: 24 PASS, 0 FAIL
   4th argument. The slot loader (`0x1216e00`, `mov r9d, [rdi+0xd8]` at `0x1216fc7`) walks the
   `LocaTagCollectionResource.languages` BlobArray (`keen::LocaTagCollectionResourceLanguage`, 0x28 B: language id
   `+0`, content reference `+8`) for the entry whose id equals `+0xd8`.
+- **One pool per process** (client 26430625, **[dis]**): the constructor (`0x1215df0` there, `0x1215d20` on 26404966) has
+  one call site, `0x852b01` in the app's start-up, which stores the pool at `gameApp+0x352b8`; the UI reads it as
+  `GameUiData+0x33ce8` (docs/re/game-ui.md). `LocaPool_lookup` (`0x12169b0` on 26430625) and `LocaRecord` (`0x12166c0`) are
+  each reached through three small wrappers. So kiln.content's `text()` (0.2.0-dev.29.18) keeps the pool its loca hooks
+  see and calls the lookup on the game client's main thread only, where the game also switches the language (`0x1216b60`,
+  from the settings) and its UI looks texts up every frame.
 - Sigdb: `@content/LocaLookup.language` (scope LocaLookup, `48 8D 6E 40 39 BE {content/loca.language:d32} 75`),
   feature `content.loca_language`.
 - `keen::LanguageId` from the game's reflection (server and client the same) **[refl] [rt]**: 0 none, 1 en-us, 2 en-gb,

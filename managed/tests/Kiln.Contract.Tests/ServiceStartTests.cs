@@ -215,6 +215,7 @@ public sealed class ServiceStartTests
     [InlineData("gameplay.spawn_replace", "needs kiln.gameplay")]
     [InlineData("content.references", "needs kiln.content")]
     [InlineData("content.ready", "needs kiln.content")]
+    [InlineData("content.text", "needs kiln.content")]
     [InlineData("assets.textures", "needs kiln.assets")]
     [InlineData("settings.ready", "needs kiln.settings")]
     [InlineData("spawn.components", "needs kiln.spawn")]

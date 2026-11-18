@@ -171,3 +171,24 @@ through it and its pointer). The guide: [translating-game.md](../translating-gam
   budget), `group_host_test.cpp` (style.cpp's loading on a headless ImGui context with a made-up resource and a system TTF:
   the language's choice, the state, merging into fonts that arrive later, replacing, removing, a failed read, the layout
   from reflection; `KILN_TEST_CJK_FONT=<an extracted CJK font>` also checks a real CJK glyph).
+
+## Kiln's graphics tools (0.2.0-dev.29.18)
+
+Two slots after `set_texts`: `graphics_set` at byte offset 1016 and `graphics_status` at 1024 (the table is 1032 bytes;
+check `header.size` through the member and that its pointer is non-null). Player side and kiln.json keys:
+[graphics.md](../graphics.md).
+- `graphics_status(&KilnUiGraphicsStatus)` (72 bytes; set `size` first): what Kiln's frame cap, DLSS settings and readout
+  do now. `flags`: `KILN_UI_GFX_CAP_ACTIVE` (the cap paces frames now), `_DLSS_HOOKED` (Kiln's hooks on NVIDIA's NGX core
+  are in), `_DLSS_ACTIVE` (the game upscaled with DLSS in the last two seconds), `_DLSS_RESTART` (a DLSS setting or the
+  readout is on but was not at start), `_DLSS_PRESET` / `_DLSS_SCALED` (the DLSS in use got Kiln's preset / render size),
+  `_COUNTING` (the frame counts are kept), `_DLSS_LIMITED` (the player's render scale was outside DLSS's range for the
+  mode in use: it renders at the nearest size DLSS allows). `aside_cap` / `aside_dlss`: `KILN_UI_GFX_ASIDE_*` bits (OptiScaler,
+  Streamline, EnshroudedVKFG.ini, DLSSTweaks, nvngx.dll next to the game, NGX patched by another module, Kiln's overlay
+  off). Then the cap, `rendered_fps`, `output_fps` (equal until a frame generation phase), `frame_ms`, the swapchain's
+  size, and the DLSS in use: `dlss_quality` (`NVSDK_NGX_PerfQuality_Value`: 0 Performance, 1 Balanced, 2 Quality, 3
+  Ultra Performance, 4 Ultra Quality, 5 DLAA; -1 none), `dlss_preset` (as asked: Kiln's, else the game's hint; 0 DLSS's
+  default), `render_width/height` (this frame's while the readout is on, else at creation) and
+  `dlss_output_width/height`. Any thread.
+- `graphics_set(&KilnUiGraphics)` (48 bytes): the player's settings. Kiln.Ui's call only, from kiln.json "graphics" and
+  the Kiln menu's Graphics tab; a native plugin's is refused (`KILN_ERR_UNAVAILABLE`): mods never choose them.
+

@@ -506,6 +506,54 @@ internal static unsafe class UiNative
 
     internal static delegate* unmanaged[Cdecl]<Texts*, int> SetTextsOverride;
 
+    /// <summary>KilnUiGraphics (kiln_ui.h, 0.2.0-dev.29.18): the player's graphics settings (graphics_set).</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Graphics
+    {
+        public uint Size, FpsCap, DlssPreset, DlssScale;
+        public float CustomScale;
+        public fixed float ModeScale[4];
+        public uint Readout;
+        public fixed uint Reserved[2];
+    }
+
+    /// <summary>KilnUiGraphicsStatus (kiln_ui.h, 0.2.0-dev.29.18): what Kiln's graphics tools do now (graphics_status).</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct GraphicsStatus
+    {
+        public uint Size, Flags, AsideCap, AsideDlss, FpsCap;
+        public float RenderedFps, OutputFps, FrameMs;
+        public uint OutputWidth, OutputHeight;
+        public int DlssQuality;
+        public uint DlssPreset, RenderWidth, RenderHeight, DlssOutputWidth, DlssOutputHeight;
+        public fixed uint Reserved[2];
+    }
+
+    /// <summary>The tail after set_texts (0.2.0-dev.29.18): graphics_set, graphics_status.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct TableGraphics
+    {
+        public TableTexts Base;
+        public delegate* unmanaged[Cdecl]<Graphics*, int> GraphicsSet;
+        public delegate* unmanaged[Cdecl]<GraphicsStatus*, int> GraphicsStatusFn;
+    }
+
+    /// <summary>kiln.ui's graphics tail, or null on a table without it (a kiln-ui.dll older than 0.2.0-dev.29.18). Tests:
+    /// <see cref="GraphicsOverride"/>.</summary>
+    public static TableGraphics* GraphicsTable
+    {
+        get
+        {
+            if (GraphicsOverride != null) return GraphicsOverride;
+            var t = T;
+            if (t == null || t->Header.Size < (uint)sizeof(TableGraphics)) return null;
+            return (TableGraphics*)t;
+        }
+    }
+
+    /// <summary>Tests: a table of the graphics tail in place of kiln.ui's.</summary>
+    internal static TableGraphics* GraphicsOverride;
+
     /// <summary>KILN_UI_GLYPHS_* (kiln_ui.h look_info): the overlay's glyphs of a Chinese, Japanese or Korean language.</summary>
     public const byte GlyphsLatin = 0, GlyphsLoading = 1, GlyphsReady = 2, GlyphsFailed = 3;
 
@@ -635,6 +683,7 @@ internal static unsafe class UiNative
         ImageExOverride = null;
 
         SetTextsOverride = null;
+        GraphicsOverride = null;
         MouseKeysAvailable = false;
     }
 

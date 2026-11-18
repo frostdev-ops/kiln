@@ -40,6 +40,91 @@ pub const PROXY_NAMES: [&str; 13] = [
     "steam_api64.dll",
 ];
 
+/// The names OptiScaler's DLL is installed under in the game folder (its docs and installer). Not part of
+/// [`PROXY_NAMES`]: d3d12.dll, wininet.dll and winhttp.dll are no mod loaders' names, and the names both lists share
+/// keep their rules. A file under one of them is OptiScaler only when its contents say so ([`classify_markers`]).
+pub const OPTISCALER_NAMES: [&str; 7] =
+    ["dxgi.dll", "winmm.dll", "version.dll", "dbghelp.dll", "d3d12.dll", "wininet.dll", "winhttp.dll"];
+
+/// The largest OptiScaler.ini read (the shipped one is tens of KiB); kiln.ui reads none larger either.
+pub const OPTISCALER_INI_MAX: u64 = 4 * 1024 * 1024;
+
+/// What OptiScaler.ini sets that decides for Kiln's in-game overlay (kiln.ui reads it the same way:
+/// native/services/ui/overlay_optiscaler.h). Sections and keys case ignored, `;`/`#` comment lines, the last key wins.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct OptiScalerIni {
+    /// `[Menu] OverlayMenu`: None for auto (OptiScaler's default: on).
+    pub overlay_menu: Option<bool>,
+    /// `[FrameGen] FGInput` and `FGOutput` both set to something other than nofg/auto.
+    pub frame_gen: bool,
+}
+
+impl OptiScalerIni {
+    pub fn parse(text: &str) -> Self {
+        let mut section = String::new();
+        let (mut menu, mut input, mut output) = (None, String::new(), String::new());
+        for line in text.split('\n') {
+            let line = line.trim_start_matches('\u{feff}').trim();
+            if line.is_empty() || line.starts_with(';') || line.starts_with('#') {
+                continue;
+            }
+            if let Some(rest) = line.strip_prefix('[') {
+                section = rest.split(']').next().unwrap_or("").trim().to_ascii_lowercase();
+                continue;
+            }
+            let Some((key, value)) = line.split_once('=') else { continue };
+            let (key, value) = (key.trim().to_ascii_lowercase(), value.trim().to_ascii_lowercase());
+            match (section.as_str(), key.as_str()) {
+                ("menu", "overlaymenu") => menu = match value.as_str() { "false" => Some(false), "true" => Some(true), _ => None },
+                ("framegen", "fginput") => input = value,
+                ("framegen", "fgoutput") => output = value,
+                _ => {}
+            }
+        }
+        let none = |v: &str| v.is_empty() || v == "auto" || v == "nofg";
+        OptiScalerIni { overlay_menu: menu, frame_gen: !none(&input) && !none(&output) }
+    }
+
+    /// OptiScaler.ini in `dir` (any spelling of its name); the default settings when there is none, or when it is not a
+    /// file or larger than [`OPTISCALER_INI_MAX`] (kiln.ui's limit: both then take OptiScaler's menu for on).
+    pub fn read(dir: &Path) -> Self {
+        std::fs::read_dir(dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .find(|e| e.file_name().to_string_lossy().eq_ignore_ascii_case("OptiScaler.ini"))
+            .filter(|e| e.metadata().is_ok_and(|m| m.is_file() && m.len() <= OPTISCALER_INI_MAX))
+            .and_then(|e| std::fs::read(e.path()).ok())
+            .map(|b| Self::parse(&String::from_utf8_lossy(&b)))
+            .unwrap_or_default()
+    }
+
+    /// Kiln's overlay draws next to OptiScaler: its own overlay menu is off, so it patches none of the game's presents
+    /// or swapchains, and no frame generation is set. Otherwise kiln.ui's drawing steps aside on its own.
+    pub fn kiln_overlay_draws(&self) -> bool {
+        self.overlay_menu == Some(false) && !self.frame_gen
+    }
+}
+
+/// What a player can expect from Kiln's in-game overlay next to OptiScaler with these settings (the Play page's note).
+pub fn optiscaler_overlay_note(ini: &OptiScalerIni) -> String {
+    if ini.kiln_overlay_draws() {
+        return "OptiScaler's own overlay menu is off in OptiScaler.ini (OverlayMenu=false), so Kiln's in-game overlay draws next to it.".into();
+    }
+    "Kiln's in-game overlay steps aside while OptiScaler's own menu is on (its default; both open with Insert): Kiln's key \
+     bindings and the Mods entry still work, Kiln's windows and Mods page don't show. For Kiln's overlay, set OverlayMenu=false \
+     under [Menu] in OptiScaler.ini (OptiScaler's menu and frame generation go off with it), or try both with the launch \
+     option KILN_UI_OVERLAY=1."
+        .into()
+}
+
+/// True for a name OptiScaler's DLL goes by: one of [`OPTISCALER_NAMES`], or `OptiScaler*.dll` / `OptiScaler*.asi` as it
+/// ships (case ignored).
+pub fn is_optiscaler_name(file_name: &str) -> bool {
+    let low = file_name.to_ascii_lowercase();
+    OPTISCALER_NAMES.contains(&low.as_str()) || (low.starts_with("optiscaler") && (low.ends_with(".dll") || low.ends_with(".asi")))
+}
+
 /// True for one of [`PROXY_NAMES`] (case ignored).
 pub fn is_proxy_name(file_name: &str) -> bool {
     PROXY_NAMES.iter().any(|n| n.eq_ignore_ascii_case(file_name))
@@ -69,6 +154,10 @@ pub enum Engine {
     #[serde(rename = "reshade")]
     ReShade,
     ChainLoader,
+    /// OptiScaler (github.com/optiscaler/OptiScaler): an upscaler and frame generation tool under one of its own proxy
+    /// names ([`OPTISCALER_NAMES`]). Serialized by its name ("optiscaler"), like every variant: the position is no contract.
+    #[serde(rename = "optiscaler")]
+    OptiScaler,
     NativeFolders,
 }
 
@@ -133,6 +222,13 @@ pub const ENGINES: &[EngineInfo] = &[
         exports: &[], texts: &["livemap.ini"], what: "a stand-alone server mod" },
     EngineInfo { engine: Engine::SharedXp, word: "shared-xp", name: "Shared XP", proxies: &["powrprof.dll"],
         exports: &[], texts: &["xpshare.ini"], what: "a stand-alone server mod" },
+    // OptiScaler's DLL reads its own OptiScaler.ini and can load ReShade itself, so it carries ReShade's word too: it
+    // comes before ReShade. Its proxy names include winmm.dll and version.dll, which other loaders use as well: only
+    // its texts make a DLL OptiScaler, never the name.
+    // `proxies`: its names that are in PROXY_NAMES; all of them are OPTISCALER_NAMES.
+    EngineInfo { engine: Engine::OptiScaler, word: "optiscaler", name: "OptiScaler",
+        proxies: &["dxgi.dll", "winmm.dll", "version.dll", "dbghelp.dll"],
+        exports: &[], texts: &["optiscaler.ini", "optiscaler.log"], what: "an upscaler and frame generation tool" },
     EngineInfo { engine: Engine::ReShade, word: "reshade", name: "ReShade", proxies: &["dxgi.dll"],
         exports: &[], texts: &["reshade"], what: "a graphics post-processing tool" },
     EngineInfo { engine: Engine::ChainLoader, word: "chain-loader", name: "a dinput8-chain.ini chain loader", proxies: &["dinput8.dll"],
@@ -179,6 +275,7 @@ impl Engine {
             Engine::SharedXp => ProxyKind::SharedXp,
             Engine::ReShade => ProxyKind::ReShade,
             Engine::ChainLoader => ProxyKind::ChainLoader,
+            Engine::OptiScaler => ProxyKind::OptiScaler,
             Engine::NativeFolders => ProxyKind::NativeFolders,
         }
     }
@@ -280,6 +377,22 @@ pub fn scan_proxies(game_dir: &Path) -> Vec<ProxySlot> {
         .collect()
 }
 
+/// OptiScaler installed in a game folder: the DLL whose contents say it is OptiScaler, under one of its names directly
+/// in the folder ([`OPTISCALER_NAMES`], `OptiScaler*.dll`, `OptiScaler*.asi`). Its OptiScaler.ini alone (left behind by
+/// an uninstall) is not OptiScaler. None when there is none.
+pub fn optiscaler_in(game_dir: &Path) -> Option<String> {
+    let mut names: Vec<String> = std::fs::read_dir(game_dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| is_optiscaler_name(n))
+        .collect();
+    names.sort();
+    names.into_iter().find(|n| crate::pe::classify_proxy(&game_dir.join(n)).is_ok_and(|c| c.kind == ProxyKind::OptiScaler))
+}
+
 // ---- what a player reads ----
 
 /// "<what it is>: <why it cannot load yet>" for an engine's mod (no final period: the launcher adds one).
@@ -336,7 +449,7 @@ pub fn loader_is_note(engine: Engine) -> bool {
 /// A tool that runs on its own next to Kiln (not a loader of mods): a package built around it is left out whole,
 /// with one reason, instead of importing its helper DLLs one by one.
 pub fn is_standalone_tool(engine: Engine) -> bool {
-    matches!(engine, Engine::Aldrich | Engine::LiveMap | Engine::SharedXp | Engine::ReShade)
+    matches!(engine, Engine::Aldrich | Engine::LiveMap | Engine::SharedXp | Engine::ReShade | Engine::OptiScaler)
 }
 
 /// Why a loader or tool DLL is not imported as a mod: one short sentence, with what to do when the player has to
@@ -365,6 +478,8 @@ pub fn loader_reason(engine: Engine, file: &str) -> String {
             "{file} is {n}, a stand-alone server mod: Kiln doesn't manage it, copy it into the server folder yourself"
         ),
         Engine::ReShade => format!("{file} is ReShade, which runs on its own next to Kiln: Kiln doesn't manage it, copy it into the Enshrouded folder yourself"),
+        // one sentence (the Library's rule); what it means for Kiln's overlay is on the Play page (game::graphics_tools)
+        Engine::OptiScaler => format!("{file} is OptiScaler, which runs on its own next to Kiln: Kiln doesn't manage it, copy it into the Enshrouded folder yourself"),
         // its download is a dinput8.dll: copied into the game folder by hand it would replace Kiln's proxy
         Engine::UltimateAsiLoader => format!("{file} is Ultimate ASI Loader: add it to the Library and Kiln puts it next to the game as {} \
             (never as dinput8.dll, that is Kiln's)", crate::game_files::UAL_FILE),
@@ -578,6 +693,11 @@ pub fn detect_dll(path: &Path, bytes: &[u8], exports: &[String]) -> Option<Detec
     if matches!(engine, Engine::ChainLoader | Engine::ReShade | Engine::Aldrich | Engine::NativeFolders) && !is_proxy_name(&file) {
         return None;
     }
+    // OptiScaler: under one of its own names, or as it ships (OptiScaler.dll, renamed by its installer); a DLL that only
+    // mentions OptiScaler.ini under another name keeps Kiln's own rules
+    if engine == Engine::OptiScaler && !is_optiscaler_name(&file) {
+        return None;
+    }
     // shroudlink's client addon is a DLL mod (Kiln chains it), not a loader Kiln replaces
     if engine == Engine::Shroudlink && is_shroudlink_addon(&file, bytes, exports) {
         return None;
@@ -601,6 +721,7 @@ pub fn engine_kind(engine: Engine) -> DetectKind {
         Engine::Ember => DetectKind::Ember,
         Engine::UltimateAsiLoader => DetectKind::Asi,
         Engine::ReShade => DetectKind::Reshade,
+        Engine::OptiScaler => DetectKind::Proxy,
         Engine::ModLoaderProxy | Engine::Aldrich | Engine::LiveMap | Engine::SharedXp | Engine::ChainLoader
             | Engine::NativeFolders => DetectKind::Proxy,
     }
@@ -928,6 +1049,13 @@ pub fn detect_file(path: &Path) -> Option<Detected> {
     if ext == "ini" && low.contains("reshade") {
         return d(DetectKind::Reshade, Some(Engine::ReShade), format!("{file} is a ReShade preset. ReShade runs on its own next to Kiln; Kiln doesn't install it"));
     }
+    // OptiScaler's settings and its .asi build (Ultimate ASI Loader can load it): the tool, never a mod
+    if low.starts_with("optiscaler") && ext == "ini" {
+        return d(DetectKind::Proxy, Some(Engine::OptiScaler), format!("{file} is OptiScaler's settings file. OptiScaler runs on its own next to Kiln; Kiln doesn't install it"));
+    }
+    if low.starts_with("optiscaler") && ext == "asi" {
+        return d(DetectKind::Proxy, Some(Engine::OptiScaler), loader_reason(Engine::OptiScaler, &file));
+    }
     if ext == "kfc" {
         return d(DetectKind::Data, None, format!(
             "{file} is a patched game data file: it replaces one of the game's files. Kiln can't apply patched game files yet; support is coming"
@@ -1050,6 +1178,12 @@ mod tests {
         assert_eq!(kind_of(&["GetAdaptersInfo"], b"disabled in livemap.ini"), ProxyKind::LiveMap);
         assert_eq!(kind_of(&["PowerGetActiveScheme"], b"disabled in xpshare.ini"), ProxyKind::SharedXp);
         assert_eq!(kind_of(&["CreateDXGIFactory"], b"ReShade 6.3"), ProxyKind::ReShade);
+        // OptiScaler names its ini and can load ReShade: it is OptiScaler, ASCII or UTF-16
+        assert_eq!(kind_of(&["CreateDXGIFactory"], b"OptiScaler.ini ReShade64.dll"), ProxyKind::OptiScaler);
+        assert_eq!(kind_of(&["timeGetTime"], &utf16("OptiScaler.ini")), ProxyKind::OptiScaler);
+        assert_eq!(kind_of(&["GetFileVersionInfoW"], b"OptiScaler.log"), ProxyKind::OptiScaler);
+        // the name OptiScaler alone (another tool's list of known tools) is not
+        assert_eq!(kind_of(&["CreateDXGIFactory"], b"ReShade, OptiScaler"), ProxyKind::ReShade);
         assert_eq!(kind_of(&[d8], b"[Chain] dinput8-chain.ini"), ProxyKind::ChainLoader);
         assert_eq!(kind_of(&[d8], b"nothing known"), ProxyKind::Unknown);
     }

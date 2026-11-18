@@ -59,6 +59,16 @@ Notes:
     this fault. Take `dbghelp=n,b` and `winmm=n,b` out of the launch options and keep `dinput8=n,b`: Kiln then runs the
     ShroudForge mods of your profile itself. From 0.2.0-dev.27 the launcher says this when it happens: on the Deck's Home, in the
     engine list (Mods > Engines) and in the support report ([shroudforge-compat.md](shroudforge-compat.md#57-shroudforges-own-loader-under-wine-and-proton)).
+- **One startup mod that fails no longer costs the others** (0.2.0-dev.29.18). ShroudForge writes its startup mods
+  into the game data in one pass before the game starts. When that pass fails in one mod's own code (its own check,
+  say, because another mod changed the same game data), the ShroudForge that comes with Kiln puts the game data back and
+  runs the pass once more without that mod (and without the mods that need it): the other mods load. kiln.log has the
+  `[sf]` line `ShroudForge: <mod> failed in the pregame pass (<error>); started the game without it, the other N mods
+  loaded`, and the launcher's engine list (Mods > Engines), the Deck's Home and the support report warn with the mod's
+  name, its error, and to turn it off or look for a clash with another mod. The pass runs again only once; failures that
+  are not one mod's (access denied, `os error`, the game's files, the baseline backups) are not retried, and when the
+  second pass fails too the game starts without the startup mods, as before. Details:
+  [shroudforge-compat.md](shroudforge-compat.md#50-the-fork-frostdev-opsshroudforge-branch-kiln-kiln-submodule-third_partyshroudforge).
 - **Updates:** the bundled runtime updates with Kiln. While Kiln hosts your installed copy, ShroudForge does not update
   itself at game start, so its updater cannot replace Kiln's `dinput8.dll`. To update your own ShroudForge, run its
   updater (`shroudforge/shroudforge.exe`) with the game closed. If it puts its own `dinput8.dll` back, reinstall Kiln

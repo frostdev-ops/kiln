@@ -81,7 +81,7 @@ export function EngineStatusList({ gameId }: { gameId: GameId }) {
   if (q.isLoading) return <Skeleton lines={3} />;
   if (q.error) return <EmptyState title={t("engineStatus.unreadable")} hint={errorText(q.error)} />;
   const rows = (q.data ?? []).filter((s) => s.state !== null || !!s.error || inProfile(s.kind) || !!s.ownLoader || s.prerequisite?.available || (s.effects && s.effects.state !== "unavailable")
-    || (s.kind === "shroudforge" && !!s.startupFailed))
+    || (s.kind === "shroudforge" && (!!s.startupFailed || !!s.startupSkipped)))
     .sort((a, b) => MOD_KINDS.indexOf(a.kind) - MOD_KINDS.indexOf(b.kind));
   if (!rows.length) return <EmptyState title={t("engineStatus.none")} hint={t("engineStatus.noneHint")} />;
   return (
@@ -153,6 +153,12 @@ export function EngineRow({ s }: { s: EngineStatus }) {
       {s.startupFailed && (
         <span className="k-hint k-tone-warn" data-startup-failed="" style={{ flexBasis: "100%" }}>
           {s.startupFailed.text}.
+        </span>
+      )}
+      {/* ShroudForge's pass failed in one mod and ran again without it (sf_startup.rs `skipped`): the others loaded. */}
+      {s.startupSkipped && (
+        <span className="k-hint k-tone-warn" data-startup-skipped={s.startupSkipped.skipped[0]?.id ?? ""} style={{ flexBasis: "100%" }}>
+          {s.startupSkipped.text}.
         </span>
       )}
     </div>

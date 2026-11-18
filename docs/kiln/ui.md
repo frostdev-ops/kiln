@@ -686,6 +686,8 @@ of key hints. Tab / Shift+Tab or LB / RB switch sections; arrows or the d-pad mo
 - **Network**: Kiln.Network's status, the server's Kiln version, warnings and mods, and clients and channels when hosting.
 - **Keys**: every binding, with remap and reset.
 - **Overlay**: resolution, scale, frame cost, error, a test toast.
+- **Graphics** (0.2.0-dev.29.18): Kiln's own frame cap, DLSS render preset and render scale, and a readout of frame rates
+  and the upscaler in use, with what they do now and what they step aside for: [graphics.md](graphics.md).
 
 Where the list comes from (`ModCatalog.cs`, internal; usable on a dedicated server, which has no menu):
 `Mods.All` for Kiln mods; `<game>/kiln/state/` for the rest: `boot.json` (chain DLLs, Kiln plugins, the profile in use),
@@ -904,7 +906,8 @@ Once a guarded start has run for a minute, the next start tries the overlay agai
 game and delete `kiln/state/overlay-start.guard`. Removing a detected graphics wrapper
 also permits a new attempt, as does adding or replacing one. The guard compares the paths,
 sizes and the first and last 64 KiB of `sl.interposer.dll`, `dxgi.dll`, `ReShade64.dll`,
-`opengl32.dll`, and `powrprof.dll` directly in the game folder or its `Streamline/` folder.
+`opengl32.dll`, and `powrprof.dll` directly in the game folder or its `Streamline/` folder, and OptiScaler's DLL when
+it is found ([OptiScaler](#optiscaler)).
 Loaded Streamline and ReShade copies also count, once per file; loaded Windows system copies
 of dxgi/opengl32/powrprof do not. The game's `nvngx_dlss.dll` and leftover Streamline helpers
 do not count as wrappers. It does not scan arbitrary subfolders. Older presence-only guard
@@ -951,5 +954,64 @@ capability rows explain the degraded state. The length and layout of the fallbac
 This mode avoids Kiln's Vulkan interception. It does not make Streamline and Kiln's drawing
 compatible. Prefer automatic drawing off for frame generation; use the force-on switch only
 when intentionally testing coexistence.
+
+## OptiScaler
+
+[OptiScaler](https://github.com/optiscaler/OptiScaler) (an upscaler and frame generation tool; a player reported
+Kiln's menu missing next to it on Nexus in November 2026) installs as a proxy DLL in the game folder. Since 0.2.0-dev.29.18 Kiln recognises it and
+decides about its overlay's drawing before any Vulkan hook, from OptiScaler's own settings:
+
+| OptiScaler.ini | Kiln's overlay drawing |
+|---|---|
+| `[Menu] OverlayMenu=auto` or `true` (OptiScaler's default), or no OptiScaler.ini | off, on its own, as for Streamline |
+| `[FrameGen]` with an `FGInput` and an `FGOutput` other than `nofg`/`auto` | off, on its own |
+| `[Menu] OverlayMenu=false`, no frame generation | on, next to OptiScaler |
+
+`KILN_UI_OVERLAY=1` and `KILN_UI_OVERLAY=0` win over both, as everywhere. Drawing off keeps what
+[drawing off](#frame-generation-mods-and-drawing-off) keeps: keys, the Mods entry (its caption then reads
+"Mods: the overlay's drawing is off: OptiScaler is installed"), mods' native menu rows and `kiln.ui.tick`. The
+capability rows and `Ui.Status.Error` carry the same reason. kiln.log says which file is OptiScaler, what its ini sets,
+and how to get Kiln's overlay:
+
+> ui: OptiScaler is installed (winmm.dll) with OverlayMenu=auto (on), no frame generation in OptiScaler.ini: it draws its own overlay in the game's presents and opens its menu with Insert, so Kiln's overlay drawing steps aside (keys and the Mods menu still work). For Kiln's overlay, set OverlayMenu=false under [Menu] in OptiScaler.ini (OptiScaler's menu and frame generation go off with it), or KILN_UI_OVERLAY=1 to try both at your own risk
+
+Why (from OptiScaler's source, release v0.9.5, commit 2df7ad9f; not yet seen on a PC with OptiScaler):
+
+- OptiScaler's profile for `enshrouded.exe` loads `vulkan-1.dll` in OptiScaler's own DllMain, through ntdll
+  (`LdrLoadDll`, not `LoadLibraryExW`), and patches its exports there. When OptiScaler loads with the game, as a proxy
+  DLL does, that is before Kiln starts at the game's entry point, and Kiln's hooks go on top of OptiScaler's.
+- With its overlay menu on, OptiScaler patches the game device's `vkQueuePresentKHR` and swapchain functions when the
+  device is made, taking them from `vkGetDeviceProcAddr`: on Windows that is Kiln's wrapper, so OptiScaler patches
+  Kiln's own present and swapchain functions. It draws its ImGui menu in every present and replaces the present's
+  wait semaphores with its own; when its menu fails it returns `VK_ERROR_OUT_OF_DATE_KHR` without presenting.
+- Both menus open with **Insert**. OptiScaler subclasses the game window and hooks raw input, the keyboard state and
+  the cursor; while its menu is open it keeps keyboard and mouse from the game, and from Kiln.
+- With frame generation on, the game draws into FFX's stand-in swapchain and the real presents come from FFX's own
+  thread, past other overlays' hooks on purpose.
+
+With `OverlayMenu=false` OptiScaler makes none of the device, present or window patches (and its frame generation is
+off: OptiScaler.ini says so), so Kiln's overlay works as it does without OptiScaler. Its upscaling still works; set
+it up in OptiScaler.ini instead of its menu.
+
+Detection, by contents and never by a name alone (`dxgi.dll`, `winmm.dll`, `version.dll` and `dbghelp.dll` are ReShade's,
+ShroudForge's, EML's and Shroudtopia's names too): a file under one of OptiScaler's names (those four, `d3d12.dll`,
+`wininet.dll`, `winhttp.dll`, `OptiScaler.dll`, `OptiScaler.asi`) directly in the game folder, or a loaded module with
+one of those names anywhere, is read when `OptiScaler.ini` is next to it (or it is named `OptiScaler*`), and is
+OptiScaler when it names its `OptiScaler.ini` (ASCII or UTF-16). A game folder without OptiScaler.ini reads no extra
+file. An OptiScaler.ini with no OptiScaler DLL next to it (an uninstall's leftover) changes nothing; kiln.log says so.
+OptiScaler running without any OptiScaler.ini and under a proxy name is not recognised (OptiScaler ships its ini). The
+launcher recognises it the same way: the Play page names it and what Kiln's overlay does next to it, the support
+report has a `optiscaler` finding with OptiScaler.ini (and OptiScaler.log when it writes one), and the Library leaves an
+imported OptiScaler package out whole, as a tool that runs on its own.
+
+What full coexistence with OptiScaler's own menu on would take, and why it is not done: Kiln would have to keep its
+present hook below OptiScaler's whatever the order of patches (hook the device's own present function, as OptiScaler
+does, instead of the loader's export and the `vkGetDeviceProcAddr` wrapper), follow the semaphore OptiScaler substitutes,
+share the Insert key, and stay out of FFX's present thread with frame generation on. That is a rework of `vk.cpp`'s
+Windows path that no test can check without OptiScaler in a real game.
+
+OptiScaler also hooks DLSS and has its own frame limiter: Kiln's own graphics tools (frame cap, DLSS settings) step
+aside while it is installed, whatever its ini says; the readout stays where Kiln's overlay draws
+([graphics.md](graphics.md#living-next-to-other-tools)).
 
 The additive window size-constraints slot after v7 is described in the [UI service reference](services/ui.md).

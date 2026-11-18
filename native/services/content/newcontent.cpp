@@ -46,6 +46,7 @@
 #include "nlohmann/json.hpp"
 #include "refs.h"
 #include "services/kiln_assets.h"
+#include "services/kiln_caps.h"  // the row content.text
 #include "services/kiln_ui.h"  // kiln.craftmenu (the crafting menu extension point, implemented here)
 #include "kiln_hook.hpp"
 
@@ -3721,7 +3722,10 @@ struct LocaRecResult {  // the game's Result<const LocaTagResource*>
     const uint8_t* rec;
 };
 
+void note_pool(void* pool);  // game texts (below): the LocaPool the game looks its texts up in
+
 LocaRecResult* __fastcall hk_locarec(LocaRecResult* out, void* pool, uint32_t id) {
+    note_pool(pool);
     if (id)
         if (const TextView* t = text_for(id, pool); t && t->rec) {
             g_loca_hits.fetch_add(1, std::memory_order_relaxed);
@@ -3743,6 +3747,7 @@ struct LocaResult {  // the game's Result<StringView>
 
 LocaResult* __fastcall hk_loca(LocaResult* out, void* pool, uint32_t id) {
     g_loca_calls.fetch_add(1, std::memory_order_relaxed);
+    note_pool(pool);
     if (g_loca_trace.load(std::memory_order_relaxed)) {
         std::lock_guard lock(g_trace_mu);
         if (g_trace_ids.size() < 4096 && std::find(g_trace_ids.begin(), g_trace_ids.end(), id) == g_trace_ids.end())
@@ -3759,6 +3764,178 @@ LocaResult* __fastcall hk_loca(LocaResult* out, void* pool, uint32_t id) {
         }
     return g_loca_hook.call<LocaResult*>(out, pool, id);
 }
+
+// ============================================================================================= game texts ======
+// text() / text_info(): the game's own text of a loca tag id, in the language the game shows now (the row content.text).
+// The game has one LocaPool (made once at app start, docs/re/content.md section 8.1); the loca hooks above see it on
+// every lookup and keep it here. text() calls the lookup the way the UI does: the hook's answer for Kiln's own tags
+// first, then the game's function (the continuation of the hook). Thread: the game client's main thread only. The game
+// switches the pool's language there (0x1216b60 from the settings, which reloads the language table), and its own UI
+// looks texts up there every frame; another thread could read a table while it is replaced. Nothing is cached: each
+// call reads the pool's language and asks the game, so a language change applies at the next call.
+std::atomic<void*> g_loca_pool{nullptr};
+std::atomic<uint32_t> g_main_tid{0};      // the game client's main thread, once seen
+std::atomic<bool> g_text_announced{false};  // the row says available
+uint32_t g_text_reason = KILN_CAP_REASON_SERVICE_MISSING;  // why text() is off (set at boot; kiln_plugin_main's thread)
+std::string g_text_off = "kiln.content's registries are not available on this build";
+bool g_text_on = false;                    // the loca hooks are in: text() can work once the pool is seen
+constexpr size_t kMaxText = 1u << 20;      // a longer "text" is not one (a broken result)
+
+const char* const kTextRow = "content.text";
+const char* const kTextWaiting = "waits for the game's first text lookup (its UI starts right after boot)";
+const char* const kTextOn = "the game's texts in the player's language (game client, main thread)";
+
+void text_row(uint32_t state, uint32_t reason, const std::string& text) {
+    const auto* caps = static_cast<const KilnCapsApi*>(g_api->service(KilnStr{KILN_CAPS_SERVICE, sizeof(KILN_CAPS_SERVICE) - 1}, 1));
+    if (caps && caps->report)
+        caps->report(g_owner, KilnStr{kTextRow, std::strlen(kTextRow)}, state, reason, KilnStr{text.data(), text.size()});
+}
+
+void note_pool(void* pool) {
+    if (!pool || g_loca_pool.load(std::memory_order_relaxed) == pool) return;
+    g_loca_pool.store(pool, std::memory_order_release);
+    // once per process: the row goes from pending to available (kiln.caps takes a report from any thread)
+    if (g_text_on && !g_text_announced.exchange(true)) text_row(KILN_CAP_AVAILABLE, KILN_CAP_REASON_NONE, kTextOn);
+}
+
+// kiln.ui (client), only for its UI thread id (screen(), any thread): the main thread in the main menu, where no
+// client world steps yet. Looked up again every 2 s while it is missing.
+const KilnUiApi* ui_api() {
+    static std::atomic<const KilnUiApi*> t{nullptr};
+    static std::atomic<uint64_t> next_try{0};
+    if (const KilnUiApi* a = t.load(std::memory_order_acquire)) return a;
+    if (GetTickCount64() < next_try.load(std::memory_order_relaxed)) return nullptr;
+    next_try.store(GetTickCount64() + 2000, std::memory_order_relaxed);
+    const auto* a = static_cast<const KilnUiApi*>(g_api->service(KilnStr{KILN_UI_SERVICE, std::strlen(KILN_UI_SERVICE)}, 1));
+    if (a && (a->header.size < offsetof(KilnUiApi, screen) + sizeof(void*) || !a->screen)) a = nullptr;
+    t.store(a, std::memory_order_release);
+    return a;
+}
+
+// The calling thread is the game client's main thread: the client world's thread, or kiln.ui's UI thread.
+bool on_main_thread() {
+    const uint32_t tid = static_cast<uint32_t>(GetCurrentThreadId());
+    if (const uint32_t known = g_main_tid.load(std::memory_order_relaxed)) return known == tid;
+    bool yes = g_api->on_world_thread(KILN_WORLD_CLIENT);
+    if (!yes)
+        if (const KilnUiApi* ui = ui_api()) {
+            KilnUiScreen sc{};
+            sc.size = sizeof sc;
+            yes = ui->screen(&sc) == KILN_OK && sc.ui_thread != 0 && sc.ui_thread == tid;
+        }
+    if (yes) g_main_tid.store(tid, std::memory_order_relaxed);
+    return yes;
+}
+
+uint32_t pool_language(const void* pool) {
+    uint32_t lang = 0;
+    if (pool && g_loca_lang_off) rd(reinterpret_cast<uintptr_t>(pool) + static_cast<uintptr_t>(g_loca_lang_off), &lang, 4);
+    return lang;
+}
+
+// The game's lookup, guarded (no C++ objects in this frame: SEH).
+bool call_lookup(void* pool, uint32_t id, LocaResult* r) {
+    __try {
+        g_loca_hook.call<LocaResult*>(r, pool, id);
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+// Boot (kiln_plugin_main, after nc_boot): the row, before any mod loads.
+void text_boot() {
+    if (g_api->side() != KILN_SIDE_CLIENT) {
+        g_text_on = false;
+        g_text_reason = KILN_CAP_REASON_WRONG_SIDE;
+        g_text_off = "game client only: a dedicated server has no texts and no text lookup";
+    }
+    if (!g_text_on) {
+        text_row(KILN_CAP_UNAVAILABLE, g_text_reason, g_text_off);
+        return;
+    }
+    if (g_loca_pool.load(std::memory_order_acquire) && !g_text_announced.exchange(true)) {
+        text_row(KILN_CAP_AVAILABLE, KILN_CAP_REASON_NONE, kTextOn);
+        return;
+    }
+    if (!g_text_announced.load()) text_row(KILN_CAP_PENDING, KILN_CAP_REASON_SESSION, kTextWaiting);
+}
+
+}  // namespace
+
+KilnResult nc_text(uint32_t id, std::string* out) {
+    out->clear();
+    if (!g_text_on) return KILN_ERR_UNAVAILABLE;
+    void* pool = g_loca_pool.load(std::memory_order_acquire);
+    if (!pool) return KILN_ERR_UNAVAILABLE;
+    if (!on_main_thread()) return KILN_ERR_WRONG_THREAD;
+    if (!id) return KILN_ERR_NOT_FOUND;
+    if (const TextView* t = text_for(id, pool)) {  // Kiln's own tags, in the pool's language (as hk_loca answers them)
+        out->assign(t->p, static_cast<size_t>(t->n));
+        return KILN_OK;
+    }
+    LocaResult r{};
+    if (!call_lookup(pool, id, &r)) return KILN_ERR_INTERNAL;
+    if (r.error == 3) return KILN_ERR_UNAVAILABLE;  // "Loading": the English table is not loaded yet
+    if (r.error) return KILN_ERR_NOT_FOUND;         // 0x1f "Unknown Tag Id", 0x12 id 0
+    if (!r.len) return KILN_OK;
+    if (!r.text || r.len > kMaxText) return KILN_ERR_INTERNAL;
+    std::string s(static_cast<size_t>(r.len), '\0');
+    if (!rd(reinterpret_cast<uintptr_t>(r.text), s.data(), s.size())) return KILN_ERR_INTERNAL;
+    *out = std::move(s);
+    return KILN_OK;
+}
+
+void nc_text_info(KilnContentTextInfo* out) {
+    void* pool = g_loca_pool.load(std::memory_order_acquire);
+    const uint32_t size = out->size;
+    std::memset(out, 0, sizeof *out);
+    out->size = size;
+    std::string detail;
+    if (!g_text_on) {
+        out->state = KILN_CAP_UNAVAILABLE;
+        out->reason = g_text_reason;
+        detail = g_text_off;
+    } else if (!pool) {
+        out->state = KILN_CAP_PENDING;
+        out->reason = KILN_CAP_REASON_SESSION;
+        detail = kTextWaiting;
+    } else {
+        out->state = KILN_CAP_AVAILABLE;
+        detail = kTextOn;
+        out->language = pool_language(pool);
+        std::lock_guard lock(g_text_mu);
+        load_languages();
+        if (out->language < g_lang_keys.size()) {
+            const std::string& k = g_lang_keys[out->language];
+            std::memcpy(out->language_key, k.data(), std::min(k.size(), sizeof out->language_key - 1));
+        }
+    }
+    std::memcpy(out->detail, detail.data(), std::min(detail.size(), sizeof out->detail - 1));
+}
+
+void nc_text_boot() { text_boot(); }
+
+KilnResult KILN_CALL nc_text_api(uint32_t id, char* buf, size_t cap, size_t* len) {
+    if (len) *len = 0;
+    std::string text;
+    if (KilnResult rc = nc_text(id, &text)) return rc;
+    if (len) *len = text.size();
+    if (buf && cap) {
+        const size_t n = std::min(text.size(), cap - 1);
+        std::memcpy(buf, text.data(), n);
+        buf[n] = 0;
+    }
+    return buf && cap > text.size() ? KILN_OK : KILN_ERR_BUFFER_TOO_SMALL;
+}
+
+KilnResult KILN_CALL nc_text_info_api(KilnContentTextInfo* out) {
+    if (!out || out->size < sizeof(KilnContentTextInfo)) return KILN_ERR_INVALID_ARGUMENT;
+    nc_text_info(out);
+    return KILN_OK;
+}
+
+namespace {
 
 void* __fastcall hk_uitex(void* cache, const uint8_t* key, uint8_t flag) {
     if (key && g_any_alias.load(std::memory_order_acquire)) {
@@ -4489,6 +4666,8 @@ void nc_boot() {
            N.ws_stride >= N.ws_count + 2 && N.ws_count >= N.ws_max * 8 && N.ws_max > 0 && N.ws_max <= 4096;
     if (!N.on) {
         LOGW("new content off on this build (content.new %s)", feat("content.new") ? "inconsistent" : "missing");
+        g_text_reason = KILN_CAP_REASON_SYMBOL_MISSING;
+        g_text_off = "needs content.new: kiln.content's client hooks (the text lookup among them) are off on this build";
         return;
     }
     // client only: names, icons, the crafting UI
@@ -4512,11 +4691,17 @@ void nc_boot() {
     N.recipe_ui = feat("content.recipe_ui") && sym("content/RecipeAll", &N.recipe_all_fn) &&
                   cst("content/recipes.all_array", &N.all_array) && cst("content/recipes.resource", &all_res) &&
                   all_res == E.recipes_resource;
+    const bool loca_wanted = N.loca;
     if (N.loca) {
         g_loca_hook.install(g_api, g_owner, N.loca_fn, reinterpret_cast<void*>(&hk_loca), "content/LocaLookup");
         g_locarec_hook.install(g_api, g_owner, locarec, reinterpret_cast<void*>(&hk_locarec), "content/LocaRecord");
         N.loca = static_cast<bool>(g_loca_hook) && static_cast<bool>(g_locarec_hook);
     }
+    // text(): the game's texts (the row content.text, reported by nc_text_boot)
+    g_text_on = N.loca;
+    g_text_reason = loca_wanted ? KILN_CAP_REASON_FAULTED : KILN_CAP_REASON_SYMBOL_MISSING;
+    g_text_off = loca_wanted ? "the hook on the game's text lookup (content/LocaLookup) could not be installed"
+                             : "needs content.loca: the game's text lookup did not resolve on this build";
     if (N.uitex) {
         N.uitex = g_uitex_hook.install(g_api, g_owner, N.uitex_fn, reinterpret_cast<void*>(&hk_uitex), "content/UiTextureGet");
     }

@@ -44,7 +44,8 @@
  * Versions: v1 = up to pack_mods; v2 appends export_changes; v3 appends define /
  * definitions (new items and recipes); v4 appends set_ref / undefine_owner / info (kitbash references,
  * per-language texts, loot / drops / knowledge of new items, missing-content placeholders) and the field flag in
- * KilnContentField.reserved[0]; icon_alias is appended to v4 (check header.size). Check header.version (or header.size)
+ * KilnContentField.reserved[0]; icon_alias, txn_begin / txn_end (0.2.0-dev.28) and text / text_info (0.2.0-dev.29.18:
+ * the game's own texts on a client) are appended to v4 (check header.size). Check header.version (or header.size)
  * before calling an appended function. */
 #ifndef KILN_CONTENT_H
 #define KILN_CONTENT_H
@@ -161,6 +162,16 @@ typedef struct KilnContentStatus {
 /* reason of a ready callback */
 enum { KILN_CONTENT_WORLD_LOADED = 0, KILN_CONTENT_PACKS_RELOADED = 1 };
 typedef void(KILN_CALL* KilnContentReadyFn)(uint64_t generation, uint32_t reason, void* user);
+
+/* text_info() (since 0.2.0-dev.29.18). state / reason: the values of KILN_CAP_* / KILN_CAP_REASON_* (kiln_caps.h). */
+typedef struct KilnContentTextInfo {
+    uint32_t size;          /* in: sizeof(KilnContentTextInfo) */
+    uint32_t state;         /* 0 unavailable, 1 available, 2 pending (as the row content.text) */
+    uint32_t reason;        /* KILN_CAP_REASON_* (0 when available) */
+    uint32_t language;      /* keen::LanguageId the game shows its texts in now (1 en-us, 3 de-de, ...); 0 = none or unknown */
+    char language_key[16];  /* that language's key from the game's reflection ("de-de"), NUL-terminated; "" when unknown */
+    char detail[160];       /* the row's text, NUL-terminated */
+} KilnContentTextInfo;
 
 typedef struct KilnContentApi {
     KilnServiceHeader header; /* { sizeof(KilnContentApi), KILN_CONTENT_VERSION } */
@@ -315,7 +326,24 @@ typedef struct KilnContentApi {
      * other services' sections are not covered: apply only field rules inside a transaction. Tick thread. */
     KilnResult(KILN_CALL* txn_begin)(KilnOwner owner, uint64_t* out_txn);
     KilnResult(KILN_CALL* txn_end)(uint64_t txn, uint32_t rollback, char* report, size_t cap, size_t* out_len);
+
+    /* ---- appended to v4 since 0.2.0-dev.29.18 (check header.size): the game's own texts (game client) ---- */
+
+    /* text: the game's text of a loca tag id in the language the game shows its texts in now, the way the game's UI
+     * gets it: Kiln's own texts of new content first (their tags answer per language as the UI sees them), then the
+     * game's tables. loca_id = FNV-1a-32 over the 16 bytes of a LocaTag GUID (ItemInfo.name, a uiValues row's locaId).
+     * UTF-8 with the game's markup, copied into buffer (NUL-terminated, cut at cap); *out_len = the whole text's length
+     * (KILN_ERR_BUFFER_TOO_SMALL when it did not fit). Nothing is cached: every call asks the game, so a language
+     * change applies at the next call. KILN_ERR_NOT_FOUND: no table has the id (or id 0). KILN_ERR_UNAVAILABLE: not
+     * here or not yet (text_info says why: a dedicated server, the hook is off, the game has not looked up a text yet,
+     * its English table is still loading). KILN_ERR_WRONG_THREAD: call it on the game client's main thread (the thread
+     * of the game's UI frame and the client world's step: kiln.ui's UI ticks, a client-world tick, post_world). */
+    KilnResult(KILN_CALL* text)(uint32_t loca_id, char* buffer, size_t cap, size_t* out_len);
+    /* text_info: whether text() works here (the capability row content.text) and the game's text language now. Any
+     * thread. KILN_ERR_INVALID_ARGUMENT: out NULL or out->size smaller than this struct. */
+    KilnResult(KILN_CALL* text_info)(KilnContentTextInfo* out);
 } KilnContentApi;
+
 
 #ifdef __cplusplus
 }

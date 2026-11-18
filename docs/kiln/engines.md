@@ -28,6 +28,7 @@ this order; the first match wins. Texts match as ASCII or UTF-16LE, case ignored
 | `aldrich` | `aldrich` |
 | `livemap` | `livemap.ini` |
 | `sharedxp` | `xpshare.ini` |
+| `optiscaler` | `OptiScaler.ini`, `OptiScaler.log` (before ReShade: OptiScaler's DLL can load ReShade and names it too). Under its other names (`d3d12.dll`, `wininet.dll`, `winhttp.dll`, `OptiScaler*.dll`, `OptiScaler*.asi`) it is found by `engines::optiscaler_in` for the Play page and the support report, not by the proxy scan (dev.29.18; what Kiln's overlay does next to it: [ui.md](ui.md#optiscaler)) |
 | `reshade` | `reshade` |
 | `chainloader` | `dinput8-chain.ini` (XHL-Core, Auto Loot Plus and similar) |
 | `nativefolders` | `native-loader.log` (CharosDX's loader of `mods\<mod>\native\*.dll`: Sparkworks Enhanced, Cross-Base Storage, Craft From Stations) |
@@ -154,6 +155,10 @@ native, builtin: `WINEDLLOVERRIDES="dinput8=n,b"`, or `dinput8` as "native, buil
 - Proton 10 and 11 build their `dinput8` with Wine's "prefer native" flag, so Steam starts need no launch option
   there (tested with GE-Proton11-11, [client.md](client.md); Valve's builds read from their source). Proton 9 and
   upstream Wine do not have that flag (read from their source). The override does no harm where it is not needed.
+  The launcher suppresses routine `dinput8` advice for **Steam's selected GE-Proton11-11+**,
+  preferring the explicit per-game mapping and falling back to the global `CompatToolMapping/0`
+  default. The centralized rule is `kiln-manage::game::runner_loads_native_dinput8`. Other runners
+  keep the reminder until verified; a **No Kiln** failure offers the override if it is missing.
 - Untested: Bottles' and Lutris' own runners. Keep the override.
 
 ### Ultimate ASI Loader next to Kiln on Wine
@@ -189,7 +194,7 @@ the profile's `.asi` packages in `[profile]`) and reports a missing override.
 | `shroudtopia` | `shroudtopia.json`, or a DLL exporting `CreateModInstance` |
 | `shroudlink` | a DLL exporting `shroudlink_mod_v2` or `shroudlink_mod_v1` (the folder is the mod). A folder that also holds EML data mods (`<sub>/mod.json` + `src/mod.lua`) is a folder of mods: each DLL and each EML mod on its own. A release's `shroudlink_mods/` folder with one mod is named after its DLL |
 | `ember` | a folder in `ember/mods/` holding a DLL that no other engine claims (Ember's mods have no manifest or known export yet, so the place names them; a lone DLL elsewhere stays Kiln's own bare-DLL rule) |
-| `proxy` | another engine's loader or a tool DLL (classification above) |
+| `proxy` | another engine's loader or a tool DLL (classification above). OptiScaler (dev.29.18): its DLL under one of its names (`dxgi`, `winmm`, `version`, `dbghelp`, `d3d12`, `wininet`, `winhttp`, `OptiScaler*.dll`) when its contents say so, `OptiScaler*.asi` and `OptiScaler*.ini` by name, and a package holding `OptiScaler*.asi` (in it or a folder of it), never an `.asi` package |
 | `save` | `*.ksd`, `characters`, a world save (`<8 hex>_info`, `-N` backups) |
 | `cheat-table` | `.ct`, `.cetrainer` |
 | `reshade` | a `.ini` with "reshade" in its name |
@@ -246,7 +251,7 @@ engines' mods") and 5.8.
   needs). The engine's own loader in it is never installed and is not an error: the result carries one line of
   information, `EML's own loader is in this package: not needed, Kiln runs EML mods` (the loaders of EMF, EML,
   ShroudForge, SET, Greeneye, Flame, Shroudtopia, Enshwick, shroudlink and Ember; DLL chain loaders get "not needed, Kiln
-  loads DLL mods itself"). A tool that runs on its own next to Kiln (Aldrich's mod menu, ReShade, Live Map, Shared XP) is
+  loads DLL mods itself"). A tool that runs on its own next to Kiln (Aldrich's mod menu, ReShade, OptiScaler, Live Map, Shared XP) is
   left out whole with what to do (copy its files into the Enshrouded folder yourself). Folders such as `fomod/`,
   `screenshots/`, `__MACOSX/` and the readme, licence and script files around a mod are ignored.
 - **Ids.** An engine manifest has no id rule of Kiln's (`HoardersHelper`, `XHL-Max-Stack-65535`, `Less Dense Shroud Fog`,

@@ -226,6 +226,43 @@ fn healthy_install_finds_nothing() {
     }
 }
 
+/// OptiScaler next to the game (an upscaler with its own overlay, inbox 80): one Info finding with what Kiln's overlay
+/// does next to it, its ini in the zip, nothing found when it is not there.
+#[test]
+fn optiscaler_is_named_with_what_kilns_overlay_does() {
+    let f = Fx::healthy("optiscaler");
+    f.w("OptiScaler.ini", "[Menu]\nOverlayMenu=auto\n");
+    let r = build(&f.input());
+    assert!(!r.findings.iter().any(|x| x.id == "optiscaler"), "its ini alone is no OptiScaler: {:#?}", r.findings);
+    f.w("winmm.dll", crate::pe::build_test_dll(&["timeGetTime"], b"OptiScaler.ini"));
+    let r = build(&f.input());
+    assert_eq!(ids(&r), Vec::<&str>::new(), "an Info finding only: {}", r.summary);
+    let x = finding(&r, "optiscaler");
+    assert!(x.text.contains("OptiScaler is installed (winmm.dll)") && x.text.contains("steps aside"), "{}", x.text);
+    assert!(r.summary.contains("Graphics tool: OptiScaler (winmm.dll): Kiln's overlay drawing steps aside"), "{}", r.summary);
+    assert!(r.summary.contains("winmm.dll        OptiScaler"), "{}", r.summary);
+    assert!(file(&r, "game/OptiScaler.ini").is_some_and(|t| t.contains("OverlayMenu=auto")));
+    assert!(file(&r, "game/OptiScaler.log").is_none() && r.errors.is_empty(), "no log: nothing, no error: {:?}", r.errors);
+    f.w("OptiScaler.ini", "[Menu]\nOverlayMenu=false\n");
+    let r = build(&f.input());
+    assert!(finding(&r, "optiscaler").text.contains("draws next to it"));
+    // its log can grow large (debug level): only its tail, within a log's budget, as for the other tools' logs
+    let old = "[info] an earlier line of OptiScaler's log\n";
+    f.w("OptiScaler.log", old.repeat(SMALL_LOG_MAX as usize / old.len() + 1) + "[info] HookDevice: the newest line\n");
+    let r = build(&f.input());
+    let log = file(&r, "game/OptiScaler.log").expect("its log is in the zip");
+    assert!(log.starts_with("... (older lines left out") && log.len() as u64 <= SMALL_LOG_MAX + 200, "{}", log.len());
+    assert!(log.contains("the newest line"));
+    // a Linux folder is case sensitive: the files under their names on disk
+    std::fs::remove_file(f.game.join("OptiScaler.ini")).unwrap();
+    std::fs::rename(f.game.join("OptiScaler.log"), f.game.join("optiscaler.log")).unwrap();
+    f.w("optiscaler.ini", "[menu]\noverlaymenu=false\n");
+    let r = build(&f.input());
+    assert!(finding(&r, "optiscaler").text.contains("draws next to it"));
+    assert!(file(&r, "game/optiscaler.ini").is_some_and(|t| t.contains("overlaymenu=false")), "{:?}", r.files.iter().map(|x| &x.0).collect::<Vec<_>>());
+    assert!(file(&r, "game/optiscaler.log").is_some() && r.errors.is_empty(), "{:?}", r.errors);
+}
+
 // The state files of Kiln's deliberate stops (roster, the mods' NPCs and quests not built) go into the zip whole, the
 // next start's .last copies too: a support thread can tell which stop it was (dev.29).
 #[test]
@@ -391,7 +428,16 @@ fn kiln_did_not_load() {
     i.install = Some(f.install(Platform::Proton));
     let r = build(&i);
     let n = finding(&r, "not-loaded");
-    assert!(n.text.contains("Launch options") || n.text.contains("launch options"), "{}", n.text);
+    assert!(n.text.contains("launch options") && n.text.contains(crate::game::DLL_OVERRIDE_ADVICE), "{}", n.text);
+    // If the dinput8 override is already present, don't recommend setting it again.
+    let prefix = f.root.join("pfx");
+    std::fs::create_dir_all(&prefix).unwrap();
+    std::fs::write(prefix.join("user.reg"), "[Software\\\\Wine\\\\DllOverrides]\n\"dinput8\"=\"native,builtin\"\n").unwrap();
+    i.install.as_mut().unwrap().prefix = Some(prefix);
+    let r = build(&i);
+    let n = finding(&r, "not-loaded");
+    assert!(n.text.contains("Check Steam's launch options for Enshrouded (WINEDLLOVERRIDES) and the Proton version."), "{}", n.text);
+    assert!(!n.text.contains("try this fallback") && !n.text.contains(crate::game::DLL_OVERRIDE_ADVICE), "{}", n.text);
     // a launch from the launcher after the last boot.json
     let g = Fx::healthy("stale");
     let old = SystemTime::now() - std::time::Duration::from_secs(3600);
@@ -1033,6 +1079,35 @@ fn a_start_without_shroudforge_does_not_repeat_an_earlier_starts_failed_pass() {
         assert!(!r.findings.iter().any(|x| x.id == "sf-startup-failed"), "pid {pid}: {:#?}", r.findings);
         assert!(!r.summary.contains("ShroudForge's record of its startup pass"), "pid {pid}: {}", r.summary);
     }
+}
+
+/// dev.29.18 (inbox 79): Kiln's ShroudForge ran its startup pass again without the one mod it failed in. The report
+/// names the mod and its error as a warning; the other mods loaded, so it is no `sf-startup-failed`.
+#[test]
+fn a_startup_pass_that_ran_without_one_mod_is_a_warning() {
+    let f = Fx::healthy("sf-skipped");
+    f.w("kiln/plugins/kiln-shroudforge.dll", b"adapter");
+    f.w("kiln/plugins/shroudforge/shroudforge-runtime.dll", b"runtime");
+    for id in ["bone-caller", "wisp"] {
+        f.w(&format!("mods/{id}/mod.json"), serde_json::to_vec(&serde_json::json!({"id": id, "name": id, "version": "1.0.0", "capabilities": ["patch"]})).unwrap());
+        f.w(&format!("mods/{id}/extended.mod.json"), br#"{"schemaVersion":1,"enabled":true,"targets":["client"],"settings":{}}"#);
+        f.w(&format!("mods/{id}/src/mod.lua"), "return {}");
+    }
+    f.w("kiln/state/shroudforge.json", br#"{"format":1,"mode":"hosted","source":"bundled","pid":412,"side":"client","updated":1794308430,
+        "bundled":{"version":"1.7.9","build":"kiln.4b1ab16"},"startupPrepared":true}"#);
+    f.w("shroudforge/state.json", br#"{"schemaVersion":1,"assets":{"schemaVersion":1,"status":"applied","phase":"startup","target":"enshrouded",
+        "completedAt":1794308405,"fingerprint":"f","mods":[{"id":"bone-caller","version":"1.0.0"}],
+        "skipped":[{"id":"wisp","name":"Wisp Light Timer","version":"1.0.3","error":"runtime error: Missing base localization: keenglish"}]}}"#);
+    let r = build(&f.input());
+    let s = finding(&r, "sf-startup-skipped");
+    assert_eq!(s.level, Level::Warning);
+    assert!(s.text.starts_with("ShroudForge 1.7.9, hosted by Kiln, left Wisp Light Timer (wisp 1.0.3) out of its startup pass"), "{}", s.text);
+    assert!(s.text.contains("(runtime error: Missing base localization: keenglish)") && s.text.contains("The other mod that needs that step loaded")
+        && s.text.ends_with("Turn Wisp Light Timer off, or check whether it clashes with another mod: one that changes the same game data can make its check fail."),
+        "{}", s.text);
+    assert!(!r.findings.iter().any(|x| x.id == "sf-startup-failed"), "{:#?}", r.findings);
+    assert!(r.summary.contains("ShroudForge's record of its startup pass (state.json \"assets\"): applied at 2026-11-10T11:00:05Z without Wisp Light Timer"),
+        "{}", r.summary);
 }
 
 #[test]

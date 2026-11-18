@@ -12,7 +12,8 @@
       "mods": "Mods",
       "network": "Network",
       "keys": "Keys",
-      "overlay": "Overlay"
+      "overlay": "Overlay",
+      "graphics": "Graphics"
     },
     "shroudlink": {
       "open": "shroudlink menus",
@@ -934,6 +935,66 @@
       "history": "History:"
     }
   },
+  "graphics": {
+    "cap": {
+      "caption": "Frame cap",
+      "on": "Limit the frame rate",
+      "fps": "Frames a second",
+      "hint": "The game renders at most this many frames a second: Kiln spaces out the starts of its frames evenly. Applies at once. With the game's own frame limit or V-Sync on too, the lowest limit decides."
+    },
+    "dlss": {
+      "caption": "DLSS (NVIDIA RTX cards)",
+      "preset": "Render preset",
+      "preset_hint": "Default leaves it to the game and DLSS. J and K are DLSS 4's transformer models, L and M the newer ones of DLSS 4.5. DLAA keeps the game's preset. The NVIDIA app's DLSS override, when you set one there, wins over this.",
+      "scale": "Render size",
+      "render_scale": "Render scale (%)",
+      "mode_scale": "{mode} (%)",
+      "scale_hint": "The share of the game's resolution DLSS renders at before it upscales: lower is faster, higher is sharper. DLAA always renders at full size. DLSS settings apply when the game next sets DLSS up: when a world loads, or when you change the DLSS mode or the resolution in the game's settings."
+    },
+    "scale": {
+      "game": "DLSS's own for each mode",
+      "per_mode": "A scale for each DLSS mode",
+      "custom": "One scale for every mode"
+    },
+    "mode": {
+      "performance": "Performance",
+      "balanced": "Balanced",
+      "quality": "Quality",
+      "ultra_performance": "Ultra Performance",
+      "ultra_quality": "Ultra Quality"
+    },
+    "preset": {
+      "default": "default"
+    },
+    "readout": {
+      "caption": "Readout",
+      "on": "Show the readout",
+      "hint": "A few lines in the top right corner: frames a second (rendered and output), frame time, the upscaler with its mode, render and output size, and the DLSS preset. Latency is not shown: Kiln cannot measure it honestly in this game."
+    },
+    "status": {
+      "caption": "Now",
+      "unavailable": "Kiln's graphics tools need the kiln-ui.dll of Kiln 0.2.0-dev.29.18 or later.",
+      "cap_on": "Frame cap: {fps} fps.",
+      "cap_aside": "Frame cap ({fps} fps): off, left to {tools}.",
+      "fps": "Rendered {rendered} fps, output {output} fps, {ms} ms a frame.",
+      "dlss_aside": "DLSS settings: left to {tools}.",
+      "dlss_active": "DLSS {mode}: {render} to {output}, preset {preset}.",
+      "dlss_limited": "Your render scale is outside what DLSS allows in {mode}: it renders at the nearest size DLSS allows (above).",
+      "dlss_idle": "DLSS is not in use right now (the game uses FSR 3, XeSS or no upscaler, or no world is loaded).",
+      "dlss_none": "The game has not set DLSS up in this session (DLSS needs an NVIDIA RTX card and DLSS chosen in the game's settings).",
+      "restart": "Restart the game for Kiln's DLSS settings and the readout's DLSS line: Kiln hooks DLSS only when one of them is on when the game starts."
+    },
+    "aside": {
+      "optiscaler": "OptiScaler",
+      "streamline": "NVIDIA Streamline (a frame generation mod)",
+      "vkfg": "a DLSS frame generation mod (EnshroudedVKFG.ini)",
+      "dlsstweaks": "DLSSTweaks",
+      "nvngx": "another DLSS loader (nvngx.dll next to the game)",
+      "ngx_patched": "another tool that hooks DLSS",
+      "overlay_off": "Kiln's overlay being off"
+    },
+    "saved": "Saved in kiln/kiln.json (the launcher's Settings page has them too)."
+  },
   "native": {
     "menu": {
       "mods": "Mods",
@@ -949,6 +1010,16 @@
       "title": "Kiln {version}",
       "body": "Kiln's managed host (Kiln.Ui) is not running in this session, so the mod list and mod screens are unavailable here. Check kiln/logs/kiln.log.",
       "close": "Press {key} to close."
+    },
+    "graphics": {
+      "fps": "Rendered {rendered} fps | Output {output} fps | {ms} ms",
+      "dlss": "DLSS {mode}: {render} -> {output}, preset {preset}",
+      "preset_default": "default",
+      "not_dlss": "Not DLSS now (the game's FSR 3, XeSS or none): {output}",
+      "unknown": "Upscaler: read from the next game start: {output}",
+      "aside": "Upscaler: left to {tools}: {output}",
+      "cap": "Frame cap {fps} fps",
+      "cap_aside": "Frame cap {fps} fps: off for {tools}"
     }
   }
 }

@@ -549,6 +549,8 @@ fn run_now() {
         match m.state.as_str() {
             "failed" => klog(1, &format!("kiln-eml: EML mod {id} ({}) failed: {reason}", m.path)),
             "duplicate" | "disabled" => klog(3, &format!("kiln-eml: EML mod {id} {}: {reason}", m.state)),
+            // a Kiln mod dropped into EML's folder is a player's mistake to fix: a warning, not an info line
+            "skipped" if reason.contains("kiln.mod.json") => klog(2, &format!("kiln-eml: {} skipped: {reason}", m.path)),
             "skipped" if !reason.starts_with("no mod.json") => {
                 klog(3, &format!("kiln-eml: {} skipped: {reason}", m.path))
             }

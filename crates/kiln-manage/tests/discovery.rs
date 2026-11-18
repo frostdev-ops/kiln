@@ -275,6 +275,71 @@ fn records_status_and_launch_options_info() {
     let _ = fs::remove_dir_all(&f.home);
 }
 
+/// The per-app Steam compatibility tool determines routine advice, not what is installed.
+/// An actual "No Kiln" failure retains the explicit override as a fallback.
+#[cfg(unix)]
+#[test]
+fn native_dinput8_advice_uses_selected_steam_runner() {
+    let f = fake_steam("native-dinput8-advice");
+    let roots = [root_of(&f)];
+    let install = game::inspect_with(&f.client, &roots, &f.home.join("data")).unwrap();
+    let mapping = f.root.join("config/config.vdf");
+    fs::remove_file(f.root.join("userdata/111/config/localconfig.vdf")).unwrap();
+
+    for (tool, expect_warning) in [
+        ("GE-Proton11-10-x86_64", true),
+        ("GE-Proton11-11-x86_64", false),
+        ("GE-Proton11-12-x86_64", false),
+        ("GE-Proton12-1-x86_64", false),
+        ("GE-Proton11-0.2", true),
+        ("proton_experimental", true),
+    ] {
+        write(&mapping, format!(
+            "\"InstallConfigStore\" {{ \"Software\" {{ \"Valve\" {{ \"Steam\" {{ \"CompatToolMapping\" {{ \"1203620\" {{ \"name\" \"{tool}\" }} }} }} }} }} }}"
+        ));
+        let info = game::launch_options_info(&install, &roots).unwrap();
+        assert!(!info.has_dll_override, "{tool}");
+        assert_eq!(info.advice.is_some(), expect_warning, "{tool}: {info:?}");
+        assert_eq!(info.dinput8_native_by_runner, !expect_warning, "{tool}");
+        assert_eq!(info.fallback_advice.as_deref(), Some(game::DLL_OVERRIDE_ADVICE), "{tool}");
+    }
+    fs::remove_file(&mapping).unwrap();
+    let unknown = game::launch_options_info(&install, &roots).unwrap();
+    assert!(unknown.advice.is_some() && !unknown.dinput8_native_by_runner);
+
+    // Steam's global runner (CompatToolMapping/0) applies without a per-app mapping.
+    write(&mapping, "\"InstallConfigStore\" { \"Software\" { \"Valve\" { \"Steam\" { \"CompatToolMapping\" { \"0\" { \"name\" \"GE-Proton11-12-x86_64\" } } } } } }");
+    let global = game::launch_options_info(&install, &roots).unwrap();
+    assert!(!global.has_dll_override && global.dinput8_native_by_runner);
+    assert!(global.advice.is_none());
+    assert_eq!(global.fallback_advice.as_deref(), Some(game::DLL_OVERRIDE_ADVICE));
+
+    // An older app-specific Proton overrides the newer global default.
+    write(&mapping, "\"InstallConfigStore\" { \"Software\" { \"Valve\" { \"Steam\" { \"CompatToolMapping\" { \"0\" { \"name\" \"GE-Proton11-12-x86_64\" } \"1203620\" { \"name\" \"GE-Proton11-10-x86_64\" } } } } } }");
+    let app_older = game::launch_options_info(&install, &roots).unwrap();
+    assert!(!app_older.dinput8_native_by_runner && app_older.advice.is_some());
+
+    // A newer app-specific Proton also takes priority over the older global default.
+    write(&mapping, "\"InstallConfigStore\" { \"Software\" { \"Valve\" { \"Steam\" { \"CompatToolMapping\" { \"0\" { \"name\" \"GE-Proton11-10-x86_64\" } \"1203620\" { \"name\" \"GE-Proton11-12-x86_64\" } } } } } }");
+    let app_newer = game::launch_options_info(&install, &roots).unwrap();
+    assert!(app_newer.dinput8_native_by_runner && app_newer.advice.is_none());
+
+    // The Steam mapping cannot be inferred for an install detached from its library.
+    write(&mapping, "\"InstallConfigStore\" { \"Software\" { \"Valve\" { \"Steam\" { \"CompatToolMapping\" { \"1203620\" { \"name\" \"GE-Proton11-12-x86_64\" } } } } } }");
+    let mut detached = install.clone();
+    detached.library = None;
+    assert!(game::launch_options_info(&detached, &roots).unwrap().advice.is_some());
+
+    // Chained xinput9_1_0 remains an independent concern even on GE-Proton11-12.
+    write(&install.path.join("xinput9_1_0.dll"), b"fixture");
+    write(&install.path.join("kiln/chain.ini"), "[chain]\n..\\XINPUT9_1_0.DLL\n");
+    let chained = game::launch_options_info(&install, &roots).unwrap();
+    assert!(chained.dinput8_native_by_runner && chained.chained_override_missing);
+    assert_eq!(chained.advice.as_deref(), Some(game::CHAINED_DLL_OVERRIDE_ADVICE));
+    assert_eq!(chained.fallback_advice.as_deref(), Some(game::CHAINED_DLL_OVERRIDE_ADVICE));
+    fs::remove_dir_all(f.home).unwrap();
+}
+
 #[test]
 fn chained_loader_launch_advice() {
     let f = fake_steam("chained-advice");

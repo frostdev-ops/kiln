@@ -107,6 +107,7 @@ internal static unsafe class UiEngine
         if (UiNative.DrawingOffReason is { } reason) Log(LogLevel.Info, reason);
         PlayerLook.Start();  // the player's look of Kiln's UI (kiln.json "ui")
         UiLanguage.Start();  // the language of Kiln's own texts (kiln.json "ui.language"), handed to kiln.ui too
+        GraphicsTools.Start();  // Kiln's own graphics tools (kiln.json "graphics"), handed to kiln.ui (0.2.0-dev.29.18)
         KeyBindings.Load();
         ApplyMenuKey(KeyBindings.MenuKey);
         // the game page needs the layout calls (v3) for the page itself and v4 for the page state

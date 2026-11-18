@@ -99,6 +99,7 @@ void after_library_load() {
     // every load: vulkan-1.dll present and our hooks not in its code (first load, or a reload) -> (re)install
     if (overlay_drawing_on() && GetModuleHandleW(L"vulkan-1.dll")) vk_install();
     if (overlay_drawing_on()) input_hook_xinput();
+    graphics_after_load();  // NVIDIA's DLSS core, when a DLSS setting or the readout was on at start (one load otherwise)
 }
 
 // Calls a native frame callback under a fault guard (the game's render thread must survive a bad subscriber).
@@ -230,6 +231,7 @@ bool build_frame(float width, float height, float dpi) {
         io.WantSaveIniSettings = false;
     }
     footer_overlay();  // Kiln's mark next to its line in the main menu's footer, behind every window (menu_footer.cpp)
+    graphics_overlay();  // the graphics readout in the top right corner, when the player turned it on (graphics.cpp)
     KilnUiFrame f{};
     f.size = sizeof f;
     f.width = width;
@@ -515,6 +517,18 @@ KilnResult KILN_CALL t_set_look(const KilnUiLook* look) {
 }
 KilnResult KILN_CALL t_look_info(KilnUiLookInfo* out) { return look_info(out); }
 
+// Kiln's own graphics tools (graphics.cpp, 0.2.0-dev.29.18). Like set_look, graphics_set is Kiln.Ui's call only: the player
+// chooses them. graphics_status is anyone's.
+KilnResult KILN_CALL t_graphics_set(const KilnUiGraphics* g) {
+    if (caller_is_plugin(_ReturnAddress())) {
+        static std::atomic<bool> said{false};
+        if (!said.exchange(true)) logf(KILN_LOG_WARN, "ui: a native plugin called graphics_set: refused (the player chooses Kiln's graphics settings)");
+        return KILN_ERR_UNAVAILABLE;
+    }
+    return graphics_set(g);
+}
+KilnResult KILN_CALL t_graphics_status(KilnUiGraphicsStatus* out) { return graphics_status(out); }
+
 // Kiln's own texts in the player's language (ui_text.h). Like set_look, Kiln.Ui's call only: the player chooses the language.
 KilnResult KILN_CALL t_set_texts(const KilnUiTexts* t) {
     if (caller_is_plugin(_ReturnAddress())) {
@@ -582,8 +596,17 @@ static_assert(offsetof(KilnUiApi, image_ex) == offsetof(KilnUiApi, push_font_han
               "kiln.ui appends image_ex and image_opaque_rect after the looks (0.2.0-dev.29.16; UiNative.TableImageEx)");
 static_assert(sizeof(KilnUiImageDraw) == 32 && offsetof(KilnUiImageDraw, width) == 8 && offsetof(KilnUiImageDraw, u0) == 16,
               "KilnUiImageDraw layout (UiNative.ImageDraw)");
-static_assert(offsetof(KilnUiApi, set_texts) == 1008 && sizeof(KilnUiApi) == 1016,
+static_assert(offsetof(KilnUiApi, set_texts) == 1008,
               "kiln.ui appends set_texts after image_opaque_rect (0.2.0-dev.29.16; UiNative.TableTexts)");
+static_assert(offsetof(KilnUiApi, graphics_set) == 1016 && offsetof(KilnUiApi, graphics_status) == 1024 && sizeof(KilnUiApi) == 1032,
+              "kiln.ui appends graphics_set and graphics_status after set_texts (0.2.0-dev.29.18; UiNative.TableGraphics)");
+static_assert(sizeof(KilnUiGraphics) == 48 && offsetof(KilnUiGraphics, custom_scale) == 16 && offsetof(KilnUiGraphics, mode_scale) == 20 &&
+                  offsetof(KilnUiGraphics, readout) == 36,
+              "KilnUiGraphics layout (UiNative.Graphics)");
+static_assert(sizeof(KilnUiGraphicsStatus) == 72 && offsetof(KilnUiGraphicsStatus, rendered_fps) == 20 &&
+                  offsetof(KilnUiGraphicsStatus, output_width) == 32 && offsetof(KilnUiGraphicsStatus, dlss_quality) == 40 &&
+                  offsetof(KilnUiGraphicsStatus, render_width) == 48 && offsetof(KilnUiGraphicsStatus, dlss_output_width) == 56,
+              "KilnUiGraphicsStatus layout (UiNative.GraphicsStatus)");
 static_assert(sizeof(KilnUiTexts) == 40 && offsetof(KilnUiTexts, language) == 8 && offsetof(KilnUiTexts, keys) == 24 &&
                   offsetof(KilnUiTexts, texts) == 32,
               "KilnUiTexts layout (UiNative.Texts)");
@@ -652,6 +675,7 @@ const KilnUiApi kTable = {
     // part of an image, trimmed images (0.2.0-dev.29.16)
     &t_image_ex, &t_image_opaque_rect,
     &t_set_texts,  // Kiln's own texts (0.2.0-dev.29.16)
+    &t_graphics_set, &t_graphics_status,  // Kiln's own graphics tools (0.2.0-dev.29.18)
 };
 
 std::string api_path(int kind) {
@@ -695,6 +719,12 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
         return KILN_ERR_UNAVAILABLE;
     }
     overlay_guard_start();
+    {
+        // Kiln's own graphics tools: kiln.json "graphics" and what they step aside for (graphics.cpp)
+        bool optiscaler = false, streamline = false;
+        overlay_guard_tools(&optiscaler, &streamline);
+        graphics_start(optiscaler, streamline);
+    }
     try {
         const std::string data = api_path(KILN_PATH_DATA);
         if (!data.empty()) {
@@ -721,6 +751,10 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
         // No Vulkan load observer, exports, objects or pre-overlay callbacks in this mode.
     } else if (GetModuleHandleW(L"vulkan-1.dll")) {
         vk_install();
+        // NVIDIA's DLSS core loads after vulkan-1.dll: its hooks need the load hook all the same
+        if (graphics_wants_load_hook() && !load_hook::install(&after_library_load))
+            logf(KILN_LOG_WARN, "graphics: hooking LoadLibraryExW failed: Kiln's DLSS settings are off");
+        graphics_after_load();
     } else {
         if (!load_hook::install(&after_library_load)) {
             logf(KILN_LOG_ERROR, "ui: hooking LoadLibraryExW failed: no overlay");
