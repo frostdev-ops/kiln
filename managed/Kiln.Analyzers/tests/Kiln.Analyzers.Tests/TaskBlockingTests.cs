@@ -61,13 +61,50 @@ public sealed class TaskBlockingTests
                 private void OwnCode(KilnTask job) => job.Wait();
             }
             """);
-        // OnLoad, the Pre handler, the task bodies (before and after a hop, after ConfigureAwait(false),
-        // and a method group handed to Run). Not: Task.Run (a thread of the mod's own, where Wait is
+        // OnLoad, the Pre handler, the task bodies (before and after a hop, and a method group handed to
+        // Run). Not: after ConfigureAwait(false) (usually a .NET pool thread, where Wait is allowed, unless
+        // the await finished at once: unsure, so quiet), Task.Run (a thread of the mod's own, where Wait is
         // allowed), a look-alike Wait, unknown code.
-        Ids(d, "KILN105", "KILN105", "KILN105", "KILN105", "KILN105", "KILN105");
+        Ids(d, "KILN105", "KILN105", "KILN105", "KILN105", "KILN105");
         Assert.All(d, x => Assert.Contains("KilnTask.Wait", x.GetMessage()));
         Assert.Contains("tick thread (OnLoad)", d[0].GetMessage());
         Assert.Contains("Kiln task worker", d[2].GetMessage());
+    }
+
+    [Fact]
+    public async Task ConfigureAwait_true_keeps_the_task_and_false_leaves_it()
+    {
+        var d = await Run(A, """
+            public sealed class M : Mod
+            {
+                public override void OnLoad()
+                {
+                    var job = Context.Tasks.Run<int>("path", async ctx => 1);
+                    Context.Tasks.Run("kept", async ctx =>
+                    {
+                        await Task.Delay(1).ConfigureAwait(true);
+                        job.Wait();
+                        var a = job.AsTask().Result;
+                    });
+                    Context.Tasks.Run("left", async ctx =>
+                    {
+                        await Task.Delay(1).ConfigureAwait(false);
+                        job.Wait();
+                        var b = job.AsTask().Result;
+                        job.AsTask().GetAwaiter().GetResult();
+                    });
+                    Context.Tasks.Run("joined", async ctx =>
+                    {
+                        if (job.State == KilnTaskState.Queued) await Task.Delay(1).ConfigureAwait(false);
+                        job.Wait();
+                    });
+                }
+            }
+            """);
+        // ConfigureAwait(true) resumes in the task: both reported. After ConfigureAwait(false), on every
+        // path or only some, the code may be on a .NET pool thread where blocking is the mod's own call.
+        Ids(d, "KILN105", "KILN105");
+        Assert.All(d, x => Assert.Contains("Kiln task", x.GetMessage()));
     }
 
     [Fact]
@@ -139,8 +176,16 @@ public sealed class TaskBlockingTests
                         var alias = job.AsTask();
                         alias = Task.FromResult(2);
                         var c = alias.Result;
+                        var swapped = job.AsTask();
+                        int n;
+                        (swapped, n) = (Task.FromResult(2), 1);
+                        var e = swapped.Result;
+                        var refd = job.AsTask();
+                        Replace(ref refd);
+                        var f = refd.Result;
                     });
                 }
+                private static void Replace(ref Task<int> t) => t = Task.FromResult(4);
             }
             """);
         Ids(d);

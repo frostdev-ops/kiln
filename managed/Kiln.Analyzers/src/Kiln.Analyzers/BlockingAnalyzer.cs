@@ -68,9 +68,11 @@ public sealed class BlockingAnalyzer : DiagnosticAnalyzer
         var where = classifier.Classify(syntax, model, ctx.CancellationToken);
         var onGameThread = where.Kind is ThreadKind.Tick or ThreadKind.Game;
         // A blocking wait on a Kiln task (its own Wait, or the escaped AsTask Task) is refused in a task
-        // body too. Everything else still needs the tick or a game thread: a plain Task a task blocks
-        // on (its own Task.Run work, say) is its own business there.
-        if (!onGameThread && !(where.Task != TaskScope.None && (kilnWait || fromAsTask))) return;
+        // body too, but only where the task's scope is proven: after 'await ...ConfigureAwait(false)' on
+        // some path the code is usually on a .NET pool thread, where Wait is allowed, as in Task.Run.
+        // Everything else still needs the tick or a game thread: a plain Task a task blocks on (its own
+        // Task.Run work, say) is its own business there.
+        if (!onGameThread && !(where.Task == TaskScope.Active && (kilnWait || fromAsTask))) return;
         var props = ImmutableDictionary<string, string?>.Empty;
         if (fix is not null && CanAwaitHere(syntax)) props = props.Add(FixKey, fix);
         ctx.ReportDiagnostic(Diagnostic.Create(onGameThread ? Descriptors.BlockingCall : Descriptors.BlockingTaskCall,
@@ -145,7 +147,8 @@ public sealed class BlockingAnalyzer : DiagnosticAnalyzer
                 foreach (var id in body.DescendantNodes().OfType<IdentifierNameSyntax>())
                 {
                     if (id.Identifier.ValueText != local.Name || !SymbolEqualityComparer.Default.Equals(model.GetSymbolInfo(id).Symbol, local)) continue;
-                    if (id.Parent is AssignmentExpressionSyntax a && a.Left == id) return false;
+                    // Written again: plainly, by deconstruction ('(t, n) = ...') or through ref/out.
+                    if (id.Ancestors().OfType<AssignmentExpressionSyntax>().Any(a => a.Left.Span.Contains(id.Span))) return false;
                     if (id.Parent is ArgumentSyntax arg && arg.RefKindKeyword.Span.Length > 0) return false;
                 }
                 return true;
