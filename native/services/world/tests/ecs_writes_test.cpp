@@ -630,6 +630,19 @@ void uncertain_cases(Env& v) {
     check(moved.rc == KILN_ECS_ERR_UNCERTAIN && moved.reply.why_code == KILN_ECS_WRITE_WHY_READBACK && u64_at(at) == 61 &&
               !(moved.reply.flags & KILN_MUTATION_ROLLED_BACK) && v.wr.latch().latched({46, 0, 7000, 2, counter}),
           k + "the entity changed after a proven write: uncertain, latched, not rolled back");
+    // the gate stops validating after a write that read back (the GameServer thread told to stop): uncertain, latched
+    v.worlds.session[KILN_WORLD_SERVER] = 47;
+    KilnObjectRef r47 = open(v, kOwner, 7000);
+    const uintptr_t stop = v.e.thread + v.p.layout.write.thread_stop;
+    g_point = [&](HoldPoint p) {
+        if (p == HoldPoint::AfterWrite) put<uint32_t>(stop, 1);
+    };
+    Call lost = cx(v.wr, kOwner, r47, counter, le64(61), le64(62));
+    g_point = nullptr;
+    put<uint32_t>(stop, 0);
+    check(lost.rc == KILN_ECS_ERR_UNCERTAIN && lost.reply.why_code == KILN_ECS_WRITE_WHY_READBACK && u64_at(at) == 62 &&
+              !(lost.reply.flags & KILN_MUTATION_ROLLED_BACK) && v.wr.latch().latched({47, 0, 7000, 2, counter}),
+          k + "the gate stopped validating after a proven write: uncertain, latched, not rolled back");
     v.worlds.session[KILN_WORLD_SERVER] = 41;
     v.wr.drain();
     v.wr.unsubscribe(sub);
@@ -876,6 +889,8 @@ void event_cases(Env& v) {
     check(!latch.latch({9, 0, 99, 1, 7}) && latch.widened_session() == 9 && latch.latched({9, 0, 12345, 1, 8}) &&
               !latch.latched({10, 0, 12345, 1, 8}),
           k + "the 513th widens the latch to its whole session, not the next");
+    check(!latch.latched({10, 0, 100, 1, 7}) && !latch.latched({10, 0, 100 + UncertainLatch::kSlots - 1, 1, 7}),
+          k + "a target latched in an earlier session is not latched in the next (every slot holds the old session)");
     check(latch.latch({10, 0, 1, 1, 7}) && latch.latched({10, 0, 1, 1, 7}), k + "a new session reuses the old slots");
     put<uint64_t>(at, 0);
 }
