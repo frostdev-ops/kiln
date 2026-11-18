@@ -148,7 +148,8 @@ public:
     Writer(const Writer&) = delete;
     Writer& operator=(const Writer&) = delete;
 
-    // Whether writes can work on this build at all (exact profile, the gate members, an enabled write gate, the reads).
+    // Whether writes can work on this build at all (exact profile, the gate members, an enabled write gate, the reads,
+    // kiln.types).
     bool available() const;
     const char* unavailable_reason() const;
 

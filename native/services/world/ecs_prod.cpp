@@ -209,7 +209,6 @@ void ecs_prod_ready() {
         auto* writer = new ecs::writes::Writer(ws);  // process lifetime (see g_reader)
         g_writer.store(writer, std::memory_order_release);
         const char* off = writer->unavailable_reason();
-        if (!off && !ws.types) off = "kiln.types is not here (the policy needs its reflection)";
         g_writes.store(off == nullptr, std::memory_order_release);
         if (!off) {
             report_row("world.ecs_write", KILN_CAP_AVAILABLE,

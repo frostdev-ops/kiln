@@ -718,6 +718,14 @@ void unavailable_cases(Env& v) {
     Writer w3(ws);
     check(!w3.available() && cx(w3, kOwner, r, counter, le64(50), le64(51)).rc == KILN_ERR_UNAVAILABLE,
           k + "no exact profile");
+    // no kiln.types (the policy's reflection): unavailable, as the world.ecs_write row says, not "not writable"
+    ws.exact_profile = true;
+    ws.types = nullptr;
+    Writer w4(ws);
+    Call nt = cx(w4, kOwner, r, counter, le64(50), le64(51));
+    check(!w4.available() && nt.rc == KILN_ERR_UNAVAILABLE && nt.reply.why_code == KILN_ECS_WRITE_WHY_NO_PROFILE &&
+              u64_at(at) == 50,
+          k + "no kiln.types (" + std::to_string(nt.rc) + ")");
     put<uint64_t>(at, 0);
 }
 

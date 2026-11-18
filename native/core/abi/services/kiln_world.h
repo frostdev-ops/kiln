@@ -728,7 +728,8 @@ enum {
 enum {
     KILN_ECS_WRITE_WHY_NONE = 0,
     KILN_ECS_WRITE_WHY_NOT_SERVER_WORLD = 1,  /* the gate is the server world's (the local authority's) */
-    KILN_ECS_WRITE_WHY_NO_PROFILE = 2,        /* no exact engine profile, or its write gate is disabled */
+    KILN_ECS_WRITE_WHY_NO_PROFILE = 2,        /* no exact engine profile, its write gate is disabled, or kiln.types
+                                                 (the policy's reflection) is not here */
     KILN_ECS_WRITE_WHY_NO_WORLD = 3,          /* no server world now */
     KILN_ECS_WRITE_WHY_UNREGISTERED = 4,      /* no component is registered under this hash */
     KILN_ECS_WRITE_WHY_TRACKED = 5,           /* a change-tracking bit is set (read from the engine) */

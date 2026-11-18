@@ -159,6 +159,7 @@ const char* Writer::unavailable_reason() const {
         return "this build's engine profile does not locate the change-tracking bits";
     engine::Reader* reader = src_.reader ? src_.reader(src_.user) : nullptr;
     if (!reader || !reader->source().reads) return "entity reads are off on this build (see world.ecs_read)";
+    if (!src_.types) return "kiln.types is not here (the policy needs its reflection)";
     return nullptr;
 }
 

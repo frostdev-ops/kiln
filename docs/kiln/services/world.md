@@ -628,7 +628,7 @@ from the engine at run time, and the in-game check below lists them.
 | `STALE` | `KILN_ECS_ERR_STALE` | the generation, session, layout or reload epoch changed, the ref is another owner's, or the calling owner is unloading or unloaded | no: open the entity again |
 | `NOT_WRITABLE` | `KILN_ECS_ERR_NOT_WRITABLE` | the policy refuses the component, `bytes` is not its size, or a tracking bit was set when the hold read it | no |
 | `UNCERTAIN` | `KILN_ECS_ERR_UNCERTAIN` | a write was attempted and neither its readback nor a rollback proved the bytes; also every later call on that target this session (`TARGET_LATCHED`) | no |
-| `UNAVAILABLE` | `KILN_ERR_UNAVAILABLE` | no exact profile or write gate, not the server world, no server world, or the server world is stopping | use the tick |
+| `UNAVAILABLE` | `KILN_ERR_UNAVAILABLE` | no exact profile or write gate, no kiln.types, not the server world, no server world, or the server world is stopping | use the tick |
 | `ABSENT` | `KILN_ERR_NOT_FOUND` | the entity is gone, or has no such component | |
 | `UNREADABLE` | `KILN_ECS_ERR_UNREADABLE` | a read faulted before any write; or a write was rolled back and the rollback proven (`ROLLED_BACK`): the bytes are as they were | yes |
 
