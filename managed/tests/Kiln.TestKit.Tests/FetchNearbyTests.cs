@@ -119,4 +119,22 @@ public sealed class FetchNearbyTests
         Assert.Equal(5, w.Near.Count(w.Wood));  // taken, then given back
         Assert.Contains("[Server] no Wood found within 12 m", ChatOf(w));
     }
+
+    [Fact]
+    public void A_give_back_that_does_not_fit_is_reported_not_lost_quietly()
+    {
+        var w = Start();
+        using var _ = w.Kiln;
+        var stone = w.Kiln.Items.AddItem("Stone", 1);
+        w.Kiln.Items.Of(w.Ada.Entity)!.Put(stone, 1000);  // Ada's backpack is full
+        w.Kiln.RunCommand(w.Ada, "fetch Wood 3");
+        w.Kiln.Tasks.Settle();
+        // the nearest container gave 3; before they go back, the game fills it up
+        w.Kiln.StepUntil(() => w.Near.Count(w.Wood) == 2, maxSteps: 50);
+        w.Near.Put(stone, 7);
+        w.Near.Put(w.Wood, 98);
+        w.Kiln.StepUntil(() => w.Ada.Chat.Any(l => l.Text.Contains(" found ", StringComparison.Ordinal)), maxSteps: 50);
+        Assert.Contains("[Server] 3 Wood could not go back into the container and were lost", ChatOf(w));
+        Assert.Contains(w.Kiln.LogsOf(w.Mod), l => l.Text.Contains("3 x Wood fitted neither the player nor container", StringComparison.Ordinal));
+    }
 }

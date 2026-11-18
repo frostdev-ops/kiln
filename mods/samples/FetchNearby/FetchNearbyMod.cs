@@ -147,7 +147,14 @@ public sealed class FetchNearbyMod : Mod
             moved += given.Done;
             if (given.Done < taken.Done)
             {
-                await Items.Give(source.Container, item, taken.Done - given.Done);  // no room: back where it came from
+                // no room: back where it came from; if the container filled up meanwhile, say so rather than lose them quietly
+                var rest = taken.Done - given.Done;
+                var back = await Items.Give(source.Container, item, rest);
+                if (back.Done < rest)
+                {
+                    Log.Warn($"fetch for {player}: {rest - back.Done} x {name} fitted neither the player nor container {source.Container}; they are lost");
+                    if (Chat.Available) Chat.Tell(player, $"{rest - back.Done} {name} could not go back into the container and were lost");
+                }
                 break;
             }
         }
