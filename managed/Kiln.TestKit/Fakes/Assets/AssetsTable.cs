@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
-// The kit's kiln.assets (native/core/abi/services/kiln_assets.h, the table up to blob_catalog_close): content blobs (add,
-// override, remove, read, the 0.2.0-dev.28 ex slots), owner revert, status, and the content blob catalog over the test's
+// The kit's kiln.assets (native/core/abi/services/kiln_assets.h, the table up to blob_read_resident): content blobs (add,
+// override, remove, read, the 0.2.0-dev.28 ex slots, the 0.2.0-dev.29.15 resident read: registrations, and the game's
+// blobs only while AssetsState.IndexReady), owner revert, status, and the content blob catalog over the test's
 // game index (AssetsState.Game). Resources, icons, textures, dumps and manifests are not modelled: they answer
-// KILN_ERR_UNAVAILABLE, as the native service does with those hooks off. Registered in every KilnHarness (AssetsFake.cs). The catalog keeps the native rules
+// KILN_ERR_UNAVAILABLE, as the native service does with those hooks off (texture_rgba's slot stays null: no item icons). Registered in every KilnHarness (AssetsFake.cs). The catalog keeps the native rules
 // (catalog.cpp): one entry per hash, GAME plus every live registration's origin, the last registration served, sorted by
 // (size, hash0, hash1, hash2), 64 handles, NotReady while the index is not readable, snapshots that never change.
 using System.Runtime.CompilerServices;
@@ -67,6 +68,8 @@ internal static unsafe class AssetsAbi
         public delegate* unmanaged[Cdecl]<ulong, uint, ulong*, CatalogInfo*, int> BlobCatalogOpen;
         public delegate* unmanaged[Cdecl]<ulong, ulong, CatalogEntry*, uint, nuint, nuint*, int> BlobCatalogRead;
         public delegate* unmanaged[Cdecl]<ulong, int> BlobCatalogClose;
+        public void* TextureRgba;  // 0.2.0-dev.29.15; null here: the kit draws no item icons
+        public delegate* unmanaged[Cdecl]<Hash*, void*, nuint, nuint*, int> BlobReadResident;
     }
 }
 
@@ -130,6 +133,7 @@ internal static unsafe class AssetsTable
         t->BlobCatalogOpen = &CatalogOpen;
         t->BlobCatalogRead = &CatalogRead;
         t->BlobCatalogClose = &CatalogClose;
+        t->BlobReadResident = &BlobReadResident;
         _table = t;
         return (nint)t;
     }
@@ -227,8 +231,15 @@ internal static unsafe class AssetsTable
         return Ok;
     }
 
+    // blob_read asks the game for its index when it is not open yet; blob_read_resident never does: the game's blobs are
+    // found only while the index is readable (kiln.assets' op_blob_read, resident)
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-    private static int BlobRead(AssetsAbi.Hash* hash, void* buffer, nuint cap, nuint* outLen)
+    private static int BlobRead(AssetsAbi.Hash* hash, void* buffer, nuint cap, nuint* outLen) => Read(hash, buffer, cap, outLen, resident: false);
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int BlobReadResident(AssetsAbi.Hash* hash, void* buffer, nuint cap, nuint* outLen) => Read(hash, buffer, cap, outLen, resident: true);
+
+    private static int Read(AssetsAbi.Hash* hash, void* buffer, nuint cap, nuint* outLen, bool resident)
     {
         if (hash == null) return Invalid;
         var s = S;
@@ -236,7 +247,8 @@ internal static unsafe class AssetsTable
         var h = *hash;
         byte[]? bytes;
         lock (s.Gate)
-            bytes = s.Ledger.LastOrDefault(r => Same(r.Hash, h))?.Bytes ?? s.Game.FirstOrDefault(g => Same(g.Hash, h)).Bytes;
+            bytes = s.Ledger.LastOrDefault(r => Same(r.Hash, h))?.Bytes ??
+                    (resident && !s.IndexReady ? null : s.Game.FirstOrDefault(g => Same(g.Hash, h)).Bytes);
         if (bytes is null) return NotFound;
         if (outLen != null) *outLen = (nuint)bytes.Length;
         if (cap < (nuint)bytes.Length) return TooSmall;

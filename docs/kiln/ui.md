@@ -154,11 +154,14 @@ KeyBindings.Register("mymod.waypoints", "F6", screen.Toggle);       // a key ope
 - While a screen is open it has the mouse and keyboard (the game's input pauses; key and mouse releases still reach
   the game, so nothing stays held), the background darkens (`DimBackground`), and **Escape closes the top screen**
   (`CloseOnEscape`). `Opened` / `Closed` events; `IsOpen`; `Ui.OpenScreens`.
-- Looks: `UiStyle.Game` (the game's menu colours and **the game's own UI font**, which Kiln reads from the game's
-  resources at run time and never ships) or `UiStyle.Kiln` (Kiln's ember theme, branding/palette.json). Inside any
-  window: `using (ui.Look(UiStyle.Game)) { … }`.
+- Looks: `UiStyle.Player` (the default since 0.2.0-dev.29.16: the look the player chose for Kiln's UI, the game's unless
+  they changed it), `UiStyle.Game` (the game's menu colours and **the game's own UI font**, which Kiln reads from the game's
+  resources at run time and never ships) or `UiStyle.Kiln` (Kiln's ember theme, branding/palette.json), or a mod's own
+  theme (`Theme = ...`, [Looks and themes](#looks-and-themes-020-dev2916)). Inside any window:
+  `using (ui.Look(UiStyle.Game)) { … }`.
 - Widgets: everything in `UiDraw` (below) plus `Image` / `ImageButton` (PNG via `Ui.LoadImage`, or an item's icon via
-  `Ui.ItemImage`), `ItemIcon` ([Item icons and names](#item-icons-and-names)), `Combo`,
+  `Ui.ItemImage`; `ImageTrimmed` / `ImageButtonTrimmed` without its margin, `ImagePart` for part of it), `ItemIcon`
+  ([Item icons and names](#item-icons-and-names); `ItemIconTrimmed` without the icon's margin), `Combo`,
   `InputMultiline`, `Space`, `WindowRect`, `CloseScreen`.
 - Open from the game's menus (`Ui.Menus`), a key binding, a command or code (any thread).
 - `FullScreen = true`: the whole display, no title bar, not movable or resizable (Width/Height are ignored); draw your own
@@ -335,6 +338,124 @@ if (ui.KeyPressed(UiKey.Tab, claim: true)) NextTab();                  // claim:
   `ScrollHere(ratio)`.
 - `ui.HasLayout` is false on an older kiln.ui: each call then falls back to the older one or does nothing.
 
+## Looks and themes (0.2.0-dev.29.16)
+Kiln's own UI (the Kiln menu with its Mods, Network, Keys and Overlay sections, the creative menu, the developer windows
+and console, Item details, the guided checks, talent trees, block windows, crafting panels, HUD lines, toasts, the radial
+wheel and the native fallback window) is drawn in **the player's look**. It is the game's look unless the player chose
+another. Mods can give their own windows a theme, and can offer a theme the player may pick for all of Kiln's UI.
+
+### Looks
+| `UiStyle` | What it is |
+|---|---|
+| `Player` (new, the default of `Ui.Window`, `Ui.Screen` and crafting panels) | the look the player chose in Kiln's setting `ui.look` (below): the game's (default), translucent, Kiln's ember, or a theme a mod offers |
+| `Game` | the game's look: its menu colours and its UI font, both read from the game's data at run time and never shipped |
+| `Kiln` | Kiln's classic ember theme (branding/palette.json) |
+
+- **The game's colours** come from the game's UI bundle (`keen::FbUiBundle`: `menu.tabLabelHighlightColor`,
+  `tabLabelIdleColor`, `tileBackgroundColor`, `basicWidgetColor`, `tabHighlightColor`, `tileHighlightOutlineColor`,
+  `textTabRowBgHighlightColor`, `globalColors.attentionColor`, `warningColor`, `checkmarkGreen`), whose field offsets come
+  from the game's reflection (`kiln.types`) and whose bytes come from `kiln.assets`, on a worker thread the first time a
+  look needs them (with the game's font; asked again a few times, 5 s apart, while the game has not listed them yet). Until they are read, and wherever they cannot be (no `kiln.types` or
+  `kiln.assets`, a build whose bundle lacks a field, a dedicated server), the game look uses a **neutral dark stand-in**
+  close to the game's (greys with a soft gold accent), never the ember red. kiln.log says which (`ui: the game's UI colours
+  ...`). The same holds for the font: the system font until the game's is read.
+- Each look is a **palette of roles** (`UiThemeRole`): `Text`, `TextMuted`, `WindowBackground`, `PanelBackground`,
+  `FrameBackground`, `Border`, `Accent`, `Button`, `Header`, `Attention`, `Warning`, `Ok`. ImGui's colours are made from it
+  by one recipe per base (the game's square tiles, Kiln's rounded ember), so a theme that changes `Accent` also changes
+  check marks, slider grabs, the chosen tab's line and the focus outline. `ui.Palette` gives the colours of the look in use
+  where it is asked (`ui.Palette.Accent`), so a mod's own drawing (`DrawRect`, `DrawText`) can match any look; Kiln's
+  pages draw with it.
+
+### The player's setting
+In `kiln/kiln.json` (the launcher's **Settings**, "Kiln's in-game look"), and in game on Kiln's menu, **Mods > Kiln
+settings > Look**, where a change shows at once and is written back to kiln.json half a second after the last change
+(a value edit that keeps the file's comments and layout, on a worker). Kiln.Ui also reads the section again when the file
+changes (checked every 2 seconds), so a change in the launcher shows while the game runs.
+```jsonc
+"ui": {
+  "look": "game",       // game | translucent | kiln | theme
+  "theme": "",          // with look "theme": "<mod id>:<theme>", a theme a mod offers (Kiln's menu lists them)
+  "background": 0.55,   // the translucent look's window background opacity, 0.1 to 1
+  "opacity": 1,         // Kiln's whole overlay, text included, 0.3 to 1
+  "scale": 1,           // the overlay's size on top of the display's scale, 0.75 to 1.5
+  "language": "auto"    // Kiln's own texts: auto (the game's text language) or a tag, "zh-CN" (Kiln's language, below)
+}
+```
+- `translucent` is the game's look with the windows' backgrounds (windows, title bars, panels, the Kiln menu's backdrop
+  and the dimming behind screens) at `background`; pop-ups (drop-downs, tooltips) stay at least 85 % opaque.
+- `opacity` is ImGui's global alpha for every Kiln window, and the alpha of `DrawRect` / `DrawText` in them, the HUD
+  lines and toasts. kiln.render's drawing (`RenderFrameEvent`) is a mod's picture of the world: it is not changed.
+- `scale` multiplies the UI scale every Kiln window and `ui.Scale` use (and so the stand-alone Kiln menu, which also stays
+  within the display). The Kiln page inside the game's main menu keeps the game's own scale.
+- With `look: "theme"` and no such theme offered (its mod is not loaded, or not yet), the game look is used; the setting
+  stays, and the theme shows once its mod offers it.
+- Only the top-level `ui` section is read (not a `client` section). A missing section or key is the default above; a value
+  out of range is clamped, an unknown `look` is `game` (kiln.log says so).
+
+### Kiln's language (0.2.0-dev.29.16)
+Kiln's own texts (every page, window, toast and message of Kiln above, and the Mods entry and footer line kiln-ui.dll adds to
+the game's menus) come from `runtime/locales/<language>.json`, shipped as `<game>/kiln/locales/`, in the format of a mod's
+locales. `ui.language` picks the language: `auto` follows the game's text language, a tag forces one; in game **Mods > Kiln
+settings > Language**, under Look, changes it at once. For Chinese, Japanese and Korean the overlay loads the game's own font
+of that language group (never shipped); Kiln's texts are English until it is loaded, and stay English if it cannot be.
+Mods' own texts are theirs (`Mod.Text`, `UiText`) and follow the game's language. For translators and Kiln's developers:
+[translating-game.md](translating-game.md).
+
+### Mod themes
+```csharp
+var frost = Ui.Themes.Define("frost", new UiThemeSpec
+{
+    Name = UiText.Of(("en", "Frost"), ("de", "Frost")),   // in Kiln's Look list
+    Base = UiStyle.Game,                                    // or UiStyle.Kiln: what it starts from
+    Roles = { [UiThemeRole.Accent] = Color.FromRgba(0x7fd4ffff), [UiThemeRole.WindowBackground] = Color.FromRgba(0x0e141cff) },
+    Colors = { [UiColorSlot.Border] = Color.FromRgba(0x7fd4ff66) },   // single colours, after the roles
+    Background = 0.85f,                                     // the windows' background opacity (null: the base's)
+    Rounding = 6,                                           // every corner, pixels at scale 1 (null: the base's)
+    Vars = { [UiStyleVar.ItemSpacing] = new(10, 8) },       // spacings, pixels at scale 1
+    Font = Ui.LoadFont("fonts/Frost.ttf"),                  // its windows' text (null: the base's font)
+    OfferToPlayer = true,                                   // listed in Kiln's Look setting as "Frost (My mod)"
+});
+var w = Ui.Window("Frost tools", Draw, new UiWindowOptions { Theme = frost });
+var s = Ui.Screen("Frost", Draw, new UiScreenOptions { Theme = frost });
+Ui.Crafting.AddPanel("Frost", DrawPanel, new CraftingPanelOptions { Theme = frost });
+using (ui.Theme(frost)) { /* windows begun here */ }
+```
+- **Scope.** A theme applies only where its mod puts it: the mod's own windows, screens and crafting panels (`Theme` in
+  their options), and `ui.Theme(theme)` inside its own draw callbacks. After every mod callback Kiln takes off any look the
+  callback left on, so a forgotten `Dispose` never reaches another mod's window or Kiln's. **No call sets the player's
+  look**: `OfferToPlayer` only lists the theme; the player picks it (Kiln's menu or kiln.json `ui.look: "theme"`,
+  `ui.theme: "<mod id>:<name>"`). Kiln's own UI always uses `UiStyle.Player`.
+- `Ui.Themes.Define(name, spec)`: `name` is 1-64 of `a-z 0-9 . _ -`; the theme's `Id` is `<mod id>:<name>`. Defining the
+  same name again from the same mod changes the theme in place (the same `UiTheme`; windows using it follow). Owned by the
+  calling mod: gone when it unloads (a window using it falls back to the player's look; a player who picked it sees the game
+  look until it is offered again). `UiTheme.Dispose()` removes it earlier. Any thread. On a dedicated server, or with
+  drawing off, `Define` returns a theme that draws nothing and is never offered.
+- `Ui.Themes.Offered`: the themes mods offer to the player now. `Ui.Themes.Player`: the player's setting (read only).
+- Roles take colours without alpha (the alpha is ignored; `Background` is the windows' opacity). `Colors` are
+  `UiColorSlot`s with alpha, set after the roles. `UiColorSlot` gains `TitleBg`, `TitleBgActive`, `PopupBg`, `Tab`,
+  `TabHovered`, `TabSelected`, `TableHeaderBg`, `TextSelectedBg` (also for `ui.PushColor`).
+- The player's `opacity` and `scale` apply to themed windows too: they are the player's.
+
+### Fonts
+`Ui.LoadFont(byte[] ttf)` / `Ui.LoadFont(path)` (relative to the mod's folder) loads a TrueType or OpenType font (TTF or
+OTF, CFF outlines too) for the mod's own windows: a theme's `Font`, or `using (ui.ModFont(font)) { ... }` around some text.
+`UiFontFile` is owned by the calling mod (freed when it unloads, or by `Dispose`). It is added to the overlay's font atlas
+at the next frame; until then text keeps the current font.
+- **Budget** (`native/services/ui/font_budget.h`): every font shares ImGui's one font atlas, whose glyphs are made on
+  demand at the sizes drawn, so a font takes **no** overlay image (the 960-image budget is untouched; the atlas's own
+  textures are in ImGui's reserve of 64 descriptor sets). Kiln lets **8** mod fonts exist at once, at most **8 MiB** each and
+  **24 MiB** together (the bytes stay in memory while the font lives); past that `LoadFont` returns null (kiln.log says
+  why). A file that is not a TrueType/OpenType font (its first four bytes) is refused.
+- The game's own font stays the game look's; `UiFont.Game` / `UiFont.GameBold` still pick it in any look.
+
+### C (native plugins)
+Appended after `image_state` (the version stays 7; check `header.size` through the member and its pointer):
+`theme_create(owner, &KilnUiThemeDef, &handle)`, `theme_free(handle)`, `push_theme(handle)` (inside a frame; popped by
+`pop_style`), `set_look(&KilnUiLook)` (Kiln.Ui only, from the player's setting: a native plugin's call is refused with
+`KILN_ERR_UNAVAILABLE`), `look_info(&KilnUiLookInfo)` (the player's look and the palette in use), `font_load(owner, data,
+len)`, `font_free(font)`, `push_font_handle(font)` (popped by `pop_font`); `push_style(KILN_UI_STYLE_PLAYER)`; roles
+`KILN_UI_ROLE_*`; looks `KILN_UI_LOOK_*`. Details: [services/ui.md](services/ui.md#looks-themes-and-fonts-020-dev2916).
+
 ## Item icons and names
 The game's own icon of an item, in any Kiln window, screen or crafting panel (since 0.2.0-dev.29.15), and its name in the
 player's language:
@@ -371,6 +492,22 @@ if (img != null && ui.ImageButton("pick", img, 40 * ui.Scale, 40 * ui.Scale)) Pi
   second): until then, and on a dedicated server (whose data has no texts), it answers the English name Kiln ships. Stations
   and recipes: `Stations.WorkshopName`, `Stations.RecipeName` ([services/stations.md](services/stations.md)).
 - Not square (a few lore items: 360x388): the picture keeps its shape inside the square.
+- **Trimmed** (since 0.2.0-dev.29.16): the game's icons sit small in the middle of a wide transparent margin, so at 32-40
+  pixels the art fills only part of the box. The `...Trimmed` calls draw only the art, as large as fits:
+  ```csharp
+  ui.ItemIconTrimmed(item, 40 * ui.Scale);                          // the art fills 40 pixels square, centred
+  ui.ImageTrimmed(img, 40 * ui.Scale, 40 * ui.Scale);               // the same through Ui.ItemImage (or your own PNG)
+  if (ui.ImageButtonTrimmed("pick", img, 40 * ui.Scale, 40 * ui.Scale)) Pick(item);
+  draw.ImageTrimmed(img, x0, y0, x1, y1);                           // RenderDraw (HUD layer)
+  ```
+  The art's bounds (pixels with alpha 16 or more) are found once, when the icon is loaded; the art keeps its aspect ratio
+  and is centred, and the box taken stays the size asked for (the layout is the same as untrimmed). A trimmed icon reads a
+  sharper level (twice the size drawn: 40 pixels reads the 128 level), so the magnified art stays crisp. The placeholder
+  fills the box. `ItemIcon`, `Image` and `ImageButton` draw exactly as before. (Own names, not overloads: a method group
+  released in dev.26 gains no overload.)
+- **Part of an image** (since 0.2.0-dev.29.16): `ui.ImagePart(img, width, height, u0, v0, u1, v1)` and
+  `draw.ImagePart(img, x0, y0, x1, y1, u0, v0, u1, v1)` draw the rectangle (u0, v0)-(u1, v1) of the picture, in 0..1 across it
+  (a sprite sheet's cell; u1 < u0 flips it).
 - Not done: icons of buffs, skills or anything that is not an item; the item's rarity frame or count (draw them yourself);
   the icon of an item on a server (no pictures there).
 
@@ -432,6 +569,8 @@ named (else its reason) for 20 s, over the game's login error dialog that follow
 back at its main menu (`ui: refusal shown` in kiln.log). Mods don't need to handle `Network.Rejected` for that.
 
 ## Key bindings
+The game's chat field keeps Up/Down (no modifiers) while it has typing focus when the player has chat history on
+([chat-history.md](chat-history.md)): key subscribers do not get those presses then.
 ```csharp
 var b = KeyBindings.Register("mymod.toggle", "F8", () => w.Toggle(), "Toggle my window");
 b.OnRelease = …;  b.IsDown;  b.TakePresses();  b.Consume = false;  b.WhileCapturing = true;
@@ -508,14 +647,16 @@ b.OnRelease = …;  b.IsDown;  b.TakePresses();  b.Consume = false;  b.WhileCapt
   Escape closes the menu.
 
 ## The Kiln menu (the mod manager)
-A page in the game's look (its colours and its UI font), opened by the menu key (Insert), the main menu's and the
+A page in the player's look (the game's colours and its UI font unless the player chose another look under **Kiln
+settings > Look**, [Looks and themes](#looks-and-themes-020-dev2916)), opened by the menu key (Insert), the main menu's and the
 pause menu's **Mods** entry; Escape (gamepad B) or the **Back** hint goes back. A title, a tab row of sections, a footer
 of key hints. Tab / Shift+Tab or LB / RB switch sections; arrows or the d-pad move; Enter or A chooses; Ctrl+F jumps to the search box.
 - **Mods**: three columns.
   - Left: **All mods**, **Needs attention** (only when a mod failed or its folder is missing), then one row per engine
     that has mods (Kiln, native DLL mods, Kiln plugins, chain DLLs, EMF, EML, XHL, ShroudForge, SET, Greeneye, Flame,
     Shroudtopia, Enshwick, shroudlink, Ember) with its count and a mark (green fine, grey idle, red a problem), and
-    **Kiln settings** (Kiln's own configs) when there are any.
+    **Kiln settings**: the **Look** of Kiln's UI (always on a game client; [Looks and themes](#looks-and-themes-020-dev2916)),
+    then Kiln's own configs.
   - Middle: the mods of that row (name, version, a state chip: Loaded, Waiting, Off, Failed, Not loaded, Missing; the
     engine when mixed), a search box that filters as you type (every word must match the name, id or engine), the engine's
     one-line state when it matters ("ShroudForge: runtime hosted by Kiln.", "EMF: stepped aside for the real EMF",
@@ -739,9 +880,12 @@ Kiln.Ui follows [the API contract](modding/contract.md) as far as it applies. It
 
 ## Overlay startup crash guard
 
-Before Vulkan hooks are installed, Kiln flushes a versioned record to
+Before Vulkan hooks are installed, Kiln writes a versioned record to
 `kiln/state/overlay-start.guard`. It records hooks installed, instance seen, device seen,
 swapchain created, and completes after the first successful present with the overlay drawn.
+Each record is written (a temporary file, then a rename) before the stage goes on, and forced to the disk
+on a thread of its own, never on the game's present call: a game that dies loses nothing it already
+wrote.
 A game that ends before that frame, however it ends, counts as an interrupted attempt (closing
 the game while it is still loading does too: the cost is one start without the overlay).
 

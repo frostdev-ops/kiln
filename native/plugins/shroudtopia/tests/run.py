@@ -4,6 +4,7 @@ Only platform I/O and foreign-call guards are substituted; config mutations and 
 Run through the review slot, with KILN_OUT set to this task's build folder.
 """
 import os
+import re
 from pathlib import Path
 import subprocess
 
@@ -17,9 +18,12 @@ if 'HMODULE module' not in loaded: loaded=loaded.replace('struct Loaded {','stru
 scheduling = plugin[plugin.index('void drive('):plugin.index('int json_int(')]
 flow = plugin[plugin.index('void prepare_original_code('):plugin.index('void drive(')] if 'void prepare_original_code(' in plugin else 'void prepare_original_code(Loaded&) {}'
 
-# Exercise the exact registration hook, including the origin gate and metadata name.
-hook = 'config::ensure_profile_entry(m->name, m->origin == "profile");'
-registration = hook if hook in plugin[plugin.index('m->mod = inst;'):plugin.index('// Shroudtopia\'s UpdateMods.')] else ''
+# Exercise the exact registration hook, including the origin gate and metadata name: the plugin's own statement, taken
+# as it is (a fixed copy of it went stale when the gate learned "profile-eml" and then silently tested no hook at all).
+hooks = re.findall(r'config::ensure_profile_entry\(m->name,[^;]*\);',
+                   plugin[plugin.index('m->mod = inst;'):plugin.index('// Shroudtopia\'s UpdateMods.')])
+if len(hooks) != 1: raise SystemExit(f'FAIL registration: expected one config::ensure_profile_entry(m->name, ...) call, found {len(hooks)}')
+registration = hooks[0]
 preamble = r'''
 #include <filesystem>
 #include <fstream>
@@ -138,6 +142,8 @@ int main(int argc, char** argv) {
  check(!disabled && unchanged==off,"existing false entry untouched");
  auto [dropin,unlisted]=run(base,"folder",nullptr);
  check(!dropin && unlisted==base,"not profile-enabled: no entry or activation");
+ auto [eml,emlDoc]=run(base,"profile-eml",nullptr);
+ check(eml && emlDoc["mods"]["Reported Name.With Dot"]==json({{"active",true}}),"a profile's EML entry activates first start too");
  auto [folder,folderDoc]=run(base,"profile",json::object());
  check(folder && folderDoc["mods"].contains("Reported Name.With Dot"),"profile folder without defaults activates");
  auto existing=base; existing["mods"]["Reported Name.With Dot"]={{"custom",7}};
@@ -258,6 +264,11 @@ int main(int argc, char** argv) {
 '''
 out = Path(os.environ['KILN_OUT']) / 'shroudtopia-host'
 out.mkdir(parents=True, exist_ok=True)
+# kcompat::ExportCache (compat/export_cache.h): the loader thread's look every updateDelay reads a candidate DLL's export
+# table once per version of the file, not on every look (inbox 50)
+cache_test = root / 'native/plugins/compat/tests/export_cache_test.cpp'
+subprocess.run(['c++', '-std=c++20', '-O1', '-g0', '-pthread', str(cache_test), '-o', str(out / 'export_cache_test')], check=True)
+subprocess.run([str(out / 'export_cache_test'), str(out / 'export-cache')], check=True)
 source = out / 'test.cpp'
 source.write_text(preamble + config + loaded + main.replace('REGISTRATION',registration))
 subprocess.run(['c++','-std=c++20','-O0','-g0','-pthread','-I'+str(root/'native/third_party'),str(source),'-o',str(out/'test')],check=True)

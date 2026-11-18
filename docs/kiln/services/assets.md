@@ -142,13 +142,15 @@ for (ulong at = 0; at < snapshot.Total;)
     at += (ulong)page.Count;
 }
 byte[]? bytes = Assets.ReadBlob(hash);                     // the bytes the game reads for one hash now
+byte[]? off = Assets.ReadResidentBlob(hash);               // the same from a worker: null until the blob is resident
 ```
 | Member | Threads | Answers |
 |---|---|---|
 | `Assets.OpenBlobCatalog(mode)` | any (from mod code: the mod owns the snapshot) | `BlobCatalogOpenResult(Ok, Reason, Snapshot, Info)` |
 | `BlobCatalogSnapshot.ReadPage(first, capacity)` | any | bounded copies of entries `first..`; empty when `first == Total` |
 | `BlobCatalogSnapshot.Info`, `Total`, `Dispose()` | any | the header (generation, total, status, completeness); closes it |
-| `Assets.ReadBlob(hash)` | any | a registration's bytes, else the game's own from its container; null when no blob has the hash |
+| `Assets.ReadBlob(hash)` | any; a worker reads with `ReadResidentBlob` (below) | a registration's bytes, else the game's own from its container; null when no blob has the hash |
+| `Assets.ReadResidentBlob(hash)` | any (since 0.2.0-dev.29.16) | the same once the blob is resident; null when it is not |
 | `AssetsCatalogChangedEvent(Generation, Reason)` | tick thread | the catalog changed (registration, removal, a mod's unload, the game's index became readable) |
 
 - **What an entry says.** `Origins` has `Game` when the game's index lists the hash (also when a mod overrides it), plus
@@ -160,6 +162,18 @@ byte[]? bytes = Assets.ReadBlob(hash);                     // the bytes the game
 - **Modes.** `RequireComplete` (the default) needs the game's content index; before the game has opened it the call
   throws `KilnUnavailableException("assets.blob_catalog")`. `RegistrationsOnly` lists the registrations alone and says so:
   `Status = Incomplete`, `GameComplete = false`.
+- **Reading a blob off the game's threads.** `ReadBlob` asks the game for its content index itself while the game has
+  not opened it yet, and only the game's own threads may do that (its loading can own the index's reader then): call it
+  from OnLoad, a tick or a UI callback. A worker thread or a task calls `ReadResidentBlob` (kiln.assets'
+  `blob_read_resident`), which never asks the game for anything. It reads a **resident** blob: a live registration
+  (`assets.json`, `AddBlob`/`OverrideBlob`, a native caller), resident from the moment it is made, or a game blob the
+  content index the game has already opened lists. Resident is not "in memory": a game blob's bytes (that blob's only)
+  are read from its container file on the calling thread, which on a hard disk the game is loading from can take a
+  while, so keep it off a frame. Once the game has opened its index the answer is `ReadBlob`'s; before that a game blob
+  is not resident and the answer is **null**, as for a hash no blob has: try again later (the `AssetsCatalogChangedEvent`
+  with reason `Ready` says the index became readable). It throws `KilnUnavailableException("assets.content")` without
+  kiln.assets or with one older than 0.2.0-dev.29.15. The test kit models it: `KilnHarness.Assets.IndexReady = false`
+  hides the game's blobs from it, not from `ReadBlob`.
 - **Budgets.** 1,000,000 entries and 64 MiB per snapshot, 128 MiB for every snapshot held, 64 open at once. Over a budget
   the result is `Ok = false` with `Info.Status = LimitExceeded` and the reason; nothing is opened. The server build
   f0d824be's index lists 39,818 blobs, the game client's about 101,000.
@@ -202,8 +216,9 @@ meanwhile is `KILN_ERR_NOT_FOUND`, as is any `resource_read` of the game's own b
 offsetof(KilnAssetsApi, blob_read_resident) + sizeof(void*)`): `blob_read` for callers off the game's threads. `blob_read`
 asks the game's content-map accessor itself while the game has not opened its content index, which only the game's own
 threads may do (loading can own the reader then); `blob_read_resident` answers `KILN_ERR_NOT_FOUND` until the game has opened
-it, and is otherwise the same. Kiln.Items reads the game's texts with it (`Items.DisplayName`). Kiln.Ui draws the game's item icons with it ([ui.md](../ui.md#item-icons-and-names)); it is not a managed API, and
-Kiln writes the pixels nowhere. The pure part (layouts, the level, the decoders) is `native/services/assets/texture_rgba.h`,
+it, and is otherwise the same. Kiln.Items reads the game's texts with it (`Items.DisplayName`). Mods call it as `Assets.ReadResidentBlob` (since
+0.2.0-dev.29.16, [above](#the-content-blob-catalog)). `texture_rgba` is not a managed API: Kiln.Ui draws the game's item
+icons with it ([ui.md](../ui.md#item-icons-and-names)), and Kiln writes the pixels nowhere. The pure part (layouts, the level, the decoders) is `native/services/assets/texture_rgba.h`,
 host-tested by `tests/test_texture_rgba.cpp` (`tests/run.sh`).
 
 Since 0.2.0-dev.28 (check `header.size` before each): `blob_add_ex` / `blob_override_ex` are `blob_add` /

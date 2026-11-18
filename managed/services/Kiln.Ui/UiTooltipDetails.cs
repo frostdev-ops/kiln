@@ -214,12 +214,23 @@ internal static unsafe class UiTooltipBridge
             ModContext.CurrentMod = null;  // Kiln's own entry, not the registering mod's
             try
             {
-                _menu = Ui.Menus.Add(MenuLocation.PauseMenu, "Item details", () => Open());
+                _menu = Ui.Menus.Add(MenuLocation.PauseMenu, KilnText.T("details.menu"), () => Open());
+                KilnText.Changed += Relabel;
             }
             finally
             {
                 ModContext.CurrentMod = outer;
             }
+        }
+    }
+
+    // Kiln's language changed (KilnText.Changed, any thread): the pause-menu entry and the window's title follow it.
+    private static void Relabel()
+    {
+        lock (Lock)
+        {
+            if (_menu is { } m) m.Text = KilnText.T("details.menu");
+            _window?.Retitle(KilnText.T("details.title"));
         }
     }
 
@@ -252,7 +263,7 @@ internal static unsafe class UiTooltipBridge
                 ModContext.CurrentMod = null;  // Kiln's window, not the caller's
                 try
                 {
-                    _window = Ui.Window("Item details", Draw, new UiWindowOptions { StartOpen = false, Width = w / vp.Dpi, Height = h / vp.Dpi });
+                    _window = Ui.Window(KilnText.T("details.title"), Draw, new UiWindowOptions { StartOpen = false, Width = w / vp.Dpi, Height = h / vp.Dpi });
                 }
                 finally
                 {
@@ -346,8 +357,8 @@ internal static unsafe class UiTooltipBridge
             Close("closed by Kiln (world or provider change)");
             return;
         }
-        ui.Text($"Last inspected item — snapshot (item {d.Item:x8}, frame {d.SourceFrame})");
-        if (ui.Button("Refresh"))
+        ui.Text(KilnText.T("details.snapshot", ("item", d.Item), ("frame", d.SourceFrame)));
+        if (ui.Button(KilnText.T("details.refresh")))
         {
             UiValuesNative.TooltipOpen o = default;
             o.Size = (uint)sizeof(UiValuesNative.TooltipOpen);
@@ -359,7 +370,7 @@ internal static unsafe class UiTooltipBridge
             }
         }
         ui.SameLine();
-        if (ui.Button("Close")) Close(null);
+        if (ui.Button(KilnText.T("details.close"))) Close(null);
         ui.Separator();
         if (ui.BeginChild("##kiln.item.details.lines"))
         {
@@ -462,6 +473,7 @@ internal static unsafe class UiTooltipBridge
     {
         Regs.Clear();
         StopWatch();
+        KilnText.Changed -= Relabel;
         lock (Lock)
         {
             _window = null;

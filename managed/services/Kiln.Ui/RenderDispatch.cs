@@ -194,7 +194,8 @@ internal static class RenderDispatch
         Log(sub, LogLevel.Warn, $"render: handler {sub.Name} turned off: {why}");
         try
         {
-            if (UiNative.Available) Hud.Toast($"{sub.Owner}: a render handler was turned off ({(why.StartsWith("it threw") ? "errors" : "too slow")})", ToastKind.Warning, 6);
+            if (UiNative.Available) Hud.Toast(why.StartsWith("it threw") ? KilnText.T("toast.render_off_errors", ("mod", sub.Owner))
+                                                             : KilnText.T("toast.render_off_slow", ("mod", sub.Owner)), ToastKind.Warning, 6);
         }
         catch
         {

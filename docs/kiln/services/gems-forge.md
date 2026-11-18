@@ -141,6 +141,25 @@ Events.On<GemForgeOpenedEvent>(e =>                       // the player's forge 
   material, read by the gem program (`forge_material`).
 - Chests in unloaded parts of the world are out of reach (their inventories are not there); offer only what is loaded.
 
+### Seen in a real game (0.2.0-dev.29.15)
+bisdat ran the chest-gem offers and the payers in a real game client on 2026-11-17 (GitHub issue 61): Kiln
+0.2.0-dev.29.15 (mod API 0.2.7), Bazzite Linux with Steam's Proton, in a world hosted on that PC, with their server mod
+"Gem Forge Magic Storage" (v1.0.0, released; it uses `GemForgeOpenedEvent`, `Gems.OfferChestGems` with
+`PayFrom = GemPayer.PlayerThenBaseStorage`, and the `Bases` APIs). All passed:
+- `GemForgeOpenedEvent` arrived while the forge screen was open, and `Gems.OfferChestGems` offered the loose gems of a
+  Magic chest: all 28 appeared as rows in the game's own GEMS grid.
+- A chest gem socketed into a weapon the player held, with the game's own controls, without the gem passing through the
+  backpack; unsocketing it put it in the player's backpack, as the game's Remove does.
+- An upgrade of a chest gem, level 43 to 44, paid from the base's Magic chests: 172 Archaic Essence VII (the forge's shown
+  price) came out of the chests while the backpack held none.
+- With too little essence the upgrade was refused: the level stayed, no gem or essence was lost.
+- A loose chest gem recycled; its essence went to the player's backpack.
+- Withdrawn offers: the chest rows left the GEMS grid, and the player's own gems stayed.
+
+Not seen in a real game yet: two players acting on the same offers at once, an action on a stale row (the gem moved
+out of the chest while its row was listed), the cross-base permission cases, and a separate Kiln client joined to a
+dedicated server (the offers then travel over the network). The server-side checks cover these in labs.
+
 ### Free and changed costs
 `GemCraftOptions.Cost` changes what the player pays, for creative tools, quest rewards or a mod's own prices:
 

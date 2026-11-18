@@ -401,6 +401,110 @@ if (W->register_program(owner, &d, &g_prog) == KILN_OK)
 - Limits: tpl 8, read+write 42, singletons 64 per list, other_tpl 9, other 92, events 24, iterator 4096 bytes; a name
   may appear once per access group. events_in slots resolve only when the list has a single event.
 
+### World reads from task threads
+
+A task thread can read entities and components through seven members appended to `kiln.world` (offsets 528 to 576; the
+table is 584 bytes; version stays 4, so check `header.size`) and `kiln.types`' `ecs_registry`. Every one of them runs
+on the calling thread, the tick included: none posts work to a tick and none waits on one. Every engine byte goes
+through `kiln.internal.engine`'s guarded copy, so a page the game freed or protected fails the read, never the game.
+
+| Member | What it returns |
+|---|---|
+| `entity_open` | a `KilnObjectRef`: id, generation, world session, layout stamp and the caller's reload epoch. A value, not a handle; nothing is pinned |
+| `entity_validate` | the same ref re-checked, as a `KilnObjectInfo` that names the generation and session seen now |
+| `ecs_context_snapshot` | which worlds and sessions exist now, and whether this build has an exact engine profile |
+| `ecs_query` | every entity that has all of the named components, optionally inside a radius, as refs in ascending entity id. Complete or nothing |
+| `ecs_snapshot` | one component's bytes, checked before and after the copy |
+| `ecs_snapshot_many` | several components, each with its own presence. Not one atomic read across components |
+| `ecs_template_uuid` | the template the entity was spawned from, 16 bytes, checked before and after |
+| `kiln.types` `ecs_registry` | the component catalog: index, hash, size, type identity, and tracking flags only when they were actually read |
+
+**What works where.** Entity and component reads work on the two exact builds Kiln has profiles for, dedicated server
+26430253 and client 26430625:
+
+| World | Dedicated server | Client hosting a game | Client joined to a server |
+|---|---|---|---|
+| server (`KILN_WORLD_SERVER`) | yes | yes | no server world (unavailable) |
+| client (`KILN_WORLD_CLIENT`) | no client world | yes | yes |
+| prediction | unavailable (a storage no engine view names) | unavailable | unavailable |
+
+On any other build, and on these two when a check below fails, every entity read answers unavailable and the
+capability row `world.ecs_read` says why; `ecs_context_snapshot` still answers.
+
+**How a read finds an entity.** From the exact profile's `ecsReadLayout`: the world's entity manager, its entity map
+(the engine's own id hash and linear probe over the occupancy bits and keys, bounded), the entity record (id,
+generation, archetype layout, chunk, row, definition), the layout's component bits, offsets and strides, and the
+engine's component registration rows (each one's hash checked against its name; a stride must equal the registered
+size). The view the engine gate resolves for the world kind must name the very world object Kiln sees for that kind.
+The entity's layout pointer is its layout stamp, so a component added or removed makes its refs stale; a row that
+moves inside the same archetype does not.
+
+**When reads turn on.** At boot (`on_ready`) `world.ecs_read` is available only when kiln.engine matched an exact
+profile, `kiln.internal.engine` is here, the profile's read section carries the entity id index and every offset the
+reads use, and kiln.world's own resolution of the same fields on the running exe (its sigdb constants for the entity
+map, the hash map's fields, the record's id, layout, chunk and row, the layout's offsets and strides) agrees with the
+profile field by field. The row's text names the first check that failed. `tools/engine/validate.py` shows the same
+fields statically in both exes (docs/kiln/services/engine.md).
+
+**The refusals stay distinct.** **Absent**: no such entity, or the entity has no such component. **Stale**: the same
+id now names a new entity (a new generation), or the session, the layout or the caller's reload epoch changed.
+**Unreadable**: the copy faulted, the bytes changed during the read, or a query's membership changed while it was being
+read (`KILN_WORLD_ERR_CHANGED`; nothing is copied); try again. **Unavailable**: no exact profile, no world of that kind,
+or reads are off on this build. **Busy** and **unsupported**: frame-quiet reads only (below). A short buffer is
+`KILN_ERR_BUFFER_TOO_SMALL` with `*required` set and nothing written; `ecs_snapshot_many` works out the size before it
+copies anything.
+
+**Reload epochs.** Kiln keeps each owner at the newest `reload_epoch` it opened a ref with (0 until then). Opening
+under a newer epoch is the owner's reload: from then on its refs of every other epoch validate stale. Opening under an
+older epoch is stale. `ecs_query` refs carry the caller's current epoch. A retiring owner's epoch is dropped.
+
+**Two read modes for component bytes.**
+
+- **Stable copy** (the default). The engine keeps no version per component, so Kiln copies the bytes twice between
+  identity checks, compares the copies and hashes the bytes before and after each copy; a value that changes during the
+  read is refused unreadable. The limit, plainly: a game writer that is descheduled half way through storing a value
+  leaves a half-written value that stays put, and a stable copy cannot tell it from a whole one. The host test measures
+  it with a writer that stores byte by byte and yields half way: some mixed values get through. A writer that stores
+  whole values, as the game's systems do, never got one through.
+- **Frame-quiet** (opt-in, server world only): `KILN_ECS_READ_FRAME_QUIET` on a `KilnEcsSnapshotSpec` (a single
+  component is `ecs_snapshot_many` with one spec), `KILN_ECS_QUERY_FRAME_QUIET` on a query. The copies run only while no
+  server frame runs: Kiln reads the server step, then the engine's Scene word (the word the GameServer frame holds for
+  its whole update and the write gate takes), copies, and reads the word and the step again. The word must be free both
+  times and the step must not have moved: a frame that overlapped the copies either held the word at one of the two
+  looks or ran entirely between them and moved the step. Kiln only observes the word: it takes no gate, writes
+  nothing, and the copy window allocates nothing and takes no lock. **Busy** (`KILN_ECS_ERR_BUSY`): a frame ran during
+  the read, nothing was copied; retry after the step (`NextGateWindow` in C#, a `KILN_TASK_AFTER_STEP` task natively).
+  **Unsupported** (`KILN_ECS_ERR_UNSUPPORTED`): a client or prediction world, which has no such word; Kiln never falls
+  back to a stable copy for a frame-quiet request. It rests on two facts of the engine: every frame that writes
+  components holds the Scene word, and runs Kiln's Pre (which moves the step).
+- `ecs_snapshot` is always a stable copy. `ecs_template_uuid` has no mode: its 16 bytes are the template definition's,
+  game data that no frame writes, reached through one aligned pointer of the entity record.
+
+**Host and Windows tests, no game.** `KILN_OUT=… native/services/world/tests/run.sh` runs `ecs_reads_test` (the logic
+over a scripted backend) and `ecs_engine_test` (the engine backend under that logic, over the real kiln.engine booted
+with a fake core and a fake engine laid out from both exact profiles: a recycled id, a removed entity, an archetype
+change, a moved row, faulting pages, a catalog that does not check out, a stride that is not the registered size, a
+view naming another world, a session change, reload epochs, a resized table, a probe without a free slot, concurrent
+writers, and frame-quiet reads against frames), each under ASan/UBSan and ThreadSanitizer.
+`native/services/types/test-types.sh` runs `ecs_registry_test`. `native/build.sh world-ecs-fault` and
+`WINEPREFIX=<private prefix> native/services/world/tests/wine.sh` run the fault paths over kiln.engine's real Windows
+SEH copy: pages made unreadable, guarded, decommitted and flipped under the reads, every read refused cleanly.
+
+**In-game check (the owner's).** Create the empty file `<game>/kiln/data/kiln.world/ecs-read-check` before starting.
+While a server world runs, every 20 s (6 rounds) kiln.world takes the players and the nearest container through the
+game's own `GetComponent` on the tick, then a `kiln.tasks` task reads the same entities through the members above and
+compares: `world ecs-read check: ...` lines in `kiln.log`, one `PASS` or `FAIL` line per round.
+
+1. Dedicated server: start it with the file in place, join with a client, stand still next to a chest for two minutes.
+   Expect `world.ecs_read: on (enshrouded-server-26430253)` at boot and `world ecs-read check: PASS round N` lines: the
+   player's position read from the task within 0.5 m of the tick's, the Inventory size the same, the chest in the
+   bounded query, a frame-quiet read of the player's transform (`ok after N busy look(s)`), and `snapshot_many`.
+2. Client hosting a game (single player or co-op host), the file in `<game>/kiln/data/kiln.world/`: the same lines,
+   and `world.ecs_read: on (enshrouded-client-26430625)`; the client-world lines show entities near the player, and the
+   frame-quiet client-world query is refused `unsupported`.
+3. Send `kiln.log` if any round says `FAIL`, or if `world.ecs_read` is off (its text says why). Remove the file again
+   afterwards.
+
 ### Entities and teleport from native code
 Tick thread (Pre/Post) or inside your program: `component(e, hash, &size)`, `exists`, `transform`, `position`,
 `find(hash, buf, cap, &count)` (KILN_ERR_BUFFER_TOO_SMALL with the full count when `cap` is short),

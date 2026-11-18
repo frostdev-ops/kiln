@@ -224,6 +224,21 @@ fn loader_module_candidate(path: &str) -> bool {
         || lower.contains("\\kiln\\chain\\")
 }
 
+/// A modified EML loader runs in this process (its own code reads its settings file next to the game).
+static MODIFIED_LOADED: AtomicBool = AtomicBool::new(false);
+
+/// The line for an EML loader file in the folder whose code is not the module the process loaded under its name (Wine's
+/// builtin without a DLL override): who the file is, and for a modified EML loader that its own code does not run.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn unloaded_line(path: &str, who: &str, modified: Option<&str>) -> String {
+    let name = path.replace('/', "\\").rsplit('\\').next().unwrap_or("dbghelp.dll").to_string();
+    let short = if who.starts_with("ShroudForge") { "ShroudForge's loader" } else { "EML's loader" };
+    let own = modified.map(|what| format!(". It is a modified EML loader with code of its own ({what}): that code does not \
+        run either, only the EML mods' Lua part does")).unwrap_or_default();
+    format!("{path}: {short} is in the folder but this process loaded another {name} (Wine's builtin, without a DLL \
+        override): kiln-eml runs the EML mods{own}")
+}
+
 /// Who an EML-marked loader file is: ShroudForge's loader (it carries EML) or EML's own. None: not an EML loader (no
 /// `EML_LOG_FILE_PATH`, or Kiln's own proxy, which names every engine).
 fn eml_loader_who(bytes: &[u8]) -> Option<&'static str> {
@@ -289,6 +304,8 @@ fn eml_loader_loaded() -> Option<LoadedLoaders> {
         }
         let Ok(bytes) = std::fs::read(&path) else { continue };
         let Some(who) = eml_loader_who(&bytes) else { continue };
+        // a modified EML loader (Holster Toggle's dbghelp.dll): its own code runs only while it is the loader that runs
+        let modified = (!who.starts_with("ShroudForge")).then(|| crate::modified::what(&bytes)).flatten();
         // Wine without a DLL override loads its builtin dbghelp but reports the game folder's path for it: the file
         // there is EML's, the code in the process is not. The loaded image's PE header must be the file's.
         // A header that cannot be read on either side keeps the old answer: the file's loader counts as running.
@@ -297,9 +314,12 @@ fn eml_loader_loaded() -> Option<LoadedLoaders> {
         if let (Some(loaded), Some(file)) = (pe_identity(image), pe_identity(&bytes))
             && loaded != file
         {
-            tracing::info!("{path}: EML's loader is in the folder but this process loaded another dbghelp.dll \
-                (Wine's builtin, without a DLL override): kiln-eml runs the EML mods");
+            tracing::info!("{}", unloaded_line(&path, who, modified.as_deref()));
             continue;
+        }
+        if let Some(what) = &modified {
+            MODIFIED_LOADED.store(true, Ordering::Release);
+            tracing::info!("{path} is a modified EML loader with code of its own ({what}): that code runs in this process too");
         }
         found.push((path, who));
     }
@@ -387,6 +407,9 @@ fn aside_outcome(why: &str, who: &str, shroudforge: bool) -> Outcome {
     let roots = if shroudforge { vec![shroudforge_root(&game)] } else { loader_roots(&game) };
     out.mods = discover::aside_entries(&json, &kiln, &roots, who, shroudforge.then_some(server));
     for (level, line) in discover::aside_log(&out.mods, who) {
+        klog(level, &line);
+    }
+    for (level, line) in discover::apply_partial(&json, &mut out.mods) {
         klog(level, &line);
     }
     out
@@ -513,7 +536,13 @@ fn run_now() {
         discover::apply_runtime_blocks(&unsafe { (p.json)().to_string() }, &kiln, &mut entries, &runner::runtime_skip_reason(&cfg));
     }
     tracing::debug!(candidates = candidates.len(), run = mods.len(), dropins, profile_note, "kiln-eml discovery");
-    let out = runner::run(&cfg, mods, entries);
+    let mut out = runner::run(&cfg, mods, entries);
+    // EML mods of which only the Lua part runs (a modified EML loader in their package carries the rest): say so
+    if let Some(p) = profile() {
+        for (level, line) in discover::apply_partial(&unsafe { (p.json)().to_string() }, &mut out.mods) {
+            klog(level, &line);
+        }
+    }
     for m in &out.mods {
         let id = m.id.as_deref().unwrap_or("?");
         let reason = m.reason.as_deref().unwrap_or("");
@@ -631,6 +660,12 @@ fn start(api: *const KilnApi, owner: u64, info: *mut KilnPluginInfo, with_ready:
         }
         publish(&out, state_dir(kpath(KILN_PATH_KILN).as_deref()).as_deref());
     }
+    // a modified EML loader's settings next to the game while no such loader runs: its code (a hotkey) does nothing
+    if let Some(game) = kpath(KILN_PATH_GAME)
+        && let Some(line) = crate::modified::settings_without_loader(game.as_std_path(), MODIFIED_LOADED.load(Ordering::Acquire))
+    {
+        klog(2, &line);
+    }
     KILN_OK
 }
 
@@ -742,6 +777,20 @@ unsafe extern "C" fn eml_state_json(buffer: *mut u8, capacity: usize, out_len: *
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// Proton without a dbghelp override (player report 2026-11-17, Holster Toggle): the line names who the file is
+    /// (it was ShroudForge's loader, not EML's) and the file it is, and for a modified EML loader that its own code does
+    /// not run either.
+    #[test]
+    fn the_unloaded_loader_line_says_who_and_what_does_not_run() {
+        let sf = unloaded_line(r"S:\steamapps\common\Enshrouded\dbghelp.dll", "ShroudForge's loader (it runs EML packages itself)", None);
+        assert!(sf.contains(": ShroudForge's loader is in the folder but this process loaded another dbghelp.dll (Wine's builtin"), "{sf}");
+        assert!(!sf.contains("modified"), "{sf}");
+        let holster = unloaded_line("C:/Game/dbghelp.dll", "EML's own loader", Some("a weapon holster hotkey; settings in m182_native.json"));
+        assert!(holster.contains(": EML's loader is in the folder but this process loaded another dbghelp.dll"), "{holster}");
+        assert!(holster.ends_with("It is a modified EML loader with code of its own (a weapon holster hotkey; settings in \
+            m182_native.json): that code does not run either, only the EML mods' Lua part does"), "{holster}");
+    }
+
     #[test]
     fn recognizes_renamed_eml_loaders_before_deciding_to_patch() {
         for path in [r"C:\Game\dbghelp.dll", r"C:\Game\dbghelp_mod.dll", r"C:\Game\DBGHELP_HoardersHelper.DLL",

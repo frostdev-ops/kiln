@@ -21,7 +21,8 @@ import { bootSnapshotBeforeOnce, cookBeforePlay, cookingNotice } from "./cook";
 import { notifyLibraryChanged } from "./libraryChanged";
 import { gameState, playState, runStarted, type GameStateView } from "./gameState";
 import { notifyActivation, notifyActivationOf, notifyInstall } from "./notices";
-import { quietText, showsProgress, STEAM_WAIT_MS } from "./startProgress";
+import { quietIsKiln, quietText, showsProgress, STEAM_WAIT_MS } from "./startProgress";
+import { t } from "../i18n";
 
 // A shared monotonic clock: changing the system clock while a start is pending cannot restart its grace period.
 const epoch = Date.now(), tick = performance.now();
@@ -119,11 +120,11 @@ export function usePlayControl(): PlayControl {
   const progress = !stoppedStart && !exception && showsProgress(tl) ? tl : null;
   const running_ = !!progress && running;
   const quiet = !exception && running && tl?.phase === "quiet" ? tl : null;
-  const view: GameStateView = stoppedStart ? { phase: running ? "running" : "stopped", label: "Kiln stopped the start", tone: "warn", pulse: false, detail: stoppedStart.reason } : exception ? state.view
-    : running_ ? { phase: "starting", label: "Starting", tone: "ember", pulse: true, detail: progress!.running != null ? progress!.steps[progress!.running].label : "Waiting for Kiln" }
-    : quiet ? { phase: "running", label: "No word from Kiln", tone: "warn", pulse: true, detail: quietText(quiet) }
-    : tl?.phase === "idle" && running && state.view.label !== "Safe idle" ? { phase: "running", label: "Safe idle", tone: "warn", pulse: true, detail: tl.why ?? "Kiln hooked nothing" }
-    : tl?.phase === "failed" && running ? { phase: "running", label: "Kiln stopped", tone: "warn", pulse: true, detail: tl.why ?? "Kiln could not go on" }
+  const view: GameStateView = stoppedStart ? { phase: running ? "running" : "stopped", label: t("shell.play.stoppedStart"), word: "stoppedStart", tone: "warn", pulse: false, detail: stoppedStart.reason } : exception ? state.view
+    : running_ ? { phase: "starting", label: t("shell.gameState.starting"), word: "starting", tone: "ember", pulse: true, detail: progress!.running != null ? progress!.steps[progress!.running].label : t("shell.play.waitingForKiln") }
+    : quiet ? { phase: "running", label: t("shell.play.noWord"), word: "noWord", tone: "warn", pulse: true, detail: quietText(quiet), detailKiln: quietIsKiln(quiet) }
+    : tl?.phase === "idle" && running && state.view.word !== "safeIdle" ? { phase: "running", label: t("shell.gameState.safeIdle"), word: "safeIdle", tone: "warn", pulse: true, detail: tl.why ?? t("shell.play.hookedNothing"), detailKiln: tl.why == null ? true : undefined }
+    : tl?.phase === "failed" && running ? { phase: "running", label: t("shell.play.kilnStopped"), word: "kilnStopped", tone: "warn", pulse: true, detail: tl.why ?? t("shell.play.couldNotGoOn"), detailKiln: tl.why == null ? true : undefined }
     : state.kilnMissing && spoke ? gameState(game ? s : null, launchState.data, false, now) : state.view;
   const launch = useMutation({
     mutationKey: ["launch_play"],
@@ -145,7 +146,8 @@ export function usePlayControl(): PlayControl {
     onSuccess: (r, { gameId }) => {
       rememberLaunch(gameId, r.mode);
       invalidateGame(qc, gameId);
-      toast.ok(r.mode === "vanilla" ? "Starting vanilla" : r.mode === "no-mods" ? "Starting without mods" : "Starting", r.backup ? "Saves backed up first." : "Through Steam.");
+      toast.ok(r.mode === "vanilla" ? t("shell.play.startingVanilla") : r.mode === "no-mods" ? t("shell.play.startingNoMods") : t("shell.gameState.starting"),
+        r.backup ? t("shell.play.savesBackedUp") : t("shell.play.throughSteam"));
       notifyActivation(r.activation);
     },
     // the re-apply before the start may have kept copies even when the start then failed; a mod changed in its Library
@@ -216,12 +218,12 @@ export async function switchBackFirst(gameId: string, req: api.LaunchRequest): P
   if (!back) return false;
   try {
     const r = await runTask<api.InstallResult>(() => api.runtimeInstall(gameId, back.to, {}), {
-      done: `Kiln ${back.to} installed`, detail: () => `This game had Kiln ${back.from} from the beta; the release's goes with this launcher.`, quiet: true,
+      done: t("shell.play.kilnInstalled", { version: back.to }), detail: () => t("shell.play.switchBackDetail", { from: back.from }), quiet: true,
     });
     notifyInstall(r);
     return true;
   } catch (e) {
-    toast.error(e, `Kiln ${back.to} could not be installed: the game starts with Kiln ${back.from} from the beta`);
+    toast.error(e, t("shell.play.switchBackFailed", { to: back.to, from: back.from }));
     return false;
   }
 }
@@ -248,8 +250,8 @@ export function useNow(ms: number): number {
   useEffect(() => {
     if (!ms) return;
     setNow(playNow());
-    const t = setInterval(() => setNow(playNow()), ms);
-    return () => clearInterval(t);
+    const timer = setInterval(() => setNow(playNow()), ms);
+    return () => clearInterval(timer);
   }, [ms]);
   return now;
 }

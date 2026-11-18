@@ -1689,20 +1689,28 @@ fn check_loaders_in_folder(cx: &mut Ctx, proxies: &[crate::engines::ProxySlot], 
             continue; // the own-loader finding says it, from what the plugin saw
         }
         let windows = platform == Some(Platform::Windows);
+        // a modified EML loader (Holster Toggle's dbghelp.dll): its own code runs only while it is the loader that runs
+        let is = match p.class.modified.as_deref().filter(|_| engine == Engine::Eml) {
+            Some(what) => format!("{} is a modified EML loader with code of its own ({what})", p.name),
+            None => format!("{} is {}'s own loader", p.name, engine.name()),
+        };
+        let own_code = if p.class.modified.is_some() && engine == Engine::Eml { " nor its own code" } else { "" };
         if ran.contains(&kind) {
             // r1111 (Steam Deck, no dbgcore override): the note said kiln-greeneye stood aside while it had run the mods
             cx.find("loader-in-folder", Level::Info, format!(
-                "{} is {}'s own loader. It did not start at the last start ({}), so Kiln's {} plugin ran the {} mods itself.",
-                p.name, engine.name(),
+                "{is}. It did not start at the last start ({}), so Kiln's {} plugin ran the {} mods itself{}.",
                 if windows { "something kept it from loading" } else { "under Wine or Proton it loads only with a DLL override for that name" },
-                short_name(engine), short_name(engine)));
+                short_name(engine), short_name(engine),
+                if own_code.is_empty() { "" } else { " (their EML part; the loader's own code did not run)" }));
             continue;
         }
         cx.find("loader-in-folder", if windows { Level::Warning } else { Level::Info }, format!(
-            "{} is {}'s own loader. {}, and Kiln's {} plugin then stands aside for it: the {} mods in the profile do not load through Kiln.",
-            p.name, engine.name(),
+            "{is}. {}, and Kiln's {} plugin then stands aside for it: the {} mods in the profile do not load through Kiln.{}",
             if windows { "On Windows the game always loads it" } else { "Under Wine or Proton it loads only with a DLL override for that name" },
-            short_name(engine), short_name(engine)));
+            short_name(engine), short_name(engine),
+            if own_code.is_empty() || windows { String::new() } else {
+                format!(" Without that override neither EML{own_code} runs from it, and Kiln runs the EML mods' data part itself.")
+            }));
     }
 }
 

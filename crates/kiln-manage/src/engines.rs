@@ -373,6 +373,113 @@ pub fn loader_reason(engine: Engine, file: &str) -> String {
     }
 }
 
+// ---- modified EML loaders ----
+
+/// The source files of EML 0.2.0's `mod-loader-runtime` crate: a stub (`loader_attach` only logs "Attaching runtime
+/// loader"). A build whose panic and log locations name another file of that crate carries code of its own there.
+const EML_STOCK_RUNTIME_FILES: [&str; 2] = ["lib.rs", "log.rs"];
+
+/// Texts of known EML rebuilds' own code, and what that code does for a player. "Put Away Your Weapon" (Nexus 371,
+/// `holster-toggle`) ships EML's dbghelp.dll rebuilt with a native layer (crates\mod-loader-runtime\src\native\):
+/// a thread `m182-holster` that, on a key, rewrites weapon poses in the game's memory from the map its Lua part
+/// exports, a PvP patch of the game's isEnemy/isFriend checks, and a stance dump key (analysis 2026-11-17,
+/// dev29/out/holster/REPORT.md).
+const EML_EXTRA_TEXTS: [(&str, &str); 3] = [
+    ("m182-holster", "a weapon holster hotkey"),
+    ("isEnemy(values)", "a PvP patch of the game's faction checks"),
+    ("m182-stancedump", "a stance dump key"),
+];
+
+/// Settings files known EML rebuilds read next to the game, named in what Kiln tells the player.
+pub const EML_EXTRA_SETTINGS: [&str; 1] = ["m182_native.json"];
+
+/// What a modified EML loader carries besides EML.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EmlExtras {
+    /// What that code does, where Kiln recognises it; empty for code Kiln does not know.
+    pub features: Vec<&'static str>,
+    /// The settings file it reads next to the game, when Kiln knows it.
+    pub settings: Option<&'static str>,
+    /// What gave it away: a source file of its own (`mod-loader-runtime\src\native\mod.rs`) or a known text.
+    pub evidence: String,
+}
+
+impl EmlExtras {
+    /// "a weapon holster hotkey and a PvP patch of the game's faction checks; settings in m182_native.json", or
+    /// "code Kiln does not recognise".
+    pub fn what(&self) -> String {
+        let mut s = match self.features.as_slice() {
+            [] => "code Kiln does not recognise".to_string(),
+            [one] => one.to_string(),
+            [first @ .., last] => format!("{} and {last}", first.join(", ")),
+        };
+        if let Some(f) = self.settings {
+            s += &format!("; settings in {f}");
+        }
+        s
+    }
+}
+
+/// The source files of `mod-loader-runtime` a build names (`native\holster.rs`), from its panic and log locations.
+fn runtime_sources(bytes: &[u8]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for prefix in [b"mod-loader-runtime\\src\\".as_slice(), b"mod-loader-runtime/src/".as_slice()] {
+        let mut from = 0;
+        while let Some(at) = crate::pe::contains(&bytes[from..], prefix) {
+            let start = from + at + prefix.len();
+            let rest = &bytes[start..bytes.len().min(start + 96)];
+            let n = rest.iter().take_while(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-' | b'.' | b'\\' | b'/')).count();
+            let name = String::from_utf8_lossy(&rest[..n]);
+            if let Some(end) = name.find(".rs") {
+                let file = name[..end + 3].replace('/', "\\");
+                if !out.contains(&file) { out.push(file); }
+            }
+            from = start;
+        }
+    }
+    out
+}
+
+/// The code a DLL with EML's marker carries besides EML (None: a stock EML build, as far as Kiln can tell). Only
+/// meaningful for a DLL [`classify_markers`] calls EML's.
+pub fn eml_loader_extras(bytes: &[u8]) -> Option<EmlExtras> {
+    let own = runtime_sources(bytes).into_iter().find(|f| !EML_STOCK_RUNTIME_FILES.contains(&f.as_str()));
+    let features: Vec<&'static str> = EML_EXTRA_TEXTS.iter()
+        .filter(|(t, _)| crate::pe::contains(bytes, t.as_bytes()).is_some()).map(|(_, f)| *f).collect();
+    if own.is_none() && features.is_empty() {
+        return None;
+    }
+    let settings = EML_EXTRA_SETTINGS.iter().copied().find(|s| crate::pe::contains(bytes, s.as_bytes()).is_some());
+    let evidence = match own {
+        Some(f) => format!("mod-loader-runtime\\src\\{f}"),
+        None => EML_EXTRA_TEXTS.iter().find(|(_, f)| features.contains(f)).map(|(t, _)| format!("text {t}")).unwrap_or_default(),
+    };
+    Some(EmlExtras { features, settings, evidence })
+}
+
+/// The Library's line for a modified EML loader in a package (`what`: [`EmlExtras::what`]). Never "not needed": Kiln
+/// runs the package's EML mods, but not the loader's own code.
+pub fn modified_eml_reason(file: &str, what: &str) -> String {
+    format!("{file} is a modified EML loader with code of its own ({what}). Kiln runs the EML mods of this package, but not \
+        that code: it runs only when this file is the game's EML loader in place of Kiln's EML support (Kiln wiki: EML, \
+        modified loaders). Not added to the Library")
+}
+
+/// What an EML mod imported with a modified EML loader beside it says about itself: which part runs under Kiln.
+pub fn eml_partial_note(file: &str, what: &str) -> String {
+    format!("part of this mod is in {file}, a modified EML loader with code of its own ({what}). Kiln runs the mod's EML \
+        part (its game data), not that code, so what the code does (such as a hotkey) does not work under Kiln")
+}
+
+/// A modified EML loader directly in `dir` (file name, [`EmlExtras::what`]), the first by name.
+pub fn modified_eml_in(dir: &Path) -> Option<(String, String)> {
+    dlls_in(dir).into_iter().find_map(|dll| {
+        let class = crate::pe::classify_proxy(&dll).ok()?;
+        let what = class.modified.filter(|_| class.kind == ProxyKind::Eml)?;
+        Some((dll.file_name()?.to_string_lossy().into_owned(), what))
+    })
+}
+
 // ---- Library detection ----
 
 /// Mod-DLL exports of other engines (a mod, not a loader).
@@ -462,6 +569,11 @@ pub fn detect_dll(path: &Path, bytes: &[u8], exports: &[String]) -> Option<Detec
     }
     let class = crate::pe::classify_bytes(bytes);
     let engine = Engine::of_proxy(class.kind).filter(|e| *e != Engine::Kiln)?; // Kiln's own proxy: library's rule
+    // a modified EML loader is left out with what it is and what does not run, never as "not needed" (Unknown: the
+    // import skips it with that reason; detect_folder does not take its folder for an EML mod)
+    if engine == Engine::Eml && let Some(what) = &class.modified {
+        return Some(detected(DetectKind::Unknown, Some(engine), path, modified_eml_reason(&file, what)));
+    }
     // a plain DLL that merely mentions "dinput8-chain.ini" or "reshade" keeps Kiln's own rules unless it is one by name
     if matches!(engine, Engine::ChainLoader | Engine::ReShade | Engine::Aldrich | Engine::NativeFolders) && !is_proxy_name(&file) {
         return None;
@@ -772,6 +884,7 @@ pub fn detect_folder(dir: &Path) -> Option<Detected> {
         let exports = crate::pe::parse(&bytes).map(|i| i.exports).unwrap_or_default();
         if let Some(d) = detect_dll(&dll, &bytes, &exports)
             && d.kind != DetectKind::Proxy
+            && d.kind != DetectKind::Unknown // a modified EML loader: a loader, not a mod that makes its folder one
             && let Some(engine) = d.engine
         {
             if engine == Engine::Shroudlink && has_eml_subfolder(dir) {
@@ -949,6 +1062,50 @@ mod tests {
         assert_eq!(kind_of(&[], b"dinput8-chain.ini greeneye"), ProxyKind::Greeneye);
         // UTF-16 texts count, case ignored
         assert_eq!(kind_of(&[], &utf16("SHROUDTOPIA")), ProxyKind::Shroudtopia);
+    }
+
+    /// "Put Away Your Weapon" (Nexus 371): EML's dbghelp.dll rebuilt with a native layer of its own (player report
+    /// 2026-11-17). Stock EML 0.2.0 names only lib.rs of mod-loader-runtime; the rebuild names native\*.rs too.
+    #[test]
+    fn a_modified_eml_loader_is_told_from_a_stock_one() {
+        let stock = b"EML_LOG_FILE_PATH FieldSet corrupted (this is a bug)crates\\mod-loader-runtime\\src\\lib.rs Attaching runtime loader";
+        let modified = b"EML_LOG_FILE_PATH crates\\mod-loader-runtime\\src\\lib.rs event crates\\mod-loader-runtime\\src\\native\\holster.rs:376 \
+            m182-holster isEnemy(values)isEnemy(pointers) Errorm182_native.json";
+        assert_eq!(eml_loader_extras(stock), None);
+        let x = eml_loader_extras(modified).unwrap();
+        assert_eq!(x.evidence, "mod-loader-runtime\\src\\native\\holster.rs");
+        assert_eq!(x.what(), "a weapon holster hotkey and a PvP patch of the game's faction checks; settings in m182_native.json");
+        // own code Kiln does not know (a cross build names it with '/'), and known texts alone, still count
+        let unknown = eml_loader_extras(b"EML_LOG_FILE_PATH crates/mod-loader-runtime/src/hotkeys.rs").unwrap();
+        assert_eq!((unknown.what(), unknown.evidence.as_str()), ("code Kiln does not recognise".to_string(), "mod-loader-runtime\\src\\hotkeys.rs"));
+        assert_eq!(eml_loader_extras(b"EML_LOG_FILE_PATH m182-stancedump").unwrap().what(), "a stance dump key");
+
+        // the classification keeps the kind (an EML loader: kiln-eml stands aside for it when it runs) and says modified
+        let class = crate::pe::classify_bytes(&build_test_dll(&["MiniDumpWriteDump"], modified));
+        assert_eq!((class.kind, class.modified.as_deref()), (ProxyKind::Eml, Some(x.what().as_str())));
+        assert_eq!(crate::pe::classify_bytes(&build_test_dll(&["MiniDumpWriteDump"], stock)).modified, None);
+        // ShroudForge's loader carries EML's text and may name runtime files of its own: it is ShroudForge's, not modified EML
+        let sf = crate::pe::classify_bytes(&build_test_dll(&[], b"EML_LOG_FILE_PATH shroudforge mod-loader-runtime\\src\\native\\x.rs"));
+        assert_eq!((sf.kind, sf.modified), (ProxyKind::ShroudForge, None));
+
+        // the Library: never "not needed" (Unknown: the import leaves it out with its reason), and its folder is no EML mod
+        let exports = vec!["MiniDumpWriteDump".to_string()];
+        let d = detect_dll(Path::new("dbghelp.dll"), &build_test_dll(&["MiniDumpWriteDump"], modified), &exports).unwrap();
+        assert_eq!((d.kind, d.engine), (DetectKind::Unknown, Some(Engine::Eml)));
+        assert!(d.reason.starts_with("dbghelp.dll is a modified EML loader with code of its own (a weapon holster hotkey"), "{}", d.reason);
+        assert!(!d.reason.contains("not needed"), "{}", d.reason);
+        let plain = detect_dll(Path::new("dbghelp.dll"), &build_test_dll(&["MiniDumpWriteDump"], stock), &exports).unwrap();
+        assert_eq!((plain.kind, plain.reason.as_str()), (DetectKind::Proxy, "EML's own loader is in this package: not needed, Kiln runs EML mods"));
+        let dir = std::env::temp_dir().join(format!("km-modified-eml-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("dbghelp.dll"), build_test_dll(&["MiniDumpWriteDump"], modified)).unwrap();
+        std::fs::write(dir.join("m182_native.json"), b"{}").unwrap();
+        assert!(detect_folder(&dir).is_none(), "a folder with a modified loader is not an EML mod of its own");
+        assert_eq!(modified_eml_in(&dir), Some(("dbghelp.dll".to_string(), x.what())));
+        std::fs::write(dir.join("dbghelp.dll"), build_test_dll(&["MiniDumpWriteDump"], stock)).unwrap();
+        assert_eq!(modified_eml_in(&dir), None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

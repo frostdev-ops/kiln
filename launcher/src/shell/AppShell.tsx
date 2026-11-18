@@ -24,6 +24,7 @@ import { InstallKilnModal, detectGames, useAutoDetect, useDetect, useInstallProm
 import { clock, usePlayControl, type PlayControl } from "./play";
 import { Stage, stageInput, type Heat } from "./Stage";
 import { startWords } from "./startProgress";
+import { useT } from "../i18n";
 
 const reduced = () => typeof window !== "undefined" && !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
@@ -34,13 +35,14 @@ function useLinger<T>(value: T, show: boolean, ms: number): T | null {
   if (show) last.current = value;
   useEffect(() => {
     if (show) return;
-    const t = setTimeout(() => { last.current = null; bump((n) => n + 1); }, reduced() ? 0 : ms);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => { last.current = null; bump((n) => n + 1); }, reduced() ? 0 : ms);
+    return () => clearTimeout(timer);
   }, [show, ms]);
   return show ? value : last.current;
 }
 
 function Header({ isPlay, ctl }: { isPlay: boolean; ctl: PlayControl }) {
+  const t = useT();
   const loc = useLocation();
   const info = useAppInfo();
   const fallback = useMockFallback();
@@ -61,18 +63,19 @@ function Header({ isPlay, ctl }: { isPlay: boolean; ctl: PlayControl }) {
   }, [active?.to, nexusEnabled]);
   const v = ctl.view;
   // a start that says what it does: its step, and the time left (else how far, in percent)
-  const t = ctl.timeline;
-  const tw = t ? startWords(t) : null;
-  const stepNow = t?.running != null ? t.steps[t.running].label : "Starting";
-  const word = t && tw ? `${tw.first ? `${tw.pct}%` : tw.short} · ${stepNow}` : ctl.starting ? "Starting" : v.phase === "running" || v.phase === "vanilla"
-    ? `${v.label}${ctl.elapsed !== null ? ` ${clock(ctl.elapsed)}` : ""}`
+  const tl = ctl.timeline;
+  const tw = tl ? startWords(tl) : null;
+  const stepNow = tl?.running != null ? tl.steps[tl.running].label : t("shell.gameState.starting");
+  const word = tl && tw ? t("shell.appShell.headStart", { progress: tw.first ? t("shell.appShell.pct", { pct: tw.pct }) : tw.short, step: stepNow })
+    : ctl.starting ? t("shell.gameState.starting") : v.phase === "running" || v.phase === "vanilla"
+    ? (ctl.elapsed !== null ? t("shell.appShell.labelTime", { label: v.label, time: clock(ctl.elapsed) }) : v.label)
     : v.label;
   const tone = ctl.starting ? "ember" : v.phase === "running" ? (v.tone === "warn" ? "warn" : "ember") : v.phase === "vanilla" ? "info" : v.phase === "updating" ? "warn" : "idle";
   const mock = info.data?.mock || mockFallbackActive(fallback);
   return (
     <header className="k-head">
-      <NavLink to="/" className="k-logo" aria-label="Kiln: Play" title={info.data ? `Kiln Launcher ${info.data.version}` : "Kiln"}><Lockup height={30} /></NavLink>
-      <nav ref={nav} className="k-nav" aria-label="Main">
+      <NavLink to="/" className="k-logo" aria-label={t("shell.appShell.logoAria")} title={info.data ? t("shell.appShell.logoTitle", { version: info.data.version }) : "Kiln"}><Lockup height={30} /></NavLink>
+      <nav ref={nav} className="k-nav" aria-label={t("shell.appShell.navAria")}>
         {main.map((n) => (
           <NavLink key={n.to} to={n.to} end={n.to === "/"} className={"k-navb" + (active?.to === n.to ? " on" : "")} aria-current={active?.to === n.to ? "page" : undefined}>
             <span>{n.label}</span>
@@ -86,10 +89,10 @@ function Header({ isPlay, ctl }: { isPlay: boolean; ctl: PlayControl }) {
         {NAV_SIDE.map((n) => (
           <NavLink key={n.to} to={n.to} className={({ isActive }) => "k-head-link" + (isActive ? " on" : "")}>{n.label}</NavLink>
         ))}
-        {mock && <span className="k-mock-flag" title={info.data?.mock ? "Browser mock" : `Mock data for: ${fallback.join(", ")}`}>Mock</span>}
+        {mock && <span className="k-mock-flag" title={info.data?.mock ? t("shell.appShell.browserMock") : t("shell.appShell.mockFor", { list: fallback.join(", ") })}>{t("shell.appShell.mock")}</span>}
         {info.data?.distribution !== "nexus" && <BetaMark />}
-        <span role="status" aria-live={t ? "off" : undefined} className={`k-head-state k-tone-${tone}${t ? " k-head-start" : ""}`} style={{ opacity: isPlay ? 0 : 1 }}
-          title={tw ? `${tw.line}. ${tw.left}` : v.detail ?? undefined} data-testid="head-state">{word}</span>
+        <span role="status" aria-live={tl ? "off" : undefined} className={`k-head-state k-tone-${tone}${tl ? " k-head-start" : ""}`} style={{ opacity: isPlay ? 0 : 1 }}
+          title={tw ? t("shell.appShell.lineLeft", { line: tw.line, left: tw.left }) : v.detail ?? undefined} data-testid="head-state">{word}</span>
       </div>
     </header>
   );
@@ -97,6 +100,7 @@ function Header({ isPlay, ctl }: { isPlay: boolean; ctl: PlayControl }) {
 
 /** The mouth: the Play button on the Play page, the pilot light in the corner on every other page. */
 function Mouth({ isPlay, ctl }: { isPlay: boolean; ctl: PlayControl }) {
+  const t = useT();
   const nav = useNavigate();
   const qc = useQueryClient();
   const [hot, setHot] = useState(false);
@@ -106,35 +110,36 @@ function Mouth({ isPlay, ctl }: { isPlay: boolean; ctl: PlayControl }) {
   const name = ctl.profileName ?? "Enshrouded";
   let word: string, sub: string, heat: Heat, act: (() => void) | null, aria: string;
   if (!ctl.game && looking) {
-    word = "Looking"; sub = "for Enshrouded"; heat = "unlit"; act = null; aria = "Looking for Enshrouded in your Steam libraries";
+    word = t("shell.appShell.looking"); sub = t("shell.appShell.lookingSub"); heat = "unlit"; act = null; aria = t("shell.appShell.lookingAria");
   } else if (!ctl.game) {
-    word = "Add game"; sub = "Kiln looks in every Steam library"; heat = "unlit"; act = () => void detectGames(qc); aria = "Add game: find Enshrouded in your Steam libraries";
+    word = t("shell.appShell.addGame"); sub = t("shell.appShell.addGameSub"); heat = "unlit"; act = () => void detectGames(qc); aria = t("shell.appShell.addGameAria");
   } else if (v.phase === "none") {
-    word = "Play"; sub = "Checking the game"; heat = "unlit"; act = null; aria = "Checking the game";
+    word = t("nav.play"); sub = t("shell.appShell.checkingGame"); heat = "unlit"; act = null; aria = t("shell.appShell.checkingGame");
   } else if (v.phase === "updating") {
-    word = "Updating"; sub = "Steam is updating the game"; heat = "low"; act = null; aria = "Steam is updating the game";
+    word = t("shell.gameState.updating"); sub = t("shell.gameState.steamUpdating"); heat = "low"; act = null; aria = t("shell.gameState.steamUpdating");
   } else if (!ctl.installed && !ctl.running && kiln.installing) {
-    word = "Installing"; sub = "Kiln goes into the game folder"; heat = "low"; act = null; aria = "Installing Kiln";
+    word = t("shell.appShell.installing"); sub = t("shell.appShell.installSub"); heat = "low"; act = null; aria = t("shell.appShell.installingAria");
   } else if (!ctl.installed && !ctl.running) {
     // the main action of a first start: the install's confirm opens right here (ShroudForge's switch is typed, on Runtime)
-    word = "Install"; sub = "Kiln goes into the game folder"; heat = "idle"; aria = "Install Kiln";
+    word = t("common.install"); sub = t("shell.appShell.installSub"); heat = "idle"; aria = t("shell.appShell.installKiln");
     act = kiln.shroudforge ? () => nav("/runtime") : () => useInstallPrompt.getState().show();
   } else if (ctl.timeline) {
     const tw = startWords(ctl.timeline);
-    word = "Starting"; sub = tw.first ? tw.stepOf : tw.short; heat = "flare"; act = null; aria = `Starting: ${tw.line}. ${tw.left}`;
+    word = t("shell.gameState.starting"); sub = tw.first ? tw.stepOf : tw.short; heat = "flare"; act = null;
+    aria = t("shell.appShell.startingAria", { line: tw.line, left: tw.left });
   } else if (ctl.starting) {
-    word = "Starting"; sub = "Waiting for Kiln"; heat = "flare"; act = null; aria = "Starting";
+    word = t("shell.gameState.starting"); sub = t("shell.play.waitingForKiln"); heat = "flare"; act = null; aria = t("shell.gameState.starting");
   } else if (ctl.running) {
-    const t = ctl.elapsed !== null ? clock(ctl.elapsed) : v.label;
-    word = t; sub = v.label === "Running" ? "Running" : v.label; heat = v.label === "Safe idle" ? "low" : "embers"; act = null;
-    aria = `${v.label}${ctl.elapsed !== null ? ` for ${t}` : ""}`;
+    const time = ctl.elapsed !== null ? clock(ctl.elapsed) : v.label;
+    word = time; sub = v.label; heat = v.word === "safeIdle" ? "low" : "embers"; act = null;
+    aria = ctl.elapsed !== null ? t("shell.appShell.labelFor", { label: v.label, time }) : v.label;
   } else {
-    word = "Play"; sub = ""; heat = "idle"; act = ctl.canPlay ? () => ctl.play("profile") : null; aria = `Play ${name}`;
+    word = t("nav.play"); sub = ""; heat = "idle"; act = ctl.canPlay ? () => ctl.play("profile") : null; aria = t("shell.appShell.playName", { name });
   }
   stageInput.heat = heat;
   stageInput.hover = hot && !!act;
   stageInput.game = !!ctl.running && !ctl.starting;
-  const subTone = v.phase === "vanilla" ? " k-tone-info" : v.phase === "updating" || v.label === "Safe idle" ? " k-tone-warn" : "";
+  const subTone = v.phase === "vanilla" ? " k-tone-info" : v.phase === "updating" || v.word === "safeIdle" ? " k-tone-warn" : "";
   return (
     <button type="button" className={`k-door ${isPlay ? "play" : "pilot"} heat-${heat}${hot && act ? " hot" : ""}`} disabled={!act}
       onClick={() => act?.()} onMouseEnter={() => setHot(true)} onMouseLeave={() => setHot(false)} aria-label={aria} title={isPlay ? undefined : aria}>
@@ -148,6 +153,7 @@ function Mouth({ isPlay, ctl }: { isPlay: boolean; ctl: PlayControl }) {
 }
 
 export function AppShell() {
+  const t = useT();
   const info = useAppInfo();
   const settings = useSettings();
   // the WebGL fire, unless turned off (Settings, Appearance) or KILN_LAUNCHER_NO_WEBGL=1; decided once both are known
@@ -170,7 +176,7 @@ export function AppShell() {
     return () => { delete w.__kilnPlay; };
   }, [ctl.play]);
   const [minShown, setMinShown] = useState(false);
-  useEffect(() => { const t = setTimeout(() => setMinShown(true), 650); return () => clearTimeout(t); }, []);
+  useEffect(() => { const timer = setTimeout(() => setMinShown(true), 650); return () => clearTimeout(timer); }, []);
   const ready = minShown && (info.isSuccess || info.isError);
   const isPlay = loc.pathname === "/" || loc.pathname === "";
   stageInput.play = isPlay;
@@ -195,7 +201,8 @@ export function AppShell() {
       root.current?.style.setProperty("--my", `${y}px`);
     });
   };
-  useEffect(() => { document.title = isPlay ? "Kiln" : `${navFor(loc.pathname)?.label ?? "Kiln"} · Kiln`; }, [isPlay, loc.pathname]);
+  // `t` changes with the language: the title follows it
+  useEffect(() => { document.title = isPlay ? "Kiln" : t("shell.appShell.docTitle", { page: navFor(loc.pathname)?.label ?? "Kiln" }); }, [isPlay, loc.pathname, t]);
   return (
     <div ref={root} className={"k-app" + (isPlay ? " is-play" : " is-sheet")} onMouseMove={torch}>
       <div className="k-stage" aria-hidden><Stage root={root} key={fire ? "fire" : "plain"} enabled={fire} /><div className="k-fall" /></div>

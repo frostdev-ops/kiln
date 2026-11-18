@@ -55,6 +55,9 @@ pub struct LibraryVersion {
     /// and the settings kept with it. Kept versions come after the others in [`LibraryEntry::versions`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kept: Option<crate::kept::KeptInfo>,
+    /// EML mods: the part of the mod Kiln does not run, in a modified EML loader of its package ([`ImportRecord::loader_part`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub loader_part: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -221,6 +224,11 @@ pub struct ImportRecord {
     /// `<game>/mods/`. Activation places the mod there and kiln-eml runs that copy (engine_mods::place).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub game_folder: Option<String>,
+    /// EML mods imported with a modified EML loader beside them in their package (a dbghelp.dll with code of its own,
+    /// which Kiln does not run): what of the mod runs under Kiln and what does not (`engines::eml_partial_note`). The
+    /// launcher shows it on the mod's row, and the game's profile hands it to kiln-eml (`emlPartial`) for kiln.log.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub loader_part: Option<String>,
 }
 
 const EMF_MANIFEST: &str = "mod.json";
@@ -1149,9 +1157,17 @@ pub fn commit_folder(dirs: &DataDirs, prepared: &Path, rec: ImportRecord, report
         }
         // An entry imported before Kiln knew its package's DLL reads it in the game folder learns that now (the same
         // archive dropped again); the content and everything else in the record stay.
-        if rec.game_folder.is_some() && old.game_folder.is_none() {
+        // Likewise an EML mod imported before Kiln recognised the modified EML loader beside it learns which part runs.
+        let game_folder = rec.game_folder.is_some() && old.game_folder.is_none();
+        let loader_part = rec.loader_part.is_some() && old.loader_part.is_none();
+        if game_folder || loader_part {
             crate::durable::flush_contents(&folder)?;
-            crate::durable::json(&record_path(&folder), &ImportRecord { game_folder: rec.game_folder.clone(), ..old }, &[folder.clone()])?;
+            let learned = ImportRecord {
+                game_folder: if game_folder { rec.game_folder.clone() } else { old.game_folder.clone() },
+                loader_part: if loader_part { rec.loader_part.clone() } else { old.loader_part.clone() },
+                ..old
+            };
+            crate::durable::json(&record_path(&folder), &learned, &[folder.clone()])?;
         }
         report.existing.push(r);
         return Ok(());
@@ -1732,7 +1748,7 @@ fn import_native_folder(dirs: &DataDirs, d: &Detected, src: &Path, dlls: Vec<Str
     let hash = crate::hash::dirhash(&work)?;
     let rec = ImportRecord { format: 1, kind: ModKind::Native, id, version, hash, imported: now, source: Some(from.clone()), size,
         name: Some(name), side: Some(Side::Both), clients: Some(Clients::default_for(Side::Both)), file: None, manifest_id: None,
-        game_folder: None };
+        game_folder: None, loader_part: None };
     commit(dirs, &work, rec, report)
 }
 
@@ -1780,7 +1796,7 @@ fn import_item(dirs: &DataDirs, d: &Detected, src: &Path, from: &ImportSource, r
                 _ => (None, None),
             };
             let version = if semverish(&version) { version.trim().to_string() } else { fallback_version(&version) };
-            let rec = ImportRecord { format: 1, kind, id, version, hash, imported: now, source: Some(from.clone()), size, name: d.name.clone(), side, clients, file: None, manifest_id: None, game_folder: None };
+            let rec = ImportRecord { format: 1, kind, id, version, hash, imported: now, source: Some(from.clone()), size, name: d.name.clone(), side, clients, file: None, manifest_id: None, game_folder: None, loader_part: None };
             commit(dirs, &work, rec, report)
         }
         DetectKind::Plugin => {
@@ -1793,7 +1809,7 @@ fn import_item(dirs: &DataDirs, d: &Detected, src: &Path, from: &ImportSource, r
             let id = d.id.clone().unwrap_or_else(|| id_from_name(&file));
             let rec = ImportRecord { format: 1, kind: ModKind::Plugin, id, version: d.version.clone().unwrap_or("0.0.0".into()), hash, imported: now,
                 source: Some(from.clone()), size, name: Some(file.clone()), side: None, clients: None, file: Some(file), manifest_id: None,
-                game_folder: None };
+                game_folder: None, loader_part: None };
             commit(dirs, &work, rec, report)
         }
         DetectKind::BareDll if src.is_dir() => {
@@ -1835,7 +1851,7 @@ fn import_item(dirs: &DataDirs, d: &Detected, src: &Path, from: &ImportSource, r
             std::fs::write(work.join(crate::manifest::NATIVE_MANIFEST), body).map_err(io(&work, "writing"))?;
             let hash = crate::hash::dirhash(&work)?;
             let rec = ImportRecord { format: 1, kind: ModKind::Native, id, version, hash, imported: now, source: Some(from.clone()), size,
-                name: Some(name), side: Some(Side::Client), clients: Some(Clients::Mod), file: None, manifest_id: None, game_folder: None };
+                name: Some(name), side: Some(Side::Client), clients: Some(Clients::Mod), file: None, manifest_id: None, game_folder: None, loader_part: None };
             commit(dirs, &work, rec, report)
         }
         DetectKind::BareDll | DetectKind::Emf => {
@@ -1913,7 +1929,7 @@ fn import_item(dirs: &DataDirs, d: &Detected, src: &Path, from: &ImportSource, r
             let hash = crate::hash::dirhash(&work)?;
             let rec = ImportRecord { format: 1, kind, id, version, hash, imported: now, source: Some(from.clone()), size,
                 name: Some(if kind == ModKind::Native { shown } else { file }), side: Some(Side::Client), clients: Some(Clients::Mod), file: None,
-                manifest_id: None, game_folder: None };
+                manifest_id: None, game_folder: None, loader_part: None };
             commit(dirs, &work, rec, report)
         }
         DetectKind::Runtime => {
@@ -2084,6 +2100,7 @@ pub fn list(dirs: &DataDirs, kind: Option<ModKind>) -> Result<Vec<LibraryEntry>>
                     clients: r.clients,
                     size: r.size,
                     source: r.source,
+                    loader_part: r.loader_part,
                 })
                 .collect();
             out.push(LibraryEntry { kind: k, id, name, versions });

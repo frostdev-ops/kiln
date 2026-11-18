@@ -22,6 +22,7 @@
 #include "shroudtopia_internal.h"
 #include "../../compat/module_watch.h"
 #include "../../compat/first_pass.h"
+#include "../../compat/export_cache.h"
 #include "own_loader.h"
 
 #include <psapi.h>
@@ -154,7 +155,7 @@ void write_status() {
                 {"mods", mods},
                 {"refused", refused}};
     const auto file = g_state / L"shroudtopia.json";
-    if (!kcompat::write_file_atomic(file, doc.dump(2) + "\n")) H.logf(KILN_LOG_WARN, "cannot write %s", path_utf8(file).c_str());
+    if (!kcompat::write_status_file(file, doc.dump(2) + "\n")) H.logf(KILN_LOG_WARN, "cannot write %s", path_utf8(file).c_str());
 }
 
 // ---- fault guards around every call into a mod ----
@@ -216,6 +217,10 @@ struct Candidate {
     std::string origin;
 };
 
+// Whether a candidate DLL exports CreateModInstance, per version of the file (export_cache.h): the loop looks every
+// updateDelay, and a DLL that did not change is not read again.
+kcompat::ExportCache g_exports;
+
 bool folder_dll(const fs::path& dir, const std::string& id_hint, Candidate* out, std::string* why) {
     std::string text;
     json manifest = json::object();
@@ -234,9 +239,11 @@ bool folder_dll(const fs::path& dir, const std::string& id_hint, Candidate* out,
         return false;
     }
     fs::path dll;
+    // CheckedDll::open's checks: the path on every look, the export table once per version of the file
     auto is_mod_dll = [&](const fs::path& f) {
-        kcompat::CheckedDll checked;
-        return checked.open(dir, f, "CreateModInstance");
+        kcompat::CheckedPath checked;
+        return checked.open(dir, f, true) &&
+               g_exports.exports(f, "CreateModInstance", [](const fs::path& p, std::string_view name) { return kcompat::pe_exports_name(p, name); });
     };
     if (kcompat::exists(named) && is_mod_dll(named)) {
         dll = named;

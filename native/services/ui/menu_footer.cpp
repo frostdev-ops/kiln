@@ -32,6 +32,7 @@
 #include "menu_footer.h"
 #include "menu_footer_logo.h"
 #include "ui.h"
+#include "ui_text.h"
 
 namespace kui {
 
@@ -92,9 +93,15 @@ uint64_t fnv64(const char* p, size_t n) {
     return h;
 }
 
+std::string line(bool gap) {
+    const auto& tt = text::table();
+    const int64_t m = g_mods.load();
+    return menu_footer::line_text(g_version, m, gap, tt.plural("native.footer.loaded", m));
+}
+
 void set_text() {
     const bool gap = overlay_drawing_on() && g_mark != 0;
-    const std::string t = menu_footer::line_text(g_version, g_mods.load(), gap);
+    const std::string t = line(gap);
     std::lock_guard lk(g_text_mu);
     const std::string* cur = g_text.load();
     if (cur && *cur == t) return;
@@ -112,7 +119,7 @@ void set_text() {
     g_text_fnv.store(fnv64(g_texts.back().data(), g_texts.back().size()));
     g_text.store(&g_texts.back());
     if (g_copy)
-        logf(KILN_LOG_INFO, "ui: the main menu's footer says \"%s\"%s", menu_footer::line_text(g_version, g_mods.load(), false).c_str(),
+        logf(KILN_LOG_INFO, "ui: the main menu's footer says \"%s\"%s", line(false).c_str(),
              gap ? " after Kiln's mark" : "");
 }
 
@@ -333,6 +340,8 @@ void footer_set(int32_t mods, uint32_t flags) {
     if (before != m || was != shown) set_text();
     g_footer_demand.store(shown && m >= 0 && g_copy && g_mark && !g_failed.load() ? 1u : 0u, std::memory_order_relaxed);
 }
+
+void footer_texts_changed() { set_text(); }
 
 void footer_after_frame(uintptr_t sys10) {
     if (!g_mark || !N.metrics || !sys10) return;

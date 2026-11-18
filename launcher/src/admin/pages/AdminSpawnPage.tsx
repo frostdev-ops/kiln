@@ -3,6 +3,7 @@
 // spawned from here. The seen types as a table; the spawn form beside it.
 import { useMemo, useState } from "react";
 import { useAdminCall, useAdminQuery, useAdminState, useHasOp } from "../../api/admin";
+import { useT } from "../../i18n";
 import { prettyTemplate, useCreatureCatalog } from "../catalog";
 import { CoordInputs, NeedsOp, coordText, parseCoords, playerName, useServerId, withAdmin, type CoordText } from "../common";
 import { OfflineNote } from "../ConnectionBar";
@@ -18,6 +19,7 @@ interface Pick {
 }
 
 function SpawnPage() {
+  const t = useT();
   const st = useAdminState();
   const id = useServerId();
   const hist = useHistory(id);
@@ -33,7 +35,7 @@ function SpawnPage() {
   const scanPos = where.startsWith("p:") ? players.find((p) => p.entity === Number(where.slice(2)))?.pos : parseCoords(coords).pos;
   const seen = useAdminQuery<EnemiesResult>("enemies", scanPos ? { near: { x: scanPos.x, y: scanPos.y, z: scanPos.z }, radius: 80 } : {}, { refetchInterval: 15_000 });
   const spawn = useAdminCall<SpawnResult>("spawn");
-  const despawn = useAdminCall<{ removed: number }>("despawn_spawned", { onSuccess: (r) => toastOk(`Removed ${r.removed}`), onError: (e) => toastError(e) });
+  const despawn = useAdminCall<{ removed: number }>("despawn_spawned", { onSuccess: (r) => toastOk(t("admin.spawn.removed", { n: r.removed })), onError: (e) => toastError(e) });
   const hasDespawn = useHasOp("despawn_spawned");
 
   const all = useMemo<Pick[]>(() => {
@@ -53,17 +55,17 @@ function SpawnPage() {
     let pos;
     if (where.startsWith("p:")) {
       const pl = players.find((x) => x.entity === Number(where.slice(2)));
-      if (!pl?.pos) return toastError({ message: "No position for that player." });
+      if (!pl?.pos) return toastError({ message: t("admin.zones.noPlayerPos") });
       pos = { x: pl.pos.x + 6, y: pl.pos.y, z: pl.pos.z };
     } else {
       const r = parseCoords(coords);
       if (r.error) return toastError({ message: r.error });
       pos = r.pos!;
     }
-    if (!Number.isInteger(n) || n < 1 || n > 20) return toastError({ message: "Spawn 1 to 20 at a time." });
-    if (!GUID.test(p.guid)) return toastError({ message: "That isn't a creature template GUID." });
+    if (!Number.isInteger(n) || n < 1 || n > 20) return toastError({ message: t("admin.spawn.countRange") });
+    if (!GUID.test(p.guid)) return toastError({ message: t("admin.spawn.notGuid") });
     spawn.mutate({ guid: p.guid, count: n, x: pos.x, y: pos.y, z: pos.z, spread }, {
-      onSuccess: (r) => toastOk(`Spawned ${r.spawned} × ${p.label}${r.failed ? `, ${r.failed} failed` : ""}`),
+      onSuccess: (r) => toastOk(r.failed ? t("admin.spawn.spawnedFailed", { spawned: r.spawned, label: p.label, failed: r.failed }) : t("admin.spawn.spawned", { spawned: r.spawned, label: p.label })),
       onError: (e) => toastError(e),
     });
   };
@@ -72,51 +74,51 @@ function SpawnPage() {
   const alive = st.state?.spawned ?? 0;
   return (
     <Page fill>
-      <PageHeader title="Spawn" sub={`${alive} spawned from here alive, ${all.length} creature types known${seen.data ? `, ${seen.data.total} enemies loaded` : ""}. Everything spawned here can be removed again.`} />
+      <PageHeader title={t("admin.spawn.title")} sub={seen.data ? t("admin.spawn.subLoaded", { alive, known: all.length, loaded: seen.data.total }) : t("admin.spawn.sub", { alive, known: all.length })} />
       <OfflineNote />
-      <NeedsOp ops="spawn" what="Spawning">
+      <NeedsOp ops="spawn" what={t("admin.spawn.what")}>
         <SplitPage form aside={
-          <form className="k-stack" style={{ gap: 12 }} onSubmit={(e) => { e.preventDefault(); const p = fromText(); if (!p) toastError({ message: "Pick a creature from the list, or paste a template GUID." }); else run(p); }}>
-            <span className="k-card-title">Spawn a creature</span>
-            <Field label="Creature" htmlFor="spawn-what" hint={pick ? <span className="k-mono">{pick.guid}</span> : undefined}>
-              <SuggestInput id="spawn-what" value={text} placeholder={all.length ? `Search ${all.length} creatures, or a GUID` : "Paste a template GUID"} suggestions={sugg}
+          <form className="k-stack" style={{ gap: 12 }} onSubmit={(e) => { e.preventDefault(); const p = fromText(); if (!p) toastError({ message: t("admin.spawn.pickCreature") }); else run(p); }}>
+            <span className="k-card-title">{t("admin.spawn.formTitle")}</span>
+            <Field label={t("admin.spawn.creature")} htmlFor="spawn-what" hint={pick ? <span className="k-mono">{pick.guid}</span> : undefined}>
+              <SuggestInput id="spawn-what" value={text} placeholder={all.length ? t("admin.spawn.searchCreatures", { n: all.length }) : t("admin.spawn.pasteGuid")} suggestions={sugg}
                 onChange={(v) => { setText(v); setPick(null); }} onPick={(s) => { setPick(s.value); setText(s.value.label); }} onEnter={() => { const p = fromText(); if (p) run(p); }} />
             </Field>
-            <Field label="Where" htmlFor="spawn-where">
-              <Select id="spawn-where" value={where} onChange={setAt} options={[...players.map((p) => ({ value: `p:${p.entity}`, label: `Next to ${playerName(p)}` })), { value: "coords", label: "At coordinates" }]} />
+            <Field label={t("admin.items.where")} htmlFor="spawn-where">
+              <Select id="spawn-where" value={where} onChange={setAt} options={[...players.map((p) => ({ value: `p:${p.entity}`, label: t("admin.spawn.nextTo", { name: playerName(p) }) })), { value: "coords", label: t("admin.items.atCoords") }]} />
               {where === "coords" ? <CoordInputs value={coords} onChange={setCoords} /> : null}
             </Field>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              <Field label="How many, 1 to 20" htmlFor="spawn-n"><NumberInput id="spawn-n" value={count} integer min={1} max={20} onCommit={setCount} /></Field>
-              <Field label="Spread, metres" htmlFor="spawn-s"><NumberInput id="spawn-s" value={spread} min={0} max={50} onCommit={setSpread} /></Field>
+              <Field label={t("admin.spawn.howMany")} htmlFor="spawn-n"><NumberInput id="spawn-n" value={count} integer min={1} max={20} onCommit={setCount} /></Field>
+              <Field label={t("admin.spawn.spread")} htmlFor="spawn-s"><NumberInput id="spawn-s" value={spread} min={0} max={50} onCommit={setSpread} /></Field>
             </div>
             <div className="k-row" style={{ justifyContent: "flex-end" }}>
-              <Button type="submit" variant="primary" loading={spawn.isPending}>Spawn</Button>
+              <Button type="submit" variant="primary" loading={spawn.isPending}>{t("admin.spawn.title")}</Button>
             </div>
-            {!catalog.data?.length ? <p className="k-hint">No local creature catalog: the list holds the enemy types the server has seen near players.</p> : null}
+            {!catalog.data?.length ? <p className="k-hint">{t("admin.spawn.noCatalog")}</p> : null}
             {hasDespawn ? (
               <div className="ka-tool">
-                <span className="k-hint">{alive} spawned from here {alive === 1 ? "is" : "are"} alive.</span>
+                <span className="k-hint">{t("admin.spawn.alive", { count: alive })}</span>
                 <div><Button variant="danger" size="s" disabled={!alive} loading={despawn.isPending} onClick={async () => {
-                  if (await confirm({ title: "Remove spawned creatures?", body: <p>Removes every creature spawned through Kiln.Admin since it loaded ({alive} alive).</p>, ok: "Remove", danger: true })) despawn.mutate({});
-                }}>Remove {alive || ""} spawned</Button></div>
+                  if (await confirm({ title: t("admin.spawn.removeTitle"), body: <p>{t("admin.spawn.removeBody", { n: alive })}</p>, ok: t("common.remove"), danger: true })) despawn.mutate({});
+                }}>{alive ? t("admin.spawn.removeN", { n: alive }) : t("admin.spawn.removeNone")}</Button></div>
               </div>
             ) : null}
           </form>
         }>
-          <div className="k-card-head"><div className="k-card-titles"><h2 className="k-card-title">Seen near players</h2><span className="k-card-sub">Enemy types the server reported. Name them for the picker.</span></div></div>
+          <div className="k-card-head"><div className="k-card-titles"><h2 className="k-card-title">{t("admin.spawn.seenTitle")}</h2><span className="k-card-sub">{t("admin.spawn.seenSub")}</span></div></div>
           <Table
-            aria-label="Seen enemy types"
+            aria-label={t("admin.spawn.seenTable")}
             fill
             rows={seen.data?.catalog ?? []}
             rowKey={(r) => r.guid}
             columns={[
-              { key: "label", header: "Name", render: (r) => <TextInput aria-label={`Name for ${r.name}`} defaultValue={hist.enemyLabels[r.guid] ?? (catalog.data?.find((c) => c.guid === r.guid)?.name ?? prettyTemplate(r.name))} onBlur={(e) => labelEnemy(id, r.guid, e.target.value)} style={{ height: 32 }} /> },
-              { key: "t", header: "Template", render: (r) => <span className="k-mono k-muted">{r.name}</span> },
-              { key: "seen", header: "Seen", width: "60px", align: "right", render: (r) => <span className="k-mono">{r.seen}</span> },
-              { key: "go", header: <span className="k-sr-only">Spawn</span>, width: "84px", align: "right", render: (r) => <Button size="s" disabled={spawn.isPending} onClick={() => run({ guid: r.guid, label: hist.enemyLabels[r.guid] || prettyTemplate(r.name) }, 1)}>Spawn 1</Button> },
+              { key: "label", header: t("admin.spawn.colName"), render: (r) => <TextInput aria-label={t("admin.spawn.nameFor", { name: r.name })} defaultValue={hist.enemyLabels[r.guid] ?? (catalog.data?.find((c) => c.guid === r.guid)?.name ?? prettyTemplate(r.name))} onBlur={(e) => labelEnemy(id, r.guid, e.target.value)} style={{ height: 32 }} /> },
+              { key: "t", header: t("admin.spawn.colTemplate"), render: (r) => <span className="k-mono k-muted">{r.name}</span> },
+              { key: "seen", header: t("admin.spawn.colSeen"), width: "60px", align: "right", render: (r) => <span className="k-mono">{r.seen}</span> },
+              { key: "go", header: <span className="k-sr-only">{t("admin.spawn.title")}</span>, width: "84px", align: "right", render: (r) => <Button size="s" disabled={spawn.isPending} onClick={() => run({ guid: r.guid, label: hist.enemyLabels[r.guid] || prettyTemplate(r.name) }, 1)}>{t("admin.spawn.spawnOne")}</Button> },
             ]}
-            empty={seen.data ? "No enemies seen yet. The server learns the types it sees around the spawn point." : "Not scanned yet."}
+            empty={seen.data ? t("admin.spawn.seenEmpty") : t("admin.spawn.notScanned")}
           />
         </SplitPage>
       </NeedsOp>

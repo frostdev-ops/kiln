@@ -2,6 +2,7 @@
 // install dialog and the Runtime page's installed-versus-available list. The backend decides; this mirrors it so the
 // dialog can show what an update will add before it runs.
 import type { BundlePart, InstallReceipt, RunSide, RuntimeBundle } from "../api/commands";
+import { t } from "../i18n";
 
 /** The bundle's parts this side can take. */
 export function partsFor(b: RuntimeBundle, side: RunSide): BundlePart[] {
@@ -14,7 +15,7 @@ export function selectParts(b: RuntimeBundle, side: RunSide, want: string[]): st
   const out = [...want];
   for (let i = 0; i < out.length; i++) {
     const part = parts.find((p) => p.name === out[i]);
-    if (!part) throw new Error(`component ${out[i]} is unavailable for the ${side} side`);
+    if (!part) throw new Error(t("shell.parts.unavailable", { name: out[i], side }));
     for (const r of part.requires ?? []) if (!out.includes(r) && parts.some((p) => p.name === r)) out.push(r);
   }
   return [...new Set(out)].sort();

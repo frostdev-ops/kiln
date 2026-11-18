@@ -50,7 +50,7 @@ internal static class UiActions
                         if (w.Open) window.Open();
                         else window.Close();
                     }
-                    else UiRuntime.Backend.Toast($"{w.Mod}:{w.Window} is not a window this game has", ToastKind.Warning);
+                    else UiRuntime.Backend.Toast(KilnText.T("blocks.toast.no_window", ("window", $"{w.Mod}:{w.Window}")), ToastKind.Warning);
                     break;
                 case ToastPlan t:
                     UiRuntime.Backend.Toast(t.Text.For(UiRuntime.Backend.Language), ToastKind.Info);
@@ -74,7 +74,7 @@ internal static class UiActions
                 return;
             }
         }
-        UiRuntime.Backend.Toast("too many commands waiting: slow down", ToastKind.Warning);
+        UiRuntime.Backend.Toast(KilnText.T("blocks.toast.too_many"), ToastKind.Warning);
     }
 
     /// <summary>Runs what the render and window threads queued. Tick thread.</summary>
@@ -97,7 +97,7 @@ internal static class UiActions
     {
         var (ok, message) = UiRuntime.Backend.RunCommand(line);
         BlocksBridge.Log(ok ? LogLevel.Info : LogLevel.Warn, $"blocks: {mod}: ui: command \"{line}\": {(ok ? "ok" : message)}");
-        if (message.Length > 0 || !ok) UiRuntime.Backend.Toast(message.Length > 0 ? message : $"{line} failed", ok ? ToastKind.Info : ToastKind.Error);
+        if (message.Length > 0 || !ok) UiRuntime.Backend.Toast(message.Length > 0 ? message : KilnText.T("blocks.toast.command_failed", ("command", line)), ok ? ToastKind.Info : ToastKind.Error);
     }
 
     internal static void Clear()
@@ -173,7 +173,7 @@ internal static class UiEdits
         if (UiConfigs.Find(b.ConfigId!) is not { } cfg) return;
         if (cfg.IsFromServer(b.Path!) || (cfg.ServerKind && UiRuntime.Backend.JoinedServer))
         {
-            UiRuntime.Backend.Toast($"{cfg.Id}: {b.Path} is the server's: it can be changed after leaving", ToastKind.Warning);
+            UiRuntime.Backend.Toast(KilnText.T("blocks.toast.server_value", ("config", cfg.Id), ("path", b.Path)), ToastKind.Warning);
             return;
         }
         object value = e.Value;

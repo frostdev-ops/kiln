@@ -15,6 +15,7 @@ import * as api from "../api/commands";
 import { toKilnError } from "../api/commands";
 import { create } from "zustand";
 import { notifyPlacementCleanup, openLines, toast } from "../ui";
+import { t } from "../i18n";
 
 /** What the last activation of each game left in the game folder (its `retained`): the main list says "Left in the game
  *  folder" on a mod that is off but whose placed copy stayed. Every activation shown here replaces it. */
@@ -44,15 +45,15 @@ export const retainedLine = (r: RetainedPlacement) => `${r.path}: ${r.reason}`;
 function notifyKept(retained: RetainedPlacement[], o: { onClosed?: () => void; lines?: string[] } = {}) {
   if (!retained.length) return;
   const detail = retained.map(retainedLine).join(" ");
-  toast.info("Some mod folders were kept", `${detail} Kiln left these folders as they are. With the game closed, move a folder out of the game folder to stop a mod that is off; your files have not been deleted.`, { ms: 0, ...o });
+  toast.info(t("shell.notices.keptTitle"), t("shell.notices.keptDetail", { folders: detail }), { ms: 0, ...o });
 }
 
 /** The lines notices_unseen is asked about, one per sentence, by what they are (the same text in two lists is two). */
 function noticeLines(n: FolderNotes): NoticeLine[] {
   return [
     ...n.retained.map((r) => ({ text: `retained:${retainedLine(r)}`, safety: r.mayRun && !!r.off })),
-    ...n.keptFiles.map((t) => ({ text: `kept:${t}` })),
-    ...n.warnings.map((t) => ({ text: `note:${t}`, safety: n.safetyNotes.includes(t) })),
+    ...n.keptFiles.map((f) => ({ text: `kept:${f}` })),
+    ...n.warnings.map((w) => ({ text: `note:${w}`, safety: n.safetyNotes.includes(w) })),
   ];
 }
 
@@ -75,10 +76,10 @@ async function raise(gameId: string, n: FolderNotes) {
   });
   const retained = n.retained.filter((r) => fresh(`retained:${retainedLine(r)}`));
   notifyKept(retained, toastOf(retained.map((r) => `retained:${retainedLine(r)}`)));
-  const kept = n.keptFiles.filter((t) => fresh(`kept:${t}`));
-  if (kept.length) toast.info("Mod settings kept", kept.join(" "), { ms: 0, ...toastOf(kept.map((t) => `kept:${t}`)) });
-  const notes = n.warnings.filter((t) => fresh(`note:${t}`));
-  if (notes.length) toast.info("Notes on your mods", notes.join(" "), { ms: 0, ...toastOf(notes.map((t) => `note:${t}`)) });
+  const kept = n.keptFiles.filter((f) => fresh(`kept:${f}`));
+  if (kept.length) toast.info(t("shell.notices.settingsKept"), kept.join(" "), { ms: 0, ...toastOf(kept.map((f) => `kept:${f}`)) });
+  const notes = n.warnings.filter((w) => fresh(`note:${w}`));
+  if (notes.length) toast.info(t("shell.notices.modNotes"), notes.join(" "), { ms: 0, ...toastOf(notes.map((w) => `note:${w}`)) });
 }
 
 /** Copies left in the game folder, mod settings kept or put back, and profile notes: kept as the game's notes, and
@@ -99,7 +100,7 @@ export function notifyActivation(a: Activation | null | undefined): Promise<void
 export function notifyAdd(r: AddReport | null | undefined) {
   if (!r) return;
   void notifyActivation(r.activation);
-  if (r.notices?.length) toast.info("Changes in your mod list", r.notices.join(" "), { ms: 0 });
+  if (r.notices?.length) toast.info(t("shell.notices.listChanges"), r.notices.join(" "), { ms: 0 });
 }
 
 /** A failed command whose backend wrote the profile again first (a start after Play's re-apply): what it kept. */
@@ -114,11 +115,13 @@ export function notifyInstall(r: InstallResult | UninstallResult | null | undefi
   if (!r) return;
   if ("placements" in r) {
     notifyPlacementCleanup(r.placements);
-    if (r.kept.length) toast.info("Changed runtime files kept", `These files changed outside Kiln and were left in the game folder: ${r.kept.join(", ")}. With the game closed, review them before removing or replacing them.`, { ms: 0 });
+    if (r.kept.length) toast.info(t("shell.notices.runtimeKeptTitle"), t("shell.notices.runtimeKeptDetail", { files: r.kept.join(", ") }), { ms: 0 });
   } else if (r.changedBackedUp?.length) {
-    const where = r.backup ? ` in ${r.backup}` : " in the game's kiln/backups folder";
-    toast.info("Changed runtime files backed up", `The install replaced these changed files: ${r.changedBackedUp.join(", ")}. Their previous copies were kept${where}.`, { ms: 0 });
+    const files = r.changedBackedUp.join(", ");
+    toast.info(t("shell.notices.backedUpTitle"), r.backup
+      ? t("shell.notices.backedUpDetailIn", { files, backup: r.backup })
+      : t("shell.notices.backedUpDetail", { files }), { ms: 0 });
   }
-  if (r.warnings?.length) toast.info("placements" in r ? "Some files were kept" : "Install notes", r.warnings.join(" "), { ms: 0 });
+  if (r.warnings?.length) toast.info("placements" in r ? t("shell.notices.filesKept") : t("shell.notices.installNotes"), r.warnings.join(" "), { ms: 0 });
   if ("activation" in r) void notifyActivation(r.activation);
 }

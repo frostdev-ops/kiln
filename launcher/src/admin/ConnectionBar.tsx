@@ -2,27 +2,29 @@
 // the session shows in the server's live sentence (pages/servers/ServerLayout.tsx), not here.
 import { reconnectAdmin, useAdminState } from "../api/admin";
 import type { AdminTransport } from "../api/commands";
+import { t as tr, useT } from "../i18n";
 import { Banner, Button, Select } from "./ui";
 
-const TRANSPORTS: { value: AdminTransport; label: string }[] = [
-  { value: "auto", label: "Auto (TCP, then file bridge)" },
-  { value: "tcp", label: "KAP/1 over TCP" },
-  { value: "file", label: "File bridge" },
-  { value: "ssh", label: "SSH tunnel" },
+const transports = (): { value: AdminTransport; label: string }[] => [
+  { value: "auto", label: tr("admin.connection.transportAuto") },
+  { value: "tcp", label: tr("admin.connection.transportTcp") },
+  { value: "file", label: tr("admin.connection.transportFile") },
+  { value: "ssh", label: tr("admin.connection.transportSsh") },
 ];
 
 /** Shown by pages while there is no session: why, and what the live tools need. */
 export function OfflineNote() {
+  const t = useT();
   const st = useAdminState();
   if (st.session) return null;
-  if (st.status === "connecting" || st.status === "idle") return <span className="k-empty-title">Connecting to the server's Kiln.Admin…</span>;
+  if (st.status === "connecting" || st.status === "idle") return <span className="k-empty-title">{t("admin.connection.connecting")}</span>;
   return (
-    <Banner tone="warn" title="Not connected"
+    <Banner tone="warn" title={t("admin.connection.notConnected")}
       actions={<>
-        <Select aria-label="Transport" value={st.want} onChange={(v) => reconnectAdmin(st.serverId, v as AdminTransport)} options={TRANSPORTS} style={{ width: "auto", height: 32 }} />
-        <Button size="s" onClick={() => reconnectAdmin(st.serverId)}>Reconnect</Button>
+        <Select aria-label={t("admin.connection.transport")} value={st.want} onChange={(v) => reconnectAdmin(st.serverId, v as AdminTransport)} options={transports()} style={{ width: "auto", height: 32 }} />
+        <Button size="s" onClick={() => reconnectAdmin(st.serverId)}>{t("admin.connection.reconnect")}</Button>
       </>}>
-      {st.error?.message ?? "Kiln.Admin isn't answering."} The live tools need the server running with Kiln and its Kiln.Admin mod.
+      {t("admin.connection.offline", { reason: st.error?.message ?? t("admin.connection.notAnswering") })}
     </Banner>
   );
 }

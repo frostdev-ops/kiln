@@ -73,6 +73,9 @@ internal static class GameplayBuildDemand
                 return refs;
             } catch { _cache[key]=null; throw; }
         }
+        /// <summary>Every assembly name the assemblies read so far reference.</summary>
+        internal string[] ReferencedNames() =>
+            _cache.Values.Where(v => v is not null).SelectMany(v => v!).Distinct(StringComparer.Ordinal).ToArray();
         private static string[] ReadReferences(MetadataReader metadata) => metadata.AssemblyReferences
             .Select(h=>metadata.GetString(metadata.GetAssemblyReference(h).Name)).ToArray();
     }
@@ -129,6 +132,7 @@ internal sealed partial class ModManager
         var candidates = BootCandidates(); // Same profile/disabled/duplicate rules as the boot admission pass.
         var roles = ResolveBootRoles(candidates, out _);
         var admitted = candidates.Where(c => roles.ContainsKey(c.Directory)).ToArray();
+        _bootAdmitted = admitted;  // and the references read below: what ModPrefetch reads ahead of the first load
         foreach (var (manifest, directory) in admitted)
         {
             try
@@ -159,6 +163,7 @@ internal sealed partial class ModManager
                 finally { _host.OwnerRevoke(owner); }
             }
         }
+        _bootReferences = metadata.ReferencedNames();
         _host.Log(LogLevel.Info,$"gameplay pre-world demand: {metadata.AssembliesRead} assemblies read in {timer.Elapsed.TotalMilliseconds:F1} ms");
     }
 }

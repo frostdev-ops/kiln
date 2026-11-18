@@ -41,19 +41,19 @@ internal static partial class NetRefusal
     public static string Notice(string? serverName, string reason, IReadOnlyList<string> details, bool modpack)
     {
         var sb = new StringBuilder();
-        sb.Append(string.IsNullOrWhiteSpace(serverName) ? "The server refused this game." : $"{Clip(serverName.Trim(), 64)} refused this game.");
+        sb.Append(string.IsNullOrWhiteSpace(serverName) ? KilnText.T("refusal.server") : KilnText.T("refusal.named", ("server", Clip(serverName.Trim(), 64))));
         var mods = NamedMods(details);
         if (mods.Count > 0)
         {
-            sb.Append('\n').Append(mods.Count == 1 ? "It needs a mod you don't have:" : "It needs mods you don't have:");
-            var shown = mods.Take(8).Select(m => m.ClientHas is { } has ? $"{m.Id} {m.Version} (you have {has})" : $"{m.Id} {m.Version}").ToList();
-            if (mods.Count > shown.Count) shown.Add($"and {mods.Count - shown.Count} more");
+            sb.Append('\n').Append(mods.Count == 1 ? KilnText.T("refusal.needs_one") : KilnText.T("refusal.needs_many"));
+            var shown = mods.Take(8).Select(m => m.ClientHas is { } has ? KilnText.T("refusal.you_have", ("mod", m.Id), ("version", m.Version), ("have", has)) : $"{m.Id} {m.Version}").ToList();
+            if (mods.Count > shown.Count) shown.Add(KilnText.T("refusal.more", ("count", mods.Count - shown.Count)));
             foreach (var line in Lines(shown, 80)) sb.Append("\n  ").Append(line);
-            sb.Append('\n').Append(modpack ? "The Kiln launcher offers this server's modpack." : "Add them in the Kiln launcher, then join again.");
+            sb.Append('\n').Append(modpack ? KilnText.T("refusal.modpack") : KilnText.T("refusal.add"));
         }
         else
         {
-            foreach (var line in Wrap(string.IsNullOrWhiteSpace(reason) ? "Refused by the server." : reason.Trim(), 80)) sb.Append('\n').Append(line);
+            foreach (var line in Wrap(string.IsNullOrWhiteSpace(reason) ? KilnText.T("refusal.no_reason") : reason.Trim(), 80)) sb.Append('\n').Append(line);
         }
         return sb.ToString();
     }

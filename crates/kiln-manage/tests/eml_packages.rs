@@ -71,6 +71,13 @@ fn game_with_z(t: &Path) -> GameInstall {
 // and XHL-Core's dinput8.dll are DirectInput8 proxies that read dinput8-chain.ini.
 fn eml_dbghelp() -> Vec<u8> { build_test_dll(&["MiniDumpWriteDump"], b"EML_LOG_FILE_PATH") }
 fn eml_dinput8() -> Vec<u8> { build_test_dll(&["DirectInput8Create"], b"EML_LOG_FILE_PATH") }
+/// A modified EML loader as "Put Away Your Weapon" (Nexus 371) ships it: EML's dbghelp.dll rebuilt with a native layer
+/// in mod-loader-runtime (a holster hotkey thread, a PvP patch of isEnemy/isFriend, settings in m182_native.json).
+/// Synthetic: the texts the real build carries, in a minimal DLL that is never loaded.
+fn modified_eml_dbghelp() -> Vec<u8> {
+    build_test_dll(&["MiniDumpWriteDump", "SymInitialize"], b"EML_LOG_FILE_PATH\0FieldSet corrupted (this is a bug)crates\\mod-loader-runtime\\src\\lib.rs\0\
+        event crates\\mod-loader-runtime\\src\\native\\holster.rs:376\0m182-holster\0isEnemy(values)isEnemy(pointers)\0Errorm182_native.json")
+}
 fn alp_dinput8() -> Vec<u8> { build_test_dll(&["DirectInput8Create"], b"auto-loot-plus.log\0dinput8-chain.ini\0[Chain]\0mods\\auto-loot-plus\\config.txt") }
 fn xhl_core() -> Vec<u8> { build_test_dll(&["DirectInput8Create"], b"XHL-Native-Plugin-Host.log\0dinput8-chain.ini\0native-plugin.ini") }
 /// XHL-Core 2.0.6 (2026-11-02): its log file's name is only in the DLL as UTF-16 text (Windows' wide strings).
@@ -180,6 +187,15 @@ fn layout(root: &Path, which: &str) {
         "nested" => {
             eml_mod(root, "Enshrouded_Tieng_Viet_Update/mods/enshrouded_vi_update8", "enshrouded_vi_update8");
             eml_mod(root, "m182_fire_aura/m182_fire_aura", "m182_fire_aura");
+        }
+        // "Put Away Your Weapon" (Nexus 371, "Weapon Hostler V1"): a wrapper folder with the modified EML loader, its
+        // settings file and the EML mod holster-toggle (Lua part: weapon poses + the pose map the DLL's hotkey reads)
+        "holster" => {
+            put(root, "Weapon Hostler v1/dbghelp.dll", &modified_eml_dbghelp());
+            put(root, "Weapon Hostler v1/m182_native.json", br#"{"enabled":true,"pvp":false,"pvp_friend_checks":false,"holster":true,"holster_key":20}"#);
+            put(root, "Weapon Hostler v1/holster-toggle/mod.json",
+                br#"{"id":"holster-toggle","name":"Holster Toggle (weapon poses)","version":"1.6.1","capabilities":["patch","export"]}"#);
+            put(root, "Weapon Hostler v1/holster-toggle/src/mod.lua", b"io.export('holster/map.json', '{}')");
         }
         _ => panic!("{which}"),
     }
@@ -580,6 +596,63 @@ fn plain_eml_packages_run_from_the_library() {
         assert!(d.report.skipped.is_empty(), "{which}: {:?}", d.report.skipped);
         assert_eq!(d.reasons().contains(NOT_NEEDED), loader, "{which}: {}", d.reasons());
     }
+}
+
+/// Player report 2026-11-17 (Spirimtin, Steam Deck): "Put Away Your Weapon" did nothing under Kiln. The Library called
+/// its dbghelp.dll "EML's own loader: not needed", but that file is EML rebuilt with the mod's hotkey, which only runs
+/// while it is the game's EML loader. Now the import leaves it out with what it is and what does not run, and the EML
+/// mod beside it carries that in its Library record, the launcher's row and the game's profile (kiln-eml's log).
+#[test]
+fn a_modified_eml_loader_is_never_not_needed_and_its_mod_says_which_part_runs() {
+    let d = drop_on_launcher("holster", "Weapon Hostler V1 371 1 2026-11-17T11-52Z 5HptWL6CH");
+    assert_eq!(d.found(), ["eml/holster-toggle"]);
+    assert!(!d.reasons().contains("not needed"), "{}", d.reasons());
+    assert_eq!(d.report.skipped.len(), 1, "{:?}", d.report.skipped);
+    let s = &d.report.skipped[0];
+    assert!(s.path.ends_with("dbghelp.dll"), "{s:?}");
+    assert!(s.reason.starts_with("dbghelp.dll is a modified EML loader with code of its own (a weapon holster hotkey and a \
+        PvP patch of the game's faction checks; settings in m182_native.json). Kiln runs the EML mods of this package, but not \
+        that code: it runs only when this file is the game's EML loader in place of Kiln's EML support"), "{}", s.reason);
+    // the mod: in the Library with what of it does not run, and so in the game's profile for kiln-eml
+    let lib = library::list(&d.dirs, Some(ModKind::Eml)).unwrap();
+    let part = lib[0].versions[0].loader_part.clone().expect("the record says which part does not run");
+    assert!(part.starts_with("part of this mod is in dbghelp.dll, a modified EML loader with code of its own (a weapon holster \
+        hotkey"), "{part}");
+    let f = profile::read_game_profile(&d.g.path).unwrap().expect("profile.json");
+    assert_eq!(f.eml_partial.get("holster-toggle"), Some(&part));
+    // its Lua part runs from the Library like any EML mod's; nothing of the package lands in the game folder
+    assert_eq!(d.eml_paths(), [("holster-toggle".to_string(), "library".to_string())]);
+    assert!(d.natives().is_empty() && d.chained().is_empty() && tree(&d.g.path).is_empty(), "{:?}", tree(&d.g.path));
+    // switched off, the profile says nothing about it
+    let mut p = my_mods(&d);
+    p.mods.eml[0].enabled = false;
+    activate(&d, &p);
+    assert!(profile::read_game_profile(&d.g.path).unwrap().unwrap().eml_partial.is_empty());
+}
+
+/// Imported before the Library knew modified EML loaders (29.14): the same archive dropped again teaches the record.
+#[test]
+fn an_older_holster_import_learns_which_part_runs_from_the_same_archive() {
+    let d = drop_on_launcher("holster", "Weapon Hostler V1");
+    let lib = library::list(&d.dirs, Some(ModKind::Eml)).unwrap();
+    let rec_path = PathBuf::from(format!("{}.json", lib[0].versions[0].folder.display()));
+    let mut rec: serde_json::Value = serde_json::from_slice(&std::fs::read(&rec_path).unwrap()).unwrap();
+    assert!(rec["loaderPart"].is_string(), "{rec}");
+    rec.as_object_mut().unwrap().remove("loaderPart");
+    std::fs::write(&rec_path, serde_json::to_vec(&rec).unwrap()).unwrap();
+    profile::activate(&d.dirs, "my-mods", &d.g).unwrap();
+    assert!(profile::read_game_profile(&d.g.path).unwrap().unwrap().eml_partial.is_empty());
+    let pkg = d._t.0.join("again");
+    layout(&pkg, "holster");
+    std::fs::create_dir_all(d._t.0.join("again-zip")).unwrap();
+    let z = d._t.0.join("again-zip/Weapon Hostler V1.zip");
+    zip_of(&pkg, &z);
+    let r = kiln_manage::quick::add_with(&d.dirs, &d.g, &[z], false, &mut NoProgress).unwrap();
+    assert_eq!(r.import.existing.len(), 1, "{:?}", r.import);
+    let rec: serde_json::Value = serde_json::from_slice(&std::fs::read(&rec_path).unwrap()).unwrap();
+    assert!(rec["loaderPart"].as_str().is_some_and(|p| p.contains("dbghelp.dll")), "{rec}");
+    profile::activate(&d.dirs, "my-mods", &d.g).unwrap();
+    assert!(profile::read_game_profile(&d.g.path).unwrap().unwrap().eml_partial.contains_key("holster-toggle"));
 }
 
 fn my_mods(d: &Dropped) -> profile::Profile {

@@ -10,6 +10,8 @@ out=${KILN_OUT:?set KILN_OUT}/engine-host-test
 mkdir -p "$out"
 python3 -I "$root/tools/engine/generate.py" --check
 python3 -I "$root/tools/engine/test_generate.py"
+# validate.py's ecsReadLayout checks (synthetic code; the real exe copies too when KILN_ENGINE_BINARIES names them)
+python3 -I "$root/tools/engine/test_validate.py"
 python3 -I "$here/lint_gate.py"
 python3 -I "$here/stamp_fixtures.py" --self-test
 cc=${CC:-gcc}

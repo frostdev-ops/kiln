@@ -37,19 +37,19 @@ internal sealed class ScreenState
 internal static class CheckScreen
 {
     /// <summary>Shown beside every group with checks tagged cheats: the guard covers the session, not the character.</summary>
-    internal const string CheatsNote = "Checks tagged cheats change the character for good: use a throwaway character and delete it afterwards.";
+    internal static string CheatsNote => KilnText.T("checks.cheats_note");
 
     private static readonly Color Green = new(110, 200, 120), Red = new(235, 95, 85), Amber = new(235, 190, 90), Dim = new(150, 150, 150);
 
     public static void Draw(UiDraw ui, RunnerView v, ScreenState s, Action<UiAction> act, DateTime now, string keys = "")
     {
-        ui.Text($"Guided checks · {SessionLabel(v.Session)}");
+        ui.Text(KilnText.T("checks.header", ("session", SessionLabel(v.Session))));
         ui.SameLine();
-        ui.TextDisabled($"   {v.Passes} passed · {v.Fails} failed · {v.Skips} skipped · {v.NeverRun} never run");
+        ui.TextDisabled(KilnText.T("checks.totals", ("passed", v.Passes), ("failed", v.Fails), ("skipped", v.Skips), ("never", v.NeverRun)));
         if (v.Changed is { } changed) ui.Text(Red, changed);
-        ui.Text(v.Protecting ? Green : Dim, "Achievement guard: " + v.Guard);
-        if (v.Warning is { } w) ui.Text(Red, "GUARD WARNING: " + w);
-        if (v.Ledger is { } l) ui.Text(Red, "Ledger: " + l);
+        ui.Text(v.Protecting ? Green : Dim, KilnText.T("checks.guard", ("guard", v.Guard)));
+        if (v.Warning is { } w) ui.Text(Red, KilnText.T("checks.guard_warning", ("warning", w)));
+        if (v.Ledger is { } l) ui.Text(Red, KilnText.T("checks.ledger", ("ledger", l)));
         if (v.Message is { } m) ui.TextDisabled(m);
         if (keys.Length > 0) ui.TextDisabled(keys);
         ui.Separator();
@@ -58,61 +58,61 @@ internal static class CheckScreen
         else
         {
             s.Noting = false;
-            ui.TextDisabled("No check is running. Pick one below, or run them all in order.");
+            ui.TextDisabled(KilnText.T("checks.idle"));
             var runnable = v.Session is "hosted" or "joined" or "server";
             if (s.OnlyNew && NewCount(v) > 0)
             {
                 // only what the list shows, in its order, as one request: hosted, each is queued as if its own Run had been
                 // pressed; joined, the client sends them one after the other (the server takes one start at a time)
                 var these = Shown(v, true).Where(i => i.Refusal is null).ToList();
-                if (runnable && these.Count > 0 && ui.Button($"Run these {these.Count}"))
+                if (runnable && these.Count > 0 && ui.Button(KilnText.T("checks.run_these", ("count", these.Count))))
                     act(new UiAction(UiActionKind.RunThese, Items: these));
             }
-            else if (runnable && ui.Button("Run all")) act(new UiAction(UiActionKind.RunAll));
+            else if (runnable && ui.Button(KilnText.T("checks.run_all"))) act(new UiAction(UiActionKind.RunAll));
             if (v.Session == "joined")
             {
                 ui.SameLine();
-                if (ui.Button("Refresh")) act(new UiAction(UiActionKind.Refresh));
+                if (ui.Button(KilnText.T("checks.refresh"))) act(new UiAction(UiActionKind.Refresh));
             }
         }
-        if (v.Queued > 0) ui.TextDisabled($"{v.Queued} more queued");
+        if (v.Queued > 0) ui.TextDisabled(KilnText.T("checks.queued", ("count", v.Queued)));
         ui.Separator();
         // a release's pass is about the checks that came with it: one switch hides the rest (most of a long list)
-        if (NewCount(v) is > 0 and var fresh) ui.Checkbox($"Only the {fresh} check(s) new in Kiln {Release(v.Kiln)}", ref s.OnlyNew);
+        if (NewCount(v) is > 0 and var fresh) ui.Checkbox(KilnText.T("checks.only_new", ("count", fresh), ("version", Release(v.Kiln))) + "##kiln.checks.onlynew", ref s.OnlyNew);
 
         if (ui.BeginChild("kiln.checks.list"))
         {
-            if (v.Items.Count == 0) ui.TextDisabled(v.Session == "joined" ? "The server lists no checks." : "No loaded mod registered checks.");
+            if (v.Items.Count == 0) ui.TextDisabled(v.Session == "joined" ? KilnText.T("checks.none_server") : KilnText.T("checks.none_mods"));
             foreach (var area in Shown(v, s.OnlyNew).GroupBy(i => i.Area, StringComparer.OrdinalIgnoreCase))
             {
                 var items = area.ToList();
                 var done = items.Count(i => i.Verdict == "pass");
-                if (!ui.CollapsingHeader($"{area.Key}  ({done}/{items.Count} passed)###area.{area.Key}", defaultOpen: true)) continue;
+                if (!ui.CollapsingHeader(KilnText.T("checks.area", ("area", area.Key), ("done", done), ("count", items.Count)) + $"###area.{area.Key}", defaultOpen: true)) continue;
                 if (items.Any(i => i.Cheats)) ui.Text(Amber, CheatsNote);
                 foreach (var i in items)
                 {
                     using var _ = ui.Id(i.Mod + "/" + i.Id);
                     var (tag, color) = i.Verdict switch
                     {
-                        "pass" => ("PASS", Green),
-                        "fail" => ("FAIL", Red),
-                        "skip" => ("SKIP", Amber),
+                        "pass" => (KilnText.T("checks.verdict.pass"), Green),
+                        "fail" => (KilnText.T("checks.verdict.fail"), Red),
+                        "skip" => (KilnText.T("checks.verdict.skip"), Amber),
                         _ => ("----", Dim),
                     };
                     // Run comes first in its row: after a long title it was beyond the window's right edge
                     if (i.Refusal is null && v.Current is null && v.Session is "hosted" or "joined" or "server")
                     {
-                        if (ui.SmallButton("Run")) act(new UiAction(UiActionKind.Run, i));
+                        if (ui.SmallButton(KilnText.T("checks.run"))) act(new UiAction(UiActionKind.Run, i));
                         ui.SameLine();
                     }
                     ui.Text(color, tag);
                     ui.SameLine();
                     ui.Text(i.Title);
                     ui.SameLine();
-                    ui.TextDisabled($"{i.Mod}/{i.Id}" + (i.Tags.Count > 0 ? "  [" + string.Join(", ", i.Tags) + "]" : "") +
-                                    (i.Needs != "any" ? $"  needs {i.Needs}" : ""));
-                    if (i.Refusal is { } r) ui.TextWrapped("    refused: " + r);
-                    if (i.Verdict is "fail" or "skip" && i.Note is { Length: > 0 } note) ui.TextDisabled("    note: " + note);
+                    var ids = $"{i.Mod}/{i.Id}" + (i.Tags.Count > 0 ? "  [" + string.Join(", ", i.Tags) + "]" : "");
+                    ui.TextDisabled(i.Needs != "any" ? KilnText.T("checks.item.needs", ("ids", ids), ("needs", i.Needs)) : ids);
+                    if (i.Refusal is { } r) ui.TextWrapped(KilnText.T("checks.item.refused", ("reason", r)));
+                    if (i.Verdict is "fail" or "skip" && i.Note is { Length: > 0 } note) ui.TextDisabled(KilnText.T("checks.item.note", ("note", note)));
                 }
             }
         }
@@ -134,8 +134,8 @@ internal static class CheckScreen
 
     private static void DrawCurrent(UiDraw ui, ViewCurrent c, ScreenState s, Action<UiAction> act, DateTime now)
     {
-        ui.Separator($"Now: {c.Title}");
-        ui.TextDisabled($"{c.Mod}/{c.Id} · {c.Area}{(c.Cheats ? " · cheats" : "")}");
+        ui.Separator(KilnText.T("checks.now", ("title", c.Title)));
+        ui.TextDisabled(c.Cheats ? KilnText.T("checks.now_cheats", ("mod", c.Mod), ("id", c.Id), ("area", c.Area)) : $"{c.Mod}/{c.Id} · {c.Area}");
         if (c.Phase == "confirming" && c.Confirm is { } confirm)
         {
             var key = c.Mod + "/" + c.Id + "\n" + confirm;  // a second question for the same check waits again
@@ -144,21 +144,21 @@ internal static class CheckScreen
                 s.ConfirmKey = key;
                 s.ConfirmShown = now;
             }
-            ui.Text(Amber, "Before this check starts:");
+            ui.Text(Amber, KilnText.T("checks.confirm.before"));
             ui.TextWrapped(confirm);
             // "No" first: the focus a gamepad or Enter lands on first is never the yes
-            if (ui.Button("No, do not run it")) act(new UiAction(UiActionKind.Answer, Answer: AnswerKind.No));
+            if (ui.Button(KilnText.T("checks.confirm.no"))) act(new UiAction(UiActionKind.Answer, Answer: AnswerKind.No));
             ui.SameLine();
             var ready = now - s.ConfirmShown >= ScreenState.ConfirmDelay;
-            if (ui.Button(ready ? "Yes, run it" : "Yes, run it (read the text first)") && ready)
+            if (ui.Button(ready ? KilnText.T("checks.confirm.yes") : KilnText.T("checks.confirm.yes_wait")) && ready)
                 act(new UiAction(UiActionKind.Answer, Answer: AnswerKind.Yes));
             return;
         }
         s.ConfirmKey = null;
-        ui.TextWrapped(c.Instruction.Length > 0 ? c.Instruction : "(setting up…)");
+        ui.TextWrapped(c.Instruction.Length > 0 ? c.Instruction : KilnText.T("checks.setting_up"));
         if (s.Noting)
         {
-            ui.Text(Amber, "What went wrong? Enter records the fail with this line; Escape records it without one.");
+            ui.Text(Amber, KilnText.T("checks.fail_note"));
             if (s.FocusNote)
             {
                 ui.FocusKeyboardHere();
@@ -177,30 +177,32 @@ internal static class CheckScreen
         }
         else if (c.Phase is "running" or "asking")
         {
-            if (ui.Button("Pass")) act(new UiAction(UiActionKind.Answer, Answer: AnswerKind.Pass));
+            if (ui.Button(KilnText.T("checks.pass"))) act(new UiAction(UiActionKind.Answer, Answer: AnswerKind.Pass));
             ui.SameLine();
-            if (ui.Button("Fail…"))
+            if (ui.Button(KilnText.T("checks.fail")))
             {
                 s.Noting = true;
                 s.FocusNote = true;
                 s.Note = "";
             }
             ui.SameLine();
-            if (ui.Button("Skip")) act(new UiAction(UiActionKind.Answer, Answer: AnswerKind.Skip));
+            if (ui.Button(KilnText.T("checks.skip"))) act(new UiAction(UiActionKind.Answer, Answer: AnswerKind.Skip));
             ui.SameLine();
-            if (ui.Button("Stop (no entry)")) act(new UiAction(UiActionKind.Answer, Answer: AnswerKind.Stop));
+            if (ui.Button(KilnText.T("checks.stop"))) act(new UiAction(UiActionKind.Answer, Answer: AnswerKind.Stop));
         }
-        else ui.TextDisabled("Writing the verdict…");
+        else ui.TextDisabled(KilnText.T("checks.writing"));
         foreach (var a in c.Assertions)
-            ui.Text(a.Ok ? Green : Red, $"{(a.Ok ? "ok  " : "FAIL")} {a.What}{(a.Detail is { Length: > 0 } d ? " — " + d : "")}");
+            ui.Text(a.Ok ? Green : Red, a.Detail is { Length: > 0 } d
+                ? a.Ok ? KilnText.T("checks.assert.ok_detail", ("what", a.What), ("detail", d)) : KilnText.T("checks.assert.fail_detail", ("what", a.What), ("detail", d))
+                : a.Ok ? KilnText.T("checks.assert.ok", ("what", a.What)) : KilnText.T("checks.assert.fail", ("what", a.What)));
     }
 
     private static string SessionLabel(string session) => session switch
     {
-        "hosted" => "hosted world",
-        "joined" => "joined to a server (the checks run there)",
-        "server" => "dedicated server",
-        _ => "main menu: host a world or join a server to run checks",
+        "hosted" => KilnText.T("checks.session.hosted"),
+        "joined" => KilnText.T("checks.session.joined"),
+        "server" => KilnText.T("checks.session.server"),
+        _ => KilnText.T("checks.session.menu"),
     };
 
     /// <summary>The HUD line: the current instruction, always, so the player can play the check with the list closed.</summary>
@@ -211,11 +213,12 @@ internal static class CheckScreen
         if (v.Current is { } c)
             lines.Add(c.Phase switch
             {
-                "confirming" => $"Check \"{c.Title}\" asks a question first: open the list ({open})",
-                "finishing" => $"Check \"{c.Title}\": writing the verdict",
-                _ => $"Check \"{c.Title}\": {(c.Instruction.Length > 0 ? c.Instruction : "setting up…")}   [pass {pass} · fail {fail} · skip {skip}]",
+                "confirming" => KilnText.T("checks.hud.confirming", ("title", c.Title), ("open", open)),
+                "finishing" => KilnText.T("checks.hud.finishing", ("title", c.Title)),
+                _ => KilnText.T("checks.hud.running", ("title", c.Title), ("instruction", c.Instruction.Length > 0 ? c.Instruction : KilnText.T("checks.hud.setting_up")),
+                    ("pass", pass), ("fail", fail), ("skip", skip)),
             });
-        if (v.Warning is { } w) lines.Add("GUARD WARNING: " + w);
+        if (v.Warning is { } w) lines.Add(KilnText.T("checks.guard_warning", ("warning", w)));
         if (v.Changed is { } ch) lines.Add(ch);
         return string.Join('\n', lines);
     }
@@ -237,22 +240,37 @@ internal static class CheckUiHost
     {
         _runner = runner;
         _net = net;
-        _screen = Ui.Screen("Guided checks", ui => CheckScreen.Draw(ui, View(), State, Act, DateTime.UtcNow, KeyLine()),
+        _screen = Ui.Screen(KilnText.T("checks.title"), ui => CheckScreen.Draw(ui, View(), State, Act, DateTime.UtcNow, KeyLine()),
             new UiScreenOptions { Width = 980, Height = 700, Resizable = true });
         _screen.Opened += () => Act(new UiAction(UiActionKind.Refresh));
         _screen.Closed += OnClosed;
         Hud.Show("kiln.checks", () => CheckScreen.HudText(View(), Name(_pass), Name(_fail), Name(_skip), Name(_open)), HudAnchor.TopCenter,
             new Color(255, 225, 150));
-        const string category = "Guided checks";
-        _open = KeyBindings.Register(OpenKey, "Ctrl+Shift+F5", () => _screen?.Toggle(), "Open the list of guided checks", category);
-        _pass = KeyBindings.Register(PassKey, "Ctrl+Shift+F6", () => Answer(AnswerKind.Pass), "Pass the running check", category);
-        _fail = KeyBindings.Register(FailKey, "Ctrl+Shift+F7", FailPressed, "Fail the running check (then type one line)", category);
-        _skip = KeyBindings.Register(SkipKey, "Ctrl+Shift+F8", () => Answer(AnswerKind.Skip), "Skip the running check", category);
+        var category = KilnText.T("checks.key.category");
+        _open = KeyBindings.Register(OpenKey, "Ctrl+Shift+F5", () => _screen?.Toggle(), KilnText.T("checks.key.open"), category);
+        _pass = KeyBindings.Register(PassKey, "Ctrl+Shift+F6", () => Answer(AnswerKind.Pass), KilnText.T("checks.key.pass"), category);
+        _fail = KeyBindings.Register(FailKey, "Ctrl+Shift+F7", FailPressed, KilnText.T("checks.key.fail"), category);
+        _skip = KeyBindings.Register(SkipKey, "Ctrl+Shift+F8", () => Answer(AnswerKind.Skip), KilnText.T("checks.key.skip"), category);
+        KilnText.Changed -= Relabel;
+        KilnText.Changed += Relabel;
+    }
+
+    // Kiln's language changed (KilnText.Changed, any thread): the screen's title and the Keys page's lines follow it.
+    private static void Relabel()
+    {
+        if (_screen is { } sc) sc.Title = KilnText.T("checks.title");
+        var category = KilnText.T("checks.key.category");
+        foreach (var (b, key) in new[] { (_open, "checks.key.open"), (_pass, "checks.key.pass"), (_fail, "checks.key.fail"), (_skip, "checks.key.skip") })
+            if (b is not null)
+            {
+                b.Description = KilnText.T(key);
+                b.Category = category;
+            }
     }
 
     private static string Name(KeyBinding? b) => b?.Key.ToString() ?? "?";
 
-    private static string KeyLine() => $"Keys: list {Name(_open)} · pass {Name(_pass)} · fail {Name(_fail)} · skip {Name(_skip)} (Kiln menu, Keys)";
+    private static string KeyLine() => KilnText.T("checks.keys", ("open", Name(_open)), ("pass", Name(_pass)), ("fail", Name(_fail)), ("skip", Name(_skip)));
 
     private static RunnerView View()
     {

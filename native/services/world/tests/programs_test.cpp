@@ -34,6 +34,7 @@ void writes_world_changing() {}  // tracked-write lifecycle belongs to writes_te
 void writes_before_world(uintptr_t) {}
 void writes_after_world() {}
 uint32_t writes_capability() { return KILN_WORLD_CAP_TRACKED_WRITES; }
+uint32_t ecs_capability() { return KILN_WORLD_CAP_ECS_READ; }
 std::vector<std::string> pruned_names;
 bool seh_each(KilnProgramEachFn f,KilnProgramCtx* ctx,uint64_t* iter,KilnEntity e,void* user,unsigned long*) { f(ctx,iter,e,user);return true; }
 bool seh_update(KilnProgramUpdateFn f,KilnProgramCtx* ctx,void* user,unsigned long*) { f(ctx,user);return true; }

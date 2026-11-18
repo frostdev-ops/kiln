@@ -105,6 +105,49 @@ public sealed class ConfigBootTests : KilnTest
         Assert.True(Backend.Logged("changed after the mod's OnBoot read it"), string.Join("\n", Backend.Lines));
     }
 
+    // A file OnBoot cannot read (another program holds it, a slow disk) is not a missing file: the runtime's registration must not
+    // take the failed read for "no file" and write the defaults over the player's values. FileShare.None makes the read throw an
+    // IOException (a sharing violation on Windows, the advisory lock .NET takes on Linux).
+    [Fact]
+    public void A_file_OnBoot_cannot_read_is_never_written_over_with_the_defaults()
+    {
+        const string text = "{ \"altars\": 7 }\n";
+        var path = FilePath("altars");
+        File.WriteAllText(path, text);
+        var when = File.GetLastWriteTimeUtc(path);
+        ModConfig<AltarSettingsRuntime> runtime;
+        using (new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            var boot = InBoot(NewMod("altars"), () => Config.Register<AltarSettings>());
+            Assert.True(Backend.Logged($"cannot read {path}"), "the read must fail while the file is held:\n" + string.Join("\n", Backend.Lines));
+            Assert.Equal(3, boot.Value.Altars);  // the defaults, in memory only
+            // still held when the runtime registers: it reads again, fails again and writes nothing
+            runtime = As(NewMod("altars"), () => Config.Register<AltarSettingsRuntime>());
+            Assert.Equal(3, runtime.Value.Altars);
+        }
+        Assert.Equal(text, File.ReadAllText(path));
+        Assert.Equal(when, File.GetLastWriteTimeUtc(path));
+        Assert.True(Backend.Logged("the mod's OnBoot could not read"), string.Join("\n", Backend.Lines));
+        Assert.False(Backend.Logged("changed after the mod's OnBoot read it"), string.Join("\n", Backend.Lines));
+        // readable again: the next poll reads the player's value
+        Config.Poll();
+        Assert.Equal(7, runtime.Value.Altars);
+        Assert.Contains("\"altars\": 7", File.ReadAllText(path));
+    }
+
+    [Fact]
+    public void The_runtime_reads_a_file_OnBoot_could_not_read_once_it_can()
+    {
+        const string text = "{ \"altars\": 7 }\n";
+        File.WriteAllText(FilePath("altars"), text);
+        using (new FileStream(FilePath("altars"), FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            Assert.Equal(3, InBoot(NewMod("altars"), () => Config.Register<AltarSettings>()).Value.Altars);
+        Assert.Equal(text, File.ReadAllText(FilePath("altars")));
+        var runtime = As(NewMod("altars"), () => Config.Register<AltarSettingsRuntime>());
+        Assert.Equal(7, runtime.Value.Altars);
+        Assert.Contains("\"altars\": 7", File.ReadAllText(FilePath("altars")));  // its canonical form, the player's value
+    }
+
     [Fact]
     public void Writes_and_change_handlers_are_refused_in_OnBoot_with_what_to_do_instead()
     {

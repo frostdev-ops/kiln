@@ -172,11 +172,19 @@ public static partial class KilnDevTools
 
     private static void CreateWindows(LiteralNode root)
     {
-        _systems = Ui.Window("Kiln: Systems", DrawSystems, new UiWindowOptions { Width = 560, Height = 520, StartOpen = false });
-        _types = Ui.Window("Kiln: Types", DrawTypes, new UiWindowOptions { Width = 720, Height = 560, StartOpen = false });
-        KeyBindings.Register("kiln.devtools.systems", "None", () => _systems.Toggle(), "Kiln: Systems window");
-        KeyBindings.Register("kiln.devtools.types", "None", () => _types.Toggle(), "Kiln: Types window");
+        _systems = Ui.Window(KilnText.T("dev.systems.title"), DrawSystems, new UiWindowOptions { Width = 560, Height = 520, StartOpen = false });
+        _types = Ui.Window(KilnText.T("dev.types.title"), DrawTypes, new UiWindowOptions { Width = 720, Height = 560, StartOpen = false });
+        var sysKey = KeyBindings.Register("kiln.devtools.systems", "None", () => _systems.Toggle(), KilnText.T("dev.window_key", ("window", KilnText.T("dev.systems.title"))));
+        var typesKey = KeyBindings.Register("kiln.devtools.types", "None", () => _types.Toggle(), KilnText.T("dev.window_key", ("window", KilnText.T("dev.types.title"))));
+        Relabels.Add(() =>
+        {
+            _systems?.Retitle(KilnText.T("dev.systems.title"));
+            _types?.Retitle(KilnText.T("dev.types.title"));
+            sysKey.Description = KilnText.T("dev.window_key", ("window", KilnText.T("dev.systems.title")));
+            typesKey.Description = KilnText.T("dev.window_key", ("window", KilnText.T("dev.types.title")));
+        });
         CreatePanelWindows();
+        KilnText.Changed += Relabel;  // the windows' titles and keys follow the language of Kiln's texts
         root.Then(Commands.Literal("systems").Executes(c => { _systems.Toggle(); c.Reply("Systems window toggled"); }))
             .Then(Commands.Literal("types").Executes(c => { _types.Toggle(); c.Reply("Types window toggled"); }))
             .Then(Commands.Literal("open").Then(Commands.Argument("window", Arg.Word()).Executes(c =>
@@ -190,21 +198,22 @@ public static partial class KilnDevTools
 
     private static void DrawSystems(UiDraw ui)
     {
-        if (!GameSystems.Available) { ui.TextWrapped("Systems are unavailable on this build: " + GameTypes.Status); return; }
-        ui.InputText("Filter", ref _sysFilter, 64);
+        if (!GameSystems.Available) { ui.TextWrapped(KilnText.T("dev.systems.unavailable", ("status", GameTypes.Status))); return; }
+        ui.InputText(KilnText.T("dev.filter") + "##filter", ref _sysFilter, 64);
         ui.SameLine();
-        ui.Checkbox("Off only", ref _offOnly);
+        ui.Checkbox(KilnText.T("dev.systems.off_only") + "##offonly", ref _offOnly);
         var profiling = GameSystems.Profiling;
-        if (ui.Button(profiling ? "Stop profiling" : "Profile")) ChangeOnTick(() => GameSystems.Profile(!profiling));
+        if (ui.Button((profiling ? KilnText.T("dev.systems.stop_profiling") : KilnText.T("dev.systems.profile")) + "##profile")) ChangeOnTick(() => GameSystems.Profile(!profiling));
         ui.SameLine();
-        if (ui.Button("Turn all on")) ChangeOnTick(() => GameSystems.TurnAllOn());
+        if (ui.Button(KilnText.T("dev.systems.all_on") + "##allon")) ChangeOnTick(() => GameSystems.TurnAllOn());
         ui.SameLine();
-        if (ui.Button("Log top 30")) KilnLog.Info(Top(30));
+        if (ui.Button(KilnText.T("dev.systems.log_top") + "##logtop")) KilnLog.Info(Top(30));
         var secs = Math.Max(GameSystems.ProfileSeconds, 1e-9);
         IEnumerable<GameSystem> list = _sysFilter.Length == 0 ? GameSystems.All : GameSystems.Search(_sysFilter);
         if (_offOnly) list = list.Where(s => !s.Enabled);
         if (profiling || GameSystems.ProfileSeconds > 0) list = list.OrderByDescending(s => s.Milliseconds);
-        if (ui.BeginTable("systems", "On", "System", "ms/s", "calls/s", "World", "exe+"))
+        if (ui.BeginTable("systems", KilnText.T("dev.systems.col_on"), KilnText.T("dev.systems.col_system"), "ms/s", KilnText.T("dev.systems.col_calls"),
+                KilnText.T("dev.systems.col_world"), "exe+"))
         {
             foreach (var s in list.Take(400))
             {
@@ -247,8 +256,8 @@ public static partial class KilnDevTools
 
     private static void DrawTypes(UiDraw ui)
     {
-        if (!GameTypes.Available) { ui.TextWrapped("Types are unavailable on this build: " + GameTypes.Status); return; }
-        ui.InputText("Search", ref _typeFilter, 96);
+        if (!GameTypes.Available) { ui.TextWrapped(KilnText.T("dev.types.unavailable", ("status", GameTypes.Status))); return; }
+        ui.InputText(KilnText.T("dev.types.search") + "##search", ref _typeFilter, 96);
         if (ui.BeginChild("list", 300 * ui.Scale, 0))
         {
             if (_typeFilter.Length >= 2)
@@ -262,7 +271,7 @@ public static partial class KilnDevTools
             if (_selected is { } s)
             {
                 ui.Text(DescribeType(s.QualifiedName));
-                if (s.Base is { } b && ui.Button("Base: " + b.Name)) _selected = b;
+                if (s.Base is { } b && ui.Button(KilnText.T("dev.types.base", ("type", b.Name)) + "##base")) _selected = b;
             }
         }
         ui.EndChild();

@@ -11,6 +11,7 @@ import type { CommandInfo, CommandNode, CompleteResult } from "../../admin/types
 import { MoreHorizontal } from "lucide-react";
 import { Button, EmptyState, Menu, Modal, Segmented, WellInput, toast } from "../../ui";
 import { onServerConsole, serverConsoleClose, serverConsoleOpen, useServerStatus, type ConsoleLevel, type ConsoleSource } from "./serverApi";
+import { rich, useT } from "../../i18n";
 
 /** A console row: the server's line, or a command typed here and its answer. */
 interface Row {
@@ -33,6 +34,7 @@ const CLASS: Record<Row["level"], string> = { info: "", warn: " l-warn", error: 
 const capRows = (r: Row[]) => (r.length > MAX_ROWS ? r.slice(r.length - MAX_ROWS) : r);
 
 export function ServerConsole({ serverId }: { serverId: string }) {
+  const t = useT();
   const st = useServerStatus(serverId);
   const running = st.data?.state === "running" || st.data?.state === "starting";
   const [rows, setRows] = useState<Row[]>([]);
@@ -117,34 +119,34 @@ export function ServerConsole({ serverId }: { serverId: string }) {
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(shown.map((r) => r.text).join("\n") + "\n");
-      toast.ok(`Copied ${shown.length} line${shown.length === 1 ? "" : "s"}`);
+      toast.ok(t("servers.console.copied", { count: shown.length }));
     } catch (e) {
-      toast.error(e, "Copy failed");
+      toast.error(e, t("servers.console.copyFailed"));
     }
   };
-  const file = path?.split(/[\\/]/).pop() ?? (source === "gamelog" ? "game log" : "console");
-  const empty = levels === "warn" ? "No warnings in this run." : levels === "error" ? "No errors in this run." : filter ? "Nothing matches that filter." : "Nothing written yet.";
+  const file = path?.split(/[\\/]/).pop() ?? (source === "gamelog" ? t("servers.console.gameLog") : t("servers.console.console"));
+  const empty = levels === "warn" ? t("servers.console.noWarnings") : levels === "error" ? t("servers.console.noErrors") : filter ? t("servers.console.noMatch") : t("servers.console.nothingYet");
 
   return (
     <div className="k-console">
       <div className="k-console-bar">
         <span className="k-mono" style={{ color: "var(--k-text-1)" }} title={path ?? undefined}>{file}</span>
-        <Segmented<LevelFilter> aria-label="Level" value={levels} onChange={setLevels}
-          options={[{ id: "all", label: "All" }, { id: "warn", label: "Warnings" }, { id: "error", label: "Errors" }]} />
+        <Segmented<LevelFilter> aria-label={t("servers.console.level")} value={levels} onChange={setLevels}
+          options={[{ id: "all", label: t("servers.console.all") }, { id: "warn", label: t("servers.console.warnings") }, { id: "error", label: t("servers.console.errors") }]} />
         <div className="k-seg">
-          <button type="button" className={paused ? "on" : ""} aria-pressed={paused} onClick={() => pause(!paused)}>{paused && held.length ? `Paused, ${held.length} new` : "Pause"}</button>
+          <button type="button" className={paused ? "on" : ""} aria-pressed={paused} onClick={() => pause(!paused)}>{paused && held.length ? t("servers.console.pausedNew", { n: held.length }) : t("servers.console.pause")}</button>
         </div>
-        <WellInput label="Filter" compact value={filter} onChange={(e) => setFilter(e.target.value)} onClear={() => setFilter("")} wellStyle={{ flex: "1 1 110px", marginLeft: "auto", minHeight: 30 }} />
-        <Menu label="More for the console" icon={<MoreHorizontal />} size="s" items={[
-          { label: `Copy ${shown.length} line${shown.length === 1 ? "" : "s"}`, disabled: !shown.length, onSelect: copy },
-          ...(running && inside ? [{ label: "Kiln commands", onSelect: () => setCmds(true) }] : []),
+        <WellInput label={t("servers.console.filter")} compact value={filter} onChange={(e) => setFilter(e.target.value)} onClear={() => setFilter("")} wellStyle={{ flex: "1 1 110px", marginLeft: "auto", minHeight: 30 }} />
+        <Menu label={t("servers.console.more")} icon={<MoreHorizontal />} size="s" items={[
+          { label: t("servers.console.copyLines", { count: shown.length }), disabled: !shown.length, onSelect: copy },
+          ...(running && inside ? [{ label: t("servers.console.kilnCommands"), onSelect: () => setCmds(true) }] : []),
         ]} />
       </div>
-      {source === "gamelog" && <span className="k-hint">Started outside the launcher: this is its game log. Start it here for the full output.</span>}
+      {source === "gamelog" && <span className="k-hint">{t("servers.console.outside")}</span>}
       {error ? (
-        <EmptyState title="No console" hint={error} />
+        <EmptyState title={t("servers.console.noConsole")} hint={error} />
       ) : (
-        <ConsoleLines rows={shown} follow={!paused} filter={filter.trim()} empty={source === "none" && !rows.length ? "No output yet. Start the server: its output shows here, without a console window." : empty} truncated={truncated} />
+        <ConsoleLines rows={shown} follow={!paused} filter={filter.trim()} empty={source === "none" && !rows.length ? t("servers.console.noOutput") : empty} truncated={truncated} />
       )}
       <CommandLine serverId={serverId} running={running} onRows={add} />
       {cmds && <CommandsDialog onClose={() => setCmds(false)} />}
@@ -153,6 +155,7 @@ export function ServerConsole({ serverId }: { serverId: string }) {
 }
 
 function ConsoleLines({ rows, follow, filter, empty, truncated }: { rows: Row[]; follow: boolean; filter: string; empty: string; truncated: boolean }) {
+  const t = useT();
   const scroll = useRef<HTMLDivElement>(null);
   const [atEnd, setAtEnd] = useState(true);
   const born = useRef<WeakMap<Row, number>>(new WeakMap());
@@ -169,16 +172,16 @@ function ConsoleLines({ rows, follow, filter, empty, truncated }: { rows: Row[];
     el.addEventListener("scroll", on, { passive: true });
     return () => el.removeEventListener("scroll", on);
   }, []);
-  const mark = (t: string) => {
-    if (!filter) return t;
-    const i = t.toLowerCase().indexOf(filter.toLowerCase());
-    return i < 0 ? t : <>{t.slice(0, i)}<mark>{t.slice(i, i + filter.length)}</mark>{t.slice(i + filter.length)}</>;
+  const mark = (text: string) => {
+    if (!filter) return text;
+    const i = text.toLowerCase().indexOf(filter.toLowerCase());
+    return i < 0 ? text : <>{text.slice(0, i)}<mark>{text.slice(i, i + filter.length)}</mark>{text.slice(i + filter.length)}</>;
   };
   const now = Date.now();
   return (
     <div style={{ position: "relative", flex: 1, minHeight: 120, display: "flex", flexDirection: "column" }}>
-      <div ref={scroll} className="k-log k-console-log" role="log" aria-label="Server console" aria-live="off" tabIndex={0}>
-        {truncated && <div className="k-log-note">Older lines are left out.</div>}
+      <div ref={scroll} className="k-log k-console-log" role="log" aria-label={t("servers.console.label")} aria-live="off" tabIndex={0}>
+        {truncated && <div className="k-log-note">{t("servers.console.truncated")}</div>}
         {rows.length === 0 ? (
           <div className="k-empty-title" style={{ padding: "10px 14px", fontFamily: "var(--k-font-ui)" }}>{empty}</div>
         ) : (
@@ -199,7 +202,7 @@ function ConsoleLines({ rows, follow, filter, empty, truncated }: { rows: Row[];
       </div>
       {follow && !atEnd && rows.length > 0 && (
         <div className="k-log-follow">
-          <Button size="s" onClick={() => { setAtEnd(true); virt.scrollToIndex(rows.length - 1, { align: "end" }); }}>Follow</Button>
+          <Button size="s" onClick={() => { setAtEnd(true); virt.scrollToIndex(rows.length - 1, { align: "end" }); }}>{t("servers.console.follow")}</Button>
         </div>
       )}
     </div>
@@ -208,12 +211,13 @@ function ConsoleLines({ rows, follow, filter, empty, truncated }: { rows: Row[];
 
 /** Kiln commands over the admin session; live only while the server runs (no reconnect loop for a stopped one). */
 function CommandLine({ serverId, running, onRows }: { serverId: string; running: boolean; onRows: (r: Row[]) => void }) {
+  const t = useT();
   const inside = useInAdminProvider();
   if (!running || !inside) {
     return (
       <form className="k-cmd" onSubmit={(e) => e.preventDefault()}>
         <label className="k-cmd-prompt" htmlFor="k-cmd">kiln&gt;</label>
-        <input id="k-cmd" disabled placeholder={running ? "Connecting to Kiln.Admin…" : "Start the server to send Kiln commands"} />
+        <input id="k-cmd" disabled placeholder={running ? t("servers.console.connecting") : t("servers.console.startToSend")} />
       </form>
     );
   }
@@ -221,6 +225,7 @@ function CommandLine({ serverId, running, onRows }: { serverId: string; running:
 }
 
 function LiveCommandLine({ serverId, onRows }: { serverId: string; onRows: (r: Row[]) => void }) {
+  const t = useT();
   const admin = useAdminState(serverId);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -232,8 +237,8 @@ function LiveCommandLine({ serverId, onRows }: { serverId: string; onRows: (r: R
   const can = admin.ready && admin.ops.has("command_run");
   const players = (admin.state?.players ?? []).filter((p) => p.steamId);
   const hint = admin.ready
-    ? can ? "command, e.g. help (Tab completes, Up and Down go through the history)" : "This Kiln.Admin has no command_run op"
-    : admin.connecting ? "Connecting to Kiln.Admin…" : admin.error ? `Kiln.Admin is not answering: ${admin.error.message}` : "Kiln.Admin is not connected";
+    ? can ? t("servers.console.hint") : t("servers.console.noRunOp")
+    : admin.connecting ? t("servers.console.connecting") : admin.error ? t("servers.console.notAnswering", { error: admin.error.message }) : t("servers.console.notConnected");
 
   const complete = async () => {
     if (!admin.ops.has("command_complete") || !text.trim()) return;
@@ -258,12 +263,12 @@ function LiveCommandLine({ serverId, onRows }: { serverId: string; onRows: (r: R
     setText("");
     setSugg([]);
     const who = as ? players.find((p) => p.steamId === as)?.name ?? as : "";
-    onRows([{ text: `${who ? `[as ${who}] ` : ""}> ${line}`, level: "in" }]);
+    onRows([{ text: who ? t("servers.console.echoAs", { who, line }) : `> ${line}`, level: "in" }]);
     setBusy(true);
     try {
       const r = await callAdmin<RunResult>(serverId, "command_run", { line, ...(as ? { steamId: as } : {}) });
-      const out: Row[] = (r.output ?? []).map((t) => ({ text: t, level: "out" as const }));
-      if (!r.ok) out.push({ text: r.denied ? `Denied: ${r.error || "no permission"}` : r.found === false ? `Unknown command. ${r.error ?? ""}`.trim() : r.error || "Failed", level: "error" });
+      const out: Row[] = (r.output ?? []).map((text) => ({ text, level: "out" as const }));
+      if (!r.ok) out.push({ text: r.denied ? t("servers.console.denied", { error: r.error || t("servers.console.noPermission") }) : r.found === false ? t("servers.console.unknown", { error: r.error ?? "" }).trim() : r.error || t("servers.mods.failed"), level: "error" });
       onRows(out.length ? out : [{ text: "ok", level: "meta" }]);
     } catch (err) {
       onRows([{ text: toKilnError(err).message, level: "error" }]);
@@ -290,14 +295,14 @@ function LiveCommandLine({ serverId, onRows }: { serverId: string; onRows: (r: R
       <input id="k-cmd" placeholder={hint} title={hint} value={text} disabled={!can} autoComplete="off" spellCheck={false} maxLength={1000}
         onChange={(e) => { setText(e.target.value); setSugg([]); }} onKeyDown={key} aria-autocomplete="list" aria-expanded={sugg.length > 0} />
       {players.length > 0 && (
-        <select className="k-cmd-as" aria-label="Run as" value={as} onChange={(e) => setAs(e.target.value)}>
-          <option value="">as admin</option>
-          {players.map((p) => <option key={p.steamId} value={p.steamId!}>as {p.name || p.steamId}</option>)}
+        <select className="k-cmd-as" aria-label={t("servers.console.runAs")} value={as} onChange={(e) => setAs(e.target.value)}>
+          <option value="">{t("servers.console.asAdmin")}</option>
+          {players.map((p) => <option key={p.steamId} value={p.steamId!}>{t("servers.console.asPlayer", { name: p.name || p.steamId })}</option>)}
         </select>
       )}
-      {busy && <span className="k-spin" aria-label="Running" />}
+      {busy && <span className="k-spin" aria-label={t("servers.console.running")} />}
       {sugg.length > 0 && (
-        <div className="k-popover k-cmd-sugg" role="listbox" aria-label="Completions">
+        <div className="k-popover k-cmd-sugg" role="listbox" aria-label={t("servers.console.completions")}>
           {sugg.map((s, i) => (
             <button key={s} type="button" role="option" aria-selected={i === sel} className="k-menu-item" onMouseDown={(e) => { e.preventDefault(); setText(s); setSugg([]); }}>
               <span className="k-mono" style={{ color: "var(--k-text-0)", marginLeft: 0 }}>{s}</span>
@@ -311,14 +316,15 @@ function LiveCommandLine({ serverId, onRows }: { serverId: string; onRows: (r: R
 
 /** The server's Kiln commands with their usage (commands_describe). */
 function CommandsDialog({ onClose }: { onClose: () => void }) {
+  const t = useT();
   const cmds = useAdminQuery<CommandInfo[]>("commands_describe", {}, { staleTime: 60_000 });
   const [q, setQ] = useState("");
   const [sel, setSel] = useState<string | null>(null);
   const list = (cmds.data ?? []).filter((c) => !q || `${c.name} ${(c.aliases ?? []).join(" ")} ${c.description ?? ""} ${c.owner ?? ""}`.toLowerCase().includes(q.toLowerCase()));
   const cur = (cmds.data ?? []).find((c) => c.name === sel) ?? list[0];
   return (
-    <Modal open onClose={onClose} title="Commands" width={640} footer={<Button onClick={onClose}>Close</Button>}>
-      <WellInput label="Filter" data-autofocus value={q} onChange={(e) => setQ(e.target.value)} onClear={() => setQ("")} />
+    <Modal open onClose={onClose} title={t("servers.console.commands")} width={640} footer={<Button onClick={onClose}>{t("common.close")}</Button>}>
+      <WellInput label={t("servers.console.filter")} data-autofocus value={q} onChange={(e) => setQ(e.target.value)} onClear={() => setQ("")} />
       {cmds.error ? <span className="k-error-text">{cmds.error.message}</span> : (
         <div className="k-cmd-dialog">
           <div className="k-list k-cmd-names">
@@ -328,7 +334,7 @@ function CommandsDialog({ onClose }: { onClose: () => void }) {
                 <span className="k-mono" style={{ color: "var(--k-text-0)" }}>/{c.name}</span>
               </button>
             ))}
-            {cmds.data && !list.length && <span className="k-empty-title">No command matches that.</span>}
+            {cmds.data && !list.length && <span className="k-empty-title">{t("servers.console.noCommand")}</span>}
           </div>
           {cur ? <CommandHelp c={cur} /> : <span />}
         </div>
@@ -349,15 +355,16 @@ function args(node: CommandNode | undefined, acc: CommandNode[] = [], seen = new
 }
 
 function CommandHelp({ c }: { c: CommandInfo }) {
+  const t = useT();
   const a = args(c.tree);
   const tone = c.permission === "everyone" ? "ok" : c.permission === "admin" ? "warn" : "err";
   return (
     <div className="k-stack k-cmd-help" style={{ gap: 10 }}>
       <div>
         <span className="k-mono" style={{ fontSize: 17, color: "var(--k-text-0)" }}>/{c.name}</span>
-        {c.aliases?.length ? <span className="k-muted"> also {c.aliases.map((x) => "/" + x).join(", ")}</span> : null}
-        <div className="k-hint">{c.description || "No description."} From <span className="k-mono">{c.owner}</span>.</div>
-        <div className="k-hint">Needs <span className="k-mono">{c.node}</span> <span className={`k-word-sm k-tone-${tone}`}>{c.permission ?? "?"}</span></div>
+        {c.aliases?.length ? <span className="k-muted"> {t("servers.console.also", { list: c.aliases.map((x) => "/" + x).join(", ") })}</span> : null}
+        <div className="k-hint">{rich("servers.console.from", { description: c.description || t("servers.console.noDescription"), owner: <span className="k-mono">{c.owner}</span> })}</div>
+        <div className="k-hint">{rich("servers.console.needs", { node: <span className="k-mono">{c.node}</span>, permission: <span className={`k-word-sm k-tone-${tone}`}>{c.permission ?? "?"}</span> })}</div>
       </div>
       {(c.usageLines ?? []).map((u) => <code key={u} className="k-code-block">{u}</code>)}
       {a.length ? (

@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import * as api from "../api/commands";
 import type { EngineStatus, GameId, Json, ModKind } from "../api/commands";
 import { useActiveProfile, usePoll, useProfile } from "../api/hooks";
+import { t, useT } from "../i18n";
 import { KIND_NAME, KIND_SHORT, KIND_TONE, MOD_KINDS } from "../api/kinds";
 import { Badge, Banner, EmptyState, Skeleton, errorText, type Tone } from "../ui";
 import { RestoreDataOffer } from "./RestoreDataOffer";
@@ -15,6 +16,11 @@ const str = (v: Json | undefined): string | null => (typeof v === "string" && v 
 /** The state word of a plugin's state file: EML `phase`, ShroudForge `mode`, else `state`/`status`; shroudlink and Ember
  *  say `steppedAside`/`started`, and Ember's `abi: null` means it is waiting for Ember to publish its mod ABI. */
 export function headline(state: Json | null): string | null {
+  return headlineText(headlineWord(state));
+}
+
+/** The word as the state file says it, or the launcher's own English word (the tone is read from this one). */
+function headlineWord(state: Json | null): string | null {
   if (!isObj(state)) return null;
   // Enshwick's phase is when its loader starts (early/world), not whether it succeeded.
   const word = str(state.status) ?? str(state.phase) ?? str(state.mode) ?? str(state.state);
@@ -23,6 +29,17 @@ export function headline(state: Json | null): string | null {
   if ("abi" in state && state.abi === null) return "waiting for Ember's ABI";
   if (typeof state.started === "boolean") return state.started ? "running" : "idle";
   return null;
+}
+
+/** The launcher's own words in the current language; a state file's word as it is. */
+function headlineText(word: string | null): string | null {
+  switch (word) {
+    case "stepped aside": return t("engineStatus.steppedAside");
+    case "waiting for Ember's ABI": return t("engineStatus.waitingAbi");
+    case "running": return t("engineStatus.running");
+    case "idle": return t("engineStatus.idle");
+    default: return word;
+  }
 }
 
 const toneOf = (word: string | null): Tone => {
@@ -56,27 +73,32 @@ export const engineStatusKey = (gameId: GameId) => ["engine_status", gameId] as 
 
 /** One compact row per engine plugin that wrote a state file or has mods in the active profile. */
 export function EngineStatusList({ gameId }: { gameId: GameId }) {
+  const t = useT();
   const q = useQuery({ queryKey: engineStatusKey(gameId), queryFn: () => api.engineStatus(gameId), refetchInterval: usePoll(10_000) });
   const active = useActiveProfile(gameId);
   const profile = useProfile(active.data?.profileId);
   const inProfile = (k: ModKind) => (profile.data?.mods[k] ?? []).length > 0;
   if (q.isLoading) return <Skeleton lines={3} />;
-  if (q.error) return <EmptyState title="The engine state files are not readable" hint={errorText(q.error)} />;
+  if (q.error) return <EmptyState title={t("engineStatus.unreadable")} hint={errorText(q.error)} />;
   const rows = (q.data ?? []).filter((s) => s.state !== null || !!s.error || inProfile(s.kind) || !!s.ownLoader || s.prerequisite?.available || (s.effects && s.effects.state !== "unavailable")
     || (s.kind === "shroudforge" && !!s.startupFailed))
     .sort((a, b) => MOD_KINDS.indexOf(a.kind) - MOD_KINDS.indexOf(b.kind));
-  if (!rows.length) return <EmptyState title="No other engine has run yet." hint="Kiln's engine plugins write their state at each start." />;
+  if (!rows.length) return <EmptyState title={t("engineStatus.none")} hint={t("engineStatus.noneHint")} />;
   return (
-    <div className="k-list" aria-label="Engine plugins">
+    <div className="k-list" aria-label={t("engineStatus.plugins")}>
       {rows.map((s) => <EngineRow key={s.kind} s={s} />)}
     </div>
   );
 }
 
 export function EngineRow({ s }: { s: EngineStatus }) {
+  const t = useT();
   const selfFile = s.kind === "shroudforge" ? s.ownLoader?.file : null;
-  const word = selfFile ? `own loader installed: ${selfFile}` : s.kind === "shroudforge" && isObj(s.state) && s.state.mode === "self-hosted"
-    ? "Last start: self-hosted (loader no longer detected)" : headline(s.state);
+  const selfHosted = !selfFile && s.kind === "shroudforge" && isObj(s.state) && s.state.mode === "self-hosted";
+  const raw = selfFile || selfHosted ? null : headlineWord(s.state);
+  const word = selfFile ? t("engineStatus.ownLoader", { file: selfFile }) : selfHosted ? t("engineStatus.selfHostedGone") : headlineText(raw);
+  // the tone of the English word (a translation must not change it): own loader = info, self-hosted = ok
+  const tone: Tone = selfFile ? "info" : selfHosted ? "ok" : toneOf(raw);
   const reason = s.prerequisite?.text ?? s.error ?? (isObj(s.state) ? str(s.state.reason) ?? str(s.state.error) : null);
   const mods = modLines(s.state);
   const effects = s.kind === "shroudforge" ? s.effects : null;
@@ -88,10 +110,10 @@ export function EngineRow({ s }: { s: EngineStatus }) {
       <Badge tone={KIND_TONE[s.kind]} title={KIND_NAME[s.kind]}>{KIND_SHORT[s.kind]}</Badge>
       <span className="k-mono k-muted">{s.plugin}</span>
       <span className="k-spacer" />
-      {s.prerequisite ? <span className={`k-word-sm k-tone-${s.prerequisite.available ? "info" : "warn"}`}>{s.prerequisite.available ? "Host recognized (not verified)" : "Requires XHL-Core"}</span> : s.error ? <span className="k-word-sm k-tone-err">Unreadable</span> : s.state === null && !selfFile ? <span className="k-hint">{current ? "Runtime report available" : "Not run yet"}</span> : (
+      {s.prerequisite ? <span className={`k-word-sm k-tone-${s.prerequisite.available ? "info" : "warn"}`}>{s.prerequisite.available ? t("engineStatus.hostRecognized") : t("engineStatus.requiresXhl")}</span> : s.error ? <span className="k-word-sm k-tone-err">{t("engineStatus.unreadableShort")}</span> : s.state === null && !selfFile ? <span className="k-hint">{current ? t("engineStatus.reportAvailable") : t("engineStatus.notRun")}</span> : (
         <>
-          {word && <span className={`k-word-sm k-tone-${toneOf(word)}`}>{word}</span>}
-          {mods.length > 0 && <span className="k-hint">{mods.length} mod{mods.length === 1 ? "" : "s"}</span>}
+          {word && <span className={`k-word-sm k-tone-${tone}`}>{word}</span>}
+          {mods.length > 0 && <span className="k-hint">{t("engineStatus.mods", { count: mods.length })}</span>}
         </>
       )}
       {(reason || mods.length > 0) && (
@@ -103,10 +125,10 @@ export function EngineRow({ s }: { s: EngineStatus }) {
         </span>
       )}
       {effects && (
-        <div className="k-hint" style={{ flexBasis: "100%" }} title={effects.file} aria-label="ShroudForge mod effects">
-          {!current ? <span className={effects.state === "invalid" ? "k-tone-err" : "k-tone-warn"}>{effects.reason ?? `ShroudForge report: ${effects.state}`}</span> : (
+        <div className="k-hint" style={{ flexBasis: "100%" }} title={effects.file} aria-label={t("engineStatus.effects")}>
+          {!current ? <span className={effects.state === "invalid" ? "k-tone-err" : "k-tone-warn"}>{effects.reason ?? t("engineStatus.sfReport", { state: effects.state })}</span> : (
             <>
-              {effects.mods.length === 0 && <span>No per-mod effects reported yet.</span>}
+              {effects.mods.length === 0 && <span>{t("engineStatus.noEffects")}</span>}
               {effects.mods.map((m) => (
                 <div key={m.id}>
                   <span className="k-mono">{m.id}</span>{" "}
@@ -115,8 +137,8 @@ export function EngineRow({ s }: { s: EngineStatus }) {
                 </div>
               ))}
               {effects.mods.length > 0 && <div>{effects.mods.some((m) => m.state === "write-confirmed")
-                ? "Memory write confirmed; not proof of the gameplay effect."
-                : "These are the mods' own reports, not proof of the gameplay effect."}</div>}
+                ? t("engineStatus.writeConfirmed")
+                : t("engineStatus.ownReports")}</div>}
             </>
           )}
         </div>
@@ -148,38 +170,35 @@ export function RestoreVanillaOffer({ gameId }: { gameId: GameId }) {
 }
 
 function VanillaOffer({ gameId }: { gameId: GameId }) {
+  const t = useT();
   const backup = useQuery({ queryKey: ["eml_backup", gameId], queryFn: () => api.emlBackup(gameId) });
   const engines = useQuery({ queryKey: engineStatusKey(gameId), queryFn: () => api.engineStatus(gameId) });
   const active = useActiveProfile(gameId);
   const profile = useProfile(active.data?.profileId);
   const patched = (backup.data ?? []).filter((b) => b.patched);
   const emlOn = (profile.data?.mods.eml ?? []).some((m) => m.enabled);
-  if (backup.error) return <EmptyState title="The game data backup is not readable" hint={errorText(backup.error)} />;
-  if (active.error) return <EmptyState title="Your mod list is not readable" hint={errorText(active.error)} />;
+  if (backup.error) return <EmptyState title={t("engineStatus.backupUnreadable")} hint={errorText(backup.error)} />;
+  if (active.error) return <EmptyState title={t("engineStatus.listUnreadable")} hint={errorText(active.error)} />;
   const eml = engines.data?.find((s) => s.kind === "eml")?.state;
   const phase = isObj(eml) ? str(eml.phase) : null;
   const idle = phase === "idle";
   // one sentence for the player from the last start that finished
   const reason = isObj(eml) && (idle || phase === "done" || phase === "failed") ? str(eml.reason) : null;
-  const said = reason && <>{" "}On the last start{idle ? " without EML mods" : ""}: {reason}.</>;
+  const said = reason && <>{" "}{idle ? t("engineStatus.lastStartNoEml", { reason }) : t("engineStatus.lastStart", { reason })}</>;
   const differs = patched.length > 0 && !active.isLoading && !(active.data && !profile.data) && !emlOn;
   if (!differs) {
-    return reason ? <Banner tone="warn" title="EML archive note">{said}</Banner> : null;
+    return reason ? <Banner tone="warn" title={t("engineStatus.emlNote")}>{said}</Banner> : null;
   }
   const names = patched.map((b) => b.file.split(/[\\/]/).pop()).join(", ");
   // the backup is of an earlier game build (the game was updated since): nothing to compare or restore against
   const stale = idle && isObj(eml) && eml.staleBackup === true;
   return (
-    <Banner tone={reason ? "warn" : "info"} title="Shared archive backup differs">
-      {names} {patched.length === 1 ? "differs" : "differ"} from the shared backup; this does not identify which loader wrote it.
-      {stale ? <>{" "}The backup is of an earlier game build: the game was updated since it was made. Kiln does not compare
-        the game data with it and restores nothing from it; the next start with an EML mod makes a new backup.
-        {said || " Nothing needs doing."}</> : idle && said ? said : <>
-        {" "}To remove EML changes, disable EML mods and start the game through Kiln: its archive writer checks ownership and
-        restores only output it can prove it wrote (earlier Kiln versions' too). When it cannot, it leaves the data alone
-        and says why here; then enable any EML mod for one start and disable it again, or use Steam's "Verify integrity of
-        game files".{said}</>}
-      {" "}Other loaders' data is kept; the launcher never copies shared backups directly.
+    <Banner tone={reason ? "warn" : "info"} title={t("engineStatus.differsTitle")}>
+      {t("engineStatus.differs", { count: patched.length, names })}
+      {stale ? <>{" "}{t("engineStatus.staleBackup")}
+        {said || <>{" "}{t("engineStatus.nothingToDo")}</>}</> : idle && said ? said : <>
+        {" "}{t("engineStatus.removeHow")}{said}</>}
+      {" "}{t("engineStatus.othersKept")}
     </Banner>
   );
 }

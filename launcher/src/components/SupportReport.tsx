@@ -6,6 +6,7 @@ import { useState } from "react";
 import * as api from "../api/commands";
 import type { LogTarget } from "../api/commands";
 import { isTauri } from "../api/commands";
+import { t, useT } from "../i18n";
 import { Button, fmtBytes, toast } from "../ui";
 
 /** `kiln-report-2026-11-10.zip` (the crate's report::file_name, in local time). */
@@ -17,11 +18,12 @@ export function reportFileName(d = new Date()): string {
 async function choosePath(): Promise<string | null> {
   if (!isTauri()) return reportFileName(); // mock mode: no dialog
   const { save } = await import("@tauri-apps/plugin-dialog");
-  return save({ title: "Save a support report", defaultPath: reportFileName(), filters: [{ name: "Zip", extensions: ["zip"] }] });
+  return save({ title: t("supportReport.dialogTitle"), defaultPath: reportFileName(), filters: [{ name: "Zip", extensions: ["zip"] }] });
 }
 
 /** The block: one sentence, "Save report...", "Copy summary". `target` null: the system and the launcher only. */
 export function SupportReport({ target, compact }: { target: LogTarget | null; compact?: boolean }) {
+  const t = useT();
   const [busy, setBusy] = useState<"save" | "copy" | null>(null);
   const save = async () => {
     try {
@@ -31,10 +33,14 @@ export function SupportReport({ target, compact }: { target: LogTarget | null; c
       const r = await api.reportSave(target, path);
       const problems = r.findings.filter((f) => f.level === "problem").length;
       const folder = r.path.replace(/[\\/][^\\/]*$/, "");
-      toast.ok("Report saved", `${r.path.split(/[\\/]/).pop()}, ${fmtBytes(r.size)}. ${problems ? `It found ${problems} problem${problems === 1 ? "" : "s"}. ` : ""}Attach it to your post.`,
-        { actions: isTauri() && folder && folder !== r.path ? [{ label: "Open folder", onClick: () => { api.appOpenPath(folder).catch((e) => toast.error(e)); } }] : [] });
+      toast.ok(t("supportReport.saved"), [
+        t("supportReport.savedFile", { file: r.path.split(/[\\/]/).pop(), size: fmtBytes(r.size) }),
+        problems ? t("supportReport.problems", { count: problems }) : null,
+        t("supportReport.attach"),
+      ].filter(Boolean).join(" "),
+        { actions: isTauri() && folder && folder !== r.path ? [{ label: t("supportReport.openFolder"), onClick: () => { api.appOpenPath(folder).catch((e) => toast.error(e)); } }] : [] });
     } catch (e) {
-      toast.error(e, "The report was not saved");
+      toast.error(e, t("supportReport.notSaved"));
     } finally {
       setBusy(null);
     }
@@ -43,24 +49,23 @@ export function SupportReport({ target, compact }: { target: LogTarget | null; c
     setBusy("copy");
     try {
       const text = await api.reportSummary(target);
-      if (!navigator.clipboard) throw new Error("Clipboard unavailable");
+      if (!navigator.clipboard) throw new Error(t("supportReport.noClipboard"));
       await navigator.clipboard.writeText(text);
-      toast.ok("Summary copied", "Paste it into your post. The zip has the details.");
+      toast.ok(t("supportReport.copied"), t("supportReport.copiedDetail"));
     } catch (e) {
-      toast.error(e, "Could not copy the summary");
+      toast.error(e, t("supportReport.copyFailed"));
     } finally {
       setBusy(null);
     }
   };
   return (
     <div className="k-list-item" data-testid="support-report" style={{ flexWrap: "wrap", rowGap: 6, padding: compact ? "6px 0" : "10px 0" }}>
-      <span className="k-word-sm">Support report</span>
+      <span className="k-word-sm">{t("supportReport.title")}</span>
       <span className="k-hint" style={{ flex: "1 1 260px" }}>
-        Mods don't load? Save one zip with Kiln's logs, its state files, the profile and a list of the game folder. Your
-        name, paths and server addresses are replaced; saves and mod settings stay out.
+        {t("supportReport.hint")}
       </span>
-      <Button size="s" loading={busy === "save"} disabled={!!busy} onClick={save}>Save report...</Button>
-      <Button size="s" variant="ghost" loading={busy === "copy"} disabled={!!busy} onClick={copy}>Copy summary</Button>
+      <Button size="s" loading={busy === "save"} disabled={!!busy} onClick={save}>{t("supportReport.save")}</Button>
+      <Button size="s" variant="ghost" loading={busy === "copy"} disabled={!!busy} onClick={copy}>{t("supportReport.copy")}</Button>
     </div>
   );
 }

@@ -160,7 +160,7 @@ native, builtin: `WINEDLLOVERRIDES="dinput8=n,b"`, or `dinput8` as "native, buil
 Kiln chains Ultimate ASI Loader as `xinput9_1_0.dll` in the game folder ([Installer](#installer)). Kiln loads it by
 its full path, but Wine still applies its rules for the name `xinput9_1_0`. Set it to native, builtin as well:
 `WINEDLLOVERRIDES="dinput8,xinput9_1_0=n,b"` (Steam: `WINEDLLOVERRIDES="dinput8,xinput9_1_0=n,b" %command%`).
-The launcher names both overrides when Ultimate ASI Loader is chained (by the installer in `[chain]`, or since dev.30 for
+The launcher names both overrides when Ultimate ASI Loader is chained (by the installer in `[chain]`, or since 0.2.0-dev.29.4 for
 the profile's `.asi` packages in `[profile]`) and reports a missing override.
 - Tested (2026-11-14, dedicated server lab under GE-Proton11-11, Kiln 0.2.0-dev.28's proxy, a test DLL of ours named
   `xinput9_1_0.dll`, not Ultimate ASI Loader itself): without the override, a DLL without version information did not
@@ -267,7 +267,7 @@ engines' mods") and 5.8.
   generated `native.json` listing the DLL (phase `dllmain` for a `DirectInput8Create` proxy, chain-loaded by Kiln's proxy;
   `early` otherwise), named after the package. Kiln loads the DLL from that folder, so a mod that reads its files next
   to its own DLL finds them; the result says so in one line when the package has such files. A mod that looks for them
-  in the game folder does not. One such shape is placed there at activation (since dev.30): a loader under a proxy name
+  in the game folder does not. One such shape is placed there at activation (since 0.2.0-dev.29.4): a loader under a proxy name
   with a folder of plugin DLLs beside it (`powrprof.dll` + `plugins\`), see [Files in the game folder](#files-in-the-game-folder).
   For any other DLL mod that reads its files from the game folder, Kiln still has no kind. A lone DLL under a proxy name
   gets a few characters of its hash in its id, so two different `winmm.dll` files never share an entry.
@@ -490,7 +490,7 @@ refusal status and installed-target mask.
 
 ### Files in the game folder
 
-Some packages only work from the game folder itself (dev.30, `crates/kiln-manage/src/game_files.rs`). The Library
+Some packages only work from the game folder itself (since 0.2.0-dev.29.4, `crates/kiln-manage/src/game_files.rs`). The Library
 keeps them as native mods, and activation places their files there instead of having kiln-core load them: the
 profile's `kiln/profile.json` does not list them, the launcher's native plan has them on with the reason "placed in
 the game folder at activation" (the mod list says "Runs from the game folder", the load order lists them under "From
@@ -543,7 +543,7 @@ switch it on in the client profile.
 The addon loads Shroudlink's own core when `shroudlink_core.dll` is next to the game (its singleplayer mode; the
 Library leaves the core of the singleplayer package out, kiln-shroudlink is that core). A core left there by an earlier
 hand installation then runs, kiln-shroudlink steps aside, and that core reads only `shroudlink_mods\*.dll`: the
-profile's Shroudlink mods do not load ("no mods on this server"). Since dev.30 the Engines view and the activation name
+profile's Shroudlink mods do not load ("no mods on this server"). Since 0.2.0-dev.29.4 the Engines view and the activation name
 that file ("Remove shroudlink_core.dll from the game folder: Kiln then runs them, and the addon keeps its MODS tab"),
 also when the addon comes from the Library through `chain.ini` `[profile]`; kiln-shroudlink's own hint in `kiln.log`
 and `kiln/state/shroudlink.json` names the core file it found, and so does a support report.

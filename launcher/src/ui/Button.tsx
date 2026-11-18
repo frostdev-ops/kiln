@@ -2,6 +2,7 @@
 // ghost (no edge), danger, danger-fill (enabled only after typing). "molten" is an old name for primary.
 // Text first: a button with words shows no icon; icon-only buttons are IconButton (with a label).
 import { forwardRef, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { useT } from "../i18n";
 
 export type ButtonVariant = "primary" | "molten" | "secondary" | "ghost" | "danger" | "danger-fill";
 export type ButtonSize = "s" | "m" | "l";
@@ -43,5 +44,6 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
 
 /** Only inside a busy button. */
 export function Spinner({ size }: { size?: number }) {
-  return <span className="k-spin" role="status" aria-label="Loading" style={size ? { width: size, height: size } : undefined} />;
+  const t = useT();
+  return <span className="k-spin" role="status" aria-label={t("ui.button.loading")} style={size ? { width: size, height: size } : undefined} />;
 }

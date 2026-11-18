@@ -19,6 +19,8 @@
 #include <string>
 #include <string_view>
 
+#include "ui_text.h"
+
 namespace menu_footer {
 
 // The version a player sees: the release version, without build metadata ("0.2.0-dev.29.11+20261116.ab12" ->
@@ -40,19 +42,23 @@ constexpr int kGapSpaces = 7;
 constexpr float kMarkEm = 1.0f;
 constexpr char kNoBreakSpace[] = "\xC2\xA0";
 
-// The line's text. `mods` < 0: not known yet (no line). `gap`: start with the mark's gap.
-inline std::string line_text(std::string_view version, int64_t mods, bool gap) {
+// The line's text. `mods` < 0: not known yet (no line). `gap`: start with the mark's gap. `tmpl`: the text in the language
+// of Kiln's texts (native.footer.loaded.one / .other, ui_text.h), with {version} and {count}; empty: English.
+inline std::string line_text(std::string_view version, int64_t mods, bool gap, std::string_view tmpl = {}) {
     if (mods < 0) return {};
     std::string out;
     if (gap)
         for (int i = 0; i < kGapSpaces; ++i) out += kNoBreakSpace;
     const std::string v = release_version(version);
-    char tail[64];
-    std::snprintf(tail, sizeof tail, " - %lld %s", static_cast<long long>(mods), mods == 1 ? "Mod Loaded" : "Mods Loaded");
-    out += "Kiln";
-    if (!v.empty()) out += " " + v;
-    out += tail;
-    return out;
+    const std::string english = kui::text::english(mods == 1 ? "native.footer.loaded.one" : "native.footer.loaded.other");
+    const std::string count = std::to_string(static_cast<long long>(mods));
+    std::string line = kui::text::fill(tmpl.empty() ? std::string_view(english) : tmpl, {{"version", v}, {"count", count}});
+    if (v.empty()) {  // no version (a build without one): no double space where it would be
+        size_t at;
+        while ((at = line.find("  ")) != std::string::npos) line.erase(at, 1);
+        while (!line.empty() && line.front() == ' ') line.erase(0, 1);
+    }
+    return out + line;
 }
 
 // A rectangle of the game's layout (UI units: x, y, w, h) that can be a line of text.

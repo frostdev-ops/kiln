@@ -66,8 +66,8 @@ pub const KNOWN_ENTRIES: [(&str, bool); 19] = [
 /// file and a rename), by the launcher, the `kiln` CLI or the game: a move copies them for real and never hard-links
 /// them, so a write through the new place never changes the old copy. `names`: the path below the data root.
 /// - `logs/**`: the launcher's log (`launcher_log` appends);
-/// - `profiles/<pid>/config/**`: copy mode's `profile::copy_back` copies the game's files over them, and in Z and
-///   native mode the game writes mod configs there; `profiles/<pid>/data/**`: the game writes per-mod data;
+/// - `profiles/<pid>/config/**`: copy mode's `profile::copy_back` copies the files the game changed over them, and in
+///   Z and native mode the game writes mod configs there; `profiles/<pid>/data/**`: the game writes per-mod data;
 /// - `admin-assets/**`, `editor-assets/**`: the launcher's asset imports copy files over existing ones;
 /// - `sdk/**`: the `kiln` CLI unpacks the SDK with `unzip -o` over an earlier one;
 /// - `modpacks/downloads/*.part`, `nexus/downloads/**`: downloads that may be under way.

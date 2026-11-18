@@ -1367,6 +1367,7 @@ void KILN_CALL on_client_pre(const KilnTickInfo*, void*) { shadow::pre_client();
 
 void KILN_CALL on_world(const KilnWorldEvent* ev, void*) {
     if (ev->event != KILN_WORLD_STOPPING) return;
+    if (ev->kind == KILN_WORLD_SERVER) shadow::server_world_stopping();
     const uintptr_t T = g_api->singleton(ev->world, kstr("g38_skilltree::SkillTree"));
     std::lock_guard lock(g_mu);
     const size_t before = g_live.size();

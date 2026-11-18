@@ -7,13 +7,14 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useNavigate } from "react-router-dom";
 import { callAdmin, useAdminCall, useAdminQuery, useAdminState, useHasOp, type AdminPlayer, type AdminPos } from "../../api/admin";
 import { useAssetsStatus } from "../../components/GameArt";
+import { rich, t as tr, useT } from "../../i18n";
 import { assetsRoot, prettyTemplate } from "../catalog";
 import { playerName, useServerId } from "../common";
 import { deleteWaypoint, saveWaypoint, useHistory } from "../history";
 import type { EnemiesResult, Zone } from "../types";
 import { Banner, Button, TextInput, confirm, toastError, toastOk, agoS } from "../ui";
-import { ACTIONS, ACTION_LABEL, DEFAULT_DENY, useMapFocus, useZoneDraft, zoneArgs } from "../zones";
-import { Height, KIND_COLOR, MapEngine, markerSetKey, posTxt, type FindData, type Finder, type FinderKind, type Look, type MarkerData, type MenuTarget, type Route, type Spot } from "./engine";
+import { ACTIONS, actionLabel, DEFAULT_DENY, useMapFocus, useZoneDraft, zoneArgs } from "../zones";
+import { Height, KIND_COLOR, MapEngine, markerSetKey, posTxt, withLevel, type FindData, type Finder, type FinderKind, type Look, type MarkerData, type MenuTarget, type Route, type Spot } from "./engine";
 import "./map.css";
 
 export const MAP_ROOT = `${assetsRoot()}map/`;
@@ -71,20 +72,54 @@ function fmatch(q: string, ...texts: (string | undefined | null)[]) {
   return false;
 }
 const fmtN = (n: number) => Number(n).toLocaleString("en-US");
-const dist = (d: number) => (d >= 1000 ? `${(d / 1000).toFixed(2)} km` : `${Math.round(d)} m`);
-const DIRS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
-const bearing = (a: { x: number; z: number }, b: { x: number; z: number }) => DIRS[Math.round((((Math.atan2(b.x - a.x, b.z - a.z) * 180) / Math.PI + 360) % 360) / 45) % 8];
-const KIND_NOUN: Record<FinderKind, string> = { spawns: "spawn points", gather: "locations", ore: "deposits", chests: "chests" };
+const dist = (d: number) => (d >= 1000 ? tr("admin.map.km", { n: (d / 1000).toFixed(2) }) : tr("admin.map.metres", { n: Math.round(d) }));
+/** The compass direction from a to b (N, NE, ... NW). */
+function bearing(a: { x: number; z: number }, b: { x: number; z: number }): string {
+  switch (Math.round((((Math.atan2(b.x - a.x, b.z - a.z) * 180) / Math.PI + 360) % 360) / 45) % 8) {
+    case 0: return tr("admin.map.dir.n");
+    case 1: return tr("admin.map.dir.ne");
+    case 2: return tr("admin.map.dir.e");
+    case 3: return tr("admin.map.dir.se");
+    case 4: return tr("admin.map.dir.s");
+    case 5: return tr("admin.map.dir.sw");
+    case 6: return tr("admin.map.dir.w");
+    default: return tr("admin.map.dir.nw");
+  }
+}
+/** "{n:N0} spawn points" and the like: how many of a finder kind. */
+function kindCount(kind: FinderKind, n: number): string {
+  switch (kind) {
+    case "spawns": return tr("admin.map.countSpawns", { n: fmtN(n) });
+    case "gather": return tr("admin.map.countGather", { n: fmtN(n) });
+    case "ore": return tr("admin.map.countOre", { n: fmtN(n) });
+    default: return tr("admin.map.countChests", { n: fmtN(n) });
+  }
+}
+
+/** Where a teleport goes, for the menu, the question and the toast. */
+type Dest = { kind: "here" } | { kind: "to"; name: string } | { kind: "grave" };
+const teleportItemText = (who: string, d: Dest) =>
+  d.kind === "here" ? tr("admin.map.tpItemHere", { who }) : d.kind === "grave" ? tr("admin.map.tpItemGrave", { who }) : tr("admin.map.tpItemTo", { who, name: d.name });
+const moveText = (who: string, d: Dest) =>
+  d.kind === "here" ? tr("admin.map.moveHere", { who }) : d.kind === "grave" ? tr("admin.map.moveGrave", { who }) : tr("admin.map.moveTo", { who, name: d.name });
+const moveAtText = (who: string, d: Dest, x: number, z: number, h: number) =>
+  d.kind === "here" ? tr("admin.map.moveAtHere", { who, x, z, h }) : d.kind === "grave" ? tr("admin.map.moveAtGrave", { who, x, z, h }) : tr("admin.map.moveAtTo", { who, name: d.name, x, z, h });
+const teleportedText = (who: string, d: Dest) =>
+  d.kind === "here" ? tr("admin.map.teleportedHere", { who }) : d.kind === "grave" ? tr("admin.map.teleportedGrave", { who }) : tr("admin.map.teleportedTo", { who, name: d.name });
 
 interface MenuItem {
   t: ReactNode;
   tag?: string;
   fn?: () => void;
+  /** the menu stays open (the entry opens a form or asks for a second click) */
+  keep?: boolean;
   sep?: boolean;
   disabled?: boolean;
 }
 interface MenuState {
   title: string;
+  /** the "This spot" menu (its ground height fills in later) */
+  spot?: boolean;
   sub?: string;
   point: { x: number; y: number };
   items: MenuItem[];
@@ -92,6 +127,7 @@ interface MenuState {
 }
 
 export function MapView({ height }: { height: number }) {
+  const t = useT();
   const id = useServerId();
   const nav = useNavigate();
   const qc = useQueryClient();
@@ -103,8 +139,8 @@ export function MapView({ height }: { height: number }) {
   uiRef.current = ui;
   const setUi = useCallback((p: Partial<MapUi>) => setUiState((u) => ({ ...u, ...p })), []);
   useEffect(() => {
-    const t = setTimeout(() => { try { localStorage.setItem(STORE, JSON.stringify(ui)); } catch { /* full */ } }, 200);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => { try { localStorage.setItem(STORE, JSON.stringify(ui)); } catch { /* full */ } }, 200);
+    return () => clearTimeout(timer);
   }, [ui]);
 
   const box = useRef<HTMLDivElement>(null);
@@ -145,11 +181,11 @@ export function MapView({ height }: { height: number }) {
       .catch(() => alive && setAssets(false));
     return () => { alive = false; };
   }, [probe]);
-  const menuRef = useRef<(t: MenuTarget, p: { x: number; y: number }) => void>(() => undefined);
+  const menuRef = useRef<(mt: MenuTarget, p: { x: number; y: number }) => void>(() => undefined);
   useEffect(() => {
     if (assets === null || !box.current) return;
     const e = new MapEngine(box.current, MAP_ROOT, {
-      menu: (t, p) => menuRef.current(t, p),
+      menu: (mt, p) => menuRef.current(mt, p),
       closeMenu: () => setMenu(null),
       coords: setCoords,
       loading: setLoading,
@@ -172,7 +208,7 @@ export function MapView({ height }: { height: number }) {
         const keepFound = u.foundKey === key || (u.foundKey == null && key === "copy");
         setUi({ vis, foundKey: key, ...(keepFound ? {} : { found: [] }) });
         e.loadFind().then((f) => { setF(f); setFindMissing(false); }, () => setFindMissing(true));
-      }).catch((err) => toastError({ message: `Map data: ${(err as Error).message}` }));
+      }).catch((err) => toastError({ message: tr("admin.map.mapData", { message: (err as Error).message }) }));
     }
     return () => { ro.disconnect(); e.destroy(); eng.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -182,11 +218,11 @@ export function MapView({ height }: { height: number }) {
     const e = eng.current;
     if (!e) return;
     e.setLang(code).then((ok) => {
-      if (!ok) return toastError({ message: `No marker texts for ${code}.` });
+      if (!ok) return toastError({ message: tr("admin.map.noMarkerTexts", { code }) });
       setUi({ lang: code });
       setMarkerLang(code);
       setD((d) => (d ? { ...d } : d));
-    }, (err) => toastError({ message: `Marker texts: ${(err as Error).message}` }));
+    }, (err) => toastError({ message: tr("admin.map.markerTexts", { message: (err as Error).message }) }));
   }, [setUi]);
   useEffect(() => { if (D && ui.vis) eng.current?.applyMarkers(ui.vis, ui.names, ui.found, ui.hideFound, ui.chestLv); }, [D, ui.vis, ui.names, ui.found, ui.hideFound, ui.chestLv]);
   useEffect(() => { if (F) eng.current?.setFinders(ui.finders, ui.surfaceOnly); }, [F, ui.finders, ui.surfaceOnly, ui.chestLv]);
@@ -226,8 +262,8 @@ export function MapView({ height }: { height: number }) {
       if (!stop) { setEnemies([...seen.values()]); setEnemyErr(err); }
     };
     scan();
-    const t = setInterval(scan, 5000);
-    return () => { stop = true; clearInterval(t); };
+    const timer = setInterval(scan, 5000);
+    return () => { stop = true; clearInterval(timer); };
   }, [ui.enemies, hasEnemies, players.length, id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---------------------------------------------------------------- actions
@@ -236,114 +272,115 @@ export function MapView({ height }: { height: number }) {
     const h = await Height.exact(pos.x, pos.z);
     return h != null ? h + lift : null;
   };
-  const teleport = async (p: AdminPlayer, target: Spot | { player: number }, label: string) => {
+  const teleport = async (p: AdminPlayer, target: Spot | { player: number }, dest: Dest) => {
     const who = playerName(p);
     if ("player" in target) {
-      if (!(await confirm({ title: `Teleport ${who}?`, body: <p>Move {who} {label}.</p>, ok: "Teleport" }))) return;
-      return tpp.mutate({ entity: p.entity, target: target.player }, { onSuccess: () => toastOk(`Teleported ${who} ${label}`), onError: (e) => toastError(e) });
+      if (!(await confirm({ title: t("admin.map.teleportTitle", { who }), body: <p>{moveText(who, dest)}</p>, ok: t("admin.map.teleport") }))) return;
+      return tpp.mutate({ entity: p.entity, target: target.player }, { onSuccess: () => toastOk(teleportedText(who, dest)), onError: (e) => toastError(e) });
     }
     const y = await heightAt(target, 3);
-    if (y == null) return toastError({ message: "No height known for that spot yet (the map relief is still loading, or there is no relief)." });
+    if (y == null) return toastError({ message: t("admin.map.noHeightRelief") });
     const body = { x: +target.x.toFixed(2), y: +y.toFixed(2), z: +target.z.toFixed(2) };
-    if (!(await confirm({ title: `Teleport ${who}?`, body: <p>Move {who} {label} (X {Math.round(body.x)}, Z {Math.round(body.z)}, height {Math.round(body.y)}). The server looks for a safe spot near the target.</p>, ok: "Teleport" }))) return;
-    tp.mutate({ entity: p.entity, ...body, safe: true }, { onSuccess: () => toastOk(`Teleported ${who} ${label}`), onError: (e) => toastError(e) });
+    if (!(await confirm({ title: t("admin.map.teleportTitle", { who }), body: <p>{moveAtText(who, dest, Math.round(body.x), Math.round(body.z), Math.round(body.y))}</p>, ok: t("admin.map.teleport") }))) return;
+    tp.mutate({ entity: p.entity, ...body, safe: true }, { onSuccess: () => toastOk(teleportedText(who, dest)), onError: (e) => toastError(e) });
   };
   const setRoute = (r: Route | null) => setUi({ route: r });
   const originItems = (to: Route["to"]): MenuItem[] => {
-    const out: MenuItem[] = players.map((p) => ({ t: `Route from ${playerName(p)} to here`, fn: () => setRoute({ from: { kind: "player", entity: p.entity, name: p.name }, to }) }));
+    const out: MenuItem[] = players.map((p) => ({ t: t("admin.map.routeFromHere", { from: playerName(p) }), fn: () => setRoute({ from: { kind: "player", entity: p.entity, name: p.name }, to }) }));
     const r = uiRef.current.route;
-    if (r && r.from.kind === "point") out.push({ t: `Route from ${r.from.name || "the marked point"} to here`, fn: () => setRoute({ from: r.from, to }) });
-    out.push({ t: "Measure from here", fn: () => { setRoute({ from: { kind: "point", x: to.x, y: to.y ?? 0, z: to.z, name: to.name }, to }); toastOk("Start point set", "Click another spot and pick “Route from … to here”."); } });
+    if (r && r.from.kind === "point") out.push({ t: r.from.name ? t("admin.map.routeFromHere", { from: r.from.name }) : t("admin.map.routeFromMarked"), fn: () => setRoute({ from: r.from, to }) });
+    out.push({ t: t("admin.map.measureFromHere"), fn: () => { setRoute({ from: { kind: "point", x: to.x, y: to.y ?? 0, z: to.z, name: to.name }, to }); toastOk(t("admin.map.startSet"), t("admin.map.startSetDetail")); } });
     return out;
   };
-  const teleportItems = (target: Spot | { player: number }, label: string, except?: number): MenuItem[] =>
-    !hasTp ? [] : players.filter((p) => p.entity !== except).map((p) => ({ t: `Teleport ${playerName(p)} ${label}`, fn: () => teleport(p, target, label) }));
+  const teleportItems = (target: Spot | { player: number }, dest: Dest, except?: number): MenuItem[] =>
+    !hasTp ? [] : players.filter((p) => p.entity !== except).map((p) => ({ t: teleportItemText(playerName(p), dest), fn: () => teleport(p, target, dest) }));
 
   const waypointForm = (pos: Spot, name0: string, point: { x: number; y: number }) => {
-    setMenu({ title: "Save waypoint", sub: posTxt(pos), point, items: [], form: <WaypointForm initial={name0} onCancel={closeMenu} onSave={async (name) => {
+    setMenu({ title: t("admin.map.saveWaypoint"), sub: posTxt(pos), point, items: [], form: <WaypointForm initial={name0} onCancel={closeMenu} onSave={async (name) => {
       const y = await heightAt(pos, 1);
-      if (y == null) return toastError({ message: "No height known for that spot yet." });
+      if (y == null) return toastError({ message: t("admin.map.noHeight") });
       const err = saveWaypoint(id, name, { x: pos.x, y, z: pos.z });
       if (err) return toastError({ message: err });
-      toastOk(`Saved waypoint ${name}`);
+      toastOk(t("admin.players.savedWaypoint", { name }));
       closeMenu();
     }} /> });
   };
   const zoneForm = (pos: Spot, point: { x: number; y: number }, name0 = "") => {
     setZoneDraft({ pos, radius: 30 });
-    setMenu({ title: "Protect an area here", sub: posTxt(pos), point, items: [], form: <ZoneMapForm initial={name0} onRadius={(r) => setZoneDraft({ pos, radius: r })} onCancel={closeMenu}
+    setMenu({ title: t("admin.map.protectHere"), sub: posTxt(pos), point, items: [], form: <ZoneMapForm initial={name0} onRadius={(r) => setZoneDraft({ pos, radius: r })} onCancel={closeMenu}
       onSave={async (f) => {
         const y = await heightAt(pos, 0);
         const r = zoneArgs({ ...f, x: String(pos.x), y: String(y ?? 0), z: String(pos.z), owners: [], allowAdmins: true, editing: false });
         if (r.error) return toastError({ message: r.error });
-        zoneAdd.mutate(r.args!, { onSuccess: () => { toastOk(`Added ${f.name}`, "Owners and details on the Zones page."); closeMenu(); } });
+        zoneAdd.mutate(r.args!, { onSuccess: () => { toastOk(t("admin.zones.added", { name: f.name }), t("admin.map.zoneAddedDetail")); closeMenu(); } });
       }}
       onMore={async () => { const y = await heightAt(pos, 0); useZoneDraft.getState().set({ x: pos.x, y: y ?? 0, z: pos.z }); nav("../zones"); }} /> });
   };
 
-  menuRef.current = (t: MenuTarget, point) => {
-    if (t.kind === "spot") {
-      const pos = t.pos;
+  menuRef.current = (mt: MenuTarget, point) => {
+    if (mt.kind === "spot") {
+      const pos = mt.pos;
       const to = { ...pos, name: `${Math.round(pos.x)}, ${Math.round(pos.z)}` };
-      setMenu({ title: "This spot", sub: `X ${Math.round(pos.x)} · Z ${Math.round(pos.z)}${pos.y != null ? ` · ground ≈${Math.round(pos.y)} m` : ""}`, point, items: [
-        { t: "Save waypoint here…", fn: () => waypointForm(pos, "", point) },
-        ...(hasZones ? [{ t: "Protect an area here…", fn: () => zoneForm(pos, point) }] : []),
-        ...teleportItems(pos, "here"),
+      const spotSub = (y: number | null | undefined) => (y != null ? t("admin.map.spotSubGround", { x: Math.round(pos.x), z: Math.round(pos.z), h: Math.round(y) }) : t("admin.map.posXZ", { x: Math.round(pos.x), z: Math.round(pos.z) }));
+      setMenu({ title: t("admin.map.thisSpot"), spot: true, sub: spotSub(pos.y), point, items: [
+        { t: t("admin.map.saveWaypointHere"), keep: true, fn: () => waypointForm(pos, "", point) },
+        ...(hasZones ? [{ t: t("admin.map.protectHereMenu"), keep: true, fn: () => zoneForm(pos, point) }] : []),
+        ...teleportItems(pos, { kind: "here" }),
         { sep: true, t: "" },
         ...originItems(to),
-        { t: "Copy coordinates", fn: () => navigator.clipboard?.writeText(`X ${pos.x} Z ${pos.z}${pos.y != null ? ` H ${Math.round(pos.y)}` : ""}`).then(() => toastOk("Coordinates copied")) },
+        { t: t("admin.map.copyCoords"), fn: () => navigator.clipboard?.writeText(`X ${pos.x} Z ${pos.z}${pos.y != null ? ` H ${Math.round(pos.y)}` : ""}`).then(() => toastOk(t("admin.map.coordsCopied"))) },
       ] });
-      Height.exact(pos.x, pos.z).then((h) => { if (h != null) setMenu((m) => (m && m.title === "This spot" && m.point === point ? { ...m, sub: `X ${Math.round(pos.x)} · Z ${Math.round(pos.z)} · ground ≈${Math.round(h)} m` } : m)); });
-    } else if (t.kind === "marker") {
-      const pos = t.pos;
-      const items: MenuItem[] = [...originItems({ ...pos, name: t.name }), { sep: true, t: "" }, { t: "Save waypoint here…", fn: () => waypointForm(pos, t.name.slice(0, 40), point) },
-        ...(hasZones ? [{ t: "Protect an area here…", fn: () => zoneForm(pos, point, t.name.slice(0, 64)) }] : []), ...teleportItems(pos, `to ${t.name}`)];
-      if (t.idx != null) {
-        const f = uiRef.current.found.includes(t.idx);
-        items.push({ sep: true, t: "" }, { t: f ? "Unmark found" : "Mark as found", fn: () => setUi({ found: f ? uiRef.current.found.filter((v) => v !== t.idx) : [...uiRef.current.found, t.idx!] }) });
+      Height.exact(pos.x, pos.z).then((h) => { if (h != null) setMenu((m) => (m && m.spot && m.point === point ? { ...m, sub: spotSub(h) } : m)); });
+    } else if (mt.kind === "marker") {
+      const pos = mt.pos;
+      const items: MenuItem[] = [...originItems({ ...pos, name: mt.name }), { sep: true, t: "" }, { t: t("admin.map.saveWaypointHere"), keep: true, fn: () => waypointForm(pos, mt.name.slice(0, 40), point) },
+        ...(hasZones ? [{ t: t("admin.map.protectHereMenu"), keep: true, fn: () => zoneForm(pos, point, mt.name.slice(0, 64)) }] : []), ...teleportItems(pos, { kind: "to", name: mt.name })];
+      if (mt.idx != null) {
+        const f = uiRef.current.found.includes(mt.idx);
+        items.push({ sep: true, t: "" }, { t: f ? t("admin.map.unmarkFound") : t("admin.map.markFound"), fn: () => setUi({ found: f ? uiRef.current.found.filter((v) => v !== mt.idx) : [...uiRef.current.found, mt.idx!] }) });
       }
-      setMenu({ title: t.name, sub: `${t.sub ? t.sub + " · " : ""}${posTxt(pos)}`, point, items });
-    } else if (t.kind === "player") {
-      const p = players.find((x) => x.entity === t.entity);
+      setMenu({ title: mt.name, sub: `${mt.sub ? mt.sub + " · " : ""}${posTxt(pos)}`, point, items });
+    } else if (mt.kind === "player") {
+      const p = players.find((x) => x.entity === mt.entity);
       if (!p?.pos) return;
       const name = playerName(p);
-      const others = players.filter((x) => x.entity !== t.entity);
-      setMenu({ title: name, sub: `${posTxt(p.pos)}${p.healthMax ? ` · health ${Math.round(p.health ?? 0)}/${Math.round(p.healthMax)}` : ""}`, point, items: [
-        { t: uiRef.current.follow === t.entity ? "Stop following" : "Follow on the map", fn: () => setUi({ follow: uiRef.current.follow === t.entity ? null : t.entity }) },
-        { t: `Route from ${name} to …`, fn: () => { setRoute({ from: { kind: "player", entity: t.entity, name }, to: uiRef.current.route?.to ?? { ...p.pos!, name } }); toastOk("Now click the destination and pick the route entry."); } },
-        ...others.map((o) => ({ t: `Route from ${playerName(o)} to ${name}`, fn: () => setRoute({ from: { kind: "player", entity: o.entity, name: o.name }, to: { ...p.pos!, name } }) })),
-        { t: `Save waypoint at ${name}…`, fn: () => waypointForm(p.pos!, `${name} spot`.slice(0, 40), point) },
-        ...teleportItems({ player: t.entity }, `to ${name}`, t.entity),
+      const others = players.filter((x) => x.entity !== mt.entity);
+      setMenu({ title: name, sub: p.healthMax ? t("admin.map.playerSubHealth", { pos: posTxt(p.pos), health: Math.round(p.health ?? 0), max: Math.round(p.healthMax) }) : posTxt(p.pos), point, items: [
+        { t: uiRef.current.follow === mt.entity ? t("admin.map.stopFollowing") : t("admin.map.followOnMap"), fn: () => setUi({ follow: uiRef.current.follow === mt.entity ? null : mt.entity }) },
+        { t: t("admin.map.routeFromTo", { from: name }), keep: true, fn: () => { setRoute({ from: { kind: "player", entity: mt.entity, name }, to: uiRef.current.route?.to ?? { ...p.pos!, name } }); toastOk(t("admin.map.clickDestination")); } },
+        ...others.map((o) => ({ t: t("admin.map.routeFromToName", { from: playerName(o), to: name }), fn: () => setRoute({ from: { kind: "player", entity: o.entity, name: o.name }, to: { ...p.pos!, name } }) })),
+        { t: t("admin.map.saveWaypointAt", { name }), keep: true, fn: () => waypointForm(p.pos!, t("admin.players.spotName", { name }).slice(0, 40), point) },
+        ...teleportItems({ player: mt.entity }, { kind: "to", name }, mt.entity),
         { sep: true, t: "" },
-        { t: "Open on the Players page", fn: () => nav("../players") },
+        { t: t("admin.map.openPlayers"), fn: () => nav("../players") },
       ] });
-    } else if (t.kind === "waypoint") {
-      setMenu({ title: t.name, sub: `Waypoint · ${posTxt(t.pos)}`, point, items: [
-        ...originItems({ ...t.pos, name: t.name }),
-        ...teleportItems(t.pos, `to ${t.name}`),
+    } else if (mt.kind === "waypoint") {
+      setMenu({ title: mt.name, sub: t("admin.map.waypointSub", { pos: posTxt(mt.pos) }), point, items: [
+        ...originItems({ ...mt.pos, name: mt.name }),
+        ...teleportItems(mt.pos, { kind: "to", name: mt.name }),
         { sep: true, t: "" },
-        { t: "Delete waypoint", fn: async () => { if (await confirm({ title: "Delete waypoint?", body: <p>{t.name}</p>, ok: "Delete", danger: true })) deleteWaypoint(id, t.name); } },
+        { t: t("admin.map.deleteWaypoint"), fn: async () => { if (await confirm({ title: t("admin.map.deleteWaypointTitle"), body: <p>{mt.name}</p>, ok: t("common.delete"), danger: true })) deleteWaypoint(id, mt.name); } },
       ] });
-    } else if (t.kind === "grave") {
-      const name = `${t.name ?? "A player"}'s grave`;
-      setMenu({ title: name, sub: `${agoS(t.at)} · ${posTxt(t.pos)}`, point, items: [
-        ...originItems({ ...t.pos, name }),
-        ...teleportItems({ ...t.pos, y: t.pos.y + 1 }, "to this grave"),
-        { t: "Save waypoint here…", fn: () => waypointForm(t.pos, `${t.name ?? "Grave"} grave`.slice(0, 40), point) },
+    } else if (mt.kind === "grave") {
+      const name = mt.name != null ? t("admin.map.graveOf", { name: mt.name }) : t("admin.map.graveSomeone");
+      setMenu({ title: name, sub: `${agoS(mt.at)} · ${posTxt(mt.pos)}`, point, items: [
+        ...originItems({ ...mt.pos, name }),
+        ...teleportItems({ ...mt.pos, y: mt.pos.y + 1 }, { kind: "grave" }),
+        { t: t("admin.map.saveWaypointHere"), keep: true, fn: () => waypointForm(mt.pos, (mt.name != null ? t("admin.map.graveWaypoint", { name: mt.name }) : t("admin.map.graveWaypointNone")).slice(0, 40), point) },
       ] });
-    } else if (t.kind === "zone") {
-      const z = (zones.data ?? []).find((x) => x.name === t.name);
+    } else if (mt.kind === "zone") {
+      const z = (zones.data ?? []).find((x) => x.name === mt.name);
       if (!z) return;
-      setMenu({ title: `⛉ ${z.name}`, sub: `${Math.round(z.radius)} m · refuses ${z.deny.map((a) => ACTION_LABEL[a] ?? a).join(", ")}`, point, items: [
-        { t: "Change the radius…", fn: () => {
+      setMenu({ title: `⛉ ${z.name}`, sub: t("admin.map.zoneSub", { radius: Math.round(z.radius), deny: z.deny.map((a) => actionLabel(a)).join(", ") }), point, items: [
+        { t: t("admin.map.changeRadius"), keep: true, fn: () => {
           setZoneDraft({ pos: z.pos, radius: z.radius });
-          setMenu({ title: `Radius of ${z.name}`, sub: posTxt(z.pos), point, items: [], form: <RadiusForm initial={z.radius} onRadius={(r) => setZoneDraft({ pos: z.pos, radius: r })} onCancel={closeMenu}
-            onSave={(r) => zoneAdd.mutate({ name: z.name, x: z.pos.x, y: z.pos.y, z: z.pos.z, radius: r, deny: z.deny, owners: z.owners, allowAdmins: z.allowAdmins }, { onSuccess: () => { toastOk(`${z.name}: ${r} m`); closeMenu(); } })} /> });
+          setMenu({ title: t("admin.map.radiusOf", { name: z.name }), sub: posTxt(z.pos), point, items: [], form: <RadiusForm initial={z.radius} onRadius={(r) => setZoneDraft({ pos: z.pos, radius: r })} onCancel={closeMenu}
+            onSave={(r) => zoneAdd.mutate({ name: z.name, x: z.pos.x, y: z.pos.y, z: z.pos.z, radius: r, deny: z.deny, owners: z.owners, allowAdmins: z.allowAdmins }, { onSuccess: () => { toastOk(t("admin.map.zoneRadiusSet", { name: z.name, radius: r })); closeMenu(); } })} /> });
         } },
-        { t: "Edit on the Zones page", fn: () => nav("../zones") },
+        { t: t("admin.map.editOnZones"), fn: () => nav("../zones") },
         ...originItems({ ...z.pos, name: z.name }),
         { sep: true, t: "" },
-        { t: "Remove zone", fn: async () => { if (await confirm({ title: `Remove the zone ${z.name}?`, body: <p>Its protection ends at once.</p>, ok: "Remove", danger: true })) zoneRemove.mutate({ name: z.name }, { onSuccess: () => toastOk(`Removed ${z.name}`) }); } },
+        { t: t("admin.map.removeZone"), fn: async () => { if (await confirm({ title: t("admin.map.removeZoneTitle", { name: z.name }), body: <p>{t("admin.zones.removeBody")}</p>, ok: t("common.remove"), danger: true })) zoneRemove.mutate({ name: z.name }, { onSuccess: () => toastOk(t("admin.zones.removed", { name: z.name })) }); } },
       ] });
     }
   };
@@ -359,36 +396,36 @@ export function MapView({ height }: { height: number }) {
     if (s.length < 2) return out;
     const push = (sec: string, items: (typeof out)[number]["items"]) => { if (items.length) out.push({ sec, items }); };
     if (F && s.length >= 3)
-      push("Dropped by creatures", Object.entries(F.drops).filter(([n]) => fmatch(s, n)).slice(0, 5).map(([n, d]) => ({
-        img: d.img, t: n, s: `Dropped by ${d.by.slice(0, 4).map((b) => F.spawns[b]?.n ?? b).join(", ")}${d.by.length > 4 ? ` +${d.by.length - 4}` : ""} · show all on the map`,
-        act: () => { addFinders(d.by.filter((b) => F.spawns[b]).map((b) => ["spawns", b] as [FinderKind, string])); toastOk(`Showing where ${d.by.length} creature types that drop ${n} spawn.`); },
+      push(t("admin.map.secDropped"), Object.entries(F.drops).filter(([n]) => fmatch(s, n)).slice(0, 5).map(([n, d]) => ({
+        img: d.img, t: n, s: t("admin.map.droppedBy", { list: `${d.by.slice(0, 4).map((b) => F.spawns[b]?.n ?? b).join(", ")}${d.by.length > 4 ? ` +${d.by.length - 4}` : ""}` }),
+        act: () => { addFinders(d.by.filter((b) => F.spawns[b]).map((b) => ["spawns", b] as [FinderKind, string])); toastOk(t("admin.map.showingDrops", { count: d.by.length, item: n })); },
       })));
     if (F) {
       const hits: (ReturnType<typeof findEntry> & object)[] = [];
       for (const kind of ["spawns", "gather", "ore", "chests"] as FinderKind[]) for (const [slug, e] of Object.entries(F[kind])) if (fmatch(s, e.n)) hits.push({ ...e, kind, slug });
       hits.sort((a, b) => Number(!!b.boss) - Number(!!a.boss) || b.c - a.c);
-      push("Where to find", hits.slice(0, 8).map((e) => ({ img: e.img, color: e.color || KIND_COLOR[e.kind], t: e.n, on: isOn(e.kind, e.slug),
-        s: `${fmtN(e.c)} ${e.kind === "chests" ? "chests can hold it" : KIND_NOUN[e.kind]}${e.boss ? " · boss" : ""} · ${isOn(e.kind, e.slug) ? "on the map (click to remove)" : "show on the map"}`,
+      push(t("admin.map.secWhere"), hits.slice(0, 8).map((e) => ({ img: e.img, color: e.color || KIND_COLOR[e.kind], t: e.n, on: isOn(e.kind, e.slug),
+        s: (() => { const what = `${e.kind === "chests" ? t("admin.map.chestsHold", { n: fmtN(e.c) }) : kindCount(e.kind, e.c)}${e.boss ? t("admin.map.bossTag") : ""}`; return isOn(e.kind, e.slug) ? t("admin.map.hitOn", { what }) : t("admin.map.hitOff", { what }); })(),
         act: () => toggleFinder(e.kind, e.slug) })));
     }
     const live: (typeof out)[number]["items"] = [];
-    for (const p of players) if (fmatch(s, p.name)) live.push({ t: playerName(p), s: `Player · ${posTxt(p.pos!)}`, color: "#7dff9b", act: () => eng.current?.flyTo(p.pos!.x, p.pos!.z, 5) });
-    for (const w of hist.waypoints) if (fmatch(s, w.name)) live.push({ t: w.name, s: `Waypoint · ${posTxt(w.pos)}`, img: "g-mapmarker_waypoint.webp", act: () => eng.current?.flyTo(w.pos.x, w.pos.z, 5) });
-    for (const z of zones.data ?? []) if (fmatch(s, z.name)) live.push({ t: z.name, s: `Protection zone · ${Math.round(z.radius)} m`, color: "#ff8540", act: () => eng.current?.flyTo(z.pos.x, z.pos.z, 5) });
-    push("Live", live.slice(0, 8));
+    for (const p of players) if (fmatch(s, p.name)) live.push({ t: playerName(p), s: t("admin.map.playerSub", { pos: posTxt(p.pos!) }), color: "#7dff9b", act: () => eng.current?.flyTo(p.pos!.x, p.pos!.z, 5) });
+    for (const w of hist.waypoints) if (fmatch(s, w.name)) live.push({ t: w.name, s: t("admin.map.waypointSub", { pos: posTxt(w.pos) }), img: "g-mapmarker_waypoint.webp", act: () => eng.current?.flyTo(w.pos.x, w.pos.z, 5) });
+    for (const z of zones.data ?? []) if (fmatch(s, z.name)) live.push({ t: z.name, s: t("admin.map.zoneSearchSub", { radius: Math.round(z.radius) }), color: "#ff8540", act: () => eng.current?.flyTo(z.pos.x, z.pos.z, 5) });
+    push(t("admin.map.secLive"), live.slice(0, 8));
     if (D) {
-      push("Places", D.labels.filter((l) => fmatch(s, l[0])).slice(0, 6).map((l) => ({ t: l[0], s: `Place · ${posTxt({ x: l[1], z: l[2] })}`, color: "#d8c9a6", act: () => eng.current?.flyTo(l[1], l[2], 5) })));
+      push(t("admin.map.secPlaces"), D.labels.filter((l) => fmatch(s, l[0])).slice(0, 6).map((l) => ({ t: l[0], s: t("admin.map.placeSub", { pos: posTxt({ x: l[1], z: l[2] }) }), color: "#d8c9a6", act: () => eng.current?.flyTo(l[1], l[2], 5) })));
       const pts: (typeof out)[number]["items"] = [];
       for (let i = 0; i < D.points.length && pts.length < 10; i++) {
         const p = D.points[i], c = D.cats[p[0]];
-        if (fmatch(s, p[4], c.label)) pts.push({ img: p[7] || c.icon, t: p[4], s: `${c.label}${p[6] ? ` · level ${p[6]}` : ""} · ${posTxt({ x: p[1], z: p[2] })}`,
+        if (fmatch(s, p[4], c.label)) pts.push({ img: p[7] || c.icon, t: p[4], s: `${withLevel(c.label, p[6])} · ${posTxt({ x: p[1], z: p[2] })}`,
           act: () => { if (!ui.vis?.[c.id]) setUi({ vis: { ...(ui.vis ?? {}), [c.id]: true } }); eng.current?.flyTo(p[1], p[2], 5.5); } });
       }
-      push("Markers", pts);
+      push(t("admin.map.secMarkers"), pts);
     }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, F, D, players, hist.waypoints, zones.data, ui.finders, ui.vis]);
+  }, [q, F, D, players, hist.waypoints, zones.data, ui.finders, ui.vis, t]);
 
   // ---------------------------------------------------------------- render
   const route = ui.route;
@@ -397,7 +434,7 @@ export function MapView({ height }: { height: number }) {
     <div className={"ka-map-root" + (ui.side ? "" : " noside")} style={{ height }} onKeyDown={(e) => { if (e.key === "Escape") { closeMenu(); setResultsOpen(false); } }}>
       <aside className="ka-map-side">
         <div className="ka-map-search">
-          <TextInput type="search" aria-label="Search the map" placeholder="Search items, creatures, places, players…" value={q} autoComplete="off" spellCheck={false}
+          <TextInput type="search" aria-label={t("admin.map.searchLabel")} placeholder={t("admin.map.searchPlaceholder")} value={q} autoComplete="off" spellCheck={false}
             onChange={(e) => { setQ(e.target.value); setResultsOpen(true); }} onFocus={() => setResultsOpen(true)}
             onKeyDown={(e) => { if (e.key === "Enter" && results[0]?.items[0]) { results[0].items[0].act(); setResultsOpen(false); } }} />
           {resultsOpen && q.trim().length >= 2 ? (
@@ -412,12 +449,12 @@ export function MapView({ height }: { height: number }) {
                     </button>
                   ))}
                 </div>
-              )) : <p className="ka-map-muted">Nothing matches.</p>}
+              )) : <p className="ka-map-muted">{t("admin.map.nothingMatches")}</p>}
             </div>
           ) : null}
         </div>
         <div className="ka-map-tabs" role="tablist">
-          {([["layers", "Markers"], ["find", "Find & filter"], ["live", "Live"]] as const).map(([k, l]) => <button key={k} role="tab" className={ui.tab === k ? "on" : ""} onClick={() => setUi({ tab: k })}>{l}</button>)}
+          {([["layers", t("admin.map.tabMarkers")], ["find", t("admin.map.tabFind")], ["live", t("admin.map.tabLive")]] as const).map(([k, l]) => <button key={k} role="tab" className={ui.tab === k ? "on" : ""} onClick={() => setUi({ tab: k })}>{l}</button>)}
         </div>
         <div className="ka-map-panel" onClick={() => setResultsOpen(false)}>
           {ui.tab === "layers" ? <LayersPanel D={D} ui={ui} setUi={setUi} assets={assets} lang={markerLang} onLang={changeLang} /> : null}
@@ -428,35 +465,35 @@ export function MapView({ height }: { height: number }) {
               go={(x, z) => eng.current?.flyTo(x, z, 5)} follow={(e) => { const n = ui.follow === e ? null : e; setUi({ follow: n }); const pos = n != null ? players.find((p) => p.entity === n)?.pos : null; if (pos) eng.current?.flyTo(pos.x, pos.z, 5); }} />
           ) : null}
         </div>
-        <div className="ka-map-credit">Map, names and icons: game data © Keen Games. Map and search built on the <b>Enshrouded Interactive Map</b> by Nicolas Ferreira (MIT). Leaflet (BSD-2).</div>
+        <div className="ka-map-credit">{rich("admin.map.credit", { map: <b>{t("admin.map.creditMap")}</b> })}</div>
       </aside>
       <div className="ka-map-area">
         <div className="ka-map" ref={box} />
         {assets === false ? (
           <div style={{ position: "absolute", left: 56, right: 56, top: 12, zIndex: 1001 }}>
-            <Banner tone="info" title={artStatus?.canExtract === false ? "Map art needs the Enshrouded client" : "Preparing map art…"} />
+            <Banner tone="info" title={artStatus?.canExtract === false ? t("admin.map.artNeedsClient") : t("admin.map.artPreparing")} />
           </div>
         ) : null}
-        <button className="ka-map-sidetoggle" title="Show or hide the side panel" onClick={() => setUi({ side: !ui.side })}>☰</button>
+        <button className="ka-map-sidetoggle" title={t("admin.map.toggleSide")} onClick={() => setUi({ side: !ui.side })}>☰</button>
         {route ? (
           <div className="ka-map-route">
             {ra ? (
               <>
-                <span><b>{ra.name ?? "start"}</b> → <b>{route.to.name ?? "point"}</b></span>
+                <span><b>{ra.name ?? t("admin.map.start")}</b> → <b>{route.to.name ?? t("admin.map.point")}</b></span>
                 <span className="big">{dist(Math.hypot(route.to.x - ra.x, route.to.z - ra.z))}</span>
                 <span>{bearing(ra, route.to)}</span>
-                {route.to.y != null && ra.y != null ? (() => { const dy = route.to.y! - ra.y; return <span className={dy > 2 ? "up" : dy < -2 ? "down" : ""}>{dy > 2 ? "▲" : dy < -2 ? "▼" : "≈"} {Math.abs(Math.round(dy))} m</span>; })() : null}
+                {route.to.y != null && ra.y != null ? (() => { const dy = route.to.y! - ra.y; return <span className={dy > 2 ? "up" : dy < -2 ? "down" : ""}>{dy > 2 ? "▲" : dy < -2 ? "▼" : "≈"} {t("admin.map.metres", { n: Math.abs(Math.round(dy)) })}</span>; })() : null}
               </>
-            ) : <span>Route start ({route.from.kind === "player" ? route.from.name ?? "player" : "point"}) is not in the world</span>}
-            <button className="ka-map-x" title="Clear the route" onClick={() => setRoute(null)}>✕</button>
+            ) : <span>{t("admin.map.routeStartGone", { start: route.from.kind === "player" ? route.from.name ?? t("admin.map.player") : t("admin.map.point") })}</span>}
+            <button className="ka-map-x" title={t("admin.map.clearRouteTip")} onClick={() => setRoute(null)}>✕</button>
           </div>
         ) : null}
         <div className="ka-map-zoom">
-          <button title="Zoom in" onClick={() => eng.current?.map.zoomIn()}>+</button>
-          <button title="Zoom out" onClick={() => eng.current?.map.zoomOut()}>−</button>
-          <button title="Whole world" onClick={() => eng.current?.fit()}>⤢</button>
+          <button title={t("admin.map.zoomIn")} onClick={() => eng.current?.map.zoomIn()}>+</button>
+          <button title={t("admin.map.zoomOut")} onClick={() => eng.current?.map.zoomOut()}>−</button>
+          <button title={t("admin.map.wholeWorld")} onClick={() => eng.current?.fit()}>⤢</button>
         </div>
-        {coords ? <div className="ka-map-coords"><span>X <b>{Math.round(coords.x)}</b></span><span>Z <b>{Math.round(coords.z)}</b></span>{coords.y != null ? <span>Height <b>≈{Math.round(coords.y)}</b> m</span> : null}</div> : null}
+        {coords ? <div className="ka-map-coords"><span>X <b>{Math.round(coords.x)}</b></span><span>Z <b>{Math.round(coords.z)}</b></span>{coords.y != null ? <span>{rich("admin.map.heightReadout", { h: <b>≈{Math.round(coords.y)}</b> })}</span> : null}</div> : null}
         {loading ? <div className="ka-map-loading">{loading}</div> : null}
         {menu ? <MenuBox menu={menu} close={closeMenu} /> : null}
       </div>
@@ -476,7 +513,7 @@ function MenuBox({ menu, close }: { menu: MenuState; close: () => void }) {
     <div ref={ref} className="ka-map-menu" style={pos} onContextMenu={(e) => e.preventDefault()} role="menu">
       <div className="ka-map-mh"><b>{menu.title}</b>{menu.sub ? <small>{menu.sub}</small> : null}</div>
       {menu.items.map((it, i) => it.sep ? <hr key={i} /> : (
-        <button key={i} role="menuitem" disabled={it.disabled} onClick={() => { const keep = /…$/.test(String(it.t)); if (!keep) close(); it.fn?.(); }}>
+        <button key={i} role="menuitem" disabled={it.disabled} onClick={() => { if (!it.keep) close(); it.fn?.(); }}>
           {it.t}{it.tag ? <span className="tag">{it.tag}</span> : null}
         </button>
       ))}
@@ -486,42 +523,46 @@ function MenuBox({ menu, close }: { menu: MenuState; close: () => void }) {
 }
 
 function WaypointForm({ initial, onSave, onCancel }: { initial: string; onSave: (name: string) => void; onCancel: () => void }) {
+  const t = useT();
   const [name, setName] = useState(initial);
   return (
     <form className="ka-map-form" onSubmit={(e) => { e.preventDefault(); if (name.trim()) onSave(name.trim()); }} onKeyDown={(e) => { if (e.key === "Escape") onCancel(); e.stopPropagation(); }}>
-      <div className="ka-inline"><TextInput autoFocus maxLength={40} placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} /><Button size="s" variant="primary" type="submit">Save</Button></div>
+      <div className="ka-inline"><TextInput autoFocus maxLength={40} placeholder={t("admin.map.namePlaceholder")} value={name} onChange={(e) => setName(e.target.value)} /><Button size="s" variant="primary" type="submit">{t("common.save")}</Button></div>
     </form>
   );
 }
 
 function ZoneMapForm({ initial, onSave, onCancel, onRadius, onMore }: { initial: string; onSave: (f: { name: string; radius: string; deny: string[] }) => void; onCancel: () => void; onRadius: (r: number) => void; onMore: () => void }) {
+  const t = useT();
   const [name, setName] = useState(initial);
   const [radius, setRadius] = useState("30");
   const [deny, setDeny] = useState<string[]>(DEFAULT_DENY);
   return (
     <form className="ka-map-form" onSubmit={(e) => { e.preventDefault(); onSave({ name, radius, deny }); }} onKeyDown={(e) => { if (e.key === "Escape") onCancel(); e.stopPropagation(); }}>
-      <TextInput autoFocus maxLength={64} placeholder="Zone name" value={name} onChange={(e) => setName(e.target.value)} />
-      <div className="ka-inline"><span className="k-hint">Radius</span><TextInput inputMode="numeric" value={radius} onChange={(e) => { setRadius(e.target.value); const n = Number(e.target.value); if (n >= 1 && n <= 2000) onRadius(n); }} style={{ width: 80 }} /><span className="k-hint">m</span></div>
-      <div className="ka-flags">{ACTIONS.map((a) => <label key={a}><input type="checkbox" checked={deny.includes(a)} onChange={(e) => setDeny(e.target.checked ? [...deny, a] : deny.filter((x) => x !== a))} /> {ACTION_LABEL[a]}</label>)}</div>
-      <div className="ka-inline"><Button size="s" variant="primary" type="submit">Add zone</Button><Button size="s" variant="ghost" onClick={onMore}>Owners…</Button></div>
+      <TextInput autoFocus maxLength={64} placeholder={t("admin.map.zoneNamePlaceholder")} value={name} onChange={(e) => setName(e.target.value)} />
+      <div className="ka-inline"><span className="k-hint">{t("admin.zones.colRadius")}</span><TextInput inputMode="numeric" value={radius} onChange={(e) => { setRadius(e.target.value); const n = Number(e.target.value); if (n >= 1 && n <= 2000) onRadius(n); }} style={{ width: 80 }} /><span className="k-hint">{t("admin.map.metreUnit")}</span></div>
+      <div className="ka-flags">{ACTIONS.map((a) => <label key={a}><input type="checkbox" checked={deny.includes(a)} onChange={(e) => setDeny(e.target.checked ? [...deny, a] : deny.filter((x) => x !== a))} /> {actionLabel(a)}</label>)}</div>
+      <div className="ka-inline"><Button size="s" variant="primary" type="submit">{t("admin.zones.addZone")}</Button><Button size="s" variant="ghost" onClick={onMore}>{t("admin.map.ownersMore")}</Button></div>
     </form>
   );
 }
 
 function RadiusForm({ initial, onSave, onCancel, onRadius }: { initial: number; onSave: (r: number) => void; onCancel: () => void; onRadius: (r: number) => void }) {
+  const t = useT();
   const [v, setV] = useState(String(Math.round(initial)));
   const n = Number(v);
   return (
-    <form className="ka-map-form" onSubmit={(e) => { e.preventDefault(); if (n >= 1 && n <= 2000) onSave(n); else toastError({ message: "Radius: 1 to 2000 m." }); }} onKeyDown={(e) => { if (e.key === "Escape") onCancel(); e.stopPropagation(); }}>
+    <form className="ka-map-form" onSubmit={(e) => { e.preventDefault(); if (n >= 1 && n <= 2000) onSave(n); else toastError({ message: t("admin.zones.radiusRange") }); }} onKeyDown={(e) => { if (e.key === "Escape") onCancel(); e.stopPropagation(); }}>
       <input type="range" min={1} max={500} value={Math.min(500, n || 1)} onChange={(e) => { setV(e.target.value); onRadius(Number(e.target.value)); }} className="ka-dial" />
-      <div className="ka-inline"><TextInput autoFocus inputMode="numeric" value={v} onChange={(e) => { setV(e.target.value); const x = Number(e.target.value); if (x >= 1 && x <= 2000) onRadius(x); }} style={{ width: 90 }} /><span className="k-hint">m</span><Button size="s" variant="primary" type="submit">Save</Button></div>
+      <div className="ka-inline"><TextInput autoFocus inputMode="numeric" value={v} onChange={(e) => { setV(e.target.value); const x = Number(e.target.value); if (x >= 1 && x <= 2000) onRadius(x); }} style={{ width: 90 }} /><span className="k-hint">{t("admin.map.metreUnit")}</span><Button size="s" variant="primary" type="submit">{t("common.save")}</Button></div>
     </form>
   );
 }
 
 function LayersPanel({ D, ui, setUi, assets, lang, onLang }: { D: MarkerData | null; ui: MapUi; setUi: (p: Partial<MapUi>) => void; assets: boolean | null; lang: string | null; onLang: (code: string) => void }) {
-  if (assets === false) return <p className="ka-map-muted">No map data yet: the launcher prepares it from your installed game (Preparing game art in the top bar).</p>;
-  if (!D || !ui.vis) return <p className="ka-map-muted">Loading the markers…</p>;
+  const t = useT();
+  if (assets === false) return <p className="ka-map-muted">{t("admin.map.noMapData")}</p>;
+  if (!D || !ui.vis) return <p className="ka-map-muted">{t("admin.map.loadingMarkers")}</p>;
   const vis = ui.vis;
   const groups: { name: string; cats: MarkerData["cats"] }[] = [];
   for (const c of D.cats) { let g = groups.find((x) => x.name === c.group); if (!g) groups.push((g = { name: c.group, cats: [] })); g.cats.push(c); }
@@ -531,19 +572,19 @@ function LayersPanel({ D, ui, setUi, assets, lang, onLang }: { D: MarkerData | n
   return (
     <>
       <div className="ka-map-tools">
-        <Button size="s" variant="secondary" onClick={() => setUi({ vis: Object.fromEntries(D.cats.map((c) => [c.id, true])) })}>Show all</Button>
-        <Button size="s" variant="secondary" onClick={() => setUi({ vis: Object.fromEntries(D.cats.map((c) => [c.id, false])) })}>Hide all</Button>
-        <label><input type="checkbox" checked={ui.names} onChange={(e) => setUi({ names: e.target.checked })} /> Place names</label>
-        <label><input type="checkbox" checked={ui.hideFound} onChange={(e) => setUi({ hideFound: e.target.checked })} /> Hide found</label>
-        <label>Chest level <select value={ui.chestLv[0]} onChange={(e) => { const v = +e.target.value; setUi({ chestLv: [v, Math.max(v, ui.chestLv[1])] }); }}>{LV.map((v) => <option key={v}>{v}</option>)}</select>
-          to <select value={ui.chestLv[1]} onChange={(e) => { const v = +e.target.value; setUi({ chestLv: [Math.min(ui.chestLv[0], v), v] }); }}>{LV.map((v) => <option key={v}>{v}</option>)}</select></label>
+        <Button size="s" variant="secondary" onClick={() => setUi({ vis: Object.fromEntries(D.cats.map((c) => [c.id, true])) })}>{t("admin.map.showAll")}</Button>
+        <Button size="s" variant="secondary" onClick={() => setUi({ vis: Object.fromEntries(D.cats.map((c) => [c.id, false])) })}>{t("admin.map.hideAll")}</Button>
+        <label><input type="checkbox" checked={ui.names} onChange={(e) => setUi({ names: e.target.checked })} /> {t("admin.map.placeNames")}</label>
+        <label><input type="checkbox" checked={ui.hideFound} onChange={(e) => setUi({ hideFound: e.target.checked })} /> {t("admin.map.hideFound")}</label>
+        <label>{t("admin.map.chestLevel")} <select value={ui.chestLv[0]} onChange={(e) => { const v = +e.target.value; setUi({ chestLv: [v, Math.max(v, ui.chestLv[1])] }); }}>{LV.map((v) => <option key={v}>{v}</option>)}</select>
+          {t("admin.map.chestLevelTo")} <select value={ui.chestLv[1]} onChange={(e) => { const v = +e.target.value; setUi({ chestLv: [Math.min(ui.chestLv[0], v), v] }); }}>{LV.map((v) => <option key={v}>{v}</option>)}</select></label>
       </div>
       {groups.map((g) => {
         const isOpen = ui.open[g.name] ?? true;
         const on = g.cats.filter((c) => vis[c.id]).length;
         return (
           <section key={g.name} className="ka-map-group">
-            <h3><span onClick={() => { const v = g.cats.some((c) => !vis[c.id]); setUi({ vis: { ...vis, ...Object.fromEntries(g.cats.map((c) => [c.id, v])) } }); }} title="Show or hide the whole group">{g.name}</span>
+            <h3><span onClick={() => { const v = g.cats.some((c) => !vis[c.id]); setUi({ vis: { ...vis, ...Object.fromEntries(g.cats.map((c) => [c.id, v])) } }); }} title={t("admin.map.toggleGroup")}>{g.name}</span>
               <small onClick={() => setUi({ open: { ...ui.open, [g.name]: !isOpen } })}>{on}/{g.cats.length} {isOpen ? "▾" : "▸"}</small></h3>
             {isOpen ? (
               <div className="ka-map-cats">
@@ -558,17 +599,17 @@ function LayersPanel({ D, ui, setUi, assets, lang, onLang }: { D: MarkerData | n
         );
       })}
       <section className="ka-map-group ka-map-look">
-        <h3><span>Map look</span></h3>
-        <label>Contour lines every <select value={ui.look.spacing} onChange={(e) => look({ spacing: +e.target.value })}>{[4, 8, 16, 32].map((v) => <option key={v} value={v}>{v} m</option>)}</select></label>
-        <label><input type="checkbox" checked={ui.look.fog} onChange={(e) => look({ fog: e.target.checked })} /> Shroud zones</label>
-        <label><input type="checkbox" checked={ui.look.animate} onChange={(e) => look({ animate: e.target.checked })} /> Animate the Shroud</label>
-        <label title="Shroud zones above this Flame level are drawn as dangerous (red, hatched)">Flame level <input type="range" min={1} max={12} step={1} value={ui.look.flame} onChange={(e) => look({ flame: +e.target.value })} /> <b>{ui.look.flame}</b></label>
+        <h3><span>{t("admin.map.mapLook")}</span></h3>
+        <label>{t("admin.map.contourEvery")} <select value={ui.look.spacing} onChange={(e) => look({ spacing: +e.target.value })}>{[4, 8, 16, 32].map((v) => <option key={v} value={v}>{t("admin.map.metres", { n: v })}</option>)}</select></label>
+        <label><input type="checkbox" checked={ui.look.fog} onChange={(e) => look({ fog: e.target.checked })} /> {t("admin.map.shroudZones")}</label>
+        <label><input type="checkbox" checked={ui.look.animate} onChange={(e) => look({ animate: e.target.checked })} /> {t("admin.map.animateShroud")}</label>
+        <label title={t("admin.map.flameLevelTip")}>{t("admin.map.flameLevel")} <input type="range" min={1} max={12} step={1} value={ui.look.flame} onChange={(e) => look({ flame: +e.target.value })} /> <b>{ui.look.flame}</b></label>
         {D.langs && D.langs.length > 1 ? (
-          <label title="The game's own texts for marker names, categories and place names">Names in <select value={lang ?? D.lang ?? ""} onChange={(e) => onLang(e.target.value)}>{D.langs.map((l) => <option key={l.code} value={l.code}>{l.name}</option>)}</select></label>
+          <label title={t("admin.map.namesInTip")}>{t("admin.map.namesIn")} <select value={lang ?? D.lang ?? ""} onChange={(e) => onLang(e.target.value)}>{D.langs.map((l) => <option key={l.code} value={l.code}>{l.name}</option>)}</select></label>
         ) : null}
       </section>
-      <p className="ka-map-muted">{fmtN(shown)} of {fmtN(D.points.length)} markers on · {fmtN(ui.found.length)} marked found. Click a marker to mark it found.</p>
-      <p className="ka-map-muted" data-marker-source={D.source ?? "copy"}>{D.source === "game" ? `Markers from your game's data${D.build ? ` (build ${D.build})` : ""}.` : "Markers from a local copy (the game's own are made when the launcher prepares the map art)."}</p>
+      <p className="ka-map-muted">{t("admin.map.markersOn", { shown: fmtN(shown), total: fmtN(D.points.length), found: fmtN(ui.found.length) })}</p>
+      <p className="ka-map-muted" data-marker-source={D.source ?? "copy"}>{D.source === "game" ? (D.build ? t("admin.map.sourceGameBuild", { build: D.build }) : t("admin.map.sourceGame")) : t("admin.map.sourceCopy")}</p>
     </>
   );
 }
@@ -577,7 +618,8 @@ function FindPanel({ F, missing, ui, findQ, setFindQ, toggle, addAll, dropsBy, c
   F: FindData | null; missing?: boolean; ui: MapUi; findQ: string; setFindQ: (s: string) => void; toggle: (k: FinderKind, s: string) => void; addAll: (l: [FinderKind, string][]) => void;
   dropsBy: Record<string, string[]>; clear: () => void; setUi: (p: Partial<MapUi>) => void;
 }) {
-  if (!F) return <p className="ka-map-muted">{missing ? "The finder's data (creature spawns, plants, ore, chest loot) is not extracted from the game yet; without a local copy of it, the Find tab stays empty." : "Loading…"}</p>;
+  const t = useT();
+  if (!F) return <p className="ka-map-muted">{missing ? t("admin.map.finderMissing") : t("admin.map.loading")}</p>;
   const isOn = (k: FinderKind, s: string) => ui.finders.some((f) => f.kind === k && f.slug === s);
   const mine = ui.finders.map((f) => (F[f.kind]?.[f.slug] ? { ...F[f.kind][f.slug], kind: f.kind, slug: f.slug } : null)).filter(Boolean) as (FindData["spawns"][string] & { kind: FinderKind; slug: string })[];
   const q = findQ.trim();
@@ -588,55 +630,55 @@ function FindPanel({ F, missing, ui, findQ, setFindQ, toggle, addAll, dropsBy, c
     for (const [item, d] of Object.entries(F.drops)) {
       if (!fmatch(q, item)) continue;
       const by = d.by.map((s) => (F.spawns[s] ? { ...F.spawns[s], kind: "spawns" as FinderKind, slug: s } : null)).filter(Boolean) as ReturnType<typeof pick>;
-      groups.push({ id: `drop:${item}`, label: `${item}: dropped by`, img: d.img, list: by, all: true });
+      groups.push({ id: `drop:${item}`, label: t("admin.map.itemDroppedBy", { item }), img: d.img, list: by, all: true });
       if (groups.length > 4) break;
     }
   const sp = pick("spawns");
   const ore = pick("ore").sort((a, b) => Number(a.more) - Number(b.more) || (a.order ?? 0) - (b.order ?? 0));
-  if (ore.length) groups.push({ id: "ore", label: "Ore and deposits", list: ore, extra: <label className="ka-map-inline"><input type="checkbox" checked={ui.surfaceOnly} onChange={(e) => setUi({ surfaceOnly: e.target.checked })} /> Surface only</label> });
+  if (ore.length) groups.push({ id: "ore", label: t("admin.map.oreGroup"), list: ore, extra: <label className="ka-map-inline"><input type="checkbox" checked={ui.surfaceOnly} onChange={(e) => setUi({ surfaceOnly: e.target.checked })} /> {t("admin.map.surfaceOnly")}</label> });
   const bo = sp.filter((e) => e.boss).sort(abc), cr = sp.filter((e) => !e.boss).sort(abc);
-  if (bo.length) groups.push({ id: "bosses", label: "Bosses", list: bo });
-  if (cr.length) groups.push({ id: "creatures", label: "Creatures", list: cr });
+  if (bo.length) groups.push({ id: "bosses", label: t("admin.map.bosses"), list: bo });
+  if (cr.length) groups.push({ id: "creatures", label: t("admin.map.creatures"), list: cr });
   const byG: Record<string, ReturnType<typeof pick>> = {};
   for (const e of pick("gather").sort(abc)) (byG[e.g ?? "Other"] ??= []).push(e);
-  for (const [g, list] of Object.entries(byG).sort()) groups.push({ id: `g:${g}`, label: g, list });
+  for (const [g, list] of Object.entries(byG).sort()) groups.push({ id: `g:${g}`, label: g === "Other" ? t("admin.map.otherGroup") : g, list });
   const ch = pick("chests").sort((a, b) => b.c - a.c);
   const cap = q.length < 2 ? 150 : 80;
-  if (ch.length) groups.push({ id: "chests", label: "Found in chests", list: ch.slice(0, cap), more: ch.length > cap ? ch.length : 0 });
+  if (ch.length) groups.push({ id: "chests", label: t("admin.map.inChests"), list: ch.slice(0, cap), more: ch.length > cap ? ch.length : 0 });
   const qOpen = q.length >= 2;
   return (
     <>
       <section className="ka-map-mine">
-        <h3><span>My filter</span>{mine.length ? <Button size="s" variant="ghost" onClick={clear} style={{ marginLeft: "auto" }}>Clear</Button> : null}</h3>
+        <h3><span>{t("admin.map.myFilter")}</span>{mine.length ? <Button size="s" variant="ghost" onClick={clear} style={{ marginLeft: "auto" }}>{t("admin.map.clear")}</Button> : null}</h3>
         {mine.length ? mine.map((e) => (
           <div key={`${e.kind}:${e.slug}`} className="ka-map-mrow">
             <span>{e.img ? <img src={`${MAP_ROOT}i/${e.img}`} alt="" /> : <i className="ka-dot" style={{ background: e.color ?? KIND_COLOR[e.kind] }} />}{e.n}</span>
-            <small>{fmtN(e.c)} {KIND_NOUN[e.kind]}</small><button className="ka-map-x" title="Remove" onClick={() => toggle(e.kind, e.slug)}>✕</button>
+            <small>{kindCount(e.kind, e.c)}</small><button className="ka-map-x" title={t("common.remove")} onClick={() => toggle(e.kind, e.slug)}>✕</button>
           </div>
-        )) : <p className="ka-map-muted">Pick creatures, plants, ore or chest items below (or search an item at the top) to show where they are.</p>}
+        )) : <p className="ka-map-muted">{t("admin.map.filterEmpty")}</p>}
       </section>
-      <TextInput type="search" aria-label="Filter the lists" placeholder="Filter the lists below…" value={findQ} onChange={(e) => setFindQ(e.target.value)} />
+      <TextInput type="search" aria-label={t("admin.map.filterLabel")} placeholder={t("admin.map.filterPlaceholder")} value={findQ} onChange={(e) => setFindQ(e.target.value)} />
       {groups.map((g) => {
         const isOpenG = qOpen || g.id.startsWith("drop:") || ui.open[`f:${g.id}`];
         const onN = g.list.filter((e) => isOn(e.kind, e.slug)).length;
         return (
           <section key={g.id} className="ka-map-group">
             <h3><span onClick={() => setUi({ open: { ...ui.open, [`f:${g.id}`]: !ui.open[`f:${g.id}`] } })}>{g.img ? <img src={`${MAP_ROOT}i/${g.img}`} alt="" style={{ width: 20, height: 20 }} /> : null}{g.label}</span>
-              {g.all ? <Button size="s" variant="ghost" onClick={() => addAll(g.list.map((x) => [x.kind, x.slug]))}>Show all</Button> : null}
-              <small onClick={() => setUi({ open: { ...ui.open, [`f:${g.id}`]: !ui.open[`f:${g.id}`] } })}>{onN ? `${onN} on · ` : ""}{fmtN(g.list.length)} {isOpenG ? "▾" : "▸"}</small></h3>
+              {g.all ? <Button size="s" variant="ghost" onClick={() => addAll(g.list.map((x) => [x.kind, x.slug]))}>{t("admin.map.showAll")}</Button> : null}
+              <small onClick={() => setUi({ open: { ...ui.open, [`f:${g.id}`]: !ui.open[`f:${g.id}`] } })}>{onN ? t("admin.map.nOn", { n: onN }) : ""}{fmtN(g.list.length)} {isOpenG ? "▾" : "▸"}</small></h3>
             {isOpenG ? (
               <>
                 {g.extra}
                 <div className="ka-map-cats">
                   {g.list.map((e) => (
                     <button key={`${e.kind}:${e.slug}`} type="button" className={"ka-map-cat" + (isOn(e.kind, e.slug) ? "" : " off")} onClick={() => toggle(e.kind, e.slug)}
-                      title={`${e.n}${e.kind === "spawns" && dropsBy[e.slug] ? `\nDrops: ${dropsBy[e.slug].join(", ")}` : ""}`}>
+                      title={e.kind === "spawns" && dropsBy[e.slug] ? `${e.n}\n${t("admin.map.drops", { list: dropsBy[e.slug].join(", ") })}` : e.n}>
                       {e.img ? <img src={`${MAP_ROOT}i/${e.img}`} alt="" loading="lazy" /> : <i className="ka-dot" style={{ background: e.color ?? KIND_COLOR[e.kind] }} />}
                       <span>{e.n}</span><small>{fmtN(e.c)}</small>
                     </button>
                   ))}
                 </div>
-                {g.more ? <p className="ka-map-muted">{fmtN(g.more)} items in total; type to narrow the list.</p> : null}
+                {g.more ? <p className="ka-map-muted">{t("admin.map.moreItems", { n: fmtN(g.more) })}</p> : null}
               </>
             ) : null}
           </section>
@@ -651,50 +693,51 @@ function LivePanel({ players, connected, reason, waypoints, graves, zones, ui, s
   zones: Zone[]; ui: MapUi; setUi: (p: Partial<MapUi>) => void; enemies: number; enemyErr: string; hasEnemies: boolean; routeFrom?: string;
   go: (x: number, z: number) => void; follow: (e: number) => void;
 }) {
+  const t = useT();
   return (
     <>
-      <p className={"ka-map-status" + (connected ? " on" : "")}>{connected ? `Kiln.Admin connected · ${players.length} in the world` : reason ?? "Live tools not connected."}</p>
+      <p className={"ka-map-status" + (connected ? " on" : "")}>{connected ? t("admin.map.liveConnected", { n: players.length }) : reason ?? t("admin.map.liveNotConnected")}</p>
       <section className="ka-map-group">
-        <h3><span>Players</span><small>{players.length}</small></h3>
+        <h3><span>{t("admin.pages.players")}</span><small>{players.length}</small></h3>
         {players.length ? players.map((p) => (
           <div key={p.entity} className="ka-map-lrow">
             <i className="ka-dot" style={{ background: "#7dff9b" }} /><b>{playerName(p)}</b>
-            <small className="k-mono">{Math.round(p.pos!.x)}, {Math.round(p.pos!.z)} · H {Math.round(p.pos!.y)}</small>
-            <span className="ka-map-btns"><Button size="s" variant="ghost" onClick={() => go(p.pos!.x, p.pos!.z)}>Show</Button>
-              <Button size="s" variant={ui.follow === p.entity ? "secondary" : "ghost"} onClick={() => follow(p.entity)}>{ui.follow === p.entity ? "Following" : "Follow"}</Button></span>
+            <small className="k-mono">{t("admin.map.playerRowPos", { x: Math.round(p.pos!.x), z: Math.round(p.pos!.z), h: Math.round(p.pos!.y) })}</small>
+            <span className="ka-map-btns"><Button size="s" variant="ghost" onClick={() => go(p.pos!.x, p.pos!.z)}>{t("common.show")}</Button>
+              <Button size="s" variant={ui.follow === p.entity ? "secondary" : "ghost"} onClick={() => follow(p.entity)}>{ui.follow === p.entity ? t("admin.map.following") : t("admin.map.follow")}</Button></span>
           </div>
-        )) : <p className="ka-map-muted">Nobody is in the world.</p>}
+        )) : <p className="ka-map-muted">{t("admin.players.nobody")}</p>}
       </section>
       <section className="ka-map-group">
-        <h3><span>Protection zones</span><small>{zones.length}</small></h3>
+        <h3><span>{t("admin.zones.title")}</span><small>{zones.length}</small></h3>
         {zones.length ? zones.map((z) => (
-          <div key={z.name} className="ka-map-lrow"><i className="ka-dot" style={{ background: "#ff8540" }} /><b>{z.name}</b><small>{Math.round(z.radius)} m</small>
-            <span className="ka-map-btns"><Button size="s" variant="ghost" onClick={() => go(z.pos.x, z.pos.z)}>Show</Button></span></div>
-        )) : <p className="ka-map-muted">Click the map and pick “Protect an area here…”.</p>}
+          <div key={z.name} className="ka-map-lrow"><i className="ka-dot" style={{ background: "#ff8540" }} /><b>{z.name}</b><small>{t("admin.map.metres", { n: Math.round(z.radius) })}</small>
+            <span className="ka-map-btns"><Button size="s" variant="ghost" onClick={() => go(z.pos.x, z.pos.z)}>{t("common.show")}</Button></span></div>
+        )) : <p className="ka-map-muted">{t("admin.map.zonesEmpty")}</p>}
       </section>
       <section className="ka-map-group">
-        <h3><span>Waypoints</span><small>{waypoints.length}</small></h3>
+        <h3><span>{t("admin.map.waypoints")}</span><small>{waypoints.length}</small></h3>
         {waypoints.length ? waypoints.map((w) => (
           <div key={w.name} className="ka-map-lrow"><img src={`${MAP_ROOT}i/g-mapmarker_waypoint.webp`} alt="" /><b>{w.name}</b><small className="k-mono">{Math.round(w.pos.x)}, {Math.round(w.pos.z)}</small>
-            <span className="ka-map-btns"><Button size="s" variant="ghost" onClick={() => go(w.pos.x, w.pos.z)}>Show</Button></span></div>
-        )) : <p className="ka-map-muted">Click the map and pick “Save waypoint here”.</p>}
+            <span className="ka-map-btns"><Button size="s" variant="ghost" onClick={() => go(w.pos.x, w.pos.z)}>{t("common.show")}</Button></span></div>
+        )) : <p className="ka-map-muted">{t("admin.map.waypointsEmpty")}</p>}
       </section>
       <section className="ka-map-group">
-        <h3><span>Graves</span><small>{graves.length}</small></h3>
+        <h3><span>{t("admin.map.graves")}</span><small>{graves.length}</small></h3>
         {graves.length ? [...graves].reverse().slice(0, 12).map((g) => (
-          <div key={g.key} className="ka-map-lrow"><i className="ka-dot" style={{ background: "#b9a7d6" }} /><b>{g.name ?? "A player"}</b><small>{agoS(g.at)}</small>
-            <span className="ka-map-btns"><Button size="s" variant="ghost" onClick={() => go(g.pos.x, g.pos.z)}>Show</Button></span></div>
-        )) : <p className="ka-map-muted">No deaths recorded.</p>}
+          <div key={g.key} className="ka-map-lrow"><i className="ka-dot" style={{ background: "#b9a7d6" }} /><b>{g.name ?? t("admin.map.aPlayer")}</b><small>{agoS(g.at)}</small>
+            <span className="ka-map-btns"><Button size="s" variant="ghost" onClick={() => go(g.pos.x, g.pos.z)}>{t("common.show")}</Button></span></div>
+        )) : <p className="ka-map-muted">{t("admin.map.noDeaths")}</p>}
       </section>
       <section className="ka-map-group">
-        <h3><span>Living enemies</span><small>{ui.enemies ? enemies : "off"}</small></h3>
-        <label className="ka-map-inline"><input type="checkbox" disabled={!hasEnemies} checked={ui.enemies} onChange={(e) => setUi({ enemies: e.target.checked })} /> Show enemies within 80 m of each player (asks the server every 5 s)</label>
+        <h3><span>{t("admin.map.livingEnemies")}</span><small>{ui.enemies ? enemies : t("admin.map.off")}</small></h3>
+        <label className="ka-map-inline"><input type="checkbox" disabled={!hasEnemies} checked={ui.enemies} onChange={(e) => setUi({ enemies: e.target.checked })} /> {t("admin.map.showEnemies")}</label>
         {ui.enemies && enemyErr ? <p className="ka-map-muted" style={{ color: "var(--k-warn)" }}>{enemyErr}</p> : null}
       </section>
       <section className="ka-map-group">
-        <h3><span>Route</span></h3>
-        {ui.route ? <><p>{routeFrom ?? "start"} → {ui.route.to.name ?? "point"}</p><Button size="s" onClick={() => setUi({ route: null })}>Clear route</Button></>
-          : <p className="ka-map-muted">Click a marker or the map and pick “Route …” to measure the distance from a player or a point.</p>}
+        <h3><span>{t("admin.map.route")}</span></h3>
+        {ui.route ? <><p>{routeFrom ?? t("admin.map.start")} → {ui.route.to.name ?? t("admin.map.point")}</p><Button size="s" onClick={() => setUi({ route: null })}>{t("admin.map.clearRoute")}</Button></>
+          : <p className="ka-map-muted">{t("admin.map.routeEmpty")}</p>}
       </section>
     </>
   );

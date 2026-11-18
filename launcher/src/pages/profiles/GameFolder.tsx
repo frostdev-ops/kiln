@@ -4,6 +4,7 @@
 import { useQuery } from "@tanstack/react-query";
 import * as api from "../../api/commands";
 import type { FoundReport, GameId, ModKind, ProfileId } from "../../api/commands";
+import { t } from "../../i18n";
 
 /** The query key; profile saves and adds refresh every found_scan. */
 export const foundKey = (gameId: GameId, profileId: ProfileId) => ["found_scan", gameId, profileId] as const;
@@ -15,5 +16,5 @@ export function useFound(gameId: GameId | null | undefined, profileId: ProfileId
 /** The loaders line: "EML's own loader (dbghelp.dll) is in the game folder and loads its mods itself." */
 export function loaderLine(r: FoundReport, kinds?: ModKind[]) {
   return r.loaders.filter((l) => !kinds || l.kinds.some((k) => kinds.includes(k)))
-    .map((l) => `${l.engine === "eml" ? "EML" : l.name}'s own loader (${l.file}) is in the game folder and loads its mods itself.`);
+    .map((l) => t("profiles.gameFolder.loaderLine", { name: l.engine === "eml" ? "EML" : l.name, file: l.file }));
 }

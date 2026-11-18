@@ -37,8 +37,9 @@ lists the mods, their status, update counts, and the DLLs it refused.
 
 As under Shroudtopia's loader: one loader thread waits `bootDelay` ms, then every `updateDelay` ms reloads the
 settings when they changed and, while `active`, looks for new mod DLLs (a DLL dropped in while the game runs is
-picked up), calls `Load` once for each mod that supports this side (`hasClientSupport` / `hasServerSupport`), then
-`Activate` / `Update` / `Deactivate` by the mod's `active` setting.
+picked up; a candidate DLL's export table is read once per version of the file, not on every look), calls `Load` once
+for each mod that supports this side (`hasClientSupport` / `hasServerSupport`), then `Activate` / `Update` /
+`Deactivate` by the mod's `active` setting.
 
 Shroudtopia's loader never writes a mod's own `active` field: it calls `Activate` whenever the setting is on and that
 field is off, so a mod that does not set the field in `Activate` is activated again on every update. Kiln does the

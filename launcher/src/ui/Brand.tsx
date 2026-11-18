@@ -4,6 +4,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import markSvg from "../../../branding/logo/mark.svg";
 import lockupSvg from "../../../branding/logo/lockup-dark.svg";
+import { useT } from "../i18n";
 
 /** The Kiln mark, from branding/logo/mark.svg. */
 export function Mark({ size = 28, title = "Kiln" }: { size?: number; title?: string }) {
@@ -17,15 +18,16 @@ export function Lockup({ height = 30, title = "Kiln" }: { height?: number; title
 
 /** Full-window splash: the lockup on soot; fades out when `done`. */
 export function Splash({ done }: { done: boolean }) {
+  const t = useT();
   const [gone, setGone] = useState(false);
   useEffect(() => {
     if (!done) return;
-    const t = setTimeout(() => setGone(true), 400);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setGone(true), 400);
+    return () => clearTimeout(timer);
   }, [done]);
   if (gone) return null;
   return (
-    <div className={"k-splash" + (done ? " gone" : "")} aria-hidden={done} role="status" aria-label="Starting">
+    <div className={"k-splash" + (done ? " gone" : "")} aria-hidden={done} role="status" aria-label={t("ui.brand.starting")}>
       <img src={lockupSvg} alt="" draggable={false} />
     </div>
   );

@@ -67,9 +67,35 @@ public sealed unsafe class WorldContractTests
         SameLayout(abi, "KilnWorldWriteResult", typeof(WriteResultNative));
         SameLayout(abi, "KilnWorldWriteInfo", typeof(WriteInfoNative));
         SameLayout(abi, "KilnWorldWriteStatus", typeof(WriteStatusNative));
+        SameLayout(abi, "KilnObjectRef", typeof(EcsObjectRefNative));
+        SameLayout(abi, "KilnObjectInfo", typeof(EcsObjectInfoNative));
+        SameLayout(abi, "KilnEcsContextInfo", typeof(EcsContextInfoNative));
+        SameLayout(abi, "KilnEcsQueryRequest", typeof(EcsQueryRequestNative));
+        SameLayout(abi, "KilnEcsSnapshotSpec", typeof(EcsSnapshotSpecNative));
         // the consumers built before v3: Kiln.Api's program table (v2) and Kiln.World's own (v1)
         SameLayout(abi, "KilnWorldApi", typeof(EcsWorldTable), (int)abi["v2Entries"]!);
         SameLayout(abi, "KilnWorldApi", typeof(WorldNative.Table), 24);
+    }
+
+    [Fact]
+    public void The_ecs_read_constants_match_the_header()
+    {
+        var mine = new Dictionary<string, long>
+        {
+            ["KILN_ECS_OK"] = EcsReadConstants.Ok, ["KILN_ECS_ABSENT"] = EcsReadConstants.Absent,
+            ["KILN_ECS_STALE"] = EcsReadConstants.Stale, ["KILN_ECS_UNREADABLE"] = EcsReadConstants.Unreadable,
+            ["KILN_ECS_UNAVAILABLE"] = EcsReadConstants.Unavailable, ["KILN_ECS_BUSY"] = EcsReadConstants.Busy,
+            ["KILN_ECS_UNSUPPORTED"] = EcsReadConstants.Unsupported, ["KILN_WORLD_ERR_CHANGED"] = EcsReadConstants.ErrChanged,
+            ["KILN_ECS_ERR_STALE"] = EcsReadConstants.ErrStale, ["KILN_ECS_ERR_UNREADABLE"] = EcsReadConstants.ErrUnreadable,
+            ["KILN_ECS_ERR_BUSY"] = EcsReadConstants.ErrBusy, ["KILN_ECS_ERR_UNSUPPORTED"] = EcsReadConstants.ErrUnsupported,
+            ["KILN_ECS_QUERY_BOUNDS"] = EcsReadConstants.QueryBounds,
+            ["KILN_ECS_QUERY_FRAME_QUIET"] = EcsReadConstants.QueryFrameQuiet,
+            ["KILN_ECS_READ_FRAME_QUIET"] = EcsReadConstants.ReadFrameQuiet,
+            ["KILN_OBJECT_ALIVE"] = EcsReadConstants.ObjectAlive, ["KILN_OBJECT_HAS_TEMPLATE"] = EcsReadConstants.ObjectHasTemplate,
+            ["KILN_WORLD_CAP_ECS_READ"] = EcsReadConstants.CapEcsRead,
+        };
+        var listed = Abi()["KilnEcsReadConstants"]!["values"]!.AsArray().ToDictionary(v => (string)v![0]!, v => (long)v![1]!);
+        Assert.Equal(listed.OrderBy(p => p.Key), mine.OrderBy(p => p.Key));
     }
 
     // ---- a v2 consumer on the v3 table ----

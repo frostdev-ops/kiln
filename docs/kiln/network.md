@@ -217,8 +217,15 @@ crash them that way. A mod that adds items should state `clients`, and then the 
 - No gate (`net.gate` off): nothing is held. A vanilla client gets the world at once, without Kiln-only entities, and a refusal only after `handshakeTimeoutSeconds`; until
   then it can crash on Kiln items, and kiln.log says so.
 
-**Not proven yet.** The real-client hold, refusal, let-in and the two hooks have not run: client launches are on hold.
-Lab results and "Client checks" are in docs/re/network.md.
+**Seen with a client without Kiln: the plain join.** A real game client without Kiln joined a Kiln dedicated server
+normally, with Kiln-loaded native mods that all say `"clients": "none"` (MicDrop7, 2026-11-17, Kiln 0.2.0-dev.29.15:
+Smart Workshop's test build and Creative Mode). **Not proven yet with a client without Kiln:** what this section
+describes for a server with Kiln-only templates (the hold, its refusal, the let-in without those entities, and the two
+hooks: the gate on the server and the guard on a client's create path) has run in labs only, not with a real game
+client. A **Kiln** client's refusal has been seen in a real game: Kiln's toast, then the
+game's login failure, back to the main menu and a rejoin afterwards (client build 1285601; see "Lab tests" below, last
+paragraph, and docs/re/network.md "Runtime"). Lab results and the client checks still to run are in docs/re/network.md,
+"Vanilla clients on a Kiln server".
 
 ## Admission
 Since 0.2.0-dev.28 one internal class, `NetAdmission` (`managed/services/Kiln.Network/Admission.cs`), is the only code
@@ -450,8 +457,8 @@ through the 0.1 decoder, zero padding, a 300-mod required list truncated under 7
 Last run (svn 1287369): `nettest: 111 PASS, 0 FAIL` with net-test and NetSample. With npcsample and quests-sample too
 (`modSync: warn`): `handshake,policy,missing_mod,vanilla,withheld,definitions,hotload` gave 101 PASS, 0 FAIL.
 
-With the real client: handshake in a hosted world and on the lab server, NetSample ping/pong (26-29 ms),
-the refuse path (toast + login failure, rejoin afterwards), and the Kiln menu's Network tab (server mods, clients,
+With the real client (Kiln on both sides): handshake in a hosted world and on the lab server, NetSample ping/pong (26-29 ms),
+the refuse path for a Kiln client that lacks a required mod (toast + login failure, rejoin afterwards), and the Kiln menu's Network tab (server mods, clients,
 round trip). Details: `docs/re/network.md` "Runtime". Server modpacks with the real client: the refusal
 carried the server's properties into `last-server.json`, and after the launcher installed the modpack the rejoin got
 WELCOME (docs/kiln/launcher/modpacks.md "Checks done").

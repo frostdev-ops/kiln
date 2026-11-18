@@ -1,5 +1,6 @@
 // Small formatters.
 import { toKilnError } from "../api/commands";
+import { t } from "../i18n";
 
 export function fmtBytes(n: number | null | undefined): string {
   if (n === null || n === undefined) return "-";
@@ -11,23 +12,23 @@ export function fmtBytes(n: number | null | undefined): string {
 }
 
 /** "3 min ago", "2 h ago", "yesterday", or a date. Accepts RFC 3339 or ms. */
-export function fmtAgo(t: string | number | null | undefined, now = Date.now()): string {
-  if (t === null || t === undefined || t === "") return "-";
-  const ms = typeof t === "number" ? t : Date.parse(t);
-  if (Number.isNaN(ms)) return String(t);
+export function fmtAgo(at: string | number | null | undefined, now = Date.now()): string {
+  if (at === null || at === undefined || at === "") return "-";
+  const ms = typeof at === "number" ? at : Date.parse(at);
+  if (Number.isNaN(ms)) return String(at);
   const s = Math.round((now - ms) / 1000);
   if (s < 0) return fmtTime(ms);
-  if (s < 45) return "just now";
-  if (s < 3600) return `${Math.round(s / 60)} min ago`;
-  if (s < 86400) return `${Math.round(s / 3600)} h ago`;
-  if (s < 172800) return "yesterday";
+  if (s < 45) return t("format.ago.justNow");
+  if (s < 3600) return t("format.ago.minutes", { n: Math.round(s / 60) });
+  if (s < 86400) return t("format.ago.hours", { n: Math.round(s / 3600) });
+  if (s < 172800) return t("format.ago.yesterday");
   return new Date(ms).toLocaleDateString();
 }
 
-export function fmtTime(t: string | number | null | undefined): string {
-  if (t === null || t === undefined || t === "") return "-";
-  const d = new Date(typeof t === "number" ? t : Date.parse(t));
-  return Number.isNaN(d.getTime()) ? String(t) : d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+export function fmtTime(at: string | number | null | undefined): string {
+  if (at === null || at === undefined || at === "") return "-";
+  const d = new Date(typeof at === "number" ? at : Date.parse(at));
+  return Number.isNaN(d.getTime()) ? String(at) : d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
 /** `kdh1:3f2a9c1d…` → `3f2a9c1d`; a sha256 → its first 8. */
@@ -41,7 +42,7 @@ export function shortHash(h: string | null | undefined): string {
  * undefined. */
 export function installNote(r: { changedBackedUp?: string[] } | { placements: unknown } | null | undefined): string | undefined {
   const n = r && "changedBackedUp" in r ? r.changedBackedUp?.length ?? 0 : 0;
-  return n ? `${n} changed file${n === 1 ? "" : "s"} kept in backups` : undefined;
+  return n ? t("format.installNote", { count: n }) : undefined;
 }
 
 /** A path cut for the middle shortening of `PathText`: everything up to the last name, and the last name with the

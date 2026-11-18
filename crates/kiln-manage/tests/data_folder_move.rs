@@ -1107,7 +1107,7 @@ fn another_data_folders_profile_is_left_alone() {
             assert_eq!(profile::game_profile_owner(&old, g).unwrap(), GameProfileOwner::Here { id: theirs.clone() }, "and the other folder still sees its own");
         }
         // copy mode: the game's config copy is the other folder's, never copied into this one
-        assert_eq!(profile::copy_back(&new, &theirs, &fx.game_copy).unwrap(), 0);
+        assert_eq!(profile::copy_back(&new, &theirs, &fx.game_copy).unwrap(), profile::ConfigSync::default());
         if same_id {
             assert!(!new.profile(&fx.active).join("config/new-items.json").exists(), "nothing mixed into the moved profile");
             // the player activates the moved folder's profile in that game: the other folder's config copy is kept aside
@@ -1216,7 +1216,8 @@ fn a_move_never_replaces_or_removes_what_it_did_not_make() {
 }
 
 /// `rewrittenAfter` holds only what the move writes (install and activation records, the activated profiles'
-/// configs): a file another writer changed after the switch is not in it, and its old copy stays.
+/// configs, copy mode's record of the game's config copy): a file another writer changed after the switch is not in it,
+/// and its old copy stays.
 #[test]
 fn only_what_the_move_writes_after_the_switch_is_rewritten_after() {
     struct Other {
@@ -1235,8 +1236,12 @@ fn only_what_the_move_writes_after_the_switch_is_rewritten_after() {
     let j = dfm::read_journal(&fx.env).unwrap().unwrap();
     let paths: BTreeSet<&str> = j.rewritten_after.iter().map(|r| r.path.as_str()).collect();
     assert!(!paths.contains("settings.json"), "{paths:?}");
-    assert!(paths.iter().all(|p| p.starts_with("installs/") || p.contains("/config/")), "{paths:?}");
+    let ours = |p: &str| p.starts_with("installs/") || p.contains("/config/") || p.contains("/config-sync/");
+    assert!(paths.iter().all(|p| ours(p)), "{paths:?}");
     assert!(paths.contains(format!("installs/{}.active.json", fx.game_z.id).as_str()), "{paths:?}");
+    // the copy-mode game's activation in the new place writes the record of its config copy again
+    let record = profile::config_sync_record(&DataDirs::at(""), &fx.active, &fx.game_copy.id);
+    assert!(paths.contains(record.to_string_lossy().as_ref()), "{paths:?}");
     let c = r.cleanup.unwrap();
     assert!(c.kept.iter().any(|k| k.path == fx.dirs.root.join("settings.json")), "{c:?}");
     assert!(fx.dirs.root.join("settings.json").is_file());

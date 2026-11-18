@@ -432,7 +432,15 @@ bool draw(VkQueue queue, const VkPresentInfoKHR* info, VkSemaphore* out_wait, ui
     ImGui_ImplVulkan_NewFrame();
     if (!build_frame(static_cast<float>(s->extent.width), static_cast<float>(s->extent.height), dpi)) return false;
     ImDrawData* dd = ImGui::GetDrawData();
-    if (!dd || dd->CmdListsCount == 0) return false;  // nothing visible this frame
+    if (!dd || dd->CmdListsCount == 0) {
+        // nothing visible this frame, but new or freed textures still go to the GPU, as RenderDrawData would do first:
+        // an image is drawn only once uploaded (image_budget.h), so an image that is all a frame would draw (the main
+        // menu footer's mark) would otherwise never be uploaded and never drawn
+        if (dd && dd->Textures)
+            for (ImTextureData* tex : *dd->Textures)
+                if (tex->Status != ImTextureStatus_OK) ImGui_ImplVulkan_UpdateTexture(tex);
+        return false;
+    }
     if (steps) logf(KILN_LOG_INFO, "ui: first draw: frame built (%d lists), recording", dd->CmdListsCount);
 
     VkFence fence = s->fences[index];

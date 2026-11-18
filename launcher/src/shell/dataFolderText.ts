@@ -3,6 +3,7 @@
 // buttons, and one line only where it changes the player's decision.
 import type { DataFolder, DataFolderEntry, DataFolderMoved, DataFolderNotice, DataFolderPlan, DataFolderSize } from "../api/commands";
 import { fmtBytes } from "../ui/format";
+import { t } from "../i18n";
 
 /** `p` relative to `base` when it is inside it ("tools/kiln"), else as it is. */
 export function relativeTo(base: string, p: string): string {
@@ -11,10 +12,9 @@ export function relativeTo(base: string, p: string): string {
   return p;
 }
 
-const count = (n: number) => n.toLocaleString("en-US");
 /** "Enshrouded", "Enshrouded and Server", "A, B and C" */
 export function listWords(xs: string[]): string {
-  return xs.length < 2 ? (xs[0] ?? "") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`;
+  return xs.length < 2 ? (xs[0] ?? "") : t("shell.dataFolderText.listAnd", { list: xs.slice(0, -1).join(", "), last: xs[xs.length - 1] });
 }
 
 // ---------------------------------------------------------------- the row
@@ -27,23 +27,25 @@ export interface RowView {
   why: string | null;
 }
 
+/** The English of the row's "why" when KILN_DATA_DIR sets the folder (the unit tests compare with it; the row shows
+ *  `t("shell.dataFolderText.envWhy")`). */
 export const ENV_WHY = "Set by KILN_DATA_DIR.";
 
 /** What the "Data folder" row shows: the data folder, or before data_folder_get answers (or on a backend without it)
  *  app_info's dataDir with Change off. */
 export function rowView(f: DataFolder | null | undefined, error: unknown, fallbackDir: string | null | undefined): RowView {
-  if (f?.source === "env") return { path: f.path, canChange: false, why: ENV_WHY };
+  if (f?.source === "env") return { path: f.path, canChange: false, why: t("shell.dataFolderText.envWhy") };
   // an earlier move is not finished (the backend's sentence): the folder dialog would end in a refusal
   if (f?.pending) return { path: f.path, canChange: false, why: f.pending };
   if (f) return { path: f.path, canChange: true, why: null };
-  if (error) return { path: fallbackDir ?? null, canChange: false, why: "This launcher cannot move its data folder." };
+  if (error) return { path: fallbackDir ?? null, canChange: false, why: t("shell.dataFolderText.cannotMove") };
   return { path: fallbackDir ?? null, canChange: false, why: null };
 }
 
 /** The size beside the path ("3.4 GB"), and its title ("12,408 files"); null while it is measured or when it failed. */
 export function sizeView(s: DataFolderSize | null | undefined): { text: string; title: string } | null {
   if (!s) return null;
-  return { text: fmtBytes(s.bytes), title: `${count(s.files)} file${s.files === 1 ? "" : "s"}` };
+  return { text: fmtBytes(s.bytes), title: t("shell.dataFolderText.files", { count: s.files }) };
 }
 
 // ---------------------------------------------------------------- the plan
@@ -64,37 +66,37 @@ export interface PlanView {
 export function planView(p: DataFolderPlan): PlanView {
   if (p.action === "refuse") {
     return {
-      title: "Kiln cannot use this folder",
-      facts: [{ label: "Folder", value: p.picked, path: true }],
-      lines: [p.reason ?? "This folder cannot hold the data folder."],
-      confirm: "Choose another",
-      dismiss: "Close",
+      title: t("shell.dataFolderText.refuseTitle"),
+      facts: [{ label: t("shell.dataFolderText.folder"), value: p.picked, path: true }],
+      lines: [p.reason ?? t("shell.dataFolderText.refuseReason")],
+      confirm: t("shell.dataFolderText.chooseAnother"),
+      dismiss: t("common.close"),
     };
   }
   if (p.action === "use") {
     return {
-      title: "Use this data folder?",
-      facts: [{ label: "Folder", value: p.target, path: true }],
-      lines: ["It already holds Kiln data. The current folder stays where it is."],
-      confirm: "Use it",
-      dismiss: "Cancel",
+      title: t("shell.dataFolderText.useTitle"),
+      facts: [{ label: t("shell.dataFolderText.folder"), value: p.target, path: true }],
+      lines: [t("shell.dataFolderText.useLine")],
+      confirm: t("shell.dataFolderText.useIt"),
+      dismiss: t("common.cancel"),
     };
   }
   const lines: string[] = [];
-  if (p.target !== p.picked) lines.push("That folder has other files in it, so the data goes into a new folder inside it.");
-  if (p.copyMode.length) lines.push(`From there, mods are copied into the game folder of ${listWords(p.copyMode)}.`);
-  if (p.stays.length) lines.push(`These stay in the old folder too, Kiln copies them and does not remove them: ${p.stays.map(sized).join(", ")}.`);
+  if (p.target !== p.picked) lines.push(t("shell.dataFolderText.intoNewFolder"));
+  if (p.copyMode.length) lines.push(t("shell.dataFolderText.copyMode", { games: listWords(p.copyMode) }));
+  if (p.stays.length) lines.push(t("shell.dataFolderText.stays", { list: p.stays.map(sized).join(", ") }));
   lines.push(...(p.warnings ?? []));
   return {
-    title: "Move the data folder?",
+    title: t("shell.dataFolderText.moveTitle"),
     facts: [
-      { label: "To", value: p.target, path: true },
-      { label: "Moves", value: `${fmtBytes(p.bytes)}, ${count(p.files)} file${p.files === 1 ? "" : "s"}` },
-      ...(p.free !== null ? [{ label: "Free there", value: fmtBytes(p.free) }] : []),
+      { label: t("shell.dataFolderText.to"), value: p.target, path: true },
+      { label: t("shell.dataFolderText.moves"), value: t("shell.dataFolderText.movesValue", { size: fmtBytes(p.bytes), count: p.files }) },
+      ...(p.free !== null ? [{ label: t("shell.dataFolderText.freeThere"), value: fmtBytes(p.free) }] : []),
     ],
     lines,
-    confirm: "Move",
-    dismiss: "Cancel",
+    confirm: t("shell.dataFolderText.move"),
+    dismiss: t("common.cancel"),
   };
 }
 
@@ -106,7 +108,7 @@ export const sized = (e: Pick<DataFolderEntry, "name" | "bytes">) => `${e.name} 
 /** The move's last phase (the crate's task message "removing the old copy: <file>"): the data is in the new place,
  *  and Cancel now only stops the removal. Null in the phases before. */
 export function movingLine(message: string | null | undefined): string | null {
-  return message?.startsWith("removing the old copy") ? "Removing the old copy. Cancel leaves the rest for the next start." : null;
+  return message?.startsWith("removing the old copy") ? t("shell.dataFolderText.removingOldCopy") : null;
 }
 
 /** A move that ended as done: the lines before the restart (null: restart at once). */
@@ -116,15 +118,15 @@ export function doneLines(m: Pick<DataFolderMoved, "warnings" | "cleanup"> | nul
   // the crate did not run the removal, or refused it (a game's profile could not be written for the new place): its
   // reason says what the player does; else a stopped removal goes on at the next start
   if (m.cleanup?.reason) lines.push(m.cleanup.reason);
-  else if (m.cleanup?.interrupted) lines.push("The data has moved. The rest of the old copy goes at the next start.");
+  else if (m.cleanup?.interrupted) lines.push(t("shell.dataFolderText.restNextStart"));
   return lines.length ? lines : null;
 }
 
 /** A move that did not finish: the old folder is in use as it was. */
 export function stoppedView(how: "failed" | "canceled", error: string | null): { title: string; lines: string[] } {
   return {
-    title: how === "canceled" ? "Move canceled" : "Move failed",
-    lines: [...(how === "failed" && error ? [error] : []), "Nothing changed. The data stays in"],
+    title: how === "canceled" ? t("shell.dataFolderText.moveCanceled") : t("shell.dataFolderText.moveFailed"),
+    lines: [...(how === "failed" && error ? [error] : []), t("shell.dataFolderText.staysIn")],
   };
 }
 
@@ -155,52 +157,52 @@ export function noticeView(n: DataFolderNotice): NoticeView {
   const lists: NoticeList[] = [];
   const lines: string[] = [];
   if (n.kind === "undone") {
-    lines.push(`The last move did not finish. Kiln uses ${n.from} as before.`);
-    if (n.unfinished) lines.push("Kiln stopped removing the unfinished copy: the rest goes at the next start.");
-    if (kept.length) lists.push({ line: "Kiln could not remove these from the unfinished copy:", items: kept });
+    lines.push(t("shell.dataFolderText.undoneLine", { folder: n.from }));
+    if (n.unfinished) lines.push(t("shell.dataFolderText.undoneUnfinished"));
+    if (kept.length) lists.push({ line: t("shell.dataFolderText.undoneKept"), items: kept });
     if (n.reason) lines.push(n.reason);
     // something is left there: where it is, and Open
     const left = kept.length > 0 || !!n.unfinished || (!n.folderRemoved && !!n.reason);
     return {
-      title: "Move not finished",
-      facts: [{ label: "Data folder", value: n.from }, ...(left ? [{ label: "Unfinished copy", value: n.to }] : [])],
-      lines, lists, open: left, openLabel: "Open unfinished copy",
+      title: t("shell.dataFolderText.undoneTitle"),
+      facts: [{ label: t("shell.dataFolderText.dataFolder"), value: n.from }, ...(left ? [{ label: t("shell.dataFolderText.unfinishedCopy"), value: n.to }] : [])],
+      lines, lists, open: left, openLabel: t("shell.dataFolderText.openUnfinished"),
     };
   }
   if (n.kind === "unclear") {
     if (n.reason) lines.push(n.reason);
-    return { title: "Kiln did not finish a move", facts: n.from ? [{ label: "Old folder", value: n.from }, { label: "New folder", value: n.to }] : [], lines, lists, open: !!n.from, openLabel: "Open old folder" };
+    return { title: t("shell.dataFolderText.unclearTitle"), facts: n.from ? [{ label: t("shell.dataFolderText.oldFolder"), value: n.from }, { label: t("shell.dataFolderText.newFolder"), value: n.to }] : [], lines, lists, open: !!n.from, openLabel: t("shell.dataFolderText.openOld") };
   }
-  if (n.removing) lines.push("Kiln is removing the old copy.");
-  else if (n.unfinished) lines.push("Part of the old copy is still there: Kiln removes the rest at the next start.");
-  if (stayed.length) lists.push({ line: stayed.length === 1 ? "Kiln did not remove this, it does not know it:" : "Kiln did not remove these, it does not know them:", items: stayed });
-  if (kept.length) lists.push({ line: kept.length === 1 ? "Kiln could not remove this:" : "Kiln could not remove these:", items: kept });
-  if (plain.length) lists.push({ line: plain.length === 1 ? "This stayed in the old folder:" : "These stayed in the old folder:", items: plain });
+  if (n.removing) lines.push(t("shell.dataFolderText.removing"));
+  else if (n.unfinished) lines.push(t("shell.dataFolderText.partStill"));
+  if (stayed.length) lists.push({ line: t("shell.dataFolderText.unknownLeft", { count: stayed.length }), items: stayed });
+  if (kept.length) lists.push({ line: t("shell.dataFolderText.couldNotRemove", { count: kept.length }), items: kept });
+  if (plain.length) lists.push({ line: t("shell.dataFolderText.stayedOld", { count: plain.length }), items: plain });
   if (n.reason) lines.push(n.reason);
   const open = !n.folderRemoved && (lists.length > 0 || !!n.removing || !!n.unfinished || !!n.reason);
   return {
-    title: "Data folder moved",
-    facts: [{ label: "Now in", value: n.to }, ...(open ? [{ label: "Old folder", value: n.from }] : [])],
+    title: t("shell.dataFolderText.movedTitle"),
+    facts: [{ label: t("shell.dataFolderText.nowIn"), value: n.to }, ...(open ? [{ label: t("shell.dataFolderText.oldFolder"), value: n.from }] : [])],
     lines,
     lists,
     open,
-    openLabel: "Open old folder",
+    openLabel: t("shell.dataFolderText.openOld"),
   };
 }
 
 /** The dialog while an unfinished move's partial copy is removed (the folder is held). */
-export const UNDOING_TITLE = "Removing an unfinished copy";
-export const UNDOING_CANCEL_LINE = "Cancel leaves the rest for the next start; Kiln opens as usual.";
+export const undoingTitle = () => t("shell.dataFolderText.undoingTitle");
+export const undoingCancelLine = () => t("shell.dataFolderText.undoingCancelLine");
 
 /** The dialog when another launcher holds the data folder (it is moving it). */
-export const ELSEWHERE_TITLE = "Kiln is moving its data in another window";
+export const elsewhereTitle = () => t("shell.dataFolderText.elsewhereTitle");
 
 /** The line where the loaded profile is shown (Play, Settings' Profiles, Deck Settings) when the game's profile is
  *  another data folder's. */
-export const OTHER_FOLDER_PROFILE = "Another data folder's profile is loaded in this game";
+export const otherFolderProfile = () => t("shell.dataFolderText.otherFolderProfile");
 
 /** Its title: the data folder that profile's paths name, when known. */
 export const otherFolderTitle = (o: { id: string; root?: string | null }) =>
-  o.root ? `Profile "${o.id}" of the data folder ${o.root}. Loading a profile here replaces it.` : `Profile "${o.id}" of another data folder. Loading a profile here replaces it.`;
+  o.root ? t("shell.dataFolderText.otherFolderTitleRoot", { id: o.id, root: o.root }) : t("shell.dataFolderText.otherFolderTitle", { id: o.id });
 
-export const BROKEN_TITLE = "Kiln cannot open its data folder";
+export const brokenTitle = () => t("shell.dataFolderText.brokenTitle");

@@ -43,6 +43,7 @@ struct Meta {
     bool running = false;
     bool reported_running = false, reported_queued = false;  // the watchdog says each once
     bool lease = false;  // a managed lease (snapshot)
+    int stats_slot = -1, stats_entry = -1;  // tasks_stats.h rows (issue #49); -1 when its tables were full
 };
 
 struct Worker {
@@ -74,6 +75,7 @@ struct Pool::Core : std::enable_shared_from_this<Pool::Core> {
 
     Platform& platform;
     Model model;
+    tasks_stats::Store stats;  // issue #49: fixed-size, lock-free; read by tick-stats and crash reports
     PoolConfig config;
     uint32_t normal_workers = 0, long_running_workers = 0;
 
@@ -309,11 +311,21 @@ void Pool::Core::deliver_body(Worker& self, Work& work) {
     seg.run.internal = &work;
     t_segment_armed = false;
     t_running_task = work.task;
+    // Diagnostics (issue #49): two clock reads around the segment only — the wall time and this
+    // thread's CPU time (awaited IO advances the wall clock, not the CPU clock).
+    if (m) stats.segment_started(m->stats_slot, m->stats_entry, platform.current_thread_id(), platform.now_ns());
+    const uint64_t wall0 = platform.now_ns(), cpu0 = platform.thread_cpu_ns();
     FaultInfo info{};
     if (work.payload.body) platform.guarded_call(&invoke_body, &seg, &info);
+    const uint64_t wall1 = platform.now_ns(), cpu1 = platform.thread_cpu_ns();
     t_running_task = 0;
     const bool suspended = t_segment_armed;  // the body armed a resumption (managed lease): it is not terminal
     t_segment_armed = false;
+    if (m) {
+        stats.segment_ended(m->stats_slot, m->stats_entry, cpu1 >= cpu0 ? cpu1 - cpu0 : 0,
+                            wall1 >= wall0 ? wall1 - wall0 : 0, suspended);
+        if (info.faulted) stats.note_fault_code(m->stats_entry, info.code);
+    }
     platform.set_description(self.slot == Slot::Normal ? "kiln-task-N" : "kiln-task-L");
     if (m) {
         std::lock_guard lock(mutex);
@@ -332,6 +344,10 @@ void Pool::Core::deliver_body(Worker& self, Work& work) {
 }
 
 void Pool::Core::deliver_done(Worker& self, Work& work) {
+    // Diagnostics (issue #49): the terminal count lands exactly once per accepted task, here,
+    // before its done runs (a faulting done is still its task's terminal state).
+    if (const std::shared_ptr<Meta> m = find_meta(work.task))
+        stats.terminal(m->stats_slot, m->stats_entry, static_cast<uint32_t>(work.final_state), 0, platform.now_ns());
     DoneCall call{};
     call.header.callback = work.payload.done;
     call.done = reinterpret_cast<TaskDoneFn>(work.payload.done);
@@ -511,6 +527,8 @@ Pool::Pool(PoolConfig config, Platform* platform)
     Core& c = *core_;
     c.normal_workers = config.normal_workers ? config.normal_workers : default_normal_workers();
     c.long_running_workers = config.long_running_workers ? config.long_running_workers : config.limits.long_running_global;
+    c.stats.begin(c.platform.now_ns());
+    c.stats.set_pool_counts(c.normal_workers, c.long_running_workers);
     std::lock_guard lock(c.mutex);
     c.start_maintenance();
     uint32_t index = 0;
@@ -572,6 +590,8 @@ KilnResult Pool::submit(KilnOwner owner, const SubmitArgs& in, TaskBodyFn body, 
     }
     KilnHandle handle = 0;
     KilnResult r = KILN_OK;
+    Refusal submit_why = Refusal::None;
+    const std::string owner_name_copy = c.model.owner_name(owner);  // bounded copy, before the pool mutex
     {
         // Publish and register in ONE pool critical section: a worker that dequeues the task at once (from its drain
         // loop, without waiting for a wake) blocks on this mutex in run_one until the metadata is in place. The
@@ -582,23 +602,32 @@ KilnResult Pool::submit(KilnOwner owner, const SubmitArgs& in, TaskBodyFn body, 
             if (why) *why = Refusal::Capability;
             r = KILN_ERR_UNAVAILABLE;
         } else {
-            r = c.model.submit(owner, args, &handle, why);
+            r = c.model.submit(owner, args, &handle, &submit_why);
+            if (why) *why = submit_why;
         }
         if (r == KILN_OK) {
             m->body = refs.body;
             m->done = refs.done;
             refs.owned = false;
             m->queued_since = c.platform.now_ns();
+            // Diagnostics (issue #49) in the same critical section, so a worker can never run a
+            // segment of a task its stats do not know: names copied, queued counted. The handle's
+            // top 24 bits are the owner instance (tasks_model.cpp's handle layout).
+            const auto admitted = c.stats.admit(owner, handle >> 40, owner_name_copy, in.name, handle, m->queued_since);
+            m->stats_slot = admitted.owner_slot;
+            m->stats_entry = admitted.entry;
             node.key() = handle;
             c.meta.insert(std::move(node));  // reserved: no allocation, no rehash
             if (c.hook) c.hook(Point::SubmitPublished);
         }
     }
+    if (r != KILN_OK && submit_why == Refusal::QueueFull) c.stats.note_queue_full(owner);
     if (r != KILN_OK) {
         if (task) *task = 0;
         return r;  // refs released by its destructor
     }
     if (task) *task = handle;
+    c.stats.note_queue_depth(c.model.counts().ready);  // the queue's depth at admission (its window max samples it)
     c.wake_all();
     return KILN_OK;
 }
@@ -623,6 +652,9 @@ KilnResult Pool::arm(KilnHandle task, uint64_t* registration) {
 
 KilnResult Pool::resume(KilnHandle task, uint64_t registration) {
     const KilnResult r = core_->model.resume(task, registration);
+    if (r == KILN_OK)
+        if (const std::shared_ptr<Meta> m = core_->find_meta(task))
+            core_->stats.continuation_queued(m->stats_slot, m->stats_entry);
     core_->wake_all();
     return r;
 }
@@ -664,13 +696,25 @@ KilnResult Pool::drain_owner(KilnOwner owner, uint64_t timeout_ns, uint32_t* out
         }
     }
     if (outstanding) *outstanding = left;
+    if (left > 0) c.stats.note_unload_blocked(owner);  // an unload this owner held up (issue #49)
+    else c.stats.close_owner(owner);
     return KILN_OK;
 }
 
 KilnResult Pool::retire_owner(KilnOwner owner, uint32_t* outstanding) {
     const KilnResult r = core_->model.retire(owner, outstanding);
+    core_->stats.close_owner(owner);
     core_->wake_all();
     return r;
+}
+
+tasks_stats::Store& Pool::stats_store() { return core_->stats; }
+const tasks_stats::Store& Pool::stats_store() const { return core_->stats; }
+
+tasks_stats::WindowSnapshot Pool::collect_tasks_window(uint64_t backlog) {
+    Core& c = *core_;
+    c.stats.note_queue_depth(c.model.counts().ready);
+    return c.stats.collect_window(c.platform.now_ns(), backlog, c.model.counts().ready);
 }
 
 void Pool::run_watchdog(WatchFn fn, void* user) { core_->sweep_watchdog(fn, user); }
@@ -685,9 +729,11 @@ void Pool::Core::sweep_watchdog(WatchFn fn, void* user) {
             const State s = model.diag_state(task);  // pool -> model lock order; the model never calls back
             if (s == State::Running && m->running && !m->reported_running && now - m->running_since >= config.running_watchdog_ns) {
                 m->reported_running = true;
+                stats.note_too_long(m->stats_slot, true);
                 reports.push_back({Watch::Kind::RunningTooLong, m->owner, task, m->name, now - m->running_since, {}});
             } else if (s == State::Queued && !m->reported_queued && now - m->queued_since >= config.queued_watchdog_ns) {
                 m->reported_queued = true;
+                stats.note_too_long(m->stats_slot, false);
                 reports.push_back({Watch::Kind::QueuedTooLong, m->owner, task, m->name, now - m->queued_since, {}});
             }
         }
@@ -715,6 +761,7 @@ bool Pool::Core::can_run_locked(Slot slot) const {
     return maintenance_started && healthy[0] > 0 && (slot == Slot::Normal || healthy[1] > 0);
 }
 uint64_t Pool::now_ns() const { return core_->platform.now_ns(); }
+uint64_t Pool::current_thread_id() const { return core_->platform.current_thread_id(); }
 void Pool::guarded(GuardedFn fn, void* context, FaultInfo* info) { core_->platform.guarded_call(fn, context, info); }
 int Pool::health() const { return core_->health.load(std::memory_order_acquire); }
 uint64_t Pool::start_failures() const {
@@ -965,6 +1012,9 @@ void Service::refuse_new() { exiting_.store(true, std::memory_order_release); }
 
 KilnResult Pool::resume_after(KilnHandle task, uint64_t registration, uint64_t session, uint64_t edge) {
     const KilnResult r = core_->model.resume_after(task, registration, session, edge);
+    if (r == KILN_OK)
+        if (const std::shared_ptr<Meta> m = core_->find_meta(task))
+            core_->stats.continuation_queued(m->stats_slot, m->stats_entry);
     core_->wake_all();
     return r;
 }
@@ -1112,7 +1162,10 @@ KilnResult Service::host_seal_owner(KilnOwner owner, uint32_t* outstanding) { re
 KilnResult Service::host_tick_hop(KilnLease lease) {
     {
         std::lock_guard lock(lease_mutex_);
-        if (!hops_open_) return KILN_ERR_UNAVAILABLE;  // a pure client or the menu: no server tick will come
+        if (!hops_open_) {
+            pool_.stats_store().note_hop_refused();
+            return KILN_ERR_UNAVAILABLE;  // a pure client or the menu: no server tick will come
+        }
     }
     KilnOwner owner = 0;
     uintptr_t user = 0;
@@ -1125,6 +1178,7 @@ KilnResult Service::host_tick_hop(KilnLease lease) {
         if (!hops_open_) {  // its session's STOPPING came between: refused, never carried into the next world
             lock.unlock();
             pool_.hop_end(lease);
+            pool_.stats_store().note_hop_refused();
             return KILN_ERR_UNAVAILABLE;
         }
         auto it = std::find_if(hops_.begin(), hops_.end(), [&](const auto& q) { return q.first == owner; });
@@ -1157,8 +1211,13 @@ std::size_t Service::run_tick_hops() {
         owners = hops_.size();
     }
     // one turn per owner a step, starting where the last step stopped; each turn FIFO, bounded, checked between hops
+    bool owner_stop = false, step_stop = false;
+    uint64_t served = 0, cancelled_ran = 0;
     for (std::size_t turn = 0; turn < owners; ++turn) {
-        if (pool_.now_ns() - step_start >= kHopStepNs) break;
+        if (pool_.now_ns() - step_start >= kHopStepNs) {
+            step_stop = true;  // counted below only if hops were left behind
+            break;
+        }
         KilnOwner owner = 0;
         {
             std::lock_guard lock(lease_mutex_);
@@ -1168,29 +1227,53 @@ std::size_t Service::run_tick_hops() {
             hop_turn_ = (hop_turn_ + 1) % hops_.size();
         }
         const uint64_t owner_start = pool_.now_ns();
-        for (std::size_t n = 0; n < kHopsPerOwner; ++n) {
+        std::size_t n = 0;
+        bool emptied = false, step_over = false;
+        for (; n < kHopsPerOwner; ++n) {
             const uint64_t now = pool_.now_ns();
-            if (now - owner_start >= kHopOwnerNs || now - step_start >= kHopStepNs) break;
+            step_over = now - step_start >= kHopStepNs;
+            if (step_over || now - owner_start >= kHopOwnerNs) break;
             Hop hop{};
             {
                 std::lock_guard lock(lease_mutex_);
                 const auto it = std::find_if(hops_.begin(), hops_.end(), [&](const auto& q) { return q.first == owner; });
-                if (it == hops_.end() || it->second.empty()) break;
+                if (it == hops_.end() || it->second.empty()) {
+                    emptied = true;
+                    break;
+                }
                 hop = it->second.front();
                 it->second.pop_front();
             }
-            dispatch_hop(dispatch, hop.lease, hop.host_state, pool_.cancel_requested(hop.lease) ? 1 : 0);
+            const uint32_t cancelled = pool_.cancel_requested(hop.lease) ? 1 : 0;
+            dispatch_hop(dispatch, hop.lease, hop.host_state, cancelled, false);
+            if (cancelled) ++cancelled_ran;
             ++ran;
         }
+        if (n > 0) ++served;
+        if (!emptied) {
+            // A budget (its 64 hops, its 2 ms, or the step's 4 ms) ended this owner's turn: a stop is
+            // counted only when hops of its own were left behind.
+            std::lock_guard lock(lease_mutex_);
+            const auto it = std::find_if(hops_.begin(), hops_.end(), [&](const auto& q) { return q.first == owner; });
+            if (it != hops_.end() && !it->second.empty()) (step_over ? step_stop : owner_stop) = true;
+        }
     }
+    uint64_t pending = 0;
     {
         std::lock_guard lock(lease_mutex_);  // owners without pending hops leave the rotation
         const KilnOwner next = hops_.empty() ? 0 : hops_[hop_turn_ % hops_.size()].first;
         hops_.erase(std::remove_if(hops_.begin(), hops_.end(), [](const auto& q) { return q.second.empty(); }), hops_.end());
         hop_turn_ = 0;
-        for (std::size_t i = 0; i < hops_.size(); ++i)
+        for (std::size_t i = 0; i < hops_.size(); ++i) {
             if (hops_[i].first == next) hop_turn_ = i;
+            pending += hops_[i].second.size();  // the same pass: no second walk over the owners
+        }
     }
+    step_stop = step_stop && pending > 0;
+    // The window's apply account (issue #49): this round's dispatches, its whole duration, the
+    // owners it served, and the hops a budget left behind (counted once per round they wait out).
+    pool_.stats_store().record_apply(ran - cancelled_ran, cancelled_ran, pool_.now_ns() - step_start, served, owner_stop,
+                                     step_stop, (owner_stop || step_stop) ? pending : 0);
     return ran;
 }
 
@@ -1228,10 +1311,20 @@ void invoke_hop(void* context) {
 
 // One hop, contained: a structured fault in the host's dispatcher ends that hop all the same, cancels its lease and
 // quarantines its owner (as a faulting segment would), is reported once, and the next hop runs.
-void Service::dispatch_hop(KilnHostDispatchFn dispatch, KilnLease lease, void* host_state, uint32_t cancelled) {
+void Service::dispatch_hop(KilnHostDispatchFn dispatch, KilnLease lease, void* host_state, uint32_t cancelled,
+                           bool count_apply) {
     HopCall call{{reinterpret_cast<uintptr_t>(dispatch)}, dispatch, lease, cancelled, host_state};
+    // Diagnostics (issue #49): a hop runs on the tick (or, at a world's end, on the thread ending
+    // it): its stats entry says on-tick while it runs, suspended again after.
+    tasks_stats::Store& stats = pool_.stats_store();
+    const int entry = stats.entry_of_handle(lease);
+    const uint64_t wall0 = pool_.now_ns();
+    stats.set_on_tick(entry, pool_.current_thread_id(), wall0);
     FaultInfo fault{};
     pool_.guarded(&invoke_hop, &call, &fault);
+    stats.end_on_tick(entry);
+    if (count_apply)
+        stats.record_apply(cancelled ? 0 : 1, cancelled ? 1 : 0, pool_.now_ns() - wall0, 0, false, false, 0);
     if (fault.faulted) {
         KilnOwner owner = 0;
         uintptr_t user = 0;

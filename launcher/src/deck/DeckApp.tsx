@@ -30,26 +30,40 @@ import Catalog, { DeckNxm } from "./screens/Catalog";
 import Kiln from "./screens/Kiln";
 import Help from "./screens/Help";
 import Settings from "./screens/Settings";
+import { t, useT } from "../i18n";
 import "./deck.css";
 
 // the save editor carries its item data (about 2 MB): loaded on the first visit to its tab, as on the desktop
 const DeckEditor = lazy(() => import("../editor/deck/DeckEditor"));
 
 export const TABS = [
-  { to: "/deck", label: "Home" },
-  { to: "/deck/mods", label: "Mods" },
-  { to: "/deck/add", label: "Add mods" },
-  { to: "/deck/catalog", label: "Catalog" },
-  { to: "/deck/kiln", label: "Kiln" },
-  { to: "/deck/editor", label: "Editor" },
-  { to: "/deck/help", label: "Help" },
-  { to: "/deck/settings", label: "Settings" },
+  { to: "/deck" },
+  { to: "/deck/mods" },
+  { to: "/deck/add" },
+  { to: "/deck/catalog" },
+  { to: "/deck/kiln" },
+  { to: "/deck/editor" },
+  { to: "/deck/help" },
+  { to: "/deck/settings" },
 ] as const;
 
 type Tab = typeof TABS[number];
-const WITHOUT_NEXUS = TABS.filter((t) => t.to !== "/deck/catalog");
+/** A tab's word, in the current language. */
+export function tabLabel(tab: Tab): string {
+  switch (tab.to) {
+    case "/deck": return t("deck.app.tabs.home");
+    case "/deck/mods": return t("deck.app.tabs.mods");
+    case "/deck/add": return t("deck.app.tabs.addMods");
+    case "/deck/catalog": return t("deck.app.tabs.catalog");
+    case "/deck/kiln": return t("deck.app.tabs.kiln");
+    case "/deck/editor": return t("deck.app.tabs.editor");
+    case "/deck/help": return t("deck.app.tabs.help");
+    case "/deck/settings": return t("deck.app.tabs.settings");
+  }
+}
+const WITHOUT_NEXUS = TABS.filter((x) => x.to !== "/deck/catalog");
 const tabsFor = (enabled: boolean): readonly Tab[] => enabled ? TABS : WITHOUT_NEXUS;
-const tabOf = (path: string, tabs: readonly Tab[] = TABS) => Math.max(0, tabs.findIndex((t) => t.to === path.replace(/\/+$/, "")));
+const tabOf = (path: string, tabs: readonly Tab[] = TABS) => Math.max(0, tabs.findIndex((x) => x.to === path.replace(/\/+$/, "")));
 
 /** 1 rem = 16 px at 1280×800; other window sizes scale the whole frame. */
 function useScale() {
@@ -89,14 +103,14 @@ function useNative() {
  *  closing dialog), the top layer's first stop takes it, as soon as that layer is live. */
 function useKeepFocus(root: React.RefObject<HTMLDivElement | null>) {
   useEffect(() => {
-    const t = setInterval(() => {
+    const timer = setInterval(() => {
       const a = document.activeElement;
       const scope = topLayer()?.el.current ?? root.current;
       if (!scope || scope.hasAttribute("inert") || scope.closest("[inert]")) return;
       if (a instanceof HTMLElement && scope.contains(a) && focusable(a)) return;
       focusFirst(scope);
     }, 200);
-    return () => clearInterval(t);
+    return () => clearInterval(timer);
   }, [root]);
 }
 
@@ -108,7 +122,7 @@ function useALabel(): string | null {
       const el = document.activeElement as HTMLElement | null;
       if (!el || el === document.body || !el.closest(".deck")) { setLabel(null); return; }
       const w = el.dataset.deckA;
-      setLabel(w === "-" ? null : w ?? "Select");
+      setLabel(w === "-" ? null : w ?? t("deck.app.select"));
     };
     const out = () => setTimeout(on, 0);
     // the focused control's word can change under it (a mod turned off: "Turn on")
@@ -124,6 +138,7 @@ function useALabel(): string | null {
 /** (dev.29) A test build is running: "Beta <n>" under the logo (Settings > Channel switches back). The Nexus build has
  *  no self-update and calls no update command. */
 function DeckBetaMark() {
+  const t = useT();
   const qc = useQueryClient();
   const direct = useDistribution() === "direct";
   const up = useQuery({ queryKey: ["update_status"], queryFn: api.updateStatus, retry: false, enabled: direct });
@@ -135,10 +150,11 @@ function DeckBetaMark() {
   }, [qc, direct]);
   const s = up.data;
   if (!direct || s?.buildChannel !== "beta") return null;
-  return <span className="deck-beta deck-word warn" data-testid="deck-beta-mark" title={`Test build ${s.beta ?? ""} of ${s.current}`}>Beta {s.beta ?? ""}</span>;
+  return <span className="deck-beta deck-word warn" data-testid="deck-beta-mark" title={t("deck.shared.testBuild", { beta: s.beta ?? "", current: s.current })}>{t("deck.shared.beta", { beta: s.beta ?? "" })}</span>;
 }
 
 export default function DeckApp() {
+  const t = useT();
   useTaskFeed();
   useBackendEvents();
   useAutoDetect();
@@ -164,7 +180,7 @@ export default function DeckApp() {
   // route that sends the player elsewhere).
   const asked = useRef<{ tab: number; at: number } | null>(null);
   if (asked.current?.tab === tab) asked.current = null;
-  useEffect(() => { document.title = `${tabs[tab].label} · Kiln`; }, [tab, tabs]);
+  useEffect(() => { document.title = t("deck.app.docTitle", { tab: tabLabel(tabs[tab]) }); }, [tab, tabs, t]);
 
   const goTab = (i: number) => { if (i >= 0 && i < tabs.length && i !== tabRef.current) nav(tabs[i].to); };
   const stepTab = (d: number) => {
@@ -234,7 +250,7 @@ export default function DeckApp() {
           <Route path="add" element={<AddMods />} />
           <Route path="catalog" element={<NexusRoute home="/deck"><Catalog /></NexusRoute>} />
           <Route path="kiln" element={<Kiln />} />
-          <Route path="editor" element={<Suspense fallback={<p className="deck-note">Opening the save editor…</p>}><DeckEditor /></Suspense>} />
+          <Route path="editor" element={<Suspense fallback={<p className="deck-note">{t("deck.app.openingEditor")}</p>}><DeckEditor /></Suspense>} />
           <Route path="help" element={<Help />} />
           <Route path="settings" element={<Settings />} />
           <Route path="*" element={<Navigate to="/deck" replace />} />
@@ -251,16 +267,18 @@ export default function DeckApp() {
 }
 
 function TopBar({ tab, tabs, goTab }: { tab: number; tabs: readonly Tab[]; goTab: (i: number) => void }) {
+  const t = useT();
   const style = useGlyphStyle();
   const ctl = usePlayControl();
   const v = ctl.view;
   // a start that says what it does: "Starting · about 40 s left" ("Starting · 42%" while it is being timed)
   const tw = ctl.timeline ? startWords(ctl.timeline) : null;
-  const word = tw ? `Starting · ${tw.first ? `${tw.pct}%` : tw.short}` : ctl.starting ? "Starting" : ctl.running ? `${v.label}${ctl.elapsed !== null ? ` ${clock(ctl.elapsed)}` : ""}` : v.label;
+  const word = tw ? (tw.first ? t("deck.app.startingPct", { pct: tw.pct }) : t("deck.app.startingLeft", { left: tw.short })) : ctl.starting ? t("deck.shared.starting")
+    : ctl.running ? (ctl.elapsed !== null ? t("deck.app.stateTime", { state: v.label, time: clock(ctl.elapsed) }) : v.label) : v.label;
   const tone = ctl.kilnMissing || v.tone === "warn" ? "warn" : ctl.starting || v.phase === "running" ? "ember" : v.phase === "vanilla" ? "info" : "idle";
   // the fire's heat away from Home (Home sets its own)
   deckFire.game = ctl.running && !ctl.starting;
-  deckFire.heat = !ctl.game ? "unlit" : v.phase === "updating" ? "low" : ctl.starting ? "flare" : ctl.running ? (v.label === "Safe idle" ? "low" : "embers") : "idle";
+  deckFire.heat = !ctl.game ? "unlit" : v.phase === "updating" ? "low" : ctl.starting ? "flare" : ctl.running ? (v.word === "safeIdle" ? "low" : "embers") : "idle";
   // the gold diamond slides under the current tab
   const nav = useRef<HTMLElement>(null);
   useLayoutEffect(() => {
@@ -276,13 +294,13 @@ function TopBar({ tab, tabs, goTab }: { tab: number; tabs: readonly Tab[]; goTab
   return (
     <header className="deck-top">
       <div className="deck-logo"><Lockup height={30} /><DeckBetaMark /></div>
-      <nav ref={nav} className="deck-tabs" aria-label="Deck tabs" data-deck-skip="">
+      <nav ref={nav} className="deck-tabs" aria-label={t("deck.app.tabsAria")} data-deck-skip="">
         <span className="deck-tab-dia" aria-hidden><i /></span>
-        <button type="button" tabIndex={-1} className="deck-tab-glyph" aria-label="Previous tab" onClick={() => goTab(tab - 1)}><Glyph button="lb" style={style} size={1.6} /></button>
-        {tabs.map((t, i) => (
-          <button key={t.to} type="button" tabIndex={-1} className={"deck-tab" + (i === tab ? " on" : "")} aria-current={i === tab ? "page" : undefined} onClick={() => goTab(i)}>{t.label}</button>
+        <button type="button" tabIndex={-1} className="deck-tab-glyph" aria-label={t("deck.app.previousTab")} onClick={() => goTab(tab - 1)}><Glyph button="lb" style={style} size={1.6} /></button>
+        {tabs.map((x, i) => (
+          <button key={x.to} type="button" tabIndex={-1} className={"deck-tab" + (i === tab ? " on" : "")} aria-current={i === tab ? "page" : undefined} onClick={() => goTab(i)}>{tabLabel(x)}</button>
         ))}
-        <button type="button" tabIndex={-1} className="deck-tab-glyph" aria-label="Next tab" onClick={() => goTab(tab + 1)}><Glyph button="rb" style={style} size={1.6} /></button>
+        <button type="button" tabIndex={-1} className="deck-tab-glyph" aria-label={t("deck.app.nextTab")} onClick={() => goTab(tab + 1)}><Glyph button="rb" style={style} size={1.6} /></button>
       </nav>
       <span className={`deck-state deck-word ${tone}`} role="status" aria-live={tw ? "off" : undefined} data-testid="deck-state">{word}</span>
     </header>
@@ -290,13 +308,14 @@ function TopBar({ tab, tabs, goTab }: { tab: number; tabs: readonly Tab[]; goTab
 }
 
 function HintBar({ press }: { press: (p: Press) => void }) {
+  const t = useT();
   const style = useGlyphStyle();
   const stack = useLayers((s) => s.stack);
   const a = useALabel();
   const top = stack.at(-1) ?? null;
   const loc = useLocation();
   const atHome = tabOf(loc.pathname) === 0;
-  const bLabel = top?.back ? top.backLabel ?? "Back" : top?.modal ? null : atHome ? null : "Home";
+  const bLabel = top?.back ? top.backLabel ?? t("common.back") : top?.modal ? null : atHome ? null : t("deck.shared.home");
   const acts: DeckAction[] = top?.actions ?? [];
   const tap = (button: Press["button"]) => () => { press({ button, pressed: true, repeat: false, source: "key" }); press({ button, pressed: false, repeat: false, source: "key" }); };
   const hint = (button: Press["button"], label: string, disabled = false) => (
@@ -306,21 +325,22 @@ function HintBar({ press }: { press: (p: Press) => void }) {
     </button>
   );
   return (
-    <footer className="deck-hints" data-deck-skip="" aria-label="Buttons">
+    <footer className="deck-hints" data-deck-skip="" aria-label={t("deck.app.buttonsAria")}>
       <div className="deck-hints-left">
-        <span className="deck-hint static"><Glyph button="dpad" style={style} size={1.6} /><span>Move</span></span>
+        <span className="deck-hint static"><Glyph button="dpad" style={style} size={1.6} /><span>{t("deck.app.move")}</span></span>
       </div>
       <div className="deck-hints-right">
         {a && hint("a", a)}
         {acts.map((x) => hint(x.button, x.label, x.disabled))}
         {bLabel && hint("b", bLabel)}
-        {!top?.modal && hint("start", "Menu")}
+        {!top?.modal && hint("start", t("deck.app.menu"))}
       </div>
     </footer>
   );
 }
 
 function MenuDialog({ onClose }: { onClose: () => void }) {
+  const t = useT();
   const nav = useNavigate();
   const loc = useLocation();
   const [quit, setQuit] = useState(false);
@@ -328,10 +348,10 @@ function MenuDialog({ onClose }: { onClose: () => void }) {
   const cur = tabOf(loc.pathname, tabs);
   if (quit) return <QuitDialog onClose={() => { setQuit(false); onClose(); }} />;
   return (
-    <Dialog name="menu" title="Menu" onClose={onClose} backLabel="Close" actions={[{ button: "start", label: "Close", run: onClose }]}>
+    <Dialog name="menu" title={t("deck.app.menu")} onClose={onClose} backLabel={t("common.close")} actions={[{ button: "start", label: t("common.close"), run: onClose }]}>
       <div className="deck-list">
-        {tabs.map((t, i) => <Row key={t.to} id={`menu-${i}`} title={t.label} a="Open" end={i === cur ? <span className="deck-dim">here</span> : undefined} onClick={() => { onClose(); nav(t.to); }} />)}
-        <Row id="menu-quit" title="Quit Kiln" a="Quit" onClick={() => setQuit(true)} />
+        {tabs.map((x, i) => <Row key={x.to} id={`menu-${i}`} title={tabLabel(x)} a={t("common.open")} end={i === cur ? <span className="deck-dim">{t("deck.app.here")}</span> : undefined} onClick={() => { onClose(); nav(x.to); }} />)}
+        <Row id="menu-quit" title={t("deck.app.quitKiln")} a={t("deck.dialogs.quit")} onClick={() => setQuit(true)} />
       </div>
     </Dialog>
   );

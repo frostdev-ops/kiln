@@ -624,21 +624,27 @@ internal sealed unsafe class WorldStore
     // ---- files ----
     internal readonly record struct ManifestName(string Path, uint Revision, uint Unix, bool Pending);
 
-    internal static List<ManifestName> ListManifests(string dir)
+    internal static List<ManifestName> ListManifests(string dir) => ListManifestFiles(dir).Select(m => m.Name).ToList();
+
+    /// <summary>The manifests with each file's size and last write time, from the one listing (pruning keeps what it read of a
+    /// manifest per version of the file).</summary>
+    internal static List<(ManifestName Name, long Size, DateTime Written)> ListManifestFiles(string dir)
     {
-        var list = new List<ManifestName>();
-        if (!Directory.Exists(dir)) return list;
-        foreach (var f in Directory.EnumerateFiles(dir, "*.json"))
+        var list = new List<(ManifestName, long, DateTime)>();
+        var folder = new DirectoryInfo(dir);
+        if (!folder.Exists) return list;
+        foreach (var info in folder.EnumerateFiles("*.json"))
         {
+            var f = System.IO.Path.Combine(dir, info.Name);
             var n = System.IO.Path.GetFileNameWithoutExtension(f);
             if (n.EndsWith(".pending", StringComparison.Ordinal))
             {
-                if (uint.TryParse(n[..^8], out var r)) list.Add(new ManifestName(f, r, 0, true));
+                if (uint.TryParse(n[..^8], out var r)) list.Add((new ManifestName(f, r, 0, true), info.Length, info.LastWriteTimeUtc));
                 continue;
             }
             var dash = n.IndexOf('-');
             if (dash > 0 && uint.TryParse(n[..dash], out var rev) && uint.TryParse(n[(dash + 1)..], out var unix))
-                list.Add(new ManifestName(f, rev, unix, false));
+                list.Add((new ManifestName(f, rev, unix, false), info.Length, info.LastWriteTimeUtc));
         }
         return list;
     }

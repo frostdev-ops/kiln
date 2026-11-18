@@ -6,6 +6,7 @@ import { create } from "zustand";
 import type { AdminCombatDeath, AdminPos, AdminState } from "../api/admin";
 import { onAdminState } from "../api/admin";
 import type { ServerId } from "../api/commands";
+import { t } from "../i18n";
 
 export interface SeenPlayer {
   steamId: string;
@@ -157,8 +158,8 @@ export function startHistory() {
 
 export function saveWaypoint(id: ServerId, name: string, pos: AdminPos): string | null {
   const n = name.trim();
-  if (n.length < 1 || n.length > 40) return "Waypoint names: 1 to 40 characters.";
-  if (![pos.x, pos.y, pos.z].every((v) => typeof v === "number" && Number.isFinite(v))) return "No position for that waypoint.";
+  if (n.length < 1 || n.length > 40) return t("admin.history.waypointName");
+  if (![pos.x, pos.y, pos.z].every((v) => typeof v === "number" && Number.isFinite(v))) return t("admin.history.waypointNoPos");
   update(id, (h) => ({ ...h, waypoints: [...h.waypoints.filter((w) => w.name.toLowerCase() !== n.toLowerCase()), { name: n, pos: { x: pos.x, y: pos.y, z: pos.z }, at: Date.now() / 1000 }] }));
   return null;
 }

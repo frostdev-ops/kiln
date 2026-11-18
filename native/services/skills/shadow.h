@@ -23,6 +23,8 @@ std::string why_off();
 void set_tree(const std::vector<ShadowNode>& nodes);
 // Server world Pre (tick thread): which component addresses belong to which player.
 void pre_server();
+// Server world stopping (tick thread): logs how often pre_server walked the entity map; the next world walks at once.
+void server_world_stopping();
 // Client world Pre (main thread): the local player's addresses.
 void pre_client();
 // Login guard: a shadow node's id found in a player's UnlockedSkillNodes (component at `unlocked`) moves into the table.

@@ -6,6 +6,7 @@ import { stopIds } from "./stoppedStart";
 // something to say. Pure: shell/useMods.ts reads the queries and the edits.
 import type { BootState, FoundMod, LibraryEntry, LibraryRef, LibraryVersion, ModKind, NativePlanEntry, Profile, ProfileMod, ResolvePreview, RetainedPlacement } from "../api/commands";
 import { MOD_KINDS, NOT_RUNNING_KINDS } from "../api/kinds";
+import { t } from "../i18n";
 
 export type NoteTone = "info" | "warn" | "err" | "idle";
 export interface ModNote { text: string; tone: NoteTone; title?: string }
@@ -64,10 +65,10 @@ export function defaultVersion(lib: LibraryEntry | null | undefined): LibraryVer
 }
 const byName = (a: ModRow, b: ModRow) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) || a.key.localeCompare(b.key);
 
-/** "missing dependency ui-lib ^1.0" → "Needs ui-lib ^1.0". */
+/** "missing dependency ui-lib ^1.0" → "ui-lib ^1.0" (the note says "Needs ui-lib ^1.0"). */
 function needs(reason: string): string | null {
   const m = /missing (?:dependency|requirement) ([^\s,;]+)(?: ([^\s,;]+))?/i.exec(reason);
-  return m ? `Needs ${m[1]}${m[2] ? ` ${m[2]}` : ""}` : null;
+  return m ? `${m[1]}${m[2] ? ` ${m[2]}` : ""}` : null;
 }
 
 /** A native entry of the preview that runs from the game folder: Kiln places its package there at activation and the
@@ -79,8 +80,8 @@ export function fromGameFolder(n: NativePlanEntry): boolean {
 
 /** "placed in the game folder at activation: …" → "Placed in the game folder at activation: ….". */
 function asSentence(s: string): string {
-  const t = s.trim();
-  return t ? `${t[0].toUpperCase()}${t.slice(1)}${/[.!?]$/.test(t) ? "" : "."}` : t;
+  const x = s.trim();
+  return x ? `${x[0].toUpperCase()}${x.slice(1)}${/[.!?]$/.test(x) ? "" : "."}` : x;
 }
 
 /** The start before this one wrote mods.json and native.json: their failures, by id, when they belong to boot.json's run. */
@@ -95,7 +96,8 @@ function lastStartFailures(st: BootState | null): Map<string, string> {
   return out;
 }
 
-const NOT_YET: Partial<Record<ModKind, string>> = { ember: "Ember has published no mod ABI yet" };
+/** Why a kind's mods do not run yet, when there is a word for it. */
+const notYet = (kind: ModKind): string | undefined => (kind === "ember" ? t("shell.mods.emberNoAbi") : undefined);
 
 /** The rows, Library and profile entries first (by name), then the game folder's (by name). */
 export function buildRows(x: ModInputs): ModRow[] {
@@ -120,44 +122,47 @@ export function buildRows(x: ModInputs): ModRow[] {
     if (on) {
       const fail = failed.get(key);
       if (!lib) {
-        row.wontRun = "it is not in the library any more";
-        row.note = { text: "Not in the library", tone: "err", title: "Its files are gone from the Library. Add it again, or remove it." };
+        row.wontRun = t("shell.mods.notInLibraryWhy");
+        row.note = { text: t("shell.mods.notInLibrary"), tone: "err", title: t("shell.mods.notInLibraryTip") };
       } else if (NOT_RUNNING_KINDS.includes(kind)) {
-        row.wontRun = NOT_YET[kind] ?? "its loader cannot start it yet";
-        row.note = { text: "Does not run yet", tone: "idle", title: `${row.wontRun}. It stays in your list.` };
+        row.wontRun = notYet(kind) ?? t("shell.mods.loaderCannot");
+        row.note = { text: t("shell.mods.notYet"), tone: "idle", title: t("shell.mods.notYetTip", { why: row.wontRun }) };
       } else if (kind === "xhl" && x.xhlHost === false) {
-        row.wontRun = "it runs only with XHL-Core, installed separately";
-        row.note = { text: "Needs XHL-Core", tone: "warn", title: "XHL companions run only through XHL-Core. Kiln never loads their DLLs." };
+        row.wontRun = t("shell.mods.xhlWhy");
+        row.note = { text: t("shell.mods.needsXhl"), tone: "warn", title: t("shell.mods.xhlTip") };
       } else if (kind === "kiln" && x.preview) {
         const r = rejected.get(id);
         if (world.has(id)) {
           row.withWorld = true;
-          row.note = { text: "Starts with your world", tone: "info", title: r?.reason };
+          row.note = { text: t("shell.mods.withWorld"), tone: "info", title: r?.reason };
         } else if (r && r.state === "skipped") {
           row.staysOff = true;
-          row.note = { text: "Off in this game", tone: "warn", title: r.reason };
+          row.note = { text: t("shell.mods.offHere"), tone: "warn", title: r.reason };
         } else if (r && r.state !== "disabled") {
-          const n = needs(r.reason);
-          row.wontRun = n ? n.replace(/^Needs/, "it needs") : r.reason;
-          row.note = { text: n ?? "Will not run", tone: "warn", title: r.reason };
+          const dep = needs(r.reason);
+          row.wontRun = dep ? t("shell.mods.itNeeds", { dep }) : r.reason;
+          row.note = { text: dep ? t("shell.mods.needs", { dep }) : t("shell.mods.willNotRun"), tone: "warn", title: r.reason };
         }
       } else if (kind === "native") {
         const n = native.get(id);
-        if (n?.reason && fromGameFolder(n)) row.note = { text: "Runs from the game folder", tone: "info", title: asSentence(n.reason) };
-        else if (n?.reason) { row.wontRun = n.reason; row.note = { text: "Will not run", tone: "warn", title: n.reason }; }
+        if (n?.reason && fromGameFolder(n)) row.note = { text: t("shell.mods.fromGameFolder"), tone: "info", title: asSentence(n.reason) };
+        else if (n?.reason) { row.wontRun = n.reason; row.note = { text: t("shell.mods.willNotRun"), tone: "warn", title: n.reason }; }
       }
-      if (fail) row.note = { text: "Failed at the last start", tone: "err", title: fail };
+      if (fail) row.note = { text: t("shell.mods.failedLast"), tone: "err", title: fail };
     } else {
       const names = [lower(id), ...(lib?.versions.map((v) => lower(v.manifestId ?? "")) ?? [])].filter(Boolean);
       const kept = retained.find((k) => names.includes(k.base));
-      if (kept) row.note = { text: "Left in the game folder", tone: "warn", title: kept.r.reason };
+      if (kept) row.note = { text: t("shell.mods.leftInFolder"), tone: "warn", title: kept.r.reason };
     }
     // its files were changed in its Library folder (a mod.json edited by hand): what Play would refuse, so it comes first
     const used = entry ? lib?.versions.find((v) => v.hash === entry.hash) : defaultVersion(lib);
+    // an EML mod whose package carried a modified EML loader (Holster Toggle's dbghelp.dll): only its EML part runs
+    if (on && !row.note && used?.loaderPart) {
+      row.note = { text: t("shell.mods.partly"), tone: "warn", title: asSentence(used.loaderPart) };
+    }
     if (used?.changed) {
       row.changed = { kind, id, version: used.version, hash: used.hash };
-      row.note = { text: "Changed on disk", tone: "warn",
-        title: "Its files were changed in its folder since Kiln imported them. Use the changed files to load them, with the name and info they give now." };
+      row.note = { text: t("shell.mods.changed"), tone: "warn", title: t("shell.mods.changedTip") };
     }
     rows.push(row);
   };
@@ -177,14 +182,16 @@ export function buildRows(x: ModInputs): ModRow[] {
   return [...rows, ...folder];
 }
 
-const FOUND_WORD: Record<FoundMod["state"], { text: string; tone: NoteTone }> = {
-  loads: { text: "Loads from the game folder", tone: "idle" },
-  off: { text: "Does not load", tone: "warn" },
-  inProfile: { text: "A copy is in your list", tone: "idle" },
-  cannotRun: { text: "Can't run", tone: "idle" },
-};
+function foundWord(state: FoundMod["state"]): { text: string; tone: NoteTone } {
+  switch (state) {
+    case "loads": return { text: t("shell.mods.foundLoads"), tone: "idle" };
+    case "off": return { text: t("shell.mods.foundOff"), tone: "warn" };
+    case "inProfile": return { text: t("shell.mods.foundInProfile"), tone: "idle" };
+    case "cannotRun": return { text: t("shell.mods.foundCannotRun"), tone: "idle" };
+  }
+}
 function foundNote(f: FoundMod): ModNote {
-  return { ...FOUND_WORD[f.state], title: f.reason };
+  return { ...foundWord(f.state), title: f.reason };
 }
 
 /** What the count counts: a game-folder mod counts on when it loads, off when it does not; a copy of a listed mod and
@@ -198,7 +205,9 @@ export function isOff(r: ModRow): boolean {
 
 /** "Big Stacks", "Big Stacks and Night Sky", "Big Stacks, Night Sky and 2 more". */
 export function names(list: string[]): string {
-  return list.length <= 2 ? list.join(" and ") : `${list.slice(0, 2).join(", ")} and ${list.length - 2} more`;
+  if (list.length <= 1) return list.join("");
+  if (list.length === 2) return t("shell.mods.namesTwo", { a: list[0], b: list[1] });
+  return t("shell.mods.namesMore", { a: list[0], b: list[1], more: list.length - 2 });
 }
 
 /** The count over every kind, then only the exceptions a player must know: "12 mods on, 3 off. Big Stacks starts with
@@ -206,17 +215,17 @@ export function names(list: string[]): string {
 export function countLine(rows: ModRow[]): { on: number; off: number; text: string } {
   const on = rows.filter(isOn).length;
   const off = rows.filter(isOff).length;
-  const head = `${on} mod${on === 1 ? "" : "s"} on${off ? `, ${off} off` : ""}.`;
+  const head = off ? t("shell.mods.countOnOff", { count: on, off }) : t("shell.mods.countOn", { count: on });
   const parts = [head];
   const world = rows.filter((r) => r.withWorld).map((r) => r.name);
-  if (world.length) parts.push(`${names(world)} ${world.length === 1 ? "starts" : "start"} with your world.`);
+  if (world.length) parts.push(t("shell.mods.countWorld", { names: names(world), count: world.length }));
   const stays = rows.filter((r) => r.staysOff).map((r) => r.name);
-  if (stays.length) parts.push(`${names(stays)} ${stays.length === 1 ? "stays" : "stay"} off in this game.`);
+  if (stays.length) parts.push(t("shell.mods.countStays", { names: names(stays), count: stays.length }));
   const yet = rows.filter((r) => r.on && r.kind && NOT_RUNNING_KINDS.includes(r.kind));
-  if (yet.length) parts.push(`${names(yet.map((r) => r.name))} ${yet.length === 1 ? "does" : "do"} not run yet: ${yet[0].wontRun}.`);
+  if (yet.length) parts.push(t("shell.mods.countYet", { names: names(yet.map((r) => r.name)), count: yet.length, why: yet[0].wontRun }));
   const wont = rows.filter((r) => r.wontRun && !(r.kind && NOT_RUNNING_KINDS.includes(r.kind)));
-  if (wont.length === 1) parts.push(`${wont[0].name} will not run: ${wont[0].wontRun}.`);
-  else if (wont.length > 1) parts.push(`${names(wont.map((r) => r.name))} will not run in this game.`);
+  if (wont.length === 1) parts.push(t("shell.mods.countWontOne", { name: wont[0].name, why: wont[0].wontRun }));
+  else if (wont.length > 1) parts.push(t("shell.mods.countWontMany", { names: names(wont.map((r) => r.name)) }));
   return { on, off, text: parts.join(" ") };
 }
 
@@ -240,11 +249,11 @@ export interface BulkPlan {
 export function bulkPlan(rows: ModRow[], on: boolean): BulkPlan {
   const plan: BulkPlan = { change: [], left: [] };
   for (const r of rows) {
-    if (r.found || !r.kind) { plan.left.push({ name: r.name, why: "in the game folder, it has no switch" }); continue; }
+    if (r.found || !r.kind) { plan.left.push({ name: r.name, why: t("shell.mods.bulkNoSwitch") }); continue; }
     if (r.on === on) continue;
     if (r.entry) { plan.change.push({ kind: r.kind, before: r.entry, after: { ...r.entry, enabled: on } }); continue; }
     const v = defaultVersion(r.lib);
-    if (!v) { plan.left.push({ name: r.name, why: r.lib?.versions.length ? "only kept versions are in the Library; pick a version explicitly" : "no version of it is in the Library" }); continue; }
+    if (!v) { plan.left.push({ name: r.name, why: r.lib?.versions.length ? t("shell.mods.bulkOnlyKept") : t("shell.mods.bulkNoVersion") }); continue; }
     plan.change.push({ kind: r.kind, before: null, after: { id: r.id, version: v.version, hash: v.hash, enabled: true } });
   }
   return plan;

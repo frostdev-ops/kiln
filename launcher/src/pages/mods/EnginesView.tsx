@@ -8,27 +8,29 @@ import { EngineStatusList, RestoreVanillaOffer } from "../../components/EngineSt
 import { Card } from "../../ui";
 import { loaderLine, useFound } from "../profiles/GameFolder";
 import { ProfileFacts } from "../profiles/ProfileLayout";
+import { rich, useT } from "../../i18n";
 
 export default function EnginesView() {
+  const t = useT();
   const { game } = useGame();
   const active = useActiveProfile(game?.id);
   const found = useFound(game?.id, active.data?.profileId);
   if (!game) return null;
   const r = found.data;
-  const notes = r ? [...loaderLine(r), ...r.unreadable.map((u) => `Could not read ${u.path}: ${u.reason}.`), ...(r.truncated ? ["A folder in the game folder has more entries than Kiln lists."] : [])] : [];
+  const notes = r ? [...loaderLine(r), ...r.unreadable.map((u) => t("mods.engines.unreadable", { path: u.path, reason: u.reason })), ...(r.truncated ? [t("mods.engines.truncated")] : [])] : [];
   return (
     <div className="k-scroll k-stack" style={{ gap: 18, paddingBottom: 20 }}>
       <RestoreVanillaOffer gameId={game.id} />
-      <Card title="Engine plugins" sub="Each one's state file from the last start.">
+      <Card title={t("mods.engines.pluginsTitle")} sub={t("mods.engines.pluginsSub")}>
         <EngineStatusList gameId={game.id} />
       </Card>
       {notes.length > 0 && (
-        <Card title="In the game folder" sub="Other loaders next to the game.">
+        <Card title={t("mods.engines.folderTitle")} sub={t("mods.engines.folderSub")}>
           {notes.map((l) => <p key={l} className="k-hint">{l}</p>)}
         </Card>
       )}
-      <p className="k-hint">The DLLs chain.ini loads, and which load after Kiln and ShroudForge: <Link className="k-link" to="/mods/native">Native and DLLs</Link>.</p>
-      <ProfileFacts hint="Kiln runs other loaders' mods with its engine plugins; XHL companions run only through XHL-Core, installed separately; Ember mods are kept but do not run yet." />
+      <p className="k-hint">{rich("mods.engines.chainHint", { link: <Link className="k-link" to="/mods/native">{t("mods.tabs.native")}</Link> })}</p>
+      <ProfileFacts hint={t("mods.engines.facts")} />
     </div>
   );
 }

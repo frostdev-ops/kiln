@@ -13,7 +13,7 @@ matching the mod API `Kiln.Mods.ApiVersion`); `pack.sh` adds the rest:
 
 | Built by | Version | Example |
 |---|---|---|
-| `tools/release/release.sh` (sets `KILN_SDK_VERSION`) | the release's | `0.2.0-dev.24` |
+| `tools/release/release.sh` (sets `KILN_SDK_VERSION`) | the release's | `0.2.0-dev.29.16` |
 | `pack.sh` in a working tree | `<base>-dev.local.<yyyymmdd>.<hhmmss>` (UTC) | `0.2.0-dev.local.20261106.185929` |
 
 NuGet keeps a package by id and version and never fetches that version again, so a package re-packed under the same
@@ -23,7 +23,7 @@ project made with `dotnet new` restores exactly the packages of that pack.
 
 ## A mod project
 ```xml
-<Project Sdk="Kiln.Sdk/0.2.0-dev.24">
+<Project Sdk="Kiln.Sdk/0.2.0-dev.29.16">
   <PropertyGroup>
     <KilnModId>my-mod</KilnModId>
     <Version>1.0.0</Version>
@@ -34,7 +34,7 @@ project made with `dotnet new` restores exactly the packages of that pack.
   </ItemGroup>
 </Project>
 ```
-Use the full version of the MDK pack you installed (`0.2.0-dev.24` for this release), not the API base `0.2.0`.
+Use the full version of the MDK pack you installed (for example `0.2.0-dev.29.16`), not the API base `0.2.0`.
 The SDK sets `net10.0`, nullable, implicit usings, `EnableDynamicLoading`, no runtimeconfig/deps files; references
 Kiln.Api and the listed services with `ExcludeAssets=runtime` (they come from `kiln/host` at run time and are never
 copied); copies NuGet dependencies next to the mod (they load into the mod's own context).
@@ -46,7 +46,7 @@ copied); copies NuGet dependencies next to the mod (they load into the mod's own
 | `KilnModName` | `AssemblyName` | `name` |
 | `Version` | 1.0.0 | `version` |
 | `Authors`, `Description`, `PackageLicenseExpression`, `PackageProjectUrl` | | `authors`, `description`, `license`, `url` |
-| `KilnApiVersion` | the SDK's (0.2.7) | `apiVersion` |
+| `KilnApiVersion` | the SDK's (0.2.8) | `apiVersion` |
 | `KilnSide` | server; `both` when `KilnServices` has `Blocks` | `side` |
 | `KilnClients` | from the side: server `none`, otherwise `mod`; with `Blocks` in `KilnServices`, what the blocks need ([blocks.md](blocks.md)) | `clients`: what joining players need (`none`, `kiln`, `mod`; manifest.md) |
 | `KilnEntryType` | | `entryType` |
@@ -62,7 +62,7 @@ copied); copies NuGet dependencies next to the mod (they load into the mod's own
 | `KilnIncludeModFolders` | true | false: copy none of them automatically |
 | `KilnPackExclude` | `assets/cooked/**` | globs KilnPack leaves out, relative to the mod folder. Cooked files are made from the player's own game, so they never ship |
 | `KilnAnalyzers` | true | false: no KILN1xx analyzers ([analyzers.md](analyzers.md)) |
-| `KilnGameIds` | `Items;Perks;Buffs;Skills;Workshops` | game-id constants generated from the local catalog; `All`, `None` ([catalogs.md](catalogs.md)) |
+| `KilnGameIds` | `Items;Perks;Buffs;Skills;Workshops;Materials` | game-id constants generated from the local catalog; `All`, `None` ([catalogs.md](catalogs.md)) |
 | `KilnBake`, `KilnBakeSteps` | true when `KilnServices` names Quests, Skills, Blocks or Vfx; 10 | bake what the code defines (quests, game-tree nodes, VFX, materials) into the mod, so the first start has it ([baked.md](baked.md)); false: no bake |
 | `KilnCatalog`, `KilnCatalogSide` | `$KILN_CATALOG`, else `<data>/catalog`; server for `KilnSide` server, otherwise client | which catalog file `KilnGameIds` reads |
 
@@ -179,7 +179,7 @@ is a game item's` at every start. Your new items still register. Use a fresh wor
 |---|---|
 | `native/cmake/KilnPlugin.cmake` | `kiln_plugin(<name> <sources…> [NATIVE_JSON <file>] [OUTPUT_NAME <dll>])` and the `deploy` target |
 | `native/cmake/clang-cl-xwin.cmake` | The Linux toolchain: clang-cl, lld-link and llvm-rc, with the MSVC CRT and Windows SDK from cargo-xwin |
-| `native/include/` | `kiln_api.h`, `kiln_native.h`, `services/kiln_<name>.h` |
+| `native/include/` | `kiln_api.h`, `kiln_native.h`, `services/kiln_<name>.h`, and the C++ headers `kiln_hook.hpp` (`kiln::RawHook`, `kiln::MidHook2`; since 0.2.0-dev.29.17) and the other `.hpp` helpers (`kiln_blocks_json.hpp` and `kiln_boot_collector.hpp` also need nlohmann/json, which the package does not carry) |
 
 ```sh
 kiln new native MyNative --server <server>

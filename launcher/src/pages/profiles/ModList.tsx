@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import type { LibraryEntry, ModKind, ProfileMod } from "../../api/commands";
 import { useLibrary } from "../../api/hooks";
 import { Badge, EmptyState, FlameToggle, Menu, NameId, Table, type Column, type MenuItem } from "../../ui";
+import { useT } from "../../i18n";
 
 export function libName(lib: LibraryEntry[] | undefined, kind: ModKind, id: string) {
   return lib?.find((l) => l.kind === kind && l.id === id)?.name ?? id;
@@ -28,24 +29,25 @@ export interface ModListProps {
 }
 
 export function ModList({ kind, mods, onToggle, onVersion, extra, emptyHint, fill, actions, label }: ModListProps) {
+  const t = useT();
   const lib = useLibrary(kind);
   const columns: Column<ProfileMod>[] = [
-    { key: "on", header: <span className="k-sr-only">Lit</span>, width: "40px", render: (m) => <FlameToggle on={m.enabled} label={libName(lib.data, kind, m.id)} onChange={(on) => onToggle(m.id, on)} /> },
-    { key: "name", header: "Mod", sort: (a, b) => a.id.localeCompare(b.id), render: (m) => <NameId name={libName(lib.data, kind, m.id)} id={m.id} dim={!m.enabled} /> },
-    { key: "version", header: "Version", width: "120px", render: (m) => {
+    { key: "on", header: <span className="k-sr-only">{t("profiles.modList.lit")}</span>, width: "40px", render: (m) => <FlameToggle on={m.enabled} label={libName(lib.data, kind, m.id)} onChange={(on) => onToggle(m.id, on)} /> },
+    { key: "name", header: t("profiles.modList.mod"), sort: (a, b) => a.id.localeCompare(b.id), render: (m) => <NameId name={libName(lib.data, kind, m.id)} id={m.id} dim={!m.enabled} /> },
+    { key: "version", header: t("profiles.modList.version"), width: "120px", render: (m) => {
       const e = lib.data?.find((l) => l.id === m.id);
-      if (lib.data && !e) return <Badge tone="err" title="Not in the library">Missing</Badge>;
-      return <span className="k-mono" title={(e?.versions.length ?? 0) > 1 ? `${e!.versions.length} versions in the library` : undefined}>{m.version}</span>;
+      if (lib.data && !e) return <Badge tone="err" title={t("profiles.modList.notInLibrary")}>{t("profiles.modList.missing")}</Badge>;
+      return <span className="k-mono" title={(e?.versions.length ?? 0) > 1 ? t("mods.list.versionsInLibrary", { count: e!.versions.length }) : undefined}>{m.version}</span>;
     } },
     ...(extra ? [{ key: "extra", header: extra.header, width: extra.width ?? "minmax(0, 1fr)", render: extra.render }] : []),
-    { key: "act", header: <span className="k-sr-only">Actions</span>, width: "32px", align: "right", render: (m) => {
+    { key: "act", header: <span className="k-sr-only">{t("profiles.modList.actions")}</span>, width: "32px", align: "right", render: (m) => {
       const vs = lib.data?.find((l) => l.id === m.id)?.versions ?? [];
       const items = [
-        ...vs.filter((v) => v.version !== m.version).map((v) => ({ label: `Use ${v.version}`, onSelect: () => onVersion(m.id, v.version, v.hash) })),
+        ...vs.filter((v) => v.version !== m.version).map((v) => ({ label: t("mods.list.useVersion", { version: v.version }), onSelect: () => onVersion(m.id, v.version, v.hash) })),
         ...(actions?.(m) ?? []),
       ];
-      return items.length ? <Menu label={`More for ${libName(lib.data, kind, m.id)}`} icon={<MoreHorizontal />} size="s" items={items} /> : null;
+      return items.length ? <Menu label={t("mods.list.moreFor", { name: libName(lib.data, kind, m.id) })} icon={<MoreHorizontal />} size="s" items={items} /> : null;
     } },
   ];
-  return <Table aria-label={label ?? `${kind} mods`} columns={columns} rows={mods} rowKey={(m) => m.id} fill={fill} empty={<EmptyState title={emptyHint ?? "None on your list."} />} />;
+  return <Table aria-label={label ?? t("mods.order.kindMods", { kind })} columns={columns} rows={mods} rowKey={(m) => m.id} fill={fill} empty={<EmptyState title={emptyHint ?? t("profiles.modList.none")} />} />;
 }

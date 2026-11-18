@@ -188,7 +188,7 @@ internal static class TalentNet
             default:
                 return;
         }
-        Client[r.Tree] = s with { Levels = levels, Spent = spent, Available = s.Total - spent, Ok = true, Message = TalentUi.Frame.Paused.ToString() };
+        Client[r.Tree] = s with { Levels = levels, Spent = spent, Available = s.Total - spent, Ok = true, Message = KilnText.T("talents.paused") };
     }
 
     /// <summary>Hosting: keeps the screen's copy current, so a tree first opened from the pause menu has its state.</summary>

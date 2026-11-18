@@ -8,7 +8,7 @@ import { MoreHorizontal } from "lucide-react";
 import { useState } from "react";
 import * as api from "../api/commands";
 import type { ProfileSummary } from "../api/commands";
-import { OTHER_FOLDER_PROFILE, otherFolderTitle } from "../shell/dataFolderText";
+import { otherFolderProfile, otherFolderTitle } from "../shell/dataFolderText";
 import { invalidateGame, qk, showActive, useActiveProfile, useGame, useGameStatus, useProfile, useProfiles } from "../api/hooks";
 import { totalCount } from "../api/kinds";
 import { ProfileSettingsModal } from "../pages/profiles/ProfileLayout";
@@ -16,9 +16,11 @@ import { dropinKinds, setDropins } from "../pages/profiles/dropins";
 import { forgetProfileEdits, useProfileEdit } from "../pages/profiles/useProfileEdit";
 import { notifyLibraryChanged } from "../shell/libraryChanged";
 import { notifyActivation } from "../shell/notices";
+import { rich, useT } from "../i18n";
 import { Button, Card, ConfirmDanger, EmptyState, Field, Menu, Modal, Skeleton, TextInput, errorText, fmtAgo, notifyPlacementCleanup, toast } from "../ui";
 
 export function ProfilesCard() {
+  const t = useT();
   const qc = useQueryClient();
   const { game } = useGame();
   const status = useGameStatus(game?.id);
@@ -32,7 +34,7 @@ export function ProfilesCard() {
   const installed = !!status.data?.runtime.installed;
   const loaded = active.data?.profileId ?? null;
   const list = profiles.data ?? [];
-  const nameOf = (id: string | null) => (id ? list.find((p) => p.id === id)?.name ?? id : "No profile");
+  const nameOf = (id: string | null) => (id ? list.find((p) => p.id === id)?.name ?? id : t("profilesSettings.noProfile"));
   const load = useMutation({
     mutationFn: (pid: string | null) => (pid ? api.profileActivate(pid, game!.id) : api.profileDeactivate(game!.id).then((r) => { notifyPlacementCleanup(r); return null; })),
     // the loaded one changes at once (the activation answers after the backend has written it); a failure puts it back
@@ -40,23 +42,23 @@ export function ProfilesCard() {
     onSuccess: (r, pid) => {
       qc.setQueryData(qk.active(game!.id), r);
       invalidateGame(qc, game!.id);
-      toast.ok(pid ? `${nameOf(pid)} is loaded` : "No profile is loaded", pid ? "The main screen's switches show it. Steam's Play button uses it too." : "The mods in the game folder load as they are.");
+      toast.ok(pid ? t("profilesSettings.loadedToast", { name: nameOf(pid) }) : t("profilesSettings.noneLoadedToast"), pid ? t("profilesSettings.loadedDetail") : t("profilesSettings.noneLoadedDetail"));
       notifyActivation(r);
     },
     onError: (e, pid, undo) => { undo?.(); if (!notifyLibraryChanged(qc, e, () => load.mutate(pid))) toast.error(e); },
   });
   const blocked = !game || !installed || running || load.isPending;
-  const why = !game ? "Find the game on Play first" : !installed ? "Install Kiln first" : running ? "Close the game first" : undefined;
+  const why = !game ? t("profilesSettings.findGame") : !installed ? t("profilesSettings.installKiln") : running ? t("profilesSettings.closeGame") : undefined;
   const cur = list.find((p) => p.id === loaded) ?? null;
 
   return (
-    <Card id="profiles" aria-label="Profiles" title="Profiles"
+    <Card id="profiles" aria-label={t("profilesSettings.title")} title={t("profilesSettings.title")}
       sub={status.data?.otherFolderProfile
-        ? <span className="k-tone-warn" title={otherFolderTitle(status.data.otherFolderProfile)} data-testid="other-folder-profile">{OTHER_FOLDER_PROFILE}</span>
-        : cur ? <>A profile is a saved set of mods and their switches. <b>{cur.name}</b> is loaded: the main screen shows it.</> : "A profile is a saved set of mods and their switches."}
-      actions={<Button size="s" disabled={!cur} title={cur ? undefined : "Load a profile first"} onClick={() => setSaveAs(true)}>Save current as…</Button>}>
-      {profiles.isLoading ? <Skeleton lines={3} /> : profiles.error ? <EmptyState title="Profiles are not readable" hint={errorText(profiles.error)} /> : (
-        <ul className="k-list k-profiles" aria-label="Saved profiles">
+        ? <span className="k-tone-warn" title={otherFolderTitle(status.data.otherFolderProfile)} data-testid="other-folder-profile">{otherFolderProfile()}</span>
+        : cur ? rich("profilesSettings.subLoaded", { name: <b>{cur.name}</b> }) : t("profilesSettings.sub")}
+      actions={<Button size="s" disabled={!cur} title={cur ? undefined : t("profilesSettings.loadFirst")} onClick={() => setSaveAs(true)}>{t("profilesSettings.saveAs")}</Button>}>
+      {profiles.isLoading ? <Skeleton lines={3} /> : profiles.error ? <EmptyState title={t("profilesSettings.unreadable")} hint={errorText(profiles.error)} /> : (
+        <ul className="k-list k-profiles" aria-label={t("profilesSettings.saved")}>
           {list.map((p) => {
             const n = totalCount(p.counts);
             const here = p.id === loaded;
@@ -64,26 +66,28 @@ export function ProfilesCard() {
               <li key={p.id} className="k-list-item" style={{ padding: "8px 0" }}>
                 <span className="k-stack" style={{ gap: 1, flex: 1, minWidth: 0 }}>
                   <span className="k-item-title k-ellipsis">{p.name}</span>
-                  <span className="k-item-sub">{n} mod{n === 1 ? "" : "s"}{p.server ? ` · for ${p.server.name ?? p.server.id}` : ""} · changed {fmtAgo(p.updated)}</span>
+                  <span className="k-item-sub">{p.server
+                    ? t("profilesSettings.lineServer", { count: n, server: p.server.name ?? p.server.id, ago: fmtAgo(p.updated) })
+                    : t("profilesSettings.line", { count: n, ago: fmtAgo(p.updated) })}</span>
                 </span>
-                {here ? <span className="k-pill k-tone-gold">Loaded</span> : (
-                  <Button size="s" disabled={blocked} title={why} loading={load.isPending && load.variables === p.id} onClick={() => load.mutate(p.id)}>Load</Button>
+                {here ? <span className="k-pill k-tone-gold">{t("profilesSettings.loaded")}</span> : (
+                  <Button size="s" disabled={blocked} title={why} loading={load.isPending && load.variables === p.id} onClick={() => load.mutate(p.id)}>{t("profilesSettings.load")}</Button>
                 )}
-                <Menu label={`More for ${p.name}`} icon={<MoreHorizontal />} size="s" items={[
-                  { label: "Rename", onSelect: () => setRename(p) },
-                  { label: "Folders and notes", onSelect: () => setFolders(p.id) },
-                  { label: "Delete", danger: true, disabled: p.active.length > 0, onSelect: () => setDel(p) },
+                <Menu label={t("profilesSettings.more", { name: p.name })} icon={<MoreHorizontal />} size="s" items={[
+                  { label: t("profilesSettings.rename"), onSelect: () => setRename(p) },
+                  { label: t("profilesSettings.folders"), onSelect: () => setFolders(p.id) },
+                  { label: t("common.delete"), danger: true, disabled: p.active.length > 0, onSelect: () => setDel(p) },
                 ]} />
               </li>
             );
           })}
           <li className="k-list-item" style={{ padding: "8px 0" }}>
             <span className="k-stack" style={{ gap: 1, flex: 1, minWidth: 0 }}>
-              <span className="k-item-title">No profile</span>
-              <span className="k-item-sub">The game folder decides: the mods in it load as they are.</span>
+              <span className="k-item-title">{t("profilesSettings.noProfile")}</span>
+              <span className="k-item-sub">{t("profilesSettings.noProfileSub")}</span>
             </span>
-            {game && !loaded && active.isSuccess ? <span className="k-pill k-tone-gold">Loaded</span> : (
-              <Button size="s" disabled={blocked || !loaded} title={why} loading={load.isPending && load.variables === null} onClick={() => load.mutate(null)}>Load</Button>
+            {game && !loaded && active.isSuccess ? <span className="k-pill k-tone-gold">{t("profilesSettings.loaded")}</span> : (
+              <Button size="s" disabled={blocked || !loaded} title={why} loading={load.isPending && load.variables === null} onClick={() => load.mutate(null)}>{t("profilesSettings.load")}</Button>
             )}
             <span style={{ width: 32, flex: "none" }} aria-hidden />
           </li>
@@ -91,12 +95,12 @@ export function ProfilesCard() {
       )}
       <SaveAsModal open={saveAs} from={cur} onClose={() => setSaveAs(false)} onSaved={(p) => {
         qc.invalidateQueries({ queryKey: qk.profiles });
-        toast.ok(`Saved as ${p.name}`, `${cur?.name ?? "The loaded profile"} stays loaded.`, { actions: game ? [{ label: "Load it", onClick: () => load.mutate(p.id) }] : [] });
+        toast.ok(t("profilesSettings.savedAs", { name: p.name }), cur ? t("profilesSettings.staysLoaded", { name: cur.name }) : t("profilesSettings.loadedStaysLoaded"), { actions: game ? [{ label: t("profilesSettings.loadIt"), onClick: () => load.mutate(p.id) }] : [] });
       }} />
       <RenameModal profile={rename} onClose={() => setRename(null)} />
       {folders && <FoldersModal id={folders} onClose={() => setFolders(null)} />}
-      <ConfirmDanger open={!!del} onClose={() => setDel(null)} title={`Delete ${del?.name ?? ""}?`} message="Its configs go to backups. The mods stay." word={del?.id ?? ""}
-        action="Delete" onConfirm={async () => {
+      <ConfirmDanger open={!!del} onClose={() => setDel(null)} title={t("profilesSettings.deleteAsk", { name: del?.name ?? "" })} message={t("profilesSettings.deleteMessage")} word={del?.id ?? ""}
+        action={t("common.delete")} onConfirm={async () => {
           try {
             const id = del!.id;
             await api.profileDelete(id);
@@ -104,7 +108,7 @@ export function ProfilesCard() {
             forgetProfileEdits(id);
             qc.removeQueries({ queryKey: qk.profile(id) });
             qc.removeQueries({ queryKey: ["profile_resolve", id] });
-            toast.ok("Profile deleted");
+            toast.ok(t("profilesSettings.deleted"));
             qc.invalidateQueries({ queryKey: qk.profiles });
           }
           catch (e) { toast.error(e); throw e; }
@@ -114,6 +118,7 @@ export function ProfilesCard() {
 }
 
 function SaveAsModal({ open, from, onClose, onSaved }: { open: boolean; from: ProfileSummary | null; onClose: () => void; onSaved: (p: api.Profile) => void }) {
+  const t = useT();
   const [name, setName] = useState("");
   const save = useMutation({
     mutationFn: () => api.profileCreate(name.trim(), from!.id),
@@ -121,10 +126,10 @@ function SaveAsModal({ open, from, onClose, onSaved }: { open: boolean; from: Pr
     onError: (e) => toast.error(e),
   });
   return (
-    <Modal open={open && !!from} onClose={onClose} title="Save current as" width={480}
-      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" disabled={!name.trim()} loading={save.isPending} onClick={() => save.mutate()}>Save</Button></>}>
-      <Field label="Name" hint={from ? `A copy of ${from.name}: its mods, switches and configs.` : undefined} htmlFor="pf-save-as">
-        <TextInput id="pf-save-as" data-autofocus value={name} onChange={(e) => setName(e.target.value)} placeholder={from ? `${from.name} copy` : ""}
+    <Modal open={open && !!from} onClose={onClose} title={t("profilesSettings.saveAsTitle")} width={480}
+      footer={<><Button variant="ghost" onClick={onClose}>{t("common.cancel")}</Button><Button variant="primary" disabled={!name.trim()} loading={save.isPending} onClick={() => save.mutate()}>{t("common.save")}</Button></>}>
+      <Field label={t("profilesSettings.name")} hint={from ? t("profilesSettings.copyOf", { name: from.name }) : undefined} htmlFor="pf-save-as">
+        <TextInput id="pf-save-as" data-autofocus value={name} onChange={(e) => setName(e.target.value)} placeholder={from ? t("profilesSettings.copyName", { name: from.name }) : ""}
           onKeyDown={(e) => { if (e.key === "Enter" && name.trim()) save.mutate(); }} />
       </Field>
     </Modal>
@@ -132,19 +137,20 @@ function SaveAsModal({ open, from, onClose, onSaved }: { open: boolean; from: Pr
 }
 
 function RenameModal({ profile, onClose }: { profile: ProfileSummary | null; onClose: () => void }) {
+  const t = useT();
   const qc = useQueryClient();
   const [name, setName] = useState("");
   const [seen, setSeen] = useState<string | null>(null);
   if ((profile?.id ?? null) !== seen) { setSeen(profile?.id ?? null); setName(profile?.name ?? ""); }
   const save = useMutation({
     mutationFn: async () => { const p = await api.profileGet(profile!.id); return api.profileSave({ ...p, name: name.trim() }); },
-    onSuccess: (p) => { qc.setQueryData(qk.profile(p.id), p); qc.invalidateQueries({ queryKey: qk.profiles }); toast.ok(`Renamed to ${p.name}`); onClose(); },
+    onSuccess: (p) => { qc.setQueryData(qk.profile(p.id), p); qc.invalidateQueries({ queryKey: qk.profiles }); toast.ok(t("profilesSettings.renamed", { name: p.name })); onClose(); },
     onError: (e) => toast.error(e),
   });
   return (
-    <Modal open={!!profile} onClose={onClose} title={`Rename ${profile?.name ?? ""}`} width={480}
-      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" disabled={!name.trim() || name.trim() === profile?.name} loading={save.isPending} onClick={() => save.mutate()}>Rename</Button></>}>
-      <Field label="Name" htmlFor="pf-rename">
+    <Modal open={!!profile} onClose={onClose} title={t("profilesSettings.renameTitle", { name: profile?.name ?? "" })} width={480}
+      footer={<><Button variant="ghost" onClick={onClose}>{t("common.cancel")}</Button><Button variant="primary" disabled={!name.trim() || name.trim() === profile?.name} loading={save.isPending} onClick={() => save.mutate()}>{t("profilesSettings.rename")}</Button></>}>
+      <Field label={t("profilesSettings.name")} htmlFor="pf-rename">
         <TextInput id="pf-rename" data-autofocus value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && name.trim()) save.mutate(); }} />
       </Field>
     </Modal>

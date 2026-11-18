@@ -7,11 +7,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import * as api from "../api/commands";
+import { t, useT } from "../i18n";
 import { Banner, Button, Modal, errorText } from "../ui";
 
-const TITLE = "Restore the game's data";
-
 export function RestoreDataOffer({ gameId }: { gameId: api.GameId }) {
+  const t = useT();
+  const TITLE = t("restoreDataOffer.title");
   const plan = useQuery({ queryKey: ["eml_data_plan", gameId], queryFn: () => api.emlDataPlan(gameId), retry: false, refetchOnWindowFocus: false });
   // the key of EngineStatus.tsx's engineStatusKey (not imported: that file imports this one)
   const engines = useQuery({ queryKey: ["engine_status", gameId] as const, queryFn: () => api.engineStatus(gameId) });
@@ -37,26 +38,26 @@ export function RestoreDataOffer({ gameId }: { gameId: api.GameId }) {
   }
   return <>
     <Banner tone="warn" title={TITLE}>
-      {moved ? <><p>Kiln moved these files to {moved.folder}. Nothing was deleted.</p><ul>{moved.files.map((f) => <li key={f.from}>{f.from}</li>)}</ul>
-        <p>The next start through Kiln makes a fresh backup from the game data as it is now.</p>
-        <Button disabled={busy} onClick={() => void action(true)}>Undo move</Button></>
-        : <><p>Files of another mod loader are in the game folder, and Kiln's EML mods cannot start beside them. Kiln can move them aside.</p>
+      {moved ? <><p>{t("restoreDataOffer.moved", { folder: moved.folder })}</p><ul>{moved.files.map((f) => <li key={f.from}>{f.from}</li>)}</ul>
+        <p>{t("restoreDataOffer.freshBackup")}</p>
+        <Button disabled={busy} onClick={() => void action(true)}>{t("restoreDataOffer.undo")}</Button></>
+        : <><p>{t("restoreDataOffer.offer")}</p>
           <Button onClick={() => { setVerified(false); setError(""); setOpen(true); }}>{TITLE}</Button></>}
       {error && <p role="alert">{error}</p>}
     </Banner>
     <Modal open={open} onClose={() => setOpen(false)} locked={busy} title={TITLE} footer={<>
-      <Button variant="ghost" disabled={busy} onClick={() => setOpen(false)}>Cancel</Button>
-      <Button disabled={!verified || busy} onClick={() => void action(false)}>Move files aside</Button></>}>
-      <p>Another mod loader left archive files and backups in the game folder that Kiln cannot prove it wrote. First verify the game files in Steam (the game's Properties, Installed Files, "Verify integrity of game files"). Then Kiln moves the files below into a folder under kiln/eml/displaced. Nothing is deleted, and you can undo the move.</p>
-      <p>If Steam repaired files, Kiln asks you to start the game once more before it moves anything: it reads the list of leftover files at a start.</p>
+      <Button variant="ghost" disabled={busy} onClick={() => setOpen(false)}>{t("common.cancel")}</Button>
+      <Button disabled={!verified || busy} onClick={() => void action(false)}>{t("restoreDataOffer.moveAside")}</Button></>}>
+      <p>{t("restoreDataOffer.explain")}</p>
+      <p>{t("restoreDataOffer.repaired")}</p>
       <ul>{plan.data?.files.map((f) => <li key={f.from}>{f.from} ({size(f.size)})</li>)}</ul>
-      <label><input type="checkbox" checked={verified} onChange={(e) => setVerified(e.target.checked)} /> I verified the game files in Steam</label>
+      <label><input type="checkbox" checked={verified} onChange={(e) => setVerified(e.target.checked)} />{" "}{t("restoreDataOffer.verified")}</label>
       {error && <p role="alert">{error}</p>}
     </Modal>
   </>;
 }
 
-const size = (bytes: number) => bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+const size = (bytes: number) => bytes >= 1024 * 1024 ? t("restoreDataOffer.mb", { size: (bytes / (1024 * 1024)).toFixed(1) }) : t("restoreDataOffer.kb", { size: Math.max(1, Math.round(bytes / 1024)) });
 
 /** The last start's EML state says the writer found game data it cannot prove it wrote (`recovery.unproven`). */
 export function hasUnprovenRecovery(state: unknown): boolean {

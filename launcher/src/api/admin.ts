@@ -15,6 +15,7 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient, type UseMutationOptions, type UseQueryOptions } from "@tanstack/react-query";
 import { createContext, createElement, useContext, useEffect, useMemo, type ReactNode } from "react";
 import { create } from "zustand";
+import { t } from "../i18n";
 import {
   adminCall, adminConnect, adminDisconnect, adminSubscribe, onKilnEvent, toKilnError,
   type AdminEvent, type AdminSession, type AdminTransport, type Json, type KilnError, type ServerId,
@@ -255,15 +256,15 @@ function closed(id: ServerId, reason: string, retry: boolean | undefined) {
   r.retry = null;
   if (retry === false) {
     r.gen++;
-    patch(id, { status: "error", session: null, retryAt: null, error: { code: reason === "auth_failed" || reason === "token" ? "auth_failed" : "admin_unavailable", message: `The admin session closed (${reason}).` } });
+    patch(id, { status: "error", session: null, retryAt: null, error: { code: reason === "auth_failed" || reason === "token" ? "auth_failed" : "admin_unavailable", message: t("api.admin.sessionClosed", { reason }) } });
     return;
   }
-  patch(id, { status: "reconnecting", error: { code: "admin_unavailable", message: `The admin session closed (${reason}); reconnecting…` } });
+  patch(id, { status: "reconnecting", error: { code: "admin_unavailable", message: t("api.admin.sessionClosedReconnecting", { reason }) } });
   if (retry === undefined) {
     const gen = r.gen;
     r.retry = setTimeout(() => {
       r.retry = null;
-      if (gen === r.gen && get(id).status === "reconnecting") lost(id, { code: "admin_unavailable", message: `The admin session closed (${reason}).` });
+      if (gen === r.gen && get(id).status === "reconnecting") lost(id, { code: "admin_unavailable", message: t("api.admin.sessionClosed", { reason }) });
     }, CLOSED_GRACE_MS);
   }
 }
@@ -384,15 +385,15 @@ const waitReady = (id: ServerId, ms: number) =>
   new Promise<AdminConn>((resolve, reject) => {
     const c = get(id);
     if (c.status === "ready") return resolve(c);
-    const t = setTimeout(() => {
+    const timer = setTimeout(() => {
       un();
       const now = get(id);
-      reject(now.error ?? { code: "admin_unavailable", message: "Not connected to the server's Kiln.Admin." });
+      reject(now.error ?? { code: "admin_unavailable", message: t("api.admin.notConnected") });
     }, ms);
     const un = useAdminHub.subscribe((s) => {
       const n = s.conns[id];
       if (n?.status === "ready") {
-        clearTimeout(t);
+        clearTimeout(timer);
         un();
         resolve(n);
       }
@@ -401,7 +402,7 @@ const waitReady = (id: ServerId, ms: number) =>
 
 /** Error for an op this server's Kiln.Admin does not serve. */
 export const needsNewer = (op: string): KilnError => ({
-  code: "unsupported", message: `This needs a newer Kiln.Admin on the server (it has no '${op}' op yet).`,
+  code: "unsupported", message: t("api.admin.needsNewer", { op }),
 });
 
 /** Runs an op on the server's shared session; data on ok, KilnError (op_failed with the op's message) otherwise. */

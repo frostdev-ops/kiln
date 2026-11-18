@@ -239,10 +239,12 @@ public sealed class KeyBinding : IDisposable
     }
 
     public string Id { get; }
-    public string Description { get; }
+    /// <summary>What the key does, as the Keys page shows it. Kiln's own bindings set it again when the language of
+    /// Kiln's texts changes (internal set, any thread).</summary>
+    public string Description { get; internal set; }
 
     /// <summary>Groups bindings in the Kiln menu (default: the mod's name).</summary>
-    public string Category { get; }
+    public string Category { get; internal set; }
 
     public KeyChord Default { get; }
 

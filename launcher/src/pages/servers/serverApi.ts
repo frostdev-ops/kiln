@@ -8,6 +8,7 @@ import { useEffect } from "react";
 import { create } from "zustand";
 import * as api from "../../api/commands";
 import type { ServerId, ServerInstance, ServerMod, ServerSettings, ServerSpec, ServerStatus } from "../../api/commands";
+import { t } from "../../i18n";
 
 export type ServerRunner = "kilnctl" | "steam" | "windows" | "remote";
 
@@ -107,12 +108,16 @@ export const useDeployDialog = create<{ open: boolean; show: (open: boolean) => 
   show: (open) => set({ open }),
 }));
 
-export const runnerLabel: Record<ServerRunner, string> = {
-  kilnctl: "kilnctl (Wine)",
-  steam: "Steam",
-  windows: "Windows",
-  remote: "Remote (SSH)",
-};
+/** How a server is run, in words (called at render, so it follows the language). */
+export function runnerLabel(runner: ServerRunner): string {
+  switch (runner) {
+    case "kilnctl": return t("servers.runner.kilnctl");
+    case "steam": return t("servers.runner.steam");
+    case "windows": return t("servers.runner.windows");
+    case "remote": return t("servers.runner.remote");
+    default: return runner;
+  }
+}
 
 
 // ---------------------------------------------------------------- console

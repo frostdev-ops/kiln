@@ -10,15 +10,19 @@
 // library_take_over ("Use the changed files"), which names no game and re-applies wherever the profile is active.
 // Two launcher windows each have their own map: accepted for 0.2.0-dev.27 (one window is the normal case); a lock in
 // the backend over a whole activation is the follow-up.
+import { t } from "../i18n";
 import type { KilnError } from "./commands";
 
 const running = new Map<string, Promise<unknown>>();
 
+/** The refusal's sentence in the current language. */
+export const activationBusy = (): string => t("api.oneActivation.busy");
+/** The English sentence (en.json's api.oneActivation.busy), kept for unit tests; nothing compares it. */
 export const ACTIVATION_BUSY = "Kiln is still loading a profile in this game. Try again when that is done.";
 
 /** Runs `run` unless an activation of `gameId` is in flight; then rejects with a `busy` KilnError. */
 export function oneActivation<T>(gameId: string, run: () => Promise<T>): Promise<T> {
-  if (running.has(gameId)) return Promise.reject({ code: "busy", message: ACTIVATION_BUSY } satisfies KilnError);
+  if (running.has(gameId)) return Promise.reject({ code: "busy", message: activationBusy() } satisfies KilnError);
   const p = run();
   running.set(gameId, p);
   const done = () => { if (running.get(gameId) === p) running.delete(gameId); };

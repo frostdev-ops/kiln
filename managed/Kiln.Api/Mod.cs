@@ -201,12 +201,49 @@ public sealed class ModContext
     internal bool Unloading => Volatile.Read(ref _unloadStarted) != 0;
     private Func<string?>[] _unloadSteps = [];
 
+    /// <summary>Kiln's task system seals this mod's tasks here (set by <see cref="KilnTasks"/> for its mod): run
+    /// once when the unload begins, in <see cref="BeginUnload"/> before the <see cref="UnloadStarting"/> steps. It
+    /// seals the mod's task admission at the pool and signals every live task through its token; a queued task ends
+    /// cancelled (its continuations still run). Never waits: a task that ignores its token keeps running on its
+    /// worker, and the host joins it off the tick (its load context stays pinned meanwhile).</summary>
+    internal Action? UnloadTaskSeal;
+
+    /// <summary>The mod's live tasks as <c>'name' (State)</c> joined by ", ", or null when none is live. The host
+    /// polls this off the tick while it joins the mod's tasks after the unload; nothing on the tick ever waits on
+    /// it, and <see cref="OnUnload"/> never does.</summary>
+    internal Func<string?>? UnloadTaskBlocker;
+
+    /// <summary>What keeps this mod's tasks from being quiescent after its unload began, or null when they are.
+    /// Off-tick callers only (the host's task join); a throwing probe counts as quiescent, since the pool's own
+    /// lease pins still hold the mod's load context until each lease ends.</summary>
+    internal string? TaskBlocker()
+    {
+        try
+        {
+            return UnloadTaskBlocker?.Invoke();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     /// <summary>Begins the unload (once per context): runs the <see cref="UnloadStarting"/> steps. Null when nothing is
     /// inside the mod's code from another thread any more, else what is. The host calls it before OnUnload; Retire
     /// calls it too, for an unload without OnUnload (a harness that gave up its tick thread).</summary>
     internal string? BeginUnload()
     {
         if (Interlocked.Exchange(ref _unloadStarted, 1) != 0) return UnloadWaitsFor();
+        // The mod's tasks stop first: admission sealed and every live task signalled before anything can start new
+        // work against the unloading mod. This never waits for a task to actually stop.
+        try
+        {
+            UnloadTaskSeal?.Invoke();
+        }
+        catch (Exception e)
+        {
+            Log.Warn($"stopping this mod's tasks at the start of its unload threw: {e.GetType().Name}: {e.Message}");
+        }
         _unloadSteps = UnloadStarting is { } starting ? Array.ConvertAll(starting.GetInvocationList(), d => (Func<string?>)d) : [];
         UnloadStarting = null;
         return AskUnloadSteps();

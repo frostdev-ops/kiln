@@ -12,8 +12,10 @@ import { InstallDialog } from "../dialogs";
 import { switchUi } from "../mode";
 import { DeckButton, HoldButton, Screen, Word } from "../ui";
 import { ago, kilnLabel } from "../status";
+import { useT } from "../../i18n";
 
 export default function Kiln() {
+  const t = useT();
   const qc = useQueryClient();
   const nav = useNavigate();
   const { game } = useGame();
@@ -33,48 +35,48 @@ export default function Kiln() {
   const blocked = running || updating || busy;
 
   let say: string;
-  if (!game) say = "No game yet.";
-  else if (!rt) say = "Reading the game folder.";
-  else if (rt.installed) say = `Kiln ${kilnLabel(current ?? "")} is in the game.`;
-  else if (k.shroudforge) say = "ShroudForge is in this game. Switch in the desktop UI to install Kiln.";
-  else say = "Kiln is not in the game yet.";
+  if (!game) say = t("deck.shared.noGame");
+  else if (!rt) say = t("deck.kiln.readingFolder");
+  else if (rt.installed) say = t("deck.kiln.inGame", { version: kilnLabel(current ?? "") });
+  else if (k.shroudforge) say = t("deck.kiln.shroudforge");
+  else say = t("deck.shared.kilnNotInGame");
 
   return (
-    <Screen name="kiln" title="Kiln" say={say}>
+    <Screen name="kiln" title={t("deck.app.tabs.kiln")} say={say}>
       {game && rt && (
         <div className="deck-kiln">
           {busy && (
-            <p className="deck-line" data-testid="deck-kiln-task"><Word tone="ember">{change?.what}</Word> <span className="deck-dim">{task?.message ?? "Starting"}</span>
+            <p className="deck-line" data-testid="deck-kiln-task"><Word tone="ember">{change?.what}</Word> <span className="deck-dim">{task?.message ?? t("deck.shared.starting")}</span>
               {task?.progress != null && <span className="deck-bar" aria-hidden><i style={{ width: `${Math.round(task.progress * 100)}%` }} /></span>}</p>
           )}
-          {!busy && change?.state === "failed" && <p className="deck-line"><Word tone="err">{change.what} failed</Word> <span className="deck-dim">{change.error?.message}</span></p>}
-          {!busy && change?.state === "done" && <p className="deck-line"><Word tone="ok">{change.what} done</Word></p>}
-          {running && <p className="deck-line"><Word tone="warn">Close the game first</Word></p>}
-          {updating && <p className="deck-line"><Word tone="warn">Steam is updating the game</Word></p>}
-          <dl className="deck-facts" tabIndex={0} data-deck-a="-" data-deck-id="facts" aria-label="Kiln in the game">
-            <div><dt>Version</dt><dd>{current ? kilnLabel(current) : "None"}</dd></div>
-            <div><dt>{rt.receipt?.updated ? "Updated" : "Installed"}</dt><dd>{rt.receipt ? ago(rt.receipt.updated ?? rt.receipt.installed) : "-"}</dd></div>
-            <div><dt>Files</dt><dd>{rt.receipt ? rt.receipt.files.length : "-"}{rt.modified.length ? `, ${rt.modified.length} changed` : ""}</dd></div>
-            <div><dt>Runs on</dt><dd>{game.platform === "proton" ? "Proton" : game.platform === "wine" ? "Wine" : "Windows"}</dd></div>
+          {!busy && change?.state === "failed" && <p className="deck-line"><Word tone="err">{t("deck.shared.whatFailed", { what: change.what })}</Word> <span className="deck-dim">{change.error?.message}</span></p>}
+          {!busy && change?.state === "done" && <p className="deck-line"><Word tone="ok">{t("deck.kiln.whatDone", { what: change.what })}</Word></p>}
+          {running && <p className="deck-line"><Word tone="warn">{t("deck.shared.closeGameFirst")}</Word></p>}
+          {updating && <p className="deck-line"><Word tone="warn">{t("deck.shared.steamUpdating")}</Word></p>}
+          <dl className="deck-facts" tabIndex={0} data-deck-a="-" data-deck-id="facts" aria-label={t("deck.kiln.factsAria")}>
+            <div><dt>{t("deck.kiln.version")}</dt><dd>{current ? kilnLabel(current) : t("deck.kiln.none")}</dd></div>
+            <div><dt>{rt.receipt?.updated ? t("deck.kiln.updated") : t("deck.kiln.installed")}</dt><dd>{rt.receipt ? ago(rt.receipt.updated ?? rt.receipt.installed) : "-"}</dd></div>
+            <div><dt>{t("deck.kiln.files")}</dt><dd>{rt.modified.length ? t("deck.kiln.filesChanged", { files: rt.receipt ? rt.receipt.files.length : "-", changed: rt.modified.length }) : rt.receipt ? rt.receipt.files.length : "-"}</dd></div>
+            <div><dt>{t("deck.kiln.runsOn")}</dt><dd>{game.platform === "proton" ? "Proton" : game.platform === "wine" ? "Wine" : "Windows"}</dd></div>
           </dl>
           <div className="deck-row-buttons">
             {!rt.installed && !k.shroudforge && (
-              <DeckButton id="install" primary autoFocus disabled={blocked || !k.bundle} onClick={() => setOpen("install")}>Install Kiln</DeckButton>
+              <DeckButton id="install" primary autoFocus disabled={blocked || !k.bundle} onClick={() => setOpen("install")}>{t("deck.shared.installKiln")}</DeckButton>
             )}
             {rt.installed && upgrade && (
-              <DeckButton id="update" primary autoFocus disabled={blocked} onClick={() => setOpen("update")}>Update to {kilnLabel(upgrade)}</DeckButton>
+              <DeckButton id="update" primary autoFocus disabled={blocked} onClick={() => setOpen("update")}>{t("deck.shared.updateTo", { version: kilnLabel(upgrade) })}</DeckButton>
             )}
             {rt.installed && (
-              <HoldButton id="uninstall" disabled={blocked} onConfirm={() => void runRuntimeChange(qc, game, k.bundles, "Uninstall", null, "Kiln removed", () => api.runtimeUninstall(game.id))}>
-                Hold to uninstall
+              <HoldButton id="uninstall" disabled={blocked} onConfirm={() => void runRuntimeChange(qc, game, k.bundles, t("deck.kiln.uninstall"), null, t("deck.kiln.removed"), () => api.runtimeUninstall(game.id))}>
+                {t("deck.kiln.holdUninstall")}
               </HoldButton>
             )}
-            {k.shroudforge && <DeckButton id="desktop" onClick={() => switchUi(nav, "desktop")}>Desktop UI</DeckButton>}
+            {k.shroudforge && <DeckButton id="desktop" onClick={() => switchUi(nav, "desktop")}>{t("deck.shared.desktopUi")}</DeckButton>}
           </div>
-          {rt.installed && !upgrade && <p className="deck-note">Up to date.</p>}
+          {rt.installed && !upgrade && <p className="deck-note">{t("deck.kiln.upToDate")}</p>}
         </div>
       )}
-      {!game && <DeckButton id="go-home" onClick={() => nav("/deck")}>Home</DeckButton>}
+      {!game && <DeckButton id="go-home" onClick={() => nav("/deck")}>{t("deck.shared.home")}</DeckButton>}
       {open && game && <InstallDialog game={game} update={open === "update"} onClose={() => setOpen(null)} />}
     </Screen>
   );

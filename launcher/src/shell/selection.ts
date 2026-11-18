@@ -6,6 +6,7 @@
 import { useEffect } from "react";
 import { create } from "zustand";
 import { onProfileSwitch } from "../api/oneActivation";
+import { t } from "../i18n";
 
 export interface Selection {
   /** Selected row keys, in the order they were selected. */
@@ -82,7 +83,7 @@ export function dropSelection(game: string) {
 export function pruneSelection(game: string, owner: string | null, keys: string[], read: boolean, say = false): number {
   if (!read || owner === null) return 0;
   const { sel, dropped } = keepShown(selectionOf(game, owner), keys);
-  if (dropped) setSelection(game, owner, sel, say && sel.keys.length ? `${dropped} not shown any more left the selection` : null);
+  if (dropped) setSelection(game, owner, sel, say && sel.keys.length ? t("shell.selection.dropped", { count: dropped }) : null);
   return dropped;
 }
 

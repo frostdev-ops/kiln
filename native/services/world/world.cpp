@@ -210,6 +210,7 @@ void KILN_CALL on_pre(const KilnTickInfo* tick, void*) {
     teleport_pre(tick);
     writes_pre(tick);
     selftest_pre(tick);
+    ecs_check_pre(tick);
 }
 
 // ---- the table ----
@@ -370,10 +371,19 @@ const KilnWorldApi kTable = {
     &program_world_state,
     &bind_program_world,
     &unbind_program_world,
+    // appended in v4: verified-copy ECS reads from task threads, at 528..576
+    &t_entity_open,
+    &t_entity_validate,
+    &t_ecs_context_snapshot,
+    &t_ecs_query,
+    &t_ecs_snapshot,
+    &t_ecs_snapshot_many,
+    &t_ecs_template_uuid,
 };
-static_assert(sizeof(KilnWorldApi) == 528 && offsetof(KilnWorldApi, foreign_attr_changed) == 488 &&
-                  offsetof(KilnWorldApi, register_program_world) == 496 && offsetof(KilnWorldApi, unbind_program_world) == 520,
-              "kiln.world's table: the client-world members append at 496, after the foreign views");
+static_assert(sizeof(KilnWorldApi) == 584 && offsetof(KilnWorldApi, foreign_attr_changed) == 488 &&
+                  offsetof(KilnWorldApi, register_program_world) == 496 && offsetof(KilnWorldApi, unbind_program_world) == 520 &&
+                  offsetof(KilnWorldApi, entity_open) == 528 && offsetof(KilnWorldApi, ecs_template_uuid) == 576,
+              "kiln.world's table: the client-world members append at 496, the ECS reads at 528");
 
 void KILN_CALL on_client_pre(const KilnTickInfo* tick, void*) {
     game_programs_pre(KILN_WORLD_CLIENT, tick);
@@ -394,12 +404,15 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     g_owner = owner;
     if (info->size >= offsetof(KilnPluginInfo, on_ready) + sizeof(info->on_ready))
         info->on_ready = [](void*) {
+            ecs_prod_ready();
+            ecs_check_init();
             boot_programs_init();
             in_program_resolve(program_types());
         };
     info->id = KilnStr{KILN_WORLD_SERVICE, sizeof(KILN_WORLD_SERVICE) - 1};
     info->version = KilnStr{"4", 1};
     resolve();
+    ecs_prod_init();
     game_programs_resolve();
     wraps_init();
     const bool hooked = programs_init();

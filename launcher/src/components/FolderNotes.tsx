@@ -6,6 +6,7 @@
 import { useState } from "react";
 import type { GameId } from "../api/commands";
 import { useActiveProfile } from "../api/hooks";
+import { useT } from "../i18n";
 import { folderNotesCount, folderNotesOf, retainedLine, useFolderNotes, type FolderNotes } from "../shell/notices";
 import { Button, Modal } from "../ui";
 import { OwnFoldersSection, useOwnFolders } from "./OwnFolders";
@@ -21,7 +22,8 @@ export function useGameFolderNotes(gameId: GameId | null | undefined): FolderNot
 
 /** The notes as sections (desktop dialog and Deck dialog alike). */
 export function FolderNotesList({ notes }: { notes: FolderNotes }) {
-  if (!folderNotesCount(notes)) return <p className="k-hint">Nothing to note: the last time Kiln wrote your mods to the game, it had nothing to say about their folders.</p>;
+  const t = useT();
+  if (!folderNotesCount(notes)) return <p className="k-hint">{t("folderNotes.nothing")}</p>;
   const section = (title: string, lines: string[]) => lines.length > 0 && (
     <section className="k-folder-notes-section" aria-label={title}>
       <h3 className="k-label">{title}</h3>
@@ -30,15 +32,16 @@ export function FolderNotesList({ notes }: { notes: FolderNotes }) {
   );
   return (
     <div className="k-folder-notes" data-folder-notes="">
-      {section("Left in the game folder", notes.retained.map(retainedLine))}
-      {section("Mod files kept", notes.keptFiles)}
-      {section("Notes on your mods", notes.warnings)}
+      {section(t("folderNotes.retained"), notes.retained.map(retainedLine))}
+      {section(t("folderNotes.keptFiles"), notes.keptFiles)}
+      {section(t("folderNotes.warnings"), notes.warnings)}
     </div>
   );
 }
 
 /** "Notes (N)" for the main list's bar: nothing when the last activation said nothing. */
 export function FolderNotesButton({ gameId }: { gameId: GameId }) {
+  const t = useT();
   const notes = useGameFolderNotes(gameId);
   const [open, setOpen] = useState(false);
   const n = folderNotesCount(notes);
@@ -48,11 +51,11 @@ export function FolderNotesButton({ gameId }: { gameId: GameId }) {
   if (!n && !open) return null;
   return (
     <>
-      <button type="button" className="k-link" onClick={() => setOpen(true)} title="What Kiln said about your mod folders the last time it wrote your mods to the game">
-        Notes ({n})
+      <button type="button" className="k-link" onClick={() => setOpen(true)} title={t("folderNotes.buttonTip")}>
+        {t("folderNotes.button", { count: n })}
       </button>
-      <Modal open={open} onClose={() => setOpen(false)} title="Notes about your mod folders" width={640} footer={<Button onClick={() => setOpen(false)}>Done</Button>}>
-        <p className="k-hint">From the last time Kiln wrote your mods to the game. Kiln shows each note once when it is new; Settings, Launcher can turn that off.</p>
+      <Modal open={open} onClose={() => setOpen(false)} title={t("folderNotes.title")} width={640} footer={<Button onClick={() => setOpen(false)}>{t("common.done")}</Button>}>
+        <p className="k-hint">{t("folderNotes.intro")}</p>
         <FolderNotesList notes={notes} />
         {!!own.data?.length && <div style={{ marginTop: 14 }}><OwnFoldersSection profileId={profileId} gameId={gameId} /></div>}
       </Modal>

@@ -12,7 +12,8 @@
   "sections": [
     { "path": "native", "comment": "Native mods", "synced": false },
     { "path": "mods", "comment": "Managed mods", "synced": false },
-    { "path": "shroudforge", "comment": "ShroudForge mods", "synced": false }
+    { "path": "shroudforge", "comment": "ShroudForge mods", "synced": false },
+    { "path": "ui", "comment": "In the game: Kiln's look and language (also in game: Mods, Kiln settings, Look) and chat history", "synced": false }
   ],
   "entries": [
     { "path": "policy", "type": "enum", "comment": "Hook only verified game builds, or any build", "default": "verified-only", "options": ["verified-only", "any"], "requiresRestart": false, "synced": false },
@@ -25,6 +26,13 @@
     { "path": "mods.stop_timeout_ms", "type": "int", "comment": "Time a mod gets to stop", "default": 5000, "min": 0, "max": 60000, "requiresRestart": false, "synced": false },
     { "path": "mods.test_timeout_s", "type": "float", "comment": "Time a mod test gets", "default": 30, "min": 1, "max": 600, "requiresRestart": false, "synced": false },
     { "path": "mods.crash_reports", "type": "bool", "comment": "Write crash reports", "default": true, "requiresRestart": false, "synced": false },
-    { "path": "shroudforge.useInstalled", "type": "bool", "comment": "Use my installed ShroudForge instead of Kiln's bundled one", "default": false, "requiresRestart": true, "synced": false }
+    { "path": "shroudforge.useInstalled", "type": "bool", "comment": "Use my installed ShroudForge instead of Kiln's bundled one", "default": false, "requiresRestart": true, "synced": false },
+    { "path": "ui.look", "type": "enum", "comment": "Look of Kiln's in-game menus and windows: the game's, the game's see-through, Kiln's classic ember, or a theme a mod offers", "default": "game", "options": ["game", "translucent", "kiln", "theme"], "requiresRestart": false, "synced": false },
+    { "path": "ui.theme", "type": "string", "comment": "With the look \"theme\": the theme (<mod id>:<name>; Kiln's in-game Look setting lists the ones your mods offer)", "default": "", "requiresRestart": false, "synced": false },
+    { "path": "ui.background", "type": "float", "comment": "Window background opacity of the translucent look", "default": 0.55, "min": 0.1, "max": 1, "requiresRestart": false, "synced": false },
+    { "path": "ui.opacity", "type": "float", "comment": "Opacity of Kiln's whole in-game UI, text included", "default": 1, "min": 0.3, "max": 1, "requiresRestart": false, "synced": false },
+    { "path": "ui.scale", "type": "float", "comment": "Size of Kiln's in-game UI on top of the display's scale", "default": 1, "min": 0.75, "max": 1.5, "requiresRestart": false, "synced": false },
+    { "path": "ui.language", "type": "string", "comment": "Language of Kiln's in-game texts: \"auto\" follows the game's text language, or a language tag such as \"zh-CN\" (the texts are Kiln's locales/<tag>.json; a language without a file shows English)", "default": "auto", "requiresRestart": false, "synced": false },
+    { "path": "ui.chatHistory", "type": "bool", "comment": "Chat history: Up and Down in the chat field bring back what you sent; your / commands are kept for next time", "default": false, "requiresRestart": true, "synced": false }
   ]
 }

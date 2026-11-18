@@ -7,6 +7,7 @@
 import { Plus, X } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 import type { Json, SchemaSnapshot, SnapshotEntry, ValidationError } from "../api/commands";
+import { rich, t as tr, useT } from "../i18n";
 import { IconButton } from "./Button";
 import { NumberInput, Select, Slider, TextInput, Toggle } from "./Form";
 
@@ -30,10 +31,10 @@ const UNITS: Record<string, number> = { ms: 0.001, s: 1, m: 60, h: 3600, d: 8640
 
 /** Seconds in a Kiln duration ("90s", "1h30m"), or null. */
 export function parseDuration(text: string): number | null {
-  const t = text.trim();
-  if (!DURATION.test(t)) return null;
+  const str = text.trim();
+  if (!DURATION.test(str)) return null;
   let s = 0;
-  for (const m of t.matchAll(/(\d+(?:\.\d+)?)(ms|s|m|h|d)/g)) s += Number(m[1]) * UNITS[m[2]];
+  for (const m of str.matchAll(/(\d+(?:\.\d+)?)(ms|s|m|h|d)/g)) s += Number(m[1]) * UNITS[m[2]];
   return s;
 }
 
@@ -51,19 +52,19 @@ export function getPath(values: Json, path: string): Json | undefined {
 
 /** Client-side check mirroring Kiln.Api's rules (the backend validates again). */
 export function checkValue(e: SnapshotEntry, v: Json): string | null {
-  const t = e.type;
-  if (t === "bool") return typeof v === "boolean" ? null : "Not on/off";
-  if (t === "int" || t === "float") {
-    if (typeof v !== "number" || Number.isNaN(v)) return "Not a number";
-    if (t === "int" && !Number.isInteger(v)) return "Whole numbers only";
-    if (e.min !== undefined && v < e.min) return `Min ${e.min}`;
-    if (e.max !== undefined && v > e.max) return `Max ${e.max}`;
+  const ty = e.type;
+  if (ty === "bool") return typeof v === "boolean" ? null : tr("ui.schemaForm.notOnOff");
+  if (ty === "int" || ty === "float") {
+    if (typeof v !== "number" || Number.isNaN(v)) return tr("ui.schemaForm.notNumber");
+    if (ty === "int" && !Number.isInteger(v)) return tr("ui.schemaForm.wholeOnly");
+    if (e.min !== undefined && v < e.min) return tr("ui.schemaForm.min", { min: e.min });
+    if (e.max !== undefined && v > e.max) return tr("ui.schemaForm.max", { max: e.max });
     return null;
   }
-  if (t === "enum") return typeof v === "string" && (!e.options || e.options.includes(v)) ? null : "Not an option";
-  if (t === "duration") return typeof v === "string" && parseDuration(v) !== null ? null : 'Like "30s", "5m", "1h30m"';
-  if (t.startsWith("list<")) return Array.isArray(v) ? null : "Not a list";
-  return typeof v === "string" ? null : "Not text";
+  if (ty === "enum") return typeof v === "string" && (!e.options || e.options.includes(v)) ? null : tr("ui.schemaForm.notOption");
+  if (ty === "duration") return typeof v === "string" && parseDuration(v) !== null ? null : tr("ui.schemaForm.durationLike");
+  if (ty.startsWith("list<")) return Array.isArray(v) ? null : tr("ui.schemaForm.notList");
+  return typeof v === "string" ? null : tr("ui.schemaForm.notText");
 }
 
 const same = (a: Json | undefined, b: Json | undefined) => JSON.stringify(a) === JSON.stringify(b);
@@ -74,6 +75,7 @@ const label = (path: string) => {
 };
 
 export function SchemaForm({ schema, values, onChange, onReset, errors = [], pending = [], disabled, filter }: SchemaFormProps) {
+  const t = useT();
   const groups = useMemo(() => {
     const secs = [...(schema.sections ?? [])].sort((a, b) => b.path.length - a.path.length);
     const f = filter?.trim().toLowerCase();
@@ -87,7 +89,7 @@ export function SchemaForm({ schema, values, onChange, onReset, errors = [], pen
     return order.filter((s, i) => map.has(s) && order.indexOf(s) === i).map((s) => ({ section: (schema.sections ?? []).find((x) => x.path === s) ?? null, entries: map.get(s)! }));
   }, [schema, filter]);
 
-  if (groups.length === 0) return <div className="k-empty-title">{filter ? "No setting matches that." : "This config has no settings."}</div>;
+  if (groups.length === 0) return <div className="k-empty-title">{filter ? t("ui.schemaForm.noMatch") : t("ui.schemaForm.noSettings")}</div>;
   return (
     <div className="k-sform">
       {groups.map((g) => (
@@ -95,7 +97,7 @@ export function SchemaForm({ schema, values, onChange, onReset, errors = [], pen
           {g.section && (
             <div className="k-sform-section-head">
               <span className="k-sform-section-title">{label(g.section.path)}</span>
-              {g.section.synced && <span className="k-word-sm k-tone-info" title="Sent to Kiln clients">Synced</span>}
+              {g.section.synced && <span className="k-word-sm k-tone-info" title={t("ui.schemaForm.syncedTitle")}>{t("ui.schemaForm.synced")}</span>}
               {g.section.comment && <span className="k-hint">{g.section.comment}</span>}
             </div>
           )}
@@ -120,6 +122,7 @@ interface RowProps {
 }
 
 function EntryRow({ entry: e, value, onChange, onReset, error, pending, disabled }: RowProps) {
+  const t = useT();
   const v = value === undefined ? e.default : value;
   const changed = value !== undefined && !same(value, e.default);
   const local = checkValue(e, v);
@@ -131,9 +134,9 @@ function EntryRow({ entry: e, value, onChange, onReset, error, pending, disabled
       <div className="k-sform-meta">
         <div className="k-sform-label">
           <label htmlFor={id}>{label(e.path)}</label>
-          {e.requiresRestart && <span className="k-word-sm k-tone-warn" title="Applies after a restart">Restart</span>}
-          {e.synced && <span className="k-word-sm k-tone-info" title="Sent to Kiln clients">Synced</span>}
-          {pending && <span className="k-word-sm k-tone-ember" title="Saved; waits for a restart">Pending</span>}
+          {e.requiresRestart && <span className="k-word-sm k-tone-warn" title={t("ui.schemaForm.restartTitle")}>{t("ui.schemaForm.restart")}</span>}
+          {e.synced && <span className="k-word-sm k-tone-info" title={t("ui.schemaForm.syncedTitle")}>{t("ui.schemaForm.synced")}</span>}
+          {pending && <span className="k-word-sm k-tone-ember" title={t("ui.schemaForm.pendingTitle")}>{t("ui.schemaForm.pending")}</span>}
         </div>
         {e.comment && <span className="k-hint">{e.comment}</span>}
         <span className="k-sform-key">{e.path}</span>
@@ -143,8 +146,8 @@ function EntryRow({ entry: e, value, onChange, onReset, error, pending, disabled
         {shownError && <span className="k-error-text">{shownError}</span>}
         {changed && (
           <span className="k-sform-default">
-            Default <span className="k-mono">{fmt(e.default)}</span>
-            {onReset && <> · <button type="button" className="k-link" aria-label={`Reset ${label(e.path)} to its default`} onClick={() => onReset(e.path)} disabled={disabled}>Reset</button></>}
+            {rich("ui.schemaForm.default", { value: <span className="k-mono">{fmt(e.default)}</span> })}
+            {onReset && <> · <button type="button" className="k-link" aria-label={t("ui.schemaForm.resetLabel", { name: label(e.path) })} onClick={() => onReset(e.path)} disabled={disabled}>{t("common.reset")}</button></>}
           </span>
         )}
       </div>
@@ -158,21 +161,21 @@ function fmt(v: Json): string {
 }
 
 function Control({ id, entry: e, value, set, disabled, invalid }: { id: string; entry: SnapshotEntry; value: Json; set: (v: Json) => void; disabled?: boolean; invalid?: boolean }): ReactNode {
-  const t = e.type;
-  if (t === "bool") return <Toggle id={id} checked={value === true} onChange={set} disabled={disabled} aria-label={e.path} />;
-  if (t === "int" || t === "float") {
+  const ty = e.type;
+  if (ty === "bool") return <Toggle id={id} checked={value === true} onChange={set} disabled={disabled} aria-label={e.path} />;
+  if (ty === "int" || ty === "float") {
     const n = typeof value === "number" ? value : Number(value);
     if (e.min !== undefined && e.max !== undefined && e.max > e.min && e.max - e.min <= 100000)
-      return <Slider id={id} value={n} min={e.min} max={e.max} integer={t === "int"} onCommit={set} disabled={disabled} aria-label={e.path} />;
-    return <NumberInput id={id} value={Number.isNaN(n) ? null : n} integer={t === "int"} min={e.min} max={e.max} onCommit={set} disabled={disabled} invalid={invalid} />;
+      return <Slider id={id} value={n} min={e.min} max={e.max} integer={ty === "int"} onCommit={set} disabled={disabled} aria-label={e.path} />;
+    return <NumberInput id={id} value={Number.isNaN(n) ? null : n} integer={ty === "int"} min={e.min} max={e.max} onCommit={set} disabled={disabled} invalid={invalid} />;
   }
-  if (t === "enum") {
+  if (ty === "enum") {
     const opts = e.options ?? [];
     const cur = typeof value === "string" ? value : "";
     return <Select id={id} value={cur} options={opts.includes(cur) ? opts : [cur, ...opts]} onChange={set} disabled={disabled} invalid={invalid} />;
   }
-  if (t === "duration") return <CommitText id={id} value={typeof value === "string" ? value : String(value ?? "")} onCommit={set} disabled={disabled} invalid={invalid} placeholder="5m" mono />;
-  if (t.startsWith("list<")) return <ListEdit id={id} inner={t.slice(5, -1)} value={Array.isArray(value) ? value : []} onCommit={set} disabled={disabled} />;
+  if (ty === "duration") return <CommitText id={id} value={typeof value === "string" ? value : String(value ?? "")} onCommit={set} disabled={disabled} invalid={invalid} placeholder="5m" mono />;
+  if (ty.startsWith("list<")) return <ListEdit id={id} inner={ty.slice(5, -1)} value={Array.isArray(value) ? value : []} onCommit={set} disabled={disabled} />;
   return <CommitText id={id} value={typeof value === "string" ? value : value === null ? "" : String(value)} onCommit={set} disabled={disabled} invalid={invalid} />;
 }
 
@@ -195,6 +198,7 @@ function parseItem(inner: string, text: string): Json | undefined {
 }
 
 function ListEdit({ id, inner, value, onCommit, disabled }: { id: string; inner: string; value: Json[]; onCommit: (v: Json[]) => void; disabled?: boolean }) {
+  const t = useT();
   const [text, setText] = useState("");
   const item = parseItem(inner, text);
   const add = () => { if (item !== undefined) { onCommit([...value, item]); setText(""); } };
@@ -204,15 +208,15 @@ function ListEdit({ id, inner, value, onCommit, disabled }: { id: string; inner:
         <div className="k-chip-row">
           {value.map((x, i) => (
             <span key={i} className="k-chip">{String(x)}
-              <button type="button" aria-label={`Remove ${String(x)}`} disabled={disabled} onClick={() => onCommit(value.filter((_, j) => j !== i))}><X size={12} /></button>
+              <button type="button" aria-label={t("ui.schemaForm.removeItem", { item: String(x) })} disabled={disabled} onClick={() => onCommit(value.filter((_, j) => j !== i))}><X size={12} /></button>
             </span>
           ))}
         </div>
       )}
       <div className="k-input-group">
-        <TextInput id={id} value={text} onChange={(e) => setText(e.target.value)} placeholder={`Add ${inner}`} disabled={disabled} mono
+        <TextInput id={id} value={text} onChange={(e) => setText(e.target.value)} placeholder={t("ui.schemaForm.addItem", { type: inner })} disabled={disabled} mono
           invalid={text.trim() !== "" && item === undefined} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }} />
-        <IconButton label="Add" icon={<Plus />} variant="secondary" onClick={add} disabled={disabled || item === undefined} />
+        <IconButton label={t("common.add")} icon={<Plus />} variant="secondary" onClick={add} disabled={disabled || item === undefined} />
       </div>
     </div>
   );

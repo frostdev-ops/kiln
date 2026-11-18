@@ -12,8 +12,10 @@ import { PathText, toast, useTasks } from "../ui";
 import { FolderView, useBrowse } from "./dialogs";
 import { useLayer } from "./layers";
 import { DeckButton, Dialog, Overlay, Row, Word, dialogFirst, useFirstFocus, useReturnFocus } from "./ui";
+import { useT } from "../i18n";
 
 export function DeckDataFolderRow() {
+  const t = useT();
   const f = useDataFolder();
   const info = useAppInfo();
   const view = rowView(f.data, f.error, info.data?.dataDir);
@@ -24,7 +26,7 @@ export function DeckDataFolderRow() {
   const current = view.path ?? "";
   return (
     <>
-      <Row id="set-data" title="Data folder" a="Change" disabled={!view.canChange || s.at === "checking"}
+      <Row id="set-data" title={t("deck.dataFolder.title")} a={t("deck.shared.change")} disabled={!view.canChange || s.at === "checking"}
         sub={view.why ?? (view.path ? <PathText path={view.path} testId="deck-data-folder-path" /> : undefined)}
         end={<Word tone="idle">{size?.text ?? "…"}</Word>} onClick={() => setBrowse(true)} />
       {browse && <BrowseDialog onClose={() => setBrowse(false)} onUse={(dir) => { setBrowse(false); void flow.check(dir); }} />}
@@ -49,17 +51,17 @@ export function DeckDataFolderRow() {
       {s.at === "stopped" && (() => {
         const v = stoppedView(s.how, s.error);
         return (
-          <Dialog name="data-stopped" title={v.title} onClose={flow.close} backLabel="Close" buttons={<DeckButton primary onClick={flow.close}>Close</DeckButton>}>
+          <Dialog name="data-stopped" title={v.title} onClose={flow.close} backLabel={t("common.close")} buttons={<DeckButton primary onClick={flow.close}>{t("common.close")}</DeckButton>}>
             {v.lines.map((l, i) => i < v.lines.length - 1
               ? <p key={l} className="deck-note" role="alert"><Word tone="err">{l}</Word></p>
               : <p key={l} className="deck-note">{l} <PathText path={current} /></p>)}
           </Dialog>
         );
       })()}
-      {s.at === "restarting" && <Dialog name="data-restarting" title="Restarting" onClose={() => {}} locked />}
+      {s.at === "restarting" && <Dialog name="data-restarting" title={t("deck.dataFolder.restarting")} onClose={() => {}} locked />}
       {s.at === "done" && (
-        <Dialog name="data-done" title={s.moved ? "Data folder moved" : "Restart Kiln"} onClose={() => {}} locked
-          buttons={<DeckButton primary onClick={flow.restart}>Restart</DeckButton>}>
+        <Dialog name="data-done" title={s.moved ? t("deck.dataFolder.moved") : t("deck.dataFolder.restartKiln")} onClose={() => {}} locked
+          buttons={<DeckButton primary onClick={flow.restart}>{t("deck.dataFolder.restart")}</DeckButton>}>
           {(doneLines(s.moved) ?? []).map((w) => <p key={w} className="deck-note">{w}</p>)}
           {s.error && <p className="deck-note" role="alert">{s.error}</p>}
         </Dialog>
@@ -70,18 +72,19 @@ export function DeckDataFolderRow() {
 
 /** Pick the new place: browse to it, then "Use this folder". */
 function BrowseDialog({ onClose, onUse }: { onClose: () => void; onUse: (dir: string) => void }) {
+  const t = useT();
   const ref = useRef<HTMLDivElement>(null);
   // from Downloads, as Add mods; the places (Home, the SD card) are one press away
   const b = useBrowse(null, ref);
   const opener = useRef<HTMLElement | null>(document.activeElement as HTMLElement | null);
   useFirstFocus(ref, null, dialogFirst);
   useReturnFocus(opener);
-  useLayer(ref, { modal: true, backLabel: "Up", back: () => { if (!b.up()) onClose(); }, actions: [{ button: "x", label: "Close", run: onClose }] });
+  useLayer(ref, { modal: true, backLabel: t("deck.shared.up"), back: () => { if (!b.up()) onClose(); }, actions: [{ button: "x", label: t("common.close"), run: onClose }] });
   const f = b.q.data;
   return (
     <Overlay name="data-browse">
-      <div ref={ref} className="deck-dialog wide tall" role="dialog" aria-modal="true" aria-label="Data folder">
-        <h2 className="deck-dialog-title">Data folder</h2>
+      <div ref={ref} className="deck-dialog wide tall" role="dialog" aria-modal="true" aria-label={t("deck.dataFolder.title")}>
+        <h2 className="deck-dialog-title">{t("deck.dataFolder.title")}</h2>
         <FolderView f={f} loading={b.q.isLoading} error={b.q.error} mode="folder" onOpen={(d) => b.open(d)} onPlace={(d) => b.jump(d)}
           onUse={() => f && onUse(f.dir)} />
       </div>
@@ -90,21 +93,23 @@ function BrowseDialog({ onClose, onUse }: { onClose: () => void; onUse: (dir: st
 }
 
 function MovingDialog({ taskId, canceling, onCancel }: { taskId: api.TaskId; canceling: boolean; onCancel: () => void }) {
-  const t = useTasks((x) => x.tasks[taskId]);
+  const t = useT();
+  const task = useTasks((x) => x.tasks[taskId]);
   return (
-    <Dialog name="data-moving" title="Moving the data folder" onClose={() => {}} locked
-      buttons={<DeckButton primary disabled={canceling} onClick={onCancel}>{canceling ? "Canceling" : "Cancel"}</DeckButton>}>
+    <Dialog name="data-moving" title={t("deck.dataFolder.moving")} onClose={() => {}} locked
+      buttons={<DeckButton primary disabled={canceling} onClick={onCancel}>{canceling ? t("deck.dataFolder.canceling") : t("common.cancel")}</DeckButton>}>
       <p className="deck-line" data-testid="deck-data-task">
-        <span className="deck-dim">{t?.message ?? "Starting"}</span>
-        {t?.progress != null && <span className="deck-bar" aria-hidden><i style={{ width: `${Math.round(t.progress * 100)}%` }} /></span>}
+        <span className="deck-dim">{task?.message ?? t("deck.shared.starting")}</span>
+        {task?.progress != null && <span className="deck-bar" aria-hidden><i style={{ width: `${Math.round(task.progress * 100)}%` }} /></span>}
       </p>
-      {movingLine(t?.message) && <p className="deck-note" data-testid="deck-data-removing">{movingLine(t?.message)}</p>}
+      {movingLine(task?.message) && <p className="deck-note" data-testid="deck-data-removing">{movingLine(task?.message)}</p>}
     </Dialog>
   );
 }
 
 /** The first start after a move (Deck mode). */
 export function DeckDataFolderNotice() {
+  const t = useT();
   const qc = useQueryClient();
   const f = useDataFolder();
   const n = f.data?.notice;
@@ -115,10 +120,10 @@ export function DeckDataFolderNotice() {
     api.dataFolderNoticeAck().catch(() => { /* it shows again at the next start */ });
   };
   return (
-    <Dialog name="data-notice" title={v.title} onClose={ack} backLabel="Close" wide
+    <Dialog name="data-notice" title={v.title} onClose={ack} backLabel={t("common.close")} wide
       buttons={<>
         {v.open && <DeckButton onClick={() => api.appOpenPath(n.kind === "undone" ? n.to : n.from).catch((e) => toast.error(e))}>{v.openLabel}</DeckButton>}
-        <DeckButton primary onClick={ack}>OK</DeckButton>
+        <DeckButton primary onClick={ack}>{t("common.ok")}</DeckButton>
       </>}>
       {v.facts.length > 0 && (
         <dl className="deck-facts deck-df">

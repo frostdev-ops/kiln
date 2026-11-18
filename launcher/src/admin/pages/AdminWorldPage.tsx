@@ -4,72 +4,86 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { invalidateAdmin, useAdminCall, useAdminQuery, useHasOp } from "../../api/admin";
+import { useT } from "../../i18n";
 import { NeedsOp, useServerId, withAdmin } from "../common";
 import { OfflineNote } from "../ConnectionBar";
-import { GAME_SETTINGS, NS_PER_MIN, checkSetting, shownSetting, type SettingSpec } from "../gameSettings";
+import { GAME_SETTINGS, NS_PER_MIN, checkSetting, groupLabel, optionLabel, shownSetting, type SettingSpec } from "../gameSettings";
 import type { SettingsGet, SettingsSet, TimeState } from "../types";
-import { Badge, Banner, Button, Card, Page, PageHeader, Select, Slider, TextInput, Toggle, confirm, pretty, toastError, toastOk } from "../ui";
+import { Badge, Banner, Button, Card, Page, PageHeader, Select, Slider, TextInput, Toggle, confirm, toastError, toastOk } from "../ui";
 
 function WorldPage() {
+  const t = useT();
   return (
     <Page>
-      <PageHeader title="World" sub="Time, weather and the world's settings, live on the running server." />
+      <PageHeader title={t("admin.world.title")} sub={t("admin.world.sub")} />
       <OfflineNote />
       <div className="k-grid k-grid-2">
-        <NeedsOp ops={["time_get", "time_set"]} what="Time of day">
+        <NeedsOp ops={["time_get", "time_set"]} what={t("admin.world.timeOfDay")}>
           <TimeCard />
         </NeedsOp>
-        <NeedsOp ops="broadcast" what="Broadcast">
+        <NeedsOp ops="broadcast" what={t("admin.world.broadcast")}>
           <BroadcastCard />
         </NeedsOp>
       </div>
-      <NeedsOp ops={["settings_get", "settings_set"]} what="Live world settings">
+      <NeedsOp ops={["settings_get", "settings_set"]} what={t("admin.world.liveSettings")}>
         <SettingsCard />
       </NeedsOp>
     </Page>
   );
 }
 
-const PRESETS: [string, number][] = [["Dawn", 6], ["Morning", 9], ["Noon", 12], ["Dusk", 19], ["Night", 22], ["Midnight", 0]];
+/** Hours of the time presets. */
+const PRESETS = [6, 9, 12, 19, 22, 0];
+function presetLabel(h: number, t: (key: string) => string): string {
+  switch (h) {
+    case 6: return t("admin.world.dawn");
+    case 9: return t("admin.world.morning");
+    case 12: return t("admin.world.noon");
+    case 19: return t("admin.world.dusk");
+    case 22: return t("admin.world.night");
+    default: return t("admin.world.midnight");
+  }
+}
 
 function TimeCard() {
+  const t = useT();
   const id = useServerId();
   const qc = useQueryClient();
-  const t = useAdminQuery<TimeState>("time_get", {}, { refetchInterval: 4000 });
-  const set = useAdminCall<TimeState>("time_set", { onSuccess: (r) => { qc.setQueriesData({ queryKey: ["admin", id, "time_get"] }, r); toastOk(`Time is now ${r.clock}`); }, onError: (e) => toastError(e) });
-  const weather = useAdminCall("weather_reset", { onSuccess: () => toastOk("Weather reset"), onError: (e) => toastError(e) });
+  const time = useAdminQuery<TimeState>("time_get", {}, { refetchInterval: 4000 });
+  const set = useAdminCall<TimeState>("time_set", { onSuccess: (r) => { qc.setQueriesData({ queryKey: ["admin", id, "time_get"] }, r); toastOk(t("admin.world.timeNow", { clock: r.clock })); }, onError: (e) => toastError(e) });
+  const weather = useAdminCall("weather_reset", { onSuccess: () => toastOk(t("admin.world.weatherReset")), onError: (e) => toastError(e) });
   const hasWeather = useHasOp("weather_reset");
   const [clock, setClock] = useState("");
   const [game, setGame] = useState(false);
   const mode: Record<string, string> = game ? { mode: "game" } : {};
   const setClockText = () => {
     const m = /^(\d{1,2}):(\d{2})$/.exec(clock.trim());
-    if (!m || +m[1] > 23 || +m[2] > 59) return toastError({ message: "The time looks like 19:45." });
+    if (!m || +m[1] > 23 || +m[2] > 59) return toastError({ message: t("admin.world.timeFormat") });
     set.mutate({ clock: clock.trim(), ...mode });
   };
-  const s = t.data;
+  const s = time.data;
   return (
-    <Card title="Time of day" sub={s ? `Day ${s.dayMinutes} min · night ${s.nightMinutes} min` : undefined}
-      actions={s ? <Badge tone={s.day ? "warn" : "info"}>{s.day ? "day" : "night"}</Badge> : null}>
+    <Card title={t("admin.world.timeOfDay")} sub={s ? t("admin.world.dayNight", { day: s.dayMinutes, night: s.nightMinutes }) : undefined}
+      actions={s ? <Badge tone={s.day ? "warn" : "info"}>{s.day ? t("admin.world.badgeDay") : t("admin.world.badgeNight")}</Badge> : null}>
       <div className="k-stack" style={{ gap: 14 }}>
         <div className="ka-time">
           <span className="ka-clock">{s?.clock ?? "--:--"}</span>
           <div className="k-row">
-            {PRESETS.map(([l, h]) => (
-              <Button key={l} size="s" variant="secondary" disabled={set.isPending} onClick={() => set.mutate({ hours: h, ...mode })}>{l}</Button>
+            {PRESETS.map((h) => (
+              <Button key={h} size="s" variant="secondary" disabled={set.isPending} onClick={() => set.mutate({ hours: h, ...mode })}>{presetLabel(h, t)}</Button>
             ))}
           </div>
         </div>
-        {s ? <Slider aria-label="Hour" value={Math.round(s.hours * 4) / 4} min={0} max={23.75} step={0.25} onCommit={(h) => set.mutate({ hours: h, ...mode })} /> : null}
+        {s ? <Slider aria-label={t("admin.world.hour")} value={Math.round(s.hours * 4) / 4} min={0} max={23.75} step={0.25} onCommit={(h) => set.mutate({ hours: h, ...mode })} /> : null}
         <div className="ka-inline">
-          <TextInput aria-label="Clock" placeholder="19:45" value={clock} onChange={(e) => setClock(e.target.value)} onKeyDown={(e) => e.key === "Enter" && setClockText()} style={{ width: 100 }} mono />
-          <Button size="s" loading={set.isPending} onClick={setClockText}>Set time</Button>
-          <Toggle checked={game} onChange={setGame} label="Reset the game's clock" hint="Off: the world jumps forward to that time (plants grow, stations run)." />
+          <TextInput aria-label={t("admin.world.clock")} placeholder="19:45" value={clock} onChange={(e) => setClock(e.target.value)} onKeyDown={(e) => e.key === "Enter" && setClockText()} style={{ width: 100 }} mono />
+          <Button size="s" loading={set.isPending} onClick={setClockText}>{t("admin.world.setTime")}</Button>
+          <Toggle checked={game} onChange={setGame} label={t("admin.world.resetClock")} hint={t("admin.world.resetClockHint")} />
         </div>
         {s?.weather && hasWeather ? (
           <div className="ka-inline">
-            <Button size="s" loading={weather.isPending} onClick={() => weather.mutate({})}>Reset weather</Button>
-            <span className="k-hint">Ends the current weather; the game rolls new weather as usual.</span>
+            <Button size="s" loading={weather.isPending} onClick={() => weather.mutate({})}>{t("admin.world.resetWeather")}</Button>
+            <span className="k-hint">{t("admin.world.resetWeatherHint")}</span>
           </div>
         ) : null}
       </div>
@@ -78,31 +92,33 @@ function TimeCard() {
 }
 
 function BroadcastCard() {
+  const t = useT();
   const [text, setText] = useState("");
-  const send = useAdminCall<{ delivered: number }>("broadcast", { onSuccess: (r) => { toastOk(`Sent to ${r.delivered} player${r.delivered === 1 ? "" : "s"}`); setText(""); }, onError: (e) => toastError(e) });
+  const send = useAdminCall<{ delivered: number }>("broadcast", { onSuccess: (r) => { toastOk(t("admin.world.sentTo", { count: r.delivered })); setText(""); }, onError: (e) => toastError(e) });
   const go = () => {
-    const t = text.trim();
-    if (!t || t.length > 500) return toastError({ message: "A message of 1 to 500 characters." });
-    send.mutate({ text: t });
+    const msg = text.trim();
+    if (!msg || msg.length > 500) return toastError({ message: t("admin.world.messageRange") });
+    send.mutate({ text: msg });
   };
   return (
-    <Card title="Broadcast" sub="A chat line every player in the world sees">
+    <Card title={t("admin.world.broadcast")} sub={t("admin.world.broadcastSub")}>
       <div className="k-stack">
-        <TextInput aria-label="Broadcast text" value={text} maxLength={500} placeholder="Server restarts in 5 minutes." onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && go()} />
-        <div className="k-row"><span className="k-hint">{text.length} / 500</span><span className="k-spacer" /><Button size="s" loading={send.isPending} onClick={go}>Send to everyone</Button></div>
+        <TextInput aria-label={t("admin.world.broadcastText")} value={text} maxLength={500} placeholder={t("admin.world.broadcastPlaceholder")} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && go()} />
+        <div className="k-row"><span className="k-hint">{text.length} / 500</span><span className="k-spacer" /><Button size="s" loading={send.isPending} onClick={go}>{t("admin.world.sendEveryone")}</Button></div>
       </div>
     </Card>
   );
 }
 
 function SettingsCard() {
+  const t = useT();
   const id = useServerId();
   const qc = useQueryClient();
   const q = useAdminQuery<SettingsGet>("settings_get", {}, { staleTime: 10_000 });
   const [busy, setBusy] = useState<Set<string>>(new Set());
   const [errors, setErrors] = useState<Record<string, string>>({});
   const set = useAdminCall<SettingsSet>("settings_set");
-  const save = useAdminCall("settings_save", { onSuccess: () => toastOk("Saved to the server config"), onError: (e) => toastError(e) });
+  const save = useAdminCall("settings_save", { onSuccess: () => toastOk(t("admin.world.savedConfig")), onError: (e) => toastError(e) });
   const hasSave = useHasOp("settings_save");
   const groups = useMemo(() => {
     const g = new Map<string, SettingSpec[]>();
@@ -119,30 +135,30 @@ function SettingsCard() {
     set.mutate({ path: spec.key, value: r.value! }, {
       onSuccess: (res) => {
         qc.setQueriesData<SettingsGet>({ queryKey: ["admin", id, "settings_get"] }, (old) => (old ? { ...old, values: { ...old.values, [spec.key]: res.after } } : old));
-        toastOk(`${spec.label}: now ${spec.kind === "minutes" ? `${Math.round(Number(res.after) / NS_PER_MIN)} min` : pretty(String(res.after))} (live)`);
+        toastOk(t("admin.world.settingNow", { label: spec.label(), value: spec.kind === "minutes" ? t("admin.world.minutesValue", { n: Math.round(Number(res.after) / NS_PER_MIN) }) : optionLabel(String(res.after)) }));
       },
       onError: (e) => setErrors((x) => ({ ...x, [spec.key]: e.message })),
       onSettled: () => setBusy((b) => { const n = new Set(b); n.delete(spec.key); return n; }),
     });
   };
   const keep = async () => {
-    if (!(await confirm({ title: "Make the live values permanent?", body: <p>Kiln writes the current values into the server's config (enshrouded_server.json), so they survive restarts.</p>, ok: "Save to config" }))) return;
+    if (!(await confirm({ title: t("admin.world.permanentTitle"), body: <p>{t("admin.world.permanentBody")}</p>, ok: t("admin.world.saveToConfig") }))) return;
     save.mutate({});
   };
   return (
-    <Card title="World settings" sub="Changes apply at once and last until the server restarts, unless you make them permanent."
+    <Card title={t("admin.world.settingsTitle")} sub={t("admin.world.settingsSub")}
       actions={<>
-        <Button size="s" variant="ghost" onClick={() => invalidateAdmin(qc, id, ["settings_get"])}>Re-read</Button>
-        {hasSave ? <Button size="s" disabled={!q.data} loading={save.isPending} onClick={keep}>Make permanent</Button> : null}
+        <Button size="s" variant="ghost" onClick={() => invalidateAdmin(qc, id, ["settings_get"])}>{t("admin.world.reread")}</Button>
+        {hasSave ? <Button size="s" disabled={!q.data} loading={save.isPending} onClick={keep}>{t("admin.world.makePermanent")}</Button> : null}
       </>}>
       {q.error ? <Banner tone="warn">{q.error.message}</Banner> : null}
-      {q.data && !q.data.write_supported ? <Banner tone="warn">This server build reports the settings as read-only right now (the world may still be loading).</Banner> : null}
-      {!q.data && !q.error ? <div className="k-muted">Reading the live settings…</div> : null}
+      {q.data && !q.data.write_supported ? <Banner tone="warn">{t("admin.world.readOnly")}</Banner> : null}
+      {!q.data && !q.error ? <div className="k-muted">{t("admin.world.readingSettings")}</div> : null}
       {q.data ? (
         <div className="k-grid k-grid-2" style={{ alignItems: "start" }}>
           {groups.map(([g, list]) => (
             <div key={g} className="k-stack" style={{ gap: 4 }}>
-              <div className="k-label" style={{ textTransform: "uppercase", letterSpacing: ".08em", fontSize: 11 }}>{g}</div>
+              <div className="k-label" style={{ textTransform: "uppercase", letterSpacing: ".08em", fontSize: 11 }}>{groupLabel(g)}</div>
               <div className="ka-setting-group">
                 {list.map((spec) => <SettingRow key={spec.key} spec={spec} value={values[spec.key]} busy={busy.has(spec.key)} error={errors[spec.key]} onChange={(v) => change(spec, v)} />)}
               </div>
@@ -155,22 +171,24 @@ function SettingsCard() {
 }
 
 function SettingRow({ spec, value, busy, error, onChange }: { spec: SettingSpec; value: unknown; busy: boolean; error?: string; onChange: (v: unknown) => void }) {
+  const t = useT();
+  const label = spec.label();
   const lbl = (
     <div className="ka-setting-lbl">
-      <b>{spec.label}</b>
-      {error ? <small className="k-error-text">{error}</small> : spec.hint ? <small>{spec.hint}</small> : null}
+      <b>{label}</b>
+      {error ? <small className="k-error-text">{error}</small> : spec.hint ? <small>{spec.hint()}</small> : null}
     </div>
   );
-  if (value === undefined) return <div className="ka-setting">{lbl}<span className="k-muted">Not reported by the game</span></div>;
+  if (value === undefined) return <div className="ka-setting">{lbl}<span className="k-muted">{t("admin.world.notReported")}</span></div>;
   let ctl;
-  if (spec.kind === "bool") ctl = <Toggle checked={value === true} onChange={onChange} disabled={busy} label={value ? "On" : "Off"} />;
+  if (spec.kind === "bool") ctl = <Toggle checked={value === true} onChange={onChange} disabled={busy} label={value ? t("admin.world.on") : t("admin.world.off")} />;
   else if (spec.kind === "enum") {
     const opts = (spec.options ?? []).includes(String(value)) ? spec.options! : [String(value), ...(spec.options ?? [])];
-    ctl = <Select aria-label={spec.label} value={String(value)} onChange={onChange} disabled={busy} options={opts.map((o) => ({ value: o, label: pretty(o) }))} />;
+    ctl = <Select aria-label={label} value={String(value)} onChange={onChange} disabled={busy} options={opts.map((o) => ({ value: o, label: optionLabel(o) }))} />;
   } else {
     const shown = Number(shownSetting(spec, value));
     const step = spec.kind === "factor" ? 0.05 : 1;
-    ctl = <Slider aria-label={spec.label} value={shown} min={spec.min!} max={spec.max!} step={step} integer={spec.kind !== "factor"} onCommit={onChange} disabled={busy} />;
+    ctl = <Slider aria-label={label} value={shown} min={spec.min!} max={spec.max!} step={step} integer={spec.kind !== "factor"} onCommit={onChange} disabled={busy} />;
   }
   return (
     <div className={"ka-setting" + (busy ? " busy" : "")}>

@@ -128,7 +128,7 @@ internal static unsafe class GamePageHost
         var (header, body, footer) = MenuHosts.Parts(rect, s);
         var w = ui.Width;
         var h = ui.Height;
-        ui.PushStyleRaw(UiStyle.Game);
+        ui.PushStyleRaw(UiStyle.Player);  // the player's look (the game's unless they chose another)
         try
         {
             // no background: the game draws its 3D scene and vignette behind the page, as for its own pages

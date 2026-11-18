@@ -208,7 +208,11 @@ internal sealed partial class ModManager : IModsBackend, IDisposable
         Events.HandlerFaulted += OnHandlerFaulted;
     }
 
-    public void Dispose() => Events.HandlerFaulted -= OnHandlerFaulted;
+    public void Dispose()
+    {
+        Events.HandlerFaulted -= OnHandlerFaulted;
+        StopTeardowns();
+    }
 
     /// <summary>Loaded mods (including disabled ones), in load order.</summary>
     public IReadOnlyList<LoadedMod> Mods => _mods;
@@ -419,8 +423,9 @@ internal sealed partial class ModManager : IModsBackend, IDisposable
             }
             loaded.Add(m.Id);
             var shared = Find(m.Id)!.ResolvedDependencies;
+            var (check, code, onLoad) = _loadSplit;
             _host.Log(LogLevel.Info, $"mod {m.Id} {m.Version} loaded in {sw.Elapsed.TotalMilliseconds:F1} ms" +
-                                     (m.HasCode ? "" : " (data only: no entryAssembly)") +
+                                     (m.HasCode ? $" (layout check {check:F1} ms, assemblies {code:F1} ms, OnLoad {onLoad:F1} ms)" : " (data only: no entryAssembly)") +
                                      (shared.Count > 0 ? $" (after {string.Join(", ", shared.Order(StringComparer.Ordinal))})" : ""));
         }
         if (_reportStart) StartProgress.Step("mods", "", "", count, count);
@@ -485,10 +490,16 @@ internal sealed partial class ModManager : IModsBackend, IDisposable
         Advanced = m.Advanced,
     };
 
+    // LoadCore's last split, for the "loaded in" line: Kiln's checks before any of the mod's code loads (boot refusal,
+    // layout stamp: Kiln.Game), its assemblies to a bound instance, and OnLoad (with the registration of its handlers)
+    private (double Check, double Code, double OnLoad) _loadSplit;
+
     [MethodImpl(MethodImplOptions.NoInlining)]
     private bool LoadCore(string directory, Manifest manifest, out string error)
     {
         error = "";
+        var phase = Stopwatch.StartNew();
+        _loadSplit = default;
         // a boot mod loads only with its boot content in this process (chapter 08 §4.4): RestartRequiredBoot otherwise
         if (BootLoadRefusal(manifest, directory) is { } boot)
         {
@@ -503,6 +514,7 @@ internal sealed partial class ModManager : IModsBackend, IDisposable
             _host.Log(LogLevel.Error, error);
             return false;
         }
+        var checkMs = phase.Elapsed.TotalMilliseconds;
         var dependencies = DependencyClosure(manifest);
         ulong owner = 0;
         uint gameplayRequested = 0;
@@ -545,7 +557,10 @@ internal sealed partial class ModManager : IModsBackend, IDisposable
                 record.State = ModState.Loaded;
                 record.Error = null;
             }
-            if (Invoke(mod, static m => { Kiln.Events.Register(m.Instance); m.Instance.OnLoad(); }, "OnLoad"))
+            var codeMs = phase.Elapsed.TotalMilliseconds - checkMs;
+            var invoked = Invoke(mod, static m => { Kiln.Events.Register(m.Instance); m.Instance.OnLoad(); }, "OnLoad");
+            _loadSplit = (checkMs, codeMs, phase.Elapsed.TotalMilliseconds - checkMs - codeMs);
+            if (invoked)
             {
                 mod.Loaded = true;
                 // a committed boot mod's runtime activation: its definitions' runtime parts and BootDefinitionsCommittedEvent (Kiln.Blocks)
@@ -731,6 +746,163 @@ internal sealed partial class ModManager : IModsBackend, IDisposable
         }
     }
 
+    // ---- load contexts whose teardown joins the mod's tasks off the tick ----
+    // A mod's tasks were sealed and signalled when its unload began (ModContext.BeginUnload), and OnUnload ran on
+    // the tick without waiting for any of them. What is left is the load context: it is only torn down once no task
+    // of the mod (or of a dependent that unloaded with it) can still run. That join happens here, on a maintenance
+    // thread, with a bounded budget; a task that will not stop leaves its context pinned (held by its entry below,
+    // logged once) until it finishes, and other mods keep ticking meanwhile. Process exit joins nothing: a pinned
+    // context simply dies with the process, and UnloadAll never waits for this thread.
+
+    /// <summary>How long the off-tick task join waits before an unstopped task's context is left pinned.</summary>
+    internal static TimeSpan TaskJoinBudget = TimeSpan.FromSeconds(2);
+
+    /// <summary>One drain call of the join: short, so the join visits every pending context in turn and sees a stop.</summary>
+    private static readonly TimeSpan TaskJoinSlice = TimeSpan.FromMilliseconds(50);
+
+    private sealed class PendingTeardown(LoadedMod mod, HostTasks? pool)
+    {
+        public readonly string Id = mod.Id;
+        public readonly ModLoadContext Context = mod.Context;
+        public readonly ModContext ModContext = mod.ModContext;
+        public readonly ulong Owner = mod.Owner;
+        public readonly HashSet<string> Dependencies = mod.ResolvedDependencies;
+        public readonly HostTasks? Pool = pool;  // the pool the mod's tasks ran on (the one bound when it unloaded)
+        public readonly long Since = Stopwatch.GetTimestamp();
+        public bool PinLogged;
+    }
+
+    private readonly List<PendingTeardown> _pendingTeardowns = [];
+    private readonly object _teardownGate = new();
+    private Thread? _teardownThread;
+    private bool _teardownStopped;  // Dispose: the join ends and takes no new context
+
+    /// <summary>FinishUnload's last step, on the tick: tears the context down at once when nothing of the mod can
+    /// still run (the rule for mods without tasks, unchanged), else hands it to the maintenance thread. The check
+    /// only looks; the tick never waits here.</summary>
+    private void UnloadContext(LoadedMod mod)
+    {
+        var entry = new PendingTeardown(mod, HostTasks.Bound);
+        lock (_teardownGate)
+        {
+            if (_teardownStopped || TeardownBlocker(entry) is null)
+            {
+                mod.Context.Unload();
+                return;
+            }
+            _pendingTeardowns.Add(entry);
+            if (_teardownThread is null)
+            {
+                _teardownThread = new Thread(TeardownLoop) { IsBackground = true, Name = "kiln-task-join" };
+                _teardownThread.Start();
+            }
+        }
+    }
+
+    /// <summary>What still keeps <paramref name="entry"/>'s context from being torn down, or null: its own live
+    /// tasks (or their leases still ending at the pool), and the pending teardowns of dependents of it, whose tasks
+    /// may still run its code. Polled by the maintenance thread and, once, on the tick in <see cref="UnloadContext"/>
+    /// (which never waits on the answer).</summary>
+    private string? TeardownBlocker(PendingTeardown entry)
+    {
+        var parts = new List<string>();
+        if (entry.ModContext.TaskBlocker() is { } tasks)
+            parts.Add($"task {tasks}");
+        else if (entry.Pool is { } pool && pool.OwnerPins(entry.Owner) > 0)
+            parts.Add("its task leases are ending");
+        lock (_teardownGate)
+            foreach (var other in _pendingTeardowns)
+                if (!ReferenceEquals(other, entry) && other.Dependencies.Contains(entry.Id))
+                    parts.Add($"its dependent {other.Id} still has tasks" +
+                              (other.ModContext.TaskBlocker() is { } dependentTasks ? $": task {dependentTasks}" : ""));
+        return parts.Count == 0 ? null : string.Join("; ", parts);
+    }
+
+    /// <summary>The maintenance thread: joins each pending context's tasks with the pool's own
+    /// <c>drain_owner</c>, off every tick (a timed drain is refused on the tick, a world thread and pool workers,
+    /// never here), in short slices. Entries are visited in unload order, so a dependent's join comes before its
+    /// dependency's, and a dependency is not joined while a dependent's entry still waits. A context whose tasks
+    /// stop unloads as it always did, just from here; one still blocked after <see cref="TaskJoinBudget"/> is
+    /// logged once (also a dependency held by its dependent) and stays pinned (its entry holds the context) until
+    /// its tasks finish, however long that takes. The thread ends when the queue drains or the manager is
+    /// disposed.</summary>
+    private void TeardownLoop()
+    {
+        while (true)
+        {
+            List<PendingTeardown> round;
+            lock (_teardownGate)
+            {
+                if (_teardownStopped || _pendingTeardowns.Count == 0)
+                {
+                    _teardownThread = null;
+                    return;
+                }
+                round = [.. _pendingTeardowns];
+            }
+            var progressed = false;
+            foreach (var entry in round)
+            {
+                lock (_teardownGate)
+                    if (_teardownStopped || !_pendingTeardowns.Contains(entry)) continue;
+                // a dependent's tasks may still run this mod's code: its own join waits until theirs is over
+                var running = DependentPending(entry) ? 1 : Drain(entry);
+                if (running == 0)
+                {
+                    lock (_teardownGate)
+                    {
+                        if (_teardownStopped) continue;
+                        _pendingTeardowns.Remove(entry);
+                    }
+                    entry.Context.Unload();
+                    _host.Log(LogLevel.Info, $"tasks: mod {entry.Id}'s load context unloaded after its tasks stopped");
+                    progressed = true;
+                }
+                else if (!entry.PinLogged && Stopwatch.GetElapsedTime(entry.Since) >= TaskJoinBudget)
+                {
+                    entry.PinLogged = true;
+                    progressed = true;
+                    _host.Log(LogLevel.Warn, $"tasks: mod {entry.Id}: {TeardownBlocker(entry) ?? $"{running} task(s)"} did not stop within " +
+                                             $"{TaskJoinBudget.TotalSeconds:0.#} s; its load context stays pinned until its tasks finish");
+                }
+            }
+            if (!progressed) Thread.Sleep(5);
+        }
+    }
+
+    /// <summary>One slice of <paramref name="entry"/>'s join: how many of its leases are not quiescent yet.</summary>
+    private static int Drain(PendingTeardown entry)
+    {
+        var running = entry.Pool?.DrainOwner(entry.Owner, TaskJoinSlice) ?? -1;
+        if (running >= 0) return running;
+        // No pool to drain against (tasks off, or the core refused): look at the leases directly.
+        if (entry.ModContext.TaskBlocker() is null && (entry.Pool?.OwnerPins(entry.Owner) ?? 0) == 0) return 0;
+        Thread.Sleep(10);
+        return 1;
+    }
+
+    /// <summary>A dependent of <paramref name="entry"/>'s mod still has a pending teardown: its tasks may still
+    /// run the dependency's code, so the dependency's context is joined only after theirs.</summary>
+    private bool DependentPending(PendingTeardown entry)
+    {
+        lock (_teardownGate)
+            return _pendingTeardowns.Exists(other => !ReferenceEquals(other, entry) && other.Dependencies.Contains(entry.Id));
+    }
+
+    /// <summary>Stops the task join (tests: one manager per test, and the core under it goes with the test). What
+    /// it still held is dropped, not torn down; it waits for the join's current slice.</summary>
+    private void StopTeardowns()
+    {
+        Thread? join;
+        lock (_teardownGate)
+        {
+            _teardownStopped = true;
+            _pendingTeardowns.Clear();
+            join = _teardownThread;
+        }
+        if (join is not null && join != Thread.CurrentThread) join.Join(TimeSpan.FromSeconds(5));
+    }
+
     [MethodImpl(MethodImplOptions.NoInlining)]
     private WeakReference FinishUnload(LoadedMod mod, ModState state, string? reason)
     {
@@ -744,7 +916,7 @@ internal sealed partial class ModManager : IModsBackend, IDisposable
         _byId.TryRemove(mod.Id, out _);
         var weak = new WeakReference(mod.Context);
         _unloaded.Add((mod.Id, weak));
-        mod.Context.Unload();
+        UnloadContext(mod);
         if (RecordById(mod.Id) is { } record && ReferenceEquals(record.Mod, mod))
         {
             record.Mod = null;

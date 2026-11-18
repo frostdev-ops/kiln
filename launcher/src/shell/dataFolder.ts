@@ -7,6 +7,7 @@ import * as api from "../api/commands";
 import type { DataFolderMoved, DataFolderPlan, TaskId } from "../api/commands";
 import { errorText, pickPaths, toast, waitTask } from "../ui";
 import { doneLines } from "./dataFolderText";
+import { t } from "../i18n";
 
 export type ChangeStep =
   | { at: "idle" }
@@ -22,7 +23,7 @@ export type ChangeStep =
 /** The folder dialog (Tauri), or in a plain browser the mock's queued answer (tests: __kilnDataFolderMock.pick). */
 export async function pickFolder(defaultPath?: string): Promise<string | null> {
   if (!api.isTauri()) return (await api.loadMock()).mockPickFolder();
-  const r = await pickPaths({ directory: true, title: "Data folder", defaultPath });
+  const r = await pickPaths({ directory: true, title: t("shell.dataFolderText.dataFolder"), defaultPath });
   return r?.[0] ?? null;
 }
 
@@ -30,9 +31,9 @@ export async function pickFolder(defaultPath?: string): Promise<string | null> {
 export async function restartLauncher(): Promise<string> {
   try {
     await api.dataFolderRestart();
-    return "Restart Kiln to use the new folder.";
+    return t("shell.dataFolder.restartToUse");
   } catch (e) {
-    return `${errorText(e)} Restart Kiln to use the new folder.`;
+    return t("shell.dataFolder.restartFailed", { error: errorText(e) });
   }
 }
 
@@ -55,7 +56,7 @@ export function useDataFolderChange() {
     try {
       put({ at: "plan", plan: await api.dataFolderCheck(picked) });
     } catch (e) {
-      toast.error(e, "Could not check this folder");
+      toast.error(e, t("shell.dataFolder.checkFailed"));
       put({ at: "idle" });
     }
   };
@@ -102,7 +103,7 @@ export function useDataFolderChange() {
   const cancel = () => {
     if (step.at !== "moving" || step.canceling) return;
     put({ ...step, canceling: true });
-    api.taskCancel(step.taskId).catch((e) => toast.error(e, "Could not cancel the move"));
+    api.taskCancel(step.taskId).catch((e) => toast.error(e, t("shell.dataFolder.cancelFailed")));
   };
 
   /** Closes the dialog (not while a move or the restart runs). */

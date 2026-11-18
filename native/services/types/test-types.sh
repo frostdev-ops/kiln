@@ -7,6 +7,8 @@ out=${KILN_OUT:-$here/../../build}/types-test
 mkdir -p "$out"
 cxx=${CXX:-$(command -v clang++ || command -v g++)}
 "$cxx" -std=c++20 -O2 -Wall -Wextra -o "$out/types_test" "$here/types_test.cpp"
+"$cxx" -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined -I"$here/../../core/abi" -o "$out/ecs_registry_test" "$here/ecs_registry_test.cpp"
+"$out/ecs_registry_test"
 exes=("$@")
 if ((${#exes[@]} == 0)); then
   for e in "${KILN_SERVER_EXE:-}" "${KILN_CLIENT_EXE:-}"; do [[ -n $e && -f $e ]] && exes+=("$e"); done

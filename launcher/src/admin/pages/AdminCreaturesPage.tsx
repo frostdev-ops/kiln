@@ -3,6 +3,7 @@
 // values (set/reset), AI settings and commands. Changes are Kiln.Admin's layers: they end when it unloads.
 import { useState } from "react";
 import { useAdminCall, useAdminQuery, useHasOp, type AdminPlayer } from "../../api/admin";
+import { t as tr, useT } from "../../i18n";
 import { CoordInputs, NeedsOp, coordText, parseCoords, playerName, usePlayers, withAdmin, type CoordText } from "../common";
 import { OfflineNote } from "../ConnectionBar";
 import { Badge, Button, Card, EmptyState, HealthBar, KeyValue, NumberInput, Page, PageHeader, Select, Table, TextInput, confirm, fmtPos, toastError, toastOk } from "../ui";
@@ -16,20 +17,21 @@ interface Creature {
 }
 interface Status { catalog: number; entities: number; layers: number; arsenalCount: number; commands: boolean; aiHooks: boolean }
 
-const KINDS = [{ value: "", label: "Any kind" }, ...["enemy", "wildlife", "animal", "villager"].map((k) => ({ value: k, label: k }))];
+const kinds = () => [{ value: "", label: tr("admin.creatures.anyKind") }, ...["enemy", "wildlife", "animal", "villager"].map((k) => ({ value: k, label: k }))];
 const FIELDS = ["level", "faction", "scale", "xp", "speed", "damage", "home", "loot-slots", "loot-off", "feature-on", "feature-off", "arsenal", "loot-labels", "resist:fire", "resist:physical", "resist:magical"];
 const ACTIONS = ["stay", "heal", "moveto", "attack", "guard", "stopguard"];
 
 function CreaturesPage() {
+  const t = useT();
   const players = usePlayers();
   const [picked, setPicked] = useState<number | null>(null);
   const status = useAdminQuery<Status>("creature_status", {}, { refetchInterval: 10000 });
   const s = status.data;
   return (
     <Page>
-      <PageHeader title="Creatures" sub={s ? `${s.catalog} templates, ${s.entities} creature${s.entities === 1 ? "" : "s"} changed, ${s.layers} change${s.layers === 1 ? "" : "s"} by mods.` : "Kiln.Creatures: catalog, values, AI and commands."} />
+      <PageHeader title={t("admin.creatures.title")} sub={s ? t("admin.creatures.sub", { templates: s.catalog, creatures: t("admin.creatures.creatureCount", { count: s.entities }), changes: t("admin.creatures.changeCount", { count: s.layers }) }) : t("admin.creatures.subNone")} />
       <OfflineNote />
-      <NeedsOp ops={["creature_status", "creature_catalog", "creature_near", "creature_inspect"]} what="Creature tools">
+      <NeedsOp ops={["creature_status", "creature_catalog", "creature_near", "creature_inspect"]} what={t("admin.creatures.what")}>
         <div className="ka-split">
           <div className="k-stack" style={{ gap: 22, minWidth: 0 }}>
             <NearCard players={players} onPick={setPicked} picked={picked} />
@@ -37,7 +39,7 @@ function CreaturesPage() {
           </div>
           <div className="k-stack" style={{ gap: 12, minWidth: 0 }}>
             <InspectCard entity={picked} setEntity={setPicked} players={players} />
-            <p className="k-hint">Values set here are Kiln.Admin's: they go back to the game's (or another mod's) when Kiln.Admin reloads or the server restarts. Spawned creatures stay.</p>
+            <p className="k-hint">{t("admin.creatures.footHint")}</p>
           </div>
         </div>
       </NeedsOp>
@@ -47,6 +49,7 @@ function CreaturesPage() {
 
 /** Where: around a player or typed coordinates. */
 function useWhere(players: AdminPlayer[]) {
+  const t = useT();
   const [sel, setSel] = useState("");
   const at = sel || (players[0] ? `p:${players[0].entity}` : "coords");
   const [coords, setCoords] = useState<CoordText>(coordText(null));
@@ -61,7 +64,7 @@ function useWhere(players: AdminPlayer[]) {
   };
   const ui = (
     <>
-      <Select aria-label="Where" value={at} onChange={setSel} options={[...players.map((p) => ({ value: `p:${p.entity}`, label: `At ${playerName(p)}` })), { value: "coords", label: "At coordinates" }]} />
+      <Select aria-label={t("admin.items.where")} value={at} onChange={setSel} options={[...players.map((p) => ({ value: `p:${p.entity}`, label: t("admin.items.atPlayer", { name: playerName(p) }) })), { value: "coords", label: t("admin.items.atCoords") }]} />
       {at === "coords" ? <CoordInputs value={coords} onChange={setCoords} /> : null}
     </>
   );
@@ -69,6 +72,7 @@ function useWhere(players: AdminPlayer[]) {
 }
 
 function NearCard({ players, onPick, picked }: { players: AdminPlayer[]; onPick: (e: number) => void; picked: number | null }) {
+  const t = useT();
   const where = useWhere(players);
   const [radius, setRadius] = useState(60);
   const [scan, setScan] = useState<{ x: number; y: number; z: number; radius: number } | null>(null);
@@ -76,28 +80,28 @@ function NearCard({ players, onPick, picked }: { players: AdminPlayer[]; onPick:
   const go = () => {
     const p = where.pos();
     if (!p) return;
-    if (radius < 1 || radius > 2000) return toastError({ message: "Radius: 1 to 2000 m." });
+    if (radius < 1 || radius > 2000) return toastError({ message: t("admin.zones.radiusRange") });
     setScan({ x: p.x, y: p.y, z: p.z, radius });
   };
   const list = q.data ?? [];
   return (
-    <Card title="Nearby" sub={scan ? `${list.length} within ${scan.radius} m` : "Creatures, villagers and animals around a point"}>
+    <Card title={t("admin.creatures.nearby")} sub={scan ? t("admin.creatures.nearbySub", { n: list.length, radius: scan.radius }) : t("admin.creatures.nearbyHint")}>
       <div className="k-stack">
         <div className="ka-inline">
           {where.ui}
-          <NumberInput aria-label="Radius" value={radius} integer min={1} max={2000} onCommit={setRadius} style={{ width: 90 }} />
-          <Button size="s" loading={q.isFetching && !q.data} onClick={go}>Scan</Button>
+          <NumberInput aria-label={t("admin.zones.colRadius")} value={radius} integer min={1} max={2000} onCommit={setRadius} style={{ width: 90 }} />
+          <Button size="s" loading={q.isFetching && !q.data} onClick={go}>{t("admin.combat.scan")}</Button>
         </div>
         {q.error ? <div className="k-error-text">{q.error.message}</div> : null}
         {scan ? (
-          <Table aria-label="Creatures nearby" rows={list} rowKey={(r) => String(r.entity)} maxHeight={340} selectedKey={picked == null ? null : String(picked)} onRowClick={(r) => onPick(r.entity)}
-            empty={<EmptyState title="Nothing here" hint="Try a larger radius or another spot." />}
+          <Table aria-label={t("admin.combat.nearby")} rows={list} rowKey={(r) => String(r.entity)} maxHeight={340} selectedKey={picked == null ? null : String(picked)} onRowClick={(r) => onPick(r.entity)}
+            empty={<EmptyState title={t("admin.creatures.nothingHere")} hint={t("admin.creatures.nothingHereHint")} />}
             columns={[
-              { key: "e", header: "Entity", width: "80px", render: (r) => <span className="k-mono">{r.entity}</span> },
-              { key: "n", header: "Creature", render: (r) => r.templateName },
-              { key: "l", header: "Level", width: "60px", align: "right", render: (r) => r.level },
-              { key: "s", header: "State", width: "110px", render: (r) => (r.dead ? <Badge tone="err">dead</Badge> : r.state) },
-              { key: "h", header: "Health", width: "120px", render: (r) => <HealthBar health={r.health} max={r.healthMax} /> },
+              { key: "e", header: t("admin.combat.colEntity"), width: "80px", render: (r) => <span className="k-mono">{r.entity}</span> },
+              { key: "n", header: t("admin.spawn.creature"), render: (r) => r.templateName },
+              { key: "l", header: t("admin.players.level"), width: "60px", align: "right", render: (r) => r.level },
+              { key: "s", header: t("admin.players.colState"), width: "110px", render: (r) => (r.dead ? <Badge tone="err">{t("admin.combat.dead")}</Badge> : r.state) },
+              { key: "h", header: t("admin.players.colHealth"), width: "120px", render: (r) => <HealthBar health={r.health} max={r.healthMax} /> },
             ]} />
         ) : null}
       </div>
@@ -106,6 +110,7 @@ function NearCard({ players, onPick, picked }: { players: AdminPlayer[]; onPick:
 }
 
 function InspectCard({ entity, setEntity, players }: { entity: number | null; setEntity: (e: number | null) => void; players: AdminPlayer[] }) {
+  const t = useT();
   const q = useAdminQuery<Creature>("creature_inspect", { entity: entity ?? 0 }, { enabled: entity != null && entity >= 1, refetchInterval: 4000 });
   const hasSet = useHasOp("creature_set");
   const hasCmd = useHasOp("creature_command");
@@ -114,9 +119,9 @@ function InspectCard({ entity, setEntity, players }: { entity: number | null; se
   const [action, setAction] = useState("stay");
   const [target, setTarget] = useState<number | null>(null);
   const where = useWhere(players);
-  const set = useAdminCall<Creature>("creature_set", { onSuccess: () => { toastOk(`${field} set`); q.refetch(); }, onError: (e) => toastError(e) });
-  const reset = useAdminCall<{ reset: number }>("creature_reset", { onSuccess: (r) => { toastOk(`Reset: ${r.reset} change(s) undone`); q.refetch(); }, onError: (e) => toastError(e) });
-  const cmd = useAdminCall<{ sent: boolean }>("creature_command", { onSuccess: () => { toastOk(`${action} sent`); q.refetch(); }, onError: (e) => toastError(e) });
+  const set = useAdminCall<Creature>("creature_set", { onSuccess: () => { toastOk(t("admin.creatures.fieldSet", { field })); q.refetch(); }, onError: (e) => toastError(e) });
+  const reset = useAdminCall<{ reset: number }>("creature_reset", { onSuccess: (r) => { toastOk(t("admin.creatures.resetDone", { n: r.reset })); q.refetch(); }, onError: (e) => toastError(e) });
+  const cmd = useAdminCall<{ sent: boolean }>("creature_command", { onSuccess: () => { toastOk(t("admin.creatures.actionSent", { action })); q.refetch(); }, onError: (e) => toastError(e) });
   const c = q.data;
   const sendSet = () => {
     if (!c) return;
@@ -125,7 +130,7 @@ function InspectCard({ entity, setEntity, players }: { entity: number | null; se
       const p = where.pos();
       if (!p) return;
       v = p;
-    } else if (v === "") return toastError({ message: "Enter a value." });
+    } else if (v === "") return toastError({ message: t("admin.creatures.enterValue") });
     else if (/^-?\d+(\.\d+)?$/.test(v)) v = Number(v);
     else if (v === "true" || v === "false") v = v === "true";
     set.mutate({ entity: c.entity, field, value: v });
@@ -139,95 +144,96 @@ function InspectCard({ entity, setEntity, players }: { entity: number | null; se
       Object.assign(args, p);
     }
     if (action === "attack" || action === "guard" || action === "stopguard") {
-      if (!target) return toastError({ message: "Give the target entity." });
+      if (!target) return toastError({ message: t("admin.creatures.giveTarget") });
       args.target = target;
-      if (action === "attack" && !(await confirm({ title: `Send ${c.templateName} to attack ${target}?`, body: <p>The creature attacks that entity at once.</p>, ok: "Attack" }))) return;
+      if (action === "attack" && !(await confirm({ title: t("admin.creatures.attackTitle", { name: c.templateName, target }), body: <p>{t("admin.creatures.attackBody")}</p>, ok: t("admin.creatures.attack") }))) return;
     }
     cmd.mutate(args);
   };
   return (
-    <Card title="Inspect" sub="Click a creature in the list, or give an entity id">
+    <Card title={t("admin.creatures.inspect")} sub={t("admin.creatures.inspectSub")}>
       <div className="k-stack">
         <div className="ka-inline">
-          <NumberInput aria-label="Entity id" placeholder="entity id" value={entity} integer min={1} onCommit={(e) => setEntity(e)} style={{ width: 140 }} />
-          {c ? <Button size="s" variant="ghost" onClick={() => q.refetch()}>Refresh</Button> : null}
+          <NumberInput aria-label={t("admin.combat.entityId")} placeholder={t("admin.combat.entityIdPlaceholder")} value={entity} integer min={1} onCommit={(e) => setEntity(e)} style={{ width: 140 }} />
+          {c ? <Button size="s" variant="ghost" onClick={() => q.refetch()}>{t("common.refresh")}</Button> : null}
         </div>
         {q.error ? <div className="k-error-text">{q.error.message}</div> : null}
         {c ? (
           <>
             <div className="ka-inline">
-              <b>{c.templateName}</b> <Badge>{c.kind}</Badge> <Badge tone="info">{c.faction}</Badge> {c.layers ? <Badge tone="ember">{c.layers} change(s)</Badge> : null}
+              <b>{c.templateName}</b> <Badge>{c.kind}</Badge> <Badge tone="info">{c.faction}</Badge> {c.layers ? <Badge tone="ember">{t("admin.creatures.layers", { n: c.layers })}</Badge> : null}
               <HealthBar health={c.health} max={c.healthMax} />
             </div>
             <KeyValue rows={[
-              ["State", c.dead ? "dead" : c.state],
-              ["Level", `${c.level} (up to ${c.levelMax})`],
-              ["Scale · XP · speed · damage", `${c.scale} · ${c.xp} · ${c.speed} · ${c.damage}`],
-              ["Home", <span className="k-mono">{fmtPos(c.home)}</span>],
-              ["Target", c.target ?? "-"],
-              ["Features off", c.features.disabled],
-              ["Loot", c.loot.disabled ? "off" : `${c.loot.min}-${c.loot.max} slot(s)`],
+              [t("admin.players.colState"), c.dead ? t("admin.combat.dead") : c.state],
+              [t("admin.players.level"), t("admin.creatures.levelUpTo", { level: c.level, max: c.levelMax })],
+              [t("admin.creatures.kvStats"), `${c.scale} · ${c.xp} · ${c.speed} · ${c.damage}`],
+              [t("admin.creatures.kvHome"), <span className="k-mono">{fmtPos(c.home)}</span>],
+              [t("admin.creatures.kvTarget"), c.target ?? "-"],
+              [t("admin.creatures.kvFeaturesOff"), c.features.disabled],
+              [t("admin.creatures.kvLoot"), c.loot.disabled ? t("admin.map.off") : t("admin.creatures.lootSlots", { min: c.loot.min, max: c.loot.max })],
             ]} />
             {hasSet ? (
               <div className="ka-inline">
-                <Select aria-label="Field" value={field} onChange={setField} options={FIELDS} />
-                {field === "home" ? where.ui : <TextInput aria-label="Value" value={value} placeholder={field.startsWith("feature") ? "Patrol, Roaming" : "value"} onChange={(e) => setValue(e.target.value)} style={{ width: 160 }} />}
-                <Button size="s" loading={set.isPending} onClick={sendSet}>Set</Button>
-                <Button size="s" variant="ghost" loading={reset.isPending} disabled={!c.layers} onClick={() => reset.mutate({ entity: c.entity })}>Reset</Button>
+                <Select aria-label={t("admin.creatures.field")} value={field} onChange={setField} options={FIELDS} />
+                {field === "home" ? where.ui : <TextInput aria-label={t("admin.gameData.value")} value={value} placeholder={field.startsWith("feature") ? "Patrol, Roaming" : t("admin.creatures.valuePlaceholder")} onChange={(e) => setValue(e.target.value)} style={{ width: 160 }} />}
+                <Button size="s" loading={set.isPending} onClick={sendSet}>{t("admin.gameData.set")}</Button>
+                <Button size="s" variant="ghost" loading={reset.isPending} disabled={!c.layers} onClick={() => reset.mutate({ entity: c.entity })}>{t("common.reset")}</Button>
               </div>
             ) : null}
             {hasCmd ? (
               <div className="ka-inline">
-                <Select aria-label="Command" value={action} onChange={setAction} options={ACTIONS} />
+                <Select aria-label={t("admin.creatures.command")} value={action} onChange={setAction} options={ACTIONS} />
                 {action === "moveto" ? where.ui : null}
-                {action === "attack" || action === "guard" || action === "stopguard" ? <NumberInput aria-label="Target entity" placeholder="target entity" value={target} integer min={1} onCommit={setTarget} style={{ width: 130 }} /> : null}
-                <Button size="s" loading={cmd.isPending} onClick={sendCmd}>Send</Button>
+                {action === "attack" || action === "guard" || action === "stopguard" ? <NumberInput aria-label={t("admin.creatures.targetEntity")} placeholder={t("admin.creatures.targetPlaceholder")} value={target} integer min={1} onCommit={setTarget} style={{ width: 130 }} /> : null}
+                <Button size="s" loading={cmd.isPending} onClick={sendCmd}>{t("admin.players.send")}</Button>
               </div>
             ) : null}
           </>
-        ) : entity ? null : <EmptyState title="No creature picked" hint="Scan nearby or spawn one from the catalog." />}
+        ) : entity ? null : <EmptyState title={t("admin.creatures.noneTitle")} hint={t("admin.creatures.noneHint")} />}
       </div>
     </Card>
   );
 }
 
 function CatalogCard({ players, onSpawned }: { players: AdminPlayer[]; onSpawned: (e: number) => void }) {
+  const t = useT();
   const [filter, setFilter] = useState("");
   const [kind, setKind] = useState("");
   const [count, setCount] = useState(1);
   const hasSpawn = useHasOp("creature_spawn");
   const where = useWhere(players);
   const q = useAdminQuery<Template[]>("creature_catalog", { ...(filter.trim() ? { filter: filter.trim() } : {}), ...(kind ? { kind } : {}) }, { staleTime: 60000 });
-  const spawn = useAdminCall<{ entities: number[] }>("creature_spawn", { onSuccess: (r) => { toastOk(`Spawned ${r.entities.length}: ${r.entities.join(", ")}`); if (r.entities[0]) onSpawned(r.entities[0]); }, onError: (e) => toastError(e) });
-  const doSpawn = (t: Template) => {
+  const spawn = useAdminCall<{ entities: number[] }>("creature_spawn", { onSuccess: (r) => { toastOk(t("admin.creatures.spawned", { n: r.entities.length, list: r.entities.join(", ") })); if (r.entities[0]) onSpawned(r.entities[0]); }, onError: (e) => toastError(e) });
+  const doSpawn = (tpl: Template) => {
     const p = where.pos();
     if (!p) return;
-    spawn.mutate({ what: t.name, count, ...p });
+    spawn.mutate({ what: tpl.name, count, ...p });
   };
   const list = q.data ?? [];
   return (
-    <Card title="Catalog" sub={q.data ? `${list.length} template(s)` : "Every creature and NPC template the server knows"}>
+    <Card title={t("admin.creatures.catalog")} sub={q.data ? t("admin.creatures.templates", { n: list.length }) : t("admin.creatures.catalogHint")}>
       <div className="k-stack">
         <div className="ka-inline">
-          <TextInput aria-label="Search" placeholder="Search names" value={filter} onChange={(e) => setFilter(e.target.value)} style={{ width: 220 }} />
-          <Select aria-label="Kind" value={kind} onChange={setKind} options={KINDS} />
+          <TextInput aria-label={t("admin.gameData.search")} placeholder={t("admin.creatures.searchNames")} value={filter} onChange={(e) => setFilter(e.target.value)} style={{ width: 220 }} />
+          <Select aria-label={t("admin.items.colKind")} value={kind} onChange={setKind} options={kinds()} />
           {hasSpawn ? (
             <>
-              <span className="k-hint">Spawn</span>
-              <NumberInput aria-label="Count" value={count} integer min={1} max={50} onCommit={setCount} style={{ width: 70 }} />
+              <span className="k-hint">{t("admin.spawn.title")}</span>
+              <NumberInput aria-label={t("admin.creatures.count")} value={count} integer min={1} max={50} onCommit={setCount} style={{ width: 70 }} />
               {where.ui}
             </>
           ) : null}
         </div>
         {q.error ? <div className="k-error-text">{q.error.message}</div> : null}
-        <Table aria-label="Creature catalog" rows={list} rowKey={(t) => t.guid} maxHeight={380}
+        <Table aria-label={t("admin.creatures.catalogTable")} rows={list} rowKey={(tpl) => tpl.guid} maxHeight={380}
           columns={[
-            { key: "n", header: "Template", render: (t) => <span>{t.display || t.name} {t.display ? <span className="k-hint k-mono">{t.name}</span> : null}</span>, sort: (a, b) => a.name.localeCompare(b.name) },
-            { key: "k", header: "Kind", width: "90px", render: (t) => t.kind },
-            { key: "f", header: "Faction", width: "110px", render: (t) => t.faction },
-            { key: "l", header: "Level", width: "80px", render: (t) => `${t.level}-${t.levelMax}` },
-            { key: "b", header: "", width: "70px", render: (t) => (t.boss ? <Badge tone="ember">boss</Badge> : null) },
-            ...(hasSpawn ? [{ key: "s", header: "", width: "80px", render: (t: Template) => <Button size="s" loading={spawn.isPending} onClick={() => doSpawn(t)}>Spawn</Button> }] : []),
+            { key: "n", header: t("admin.spawn.colTemplate"), render: (tpl) => <span>{tpl.display || tpl.name} {tpl.display ? <span className="k-hint k-mono">{tpl.name}</span> : null}</span>, sort: (a, b) => a.name.localeCompare(b.name) },
+            { key: "k", header: t("admin.items.colKind"), width: "90px", render: (tpl) => tpl.kind },
+            { key: "f", header: t("admin.creatures.faction"), width: "110px", render: (tpl) => tpl.faction },
+            { key: "l", header: t("admin.players.level"), width: "80px", render: (tpl) => `${tpl.level}-${tpl.levelMax}` },
+            { key: "b", header: "", width: "70px", render: (tpl) => (tpl.boss ? <Badge tone="ember">{t("admin.creatures.boss")}</Badge> : null) },
+            ...(hasSpawn ? [{ key: "s", header: "", width: "80px", render: (tpl: Template) => <Button size="s" loading={spawn.isPending} onClick={() => doSpawn(tpl)}>{t("admin.spawn.title")}</Button> }] : []),
           ]} />
       </div>
     </Card>

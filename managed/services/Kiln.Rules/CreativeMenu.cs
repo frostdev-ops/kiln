@@ -9,13 +9,14 @@ internal static class CreativeMenu
     public const string KeyId = "kiln.creative";
     public const string DefaultKey = "F7";
     public const string FlightKeyId = "kiln.creative.flight";
-    private static readonly string[] FlightNames = ["Off", "Unlimited", "Building areas only"];
+    private static readonly string[] FlightKeys = ["creative.flight.off", "creative.flight.unlimited", "creative.flight.building"];
     private static int _flightPick = (int)CharacterFlightMode.Unlimited;  // what the key turns on
 
     private static readonly object Lock = new();
     private static UiScreen? _screen;
     private static MenuEntry? _entry;
     private static HudLine? _hud;
+    private static KeyBinding? _openKey, _flightKey;
     private static bool _started;
 
     // what the server said (any thread writes, the render thread reads)
@@ -45,17 +46,64 @@ internal static class CreativeMenu
     private static List<CreativeItem> _shown = new();
     private static (string, int, bool, int, bool, int) _shownFor = ("", -1, false, -1, false, -1);
 
-    private static readonly (string Name, ItemCategory? Category)[] Categories =
+    // the combo lists by text key; their texts are made again when Kiln's language changes (Names, render thread)
+    private static readonly (string Key, ItemCategory? Category)[] Categories =
     [
-        ("All", null), ("Materials", ItemCategory.Materials), ("Building", ItemCategory.BuildTools), ("Consumables", ItemCategory.Consumables),
-        ("Ammunition", ItemCategory.Ammunition), ("Weapons", ItemCategory.Weapons), ("Equipment", ItemCategory.Equipment),
-        ("Tools", ItemCategory.Tools), ("Instruments", ItemCategory.Instrument), ("Fishing", ItemCategory.FishingRod),
-        ("Customization", ItemCategory.Customization), ("Gems", ItemCategory.WeaponGem), ("Colour palettes", ItemCategory.ColorPalette),
-        ("Animal food", ItemCategory.AnimalFood), ("Collectibles", ItemCategory.Collectibles), ("Blueprints", ItemCategory.Blueprints),
-        ("Currency", ItemCategory.Currency),
+        ("creative.category.all", null), ("creative.category.materials", ItemCategory.Materials),
+        ("creative.category.building", ItemCategory.BuildTools), ("creative.category.consumables", ItemCategory.Consumables),
+        ("creative.category.ammunition", ItemCategory.Ammunition), ("creative.category.weapons", ItemCategory.Weapons),
+        ("creative.category.equipment", ItemCategory.Equipment), ("creative.category.tools", ItemCategory.Tools),
+        ("creative.category.instruments", ItemCategory.Instrument), ("creative.category.fishing", ItemCategory.FishingRod),
+        ("creative.category.customization", ItemCategory.Customization), ("creative.category.gems", ItemCategory.WeaponGem),
+        ("creative.category.palettes", ItemCategory.ColorPalette), ("creative.category.animal_food", ItemCategory.AnimalFood),
+        ("creative.category.collectibles", ItemCategory.Collectibles), ("creative.category.blueprints", ItemCategory.Blueprints),
+        ("creative.category.currency", ItemCategory.Currency),
     ];
-    private static readonly string[] CategoryNames = Categories.Select(c => c.Name).ToArray();
-    private static readonly string[] RarityNames = ["Common", "Uncommon", "Rare", "Epic", "Legendary"];
+    private static readonly string[] RarityKeys =
+        ["creative.rarity.common", "creative.rarity.uncommon", "creative.rarity.rare", "creative.rarity.epic", "creative.rarity.legendary"];
+    // CreativeMap.Choices, in its order
+    private static readonly string[] MapKeys = ["creative.map.game", "creative.map.r200", "creative.map.r400", "creative.map.whole"];
+    private static int _namesGeneration = int.MinValue;
+    private static string[] _categoryNames = [], _rarityNames = [], _flightNames = [], _mapNames = [];
+
+    // The combo lists in the language Kiln's UI shows (render thread; made again only when it changes).
+    private static void Names()
+    {
+        var g = KilnText.Generation;
+        if (g == _namesGeneration) return;
+        _categoryNames = Categories.Select(c => KilnText.T(c.Key)).ToArray();
+        _rarityNames = RarityKeys.Select(k => KilnText.T(k)).ToArray();
+        _flightNames = FlightKeys.Select(k => KilnText.T(k)).ToArray();
+        _mapNames = MapKeys.Length == CreativeMap.Choices.Length ? MapKeys.Select(k => KilnText.T(k)).ToArray() : CreativeMap.Names;
+        _namesGeneration = g;
+    }
+
+    // Kiln's language changed (KilnText.Changed, any thread): the screen's title, the pause-menu entry, the HUD line and the
+    // Keys page's lines follow it.
+    private static void Relabel()
+    {
+        try
+        {
+            if (_screen is { } sc) sc.Title = KilnText.T("creative.title");
+            if (_entry is { } en) en.Text = KilnText.T("creative.menu");
+            if (_openKey is { } k)
+            {
+                k.Description = KilnText.T("creative.key.open");
+                k.Category = KilnText.T("creative.key.category");
+            }
+            if (_flightKey is { } f)
+            {
+                f.Description = KilnText.T("creative.key.flight");
+                f.Category = KilnText.T("creative.key.category");
+            }
+            lock (Lock)
+                if (_hud is { } h) h.Text = KilnText.T("creative.hud");
+        }
+        catch (Exception)
+        {
+            // no UI
+        }
+    }
 
     /// <summary>Game client only: the screen, its key and the pause-menu entry.</summary>
     public static void Start()
@@ -83,11 +131,12 @@ internal static class CreativeMenu
         ModContext.CurrentMod = null;  // Kiln's, not the mod whose tick happened to start it
         try
         {
-            _screen = Ui.Screen("Creative", Draw, new UiScreenOptions { Style = UiStyle.Game, Width = 820, Height = 600 });
+            _screen = Ui.Screen(KilnText.T("creative.title"), Draw, new UiScreenOptions { Style = UiStyle.Player, Width = 820, Height = 600 });
             _screen.Opened += () => Interlocked.Exchange(ref _refreshRequested, 1);
-            KeyBindings.Register(KeyId, DefaultKey, () => _screen.Toggle(), "Open the creative menu", "Creative");
-            KeyBindings.Register(FlightKeyId, "None", ToggleFlight, "Character flight on or off (creative mode)", "Creative");
-            _entry = Ui.Menus.Add(MenuLocation.PauseMenu, "Creative", () => _screen.Open(), order: 900);
+            _openKey = KeyBindings.Register(KeyId, DefaultKey, () => _screen.Toggle(), KilnText.T("creative.key.open"), KilnText.T("creative.key.category"));
+            _flightKey = KeyBindings.Register(FlightKeyId, "None", ToggleFlight, KilnText.T("creative.key.flight"), KilnText.T("creative.key.category"));
+            _entry = Ui.Menus.Add(MenuLocation.PauseMenu, KilnText.T("creative.menu"), () => _screen.Open(), order: 900);
+            KilnText.Changed += Relabel;
             lock (Lock) Apply(_state);
             RulesRuntime.Log(LogLevel.Info, $"creative menu: on {KeyBindings.All.FirstOrDefault(b => b.Id == KeyId)?.Key.ToString() ?? DefaultKey}" +
                                             (_entry != null ? " and in the pause menu" : ""));
@@ -194,7 +243,7 @@ internal static class CreativeMenu
                 ModContext.CurrentMod = null;
                 try
                 {
-                    _hud = Hud.Show("kiln.creative", "Creative", HudAnchor.TopRight, new Color(255, 196, 92));
+                    _hud = Hud.Show("kiln.creative", KilnText.T("creative.hud"), HudAnchor.TopRight, new Color(255, 196, 92));
                 }
                 finally
                 {
@@ -255,50 +304,49 @@ internal static class CreativeMenu
         if (st is not { } s)
         {
             ui.TextWrapped(CreativeNet.Open || CreativeNet.Hosting(out _)
-                ? "Asking the server..."
-                : "This server has no Kiln creative menu (it needs Kiln on the server).");
+                ? KilnText.T("creative.asking")
+                : KilnText.T("creative.no_server"));
             return;
         }
         if ((s.Access & CreativeAccess.Idle) != 0)
         {
-            ui.TextWrapped("This server runs Creative Mode (a Flame mod), so Kiln's creative menu is idle here: use Creative Mode's " +
-                           "own menu. Kiln's creative mode cannot be turned on while it runs.");
+            ui.TextWrapped(KilnText.T("creative.idle"));
             return;
         }
         var on = (s.Access & CreativeAccess.On) != 0;
         var admin = (s.Access & CreativeAccess.Admin) != 0;
-        ui.Text(on ? new Color(255, 196, 92) : new Color(200, 200, 200), on ? "Creative mode is on" : "Creative mode is off");
+        ui.Text(on ? new Color(255, 196, 92) : new Color(200, 200, 200), on ? KilnText.T("creative.on") : KilnText.T("creative.off"));
         if (admin)
         {
             ui.SameLine();
-            if (ui.SmallButton(on ? "Turn off" : "Turn on")) CreativeNet.Ask(new CreativeRequest(CreativeAsk.Creative, Count: on ? 0 : 1));
+            if (ui.SmallButton(on ? KilnText.T("creative.turn_off") : KilnText.T("creative.turn_on"))) CreativeNet.Ask(new CreativeRequest(CreativeAsk.Creative, Count: on ? 0 : 1));
         }
         else if (!on)
         {
             ui.SameLine();
-            ui.TextDisabled("(an admin turns it on: /creative on <you>)");
+            ui.TextDisabled(KilnText.T("creative.admin_turns_on"));
         }
-        if (reply.Length > 0) ui.TextWrapped((ok ? "" : "Refused: ") + reply);
+        if (reply.Length > 0) ui.TextWrapped(ok ? reply : KilnText.T("creative.refused", ("reason", reply)));
         ui.Separator();
         if (ui.BeginTabBar("creative"))
         {
-            if (ui.BeginTab("Items"))
+            if (ui.BeginTab(KilnText.T("creative.tab.items") + "###creative.items"))
             {
                 DrawItems(ui, s);
                 ui.EndTab();
             }
-            if (ui.BeginTab("World"))
+            if (ui.BeginTab(KilnText.T("creative.tab.world") + "###creative.world"))
             {
                 DrawWorld(ui, s);
                 ui.EndTab();
             }
-            if (ui.BeginTab("Rules"))
+            if (ui.BeginTab(KilnText.T("creative.tab.rules") + "###creative.rules"))
             {
-                ui.TextWrapped(on ? "Your rules: " + s.Rules : "Your rules: " + (s.Rules.Length > 0 ? s.Rules : "the game's"));
+                ui.TextWrapped(on || s.Rules.Length > 0 ? KilnText.T("creative.rules.yours", ("rules", s.Rules)) : KilnText.T("creative.rules.game"));
                 ui.Spacing();
                 ui.TextWrapped(s.Hooks);
                 ui.Spacing();
-                ui.TextDisabled("Key: " + (KeyBindings.All.FirstOrDefault(b => b.Id == KeyId)?.Key.ToString() ?? DefaultKey) + " (Kiln menu > Keys to change it).");
+                ui.TextDisabled(KilnText.T("creative.rules.key", ("key", KeyBindings.All.FirstOrDefault(b => b.Id == KeyId)?.Key.ToString() ?? DefaultKey)));
                 ui.EndTab();
             }
             ui.EndTabBar();
@@ -310,15 +358,16 @@ internal static class CreativeMenu
         var canGive = (s.Access & CreativeAccess.Give) != 0;
         if (!canGive)
             ui.TextWrapped((s.Access & CreativeAccess.On) != 0
-                ? "This server's game build cannot give items."
-                : "Taking items needs creative mode.");
-        ui.InputText("Search", ref _search, 64);
+                ? KilnText.T("creative.items.cannot_give")
+                : KilnText.T("creative.items.needs_creative"));
+        Names();
+        ui.InputText(KilnText.T("creative.items.search") + "##creative.search", ref _search, 64);
         ui.SameLine();
-        ui.Checkbox("Without equipment", ref _noEquipment);
+        ui.Checkbox(KilnText.T("creative.items.no_equipment") + "##creative.noequip", ref _noEquipment);
         ui.SameLine();
-        if (ui.Checkbox("Only what I have found", ref _journey) && _journey) CreativeNet.Ask(new CreativeRequest(CreativeAsk.Found));
-        ui.Tooltip("Journey: items you have picked up, crafted or used. Find or craft the first one as the game intends, then take as many as you like.");
-        ui.Combo("Category", ref _category, CategoryNames);
+        if (ui.Checkbox(KilnText.T("creative.items.journey") + "##creative.journey", ref _journey) && _journey) CreativeNet.Ask(new CreativeRequest(CreativeAsk.Found));
+        ui.Tooltip(KilnText.T("creative.items.journey_tip"));
+        ui.Combo(KilnText.T("creative.items.category") + "##creative.category", ref _category, _categoryNames);
         List<CreativeItem> shown;
         int total, have;
         bool foundUnavailable;
@@ -342,10 +391,10 @@ internal static class CreativeMenu
             }
             shown = _shown;
         }
-        if (_journey && foundUnavailable) ui.TextDisabled("This server cannot tell which items you have found.");
-        if (total < 0) ui.TextDisabled("Loading the catalogue...");
-        else if (have < total) ui.Progress(total == 0 ? 1 : (float)have / total, $"{have} of {total} items");
-        else ui.TextDisabled($"{shown.Count} of {total} items");
+        if (_journey && foundUnavailable) ui.TextDisabled(KilnText.T("creative.items.found_unknown"));
+        if (total < 0) ui.TextDisabled(KilnText.T("creative.items.loading"));
+        else if (have < total) ui.Progress(total == 0 ? 1 : (float)have / total, KilnText.T("creative.items.of", ("count", have), ("total", total)));
+        else ui.TextDisabled(KilnText.T("creative.items.of", ("count", shown.Count), ("total", total)));
 
         var h = 340 * Math.Max(ui.Scale, 0.5f);
         if (ui.BeginChild("list", 420 * ui.Scale, h))
@@ -365,22 +414,22 @@ internal static class CreativeMenu
         if (ui.BeginChild("item", 0, h))
         {
             var sel = shown.FirstOrDefault(i => i.Id == _selected);
-            if (sel.Id == 0) ui.TextWrapped(shown.Count == 0 && have > 0 ? (_journey ? "Nothing found here yet: pick up or craft items first." : "No items match.") : "Pick an item.");
+            if (sel.Id == 0) ui.TextWrapped(shown.Count == 0 && have > 0 ? (_journey ? KilnText.T("creative.items.none_found") : KilnText.T("creative.items.none_match")) : KilnText.T("creative.items.pick"));
             else DrawItem(ui, sel, canGive);
         }
         ui.EndChild();
-        if (_page > 0 && ui.SmallButton("Previous")) _page--;
+        if (_page > 0 && ui.SmallButton(KilnText.T("creative.items.previous"))) _page--;
         ui.SameLine();
-        ui.Text($"Page {_page + 1} of {Math.Max(1, (shown.Count + PageSize - 1) / PageSize)}");
+        ui.Text(KilnText.T("creative.items.page", ("page", _page + 1), ("pages", Math.Max(1, (shown.Count + PageSize - 1) / PageSize))));
         ui.SameLine();
-        if ((_page + 1) * PageSize < shown.Count && ui.SmallButton("Next")) _page++;
+        if ((_page + 1) * PageSize < shown.Count && ui.SmallButton(KilnText.T("creative.items.next"))) _page++;
         if (canGive) DrawBackpack(ui);
     }
 
     // The backpack grid: pick an item up in the catalogue ("Place..."), then click a backpack slot to put it there.
     private static void DrawBackpack(UiDraw ui)
     {
-        if (!ui.CollapsingHeader("Backpack")) return;
+        if (!ui.CollapsingHeader(KilnText.T("creative.backpack.caption") + "###creative.backpack")) return;
         if (DateTime.UtcNow - _askedBackpack > TimeSpan.FromSeconds(2))
         {
             _askedBackpack = DateTime.UtcNow;
@@ -393,14 +442,15 @@ internal static class CreativeMenu
         if (held != 0)
         {
             lock (Lock) heldItem = Catalog.FirstOrDefault(i => i.Id == held);
-            ui.Text(new Color(255, 196, 92), $"Holding {heldItem.Label} x{Math.Min(_count, heldItem.IsGear ? 1 : Math.Max(1, heldItem.MaxStack))}: click an empty slot (or one with the same item).");
+            ui.Text(new Color(255, 196, 92), KilnText.T("creative.backpack.holding", ("item", heldItem.Label),
+                ("count", Math.Min(_count, heldItem.IsGear ? 1 : Math.Max(1, heldItem.MaxStack)))));
             ui.SameLine();
-            if (ui.SmallButton("Put back")) _held = 0;
+            if (ui.SmallButton(KilnText.T("creative.backpack.put_back"))) _held = 0;
         }
-        else ui.TextDisabled("Pick an item up with \"Place...\", then click a slot.");
+        else ui.TextDisabled(KilnText.T("creative.backpack.hint"));
         if (slots.Count == 0)
         {
-            ui.TextDisabled("Reading your backpack...");
+            ui.TextDisabled(KilnText.T("creative.backpack.reading"));
             return;
         }
         for (var k = 0; k < slots.Count; k++)
@@ -434,31 +484,31 @@ internal static class CreativeMenu
     {
         ui.Text(i.Label);
         ui.TextDisabled($"{i.Name}  0x{i.Id:x8}");
-        ui.Text($"{i.Category}, stacks to {Math.Max(1, i.MaxStack)}");
+        ui.Text(KilnText.T("creative.item.stacks", ("category", i.Category), ("count", Math.Max(1, i.MaxStack))));
         var max = i.IsGear ? 1 : Math.Clamp(i.MaxStack, 1, CreativeTools.MaxGive);
         if (i.IsGear)
         {
             int lo = Math.Max(1, i.LevelMin), hi = Math.Max(lo, i.LevelMax);
-            if (hi > lo) ui.Slider("Level", ref _level, lo, hi);
-            else ui.Text($"Level {lo}");
+            if (hi > lo) ui.Slider(KilnText.T("creative.item.level") + "##creative.level", ref _level, lo, hi);
+            else ui.Text(KilnText.T("creative.item.level_fixed", ("level", lo)));
             _level = Math.Clamp(_level, lo, hi);
-            ui.Combo("Rarity", ref _rarity, RarityNames);
-            ui.Slider("Upgrades", ref _upgrades, 0, 5);
-            ui.Tooltip("Upgrades unlocked, as at the workbench (each raises the level by 1). 5: all the item has (its rarity decides how many).");
-            if (i.Category == ItemCategory.Weapons) ui.Checkbox("Gem slot", ref _gemSlot);
-            if (_journey) ui.TextDisabled("Only what I have found: the level is capped at your character's level.");
+            ui.Combo(KilnText.T("creative.item.rarity") + "##creative.rarity", ref _rarity, _rarityNames);
+            ui.Slider(KilnText.T("creative.item.upgrades") + "##creative.upgrades", ref _upgrades, 0, 5);
+            ui.Tooltip(KilnText.T("creative.item.upgrades_tip"));
+            if (i.Category == ItemCategory.Weapons) ui.Checkbox(KilnText.T("creative.item.gem_slot") + "##creative.gemslot", ref _gemSlot);
+            if (_journey) ui.TextDisabled(KilnText.T("creative.item.journey_level"));
         }
-        ui.Slider("Count", ref _count, 1, Math.Min(CreativeTools.MaxGive, max));
+        ui.Slider(KilnText.T("creative.item.count") + "##creative.count", ref _count, 1, Math.Min(CreativeTools.MaxGive, max));
         if (!canGive) return;
         ui.Spacing();
-        if (ui.Button("Take 1")) Give(i, 1);
+        if (ui.Button(KilnText.T("creative.item.take", ("count", 1)))) Give(i, 1);
         ui.SameLine();
-        if (max > 1 && ui.Button($"Take {max}")) Give(i, max);
+        if (max > 1 && ui.Button(KilnText.T("creative.item.take", ("count", max)))) Give(i, max);
         if (max > 1) ui.SameLine();
-        if (ui.Button($"Take {_count}")) Give(i, _count);
+        if (ui.Button(KilnText.T("creative.item.take", ("count", _count)))) Give(i, _count);
         ui.SameLine();
-        if (ui.Button("Place...")) _held = i.Id;
-        ui.Tooltip("Pick it up, then click a slot in the backpack grid below to put it there.");
+        if (ui.Button(KilnText.T("creative.item.place"))) _held = i.Id;
+        ui.Tooltip(KilnText.T("creative.item.place_tip"));
     }
 
     private static void Give(CreativeItem i, int count, ulong slot = 0)
@@ -474,24 +524,24 @@ internal static class CreativeMenu
 
     private static void DrawMap(UiDraw ui, bool on)
     {
-        ui.Separator("Map reveal");
+        ui.Separator(KilnText.T("creative.map.caption"));
         if (!on)
         {
-            ui.TextDisabled("Needs creative mode.");
+            ui.TextDisabled(KilnText.T("creative.needs_creative"));
             return;
         }
         if (!CreativeMap.Available)
         {
-            ui.TextDisabled("This game build has no map reveal (Kiln did not find the fog of war here).");
+            ui.TextDisabled(KilnText.T("creative.map.unavailable"));
             return;
         }
+        Names();
         var choice = CreativeMap.Choice;
         var pick = choice;
-        ui.Combo("Reveal radius", ref pick, CreativeMap.Names);
+        ui.Combo(KilnText.T("creative.map.radius") + "##creative.map", ref pick, _mapNames);
         if (pick != choice) _mapReply = CreativeMap.Set(pick);
-        ui.TextDisabled("Uncovers the map around you as you move (Whole map: all of it, once). What is uncovered stays uncovered " +
-                        "for this character, also after creative mode. Set back to the game's when you leave the world.");
-        if (_mapReply is { } r) ui.TextWrapped("Refused: " + r);
+        ui.TextDisabled(KilnText.T("creative.map.help"));
+        if (_mapReply is { } r) ui.TextWrapped(KilnText.T("creative.refused", ("reason", r)));
     }
 
     internal static CharacterFlightMode FlightOf(CreativeAccess a) =>
@@ -512,27 +562,27 @@ internal static class CreativeMenu
 
     private static void DrawFlight(UiDraw ui, CreativeStateMsg s)
     {
-        ui.Separator("Character flight");
+        ui.Separator(KilnText.T("creative.flight.caption"));
         if ((s.Access & CreativeAccess.On) == 0)
         {
-            ui.TextDisabled("Needs creative mode.");
+            ui.TextDisabled(KilnText.T("creative.needs_creative"));
             return;
         }
         var now = (int)FlightOf(s.Access);
         if ((s.Access & CreativeAccess.FlightAllowed) == 0 && now == 0)
         {
-            ui.TextDisabled("Character flight needs rules.json allowCharacterFlight and matching flight hooks in both games.");
+            ui.TextDisabled(KilnText.T("creative.flight.unavailable"));
             return;
         }
+        Names();
         var pick = now;
-        ui.Combo("Flight", ref pick, FlightNames);
+        ui.Combo(KilnText.T("creative.flight.flight") + "##creative.flight", ref pick, _flightNames);
         if (pick != now)
         {
             if (pick != 0) _flightPick = pick;
             CreativeNet.Ask(new CreativeRequest(CreativeAsk.Flight, Count: pick));
         }
-        ui.TextDisabled("Jump to take off, hold jump to climb, sneak to sink, sprint for speed; sinking onto the ground lands. " +
-                        $"Key: {KeyBindings.All.FirstOrDefault(b => b.Id == FlightKeyId)?.Key.ToString() ?? "none"} (Kiln menu > Keys).");
+        ui.TextDisabled(KilnText.T("creative.flight.help", ("key", KeyBindings.All.FirstOrDefault(b => b.Id == FlightKeyId)?.Key.ToString() ?? "none")));
     }
 
     private static void DrawWorld(UiDraw ui, CreativeStateMsg s)
@@ -541,41 +591,41 @@ internal static class CreativeMenu
         var canCycle = (s.Access & CreativeAccess.Cycle) != 0;
         DrawMap(ui, (s.Access & CreativeAccess.On) != 0);
         DrawFlight(ui, s);
-        ui.Separator("Time of day");
-        ui.Text(s.Hours >= 0 ? $"It is {Time.Format(s.Hours)}." : "The time of day is not known.");
+        ui.Separator(KilnText.T("creative.time.caption"));
+        ui.Text(s.Hours >= 0 ? KilnText.T("creative.time.now", ("time", Time.Format(s.Hours))) : KilnText.T("creative.time.unknown"));
         if (!canTime)
         {
-            ui.TextWrapped((s.Access & CreativeAccess.Admin) != 0 ? "This build cannot set the time of day." : "Only an admin changes the time of day.");
+            ui.TextWrapped((s.Access & CreativeAccess.Admin) != 0 ? KilnText.T("creative.time.cannot") : KilnText.T("creative.time.admin_only"));
         }
         else
         {
-            ui.TextDisabled("Jumps forward to the hour you pick.");
+            ui.TextDisabled(KilnText.T("creative.time.help"));
             for (var hh = 0; hh < 24; hh += 3)
             {
                 if (hh > 0) ui.SameLine();
                 if (ui.Button($"{hh:D2}:00")) CreativeNet.Ask(new CreativeRequest(CreativeAsk.Time, Value: hh));
             }
-            ui.Slider("Hour", ref _hours, 0, 23.99f);
+            ui.Slider(KilnText.T("creative.time.hour") + "##creative.hour", ref _hours, 0, 23.99f);
             ui.SameLine();
-            if (ui.Button("Set")) CreativeNet.Ask(new CreativeRequest(CreativeAsk.Time, Value: _hours));
+            if (ui.Button(KilnText.T("creative.time.set"))) CreativeNet.Ask(new CreativeRequest(CreativeAsk.Time, Value: _hours));
         }
-        ui.Separator("Day and night cycle");
-        ui.Text("Now: " + s.Cycle switch
+        ui.Separator(KilnText.T("creative.cycle.caption"));
+        ui.Text(s.Cycle switch
         {
-            TimeCycle.Stopped => "stopped (the sun stands still)",
-            TimeCycle.Fast => "fast (a day and night in about 90 s)",
-            _ => "normal",
+            TimeCycle.Stopped => KilnText.T("creative.cycle.now_stopped"),
+            TimeCycle.Fast => KilnText.T("creative.cycle.now_fast"),
+            _ => KilnText.T("creative.cycle.now_normal"),
         });
         if (!canCycle)
         {
-            ui.TextWrapped((s.Access & CreativeAccess.Admin) != 0 ? "This build cannot change the cycle's speed." : "Only an admin changes the cycle.");
+            ui.TextWrapped((s.Access & CreativeAccess.Admin) != 0 ? KilnText.T("creative.cycle.cannot") : KilnText.T("creative.cycle.admin_only"));
             return;
         }
-        if (ui.Button("Normal")) CreativeNet.Ask(new CreativeRequest(CreativeAsk.Cycle, Count: (int)TimeCycle.Normal));
+        if (ui.Button(KilnText.T("creative.cycle.normal"))) CreativeNet.Ask(new CreativeRequest(CreativeAsk.Cycle, Count: (int)TimeCycle.Normal));
         ui.SameLine();
-        if (ui.Button("Stopped")) CreativeNet.Ask(new CreativeRequest(CreativeAsk.Cycle, Count: (int)TimeCycle.Stopped));
+        if (ui.Button(KilnText.T("creative.cycle.stopped"))) CreativeNet.Ask(new CreativeRequest(CreativeAsk.Cycle, Count: (int)TimeCycle.Stopped));
         ui.SameLine();
-        if (ui.Button("Fast")) CreativeNet.Ask(new CreativeRequest(CreativeAsk.Cycle, Count: (int)TimeCycle.Fast));
-        ui.TextDisabled("For the whole world, until it is set back or the server restarts.");
+        if (ui.Button(KilnText.T("creative.cycle.fast"))) CreativeNet.Ask(new CreativeRequest(CreativeAsk.Cycle, Count: (int)TimeCycle.Fast));
+        ui.TextDisabled(KilnText.T("creative.cycle.help"));
     }
 }

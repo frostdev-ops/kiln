@@ -1325,7 +1325,7 @@ pub fn import_asi(ctx: &mut crate::engines::ImportCtx) -> Result<()> {
     let hash = crate::hash::dirhash(&work)?;
     let rec = ImportRecord { format: 1, kind: ModKind::Native, id, version, hash, imported: crate::util::now_rfc3339(),
         source: Some(ctx.from.clone()), size, name: Some(name), side: Some(Side::Client), clients: Some(Clients::Mod), file: None,
-        manifest_id: None, game_folder: None };
+        manifest_id: None, game_folder: None, loader_part: None };
     crate::library::commit_folder(dirs, &work, rec, ctx.report)
 }
 

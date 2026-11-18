@@ -6,6 +6,7 @@ import { X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { create } from "zustand";
 import { onKilnEvent, taskCancel, taskList, type KilnError, type Task, type TaskId } from "../api/commands";
+import { t, useT } from "../i18n";
 import { IconButton } from "./Button";
 import { toast } from "./Toast";
 
@@ -19,25 +20,30 @@ interface TaskStore {
 }
 
 const waiters = new Map<TaskId, Waiter[]>();
-const finished = (t: Task) => t.state === "done" || t.state === "failed" || t.state === "canceled";
+const finished = (task: Task) => task.state === "done" || task.state === "failed" || task.state === "canceled";
 
-function settle(t: Task) {
-  const ws = waiters.get(t.id);
-  if (!ws || !finished(t)) return;
-  waiters.delete(t.id);
+function settle(task: Task) {
+  const ws = waiters.get(task.id);
+  if (!ws || !finished(task)) return;
+  waiters.delete(task.id);
   for (const w of ws) {
-    if (t.state === "done") w.resolve(t.result ?? null);
-    else w.reject(t.error ?? { code: t.state === "canceled" ? "canceled" : "internal", message: t.message ?? `${t.title} ${t.state}` });
+    if (task.state === "done") w.resolve(task.result ?? null);
+    else w.reject(task.error ?? { code: task.state === "canceled" ? "canceled" : "internal", message: task.message ?? endedText(task) });
   }
+}
+
+/** "Install Kiln failed", "Install Kiln canceled": a finished task's sentence when it left no message. */
+function endedText(task: Task): string {
+  return task.state === "canceled" ? t("ui.taskProgress.titleCanceled", { title: task.title }) : t("ui.taskProgress.titleFailed", { title: task.title });
 }
 
 export const useTasks = create<TaskStore>((set, get) => ({
   tasks: {},
   order: [],
-  upsert: (t) => {
+  upsert: (task) => {
     const s = get();
-    set({ tasks: { ...s.tasks, [t.id]: t }, order: s.order.includes(t.id) ? s.order : [t.id, ...s.order].slice(0, 30) });
-    settle(t);
+    set({ tasks: { ...s.tasks, [task.id]: task }, order: s.order.includes(task.id) ? s.order : [task.id, ...s.order].slice(0, 30) });
+    settle(task);
   },
   clearFinished: () => {
     const s = get();
@@ -51,16 +57,16 @@ export function useTaskFeed() {
   useEffect(() => {
     let off: (() => void) | undefined;
     let live = true;
-    onKilnEvent("kiln://task", (t) => useTasks.getState().upsert(t)).then((f) => (live ? (off = f) : f()));
-    taskList().then((ts) => ts.forEach((t) => useTasks.getState().upsert(t))).catch(() => {});
+    onKilnEvent("kiln://task", (task) => useTasks.getState().upsert(task)).then((f) => (live ? (off = f) : f()));
+    taskList().then((ts) => ts.forEach((task) => useTasks.getState().upsert(task))).catch(() => {});
     return () => { live = false; off?.(); };
   }, []);
 }
 
 /** Resolves with the task's result, rejects with its KilnError. */
 export function waitTask<R = unknown>(id: TaskId): Promise<R> {
-  const t = useTasks.getState().tasks[id];
-  if (t && finished(t)) return t.state === "done" ? Promise.resolve(t.result as R) : Promise.reject(t.error ?? { code: "internal", message: t.message ?? "task failed" });
+  const task = useTasks.getState().tasks[id];
+  if (task && finished(task)) return task.state === "done" ? Promise.resolve(task.result as R) : Promise.reject(task.error ?? { code: "internal", message: task.message ?? t("ui.taskProgress.taskFailed") });
   return new Promise<R>((resolve, reject) => {
     waiters.set(id, [...(waiters.get(id) ?? []), { resolve: resolve as (r: unknown) => void, reject }]);
   });
@@ -106,19 +112,19 @@ export function Cones({ step, count = 3, small }: { step: number; count?: number
 }
 
 /** Which cone bends for a task: by its progress, or stepping along while it has none. */
-export function useTaskStep(t: Task | undefined): number {
+export function useTaskStep(task: Task | undefined): number {
   const [tick, setTick] = useState(0);
-  const indet = !!t && !finished(t) && (t.progress === null || t.progress === undefined);
+  const indet = !!task && !finished(task) && (task.progress === null || task.progress === undefined);
   useEffect(() => {
     if (!indet) return;
     const id = setInterval(() => setTick((n) => n + 1), 900);
     return () => clearInterval(id);
   }, [indet]);
-  if (!t) return -1;
-  if (t.state === "done") return 3;
-  if (finished(t)) return -1;
+  if (!task) return -1;
+  if (task.state === "done") return 3;
+  if (finished(task)) return -1;
   if (indet) return tick % 3;
-  return Math.min(2, Math.floor((t.progress ?? 0) * 3));
+  return Math.min(2, Math.floor((task.progress ?? 0) * 3));
 }
 
 /** A determinate bar, kept for callers outside the cone pack. */
@@ -133,28 +139,30 @@ export function ProgressBar({ value }: { value: number | null | undefined }) {
 
 /** One task: title, cones, message, cancel. Pass a task or its id. */
 export function TaskProgress({ task, taskId, cancel = true }: { task?: Task; taskId?: TaskId; cancel?: boolean }) {
+  const t = useT();
   const fromStore = useTasks((s) => (taskId ? s.tasks[taskId] : undefined));
-  const t = task ?? fromStore;
-  const step = useTaskStep(t);
-  if (!t) return null;
-  const running = !finished(t);
-  const word = t.state === "done" ? "Done" : t.state === "failed" ? "Failed" : t.state === "canceled" ? "Canceled" : null;
+  const tk = task ?? fromStore;
+  const step = useTaskStep(tk);
+  if (!tk) return null;
+  const running = !finished(tk);
+  const word = tk.state === "done" ? t("ui.taskProgress.done") : tk.state === "failed" ? t("ui.taskProgress.failed") : tk.state === "canceled" ? t("ui.taskProgress.canceled") : null;
   return (
-    <div className="k-task" role="status" aria-label={`${t.title}${word ? `: ${word}` : ""}`}>
+    <div className="k-task" role="status" aria-label={word ? t("ui.taskProgress.titleState", { title: tk.title, state: word }) : tk.title}>
       <div className="k-task-head">
         <Cones step={step} small />
-        <span className="k-ellipsis" style={{ flex: 1 }}>{t.title}</span>
-        {word && <span className={`k-word-sm k-tone-${t.state === "done" ? "ok" : t.state === "failed" ? "err" : "idle"}`}>{word}</span>}
-        {running && t.progress !== null && t.progress !== undefined && <span className="k-task-pct">{Math.round(t.progress * 100)}%</span>}
-        {running && cancel && <IconButton label={`Cancel ${t.title}`} size="s" icon={<X />} onClick={() => taskCancel(t.id).catch((e) => toast.error(e))} />}
+        <span className="k-ellipsis" style={{ flex: 1 }}>{tk.title}</span>
+        {word && <span className={`k-word-sm k-tone-${tk.state === "done" ? "ok" : tk.state === "failed" ? "err" : "idle"}`}>{word}</span>}
+        {running && tk.progress !== null && tk.progress !== undefined && <span className="k-task-pct">{Math.round(tk.progress * 100)}%</span>}
+        {running && cancel && <IconButton label={t("ui.taskProgress.cancelTask", { title: tk.title })} size="s" icon={<X />} onClick={() => taskCancel(tk.id).catch((e) => toast.error(e))} />}
       </div>
-      {(t.error?.message ?? t.message) && <div className="k-task-msg" title={t.error?.message ?? t.message ?? ""}>{t.error?.message ?? t.message}</div>}
+      {(tk.error?.message ?? tk.message) && <div className="k-task-msg" title={tk.error?.message ?? tk.message ?? ""}>{tk.error?.message ?? tk.message}</div>}
     </div>
   );
 }
 
 /** The header's tasks: the running task's name and three small cones; opens the list. Nothing shows while idle. */
 export function TaskTray() {
+  const t = useT();
   const { tasks, order, clearFinished } = useTasks();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -170,19 +178,19 @@ export function TaskTray() {
     return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", esc); };
   }, [open]);
   if (!order.length) return null;
-  const label = lead ? (runningIds.length > 1 ? `${lead.title} and ${runningIds.length - 1} more` : lead.title) : "Tasks";
+  const label = lead ? (runningIds.length > 1 ? t("ui.taskProgress.andMore", { title: lead.title, count: runningIds.length - 1 }) : lead.title) : t("ui.taskProgress.tasks");
   return (
     <div className="k-tray" ref={ref}>
       <button type="button" className={"k-tray-btn" + (lead ? "" : " idle")} onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-haspopup="dialog"
-        aria-label={lead ? `Tasks: ${label}` : "Tasks"} title={label}>
+        aria-label={lead ? t("ui.taskProgress.tasksLabel", { label }) : t("ui.taskProgress.tasks")} title={label}>
         <span className="k-sc">{label}</span>
         {lead && <Cones step={step} small />}
       </button>
       {open && (
-        <div className="k-tray-pop" role="dialog" aria-label="Tasks">
+        <div className="k-tray-pop" role="dialog" aria-label={t("ui.taskProgress.tasks")}>
           <div className="k-tray-head">
-            <span className="k-panel-title">Tasks</span>
-            {order.length > runningIds.length && <button type="button" className="k-link" style={{ fontSize: 15 }} onClick={clearFinished}>Clear finished</button>}
+            <span className="k-panel-title">{t("ui.taskProgress.tasks")}</span>
+            {order.length > runningIds.length && <button type="button" className="k-link" style={{ fontSize: 15 }} onClick={clearFinished}>{t("ui.taskProgress.clearFinished")}</button>}
           </div>
           {order.map((id) => <TaskProgress key={id} task={tasks[id]} />)}
         </div>

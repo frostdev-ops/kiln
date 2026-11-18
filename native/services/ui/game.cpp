@@ -28,10 +28,13 @@
 #include "menu_rows.h"
 #include "menu_site.h"
 #include "ui.h"
+#include "ui_text.h"
 
 namespace kui {
 namespace {
-std::string g_native_mods_status; // stable before menu hooks are installed
+// The Mods entry's caption with the overlay drawing off ("Mods: <why>", in the language of Kiln's texts): interned, so the
+// menu hooks on the UI thread read a stable string while set_texts swaps it
+std::atomic<const std::string*> g_native_mods_status{nullptr};
 
 // ---- layout (sigdb) ----
 struct Layout {
@@ -87,6 +90,13 @@ const std::string* intern(KilnStr s) {
     const std::string* p = &g_text_arena.back();
     g_text_index.emplace(v, p);
     return p;
+}
+
+GameText status_text() {
+    const std::string* s = g_native_mods_status.load(std::memory_order_acquire);
+    static const std::string empty;
+    if (!s) s = &empty;
+    return GameText{s->c_str(), s->size(), fnv64(s->data(), s->size())};
 }
 
 struct Entry {
@@ -355,8 +365,7 @@ bool __fastcall hk_main_entry(void* state, const MainDesc* d) {
             // toggle its status caption, never an empty Credits page or extra row.
             // With the drawing on, the row's own text and its hash as they were made (nothing changes for a normal start).
             if (!overlay_drawing_on() && g_menu_open.load() && e.handle == g_builtin[0])
-                c.text = GameText{g_native_mods_status.c_str(), g_native_mods_status.size(),
-                                  fnv64(g_native_mods_status.data(), g_native_mods_status.size())};
+                c.text = status_text();
             else
                 c.text = GameText{e.text->c_str(), e.text->size(), e.fnv};
             g_draws.fetch_add(1, std::memory_order_relaxed);
@@ -381,8 +390,7 @@ bool __fastcall hk_sys_entry(const GameText* t, uint8_t p2, uint8_t attention) {
             ++rows;
             const bool status_row = !overlay_drawing_on() && g_menu_open.load() && e.handle == g_builtin[1];
             const GameText c = status_row
-                ? GameText{g_native_mods_status.c_str(), g_native_mods_status.size(),
-                           fnv64(g_native_mods_status.data(), g_native_mods_status.size())}
+                ? status_text()
                 : GameText{e.text->c_str(), e.text->size(), e.fnv};
             g_draws.fetch_add(1, std::memory_order_relaxed);
             if (g_sys_hook.call<bool>(&c, p2, static_cast<uint8_t>((e.flags & KILN_UI_ENTRY_ATTENTION) ? 1 : 0)))
@@ -411,6 +419,8 @@ void* __fastcall hk_craft(uint64_t packed, int32_t select) {
 }
 
 void after_frame(uintptr_t sys10) {
+    // Issue #44: end of the game's UI frame decides whether chat really has edit focus.
+    chat_input_frame_end();
     if (!overlay_drawing_on()) input_poll_window();
     ++g_frame_no;
     g_frames.store(g_frame_no, std::memory_order_relaxed);
@@ -523,9 +533,16 @@ void KILN_CALL on_builtin(KilnHandle, void*) {
 }
 KilnResult game_menu_add_impl(KilnOwner owner, uint32_t menu, int32_t order, KilnStr text, KilnUiMenuFn fn, void* user, KilnHandle* out);
 void add_builtin_entries() {
-    static const char kMods[] = "Mods";
-    if (L.main_menu) game_menu_add_impl(g_owner, KILN_UI_MENU_MAIN, 1000, KilnStr{kMods, 4}, &on_builtin, nullptr, &g_builtin[0]);
-    if (L.system_menu) game_menu_add_impl(g_owner, KILN_UI_MENU_PAUSE, 1000, KilnStr{kMods, 4}, &on_builtin, nullptr, &g_builtin[1]);
+    const std::string mods = text::get("native.menu.mods");  // English until Kiln.Ui hands the player's language over
+    const KilnStr t{mods.data(), mods.size()};
+    if (L.main_menu) game_menu_add_impl(g_owner, KILN_UI_MENU_MAIN, 1000, t, &on_builtin, nullptr, &g_builtin[0]);
+    if (L.system_menu) game_menu_add_impl(g_owner, KILN_UI_MENU_PAUSE, 1000, t, &on_builtin, nullptr, &g_builtin[1]);
+}
+
+void set_mods_status() {
+    if (overlay_drawing_on()) return;
+    const std::string s = text::fill(text::get("native.menu.mods_off"), {{"reason", g_overlay_reason}});
+    g_native_mods_status.store(intern(KilnStr{s.data(), s.size()}), std::memory_order_release);
 }
 
 bool sym(const char* n, uintptr_t* out) {
@@ -537,7 +554,7 @@ bool feat(const char* n) { return g_api->feature(KilnStr{n, std::strlen(n)}); }
 }  // namespace
 
 bool game_install() {
-    if (!overlay_drawing_on()) g_native_mods_status = "Mods: " + g_overlay_reason;
+    set_mods_status();
     uintptr_t frame_fn = 0, main_fn = 0, sys_fn = 0, craft_fn = 0;
     L.screens = feat("ui.screens") && sym("ui/GameUiFrame", &frame_fn) && cst("ui/sys.data", &L.sys_data) &&
                 cst("ui/state.ui_state", &L.state_ui) && cst("ui/state.play", &L.state_play) &&
@@ -592,6 +609,7 @@ bool game_install() {
         L.crafting = static_cast<bool>(g_craft_hook);
     }
     add_builtin_entries();
+    chat_input_probe_install();  // opt-in read-only probe or KILN_CHAT_HISTORY preview; default no hook
     footer_install();  // Kiln's line in the main menu's footer (menu_footer.cpp): its own log line
     logf(KILN_LOG_INFO, "ui: game UI hooked: screens on, main menu %s, pause menu %s, crafting %s, language %s, main-menu page %s",
          L.main_menu ? "on" : "off", L.system_menu ? "on" : "off", L.crafting ? "on" : "off", L.language ? "on" : "off",
@@ -777,6 +795,21 @@ bool game_unsubscribe(KilnHandle h) {
     std::erase_if(g_tick_subs, [&](const TickSub& e) { return e.handle == h; });
     std::erase_if(g_ftick_subs, [&](const FrameTickSub& e) { return e.handle == h; });
     return g_entries.size() + g_screen_subs.size() + g_tick_subs.size() + g_ftick_subs.size() < n;
+}
+
+void game_texts_changed() {
+    const std::string mods = text::get("native.menu.mods");
+    const std::string* t = intern(KilnStr{mods.data(), mods.size()});
+    {
+        std::lock_guard lk(g_mu);
+        for (Entry& e : g_entries)
+            if (is_builtin(e) && e.text != t) {
+                e.text = t;
+                e.fnv = fnv64(t->data(), t->size());
+                g_entries_version.fetch_add(1);
+            }
+    }
+    set_mods_status();
 }
 
 void game_status_line(char* out, size_t cap) {

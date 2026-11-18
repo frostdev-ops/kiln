@@ -13,7 +13,7 @@ foreach(mode EHsc EHa)
     set_target_properties(sehprobe-${lower} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${SP_OUT}")
 endforeach()
 # Production tick fault recovery must stop delivery, skip an incomplete Post and keep calling the game.
-target_sources(sehprobe-eha PRIVATE tick_cases.cpp lua_case.cpp)
+target_sources(sehprobe-eha PRIVATE tick_cases.cpp lua_case.cpp "${CMAKE_SOURCE_DIR}/core/src/tasks_stats.cpp")
 target_include_directories(sehprobe-eha PRIVATE "${CMAKE_SOURCE_DIR}/core/abi" "${KILN_GENERATED_DIR}")
 target_link_libraries(sehprobe-eha PRIVATE kiln-safetyhook)
 target_compile_definitions(sehprobe-eha PRIVATE PROBE_TICK_CASES)

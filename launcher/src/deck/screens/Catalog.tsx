@@ -13,18 +13,48 @@ import { offered, useCatalogInstall, useNexusAccount, useNxmLinks } from "../../
 import { toast } from "../../ui";
 import type { DeckAction } from "../layers";
 import { DeckButton, Dialog, Row, Screen, Word } from "../ui";
+import { t, useT } from "../../i18n";
 
-const FILTERS: { id: CatalogFilter; label: string }[] = [{ id: "kiln", label: "Kiln mods" }, { id: "all", label: "All Enshrouded" }, { id: "installed", label: "Installed" }];
-const SORTS: { id: CatalogSort; label: string }[] = [{ id: "endorsements", label: "Most endorsed" }, { id: "updated", label: "Recently updated" }, { id: "name", label: "Name" }];
+const FILTERS: CatalogFilter[] = ["kiln", "all", "installed"];
+const SORTS = ["endorsements", "updated", "name"] as const satisfies readonly CatalogSort[];
+
+function filterLabel(f: CatalogFilter): string {
+  switch (f) {
+    case "kiln": return t("deck.catalog.filterKiln");
+    case "all": return t("deck.catalog.filterAll");
+    case "installed": return t("deck.catalog.filterInstalled");
+  }
+}
+
+function sortLabel(s: (typeof SORTS)[number]): string {
+  switch (s) {
+    case "endorsements": return t("deck.catalog.sortEndorsed");
+    case "updated": return t("deck.catalog.sortUpdated");
+    case "name": return t("deck.catalog.sortName");
+  }
+}
 
 function end(m: CatalogMod) {
-  if (m.installed?.updateAvailable) return <Word tone="warn">Update</Word>;
-  if (m.installed?.inLibrary) return <Word tone="ok">Installed</Word>;
-  if (m.kind && m.kind !== "kiln" && m.kind !== "other") return <Word tone="idle">{nx.TYPE_WORD[m.kind].replace(" mod", "")}</Word>;
+  if (m.installed?.updateAvailable) return <Word tone="warn">{t("common.update")}</Word>;
+  if (m.installed?.inLibrary) return <Word tone="ok">{t("deck.catalog.installed")}</Word>;
+  const word = typeShort(m.kind);
+  if (word) return <Word tone="idle">{word}</Word>;
   return undefined;
 }
 
+/** A Nexus mod's type in one word (Kiln's own and "other" say nothing). */
+function typeShort(kind: nx.ModType | null | undefined): string | null {
+  switch (kind) {
+    case "native": return t("deck.catalog.typeNative");
+    case "emf": return t("deck.catalog.typeEmf");
+    case "dll": return t("deck.catalog.typeDll");
+    case "modpack": return t("deck.catalog.typeModpack");
+    default: return null;
+  }
+}
+
 export default function Catalog() {
+  const t = useT();
   const loc = useLocation();
   const nav = useNavigate();
   const account = useNexusAccount();
@@ -32,40 +62,41 @@ export default function Catalog() {
   const [s, setS] = useState(0);
   const [open, setOpen] = useState<string | null>(new URLSearchParams(loc.search).get("mod"));
   const [page, setPage] = useState(1);
-  const query = { filter: FILTERS[f].id, sort: SORTS[s].id, page: 1, pageSize: 30 * page };
+  const query = { filter: FILTERS[f], sort: SORTS[s], page: 1, pageSize: 30 * page };
   const list = useQuery({ queryKey: nx.nk.search(query), queryFn: () => nx.nexusSearch(query), retry: false, placeholderData: (p) => p });
   const unchecked = list.data?.unchecked ?? 0;
   useEffect(() => {
     if (!unchecked || list.isFetching) return;
-    const t = setTimeout(() => list.refetch(), 400);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => list.refetch(), 400);
+    return () => clearTimeout(timer);
   }, [unchecked, list.isFetching]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { const m = new URLSearchParams(loc.search).get("mod"); if (m) setOpen(m); }, [loc.search]);
 
   const actions: DeckAction[] = [
-    { button: "x", label: FILTERS[(f + 1) % FILTERS.length].label, run: () => { setF((f + 1) % FILTERS.length); setPage(1); } },
-    { button: "y", label: SORTS[(s + 1) % SORTS.length].label, run: () => setS((s + 1) % SORTS.length) },
+    { button: "x", label: filterLabel(FILTERS[(f + 1) % FILTERS.length]), run: () => { setF((f + 1) % FILTERS.length); setPage(1); } },
+    { button: "y", label: sortLabel(SORTS[(s + 1) % SORTS.length]), run: () => setS((s + 1) % SORTS.length) },
   ];
   const p = list.data;
-  const say = list.isLoading ? "Asking Nexus Mods…" : list.error ? api.toKilnError(list.error).message
-    : p?.needsSignIn ? "Sign in to Nexus Mods to find Kiln mods"
-    : p ? `${FILTERS[f].label} · ${SORTS[s].label} · ${p.total}${unchecked ? ` · looking at ${unchecked} more` : ""}` : "";
+  const say = list.isLoading ? t("deck.catalog.asking") : list.error ? api.toKilnError(list.error).message
+    : p?.needsSignIn ? t("deck.catalog.signInToFind")
+    : p ? (unchecked ? t("deck.catalog.sayLooking", { filter: filterLabel(FILTERS[f]), sort: sortLabel(SORTS[s]), total: p.total, more: unchecked })
+      : t("deck.catalog.say", { filter: filterLabel(FILTERS[f]), sort: sortLabel(SORTS[s]), total: p.total })) : "";
 
   return (
-    <Screen name="catalog" title="Catalog" say={say} actions={actions}>
+    <Screen name="catalog" title={t("deck.app.tabs.catalog")} say={say} actions={actions}>
       {account.data && !account.data.signedIn && (
-        <DeckButton id="nexus-sign-in" onClick={() => nav("/deck/settings")}>Sign in to Nexus Mods</DeckButton>
+        <DeckButton id="nexus-sign-in" onClick={() => nav("/deck/settings")}>{t("deck.catalog.signIn")}</DeckButton>
       )}
       {p?.needsSignIn ? (
-        <DeckButton id="show-all" primary onClick={() => setF(1)}>Show all Enshrouded mods</DeckButton>
+        <DeckButton id="show-all" primary onClick={() => setF(1)}>{t("deck.catalog.showAll")}</DeckButton>
       ) : (
-        <div className="deck-list deck-scroll" role="list" aria-label="Catalog">
+        <div className="deck-list deck-scroll" role="list" aria-label={t("deck.app.tabs.catalog")}>
           {p?.mods.map((m) => (
-            <Row key={m.id} id={`cat-${m.id}`} a="Open" title={m.name} end={end(m)}
+            <Row key={m.id} id={`cat-${m.id}`} a={t("common.open")} title={m.name} end={end(m)}
               sub={`${m.author}${m.version ? ` · ${m.version}` : ""} · ♥ ${nx.count(m.endorsements)}`} onClick={() => setOpen(m.id)} />
           ))}
-          {p && p.total > p.mods.length && <Row id="cat-more" title="More" dim a="Load" onClick={() => setPage(page + 1)} />}
-          {p && !p.mods.length && <p className="deck-note">{FILTERS[f].id === "installed" ? "Nothing installed from Nexus Mods yet." : "No mods here yet."}</p>}
+          {p && p.total > p.mods.length && <Row id="cat-more" title={t("deck.catalog.more")} dim a={t("deck.dialogs.load")} onClick={() => setPage(page + 1)} />}
+          {p && !p.mods.length && <p className="deck-note">{FILTERS[f] === "installed" ? t("deck.catalog.nothingInstalled") : t("deck.catalog.noModsYet")}</p>}
         </div>
       )}
       {open && <ModDialog id={open} onClose={() => { setOpen(null); if (loc.search) nav("/deck/catalog", { replace: true }); }} onOpen={setOpen} />}
@@ -74,6 +105,7 @@ export default function Catalog() {
 }
 
 function ModDialog({ id, onClose, onOpen }: { id: string; onClose: () => void; onOpen: (id: string) => void }) {
+  const t = useT();
   const account = useNexusAccount();
   const d = useQuery({ queryKey: nx.nk.mod(id), queryFn: () => nx.nexusMod(id), retry: false });
   const { add } = useCatalogInstall();
@@ -89,26 +121,26 @@ function ModDialog({ id, onClose, onOpen }: { id: string; onClose: () => void; o
     try {
       const r = await add(m, m.bestFile, acc, m.filesUrl);
       if (r.kind === "added") setReport(r.report);
-      else if (r.kind === "opened") toast.info("Opened on Nexus Mods");
+      else if (r.kind === "opened") toast.info(t("deck.catalog.opened"));
     } finally { setBusy(false); }
   };
   const need = m?.requirements.filter((r) => !r.kiln && !r.otherGame) ?? [];
   return (
-    <Dialog name="catalog-mod" wide title={m?.name ?? "Mod"} onClose={onClose} locked={busy}
+    <Dialog name="catalog-mod" wide title={m?.name ?? t("deck.catalog.mod")} onClose={onClose} locked={busy}
       // both loaded first: the dialog's first focus goes to its primary button, which needs the account
       buttons={m && acc && <>
-        <DeckButton id="mod-close" disabled={busy} onClick={onClose}>Close</DeckButton>
+        <DeckButton id="mod-close" disabled={busy} onClick={onClose}>{t("common.close")}</DeckButton>
         {id !== "301" && (acc?.premium
-          ? <DeckButton id="mod-add" primary autoFocus disabled={busy || !m.bestFile} a={update ? "Update" : "Add"} onClick={go}>{busy ? "Adding…" : update ? `Update to ${m.installed?.latestVersion ?? ""}` : m.installed?.inLibrary ? "Add again" : "Add"}</DeckButton>
-          : <DeckButton id="mod-site" primary autoFocus disabled={busy || !acc?.signedIn} a="Open" onClick={go}>Open on Nexus Mods</DeckButton>)}
+          ? <DeckButton id="mod-add" primary autoFocus disabled={busy || !m.bestFile} a={update ? t("common.update") : t("common.add")} onClick={go}>{busy ? t("deck.catalog.adding") : update ? t("deck.shared.updateTo", { version: m.installed?.latestVersion ?? "" }) : m.installed?.inLibrary ? t("deck.shared.addAgain") : t("common.add")}</DeckButton>
+          : <DeckButton id="mod-site" primary autoFocus disabled={busy || !acc?.signedIn} a={t("common.open")} onClick={go}>{t("deck.catalog.openOnNexus")}</DeckButton>)}
       </>}>
-      {d.isLoading ? <p className="deck-note">Asking Nexus Mods…</p> : d.error ? <p className="deck-note">{api.toKilnError(d.error).message}</p> : m && (
+      {d.isLoading ? <p className="deck-note">{t("deck.catalog.asking")}</p> : d.error ? <p className="deck-note">{api.toKilnError(d.error).message}</p> : m && (
         <div className="deck-catalog-mod">
           <p className="deck-line">{m.author}{m.version ? ` · ${m.version}` : ""} · ♥ {nx.count(m.endorsements)}{m.kind ? ` · ${nx.TYPE_WORD[m.kind]}` : ""}</p>
-          {m.installed && <p className="deck-line">{update ? <Word tone="warn">Update ready: {m.installed.latestVersion}</Word> : <Word tone="ok">Installed {m.installed.version}</Word>}</p>}
+          {m.installed && <p className="deck-line">{update ? <Word tone="warn">{t("deck.catalog.updateReady", { version: m.installed.latestVersion ?? "" })}</Word> : <Word tone="ok">{t("deck.catalog.installedVersion", { version: m.installed.version ?? "" })}</Word>}</p>}
           {m.summary && <p className="deck-line">{m.summary}</p>}
-          {need.length > 0 && <p className="deck-line">Needs {need.map((r) => `${r.name}${r.installed ? " (installed)" : ""}`).join(", ")}</p>}
-          {!acc?.premium && acc?.signedIn && <p className="deck-note">Free accounts download on the site.</p>}
+          {need.length > 0 && <p className="deck-line">{t("deck.catalog.needs", { mods: need.map((r) => r.installed ? t("deck.catalog.needInstalled", { name: r.name }) : r.name).join(", ") })}</p>}
+          {!acc?.premium && acc?.signedIn && <p className="deck-note">{t("deck.catalog.freeAccounts")}</p>}
         </div>
       )}
     </Dialog>
@@ -117,15 +149,16 @@ function ModDialog({ id, onClose, onOpen }: { id: string; onClose: () => void; o
 
 /** An added mod: Undo, and Get for each mod it needs from Nexus Mods. */
 export function AddedDialog({ report, onClose, onGet }: { report: InstallReport; onClose: () => void; onGet: (modId: string) => void }) {
+  const t = useT();
   const { undo } = useCatalogInstall();
   const need = offered(report).slice(0, 2);
-  const title = report.add.added.length ? `Added ${report.name}` : report.add.already.length ? `${report.name} is on` : `${report.name} is in your list, off`;
+  const title = report.add.added.length ? t("deck.catalog.added", { name: report.name }) : report.add.already.length ? t("deck.shared.isOn", { name: report.name }) : t("deck.catalog.inListOff", { name: report.name });
   return (
-    <Dialog name="catalog-added" title={title} onClose={onClose} backLabel="OK"
+    <Dialog name="catalog-added" title={title} onClose={onClose} backLabel={t("common.ok")}
       buttons={<>
-        <DeckButton id="added-ok" primary autoFocus onClick={onClose}>OK</DeckButton>
-        {report.add.changes.length > 0 && <DeckButton id="added-undo" onClick={() => { void undo(report); onClose(); }}>Undo</DeckButton>}
-        {need.map((q) => <DeckButton key={q.modId} id={`added-get-${q.modId}`} onClick={() => onGet(q.modId)}>Get {q.name}</DeckButton>)}
+        <DeckButton id="added-ok" primary autoFocus onClick={onClose}>{t("common.ok")}</DeckButton>
+        {report.add.changes.length > 0 && <DeckButton id="added-undo" onClick={() => { void undo(report); onClose(); }}>{t("common.undo")}</DeckButton>}
+        {need.map((q) => <DeckButton key={q.modId} id={`added-get-${q.modId}`} onClick={() => onGet(q.modId)}>{t("deck.catalog.get", { name: q.name })}</DeckButton>)}
       </>} />
   );
 }

@@ -108,6 +108,36 @@ public sealed class ServicesTests
     }
 
     [Fact]
+    public async Task Every_public_stations_type_is_covered_by_Stations()
+    {
+        // Each public type declared in managed/services/Kiln.Blocks/World/Stations (0.2.0-dev.29.16: BaseIdChange was
+        // missing, so BasesChangedEvent.Changed under "Stations" alone raised KILN108 on BaseIdChange.Old)
+        const string all = """
+            public sealed class M : Mod
+            {
+                public override void OnLoad()
+                {
+                    Events.On<BasesChangedEvent>(e => { foreach (BaseIdChange c in e.Changed) { BaseId o = c.Old, n = c.New; } });
+                    BaseInfo? bi = null; BaseAltar ba = default; CategoryChoice cc = default; IngredientOption io = default;
+                    IngredientCategory? ic = null; StationStack ss = default; StationInput si = default; StationRecipe? sr = null;
+                    StationInfo? sf = null; FillMode fm = FillMode.Add; FillOptions? fo = null; FillLimit fl = default;
+                    FillInput fi = default; FillPlan? fp = null; StopWhen sw = default; StationActionStatus st = default;
+                    CollectWhat cw = CollectWhat.All; StationAction sa = default; StationResult? res = null;
+                    StationPlayerAction pa = default;
+                    Events.On<StationStateChangedEvent>(e => { });
+                    Events.On<StationPlacedEvent>(e => { });
+                    Events.On<StationRemovedEvent>(e => { });
+                    Events.On<StationCraftedEvent>(e => { });
+                    Events.On<StationPlayerActionEvent>(e => { });
+                    Events.On<StationChangedEvent>(e => { });
+                    _ = Stations.Available && Bases.Available;
+                }
+            }
+            """;
+        Ids(await Run(A, all, Props(("KilnServicesList", "Stations"))));
+    }
+
+    [Fact]
     public async Task No_property_no_diagnostics()
     {
         Ids(await Run(A, "public sealed class M : Mod { public override void OnLoad() => Players.Joined += p => { }; }"));

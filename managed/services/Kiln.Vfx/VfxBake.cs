@@ -64,11 +64,13 @@ internal static partial class VfxNative
     internal static (string Log, string Toast) PendingNote(string kind, string name, string mod, bool baked) => baked
         ? ($"{kind} {name} is not what was baked into the mod at build (blocks/generated/{mod}.json): every start builds the baked one, so a restart " +
            "does not change it; rebuild the mod (or set KilnBake=false when the code defines it from something only known at run time)",
-           $"{mod}: {kind} \"{name}\" differs from the mod's build: rebuild the mod")
+           kind == "vfx" ? KilnText.T("blocks.toast.baked_vfx", ("mod", mod), ("name", name))
+                         : KilnText.T("blocks.toast.baked_material", ("mod", mod), ("name", name)))
         : (kind == "vfx"
               ? $"vfx {name} is new to this game: it is kept for the next start, and shows nothing until then"
               : $"material {name} is new to this game: it is kept for the next start, and a model that names it doesn't draw until then",
-           kind == "vfx" ? $"{mod}: new VFX \"{name}\": restart the game to see it" : $"{mod}: new material \"{name}\": restart the game to see it");
+           kind == "vfx" ? KilnText.T("blocks.toast.new_vfx", ("mod", mod), ("name", name))
+                         : KilnText.T("blocks.toast.new_material", ("mod", mod), ("name", name)));
 
     /// <summary>Drops what was recorded for a mod (a bake starts from nothing).</summary>
     internal static void ForgetBaked(string mod)

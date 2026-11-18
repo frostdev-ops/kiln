@@ -73,6 +73,15 @@ public enum UiColorSlot : uint
     /// <summary>The gamepad / keyboard focus outline.</summary>
     NavCursor,
     CheckMark, SliderGrab,
+    /// <summary>A title bar (since 0.2.0-dev.29.16, as are the slots below; an older Kiln ignores them).</summary>
+    TitleBg,
+    /// <summary>The focused window's title bar.</summary>
+    TitleBgActive,
+    /// <summary>Drop-downs and tooltips.</summary>
+    PopupBg,
+    Tab, TabHovered, TabSelected, TableHeaderBg,
+    /// <summary>Selected text in a text field.</summary>
+    TextSelectedBg,
 }
 
 /// <summary>A spacing or rounding of the current look (<see cref="UiDraw.PushVar"/>); pixels (multiply by

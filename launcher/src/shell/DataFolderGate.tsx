@@ -15,7 +15,8 @@ import type { DataFolder } from "../api/commands";
 import { qk, useDataFolder } from "../api/hooks";
 import { Button, KeyValue, Modal, PathText, Splash, TaskProgress, errorText, toast, useTaskFeed } from "../ui";
 import { pickFolder, restartLauncher } from "./dataFolder";
-import { BROKEN_TITLE, ELSEWHERE_TITLE, UNDOING_CANCEL_LINE, UNDOING_TITLE, noticeView } from "./dataFolderText";
+import { brokenTitle, elsewhereTitle, noticeView, undoingCancelLine, undoingTitle } from "./dataFolderText";
+import { useT } from "../i18n";
 
 const GATE_WAIT_MS = 5000;
 
@@ -25,15 +26,15 @@ export function DataFolderGate({ children }: { children: ReactNode }) {
   const [broken, setBroken] = useState<DataFolder | null | undefined>(undefined);
   useEffect(() => {
     let live = true;
-    const t = setTimeout(() => { if (live) setBroken((b) => (b === undefined ? null : b)); }, GATE_WAIT_MS);
+    const timer = setTimeout(() => { if (live) setBroken((b) => (b === undefined ? null : b)); }, GATE_WAIT_MS);
     api.dataFolderGet().then((f) => {
       if (!live) return;
       qc.setQueryData(qk.dataFolder, f);
       // a late answer with a problem still takes the window
       setBroken(f.problem || f.elsewhere || f.undoing ? f : null);
     }, () => { if (live) setBroken((b) => (b === undefined ? null : b)); })
-      .finally(() => clearTimeout(t));
-    return () => { live = false; clearTimeout(t); };
+      .finally(() => clearTimeout(timer));
+    return () => { live = false; clearTimeout(timer); };
   }, [qc]);
   if (broken === undefined) return <Splash done={false} />;
   if (broken?.problem) return <BrokenPointer folder={broken} />;
@@ -45,6 +46,7 @@ export function DataFolderGate({ children }: { children: ReactNode }) {
 /** An unfinished move's partial copy is being removed (the folder is held): its task's progress and Cancel; when the
  *  task ends the launcher mounts and the notice says what happened. */
 export function Undoing({ folder, onDone }: { folder: DataFolder; onDone: (f: DataFolder) => void }) {
+  const t = useT();
   useTaskFeed();
   const [cur, setCur] = useState(folder);
   const [canceling, setCanceling] = useState(false);
@@ -54,14 +56,14 @@ export function Undoing({ folder, onDone }: { folder: DataFolder; onDone: (f: Da
   useEffect(() => {
     let live = true;
     // until the backend no longer says `undoing` (the task's end also ends the hold)
-    const t = setInterval(() => {
+    const timer = setInterval(() => {
       api.dataFolderGet().then((f) => {
         if (!live) return;
         if (f.undoing) setCur(f);
         else { live = false; done.current(f); }
       }, () => {});
     }, 700);
-    return () => { live = false; clearInterval(t); };
+    return () => { live = false; clearInterval(timer); };
   }, []);
   const u = cur.undoing!;
   const cancel = () => {
@@ -71,11 +73,11 @@ export function Undoing({ folder, onDone }: { folder: DataFolder; onDone: (f: Da
   };
   return (
     <div className="k-df-gate">
-      <Modal open locked onClose={() => {}} title={UNDOING_TITLE} width={580}
-        footer={<Button data-autofocus onClick={cancel} disabled={!u.task || canceling} loading={canceling}>Cancel</Button>}>
-        <KeyValue rows={[["Folder", <PathText path={u.folder} testId="data-folder-undo-path" />]]} />
-        {u.task ? <TaskProgress taskId={u.task} cancel={false} /> : <span className="k-hint">Starting…</span>}
-        <p className="k-df-line">{UNDOING_CANCEL_LINE}</p>
+      <Modal open locked onClose={() => {}} title={undoingTitle()} width={580}
+        footer={<Button data-autofocus onClick={cancel} disabled={!u.task || canceling} loading={canceling}>{t("common.cancel")}</Button>}>
+        <KeyValue rows={[[t("shell.dataFolderText.folder"), <PathText path={u.folder} testId="data-folder-undo-path" />]]} />
+        {u.task ? <TaskProgress taskId={u.task} cancel={false} /> : <span className="k-hint">{t("shell.dataFolderGate.starting")}</span>}
+        <p className="k-df-line">{undoingCancelLine()}</p>
         {error && <p className="k-df-line k-tone-err" role="alert">{error}</p>}
       </Modal>
     </div>
@@ -84,6 +86,7 @@ export function Undoing({ folder, onDone }: { folder: DataFolder; onDone: (f: Da
 
 /** The pointer names a folder that cannot be used. */
 export function BrokenPointer({ folder }: { folder: DataFolder }) {
+  const t = useT();
   const [busy, setBusy] = useState<null | "pick" | "fresh">(null);
   const [error, setError] = useState<string | null>(null);
   const [restarting, setRestarting] = useState(false);
@@ -123,14 +126,14 @@ export function BrokenPointer({ folder }: { folder: DataFolder }) {
   const quit = () => { api.deckQuit().catch((e) => setError(errorText(e))); };
   return (
     <div className="k-df-gate">
-      <Modal open locked onClose={() => {}} title={restarting ? "Restarting" : BROKEN_TITLE} width={580}
+      <Modal open locked onClose={() => {}} title={restarting ? t("shell.dataFolderGate.restarting") : brokenTitle()} width={580}
         footer={restarting ? undefined : <>
-          <Button variant="ghost" onClick={quit} disabled={!!busy}>Quit</Button>
-          <Button onClick={() => void fresh()} loading={busy === "fresh"} disabled={!!busy} title={`An empty data folder in ${folder.defaultPath}`}>Start fresh</Button>
-          <Button variant="primary" data-autofocus onClick={() => void choose()} loading={busy === "pick"} disabled={!!busy}>Choose folder</Button>
+          <Button variant="ghost" onClick={quit} disabled={!!busy}>{t("shell.dataFolderGate.quit")}</Button>
+          <Button onClick={() => void fresh()} loading={busy === "fresh"} disabled={!!busy} title={t("shell.dataFolderGate.startFreshTip", { path: folder.defaultPath })}>{t("shell.dataFolderGate.startFresh")}</Button>
+          <Button variant="primary" data-autofocus onClick={() => void choose()} loading={busy === "pick"} disabled={!!busy}>{t("shell.dataFolderGate.chooseFolder")}</Button>
         </>}>
         {!restarting && <>
-          <KeyValue rows={[["Folder", <PathText path={p.path} testId="data-folder-problem-path" />]]} />
+          <KeyValue rows={[[t("shell.dataFolderText.folder"), <PathText path={p.path} testId="data-folder-problem-path" />]]} />
           <p className="k-df-line">{p.reason}</p>
         </>}
         {error && <p className="k-df-line k-tone-err" role="alert">{error}</p>}
@@ -141,11 +144,12 @@ export function BrokenPointer({ folder }: { folder: DataFolder }) {
 
 /** Another launcher holds the data folder (it is moving it): nothing else mounts; Quit. */
 export function MovingElsewhere() {
+  const t = useT();
   const [error, setError] = useState<string | null>(null);
   return (
     <div className="k-df-gate">
-      <Modal open locked onClose={() => {}} title={ELSEWHERE_TITLE} width={520}
-        footer={<Button variant="primary" data-autofocus onClick={() => { api.deckQuit().catch((e) => setError(errorText(e))); }}>Quit</Button>}>
+      <Modal open locked onClose={() => {}} title={elsewhereTitle()} width={520}
+        footer={<Button variant="primary" data-autofocus onClick={() => { api.deckQuit().catch((e) => setError(errorText(e))); }}>{t("shell.dataFolderGate.quit")}</Button>}>
         {error && <p className="k-df-line k-tone-err" role="alert">{error}</p>}
       </Modal>
     </div>
@@ -154,6 +158,7 @@ export function MovingElsewhere() {
 
 /** The first start after a move (desktop). */
 export function DataFolderNotice() {
+  const t = useT();
   const qc = useQueryClient();
   const f = useDataFolder();
   const n = f.data?.notice;
@@ -167,7 +172,7 @@ export function DataFolderNotice() {
     <Modal open onClose={ack} title={v.title} width={600}
       footer={<>
         {v.open && <Button onClick={() => api.appOpenPath(n.kind === "undone" ? n.to : n.from).catch((e) => toast.error(e))}>{v.openLabel}</Button>}
-        <Button variant="primary" onClick={ack}>OK</Button>
+        <Button variant="primary" onClick={ack}>{t("common.ok")}</Button>
       </>}>
       <NoticeBody v={v} />
     </Modal>

@@ -111,7 +111,9 @@ clashes), `get`, `list` (`ProfileSummary.active` = installs whose profile.json n
   `<configDir>/native.json` (the profile's native switches), `chain.ini [profile]` (dllmain DLLs; `[chain]`
   byte-identical), `kiln/profile.json` (generation = previous + 1), clears `chain/once.ini` and
   `profile.once.json`, records `<data>/installs/<id>.active.json`.
-- `copy_back(pid, install)` after the game exits (copy mode), `deactivate` (profile.json to `kiln/backups/`,
+- `copy_back(pid, install)` after the game exits and before an activation (copy mode; file by file against
+  `config_sync_record`, a file both sides changed keeps the newer and the other as `<name>.conflict-<time>`:
+  contracts.md section 6; returns `ConfigSync {copied, conflicts}`), `deactivate` (profile.json to `kiln/backups/`,
   `[profile]` cleared), `deactivate_report` (also returns the fixed-folder placement cleanup result), `active`, `render`
   (no writes), `read_game_profile`, `write_once` (launch mode once). Activation never edits player-owned SF folders.
   Cleanup needs a trusted placement receipt plus unchanged contents, including exact SF settings bytes (old receipts

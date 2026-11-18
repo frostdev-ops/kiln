@@ -866,7 +866,7 @@ internal static class GemSources
         if (m.Status == 0) return;
         try
         {
-            Hud.Toast($"Gem Forge: {m.Message}", ToastKind.Warning, 4);
+            Hud.Toast(KilnText.T("gemforge.outcome", ("message", m.Message)), ToastKind.Warning, 4);
         }
         catch (Exception e) when (e is InvalidOperationException or KilnUnavailableException)
         {

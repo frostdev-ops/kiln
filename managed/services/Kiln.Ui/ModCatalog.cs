@@ -73,7 +73,7 @@ internal sealed record CatalogMod
     public bool NeedsAttention => State == ModRunState.Failed || Missing;
 
     /// <summary>The state chip's text.</summary>
-    public string Chip => Missing ? "Missing" : ModCatalog.ChipText(State);
+    public string Chip => Missing ? KilnText.T("catalog.chip.missing") : ModCatalog.ChipText(State);
 
     /// <summary>Lower-case name, id and engine, for the search box.</summary>
     public string SearchText { get; init; } = "";
@@ -108,6 +108,8 @@ internal sealed record CatalogSnapshot
     public string Side { get; init; } = "";
     /// <summary>Bumped for every new snapshot (the screen re-filters only when it changes).</summary>
     public long Version { get; init; }
+    /// <summary>The <see cref="KilnText.Generation"/> its sentences were made in (null: any; a test's or the preview's).</summary>
+    public int? Generation { get; init; }
 
     public int Problems => Mods.Count(m => m.NeedsAttention);
     public static readonly CatalogSnapshot Empty = new();
@@ -142,36 +144,20 @@ internal static class ModCatalog
     /// <summary>The names players see (the launcher's KIND_SHORT, plain words for Kiln's own kinds).</summary>
     public static string EngineName(string kind) => kind switch
     {
-        "kiln" => "Kiln", "native" => "Native DLL mods", "plugin" => "Kiln plugins", "chain" => "Chain DLLs", "emf" => "EMF",
+        "kiln" => "Kiln", "native" => KilnText.T("catalog.engine.native"), "plugin" => KilnText.T("catalog.engine.plugin"),
+        "chain" => KilnText.T("catalog.engine.chain"), "emf" => "EMF",
         "eml" => "EML", "xhl" => "XHL", "shroudforge" => "ShroudForge", "set" => "SET", "greeneye" => "Greeneye", "flame" => "Flame",
         "shroudtopia" => "Shroudtopia", "enshwick" => "Enshwick", "shroudlink" => "shroudlink", "ember" => "Ember", _ => kind,
     };
 
     /// <summary>One line about what the engine is, for the details.</summary>
-    public static string EngineAbout(string kind) => kind switch
-    {
-        "kiln" => "Kiln's own mods (C#).",
-        "native" => "DLL mods Kiln loads at start.",
-        "plugin" => "Native plugins that extend Kiln.",
-        "chain" => "Other DLLs Kiln starts next to the game.",
-        "emf" => "Enshrouded Mod Framework mods, run by Kiln.",
-        "eml" => "Enshrouded Mod Loader mods: they change the game's data before it starts.",
-        "xhl" => "XHL-Core plugins, placed in the game's mods folder. Only XHL-Core, installed separately, loads them; Kiln does not.",
-        "shroudforge" => "ShroudForge mods, run by the ShroudForge runtime.",
-        "set" => "Shrouded Engine Tweaks Lua mods, run by Kiln.",
-        "greeneye" => "Greeneye Loader mods, run by Kiln.",
-        "flame" => "Flame mods, run by Kiln.",
-        "shroudtopia" => "Shroudtopia mods, run by Kiln.",
-        "enshwick" => "Enshwick mods, run by Enshwick's loader.",
-        "shroudlink" => "shroudlink mods, run by Kiln.",
-        "ember" => "Ember server mods.",
-        _ => "",
-    };
+    public static string EngineAbout(string kind) => EngineOrder.Contains(kind) ? KilnText.T("catalog.about." + kind) : "";
 
     public static string ChipText(ModRunState s) => s switch
     {
-        ModRunState.Loaded => "Loaded", ModRunState.Waiting => "Waiting", ModRunState.Disabled => "Off",
-        ModRunState.Failed => "Failed", _ => "Not loaded",
+        ModRunState.Loaded => KilnText.T("catalog.chip.loaded"), ModRunState.Waiting => KilnText.T("catalog.chip.waiting"),
+        ModRunState.Disabled => KilnText.T("catalog.chip.off"), ModRunState.Failed => KilnText.T("catalog.chip.failed"),
+        _ => KilnText.T("catalog.chip.not_loaded"),
     };
 
     // Kiln's engine plugins (boot.json plugins[]): their own load result is the engine's, not a mod.
@@ -288,7 +274,7 @@ internal static class ModCatalog
             using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             if (fs.Length > MaxFile)
             {
-                error = "the file is too large";
+                error = KilnText.T("catalog.file.too_large");
                 return null;
             }
             using var doc = JsonDocument.Parse(fs, JsonOptions);
@@ -300,13 +286,13 @@ internal static class ModCatalog
         }
         catch (JsonException)
         {
-            error = "it is cut off or not valid JSON";
+            error = KilnText.T("catalog.file.invalid");
             return null;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {
             // ArgumentException / NotSupportedException: a path no file call takes (a NUL in a folder another config names)
-            error = "the file could not be read: " + e.Message;
+            error = KilnText.T("catalog.file.unreadable", ("error", e.Message));
             return null;
         }
     }
@@ -318,7 +304,7 @@ internal static class ModCatalog
         var path = Path.Combine(src.StateDir, file);
         var doc = ReadJson(path, out var error);
         if (doc is not { } d) return new StateFile(null, error is not null || File.Exists(path), false, error);
-        if (d.ValueKind != JsonValueKind.Object) return new StateFile(null, true, false, "the file is not a JSON object");
+        if (d.ValueKind != JsonValueKind.Object) return new StateFile(null, true, false, KilnText.T("catalog.file.not_object"));
         return new StateFile(d, true, IsCurrent(src, d, path), null);
     }
 
@@ -519,7 +505,7 @@ internal static class ModCatalog
             // engines write their reasons in lower case ("switched off in the profile"): shown as a sentence
             if (m.Reason is { } r) m = m with { Reason = Sentence(r) };
             if (m.Help is null && m.State == ModRunState.Disabled && m.Engine != "kiln")
-                m = m with { Help = "Turn it on in the Kiln launcher (Profiles), then start the game again." };
+                m = m with { Help = KilnText.T("catalog.help.turn_on") };
             l.Add(m with { SearchText = $"{m.Name} {m.Id} {EngineName(m.Engine)}".ToLowerInvariant() });
         }
 
@@ -559,16 +545,12 @@ internal static class ModCatalog
                     State = !e.Enabled ? ModRunState.Disabled : missing ? ModRunState.Failed : notReportedState,
                     Word = !e.Enabled ? "disabled" : missing ? "missing" : "not reported",
                     Reason = kept is { } k
-                        ? $"Switched off in the profile, but its folder is still in the game's mods folder ({LeafName(k)}), so {(kind switch
-                        {
-                            "xhl" => "XHL-Core may still load it",
-                            "enshwick" => "Enshwick's loader, which runs every folder there, may still run it",
-                            _ => "a mod or loader that reads that folder may still use it",
-                        })}."
-                        : !e.Enabled ? "Switched off in the profile." : missing ? "Its folder is missing: " + e.Path : notReportedReason,
-                    Help = kept is not null ? "Remove it in the Kiln launcher, or move that folder out of the game's mods folder, to be sure it does not run."
-                        : !e.Enabled ? "Turn it on in the Kiln launcher (Profiles), then start the game again."
-                        : missing ? "Repair or remove it in the Kiln launcher (Library), then start the game again." : notReportedHelp,
+                        ? KilnText.T(kind switch { "xhl" => "catalog.profile.kept_xhl", "enshwick" => "catalog.profile.kept_enshwick", _ => "catalog.profile.kept" },
+                            ("folder", LeafName(k)))
+                        : !e.Enabled ? KilnText.T("catalog.profile.off") : missing ? KilnText.T("catalog.profile.missing", ("path", e.Path)) : notReportedReason,
+                    Help = kept is not null ? KilnText.T("catalog.help.kept")
+                        : !e.Enabled ? KilnText.T("catalog.help.turn_on")
+                        : missing ? KilnText.T("catalog.help.repair") : notReportedHelp,
                 });
             }
         }
@@ -590,6 +572,7 @@ internal static class ModCatalog
     /// that cannot be read leaves its engine with an explaining note.</summary>
     public static CatalogSnapshot Read(CatalogSources src)
     {
+        var generation = KilnText.Generation;  // a change while it reads: the next Snapshot reads again
         var boot = ReadState(src, "boot.json");
         var bootDoc = boot.Current ? boot.Doc : null;
         Profile profile;
@@ -606,7 +589,7 @@ internal static class ModCatalog
             try { a(); }
             catch (Exception e)
             {
-                b.Engine(kind, "error", EngineHealth.Problem, "Kiln could not read this engine's report: " + e.Message, false);
+                b.Engine(kind, "error", EngineHealth.Problem, KilnText.T("catalog.engine_unreadable", ("error", e.Message)), false);
             }
         }
 
@@ -640,17 +623,17 @@ internal static class ModCatalog
         UniqueKeys(all);
         string? profileLine = profile.Mode switch
         {
-            "no-mods" => "Play once without mods: no mod loads this start.",
-            "invalid" => "The profile could not be read, so no mod loads" + (profile.Error is { } pe ? $" ({pe})." : "."),
-            "legacy" => "No profile: Kiln loads the mods folders.",
-            _ when profile.Name is not null || profile.Id is not null => $"Profile: {profile.Name ?? profile.Id}",
+            "no-mods" => KilnText.T("catalog.profile.no_mods"),
+            "invalid" => profile.Error is { } pe ? KilnText.T("catalog.profile.invalid_why", ("error", pe)) : KilnText.T("catalog.profile.invalid"),
+            "legacy" => KilnText.T("catalog.profile.legacy"),
+            _ when profile.Name is not null || profile.Id is not null => KilnText.T("catalog.profile.name", ("name", profile.Name ?? profile.Id)),
             _ => null,
         };
         return new CatalogSnapshot
         {
             Engines = engines, Mods = all, Profile = profileLine, ReadAtMs = Environment.TickCount64,
             Side = src.Side.Length > 0 ? src.Side : bootDoc is { } bd2 ? Str(bd2, "side") ?? "" : "",
-            Version = Interlocked.Increment(ref _version),
+            Version = Interlocked.Increment(ref _version), Generation = generation,
         };
     }
 
@@ -682,10 +665,10 @@ internal static class ModCatalog
 
     /// <summary>A client's <c>side: "server"</c> Kiln mod before the player's own world starts (the launcher says the same:
     /// kiln_manage::profile::WITH_WORLD).</summary>
-    internal const string StartsWithWorld = "Starts with your own world, when you play alone or friends join you. It does not run in someone else's world.";
+    internal static string StartsWithWorld => KilnText.T("catalog.kiln.with_world");
 
     /// <summary>The same with kiln.json <c>"mods": {"hosted": false}</c> (kiln_manage::profile::HOSTED_OFF).</summary>
-    internal const string HostedOff = "Off in this game: its kiln.json turns off mods that start with your world (mods.hosted is false).";
+    internal static string HostedOff => KilnText.T("catalog.kiln.hosted_off");
 
     // ---- Kiln's managed mods: Mods.All, plus profile entries the host never saw (missing folders) ----
     private static void KilnMods(Builder b)
@@ -696,10 +679,10 @@ internal static class ModCatalog
             var (state, help) = m.State switch
             {
                 ModState.Loaded => (ModRunState.Loaded, (string?)null),
-                ModState.Pending => (ModRunState.Waiting, "It loads when its turn comes (for example when a world starts)."),
-                ModState.Disabled => (ModRunState.Disabled, "Kiln switched it off after too many errors. Start the game again to retry, or update the mod."),
-                ModState.Failed => (ModRunState.Failed, "Read the reason above. Update the mod or what it needs in the Kiln launcher, then start the game again. kiln/logs/kiln.log has the details."),
-                ModState.Unloaded => (ModRunState.NotLoaded, "It was unloaded by a command. Start the game again to load it."),
+                ModState.Pending => (ModRunState.Waiting, KilnText.T("catalog.kiln.pending")),
+                ModState.Disabled => (ModRunState.Disabled, KilnText.T("catalog.kiln.disabled")),
+                ModState.Failed => (ModRunState.Failed, KilnText.T("catalog.kiln.failed")),
+                ModState.Unloaded => (ModRunState.NotLoaded, KilnText.T("catalog.kiln.unloaded")),
                 _ => (ModRunState.NotLoaded, (string?)null),
             };
             var reason = m.Error;
@@ -708,7 +691,7 @@ internal static class ModCatalog
             if (m.State == ModState.Skipped && m.Side == ModSide.Server && m.Error == HostedReasons.Waiting)
                 (state, reason, help) = (ModRunState.Waiting, StartsWithWorld, null);
             else if (m.State == ModState.Skipped && m.Side == ModSide.Server && m.Error == HostedReasons.Off)
-                (reason, help) = (HostedOff, "To let it start, remove \"hosted\": false from the \"mods\" part of kiln/kiln.json in the game folder, then start the game again.");
+                (reason, help) = (HostedOff, KilnText.T("catalog.kiln.hosted_off_help"));
             var side = m.Side switch { ModSide.Client => "client", ModSide.Both => "both", _ => "server" };
             b.Add(new CatalogMod
             {
@@ -718,8 +701,8 @@ internal static class ModCatalog
             });
         }
         var known = new HashSet<string>(mods.Select(m => m.Id), StringComparer.OrdinalIgnoreCase);
-        b.ProfileRest("kiln", e => e.Id is not null && known.Contains(e.Id), "Listed in the profile, but Kiln did not load it this start.",
-            notReportedHelp: "Start the game again. If it stays like this, check kiln/logs/kiln.log.");
+        b.ProfileRest("kiln", e => e.Id is not null && known.Contains(e.Id), KilnText.T("catalog.kiln.not_reported"),
+            notReportedHelp: KilnText.T("catalog.kiln.not_reported_help"));
         b.Engine("kiln", null, EngineHealth.Ok, null, true);
     }
 
@@ -743,7 +726,7 @@ internal static class ModCatalog
                 if (m.TryGetProperty("notes", out var notes) && notes.ValueKind == JsonValueKind.Array && reason is null)
                     reason = string.Join(" ", notes.EnumerateArray().Where(n => n.ValueKind == JsonValueKind.String).Select(n => n.GetString()));
                 var state = StateOf(word);
-                if (word == "policy") reason ??= "Kiln's native policy does not load DLL mods on this game build.";
+                if (word == "policy") reason ??= KilnText.T("catalog.native.policy");
                 var (name, _) = Manifest(folder);
                 b.Add(new CatalogMod
                 {
@@ -751,14 +734,14 @@ internal static class ModCatalog
                     Reason = string.IsNullOrEmpty(reason) ? null : reason, Folder = folder, Source = Str(m, "source") ?? "",
                     Side = Str(m, "side") ?? "",
                     LoadIndex = m.TryGetProperty("loadIndex", out var li) && li.ValueKind == JsonValueKind.Number ? li.GetInt32() : -1,
-                    Help = state == ModRunState.Failed ? "Read the reason above. Update the DLL mod in the Kiln launcher, then start the game again." : null,
+                    Help = state == ModRunState.Failed ? KilnText.T("catalog.native.failed_help") : null,
                 });
             }
         }
-        var why = !f.Exists ? "Kiln's native loader wrote no report this start." :
-            !f.Current ? "The native loader's report is from an earlier start." : "Listed in the profile, but the native loader did not report it.";
+        var why = !f.Exists ? KilnText.T("catalog.native.no_report") :
+            !f.Current ? KilnText.T("catalog.native.old_report") : KilnText.T("catalog.native.not_reported");
         b.ProfileRest("native", e => e.Id is not null && reported.Contains(e.Id), why);
-        b.Engine("native", f.Doc is { } nd ? Str(nd, "phase") : null, EngineHealth.Ok, f.Error is { } er ? "Its report could not be read: " + er : null, f.Current);
+        b.Engine("native", f.Doc is { } nd ? Str(nd, "phase") : null, EngineHealth.Ok, f.Error is { } er ? KilnText.T("catalog.report_unreadable", ("error", er)) : null, f.Current);
     }
 
     // ---- Kiln native plugins: boot.json plugins[] that are not Kiln's own engine plugins, and the profile's plugin entries ----
@@ -780,7 +763,7 @@ internal static class ModCatalog
                     // Kiln's own engine plugin: its load result belongs to its engine
                     if (StateOf(word) == ModRunState.Failed)
                         b.Engine(engine, word, EngineHealth.Problem,
-                            $"Kiln's {EngineName(engine)} plugin did not start: {Str(p, "error") ?? word}. Its mods cannot run.", true);
+                            KilnText.T("catalog.plugin.engine_failed", ("engine", EngineName(engine)), ("error", Str(p, "error") ?? word)), true);
                     continue;
                 }
                 if (id.StartsWith("kiln", StringComparison.OrdinalIgnoreCase) && path is not null &&
@@ -792,12 +775,12 @@ internal static class ModCatalog
                     // a plugin that failed before it named itself is named by its file, which another folder may also hold
                     Engine = "plugin", Id = id, Key = path, Name = id, Version = Str(p, "version") ?? "", State = state, Word = word,
                     Reason = Str(p, "error"), Folder = path, Source = "plugins",
-                    Help = state == ModRunState.Failed ? "Update or remove the plugin in the Kiln launcher, then start the game again." : null,
+                    Help = state == ModRunState.Failed ? KilnText.T("catalog.plugin.failed_help") : null,
                 });
             }
         }
         b.ProfileRest("plugin", e => reported.Contains(e.Path) || reported.Contains(LeafName(e.Path)),
-            boot is null ? "Kiln's start report is missing, so it is not known whether it loaded." : "Listed in the profile, but Kiln did not load it.");
+            boot is null ? KilnText.T("catalog.plugin.no_report") : KilnText.T("catalog.plugin.not_reported"));
         b.Engine("plugin", null, EngineHealth.Ok, null, boot is not null);
     }
 
@@ -828,7 +811,7 @@ internal static class ModCatalog
                 // keyed by the path: every proxy DLL mod (Spawn the World, Auto Loot Plus) is a dinput8.dll
                 Engine = "chain", Id = name, Key = path, Name = name, State = state, Word = word, Reason = reason, Folder = path,
                 Source = Str(c, "source") ?? "chain", Missing = word == "missing",
-                Help = state == ModRunState.Failed ? "Check the DLL in chain.ini (or the Kiln launcher), then start the game again." : null,
+                Help = state == ModRunState.Failed ? KilnText.T("catalog.chain.failed_help") : null,
             });
         }
         b.Engine("chain", null, EngineHealth.Ok, null, true);
@@ -869,8 +852,8 @@ internal static class ModCatalog
                 if (kind == "ember")
                 {
                     state = line.State == "skipped" ? ModRunState.NotLoaded : ModRunState.Waiting;
-                    reason ??= "Ember mods cannot run yet: Ember has not published a way for mods to run.";
-                    help = "Nothing to do now. The mod stays in your profile and runs once Kiln supports Ember mods.";
+                    reason ??= KilnText.T("catalog.ember.reason");
+                    help = KilnText.T("catalog.ember.help");
                 }
                 // own-loader: the engine's own loader runs it (Kiln copied it into that loader's folder)
                 else if (aside && state != ModRunState.Failed && line.State != "own-loader")
@@ -879,22 +862,22 @@ internal static class ModCatalog
                     reason ??= Str(d, "steppedAsideReason");
                 }
                 if (line.State == "not-loaded")
-                    help = $"{EngineName(kind)}'s own loader runs the {EngineName(kind)} mods this start and reads only its own folder. Activate the profile again in the Kiln launcher (it copies the mod there), then start the game again.";
+                    help = KilnText.T("catalog.engine_mods.own_loader", ("engine", EngineName(kind)));
                 else if (line.State == "off-in-shroudforge")
                     help = OffInShroudForgeHelp;
                 else if (kind == "shroudtopia" && !aside && line.State == "inactive")
                 {
-                    reason = "Switched off in Shroudtopia's settings.";
-                    help = $"In shroudtopia/shroudtopia.json in the profile's config folder, set active to true in the mods entry named \"{line.Name ?? line.Id}\" (the name in kiln.log's Registered mod line). Save the file; Shroudtopia reads it again while the game runs.";
+                    reason = KilnText.T("catalog.shroudtopia.off");
+                    help = KilnText.T("catalog.shroudtopia.off_help", ("name", line.Name ?? line.Id));
                 }
                 // kiln-shroudtopia: the setting is on and Activate is called, but the mod's own flag stays off
                 else if (kind == "shroudtopia" && !aside && line.State == "activating")
                 {
-                    reason = string.IsNullOrEmpty(reason) ? "Switched on, but the mod does not report itself active." : char.ToUpperInvariant(reason[0]) + reason[1..] + ".";
-                    help = $"Kiln runs Shroudtopia mods through Shroudtopia 0.1.1's mod interface and keeps calling this mod's Activate. A mod made for another game version, or built against another Shroudtopia, can stay like this without doing anything. kiln/logs/kiln.log has its own lines as [shroudtopia:{line.Name ?? line.Id}]; the mod's author can tell whether it supports this game version.";
+                    reason = string.IsNullOrEmpty(reason) ? KilnText.T("catalog.shroudtopia.not_active") : char.ToUpperInvariant(reason[0]) + reason[1..] + ".";
+                    help = KilnText.T("catalog.shroudtopia.not_active_help", ("name", line.Name ?? line.Id));
                 }
                 else if (state == ModRunState.Failed)
-                    help = $"Read the reason above. Update the mod in the Kiln launcher, then start the game again. kiln/logs/kiln.log has the {EngineName(kind)} lines.";
+                    help = KilnText.T("catalog.engine_mods.failed_help", ("engine", EngineName(kind)));
                 var (mname, mversion) = line.Name is null ? Manifest(line.Folder) : (line.Name, null);
                 b.Add(new CatalogMod
                 {
@@ -904,12 +887,14 @@ internal static class ModCatalog
                 });
             }
         }
-        var why = f.Error is { } err ? $"{EngineName(kind)}'s report could not be read: {err}. Kiln reads it again in a moment."
-            : !f.Exists ? $"{EngineName(kind)} did not run this start, so this mod did not load."
-            : !f.Current ? $"{EngineName(kind)} did not report this start (its last report is from an earlier start)."
-            : $"Listed in the profile, but {EngineName(kind)} did not report it this start.";
+        // folder: a mod of the engine's folder that the profile does not list ("the mod" in place of "this mod")
+        string Why(bool folder) => f.Error is { } err ? KilnText.T("catalog.engine_mods.unreadable", ("engine", EngineName(kind)), ("error", err))
+            : !f.Exists ? KilnText.T(folder ? "catalog.engine_mods.not_run_folder" : "catalog.engine_mods.not_run", ("engine", EngineName(kind)))
+            : !f.Current ? KilnText.T("catalog.engine_mods.old_report", ("engine", EngineName(kind)))
+            : KilnText.T("catalog.engine_mods.not_reported", ("engine", EngineName(kind)));
+        var why = Why(false);
         b.ProfileRest(kind, e => (e.Id is not null && (reported.Contains(e.Id) || reportedSlugs.Contains(e.Id))) || reportedFolders.Contains(NormPath(e.Path)), why,
-            notReportedHelp: !f.Exists || !f.Current ? $"Check that Kiln's {EngineName(kind)} plugin is installed (kiln/plugins), then start the game again." : null);
+            notReportedHelp: !f.Exists || !f.Current ? KilnText.T("catalog.engine_mods.plugin_help", ("engine", EngineName(kind))) : null);
         if (kind == "set" && !f.Current && b.Profile.ReadsFolder("set"))
         {
             // an older kiln-set writes no set.json: the folder SET reads, without a result
@@ -925,15 +910,15 @@ internal static class ModCatalog
                 b.Add(new CatalogMod
                 {
                     Engine = "set", Id = name, Name = mname ?? name, Version = mversion ?? "", Folder = sub, Source = "folder",
-                    State = ModRunState.NotLoaded, Word = "not reported", Reason = why.Replace("this mod", "the mod"),
+                    State = ModRunState.NotLoaded, Word = "not reported", Reason = Why(true),
                 });
             }
         }
         if (f.Error is not null) (health, note) = (EngineHealth.Problem, why);
         else if (!f.Current && (b.Profile.Of(kind).Count > 0 || b.Mods.ContainsKey(kind)))
             (health, note) = (EngineHealth.Idle, f.Exists
-                ? $"{EngineName(kind)} did not report this start; its last report is from an earlier start."
-                : $"{EngineName(kind)} did not run this start.");
+                ? KilnText.T("catalog.engine_mods.note_old", ("engine", EngineName(kind)))
+                : KilnText.T("catalog.engine_mods.note_not_run", ("engine", EngineName(kind))));
         if (!b.Engines.ContainsKey(kind)) b.Engine(kind, word, health, note, f.Current);
     }
 
@@ -946,37 +931,40 @@ internal static class ModCatalog
         if (Bool(d, "steppedAside") == true)
         {
             var why = Str(d, "steppedAsideReason");
-            var who = kind == "emf" ? "EMF: stepped aside for the real EMF" : $"Stepped aside: another {EngineName(kind)} loader runs these mods";
-            return (EngineHealth.Idle, why is null ? who + "." : $"{who} ({why}).");
+            return (EngineHealth.Idle, kind == "emf"
+                ? why is null ? KilnText.T("catalog.note.aside_emf") : KilnText.T("catalog.note.aside_emf_why", ("reason", why))
+                : why is null ? KilnText.T("catalog.note.aside", ("engine", EngineName(kind)))
+                : KilnText.T("catalog.note.aside_why", ("engine", EngineName(kind)), ("reason", why)));
         }
         switch (kind)
         {
             case "emf":
-                if (Str(d, "emfIdle") is { } idle) return (EngineHealth.Problem, "EMF went idle on this game build: " + idle);
+                if (Str(d, "emfIdle") is { } idle) return (EngineHealth.Problem, KilnText.T("catalog.note.emf_idle", ("reason", idle)));
                 return (health, null);
             case "eml":
                 return word switch
                 {
                     "done" => (EngineHealth.Ok, d.TryGetProperty("patched", out var p) && p.ValueKind == JsonValueKind.Number
-                        ? $"Game data patched before the game started ({p.GetRawText()} change{(p.GetRawText() == "1" ? "" : "s")})." : null),
-                    "failed" => (EngineHealth.Problem, $"EML failed: {Str(d, "error") ?? "see kiln.log"}. The game data was put back to normal."),
+                        ? p.TryGetInt64(out var changes) ? KilnText.Plural("catalog.note.eml_patched", changes)
+                            : KilnText.T("catalog.note.eml_patched.other", ("count", p.GetRawText())) : null),
+                    "failed" => (EngineHealth.Problem, KilnText.T("catalog.note.eml_failed", ("error", Str(d, "error") ?? KilnText.T("catalog.see_log")))),
                     "aside" => (EngineHealth.Idle, Str(d, "aside") is { } a && a.Contains("ShroudForge", StringComparison.OrdinalIgnoreCase)
-                        ? "EML: stepped aside for ShroudForge, which runs the EML mods of its mods folder whose ShroudForge switch is on."
-                        : "EML: stepped aside for EML's own loader" + (Str(d, "aside") is { } why ? $" ({why})." : ".")),
-                    "idle" => (EngineHealth.Idle, "No EML mods this start."),
+                        ? KilnText.T("catalog.note.eml_aside_sf")
+                        : Str(d, "aside") is { } why ? KilnText.T("catalog.note.eml_aside_why", ("reason", why)) : KilnText.T("catalog.note.eml_aside")),
+                    "idle" => (EngineHealth.Idle, KilnText.T("catalog.note.eml_idle")),
                     _ => (health, null),
                 };
             case "ember":
-                return (EngineHealth.Idle, "Ember: mods are found but cannot run yet.");
+                return (EngineHealth.Idle, KilnText.T("catalog.note.ember"));
             case "shroudlink":
-                if (Bool(d, "claimedElsewhere") == true) return (EngineHealth.Idle, "Another shroudlink loader runs these mods.");
+                if (Bool(d, "claimedElsewhere") == true) return (EngineHealth.Idle, KilnText.T("catalog.note.shroudlink_elsewhere"));
                 return (health, null);
             case "set":
                 return word switch
                 {
-                    "stepped-aside" => (EngineHealth.Idle, "SET: stepped aside for SET's own loader" + (Str(d, "reason") is { } r ? $" ({r})." : ".")),
-                    "waiting" => (EngineHealth.Ok, "Mods load at the main menu."),
-                    "off" => (EngineHealth.Idle, Str(d, "reason") ?? "Off this start."),
+                    "stepped-aside" => (EngineHealth.Idle, Str(d, "reason") is { } r ? KilnText.T("catalog.note.set_aside_why", ("reason", r)) : KilnText.T("catalog.note.set_aside")),
+                    "waiting" => (EngineHealth.Ok, KilnText.T("catalog.note.set_waiting")),
+                    "off" => (EngineHealth.Idle, Str(d, "reason") ?? KilnText.T("catalog.note.set_off")),
                     _ => (health, Str(d, "reason")),
                 };
             default:
@@ -998,24 +986,22 @@ internal static class ModCatalog
         }
         var (health, note, state) = mode switch
         {
-            "hosted" => (EngineHealth.Ok, menu == "kiln"
-                ? "ShroudForge: runtime hosted by Kiln. Pick a mod to switch it and change its settings here (ShroudForge's own Modloader window is not running)."
-                : "ShroudForge: runtime hosted by Kiln. Pick a mod to switch it and change its settings.", ModRunState.Loaded),
-            "self-hosted" => (EngineHealth.Idle, "ShroudForge: its own loader runs the mods; Kiln stepped aside. Pick a mod to switch it and change its settings.", ModRunState.Loaded),
-            "not-installed" => (EngineHealth.Problem, "ShroudForge is not installed, so its mods cannot run.", ModRunState.Failed),
-            "off" => (EngineHealth.Idle, reason is null ? "ShroudForge is off this start." : $"ShroudForge is off: {reason}.", ModRunState.NotLoaded),
-            "failed" => (EngineHealth.Problem, $"ShroudForge failed: {reason ?? "see kiln.log"}.", ModRunState.Failed),
-            null => (f.Exists ? EngineHealth.Idle : EngineHealth.Idle, f.Error is { } e ? "Its report could not be read: " + e
-                : f.Exists ? "ShroudForge did not report this start." : "ShroudForge did not run this start.", ModRunState.NotLoaded),
+            "hosted" => (EngineHealth.Ok, menu == "kiln" ? KilnText.T("catalog.sf.hosted_menu") : KilnText.T("catalog.sf.hosted"), ModRunState.Loaded),
+            "self-hosted" => (EngineHealth.Idle, KilnText.T("catalog.sf.self_hosted"), ModRunState.Loaded),
+            "not-installed" => (EngineHealth.Problem, KilnText.T("catalog.sf.not_installed"), ModRunState.Failed),
+            "off" => (EngineHealth.Idle, reason is null ? KilnText.T("catalog.sf.off") : KilnText.T("catalog.sf.off_why", ("reason", reason)), ModRunState.NotLoaded),
+            "failed" => (EngineHealth.Problem, KilnText.T("catalog.sf.failed", ("reason", reason ?? KilnText.T("catalog.see_log"))), ModRunState.Failed),
+            null => (f.Exists ? EngineHealth.Idle : EngineHealth.Idle, f.Error is { } e ? KilnText.T("catalog.report_unreadable", ("error", e))
+                : f.Exists ? KilnText.T("catalog.sf.no_report") : KilnText.T("catalog.sf.not_run"), ModRunState.NotLoaded),
             _ => (EngineHealth.Ok, null, StateOf(mode)),
         };
         var why = mode switch
         {
-            "hosted" or "self-hosted" => "ShroudForge runs it.",
+            "hosted" or "self-hosted" => KilnText.T("catalog.sf.runs_it"),
             null => note,
             _ => note,
         };
-        var help = state == ModRunState.Failed ? "Fix ShroudForge first (see the engine line), then start the game again." : null;
+        var help = state == ModRunState.Failed ? KilnText.T("catalog.sf.fix_first") : null;
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var e in b.Profile.Of("shroudforge"))
         {
@@ -1030,7 +1016,7 @@ internal static class ModCatalog
         if (runs)
         {
             state = ModRunState.Waiting;
-            why = "ShroudForge runs, but Kiln could not read what it says about this mod (see the engine line). This is not proof the mod is active.";
+            why = KilnText.T("catalog.sf.unconfirmed");
         }
         b.ProfileRest("shroudforge", _ => false, why ?? "", state, help);
         // mods the player put into ShroudForge's folder by hand (ShroudForge reads the whole folder)
@@ -1055,7 +1041,7 @@ internal static class ModCatalog
                 Folder = sub, Source = "folder", State = on ? state : ModRunState.Disabled, Word = on ? runs ? "unconfirmed" : mode ?? "" : "disabled",
                 // an EML package without ShroudForge's file was never switched on there: say so, it is not a choice the
                 // player made; the player's own folder says the promised words, a copy Kiln's launcher placed does not
-                Reason = on ? why : SfFacts(sub) is not null ? "Switched off in ShroudForge's settings." : KilnsEml(sub) ? NoSwitchFile : HandEmlOff,
+                Reason = on ? why : SfFacts(sub) is not null ? KilnText.T("catalog.sf.off_in_settings") : KilnsEml(sub) ? NoSwitchFile : HandEmlOff,
                 Help = on ? help : null,
             });
         }
@@ -1067,11 +1053,11 @@ internal static class ModCatalog
                 if (emlRows[i].Word == "own-loader" && emlRows[i].Reason?.Contains("ShroudForge", StringComparison.OrdinalIgnoreCase) == true)
                 {
                     emlRows[i] = emlRows[i] with { State = ModRunState.Failed, Word = "failed", Reason = note,
-                        Help = "Fix ShroudForge first (see kiln.log), then start the game again. Kiln EML stood aside and did not apply this mod." };
+                        Help = KilnText.T("catalog.sf.eml_failed_help") };
                     affected = true;
                 }
             if (affected && b.Engines.TryGetValue("eml", out var eml))
-                b.Engines["eml"] = (eml.Word, EngineHealth.Problem, "Kiln EML stood aside for ShroudForge, but " + note, eml.Reported);
+                b.Engines["eml"] = (eml.Word, EngineHealth.Problem, KilnText.T("catalog.sf.eml_aside_but", ("note", note)), eml.Reported);
         }
         // what ShroudForge's runtime says per mod (its state.json, this process), and its own switch in the mod's files
         if (runs)
@@ -1093,9 +1079,7 @@ internal static class ModCatalog
                 if (emlRows[i].Word == OffInShroudForge) off++;
             }
             if (off > 0 && b.Engines.TryGetValue("eml", out var en))
-                b.Engines["eml"] = (en.Word, EngineHealth.Problem,
-                    $"{off} of the profile's EML mods {(off == 1 ? "is" : "are")} switched off in ShroudForge, so nothing applies {(off == 1 ? "it" : "them")} this start. ShroudForge runs the EML mods of its folder whose ShroudForge switch is on.",
-                    en.Reported);
+                b.Engines["eml"] = (en.Word, EngineHealth.Problem, KilnText.Plural("catalog.sf.eml_off", off), en.Reported);
         }
         b.Engine("shroudforge", mode, health, note, f.Current);
     }
@@ -1107,24 +1091,17 @@ internal static class ModCatalog
     /// legacy EML package has no extended.mod.json until its switch is first turned on). The words promised to a player on
     /// Nexus (2026-11-14): what happened, nothing about ShroudForge's files (that read as "Kiln wants a ShroudForge file
     /// from an EML mod"). kiln-manage (the launcher) and kiln-eml (kiln.log) say the same.</summary>
-    internal const string HandEmlOff = "You put this mod into ShroudForge's folder yourself, and ShroudForge has it switched off.";
-
-    /// <summary>What helps <see cref="HandEmlOff"/> on its own row in Mods &gt; ShroudForge (the switch is drawn below it).</summary>
-    internal const string HandEmlOffHelp = "Switch it on below, or remove the folder and add the mod with Add mods in the Kiln launcher.";
+    internal static string HandEmlOff => KilnText.T("catalog.sf.hand_off");
 
     /// <summary>What helps <see cref="HandEmlOff"/> on the EML row of a profile mod whose folder is the player's.</summary>
-    internal const string HandEmlOffProfileHelp =
-        "Switch it on in Mods > ShroudForge (its own row there), or remove the folder and press Play in the Kiln launcher: the mod is in " +
-        "your profile, so Kiln then places its own copy, switched on.";
+    internal static string HandEmlOffProfileHelp => KilnText.T("catalog.sf.hand_off_profile_help");
 
-    internal const string OffInShroudForgeHelp =
-        "ShroudForge runs it only once its switch is on: the reason above says where to switch it on. Then start the game again.";
+    internal static string OffInShroudForgeHelp => KilnText.T("catalog.sf.off_in_sf_help");
 
     /// <summary>A package in ShroudForge's folder that has no extended.mod.json and is not the player's own folder (a
     /// copy Kiln's launcher placed there, <see cref="KilnsEml"/>): <see cref="HandEmlOff"/> would tell the player they
     /// put it there.</summary>
-    internal const string NoSwitchFile =
-        "ShroudForge has not switched it on: it has no extended.mod.json, the file that holds ShroudForge's switch, so ShroudForge does not run it.";
+    internal static string NoSwitchFile => KilnText.T("catalog.sf.no_switch_file");
 
     /// <summary>The folder is a copy of an EML mod Kiln's launcher placed (its marker says eml), not the player's own.</summary>
     private static bool KilnsEml(string folder) => string.Equals(PlacedKind(folder), "eml", StringComparison.OrdinalIgnoreCase);
@@ -1144,7 +1121,7 @@ internal static class ModCatalog
             return m with
             {
                 State = ModRunState.Waiting, Word = "unconfirmed",
-                Reason = $"ShroudForge reads this folder, but Kiln cannot read the package as ShroudForge does ({ShroudForgeUi.Clip(e.Message, 300)}); ShroudForge refuses a package it cannot read.",
+                Reason = KilnText.T("catalog.sf.package_unreadable", ("error", ShroudForgeUi.Clip(e.Message, 300))),
                 Help = null,
             };
         }
@@ -1154,22 +1131,17 @@ internal static class ModCatalog
             {
                 State = ModRunState.Disabled, Word = OffInShroudForge,
                 // Kiln's copy: the launcher switches it on; the player's own folder: the promised words
-                Reason = !kilns ? HandEmlOff : (p.Extended
-                    ? "In ShroudForge's mods folder, but its extended.mod.json (the file that holds ShroudForge's switch) says enabled: false"
-                    : "In ShroudForge's mods folder, but it has no extended.mod.json, the file that holds ShroudForge's switch, and ShroudForge keeps a package off until its switch is on") +
-                    ", so nothing applies it this start.",
-                Help = kilns
-                    ? "Press Play in the Kiln launcher (or activate the profile again): Kiln switches it on in ShroudForge's settings. Then start the game again."
-                    : HandEmlOffProfileHelp,
+                Reason = !kilns ? HandEmlOff : p.Extended ? KilnText.T("catalog.sf.eml_switch_off") : KilnText.T("catalog.sf.eml_no_switch"),
+                Help = kilns ? KilnText.T("catalog.sf.eml_press_play") : HandEmlOffProfileHelp,
             };
         if (side.Length > 0 && p.Targets.Count > 0 && !(side == "server" ? p.Targets.Contains("server") : p.Targets.Contains("client") || !p.Targets.Contains("server")))
-            return m with { State = ModRunState.NotLoaded, Word = "other side", Reason = $"ShroudForge runs it on the {string.Join(" and ", p.Targets)} only.", Help = null };
+            return m with { State = ModRunState.NotLoaded, Word = "other side", Reason = KilnText.T("catalog.sf.eml_other_side", ("sides", string.Join(KilnText.T("catalog.sf.and"), p.Targets))), Help = null };
         if (!p.Capabilities.Any(c => c is "patch" or "export")) return m;
         if (assets is not null && SfStartup(m, p, assets, side) is { } startup) return startup;
         return m with
         {
             State = ModRunState.Waiting, Word = "unconfirmed",
-            Reason = "Its ShroudForge switch is on, but ShroudForge's record of this start's startup pass does not list it at this version, so Kiln cannot confirm it was applied.",
+            Reason = KilnText.T("catalog.sf.eml_unconfirmed"),
             Help = null,
         };
     }
@@ -1283,17 +1255,14 @@ internal static class ModCatalog
             return m with
             {
                 State = ModRunState.Failed, Word = "failed",
-                Reason = "ShroudForge's startup game-data pass failed in this game start" + (assets.Error is { Length: > 0 } e ? ": " + e : "."),
-                Help = "ShroudForge's log has the details. Start the game again once the cause is fixed.",
+                Reason = assets.Error is { Length: > 0 } e ? KilnText.T("catalog.sf.startup_failed_why", ("error", e)) : KilnText.T("catalog.sf.startup_failed"),
+                Help = KilnText.T("catalog.sf.startup_failed_help"),
             };
         if (assets.Status != "applied" || !assets.Mods.TryGetValue(p.Id, out var version) || version != p.Version) return null;
         return m with
         {
             State = ModRunState.Loaded, Word = "applied",
-            Reason = (assets.Fresh
-                         ? "ShroudForge applied its game-data changes at the start of this game start"
-                         : "ShroudForge found its game-data changes of an earlier start still current for this start's mods") +
-                     " (its record of the startup pass lists this mod). A change of its settings applies with the next start.",
+            Reason = assets.Fresh ? KilnText.T("catalog.sf.startup_applied") : KilnText.T("catalog.sf.startup_current"),
             Help = null,
         };
     }
@@ -1303,7 +1272,7 @@ internal static class ModCatalog
         if (m.Missing || m.Folder is not { } folder) return m;
         SfPackage p;
         try { p = ShroudForgePackages.Read(folder); }
-        catch (Exception) { return m with { State = m.State == ModRunState.Disabled ? m.State : ModRunState.Waiting, Word = "unconfirmed", Reason = "Its package settings cannot be read; ShroudForge's per-mod activation is not confirmed." }; }
+        catch (Exception) { return m with { State = m.State == ModRunState.Disabled ? m.State : ModRunState.Waiting, Word = "unconfirmed", Reason = KilnText.T("catalog.sf.settings_unreadable") }; }
         var repair = ShroudForgeUi.RepairNote(p);
         // a legacy EML package the player put into ShroudForge's folder: the promised words (the switch below writes the
         // file); a copy Kiln's launcher placed there is not theirs, and says what is missing
@@ -1311,56 +1280,56 @@ internal static class ModCatalog
             return m with
             {
                 State = ModRunState.Disabled, Word = "disabled", Reason = HandEmlOff,
-                Help = HandEmlOffHelp + " " + (p.SwitchLive ? "ShroudForge starts it while you play." : "It applies at the next game start."),
+                // what helps on its own row in Mods > ShroudForge (the switch is drawn below it)
+                Help = p.SwitchLive ? KilnText.T("catalog.sf.hand_off_help_live") : KilnText.T("catalog.sf.hand_off_help_next"),
             };
         if (!p.Enabled && !p.Extended)
             return m with
             {
                 // a legacy EML package: ShroudForge's own Modloader writes the file at the first change of its switch
                 State = ModRunState.Disabled, Word = "disabled", Reason = NoSwitchFile,
-                Help = "Switch it on below: Kiln writes the extended.mod.json ShroudForge's own Modloader writes. " +
-                       (p.SwitchLive ? "ShroudForge starts it while you play." : "It applies at the next game start."),
+                Help = p.SwitchLive ? KilnText.T("catalog.sf.no_switch_help_live") : KilnText.T("catalog.sf.no_switch_help_next"),
             };
         if (!p.Enabled)
             return m with
             {
                 State = ModRunState.Disabled, Word = "disabled",
-                Reason = "Switched off in ShroudForge's settings (the mod's extended.mod.json)." + (repair is null ? "" : " " + repair),
-                Help = "Switch it on below.",
+                Reason = repair is null ? KilnText.T("catalog.sf.off_ext") : KilnText.T("catalog.sf.off_ext_repair", ("repair", repair)),
+                Help = KilnText.T("catalog.sf.switch_on_below"),
             };
         if (repair is not null)
             return m with
             {
                 State = ModRunState.Failed, Word = "needs repair", Reason = repair,
-                Help = "Change any of its settings, or switch it off and on, in Kiln's menu once: that repairs it.",
+                Help = KilnText.T("catalog.sf.repair_help"),
             };
         if (side.Length > 0 && p.Targets.Count > 0 && !p.Targets.Contains(side))
-            return m with { State = ModRunState.NotLoaded, Word = "other side", Reason = $"It runs on the {string.Join(" and ", p.Targets)} only.", Help = null };
+            return m with { State = ModRunState.NotLoaded, Word = "other side", Reason = KilnText.T("catalog.sf.other_side", ("sides", string.Join(KilnText.T("catalog.sf.and"), p.Targets))), Help = null };
         var hasRuntime = p.Capabilities.Any(c => c is "runtime" or "runtime-register-dll");
         if (!hasRuntime && assets is not null && SfStartup(m, p, assets, side) is { } startup) return startup;
-        if (runtime is null) return m with { State = ModRunState.Waiting, Word = "unconfirmed", Reason = "Its switch is on, but ShroudForge has no current per-mod runtime report. This is not proof the mod is active.", Help = null };
+        if (runtime is null) return m with { State = ModRunState.Waiting, Word = "unconfirmed", Reason = KilnText.T("catalog.sf.no_runtime"), Help = null };
         if (runtime.Errors.TryGetValue(p.Id, out var err))
         {
             var waits = err.StartsWith("restart-required", StringComparison.Ordinal) || err.StartsWith("dependency-blocked", StringComparison.Ordinal);
             return m with
             {
-                State = waits ? ModRunState.NotLoaded : ModRunState.Failed, Word = waits ? "waiting" : "failed", Reason = "ShroudForge: " + err,
-                Help = waits ? "Start the game again." : "Read the reason above. Update the mod, then start the game again. ShroudForge's log has the details.",
+                State = waits ? ModRunState.NotLoaded : ModRunState.Failed, Word = waits ? "waiting" : "failed", Reason = KilnText.T("catalog.sf.error", ("error", err)),
+                Help = waits ? KilnText.T("catalog.sf.restart") : KilnText.T("catalog.sf.error_help"),
             };
         }
-        if (!hasRuntime) return m with { State = ModRunState.Waiting, Word = "startup", Reason = "Enabled for startup game-data changes; ShroudForge's record of this start's startup pass does not list it at this version, so Kiln cannot confirm it.", Help = null };
+        if (!hasRuntime) return m with { State = ModRunState.Waiting, Word = "startup", Reason = KilnText.T("catalog.sf.startup_unconfirmed"), Help = null };
         if (!runtime.Active.Contains(p.Id))
-            return m with { State = ModRunState.NotLoaded, Word = "inactive", Reason = "ShroudForge does not run it right now; a change of its switch takes a second or two, or it starts with the next game start.", Help = null };
+            return m with { State = ModRunState.NotLoaded, Word = "inactive", Reason = KilnText.T("catalog.sf.inactive"), Help = null };
         if (runtime.Effects.TryGetValue(p.Id, out var effect))
         {
             var effectState = EffectState(effect.State);
             return m with
             {
-                State = effectState, Word = effect.State, Reason = $"ShroudForge Lua is active; reported effect: {effect.State}. {effect.Detail}", Active = true,
-                Help = effectState == ModRunState.Failed ? "The mod reports that its change did not apply. ShroudForge's log has the details." : null,
+                State = effectState, Word = effect.State, Reason = KilnText.T("catalog.sf.effect", ("effect", effect.State), ("detail", effect.Detail)), Active = true,
+                Help = effectState == ModRunState.Failed ? KilnText.T("catalog.sf.effect_failed_help") : null,
             };
         }
-        return m with { State = ModRunState.Loaded, Word = "active", Reason = "ShroudForge runs its Lua; the mod reports no effect result.", Help = null, Active = true };
+        return m with { State = ModRunState.Loaded, Word = "active", Reason = KilnText.T("catalog.sf.active"), Help = null, Active = true };
     }
 
     /// <summary>A mod's reported effect state as the launcher shows it: a mod reports waiting, no-target, no-change,
@@ -1381,7 +1350,7 @@ internal static class ModCatalog
         string? word = null;
         var notes = new Dictionary<string, ModLine>(StringComparer.OrdinalIgnoreCase);
         var health = EngineHealth.Idle;
-        string? note = f.Error is { } err ? "Its report could not be read: " + err : f.Exists ? "Enshwick did not report this start." : "Enshwick did not run this start.";
+        string? note = f.Error is { } err ? KilnText.T("catalog.report_unreadable", ("error", err)) : f.Exists ? KilnText.T("catalog.enshwick.no_report") : KilnText.T("catalog.enshwick.not_run");
         var state = ModRunState.NotLoaded;
         if (f.Doc is { } d && f.Current)
         {
@@ -1390,23 +1359,23 @@ internal static class ModCatalog
             var reason = Str(d, "reason");
             (health, note, state) = word switch
             {
-                "started" => (EngineHealth.Ok, "Enshwick's loader started.", ModRunState.Loaded),
-                "starting" => (EngineHealth.Ok, "Enshwick's loader is starting.", ModRunState.Waiting),
-                "failed" => (EngineHealth.Problem, $"Enshwick's loader failed: {reason ?? "see kiln.log"}.", ModRunState.Failed),
-                "no-loader" => (EngineHealth.Problem, $"Enshwick's loader is missing: {reason ?? "install Enshwick"}.", ModRunState.Failed),
-                "stepped-aside" => (EngineHealth.Idle, "Enshwick: stepped aside for Enshwick's own loader.", ModRunState.NotLoaded),
+                "started" => (EngineHealth.Ok, KilnText.T("catalog.enshwick.started"), ModRunState.Loaded),
+                "starting" => (EngineHealth.Ok, KilnText.T("catalog.enshwick.starting"), ModRunState.Waiting),
+                "failed" => (EngineHealth.Problem, KilnText.T("catalog.enshwick.failed", ("reason", reason ?? KilnText.T("catalog.see_log"))), ModRunState.Failed),
+                "no-loader" => (EngineHealth.Problem, KilnText.T("catalog.enshwick.no_loader", ("reason", reason ?? KilnText.T("catalog.enshwick.install"))), ModRunState.Failed),
+                "stepped-aside" => (EngineHealth.Idle, KilnText.T("catalog.enshwick.aside"), ModRunState.NotLoaded),
                 "nothing" => (EngineHealth.Idle, null, ModRunState.NotLoaded),
                 _ => (EngineHealth.Idle, reason, ModRunState.Waiting),
             };
         }
-        var why = state == ModRunState.Loaded ? "Enshwick's loader runs it. Enshwick reports no result per mod." : note ?? "";
-        var help = state == ModRunState.Failed ? "Fix Enshwick first (see the engine line), then start the game again." : null;
+        var why = state == ModRunState.Loaded ? KilnText.T("catalog.enshwick.runs_it") : note ?? "";
+        var help = state == ModRunState.Failed ? KilnText.T("catalog.enshwick.fix_first") : null;
         CatalogMod Refine(CatalogMod m)
         {
             if (!notes.TryGetValue(LeafName(m.Folder), out var n) && !notes.TryGetValue(m.Id, out n)) return m;
             if (n.State == "failed" || n.State == "conflict")
-                return m with { State = ModRunState.Failed, Word = n.State, Reason = n.Reason is { } nr ? Sentence(nr) : "Kiln could not copy it into the game's mods folder.", Help = "Close other tools that use the game's mods folder, then start the game again." };
-            if (n.State == "remove") return m with { State = ModRunState.NotLoaded, Word = "remove", Reason = "Removed from the game's mods folder." };
+                return m with { State = ModRunState.Failed, Word = n.State, Reason = n.Reason is { } nr ? Sentence(nr) : KilnText.T("catalog.enshwick.copy_failed"), Help = KilnText.T("catalog.enshwick.copy_failed_help") };
+            if (n.State == "remove") return m with { State = ModRunState.NotLoaded, Word = "remove", Reason = KilnText.T("catalog.enshwick.removed") };
             return n.Reason is { } r ? m with { Reason = Sentence($"{m.Reason} {r}".Trim()) } : m;
         }
         var start = b.Mods.TryGetValue("enshwick", out var before) ? before.Count : 0;
@@ -1477,13 +1446,10 @@ internal static class ModCatalog
     // and nothing reports whether XHL-Core did, so no row says Loaded (kiln-manage engine_mods: xhl_host) ----
     private const string XhlPluginIni = "native-plugin.ini";
 
-    internal const string XhlPrerequisite = "Requires XHL-Core: only that separately installed host loads it. Import XHL-Core in the Kiln launcher " +
-                                            "as a Native mod and turn it on, or install it as its author says, then start the game again.";
+    internal static string XhlPrerequisite => KilnText.T("catalog.xhl.prerequisite");
 
     /// <summary>The XHL row's reason when XHL-Core started with the game: plain, no warning (inbox 39).</summary>
-    private const string XhlCoreRuns = "XHL-Core started with the game, and it loads this plugin itself, not Kiln. Whether the plugin " +
-                                       "started is in XHL-Core's own log, XHL-Native-Plugin-Host.log next to XHL-Core.";
-    internal const string XhlCoreStarted = "Placed in the game's mods folder for XHL-Core. " + XhlCoreRuns;
+    internal static string XhlCoreStarted => KilnText.T("catalog.xhl.core_started");
 
     /// <summary>XHL-Core's DLL as Kiln chain-loads it (kiln-manage engine_mods XHL_CORE_DLL) and its Library id.</summary>
     private const string XhlCoreDll = "xhl-core.dll", XhlCoreId = "xhl-core";
@@ -1504,7 +1470,7 @@ internal static class ModCatalog
     {
         var start = b.Mods.TryGetValue("xhl", out var before) ? before.Count : 0;
         var core = XhlCoreLoaded(b);
-        b.ProfileRest("xhl", _ => false, core ? XhlCoreStarted : "Placed in the game's mods folder for XHL-Core. Kiln does not load it, and Kiln cannot tell whether XHL-Core runs it.",
+        b.ProfileRest("xhl", _ => false, core ? XhlCoreStarted : KilnText.T("catalog.xhl.placed"),
             ModRunState.NotLoaded, core ? null : XhlPrerequisite);
         if (b.Mods.TryGetValue("xhl", out var placed))
             for (var i = start; i < placed.Count; i++)
@@ -1522,15 +1488,12 @@ internal static class ModCatalog
             b.Add(new CatalogMod
             {
                 Engine = "xhl", Id = name, Name = name, Folder = sub, Source = "folder", State = ModRunState.NotLoaded, Word = "found",
-                Reason = "An XHL-Core plugin in the game's mods folder. " +
-                         (core ? XhlCoreRuns : "Kiln does not load it, and Kiln cannot tell whether XHL-Core runs it."),
+                Reason = core ? KilnText.T("catalog.xhl.found_core") : KilnText.T("catalog.xhl.found"),
                 Help = core ? null : XhlPrerequisite,
             });
         }
         if (b.Mods.ContainsKey("xhl") || b.Profile.Of("xhl").Count > 0)
-            b.Engine("xhl", null, EngineHealth.Idle, core
-                ? "XHL: placed for XHL-Core, a separate host. XHL-Core started with the game and loads these plugins; Kiln never loads them itself."
-                : "XHL: placed for XHL-Core, a separate host. Kiln never loads these plugin DLLs and does not check here whether XHL-Core is installed.", true);
+            b.Engine("xhl", null, EngineHealth.Idle, core ? KilnText.T("catalog.xhl.note_core") : KilnText.T("catalog.xhl.note"), true);
     }
 
     private static IEnumerable<string> SubDirs(string dir)
@@ -1586,7 +1549,8 @@ internal static class ModCatalog
     public static CatalogSnapshot Snapshot(TimeSpan maxAge)
     {
         var c = _cache;
-        if (c is not null && Environment.TickCount64 - c.ReadAtMs < maxAge.TotalMilliseconds) return c;
+        // another language: read again (the sentences are made in the language of the read); the old list shows meanwhile
+        if (c is not null && Environment.TickCount64 - c.ReadAtMs < maxAge.TotalMilliseconds && (c.Generation is not { } g || g == KilnText.Generation)) return c;
         var r = _refresh;
         if (r is null || r.IsCompleted)
         {

@@ -511,6 +511,21 @@ int main(int argc, char** argv) {
     check(g_heard.size() == 3 && kemf::g_marked_taken.load() == 2 && inbox_size() == 4,
           "redelivery goes through the rest of the chain: kiln-emf's link takes it");
 
+    // ---- 5b. another mod's server line (inbox 73): its own call site, typed or notice, a "/" line, one player's
+    // connection, a word the subscriber would consume: added at once, never held back, never shown to subscribers ----
+    {
+        const size_t inbox_before = inbox_size(), heard_before = g_heard.size();
+        game_chat_notice(g_sys, "/cm swallow: this server runs Creative Mode", 0);
+        game_chat_notice(g_sys, "/cm swallow: answered", 4);
+        const bool at_once = inbox_size() == inbox_before + 2 &&
+                             inbox_text(inbox_before) == "/cm swallow: this server runs Creative Mode" &&
+                             inbox_text(inbox_before + 1) == "/cm swallow: answered";
+        g_pre(nullptr, nullptr);
+        check(at_once && inbox_size() == inbox_before + 2 && g_heard.size() == heard_before,
+              "a mod's own '/' lines from another call site reach the game at once, untouched, and no subscriber sees them",
+              "inbox +" + std::to_string(inbox_size() - inbox_before) + ", heard +" + std::to_string(g_heard.size() - heard_before));
+    }
+
     // ---- 6. threads: caller() is per thread ----
     {
         const size_t inbox_before = inbox_size(), heard_before = g_heard.size();

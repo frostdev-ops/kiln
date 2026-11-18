@@ -56,7 +56,7 @@ internal sealed class AssetsFake : IKitFake
 
     public void AddCoverage(List<CoverageRow> rows) =>
         rows.Add(new CoverageRow("Assets", CoverageKind.RecordingFake, [AssetsAbi.Service, ContentRow, CatalogRow],
-            "Kiln.Assets' own code on the kit's kiln.assets: content blobs (AddBlob, OverrideBlob, ReadBlob, RemoveBlob) and the blob catalog " +
+            "Kiln.Assets' own code on the kit's kiln.assets: content blobs (AddBlob, OverrideBlob, ReadBlob, ReadResidentBlob, RemoveBlob) and the blob catalog " +
             "(OpenBlobCatalog) over the game index a test scripts (KilnHarness.Assets.AddGameBlob, IndexReady), with kiln.assets' rules: one entry per " +
             "hash, the later registration served, sorted snapshots that never change, 64 handles, NotReady while the index cannot be read. The hashes " +
             "are the kit's own (size and SHA-256), not the game's. Resources (assets.resources), UI icons (assets.ui_icons), textures, dumps and " +

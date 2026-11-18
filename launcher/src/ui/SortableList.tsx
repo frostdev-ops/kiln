@@ -3,6 +3,7 @@
 // or the arrow buttons.
 import { ChevronDown, ChevronUp, GripVertical } from "lucide-react";
 import { useRef, useState, type ReactNode } from "react";
+import { useT } from "../i18n";
 import { IconButton } from "./Button";
 
 export interface SortableListProps<T> {
@@ -15,6 +16,7 @@ export interface SortableListProps<T> {
 }
 
 export function SortableList<T>({ items, itemKey, render, onReorder, disabled, ...rest }: SortableListProps<T>) {
+  const t = useT();
   const box = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<{ from: number; over: number } | null>(null);
   const move = (from: number, to: number) => {
@@ -42,7 +44,7 @@ export function SortableList<T>({ items, itemKey, render, onReorder, disabled, .
     <div ref={box} className="k-sort" role="list" aria-label={rest["aria-label"]}>
       {items.map((it, i) => (
         <div key={itemKey(it)} role="listitem" className={"k-sort-item" + (drag?.from === i ? " dragging" : "") + (drag && drag.over === i && drag.from !== i ? " over" : "")}>
-          <span className="k-grip" tabIndex={disabled ? -1 : 0} aria-label={`Reorder ${itemKey(it)}`} title="Drag, or Alt+Up/Down" style={{ touchAction: "none" }}
+          <span className="k-grip" tabIndex={disabled ? -1 : 0} aria-label={t("ui.sortableList.reorder", { name: itemKey(it) })} title={t("ui.sortableList.dragHint")} style={{ touchAction: "none" }}
             onPointerDown={(e) => start(e, i)}
             onPointerMove={(e) => { if (drag) { const o = indexAt(e.clientY); if (o !== drag.over) setDrag({ ...drag, over: o }); } }}
             onPointerUp={() => { if (drag) { move(drag.from, drag.over); setDrag(null); } }}
@@ -53,8 +55,8 @@ export function SortableList<T>({ items, itemKey, render, onReorder, disabled, .
           <div style={{ flex: 1, minWidth: 0 }}>{render(it, i)}</div>
           {!disabled && items.length > 1 && (
             <span className="k-row" style={{ gap: 0 }}>
-              <IconButton label="Move up" size="s" icon={<ChevronUp />} disabled={i === 0} onClick={() => move(i, i - 1)} />
-              <IconButton label="Move down" size="s" icon={<ChevronDown />} disabled={i === items.length - 1} onClick={() => move(i, i + 1)} />
+              <IconButton label={t("ui.sortableList.moveUp")} size="s" icon={<ChevronUp />} disabled={i === 0} onClick={() => move(i, i - 1)} />
+              <IconButton label={t("ui.sortableList.moveDown")} size="s" icon={<ChevronDown />} disabled={i === items.length - 1} onClick={() => move(i, i + 1)} />
             </span>
           )}
         </div>

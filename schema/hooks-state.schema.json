@@ -26,7 +26,7 @@
     "ruleFiles": { "type": "array", "items": { "$ref": "#/$defs/ruleFile" }, "description": "The rule files that exist (shipped defaults, then the player's); a missing file is not listed." },
     "codePatches": {
       "type": "object",
-      "description": "Every place the live code differs from the exe file's when the map is written, Kiln's own hooks included (sigdb code_patch_map, since 0.2.0-dev.30). Absent in an older core.",
+      "description": "Every place the live code differs from the exe file's when the map is written, Kiln's own hooks included (sigdb code_patch_map, since 0.2.0-dev.29.8). Absent in an older core.",
       "required": ["available"],
       "properties": {
         "available": { "type": "boolean", "description": "False when Kiln has no file view of the code (then `reason`)." },

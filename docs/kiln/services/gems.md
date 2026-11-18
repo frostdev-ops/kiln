@@ -3,8 +3,8 @@
 Enshrouded's gems for mods, in one guide: what a gem is in the game, how to change one with a data pack, the `Gems`
 API in C# (the catalog, the gems a player's equipment runs, sockets, gem events), new gems with their own effects, the
 Shroud Forge's actions from code, and sockets on rings, armour and shields. Three parts have a page of their own for the
-details; this page says what each part is and how they fit together. Research and evidence:
-`/mnt/Dongus/kiln-wave/dev29/out/gem-system/DOSSIER.md` (the gem system dossier, 2026-11-16).
+details; this page says what each part is and how they fit together. The game-side evidence for the forge (its
+handler, layouts, signatures) is in [docs/re/gems-forge.md](../../re/gems-forge.md).
 
 | Part | Where | API | Row |
 |---|---|---|---|
@@ -285,6 +285,10 @@ essence go), and `Gems.OfferChestGems` with `GemForgeOpenedEvent`: a container's
 clients. A carrier is any item with a socket: a weapon, or a ring, armour piece or shield with "Sockets on other
 gear" (lab: a ring by code, socketed and upgraded at a spawned forge). `GemCraftingEvent` (cancelable) comes before a
 player's own action, `GemCraftedEvent` after any action that happened ("Which event for what" above).
+
+Seen in a real game: chest gems in the GEMS grid and chests paying for an upgrade (bisdat, 2026-11-17, a world hosted on
+a Linux PC under Proton; [gems-forge.md](gems-forge.md#seen-in-a-real-game-020-dev2915) says what passed and what is
+not seen yet).
 
 ## Sockets on other gear
 Full reference: [gems-sockets.md](gems-sockets.md). The game runs the gem of the item in any of the 11 impact slots, and

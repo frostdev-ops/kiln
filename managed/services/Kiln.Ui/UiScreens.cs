@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Custom full screens for mods (Forge: a Screen subclass + Minecraft.setScreen). Drawn with Kiln's ImGui overlay in
-// the game's look (UiStyle.Game: the game's colours and its own UI font, read at run time) or Kiln's (UiStyle.Kiln).
+// the player's look (UiStyle.Player: the game's colours and its own UI font, read at run time, unless the player chose
+// another look), the game's (UiStyle.Game), Kiln's (UiStyle.Kiln), or a mod's own theme (Theme).
 // While a screen is open it has the mouse and keyboard (the game's input pauses); Escape closes the top screen.
 namespace Kiln;
 
@@ -11,12 +12,21 @@ public enum UiStyle
     Game = 1,
     /// <summary>Kiln's ember theme (branding/palette.json).</summary>
     Kiln = 0,
+    /// <summary>The look the player chose for Kiln's UI (Kiln settings > Look, kiln.json <c>ui</c>): the game's unless they
+    /// changed it. The default of windows, screens and crafting panels since 0.2.0-dev.29.16.</summary>
+    Player = 2,
 }
 
 /// <summary>Options of a <see cref="UiScreen"/>.</summary>
 public sealed record UiScreenOptions
 {
-    public UiStyle Style { get; init; } = UiStyle.Game;
+    /// <summary>The screen's look; <see cref="UiStyle.Player"/> by default (the game's look unless the player chose another;
+    /// before 0.2.0-dev.29.16 the default was <see cref="UiStyle.Game"/>).</summary>
+    public UiStyle Style { get; init; } = UiStyle.Player;
+
+    /// <summary>Your own theme for the screen (<see cref="Ui.Themes.Define"/>), over <see cref="Style"/>. Since 0.2.0-dev.29.16.</summary>
+    public UiTheme? Theme { get; init; }
+
     /// <summary>Size in pixels at UI scale 1, centred on the screen.</summary>
     public float Width { get; init; } = 720;
     public float Height { get; init; } = 520;

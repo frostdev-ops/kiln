@@ -496,6 +496,15 @@ once per service per file.
 
 **Fix.** Add the service: `<KilnServices>Chat;Players</KilnServices>`.
 
+**Stations** (since 0.2.0-dev.29.15). The production stations and bases live in Kiln.Blocks' assembly, but `Stations`
+in `KilnServices` covers them on their own: `Stations`, `Bases`, `BaseId`, `BaseIdChange`, `BaseInfo`, `BaseAltar`, the
+`Station*` types, `IngredientCategory`, `IngredientOption`, `CategoryChoice`, `FillOptions`, `FillMode`, `FillPlan`,
+`FillInput`, `FillLimit`, `StopWhen`, `CollectWhat` and `BasesChangedEvent`. A project that lists `Stations` (and not
+`Blocks`) gets no KILN108 for them; the rest of Kiln.Blocks still asks for `Blocks`, and a project that lists `Blocks`
+covers the stations types too ([mdk.md](mdk.md)). Before 0.2.0-dev.29.16 `BaseIdChange` was missing from that list, so
+reading `BasesChangedEvent.Changed` (`c.Old`, `c.New`) with `Stations` alone raised a false KILN108; 0.2.0-dev.29.16
+fixes it.
+
 <a id="kiln120"></a>
 ## KILN120: Kiln result thrown away
 **What.** The value of a call that returns an `IKilnResult` (the services' result records: `EquipResult`,

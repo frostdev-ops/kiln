@@ -29,6 +29,15 @@ internal static unsafe class Program
     private static delegate* unmanaged[Cdecl]<int, int, void> _key;
     private static delegate* unmanaged[Cdecl]<float, float, int, void> _mouse;
     private static delegate* unmanaged[Cdecl]<int, void> _page;
+    private static delegate* unmanaged[Cdecl]<int*, int*, int*, int*, void> _atlas;
+
+    /// <summary>The overlay's font atlas now: texture size, glyphs made, font sources.</summary>
+    private static string Atlas()
+    {
+        int w = 0, h = 0, g = 0, s = 0;
+        if (_atlas != null) _atlas(&w, &h, &g, &s);
+        return $"font atlas {w}x{h} ({w * h * 4 / 1024} KiB RGBA), {g} glyphs, {s} font sources";
+    }
 
     private static int Main(string[] args)
     {
@@ -44,7 +53,14 @@ internal static unsafe class Program
         var scale = float.Parse(Arg("--scale", "1")!, System.Globalization.CultureInfo.InvariantCulture);
         var font = Arg("--font");
         var bold = Arg("--bold-font");
+        var colors = Arg("--game-colors");   // the game's UI bundle and its layout (game_colors.py), else the neutral stand-in
+        var layout = Arg("--game-layout");
         var only = Arg("--scene");
+        var language = Arg("--language");           // Kiln's language (kiln.json ui.language), e.g. zh-CN
+        var locales = Arg("--locales");             // the folder of its locale files (a stub translation, outside the tree)
+        var fontResource = Arg("--font-resource");  // the game's UiFontResource and its font files (game_fonts.py)
+        var fontBlobs = Arg("--font-blobs");
+        var gameLanguage = uint.Parse(Arg("--game-language", "0")!, System.Globalization.CultureInfo.InvariantCulture);
         var suffix = Arg("--suffix", $"{w}x{h}" + (scale != 1 ? $"@{scale:0.##}" : ""))!;
         Directory.CreateDirectory(outDir);
 
@@ -60,6 +76,27 @@ internal static unsafe class Program
             var b = System.Text.Encoding.UTF8.GetBytes(bold + "\0");
             fixed (byte* p = b) setBold(p);
         }
+        if (colors is not null && layout is not null)
+        {
+            var setColors = (delegate* unmanaged[Cdecl]<byte*, byte*, int>)NativeLibrary.GetExport(lib, "kiln_preview_game_colors");
+            var c = System.Text.Encoding.UTF8.GetBytes(colors + "\0");
+            var l = System.Text.Encoding.UTF8.GetBytes(layout + "\0");
+            fixed (byte* pc = c)
+            fixed (byte* pl = l)
+                if (setColors(pc, pl) != 0) Console.Error.WriteLine("the game's colours were not read: the game look is its neutral stand-in");
+        }
+        if (fontResource is not null && fontBlobs is not null)
+        {
+            var setRes = (delegate* unmanaged[Cdecl]<byte*, byte*, int>)NativeLibrary.GetExport(lib, "kiln_preview_font_resource");
+            var r = System.Text.Encoding.UTF8.GetBytes(fontResource + "\0");
+            var d = System.Text.Encoding.UTF8.GetBytes(fontBlobs + "\0");
+            fixed (byte* pr = r)
+            fixed (byte* pd = d)
+                if (setRes(pr, pd) != 0) Console.Error.WriteLine("the game's font resource was not read");
+        }
+        ((delegate* unmanaged[Cdecl]<uint, void>)NativeLibrary.GetExport(lib, "kiln_preview_game_language"))(gameLanguage);
+        _atlas = (delegate* unmanaged[Cdecl]<int*, int*, int*, int*, void>)NativeLibrary.GetExport(lib, "kiln_preview_atlas");
+        if (locales is not null) KilnText.Directory = Path.GetFullPath(locales);
         nint table;
         var fontBytes = System.Text.Encoding.UTF8.GetBytes((font ?? "") + "\0");
         fixed (byte* f = fontBytes) table = _open(w, h, scale, font is null ? null : f, null);
@@ -91,6 +128,9 @@ internal static unsafe class Program
                 KilnRoot = Path.Combine(root, "kiln"), KilnMods = () => kilnMods, Side = "client", ProcessStartUtc = DateTime.UtcNow.AddMinutes(-5),
             };
             ModCatalog.WaitForSnapshot();
+            var look = scene.Look ?? LookSettings.Default;
+            PlayerLook.Use(language is null ? look : look with { Language = language });  // the player's look (and language) of this scene
+            Samples.Windows(scene.Windows);
             var page = ModManagerHost.Page;
             page.Section = scene.Section;
             page.Filter = scene.Filter;
@@ -100,11 +140,33 @@ internal static unsafe class Program
             GamePageHost.ResetForTests();
             // the game page: kiln.ui says the game shows it; the Kiln menu itself is not "open" (the stand-alone host)
             _page(scene.GamePage ? (scene.Bright ? 2 : 1) : 0);
-            var menu = scene.GamePage ? 0 : 1;
+            var menu = scene.GamePage || scene.Windows ? 0 : 1;
             byte* px = null;
             for (var i = 0; i < 4; i++) px = _frame(menu);
             Thread.Sleep(250);  // the game font loads on a worker (style.cpp), as in the game
             for (var i = 0; i < 4; i++) px = _frame(menu);
+            if (language is not null && KilnText.NeedsGlyphs(language))
+            {
+                // the language group's font loads on a worker too; Kiln's texts stay English until it joined the atlas
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                while (KilnText.Gated && sw.ElapsedMilliseconds < 60000)
+                {
+                    px = _frame(menu);
+                    Thread.Sleep(20);
+                }
+                var ready = sw.ElapsedMilliseconds;
+                sw.Restart();
+                px = _frame(menu);  // the first frame in the language: its glyphs are made as they are drawn
+                Console.WriteLine($"{scene.Name}: {language} glyphs ready after {ready} ms{(KilnText.Gated ? " (NOT READY: English)" : "")}; " +
+                                  $"first frame in it {sw.ElapsedMilliseconds} ms; {Atlas()}");
+                // the mod list's sentences are made in the language of its read: read again in this one
+                for (var n = 0; n < 250 && ModCatalog.Snapshot(TimeSpan.FromHours(1)).Generation is { } g && g != KilnText.Generation; n++)
+                {
+                    px = _frame(menu);
+                    Thread.Sleep(20);
+                }
+                for (var i = 0; i < 3; i++) px = _frame(menu);
+            }
             foreach (var (key, times) in scene.Keys)
                 for (var t = 0; t < times; t++)
                 {
@@ -114,9 +176,9 @@ internal static unsafe class Program
                     _frame(menu);
                 }
             for (var i = 0; i < 3; i++) px = _frame(menu);
-            var file = Path.Combine(outDir, $"{scene.Name}-{suffix}.png");
+            var file = Path.Combine(outDir, $"{scene.Name}{(language is null ? "" : "-" + language)}-{suffix}.png");
             WritePng(file, px, w, h);
-            Console.WriteLine($"{file}  ({ModCatalog.Snapshot(TimeSpan.FromHours(1)).Mods.Count} mods)");
+            Console.WriteLine($"{file}  ({ModCatalog.Snapshot(TimeSpan.FromHours(1)).Mods.Count} mods; {Atlas()})");
             if (scene.Summary) File.WriteAllText(Path.ChangeExtension(file, ".txt"), ModCatalog.Summary(ModCatalog.Snapshot(TimeSpan.FromHours(1))));
             rendered++;
         }
@@ -350,6 +412,80 @@ internal static class Samples
             ui.Checkbox("Glowing edge", ref Glow);
             ui.Button("Reset to defaults");
         });
+        // a sample mod with a theme for its own window, offered to the player too (docs/kiln/ui.md "Looks and themes")
+        var mod = HostAccess.CreateContext(new ModInfo("frost-edge", "Frost Edge", "1.4.0", Path.GetTempPath()) { Side = ModSide.Client }, 77,
+            Path.GetTempPath());
+        var outer = ModContext.CurrentMod;
+        ModContext.CurrentMod = mod;
+        try
+        {
+            Frost = Ui.Themes.Define("frost", new UiThemeSpec
+            {
+                Name = "Frost",
+                Base = UiStyle.Game,
+                Roles =
+                {
+                    [UiThemeRole.WindowBackground] = Color.FromRgba(0x0d1720ff), [UiThemeRole.PanelBackground] = Color.FromRgba(0x1c3242ff),
+                    [UiThemeRole.FrameBackground] = Color.FromRgba(0x081018ff), [UiThemeRole.Border] = Color.FromRgba(0x6fb7d9ff),
+                    [UiThemeRole.Accent] = Color.FromRgba(0xa6e3ffff), [UiThemeRole.Button] = Color.FromRgba(0x1f4058ff),
+                    [UiThemeRole.Header] = Color.FromRgba(0x2c6585ff), [UiThemeRole.Text] = Color.FromRgba(0xe8f6ffff),
+                    [UiThemeRole.TextMuted] = Color.FromRgba(0x9fbfd0ff),
+                },
+                Background = 0.92f,
+                Rounding = 6,
+                OfferToPlayer = true,
+            });
+            FrostWindow = Ui.Window("Frost Edge", ui =>
+            {
+                ui.Text("Frost range");
+                ui.Slider("##range", ref Range, 4, 64);
+                ui.Checkbox("Glowing edge", ref Glow);
+                ui.Separator("This window uses its mod's own theme");
+                ui.TextWrapped("Frost Edge gives its window the Frost theme. Kiln's own windows next to it keep the player's look.");
+                ui.Button("Apply");
+            }, new UiWindowOptions { Width = 420, Height = 300, Position = (0.27f, 0.42f), StartOpen = false, Theme = Frost });
+        }
+        finally
+        {
+            ModContext.CurrentMod = outer;
+        }
+        KilnWindow = Ui.Window("Kiln: Console", ui =>
+        {
+            ui.Text("Kiln's own window, in the player's look");
+            var line = "help";
+            ui.InputText("##line", ref line, 64);
+            ui.SameLine();
+            ui.Button("Run");
+            ui.Separator();
+            ui.TextDisabled("> /devtools status");
+            ui.Text("kiln.ui: drawing, 60 fps, overlay 0.4 ms");
+            ui.Text(Color.Green, "3 mods loaded, no faults");
+            var p = ui.Palette;
+            ui.Text(p.Attention, "ui.Palette.Attention for a mod's own drawing");
+        }, new UiWindowOptions { Width = 520, Height = 300, Position = (0.68f, 0.42f), StartOpen = false });
+    }
+
+    public static UiTheme? Frost;
+    private static UiWindow? FrostWindow, KilnWindow;
+    private static HudLine? _hud;
+    private static bool _toasted;
+
+    /// <summary>The scene's windows with the Kiln menu closed: a mod's themed window, a Kiln window, a HUD line, a toast.</summary>
+    public static void Windows(bool on)
+    {
+        if (FrostWindow is not null) FrostWindow.Open = on;
+        if (KilnWindow is not null) KilnWindow.Open = on;
+        if (on)
+        {
+            _hud ??= Hud.Show("preview.hud", "Frost Edge: 3 charges", HudAnchor.TopRight);
+            if (!_toasted) Hud.Toast("Kiln: the look follows your setting", ToastKind.Success, 60);
+            _toasted = true;
+        }
+        else if (_hud is not null)
+        {
+            _hud.Dispose();
+            _hud = null;
+        }
     }
 }
 
@@ -369,6 +505,10 @@ internal sealed record Scene(string Name, Func<string, IReadOnlyList<KilnModInpu
     public bool GamePage { get; init; }
     /// <summary>The game page over a bright, high-contrast stand-in (readability).</summary>
     public bool Bright { get; init; }
+    /// <summary>The player's look in this scene (null: the default, the game's).</summary>
+    public LookSettings? Look { get; init; }
+    /// <summary>The Kiln menu closed: a mod's themed window, a Kiln window, a HUD line and a toast instead.</summary>
+    public bool Windows { get; init; }
 }
 
 internal static class Scenes
@@ -417,6 +557,18 @@ internal static class Scenes
         new("game-page", Typical) { Selected = "kiln/storage-labels", GamePage = true },
         new("game-page-bright", Typical) { Selected = "kiln/storage-labels", GamePage = true, Bright = true },
         new("game-page-problems", Problems) { Filter = EngineFilter.Attention, GamePage = true, OnlyAt = "1920x1080" },
+        // the looks of Kiln's UI (0.2.0-dev.29.16, docs/kiln/ui.md "Looks and themes")
+        new("look-settings", Typical) { Filter = EngineFilter.Settings, OnlyAt = "1920x1080" },
+        new("look-translucent", Typical) { Selected = "kiln/storage-labels", Look = LookSettings.Default with { Look = "translucent", Background = 0.45f }, OnlyAt = "1920x1080" },
+        new("look-translucent-settings", Typical) { Filter = EngineFilter.Settings, Look = LookSettings.Default with { Look = "translucent", Background = 0.45f }, OnlyAt = "1920x1080" },
+        new("look-kiln", Typical) { Selected = "kiln/storage-labels", Look = LookSettings.Default with { Look = "kiln" }, OnlyAt = "1920x1080" },
+        new("look-theme", Typical) { Selected = "kiln/storage-labels", Look = LookSettings.Default with { Look = "theme", Theme = "frost-edge:frost" }, OnlyAt = "1920x1080" },
+        new("look-scale", Typical) { Selected = "kiln/storage-labels", Look = LookSettings.Default with { Scale = 1.25f, Opacity = 0.85f }, OnlyAt = "1920x1080" },
+        new("look-game-page-translucent", Typical) { Selected = "kiln/storage-labels", GamePage = true, Look = LookSettings.Default with { Look = "translucent", Background = 0.45f }, OnlyAt = "1920x1080" },
+        new("look-windows-game", Typical) { Windows = true, OnlyAt = "1920x1080" },
+        new("look-windows-translucent", Typical) { Windows = true, Look = LookSettings.Default with { Look = "translucent", Background = 0.45f }, OnlyAt = "1920x1080" },
+        new("look-windows-kiln", Typical) { Windows = true, Look = LookSettings.Default with { Look = "kiln" }, OnlyAt = "1920x1080" },
+        new("look-windows-theme", Typical) { Windows = true, Look = LookSettings.Default with { Look = "theme", Theme = "frost-edge:frost" }, OnlyAt = "1920x1080" },
     ];
 
     private static void Boot(string kiln, string profileFile, params object[] plugins) =>

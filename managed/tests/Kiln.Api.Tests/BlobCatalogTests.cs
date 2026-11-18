@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Assets.OpenBlobCatalog (0.2.0-dev.28) over the test kit's kiln.assets (managed/Kiln.TestKit/Fakes/Assets): the snapshot's
+// Assets.OpenBlobCatalog (0.2.0-dev.28) and Assets.ReadResidentBlob (0.2.0-dev.29.16) over the test kit's kiln.assets (managed/Kiln.TestKit/Fakes/Assets): the snapshot's
 // entries and origins, paging, immutability, registrations-only, not ready, owner lifetimes, a closed handle, the budget
 // refusal, the capability off with an older table, the JSON shape (schema/blob-catalog.schema.json) and the change event.
 using System.Runtime.InteropServices;
@@ -42,6 +42,21 @@ public sealed unsafe class BlobCatalogTests : KilnTest
 
     private static ContentHash Hash(string text) => BlobCatalogJson.ParseHash(text);
 
+    // a thread of its own: no mod's code runs on it, as on a mod's worker
+    private static T OnWorker<T>(Func<T> read)
+    {
+        T result = default!;
+        Exception? thrown = null;
+        var worker = new Thread(() =>
+        {
+            try { result = read(); }
+            catch (Exception e) { thrown = e; }
+        });
+        worker.Start();
+        worker.Join();
+        return thrown is null ? result : throw new InvalidOperationException("the worker threw", thrown);
+    }
+
     private static List<BlobCatalogEntry> All(BlobCatalogSnapshot s)
     {
         var all = new List<BlobCatalogEntry>();
@@ -58,7 +73,9 @@ public sealed unsafe class BlobCatalogTests : KilnTest
     [Fact]
     public void The_kits_table_mirrors_Kiln_Assets_ABI()
     {
-        Assert.Equal(sizeof(AssetsNative.TableEx), sizeof(AssetsAbi.Table));
+        Assert.Equal(sizeof(AssetsNative.TableResident), sizeof(AssetsAbi.Table));
+        Assert.Equal(224, (int)Marshal.OffsetOf<AssetsNative.TableResident>("BlobReadResident"));  // kiln_assets.h, x64 (tests/run.sh)
+        Assert.Equal(Marshal.OffsetOf<AssetsNative.TableResident>("BlobReadResident"), Marshal.OffsetOf<AssetsAbi.Table>("BlobReadResident"));
         Assert.Equal(Marshal.OffsetOf<AssetsNative.TableEx>("BlobCatalogOpen") - Marshal.OffsetOf<AssetsNative.TableEx>("BlobAddEx"),
             Marshal.OffsetOf<AssetsAbi.Table>("BlobCatalogOpen") - Marshal.OffsetOf<AssetsAbi.Table>("BlobAddEx"));
         Assert.Equal(32, sizeof(AssetsNative.CatalogInfo));
@@ -93,6 +110,32 @@ public sealed unsafe class BlobCatalogTests : KilnTest
         Assert.Equal(Bytes(24, 9), Assets.ReadBlob(overridden));    // the served bytes are the winner's
         Assert.Equal(Bytes(40, 1), Assets.ReadBlob(gameOnly));
         Assert.Null(Assets.ReadBlob(Hash("5-00000001-00000002-00000003")));
+    }
+
+    [Fact]
+    public void A_resident_read_answers_from_a_worker_and_never_asks_for_an_unopened_index()
+    {
+        var gameOnly = Hash(AddGame(Bytes(40, 1)));
+        var overridden = Hash(AddGame(Bytes(24, 2)));
+        _state.IndexReady = false;                                            // the game has not opened its content index
+        var mod = NewMod("resident");
+        var added = As(mod, () => Assets.AddBlob(Bytes(16, 3)));
+        As(mod, () => Assets.OverrideBlob(overridden, Bytes(24, 9)));
+        var unknown = Hash("5-00000001-00000002-00000003");
+        // from a worker: no mod's code, no game thread
+        var early = OnWorker(() => (Assets.ReadResidentBlob(gameOnly), Assets.ReadResidentBlob(added), Assets.ReadResidentBlob(overridden)));
+        Assert.Null(early.Item1);                                             // a game blob is not resident yet
+        Assert.Equal(Bytes(16, 3), early.Item2);                              // a registration is
+        Assert.Equal(Bytes(24, 9), early.Item3);
+        Assert.Equal(Bytes(40, 1), Assets.ReadBlob(gameOnly));                // blob_read asks the game itself
+        _state.IndexReady = true;
+        var late = OnWorker(() => (Assets.ReadResidentBlob(gameOnly), Assets.ReadResidentBlob(overridden), Assets.ReadResidentBlob(unknown)));
+        Assert.Equal(Bytes(40, 1), late.Item1);                               // the same answer as ReadBlob's now
+        Assert.Equal(Assets.ReadBlob(overridden), late.Item2);                // the served bytes are the winner's
+        Assert.Null(late.Item3);
+        As(mod, () => Assets.RemoveBlob(added));
+        Assert.Null(Assets.ReadResidentBlob(added));
+        Assert.Equal(new byte[0], Assets.ReadResidentBlob(Hash(AddGame([]))));
     }
 
     [Fact]
@@ -196,6 +239,9 @@ public sealed unsafe class BlobCatalogTests : KilnTest
             Assert.Equal(Cap, e.Capability);
             Assert.Contains("older than 0.2.0-dev.28", e.Message, StringComparison.Ordinal);
             Assert.Equal(CapabilityReason.ServiceOlder, Capabilities.Get(Cap).Reason);
+            var resident = Assert.Throws<KilnUnavailableException>(() => Assets.ReadResidentBlob(Hash("5-00000001-00000002-00000003")));
+            Assert.Equal("assets.content", resident.Capability);
+            Assert.Contains("older than 0.2.0-dev.29.15", resident.Message, StringComparison.Ordinal);
             var h = As(mod, () => Assets.AddBlob(Bytes(12, 5)));               // the legacy slot: a native registration
             Assert.Equal(AssetsAbi.OriginNativeApi, _state.Ledger.Single(x => x.Hash.Size == h.Size).Origin);
             mod.Retire();
@@ -223,6 +269,9 @@ public sealed unsafe class BlobCatalogTests : KilnTest
         Assert.Equal(CapabilityReason.ServiceMissing, Capabilities.Get(Cap).Reason);
         var read = Assert.Throws<KilnUnavailableException>(() => Assets.ReadBlob(Hash("5-00000001-00000002-00000003")));
         Assert.Equal("assets.content", read.Capability);
+        var resident = Assert.Throws<KilnUnavailableException>(() => Assets.ReadResidentBlob(Hash("5-00000001-00000002-00000003")));
+        Assert.Equal("assets.content", resident.Capability);
+        Assert.Contains("not loaded", resident.Message, StringComparison.Ordinal);
     }
 
     [Fact]

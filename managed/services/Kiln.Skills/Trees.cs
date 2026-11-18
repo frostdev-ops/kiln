@@ -185,20 +185,20 @@ internal sealed class BuffEffect(Guid? guid, string? name, double refresh) : Tal
     public Guid? Guid = guid;
     public readonly string? Name = name;
     public readonly double Refresh = Math.Max(5, refresh);
-    internal override string Describe() => TalentUi.Frame.F(TalentUi.Frame.EffectBuff, Name ?? Guid?.ToString());
+    internal override string Describe() => KilnText.T("talents.effect.buff", Name ?? Guid?.ToString());
 }
 
 internal sealed class AttributeEffect(Guid attribute, int amount) : TalentEffect
 {
     public readonly Guid AttributeGuid = attribute;
     public readonly int Amount = amount;
-    internal override string Describe() => TalentUi.Frame.F(TalentUi.Frame.EffectAttribute, TalentAttributes.DisplayName(AttributeGuid), Amount);
+    internal override string Describe() => KilnText.T("talents.effect.attribute", TalentAttributes.DisplayName(AttributeGuid), Amount);
 }
 
 internal sealed class GameNodeEffect(uint node) : TalentEffect
 {
     public readonly uint Node = node;
-    internal override string Describe() => TalentUi.Frame.F(TalentUi.Frame.EffectGameNode, $"0x{Node:x8}");
+    internal override string Describe() => KilnText.T("talents.effect.game_node", $"0x{Node:x8}");
 }
 
 internal sealed class ProgramEffect(Guid program, IReadOnlyDictionary<string, object>? configs, string? levelConfig = null) : TalentEffect
@@ -206,21 +206,21 @@ internal sealed class ProgramEffect(Guid program, IReadOnlyDictionary<string, ob
     public readonly Guid ProgramGuid = program;
     public readonly IReadOnlyDictionary<string, object>? Configs = configs;
     public readonly string? LevelConfig = levelConfig;
-    internal override string Describe() => TalentUi.Frame.F(TalentUi.Frame.EffectProgram, ProgramGuid);
+    internal override string Describe() => KilnText.T("talents.effect.program", ProgramGuid);
     internal override string? PlayerText => null;
 }
 
 internal sealed class AbilityEffect(string id) : TalentEffect
 {
     public readonly string AbilityId = id;
-    internal override string Describe() => TalentUi.Frame.F(TalentUi.Frame.EffectAbility, AbilityId);
+    internal override string Describe() => KilnText.T("talents.effect.ability", AbilityId);
 }
 
 internal sealed class CallbackEffect(Action<TalentContext> apply, Action<TalentContext>? remove) : TalentEffect
 {
     public readonly Action<TalentContext> ApplyFn = apply;
     public readonly Action<TalentContext>? RemoveFn = remove;
-    internal override string Describe() => TalentUi.Frame.EffectCode.ToString();
+    internal override string Describe() => KilnText.T("talents.effect.code");
     internal override string? PlayerText => null;
 }
 

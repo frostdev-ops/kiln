@@ -179,6 +179,26 @@ public readonly struct RenderCamera
 }
 
 /// <summary>The projection kiln.render uses (also native/services/ui/render_math.h).</summary>
+/// <summary>Where a trimmed image goes (pure; kiln.ui's image_rect.h does the same for UiDraw's trimmed draws).</summary>
+internal static class ImageTrim
+{
+    public readonly record struct Quad(float X0, float Y0, float X1, float Y1, float U0, float V0, float U1, float V1);
+
+    public static Quad Whole(float x0, float y0, float x1, float y1) => new(x0, y0, x1, y1, 0, 0, 1, 1);
+
+    /// <summary>The opaque rectangle (<paramref name="rx"/>, <paramref name="ry"/>, <paramref name="rw"/> x
+    /// <paramref name="rh"/> pixels) of an <paramref name="iw"/> x <paramref name="ih"/> image as UVs, fitted inside the box
+    /// keeping its aspect ratio, centred. A bad size (none, outside the image): the whole image over the box.</summary>
+    public static Quad Fit(uint rx, uint ry, uint rw, uint rh, int iw, int ih, float x0, float y0, float x1, float y1)
+    {
+        if (iw <= 0 || ih <= 0 || rw == 0 || rh == 0 || rx + rw > (uint)iw || ry + rh > (uint)ih) return Whole(x0, y0, x1, y1);
+        float bx = Math.Min(x0, x1), by = Math.Min(y0, y1), bw = Math.Abs(x1 - x0), bh = Math.Abs(y1 - y0);
+        var k = Math.Min(bw / rw, bh / rh);
+        float w = rw * k, h = rh * k, ox = bx + (bw - w) / 2, oy = by + (bh - h) / 2;
+        return new(ox, oy, ox + w, oy + h, (float)rx / iw, (float)ry / ih, (float)(rx + rw) / iw, (float)(ry + rh) / ih);
+    }
+}
+
 internal static class RenderMath
 {
     public readonly record struct D3(double X, double Y, double Z)
@@ -391,6 +411,35 @@ public sealed unsafe class RenderDraw
         var handle = image.Item is { } item ? ItemIcons.Handle(item, Math.Max(Math.Abs(x1 - x0), Math.Abs(y1 - y0)), out _, out _) : image.Handle;
         if (T == null || handle == 0) return;
         T->Image(handle, x0, y0, x1, y1, 0, 0, 1, 1, (tint ?? Color.White).Rgba);
+    }
+
+    /// <summary>An image over the rectangle like <see cref="Image(UiImage, float, float, float, float, Color?)"/>, but only
+    /// its art (since 0.2.0-dev.29.16): the transparent margin is left out and the art fitted
+    /// inside the rectangle, keeping its aspect ratio, centred. For the game's item icons (<see cref="Ui.ItemImage"/>).</summary>
+    public void ImageTrimmed(UiImage image, float x0, float y0, float x1, float y1, Color? tint = null)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        int iw = image.Width, ih = image.Height;
+        var px = Math.Max(Math.Abs(x1 - x0), Math.Abs(y1 - y0));
+        var handle = image.Item is { } item ? ItemIcons.Handle(item, ItemIcons.TrimmedPixels(px), out iw, out ih) : image.Handle;
+        if (T == null || handle == 0) return;
+        var q = UiNative.ImageOpaqueRect(handle, out var rx, out var ry, out var rw, out var rh)
+            ? ImageTrim.Fit(rx, ry, rw, rh, iw, ih, x0, y0, x1, y1)
+            : ImageTrim.Whole(x0, y0, x1, y1);
+        T->Image(handle, q.X0, q.Y0, q.X1, q.Y1, q.U0, q.V0, q.U1, q.V1, (tint ?? Color.White).Rgba);
+    }
+
+    /// <summary>Part of an image over the rectangle (since 0.2.0-dev.29.16): (<paramref name="u0"/>, <paramref name="v0"/>)
+    /// to (<paramref name="u1"/>, <paramref name="v1"/>) in texture coordinates, 0..1 across the image (u1 &lt; u0 flips
+    /// it). A sprite sheet's cell, a crop of a picture.</summary>
+    public void ImagePart(UiImage image, float x0, float y0, float x1, float y1, float u0, float v0, float u1, float v1, Color? tint = null)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        var span = Math.Max(Math.Max(Math.Abs(u1 - u0), Math.Abs(v1 - v0)), 1f / 256);
+        var px = Math.Max(Math.Abs(x1 - x0), Math.Abs(y1 - y0)) / span;
+        var handle = image.Item is { } item ? ItemIcons.Handle(item, px, out _, out _) : image.Handle;
+        if (T == null || handle == 0) return;
+        T->Image(handle, x0, y0, x1, y1, u0, v0, u1, v1, (tint ?? Color.White).Rgba);
     }
 
     /// <summary>An image centred on (x, y), <paramref name="width"/> x <paramref name="height"/> pixels (0 = its own

@@ -6,14 +6,16 @@ import AdminConfigsPage from "../../admin/pages/AdminConfigsPage";
 import { ConfigEditor } from "../../components/ConfigEditor";
 import { Page, PageHeader } from "../../ui";
 import { useServerStatus } from "./serverApi";
+import { useT } from "../../i18n";
 
 export default function ServerConfigsPage() {
+  const t = useT();
   const { id = "" } = useParams();
   const st = useServerStatus(id);
   if (st.data?.state === "running") return <AdminConfigsPage />;
   return (
     <Page>
-      <PageHeader title="Configs" sub="The server is stopped: changes go to the files and apply at the next start." />
+      <PageHeader title={t("servers.configs.title")} sub={t("servers.configs.sub")} />
       <ConfigEditor target={{ server: id }} />
     </Page>
   );

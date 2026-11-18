@@ -15,20 +15,21 @@ import { DIRECT_DOWNLOAD_PAGE, NEXUS_PAGE } from "../api/distribution";
 import { useAppInfo, useDistribution, useSettings } from "../api/hooks";
 import { useUpdate, useUpdateStore } from "../api/update";
 import { saveSettings } from "../deck/mode";
+import { rich, t, useT } from "../i18n";
 import { useChannelSwitch } from "../shell/ChannelSwitch";
 import { Button, Card, Field, Select, Skeleton, Toggle, toast } from "../ui";
 
 /** Where updates stand, in a few words. */
 export function updateWords(s: UpdateStatus): string {
   switch (s.phase) {
-    case "checking": return "Checking…";
-    case "upToDate": return "Up to date";
-    case "available": return `${s.available?.version} available`;
-    case "skipped": return `Skipped ${s.available?.version}`;
-    case "failed": return "Check failed";
-    case "downloading": return "Updating…";
-    case "ready": return "Ready to restart";
-    default: return s.auto ? "Not checked yet" : "Off";
+    case "checking": return t("updateSettings.checking");
+    case "upToDate": return t("updateSettings.upToDate");
+    case "available": return t("updateSettings.available", { version: String(s.available?.version) });
+    case "skipped": return t("updateSettings.skipped", { version: String(s.available?.version) });
+    case "failed": return t("updateSettings.failed");
+    case "downloading": return t("updateSettings.updating");
+    case "ready": return t("updateSettings.ready");
+    default: return s.auto ? t("updateSettings.notChecked") : t("updateSettings.off");
   }
 }
 
@@ -39,10 +40,10 @@ function useCheckNow() {
     try {
       const s = await api.updateCheck();
       if (s.phase === "available") useUpdateStore.getState().setOpen(true);
-      else if (s.phase === "upToDate") toast.ok("Up to date");
-      else if (s.phase === "failed") toast.error({ code: "internal", message: "Check failed" });
+      else if (s.phase === "upToDate") toast.ok(t("updateSettings.upToDate"));
+      else if (s.phase === "failed") toast.error({ code: "internal", message: t("updateSettings.failed") });
     } catch {
-      toast.error({ code: "internal", message: "Check failed" });
+      toast.error({ code: "internal", message: t("updateSettings.failed") });
     } finally {
       setBusy(false);
     }
@@ -54,7 +55,7 @@ function useCheckNow() {
 export function NexusVersionsLink() {
   return (
     <button type="button" className="k-link" data-testid="nexus-page" title={NEXUS_PAGE}
-      onClick={() => api.appOpenUrl(NEXUS_PAGE).catch(() => toast.error({ code: "internal", message: "Could not open the page" }))}>
+      onClick={() => api.appOpenUrl(NEXUS_PAGE).catch(() => toast.error({ code: "internal", message: t("updateSettings.openFailed") }))}>
       Nexus Mods
     </button>
   );
@@ -62,33 +63,37 @@ export function NexusVersionsLink() {
 
 /** Settings > Updates: the self-update's settings (direct builds), or the Nexus line. */
 export function UpdatesCard() {
+  const t = useT();
   const dist = useDistribution();
   if (dist === "nexus") return <NexusUpdatesCard />;
   if (dist === "direct") return <SelfUpdatesCard />;
-  return <Card title="Updates"><Skeleton /></Card>;
+  return <Card title={t("updateSettings.title")}><Skeleton /></Card>;
 }
 
 /** The Nexus build's line about test builds: they come from the download page (launchers that update themselves). */
 export function NexusTestBuildsLink() {
+  const t = useT();
   return (
     <button type="button" className="k-link" data-testid="nexus-test-builds" title={DIRECT_DOWNLOAD_PAGE}
-      onClick={() => api.appOpenUrl(DIRECT_DOWNLOAD_PAGE).catch(() => toast.error({ code: "internal", message: "Could not open the page" }))}>
-      the download page
+      onClick={() => api.appOpenUrl(DIRECT_DOWNLOAD_PAGE).catch(() => toast.error({ code: "internal", message: t("updateSettings.openFailed") }))}>
+      {t("updateSettings.downloadPage")}
     </button>
   );
 }
 
 function NexusUpdatesCard() {
+  const t = useT();
   const info = useAppInfo();
   return (
-    <Card title="Updates" sub={<span className="k-mono">{info.data?.version}</span>}>
-      <span className="k-hint" data-testid="nexus-versions">New versions: <NexusVersionsLink /></span>
-      <span className="k-hint" data-testid="nexus-beta">Test builds (beta): a launcher from <NexusTestBuildsLink /> can switch to them.</span>
+    <Card title={t("updateSettings.title")} sub={<span className="k-mono">{info.data?.version}</span>}>
+      <span className="k-hint" data-testid="nexus-versions">{rich("updateSettings.newVersions", { link: <NexusVersionsLink /> })}</span>
+      <span className="k-hint" data-testid="nexus-beta">{rich("updateSettings.nexusBeta", { link: <NexusTestBuildsLink /> })}</span>
     </Card>
   );
 }
 
 function SelfUpdatesCard() {
+  const t = useT();
   const qc = useQueryClient();
   const s = useUpdate();
   const settings = useSettings();
@@ -97,7 +102,7 @@ function SelfUpdatesCard() {
     mutationFn: (patch: Partial<LauncherSettings>) => saveSettings(qc, () => patch),
     onSuccess: (v) => { if (v) api.updateStatus().then((x) => useUpdateStore.getState().setStatus(x)).catch(() => {}); },
   });
-  if (!s || !settings.data) return <Card title="Updates"><Skeleton /></Card>;
+  if (!s || !settings.data) return <Card title={t("updateSettings.title")}><Skeleton /></Card>;
   const v = settings.data;
   const busy = check.busy || s.phase === "checking" || s.phase === "downloading";
   const show = useChannelSwitch.getState().show;
@@ -107,28 +112,28 @@ function SelfUpdatesCard() {
     if (switchKind(s, target)) { show(target); return; }
     save.mutate({ updateChannel: target }, { onSuccess: (saved) => { if (saved && saved.updateCheck !== false) check.run(); } });
   };
-  const undo = () => api.updateSkip(null).catch(() => toast.error({ code: "internal", message: "Undo failed" }));
+  const undo = () => api.updateSkip(null).catch(() => toast.error({ code: "internal", message: t("updateSettings.undoFailed") }));
   return (
-    <Card title="Updates" sub={<span className="k-mono">{s.current}</span>}>
-      <Toggle checked={v.updateCheck !== false} onChange={(on) => save.mutate({ updateCheck: on })} label="Check automatically" hint="Sends no personal data." />
-      <Field label="Channel" htmlFor="st-upd-channel">
+    <Card title={t("updateSettings.title")} sub={<span className="k-mono">{s.current}</span>}>
+      <Toggle checked={v.updateCheck !== false} onChange={(on) => save.mutate({ updateCheck: on })} label={t("updateSettings.auto")} hint={t("updateSettings.autoHint")} />
+      <Field label={t("updateSettings.channel")} htmlFor="st-upd-channel">
         <Select id="st-upd-channel" value={s.channel} onChange={setChannel} style={{ width: 200 }} options={channelOptions(s.channel)} />
       </Field>
       <div className="k-row" style={{ justifyContent: "space-between", flexWrap: "nowrap", gap: 14 }}>
         <span className="k-hint" role="status">
           {updateWords(s)}
-          {s.phase === "skipped" && <>{" · "}<button type="button" className="k-link" onClick={undo}>Undo</button></>}
+          {s.phase === "skipped" && <>{" · "}<button type="button" className="k-link" onClick={undo}>{t("common.undo")}</button></>}
         </span>
-        <Button size="s" loading={busy} onClick={check.run} style={{ flex: "none" }}>Check now</Button>
+        <Button size="s" loading={busy} onClick={check.run} style={{ flex: "none" }}>{t("updateSettings.checkNow")}</Button>
       </div>
       {s.buildChannel === "beta" && (
         <div className="k-row" style={{ justifyContent: "space-between", flexWrap: "nowrap", gap: 14 }} data-testid="beta-build">
-          <span className="k-hint">Test build {s.beta ?? ""} of {s.current}.</span>
-          <Button size="s" onClick={() => show(RELEASE_CHANNEL)} style={{ flex: "none" }}>Switch back to the release</Button>
+          <span className="k-hint">{t("updateSettings.testBuild", { beta: s.beta ?? "", current: s.current })}</span>
+          <Button size="s" onClick={() => show(RELEASE_CHANNEL)} style={{ flex: "none" }}>{t("updateSettings.switchBack")}</Button>
         </div>
       )}
       {s.buildChannel !== "beta" && s.channel === "beta" && (
-        <span className="k-hint" data-testid="beta-follow">Following the beta: the next test build comes as an update.</span>
+        <span className="k-hint" data-testid="beta-follow">{t("updateSettings.followBeta")}</span>
       )}
     </Card>
   );
@@ -140,13 +145,14 @@ export function UpdateAboutLine() {
 }
 
 function SelfUpdateAboutLine() {
+  const t = useT();
   const s = useUpdate();
   const check = useCheckNow();
   if (!s) return <span>-</span>;
   return (
     <span>
       {updateWords(s)}{" · "}
-      <button type="button" className="k-link" disabled={check.busy || s.phase === "checking"} onClick={check.run}>Check now</button>
+      <button type="button" className="k-link" disabled={check.busy || s.phase === "checking"} onClick={check.run}>{t("updateSettings.checkNow")}</button>
     </span>
   );
 }

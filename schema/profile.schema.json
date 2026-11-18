@@ -14,6 +14,7 @@
     "written": { "$ref": "common.schema.json#/$defs/time" },
     "emlRuntime": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Enabled EML packages requiring ShroudForge runtime; adapter hosting reason. Older readers ignore this field." },
     "emlRuntimeBlocked": { "type": "object", "additionalProperties": { "type": "string" }, "description": "Reasons runtime-dependent EML entries were disabled for this start; shown as skipped." },
+    "emlPartial": { "type": "object", "additionalProperties": { "type": "string" }, "description": "Enabled EML mods of which only part runs under Kiln (a modified EML loader in the mod's package carries the rest), by Library id and manifest id: what does not run. kiln-eml logs it with the mod. Older readers ignore this field." },
     "writer": { "type": "string", "description": "e.g. kiln-launcher 0.2.0-dev" },
     "pathMode": { "enum": ["z", "native", "copy"], "default": "native", "description": "z: Z:\\ paths into the launcher library (Proton); native: Windows paths; copy: mods copied under <game>/kiln/profiles/<id>/, relative paths." },
     "configDir": { "$ref": "common.schema.json#/$defs/gamePath", "description": "Mod configs (KILN_PATH_CONFIG). Default <game>/kiln/config." },

@@ -143,3 +143,18 @@ test("a mod changed in its Library folder says so, on or off, with the version t
   // not in the profile: the newest version is the one the row shows, unchanged here
   expect(buildRows(inputs({ library: [changed] }))[0]).toMatchObject({ changed: null, note: null });
 });
+
+test("an EML mod whose package carried a modified EML loader says it only partly runs, with what does not", () => {
+  const part = "part of this mod is in dbghelp.dll, a modified EML loader with code of its own (a weapon holster hotkey)";
+  const holster = lib("eml", "holster-toggle", "Holster Toggle");
+  holster.versions[0].loaderPart = part;
+  const rows = buildRows(inputs({ library: [holster, lib("eml", "stacks")], profile: profile({ eml: [pm("holster-toggle"), pm("stacks")] }) }));
+  const row = rows.find((r) => r.id === "holster-toggle")!;
+  expect(row.note).toEqual({ text: "Only partly runs", tone: "warn", title: `${part[0].toUpperCase()}${part.slice(1)}.` });
+  expect(row.wontRun).toBeNull(); // its EML part runs: it counts on, and the sentence does not call it a mod that will not run
+  expect(rows.find((r) => r.id === "stacks")!.note).toBeNull();
+  expect(countLine(rows).text).toBe("2 mods on.");
+  // switched off, nothing to say
+  const off = buildRows(inputs({ library: [holster], profile: profile({ eml: [pm("holster-toggle", false)] }) }));
+  expect(off[0].note).toBeNull();
+});

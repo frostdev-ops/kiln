@@ -10,15 +10,17 @@ import { ChainCard } from "./ChainCard";
 import { libName, ModList } from "./ModList";
 import { ProfileFacts } from "./ProfileLayout";
 import { useProfileEdit, useProfileId } from "./useProfileEdit";
+import { t, useT } from "../../i18n";
 
-const PHASES: { id: NativePhase; label: string; hint: string }[] = [
-  { id: "dllmain", label: "Dllmain", hint: "In the proxy, before anything else. Can hang the start." },
-  { id: "early", label: "Early", hint: "At the start of Kiln's boot. Runs in safe idle too." },
-  { id: "boot", label: "Boot", hint: "After Kiln's services and plugins." },
-  { id: "world", label: "World", hint: "At the first world. Needs hooks." },
+const phases = (): { id: NativePhase; label: string; hint: string }[] => [
+  { id: "dllmain", label: t("profiles.native.dllmain"), hint: t("profiles.native.dllmainHint") },
+  { id: "early", label: t("profiles.native.early"), hint: t("profiles.native.earlyHint") },
+  { id: "boot", label: t("profiles.native.boot"), hint: t("profiles.native.bootHint") },
+  { id: "world", label: t("profiles.native.world"), hint: t("profiles.native.worldHint") },
 ];
 
 export default function ProfileNativePage() {
+  const t = useT();
   const id = useProfileId();
   const { profile, toggle, update } = useProfileEdit(id);
   const { game } = useGame();
@@ -42,20 +44,20 @@ export default function ProfileNativePage() {
   return (
     <div className="k-scroll k-stack" style={{ gap: 18, paddingBottom: 20 }}>
       {profile.mods.native.some((m) => m.enabled && phaseOf(m) === "dllmain") && (
-        <Banner tone="warn" title="Dllmain">These load inside the proxy. A bad one can stop the game from starting.</Banner>
+        <Banner tone="warn" title={t("profiles.native.dllmain")}>{t("profiles.native.dllmainBanner")}</Banner>
       )}
       <section className="k-card">
         <header className="k-card-head">
-          <div className="k-card-titles"><h2 className="k-card-title">Native mods</h2><span className="k-card-sub">Drag to set the order inside a phase.</span></div>
+          <div className="k-card-titles"><h2 className="k-card-title">{t("profiles.native.title")}</h2><span className="k-card-sub">{t("profiles.native.sub")}</span></div>
         </header>
         {profile.mods.native.length === 0 ? (
-          <div className="k-empty"><div className="k-empty-title">No native mods on your list. Drop a DLL, or a folder with native.json, anywhere on the window.</div></div>
-        ) : PHASES.map((ph) => {
+          <div className="k-empty"><div className="k-empty-title">{t("profiles.native.empty")}</div></div>
+        ) : phases().map((ph) => {
           const items = byPhase(ph.id);
           if (!items.length) return null;
           return (
             <Panel key={ph.id} title={<>{ph.label} <span className="k-hint" style={{ fontFamily: "var(--k-font-ui)", marginLeft: 8 }}>{ph.hint}</span></>}>
-              <SortableList aria-label={`${ph.label} phase`} items={items} itemKey={(m) => m.id} onReorder={(n) => reorder(ph.id, n)} render={(m) => {
+              <SortableList aria-label={t("profiles.native.phaseLabel", { phase: ph.label })} items={items} itemKey={(m) => m.id} onReorder={(n) => reorder(ph.id, n)} render={(m) => {
                 const name = libName(lib.data, "native", m.id);
                 const why = m.enabled ? reasons.get(m.id) : null;
                 return (
@@ -74,12 +76,12 @@ export default function ProfileNativePage() {
       </section>
       <ChainCard profile={profile} update={update} />
       <section className="k-card">
-        <header className="k-card-head"><div className="k-card-titles"><h2 className="k-card-title">Kiln plugins</h2><span className="k-card-sub">DLLs with kiln_plugin_main. They load after Kiln's services.</span></div></header>
+        <header className="k-card-head"><div className="k-card-titles"><h2 className="k-card-title">{t("profiles.native.pluginsTitle")}</h2><span className="k-card-sub">{t("profiles.native.pluginsSub")}</span></div></header>
         <ModList kind="plugin" mods={profile.mods.plugin} onToggle={(m, on) => toggle("plugin", m, on)}
           onVersion={(m, version, hash) => update((p) => { p.mods.plugin = p.mods.plugin.map((x) => (x.id === m ? { ...x, version, hash } : x)); })}
-          emptyHint="No plugins on your list." />
+          emptyHint={t("profiles.native.noPlugins")} />
       </section>
-      <ProfileFacts hint="Native mods load by phase, in the order set here. Kiln still applies their after and before rules." />
+      <ProfileFacts hint={t("profiles.native.facts")} />
     </div>
   );
 }

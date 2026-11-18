@@ -29,6 +29,7 @@
 #include "services/kiln_types.h"
 #include "services/kiln_world.h"
 #include "services/kiln_caps.h"
+#include "ecs_registry.h"
 #include "../../plugins/set/src/coexist.h"
 
 namespace {
@@ -72,6 +73,10 @@ kset::ModuleWatch g_modules;
 // seen (SET's markers; another tool's powrprof.dll is not SET), or after ConflictGate::failures_to_step_aside failed
 // inventories in a row. Tick thread only.
 kset::ConflictGate g_conflicts;
+// The re-checks run on its thread (coexist.h): the server step starts a look and applies it on a later step, it never
+// reads module files itself (a newly loaded DLL is read whole for SET's name). Tick thread only, but for on_unload.
+kset::LookWorker g_look;
+bool g_look_wanted = false;  // a re-check is due and no look has started for it yet (tick thread)
 bool g_external_runner = false;
 // Passive because the inventory could not be read, not because another runtime was seen: the gate keeps looking, and a
 // clean inventory makes the runner active again (its detour stays installed while passive, passing every slice on).
@@ -516,8 +521,20 @@ void KILN_CALL on_pre(const KilnTickInfo*, void*) {
     const bool reap = reap_due();
     if (reap) reap_system_hooks();
     std::string conflict;
-    if ((g_systems_ok || g_runner_unsure) && (g_modules.due() || g_conflicts.retry_due())) {
-        const kset::Inspection seen = kset::inspect_runtime();
+    std::optional<kset::Inspection> taken;
+    if (g_systems_ok || g_runner_unsure) {
+        if (g_modules.due() || g_conflicts.retry_due()) g_look_wanted = true;
+        if (g_look_wanted || g_look.finished()) {
+            // A finished look first; a load since it started keeps a look wanted, started on a later step.
+            taken = g_look.take();
+            if (!taken && g_look_wanted && !g_look.running()) {
+                g_look_wanted = false;
+                if (!g_look.start()) taken = kset::inspect_runtime();  // no thread for it: this look runs here, as before
+            }
+        }
+    }
+    if (taken) {
+        const kset::Inspection& seen = *taken;
         conflict = g_conflicts.judge(seen, GetTickCount64());
         if (g_runner_unsure) {  // already passive: only a clean look (back on) or a seen runtime (for good) changes that
             if (seen.state == kset::Inventory::clean) {
@@ -594,6 +611,7 @@ KilnResult KILN_CALL profile(bool on) {
 }
 void KILN_CALL on_unload(void*) {
     g_modules.disarm();
+    g_look.wait();  // no look may run in this service's code once it is unloaded
     release_system_hooks(0, true);
     profile(false);
     {
@@ -680,6 +698,45 @@ KilnResult KILN_CALL event_post(uintptr_t world, uint32_t hash, const void* data
 
 uint32_t KILN_CALL external_runner() { return g_external_state.load(std::memory_order_acquire); }
 
+// ---- ecs_registry: the component catalog as copied records. The game's type table is found once at boot, before
+// this table is published, and never replaced for the process, so the catalog cannot change under a read. The
+// stamp (component count, type count) is therefore an identity of this process's catalog, not a content hash: it
+// would not tell two different catalogs of the same counts apart, and does not need to. Tracking bits are not in
+// the type table, so TRACKING_KNOWN stays clear (kiln.types does not guess them from another table). ----
+namespace ecs_registry_src {
+uint32_t count(void*) { return g_tt.component_count; }
+uint64_t stamp(void*) { return static_cast<uint64_t>(g_tt.component_count) << 32 | g_tt.count; }
+bool row(void*, uint32_t i, KilnEcsRegistryRow* out) {
+    const KilnType* type = component_type_at(i);
+    if (!type) return false;
+    KilnTypeInfo info{}; info.size = sizeof info;
+    if (type_info(type, &info) != KILN_OK) return false;
+    *out = KilnEcsRegistryRow{};
+    out->size = sizeof *out;
+    out->index = i;
+    out->component = info.hash;
+    out->type_size = info.type_size;
+    out->type_identity = info.index;
+    return true;
+}
+} // namespace ecs_registry_src
+KilnResult KILN_CALL ecs_registry(uint32_t world_kind, KilnEcsRegistryInfo* info, KilnEcsRegistryRow* rows,
+                                  uint32_t capacity, uint32_t* required) {
+    // The arguments first, as build() checks them: a bad call is an argument error on every build.
+    if (world_kind >= KILN_WORLD_KINDS || !info || info->size < sizeof(KilnEcsRegistryInfo) || (capacity && !rows)) {
+        if (required) *required = 0;
+        return KILN_ERR_INVALID_ARGUMENT;
+    }
+    if (!g_tt.component_count) {
+        const uint32_t size = info->size;
+        *info = KilnEcsRegistryInfo{}; info->size = size; info->status = KILN_ECS_UNAVAILABLE;
+        if (required) *required = 0;
+        return KILN_ERR_UNAVAILABLE;
+    }
+    const ktypes::ecs::Source src{nullptr, &ecs_registry_src::count, &ecs_registry_src::stamp, &ecs_registry_src::row};
+    return ktypes::ecs::build(src, world_kind, info, rows, capacity, required);
+}
+
 const KilnTypesApi kTable = {
     {sizeof(KilnTypesApi), KILN_TYPES_VERSION}, &status, &type_count, &type_at, &type_by_hash, &type_by_name, &type_info,
     &type_field, &type_enum, &component_type_count, &component_type_at, &event_type_count, &event_type_at,
@@ -687,6 +744,7 @@ const KilnTypesApi kTable = {
     &external_runner,
     &type_impact_name,
     &in_system_callback,
+    &ecs_registry,
 };
 
 // After every service's kiln_plugin_main: kiln.world (it loads after kiln.types) and its wrap_original.

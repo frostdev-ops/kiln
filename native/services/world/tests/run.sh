@@ -26,6 +26,28 @@ g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined -D__fastcall= -
     -I"$here/../../../third_party" -I"$here/../../../core/abi" "$here/budget_test.cpp" -o "$out/budget_test"
 "$out/budget_test"
 
+# ecs_reads_test: verified-copy ECS reads over a fake engine memory model (identity, snapshots, queries,
+# concurrency), under ASan/UBSan and ThreadSanitizer.
+g++ -std=c++20 -O1 -g -pthread -Wall -Wextra -fsanitize=address,undefined -I"$here/../../../core/abi" \
+    "$here/ecs_reads_test.cpp" "$here/../ecs_reads.cpp" -o "$out/ecs_reads_test_asan"
+"$out/ecs_reads_test_asan"
+g++ -std=c++20 -O1 -g -pthread -Wall -Wextra -fsanitize=thread -I"$here/../../../core/abi" \
+    "$here/ecs_reads_test.cpp" "$here/../ecs_reads.cpp" -o "$out/ecs_reads_test_tsan"
+TSAN_OPTIONS=halt_on_error=1:exitcode=66 "$out/ecs_reads_test_tsan"
+
+# ecs_engine_test: the engine backend of those reads (ecs_engine.cpp) under the same logic, over the real kiln.engine
+# (booted through kiln_plugin_main with a fake core) and a fake engine laid out from both exact profiles, with an entity
+# world in it; under ASan/UBSan and ThreadSanitizer.
+engine="$here/../../engine"
+for kind in asan tsan; do
+  if [[ $kind == asan ]]; then san=(-fsanitize=address,undefined -fno-sanitize-recover=undefined); else san=(-fsanitize=thread); fi
+  g++ -std=c++20 -O1 -g -pthread -Wall -Wextra -Werror "${san[@]}" -I"$engine" -I"$engine/include" -I"$engine/tests" \
+      -I"$here/../../../core/abi" "$here/ecs_engine_test.cpp" "$here/../ecs_engine.cpp" "$here/../ecs_reads.cpp" \
+      "$engine/engine.cpp" "$engine/identity.cpp" "$engine/resolve.cpp" "$engine/gate.cpp" "$engine/tests/host/memory_host.cpp" \
+      -o "$out/ecs_engine_test_$kind"
+  TSAN_OPTIONS=halt_on_error=1:exitcode=66 "$out/ecs_engine_test_$kind"
+done
+
 # wraps_test: kiln.world v4 (the game's programs: directory, lab switch, wraps) over a fake world table.
 g++ -std=c++20 -O1 -g -pthread -Wall -Wextra -fsanitize=address,undefined -D__fastcall= -I"$here/host" \
     -I"$here/../../../third_party" -I"$here/../../../core/abi" "$here/wraps_test.cpp" -o "$out/wraps_test"

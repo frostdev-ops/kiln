@@ -2004,6 +2004,7 @@ version = "0.2.0-dev"
 dependencies = [
  "anyhow",
  "clap",
+ "embed-resource",
  "kiln-manage",
  "libc",
  "serde",
@@ -2059,6 +2060,7 @@ version = "0.2.0-dev"
 dependencies = [
  "anyhow",
  "clap",
+ "embed-resource",
  "kiln-manage",
  "libc",
  "serde",

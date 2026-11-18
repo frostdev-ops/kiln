@@ -122,10 +122,15 @@ public:
         fn(context);
     }
     uint64_t now_ns() override { return clock_.load(); }
+    uint64_t thread_cpu_ns() override { return cpu_clock_.load(); }
 
     // ---- test controls ----
     void set_clock(uint64_t ns) { clock_.store(ns); }
     void advance(uint64_t ns) { clock_.fetch_add(ns); }
+    // The fake CPU clock, apart from the wall clock above: a body advances it to say what the
+    // executing thread burned, while wall time it awaited is advanced with advance() alone.
+    void set_cpu_clock(uint64_t ns) { cpu_clock_.store(ns); }
+    void advance_cpu(uint64_t ns) { cpu_clock_.fetch_add(ns); }
     void fault_next_call_of(uintptr_t address, uint32_t code = 0xC0000005, bool tainted = true) {
         std::lock_guard lock(mutex_);
         fault_target_.store(address);
@@ -198,6 +203,7 @@ private:
     std::vector<uint64_t> free_ids_;
     std::function<void(uintptr_t)> acquire_hook_;
     std::atomic<uint64_t> clock_{0};
+    std::atomic<uint64_t> cpu_clock_{0};
     std::atomic<uintptr_t> fault_target_{0};
     bool fault_after_ = false;
     uint32_t fault_code_ = 0xC0000005;

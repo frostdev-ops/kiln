@@ -35,6 +35,9 @@ namespace kemf {
 namespace {
 
 constexpr const char* kNotYet = "not available on Kiln yet";
+// EMF's own text when the game has no block breaking: mods compare `why` with it (Night Raids 1.2.1 then stops
+// looking for walls and its raiders go for doors), so break_blocks answers exactly this (GitHub #43)
+constexpr const char* kNoGameVersion = "not available on this game version";
 
 // In the API function itself (never in a helper): the return address names the calling mod.
 #define KEMF_NOT_YET(fn) unsupported(caller_mod(_ReturnAddress()), fn, kNotYet)
@@ -44,8 +47,8 @@ void clear(char* buf, uint32_t size) {
 }
 
 template <size_t N>
-void say_why(char (&why)[N]) {
-    std::snprintf(why, N, "%s", kNotYet);
+void say_why(char (&why)[N], const char* text = kNotYet) {
+    std::snprintf(why, N, "%s", text);
 }
 
 // ---------------------------------------------------------------------------------------------- v28 -------------
@@ -338,8 +341,8 @@ uint32_t api_break_blocks(EmfWorld*, EmfBreakBlocks* req, EmfBreakCallback, void
         refuse(m, "break_blocks", "no request, or its size field is not sizeof(EmfBreakBlocks)", true);
         return 0;
     }
-    unsupported(m, "break_blocks", kNotYet);
-    say_why(req->why);
+    unsupported(m, "break_blocks", kNotYet);  // the log line says why; the request carries EMF's own text
+    say_why(req->why, kNoGameVersion);
     return 0;  // refused: `cb` is not called, nothing is broken
 }
 

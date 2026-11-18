@@ -40,7 +40,19 @@ that immutable data: eligibility (`select_resource_profile.cpp:5-13`), the resou
 (`parse_resource_layout.cpp`) and the engine layout (`configure_engine_layout.cpp`); a profile that breaks a rule fails the
 build. `tools/engine/test_generate.py` mutates the real profiles and expects the refusal for each rule. `tools/engine/validate.py <profile> <copy of the exe>` checks a profile against a read-only copy of its
 executable (never the installed game, never run): hash, PE stamps, file name, the change tracker's guard bytes at its RVA,
-every code RVA a `.pdata` function start, the thread registry in `.data`, vtables in `.rdata`, the thread names.
+every code RVA a `.pdata` function start, the thread registry in `.data`, vtables in `.rdata`, the thread names. For
+`ecsReadLayout` it reads each field out of the code that uses it, finding every function by its own code, never by an
+address: the entity manager inside the world (`GetComponent`, `GetEntityTransform`), the entity map's count, slots,
+occupancy bits, keys and id hash (the map lookup `GetComponentByType` calls), the record's layout, chunk and row and the
+layout's bits, offsets and strides (`GetComponentByType`), the record's id (the change tracker), its definition pointer
+and the definition's 16-byte fields (the engine's entity-to-template readers), and the world inside the GameServer.
+Both exact builds pass with 15 of the 29 fields shown by code. The rest are listed with what confirms them at run time
+(`RUNTIME_ONLY`): the generation (no function reads it alone), the registry owner offset (every view checks the entity
+manager's owner word against it), the Scene list fields (every view resolves them twice), the two bounds, and which of
+the definition's 16-byte fields is the template UUID. `tools/engine/test_validate.py` builds those functions from a
+profile's values and expects each wrong field to fail the line that names it; with `KILN_ENGINE_BINARIES` set to a
+folder of read-only copies it checks the real ones too. kiln.world's task-thread reads build on this table: its
+`copy` and `ecs_view` only ([world.md](world.md#world-reads-from-task-threads)).
 
 ## Reading engine memory (kiln.internal.engine)
 

@@ -12,6 +12,7 @@ import { qk, useActiveProfile, useGame, useGames, useGameStatus, useRuntimeChang
 import { Button, Modal, toast } from "../ui";
 import { installBundle } from "./runtimeChange";
 import { notifyActivation } from "./notices";
+import { t, useT } from "../i18n";
 
 // ---------------------------------------------------------------- finding the game
 
@@ -25,7 +26,7 @@ export async function detectGames(qc: QueryClient, quiet = false): Promise<GameI
   try {
     const g = await api.gameDetect();
     qc.setQueryData(qk.games, g);
-    if (!quiet && !g.some((x) => x.kind === "client")) toast.info("No Enshrouded found", "Add its folder by hand.");
+    if (!quiet && !g.some((x) => x.kind === "client")) toast.info(t("shell.firstRun.noneFound"), t("shell.firstRun.addByHand"));
     return g;
   } catch (e) {
     if (!quiet) toast.error(e);
@@ -66,7 +67,7 @@ export function useEnsureProfile(game: GameInstall | null) {
     api.profileEnsureDefault(game.id).then((a) => {
       if (a) { qc.setQueryData(qk.active(game.id), a); notifyActivation(a); }
       void qc.invalidateQueries({ queryKey: qk.profiles });
-    }).catch((e) => toast.error(e, "Your mod list could not be prepared"));
+    }).catch((e) => toast.error(e, t("shell.firstRun.listNotPrepared")));
   }, [game, installed, running, none, qc]);
 }
 
@@ -106,6 +107,7 @@ export function useKilnInstall(game: GameInstall | null) {
 
 /** The confirm (mounted once in the shell; the mouth, Play and a drop's toast open it through useInstallPrompt). */
 export function InstallKilnModal({ onAdd }: { onAdd: (paths: string[], game: GameInstall) => void }) {
+  const t = useT();
   const qc = useQueryClient();
   const nav = useNavigate();
   const loc = useLocation();
@@ -123,7 +125,7 @@ export function InstallKilnModal({ onAdd }: { onAdd: (paths: string[], game: Gam
     if (loc.pathname !== "/") nav("/");
     const ok = await installBundle(qc, game, b, k.bundles, null);
     if (!ok) {
-      if (pending) toast.info("Dropped mods are still waiting", undefined, { actions: [{ label: "Retry", onClick: () => useInstallPrompt.getState().show(pending) }] });
+      if (pending) toast.info(t("shell.firstRun.dropsWaiting"), undefined, { actions: [{ label: t("common.retry"), onClick: () => useInstallPrompt.getState().show(pending) }] });
       return;
     }
     const installed = await qc.fetchQuery({ queryKey: qk.games, queryFn: api.gameList }).then((gs) => gs.find((g) => g.path === game.path) ?? game).catch(() => game);
@@ -132,23 +134,23 @@ export function InstallKilnModal({ onAdd }: { onAdd: (paths: string[], game: Gam
       const a = await api.profileEnsureDefault(installed.id);
       if (a) qc.setQueryData(qk.active(installed.id), a);
       qc.invalidateQueries({ queryKey: qk.profiles });
-    } catch (e) { toast.error(e, "Kiln installed, but your mod list could not be prepared"); }
+    } catch (e) { toast.error(e, t("shell.firstRun.installedNotPrepared")); }
     if (useInstallPrompt.getState().pending === pending) useInstallPrompt.setState({ pending: null });
     if (pending?.paths.length) onAdd(pending.paths, installed);
   };
   const cancel = () => { useInstallPrompt.setState({ open: false, pending: null }); };
   return (
-    <Modal open onClose={cancel} title="Install Kiln" width={480}
+    <Modal open onClose={cancel} title={t("shell.appShell.installKiln")} width={480}
       footer={k.bundle ? (
-        <><Button variant="ghost" onClick={cancel}>Cancel</Button>
-          <Button variant="primary" disabled={!status.data || running || k.installing || !!status.data?.steamUpdating} onClick={go}>Install</Button></>
+        <><Button variant="ghost" onClick={cancel}>{t("common.cancel")}</Button>
+          <Button variant="primary" disabled={!status.data || running || k.installing || !!status.data?.steamUpdating} onClick={go}>{t("common.install")}</Button></>
       ) : (
-        <><Button variant="ghost" onClick={cancel}>Cancel</Button><Button onClick={() => { cancel(); nav("/runtime"); }}>Runtime</Button></>
+        <><Button variant="ghost" onClick={cancel}>{t("common.cancel")}</Button><Button onClick={() => { cancel(); nav("/runtime"); }}>{t("nav.runtime")}</Button></>
       )}>
       {k.loading ? null : k.bundle ? (
         <span className="k-mono k-muted">{k.bundle.version}</span>
-      ) : <span>No Kiln runtime in this launcher.</span>}
-      {running && <span className="k-hint">Close the game first.</span>}
+      ) : <span>{t("shell.firstRun.noRuntime")}</span>}
+      {running && <span className="k-hint">{t("shell.drop.closeGame")}</span>}
     </Modal>
   );
 }

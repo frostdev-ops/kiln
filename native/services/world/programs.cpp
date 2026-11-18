@@ -1416,7 +1416,7 @@ KilnResult KILN_CALL bind_program(KilnOwner owner, KilnStr mod, KilnStr key, Kil
 uint32_t KILN_CALL program_capabilities() {
     return (F.programs && F.write_other ? KILN_WORLD_CAP_WRITE_OTHER : 0) |
         (F.programs && F.events ? KILN_WORLD_CAP_MULTI_EVENTS : 0) |
-        (F.programs ? KILN_WORLD_CAP_BIND_PROGRAM : 0) | writes_capability();
+        (F.programs ? KILN_WORLD_CAP_BIND_PROGRAM : 0) | writes_capability() | ecs_capability();
 }
 
 const KilnTypesApi* program_types() {

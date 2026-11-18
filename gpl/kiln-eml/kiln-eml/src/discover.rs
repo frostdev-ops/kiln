@@ -1098,6 +1098,67 @@ pub fn apply_runtime_blocks(json: &str, kiln: &Utf8Path, entries: &mut [Entry], 
     }
 }
 
+/// The profile's `emlPartial` (Library and manifest ids): EML mods of which only part runs under Kiln, because a
+/// modified EML loader in the mod's package carries the rest (Holster Toggle's dbghelp.dll, whose hotkey Kiln does not
+/// run). Each such entry whose EML part runs this start (`loaded`, `pending`, or `own-loader` under another loader) gets
+/// the note in its reason; returns the kiln.log lines (level, text), one warning per mod.
+pub fn apply_partial(json: &str, entries: &mut [Entry]) -> Vec<(i32, String)> {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(json.trim_start_matches('\u{feff}')) else { return Vec::new() };
+    let Some(partial) = v.get("emlPartial").and_then(|v| v.as_object()) else { return Vec::new() };
+    let mut lines = Vec::new();
+    for e in entries.iter_mut().filter(|e| matches!(e.state.as_str(), "loaded" | "pending" | "own-loader")) {
+        let Some(id) = e.id.clone() else { continue };
+        let Some(note) = partial.get(&id).and_then(|n| n.as_str()).map(str::trim).filter(|n| !n.is_empty()) else { continue };
+        let mut chars = note.chars();
+        let sentence = chars.next().map(|c| c.to_uppercase().chain(chars).collect::<String>()).unwrap_or_default();
+        if e.reason.as_deref().is_some_and(|r| r.contains(note) || r.contains(&sentence)) { continue; }
+        e.reason = Some(match e.reason.take().filter(|r| !r.trim().is_empty()) {
+            Some(r) => format!("{}. {sentence}", r.trim_end_matches('.')),
+            None => sentence,
+        });
+        lines.push((2, format!("kiln-eml: EML mod {id}: only its Lua part runs: {note}")));
+    }
+    lines
+}
+
+#[cfg(test)]
+mod partial_tests {
+    use super::*;
+
+    fn entry(id: &str, state: &str, reason: Option<&str>) -> Entry {
+        Entry { id: Some(id.into()), version: None, name: None, source: "profile".into(), path: format!("mods/{id}"),
+            state: state.into(), reason: reason.map(str::to_owned), capabilities: Vec::new() }
+    }
+
+    /// Player report 2026-11-17 (Holster Toggle under hosted ShroudForge): the mod's line says it runs under ShroudForge,
+    /// and now also that its hotkey part, in the package's modified dbghelp.dll, does not run.
+    #[test]
+    fn a_mod_whose_package_carried_a_modified_loader_says_which_part_runs() {
+        let note = "part of this mod is in dbghelp.dll, a modified EML loader with code of its own (a weapon holster hotkey)";
+        let json = format!(r#"{{"mods":{{"eml":[]}},"emlPartial":{{"holster-toggle":"{note}"}}}}"#);
+        let mut entries = vec![
+            entry("holster-toggle", "own-loader", Some("runs under ShroudForge (hosted by Kiln): its ShroudForge switch is on")),
+            entry("stacks", "own-loader", Some("runs under ShroudForge (hosted by Kiln)")),
+        ];
+        let lines = apply_partial(&json, &mut entries);
+        assert_eq!(entries[0].reason.as_deref(), Some("runs under ShroudForge (hosted by Kiln): its ShroudForge switch is on. \
+            Part of this mod is in dbghelp.dll, a modified EML loader with code of its own (a weapon holster hotkey)"));
+        assert_eq!(entries[1].reason.as_deref(), Some("runs under ShroudForge (hosted by Kiln)"));
+        assert_eq!(lines, vec![(2, format!("kiln-eml: EML mod holster-toggle: only its Lua part runs: {note}"))]);
+        // applied once, also when called again
+        assert!(apply_partial(&json, &mut entries).is_empty());
+        // kiln-eml ran it itself (no reason yet): the note is the reason; off or failed mods say why they do not run instead
+        let mut ran = vec![entry("holster-toggle", "loaded", None)];
+        apply_partial(&json, &mut ran);
+        assert!(ran[0].reason.as_deref().unwrap().starts_with("Part of this mod is in dbghelp.dll"));
+        let mut off = vec![entry("holster-toggle", "disabled", Some("switched off in the profile"))];
+        assert!(apply_partial(&json, &mut off).is_empty());
+        assert_eq!(off[0].reason.as_deref(), Some("switched off in the profile"));
+        // older launchers write no emlPartial
+        assert!(apply_partial(r#"{"mods":{}}"#, &mut ran).is_empty());
+    }
+}
+
 #[cfg(test)]
 mod runtime_block_tests {
     use super::*;

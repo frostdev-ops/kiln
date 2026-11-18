@@ -40,7 +40,7 @@ end = boot.index('// ---- on_unload: is the exit link armed?', start)
 (out / 'exit_trigger.inc').write_text(boot[start:end])
 PY
 "${cl[@]}" -Wno-unused-function -Wno-unused-parameter "$here/exit_windows_host.cpp" "$src/tasks.cpp" "$src/tasks_model.cpp" \
-  "$src/tasks_win.cpp" "$src/tasks_seh.cpp" /Fe:"$out/exit_windows_host.exe" /link "${libdirs[@]}" >/dev/null
+  "$src/tasks_stats.cpp" "$src/tasks_win.cpp" "$src/tasks_seh.cpp" /Fe:"$out/exit_windows_host.exe" /link "${libdirs[@]}" >/dev/null
 
 # Always this run's own private prefix under the output folder: an inherited WINEPREFIX (it could be a game's prefix)
 # is ignored, and the waits below only ever concern this prefix's wineserver.

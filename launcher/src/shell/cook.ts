@@ -10,19 +10,22 @@ import { toKilnError } from "../api/commands";
 import { toast, waitTask } from "../ui";
 import { bootSnapshotLine } from "./bootSnapshot";
 import { notifyActivation } from "./notices";
+import { t } from "../i18n";
 
 /** Why a mod is cooked, as the end of "… because …" (kiln_manage::cook::CookReason::text). */
-export const COOK_REASON: Record<NonNullable<CookJob["reason"]>, string> = {
-  notCooked: "it was not cooked for this game yet",
-  modChanged: "the mod changed since its last cook",
-  gameChanged: "the game was updated since its last cook",
-  lastFailed: "its last cook failed",
-  filesGone: "its cooked files are gone or were changed",
-  asked: "you asked",
-};
+export function cookReason(reason: NonNullable<CookJob["reason"]>): string {
+  switch (reason) {
+    case "notCooked": return t("shell.cook.reasonNotCooked");
+    case "modChanged": return t("shell.cook.reasonModChanged");
+    case "gameChanged": return t("shell.cook.reasonGameChanged");
+    case "lastFailed": return t("shell.cook.reasonLastFailed");
+    case "filesGone": return t("shell.cook.reasonFilesGone");
+    case "asked": return t("shell.cook.reasonAsked");
+  }
+}
 
 /** One mod that was not cooked: its name, then what the tools said last (their own lines, kept as lines). */
-export const notCookedText = (m: ModCook) => `${m.name}:\n${m.error ?? "the cook failed without a word"}`;
+export const notCookedText = (m: ModCook) => t("shell.cook.notCookedText", { name: m.name, error: m.error ?? t("shell.cook.noWord") });
 
 /** What a cook run left to tell: nothing when every mod was cooked; else one notice that stays, naming each mod that
  *  was not cooked with the tools' text. The mod keeps the files it has (those of its last cook: a failed cook puts them
@@ -33,16 +36,17 @@ export function notifyCook(run: CookRun | null | undefined, o: { quietOk?: boole
   const failed = run.mods.filter((m) => !m.ok);
   const ok = run.mods.length - failed.length;
   if (!failed.length) {
-    if (!o.quietOk) toast.ok(ok === 1 ? `${run.mods[0].name} cooked` : `${ok} mods cooked`, "Their models, animations and sounds are made for this game.");
+    if (!o.quietOk) toast.ok(ok === 1 ? t("shell.cook.oneCooked", { name: run.mods[0].name }) : t("shell.cook.manyCooked", { count: ok }), t("shell.cook.cookedDetail"));
     return;
   }
-  const title = failed.length === 1 ? `${failed[0].name} was not cooked` : `${failed.length} mods were not cooked`;
-  toast.info(title, `${failed.map(notCookedText).join("\n\n")}\n\n${ok ? `${ok} other mod${ok === 1 ? " was" : "s were"} cooked. ` : ""}The game starts all the same, and a mod that could not be cooked keeps running on the files it has: those of its last cook, or none if it was never cooked here. "Cook again" in the mod's menu tries again.`, { ms: 0 });
+  const title = failed.length === 1 ? t("shell.cook.oneNotCooked", { name: failed[0].name }) : t("shell.cook.manyNotCooked", { count: failed.length });
+  const rest = ok ? t("shell.cook.failedRestOthers", { count: ok }) : t("shell.cook.failedRest");
+  toast.info(title, `${failed.map(notCookedText).join("\n\n")}\n\n${rest}`, { ms: 0 });
 }
 
 /** What a start says when its cook has mods to cook (Play, and a modpack offer's Launch). */
 export const cookingNotice = (jobs: CookJob[]) =>
-  toast.info(jobs.length === 1 ? `Cooking ${jobs[0].name}` : `Cooking ${jobs.length} mods`, "Making their models, animations and sounds from your game, then the game starts.");
+  toast.info(jobs.length === 1 ? t("shell.cook.cookingOne", { name: jobs[0].name }) : t("shell.cook.cookingMany", { count: jobs.length }), t("shell.cook.cookingDetail"));
 
 /** Cooks what needs a cook before the game starts. Resolves when it is done, whatever happened: a cook never stops a
  *  start. The cook runs always: it applies the active profile first when it changed (kilnctl, another window), so the
@@ -56,12 +60,12 @@ export async function cookBeforePlay(gameId: GameId, started?: (jobs: CookJob[])
     void notifyActivation(run?.activation);
     notifyCook(run, { quietOk: true });
     const line = bootSnapshotLine(run?.bootSnapshot);
-    if (line) toast.info("Game data for OnBoot mods", line, { ms: 0 });
+    if (line) toast.info(t("shell.cook.bootData"), line, { ms: 0 });
     return run;
   } catch (e) {
     const k = toKilnError(e);
     // the game is running (it started outside the launcher), or the cook could not even be asked for: say it once, go on
-    if (k.code !== "canceled" && k.code !== "game_running") toast.info("Mods were not cooked", `${k.message} The game starts all the same.`, { ms: 0 });
+    if (k.code !== "canceled" && k.code !== "game_running") toast.info(t("shell.cook.notCookedTitle"), t("shell.cook.startsAnyway", { error: k.message }), { ms: 0 });
     return null;
   }
 }
@@ -73,13 +77,13 @@ export async function bootSnapshotBeforeOnce(gameId: GameId, profileId: ProfileI
   try {
     const s = await waitTask<BootSnapshot>(await api.bootSnapshotRun(gameId, profileId));
     const line = bootSnapshotLine(s);
-    if (line) toast.info("Game data for OnBoot mods", line, { ms: 0 });
+    if (line) toast.info(t("shell.cook.bootData"), line, { ms: 0 });
     return s;
   } catch (e) {
     const k = toKilnError(e);
     // the game is running, or the step could not be asked for: the start goes on (and says what it refuses itself)
     if (k.code !== "canceled" && k.code !== "game_running" && k.code !== "not_found")
-      toast.info("Game data for OnBoot mods was not made", `${k.message} The game starts all the same.`, { ms: 0 });
+      toast.info(t("shell.cook.bootDataNotMade"), t("shell.cook.startsAnyway", { error: k.message }), { ms: 0 });
     return null;
   }
 }
@@ -92,7 +96,7 @@ export async function cookAgain(gameId: GameId, id: string, name: string): Promi
     notifyCook(run);
     return run;
   } catch (e) {
-    if (toKilnError(e).code !== "canceled") toast.error(e, `${name} was not cooked`);
+    if (toKilnError(e).code !== "canceled") toast.error(e, t("shell.cook.oneNotCooked", { name }));
     return null;
   }
 }

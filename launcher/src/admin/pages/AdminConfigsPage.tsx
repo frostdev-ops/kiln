@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { useAdminCall, useAdminQuery, useHasOp } from "../../api/admin";
 import type { Json, SchemaSnapshot, ValidationError } from "../../api/commands";
+import { rich, t as tr, useT } from "../../i18n";
 import { NeedsOp, useServerId, withAdmin } from "../common";
 import { OfflineNote } from "../ConnectionBar";
 import type { ConfigFile, KilnMod } from "../types";
@@ -39,9 +40,10 @@ function configLabel(c: ConfigFile, mods: KilnMod[] | undefined): string {
   return name && name.length <= 24 ? name : c.id.charAt(0).toUpperCase() + c.id.slice(1);
 }
 
-const fmt = (v: unknown) => (Array.isArray(v) ? v.join(", ") || "(empty)" : typeof v === "boolean" ? (v ? "on" : "off") : String(v));
+const fmt = (v: unknown) => (Array.isArray(v) ? v.join(", ") || tr("admin.configs.empty") : typeof v === "boolean" ? (v ? tr("admin.configs.on") : tr("admin.configs.off")) : String(v));
 
 function ConfigsPage() {
+  const t = useT();
   const id = useServerId();
   const qc = useQueryClient();
   const list = useAdminQuery<ConfigFile[]>("config_list", {}, { refetchInterval: 10_000 });
@@ -53,15 +55,15 @@ function ConfigsPage() {
   const cur = list.data?.find((c) => c.id === (sel ?? list.data?.[0]?.id)) ?? null;
   const put = (c: ConfigFile) => qc.setQueriesData<ConfigFile[]>({ queryKey: ["admin", id, "config_list"] }, (old) => old?.map((x) => (x.id === c.id ? c : x)));
   const set = useAdminCall<ConfigFile>("config_set");
-  const reload = useAdminCall<ConfigFile>("config_reload", { onSuccess: (c) => { put(c); toastOk(`Re-read ${c.id}`); } });
+  const reload = useAdminCall<ConfigFile>("config_reload", { onSuccess: (c) => { put(c); toastOk(t("admin.configs.reread", { id: c.id })); } });
   const snapshot = useMemo(() => (cur ? toSnapshot(cur) : null), [cur]);
   const values = useMemo(() => (cur ? toValues(cur) : null), [cur]);
   const pending = cur?.entries.filter((e) => e.fileValue !== undefined && JSON.stringify(e.fileValue) !== JSON.stringify(e.value)).map((e) => e.path) ?? [];
   const change = (path: string, value: Json) => {
     if (!cur || !snapshot) return;
     const entry = snapshot.entries.find((e) => e.path === path);
-    const bad = !CONFIG_PATH.test(path) ? "Unexpected characters in the setting's path." : entry ? checkValue(entry, value) : null;
-    const tooLong = Array.isArray(value) && value.length > 500 ? "Lists hold up to 500 values." : typeof value === "string" && value.length > 2000 ? "Text up to 2000 characters." : null;
+    const bad = !CONFIG_PATH.test(path) ? t("admin.configs.badPath") : entry ? checkValue(entry, value) : null;
+    const tooLong = Array.isArray(value) && value.length > 500 ? t("admin.configs.listMax") : typeof value === "string" && value.length > 2000 ? t("admin.configs.textMax") : null;
     const err = bad ?? tooLong;
     setErrors((e) => [...e.filter((x) => x.path !== path), ...(err ? [{ path, message: err }] : [])]);
     if (err) return;
@@ -69,7 +71,7 @@ function ConfigsPage() {
       onSuccess: (c) => {
         put(c);
         const e = c.entries.find((x) => x.path === path);
-        toastOk(`${c.id}: ${path} = ${fmt(e?.fileValue ?? e?.value ?? value)}`, e?.requiresRestart && e.fileValue !== undefined ? "applies when the mod loads next" : undefined);
+        toastOk(`${c.id}: ${path} = ${fmt(e?.fileValue ?? e?.value ?? value)}`, e?.requiresRestart && e.fileValue !== undefined ? t("admin.configs.appliesNext") : undefined);
       },
       onError: (e) => setErrors((x) => [...x.filter((y) => y.path !== path), { path, message: e.message }]),
     });
@@ -77,35 +79,37 @@ function ConfigsPage() {
   const file = String(cur?.file ?? "").replace(/^.*[\\/]kiln[\\/]/, "kiln/").replace(/\\/g, "/");
   return (
     <Page>
-      <PageHeader title="Mod configs" sub="Settings of the Kiln mods on the server, from their config files. Each change is checked by Kiln and applied while the server runs." />
+      <PageHeader title={t("admin.configs.title")} sub={t("admin.configs.sub")} />
       <OfflineNote />
-      <NeedsOp ops={["config_list", "config_set"]} what="Mod configs">
+      <NeedsOp ops={["config_list", "config_set"]} what={t("admin.configs.title")}>
         <div className="k-stack" style={{ gap: 18 }}>
           {list.data?.length ? (
-            <Tabs aria-label="Configs" value={cur?.id ?? ""} onChange={(v) => { setSel(v); setErrors([]); }}
+            <Tabs aria-label={t("admin.configs.tabs")} value={cur?.id ?? ""} onChange={(v) => { setSel(v); setErrors([]); }}
               items={list.data.map((c) => ({
                 id: c.id,
                 count: c.entries.length,
-                label: <>{configLabel(c, mods.data)}{c.error ? <span className="k-tone-err"> error</span> : c.warnings?.length ? <span className="k-tone-warn" title={c.warnings.join(" · ")}> corrected</span> : null}</>,
+                label: <>{configLabel(c, mods.data)}{c.error ? <span className="k-tone-err">{t("admin.configs.tabError")}</span> : c.warnings?.length ? <span className="k-tone-warn" title={c.warnings.join(" · ")}>{t("admin.configs.tabCorrected")}</span> : null}</>,
               }))} />
           ) : null}
-          {list.data && !list.data.length ? <EmptyState title="No mod configs" hint="Mods that register a config show up here." /> : null}
+          {list.data && !list.data.length ? <EmptyState title={t("admin.configs.none")} hint={t("admin.configs.noneHint")} /> : null}
           {list.error ? <div className="k-error-text">{list.error.message}</div> : null}
           {cur && snapshot && values ? (
-            <Card title={configLabel(cur, mods.data)} sub={<>config <span className="k-mono">{cur.id}</span> of mod <span className="k-mono">{cur.mod}</span> · {cur.kind} · <span className="k-mono">{file}</span>{cur.loadedAt ? ` · read ${fmtAgo(cur.loadedAt)}` : ""}</>}
+            <Card title={configLabel(cur, mods.data)} sub={<>{cur.loadedAt
+                ? rich("admin.configs.cardSubRead", { id: <span className="k-mono">{cur.id}</span>, mod: <span className="k-mono">{cur.mod}</span>, kind: cur.kind, file: <span className="k-mono">{file}</span>, ago: fmtAgo(cur.loadedAt) })
+                : rich("admin.configs.cardSub", { id: <span className="k-mono">{cur.id}</span>, mod: <span className="k-mono">{cur.mod}</span>, kind: cur.kind, file: <span className="k-mono">{file}</span> })}</>}
               actions={<>
-                <TextInput aria-label="Filter settings" placeholder="Filter…" value={filter} onChange={(e) => setFilter(e.target.value)} style={{ width: 160 }} />
-                <Button size="s" variant="ghost" loading={reload.isPending} onClick={() => reload.mutate({ id: cur.id })} title="Read the file again (Kiln also does this by itself when it changes)">Re-read file</Button>
+                <TextInput aria-label={t("admin.configs.filterLabel")} placeholder={t("admin.configs.filterPlaceholder")} value={filter} onChange={(e) => setFilter(e.target.value)} style={{ width: 160 }} />
+                <Button size="s" variant="ghost" loading={reload.isPending} onClick={() => reload.mutate({ id: cur.id })} title={t("admin.configs.rereadTip")}>{t("admin.configs.rereadFile")}</Button>
               </>}>
               <div className="k-stack" style={{ gap: 12 }}>
-                {cur.error ? <Banner tone="err" title="The file has an error, so Kiln keeps the previous values">{cur.error} Fix the file by hand, or set a value here: Kiln then writes the file again in full.</Banner> : null}
-                {cur.warnings?.length ? <Banner tone="warn" title="Kiln corrected the file when it read it">{cur.warnings.join(" · ")}</Banner> : null}
+                {cur.error ? <Banner tone="err" title={t("admin.configs.errorTitle")}>{t("admin.configs.errorBody", { error: cur.error })}</Banner> : null}
+                {cur.warnings?.length ? <Banner tone="warn" title={t("admin.configs.correctedTitle")}>{cur.warnings.join(" · ")}</Banner> : null}
                 <SchemaForm schema={snapshot} values={values} onChange={change} onReset={(path) => { const e = snapshot.entries.find((x) => x.path === path); if (e) change(path, e.default); }} errors={errors} pending={pending} disabled={set.isPending} filter={filter} />
-                {pending.length ? <Banner tone="ember">Saved values marked “pending” keep their running value until the mod loads again (reload it on the Mods page).</Banner> : null}
+                {pending.length ? <Banner tone="ember">{t("admin.configs.pendingNote")}</Banner> : null}
               </div>
             </Card>
           ) : list.data?.length || !list.data ? (
-            <EmptyState title={list.data ? "Pick a config" : "Loading…"} hint="Changes are checked by Kiln (types, ranges, options), written to the file with its comments and applied at once." />
+            <EmptyState title={list.data ? t("admin.configs.pick") : t("admin.map.loading")} hint={t("admin.configs.pickHint")} />
           ) : null}
         </div>
       </NeedsOp>

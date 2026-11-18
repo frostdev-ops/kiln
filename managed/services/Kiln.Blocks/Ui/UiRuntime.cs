@@ -432,7 +432,7 @@ internal sealed class KilnUiBackend : IUiBackend
         {
             var screen = Ui.Screen(new UiText(title), Draw, new UiScreenOptions
             {
-                Style = UiStyle.Game, Width = b.Width > 0 ? b.Width : 720, Height = b.Height > 0 ? b.Height : 520, DimBackground = b.Dim ?? true, TitleBar = b.TitleBar,
+                Style = UiStyle.Player, Width = b.Width > 0 ? b.Width : 720, Height = b.Height > 0 ? b.Height : 520, DimBackground = b.Dim ?? true, TitleBar = b.TitleBar,
             });
             // the title follows the game's language, as a screen's does
             screen.Title = w.Plan.Title.Text;
@@ -468,7 +468,7 @@ internal sealed class KilnUiBackend : IUiBackend
     {
         var r = Commands.Execute(ConsoleControl.DefaultSource(), line);
         if (r.Ok) return (true, r.Output.Count > 0 ? r.Output[0] : "");
-        return (false, r.Error ?? $"{line} failed");
+        return (false, r.Error ?? KilnText.T("blocks.toast.command_failed", ("command", line)));
     }
 
     private sealed class WindowSurface(UiWindow window) : IUiSurface

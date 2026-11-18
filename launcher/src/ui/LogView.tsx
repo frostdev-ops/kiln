@@ -3,6 +3,7 @@
 // fill; new lines cool from flame to ash over 900 ms.
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useT } from "../i18n";
 import { Button } from "./Button";
 
 export type LogLevel = "err" | "warn" | "dbg" | null;
@@ -37,6 +38,7 @@ const ROW = 21;
 const COOL_MS = 900;
 
 export function LogView({ lines, text, follow = true, height = 420, fill, filter, lineNumbers = true, classify = classifyLine, ...rest }: LogViewProps) {
+  const t = useT();
   const all = useMemo(() => lines ?? (text ? text.replace(/\n$/, "").split("\n") : []), [lines, text]);
   // when each line arrived (lines there at the start count as old), so a line cools once, not again on scroll
   const born = useRef<number[]>([]);
@@ -80,9 +82,9 @@ export function LogView({ lines, text, follow = true, height = 420, fill, filter
 
   return (
     <div style={fill ? { position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" } : { position: "relative" }}>
-      <div ref={scroll} className="k-log" style={fill ? { flex: 1, minHeight: 0 } : { height }} role="log" aria-label={rest["aria-label"] ?? "Log"} tabIndex={0}>
+      <div ref={scroll} className="k-log" style={fill ? { flex: 1, minHeight: 0 } : { height }} role="log" aria-label={rest["aria-label"] ?? t("ui.logView.log")} tabIndex={0}>
         {shown.length === 0 ? (
-          <div className="k-empty-title" style={{ padding: "10px 14px", fontFamily: "var(--k-font-ui)" }}>{filter ? "Nothing matches that filter." : "Nothing written yet."}</div>
+          <div className="k-empty-title" style={{ padding: "10px 14px", fontFamily: "var(--k-font-ui)" }}>{filter ? t("ui.logView.noMatch") : t("ui.logView.empty")}</div>
         ) : (
           <div style={{ height: virt.getTotalSize(), position: "relative" }}>
             {virt.getVirtualItems().map((v) => {
@@ -100,7 +102,7 @@ export function LogView({ lines, text, follow = true, height = 420, fill, filter
       </div>
       {follow && !atEnd && shown.length > 0 && (
         <div className="k-log-follow">
-          <Button size="s" onClick={() => { setAtEnd(true); virt.scrollToIndex(shown.length - 1, { align: "end" }); }}>Follow</Button>
+          <Button size="s" onClick={() => { setAtEnd(true); virt.scrollToIndex(shown.length - 1, { align: "end" }); }}>{t("ui.logView.follow")}</Button>
         </div>
       )}
     </div>

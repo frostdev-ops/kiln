@@ -91,6 +91,34 @@ typedef void(KILN_CALL* KilnEventFn)(const void* data, uint32_t size, void* user
  * system_unhook succeeds. A fault disables the hook and the original update still runs. */
 typedef void(KILN_CALL* KilnSystemHookFn)(void* program_context, void* user);
 
+/* ---- ECS registry (appended to v1, check header.size): the engine's component registration catalog, copied ---- */
+/* KilnEcsRegistryRow.flags */
+enum {
+    KILN_ECS_REGISTRY_TRACKING_KNOWN = 1u << 0, /* the two tracking bits below were read, not defaulted */
+    KILN_ECS_REGISTRY_SAVE_TRACKED = 1u << 1,   /* the game's write tracking records this type for the save */
+    KILN_ECS_REGISTRY_REPLICATION_TRACKED = 1u << 2 /* ... and for replication */
+};
+
+typedef struct KilnEcsRegistryInfo {
+    uint32_t size;        /* set to sizeof(KilnEcsRegistryInfo) before calling */
+    uint32_t status;      /* KILN_ECS_* codes of kiln_world.h (0 ok, 4 unavailable); duplicated here so this
+                             header stands alone: 0 ok, 1 absent, 2 stale, 3 unreadable, 4 unavailable */
+    uint32_t world_kind;  /* the kind asked for */
+    uint32_t count;       /* rows in the catalog */
+    uint64_t layout_stamp; /* stamp of the catalog copied (0 when the provider has none) */
+    uint64_t kind_stamp;   /* the world session the catalog belongs to (0 when not world-bound) */
+} KilnEcsRegistryInfo;
+
+typedef struct KilnEcsRegistryRow {
+    uint32_t size;          /* sizeof(KilnEcsRegistryRow) */
+    uint32_t index;         /* position in the registration catalog */
+    uint32_t component;     /* component hash (component_hash of the type's name) */
+    uint32_t type_size;     /* reflected size in bytes */
+    uint32_t flags;         /* KILN_ECS_REGISTRY_* */
+    uint32_t reserved;      /* 0 */
+    uint64_t type_identity; /* the type's identity in the game's own type table (stable for the process) */
+} KilnEcsRegistryRow;
+
 typedef struct KilnTypesApi {
     KilnServiceHeader header; /* { sizeof(KilnTypesApi), KILN_TYPES_VERSION } */
     KilnResult(KILN_CALL* status)(KilnTypesStatus* out);
@@ -161,9 +189,22 @@ typedef struct KilnTypesApi {
      * a game program's slice: the world is mid-step there, maybe on its own thread), else 0. kiln.world's in_program
      * includes it. Any thread; lock-free, no game call. */
     uint32_t(KILN_CALL* in_system_callback)(void);
+    /* Appended to v1 (check header.size): the engine's component registration catalog for
+     * `world_kind` (KILN_WORLD_*), as copied immutable records in registration order. info (size set) gets the
+     * count and layout stamp; *required is the row count, also when capacity is short (KILN_ERR_BUFFER_TOO_SMALL,
+     * nothing copied). Tracking bits are filled only when the row's KILN_ECS_REGISTRY_TRACKING_KNOWN is set; an
+     * exact engine profile that has not validated them leaves it clear, never guessed. Any thread. */
+    KilnResult(KILN_CALL* ecs_registry)(uint32_t world_kind, KilnEcsRegistryInfo* info, KilnEcsRegistryRow* rows,
+                                        uint32_t capacity, uint32_t* required);
 } KilnTypesApi;
 
 #ifdef __cplusplus
 }
+static_assert(sizeof(KilnEcsRegistryInfo) == 32 && offsetof(KilnEcsRegistryInfo, kind_stamp) == 24,
+              "KilnEcsRegistryInfo layout");
+static_assert(sizeof(KilnEcsRegistryRow) == 32 && offsetof(KilnEcsRegistryRow, type_identity) == 24,
+              "KilnEcsRegistryRow layout");
+static_assert(offsetof(KilnTypesApi, ecs_registry) == offsetof(KilnTypesApi, in_system_callback) + 8,
+              "kiln.types ecs_registry appends after in_system_callback");
 #endif
 #endif

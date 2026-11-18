@@ -317,7 +317,11 @@ public static class Screens
             var prev = Volatile.Read(ref _current).Value;
             var cur = GameScreen.From(*now);
             Volatile.Write(ref _current, new StrongBox<GameScreen>(cur));
-            if (prev.LanguageId != cur.LanguageId) Menus.LanguageChanged();
+            if (prev.LanguageId != cur.LanguageId)
+            {
+                Menus.LanguageChanged();
+                KilnText.Refresh(GameLanguage.KeyOf(cur.LanguageId));  // Kiln's own texts follow (setting auto), drawing off too
+            }
             if (prev.Kind != cur.Kind) UiEngine.Log(LogLevel.Debug, $"game screen {prev.Kind} -> {cur.Kind} ({cur.State}/{cur.Hud})");
             Crafting.ScreenChanged(prev, cur);
             RefusalNotice.ScreenChanged(prev, cur);
@@ -466,7 +470,7 @@ public static class Menus
     {
         set
         {
-            if (UiNative.HasGameUi) UiNative.T->MenuSet(0, Utf8.Of(value ? "Mods" : "Mods"), value ? 0u : 1u);
+            if (UiNative.HasGameUi) UiNative.T->MenuSet(0, Utf8.Of(KilnText.T("native.menu.mods")), value ? 0u : 1u);
         }
     }
 

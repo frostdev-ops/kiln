@@ -89,6 +89,8 @@ replaces the top-level value.
 [modding/cooking.md](modding/cooking.md)): `"warn"` (the default, `kCookedDefault` in `native/services/assets/cooktrust.h`)
 loads it with one warning per mod, `"local"` does not load it, `"any"` loads it (development servers); read by
 kiln.assets itself, with the same side sections.
+`"ui": {"chatHistory": true}`: Up/Down history in the game's chat field ([chat-history.md](chat-history.md)); off by
+default, read by kiln.ui at start (top level only), shown in the launcher's Settings.
 
 ## Symbol database per side
 - `sigdb/symbols/client.json` is the core set. It is the server's core set unchanged (all of its patterns match the

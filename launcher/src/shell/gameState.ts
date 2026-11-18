@@ -1,15 +1,26 @@
 // One place that turns a GameStatus into a label + tone: the top-bar pill and Play use it.
 import type { BootState, GameStatus, LaunchMode } from "../api/commands";
 import type { Tone } from "../ui";
+import { t } from "../i18n";
 
 export type GamePhase = "none" | "updating" | "stopped" | "starting" | "running" | "vanilla";
 
+/** Which word `label` is, for logic: compare this, never the (translated) label. */
+export type GameWord = "checking" | "noGame" | "updating" | "stopped" | "noKiln" | "starting" | "running" | "vanilla" | "safeIdle"
+  | "stoppedStart" | "noWord" | "kilnStopped";
+
 export interface GameStateView {
   phase: GamePhase;
+  /** The word shown, in the current language. */
   label: string;
+  /** What `label` says (stable across languages). */
+  word: GameWord;
   tone: Tone;
   pulse: boolean;
   detail: string | null;
+  /** True when `detail` is Kiln's own line about itself ("Kiln 0.2.0 · My mods", "Kiln hooked nothing"): Play's
+   *  "Started … ago" line leaves it out. Absent: decided from the text (backend text, English: it starts with "Kiln"). */
+  detailKiln?: boolean;
 }
 
 /** How long the game may run before a play-once.ini still in the folder means Kiln's proxy did not run. The proxy reads
@@ -44,8 +55,8 @@ export function playState(s: GameStatus | null | undefined, launch: BootState | 
     && (playOnceMissed(s, now, memo.seen) || (!!launch && noBootLate));
   const raw = gameState(s, launch, loading, now);
   const view: GameStateView = s?.running && !s.steamUpdating && vanilla
-    ? { phase: "vanilla", label: "Vanilla", tone: "info", pulse: true, detail: "Started without Kiln" }
-    : kilnMissing ? { phase: "running", label: "No Kiln", tone: "warn", pulse: true, detail: "The game runs without Kiln: Steam did not load it" } : raw;
+    ? { phase: "vanilla", label: t("shell.gameState.vanilla"), word: "vanilla", tone: "info", pulse: true, detail: t("shell.gameState.startedWithoutKiln"), detailKiln: false }
+    : kilnMissing ? { phase: "running", label: t("shell.gameState.noKiln"), word: "noKiln", tone: "warn", pulse: true, detail: t("shell.gameState.noKilnDetail"), detailKiln: false } : raw;
   const starting = !!s?.running && !s.steamUpdating && !vanilla && !boot && !kilnMissing
     && (s.playOncePending || (ours && !noBootLate));
   return { view, kilnMissing, starting };
@@ -58,18 +69,22 @@ function currentBoot(s: GameStatus | null | undefined, launch?: BootState | null
 /** `launch` (launch_state) decides whether boot.json belongs to the running process (under Proton the pid in it is the
  *  game's Windows pid, so the backend compares write and start times); without it the pids must match. */
 export function gameState(s: GameStatus | null | undefined, launch?: BootState | null, loading = false, now = Date.now()): GameStateView {
-  if (!s && loading) return { phase: "none", label: "Checking", tone: "idle", pulse: true, detail: null };
-  if (!s) return { phase: "none", label: "No game", tone: "idle", pulse: false, detail: null };
-  if (s.steamUpdating) return { phase: "updating", label: "Updating", tone: "warn", pulse: true, detail: "Steam is updating the game" };
-  if (!s.running) return { phase: "stopped", label: "Stopped", tone: "idle", pulse: false, detail: null };
+  if (!s && loading) return { phase: "none", label: t("shell.gameState.checking"), word: "checking", tone: "idle", pulse: true, detail: null };
+  if (!s) return { phase: "none", label: t("shell.gameState.noGame"), word: "noGame", tone: "idle", pulse: false, detail: null };
+  if (s.steamUpdating) return { phase: "updating", label: t("shell.gameState.updating"), word: "updating", tone: "warn", pulse: true, detail: t("shell.gameState.steamUpdating"), detailKiln: false };
+  if (!s.running) return { phase: "stopped", label: t("shell.gameState.stopped"), word: "stopped", tone: "idle", pulse: false, detail: null };
   const boot = currentBoot(s, launch);
   if (!boot) {
-    if (playOnceMissed(s, now)) return { phase: "running", label: "No Kiln", tone: "warn", pulse: true, detail: "The game runs without Kiln: Steam did not load it" };
+    if (playOnceMissed(s, now)) return { phase: "running", label: t("shell.gameState.noKiln"), word: "noKiln", tone: "warn", pulse: true, detail: t("shell.gameState.noKilnDetail"), detailKiln: false };
     return s.playOncePending
-      ? { phase: "starting", label: "Starting", tone: "ember", pulse: true, detail: "Waiting for Kiln to boot" }
-      : { phase: "running", label: "Running", tone: "ok", pulse: true, detail: s.pid ? `pid ${s.pid}` : null };
+      ? { phase: "starting", label: t("shell.gameState.starting"), word: "starting", tone: "ember", pulse: true, detail: t("shell.gameState.waitingBoot"), detailKiln: false }
+      : { phase: "running", label: t("shell.gameState.running"), word: "running", tone: "ok", pulse: true, detail: s.pid ? t("shell.gameState.pid", { pid: s.pid }) : null, detailKiln: false };
   }
-  if (boot.playOnce?.mode === "vanilla") return { phase: "vanilla", label: "Vanilla", tone: "info", pulse: true, detail: "Started without Kiln" };
-  const what = boot.safeIdle ? "safe idle" : boot.profile?.name ?? (boot.profile?.mode === "legacy" ? "drop-ins" : boot.profile?.mode ?? "");
-  return { phase: "running", label: boot.safeIdle ? "Safe idle" : "Running", tone: boot.safeIdle ? "warn" : "ok", pulse: true, detail: `Kiln ${boot.kiln}${what ? ` · ${what}` : ""}` };
+  if (boot.playOnce?.mode === "vanilla") return { phase: "vanilla", label: t("shell.gameState.vanilla"), word: "vanilla", tone: "info", pulse: true, detail: t("shell.gameState.startedWithoutKiln"), detailKiln: false };
+  const what = boot.safeIdle ? t("shell.gameState.whatSafeIdle") : boot.profile?.name ?? (boot.profile?.mode === "legacy" ? t("shell.gameState.whatDropIns") : boot.profile?.mode ?? "");
+  return {
+    phase: "running", label: boot.safeIdle ? t("shell.gameState.safeIdle") : t("shell.gameState.running"), word: boot.safeIdle ? "safeIdle" : "running",
+    tone: boot.safeIdle ? "warn" : "ok", pulse: true,
+    detail: what ? t("shell.gameState.kilnWhat", { version: boot.kiln, what }) : t("shell.gameState.kiln", { version: boot.kiln }), detailKiln: true,
+  };
 }

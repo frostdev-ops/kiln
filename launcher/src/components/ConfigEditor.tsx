@@ -7,10 +7,12 @@ import { useEffect, useState } from "react";
 import * as api from "../api/commands";
 import type { ConfigDocument, ConfigTarget, Json } from "../api/commands";
 import { qk } from "../api/hooks";
+import { useT } from "../i18n";
 import { Badge, Button, Card, EmptyState, Segmented, SchemaForm, Skeleton, TextArea, TextInput, errorText, fmtAgo, toast } from "../ui";
 
 /** `initial`: the file, or the mod id whose file, to open first (the main list's Configs). */
 export function ConfigEditor({ target, readOnly, initial }: { target: ConfigTarget; readOnly?: boolean; initial?: string }) {
+  const t = useT();
   const files = useQuery({ queryKey: qk.configs(target), queryFn: () => api.configList(target) });
   const [sel, setSel] = useState<string | null>(null);
   const list = files.data ?? [];
@@ -19,12 +21,12 @@ export function ConfigEditor({ target, readOnly, initial }: { target: ConfigTarg
   }, [list, sel, initial]);
 
   if (files.isLoading) return <Skeleton lines={4} />;
-  if (files.error) return <EmptyState icon={<FileCog />} title="Configs unavailable" hint={errorText(files.error)} />;
-  if (!list.length) return <EmptyState icon={<FileCog />} title="No configs yet" hint="Mods write their config and schema the first time they load." />;
+  if (files.error) return <EmptyState icon={<FileCog />} title={t("configEditor.unavailable")} hint={errorText(files.error)} />;
+  if (!list.length) return <EmptyState icon={<FileCog />} title={t("configEditor.empty")} hint={t("configEditor.emptyHint")} />;
   return (
     <div className="k-grid" style={{ gridTemplateColumns: "240px minmax(0, 1fr)" }}>
       <Card flush>
-        <div className="k-list" role="listbox" aria-label="Config files">
+        <div className="k-list" role="listbox" aria-label={t("configEditor.files")}>
           {list.map((f) => (
             <div key={f.file} role="option" aria-selected={sel === f.file} tabIndex={0} className={"k-list-item clickable" + (sel === f.file ? " selected" : "")}
               onClick={() => setSel(f.file)} onKeyDown={(e) => { if (e.key === "Enter") setSel(f.file); }} style={{ padding: "9px 12px" }}>
@@ -33,7 +35,7 @@ export function ConfigEditor({ target, readOnly, initial }: { target: ConfigTarg
                 <span className="k-item-sub k-mono k-ellipsis">{f.file}</span>
               </span>
               {f.kind === "emf" && <Badge>emf</Badge>}
-              {!f.hasSchema && <Badge title="No schema snapshot: raw edit only">raw</Badge>}
+              {!f.hasSchema && <Badge title={t("configEditor.rawTip")}>{t("configEditor.raw")}</Badge>}
             </div>
           ))}
         </div>
@@ -44,6 +46,7 @@ export function ConfigEditor({ target, readOnly, initial }: { target: ConfigTarg
 }
 
 function ConfigFile({ target, file, readOnly }: { target: ConfigTarget; file: string; readOnly?: boolean }) {
+  const t = useT();
   const qc = useQueryClient();
   const key = qk.config(target, file);
   const doc = useQuery({ queryKey: key, queryFn: () => api.configRead(target, file) });
@@ -57,12 +60,12 @@ function ConfigFile({ target, file, readOnly }: { target: ConfigTarget; file: st
   const mode = hasSchema ? view : "raw";
 
   return (
-    <Card title={d?.schema?.mod ?? file} sub={d?.schema ? `${d.schema.modVersion ?? ""} · schema ${fmtAgo(d.schema.written)}` : file}
+    <Card title={d?.schema?.mod ?? file} sub={d?.schema ? t("configEditor.schemaSub", { version: d.schema.modVersion ?? "", ago: fmtAgo(d.schema.written) }) : file}
       actions={<>
-        {hasSchema && mode === "form" && <div className="k-input-group" style={{ width: 180 }}><Search size={14} className="k-dim" /><TextInput placeholder="Filter" value={filter} onChange={(e) => setFilter(e.target.value)} style={{ height: 28 }} /></div>}
-        {hasSchema && <Segmented aria-label="View" value={view} onChange={setView} options={[{ id: "form", label: "Form" }, { id: "raw", label: "File" }]} />}
+        {hasSchema && mode === "form" && <div className="k-input-group" style={{ width: 180 }}><Search size={14} className="k-dim" /><TextInput placeholder={t("configEditor.filter")} value={filter} onChange={(e) => setFilter(e.target.value)} style={{ height: 28 }} /></div>}
+        {hasSchema && <Segmented aria-label={t("configEditor.view")} value={view} onChange={setView} options={[{ id: "form", label: t("configEditor.form") }, { id: "raw", label: t("configEditor.file") }]} />}
       </>}>
-      {doc.isLoading ? <Skeleton lines={5} /> : doc.error ? <EmptyState title="Can't read it" hint={errorText(doc.error)} /> : d && (mode === "form" ? (
+      {doc.isLoading ? <Skeleton lines={5} /> : doc.error ? <EmptyState title={t("configEditor.cantRead")} hint={errorText(doc.error)} /> : d && (mode === "form" ? (
         <SchemaForm schema={d.schema!} values={d.values} errors={d.errors} disabled={readOnly || set.isPending} filter={filter}
           onChange={(path, value) => set.mutate({ path, value })} onReset={(path) => reset.mutate(path)} />
       ) : (
@@ -73,18 +76,19 @@ function ConfigFile({ target, file, readOnly }: { target: ConfigTarget; file: st
 }
 
 function RawEditor({ doc, readOnly, onSave }: { doc: ConfigDocument; readOnly?: boolean; onSave: (text: string) => Promise<void> }) {
+  const t = useT();
   const [text, setText] = useState(doc.text);
   const [busy, setBusy] = useState(false);
   useEffect(() => setText(doc.text), [doc.text]);
   const dirty = text !== doc.text;
   return (
     <div className="k-stack">
-      <TextArea aria-label="File" rows={18} value={text} onChange={(e) => setText(e.target.value)} readOnly={readOnly} spellCheck={false} />
+      <TextArea aria-label={t("configEditor.file")} rows={18} value={text} onChange={(e) => setText(e.target.value)} readOnly={readOnly} spellCheck={false} />
       {doc.errors.length > 0 && <div className="k-error-text">{doc.errors.map((e) => `${e.path}: ${e.message}`).join(" · ")}</div>}
       {!readOnly && (
         <div className="k-row">
-          <Button variant="primary" size="s" disabled={!dirty} loading={busy} onClick={async () => { setBusy(true); try { await onSave(text); toast.ok("Saved"); } catch (e) { toast.error(e); } finally { setBusy(false); } }}>Save</Button>
-          <Button variant="ghost" size="s" disabled={!dirty} onClick={() => setText(doc.text)}>Revert</Button>
+          <Button variant="primary" size="s" disabled={!dirty} loading={busy} onClick={async () => { setBusy(true); try { await onSave(text); toast.ok(t("configEditor.saved")); } catch (e) { toast.error(e); } finally { setBusy(false); } }}>{t("common.save")}</Button>
+          <Button variant="ghost" size="s" disabled={!dirty} onClick={() => setText(doc.text)}>{t("configEditor.revert")}</Button>
         </div>
       )}
     </div>

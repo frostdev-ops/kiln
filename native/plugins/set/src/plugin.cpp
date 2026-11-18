@@ -47,7 +47,10 @@ std::atomic<bool> g_running{false};
 bool g_initialized = false;
 // Taken only when a re-check is due (a DLL has loaded), never on the steady-state frame/tick path.
 std::mutex g_coexist_mx;
-std::atomic<bool> g_coexist_pending{false};  // a due caller could not take the check lock; its notification is not lost
+// A re-check is due (a DLL load, a list change, a failed look's retry) and no look has started for it yet. Set before
+// the check lock is tried, so a caller that cannot take the lock (or finds a look running) loses no notification.
+std::atomic<bool> g_look_wanted{false};
+kset::LookWorker g_look;  // the re-checks run on its thread, never on the UI frame or the server step
 kset::ModuleWatch g_modules;
 kset::ConflictGate g_gate;  // a failed module inventory is retried; only a seen SET or 5 failures in a row step aside
 // The console folder is checked at most every console_ms, by one thread at a time (the UI and the tick thread both
@@ -193,19 +196,25 @@ void probe_handle_reads() {
 
 // Runs on every server step and every client UI frame. The full module check (on_ready's) runs again only after a DLL
 // load notification or a change of the loaded-module list (a 3 s PEB-list fingerprint, see kset::ModuleWatch): no
-// steady-state lock or wineserver call, and no periodic full check.
+// steady-state lock or wineserver call, and no periodic full check. That check runs on g_look's thread: this path starts
+// it and applies what it saw on a later frame or step (the mods run on in between, as they did while a DLL was loading).
 bool may_run() {
     if (!g_running.load(std::memory_order_acquire)) return false;
-    if (!g_modules.due() && !g_gate.retry_due() && !g_coexist_pending.load(std::memory_order_acquire)) return true;
-    // A reentrant call from a DLL initializer owns the loader lock that this check may be waiting for.
+    if (g_modules.due() || g_gate.retry_due()) g_look_wanted.store(true, std::memory_order_release);
+    if (!g_look_wanted.load(std::memory_order_acquire) && !g_look.finished()) return true;
+    // A reentrant call from a DLL initializer owns the loader lock that a look may be waiting for: never wait here.
     std::unique_lock lock(g_coexist_mx, std::try_to_lock);
-    if (!lock.owns_lock()) {
-        g_coexist_pending.store(true, std::memory_order_release);
-        return g_running.load(std::memory_order_acquire);
-    }
-    g_coexist_pending.store(false, std::memory_order_release);
+    if (!lock.owns_lock()) return g_running.load(std::memory_order_acquire);  // the holder takes or starts the look
     if (!g_running.load()) return false;
-    const kset::Inspection seen = kset::inspect_runtime();
+    // A finished look first; a load since it started leaves g_look_wanted set, and the next look starts on a later call.
+    std::optional<kset::Inspection> taken = g_look.take();
+    if (!taken && g_look_wanted.load(std::memory_order_acquire) && !g_look.running()) {
+        g_look_wanted.store(false, std::memory_order_release);
+        if (g_look.start()) taken = g_look.take();  // at once only when looks run inline (host tests)
+        else taken = kset::inspect_runtime();       // no thread for it: this look runs here, as before
+    }
+    if (!taken) return true;
+    const kset::Inspection& seen = *taken;
     const int failed_before = g_gate.failures();
     g_aside = g_gate.judge(seen, GetTickCount64());
     probe_handle_reads();
@@ -299,6 +308,10 @@ void KILN_CALL on_ready(void*) {
     g_game = api_path(KILN_PATH_GAME);
     g_control = api_path(KILN_PATH_CONTROL);
     g_state = api_path(KILN_PATH_STATE);
+    // A look of an earlier start (a plugin started again) says nothing about this one.
+    g_look.wait();
+    (void)g_look.take();
+    g_look_wanted.store(false, std::memory_order_release);
     // Armed before the startup check, so a DLL loading in between is still re-checked.
     const bool notified = g_modules.arm();
     g_gate.reset();
@@ -402,6 +415,7 @@ void KILN_CALL on_ready(void*) {
 void KILN_CALL on_unload(void*) {
     g_running = false;
     g_modules.disarm();
+    g_look.wait();  // no look may run in this plugin's code once it is unloaded
     setui::stop();
     if (g_initialized) rt::gameClosing();
 }

@@ -6,6 +6,7 @@
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import type { AdminPlayer, AdminPos } from "../../api/admin";
+import { t as tr } from "../../i18n";
 import { GameMapLayer, Height, WORLD } from "./gamemap";
 
 const NATIVE = 5;
@@ -123,9 +124,20 @@ export interface EngineCallbacks {
 
 export const KIND_COLOR: Record<FinderKind, string> = { spawns: "#e0533a", gather: "#f2c14e", ore: "#5fd3c4", chests: "#f2c14e" };
 const CHEST_IMG: Record<number, string> = { 1: "p-chest-gold.webp", 2: "p-chest-silver.webp", 3: "p-chest-wood.webp" };
-export const CHEST_NAME: Record<number, string> = { 1: "Gold chest", 2: "Silver chest", 3: "Wooden chest" };
+/** A chest type's name (1 gold, 2 silver, 3 wood; anything else "Chest"). */
+export function chestName(type: number): string {
+  switch (type) {
+    case 1: return tr("admin.map.chestGold");
+    case 2: return tr("admin.map.chestSilver");
+    case 3: return tr("admin.map.chestWood");
+    default: return tr("admin.map.chest");
+  }
+}
 const esc = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
-export const posTxt = (p: { x: number; z: number; y?: number | null }) => `X ${Math.round(p.x)} · Z ${Math.round(p.z)}${p.y != null ? ` · H ${Math.round(p.y)}` : ""}`;
+export const posTxt = (p: { x: number; z: number; y?: number | null }) =>
+  p.y != null ? tr("admin.map.posXZH", { x: Math.round(p.x), z: Math.round(p.z), h: Math.round(p.y) }) : tr("admin.map.posXZ", { x: Math.round(p.x), z: Math.round(p.z) });
+/** "{label} · level {level}" when there is a level, else the label. */
+export const withLevel = (label: string, level?: number | string | null) => (level ? tr("admin.map.withLevel", { label, level }) : label);
 const tip = (title: string, sub = "", extra = "") => `<b>${esc(title)}</b>${sub ? `<span>${sub}</span>` : ""}${extra}`;
 const iconPx = (z: number) => Math.max(12, Math.min(40, 6 + z * 5));
 
@@ -250,12 +262,12 @@ export class MapEngine {
     L.rectangle(bounds, { color: "#4d413a", weight: 1, fill: false, interactive: false }).addTo(map);
     const probe = opts.relief && document.createElement("canvas").getContext("webgl2");
     if (probe) {
-      cb.loading("Loading the game map relief…");
+      cb.loading(tr("admin.map.loadingRelief"));
       this.game = new GameMapLayer({
         root, isolineSpacing: opts.look.spacing, playerFogLevel: opts.look.flame, showFog: opts.look.fog, animate: opts.look.animate,
-        onProgress: (a, b) => cb.loading(`Loading the game map relief… ${Math.round((a / b) * 100)}%`),
+        onProgress: (a, b) => cb.loading(tr("admin.map.loadingReliefPct", { pct: Math.round((a / b) * 100) })),
         onReady: () => { cb.loading(""); el.dataset.relief = "ready"; },
-        onError: (m) => { cb.loading(""); el.dataset.relief = "error"; cb.error(`Map relief unavailable (${m}); showing the low-detail map.`); },
+        onError: (m) => { cb.loading(""); el.dataset.relief = "error"; cb.error(tr("admin.map.reliefUnavailable", { reason: m })); },
       });
       this.game.addTo(map);
     }
@@ -367,7 +379,7 @@ export class MapEngine {
    * (`data/markers.json`). Texts in `lang` when the game set has it (see setLang). */
   async loadMarkers(lang?: string | null): Promise<MarkerData> {
     const D = (await this.getJson<MarkerData>("game/markers.json")) ?? (await this.getJson<MarkerData>("data/markers.json"));
-    if (!D || !Array.isArray(D.points)) throw new Error("no marker data (game/markers.json, data/markers.json)");
+    if (!D || !Array.isArray(D.points)) throw new Error(tr("admin.map.noMarkerData"));
     this.D = D;
     this.lang = D.lang;
     this.english = { cats: D.cats.map((c) => c.label), points: D.points.map((p) => p[4]), labels: D.labels.map((l) => l[0]) };
@@ -379,7 +391,7 @@ export class MapEngine {
       // texts read at show time: setLang replaces them in place
       mk.bindTooltip(() => {
         const [, , , , n, d, lv] = D.points[i];
-        return tip(n, `${esc(D.cats[ci].label)}${lv ? ` · level ${lv}` : ""}${d ? ` · ${esc(d)}` : ""}`, `<em>${posTxt({ x, z, y })}</em>`);
+        return tip(n, `${esc(withLevel(D.cats[ci].label, lv))}${d ? ` · ${esc(d)}` : ""}`, `<em>${esc(posTxt({ x, z, y }))}</em>`);
       }, { direction: "top", offset: [0, -8], className: "ka-tip" });
       const open = (e: L.LeafletMouseEvent) => { this.stop(e); this.cb.menu({ kind: "marker", pos: { x, z, y }, name: D.points[i][4], sub: D.cats[ci].label, idx: i }, this.point(e)); };
       mk.on("click", open);
@@ -480,7 +492,7 @@ export class MapEngine {
     try {
       await this.needFinderData(finders);
     } catch (e) {
-      this.cb.error(`Finder data: ${(e as Error).message}`);
+      this.cb.error(tr("admin.map.finderData", { message: (e as Error).message }));
       return;
     }
     if (gen !== this.finderGen) return;
@@ -501,16 +513,16 @@ export class MapEngine {
       if ((f.kind === "spawns" || f.kind === "gather") && this.PTS && e.o) {
         const [o, n] = e.o;
         const drops = f.kind === "spawns" ? this.dropsBy[f.slug] ?? [] : [];
-        const sub = f.kind === "spawns" ? (e.boss ? "Boss" : "Creature spawn") : e.g ?? "";
-        const t = () => tip(e.n, esc(sub), drops.length ? `<em>Drops: ${esc(drops.slice(0, 8).join(", "))}${drops.length > 8 ? "…" : ""}</em>` : "");
+        const sub = f.kind === "spawns" ? (e.boss ? tr("admin.map.boss") : tr("admin.map.creatureSpawn")) : e.g ?? "";
+        const t = () => tip(e.n, esc(sub), drops.length ? `<em>${esc(tr("admin.map.drops", { list: `${drops.slice(0, 8).join(", ")}${drops.length > 8 ? "…" : ""}` }))}</em>` : "");
         for (let i = o; i < o + n; i++) add(this.PTS[2 * i] / 6, this.PTS[2 * i + 1] / 6, { item: f.kind === "gather", scale: e.boss ? 1.2 : 0.9, sub }, t);
       } else if (f.kind === "chests" && this.CH) {
         for (const ci of this.CH.items[f.slug] ?? []) {
           const [x, z, y, type, lv] = this.CH.chests[ci];
           if (this.lvOut(lv)) continue;
           const mk = new ImgMarker(this.toLL(x, z), { renderer: this.icons, img: this.img(CHEST_IMG[type] ?? "p-chest-wood.webp"), scale: 0.9 });
-          mk.bindTooltip(() => `${e.img ? `<img class="ka-tipimg" src="${this.root}i/${e.img}" alt="">` : ""}${tip(e.n, `${CHEST_NAME[type] ?? "Chest"}${lv ? ` · level ${lv}` : ""}`, `<em>${posTxt({ x, z, y })}</em>`)}`, { direction: "top", offset: [0, -8], className: "ka-tip" });
-          const open = (ev: L.LeafletMouseEvent) => { this.stop(ev); this.cb.menu({ kind: "marker", pos: { x, z, y }, name: `${CHEST_NAME[type] ?? "Chest"} (${e.n})`, sub: "" }, this.point(ev)); };
+          mk.bindTooltip(() => `${e.img ? `<img class="ka-tipimg" src="${this.root}i/${e.img}" alt="">` : ""}${tip(e.n, esc(withLevel(chestName(type), lv)), `<em>${esc(posTxt({ x, z, y }))}</em>`)}`, { direction: "top", offset: [0, -8], className: "ka-tip" });
+          const open = (ev: L.LeafletMouseEvent) => { this.stop(ev); this.cb.menu({ kind: "marker", pos: { x, z, y }, name: tr("admin.map.chestOf", { chest: chestName(type), item: e.n }), sub: "" }, this.point(ev)); };
           mk.on("click", open);
           mk.on("contextmenu", open);
           g.addLayer(mk);
@@ -519,8 +531,13 @@ export class MapEngine {
         for (const [x, z, vol, surf, depth] of this.ORE[f.slug] ?? []) {
           if (surfaceOnly && !surf) continue;
           const scale = (16 + 10 * Math.min(1, Math.log10(Math.max(1, vol)) / 4)) / 24;
-          add(x, z, { scale, opacity: surf ? 1 : 0.45, ring: f.slug.startsWith("archaic-essence") ? "#ff5ad8" : null, sub: "Ore" },
-            () => tip(e.n, `Volume ${vol.toLocaleString("en-US")}${surf ? "" : " · buried"}${depth > 0 ? ` · ${depth} m below the surface` : ""}`));
+          add(x, z, { scale, opacity: surf ? 1 : 0.45, ring: f.slug.startsWith("archaic-essence") ? "#ff5ad8" : null, sub: tr("admin.map.ore") },
+            () => {
+              const volume = vol.toLocaleString("en-US");
+              return tip(e.n, esc(depth > 0
+                ? surf ? tr("admin.map.oreDepth", { vol: volume, depth }) : tr("admin.map.oreBuriedDepth", { vol: volume, depth })
+                : surf ? tr("admin.map.oreVolume", { vol: volume }) : tr("admin.map.oreBuried", { vol: volume })));
+            });
         }
       }
     }
@@ -544,7 +561,7 @@ export class MapEngine {
     const hp = p.healthMax ? Math.max(0, Math.min(1, (p.health ?? 0) / p.healthMax)) : null;
     return L.divIcon({
       className: "ka-player", iconSize: [16, 16], iconAnchor: [8, 8],
-      html: `<i></i><span>${esc(p.name || `Player ${p.entity}`)}${hp != null ? `<em style="--hp:${Math.round(hp * 100)}%"></em>` : ""}</span>`,
+      html: `<i></i><span>${esc(p.name || tr("admin.common.playerEntity", { entity: p.entity }))}${hp != null ? `<em style="--hp:${Math.round(hp * 100)}%"></em>` : ""}</span>`,
     });
   }
 
@@ -557,7 +574,7 @@ export class MapEngine {
       let r = this.players.get(p.entity);
       if (!r) {
         const mk = L.marker(this.toLL(p.pos!.x, p.pos!.z), { pane: "live", zIndexOffset: 9000, icon: this.playerIcon(p), keyboard: false })
-          .bindTooltip(() => { const q = this.players.get(p.entity)?.p ?? p; return tip(q.name || `Player ${q.entity}`, posTxt(q.pos!), q.healthMax ? `<em>Health ${Math.round(q.health ?? 0)} / ${Math.round(q.healthMax)}</em>` : ""); }, { direction: "top", offset: [0, -10], className: "ka-tip" })
+          .bindTooltip(() => { const q = this.players.get(p.entity)?.p ?? p; return tip(q.name || tr("admin.common.playerEntity", { entity: q.entity }), esc(posTxt(q.pos!)), q.healthMax ? `<em>${esc(tr("admin.map.healthTip", { health: Math.round(q.health ?? 0), max: Math.round(q.healthMax) }))}</em>` : ""); }, { direction: "top", offset: [0, -10], className: "ka-tip" })
           .addTo(this.live);
         const open = (e: L.LeafletMouseEvent) => { this.stop(e); this.cb.menu({ kind: "player", entity: p.entity }, this.point(e)); };
         mk.on("click", open);
@@ -621,7 +638,7 @@ export class MapEngine {
       const mk = L.marker(this.toLL(w.pos.x, w.pos.z), {
         pane: "live", zIndexOffset: 8000, keyboard: false,
         icon: L.divIcon({ className: "ka-wp", iconSize: [26, 26], iconAnchor: [13, 24], html: `<img src="${this.root}i/g-mapmarker_waypoint.webp" alt=""><span>${esc(w.name)}</span>` }),
-      }).bindTooltip(tip(w.name, "Waypoint", `<em>${posTxt(w.pos)}</em>`), { direction: "top", offset: [0, -24], className: "ka-tip" }).addTo(this.worldLayer);
+      }).bindTooltip(() => tip(w.name, esc(tr("admin.map.waypoint")), `<em>${esc(posTxt(w.pos))}</em>`), { direction: "top", offset: [0, -24], className: "ka-tip" }).addTo(this.worldLayer);
       const open = (e: L.LeafletMouseEvent) => { this.stop(e); this.cb.menu({ kind: "waypoint", name: w.name, pos: w.pos }, this.point(e)); };
       mk.on("click", open);
       mk.on("contextmenu", open);
@@ -630,7 +647,7 @@ export class MapEngine {
       const mk = L.marker(this.toLL(g.pos.x, g.pos.z), {
         pane: "live", zIndexOffset: 7000, keyboard: false,
         icon: L.divIcon({ className: "ka-grave", iconSize: [22, 22], iconAnchor: [11, 11], html: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 21V9a5 5 0 0 1 10 0v12z" /><path d="M12 9v6M9.5 11.5h5" /></svg>' }),
-      }).bindTooltip(tip(`${g.name ?? "A player"}'s grave`, "", `<em>${posTxt(g.pos)}</em>`), { direction: "top", offset: [0, -10], className: "ka-tip" }).addTo(this.worldLayer);
+      }).bindTooltip(() => tip(g.name != null ? tr("admin.map.graveOf", { name: g.name }) : tr("admin.map.graveSomeone"), "", `<em>${esc(posTxt(g.pos))}</em>`), { direction: "top", offset: [0, -10], className: "ka-tip" }).addTo(this.worldLayer);
       const open = (e: L.LeafletMouseEvent) => { this.stop(e); this.cb.menu({ kind: "grave", ...g }, this.point(e)); };
       mk.on("click", open);
       mk.on("contextmenu", open);
@@ -659,7 +676,7 @@ export class MapEngine {
     this.enemyLayer.clearLayers();
     for (const e of list)
       L.circleMarker(this.toLL(e.pos.x, e.pos.z), { renderer: this.icons, radius: 5, color: "#1a0805", weight: 1.5, fillColor: "#e0533a", fillOpacity: 0.95 })
-        .bindTooltip(tip(e.label ?? e.name ?? "Enemy", `Entity ${e.entity}`, `<em>${posTxt(e.pos)}</em>`), { direction: "top", className: "ka-tip" })
+        .bindTooltip(() => tip(e.label ?? e.name ?? tr("admin.map.enemy"), esc(tr("admin.map.entity", { entity: e.entity })), `<em>${esc(posTxt(e.pos))}</em>`), { direction: "top", className: "ka-tip" })
         .addTo(this.enemyLayer);
   }
 

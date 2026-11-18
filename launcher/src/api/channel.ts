@@ -3,6 +3,7 @@
 // follows its own channel for "beta"). Every public release so far is a dev build (`X.Y.Z-dev.N`), so the dev line is
 // the release players have: it is called "Release" until a stable release exists (STABLE_RELEASED). "Stable" is offered
 // only where it is already chosen (it has no builds yet).
+import { t } from "../i18n";
 import type { UpdateChannel } from "./commands";
 
 /** Is there a stable release (an `X.Y.Z` without `-dev.N`)? Flip with the first one: then "stable" is the Release and
@@ -12,15 +13,15 @@ export const STABLE_RELEASED = false;
 /** The channel's name in the UI. */
 export function channelName(ch: UpdateChannel): string {
   switch (ch) {
-    case "beta": return "Beta (test builds)";
-    case "stable": return STABLE_RELEASED ? "Release" : "Stable (none yet)";
-    default: return STABLE_RELEASED ? "Dev builds" : "Release";
+    case "beta": return t("api.channel.name.beta");
+    case "stable": return STABLE_RELEASED ? t("api.channel.name.release") : t("api.channel.name.stableNone");
+    default: return STABLE_RELEASED ? t("api.channel.name.devBuilds") : t("api.channel.name.release");
   }
 }
 
 /** The short word for marks and rows: "Release", "Beta". */
 export function channelWord(ch: UpdateChannel): string {
-  return ch === "beta" ? "Beta" : ch === "stable" ? (STABLE_RELEASED ? "Release" : "Stable") : STABLE_RELEASED ? "Dev" : "Release";
+  return ch === "beta" ? t("api.channel.word.beta") : ch === "stable" ? (STABLE_RELEASED ? t("api.channel.word.release") : t("api.channel.word.stable")) : STABLE_RELEASED ? t("api.channel.word.dev") : t("api.channel.word.release");
 }
 
 /** The release line a tester goes back to: the stable channel once there is a stable release, else dev. */
@@ -44,7 +45,7 @@ export function parseBuild(id: string): { version: string; beta: number | null }
 export function buildLabel(id: string, beta: number | null = null): string {
   const b = parseBuild(id);
   const n = b.beta ?? beta;
-  return n ? `${b.version} beta ${n}` : b.version;
+  return n ? t("api.channel.buildBeta", { version: b.version, n }) : b.version;
 }
 
 /** What choosing `target` means on this build: "to-beta" (a release build installs the newest test build now), "back"
@@ -59,29 +60,29 @@ export function switchKind(s: { buildChannel?: UpdateChannel | null }, target: U
 }
 
 /** Said before every switch: worlds and multiplayer. */
-export const WORLD_WARNING = "A world you play with a test build may not load the same way on the release, and servers and players must run the same build to play together.";
+export const worldWarning = (): string => t("api.channel.worldWarning");
 
 /** The switch dialog's words (desktop and Deck). */
 export function switchWords(kind: SwitchKind, targetVersion?: string): { title: string; say: string[]; confirm: string; task: string } {
   return kind === "to-beta"
     ? {
-      title: "Switch to the beta?",
+      title: t("api.channel.toBeta.title"),
       say: [
-        "Test builds of the next release, for testing with the Kiln Discord. The launcher installs the newest one and restarts. To test its Kiln in your game, install it on the Runtime page.",
-        "You can switch back to the release here at any time.",
-        WORLD_WARNING,
+        t("api.channel.toBeta.what"),
+        t("api.channel.toBeta.back"),
+        worldWarning(),
       ],
-      confirm: "Switch now",
-      task: "Switch to the beta",
+      confirm: t("api.channel.toBeta.confirm"),
+      task: t("api.channel.toBeta.task"),
     }
     : {
-      title: "Switch back to the release?",
+      title: t("api.channel.back.title"),
       say: [
-        `The launcher installs the newest release and restarts, also when it is older than this test build. ${releaseRuntimeAdvice(targetVersion)}`,
-        WORLD_WARNING,
+        t("api.channel.back.what", { advice: releaseRuntimeAdvice(targetVersion) }),
+        worldWarning(),
       ],
-      confirm: "Switch back",
-      task: "Switch back to the release",
+      confirm: t("api.channel.back.confirm"),
+      task: t("api.channel.back.task"),
     };
 }
 
@@ -90,8 +91,8 @@ export function restoreWords(taken: string): { label: string; hint: string } {
   const d = new Date(taken);
   const when = Number.isNaN(d.getTime()) ? taken : d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
   return {
-    label: "Put back my profiles and settings from before the beta",
-    hint: `Saved ${when}, before the first start of a test build. Mods you added in the beta stay in the Library.`,
+    label: t("api.channel.restore.label"),
+    hint: t("api.channel.restore.hint", { when }),
   };
 }
 
@@ -101,8 +102,8 @@ export function restoreWords(taken: string): { label: string; hint: string } {
 export function channelNotice(rt: { installed: boolean; upgradeAvailable: string | null; switchBack?: { from: string; to: string } | null } | null | undefined,
                               betaLauncher: boolean, label: (v: string) => string = (v) => v): string | null {
   if (!rt?.installed) return null;
-  if (rt.switchBack) return `This game has Kiln ${label(rt.switchBack.from)} from a test build; Play puts this launcher's Kiln ${label(rt.switchBack.to)} in first.`;
-  if (betaLauncher && rt.upgradeAvailable) return `This launcher is a test build; this game still has the release's Kiln. Install Kiln ${label(rt.upgradeAvailable)} on Runtime to test it.`;
+  if (rt.switchBack) return t("api.channel.notice.switchBack", { from: label(rt.switchBack.from), to: label(rt.switchBack.to) });
+  if (betaLauncher && rt.upgradeAvailable) return t("api.channel.notice.betaLauncher", { version: label(rt.upgradeAvailable) });
   return null;
 }
 
@@ -111,8 +112,8 @@ export function acceptedRestore(s: { phase: string; restoreRequested?: boolean }
 }
 
 export function releaseRuntimeAdvice(target?: string): string {
-  if (!target) return "Releases before 0.2.0-dev.29 leave the test build's Kiln in your game: reinstall the release's Kiln on the Runtime page. Newer releases put their own Kiln in at the next Play.";
+  if (!target) return t("api.channel.advice.unknown");
   const v = /^(\d+)\.(\d+)\.(\d+)(?:-dev\.(\d+)(?:\.\d+)?)?$/.exec(parseBuild(target).version);
   const automatic = v && (Number(v[1]) > 0 || Number(v[2]) > 2 || (Number(v[2]) === 2 && (Number(v[3]) > 0 || (Number(v[3]) === 0 && (v[4] === undefined || Number(v[4]) >= 29)))));
-  return automatic ? "Kiln in your game goes back with it at the next Play." : "This release leaves the test build's Kiln in your game. Reinstall the release's Kiln on the Runtime page.";
+  return automatic ? t("api.channel.advice.automatic") : t("api.channel.advice.manual");
 }
