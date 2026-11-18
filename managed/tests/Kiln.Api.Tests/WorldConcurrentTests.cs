@@ -345,6 +345,21 @@ public sealed class WorldConcurrentTests : TaskTest
     }
 
     [Fact]
+    public void A_short_frame_quiet_buffer_is_too_small_while_a_frame_runs()
+    {
+        // ecs_snapshot_many sizes the request before it opens its frame-quiet window: a buffer that is too short says so
+        // (with the size) even while a frame runs, and only the copy into a buffer that fits can be busy
+        var mod = NewMod("alpha");
+        FakeEcsReads.Add(12, WorldKind.Server, ("Health", Health));
+        var r = Opened(mod, 12);
+        FakeEcsReads.FrameRunning = true;
+        var (small, fits) = InTask(mod, () => (WorldConcurrent.ReadBytes(r, "Health", new byte[4], ReadMode.FrameQuiet),
+            WorldConcurrent.ReadBytes(r, "Health", new byte[8], ReadMode.FrameQuiet)));
+        Assert.Equal((ReadStatus.TooSmall, 0, 8), (small.Status, small.Written, small.Required));
+        Assert.Equal((ReadStatus.Busy, 0, 0), (fits.Status, fits.Written, fits.Required));
+    }
+
+    [Fact]
     public void A_component_smaller_than_T_is_a_size_mismatch()
     {
         var mod = NewMod("alpha");

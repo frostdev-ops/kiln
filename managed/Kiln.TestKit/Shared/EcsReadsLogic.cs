@@ -295,7 +295,6 @@ internal static unsafe class EcsReadsLogic
         }
         if (Validate(m, owner, r) is var v && v != EcsReadConstants.Ok) return RefuseAll(v);
         if (quiet && r->WorldKind != 0) return RefuseAll(EcsReadConstants.Unsupported);
-        if (quiet && m.Busy()) return RefuseAll(EcsReadConstants.Busy);
         var each = new byte[]?[count];
         var total = 0;
         for (var i = 0; i < count; i++)
@@ -309,6 +308,12 @@ internal static unsafe class EcsReadsLogic
             if (presence != null)
                 for (var i = 0; i < count; i++) presence[i] = each[i] is not null ? EcsReadConstants.Ok : EcsReadConstants.Absent;
             return BufferTooSmall;
+        }
+        // the frame-quiet window opens only now, after the sizing: a short buffer is TooSmall even while a frame runs
+        if (quiet && m.Busy())
+        {
+            if (required != null) *required = 0;
+            return RefuseAll(EcsReadConstants.Busy);
         }
         if (m.Take(ref m.UnreadableNext))
         {
