@@ -43,6 +43,10 @@ MUTANTS = [
      ['stop-warmup']),
     ('a conflict\'s current bytes not taken up', '(r.status == KILN_ECS_OK || r.status == KILN_ECS_CONFLICT)) cur = confirmed;',
      '(r.status == KILN_ECS_OK)) cur = confirmed;', ['write']),
+    ('a named byte not checked for padding', 'if (!std::binary_search(pad.bytes.begin(), pad.bytes.end(), at))', 'if (false)',
+     ['named-field']),
+    ('restored judged by the replies, not by a read', 'restored = verified = snap[offset] == original;',
+     'restored = !flipped; verified = restored && snap[offset] == original;', ['uncertain-change', 'uncertain-restore']),
 ]
 
 
