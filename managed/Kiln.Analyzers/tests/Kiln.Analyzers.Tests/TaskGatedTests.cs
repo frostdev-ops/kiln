@@ -298,6 +298,26 @@ public sealed class TaskGatedTests
     }
 
     [Fact]
+    public async Task A_helper_after_ConfigureAwait_false_is_told_to_drop_it()
+    {
+        var d = await Run(A, """
+            #pragma warning disable KILNX001
+            public sealed class M : Mod
+            {
+                public override void OnLoad() { }
+                private async Task Helper()
+                {
+                    await Task.Delay(1).ConfigureAwait(false);
+                    WorldConcurrent.Open(new EntityId(1));
+                }
+            }
+            """);
+        Ids(d, "KILN105");
+        Assert.Contains("drop ConfigureAwait(false)", d[0].GetMessage());
+        Assert.DoesNotContain("Context.Tasks.Run", d[0].GetMessage());
+    }
+
+    [Fact]
     public async Task Any_thread_members_lookalikes_and_unknown_code_are_not_reported()
     {
         var d = await Run(A, """

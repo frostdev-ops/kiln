@@ -88,7 +88,9 @@ public sealed class BlockingAnalyzer : DiagnosticAnalyzer
     {
         if (at.Kind != ThreadKind.Off || at.Task == TaskScope.Active) return null;
         if (at.Task == TaskScope.None)
-            return (at.Where, "run the work in a Kiln task (Context.Tasks.Run) instead");
+            return (at.Where, at.Where.Contains("ConfigureAwait(false)")
+                ? "drop ConfigureAwait(false): the code after it has left the task or the tick it came from"
+                : "run the work in a Kiln task (Context.Tasks.Run) instead");
         var where = at.Where.Contains("ConfigureAwait(false)")
             ? at.Where
             : "on some path where the task's scope is gone (after 'await ...ConfigureAwait(false)', or from work the task started itself)";

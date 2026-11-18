@@ -52,7 +52,8 @@ internal static partial class KilnApis
 
     /// <summary>A member Kiln refuses where no task scope is installed (KILN105's gated world row), by symbol.</summary>
     internal static bool IsTaskGated(IMethodSymbol method) =>
-        TaskGatedReads.Contains(method.Name) && ThreadClassifier.IsKilnType(method.ContainingType, "WorldConcurrent");
+        method.ContainingType?.Name == "WorldConcurrent" && TaskGatedReads.Contains(method.Name) &&
+        ThreadClassifier.IsKilnType(method.ContainingType, "WorldConcurrent");
 
     /// <summary>Attribute names honoured in addition to the tables (a future Kiln.Api may mark members itself).</summary>
     internal const string TickThreadOnlyAttribute = "TickThreadOnlyAttribute";
