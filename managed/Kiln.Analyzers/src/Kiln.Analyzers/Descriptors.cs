@@ -102,13 +102,14 @@ public static class Descriptors
 
     public static readonly DiagnosticDescriptor GatedWriteOnTick = Rule("KILN105",
         "Compare-exchange write in tick code",
-        "'{0}' always answers Busy {1}: the server frame holds the engine's write gate for its whole update, so a compare-exchange from tick code can never write; call it from a Kiln task's worker (Context.Tasks.Run, or after 'await ctx.NextGateWindow()'), or use World.Write on the tick",
+        "'{0}' never writes {1}: the server frame holds the engine's write gate for its whole update, so from tick code a compare-exchange always answers Busy (and a client's world, which the writes never touch, answers Unavailable); call it from a Kiln task's worker (Context.Tasks.Run, or after 'await ctx.NextGateWindow()'), or use World.Write on the tick",
         Threading, DiagnosticSeverity.Warning,
         "WorldConcurrent.TryCompareExchange and TryCompareExchangeBytes write under the engine's own write gate, which " +
         "the GameServer frame holds for its whole update. Tick code (OnLoad, tick and event handlers, command and chat " +
         "handlers, Scheduler.Post work, a task after 'await ctx.ToTick()', ctx.OnTick and ctx.PostToTick delegates) " +
         "runs inside that frame, so the write is refused Busy (WriteReason.InFrame) every time, without reaching the " +
-        "engine. World.Write is the tick's way to write; a compare-exchange belongs on a task's worker.");
+        "engine (on a client the writes answer Unavailable: they write the server world only). World.Write is the tick's way " +
+        "to write; a compare-exchange belongs on a task's worker.");
 
     public static readonly DiagnosticDescriptor Unreleased = Rule("KILN106",
         "Thread, timer or subscription is never released",

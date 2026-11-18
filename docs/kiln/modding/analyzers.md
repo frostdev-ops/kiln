@@ -439,9 +439,9 @@ Context.Tasks.Run("chest-scan", async ctx =>
 code the analyzer places on the tick (the list in [Where code runs](#where-code-runs-kiln101-kiln105): `OnLoad`, tick,
 event, command and chat handlers, `Scheduler.Post` work, a task after `await ctx.ToTick()`, `ctx.OnTick` and
 `ctx.PostToTick` delegates). The write takes the engine's write gate, which the server frame holds for its whole
-update, so from tick code it answers `Busy` (`WriteReason.InFrame`) every time and never writes. **Fix:** call it
-from a Kiln task's worker (retry a busy one after `await ctx.NextGateWindow()`), or write on the tick with
-`World.Write`. Not reported: the writes on a task's worker, and a look-alike `TryCompareExchange` of the mod's own.
+update, so from tick code it answers `Busy` (`WriteReason.InFrame`) every time and never writes (a client mod's tick
+gets `Unavailable`: the writes are for the server world only). **Fix:** call it from a Kiln task's worker (retry a
+busy one after `await ctx.NextGateWindow()`), or write on the tick with `World.Write`. Not reported: the writes on a task's worker, and a look-alike `TryCompareExchange` of the mod's own.
 
 ```csharp
 [Command("charge")]
