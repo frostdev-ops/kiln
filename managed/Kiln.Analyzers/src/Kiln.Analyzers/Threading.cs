@@ -294,10 +294,55 @@ internal sealed class ThreadClassifier
         return state;
     }
 
-    private static ThreadContext ApplyAwait(ThreadContext state, AwaitExpressionSyntax aw, SemanticModel model)
+    private static ThreadContext ApplyAwait(ThreadContext state, SyntaxNode aw, SemanticModel model)
     {
-        var change = AwaitChange(state, aw, model);
+        var change = aw is AwaitExpressionSyntax written ? AwaitChange(state, written, model) : ImplicitAwaitChange(state, aw, model);
         return change ?? state;
+    }
+
+    /// <summary>An await the compiler writes: <c>await foreach (… in xs.ConfigureAwait(false))</c> leaves the context at
+    /// its first MoveNextAsync, so the loop body and the code after it run off it; <c>await using (x.ConfigureAwait(false))</c>
+    /// (or <c>await using var</c>) leaves it at DisposeAsync, so the code after the using does. Null when it comes back
+    /// to wherever it was made.</summary>
+    private static ThreadContext? ImplicitAwaitChange(ThreadContext state, SyntaxNode aw, SemanticModel model)
+    {
+        var statement = aw.AncestorsAndSelf().OfType<StatementSyntax>().FirstOrDefault();
+        IEnumerable<ExpressionSyntax?> configured;
+        string what;
+        switch (statement)
+        {
+            case CommonForEachStatementSyntax fe when fe.AwaitKeyword.IsKind(SyntaxKind.AwaitKeyword):
+                configured = new[] { fe.Expression };
+                what = "await foreach";
+                break;
+            case UsingStatementSyntax us when us.AwaitKeyword.IsKind(SyntaxKind.AwaitKeyword):
+                configured = us.Declaration is { } d ? d.Variables.Select(v => v.Initializer?.Value) : new[] { us.Expression };
+                what = "await using";
+                break;
+            case LocalDeclarationStatementSyntax ld when ld.AwaitKeyword.IsKind(SyntaxKind.AwaitKeyword):
+                configured = ld.Declaration.Variables.Select(v => v.Initializer?.Value);
+                what = "await using";
+                break;
+            default:
+                return null;
+        }
+        if (!configured.Any(e => ConfiguredFalse(e, model))) return null;
+        var line = statement.GetLocation().GetLineSpan().StartLinePosition.Line + 1;
+        return new ThreadContext(ThreadKind.Off, $"after '{what} ...ConfigureAwait(false)' (line {line}), on a thread-pool thread",
+            state.Task == TaskScope.None ? TaskScope.None : TaskScope.Escaped);
+    }
+
+    /// <summary>A <c>.ConfigureAwait(false)</c> anywhere along a call chain (<c>xs.WithCancellation(ct).ConfigureAwait(false)</c>
+    /// and the other order alike).</summary>
+    private static bool ConfiguredFalse(ExpressionSyntax? e, SemanticModel model)
+    {
+        while (e is ParenthesizedExpressionSyntax p) e = p.Expression;
+        while (e is InvocationExpressionSyntax { Expression: MemberAccessExpressionSyntax ma } inv)
+        {
+            if (IsConfigureAwaitFalse(inv, model)) return true;
+            e = ma.Expression;
+        }
+        return false;
     }
 
     /// <summary>What finishing this await does to the thread, or null when the continuation simply comes back to
@@ -380,7 +425,7 @@ internal sealed class ThreadClassifier
         {
             var ins = new ThreadContext?[_graph.Blocks.Length];
             var outs = new ThreadContext?[_graph.Blocks.Length];
-            for (var round = 0; round < _graph.Blocks.Length * 4 + 16; round++)
+            for (var round = 0; round < _graph.Blocks.Length * 6 + 16; round++)
             {
                 var changed = false;
                 foreach (var block in _graph.Blocks)
@@ -400,25 +445,34 @@ internal sealed class ThreadClassifier
                         if (arrivals is { Count: > 0 }) next = Meet(arrivals);
                     }
                     if (next is null) continue;
-                    if (ins[block.Ordinal] is not { } had || Rank(next.Value.Kind) > Rank(had.Kind))
-                    {
-                        ins[block.Ordinal] = next;
-                        changed = true;
-                    }
-                    var outState = Transfer(block, ins[block.Ordinal]!.Value);
-                    if (outs[block.Ordinal] is not { } hadOut || Rank(outState.Kind) > Rank(hadOut.Kind))
-                    {
-                        outs[block.Ordinal] = outState;
-                        changed = true;
-                    }
+                    changed |= Widen(ref ins[block.Ordinal], next.Value);
+                    changed |= Widen(ref outs[block.Ordinal], Transfer(block, ins[block.Ordinal]!.Value));
                 }
                 if (!changed) break;
             }
             return (ins, outs);
         }
 
+        /// <summary>Joins an arrival into what a point had so far (<see cref="Meet"/>): the least tick-sure thread, and
+        /// a task scope that survives only when every arrival has it. Both count, so a <c>ConfigureAwait(false)</c> that
+        /// comes back round a loop reaches the loop's head even when the first way in was already off the tick. True
+        /// when anything changed.</summary>
+        private static bool Widen(ref ThreadContext? had, ThreadContext next)
+        {
+            if (had is not { } h)
+            {
+                had = next;
+                return true;
+            }
+            var joined = Meet(new[] { h, next });
+            if (Rank(joined.Kind) == Rank(h.Kind) && joined.Task == h.Task) return false;
+            had = joined;
+            return true;
+        }
+
         /// <summary>The state a catch or finally block starts with: an exception (or the finally's run) can begin at
-        /// any point of its try, so the meet of the try blocks' entry states. Null when its try is not judged yet.</summary>
+        /// any point of its try, so the meet of every state inside the try (each block's entry, and after each of its
+        /// awaits). Null when its try is not judged yet.</summary>
         private ThreadContext? RegionSeed(BasicBlock block, ThreadContext?[] ins)
         {
             var region = block.EnclosingRegion;
@@ -431,7 +485,11 @@ internal sealed class ThreadClassifier
             {
                 if (nested.Kind != ControlFlowRegionKind.Try) continue;
                 for (var o = nested.FirstBlockOrdinal; o <= nested.LastBlockOrdinal && o < ins.Length; o++)
-                    if (ins[o] is { } s) (states ??= new List<ThreadContext>()).Add(s);
+                {
+                    if (ins[o] is not { } s) continue;
+                    (states ??= new List<ThreadContext>()).Add(s);
+                    foreach (var aw in Awaits(_graph.Blocks[o])) states.Add(s = ApplyAwait(s, aw, _model));
+                }
             }
             return states is { Count: > 0 } ? Meet(states) : null;
         }
@@ -439,7 +497,7 @@ internal sealed class ThreadClassifier
         /// <summary>Runs a finally region over an arriving state (its disposal awaits count before the code after).</summary>
         private ThreadContext? ThroughRegion(ControlFlowRegion region, ThreadContext from)
         {
-            var key = region.FirstBlockOrdinal * 4 + Rank(from.Kind);
+            var key = (region.FirstBlockOrdinal * 4 + Rank(from.Kind)) * 3 + (int)from.Task;
             if (_regionCache.TryGetValue(key, out var cached)) return cached;
             _regionCache[key] = null;  // a finally that (impossibly) re-enters itself
             ThreadContext? result = null;
@@ -459,10 +517,8 @@ internal sealed class ThreadClassifier
                         if (outs[pred.Source.Ordinal] is { } s) (arrivals ??= new List<ThreadContext>()).Add(s);
                     }
                     if (arrivals is not { Count: > 0 }) continue;
-                    var next = Meet(arrivals);
-                    if (ins[o] is not { } had || Rank(next.Kind) > Rank(had.Kind)) { ins[o] = next; changed = true; }
-                    var outState = Transfer(block, ins[o]!.Value);
-                    if (outs[o] is not { } hadOut || Rank(outState.Kind) > Rank(hadOut.Kind)) { outs[o] = outState; changed = true; }
+                    changed |= Widen(ref ins[o], Meet(arrivals));
+                    changed |= Widen(ref outs[o], Transfer(block, ins[o]!.Value));
                 }
                 if (!changed) break;
             }
@@ -487,21 +543,22 @@ internal sealed class ThreadClassifier
             return state;
         }
 
-        /// <summary>Every await of a block (its operations, then its branch value), in text order, once each.</summary>
-        private static List<AwaitExpressionSyntax> Awaits(BasicBlock block)
+        /// <summary>Every await this block runs (its operations, then its branch value), in the order they finish, once
+        /// each: the written <c>await</c>s, and the ones <c>await foreach</c> (MoveNextAsync, in the loop's head) and
+        /// <c>await using</c> (DisposeAsync, in its finally) make. A nested function's awaits are not in the block: they
+        /// run when that function runs.</summary>
+        private static List<SyntaxNode> Awaits(BasicBlock block)
         {
             var seen = new HashSet<SyntaxNode>();
-            var list = new List<AwaitExpressionSyntax>();
-            void Collect(SyntaxNode syntax)
+            var list = new List<SyntaxNode>();
+            void Collect(IOperation root)
             {
-                // A nested function's awaits run when that function runs, not here.
-                foreach (var aw in syntax.DescendantNodesAndSelf(n => n == syntax || n is not (AnonymousFunctionExpressionSyntax or LocalFunctionStatementSyntax))
-                             .OfType<AwaitExpressionSyntax>())
-                    if (seen.Add(aw)) list.Add(aw);
+                foreach (var op in root.DescendantsAndSelf())
+                    if (op is IAwaitOperation aw && seen.Add(aw.Syntax)) list.Add(aw.Syntax);
             }
-            foreach (var op in block.Operations) Collect(op.Syntax);
-            if (block.BranchValue is { } branch) Collect(branch.Syntax);
-            list.Sort((a, b) => a.SpanStart.CompareTo(b.SpanStart));
+            foreach (var op in block.Operations) Collect(op);
+            if (block.BranchValue is { } branch) Collect(branch);
+            list.Sort((a, b) => a.Span.End.CompareTo(b.Span.End));
             return list;
         }
     }
