@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// T8 (#53) host test: kiln.types' ecs_registry builder over a fake catalog source.
+// Host test: kiln.types' ecs_registry builder over a fake catalog source.
 #include <cstdio>
 #include <cstring>
 
@@ -49,13 +49,14 @@ int main() {
     F.flip_after = 1;
     std::memset(rows, 0xAA, sizeof rows);
     check(ktypes::ecs::build(src, KILN_WORLD_SERVER, &info, rows, 3, &req) == KILN_ECS_ERR_UNREADABLE &&
-              info.status == KILN_ECS_UNREADABLE && rows[0].component == 0 && rows[2].component == 0,
-          "registry replaced mid-read: unreadable, no partial catalog");
+              info.status == KILN_ECS_UNREADABLE && info.count == 0 && req == 0 && (uint8_t)rows[0].component == 0xAA &&
+              (uint8_t)rows[2].component == 0xAA,
+          "registry replaced mid-read: unreadable, the caller's rows untouched");
     F.flip_after = 0xFFFFFFFFu; F.stamp = 42; F.fail_at = 1;
     std::memset(rows, 0xAA, sizeof rows);
     check(ktypes::ecs::build(src, KILN_WORLD_SERVER, &info, rows, 3, &req) == KILN_ECS_ERR_UNREADABLE &&
-              info.count == 0 && rows[0].component == 0 && req == 0,
-          "registry row vanished after the first: the prefix is wiped");
+              info.count == 0 && (uint8_t)rows[0].component == 0xAA && req == 0,
+          "registry row vanished after the first: the caller's rows untouched");
     F.fail_at = 0xFFFFFFFFu; F.vanish = true;
     check(ktypes::ecs::build(src, KILN_WORLD_SERVER, &info, rows, 3, &req) == KILN_ECS_ERR_UNREADABLE,
           "registry row vanished mid-read: unreadable");

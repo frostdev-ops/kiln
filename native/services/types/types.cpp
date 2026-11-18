@@ -698,9 +698,11 @@ KilnResult KILN_CALL event_post(uintptr_t world, uint32_t hash, const void* data
 
 uint32_t KILN_CALL external_runner() { return g_external_state.load(std::memory_order_acquire); }
 
-// ---- ecs_registry (T8): the component catalog as copied records. The game's type table is immutable for the
-// process, so its stamp never changes; tracking bits are not in it, so TRACKING_KNOWN stays clear (kiln.types
-// does not guess them from another table). ----
+// ---- ecs_registry: the component catalog as copied records. The game's type table is found once at boot, before
+// this table is published, and never replaced for the process, so the catalog cannot change under a read. The
+// stamp (component count, type count) is therefore an identity of this process's catalog, not a content hash: it
+// would not tell two different catalogs of the same counts apart, and does not need to. Tracking bits are not in
+// the type table, so TRACKING_KNOWN stays clear (kiln.types does not guess them from another table). ----
 namespace ecs_registry_src {
 uint32_t count(void*) { return g_tt.component_count; }
 uint64_t stamp(void*) { return static_cast<uint64_t>(g_tt.component_count) << 32 | g_tt.count; }
@@ -720,12 +722,14 @@ bool row(void*, uint32_t i, KilnEcsRegistryRow* out) {
 } // namespace ecs_registry_src
 KilnResult KILN_CALL ecs_registry(uint32_t world_kind, KilnEcsRegistryInfo* info, KilnEcsRegistryRow* rows,
                                   uint32_t capacity, uint32_t* required) {
-    if (world_kind >= KILN_WORLD_KINDS) return KILN_ERR_INVALID_ARGUMENT;
+    // The arguments first, as build() checks them: a bad call is an argument error on every build.
+    if (world_kind >= KILN_WORLD_KINDS || !info || info->size < sizeof(KilnEcsRegistryInfo) || (capacity && !rows)) {
+        if (required) *required = 0;
+        return KILN_ERR_INVALID_ARGUMENT;
+    }
     if (!g_tt.component_count) {
-        if (info && info->size >= sizeof(KilnEcsRegistryInfo)) {
-            const uint32_t size = info->size;
-            *info = KilnEcsRegistryInfo{}; info->size = size; info->status = KILN_ECS_UNAVAILABLE;
-        }
+        const uint32_t size = info->size;
+        *info = KilnEcsRegistryInfo{}; info->size = size; info->status = KILN_ECS_UNAVAILABLE;
         if (required) *required = 0;
         return KILN_ERR_UNAVAILABLE;
     }

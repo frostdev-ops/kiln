@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT
-// T8 (#53): kiln.types' ecs_registry member (kiln_types.h) as a pure builder over a catalog source, so the host
+// kiln.types' ecs_registry member (kiln_types.h) as a pure builder over a catalog source, so the host
 // test can drive it with a fake source (including a catalog replaced while it is being read). The source's stamp
-// is read before and after the rows; a change refuses the read and copies nothing. Rows are copied records: the
+// is read before and after the rows; a change refuses the read and leaves the caller's rows untouched. Rows are copied records: the
 // caller never sees the provider's storage.
 #pragma once
 #include <cstdint>
 #include <cstring>
+#include <vector>
 
 #include "services/kiln_types.h"
 #include "services/kiln_world.h" // KILN_ECS_* statuses and the registry result codes
@@ -36,24 +37,18 @@ inline KilnResult build(const Source& src, uint32_t world_kind, KilnEcsRegistryI
     info->status = KILN_ECS_OK;
     if (required) *required = count;
     if (count > capacity) return KILN_ERR_BUFFER_TOO_SMALL; // nothing copied
-    auto wipe = [&](uint32_t n) {
-        if (rows && n) std::memset(rows, 0, n * sizeof(KilnEcsRegistryRow));
+    auto refuse = [&]() -> KilnResult {
         info->status = KILN_ECS_UNREADABLE;
         info->count = 0;
         if (required) *required = 0;
-    };
-    for (uint32_t i = 0; i < count; ++i) {
-        KilnEcsRegistryRow staging{};
-        if (!src.row(src.user, i, &staging) || staging.index != i) {
-            wipe(count); // the whole result region, not only the prefix already written
-            return KILN_ECS_ERR_UNREADABLE;
-        }
-        rows[i] = staging;
-    }
-    if (src.stamp(src.user) != before || src.count(src.user) != count) {
-        wipe(count);
         return KILN_ECS_ERR_UNREADABLE;
-    }
+    };
+    // Staged: the caller's rows are written only after the stamp and count were read again and still agree.
+    std::vector<KilnEcsRegistryRow> staging(count);
+    for (uint32_t i = 0; i < count; ++i)
+        if (!src.row(src.user, i, &staging[i]) || staging[i].index != i) return refuse();
+    if (src.stamp(src.user) != before || src.count(src.user) != count) return refuse();
+    if (count) std::memcpy(rows, staging.data(), count * sizeof(KilnEcsRegistryRow));
     return KILN_OK;
 }
 
