@@ -328,7 +328,8 @@ public static unsafe partial class WorldConcurrent
     /// <summary>Compares the entity's whole <paramref name="component"/> with <paramref name="expected"/> and, only when they
     /// are equal, writes <paramref name="desired"/>, under the engine's write gate, between server frames. <c>T</c> must be
     /// the whole component (<c>sizeof(T)</c> its registered size: else <see cref="ExchangeStatus.NotWritable"/> with
-    /// <see cref="WriteReason.Size"/>). Never waits: a gate that is taken answers <see cref="ExchangeStatus.Busy"/>.
+    /// <see cref="WriteReason.Size"/>). Every byte of <c>T</c> is compared and written, padding too, so give it a field for
+    /// every byte (or use <see cref="TryCompareExchangeBytes"/>). Never waits: a gate that is taken answers <see cref="ExchangeStatus.Busy"/>.
     /// <c>var r = WorldConcurrent.TryCompareExchange(e, "Foo", old, old with { X = 1 });</c></summary>
     /// <exception cref="ArgumentException"><paramref name="entity"/> is <c>default</c>, or no component name.</exception>
     /// <exception cref="InvalidOperationException">Not inside a Kiln task or on the tick.</exception>
@@ -420,8 +421,9 @@ public static unsafe partial class WorldConcurrent
         if (t == null) return (ExchangeStatus.Unavailable, ExchangeFlags.None, WriteReason.NoProfile, TimeSpan.Zero);
         // The server tick runs inside the frame, which holds the gate: always busy there, and no engine read.
         if (OnServerTick) return (ExchangeStatus.Busy, ExchangeFlags.None, WriteReason.InFrame, TimeSpan.Zero);
-        if (mod is not null) WorldExchanges.Writers[owner] = mod;
+        // Bind first: a new backend's binding forgets the last one's writers, and this write's event must name its mod.
         WorldExchanges.Rebind();
+        if (mod is not null) WorldExchanges.Writers[owner] = mod;
         MutationReplyNative reply = default;
         reply.Size = (uint)sizeof(MutationReplyNative);
         var rc = t->CompareExchange(owner, r, hash, expected, mask, desired, bytes, current, &reply);
@@ -442,6 +444,11 @@ public static unsafe partial class WorldConcurrent
 /// a copy, and a service tick posts the events.</summary>
 internal static unsafe class WorldExchanges
 {
+    /// <summary>Events waiting for the service tick at most: kiln.world's queue holds 4,096 a step, so this is 16 full
+    /// steps without a service tick. Beyond it an event is dropped and counted (the next service tick logs how many), so
+    /// a service tick that stopped can't make the queue grow without end.</summary>
+    internal const int MaxQueued = 65536;
+
     internal static readonly ConcurrentDictionary<ulong, string> Writers = new();  // owner -> mod id
     private static readonly ConcurrentQueue<EcsWriteEventNative> Queue = new();
     private static readonly object Gate = new();
@@ -449,7 +456,10 @@ internal static unsafe class WorldExchanges
     private static int _registered;
     private static IDisposable? _tick;
     private static ulong _handle;
+    private static ulong _owner;  // the subscription's owner, one per backend
     private static EcsWritesTable* _table;
+    private static int _queued;   // in Queue (the callback adds, Pump takes)
+    private static long _dropped; // over MaxQueued since the last Pump
 
     internal static void Ensure()
     {
@@ -467,7 +477,8 @@ internal static unsafe class WorldExchanges
         Bind();
     }
 
-    // Subscribe once for the current backend (a test kit's harness is a backend of its own).
+    // Subscribe once for the current backend (a test kit's harness is a backend of its own). The native callback never
+    // takes Gate, so an unsubscribe here that waits for a running callback can't wait on this lock's holder.
     internal static void Bind()
     {
         var backend = Backend.Current;
@@ -478,19 +489,20 @@ internal static unsafe class WorldExchanges
             {
                 if (_handle != 0 && _table != null) _table->WriteUnsubscribe(_handle);
                 _handle = 0;
+                _owner = 0;
                 _table = null;
                 _tick?.Dispose();
                 _tick = null;
                 Writers.Clear();
-                Queue.Clear();
+                while (Queue.TryDequeue(out _)) Interlocked.Decrement(ref _queued);
                 _backend = backend;
             }
             var t = WorldConcurrent.WriteTable();
             if (t == null || t->WriteSubscribe == null) return;
-            var owner = backend.OwnerCreate("kiln.world.exchanges");
-            if (owner == 0) return;
+            if (_owner == 0) _owner = backend.OwnerCreate("kiln.world.exchanges");  // once: a refused subscribe is tried again with it
+            if (_owner == 0) return;
             ulong h = 0;
-            if (t->WriteSubscribe(owner, &OnEvent, null, &h) != WorldNative.Ok || h == 0) return;
+            if (t->WriteSubscribe(_owner, &OnEvent, null, &h) != WorldNative.Ok || h == 0) return;
             _handle = h;
             _table = t;
             _tick = ServiceTick.Add("kiln world exchanges", static (in TickInfo _) => Pump());
@@ -502,7 +514,14 @@ internal static unsafe class WorldExchanges
     {
         try
         {
-            if (e != null) Queue.Enqueue(*e);
+            if (e == null) return;
+            if (Interlocked.Increment(ref _queued) > MaxQueued)
+            {
+                Interlocked.Decrement(ref _queued);
+                Interlocked.Increment(ref _dropped);
+                return;
+            }
+            Queue.Enqueue(*e);
         }
         catch
         {
@@ -510,12 +529,28 @@ internal static unsafe class WorldExchanges
         }
     }
 
+    /// <summary>Tests: what the native callback does with one event.</summary>
+    internal static void Deliver(EcsWriteEventNative e)
+    {
+        delegate* unmanaged[Cdecl]<EcsWriteEventNative*, void*, void> fn = &OnEvent;
+        fn(&e, null);
+    }
+
+    /// <summary>Tests: the events waiting for the service tick.</summary>
+    internal static int Queued => Volatile.Read(ref _queued);
+
     // The service tick: the events queued since the last one, in their order.
     internal static void Pump()
     {
+        if (Interlocked.Exchange(ref _dropped, 0) is var lost and > 0)
+            Backend.Current.Log(0, LogLevel.Warn, $"kiln.world: {lost} ComponentExchangedEvent(s) were dropped: more than {MaxQueued} waited " +
+                "for Kiln's service tick (did it stop running?)");
         while (Queue.TryDequeue(out var e))
+        {
+            Interlocked.Decrement(ref _queued);
             Events.Post(new ComponentExchangedEvent(new EntityId(e.Entity), e.Generation, e.Component, e.Session, e.Step,
                 Writers.TryGetValue(e.Owner, out var mod) ? mod : null));
+        }
     }
 }
 #pragma warning restore KILNX001

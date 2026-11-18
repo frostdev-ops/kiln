@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: MIT
 // Kiln tasks under the harness (KilnHarness.Tasks, Shared/KitTaskPool.cs): a mod's work runs on the kit's workers, its
 // hops run in the harness's steps before the mods' Pre and NextGateWindow resumes after one, Settle runs every task to
-// its end with no sleeping in the test and fails clearly when one never ends, an unload cancels a mod's tasks, and a stop
-// ends the hops still queued.
+// its end with no sleeping in the test and fails clearly when one never ends, an unload cancels a mod's tasks (also one
+// that meets a loop between its check and its hop: Cancelled, no error), and a stop ends the hops still queued.
 using TkEvents;
 using Xunit;
+
+// The task bodies stand in for mod code (their own waits, no test token).
+#pragma warning disable xUnit1051
 
 namespace Kiln.TestKit.Tests;
 
@@ -109,13 +112,63 @@ public sealed class TasksKitTests
             }
         }));
         kiln.Step(3);
-        // the round the last step's Post edge released is over, the task waits for the next edge: the unload cancels it
-        // there (an unload that meets the round itself makes its NextGateWindow throw "the mod is unloading")
-        Assert.True(kiln.TaskPool.TryWaitIdle(TimeSpan.FromSeconds(10)));
+        // the unload lands wherever the loop is: waiting for its next edge, or in a round
         kiln.Unload(mod, checkCollected: false);  // the cancelled task may still be finishing on a worker
         kiln.Tasks.Settle();
         Assert.Equal(KilnTaskState.Cancelled, task.State);
         Assert.True(Volatile.Read(ref rounds) >= 1);
+        Assert.Empty(kiln.FindLogs("faulted"));
+    }
+
+    // The next round of a loop: one call of one way to the tick.
+    private static async Task NextRound(KilnTaskContext ctx, string hop)
+    {
+        switch (hop)
+        {
+            case "ToTick":
+                await ctx.ToTick();
+                break;
+            case "OnTick":
+                await ctx.OnTick(() => 1);
+                break;
+            case "PostToTick":
+                ctx.PostToTick(() => { });
+                break;
+            case "NextGateWindow":
+                await ctx.NextGateWindow();
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(hop), hop, null);
+        }
+    }
+
+    [Theory]
+    [InlineData("ToTick")]
+    [InlineData("OnTick")]
+    [InlineData("PostToTick")]
+    [InlineData("NextGateWindow")]
+    public void An_unload_that_meets_a_loop_between_its_check_and_its_hop_ends_it_Cancelled_with_no_error(string hop)
+    {
+        var (kiln, mod) = Start();
+        using var _ = kiln;
+        using var inRound = new ManualResetEventSlim();
+        using var go = new ManualResetEventSlim();
+        var task = kiln.As(mod, () => mod.Context.Tasks.Run("loop", async ctx =>
+        {
+            while (!ctx.Cancellation.IsCancellationRequested)
+            {
+                inRound.Set();
+                go.Wait(TimeSpan.FromSeconds(20));  // the unload lands here, after the check and before the hop
+                await NextRound(ctx, hop);
+            }
+        }));
+        Assert.True(inRound.Wait(TimeSpan.FromSeconds(20)));
+        kiln.Unload(mod, checkCollected: false);
+        go.Set();
+        kiln.Tasks.Settle();
+        Assert.Equal(KilnTaskState.Cancelled, task.State);
+        Assert.Empty(kiln.FindLogs("'loop'"));
+        Assert.DoesNotContain(kiln.Logs, l => l.Level == LogLevel.Error);
     }
 
     [Fact]

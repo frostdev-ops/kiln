@@ -12,6 +12,9 @@
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <InvariantGlobalization Condition="'$(InvariantGlobalization)' == ''">true</InvariantGlobalization>
+    <!-- Tests that call experimental Kiln API need the mod's opt-in here too, e.g. KILNX001 for WorldConcurrent, the
+         task-thread world reads (docs/kiln/modding/tasks.md, "Project setup"). -->
+    <!-- <NoWarn>$(NoWarn);KILNX001</NoWarn> -->
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Kiln.TestKit" Version="KILN_SDK_VERSION" />

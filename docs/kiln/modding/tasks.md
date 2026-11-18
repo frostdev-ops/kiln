@@ -11,6 +11,36 @@ This page is the mod author's guide. The pool's contract (limits, states, config
 `mods/samples/FetchNearby`: `/fetch <item> [count]` brings items from the containers near a player into the player's
 inventory, with the search for containers in a task.
 
+## Project setup
+
+A mod that runs tasks says so in its project file (`dotnet new kiln-mod` has the `KilnFeatures` line as a comment):
+
+```xml
+<PropertyGroup>
+  <!-- Kiln's task pool: Kiln does not load the mod where it is off -->
+  <KilnFeatures>tasks.pool</KilnFeatures>
+  <!-- the task-thread world reads (WorldConcurrent) are in Kiln.World, and experimental -->
+  <KilnServices>World;Items;Chat</KilnServices>
+  <NoWarn>$(NoWarn);KILNX001</NoWarn>
+</PropertyGroup>
+```
+
+- **`<KilnFeatures>tasks.pool</KilnFeatures>`** puts `"features": ["tasks.pool"]` in `kiln.mod.json`, so Kiln loads
+  the mod only where its task pool runs. Without it, [KILN121](analyzers.md#kiln121) warns at every
+  `Context.Tasks.Run`, and the mod also loads where `Run` throws `KilnUnavailableException`. A mod that works without
+  tasks too asks `Capabilities.Is("tasks.pool")` before it starts one instead.
+- **`<KilnServices>`** lists `World` among the mod's services when its tasks read the world (FetchNearby's list is
+  `World;Items;Chat`).
+- **`KILNX001`** is the opt-in for `WorldConcurrent`, which is experimental. A mod without world reads leaves it out.
+
+**The test project** (`dotnet new kiln-unit-test`, [unit-tests.md](unit-tests.md)) needs the same opt-in when its
+tests call `WorldConcurrent`, as the example's do (`WorldConcurrent.IsAvailable`). Without it they don't compile
+(`error KILNX001`). The template has the line as a comment:
+
+```xml
+<NoWarn>$(NoWarn);KILNX001</NoWarn>
+```
+
 ## When to use a task
 
 Use one for work that takes long and needs little of the game while it runs:
@@ -24,7 +54,8 @@ Don't use one for:
 - something that must happen in this very step: a task's result comes back in a later step.
 
 Tasks run on a dedicated server and on a client that hosts a game. On a client joined to someone else's server they
-can still compute, but they cannot hop back to a tick (below).
+can still compute, but they cannot hop back to a tick: a client mod hands its results to the game's main thread with
+`Client.Post` ([Client mods](#client-mods)).
 
 ## Starting a task
 
@@ -119,11 +150,16 @@ long function.
 **When a hop can't happen.**
 - **No live server world** (the main menu, a client joined to someone else's server): `ToTick`, `OnTick`, `PostToTick`
   and `NextGateWindow` throw `KilnUnavailableException` (`tasks.pool`) at once.
-- **The task was cancelled first** (the mod unloads, the world stops): the hop never runs and the await of `ToTick`,
-  `OnTick` or `NextGateWindow` throws `OperationCanceledException`; a queued `PostToTick` is dropped and the task ends
-  `Cancelled`. Your `finally` blocks still run, on a worker.
-- **The mod is unloading:** a new `ToTick`, `OnTick`, `PostToTick` or `NextGateWindow` call throws
-  `InvalidOperationException` ("the mod is unloading").
+- **The task was cancelled** (`task.Cancel()`, the mod unloads, the world stops): the hop never runs. The await of
+  `ToTick`, `OnTick` or `NextGateWindow` throws the task's own `OperationCanceledException`, and so does a new
+  `PostToTick` call; a queued `PostToTick` is dropped. The task ends `Cancelled`, `kiln.log` says nothing, and your
+  `finally` blocks still run, on a worker. The cancellation comes first: a cancelled task's hop never throws
+  `KilnUnavailableException`.
+- **The mod unloads in the middle of a loop.** A loop that checks `ctx.Cancellation` and then hops needs nothing
+  more: an unload that lands between the check and the hop ends the task `Cancelled` at the hop, as above.
+- **Outside the task's work.** A `KilnTaskContext` kept after the task's work returned throws
+  `InvalidOperationException`. So does one used while the mod unloads from code that is not the task's own (a raw
+  thread, `Task.Run`, code after `ConfigureAwait(false)`): that is a bug in the mod, and it stays loud.
 
 **The example's way back.**
 - It tells the player how many containers it searches with `PostToTick`, and goes on at once.
@@ -149,6 +185,53 @@ and leave the items taken but not given. The mod's own tick code awaits the task
 (`sources = await search;`), so a fetch cancelled before the plan moves nothing, and a plan that exists is carried out
 on the tick.
 
+## Client mods
+
+A client mod's tasks run on the same pool, also on a client joined to someone else's server. The way back differs:
+- **Joined to someone else's server**, there is no server world here: `ToTick`, `OnTick`, `PostToTick` and
+  `NextGateWindow` throw `KilnUnavailableException` (`tasks.pool`).
+- **While this client hosts**, they land on the server world's tick, the game's server thread, not on its main thread,
+  where the client world and the UI run.
+- **When the hosted world stops**, a `client` or `both` mod stays loaded ([lifecycle.md](lifecycle.md)), so nothing
+  cancels its tasks. A hop still pending then ends its task `Cancelled`, but a new one throws
+  `KilnUnavailableException`, which faults the task. A task that should outlive the world catches it; a side `server`
+  mod unloads with the world, and its tasks end `Cancelled` as above.
+
+To hand a result to the game's main thread, call `Client.Post` (Kiln.Client: `Client` in `<KilnServices>`) from the
+task. It works from any thread and runs the work on the main thread before the client world's next step:
+
+```csharp
+// the heavy part on a Kiln worker, the result to the game's main thread
+Context.Tasks.Run("map-index", ctx =>
+{
+    var index = BuildIndex(files, ctx.Cancellation);   // off every game thread
+    Client.Post(() => _overlay.Show(index));          // the main thread, before the client world's next step
+});
+```
+
+`Client.Post` is not a hop of the task:
+- **Not tracked.** The task can end before the work runs, and awaiting the task doesn't wait for it.
+- **Not cancelled with the task.** Work handed over before a `task.Cancel()` still runs; check a flag of your own in it
+  when that matters. Work of a mod that has unloaded is dropped.
+- **Outside the hop budget.** It runs at the next client step whatever it costs: hand over a result, not the work.
+- **Its exceptions are the mod's**, not the task's: `kiln.log` says `Client.Post work threw` under the mod's name, and
+  the task's state doesn't change.
+- **In the main menu**, with no client world, it waits until one runs.
+
+Don't `await Client.NextTick()` inside a task. The rest of the method would run on the main thread, outside the task,
+and if the mod unloads before that step, the dropped work leaves the task waiting for good. Post a plain action, as
+above.
+
+**What tick-stats shows on a joined client: no tasks at all.** The `"tasks"` object rides on the server world's line,
+and a client joined to someone else's server writes only its client world's lines. The pool still counts: the
+watchdog's warning, a task's `faulted` line and a crash report's "Tasks" section work there as anywhere. When the
+client hosts a world later, that world's first line's `"tasks"` object covers everything since the last such object,
+or since Kiln started (`"window"."span_ms"` says how long).
+
+The [TestKit](unit-tests.md) runs no client world, so `Client.Post` work never runs under it: test what the task
+computes, not the post. The example above is tested in `managed/tests/Kiln.Api.Tests/TaskClientPostTests.cs`, on a
+stand-in for the game client.
+
 ## Reading the world from a task
 
 `WorldConcurrent` (Kiln.World) reads entities and components from a task's worker. Every read copies the bytes and
@@ -163,7 +246,8 @@ checks the entity again around the copy, so it returns a whole value or says why
 - `Busy` and `Unsupported`: see the read modes below.
 
 An ordinary miss never throws. The reads are experimental (`KILNX001`): opt in with
-`<NoWarn>$(NoWarn);KILNX001</NoWarn>` in the mod's project. The full reference is
+`<NoWarn>$(NoWarn);KILNX001</NoWarn>` in the mod's project, and in its test project when the tests call them
+([Project setup](#project-setup)). The full reference is
 [world.md](../services/world.md#from-c-worldconcurrent-experimental).
 
 **Where they work.**
@@ -252,7 +336,7 @@ task by compare-exchange (`WorldConcurrent.TryCompareExchange`,
    - it takes no new task;
    - queued tasks end `Cancelled` without running;
    - running and suspended ones are signalled through `ctx.Cancellation`.
-2. Their pending hops and posts never run.
+2. Their pending hops and posts never run, and a hop they ask for from then on ends them `Cancelled`.
 3. Their `catch` and `finally` blocks still run on a worker.
 4. The unload never waits for them on the tick. The mod's code stays loaded until its tasks have ended. A task still
    running 2 s later is named once in `kiln.log` (`tasks: mod <id>: task '<name>' (<state>) did not stop within 2 s;
@@ -281,7 +365,8 @@ promised. Don't rely on a task to save state at exit; save on the tick (in `OnUn
 - A worker running a task is named `<mod>/<task>`, which a debugger shows; crash reports list the running tasks by mod
   and task name.
 
-**`kiln/logs/tick-stats.jsonl`.** Once a minute, the server world's line gets a `"tasks"` object:
+**`kiln/logs/tick-stats.jsonl`.** Once a minute, the server world's line gets a `"tasks"` object (a client joined to
+someone else's server has no such line: [Client mods](#client-mods)):
 - **`"pool"`:** the workers, the long-running workers and the deepest queue.
 - **One row per mod load in `"owners"`:**
   - `queued` and `running` (now and the window's highest);
@@ -309,7 +394,8 @@ The [TestKit](unit-tests.md) runs a mod's tasks under `dotnet test`:
   tested too.
 
 The example's tests are in `managed/tests/Kiln.TestKit.Tests/FetchNearbyTests.cs`, with their helpers (`Start`,
-`Finish`, `Said`, `Wood`, `ChatOf`). The first one, without its last check:
+`Finish`, `Said`, `Wood`, `ChatOf`). The first one, without its last check (its `WorldConcurrent` line is why the
+test project opts in to `KILNX001`):
 
 ```csharp
 [Theory]

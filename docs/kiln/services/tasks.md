@@ -68,7 +68,9 @@ not quiescence.
 `drain_owner` seals the owner for good, cancels its queued tasks (each still gets its `done`), signals the running
 ones, releases its terminal records and then waits up to `timeout_ms`. A timeout returns `KILN_OK` with
 `*running > 0`: nothing is freed or forced, and code and `user` stay referenced. Use `timeout_ms = 0` from the tick
-(unload) and join off the tick.
+(unload) and join off the tick. A body that resubmits itself while its owner drains (an `AFTER_STEP` retry whose
+`cancelled()` check came just before the drain) gets `UNAVAILABLE` + `OWNER_SEALED`: that is the drain's answer, not a
+fault. Nothing is logged, and the body returns as usual (`COMPLETED`).
 
 ## Done deliveries and the running cap
 
@@ -137,7 +139,8 @@ tasks' cancellation is signalled first; their cancellation and `finally` continu
 
 Unloading or reloading a mod never waits for its tasks on the tick. When the unload begins, before `OnUnload`, the mod
 takes no new task, its queued tasks end cancelled and its running and suspended ones are signalled through their token;
-a hop or a tick apply of an unloading mod never runs. `OnUnload` then runs on the tick as usual. The mod's load context
+a hop or a tick apply of an unloading mod never runs, and a hop its task asks for from then on ends the task cancelled
+through its own token, with nothing logged. `OnUnload` then runs on the tick as usual. The mod's load context
 is torn down once its tasks are quiescent: at once when they already are, otherwise by a Kiln maintenance thread that
 joins them off the tick. A task still running 2 s later is logged once (`tasks: mod <id>: task '<name>' (<state>) did
 not stop within 2 s; its load context stays pinned until its tasks finish`): the context stays loaded, other mods keep

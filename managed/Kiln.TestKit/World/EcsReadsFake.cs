@@ -35,6 +35,10 @@ internal static unsafe class EcsReadsFake
 
         public override Guid? Template(uint kind, uint id) => null;
 
+        // kiln.world's write-event subscriptions outlive a harness's world, as the service's do the server's: Kiln
+        // subscribes once a process (WorldExchanges), so every harness after the first gets the events too.
+        public override EcsWriteSubscriptions Subs => ProcessSubscriptions;
+
         public override WorldPosition? Position(uint kind, uint id) => kind == (uint)WorldKind.Server ? world.PositionOf(id) : null;
 
         public override IEnumerable<uint> Ids(uint kind) => kind == (uint)WorldKind.Server ? world.Entities : [];
@@ -57,6 +61,8 @@ internal static unsafe class EcsReadsFake
 
         public override bool TypesAvailable => TypesFake.Available;
     }
+
+    private static readonly EcsWriteSubscriptions ProcessSubscriptions = new();
 
     /// <summary>The capability row of the compare-exchange writes: a fake feature row (off: a build without them).</summary>
     public const string WriteRow = "world.ecs_write";
