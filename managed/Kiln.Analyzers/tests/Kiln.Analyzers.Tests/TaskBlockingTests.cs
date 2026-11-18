@@ -92,6 +92,57 @@ public sealed class TaskBlockingTests
     }
 
     [Fact]
+    public async Task A_hop_after_ConfigureAwait_false_brings_the_task_back()
+    {
+        var d = await Run(A, """
+            public sealed class M : Mod
+            {
+                public override void OnLoad()
+                {
+                    var job = Context.Tasks.Run<int>("path", async ctx => 1);
+                    Context.Tasks.Run("gate", async ctx =>
+                    {
+                        await Task.Delay(1).ConfigureAwait(false);
+                        await ctx.NextGateWindow();
+                        job.Wait();
+                    });
+                    Context.Tasks.Run("hop", async ctx =>
+                    {
+                        await Task.Delay(1).ConfigureAwait(false);
+                        await ctx.ToTick();
+                        var r = job.AsTask().Result;
+                    });
+                }
+            }
+            """);
+        Ids(d, "KILN105", "KILN105");
+    }
+
+    [Fact]
+    public async Task Threads_and_pool_work_a_task_starts_are_its_own()
+    {
+        var d = await Run(A, """
+            using System.Threading;
+            public sealed class M : Mod
+            {
+                public override void OnLoad()
+                {
+                    var job = Context.Tasks.Run<int>("path", async ctx => 1);
+                    Context.Tasks.Run("starts", async ctx =>
+                    {
+                        new Thread(() => job.Wait()).Start();
+                        await Task.Run(() => job.AsTask().Result);
+                        ThreadPool.QueueUserWorkItem(_ => job.Wait());
+                        var plain = Task.Run(() => 5);
+                        plain.Wait();
+                    });
+                }
+            }
+            """);
+        Ids(d);
+    }
+
+    [Fact]
     public async Task KilnTask_wait_fix_awaits_the_task()
     {
         var s = await Fix(A, new BlockingCodeFix(), """
