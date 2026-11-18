@@ -11,8 +11,7 @@ namespace Kiln.Analyzers;
 
 /// <summary>KILN105: blocking waits in code that runs on the tick thread (or another game thread via a Kiln callback),
 /// and the ways of blocking on, or escaping, a Kiln task: <c>KilnTask.Wait()</c> and blocking on the plain
-/// <c>Task</c> of <c>KilnTask.AsTask()</c> in a task body, a <c>ctx.ToTick()</c> nobody awaits, and gated world
-/// calls (the <c>World.Concurrent</c> face of T9/T10) made without a live task scope or as a write from the tick.</summary>
+/// <c>Task</c> of <c>KilnTask.AsTask()</c> in a task body, and a <c>ctx.ToTick()</c> nobody awaits.</summary>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class BlockingAnalyzer : DiagnosticAnalyzer
 {
@@ -21,8 +20,7 @@ public sealed class BlockingAnalyzer : DiagnosticAnalyzer
     public const string FixKey = "fix";
 
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics => ImmutableArray.Create(
-        Descriptors.BlockingCall, Descriptors.BlockingTaskCall, Descriptors.TickHopDiscarded,
-        Descriptors.GatedWorldScope, Descriptors.GatedWorldWriteOnTick);
+        Descriptors.BlockingCall, Descriptors.BlockingTaskCall, Descriptors.TickHopDiscarded);
 
     public override void Initialize(AnalysisContext context)
     {
@@ -42,12 +40,6 @@ public sealed class BlockingAnalyzer : DiagnosticAnalyzer
         var op = ctx.Operation;
         var model = ctx.Operation.SemanticModel!;
         var syntax = op.Syntax;
-        // The gated world face of T9/T10: its reads and writes are not blocking calls, they are scope calls.
-        if (TickThreadAnalyzer.Member(op) is { } gatedMember && IsGatedWorld(gatedMember, out var gatedWrite))
-        {
-            AnalyzeGated(ctx, classifier, gatedMember, gatedWrite);
-            return;
-        }
         // ctx.ToTick() on its own hops nothing: the hop happens in its awaiter.
         if (op is IInvocationOperation hop && ThreadClassifier.IsKilnMember(hop.TargetMethod.OriginalDefinition, "KilnTaskContext", "ToTick"))
         {
@@ -77,45 +69,6 @@ public sealed class BlockingAnalyzer : DiagnosticAnalyzer
         if (fix is not null && CanAwaitHere(syntax)) props = props.Add(FixKey, fix);
         ctx.ReportDiagnostic(Diagnostic.Create(onGameThread ? Descriptors.BlockingCall : Descriptors.BlockingTaskCall,
             syntax.GetLocation(), props, name, where.Where));
-    }
-
-    /// <summary>A gated world call (see <see cref="IsGatedWorld"/>): with no live task scope it is refused
-    /// (reads and writes alike); a gated write on the tick can never take the engine's scene gate.</summary>
-    private static void AnalyzeGated(OperationAnalysisContext ctx, ThreadClassifier classifier, ISymbol member, bool write)
-    {
-        var where = classifier.Classify(ctx.Operation.Syntax, ctx.Operation.SemanticModel!, ctx.CancellationToken);
-        var name = Syntax.Display(member);
-        if (where.Kind == ThreadKind.Off && where.Task != TaskScope.Active)
-            ctx.ReportDiagnostic(Diagnostic.Create(Descriptors.GatedWorldScope, ctx.Operation.Syntax.GetLocation(), name, where.Where));
-        else if (write && where.Kind == ThreadKind.Tick)
-            ctx.ReportDiagnostic(Diagnostic.Create(Descriptors.GatedWorldWriteOnTick, ctx.Operation.Syntax.GetLocation(), name, where.Where));
-    }
-
-    /// <summary>The gated world face of T9/T10, by its documented shape: the members of
-    /// <c>Kiln.WorldConcurrent</c> (and of <c>Concurrent</c> nested in <c>Kiln.World</c>) in a Kiln assembly,
-    /// except its availability check. Matched by symbol, so a look-alike type of the mod's own, or of another
-    /// library, is not gated. <paramref name="write"/> is its compare-and-swap write
-    /// (<c>TryCompareExchange</c>/<c>CompareExchange</c>); every other member is read as a gated read.
-    /// When T9/T10 land this face in a Kiln assembly, these cases start reporting with no change here.</summary>
-    private static bool IsGatedWorld(ISymbol member, out bool write)
-    {
-        write = false;
-        var m = member is IMethodSymbol { ReducedFrom: { } reduced } ? reduced : member.OriginalDefinition;
-        var name = m is IMethodSymbol { AssociatedSymbol: { } assoc } ? assoc.Name : m.Name;
-        if (name is "IsAvailable") return false;
-        for (var t = m.ContainingType; t is not null; t = t.ContainingType)
-        {
-            var o = t.OriginalDefinition;
-            if (o.ContainingNamespace?.ToDisplayString() != "Kiln") continue;
-            var asm = o.ContainingAssembly?.Name;
-            if (asm is null || !(KilnApis.IsKilnAssembly(o.ContainingAssembly) || asm.StartsWith("Kiln.", System.StringComparison.Ordinal))) continue;
-            var gated = o.ContainingType is null && o.Name == "WorldConcurrent"
-                || o.Name == "Concurrent" && o.ContainingType is { Name: "World" } outer && outer.ContainingType is null;
-            if (!gated) continue;
-            write = name is "TryCompareExchange" or "CompareExchange";
-            return true;
-        }
-        return false;
     }
 
     /// <summary><c>KilnTask.Wait()</c> itself: on <c>KilnTask</c>/<c>KilnTask&lt;T&gt;</c> by symbol, never a

@@ -1,31 +1,15 @@
 // SPDX-License-Identifier: MIT
-using Microsoft.CodeAnalysis;
 using Xunit;
 using static Kiln.Analyzers.Tests.Harness;
 
 namespace Kiln.Analyzers.Tests;
 
 /// <summary>KILN105 around Kiln tasks (T6): <c>KilnTask.Wait</c>, blocking on the <c>Task</c> that
-/// <c>AsTask()</c> hands out, a <c>ctx.ToTick()</c> that is never awaited, and gated world calls whose
-/// task scope is gone (or that write from the tick). Kiln tasks compile against the real Kiln.Api;
-/// the gated world face of T9/T10 (<c>Kiln.WorldConcurrent</c>: reads, and <c>TryCompareExchange</c>
-/// for the gated write) does not exist yet, so a fixture library carries its documented shape.</summary>
+/// <c>AsTask()</c> hands out, and a <c>ctx.ToTick()</c> that is never awaited. Kiln tasks compile against
+/// the real Kiln.Api.</summary>
 public sealed class TaskBlockingTests
 {
     private static readonly BlockingAnalyzer A = new();
-
-    private static readonly MetadataReference Gated = Library("""
-        namespace Kiln
-        {
-            public static class WorldConcurrent
-            {
-                public static bool IsAvailable => true;
-                public static int Read(int entity) => entity;
-                public static int Query(int entity) => entity;
-                public static bool TryCompareExchange(int entity, int expected, int desired) => true;
-            }
-        }
-        """, "Kiln.WorldFixture");
 
     // ---- KilnTask.Wait ----
 
@@ -238,121 +222,5 @@ public sealed class TaskBlockingTests
         // a returned hop, a look-alike.
         Ids(d, "KILN105", "KILN105", "KILN105", "KILN105", "KILN105", "KILN105");
         Assert.All(d, x => Assert.Contains("never awaited", x.GetMessage()));
-    }
-
-    // ---- gated world calls (T9/T10 shape) ----
-
-    [Fact]
-    public async Task Gated_reads_are_fine_in_a_task_and_on_the_tick_writes_are_not_on_the_tick()
-    {
-        var d = await Run(A, """
-            public sealed class M : Mod
-            {
-                public override void OnLoad()
-                {
-                    var readOnLoad = WorldConcurrent.Read(1);
-                    Context.Tick.Pre += (in TickInfo t) => WorldConcurrent.Read(1);
-                    Context.Tick.Pre += (in TickInfo t) => WorldConcurrent.TryCompareExchange(1, 0, 1);
-                    Context.Tick.Post += OnPost;
-                    Context.Tasks.Run("scan", async ctx =>
-                    {
-                        var a = WorldConcurrent.Read(1);
-                        var wrote = WorldConcurrent.TryCompareExchange(1, 0, 1);
-                        await ctx.ToTick();
-                        var b = WorldConcurrent.Read(1);
-                        var onTick = WorldConcurrent.TryCompareExchange(1, 0, 1);
-                        await ctx.NextGateWindow();
-                        var afterGate = WorldConcurrent.TryCompareExchange(1, 0, 1);
-                        ctx.PostToTick(() => WorldConcurrent.TryCompareExchange(1, 0, 1));
-                        var applied = ctx.OnTick(() => WorldConcurrent.Read(1));
-                    });
-                }
-                private void OnPost(in TickInfo t) => WorldConcurrent.TryCompareExchange(1, 0, 1);
-            }
-            """, extra: [Gated]);
-        // The Pre write, the Post handler's write, the write after a hop, the PostToTick write.
-        Ids(d, "KILN105", "KILN105", "KILN105", "KILN105");
-        Assert.All(d, x => Assert.Contains("gated", x.GetMessage()));
-        Assert.All(d, x => Assert.Contains("busy", x.GetMessage()));
-    }
-
-    [Fact]
-    public async Task Gated_calls_after_ConfigureAwait_false_have_no_task_scope()
-    {
-        var d = await Run(A, """
-            public sealed class M : Mod
-            {
-                public override void OnLoad()
-                {
-                    Context.Tasks.Run("scan", async ctx =>
-                    {
-                        var a = WorldConcurrent.Read(1);
-                        await Task.Delay(1).ConfigureAwait(false);
-                        var escapedRead = WorldConcurrent.Read(1);
-                        var escapedWrite = WorldConcurrent.TryCompareExchange(1, 0, 1);
-                        await ctx.NextGateWindow();
-                        var back = WorldConcurrent.Read(1);
-                        await ctx.ToTick();
-                        await Task.Delay(1).ConfigureAwait(true);
-                        var stillTick = WorldConcurrent.Read(1);
-                    });
-                    Task.Run(() => WorldConcurrent.Read(1));
-                }
-                private void Unknown() => WorldConcurrent.Read(1);
-            }
-            """, extra: [Gated]);
-        // The two calls after ConfigureAwait(false), and the raw Task.Run call. Not: in-task calls,
-        // a call re-scoped by a gate window, ConfigureAwait(true), or unknown code.
-        Ids(d, "KILN105", "KILN105", "KILN105");
-        Assert.All(d, x => Assert.Contains("task scope", x.GetMessage()));
-    }
-
-    [Fact]
-    public async Task A_look_alike_gated_face_in_another_assembly_is_not_gated()
-    {
-        var fake = Library("""
-            namespace Kiln
-            {
-                public static class WorldConcurrent
-                {
-                    public static int Read(int entity) => entity;
-                }
-            }
-            """, "SharedLib");
-        var d = await Run(A, """
-            public sealed class M : Mod
-            {
-                public override void OnLoad()
-                {
-                    Context.Tasks.Run("scan", async ctx =>
-                    {
-                        await Task.Delay(1).ConfigureAwait(false);
-                        var a = WorldConcurrent.Read(1);
-                    });
-                }
-            }
-            """, extra: [fake]);
-        Ids(d);
-    }
-
-    [Fact]
-    public async Task The_gated_faces_availability_check_is_not_a_gated_call()
-    {
-        var d = await Run(A, """
-            public sealed class M : Mod
-            {
-                public override void OnLoad()
-                {
-                    Context.Tick.Pre += (in TickInfo t) => Use(WorldConcurrent.IsAvailable);
-                    Context.Tasks.Run("scan", async ctx =>
-                    {
-                        await Task.Delay(1).ConfigureAwait(false);
-                        Use(WorldConcurrent.IsAvailable);
-                    });
-                }
-                private void Use(bool b) { }
-            }
-            """, extra: [Gated]);
-        Ids(d);
     }
 }
