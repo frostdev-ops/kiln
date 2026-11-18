@@ -676,7 +676,9 @@ the plain-bytes rule over sigdb's reflection of both builds against an independe
 `tests/lint_hold.py` checks the code that runs inside the hold; `tests/mutate_writes.py <scratch dir>` breaks each
 check alone and expects the suite to fail. `native/build.sh world-ecs-fault` and `WINEPREFIX=<private prefix>
 native/services/world/tests/wine.sh` run the write's fault paths over the real Windows SEH write and Interlocked words.
-Not covered there: the priority raise against a real GameServer spin on native Windows.
+Not covered there: the priority raise against a real GameServer spin on native Windows. The tester kit for that is
+[../priority-kit.md](../priority-kit.md): a native mod doing these compare-exchanges in a loop on a padding byte of the
+host's character, a CPU-load helper, collection scripts and the analysis (GitHub #58).
 
 **In-game check (the owner's, on a lab or test world only).** It changes a component of a live world, so it runs only
 when its file names that world:
