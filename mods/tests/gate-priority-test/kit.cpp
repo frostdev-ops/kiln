@@ -382,16 +382,19 @@ struct Loop {
         ref = KilnObjectRef{};
         return g->world->entity_open(g->owner, g->owner, KILN_WORLD_SERVER, 0, player, &ref) == KILN_OK;
     }
-    KilnResult read(std::vector<uint8_t>& out) {
-        out.assign(size, 0);
+    // A stable copy of component `c`, read again while a frame changes it under the copy (bounded).
+    KilnResult snapshot(uint32_t c, std::vector<uint8_t>& out, uint32_t bytes) {
+        out.assign(bytes, 0);
         uint32_t req = 0;
         KilnResult rc = KILN_ERR_UNAVAILABLE;
         for (int i = 0; i < 20; ++i) {
-            rc = g->world->ecs_snapshot(g->owner, &ref, hash, out.data(), size, &req);
+            rc = g->world->ecs_snapshot(g->owner, &ref, c, out.data(), bytes, &req);
             if (rc != KILN_ECS_ERR_UNREADABLE && rc != KILN_WORLD_ERR_CHANGED) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
         return rc;
     }
+    KilnResult read(std::vector<uint8_t>& out) { return snapshot(hash, out, size); }
     std::string choose();
     bool setup();
     void row(const char* op, int attempt, KilnResult rc, const KilnMutationReply& r, uint64_t call_ns, int64_t at, int prio) {
@@ -573,9 +576,8 @@ std::string Loop::choose() {
             continue;
         }
         ++writable;
-        uint32_t req = 0;
-        std::vector<uint8_t> b(p.component_size ? p.component_size : 1);
-        if (g->world->ecs_snapshot(g->owner, &ref, row.component, b.data(), static_cast<uint32_t>(b.size()), &req) != KILN_OK) {
+        std::vector<uint8_t> b;
+        if (snapshot(row.component, b, p.component_size ? p.component_size : 1) != KILN_OK) {
             if (wanted) why_named = "the player has no such component";
             continue;
         }
@@ -683,9 +685,8 @@ bool Loop::setup() {
             KilnEcsWritePolicy p{};
             p.size = sizeof p;
             if (g->world->ecs_write_policy(KILN_WORLD_SERVER, row.component, &p) != KILN_OK || p.status != KILN_ECS_OK) continue;
-            std::vector<uint8_t> b(p.component_size);
-            uint32_t req = 0;
-            if (g->world->ecs_snapshot(g->owner, &ref, row.component, b.data(), p.component_size, &req) != KILN_OK) continue;
+            std::vector<uint8_t> b;
+            if (snapshot(row.component, b, p.component_size) != KILN_OK) continue;
             if (!hash || p.component_size < size) {
                 hash = row.component;
                 size = p.component_size;
