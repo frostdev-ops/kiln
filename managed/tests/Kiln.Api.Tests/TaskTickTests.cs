@@ -732,4 +732,95 @@ public sealed class TaskTickTests : TaskTest
         Assert.Contains("the mod is unloading", Assert.IsType<InvalidOperationException>(task.Fault).Message);
         Assert.True(SpinWait.SpinUntil(() => Backend.Logged("task 'leaves' faulted"), 20000));
     }
+
+    [Theory]
+    [InlineData(Hop.ToTick)]
+    [InlineData(Hop.OnTick)]
+    [InlineData(Hop.PostToTick)]
+    [InlineData(Hop.NextGateWindow)]
+    public void A_child_task_that_hops_with_its_parents_KilnTaskContext_while_the_mod_unloads_faults_loudly(Hop hop)
+    {
+        var mod = NewMod("alpha");
+        KilnTaskContext? parentContext = null;
+        var hold = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var parent = mod.Tasks.Run("parent", async ctx =>
+        {
+            parentContext = ctx;
+            await hold.Task;  // suspended: its work has not ended
+        });
+        Pool.WaitIdle();
+        using var inChild = new ManualResetEventSlim();
+        using var go = new ManualResetEventSlim();
+        var child = mod.Tasks.Run("child", async ctx =>
+        {
+            inChild.Set();
+            go.Wait(Long);
+            await NextRound(parentContext!, hop);  // the parent's context, inside another task's work: the mod's mistake
+        });
+        Assert.True(inChild.Wait(Long));
+        mod.BeginUnload();
+        go.Set();
+        Ended(child);
+        Assert.Equal(KilnTaskState.Faulted, child.State);
+        var refused = Assert.IsType<InvalidOperationException>(child.Fault);
+        Assert.Contains("this is the task 'child', not 'parent'", refused.Message);
+        Assert.Equal(0, Pool.HopsQueued);
+        Assert.True(SpinWait.SpinUntil(() => Backend.Logged("task 'child' faulted"), 20000));
+        hold.SetResult();
+        Ended(parent);
+        Assert.Equal(KilnTaskState.Completed, parent.State);  // the child's misuse ended nothing of the parent
+    }
+
+    [Theory]
+    [InlineData(Hop.ToTick, false)]
+    [InlineData(Hop.OnTick, false)]
+    [InlineData(Hop.PostToTick, false)]
+    [InlineData(Hop.NextGateWindow, false)]
+    [InlineData(Hop.ToTick, true)]
+    [InlineData(Hop.OnTick, true)]
+    [InlineData(Hop.PostToTick, true)]
+    [InlineData(Hop.NextGateWindow, true)]
+    public void A_hop_after_a_continuation_that_resumed_while_the_mod_unloads_ends_the_task_Cancelled(Hop hop, bool fromTick)
+    {
+        var mod = NewMod("alpha");
+        using var waiting = new ManualResetEventSlim();
+        var resume = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Exception? thrown = null;
+        var token = CancellationToken.None;
+        var resumedInTask = false;
+        var task = mod.Tasks.Run("resumes", async ctx =>
+        {
+            token = ctx.Cancellation;
+            try
+            {
+                if (fromTick) await ctx.ToTick();  // the await below then captures the task's tick context
+                waiting.Set();
+                await resume.Task.ConfigureAwait(true);  // resumes during the unload, in the task (a worker)
+                resumedInTask = TaskExecutionScope.Current is not null && !TaskExecutionScope.OnTick;
+                await NextRound(ctx, hop);
+            }
+            catch (Exception e)
+            {
+                thrown = e;
+                throw;
+            }
+        });
+        Assert.True(SpinWait.SpinUntil(() =>
+        {
+            if (fromTick) Pool.Step();  // the hop to the tick, once the worker has queued it
+            return waiting.IsSet;
+        }, 20000));
+        Pool.WaitIdle();
+        mod.BeginUnload();
+        resume.SetResult();
+        Assert.True(SpinWait.SpinUntil(() =>
+        {
+            if (!task.IsTerminal) Pool.Step();  // a continuation queued for the tick is dispatched cancelled there
+            return task.IsTerminal;
+        }, 20000), $"the task did not end ({task.State})");
+        Assert.Equal(KilnTaskState.Cancelled, task.State);
+        Assert.True(resumedInTask);
+        Assert.Equal(token, Assert.IsAssignableFrom<OperationCanceledException>(thrown).CancellationToken);
+        NoFaultLogged();
+    }
 }
