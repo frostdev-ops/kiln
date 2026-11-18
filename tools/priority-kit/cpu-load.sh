@@ -64,7 +64,9 @@ stop_load() {
 }
 utc_ms() { date -u +%s%3N; }
 phase= phase_start=0
+sleeper=
 finish() {
+  [[ -z $sleeper ]] || kill "$sleeper" 2>/dev/null || true
   stop_load
   if [[ -n $phase ]]; then  # stopped part-way: the phase as far as it ran
     printf '%s,%s,%s,%s,%s\n' "$phase" "$phase_start" "$(utc_ms)" "$([[ $phase == load ]] && echo "$threads" || echo 0)" "nice$nice_level" >> "$out"
@@ -93,7 +95,12 @@ for item in "${schedule[@]}"; do
       pids+=($!)
     done
   fi
-  sleep "$seconds"
+  # in the background and waited for: bash runs a trap only between commands, and `wait` returns at a signal at once,
+  # where a foreground `sleep` would hold a kill of this script until the phase ends
+  sleep "$seconds" &
+  sleeper=$!
+  wait "$sleeper"
+  sleeper=
   stop_load
   printf '%s,%s,%s,%s,%s\n' "$phase" "$phase_start" "$(utc_ms)" "$([[ $phase == load ]] && echo "$threads" || echo 0)" "nice$nice_level" >> "$out"
   phase=

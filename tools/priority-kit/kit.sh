@@ -33,9 +33,12 @@ find_game() {
     [[ -f $game/enshrouded.exe ]] || { printf 'No enshrouded.exe in %s\n' "$game" >&2; exit 1; }
     (cd "$game" && pwd); return
   fi
-  local root lib
+  local root lib libs
   for root in "$HOME/.local/share/Steam" "$HOME/.steam/steam" "$HOME/.var/app/com.valvesoftware.Steam/.local/share/Steam"; do
-    for lib in "$root" $( [[ -f $root/steamapps/libraryfolders.vdf ]] && sed -n 's/^[[:space:]]*"path"[[:space:]]*"\(.*\)"/\1/p' "$root/steamapps/libraryfolders.vdf" ); do
+    libs=("$root")  # one library per line of the vdf: a path with spaces stays one path
+    [[ -f $root/steamapps/libraryfolders.vdf ]] &&
+      mapfile -t -O 1 libs < <(sed -n 's/^[[:space:]]*"path"[[:space:]]*"\(.*\)"/\1/p' "$root/steamapps/libraryfolders.vdf")
+    for lib in "${libs[@]}"; do
       if [[ -f $lib/steamapps/common/Enshrouded/enshrouded.exe ]]; then (cd "$lib/steamapps/common/Enshrouded" && pwd); return; fi
     done
   done

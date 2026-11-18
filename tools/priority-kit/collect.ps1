@@ -61,6 +61,7 @@ function Find-Game {
     throw 'The Enshrouded folder was not found in the Steam libraries; pass -Game "<the folder with enshrouded.exe>".'
 }
 
+$utf8 = New-Object System.Text.UTF8Encoding($false)
 # ---- redaction: the same rules as collect.py ----
 $literal = New-Object System.Collections.Generic.List[object]
 foreach ($pair in @(
@@ -74,15 +75,21 @@ function Redact([string]$text) {
         $text = [regex]::Replace($text, '(?i)(?<![A-Za-z0-9])' + [regex]::Escape($pair[0]) + '(?![A-Za-z0-9])', $pair[1].Replace('$', '$$'))
     }
     $text = [regex]::Replace($text, '(?i)([a-z]:[\\/]+users[\\/]+)[^\\/"\s]+', '$1<user>')
-    $text = [regex]::Replace($text, '(?i)(/home/|/Users/)[^/"\s]+', '$1<user>')
+    $text = [regex]::Replace($text, '([\\/]home[\\/]+|/Users/)[^\\/"\s]+', '$1<user>')  # also Wine's Z:\home\<user>
+    $text = [regex]::Replace($text, '(?i)(userdata[\\/]+)\d+', '$1<steamid>')  # Steam's per-account folder
     $text = [regex]::Replace($text, '7656119\d{10}', '<steamid>')
+    $text = [regex]::Replace($text, '(?<![0-9A-Fa-f-])[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}(?![0-9A-Fa-f-])', '<guid>')
     $text = [regex]::Replace($text, '(?<![0-9A-Fa-f])[0-9A-Fa-f]{32}(?![0-9A-Fa-f])', '<guid>')
     return $text
 }
 $keep = 'Kiln |build |config:|kiln\.engine|engine\.|gate-priority-test|world\.ecs|ecs-write|kiln\.tasks|tasks[:.]|watchdog|tick:|crash|fault|quarantin|safe idle'
+# lines that name people or their worlds stay out even when $keep matches them ("net: <name> joined with Kiln ...")
+$drop = '\bnet: |\bplayers: |\bsaves: |\bchat'
+# Kiln writes UTF-8; Windows PowerShell 5.1 would read a file without a byte-order mark in the ANSI code page
+function Read-Text([string]$path) { return [System.IO.File]::ReadAllText($path, $utf8) }
 function Log-Lines([string]$path) {
     if (-not (Test-Path -LiteralPath $path)) { return @() }
-    return @(Get-Content -LiteralPath $path | Where-Object { $_ -match $keep } | ForEach-Object { Redact $_ })
+    return @((Read-Text $path) -split "`r?`n" | Where-Object { ($_ -cmatch $keep) -and -not ($_ -cmatch $drop) } | ForEach-Object { Redact $_ })
 }
 
 $gameDir = Find-Game
@@ -90,7 +97,6 @@ $kiln = Join-Path $gameDir 'kiln'
 $logs = Join-Path $kiln 'logs'
 $switchFile = [System.IO.Path]::Combine($kiln, 'data', 'kiln.engine', 'gate-priority-raise')
 $stamp = [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss')
-$utf8 = New-Object System.Text.UTF8Encoding($false)
 $entries = [ordered]@{}  # zip entry name ('/' separated) -> text
 $listed = New-Object System.Collections.Generic.List[string]
 function Put([string]$name, [string]$text) {
@@ -104,23 +110,23 @@ try {
     }
     foreach ($name in 'tick-stats.jsonl') {
         $p = Join-Path $logs $name
-        if (Test-Path -LiteralPath $p) { Put "logs/$name" (Redact (Get-Content -LiteralPath $p -Raw)) }
+        if (Test-Path -LiteralPath $p) { Put "logs/$name" (Redact (Read-Text $p)) }
     }
     $caps = [System.IO.Path]::Combine($kiln, 'state', 'capabilities.json')
-    if (Test-Path -LiteralPath $caps) { Put 'state/capabilities.json' (Redact (Get-Content -LiteralPath $caps -Raw)) }
+    if (Test-Path -LiteralPath $caps) { Put 'state/capabilities.json' (Redact (Read-Text $caps)) }
     $runs = Join-Path $logs 'gate-priority-test'
     if (Test-Path -LiteralPath $runs) {
         foreach ($run in Get-ChildItem -LiteralPath $runs -Directory -Filter 'run-*') {
             foreach ($f in Get-ChildItem -LiteralPath $run.FullName -File) {
-                Put ("runs/{0}/{1}" -f $run.Name, $f.Name) (Redact (Get-Content -LiteralPath $f.FullName -Raw))
+                Put ("runs/{0}/{1}" -f $run.Name, $f.Name) (Redact (Read-Text $f.FullName))
             }
         }
     }
     foreach ($f in Get-ChildItem -LiteralPath $here -File -Filter 'cpu-load-*.csv' -ErrorAction SilentlyContinue) {
-        Put ("load/{0}" -f $f.Name) (Get-Content -LiteralPath $f.FullName -Raw)
+        Put ("load/{0}" -f $f.Name) (Read-Text $f.FullName)
     }
     foreach ($f in Get-ChildItem -LiteralPath $here -File -Filter 'fault-test*.txt' -ErrorAction SilentlyContinue) {
-        Put ("checks/{0}" -f $f.Name) (Redact (Get-Content -LiteralPath $f.FullName -Raw))
+        Put ("checks/{0}" -f $f.Name) (Redact (Read-Text $f.FullName))  # UTF-16 from 5.1's `>`: the byte-order mark tells
     }
 
     # system information (nothing that names you or the machine); each part on its own, so one that fails costs only itself
@@ -141,7 +147,7 @@ try {
     try { $plan = ((powercfg /getactivescheme) -join ' ') -replace '^.*\(([^)]*)\).*$', '$1' } catch { }
     $wine = $false
     try { $wine = $null -ne (Get-ItemProperty -Path 'HKLM:\Software\Wine' -ErrorAction Stop) } catch { }
-    $switchText = if (Test-Path -LiteralPath $switchFile) { [System.IO.File]::ReadAllText($switchFile).Trim() } else { $null }
+    $switchText = if (Test-Path -LiteralPath $switchFile -PathType Leaf) { [System.IO.File]::ReadAllText($switchFile).Trim() } else { $null }
     $gpu = @()
     try { $gpu = @(Get-CimInstance Win32_VideoController -ErrorAction Stop | ForEach-Object { $_.Name }) } catch { }
     $system = [ordered]@{
@@ -164,7 +170,7 @@ try {
     }
     Put 'system.json' (Redact ($system | ConvertTo-Json -Depth 4))
 
-    $mode = if ($switchText -eq 'off') { 'raise-off' } else { 'raise-on' }
+    $mode = if ($switchText -ceq 'off') { 'raise-off' } else { 'raise-on' }  # as kiln.engine: exactly "off"
     if (-not $Out) { $Out = Join-Path $here "kiln-priority-kit-windows-$mode-$stamp.zip" }
     if (Test-Path -LiteralPath $Out) { Remove-Item -LiteralPath $Out -Force }
     # the zip by hand: entry names with '/' (Compress-Archive in Windows PowerShell 5.1 writes '\')
@@ -188,12 +194,15 @@ catch {
     Write-Warning "Nothing was collected: $_"
     throw
 }
-if (Test-Path -LiteralPath $switchFile) {
-    if ($KeepSwitch) {
-        Write-Warning "The measurement switch is still there ($switchFile): the next start runs with the priority raise OFF. Delete it when you are done (kit.ps1 raise on)."
-    }
-    else {
-        Remove-Item -LiteralPath $switchFile -Force
-        Write-Warning 'The measurement switch was still there; it is deleted now, so the next start runs with the priority raise on (the normal state).'
+finally {
+    # also when the collection failed: the next start must not run with the raise off by accident
+    if (Test-Path -LiteralPath $switchFile -PathType Leaf) {
+        if ($KeepSwitch) {
+            Write-Warning "The measurement switch is still there ($switchFile): the next start runs with the priority raise OFF. Delete it when you are done (kit.ps1 raise on)."
+        }
+        else {
+            Remove-Item -LiteralPath $switchFile -Force
+            Write-Warning 'The measurement switch was still there; it is deleted now, so the next start runs with the priority raise on (the normal state).'
+        }
     }
 }

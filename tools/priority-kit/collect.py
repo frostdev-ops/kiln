@@ -33,6 +33,9 @@ KIT_VERSION = '1'
 APP_ID = '1203620'
 KEEP = re.compile(r'Kiln |build |config:|kiln\.engine|engine\.|gate-priority-test|world\.ecs|ecs-write|kiln\.tasks|tasks[:.]|'
                   r'watchdog|tick:|crash|fault|quarantin|safe idle')
+# Lines that name people or their worlds stay out even when KEEP matches them: the network's joins and the players' and
+# saves' services ("net: <name> joined with Kiln ...").
+DROP = re.compile(r'\bnet: |\bplayers: |\bsaves: |\bchat')
 
 
 def libraries():
@@ -77,8 +80,11 @@ class Redactor:
         for pattern, token in self.literal:
             text = pattern.sub(token.replace('\\', '\\\\'), text)
         text = re.sub(r'(?i)([a-z]:[\\/]+users[\\/]+)[^\\/"\s]+', r'\1<user>', text)
-        text = re.sub(r'(/home/|/Users/)[^/"\s]+', r'\1<user>', text)
+        text = re.sub(r'([\\/]home[\\/]+|/Users/)[^\\/"\s]+', r'\1<user>', text)  # also Wine's Z:\\home\\<user>
+        text = re.sub(r'(?i)(userdata[\\/]+)\d+', r'\1<steamid>', text)  # Steam's per-account folder
         text = re.sub(r'7656119\d{10}', '<steamid>', text)
+        text = re.sub(r'(?<![0-9A-Fa-f-])[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}(?![0-9A-Fa-f-])',
+                      '<guid>', text)
         text = re.sub(r'(?<![0-9A-Fa-f])[0-9A-Fa-f]{32}(?![0-9A-Fa-f])', '<guid>', text)
         return text
 
@@ -162,7 +168,7 @@ def collect(game, out, here, keep_switch=False, redact=None):
     for name in ('kiln.log', 'kiln.prev.log'):
         p = logs / name
         if p.is_file():
-            lines = [redact(line) for line in read(p).splitlines() if KEEP.search(line)]
+            lines = [redact(line) for line in read(p).splitlines() if KEEP.search(line) and not DROP.search(line)]
             if lines:
                 entries['logs/' + name] = '\n'.join(lines) + '\n'
     if (logs / 'tick-stats.jsonl').is_file():
@@ -180,6 +186,21 @@ def collect(game, out, here, keep_switch=False, redact=None):
     for f in sorted(Path(here).glob('fault-test*.txt')):
         entries['checks/' + f.name] = redact(read(f))
     switch_text = read(switch).strip() if switch.is_file() else None
+    try:
+        return write_zip(entries, game, out, here, switch_text, redact)
+    finally:
+        # also when the zip could not be written: the next start must not run with the raise off by accident
+        if switch.is_file():
+            if keep_switch:
+                print('WARNING: the measurement switch is still there (%s): the next start runs with the priority raise '
+                      'OFF. Delete it when you are done (kit.sh raise on).' % switch)
+            else:
+                switch.unlink()
+                print('WARNING: the measurement switch was still there; it is deleted now, so the next start runs with '
+                      'the priority raise on (the normal state).')
+
+
+def write_zip(entries, game, out, here, switch_text, redact):
     entries['system.json'] = redact(json.dumps(system_info(game, switch_text, sorted(entries)), indent=2)) + '\n'
     mode = 'raise-off' if switch_text == 'off' else 'raise-on'
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d-%H%M%S')
@@ -195,14 +216,6 @@ def collect(game, out, here, keep_switch=False, redact=None):
     if not any(n.startswith('runs/') for n in entries):
         print('WARNING: no run of the test mod was found (kiln/logs/gate-priority-test/run-*). '
               'Did the run file name the world you played?')
-    if switch.exists():
-        if keep_switch:
-            print('WARNING: the measurement switch is still there (%s): the next start runs with the priority raise OFF. '
-                  'Delete it when you are done (kit.sh raise on).' % switch)
-        else:
-            switch.unlink()
-            print('WARNING: the measurement switch was still there; it is deleted now, so the next start runs with the '
-                  'priority raise on (the normal state).')
     return out
 
 

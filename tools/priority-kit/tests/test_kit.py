@@ -168,7 +168,10 @@ def fake_game(root, user='alice', home='/home/alice'):
         'players: alice joined as 76561198000000001 from %s/games\n'
         'kiln.engine: exact engine profile enshrouded-client-26430625 for enshrouded.exe\n'
         'gate-priority-test: this world is 6b696c6e2d746573742d776f726c6401; put world=...\n'
-        'gate-priority-test: files in Z:%s\\Steam\\ and C:\\Users\\%s\\AppData\n' % (home, home.replace('/', '\\'), user))
+        'gate-priority-test: files in Z:%s\\Steam\\ and C:\\Users\\%s\\AppData\n'
+        '[I 13:37:21.702] [kiln] net: Brightwick (0x80) joined with Kiln 0.2.0-dev.29.17: 5 mod(s)\n'
+        '[I 13:37:22.000] [kiln] build fault: cloud folder C:\\Program Files (x86)\\Steam\\userdata\\40000017\\1203620\n'
+        % (home, home.replace('/', '\\'), user))
     (game / 'kiln/logs/tick-stats.jsonl').write_text('{"time":"2026-11-18T12:00:00","steps":1}\n')
     (game / 'kiln/state/capabilities.json').write_text('{"capabilities":[{"name":"x","reasonText":"%s/x"}]}' % home)
     run = game / 'kiln/logs/gate-priority-test/run-20261118-120000'
@@ -206,6 +209,9 @@ class Collect(unittest.TestCase):
         self.assertIn('this world is <guid>', log)
         self.assertNotIn('alice', ''.join(files.values()))
         self.assertIn('C:\\Users\\<user>\\AppData', log)
+        self.assertNotIn('Brightwick', log)  # another player's name, on a line that mentions Kiln
+        self.assertNotIn('40000017', log)  # the Steam account id in a userdata folder
+        self.assertIn('userdata\\<steamid>\\1203620', log)
         self.assertIn('/home/<user>', files['state/capabilities.json'])
         system = json.loads(files['system.json'])
         self.assertEqual((system['platform'], system['raise_switch']), ('linux', 'off'))
@@ -219,6 +225,13 @@ class Collect(unittest.TestCase):
         self.assertIn('the measurement switch is still there', said.getvalue())
         self.assertTrue((game / 'kiln/data/kiln.engine/gate-priority-raise').exists())
 
+    def test_the_switch_goes_even_when_the_collection_fails(self):
+        game = fake_game(self.dir)
+        (game / 'kiln/data/kiln.engine/gate-priority-raise').write_text('off')
+        with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(OSError):
+            collect.collect(game, str(self.dir / 'no-such-folder/o.zip'), self.dir, redact=collect.Redactor())
+        self.assertFalse((game / 'kiln/data/kiln.engine/gate-priority-raise').exists())
+
     def test_redactor(self):
         r = collect.Redactor('bob', 'host', '/home/bob')
         self.assertEqual(r('bob at host'), '<user> at <computer>')
@@ -226,6 +239,9 @@ class Collect(unittest.TestCase):
         self.assertEqual(r('id 76561198012345678'), 'id <steamid>')
         self.assertEqual(r('sha ' + 'a' * 64), 'sha ' + 'a' * 64)  # a sha256 is not a GUID
         self.assertEqual(r('/home/zed/x and D:\\Users\\Zed\\y'), '/home/<user>/x and D:\\Users\\<user>\\y')
+        self.assertEqual(r('Z:\\home\\zed\\.local'), 'Z:\\home\\<user>\\.local')  # a Linux home as Wine names it
+        self.assertEqual(r('Steam/userdata/12345/1203620'), 'Steam/userdata/<steamid>/1203620')
+        self.assertEqual(r('world 6b696c6e-2d74-6573-742d-776f726c6401'), 'world <guid>')
 
 
 class KitSh(unittest.TestCase):
@@ -272,6 +288,18 @@ class KitSh(unittest.TestCase):
         self.kit_sh('uninstall', '--logs')
         self.assertFalse((self.game / 'kiln/logs/gate-priority-test').exists())
 
+    def test_finds_the_game_in_a_steam_library_with_spaces(self):
+        home = self.dir / 'home'
+        (home / '.local/share/Steam/steamapps').mkdir(parents=True)
+        lib = self.dir / 'My Games Lib'
+        shutil.copytree(self.game, lib / 'steamapps/common/Enshrouded')
+        (home / '.local/share/Steam/steamapps/libraryfolders.vdf').write_text(
+            '"libraryfolders"\n{\n\t"1"\n\t{\n\t\t"path"\t\t"%s"\n\t}\n}\n' % lib)
+        p = subprocess.run(['bash', str(self.kit / 'kit.sh'), 'status'], capture_output=True, text=True,
+                           env=dict(os.environ, HOME=str(home)))
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn('My Games Lib', p.stdout)
+
     def test_a_profile_without_native_dropins_warns(self):
         (self.game / 'kiln/profile.json').write_text('{"dropins": false}')
         self.assertIn('does not load drop-in native mods', self.kit_sh('install').stdout)
@@ -316,6 +344,25 @@ class CpuLoad(unittest.TestCase):
         self.assertEqual(self.busy_in(p.pid), [], 'no busy process survives')
         rows = list(csv.DictReader(out.read_text().splitlines()))
         self.assertEqual([r['phase'] for r in rows], ['idle', 'load'], 'the phase stopped part-way is recorded')
+
+    def test_a_kill_of_the_script_stops_every_busy_process_at_once(self):
+        out = self.dir / 'phases.csv'
+        p = subprocess.Popen(['bash', str(KIT / 'cpu-load.sh'), '--threads', '2', '--load', '60', '--idle', '1', '--cycles', '1',
+                              '--out', str(out)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             start_new_session=True)
+        try:
+            deadline = time.time() + 20
+            while time.time() < deadline and len(self.busy_in(p.pid)) < 2:
+                time.sleep(0.2)
+            self.assertEqual(len(self.busy_in(p.pid)), 2, 'two busy processes while loaded')
+            p.send_signal(signal.SIGTERM)  # the script alone, not its process group
+            p.wait(timeout=5)
+            time.sleep(0.5)
+            self.assertEqual(self.busy_in(p.pid), [], 'no busy process survives')
+        finally:
+            if p.poll() is None:
+                os.killpg(p.pid, signal.SIGKILL)
+                p.wait()
 
     def test_refuses_a_schedule_over_the_limit(self):
         p = subprocess.run(['bash', str(KIT / 'cpu-load.sh'), '--load', '3600', '--cycles', '2', '--max-minutes', '60'],

@@ -59,6 +59,8 @@ players: someone joined 76561198000000001
 kiln.engine: the write gate's priority raise is off for this run
 gate-priority-test: this world is 6b696c6e2d746573742d776f726c6401; put world=...
 gate-priority-test: files in /home/someone/x
+[I 13:37:21.702] [kiln] net: Brightwick (0x80) joined with Kiln 0.2.0-dev.29.17: 5 mod(s)
+[I 13:37:22.000] [kiln] build fault: cloud folder C:\Program Files (x86)\Steam\userdata\40000017\1203620 and Z:\home\someone\x
 EOF
 printf '{"time":"2026-11-18T12:00:00"}\n' > "$game/kiln/logs/tick-stats.jsonl"
 printf '{"capabilities":[{"name":"engine.gate_priority_raise","state":"unavailable","reasonText":"off"}]}' > "$game/kiln/state/capabilities.json"
@@ -84,9 +86,14 @@ assert names == ['load/cpu-load-test.csv', 'logs/kiln.log', 'logs/tick-stats.jso
                  'state/capabilities.json', 'system.json'], names
 log = z.read('logs/kiln.log').decode()
 assert 'players:' not in log and '<guid>' in log and '/home/<user>/x' in log and 'someone' not in log, log
+assert 'Brightwick' not in log and '40000017' not in log and 'userdata\\<steamid>' in log and 'Z:\\home\\<user>\\x' in log, log
 assert json.loads(z.read('system.json'))['raise_switch'] == 'off'
 EOF
 echo 'PASS kit.ps1 install, world, raise off, status; collect.ps1: the zip, the redaction, the switch deleted'
+step raise2 "$copy/kit.ps1" -Command raise -Value off -Game "$game"
+if ps_run "$copy/collect.ps1" -Game "$game" -Out "$out/no-such-folder/x.zip" > "$out/collect-fail.log" 2>&1; then fail 'collect.ps1 into a missing folder'; fi
+[[ ! -e $game/kiln/data/kiln.engine/gate-priority-raise ]] || { cat "$out/collect-fail.log"; fail 'collect.ps1 failed and left the switch'; }
+echo 'PASS collect.ps1: a collection that fails still deletes the switch'
 step uninstall "$copy/kit.ps1" -Command uninstall -Game "$game" -Logs '$true'
 [[ ! -e $game/kiln/native/gate-priority-test && ! -e $game/kiln/data/gate-priority-test && ! -e $game/kiln/logs/gate-priority-test ]] ||
   fail 'kit.ps1 uninstall'
