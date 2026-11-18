@@ -1,9 +1,9 @@
 # Tasks: heavy work off the server's tick
 
-Every mod callback runs on the server's tick thread, and every millisecond it takes comes out of the frame: the
-dedicated server steps its world about 24.5 times a second (≈41 ms a step). A Kiln task moves the heavy part of a mod's
-work (a scan, path finding, a big calculation, file or network IO) onto Kiln's own worker threads, and hands the result
-back to the tick in small pieces.
+A mod's tick handlers, event handlers and commands run on the server's tick thread, and every millisecond they take
+comes out of the frame: the dedicated server steps its world about 24.5 times a second (≈41 ms a step). A Kiln task
+moves the heavy part of a mod's work (a scan, path finding, a big calculation, file or network IO) onto Kiln's own
+worker threads, and hands the result back to the tick in small pieces.
 
 This page is the mod author's guide. The pool's contract (limits, states, configuration, exit) is in
 [../services/tasks.md](../services/tasks.md); the world reads are in
@@ -31,19 +31,23 @@ can still compute, but they cannot hop back to a tick (below).
 `Context.Tasks.Run` starts the work on one of Kiln's workers and returns a `KilnTask` at once:
 
 ```csharp
-var scan = Context.Tasks.Run("chest-scan", ctx => CountThings(data));                      // KilnTask
+var scan = Context.Tasks.Run("chest-scan", ctx => RebuildIndex(data));                     // KilnTask
 var path = Context.Tasks.Run<Route>("path", async ctx => await PlanAsync(from, to, ctx.Cancellation));  // KilnTask<Route>
 ```
 
-- **The work** is a lambda or method that gets a `KilnTaskContext`. It can be synchronous, `async`, or return a value
-  (`KilnTask<T>`).
+- **The work** is a lambda or method that gets a `KilnTaskContext`. It can be synchronous (with no result) or `async`.
+  `Run<T>` with an `async` lambda that returns a `T` gives a `KilnTask<T>`; a synchronous lambda's return value is
+  discarded.
 - **The name** is what `kiln.log`, the watchdog and the tick statistics show for it.
 - **`KilnTaskOptions`:**
-  - `new KilnTaskOptions(LongRunning: true)` gives work that runs for minutes (a queue the mod serves until it
-    unloads) a dedicated thread, so it doesn't hold one of the shared workers.
-  - `Priority` orders the mod's own queued tasks; it never gives a mod more than its share.
-- **Limits.** A mod runs at most 2 bodies at once, holds at most 1024 tasks that have not ended
-  (`KilnTaskQueueFullException` past that), and at most 2 long-running ones (8 for every mod together).
+  - `new KilnTaskOptions(LongRunning: true)` gives work that runs for seconds or longer, or loops until it is
+    cancelled (a queue the mod serves until it unloads), a dedicated thread, so it doesn't hold one of the shared
+    workers.
+  - `Priority` (`KilnTaskPriority.Low`, `Normal` or `High`) orders the mod's own queued tasks; it never gives a mod more
+    than its share.
+- **Limits.** A mod runs at most 2 tasks at once on the shared workers (a task waiting at an `await` doesn't count),
+  holds at most 1024 tasks that have not ended (`KilnTaskQueueFullException` past that), and runs at most 2
+  long-running ones (8 for all mods together by default).
 
 A `KilnTask` is awaitable. It ends `Completed`, `Faulted` (`Fault` holds the exception) or `Cancelled`.
 
@@ -56,7 +60,9 @@ A `KilnTask` is awaitable. It ends `Completed`, `Faulted` (`Fault` holds the exc
 - `task.Cancel()` asks a task to stop. It reaches the work through `ctx.Cancellation`, which a long loop should check
   (`ctx.Cancellation.ThrowIfCancellationRequested()`). An `OperationCanceledException` of that token ends the task
   `Cancelled`.
-- Kiln cancels a mod's tasks itself when the mod unloads, and when the server world they hop to stops.
+- Kiln cancels a mod's tasks itself when the mod unloads. When the server world stops, it cancels the tasks waiting
+  for a hop, a post or `NextGateWindow` in that world; a task that is only computing runs on, and its next hop throws
+  `KilnUnavailableException`.
 
 **Faults.** An exception that ends a task faults only that task: `kiln.log` says `task '<name>' faulted: ...` once, under
 the mod's name. It does not count toward the [fault policy](faults.md) that disables a mod.
@@ -113,8 +119,11 @@ long function.
 **When a hop can't happen.**
 - **No live server world** (the main menu, a client joined to someone else's server): `ToTick`, `OnTick`, `PostToTick`
   and `NextGateWindow` throw `KilnUnavailableException` (`tasks.pool`) at once.
-- **The task was cancelled first** (the mod unloads, the world stops): the hop never runs and the await throws
-  `OperationCanceledException`. Your `finally` blocks still run, on a worker.
+- **The task was cancelled first** (the mod unloads, the world stops): the hop never runs and the await of `ToTick`,
+  `OnTick` or `NextGateWindow` throws `OperationCanceledException`; a queued `PostToTick` is dropped and the task ends
+  `Cancelled`. Your `finally` blocks still run, on a worker.
+- **The mod is unloading:** a new `ToTick`, `OnTick`, `PostToTick` or `NextGateWindow` call throws
+  `InvalidOperationException` ("the mod is unloading").
 
 **The example's way back.**
 - It tells the player how many containers it searches with `PostToTick`, and goes on at once.
@@ -135,19 +144,23 @@ return sources;
 ```
 
 **Why the move isn't in the task.** Item moves are two transactions (take, then give), each answered in a later step.
-Inside the task, a cancel between the two would stop the continuation and leave the items taken but not given. The
-mod's own tick code awaits the task's plan instead (`sources = await search;`), so a fetch cancelled before the plan
-moves nothing, and a plan that exists is carried out on the tick.
+Inside the task, an unload or a world stop between the two would stop the rest of the method from running on the tick
+and leave the items taken but not given. The mod's own tick code awaits the task's plan instead
+(`sources = await search;`), so a fetch cancelled before the plan moves nothing, and a plan that exists is carried out
+on the tick.
 
 ## Reading the world from a task
 
 `WorldConcurrent` (Kiln.World) reads entities and components from a task's worker. Every read copies the bytes and
 checks the entity again around the copy, so it returns a whole value or says why not, as a `ReadStatus`:
+- `Ok`: the value is whole.
 - `Absent`: no such entity or component.
 - `Stale`: the id names another entity now, or the world, the entity's components or the mod's load changed.
-- `Unreadable`: the value changed during the read; try again.
+- `Unreadable`: the copy failed or the value changed during the read; try again.
 - `Unavailable`: the reads don't work here.
+- `SizeMismatch`: the component is smaller than the type you read it as.
 - `TooSmall` and `Changed`: see the buffer rules below.
+- `Busy` and `Unsupported`: see the read modes below.
 
 An ordinary miss never throws. The reads are experimental (`KILNX001`): opt in with
 `<NoWarn>$(NoWarn);KILNX001</NoWarn>` in the mod's project. The full reference is
@@ -170,34 +183,41 @@ var near = await WorldConcurrent.OrOnTick(ctx, () => NearFromTask(at, ctx.Cancel
            ?? await ctx.OnTick(() => NearOnTick(at));
 ```
 
+The search from the task: a bounded query, then where each container stands, nearest first.
+
 ```csharp
-var refs = new ConcurrentEntity[64];
-var query = new EntityQuery(WorldKind.Server, "Inventory") { Center = at, Radius = Reach };
-for (var attempt = 0; attempt < 5; attempt++)
+/// <summary>The containers within reach of <paramref name="at"/>, nearest first, read from a task's worker; null when
+/// the reads are not available here.</summary>
+private static IReadOnlyList<EntityId>? NearFromTask(WorldPosition at, CancellationToken cancellation)
 {
-    cancellation.ThrowIfCancellationRequested();
-    var result = WorldConcurrent.Query(query, refs);
-    switch (result.Status)
+    var refs = new ConcurrentEntity[64];
+    var query = new EntityQuery(WorldKind.Server, "Inventory") { Center = at, Radius = Reach };
+    for (var attempt = 0; attempt < 5; attempt++)
     {
-        case ReadStatus.Ok:
-            var near = new List<(EntityId Id, double Distance)>();
-            for (var i = 0; i < result.Count; i++)
-            {
-                // a container that went or changed since the query is left out (Stale, Absent)
-                var where = WorldConcurrent.Read<Position>(refs[i], "CurrentTransform");
-                if (where.IsOk) near.Add((refs[i].Id, where.Value.ToWorld().DistanceTo(at)));
-            }
-            return [.. near.OrderBy(n => n.Distance).Select(n => n.Id)];
-        case ReadStatus.TooSmall:
-            refs = new ConcurrentEntity[result.Required + 16];  // more containers than places: ask again with room
-            continue;
-        case ReadStatus.Changed:
-            continue;  // a container came or went during the walk: walk again
-        default:
-            return null;  // Unavailable here: the tick searches
+        cancellation.ThrowIfCancellationRequested();
+        var result = WorldConcurrent.Query(query, refs);
+        switch (result.Status)
+        {
+            case ReadStatus.Ok:
+                var near = new List<(EntityId Id, double Distance)>();
+                for (var i = 0; i < result.Count; i++)
+                {
+                    // a container that went or changed since the query is left out (Stale, Absent)
+                    var where = WorldConcurrent.Read<Position>(refs[i], "CurrentTransform");
+                    if (where.IsOk) near.Add((refs[i].Id, where.Value.ToWorld().DistanceTo(at)));
+                }
+                return [.. near.OrderBy(n => n.Distance).Select(n => n.Id)];
+            case ReadStatus.TooSmall:
+                refs = new ConcurrentEntity[result.Required + 16];  // more containers than places: ask again with room
+                continue;
+            case ReadStatus.Changed:
+                continue;  // a container came or went during the walk: walk again
+            default:
+                return null;  // Unavailable here: the tick searches
+        }
     }
+    return null;
 }
-return null;
 ```
 
 **Two read modes.**
@@ -207,6 +227,7 @@ return null;
     on a worker after a later step without holding a worker while it waits.
   - On the tick itself (a tick handler, or after `ToTick`) the frame is running, so a frame-quiet read there is `Busy`
     at once. Read `Stable` on the tick.
+  - Frame-quiet reads are for the server world; on a client world they are `Unsupported`.
 
 ```csharp
 ConcurrentRead<Position> where;
@@ -218,9 +239,8 @@ while ((where = WorldConcurrent.Read<Position>(entity, "CurrentTransform", ReadM
 - A `ConcurrentEntity` is a value, not a handle: nothing is pinned, and every read checks it again.
 - Refs taken before your mod reloads come back `Stale` after the reload: open the entities again.
 
-**Writes from tasks are not available yet.** Change the world on the tick (`World.Write`, `Items.Give`, ...). The
-engine holds its scene gate for the whole server update, so a write made from inside the frame would always meet it;
-that is also why `NextGateWindow` exists.
+**Tasks don't write to the world.** Change it on the tick (`World.Write`, `Items.Give`, ...), with `ToTick`,
+`OnTick` or `PostToTick`, or in the mod's own tick code once the task has handed over its result.
 
 ## Lifecycle: unload, reload, exit
 
@@ -234,7 +254,7 @@ that is also why `NextGateWindow` exists.
 4. The unload never waits for them on the tick. The mod's code stays loaded until its tasks have ended. A task still
    running 2 s later is named once in `kiln.log` (`tasks: mod <id>: task '<name>' (<state>) did not stop within 2 s;
    ...`) and the old code unloads when it ends.
-5. A reload starts the new instance at once, beside the old one.
+5. A reload doesn't wait for the old tasks: the new instance loads at once while the old one's tasks finish beside it.
 
 `OnUnload` may cancel the tasks it knows; the example does, to keep it visible:
 
@@ -255,7 +275,8 @@ promised. Don't rely on a task to save state at exit; save on the tick (in `OnUn
 **`kiln.log`.**
 - A watchdog writes one warning for a task that runs, or waits in the queue, for more than 30 s:
   `kiln.tasks: <mod>/<task> (task 0x...) has been running for 31.0 s (the watchdog reports it once; nothing is stopped)`.
-- A worker running a task is named `<mod>/<task>` (what a debugger and the crash reports show).
+- A worker running a task is named `<mod>/<task>`, which a debugger shows; crash reports list the running tasks by mod
+  and task name.
 
 **`kiln/logs/tick-stats.jsonl`.** Once a minute, the server world's line gets a `"tasks"` object:
 - **`"pool"`:** the workers, the long-running workers and the deepest queue.
@@ -284,7 +305,8 @@ The [TestKit](unit-tests.md) runs a mod's tasks under `dotnet test`:
 - **The fallback.** `kiln.Capabilities.Override("world.ecs_read", false)` turns the reads off, so the tick path gets
   tested too.
 
-The example's tests are `managed/tests/Kiln.TestKit.Tests/FetchNearbyTests.cs`:
+The example's tests are in `managed/tests/Kiln.TestKit.Tests/FetchNearbyTests.cs`, with their helpers (`Start`,
+`Finish`, `Said`, `Wood`, `ChatOf`). The first one, without its last check:
 
 ```csharp
 [Theory]
@@ -298,21 +320,28 @@ public void A_fetch_takes_from_the_nearest_containers_first(bool reads)
     Finish(w.Kiln, w.Ada);  // kiln.Tasks.Settle(), then steps until the moves are done
     Assert.Equal(12, Wood(w));
     Assert.Equal((0, 3, 50), (w.Near.Count(w.Wood), w.Middle.Count(w.Wood), w.Far.Count(w.Wood)));
+    // the command's reply, the task's word from the tick (PostToTick), the result of the moves
+    Assert.Equal(["[Server] looking for 12 x Wood within 12 m", "[Server] searching 2 container(s) within 12 m", "[Server] fetched 12 of 12 Wood"], ChatOf(w));
+    // the search ran in the task through the world reads, or on the tick where they are off
+    Assert.Equal(reads, w.Kiln.Run(() => WorldConcurrent.IsAvailable));
+    // ...
 }
 ```
 
 ## Common mistakes
 
-**`Wait()`, `.Result` and `GetAwaiter().GetResult()` on a task.**
-- On the tick these freeze the server.
-- In a task they hold a worker other tasks need.
-- `KilnTask.Wait()` is refused there.
-- The plain `Task` from `AsTask()` escapes that refusal: blocking on it is the same mistake. KILN105 reports both.
+**Blocking on a task.**
+- `KilnTask.Wait()` would freeze the server on the tick and hold a worker other tasks need in a task, so it is refused
+  there.
+- `.Result` and `GetAwaiter().GetResult()` on a `KilnTask` never wait: they throw until the task has ended.
+- The plain `Task` from `AsTask()` escapes all of this: `Wait()`, `.Result` or `GetAwaiter().GetResult()` on it really
+  block. KILN105 reports `KilnTask.Wait()` and blocking on the `AsTask()` task.
 - **Fix:** `await`.
 
 **Raw threads and `Task.Run`.**
-- Kiln does not track them: an unload leaves them running against unloaded code, and an exception in them can end
-  the process.
+- Kiln does not track them: an unload leaves them running against unloaded code. An exception in a raw thread ends
+  the process; one in `Task.Run` is seen only when the garbage collector finds it unobserved, and then counts as a
+  [fault](faults.md) of the mod.
 - They have no task scope, so the world reads refuse them.
 - **Fix:** use `Context.Tasks.Run`.
 
