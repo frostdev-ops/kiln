@@ -759,6 +759,18 @@ void KILN_CALL unsub_other(const KilnEcsWriteEvent*, void* u) {
     if (c->other) c->wr->unsubscribe(c->other);
     c->other = 0;
 }
+struct Slow {
+    std::atomic<int> calls{0};
+    std::atomic<bool> inside{false}, go{false};
+};
+void KILN_CALL slow_cb(const KilnEcsWriteEvent*, void* u) {
+    auto* s = static_cast<Slow*>(u);
+    s->calls.fetch_add(1);
+    s->inside.store(true);
+    while (!s->go.load()) std::this_thread::yield();
+    std::this_thread::sleep_for(std::chrono::milliseconds(30));
+    s->inside.store(false);
+}
 void KILN_CALL counting(const KilnEcsWriteEvent*, void* u) {
     auto* c = static_cast<Chain*>(u);
     ++c->calls;
@@ -807,6 +819,22 @@ void event_cases(Env& v) {
     check(after.calls == 3 && a.calls == 4 && v.wr.unsubscribe(hafter) == KILN_ERR_NOT_FOUND,
           k + "a retired owner's subscription gets no later event");
     v.wr.unsubscribe(ha);
+    // unsubscribing from another thread while the callback runs on the draining one: it returns after the callback did
+    Slow slow;
+    KilnHandle hslow = 0;
+    v.wr.subscribe(kOwner, &slow_cb, &slow, &hslow);
+    cx(v.wr, kOwner, r, counter, le64(4), le64(5));
+    cx(v.wr, kOwner, r, counter, le64(5), le64(6));
+    std::thread drainer([&] { v.wr.drain(); });
+    const auto give_up = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while (!slow.inside.load() && std::chrono::steady_clock::now() < give_up) std::this_thread::yield();
+    slow.go.store(true);
+    const KilnResult unsub = v.wr.unsubscribe(hslow);
+    const bool still_inside = slow.inside.load();
+    drainer.join();
+    check(unsub == KILN_OK && !still_inside && slow.calls.load() == 1,
+          k + "unsubscribed from another thread during its callback: returns after it, no later event (" +
+              std::to_string(slow.calls.load()) + " calls" + (still_inside ? ", still inside" : "") + ")");
     // a write whose event is claimed but not yet published holds back the later ones (order kept)
     EventRing ring;
     KilnEcsWriteEvent ev{};

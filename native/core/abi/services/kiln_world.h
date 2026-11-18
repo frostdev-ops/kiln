@@ -1232,9 +1232,12 @@ typedef struct KilnWorldApi {
                                                 uint32_t bytes, void* confirmed, KilnMutationReply* reply);
     /* `fn` is called once per committed write, on the server tick (kiln.world's Pre) or at the server world's
      * STOPPING, under kiln.world's fault containment (a faulting callback is logged and the drain goes on). The
-     * owner's subscriptions end when it retires (unload, reload). Any thread. */
+     * owner's subscriptions end when it retires (unload, reload); a callback already under way then may still finish.
+     * Any thread. */
     KilnResult(KILN_CALL* ecs_write_subscribe)(KilnOwner owner, KilnEcsWriteEventFn fn, void* user, KilnHandle* out);
-    /* Safe during a drain, also from inside the callback: no later event reaches it. KILN_ERR_NOT_FOUND: no such
+    /* Safe during a drain, also from inside the callback: no later event reaches it. From any other thread it returns
+     * only after a callback of this subscription that is running on the draining thread has returned (do not call it
+     * while holding a lock that callback takes); from inside a callback it does not wait. KILN_ERR_NOT_FOUND: no such
      * subscription. Any thread. */
     KilnResult(KILN_CALL* ecs_write_unsubscribe)(KilnHandle subscription);
 } KilnWorldApi;

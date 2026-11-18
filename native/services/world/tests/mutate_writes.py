@@ -37,7 +37,9 @@ MUTANTS = [
     }''', '''    } else {
     }''', 'an unused reservation is kept'),
     ('ecs_writes.cpp', 'if (bytes != pol.component_size) return', 'if (false) return', 'the size is not checked'),
-    ('ecs_writes.cpp', 'if (!s->alive.load(std::memory_order_acquire)) continue;', '', 'unsubscribed callbacks still run'),
+    ('ecs_writes.cpp', 'if (!s->alive.load(std::memory_order_seq_cst)) {', 'if (false) {', 'unsubscribed callbacks still run'),
+    ('ecs_writes.cpp', 'while (gone->calls.load(std::memory_order_seq_cst) != 0) std::this_thread::yield();', '',
+     'unsubscribe does not wait for a running callback'),
     ('ecs_writes.cpp', 'const bool ok = src_.guarded ? src_.guarded(&deliver, &d, &code) : (deliver(&d), true);',
      'const bool ok = (deliver(&d), true);', 'subscribers run without containment'),
     ('ecs_writes.cpp', 'out.status == KILN_ECS_OK && (out.flags & KILN_MUTATION_WRITTEN) ? merged : before',

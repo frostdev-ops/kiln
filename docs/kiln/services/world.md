@@ -582,7 +582,7 @@ Nothing waits: a call that cannot take the gate now answers busy at once.
 | `ecs_write_policy(world_kind, component, &policy)` | whether a task may write this component, and why not. Any thread |
 | `ecs_compare_exchange(owner, &ref, component, expected, mask, desired, bytes, confirmed, &reply)` | compare the whole component with `expected`; when equal, write `desired` under `mask`. Any thread but a world's own |
 | `ecs_write_subscribe(owner, fn, user, &handle)` | `fn` once per committed write, on the server tick, after the write's gate was released |
-| `ecs_write_unsubscribe(handle)` | no later event reaches it; safe during a delivery, also from inside the callback |
+| `ecs_write_unsubscribe(handle)` | no later event reaches it; safe during a delivery, also from inside the callback. From another thread it returns after a callback of it that is running has returned |
 
 **What may be written.** Only what the policy admits, decided by rules, never by a list of names:
 
@@ -644,7 +644,7 @@ server session answers uncertain (one `kiln.log` line says so). A new session cl
 wrote, session, step), delivered in the order of the holds, on the server tick in kiln.world's Pre, after the write's
 gate was released; at the server world's STOPPING what is left is delivered on the stopping thread. Callbacks run under
 kiln.world's fault containment: one that faults is logged, its subscription ends, and the others still get the event.
-An owner's subscriptions end when it unloads or reloads. The queue holds 4,096 events; a full queue makes writes answer
+An owner's subscriptions end when it unloads or reloads (a callback already under way then may still finish). The queue holds 4,096 events; a full queue makes writes answer
 busy until the next delivery.
 
 **Threads.** From a task's worker, between frames. On the server tick (tick handlers, a task's tick hops) a
