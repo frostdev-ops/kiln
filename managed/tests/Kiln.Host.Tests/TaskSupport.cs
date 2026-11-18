@@ -45,6 +45,7 @@ public abstract class HostTaskTest : ModsFixture
     internal TaskTestHost Host { get; } = new();
     internal HostTasks Tasks { get; private set; } = null!;
     internal readonly List<(ulong Owner, bool OnTick)> Hops = [];
+    internal readonly List<(ulong Owner, bool OnMain)> ClientHops = [];  // client-world hops (#82): their mod, on the main thread?
     private readonly List<FakeNativeTasks> _old = [];
     private readonly List<ModContext> _mods = [];
 
@@ -72,6 +73,9 @@ public abstract class HostTaskTest : ModsFixture
         {
             Service = (name, min) => offer ? native.Service(name, min) : 0,
             OnServerTick = () => native.IsTickThread,
+            OnWorldThread = kind => kind == KilnAbi.WorldServer ? native.IsTickThread : kind == KilnAbi.WorldClient && native.IsMainThread,
+            WorldExists = kind => kind == KilnAbi.WorldServer ? native.Session != 0 : kind == KilnAbi.WorldClient && native.ClientSession != 0,
+            OnClientMainThread = () => native.IsMainThread,
             Log = Host.Log,
             BuildStamp = ownStamp,
             TickHop = (owner, hop) =>
@@ -79,6 +83,11 @@ public abstract class HostTaskTest : ModsFixture
                 lock (Hops) Hops.Add((owner, native.IsTickThread));
                 if (HopFrame is { } frame) frame(owner, hop);
                 else hop();
+            },
+            ClientHop = (owner, hop) =>
+            {
+                lock (ClientHops) ClientHops.Add((owner, native.IsMainThread));
+                hop();
             },
         });
     }

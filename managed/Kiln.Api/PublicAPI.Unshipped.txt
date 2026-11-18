@@ -35,8 +35,11 @@ Kiln.KilnTaskContext.GateWindow.Awaiter.UnsafeOnCompleted(System.Action! continu
 Kiln.KilnTaskContext.GateWindow.GateWindow() -> void
 Kiln.KilnTaskContext.GateWindow.GetAwaiter() -> Kiln.KilnTaskContext.GateWindow.Awaiter
 Kiln.KilnTaskContext.NextGateWindow() -> Kiln.KilnTaskContext.GateWindow
+Kiln.KilnTaskContext.NextGateWindow(Kiln.WorldKind world) -> Kiln.KilnTaskContext.GateWindow
 Kiln.KilnTaskContext.OnTick<T>(System.Func<T>! apply) -> System.Threading.Tasks.Task<T>!
+Kiln.KilnTaskContext.OnTick<T>(Kiln.WorldKind world, System.Func<T>! apply) -> System.Threading.Tasks.Task<T>!
 Kiln.KilnTaskContext.PostToTick(System.Action! apply) -> void
+Kiln.KilnTaskContext.PostToTick(Kiln.WorldKind world, System.Action! apply) -> void
 Kiln.KilnTaskContext.TickHop
 Kiln.KilnTaskContext.TickHop.Awaiter
 Kiln.KilnTaskContext.TickHop.Awaiter.Awaiter() -> void
@@ -46,7 +49,9 @@ Kiln.KilnTaskContext.TickHop.Awaiter.OnCompleted(System.Action! continuation) ->
 Kiln.KilnTaskContext.TickHop.Awaiter.UnsafeOnCompleted(System.Action! continuation) -> void
 Kiln.KilnTaskContext.TickHop.GetAwaiter() -> Kiln.KilnTaskContext.TickHop.Awaiter
 Kiln.KilnTaskContext.TickHop.TickHop() -> void
+Kiln.KilnTaskContext.TickWorld.get -> Kiln.WorldKind
 Kiln.KilnTaskContext.ToTick() -> Kiln.KilnTaskContext.TickHop
+Kiln.KilnTaskContext.ToTick(Kiln.WorldKind world) -> Kiln.KilnTaskContext.TickHop
 Kiln.KilnTaskOptions
 Kiln.KilnTaskOptions.Deconstruct(out bool LongRunning, out Kiln.KilnTaskPriority Priority) -> void
 Kiln.KilnTaskOptions.Equals(Kiln.KilnTaskOptions other) -> bool
