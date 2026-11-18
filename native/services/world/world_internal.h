@@ -272,7 +272,7 @@ bool seh_write_change(KilnWorldChangeFn fn, uint32_t entity, void* data, uint32_
                       unsigned long* code);
 bool seh_write_cb(KilnWorldWriteFn fn, const KilnWorldWriteResult* result, void* user, unsigned long* code);
 
-// ---- ecs_prod.cpp: verified-copy ECS reads (T8, ecs_reads.cpp) ----
+// ---- ecs_prod.cpp: verified-copy ECS reads (ecs_reads.cpp) ----
 void ecs_prod_init();       // boot: exact-profile flag and the world.ecs_read capability row
 bool ecs_prod_available();  // entity-table reads validated on this build (none yet)
 uint32_t ecs_capability();  // KILN_WORLD_CAP_ECS_READ or 0

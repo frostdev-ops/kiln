@@ -2284,8 +2284,8 @@ void abi(const char* path) {
         F(KilnWorldApi, foreign_read); F(KilnWorldApi, foreign_write); F(KilnWorldApi, foreign_attr_changed);
     }
     {
-        // T8 (#53): the ECS-read members appended after the client-world members, and their records.
-        auto& l = list("KilnWorldApiT8", sizeof(KilnWorldApi));
+        // The ECS-read members appended after the client-world members, and their records.
+        auto& l = list("KilnWorldApiEcsReads", sizeof(KilnWorldApi));
         F(KilnWorldApi, entity_open); F(KilnWorldApi, entity_validate); F(KilnWorldApi, ecs_context_snapshot);
         F(KilnWorldApi, ecs_query); F(KilnWorldApi, ecs_snapshot); F(KilnWorldApi, ecs_snapshot_many);
         F(KilnWorldApi, ecs_template_uuid);

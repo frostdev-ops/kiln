@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// T8 (#53): verified-copy ECS reads behind kiln.world's entity_open / entity_validate / ecs_* members
+// Verified-copy ECS reads behind kiln.world's entity_open / entity_validate / ecs_* members
 // (kiln_world.h). The logic is engine-free: a Backend supplies one world's facts and a guarded copy, twice per
 // read (before and after the copy), and this file compares them. Production wires a Backend over
 // kiln.internal.engine (ecs_prod.cpp); host tests wire a fake engine memory model. A read returns a complete

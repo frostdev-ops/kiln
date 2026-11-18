@@ -370,7 +370,7 @@ const KilnWorldApi kTable = {
     &program_world_state,
     &bind_program_world,
     &unbind_program_world,
-    // since 0.2.0-dev.30: verified-copy ECS reads from task threads (T8), at 528..576
+    // appended in v4: verified-copy ECS reads from task threads, at 528..576
     &t_entity_open,
     &t_entity_validate,
     &t_ecs_context_snapshot,
@@ -382,7 +382,7 @@ const KilnWorldApi kTable = {
 static_assert(sizeof(KilnWorldApi) == 584 && offsetof(KilnWorldApi, foreign_attr_changed) == 488 &&
                   offsetof(KilnWorldApi, register_program_world) == 496 && offsetof(KilnWorldApi, unbind_program_world) == 520 &&
                   offsetof(KilnWorldApi, entity_open) == 528 && offsetof(KilnWorldApi, ecs_template_uuid) == 576,
-              "kiln.world's table: the client-world members append at 496, the T8 reads at 528");
+              "kiln.world's table: the client-world members append at 496, the ECS reads at 528");
 
 void KILN_CALL on_client_pre(const KilnTickInfo* tick, void*) {
     game_programs_pre(KILN_WORLD_CLIENT, tick);

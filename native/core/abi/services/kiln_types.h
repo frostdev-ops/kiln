@@ -91,7 +91,7 @@ typedef void(KILN_CALL* KilnEventFn)(const void* data, uint32_t size, void* user
  * system_unhook succeeds. A fault disables the hook and the original update still runs. */
 typedef void(KILN_CALL* KilnSystemHookFn)(void* program_context, void* user);
 
-/* ---- ECS registry (since 0.2.0-dev.30, T8): the engine's component registration catalog, copied ---- */
+/* ---- ECS registry (appended to v1, check header.size): the engine's component registration catalog, copied ---- */
 /* KilnEcsRegistryRow.flags */
 enum {
     KILN_ECS_REGISTRY_TRACKING_KNOWN = 1u << 0, /* the two tracking bits below were read, not defaulted */
@@ -189,7 +189,7 @@ typedef struct KilnTypesApi {
      * a game program's slice: the world is mid-step there, maybe on its own thread), else 0. kiln.world's in_program
      * includes it. Any thread; lock-free, no game call. */
     uint32_t(KILN_CALL* in_system_callback)(void);
-    /* Appended since 0.2.0-dev.30 (check header.size): the engine's component registration catalog for
+    /* Appended to v1 (check header.size): the engine's component registration catalog for
      * `world_kind` (KILN_WORLD_*), as copied immutable records in registration order. info (size set) gets the
      * count and layout stamp; *required is the row count, also when capacity is short (KILN_ERR_BUFFER_TOO_SMALL,
      * nothing copied). Tracking bits are filled only when the row's KILN_ECS_REGISTRY_TRACKING_KNOWN is set; an
@@ -201,9 +201,9 @@ typedef struct KilnTypesApi {
 #ifdef __cplusplus
 }
 static_assert(sizeof(KilnEcsRegistryInfo) == 32 && offsetof(KilnEcsRegistryInfo, kind_stamp) == 24,
-              "KilnEcsRegistryInfo T8 layout");
+              "KilnEcsRegistryInfo layout");
 static_assert(sizeof(KilnEcsRegistryRow) == 32 && offsetof(KilnEcsRegistryRow, type_identity) == 24,
-              "KilnEcsRegistryRow T8 layout");
+              "KilnEcsRegistryRow layout");
 static_assert(offsetof(KilnTypesApi, ecs_registry) == offsetof(KilnTypesApi, in_system_callback) + 8,
               "kiln.types ecs_registry appends after in_system_callback");
 #endif

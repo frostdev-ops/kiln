@@ -401,7 +401,7 @@ if (W->register_program(owner, &d, &g_prog) == KILN_OK)
 - Limits: tpl 8, read+write 42, singletons 64 per list, other_tpl 9, other 92, events 24, iterator 4096 bytes; a name
   may appear once per access group. events_in slots resolve only when the list has a single event.
 
-### World reads from task threads (since 0.2.0-dev.30, T8)
+### World reads from task threads
 
 A task thread can read entities and components through seven members appended to `kiln.world` (offsets 528 to 576; the
 table is 584 bytes; version stays 4, so check `header.size`) and `kiln.types`' `ecs_registry`. Every one of them runs
@@ -429,7 +429,8 @@ entity-table fields are not yet validated for task-thread reads. A short buffer 
 `*required` set and nothing written.
 
 `world.ecs_read` (and `KILN_WORLD_CAP_ECS_READ`) is on only once those entity-table reads are validated for the running
-build. Until then the row is unavailable, `symbol-missing`, and the text says why: no exact profile, or an exact
+build. No build has them validated yet: today every entity and component read answers unavailable, and only
+`ecs_context_snapshot` and `kiln.types`' `ecs_registry` return data. Until then the row is unavailable, `symbol-missing`, and the text says why: no exact profile, or an exact
 profile whose entity records are not yet a proven task-thread read. `ecs_context_snapshot` still answers (worlds,
 sessions, the exact-profile flag). Every other member answers unavailable rather than guessing an offset. The copy
 itself, when a build does read, is `kiln.internal.engine`'s guarded copy: a fault inside it fails the call and the

@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
-// T8 (#53) records of kiln.world's verified-copy reads (kiln_world.h). Layout only: the C# calls that use them are
-// T9 (World.Concurrent). Field order matches native/services/world/tests/abi.json, which the native host test checks
+// Records of kiln.world's verified-copy reads (kiln_world.h). Layout only: no C# call uses them yet. Field order matches native/services/world/tests/abi.json, which the native host test checks
 // against the header. A caller uses a member only when kiln.world's header.size covers it (the table is 584 bytes
 // with these members, the first at offset 528).
 using System.Runtime.InteropServices;

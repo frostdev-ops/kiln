@@ -17,7 +17,7 @@
 // The four members appended in 0.2.0-dev.29, after game_program_contract (440): tests/abi.json says the same.
 static_assert(offsetof(KilnWorldApi, register_program_world) == 496 && offsetof(KilnWorldApi, program_world_state) == 504 &&
               offsetof(KilnWorldApi, bind_program_world) == 512 && offsetof(KilnWorldApi, unbind_program_world) == 520 &&
-              offsetof(KilnWorldApi, entity_open) == 528 && sizeof(KilnWorldApi) == 584); // T8 appends at 528
+              offsetof(KilnWorldApi, entity_open) == 528 && sizeof(KilnWorldApi) == 584); // the ECS reads append at 528
 
 namespace kw {
 const KilnApi* g_api;
@@ -325,7 +325,7 @@ int main(int argc, char** argv) {
         field("bind_program_world", offsetof(KilnWorldApi, bind_program_world));
         field("unbind_program_world", offsetof(KilnWorldApi, unbind_program_world));
         nlohmann::json want = nlohmann::json::object();
-        want["size"] = offsetof(KilnWorldApi, unbind_program_world) + sizeof(void*); // this section's end (528); T8 appends after it
+        want["size"] = offsetof(KilnWorldApi, unbind_program_world) + sizeof(void*); // this section's end (528); the ECS reads append after it
         want["fields"] = fields;
         check(fx == want, "abi.json: KilnWorldApiClientPrograms field for field (496, 504, 512, 520; 528 bytes)");
         check(fx.at("fields")[0][1] == offsetof(KilnWorldApi, foreign_attr_changed) + sizeof(void*),

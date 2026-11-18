@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: MIT
-// T8 (#53) production wiring for the verified-copy ECS reads (ecs_reads.cpp). The engine gate
-// (kiln.internal.engine) resolves the owner/Scene/ECS view of an exact build, but no Kiln code yet interprets
-// the profile's entity-table fields (entity id/generation/layout/storage, component bits/offsets/strides) as
-// task-thread reads: ShroudForge's read_entity_membership was not part of the ported gate, and those offsets
-// have not been validated against a running game. Until they are, the production backend reports every entity
+// Production wiring for the verified-copy ECS reads (ecs_reads.cpp). The engine gate (kiln.internal.engine)
+// resolves the owner/Scene/ECS view of an exact build, but no Kiln code yet interprets the profile's entity-table
+// fields (entity id/generation/layout/storage, component bits/offsets/strides) as task-thread reads: entity-table
+// reads are not implemented or validated against a running game yet. Until they are, the production backend reports every entity
 // read unavailable and the capability row says why; it never guesses an offset. Context facts are real (world
 // presence and sessions from the core, the exact-profile flag from kiln.engine), so ecs_context_snapshot works
 // and every other member refuses precisely. Validating the entity-table semantics on a real build flips

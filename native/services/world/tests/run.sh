@@ -26,7 +26,7 @@ g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined -D__fastcall= -
     -I"$here/../../../third_party" -I"$here/../../../core/abi" "$here/budget_test.cpp" -o "$out/budget_test"
 "$out/budget_test"
 
-# ecs_reads_test: T8 verified-copy ECS reads over a fake engine memory model (identity, snapshots, queries,
+# ecs_reads_test: verified-copy ECS reads over a fake engine memory model (identity, snapshots, queries,
 # concurrency), under ASan/UBSan and ThreadSanitizer.
 g++ -std=c++20 -O1 -g -pthread -Wall -Wextra -fsanitize=address,undefined -I"$here/../../../core/abi" \
     "$here/ecs_reads_test.cpp" "$here/../ecs_reads.cpp" -o "$out/ecs_reads_test_asan"

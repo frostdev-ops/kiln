@@ -1,5 +1,5 @@
 {
-  "_comment": ["kiln_world.h as the compiler lays it out (x64). KilnWorldApi: every field of the v3 table (it ends where v4 begins) and of the tracked-write structs,", "in order, with its offset. The native host test (writes_test.cpp) checks the header against it; Kiln.World.Tests", "checks Kiln.World's mirrors (and Kiln.Api's v2 mirror against the first v2Entries), Kiln.TestKit.Tests the test kit's.", "Append-only: a new entry goes at the end of KilnWorldApi with a 'since' comment in the header, never in between.", "KilnWorldApiV4 and the KilnGame* structs (0.2.0-dev.28): the whole v4 table and its new structs, checked by wraps_test.cpp; KilnWorldApi stays its v3 prefix.", "KilnWorldApiClientPrograms (0.2.0-dev.29, chapter 14): the four members appended after KilnWorldApiV4 and the table's whole size with them, checked by client_world_test.cpp; KilnWorldApiV4 stays the table up to game_program_contract.", "KilnWorldApiT8 and the T8 records (0.2.0-dev.30, #53): the seven ECS-read members appended after KilnWorldApiClientPrograms and their records, checked by wraps_test.cpp."],
+  "_comment": ["kiln_world.h as the compiler lays it out (x64). KilnWorldApi: every field of the v3 table (it ends where v4 begins) and of the tracked-write structs,", "in order, with its offset. The native host test (writes_test.cpp) checks the header against it; Kiln.World.Tests", "checks Kiln.World's mirrors (and Kiln.Api's v2 mirror against the first v2Entries), Kiln.TestKit.Tests the test kit's.", "Append-only: a new entry goes at the end of KilnWorldApi with a 'since' comment in the header, never in between.", "KilnWorldApiV4 and the KilnGame* structs (0.2.0-dev.28): the whole v4 table and its new structs, checked by wraps_test.cpp; KilnWorldApi stays its v3 prefix.", "KilnWorldApiClientPrograms (0.2.0-dev.29, chapter 14): the four members appended after KilnWorldApiV4 and the table's whole size with them, checked by client_world_test.cpp; KilnWorldApiV4 stays the table up to game_program_contract.", "KilnWorldApiEcsReads and the ECS-read records (appended in v4): the seven ECS-read members appended after KilnWorldApiClientPrograms and their records, checked by wraps_test.cpp."],
   "v2Entries": 30,
   "KilnWorldApi": { "size": 280, "fields": [
     ["header", 0],
@@ -234,7 +234,7 @@
     ["detail", 104]
   ] },
 
-  "KilnWorldApiT8": { "size": 584, "fields": [
+  "KilnWorldApiEcsReads": { "size": 584, "fields": [
     ["entity_open", 528],
     ["entity_validate", 536],
     ["ecs_context_snapshot", 544],
