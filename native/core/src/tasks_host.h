@@ -44,12 +44,14 @@ typedef uint64_t KilnLease; /* a managed logical task; the same value as its pub
 /* What the core's trampoline tells the host's dispatcher to run. */
 enum {
     KILN_LEASE_SEGMENT = 1,  /* run the next segment (the first, or the continuation of the armed await) */
-    KILN_LEASE_TICK_HOP = 2  /* run a bounded tick apply (OnTick/ToTick/PostToTick) on the tick thread */
+    KILN_LEASE_TICK_HOP = 2, /* run a bounded tick apply (OnTick/ToTick/PostToTick) on the tick thread */
+    KILN_LEASE_CLIENT_HOP = 3 /* the same on the client world's step (the game's main thread), before its Pre */
 };
 
 /* The host's one dispatcher. `cancelled` is the lease's cancellation state at dispatch (the host also polls
- * is_cancelled). Runs on a pool worker (SEGMENT), on the server world's tick (TICK_HOP) and on the thread that
- * destroys the server world (the cancelled hops of its STOPPING), so it can run on several threads at once: it must
+ * is_cancelled). Runs on a pool worker (SEGMENT), on the server world's tick (TICK_HOP), on the client world's step
+ * (CLIENT_HOP) and on the thread that destroys a world (the cancelled hops of its STOPPING: the server world's thread,
+ * or the game's main thread for the client world), so it can run on several threads at once: it must
  * be reentrant and thread-safe. A managed exception is caught by the host before it returns here, so it never crosses
  * the ABI and never quarantines the owner; a structured fault is contained by the core (the task cancelled, its owner
  * quarantined, kiln.log). */

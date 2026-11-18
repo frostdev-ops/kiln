@@ -1288,6 +1288,124 @@ KILN_TASKS_TEST(resume_after_never_overlaps) {
     m.finish(h, Outcome::Completed);
     m.segment_ended(x, false, Outcome::Completed);
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Client-world hops (#82): the server and the client world each have their own session line. An edge or an end of
+// one world never releases or cancels what waits on the other, and a new server session does not end a client one.
+SubmitArgs after_step_in(const char* name, uint32_t world, uint64_t session, uint64_t edge) {
+    SubmitArgs a = after_step(name, session, edge);
+    a.world = world;
+    return a;
+}
+
+KILN_TASKS_TEST(world_session_lines_are_independent) {
+    {
+        Model m;
+        m.open_owner(1, "a");
+        m.edge(KILN_WORLD_CLIENT, 2, 4);
+        m.edge(KILN_WORLD_SERVER, 1, 9);
+        const KilnHandle client = submit_ok(m, 1, after_step_in("client", KILN_WORLD_CLIENT, 2, 4), "client session 2");
+        const KilnHandle server = submit_ok(m, 1, after_step_in("server", KILN_WORLD_SERVER, 1, 9), "server session 1");
+        m.edge(KILN_WORLD_SERVER, 5, 1);  // a newer server session: server session 1 is over, client session 2 is not
+        check(state_of(m, 1, server) == State::Cancelled, "a newer server session ends the server task's session");
+        check(state_of(m, 1, client) == State::Queued && m.counts().waiting == 1,
+              "it does not end a client session (red with one session line for both)");
+        m.end_session(KILN_WORLD_SERVER, 5);
+        check(m.counts().waiting == 1, "nor does a server session's end");
+        m.edge(KILN_WORLD_SERVER, 6, 1);
+        check(m.counts().waiting == 1, "nor a server edge of any session");
+        m.edge(KILN_WORLD_CLIENT, 2, 5);
+        auto dones = drive_dones(m);
+        check(done_as(dones, client, State::Completed), "the client world's own next edge wakes it");
+        check(done_as(dones, server, State::Cancelled), "the server task's done says Cancelled");
+    }
+    {
+        Model m;
+        m.open_owner(1, "a");
+        const KilnHandle server = submit_ok(m, 1, after_step_in("server", KILN_WORLD_SERVER, 3, 0), "server session 3");
+        const KilnHandle client = submit_ok(m, 1, after_step_in("client", KILN_WORLD_CLIENT, 3, 0), "client session 3");
+        m.end_session(KILN_WORLD_CLIENT, 3);  // a hosting client leaves: the client world stops first
+        check(state_of(m, 1, client) == State::Cancelled && state_of(m, 1, server) == State::Queued,
+              "the client world's end cancels only what waits on it");
+        m.edge(KILN_WORLD_CLIENT, 4, 1);
+        check(state_of(m, 1, server) == State::Queued, "a new client session's edge does not wake a server task");
+        m.edge(KILN_WORLD_SERVER, 3, 1);
+        auto dones = drive_dones(m);
+        check(done_as(dones, server, State::Completed) && done_as(dones, client, State::Cancelled),
+              "the server world's edge wakes the server task");
+    }
+    {
+        Model m;
+        m.open_owner(1, "a");
+        refused(m, 1, after_step_in("prediction", KILN_WORLD_PREDICTION, 1, 0), KILN_ERR_INVALID_ARGUMENT,
+                Refusal::Argument, "the prediction world has no session line: a malformed request");
+        refused(m, 1, after_step_in("unknown", 7, 1, 0), KILN_ERR_INVALID_ARGUMENT, Refusal::Argument,
+                "an unknown world kind: a malformed request");
+        m.edge(KILN_WORLD_PREDICTION, 1, 1);  // ignored
+        m.end_session(KILN_WORLD_PREDICTION, 1);
+        check(m.counts().records == 0, "nothing was accepted");
+    }
+}
+
+KILN_TASKS_TEST(lease_resume_after_step_per_world) {
+    Model m;
+    m.open_owner(1, "a");
+    m.edge(KILN_WORLD_CLIENT, 1, 3);
+    m.edge(KILN_WORLD_SERVER, 1, 3);
+    const KilnHandle h = submit_ok(m, 1, lease_args("client window"), "a lease");
+    bool suspended = false;
+    run_segment(m, h, &suspended, [&] {
+        uint64_t reg = 0;
+        m.arm(h, &reg);
+        check(m.resume_after(h, reg, KILN_WORLD_CLIENT, 1, 3) == KILN_OK, "a client-world window");
+        return true;
+    });
+    m.edge(KILN_WORLD_SERVER, 1, 4);
+    Work w;
+    check(!m.dequeue(Slot::Normal, &w) && m.counts().waiting == 1, "a server edge does not wake a client window");
+    m.edge(KILN_WORLD_CLIENT, 1, 4);
+    check(run_segment(m, h, &suspended, [&] {
+        check(!m.cancel_requested(h), "woken by the client edge, not cancelled");
+        uint64_t reg = 0;
+        m.arm(h, &reg);
+        m.resume_after(h, reg, KILN_WORLD_CLIENT, 1, 4);
+        return true;
+    }), "the client world's next edge resumes it");
+    m.end_session(KILN_WORLD_SERVER, 1);
+    check(m.counts().waiting == 1, "the server world's end leaves a client window waiting");
+    m.end_session(KILN_WORLD_CLIENT, 1);
+    check(run_segment(m, h, &suspended, [&] {
+        check(m.cancel_requested(h), "its client session ended: resumed with the cancellation set");
+        m.finish(h, Outcome::OwnTokenCancelled);
+        return false;
+    }), "the client session's end resumes it at once");
+    check(done_state(m, h) == State::Cancelled, "and it ends Cancelled");
+    uint64_t reg = 0;
+    check(m.resume_after(h, reg, KILN_WORLD_PREDICTION, 1, 1) == KILN_ERR_INTERNAL, "no window in the prediction world");
+}
+
+// A continuation released by a client edge is signalled by its client session's end, never by the server world's.
+KILN_TASKS_TEST(released_continuation_follows_its_own_world) {
+    Model m;
+    m.open_owner(1, "a");
+    m.edge(KILN_WORLD_CLIENT, 2, 1);
+    const KilnHandle a = submit_ok(m, 1, lease_args("released"), "a lease");
+    Work w;
+    m.dequeue(Slot::Normal, &w);
+    uint64_t reg = 0;
+    m.arm(a, &reg);
+    m.segment_ended(w, true, Outcome::Completed);
+    m.resume_after(a, reg, KILN_WORLD_CLIENT, 2, 1);
+    m.edge(KILN_WORLD_CLIENT, 2, 2);
+    Work run;
+    check(m.dequeue(Slot::Normal, &run) && run.task == a && !run.cancel_requested(), "released by the client edge");
+    m.end_session(KILN_WORLD_SERVER, 2);  // the same number, the other world
+    check(!run.cancel_requested(), "a server session's end does not signal a client continuation");
+    m.end_session(KILN_WORLD_CLIENT, 2);
+    check(run.cancel_requested(), "its own client session's end does");
+    m.finish(a, Outcome::OwnTokenCancelled);
+    m.segment_ended(run, false, Outcome::Completed);
+}
 }  // namespace
 
 int main(int argc, char** argv) { return kiln::tasks::test::run(argc, argv, "tasks model"); }

@@ -30,7 +30,8 @@ struct Record {
     std::string name;
     Priority priority = Priority::Normal;
     Slot slot = Slot::Normal;
-    uint64_t session = 0;  // AFTER_STEP: the server session captured at acceptance
+    uint32_t world = KILN_WORLD_SERVER;  // the world of `session` (AFTER_STEP, or a waiting continuation)
+    uint64_t session = 0;  // AFTER_STEP: the session of `world` captured at acceptance
     uint64_t edge = 0;
     Payload payload;
     // the cancelled() poll, read without the mutex
@@ -49,9 +50,11 @@ struct Record {
     Outcome lease_outcome = Outcome::Completed;
     Work::Kind wait_kind = Work::Kind::Body;  // what `waiting` releases: the body (AFTER_STEP) or a continuation
     bool after_pending = false;         // resume_after while the arming segment still ran: placed when it returns
+    uint32_t after_world = KILN_WORLD_SERVER;
     uint64_t after_session = 0, after_edge = 0;
     uint32_t hops = 0;                  // tick hops pending: the done is held back while any is
     bool done_held = false;             // terminal with hops pending: its done is queued by the last hop_end
+    uint32_t released_world = KILN_WORLD_SERVER;
     uint64_t released_session = 0;      // its continuation was released by this session's edge (until it ends)
     bool in_table = true;
     bool done_returned = false;
@@ -371,7 +374,8 @@ KilnResult Model::submit(KilnOwner owner, const SubmitArgs& args, KilnHandle* ta
         if (why) *why = w;
         return r;
     };
-    if (!task || !valid_name(args.name) || static_cast<uint32_t>(args.priority) > 2 || (args.after_step && !args.session))
+    if (!task || !valid_name(args.name) || static_cast<uint32_t>(args.priority) > 2 ||
+        (args.after_step && (!args.session || !session_world(args.world))))
         return fail(KILN_ERR_INVALID_ARGUMENT, Refusal::Argument);
     // copied and allocated before the model mutex; published (or dropped) under it
     auto r = std::make_shared<Record>();
@@ -379,6 +383,7 @@ KilnResult Model::submit(KilnOwner owner, const SubmitArgs& args, KilnHandle* ta
     r->name = std::string(args.name);
     r->priority = args.priority;
     r->slot = args.long_running ? Slot::LongRunning : Slot::Normal;
+    r->world = args.world;
     r->session = args.session;
     r->edge = args.edge;
     r->lease = args.lease;
@@ -403,11 +408,12 @@ KilnResult Model::submit(KilnOwner owner, const SubmitArgs& args, KilnHandle* ta
         hook(Point::SubmitPublishing);
         // Compared under the same mutex as edge()/end_session(), so an edge or an end between the caller's capture
         // and this point is never lost: the task is queued as if it had been accepted after it.
+        const Line& line = lines_[world_line(args.world)];
         if (!args.after_step) {
             enqueue(*o, r, Work::Kind::Body);
-        } else if (args.session <= ended_ || args.session < session_) {
+        } else if (args.session <= line.ended || args.session < line.session) {
             publish_terminal(*o, r, State::Cancelled);  // its session is over: cancelled at once, never carried over
-        } else if (args.session == session_ && args.edge < last_edge_) {
+        } else if (args.session == line.session && args.edge < line.last_edge) {
             enqueue(*o, r, Work::Kind::Body);  // its session already had a newer edge
         } else {
             o->waiting.push_back(r);
@@ -495,34 +501,42 @@ KilnResult Model::resume(KilnHandle task, uint64_t registration) {
 
 // Places an armed lease's after-step continuation (its segment has returned): queued at once when its session is
 // over or already had a newer edge (the former with the cancellation set), else waiting for its session's next edge.
-void Model::place_after(Owner& o, const std::shared_ptr<Record>& r, uint64_t session, uint64_t edge) {
-    if (session <= ended_ || session < session_) {
+void Model::place_after(Owner& o, const std::shared_ptr<Record>& r, uint32_t world, uint64_t session, uint64_t edge) {
+    const Line& line = lines_[world_line(world)];
+    if (session <= line.ended || session < line.session) {
         r->cancel.store(true, std::memory_order_release);
         enqueue(o, r, Work::Kind::Continuation);
-    } else if ((session == session_ && edge < last_edge_) || r->cancel.load(std::memory_order_acquire)) {
+    } else if ((session == line.session && edge < line.last_edge) || r->cancel.load(std::memory_order_acquire)) {
+        r->released_world = world;
         r->released_session = session;
         enqueue(o, r, Work::Kind::Continuation);
     } else {
         o.waiting.push_back(r);
         r->waiting = true;
         r->wait_kind = Work::Kind::Continuation;
+        r->world = world;
         r->session = session;
         r->edge = edge;
     }
 }
 
 KilnResult Model::resume_after(KilnHandle task, uint64_t registration, uint64_t session, uint64_t edge) {
+    return resume_after(task, registration, KILN_WORLD_SERVER, session, edge);
+}
+
+KilnResult Model::resume_after(KilnHandle task, uint64_t registration, uint32_t world, uint64_t session, uint64_t edge) {
     Lock lock(*this);
     const auto r = find_lease(task);
-    if (!r || !r->armed || r->registration != registration || !session) return KILN_ERR_INTERNAL;
+    if (!r || !r->armed || r->registration != registration || !session || !session_world(world)) return KILN_ERR_INTERNAL;
     r->armed = false;
     r->registration = 0;
     if (r->segment_running) {  // segments of one task never overlap: placed when the arming segment returns
         r->after_pending = true;
+        r->after_world = world;
         r->after_session = session;
         r->after_edge = edge;
     } else {
-        place_after(*r->home, r, session, edge);
+        place_after(*r->home, r, world, session, edge);
     }
     return KILN_OK;
 }
@@ -577,14 +591,15 @@ KilnResult Model::hop_end(KilnHandle task) {
 
 // ---- Post edge ----
 
-void Model::cancel_waiting_before(uint64_t session) {
+void Model::cancel_waiting_before(uint32_t world, uint64_t session) {
     for (const auto& o : ring_) {
         // a continuation an ended session's edge released (ready, or its segment running) sees its cancellation too
         for (const auto& [seq, r] : o->records)
-            if (r->released_session && r->released_session < session) r->cancel.store(true, std::memory_order_release);
+            if (r->released_session && r->released_world == world && r->released_session < session)
+                r->cancel.store(true, std::memory_order_release);
         std::vector<std::shared_ptr<Record>> over;
         for (const auto& r : o->waiting)
-            if (r->session < session) over.push_back(r);
+            if (r->world == world && r->session < session) over.push_back(r);
         for (const auto& r : over) {
             if (r->wait_kind == Work::Kind::Continuation) {  // a lease: resumed with its cancellation set
                 r->cancel.store(true, std::memory_order_release);
@@ -596,33 +611,44 @@ void Model::cancel_waiting_before(uint64_t session) {
     }
 }
 
-void Model::end_session(uint64_t session) {
+void Model::end_session(uint64_t session) { end_session(KILN_WORLD_SERVER, session); }
+
+void Model::end_session(uint32_t world, uint64_t session) {
+    if (!session_world(world)) return;
     Lock lock(*this);
-    if (session <= ended_) return;
-    ended_ = session;
-    if (session > session_) {
-        session_ = session;
-        last_edge_ = 0;
+    Line& line = lines_[world_line(world)];
+    if (session <= line.ended) return;
+    line.ended = session;
+    if (session > line.session) {
+        line.session = session;
+        line.last_edge = 0;
     }
-    cancel_waiting_before(session + 1);
+    cancel_waiting_before(world, session + 1);
 }
 
-void Model::edge(uint64_t session, uint64_t edge) {
+void Model::edge(uint64_t session, uint64_t edge) { this->edge(KILN_WORLD_SERVER, session, edge); }
+
+void Model::edge(uint32_t world, uint64_t session, uint64_t edge) {
+    if (!session_world(world)) return;
     Lock lock(*this);
-    if (session <= ended_ || session < session_) return;  // an ended or older session's edge releases nothing
-    if (session > session_) {  // a newer session: every older one is over, even without its end
-        cancel_waiting_before(session);
-        session_ = session;
-        last_edge_ = 0;
+    Line& line = lines_[world_line(world)];
+    if (session <= line.ended || session < line.session) return;  // an ended or older session's edge releases nothing
+    if (session > line.session) {  // a newer session: every older one of this world is over, even without its end
+        cancel_waiting_before(world, session);
+        line.session = session;
+        line.last_edge = 0;
     }
-    if (edge <= last_edge_) return;
-    last_edge_ = edge;
+    if (edge <= line.last_edge) return;
+    line.last_edge = edge;
     for (const auto& o : ring_) {
         std::vector<std::shared_ptr<Record>> still;
         for (const auto& r : o->waiting) {
-            if (r->session == session && r->edge < edge) {
+            if (r->world == world && r->session == session && r->edge < edge) {
                 r->waiting = false;
-                if (r->wait_kind == Work::Kind::Continuation) r->released_session = session;
+                if (r->wait_kind == Work::Kind::Continuation) {
+                    r->released_world = world;
+                    r->released_session = session;
+                }
                 enqueue(*o, r, r->wait_kind);
             } else {
                 still.push_back(r);
@@ -711,7 +737,7 @@ KilnResult Model::segment_ended(const Work& work, bool suspended, Outcome outcom
         }
         if (r->after_pending) {
             r->after_pending = false;
-            place_after(o, r, r->after_session, r->after_edge);
+            place_after(o, r, r->after_world, r->after_session, r->after_edge);
             return KILN_OK;
         }
         if (r->armed) return KILN_OK;  // waits for its resumption

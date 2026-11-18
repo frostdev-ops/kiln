@@ -88,7 +88,9 @@ enum {
     KILN_TASK_REFUSAL_CAPABILITY = 4,        /* UNAVAILABLE: tasks.pool is unavailable (safe idle, no worker) */
     KILN_TASK_REFUSAL_ARGUMENT = 5,          /* INVALID_ARGUMENT: a malformed request (nothing changed) */
     KILN_TASK_REFUSAL_SHUTDOWN = 6,          /* UNAVAILABLE: the process is exiting / the pool is closing */
-    KILN_TASK_REFUSAL_NO_SERVER_WORLD = 7    /* UNAVAILABLE: AFTER_STEP with no live authoritative server world */
+    KILN_TASK_REFUSAL_NO_SERVER_WORLD = 7,   /* UNAVAILABLE: AFTER_STEP with no live authoritative server world */
+    KILN_TASK_REFUSAL_NO_WORLD = 8           /* UNAVAILABLE: submit_in: no live session of that world, or not the one
+                                                named (appended) */
 };
 
 /* Queue full: each owner holds at most 1024 task records, and a record counts until release() (terminal tasks

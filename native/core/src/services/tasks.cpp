@@ -382,45 +382,45 @@ bool init() {
 
 }  // namespace
 
-// The core's lifecycle calls (tick.cpp on the server world's thread, api.cpp's exit trigger). Before init (safe idle,
-// no tick hook) they do nothing.
-void session_started(uint32_t session) {
-    if (tasks::Service* service = g_service.load(std::memory_order_acquire)) service->session_started(session);
+// The core's lifecycle calls (tick.cpp on the server or client world's thread, api.cpp's exit trigger). Before init
+// (safe idle, no tick hook) they do nothing.
+void session_started(uint32_t world, uint32_t session) {
+    if (tasks::Service* service = g_service.load(std::memory_order_acquire)) service->session_started(world, session);
 }
 
-void post_edge(uint32_t session, uint64_t step) {
+void post_edge(uint32_t world, uint32_t session, uint64_t step) {
     tasks::Service* service = g_service.load(std::memory_order_acquire);
-    if (!service || service->post_edge(session, step)) return;
+    if (!service || service->post_edge(world, session, step)) return;
     // a step that is not above the session's last edge, or of another session: refused and counted; said once
     static std::atomic<bool> said{false};
     if (!said.exchange(true))
-        KLOG_W("kiln.tasks: a Post edge (session %u, step %llu) was refused (not the live session, or not above its "
-               "last edge); AFTER_STEP tasks wait for the next valid edge",
-               session, static_cast<unsigned long long>(step));
+        KLOG_W("kiln.tasks: a Post edge (%s world, session %u, step %llu) was refused (not the live session, or not "
+               "above its last edge); AFTER_STEP tasks wait for the next valid edge",
+               world == KILN_WORLD_CLIENT ? "client" : "server", session, static_cast<unsigned long long>(step));
 }
 
-void session_stopping(uint32_t session) {
-    if (tasks::Service* service = g_service.load(std::memory_order_acquire)) service->session_stopping(session);
+void session_stopping(uint32_t world, uint32_t session) {
+    if (tasks::Service* service = g_service.load(std::memory_order_acquire)) service->session_stopping(world, session);
 }
 
 const void* host_table() { return g_service.load(std::memory_order_acquire) ? &kHostTable : nullptr; }
 
-void tick_hops() {
+void tick_hops(uint32_t world) {
     if (tasks::Service* service = g_service.load(std::memory_order_acquire)) {
         try {
-            service->run_tick_hops();
+            service->run_tick_hops(world);
         } catch (...) {  // nothing leaves the tick hook
         }
     }
 }
 
 // Issue #49: the diagnostics window for a tick-stats line. False when the pool does not exist.
-bool tasks_window(tasks_stats::WindowSnapshot* out) {
+bool tasks_window(uint32_t world, bool apply_only, tasks_stats::WindowSnapshot* out) {
     if (!out) return false;
     tasks::Service* service = g_service.load(std::memory_order_acquire);
     if (!service) return false;
     try {
-        *out = service->collect_tasks_window();
+        *out = service->collect_tasks_window(world, apply_only);
         return true;
     } catch (...) {
         return false;

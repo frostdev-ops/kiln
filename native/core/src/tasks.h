@@ -121,6 +121,7 @@ public:
     KilnResult arm(KilnHandle task, uint64_t* registration);
     KilnResult resume(KilnHandle task, uint64_t registration);
     KilnResult resume_after(KilnHandle task, uint64_t registration, uint64_t session, uint64_t edge);
+    KilnResult resume_after(KilnHandle task, uint64_t registration, uint32_t world, uint64_t session, uint64_t edge);
     KilnResult finish(KilnHandle task, Outcome outcome);
     bool cancel_requested(KilnHandle task) const;
     KilnResult hop_begin(KilnHandle task);
@@ -130,6 +131,8 @@ public:
     KilnResult snapshot_leases(KilnLeaseSnapshot* rows, uint32_t capacity, uint32_t* count) const;
     void edge(uint64_t session, uint64_t edge);
     void end_session(uint64_t session);
+    void edge(uint32_t world, uint64_t session, uint64_t edge);  // per world (Model::edge)
+    void end_session(uint32_t world, uint64_t session);
 
     // A watchdog sweep against the platform clock: one report per task over its age, with owner and name, delivered
     // to `fn` outside every lock. Gated on the model's real state, so a cancelled or finished task never reports.
@@ -146,6 +149,9 @@ public:
     tasks_stats::Store& stats_store();
     const tasks_stats::Store& stats_store() const;
     tasks_stats::WindowSnapshot collect_tasks_window(uint64_t backlog);
+    // The same with `world`'s apply account (the pool-wide parts are taken out either way); `apply_only`: only that
+    // world's apply account and refused hops (a hosting client's client-world line, beside the server line's window).
+    tasks_stats::WindowSnapshot collect_tasks_window(uint32_t world, uint64_t backlog, bool apply_only);
 
     // Diagnostics / test seams.
     Counts counts() const;
@@ -208,14 +214,23 @@ public:
     KilnResult status(KilnOwner owner, KilnHandle task, uint32_t* state);
     KilnResult release(KilnOwner owner, KilnHandle task);
     KilnResult drain_owner(KilnOwner owner, uint32_t timeout_ms, uint32_t* running);
+    // ---- appended to kiln_tasks.h v1: submit bound to a world's session ----
+    KilnResult submit_in(KilnOwner owner, const KilnTaskInfo* info, uint32_t world, uint32_t session, KilnTaskBodyFn body,
+                         KilnTaskDoneFn done, void* user, KilnHandle* task, uint32_t* refusal);
 
-    // ---- the core's lifecycle edges ----
-    // The live server world's sessions and Post edges (tick thread): one snapshot that AFTER_STEP captures whole.
-    void session_started(uint32_t session);
+    // ---- the core's lifecycle edges, per world (KILN_WORLD_SERVER and KILN_WORLD_CLIENT; others are ignored) ----
+    // A world's sessions and Post edges (on its thread): one snapshot per world that AFTER_STEP captures whole.
+    void session_started(uint32_t world, uint32_t session);
     // A Post edge: `step` is KilnTickInfo.step (from 1, strictly increasing). Refused (false, nothing changes) for a
-    // session that is not the live one, a step 0 or one not above the session's last edge.
-    bool post_edge(uint32_t session, uint64_t step);
-    void session_stopping(uint32_t session);
+    // session that is not that world's live one, a step 0 or one not above the session's last edge.
+    bool post_edge(uint32_t world, uint32_t session, uint64_t step);
+    // The world's STOPPING (on the destroying thread): that world's waiting tasks are cancelled and its pending tick
+    // hops are dispatched cancelled; another world's are untouched.
+    void session_stopping(uint32_t world, uint32_t session);
+    // The server world's (the forms the core used before client-world hops; tests keep them).
+    void session_started(uint32_t session) { session_started(KILN_WORLD_SERVER, session); }
+    bool post_edge(uint32_t session, uint64_t step) { return post_edge(KILN_WORLD_SERVER, session, step); }
+    void session_stopping(uint32_t session) { session_stopping(KILN_WORLD_SERVER, session); }
     void owner_retiring(KilnOwner owner);  // the registry's owner-retiring observer: nonblocking
     // The registry callback (reg::add_owner_retiring, observer owner 0, user = the Service): retires the owner's tasks
     // (no new ones, queued ones cancelled with their dones, running ones signalled). It never waits and never calls
@@ -227,14 +242,20 @@ public:
     Pool::ParkResult park(uint64_t timeout_ns);
 
     struct Snapshot {
-        uint32_t session = 0;
+        uint32_t session = 0;  // the newest session this world started (kept after its STOPPING)
         uint64_t edge = 0;
         bool live = false;
     };
-    Snapshot snapshot() const;
-    uint64_t refused_edges() const;
+    Snapshot snapshot(uint32_t world = KILN_WORLD_SERVER) const;
+    uint64_t refused_edges(uint32_t world = KILN_WORLD_SERVER) const;
     // tick-stats (issue #49): the pool's diagnostics window, collected without a pool lock.
-    tasks_stats::WindowSnapshot collect_tasks_window() { return pool_.collect_tasks_window(pending_tick_hops()); }
+    tasks_stats::WindowSnapshot collect_tasks_window() {
+        return pool_.collect_tasks_window(KILN_WORLD_SERVER, pending_tick_hops(KILN_WORLD_SERVER), false);
+    }
+    // A world's line: the whole window with that world's apply account, or (apply_only) that account alone.
+    tasks_stats::WindowSnapshot collect_tasks_window(uint32_t world, bool apply_only) {
+        return pool_.collect_tasks_window(world, pending_tick_hops(world), apply_only);
+    }
 
     // ---- kiln.internal.tasks.host v1 (tasks_host.h): the managed host's leases on the same pool ----
     KilnResult host_bind(KilnHostDispatchFn dispatch);
@@ -255,20 +276,34 @@ public:
     KilnResult host_resume_after_step_in(KilnLease lease, uint64_t registration, uint32_t session, uint32_t* refusal);
     uint32_t host_on_pool_thread() const;
     uint32_t host_server_session() const;
+    // ---- appended (client-world hops) ----
+    // The newest session of `world` and its state (*state: 0 none yet, 1 live, 2 its STOPPING came).
+    uint32_t host_world_session(uint32_t world, uint32_t* state) const;
+    // A tick hop for `world`'s `session`: queued only while that session is the live, open one (one lock for the
+    // compare and the push); UNAVAILABLE otherwise, INVALID_ARGUMENT for another world kind, INTERNAL as host_tick_hop.
+    KilnResult host_tick_hop_in(KilnLease lease, uint32_t world, uint32_t session);
+    // host_resume_after_step_in for `world` (UNAVAILABLE + NO_SERVER_WORLD / NO_WORLD with the registration armed).
+    KilnResult host_resume_after_step_world(KilnLease lease, uint64_t registration, uint32_t world, uint32_t session,
+                                            uint32_t* refusal);
     // The core's done trampoline of a lease, after the host's end notification returned: drops the record.
     void lease_ended(KilnOwner owner, KilnLease lease);
     // A bounded tick hop for the lease: dispatched as KILN_LEASE_TICK_HOP on the live server world's tick, before its
     // Pre subscribers (run_tick_hops). UNAVAILABLE with no live server world (never waits for one); INTERNAL for a
     // lease that is unknown or already quiescent. Allowed after a seal; a retiring lease's hop runs with cancelled=1.
     KilnResult host_tick_hop(KilnLease lease);
-    // The server world's Pre (tick.cpp), before its subscribers: the queued hops, FIFO per owner, owners round-robin
-    // (the turn moves on from step to step); per owner at most 64 hops and 2 ms, all owners at most 4 ms, checked
-    // between callbacks; the rest wait for the next step, never dropped. Returns the hops dispatched.
-    std::size_t run_tick_hops();
-    std::size_t pending_tick_hops() const;
+    // A world's Pre (tick.cpp), before its subscribers: that world's queued hops, FIFO per owner, owners round-robin
+    // (the turn moves on from step to step); per owner at most 64 hops and its owner budget, all owners at most the
+    // step budget, checked between callbacks; the rest wait for the next step, never dropped. Returns the hops
+    // dispatched. The server world: 2 ms per owner and 4 ms per step; the client world: 1 ms and 2 ms (the game's
+    // main thread also builds the UI and draws faster than the client world steps). The worlds never share a budget.
+    std::size_t run_tick_hops(uint32_t world);
+    std::size_t pending_tick_hops(uint32_t world) const;
+    std::size_t run_tick_hops() { return run_tick_hops(KILN_WORLD_SERVER); }
+    std::size_t pending_tick_hops() const { return pending_tick_hops(KILN_WORLD_SERVER); }
 
     static constexpr std::size_t kHopsPerOwner = 64;
     static constexpr uint64_t kHopOwnerNs = 2ull * 1000 * 1000, kHopStepNs = 4ull * 1000 * 1000;
+    static constexpr uint64_t kClientHopOwnerNs = 1ull * 1000 * 1000, kClientHopStepNs = 2ull * 1000 * 1000;
 
     // Test seams (outside every lock): submit passed its owner_alive check / AFTER_STEP captured its snapshot.
     enum class Point : uint32_t { AfterAliveCheck, AfterCapture, HopBeforePush };
@@ -276,14 +311,17 @@ public:
 
 private:
     KilnResult open(KilnOwner owner);
+    // `bound` (submit_in): the task is for `world`'s `session` (0: the live one): refused NO_WORLD unless it is live,
+    // and an AFTER_STEP task waits for that world's edge. Unbound: AFTER_STEP is the live server session's.
     KilnResult submit_as(KilnOwner owner, const KilnTaskInfo* info, KilnTaskBodyFn body, KilnTaskDoneFn done, void* user,
-                         bool lease, KilnHandle* task, uint32_t* refusal);
+                         bool lease, KilnHandle* task, uint32_t* refusal, uint32_t world = KILN_WORLD_SERVER,
+                         uint32_t session = 0, bool bound = false);
 
     Pool& pool_;
     ServiceEnv& env_;
-    mutable std::mutex mutex_;  // the session snapshot
-    Snapshot snap_;
-    uint64_t refused_edges_ = 0;
+    mutable std::mutex mutex_;  // the session snapshots
+    Snapshot snap_[kWorldLines];  // per world_line
+    uint64_t refused_edges_[kWorldLines] = {};
     std::atomic<bool> exiting_{false};
     std::atomic<KilnHostDispatchFn> dispatch_{nullptr};  // the managed host's one dispatcher (host_bind)
     std::atomic<KilnHostEndedFn> ended_{nullptr};        // its end notification (host_bind_ended)
@@ -293,14 +331,21 @@ private:
         void* host_state;
     };
     mutable std::mutex lease_mutex_;
-    std::vector<std::pair<KilnOwner, std::deque<Hop>>> hops_;  // per owner, in the order owners first queued
-    std::size_t hop_turn_ = 0;                                // the owner whose turn comes first next step
-    bool hops_open_ = false;  // a live server session takes hops (under lease_mutex_; its STOPPING closes it)
+    // One world's hop queue (all under lease_mutex_): per owner, in the order owners first queued; the owner whose turn
+    // comes first next step; whether a live session takes hops (its STARTED opens, its STOPPING closes), and which.
+    struct HopQueue {
+        std::vector<std::pair<KilnOwner, std::deque<Hop>>> owners;
+        std::size_t turn = 0;
+        bool open = false;
+        uint32_t session = 0;
+    };
+    HopQueue hops_[kWorldLines];
+    KilnResult push_hop(KilnLease lease, uint32_t world, uint32_t session, bool check_session);
     // `count_apply`: the dispatch is accounted in the window's apply stats here (the tick's
     // run_tick_hops accounts its whole round itself, so it passes false).
-    void dispatch_hop(KilnHostDispatchFn dispatch, KilnLease lease, void* host_state, uint32_t cancelled,
+    void dispatch_hop(KilnHostDispatchFn dispatch, uint32_t world, KilnLease lease, void* host_state, uint32_t cancelled,
                       bool count_apply = true);
-    void dispatch_hops_cancelled();                            // a session's STOPPING: every pending hop, cancelled
+    void dispatch_hops_cancelled(uint32_t world);  // a session's STOPPING: every pending hop of that world, cancelled
 
     std::function<void(Point)> hook_;
 };
