@@ -101,6 +101,18 @@ public sealed class WorldConcurrentTests : TaskTest
     }
 
     [Fact]
+    public void A_ref_from_another_world_session_is_stale()
+    {
+        // the same id, generation and layout in a new server session (the world was rebuilt): not the same entity
+        var mod = NewMod("alpha");
+        FakeEcsReads.Add(12, WorldKind.Server, ("Health", Health));
+        var r = Opened(mod, 12);
+        FakeEcsReads.Sessions[0] = 2;
+        Assert.Equal((ReadStatus.Stale, ReadStatus.Stale), InTask(mod, () => (WorldConcurrent.Validate(r), WorldConcurrent.Read<int>(r, "Health").Status)));
+        Assert.Equal((ReadStatus.Ok, 2ul), InTask(mod, () => { var o = WorldConcurrent.Open(new EntityId(12)); return (o.Status, o.Value.Session); }));
+    }
+
+    [Fact]
     public void Unreadable_and_template_and_validate_come_through()
     {
         var mod = NewMod("alpha");
