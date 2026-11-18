@@ -576,8 +576,10 @@ public static unsafe partial class WorldConcurrent
     }
 
     /// <summary>The fallback in one line: when the reads work here (<see cref="IsAvailable"/>) <paramref name="offTick"/>
-    /// runs at once, in the task; otherwise <paramref name="onTick"/> runs on the server tick through
-    /// <see cref="KilnTaskContext.OnTick{T}"/>. Either way the result (or the exception) comes back through the Task.
+    /// runs at once, in the task; otherwise <paramref name="onTick"/> runs through
+    /// <see cref="KilnTaskContext.OnTick{T}(Func{T})"/>, on the task's tick world (<see cref="KilnTaskContext.TickWorld"/>:
+    /// the server tick for a task started in server code, the client world's step for one started on the game's main
+    /// thread). Either way the result (or the exception) comes back through the Task.
     /// <c>var n = await WorldConcurrent.OrOnTick(ctx, () =&gt; CountFromTask(), () =&gt; CountOnTick());</c></summary>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public static Task<T> OrOnTick<T>(KilnTaskContext ctx, Func<T> offTick, Func<T> onTick)
@@ -660,7 +662,10 @@ public static unsafe partial class WorldConcurrent
     };
 
     // The server tick runs inside the server frame: a frame-quiet read there would always meet it.
-    private static bool OnServerTick => TaskExecutionScope.OnTick || TaskBackend.Current?.OnServerTick == true;
+    // A task's server-world hop or the server tick itself: the frame holds the gate there. A client-world hop (#82) runs on
+    // the game's main thread, beside the server world's frame: its calls meet the gate like any task's.
+    private static bool OnServerTick =>
+        (TaskExecutionScope.OnTick && TaskExecutionScope.TickWorld == WorldKind.Server) || TaskBackend.Current?.OnServerTick == true;
 
     // A frame-quiet read on the server tick: the server frame is running (busy; a worker can retry), and a client or
     // prediction world has no frame-quiet window at all (unsupported, as kiln.world says it). No engine read either way.

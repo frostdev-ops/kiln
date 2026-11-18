@@ -71,7 +71,8 @@ public static partial class Coverage
         Row("Kiln tasks", CoverageKind.RecordingFake,
             "Context.Tasks runs as in the game on the kit's pool (two real worker threads): ToTick, OnTick and PostToTick hops " +
             "run in the harness's steps before Tick.Pre, NextGateWindow resumes after a step, an unload cancels a mod's tasks; " +
-            "KilnHarness.Tasks.Settle runs them to their end. The pool's per-mod caps and per-step budgets are not modelled",
+            "KilnHarness.Tasks.Settle runs them to their end; KilnHarnessOptions.Side gives a joined or a hosting client's worlds " +
+            "(client-world hops on the game's main thread). The pool's per-mod caps and per-step budgets are not modelled",
             "tasks.pool");
         Row("Config (global)", CoverageKind.Real,
             "Config.Register of every kind (common, server, client): files in the temp kiln/config, edits on disk reach the " +

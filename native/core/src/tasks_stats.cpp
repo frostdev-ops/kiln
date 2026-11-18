@@ -99,6 +99,7 @@ struct Store::Entry {
     Name task_name{};
     std::atomic<uint32_t> task_name_len{0};
     std::atomic<uint32_t> fault_code{0};
+    std::atomic<uint32_t> on_tick_world{0};
 };
 
 struct Store::FaultEntry {
@@ -290,12 +291,13 @@ void Store::segment_ended(int owner_slot, int entry, uint64_t cpu_ns, uint64_t w
     }
 }
 
-void Store::set_on_tick(int entry, uint64_t thread_id, uint64_t now_ns) {
+void Store::set_on_tick(int entry, uint64_t thread_id, uint64_t now_ns, uint32_t world) {
     if (entry < 0) return;
     Entry& e = entry_at(entry);
     Writer w(e.writer, e.seq);
     if (!e.active.load(std::memory_order_relaxed)) return;
     e.state.store(static_cast<uint32_t>(EntryState::OnTick), std::memory_order_relaxed);
+    e.on_tick_world.store(world, std::memory_order_relaxed);
     e.thread_id.store(thread_id, std::memory_order_relaxed);
     e.segment_started_ns.store(now_ns, std::memory_order_relaxed);
 }
@@ -434,16 +436,49 @@ void Store::note_queue_depth(uint64_t depth) {
 
 void Store::record_apply(uint64_t applied, uint64_t cancelled, uint64_t apply_ns, uint64_t owners_served,
                          bool owner_budget_stop, bool step_budget_stop, uint64_t deferred_now) {
-    apply_applied_.fetch_add(applied, std::memory_order_relaxed);
-    apply_cancelled_.fetch_add(cancelled, std::memory_order_relaxed);
-    apply_ns_.fetch_add(apply_ns, std::memory_order_relaxed);
-    apply_owners_served_.fetch_add(owners_served, std::memory_order_relaxed);
-    if (owner_budget_stop) apply_owner_stops_.fetch_add(1, std::memory_order_relaxed);
-    if (step_budget_stop) apply_step_stops_.fetch_add(1, std::memory_order_relaxed);
-    apply_deferred_.fetch_add(deferred_now, std::memory_order_relaxed);
+    record_apply(0, applied, cancelled, apply_ns, owners_served, owner_budget_stop, step_budget_stop, deferred_now);
 }
 
-void Store::note_hop_refused() { hops_refused_.fetch_add(1, std::memory_order_relaxed); }
+void Store::record_apply(uint32_t line, uint64_t applied, uint64_t cancelled, uint64_t apply_ns, uint64_t owners_served,
+                         bool owner_budget_stop, bool step_budget_stop, uint64_t deferred_now) {
+    if (line >= kApplyWorlds) return;
+    ApplyAccount& a = apply_[line];
+    a.applied.fetch_add(applied, std::memory_order_relaxed);
+    a.cancelled.fetch_add(cancelled, std::memory_order_relaxed);
+    a.ns.fetch_add(apply_ns, std::memory_order_relaxed);
+    a.owners_served.fetch_add(owners_served, std::memory_order_relaxed);
+    if (owner_budget_stop) a.owner_stops.fetch_add(1, std::memory_order_relaxed);
+    if (step_budget_stop) a.step_stops.fetch_add(1, std::memory_order_relaxed);
+    a.deferred.fetch_add(deferred_now, std::memory_order_relaxed);
+}
+
+void Store::note_hop_refused() { note_hop_refused(0); }
+
+void Store::note_hop_refused(uint32_t line) {
+    if (line < kApplyWorlds) apply_[line].hops_refused.fetch_add(1, std::memory_order_relaxed);
+}
+
+void Store::take_apply(uint32_t line, uint64_t backlog, WindowSnapshot* w) {
+    if (line >= kApplyWorlds) line = 0;
+    ApplyAccount& a = apply_[line];
+    w->apply.applied = a.applied.exchange(0, std::memory_order_relaxed);
+    w->apply.deferred = a.deferred.exchange(0, std::memory_order_relaxed);
+    w->apply.cancelled = a.cancelled.exchange(0, std::memory_order_relaxed);
+    w->apply.apply_ns = a.ns.exchange(0, std::memory_order_relaxed);
+    w->apply.owner_budget_stops = a.owner_stops.exchange(0, std::memory_order_relaxed);
+    w->apply.step_budget_stops = a.step_stops.exchange(0, std::memory_order_relaxed);
+    w->apply.owners_served = a.owners_served.exchange(0, std::memory_order_relaxed);
+    w->apply.backlog = backlog;
+    w->hops_refused = a.hops_refused.exchange(0, std::memory_order_relaxed);
+}
+
+WindowSnapshot Store::collect_apply(uint32_t line, uint64_t now_ns, uint64_t backlog) {
+    (void)now_ns;
+    WindowSnapshot w;
+    w.apply_only = true;
+    take_apply(line, backlog, &w);
+    return w;
+}
 
 // ---- readers ----
 
@@ -511,7 +546,7 @@ void Store::take_window(Slot& s, OwnerSnapshot* o) {
     s.writer.clear(std::memory_order_release);
 }
 
-WindowSnapshot Store::collect_window(uint64_t now_ns, uint64_t backlog, uint64_t queue_current) {
+WindowSnapshot Store::collect_window(uint64_t now_ns, uint64_t backlog, uint64_t queue_current, uint32_t line) {
     WindowSnapshot w;
     w.id = window_id_.fetch_add(1, std::memory_order_relaxed) + 1;
     const uint64_t last = last_collect_ns_.exchange(now_ns, std::memory_order_relaxed);
@@ -539,15 +574,7 @@ WindowSnapshot Store::collect_window(uint64_t now_ns, uint64_t backlog, uint64_t
                               o.unload_blocked;
         if (activity && w.owner_count < kMaxOwners) w.owners[w.owner_count++] = o;
     }
-    w.apply.applied = apply_applied_.exchange(0, std::memory_order_relaxed);
-    w.apply.deferred = apply_deferred_.exchange(0, std::memory_order_relaxed);
-    w.apply.cancelled = apply_cancelled_.exchange(0, std::memory_order_relaxed);
-    w.apply.apply_ns = apply_ns_.exchange(0, std::memory_order_relaxed);
-    w.apply.owner_budget_stops = apply_owner_stops_.exchange(0, std::memory_order_relaxed);
-    w.apply.step_budget_stops = apply_step_stops_.exchange(0, std::memory_order_relaxed);
-    w.apply.owners_served = apply_owners_served_.exchange(0, std::memory_order_relaxed);
-    w.apply.backlog = backlog;
-    w.hops_refused = hops_refused_.exchange(0, std::memory_order_relaxed);
+    take_apply(line, backlog, &w);
     return w;
 }
 
@@ -573,6 +600,7 @@ CrashSnapshot Store::snapshot_crash(uint64_t now_ns) const {
             r.started_ns = e.task_started_ns.load(std::memory_order_relaxed);
             const uint64_t segment = e.segment_started_ns.load(std::memory_order_relaxed);
             r.state = static_cast<EntryState>(e.state.load(std::memory_order_relaxed));
+            r.world = e.on_tick_world.load(std::memory_order_relaxed);
             read_name(e.owner_name, e.owner_name_len, r.owner_name);
             read_name(e.task_name, e.task_name_len, r.task_name);
             const uint64_t since =
@@ -718,6 +746,7 @@ bool Store::running_row(uint32_t index, uint64_t now_ns, RunningSnapshot* out) c
             r.started_ns = e.task_started_ns.load(std::memory_order_relaxed);
             const uint64_t segment = e.segment_started_ns.load(std::memory_order_relaxed);
             r.state = static_cast<EntryState>(e.state.load(std::memory_order_relaxed));
+            r.world = e.on_tick_world.load(std::memory_order_relaxed);
             read_name(e.owner_name, e.owner_name_len, r.owner_name);
             read_name(e.task_name, e.task_name_len, r.task_name);
             const uint64_t since = (r.state == EntryState::Running || r.state == EntryState::OnTick) ? segment : r.started_ns;
@@ -839,6 +868,19 @@ void escape(std::string& out, const char* s) {
 std::string format_window_json(const WindowSnapshot& w) {
     std::string out;
     out.reserve(1024);
+    if (w.apply_only) {
+        appendf(out,
+                "\"tasks\":{\"apply\":{\"applied\":%llu,\"deferred\":%llu,\"cancelled\":%llu,\"ms\":%.3f,"
+                "\"owner_budget_stops\":%llu,\"step_budget_stops\":%llu,\"owners_served\":%llu,\"backlog\":%llu},"
+                "\"hops\":{\"refused\":%llu}}",
+                static_cast<unsigned long long>(w.apply.applied), static_cast<unsigned long long>(w.apply.deferred),
+                static_cast<unsigned long long>(w.apply.cancelled), ms(w.apply.apply_ns),
+                static_cast<unsigned long long>(w.apply.owner_budget_stops),
+                static_cast<unsigned long long>(w.apply.step_budget_stops),
+                static_cast<unsigned long long>(w.apply.owners_served), static_cast<unsigned long long>(w.apply.backlog),
+                static_cast<unsigned long long>(w.hops_refused));
+        return out;
+    }
     appendf(out,
             "\"tasks\":{\"window\":{\"id\":%llu,\"span_ms\":%.3f,\"age_ms\":%.3f},"
             "\"pool\":{\"workers\":%u,\"long_running\":%u,\"queue_max\":%llu},\"owners\":[",
@@ -896,11 +938,11 @@ void append_name(char*& p, char* end, const char* s) {
     if (p < end) *p = '\0';
 }
 
-const char* state_word(EntryState s) {
+const char* state_word(EntryState s, uint32_t world) {
     switch (s) {
         case EntryState::Running: return "running";
         case EntryState::Suspended: return "suspended";
-        case EntryState::OnTick: return "on-tick";
+        case EntryState::OnTick: return world == 2 ? "on-tick-client" : "on-tick";  // KILN_WORLD_CLIENT
         case EntryState::Queued: return "queued";
         default: return "ending";
     }
@@ -939,7 +981,7 @@ std::size_t format_crash(const CrashSnapshot& s, char* buf, std::size_t cap) {
         append_name(p, end, r.task_name);
         append_crash(p, end, "\" handle=0x%llx started_ns=%llu elapsed_ms=%.3f state=%s\n",
                      static_cast<unsigned long long>(r.handle), static_cast<unsigned long long>(r.started_ns),
-                     ms(r.elapsed_ns), state_word(r.state));
+                     ms(r.elapsed_ns), state_word(r.state, r.world));
     }
     if (s.running_total > s.running_count)
         append_crash(p, end, "  ... and %llu more running (at most %zu shown)\n",

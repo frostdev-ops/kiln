@@ -6,9 +6,17 @@ namespace Kiln;
 
 /// <summary>
 /// One C# task on the pool: one lease of <see cref="TaskBackend"/>, the host state its dispatches carry. It runs the
-/// work's pieces (segments on workers, hops on the tick) inside <see cref="TaskExecutionScope"/>, keeps the work's tick
-/// items in order, and ends the lease exactly once, when the work and everything it handed to the tick have resolved.
+/// work's pieces (segments on workers, hops on a world's step) inside <see cref="TaskExecutionScope"/>, keeps the work's
+/// tick items in order per world, and ends the lease exactly once, when the work and everything it handed to a world
+/// have resolved.
 /// </summary>
+/// <remarks>
+/// <para>Worlds (#82). A task has a home world, where its parameterless hops go: the one it was started in (see
+/// <see cref="Capture"/>). It is bound to at most one session per world kind: the one it was started in, else the first
+/// one a hop, post or window of it reaches. A call to a world kind whose bound session has ended cancels the task
+/// through its own token (it has no world of that kind left to go to); a call to a kind it is not bound to with no live
+/// world throws <see cref="KilnUnavailableException"/> and leaves the task alone.</para>
+/// </remarks>
 /// <remarks>
 /// <para>Suspension: every segment that does not end the task arms one registration before it returns and stores it
 /// here. Whatever needs the task again (a continuation posted to its pool context, the work's end, the last tick item
@@ -48,12 +56,14 @@ internal sealed class TaskRun
     private readonly ExecutionContext? _flow;
     private readonly CancellationTokenSource _cts = new();
     private readonly PoolContext _poolContext;
-    private readonly TickContext _tickContext;
+    private readonly TickContext[] _tickContexts;  // per world line: [0] the server world, [1] the client world
+    private readonly WorldKind _home;
     private long _lease;
 
     // under _gate
     private readonly Queue<(SendOrPostCallback Callback, object? State)> _pool = new();
-    private readonly LinkedList<TickItem> _tick = new();
+    private readonly LinkedList<TickItem>[] _tick = [new(), new()];  // per world line, FIFO each
+    private readonly ulong[] _bound = new ulong[2];  // the session the task is bound to, per world line; 0 = not yet
     private int _tickRunning;
     private ulong _registration;  // the armed registration, stored while the task is suspended; 0 otherwise
     private bool _started, _bodyEnded, _finished;
@@ -69,13 +79,16 @@ internal sealed class TaskRun
     internal readonly KilnTask Task;
     internal readonly KilnTaskContext Context;
 
-    private TaskRun(TaskBackend backend, Owner owner, string name, Delegate work, KilnTask task)
+    private TaskRun(TaskBackend backend, Owner owner, string name, Delegate work, KilnTask task, Captured at)
     {
         _backend = backend;
         _work = work;
         _flow = ExecutionContext.Capture();
         _poolContext = new PoolContext(this);
-        _tickContext = new TickContext(this);
+        _tickContexts = [new TickContext(this, WorldKind.Server), new TickContext(this, WorldKind.Client)];
+        _home = at.Home;
+        _bound[0] = at.Server;
+        _bound[1] = at.Client;
         Mod = owner.Mod;
         OwnerId = owner.Id;
         OwnerName = owner.Name;
@@ -163,7 +176,7 @@ internal sealed class TaskRun
         if (backend.UnavailableReason is { } why) throw new KilnUnavailableException(Capability, why);
         if (owner.Mod is { } mod && (mod.Unloading || !mod.Alive))
             throw new InvalidOperationException("the mod is unloading: it cannot start tasks");
-        var run = new TaskRun(backend, owner, name, work, task);
+        var run = new TaskRun(backend, owner, name, work, task, Capture(backend));
         run.RegisterLive();  // before the admit: its end, which unregisters it, can come before the admit returns
         var refusal = backend.Admit(owner.Id, name, o, run, out var lease);
         if (refusal != TaskRefusal.None)
@@ -174,6 +187,97 @@ internal sealed class TaskRun
         run.SetLease(lease);
         return task;
     }
+
+    // ---- worlds (#82) ----
+
+    /// <summary>What a new task takes from where it is started: its home world, and the sessions it is bound to.</summary>
+    internal readonly record struct Captured(WorldKind Home, ulong Server, ulong Client);
+
+    /// <summary>The world a task belongs to, from the thread that starts it (never from SynchronizationContext.Current:
+    /// several Kiln callbacks on client threads install the mod's server scheduler context):
+    /// <list type="number">
+    /// <item>inside a task: its parent's bindings, and as home the world of the parent's tick hop (in a hop) or the
+    /// parent's home (in a segment);</item>
+    /// <item>on the server world's thread, while a server world exists (live, or in its STOPPING): the server world,
+    /// bound to that session;</item>
+    /// <item>on the game client's main thread: the client world, bound to its session when one exists, else
+    /// unbound (the main menu, a loading screen);</item>
+    /// <item>anywhere else (the render thread, the thread pool, raw threads): the server world, unbound, as before.</item>
+    /// </list></summary>
+    internal static Captured Capture(TaskBackend backend)
+    {
+        if (TaskExecutionScope.Current is { } parent) return parent.CaptureForChild();
+        if (backend.OnWorldThread(WorldKind.Server))
+        {
+            var session = backend.WorldSession(WorldKind.Server, out var state);
+            return new Captured(WorldKind.Server, Exists(state) ? session : 0, 0);
+        }
+        if (backend.OnClientMainThread)
+        {
+            var session = backend.WorldSession(WorldKind.Client, out var state);
+            return new Captured(WorldKind.Client, 0, Exists(state) ? session : 0);
+        }
+        return new Captured(WorldKind.Server, 0, 0);
+    }
+
+    private static bool Exists(WorldSessionState state) => state is WorldSessionState.Live or WorldSessionState.Stopping;
+
+    private Captured CaptureForChild()
+    {
+        var home = TaskExecutionScope.OnTick ? TaskExecutionScope.TickWorld : _home;
+        lock (_gate) return new Captured(home, _bound[0], _bound[1]);
+    }
+
+    private static int Line(WorldKind world) => world == WorldKind.Client ? 1 : 0;
+
+    /// <summary>Where the parameterless hops go.</summary>
+    internal WorldKind Home => _home;
+
+    /// <summary>A world argument of the public API: Server or Client, else ArgumentOutOfRangeException (before
+    /// anything else happens).</summary>
+    internal static WorldKind HopWorld(WorldKind world, string parameter) => world is WorldKind.Server or WorldKind.Client
+        ? world
+        : throw new ArgumentOutOfRangeException(parameter, world, "a task hops to the server world or the client world; the prediction world is no hop target");
+
+    /// <summary>The session a call to <paramref name="world"/> goes to: the task's binding, else the live session (the task is
+    /// bound to it from now on). Null when the bound session has ended: the task has no world of that kind left, and the
+    /// caller cancels it. Throws <see cref="KilnUnavailableException"/> when the task is not bound to that kind and no
+    /// world of it runs.</summary>
+    private ulong? Target(WorldKind world)
+    {
+        var line = Line(world);
+        var live = _backend.WorldSession(world, out var state);
+        lock (_gate)
+        {
+            if (_bound[line] != 0) return state == WorldSessionState.Live && live == _bound[line] ? _bound[line] : null;
+            if (state != WorldSessionState.Live || live == 0) throw NoWorld(world);
+            _bound[line] = live;
+            return live;
+        }
+    }
+
+    /// <summary><see cref="Target"/> for a hop: false when the task's world of that kind has ended, after cancelling the
+    /// task (so the hop takes the cancelled path, quietly).</summary>
+    internal bool TargetOrCancel(WorldKind world)
+    {
+        if (Target(world) is not null) return true;
+        RequestCancel();
+        return false;
+    }
+
+    /// <summary>The session a window of <paramref name="world"/> waits in; 0 for a cancelled task (also one whose world of
+    /// that kind has ended, which this cancels): its await then throws the task's own OperationCanceledException.</summary>
+    internal ulong WindowSession(WorldKind world)
+    {
+        if (Token.IsCancellationRequested) return 0;
+        if (Target(world) is { } session) return session;
+        RequestCancel();
+        return 0;
+    }
+
+    private static KilnUnavailableException NoWorld(WorldKind world) => world == WorldKind.Client
+        ? new(Capability, "no live client world here (a dedicated server, the main menu or a loading screen): client-world work has nowhere to run")
+        : NoServerWorld();
 
     private static Exception Refused(TaskRefusal refusal, TaskBackend backend) => refusal switch
     {
@@ -211,6 +315,8 @@ internal sealed class TaskRun
         var backend = TaskBackend.Current;
         if (backend is { OnPoolThread: true }) return "Kiln's task workers never block on a task: await it";
         if (Game.IsTickThread || backend is { OnServerTick: true }) return "the tick never waits for a task: await it";
+        // a task may need a client-world hop, which only this thread runs: waiting here could never end
+        if (backend is { OnClientMainThread: true }) return "the game's main thread never waits for a task: await it";
         return null;
     }
 
@@ -224,7 +330,8 @@ internal sealed class TaskRun
         {
             run.SetLease(lease);
             if (what == LeaseWork.Segment) run.RunSegment(cancelled);
-            else if (what == LeaseWork.TickHop) run.RunTickHop(cancelled);
+            else if (what == LeaseWork.TickHop) run.RunTickHop(WorldKind.Server, cancelled);
+            else if (what == LeaseWork.ClientHop) run.RunTickHop(WorldKind.Client, cancelled);
             else run.KilnBug($"unknown dispatch {what}");
         }
         catch (Exception e)
@@ -366,7 +473,8 @@ internal sealed class TaskRun
 
     // Under _gate: nothing of the task is left to run.
     private bool CanFinishLocked() =>
-        _bodyEnded && _pool.Count == 0 && _tick.Count == 0 && _tickRunning == 0 && _gateRequested is null && _gateArmed is null;
+        _bodyEnded && _pool.Count == 0 && _tick[0].Count == 0 && _tick[1].Count == 0 && _tickRunning == 0 &&
+        _gateRequested is null && _gateArmed is null;
 
     /// <summary>The end of a segment, inside it: finish the lease, or arm one resumption and store it (or spend it at once
     /// when something is already waiting).</summary>
@@ -540,19 +648,14 @@ internal sealed class TaskRun
             ? $"the mod is unloading, and this code left the task {from} (ConfigureAwait(false), Task.Run or a thread it started): only the task's own work ends cancelled here. Keep the awaits in the task: drop ConfigureAwait(false)."
             : $"the mod is unloading, and this thread is not running the task '{Name}': its KilnTaskContext works only inside the task's own work";
 
-    /// <summary>The live server session, or <see cref="KilnUnavailableException"/> naming tasks.pool.</summary>
-    internal ulong RequireServerWorld()
-    {
-        var session = _backend.ServerSession;
-        return session != 0 ? session : throw NoServerWorld();
-    }
-
     private static KilnUnavailableException NoServerWorld() => new(Capability,
         "no live server world here (the main menu, or a client joined to someone else's server): tick work has nowhere to run");
 
-    /// <summary>This thread is running this task's tick hop, on the server tick, and nothing stops it there.</summary>
-    internal bool OnOwnTick =>
-        TaskExecutionScope.Current == this && TaskExecutionScope.OnTick && _backend.OnServerTick && !Token.IsCancellationRequested && OwnerAlive;
+    /// <summary>This thread is running this task's tick hop of <paramref name="world"/>, on that world's step, and nothing
+    /// stops it there.</summary>
+    internal bool OnOwnTick(WorldKind world) =>
+        TaskExecutionScope.Current == this && TaskExecutionScope.OnTick && TaskExecutionScope.TickWorld == world &&
+        _backend.OnWorldThread(world) && !Token.IsCancellationRequested && OwnerAlive;
 
     // ---- the tick ----
 
@@ -569,45 +672,54 @@ internal sealed class TaskRun
         public object? State;
     }
 
-    /// <summary>Queues <paramref name="item"/> and its hop, under the lock so the hop's dispatch finds it.
-    /// <see cref="TaskRefusal.Argument"/> stands for "the task has ended".</summary>
-    private TaskRefusal EnqueueTick(TickItem item)
+    /// <summary>Queues <paramref name="item"/> and its hop for the task's session of <paramref name="world"/>, under the lock so
+    /// the hop's dispatch finds it. <see cref="TaskRefusal.Argument"/> stands for "the task has ended"; NoServerWorld /
+    /// NoWorld for a session that is not (any more) that world's live one, or none bound.</summary>
+    private TaskRefusal EnqueueTick(TickItem item, WorldKind world)
     {
+        var line = Line(world);
         lock (_gate)
         {
             if (_finished) return TaskRefusal.Argument;
-            var node = _tick.AddLast(item);
-            var refusal = _backend.TickHop(Lease);
-            if (refusal != TaskRefusal.None) _tick.Remove(node);
+            var session = _bound[line];
+            if (session == 0) return world == WorldKind.Server ? TaskRefusal.NoServerWorld : TaskRefusal.NoWorld;
+            var node = _tick[line].AddLast(item);
+            var refusal = _backend.TickHop(Lease, world, session);
+            if (refusal != TaskRefusal.None) _tick[line].Remove(node);
             return refusal;
         }
     }
 
-    private void RunTickHop(bool cancelled)
+    private void RunTickHop(WorldKind world, bool cancelled)
     {
+        var line = Line(world);
         TickItem item;
         lock (_gate)
         {
-            if (_tick.First is not { } first)
+            if (_tick[line].First is not { } first)
             {
-                KilnBug("a tick hop came with nothing queued for it");
+                KilnBug($"a {(world == WorldKind.Client ? "client-world" : "tick")} hop came with nothing queued for it");
                 return;
             }
-            _tick.RemoveFirst();
+            _tick[line].RemoveFirst();
             item = first.Value;
             _tickRunning++;
         }
         try
         {
-            var live = _backend.OnServerTick && _backend.ServerSession != 0 && OwnerAlive;
+            var session = _backend.WorldSession(world, out var state);
+            bool sameSession;
+            lock (_gate) sameSession = state == WorldSessionState.Live && session != 0 && session == _bound[line];
+            var live = sameSession && _backend.OnWorldThread(world) && OwnerAlive;
+            var context = _tickContexts[line];
             if (live && !cancelled && !Token.IsCancellationRequested)
             {
-                using (TaskExecutionScope.Enter(this, onTick: true, _tickContext)) RunTickItem(item);
+                using (TaskExecutionScope.Enter(this, onTick: true, context, world)) RunTickItem(item);
             }
             else if (live && item.Kind == TickKind.Continuation)
             {
-                // a continuation of code already on the tick: cancellation is cooperative, it still runs there
-                using (TaskExecutionScope.Enter(this, onTick: true, _tickContext)) RunTickItem(item);
+                // a continuation of code already on that world's step: cancellation is cooperative, it still runs there
+                using (TaskExecutionScope.Enter(this, onTick: true, context, world)) RunTickItem(item);
             }
             else
             {
@@ -685,28 +797,30 @@ internal sealed class TaskRun
         else ThreadPool.UnsafeQueueUserWorkItem(static s => s.Callback(s.State), (Callback: callback, State: state), preferLocal: false);
     }
 
-    /// <summary>The task's tick context: <c>await</c> in a tick hop comes back to the tick, through the task's hops.</summary>
-    private void PostToTickContext(SendOrPostCallback callback, object? state)
+    /// <summary>The task's tick context of <paramref name="world"/>: <c>await</c> in a hop comes back to that world's step,
+    /// through the task's hops.</summary>
+    private void PostToTickContext(WorldKind world, SendOrPostCallback callback, object? state)
     {
-        var refusal = EnqueueTick(new TickItem(TickKind.Continuation) { Callback = callback, State = state });
+        var refusal = EnqueueTick(new TickItem(TickKind.Continuation) { Callback = callback, State = state }, world);
         if (refusal == TaskRefusal.None) return;
         if (refusal == TaskRefusal.Argument)
         {
-            // the task has ended: tick code that outlived it continues as the mod's ordinary tick work
-            if (Mod is { } mod) mod.Scheduler.Post(() => callback(state));
+            // the task has ended: server tick code that outlived it continues as the mod's ordinary tick work; client
+            // code that outlived it runs on the thread pool, outside any task (Kiln.Api has no way onto the main thread)
+            if (world == WorldKind.Server && Mod is { } mod) mod.Scheduler.Post(() => callback(state));
             else ThreadPool.UnsafeQueueUserWorkItem(static s => s.Callback(s.State), (Callback: callback, State: state), preferLocal: false);
             return;
         }
-        // no server world to come back to: resume on a worker with the task cancelled
+        // its world's session is over: resume on a worker with the task cancelled
         RequestCancel();
         PostToPool(callback, state);
     }
 
-    internal Task<T> OnTick<T>(Func<T> apply)
+    internal Task<T> OnTick<T>(WorldKind world, Func<T> apply)
     {
         CheckUsable();
         if (Token.IsCancellationRequested) return System.Threading.Tasks.Task.FromCanceled<T>(Token);
-        if (OnOwnTick)
+        if (OnOwnTick(world))
         {
             try
             {
@@ -717,7 +831,7 @@ internal sealed class TaskRun
                 return System.Threading.Tasks.Task.FromException<T>(e);
             }
         }
-        RequireServerWorld();
+        if (!TargetOrCancel(world)) return System.Threading.Tasks.Task.FromCanceled<T>(Token);
         var source = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
         var token = Token;
         var item = new TickItem(TickKind.Call)
@@ -735,27 +849,32 @@ internal sealed class TaskRun
             },
             Cancel = () => source.TrySetCanceled(token),
         };
-        ThrowIfRefused(EnqueueTick(item));
-        return source.Task;
+        var refusal = EnqueueTick(item, world);
+        if (refusal == TaskRefusal.None) return source.Task;
+        ThrowIfEnded(refusal);
+        RequestCancel();  // its session ended between the check and the queueing: the task has no such world left
+        return System.Threading.Tasks.Task.FromCanceled<T>(Token);
     }
 
-    internal void PostToTick(Action apply)
+    internal void PostToTick(WorldKind world, Action apply)
     {
         CheckUsable();
         Token.ThrowIfCancellationRequested();
-        RequireServerWorld();
-        ThrowIfRefused(EnqueueTick(new TickItem(TickKind.Post) { Run = apply }));
-    }
-
-    private void ThrowIfRefused(TaskRefusal refusal)
-    {
+        if (!TargetOrCancel(world)) Token.ThrowIfCancellationRequested();
+        var refusal = EnqueueTick(new TickItem(TickKind.Post) { Run = apply }, world);
         if (refusal == TaskRefusal.None) return;
-        if (refusal == TaskRefusal.Argument) throw new InvalidOperationException($"the task '{Name}' has ended: its KilnTaskContext no longer works");
-        throw NoServerWorld();
+        ThrowIfEnded(refusal);
+        RequestCancel();
+        Token.ThrowIfCancellationRequested();
     }
 
-    /// <summary>One <c>await ctx.ToTick()</c>.</summary>
-    internal sealed class HopState(TaskRun run)
+    private void ThrowIfEnded(TaskRefusal refusal)
+    {
+        if (refusal == TaskRefusal.Argument) throw new InvalidOperationException($"the task '{Name}' has ended: its KilnTaskContext no longer works");
+    }
+
+    /// <summary>One <c>await ctx.ToTick()</c>, to <paramref name="world"/>.</summary>
+    internal sealed class HopState(TaskRun run, WorldKind world)
     {
         private const int Waiting = 0, FastPath = 1, Done = 2, Cancelled = 3;
         private int _state;
@@ -763,7 +882,7 @@ internal sealed class TaskRun
         internal bool CheckFastPath()
         {
             if (Volatile.Read(ref _state) is FastPath or Done) return true;
-            if (!run.OnOwnTick) return false;
+            if (!run.OnOwnTick(world)) return false;
             Interlocked.CompareExchange(ref _state, FastPath, Waiting);
             return true;
         }
@@ -779,8 +898,8 @@ internal sealed class TaskRun
                 return;
             }
             var item = new TickItem(TickKind.Hop) { Hop = this, Continuation = continuation };
-            if (run.EnqueueTick(item) == TaskRefusal.None) return;
-            // the world went away (or the task ended under a stray await): resume on a worker, cancelled
+            if (run.EnqueueTick(item, world) == TaskRefusal.None) return;
+            // its world's session ended (or the task ended under a stray await): resume on a worker, cancelled
             run.RequestCancel();
             Refused();
             run.PostToPool(static s => ((Action)s!)(), continuation);
@@ -806,13 +925,15 @@ internal sealed class TaskRun
 
     // ---- gate windows ----
 
-    /// <summary>One <c>await ctx.NextGateWindow()</c>, for the session that was live when it was asked for.</summary>
-    internal sealed class GateState(TaskRun run, ulong session)
+    /// <summary>One <c>await ctx.NextGateWindow()</c>, for the task's session of <paramref name="world"/> (0: none, the task
+    /// is cancelled).</summary>
+    internal sealed class GateState(TaskRun run, WorldKind world, ulong session)
     {
         private const int Waiting = 0, Done = 1, Cancelled = 2, Second = 3;
         private int _state;
 
         internal ulong Session => session;
+        internal WorldKind World => world;
         internal Action? Continuation { get; private set; }
 
         internal void Queue(Action continuation)
@@ -882,9 +1003,9 @@ internal sealed class TaskRun
     private void ArmGate(GateState gate, ulong registration)
     {
         lock (_gate) _gateArmed = gate;
-        var refusal = gate.Session == _backend.ServerSession
-            ? _backend.ResumeAfterStep(Lease, registration, gate.Session)
-            : TaskRefusal.NoServerWorld;
+        var refusal = gate.Session != 0
+            ? _backend.ResumeAfterStep(Lease, registration, gate.World, gate.Session)
+            : TaskRefusal.NoWorld;
         if (refusal == TaskRefusal.None) return;
         // the session it was asked for is over: never moved into another world; the registration is still armed
         lock (_gate)
@@ -936,18 +1057,18 @@ internal sealed class TaskRun
         public override SynchronizationContext CreateCopy() => this;
     }
 
-    private sealed class TickContext(TaskRun run) : SynchronizationContext
+    private sealed class TickContext(TaskRun run, WorldKind world) : SynchronizationContext
     {
         public override void Post(SendOrPostCallback d, object? state)
         {
             ArgumentNullException.ThrowIfNull(d);
-            run.PostToTickContext(d, state);
+            run.PostToTickContext(world, d, state);
         }
 
         public override void Send(SendOrPostCallback d, object? state)
         {
             ArgumentNullException.ThrowIfNull(d);
-            if (TaskExecutionScope.Current != run || !TaskExecutionScope.OnTick)
+            if (TaskExecutionScope.Current != run || !TaskExecutionScope.OnTick || TaskExecutionScope.TickWorld != world)
                 throw new InvalidOperationException("Send works only inside this task's tick work");
             d(state);
         }

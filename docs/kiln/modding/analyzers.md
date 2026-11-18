@@ -132,6 +132,13 @@ The analyzers decide which thread runs a piece of code.
 
 Method groups count too: `Context.Tick.Pre += OnPre` makes `OnPre` tick-thread code.
 
+**The game's main thread** (a client's: it steps the client world and builds the game's UI):
+- `Client.Tick` handlers and `Client.Post` work, and code after `await Client.NextTick()`;
+- callbacks handed to a parameter or an event marked `[ClientMainThread]` (`Ui.Values.SubscribeSlots`, ...);
+- a Kiln task's client-world hops (below).
+
+**The render thread:** callbacks marked `[RenderThread]`, and a draw callback that takes a `UiDraw`.
+
 **A game thread:**
 - any other callback handed to a Kiln API or a Kiln event: on a server, the tick thread;
 - on a client, the main, UI or render thread.
@@ -152,8 +159,13 @@ known.
 
 **Inside a Kiln task** the thread is followed through the function's own control flow (branches and joins, loops,
 early returns, `try`/`catch`/`finally`, `using`):
-- `await ctx.ToTick()` and `await Context.Scheduler.NextTick()` land on the tick, on every path that reaches the
-  call after them. From there the code stays on the tick: its later plain `await`s come back to the tick too. It
+- `await ctx.ToTick()` lands where the task belongs: where its `Context.Tasks.Run` was called. Called from tick code, on
+  the tick; from main-thread code (`Client.Tick`, `Client.Post`, a `[ClientMainThread]` callback), on the game's main
+  thread; inside a task, in its parent's world (inside a hop, that hop's world); from anywhere else, on the tick, as Kiln
+  does. `ctx.ToTick(WorldKind.Client)` and `ctx.ToTick(WorldKind.Server)` land where their constant says; a world that
+  is not a constant is some game thread. The delegates of `ctx.OnTick(...)` and `ctx.PostToTick(...)` follow the same
+  rule.
+- `await ctx.ToTick()` and `await Context.Scheduler.NextTick()` land on every path that reaches the call after them. From there the code stays on the tick: its later plain `await`s come back to the tick too. It
   leaves the tick at `await ctx.NextGateWindow()` (back to a worker) or at an `await …ConfigureAwait(false)`
   (the thread pool), until it hops again. A call after an `if` where only one branch hopped is still off the tick.
 - The delegate of `ctx.OnTick(...)` / `ctx.PostToTick(...)` runs on the tick. Awaiting the `OnTick` result does not
@@ -398,6 +410,22 @@ Context.Tasks.Run("loot-scan", async ctx =>
     var path = other.AsTask().Result;               // KILN105: AsTask() escapes the refusal
     await ctx.ToTick();
     ApplyResults(found);                            // tick-only work, on the tick after the hop
+});
+```
+
+**`await Client.NextTick()` in a task.** Kiln.Client's way to the main thread is a plain `Client.Post` of the
+continuation: inside a Kiln task the rest of the method leaves the task (not tracked by it, not cancelled with it, and
+left waiting for good if the mod unloads before that step). Reported at the await, where the task's scope is proven;
+outside a task it is Kiln.Client's own way and fine. **Fix:** `await ctx.ToTick(WorldKind.Client)`, the task's own hop
+to the client world's step.
+
+```csharp
+Client.Tick += (in TickInfo t) => Context.Tasks.Run("overlay", async ctx =>
+{
+    var marks = ComputeMarks();
+    await Client.NextTick();                        // KILN105: leaves the task
+    await ctx.ToTick();                             // the task's own hop: back to the client world it was started in
+    Thread.Sleep(5);                                // KILN105: blocks the game's main thread
 });
 ```
 

@@ -30,6 +30,9 @@ inline constexpr std::size_t kMaxCrashRunning = 16;
 inline constexpr std::size_t kMaxFaults = 16;
 inline constexpr std::size_t kNameBytes = 128;
 inline constexpr int kCopyRetries = 8;
+// Apply accounts: one per world that takes tick hops, by its session line (tasks_model.h world_line): 0 the server
+// world's, 1 the client world's.
+inline constexpr std::size_t kApplyWorlds = 2;
 
 enum class EntryState : uint32_t { Queued = 0, Running = 1, Suspended = 2, OnTick = 3, DonePending = 4 };
 
@@ -71,6 +74,8 @@ struct WindowSnapshot {
     bool slot_unavailable = false;  // a slot could not be copied (stuck writer): its row is missing
     ApplySnapshot apply;
     uint64_t hops_refused = 0;
+    // collect_apply: only `apply` and `hops_refused` are filled (one world's account, beside another line's window).
+    bool apply_only = false;
 };
 
 struct RunningSnapshot {
@@ -78,6 +83,7 @@ struct RunningSnapshot {
     uint64_t owner = 0, instance = 0, handle = 0, thread_id = 0;
     uint64_t started_ns = 0, elapsed_ns = 0;
     EntryState state = EntryState::Queued;
+    uint32_t world = 0;  // OnTick: the world whose hop runs (KILN_WORLD_SERVER 0, KILN_WORLD_CLIENT 2)
     char owner_name[kNameBytes + 1] = {};
     char task_name[kNameBytes + 1] = {};
 };
@@ -132,7 +138,8 @@ public:
     // A segment returned: running--, CPU/wall in, longest updated; suspended: the entry stays as a
     // suspended lease, else it waits for terminal() at its done.
     void segment_ended(int owner_slot, int entry, uint64_t cpu_ns, uint64_t wall_ns, bool suspended);
-    void set_on_tick(int entry, uint64_t thread_id, uint64_t now_ns);
+    // A tick hop of the entry's task runs on `thread_id`, in `world` (KILN_WORLD_SERVER or KILN_WORLD_CLIENT).
+    void set_on_tick(int entry, uint64_t thread_id, uint64_t now_ns, uint32_t world = 0);
     void end_on_tick(int entry);
     int entry_of_handle(uint64_t handle) const;
     void note_fault_code(int entry, uint32_t code);
@@ -144,14 +151,22 @@ public:
     void note_unload_blocked(uint64_t owner);
     void note_queue_depth(uint64_t depth);
     // Tick hops (the apply path), accumulated over the window and exchanged out by collect_window.
+    // `line`: the world's apply account (kApplyWorlds); the forms without it are the server world's.
     void record_apply(uint64_t applied, uint64_t cancelled, uint64_t apply_ns, uint64_t owners_served,
                       bool owner_budget_stop, bool step_budget_stop, uint64_t deferred_now);
+    void record_apply(uint32_t line, uint64_t applied, uint64_t cancelled, uint64_t apply_ns, uint64_t owners_served,
+                      bool owner_budget_stop, bool step_budget_stop, uint64_t deferred_now);
     void note_hop_refused();
+    void note_hop_refused(uint32_t line);
 
     // ---- readers (no pool lock, no allocation, bounded retries) ----
     // Once a minute: copies at most 64 slots and takes their window counters out by exchange (maxima
     // restart from the current values). Never waits on a writer. `backlog`: tick hops pending then.
-    WindowSnapshot collect_window(uint64_t now_ns, uint64_t backlog, uint64_t queue_current);
+    // `line`: whose apply account the window carries (the others keep theirs for their own lines).
+    WindowSnapshot collect_window(uint64_t now_ns, uint64_t backlog, uint64_t queue_current, uint32_t line = 0);
+    // One world's apply account and refused hops alone, taken out by exchange (apply_only set); `backlog`: that
+    // world's tick hops pending then. The pool-wide parts stay for the line that collects the window.
+    WindowSnapshot collect_apply(uint32_t line, uint64_t now_ns, uint64_t backlog);
     CrashSnapshot snapshot_crash(uint64_t now_ns) const;
     Totals totals(uint64_t now_ns) const;
     // One owner row / running row / fault row by index, for the managed host's crash supplier
@@ -196,9 +211,13 @@ private:
     std::atomic<uint32_t> pool_workers_{0}, pool_long_running_{0};
     std::atomic<uint64_t> queue_current_{0}, queue_max_window_{0};
     std::atomic<uint64_t> window_id_{0}, last_collect_ns_{0};
-    std::atomic<uint64_t> apply_applied_{0}, apply_deferred_{0}, apply_cancelled_{0}, apply_ns_{0};
-    std::atomic<uint64_t> apply_owner_stops_{0}, apply_step_stops_{0}, apply_owners_served_{0};
-    std::atomic<uint64_t> hops_refused_{0};
+    struct ApplyAccount {
+        std::atomic<uint64_t> applied{0}, deferred{0}, cancelled{0}, ns{0};
+        std::atomic<uint64_t> owner_stops{0}, step_stops{0}, owners_served{0};
+        std::atomic<uint64_t> hops_refused{0};
+    };
+    ApplyAccount apply_[kApplyWorlds];
+    void take_apply(uint32_t line, uint64_t backlog, WindowSnapshot* w);
     std::atomic<uint64_t> fault_sequence_{0};
     std::atomic<void (*)(void*)> copy_hook_{nullptr};
     std::atomic<void*> copy_hook_user_{nullptr};
@@ -206,7 +225,8 @@ private:
 };
 
 // The `"tasks":{...}` JSON object for a collected window (no leading comma), owner and task names
-// escaped as tick_stats.h escapes its strings. Empty owners still render.
+// escaped as tick_stats.h escapes its strings. Empty owners still render. An apply_only window renders
+// `"tasks":{"apply":{...},"hops":{...}}` (a hosting client's client-world line).
 std::string format_window_json(const WindowSnapshot& w);
 
 // The crash-report section body (without the "-- Tasks --" header) into a fixed buffer: running

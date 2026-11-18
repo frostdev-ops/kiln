@@ -10,20 +10,38 @@ namespace Kiln.Api.Tests;
 
 internal sealed class FakeTaskBackend : Kiln.TestKit.KitTaskPool
 {
-    private readonly Thread _tickThread;
-    private readonly BlockingCollection<Action> _tickJobs = new();
+    private readonly Thread _tickThread, _mainThread;
+    private readonly BlockingCollection<Action> _tickJobs = new(), _mainJobs = new();
 
-    public FakeTaskBackend(int workers = 2) : this(workers, new Thread[1]) { }
+    public FakeTaskBackend(int workers = 2) : this(workers, new Thread[2]) { }
 
-    // the base asks which thread is the tick thread; that thread is made before the base starts its workers
-    private FakeTaskBackend(int workers, Thread[] tick) : base(workers, () => Thread.CurrentThread == tick[0], "fake-task-", notifyEnded: false)
+    // the base asks which thread is the tick thread and which the game's main thread; both are made before the base
+    // starts its workers. The main thread steps the client world (#82) when a test starts a client session.
+    private FakeTaskBackend(int workers, Thread[] threads)
+        : base(workers, () => Thread.CurrentThread == threads[0], "fake-task-", notifyEnded: false, () => Thread.CurrentThread == threads[1])
     {
-        _tickThread = tick[0] = new Thread(TickLoop) { IsBackground = true, Name = "fake-tick" };
+        _tickThread = threads[0] = new Thread(() => Loop(_tickJobs)) { IsBackground = true, Name = "fake-tick" };
+        _mainThread = threads[1] = new Thread(() => Loop(_mainJobs)) { IsBackground = true, Name = "fake-main" };
         _tickThread.Start();
+        _mainThread.Start();
     }
 
     public int TickThreadId => _tickThread.ManagedThreadId;
     public bool IsTickThread => Thread.CurrentThread == _tickThread;
+    public int MainThreadId => _mainThread.ManagedThreadId;
+    public bool IsMainThread => Thread.CurrentThread == _mainThread;
+
+    /// <summary>One client-world step on the game's main thread: the client hops queued before it, the step's own work
+    /// (<paramref name="pre"/>), then the client world's Post edge.</summary>
+    public void ClientStep(Action? pre = null) => OnMain(() =>
+    {
+        RunHops(WorldKind.Client);
+        pre?.Invoke();
+        PostEdge(WorldKind.Client);
+    });
+
+    /// <summary>Runs <paramref name="job"/> on the game's main thread and waits for it.</summary>
+    public void OnMain(Action job) => Run(_mainJobs, job, "main thread");
 
     /// <summary>One server step on the tick thread: the hops queued before it (each with its lease's cancellation), the
     /// step's own tick work (<paramref name="pre"/>), then the Post edge.</summary>
@@ -35,10 +53,12 @@ internal sealed class FakeTaskBackend : Kiln.TestKit.KitTaskPool
     });
 
     /// <summary>Runs <paramref name="job"/> on the tick thread and waits for it.</summary>
-    public void OnTick(Action job)
+    public void OnTick(Action job) => Run(_tickJobs, job, "tick");
+
+    private static void Run(BlockingCollection<Action> jobs, Action job, string where)
     {
         var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        _tickJobs.Add(() =>
+        jobs.Add(() =>
         {
             try
             {
@@ -50,19 +70,21 @@ internal sealed class FakeTaskBackend : Kiln.TestKit.KitTaskPool
                 done.SetException(e);
             }
         });
-        if (!done.Task.Wait(TimeSpan.FromSeconds(20))) throw new TimeoutException("the fake tick did not finish its job");
+        if (!done.Task.Wait(TimeSpan.FromSeconds(20))) throw new TimeoutException($"the fake {where} did not finish its job");
     }
 
     public override void Dispose()
     {
         base.Dispose();
         _tickJobs.CompleteAdding();
+        _mainJobs.CompleteAdding();
         _tickThread.Join(TimeSpan.FromSeconds(5));
+        _mainThread.Join(TimeSpan.FromSeconds(5));
     }
 
-    private void TickLoop()
+    private static void Loop(BlockingCollection<Action> jobs)
     {
-        foreach (var job in _tickJobs.GetConsumingEnumerable()) job();
+        foreach (var job in jobs.GetConsumingEnumerable()) job();
     }
 }
 

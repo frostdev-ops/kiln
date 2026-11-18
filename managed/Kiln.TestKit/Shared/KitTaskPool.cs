@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Kiln's task pool with no core: the managed host's lease table (native/core/src/tasks_host.h) over real worker threads,
 // with the native rules: segments of one lease never overlap, one armed registration at a time, finish only inside a
-// running segment, tick hops only in a live server session, after-step resumptions tied to their session, a queued lease
-// cancelled without a dispatch. The harness runs it (KilnHarness.Tasks.cs: hops before the mods' Pre, the Post edge after
+// running segment, tick hops only in a live session of their world (the server world, and the client world for #82's
+// client-world hops), after-step resumptions tied to their world's session, a queued lease cancelled without a dispatch. The harness runs it (KilnHarness.Tasks.cs: hops before the mods' Pre, the Post edge after
 // their Post); Kiln's own unit tests run it under a tick thread of their own (Kiln.Api.Tests/FakeTaskBackend.cs). Misuse
 // the native table answers with INTERNAL is recorded in Errors (and thrown); a dispatch that leaves its thread's scope,
 // mod, context or flowed identity changed is recorded in Leaks. Both must stay empty.
@@ -19,7 +19,7 @@ internal class KitTaskPool : TaskBackend, IDisposable
         public KilnTaskState State = KilnTaskState.Queued;
         public bool InReady, SegmentRunning, Armed, ResumePending, AfterPending, Waiting, Finished, Cancel;
         public ulong Registration, Registrations;
-        public (ulong Session, ulong Edge) AfterAt, WaitAt;
+        public (WorldKind World, ulong Session, ulong Edge) AfterAt, WaitAt;
         public LeaseOutcome Outcome;
         public int HopsPending;
         public bool Terminal => State is KilnTaskState.Completed or KilnTaskState.Faulted or KilnTaskState.Cancelled;
@@ -29,12 +29,26 @@ internal class KitTaskPool : TaskBackend, IDisposable
     private readonly List<Thread> _workers = [];
     private readonly LinkedList<LeaseRecord> _ready = new();
     private readonly Dictionary<ulong, LeaseRecord> _leases = new();
-    private readonly List<LeaseRecord> _hops = [];
     private readonly HashSet<ulong> _sealed = [];
     private readonly Func<bool> _onServerTick;
+    private readonly Func<bool>? _onClientThread;
     private readonly bool _notifyEnded;
     private LeaseDispatch? _dispatch;
-    private ulong _nextLease = 0x1000, _session, _sessions, _edge;
+    private ulong _nextLease = 0x1000;
+
+    // One world's sessions, Post edges and pending hops: [0] the server world, [1] the client world.
+    private sealed class WorldLine
+    {
+        public ulong Session;   // the live session; 0 with none
+        public ulong Last;      // the newest session started (kept after its stop)
+        public ulong Sessions;  // sessions started so far (the next one's number - 1)
+        public ulong Edge;
+        public bool Stopping;   // its STOPPING handlers run (the world still exists)
+        public readonly List<LeaseRecord> Hops = [];
+    }
+
+    private readonly WorldLine[] _worlds = [new(), new()];
+    private static int Line(WorldKind world) => world == WorldKind.Client ? 1 : 0;
     private int _running;
     private bool _disposed;
     [ThreadStatic] private static KitTaskPool? t_worker;
@@ -51,9 +65,12 @@ internal class KitTaskPool : TaskBackend, IDisposable
     /// <param name="onServerTick">True on the thread that runs the server world's tick (where hops run).</param>
     /// <param name="threadName">The workers' names, numbered.</param>
     /// <param name="notifyEnded">Tell Kiln.Api when a lease is quiescent (the table's <c>bind_ended</c>), as Kiln.Host does.</param>
-    public KitTaskPool(int workers, Func<bool> onServerTick, string threadName, bool notifyEnded)
+    /// <param name="onClientThread">True on the game client's main thread (the client world's, where client-world hops
+    /// run); null for a pool with no client (a dedicated server).</param>
+    public KitTaskPool(int workers, Func<bool> onServerTick, string threadName, bool notifyEnded, Func<bool>? onClientThread = null)
     {
         _onServerTick = onServerTick;
+        _onClientThread = onClientThread;
         _notifyEnded = notifyEnded;
         for (var i = 0; i < workers; i++)
         {
@@ -75,7 +92,34 @@ internal class KitTaskPool : TaskBackend, IDisposable
     {
         get
         {
-            lock (_lock) return _session;
+            lock (_lock) return _worlds[0].Session;
+        }
+    }
+
+    public override bool OnClientMainThread => _onClientThread?.Invoke() ?? false;
+
+    public override bool OnWorldThread(WorldKind world) => world switch
+    {
+        WorldKind.Server => _onServerTick(),
+        WorldKind.Client => _onClientThread?.Invoke() ?? false,
+        _ => false,
+    };
+
+    public override ulong WorldSession(WorldKind world, out WorldSessionState state)
+    {
+        lock (_lock)
+        {
+            if (world is not (WorldKind.Server or WorldKind.Client))
+            {
+                state = WorldSessionState.None;
+                return 0;
+            }
+            var w = _worlds[Line(world)];
+            state = w.Session != 0 ? WorldSessionState.Live
+                : w.Last == 0 ? WorldSessionState.None
+                : w.Stopping ? WorldSessionState.Stopping
+                : WorldSessionState.Ended;
+            return w.Session != 0 ? w.Session : w.Last;
         }
     }
 
@@ -123,23 +167,29 @@ internal class KitTaskPool : TaskBackend, IDisposable
         }
     }
 
-    public override TaskRefusal ResumeAfterStep(ulong lease, ulong registration, ulong session)
+    public override TaskRefusal ResumeAfterStep(ulong lease, ulong registration, ulong session) =>
+        ResumeAfterStep(lease, registration, WorldKind.Server, session);
+
+    public override TaskRefusal ResumeAfterStep(ulong lease, ulong registration, WorldKind world, ulong session)
     {
         lock (_lock)
         {
             var l = Find(lease);
-            if (l is null || !l.Armed || l.Registration != registration || session == 0) throw Misuse("resume_after_step", l);
-            if (_session == 0 || session != _session) return TaskRefusal.NoServerWorld;  // still armed
+            if (l is null || !l.Armed || l.Registration != registration || session == 0 || world is not (WorldKind.Server or WorldKind.Client))
+                throw Misuse("resume_after_step", l);
+            var w = _worlds[Line(world)];
+            if (w.Session == 0 || session != w.Session)
+                return world == WorldKind.Server ? TaskRefusal.NoServerWorld : TaskRefusal.NoWorld;  // still armed
             l.Armed = false;
             l.Registration = 0;
             if (l.SegmentRunning)
             {
                 l.AfterPending = true;
-                l.AfterAt = (session, _edge);
+                l.AfterAt = (world, session, w.Edge);
             }
             else
             {
-                PlaceAfter(l, (session, _edge));
+                PlaceAfter(l, (world, session, w.Edge));
             }
             return TaskRefusal.None;
         }
@@ -147,17 +197,27 @@ internal class KitTaskPool : TaskBackend, IDisposable
 
     public override TaskRefusal TickHop(ulong lease)
     {
-        lock (_lock)
-        {
-            var l = Find(lease);
-            if (l is null || l.Terminal) throw Misuse("tick_hop", l);
-            if (_session == 0) return TaskRefusal.NoServerWorld;
-            l.HopsPending++;
-            _hops.Add(l);
-            HopsQueued++;
-            Monitor.PulseAll(_lock);
-            return TaskRefusal.None;
-        }
+        lock (_lock) return PushHop(lease, WorldKind.Server, 0, checkSession: false);
+    }
+
+    public override TaskRefusal TickHop(ulong lease, WorldKind world, ulong session)
+    {
+        lock (_lock) return PushHop(lease, world, session, checkSession: true);
+    }
+
+    // Under _lock: a hop for `world` (its live session, or only `session`), never queued into another session.
+    private TaskRefusal PushHop(ulong lease, WorldKind world, ulong session, bool checkSession)
+    {
+        var l = Find(lease);
+        if (l is null || l.Terminal || world is not (WorldKind.Server or WorldKind.Client)) throw Misuse("tick_hop", l);
+        var w = _worlds[Line(world)];
+        if (w.Session == 0 || (checkSession && session != w.Session))
+            return world == WorldKind.Server ? TaskRefusal.NoServerWorld : TaskRefusal.NoWorld;
+        l.HopsPending++;
+        w.Hops.Add(l);
+        HopsQueued++;
+        Monitor.PulseAll(_lock);
+        return TaskRefusal.None;
     }
 
     public override void Finish(ulong lease, LeaseOutcome outcome)
@@ -250,65 +310,85 @@ internal class KitTaskPool : TaskBackend, IDisposable
                 .Select(l => new LeaseRow(l.Owner, l.Id, l.State, l.Name, TimeSpan.Zero))];
     }
 
-    // ---- the server world: the caller is the thread that runs it ----
+    // ---- the worlds: the caller is the thread that runs that world (the server world's tick; the client's main thread) ----
 
-    public void StartSession()
+    /// <summary>A new session of <paramref name="world"/> starts (its first step). A session that stopped without a stop
+    /// event left hops: they are dispatched cancelled here, never carried into the new one.</summary>
+    public void StartSession(WorldKind world = WorldKind.Server)
     {
+        List<LeaseRecord> old;
         lock (_lock)
         {
-            _session = ++_sessions;
-            _edge = 0;
+            var w = _worlds[Line(world)];
+            old = [.. w.Hops];
+            w.Hops.Clear();
+            w.Session = w.Last = ++w.Sessions;
+            w.Edge = 0;
+            w.Stopping = false;
         }
+        foreach (var h in old) DispatchHop(h, cancelled: true, world);
     }
 
-    /// <summary>The live session's STOPPING, on the calling thread (the one that ends the world): every pending hop is
-    /// dispatched cancelled, every after-step resumption of the session is released with its cancellation set.</summary>
-    public void StopSession()
+    /// <summary>The live session's STOPPING of <paramref name="world"/>, on the calling thread (the one that ends the
+    /// world): every pending hop of that world is dispatched cancelled, every after-step resumption of the session is
+    /// released with its cancellation set. The other world is untouched.</summary>
+    public void StopSession(WorldKind world = WorldKind.Server)
     {
         List<LeaseRecord> hops;
         lock (_lock)
         {
-            var ended = _session;
-            _session = 0;
-            hops = [.. _hops];
-            _hops.Clear();
-            foreach (var l in _leases.Values.Where(l => l.Waiting && l.WaitAt.Session == ended).ToList())
+            var w = _worlds[Line(world)];
+            var ended = w.Session;
+            w.Session = 0;
+            hops = [.. w.Hops];
+            w.Hops.Clear();
+            foreach (var l in _leases.Values.Where(l => l.Waiting && l.WaitAt.World == world && l.WaitAt.Session == ended).ToList())
             {
                 l.Waiting = false;
                 l.Cancel = true;
                 Ready(l);
             }
         }
-        foreach (var h in hops) DispatchHop(h, cancelled: true);
+        foreach (var h in hops) DispatchHop(h, cancelled: true, world);
     }
 
-    /// <summary>The hops queued before now, on the calling thread (the tick, before the mods' Pre), each with its lease's
-    /// cancellation. A hop queued while these run waits for the next call.</summary>
-    public void RunHops()
+    /// <summary>Between a world's STOPPING and the end of its handlers: the world still exists (a task started there is
+    /// bound to the ending session). The harness sets it around its stop events.</summary>
+    public void SetStopping(WorldKind world, bool stopping)
+    {
+        lock (_lock) _worlds[Line(world)].Stopping = stopping;
+    }
+
+    /// <summary>The hops of <paramref name="world"/> queued before now, on the calling thread (that world's step, before its
+    /// Pre), each with its lease's cancellation. A hop queued while these run waits for the next call.</summary>
+    public void RunHops(WorldKind world = WorldKind.Server)
     {
         List<LeaseRecord> hops;
         lock (_lock)
         {
-            hops = [.. _hops];
-            _hops.Clear();
+            var w = _worlds[Line(world)];
+            hops = [.. w.Hops];
+            w.Hops.Clear();
         }
         foreach (var h in hops)
         {
             bool cancel;
             lock (_lock) cancel = h.Cancel;
-            DispatchHop(h, cancel);
+            DispatchHop(h, cancel, world);
         }
     }
 
-    /// <summary>The live session's Post edge: the after-step resumptions asked for before it become ready.</summary>
-    public void PostEdge()
+    /// <summary>The live session's Post edge of <paramref name="world"/>: the after-step resumptions asked for before it
+    /// become ready.</summary>
+    public void PostEdge(WorldKind world = WorldKind.Server)
     {
         lock (_lock)
         {
-            if (_session == 0) return;
-            _edge++;
+            var w = _worlds[Line(world)];
+            if (w.Session == 0) return;
+            w.Edge++;
             Edges++;
-            foreach (var l in _leases.Values.Where(l => l.Waiting && l.WaitAt.Session == _session && l.WaitAt.Edge < _edge).ToList())
+            foreach (var l in _leases.Values.Where(l => l.Waiting && l.WaitAt.World == world && l.WaitAt.Session == w.Session && l.WaitAt.Edge < w.Edge).ToList())
             {
                 l.Waiting = false;
                 Ready(l);
@@ -316,12 +396,18 @@ internal class KitTaskPool : TaskBackend, IDisposable
         }
     }
 
-    public int PendingHops
+    /// <summary>The live session of <paramref name="world"/>; 0 with none.</summary>
+    public ulong Session(WorldKind world)
     {
-        get
-        {
-            lock (_lock) return _hops.Count;
-        }
+        lock (_lock) return _worlds[Line(world)].Session;
+    }
+
+    /// <summary>The server world's pending hops.</summary>
+    public int PendingHops => PendingHopsOf(WorldKind.Server);
+
+    public int PendingHopsOf(WorldKind world)
+    {
+        lock (_lock) return _worlds[Line(world)].Hops.Count;
     }
 
     /// <summary>Leases not yet dropped (alive tasks, or ended ones with a hop still to dispatch).</summary>
@@ -385,7 +471,8 @@ internal class KitTaskPool : TaskBackend, IDisposable
         var deadline = Environment.TickCount64 + (long)timeout.TotalMilliseconds;
         lock (_lock)
         {
-            while (_ready.Count == 0 && _running == 0 && _hops.Count == 0 && !_leases.Values.Any(l => l.Waiting))
+            while (_ready.Count == 0 && _running == 0 && _worlds[0].Hops.Count == 0 && _worlds[1].Hops.Count == 0 &&
+                   !_leases.Values.Any(l => l.Waiting))
             {
                 var left = deadline - Environment.TickCount64;
                 if (left <= 0 || !Monitor.Wait(_lock, TimeSpan.FromMilliseconds(left))) return false;
@@ -428,9 +515,9 @@ internal class KitTaskPool : TaskBackend, IDisposable
         Monitor.PulseAll(_lock);
     }
 
-    private void PlaceAfter(LeaseRecord l, (ulong Session, ulong Edge) at)
+    private void PlaceAfter(LeaseRecord l, (WorldKind World, ulong Session, ulong Edge) at)
     {
-        if (at.Session != _session)
+        if (at.Session != _worlds[Line(at.World)].Session)
         {
             l.Cancel = true;  // its session is over: released cancelled, never carried into another
             Ready(l);
@@ -516,12 +603,12 @@ internal class KitTaskPool : TaskBackend, IDisposable
         if (after != before) lock (_lock) Leaks.Add($"{where} left {after} (was {before})");
     }
 
-    private void DispatchHop(LeaseRecord h, bool cancelled)
+    private void DispatchHop(LeaseRecord h, bool cancelled, WorldKind world)
     {
         var before = Observed();
         try
         {
-            _dispatch!(h.Id, LeaseWork.TickHop, cancelled, h.HostState);
+            _dispatch!(h.Id, world == WorldKind.Client ? LeaseWork.ClientHop : LeaseWork.TickHop, cancelled, h.HostState);
         }
         catch (Exception e)
         {

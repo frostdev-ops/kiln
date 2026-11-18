@@ -70,6 +70,20 @@ KilnResult KILN_CALL t_submit(KilnOwner owner, const KilnTaskInfo* info, KilnTas
     }
 }
 
+KilnResult KILN_CALL t_submit_in(KilnOwner owner, const KilnTaskInfo* info, uint32_t world, uint32_t session,
+                                 KilnTaskBodyFn body, KilnTaskDoneFn done, void* user, KilnHandle* task,
+                                 uint32_t* refusal) {
+    tasks::Service* service = g_service.load(std::memory_order_acquire);
+    if (!service) return owner ? unavailable(task, refusal) : KILN_ERR_INVALID_ARGUMENT;
+    try {
+        return service->submit_in(owner, info, world, session, body, done, user, task, refusal);
+    } catch (...) {
+        if (task) *task = 0;
+        if (refusal) *refusal = KILN_TASK_REFUSAL_CAPABILITY;
+        return KILN_ERR_INTERNAL;
+    }
+}
+
 KilnResult KILN_CALL t_cancel(KilnOwner owner, KilnHandle task, uint32_t* state) {
     tasks::Service* service = g_service.load(std::memory_order_acquire);
     if (!service) {
@@ -202,6 +216,23 @@ uint32_t KILN_CALL h_on_pool_thread() {
     const tasks::Service* service = g_service.load(std::memory_order_acquire);
     return service ? service->host_on_pool_thread() : 0;
 }
+uint32_t KILN_CALL h_world_session(uint32_t world, uint32_t* state) {
+    const tasks::Service* service = g_service.load(std::memory_order_acquire);
+    if (state) *state = 0;
+    try {
+        return service ? service->host_world_session(world, state) : 0;
+    } catch (...) {
+        return 0;
+    }
+}
+KilnResult KILN_CALL h_tick_hop_in(KilnLease lease, uint32_t world, uint32_t session) {
+    return with_service([&](tasks::Service& s) { return s.host_tick_hop_in(lease, world, session); });
+}
+KilnResult KILN_CALL h_resume_after_step_world(KilnLease lease, uint64_t registration, uint32_t world, uint32_t session,
+                                               uint32_t* refusal) {
+    return with_service(
+        [&](tasks::Service& s) { return s.host_resume_after_step_world(lease, registration, world, session, refusal); });
+}
 uint32_t KILN_CALL h_server_session() {
     const tasks::Service* service = g_service.load(std::memory_order_acquire);
     try {
@@ -267,6 +298,7 @@ KilnResult KILN_CALL h_stats_running_row(uint32_t index, KilnTaskStatsRunningRow
     row->started_ns = r.started_ns;
     row->elapsed_ns = r.elapsed_ns;
     row->state = static_cast<uint32_t>(r.state);
+    row->world = r.state == tasks_stats::EntryState::OnTick ? r.world : 0;
     std::memcpy(row->owner_name, r.owner_name, sizeof(row->owner_name));
     std::memcpy(row->task_name, r.task_name, sizeof(row->task_name));
     return KILN_OK;
@@ -333,7 +365,10 @@ const KilnTasksHostApi kHostTable = {{sizeof(KilnTasksHostApi), KILN_TASKS_HOST_
                                      &h_stats_owner_row,
                                      &h_stats_running_row,
                                      &h_stats_fault_row,
-                                     &h_stats_totals};
+                                     &h_stats_totals,
+                                     &h_world_session,
+                                     &h_tick_hop_in,
+                                     &h_resume_after_step_world};
 
 // tasks.pool's source (caps.cpp reads it lock-free at every registry call): -1 no pool, 0 no worker, 1 available.
 int pool_state() {
@@ -342,7 +377,8 @@ int pool_state() {
 }
 
 const KilnTasksApi kTable = {{sizeof(KilnTasksApi), KILN_TASKS_VERSION}, &t_submit,      &t_cancel,
-                             &t_status,                                 &t_release,     &t_drain_owner};
+                             &t_status,                                 &t_release,     &t_drain_owner,
+                             &t_submit_in};
 
 bool init() {
     tasks::Service* service = nullptr;
@@ -382,45 +418,45 @@ bool init() {
 
 }  // namespace
 
-// The core's lifecycle calls (tick.cpp on the server world's thread, api.cpp's exit trigger). Before init (safe idle,
-// no tick hook) they do nothing.
-void session_started(uint32_t session) {
-    if (tasks::Service* service = g_service.load(std::memory_order_acquire)) service->session_started(session);
+// The core's lifecycle calls (tick.cpp on the server or client world's thread, api.cpp's exit trigger). Before init
+// (safe idle, no tick hook) they do nothing.
+void session_started(uint32_t world, uint32_t session) {
+    if (tasks::Service* service = g_service.load(std::memory_order_acquire)) service->session_started(world, session);
 }
 
-void post_edge(uint32_t session, uint64_t step) {
+void post_edge(uint32_t world, uint32_t session, uint64_t step) {
     tasks::Service* service = g_service.load(std::memory_order_acquire);
-    if (!service || service->post_edge(session, step)) return;
+    if (!service || service->post_edge(world, session, step)) return;
     // a step that is not above the session's last edge, or of another session: refused and counted; said once
     static std::atomic<bool> said{false};
     if (!said.exchange(true))
-        KLOG_W("kiln.tasks: a Post edge (session %u, step %llu) was refused (not the live session, or not above its "
-               "last edge); AFTER_STEP tasks wait for the next valid edge",
-               session, static_cast<unsigned long long>(step));
+        KLOG_W("kiln.tasks: a Post edge (%s world, session %u, step %llu) was refused (not the live session, or not "
+               "above its last edge); AFTER_STEP tasks wait for the next valid edge",
+               world == KILN_WORLD_CLIENT ? "client" : "server", session, static_cast<unsigned long long>(step));
 }
 
-void session_stopping(uint32_t session) {
-    if (tasks::Service* service = g_service.load(std::memory_order_acquire)) service->session_stopping(session);
+void session_stopping(uint32_t world, uint32_t session) {
+    if (tasks::Service* service = g_service.load(std::memory_order_acquire)) service->session_stopping(world, session);
 }
 
 const void* host_table() { return g_service.load(std::memory_order_acquire) ? &kHostTable : nullptr; }
 
-void tick_hops() {
+void tick_hops(uint32_t world) {
     if (tasks::Service* service = g_service.load(std::memory_order_acquire)) {
         try {
-            service->run_tick_hops();
+            service->run_tick_hops(world);
         } catch (...) {  // nothing leaves the tick hook
         }
     }
 }
 
 // Issue #49: the diagnostics window for a tick-stats line. False when the pool does not exist.
-bool tasks_window(tasks_stats::WindowSnapshot* out) {
+bool tasks_window(uint32_t world, bool apply_only, tasks_stats::WindowSnapshot* out) {
     if (!out) return false;
     tasks::Service* service = g_service.load(std::memory_order_acquire);
     if (!service) return false;
     try {
-        *out = service->collect_tasks_window();
+        *out = service->collect_tasks_window(world, apply_only);
         return true;
     } catch (...) {
         return false;

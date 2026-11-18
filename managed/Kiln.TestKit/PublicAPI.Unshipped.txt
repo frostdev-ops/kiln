@@ -5,5 +5,14 @@ Kiln.TestKit.HarnessTasks.Settle(int maxSteps = 1000, System.TimeSpan? timeout =
 Kiln.TestKit.KilnHarness.Tasks.get -> Kiln.TestKit.HarnessTasks!
 [KILNX001]Kiln.TestKit.FakeWorld.BusyReads.get -> int
 [KILNX001]Kiln.TestKit.FakeWorld.BusyReads.set -> void
+Kiln.TestKit.HarnessSide
+Kiln.TestKit.HarnessSide.DedicatedServer = 0 -> Kiln.TestKit.HarnessSide
+Kiln.TestKit.HarnessSide.HostingClient = 1 -> Kiln.TestKit.HarnessSide
+Kiln.TestKit.HarnessSide.JoinedClient = 2 -> Kiln.TestKit.HarnessSide
+Kiln.TestKit.KilnHarness.EnterWorld() -> void
+Kiln.TestKit.KilnHarness.LeaveWorld() -> void
+Kiln.TestKit.KilnHarness.OnMainThread(System.Action! work) -> void
+Kiln.TestKit.KilnHarnessOptions.Side.get -> Kiln.TestKit.HarnessSide
+Kiln.TestKit.KilnHarnessOptions.Side.init -> void
 [KILNX001]Kiln.TestKit.FakeWorld.BusyWrites.get -> int
 [KILNX001]Kiln.TestKit.FakeWorld.BusyWrites.set -> void

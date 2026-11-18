@@ -87,7 +87,13 @@ A task's world reads (`WorldConcurrent`) read the fake world's entities, between
 with `kiln.Items.AddContainer` carries the game's `Inventory` component, so a query for it finds the container.
 `kiln.Capabilities.Override("world.ecs_read", false)` is a game build with no exact engine profile: every read is
 `Unavailable` and `OrOnTick` takes the tick path. `kiln.Entities.BusyReads = n` makes the next `n` frame-quiet reads
-`Busy`. Tasks are explained in [tasks.md](tasks.md).
+`Busy`. `KilnHarnessOptions.Side` sets the game process the tasks see (client-world hops):
+`HarnessSide.DedicatedServer` (the default), `HarnessSide.JoinedClient` (no server world, so a hop there throws
+`KilnUnavailableException`; the client world steps on the harness's tick thread) or `HarnessSide.HostingClient` (both
+worlds; the client world on a main thread of its own, stepped after the server world in each `Step`).
+`kiln.OnMainThread(...)` runs code on the client world's thread, so a task started there comes back there;
+`kiln.LeaveWorld()` and `kiln.EnterWorld()` end and start the worlds' sessions, as leaving and hosting or joining again
+do. Tasks are explained in [tasks.md](tasks.md).
 
 **Commands.** `kiln.RunCommand("time set 7")` runs a line as the server console through `Commands.Execute` and
 returns its `CommandResult` (`Ok`, `Found`, `Denied`, `Error`, the reply lines in `Output`). `RunCommand(source,
@@ -407,7 +413,7 @@ time with them sees almost none pass between steps, and an `await Task.Delay(...
 | Ticks | real | `tick` | Tick.Pre and Tick.Post in Kiln.Host's order; virtual time (40.8 ms and 2 to 3 clock units a step, no sleeping): Environment.TickCount64 and DateTime.UtcNow stay real time |
 | Events | real |  | Kiln.Api's event bus: [Subscribe], Events.On, Post, Enqueue, priorities and cancel; a mod's handlers go with its unload |
 | Scheduler and await | real |  | Scheduler.Post from any thread, await Scheduler.NextTick, the mod's synchronization context; Game.IsTickThread is true on the harness's tick thread only, so tick-thread API from a worker throws as in the game |
-| Kiln tasks | recording fake | `tasks.pool` | Context.Tasks runs as in the game on the kit's pool (two real worker threads): ToTick, OnTick and PostToTick hops run in the harness's steps before Tick.Pre, NextGateWindow resumes after a step, an unload cancels a mod's tasks; KilnHarness.Tasks.Settle runs them to their end. The pool's per-mod caps and per-step budgets are not modelled |
+| Kiln tasks | recording fake | `tasks.pool` | Context.Tasks runs as in the game on the kit's pool (two real worker threads): ToTick, OnTick and PostToTick hops run in the harness's steps before Tick.Pre, NextGateWindow resumes after a step, an unload cancels a mod's tasks; KilnHarness.Tasks.Settle runs them to their end; KilnHarnessOptions.Side gives a joined or a hosting client's worlds (client-world hops on the game's main thread). The pool's per-mod caps and per-step budgets are not modelled |
 | Config (global) | real |  | Config.Register of every kind (common, server, client): files in the temp kiln/config, edits on disk reach the change handlers (file watcher: pace steps in real time), bad files are refused and the values kept |
 | Commands (console) | real |  | Kiln.Chat's command registry: [Command] methods, typed trees, help, permission levels; RunCommand as the console returns the reply lines; players type command lines in chat through the fake kiln.chat (FakePlayer.Say) |
 | Inter-mod messages | real |  | Mods.Send between loaded mods, delivered at the next step before the receiver's Pre, dropped with an unloaded sender |

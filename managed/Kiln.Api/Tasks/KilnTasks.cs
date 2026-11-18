@@ -8,8 +8,8 @@ namespace Kiln;
 /// </summary>
 /// <remarks>
 /// <para>The work runs on a Kiln worker, never on the tick. It may compute, do IO and call members marked
-/// <see cref="AnyThreadAttribute"/>; tick-only APIs it reaches through <see cref="KilnTaskContext.ToTick"/>,
-/// <see cref="KilnTaskContext.OnTick{T}"/> or <see cref="KilnTaskContext.PostToTick"/>. The tick never waits for a
+/// <see cref="AnyThreadAttribute"/>; tick-only APIs it reaches through <see cref="KilnTaskContext.ToTick()"/>,
+/// <see cref="KilnTaskContext.OnTick{T}(Func{T})"/> or <see cref="KilnTaskContext.PostToTick(Action)"/>. The tick never waits for a
 /// task.</para>
 /// <para>A mod runs at most 2 tasks at once (plus 2 <see cref="KilnTaskOptions.LongRunning"/> ones) and holds at most 1024
 /// that have not ended; its tasks queue in order (by <see cref="KilnTaskOptions.Priority"/>) and mods take turns. A task

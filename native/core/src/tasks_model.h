@@ -40,6 +40,7 @@ enum class Refusal : uint32_t {
     Argument = 5,
     Shutdown = 6,
     NoServerWorld = 7,
+    NoWorld = 8,  // kiln_tasks.h submit_in: the world named has no live session, or not the one named
 };
 // The executor's classification of how a task's last segment ended (native bodies and managed leases).
 enum class Outcome : uint32_t { Completed, Faulted, OwnTokenCancelled };
@@ -47,6 +48,12 @@ enum class Outcome : uint32_t { Completed, Faulted, OwnTokenCancelled };
 enum class Slot : uint32_t { Normal = 0, LongRunning = 1 };
 
 inline bool terminal(State s) { return s == State::Completed || s == State::Faulted || s == State::Cancelled; }
+
+// The worlds whose sessions and Post edges the model follows: KILN_WORLD_SERVER and KILN_WORLD_CLIENT. Each has its
+// own session line (a new server session never ends a client one, and the reverse); the prediction world has none.
+constexpr bool session_world(uint32_t world) { return world == KILN_WORLD_SERVER || world == KILN_WORLD_CLIENT; }
+constexpr std::size_t world_line(uint32_t world) { return world == KILN_WORLD_CLIENT ? 1 : 0; }
+constexpr std::size_t kWorldLines = 2;
 
 constexpr std::size_t kNameMax = 128;  // UTF-8 bytes
 // A task name: 1..128 bytes of valid UTF-8 without NUL or control characters (never truncated: it is identity).
@@ -73,8 +80,12 @@ struct SubmitArgs {
     bool long_running = false;
     bool lease = false;       // a managed logical task (kiln.internal.tasks.host): its outcome comes from finish()
     bool after_step = false;  // runnable only after a Post edge of `session` newer than `edge`
-    uint64_t session = 0;     // AFTER_STEP: the live server session at acceptance (never 0: ARGUMENT)
+    uint32_t world = KILN_WORLD_SERVER;  // AFTER_STEP: the world of `session` (session_world; else ARGUMENT)
+    uint64_t session = 0;     // AFTER_STEP: that world's live session at acceptance (never 0: ARGUMENT)
     uint64_t edge = 0;        // AFTER_STEP: that session's last Post edge the caller observed at acceptance
+    // kiln_tasks.h submit_in: the task is for `world`'s `session` (never 0: ARGUMENT) until its body starts. Still queued
+    // when that session ends (or accepted after it ended), it is CANCELLED and never starts; a running body is signalled.
+    bool bound = false;
     Payload payload;
 };
 
@@ -154,6 +165,8 @@ public:
     // sealed or retired) it is queued at once with its cancellation set, never carried into another session.
     // INTERNAL: as resume.
     KilnResult resume_after(KilnHandle task, uint64_t registration, uint64_t session, uint64_t edge);
+    // The same for a session of `world` (session_world; else INTERNAL). The server form above is world SERVER.
+    KilnResult resume_after(KilnHandle task, uint64_t registration, uint32_t world, uint64_t session, uint64_t edge);
     // A lease's logical end, exactly once, from inside its running segment (not armed): the segment's return then
     // publishes this outcome with the usual precedence. INTERNAL: not a running lease segment, armed, or a second call.
     KilnResult finish(KilnHandle task, Outcome outcome);
@@ -176,6 +189,10 @@ public:
     // waiting on one of them is CANCELLED, its done delivered as Cancelled; none ever wakes in a later session. A later
     // submission that captured an ended session is accepted and cancelled at once (never transferred).
     void end_session(uint64_t session);
+    // The same per world: each world in session_world has its own line (sessions, edges, ends), and an edge or end of
+    // one world never releases or cancels a task waiting on another. The forms above are world SERVER.
+    void edge(uint32_t world, uint64_t session, uint64_t edge);
+    void end_session(uint32_t world, uint64_t session);
 
     // ---- executor ----
     // The next work for a free worker of `slot`, round-robin across owners, under the caps; marks it running.
@@ -214,9 +231,10 @@ private:
     void signal_running(Owner& o);
     void drop_terminal(Owner& o);
     void leave_ring_if_done(Owner& o);
-    void cancel_waiting_before(uint64_t session);  // AFTER_STEP tasks captured in a session older than `session`
+    // AFTER_STEP tasks (and released continuations) of `world` captured in a session older than `session`
+    void cancel_waiting_before(uint32_t world, uint64_t session);
     void release_continuation(Owner& o, const std::shared_ptr<Record>& r);
-    void place_after(Owner& o, const std::shared_ptr<Record>& r, uint64_t session, uint64_t edge);
+    void place_after(Owner& o, const std::shared_ptr<Record>& r, uint32_t world, uint64_t session, uint64_t edge);
     std::shared_ptr<Record> find_lease(KilnHandle task) const;
     void note_ready(std::ptrdiff_t delta);
     void hook(Point p) const;
@@ -229,9 +247,14 @@ private:
     std::vector<std::shared_ptr<Owner>> ring_;                        // owners that may still have work, in order
     std::size_t cursor_[2] = {0, 0};  // the round-robin turn of Normal and of LongRunning dequeues, independent
     uint64_t next_instance_ = 1;
-    uint64_t session_ = 0;    // the newest server session an edge or end named
-    uint64_t last_edge_ = 0;  // the last Post edge of session_
-    uint64_t ended_ = 0;      // every session up to this one has ended
+    // One session line per world (world_line): the newest session an edge or end named, its last Post edge, and the
+    // session up to which every one has ended.
+    struct Line {
+        uint64_t session = 0;
+        uint64_t last_edge = 0;
+        uint64_t ended = 0;
+    };
+    Line lines_[kWorldLines];
     bool closing_ = false;    // the process exit closed root admission for good (seal_all)
     std::size_t ready_ = 0, ready_max_ = 0, running_ = 0;
     uint32_t long_running_ = 0;

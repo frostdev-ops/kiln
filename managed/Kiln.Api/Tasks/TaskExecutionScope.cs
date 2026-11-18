@@ -14,14 +14,18 @@ internal static class TaskExecutionScope
 {
     [ThreadStatic] private static TaskRun? t_run;
     [ThreadStatic] private static bool t_onTick;
+    [ThreadStatic] private static WorldKind t_world;
 
     private static readonly AsyncLocal<string?> Identity = new();
 
     /// <summary>The task this thread is running a piece of; null outside one.</summary>
     internal static TaskRun? Current => t_run;
 
-    /// <summary>True while that piece is a tick hop (on the server tick), false on a pool worker.</summary>
+    /// <summary>True while that piece is a tick hop (on a world's step), false on a pool worker.</summary>
     internal static bool OnTick => t_run is not null && t_onTick;
+
+    /// <summary>The world whose step runs that tick hop (meaningful only while <see cref="OnTick"/>).</summary>
+    internal static WorldKind TickWorld => t_world;
 
     /// <summary>"owner/task" of the task this code descends from, for diagnostics; null outside tasks. Not authority.</summary>
     internal static string? FlowedIdentity => Identity.Value;
@@ -30,22 +34,25 @@ internal static class TaskExecutionScope
 
     /// <summary>Installs the scope of <paramref name="run"/>; dispose the frame (in a <c>finally</c>) to restore what was
     /// there before: the scope, <see cref="ModContext.CurrentMod"/> and the synchronization context.</summary>
-    internal static Frame Enter(TaskRun run, bool onTick, SynchronizationContext context)
+    internal static Frame Enter(TaskRun run, bool onTick, SynchronizationContext context, WorldKind world = WorldKind.Server)
     {
-        var frame = new Frame(t_run, t_onTick, ModContext.CurrentMod, SynchronizationContext.Current);
+        var frame = new Frame(t_run, t_onTick, t_world, ModContext.CurrentMod, SynchronizationContext.Current);
         t_run = run;
         t_onTick = onTick;
+        t_world = world;
         ModContext.CurrentMod = run.Mod;
         SynchronizationContext.SetSynchronizationContext(context);
         return frame;
     }
 
-    internal readonly struct Frame(TaskRun? run, bool onTick, ModContext? mod, SynchronizationContext? context) : IDisposable
+    internal readonly struct Frame(TaskRun? run, bool onTick, WorldKind world, ModContext? mod, SynchronizationContext? context)
+        : IDisposable
     {
         public void Dispose()
         {
             t_run = run;
             t_onTick = onTick;
+            t_world = world;
             ModContext.CurrentMod = mod;
             SynchronizationContext.SetSynchronizationContext(context);
         }

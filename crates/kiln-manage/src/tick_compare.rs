@@ -37,7 +37,8 @@
 //! a window was slower than eight others there (or had no Pre subscriber), not necessarily idle; its mean and
 //! share are over the windows that list it. `post_parts` lists every Post owner. The `tasks` section (T4, #49) is
 //! optional: absent lines are skipped for that section, and a window several worlds write is counted once when
-//! its `tasks.window.id` repeats.
+//! its `tasks.window.id` repeats. A hosting client's client-world line carries only `tasks.apply` and `tasks.hops`
+//! for that world's hops (#82, client-world hops): its counters are added, and it is no pool window of its own.
 
 use crate::logs::{TaskOwner, TickStat};
 use crate::{Error, Result};
@@ -399,7 +400,11 @@ pub fn summarize(label: &str, stats: &[TickStat], malformed: u64) -> FileSummary
                 continue;
             }
             let ts = tasks.get_or_insert_with(TasksSummary::default);
-            ts.windows += 1;
+            // a hosting client's client-world line carries only its own hop account (#82): no pool window of its own
+            let apply_only = t.window.is_none() && t.pool.is_none() && t.owners.is_empty() && t.owners_truncated.is_none();
+            if !apply_only {
+                ts.windows += 1;
+            }
             for o in &t.owners {
                 accumulate_task_owner(ts, o);
             }
@@ -834,6 +839,25 @@ mod tests {
         assert_eq!(percentile(&mut [7.0], 0.99), Some(7.0));
         assert_eq!(percentile(&mut [], 0.99), None);
         assert_eq!(mean(&[1.0, 2.0, 3.0]), Some(2.0));
+    }
+
+    #[test]
+    fn a_client_worlds_apply_only_tasks_object_adds_its_hops_and_no_window() {
+        // a hosting client: the server line carries the pool window and its hops; the client line only its own hops
+        let text = concat!(
+            r#"{"time":"t","world":"server","steps":3600,"tasks":{"window":{"id":4,"span_ms":60000.0,"age_ms":1.0},"pool":{"workers":2,"long_running":0,"queue_max":1},"owners":[],"apply":{"applied":10,"deferred":0,"cancelled":0,"ms":1.0,"owner_budget_stops":0,"step_budget_stops":0,"owners_served":1,"backlog":0},"hops":{"refused":0}}}"#,
+            "\n",
+            r#"{"time":"t","world":"client","steps":3600,"tasks":{"apply":{"applied":7,"deferred":2,"cancelled":1,"ms":0.5,"owner_budget_stops":1,"step_budget_stops":0,"owners_served":1,"backlog":2},"hops":{"refused":3}}}"#,
+            "\n"
+        );
+        let stats = crate::logs::tick_stats(text);
+        assert_eq!(stats.len(), 2);
+        let summary = summarize("hosting", &stats, 0);
+        let tasks = summary.tasks.expect("tasks");
+        assert_eq!(tasks.windows, 1, "the client line is no pool window");
+        let apply = tasks.apply.expect("apply");
+        assert_eq!((apply.windows, apply.applied, apply.deferred, apply.cancelled, apply.backlog_max), (2, 17, 2, 1, 2));
+        assert_eq!(tasks.hops_refused, 3);
     }
 
     #[test]

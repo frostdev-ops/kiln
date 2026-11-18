@@ -456,6 +456,47 @@ int main() {
         check(ok && five, "a wedged writer flag never stalls the window collection, and its row is kept");
     }
 
+    {
+        // Client-world hops (#82): one apply account per world. The server line's window carries the server
+        // world's; a hosting client's client line carries only its own account; a joined client's whole window
+        // carries the client world's.
+        Store t;
+        t.begin(0);
+        t.record_apply(0, 5, 1, 2'000'000, 1, false, false, 0);
+        t.record_apply(1, 7, 0, 1'000'000, 2, true, false, 3);
+        t.note_hop_refused(1);
+        t.note_hop_refused(1);
+        t.note_hop_refused(0);
+        const WindowSnapshot client = t.collect_apply(1, 10, 4);
+        check(client.apply_only && client.apply.applied == 7 && client.apply.owner_budget_stops == 1 &&
+                  client.apply.deferred == 3 && client.apply.backlog == 4 && client.hops_refused == 2,
+              "the client account alone, its refused hops");
+        const WindowSnapshot server = t.collect_window(20, 0, 0);
+        check(!server.apply_only && server.apply.applied == 5 && server.apply.cancelled == 1 && server.hops_refused == 1,
+              "the server window keeps the server world's account (red: one account for both worlds)");
+        const std::string json = "{" + format_window_json(client) + "}";
+        const auto parsed = nlohmann::json::parse(json, nullptr, false);
+        check(!parsed.is_discarded() && parsed["tasks"].size() == 2 && parsed["tasks"]["apply"]["applied"] == 7 &&
+                  parsed["tasks"]["hops"]["refused"] == 2 && !parsed["tasks"].contains("window") &&
+                  !parsed["tasks"].contains("owners"),
+              "an apply-only window renders {\"apply\",\"hops\"} only, and parses");
+        t.record_apply(1, 2, 0, 0, 1, false, false, 0);
+        const WindowSnapshot joined = t.collect_window(30, 0, 0, 1);
+        check(!joined.apply_only && joined.apply.applied == 2 && joined.id == 2,
+              "a joined client's whole window carries the client world's account");
+        const auto e = t.admit(3, 1, "three", "ui", 0x77, 0);
+        t.set_on_tick(e.entry, 5, 0, 2 /* KILN_WORLD_CLIENT */);
+        const CrashSnapshot c = t.snapshot_crash(1);
+        char buf[2048];
+        format_crash(c, buf, sizeof buf);
+        check(c.running_count == 1 && c.running[0].world == 2 && std::strstr(buf, "state=on-tick-client") != nullptr,
+              "a client-world hop shows as on-tick-client in a crash report");
+        t.set_on_tick(e.entry, 5, 0);
+        const CrashSnapshot c2 = t.snapshot_crash(1);
+        format_crash(c2, buf, sizeof buf);
+        check(c2.running[0].world == 0 && std::strstr(buf, "state=on-tick\n") != nullptr, "a server hop stays on-tick");
+    }
+
     std::printf("tasks_stats_test: %d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
 }

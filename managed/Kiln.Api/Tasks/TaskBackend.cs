@@ -7,9 +7,29 @@ internal enum LeaseWork : uint
     /// <summary>The task's next segment on a pool worker: its first, or the one its armed registration resumed.</summary>
     Segment = 1,
 
-    /// <summary>One tick hop the host queued with <see cref="TaskBackend.TickHop"/>, on the server world's tick (or, with
-    /// <c>cancelled</c> set, wherever the world's end flushes it).</summary>
+    /// <summary>One tick hop the host queued with <see cref="TaskBackend.TickHop(ulong)"/>, on the server world's tick (or,
+    /// with <c>cancelled</c> set, wherever the world's end flushes it).</summary>
     TickHop = 2,
+
+    /// <summary>One client-world hop (<c>KILN_LEASE_CLIENT_HOP</c>), on the client world's step on the game's main thread
+    /// (or, with <c>cancelled</c> set, wherever the client world's end flushes it).</summary>
+    ClientHop = 3,
+}
+
+/// <summary>Where a world kind's newest session stands (the lease table's <c>world_session</c>).</summary>
+internal enum WorldSessionState
+{
+    /// <summary>No world of that kind has started yet.</summary>
+    None = 0,
+
+    /// <summary>Its newest session is live.</summary>
+    Live = 1,
+
+    /// <summary>Its newest session ended (its STOPPING came) and no later one started.</summary>
+    Ended = 2,
+
+    /// <summary>Ended, and its STOPPING is still being dispatched: the world exists (code in its STOPPING handlers).</summary>
+    Stopping = 3,
 }
 
 /// <summary>How a lease ended (the lease table's <c>finish</c> outcomes).</summary>
@@ -34,11 +54,15 @@ internal enum TaskRefusal : uint
     Argument = 5,
     Shutdown = 6,
     NoServerWorld = 7,
+
+    /// <summary>A world-bound call (a hop or a window of a session) whose session is not that world's live one.</summary>
+    NoWorld = 8,
 }
 
 /// <summary>The host's one dispatcher, bound once: <paramref name="hostState"/> is what the host gave
-/// <see cref="TaskBackend.Admit"/>. Runs on pool workers (Segment), on the server tick (TickHop) and on the thread that
-/// ends the server world (its cancelled hops), possibly on several at once. It never throws back into the backend.</summary>
+/// <see cref="TaskBackend.Admit"/>. Runs on pool workers (Segment), on the server tick (TickHop), on the client world's
+/// step (ClientHop) and on the thread that ends a world (its cancelled hops), possibly on several at once. It never
+/// throws back into the backend.</summary>
 internal delegate void LeaseDispatch(ulong lease, LeaseWork what, bool cancelled, object hostState);
 
 /// <summary>One row of <see cref="TaskBackend.Snapshot"/>: a lease that is running or suspended.</summary>
@@ -121,6 +145,38 @@ internal abstract class TaskBackend
     /// owner's Pre (bounded per owner and per step; the rest waits a step, never dropped).
     /// <see cref="TaskRefusal.NoServerWorld"/> without a live server world. Any thread.</summary>
     public abstract TaskRefusal TickHop(ulong lease);
+
+    // ---- per world (client-world hops). The defaults know only the server world: a backend without a client world ----
+
+    /// <summary>True on the game client's main thread: the thread that steps the client world and runs the game's UI
+    /// frame, also before any client world started (the main menu). False on a dedicated server.</summary>
+    public virtual bool OnClientMainThread => false;
+
+    /// <summary>True on the thread that steps worlds of <paramref name="world"/> (the server world's tick; the client
+    /// world's main thread).</summary>
+    public virtual bool OnWorldThread(WorldKind world) => world == WorldKind.Server && OnServerTick;
+
+    /// <summary>The table's <c>world_session</c>: the newest session of <paramref name="world"/> and where it stands; 0
+    /// with none.</summary>
+    public virtual ulong WorldSession(WorldKind world, out WorldSessionState state)
+    {
+        var session = world == WorldKind.Server ? ServerSession : 0;
+        state = session != 0 ? WorldSessionState.Live : WorldSessionState.None;
+        return session;
+    }
+
+    /// <summary>The table's <c>tick_hop_in</c>: a hop for <paramref name="world"/>'s <paramref name="session"/>, queued only
+    /// while that session is the live one (never into another); <see cref="TaskRefusal.NoServerWorld"/> /
+    /// <see cref="TaskRefusal.NoWorld"/> otherwise. Any thread.</summary>
+    public virtual TaskRefusal TickHop(ulong lease, WorldKind world, ulong session) =>
+        world != WorldKind.Server ? TaskRefusal.NoWorld
+        : session != ServerSession ? TaskRefusal.NoServerWorld
+        : TickHop(lease);
+
+    /// <summary>The table's <c>resume_after_step_world</c>: <see cref="ResumeAfterStep(ulong, ulong, ulong)"/> for a
+    /// session of <paramref name="world"/> (the registration stays armed on a refusal).</summary>
+    public virtual TaskRefusal ResumeAfterStep(ulong lease, ulong registration, WorldKind world, ulong session) =>
+        world == WorldKind.Server ? ResumeAfterStep(lease, registration, session) : TaskRefusal.NoWorld;
 
     /// <summary>The table's <c>finish</c>: from inside the lease's running segment (not armed), exactly once.</summary>
     public abstract void Finish(ulong lease, LeaseOutcome outcome);

@@ -25,7 +25,7 @@ internal sealed unsafe class FakeNativeTasks : IDisposable
         public uint State = Queued;
         public bool SegmentRunning, Armed, ResumePending, AfterPending, Waiting, Finished, Cancel, EndQueued, Dispatched;
         public ulong Registration, Registrations;
-        public (uint Session, ulong Edge) AfterAt, WaitAt;
+        public (uint World, uint Session, ulong Edge) AfterAt, WaitAt;  // World: 0 server, 2 client
         public uint Outcome;
         public int HopsPending;
         public bool Terminal => State >= Completed;
@@ -55,6 +55,13 @@ internal sealed unsafe class FakeNativeTasks : IDisposable
     private ulong _nextLease = 0x1000;
     private uint _session, _sessions;
     private ulong _edge;
+    // The client world (#82): its sessions, its Post edges and its hops, run on the fake main thread.
+    private uint _clientSession, _clientSessions, _clientLast;
+    private ulong _clientEdge;
+    private readonly List<(ulong Owner, Queue<Lease> Hops)> _clientHops = [];
+    private readonly Thread _mainThread;
+    private readonly BlockingCollection<Action> _mainJobs = new();
+    private uint _serverLast;
     private int _running, _hopTurn;
     private bool _disposed;
     [ThreadStatic] private static FakeNativeTasks? t_worker;
@@ -101,6 +108,9 @@ internal sealed unsafe class FakeNativeTasks : IDisposable
             StatsRunningRow = &HStatsRunningRow,
             StatsFaultRow = &HStatsFaultRow,
             StatsTotals = &HStatsTotals,
+            WorldSession = &HWorldSession,
+            TickHopIn = &HTickHopIn,
+            ResumeAfterStepWorld = &HResumeAfterStepWorld,
         };
         *_tasks = new KilnTasksApi { Size = (uint)sizeof(KilnTasksApi), Version = 1, Cancel = &TCancel, Status = &TStatus, DrainOwner = &TDrainOwner };
         s_current = this;
@@ -112,6 +122,9 @@ internal sealed unsafe class FakeNativeTasks : IDisposable
         }
         _tickThread = new Thread(TickLoop) { IsBackground = true, Name = "fake-tick" };
         _tickThread.Start();
+        _mainThread = new Thread(() => { foreach (var job in _mainJobs.GetConsumingEnumerable()) job(); })
+            { IsBackground = true, Name = "fake-main" };
+        _mainThread.Start();
     }
 
     /// <summary>The tables, as <c>KilnApi.service</c> hands them out.</summary>
@@ -241,7 +254,7 @@ internal sealed unsafe class FakeNativeTasks : IDisposable
         lock (f._lock)
         {
             f.AfterStepCalls++;
-            return f.ResumeAfter(lease, registration, f._session, refusal);
+            return f.ResumeAfter(lease, registration, 0, f._session, refusal);
         }
     }
 
@@ -257,11 +270,11 @@ internal sealed unsafe class FakeNativeTasks : IDisposable
                 if (refusal != null) *refusal = 7;
                 return KilnAbi.ErrUnavailable;  // still armed
             }
-            return f.ResumeAfter(lease, registration, session, refusal);
+            return f.ResumeAfter(lease, registration, 0, session, refusal);
         }
     }
 
-    private int ResumeAfter(ulong lease, ulong registration, uint session, uint* refusal)
+    private int ResumeAfter(ulong lease, ulong registration, uint world, uint session, uint* refusal)
     {
         if (session == 0)
         {
@@ -275,13 +288,77 @@ internal sealed unsafe class FakeNativeTasks : IDisposable
         if (l.SegmentRunning)
         {
             l.AfterPending = true;
-            l.AfterAt = (session, _edge);
+            l.AfterAt = (world, session, world == 2 ? _clientEdge : _edge);
         }
         else
         {
-            PlaceAfter(l, (session, _edge));
+            PlaceAfter(l, (world, session, world == 2 ? _clientEdge : _edge));
         }
         return KilnAbi.Ok;
+    }
+
+    // ---- the appended world members (#82) ----
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static uint HWorldSession(uint world, uint* state)
+    {
+        var f = s_current!;
+        lock (f._lock)
+        {
+            var (live, last) = world switch
+            {
+                0 => (f._session, f._serverLast),
+                2 => (f._clientSession, f._clientLast),
+                _ => (0u, 0u),
+            };
+            if (state != null) *state = live != 0 ? 1u : last != 0 ? 2u : 0u;
+            return live != 0 ? live : last;
+        }
+    }
+
+    public int TickHopInCalls, AfterStepWorldCalls;
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int HTickHopIn(ulong lease, uint world, uint session)
+    {
+        var f = s_current!;
+        lock (f._lock)
+        {
+            f.TickHopInCalls++;
+            if (world is not (0 or 2)) return KilnAbi.ErrInvalidArgument;
+            var live = world == 2 ? f._clientSession : f._session;
+            if (live == 0 || session != live) return KilnAbi.ErrUnavailable;  // never into another session
+            var l = f.Find(lease);
+            if (l is null || l.EndQueued) return f.Misuse("tick_hop_in", l);
+            l.HopsPending++;
+            var hops = world == 2 ? f._clientHops : f._hops;
+            var queue = hops.FirstOrDefault(q => q.Owner == l.Owner).Hops;
+            if (queue is null)
+            {
+                queue = new Queue<Lease>();
+                hops.Add((l.Owner, queue));
+            }
+            queue.Enqueue(l);
+            return KilnAbi.Ok;
+        }
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int HResumeAfterStepWorld(ulong lease, ulong registration, uint world, uint session, uint* refusal)
+    {
+        var f = s_current!;
+        lock (f._lock)
+        {
+            f.AfterStepWorldCalls++;
+            if (world is not (0 or 2)) return KilnAbi.ErrInvalidArgument;
+            var live = world == 2 ? f._clientSession : f._session;
+            if (session == 0 || session != live)
+            {
+                if (refusal != null) *refusal = world == 2 ? 8u : 7u;
+                return KilnAbi.ErrUnavailable;  // still armed
+            }
+            return f.ResumeAfter(lease, registration, world, session, refusal);
+        }
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
@@ -567,10 +644,117 @@ internal sealed unsafe class FakeNativeTasks : IDisposable
         lock (_lock)
         {
             old = TakeHops();  // a world that stopped without a stop event: never carried into the new one
-            _session = ++_sessions;
+            _session = _serverLast = ++_sessions;
             _edge = 0;
         }
         foreach (var h in old) DispatchHop(h, cancelled: true);
+    }
+
+    // ---- the client world (#82), on the fake main thread ----
+
+    public int MainThreadId => _mainThread.ManagedThreadId;
+    public bool IsMainThread => Thread.CurrentThread == _mainThread;
+
+    public uint ClientSession
+    {
+        get
+        {
+            lock (_lock) return _clientSession;
+        }
+    }
+
+    public void StartClientSession()
+    {
+        List<Lease> old;
+        lock (_lock)
+        {
+            old = _clientHops.SelectMany(q => q.Hops).ToList();
+            _clientHops.Clear();
+            _clientSession = _clientLast = ++_clientSessions;
+            _clientEdge = 0;
+        }
+        foreach (var h in old) DispatchHop(h, cancelled: true, what: 3);
+    }
+
+    /// <summary>The client world's STOPPING (call it on the main thread, as the game does): its hops dispatched
+    /// cancelled, its windows released cancelled; the server world's untouched.</summary>
+    public void StopClientSession()
+    {
+        List<Lease> hops;
+        lock (_lock)
+        {
+            var ended = _clientSession;
+            _clientSession = 0;
+            hops = _clientHops.SelectMany(q => q.Hops).ToList();
+            _clientHops.Clear();
+            foreach (var l in _leases.Values.Where(l => l.Waiting && l.WaitAt.World == 2 && l.WaitAt.Session == ended).ToList())
+            {
+                l.Waiting = false;
+                l.Cancel = true;
+                Ready(l);
+            }
+        }
+        foreach (var h in hops) DispatchHop(h, cancelled: true, what: 3);
+    }
+
+    /// <summary>One client-world step on the main thread: its queued hops (FIFO, no budget modelled), the step's own work,
+    /// then its Post edge. Returns the hops dispatched.</summary>
+    public int ClientStep(Action? pre = null)
+    {
+        var ran = 0;
+        OnMain(() =>
+        {
+            List<(Lease Hop, bool Cancel)> hops;
+            lock (_lock)
+            {
+                hops = _clientHops.SelectMany(q => q.Hops).Select(h => (h, h.Cancel)).ToList();
+                _clientHops.Clear();
+            }
+            foreach (var (hop, cancel) in hops)
+            {
+                DispatchHop(hop, cancel, what: 3);
+                ran++;
+            }
+            pre?.Invoke();
+            lock (_lock)
+            {
+                if (_clientSession == 0) return;
+                _clientEdge++;
+                foreach (var l in _leases.Values.Where(l => l.Waiting && l.WaitAt.World == 2 && l.WaitAt.Session == _clientSession && l.WaitAt.Edge < _clientEdge).ToList())
+                {
+                    l.Waiting = false;
+                    Ready(l);
+                }
+            }
+        });
+        return ran;
+    }
+
+    public int PendingClientHops
+    {
+        get
+        {
+            lock (_lock) return _clientHops.Sum(q => q.Hops.Count);
+        }
+    }
+
+    /// <summary>Runs <paramref name="job"/> on the fake main thread and waits for it.</summary>
+    public void OnMain(Action job)
+    {
+        var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _mainJobs.Add(() =>
+        {
+            try
+            {
+                job();
+                done.SetResult();
+            }
+            catch (Exception e)
+            {
+                done.SetException(e);
+            }
+        });
+        if (!done.Task.Wait(TimeSpan.FromSeconds(20))) throw new TimeoutException("the fake main thread did not finish its job");
     }
 
     /// <summary>The live session's STOPPING, on the calling thread (the one that ends the world): every pending hop is
@@ -583,7 +767,7 @@ internal sealed unsafe class FakeNativeTasks : IDisposable
             var ended = _session;
             _session = 0;
             hops = TakeHops();
-            foreach (var l in _leases.Values.Where(l => l.Waiting && l.WaitAt.Session == ended).ToList())
+            foreach (var l in _leases.Values.Where(l => l.Waiting && l.WaitAt.World == 0 && l.WaitAt.Session == ended).ToList())
             {
                 l.Waiting = false;
                 l.Cancel = true;
@@ -606,7 +790,7 @@ internal sealed unsafe class FakeNativeTasks : IDisposable
             {
                 if (_session == 0) return;
                 _edge++;
-                foreach (var l in _leases.Values.Where(l => l.Waiting && l.WaitAt.Session == _session && l.WaitAt.Edge < _edge).ToList())
+                foreach (var l in _leases.Values.Where(l => l.Waiting && l.WaitAt.World == 0 && l.WaitAt.Session == _session && l.WaitAt.Edge < _edge).ToList())
                 {
                     l.Waiting = false;
                     Ready(l);
@@ -723,8 +907,10 @@ internal sealed unsafe class FakeNativeTasks : IDisposable
             Monitor.PulseAll(_lock);
         }
         _tickJobs.CompleteAdding();
+        _mainJobs.CompleteAdding();
         foreach (var w in _workers) w.Join(TimeSpan.FromSeconds(5));
         _tickThread.Join(TimeSpan.FromSeconds(5));
+        _mainThread.Join(TimeSpan.FromSeconds(5));
         // the tables are left allocated: a late call from a stray thread must not touch freed memory
     }
 
@@ -783,9 +969,9 @@ internal sealed unsafe class FakeNativeTasks : IDisposable
         return all;
     }
 
-    private void PlaceAfter(Lease l, (uint Session, ulong Edge) at)
+    private void PlaceAfter(Lease l, (uint World, uint Session, ulong Edge) at)
     {
-        if (at.Session != _session)
+        if (at.Session != (at.World == 2 ? _clientSession : _session))
         {
             l.Cancel = true;  // its session is over: released cancelled, never carried into another
             Ready(l);
@@ -852,11 +1038,11 @@ internal sealed unsafe class FakeNativeTasks : IDisposable
         if (after != before) lock (_lock) Leaks.Add($"{where} left {after} (was {before})");
     }
 
-    private void DispatchHop(Lease h, bool cancelled)
+    private void DispatchHop(Lease h, bool cancelled, uint what = 2)
     {
         lock (_lock) HopsRun.Add((h.Owner, h.Id, cancelled));
         var before = Observed();
-        _dispatch(h.Id, 2, cancelled ? 1u : 0u, (void*)h.HostState);
+        _dispatch(h.Id, what, cancelled ? 1u : 0u, (void*)h.HostState);
         CheckLeak("a tick hop", before);
         lock (_lock)
         {

@@ -274,6 +274,29 @@ int main(int argc, char** argv) {
               "with a pool: the tasks object is appended after the existing fields, exactly");
         if (got.size() <= want_tasks.size() || got.compare(got.size() - want_tasks.size(), want_tasks.size(), want_tasks) != 0)
             std::printf("  got tail: %s", got.c_str());
+
+        // #82: a hosting client's client-world line carries only that world's hop account (the window is on its
+        // server line), so the pool-wide parts never appear twice
+        Line c = base("client");
+        c.has_tasks = true;
+        c.tasks.apply_only = true;
+        c.tasks.apply.applied = 7;
+        c.tasks.apply.deferred = 2;
+        c.tasks.apply.apply_ns = 500'000ull;
+        c.tasks.apply.owner_budget_stops = 1;
+        c.tasks.apply.owners_served = 1;
+        c.tasks.apply.backlog = 2;
+        c.tasks.hops_refused = 3;
+        const std::string client = format(c);
+        const std::string want_client =
+            ",\"tasks\":{\"apply\":{\"applied\":7,\"deferred\":2,\"cancelled\":0,\"ms\":0.500,\"owner_budget_stops\":1,"
+            "\"step_budget_stops\":0,\"owners_served\":1,\"backlog\":2},\"hops\":{\"refused\":3}}}\n";
+        check(client.size() > want_client.size() &&
+                  client.compare(client.size() - want_client.size(), want_client.size(), want_client) == 0 &&
+                  client.find("\"window\"") == std::string::npos && client.find("\"owners\"") == std::string::npos,
+              "a client world's apply-only tasks object: its apply and hops only, exactly");
+        if (client.size() <= want_client.size() || client.compare(client.size() - want_client.size(), want_client.size(), want_client) != 0)
+            std::printf("  got tail: %s", client.c_str());
     }
 
     // ---- no number that is not a number ----

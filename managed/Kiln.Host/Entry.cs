@@ -203,6 +203,7 @@ internal sealed unsafe class HostRuntime : IHostServices, IKilnBackend
     // equal a world's step.
     private const ulong MenuStepBase = 1UL << 40;
     private ulong _uiTickHandle, _menuStep;
+    private int _uiThread;  // the managed id of the game's UI thread (the main thread), from its first UI frame; 0 before
     private long _lastMenuServiceTick;
     private readonly DateTime _startedAt = DateTime.UtcNow;
     private int _queuedLines;
@@ -403,9 +404,13 @@ internal sealed unsafe class HostRuntime : IHostServices, IKilnBackend
             {
                 Service = Service,
                 OnServerTick = () => _api->OnWorldThread != null && _api->OnWorldThread(KilnAbi.WorldServer) != 0,
+                OnWorldThread = kind => _api->OnWorldThread != null && _api->OnWorldThread(kind) != 0,
+                WorldExists = kind => _api->World != null && _api->World(kind) != 0,
+                OnClientMainThread = _client ? OnClientMainThread : null,
                 Log = Log,
                 BuildStamp = KilnBuild.Of(typeof(Kiln.Mod).Assembly)?.Version,
                 TickHop = TaskHop,
+                ClientHop = _client ? ClientTaskHop : null,
             });
             ComponentTask.Owners = ComponentOwner;
         }
@@ -451,6 +456,25 @@ internal sealed unsafe class HostRuntime : IHostServices, IKilnBackend
             }
         }
     }
+
+    /// <summary>Client: the game's main thread. It steps the client and prediction worlds and runs the UI frame, also in
+    /// the main menu before any world (where only the UI frame tells which thread it is).</summary>
+    private bool OnClientMainThread()
+    {
+        if (_api->OnWorldThread != null &&
+            (_api->OnWorldThread(KilnAbi.WorldClient) != 0 || _api->OnWorldThread(KilnAbi.WorldPrediction) != 0))
+            return true;
+        var ui = Volatile.Read(ref _uiThread);
+        return ui != 0 && ui == Environment.CurrentManagedThreadId;
+    }
+
+    /// <summary>One client-world hop of a task, on the client world's step before its Pre subscribers (#82). With no
+    /// hosted server world the client world drives the mods: the hop is their tick work, under the drive lock, as their
+    /// Context.Tick is on a joined client. While hosting the server world drives them on its own thread: the hop is
+    /// main-thread work like a Client.Tick handler and never takes the drive lock (that would make the main thread wait
+    /// for the server thread's whole step).</summary>
+    private void ClientTaskHop(ulong owner, Action hop) =>
+        ClientHopFrame.Run(ServerWorldLive(), _drive, ref _driver, () => _mods.TaskTick.Run(owner, hop), () => _mods.TaskTick.RunClient(owner, hop));
 
     // ---- game log mirror (core log thread) ----
     public void EnqueueGameLine(int level, string text)
@@ -702,6 +726,7 @@ internal sealed unsafe class HostRuntime : IHostServices, IKilnBackend
     /// about 30 times a second run mod requests and Kiln's service tick. A world's step (Drive) takes over as before.</summary>
     public void UiTick(ulong frame)
     {
+        if (_uiThread == 0) Volatile.Write(ref _uiThread, Environment.CurrentManagedThreadId);
         if (_stopping || InWorld()) return;
         var now = Environment.TickCount64;
         if (_modsLoaded && now - _lastMenuServiceTick < 33) return;

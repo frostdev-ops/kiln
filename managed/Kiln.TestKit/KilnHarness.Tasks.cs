@@ -12,10 +12,23 @@ public sealed partial class KilnHarness
 
     internal KitTaskPool TaskPool => _taskPool ?? throw new InvalidOperationException("the harness has no task pool");
 
-    // The pool lives as long as the harness: two workers, the harness's tick thread as the server world's tick.
+    // The game's main thread of a hosting client: the client world steps there, beside the server world on the tick thread.
+    private TickThread? _main;
+
+    // The pool lives as long as the harness: two workers, the harness's tick thread as the server world's tick (a joined
+    // client: as the client world's step, the game's main thread), and on a hosting client a main thread of its own.
     private void StartTasks()
     {
-        _taskPool = new KitTaskPool(2, () => _tick?.IsCurrent == true, $"kiln-testkit task {_serial}.", notifyEnded: true);
+        var side = _options.Side;
+        if (side == HarnessSide.HostingClient) _main = new TickThread($"kiln-testkit main {_serial}", _options.CallTimeout);
+        Func<bool>? onClient = side switch
+        {
+            HarnessSide.HostingClient => () => _main?.IsCurrent == true,
+            HarnessSide.JoinedClient => () => _tick?.IsCurrent == true,
+            _ => null,
+        };
+        _taskPool = new KitTaskPool(2, () => side != HarnessSide.JoinedClient && _tick?.IsCurrent == true,
+            $"kiln-testkit task {_serial}.", notifyEnded: true, onClient);
         TaskBackend.Install(_taskPool);
         KitBackend.Instance.Capabilities.Report(HarnessCapabilities.HarnessOwner, TaskRun.Capability, CapState.Available, CapReason.None,
             "the test kit's task pool: two worker threads, tick hops in the harness's steps", KitBackend.CapabilityOwner);
@@ -27,17 +40,93 @@ public sealed partial class KilnHarness
         if (ReferenceEquals(TaskBackend.Current, pool)) TaskBackend.Install(null);
         KitBackend.Instance.Capabilities.Withdraw(HarnessCapabilities.HarnessOwner, TaskRun.Capability);
         pool.Dispose();
+        _main?.Close(TimeSpan.FromSeconds(5));
     }
 
-    // The server world's session for tasks: from the first step (the world exists while the mods load) to the stop.
-    private void TasksSessionStarted() => _taskPool?.StartSession();
+    // The worlds' sessions for tasks, as the game has them on each side (#82): a dedicated server's server world; a
+    // hosting client's server world first, then its client world; a joined client's client world only. From the first
+    // step (the world exists while the mods load) to the stop, which ends the client world first, as the game does.
+    private void TasksSessionStarted()
+    {
+        if (_taskPool is not { } pool) return;
+        if (_options.Side != HarnessSide.JoinedClient) pool.StartSession(WorldKind.Server);
+        if (_options.Side == HarnessSide.HostingClient) OnMain(() => pool.StartSession(WorldKind.Client), "the client world's start");
+        if (_options.Side == HarnessSide.JoinedClient) pool.StartSession(WorldKind.Client);
+    }
 
-    private void TasksSessionStopping() => _taskPool?.StopSession();
+    private void TasksSessionStopping()
+    {
+        if (_taskPool is not { } pool) return;
+        if (_options.Side == HarnessSide.HostingClient) OnMain(() => pool.StopSession(WorldKind.Client), "the client world's stop");
+        if (_options.Side == HarnessSide.JoinedClient) pool.StopSession(WorldKind.Client);
+        else pool.StopSession(WorldKind.Server);
+    }
 
-    // In the step, as the core does: the hops before the mods' Pre, the Post edge after their Post.
-    private void TasksBeforePre() => _taskPool?.RunHops();
+    // In the step, as the core does: the hops before the mods' Pre, the Post edge after their Post. A hosting client's
+    // client world steps on its main thread after the server world's step; a joined client's client world is the step.
+    private void TasksBeforePre() => _taskPool?.RunHops(_options.Side == HarnessSide.JoinedClient ? WorldKind.Client : WorldKind.Server);
 
-    private void TasksAfterPost() => _taskPool?.PostEdge();
+    private void TasksAfterPost()
+    {
+        if (_taskPool is not { } pool) return;
+        pool.PostEdge(_options.Side == HarnessSide.JoinedClient ? WorldKind.Client : WorldKind.Server);
+        if (_options.Side == HarnessSide.HostingClient)
+            OnMain(() =>
+            {
+                pool.RunHops(WorldKind.Client);
+                pool.PostEdge(WorldKind.Client);
+            }, "the client world's step");
+    }
+
+    // A hosting client's main thread runs it and the caller waits (inline when already there).
+    private void OnMain(Action work, string subject) => _main!.Invoke(() =>
+    {
+        work();
+        return 0;
+    }, subject);
+
+    /// <summary>
+    /// Runs <paramref name="work"/> on the game client's main thread, where the client world steps (#82): a task started
+    /// there belongs to the client world, and its <c>ToTick()</c> comes back there. On a
+    /// <see cref="HarnessSide.JoinedClient"/> that is the harness's tick thread (the client world drives the mods); on a
+    /// <see cref="HarnessSide.HostingClient"/> a thread of its own, beside the server world's tick.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">A <see cref="HarnessSide.DedicatedServer"/> has no game main thread.</exception>
+    public void OnMainThread(Action work)
+    {
+        ArgumentNullException.ThrowIfNull(work);
+        switch (_options.Side)
+        {
+            case HarnessSide.JoinedClient:
+                Run(work);
+                break;
+            case HarnessSide.HostingClient:
+                OnMain(work, "the game's main thread");
+                break;
+            default:
+                throw new InvalidOperationException("a dedicated server has no game main thread: use KilnHarnessOptions.Side");
+        }
+    }
+
+    /// <summary>
+    /// The player leaves the world, for the tasks (#82): its worlds' STOPPING, the client world first. Their pending hops,
+    /// posts and windows end cancelled; a task bound to them ends <see cref="KilnTaskState.Cancelled"/> at its next hop
+    /// there. The mods stay loaded (client and <c>both</c> mods do). Then <see cref="EnterWorld"/>.
+    /// </summary>
+    public void LeaveWorld()
+    {
+        var pool = TaskPool;
+        Run(() =>
+        {
+            if (_options.Side == HarnessSide.HostingClient) OnMain(() => pool.StopSession(WorldKind.Client), "the client world's stop");
+            if (_options.Side == HarnessSide.JoinedClient) pool.StopSession(WorldKind.Client);
+            else pool.StopSession(WorldKind.Server);
+        });
+    }
+
+    /// <summary>The player hosts or joins again, for the tasks (#82): new sessions of the side's worlds (the server world
+    /// first on a hosting client). A task bound to the last ones never comes into these.</summary>
+    public void EnterWorld() => Run(TasksSessionStarted);
 }
 
 /// <summary>
@@ -84,7 +173,7 @@ public sealed class HarnessTasks
             if (pool.Live == 0) return steps;
             if (steps >= maxSteps) throw new TimeoutException($"the mods' tasks had not ended after {maxSteps} steps: {Alive(pool)}");
             if (Left() == TimeSpan.Zero) throw new TimeoutException($"the mods' tasks had not ended after {limit.TotalSeconds:0.#} s: {Alive(pool)}");
-            var hopsOrEdges = pool.PendingHops > 0 || pool.WaitingForEdge > 0;
+            var hopsOrEdges = pool.PendingHopsOf(WorldKind.Server) > 0 || pool.PendingHopsOf(WorldKind.Client) > 0 || pool.WaitingForEdge > 0;
             _harness.Step();
             // a task that awaits something of its own (a delay, a file, a thread) moves in real time: give it a moment
             if (!hopsOrEdges) pool.WaitForWork(TimeSpan.FromMilliseconds(Math.Min(10, Left().TotalMilliseconds)));

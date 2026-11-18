@@ -20,6 +20,7 @@
     <ProjectReference Include="../../../Kiln.Testing/Kiln.Testing.csproj" />
     <ProjectReference Include="../../../services/Kiln.Chat/Kiln.Chat.csproj" />
     <ProjectReference Include="../../../services/Kiln.Players/Kiln.Players.csproj" />
+    <ProjectReference Include="../../../services/Kiln.Client/Kiln.Client.csproj" />
     <ProjectReference Include="../../../services/Kiln.Combat/Kiln.Combat.csproj" />
     <ProjectReference Include="../../../services/Kiln.Hooks/Kiln.Hooks.csproj" />
     <ProjectReference Include="../../../services/Kiln.World/Kiln.World.csproj" />

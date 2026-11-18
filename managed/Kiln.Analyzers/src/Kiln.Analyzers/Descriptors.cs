@@ -91,6 +91,15 @@ public static class Descriptors
         "result is dropped, or kept in a local that nobody awaits, never hops, and the code after it runs on " +
         "a worker (or wherever it ran) with no warning from the tick-thread rules about that fact alone.");
 
+    public static readonly DiagnosticDescriptor ClientNextTickLeavesTask = Rule("KILN105",
+        "Awaiting Client.NextTick() leaves the Kiln task",
+        "'await Client.NextTick()' leaves the task {0}: the rest of the method runs on the game's main thread outside the task (not tracked by it, not cancelled with it, and left waiting for good if the mod unloads first); write 'await ctx.ToTick(WorldKind.Client)'",
+        Threading, DiagnosticSeverity.Warning,
+        "Client.NextTick() is Kiln.Client's own way to the main thread: its continuation is a plain Client.Post. Inside a " +
+        "Kiln task that continuation is no hop of the task, so the task stops tracking the rest of its own work. " +
+        "ctx.ToTick(WorldKind.Client) is the task's hop to the client world's step: tracked, cancellable, ended with the " +
+        "client world and budgeted.");
+
     public static readonly DiagnosticDescriptor GatedCallOutOfScope = Rule("KILN105",
         "Task-thread world call outside a Kiln task",
         "'{0}' is refused {1}: the task-thread world calls (WorldConcurrent's reads and compare-exchange writes) work only inside a Kiln task or on the tick, and this code has no task scope; {2}",

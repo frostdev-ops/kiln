@@ -45,6 +45,9 @@
  * toward that cap like its bodies. An owner whose two normal bodies never return therefore also holds back its queued
  * cancellations' dones, and its drain_owner reports outstanding > 0 until its timeout. That is bounded and reported
  * (the watchdog names the long-running bodies), not lost work.
+ *
+ * Appended members: the table grows at its end and keeps version 1. Check header.size before calling a member past
+ * the first five (submit_in: header.size >= 56); an older Kiln's table is 48 bytes.
  */
 #ifndef KILN_TASKS_H
 #define KILN_TASKS_H
@@ -88,7 +91,9 @@ enum {
     KILN_TASK_REFUSAL_CAPABILITY = 4,        /* UNAVAILABLE: tasks.pool is unavailable (safe idle, no worker) */
     KILN_TASK_REFUSAL_ARGUMENT = 5,          /* INVALID_ARGUMENT: a malformed request (nothing changed) */
     KILN_TASK_REFUSAL_SHUTDOWN = 6,          /* UNAVAILABLE: the process is exiting / the pool is closing */
-    KILN_TASK_REFUSAL_NO_SERVER_WORLD = 7    /* UNAVAILABLE: AFTER_STEP with no live authoritative server world */
+    KILN_TASK_REFUSAL_NO_SERVER_WORLD = 7,   /* UNAVAILABLE: AFTER_STEP with no live authoritative server world */
+    KILN_TASK_REFUSAL_NO_WORLD = 8           /* UNAVAILABLE: submit_in: no live session of that world, or not the one
+                                                named (appended) */
 };
 
 /* Queue full: each owner holds at most 1024 task records, and a record counts until release() (terminal tasks
@@ -105,6 +110,16 @@ enum {
  * (its KILN_WORLD_STOPPING), every task still waiting on it is cancelled: KILN_TASK_CANCELLED, its done delivered as
  * Cancelled; it never wakes in the next world. With no live authoritative server world (main menu, a client joined to
  * a remote server) submit refuses UNAVAILABLE + NO_SERVER_WORLD.
+ *
+ * World-bound submission (submit_in, appended): the task is for the session `session` of the world `world`
+ * (KILN_WORLD_SERVER or KILN_WORLD_CLIENT; 0 = the one live now; KilnWorldEvent.session / KilnSessionInfo.sessions[]).
+ * Refused UNAVAILABLE + NO_WORLD when that world has no live session or it is not `session`. With AFTER_STEP the task
+ * waits for that world's next Post edge (the client world: the end of its step on the game's main thread, about 60 a
+ * second while in game) and is CANCELLED when that session ends, exactly as AFTER_STEP above for the server world; an
+ * edge or a STOPPING of the other world changes nothing for it. Without AFTER_STEP the task is queued at once, and
+ * its body never starts after that session ended: still queued at the session's end (its STOPPING, or a new session
+ * of that world), it is CANCELLED with its done delivered; a body already running sees cancelled(). The body always
+ * runs on a pool worker, never on the world's thread: hand phase-bound work to it with KilnApi.post_world.
  */
 
 typedef struct KilnTaskInfo {
@@ -152,6 +167,12 @@ typedef struct KilnTasksApi {
      * has not returned yet (0 = body AND done quiescent). A timeout returns KILN_OK with *running > 0: nothing is freed
      * or forced, code and `user` stay referenced. Thread rules above (WRONG_THREAD). */
     KilnResult(KILN_CALL* drain_owner)(KilnOwner owner, uint32_t timeout_ms, uint32_t* running);
+    /* ---- appended (check header.size >= 56) ---- */
+    /* submit, bound to `world`'s `session` (see "World-bound submission" above). Every refusal of submit, plus
+     * INVALID_ARGUMENT + ARGUMENT for another world kind and UNAVAILABLE + NO_WORLD as above. */
+    KilnResult(KILN_CALL* submit_in)(KilnOwner owner, const KilnTaskInfo* info, uint32_t world, uint32_t session,
+                                     KilnTaskBodyFn body, KilnTaskDoneFn done, void* user, KilnHandle* task,
+                                     uint32_t* refusal);
 } KilnTasksApi;
 
 #ifdef __cplusplus
@@ -169,10 +190,10 @@ KILN_TASKS_ASSERT(sizeof(KilnTaskInfo) == 32 && offsetof(KilnTaskInfo, flags) ==
 KILN_TASKS_ASSERT(sizeof(KilnTaskRun) == 40 && offsetof(KilnTaskRun, task) == 8 && offsetof(KilnTaskRun, owner) == 16 &&
                       offsetof(KilnTaskRun, cancelled) == 24 && offsetof(KilnTaskRun, internal) == 32,
                   "KilnTaskRun v1 layout");
-KILN_TASKS_ASSERT(sizeof(KilnTasksApi) == 48 && offsetof(KilnTasksApi, submit) == 8 && offsetof(KilnTasksApi, cancel) == 16 &&
+KILN_TASKS_ASSERT(sizeof(KilnTasksApi) == 56 && offsetof(KilnTasksApi, submit) == 8 && offsetof(KilnTasksApi, cancel) == 16 &&
                       offsetof(KilnTasksApi, status) == 24 && offsetof(KilnTasksApi, release) == 32 &&
-                      offsetof(KilnTasksApi, drain_owner) == 40,
-                  "KilnTasksApi v1 layout (48 bytes, x64)");
+                      offsetof(KilnTasksApi, drain_owner) == 40 && offsetof(KilnTasksApi, submit_in) == 48,
+                  "KilnTasksApi v1 layout (48 bytes, x64; 56 with submit_in appended)");
 #undef KILN_TASKS_ASSERT
 
 #endif /* KILN_TASKS_H */

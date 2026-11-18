@@ -302,6 +302,7 @@ KILN_TASKS_TEST(lease_snapshot) {
 struct Hops {
     std::mutex mutex;
     std::vector<std::pair<KilnLease, uint32_t>> seen;  // (lease, cancelled) in dispatch order
+    std::vector<uint32_t> what;                        // KILN_LEASE_TICK_HOP / KILN_LEASE_CLIENT_HOP, parallel to seen
     HostPlatform* platform = nullptr;
     uint64_t cost_ns = 0;  // each hop "takes" this long (the fake clock moves)
 };
@@ -310,6 +311,7 @@ void KILN_CALL hop_dispatch(KilnLease lease, uint32_t what, uint32_t cancelled, 
     if (what == KILN_LEASE_SEGMENT) return dispatch(lease, what, cancelled, host_state);
     std::lock_guard lock(g_hops.mutex);
     g_hops.seen.emplace_back(lease, cancelled);
+    g_hops.what.push_back(what);
     if (g_hops.platform) g_hops.platform->advance(g_hops.cost_ns);
 }
 
@@ -957,6 +959,332 @@ KILN_TASKS_TEST(exit_park_with_a_suspended_lease_and_a_pending_hop) {
         check(g_hops.seen.size() == 1 && g_hops.seen[0].first == hopping && g_hops.seen[0].second == 1,
               "the STOPPING after the park dispatched it cancelled, on the stopping thread, not on a worker");
     }
+}
+
+// ---- client-world hops (#82): per-world sessions, queues, budgets and STOPPING ----
+
+void reset_hops(HostPlatform* platform = nullptr, uint64_t cost_ns = 0) {
+    std::lock_guard lock(g_hops.mutex);
+    g_hops.seen.clear();
+    g_hops.what.clear();
+    g_hops.platform = platform;
+    g_hops.cost_ns = cost_ns;
+}
+
+// (lease, what, cancelled) of the n-th dispatch.
+struct Seen {
+    KilnLease lease = 0;
+    uint32_t what = 0, cancelled = 9;
+};
+std::vector<Seen> seen_hops() {
+    std::lock_guard lock(g_hops.mutex);
+    std::vector<Seen> out;
+    for (std::size_t i = 0; i < g_hops.seen.size(); ++i) out.push_back({g_hops.seen[i].first, g_hops.what[i], g_hops.seen[i].second});
+    return out;
+}
+
+KILN_TASKS_TEST(client_hops_land_on_the_client_world) {
+    HostPlatform p;
+    Env env;
+    Pool pool(config(), &p);
+    Service s(pool, env);
+    const Settled settled{pool};
+    s.host_bind(&hop_dispatch);
+    reset_hops();
+    const KilnLease l = suspended_lease(s, 1, "client");
+    check(s.host_tick_hop_in(l, KILN_WORLD_CLIENT, 1) == KILN_ERR_UNAVAILABLE,
+          "no client world yet: a client hop is refused at once");
+    check(s.collect_tasks_window(KILN_WORLD_CLIENT, true).hops_refused == 1, "counted on the client world's account");
+    check(s.collect_tasks_window().hops_refused == 0, "not on the server world's");
+    s.session_started(KILN_WORLD_CLIENT, 1);
+    check(s.host_tick_hop(l) == KILN_ERR_UNAVAILABLE, "a client world is not a server world: a server hop still refuses");
+    check(s.host_tick_hop_in(l, KILN_WORLD_CLIENT, 1) == KILN_OK && s.pending_tick_hops(KILN_WORLD_CLIENT) == 1 &&
+              s.pending_tick_hops(KILN_WORLD_SERVER) == 0,
+          "queued on the client world only");
+    check(s.run_tick_hops(KILN_WORLD_SERVER) == 0, "the server world's step runs none of it");
+    check(s.run_tick_hops(KILN_WORLD_CLIENT) == 1, "the client world's step runs it");
+    const auto seen = seen_hops();
+    check(seen.size() == 1 && seen[0].lease == l && seen[0].what == KILN_LEASE_CLIENT_HOP && seen[0].cancelled == 0,
+          "dispatched as KILN_LEASE_CLIENT_HOP, not cancelled");
+    check(s.host_tick_hop_in(l, KILN_WORLD_PREDICTION, 1) == KILN_ERR_INVALID_ARGUMENT &&
+              s.host_tick_hop_in(l, 9, 1) == KILN_ERR_INVALID_ARGUMENT,
+          "the prediction world and unknown kinds take no hops");
+    check(s.host_tick_hop_in(0x12345, KILN_WORLD_CLIENT, 1) == KILN_ERR_INTERNAL, "an unknown lease: INTERNAL");
+    end_lease(s, 1, l);
+}
+
+KILN_TASKS_TEST(tick_hop_in_checks_the_session) {
+    HostPlatform p;
+    Env env;
+    Pool pool(config(), &p);
+    Service s(pool, env);
+    const Settled settled{pool};
+    s.host_bind(&hop_dispatch);
+    reset_hops();
+    const KilnLease l = suspended_lease(s, 1, "bound");
+    for (const uint32_t world : {uint32_t{KILN_WORLD_SERVER}, uint32_t{KILN_WORLD_CLIENT}}) {
+        const std::string w = world == KILN_WORLD_SERVER ? "server" : "client";
+        s.session_started(world, 1);
+        check(s.host_tick_hop_in(l, world, 2) == KILN_ERR_UNAVAILABLE, w + ": a session that is not the live one");
+        check(s.host_tick_hop_in(l, world, 0) == KILN_ERR_UNAVAILABLE, w + ": session 0 names none");
+        s.session_stopping(world, 1);
+        check(s.host_tick_hop_in(l, world, 1) == KILN_ERR_UNAVAILABLE, w + ": an ended session takes no hop");
+        s.session_started(world, 2);
+        check(s.host_tick_hop_in(l, world, 1) == KILN_ERR_UNAVAILABLE && s.pending_tick_hops(world) == 0,
+              w + ": a hop for session 1 is never queued into session 2 (the re-host case)");
+        check(s.host_tick_hop_in(l, world, 2) == KILN_OK, w + ": session 2's own hop is queued");
+        s.run_tick_hops(world);
+    }
+    end_lease(s, 1, l);
+}
+
+KILN_TASKS_TEST(world_stopping_flushes_only_its_own_hops) {
+    HostPlatform p;
+    Env env;
+    Pool pool(config(), &p);
+    Service s(pool, env);
+    const Settled settled{pool};
+    s.host_bind(&hop_dispatch);
+    reset_hops();
+    s.session_started(KILN_WORLD_SERVER, 1);
+    s.session_started(KILN_WORLD_CLIENT, 1);
+    const KilnLease a = suspended_lease(s, 1, "server side"), b = suspended_lease(s, 2, "client side");
+    check(s.host_tick_hop_in(a, KILN_WORLD_SERVER, 1) == KILN_OK && s.host_tick_hop_in(b, KILN_WORLD_CLIENT, 1) == KILN_OK,
+          "one hop queued in each world");
+    s.session_stopping(KILN_WORLD_CLIENT, 1);  // a hosting client leaves: its client world stops first
+    auto seen = seen_hops();
+    check(seen.size() == 1 && seen[0].lease == b && seen[0].what == KILN_LEASE_CLIENT_HOP && seen[0].cancelled == 1,
+          "the client world's STOPPING dispatched its hop cancelled");
+    check(s.pending_tick_hops(KILN_WORLD_SERVER) == 1, "the server world's hop is untouched");
+    check(s.run_tick_hops(KILN_WORLD_SERVER) == 1, "and runs at the server world's next step");
+    seen = seen_hops();
+    check(seen.size() == 2 && seen[1].lease == a && seen[1].what == KILN_LEASE_TICK_HOP && seen[1].cancelled == 0,
+          "...as a server tick hop, not cancelled");
+    check(s.host_tick_hop_in(a, KILN_WORLD_CLIENT, 1) == KILN_ERR_UNAVAILABLE, "the stopped client world takes no more");
+    s.session_stopping(KILN_WORLD_SERVER, 1);
+    end_lease(s, 1, a);
+    end_lease(s, 2, b);
+}
+
+KILN_TASKS_TEST(client_hop_budgets_are_its_own) {
+    HostPlatform p;
+    Env env;
+    Pool pool(config(), &p);
+    Service s(pool, env);
+    const Settled settled{pool};
+    s.host_bind(&hop_dispatch);
+    reset_hops(&p, 0);
+    s.session_started(KILN_WORLD_SERVER, 1);
+    s.session_started(KILN_WORLD_CLIENT, 1);
+    const KilnLease a = suspended_lease(s, 1, "a"), b = suspended_lease(s, 2, "b");
+    for (int i = 0; i < 100; ++i) s.host_tick_hop_in(a, KILN_WORLD_CLIENT, 1);
+    for (int i = 0; i < 3; ++i) s.host_tick_hop_in(b, KILN_WORLD_CLIENT, 1);
+    for (int i = 0; i < 5; ++i) s.host_tick_hop_in(a, KILN_WORLD_SERVER, 1);
+    check(s.run_tick_hops(KILN_WORLD_CLIENT) == 67, "64 hops of a mod a client step; the other mod in the same step");
+    check(s.pending_tick_hops(KILN_WORLD_SERVER) == 5 && s.run_tick_hops(KILN_WORLD_SERVER) == 5,
+          "the server world's hops are not counted against the client's");
+    check(s.run_tick_hops(KILN_WORLD_CLIENT) == 36 && s.pending_tick_hops(KILN_WORLD_CLIENT) == 0, "the rest next step");
+    {
+        const auto client = s.collect_tasks_window(KILN_WORLD_CLIENT, true);
+        const auto server = s.collect_tasks_window();
+        check(client.apply_only && client.apply.applied == 103 && client.apply.owner_budget_stops == 1 &&
+                  client.apply.deferred == 36,
+              "the client world's own apply account");
+        check(!server.apply_only && server.apply.applied == 5 && server.apply.owner_budget_stops == 0,
+              "the server world's own account, in its whole window");
+    }
+    // time: 0.4 ms a hop. Client: a mod stops after its 1 ms (3 hops), all mods after 2 ms; server: 2 ms and 4 ms.
+    reset_hops(&p, 400 * 1000);
+    for (const KilnLease l : {a, b})
+        for (int i = 0; i < 10; ++i) s.host_tick_hop_in(l, KILN_WORLD_CLIENT, 1);
+    const std::size_t client_step = s.run_tick_hops(KILN_WORLD_CLIENT);
+    check(client_step == 5 || client_step == 6,
+          "the client step's 2 ms in all, a mod's 1 ms, checked between callbacks (got " + std::to_string(client_step) + ")");
+    {
+        std::lock_guard lock(g_hops.mutex);
+        int run = 0;
+        KilnLease last = 0;
+        bool turns = true;
+        for (auto& [l, cancelled] : g_hops.seen) {
+            run = l == last ? run + 1 : 1;
+            last = l;
+            turns = turns && run <= 3;
+        }
+        check(turns, "a mod's client turn ends at its 1 ms (3 hops of 0.4 ms)");
+    }
+    reset_hops(&p, 400 * 1000);
+    for (int i = 0; i < 20; ++i) s.host_tick_hop_in(a, KILN_WORLD_SERVER, 1);
+    const std::size_t server_step = s.run_tick_hops(KILN_WORLD_SERVER);
+    check(server_step == 5 || server_step == 6, "the server world keeps its 2 ms per mod (got " + std::to_string(server_step) + ")");
+    reset_hops(&p, 0);
+    while (s.pending_tick_hops(KILN_WORLD_CLIENT)) s.run_tick_hops(KILN_WORLD_CLIENT);
+    while (s.pending_tick_hops(KILN_WORLD_SERVER)) s.run_tick_hops(KILN_WORLD_SERVER);
+    end_lease(s, 1, a);
+    end_lease(s, 2, b);
+}
+
+KILN_TASKS_TEST(world_session_states) {
+    HostPlatform p;
+    Env env;
+    Pool pool(config(), &p);
+    Service s(pool, env);
+    uint32_t state = 9;
+    check(s.host_world_session(KILN_WORLD_CLIENT, &state) == 0 && state == 0, "no client world yet");
+    s.session_started(KILN_WORLD_CLIENT, 3);
+    check(s.host_world_session(KILN_WORLD_CLIENT, &state) == 3 && state == 1, "session 3, live");
+    check(s.host_world_session(KILN_WORLD_SERVER, &state) == 0 && state == 0, "the server world has none");
+    check(s.host_server_session() == 0, "server_session still names only the server world");
+    s.session_stopping(KILN_WORLD_CLIENT, 3);
+    check(s.host_world_session(KILN_WORLD_CLIENT, &state) == 3 && state == 2, "session 3, its STOPPING came");
+    s.session_started(KILN_WORLD_CLIENT, 4);
+    check(s.host_world_session(KILN_WORLD_CLIENT, &state) == 4 && state == 1, "session 4, live");
+    check(s.host_world_session(KILN_WORLD_PREDICTION, &state) == 0 && state == 0, "the prediction world has no line");
+}
+
+KILN_TASKS_TEST(resume_after_step_world_follows_its_world) {
+    HostPlatform p;
+    Env env;
+    Pool pool(config(), &p);
+    Service s(pool, env);
+    const Settled settled{pool};
+    s.host_bind(&dispatch);
+    s.session_started(KILN_WORLD_SERVER, 3);  // another number than the client's: a window compares its own world
+    s.session_started(KILN_WORLD_CLIENT, 1);
+    s.post_edge(KILN_WORLD_CLIENT, 1, 1);
+    const KilnLease l = suspended_lease(s, 1, "client window");
+    std::atomic<uint32_t> seen{9};
+    on_segment([&](KilnLease lease, uint32_t cancelled) {
+        uint64_t r = 0;
+        s.host_arm(lease, &r);  // armed before the test sees the wake, so its next window finds it armed
+        seen = cancelled;
+    });
+    uint32_t why = 0;
+    check(s.host_resume_after_step_world(l, 1, KILN_WORLD_SERVER, 1, &why) == KILN_ERR_UNAVAILABLE &&
+              why == KILN_TASK_REFUSAL_NO_SERVER_WORLD,
+          "server session 1 is not the live server session (3): refused NO_SERVER_WORLD, whatever the client world's is");
+    check(s.host_resume_after_step_world(l, 1, KILN_WORLD_CLIENT, 2, &why) == KILN_ERR_UNAVAILABLE &&
+              why == KILN_TASK_REFUSAL_NO_WORLD,
+          "another client session: refused NO_WORLD, the registration still armed");
+    check(s.host_resume_after_step_world(l, 1, KILN_WORLD_PREDICTION, 1, &why) == KILN_ERR_INVALID_ARGUMENT,
+          "no window in the prediction world");
+    check(s.host_resume_after_step_world(l, 1, KILN_WORLD_CLIENT, 1, &why) == KILN_OK, "armed for client session 1");
+    s.post_edge(KILN_WORLD_SERVER, 3, 5);
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    check(seen.load() == 9, "a server Post edge does not wake a client window");
+    s.post_edge(KILN_WORLD_CLIENT, 1, 2);
+    check(until([&] { return seen.load() != 9; }) && seen.load() == 0, "the client world's next Post edge does");
+    on_segment([&](KilnLease lease, uint32_t cancelled) {
+        seen = cancelled;
+        s.host_finish(lease, cancelled ? 2 : 0);
+    });
+    seen = 9;
+    check(s.host_resume_after_step_world(l, 2, KILN_WORLD_CLIENT, 1, &why) == KILN_OK, "armed again");
+    s.session_stopping(KILN_WORLD_SERVER, 3);
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    check(seen.load() == 9, "the server world's STOPPING leaves a client window waiting");
+    s.session_stopping(KILN_WORLD_CLIENT, 1);
+    check(until([&] { return seen.load() != 9; }) && seen.load() == 1, "the client world's STOPPING resumes it cancelled");
+    on_segment(nullptr);
+}
+
+// The session-change race (TSan; test-tasks.sh runs this binary 20 times in its race pass): a client hop asked for
+// session 1 on a worker while the main thread stops session 1 and starts session 2. The hop is queued before the stop
+// (then the stop flushes it cancelled) or refused; it never runs in session 2.
+KILN_TASKS_TEST(tick_hop_in_racing_a_session_change) {
+    for (int round = 0; round < 50; ++round) {
+        HostPlatform p;
+        Env env;
+        Pool pool(config(), &p);
+        Service s(pool, env);
+        const Settled settled{pool};
+        s.host_bind(&hop_dispatch);
+        reset_hops();
+        s.session_started(KILN_WORLD_CLIENT, 1);
+        const KilnLease l = suspended_lease(s, 1, "race");
+        kiln::tasks::test::StartLine line(2);
+        KilnResult r = KILN_ERR_INTERNAL;
+        std::thread asker([&] {
+            line.arrive();
+            r = s.host_tick_hop_in(l, KILN_WORLD_CLIENT, 1);
+        });
+        std::thread world([&] {
+            line.arrive();
+            s.session_stopping(KILN_WORLD_CLIENT, 1);
+            s.session_started(KILN_WORLD_CLIENT, 2);
+            s.run_tick_hops(KILN_WORLD_CLIENT);  // session 2's first step
+        });
+        asker.join();
+        world.join();
+        const auto seen = seen_hops();
+        if (r == KILN_OK) {
+            check(seen.size() == 1 && seen[0].cancelled == 1, "queued before the stop: flushed cancelled by it");
+        } else {
+            check(r == KILN_ERR_UNAVAILABLE && seen.empty(), "or refused, and nothing dispatched");
+        }
+        check(s.pending_tick_hops(KILN_WORLD_CLIENT) == 0 && s.run_tick_hops(KILN_WORLD_CLIENT) == 0,
+              "nothing of session 1 waits in session 2");
+        end_lease(s, 1, l);
+        if (kiln::tasks::test::g_failures.load()) break;
+    }
+}
+
+// The same window forced open: the stop and the next start land between the hop's session check and its push.
+KILN_TASKS_TEST(tick_hop_in_forced_between_check_and_push) {
+    HostPlatform p;
+    Env env;
+    Pool pool(config(), &p);
+    Service s(pool, env);
+    const Settled settled{pool};
+    s.host_bind(&hop_dispatch);
+    reset_hops();
+    s.session_started(KILN_WORLD_CLIENT, 1);
+    const KilnLease l = suspended_lease(s, 1, "late");
+    s.set_test_hook([&](Service::Point at) {
+        if (at != Service::Point::HopBeforePush) return;
+        s.session_stopping(KILN_WORLD_CLIENT, 1);
+        s.session_started(KILN_WORLD_CLIENT, 2);  // the next world is open when the push comes
+    });
+    const KilnResult r = s.host_tick_hop_in(l, KILN_WORLD_CLIENT, 1);
+    s.set_test_hook(nullptr);
+    check(r == KILN_ERR_UNAVAILABLE && s.pending_tick_hops(KILN_WORLD_CLIENT) == 0,
+          "refused: an open next session does not take a hop of the ended one");
+    check(s.run_tick_hops(KILN_WORLD_CLIENT) == 0 && seen_hops().empty(), "nothing of it runs in session 2");
+    end_lease(s, 1, l);
+}
+
+// Both worlds at once on their own threads (a hosting client: GameServer and the main thread): one world's sessions
+// starting and stopping never touch the other world's hops. TSan sees the shared queues' lock.
+KILN_TASKS_TEST(worlds_on_two_threads) {
+    HostPlatform p;
+    Env env;
+    Pool pool(config(), &p);
+    Service s(pool, env);
+    const Settled settled{pool};
+    s.host_bind(&hop_dispatch);
+    reset_hops();
+    s.session_started(KILN_WORLD_CLIENT, 1);
+    const KilnLease l = suspended_lease(s, 1, "client hops");
+    std::atomic<bool> stop{false};
+    std::thread server([&] {
+        for (uint32_t session = 1; !stop.load(); ++session) {
+            s.session_started(KILN_WORLD_SERVER, session);
+            s.post_edge(KILN_WORLD_SERVER, session, 1);
+            s.run_tick_hops(KILN_WORLD_SERVER);
+            s.session_stopping(KILN_WORLD_SERVER, session);
+        }
+    });
+    std::size_t queued = 0, ran = 0;
+    for (int step = 0; step < 300; ++step) {
+        if (s.host_tick_hop_in(l, KILN_WORLD_CLIENT, 1) == KILN_OK) ++queued;
+        ran += s.run_tick_hops(KILN_WORLD_CLIENT);
+    }
+    stop = true;
+    server.join();
+    bool none_cancelled = true;
+    for (const Seen& h : seen_hops()) none_cancelled = none_cancelled && h.cancelled == 0 && h.what == KILN_LEASE_CLIENT_HOP;
+    check(queued == 300 && ran == 300 && none_cancelled,
+          "every client hop queued and ran, none cancelled by the server world's sessions");
+    end_lease(s, 1, l);
 }
 }  // namespace
 

@@ -31,6 +31,15 @@ internal enum ThreadKind
 
     /// <summary>Internal: a synchronous use (LINQ, List.ForEach): the enclosing code decides.</summary>
     Continue,
+
+    /// <summary>The game client's main thread (#82): Client.Tick handlers, Client.Post work, after <c>await
+    /// Client.NextTick()</c>, callbacks marked <c>[ClientMainThread]</c>, and a Kiln task's client-world hops. It steps the
+    /// client world and runs the game's UI frame. A game thread (KILN105 reports blocking there).</summary>
+    ClientMain,
+
+    /// <summary>The render thread of Kiln's overlay: callbacks marked <c>[RenderThread]</c> (a window's draw). A game
+    /// thread.</summary>
+    Render,
 }
 
 /// <summary>A Kiln task's execution scope at a point, for the rules that care whether a task still owns the
@@ -47,11 +56,12 @@ internal enum TaskScope
 
 internal readonly struct ThreadContext
 {
-    public ThreadContext(ThreadKind kind, string where, TaskScope task = TaskScope.None)
+    public ThreadContext(ThreadKind kind, string where, TaskScope task = TaskScope.None, ThreadKind home = ThreadKind.Unknown)
     {
         Kind = kind;
         Where = where;
         Task = task;
+        Home = home;
     }
 
     public ThreadKind Kind { get; }
@@ -62,7 +72,20 @@ internal readonly struct ThreadContext
     /// <summary>The Kiln task scope here (a task worker, a tick hop, or code that escaped its task).</summary>
     public TaskScope Task { get; }
 
-    public ThreadContext WithTask(TaskScope task) => new(Kind, Where, task);
+    /// <summary>In a Kiln task body (#82): where its parameterless hops land, from where its <c>Context.Tasks.Run</c> was
+    /// called: <see cref="ThreadKind.Tick"/> (the server world's tick), <see cref="ThreadKind.ClientMain"/> (the client
+    /// world's step on the main thread), <see cref="ThreadKind.Game"/> when that is not known. Unknown outside tasks.</summary>
+    public ThreadKind Home { get; }
+
+    public ThreadContext WithTask(TaskScope task) => new(Kind, Where, task, Home);
+
+    public ThreadContext WithHome(ThreadKind home) => new(Kind, Where, Task, home);
+
+    /// <summary>Every kind but the internal Continue: the code's own flow (hops, ConfigureAwait) can change it.</summary>
+    public static bool Flows(ThreadKind kind) => kind != ThreadKind.Continue;
+
+    /// <summary>The game's own threads: the tick, the client's main and render threads, a Kiln callback's.</summary>
+    public static bool OnGameThread(ThreadKind kind) => kind is ThreadKind.Tick or ThreadKind.Game or ThreadKind.ClientMain or ThreadKind.Render;
 
     public static readonly ThreadContext Unknown = new(ThreadKind.Unknown, "");
     public static readonly ThreadContext Continue = new(ThreadKind.Continue, "");
@@ -98,7 +121,7 @@ internal sealed class ThreadClassifier
         var entry = EntryContext(function, model, ct, visiting);
         // Even with an unknown entry, leaving through ConfigureAwait(false) or hopping to the tick inside the
         // function itself settles the thread from that point on (the behaviour KILN101 always had for plain methods).
-        if (entry.Kind is not (ThreadKind.Tick or ThreadKind.Game or ThreadKind.Off or ThreadKind.Unknown)) return entry;
+        if (!ThreadContext.Flows(entry.Kind)) return entry;
         return FlowAt(function, node, entry, model, ct, visiting);
     }
 
@@ -112,11 +135,11 @@ internal sealed class ThreadClassifier
             case AnonymousFunctionExpressionSyntax f:
             {
                 var use = ClassifyDelegateUse(f, model, ct);
-                if (use.Kind != ThreadKind.Continue) return use;
+                if (use.Kind != ThreadKind.Continue) return WithTaskHome(use, f, model, ct, visiting);
                 var outer = OuterFunction(f);
                 if (outer is null) return ThreadContext.Unknown;
                 var outerEntry = EntryContext(outer, model, ct, visiting);
-                return outerEntry.Kind is ThreadKind.Tick or ThreadKind.Game or ThreadKind.Off or ThreadKind.Unknown
+                return ThreadContext.Flows(outerEntry.Kind)
                     ? FlowAt(outer, f, outerEntry, model, ct, visiting)
                     : outerEntry;
             }
@@ -165,7 +188,7 @@ internal sealed class ThreadClassifier
                     var caller = Syntax.EnclosingFunction(id);
                     if (caller is null) continue;
                     var callerEntry = EntryContext(caller, model, ct, visiting);
-                    use = callerEntry.Kind is ThreadKind.Tick or ThreadKind.Game or ThreadKind.Off or ThreadKind.Unknown
+                    use = ThreadContext.Flows(callerEntry.Kind)
                         ? FlowAt(caller, id, callerEntry, model, ct, visiting)
                         : callerEntry;
                 }
@@ -177,9 +200,13 @@ internal sealed class ThreadClassifier
                         var caller = Syntax.EnclosingFunction(id);
                         if (caller is null) continue;
                         var callerEntry = EntryContext(caller, model, ct, visiting);
-                        use = callerEntry.Kind is ThreadKind.Tick or ThreadKind.Game or ThreadKind.Off or ThreadKind.Unknown
+                        use = ThreadContext.Flows(callerEntry.Kind)
                             ? FlowAt(caller, expr, callerEntry, model, ct, visiting)
                             : callerEntry;
+                    }
+                    else
+                    {
+                        use = WithTaskHome(use, expr, model, ct, visiting);
                     }
                 }
                 (uses ??= new List<ThreadContext>()).Add(use);
@@ -194,29 +221,83 @@ internal sealed class ThreadClassifier
         }
     }
 
+    /// <summary>The home of a task body handed to <c>Context.Tasks.Run</c>, or of an <c>OnTick</c>/<c>PostToTick</c> delegate
+    /// without a world (#82): where the code around the call runs. In a task body, that body's home; on the tick, the
+    /// server world's tick; on the main thread, the client world; anywhere else off the game threads (or unknown), the
+    /// server world, as Kiln does; in another game callback, not known (Game).</summary>
+    private ThreadContext WithTaskHome(ThreadContext use, SyntaxNode delegateExpr, SemanticModel model, CancellationToken ct,
+        HashSet<ISymbol> visiting)
+    {
+        if (use.Task != TaskScope.Active) return use;
+        if (use.Home is ThreadKind.Tick or ThreadKind.ClientMain) return use;  // named by its world argument
+        var call = delegateExpr.FirstAncestorOrSelf<InvocationExpressionSyntax>();
+        if (call is null) return use;
+        var site = Classify(call, model, ct, visiting);
+        var known = site.Home is ThreadKind.Tick or ThreadKind.ClientMain or ThreadKind.Game;
+        if (use.Kind == ThreadKind.Tick)
+        {
+            // an OnTick/PostToTick delegate with no world (and OrOnTick's onTick, which goes through ctx.OnTick) runs
+            // where the task's parameterless hops land: its home, the server world's tick when not known
+            var at = known ? site.Home : ThreadKind.Tick;
+            var what = use.Where.Contains("ctx.PostToTick") ? "ctx.PostToTick"
+                : use.Where.Contains("OrOnTick") ? "WorldConcurrent.OrOnTick"
+                : "ctx.OnTick";
+            return Landing(at, what).WithHome(at);
+        }
+        // Context.Tasks.Run: a task started in a task takes the world of the hop it is started in, or (in a segment) its
+        // parent's; elsewhere the thread of the call decides
+        var home = site.Task == TaskScope.Active
+            ? site.Kind is ThreadKind.Tick or ThreadKind.ClientMain ? site.Kind
+            : known ? site.Home
+            : ThreadKind.Tick
+            : site.Kind switch
+            {
+                ThreadKind.Tick => ThreadKind.Tick,
+                ThreadKind.ClientMain => ThreadKind.ClientMain,
+                ThreadKind.Game => ThreadKind.Game,
+                _ => ThreadKind.Tick,  // the render thread, off the game threads, unknown: the server world
+            };
+        return use.WithHome(home);
+    }
+
+    /// <summary>Where a task's hop of <paramref name="world"/> lands (a ThreadKind home), as the text says it.</summary>
+    internal static ThreadContext Landing(ThreadKind world, string what) => world switch
+    {
+        ThreadKind.ClientMain => new ThreadContext(ThreadKind.ClientMain, $"the game's main thread (the client world's step, {what})", TaskScope.Active),
+        ThreadKind.Tick => new ThreadContext(ThreadKind.Tick, $"the tick thread ({what})", TaskScope.Active),
+        _ => new ThreadContext(ThreadKind.Game, $"a game thread ({what} of a task whose world is not known here)", TaskScope.Active),
+    };
+
     /// <summary>The least tick-sure of several ways execution can arrive: Tick only when every way is the tick.</summary>
     private static ThreadContext Meet(IEnumerable<ThreadContext> contexts)
     {
         var seen = contexts.ToList();
         if (seen.Count == 0) return ThreadContext.Unknown;
         ThreadContext? best = null;
+        var mixedGame = false;
         foreach (var c in seen)
         {
             if (best is null) { best = c; continue; }
+            if (c.Kind != best.Value.Kind && ThreadContext.OnGameThread(c.Kind) && ThreadContext.OnGameThread(best.Value.Kind))
+                mixedGame = true;  // the tick and the main thread, say: some game thread
             if (Rank(c.Kind) > Rank(best.Value.Kind)) best = c;
         }
+        var homes = seen.Select(c => c.Home).Distinct().ToList();
+        var home = homes.Count == 1 ? homes[0] : ThreadKind.Game;
+        if (mixedGame && Rank(best!.Value.Kind) == 1)
+            best = new ThreadContext(ThreadKind.Game, "a game thread (more than one way in)", best.Value.Task, home);
         // The task scope survives a join only when every way in has it; a mix of in-task and other
         // ways (or one escaped way) leaves the code in a task body without a proven scope.
         var task = seen.All(c => c.Task == TaskScope.Active) ? TaskScope.Active
             : seen.All(c => c.Task == TaskScope.None) ? TaskScope.None
             : TaskScope.Escaped;
-        return best!.Value.WithTask(task);
+        return best!.Value.WithTask(task).WithHome(home);
     }
 
     private static int Rank(ThreadKind kind) => kind switch
     {
         ThreadKind.Tick => 0,
-        ThreadKind.Game => 1,
+        ThreadKind.Game or ThreadKind.ClientMain or ThreadKind.Render => 1,
         ThreadKind.Off => 2,
         _ => 3,
     };
@@ -362,12 +443,43 @@ internal sealed class ThreadClassifier
         }
         var type = model.GetTypeInfo(expr).Type;
         if (IsKilnType(type, "KilnTaskContext.TickHop"))
-            return new ThreadContext(ThreadKind.Tick, "the tick thread (a tick hop)", TaskScope.Active);
+        {
+            // ctx.ToTick() lands where the task belongs; ctx.ToTick(WorldKind.X) where it says (#82)
+            var world = HopWorld(expr, model, state.Home);
+            return world == ThreadKind.Tick
+                ? new ThreadContext(ThreadKind.Tick, "the tick thread (a tick hop)", TaskScope.Active, state.Home)
+                : Landing(world, world == ThreadKind.ClientMain ? "a client-world hop" : "a tick hop").WithHome(state.Home);
+        }
         if (IsKilnType(type, "Scheduler.NextTickAwaitable"))
-            return new ThreadContext(ThreadKind.Tick, "the tick thread (a tick hop)", state.Task);
+            return new ThreadContext(ThreadKind.Tick, "the tick thread (a tick hop)", state.Task, state.Home);
         if (IsKilnType(type, "KilnTaskContext.GateWindow"))
-            return new ThreadContext(ThreadKind.Off, "after 'await ...NextGateWindow()', on a Kiln task worker", TaskScope.Active);
+            return new ThreadContext(ThreadKind.Off, "after 'await ...NextGateWindow()', on a Kiln task worker", TaskScope.Active, state.Home);
+        if (IsKilnType(type, "Client.NextTickAwaitable"))
+            // the main thread at the next client step; inside a task it has left the task (KILN105 says so at the await)
+            return new ThreadContext(ThreadKind.ClientMain, "the game's main thread (after 'await Client.NextTick()')",
+                state.Task == TaskScope.None ? TaskScope.None : TaskScope.Escaped, state.Home);
         return null;
+    }
+
+    /// <summary>The world a hop's awaitable goes to: <c>ctx.ToTick()</c> the task's home, <c>ctx.ToTick(WorldKind.Client)</c>
+    /// the client world's step, <c>ToTick(WorldKind.Server)</c> the tick; a world that is not a constant, or a hop kept in a
+    /// variable, is not known here (Game).</summary>
+    internal static ThreadKind HopWorld(ExpressionSyntax awaited, SemanticModel model, ThreadKind home)
+    {
+        if (Unwrap(awaited) is not InvocationExpressionSyntax inv || model.GetOperation(inv) is not IInvocationOperation call ||
+            !IsKilnMember(call.TargetMethod.OriginalDefinition, "KilnTaskContext", "ToTick"))
+            return ThreadKind.Game;
+        return WorldArgument(call, home);
+    }
+
+    /// <summary>A hop member's world argument (#82): none, the task's <paramref name="home"/>; the constant Server or
+    /// Client, the tick or the main thread; anything else, not known (Game).</summary>
+    internal static ThreadKind WorldArgument(IInvocationOperation call, ThreadKind home)
+    {
+        var arg = call.Arguments.FirstOrDefault(a => a.Parameter?.Name == "world");
+        if (arg is null) return home is ThreadKind.Tick or ThreadKind.ClientMain ? home : ThreadKind.Game;
+        return arg.Value.ConstantValue is { HasValue: true, Value: int w } ? w switch { 0 => ThreadKind.Tick, 2 => ThreadKind.ClientMain, _ => ThreadKind.Game }
+            : ThreadKind.Game;
     }
 
     private static ExpressionSyntax Unwrap(ExpressionSyntax e)
@@ -606,7 +718,7 @@ internal sealed class ThreadClassifier
                 if (!SymbolEqualityComparer.Default.Equals(sym?.OriginalDefinition, m)) continue;
                 var use = ClassifyDelegateUse(expr, model, ct);
                 if (use.Kind == ThreadKind.Off) return use;
-                if (use.Kind is ThreadKind.Tick or ThreadKind.Game && best.Kind == ThreadKind.Unknown) best = use;
+                if (ThreadContext.OnGameThread(use.Kind) && best.Kind == ThreadKind.Unknown) best = use;
             }
         }
         return best;
@@ -625,6 +737,12 @@ internal sealed class ThreadClassifier
                 var info = model.GetSymbolInfo(call, ct);
                 var target = (info.Symbol ?? info.CandidateSymbols.FirstOrDefault()) as IMethodSymbol;
                 if (target is null) return ThreadContext.Unknown;
+                // a Kiln parameter that says its thread (#82): [ClientMainThread] (a UI value provider, a slot
+                // subscription), [RenderThread]
+                if (KilnApis.IsKilnAssembly(target.ContainingAssembly) &&
+                    (model.GetOperation(arg, ct) as IArgumentOperation)?.Parameter is { } parameter &&
+                    MarkedThread(parameter) is { } marked)
+                    return marked;
                 // WorldConcurrent.OrOnTick runs offTick at once where it is called, and onTick through ctx.OnTick.
                 if (IsKilnMember(target.OriginalDefinition, "WorldConcurrent", "OrOnTick"))
                     return (model.GetOperation(arg, ct) as IArgumentOperation)?.Parameter?.Name switch
@@ -642,6 +760,25 @@ internal sealed class ThreadClassifier
         }
     }
 
+    /// <summary>A parameter (or its delegate's first parameter type) marked with a Kiln thread attribute.</summary>
+    private static ThreadContext? MarkedThread(IParameterSymbol parameter)
+    {
+        foreach (var a in parameter.GetAttributes())
+        {
+            if (a.AttributeClass is not { } c || c.ContainingNamespace?.ToDisplayString() != "Kiln") continue;
+            if (c.Name == "ClientMainThreadAttribute")
+                return new ThreadContext(ThreadKind.ClientMain, $"the game's main thread (a [ClientMainThread] callback: {parameter.ContainingSymbol.Name})");
+            if (c.Name == "RenderThreadAttribute")
+                return new ThreadContext(ThreadKind.Render, $"the render thread (a [RenderThread] callback: {parameter.ContainingSymbol.Name})");
+        }
+        // Action<UiDraw>: the draw object exists only on the render thread
+        if (parameter.Type is INamedTypeSymbol { DelegateInvokeMethod: { } invoke } &&
+            invoke.Parameters.Any(p => p.Type.GetAttributes().Any(a => a.AttributeClass is { Name: "RenderThreadAttribute" } rc &&
+                                                                       rc.ContainingNamespace?.ToDisplayString() == "Kiln")))
+            return new ThreadContext(ThreadKind.Render, $"the render thread (a draw callback: {parameter.ContainingSymbol.Name})");
+        return null;
+    }
+
     private ThreadContext ClassifyCallTarget(IMethodSymbol target, SyntaxNode call, SemanticModel model)
     {
         target = target.ReducedFrom ?? target;
@@ -650,10 +787,20 @@ internal sealed class ThreadClassifier
         var tn = type?.Name;
         var name = target.Name;
         if (ns == "Kiln" && tn == "Scheduler" && name == "Post") return new ThreadContext(ThreadKind.Tick, "the tick thread (Scheduler.Post)");
-        // Kiln tasks: the Run delegate starts on a Kiln worker; an OnTick/PostToTick delegate runs on the tick.
+        // Kiln tasks: the Run delegate starts on a Kiln worker; an OnTick/PostToTick delegate runs on the tick of the world
+        // its argument names (#82), or of the task's own world (EntryContext completes that from the call site).
         if (IsKilnMember(target.OriginalDefinition, "KilnTasks", "Run")) return Off("on a Kiln task worker (Context.Tasks.Run)", TaskScope.Active);
-        if (IsKilnMember(target.OriginalDefinition, "KilnTaskContext", "OnTick")) return new ThreadContext(ThreadKind.Tick, "the tick thread (ctx.OnTick)", TaskScope.Active);
-        if (IsKilnMember(target.OriginalDefinition, "KilnTaskContext", "PostToTick")) return new ThreadContext(ThreadKind.Tick, "the tick thread (ctx.PostToTick)", TaskScope.Active);
+        foreach (var hop in new[] { "OnTick", "PostToTick" })
+        {
+            if (!IsKilnMember(target.OriginalDefinition, "KilnTaskContext", hop)) continue;
+            var world = model.GetOperation(call) is IInvocationOperation op ? WorldArgument(op, ThreadKind.Unknown) : ThreadKind.Game;
+            var named = target.Parameters.Any(p => p.Name == "world");
+            if (!named) return new ThreadContext(ThreadKind.Tick, $"the tick thread (ctx.{hop})", TaskScope.Active);
+            return Landing(world, $"ctx.{hop}").WithHome(world is ThreadKind.Tick or ThreadKind.ClientMain ? world : ThreadKind.Unknown);
+        }
+        // the game client's main thread: Kiln.Client's tick and posts, and callbacks marked [ClientMainThread]
+        if (IsKilnMember(target.OriginalDefinition, "Client", "Post"))
+            return new ThreadContext(ThreadKind.ClientMain, "the game's main thread (Client.Post)");
         if (ns == "Kiln" && (tn, name) is ("Events", "On") or ("ModMessages", "On"))
             return new ThreadContext(ThreadKind.Tick, $"the tick thread (a {tn}.On handler)");
         // Command handlers: Kiln.Chat's Commands.Execute runs them on the tick (chat in Pre, the console folder and
@@ -716,6 +863,11 @@ internal sealed class ThreadClassifier
             return new ThreadContext(ThreadKind.Tick, "the tick thread (a Chat.Received handler)");
         if (ns == "Kiln" && tn is "TickEvents" or "GameLogEvents")
             return new ThreadContext(ThreadKind.Tick, $"the tick thread (a {(tn == "TickEvents" ? "Tick" : "GameLog")}.{ev.Name} handler)");
+        if (ns == "Kiln" && tn == "Client" && ev.Name == "Tick" && KilnApis.IsKilnAssembly(ev.ContainingAssembly))
+            return new ThreadContext(ThreadKind.ClientMain, "the game's main thread (a Client.Tick handler)");
+        if (KilnApis.IsKilnAssembly(ev.ContainingAssembly) &&
+            ev.GetAttributes().Any(a => a.AttributeClass is { Name: "ClientMainThreadAttribute" } c && c.ContainingNamespace?.ToDisplayString() == "Kiln"))
+            return new ThreadContext(ThreadKind.ClientMain, $"the game's main thread (a {tn}.{ev.Name} handler)");
         if (KilnApis.IsKilnAssembly(ev.ContainingAssembly))
             return new ThreadContext(ThreadKind.Game, $"a game thread (a Kiln event handler: {tn}.{ev.Name})");
         return ThreadContext.Unknown;
