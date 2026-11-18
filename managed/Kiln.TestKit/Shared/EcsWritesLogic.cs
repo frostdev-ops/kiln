@@ -42,6 +42,9 @@ internal abstract partial class EcsReadsModel
     /// <summary>The event queue's capacity (4096 in kiln.world).</summary>
     public int EventCapacity = 4096;
 
+    /// <summary>The next N subscriptions are refused unavailable (a kiln.world that is not taking them yet).</summary>
+    public int SubscribeRefusedNext;
+
     public readonly HashSet<ulong> Retired = [];
     public readonly HashSet<(ulong Session, uint Kind, uint Entity, uint Generation, uint Component)> Latched = [];
     public readonly Dictionary<ulong, ulong> BusyLatch = [];  // owner -> the step of its last busy refusal
@@ -73,7 +76,7 @@ internal abstract partial class EcsReadsModel
     {
         WritesCapable = true;
         Budget = 65536;
-        GateBusyNext = UncertainNext = RolledBackNext = 0;
+        GateBusyNext = UncertainNext = RolledBackNext = SubscribeRefusedNext = 0;
         EventCapacity = 4096;
         Retired.Clear();
         Latched.Clear();
@@ -271,6 +274,11 @@ internal static unsafe class EcsWritesLogic
         lock (m.Gate)
         {
             if (m.Retired.Contains(owner)) return Unavailable;
+            if (m.SubscribeRefusedNext > 0)
+            {
+                m.SubscribeRefusedNext--;
+                return Unavailable;
+            }
             var h = ++m.Subs.NextHandle;
             m.Subscriptions.Add((h, owner, fn, user));
             *handle = h;

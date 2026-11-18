@@ -121,6 +121,18 @@ internal static unsafe class FakeEcsReads
     public static int Subscriptions { get { lock (M.Gate) return M.Subscriptions.Count; } }
     public static void Retire(ulong owner) => EcsWritesLogic.Retire(M, owner);
     public static int Drain() => EcsWritesLogic.Drain(M);
+    public static int SubscribeRefusedNext { get => M.SubscribeRefusedNext; set { lock (M.Gate) M.SubscribeRefusedNext = value; } }
+
+    /// <summary>A native service's compare-exchange (no managed mod behind its owner): the ref opened under the owner as
+    /// its epoch, as kiln.world's rule wants.</summary>
+    public static int NativeWrite(ulong owner, uint entity, string component, long expected, long desired)
+    {
+        EcsObjectRefNative r;
+        if (EcsReadsLogic.EntityOpen(M, owner, owner, 0, 0, entity, &r) != 0) return -1;
+        MutationReplyNative reply = default;
+        reply.Size = (uint)sizeof(MutationReplyNative);
+        return EcsWritesLogic.CompareExchange(M, owner, &r, World.ComponentHash(component), (byte*)&expected, null, (byte*)&desired, 8, null, &reply);
+    }
 
     private static readonly EcsWritesTable* Writes4 = (EcsWritesTable*)NativeMemory.AllocZeroed((nuint)sizeof(EcsWritesTable));
     private static EcsReadsTable* Native => &Writes4->Reads;

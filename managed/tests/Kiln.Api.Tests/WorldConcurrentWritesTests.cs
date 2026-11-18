@@ -390,4 +390,47 @@ public sealed class WorldConcurrentWritesTests : TaskTest
         drain.Join();
         other.Join();
     }
+
+    // ---- events of native writers, and the writers' names ----
+
+    [Fact]
+    public void A_subscription_kiln_world_refused_at_first_is_made_at_the_next_service_tick_and_no_native_event_is_lost()
+    {
+        FakeEcsReads.Add(12, WorldKind.Server, ("Counter", Le(5)));
+        var seen = new List<ComponentExchangedEvent>();
+        Capabilities.Report(WorldConcurrent.WriteCapability, CapabilityState.Available);
+        FakeEcsReads.SubscribeRefusedNext = 1;  // kiln.world not taking subscriptions yet (before its on_ready)
+        using var sub = Events.On<ComponentExchangedEvent>(seen.Add);
+        Assert.Equal(0, FakeEcsReads.Subscriptions);
+        Pool.Step(() => WorldExchanges.Pump());  // the next service tick tries again
+        Assert.Equal(1, FakeEcsReads.Subscriptions);
+        Assert.Equal(0, FakeEcsReads.NativeWrite(55, 12, "Counter", 5, 6));  // a native service's write: no mod writes in C#
+        Pool.Step(() =>
+        {
+            FakeEcsReads.Drain();
+            WorldExchanges.Pump();
+        });
+        var e = Assert.Single(seen);
+        Assert.Equal((12u, (string?)null), (e.Entity.Value, e.Mod));
+    }
+
+    [Fact]
+    public void A_mod_s_name_is_dropped_two_service_ticks_after_it_unloads_and_its_last_events_still_name_it()
+    {
+        var mod = NewMod("alpha");
+        FakeEcsReads.Add(12, WorldKind.Server, ("Counter", Le(5)));
+        var r = Opened(mod, 12);
+        var seen = new List<ComponentExchangedEvent>();
+        Capabilities.Report(WorldConcurrent.WriteCapability, CapabilityState.Available);
+        using var sub = Events.On<ComponentExchangedEvent>(seen.Add);
+        InTask(mod, () => WorldConcurrent.TryCompareExchange(r, "Counter", 5L, 6L));
+        Assert.True(WorldExchanges.Writers.ContainsKey(mod.Owner));
+        Pool.Step(() => FakeEcsReads.Drain());  // the event is in Kiln's queue
+        mod.Retire();
+        Pool.Step(() => WorldExchanges.Pump());
+        Assert.Equal("alpha", Assert.Single(seen).Mod);  // written before the unload: still named
+        Assert.True(WorldExchanges.Writers.ContainsKey(mod.Owner));
+        Pool.Step(() => WorldExchanges.Pump());
+        Assert.False(WorldExchanges.Writers.ContainsKey(mod.Owner));  // then forgotten: the map does not grow per load
+    }
 }
