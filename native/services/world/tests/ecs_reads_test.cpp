@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// T8 (#53) host test: kiln.world's verified-copy ECS reads over a fake engine memory model. The fake is a byte
+// Host test: kiln.world's verified-copy ECS reads over a fake engine memory model. The fake is a byte
 // buffer with entity records, archetype component bytes and a registry revision; tests mutate it between the two
 // validations of a read (generation bump, session/layout change, component removal, template swap, membership
 // change, copy fault) and require a precise refusal with nothing copied. Barriers, never loops-and-hope, drive the
@@ -43,6 +43,8 @@ struct Fake {
     bool present = true, exact = true, fault_copy = false, partial_then_fault = false, diverge = false, bump = false,
          grow = false, pos_fault = false;
     int copies = 0, listings = 0;
+    int recycle_on_copy = 0;  // copy_op number N (from 1) recycles entity 10 right after copying its bytes
+    uint32_t recycle_on = 0; // comp_op for this hash first recycles entity 10 (new generation), then looks it up
     uint64_t stamp = 1;
     Status context_status = KILN_ECS_OK, entity_status = KILN_ECS_OK;
     std::function<void(int)> hook; // called with a phase counter after each backend op
@@ -93,6 +95,7 @@ Status ent_op(void* u, const ContextFact&, KilnEntity id, EntityFact* f) {
 Status comp_op(void* u, const ContextFact&, const EntityFact&, KilnEntity id, uint32_t hash, ComponentFact* f) {
     auto& F = *static_cast<Fake*>(u);
     std::unique_lock lock(F.mu);
+    if (F.recycle_on && hash == F.recycle_on && F.ents.count(10)) { ++F.ents[10].generation; F.recycle_on = 0; }
     auto it = F.ents.find(id);
     Status s = KILN_ECS_OK;
     if (it == F.ents.end() || !it->second.alive) s = KILN_ECS_ABSENT;
@@ -117,6 +120,7 @@ bool copy_op(void* u, uintptr_t at, void* out, size_t n) {
             // The bytes change after the first copy and the generation does not: the two copies must not agree.
             if (F.diverge && ++F.copies == 1 && n) reinterpret_cast<uint8_t*>(at)[0] ^= 0xff;
             else if (F.bump && ++F.copies == 1) ++F.stamp;
+            else if (F.recycle_on_copy && ++F.copies == F.recycle_on_copy && F.ents.count(10)) ++F.ents[10].generation;
         }
     }
     F.fire();
@@ -231,6 +235,11 @@ void snapshots() {
     buf.assign(8, 0xAA);
     check(ecs_snapshot(b, &r, kA, buf.data(), 8, &req) == KILN_ECS_ERR_UNREADABLE && all_eq(buf, 0xAA), "content stamp moved around the copy: unreadable, nothing copied");
     F.bump = false;
+    // The id is recycled during the last copy (same bytes at the same place): only the check after that copy sees it.
+    F.copies = 0; F.recycle_on_copy = 2;
+    buf.assign(8, 0xAA);
+    check(ecs_snapshot(b, &r, kA, buf.data(), 8, &req) == KILN_ECS_ERR_STALE && all_eq(buf, 0xAA), "recycled during the second copy: stale, nothing copied");
+    F.recycle_on_copy = 0; F.ents[10].generation = 1;
     // Template replaced during its read.
     F.phase = 0; F.hook = [&](int p) { if (p == 2) F.ents[10].uuid[0] = 42; };
     uint8_t guid[16] = {};
@@ -246,6 +255,29 @@ void snapshots() {
     KilnEcsSnapshotSpec both[2] = {{kA, 0}, {kB, 0}};
     buf.assign(8, 0xAA);
     check(ecs_snapshot_many(b, &r, both, 2, buf.data(), 3, &req, presence) == KILN_ERR_BUFFER_TOO_SMALL && req == 6 && all_eq(buf, 0xAA), "snapshot_many short buffer: nothing copied");
+    // The id is recycled after the validation and before the component lookup: the new occupant has no such
+    // component. That answer is about another entity, so it is stale, never absent.
+    F.recycle_on = 777;
+    check(ecs_snapshot(b, &r, 777, buf.data(), 8, &req) == KILN_ECS_ERR_STALE, "absent component of a recycled id: stale, not absent");
+    F.ents[10].generation = 1;
+    F.recycle_on = 777; buf.assign(8, 0xAA); presence[0] = presence[1] = 99;
+    check(ecs_snapshot_many(b, &r, specs, 2, buf.data(), 8, &req, presence) == KILN_ECS_ERR_STALE && req == 0 &&
+              presence[0] == KILN_ECS_STALE && presence[1] == KILN_ECS_STALE && all_eq(buf, 0xAA),
+          "snapshot_many: an absent spec read after the id was recycled is stale, every spec says so, nothing copied");
+    F.ents[10].generation = 1;
+    // A copy failure after an absent spec: no spec keeps an answer, absent included (nothing re-checked it).
+    KilnEcsSnapshotSpec absent_first[2] = {{777, 0}, {kA, 0}};
+    F.fault_copy = true; presence[0] = presence[1] = 99;
+    check(ecs_snapshot_many(b, &r, absent_first, 2, buf.data(), 8, &req, presence) == KILN_ECS_ERR_UNREADABLE &&
+              presence[0] == KILN_ECS_UNREADABLE && presence[1] == KILN_ECS_UNREADABLE && all_eq(buf, 0xAA),
+          "snapshot_many: a later fault marks every spec, nothing copied");
+    F.fault_copy = false;
+    // A ref naming no world kind is an argument error on every member, as entity_validate says.
+    KilnObjectRef wild = r; wild.world_kind = 99;
+    check(ecs_snapshot(b, &wild, kA, buf.data(), 8, &req) == KILN_ERR_INVALID_ARGUMENT &&
+              ecs_snapshot_many(b, &wild, specs, 2, buf.data(), 8, &req, presence) == KILN_ERR_INVALID_ARGUMENT &&
+              ecs_template_uuid(b, &wild, guid) == KILN_ERR_INVALID_ARGUMENT,
+          "a ref with an unknown world kind is refused as an argument");
     uint32_t kept[2] = {7, 7};
     KilnEcsSnapshotSpec bad_spec[1] = {{kA, 1}};
     check(ecs_snapshot_many(b, &r, bad_spec, 1, buf.data(), 8, &req, kept) == KILN_ERR_INVALID_ARGUMENT && kept[0] == 7 && kept[1] == 7,

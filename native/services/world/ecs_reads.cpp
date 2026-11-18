@@ -10,6 +10,9 @@ namespace kw::ecs {
 namespace {
 
 bool bad_backend(const Backend& b) { return !b.context || !b.entity || !b.component || !b.copy || !b.entity_ids; }
+bool bad_ref(const KilnObjectRef* ref) {
+    return !ref || ref->size < sizeof(KilnObjectRef) || !ref->entity || ref->world_kind >= KILN_WORLD_KINDS;
+}
 
 uint32_t get_context(const Backend& b, uint32_t kind, ContextFact& c) {
     c = ContextFact{};
@@ -144,8 +147,7 @@ KilnResult entity_open(const Backend& b, uint64_t reload_epoch, uint32_t world_k
 }
 
 KilnResult entity_validate(const Backend& b, const KilnObjectRef* ref, KilnObjectInfo* out) {
-    if (bad_backend(b) || !ref || ref->size < sizeof(KilnObjectRef) || !ref->entity ||
-        ref->world_kind >= KILN_WORLD_KINDS || !out || out->size < sizeof(KilnObjectInfo))
+    if (bad_backend(b) || bad_ref(ref) || !out || out->size < sizeof(KilnObjectInfo))
         return KILN_ERR_INVALID_ARGUMENT;
     ContextFact ctx{};
     EntityFact fact{};
@@ -200,15 +202,21 @@ KilnResult ecs_context_snapshot(const Backend& b, KilnEcsContextInfo* out) {
 KilnResult ecs_snapshot(const Backend& b, const KilnObjectRef* ref, uint32_t component, void* out,
                         uint32_t capacity, uint32_t* required) {
     if (required) *required = 0;
-    if (bad_backend(b) || !ref || ref->size < sizeof(KilnObjectRef) || !component || (capacity && !out))
-        return KILN_ERR_INVALID_ARGUMENT;
+    if (bad_backend(b) || bad_ref(ref) || !component || (capacity && !out)) return KILN_ERR_INVALID_ARGUMENT;
     ContextFact ctx{};
     EntityFact fact{};
     if (uint32_t s = validate(b, *ref, ctx, fact); s != KILN_ECS_OK) return result_of(s);
     ComponentFact cf{};
     if (uint32_t s = b.component(b.user, ctx, fact, ref->entity, component, &cf); s != KILN_ECS_OK)
         return result_of(s);
-    if (!cf.present) return KILN_ERR_NOT_FOUND;
+    if (!cf.present) {
+        // Absent is an answer about this entity only if the ref still holds after the lookup: an id recycled in
+        // between names a new occupant, and its missing component says nothing about the ref's entity.
+        ContextFact again{};
+        EntityFact still{};
+        if (uint32_t s = validate(b, *ref, again, still); s != KILN_ECS_OK) return result_of(s);
+        return KILN_ERR_NOT_FOUND;
+    }
     if (required) *required = cf.size;
     if (capacity < cf.size) return KILN_ERR_BUFFER_TOO_SMALL;
     std::vector<uint8_t> staging;
@@ -221,8 +229,7 @@ KilnResult ecs_snapshot_many(const Backend& b, const KilnObjectRef* ref, const K
                              uint32_t count, void* out, uint32_t capacity, uint32_t* required, uint32_t* presence) {
     if (required) *required = 0;
     // KILN_ECS_OK is 0, so presence must not be cleared before the arguments are accepted: a zeroed slot reads as OK.
-    if (bad_backend(b) || !ref || ref->size < sizeof(KilnObjectRef) || !count || !specs || (capacity && !out))
-        return KILN_ERR_INVALID_ARGUMENT;
+    if (bad_backend(b) || bad_ref(ref) || !count || !specs || (capacity && !out)) return KILN_ERR_INVALID_ARGUMENT;
     for (uint32_t i = 0; i < count; ++i)
         if (!specs[i].component || specs[i].reserved) return KILN_ERR_INVALID_ARGUMENT;
     ContextFact ctx{};
@@ -234,11 +241,12 @@ KilnResult ecs_snapshot_many(const Backend& b, const KilnObjectRef* ref, const K
     std::vector<uint8_t> packed;
     std::vector<uint32_t> got(count, KILN_ECS_UNAVAILABLE);
     uint32_t fatal = KILN_ECS_OK;
+    bool any_absent = false;
     for (uint32_t i = 0; i < count && fatal == KILN_ECS_OK; ++i) {
         ComponentFact cf{};
         uint32_t s = b.component(b.user, ctx, fact, ref->entity, specs[i].component, &cf);
         if (s != KILN_ECS_OK) { fatal = s; got[i] = s; break; }
-        if (!cf.present) { got[i] = KILN_ECS_ABSENT; continue; }
+        if (!cf.present) { got[i] = KILN_ECS_ABSENT; any_absent = true; continue; }
         if (cf.size > UINT32_MAX - packed.size()) { fatal = KILN_ECS_UNREADABLE; got[i] = fatal; break; }
         std::vector<uint8_t> staging;
         s = copy_stable(b, *ref, specs[i].component, cf, staging);
@@ -246,9 +254,15 @@ KilnResult ecs_snapshot_many(const Backend& b, const KilnObjectRef* ref, const K
         packed.insert(packed.end(), staging.begin(), staging.end());
         got[i] = KILN_ECS_OK;
     }
+    // An absent spec is confirmed only by a validation after its lookup (the copies validate their own specs).
+    if (fatal == KILN_ECS_OK && any_absent) {
+        ContextFact again{};
+        EntityFact still{};
+        fatal = validate(b, *ref, again, still);
+    }
     if (fatal != KILN_ECS_OK) {
-        for (uint32_t i = 0; i < count; ++i)
-            if (got[i] != KILN_ECS_ABSENT) got[i] = fatal;
+        // No spec keeps an answer from a call that failed: an absent one was not confirmed either.
+        for (uint32_t i = 0; i < count; ++i) got[i] = fatal;
         if (presence) std::memcpy(presence, got.data(), count * sizeof(uint32_t));
         if (required) *required = 0;
         return result_of(fatal);
@@ -366,7 +380,7 @@ KilnResult ecs_query(const Backend& b, const KilnEcsQueryRequest* request, KilnO
 }
 
 KilnResult ecs_template_uuid(const Backend& b, const KilnObjectRef* ref, uint8_t guid[16]) {
-    if (bad_backend(b) || !ref || ref->size < sizeof(KilnObjectRef) || !guid) return KILN_ERR_INVALID_ARGUMENT;
+    if (bad_backend(b) || bad_ref(ref) || !guid) return KILN_ERR_INVALID_ARGUMENT;
     ContextFact ctx{};
     EntityFact fact{};
     if (uint32_t s = validate(b, *ref, ctx, fact); s != KILN_ECS_OK) return result_of(s);
