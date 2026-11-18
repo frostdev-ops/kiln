@@ -900,6 +900,11 @@ mod tests {
         assert_eq!(tasks.owners_truncated, None);
         let again: TickStat = serde_json::from_str(&serde_json::to_string(with_tasks).unwrap()).unwrap();
         assert_eq!(&again, with_tasks);
+        // a hosting client's client-world line (#82): only that world's hop account, still a tasks section
+        let client = &tick_stats(r#"{"time":"t","world":"client","steps":3,"tasks":{"apply":{"applied":5,"deferred":1,"cancelled":0,"ms":0.4,"owner_budget_stops":0,"step_budget_stops":1,"owners_served":1,"backlog":1},"hops":{"refused":2}}}"#)[0];
+        let ct = client.tasks.as_ref().expect("an apply-only tasks section reads");
+        assert!(ct.window.is_none() && ct.pool.is_none() && ct.owners.is_empty());
+        assert_eq!((ct.apply.as_ref().map(|a| a.applied), ct.hops.as_ref().map(|h| h.refused)), (Some(5), Some(2)));
         // the native writer marks capped owner rows with a bool; the section must still read
         let capped = &tick_stats(r#"{"time":"t","steps":1,"tasks":{"owners":[],"owners_truncated":true}}"#)[0];
         assert_eq!(capped.tasks.as_ref().and_then(|t| t.owners_truncated), Some(true));
