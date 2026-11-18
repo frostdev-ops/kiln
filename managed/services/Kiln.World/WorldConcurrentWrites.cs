@@ -328,7 +328,8 @@ public static unsafe partial class WorldConcurrent
     /// <summary>Compares the entity's whole <paramref name="component"/> with <paramref name="expected"/> and, only when they
     /// are equal, writes <paramref name="desired"/>, under the engine's write gate, between server frames. <c>T</c> must be
     /// the whole component (<c>sizeof(T)</c> its registered size: else <see cref="ExchangeStatus.NotWritable"/> with
-    /// <see cref="WriteReason.Size"/>). Never waits: a gate that is taken answers <see cref="ExchangeStatus.Busy"/>.
+    /// <see cref="WriteReason.Size"/>). Every byte of <c>T</c> is compared and written, padding too, so give it a field for
+    /// every byte (or use <see cref="TryCompareExchangeBytes"/>). Never waits: a gate that is taken answers <see cref="ExchangeStatus.Busy"/>.
     /// <c>var r = WorldConcurrent.TryCompareExchange(e, "Foo", old, old with { X = 1 });</c></summary>
     /// <exception cref="ArgumentException"><paramref name="entity"/> is <c>default</c>, or no component name.</exception>
     /// <exception cref="InvalidOperationException">Not inside a Kiln task or on the tick.</exception>
