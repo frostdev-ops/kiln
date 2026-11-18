@@ -12,6 +12,7 @@ generated [../status.generated.md](../status.generated.md); what has no API yet 
 | [lifecycle.md](lifecycle.md) | Mod and server lifecycle events, the `Mods` API, inter-mod messages, hot reload |
 | [testing.md](testing.md) | Kiln.Testing: `[KilnTest]` methods that run inside the server |
 | [unit-tests.md](unit-tests.md) | Kiln.TestKit: a mod under dotnet test with no game, dotnet new kiln-unit-test, [KilnTest] methods as xunit tests, what is real offline |
+| [tasks.md](tasks.md) | Heavy work off the server's tick: `Context.Tasks`, the ways back to the tick and their budget, reading the world from a task (`WorldConcurrent`), unload and exit, diagnostics, common mistakes; the `FetchNearby` example and its TestKit tests |
 | [faults.md](faults.md) | Fault policy, crash reports, `kiln.json` `mods` settings |
 | [contract.md](contract.md) | The API contract: the one error rule, identity types (`EntityRef`, `PlayerRef`, `ItemId`), thread attributes |
 | [../services/caps.md](../services/caps.md) | Asking what works: `Capabilities.Is/Get/Why/All`, why a capability is off; the manifest's `features` rules (manifest.md, "Asking what works") |

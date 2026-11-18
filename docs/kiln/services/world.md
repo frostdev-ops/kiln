@@ -507,7 +507,8 @@ compares: `world ecs-read check: ...` lines in `kiln.log`, one `PASS` or `FAIL` 
 
 #### From C#: `WorldConcurrent` (experimental)
 
-`WorldConcurrent` (Kiln.World) is the C# face of these members, for code in a Kiln task. It is
+`WorldConcurrent` (Kiln.World) is the C# face of these members, for code in a Kiln task (the guide:
+[../modding/tasks.md](../modding/tasks.md#reading-the-world-from-a-task)). It is
 `[Experimental("KILNX001")]`: opt in with `<NoWarn>$(NoWarn);KILNX001</NoWarn>` in the mod's project. It can change
 until it leaves experimental, and that waits for the in-game check above to pass on both exact builds.
 

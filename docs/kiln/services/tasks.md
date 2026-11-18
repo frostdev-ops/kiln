@@ -109,7 +109,8 @@ authoritative server world (the main menu, a client joined to a remote server) `
 
 ## Managed tasks
 
-The managed host runs C# tasks (`Context.Tasks`) on the same pool, through its Kiln-internal lease table
+The mod author's guide to C# tasks is [../modding/tasks.md](../modding/tasks.md). The managed host runs C# tasks
+(`Context.Tasks`) on the same pool, through its Kiln-internal lease table
 (`kiln.internal.tasks.host`, `native/core/src/tasks_host.h`; Kiln.Host's side is `managed/Kiln.Host/Tasks.cs`): one
 pool, one set of limits and one unload rule for native and managed tasks. A managed task counts once
 against its owner's 1024 records; between its awaits it holds no worker, and its continuations are never refused by the
