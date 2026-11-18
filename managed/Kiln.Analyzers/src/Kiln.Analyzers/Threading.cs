@@ -581,6 +581,8 @@ internal sealed class ThreadClassifier
             if (c.Name == "ImpactNativeAttribute" && ns == "Kiln") return new ThreadContext(ThreadKind.Off, "an [ImpactNative] handler (the simulation thread or a worker)");
             if (c.Name == "SubscribeAttribute" && ns == "Kiln") return new ThreadContext(ThreadKind.Tick, "the tick thread (a [Subscribe] handler)");
             if (c.Name == "KilnTestAttribute" && ns == "Kiln.Testing") return new ThreadContext(ThreadKind.Tick, "the tick thread (a [KilnTest] method)");
+            // Kiln.Chat runs every command (chat, console folder, remote tools) through Commands.Execute, on the tick.
+            if (c.Name == "CommandAttribute" && ns == "Kiln") return new ThreadContext(ThreadKind.Tick, "the tick thread (a [Command] handler)");
         }
         return MethodGroupUse(m, ct);
     }
@@ -654,6 +656,10 @@ internal sealed class ThreadClassifier
         if (IsKilnMember(target.OriginalDefinition, "KilnTaskContext", "PostToTick")) return new ThreadContext(ThreadKind.Tick, "the tick thread (ctx.PostToTick)", TaskScope.Active);
         if (ns == "Kiln" && (tn, name) is ("Events", "On") or ("ModMessages", "On"))
             return new ThreadContext(ThreadKind.Tick, $"the tick thread (a {tn}.On handler)");
+        // Command handlers: Kiln.Chat's Commands.Execute runs them on the tick (chat in Pre, the console folder and
+        // remote tools from a service tick).
+        if (ns == "Kiln" && (tn, name) is ("Commands", "Register") or ("LiteralNode", "Executes") or ("ArgumentNode", "Executes"))
+            return new ThreadContext(ThreadKind.Tick, $"the tick thread ({(tn == "ArgumentNode" ? "an" : "a")} {tn}.{name} handler)");
         switch (ns, tn, name)
         {
             case ("System.Threading.Tasks", "Task", "Run"):
@@ -706,6 +712,8 @@ internal sealed class ThreadClassifier
             case ("System.ComponentModel", "BackgroundWorker", "DoWork"):
                 return Off("on a thread-pool thread (BackgroundWorker.DoWork)");
         }
+        if (ns == "Kiln" && (tn, ev.Name) is ("Chat", "Received"))
+            return new ThreadContext(ThreadKind.Tick, "the tick thread (a Chat.Received handler)");
         if (ns == "Kiln" && tn is "TickEvents" or "GameLogEvents")
             return new ThreadContext(ThreadKind.Tick, $"the tick thread (a {(tn == "TickEvents" ? "Tick" : "GameLog")}.{ev.Name} handler)");
         if (KilnApis.IsKilnAssembly(ev.ContainingAssembly))

@@ -20,7 +20,8 @@ public sealed class BlockingAnalyzer : DiagnosticAnalyzer
     public const string FixKey = "fix";
 
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics => ImmutableArray.Create(
-        Descriptors.BlockingCall, Descriptors.BlockingTaskCall, Descriptors.TickHopDiscarded, Descriptors.GatedCallOutOfScope);
+        Descriptors.BlockingCall, Descriptors.BlockingTaskCall, Descriptors.TickHopDiscarded, Descriptors.GatedCallOutOfScope,
+        Descriptors.GatedWriteOnTick);
 
     public override void Initialize(AnalysisContext context)
     {
@@ -40,11 +41,15 @@ public sealed class BlockingAnalyzer : DiagnosticAnalyzer
         var op = ctx.Operation;
         var model = ctx.Operation.SemanticModel!;
         var syntax = op.Syntax;
-        // A task-thread world read where no task scope is installed: refused at run time.
+        // A task-thread world call where no task scope is installed: refused at run time. A compare-exchange in tick
+        // code: always busy (the frame holds the write gate there).
         if (op is IInvocationOperation gated && KilnApis.IsTaskGated(gated.TargetMethod.OriginalDefinition))
         {
             var at = classifier.Classify(syntax, model, ctx.CancellationToken);
-            if (OutOfScope(at) is { } why)
+            if (at.Kind == ThreadKind.Tick && KilnApis.IsTaskGatedWrite(gated.TargetMethod.OriginalDefinition))
+                ctx.ReportDiagnostic(Diagnostic.Create(Descriptors.GatedWriteOnTick, syntax.GetLocation(),
+                    "WorldConcurrent." + gated.TargetMethod.Name, OnThe(at.Where)));
+            else if (OutOfScope(at) is { } why)
                 ctx.ReportDiagnostic(Diagnostic.Create(Descriptors.GatedCallOutOfScope, syntax.GetLocation(),
                     "WorldConcurrent." + gated.TargetMethod.Name, why.Where, why.Fix));
             return;
@@ -96,6 +101,9 @@ public sealed class BlockingAnalyzer : DiagnosticAnalyzer
             : "on some path where the task's scope is gone (after 'await ...ConfigureAwait(false)', or from work the task started itself)";
         return (where, "drop ConfigureAwait(false), or bring the work back into the task with 'await ctx.NextGateWindow()' first");
     }
+
+    // "the tick thread (...)" reads "on the tick thread (...)" in the gated-write message.
+    private static string OnThe(string where) => where.StartsWith("the ", System.StringComparison.Ordinal) ? "on " + where : where;
 
     /// <summary><c>KilnTask.Wait()</c> itself: on <c>KilnTask</c>/<c>KilnTask&lt;T&gt;</c> by symbol, never a
     /// look-alike <c>Wait()</c> of the mod's own types. (Its <c>Result</c> and its own awaiter's
