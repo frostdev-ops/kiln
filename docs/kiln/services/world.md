@@ -555,8 +555,9 @@ a query `Center` that is not finite or has no finite radius above 0, or the wron
 
 **Where it may be called.** Inside a Kiln task (its work on a worker, or after `await ctx.ToTick()`) and on the tick,
 from a mod's code. Anywhere else it throws `InvalidOperationException`: a `new Thread`, `Task.Run`, or code after
-`ConfigureAwait(false)` (the message names the task the code came from). The reads are made for the task's mod, or for
-the mod whose code runs on the tick.
+`ConfigureAwait(false)` (the message names the task the code came from). The analyzer reports such calls at build time
+(KILN105, docs/kiln/modding/analyzers.md). The reads are made for the task's mod, or for the mod whose code runs on the
+tick.
 
 **Frame-quiet on the tick.** The server tick runs inside the server frame (tick handlers, and a task's tick hops), so a
 `ReadMode.FrameQuiet` read there would always meet the frame. There it answers `Busy` at once, without reading the

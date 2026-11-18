@@ -91,6 +91,15 @@ public static class Descriptors
         "result is dropped, or kept in a local that nobody awaits, never hops, and the code after it runs on " +
         "a worker (or wherever it ran) with no warning from the tick-thread rules about that fact alone.");
 
+    public static readonly DiagnosticDescriptor GatedCallOutOfScope = Rule("KILN105",
+        "Task-thread world read outside a Kiln task",
+        "'{0}' is refused {1}: the task-thread world reads work only inside a Kiln task or on the tick, and this code has no task scope; {2}",
+        Threading, DiagnosticSeverity.Warning,
+        "WorldConcurrent's reads check, on every call, that a Kiln task's scope is installed on the calling thread (a " +
+        "task segment or a tick hop) or that the call runs on the tick. Code after 'await ...ConfigureAwait(false)' " +
+        "still belongs to the task body but has left the task, and Task.Run work, threads, timers and thread-pool " +
+        "callbacks never had one: Kiln refuses the read there with InvalidOperationException.");
+
     public static readonly DiagnosticDescriptor Unreleased = Rule("KILN106",
         "Thread, timer or subscription is never released",
         "{0} is not released: Kiln does not stop threads, timers, watchers, sockets or external subscriptions a mod creates itself; dispose/stop it in OnUnload",

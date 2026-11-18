@@ -1,0 +1,164 @@
+// SPDX-License-Identifier: MIT
+using Xunit;
+using static Kiln.Analyzers.Tests.Harness;
+
+namespace Kiln.Analyzers.Tests;
+
+/// <summary>KILN105's gated world row: a task-thread world read (<c>WorldConcurrent</c>) where no Kiln task's
+/// scope is installed, so Kiln refuses it at run time: after <c>await …ConfigureAwait(false)</c> in a task (on
+/// every path or some), in <c>Task.Run</c> and on a thread of the mod's own. The reads compile against the real
+/// Kiln.World; the test sources opt in to its experimental API as a mod does.</summary>
+public sealed class TaskGatedTests
+{
+    private static readonly BlockingAnalyzer A = new();
+
+    [Fact]
+    public async Task Every_read_after_ConfigureAwait_false_is_reported()
+    {
+        var d = await Run(A, """
+            #pragma warning disable KILNX001
+            public sealed class M : Mod
+            {
+                public override void OnLoad()
+                {
+                    Context.Tasks.Run("escaped", async ctx =>
+                    {
+                        await Task.Delay(1).ConfigureAwait(false);
+                        var open = WorldConcurrent.Open(new EntityId(12));
+                        var e = open.Value;
+                        WorldConcurrent.Validate(e);
+                        WorldConcurrent.Read<int>(e, "Health");
+                        WorldConcurrent.ReadBytes(e, "Health", new byte[8]);
+                        WorldConcurrent.ReadMany(e, new ComponentSet("Health"));
+                        WorldConcurrent.Query(new EntityQuery(WorldKind.Server, "Health"), new ConcurrentEntity[4]);
+                        WorldConcurrent.Template(e);
+                    });
+                }
+            }
+            """);
+        Ids(d, "KILN105", "KILN105", "KILN105", "KILN105", "KILN105", "KILN105", "KILN105");
+        Assert.Equal(["WorldConcurrent.Open", "WorldConcurrent.Validate", "WorldConcurrent.Read", "WorldConcurrent.ReadBytes",
+            "WorldConcurrent.ReadMany", "WorldConcurrent.Query", "WorldConcurrent.Template"],
+            d.Select(x => x.GetMessage().Split('\'')[1]));
+        Assert.All(d, x => Assert.Contains("ConfigureAwait(false)", x.GetMessage()));
+        Assert.All(d, x => Assert.Contains("NextGateWindow", x.GetMessage()));
+    }
+
+    [Fact]
+    public async Task ConfigureAwait_false_on_some_paths_is_reported()
+    {
+        var d = await Run(A, """
+            #pragma warning disable KILNX001
+            public sealed class M : Mod
+            {
+                public override void OnLoad()
+                {
+                    Context.Tasks.Run("joined", async ctx =>
+                    {
+                        if (DateTime.Now.Second == 0) await Task.Delay(1).ConfigureAwait(false);
+                        WorldConcurrent.Open(new EntityId(12));
+                    });
+                }
+            }
+            """);
+        Ids(d, "KILN105");
+        Assert.Contains("ConfigureAwait(false)", d[0].GetMessage());
+        Assert.Contains("some path", d[0].GetMessage());
+    }
+
+    [Fact]
+    public async Task Task_Run_and_threads_of_the_mods_own_are_reported()
+    {
+        var d = await Run(A, """
+            #pragma warning disable KILNX001
+            public sealed class M : Mod
+            {
+                public override void OnLoad()
+                {
+                    Context.Tasks.Run("inner", async ctx =>
+                    {
+                        await Task.Run(() => WorldConcurrent.Open(new EntityId(1)));
+                    });
+                    Task.Run(() => WorldConcurrent.Open(new EntityId(2)));
+                    new Thread(() => WorldConcurrent.Open(new EntityId(3))).Start();
+                    Task.Run(Helper);
+                }
+                private void Helper() => WorldConcurrent.Open(new EntityId(4));
+            }
+            """);
+        Ids(d, "KILN105", "KILN105", "KILN105", "KILN105");
+        Assert.Contains("Task.Run", d[0].GetMessage());
+        Assert.Contains("Context.Tasks.Run", d[0].GetMessage());
+        Assert.Contains("new Thread", d[2].GetMessage());
+    }
+
+    [Fact]
+    public async Task Inside_the_task_on_the_tick_and_after_a_hop_back_are_not_reported()
+    {
+        var d = await Run(A, """
+            #pragma warning disable KILNX001
+            public sealed class M : Mod
+            {
+                public override void OnLoad()
+                {
+                    WorldConcurrent.Open(new EntityId(1));                          // the tick (OnLoad)
+                    Context.Tick.Pre += (in TickInfo t) => WorldConcurrent.Open(new EntityId(2));
+                    Context.Tasks.Run("inside", async ctx =>
+                    {
+                        WorldConcurrent.Open(new EntityId(3));
+                        await Task.Yield();
+                        WorldConcurrent.Open(new EntityId(4));
+                        await Task.Delay(1).ConfigureAwait(true);
+                        WorldConcurrent.Open(new EntityId(5));
+                        await ctx.ToTick();
+                        WorldConcurrent.Open(new EntityId(6));
+                        var n = await ctx.OnTick(() => WorldConcurrent.Open(new EntityId(7)).Status);
+                    });
+                    Context.Tasks.Run("back", async ctx =>
+                    {
+                        await Task.Delay(1).ConfigureAwait(false);
+                        await ctx.NextGateWindow();
+                        WorldConcurrent.Open(new EntityId(8));
+                    });
+                    Context.Tasks.Run("back to the tick", async ctx =>
+                    {
+                        await Task.Delay(1).ConfigureAwait(false);
+                        await ctx.ToTick();
+                        WorldConcurrent.Open(new EntityId(9));
+                    });
+                    Context.Tasks.Run("group", Body);
+                }
+                private void Body(KilnTaskContext ctx) => WorldConcurrent.Open(new EntityId(10));
+            }
+            """);
+        Ids(d);
+    }
+
+    [Fact]
+    public async Task Any_thread_members_lookalikes_and_unknown_code_are_not_reported()
+    {
+        var d = await Run(A, """
+            #pragma warning disable KILNX001
+            namespace Mine { public static class WorldConcurrent { public static int Open(int id) => id; } }
+            public sealed class M : Mod
+            {
+                private Func<object>? _stored;
+                public override void OnLoad()
+                {
+                    Context.Tasks.Run("escaped", async ctx =>
+                    {
+                        await Task.Delay(1).ConfigureAwait(false);
+                        var available = Kiln.WorldConcurrent.IsAvailable && Kiln.WorldConcurrent.IsPresent(WorldKind.Server);
+                        var n = await Kiln.WorldConcurrent.OrOnTick(ctx, () => 1, () => 2);
+                        Mine.WorldConcurrent.Open(3);
+                        var set = new ComponentSet("Health");
+                    });
+                    _stored = () => Kiln.WorldConcurrent.Open(new EntityId(1));
+                    Task.Run(() => Mine.WorldConcurrent.Open(4));
+                }
+                private object Unknown() => Kiln.WorldConcurrent.Open(new EntityId(2));
+            }
+            """);
+        Ids(d);
+    }
+}

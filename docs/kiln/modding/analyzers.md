@@ -396,10 +396,37 @@ Context.Tasks.Run("loot-scan", async ctx =>
 });
 ```
 
-**Not checked yet: gated world calls.** Kiln has no C# API yet for reading or writing the world from a
-task thread. Once it has one, KILN105 is meant to report its calls where a task's scope is gone (after
-`await …ConfigureAwait(false)`, in `Task.Run`, on a raw thread) and its writes from tick code (the engine
-holds its scene gate for the whole update, so an in-frame write is always refused as busy).
+**A task-thread world read outside a task.** A `WorldConcurrent` read (`Open`, `Validate`, `Read`,
+`ReadBytes`, `ReadMany`, `Query`, `Template`) where no task's scope is installed:
+- in a task body after `await …ConfigureAwait(false)`, on every path or only some, until a hop
+  (`await ctx.NextGateWindow()`, `await ctx.ToTick()`) brings the work back into the task;
+- in work the mod starts itself: `Task.Run`, a `new Thread`, a timer or a thread-pool callback, also inside a
+  task body.
+
+Kiln checks the scope on every read and refuses one without it with `InvalidOperationException`, so the read
+never works there. **Fix:** keep the awaits in the task (drop `ConfigureAwait(false)`), or call
+`await ctx.NextGateWindow()` first; for work started with `Task.Run` or a thread, run it in a Kiln task
+(`Context.Tasks.Run`) instead.
+
+Not reported: the reads inside a task body (also after `ConfigureAwait(true)`, a hop, or in `ctx.OnTick`),
+on the tick and on game threads; `WorldConcurrent.IsAvailable`, `IsPresent` and `OrOnTick`, which work on any
+thread; the values the reads return (`ConcurrentSnapshot.TryGet`, `ConcurrentRead<T>.Value`); a look-alike
+`WorldConcurrent` of the mod's own; and code whose thread the analyzer cannot tell (a stored delegate, a method
+nothing in the mod calls).
+
+```csharp
+Context.Tasks.Run("chest-scan", async ctx =>
+{
+    var data = await File.ReadAllBytesAsync(path).ConfigureAwait(false);
+    var chest = WorldConcurrent.Open(id);          // KILN105: the task's scope is gone after ConfigureAwait(false)
+    await ctx.NextGateWindow();
+    var again = WorldConcurrent.Open(id);          // back in the task: fine
+});
+```
+
+**Not checked yet: gated world writes from tick code.** The engine holds its scene gate for the whole
+server update, so an in-frame write from a tick handler is always refused as busy. That row comes with
+the task-thread world writes.
 
 <a id="kiln106"></a>
 ## KILN106: thread, timer or subscription never released

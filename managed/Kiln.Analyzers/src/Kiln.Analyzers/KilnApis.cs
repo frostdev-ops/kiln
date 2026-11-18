@@ -43,6 +43,17 @@ internal static partial class KilnApis
         return id is not null && Sets.Guards.TryGetValue(id, out var rows) ? rows : Array.Empty<string>();
     }
 
+    /// <summary>The task-thread world API's members that need a Kiln task's scope (or the tick) on the calling thread:
+    /// WorldConcurrent's reads. Its any-thread members (IsAvailable, IsPresent, OrOnTick) are not in it.</summary>
+    private static readonly HashSet<string> TaskGatedReads = new(StringComparer.Ordinal)
+    {
+        "Open", "Validate", "Read", "ReadBytes", "ReadMany", "Query", "Template",
+    };
+
+    /// <summary>A member Kiln refuses where no task scope is installed (KILN105's gated world row), by symbol.</summary>
+    internal static bool IsTaskGated(IMethodSymbol method) =>
+        TaskGatedReads.Contains(method.Name) && ThreadClassifier.IsKilnType(method.ContainingType, "WorldConcurrent");
+
     /// <summary>Attribute names honoured in addition to the tables (a future Kiln.Api may mark members itself).</summary>
     internal const string TickThreadOnlyAttribute = "TickThreadOnlyAttribute";
     internal const string AdvancedApiAttribute = "AdvancedApiAttribute";

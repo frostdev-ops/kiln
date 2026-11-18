@@ -20,7 +20,7 @@ public sealed class BlockingAnalyzer : DiagnosticAnalyzer
     public const string FixKey = "fix";
 
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics => ImmutableArray.Create(
-        Descriptors.BlockingCall, Descriptors.BlockingTaskCall, Descriptors.TickHopDiscarded);
+        Descriptors.BlockingCall, Descriptors.BlockingTaskCall, Descriptors.TickHopDiscarded, Descriptors.GatedCallOutOfScope);
 
     public override void Initialize(AnalysisContext context)
     {
@@ -40,6 +40,15 @@ public sealed class BlockingAnalyzer : DiagnosticAnalyzer
         var op = ctx.Operation;
         var model = ctx.Operation.SemanticModel!;
         var syntax = op.Syntax;
+        // A task-thread world read where no task scope is installed: refused at run time.
+        if (op is IInvocationOperation gated && KilnApis.IsTaskGated(gated.TargetMethod.OriginalDefinition))
+        {
+            var at = classifier.Classify(syntax, model, ctx.CancellationToken);
+            if (OutOfScope(at) is { } why)
+                ctx.ReportDiagnostic(Diagnostic.Create(Descriptors.GatedCallOutOfScope, syntax.GetLocation(),
+                    "WorldConcurrent." + gated.TargetMethod.Name, why.Where, why.Fix));
+            return;
+        }
         // ctx.ToTick() on its own hops nothing: the hop happens in its awaiter.
         if (op is IInvocationOperation hop && ThreadClassifier.IsKilnMember(hop.TargetMethod.OriginalDefinition, "KilnTaskContext", "ToTick"))
         {
@@ -69,6 +78,21 @@ public sealed class BlockingAnalyzer : DiagnosticAnalyzer
         if (fix is not null && CanAwaitHere(syntax)) props = props.Add(FixKey, fix);
         ctx.ReportDiagnostic(Diagnostic.Create(onGameThread ? Descriptors.BlockingCall : Descriptors.BlockingTaskCall,
             syntax.GetLocation(), props, name, where.Where));
+    }
+
+    /// <summary>Where a gated read is refused, and its fix: code off the game threads with no proven task scope. In a
+    /// task body after <c>await …ConfigureAwait(false)</c> (on every path, or only some: a join keeps the scope only when
+    /// every way in has it), and in work the mod started itself (Task.Run, a thread, a timer). The tick, game threads,
+    /// task segments and hops are fine, and code the classifier cannot place is never reported.</summary>
+    private static (string Where, string Fix)? OutOfScope(ThreadContext at)
+    {
+        if (at.Kind != ThreadKind.Off || at.Task == TaskScope.Active) return null;
+        if (at.Task == TaskScope.None)
+            return (at.Where, "run the work in a Kiln task (Context.Tasks.Run) instead");
+        var where = at.Where.Contains("ConfigureAwait(false)")
+            ? at.Where
+            : "on some path where the task's scope is gone (after 'await ...ConfigureAwait(false)', or from work the task started itself)";
+        return (where, "drop ConfigureAwait(false), or bring the work back into the task with 'await ctx.NextGateWindow()' first");
     }
 
     /// <summary><c>KilnTask.Wait()</c> itself: on <c>KilnTask</c>/<c>KilnTask&lt;T&gt;</c> by symbol, never a
