@@ -586,13 +586,18 @@ std::string Loop::choose() {
         KilnTypeInfo ti{};
         ti.size = sizeof ti;
         const std::string tname = t && g->types->type_info(t, &ti) == KILN_OK ? std::string(ti.qualified_name.ptr, ti.qualified_name.len) : "?";
+        const Padding pad = padding_of(g->types, t);
         if (wanted && g->config.offset >= 0) {
-            if (static_cast<uint32_t>(g->config.offset) >= p.component_size) return "offset= is past the end of " + tname;
-            cands.push_back({row.component, p.component_size, static_cast<uint32_t>(g->config.offset), tname});
+            // the tester's own byte: only one of the component's padding bytes, by the same rule as the automatic pick
+            const uint32_t at = static_cast<uint32_t>(g->config.offset);
+            if (at >= p.component_size) return "offset= is past the end of " + tname;
+            if (!std::binary_search(pad.bytes.begin(), pad.bytes.end(), at))
+                return "offset= " + std::to_string(at) + " is not a padding byte of " + tname + " (" +
+                       (pad.bytes.empty() ? pad.why : "its padding bytes start at " + std::to_string(pad.bytes.front())) + ")";
+            cands.push_back({row.component, p.component_size, at, tname});
             pick = "named in the run file, with its byte";
             break;
         }
-        const Padding pad = padding_of(g->types, t);
         if (pad.bytes.empty() || pad.bytes.front() >= p.component_size) {
             if (wanted) why_named = "no padding byte we may use: " + pad.why;
             continue;
@@ -778,6 +783,12 @@ void Loop::write_run_json(bool final) {
 
 void Loop::finish(const std::string& why, const KilnTaskRun* run) {
     if (end_reason.empty()) end_reason = why;
+    // A change kiln.world could not prove (uncertain) may have landed although no reply said WRITTEN: the component as
+    // it is now decides whether the byte has to be put back.
+    if (mode == "write" && !flipped && read(snap) == KILN_OK && snap[offset] != original) {
+        flipped = true;
+        cur = snap;
+    }
     if (flipped && mode == "write") {
         KilnMutationReply r{};
         // put the byte back: bounded, as long as the world is not stopping (the gate is closed then)
@@ -791,8 +802,15 @@ void Loop::finish(const std::string& why, const KilnTaskRun* run) {
             else sleep_ms(1);
         }
     }
-    restored = !flipped;
-    verified = mode == "noop" || (restored && read(snap) == KILN_OK && snap[offset] == original);
+    // What a read shows: an unproven restore may have put the byte back, an unproven change may have left it changed.
+    if (mode == "noop") {
+        restored = verified = true;
+    } else if (read(snap) == KILN_OK) {
+        restored = verified = snap[offset] == original;
+    } else {
+        restored = !flipped;
+        verified = false;
+    }
     (void)run;
     take_steps();
     gate_row();

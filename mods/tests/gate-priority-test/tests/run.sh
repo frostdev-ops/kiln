@@ -9,7 +9,7 @@ out=${KILN_OUT:?set KILN_OUT}/gate-priority-test
 mkdir -p "$out"
 engine=$root/native/services/engine
 world=$root/native/services/world
-scenarios=(padding write raise-off noop named named-offset named-gap tracked no-padding other-world no-world no-file bad-config stop stop-warmup)
+scenarios=(padding write raise-off noop named named-offset named-field named-gap tracked no-padding other-world no-world no-file bad-config stop stop-warmup uncertain-change uncertain-restore)
 for kind in asan tsan; do
   if [[ $kind == asan ]]; then san=(-fsanitize=address,undefined -fno-sanitize-recover=undefined); else san=(-fsanitize=thread); fi
   g++ -std=c++20 -O1 -g -pthread -Wall -Wextra -Werror "${san[@]}" -I"$here/.." -I"$here" -I"$engine" -I"$engine/include" \

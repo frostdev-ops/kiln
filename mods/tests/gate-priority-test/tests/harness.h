@@ -236,14 +236,22 @@ inline KilnResult KILN_CALL e_acquire(const kiln::engine::EcsView* expected, kil
 #endif
     return KILN_OK;
 }
+// Scenario.uncertain_write: the gate check right after that write (1-based) fails, so kiln.world cannot prove the write
+// it just made and answers UNCERTAIN (the bytes are written; the target is latched for the session).
+inline std::atomic<int> g_uncertain_write{0}, g_gate_writes{0};
+inline std::atomic<bool> g_fail_next_validate{false};
 inline std::int32_t KILN_CALL e_validate(const kiln::engine::EcsGate* gate) {
+    if (g_fail_next_validate.exchange(false)) return 0;
     return kiln::engine::gate_validate(g_layout, *gate, g_image.load()) ? 1 : 0;
 }
 inline std::int32_t KILN_CALL e_component(const kiln::engine::EcsGate* gate, std::uint16_t c) {
     return kiln::engine::gate_component_supported(*gate, c) ? 1 : 0;
 }
 inline KilnResult KILN_CALL e_write(const kiln::engine::EcsGate* gate, std::uintptr_t address, const void* data, std::size_t bytes) {
-    switch (kiln::engine::gate_write(*gate, address, data, bytes)) {
+    const auto written = kiln::engine::gate_write(*gate, address, data, bytes);
+    if (written == kiln::engine::GateWrite::Ok && g_uncertain_write.load() && ++g_gate_writes == g_uncertain_write.load())
+        g_fail_next_validate.store(true);
+    switch (written) {
         case kiln::engine::GateWrite::Ok: return KILN_OK;
         case kiln::engine::GateWrite::TooLarge: return KILN_ERR_BUFFER_TOO_SMALL;
         case kiln::engine::GateWrite::NotHeld: return KILN_ERR_INVALID_ARGUMENT;
@@ -509,6 +517,7 @@ struct Scenario {
     int stop_after_ms = -1;          // the server world stops after this long (-1: at the end)
     int game_writes_every = 0;       // every Nth frame the game changes byte 0 of `game_target`
     std::string game_target;
+    int uncertain_write = 0;         // this write (1-based) of the gate cannot be proven: UNCERTAIN (0: none)
 };
 
 struct Rig {
@@ -628,6 +637,7 @@ inline bool build(Rig& r, const Scenario& sc, const std::string& sigdb) {
     g_writer = r.writer.get();
     kiln::engine::gate_set_priority_raise(sc.raise);
     g_raise_on = sc.raise;
+    g_uncertain_write = sc.uncertain_write;
 
     r.world_api.header = {sizeof(KilnWorldApi), KILN_WORLD_VERSION};
     r.world_api.capabilities = &w_caps;

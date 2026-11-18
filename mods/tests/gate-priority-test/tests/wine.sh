@@ -17,7 +17,7 @@ dll=$KILN_OUT/cmake/bin/mods/gate-priority-test/gate-priority-test.dll
 unset DISPLAY
 export WAYLAND_DISPLAY=kiln-no-display WINEDLLOVERRIDES=winedbg.exe=d WINEDEBUG=-all
 win() { printf 'Z:%s' "${1//\//\\}"; }
-scenarios=(write raise-off noop named named-offset named-gap tracked no-padding other-world no-world no-file bad-config stop stop-warmup)
+scenarios=(write raise-off noop named named-offset named-field named-gap tracked no-padding other-world no-world no-file bad-config stop stop-warmup uncertain-change uncertain-restore)
 log=$KILN_OUT/gate-priority-test-wine
 mkdir -p "$log"
 result=0

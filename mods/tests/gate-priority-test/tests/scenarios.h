@@ -40,7 +40,16 @@ inline Scenario scenario(const std::string& name) {
     } else if (name == "named") {
         s.run_file = world + "component=BossDisplay\nseconds=2\nwarmup=1\nrate=200\n";
     } else if (name == "named-offset") {
+        s.run_file = world + "component=keen::ecs::ClientInteractionQuery\noffset=6\nseconds=2\nwarmup=1\nrate=200\n";
+    } else if (name == "named-field") {
+        // a byte a field covers: refused even when the tester names it
         s.run_file = world + "component=keen::ecs::NetworkHealth\noffset=3\nseconds=2\nwarmup=1\nrate=200\n";
+        s.seconds = 3;
+    } else if (name == "uncertain-change" || name == "uncertain-restore") {
+        // the first change (write 1) or the first restore (write 2) is written but cannot be proven
+        s.run_file = world + "seconds=2\nwarmup=1\nrate=200\n";
+        s.uncertain_write = name == "uncertain-change" ? 1 : 2;
+        s.seconds = 3;
     } else if (name == "named-gap") {
         s.run_file = world + "component=keen::ecs::AbKitGap\nseconds=2\nwarmup=1\n";
         s.seconds = 3;
@@ -198,8 +207,31 @@ inline int run_scenario(const std::string& name, const std::string& sigdb, KilnN
     } else if (name == "named") {
         common_run_checks(r, sc, o, "keen::ecs::BossDisplay", 10, "write");
     } else if (name == "named-offset") {
-        common_run_checks(r, sc, o, "keen::ecs::NetworkHealth", 3, "write");
+        common_run_checks(r, sc, o, "keen::ecs::ClientInteractionQuery", 6, "write");
         check(o.run.value("pick", "") == "named in the run file, with its byte", k + "the tester's own byte");
+    } else if (name == "named-field") {
+        check(o.has_run && o.run.value("final", false) && o.writes.empty(), k + "the run did not start; nothing was written");
+        check(o.run.value("end", "").find("offset= 3 is not a padding byte of keen::ecs::NetworkHealth") == 0,
+              k + "why: " + o.run.value("end", "?"));
+        check(g_holds.load() == 0, k + "the gate was never taken");
+        for (const auto& c : sc.comps) check(untouched(r, sc, c), k + c + ": unchanged");
+    } else if (name == "uncertain-change" || name == "uncertain-restore") {
+        // kiln.world latched the target: no write can reach it again this session, so the run stops. Whether the byte
+        // is back is what a read of the component shows, and run.json and the summary must say exactly that.
+        const bool change = name == "uncertain-change";
+        std::vector<uint8_t> want = r.initial.at("keen::ecs::ClientFishing");
+        if (change) want[2] ^= 1;  // the unproven write was the change: it landed, and nothing may put it back
+        check(bytes_of(r, "keen::ecs::ClientFishing") == want,
+              k + (change ? "the unproven change left bit 0 of byte 2 changed" : "the unproven restore put the byte back"));
+        check(rows_where(o, [](const auto& w) { return w.size() > 3 && w[3] == "uncertain"; }) >= 1, k + "an uncertain row");
+        check(o.has_run && o.run.value("final", false) && o.run.value("restored", change) == !change &&
+                  o.run.value("verified", change) == !change,
+              k + (change ? "run.json says the byte is not back" : "run.json says the byte is back and read back"));
+        check(o.run.value("end", "").find("uncertain") != std::string::npos, k + "why: " + o.run.value("end", "?"));
+        check(logs_with(change ? "the last change could not be put back" : "the byte is back and read back") == 1,
+              k + "the summary line says so");
+        for (const auto& c : sc.comps)
+            if (c != "keen::ecs::ClientFishing") check(untouched(r, sc, c), k + c + ": unchanged");
     } else if (name == "named-gap" || name == "tracked") {
         check(o.has_run && o.run.value("final", false) && o.writes.empty(), k + "the run did not start; nothing was written");
         const std::string why = name == "named-gap" ? "no padding byte we may use: a gap the alignment does not explain"

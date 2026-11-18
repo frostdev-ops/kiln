@@ -28,7 +28,7 @@ inline constexpr const char* kKitVersion = "1";
 struct RunConfig {
     std::string world;      // the world's GUID, 32 lower-case hex digits; "" = none named (log the GUID only)
     std::string component;  // a component to use instead of the automatic pick ("" = pick)
-    int offset = -1;        // the byte of `component` to flip (-1 = its first padding byte)
+    int offset = -1;        // the byte of `component` to flip: one of its padding bytes (-1 = the first of them)
     uint32_t rate = 50;     // change-and-restore pairs per second, 1..1000
     uint32_t minutes = 15;  // how long the writes run, 1..120
     uint32_t seconds = 0;   // seconds=: the same in seconds, 1..7200, for short checks (wins over minutes)
