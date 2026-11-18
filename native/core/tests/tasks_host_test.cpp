@@ -107,11 +107,22 @@ uint32_t state_of(Service& s, KilnOwner owner, KilnHandle h) {
     return st;
 }
 
+// A lease's terminal state is published before its done trampoline runs, and that trampoline reads the Service
+// (src/tasks.cpp lease_done). Declared right after a test's Service, this waits on the way out, before the Service
+// goes, until every accepted task's done has returned, so no worker still reads a Service the test destroyed.
+struct Settled {
+    Pool& pool;
+    ~Settled() {
+        check(until([&] { return pool.counts().outstanding == 0; }), "every done returned before the test's Service went");
+    }
+};
+
 KILN_TASKS_TEST(bind_and_admit) {
     HostPlatform p;
     Env env;
     Pool pool(config(), &p);
     Service s(pool, env);
+    const Settled settled{pool};
     const KilnTaskInfo i = info("lease");
     KilnLease l = 5;
     uint32_t why = 0;
@@ -134,6 +145,7 @@ KILN_TASKS_TEST(lease_lifecycle) {
     Env env;
     Pool pool(config(1), &p);  // one normal worker: a suspended lease must not hold it
     Service s(pool, env);
+    const Settled settled{pool};
     s.host_bind(&dispatch);
     std::atomic<uint64_t> reg{0};
     on_segment([&](KilnLease l, uint32_t) {
@@ -176,6 +188,7 @@ KILN_TASKS_TEST(lease_after_seal_and_capacity) {
     Env env;
     Pool pool(config(2, 1), &p);  // capacity 1: the lease is the owner's only record
     Service s(pool, env);
+    const Settled settled{pool};
     s.host_bind(&dispatch);
     std::atomic<uint64_t> reg{0};
     on_segment([&](KilnLease l, uint32_t) {
@@ -210,6 +223,7 @@ KILN_TASKS_TEST(lease_resume_after_step) {
     Env env;
     Pool pool(config(), &p);
     Service s(pool, env);
+    const Settled settled{pool};
     s.host_bind(&dispatch);
     std::atomic<uint64_t> reg{0};
     on_segment([&](KilnLease l, uint32_t) {
@@ -243,6 +257,7 @@ KILN_TASKS_TEST(lease_without_an_end_faults) {
     Env env;
     Pool pool(config(), &p);
     Service s(pool, env);
+    const Settled settled{pool};
     s.host_bind(&dispatch);
     on_segment(nullptr);  // the host's segment returns without arming or finishing (a host bug)
     const KilnTaskInfo i = info("forgets");
@@ -256,6 +271,7 @@ KILN_TASKS_TEST(lease_snapshot) {
     Env env;
     Pool pool(config(), &p);
     Service s(pool, env);
+    const Settled settled{pool};
     s.host_bind(&dispatch);
     std::atomic<uint64_t> reg{0};
     on_segment([&](KilnLease l, uint32_t) {
@@ -336,6 +352,7 @@ KILN_TASKS_TEST(tick_hops_need_a_server_world) {
     Env env;
     Pool pool(config(), &p);
     Service s(pool, env);
+    const Settled settled{pool};
     s.host_bind(&hop_dispatch);
     const KilnLease l = suspended_lease(s, 1, "hops");
     check(s.host_tick_hop(l) == KILN_ERR_UNAVAILABLE, "no live server world: a hop refuses at once (never waits for one)");
@@ -352,6 +369,7 @@ KILN_TASKS_TEST(tick_hops_budgets) {
     Env env;
     Pool pool(config(), &p);
     Service s(pool, env);
+    const Settled settled{pool};
     s.host_bind(&hop_dispatch);
     {
         std::lock_guard lock(g_hops.mutex);
@@ -426,6 +444,7 @@ KILN_TASKS_TEST(tick_hops_cancelled_and_quiescence) {
     Env env;
     Pool pool(config(), &p);
     Service s(pool, env);
+    const Settled settled{pool};
     s.host_bind(&hop_dispatch);
     {
         std::lock_guard lock(g_hops.mutex);
@@ -484,6 +503,7 @@ KILN_TASKS_TEST(tick_hop_fault_contained) {
         FaultEnv env;
         Pool pool(config(), &p);
         Service s(pool, env);
+        const Settled settled{pool};
         s.host_bind(&hop_dispatch);
         {
             std::lock_guard lock(g_hops.mutex);
@@ -530,6 +550,7 @@ KILN_TASKS_TEST(tick_hop_across_stopping) {
     Env env;
     Pool pool(config(), &p);
     Service s(pool, env);
+    const Settled settled{pool};
     s.host_bind(&hop_dispatch);
     {
         std::lock_guard lock(g_hops.mutex);
@@ -561,6 +582,7 @@ KILN_TASKS_TEST(tick_hops_not_carried_without_a_stop) {
     Env env;
     Pool pool(config(), &p);
     Service s(pool, env);
+    const Settled settled{pool};
     s.host_bind(&hop_dispatch);
     {
         std::lock_guard lock(g_hops.mutex);
@@ -630,6 +652,7 @@ KILN_TASKS_TEST(ended_notifies_once_and_releases_the_record) {
     Env env;
     Pool pool(config(2, 2), &p);  // capacity 2: records that stayed would refuse the third lease
     Service s(pool, env);
+    const Settled settled{pool};
     reset_ended(&s);
     s.host_bind(&dispatch);
     check(s.host_bind_ended(nullptr) == KILN_ERR_INVALID_ARGUMENT, "bind_ended needs a callback");
@@ -674,6 +697,7 @@ KILN_TASKS_TEST(ended_reports_a_lease_cancelled_before_its_first_segment) {
         Env env;
         Pool pool(config(1), &p);
         Service s(pool, env);
+        const Settled settled{pool};
         reset_ended(&s);
         s.host_bind(&dispatch);
         s.host_bind_ended(&ended);
@@ -726,6 +750,7 @@ KILN_TASKS_TEST(ended_waits_for_pending_tick_hops) {
     Env env;
     Pool pool(config(), &p);
     Service s(pool, env);
+    const Settled settled{pool};
     reset_ended(&s);
     s.host_bind(&hop_dispatch);
     s.host_bind_ended(&ended);
@@ -756,6 +781,7 @@ KILN_TASKS_TEST(without_bind_ended_the_record_stays) {
     Env env;
     Pool pool(config(), &p);
     Service s(pool, env);
+    const Settled settled{pool};
     reset_ended(&s);
     s.host_bind(&dispatch);
     on_segment([&](KilnLease l, uint32_t) { s.host_finish(l, 0); });
@@ -779,6 +805,7 @@ KILN_TASKS_TEST(resume_after_step_in_checks_the_session) {
     Env env;
     Pool pool(config(), &p);
     Service s(pool, env);
+    const Settled settled{pool};
     s.host_bind(&dispatch);
     check(s.host_server_session() == 0, "no live server world: server_session is 0");
     const KilnLease l = suspended_lease(s, 1, "window");
@@ -832,6 +859,7 @@ KILN_TASKS_TEST(resume_after_step_in_racing_a_session_change) {
         Env env;
         Pool pool(config(), &p);
         Service s(pool, env);
+        const Settled settled{pool};
         s.host_bind(&dispatch);
         s.session_started(1);
         s.post_edge(1, 1);
@@ -898,6 +926,10 @@ KILN_TASKS_TEST(exit_park_with_a_suspended_lease_and_a_pending_hop) {
 #ifdef KILN_TEST_LSAN
     __lsan_enable();
 #endif
+    // suspended_lease returns once a segment armed, while its worker may still be on the way out of that segment; the
+    // claim below is about suspended leases, so wait until no worker holds an item at all (no Settled guard here: the
+    // parked pool never runs these leases' dones, and a parked worker reads no Service)
+    check(until([&] { return pool.items_in_hand() == 0; }), "both first segments returned: no worker holds an item");
     check(s.host_tick_hop(hopping) == KILN_OK && s.pending_tick_hops() == 1, "a tick hop is pending");
     const int segments = g_host.segments.load();
     s.exiting();

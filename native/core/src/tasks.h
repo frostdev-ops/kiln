@@ -150,6 +150,7 @@ public:
     // Diagnostics / test seams.
     Counts counts() const;
     std::size_t tracked_tasks() const;  // tasks whose metadata (module references, watchdog clocks) is still held
+    uint32_t items_in_hand() const;     // bodies and dones a worker holds right now (what park() counts at its start)
     bool is_pool_worker() const;  // the calling thread is one of this pool's workers
     uint32_t normal_workers() const;
     uint32_t long_running_workers() const;

@@ -747,6 +747,10 @@ std::size_t Pool::tracked_tasks() const {
     std::lock_guard lock(core_->mutex);
     return core_->meta.size();
 }
+uint32_t Pool::items_in_hand() const {
+    std::lock_guard lock(core_->mutex);
+    return core_->in_item;
+}
 bool Pool::is_pool_worker() const { return t_core == core_.get(); }
 uint32_t Pool::normal_workers() const { return core_->normal_workers; }
 bool Pool::can_run(Slot slot) const {
