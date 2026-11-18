@@ -20,7 +20,8 @@ public sealed class BlockingAnalyzer : DiagnosticAnalyzer
     public const string FixKey = "fix";
 
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics => ImmutableArray.Create(
-        Descriptors.BlockingCall, Descriptors.BlockingTaskCall, Descriptors.TickHopDiscarded, Descriptors.GatedCallOutOfScope);
+        Descriptors.BlockingCall, Descriptors.BlockingTaskCall, Descriptors.TickHopDiscarded, Descriptors.GatedCallOutOfScope,
+        Descriptors.ClientNextTickLeavesTask);
 
     public override void Initialize(AnalysisContext context)
     {
@@ -32,6 +33,7 @@ public sealed class BlockingAnalyzer : DiagnosticAnalyzer
             var classifier = new ThreadClassifier(start.Compilation);
             var cache = new KilnApis.Cache();
             start.RegisterOperationAction(ctx => Analyze(ctx, classifier, cache), OperationKind.Invocation, OperationKind.PropertyReference);
+            start.RegisterOperationAction(ctx => AnalyzeAwait(ctx, classifier), OperationKind.Await);
         });
     }
 
@@ -67,7 +69,7 @@ public sealed class BlockingAnalyzer : DiagnosticAnalyzer
         if (IsLocalOfCompletedApi(receiver, model, cache)) return;
         if (receiver is not null && AwaitedBefore(receiver, syntax, model)) return;
         var where = classifier.Classify(syntax, model, ctx.CancellationToken);
-        var onGameThread = where.Kind is ThreadKind.Tick or ThreadKind.Game;
+        var onGameThread = ThreadContext.OnGameThread(where.Kind);
         // A blocking wait on a Kiln task (its own Wait, or the escaped AsTask Task) is refused in a task
         // body too, but only where the task's scope is proven: after 'await ...ConfigureAwait(false)' on
         // some path the code is usually on a .NET pool thread, where Wait is allowed, as in Task.Run.
@@ -78,6 +80,17 @@ public sealed class BlockingAnalyzer : DiagnosticAnalyzer
         if (fix is not null && CanAwaitHere(syntax)) props = props.Add(FixKey, fix);
         ctx.ReportDiagnostic(Diagnostic.Create(onGameThread ? Descriptors.BlockingCall : Descriptors.BlockingTaskCall,
             syntax.GetLocation(), props, name, where.Where));
+    }
+
+    /// <summary><c>await Client.NextTick()</c> where a Kiln task's scope is proven (#82): its continuation is a plain
+    /// Client.Post, so the rest of the task's work leaves the task. Reported at the await.</summary>
+    private static void AnalyzeAwait(OperationAnalysisContext ctx, ThreadClassifier classifier)
+    {
+        var aw = (IAwaitOperation)ctx.Operation;
+        if (!ThreadClassifier.IsKilnType(aw.Operation.Type, "Client.NextTickAwaitable")) return;
+        var at = classifier.Classify(aw.Syntax, aw.SemanticModel!, ctx.CancellationToken);
+        if (at.Task != TaskScope.Active) return;
+        ctx.ReportDiagnostic(Diagnostic.Create(Descriptors.ClientNextTickLeavesTask, aw.Syntax.GetLocation(), at.Where));
     }
 
     /// <summary>Where a gated read is refused, and its fix: code off the game threads with no proven task scope. In a
