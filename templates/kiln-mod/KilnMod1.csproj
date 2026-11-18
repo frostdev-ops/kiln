@@ -11,6 +11,9 @@
     <!-- <PackageLicenseExpression>MIT</PackageLicenseExpression>   the licence others may use it under (kiln.mod.json "license") -->
     <!-- Kiln service assemblies this mod uses (they ship with Kiln, never with the mod). -->
     <KilnServices>KILN_SERVICES</KilnServices>
+    <!-- Kiln features it needs (kiln.mod.json "features"; Kiln does not load it where one is off): tasks.pool for Kiln
+         tasks (Context.Tasks, docs/kiln/modding/tasks.md). -->
+    <!-- <KilnFeatures>tasks.pool</KilnFeatures> -->
 <!--#if (tests)-->
     <KilnServices>$(KilnServices);Testing</KilnServices>
     <KilnTestsAutoRun>true</KilnTestsAutoRun>

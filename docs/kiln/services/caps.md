@@ -420,3 +420,18 @@ The gem wave's two other rows are sigdb features, in the tables above: `gems.cra
 gear; client: the widened forge lists; [gems-sockets.md](gems-sockets.md)); Kiln.Abilities lowers `gems.craft` where
 kiln.gemcraft is not here and `gems.sockets` where neither kiln.items v7 nor kiln.ui.values' `gemforge_sockets` is. All four
 rows in one place: [gems.md](gems.md), "Capability rows".
+
+## Rows of the task pool and the engine profiles
+The core's row for Kiln's task pool ([tasks.md](tasks.md)), and kiln.engine's rows for the exact engine profiles
+([engine.md](engine.md)) that the task-thread world reads build on.
+
+| Row | Kind | Reported by | What it says |
+|---|---|---|---|
+| `tasks.pool` | core, static (it follows the pool's health) | core, from kiln.tasks' pool; checked again at every registry call, so a change reaches its subscribers on the calling thread | Kiln's task pool runs work: C# `Context.Tasks` and native `kiln.tasks` ([the mod author's guide](../modding/tasks.md)). Available on a booted runtime on both sides, the dedicated server and the client. Unavailable: `policy` in safe idle ("not started in safe idle"), `service-missing` when kiln.tasks did not start, `faulted` while no task worker can run (a start failed or every worker was lost; retried every second). Never pending, so a manifest can require it (`<KilnFeatures>tasks.pool</KilnFeatures>`, which also answers KILN121 for `Context.Tasks.Run`). It says that tasks run, not that they can get back to a tick: with no live server world here (the main menu, a client joined to someone else's server) the hops to the tick refuse with `KilnUnavailableException` naming it |
+| `engine.profile` | native, static | kiln.engine, at its start | one of Kiln's exact engine profiles matched the running game image; the text is the profile's id. Unavailable, `symbol-missing`, on every other build, the text saying why (no profile for this build, an image that could not be identified, more than one match) |
+| `engine.ecs_read` | native, static | kiln.engine, with `engine.profile` | that profile's owner and ECS read layouts are validated (`symbol-missing` "the profile has no validated ECS read layout", or `engine.profile`'s reason) |
+| `engine.ecs_write` | native, static | kiln.engine, with `engine.profile` | as `engine.ecs_read`, and the profile's original native-thread Scene write gate is enabled (`symbol-missing` "the profile has no enabled native-thread Scene write gate", or `engine.profile`'s reason) |
+
+A mod asks `world.ecs_read` (`WorldConcurrent.IsAvailable`) for the task-thread world reads and `world.ecs_write` for
+the compare-exchange writes, not the `engine.*` rows: those say what the profile carries, the `world.*` rows say whether
+kiln.world reads or writes with it in this process (both are among the kiln.world rows above).
