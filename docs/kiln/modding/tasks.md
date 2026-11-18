@@ -53,9 +53,9 @@ Don't use one for:
 - work made of tick-only calls (moving items, spawning, chat): it has to run on the tick anyway;
 - something that must happen in this very step: a task's result comes back in a later step.
 
-Tasks run on a dedicated server and on a client that hosts a game. On a client joined to someone else's server they
-can still compute, but they cannot hop back to a tick: a client mod hands its results to the game's main thread with
-`Client.Post` ([Client mods](#client-mods)).
+Tasks run on a dedicated server and on a game client, hosting or joined to someone else's server. A task's hops go
+back to the world it was started in: the server world from server-side code, the client world (the game's main thread)
+from client code ([Which world a hop goes to](#which-world-a-hop-goes-to)).
 
 ## Starting a task
 
@@ -85,15 +85,16 @@ A `KilnTask` is awaitable. It ends `Completed`, `Faulted` (`Fault` holds the exc
 **Results.**
 - `await task` gives the result, or throws its fault or `OperationCanceledException`.
 - `KilnTask<T>.Result` throws until the task has ended.
-- `Wait()` is refused on the tick and inside a task: the tick never waits for a task. Await it instead.
+- `Wait()` is refused on the tick, on the game's main thread and inside a task: the game's threads never wait for a
+  task. Await it instead.
 
 **Cancellation.**
 - `task.Cancel()` asks a task to stop. It reaches the work through `ctx.Cancellation`, which a long loop should check
   (`ctx.Cancellation.ThrowIfCancellationRequested()`). An `OperationCanceledException` of that token ends the task
   `Cancelled`.
-- Kiln cancels a mod's tasks itself when the mod unloads. When the server world stops, it cancels the tasks waiting
-  for a hop, a post or `NextGateWindow` in that world; a task that is only computing runs on, and its next hop throws
-  `KilnUnavailableException`.
+- Kiln cancels a mod's tasks itself when the mod unloads. When a task's world stops, its hops, posts and
+  `NextGateWindow` waiting there end it `Cancelled`; a task that is only computing runs on, and its next hop there ends
+  it `Cancelled` too ([A world that stops](#a-world-that-stops)).
 
 **Faults.** An exception that ends a task faults only that task: `kiln.log` says `task '<name>' faulted: ...` once, under
 the mod's name. It does not count toward the [fault policy](faults.md) that disables a mod.
@@ -134,8 +135,9 @@ The analyzers check this at build time:
 
 ## Getting back to the tick
 
-There are three ways back. They all land on the server world's tick, before the mods' `Tick.Pre` handlers, in a later
-step:
+There are three ways back. They land on the tick of the task's world (the server world's tick before the mods' `Tick.Pre`
+handlers, or the client world's step on the game's main thread: [Which world a hop goes to](#which-world-a-hop-goes-to)),
+in a later step:
 
 | | What it does | Use it for |
 |---|---|---|
@@ -143,13 +145,20 @@ step:
 | `await ctx.OnTick(() => ...)` | runs one function on the tick and gives its result back; the method continues on its worker | one tick-only read or call |
 | `ctx.PostToTick(() => ...)` | hands a function to the tick and goes on at once, without waiting for it | telling the tick something; the task still ends only once its posts were applied |
 
-**The budget.** Per step, each mod's hops and posts run up to 64 items or 2 ms, whichever comes first, and all mods
-together up to 4 ms. What doesn't fit waits for the next step; it is never dropped. So hand back small pieces, not one
-long function.
+**The budget.** Each world has its own, per step:
+- **The server world:** each mod's hops and posts run up to 64 items or 2 ms, whichever comes first, and all mods
+  together up to 4 ms.
+- **The client world:** 64 items or 1 ms per mod, 2 ms for all mods, because the game's main thread also builds the UI
+  and draws.
+
+What doesn't fit waits for the next step; it is never dropped. So hand back small pieces, not one long function.
 
 **When a hop can't happen.**
-- **No live server world** (the main menu, a client joined to someone else's server): `ToTick`, `OnTick`, `PostToTick`
-  and `NextGateWindow` throw `KilnUnavailableException` (`tasks.pool`) at once.
+- **No world of that kind here, and the task has none yet**: the server world in the main menu or on a client joined
+  to someone else's server, the client world on a dedicated server, in the main menu or on a loading screen.
+  `ToTick`, `OnTick`, `PostToTick` and `NextGateWindow` throw `KilnUnavailableException` (`tasks.pool`) at once, naming
+  the world. The task is not cancelled: a world may still come.
+- **The task's world has stopped**: the hop ends the task `Cancelled`, as below ([A world that stops](#a-world-that-stops)).
 - **The task was cancelled** (`task.Cancel()`, the mod unloads, the world stops): the hop never runs. The await of
   `ToTick`, `OnTick` or `NextGateWindow` throws the task's own `OperationCanceledException`, and so does a new
   `PostToTick` call; a queued `PostToTick` is dropped. The task ends `Cancelled`, `kiln.log` says nothing, and your
@@ -185,52 +194,124 @@ and leave the items taken but not given. The mod's own tick code awaits the task
 (`sources = await search;`), so a fetch cancelled before the plan moves nothing, and a plan that exists is carried out
 on the tick.
 
-## Client mods
+## Which world a hop goes to
 
-A client mod's tasks run on the same pool, also on a client joined to someone else's server. The way back differs:
-- **Joined to someone else's server**, there is no server world here: `ToTick`, `OnTick`, `PostToTick` and
-  `NextGateWindow` throw `KilnUnavailableException` (`tasks.pool`).
-- **While this client hosts**, they land on the server world's tick, the game's server thread, not on its main thread,
-  where the client world and the UI run.
-- **When the hosted world stops**, a `client` or `both` mod stays loaded ([lifecycle.md](lifecycle.md)), so nothing
-  cancels its tasks. A hop still pending then ends its task `Cancelled`, but a new one throws
-  `KilnUnavailableException`, which faults the task. A task that should outlive the world catches it; a side `server`
-  mod unloads with the world, and its tasks end `Cancelled` as above.
+**A task belongs to the world it was started in**, and `ToTick()`, `OnTick`, `PostToTick` and `NextGateWindow()` go
+back there. `ctx.TickWorld` says which:
 
-To hand a result to the game's main thread, call `Client.Post` (Kiln.Client: `Client` in `<KilnServices>`) from the
-task. It works from any thread and runs the work on the main thread before the client world's next step:
+| Started from | The task's world |
+|---|---|
+| a dedicated server's tick code (`Tick.Pre`, events, commands, `OnLoad`) | the server world |
+| a hosting client's server-side code (its `Context.Tick`, events, chat commands, server-side network handlers, a server mod's `OnLoad`) | the server world (the game's server thread) |
+| the game's main thread: `Client.Tick`, `Client.Post`, Kiln's UI callbacks (menu entries, key bindings, value providers), client-side network handlers, `Context.Tick` on a joined client, a client or `both` mod's `OnLoad` in the main menu | the client world (the game's main thread) |
+| inside a task | its parent's world (inside a hop, that hop's world) |
+| anywhere else (a window's draw on the render thread, `Task.Run`, your own threads, after `ConfigureAwait(false)`) | the server world, as before |
+
+**The other world, by name.** Each has an overload with a `WorldKind`:
 
 ```csharp
-// the heavy part on a Kiln worker, the result to the game's main thread
-Context.Tasks.Run("map-index", ctx =>
-{
-    var index = BuildIndex(files, ctx.Cancellation);   // off every game thread
-    Client.Post(() => _overlay.Show(index));          // the main thread, before the client world's next step
-});
+await ctx.ToTick(WorldKind.Client);                       // the rest of the method on the client world's step
+var picked = await ctx.OnTick(WorldKind.Client, () => _view.Selected);
+ctx.PostToTick(WorldKind.Server, () => Chat.Tell(player, "done"));
+await ctx.NextGateWindow(WorldKind.Client);               // back to a worker after the client world's next step
 ```
 
-`Client.Post` is not a hop of the task:
+`WorldKind.Prediction` is not a hop target (`ArgumentOutOfRangeException`).
+
+**Where a hop lands, and what code there may do.**
+- **A server-world hop** runs on the server world's tick, before the mods' `Tick.Pre` handlers, as everywhere above.
+- **A client-world hop** runs on the game's main thread at the client world's step, before its Pre subscribers (so
+  before `Client.Post` work and `Client.Tick` handlers of that step). There:
+  - on a client joined to someone else's server, it is the mods' tick: `Game.IsTickThread` is true, as in a
+    `Context.Tick` handler there;
+  - on a client that hosts, it is main-thread work like a `Client.Tick` handler. The server world's tick-only APIs
+    (`Items.Read`, `Chat.Tell`, ...) belong to a server-world hop: `ToTick(WorldKind.Server)`.
+- The game's UI is built on that same thread, so mod state you share with Kiln's main-thread UI callbacks needs no lock
+  there. A window's draw callback runs on the render thread: hand it a snapshot.
+
+**Sessions.** A task is bound to one session per world kind: the one it was started in, or, when none ran then (the
+main menu, a loading screen, `Task.Run`), the first one a hop of it reaches. It never comes back into a later world of
+the same kind.
+
+### A world that stops
+
+When a task's world stops (the player leaves, joins another server or quits to the menu):
+- its hops, `OnTick` calls and posts still waiting there are dropped, and its `NextGateWindow` there ends: the task
+  ends `Cancelled` through its own token, `kiln.log` says nothing, and its `finally` blocks run on a worker;
+- a hop it asks for there later does the same;
+- a task that is only computing is left alone. If it never hops back (an upload, a file it writes, a result it hands
+  over through a field), it finishes;
+- a task started later belongs to the new world.
+
+On a client that hosts, the client world stops first and the server world about half a second later, so a client-world
+task ends a moment before a server-world one. Client and `both` mods stay loaded through all of it.
+
+**A loop that hops runs once per world.** Start it from code that runs in the world it serves, and start a new one in
+the next world:
+
+```csharp
+private KilnTask? _overlay;
+private uint _overlayWorld;
+
+// a Client.Tick handler (subscribed in OnLoad): each client world starts its own loop at its first step
+private void OnClientTick(in TickInfo t)
+{
+    if (_overlayWorld == Client.ClientWorldSession && _overlay?.State is KilnTaskState.Queued or KilnTaskState.Running) return;
+    _overlayWorld = Client.ClientWorldSession;
+    _overlay = Context.Tasks.Run("overlay", OverlayLoop, new KilnTaskOptions(LongRunning: true));  // this client world's
+}
+
+private async Task OverlayLoop(KilnTaskContext ctx)
+{
+    while (true)
+    {
+        ctx.Cancellation.ThrowIfCancellationRequested();
+        var marks = ComputeMarks();        // on a worker
+        await ctx.ToTick();                // this client world's step: once it has stopped, the loop ends Cancelled here
+        _view.Show(marks);                 // the game's main thread
+        await ctx.NextGateWindow();        // back to a worker after the world's next step
+    }
+}
+```
+
+A server-side loop does the same from `ServerStartedEvent` (once per hosted world) or the world's first `Context.Tick`.
+A loop started from `OnLoad` in the main menu has no world yet: it belongs to the first one its first hop reaches, and
+ends with it.
+
+**A loop for the mod's whole life doesn't hop.** It computes or does IO and publishes through state the world-side code
+reads, so no world can end it; only the unload does:
+
+```csharp
+public override void OnLoad() =>
+    Context.Tasks.Run("prices", async ctx =>
+    {
+        while (true)
+        {
+            Volatile.Write(ref _prices, await FetchPricesAsync(ctx.Cancellation));   // read in Client.Tick or a UI provider
+            await Task.Delay(TimeSpan.FromMinutes(5), ctx.Cancellation);
+        }
+    }, new KilnTaskOptions(LongRunning: true));
+```
+
+**Before client-world hops,** every hop went to the server world. If your client or `both` mod starts a task from
+main-thread code (`Client.Tick`, `Client.Post`, a UI callback, `OnLoad` in the menu) and calls the hosted server world's
+tick-only APIs after the hop, write `ToTick(WorldKind.Server)`.
+
+### `Client.Post` from a task
+
+`Client.Post` (Kiln.Client: `Client` in `<KilnServices>`) still works from a task, from any thread. It is not a hop of
+the task:
 - **Not tracked.** The task can end before the work runs, and awaiting the task doesn't wait for it.
 - **Not cancelled with the task.** Work handed over before a `task.Cancel()` still runs; check a flag of your own in it
   when that matters. Work of a mod that has unloaded is dropped.
 - **Outside the hop budget.** It runs at the next client step whatever it costs: hand over a result, not the work.
-- **Its exceptions are the mod's**, not the task's: `kiln.log` says `Client.Post work threw` under the mod's name, and
-  the task's state doesn't change.
-- **In the main menu**, with no client world, it waits until one runs.
+- **Its exceptions are the mod's**, not the task's: `kiln.log` says `Client.Post work threw` under the mod's name.
+- **Not bound to a world.** In the main menu it waits until a world runs, and work handed over in a world's last frame
+  runs in the next world.
 
-Don't `await Client.NextTick()` inside a task. The rest of the method would run on the main thread, outside the task,
-and if the mod unloads before that step, the dropped work leaves the task waiting for good. Post a plain action, as
-above.
-
-**What tick-stats shows on a joined client: no tasks at all.** The `"tasks"` object rides on the server world's line,
-and a client joined to someone else's server writes only its client world's lines. The pool still counts: the
-watchdog's warning, a task's `faulted` line and a crash report's "Tasks" section work there as anywhere. When the
-client hosts a world later, that world's first line's `"tasks"` object covers everything since the last such object,
-or since Kiln started (`"window"."span_ms"` says how long).
-
-The [TestKit](unit-tests.md) runs no client world, so `Client.Post` work never runs under it: test what the task
-computes, not the post. The example above is tested in `managed/tests/Kiln.Api.Tests/TaskClientPostTests.cs`, on a
-stand-in for the game client.
+Use `PostToTick(WorldKind.Client, ...)` when the task should track it. Don't `await Client.NextTick()` inside a task: the
+rest of the method would run on the main thread, outside the task, and a dropped post would leave the task waiting for
+good. [KILN105](analyzers.md#kiln105) reports it; write `await ctx.ToTick(WorldKind.Client)`.
 
 ## Reading the world from a task
 
@@ -362,8 +443,10 @@ promised. Don't rely on a task to save state at exit; save on the tick (in `OnUn
 - A worker running a task is named `<mod>/<task>`, which a debugger shows; crash reports list the running tasks by mod
   and task name.
 
-**`kiln/logs/tick-stats.jsonl`.** Once a minute, the server world's line gets a `"tasks"` object (a client joined to
-someone else's server has no such line: [Client mods](#client-mods)):
+**`kiln/logs/tick-stats.jsonl`.** Once a minute, the line of the world that drives the mods gets a `"tasks"` object:
+the server world's line on a dedicated server and a hosting client, the client world's line on a client joined to
+someone else's server. On a hosting client the client world's line gets `"tasks": {"apply": ..., "hops": ...}` for its
+own hops only.
 - **`"pool"`:** the workers, the long-running workers and the deepest queue.
 - **One row per mod load in `"owners"`:**
   - `queued` and `running` (now and the window's highest);
@@ -373,7 +456,8 @@ someone else's server has no such line: [Client mods](#client-mods)):
   - the watchdog's counts (`queued_too_long`, `running_too_long`), `queue_full` and `unload_blocked`.
 - **`"apply"`:** what came back to the tick: `applied`, `deferred` (waited for a later step), `cancelled`, the time it
   took (`ms`), the budget stops and the `backlog`.
-- **`"hops"."refused"`:** hops refused for want of a server world.
+- **`"hops"."refused"`:** hops of that world the core refused (its session had ended between the task's check and the
+  hop).
 
 Compare a mod's `cpu_ms` in tasks with the Pre time it no longer spends (`pre_parts`) to see what moving the work
 bought. The field list is in [../services/tasks.md](../services/tasks.md#diagnostics).
@@ -389,6 +473,11 @@ The [TestKit](unit-tests.md) runs a mod's tasks under `dotnet test`:
   `Inventory` component.
 - **The fallback.** `kiln.Capabilities.Override("world.ecs_read", false)` turns the reads off, so the tick path gets
   tested too.
+- **Client sides.** `new KilnHarness(new KilnHarnessOptions { Side = HarnessSide.JoinedClient })` has no server world
+  (a server hop throws `KilnUnavailableException`, so your fallback gets tested) and steps the client world on the
+  harness's tick thread. `HarnessSide.HostingClient` has both worlds, the client world on a main thread of its own:
+  `kiln.OnMainThread(...)` runs code there, and a task started there comes back there. `kiln.LeaveWorld()` and
+  `kiln.EnterWorld()` stop and start the worlds' sessions, as leaving and hosting or joining again do.
 
 The example's tests are in `managed/tests/Kiln.TestKit.Tests/FetchNearbyTests.cs`, with their helpers (`Start`,
 `Finish`, `Said`, `Wood`, `ChatOf`). The first one, without its last check (its `WorldConcurrent` line is why the

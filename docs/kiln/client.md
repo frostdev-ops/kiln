@@ -120,7 +120,7 @@ default, read by kiln.ui at start (top level only), shown in the launcher's Sett
 | World (kind) | where | thread | Kiln API |
 |---|---|---|---|
 | server (0) | dedicated server; a client **while hosting** | the game's server thread ("GameServer" in a client, created at start-up) | `subscribe_tick` / `post` / `on_tick_thread` (unchanged), `Context.Tick`, `Scheduler`, every service |
-| client (2) | a client in game (hosting or joined) | the game's main thread | `subscribe_world_tick(…, KILN_WORLD_CLIENT, …)`, `post_world`, `on_world_thread(2)`; managed `Client.Tick`, `Client.Post` |
+| client (2) | a client in game (hosting or joined) | the game's main thread | `subscribe_world_tick(…, KILN_WORLD_CLIENT, …)`, `post_world`, `on_world_thread(2)`, kiln.tasks `submit_in`; managed `Client.Tick`, `Client.Post`, a Kiln task's client-world hops ([modding/tasks.md](modding/tasks.md#which-world-a-hop-goes-to)) |
 | prediction (1) | a client in game | main thread | `subscribe_world_tick(…, 1, …)`; not a full world: only a storage (`world(1) + world.storage`) inside an object the client world owns, on the client world's singletons and entity tables; it stops with the client world. **It steps first in each frame, before the client world's Pre**: what it reads must be in place before that (docs/re/content.md section 9) |
 
 - A world **starts** at its first step: a new world pointer of that kind, logged

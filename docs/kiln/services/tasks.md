@@ -30,7 +30,8 @@ owner's handle, or one from an earlier instance of the same owner id, is `NOT_FO
 member (`INVALID_ARGUMENT`). Pass your own owner; Kiln trusts native plugins as everywhere else.
 
 `submit` writes `*refusal` on every non-OK return and leaves it untouched on OK: `QUEUE_FULL`, `OWNER_SEALED`,
-`OWNER_QUARANTINED`, `CAPABILITY`, `ARGUMENT`, `SHUTDOWN`, `NO_SERVER_WORLD` (header for each result code).
+`OWNER_QUARANTINED`, `CAPABILITY`, `ARGUMENT`, `SHUTDOWN`, `NO_SERVER_WORLD`, and for `submit_in` `NO_WORLD` (header
+for each result code).
 
 ## States and outcomes
 
@@ -109,6 +110,21 @@ waiting on it is cancelled, with its `done` delivered as `CANCELLED`; it never w
 authoritative server world (the main menu, a client joined to a remote server) `submit` refuses `UNAVAILABLE` +
 `NO_SERVER_WORLD`.
 
+**Sessions per world.** The server world and the client world each have their own session line: a session and the
+Post edges of one never release or cancel what waits on the other, and a new server session does not end a client one.
+The client world's Post edge is the end of its step on the game's main thread (about 60 a second while in game).
+
+**`submit_in`** (appended to the table: 56 bytes, version 1; check `header.size` before calling it) binds a task to the
+session `session` of the world `world` (`KILN_WORLD_SERVER` or `KILN_WORLD_CLIENT`; 0 = the one live now, else a
+session number from `KilnWorldEvent.session` or `KilnSessionInfo.sessions[]`):
+- refused `UNAVAILABLE` + `NO_WORLD` when that world has no live session or it is not `session`; `INVALID_ARGUMENT` +
+  `ARGUMENT` for another world kind;
+- with `KILN_TASK_AFTER_STEP`, the task waits for that world's next Post edge and is `CANCELLED` when that session
+  ends, as `AFTER_STEP` above does for the server world;
+- without it, the session is checked at acceptance only and the body runs as after `submit`.
+
+The body always runs on a pool worker, never on the world's thread: hand phase-bound work to it with `post_world`.
+
 ## Managed tasks
 
 The mod author's guide to C# tasks is [../modding/tasks.md](../modding/tasks.md). The managed host runs C# tasks
@@ -116,11 +132,23 @@ The mod author's guide to C# tasks is [../modding/tasks.md](../modding/tasks.md)
 (`kiln.internal.tasks.host`, `native/core/src/tasks_host.h`; Kiln.Host's side is `managed/Kiln.Host/Tasks.cs`): one
 pool, one set of limits and one unload rule for native and managed tasks. A managed task counts once
 against its owner's 1024 records; between its awaits it holds no worker, and its continuations are never refused by the
-cap or a drain, so a cancelled task can always finish. Its hops back to the tick run on the server world's tick before
-the Pre subscribers, in order per mod and mods in turn, at most 64 hops and 2 ms per mod and 4 ms in all per server
-step; the rest wait for the next step, never dropped. In this version hops land only on a server world's tick (a
-dedicated server, or a hosting client's server world): with no live server world (the main menu, a client joined to a
-remote server) a hop is refused at once, and the hops still pending when that world stops complete as cancelled.
+cap or a drain, so a cancelled task can always finish.
+
+**Hops per world.** A managed task belongs to the world it was started in (the guide's "Which world a hop goes to")
+and is bound to one session per world kind. Its hops go through the table's session-checked `tick_hop_in`, which
+queues a hop only while that session is the live one (one lock for the compare and the push), so a hop of an ended
+session is never queued into the next one:
+- **server-world hops** run on the server world's tick before its Pre subscribers, in order per mod and mods in turn,
+  at most 64 hops and 2 ms per mod and 4 ms in all per server step;
+- **client-world hops** (`KILN_LEASE_CLIENT_HOP`) run on the game's main thread at the client world's step, after its
+  posted work and before its Pre subscribers, at most 64 hops and 1 ms per mod and 2 ms in all per client step. On a
+  joined client Kiln.Host runs them as the mods' tick (its drive lock, `Game.IsTickThread` true); on a hosting client
+  as main-thread work that never takes that lock;
+- the rest wait for the next step of their world, never dropped; the two worlds never share a budget;
+- at a world's `KILN_WORLD_STOPPING` its pending hops are dispatched cancelled on the destroying thread (the server
+  world's thread, or the main thread for the client world); the other world's are untouched;
+- a hop asked for a world kind with no live world and no binding is refused at once (`KilnUnavailableException` in
+  C#); one asked for a bound session that ended cancels the task.
 
 Kiln.Host uses the table only when it belongs to the same build: it checks the table's size and version and compares
 the core's build stamp with the one Kiln.Api was built with. On a mismatch `tasks.pool` is unavailable to C# mods, and
@@ -130,8 +158,8 @@ The core tells the host once when a managed task is quiescent: after its last se
 was dispatched, also for a task that was cancelled before it ever ran. Until then the host keeps the task's state and
 the load context of the mod's code alive, so a mod's assemblies are never unloaded under a running task. The core
 releases a managed task's record right after that notification, so ended C# tasks do not count against the owner's
-1024 records. A `NextGateWindow` wait belongs to the server session it was asked in: the core arms it only while that
-session is still the live one, and it never wakes in another world.
+1024 records. A `NextGateWindow` wait belongs to the session it was asked in, of its world (`resume_after_step_world`):
+the core arms it only while that session is still the live one, and it never wakes in another world or session.
 
 A C# exception that ends a task faults only that task (`kiln.log` names the mod and the task once). It is not a handler
 fault of the mod and does not count toward the fault policy that disables a mod. When a mod unloads or is disabled, its
@@ -210,16 +238,20 @@ wait, and once again when a retried start brings a worker back. While a task run
 
 Since issue #49 the pool is also visible where Kiln already reports performance and crashes:
 
-- **`tick-stats.jsonl`** (server world's line only): an optional `"tasks"` object appended after the existing
+- **`tick-stats.jsonl`**: on the line of the world that drives the mods (the server world's on a dedicated server and
+  a hosting client, the client world's on a joined client), an optional `"tasks"` object appended after the existing
   fields — the window's id, span and age; the pool's workers, LongRunning workers and deepest queue; one row per
   owner *instance* (a reload starts a new row, never mixed with the old one; at most 64 rows, then
   `"owners_truncated":true`) with queued/running current and window max, completed/faulted/cancelled in the
   window, `cpu_ms` and `wall_ms`, the window's longest segment and its name, and the watchdog, queue-full and
   blocked-unload counts; the tick hops' apply account (applied, deferred, cancelled, its time, the budget stops,
-  the owners served and the backlog); and hops refused. The object is absent when the pool does not exist, so a
+  the owners served and the backlog) of that line's world; and that world's refused hops. A hosting client's
+  client-world line carries `"tasks": {"apply": ..., "hops": ...}` for the client world's hops alone (the pool-wide
+  parts are on its server line, so a window is never split). The object is absent when the pool does not exist, so a
   line without a pool keeps its older shape byte for byte.
 - **Crash reports**, native and managed alike: a `-- Tasks --` section with up to 16 running tasks (thread, mod,
-  task name, handle, start, elapsed, running / suspended / on-tick) and the last 16 fault summaries. A managed
+  task name, handle, start, elapsed, running / suspended / on-tick / on-tick-client) and the last 16 fault summaries.
+  A managed
   report reads the same store through five members appended to the Kiln-internal host table (owner count, owner
   row, running row, fault row, totals); a supplier that throws still leaves a written report.
 
