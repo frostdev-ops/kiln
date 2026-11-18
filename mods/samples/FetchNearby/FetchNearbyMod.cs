@@ -65,6 +65,9 @@ public sealed class FetchNearbyMod : Mod
         var info = Items.Lookup(item) ?? throw new CommandException($"there is no item called {item}");
         var player = c.Source.Player;
         var at = World.Position(player) ?? throw new CommandException("you are not in the world yet");
+        // what waits for room is bounded: nothing more is fetched for a player until their waiting items are placed
+        if (_waiting.Find(w => w.Player == player) is { } held)
+            throw new CommandException($"{held.Count} {held.Name} are still waiting for room in your inventory or their container: make room first");
         // one fetch per player: a new one replaces the last
         if (_running.Remove(player, out var last)) last.Cancel();
         var search = Context.Tasks.Run("fetch-search", ctx => SearchAsync(ctx, player, at, info.Id));

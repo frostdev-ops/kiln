@@ -147,6 +147,31 @@ public sealed class FetchNearbyTests
         Assert.DoesNotContain(w.Kiln.LogsOf(w.Mod), l => l.Text.Contains("lost", StringComparison.Ordinal));
     }
 
+    // What waits in the mod is bounded: a player with items waiting fetches nothing more until they are placed, so
+    // repeated fetches into a full inventory can't pile up items (or per-step retries) in the mod.
+    [Fact]
+    public void A_player_with_items_waiting_fetches_nothing_more_until_they_are_placed()
+    {
+        var w = Start();
+        using var _ = w.Kiln;
+        var stone = w.Kiln.Items.AddItem("Stone", 1);
+        w.Kiln.Items.Of(w.Ada.Entity)!.Put(stone, 1000);
+        w.Kiln.RunCommand(w.Ada, "fetch Wood 3");
+        w.Kiln.Tasks.Settle();
+        w.Kiln.StepUntil(() => w.Near.Count(w.Wood) == 2, maxSteps: 50);
+        w.Near.Put(stone, 7);
+        w.Near.Put(w.Wood, 98);
+        w.Kiln.StepUntil(() => w.Ada.Chat.Any(l => l.Text.Contains("whichever has room", StringComparison.Ordinal)), maxSteps: 50);
+        var again = w.Kiln.RunCommand(w.Ada, "fetch Wood 3");
+        Assert.Contains("3 Wood are still waiting for room", Said(again));
+        w.Kiln.Tasks.Settle();
+        w.Kiln.Step(10);
+        Assert.Equal((100, 10, 50), (w.Near.Count(w.Wood), w.Middle.Count(w.Wood), w.Far.Count(w.Wood)));  // nothing more taken
+        w.Kiln.Items.Of(w.Ada.Entity)!.Clear();
+        w.Kiln.StepUntil(() => Wood(w) == 3, maxSteps: 50);
+        Assert.Equal("looking for 1 x Wood within 12 m", Said(w.Kiln.RunCommand(w.Ada, "fetch Wood 1")));  // placed: fetching again
+    }
+
     [Fact]
     public void Items_still_waiting_when_the_mod_unloads_are_reported()
     {
