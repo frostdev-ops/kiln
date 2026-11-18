@@ -551,7 +551,7 @@ var scan = Context.Tasks.Run("chest-scan", async ctx =>
 `Unavailable`, `Busy`, `Unsupported`). Three more come from the C# side: `Changed` (a query whose membership changed,
 `KILN_WORLD_ERR_CHANGED`), `TooSmall` (the caller's buffer) and `SizeMismatch` (a component smaller than `T`). An
 ordinary miss never throws. Only misuse does: a `default` `ConcurrentEntity` or `EntityQuery`, an empty component name,
-a query `Center` without a radius above 0, or the wrong thread.
+a query `Center` that is not finite or has no finite radius above 0, or the wrong thread.
 
 **Where it may be called.** Inside a Kiln task (its work on a worker, or after `await ctx.ToTick()`) and on the tick,
 from a mod's code. Anywhere else it throws `InvalidOperationException`: a `new Thread`, `Task.Run`, or code after
@@ -560,7 +560,7 @@ the mod whose code runs on the tick.
 
 **Frame-quiet on the tick.** The server tick runs inside the server frame (tick handlers, and a task's tick hops), so a
 `ReadMode.FrameQuiet` read there would always meet the frame. There it answers `Busy` at once, without reading the
-engine. Read `Stable` on the tick, or retry from a worker: `await ctx.NextGateWindow()` takes the work back to one, so
+engine (`Unsupported` for a client-world entity or query, which has no frame-quiet window anywhere). Read `Stable` on the tick, or retry from a worker: `await ctx.NextGateWindow()` takes the work back to one, so
 the retry loop above also works when it starts in a tick hop.
 
 **Reloads.** A mod's owner id is the reload epoch of its reads, and every load of a mod gets a new owner id. Refs taken

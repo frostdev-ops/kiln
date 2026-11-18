@@ -38,7 +38,7 @@
        experimental; it reports those as EXPERIMENTAL lines.
        Ids (a package that takes a new id adds its row here, in the same commit):
          KILNX001  lab and test members on public classes (with EditorBrowsable Never); and, visible to mods, the
-                   task-thread world reads (Kiln.World's WorldConcurrent and its types) until the owner's in-game check of
+                   task-thread world reads (Kiln.World's WorldConcurrent and its types) until the in-game check of
                    the reads (docs/kiln/services/world.md) has passed on both exact builds
          KILNX002  API not yet proven in a real client
          KILNX028  groundwork of 0.2.0-dev.28 whose package was not whole yet (17b's capacity contract); in use by nothing since

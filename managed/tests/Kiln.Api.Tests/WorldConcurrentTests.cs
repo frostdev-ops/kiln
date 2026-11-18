@@ -378,6 +378,79 @@ public sealed class WorldConcurrentTests : TaskTest
     }
 
     [Fact]
+    public void Query_refs_keep_the_mods_epoch_when_it_opens_later_and_go_stale_after_a_reload()
+    {
+        var before = NewMod("alpha");
+        FakeEcsReads.Add(12, WorldKind.Server, ("Health", Health));
+        FakeEcsReads.Add(13, WorldKind.Server, ("Health", Health));
+        var refs = new ConcurrentEntity[4];
+        Assert.Equal(ReadStatus.Ok, InTask(before, () => WorldConcurrent.Query(new EntityQuery(WorldKind.Server, "Health"), refs)).Status);
+        // the mod's first Open after its first query must not turn the query's refs stale
+        Assert.Equal((ReadStatus.Ok, ReadStatus.Ok), InTask(before, () => (WorldConcurrent.Open(new EntityId(13)).Status, WorldConcurrent.Validate(refs[0]))));
+        var queried = refs[0];
+        // the next load of the mod only queries: a query ref of the load before is still stale for it
+        var after = NewMod("alpha");
+        var mine = new ConcurrentEntity[4];
+        Assert.Equal(ReadStatus.Ok, InTask(after, () => WorldConcurrent.Query(new EntityQuery(WorldKind.Server, "Health"), mine)).Status);
+        Assert.Equal((ReadStatus.Stale, ReadStatus.Ok), InTask(after, () => (WorldConcurrent.Validate(queried), WorldConcurrent.Validate(mine[0]))));
+    }
+
+    [Fact]
+    public void A_query_centre_or_radius_that_is_not_finite_is_misuse()
+    {
+        var mod = NewMod("alpha");
+        FakeEcsReads.Add(12, WorldKind.Server, ("Health", Health)).Position = new WorldPosition(0, 0, 0);
+        foreach (var q in new[]
+        {
+            new EntityQuery(WorldKind.Server, "Health") { Center = new WorldPosition(double.NaN, 0, 0), Radius = 5 },
+            new EntityQuery(WorldKind.Server, "Health") { Center = new WorldPosition(0, double.PositiveInfinity, 0), Radius = 5 },
+            new EntityQuery(WorldKind.Server, "Health") { Center = new WorldPosition(0, 0, 0), Radius = double.PositiveInfinity },
+            new EntityQuery(WorldKind.Server, "Health") { Center = new WorldPosition(0, 0, 0), Radius = 1e300 },  // radius squared overflows
+        })
+            Assert.Throws<ArgumentException>(() => InTaskRethrow(mod, () => WorldConcurrent.Query(q, new ConcurrentEntity[4])));
+    }
+
+    [Fact]
+    public void Frame_quiet_on_the_tick_says_unavailable_or_unsupported_when_that_is_the_answer()
+    {
+        var mod = NewMod("alpha");
+        FakeEcsReads.Add(12, WorldKind.Server, ("Health", Health));
+        FakeEcsReads.Add(3, WorldKind.Client, ("Health", Health));
+        var server = Opened(mod, 12);
+        var client = Opened(mod, 3, WorldKind.Client);
+        var calls = FakeEcsReads.EntityCalls;
+        (ReadStatus, ReadStatus, ReadStatus, ReadStatus) onClientWorld = default;
+        TickAs(mod, () => onClientWorld = (WorldConcurrent.Read<int>(client, "Health", ReadMode.FrameQuiet).Status,
+            WorldConcurrent.ReadBytes(client, "Health", new byte[8], ReadMode.FrameQuiet).Status,
+            WorldConcurrent.ReadMany(client, new ComponentSet("Health"), ReadMode.FrameQuiet).Status,
+            WorldConcurrent.Query(new EntityQuery(WorldKind.Client, "Health") { Mode = ReadMode.FrameQuiet }, new ConcurrentEntity[4]).Status));
+        var unsupported = ReadStatus.Unsupported;
+        Assert.Equal((unsupported, unsupported, unsupported, unsupported), onClientWorld);  // a retry would never help
+        Assert.Equal(calls, FakeEcsReads.EntityCalls);
+        FakeEcsReads.Capable = false;
+        WorldConcurrent.Reset();
+        (ReadStatus, ReadStatus, ReadStatus, ReadStatus) off = default;
+        TickAs(mod, () => off = (WorldConcurrent.Read<int>(server, "Health", ReadMode.FrameQuiet).Status,
+            WorldConcurrent.ReadBytes(server, "Health", new byte[8], ReadMode.FrameQuiet).Status,
+            WorldConcurrent.ReadMany(server, new ComponentSet("Health"), ReadMode.FrameQuiet).Status,
+            WorldConcurrent.Query(new EntityQuery(WorldKind.Server, "Health") { Mode = ReadMode.FrameQuiet }, new ConcurrentEntity[4]).Status));
+        var u = ReadStatus.Unavailable;
+        Assert.Equal((u, u, u, u), off);  // not Busy: the reads do not work here at all
+    }
+
+    [Fact]
+    public void ReadMany_takes_an_empty_component()
+    {
+        var mod = NewMod("alpha");
+        FakeEcsReads.Add(12, WorldKind.Server, ("Health", Health), ("Marker", []));
+        var r = Opened(mod, 12);
+        var s = InTask(mod, () => WorldConcurrent.ReadMany(r, new ComponentSet("Marker", "Health")));
+        Assert.Equal((ReadStatus.Ok, ReadStatus.Ok, ReadStatus.Ok), (s.Status, s.StatusOf(0), s.StatusOf(1)));
+        Assert.True(s.Bytes(0).IsEmpty);
+        Assert.Equal(Health, s.Bytes(1).ToArray());
+    }
+
+    [Fact]
     public void ReadMany_gives_each_component_its_status_and_bytes()
     {
         var mod = NewMod("alpha");
@@ -424,7 +497,7 @@ public sealed class WorldConcurrentTests : TaskTest
         {
             case "no kiln.world": Backend.Tables.Remove("kiln.world"); break;
             case "an older kiln.world": FakeEcsReads.Reset(tableSize: 528); FakeEcsReads.Entities[(0, 12)] = e; break;
-            case "no capability": FakeEcsReads.Capable = false; FakeEcsReads.ExactProfile = false; break;
+            case "no capability": FakeEcsReads.Capable = false; break;
             default: FakeEcsReads.ExactProfile = false; break;
         }
         WorldNative.Reset();

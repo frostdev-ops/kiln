@@ -629,7 +629,7 @@ In a mod players install, use the documented API instead; `limits.md` lists what
 
 **The task-thread world reads.** `WorldConcurrent` and its types (Kiln.World, docs/kiln/services/world.md "From C#:
 `WorldConcurrent`") carry the same id while they are new, but they are documented API for mods and show in completion.
-Opt in the same way. They leave experimental once the owner's in-game check of the reads has passed on both exact game
+Opt in the same way. They leave experimental once the in-game check of the reads (world.md) has passed on both exact game
 builds; until then their shape can still change.
 
 <a id="kilnx002"></a>

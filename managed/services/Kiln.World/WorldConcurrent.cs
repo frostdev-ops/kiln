@@ -22,7 +22,7 @@ public enum ReadMode
     /// <summary>The copy runs only while no server frame runs (the server world only). A frame that ran during the read
     /// gives <see cref="ReadStatus.Busy"/> (retry after <c>await ctx.NextGateWindow()</c>); a client or prediction world
     /// gives <see cref="ReadStatus.Unsupported"/>, never a stable copy instead. On the server tick (a tick handler or a
-    /// task's tick hop) the frame is running, so it is always <see cref="ReadStatus.Busy"/> there.</summary>
+    /// task's tick hop) the frame is running, so a server-world read is always <see cref="ReadStatus.Busy"/> there.</summary>
     FrameQuiet = 1,
 }
 
@@ -213,7 +213,7 @@ public readonly struct EntityQuery
     /// position never does).</summary>
     public WorldPosition? Center { get; init; }
 
-    /// <summary>Metres, above 0, when <see cref="Center"/> is set.</summary>
+    /// <summary>Metres, finite and above 0, when <see cref="Center"/> is set.</summary>
     public double Radius { get; init; }
 
     /// <summary><see cref="ReadMode.FrameQuiet"/> runs the query's walks only while no server frame runs.</summary>
@@ -386,9 +386,9 @@ public static unsafe class WorldConcurrent
         var r = RefOf(entity);
         var hash = Hash(component);
         var quiet = Quiet(mode);
-        if (quiet && OnServerTick) return new(ReadStatus.Busy, default);
         var t = Members();
         if (t == null) return new(ReadStatus.Unavailable, default);
+        if (quiet && OnServerTick) return new(QuietOnTick(r.WorldKind), default);
         var size = Sizes.TryGetValue((r.WorldKind, hash), out var known) ? known : 64;
         for (var attempt = 0; attempt < 3; attempt++)
         {
@@ -405,7 +405,7 @@ public static unsafe class WorldConcurrent
                     }
                     if (status != ReadStatus.Ok) return new(status, default);
                     if (required < sizeof(T)) return new(ReadStatus.SizeMismatch, default);
-                    return new(ReadStatus.Ok, *(T*)p);
+                    return new(ReadStatus.Ok, System.Runtime.CompilerServices.Unsafe.ReadUnaligned<T>(p));
                 }
             }
             finally
@@ -426,9 +426,9 @@ public static unsafe class WorldConcurrent
         var r = RefOf(entity);
         var hash = Hash(component);
         var quiet = Quiet(mode);
-        if (quiet && OnServerTick) return new(ReadStatus.Busy, 0, 0);
         var t = Members();
         if (t == null) return new(ReadStatus.Unavailable, 0, 0);
+        if (quiet && OnServerTick) return new(QuietOnTick(r.WorldKind), 0, 0);
         fixed (byte* p = into)
         {
             var (status, required) = Copy(t, owner, &r, hash, p, (uint)into.Length, quiet);
@@ -452,11 +452,11 @@ public static unsafe class WorldConcurrent
         ArgumentNullException.ThrowIfNull(components);
         var quiet = Quiet(mode);
         var n = components.Count;
-        if (quiet && OnServerTick) return Refused(n, ReadStatus.Busy);
         var t = Members();
         if (t == null) return Refused(n, ReadStatus.Unavailable);
-        var specs = stackalloc EcsSnapshotSpecNative[n];
-        var presence = stackalloc uint[n];
+        if (quiet && OnServerTick) return Refused(n, QuietOnTick(r.WorldKind));
+        var specs = n <= 32 ? stackalloc EcsSnapshotSpecNative[n] : new EcsSnapshotSpecNative[n];
+        var presence = n <= 32 ? stackalloc uint[n] : new uint[n];
         var guess = 0;
         for (var i = 0; i < n; i++)
         {
@@ -468,7 +468,10 @@ public static unsafe class WorldConcurrent
         {
             uint required = 0;
             int rc;
-            fixed (byte* p = buffer) rc = t->SnapshotMany(owner, &r, specs, (uint)n, p, (uint)buffer.Length, &required, presence);
+            fixed (byte* p = buffer)
+            fixed (EcsSnapshotSpecNative* sp = specs)
+            fixed (uint* pp = presence)
+                rc = t->SnapshotMany(owner, &r, sp, (uint)n, p, (uint)buffer.Length, &required, pp);
             if (rc == BufferTooSmall)
             {
                 buffer = new byte[required];
@@ -499,19 +502,23 @@ public static unsafe class WorldConcurrent
     /// Complete or nothing: a buffer that is too small gives <see cref="ReadStatus.TooSmall"/> with the match count in
     /// <see cref="ConcurrentQueryResult.Required"/>, and a membership change during the walk gives
     /// <see cref="ReadStatus.Changed"/>.</summary>
-    /// <exception cref="ArgumentException">A <c>default</c> query, or a <see cref="EntityQuery.Center"/> without a radius
-    /// above 0.</exception>
+    /// <exception cref="ArgumentException">A <c>default</c> query, or a <see cref="EntityQuery.Center"/> that is not finite
+    /// or has no finite radius above 0.</exception>
     /// <exception cref="InvalidOperationException">Not inside a Kiln task or on the tick.</exception>
-    public static ConcurrentQueryResult Query(in EntityQuery query, Span<ConcurrentEntity> into)
+    public static ConcurrentQueryResult Query(in EntityQuery query, Span<ConcurrentEntity> into) => Query(query, into, true);
+
+    private static ConcurrentQueryResult Query(in EntityQuery query, Span<ConcurrentEntity> into, bool firstTry)
     {
         var owner = Caller("WorldConcurrent.Query");
         if (query.Hashes is not { Length: > 0 } hashes) throw new ArgumentException("a default EntityQuery: use new EntityQuery(world, components)", nameof(query));
         if ((uint)query.World > 2) throw new ArgumentException($"{query.World} is not a world kind", nameof(query));
-        if (query.Center.HasValue && !(query.Radius > 0)) throw new ArgumentException("a query with a Center needs a Radius above 0", nameof(query));
+        if (query.Center is { } centre && (!(query.Radius > 0) || !double.IsFinite(query.Radius * query.Radius) ||
+                                            !double.IsFinite(centre.X) || !double.IsFinite(centre.Y) || !double.IsFinite(centre.Z)))
+            throw new ArgumentException("a query with a Center needs a finite Center and a finite Radius above 0", nameof(query));
         var quiet = Quiet(query.Mode);
-        if (quiet && OnServerTick) return new(ReadStatus.Busy, 0, 0);
         var t = Members();
         if (t == null) return new(ReadStatus.Unavailable, 0, 0);
+        if (quiet && OnServerTick) return new(QuietOnTick((uint)query.World), 0, 0);
         var refs = into.Length == 0 ? null : ArrayPool<EcsObjectRefNative>.Shared.Rent(into.Length);
         try
         {
@@ -535,6 +542,15 @@ public static unsafe class WorldConcurrent
                 if (rc == ErrChanged) return new(ReadStatus.Changed, 0, 0);
                 if (rc != Ok) return new(StatusOf(rc, "WorldConcurrent.Query"), 0, 0);
                 var count = (int)required;
+                if (count > 0 && o[0].ReloadEpoch != owner && firstTry)
+                {
+                    // Query refs carry the owner's current epoch, which is 0 until it opens a ref under its own. Set
+                    // it (an open does) and ask again: else these refs would go stale at the owner's first Open, and
+                    // a query ref from before a reload would still hold after it.
+                    EcsObjectRefNative scratch;
+                    _ = t->EntityOpen(owner, owner, (uint)WorldKind.Prediction, 0, 1, &scratch);
+                    return Query(query, into, false);
+                }
                 for (var i = 0; i < count; i++) into[i] = new ConcurrentEntity(o[i]);
                 return new(ReadStatus.Ok, count, count);
             }
@@ -629,7 +645,7 @@ public static unsafe class WorldConcurrent
     {
         var t = Table();
         EcsContextInfoNative info = default;
-        if (t == null) return (Unavailable, info);
+        if (t == null || t->ContextSnapshot == null) return (Unavailable, info);
         info.Size = (uint)sizeof(EcsContextInfoNative);
         var rc = t->ContextSnapshot(&info);
         return (rc, info);
@@ -644,6 +660,10 @@ public static unsafe class WorldConcurrent
 
     // The server tick runs inside the server frame: a frame-quiet read there would always meet it.
     private static bool OnServerTick => TaskExecutionScope.OnTick || TaskBackend.Current?.OnServerTick == true;
+
+    // A frame-quiet read on the server tick: the server frame is running (busy; a worker can retry), and a client or
+    // prediction world has no frame-quiet window at all (unsupported, as kiln.world says it). No engine read either way.
+    private static ReadStatus QuietOnTick(uint worldKind) => worldKind == (uint)WorldKind.Server ? ReadStatus.Busy : ReadStatus.Unsupported;
 
     // The owner the read is for: the task's, or the mod's on the tick. Everything else is refused.
     private static ulong Caller(string api)
@@ -704,7 +724,7 @@ public static unsafe class WorldConcurrent
             rc = t->SnapshotMany(owner, r, &spec, 1, p, capacity, &required, &presence);
             if (rc == Ok && presence != EcsReadConstants.Ok) return (presence == EcsReadConstants.Absent ? ReadStatus.Absent : (ReadStatus)Math.Min(presence, EcsReadConstants.Unsupported), 0);
         }
-        if (rc is Ok or BufferTooSmall && required > 0) Sizes[(r->WorldKind, hash)] = (int)required;
+        if (rc is Ok or BufferTooSmall) Sizes[(r->WorldKind, hash)] = (int)required;
         if (rc == Ok) return (ReadStatus.Ok, (int)required);
         if (rc == BufferTooSmall) return (ReadStatus.TooSmall, (int)required);
         return (StatusOf(rc, "WorldConcurrent"), 0);
@@ -717,7 +737,8 @@ public static unsafe class WorldConcurrent
         if (Sizes.TryGetValue((r->WorldKind, hash), out var size)) return size;
         uint required = 0;
         var rc = t->Snapshot(owner, r, hash, null, 0, &required);
-        if (rc is not (Ok or BufferTooSmall) || required == 0) return null;
+        if (rc == Ok) required = 0;  // an empty component: nothing to copy, so it fits
+        else if (rc != BufferTooSmall || required == 0) return null;
         Sizes[(r->WorldKind, hash)] = (int)required;
         return (int)required;
     }
