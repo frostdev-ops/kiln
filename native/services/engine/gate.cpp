@@ -13,7 +13,8 @@
 //   one Kiln holder at a time (kiln-gate-busy), a per-owner busy latch for the rest of a server step
 //   (kiln-gate-busy-this-step), closing at a stopping server world and at process exit (kiln-gate-closed), and the
 //   holder raised above normal priority so the engine's normal-priority threads cannot preempt it while the
-//   GameServer thread spins on the word.
+//   GameServer thread spins on the word (kiln.engine's measurement switch can turn the raise off for a run, to
+//   measure what it buys).
 #include "gate.h"
 
 #include <atomic>
@@ -61,6 +62,7 @@ void latch(std::uint64_t owner, std::uint64_t step) {
     l.step.store(step, std::memory_order_release);
 }
 std::atomic<std::uint64_t> g_server_step{0};
+std::atomic<bool> g_priority_raise{true};  // kiln.engine's measurement switch (engine.cpp) may turn it off at boot
 }  // namespace
 
 #ifdef KILN_ENGINE_GATE_TEST_POINTS
@@ -95,6 +97,8 @@ bool gate_close_session(bool stopping, std::uint64_t wait_ns) noexcept {
 }
 void gate_set_server_step(std::uint64_t step) noexcept { g_server_step.store(step, std::memory_order_relaxed); }
 bool gate_holder_taken() noexcept { return g_holder.load(std::memory_order_seq_cst) != 0; }
+void gate_set_priority_raise(bool on) noexcept { g_priority_raise.store(on, std::memory_order_relaxed); }
+bool gate_priority_raise() noexcept { return g_priority_raise.load(std::memory_order_relaxed); }
 
 bool gate_close_for_exit(std::uint64_t wait_ns) noexcept {
     // Dekker with gate_acquire: it takes g_holder and then reads the flags; this sets the flag and then reads g_holder
@@ -111,6 +115,7 @@ void gate_reset_for_tests() noexcept {
     g_session_closed.store(false);
     g_exit_closed.store(false);
     g_server_step.store(0);
+    g_priority_raise.store(true);
     for (Latch& l : g_latch) {
         l.owner.store(0);
         l.step.store(0);
@@ -194,7 +199,7 @@ Reason gate_acquire(const Layout* layout, const EcsView& expected, GateState& ga
     gate.holder = 1;
     if (closed()) return other(Reason::KilnGateClosed);  // exit may have closed between the first check and the hold
     int saved = 0;
-    if (mem::boost_priority(&saved)) {
+    if (g_priority_raise.load(std::memory_order_relaxed) && mem::boost_priority(&saved)) {
         gate.boosted = 1;
         gate.saved_priority = saved;
     }
