@@ -100,8 +100,14 @@ public sealed class TasksTests : TaskTest
             Assert.Same(boom, async.Fault);
             Assert.Same(boom, Assert.Throws<InvalidOperationException>(() => async.Result));
             Assert.True(async.AsTask().IsFaulted);
-            Assert.Single(Backend.Lines, l => l.Contains("task 'sync' faulted", StringComparison.Ordinal));
-            Assert.Single(Backend.Lines, l => l.Contains("task 'async' faulted", StringComparison.Ordinal));
+            // the fault is published (which ends the wait above), then logged on the worker: wait for the lines, read them
+            // under the backend's lock
+            Assert.True(SpinWait.SpinUntil(() => Backend.Logged("task 'sync' faulted") && Backend.Logged("task 'async' faulted"), 20000));
+            lock (Backend.Lines)
+            {
+                Assert.Single(Backend.Lines, l => l.Contains("task 'sync' faulted", StringComparison.Ordinal));
+                Assert.Single(Backend.Lines, l => l.Contains("task 'async' faulted", StringComparison.Ordinal));
+            }
             GC.Collect();
             GC.WaitForPendingFinalizers();
             GC.Collect();
