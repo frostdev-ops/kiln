@@ -433,4 +433,49 @@ public sealed class WorldConcurrentWritesTests : TaskTest
         Pool.Step(() => WorldExchanges.Pump());
         Assert.False(WorldExchanges.Writers.ContainsKey(mod.Owner));  // then forgotten: the map does not grow per load
     }
+
+    [Fact]
+    public void While_kiln_world_refuses_the_subscription_the_service_tick_retries_without_allocating_or_logging()
+    {
+        Capabilities.Report(WorldConcurrent.WriteCapability, CapabilityState.Available);
+        FakeEcsReads.SubscribeRefusedNext = int.MaxValue;  // refused at every try
+        using var sub = Events.On<ComponentExchangedEvent>(_ => { });
+        Pool.Step(() => WorldExchanges.Pump());  // warmed up
+        int lines;
+        lock (Backend.Lines) lines = Backend.Lines.Count;
+        long refused = -1, subscribed = -1;
+        Pool.Step(() =>
+        {
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            for (var i = 0; i < 100; i++) WorldExchanges.Pump();
+            refused = GC.GetAllocatedBytesForCurrentThread() - before;
+        });
+        Assert.Equal(0, FakeEcsReads.Subscriptions);
+        Assert.Equal(0L, refused);
+        lock (Backend.Lines) Assert.Equal(lines, Backend.Lines.Count);
+        FakeEcsReads.SubscribeRefusedNext = 0;
+        Pool.Step(() => WorldExchanges.Pump());
+        Assert.Equal(1, FakeEcsReads.Subscriptions);
+        Pool.Step(() =>
+        {
+            var before = GC.GetAllocatedBytesForCurrentThread();
+            for (var i = 0; i < 100; i++) WorldExchanges.Pump();
+            subscribed = GC.GetAllocatedBytesForCurrentThread() - before;
+        });
+        Assert.Equal(0L, subscribed);  // an idle service tick allocates nothing either
+    }
+
+    [Fact]
+    public void A_write_that_races_its_mod_s_unload_does_not_keep_the_mod_s_name_for_ever()
+    {
+        var mod = NewMod("alpha");
+        Capabilities.Report(WorldConcurrent.WriteCapability, CapabilityState.Available);
+        using var sub = Events.On<ComponentExchangedEvent>(_ => { });
+        mod.Retire();  // the unload's cleanup ran before the write named its mod (a task thread that was still writing)
+        WorldExchanges.Remember(mod.Owner, mod);
+        Assert.True(WorldExchanges.Writers.ContainsKey(mod.Owner));
+        Pool.Step(() => WorldExchanges.Pump());
+        Pool.Step(() => WorldExchanges.Pump());
+        Assert.False(WorldExchanges.Writers.ContainsKey(mod.Owner));
+    }
 }

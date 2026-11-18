@@ -454,6 +454,7 @@ internal static unsafe class WorldExchanges
     // committed before the unload (kiln.world drains them in the next Pre) have been posted
     private static readonly ConcurrentDictionary<ulong, long> Leaving = new();
     private static long _pumps;
+    private static int _leaving;  // 1: Leaving may hold an owner (set before the pump that reads it clears it)
     private static readonly ConcurrentQueue<EcsWriteEventNative> Queue = new();
     private static readonly object Gate = new();
     private static object? _backend;
@@ -552,10 +553,20 @@ internal static unsafe class WorldExchanges
     /// <summary>Tests: the events waiting for the service tick.</summary>
     internal static int Queued => Volatile.Read(ref _queued);
 
-    // A mod that writes: its name for the events of its writes, dropped two pumps after it unloads.
+    // A mod that writes: its name for the events of its writes, dropped two pumps after it unloads. A write that races
+    // the unload (a task thread still writing while the mod retires) may add its name after the Retiring cleanup ran, or
+    // while it runs: Retire marks the mod dead before it runs the cleanup, so the check after the += sees one or the other.
     internal static void Remember(ulong owner, ModContext mod)
     {
-        if (Writers.TryAdd(owner, mod.Info.Id)) mod.Retiring += () => Leaving[owner] = Interlocked.Read(ref _pumps);
+        if (!Writers.TryAdd(owner, mod.Info.Id)) return;
+        mod.Retiring += () => Leave(owner);
+        if (!mod.Alive) Leave(owner);
+    }
+
+    private static void Leave(ulong owner)
+    {
+        Leaving[owner] = Interlocked.Read(ref _pumps);
+        Volatile.Write(ref _leaving, 1);
     }
 
     // The service tick: the events queued since the last one, in their order.
@@ -572,8 +583,13 @@ internal static unsafe class WorldExchanges
                 Writers.TryGetValue(e.Owner, out var mod) ? mod : null));
         }
         var pumps = Interlocked.Increment(ref _pumps);
+        // Only when a mod left: enumerating the dictionary allocates, and this runs every step.
+        if (Interlocked.Exchange(ref _leaving, 0) == 0) return;
         foreach (var (owner, at) in Leaving)
-            if (pumps - at >= 2 && Leaving.TryRemove(owner, out _)) Writers.TryRemove(owner, out _);
+        {
+            if (pumps - at < 2) Volatile.Write(ref _leaving, 1);  // look again at the next pump
+            else if (Leaving.TryRemove(owner, out _)) Writers.TryRemove(owner, out _);
+        }
     }
 }
 #pragma warning restore KILNX001
