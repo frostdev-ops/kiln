@@ -622,7 +622,16 @@ internal sealed class ThreadClassifier
             {
                 var info = model.GetSymbolInfo(call, ct);
                 var target = (info.Symbol ?? info.CandidateSymbols.FirstOrDefault()) as IMethodSymbol;
-                return target is null ? ThreadContext.Unknown : ClassifyCallTarget(target, call, model);
+                if (target is null) return ThreadContext.Unknown;
+                // WorldConcurrent.OrOnTick runs offTick at once where it is called, and onTick through ctx.OnTick.
+                if (IsKilnMember(target.OriginalDefinition, "WorldConcurrent", "OrOnTick"))
+                    return (model.GetOperation(arg, ct) as IArgumentOperation)?.Parameter?.Name switch
+                    {
+                        "offTick" => ThreadContext.Continue,
+                        "onTick" => new ThreadContext(ThreadKind.Tick, "the tick thread (WorldConcurrent.OrOnTick)", TaskScope.Active),
+                        _ => ThreadContext.Unknown,
+                    };
+                return ClassifyCallTarget(target, call, model);
             }
             case AssignmentExpressionSyntax asg when asg.Right == e && asg.IsKind(SyntaxKind.AddAssignmentExpression):
                 return model.GetSymbolInfo(asg.Left, ct).Symbol is IEventSymbol ev ? ClassifyEvent(ev) : ThreadContext.Unknown;

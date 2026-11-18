@@ -225,6 +225,38 @@ public sealed class TaskGatedTests
     }
 
     [Fact]
+    public async Task OrOnTick_off_tick_delegate_runs_where_it_is_called()
+    {
+        var d = await Run(A, """
+            #pragma warning disable KILNX001
+            public sealed class M : Mod
+            {
+                public override void OnLoad()
+                {
+                    Context.Tasks.Run("escaped", async ctx =>
+                    {
+                        await Task.Delay(1).ConfigureAwait(false);
+                        var s = await WorldConcurrent.OrOnTick(ctx,
+                            () => WorldConcurrent.Open(new EntityId(1)).Status,
+                            () => WorldConcurrent.Open(new EntityId(2)).Status);   // through ctx.OnTick: the tick
+                    });
+                    Context.Tasks.Run("Task.Run", async ctx =>
+                    {
+                        await Task.Run(() => WorldConcurrent.OrOnTick(ctx, () => WorldConcurrent.Open(new EntityId(3)).Status, () => default(ReadStatus)));
+                    });
+                    Context.Tasks.Run("in the task", async ctx =>
+                    {
+                        var s = await WorldConcurrent.OrOnTick(ctx,
+                            () => WorldConcurrent.Open(new EntityId(4)).Status,
+                            () => WorldConcurrent.Open(new EntityId(5)).Status);
+                    });
+                }
+            }
+            """);
+        Assert.Equal([1, 3], Reported(d));
+    }
+
+    [Fact]
     public async Task Await_foreach_and_await_using_with_ConfigureAwait_false_are_reported()
     {
         var d = await Run(A, """
