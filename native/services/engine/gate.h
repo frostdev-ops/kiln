@@ -45,6 +45,11 @@ bool gate_close_for_exit(std::uint64_t wait_ns) noexcept;
 void gate_set_server_step(std::uint64_t step) noexcept;
 // True while a Kiln thread may hold an engine word (tests: the holder is released only after both words).
 bool gate_holder_taken() noexcept;
+// The holder's priority raise (on by default). Turned off only by kiln.engine's measurement switch, read once at boot
+// before any service can hold a gate (engine.cpp); it applies to the whole process. Off, gate_acquire never changes
+// the calling thread's priority, so a holder keeps the priority its thread had (a Kiln worker's is below normal).
+void gate_set_priority_raise(bool on) noexcept;
+bool gate_priority_raise() noexcept;
 void gate_reset_for_tests() noexcept;
 
 #ifdef KILN_ENGINE_GATE_TEST_POINTS

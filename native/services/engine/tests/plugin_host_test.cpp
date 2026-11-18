@@ -6,14 +6,20 @@
 // or log between acquire and release (every fake KilnApi function counts its calls).
 #include <atomic>
 #include <cstdio>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <stdexcept>
 #include <thread>
 #include <cstring>
 #include <map>
 #include <string>
+#include <unistd.h>
+#include <vector>
 
 #include "engine_state.h"
 #include "fake_engine.h"
+#include "gate.h"
 #include "include/kiln_engine_native.h"
 #include "profiles.g.h"
 #include "services/kiln_caps.h"
@@ -23,6 +29,8 @@ namespace kiln::engine::mem {
 extern std::atomic<std::uintptr_t> test_image;
 extern std::atomic<std::uint64_t> test_reads, test_cas;
 extern std::atomic<int> test_tracker_calls;
+extern thread_local int test_priority;
+extern thread_local int test_boosts;
 }
 
 namespace {
@@ -65,7 +73,22 @@ KilnResult KILN_CALL publish(KilnOwner, KilnStr n, const void* t) {
     g_tables[name] = t;
     return KILN_OK;
 }
-void KILN_CALL logger(KilnOwner, int32_t, KilnStr text) { ++g_api_calls; g_last_log.assign(text.ptr, text.len); }
+std::vector<std::pair<int32_t, std::string>> g_logs;  // every line of the current boot (fresh() clears it)
+void KILN_CALL logger(KilnOwner, int32_t level, KilnStr text) {
+    ++g_api_calls;
+    g_last_log.assign(text.ptr, text.len);
+    g_logs.emplace_back(level, g_last_log);
+}
+// KILN_PATH_DATA: a scratch folder of this test (the measurement switch's file lives below it); other kinds unknown.
+std::string g_data_dir;
+KilnResult KILN_CALL path_of(int32_t kind, char* buffer, size_t capacity, size_t* out_len) {
+    ++g_api_calls;
+    if (kind != KILN_PATH_DATA || g_data_dir.empty()) return KILN_ERR_NOT_FOUND;
+    *out_len = g_data_dir.size();
+    if (capacity < g_data_dir.size()) return KILN_ERR_BUFFER_TOO_SMALL;
+    std::memcpy(buffer, g_data_dir.data(), g_data_dir.size());
+    return KILN_OK;
+}
 KilnResult KILN_CALL build(KilnBuildInfo* out) { ++g_api_calls; out->side = KILN_SIDE_CLIENT; return KILN_OK; }
 bool KILN_CALL on_world(uint32_t kind) { ++g_api_calls; return g_world_thread >= 0 && kind == static_cast<uint32_t>(g_world_thread); }
 KilnResult KILN_CALL subscribe_world(KilnOwner, KilnWorldEventFn fn, void* user, KilnHandle* out) {
@@ -108,6 +131,7 @@ KilnApi make_api() {
     api.size = sizeof api; api.abi_version = KILN_ABI_VERSION;
     api.service = &lookup; api.register_service = &publish; api.log = &logger; api.build_info = &build;
     api.on_world_thread = &on_world;
+    api.path = &path_of;
     api.subscribe_world = &subscribe_world;
     api.subscribe_tick = &subscribe_tick;
     return api;
@@ -120,7 +144,7 @@ ImageFacts facts_of(const Profile& p) {
 }
 void fresh() {
     reset_for_tests();
-    g_rows.clear(); g_tables.clear(); g_last_log.clear(); g_refuse_internal = false; g_world_thread = -1;
+    g_rows.clear(); g_tables.clear(); g_last_log.clear(); g_logs.clear(); g_refuse_internal = false; g_world_thread = -1;
 }
 KilnResult boot(const KilnApi& api) {
     g_info = KilnPluginInfo{};
@@ -444,6 +468,80 @@ void unknown_build() {
           "copy needs no profile");
 }
 
+// The measurement switch for the gate's priority raise (<data>/kiln.engine/gate-priority-raise), read once at boot:
+// no file leaves the raise on and says nothing; exactly "off" (whitespace and a UTF-8 byte-order mark trimmed) turns
+// it off for the process, with a warning and the row unavailable for policy; any other content, or a file that cannot
+// be read, leaves it on with a warning. Off, a held gate leaves the holder's priority as it was.
+size_t warnings_with(const std::string& part) {
+    size_t n = 0;
+    for (const auto& [level, text] : g_logs)
+        if (level == KILN_LOG_WARN && text.find(part) != std::string::npos) ++n;
+    return n;
+}
+void raise_switch(const Profile& p) {
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / ("kiln-engine-switch-" + std::to_string(::getpid()));
+    fs::remove_all(root);
+    fs::create_directories(root / "kiln.engine");
+    g_data_dir = root.string();
+    const fs::path file = root / "kiln.engine" / "gate-priority-raise";
+    struct Case { const char* what; const char* content; bool directory; bool raise; const char* warn; };
+    const Case cases[] = {
+        {"no file", nullptr, false, true, nullptr},
+        {"\"off\"", "off", false, false, "priority raise is off for this run"},
+        {"\"off\" with whitespace and a byte-order mark", "\xEF\xBB\xBF  off \r\n", false, false, "priority raise is off for this run"},
+        {"\"OFF\"", "OFF", false, true, "holds something other than \"off\""},
+        {"\"on\"", "on", false, true, "holds something other than \"off\""},
+        {"\"off please\"", "off please", false, true, "holds something other than \"off\""},
+        {"an empty file", "", false, true, "holds something other than \"off\""},
+        {"a long file starting with off", "off                                                                    x", false,
+         true, "holds something other than \"off\""},
+        {"a folder of that name", nullptr, true, true, "could not be read"},
+    };
+    for (const Case& c : cases) {
+        fs::remove_all(file);
+        if (c.directory) fs::create_directories(file);
+        else if (c.content) std::ofstream(file, std::ios::binary) << c.content;
+        fresh();
+        g_facts = facts_of(p);
+        KilnApi api = make_api();
+        const std::string id = std::string(p.id) + ": the raise switch, " + c.what + ": ";
+        check(boot(api) == KILN_OK, id + "boot");
+        check(gate_priority_raise() == c.raise, id + (c.raise ? "the raise stays on" : "the raise is off"));
+        const Row& row = g_rows["engine.gate_priority_raise"];
+        check(g_rows.count("engine.gate_priority_raise") &&
+                  row.state == (c.raise ? KILN_CAP_AVAILABLE : KILN_CAP_UNAVAILABLE) &&
+                  row.reason == (c.raise ? KILN_CAP_REASON_NONE : KILN_CAP_REASON_POLICY) &&
+                  (c.warn ? !row.text.empty() : row.text.empty()),
+              id + "the capability row says so: " + row.text);
+        check(c.warn ? warnings_with(c.warn) == 1 : warnings_with("gate-priority-raise") == 0,
+              id + (c.warn ? std::string("one warning: ") + c.warn : "no warning"));
+        // a held gate: raised only while the switch leaves the raise on
+        fake::Engine e(p.layout);
+        kiln::engine::mem::test_image = e.image.at();
+        char why[160]{};
+        const KilnEngineNativeApi* n = kiln_engine_native(&api, 7, sizeof(KilnEngineNativeApi), why, sizeof why);
+        EcsView view{};
+        std::uint32_t reason = 0;
+        if (n && n->ecs_view(0, &view, &reason) == KILN_OK) {
+            kiln::engine::mem::test_priority = -1;
+            const int boosts = kiln::engine::mem::test_boosts;
+            {
+                EcsGateScope scope(*n, view, 7, ++g_step);
+                check(scope.held() && kiln::engine::mem::test_priority == (c.raise ? 1 : -1),
+                      id + (c.raise ? "a holder runs above normal" : "a holder keeps its own priority"));
+            }
+            check(kiln::engine::mem::test_priority == -1 && kiln::engine::mem::test_boosts == boosts + (c.raise ? 1 : 0),
+                  id + "the priority is back after the release");
+        } else {
+            check(false, id + "a view for the gate");
+        }
+        kiln::engine::mem::test_image = 0;
+    }
+    fs::remove_all(root);
+    g_data_dir.clear();
+}
+
 void internal_refused() {
     fresh();
     g_facts = facts_of(generated::kProfiles[0]);
@@ -467,6 +565,7 @@ int main() {
     refusals();
     for (const auto& p : generated::kProfiles) exact_build(p);
     unknown_build();
+    raise_switch(generated::kProfiles[0]);
     internal_refused();
     reset_for_tests();
     std::printf("engine plugin host: %d checks, %d failures\n", checks, failures);

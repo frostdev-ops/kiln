@@ -14,7 +14,10 @@
  * Capability rows (static; per-call readiness stays dynamic, every engine member returns its own refusal):
  *   engine.profile    an exact profile matched this image (UNAVAILABLE, policy: why not);
  *   engine.ecs_read   that profile's owner and ECS read layouts are validated;
- *   engine.ecs_write  ... and its original native-thread Scene write gate is enabled.
+ *   engine.ecs_write  ... and its original native-thread Scene write gate is enabled;
+ *   engine.gate_priority_raise  a write gate's holder is raised above normal priority while it holds the gate
+ *                     (UNAVAILABLE, policy: the measurement switch kiln/data/kiln.engine/gate-priority-raise turned the
+ *                     raise off for this run; docs/kiln/services/engine.md).
  */
 #ifndef KILN_ENGINE_H
 #define KILN_ENGINE_H

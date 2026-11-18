@@ -5,6 +5,8 @@
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <string>
 
 #include "engine_state.h"
@@ -165,6 +167,63 @@ void KILN_CALL on_exit(void*) {
         log(KILN_LOG_WARN, "kiln.engine: a Kiln thread still held the engine's write gate at exit (gave up after 20 us)");
 }
 
+// The measurement switch for the write gate's priority raise: <kiln data>/kiln.engine/gate-priority-raise. Read once,
+// at boot, before any service can hold a gate. Only the content "off" (surrounding whitespace and a UTF-8 byte-order
+// mark trimmed) turns the raise off, for the whole process. No file leaves it on and says nothing; any other content, or
+// a file that cannot be read, leaves it on with a warning. For measuring what the raise buys (docs/kiln/priority-kit.md),
+// not for play.
+constexpr const char* kRaiseSwitch = "kiln/data/kiln.engine/gate-priority-raise";
+enum class RaiseSwitch { Absent, Off, Other, Unreadable };
+RaiseSwitch read_raise_switch(const KilnApi* api) {
+    if (!api || api->size < offsetof(KilnApi, path) + sizeof api->path || !api->path) return RaiseSwitch::Absent;
+    char buf[1024];
+    std::size_t len = 0;
+    if (api->path(KILN_PATH_DATA, buf, sizeof buf, &len) != KILN_OK || len > sizeof buf) return RaiseSwitch::Absent;
+    try {
+        const std::filesystem::path file = std::filesystem::path(std::u8string(reinterpret_cast<const char8_t*>(buf), len)) /
+                                           "kiln.engine" / "gate-priority-raise";
+        std::error_code ec;
+        const auto status = std::filesystem::status(file, ec);
+        if (status.type() == std::filesystem::file_type::not_found) return RaiseSwitch::Absent;
+        if (ec || !std::filesystem::is_regular_file(status)) return RaiseSwitch::Unreadable;
+        std::ifstream in(file, std::ios::binary);
+        if (!in) return RaiseSwitch::Unreadable;
+        char text[64];
+        in.read(text, sizeof text);
+        if (in.bad()) return RaiseSwitch::Unreadable;
+        std::string content(text, static_cast<std::size_t>(in.gcount()));
+        if (content.size() == sizeof text) return RaiseSwitch::Other;  // longer than any "off" with whitespace around it
+        if (content.rfind("\xEF\xBB\xBF", 0) == 0) content.erase(0, 3);
+        const auto first = content.find_first_not_of(" \t\r\n"), last = content.find_last_not_of(" \t\r\n");
+        content = first == std::string::npos ? std::string() : content.substr(first, last - first + 1);
+        return content == "off" ? RaiseSwitch::Off : RaiseSwitch::Other;
+    } catch (...) {
+        return RaiseSwitch::Unreadable;
+    }
+}
+void apply_raise_switch(const KilnApi* api, const KilnCapsApi* caps) {
+    const RaiseSwitch sw = read_raise_switch(api);
+    gate_set_priority_raise(sw != RaiseSwitch::Off);
+    std::string text;
+    if (sw == RaiseSwitch::Off) {
+        text = std::string("off for this run by the measurement switch ") + kRaiseSwitch +
+               " (for measurements only, not for play; delete the file to turn it back on)";
+        log(KILN_LOG_WARN, "kiln.engine: the write gate's priority raise is " + text);
+    } else if (sw == RaiseSwitch::Other) {
+        text = std::string("on (") + kRaiseSwitch + " holds something other than \"off\" and was ignored)";
+        log(KILN_LOG_WARN, std::string("kiln.engine: ") + kRaiseSwitch +
+                               " holds something other than \"off\"; the write gate's priority raise stays on");
+    } else if (sw == RaiseSwitch::Unreadable) {
+        text = std::string("on (") + kRaiseSwitch + " could not be read and was ignored)";
+        log(KILN_LOG_WARN, std::string("kiln.engine: ") + kRaiseSwitch +
+                               " could not be read; the write gate's priority raise stays on");
+    }
+    if (caps)
+        caps->report(g_state->owner, str("engine.gate_priority_raise"),
+                     sw == RaiseSwitch::Off ? KILN_CAP_UNAVAILABLE : KILN_CAP_AVAILABLE,
+                     sw == RaiseSwitch::Off ? KILN_CAP_REASON_POLICY : KILN_CAP_REASON_NONE, {text.data(), text.size()});
+}
+
 const KilnEngineApi g_table = {{sizeof(KilnEngineApi), KILN_ENGINE_VERSION}, &identity, &gate_stats};
 const KilnEngineNativeApi g_native = {{sizeof(KilnEngineNativeApi), KILN_ENGINE_NATIVE_VERSION},
                                       sizeof(Layout),
@@ -232,6 +291,7 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
         report(caps, "engine.ecs_read", read, read ? "" : p ? "the profile has no validated ECS read layout" : unknown);
         report(caps, "engine.ecs_write", write,
                write ? "" : p ? "the profile has no enabled native-thread Scene write gate" : unknown);
+        apply_raise_switch(api, caps);
         info->id = str(KILN_ENGINE_SERVICE);
         info->version = str("1");
         info->on_unload = &on_exit;

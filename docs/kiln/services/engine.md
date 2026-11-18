@@ -28,7 +28,9 @@ new profile; nothing structural stands in.
 
 Capability rows: `engine.profile` (an exact profile matched; text: its id), `engine.ecs_read` (owner and ECS read layouts
 validated), `engine.ecs_write` (the original native-thread Scene write gate enabled). Unavailable rows carry
-`symbol-missing` and the reason in their text. Per-call readiness (a world loading, the server thread stopping) stays
+`symbol-missing` and the reason in their text. `engine.gate_priority_raise` says whether a gate holder's priority is
+raised (below, "Priority"): available normally, unavailable for `policy` while the measurement switch has turned the
+raise off. Per-call readiness (a world loading, the server thread stopping) stays
 dynamic: each call says why it refused.
 
 ## Profiles
@@ -115,6 +117,16 @@ sets `owner` (its `KilnOwner`) and `step` (the server step it observed, `KilnTic
   the first word, restored after the last, both outside the hold), above the engine's normal-priority threads (the
   GameServer thread is created at `NORMAL`), so a holder is never preempted while the
   GameServer thread spins on the word.
+- **The measurement switch for the raise.** To measure what the raise buys ([../priority-kit.md](../priority-kit.md)),
+  a file `<game>/kiln/data/kiln.engine/gate-priority-raise` holding exactly `off` turns it off for the whole process. It
+  is read once, at kiln.engine's start, before any service can hold a gate. Surrounding whitespace and a UTF-8
+  byte-order mark are ignored. Then:
+  - with no file, nothing changes and nothing is logged;
+  - with `off`, every start logs a warning, `engine.gate_priority_raise` is unavailable for `policy` and its text says
+    why, and a holder keeps its thread's own priority (a Kiln worker's is below normal);
+  - with any other content, or a file that cannot be read, the raise stays on and the start logs a warning.
+
+  The switch is for measurements only and is not supported for play: delete the file afterwards.
 - **Inside the hold** the GameServer thread spins at its next update (pause + `SwitchToThread`), so the gate path does
   only this there: guarded engine reads, the CASes (on the dedicated server `validate` re-resolves the
   view, a nested registry share), the engine's tracker call and the member's guarded writes. No allocation, no lock, no
@@ -153,7 +165,9 @@ The host suite lays a fake engine out from both real profiles' offsets (`tests/f
 refusal on the view paths: static ones by memory or layout edits, the "changed during read" ones by applying
 one engine edit at every read index of a view in turn, plus concurrent registrar and owner-flip threads under TSan. The
 gate test runs a simulated GameServer update (try-shared with 128 spins, then yield, as the engine) against two gate
-writers under TSan: the update never sees a half-written component. The Wine host proves the Windows facts (PE
+writers under TSan: the update never sees a half-written component. The entry's test boots kiln.engine with the
+raise's measurement switch absent, `off` (also with whitespace and a byte-order mark), other content and a folder in
+its place, and checks the raise, the capability row, the warnings and a held gate's priority for each. The Wine host proves the Windows facts (PE
 headers, exe name, `.kfc` header) and the SEH copy (guard, no-access and reserved pages) on a stand-in exe, which is
 always an unknown build; `kiln-engine-test.dll` (the same code with test facts, built into `bin/tests/`, never shipped)
 runs the gate over a fake engine with the real Interlocked words, a faulting write and a tracker call on a
