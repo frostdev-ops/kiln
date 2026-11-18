@@ -119,11 +119,16 @@ long function.
 **When a hop can't happen.**
 - **No live server world** (the main menu, a client joined to someone else's server): `ToTick`, `OnTick`, `PostToTick`
   and `NextGateWindow` throw `KilnUnavailableException` (`tasks.pool`) at once.
-- **The task was cancelled first** (the mod unloads, the world stops): the hop never runs and the await of `ToTick`,
-  `OnTick` or `NextGateWindow` throws `OperationCanceledException`; a queued `PostToTick` is dropped and the task ends
-  `Cancelled`. Your `finally` blocks still run, on a worker.
-- **The mod is unloading:** a new `ToTick`, `OnTick`, `PostToTick` or `NextGateWindow` call throws
-  `InvalidOperationException` ("the mod is unloading").
+- **The task was cancelled** (`task.Cancel()`, the mod unloads, the world stops): the hop never runs. The await of
+  `ToTick`, `OnTick` or `NextGateWindow` throws the task's own `OperationCanceledException`, and so does a new
+  `PostToTick` call; a queued `PostToTick` is dropped. The task ends `Cancelled`, `kiln.log` says nothing, and your
+  `finally` blocks still run, on a worker. The cancellation comes first: a cancelled task's hop never throws
+  `KilnUnavailableException`.
+- **The mod unloads in the middle of a loop.** A loop that checks `ctx.Cancellation` and then hops needs nothing
+  more: an unload that lands between the check and the hop ends the task `Cancelled` at the hop, as above.
+- **Outside the task's work.** A `KilnTaskContext` kept after the task's work returned throws
+  `InvalidOperationException`. So does one used while the mod unloads from code that is not the task's own (a raw
+  thread, `Task.Run`, code after `ConfigureAwait(false)`): that is a bug in the mod, and it stays loud.
 
 **The example's way back.**
 - It tells the player how many containers it searches with `PostToTick`, and goes on at once.
@@ -249,7 +254,7 @@ while ((where = WorldConcurrent.Read<Position>(entity, "CurrentTransform", ReadM
    - it takes no new task;
    - queued tasks end `Cancelled` without running;
    - running and suspended ones are signalled through `ctx.Cancellation`.
-2. Their pending hops and posts never run.
+2. Their pending hops and posts never run, and a hop they ask for from then on ends them `Cancelled`.
 3. Their `catch` and `finally` blocks still run on a worker.
 4. The unload never waits for them on the tick. The mod's code stays loaded until its tasks have ended. A task still
    running 2 s later is named once in `kiln.log` (`tasks: mod <id>: task '<name>' (<state>) did not stop within 2 s;
