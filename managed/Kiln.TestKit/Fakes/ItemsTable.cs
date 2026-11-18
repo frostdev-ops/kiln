@@ -526,6 +526,8 @@ internal sealed unsafe class ItemsFake
 
     private EntitiesFake World => _harness.EntitiesFake ?? throw new InvalidOperationException("the harness has no world yet");
 
+    private const int InventorySize = 96;  // keen::ecs::Inventory on both exact builds (sigdb/types)
+
     public Inv AddContainer(uint entity, int inventories)
     {
         if (!World.Exists(entity)) throw new ArgumentException($"entity {entity} is not in the fake world (make it with kiln.Entities.Create)", nameof(entity));
@@ -536,6 +538,10 @@ internal sealed unsafe class ItemsFake
             for (var i = 1; i < inventories; i++) links.Add(World.Create(null));  // each further 8-slot inventory is an entity of its own
             var inv = new Inv { Owner = entity, IsPlayer = false, Links = links, Slots = NewSlots(inventories) };
             _inventories[entity] = inv;
+            // the game's container carries keen::ecs::Inventory (sigdb types: 96 bytes, slots: StaticArray<ItemStack, 8>),
+            // which World.Has, World.Find and the task-thread queries see; its bytes stay zero here (the contents are the
+            // items fake's: Items.Read)
+            World.Set(entity, "Inventory", new byte[TypesFake.Find(WorldAbi.Hash("Inventory"))?.Size ?? InventorySize], false);
             return inv;
         }
     }

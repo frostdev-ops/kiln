@@ -168,6 +168,8 @@ public sealed partial class KilnHarness : IDisposable
     /// <summary>The harness's tick thread (the watchdog's handle on it).</summary>
     internal TickThread TickThread => _tick;
 
+    internal KilnHarnessOptions Options => _options;
+
     /// <summary>The real loader the harness drives.</summary>
     internal ModManager Manager => _mods;
 

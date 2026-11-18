@@ -168,6 +168,25 @@ public sealed unsafe class FakeWorld
         _harness.Call(() => Fake.Track(component, save, replication));
     }
 
+    /// <summary>The next <paramref name="value"/> frame-quiet reads from tasks (<see cref="ReadMode.FrameQuiet"/>) answer
+    /// <see cref="ReadStatus.Busy"/>, as when a server frame runs during the read; then they read again. The kit's reads
+    /// never meet a frame otherwise: a read from a worker runs between the harness's steps. Default 0.</summary>
+    [System.Diagnostics.CodeAnalysis.Experimental("KILNX001", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/services/world.md#world-reads-from-task-threads")]
+    public int BusyReads
+    {
+        get
+        {
+            var m = Fake.Reads;
+            lock (m.Gate) return m.BusyNext;
+        }
+        set
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(value);
+            var m = Fake.Reads;
+            lock (m.Gate) m.BusyNext = value;
+        }
+    }
+
     /// <summary>Every tracked write a mod asked for that reached the world, in the order they ran, with what became of
     /// each (a write refused because its type is not listed never runs and is not here: its answer says why).</summary>
     public IReadOnlyList<FakeWorldWrite> Writes => _harness.Call(() => Fake.Record);

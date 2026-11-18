@@ -62,10 +62,14 @@ public sealed unsafe class FakeWorldParityTests
             var size = (int)abi[native]!["size"]!;
             if (native == "KilnWorldApiV4")
             {
-                // the whole table: v4 up to game_program_contract, then the client-world members of 0.2.0-dev.29
-                var tail = abi["KilnWorldApiClientPrograms"]!;
-                fields.AddRange(tail["fields"]!.AsArray().Select(f => ((string)f![0]!, (int)f[1]!)));
-                size = (int)tail["size"]!;
+                // the whole table: v4 up to game_program_contract, then the client-world members of 0.2.0-dev.29, then
+                // the ECS reads from task threads
+                foreach (var part in new[] { "KilnWorldApiClientPrograms", "KilnWorldApiEcsReads" })
+                {
+                    var tail = abi[part]!;
+                    fields.AddRange(tail["fields"]!.AsArray().Select(f => ((string)f![0]!, (int)f[1]!)));
+                    size = (int)tail["size"]!;
+                }
             }
             var mine = mirror.GetFields(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic)
                 .OrderBy(f => f.MetadataToken).Select(f => (f.Name, Offset: (int)Marshal.OffsetOf(mirror, f.Name))).ToList();

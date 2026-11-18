@@ -26,6 +26,14 @@ public static partial class Coverage
             "attribute formulas (no clamp), which types the game saves or replicates (null unless FakeWorld.Track says), a save of the " +
             "world's entities, a second world (a hosted game's)",
             World.TrackedWritesCapability);
+        Row("World: reads from tasks (WorldConcurrent)", CoverageKind.RecordingFake,
+            "kiln.world's ECS reads from task threads with the native service's rules (shared with Kiln's own unit tests): Open, Validate, " +
+            "Read, ReadBytes, ReadMany, Query (bounded or not, complete or nothing) and their statuses, on the fake server world's entities, " +
+            "read from a task's worker between the harness's work items; a new entity under a used id (a player's slot) is stale, a " +
+            "component added or removed changes the layout. kiln.Capabilities.Override(\"world.ecs_read\", false) is a build with no exact " +
+            "profile (everything Unavailable, OrOnTick takes the tick path); FakeWorld.BusyReads makes the next frame-quiet reads Busy. " +
+            "Not modelled: the client and prediction worlds, template names (Template is Absent), torn or unreadable copies",
+            EcsReadsFake.Row);
         Row("Game types (Kiln.Ecs, Reflected, GameTypes)", CoverageKind.RecordingFake,
             "the kit's kiln.types holds the types of the Kiln.Game beside the tests (the layouts the mod was compiled against: about 1,500 " +
             "structs, enums and arrays of the game's components and events), so Ecs.TryGet, Ecs.Has, Ecs.All, Reflected.Component and " +

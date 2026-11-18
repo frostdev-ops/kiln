@@ -28,6 +28,10 @@ internal sealed class TickThread
         _threadId = _thread.ManagedThreadId;
     }
 
+    /// <summary>Held by the tick thread while it runs a work item, so code on another thread (a Kiln task's world read,
+    /// World/EcsReadsFake.cs) can read the fake world between items, never while a step or a call changes it.</summary>
+    internal readonly object WorldGate = new();
+
     /// <summary>The thread itself (for the watchdog: its name, its stack).</summary>
     public Thread Thread => _thread;
 
@@ -103,7 +107,7 @@ internal sealed class TickThread
             }
             try
             {
-                RunOne(item, item.Dog);
+                lock (WorldGate) RunOne(item, item.Dog);
             }
             catch (ThreadInterruptedException)
             {

@@ -5,7 +5,7 @@
     <IsTestProject>true</IsTestProject>
     <InvariantGlobalization Condition="'$(InvariantGlobalization)' == ''">true</InvariantGlobalization>
     <OutputType>Exe</OutputType>
-    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <NoWarn>$(NoWarn);CS1591;KILNX001</NoWarn>  <!-- the task-thread world reads are experimental -->
     <!-- FakeWorldParityTests calls the kit's kiln.world table as a native service does (function pointers). -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>

@@ -21,6 +21,7 @@ public sealed partial class KilnHarness
         WorldNative.Reset();
         WorldWrites.Reset();
         WorldCapabilities.Reset();
+        WorldConcurrent.Reset();
         ResetGameTypeChecks();
         EntitiesFake = new EntitiesFake(this);
     }
