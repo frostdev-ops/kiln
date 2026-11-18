@@ -54,7 +54,8 @@ Don't use one for:
 - something that must happen in this very step: a task's result comes back in a later step.
 
 Tasks run on a dedicated server and on a client that hosts a game. On a client joined to someone else's server they
-can still compute, but they cannot hop back to a tick (below).
+can still compute, but they cannot hop back to a tick: a client mod hands its results to the game's main thread with
+`Client.Post` ([Client mods](#client-mods)).
 
 ## Starting a task
 
@@ -183,6 +184,49 @@ Inside the task, an unload or a world stop between the two would stop the rest o
 and leave the items taken but not given. The mod's own tick code awaits the task's plan instead
 (`sources = await search;`), so a fetch cancelled before the plan moves nothing, and a plan that exists is carried out
 on the tick.
+
+## Client mods
+
+A client mod's tasks run on the same pool, also on a client joined to someone else's server. The way back differs:
+- **Joined to someone else's server**, there is no server world here: `ToTick`, `OnTick`, `PostToTick` and
+  `NextGateWindow` throw `KilnUnavailableException` (`tasks.pool`).
+- **While this client hosts**, they land on the server world's tick, the game's server thread, not on its main thread,
+  where the client world and the UI run.
+
+To hand a result to the game's main thread, call `Client.Post` (Kiln.Client: `Client` in `<KilnServices>`) from the
+task. It works from any thread and runs the work on the main thread before the client world's next step:
+
+```csharp
+// the heavy part on a Kiln worker, the result to the game's main thread
+Context.Tasks.Run("map-index", ctx =>
+{
+    var index = BuildIndex(files, ctx.Cancellation);   // off every game thread
+    Client.Post(() => _overlay.Show(index));          // the main thread, before the client world's next step
+});
+```
+
+`Client.Post` is not a hop of the task:
+- **Not tracked.** The task can end before the work runs, and awaiting the task doesn't wait for it.
+- **Not cancelled with the task.** Work handed over before a `task.Cancel()` still runs; check a flag of your own in it
+  when that matters. Work of a mod that has unloaded is dropped.
+- **Outside the hop budget.** It runs at the next client step whatever it costs: hand over a result, not the work.
+- **Its exceptions are the mod's**, not the task's: `kiln.log` says `Client.Post work threw` under the mod's name, and
+  the task's state doesn't change.
+- **In the main menu**, with no client world, it waits until one runs.
+
+Don't `await Client.NextTick()` inside a task. The rest of the method would run on the main thread, outside the task,
+and if the mod unloads before that step, the dropped work leaves the task waiting for good. Post a plain action, as
+above.
+
+**What tick-stats shows on a joined client: no tasks at all.** The `"tasks"` object rides on the server world's line,
+and a client joined to someone else's server writes only its client world's lines. The pool still counts: the
+watchdog's warning, a task's `faulted` line and a crash report's "Tasks" section work there as anywhere. When the
+client hosts a world later, that world's first line's `"tasks"` object covers everything since the last such object,
+or since Kiln started (`"window"."span_ms"` says how long).
+
+The [TestKit](unit-tests.md) runs no client world, so `Client.Post` work never runs under it: test what the task
+computes, not the post. The example above is tested in `managed/tests/Kiln.Api.Tests/TaskClientPostTests.cs`, on a
+stand-in for the game client.
 
 ## Reading the world from a task
 
@@ -314,7 +358,8 @@ promised. Don't rely on a task to save state at exit; save on the tick (in `OnUn
 - A worker running a task is named `<mod>/<task>`, which a debugger shows; crash reports list the running tasks by mod
   and task name.
 
-**`kiln/logs/tick-stats.jsonl`.** Once a minute, the server world's line gets a `"tasks"` object:
+**`kiln/logs/tick-stats.jsonl`.** Once a minute, the server world's line gets a `"tasks"` object (a client joined to
+someone else's server has no such line: [Client mods](#client-mods)):
 - **`"pool"`:** the workers, the long-running workers and the deepest queue.
 - **One row per mod load in `"owners"`:**
   - `queued` and `running` (now and the window's highest);
