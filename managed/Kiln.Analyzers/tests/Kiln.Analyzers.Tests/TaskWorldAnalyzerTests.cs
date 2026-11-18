@@ -199,4 +199,69 @@ public sealed class TaskWorldAnalyzerTests
         Ids(d, "KILN101");
         Assert.Contains("Kiln task worker", d[0].GetMessage());
     }
+    // ---- with KILN105's gated-write row and command/chat handlers as tick code (#86) ----
+
+    [Fact]
+    public async Task A_task_from_a_command_handler_hops_to_the_server_tick_where_a_compare_exchange_is_reported()
+    {
+        var d = await Run(Blocking, """
+            #pragma warning disable KILNX001
+            public sealed class M : Mod
+            {
+                private ConcurrentEntity _e;
+
+                public override void OnLoad()
+                {
+                    Commands.Register("w", c => Context.Tasks.Run("from a command", async ctx =>
+                    {
+                        await ctx.ToTick();
+                        WorldConcurrent.TryCompareExchange(_e, "Charge", 1L, 1L);   // the server tick: always Busy
+                    }));
+                    Chat.Received += m => Context.Tasks.Run("from chat", async ctx =>
+                    {
+                        await ctx.ToTick();
+                        WorldConcurrent.TryCompareExchange(_e, "Charge", 1L, 2L);
+                    });
+                }
+
+                [Command("c")]
+                private void Cmd(CommandContext c) => Context.Tasks.Run("from [Command]", async ctx =>
+                {
+                    await ctx.ToTick();
+                    WorldConcurrent.TryCompareExchange(_e, "Charge", 1L, 3L);
+                });
+            }
+            """);
+        Ids(d, "KILN105", "KILN105", "KILN105");
+        Assert.All(d, x => Assert.Contains("always answers Busy", x.GetMessage()));
+        Assert.All(d, x => Assert.Contains("tick hop", x.GetMessage()));
+    }
+
+    [Fact]
+    public async Task A_compare_exchange_after_a_client_hop_is_task_scope_and_not_the_server_tick()
+    {
+        var d = await Run(Blocking, """
+            #pragma warning disable KILNX001
+            public sealed class M : Mod
+            {
+                private ConcurrentEntity _e;
+
+                public override void OnLoad() => Client.Tick += OnClientTick;
+
+                private void OnClientTick(in TickInfo t)
+                {
+                    Context.Tasks.Run("client", async ctx =>
+                    {
+                        await ctx.ToTick();
+                        WorldConcurrent.TryCompareExchange(_e, "Charge", 1L, 1L);   // a client hop: meets the gate
+                        await ctx.ToTick(WorldKind.Server);
+                        WorldConcurrent.TryCompareExchange(_e, "Charge", 1L, 2L);   // the server tick: reported
+                    });
+                }
+            }
+            """);
+        Ids(d, "KILN105");
+        Assert.Contains("always answers Busy", d[0].GetMessage());
+        Assert.Contains("2L", d[0].Location.SourceTree!.ToString().Substring(d[0].Location.SourceSpan.Start, d[0].Location.SourceSpan.Length));
+    }
 }
