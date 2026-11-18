@@ -69,6 +69,27 @@ public sealed class WorldConcurrentWritesKitTests
         Assert.True(ev.Is("Inventory"));
     }
 
+    // Kiln's one subscription to the writes' events is made once per process, as the service's are: every harness after
+    // the first gets its events too, naming the mod.
+    [Fact]
+    public void Every_harness_gets_the_events_not_only_the_first()
+    {
+        for (var round = 0; round < 3; round++)
+        {
+            var (kiln, mod, chest) = Start();
+            using var _ = kiln;
+            var before = kiln.Entities.GetBytes(chest, "Inventory")!;
+            var seen = new List<ComponentExchangedEvent>();
+            using var sub = kiln.Run(() => Events.On<ComponentExchangedEvent>(seen.Add));
+            var status = InTask(kiln, mod, async ctx =>
+                WorldConcurrent.TryCompareExchangeBytes(WorldConcurrent.Open(chest).Value, "Inventory", before, Changed(before)).Status);
+            Assert.Equal(ExchangeStatus.Ok, status);
+            kiln.Step();
+            var ev = Assert.Single(seen);
+            Assert.True((chest, "tk-events") == (ev.Entity, ev.Mod), $"round {round}: {ev.Entity} {ev.Mod ?? "(no mod)"}");
+        }
+    }
+
     [Fact]
     public void Tracking_the_test_did_not_give_is_unknown_and_tracked_is_refused()
     {

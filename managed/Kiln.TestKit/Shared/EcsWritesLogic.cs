@@ -15,6 +15,13 @@ namespace Kiln.TestKit;
 internal readonly record struct EcsWriteFacts(bool Registered, int Size, bool TrackingKnown, bool TrackedA, bool TrackedB, bool Plain,
     int ReflectedSize, string? PlainWhy);
 
+/// <summary>kiln.world's write-event subscriptions: their list and the next handle (a handle is never reused).</summary>
+internal sealed class EcsWriteSubscriptions
+{
+    public readonly List<(ulong Handle, ulong Owner, nint Fn, nint User)> List = [];
+    public ulong NextHandle;
+}
+
 internal abstract partial class EcsReadsModel
 {
     /// <summary>The build has the writes and their capability bit (KILN_WORLD_CAP_ECS_WRITE).</summary>
@@ -39,8 +46,11 @@ internal abstract partial class EcsReadsModel
     public readonly HashSet<(ulong Session, uint Kind, uint Entity, uint Generation, uint Component)> Latched = [];
     public readonly Dictionary<ulong, ulong> BusyLatch = [];  // owner -> the step of its last busy refusal
     public readonly Queue<EcsWriteEventNative> Pending = [];
-    public readonly List<(ulong Handle, ulong Owner, nint Fn, nint User)> Subscriptions = [];
-    public ulong NextHandle;
+    /// <summary>The write-event subscriptions. kiln.world keeps them for the process, and Kiln subscribes once a process:
+    /// a fake whose world is made again in the same process (the kit's next harness) keeps them by overriding this.</summary>
+    public virtual EcsWriteSubscriptions Subs { get; } = new();
+
+    public List<(ulong Handle, ulong Owner, nint Fn, nint User)> Subscriptions => Subs.List;
     public int Writes;  // committed writes, for tests
 
     /// <summary>The policy's facts of a component of the server world.</summary>
@@ -261,7 +271,7 @@ internal static unsafe class EcsWritesLogic
         lock (m.Gate)
         {
             if (m.Retired.Contains(owner)) return Unavailable;
-            var h = ++m.NextHandle;
+            var h = ++m.Subs.NextHandle;
             m.Subscriptions.Add((h, owner, fn, user));
             *handle = h;
         }
