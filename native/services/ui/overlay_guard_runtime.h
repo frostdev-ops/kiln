@@ -9,4 +9,7 @@ void overlay_guard_stage(overlay_guard::Stage stage) noexcept;
 void overlay_guard_first_draw() noexcept;
 // The process exits normally with code 0 (kiln.ui's on_unload): a start still trying did not die at the overlay.
 void overlay_guard_exit() noexcept;
+// What overlay_guard_start found next to the game: OptiScaler (by its DLL's contents) and NVIDIA Streamline
+// (sl.interposer.dll in the game folder, Streamline/ or loaded). Kiln's graphics tools step aside for both (graphics.cpp).
+void overlay_guard_tools(bool* optiscaler, bool* streamline) noexcept;
 }

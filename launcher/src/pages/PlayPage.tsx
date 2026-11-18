@@ -120,7 +120,7 @@ const PROXY_PRODUCT: Partial<Record<ProxyKind, string>> = {
   eml: "EML", flame: "Flame (Creative Mode)", shroudlink: "shroudlink", modloaderproxy: "ModLoader Proxy",
   ultimateasiloader: "Ultimate ASI Loader", aldrich: "Aldrich Mod Menu",
   set: "Shrouded Engine Tweaks", enshwick: "Enshwick", greeneye: "Greeneye Loader", shroudtopia: "Shroudtopia",
-  ember: "Ember", livemap: "Live Map", sharedxp: "Shared XP", reshade: "ReShade",
+  ember: "Ember", livemap: "Live Map", sharedxp: "Shared XP", reshade: "ReShade", optiscaler: "OptiScaler",
 };
 
 function PlayFor({ game, ctl, onAdded }: { game: GameInstall; ctl: PlayControl; onAdded: (g: GameInstall) => void }) {
@@ -354,7 +354,11 @@ function Banners({ game, ctl, pending, onOffer, boot }: { game: GameInstall; ctl
       </Banner>,
     );
   }
-  const advice = s?.runtime.installed && ctl.view.phase !== "vanilla" ? s.launchOptions?.advice : null;
+  const options = s?.launchOptions;
+  // Suppress routine advice for known-native runners, but restore the explicit fix
+  // if Kiln actually failed to start (including GE-Proton 11-11+).
+  const advice = s?.runtime.installed && ctl.view.phase !== "vanilla"
+    ? ((ctl.kilnMissing || ctl.stuck) ? options?.advice ?? options?.fallbackAdvice : options?.advice) : null;
   if (advice && (!s?.launchOptions?.hasDllOverride || s.launchOptions.chainedOverrideMissing)) {
     out.push(
       <Banner key="adv" tone="warn" title={s?.launchOptions?.hasDllOverride && s.launchOptions.chainedOverrideMissing ? t("play.banner.settingAsi") : ctl.kilnMissing ? t("play.banner.notLoading") : ctl.stuck ? t("play.banner.didNotStart") : t("play.banner.setting")}
@@ -375,6 +379,14 @@ function Banners({ game, ctl, pending, onOffer, boot }: { game: GameInstall; ctl
     out.push(
       <Banner key="nokiln" tone="warn" title={ctl.kilnMissing ? t("play.banner.notLoading") : t("play.banner.didNotStart")} actions={<Button size="s" onClick={() => nav("/logs")}>{t("play.banner.supportReport")}</Button>}>
         {t("play.banner.noKiln")}
+      </Banner>,
+    );
+  }
+  // (dev.29.18) a graphics tool next to the game that changes what Kiln's overlay does (OptiScaler): what to expect
+  for (const g of s?.runtime.installed ? s.graphicsTools ?? [] : []) {
+    out.push(
+      <Banner key={`gfx-${g.engine}`} tone="info" title={t("play.banner.graphicsTool", { name: g.engine === "optiscaler" ? "OptiScaler" : g.engine, file: g.file })}>
+        <span data-testid="graphics-tool-note">{g.text}</span>
       </Banner>,
     );
   }

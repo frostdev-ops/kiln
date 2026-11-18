@@ -433,7 +433,8 @@ fn the_build_lookup_reads_the_games_records_then_the_bundles_index() {
 /// A PC with no Steam at all: no Steam folder, no library, no Steam client path, and on PATH only what the test puts
 /// there. Discovery, Add a folder (also a Steam library left on a drive), Install Kiln, a profile, Play's command on
 /// Windows and on Linux (Wine, Proton with Kiln's own client folder, umu-run), the launch flow through a recording
-/// starter (nothing runs), the game list and status, and the support report.
+/// starter (nothing runs), the game list and status, and the support report. Installing Kiln needs the `zip` feature.
+#[cfg(feature = "zip")]
 #[test]
 fn a_pc_without_steam_adds_installs_and_starts_a_game_folder() {
     let t = tmp("nosteam");

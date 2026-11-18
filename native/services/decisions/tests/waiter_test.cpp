@@ -88,5 +88,8 @@ int main() {
     CHECK(free_b->active_count()==0 && lock_bypasses.load()>=7);
     lock_stopped.store(nullptr);
     std::printf("waiter_test: %d PASS, %d FAIL\n",g_pass,g_fail);
-    return g_fail?1:0;
+    // The objects above are never freed and a detached thread still holds the broker's lock: end the process here, as
+    // the comment at the top says, without exit's handlers (LeakSanitizer would report them and drop this output).
+    std::fflush(stdout);
+    std::_Exit(g_fail?1:0);
 }

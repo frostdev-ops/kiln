@@ -292,6 +292,37 @@ KilnResult KILN_CALL t_set_texts(const KilnUiTexts* t) {
     return KILN_OK;
 }
 
+// Kiln's graphics tools (0.2.0-dev.29.18): the settings kept, and a sample of what the game would say (a 2560x1440 game
+// at DLSS Quality, the cap holding it) so the Graphics page shows a typical status.
+KilnUiGraphics g_graphics{sizeof(KilnUiGraphics)};
+KilnResult KILN_CALL t_graphics_set(const KilnUiGraphics* g) {
+    if (!g || g->size < sizeof(KilnUiGraphics)) return KILN_ERR_INVALID_ARGUMENT;
+    g_graphics = *g;
+    return KILN_OK;
+}
+KilnResult KILN_CALL t_graphics_status(KilnUiGraphicsStatus* out) {
+    if (!out || out->size < sizeof(KilnUiGraphicsStatus)) return KILN_ERR_INVALID_ARGUMENT;
+    KilnUiGraphicsStatus st{};
+    st.size = sizeof st;
+    st.fps_cap = g_graphics.fps_cap;
+    st.flags = KILN_UI_GFX_DLSS_HOOKED | KILN_UI_GFX_DLSS_ACTIVE | KILN_UI_GFX_COUNTING | (st.fps_cap ? KILN_UI_GFX_CAP_ACTIVE : 0u);
+    st.rendered_fps = st.output_fps = st.fps_cap ? static_cast<float>(st.fps_cap) - 0.2f : 87.4f;
+    st.frame_ms = 1000.0f / st.rendered_fps;
+    st.output_width = 2560;
+    st.output_height = 1440;
+    st.dlss_quality = 2;
+    st.dlss_preset = g_graphics.dlss_preset;
+    if (st.dlss_preset) st.flags |= KILN_UI_GFX_DLSS_PRESET;
+    const float k = g_graphics.dlss_scale == KILN_UI_DLSS_SCALE_CUSTOM ? g_graphics.custom_scale
+                  : g_graphics.dlss_scale == KILN_UI_DLSS_SCALE_PER_MODE ? g_graphics.mode_scale[0] : 0.667f;
+    st.render_width = static_cast<uint32_t>(2560 * k + 0.5f);
+    st.render_height = static_cast<uint32_t>(1440 * k + 0.5f);
+    st.dlss_output_width = 2560;
+    st.dlss_output_height = 1440;
+    *out = st;
+    return KILN_OK;
+}
+
 KilnUiApi make_table() {
     KilnUiApi t{};
     t.header = {sizeof(KilnUiApi), KILN_UI_VERSION};
@@ -409,6 +440,8 @@ KilnUiApi make_table() {
     t.font_free = &kui::font_free;
     t.push_font_handle = &t_push_font_handle;
     t.set_texts = &t_set_texts;
+    t.graphics_set = &t_graphics_set;
+    t.graphics_status = &t_graphics_status;
     return t;
 }
 KilnUiApi g_table;

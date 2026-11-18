@@ -144,6 +144,34 @@ pass, `Committed 3965 changed resources`. With auto-loot-plus (capability `expor
 `exports.enabled` on, SF runs the pass again at every start by design (`export_pass_needed`); without it the second
 start finds the pass current. kiln-eml's own copy of EML (`gpl/kiln-eml/eml/mod-loader-lua`) still has the old check.
 
+**One failing startup mod no longer costs the others** (fork branch `kiln-sf-retry`: `42b59dd`, `c20c0c5`, `1ab36f8`,
+`33c0d06`, `4b1ab16`, `1073446`, `dc8b392`, `e625c2f`, `430e287`, `16de6f2`, `2df1de6` on `ec75fb6`; Kiln
+0.2.0-dev.29.18). Upstream puts the game data back after a failed startup pass
+and starts the game with none of the packages the pass writes (a `patch` part, or `export` without a runtime part, and
+the EML packages it runs). In inbox 79 one package's own check failed ("Missing base localization: keenglish", after a
+third-party EML mod had changed that data) and the player lost every startup mod. Now, when the error came from one
+package's own entrypoint (`LuaModRunner::run` names it, `PregameModError`), the pass runs once more
+(`asset_preparation/retry_without_failed_mod.rs`): from the clean baseline, as every pass starts, with that package
+treated as switched off (`ModEnvironment::without`), so the packages that need it drop out too. Once only, no search.
+Not retried, upstream's behaviour unchanged: an I/O error anywhere in the error's chain (`PregameModError::io`, read
+from the error itself, so in any language and also without an OS code, such as a short read of a replaced archive), an
+error text with `(os error N)` or access denied (an I/O error the API or the package put into words), and every failure
+no package raised (the working baseline, staging, the type model, commit and publication, a replaced `.kfc`). When the
+second pass fails as well, no startup package loads, as before. SF's record (state.json `assets`) gets two optional
+fields: `skipped` (`id`, `name`, `version` and the error on one line without the Lua traceback, for the package, then
+for the packages left out with it: "needs <id>, which failed in the pregame pass") and, after a second failure,
+`retryError`; `error` stays the first failure's, so a reader that knows neither field reads the record as before.
+A pass that ran without a package is `applied` with the configuration's own fingerprint: the next start keeps the data
+and the record while nothing changes; switching the package off, or any other change, runs the pass again. SF's log
+(`startup-assets`, W, so kiln.log's `[sf]` lines) says `ShroudForge: <name> (<id> <version>) failed in the pregame pass
+(<error>); running the pass once more without it`, then `...; started the game without it, the other N mods loaded` or
+`ShroudForge: the pregame pass failed again without <name> (<error>); the game starts without the mods of the pregame
+pass`. SF's in-game Modloader page shows the package failed (`asset-preparation-skipped`), the packages left out with it
+blocked, and the pass partial. The
+launcher's side is in 5.7 below. Tests (Wine, `cargo xwin test`): `kiln_retry_tests.rs` runs whole passes on a small
+archive pair with made-up packages (7), plus `retry_without_failed_mod.rs` (2), `name_failing_mod.rs` (2, I/O errors
+raised through a real Lua call), `plan_mod_load_order.rs` (1) and `read_configuration_status.rs` (1). Not yet run against a real game client.
+
 ### 5.1 `native/plugins/shroudforge` → `kiln/plugins/kiln-shroudforge.dll` (MIT)
 
 The runtime choice comes first. **Bundled**: `kiln/plugins/shroudforge/`, the default. **Installed**: `<game>/shroudforge/`,
@@ -515,6 +543,20 @@ A `failed` record of the last start becomes
   stick scrolls, and
 - the support report's finding `sf-startup-failed` with the record's line under "The last start" (ShroudForge's words
   are redacted whole before they are put on one line and cut).
+
+When Kiln's ShroudForge ran the pass once more without the package it failed in and that failed too (dev.29.18, 5.0),
+the sentence adds, after the first error, "It tried again without <mod>, and that failed too: <second error>"; the
+report's line adds "; again without <id>: <second error>". Without those fields the text is as before.
+
+A pass that failed in one package and ran again without it (the record `applied`, with `skipped`) is a warning, not a
+failure: the other mods loaded. `sf_startup::skipped` reads it, and it counts even when the record is older than Kiln's
+last start, because ShroudForge keeps an `applied` record while the next starts' passes are unchanged, as long as Kiln's
+adapter says it hosted ShroudForge in that start and its preparation returned (`startupPrepared`); a fresh record counts
+as a failed one does. A package switched off since is not named (the next pass runs without it anyway). It becomes
+`engine_status` `startupSkipped` on ShroudForge's row (a warning naming the package, its error, how many other mods of
+the pass loaded, and to turn it off or check it for a clash with another mod), the same line and dialog on the Deck's
+Home ("one mod left out, the others loaded", or "N mods left out" with those that need it), and the report's finding
+`sf-startup-skipped` (Warning) with the record's line under "The last start".
 
 For this fault (Wine or Proton, `os error 5`, a ShroudForge build without the fix, Kiln's own ShroudForge with the fix
 installed) the sentence names the cure: take `dbghelp` and `winmm` out of `WINEDLLOVERRIDES` in the game's Steam launch

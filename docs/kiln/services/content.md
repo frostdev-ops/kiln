@@ -9,10 +9,10 @@ it comes off when the mod unloads or reloads, and it is applied again at the nex
 | Layer | Where |
 |---|---|
 | Symbols | `sigdb/symbols/server.d/content.json` (features `content.reflection`, `content.items`, `content.recipes`, `content.loot`, `content.drops`, `content.stack_guard`, `content.new`); client overlay `client.d/content.json` (`content.loca`, `content.ui_texture`, `content.recipe_ui`, `content.recipe_ui_refresh`) |
-| C table | `native/core/abi/services/kiln_content.h` (`kiln.content` v4: v2 `export_changes`, v3 `define` / `definitions`, v4 `set_ref` / `undefine_owner` / `info`) |
+| C table | `native/core/abi/services/kiln_content.h` (`kiln.content` v4: v2 `export_changes`, v3 `define` / `definitions`, v4 `set_ref` / `undefine_owner` / `info`; appended to v4: `icon_alias`, `txn_begin` / `txn_end` (0.2.0-dev.28), `text` / `text_info` (0.2.0-dev.29.18, [the game's own texts](#the-games-own-texts))) |
 | Native | `native/services/content/` → `kiln/services/kiln-content.dll` |
 | Managed | `managed/services/Kiln.Content/` → `kiln/host/Kiln.Content.dll` (namespace `Kiln`, class `Content`) |
-| Test | `mods/tests/content-test/` (PASS / FAIL lines) + `Observer/` (logs value changes); `mods/tests/newcontent-test/` (new items / recipes); `mods/tests/kitbash-test/` (references, texts, distribution; `syncdefs.py`: definitions in the content sync); `mods/tests/placeholder-test/` (+ `Items/`: missing content over four restarts); `mods/tests/craftmatch-test/` (a made item is what its recipe tooltip promises); `native/services/content/tests/run.sh` (near memory: the allocation policy on simulated address spaces and, under Wine, on a real fragmented one) |
+| Test | `mods/tests/content-test/` (PASS / FAIL lines) + `Observer/` (logs value changes); `mods/tests/newcontent-test/` (new items / recipes); `mods/tests/kitbash-test/` (references, texts, distribution; `syncdefs.py`: definitions in the content sync); `mods/tests/placeholder-test/` (+ `Items/`: missing content over four restarts); `mods/tests/craftmatch-test/` (a made item is what its recipe tooltip promises); `native/services/content/tests/run.sh` (`text_test.cpp`: the game's own texts over a fake lookup; near memory: the allocation policy on simulated address spaces and, under Wine, on a real fragmented one) |
 | Sample | `mods/samples/BigStacks/` (bigger stacks, a C# port of EMF's big_stacks idea); `mods/samples/NewItems/` (new items and recipes, side both) |
 
 ## Data packs
@@ -602,6 +602,102 @@ section 8.
 - C#: `ItemDefinition.Texts = new Dictionary<string, ItemTexts> { ["de"] = new() { Name = "...", Description = "..." } }`.
   `NewContent.Definitions()` / `definitions()` list the language keys of each item (`languages`).
 - A language change in the game's settings takes effect at the next lookup (the hooks read the language every time).
+
+## The game's own texts
+Since 0.2.0-dev.29.18 (mod API 0.2.10). On a game client, `Content.Text` gives the game's own text for a loca tag, in the
+language the player's game shows now: a tooltip row's label ("Mana Cost" / "Manakosten"), an item's name, any text the
+game has. It is what the game's UI gets: the texts of Kiln's new content (above) answer in the same language too.
+
+```csharp
+if (Content.TextAvailable)                                   // false on a dedicated server; Capabilities.Why("content.text")
+{
+    string? label = Content.Text(0xbe5b2600);                // a loca tag id: "Mana Cost" (English), "Manakosten" (German)
+    string? name  = Content.Text("c0ffee00-0000-4000-8000-000000000001");  // a LocaTag GUID: hashed as the game does
+    string? lang  = Content.TextLanguage;                    // "en-us", "de-de", ...
+}
+```
+
+| Member | Thread | What |
+|---|---|---|
+| `string? Content.Text(uint locaId)` | the game client's main thread | the text of a loca tag id; null when the game has none for it or when this is not available here |
+| `string? Content.Text(Guid locaTag)`, `Content.Text(string locaTag)` | same | a LocaTag GUID (the id is FNV-1a-32 over its 16 bytes, `Texts.TagOf`), or a string: a GUID, `0x1234abcd` or a decimal id; null for anything else |
+| `bool Content.TextAvailable` | any | the row `content.text` is available: a game client whose game has looked up a text |
+| `string? Content.TextLanguage` | any | the language the game shows its texts in now, as the game's key (`en-us`, `de-de`, `pt-br`); null while not available |
+| `const string Content.TextCapability` | | `"content.text"` |
+
+- **Client only.** A dedicated server has no texts and no text lookup (`LocaPool_lookup` is client code,
+  docs/re/content.md section 7): there `Text` returns null and the row says `wrong-side`. `Texts.Get` is the
+  server-side alternative: English only, from a Kiln catalog.
+- **The row** `content.text` (kiln.content reports it before the mods load): pending until the game looks up its first
+  text (its title screen does, right after boot), then available for the process. Unavailable: `wrong-side` on a server,
+  `symbol-missing` on a game build without the lookup, `faulted` when the hook could not go in, `service-older` with a
+  kiln.content from before 0.2.0-dev.29.18. `Text` never throws for any of these: it returns null.
+- **Thread: the game client's main thread only**: the thread that runs the game's UI frame and steps the client world
+  (a `Ui.Screens` UI tick, `Client.Tick`, `Client.Post`, a Kiln menu entry's callback). The game changes its text
+  language on that thread and reloads the language's table there; another thread could read the table while it is
+  replaced. On another thread `Text` throws `InvalidOperationException`: the overlay's render thread (an ImGui window's
+  draw callback) and the server tick of a hosted game are other threads. A window drawn in the overlay looks its texts
+  up in a UI tick and keeps them.
+- **Copied, not cached.** The text is a .NET string (a copy, never game memory), with the game's markup (`<b>`, ...;
+  `Texts.GetPlain` shows how to strip it). Kiln caches nothing: every call reads the game's language and asks the
+  game, so a language change in the game's settings applies at the next call. Right after a change the game may answer
+  from English until its new table has loaded, as its own UI does. Calls are cheap (a binary search and a copy), but
+  for a window drawn every frame keep the texts and look them up again when `Content.TextLanguage` changes.
+- C: `text(loca_id, buffer, cap, out_len)` and `text_info(KilnContentTextInfo*)` in `kiln_content.h` (check
+  `header.size`); `text` answers `KILN_ERR_WRONG_THREAD` off the main thread and `KILN_ERR_UNAVAILABLE` where the row is not
+  available.
+
+### Tooltip rows with their labels
+`Content.TooltipValues(ItemId)` gives the rows of an item's tooltip (its `uiValues`: the numbers a spell or a tool
+shows) as `TooltipValue(LocaId, Label, Raw, Value, Display, Format, IsSigned, IsScaled)`; `GameDataEntry.TooltipValues(list
+= "uiValues")` does the same for a perk, a buff or a skill node (`Content.Perks.Get(...)`), or an item's `uiBuffValues`.
+
+| `Format` | `Raw` | `Value` (what a player reads) | `Display` |
+|---|---|---|---|
+| `Normal` | 53 | 53 | `53` |
+| `Percentage` | 5 | 5 (percent) | `5%` (`+5%` when `IsSigned`) |
+| `Duration` | 2500 (ms) | 2.5 (seconds) | `2.5s` |
+| `DurationMilliseconds` | 250 | 250 (ms) | `250ms` (not seen in a game tooltip yet) |
+| `Float` | 260 | 2.6 | `2.6` |
+| `Numberless` | | 0 | `` (the label alone) |
+| `Unknown` (a format a later game adds) | raw | raw | raw |
+
+- **Per item type, not per item.** The rows are the game's data for every item of that type; a stack's level or rarity,
+  the player's attributes and scaling are not applied. `IsScaled` says the game scales that number when it shows it
+  (by the weapon's power or an attribute: `scaleData`); `Raw` and `Value` are the base. Data-pack changes are in (the
+  rows follow their configs, see kiln.gamedata "Tooltips").
+- **Damage and its element are not rows**: the game computes them from `damageSetup` (read it with
+  `Content.ItemData.Get(...).Get("damageSetup.dmgMod")` and the element fields).
+- `Display` is Kiln's rendering in the invariant culture; the game's own (decimal separator, spacing) may differ: format
+  `Value` yourself to match it.
+- **Thread**: kiln.content's world thread, as every `GameDataEntry` read (`[TickThreadOnly]`). A game client joined to a
+  server runs its tick on the main thread, so the labels come with the rows. In a hosted game the tick is the server's
+  thread: the rows come with `Label` null; look the labels up on the main thread with `Content.Text(row.LocaId)`. Not
+  cached either: keep the result.
+
+```csharp
+// A spellbook's tooltip: Fire Bolt I's rows with their labels, in the player's language.
+// A client joined to a server: in a tick (main thread). Hosting: rows on the tick, labels via Client.Post.
+var item = Content.Items.Get("Ammo_T0_Spell_Fire_Bolt_lvl3")?.Id ?? 0;   // Fire Bolt I, or any ItemId from a bag
+var rows = Content.TooltipValues(new ItemId(item));
+Client.Post(() =>
+{
+    foreach (var r in rows)
+        Log.Info($"{r.Label ?? Content.Text(r.LocaId) ?? $"0x{r.LocaId:x8}"}: {r.Display}");  // "Charge Time: 2.5s"
+});
+```
+
+### Real-client checklist (not run in a real game yet)
+1. Start the game in English with a client-side test mod; in the main menu `Content.TextAvailable` is true and
+   `Content.TextLanguage` is `en-us`; `kiln/state/capabilities.json` says `content.text` is available.
+2. In a world, `Content.TooltipValues` of Fire Bolt I (`Ammo_T0_Spell_Fire_Bolt_lvl3`) and Fireball I (`Ammo_T1_Spell_Fire_Ball_lvl10`) gives the rows the game's own tooltip shows, with
+   the same labels and numbers (mana cost, charge time, ...).
+3. Switch the game's language to German in the settings without restarting: the next `Content.Text` of the same ids
+   gives the German labels ("Manakosten"); `Content.TextLanguage` is `de-de`; the game's own tooltip agrees.
+4. A Kiln item (NewItems' Frost Edge): `Content.Text` of its name tag gives the name the backpack shows, in both
+   languages.
+5. `Content.Text` from the overlay's draw callback throws the main-thread `InvalidOperationException` (and nothing
+   crashes); from a `Ui.Screens` UI tick it answers.
 
 ## Distribution: random loot, drop tables, vendors, knowledge (v4)
 ```json

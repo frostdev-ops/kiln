@@ -1,1 +1,43 @@
 #nullable enable
+const Kiln.Content.TextCapability = "content.text" -> string!
+Kiln.GameDataEntry.TooltipValues(string! list = "uiValues") -> System.Collections.Generic.IReadOnlyList<Kiln.TooltipValue!>!
+Kiln.TooltipValue
+Kiln.TooltipValue.<Clone>$() -> Kiln.TooltipValue!
+Kiln.TooltipValue.Deconstruct(out uint LocaId, out string? Label, out int Raw, out double Value, out string! Display, out Kiln.TooltipValueFormat Format, out bool IsSigned, out bool IsScaled) -> void
+Kiln.TooltipValue.Display.get -> string!
+Kiln.TooltipValue.Display.init -> void
+Kiln.TooltipValue.Equals(Kiln.TooltipValue? other) -> bool
+Kiln.TooltipValueFormat
+Kiln.TooltipValueFormat.Duration = 2 -> Kiln.TooltipValueFormat
+Kiln.TooltipValueFormat.DurationMilliseconds = 3 -> Kiln.TooltipValueFormat
+Kiln.TooltipValueFormat.Float = 4 -> Kiln.TooltipValueFormat
+Kiln.TooltipValue.Format.get -> Kiln.TooltipValueFormat
+Kiln.TooltipValue.Format.init -> void
+Kiln.TooltipValueFormat.Normal = 0 -> Kiln.TooltipValueFormat
+Kiln.TooltipValueFormat.Numberless = 5 -> Kiln.TooltipValueFormat
+Kiln.TooltipValueFormat.Percentage = 1 -> Kiln.TooltipValueFormat
+Kiln.TooltipValueFormat.Unknown = 6 -> Kiln.TooltipValueFormat
+Kiln.TooltipValue.IsScaled.get -> bool
+Kiln.TooltipValue.IsScaled.init -> void
+Kiln.TooltipValue.IsSigned.get -> bool
+Kiln.TooltipValue.IsSigned.init -> void
+Kiln.TooltipValue.Label.get -> string?
+Kiln.TooltipValue.Label.init -> void
+Kiln.TooltipValue.LocaId.get -> uint
+Kiln.TooltipValue.LocaId.init -> void
+Kiln.TooltipValue.Raw.get -> int
+Kiln.TooltipValue.Raw.init -> void
+Kiln.TooltipValue.TooltipValue(uint LocaId, string? Label, int Raw, double Value, string! Display, Kiln.TooltipValueFormat Format, bool IsSigned, bool IsScaled) -> void
+Kiln.TooltipValue.Value.get -> double
+Kiln.TooltipValue.Value.init -> void
+override Kiln.TooltipValue.Equals(object? obj) -> bool
+override Kiln.TooltipValue.GetHashCode() -> int
+override Kiln.TooltipValue.ToString() -> string!
+static Kiln.Content.TextAvailable.get -> bool
+static Kiln.Content.TextLanguage.get -> string?
+static Kiln.Content.Text(string! locaTag) -> string?
+static Kiln.Content.Text(System.Guid locaTag) -> string?
+static Kiln.Content.Text(uint locaId) -> string?
+static Kiln.Content.TooltipValues(Kiln.ItemId item) -> System.Collections.Generic.IReadOnlyList<Kiln.TooltipValue!>!
+static Kiln.TooltipValue.operator !=(Kiln.TooltipValue? left, Kiln.TooltipValue? right) -> bool
+static Kiln.TooltipValue.operator ==(Kiln.TooltipValue? left, Kiln.TooltipValue? right) -> bool

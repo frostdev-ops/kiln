@@ -1,5 +1,6 @@
 // /settings: profiles (a background feature: components/ProfilesSettings.tsx), the library's storage, launcher settings,
-// games, and Kiln's kiln.json for the selected game. `#profiles` (Play's profile line, the old /profiles) scrolls there.
+// games, and Kiln's kiln.json for the selected game (its "graphics" section on the Graphics card). `#profiles` (Play's
+// profile line, the old /profiles) scrolls there.
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FolderPlus, Plus, RefreshCw, Trash2, X } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
@@ -15,6 +16,7 @@ import { NexusCard } from "../components/NexusSettings";
 import { ProfilesCard } from "../components/ProfilesSettings";
 import { LibraryCard } from "../components/LibrarySettings";
 import { LanguageCard } from "../components/LanguageSettings";
+import { GraphicsCard, isGraphicsPath } from "../components/GraphicsSettings";
 import { StartModal, UnknownBuild, useStartWord } from "../components/GameStart";
 import { rich, t, useT } from "../i18n";
 import {
@@ -49,6 +51,7 @@ export default function SettingsPage() {
         {nexusEnabled && <NexusCard />}
       </div>
       <KilnJsonCard />
+      <GraphicsCard />
       <AssetsCard />
     </Page>
   );
@@ -239,8 +242,9 @@ function KilnJsonCard() {
     <Card title={t("settings.kilnJson.title")} sub={rich("settings.kilnJson.sub", { file: <span className="k-mono">kiln/kiln.json</span> })}>
       {status.data && !installed ? <EmptyState title={t("settings.kilnJson.notInstalled")} hint={t("settings.kilnJson.notInstalledHint")} /> :
         doc.isLoading ? <Skeleton lines={5} /> : doc.error ? <EmptyState title={t("settings.kilnJson.unavailable")} hint={errorText(doc.error)} /> : doc.data?.schema && (
-          // ui.language has its own control (Language: components/LanguageSettings.tsx)
-          <SchemaForm schema={{ ...doc.data.schema, entries: doc.data.schema.entries.filter((e) => e.path !== "ui.language") }} values={doc.data.values} errors={doc.data.errors} disabled={set.isPending}
+          // ui.language has its own control (Language: components/LanguageSettings.tsx), graphics.* its own card (Graphics:
+          // components/GraphicsSettings.tsx)
+          <SchemaForm schema={{ ...doc.data.schema, entries: doc.data.schema.entries.filter((e) => e.path !== "ui.language" && !isGraphicsPath(e.path)) }} values={doc.data.values} errors={doc.data.errors} disabled={set.isPending}
             onChange={(path, value) => set.mutate({ path, value })} onReset={(path) => reset.mutate(path)} />
         )}
       {doc.data && <span className="k-hint">{t("settings.kilnJson.overrides")}</span>}

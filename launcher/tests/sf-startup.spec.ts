@@ -17,15 +17,25 @@ const FAILED = {
   mods: ["bone-caller"], cure: CURE, text: `${WHAT}. ${CURE}`,
 };
 
+/** The pass failed in one mod and Kiln's ShroudForge ran it again without that mod (sf_startup.rs `skipped`, dev.29.18). */
+const SKIP_TEXT = "ShroudForge 1.7.9, hosted by Kiln, left Wisp Light Timer (wisp 1.0.3) out of its startup pass (2026-11-18T06:24:48Z): "
+  + "the pass failed in that mod (runtime error: [string \"wisp\"]:719: Missing base localization: keenglish), so ShroudForge put the game "
+  + "data back and ran the pass again without it. The other 4 mods that need that step loaded. Turn Wisp Light Timer off, or check whether "
+  + "it clashes with another mod: one that changes the same game data can make its check fail";
+const SKIPPED = {
+  skipped: [{ id: "wisp", name: "Wisp Light Timer", version: "1.0.3", error: "runtime error: [string \"wisp\"]:719: Missing base localization: keenglish" }],
+  loaded: 4, at: "2026-11-18T06:24:48Z", ownLoader: false, version: "1.7.9", build: "kiln.4b1ab16", text: SKIP_TEXT,
+};
+
 /** The EML row's text while ShroudForge runs the EML mods (sf_startup.rs EngineNotes::of). */
 const POINTER = "ShroudForge's startup pass failed at its last start, so the changes of the EML mods it runs are not in the game data either "
   + "(ShroudForge's line says why)";
 
 /** What `engine_status` answers: ShroudForge's own loader ran (no own-loader note on either line), with or without a
  *  failed pass: the whole text on ShroudForge's row, a pointer on EML's, as the backend sends them. */
-function engines(failed: typeof FAILED | null) {
+function engines(failed: typeof FAILED | null, skipped: typeof SKIPPED | null = null) {
   const st = (kind: string, state: unknown) => ({ kind, plugin: `kiln-${kind}`, state, file: `${GAME}/kiln/state/${kind}.json` });
-  const mark = failed ? { startupFailed: failed } : {};
+  const mark = { ...(failed ? { startupFailed: failed } : {}), ...(skipped ? { startupSkipped: skipped } : {}) };
   return [
     { ...st("eml", { phase: "aside", reason: "dbghelp.dll is loaded: ShroudForge's loader runs the EML packages itself", mods: [] }),
       ...(failed ? { startupFailed: { ...failed, text: POINTER } } : {}) },
@@ -68,6 +78,18 @@ test.describe("the desktop's engine list", () => {
     const eml = page.locator('[data-engine="eml"] [data-startup-failed]');
     await expect(eml).toContainText("ShroudForge's startup pass failed at its last start");
     await expect(eml).not.toContainText("WINEDLLOVERRIDES");
+  });
+
+  test("ShroudForge's line warns when its pass ran without the one mod it failed in", async ({ page }) => {
+    await plan(page, engines(null, SKIPPED));
+    await page.goto("/#/mods/engines");
+    await page.locator(".k-splash").waitFor({ state: "detached" });
+    const warn = page.locator('[data-engine="shroudforge"] [data-startup-skipped="wisp"]');
+    await expect(warn).toHaveText(`${SKIP_TEXT}.`);
+    await expect(warn).toHaveClass(/k-tone-warn/);
+    // a warning, not the failure's line, and nothing on EML's row
+    await expect(page.locator("[data-startup-failed]")).toHaveCount(0);
+    await expect(page.locator('[data-engine="eml"] [data-startup-skipped]')).toHaveCount(0);
   });
 
   test("no such line while the pass is fine", async ({ page }) => {
@@ -147,6 +169,26 @@ test.describe("the Deck", () => {
     await stick(0);
     await expect.poll(() => body.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
     await expect(dialog.getByRole("button", { name: "OK" })).toBeVisible();
+  });
+
+  test("Home says that ShroudForge left one mod out, and the dialog names it and what to do", async ({ page }) => {
+    await plan(page, engines(null, SKIPPED));
+    await openDeck(page);
+    await expect(page.getByTestId("deck-sf-startup")).toContainText("one mod left out, the others loaded");
+    await page.locator('[data-deck-id="sf-startup"]').focus();
+    await pad(page, "a");
+    const dialog = page.locator('[data-deck-dialog="sf-startup"]');
+    await expect(dialog).toContainText("ShroudForge left a mod out");
+    await expect(dialog.locator(".deck-scroll")).toHaveText(`${SKIP_TEXT}.`);
+    await pad(page, "b");
+    await expect(dialog).toHaveCount(0);
+  });
+
+  test("Home counts the mods left out with it, those that need the failed one", async ({ page }) => {
+    const lamp = { id: "lamp-pack", name: "Lamp Pack", version: "2.0.0", error: "needs wisp, which failed in the pregame pass" };
+    await plan(page, engines(null, { ...SKIPPED, skipped: [...SKIPPED.skipped, lamp] }));
+    await openDeck(page);
+    await expect(page.getByTestId("deck-sf-startup")).toContainText("2 mods left out, the others loaded");
   });
 
   test("Home stays as it was while ShroudForge's pass is fine", async ({ page }) => {

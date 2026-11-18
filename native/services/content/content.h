@@ -398,6 +398,12 @@ bool nc_lab_refuse(const std::string& guid, const std::string& why);
 // each mod once. Called after a registration pass, with no lock of kiln.content held.
 void boot_late_check();
 std::string nc_info_json(const std::string& refs_json);  // v4 info(): languages, placeholders, distribution
+// The game's own texts (client; text() / text_info(), since 0.2.0-dev.29.18): newcontent.cpp, next to the loca hooks.
+KilnResult nc_text(uint32_t loca_id, std::string* out);  // the game client's main thread (else KILN_ERR_WRONG_THREAD)
+void nc_text_info(KilnContentTextInfo* out);            // any thread
+void nc_text_boot();                                    // kiln_plugin_main, after nc_boot: reports the row content.text
+KilnResult KILN_CALL nc_text_api(uint32_t loca_id, char* buffer, size_t cap, size_t* out_len);  // the table's text()
+KilnResult KILN_CALL nc_text_info_api(KilnContentTextInfo* out);                              // the table's text_info()
 // kiln.assets (any side; client for icons), looked up lazily: it may register after kiln.content. nullptr = none yet.
 const KilnAssetsApi* assets_api();
 uintptr_t active_world();  // content.cpp: the world whose registries kiln.content serves (0 = none / not ready)

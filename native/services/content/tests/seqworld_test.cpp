@@ -73,9 +73,10 @@ int main() {
     static_assert(sizeof(KilnGamedataApi) == 160);  // since 0.2.0-dev.29: buff_budget, define_buff_result, buff_registration
     static_assert(offsetof(KilnGamedataApi, definitions) == 128);
     static_assert(offsetof(KilnGamedataApi, buff_budget) == 136 && offsetof(KilnGamedataApi, buff_registration) == 152);
-    static_assert(sizeof(KilnContentApi) == 264);
+    static_assert(sizeof(KilnContentApi) == 280);  // since 0.2.0-dev.29.18: text, text_info appended
     static_assert(offsetof(KilnContentApi, txn_begin) == 248);
     static_assert(offsetof(KilnContentApi, txn_end) == 256);
+    static_assert(offsetof(KilnContentApi, text) == 264 && offsetof(KilnContentApi, text_info) == 272);
     Def invalid; invalid.section=KILN_GD_SEQUENCES; invalid.state="error"; invalid.problem="sequence types unavailable";
     if (listing(invalid)["registrations"]["client"]["state"] != "failed") throw std::runtime_error("resource refusal was incorrectly pending");
     set(kc::E.hm_count, uint32_t{4});
@@ -85,5 +86,5 @@ int main() {
     Def bounded; bounded.section=KILN_GD_SEQUENCES; bounded.data=16;
     for (int attempt=0; attempt<20; ++attempt) ensure_seq(bounded, 3);
     if (!bounded.sequence_failures[3].permanent) throw std::runtime_error("recoverable retries were unbounded");
-    std::puts("PASS sequence worlds: 13 runtime checks; 6 gamedata/content ABI assertions (the gamedata table grew at its end)");
+    std::puts("PASS sequence worlds: 13 runtime checks; 7 gamedata/content ABI assertions (the gamedata and content tables grew at their ends)");
 }

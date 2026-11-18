@@ -1252,6 +1252,18 @@ pub fn detect_asi_package(dir: &Path, depth: usize, top_name: Option<&str>) -> O
     if crate::engines::is_container(dir) { return None; }
     let entries: Vec<PathBuf> = std::fs::read_dir(dir).ok()?.flatten().map(|e| e.path()).filter(|p| !p.is_symlink()).collect();
     let is_asi = |p: &Path| p.is_file() && p.extension().is_some_and(|x| x.eq_ignore_ascii_case("asi"));
+    // OptiScaler renamed OptiScaler.asi (for Ultimate ASI Loader), in the folder or a folder of it: the tool, which runs
+    // on its own next to Kiln, left out whole as a lone OptiScaler.asi is (engines::detect_file), never a package Kiln
+    // places in scripts\ and loads
+    let optiscaler = |p: &Path| is_asi(p) && p.file_name().is_some_and(|n| crate::engines::is_optiscaler_name(&n.to_string_lossy()));
+    let optiscaler_asi = entries.iter().find(|p| optiscaler(p)).cloned().or_else(|| entries.iter().filter(|p| p.is_dir())
+        .find_map(|p| std::fs::read_dir(p).into_iter().flatten().flatten().map(|e| e.path()).find(|q| optiscaler(q))));
+    if let Some(p) = optiscaler_asi {
+        let file = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        return Some(Detected { kind: DetectKind::Proxy, path: dir.display().to_string(), id: None, version: None, name: None,
+            reason: crate::engines::loader_reason(crate::engines::Engine::OptiScaler, &file), items: vec![], asi_omit: vec![],
+            engine: Some(crate::engines::Engine::OptiScaler) });
+    }
     let asi = entries.iter().any(|p| is_asi(p) || (p.is_dir() && std::fs::read_dir(p).into_iter().flatten().flatten().any(|e| is_asi(&e.path()))));
     let dlls = crate::engines::dlls_in(dir);
     let ual = dlls.iter().any(|d| is_ual_at(d));

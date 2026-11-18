@@ -513,6 +513,50 @@ test("a mod built for a newer Kiln than the game has says Update Kiln on Play", 
   await expect(page).toHaveURL(/\/runtime/);
 });
 
+test("OptiScaler next to the game says what Kiln's overlay does on Play", async ({ page }) => {
+  await open(page, "/");
+  const banner = page.locator(".k-hero-banner .k-banner").filter({ has: page.locator(".k-banner-title", { hasText: /^OptiScaler is installed/ }) });
+  await expect(banner).toHaveCount(0);
+  await page.evaluate(() => (window as unknown as { __kilnMock: { setGraphicsTools: (t: unknown) => void } }).__kilnMock.setGraphicsTools([
+    { engine: "optiscaler", file: "winmm.dll", kilnOverlay: false, text: "Kiln's in-game overlay steps aside while OptiScaler's own menu is on." },
+  ]));
+  await expect(banner.locator(".k-banner-title")).toHaveText("OptiScaler is installed (winmm.dll)");
+  await expect(banner.getByTestId("graphics-tool-note")).toHaveText("Kiln's in-game overlay steps aside while OptiScaler's own menu is on.");
+});
+
+test("Settings, Graphics edits kiln.json's graphics section and says which tools Kiln steps aside for", async ({ page }) => {
+  type Mock = { __kilnMock: { kilnJsonValues: () => { graphics?: Record<string, unknown> }; setGraphicsStepAside: (t: unknown) => void } };
+  await open(page, "/settings");
+  const card = page.getByRole("region", { name: "Graphics" });
+  await expect(card).toBeVisible();
+  for (const key of ["graphics.fpsCap", "graphics.dlssPreset", "graphics.dlssScale", "graphics.dlssRenderScale", "graphics.dlssQualityScale",
+    "graphics.dlssBalancedScale", "graphics.dlssPerformanceScale", "graphics.dlssUltraPerformanceScale", "graphics.readout"])
+    await expect(card.getByText(key, { exact: true })).toBeVisible();
+  // labelled in words, not from the key names ("Fps Cap")
+  await expect(card.locator(".k-sform-label label")).toHaveText(["Frame cap", "DLSS render preset", "DLSS render size", "DLSS render scale, every mode",
+    "DLSS render scale, Quality", "DLSS render scale, Balanced", "DLSS render scale, Performance", "DLSS render scale, Ultra Performance", "Readout"]);
+  await expect(card.getByText(/Fps Cap|Dlss /)).toHaveCount(0);
+  // the kiln.json card leaves them to this one
+  await expect(page.getByText("graphics.fpsCap", { exact: true })).toHaveCount(1);
+  // a change is saved into the game's kiln.json
+  await card.locator("#sf-graphics-dlssPreset").selectOption("K");
+  await expect.poll(() => page.evaluate(() => (window as unknown as Mock).__kilnMock.kilnJsonValues().graphics?.dlssPreset)).toBe("K");
+  await card.locator("label.k-toggle[for=\"sf-graphics-readout\"]").click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as Mock).__kilnMock.kilnJsonValues().graphics?.readout)).toBe(true);
+  await card.getByRole("button", { name: "Reset DLSS render preset to its default" }).click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as Mock).__kilnMock.kilnJsonValues().graphics?.dlssPreset)).toBeUndefined();
+  // the preview's DLSSTweaks, then OptiScaler: one line each
+  const lines = card.getByTestId("graphics-step-aside");
+  await expect(lines).toHaveText(["DLSSTweaks is installed (dlsstweaks.ini): Kiln's DLSS settings step aside; the frame cap and the readout still work."]);
+  await page.evaluate(() => (window as unknown as Mock).__kilnMock.setGraphicsStepAside([
+    { kind: "optiscaler", file: "dxgi.dll", frameCap: true }, { kind: "nvngx", file: "nvngx.dll", frameCap: false },
+  ]));
+  await expect(lines).toHaveText([
+    "OptiScaler is installed (dxgi.dll): Kiln's frame cap and DLSS settings step aside; the readout still works.",
+    "Another DLSS loader is in the game folder (nvngx.dll): Kiln's DLSS settings step aside; the frame cap and the readout still work.",
+  ]);
+});
+
 test("destructive actions need the typed word, in the arch", async ({ page }) => {
   // a profile's Delete (Settings, Profiles) keeps its typed word whatever "Type a mod's name to remove it" says
   await open(page, "/settings");

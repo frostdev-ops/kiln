@@ -518,11 +518,26 @@ fn manifest(text: &str, flame: bool, extended: Option<&str>) -> Result<ModManife
     serde_json::from_value(raw).map_err(|e| format!("not an EML manifest: {e}"))
 }
 
+/// Why a Kiln mod (a `kiln.mod.json`, no `mod.json`) dropped into EML's folders is skipped. Logged, unlike a plain
+/// "no mod.json" folder: players unzip Kiln mods there by mistake (inbox 81).
+const KILN_MOD: &str = "a Kiln mod (kiln.mod.json), not an EML mod: Kiln runs it from kiln/mods. Add its zip in the Kiln \
+    Launcher (Library, Add mods; or, on a server, unzip it into kiln/mods/<mod>/) and remove it from this folder";
+const KILN_MOD_LOOSE: &str = "part of a Kiln mod unzipped loose into EML's mods folder (a kiln.mod.json lies next to \
+    it): remove the loose files there and add the mod's zip in the Kiln Launcher (Library, Add mods; on a server, unzip it into \
+    kiln/mods/<mod>/)";
+
 /// The manifest of an EML mod, or why the folder/zip is not one EML runs.
 pub fn classify(path: &Utf8Path) -> Result<ModManifest, String> {
     if path.is_dir() {
         let has = |f: &str| path.join(f).is_file();
         if !has("mod.json") {
+            if has("kiln.mod.json") {
+                return Err(KILN_MOD.into());
+            }
+            // a Kiln mod's zip unpacked loose into EML's mods folder: its subfolders (sigdb/ ...) land here as entries
+            if path.parent().is_some_and(|p| p.join("kiln.mod.json").is_file()) {
+                return Err(KILN_MOD_LOOSE.into());
+            }
             return Err("no mod.json (not an EML mod)".into());
         }
         fn text(path: &Utf8Path) -> Result<String, String> {
@@ -563,6 +578,13 @@ pub fn classify(path: &Utf8Path) -> Result<ModManifest, String> {
             f.by_ref().take(1024 * 1024 + 1).read_to_string(&mut text).map_err(|e| e.to_string())?;
             if text.len() > 1024 * 1024 { return Err("manifest exceeds 1 MiB".into()); }
             Ok(text)
+        }
+        if zip.by_name("mod.json").is_err()
+            && zip.file_names().any(|n| n == "kiln.mod.json" || n.strip_suffix("/kiln.mod.json").is_some_and(|d| !d.contains('/'))) {
+            return Err(KILN_MOD.into());
+        }
+        if zip.by_name("mod.json").is_err() {
+            return Err("no mod.json in the zip (not an EML mod)".into());
         }
         let t = text(&mut zip, "mod.json")?;
         let flame = zip.by_name("flame.json").is_ok();
@@ -692,6 +714,28 @@ mod tests {
         let empty = d.join("empty");
         std::fs::create_dir_all(&empty).unwrap();
         assert!(classify(&empty).unwrap_err().starts_with("no mod.json"));
+        // a Kiln mod in its own folder, and one unzipped loose (its sigdb/ becomes an entry of the mods folder)
+        let kiln = d.join("kiln-mod");
+        std::fs::create_dir_all(kiln.join("sigdb")).unwrap();
+        std::fs::write(kiln.join("kiln.mod.json"), r#"{"id":"k","name":"K","version":"1.0.0"}"#).unwrap();
+        assert_eq!(classify(&kiln).unwrap_err(), KILN_MOD);
+        assert_eq!(classify(&kiln.join("sigdb")).unwrap_err(), KILN_MOD_LOOSE);
+        assert!(!classify(&kiln).unwrap_err().starts_with("no mod.json"), "logged, not quiet");
+        // a Kiln mod's zip, flat or with one top folder (the SDK's KilnPack layout)
+        for (name, entry) in [("flat.zip", "kiln.mod.json"), ("nested.zip", "more-flame-altars/kiln.mod.json")] {
+            let z = d.join(name);
+            let mut w = zip::ZipWriter::new(std::fs::File::create(&z).unwrap());
+            w.start_file(entry, zip::write::SimpleFileOptions::default()).unwrap();
+            std::io::Write::write_all(&mut w, br#"{"id":"k"}"#).unwrap();
+            w.finish().unwrap();
+            assert_eq!(classify(&z).unwrap_err(), KILN_MOD, "{name}");
+        }
+        // any other zip without mod.json says so, not the zip crate's "specified file not found in archive"
+        let other = d.join("other.zip");
+        let mut w = zip::ZipWriter::new(std::fs::File::create(&other).unwrap());
+        w.start_file("readme.txt", zip::write::SimpleFileOptions::default()).unwrap();
+        w.finish().unwrap();
+        assert_eq!(classify(&other).unwrap_err(), "no mod.json in the zip (not an EML mod)");
         let huge = eml_mod(&d, "huge", "huge");
         std::fs::write(huge.join("mod.json"), vec![b' '; 1024 * 1024 + 1]).unwrap();
         assert!(classify(&huge).unwrap_err().contains("exceeds 1 MiB"));
