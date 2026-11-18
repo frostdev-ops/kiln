@@ -44,16 +44,24 @@ internal static partial class KilnApis
     }
 
     /// <summary>The task-thread world API's members that need a Kiln task's scope (or the tick) on the calling thread:
-    /// WorldConcurrent's reads. Its any-thread members (IsAvailable, IsPresent, OrOnTick) are not in it.</summary>
-    private static readonly HashSet<string> TaskGatedReads = new(StringComparer.Ordinal)
+    /// WorldConcurrent's reads and its compare-exchange writes. Its any-thread members (IsAvailable, IsPresent, CanWrite,
+    /// WritePolicy, OrOnTick) are not in it.</summary>
+    private static readonly HashSet<string> TaskGatedMembers = new(StringComparer.Ordinal)
     {
-        "Open", "Validate", "Read", "ReadBytes", "ReadMany", "Query", "Template",
+        "Open", "Validate", "Read", "ReadBytes", "ReadMany", "Query", "Template", "TryCompareExchange", "TryCompareExchangeBytes",
     };
+
+    /// <summary>The members of <see cref="TaskGatedMembers"/> that write: on the tick they always answer busy (the
+    /// server frame holds the engine's write gate for its whole update).</summary>
+    private static readonly HashSet<string> TaskGatedWrites = new(StringComparer.Ordinal) { "TryCompareExchange", "TryCompareExchangeBytes" };
 
     /// <summary>A member Kiln refuses where no task scope is installed (KILN105's gated world row), by symbol.</summary>
     internal static bool IsTaskGated(IMethodSymbol method) =>
-        method.ContainingType?.Name == "WorldConcurrent" && TaskGatedReads.Contains(method.Name) &&
+        method.ContainingType?.Name == "WorldConcurrent" && TaskGatedMembers.Contains(method.Name) &&
         ThreadClassifier.IsKilnType(method.ContainingType, "WorldConcurrent");
+
+    /// <summary>A gated member that writes (KILN105's gated-write row), by symbol.</summary>
+    internal static bool IsTaskGatedWrite(IMethodSymbol method) => IsTaskGated(method) && TaskGatedWrites.Contains(method.Name);
 
     /// <summary>Attribute names honoured in addition to the tables (a future Kiln.Api may mark members itself).</summary>
     internal const string TickThreadOnlyAttribute = "TickThreadOnlyAttribute";

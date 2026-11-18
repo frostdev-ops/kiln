@@ -123,6 +123,9 @@ The analyzers decide which thread runs a piece of code.
 - `Context.GameLog.Line` handlers;
 - `Scheduler.Post` work;
 - `Events.On` and `Context.Messages.On` handlers;
+- command and chat handlers: `[Command]` methods, handlers given to `Commands.Register` and to
+  `LiteralNode.Executes` / `ArgumentNode.Executes`, and `Chat.Received` handlers (Kiln.Chat runs every command,
+  from chat, the console folder or a remote tool, on the tick);
 - the delegate handed to a task's `ctx.OnTick(...)` or `ctx.PostToTick(...)`, and task code after a tick hop (below);
 - the `onTick` delegate of `WorldConcurrent.OrOnTick(ctx, offTick, onTick)`. Its `offTick` delegate runs at once,
   where `OrOnTick` is called, so it takes the thread of the code around it.
@@ -426,8 +429,9 @@ Client.Tick += (in TickInfo t) => Context.Tasks.Run("overlay", async ctx =>
 });
 ```
 
-**A task-thread world read outside a task.** A `WorldConcurrent` read (`Open`, `Validate`, `Read`,
-`ReadBytes`, `ReadMany`, `Query`, `Template`) where no task's scope is installed:
+**A task-thread world call outside a task.** A `WorldConcurrent` read (`Open`, `Validate`, `Read`,
+`ReadBytes`, `ReadMany`, `Query`, `Template`) or compare-exchange write (`TryCompareExchange`,
+`TryCompareExchangeBytes`) where no task's scope is installed:
 - in a task body after `await …ConfigureAwait(false)` (also `await foreach` and `await using` over
   `ConfigureAwait(false)`), on every path or only some, round a loop, or in a `catch` or `finally` whose `try`
   had one, until a hop (`await ctx.NextGateWindow()`, `await ctx.ToTick()`) brings the work back into the task;
@@ -437,14 +441,14 @@ Client.Tick += (in TickInfo t) => Context.Tasks.Run("overlay", async ctx =>
   called;
 - in an async helper of the mod's own after its own `await …ConfigureAwait(false)`.
 
-Kiln checks the scope on every read and refuses one without it with `InvalidOperationException`, so the read
+Kiln checks the scope on every call and refuses one without it with `InvalidOperationException`, so the call
 never works there. **Fix:** keep the awaits in the task or the helper (drop `ConfigureAwait(false)`), or call
 `await ctx.NextGateWindow()` first; for work started with `Task.Run` or a thread, run it in a Kiln task
 (`Context.Tasks.Run`) instead.
 
 Not reported: the reads inside a task body (also after `ConfigureAwait(true)`, a hop, or in `ctx.OnTick` and
-`OrOnTick`'s `onTick`), on the tick and on game threads; `WorldConcurrent.IsAvailable`, `IsPresent` and `OrOnTick`
-itself, which work on any thread; the values the reads return (`ConcurrentSnapshot.TryGet`,
+`OrOnTick`'s `onTick`), on the tick and on game threads; `WorldConcurrent.IsAvailable`, `IsPresent`, `CanWrite`,
+`WritePolicy` and `OrOnTick` itself, which work on any thread; the values the reads return (`ConcurrentSnapshot.TryGet`,
 `ConcurrentRead<T>.Value`); a look-alike `WorldConcurrent` of the mod's own; code whose thread the analyzer cannot
 tell (a stored delegate, a method nothing in the mod calls); and an awaitable configured in one place and awaited
 in another (`var a = x.ConfigureAwait(false); … await a;`), whose `false` the analyzer does not follow.
@@ -459,9 +463,31 @@ Context.Tasks.Run("chest-scan", async ctx =>
 });
 ```
 
-**Not checked yet: gated world writes from tick code.** The engine holds its scene gate for the whole
-server update, so an in-frame write from a tick handler is always refused as busy. That row comes with
-the task-thread world writes.
+**A compare-exchange write in tick code.** `WorldConcurrent.TryCompareExchange` or `TryCompareExchangeBytes` in
+code the analyzer places on the tick (the list in [Where code runs](#where-code-runs-kiln101-kiln105): `OnLoad`, tick,
+event, command and chat handlers, `Scheduler.Post` work, a task after `await ctx.ToTick()`, `ctx.OnTick` and
+`ctx.PostToTick` delegates). The write takes the engine's write gate, which the server frame holds for its whole
+update, so from tick code it answers `Busy` (`WriteReason.InFrame`) every time and never writes (a client mod's tick
+gets `Unavailable`: the writes are for the server world only). **Fix:** call it from a Kiln task's worker (retry a
+busy one after `await ctx.NextGateWindow()`), or write on the tick with `World.Write`. Not reported: the writes on a task's worker, and a look-alike `TryCompareExchange` of the mod's own.
+
+```csharp
+[Command("charge")]
+private string Charge(CommandContext c)
+{
+    WorldConcurrent.TryCompareExchange(e, "Charge", now, next);   // KILN105: always Busy from a command handler
+    Context.Tasks.Run("charge", async ctx =>
+    {
+        var r = WorldConcurrent.TryCompareExchange(e, "Charge", now, next);   // on a worker: fine
+        while (r.Status == ExchangeStatus.Busy)
+        {
+            await ctx.NextGateWindow();
+            r = WorldConcurrent.TryCompareExchange(e, "Charge", now, next);
+        }
+    });
+    return "charging";
+}
+```
 
 <a id="kiln106"></a>
 ## KILN106: thread, timer or subscription never released
