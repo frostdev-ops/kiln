@@ -738,7 +738,7 @@ var task = Context.Tasks.Run("recharge", async ctx =>
 codes. A refusal never throws; misuse does (a `default` `ConcurrentEntity`, an empty component name, byte buffers of
 different lengths, the wrong thread). The writes may be called where the reads may (inside a Kiln task, or on the tick
 from a mod's code); on the server tick a write is always `Busy` with `Reason.InFrame` and reaches nothing, so write from a
-task's worker and keep the tick for `World.Write`. A mod writes with the refs it opened itself: a ref another mod opened
+task's worker and keep the tick for `World.Write` ([KILN105](../modding/analyzers.md#kiln105) reports a write in tick code). A mod writes with the refs it opened itself: a ref another mod opened
 is `Stale`, as is every ref after the mod reloads.
 
 **In the test kit.** `KilnHarness` has the writes on its fake world with the same rules. The kit cannot read the engine's
