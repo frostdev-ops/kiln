@@ -1,0 +1,14 @@
+{
+  // The measurement mod of the priority kit (docs/kiln/priority-kit.md). Off unless
+  // <game>/kiln/data/gate-priority-test/run.txt names the running world.
+  "$schema": "https://kiln.invalid/schema/native.schema.json",
+  "format": 1,
+  "id": "gate-priority-test",
+  "name": "Gate priority test",
+  "version": "1.0.0",
+  "side": "both",
+  "dlls": ["gate-priority-test.dll"],
+  "phase": "boot",
+  "init": "kiln_native_init",
+  "kiln": ">=0.2.0-dev"
+}

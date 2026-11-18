@@ -444,6 +444,17 @@ void hardening(const char* target) {
     check(mem::test_priority == 1 && mem::test_restores == restores_before, t + "and nothing to restore");
     mem::test_priority = -1;
     check(boosts < mem::test_boosts && word(e.registry_word()) == 0 && word(e.scene_word()) == 0, t + "words free at the end");
+    // kiln.engine's measurement switch turned the raise off: a holder keeps its thread's own priority
+    gate_set_priority_raise(false);
+    const int off_boosts = mem::test_boosts, off_restores = mem::test_restores;
+    GateState o = gate_for(10, 80);
+    check(acquire(o) == Reason::None && mem::test_priority == -1 && mem::test_boosts == off_boosts,
+          t + "raise off: held at the thread's own priority");
+    gate_release(o);
+    check(mem::test_priority == -1 && mem::test_restores == off_restores, t + "raise off: nothing to restore");
+    gate_set_priority_raise(true);
+    gate_reset_for_tests();
+    check(gate_priority_raise(), t + "a reset turns the raise back on");
 }
 
 // The closing protocol under TSan: once exit's close returned "no holder", no acquire may succeed any more.
