@@ -138,7 +138,21 @@ void report(uint32_t state, const std::string& text) { report_row("world.ecs_rea
 
 bool ecs_prod_available() { return g_reads.load(std::memory_order_acquire); }
 
-void ecs_prod_init() {}  // the boot reader answers the context until on_ready (ecs_prod_ready)
+// kiln_plugin_main: the boot reader answers the context until on_ready (ecs_prod_ready). The owner-retiring observer is
+// subscribed here, not in on_ready: a plugin may subscribe to the write events from its kiln_plugin_main, and when that
+// plugin's start fails the core revokes it before on_ready; the boot writer must hear of it (the subscription ends
+// there, and on_ready's writer adopts it as retired). An owner that retires also takes its epoch with it (without the
+// observer the epoch table stays bounded anyway).
+void ecs_prod_init() {
+    if (!g_api || !g_api->service) return;
+    const auto* hooks = static_cast<const KilnHooksApi*>(
+        g_api->service(KilnStr{KILN_HOOKS_SERVICE, sizeof(KILN_HOOKS_SERVICE) - 1}, KILN_HOOKS_VERSION));
+    KilnHandle h = 0;
+    if (!hooks || hooks->header.size < offsetof(KilnHooksApi, unsubscribe_owner_retiring) + sizeof(void*) ||
+        !hooks->subscribe_owner_retiring || hooks->subscribe_owner_retiring(g_owner, &owner_retiring, nullptr, &h) != KILN_OK)
+        KW_I("world.ecs_read: no owner-retiring observer here; reload epochs of retired owners age out of a bounded table, "
+             "and a write-event subscription ends only with its unsubscribe");
+}
 
 void ecs_prod_ready() {
     ecs::engine::Source s = base_source();
@@ -187,15 +201,6 @@ void ecs_prod_ready() {
     auto* reader = new ecs::engine::Reader(s);  // process lifetime (see g_reader)
     g_reader.store(reader, std::memory_order_release);
     g_reads.store(s.reads, std::memory_order_release);
-    // An owner that retires takes its epoch with it (without kiln.hooks' observer the table stays bounded anyway).
-    if (g_api && g_api->service) {
-        const auto* hooks = static_cast<const KilnHooksApi*>(
-            g_api->service(KilnStr{KILN_HOOKS_SERVICE, sizeof(KILN_HOOKS_SERVICE) - 1}, KILN_HOOKS_VERSION));
-        KilnHandle h = 0;
-        if (!hooks || hooks->header.size < offsetof(KilnHooksApi, unsubscribe_owner_retiring) + sizeof(void*) ||
-            !hooks->subscribe_owner_retiring || hooks->subscribe_owner_retiring(g_owner, &owner_retiring, nullptr, &h) != KILN_OK)
-            KW_I("world.ecs_read: no owner-retiring observer here; reload epochs of retired owners age out of a bounded table");
-    }
     // The writes: the same reader, the gate members, kiln.types' reflection.
     {
         ecs::writes::WriterSource ws = writer_source();

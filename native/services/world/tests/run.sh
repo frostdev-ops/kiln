@@ -64,6 +64,17 @@ for kind in asan tsan; do
   TSAN_OPTIONS=halt_on_error=1:exitcode=66 "$out/ecs_writes_test_$kind" "$here/../../../../sigdb/types"
 done
 
+# ecs_prod_test: the production wiring of the write events (ecs_prod.cpp) over a fake core with kiln.hooks' owner-retiring
+# observer: a subscription before on_ready carries over, one of an owner revoked before on_ready ends.
+for kind in asan tsan; do
+  if [[ $kind == asan ]]; then san=(-fsanitize=address,undefined -fno-sanitize-recover=undefined); else san=(-fsanitize=thread); fi
+  g++ -std=c++20 -O1 -g -pthread -Wall -Wextra -Werror "${san[@]}" -D__fastcall= -I"$engine" -I"$engine/include" \
+      -I"$here/../../../core/abi" -I"$here/../../../third_party" "$here/ecs_prod_test.cpp" "$here/../ecs_prod.cpp" \
+      "$here/../ecs_writes.cpp" "$here/../ecs_write_hold.cpp" "$here/../ecs_write_policy.cpp" "$here/../ecs_engine.cpp" \
+      "$here/../ecs_lookup.cpp" "$here/../ecs_reads.cpp" -o "$out/ecs_prod_test_$kind"
+  TSAN_OPTIONS=halt_on_error=1:exitcode=66 "$out/ecs_prod_test_$kind"
+done
+
 # wraps_test: kiln.world v4 (the game's programs: directory, lab switch, wraps) over a fake world table.
 g++ -std=c++20 -O1 -g -pthread -Wall -Wextra -fsanitize=address,undefined -D__fastcall= -I"$here/host" \
     -I"$here/../../../third_party" -I"$here/../../../core/abi" "$here/wraps_test.cpp" -o "$out/wraps_test"

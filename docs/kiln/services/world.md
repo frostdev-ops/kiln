@@ -644,7 +644,7 @@ server session answers uncertain (one `kiln.log` line says so). A new session cl
 wrote, session, step), delivered in the order of the holds, on the server tick in kiln.world's Pre, after the write's
 gate was released; at the server world's STOPPING what is left is delivered on the stopping thread. Callbacks run under
 kiln.world's fault containment: one that faults is logged, its subscription ends, and the others still get the event.
-An owner's subscriptions end when it unloads or reloads (a callback already under way then may still finish). A subscription may be made from `kiln_plugin_main` on: one made before kiln.world is ready carries over and gets every event. The queue holds 4,096 events; a full queue makes writes answer
+An owner's subscriptions end when it unloads or reloads, or when its start fails (a callback already under way then may still finish). A subscription may be made from `kiln_plugin_main` on: one made before kiln.world is ready carries over and gets every event. The queue holds 4,096 events; a full queue makes writes answer
 busy until the next delivery.
 
 **Threads.** From a task's worker, between frames. On the server tick (tick handlers, a task's tick hops) a
