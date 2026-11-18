@@ -929,8 +929,138 @@ void adopt_cases(Env& v, const WriterSource& ready) {
           k + "a write after on_ready reaches the subscriber that came before it");
     check(boot.unsubscribe(h1) == KILN_OK && real.subscriptions() == 1 && boot.unsubscribe(h1) == KILN_ERR_NOT_FOUND,
           k + "the early handle still unsubscribes, through either writer");
+    // a retirement that reaches the boot writer after on_ready (one that loaded it before the switch) ends the owner's
+    // subscriptions in the real one, and the owner stays retired there
+    KilnHandle h4 = 0;
+    check(boot.subscribe(kOther + 1, &record, &later, &h4) == KILN_OK, k + "another early-style subscription");
+    boot.owner_retired(kOther + 1);
+    KilnHandle h5 = 0;
+    check(real.unsubscribe(h4) == KILN_ERR_NOT_FOUND && real.subscribe(kOther + 1, &record, &later, &h5) == KILN_ERR_UNAVAILABLE,
+          k + "a retirement through the boot writer after on_ready ends the subscription in the real one");
     real.unsubscribe(h2);
+    // #79's rule across the switch: an unsubscribe through the boot writer, from another thread, while the adopted
+    // subscription's callback runs on the real writer's draining thread, returns after the callback
+    {
+        WriterSource early2 = early;
+        Writer boot2(early2);
+        Slow slow;
+        KilnHandle hs = 0;
+        check(boot2.subscribe(kOther, &slow_cb, &slow, &hs) == KILN_OK, k + "a slow subscriber before on_ready");
+        Writer real2(ready);
+        real2.adopt(boot2);
+        put<uint64_t>(at, 71);
+        next_step(v);
+        KilnObjectRef r2 = open(v, kOwner, 7000);
+        Call c2 = cx(real2, kOwner, r2, counter, le64(71), le64(72));
+        Call c3 = cx(real2, kOwner, r2, counter, le64(72), le64(73));
+        std::thread drainer([&] { real2.drain(); });
+        const auto give_up = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        while (!slow.inside.load() && std::chrono::steady_clock::now() < give_up) std::this_thread::yield();
+        slow.go.store(true);
+        const KilnResult unsub = boot2.unsubscribe(hs);
+        const bool still_inside = slow.inside.load();
+        drainer.join();
+        check(c2.rc == KILN_OK && c3.rc == KILN_OK && unsub == KILN_OK && !still_inside && slow.calls.load() == 1,
+              k + "unsubscribed through the boot writer during the callback: returns after it, no later event (" +
+                  std::to_string(slow.calls.load()) + " calls" + (still_inside ? ", still inside" : "") + ")");
+    }
     put<uint64_t>(at, 0);
+}
+
+// Subscribes, unsubscribes and retirements on the boot writer racing on_ready's adoption (under ThreadSanitizer): every
+// handle answered is valid afterwards through either writer, exactly once, none is lost or duplicated, and a write after
+// the switch reaches each survivor once.
+void adopt_race(Env& v, const WriterSource& ready) {
+    const std::string k = std::string(v.p.id) + ": adopt race: ";
+    WriterSource early;
+    early.reader = ready.reader;
+    early.user = ready.user;
+    early.server_step = ready.server_step;
+    early.guarded = ready.guarded;
+    early.log = ready.log;
+    constexpr int kThreads = 4, kEach = 200;
+    bool all_ok = true, handles_unique = true, once = true, delivered_once = true;
+    size_t survivors_total = 0;
+    for (int round = 0; round < 5; ++round) {
+        Writer boot(early);
+        Writer real(ready);
+        std::atomic<bool> start{false};
+        std::vector<std::vector<KilnHandle>> kept(kThreads);
+        std::vector<std::vector<KilnHandle>> dropped(kThreads);
+        std::vector<std::atomic<int>> calls(kThreads);
+        std::atomic<bool> failed{false};
+        auto counter_cb = [](const KilnEcsWriteEvent*, void* u) { static_cast<std::atomic<int>*>(u)->fetch_add(1); };
+        std::vector<std::thread> threads;
+        for (int t = 0; t < kThreads; ++t) {
+            threads.emplace_back([&, t] {
+                while (!start.load()) std::this_thread::yield();
+                const KilnOwner retiring = kOther + 1000 + static_cast<KilnOwner>(t);
+                for (int i = 0; i < kEach; ++i) {
+                    KilnHandle h = 0;
+                    // the survivors' owner: one per thread; the retiring owner's subscriptions end at its retirement
+                    const bool keep = i % 3 != 2;
+                    const KilnOwner owner = keep ? kOther + static_cast<KilnOwner>(t) : retiring;
+                    const KilnResult rc = boot.subscribe(owner, +counter_cb, &calls[t], &h);
+                    if (!keep) continue;
+                    if (rc != KILN_OK || h == 0) {
+                        failed.store(true);
+                        continue;
+                    }
+                    if (i % 3 == 1) {
+                        if (boot.unsubscribe(h) != KILN_OK) failed.store(true);
+                        dropped[t].push_back(h);
+                    } else {
+                        kept[t].push_back(h);
+                    }
+                }
+                boot.owner_retired(retiring);
+            });
+        }
+        start.store(true);
+        std::this_thread::sleep_for(std::chrono::microseconds(50 * round));
+        real.adopt(boot);
+        for (auto& th : threads) th.join();
+        all_ok = all_ok && !failed.load();
+        std::vector<KilnHandle> every;
+        size_t survivors = 0;
+        for (int t = 0; t < kThreads; ++t) {
+            survivors += kept[t].size();
+            every.insert(every.end(), kept[t].begin(), kept[t].end());
+            every.insert(every.end(), dropped[t].begin(), dropped[t].end());
+        }
+        std::sort(every.begin(), every.end());
+        handles_unique = handles_unique && std::adjacent_find(every.begin(), every.end()) == every.end();
+        survivors_total += survivors;
+        all_ok = all_ok && real.subscriptions() == survivors && boot.subscriptions() == survivors;
+        // a write after the switch reaches every survivor once (each thread's survivors count on its own counter)
+        const uint32_t counter = H(v.w, "Counter");
+        const uintptr_t at = component_address(v.w, 7000, "Counter");
+        put<uint64_t>(at, 80);
+        next_step(v);
+        KilnObjectRef r = open(v, kOwner, 7000);
+        Call c = cx(real, kOwner, r, counter, le64(80), le64(81));
+        all_ok = all_ok && c.rc == KILN_OK && real.drain() == 1;
+        for (int t = 0; t < kThreads; ++t)
+            delivered_once = delivered_once && calls[t].load() == static_cast<int>(kept[t].size());
+        put<uint64_t>(at, 0);
+        // each survivor unsubscribes exactly once, through either writer; the dropped ones are gone
+        for (int t = 0; t < kThreads; ++t) {
+            for (size_t i = 0; i < kept[t].size(); ++i) {
+                Writer& through = i % 2 ? boot : real;
+                once = once && through.unsubscribe(kept[t][i]) == KILN_OK && real.unsubscribe(kept[t][i]) == KILN_ERR_NOT_FOUND;
+            }
+            for (KilnHandle h : dropped[t]) once = once && boot.unsubscribe(h) == KILN_ERR_NOT_FOUND;
+        }
+        all_ok = all_ok && real.subscriptions() == 0;
+        for (int t = 0; t < kThreads; ++t) {
+            KilnHandle h = 0;
+            all_ok = all_ok && real.subscribe(kOther + 1000 + static_cast<KilnOwner>(t), +counter_cb, &calls[t], &h) == KILN_ERR_UNAVAILABLE;
+        }
+    }
+    check(all_ok, k + "every subscribe and unsubscribe answered as if there were one writer, the retired owners stay retired");
+    check(handles_unique, k + "no handle is answered twice across the switch");
+    check(delivered_once && survivors_total > 0, k + "a write after the switch reaches each surviving subscriber once");
+    check(once, k + "each survivor unsubscribes exactly once, through either writer");
 }
 
 // Racing writers (each its own owner) incrementing one counter by compare-exchange while a simulated frame holds the
@@ -1128,6 +1258,7 @@ void exact(const Profile& p) {
     bounded_probe(v);
     event_cases(v);
     adopt_cases(v, ws);
+    adopt_race(v, ws);
     race(v);
     // The hold time: the largest writable component of this build (from sigdb's reflection) and the 64 KiB worst case.
     const Timing a = hold_time(v, "Largest", 7002, largest, 1000);
