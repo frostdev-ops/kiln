@@ -68,6 +68,11 @@ public static partial class Coverage
         Row("Scheduler and await", CoverageKind.Real,
             "Scheduler.Post from any thread, await Scheduler.NextTick, the mod's synchronization context; Game.IsTickThread is " +
             "true on the harness's tick thread only, so tick-thread API from a worker throws as in the game");
+        Row("Kiln tasks", CoverageKind.RecordingFake,
+            "Context.Tasks runs as in the game on the kit's pool (two real worker threads): ToTick, OnTick and PostToTick hops " +
+            "run in the harness's steps before Tick.Pre, NextGateWindow resumes after a step, an unload cancels a mod's tasks; " +
+            "KilnHarness.Tasks.Settle runs them to their end. The pool's per-mod caps and per-step budgets are not modelled",
+            "tasks.pool");
         Row("Config (global)", CoverageKind.Real,
             "Config.Register of every kind (common, server, client): files in the temp kiln/config, edits on disk reach the " +
             "change handlers (file watcher: pace steps in real time), bad files are refused and the values kept");

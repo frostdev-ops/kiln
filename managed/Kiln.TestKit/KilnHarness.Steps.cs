@@ -184,6 +184,7 @@ public sealed partial class KilnHarness
             _modsLoaded = true;
             _loadStep = step;
             _lineBatch.Clear();  // boot lines are for the lifecycle only
+            TasksSessionStarted();  // the server world exists from here: tasks may hop to its tick
             LoadMods(step);
         }
         if (_stopRequest is { } reason && !_stopping)
@@ -196,8 +197,10 @@ public sealed partial class KilnHarness
             ServerStarted(step, _runSeen ? "game-log" : !_options.WaitForWorldRunning ? "first-step" : "timeout");
         _mods.ProcessRequests();
         ServiceTick.Run(in tick);
+        TasksBeforePre();  // the tasks' hops to the tick, before the mods' Pre (KilnHarness.Tasks.cs)
         _mods.Pre(in tick, _lineBatch);
         if (_mods.AnyPost) _mods.Post(in tick);
+        TasksAfterPost();  // the Post edge: NextGateWindow resumes after it
         if (_loadStep == step) ThrowIfStagedFailed();
     }
 
@@ -251,6 +254,7 @@ public sealed partial class KilnHarness
         Lifecycle.Phase = ServerPhase.Stopping;
         var count = _mods.Mods.Count;
         _mods.PostEvent(new ServerStoppingEvent(step, reason));
+        TasksSessionStopping();  // the world's STOPPING: queued hops end cancelled, never carried on
         _mods.UnloadAll("server stopping");
         _host.Log(LogLevel.Info, $"lifecycle: server stopping ({reason}, step {step}): {count} mod(s) notified and unloaded");
     }

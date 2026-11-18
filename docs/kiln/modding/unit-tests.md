@@ -76,6 +76,15 @@ calls `ReportWorldRunning()`; `GameLog(line)` delivers a line of the game's log 
 `Stop(reason)` stops the server as a signal does (`ServerStopping`, then every `OnUnload`); `Dispose` does it when
 the test has not.
 
+**Tasks.** A mod's `Context.Tasks` run on the kit's task pool: two worker threads, as on Kiln's own pool. A task's
+hops back to the tick (`ToTick`, `OnTick`, `PostToTick`) run in the next `Step`, before `Tick.Pre`, and
+`NextGateWindow` resumes after a step. The workers run in real time beside the steps, so a test waits for them with
+`kiln.Tasks.Settle()`: it waits while their work runs and steps the server whenever every task waits for the tick, until
+all of them have ended, and returns the steps it took. A task that never ends fails the test with a `TimeoutException`
+naming it and what it waits for (after 10 s or 1000 steps by default; `Settle(maxSteps, timeout)` sets both).
+`kiln.Tasks.Live` counts the tasks that have not ended. The pool's per-mod caps and per-step budgets are not modelled.
+Tasks are explained in [tasks.md](tasks.md).
+
 **Commands.** `kiln.RunCommand("time set 7")` runs a line as the server console through `Commands.Execute` and
 returns its `CommandResult` (`Ok`, `Found`, `Denied`, `Error`, the reply lines in `Output`). `RunCommand(source,
 line)` takes any `CommandSource` (`CommandSource.Remote("dashboard", admin: false)`), `RunCommand(player, line)` a
@@ -394,6 +403,7 @@ time with them sees almost none pass between steps, and an `await Task.Delay(...
 | Ticks | real | `tick` | Tick.Pre and Tick.Post in Kiln.Host's order; virtual time (40.8 ms and 2 to 3 clock units a step, no sleeping): Environment.TickCount64 and DateTime.UtcNow stay real time |
 | Events | real |  | Kiln.Api's event bus: [Subscribe], Events.On, Post, Enqueue, priorities and cancel; a mod's handlers go with its unload |
 | Scheduler and await | real |  | Scheduler.Post from any thread, await Scheduler.NextTick, the mod's synchronization context; Game.IsTickThread is true on the harness's tick thread only, so tick-thread API from a worker throws as in the game |
+| Kiln tasks | recording fake | `tasks.pool` | Context.Tasks runs as in the game on the kit's pool (two real worker threads): ToTick, OnTick and PostToTick hops run in the harness's steps before Tick.Pre, NextGateWindow resumes after a step, an unload cancels a mod's tasks; KilnHarness.Tasks.Settle runs them to their end. The pool's per-mod caps and per-step budgets are not modelled |
 | Config (global) | real |  | Config.Register of every kind (common, server, client): files in the temp kiln/config, edits on disk reach the change handlers (file watcher: pace steps in real time), bad files are refused and the values kept |
 | Commands (console) | real |  | Kiln.Chat's command registry: [Command] methods, typed trees, help, permission levels; RunCommand as the console returns the reply lines; players type command lines in chat through the fake kiln.chat (FakePlayer.Say) |
 | Inter-mod messages | real |  | Mods.Send between loaded mods, delivered at the next step before the receiver's Pre, dropped with an unloaded sender |

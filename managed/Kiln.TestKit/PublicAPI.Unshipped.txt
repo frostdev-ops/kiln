@@ -1,1 +1,5 @@
 #nullable enable
+Kiln.TestKit.HarnessTasks
+Kiln.TestKit.HarnessTasks.Live.get -> int
+Kiln.TestKit.HarnessTasks.Settle(int maxSteps = 1000, System.TimeSpan? timeout = null) -> int
+Kiln.TestKit.KilnHarness.Tasks.get -> Kiln.TestKit.HarnessTasks!

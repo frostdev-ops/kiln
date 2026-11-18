@@ -33,6 +33,7 @@ public sealed partial class KilnHarness
             Lifecycle.Phase = ServerPhase.Stopping;
             if (!_modsLoaded) return;
             var count = _mods.Mods.Count;
+            TasksSessionStopping();
             _mods.UnloadAll("server killed");
             _host.Log(LogLevel.Info, $"lifecycle: server killed (step {_step}): no shutdown save; {count} mod(s) unloaded");
         });
