@@ -576,8 +576,10 @@ public static unsafe partial class WorldConcurrent
     }
 
     /// <summary>The fallback in one line: when the reads work here (<see cref="IsAvailable"/>) <paramref name="offTick"/>
-    /// runs at once, in the task; otherwise <paramref name="onTick"/> runs on the server tick through
-    /// <see cref="KilnTaskContext.OnTick{T}(Func{T})"/>. Either way the result (or the exception) comes back through the Task.
+    /// runs at once, in the task; otherwise <paramref name="onTick"/> runs through
+    /// <see cref="KilnTaskContext.OnTick{T}(Func{T})"/>, on the task's tick world (<see cref="KilnTaskContext.TickWorld"/>:
+    /// the server tick for a task started in server code, the client world's step for one started on the game's main
+    /// thread). Either way the result (or the exception) comes back through the Task.
     /// <c>var n = await WorldConcurrent.OrOnTick(ctx, () =&gt; CountFromTask(), () =&gt; CountOnTick());</c></summary>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public static Task<T> OrOnTick<T>(KilnTaskContext ctx, Func<T> offTick, Func<T> onTick)

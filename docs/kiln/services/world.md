@@ -546,7 +546,7 @@ var scan = Context.Tasks.Run("chest-scan", async ctx =>
 | `ReadMany(entity, set, mode)` | `ecs_snapshot_many` | a `ConcurrentSnapshot`: each component's status and bytes; one frame-quiet window for all of them |
 | `Query(query, into)` | `ecs_query` | refs in ascending id; `TooSmall` with `Required` (the match count), `Changed` when the membership moved; complete or nothing |
 | `Template(entity)` | `ecs_template_uuid` | the template's GUID; `Absent` when it names none |
-| `OrOnTick(ctx, offTick, onTick)` | | the fallback in one line: `offTick` in the task when `IsAvailable`, else `onTick` on the server tick through `ctx.OnTick` |
+| `OrOnTick(ctx, offTick, onTick)` | | the fallback in one line: `offTick` in the task when `IsAvailable`, else `onTick` through `ctx.OnTick`, on the task's tick world (`ctx.TickWorld`: the server tick for a task started in server code, the game's main thread for one started there) |
 
 **Statuses.** `ReadStatus` 0 to 6 are the native `KILN_ECS_*` values (`Ok`, `Absent`, `Stale`, `Unreadable`,
 `Unavailable`, `Busy`, `Unsupported`). Three more come from the C# side: `Changed` (a query whose membership changed,
