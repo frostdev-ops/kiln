@@ -50,10 +50,10 @@ public sealed class FetchNearbyTests
     [InlineData(false)]
     public void A_fetch_takes_from_the_nearest_containers_first(bool reads)
     {
-        var w = Start(reads);
+        var w = Start(reads);   // Ada, and wood in containers 4 m, 8 m and 30 m away; the reads switched off when !reads
         using var _ = w.Kiln;
         Assert.Equal("looking for 12 x Wood within 12 m", Said(w.Kiln.RunCommand(w.Ada, "fetch Wood 12")));
-        Finish(w.Kiln, w.Ada);
+        Finish(w.Kiln, w.Ada);  // kiln.Tasks.Settle(), then steps until the moves are done
         Assert.Equal(12, Wood(w));
         Assert.Equal((0, 3, 50), (w.Near.Count(w.Wood), w.Middle.Count(w.Wood), w.Far.Count(w.Wood)));
         // the command's reply, the task's word from the tick (PostToTick), the result of the moves
