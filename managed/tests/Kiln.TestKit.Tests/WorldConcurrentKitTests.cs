@@ -84,6 +84,8 @@ public sealed class WorldConcurrentKitTests
         kiln.Step();
         Assert.Equal(id, bo.Entity);  // the slot's id comes back for the next player
         Assert.Equal(ReadStatus.Stale, InTask(kiln, mod, () => WorldConcurrent.Validate(r.Value)));
+        var again = InTask(kiln, mod, () => WorldConcurrent.Open(id));
+        Assert.Equal((ReadStatus.Ok, r.Value.Generation + 1), (again.Status, again.Value.Generation));  // the id's next generation
         var chest = kiln.Entities.Create(new WorldPosition(0, 0, 0));
         var c = InTask(kiln, mod, () => WorldConcurrent.Open(chest)).Value;
         Assert.Equal(ReadStatus.Ok, InTask(kiln, mod, () => WorldConcurrent.Validate(c)));

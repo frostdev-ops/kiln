@@ -194,7 +194,7 @@ internal static unsafe class WorldAbi
         public delegate* unmanaged[Cdecl]<ulong, uint, int*, NativeStr*, int> ProgramWorldState;
         public delegate* unmanaged[Cdecl]<ulong, NativeStr, NativeStr, uint, void*, void*, void*, ulong*, int> BindProgramWorld;
         public delegate* unmanaged[Cdecl]<ulong, int> UnbindProgramWorld;
-        // since 0.2.0-dev.30 (528..576, the table is 584 bytes): the ECS reads from task threads (World/EcsReadsFake.cs)
+        // appended in v4 (528..576, the table is 584 bytes): the ECS reads from task threads (World/EcsReadsFake.cs)
         public delegate* unmanaged[Cdecl]<ulong, ulong, uint, ulong, uint, EcsObjectRefNative*, int> EntityOpen;
         public delegate* unmanaged[Cdecl]<ulong, EcsObjectRefNative*, EcsObjectInfoNative*, int> EntityValidate;
         public delegate* unmanaged[Cdecl]<EcsContextInfoNative*, int> EcsContextSnapshot;
