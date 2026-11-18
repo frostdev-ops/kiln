@@ -123,7 +123,9 @@ The analyzers decide which thread runs a piece of code.
 - `Context.GameLog.Line` handlers;
 - `Scheduler.Post` work;
 - `Events.On` and `Context.Messages.On` handlers;
-- the delegate handed to a task's `ctx.OnTick(...)` or `ctx.PostToTick(...)`, and task code after a tick hop (below).
+- the delegate handed to a task's `ctx.OnTick(...)` or `ctx.PostToTick(...)`, and task code after a tick hop (below);
+- the `onTick` delegate of `WorldConcurrent.OrOnTick(ctx, offTick, onTick)`. Its `offTick` delegate runs at once,
+  where `OrOnTick` is called, so it takes the thread of the code around it.
 
 Method groups count too: `Context.Tick.Pre += OnPre` makes `OnPre` tick-thread code.
 
@@ -142,7 +144,7 @@ known.
 | own thread | `new Thread(…)` |
 | timer thread | `System.Threading.Timer`, `System.Timers.Timer.Elapsed` |
 | BCL events | `FileSystemWatcher`; `Process` output and exit; `AppDomain.ProcessExit` and `UnhandledException`; `TaskScheduler.UnobservedTaskException`; `Console.CancelKeyPress`; `SocketAsyncEventArgs.Completed`; `BackgroundWorker.DoWork` |
-| after `ConfigureAwait(false)` | everything after `await x.ConfigureAwait(false)`, up to the next `await Context.Scheduler.NextTick()`. A plain `await` off the tick thread does not come back: there is no Kiln synchronization context there. |
+| after `ConfigureAwait(false)` | everything after `await x.ConfigureAwait(false)`, up to the next `await Context.Scheduler.NextTick()`. The same for the body of `await foreach (… in xs.ConfigureAwait(false))` and the code after it, and for the code after `await using (x.ConfigureAwait(false))` (or `await using var`). A plain `await` off the tick thread does not come back: there is no Kiln synchronization context there. |
 | Kiln task worker | the delegate handed to `Context.Tasks.Run(...)` (a lambda, a method group, or a local function handed out that way), until a tick hop takes it to the tick |
 
 **Inside a Kiln task** the thread is followed through the function's own control flow (branches and joins, loops,
@@ -398,21 +400,26 @@ Context.Tasks.Run("loot-scan", async ctx =>
 
 **A task-thread world read outside a task.** A `WorldConcurrent` read (`Open`, `Validate`, `Read`,
 `ReadBytes`, `ReadMany`, `Query`, `Template`) where no task's scope is installed:
-- in a task body after `await …ConfigureAwait(false)`, on every path or only some, until a hop
-  (`await ctx.NextGateWindow()`, `await ctx.ToTick()`) brings the work back into the task;
+- in a task body after `await …ConfigureAwait(false)` (also `await foreach` and `await using` over
+  `ConfigureAwait(false)`), on every path or only some, round a loop, or in a `catch` or `finally` whose `try`
+  had one, until a hop (`await ctx.NextGateWindow()`, `await ctx.ToTick()`) brings the work back into the task;
 - in work the mod starts itself: `Task.Run`, a `new Thread`, a timer or a thread-pool callback, also inside a
-  task body.
+  task body;
+- in the `offTick` delegate of `WorldConcurrent.OrOnTick` in such places: it runs at once, where `OrOnTick` is
+  called;
+- in an async helper of the mod's own after its own `await …ConfigureAwait(false)`.
 
 Kiln checks the scope on every read and refuses one without it with `InvalidOperationException`, so the read
-never works there. **Fix:** keep the awaits in the task (drop `ConfigureAwait(false)`), or call
+never works there. **Fix:** keep the awaits in the task or the helper (drop `ConfigureAwait(false)`), or call
 `await ctx.NextGateWindow()` first; for work started with `Task.Run` or a thread, run it in a Kiln task
 (`Context.Tasks.Run`) instead.
 
-Not reported: the reads inside a task body (also after `ConfigureAwait(true)`, a hop, or in `ctx.OnTick`),
-on the tick and on game threads; `WorldConcurrent.IsAvailable`, `IsPresent` and `OrOnTick`, which work on any
-thread; the values the reads return (`ConcurrentSnapshot.TryGet`, `ConcurrentRead<T>.Value`); a look-alike
-`WorldConcurrent` of the mod's own; and code whose thread the analyzer cannot tell (a stored delegate, a method
-nothing in the mod calls).
+Not reported: the reads inside a task body (also after `ConfigureAwait(true)`, a hop, or in `ctx.OnTick` and
+`OrOnTick`'s `onTick`), on the tick and on game threads; `WorldConcurrent.IsAvailable`, `IsPresent` and `OrOnTick`
+itself, which work on any thread; the values the reads return (`ConcurrentSnapshot.TryGet`,
+`ConcurrentRead<T>.Value`); a look-alike `WorldConcurrent` of the mod's own; code whose thread the analyzer cannot
+tell (a stored delegate, a method nothing in the mod calls); and an awaitable configured in one place and awaited
+in another (`var a = x.ConfigureAwait(false); … await a;`), whose `false` the analyzer does not follow.
 
 ```csharp
 Context.Tasks.Run("chest-scan", async ctx =>
