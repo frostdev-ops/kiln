@@ -9,11 +9,13 @@ import { useEffect, useRef } from "react";
 import * as api from "../api/commands";
 import type { AssetsStatus, KilnError, Task } from "../api/commands";
 import { usePoll } from "../api/hooks";
+import { t } from "../i18n";
 import { runTask, toast, useTasks } from "../ui";
 
 export const ASSETS_KEY = ["app_assets_status"] as const;
 export type ArtKind = "editor" | "admin";
-/** The backend's task titles (commands/app.rs extract_editor_task / extract_map_task). */
+/** The backend's task titles (commands/app.rs extract_editor_task / extract_map_task). Compared with the task feed's
+ *  titles: not translated here. */
 const TITLE: Record<ArtKind, string> = { editor: "Prepare game art", admin: "Extract map art" };
 const RETRY_MS = 10 * 60 * 1000;
 
@@ -21,7 +23,7 @@ export function useAssetsStatus() {
   return useQuery({ queryKey: ASSETS_KEY, queryFn: api.appAssetsStatus, staleTime: 10_000, refetchInterval: usePoll(15_000), refetchOnWindowFocus: true });
 }
 
-const running = (t?: Task) => !!t && (t.state === "running" || t.state === "queued");
+const running = (task?: Task) => !!task && (task.state === "running" || task.state === "queued");
 
 /** The running task of `kind` (from the task feed; the status names it too). */
 export function useExtractTask(st?: AssetsStatus, kind: ArtKind = "editor"): Task | undefined {
@@ -30,8 +32,8 @@ export function useExtractTask(st?: AssetsStatus, kind: ArtKind = "editor"): Tas
     const byId = tid ? s.tasks[tid] : undefined;
     if (running(byId)) return byId;
     for (const id of s.order) {
-      const t = s.tasks[id];
-      if (running(t) && t.kind === "app_assets_import" && t.title === TITLE[kind]) return t;
+      const task = s.tasks[id];
+      if (running(task) && task.kind === "app_assets_import" && task.title === TITLE[kind]) return task;
     }
     return undefined;
   });
@@ -73,7 +75,7 @@ export function GameArtAuto({ only }: { only?: ArtKind } = {}) {
       .catch((e: KilnError) => {
         if (e?.code === "steam_updating" || e?.code === "canceled") return; // try again at the next check
         failed.current.set(sig, Date.now());
-        toast.error(e, kind === "editor" ? "Game art could not be prepared" : "Map art could not be prepared");
+        toast.error(e, kind === "editor" ? t("gameArt.editorFailed") : t("gameArt.mapFailed"));
       })
       .finally(() => {
         busy.current = false;

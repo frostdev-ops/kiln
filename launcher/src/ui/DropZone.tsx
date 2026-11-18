@@ -5,6 +5,7 @@
 import { FolderOpen } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { isTauri } from "../api/commands";
+import { t as tr, useT } from "../i18n";
 import { Button } from "./Button";
 import { TextInput } from "./Form";
 import { toast } from "./Toast";
@@ -44,7 +45,9 @@ export interface DropZoneProps {
 
 const NICHE = "M1 299V128C1 74 62 31 116 1C170 31 231 74 231 128V299Z";
 
-export function DropZone({ onPaths, title = "Drop files here", hint, pick, pickFolder, disabled, variant = "niche", busy }: DropZoneProps) {
+export function DropZone({ onPaths, title: titleProp, hint, pick, pickFolder, disabled, variant = "niche", busy }: DropZoneProps) {
+  const t = useT();
+  const title = titleProp === undefined ? t("ui.dropZone.dropHere") : titleProp;
   const ref = useRef<HTMLDivElement>(null);
   const [over, setOver] = useState(false);
   const cb = useRef(onPaths);
@@ -71,7 +74,7 @@ export function DropZone({ onPaths, title = "Drop files here", hint, pick, pickF
         if (p.type === "over" || p.type === "enter") setOver(inside(p.position));
         else if (p.type === "drop") { setOver(false); if (inside(p.position) && p.paths.length) cb.current(p.paths); }
         else setOver(false);
-      })).then((f) => (live ? (off = f) : f())).catch((e) => { if (live) toast.error(e, "File drops unavailable"); });
+      })).then((f) => (live ? (off = f) : f())).catch((e) => { if (live) toast.error(e, tr("ui.dropZone.dropsUnavailable")); });
     return () => { live = false; off?.(); };
   }, []);
 
@@ -89,14 +92,14 @@ export function DropZone({ onPaths, title = "Drop files here", hint, pick, pickF
     try {
       const r = await pickPaths({ ...pick, directory, multiple: true });
       if (r?.length && !blockedRef.current) cb.current(r);
-    } catch (e) { toast.error(e, "Could not open files"); }
+    } catch (e) { toast.error(e, tr("ui.dropZone.cannotOpen")); }
   };
 
-  const desk = isTauri() ? undefined : "Needs the desktop app";
+  const desk = isTauri() ? undefined : t("ui.dropZone.needsDesktop");
   const buttons = (
     <div className="k-row" style={{ gap: 6 }}>
-      <Button size={variant === "row" ? "s" : "m"} disabled={blocked || !isTauri()} title={desk} onClick={() => choose(false)}>Files</Button>
-      {pickFolder && <Button size={variant === "row" ? "s" : "m"} disabled={blocked || !isTauri()} title={desk} onClick={() => choose(true)}>Folder</Button>}
+      <Button size={variant === "row" ? "s" : "m"} disabled={blocked || !isTauri()} title={desk} onClick={() => choose(false)}>{t("ui.dropZone.files")}</Button>
+      {pickFolder && <Button size={variant === "row" ? "s" : "m"} disabled={blocked || !isTauri()} title={desk} onClick={() => choose(true)}>{t("ui.dropZone.folder")}</Button>}
     </div>
   );
   const dragProps = {
@@ -139,15 +142,16 @@ export interface PathPickerProps {
 
 /** A path box with a Browse button (native dialog in Tauri; typing works everywhere). */
 export function PathPicker({ value, onChange, directory, filters, placeholder, id, disabled }: PathPickerProps) {
+  const t = useT();
   const [text, setText] = useState(value);
   useEffect(() => setText(value), [value]);
   return (
     <div className="k-input-group">
       <TextInput id={id} mono value={text} placeholder={placeholder} disabled={disabled} spellCheck={false}
         onChange={(e) => setText(e.target.value)} onBlur={() => text !== value && onChange(text)} onKeyDown={(e) => { if (e.key === "Enter") onChange(text); }} />
-      <Button icon={<FolderOpen />} disabled={disabled || !isTauri()} title={isTauri() ? "Browse" : "Needs the desktop app"}
+      <Button icon={<FolderOpen />} disabled={disabled || !isTauri()} title={isTauri() ? t("ui.dropZone.browse") : t("ui.dropZone.needsDesktop")}
         onClick={async () => { const r = await pickPaths({ directory, filters, defaultPath: value || undefined }); if (r?.[0]) onChange(r[0]); }}>
-        Browse
+        {t("ui.dropZone.browse")}
       </Button>
     </div>
   );

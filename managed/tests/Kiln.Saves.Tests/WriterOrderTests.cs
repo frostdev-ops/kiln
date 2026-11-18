@@ -411,6 +411,54 @@ public sealed class WriterOrderTests : IDisposable
     }
 
     [Fact]
+    public void APruningReadsOnlyTheSaveFilesAndManifestsThatChangedSinceTheLastOne()
+    {
+        // Inbox 50 (a hard-disk player, 0.2.0-dev.29.14): every pruning read the header of every world file and backup in
+        // the save folder and every kept manifest, "165 read in 18392.0 ms" at the first and 13324.9 ms again at the 11th,
+        // on the game's own disk while it streamed the world. A file that did not change since the last pruning is not
+        // read again; one that changed is, and its generation is kept as before.
+        using var native = new FakeSavesTable();
+        var world = Guid.NewGuid();
+        InstanceHarness.OpenFolder(_h.Root, world.ToString());
+        var saves = Temp("savegame");
+        FakeSavesTable.Paths[SavesNative.PathSaveDir] = saves;
+        const int others = 24;                                 // other worlds' backups: read once, never needed here
+        for (var i = 0; i < others; i++)
+            FakeSavesTable.WriteWorldHeader(Path.Combine(saves, "backup", $"world{i + 1}.ksd.backup-1"), Guid.NewGuid(), 7, (uint)(500 + i));
+        FakeSavesTable.WriteWorldHeader(Path.Combine(saves, "backup", "world0.ksd.backup-9"), world, 1, 1001);   // this world's oldest
+        FiveBundles(1);
+        for (uint gen = 1; gen <= 10; gen++)                   // the 1st confirmation pruned: every header read
+        {
+            Set(0, (int)gen);
+            SaveThroughEvents(gen, 100 * gen);
+            Written();
+        }
+        var reads = 0;
+        WorldStore.IoHook = op =>
+        {
+            if (op == "read") Interlocked.Increment(ref reads);
+        };
+        Set(0, 11);
+        SaveThroughEvents(11, 1100);                           // the 11th prunes again
+        Written();
+        WorldStore.IoHook = _hook;
+        Assert.True(reads < others, $"the 11th confirmation's pruning read {reads} files; the {others + 1} unchanged headers again?");
+        Assert.True(File.Exists(Confirmed(1, 1001)), "the generation of the game's backup was pruned");
+        // A backup that changes is read again: world1's slot now holds a backup of this world's generation 2.
+        FakeSavesTable.WriteWorldHeader(Path.Combine(saves, "backup", "world1.ksd.backup-1"), world, 2, 1002);
+        File.SetLastWriteTimeUtc(Path.Combine(saves, "backup", "world1.ksd.backup-1"), DateTime.UtcNow.AddMinutes(1));
+        for (uint gen = 12; gen <= 41; gen++)                  // prunings at the 21st, 31st and 41st: 2 is beyond the newest 30
+        {
+            Set(0, (int)gen);
+            SaveThroughEvents(gen, 100 * gen);
+            Written();
+        }
+        Assert.False(File.Exists(Confirmed(3, 1003)));       // it did prune (beyond the newest 30, no backup needs it)
+        Assert.True(File.Exists(Confirmed(2, 1002)), "the generation of the changed backup was pruned: its header was not read again");
+        Assert.True(File.Exists(Confirmed(1, 1001)), "the generation of the game's oldest backup was pruned");
+    }
+
+    [Fact]
     public void AReloadThatOutwaitsTheWriterNeverTakesAnOlderGeneration()
     {
         // Review 1, finding 2: a load whose wait for the writer ran out read the folder while the confirmation was being

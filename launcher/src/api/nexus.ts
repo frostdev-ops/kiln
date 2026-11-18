@@ -2,6 +2,7 @@
 // commands (launcher/src-tauri/src/commands/nexus.rs, kiln_manage::nexus; docs/kiln/launcher/catalog.md). The browser
 // mock answers from ./mockNexus.ts. OAuth credentials never reach the frontend: the account contains only connection status, name and premium.
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
+import { t } from "../i18n";
 import { isTauri, loadMock, toKilnError, type AddReport, type GameId, type KilnError, type TaskId } from "./commands";
 
 async function call<T>(cmd: string, args: Record<string, unknown> = {}): Promise<T> {
@@ -187,7 +188,15 @@ export const nk = {
   handler: ["nexus_handler_status"] as const,
 };
 
-export const TYPE_WORD: Record<ModType, string> = { kiln: "Kiln mod", native: "Native mod", emf: "EMF mod", dll: "DLL mod", modpack: "Modpack", other: "Not a Kiln mod" };
+/** A catalog mod's type in words. Getters: each read gives the current language's text (never copy it at import time). */
+export const TYPE_WORD: Record<ModType, string> = {
+  get kiln() { return t("api.nexus.type.kiln"); },
+  get native() { return t("api.nexus.type.native"); },
+  get emf() { return t("api.nexus.type.emf"); },
+  get dll() { return t("api.nexus.type.dll"); },
+  get modpack() { return t("api.nexus.type.modpack"); },
+  get other() { return t("api.nexus.type.notKiln"); },
+};
 
 /** "1.2k" */
 export function count(n: number): string {

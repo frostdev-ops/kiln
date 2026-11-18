@@ -2,41 +2,44 @@
 // route under /servers/:id/. Configs, Mods and the console are merged pages (live while the server runs, the files
 // while it is stopped).
 
+import { t } from "../i18n";
+
 export interface ServerNavItem {
-  label: string;
+  /** The word in the current language (a getter: read it at render). */
+  readonly label: string;
   /** Route under /servers/:id/. */
   to: string;
 }
 
-export const SERVER_NAV: { group: string; items: ServerNavItem[] }[] = [
-  { group: "Run", items: [
-    { label: "Overview", to: "overview" },
-    { label: "Logs", to: "logs" },
-    { label: "Tick stats", to: "ticks" },
+export const SERVER_NAV: { readonly group: string; items: ServerNavItem[] }[] = [
+  { get group() { return t("shell.serverNav.groupRun"); }, items: [
+    { get label() { return t("shell.serverNav.overview"); }, to: "overview" },
+    { get label() { return t("shell.serverNav.logs"); }, to: "logs" },
+    { get label() { return t("shell.serverNav.tickStats"); }, to: "ticks" },
   ] },
-  { group: "World", items: [
-    { label: "Players", to: "admin/players" },
-    { label: "Map", to: "admin/map" },
-    { label: "Zones", to: "admin/zones" },
-    { label: "Spawn", to: "admin/spawn" },
-    { label: "Creatures", to: "admin/creatures" },
-    { label: "Combat", to: "admin/combat" },
-    { label: "World", to: "admin/world" },
+  { get group() { return t("shell.serverNav.groupWorld"); }, items: [
+    { get label() { return t("shell.serverNav.players"); }, to: "admin/players" },
+    { get label() { return t("shell.serverNav.map"); }, to: "admin/map" },
+    { get label() { return t("shell.serverNav.zones"); }, to: "admin/zones" },
+    { get label() { return t("shell.serverNav.spawn"); }, to: "admin/spawn" },
+    { get label() { return t("shell.serverNav.creatures"); }, to: "admin/creatures" },
+    { get label() { return t("shell.serverNav.combat"); }, to: "admin/combat" },
+    { get label() { return t("shell.serverNav.world"); }, to: "admin/world" },
   ] },
-  { group: "Data", items: [
-    { label: "Items", to: "admin/items" },
-    { label: "Game data", to: "admin/gamedata" },
-    { label: "Content", to: "admin/content" },
-    { label: "Permissions", to: "admin/permissions" },
+  { get group() { return t("shell.serverNav.groupData"); }, items: [
+    { get label() { return t("shell.serverNav.items"); }, to: "admin/items" },
+    { get label() { return t("shell.serverNav.gameData"); }, to: "admin/gamedata" },
+    { get label() { return t("shell.serverNav.content"); }, to: "admin/content" },
+    { get label() { return t("shell.serverNav.permissions"); }, to: "admin/permissions" },
   ] },
-  { group: "Files", items: [
-    { label: "Settings", to: "settings" },
-    { label: "Configs", to: "configs" },
-    { label: "Mods", to: "mods" },
-    { label: "Backups", to: "backups" },
-    { label: "Saves", to: "admin/saves" },
-    { label: "Modpack", to: "modpack" },
-    { label: "Crashes", to: "admin/crashes" },
+  { get group() { return t("shell.serverNav.groupFiles"); }, items: [
+    { get label() { return t("shell.serverNav.settings"); }, to: "settings" },
+    { get label() { return t("shell.serverNav.configs"); }, to: "configs" },
+    { get label() { return t("shell.serverNav.mods"); }, to: "mods" },
+    { get label() { return t("shell.serverNav.backups"); }, to: "backups" },
+    { get label() { return t("shell.serverNav.saves"); }, to: "admin/saves" },
+    { get label() { return t("shell.serverNav.modpack"); }, to: "modpack" },
+    { get label() { return t("shell.serverNav.crashes"); }, to: "admin/crashes" },
   ] },
 ];
 

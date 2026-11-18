@@ -482,6 +482,123 @@ pub struct TickStat {
     /// Since 0.2.0-dev.29: the window's worst step (Pre + step + Post) broken down.
     #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
     pub worst: Option<WorstStep>,
+    /// Issue #49 (T4): the kiln.tasks window (per-owner task counters, tick-hop apply, refused hops). Absent when the
+    /// pool does not exist, and None here when the section does not read; the rest of the line still does.
+    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    pub tasks: Option<TasksSection>,
+}
+
+/// `tasks.window` (T4): which diagnostics window a line carries, so a reader can avoid counting one window twice
+/// when several worlds write a line for it.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct TasksWindow {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_ms: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub age_ms: Option<f64>,
+}
+
+/// `tasks.pool` (T4).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct TasksPool {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workers: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub long_running: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queue_max: Option<u64>,
+}
+
+/// A `current`/`max` gauge of a task owner (T4).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct TaskGauge {
+    #[serde(default)]
+    pub current: u64,
+    #[serde(default)]
+    pub max: u64,
+}
+
+/// One owner's task numbers in a window (T4): `cpu_ms` is executing-thread time of its segments (awaiting IO is
+/// excluded), `wall_ms` the sum of segment wall times, `longest_ms` its longest segment.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct TaskOwner {
+    #[serde(default)]
+    pub owner: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queued: Option<TaskGauge>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub running: Option<TaskGauge>,
+    #[serde(default)]
+    pub completed: u64,
+    #[serde(default)]
+    pub faulted: u64,
+    #[serde(default)]
+    pub cancelled: u64,
+    #[serde(default)]
+    pub cpu_ms: f64,
+    #[serde(default)]
+    pub wall_ms: f64,
+    #[serde(default)]
+    pub longest_ms: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub longest_name: Option<String>,
+    #[serde(default)]
+    pub queued_too_long: u64,
+    #[serde(default)]
+    pub running_too_long: u64,
+    #[serde(default)]
+    pub queue_full: u64,
+    #[serde(default)]
+    pub unload_blocked: u64,
+}
+
+/// `tasks.apply` (T4): the tick hops dispatched in the window; `deferred` waited for a later step, `ms` is the time
+/// spent dispatching them.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct TaskApply {
+    #[serde(default)]
+    pub applied: u64,
+    #[serde(default)]
+    pub deferred: u64,
+    #[serde(default)]
+    pub cancelled: u64,
+    #[serde(default)]
+    pub ms: f64,
+    #[serde(default)]
+    pub owner_budget_stops: u64,
+    #[serde(default)]
+    pub step_budget_stops: u64,
+    #[serde(default)]
+    pub owners_served: u64,
+    #[serde(default)]
+    pub backlog: u64,
+}
+
+/// `tasks.hops` (T4).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct TaskHops {
+    #[serde(default)]
+    pub refused: u64,
+}
+
+/// The `tasks` section of a tick-stats line (T4, issue #49), as the before/after report (`tick_compare`) reads it.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct TasksSection {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window: Option<TasksWindow>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pool: Option<TasksPool>,
+    #[serde(default)]
+    pub owners: Vec<TaskOwner>,
+    /// The native writer emits `"owners_truncated":true` only when owner rows were capped (`tasks_stats.cpp`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owners_truncated: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub apply: Option<TaskApply>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hops: Option<TaskHops>,
 }
 
 /// A timed part of a tick-stats window: its longest call, the sum, the calls over 50 ms (and p50/p99 for the job wait).
@@ -769,6 +886,23 @@ mod tests {
         assert_eq!(odd.steps, 3);
         assert!(odd.post_parts.is_none() && odd.worst.is_none());
         assert_eq!(odd.pre_parts.as_ref().map(|p| p.subs[0].max), Some(2.0));
+
+        // issue #49: the tasks object, when the pool wrote one; the old line above has none
+        assert!(old.tasks.is_none());
+        let with_tasks = &tick_stats(r#"{"time":"t","steps":3,"tasks":{"window":{"id":7,"span_ms":60000.0,"age_ms":3.0},"pool":{"workers":3,"long_running":1,"queue_max":12},"owners":[{"owner":"kiln-auto-loot","queued":{"current":0,"max":4},"running":{"current":1,"max":2},"completed":120,"faulted":0,"cancelled":2,"cpu_ms":830.5,"wall_ms":910.2,"longest_ms":44.1,"longest_name":"loot-scan","queued_too_long":0,"running_too_long":0,"queue_full":0,"unload_blocked":0}],"apply":{"applied":96,"deferred":3,"cancelled":0,"ms":4.2,"owner_budget_stops":1,"step_budget_stops":0,"owners_served":1,"backlog":0},"hops":{"refused":0}}}"#)[0];
+        let tasks = with_tasks.tasks.as_ref().expect("tasks");
+        let (window, pool) = (tasks.window.as_ref().expect("window"), tasks.pool.as_ref().expect("pool"));
+        assert_eq!((window.id, window.span_ms, pool.queue_max), (Some(7), Some(60000.0), Some(12)));
+        assert_eq!((tasks.owners[0].owner.as_str(), tasks.owners[0].completed, tasks.owners[0].cpu_ms, tasks.owners[0].longest_name.as_deref()),
+            ("kiln-auto-loot", 120, 830.5, Some("loot-scan")));
+        let (apply, hops) = (tasks.apply.as_ref().expect("apply"), tasks.hops.as_ref().expect("hops"));
+        assert_eq!((apply.applied, apply.ms, hops.refused), (96, 4.2, 0));
+        assert_eq!(tasks.owners_truncated, None);
+        let again: TickStat = serde_json::from_str(&serde_json::to_string(with_tasks).unwrap()).unwrap();
+        assert_eq!(&again, with_tasks);
+        // the native writer marks capped owner rows with a bool; the section must still read
+        let capped = &tick_stats(r#"{"time":"t","steps":1,"tasks":{"owners":[],"owners_truncated":true}}"#)[0];
+        assert_eq!(capped.tasks.as_ref().and_then(|t| t.owners_truncated), Some(true));
     }
 
     #[test]

@@ -63,7 +63,7 @@
   <ItemGroup>
     <None Include="native/cmake/KilnPlugin.cmake" Pack="true" PackagePath="native/cmake/" />
     <None Include="../../native/cmake/clang-cl-xwin.cmake" Pack="true" PackagePath="native/cmake/" Visible="false" />
-    <None Include="../../native/core/abi/**/*.h" Pack="true" PackagePath="native/include/" Visible="false" />
+    <None Include="../../native/core/abi/**/*.h;../../native/core/abi/**/*.hpp" Pack="true" PackagePath="native/include/" Visible="false" />
   </ItemGroup>
   <!-- Repository mode: a fixed task location the mods' UsingTask can name at evaluation time. -->
   <PropertyGroup>

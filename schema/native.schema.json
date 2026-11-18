@@ -28,7 +28,7 @@
       "minItems": 1,
       "items": { "allOf": [{ "$ref": "common.schema.json#/$defs/relPath" }, { "pattern": "\\.[aA][sS][iI]$" }] },
       "uniqueItems": true,
-      "description": "(dev.30, written by the Library for an Ultimate ASI Loader package) .asi plugins in the folder. Such a mod is placed in the game folder at profile activation and never loaded by kiln-core, so dlls may be empty (it names Ultimate ASI Loader when the package brings it). docs/kiln/engines.md, \"Files in the game folder\"."
+      "description": "(since 0.2.0-dev.29.4, written by the Library for an Ultimate ASI Loader package) .asi plugins in the folder. Such a mod is placed in the game folder at profile activation and never loaded by kiln-core, so dlls may be empty (it names Ultimate ASI Loader when the package brings it). docs/kiln/engines.md, \"Files in the game folder\"."
     },
     "phase": { "enum": ["early", "boot", "world", "dllmain"], "default": "early", "description": "kiln_native.h: early (start of kiln_boot, also in safe idle), boot (after Kiln plugins, no hooks needed), world (first world step, needs hooks), dllmain (loaded by the proxy in DllMain; chain.ini [profile])." },
     "init": {

@@ -4,6 +4,7 @@
 // Types mirror crates/kiln-manage (serde camelCase) and launcher/src-tauri/src/commands/*.rs.
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen as tauriListen } from "@tauri-apps/api/event";
+import { t } from "../i18n";
 import { canFallBack, noteFallback } from "./fallback";
 import { loadMock } from "./mockLoad";
 import { oneActivation, profileSwitched } from "./oneActivation";
@@ -94,6 +95,19 @@ export interface AppInfo {
   distribution?: Distribution;
   /** Linux only: how this start draws the window and whether the next start draws without the GPU (render.rs). */
   render?: RenderInfo;
+  /** Linux AppImage only: the app menu entry Kiln writes so taskbars and docks show its icon (desktop.rs). */
+  desktop?: DesktopInfo;
+}
+/** The AppImage's app menu entry (src-tauri/src/desktop.rs). */
+export interface DesktopInfo {
+  /** The player's choice: on unless turned off in Settings. */
+  on: boolean;
+  /** Kiln's entry is there and starts this AppImage. */
+  installed: boolean;
+  /** A kiln-launcher.desktop Kiln did not write is there; turning the switch on replaces it. */
+  foreign: boolean;
+  /** The entry's path. */
+  file: string;
 }
 /** How the Linux launcher draws its window (src-tauri/src/render.rs). */
 export interface RenderInfo {
@@ -133,6 +147,8 @@ export interface LauncherSettings {
   /** (dev.29) "Earlier versions to keep": how many earlier versions of a mod an update keeps for a roll back, with
    *  their settings (0 to KEEP_MAX; default 1; absent from an older backend). */
   keepVersions?: number;
+  /** The launcher's language (Settings, Language; src/i18n): "system" or absent = the system's, else a tag ("zh-CN"). */
+  language?: string | null;
 }
 /** The most `keepVersions` may be (kiln_manage::kept::KEEP_MAX). */
 export const KEEP_MAX = 5;
@@ -231,6 +247,8 @@ export interface ProxyClass {
   sha256: string | null;
   size: number | null;
   detail: string | null;
+  /** EML: a modified EML loader, with what its own code does (kiln_manage::engines::EmlExtras::what). */
+  modified?: string | null;
 }
 export interface ReceiptFile {
   path: string;
@@ -464,6 +482,10 @@ export interface LibraryVersion {
   /** (dev.29) An earlier version an update replaced, kept for a roll back (kiln_manage::kept::KeptInfo). Kept versions
    *  come after the others in `versions`, so `versions[0]` is never one unless nothing else is left. */
   kept?: KeptInfo | null;
+  /** EML mods: the part of the mod Kiln does not run (kiln_manage::library::ImportRecord::loader_part). Its package
+   *  carried a modified EML loader (a dbghelp.dll with code of its own, such as a hotkey) that Kiln does not load;
+   *  Kiln runs the mod's EML part only. Absent: the whole mod runs. */
+  loaderPart?: string | null;
 }
 export interface KeptInfo {
   /** When it was kept (RFC 3339 UTC). */
@@ -1094,7 +1116,9 @@ export interface ModpackInstallResult {
 export const appInfo = () => call<AppInfo>("app_info");
 export const appSettingsGet = () => call<LauncherSettings>("app_settings_get");
 export const appSettingsSet = (settings: LauncherSettings) => call<LauncherSettings>("app_settings_set", { settings });
-export const appOpenPath = (path: string) => call<null>("app_open_path", { path });
+/** Opens a folder, or shows a file selected in its folder. A relative `path` (a found mod's) is under `base`, the game
+ *  folder: the backend joins and normalises it for Explorer (never `${base}/${path}` here). */
+export const appOpenPath = (path: string, base?: string) => call<null>("app_open_path", { path, base });
 export const appOpenUrl = (url: string) => call<null>("app_open_url", { url });
 export const taskList = () => call<Task[]>("task_list");
 export const taskGet = (taskId: TaskId) => call<Task>("task_get", { taskId });
@@ -1103,6 +1127,16 @@ export const taskCancel = (taskId: TaskId) => call<null>("task_cancel", { taskId
 export const appStarted = () => call<null>("app_started");
 /** Settings, "Draw the launcher without the GPU": sets or clears the marker for the next start (Linux). */
 export const appRenderSet = (software: boolean) => call<RenderInfo>("app_render_set", { software });
+/** Settings, "Kiln Launcher in the app menu" (Linux AppImage): writes or removes the entry and its icons. */
+export const appDesktopSet = (on: boolean) => call<DesktopInfo>("app_desktop_set", { on });
+/** Translation files a player put in the data folder's `locales/` (docs/kiln/translating.md): `<tag>.json` each, read
+ *  at the start and on Settings' reload. `dir` is the folder (it need not exist). */
+export interface LocaleFiles {
+  dir: string;
+  files: { tag: string; text: string }[];
+  errors: { file: string; message: string }[];
+}
+export const appLocales = () => call<LocaleFiles>("app_locales");
 /** Local game assets for the save editor and the admin map (`kiln-asset` protocol roots). */
 export interface AssetsStatus {
   root: string;
@@ -1206,7 +1240,7 @@ export interface BeforeBeta {
  *  an updater command in the Nexus build. Failure to read the distribution also fails closed. */
 async function selfUpdateCall<T>(cmd: string, args: Record<string, unknown> = {}): Promise<T> {
   const info = await appInfo();
-  if ((info.distribution ?? "direct") !== "direct") throw { code: "unsupported", message: "Self-update is disabled in this build" } satisfies KilnError;
+  if ((info.distribution ?? "direct") !== "direct") throw { code: "unsupported", message: t("api.commands.selfUpdateDisabled") } satisfies KilnError;
   return call<T>(cmd, args);
 }
 export const updateStatus = () => selfUpdateCall<UpdateStatus>("update_status");
@@ -1988,6 +2022,8 @@ export const COMMANDS = [
   "data_folder_notice_ack", "data_folder_restart",
   "app_started", "app_render_set",
   "updates_check",
+  "app_desktop_set",
+  "app_locales",
 ] as const;
 export type CommandName = (typeof COMMANDS)[number];
 

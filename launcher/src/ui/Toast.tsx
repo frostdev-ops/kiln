@@ -11,6 +11,7 @@ import { X } from "lucide-react";
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { create } from "zustand";
 import { toKilnError, type PlacementCleanup } from "../api/commands";
+import { t, useT } from "../i18n";
 
 export type ToastKind = "ok" | "err" | "info";
 export interface ToastAction {
@@ -59,15 +60,16 @@ const MAX_PERSISTENT = 8;
 /** A title or detail as text, when it is plain text (only those can be compared; anything else is never "the same"). */
 const plain = (n: ReactNode): string | null => (n == null || n === false ? "" : typeof n === "string" || typeof n === "number" ? String(n) : null);
 const same = (a: Pick<ToastItem, "kind" | "title" | "detail">, b: Pick<ToastItem, "kind" | "title" | "detail">) => {
-  const t = plain(a.title);
+  const ti = plain(a.title);
   const d = plain(a.detail);
-  return a.kind === b.kind && t !== null && d !== null && t === plain(b.title) && d === plain(b.detail);
+  return a.kind === b.kind && ti !== null && d !== null && ti === plain(b.title) && d === plain(b.detail);
 };
 
-const times = (i: ToastItem) => ((i.count ?? 1) > 1 ? ` (${i.count} times)` : "");
+const times = (i: ToastItem) => ((i.count ?? 1) > 1 ? t("ui.toast.times", { count: i.count }) : "");
 
 /** The folded notices, each with its title, detail and buttons. */
 function Earlier({ items }: { items: ToastItem[] }) {
+  useT();
   return (
     <>
       {items.map((i) => (
@@ -89,7 +91,7 @@ function Earlier({ items }: { items: ToastItem[] }) {
 
 const fold = (folded: ToastItem[], id: number): ToastItem => ({
   id, kind: folded.some((i) => i.kind === "err") ? "err" : "info", persistent: true, folded,
-  title: `${folded.length} earlier notice${folded.length === 1 ? "" : "s"}`, detail: <Earlier items={folded} />,
+  title: t("ui.toast.earlier", { count: folded.length }), detail: <Earlier items={folded} />,
 });
 
 /** `items` without the notices `drop` matches, top level or folded (a fold left empty goes); `found`: what went. */
@@ -113,19 +115,19 @@ function without(items: ToastItem[], drop: (i: ToastItem) => boolean, found: Toa
 let seq = 0;
 export const useToasts = create<ToastStore>((set, get) => ({
   items: [],
-  push: (t, ms) => {
+  push: (next, ms) => {
     const id = ++seq;
-    const life = ms ?? (t.kind === "err" ? 0 : t.actions?.length ? 8000 : 2600);
+    const life = ms ?? (next.kind === "err" ? 0 : next.actions?.length ? 8000 : 2600);
     const persistent = life === 0;
     // the same persistent notice again: one copy, the newest, that counts how often it came
     const repeats: ToastItem[] = [];
-    let items = persistent ? without(get().items, (i) => !!i.persistent && !i.folded && same(i, t), repeats) : get().items;
+    let items = persistent ? without(get().items, (i) => !!i.persistent && !i.folded && same(i, next), repeats) : get().items;
     const count = repeats.reduce((n, i) => n + (i.count ?? 1), 1);
     // the new copy takes in what the ones it replaces would have done when closed, and what they said
-    const closers = [...repeats.map((r) => r.onClosed), t.onClosed].filter((f): f is () => void => !!f);
-    const lines = [...new Set([...repeats.flatMap((r) => r.lines ?? []), ...(t.lines ?? [])])];
+    const closers = [...repeats.map((r) => r.onClosed), next.onClosed].filter((f): f is () => void => !!f);
+    const lines = [...new Set([...repeats.flatMap((r) => r.lines ?? []), ...(next.lines ?? [])])];
     const merged = { onClosed: closers.length ? () => closers.forEach((f) => f()) : undefined, lines: lines.length ? lines : undefined };
-    items = [...items, { ...t, ...merged, id, persistent, ...(count > 1 ? { count } : {}) }];
+    items = [...items, { ...next, ...merged, id, persistent, ...(count > 1 ? { count } : {}) }];
     // at most MAX_PERSISTENT persistent entries: the oldest fold into one, whose text keeps all of theirs
     const old = items.find((i) => i.folded);
     const loose = items.filter((i) => i.persistent && !i.folded);
@@ -143,13 +145,13 @@ export const useToasts = create<ToastStore>((set, get) => ({
   close: (id) => {
     const found: ToastItem[] = [];
     set({ items: without(get().items, (i) => i.id === id, found) });
-    for (const f of found) for (const t of [f, ...(f.folded ?? [])]) t.onClosed?.();
+    for (const f of found) for (const n of [f, ...(f.folded ?? [])]) n.onClosed?.();
   },
 }));
 
 /** The keys (ToastItem.lines) of every notice open now, folded ones too. */
 export function openLines(): Set<string> {
-  return new Set(useToasts.getState().items.flatMap((i) => [i, ...(i.folded ?? [])]).flatMap((t) => t.lines ?? []));
+  return new Set(useToasts.getState().items.flatMap((i) => [i, ...(i.folded ?? [])]).flatMap((n) => n.lines ?? []));
 }
 
 /** Imperative toasts. `error` takes anything a command rejects with (KilnError) and shows its message. */
@@ -167,15 +169,16 @@ export const toast = {
  * until dismissed (also available in the uninstall task's structured result). */
 export function notifyPlacementCleanup(report: PlacementCleanup | null | undefined) {
   // what the mods wrote into the copies that went is kept, and the player is told where (the backend's sentences)
-  if (report?.keptFiles?.length) toast.info("Files your mods wrote were kept", report.keptFiles.join(" "), { ms: 0 });
+  if (report?.keptFiles?.length) toast.info(t("ui.toast.keptFiles"), report.keptFiles.join(" "), { ms: 0 });
   if (!report?.retained.length) return;
   const detail = report.retained.map((r) => `${r.path}: ${r.reason}`).join("; ");
-  toast.info("Some mod folders were kept", `${detail}. These mods may still run through Kiln or another loader. With the game closed, review or move the listed folders to stop them; your settings have not been deleted.`, { ms: 0 });
+  toast.info(t("ui.toast.keptFolders"), t("ui.toast.keptFoldersDetail", { detail }), { ms: 0 });
 }
 
 /** A toast's detail: its first lines (ui.css caps the height), and "Show all" when there is more, which opens all
  *  of it (scrolling inside the toast when even that is long). */
 function Detail({ children }: { children: ReactNode }) {
+  const t = useT();
   const ref = useRef<HTMLDivElement>(null);
   const [long, setLong] = useState(false);
   const [open, setOpen] = useState(false);
@@ -187,13 +190,14 @@ function Detail({ children }: { children: ReactNode }) {
     <>
       <div ref={ref} className="k-toast-detail" data-open={open ? "" : undefined} data-cut={long && !open ? "" : undefined}>{children}</div>
       {(long || open) && (
-        <button type="button" className="k-link k-toast-more" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? "Show less" : "Show all"}</button>
+        <button type="button" className="k-link k-toast-more" aria-expanded={open} onClick={() => setOpen(!open)}>{open ? t("ui.toast.showLess") : t("ui.toast.showAll")}</button>
       )}
     </>
   );
 }
 
 export function Toaster() {
+  const t = useT();
   const { items, close } = useToasts();
   // the newest is at the bottom: keep it in view when the stack is taller than the window
   const box = useRef<HTMLDivElement>(null);
@@ -203,20 +207,20 @@ export function Toaster() {
   }, [newest]);
   return (
     <div ref={box} className="k-toasts" aria-live="polite">
-      {items.map((t) => (
-        <div key={t.id} className={`k-toast k-toast-${t.kind}`} role={t.kind === "err" ? "alert" : "status"}>
+      {items.map((item) => (
+        <div key={item.id} className={`k-toast k-toast-${item.kind}`} role={item.kind === "err" ? "alert" : "status"}>
           <div className="k-toast-body">
-            <div className="k-toast-title">{t.title}{times(t)}</div>
-            {t.detail && <Detail>{t.detail}</Detail>}
+            <div className="k-toast-title">{item.title}{times(item)}</div>
+            {item.detail && <Detail>{item.detail}</Detail>}
           </div>
-          {!!t.actions?.length && (
+          {!!item.actions?.length && (
             <div className="k-toast-actions">
-              {t.actions.map((a) => (
-                <button key={a.label} type="button" className="k-btn k-btn-s" onClick={() => { close(t.id); a.onClick(); }}>{a.label}</button>
+              {item.actions.map((a) => (
+                <button key={a.label} type="button" className="k-btn k-btn-s" onClick={() => { close(item.id); a.onClick(); }}>{a.label}</button>
               ))}
             </div>
           )}
-          <button type="button" className="k-toast-close" aria-label="Dismiss" title="Dismiss" onClick={() => close(t.id)}><X size={14} /></button>
+          <button type="button" className="k-toast-close" aria-label={t("common.dismiss")} title={t("common.dismiss")} onClick={() => close(item.id)}><X size={14} /></button>
         </div>
       ))}
     </div>

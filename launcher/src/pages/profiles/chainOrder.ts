@@ -2,6 +2,7 @@
 // target late). Backend: kiln_manage::compat (RuleResult.early/warning, ChainViewEntry.earlyBy/lateBy). Pure, so the
 // unit tests (unit/chain-order.test.ts) hold the sentences a player reads.
 import type { ChainViewEntry, CompatRuleResult } from "../../api/commands";
+import { t } from "../../i18n";
 
 const file = (p: string) => p.split(/[\\/]/).pop() ?? p;
 const ruleId = (by: string | null | undefined) => (by?.startsWith("rule:") ? by.slice(5) : null);
@@ -12,7 +13,7 @@ export function orderSentence(r: CompatRuleResult): string {
   const said = r.message.trim();
   if (said) return said;
   const names = (v: string[] | undefined) => (v ?? []).map(file).join(", ");
-  return `${names(r.targets)} loads after Kiln and ShroudForge so that ${names(r.early)} loads first (compat rule ${r.id}).`;
+  return t("profiles.chain.orderSentence", { targets: names(r.targets), early: names(r.early), id: r.id });
 }
 
 export interface EntryOrder {
@@ -33,7 +34,7 @@ export function entryOrder(e: ChainViewEntry, rules: CompatRuleResult[]): EntryO
   const rule = id ? rules.find((r) => r.id === id && r.action === "before" && r.applied) : undefined;
   if (!rule) return null;
   const first = early === rule.id;
-  return { rule, first, text: orderSentence(rule), hint: first ? `Loads first: rule ${rule.id}` : `Loads late: rule ${rule.id}` };
+  return { rule, first, text: orderSentence(rule), hint: first ? t("profiles.chain.loadsFirstRule", { id: rule.id }) : t("profiles.chain.loadsLateRule", { id: rule.id }) };
 }
 
 /** The `before` rules that fired but could not order their DLLs (nothing was moved), as warnings. */
@@ -44,5 +45,5 @@ export function orderWarnings(rules: CompatRuleResult[]): { id: string; text: st
 /** A `before` rule's two sides in the rules list: "dinput8.dll before xinput9_1_0.dll". */
 export function orderSides(r: CompatRuleResult): string | null {
   if (r.action !== "before" || !r.early?.length || !r.targets.length) return null;
-  return `${r.early.map(file).join(", ")} before ${r.targets.map(file).join(", ")}`;
+  return t("profiles.chain.sides", { early: r.early.map(file).join(", "), targets: r.targets.map(file).join(", ") });
 }

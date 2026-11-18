@@ -13,6 +13,7 @@ import type { CatalogFilter, CatalogMod, CatalogSort } from "../api/nexus";
 import { offered, useCatalogInstall, useNexusAccount, useReportToast } from "../shell/catalogInstall";
 import { checkModUpdates, openUpdatePage, useModUpdates } from "../shell/modUpdates";
 import { hasUpdate, pageOf } from "../api/updates";
+import { t, useT } from "../i18n";
 import { Badge, Banner, Button, EmptyState, KeyValue, Modal, Page, PageHeader, Segmented, Select, Skeleton, WellInput, errorText, fmtAgo, toast, type Tone } from "../ui";
 import "./catalog.css";
 
@@ -20,12 +21,16 @@ const TYPE_TONE: Record<nx.ModType, Tone> = { kiln: "ember", native: "info", emf
 const PAGE = 24;
 
 export function stateWord(m: CatalogMod): { word: string; tone: Tone } | null {
-  if (m.installed?.updateAvailable) return { word: `Update ${m.installed.latestVersion ?? ""}`.trim(), tone: "warn" };
-  if (m.installed?.inLibrary) return { word: "Installed", tone: "ok" };
+  if (m.installed?.updateAvailable) {
+    const v = (m.installed.latestVersion ?? "").trim();
+    return { word: v ? t("catalog.updateTo", { version: v }) : t("common.update"), tone: "warn" };
+  }
+  if (m.installed?.inLibrary) return { word: t("catalog.installed"), tone: "ok" };
   return null;
 }
 
 export default function CatalogPage() {
+  const t = useT();
   const qc = useQueryClient();
   const nav = useNavigate();
   const [params, setParams] = useSearchParams();
@@ -38,7 +43,7 @@ export default function CatalogPage() {
   const open = params.get("mod");
   const setOpen = (id: string | null) => setParams(id ? { mod: id } : {}, { replace: !id });
 
-  useEffect(() => { const t = setTimeout(() => { setText(typed); setPage(1); }, 250); return () => clearTimeout(t); }, [typed]);
+  useEffect(() => { const timer = setTimeout(() => { setText(typed); setPage(1); }, 250); return () => clearTimeout(timer); }, [typed]);
   const query = useMemo(() => ({ text, filter, sort, page, pageSize: PAGE }), [text, filter, sort, page]);
   const list = useQuery({ queryKey: nx.nk.search(query), queryFn: () => nx.nexusSearch(query), retry: false, placeholderData: (p) => p });
   // the mods installed from the catalog (their count and the Installed filter)
@@ -52,8 +57,8 @@ export default function CatalogPage() {
   const unchecked = list.data?.unchecked ?? 0;
   useEffect(() => {
     if (!unchecked || list.isFetching) return;
-    const t = setTimeout(() => list.refetch(), 400);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => list.refetch(), 400);
+    return () => clearTimeout(timer);
   }, [unchecked, list.isFetching]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const refresh = async () => {
@@ -62,7 +67,7 @@ export default function CatalogPage() {
       qc.invalidateQueries({ queryKey: ["nexus_search"] });
       qc.invalidateQueries({ queryKey: nx.nk.installed });
       void checkModUpdates(qc, { refresh: true, providers: ["nexus"] }).catch(() => {});
-    } catch (e) { toast.error(e, "Nexus Mods did not answer"); }
+    } catch (e) { toast.error(e, t("catalog.noAnswer")); }
   };
 
   const acc = account.data;
@@ -70,57 +75,61 @@ export default function CatalogPage() {
   const updates = (modUpdates.data?.mods ?? []).filter((m) => m.source?.provider === "nexus" && hasUpdate(m));
   const p = list.data;
   const pages = p ? Math.max(1, Math.ceil(p.total / p.pageSize)) : 1;
-  const say = list.isLoading ? "Asking Nexus Mods." : list.error ? errorText(list.error)
-    : p?.needsSignIn ? "Sign in to Nexus Mods to find Kiln mods."
-    : p ? `${p.total} ${filter === "kiln" ? "Kiln mod" : filter === "installed" ? "installed mod" : "Enshrouded mod"}${p.total === 1 ? "" : "s"} on Nexus Mods.${unchecked ? ` Looking at ${unchecked} more.` : ""}` : "";
+  const total = !p ? "" : filter === "kiln" ? t("catalog.countKiln", { count: p.total }) : filter === "installed" ? t("catalog.countInstalled", { count: p.total }) : t("catalog.countAll", { count: p.total });
+  const say = list.isLoading ? t("catalog.asking") : list.error ? errorText(list.error)
+    : p?.needsSignIn ? t("catalog.signInToFind")
+    : p ? (unchecked ? `${total} ${t("catalog.lookingMore", { count: unchecked })}` : total) : "";
 
   return (
     <Page fill>
-      <PageHeader title="Catalog" sub={say} actions={<>
-        <Button icon={<RefreshCw />} loading={list.isFetching && !list.isLoading} onClick={refresh}>Refresh</Button>
+      <PageHeader title={t("catalog.title")} sub={say} actions={<>
+        <Button icon={<RefreshCw />} loading={list.isFetching && !list.isLoading} onClick={refresh}>{t("common.refresh")}</Button>
         <Button variant="ghost" icon={<ExternalLink />} onClick={() => void api.appOpenUrl("https://www.nexusmods.com/games/enshrouded/mods").catch((e) => toast.error(e))}>Nexus Mods</Button>
       </>} />
 
       {acc && !acc.signedIn && (
-        <Banner tone="info" title="Sign in to Nexus Mods" actions={<Button size="s" onClick={() => nav("/settings#nexus")}>Settings</Button>}>
-          Connect your account to find Kiln mods and download them.
+        <Banner tone="info" title={t("catalog.signIn")} actions={<Button size="s" onClick={() => nav("/settings#nexus")}>{t("catalog.settings")}</Button>}>
+          {t("catalog.connect")}
         </Banner>
       )}
-      {acc?.error && <Banner tone="warn" title={acc.error.code === "auth_failed" ? "Sign in to Nexus Mods again" : "Nexus Mods could not check your account"} actions={<Button size="s" onClick={() => nav("/settings#nexus")}>Settings</Button>}>{acc.error.message}</Banner>}
+      {acc?.error && <Banner tone="warn" title={acc.error.code === "auth_failed" ? t("catalog.signInAgain") : t("catalog.accountCheckFailed")} actions={<Button size="s" onClick={() => nav("/settings#nexus")}>{t("catalog.settings")}</Button>}>{acc.error.message}</Banner>}
       {updates.length > 0 && (
-        <Banner tone="warn" title={updates.length === 1 ? `Update ready: ${updates[0].name}` : `${updates.length} updates ready`}
+        <Banner tone="warn" title={updates.length === 1 ? t("catalog.updateReady", { name: updates[0].name }) : t("catalog.updatesReady", { count: updates.length })}
           actions={<>
-            {updates.length === 1 && pageOf(updates[0]) && <Button size="s" variant="ghost" icon={<ExternalLink />} onClick={() => openUpdatePage(updates[0])}>Open page</Button>}
-            <Button size="s" onClick={() => { setFilter("installed"); setPage(1); }}>Show</Button>
+            {updates.length === 1 && pageOf(updates[0]) && <Button size="s" variant="ghost" icon={<ExternalLink />} onClick={() => openUpdatePage(updates[0])}>{t("catalog.openPage")}</Button>}
+            <Button size="s" onClick={() => { setFilter("installed"); setPage(1); }}>{t("common.show")}</Button>
           </>}>
-          {updates.map((u) => `${u.name} ${u.installedVersion} → ${u.candidateVersion ?? "a new upload"}${u.stale ? " (not confirmed lately)" : ""}`).join(" · ")}
+          {updates.map((u) => {
+            const a = { name: u.name, from: u.installedVersion, to: u.candidateVersion ?? t("catalog.newUpload") };
+            return u.stale ? t("catalog.updateLineStale", a) : t("catalog.updateLine", a);
+          }).join(" · ")}
         </Banner>
       )}
 
       <div className="k-row" style={{ gap: "8px 20px", flexWrap: "wrap" }}>
-        <Segmented aria-label="Show" value={filter} onChange={(f) => { setFilter(f); setPage(1); }} options={[
-          { id: "kiln", label: "Kiln mods" }, { id: "all", label: "All Enshrouded" }, { id: "installed", label: `Installed${installed.data?.length ? ` (${installed.data.length})` : ""}` },
+        <Segmented aria-label={t("catalog.showLabel")} value={filter} onChange={(f) => { setFilter(f); setPage(1); }} options={[
+          { id: "kiln", label: t("catalog.filterKiln") }, { id: "all", label: t("catalog.filterAll") }, { id: "installed", label: installed.data?.length ? t("catalog.filterInstalledCount", { count: installed.data.length }) : t("catalog.installed") },
         ]} />
-        <Select aria-label="Sort" value={sort} onChange={(v) => { setSort(v as CatalogSort); setPage(1); }} style={{ width: 170 }} options={[
-          { value: "endorsements", label: "Most endorsed" }, { value: "updated", label: "Recently updated" }, { value: "new", label: "Newest" },
-          { value: "downloads", label: "Most downloaded" }, { value: "name", label: "Name" },
+        <Select aria-label={t("catalog.sort")} value={sort} onChange={(v) => { setSort(v as CatalogSort); setPage(1); }} style={{ width: 170 }} options={[
+          { value: "endorsements", label: t("catalog.sortEndorsed") }, { value: "updated", label: t("catalog.sortUpdated") }, { value: "new", label: t("catalog.sortNew") },
+          { value: "downloads", label: t("catalog.sortDownloads") }, { value: "name", label: t("catalog.sortName") },
         ]} />
-        <WellInput label="Search" compact value={typed} onChange={(e) => setTyped(e.target.value)} onClear={() => setTyped("")} wellStyle={{ flex: "1 1 180px", marginLeft: "auto" }} />
+        <WellInput label={t("catalog.search")} compact value={typed} onChange={(e) => setTyped(e.target.value)} onClear={() => setTyped("")} wellStyle={{ flex: "1 1 180px", marginLeft: "auto" }} />
       </div>
 
-      {list.isLoading ? <Skeleton lines={6} /> : list.error ? <EmptyState title="Nexus Mods did not answer" hint={errorText(list.error)} action={<Button onClick={() => list.refetch()}>Try again</Button>} />
-        : p?.needsSignIn ? <EmptyState title="Sign in to find Kiln mods" hint="Every Enshrouded mod is under All Enshrouded." action={<Button onClick={() => setFilter("all")}>Show all</Button>} />
-        : !p?.mods.length ? <EmptyState title={text ? "No mod matches that." : filter === "installed" ? "Nothing installed from Nexus Mods yet." : unchecked ? "Looking for Kiln mods…" : "No mods here yet."} />
+      {list.isLoading ? <Skeleton lines={6} /> : list.error ? <EmptyState title={t("catalog.noAnswer")} hint={errorText(list.error)} action={<Button onClick={() => list.refetch()}>{t("catalog.tryAgain")}</Button>} />
+        : p?.needsSignIn ? <EmptyState title={t("catalog.signInShort")} hint={t("catalog.signInShortHint")} action={<Button onClick={() => setFilter("all")}>{t("catalog.showAll")}</Button>} />
+        : !p?.mods.length ? <EmptyState title={text ? t("catalog.noMatch") : filter === "installed" ? t("catalog.noneInstalled") : unchecked ? t("catalog.looking") : t("catalog.noMods")} />
         : (
-          <div className="k-cat-grid" role="list" aria-label="Mods">
+          <div className="k-cat-grid" role="list" aria-label={t("catalog.mods")}>
             {p.mods.map((m) => <ModCard key={m.id} m={m} onOpen={() => setOpen(m.id)} />)}
           </div>
         )}
       {p && pages > 1 && (
         <div className="k-row" style={{ justifyContent: "center", gap: 12 }}>
-          <Button size="s" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</Button>
-          <span className="k-muted">Page {page} of {pages}</span>
-          <Button size="s" disabled={page >= pages} onClick={() => setPage(page + 1)}>Next</Button>
+          <Button size="s" disabled={page <= 1} onClick={() => setPage(page - 1)}>{t("catalog.previous")}</Button>
+          <span className="k-muted">{t("catalog.page", { page, pages })}</span>
+          <Button size="s" disabled={page >= pages} onClick={() => setPage(page + 1)}>{t("catalog.next")}</Button>
         </div>
       )}
       {open && <DetailsModal id={open} onClose={() => setOpen(null)} />}
@@ -129,6 +138,7 @@ export default function CatalogPage() {
 }
 
 function ModCard({ m, onOpen }: { m: CatalogMod; onOpen: () => void }) {
+  const t = useT();
   const s = stateWord(m);
   return (
     <button type="button" role="listitem" className="k-cat-card" onClick={onOpen} aria-label={m.name} data-mod={m.id}>
@@ -138,8 +148,8 @@ function ModCard({ m, onOpen }: { m: CatalogMod; onOpen: () => void }) {
         <span className="k-cat-by">{m.author}{m.version ? ` · ${m.version}` : ""}</span>
         <span className="k-cat-sum">{m.summary}</span>
         <span className="k-cat-foot">
-          <span className="k-cat-stat" title="Endorsements"><Heart size={14} />{nx.count(m.endorsements)}</span>
-          <span className="k-cat-stat" title="Downloads"><Download size={14} />{nx.count(m.downloads)}</span>
+          <span className="k-cat-stat" title={t("catalog.endorsements")}><Heart size={14} />{nx.count(m.endorsements)}</span>
+          <span className="k-cat-stat" title={t("catalog.downloads")}><Download size={14} />{nx.count(m.downloads)}</span>
           <span className="k-cat-badges">
             {m.kind && m.kind !== "other" && <Badge tone={TYPE_TONE[m.kind]}>{nx.TYPE_WORD[m.kind]}</Badge>}
             {s && <Badge tone={s.tone}>{s.word}</Badge>}
@@ -151,6 +161,7 @@ function ModCard({ m, onOpen }: { m: CatalogMod; onOpen: () => void }) {
 }
 
 function DetailsModal({ id, onClose }: { id: string; onClose: () => void }) {
+  const t = useT();
   const account = useNexusAccount();
   const d = useQuery({ queryKey: nx.nk.mod(id), queryFn: () => nx.nexusMod(id), retry: false });
   const { add } = useCatalogInstall();
@@ -170,17 +181,18 @@ function DetailsModal({ id, onClose }: { id: string; onClose: () => void }) {
     try {
       const r = await add(m, m.bestFile, acc, m.filesUrl);
       if (r.kind === "added") { showReport(r.report, update); if (!offered(r.report).length) onClose(); }
-      else if (r.kind === "opened") toast.info("Opened on Nexus Mods", "Click Mod Manager Download there.");
+      else if (r.kind === "opened") toast.info(t("catalog.opened"), t("catalog.openedDetail"));
     } finally { setBusy(false); }
   };
-  const label = !acc?.premium ? (update ? "Update on Nexus Mods" : "Download on Nexus Mods") : update ? `Update to ${m?.installed?.latestVersion ?? m?.bestFile?.version ?? ""}`.trim() : installedNow ? "Add again" : "Add";
+  const to = (m?.installed?.latestVersion ?? m?.bestFile?.version ?? "").trim();
+  const label = !acc?.premium ? (update ? t("catalog.updateOnNexus") : t("catalog.downloadOnNexus")) : update ? (to ? t("catalog.updateToVersion", { version: to }) : t("catalog.updateToPlain")) : installedNow ? t("catalog.addAgain") : t("common.add");
 
   return (
-    <Modal open onClose={onClose} width={780} locked={busy} title={m?.name ?? "Mod"} footer={<>
-      <Button variant="ghost" icon={<ExternalLink />} onClick={() => void api.appOpenUrl(m?.url ?? `https://www.nexusmods.com/enshrouded/mods/${id}`).catch((e) => toast.error(e))}>Open on Nexus Mods</Button>
+    <Modal open onClose={onClose} width={780} locked={busy} title={m?.name ?? t("catalog.mod")} footer={<>
+      <Button variant="ghost" icon={<ExternalLink />} onClick={() => void api.appOpenUrl(m?.url ?? `https://www.nexusmods.com/enshrouded/mods/${id}`).catch((e) => toast.error(e))}>{t("catalog.openOnNexus")}</Button>
       {!isKiln && m && <Button variant="primary" loading={busy} disabled={!acc?.signedIn || (!m.bestFile && !!acc?.premium)} onClick={go}>{label}</Button>}
     </>}>
-      {d.isLoading ? <Skeleton lines={8} /> : d.error ? <EmptyState title="Not available" hint={errorText(d.error)} /> : m && (
+      {d.isLoading ? <Skeleton lines={8} /> : d.error ? <EmptyState title={t("catalog.notAvailable")} hint={errorText(d.error)} /> : m && (
         <div className="k-cat-detail">
           {m.images.length > 0 && (
             <div className="k-cat-gallery">
@@ -188,7 +200,7 @@ function DetailsModal({ id, onClose }: { id: string; onClose: () => void }) {
               {m.images.length > 1 && (
                 <div className="k-cat-thumbs">
                   {m.images.slice(0, 8).map((x, i) => (
-                    <button key={x.url + i} type="button" className={i === img ? "on" : ""} onClick={() => setImg(i)} aria-label={`Picture ${i + 1}`}><img src={x.thumb ?? x.url} alt="" /></button>
+                    <button key={x.url + i} type="button" className={i === img ? "on" : ""} onClick={() => setImg(i)} aria-label={t("catalog.picture", { n: i + 1 })}><img src={x.thumb ?? x.url} alt="" /></button>
                   ))}
                 </div>
               )}
@@ -197,27 +209,27 @@ function DetailsModal({ id, onClose }: { id: string; onClose: () => void }) {
           <div className="k-row" style={{ gap: 8, flexWrap: "wrap" }}>
             {m.kind && <Badge tone={TYPE_TONE[m.kind]}>{nx.TYPE_WORD[m.kind]}</Badge>}
             {stateWord(m) && <Badge tone={stateWord(m)!.tone}>{stateWord(m)!.word}</Badge>}
-            {m.tags.slice(0, 4).map((t) => <Badge key={t}>{t}</Badge>)}
+            {m.tags.slice(0, 4).map((tag) => <Badge key={tag}>{tag}</Badge>)}
           </div>
           <KeyValue rows={[
-            ["Author", m.credit && m.credit !== m.author ? `${m.credit} (uploaded by ${m.author})` : m.author],
-            ["Version", m.version ?? "-"],
-            m.installed && ["Installed", `${m.installed.version}${m.installed.inLibrary ? "" : " (not in the library any more)"}`],
-            ["Endorsements", nx.count(m.endorsements)],
-            ["Downloads", `${nx.count(m.downloads)} (${nx.count(m.uniqueDownloads)} unique)`],
-            m.updated && ["Updated", fmtAgo(m.updated)],
+            [t("catalog.author"), m.credit && m.credit !== m.author ? t("catalog.uploadedBy", { credit: m.credit, author: m.author }) : m.author],
+            [t("catalog.version"), m.version ?? "-"],
+            m.installed && [t("catalog.installed"), m.installed.inLibrary ? `${m.installed.version}` : t("catalog.notInLibrary", { version: m.installed.version })],
+            [t("catalog.endorsements"), nx.count(m.endorsements)],
+            [t("catalog.downloads"), t("catalog.downloadsUnique", { downloads: nx.count(m.downloads), unique: nx.count(m.uniqueDownloads) })],
+            m.updated && [t("catalog.updated"), fmtAgo(m.updated)],
           ]} />
           {m.summary && <p className="k-cat-lead">{m.summary}</p>}
-          {m.needsSignIn ? <Banner tone="info" title="Files and requirements need your authorization">Add it in Settings.</Banner> : (
+          {m.needsSignIn ? <Banner tone="info" title={t("catalog.needsAuth")}>{t("catalog.needsAuthText")}</Banner> : (
             <>
               {m.requirements.filter((r) => !r.kiln).length > 0 && (
                 <section>
-                  <h3 className="k-label">Requires</h3>
+                  <h3 className="k-label">{t("catalog.requires")}</h3>
                   <ul className="k-cat-reqs">
                     {m.requirements.filter((r) => !r.kiln).map((r) => (
                       <li key={r.modId}>
                         <span>{r.name}{r.minVersion ? ` ${r.minVersion}+` : ""}</span>
-                        {r.installed ? <Badge tone="ok">Installed</Badge> : r.otherGame ? <Badge>Other game</Badge> : <Badge tone="warn">Not installed</Badge>}
+                        {r.installed ? <Badge tone="ok">{t("catalog.installed")}</Badge> : r.otherGame ? <Badge>{t("catalog.otherGame")}</Badge> : <Badge tone="warn">{t("catalog.notInstalled")}</Badge>}
                       </li>
                     ))}
                   </ul>
@@ -225,18 +237,18 @@ function DetailsModal({ id, onClose }: { id: string; onClose: () => void }) {
               )}
               {m.files.length > 0 && (
                 <section>
-                  <h3 className="k-label">Files</h3>
+                  <h3 className="k-label">{t("catalog.files")}</h3>
                   <ul className="k-cat-files">
                     {m.files.map((f) => (
-                      <li key={f.fileId}><span>{f.fileName}</span><span className="k-mono k-muted">{f.version}</span><span className="k-muted">{f.category}</span>{f === m.bestFile || f.fileId === m.bestFile?.fileId ? <Badge tone="ember">Add takes this</Badge> : null}</li>
+                      <li key={f.fileId}><span>{f.fileName}</span><span className="k-mono k-muted">{f.version}</span><span className="k-muted">{f.category}</span>{f === m.bestFile || f.fileId === m.bestFile?.fileId ? <Badge tone="ember">{t("catalog.addTakesThis")}</Badge> : null}</li>
                     ))}
                   </ul>
                 </section>
               )}
-              {!loadable && m.files.length > 0 && <Banner tone="warn" title="Kiln may not load this">No kiln.mod.json, native.json or DLL in its files.</Banner>}
+              {!loadable && m.files.length > 0 && <Banner tone="warn" title={t("catalog.mayNotLoad")}>{t("catalog.mayNotLoadText")}</Banner>}
             </>
           )}
-          {!acc?.premium && acc?.signedIn && !isKiln && <p className="k-hint">Free accounts download on the Nexus Mods site. Its Mod Manager Download brings the mod back here (Settings, Nexus Mods).</p>}
+          {!acc?.premium && acc?.signedIn && !isKiln && <p className="k-hint">{t("catalog.freeAccounts")}</p>}
           {m.description && <div className="k-cat-desc">{m.description}</div>}
         </div>
       )}

@@ -223,6 +223,11 @@ pub struct ProfileFile {
     pub eml_runtime: Vec<String>,
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub eml_runtime_blocked: std::collections::BTreeMap<String, String>,
+    /// Enabled EML mods of which only part runs under Kiln, by Library id (and manifest id when that differs): what
+    /// does not run, from the Library record (`ImportRecord::loader_part`: a modified EML loader in the mod's package
+    /// carries the rest). kiln-eml logs it with the mod and adds it to the mod's line in its state file.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub eml_partial: std::collections::BTreeMap<String, String>,
     #[serde(default, rename = "$schema", skip_serializing_if = "Option::is_none")]
     pub schema: Option<String>,
     pub format: u32,
@@ -597,7 +602,7 @@ pub fn runtime_build(dirs: &DataDirs, receipt: &crate::install::InstallReceipt) 
 }
 
 /// Kiln.Mods.ApiVersion of this Kiln (managed/Kiln.Api/Mods.cs; a test keeps them equal).
-pub const KILN_API: &str = "0.2.7";
+pub const KILN_API: &str = "0.2.8";
 pub const META: &str = "meta.json";
 
 use crate::library::LibraryRef;
@@ -1229,9 +1234,20 @@ pub fn render(dirs: &DataDirs, profile: &Profile, install: &GameInstall, mode: P
             }
         }
     }
+    let mut eml_partial = std::collections::BTreeMap::new();
+    for m in profile.mods.list(ModKind::Eml).iter().filter(|m| m.enabled) {
+        let r = crate::library::LibraryRef { kind: ModKind::Eml, id: m.id.clone(), version: m.version.clone(), hash: m.hash.clone() };
+        let Ok(rec) = crate::library::record(dirs, &r) else { continue };
+        let Some(note) = rec.loader_part else { continue };
+        if let Some(own) = rec.manifest_id.filter(|own| *own != m.id) {
+            eml_partial.insert(own, note.clone());
+        }
+        eml_partial.insert(m.id.clone(), note);
+    }
     Ok(ProfileFile {
         eml_runtime,
         eml_runtime_blocked,
+        eml_partial,
         schema: None,
         format: 1,
         id: profile.id.clone(),
@@ -1487,16 +1503,190 @@ fn hold_copy(k: ModKind, dst: &Path, id: &str) -> Result<Option<crate::state::He
         &format!("Kiln is cooking {id} in this game: wait until that is done, then try again.")).map(Some)
 }
 
+/// What [`copy_back`] did.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ConfigSync {
+    /// Files taken from the game's copy into the data folder.
+    pub copied: u64,
+    /// One sentence for each file that changed on both sides (or differed while there was no record yet): which copy
+    /// was kept and where the other one is now. For the activation's warnings and the launcher's log.
+    pub conflicts: Vec<String>,
+}
+
+/// One file of the game's config copy as Kiln last saw it ([`ConfigSyncRecord`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SyncedFile {
+    sha256: String,
+    size: u64,
+    /// Nanoseconds since the Unix epoch (0: unknown). For a reader of the record: the hash decides.
+    mtime_ns: u64,
+}
+
+/// Copy mode: the game's config copy (`<game>/kiln/profiles/<pid>/config`) as Kiln left it, at the last copy into the
+/// game or copy back: a file the game changed since is one whose hash differs from it. One per profile and game, in
+/// `<data>/profiles/<pid>/config-sync/<game id>.json` ([`config_sync_record`]).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConfigSyncRecord {
+    format: u32,
+    /// By the path below the config folder, '/'-separated.
+    files: std::collections::BTreeMap<String, SyncedFile>,
+}
+
+/// Where copy mode records the game's config copy of a profile ([`ConfigSyncRecord`]).
+pub fn config_sync_record(dirs: &DataDirs, profile_id: &str, install_id: &str) -> PathBuf {
+    dirs.profile(profile_id).join("config-sync").join(format!("{install_id}.json"))
+}
+
+/// A config folder's regular files by their '/'-separated path below it (with that path), and its folders.
+type ConfigTree = (std::collections::BTreeMap<String, PathBuf>, Vec<PathBuf>);
+
+/// What is below `root`; links are refused, as `util::copy_tree` does. Nothing when `root` is not a folder.
+fn config_tree(root: &Path) -> Result<ConfigTree> {
+    fn walk(root: &Path, rel: &Path, out: &mut ConfigTree) -> Result<()> {
+        let dir = root.join(rel);
+        for e in std::fs::read_dir(&dir).map_err(io_at(&dir, "reading"))? {
+            let e = e?;
+            let ft = e.file_type()?;
+            let r = rel.join(e.file_name());
+            if ft.is_symlink() {
+                return Err(Error::new(ErrorCode::Refused, format!("{}: symlinks are not copied", e.path().display())));
+            } else if ft.is_dir() {
+                out.1.push(r.clone());
+                walk(root, &r, out)?;
+            } else {
+                let key = r.components().map(|c| c.as_os_str().to_string_lossy()).collect::<Vec<_>>().join("/");
+                out.0.insert(key, r);
+            }
+        }
+        Ok(())
+    }
+    let mut out = ConfigTree::default();
+    if root.is_dir() {
+        walk(root, Path::new(""), &mut out)?;
+    }
+    Ok(out)
+}
+
+fn synced_file(path: &Path) -> Result<SyncedFile> {
+    let (sha256, size) = crate::hash::sha256_file(path)
+        .map_err(|e| Error::new(e.code, format!("{}: {}", path.display(), e.message)))?;
+    let mtime_ns = std::fs::metadata(path).and_then(|m| m.modified()).ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_nanos() as u64);
+    Ok(SyncedFile { sha256, size, mtime_ns })
+}
+
+fn write_config_sync_record(dirs: &DataDirs, profile_id: &str, install: &GameInstall, game_cfg: &Path) -> Result<()> {
+    let (files, _) = config_tree(game_cfg)?;
+    let files = files.into_iter().map(|(k, rel)| Ok((k, synced_file(&game_cfg.join(rel))?))).collect::<Result<_>>()?;
+    let record = ConfigSyncRecord { format: 1, files };
+    crate::util::write_json_atomic(&config_sync_record(dirs, profile_id, &install.id), &record)
+}
+
+/// `<file>.conflict-<time>` beside `file`, a name not taken yet.
+fn conflict_name(file: &Path) -> PathBuf {
+    let base = crate::util::with_suffix(file, &format!(".conflict-{}", ts_compact(crate::util::now_unix())));
+    (1..).map(|n| if n == 1 { base.clone() } else { crate::util::with_suffix(&base, &format!("-{n}")) })
+        .find(|p| std::fs::symlink_metadata(p).is_err()).expect("a free name")
+}
+
 /// Copy mode: the game-side config folder (`<game>/kiln/profiles/<pid>/config`, where Kiln writes) back into
-/// `<data>/profiles/<pid>/config`. Called before an activation and after the game exits. Returns the files copied.
-/// Nothing is copied while the game's `profile.json` is another data folder's profile of the same id
-/// ([`game_profile_owner`]): that copy was written for the other one.
-pub fn copy_back(dirs: &DataDirs, profile_id: &str, install: &GameInstall) -> Result<u64> {
+/// `<data>/profiles/<pid>/config`, file by file, against the record of what the game's copy held when Kiln last copied
+/// it in or back ([`config_sync_record`]). Called before an activation and after the game exits. The launcher's Configs
+/// editor writes the data folder's copy, so neither side simply wins:
+/// - a file the game changed (or created) since, and the data folder did not: the game's is copied back;
+/// - a file only the data folder changed (a launcher edit): the data folder's stays, and goes into the game at the next
+///   activation;
+/// - a file both changed (to different contents): the newer by its modification time stays (the data folder's when they
+///   are as old), the other is kept beside it in the data folder as `<name>.conflict-<time>`, and a sentence says so;
+/// - deletions: a file missing from the game's copy is never deleted from the data folder (Kiln copies it in again; a
+///   copy into the game that stopped halfway leaves files missing too). A file deleted from the data folder (the
+///   launcher's "reset a whole file") stays deleted while the game's copy is unchanged; one the game changed since
+///   comes back;
+/// - without a record (the first copy back after an update to this rule, a record that cannot be read), and when the
+///   data folder has no config folder for the profile at all (removed by hand: no "reset" of every file): a file the
+///   two folders hold differently is a conflict, decided by time as above; a file only one holds is kept.
+///
+/// The record is updated to the game's copy as it is now. Nothing is copied while the game's `profile.json` is another
+/// data folder's profile of the same id ([`game_profile_owner`]): that copy was written for the other one.
+pub fn copy_back(dirs: &DataDirs, profile_id: &str, install: &GameInstall) -> Result<ConfigSync> {
     let from = install.path.join(crate::paths::game::COPY_PROFILES).join(profile_id).join("config");
     if !from.is_dir() || foreign_same_id(dirs, profile_id, install) {
-        return Ok(0);
+        return Ok(ConfigSync::default());
     }
-    crate::util::copy_tree(&from, &dirs.profile(profile_id).join("config"))
+    let to = dirs.profile(profile_id).join("config");
+    let record_path = config_sync_record(dirs, profile_id, &install.id);
+    let record = crate::util::read_json::<ConfigSyncRecord>(&record_path).ok().flatten()
+        .filter(|r| r.format == 1 && to.is_dir());
+    let (game, game_dirs) = config_tree(&from)?;
+    let (data, _) = config_tree(&to)?;
+    std::fs::create_dir_all(&to).map_err(io_at(&to, "creating"))?;
+    for d in &game_dirs {
+        let p = to.join(d);
+        std::fs::create_dir_all(&p).map_err(io_at(&p, "creating"))?;
+    }
+    let mut out = ConfigSync::default();
+    let mut seen = std::collections::BTreeMap::new();
+    for (key, rel) in &game {
+        let (g_path, d_path) = (from.join(rel), to.join(rel));
+        let g = synced_file(&g_path)?;
+        let d = if data.contains_key(key) { Some(synced_file(&d_path)?) } else { None };
+        let base = record.as_ref().map(|r| r.files.get(key));
+        let take = match (&d, base) {
+            (Some(d), _) if d.sha256 == g.sha256 => false,
+            // only the game has it: created there, or deleted from the data folder while the game's copy stayed
+            (None, Some(Some(b))) => b.sha256 != g.sha256,
+            (None, _) => true,
+            (Some(d), Some(b)) => {
+                let game_changed = b.is_none_or(|b| b.sha256 != g.sha256);
+                let data_changed = b.is_none_or(|b| b.sha256 != d.sha256);
+                if !game_changed {
+                    false
+                } else if !data_changed {
+                    true
+                } else {
+                    let why = if b.is_some() { BOTH_CHANGED } else { BOTH_CREATED };
+                    conflict(&mut out, profile_id, key, why, &g_path, &d_path)?
+                }
+            }
+            // no record: which side changed is not known
+            (Some(_), None) => conflict(&mut out, profile_id, key, NO_RECORD, &g_path, &d_path)?,
+        };
+        if take {
+            if let Some(parent) = d_path.parent() {
+                std::fs::create_dir_all(parent).map_err(io_at(parent, "creating"))?;
+            }
+            std::fs::copy(&g_path, &d_path).map_err(io_at(&d_path, "copying to"))?;
+            out.copied += 1;
+        }
+        seen.insert(key.clone(), g);
+    }
+    crate::util::write_json_atomic(&record_path, &ConfigSyncRecord { format: 1, files: seen })?;
+    Ok(out)
+}
+
+const BOTH_CHANGED: &str = "changed in the game and in the launcher since Kiln last copied it";
+const BOTH_CREATED: &str = "is new in the game and in the launcher, with different contents";
+const NO_RECORD: &str = "differs between the game and the launcher, and Kiln has no record of its last copy yet";
+
+/// Both copies of a config file changed: the newer stays (the data folder's when they are as old), the other is kept
+/// beside it in the data folder. True when the game's is the newer (the caller copies it over the data folder's).
+fn conflict(out: &mut ConfigSync, profile_id: &str, key: &str, why: &str, game: &Path, data: &Path) -> Result<bool> {
+    let modified = |p: &Path| std::fs::metadata(p).and_then(|m| m.modified()).map_err(io_at(p, "reading the time of"));
+    let game_newer = modified(game)? > modified(data)?;
+    let aside = conflict_name(data);
+    if game_newer {
+        std::fs::rename(data, &aside).map_err(io_at(&aside, "keeping the launcher's copy as"))?;
+    } else {
+        std::fs::copy(game, &aside).map_err(io_at(&aside, "keeping the game's copy as"))?;
+    }
+    let (kept, other) = if game_newer { ("the game's", "the launcher's") } else { ("the launcher's", "the game's") };
+    out.conflicts.push(format!(
+        "Profile \"{profile_id}\": config {key} {why}. Kept {kept} copy (the newer one); {other} copy is saved as {}.",
+        aside.display()
+    ));
+    Ok(game_newer)
 }
 
 /// Who a game's `kiln/profile.json` belongs to, seen from one data folder ([`game_profile_owner`]).
@@ -1611,7 +1801,7 @@ fn prepare(dirs: &DataDirs, profile: &Profile, install: &GameInstall) -> Result<
         // the game's config copy of another data folder's profile with this id is that folder's: kept aside, not
         // copied back here and not deleted
         let foreign = foreign_same_id(dirs, &profile.id, install);
-        copy_back(dirs, &profile.id, install)?;
+        warnings.extend(copy_back(dirs, &profile.id, install)?.conflicts);
         copied = sync_copies(dirs, profile, install, &mut warnings)?;
         let game_cfg = config_host_dir(dirs, profile, install, mode);
         if foreign && game_cfg.is_dir() {
@@ -1630,7 +1820,11 @@ fn prepare(dirs: &DataDirs, profile: &Profile, install: &GameInstall) -> Result<
         }
         let data_cfg = dirs.profile(&profile.id).join("config");
         std::fs::create_dir_all(&data_cfg).map_err(io_at(&data_cfg, "creating"))?;
+        // the switches go into the data folder's copy first (copy_back brought the game's native.json there before), so
+        // the game's copy is the data folder's exactly and the record says what Kiln put there
+        write_native_switches(&data_cfg, profile)?;
         crate::util::copy_tree(&data_cfg, &game_cfg)?;
+        write_config_sync_record(dirs, &profile.id, install, &game_cfg)?;
         if profile.data_dir == DataDirMode::Profile {
             let d = install.path.join(crate::paths::game::COPY_PROFILES).join(&profile.id).join("data");
             std::fs::create_dir_all(&d).map_err(io_at(&d, "creating"))?;
@@ -1640,8 +1834,8 @@ fn prepare(dirs: &DataDirs, profile: &Profile, install: &GameInstall) -> Result<
             let p = dirs.profile(&profile.id).join(d);
             std::fs::create_dir_all(&p).map_err(io_at(&p, "creating"))?;
         }
+        write_native_switches(&config_host_dir(dirs, profile, install, mode), profile)?;
     }
-    write_native_switches(&config_host_dir(dirs, profile, install, mode), profile)?;
     Ok((file, mode, copied, warnings))
 }
 

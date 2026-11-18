@@ -42,6 +42,7 @@ struct IMAGE_DOS_HEADER { uint16_t e_magic; int32_t e_lfanew; };
 struct IMAGE_NT_HEADERS64 { uint32_t Signature; struct { uint32_t TimeDateStamp; } FileHeader; };
 namespace loader_test {
 inline std::wstring system;
+inline std::wstring windows;  // GetWindowsDirectoryW (empty: the call fails)
 inline std::wstring exe;  // GetModuleFileNameW(nullptr): the game's exe (empty: unknown)
 inline std::vector<std::wstring> modules;
 inline size_t cursor = 0;
@@ -112,6 +113,10 @@ inline DWORD GetLastError() { return loader_test::last_error; }
 inline UINT GetSystemDirectoryW(wchar_t* out, UINT n) {
     if (loader_test::system.size() >= n) return n;
     std::wcscpy(out, loader_test::system.c_str()); return loader_test::system.size();
+}
+inline UINT GetWindowsDirectoryW(wchar_t* out, UINT n) {
+    if (loader_test::windows.empty() || loader_test::windows.size() >= n) return 0;
+    std::wcscpy(out, loader_test::windows.c_str()); return loader_test::windows.size();
 }
 inline bool GetModuleHandleExW(DWORD flags, LPCWSTR address, HMODULE* out) {
     if (loader_test::gone && address == loader_test::gone && (flags & GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS)) {

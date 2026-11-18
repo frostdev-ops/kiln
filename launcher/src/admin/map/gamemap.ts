@@ -7,6 +7,7 @@
 //   gpu/f/x_y.webp 10x10 tiles of 512x512 Shroud zones: R = depth inside the zone (saturates about 34 m in), G = zone level
 // World: 10240 m square; map pixel (x, y) at Leaflet zoom 5 = world (x, 10240 - z).
 import L from "leaflet";
+import { t as tr } from "../../i18n";
 import { RELIEF_FRAGMENT, RELIEF_VERTEX, ZONE_PYRAMID_FRAGMENT } from "./reliefShader";
 
 const N = 10;
@@ -192,14 +193,14 @@ export class GameMapLayer extends L.Layer {
     map.getPane("tilePane")!.appendChild(c);
     const gl = c.getContext("webgl2", { antialias: false, premultipliedAlpha: false, preserveDrawingBuffer: false });
     if (!gl) {
-      this.options.onError?.("WebGL2 is not available");
+      this.options.onError?.(tr("admin.map.noWebgl2"));
       return this;
     }
     this.gl = gl;
     c.addEventListener("webglcontextlost", (e) => {
       e.preventDefault();
       this.ready = false;
-      this.options.onError?.("The graphics context was lost; reopen the page.");
+      this.options.onError?.(tr("admin.map.contextLost"));
     });
     let prog: WebGLProgram;
     try {

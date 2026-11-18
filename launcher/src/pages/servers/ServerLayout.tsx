@@ -14,6 +14,7 @@ import { SERVER_NAV, serverNavFor } from "../../shell/serverNav";
 import { notifyInstall } from "../../shell/notices";
 import { ConfirmHost } from "../../admin/ui";
 import { hasKiln, runnerLabel, sk, useDeployDialog, useServer, useServerEvents, useServers, useServerStatus } from "./serverApi";
+import { rich, t, useT } from "../../i18n";
 
 export default function ServerLayout() {
   const { id = "" } = useParams();
@@ -26,12 +27,13 @@ export default function ServerLayout() {
 }
 
 function ServerFrame({ id, live }: { id: string; live: boolean }) {
+  const t = useT();
   const loc = useLocation();
   const rest = loc.pathname.replace(/^\/servers\/[^/]+\/?/, "");
   const cur = serverNavFor(rest);
   return (
     <div className="k-page k-page-fill k-server">
-      <nav className="k-snav" aria-label="Server">
+      <nav className="k-snav" aria-label={t("servers.head.navLabel")}>
         {SERVER_NAV.map((g) => (
           <div key={g.group} className="k-snav-group" role="group" aria-label={g.group}>
             <span className="k-snav-head">{g.group}</span>
@@ -57,10 +59,18 @@ function ServerFrame({ id, live }: { id: string; live: boolean }) {
 function dur(s: number | null | undefined): string {
   if (s == null) return "";
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
-  return h ? `${h} h ${m} min` : m ? `${m} min ${sec} s` : `${sec} s`;
+  return h ? t("servers.head.durH", { h, m }) : m ? t("servers.head.durM", { m, s: sec }) : t("servers.head.durS", { s: sec });
+}
+
+/** "2 online, 2 slots free." / "Nobody online." (no leading space). */
+function whoLine(n: number, max: number | null, free: number): string {
+  const who = n === 0 ? t("servers.head.nobody") : t("servers.head.online", { count: n });
+  if (max == null) return n === 0 ? t("servers.head.nobodyLine") : t("servers.head.onlineLine", { count: n });
+  return t("servers.head.slotsFree", { who, count: free });
 }
 
 function ServerHead({ id, live }: { id: string; live: boolean }) {
+  const t = useT();
   const qc = useQueryClient();
   const nav = useNavigate();
   const srv = useServer(id);
@@ -83,27 +93,31 @@ function ServerHead({ id, live }: { id: string; live: boolean }) {
   const remote = s?.runner === "remote" || s?.kind === "remote";
   const players = st.data?.players ?? query.data?.players ?? null;
   const max = query.data?.maxPlayers ?? null;
-  const who = players == null ? "" : players === 0 ? "Nobody online" : `${players} online`;
-  const slots = max != null && players != null ? `, ${max - players} slot${max - players === 1 ? "" : "s"} free` : "";
+  const who = players == null ? "" : ` ${whoLine(players, max, max != null ? max - players : 0)}`;
   let say: ReactNode;
-  if (!st.data) say = "Reading the server's state.";
-  else if (state === "running") say = <>Running{st.data.uptimeS != null ? ` for ${dur(st.data.uptimeS)}` : ""}.{live ? <LiveWho max={max} fallback={who ? ` ${who}${slots}.` : ""} /> : who ? ` ${who}${slots}.` : ""}{live && <Connection />}</>;
-  else if (state === "starting") say = <>Starting.{live && <Connection />}</>;
-  else if (state === "stopping") say = "Stopping.";
-  else say = `Stopped. Start runs it ${s ? `with ${runnerLabel[s.runner ?? "kilnctl"]}` : ""}${st.data.kiln ? `, Kiln ${st.data.kiln}` : ""}.`;
+  if (!st.data) say = t("servers.head.reading");
+  else if (state === "running") say = <>{st.data.uptimeS != null ? t("servers.head.runningFor", { time: dur(st.data.uptimeS) }) : t("servers.head.running")}{live ? <LiveWho max={max} fallback={who} /> : who}{live && <Connection />}</>;
+  else if (state === "starting") say = <>{t("servers.head.starting")}{live && <Connection />}</>;
+  else if (state === "stopping") say = t("servers.head.stopping");
+  else {
+    const runner = s ? runnerLabel(s.runner ?? "kilnctl") : null;
+    const kilnV = st.data.kiln;
+    say = runner && kilnV ? t("servers.head.stoppedWithKiln", { runner, kiln: kilnV }) : runner ? t("servers.head.stoppedWith", { runner })
+      : kilnV ? t("servers.head.stoppedKiln", { kiln: kilnV }) : t("servers.head.stopped");
+  }
   const running = state === "running" || state === "starting";
   const items: MenuItem[] = [
-    ...(s?.runner !== "steam" ? [{ label: "Update the game (SteamCMD)", disabled: !!st.data?.pid || !!busy, onSelect: act("update", () => api.serverUpdate(id), "Server files are up to date") }] : []),
-    ...(!remote ? [{ label: kiln ? "Update Kiln…" : "Install Kiln…", disabled: !!st.data?.pid || !!busy, onSelect: () => setDeploy(true) }] : []),
+    ...(s?.runner !== "steam" ? [{ label: t("servers.head.updateGame"), disabled: !!st.data?.pid || !!busy, onSelect: act("update", () => api.serverUpdate(id), t("servers.head.upToDate")) }] : []),
+    ...(!remote ? [{ label: kiln ? t("servers.head.updateKilnMenu") : t("servers.head.installKilnMenu"), disabled: !!st.data?.pid || !!busy, onSelect: () => setDeploy(true) }] : []),
     ...(live ? transportItems(id) : []),
-    { label: "Remove from the launcher", danger: true, disabled: !!st.data?.pid, onSelect: () => setRemoving(true) },
+    { label: t("servers.head.removeMenu"), danger: true, disabled: !!st.data?.pid, onSelect: () => setRemoving(true) },
   ];
   return (
     <header className="k-page-head k-server-head">
       <div className="k-server-name" style={{ minWidth: 0 }}>
         <h1 className="k-page-title" style={{ fontSize: 52 }}>
           {s ? (
-            <button type="button" className="k-name-btn" aria-haspopup="listbox" aria-expanded={pick} onClick={() => setPick((p) => !p)} aria-label={`Server: ${s.name}. Change server.`}>
+            <button type="button" className="k-name-btn" aria-haspopup="listbox" aria-expanded={pick} onClick={() => setPick((p) => !p)} aria-label={t("servers.head.changeServer", { name: s.name })}>
               {s.name}<svg viewBox="0 0 24 24" aria-hidden><path d="M5 9l7 7 7-7" /></svg>
             </button>
           ) : <Skeleton lines={1} width={260} height={46} />}
@@ -114,25 +128,25 @@ function ServerHead({ id, live }: { id: string; live: boolean }) {
       <div className="k-page-actions" style={{ paddingTop: 8 }}>
         {running ? (
           <>
-            <Button disabled={!!busy || state !== "running"} loading={busy === "restart"} onClick={act("restart", () => api.serverRestart(id), "Server restarted")}>Restart</Button>
-            <Button variant="danger" disabled={!!busy || !st.data?.pid} loading={busy === "stop"} onClick={act("stop", () => api.serverStop(id), "Server stopped")}>Stop</Button>
+            <Button disabled={!!busy || state !== "running"} loading={busy === "restart"} onClick={act("restart", () => api.serverRestart(id), t("servers.head.restarted"))}>{t("servers.head.restart")}</Button>
+            <Button variant="danger" disabled={!!busy || !st.data?.pid} loading={busy === "stop"} onClick={act("stop", () => api.serverStop(id), t("servers.head.stoppedToast"))}>{t("servers.head.stop")}</Button>
           </>
         ) : (
-          <Button variant="primary" disabled={!!busy || !st.data} loading={busy === "start"} onClick={act("start", () => api.serverStart(id), "Server running")}>Start</Button>
+          <Button variant="primary" disabled={!!busy || !st.data} loading={busy === "start"} onClick={act("start", () => api.serverStart(id), t("servers.head.runningToast"))}>{t("servers.head.start")}</Button>
         )}
-        <Menu label="More server actions" icon={<MoreHorizontal />} items={items} />
+        <Menu label={t("servers.head.more")} icon={<MoreHorizontal />} items={items} />
       </div>
       <DeployModal open={deploy} update={kiln} onClose={() => setDeploy(false)}
-        onDeploy={(v) => { setDeploy(false); act<api.InstallResult>("deploy", () => api.serverDeploy(id, v), `Kiln ${v} installed`, installNote, notifyInstall)(); }} />
-      <ConfirmDanger open={removing} onClose={() => setRemoving(false)} title="Remove this server?"
-        message="The launcher forgets it. Its game files, saves and backups stay on disk."
-        word={id} action="Remove" onConfirm={async () => {
+        onDeploy={(v) => { setDeploy(false); act<api.InstallResult>("deploy", () => api.serverDeploy(id, v), t("servers.head.kilnInstalled", { version: v }), installNote, notifyInstall)(); }} />
+      <ConfirmDanger open={removing} onClose={() => setRemoving(false)} title={t("servers.head.removeTitle")}
+        message={t("servers.head.removeText")}
+        word={id} action={t("common.remove")} onConfirm={async () => {
           try {
             await api.serverRemove(id, false);
-            toast.ok(`Removed ${s?.name ?? id}`, "The files stay.");
+            toast.ok(t("servers.head.removed", { name: s?.name ?? id }), t("servers.head.filesStay"));
             qc.invalidateQueries({ queryKey: sk.list });
             nav("/servers");
-          } catch (e) { toast.error(e, "Not removed"); throw e; }
+          } catch (e) { toast.error(e, t("servers.head.notRemoved")); throw e; }
         }} />
     </header>
   );
@@ -140,31 +154,34 @@ function ServerHead({ id, live }: { id: string; live: boolean }) {
 
 /** " 2 online, 2 slots free." from the admin session's state when it has one (inside an AdminProvider). */
 function LiveWho({ max, fallback }: { max: number | null; fallback: string }) {
+  useT();
   const st = useAdminState();
   const n = st.state?.players?.length;
   if (n == null) return <>{fallback}</>;
-  return <>{` ${n === 0 ? "Nobody online" : `${n} online`}${max != null ? `, ${Math.max(0, max - n)} slot${max - n === 1 ? "" : "s"} free` : ""}.`}</>;
+  return <>{` ${whoLine(n, max, max != null ? Math.max(0, max - n) : 0)}`}</>;
 }
 
 /** " Connected. KAP/1 TCP, 151 ops." (inside an AdminProvider). */
 function Connection() {
+  const t = useT();
   const st = useAdminState();
-  const T: Record<string, string> = { tcp: "KAP/1 TCP", file: "file bridge", ssh: "SSH tunnel", auto: "auto" };
-  if (st.ready && st.session) return <> <span className="k-tone-ok">Connected.</span> {T[st.session.transport] ?? st.session.transport}, {st.session.ops.length} ops.</>;
-  if (st.connecting) return <> Connecting to Kiln.Admin.</>;
-  if (st.status === "error") return <> <span className="k-tone-warn">Kiln.Admin is not answering.</span></>;
+  const T: Record<string, string> = { tcp: "KAP/1 TCP", file: t("servers.head.fileBridge"), ssh: t("servers.overview.sshTunnel"), auto: t("servers.head.auto") };
+  if (st.ready && st.session) return <> {rich("servers.head.connected", { connected: <span className="k-tone-ok">{t("servers.head.connectedWord")}</span>, transport: T[st.session.transport] ?? st.session.transport, ops: st.session.ops.length })}</>;
+  if (st.connecting) return <> {t("servers.head.connecting")}</>;
+  if (st.status === "error") return <> <span className="k-tone-warn">{t("servers.head.notAnswering")}</span></>;
   return null;
 }
 
 function transportItems(id: string): MenuItem[] {
-  const T: [AdminTransport, string][] = [["auto", "Auto (TCP, then file bridge)"], ["tcp", "KAP/1 over TCP"], ["file", "File bridge"], ["ssh", "SSH tunnel"]];
+  const T: [AdminTransport, string][] = [["auto", t("servers.head.transportAuto")], ["tcp", t("servers.head.transportTcp")], ["file", t("servers.overview.fileBridge")], ["ssh", t("servers.overview.sshTunnel")]];
   return [
-    { label: "Reconnect to Kiln.Admin", onSelect: () => reconnectAdmin(id) },
-    ...T.map(([t, l]) => ({ label: `Connect over: ${l}`, onSelect: () => reconnectAdmin(id, t) })),
+    { label: t("servers.head.reconnect"), onSelect: () => reconnectAdmin(id) },
+    ...T.map(([transport, l]) => ({ label: t("servers.head.connectOver", { transport: l }), onSelect: () => reconnectAdmin(id, transport) })),
   ];
 }
 
 function ServerPicker({ current, servers, onClose, onPick }: { current: string; servers: { id: string; name: string }[]; onClose: () => void; onPick: (id: string) => void }) {
+  const t = useT();
   const ref = useRef<HTMLDivElement>(null);
   const nav = useNavigate();
   useEffect(() => {
@@ -176,27 +193,28 @@ function ServerPicker({ current, servers, onClose, onPick }: { current: string; 
     return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", esc); };
   }, [onClose]);
   return (
-    <div ref={ref} className="k-popover" role="listbox" aria-label="Servers" style={{ left: 0, top: 60, width: 320 }}>
+    <div ref={ref} className="k-popover" role="listbox" aria-label={t("servers.list.title")} style={{ left: 0, top: 60, width: 320 }}>
       {servers.map((s) => (
         <button key={s.id} type="button" role="option" aria-selected={s.id === current} className="k-menu-item" onClick={() => onPick(s.id)}>
           <span style={{ fontWeight: s.id === current ? 700 : 400 }}>{s.name}</span><span className="k-mono">{s.id}</span>
         </button>
       ))}
       <div className="k-menu-sep" />
-      <button type="button" className="k-menu-item" style={{ color: "var(--k-ember-300)" }} onClick={() => { onClose(); nav("/servers"); }}>All servers</button>
+      <button type="button" className="k-menu-item" style={{ color: "var(--k-ember-300)" }} onClick={() => { onClose(); nav("/servers"); }}>{t("servers.head.allServers")}</button>
     </div>
   );
 }
 
 function DeployModal({ open, update, onClose, onDeploy }: { open: boolean; update: boolean; onClose: () => void; onDeploy: (version: string) => void }) {
+  const t = useT();
   const bundles = useQuery({ queryKey: ["runtime_list"], queryFn: api.runtimeList, enabled: open });
   const [v, setV] = useState("");
   const chosen = v || bundles.data?.[0]?.version || "";
   return (
-    <Modal open={open} onClose={onClose} title={update ? "Update Kiln" : "Install Kiln"} width={480}
-      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" disabled={!chosen} onClick={() => onDeploy(chosen)}>{update ? "Update" : "Install"}</Button></>}>
-      <Field label="Runtime bundle" hint="The server must be stopped." htmlFor="deploy-v">
-        <Select id="deploy-v" value={chosen} onChange={setV} options={(bundles.data ?? []).map((b) => ({ value: b.version, label: `${b.version} (Kiln ${b.kiln})` }))} />
+    <Modal open={open} onClose={onClose} title={update ? t("servers.head.updateKiln") : t("servers.head.installKiln")} width={480}
+      footer={<><Button variant="ghost" onClick={onClose}>{t("common.cancel")}</Button><Button variant="primary" disabled={!chosen} onClick={() => onDeploy(chosen)}>{update ? t("common.update") : t("common.install")}</Button></>}>
+      <Field label={t("servers.head.bundle")} hint={t("servers.head.bundleHint")} htmlFor="deploy-v">
+        <Select id="deploy-v" value={chosen} onChange={setV} options={(bundles.data ?? []).map((b) => ({ value: b.version, label: t("servers.head.bundleOption", { version: b.version, kiln: b.kiln }) }))} />
       </Field>
     </Modal>
   );

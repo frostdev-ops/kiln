@@ -10,6 +10,7 @@
 
 pub mod discover;
 pub mod logging;
+pub mod modified;
 pub mod progress;
 pub mod runner;
 pub mod portraits;

@@ -12,6 +12,13 @@
 
 #include "image.h"
 #include "log.h"
+#include "tasks_stats.h"
+
+namespace kiln::tasks_svc {  // services/tasks.cpp: the task pool's diagnostics, lock-free (issue #49)
+bool tasks_crash(kiln::tasks_stats::CrashSnapshot* out, uint64_t now_ns);
+bool tasks_present();
+uint64_t tasks_now_ns();
+}  // namespace kiln::tasks_svc
 
 namespace kiln::crash {
 namespace {
@@ -169,6 +176,27 @@ void report(const Capture& cap, const char* where, const void* callback) {
         for (uint32_t i = 0; i < cap.frames; ++i) {
             std::snprintf(line, sizeof line, "  #%-2u %s\n", i, where_is(cap.stack[i]).c_str());
             s += line;
+        }
+        // Issue #49: the tasks section. The snapshot is a fixed-size copy out of the pool's
+        // lock-free store into static storage (a crash path allocates nothing for it and never
+        // takes a pool lock); a copy that cannot be made within its bounded retries, or a second
+        // report racing this one for the static copy, reads "(task snapshot unavailable)".
+        {
+            static std::atomic_flag snap_lock = ATOMIC_FLAG_INIT;
+            static tasks_stats::CrashSnapshot snap;
+            static char text[8192];
+            std::string section;
+            bool pool_present = false;
+            if (!snap_lock.test_and_set(std::memory_order_acquire)) {
+                pool_present = tasks_svc::tasks_crash(&snap, tasks_svc::tasks_now_ns());
+                if (pool_present) {
+                    const std::size_t n = tasks_stats::format_crash(snap, text, sizeof text);
+                    section.assign(text, n);
+                }
+                snap_lock.clear(std::memory_order_release);
+            }
+            if (!section.empty()) s += "\n-- Tasks --\n" + section;
+            else if (pool_present || tasks_svc::tasks_present()) s += "\n-- Tasks --\n(task snapshot unavailable)\n";
         }
         s += "\n-- Last kiln.log lines --\n" + tail(paths().logs / L"kiln.log", 60);
 

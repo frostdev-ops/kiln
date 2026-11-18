@@ -4,6 +4,7 @@
 import { useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
 import { create } from "zustand";
 import type { KilnError } from "../../api/commands";
+import { t as tr, useT } from "../../i18n";
 import { Banner, Button, ConfirmDanger, Modal, TextInput, toast as uiToast } from "../../ui";
 // with the pieces, so admin pages mounted outside the admin routes (the server's Configs and Mods) are styled too
 import "../admin.css";
@@ -42,6 +43,7 @@ export function promptText(o: Omit<ConfirmReq, "resolve" | "typed"> & { prompt: 
 
 /** Mounted once by AdminLayout: shows confirm() / promptText() requests. */
 export function ConfirmHost() {
+  const t = useT();
   const req = useConfirmStore((s) => s.req);
   const [text, setText] = useState("");
   useEffect(() => setText(req?.prompt?.initial ?? ""), [req]);
@@ -51,7 +53,7 @@ export function ConfirmHost() {
   };
   if (req?.typed)
     return (
-      <ConfirmDanger open title={req.title} message={req.body} word={req.typed} action={req.ok ?? "Confirm"} onClose={() => done(false)} onConfirm={() => done("ok")} />
+      <ConfirmDanger open title={req.title} message={req.body} word={req.typed} action={req.ok ?? t("admin.ui.confirm")} onClose={() => done(false)} onConfirm={() => done("ok")} />
     );
   const okEnabled = !!req && (!req.prompt || text.trim().length > 0);
   const submit = () => okEnabled && done(req?.prompt ? text.trim() : "ok");
@@ -62,9 +64,9 @@ export function ConfirmHost() {
       onClose={() => done(false)}
       footer={
         <>
-          <Button variant="ghost" onClick={() => done(false)}>Cancel</Button>
+          <Button variant="ghost" onClick={() => done(false)}>{t("common.cancel")}</Button>
           <Button variant={req?.danger ? "danger-fill" : "primary"} disabled={!okEnabled} onClick={submit} data-autofocus={req?.prompt ? undefined : true}>
-            {req?.ok ?? "Confirm"}
+            {req?.ok ?? t("admin.ui.confirm")}
           </Button>
         </>
       }
@@ -88,10 +90,11 @@ export function ErrorBanner({ error, title }: { error: KilnError | null | undefi
 }
 
 export function HealthBar({ health, max, wide }: { health?: number; max?: number; wide?: boolean }) {
+  const t = useT();
   if (!max) return null;
   const pct = Math.max(0, Math.min(100, Math.round(((health ?? 0) / max) * 100)));
   return (
-    <div className={cx("ka-hp", pct < 25 && "crit", pct >= 25 && pct < 50 && "low", wide && "wide")} title={`${health} / ${max} health`} role="meter" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
+    <div className={cx("ka-hp", pct < 25 && "crit", pct >= 25 && pct < 50 && "low", wide && "wide")} title={t("admin.ui.healthTitle", { health: String(health), max })} role="meter" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
       <i style={{ width: `${pct}%` }} />
     </div>
   );
@@ -111,10 +114,11 @@ export const Stats = ({ children }: { children: ReactNode }) => <div className="
 
 export const initials = (n: string) => String(n).replace(/[^\p{L}\p{N}]/gu, "").slice(0, 2) || "?";
 export function Avatar({ name, online }: { name: string; online?: boolean }) {
+  const t = useT();
   return (
     <span className="ka-avatar">
       {initials(name)}
-      {online ? <i className="ka-online" title="online" /> : null}
+      {online ? <i className="ka-online" title={t("admin.ui.online")} /> : null}
     </span>
   );
 }
@@ -224,22 +228,22 @@ export function SuggestInput<T>({ value, onChange, suggestions, onPick, placehol
 
 export function dur(sec: number) {
   sec = Math.max(0, Math.round(sec));
-  if (sec < 60) return `${sec}s`;
+  if (sec < 60) return tr("admin.ui.durS", { s: sec });
   const m = Math.floor(sec / 60), h = Math.floor(m / 60), d = Math.floor(h / 24);
-  if (d) return `${d}d ${h % 24}h`;
-  if (h) return `${h}h ${m % 60}m`;
-  return `${m}m`;
+  if (d) return tr("admin.ui.durDH", { d, h: h % 24 });
+  if (h) return tr("admin.ui.durHM", { h, m: m % 60 });
+  return tr("admin.ui.durM", { m });
 }
 /** unix seconds -> "3 min ago" */
-export const agoS = (t: number | null | undefined) => (t ? fmtAgoMs(t * 1000) : "-");
+export const agoS = (at: number | null | undefined) => (at ? fmtAgoMs(at * 1000) : "-");
 const fmtAgoMs = (ms: number) => {
   const s = Math.round((Date.now() - ms) / 1000);
-  if (s < 45) return "just now";
-  if (s < 86400 * 2) return `${dur(s)} ago`;
+  if (s < 45) return tr("admin.ui.justNow");
+  if (s < 86400 * 2) return tr("admin.ui.ago", { dur: dur(s) });
   return new Date(ms).toLocaleDateString([], { month: "short", day: "numeric" });
 };
-export const whenS = (t: number | null | undefined) =>
-  t ? new Date(t * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "-";
+export const whenS = (at: number | null | undefined) =>
+  at ? new Date(at * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "-";
 export const fmtPos = (p?: { x: number; y: number; z: number } | null) => (p ? `${Math.round(p.x)}, ${Math.round(p.y)}, ${Math.round(p.z)}` : "-");
 export const pretty = (s: string) => String(s).replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (c) => c.toUpperCase());
 
@@ -247,8 +251,8 @@ export const pretty = (s: string) => String(s).replace(/([a-z])([A-Z])/g, "$1 $2
 export function useDebounced<T>(value: T, ms: number): T {
   const [v, setV] = useState(value);
   useEffect(() => {
-    const t = setTimeout(() => setV(value), ms);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setV(value), ms);
+    return () => clearTimeout(timer);
   }, [value, ms]);
   return v;
 }
@@ -257,8 +261,8 @@ export function useDebounced<T>(value: T, ms: number): T {
 export function useNow(ms: number): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), ms);
-    return () => clearInterval(t);
+    const timer = setInterval(() => setNow(Date.now()), ms);
+    return () => clearInterval(timer);
   }, [ms]);
   return now;
 }

@@ -26,6 +26,13 @@ internal sealed class SidecarFiles(Func<bool> stagingWaiting)
     private bool _pruneDue;                                          // a pruning stopped for a staging: again next time
     private readonly HashSet<string> _folders = new(StringComparer.Ordinal);  // sidecar folders made in this session
 
+    /// <summary>What a pruning read, per version of the file (its size and last write time): the world files' and backups'
+    /// headers, the kept manifests' blob names. The next pruning reads only files that changed (inbox 50, a hard disk:
+    /// "165 read in 18392.0 ms" at the first pruning, 13324.9 ms again at the 11th, the save folder on the game's disk).
+    /// Process-wide (the paths name their world); a file that could not be read is not kept here.</summary>
+    private readonly Dictionary<string, (long Size, DateTime Written, WorldStore.Header Header)> _headers = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, (long Size, DateTime Written, string[] Blobs)> _blobLists = new(StringComparer.Ordinal);
+
     /// <summary>Generations whose newest staging is not on disk because every try to write it failed (review 2: a backup
     /// of such a generation would carry no mod data, or an older staging's). Process-wide, by folder; under its own lock
     /// (read by a backup while the writer is idle).</summary>
@@ -273,19 +280,29 @@ internal sealed class SidecarFiles(Func<bool> stagingWaiting)
         try
         {
             var dir = Path.Combine(root, "manifests");
-            var all = disk.List(() => WorldStore.ListManifests(dir));
+            var files = disk.List(() => WorldStore.ListManifestFiles(dir));
+            var all = files.Select(m => m.Name).ToList();
+            var stamps = files.ToDictionary(m => m.Name.Path, m => (m.Size, m.Written), StringComparer.Ordinal);
             var keep = new HashSet<string>(StringComparer.Ordinal);
             foreach (var m in all.Where(m => !m.Pending).OrderByDescending(m => m.Revision).Take(WorldStore.KeepGenerations)) keep.Add(m.Path);
             if (_forced is { } fb) keep.Add(WorldStore.CommittedPath(root, fb.Revision, fb.Unix));  // what the unforced generations after it fall back to
             var wanted = new HashSet<(uint, uint)>();
             if (job.SaveDir is { } sd && Directory.Exists(sd))
             {
-                var files = disk.List(() => Directory.EnumerateFiles(sd, "world*.ksd").Concat(
-                    Directory.Exists(Path.Combine(sd, "backup")) ? Directory.EnumerateFiles(Path.Combine(sd, "backup")) : []).ToList());
-                foreach (var f in files)
+                if (_headers.Count > 4096) _headers.Clear();  // never more than a few hundred save files: a bound, not a policy
+                if (_blobLists.Count > 4096) _blobLists.Clear();
+                // the listing brings each file's size and write time (no extra query per file)
+                var saveFiles = disk.List(() => new DirectoryInfo(sd).EnumerateFiles("world*.ksd").Concat(
+                        Directory.Exists(Path.Combine(sd, "backup")) ? new DirectoryInfo(Path.Combine(sd, "backup")).EnumerateFiles() : [])
+                    .Select(f => (f.FullName, f.Length, f.LastWriteTimeUtc)).ToList());
+                foreach (var (f, size, written) in saveFiles)
                 {
                     if (stagingWaiting()) return false;
-                    if (disk.ReadHeader(f) is { } h && h.Guid.ToString() == job.WorldId) wanted.Add((h.Revision, h.Unix));
+                    WorldStore.Header? h;
+                    if (_headers.TryGetValue(f, out var known) && known.Size == size && known.Written == written) h = known.Header;
+                    else if ((h = disk.ReadHeader(f)) is { } read) _headers[f] = (size, written, read);
+                    else _headers.Remove(f);
+                    if (h is { } header && header.Guid.ToString() == job.WorldId) wanted.Add((header.Revision, header.Unix));
                 }
             }
             foreach (var m in all.Where(m => !m.Pending && wanted.Contains((m.Revision, m.Unix)))) keep.Add(m.Path);
@@ -302,14 +319,24 @@ internal sealed class SidecarFiles(Func<bool> stagingWaiting)
             foreach (var p in keep)
             {
                 if (stagingWaiting()) return false;
+                var stamped = stamps.TryGetValue(p, out var stamp);
+                if (stamped && _blobLists.TryGetValue(p, out var known) && known.Size == stamp.Size && known.Written == stamp.Written)
+                {
+                    referenced.UnionWith(known.Blobs);
+                    continue;
+                }
                 try
                 {
+                    var named = new List<string>();
                     if (JsonNode.Parse(disk.ReadAll(p))?["bundles"] is JsonObject list)
                         foreach (var (_, e) in list)
-                            if (e?["sha256"]?.GetValue<string>() is { } sha) referenced.Add(sha);
+                            if (e?["sha256"]?.GetValue<string>() is { } sha) named.Add(sha);
+                    referenced.UnionWith(named);
+                    if (stamped) _blobLists[p] = (stamp.Size, stamp.Written, named.ToArray());
                 }
                 catch (Exception e) when (e is IOException or JsonException)
                 {
+                    _blobLists.Remove(p);
                     return true;  // unsure what is referenced: keep every blob
                 }
             }

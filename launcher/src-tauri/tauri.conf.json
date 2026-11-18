@@ -40,9 +40,13 @@
       "nsis"
     ],
     "icon": [
+      "icons/256x256.png",
+      "icons/16x16.png",
+      "icons/24x24.png",
       "icons/32x32.png",
+      "icons/48x48.png",
+      "icons/64x64.png",
       "icons/128x128.png",
-      "icons/128x128@2x.png",
       "icons/icon.png",
       "icons/icon.ico"
     ],
@@ -51,6 +55,18 @@
     "shortDescription": "Mods for Enshrouded",
     "longDescription": "Kiln Launcher: install Kiln, manage mod profiles, play, run and administer servers.",
     "copyright": "Kiln contributors, MIT",
+    "linux": {
+      "deb": {
+        "files": {
+          "/usr/share/icons/hicolor/scalable/apps/kiln-launcher.svg": "icons/icon.svg"
+        }
+      },
+      "rpm": {
+        "files": {
+          "/usr/share/icons/hicolor/scalable/apps/kiln-launcher.svg": "icons/icon.svg"
+        }
+      }
+    },
     "windows": {
       "nsis": {
         "installMode": "currentUser",

@@ -7,6 +7,7 @@ import type { GameInstall, InstallState, RuntimeBundle } from "../api/commands";
 import { invalidateGame, qk, useRuntimeChanges, type RuntimeChange } from "../api/hooks";
 import { installNote, runTask, toast } from "../ui";
 import { notifyInstall } from "./notices";
+import { t } from "../i18n";
 
 /** `a` is older than `b`. runtime_list sorts newest first (the version, its build date, then when the bundle was
  *  built), so the list decides; a version not in it compares by version and build date. Never by the git id: two
@@ -27,7 +28,7 @@ export async function runRuntimeChange(qc: QueryClient, game: GameInstall, bundl
   const { put } = useRuntimeChanges.getState();
   const gid = game.id;
   if (useRuntimeChanges.getState().last[gid]?.state === "running") {
-    toast.info("A runtime change is already running");
+    toast.info(t("shell.runtimeChange.alreadyRunning"));
     return false;
   }
   const base: RuntimeChange = { what, version, taskId: null, state: "running", error: null, at: Date.now() };
@@ -55,8 +56,8 @@ export async function runRuntimeChange(qc: QueryClient, game: GameInstall, bundl
 /** Install (or update to, or roll back to) `b` in the game, as Runtime's buttons do. */
 export function installBundle(qc: QueryClient, game: GameInstall, b: RuntimeBundle, bundles: RuntimeBundle[], current: string | null, opts: api.InstallOptions = {}) {
   const back = !!current && b.version !== current && isOlder(b.version, current, bundles);
-  const what = !current ? `Install of ${b.version}` : back ? `Rollback to ${b.version}` : `Update to ${b.version}`;
-  return runRuntimeChange(qc, game, bundles, what, b.version, `Kiln ${b.version} installed`,
+  const what = !current ? t("shell.runtimeChange.installOf", { version: b.version }) : back ? t("shell.runtimeChange.rollbackTo", { version: b.version }) : t("shell.runtimeChange.updateTo", { version: b.version });
+  return runRuntimeChange(qc, game, bundles, what, b.version, t("shell.play.kilnInstalled", { version: b.version }),
     () => (back && opts.components == null && !opts.switchFromShroudforge
       ? api.runtimeRollback(game.id, b.version) : api.runtimeInstall(game.id, b.version, opts)));
 }

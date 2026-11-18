@@ -67,22 +67,36 @@ public static partial class KilnDevTools
 
     private static void CreatePanelWindows()
     {
-        Add("bindings", "Kiln: Bindings", Bindings, DrawBindings, 640, 480);
-        Add("resources", "Kiln: Resources", Resources, DrawResources, 820, 560);
-        Add("hooks", "Kiln: Hooks", HooksPanel, DrawHooks, 420, 200);
-        Add("log", "Kiln: Game Log", GameLog, DrawLog, 820, 480);
-        Add("status", "Kiln: Status", Status, DrawStatus, 640, 520);
-        Add("console", "Kiln: Console", ConsoleV, DrawConsole, 720, 420);
+        Add("bindings", Bindings, DrawBindings, 640, 480);
+        Add("resources", Resources, DrawResources, 820, 560);
+        Add("hooks", HooksPanel, DrawHooks, 420, 200);
+        Add("log", GameLog, DrawLog, 820, 480);
+        Add("status", Status, DrawStatus, 640, 520);
+        Add("console", ConsoleV, DrawConsole, 720, 420);
     }
 
     private static readonly Dictionary<string, UiWindow> WindowsById = new();
 
-    private static void Add(string id, string title, DevView view, Action<UiDraw> draw, float w, float h)
+    // Kiln's texts changed language (any thread): the windows' titles and their keys' descriptions again
+    private static readonly List<Action> Relabels = [];
+
+    private static void Relabel()
     {
-        var win = Ui.Window(title, draw, new UiWindowOptions { Width = w, Height = h, StartOpen = false });
+        foreach (var r in Relabels) r();
+    }
+
+    // the window's title: dev.<id>.title ("Kiln: Bindings"); its key binding's description: dev.window_key
+    private static void Add(string id, DevView view, Action<UiDraw> draw, float w, float h)
+    {
+        var win = Ui.Window(KilnText.T("dev." + id + ".title"), draw, new UiWindowOptions { Width = w, Height = h, StartOpen = false });
         Panels.Add((view, win));
         WindowsById[id] = win;
-        KeyBindings.Register("kiln.devtools." + id, "None", () => win.Toggle(), title + " window");
+        var key = KeyBindings.Register("kiln.devtools." + id, "None", () => win.Toggle(), KilnText.T("dev.window_key", ("window", KilnText.T("dev." + id + ".title"))));
+        Relabels.Add(() =>
+        {
+            win.Retitle(KilnText.T("dev." + id + ".title"));
+            key.Description = KilnText.T("dev.window_key", ("window", KilnText.T("dev." + id + ".title")));
+        });
     }
 
     private static Color ColorOf(RowLevel l) => l switch
@@ -96,22 +110,23 @@ public static partial class KilnDevTools
 
     private static void DrawBindings(UiDraw ui)
     {
-        ui.InputText("Filter", ref _bindFilter, 64);
+        ui.InputText(KilnText.T("dev.filter") + "##filter", ref _bindFilter, 64);
         if (_bindSelected != null)
         {
-            ui.Text("Key for " + _bindSelected + ":");
+            ui.Text(KilnText.T("dev.bindings.key_for", ("binding", _bindSelected)));
             ui.SameLine();
             ui.InputText("##key", ref _bindEdit, 32);
             ui.SameLine();
             var id = _bindSelected;
             var key = _bindEdit;
-            if (ui.Button("Set")) ChangeOnTick(() => KilnLog.Info("devtools: " + BindingsView.Rebind(id, key)));
+            if (ui.Button(KilnText.T("dev.bindings.set") + "##set")) ChangeOnTick(() => KilnLog.Info("devtools: " + BindingsView.Rebind(id, key)));
             ui.SameLine();
-            if (ui.Button("Unbind")) ChangeOnTick(() => BindingsView.Rebind(id, "None"));
+            if (ui.Button(KilnText.T("dev.bindings.unbind") + "##unbind")) ChangeOnTick(() => BindingsView.Rebind(id, "None"));
             ui.SameLine();
-            if (ui.Button("Default")) ChangeOnTick(() => BindingsView.Rebind(id, "default"));
+            if (ui.Button(KilnText.T("dev.bindings.default") + "##default")) ChangeOnTick(() => BindingsView.Rebind(id, "default"));
         }
-        if (!ui.BeginTable("bindings", "Mod", "Binding", "Key", "Description")) return;
+        if (!ui.BeginTable("bindings", KilnText.T("dev.bindings.col_mod"), KilnText.T("dev.bindings.col_binding"), KilnText.T("dev.bindings.col_key"),
+                KilnText.T("dev.bindings.col_description"))) return;
         foreach (var r in Bindings.Rows)
         {
             if (!TextFilter.Matches($"{r.Category} {r.Id} {r.Key} {r.Description}", _bindFilter)) continue;
@@ -121,7 +136,7 @@ public static partial class KilnDevTools
             if (ui.Selectable(r.Id, r.Id == _bindSelected)) { _bindSelected = r.Id; _bindEdit = r.Key; }
             ui.NextColumn();
             ui.Text(r.Conflict != null ? Color.Red : r.Changed ? Color.Cyan : Color.White, r.Key);
-            if (r.Conflict != null && ui.ItemHovered) ui.Tooltip("Also bound: " + r.Conflict);
+            if (r.Conflict != null && ui.ItemHovered) ui.Tooltip(KilnText.T("dev.bindings.also_bound", ("bindings", r.Conflict)));
             ui.NextColumn();
             if (r.Enabled) ui.Text(r.Description); else ui.TextDisabled(r.Description);
         }
@@ -134,20 +149,20 @@ public static partial class KilnDevTools
 
     private static void DrawResources(UiDraw ui)
     {
-        if (ui.InputText("Type", ref _resType, 128)) Resources.SuggestText = _resType;
+        if (ui.InputText(KilnText.T("dev.resources.type") + "##type", ref _resType, 128)) Resources.SuggestText = _resType;
         ui.SameLine();
-        if (ui.Button("List")) { Resources.Request(_resType); _resSelected = null; }
+        if (ui.Button(KilnText.T("dev.resources.list") + "##list")) { Resources.Request(_resType); _resSelected = null; }
         foreach (var s in Resources.Suggestions)
             if (ui.SmallButton(s)) { _resType = s; Resources.Request(s); _resSelected = null; }
         ui.TextWrapped(Resources.Message);
-        ui.InputText("Filter", ref _resFilter, 64);
+        ui.InputText(KilnText.T("dev.filter") + "##filter", ref _resFilter, 64);
         if (ui.BeginChild("reslist", 330 * ui.Scale, 0))
         {
             var shown = 0;
             foreach (var r in Resources.Rows)
             {
                 if (!TextFilter.Matches(r.Label, _resFilter)) continue;
-                if (++shown > 2000) { ui.TextDisabled("... (filter to see more)"); break; }
+                if (++shown > 2000) { ui.TextDisabled(KilnText.T("dev.resources.more")); break; }
                 if (ui.Selectable(r.Label, r == _resSelected)) { _resSelected = r; Resources.Select(r); }
             }
         }
@@ -155,7 +170,7 @@ public static partial class KilnDevTools
         ui.SameLine();
         if (ui.BeginChild("resdetail", 0, 0))
         {
-            if (_resSelected is { } sel && ui.SmallButton("Log GUID")) KilnLog.Info($"devtools: resource {sel.Guid} part {sel.Part} type 0x{Resources.TypeHash:x8}");
+            if (_resSelected is { } sel && ui.SmallButton(KilnText.T("dev.resources.log_guid") + "##logguid")) KilnLog.Info($"devtools: resource {sel.Guid} part {sel.Part} type 0x{Resources.TypeHash:x8}");
             ui.Text(Resources.DetailText);
         }
         ui.EndChild();
@@ -173,11 +188,11 @@ public static partial class KilnDevTools
 
     private static void DrawLog(UiDraw ui)
     {
-        ui.InputText("Filter", ref _logFilter, 96);
+        ui.InputText(KilnText.T("dev.filter") + "##filter", ref _logFilter, 96);
         ui.SameLine();
-        ui.Checkbox("Hide noise", ref _logNoise);
+        ui.Checkbox(KilnText.T("dev.log.hide_noise") + "##noise", ref _logNoise);
         ui.SameLine();
-        if (ui.Button("Clear")) ChangeOnTick(GameLog.Clear);
+        if (ui.Button(KilnText.T("dev.clear") + "##clear")) ChangeOnTick(GameLog.Clear);
         ui.TextDisabled(GameLog.Path);
         // Filtered once per new snapshot or filter change, not per frame.
         var src = GameLog.Lines;
@@ -189,7 +204,7 @@ public static partial class KilnDevTools
         }
         if (ui.BeginChild("log", 0, 0))
         {
-            if (_logHidden > 0) ui.TextDisabled($"({_logHidden} older line(s) not drawn; filter to find them)");
+            if (_logHidden > 0) ui.TextDisabled(KilnText.T("dev.log.hidden", ("count", _logHidden)));
             foreach (var l in _logView.Shown) ui.Text(ColorOf(l.Level), l.Text);
         }
         ui.EndChild();
@@ -198,7 +213,7 @@ public static partial class KilnDevTools
     // ---------------------------------------------------------------------------------------------- Status ----
     private static void DrawStatus(UiDraw ui)
     {
-        if (Status.Files.Count == 0) { ui.TextWrapped("No state files in " + Status.Dir); return; }
+        if (Status.Files.Count == 0) { ui.TextWrapped(KilnText.T("dev.status.none", ("folder", Status.Dir))); return; }
         foreach (var f in Status.Files)
         {
             ui.Text(ColorOf(f.Level), f.Level == RowLevel.Ok ? "OK " : f.Level == RowLevel.Warn ? "(!)" : f.Level == RowLevel.Error ? "ERR" : "   ");
@@ -215,20 +230,20 @@ public static partial class KilnDevTools
     {
         ui.InputText("##line", ref _conLine, 512);
         ui.SameLine();
-        if (ui.Button("Run"))
+        if (ui.Button(KilnText.T("dev.console.run") + "##run"))
         {
             var line = _conLine;
             _conLine = "";
             ChangeOnTick(() => ConsoleV.Submit(line));
         }
         ui.SameLine();
-        if (ui.Button("Clear")) ChangeOnTick(ConsoleV.Clear);
+        if (ui.Button(KilnText.T("dev.clear") + "##clear")) ChangeOnTick(ConsoleV.Clear);
         ui.SameLine();
-        ui.InputText("Filter", ref _conFilter, 64);
+        ui.InputText(KilnText.T("dev.filter") + "##filter", ref _conFilter, 64);
         var hist = ConsoleV.History;
         if (hist.Length > 0)
         {
-            ui.TextDisabled("History:");
+            ui.TextDisabled(KilnText.T("dev.console.history"));
             for (var i = hist.Length - 1; i >= Math.Max(0, hist.Length - 5); i--)
             {
                 ui.SameLine();

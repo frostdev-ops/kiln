@@ -93,6 +93,9 @@ pub struct ProxyClass {
     pub size: Option<u64>,
     /// Which marker matched, or why it is Unknown / NotDll.
     pub detail: Option<String>,
+    /// EML: a modified EML loader, with what its own code does (`engines::EmlExtras::what`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modified: Option<String>,
 }
 
 /// Facts from a PE header.
@@ -247,6 +250,7 @@ pub fn classify_bytes(b: &[u8]) -> ProxyClass {
         sha256: Some(crate::hash::sha256_hex(b)),
         size: Some(b.len() as u64),
         detail: None,
+        modified: None,
     };
     let info = match parse(b) {
         Ok(i) => i,
@@ -294,6 +298,9 @@ pub fn classify_bytes(b: &[u8]) -> ProxyClass {
     {
         c.kind = engine.proxy_kind();
         c.detail = Some(marker);
+        if engine == crate::engines::Engine::Eml {
+            c.modified = crate::engines::eml_loader_extras(b).map(|x| x.what());
+        }
         return c;
     }
     c.kind = ProxyKind::Unknown;
@@ -327,7 +334,7 @@ fn classify_proxy_uncached(path: &Path) -> Result<ProxyClass> {
     match std::fs::read(path) {
         Ok(b) => Ok(classify_bytes(&b)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            Ok(ProxyClass { kind: ProxyKind::None, version: None, abi: None, sha256: None, size: None, detail: None })
+            Ok(ProxyClass { kind: ProxyKind::None, version: None, abi: None, sha256: None, size: None, detail: None, modified: None })
         }
         Err(e) => Err(crate::util::io_at(path, "reading")(e)),
     }

@@ -14,6 +14,7 @@ import { RELEASE_CHANNEL, acceptedRestore, buildLabel, restoreWords, switchKind,
 import { useUpdate } from "../api/update";
 import { saveSettings } from "../deck/mode";
 import { Button, Modal, ProgressBar, Toggle, toast, waitTask } from "../ui";
+import { t, useT } from "../i18n";
 
 interface SwitchStore {
   target: UpdateChannel | null;
@@ -33,15 +34,15 @@ export async function runSwitch(qc: ReturnType<typeof useQueryClient>, s: Update
   const saved = await saveSettings(qc, () => ({ updateChannel: target }));
   if (!saved) return null;
   if (!s.install.inPlace) {
-    await api.appOpenUrl(s.page).catch(() => toast.error({ code: "internal", message: "Could not open the page" }));
+    await api.appOpenUrl(s.page).catch(() => toast.error({ code: "internal", message: t("shell.channelSwitch.openPageFailed") }));
     return null;
   }
   try {
     return await waitTask<UpdateStatus>(await api.updateSwitch(target, restore));
   } catch (e) {
     const err = e as api.KilnError;
-    if (err?.code === "not_found") toast.info("Nothing to switch to", err.message);
-    else toast.error(err ?? { code: "internal", message: "Switch failed" }, "Switch failed");
+    if (err?.code === "not_found") toast.info(t("shell.channelSwitch.nothingToSwitch"), err.message);
+    else toast.error(err ?? { code: "internal", message: t("shell.channelSwitch.switchFailed") }, t("shell.channelSwitch.switchFailed"));
     return null;
   }
 }
@@ -58,6 +59,7 @@ export function ChannelSwitchDialog() {
 }
 
 function SwitchDialog({ s, target, kind, onClose }: { s: UpdateStatus; target: UpdateChannel; kind: "to-beta" | "back"; onClose: () => void }) {
+  const t = useT();
   const qc = useQueryClient();
   const w = switchWords(kind, s.ready?.version);
   const [busy, setBusy] = useState(false);
@@ -71,29 +73,33 @@ function SwitchDialog({ s, target, kind, onClose }: { s: UpdateStatus; target: U
   };
   const restart = async () => {
     setRestarting(true);
-    try { await api.updateRestart(); } catch (e) { toast.error(e, "Restart failed"); setRestarting(false); }
+    try { await api.updateRestart(); } catch (e) { toast.error(e, t("shell.channelSwitch.restartFailed")); setRestarting(false); }
   };
   const willRestore = acceptedRestore(s, restore);
   const r = s.beforeBeta ? restoreWords(s.beforeBeta.taken) : null;
   const footer = ready ? (
-    <><Button variant="ghost" onClick={onClose}>Later</Button><Button variant="primary" loading={restarting} onClick={restart}>Restart now</Button></>
+    <><Button variant="ghost" onClick={onClose}>{t("shell.channelSwitch.later")}</Button><Button variant="primary" loading={restarting} onClick={restart}>{t("shell.channelSwitch.restartNow")}</Button></>
   ) : (
-    <><Button variant="ghost" onClick={onClose} disabled={busy || downloading}>Cancel</Button>
+    <><Button variant="ghost" onClick={onClose} disabled={busy || downloading}>{t("common.cancel")}</Button>
       <Button variant="primary" loading={busy || downloading} disabled={s.phase === "ready" || (s.phase === "downloading" && !downloading)} onClick={go}>
-        {s.install.inPlace ? w.confirm : "Open the download page"}
+        {s.install.inPlace ? w.confirm : t("shell.channelSwitch.openDownloadPage")}
       </Button></>
   );
   return (
-    <Modal open onClose={onClose} title={ready ? `Ready: ${buildLabel(s.ready!.version)}` : w.title} width={520} locked={busy || downloading} footer={footer}>
+    <Modal open onClose={onClose} title={ready ? t("shell.channelSwitch.readyTitle", { build: buildLabel(s.ready!.version) }) : w.title} width={520} locked={busy || downloading} footer={footer}>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }} data-testid={`switch-${kind}`}>
-        {!!s.beforeBetaWarning?.length && <p role="alert">No complete copy from before the beta: {s.beforeBetaWarning.join("; ")}</p>}
+        {!!s.beforeBetaWarning?.length && <p role="alert">{t("shell.channelSwitch.noCompleteCopy", { list: s.beforeBetaWarning.join("; ") })}</p>}
         {ready ? (
-          <span>{s.ready?.installed ? (kind === "back" ? "The release is in place." : "The test build is in place.") : "The build is verified and ready to install."} Restart now to run it{kind === "back" && willRestore ? "; your profiles and settings from before the beta go back first" : ""}. {kind === "back" ? w.say[0] : "Install the test build’s Kiln on the Runtime page to use it in your game."}</span>
+          <span>{t("shell.channelSwitch.readyLine", {
+            state: s.ready?.installed ? (kind === "back" ? t("shell.channelSwitch.releaseInPlace") : t("shell.channelSwitch.testInPlace")) : t("shell.channelSwitch.verified"),
+            restart: kind === "back" && willRestore ? t("shell.channelSwitch.restartRestore") : t("shell.channelSwitch.restartToRun"),
+            then: kind === "back" ? w.say[0] : t("shell.channelSwitch.installTestKiln"),
+          })}</span>
         ) : (
           <>
-            {kind === "back" && s.beta ? <span className="k-hint">This is test build {s.beta} of {s.current}.</span> : null}
+            {kind === "back" && s.beta ? <span className="k-hint">{t("shell.channelSwitch.thisIsTest", { beta: s.beta, current: s.current })}</span> : null}
             {w.say.map((line) => <span key={line}>{line}</span>)}
-            {!s.install.inPlace && <span className="k-hint">{s.install.reason} The download page has the build; the launcher follows its channel from now on.</span>}
+            {!s.install.inPlace && <span className="k-hint">{t("shell.channelSwitch.notInPlace", { reason: s.install.reason })}</span>}
             {kind === "back" && r && s.install.inPlace && (
               <Toggle checked={willRestore} onChange={setRestore} label={r.label} hint={r.hint} disabled={busy || downloading} />
             )}
@@ -107,13 +113,14 @@ function SwitchDialog({ s, target, kind, onClose }: { s: UpdateStatus; target: U
 
 /** The header's Beta mark (a test build is running): the beta number, and one click back to the release. */
 export function BetaMark() {
+  const t = useT();
   const s = useUpdate();
   const show = useChannelSwitch((x) => x.show);
   if (!s || s.buildChannel !== "beta") return null;
   return (
     <button type="button" className="k-beta-flag" data-testid="beta-mark" onClick={() => show(RELEASE_CHANNEL)}
-      title={`Test build ${s.beta ?? ""} of ${s.current}. Click to switch back to the release.`} aria-label={`Beta ${s.beta ?? ""}: switch back to the release`}>
-      Beta {s.beta ?? ""}
+      title={t("shell.channelSwitch.betaTitle", { beta: s.beta ?? "", current: s.current })} aria-label={t("shell.channelSwitch.betaAria", { beta: s.beta ?? "" })}>
+      {t("shell.channelSwitch.beta", { beta: s.beta ?? "" })}
     </button>
   );
 }

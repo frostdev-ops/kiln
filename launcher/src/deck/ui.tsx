@@ -7,6 +7,7 @@ import { useCoverPage } from "../ui/Modal";
 import type { ToastItem } from "../ui/Toast";
 import { candidates, focusEl, focusFirst, focusable } from "./focus";
 import { useLayer, type DeckAction } from "./layers";
+import { rich, useT } from "../i18n";
 
 // ---------------------------------------------------------------- buttons and rows
 
@@ -149,10 +150,11 @@ export interface DialogProps {
 }
 
 /** A dialog over the screen: its own layer (B closes it), focus comes back where it was when it closes. */
-export function Dialog({ title, onClose, children, buttons, actions, backLabel = "Cancel", locked, wide, name }: DialogProps) {
+export function Dialog({ title, onClose, children, buttons, actions, backLabel, locked, wide, name }: DialogProps) {
+  const t = useT();
   const ref = useRef<HTMLDivElement>(null);
   const opener = useRef<HTMLElement | null>(document.activeElement as HTMLElement | null);
-  useLayer(ref, { actions, back: locked ? undefined : onClose, backLabel: locked ? undefined : backLabel, modal: true });
+  useLayer(ref, { actions, back: locked ? undefined : onClose, backLabel: locked ? undefined : backLabel ?? t("common.cancel"), modal: true });
   useFirstFocus(ref, null, dialogFirst);
   useReturnFocus(opener);
   return (
@@ -201,6 +203,7 @@ export const HOLD_MS = 1200;
 /** Destructive actions: hold A (or the finger) for 1.2 s; letting go early does nothing. The Deck's stand-in for the
  *  desktop's typed word. */
 export function HoldButton({ children, onConfirm, disabled, id }: { children: ReactNode; onConfirm: () => void; disabled?: boolean; id?: string }) {
+  const t = useT();
   const ref = useRef<HTMLButtonElement>(null);
   const [since, setSince] = useState<number | null>(null);
   const armed = useRef(false);
@@ -220,12 +223,12 @@ export function HoldButton({ children, onConfirm, disabled, id }: { children: Re
   useEffect(() => {
     if (since === null) return;
     if (disabled) { hold(false); return; }
-    const t = setTimeout(() => {
+    const timer = setTimeout(() => {
       const confirmed = armed.current && !ref.current?.disabled;
       hold(false);
       if (confirmed) done.current();
     }, HOLD_MS);
-    return () => clearTimeout(t);
+    return () => clearTimeout(timer);
   }, [since, disabled]);
   useEffect(() => {
     const cancel = () => hold(false);
@@ -235,7 +238,7 @@ export function HoldButton({ children, onConfirm, disabled, id }: { children: Re
     return () => { window.removeEventListener("blur", cancel); document.removeEventListener("visibilitychange", visibility); };
   }, []);
   return (
-    <button ref={ref} type="button" className={"deck-btn danger deck-hold" + (since !== null ? " holding" : "")} disabled={disabled} data-deck-hold="" data-deck-a="Hold" data-deck-id={id}
+    <button ref={ref} type="button" className={"deck-btn danger deck-hold" + (since !== null ? " holding" : "")} disabled={disabled} data-deck-hold="" data-deck-a={t("deck.ui.hold")} data-deck-id={id}
       style={{ ["--hold" as string]: `${HOLD_MS}ms` }}
       onPointerDown={() => hold(true)} onPointerUp={() => hold(false)} onPointerLeave={() => hold(false)}
       onPointerCancel={() => hold(false)} onBlur={() => hold(false)}
@@ -261,6 +264,7 @@ export function HoldButton({ children, onConfirm, disabled, id }: { children: Re
  *  shows has not been seen yet and waits its turn; one folded into the earlier notices stays with them until the
  *  player closes them (it may have been folded before it was ever drawn or measured, so nothing is known of it). */
 export function DeckToaster() {
+  const t = useT();
   const { items, dismiss, close } = useToasts();
   // what BarToast found of each error it drew, by toast id (an id is never used twice): the part that did not fit the
   // bar, or that it fits. An error that was never drawn is not in here.
@@ -281,27 +285,30 @@ export function DeckToaster() {
     // six seconds for the errors the bar has drawn and that fit it; no others (see above)
     const errs = items.filter((t) => t.kind === "err" && !t.folded && measured.get(t.id) === "fits");
     if (!errs.length) return;
-    const t = setTimeout(() => errs.forEach((e) => dismiss(e.id)), 6000);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => errs.forEach((e) => dismiss(e.id)), 6000);
+    return () => clearTimeout(timer);
   }, [items, dismiss, measured]);
-  const lasting = (t: (typeof items)[number]) => !!t.folded || (!!t.persistent && t.kind !== "err") || long(t.id);
+  const lasting = (x: (typeof items)[number]) => !!x.folded || (!!x.persistent && x.kind !== "err") || long(x.id);
   const notice = items.find(lasting);
-  const bar = items.filter((t) => !lasting(t));
-  const times = notice && (notice.count ?? 1) > 1 ? ` (${notice.count} times)` : "";
+  const bar = items.filter((x) => !lasting(x));
+  const times = notice && (notice.count ?? 1) > 1 ? notice.count! : 0;
   // a long error whose title is the long text: the dialog's heading stays short, and the text is in the body, which scrolls
   const titled = notice && measured.get(notice.id) === "title";
   return (
     <>
       {bar.length > 0 && (
         <div className="deck-toasts" aria-live="polite">
-          {bar.slice(-2).map((t) => <BarToast key={t.id} t={t} onMeasured={onMeasured} onClick={() => close(t.id)} />)}
+          {bar.slice(-2).map((x) => <BarToast key={x.id} toast={x} onMeasured={onMeasured} onClick={() => close(x.id)} />)}
         </div>
       )}
       {notice && (
         <Dialog name="notice"
-          title={titled ? "Something went wrong" + times : typeof notice.title === "string" ? notice.title + times : <>{notice.title}{times}</>}
-          onClose={() => close(notice.id)} backLabel="Close"
-          buttons={<DeckButton primary onClick={() => close(notice.id)}>OK</DeckButton>}>
+          title={titled ? (times ? t("deck.ui.wentWrongTimes", { count: times }) : t("deck.ui.wentWrong"))
+            : !times ? notice.title
+            : typeof notice.title === "string" ? t("deck.ui.titleTimes", { title: notice.title, count: times })
+            : rich("deck.ui.titleTimes", { title: <>{notice.title}</>, count: times })}
+          onClose={() => close(notice.id)} backLabel={t("common.close")}
+          buttons={<DeckButton primary onClick={() => close(notice.id)}>{t("common.ok")}</DeckButton>}>
           {(titled || notice.detail) && (
             <div className="deck-scroll" data-deck-notice="" data-kind={notice.kind} style={{ overflowWrap: "anywhere" }}>
               {titled && <div>{notice.title}</div>}
@@ -321,10 +328,10 @@ export function DeckToaster() {
 /** What the bar found of an error it drew: the part that does not fit, or that all of it does. */
 type Fit = "title" | "detail" | "fits";
 
-function BarToast({ t, onMeasured, onClick }: { t: ToastItem; onMeasured: (id: number, fit: Fit) => void; onClick: () => void }) {
+function BarToast({ toast: item, onMeasured, onClick }: { toast: ToastItem; onMeasured: (id: number, fit: Fit) => void; onClick: () => void }) {
   const title = useRef<HTMLSpanElement>(null);
   const detail = useRef<HTMLSpanElement>(null);
-  const err = t.kind === "err";
+  const err = item.kind === "err";
   // what was last told to the toaster: the same answer is not told again (telling it on every render is a state update
   // in each commit, and under load those nested until React stopped them: "Maximum update depth exceeded")
   const told = useRef<Fit | null>(null);
@@ -334,7 +341,7 @@ function BarToast({ t, onMeasured, onClick }: { t: ToastItem; onMeasured: (id: n
     const fit: Fit = over(title.current) ? "title" : over(detail.current) ? "detail" : "fits";
     if (fit === told.current) return;
     told.current = fit;
-    onMeasured(t.id, fit);
+    onMeasured(item.id, fit);
   };
   useLayoutEffect(measure);
   useEffect(() => {
@@ -343,11 +350,11 @@ function BarToast({ t, onMeasured, onClick }: { t: ToastItem; onMeasured: (id: n
     for (const el of [title.current, detail.current]) if (el?.firstElementChild) watch.observe(el.firstElementChild);
     return () => watch.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [err, t.id]);
+  }, [err, item.id]);
   return (
-    <div className={`deck-toast ${t.kind}`} role={err ? "alert" : "status"} onClick={onClick}>
-      <span ref={title} className="deck-toast-title"><span>{t.title}</span></span>
-      {err && t.detail && <span ref={detail} className="deck-toast-detail"><span>{t.detail}</span></span>}
+    <div className={`deck-toast ${item.kind}`} role={err ? "alert" : "status"} onClick={onClick}>
+      <span ref={title} className="deck-toast-title"><span>{item.title}</span></span>
+      {err && item.detail && <span ref={detail} className="deck-toast-detail"><span>{item.detail}</span></span>}
     </div>
   );
 }

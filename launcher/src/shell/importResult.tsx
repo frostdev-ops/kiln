@@ -9,11 +9,12 @@ import * as api from "../api/commands";
 import type { GameInstall, ImportReport, LibraryRef } from "../api/commands";
 import { qk, useProfiles } from "../api/hooks";
 import { Button, Field, Modal, TextInput, toast } from "../ui";
+import { t, useT } from "../i18n";
 
 /** A reason or note as a sentence: one final period (the backend writes none). */
 export function sentence(s: string): string {
-  const t = s.trim();
-  return !t || /[.!?]$/.test(t) ? t : `${t}.`;
+  const x = s.trim();
+  return !x || /[.!?]$/.test(x) ? x : `${x}.`;
 }
 
 /** The file or folder name of a path (a zip entry shows as `<zip>/<entry>`). */
@@ -23,7 +24,7 @@ export function baseName(path: string): string {
 
 /** "Night Owl", "Night Owl and Dawn Lamp", "3 mods". */
 export function names(m: string[]): string {
-  return m.length === 1 ? m[0] : m.length === 2 ? `${m[0]} and ${m[1]}` : `${m.length} mods`;
+  return m.length === 1 ? m[0] : m.length === 2 ? t("shell.importResult.namesTwo", { a: m[0], b: m[1] }) : t("shell.importResult.namesMany", { count: m.length });
 }
 
 export interface ImportSummary {
@@ -48,12 +49,12 @@ export function summarize(r: ImportReport): ImportSummary {
  *  the details. */
 export function leftOutLine(s: ImportSummary): string | undefined {
   if (s.left.length === 1) {
-    const line = `${s.left[0].file}: ${s.left[0].why}`;
-    return line.length <= 110 ? line : `${s.left[0].file} was left out.`;
+    const line = t("shell.importResult.fileWhy", { file: s.left[0].file, why: s.left[0].why });
+    return line.length <= 110 ? line : t("shell.importResult.fileLeftOut", { file: s.left[0].file });
   }
-  if (s.left.length > 1) return `${s.left.length} files were left out.`;
+  if (s.left.length > 1) return t("shell.importResult.filesLeftOut", { count: s.left.length });
   if (s.notes.length === 1) return s.notes[0];
-  if (s.notes.length > 1) return `${s.notes.length} things in it are not needed.`;
+  if (s.notes.length > 1) return t("shell.importResult.notNeededCount", { count: s.notes.length });
   return undefined;
 }
 
@@ -100,7 +101,7 @@ export function rememberAdd(d: DetailsData) {
  *  either way: every add's toast is made through here. */
 export function detailsAction(d: DetailsData): { label: string; onClick: () => void }[] {
   rememberAdd(d);
-  return d.summary.left.length || d.summary.notes.length ? [{ label: "Details", onClick: () => showImportDetails(d) }] : [];
+  return d.summary.left.length || d.summary.notes.length ? [{ label: t("shell.importResult.details"), onClick: () => showImportDetails(d) }] : [];
 }
 
 /** Toast options for an add's toast: one with something left out or not needed stays until the player closes it (a toast
@@ -112,33 +113,34 @@ export function staysIfDetails(d: DetailsData): { ms?: number } {
 /** "Last adds" for the main list's bar: what the last adds took, left out and did not need, with each one's details.
  *  Nothing while there were none. */
 export function RecentAddsButton() {
+  const t = useT();
   const adds = useRecentAdds((s) => s.adds);
   const [open, setOpen] = useState(false);
   if (!adds.length) return null;
   const when = (iso: string) => {
-    const t = new Date(iso);
-    return Number.isNaN(t.getTime()) ? iso : t.toLocaleString();
+    const at = new Date(iso);
+    return Number.isNaN(at.getTime()) ? iso : at.toLocaleString();
   };
   return (
     <>
-      <button type="button" className="k-link" onClick={() => setOpen(true)} title="What your last adds took, and what they left out and why">
-        Last adds
+      <button type="button" className="k-link" onClick={() => setOpen(true)} title={t("shell.importResult.lastAddsTip")}>
+        {t("shell.importResult.lastAdds")}
       </button>
-      <Modal open={open} onClose={() => setOpen(false)} title="Last adds" width={640} footer={<Button onClick={() => setOpen(false)}>Done</Button>}>
+      <Modal open={open} onClose={() => setOpen(false)} title={t("shell.importResult.lastAdds")} width={640} footer={<Button onClick={() => setOpen(false)}>{t("common.done")}</Button>}>
         <div className="k-stack">
-          <p className="k-hint">The last {RECENT_MAX} times you added mods, newest first. Kiln's launcher.log has the same lines.</p>
+          <p className="k-hint">{t("shell.importResult.lastAddsHint", { count: RECENT_MAX })}</p>
           {adds.map((a, i) => (
             <div key={a.when + i} className="k-list-item" style={{ flexWrap: "wrap", alignItems: "baseline", rowGap: 2 }}>
               <span className="k-muted">{when(a.when)}</span>
               <span style={{ flex: 1, minWidth: 0 }} className="k-ellipsis">
-                {a.summary.taken.length ? `${a.heading}: ${a.summary.taken.join(", ")}` : a.heading}
+                {a.summary.taken.length ? t("shell.importResult.headingList", { heading: a.heading, list: a.summary.taken.join(", ") }) : a.heading}
               </span>
               {(a.summary.left.length > 0 || a.summary.notes.length > 0) && (
                 <span className="k-hint">
-                  {[a.summary.left.length ? `${a.summary.left.length} left out` : "", a.summary.notes.length ? `${a.summary.notes.length} not needed` : ""].filter(Boolean).join(", ")}
+                  {[a.summary.left.length ? t("shell.importResult.nLeftOut", { count: a.summary.left.length }) : "", a.summary.notes.length ? t("shell.importResult.nNotNeeded", { count: a.summary.notes.length }) : ""].filter(Boolean).join(", ")}
                 </span>
               )}
-              <Button variant="ghost" onClick={() => { setOpen(false); showImportDetails(a); }}>Details</Button>
+              <Button variant="ghost" onClick={() => { setOpen(false); showImportDetails(a); }}>{t("shell.importResult.details")}</Button>
             </div>
           ))}
         </div>
@@ -155,18 +157,19 @@ export function ImportDetails() {
 }
 
 export function ImportDetailsModal({ data, onClose }: { data: DetailsData | null; onClose: () => void }) {
+  const t = useT();
   return (
-    <Modal open={!!data} onClose={onClose} title="What was added" width={560} footer={<Button onClick={onClose}>OK</Button>}>
+    <Modal open={!!data} onClose={onClose} title={t("shell.importResult.whatAdded")} width={560} footer={<Button onClick={onClose}>{t("common.ok")}</Button>}>
       {data && (
         <div className="k-stack">
           <div>
             <div className="k-hint">{data.heading}</div>
-            {data.summary.taken.length ? <div>{data.summary.taken.join(", ")}</div> : <div className="k-muted">Nothing.</div>}
+            {data.summary.taken.length ? <div>{data.summary.taken.join(", ")}</div> : <div className="k-muted">{t("shell.importResult.nothing")}</div>}
           </div>
           {data.libraryOnly && <span className="k-hint">{sentence(data.libraryOnly)}</span>}
           {data.summary.left.length > 0 && (
             <div className="k-stack" style={{ gap: 4 }}>
-              <div className="k-hint">Left out</div>
+              <div className="k-hint">{t("shell.importResult.leftOut")}</div>
               {data.summary.left.map((l, i) => (
                 <div key={l.file + i} className="k-list-item" style={{ flexWrap: "wrap", alignItems: "baseline", rowGap: 0 }}>
                   <span className="k-mono k-ellipsis">{l.file}</span>
@@ -177,7 +180,7 @@ export function ImportDetailsModal({ data, onClose }: { data: DetailsData | null
           )}
           {data.summary.notes.length > 0 && (
             <div className="k-stack" style={{ gap: 4 }}>
-              <div className="k-hint">Not needed</div>
+              <div className="k-hint">{t("shell.importResult.notNeeded")}</div>
               {data.summary.notes.map((n) => <span key={n} className="k-muted">{n}</span>)}
             </div>
           )}
@@ -203,6 +206,7 @@ export const usePickProfile = create<{ pending: PendingProfile | null }>(() => (
 /** "Which profile?": the launcher's profiles, when the drop could not know, and "New profile…" (an empty one, named
  *  here, that takes the mods). Mounted once in the shell. */
 export function PickProfile() {
+  const t = useT();
   const qc = useQueryClient();
   const pending = usePickProfile((s) => s.pending);
   const profiles = useProfiles();
@@ -220,7 +224,7 @@ export function PickProfile() {
       close();
       p.onAdded(r, p.game);
       return true;
-    } catch (e) { toast.error(e, "Not added"); return false; }
+    } catch (e) { toast.error(e, t("shell.catalogInstall.notAdded")); return false; }
   };
   const pick = async (id: string) => {
     if (busy) return;
@@ -232,36 +236,36 @@ export function PickProfile() {
     setBusy(true);
     try {
       let made: api.Profile;
-      try { made = await api.profileCreate(name.trim(), null); } catch (e) { toast.error(e, "No profile made"); return; }
+      try { made = await api.profileCreate(name.trim(), null); } catch (e) { toast.error(e, t("shell.importResult.noProfileMade")); return; }
       await qc.invalidateQueries({ queryKey: qk.profiles });
       if (!(await add(made.id))) {
         // the profile exists, the mods are in the Library: back to the list, where it is now, to try again
         setNaming(false);
         setName("");
-        toast.info(`${made.name} was made, without ${pending.label}`, `${pending.label} is in your Library. Pick ${made.name} here to add it again, or switch it on in the list.`);
+        toast.info(t("shell.importResult.madeWithout", { profile: made.name, label: pending.label }), t("shell.importResult.madeWithoutDetail", { profile: made.name, label: pending.label }));
       }
     } finally { setBusy(false); }
   };
   return (
-    <Modal open={!!pending} onClose={close} locked={busy} title="Add to which profile?" width={440}
+    <Modal open={!!pending} onClose={close} locked={busy} title={t("shell.importResult.whichProfile")} width={440}
       footer={naming
-        ? <><Button variant="ghost" onClick={() => setNaming(false)} disabled={busy}>Back</Button><Button variant="primary" disabled={!name.trim()} loading={busy} onClick={() => void create()}>Make and add</Button></>
-        : <Button variant="ghost" onClick={close}>Not now</Button>}>
+        ? <><Button variant="ghost" onClick={() => setNaming(false)} disabled={busy}>{t("common.back")}</Button><Button variant="primary" disabled={!name.trim()} loading={busy} onClick={() => void create()}>{t("shell.importResult.makeAndAdd")}</Button></>
+        : <Button variant="ghost" onClick={close}>{t("shell.importResult.notNow")}</Button>}>
       {pending && (naming ? (
-        <Field label="Name of the new profile" hint={`An empty profile with ${pending.label} in it, on.`} htmlFor="pick-new-profile">
+        <Field label={t("shell.importResult.newName")} hint={t("shell.importResult.newNameHint", { label: pending.label })} htmlFor="pick-new-profile">
           <TextInput id="pick-new-profile" data-autofocus value={name} onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") void create(); }} />
         </Field>
       ) : (
         <div className="k-stack">
-          <span className="k-hint">{pending.label} is in your list, off. It loads once it is on in the profile you play.</span>
+          <span className="k-hint">{t("shell.importResult.inListOff", { label: pending.label })}</span>
           {profiles.isLoading ? null : list.map((p) => (
             <button key={p.id} type="button" className="k-menu-item" disabled={busy} onClick={() => void pick(p.id)}>
               <span>{p.name}</span>
-              {pending.game && p.active.includes(pending.game.id) && <span className="k-muted"> loaded</span>}
+              {pending.game && p.active.includes(pending.game.id) && <span className="k-muted"> {t("shell.importResult.loaded")}</span>}
             </button>
           ))}
-          {!profiles.isLoading && <button type="button" className="k-menu-item" onClick={() => setNaming(true)}>New profile…</button>}
+          {!profiles.isLoading && <button type="button" className="k-menu-item" onClick={() => setNaming(true)}>{t("shell.importResult.newProfile")}</button>}
         </div>
       ))}
     </Modal>

@@ -125,7 +125,9 @@ data (objects are serialized when the mod unloads and read into the new instance
 - **Back-pressure.** A staging that comes while an earlier one of the same generation still waits for the writer (the
   save request's staging, then the snapshot staging one step later) replaces it; stagings of different generations are
   never merged. Pruning stops between two files when a staging waits, and runs again (with the save folder, so it still
-  keeps the generations of the game's backups) after the next confirmation. Without the barrier (a kiln.saves older
+  keeps the generations of the game's backups) after the next confirmation. A pruning reads only the world files,
+  backups and kept manifests that changed since the last one (by size and write time, from the folder listing); the
+  first pruning of a process reads them all. Without the barrier (a kiln.saves older
   than the managed Kiln.Saves, or a build whose world write is not hooked) the tick thread writes the files itself, as
   before.
 - **What still touches the disk on the tick thread:** a load's reads (at world load), a backup's copy (explicit), the

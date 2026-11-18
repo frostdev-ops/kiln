@@ -30,7 +30,9 @@
 #include <unordered_set>
 
 #include "kiln_hook.hpp"
+#include "player_scan.h"
 #include "services/kiln_client.h"
+#include "services/kiln_players.h"
 #include "services/kiln_world.h"
 
 namespace kiln::skills::shadow {
@@ -40,6 +42,7 @@ const KilnApi* g_api = nullptr;
 KilnOwner g_owner = 0;
 const KilnWorldApi* W = nullptr;
 const KilnClientApi* C = nullptr;
+const KilnPlayersApi* P = nullptr;  // the players' records: who to map without walking the entity map (player_scan.h)
 
 void logf(int level, const char* fmt, ...) {
     if (!g_api) return;
@@ -78,6 +81,9 @@ uint32_t fnv(const char* s, uint32_t h = 0x811c9dc5u) {
     return h;
 }
 const uint32_t H_UI = fnv("PlayerSkillsUi", fnv("keen::ecs::")), H_UNLOCKED = fnv("UnlockedSkillNodes", fnv("keen::ecs::"));
+const uint32_t H_PLAYERSTATE = fnv("PlayerState", fnv("keen::ecs::"));
+PlayerScan g_scan;  // the server world's tick thread, and the world-stopping event
+std::mutex g_scan_mu;
 
 // ---- snapshots ----
 struct NodeInfo {
@@ -457,6 +463,8 @@ bool init(const KilnApi* api, KilnOwner owner) {
 void ready() {
     W = static_cast<const KilnWorldApi*>(g_api->service(kstr(KILN_WORLD_SERVICE), 1));
     C = static_cast<const KilnClientApi*>(g_api->service(kstr("kiln.client"), 1));
+    P = static_cast<const KilnPlayersApi*>(g_api->service(kstr(KILN_PLAYERS_SERVICE), KILN_PLAYERS_VERSION));
+    if (P && (P->header.size < sizeof(KilnPlayersApi) || !P->raw_slot)) P = nullptr;
 }
 
 uint32_t level() { return g_level.load(); }
@@ -484,23 +492,60 @@ bool is_shadow(uint32_t node) {
     return ns && ns->m.count(node);
 }
 
+namespace {
+// player_scan.h's view of the server world: kiln.world, and kiln.players' records read now (this is the tick thread)
+struct WorldOps {
+    KilnResult find(KilnEntity* out, uint32_t cap, uint32_t* n) { return W->find(H_PLAYERSTATE, out, cap, n); }
+    uint32_t entity_count() { return W->entity_count ? W->entity_count() : 0; }
+    bool records(std::vector<KilnEntity>* out) {
+        if (!P) return false;
+        for (uint32_t slot = 0; slot < KILN_PLAYERS_MAX_SLOTS; ++slot) {
+            KilnPlayerSlotRaw r{};
+            r.size = sizeof r;
+            const KilnResult rc = P->raw_slot(slot, &r);
+            if (rc == KILN_ERR_INVALID_ARGUMENT && slot > 0) break;  // past the last slot
+            if (rc != KILN_OK) return false;  // no records on this build, not the tick thread, an unreadable record
+            if (r.entity) out->push_back(r.entity);  // any state: a stale id is dropped by its PlayerState check
+        }
+        return true;
+    }
+    bool has_player_state(KilnEntity e) {
+        uint32_t sz = 0;
+        return W->component(e, H_PLAYERSTATE, &sz) != nullptr;
+    }
+};
+}  // namespace
+
 void pre_server() {
     if (!g_level || !W) return;
-    KilnEntity players[64];
-    uint32_t n = 0;
-    if (W->find(fnv("PlayerState", fnv("keen::ecs::")), players, 64, &n) != KILN_OK) n = std::min<uint32_t>(n, 64);
+    WorldOps ops;
+    std::vector<KilnEntity> players;
+    {
+        std::lock_guard scan(g_scan_mu);
+        players = g_scan.step(ops);
+    }
     std::vector<std::pair<uintptr_t, uint64_t>> addrs;
-    for (uint32_t i = 0; i < n && i < 64; ++i) {
+    for (KilnEntity e : players) {
         uint32_t sz = 0;
-        const uint64_t k = key_of(KILN_WORLD_SERVER, players[i]);
-        if (const void* p = W->component(players[i], H_UI, &sz)) addrs.emplace_back(reinterpret_cast<uintptr_t>(p), k);
-        if (const void* p = W->component(players[i], H_UNLOCKED, &sz)) addrs.emplace_back(reinterpret_cast<uintptr_t>(p), k);
+        const uint64_t k = key_of(KILN_WORLD_SERVER, e);
+        if (const void* p = W->component(e, H_UI, &sz)) addrs.emplace_back(reinterpret_cast<uintptr_t>(p), k);
+        if (const void* p = W->component(e, H_UNLOCKED, &sz)) addrs.emplace_back(reinterpret_cast<uintptr_t>(p), k);
     }
     std::sort(addrs.begin(), addrs.end());
     std::lock_guard lock(g_mu);
     if (addrs == g_server_addrs) return;
     g_server_addrs = std::move(addrs);
     publish_owners_locked();
+}
+
+void server_world_stopping() {
+    std::lock_guard scan(g_scan_mu);
+    if (g_scan.steps())
+        logf(KILN_LOG_INFO, "shadow: the players' skill components were found with %llu walk(s) of the entity map in %llu "
+             "server step(s); the players' records (kiln.players) were read on %llu of them",
+             static_cast<unsigned long long>(g_scan.walks()), static_cast<unsigned long long>(g_scan.steps()),
+             static_cast<unsigned long long>(g_scan.record_steps()));
+    g_scan.reset();
 }
 
 namespace {

@@ -10,5 +10,5 @@ out=${KILN_OUT:-$here/../../build}/core-tests
 mkdir -p "$out"
 cxx=${CXX:-$(command -v clang++ || command -v g++)}
 "$cxx" -std=c++20 -O1 -g -Wall -Wextra -pthread -fsanitize=address,undefined -fno-sanitize-recover=undefined \
-    -I"$here/../abi" -o "$out/tick_stats_test" "$here/tick_stats_test.cpp"
+    -I"$here/../abi" -I"$here/../src" -o "$out/tick_stats_test" "$here/tick_stats_test.cpp" "$here/../src/tasks_stats.cpp"
 "$out/tick_stats_test" "$here/../src/tick.cpp"

@@ -100,6 +100,15 @@ carrier recipe id and the request in spare fields); the server hooks its craftin
 requests out **[str] [sym]**. The server answers through the game's **knowledge** replication (a counter knowledge
 value it sets for the player) **[sym]**. A vanilla server ignores the requests.
 
+Checked again for inbox 73 (2026-11-17, "kiln-chat swallows Creative Mode's answer"): the version check never touches
+chat. creative.dll has no chat string or symbol; its server sigs for build 1287369 (`6AEB143E-1DDE000.json`) name no
+chat function. "Answered player {}" is logged in `ServerConnection::answer` (`creative.dll` 0x18014d0b0) before the
+answer is handed on as a deferred action; the answer is the counter knowledge `answer.knowledgeId` 0x57CF25F9, pushed
+from its hook on the knowledge queue apply (0x9a0830, over Kiln's `quests/KnowledgeApplyQueue`). Lab
+`dev29-chat-reply` (29.15 server pack, no client): with and without `kiln-chat.dll` Creative Mode logs the same hooks,
+`hooks.json` has the same four overlaps (CraftRecipe, KnowledgeApplyQueue, ApplyMaterials, GlideGravity) and no
+foreign hook on `chat/ServerReceive` or `chat/ChatLogAdd`.
+
 ## What Kiln had before this work (Kiln.Rules `/creative`)
 Per-player rule sets; `/creative` (admins; a hosted world's host) gives: the game's building fly mode anywhere with the
 character carried to where the flight ends, building anywhere (outside bases, no-build zones, near enemies, in the

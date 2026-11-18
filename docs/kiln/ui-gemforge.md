@@ -56,7 +56,7 @@ item catalog to distinguish loose gems from weapon carriers. Hooks install on fi
 signatures, layouts, call edges or hook contracts leave the feature off. An unreadable or incoherent list disables
 only this inspection feature for the process and records a reason in `kiln.caps` and `kiln/state/capabilities.json`.
 The snapshot is the game's own list: chest gems a server offered ([below](#chest-gems-in-the-gems-grid)) are not in it.
-Real-client acceptance is still required before release.
+This read API itself has not been checked in a real game client yet (the chest-gem test below did not call it).
 
 ## Chest gems in the GEMS grid
 Since 0.2.0-dev.29.15 (GitHub issue 61), capability `ui.gemforge.sources` (client). A server mod offers a player the
@@ -89,8 +89,21 @@ local player drops them) and lapse with their offer (30 s by default; the server
 screen is open). A client without Kiln, an older Kiln, or a Kiln client on a server that never offers sees the game's
 own forge.
 
-## Real-client check
-Never run in a real client before 0.2.0-dev.29.15 shipped. The owner's check, with `mods/tests/gemforge-chest-check`
+## Real-client checks
+**Seen in a real game.** bisdat ran the chest gems in a real game client on 2026-11-17 (GitHub issue 61): Kiln
+0.2.0-dev.29.15, Bazzite Linux with Steam's Proton, a world hosted on that PC, and their server mod "Gem Forge Magic
+Storage" v1.0.0 offering a base's Magic chests. Passed: the 28 loose gems of one Magic chest listed as rows in the game's
+own GEMS grid; a chest gem selected and socketed into a weapon the player held, with the game's controls and without
+the gem passing through the backpack; unsocketing it to the backpack; an upgrade of a chest gem (43 to 44) with the
+172 Archaic Essence VII paid from the Magic chests and none in the backpack; a refused upgrade when the essence was
+short, with nothing lost; recycling a chest gem; and withdrawn offers leaving the grid while the player's own gems stayed.
+Server side: [services/gems-forge.md](services/gems-forge.md#seen-in-a-real-game-020-dev2915).
+
+**Not seen in a real game yet:** an action on a stale row (step 6 below), two players at one forge with offers at the
+same time, the cross-base permission cases, a Kiln client joined to a dedicated server (rows sent over the network to a
+remote client), and the vanilla forge on a server that offers nothing (step 7).
+
+The owner's check, with `mods/tests/gemforge-chest-check`
 on the server (or the hosting client) and on the Kiln client:
 1. A storage chest within 20 m of a Shroud Forge; `/gemchest setup` (a sword with an empty socket, two gems and 300
    essence into the nearest chest). kiln.log: `gemchest: ui.gemforge.sources = on`, `gems.sources = on`, `gems.payers = on`.

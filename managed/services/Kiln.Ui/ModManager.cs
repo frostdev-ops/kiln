@@ -68,16 +68,16 @@ internal static class ModManagerLogic
     /// the mods' entries in the game's menus (when there are any here) and Kiln's settings.</summary>
     public static IReadOnlyList<EngineRow> EngineRows(CatalogSnapshot s, bool kilnSettings, int menuEntries = 0)
     {
-        var rows = new List<EngineRow> { new(EngineFilter.All, "All mods", s.Mods.Count.ToString(), EngineHealth.Ok, null, "##eng.all") };
+        var rows = new List<EngineRow> { new(EngineFilter.All, KilnText.T("mods.engines.all"), s.Mods.Count.ToString(), EngineHealth.Ok, null, "##eng.all") };
         var problems = s.Problems;
         if (problems > 0)
-            rows.Add(new(EngineFilter.Attention, "Needs attention", problems.ToString(), EngineHealth.Problem, null, "##eng.attention"));
+            rows.Add(new(EngineFilter.Attention, KilnText.T("mods.engines.attention"), problems.ToString(), EngineHealth.Problem, null, "##eng.attention"));
         foreach (var e in s.Engines)
             rows.Add(new(new EngineFilter(e.Kind), e.Name, e.Count.ToString(), e.Health, e.Note, "##eng." + e.Kind));
         if (menuEntries > 0)
-            rows.Add(new(EngineFilter.Menus, "Menu entries", menuEntries.ToString(), EngineHealth.Ok,
-                "The entries mods added to the game's menus. Choose one here to do what it does in the menu.", "##eng.menus"));
-        if (kilnSettings) rows.Add(new(EngineFilter.Settings, "Kiln settings", "", EngineHealth.Ok, null, "##eng.settings"));
+            rows.Add(new(EngineFilter.Menus, KilnText.T("mods.engines.menus"), menuEntries.ToString(), EngineHealth.Ok,
+                KilnText.T("mods.engines.menus_note"), "##eng.menus"));
+        if (kilnSettings) rows.Add(new(EngineFilter.Settings, KilnText.T("mods.engines.settings"), "", EngineHealth.Ok, null, "##eng.settings"));
         return rows;
     }
 
@@ -128,8 +128,8 @@ internal static class ModManagerLogic
     /// only on a dedicated server. Other engines decide that themselves.</summary>
     public static string SideText(string side, string process, string engine = "kiln") => side switch
     {
-        "client" => "Game only", "both" => "Game and server",
-        "server" => process == "client" && engine == "kiln" ? "Your world only" : "Server only",
+        "client" => KilnText.T("mods.side.client"), "both" => KilnText.T("mods.side.both"),
+        "server" => process == "client" && engine == "kiln" ? KilnText.T("mods.side.world") : KilnText.T("mods.side.server"),
         _ => side,
     };
 
@@ -142,24 +142,39 @@ internal static class ModManagerLogic
 }
 
 /// <summary>The game's menu palette (docs/re/game-ui.md section 4) and the mod manager's state colours.</summary>
+/// <summary>The colours of Kiln's own pages: the player's look (KilnLook.Player, refreshed at each frame's start), named as
+/// the game look's roles read (the game's menu colours, or the neutral stand-in until they are read; ember, translucent or a
+/// mod's theme when the player chose one; docs/kiln/ui.md "Looks and themes").</summary>
 internal static class GameColors
 {
-    public static readonly Color Text = Color.FromRgba(0xeeeae2ff);
-    public static readonly Color Muted = Color.FromRgba(0xc0cdd5ab);
-    public static readonly Color Faint = Color.FromRgba(0xc0cdd570);
-    public static readonly Color Gold = Color.FromRgba(0xcaac54ff);
-    public static readonly Color GoldBright = Color.FromRgba(0xf5c558ff);
-    public static readonly Color GoldDeep = Color.FromRgba(0x896828ff);
-    public static readonly Color Tile = Color.FromRgba(0x363246ff);
-    public static readonly Color Attention = Color.FromRgba(0xffe06bff);
-    public static readonly Color Warning = Color.FromRgba(0xf26e6eff);
-    public static readonly Color Ok = Color.FromRgba(0x9fcf8aff);
-    public static readonly Color Idle = Color.FromRgba(0x9aa3adff);
-    public static readonly Color Night = Color.FromRgba(0x121118ff);
-    /// <summary>menu.tileBackgroundColor's alpha in the game's data (169): the panels on the game page.</summary>
-    public const byte PanelAlpha = 169;
+    private static UiPalette P => KilnLook.Player;
+    private static Color Opaque(Color c) => c.WithAlpha(255);
+    private static Color Times(Color c, float k) =>
+        new((byte)Math.Clamp(MathF.Round(c.R * k), 0, 255), (byte)Math.Clamp(MathF.Round(c.G * k), 0, 255), (byte)Math.Clamp(MathF.Round(c.B * k), 0, 255), 255);
+
+    public static Color Text => Opaque(P.Text);
+    public static Color Muted => P.TextMuted;
+    public static Color Faint => P.TextMuted.WithAlpha(0x70);
+    /// <summary>The look's border: lines, captions, the chosen row's mark (the game's tab highlight).</summary>
+    public static Color Gold => Opaque(P.Border);
+    /// <summary>The look's accent: the chosen tab (the game's chosen-tile outline).</summary>
+    public static Color GoldBright => Opaque(P.Accent);
+    /// <summary>The look's header: a held row (the game's chosen-row ground).</summary>
+    public static Color GoldDeep => Opaque(P.Header);
+    public static Color Tile => Opaque(P.PanelBackground);
+    public static Color Attention => Opaque(P.Attention);
+    public static Color Warning => Opaque(P.Warning);
+    public static Color Ok => Opaque(P.Ok);
+    public static Color Idle => Times(P.TextMuted, 0.8f);
+    /// <summary>The darkest ground: the window colour, darker.</summary>
+    public static Color Night => Times(P.WindowBackground, 0.69f);
+    /// <summary>The look's panel opacity (the game's tile: 169): the panels on the game page.</summary>
+    public static byte PanelAlpha => P.PanelBackground.A;
     /// <summary>A lighter tile for rows hovered or chosen on a tile panel.</summary>
-    public static readonly Color TileLight = Color.FromRgba(0x56506eff);
+    public static Color TileLight => Times(P.PanelBackground, 1.6f);
+    /// <summary>How strongly Kiln darkens the game behind its pages: 1 for an opaque look, less for a translucent one (its
+    /// window opacity against the game look's 0.9).</summary>
+    public static float Backdrop => Math.Clamp(P.WindowBackground.A / 230f, 0.15f, 1f);
 
     public static Color Of(ModRunState s, bool missing) => missing ? Warning : s switch
     {
@@ -187,6 +202,7 @@ internal sealed class ModManagerPage
     private string _rowsSearch = "\0";
     private bool _rowsSettings;
     private int _rowsMenus;
+    private int _rowsGeneration = -1;
     // the mods' entries in the game's menus that a player can choose here (refreshed every few frames)
     private IReadOnlyList<GameMenuRow> _menuRows = [];
     private ulong _menuRowsFrame;
@@ -204,15 +220,47 @@ internal sealed class ModManagerPage
     // the display size like the game's menus), so font sizes are multiplied by this.
     private float _k = 1;
 
-    private static readonly string[] SectionNames = ["Mods", "Network", "Keys", "Overlay"];
     private static readonly string[] SectionIds = ["##sec.mods", "##sec.network", "##sec.keys", "##sec.overlay"];
 
-    /// <summary>Key hints for the footer of the host, for the current section: (keys, what they do).</summary>
-    public IReadOnlyList<(string Keys, string Label)> Hints => Section == ModManagerSection.Mods ? ModsHints : OtherHints;
+    // the section names and the footer hints in the language in use (made again when it changes)
+    private static int _textsGeneration = -1;
+    private static string[] _sectionNames = [];
+    private static (string, string)[] _modsHints = [], _otherHints = [];
 
-    private static readonly (string, string)[] ModsHints =
-        [("Esc", "Back"), ("Tab", "Next section"), ("Arrows", "Move"), ("Enter", "Choose"), ("Ctrl+F", "Search")];
-    private static readonly (string, string)[] OtherHints = [("Esc", "Back"), ("Tab", "Next section"), ("Arrows", "Move"), ("Enter", "Choose")];
+    private static void Texts()
+    {
+        var g = KilnText.Generation;
+        if (g == _textsGeneration) return;
+        _sectionNames = [KilnText.T("menu.sections.mods"), KilnText.T("menu.sections.network"), KilnText.T("menu.sections.keys"), KilnText.T("menu.sections.overlay")];
+        var back = (KeyEsc, KilnText.T("menu.hints.back"));
+        var next = ("Tab", KilnText.T("menu.hints.next_section"));
+        var move = (KilnText.T("menu.hints.arrows"), KilnText.T("menu.hints.move"));
+        var choose = ("Enter", KilnText.T("menu.hints.choose"));
+        _modsHints = [back, next, move, choose, ("Ctrl+F", KilnText.T("menu.hints.search"))];
+        _otherHints = [back, next, move, choose];
+        _textsGeneration = g;
+    }
+
+    private const string KeyEsc = "Esc";
+
+    private static string[] SectionNames
+    {
+        get
+        {
+            Texts();
+            return _sectionNames;
+        }
+    }
+
+    /// <summary>Key hints for the footer of the host, for the current section: (keys, what they do). The first is "Back".</summary>
+    public IReadOnlyList<(string Keys, string Label)> Hints
+    {
+        get
+        {
+            Texts();
+            return Section == ModManagerSection.Mods ? _modsHints : _otherHints;
+        }
+    }
 
     /// <summary>The snapshot to show (a test or the preview sets the catalog; the game uses the worker's).</summary>
     internal Func<CatalogSnapshot> Source = () => ModCatalog.Snapshot(TimeSpan.FromSeconds(2));
@@ -220,9 +268,11 @@ internal sealed class ModManagerPage
     /// <summary>Recomputes the columns when the snapshot, the filter or the search changed (not every frame).</summary>
     internal void Update(CatalogSnapshot snap, bool kilnSettings, int menuEntries = 0)
     {
-        var changed = snap.Version != _snapVersion || kilnSettings != _rowsSettings || menuEntries != _rowsMenus;
+        var generation = KilnText.Generation;  // another language: the rows' and the empty state's words again
+        var changed = snap.Version != _snapVersion || kilnSettings != _rowsSettings || menuEntries != _rowsMenus || generation != _rowsGeneration;
         if (changed)
         {
+            _rowsGeneration = generation;
             _snap = snap;
             _snapVersion = snap.Version;
             _rowsSettings = kilnSettings;
@@ -238,18 +288,18 @@ internal sealed class ModManagerPage
         if (!Filter.IsSettings && !Filter.IsMenus) Selected = ModManagerLogic.Select(_rows, Selected);
         if (snap.Mods.Count == 0)
         {
-            _emptyTitle = ModCatalog.Loading ? "Reading the mod list..." : "No mods are installed.";
-            _emptyHint = ModCatalog.Loading ? "" : "Add mods in the Kiln launcher (Library), put them in your profile, then start the game again.";
+            _emptyTitle = ModCatalog.Loading ? KilnText.T("mods.empty.loading") : KilnText.T("mods.empty.none");
+            _emptyHint = ModCatalog.Loading ? "" : KilnText.T("mods.empty.none_hint");
         }
         else if (Search.Trim().Length > 0)
         {
-            _emptyTitle = $"No mod matches \"{Search.Trim()}\".";
-            _emptyHint = "Try another word, or clear the search box.";
+            _emptyTitle = KilnText.T("mods.empty.no_match", ("search", Search.Trim()));
+            _emptyHint = KilnText.T("mods.empty.no_match_hint");
         }
         else
         {
-            _emptyTitle = "Nothing here.";
-            _emptyHint = "Pick All mods on the left.";
+            _emptyTitle = KilnText.T("mods.empty.nothing");
+            _emptyHint = KilnText.T("mods.empty.nothing_hint");
         }
     }
 
@@ -284,7 +334,7 @@ internal sealed class ModManagerPage
     {
         _k = s / (ui.Scale > 0 ? ui.Scale : 1);
         TakeRequest();
-        var kilnSettings = ConfigScreens.HasConfigs("kiln");
+        var kilnSettings = ConfigScreens.HasConfigs("kiln") || PlayerLook.Available;  // the Look is there on every client
         if (_menuRowsFrame == 0 || ui.FrameNumber - _menuRowsFrame >= 15 || ui.FrameNumber < _menuRowsFrame)
         {
             try { _menuRows = MenuSource(); }
@@ -357,7 +407,7 @@ internal sealed class ModManagerPage
         if (ShroudlinkMenu.Available || ShroudlinkMenu.Open)
         {
             ui.SetCursor(x - ui.Cursor.WindowX, r.Y + 8 * s - ui.Cursor.WindowY);
-            if (ui.SmallButton(ShroudlinkMenu.Open ? "Back to mods" : "shroudlink menus"))
+            if (ui.SmallButton(ShroudlinkMenu.Open ? KilnText.T("menu.shroudlink.back") : KilnText.T("menu.shroudlink.open")))
             { ShroudlinkMenu.Open = !ShroudlinkMenu.Open; Section = ModManagerSection.Mods; }
         }
         // the line under the whole row
@@ -439,7 +489,7 @@ internal sealed class ModManagerPage
     // still leaves the muted text readable; the hue stays the game's.
     private static void Panel(UiDraw ui, PageRect r, float s)
     {
-        ui.DrawRect(UiLayer.Window, r.X, r.Y, r.Right, r.Bottom, GameColors.Night.WithAlpha(110), 2 * s);
+        ui.DrawRect(UiLayer.Window, r.X, r.Y, r.Right, r.Bottom, GameColors.Night.WithAlpha((byte)(110 * GameColors.Backdrop)), 2 * s);
         ui.DrawRect(UiLayer.Window, r.X, r.Y, r.Right, r.Bottom, GameColors.Tile.WithAlpha(GameColors.PanelAlpha), 2 * s);
     }
 
@@ -457,7 +507,7 @@ internal sealed class ModManagerPage
 
     private void EnginesColumn(UiDraw ui, PageRect r, float s)
     {
-        Caption(ui, r.X + 2 * s, r.Y, "ENGINES", s);
+        Caption(ui, r.X + 2 * s, r.Y, KilnText.T("mods.captions.engines"), s);
         var top = r.Y + 26 * s;
         Place(ui, r.X, top);
         if (ui.BeginChild("kiln.engines", r.Width, r.Bottom - top, UiChildFlags.NavFlattened, UiWindowFlags.NoBackground))
@@ -507,7 +557,7 @@ internal sealed class ModManagerPage
     private void ModsColumn(UiDraw ui, PageRect r, float s)
     {
         // search box with a placeholder (the field has no hint text of its own)
-        Caption(ui, r.X + 2 * s, r.Y, Filter.IsAll ? "ALL MODS" : Filter.IsAttention ? "NEEDS ATTENTION" : ModCatalog.EngineName(Filter.Kind).ToUpperInvariant(), s);
+        Caption(ui, r.X + 2 * s, r.Y, Filter.IsAll ? KilnText.T("mods.captions.all") : Filter.IsAttention ? KilnText.T("mods.captions.attention") : ModCatalog.EngineName(Filter.Kind).ToUpperInvariant(), s);
         var y = r.Y + 26 * s;
         Place(ui, r.X, y);
         using (ui.PushVar(UiStyleVar.FramePadding, 14 * s, 10 * s))
@@ -524,7 +574,7 @@ internal sealed class ModManagerPage
             var it = ui.LastItem;
             _searchActive = it.Active;
             if (Search.Length == 0 && !it.Active)
-                ui.DrawText(UiLayer.Window, it.MinX + 14 * s, it.MinY + (it.Height - ui.Cursor.FontSize) / 2, "Search mods (Ctrl+F)", GameColors.Faint);
+                ui.DrawText(UiLayer.Window, it.MinX + 14 * s, it.MinY + (it.Height - ui.Cursor.FontSize) / 2, KilnText.T("mods.search.hint"), GameColors.Faint);
             y = it.MaxY + 12 * s;
         }
         // the engine's own line, when it says something
@@ -566,7 +616,7 @@ internal sealed class ModManagerPage
                 if (chosen) ui.DrawRect(UiLayer.Window, it.MinX, it.MinY, it.MinX + 3 * s, it.MaxY, GameColors.Gold);
                 // the chips sit right-aligned in a column as wide as the widest word, so the versions line up
                 var chipW = ChipWidth(ui, m.Chip, s);
-                var chipCol = it.MaxX - 14 * s - ChipWidth(ui, "Not loaded", s);
+                var chipCol = it.MaxX - 14 * s - ChipWidth(ui, ModCatalog.ChipText(ModRunState.NotLoaded), s);
                 var chipX = it.MaxX - 14 * s - chipW;
                 var verW = 0f;
                 if (m.Version.Length > 0) (verW, _) = ui.MeasureText(m.Version, 15 * s, 0);
@@ -624,7 +674,7 @@ internal sealed class ModManagerPage
 
     private void DetailsColumn(UiDraw ui, PageRect r, float s)
     {
-        Caption(ui, r.X + 2 * s, r.Y, "DETAILS", s);
+        Caption(ui, r.X + 2 * s, r.Y, KilnText.T("mods.captions.details"), s);
         var top = r.Y + 26 * s;
         Place(ui, r.X, top);
         var mod = Selected is null ? null : _rows.FirstOrDefault(x => x.Key == Selected)?.Mod;
@@ -638,7 +688,7 @@ internal sealed class ModManagerPage
                 if (mod is null)
                 {
                     using (ui.PushColor(UiColorSlot.Text, GameColors.Muted))
-                        ui.TextWrapped(_rows.Count == 0 ? "Pick a mod in the list to see what it is, whether it loaded, and its settings." : "Pick a mod to see its details.");
+                        ui.TextWrapped(_rows.Count == 0 ? KilnText.T("mods.details.pick_list") : KilnText.T("mods.details.pick"));
                 }
                 else Details(ui, mod, s);
             }
@@ -661,7 +711,7 @@ internal sealed class ModManagerPage
             ui.TextWrapped(m.Name);
         using (ui.FontSize(15 * _k))
         using (ui.PushColor(UiColorSlot.Text, GameColors.Muted))
-            ui.TextWrapped(m.Version.Length > 0 ? m.Id + "   ·   version " + m.Version : m.Id);
+            ui.TextWrapped(m.Version.Length > 0 ? KilnText.T("mods.details.id_version", ("id", m.Id), ("version", m.Version)) : m.Id);
         ui.Space(1, 6 * s);
         // the chips: state, engine, side
         var c = ui.Cursor;
@@ -673,7 +723,7 @@ internal sealed class ModManagerPage
 
         if (m.Reason is not null || m.Help is not null)
         {
-            Label(ui, m.State == ModRunState.Failed || m.Missing ? "WHAT WENT WRONG" : "STATE", s);
+            Label(ui, m.State == ModRunState.Failed || m.Missing ? KilnText.T("mods.details.wrong") : KilnText.T("mods.details.state"), s);
             if (m.Reason is { } why)
                 using (ui.PushColor(UiColorSlot.Text, m.State == ModRunState.Failed || m.Missing ? GameColors.Warning : GameColors.Text))
                     ui.TextWrapped(why);
@@ -682,7 +732,7 @@ internal sealed class ModManagerPage
                     ui.TextWrapped(help);
         }
         var engine = _snap.Engines.FirstOrDefault(e => e.Kind == m.Engine);
-        Label(ui, "ENGINE", s);
+        Label(ui, KilnText.T("mods.details.engine"), s);
         ui.TextWrapped(ModCatalog.EngineAbout(m.Engine));
         if (engine?.Note is { } note)
             using (ui.PushColor(UiColorSlot.Text, GameColors.Muted)) ui.TextWrapped(note);
@@ -691,23 +741,25 @@ internal sealed class ModManagerPage
         {
             if (m.LoadIndex >= 0)
             {
-                Label(ui, "LOAD ORDER", s);
-                ui.Text($"Loads as number {m.LoadIndex + 1}.");
+                Label(ui, KilnText.T("mods.details.load_order"), s);
+                ui.Text(KilnText.T("mods.details.loads_as", ("number", m.LoadIndex + 1)));
             }
             if (m.Dependencies.Count > 0)
             {
-                Label(ui, "NEEDS", s);
+                Label(ui, KilnText.T("mods.details.needs"), s);
                 foreach (var d in m.Dependencies)
                 {
                     var have = d.Id == "kiln" || _snap.Mods.Any(x => x.Engine == "kiln" && x.Id == d.Id && x.State == ModRunState.Loaded);
                     using (ui.PushColor(UiColorSlot.Text, have ? GameColors.Text : d.Optional ? GameColors.Muted : GameColors.Warning))
-                        ui.TextWrapped($"{d.Id} {(d.VersionRange is "*" or "" ? "" : d.VersionRange)}{(d.Optional ? " (optional)" : "")}{(have ? "" : d.Optional ? ": not loaded" : ": missing")}");
+                        ui.TextWrapped(KilnText.T(have ? d.Optional ? "mods.details.dependency_optional" : "mods.details.dependency"
+                            : d.Optional ? "mods.details.dependency_optional_off" : "mods.details.dependency_missing",
+                            ("id", d.Id), ("range", d.VersionRange is "*" or "" ? "" : d.VersionRange)));
                 }
             }
         }
         if (m.Folder is { } folder)
         {
-            Label(ui, "FOLDER", s);
+            Label(ui, KilnText.T("mods.details.folder"), s);
             using (ui.FontSize(14 * _k))
             using (ui.PushColor(UiColorSlot.Text, GameColors.Muted))
                 ui.TextWrapped(folder);
@@ -721,7 +773,7 @@ internal sealed class ModManagerPage
             var mine = status.FirstOrDefault(x => x.ModId == m.Id);
             if (mine is { Lines.Count: > 0 })
             {
-                Label(ui, "STATUS", s);
+                Label(ui, KilnText.T("mods.details.status"), s);
                 foreach (var line in mine.Lines) ui.TextWrapped(line);
             }
             UiEngine.DrawConfig(ui, m.Id, s, Label);
@@ -732,14 +784,17 @@ internal sealed class ModManagerPage
     private void SettingsColumns(UiDraw ui, PageRect mid, PageRect right, float s)
     {
         var r = new PageRect(mid.X, mid.Y, right.Right - mid.X, mid.Height);
-        Caption(ui, r.X + 2 * s, r.Y, "KILN SETTINGS", s);
+        Caption(ui, r.X + 2 * s, r.Y, KilnText.T("mods.captions.settings"), s);
         var top = r.Y + 26 * s;
         Place(ui, r.X, top);
         using (ui.PushColor(UiColorSlot.ChildBg, Backed ? Color.FromRgba(0x00000000) : GameColors.Tile.WithAlpha(115)))
         using (ui.PushVar(UiStyleVar.WindowPadding, Backed ? 12 * s : 26 * s, Backed ? 8 * s : 22 * s))
         {
             if (ui.BeginChild("kiln.settings", r.Width, r.Bottom - top, UiChildFlags.NavFlattened | UiChildFlags.Padding))
+            {
+                LookPage.Draw(ui, s, (u, text, sc) => u.Text(GameColors.Gold.WithAlpha(210), text));  // the player's look of Kiln's UI
                 ConfigScreens.Draw(ui, "kiln");
+            }
             ui.EndChild();
         }
     }
@@ -748,7 +803,7 @@ internal sealed class ModManagerPage
     private void MenuEntriesColumns(UiDraw ui, PageRect mid, PageRect right, float s)
     {
         var r = new PageRect(mid.X, mid.Y, right.Right - mid.X, mid.Height);
-        Caption(ui, r.X + 2 * s, r.Y, GameMenuEntries.Here() == MenuLocation.PauseMenu ? "PAUSE MENU ENTRIES" : "MAIN MENU ENTRIES", s);
+        Caption(ui, r.X + 2 * s, r.Y, GameMenuEntries.Here() == MenuLocation.PauseMenu ? KilnText.T("mods.captions.pause_entries") : KilnText.T("mods.captions.main_entries"), s);
         var top = r.Y + 26 * s;
         Place(ui, r.X, top);
         using (ui.PushColor(UiColorSlot.ChildBg, Backed ? Color.FromRgba(0x00000000) : GameColors.Tile.WithAlpha(115)))
@@ -764,19 +819,22 @@ internal sealed class ModManagerPage
                 {
                     using var id = ui.Id("menu." + row.Handle);
                     // the button has a fixed label: a mod's text goes beside it as text ("##" in it is ImGui's id syntax)
-                    if (ui.Button("Open", 0, 40 * s))
+                    if (ui.Button(KilnText.T("mods.menus.open"), 0, 40 * s))
                     {
                         // out of the entry's way first: its action runs after the next game UI frame and may open a Kiln
                         // view of its own, which a close after it would shut again
                         Ui.MenuOpen = false;
                         if (Backed) GamePageHost.Leave();
-                        if (!GameMenuEntries.Activate(row.Handle)) Hud.Toast($"\"{row.Text}\" is not available here now.", ToastKind.Warning);
+                        if (!GameMenuEntries.Activate(row.Handle)) Hud.Toast(KilnText.T("mods.menus.unavailable", ("entry", row.Text)), ToastKind.Warning);
                     }
                     ui.SameLine();
                     ui.Text(row.Text);
                     ui.SameLine();
                     using (ui.PushColor(UiColorSlot.Text, GameColors.Muted))
-                        ui.Text((row.Mod ?? "a Kiln plugin") + (row.Drawn ? "" : "   ·   not in the game's menu now"));
+                    {
+                        var by = row.Mod ?? KilnText.T("mods.menus.plugin");
+                        ui.Text(row.Drawn ? by : KilnText.T("mods.menus.hidden", ("mod", by)));
+                    }
                 }
             }
             ui.EndChild();
@@ -836,15 +894,16 @@ internal static class ModManagerHost
         var w = ui.Width;
         var h = ui.Height;
         var s = PageScale(w, h, ui.Scale);
-        ui.PushStyleRaw(UiStyle.Game);
+        ui.PushStyleRaw(UiStyle.Player);  // the player's look (the game's unless they chose another)
         try
         {
-            // the dimmed game behind: darker at the top and bottom, like the game's own menus
-            ui.DrawRect(UiLayer.Background, 0, 0, w, h, GameColors.Night.WithAlpha(200));
+            // the dimmed game behind: darker at the top and bottom, like the game's own menus (lighter for a translucent look)
+            var k = GameColors.Backdrop;
+            ui.DrawRect(UiLayer.Background, 0, 0, w, h, GameColors.Night.WithAlpha((byte)(200 * k)));
             const int bands = 10;  // a little darker towards the top and the bottom edge, in soft steps
             for (var i = 0; i < bands; i++)
             {
-                var a = (byte)(5 * (bands - i));
+                var a = (byte)(5 * (bands - i) * k);
                 var y0 = MathF.Floor(h * 0.18f * i / bands);
                 var y1 = MathF.Floor(h * 0.18f * (i + 1) / bands);
                 ui.DrawRect(UiLayer.Background, 0, y0, w, y1, Color.Black.WithAlpha(a));
@@ -931,14 +990,37 @@ internal static class ModManagerChrome
         }
     }
 
-    /// <summary>The game page's title: what its own pages show for "Mods" (made once: drawn a letter at a time).</summary>
-    internal const string GameTitle = "MODS";
-    private static readonly string[] GameTitleLetters = GameTitle.Select(c => c.ToString()).ToArray();
+    /// <summary>The game page's title: what its own pages show for "Mods" (drawn a letter at a time; the letters made again
+    /// when the language changes).</summary>
+    internal static string GameTitle => KilnText.T("menu.game_title");
+    private static string[] _gameTitleLetters = [];
+    private static int _gameTitleGeneration = -1;
+
+    private static string[] GameTitleLetters
+    {
+        get
+        {
+            var g = KilnText.Generation;
+            if (g != _gameTitleGeneration)
+            {
+                // by text element: a letter of another script may be more than one char
+                var t = GameTitle;
+                var e = System.Globalization.StringInfo.GetTextElementEnumerator(t);
+                var letters = new List<string>();
+                while (e.MoveNext()) letters.Add(e.GetTextElement());
+                _gameTitleLetters = letters.ToArray();
+                _gameTitleGeneration = g;
+            }
+            return _gameTitleLetters;
+        }
+    }
     /// <summary>The game's header tracking: 0.05 of the font size between letters (namedStyles.menu.header1).</summary>
     internal const float Tracking = 0.05f;
 
     private static string? _subtitle;
     private static long _subtitleAt;
+    private static int _subtitleGeneration = -1;
+    private static long _subtitleVersion = -1;
 
     /// <summary>The title at (x, y) in pixels, <paramref name="size"/> pixels high; the subtitle under it (stand-alone) or
     /// right-aligned to <paramref name="right"/> on the title's line (game page).</summary>
@@ -950,7 +1032,7 @@ internal static class ModManagerChrome
             using (ui.FontSize(size / (ui.Scale > 0 ? ui.Scale : 1)))
             {
                 var titleSize = ui.Cursor.FontSize;
-                ui.DrawText(UiLayer.Window, x, y, "Mod Manager", GameColors.Text, titleSize);
+                ui.DrawText(UiLayer.Window, x, y, KilnText.T("menu.title"), GameColors.Text, titleSize);
                 ui.DrawText(UiLayer.Window, x + 2 * s, y + titleSize + 6 * s, sub, GameColors.Muted, 16 * s);
             }
             return;
@@ -975,17 +1057,24 @@ internal static class ModManagerChrome
     public static string Subtitle()
     {
         var now = Environment.TickCount64;
-        if (_subtitle is not null && now - _subtitleAt < 2000) return _subtitle;
+        var generation = KilnText.Generation;
+        var snap = ModCatalog.Snapshot(TimeSpan.FromSeconds(2));  // the cached list (a read after a language change lands later)
+        if (_subtitle is not null && now - _subtitleAt < 2000 && generation == _subtitleGeneration && snap.Version == _subtitleVersion) return _subtitle;
         _subtitleAt = now;
-        var snap = ModCatalog.Snapshot(TimeSpan.FromSeconds(2));
+        _subtitleGeneration = generation;
+        _subtitleVersion = snap.Version;
         var n = snap.Mods.Count(m => m.State == ModRunState.Loaded);
         var parts = new List<string> { $"Kiln {Game.KilnVersion}" };
         if (snap.Profile is { } p) parts.Add(p);
-        if (snap.Mods.Count > 0) parts.Add($"{n} of {snap.Mods.Count} mods loaded");
+        if (snap.Mods.Count > 0) parts.Add(KilnText.T("menu.subtitle.loaded", ("loaded", n), ("count", snap.Mods.Count)));
         return _subtitle = string.Join("   ·   ", parts);
     }
 
-    internal static void ResetForTests() => _subtitle = null;
+    internal static void ResetForTests()
+    {
+        _subtitle = null;
+        _gameTitleGeneration = -1;
+    }
 
     /// <summary>The key hints, right to left from the right edge like the game's own hint bar. The "Back" hint is also a
     /// button: true when it was clicked (or activated with the keyboard / gamepad) this frame.</summary>
@@ -1007,7 +1096,7 @@ internal static class ModManagerChrome
             var capW = kw + 16 * s;
             var start = right - lw - 10 * s - capW;
             var capY = ty + (labelSize - capH) / 2;
-            if (label == "Back")
+            if (i == 0)  // the first hint is always Back (ModManagerPage.Hints)
             {
                 // a click target over the whole hint (key cap and label)
                 var c = ui.Cursor;
@@ -1024,7 +1113,7 @@ internal static class ModManagerChrome
             ui.DrawText(UiLayer.Window, start + capW + 10 * s, ty, label, game ? GameColors.Text : GameColors.Muted, labelSize);
             right = start - 30 * s;
         }
-        const string pad = "Gamepad: LB / RB sections, A choose, B back";
+        var pad = KilnText.T("menu.hints.gamepad");
         if (ui.MeasureText(pad, 15 * s, 0).Width + 40 * s < right - x)
             ui.DrawText(UiLayer.Window, x, ty, pad, GameColors.Faint, 15 * s);
         return back;

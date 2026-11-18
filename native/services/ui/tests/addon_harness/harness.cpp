@@ -45,8 +45,9 @@
 namespace kui {
 const KilnApi* g_api = nullptr;
 KilnOwner g_owner = 0;
-std::atomic<uint32_t> g_demand{0}, g_interactive{0}, g_render_demand{0}, g_hover_panels{0};
+std::atomic<uint32_t> g_demand{0}, g_interactive{0}, g_render_demand{0}, g_hover_panels{0}, g_footer_demand{0};
 std::atomic<bool> g_menu_open{false}, g_text_input{false}, g_want_mouse{false}, g_wheel_active{false}, g_page_capture{false};
+std::atomic<HWND> g_hwnd{nullptr};  // input_poll_window's (drawing off); never called here
 std::vector<std::string> g_log;
 void logf(int, const char* fmt, ...) {
     char b[1024];

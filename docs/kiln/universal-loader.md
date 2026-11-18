@@ -1,11 +1,10 @@
-# Kiln as the universal loader: every Enshrouded engine, and the plan to run them all
+# Kiln as the universal loader: every Enshrouded engine
 
-Status: research, 2026-11-07. No code was changed for this document.
+Status: research of 2026-11-07, kept as a record. Sections 1 to 3 describe the engines and Kiln as they were that
+day; section 0 and section 4 say what became of the findings and the plan. For current framework support and
+limitations, use the [engine compatibility guides](engines/README.md) and the [EMF parity report](emf-parity.md).
 
-This is a historical research snapshot. For current framework support and limitations, use the
-[engine compatibility guides](engines/README.md) and [EMF parity report](emf-parity.md).
-
-The user's direction: "we are the 'universal' mod loader and launcher, we need to support all the engines and runtimes."
+The goal: Kiln is the "universal" mod loader and launcher, so it supports all the engines and runtimes.
 The bar for each framework: **Kiln loads its mods through a Kiln plugin, and supports everything its API supports.**
 Its API is read from source, and its functionality is ported into Kiln's own API as well.
 
@@ -22,39 +21,31 @@ Creative Mode's loader has no public source. Its facts come from the static note
 > (`Systemkill90/XHL-Enshrouded-Launcher`, `jamithlee5-surf/shroudtopia-manager`). Treat them as malware bait: never
 > link them from Kiln's catalog, and never download from them. The real repositories are the ones listed below.
 
-## 0. Findings that change current work (read first)
+## 0. Findings of 2026-11-07 and what became of them
 
-1. **Kiln treats EMF ≥ 0.4 as ShroudForge (bug).** EMF's loader now also exports `ShroudforgeSetDinput8Provider`,
+1. **Kiln treated EMF 0.4 and later as ShroudForge.** EMF's loader also exports `ShroudforgeSetDinput8Provider`,
    because it can host ShroudForge's chain (`matenm/emf-enshrouded` `src/loader/dinput8_loader.def`, next to
-   `emf_loader_identity`). `kiln_manage::pe::classify_bytes` checks the ShroudForge export before the EMF exports, and
-   `native/proxy/dinput8.cpp` (`ShroudforgeSetDinput8Provider` → `kShroudForge`) does the same. The result: the
-   installer refuses to install over EMF ("ShroudForge's mod loader is installed"). If the player picks "switch from
-   ShroudForge", EMF's loader is backed up and never chained, and the proxy refuses it as `shroudforge`. **Fix:** test
-   the EMF exports before the ShroudForge export, in both places, and add a fixture. This touches the SF agent's
-   installer work.
-2. **"Switch from ShroudForge" moves files that may belong to other loaders.** `install.rs` backs up `dbghelp.dll` and
-   `winmm.dll` without classifying them (`SHROUDFORGE_DLLS`). `dbghelp.dll` is also EML's proxy, and `winmm.dll` is
-   also Shroudtopia's and Shroudweave's. Classify each file before moving it (ShroudForge's text `shroudforge`, EML's
-   `EML_LOG_FILE_PATH`, Shroudtopia's `shroudtopia`; markers from EMF's `src/core/known_tools.txt`), and move only
-   ShroudForge's. For the SF agent.
-3. **EMF has moved on: 0.5.1, EmfApi v26, and it works on current builds.** Kiln implements 0.3.3 / v21 and refuses
-   mods with `"emf"` > 21. The warning "EMF 0.3.3 is idle on current game builds" in [emf.md](emf.md) is now wrong for
-   0.5.x. EMF 0.5 also builds EML content mods (a separate GPL-3.0 `emf_content.dll`), reads ModLoader Proxy's
-   `chainloader.ini`, and writes the DLLs it renamed into a new `[EMF]` section of `dinput8-chain.ini`. Kiln's proxy
-   reads only `[Chain]` and the lines before any section, so with kiln-emf in place of EMF's loader, the DLLs in
-   `[EMF]` stop loading. Details in section 2.1. (Since done: the proxy reads `[EMF]` too, always; see
-   [engines.md](engines.md), "Proxy".)
-4. **ShroudForge on GitHub is 1.8.0-dev** (`bonsaibauer/shroudforge`, releases `v1.8.0-dev.*` on 6 and 7 Nov). The
-   local copy in `~/Work/kiln-shroudforge` is 1.7.7. The SF agent should diff 1.8 before freezing its API table.
-5. **`powrprof.dll` is the most contested proxy name.** SET, Enshwick, Ember, Shared XP and Creative Mode's server
-   build all ship a `powrprof.dll`. SET has its own `shrouded_engine_tweaks\plugins\` folder for other `powrprof.dll`
-   mods. For the SET agent: when Kiln chains or displaces SET's `powrprof.dll`, the same code path must handle the four
-   other owners. Classify by marker (section 3.1), and never take the name for Kiln itself.
+   `emf_loader_identity`), and Kiln checked the ShroudForge export first, so the installer refused to install over EMF.
+   **Fixed:** the installer (`kiln_manage::pe`) and the proxy (`native/proxy/dinput8.cpp`) test EMF's exports and
+   marker before ShroudForge's, with a test fixture.
+2. **"Switch from ShroudForge" moved files that may belong to other loaders** (`dbghelp.dll` is also EML's proxy,
+   `winmm.dll` also Shroudtopia's and Shroudweave's). **Fixed:** the switch moves only ShroudForge's `dinput8.dll`;
+   `dbghelp.dll`, `winmm.dll`, the `shroudforge/` folder and `mods/` stay ([shroudforge.md](shroudforge.md)).
+3. **EMF had moved on (0.5.1, EmfApi v26)**, and EMF 0.5 writes the DLLs it renamed into an `[EMF]` section of
+   `dinput8-chain.ini`, which Kiln's proxy did not read. **Fixed:** the proxy reads `[Chain]` and `[EMF]`
+   ([engines.md](engines.md), "Proxy"), and kiln-emf follows EMF's newer releases (current range and coverage:
+   [engines/README.md](engines/README.md), [emf-parity.md](emf-parity.md)).
+4. **ShroudForge on GitHub was 1.8.0-dev** while ShroudForge on Nexus was 1.7.7. Kiln now ships ShroudForge's
+   runtime built from its own fork ([frostdev-ops/shroudforge](https://github.com/frostdev-ops/shroudforge)) and can run
+   the player's installed copy instead ([shroudforge.md](shroudforge.md), [shroudforge-compat.md](shroudforge-compat.md)).
+5. **`powrprof.dll` is the most contested proxy name** (SET, Enshwick, Ember, Shared XP and Creative Mode's server
+   build all ship one). Kiln classifies such a file by its markers (`engines::classify_markers`), never takes the name
+   for itself (Kiln owns only `dinput8.dll`), and leaves another tool's file in place under any name other than
+   `dinput8.dll`.
 6. **SET's API size, from its own reference** (`docs/api-reference.md`, 0.1.1): about 46 named functions in 13 modules
    (`Admin` 9, `ImGui` 6+, `Ecs` 5, `Res` 5, `Systems` 5, `Types` 4, `Keys` 3, `GameOptions` 3, `Hooks` 2, `Tick`,
-   `Events`, `Overlay`, `Draw`). On top of that come name-based reflection over ~690 component types, 91,812
-   resources and 861 systems, plus ImGui bindings. It runs in hosted worlds only (no dedicated server). For the SET
-   agent's parity table.
+   `Events`, `Overlay`, `Draw`), plus name-based reflection over ~690 component types, 91,812 resources and 861
+   systems, and ImGui bindings. Kiln's plugin and its limits: [set.md](set.md).
 
 ## 1. Every engine, runtime and format
 
@@ -65,8 +56,8 @@ Creative Mode's loader has no public source. Its facts come from the static note
 |---|---|---|---|---|---|---|---|---|---|---|
 | 1 | **EML** (Enshrouded Mod Loader) | Brabb3l | GPL-3.0 | [Brabb3l/kfc-parser](https://github.com/Brabb3l/kfc-parser) v0.2.0, 2026-10-16; 13 commits in 30 d | `dbghelp.dll` proxy (fallback `dinput8.dll`); runs **before the game starts**, patches assets | `mods/<id>/mod.json` + `src/mod.lua` | Lua, data only: `game` (assets/resources by GUID, content), `loader`, `buffer`, `image`, `io`, `hasher`, `guid`, `types` ≈ 94 functions + 512 integer helpers + generated game types | the most of any engine (~dozens): "many current mods require it"; also used by ShroudForge packages, EMF content, shroudlink's data mods, Nexus "Ember", Auto Loot Plus | both | **missing** (no EML runner; Kiln has its own `kiln.assets` + `tools/kfc`) |
 | 2 | **EMF** (Enshrouded Modding Framework) | matenm, "EMF contributors" | MIT (`emf_content.dll` GPL-3.0) | [matenm/emf-enshrouded](https://github.com/matenm/emf-enshrouded) v0.5.1, 2026-11-06; 100+ commits in 30 d | `dinput8.dll` loader + `dinput8-chain.ini`; installer renames other `dinput8.dll`s | `emf/mods/<id>/mod.json` (`dll` or `main` Lua), loose DLLs; EML content | C API **v26, 85 functions**; Lua `emf.*` 64 functions (through its `lua` mod); in-game console, mod windows | 30 mods in its zip + creature packs; Nexus 246 | both | **partial**: kiln-emf = v21, 61 full / 9 partial / 3 no of 73; v22-v26 (12 functions) missing |
-| 3 | **ShroudForge** (SF) | bonsaibauer | MIT | [bonsaibauer/shroudforge](https://github.com/bonsaibauer/shroudforge) 1.7.7 (Nexus 147) / 1.8.0-dev (GitHub, 2026-11-07); 100+ commits in 30 d | `dbghelp.dll` + `dinput8.dll` (same loader), `winmm.dll` helper, patches the exe's entry point | `mods/<id>/` EML package + `extended.mod.json` (settings) | Lua: EML-compatible data API + in-game runtime (named services through reflection), F9 menu | ~10-20 (EML mods count too) | both | **building now** (agent `sf`, `docs/kiln/shroudforge-compat.md`) |
-| 4 | **SET** (Shrouded Engine Tweaks) | Cacaida | MIT | [Cacaida/Shrouded-Engine-Tweaks](https://github.com/Cacaida/Shrouded-Engine-Tweaks) 0.1.1, 2026-11-07; repository created 2026-11-05 | `powrprof.dll`; Vulkan-layer overlay | `shrouded_engine_tweaks/mods/<name>/init.lua` (+ `mod.json`) | Lua 5.4 + ImGui: ~46 functions in 13 modules + reflection by name (finding 6) | ~1-3 (new) | hosted worlds only | **building now** (agent `set`) |
+| 3 | **ShroudForge** (SF) | bonsaibauer | MIT | [bonsaibauer/shroudforge](https://github.com/bonsaibauer/shroudforge) 1.7.7 (Nexus 147) / 1.8.0-dev (GitHub, 2026-11-07); 100+ commits in 30 d | `dbghelp.dll` + `dinput8.dll` (same loader), `winmm.dll` helper, patches the exe's entry point | `mods/<id>/` EML package + `extended.mod.json` (settings) | Lua: EML-compatible data API + in-game runtime (named services through reflection), F9 menu | ~10-20 (EML mods count too) | both | **building now** (`docs/kiln/shroudforge-compat.md`) |
+| 4 | **SET** (Shrouded Engine Tweaks) | Cacaida | MIT | [Cacaida/Shrouded-Engine-Tweaks](https://github.com/Cacaida/Shrouded-Engine-Tweaks) 0.1.1, 2026-11-07; repository created 2026-11-05 | `powrprof.dll`; Vulkan-layer overlay | `shrouded_engine_tweaks/mods/<name>/init.lua` (+ `mod.json`) | Lua 5.4 + ImGui: ~46 functions in 13 modules + reflection by name (finding 6) | ~1-3 (new) | hosted worlds only | **building now** |
 | 5 | **Enshwick** | enshwick org | MIT | [enshwick/enshwick](https://github.com/enshwick/enshwick) v1.0.0-alpha.14, 2026-11-09; created 2026-10-19; 100+ commits in 30 d | `powrprof.dll` stub → `mods/enshwick/enshwick.dll` loader | `mods/<author.name>/` DLL (Rust / C / C++ / Zig), Luau `main.luau`, TOML data packs | Typed Rust API, ~70 modules (`items`, `inventory`, `ecs`, `ui`, `net`, `map`, `terrain`, `weather`, `survivors`, `content`, `hook`, `calls`...), C header, Luau; join check + `mods.lock`; per-world `settings.toml` | 8 ([enshwick/mods](https://github.com/enshwick/mods)) | both | **missing** |
 | 6 | **Greeneye Loader** | Greeneye0 | MIT | [Greeneye0/greeneye-loader-enshrouded](https://github.com/Greeneye0/greeneye-loader-enshrouded) v1.2.2, 2026-11-05 | `dbgcore.dll` (or `umpdc.dll` / `cfgmgr32.dll`); starts mods at the exe entry point | `greeneye/<id>/mod.json` (`id, name, version, dll, side, api, enabled`) + DLL exporting `GreeneyeModStart` | Native C ABI, **API 2**: `GreeneyeHost` with 9 functions (`log`, `enter`/`leave` hook lease, `find`, `read`, `hook`, `redirectCall`, `poll`, `keep`) + optional hot reload (`prepare`/`ready`/`resume`) | 6: The Worst Map Mod (~6.7k downloads), Find, Town Portals, Embervale Teleport, Quick Deposit, Hollow Halls Progression | both (reported not to start under Wine) | **missing** |
 | 7 | **Shroudtopia** / **Shroudweave** | s0t7x / Shroudweave fork | MIT | [s0t7x/shroudtopia](https://github.com/s0t7x/shroudtopia) 0.1.1, 2026-02-16 (stale); 1.0 fix [Aerox912/shroudtopia-1.0-compatibility](https://github.com/Aerox912/shroudtopia-1.0-compatibility) r2, 2026-10-16; Shroudweave (Nexus 216): no source found | `winmm.dll` | `mods/*.dll` + `shroudtopia.json` (per-mod settings) | Native **C++ ABI** (`class Mod` with `GetMetaData/Load/Unload/Activate/Deactivate/Update`; `ModContext` with ~21 `std::function`s: 10 config getters, 10 memory helpers, `Log`) | ~5: Minimap and Weather Clock (~10k), elxokker minimap, basics, flight, first-person view | both | **missing** |
@@ -179,17 +170,17 @@ engine's functionality also added to Kiln's own C#/native API, so Kiln mod autho
   views of the game's named services through reflection), mod lifecycle and reload, profile patches, settings from
   `extended.mod.json`, its F9 Modloader UI and DLL manager (it also reads `dinput8-chain.ini` `[Chain]`, only for
   `mods\<folder>\*.dll` lines).
-- **Kiln today:** refused as a proxy; agent `sf` is building support (design options A/B/C in its brief).
+- **Kiln today:** refused as a proxy; support being built (design options A, B and C).
 - **Recommended:** A (SF's MIT Rust runtime as a Kiln plugin). It shares the EML core with 2.2: build `kiln-eml` and
   the SF runtime on one copy of the EML crates, or the GPL boundary gets drawn twice. Settings: map
   `extended.mod.json` to Kiln's schema snapshots (5.5).
-- **Total:** L (agent's estimate governs). **When SF updates:** it releases several times a day; pin to tagged
+- **Total:** L. **When SF updates:** it releases several times a day; pin to tagged
   releases, not `-dev` builds.
 
 ### 2.4 SET: building now
 
 - **API surface:** finding 6 (about 46 functions + reflection + ImGui).
-- **Kiln today:** agent `set` is building a Lua-compat plugin (`native/plugins/set/`), chaining SET's `powrprof.dll`
+- **Kiln today:** a Lua-compat plugin is being built (`native/plugins/set/`), chaining SET's `powrprof.dll`
   and stepping aside for real SET.
 - **Kiln-side ports the API asks for:**
   - reflection access by name (components, resources, systems);
@@ -379,11 +370,11 @@ One editor (the launcher's schema-driven page, contract 5.5), fed by one adapter
 | Format | Schema source | Values file |
 |---|---|---|
 | EMF | `mod.json` settings | `<configDir>/emf/<id>.ini` (done) |
-| ShroudForge | `extended.mod.json` | SF's config (agent `sf`) |
+| ShroudForge | `extended.mod.json` | SF's config |
 | EML | none (code-only) | - |
 | Greeneye | none declared | mod's own ini: show as a text file |
 | Shroudtopia | `shroudtopia.json` `mods.<key>` (types from the values) | same file |
-| SET | `mod.json` | its settings (agent `set`) |
+| SET | `mod.json` | its settings |
 | Enshwick | its settings schema | per-world `settings.toml` |
 | Flame | none | `settings.json` / `server.json`: text editor |
 
@@ -421,26 +412,17 @@ Every adapter writes a `.schema/<engine>/<id>.json` snapshot, so the launcher st
 - **Duplicate engines.** Never two copies of one engine (EMF's own rule: one EMF loader per process). A hosted engine
   steps aside when the real one is chained, and vice versa.
 
-## 4. Prioritised plan (full parity, engines with the most mods first)
+## 4. What became of the plan
 
-| # | Step | Why first | Size |
-|---|---|---|---|
-| 1 | **Stop the damage**: classify EMF before ShroudForge (pe.rs + proxy), classified ShroudForge switch, `[EMF]` section, never import an unknown kind as a plain DLL (Creative Mode, Shroudtopia, Greeneye folders get a clear "not yet" reason) | today's installer can refuse or mangle EMF 0.5, EML and Shroudtopia setups | S-M |
-| 2 | **Proxy-name classifier + Library detection for every kind** (known_tools markers, `DetectKind`s of 3.2, proxy slots for taken names) | every later engine needs it; players see what they have | M |
-| 3 | **EML plugin** (`kiln-eml`, GPL, pre-start) shared with SF's EML core | the largest mod base; SF packages, EMF content, shroudlink data and Nexus "Ember" all sit on it | L |
-| 4 | **EMF v26 parity** (12 new functions, wheel, program writes/hooks, client programs, 0.5's 9 new mods) | 30 shipped mods + creature packs; already 80% there | L |
-| 5 | **ShroudForge** (in progress) on the same EML core | second-largest Lua base, very active | L |
-| 6 | **Modpacks, profiles and settings for every kind** (3.3-3.5) | servers and mixed profiles are what makes "universal" real | L |
-| 7 | **Greeneye** (9-function host) | 6 popular client mods (The Worst Map Mod), and Linux support they lack | M-L |
-| 8 | **Flame kind** (Creative Mode) + its conflict rule with Kiln creative | ~18k downloads, one mod, small adapter | S-M |
-| 9 | **Shroudtopia / Shroudweave** | ~10k-download minimap, older mods | M-L |
-| 10 | **SET** (in progress) | new, few mods yet; its dev tools are wanted anyway | L |
-| 11 | **Enshwick host** | 8 mods, fastest-moving framework; alpha | L-XL |
-| 12 | **shroudlink server host** | 5 server mods; removes the `steam_api64.dll` proxy | M-L |
-| 13 | Conflict registry and `state/hooks.json` (3.6), then chain loaders (`chainloader.ini`, ASI), data-mod detection, save import | polish across all engines | M each |
-| 14 | Ember, once it ships a loader | 1 mod | M |
+The plan of 2026-11-07 ranked the work by the number of mods each engine has: first the installer and proxy fixes of
+section 0 and detection of every kind, then EML, EMF, ShroudForge, mixed profiles and modpacks, then Greeneye, Flame,
+Shroudtopia, SET, Enshwick, shroudlink and Ember. Every engine in section 1 now has a Kiln plugin:
 
-Keeping parity as engines update: one CI job per engine that fetches the latest tag (`gh api`) and diffs the API
-definition file (`emf_api.h`, EML `definitions/*.lua`, SET `api-reference.md`, `greeneye.h`, Enshwick `abi.rs` and the
-book's index, `shroudtopia.h`). A changed surface opens a task. The hosted runtimes (EML, SF, Enshwick) are rebuilt
-from the new tag.
+- EML (`kiln-eml`), ShroudForge (`kiln-shroudforge` with the bundled runtime), EMF (`kiln-emf`), SET (`kiln-set`),
+  Greeneye (`kiln-greeneye`), Flame (`kiln-flame`), Shroudtopia (`kiln-shroudtopia`), Enshwick (`kiln-enshwick`) and
+  shroudlink on dedicated servers (`kiln-shroudlink`) run their mods.
+- Ember: `kiln-ember` finds and lists Ember mods and starts none until Ember publishes its loader ABI.
+- The launcher's Library imports every kind, profiles mix them, and each plugin steps aside when the engine's own
+  loader runs.
+
+Versions, coverage and the limits of each plugin: [engines/README.md](engines/README.md) and the page of each engine.

@@ -67,6 +67,8 @@ bool g_raw_keyboard_seen = false;
 hold::Keys g_keys;  // keys held, across a focus loss (key_hold.h; the wheel asks from other threads)
 int g_repress_said = 0;
 bool g_consumed[256] = {};  // vk consumed by a binding: swallow its legacy messages too
+// The game's chat field (ui.h ChatInputSink, chat_input_probe.cpp): set while chat history runs, null otherwise.
+std::atomic<const ChatInputSink*> g_chat_sink{nullptr};
 std::atomic<uint32_t> g_pressed_vk{0}, g_pressed_mods{0};
 bool g_was_capturing = false;
 
@@ -194,7 +196,10 @@ bool on_key(uint32_t vk, uint32_t scan, bool down, bool from_mouse = false, hold
         g_pressed_mods.store(k.mods);
         g_pressed_vk.store(vk);
     }
-    const bool consumed = dispatch_key(k, from_mouse);
+    // The game's chat field keeps Up/Down while it has typing focus (chat history, GitHub issue 44); it only queues
+    // them for the game's UI thread. Kiln's own keys and the key subscribers get every other transition.
+    const ChatInputSink* chat = from_mouse ? nullptr : g_chat_sink.load(std::memory_order_acquire);
+    const bool consumed = (chat && chat->key(vk, k.mods, down, k.captured != 0)) || dispatch_key(k, from_mouse);
     if (!down) {
         g_consumed[vk] = false;
         return false;  // releases always reach the game
@@ -610,8 +615,16 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
         case WM_CHAR:
         case WM_SYSCHAR:
         case WM_UNICHAR:
+            if (const ChatInputSink* chat = g_chat_sink.load(std::memory_order_acquire);
+                chat && !cap && m != WM_SYSCHAR && !(m == WM_UNICHAR && w == UNICODE_NOCHAR))
+                chat->text(static_cast<uint32_t>(w));  // typed text ends a history browse (chat_input_probe.cpp)
             enqueue(h, m, w, l);
             if (cap) return 0;
+            break;
+        case WM_IME_STARTCOMPOSITION:
+        case WM_IME_ENDCOMPOSITION:
+            if (const ChatInputSink* chat = g_chat_sink.load(std::memory_order_acquire))
+                chat->ime(m == WM_IME_STARTCOMPOSITION);  // the IME's own Up/Down stay the IME's
             break;
         case WM_SETFOCUS:
             if (fed) feed_focus_gained();
@@ -620,6 +633,7 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
             break;
         case WM_KILLFOCUS:
             if (fed) feed_focus_lost(m, w, l);
+            if (const ChatInputSink* chat = g_chat_sink.load(std::memory_order_acquire)) chat->blur();
             forget_keys();
             enqueue(h, m, w, l);
             break;
@@ -631,8 +645,10 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 if (w) feed_focus_gained();
                 else feed_focus_lost(m, w, l);
             }
-            if (!w) forget_keys();
-            else keys_back();
+            if (!w) {
+                if (const ChatInputSink* chat = g_chat_sink.load(std::memory_order_acquire)) chat->blur();
+                forget_keys();
+            } else keys_back();
             break;
         case WM_SETCURSOR:
             if (cap && LOWORD(l) == HTCLIENT) {
@@ -837,6 +853,8 @@ void input_hook_xinput() {
 
 namespace {
 }  // namespace
+
+void input_set_chat_sink(const ChatInputSink* sink) { g_chat_sink.store(sink, std::memory_order_release); }
 
 void input_install_iat() {
     HMODULE exe = GetModuleHandleW(nullptr);

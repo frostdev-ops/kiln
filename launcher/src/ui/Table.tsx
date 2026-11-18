@@ -2,6 +2,7 @@
 // A sorted head shows a small gold diamond beside the word. Numbers right-aligned (use `align: "right"`).
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useT } from "../i18n";
 
 export interface Column<R> {
   key: string;
@@ -37,6 +38,7 @@ export interface TableProps<R> {
 export function Table<R>({
   columns, rows, rowKey, rowHeight = 46, height, maxHeight = 520, fill, onRowClick, selectedKey, rowClass, empty, ...rest
 }: TableProps<R>) {
+  const t = useT();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [sort, setSort] = useState<{ key: string; dir: 1 | -1 } | null>(null);
   const sorted = useMemo(() => {
@@ -60,14 +62,14 @@ export function Table<R>({
             {c.sort ? (
               <button type="button" onClick={() => setSort((s) => (s?.key === c.key ? (s.dir === 1 ? { key: c.key, dir: -1 } : null) : { key: c.key, dir: 1 }))}>
                 {c.header}
-                {sort?.key === c.key && <i className="k-dia" aria-hidden title={sort.dir === 1 ? "Ascending" : "Descending"} />}
+                {sort?.key === c.key && <i className="k-dia" aria-hidden title={sort.dir === 1 ? t("ui.table.ascending") : t("ui.table.descending")} />}
               </button>
             ) : c.header}
           </div>
         ))}
       </div>
       {sorted.length === 0 ? (
-        <div className="k-table-empty">{empty ?? <span className="k-empty-title">Nothing here.</span>}</div>
+        <div className="k-table-empty">{empty ?? <span className="k-empty-title">{t("ui.table.empty")}</span>}</div>
       ) : (
         <div ref={scrollRef} className="k-table-scroll" style={{ height: bodyHeight }}>
           <div style={{ height: virt.getTotalSize(), position: "relative" }}>

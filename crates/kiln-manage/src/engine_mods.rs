@@ -400,6 +400,11 @@ pub fn import_engine_mod(ctx: &mut ImportCtx) -> Result<()> {
         let shown = name.clone().unwrap_or_else(|| folder.clone());
         ctx.report.note(&d.path, format!("{shown}: {why}, so Kiln copies it into the game's mods\\{folder} folder while a profile with it is active"));
     }
+    // a modified EML loader beside the mod in its package (Holster Toggle's dbghelp.dll): the mod's Lua runs under Kiln,
+    // the loader's own code does not; the record says so for the launcher's row and kiln-eml's log (profile emlPartial)
+    let loader_part = if kind == ModKind::Eml && src.is_dir() {
+        eml_companion_loader(src).map(|(file, what)| crate::engines::eml_partial_note(&file, &what))
+    } else { None };
     let rec = ImportRecord {
         format: 1,
         kind,
@@ -415,8 +420,19 @@ pub fn import_engine_mod(ctx: &mut ImportCtx) -> Result<()> {
         file: None,
         manifest_id,
         game_folder: game_folder.map(|(f, _)| f),
+        loader_part,
     };
     crate::library::commit_folder(ctx.dirs, &work, rec, ctx.report)
+}
+
+/// A modified EML loader beside an EML mod folder in its package (`<package>/dbghelp.dll` next to `<package>/<mod>/`, or
+/// next to `<package>/mods/<mod>/`): (file name, what its own code does, `engines::EmlExtras::what`). A game folder is no
+/// package: a loader there belongs to the install, not to a hand-installed mod in its mods folder.
+pub fn eml_companion_loader(src: &Path) -> Option<(String, String)> {
+    let parent = src.parent()?;
+    let package = if parent.file_name().is_some_and(|n| n.eq_ignore_ascii_case("mods")) { parent.parent()? } else { parent };
+    if [crate::game::CLIENT_EXE, crate::game::SERVER_EXE].iter().any(|exe| package.join(exe).exists()) { return None; }
+    crate::engines::modified_eml_in(package)
 }
 
 /// XHL-Core's plugin description, in the folder of each XHL mod (`mods/<name>/native-plugin.ini`).
@@ -4183,7 +4199,7 @@ mod tests {
             let hash = crate::hash::dirhash(&src).unwrap();
             let rec = ImportRecord { format: 1, kind, id: id.into(), version: version.into(), hash: hash.clone(), imported: crate::util::now_rfc3339(),
                 source: None, size: 0, name: None, side: None, clients: None, file: None, manifest_id: None,
-                game_folder: game_folder.then(|| id.into()) };
+                game_folder: game_folder.then(|| id.into()), loader_part: None };
             crate::library::commit_folder(&dirs, &src, rec, &mut Default::default()).unwrap();
             crate::profile::ProfileMod { id: id.into(), version: version.into(), hash, enabled: true }
         };

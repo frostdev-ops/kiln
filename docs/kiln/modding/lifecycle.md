@@ -47,6 +47,18 @@ is polled from world steps only; Kiln's service tick (queued events, config watc
 Without kiln.ui (or with `KILN_NO_MENU_LOAD=1`) mods load at the first world step as before. Dedicated servers are
 unaffected.
 
+**The files are read ahead (since 0.2.0-dev.29.16).** That first UI frame (or the first server step) is where Kiln.Host
+reads each mod's layout stamp and assemblies and the CLR maps Kiln.Game and Kiln's shared assemblies. On a hard disk
+the game is loading its menu from, one player's kiln.log showed 1.56 s between the start of a mod's load and its
+OnLoad, of work that takes about 20 ms with the files in memory. So at boot a background thread reads those files
+once (each admitted mod's stamp, assemblies and symbols, this build's Kiln.Game, the shared assemblies the early
+services, the mods and the first service tick load) and throws the bytes away; the load then finds them in the
+system's file cache. Nothing else moves: no assembly loads early, the load order, checks and log lines are as before.
+kiln.log: `prefetch: N file(s), X MB of the mods' and Kiln's assemblies read in T ms on a background thread`;
+`KILN_NO_PREFETCH=1` turns it off. Each mod's line says where its load time went:
+`mod <id> <version> loaded in T ms (layout check A ms, assemblies B ms, OnLoad C ms)` (OnLoad includes the
+registration of its event handlers).
+
 Without the menu load, mods load at the first step of either the hosted server world or the client world (in game). While the client
 hosts, the server world drives the mods (services and `Context.Tick` on the server thread, as in a dedicated
 server); otherwise the client world does (main thread). Never both at once. A hosted session's server world start

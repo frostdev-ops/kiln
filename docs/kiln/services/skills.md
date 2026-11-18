@@ -161,6 +161,24 @@ Kiln.Skills (managed):
   - `DespawnLink` to the player;
   - for nodes with levels, `Level {storage = {level, 99}}`.
 
+Which player a hook's call is about comes from the component address it is given: each server step, kiln.skills maps the
+`PlayerSkillsUi` and `UnlockedSkillNodes` addresses of every entity with `PlayerState` (the joined players, and a
+player-template entity such as a lab's `1_Player`) to that entity. Since 0.2.0-dev.29.16 it no longer walks the whole
+entity map for them every step (`player_scan.h`; on a player's world kiln-skills' Pre took about 0.9 ms of every server
+step, 3.1 s a minute, most of it in this walk):
+- the players' records (kiln.players `raw_slot`, read on that step) give the joined players every step, so a player
+  who joins is mapped at the same step as before;
+- the entities the last walk found are checked again every step; one that is gone, or lost `PlayerState`, drops out;
+- the walk runs again when the world's entity count moved, at most every 8 steps, and every 128 steps whatever happens.
+
+Every entity used has `PlayerState` at that step. What can be missing, for up to 8 steps after the entity count moved
+(128 at most), is a `PlayerState` entity with no player record created since the last walk. Without kiln.players'
+records (the service missing, or reading the game log only) every step walks, as before. When the server world
+stops, kiln.log says how often it walked: `shadow: the players' skill components were found with N walk(s) of the
+entity map in M server step(s); the players' records (kiln.players) were read on K of them`. Host test:
+`native/services/skills/tests/run.sh` (also how many walks a minute of steps takes: 29 without entity churn, 450 with
+churn every step, against 3600).
+
 Fail soft: the hooks are all or nothing. Without every server hook, or (on a client) without the screen hook,
 shadow nodes are left out of the build. They are hidden and inert, the first 256 indices stay the same on both sides,
 and the game's tree works.

@@ -12,6 +12,7 @@ import * as api from "../api/commands";
 import type { AppInfo, LauncherSettings, UiMode } from "../api/commands";
 import { qk, useAppInfo, useSettings } from "../api/hooks";
 import { Card, Segmented, Splash, toast } from "../ui";
+import { useT } from "../i18n";
 
 export type Ui = "deck" | "desktop";
 export interface UiChoice {
@@ -109,6 +110,7 @@ export function switchUi(nav: NavigateFunction, to: Ui) {
 
 /** Desktop Settings: the Steam Deck UI (start in it: auto / always / never; open it now). */
 export function DeckModeCard() {
+  const t = useT();
   const qc = useQueryClient();
   const nav = useNavigate();
   const s = useSettings();
@@ -118,11 +120,11 @@ export function DeckModeCard() {
   const d = info.data?.deck;
   const forced = d?.forced;
   return (
-    <Card title="Steam Deck" actions={<button type="button" className="k-btn k-btn-s" onClick={() => switchUi(nav, "deck")}>Open Deck mode</button>}>
-      <Segmented<UiMode> aria-label="Start in" value={mode} onChange={(v) => void saveUiMode(qc, v)}
-        options={[{ id: "auto", label: "Auto" }, { id: "deck", label: "Deck mode" }, { id: "desktop", label: "Desktop" }]} />
+    <Card title={t("deck.modeCard.title")} actions={<button type="button" className="k-btn k-btn-s" onClick={() => switchUi(nav, "deck")}>{t("deck.modeCard.open")}</button>}>
+      <Segmented<UiMode> aria-label={t("deck.modeCard.startIn")} value={mode} onChange={(v) => void saveUiMode(qc, v)}
+        options={[{ id: "auto", label: t("deck.modeCard.auto") }, { id: "deck", label: t("deck.modeCard.deck") }, { id: "desktop", label: t("deck.modeCard.desktop") }]} />
       <span className="k-hint">
-        {forced ? `This start: --${forced}.` : d?.detected ? `Steam Deck found (${d.signals.join(", ")}).` : "No Steam Deck found."}
+        {forced ? t("deck.modeCard.forced", { flag: `--${forced}` }) : d?.detected ? t("deck.modeCard.found", { signals: d.signals.join(", ") }) : t("deck.modeCard.notFound")}
       </span>
     </Card>
   );

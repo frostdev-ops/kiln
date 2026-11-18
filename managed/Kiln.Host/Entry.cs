@@ -262,7 +262,8 @@ internal sealed unsafe class HostRuntime : IHostServices, IKilnBackend
             Capability = Service(Kiln.Capabilities.ServiceName, Kiln.Capabilities.ServiceVersion) != 0 ? Kiln.Capabilities.Get : null,
             Faults = new FaultPolicy { Limit = _config.FaultLimit, WindowSeconds = _config.FaultWindowSeconds },
             CrashReports = _config.CrashReports
-                ? _crash = new CrashReports(Path.Combine(kiln, "crash-reports"), Path.Combine(logs, "kiln.log"), SystemReport, () => _mods!.Describe(), Log)
+                ? _crash = new CrashReports(Path.Combine(kiln, "crash-reports"), Path.Combine(logs, "kiln.log"), SystemReport, () => _mods!.Describe(), Log,
+                    () => HostTasks.Bound?.CrashTasksSection() ?? "(task snapshot unavailable)\n")
                 : null,
             StateFile = Path.Combine(logs, "mods.txt"),
             TestResultsDirectory = Path.Combine(logs, "tests"),
@@ -317,6 +318,9 @@ internal sealed unsafe class HostRuntime : IHostServices, IKilnBackend
         // subscriptions and the game's entry point (BootPhase.cs)
         host._mods.PrepareGameplayHooks();
         BootPhase.Run(host.Service, host._owner, host._mods, host.Log);
+        // the files the first mod load and the first service tick read on the game's thread, read now on another one (a
+        // hard disk the game loads from made them slow there: ModPrefetch.cs)
+        ModPrefetch.Start(host._mods.PrefetchFiles, host.Log);
         AppDomain.CurrentDomain.UnhandledException += (_, e) => host.Unhandled(e.ExceptionObject as Exception, e.IsTerminating);
         TaskScheduler.UnobservedTaskException += (_, e) =>
         {

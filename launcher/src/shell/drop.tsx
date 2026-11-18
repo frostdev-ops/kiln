@@ -15,6 +15,7 @@ import { Banner, Button, KeyValue, Modal, Skeleton, Toggle, errorText, runTask, 
 import { useInstallPrompt } from "./firstRun";
 import { detailsAction, leftOutLine, names as nameList, staysIfDetails, summarize, usePickProfile } from "./importResult";
 import { notifyActivation, notifyAdd } from "./notices";
+import { t, useT } from "../i18n";
 
 /** "Night Owl", "Night Owl and Dawn Lamp", "3 mods". */
 function names(m: { name: string }[]): string {
@@ -56,10 +57,10 @@ export function useAddMods(): (paths: string[], target?: GameInstall) => Promise
         const m = p.mods[c.kind].find((m) => m.id === c.after.id);
         return c.before ? !m || m.version !== c.before.version || m.hash !== c.before.hash || m.enabled !== c.before.enabled : !!m;
       });
-      if (kept.length) { toast.info("Undo kept later changes", `${kept.length} mod${kept.length === 1 ? " was" : "s were"} changed since this add.`); return; }
+      if (kept.length) { toast.info(t("shell.drop.undoKept"), t("shell.drop.undoKeptDetail", { count: kept.length })); return; }
       // new entries leave the profile; one that replaced another version (or was switched on) goes back to that
-      toast.ok(r.changes.every((c) => !c.before) ? `Removed ${names(r.added)}` : "Undone");
-    } catch (e) { toast.error(e, "Undo failed"); }
+      toast.ok(r.changes.every((c) => !c.before) ? t("shell.catalogInstall.removed", { name: names(r.added) }) : t("shell.drop.undone"));
+    } catch (e) { toast.error(e, t("shell.catalogInstall.undoFailed")); }
   };
 
   const importOnly = async (paths: string[], game: GameInstall | null) => {
@@ -67,17 +68,17 @@ export function useAddMods(): (paths: string[], target?: GameInstall) => Promise
       const detected = await Promise.all(paths.map((p) => api.libraryDetect(p)));
       const packs = detected.filter((d) => d.kind === "modpack" && /\.zip$/i.test(d.path)).map((d) => d.path);
       if (packs.length && game) offerModpacks(game, packs);
-      else if (packs.length) toast.info("No game yet", "Find Enshrouded on Play before installing a modpack.");
+      else if (packs.length) toast.info(t("shell.drop.noGame"), t("shell.drop.noGameModpack"));
       const files = paths.filter((p) => !packs.includes(p));
       if (!files.length) return null;
       const r = await runTask<ImportReport>(() => api.libraryImport(files), { quiet: true });
       refresh(null);
       const sum = summarize(r);
-      const d = { heading: "Added, switched off", summary: sum };
+      const d = { heading: t("shell.drop.headingAddedOff"), summary: sum };
       const more = detailsAction(d);
-      if (sum.taken.length) toast.ok(`Added ${nameList(sum.taken)}, switched off`, leftOutLine(sum) ?? "Switch it on in the list on Play.", { actions: [{ label: "Show", onClick: () => nav("/") }, ...more], ...staysIfDetails(d) });
-      else toast.info("Nothing to import", leftOutLine(sum), { actions: more, ...staysIfDetails(d) });
-    } catch (e) { toast.error(e, "Import failed"); }
+      if (sum.taken.length) toast.ok(t("shell.drop.addedOff", { names: nameList(sum.taken) }), leftOutLine(sum) ?? t("shell.drop.switchOnHint"), { actions: [{ label: t("common.show"), onClick: () => nav("/") }, ...more], ...staysIfDetails(d) });
+      else toast.info(t("shell.drop.nothingToImport"), leftOutLine(sum), { actions: more, ...staysIfDetails(d) });
+    } catch (e) { toast.error(e, t("shell.drop.importFailed")); }
     return null;
   };
 
@@ -88,9 +89,9 @@ export function useAddMods(): (paths: string[], target?: GameInstall) => Promise
       const a = await api.profileActivate(r.profileId, game.id);
       qc.setQueryData(qk.active(game.id), a);
       refresh(r.profileId, game.id);
-      toast.ok(`${r.profileName ?? "The profile"} is loaded`, "The main screen's switches show it. Steam's Play button uses it too.");
+      toast.ok(r.profileName ? t("shell.drop.loaded", { name: r.profileName }) : t("shell.drop.loadedProfile"), t("shell.drop.loadedDetail"));
       notifyActivation(a);
-    } catch (e) { toast.error(e, `Could not load ${r.profileName ?? "the profile"}`); }
+    } catch (e) { toast.error(e, r.profileName ? t("shell.drop.loadFailed", { name: r.profileName }) : t("shell.drop.loadFailedProfile")); }
   };
 
   /** After the player picked a profile for a mod that only reached the Library. */
@@ -98,11 +99,14 @@ export function useAddMods(): (paths: string[], target?: GameInstall) => Promise
     refresh(r.profileId, game.id);
     notifyAdd(r); // what writing the picked profile again kept in the game folder, and what else changed in it
     const loaded = r.applied || qc.getQueryData<Activation | null>(qk.active(game.id))?.profileId === r.profileId;
-    const load = !loaded && !r.running && r.profileId ? [{ label: "Load it", onClick: () => void loadPicked(r, game) }] : [];
-    const notLoaded = loaded ? undefined : `${r.profileName ?? "It"} is not the loaded profile${load.length ? ": Load it switches them on in this game." : "."}`;
+    const load = !loaded && !r.running && r.profileId ? [{ label: t("shell.drop.loadIt"), onClick: () => void loadPicked(r, game) }] : [];
+    const notLoaded = loaded ? undefined
+      : r.profileName ? (load.length ? t("shell.drop.notLoadedLoad", { name: r.profileName }) : t("shell.drop.notLoaded", { name: r.profileName }))
+      : (load.length ? t("shell.drop.itNotLoadedLoad") : t("shell.drop.itNotLoaded"));
     if (r.added.length) {
-      toast.ok(`Added ${names(r.added)} to ${r.profileName ?? "the profile"}`, notLoaded, { actions: [...load, { label: "Undo", onClick: () => void undo(r, game.id) }] });
-    } else toast.info(`Already in ${r.profileName ?? "the profile"}`, notLoaded, { actions: load });
+      toast.ok(r.profileName ? t("shell.drop.addedTo", { names: names(r.added), profile: r.profileName }) : t("shell.drop.addedToProfile", { names: names(r.added) }),
+        notLoaded, { actions: [...load, { label: t("common.undo"), onClick: () => void undo(r, game.id) }] });
+    } else toast.info(r.profileName ? t("shell.drop.alreadyIn", { profile: r.profileName }) : t("shell.drop.alreadyInProfile"), notLoaded, { actions: load });
   };
 
   const add = async (paths: string[], game: GameInstall | null) => {
@@ -111,15 +115,15 @@ export function useAddMods(): (paths: string[], target?: GameInstall) => Promise
     const settings = qc.getQueryData<LauncherSettings>(qk.settings) ?? ref.current.settings;
     if (!paths.length) return null;
     if (settings?.addToActiveProfile === false) return importOnly(paths, game);
-    if (!game) { toast.info("No game yet", "Find Enshrouded on Play first."); return null; }
+    if (!game) { toast.info(t("shell.drop.noGame"), t("shell.catalogInstall.findGameFirst")); return null; }
     if (status && !status.runtime.installed) {
-      if (status.runtime.proxy?.kind === "shroudforge") toast.info("Kiln is not in this game", undefined, { actions: [{ label: "Runtime", onClick: () => nav("/runtime") }] });
-      else toast.info("Install Kiln first", undefined, { actions: [{ label: "Install Kiln", onClick: () => useInstallPrompt.getState().show({ game, paths }) }] });
+      if (status.runtime.proxy?.kind === "shroudforge") toast.info(t("shell.drop.notInGame"), undefined, { actions: [{ label: t("nav.runtime"), onClick: () => nav("/runtime") }] });
+      else toast.info(t("shell.drop.installFirst"), undefined, { actions: [{ label: t("shell.appShell.installKiln"), onClick: () => useInstallPrompt.getState().show({ game, paths }) }] });
       return null;
     }
     let r: AddReport;
     try {
-      r = await runTask<AddReport>(() => api.libraryAdd(game.id, paths), { failed: "Not added" });
+      r = await runTask<AddReport>(() => api.libraryAdd(game.id, paths), { failed: t("shell.catalogInstall.notAdded") });
     } catch { return null; }
     refresh(r.profileId, game.id);
     notifyAdd(r); // what writing the profile again kept in the game folder, and what else changed in it
@@ -129,26 +133,26 @@ export function useAddMods(): (paths: string[], target?: GameInstall) => Promise
     const detail = (heading: string) => ({ heading, summary: sum, libraryOnly: r.libraryOnly });
     if (r.added.length) {
       const more = [
-        r.missing.length ? `Needs ${r.missing.map((m) => m.id).join(", ")}.` : "",
-        r.resumed ? "Your mod list is loaded again." : "",
-        r.running ? "Applies at the next start." : "",
+        r.missing.length ? t("shell.catalogInstall.needs", { list: r.missing.map((m) => m.id).join(", ") }) : "",
+        r.resumed ? t("shell.drop.resumed") : "",
+        r.running ? t("shell.catalogInstall.nextStart") : "",
         leftOutLine(sum) ?? "",
       ].filter(Boolean).join(" ");
-      const d = detail("Added and switched on");
-      toast.ok(`Added ${names(r.added)}`, more || "On at the next Play.", { actions: [{ label: "Undo", onClick: () => void undo(r, game.id) }, ...detailsAction(d)], ...staysIfDetails(d) });
+      const d = detail(t("shell.drop.headingAddedOn"));
+      toast.ok(t("shell.catalogInstall.added", { name: names(r.added) }), more || t("shell.drop.onNextPlay"), { actions: [{ label: t("common.undo"), onClick: () => void undo(r, game.id) }, ...detailsAction(d)], ...staysIfDetails(d) });
     } else if (r.already.length) {
-      const d = detail("Already on");
-      toast.info(`${names(r.already)} ${r.already.length === 1 ? "is" : "are"} on already`, leftOutLine(sum), { actions: detailsAction(d), ...staysIfDetails(d) });
+      const d = detail(t("shell.drop.headingAlreadyOn"));
+      toast.info(t("shell.drop.alreadyOn", { names: names(r.already), count: r.already.length }), leftOutLine(sum), { actions: detailsAction(d), ...staysIfDetails(d) });
     } else if (r.libraryOnly && found.length) {
       // no profile is active in this game and none is remembered: the mod waits in the Library, and the player can pick a profile
       const label = nameList(sum.taken);
-      toast.info(`Added ${label}, switched off`, "No profile is loaded in this game, so nothing is switched on.", {
-        actions: [{ label: "Add to a profile", onClick: () => usePickProfile.setState({ pending: { game, entries: found, label, onAdded: pickedAdd } }) }, ...detailsAction(detail("Added, switched off"))],
-        ...staysIfDetails(detail("Added, switched off")),
+      toast.info(t("shell.drop.addedOff", { names: label }), t("shell.drop.noProfileLoaded"), {
+        actions: [{ label: t("shell.drop.addToProfile"), onClick: () => usePickProfile.setState({ pending: { game, entries: found, label, onAdded: pickedAdd } }) }, ...detailsAction(detail(t("shell.drop.headingAddedOff")))],
+        ...staysIfDetails(detail(t("shell.drop.headingAddedOff"))),
       });
     } else if (!r.modpacks.length) {
-      const d = detail("Nothing was added");
-      toast.info("Nothing to add", leftOutLine(sum), { actions: detailsAction(d), ...staysIfDetails(d) });
+      const d = detail(t("shell.drop.headingNothing"));
+      toast.info(t("shell.drop.nothingToAdd"), leftOutLine(sum), { actions: detailsAction(d), ...staysIfDetails(d) });
     }
     return r;
   };
@@ -176,6 +180,7 @@ function windowTakes(el: Element | null): boolean {
 /** The window-wide drop target: a veil with the niche while files are dragged over the window; the drop goes to
  *  useAddMods. Mounted once in the shell. */
 export function DropAnywhere({ add }: { add: (paths: string[]) => void }) {
+  const t = useT();
   const { game } = useGame();
   const active = useActiveProfile(game?.id);
   const profiles = useProfiles();
@@ -196,7 +201,7 @@ export function DropAnywhere({ add }: { add: (paths: string[]) => void }) {
           if (p.type === "enter" || p.type === "over") setOver(windowTakes(at(p.position)));
           else if (p.type === "drop") { setOver(false); if (p.paths.length && windowTakes(at(p.position))) cb.current(p.paths); }
           else setOver(false);
-        })).then((f) => (live ? (off = f) : f())).catch((e) => { if (live) toast.error(e, "File drops unavailable"); });
+        })).then((f) => (live ? (off = f) : f())).catch((e) => { if (live) toast.error(e, t("shell.drop.dropsUnavailable")); });
       return () => { live = false; off?.(); };
     }
     // a plain browser (mock mode): HTML5 drag events; the file names stand in for paths
@@ -224,15 +229,16 @@ export function DropAnywhere({ add }: { add: (paths: string[]) => void }) {
   }, []);
 
   if (!over) return null;
+  // (only whether there is one matters here: "My mods" is the profile a first add makes)
   const name = profiles.data?.find((p) => p.id === active.data?.profileId)?.name ?? (profiles.data?.length ? null : "My mods");
-  const into = settings.data?.addToActiveProfile === false || !name ? "Added switched off" : "Added and switched on";
+  const into = settings.data?.addToActiveProfile === false || !name ? t("shell.drop.veilOff") : t("shell.drop.headingAddedOn");
   return (
     <div className="k-dropveil" aria-hidden>
       <div className="k-niche hot">
         <div className="k-niche-fire"><i /></div>
         <svg viewBox="0 0 232 300"><path d="M1 299V128C1 74 62 31 116 1C170 31 231 74 231 128V299Z" /></svg>
         <div className="k-niche-in">
-          <span className="k-niche-word">Drop to add</span>
+          <span className="k-niche-word">{t("shell.drop.dropToAdd")}</span>
           <span className="k-niche-hint">{into}</span>
         </div>
       </div>
@@ -249,6 +255,7 @@ export function ModpackDropOffer() {
 }
 
 function DroppedModpack({ game, path }: { game: GameInstall; path: string }) {
+  const t = useT();
   const qc = useQueryClient();
   const status = useGameStatus(game.id);
   const [agree, setAgree] = useState(false);
@@ -264,7 +271,7 @@ function DroppedModpack({ game, path }: { game: GameInstall; path: string }) {
   const install = async () => {
     setBusy(true);
     try {
-      const r = await runTask<ModpackInstallResult>(() => api.modpackInstall(game.id, { source: { path }, consent: true, activate: true }), { done: "Modpack installed" });
+      const r = await runTask<ModpackInstallResult>(() => api.modpackInstall(game.id, { source: { path }, consent: true, activate: true }), { done: t("shell.drop.modpackInstalled") });
       setDone(r);
       notifyActivation(r.activation);
       invalidateGame(qc, game.id);
@@ -272,31 +279,31 @@ function DroppedModpack({ game, path }: { game: GameInstall; path: string }) {
     } catch { /* toasted */ } finally { setBusy(false); }
   };
   return (
-    <Modal open onClose={close} locked={busy} width={560} title={done ? "Modpack installed" : "Install this modpack?"}
-      footer={done ? <Button onClick={close}>Close</Button> : (
-        <><Button variant="ghost" onClick={close} disabled={busy}>Cancel</Button>
-          <Button variant="primary" disabled={!agree || !preview.data || !!preview.error || !status.data || status.data.running || status.data.steamUpdating} loading={busy} onClick={install}>Install</Button></>
+    <Modal open onClose={close} locked={busy} width={560} title={done ? t("shell.drop.modpackInstalled") : t("shell.drop.installModpack")}
+      footer={done ? <Button onClick={close}>{t("common.close")}</Button> : (
+        <><Button variant="ghost" onClick={close} disabled={busy}>{t("common.cancel")}</Button>
+          <Button variant="primary" disabled={!agree || !preview.data || !!preview.error || !status.data || status.data.running || status.data.steamUpdating} loading={busy} onClick={install}>{t("common.install")}</Button></>
       )}>
       {done ? (
-        <span>{done.profile.name} is active.</span>
+        <span>{t("shell.drop.isActive", { name: done.profile.name })}</span>
       ) : (
         <div className="k-stack">
           <KeyValue rows={[
-            ["File", <span className="k-mono">{file}</span>],
-            server && ["Server", server],
-            p?.manifest && ["Modpack", `${p.manifest.name} ${p.manifest.version}`],
+            [t("shell.drop.file"), <span className="k-mono">{file}</span>],
+            server && [t("shell.drop.server"), server],
+            p?.manifest && [t("shell.drop.modpack"), `${p.manifest.name} ${p.manifest.version}`],
           ]} />
-          {preview.isLoading ? <Skeleton lines={1} /> : preview.error ? <Banner tone="err" title="Can't read it">{errorText(preview.error)}</Banner> : p && (
+          {preview.isLoading ? <Skeleton lines={1} /> : preview.error ? <Banner tone="err" title={t("shell.drop.cantRead")}>{errorText(preview.error)}</Banner> : p && (
             <span className="k-hint">
-              {p.missing.length ? `New: ${p.missing.map((m) => m.name ?? m.id).join(", ")}.` : "Everything in it is in your library already."}
-              {p.nativeCode && " It contains native code (DLLs)."}
+              {p.missing.length ? t("shell.drop.newMods", { list: p.missing.map((m) => m.name ?? m.id).join(", ") }) : t("shell.drop.allInLibrary")}
+              {p.nativeCode && ` ${t("shell.drop.nativeCode")}`}
             </span>
           )}
-          <Banner tone="warn" title="This runs code on your PC">
-            <span className="k-row" style={{ gap: 8 }}><ShieldAlert size={16} />Install only modpacks you trust.</span>
+          <Banner tone="warn" title={t("shell.drop.runsCode")}>
+            <span className="k-row" style={{ gap: 8 }}><ShieldAlert size={16} />{t("shell.drop.trustOnly")}</span>
           </Banner>
-          <Toggle checked={agree} onChange={setAgree} label="I trust it and want its mods" />
-          {status.data?.running && <span className="k-hint">Close the game first.</span>}
+          <Toggle checked={agree} onChange={setAgree} label={t("shell.drop.trustToggle")} />
+          {status.data?.running && <span className="k-hint">{t("shell.drop.closeGame")}</span>}
         </div>
       )}
     </Modal>

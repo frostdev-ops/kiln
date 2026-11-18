@@ -164,7 +164,11 @@ inline int color_index(uint32_t slot) {
         ImGuiCol_FrameBg,       ImGuiCol_FrameBgHovered, ImGuiCol_FrameBgActive, ImGuiCol_Button,         ImGuiCol_ButtonHovered,
         ImGuiCol_ButtonActive,  ImGuiCol_Header,         ImGuiCol_HeaderHovered, ImGuiCol_HeaderActive,   ImGuiCol_Separator,
         ImGuiCol_ScrollbarBg,   ImGuiCol_ScrollbarGrab,  ImGuiCol_NavCursor,     ImGuiCol_CheckMark,      ImGuiCol_SliderGrab,
+        // 0.2.0-dev.29.16
+        ImGuiCol_TitleBg,       ImGuiCol_TitleBgActive,  ImGuiCol_PopupBg,       ImGuiCol_Tab,            ImGuiCol_TabHovered,
+        ImGuiCol_TabSelected,   ImGuiCol_TableHeaderBg,  ImGuiCol_TextSelectedBg,
     };
+    static_assert(sizeof map / sizeof map[0] == KILN_UI_COLOR_COUNT, "a colour for every KILN_UI_COLOR_*");
     return slot < KILN_UI_COLOR_COUNT ? map[slot] : -1;
 }
 

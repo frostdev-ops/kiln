@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Kiln.Skills client part: each Kiln talent tree as a Kiln.Ui screen in the game's look (UiStyle.Game), opened from an
+// Kiln.Skills client part: each Kiln talent tree as a Kiln.Ui screen in the player's look (UiStyle.Player), opened from an
 // entry in the game's pause menu and/or a key. Nodes sit on a grid; links are drawn between them; a side panel shows
 // the selected node with its Unlock / Refund buttons; Respec at the bottom. State comes from the server
 // (TalentNet.Client); actions go back through TalentNet.Send (a hosting client calls the server part directly).
@@ -15,6 +15,7 @@ internal static class TalentUi
         public readonly Dictionary<string, UiImage?> Icons = new(StringComparer.Ordinal);
         public string? Selected;
         public long AskedAt;
+        public Action? Relabel;
     }
 
     public static void Attach(Skills.Entry e)
@@ -27,14 +28,25 @@ internal static class TalentUi
         var rows = t.Nodes.Count == 0 ? 1 : t.Nodes.Max(n => n.Row) + 1;
         st.Screen = Ui.Screen(t.Name, ui => Draw(e, st, ui), new UiScreenOptions
         {
-            Style = UiStyle.Game,
+            Style = UiStyle.Player,
             Width = Math.Clamp(cols * Cell + 360, 640, 1500),
             Height = Math.Clamp(rows * Row + 190, 420, 960),
         });
         st.Screen.Opened += () => Ask(t.Id, st);
         if (t.MenuEntry is { } label) st.Menu = Ui.Menus.Add(MenuLocation.PauseMenu, label, () => st.Screen.Open(), t.MenuOrder);
         if (t.Key is { Length: > 0 } key)
-            st.Key = KeyBindings.Register("skills." + t.Id, key, () => st.Screen.Toggle(), $"Open the talent tree {t.Name}", "Talents");
+        {
+            st.Key = KeyBindings.Register("skills." + t.Id, key, () => st.Screen.Toggle(), KilnText.T("talents.key.open", ("tree", t.Name)),
+                KilnText.T("talents.key.category"));
+            // Kiln's language changed (any thread): the Keys page's line follows it (the tree's name is the mod's)
+            st.Relabel = () =>
+            {
+                if (st.Key is not { } b) return;
+                b.Description = KilnText.T("talents.key.open", ("tree", t.Name));
+                b.Category = KilnText.T("talents.key.category");
+            };
+            KilnText.Changed += st.Relabel;
+        }
         if (t.Directory is { } dir)
             foreach (var n in t.Nodes)
                 if (n.Icon is { } icon)
@@ -53,6 +65,7 @@ internal static class TalentUi
             st.Screen?.Dispose();
             st.Menu?.Dispose();
             st.Key?.Dispose();
+            if (st.Relabel is { } r) KilnText.Changed -= r;
             foreach (var i in st.Icons.Values) i?.Dispose();
         }
         catch (Exception ex)
@@ -67,38 +80,7 @@ internal static class TalentUi
         st.AskedAt = Environment.TickCount64;
         if (!TalentNet.Send(new TalentRequest(0, tree, "")))
             TalentNet.Client[tree] = new TalentStateMessage(tree, 0, 0, 0, new(), false,
-                (Network.ServerHasKiln ? Frame.NoServerTrees : Frame.NotConnected).ToString(), 0, 0);
-    }
-
-    // The frame in the languages Kiln's own strings have (a talent's name and text are the mod's). What the server answers stays its
-    // own: a server doesn't know its players' languages.
-    internal static class Frame
-    {
-        public static readonly UiText Points = UiText.Of(("en", "Points: {0} available  ({1} of {2} spent)"), ("de", "Punkte: {0} verfügbar  ({1} von {2} ausgegeben)"));
-        public static readonly UiText Waiting = UiText.Of(("en", "Waiting for the server..."), ("de", "Warte auf den Server..."));
-        public static readonly UiText NoServerTrees = UiText.Of(("en", "the server does not have Kiln talent trees"), ("de", "Der Server hat keine Kiln-Talentbäume"));
-        public static readonly UiText NotConnected = UiText.Of(("en", "not connected to a Kiln server"), ("de", "Nicht mit einem Kiln-Server verbunden"));
-        public static readonly UiText Select = UiText.Of(("en", "Select a talent."), ("de", "Wähle ein Talent."));
-        public static readonly UiText LevelCost = UiText.Of(("en", "Level {0} / {1}   Cost {2}"), ("de", "Stufe {0} / {1}   Kosten {2}"));
-        public static readonly UiText NeedsAll = UiText.Of(("en", "Needs all of: {0}"), ("de", "Braucht alle von: {0}"));
-        public static readonly UiText NeedsOne = UiText.Of(("en", "Needs one of: {0}"), ("de", "Braucht eines von: {0}"));
-        public static readonly UiText NeedsPoints = UiText.Of(("en", "Needs {0} points spent in this tree"), ("de", "Braucht {0} ausgegebene Punkte in diesem Baum"));
-        public static readonly UiText NeedsLevel = UiText.Of(("en", "Needs character level {0}"), ("de", "Braucht Charakterstufe {0}"));
-        public static readonly UiText Unlock = UiText.Of(("en", "Unlock ({0})"), ("de", "Freischalten ({0})"));
-        public static readonly UiText NextLevel = UiText.Of(("en", "Next level ({0})"), ("de", "Nächste Stufe ({0})"));
-        public static readonly UiText Refund = UiText.Of(("en", "Refund"), ("de", "Zurücknehmen"));
-        public static readonly UiText Respec = UiText.Of(("en", "Respec (free)"), ("de", "Neu verteilen (kostenlos)"));
-        public static readonly UiText Close = UiText.Of(("en", "Close"), ("de", "Schließen"));
-        public static readonly UiText Tooltip = UiText.Of(("en", "{0}  ({1}/{2}, cost {3})"), ("de", "{0}  ({1}/{2}, Kosten {3})"));
-        public static readonly UiText Paused = UiText.Of(("en", "The game is paused: this applies when you resume."), ("de", "Das Spiel ist pausiert: Das gilt, sobald du weiterspielst."));
-        public static readonly UiText EffectAttribute = UiText.Of(("en", "attribute {0} +{1}/level"), ("de", "Attribut {0} +{1}/Stufe"));
-        public static readonly UiText EffectBuff = UiText.Of(("en", "buff {0}"), ("de", "Buff {0}"));
-        public static readonly UiText EffectGameNode = UiText.Of(("en", "game node {0}"), ("de", "Spielknoten {0}"));
-        public static readonly UiText EffectProgram = UiText.Of(("en", "program {0}"), ("de", "Programm {0}"));
-        public static readonly UiText EffectAbility = UiText.Of(("en", "ability {0}"), ("de", "Fähigkeit {0}"));
-        public static readonly UiText EffectCode = UiText.Of(("en", "code"), ("de", "Code"));
-
-        public static string F(UiText t, params object?[] args) => string.Format(t.ToString(), args);
+                Network.ServerHasKiln ? KilnText.T("talents.no_server_trees") : KilnText.T("talents.not_connected"), 0, 0);
     }
 
     // grid (unscaled pixels)
@@ -114,9 +96,9 @@ internal static class TalentUi
         TalentNet.Client.TryGetValue(t.Id, out var state);
         if (state is null && Environment.TickCount64 - st.AskedAt > 3000) Ask(t.Id, st);
         if (t.Description is { } d) ui.TextWrapped(d.ToString());
-        if (state is null) ui.TextDisabled(Frame.Waiting.ToString());
+        if (state is null) ui.TextDisabled(KilnText.T("talents.waiting"));
         else if (!state.Ok && state.Levels.Count == 0 && state.Total == 0) ui.Text(Warn, state.Message);
-        else ui.Text(Gold, Frame.F(Frame.Points, state.Available, state.Spent, state.Total));
+        else ui.Text(Gold, KilnText.T("talents.points", state.Available, state.Spent, state.Total));
         var levels = state?.Levels ?? new Dictionary<string, int>();
         int Lv(string id) => levels.TryGetValue(id, out var l) ? l : 0;
         bool Available(TalentNode n)
@@ -133,10 +115,13 @@ internal static class TalentUi
         var cols = t.Nodes.Count == 0 ? 1 : t.Nodes.Max(n => n.Column) + 1;
         var rows = t.Nodes.Count == 0 ? 1 : t.Nodes.Max(n => n.Row) + 1;
         float cell = Cell * s, row = Row * s, node = Node * s;
-        // UiStyle.Game: a bordered child's padding is WindowPadding (14, 12), items are ItemSpacing (10, 8) apart
+        // the game look's spacing in every look: a bordered child's padding is WindowPadding (14, 12), items are ItemSpacing
+        // (10, 8) apart (pushed, so the player's ember look or a theme does not move the nodes off their links)
         float padX = 14 * s, padY = 12 * s, gapY = 8 * s;
         var canvasW = cols * cell + 2 * padX;
         var canvasH = rows * row + 2 * padY;
+        using var pad = ui.PushVar(UiStyleVar.WindowPadding, padX, padY);
+        using var gap = ui.PushVar(UiStyleVar.ItemSpacing, 10 * s, gapY);
         if (ui.BeginChild("talent-canvas", canvasW, canvasH))
         {
             var (cx, cy, _, _) = ui.WindowRect;
@@ -186,42 +171,44 @@ internal static class TalentUi
             var sel = st.Selected is { } id ? t.Node(id) : null;
             if (sel is null)
             {
-                ui.TextDisabled(Frame.Select.ToString());
+                ui.TextDisabled(KilnText.T("talents.select"));
             }
             else
             {
                 var lv = Lv(sel.Id);
                 ui.Text(Gold, sel.Name.ToString());
-                ui.Text(Frame.F(Frame.LevelCost, lv, sel.MaxLevel, sel.Cost));
+                ui.Text(KilnText.T("talents.level_cost", lv, sel.MaxLevel, sel.Cost));
                 if (sel.Description is { } dsc) ui.TextWrapped(dsc.ToString());
                 if (sel.Requires.Count > 0)
-                    ui.TextDisabled(Frame.F(sel.RequireAll ? Frame.NeedsAll : Frame.NeedsOne,
-                                            string.Join(", ", sel.Requires.Select(r => t.Node(r)?.Name.ToString() ?? r))));
-                if (sel.PointsSpentRequired > 0) ui.TextDisabled(Frame.F(Frame.NeedsPoints, sel.PointsSpentRequired));
-                if (sel.LevelRequired > 0) ui.TextDisabled(Frame.F(Frame.NeedsLevel, sel.LevelRequired));
+                {
+                    var needs = string.Join(", ", sel.Requires.Select(r => t.Node(r)?.Name.ToString() ?? r));
+                    ui.TextDisabled(sel.RequireAll ? KilnText.T("talents.needs_all", needs) : KilnText.T("talents.needs_one", needs));
+                }
+                if (sel.PointsSpentRequired > 0) ui.TextDisabled(KilnText.T("talents.needs_points", sel.PointsSpentRequired));
+                if (sel.LevelRequired > 0) ui.TextDisabled(KilnText.T("talents.needs_level", sel.LevelRequired));
                 ui.Spacing();
-                if (lv < sel.MaxLevel && ui.Button(Frame.F(lv == 0 ? Frame.Unlock : Frame.NextLevel, sel.Cost)))
+                if (lv < sel.MaxLevel && ui.Button(lv == 0 ? KilnText.T("talents.unlock", sel.Cost) : KilnText.T("talents.next_level", sel.Cost)))
                     TalentNet.Send(new TalentRequest(1, t.Id, sel.Id));
                 if (lv > 0)
                 {
                     ui.SameLine();
-                    if (ui.Button(Frame.Refund.ToString())) TalentNet.Send(new TalentRequest(2, t.Id, sel.Id));
+                    if (ui.Button(KilnText.T("talents.refund"))) TalentNet.Send(new TalentRequest(2, t.Id, sel.Id));
                 }
             }
             if (state is { Ok: false, Message.Length: > 0 }) ui.Text(Warn, state.Message);
             else if (state is { Message.Length: > 0 }) ui.TextWrapped(state.Message);  // the panel is narrow: the pause note has to wrap
         }
         ui.EndChild();
-        if (t.AllowRespec && ui.Button(Frame.Respec.ToString())) TalentNet.Send(new TalentRequest(3, t.Id, ""));
+        if (t.AllowRespec && ui.Button(KilnText.T("talents.respec"))) TalentNet.Send(new TalentRequest(3, t.Id, ""));
         ui.SameLine();
-        if (ui.Button(Frame.Close.ToString())) ui.CloseScreen();
+        if (ui.Button(KilnText.T("talents.close"))) ui.CloseScreen();
     }
 
     private static string Short(string s) => s.Length <= 9 ? s : s[..8] + ".";
 
     private static string Describe(TalentTree t, TalentNode n, int lv)
     {
-        var lines = new List<string> { Frame.F(Frame.Tooltip, n.Name, lv, n.MaxLevel, n.Cost) };
+        var lines = new List<string> { KilnText.T("talents.tooltip", n.Name, lv, n.MaxLevel, n.Cost) };
         if (n.Description?.ToString() is { Length: > 0 } d) lines.Add(d);
         if (n.ListEffects)
             foreach (var e in n.Effects)

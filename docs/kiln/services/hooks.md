@@ -212,7 +212,7 @@ returns the same text; `buf` may be null to ask for the length. Offsets and RVAs
   hook and a Kiln-hosted link meet: `foreign-before`, `foreign-over`, ShroudForge's `refused`), `rules` (the compat rules
   that fired) and `ruleFiles`; what they mean and how to fix an overlap:
   [../engines/README.md](../engines/README.md#closed-source-dll-mods). Schema: `schema/hooks-state.schema.json`.
-- `codePatches` (since 0.2.0-dev.30, sigdb's `code_patch_map`): every place the live code differs from the exe file's
+- `codePatches` (since 0.2.0-dev.29.8, sigdb's `code_patch_map`): every place the live code differs from the exe file's
   when the map is written, Kiln's own hooks included: `{available, total, rows: [{rva, size, by, called?,
   calledSymbol?, symbol?}]}` (at most 1,024 rows; `total` counts them all). `by` says who changed it: `call redirected
   to <module>+<offset>` for a `call rel32` another module points at its own code (`called` is the function it called

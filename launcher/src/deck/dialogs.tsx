@@ -15,9 +15,11 @@ import { useLayer } from "./layers";
 import { DeckButton, Dialog, Overlay, Row, Word, dialogFirst, useFirstFocus, useReturnFocus } from "./ui";
 import { kilnLabel } from "./status";
 import { usePendingEdits } from "../editor/kiln/pending";
+import { useT } from "../i18n";
 
 /** The profiles (Settings): A loads one; the Mods screen then shows its switches (Steam's Play button uses it too). */
 export function ProfileDialog({ game, onClose }: { game: GameInstall; onClose: () => void }) {
+  const t = useT();
   const qc = useQueryClient();
   const profiles = useProfiles();
   const active = useActiveProfile(game.id);
@@ -33,31 +35,32 @@ export function ProfileDialog({ game, onClose }: { game: GameInstall; onClose: (
     onSuccess: (r, pid) => {
       qc.setQueryData(qk.active(game.id), r);
       invalidateGame(qc, game.id);
-      toast.ok(pid ? `${list.find((p) => p.id === pid)?.name ?? pid} is loaded` : "No profile is loaded");
+      toast.ok(pid ? t("deck.dialogs.loaded", { name: list.find((p) => p.id === pid)?.name ?? pid }) : t("deck.dialogs.noneLoaded"));
       notifyActivation(r);
     },
     onError: (e, _pid, undo) => { undo?.(); toast.error(e); },
   });
   const pick = (pid: string) => { onClose(); if (pid !== cur) activate.mutate(pid); };
   return (
-    <Dialog name="profiles" title="Profile" onClose={onClose} wide>
+    <Dialog name="profiles" title={t("deck.dialogs.profile")} onClose={onClose} wide>
       <div className="deck-list">
         {list.map((p) => {
           const n = totalCount(p.counts);
           return (
-            <Row key={p.id} id={`profile-${p.id}`} title={p.name} sub={`${n} mod${n === 1 ? "" : "s"}${p.server ? ` · for ${p.server.name ?? p.server.id}` : ""}`}
-              end={p.id === cur ? <Word tone="ember">Loaded</Word> : undefined} disabled={blocked || activate.isPending} a="Load" onClick={() => pick(p.id)} />
+            <Row key={p.id} id={`profile-${p.id}`} title={p.name} sub={p.server ? t("deck.dialogs.profileModsFor", { count: n, server: p.server.name ?? p.server.id }) : t("deck.dialogs.profileMods", { count: n })}
+              end={p.id === cur ? <Word tone="ember">{t("deck.dialogs.loadedWord")}</Word> : undefined} disabled={blocked || activate.isPending} a={t("deck.dialogs.load")} onClick={() => pick(p.id)} />
           );
         })}
-        <Row id="profile-none" title="No profile" sub="The game folder decides: its mods load as they are" end={!cur ? <Word tone="ember">Loaded</Word> : undefined} disabled={blocked || activate.isPending} a="Load" onClick={() => pick("")} />
+        <Row id="profile-none" title={t("deck.dialogs.noProfile")} sub={t("deck.dialogs.noProfileSub")} end={!cur ? <Word tone="ember">{t("deck.dialogs.loadedWord")}</Word> : undefined} disabled={blocked || activate.isPending} a={t("deck.dialogs.load")} onClick={() => pick("")} />
       </div>
-      {running && <p className="deck-note">Close the game to switch.</p>}
+      {running && <p className="deck-note">{t("deck.dialogs.closeToSwitch")}</p>}
     </Dialog>
   );
 }
 
 /** Install Kiln (the bundle the launcher ships), then "My mods" for a first-time player. */
 export function InstallDialog({ game, onClose, update }: { game: GameInstall; onClose: () => void; update?: boolean }) {
+  const t = useT();
   const qc = useQueryClient();
   const k = useKilnInstall(game);
   const status = useGameStatus(game.id);
@@ -74,27 +77,28 @@ export function InstallDialog({ game, onClose, update }: { game: GameInstall; on
       const a = await api.profileEnsureDefault(installed.id);
       if (a) qc.setQueryData(qk.active(installed.id), a);
       qc.invalidateQueries({ queryKey: qk.profiles });
-    } catch (e) { toast.error(e, "Kiln installed, but your mod list could not be prepared"); }
+    } catch (e) { toast.error(e, t("deck.dialogs.listNotPrepared")); }
   };
   return (
-    <Dialog name="install" title={update ? "Update Kiln?" : "Install Kiln?"} onClose={onClose}
+    <Dialog name="install" title={update ? t("deck.dialogs.updateKiln") : t("deck.dialogs.installKiln")} onClose={onClose}
       buttons={<>
-        <DeckButton onClick={onClose}>Cancel</DeckButton>
-        <DeckButton primary disabled={!target || !status.data || running || k.installing || !!status.data?.steamUpdating} onClick={() => void go()}>{update ? "Update" : "Install"}</DeckButton>
+        <DeckButton onClick={onClose}>{t("common.cancel")}</DeckButton>
+        <DeckButton primary disabled={!target || !status.data || running || k.installing || !!status.data?.steamUpdating} onClick={() => void go()}>{update ? t("common.update") : t("common.install")}</DeckButton>
       </>}>
-      {target ? <span className="deck-mono">{kilnLabel(target.version)}</span> : !k.loading && <span>No Kiln runtime in this launcher.</span>}
-      {running && <p className="deck-note">Close the game first.</p>}
+      {target ? <span className="deck-mono">{kilnLabel(target.version)}</span> : !k.loading && <span>{t("deck.dialogs.noRuntime")}</span>}
+      {running && <p className="deck-note">{t("deck.shared.closeGameFirstDot")}</p>}
     </Dialog>
   );
 }
 
 /** Play once without the profile: vanilla (no Kiln) or Kiln without mods. */
 export function PlayOnceDialog({ onClose, onPlay }: { onClose: () => void; onPlay: (mode: "vanilla" | "no-mods") => void }) {
+  const t = useT();
   return (
-    <Dialog name="play-once" title="Play once" onClose={onClose}>
+    <Dialog name="play-once" title={t("deck.dialogs.playOnce")} onClose={onClose}>
       <div className="deck-list">
-        <Row id="once-nomods" title="Without mods" sub="Kiln runs, no mods load" a="Play" onClick={() => { onClose(); onPlay("no-mods"); }} />
-        <Row id="once-vanilla" title="Vanilla" sub="No Kiln. Use another character." a="Play" onClick={() => { onClose(); onPlay("vanilla"); }} />
+        <Row id="once-nomods" title={t("deck.dialogs.withoutMods")} sub={t("deck.dialogs.withoutModsSub")} a={t("deck.dialogs.play")} onClick={() => { onClose(); onPlay("no-mods"); }} />
+        <Row id="once-vanilla" title={t("deck.dialogs.vanilla")} sub={t("deck.dialogs.vanillaSub")} a={t("deck.dialogs.play")} onClick={() => { onClose(); onPlay("vanilla"); }} />
       </div>
     </Dialog>
   );
@@ -145,25 +149,26 @@ export function useBrowse(start: string | null, scope: RefObject<HTMLElement | n
 
 /** Find the game by hand: browse to the folder with enshrouded.exe, then "Use this folder". */
 export function FindGameDialog({ onClose }: { onClose: () => void }) {
+  const t = useT();
   const qc = useQueryClient();
   const setGameId = useGameSel((s) => s.setGameId);
   const ref = useRef<HTMLDivElement>(null);
   const b = useBrowse(null, ref);
   const add = useMutation({
     mutationFn: (path: string) => api.gameAdd(path),
-    onSuccess: (g) => { qc.invalidateQueries({ queryKey: qk.games }); setGameId(g.id); toast.ok("Game found"); onClose(); },
+    onSuccess: (g) => { qc.invalidateQueries({ queryKey: qk.games }); setGameId(g.id); toast.ok(t("deck.dialogs.gameFound")); onClose(); },
     onError: (e) => toast.error(e),
   });
   const opener = useRef<HTMLElement | null>(document.activeElement as HTMLElement | null);
   useFirstFocus(ref, null, dialogFirst);
   useReturnFocus(opener);
-  useLayer(ref, { modal: true, backLabel: "Up", back: () => { if (!b.up()) onClose(); },
-    actions: [{ button: "x", label: "Close", run: onClose }] });
+  useLayer(ref, { modal: true, backLabel: t("deck.shared.up"), back: () => { if (!b.up()) onClose(); },
+    actions: [{ button: "x", label: t("common.close"), run: onClose }] });
   const f = b.q.data;
   return (
     <Overlay name="find-game">
-      <div ref={ref} className="deck-dialog wide tall" role="dialog" aria-modal="true" aria-label="Find the game folder">
-        <h2 className="deck-dialog-title">Find Enshrouded</h2>
+      <div ref={ref} className="deck-dialog wide tall" role="dialog" aria-modal="true" aria-label={t("deck.dialogs.findGameAria")}>
+        <h2 className="deck-dialog-title">{t("deck.dialogs.findGame")}</h2>
         <FolderView f={f} loading={b.q.isLoading} error={b.q.error} mode="game"
           onOpen={(d) => b.open(d)} onPlace={(d) => b.jump(d)}
           onUse={() => f && add.mutate(f.dir)} busy={add.isPending} />
@@ -179,22 +184,23 @@ export function FolderView({ f, loading, error, mode, onOpen, onPlace, onUse, bu
   f: DeckFolder | undefined; loading: boolean; error: unknown; mode: "game" | "mods" | "folder";
   onOpen: (dir: string) => void; onPlace: (dir: string) => void; onUse?: () => void; busy?: boolean;
 }) {
-  if (loading) return <p className="deck-note">Reading…</p>;
+  const t = useT();
+  if (loading) return <p className="deck-note">{t("deck.shared.reading")}</p>;
   if (error || !f) return <p className="deck-note">{api.toKilnError(error).message}</p>;
   return (
     <div className="deck-folder">
-      <div className="deck-places" role="group" aria-label="Places">
+      <div className="deck-places" role="group" aria-label={t("deck.shared.places")}>
         {f.places.filter((p) => mode === "game" || p.kind !== "games").map((p) => (
-          <DeckButton key={p.path} id={`place-${p.kind}-${p.name}`} className={p.path === f.dir ? "on" : ""} a="Open" onClick={() => onPlace(p.path)}>{p.name}</DeckButton>
+          <DeckButton key={p.path} id={`place-${p.kind}-${p.name}`} className={p.path === f.dir ? "on" : ""} a={t("common.open")} onClick={() => onPlace(p.path)}>{p.name}</DeckButton>
         ))}
       </div>
       <p className="deck-path deck-mono" title={f.dir}>{f.dir}</p>
       {(mode === "folder" || (mode === "game" && f.hasGame)) && (
-        <DeckButton primary autoFocus id="use-folder" disabled={busy} onClick={onUse}>Use this folder</DeckButton>
+        <DeckButton primary autoFocus id="use-folder" disabled={busy} onClick={onUse}>{t("deck.dialogs.useFolder")}</DeckButton>
       )}
       <div className="deck-list">
-        {f.folders.map((d) => <Row key={d.path} id={`dir-${d.name}`} path={d.path} icon={<FolderIcon />} title={d.name} a="Open" onClick={() => onOpen(d.path)} />)}
-        {mode !== "mods" && !f.folders.length && !(mode === "game" && f.hasGame) && <p className="deck-note">No folders here.</p>}
+        {f.folders.map((d) => <Row key={d.path} id={`dir-${d.name}`} path={d.path} icon={<FolderIcon />} title={d.name} a={t("common.open")} onClick={() => onOpen(d.path)} />)}
+        {mode !== "mods" && !f.folders.length && !(mode === "game" && f.hasGame) && <p className="deck-note">{t("deck.dialogs.noFolders")}</p>}
       </div>
     </div>
   );
@@ -206,6 +212,7 @@ export function FolderIcon() {
 
 /** A modpack zip: what it is, "runs code on your PC", Install. */
 export function ModpackDialog({ game, path, onClose }: { game: GameInstall; path: string; onClose: () => void }) {
+  const t = useT();
   const qc = useQueryClient();
   const status = useGameStatus(game.id);
   const preview = useQuery({ queryKey: ["modpack_inspect", game.id, path], queryFn: () => api.modpackInspect(game.id, { path }), retry: false });
@@ -214,24 +221,24 @@ export function ModpackDialog({ game, path, onClose }: { game: GameInstall; path
   const install = async () => {
     setBusy(true);
     try {
-      const r = await runTask<api.ModpackInstallResult>(() => api.modpackInstall(game.id, { source: { path }, consent: true, activate: true }), { done: "Modpack installed" });
+      const r = await runTask<api.ModpackInstallResult>(() => api.modpackInstall(game.id, { source: { path }, consent: true, activate: true }), { done: t("deck.dialogs.modpackInstalled") });
       notifyActivation(r.activation);
       invalidateGame(qc, game.id);
       qc.invalidateQueries({ queryKey: ["library_list"] });
-      toast.ok(`${r.profile.name} is loaded`);
+      toast.ok(t("deck.dialogs.loaded", { name: r.profile.name }));
       onClose();
     } catch { /* toasted */ } finally { setBusy(false); }
   };
   const name = p?.manifest ? `${p.manifest.name} ${p.manifest.version}` : path.split(/[\\/]/).pop();
   return (
-    <Dialog name="modpack" title="Install this modpack?" onClose={onClose} locked={busy}
+    <Dialog name="modpack" title={t("deck.dialogs.modpackTitle")} onClose={onClose} locked={busy}
       buttons={<>
-        <DeckButton onClick={onClose} disabled={busy}>Cancel</DeckButton>
-        <DeckButton primary disabled={busy || !p || !!preview.error || !status.data || status.data.running || status.data.steamUpdating} onClick={() => void install()}>Install</DeckButton>
+        <DeckButton onClick={onClose} disabled={busy}>{t("common.cancel")}</DeckButton>
+        <DeckButton primary disabled={busy || !p || !!preview.error || !status.data || status.data.running || status.data.steamUpdating} onClick={() => void install()}>{t("common.install")}</DeckButton>
       </>}>
       <span>{name}</span>
-      <Word tone="warn">It runs code on your PC</Word>
-      {status.data?.running && <p className="deck-note">Close the game first.</p>}
+      <Word tone="warn">{t("deck.dialogs.runsCode")}</Word>
+      {status.data?.running && <p className="deck-note">{t("deck.shared.closeGameFirstDot")}</p>}
       {preview.error ? <span className="deck-note">{api.toKilnError(preview.error).message}</span> : null}
     </Dialog>
   );
@@ -239,14 +246,15 @@ export function ModpackDialog({ game, path, onClose }: { game: GameInstall; path
 
 /** Quit the launcher (the save editor's changes that are not saved yet are named: quitting drops them). */
 export function QuitDialog({ onClose }: { onClose: () => void }) {
+  const t = useT();
   const edits = usePendingEdits();
   return (
-    <Dialog name="quit" title="Quit Kiln?" onClose={onClose}
+    <Dialog name="quit" title={t("deck.dialogs.quitTitle")} onClose={onClose}
       buttons={<>
-        <DeckButton onClick={onClose}>Cancel</DeckButton>
-        <DeckButton primary onClick={() => { onClose(); if (api.isTauri()) void api.deckQuit(); else toast.info("Quit"); }}>Quit</DeckButton>
+        <DeckButton onClick={onClose}>{t("common.cancel")}</DeckButton>
+        <DeckButton primary onClick={() => { onClose(); if (api.isTauri()) void api.deckQuit(); else toast.info(t("deck.dialogs.quit")); }}>{t("deck.dialogs.quit")}</DeckButton>
       </>}>
-      {edits.dirty ? <p className="deck-note" data-testid="quit-unsaved">Your changes to {edits.name ?? "the character"} in the save editor are not saved.</p> : null}
+      {edits.dirty ? <p className="deck-note" data-testid="quit-unsaved">{edits.name != null ? t("deck.dialogs.unsavedNamed", { name: edits.name }) : t("deck.dialogs.unsaved")}</p> : null}
     </Dialog>
   );
 }

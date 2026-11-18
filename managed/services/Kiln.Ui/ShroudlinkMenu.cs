@@ -377,11 +377,11 @@ internal sealed class ShroudlinkNodes
                     ui.Hint(T("hint"));
                     if (ui.Input(key, ref edit)) send(id, new { kind = "change", value = edit });
                     _edits[key] = (server, edit);
-                    if (ui.Button(key + "/submit", "Apply")) send(id, new { kind = "submit", value = edit }); break;
+                    if (ui.Button(key + "/submit", KilnText.T("shroudlink.apply"))) send(id, new { kind = "submit", value = edit }); break;
                 case "item_grid":
                     var cols = n.GetProperty("columns").GetInt32(); var index = 0;
                     foreach (var item in n.GetProperty("items").EnumerateArray())
-                    { if (index % cols != 0) ui.SameLine(); if (ui.Button(key + "/" + index, $"Item {item.GetProperty("id").GetUInt32()} × {item.GetProperty("count").GetUInt32()}")) send(id, new { kind = "click", index }); index++; } break;
+                    { if (index % cols != 0) ui.SameLine(); if (ui.Button(key + "/" + index, KilnText.T("shroudlink.item", ("id", item.GetProperty("id").GetUInt32()), ("count", item.GetProperty("count").GetUInt32())))) send(id, new { kind = "click", index }); index++; } break;
                 case "list": case "tabs":
                     var i = 0;
                     foreach (var label in n.GetProperty(type == "tabs" ? "tabs" : "entries").EnumerateArray())
@@ -440,13 +440,13 @@ internal static class ShroudlinkMenu
     public static void Draw(UiDraw ui)
     {
         Presentation.Shown();
-        if (!Available) { ui.TextWrapped("This requires a cooperating shroudlink client addon with bridge ABI v1. The stock addon is unchanged."); return; }
+        if (!Available) { ui.TextWrapped(KilnText.T("shroudlink.needs_addon")); return; }
         if (Environment.TickCount64 >= _nextRead) { _client!.Refresh(); _nextRead = Environment.TickCount64 + 100; }
         if (_client!.LastError == 3) { _client.Dispose(); _client = null; Discovery.Soon(); return; }
         if (_client.State is not { Ready: true, Lease: not null } state)
-        { ui.TextWrapped("Waiting for a live shroudlink host, UI protocol 2, recognized world, and presentation lease."); return; }
+        { ui.TextWrapped(KilnText.T("shroudlink.waiting")); return; }
         Nodes.Reset(ShroudlinkNodes.Key(state.Module, state.Session));
-        if (state.Entries.Count == 0) ui.TextDisabled("The host has not sent any menu entries.");
+        if (state.Entries.Count == 0) ui.TextDisabled(KilnText.T("shroudlink.no_entries"));
         foreach (var e in state.Entries)
             if (new ShroudlinkWidgets(ui).Button(ShroudlinkNodes.Key(e.Owner, "menu", e.Id), e.Label))
                 _client.Send(e.Owner, "", e.Id, new { kind = "menu" });
@@ -455,9 +455,9 @@ internal static class ShroudlinkMenu
             using var id = ui.Id(ShroudlinkNodes.Key(state.Module, state.Session, w.Owner, w.Id));
             ui.Separator(w.Title);
             Nodes.Draw(new ShroudlinkWidgets(ui), w.Content, ShroudlinkNodes.Key(w.Owner, w.Id), (node, evt) => _client.Send(w.Owner, w.Id, node, evt));
-            if (ui.SmallButton("Close window")) _client.Send(w.Owner, w.Id, "", new { kind = "closed" });
+            if (ui.SmallButton(KilnText.T("shroudlink.close_window"))) _client.Send(w.Owner, w.Id, "", new { kind = "closed" });
         }
         Nodes.EndFrame();
-        if (_client.LastError != 0) { ui.TextDisabled($"shroudlink declined the last request ({_client.LastError}); refreshing its current state."); _nextRead = 0; }
+        if (_client.LastError != 0) { ui.TextDisabled(KilnText.T("shroudlink.declined", ("error", _client.LastError))); _nextRead = 0; }
     }
 }

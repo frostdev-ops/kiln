@@ -15,6 +15,7 @@ import * as nx from "../api/nexus";
 import type { CatalogFile, InstallReport, NexusAccount } from "../api/nexus";
 import { runTask, toast } from "../ui";
 import { notifyAdd } from "./notices";
+import { t } from "../i18n";
 
 export const useNexusAccount = () => useQuery({ queryKey: nx.nk.account, queryFn: nx.nexusAccount, staleTime: 60_000, retry: false, enabled: useNexusEnabled() });
 
@@ -45,9 +46,9 @@ export function useCatalogInstall() {
   /** Why nothing can be added now (null: ready). */
   const blocked = (): string | null => {
     const g = ref.current;
-    if (!g) return "Find Enshrouded on Play first.";
+    if (!g) return t("shell.catalogInstall.findGameFirst");
     const st = qc.getQueryData<GameStatus>(qk.gameStatus(g.id));
-    if (st && !st.runtime.installed) return "Install Kiln first.";
+    if (st && !st.runtime.installed) return t("shell.catalogInstall.installKilnFirst");
     return null;
   };
 
@@ -56,8 +57,8 @@ export function useCatalogInstall() {
     try {
       await api.profileRevert(r.add.profileId, r.add.changes);
       refresh(r);
-      toast.ok(`Removed ${r.name}`);
-    } catch (e) { toast.error(e, "Undo failed"); }
+      toast.ok(t("shell.catalogInstall.removed", { name: r.name }));
+    } catch (e) { toast.error(e, t("shell.catalogInstall.undoFailed")); }
   };
 
   /** Add (or update to) `file` of a mod: premium downloads here, free opens the file's page. */
@@ -70,7 +71,7 @@ export function useCatalogInstall() {
     const why = blocked();
     if (why) { toast.info(why); return { kind: "none" }; }
     try {
-      const r = await runTask<InstallReport>(() => nx.nexusDownload(ref.current!.id, mod.id, file.versionGsid), { failed: "Not added" });
+      const r = await runTask<InstallReport>(() => nx.nexusDownload(ref.current!.id, mod.id, file.versionGsid), { failed: t("shell.catalogInstall.notAdded") });
       refresh(r);
       notifyAdd(r.add);
       return { kind: "added", report: r };
@@ -87,7 +88,7 @@ export function useCatalogInstall() {
     const g = ref.current;
     if (!g) return null;
     try {
-      const r = await runTask<InstallReport>(() => nx.nexusLinkInstall(g.id, linkId), { failed: "Not added" });
+      const r = await runTask<InstallReport>(() => nx.nexusLinkInstall(g.id, linkId), { failed: t("shell.catalogInstall.notAdded") });
       refresh(r);
       notifyAdd(r.add);
       return r;
@@ -104,17 +105,18 @@ export function useReportToast() {
   return (r: InstallReport, update = false) => {
     const need = offered(r);
     const more = [
-      need.length ? `Needs ${need.map((q) => q.name).join(", ")}.` : r.add.missing.length ? `Needs ${r.add.missing.map((m) => m.id).join(", ")}.` : "",
-      r.add.running ? "Applies at the next start." : "",
-      !r.add.profileId && (r.add.import.imported.length || r.add.import.existing.length) ? "No profile is loaded: it is in your list, off." : "",
+      need.length ? t("shell.catalogInstall.needs", { list: need.map((q) => q.name).join(", ") })
+        : r.add.missing.length ? t("shell.catalogInstall.needs", { list: r.add.missing.map((m) => m.id).join(", ") }) : "",
+      r.add.running ? t("shell.catalogInstall.nextStart") : "",
+      !r.add.profileId && (r.add.import.imported.length || r.add.import.existing.length) ? t("shell.catalogInstall.noProfile") : "",
     ].filter(Boolean).join(" ");
     const actions = [
-      ...(r.add.changes.length ? [{ label: "Undo", onClick: () => void undo(r) }] : []),
-      ...need.slice(0, 2).map((q) => ({ label: `Get ${q.name}`, onClick: () => nav(`/catalog?mod=${q.modId}`) })),
+      ...(r.add.changes.length ? [{ label: t("common.undo"), onClick: () => void undo(r) }] : []),
+      ...need.slice(0, 2).map((q) => ({ label: t("shell.catalogInstall.get", { name: q.name }), onClick: () => nav(`/catalog?mod=${q.modId}`) })),
     ];
-    if (r.add.added.length) toast.ok(`${update ? "Updated" : "Added"} ${r.name}`, more || undefined, { actions });
-    else if (r.add.already.length) toast.info(`${r.name} is on already`, more || undefined, { actions });
-    else toast.info(`${r.name} is in your list, off`, more || undefined, { actions });
+    if (r.add.added.length) toast.ok(update ? t("shell.catalogInstall.updated", { name: r.name }) : t("shell.catalogInstall.added", { name: r.name }), more || undefined, { actions });
+    else if (r.add.already.length) toast.info(t("shell.catalogInstall.onAlready", { name: r.name }), more || undefined, { actions });
+    else toast.info(t("shell.catalogInstall.inListOff", { name: r.name }), more || undefined, { actions });
   };
 }
 
@@ -142,7 +144,7 @@ export function useNxmLinks(onReport: (r: InstallReport) => void) {
       for (const l of links) {
         if (!live || installingLinks.has(l.id)) continue;
         const why = blocked();
-        if (why) { toast.info("A Nexus Mods download is waiting", why); return; }
+        if (why) { toast.info(t("shell.catalogInstall.downloadWaiting"), why); return; }
         // The first inbox read can beat game discovery/status. A readiness change runs take again below.
         if (!status.data?.runtime.installed) return;
         installingLinks.add(l.id);

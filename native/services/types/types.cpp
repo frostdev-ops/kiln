@@ -73,6 +73,10 @@ kset::ModuleWatch g_modules;
 // seen (SET's markers; another tool's powrprof.dll is not SET), or after ConflictGate::failures_to_step_aside failed
 // inventories in a row. Tick thread only.
 kset::ConflictGate g_conflicts;
+// The re-checks run on its thread (coexist.h): the server step starts a look and applies it on a later step, it never
+// reads module files itself (a newly loaded DLL is read whole for SET's name). Tick thread only, but for on_unload.
+kset::LookWorker g_look;
+bool g_look_wanted = false;  // a re-check is due and no look has started for it yet (tick thread)
 bool g_external_runner = false;
 // Passive because the inventory could not be read, not because another runtime was seen: the gate keeps looking, and a
 // clean inventory makes the runner active again (its detour stays installed while passive, passing every slice on).
@@ -517,8 +521,20 @@ void KILN_CALL on_pre(const KilnTickInfo*, void*) {
     const bool reap = reap_due();
     if (reap) reap_system_hooks();
     std::string conflict;
-    if ((g_systems_ok || g_runner_unsure) && (g_modules.due() || g_conflicts.retry_due())) {
-        const kset::Inspection seen = kset::inspect_runtime();
+    std::optional<kset::Inspection> taken;
+    if (g_systems_ok || g_runner_unsure) {
+        if (g_modules.due() || g_conflicts.retry_due()) g_look_wanted = true;
+        if (g_look_wanted || g_look.finished()) {
+            // A finished look first; a load since it started keeps a look wanted, started on a later step.
+            taken = g_look.take();
+            if (!taken && g_look_wanted && !g_look.running()) {
+                g_look_wanted = false;
+                if (!g_look.start()) taken = kset::inspect_runtime();  // no thread for it: this look runs here, as before
+            }
+        }
+    }
+    if (taken) {
+        const kset::Inspection& seen = *taken;
         conflict = g_conflicts.judge(seen, GetTickCount64());
         if (g_runner_unsure) {  // already passive: only a clean look (back on) or a seen runtime (for good) changes that
             if (seen.state == kset::Inventory::clean) {
@@ -595,6 +611,7 @@ KilnResult KILN_CALL profile(bool on) {
 }
 void KILN_CALL on_unload(void*) {
     g_modules.disarm();
+    g_look.wait();  // no look may run in this service's code once it is unloaded
     release_system_hooks(0, true);
     profile(false);
     {

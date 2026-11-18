@@ -5,9 +5,11 @@ import { useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import * as nx from "../api/nexus";
 import { useNexusAccount } from "../shell/catalogInstall";
+import { useT } from "../i18n";
 import { Badge, Button, Card, Skeleton, Toggle, errorText, runTask, toast } from "../ui";
 
 export function NexusCard() {
+  const t = useT();
   const qc = useQueryClient();
   const account = useNexusAccount();
   const handler = useQuery({ queryKey: nx.nk.handler, queryFn: nx.nexusHandlerStatus, retry: false });
@@ -18,33 +20,37 @@ export function NexusCard() {
     qc.setQueryData(nx.nk.account, a);
     for (const k of [["nexus_search"], ["nexus_mod"], nx.nk.installed]) qc.invalidateQueries({ queryKey: k });
   };
-  const signIn = useMutation({ mutationFn: () => runTask<nx.NexusAccount>(nx.nexusSignIn, { failed: "Not signed in" }), onSuccess: (a) => { done(a); toast.ok("Signed in to Nexus Mods"); } });
-  const signOut = useMutation({ mutationFn: nx.nexusSignOut, onSuccess: (a) => { done(a); toast.ok("Signed out of Nexus Mods"); }, onError: (e) => toast.error(e) });
-  const setHandler = useMutation({ mutationFn: nx.nexusHandlerSet, onSuccess: (s) => qc.setQueryData(nx.nk.handler, s), onError: (e) => toast.error(e, "Not changed") });
+  const signIn = useMutation({ mutationFn: () => runTask<nx.NexusAccount>(nx.nexusSignIn, { failed: t("nexusSettings.notSignedInFailed") }), onSuccess: (a) => { done(a); toast.ok(t("nexusSettings.signedInToast")); } });
+  const signOut = useMutation({ mutationFn: nx.nexusSignOut, onSuccess: (a) => { done(a); toast.ok(t("nexusSettings.signedOutToast")); }, onError: (e) => toast.error(e) });
+  const setHandler = useMutation({ mutationFn: nx.nexusHandlerSet, onSuccess: (s) => qc.setQueryData(nx.nk.handler, s), onError: (e) => toast.error(e, t("nexusSettings.notChanged")) });
   const a = account.data;
   const h = handler.data;
   return (
-    <Card title="Nexus Mods" sub="Sign in through your browser.">
+    <Card title={t("nexusSettings.title")} sub={t("nexusSettings.sub")}>
       <span id="nexus" ref={anchor} />
       {account.isLoading ? <Skeleton lines={2} /> : account.error ? <span className="k-hint">{errorText(account.error)}</span> : a && (
         <div className="k-stack" style={{ gap: 10 }}>
           <span className="k-row" style={{ gap: 8, flexWrap: "wrap" }} data-testid="nexus-account">
             {a.signedIn ? <>
-              <span>{a.name ? `Signed in as ${a.name}` : "Signed in"}</span>
-              {!a.error && <Badge tone={a.premium ? "ember" : "idle"}>{a.premium ? "Premium" : "Free"}</Badge>}
-            </> : <span>Not signed in.</span>}
+              <span>{a.name ? t("nexusSettings.signedInAs", { name: a.name }) : t("nexusSettings.signedIn")}</span>
+              {!a.error && <Badge tone={a.premium ? "ember" : "idle"}>{a.premium ? t("nexusSettings.premium") : t("nexusSettings.free")}</Badge>}
+            </> : <span>{t("nexusSettings.notSignedIn")}</span>}
           </span>
           {a.error && <span className="k-hint">{a.error.message}</span>}
-          {!a.configured && <span className="k-hint">Nexus Mods sign-in is not available in this build.</span>}
+          {!a.configured && <span className="k-hint">{t("nexusSettings.notInBuild")}</span>}
           <span className="k-row" style={{ gap: 10 }}>
-            <Button variant="secondary" icon={<ExternalLink />} disabled={!a.configured || signOut.isPending} loading={signIn.isPending} onClick={() => signIn.mutate()}>{a.signedIn ? "Reconnect" : "Sign in to Nexus Mods"}</Button>
-            {(a.signedIn || signIn.isPending || a.error) && <Button size="s" variant="ghost" loading={signOut.isPending} onClick={() => signOut.mutate()}>Sign out</Button>}
+            <Button variant="secondary" icon={<ExternalLink />} disabled={!a.configured || signOut.isPending} loading={signIn.isPending} onClick={() => signIn.mutate()}>{a.signedIn ? t("nexusSettings.reconnect") : t("nexusSettings.signIn")}</Button>
+            {(a.signedIn || signIn.isPending || a.error) && <Button size="s" variant="ghost" loading={signOut.isPending} onClick={() => signOut.mutate()}>{t("nexusSettings.signOut")}</Button>}
           </span>
         </div>
       )}
       {h && (
-        <Toggle checked={h.registered} disabled={!h.supported || setHandler.isPending} onChange={(on) => setHandler.mutate(on)} label="Mod Manager Download links"
-          hint={!h.supported ? "Not available on this system." : `Enshrouded's links from Nexus Mods open in Kiln. ${h.previous ? `Other games' links go to ${h.previous}, which gets them all back when this is off.` : "Other games' links are left alone."}${h.registered && !h.active ? " Another program has taken the links since: turn this off and on again." : ""}`} />
+        <Toggle checked={h.registered} disabled={!h.supported || setHandler.isPending} onChange={(on) => setHandler.mutate(on)} label={t("nexusSettings.handler")}
+          hint={!h.supported ? t("nexusSettings.handlerUnsupported") : [
+            t("nexusSettings.handlerHint"),
+            h.previous ? t("nexusSettings.handlerPrevious", { program: h.previous }) : t("nexusSettings.handlerAlone"),
+            h.registered && !h.active ? t("nexusSettings.handlerTaken") : null,
+          ].filter(Boolean).join(" ")} />
       )}
     </Card>
   );

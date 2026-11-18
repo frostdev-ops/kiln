@@ -256,6 +256,7 @@ deploy() {
     fi
   fi
   install -m 644 "$repo/native/core/compat-rules.json" "$k/compat-rules.json"  # Kiln's shipped compat rules, as the bundle's core
+  rm -rf "$k/locales" && mkdir -p "$k/locales" && install -m 644 "$repo"/runtime/locales/*.json "$k/locales/"  # Kiln's in-game texts
   install -m 644 "$repo/sigdb/symbols/client.json" "$k/sigdb/client.json"
   python3 "$repo/tools/sigport/sides.py" compose client "$k/sigdb/client.d" >/dev/null
   rm -rf "$k/sigdb/builds/client" && mkdir -p "$k/sigdb/builds/client"

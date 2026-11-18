@@ -11,6 +11,9 @@ bash "$here/run-window-constraints.sh"
 # the overlay's image budget: the descriptor pool holds every image Kiln lets exist, uploads spread over frames (image_budget.h)
 g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined "$here/image_budget_test.cpp" -o "$out/image_budget_test"
 "$out/image_budget_test" "$here/../vk.cpp"
+# an image's opaque bounds (trimmed item icons), their UVs and fitting a source in a box (image_rect.h): plain logic
+g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined "$here/image_rect_test.cpp" -o "$out/image_rect_test"
+"$out/image_rect_test"
 g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined "$here/render_math_test.cpp" -o "$out/render_math_test"
 g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined "$here/wheel_math_test.cpp" -o "$out/wheel_math_test"
 "$out/wheel_math_test"
@@ -19,6 +22,9 @@ g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined "$here/overlay_
 "$out/overlay_guard_test"
 g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined "$here/overlay_mode_test.cpp" -o "$out/overlay_mode_test"
 "$out/overlay_mode_test"
+# imgui.ini read and written on its own thread, never on the present call (ini_file.h, inbox 50)
+g++ -std=c++20 -O1 -g -Wall -Wextra -pthread -fsanitize=thread "$here/ini_file_test.cpp" -o "$out/ini_file_test"
+"$out/ini_file_test"
 # which renderer call is the main menu's Settings entry (another module wrapping the game's call): plain logic
 g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined "$here/menu_site_test.cpp" -o "$out/menu_site_test"
 "$out/menu_site_test"
@@ -32,6 +38,16 @@ bash "$here/run-menu-scroll-host.sh"
 # the middle and side mouse buttons and the wheel as key presses: twins of raw records and messages, notches (mouse_press.h)
 g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined "$here/mouse_press_test.cpp" -o "$out/mouse_press_test"
 "$out/mouse_press_test"
+# Issue 44: scoped chat Up/Down and UI-thread queue must never steal gameplay or releases.
+g++ -std=c++20 -O1 -g -Wall -Wextra -pthread -fsanitize=address,undefined "$here/chat_keys_test.cpp" -o "$out/chat_keys_test"
+"$out/chat_keys_test"
+# Issue 44: history draft, commands-only persistence policy, sensitive text, UTF-8.
+g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined "$here/chat_history_test.cpp" -o "$out/chat_history_test"
+"$out/chat_history_test"
+# Issue 44: chat-history.json's format, and its writer thread (the UI thread never waits for the disk; chat_store.h)
+g++ -std=c++20 -O1 -g -Wall -Wextra -pthread -fsanitize=address,undefined -I"$here/../../../third_party" "$here/chat_store_test.cpp" \
+    -o "$out/chat_store_test"
+"$out/chat_store_test"
 # one key press counts once, also across a focus loss (key_hold.h, GitHub issue 39): plain logic
 g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined "$here/key_hold_test.cpp" -o "$out/key_hold_test"
 "$out/key_hold_test"
@@ -50,6 +66,13 @@ g++ -std=c++20 -O1 -g -Wall -Wextra -pthread -fsanitize=address,undefined \
 # Kiln's line in the main menu's footer: its text, its mark's place, when Kiln's copy runs (menu_footer.h)
 g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined "$here/menu_footer_test.cpp" -o "$out/menu_footer_test"
 "$out/menu_footer_test"
+# Kiln's own texts kiln.ui draws (ui_text.h): the handoff from Kiln.Ui, English fallback, plurals, placeholders, and the
+# built-in English against runtime/locales/en.json
+g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined -I"$here/../../../third_party" "$here/ui_text_test.cpp" -o "$out/ui_text_test"
+"$out/ui_text_test" "$here/../../../../runtime/locales/en.json"
+# which of the game's fonts gives the overlay a Chinese, Japanese or Korean language's glyphs (font_group.h), made-up data
+g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined "$here/font_group_test.cpp" -o "$out/font_group_test"
+"$out/font_group_test"
 # the footer function's copy keeps its meaning (code_clone.h, Zydis from safetyhook); also over the game's own footer
 # function when the client exe is installed (read only)
 safetyhook=$here/../../../third_party/safetyhook
@@ -73,5 +96,18 @@ g++ -std=c++20 -O1 -g -Wall -Wextra -pthread -fsanitize=address,undefined \
     -I"$here/stubs" -I"$here/../../../core/abi" -I"$imgui" \
     "$here/wheel_host_test.cpp" "${objs[@]}" -o "$out/wheel_host_test"
 "$out/wheel_host_test"
+# the looks: the game's colours through reflection, the player's look, themes, mod fonts (style.cpp, look_palette.h, font_budget.h)
+g++ -std=c++20 -O1 -g -Wall -Wextra -Wno-unused-function -pthread -fsanitize=address,undefined \
+    -I"$here/stubs" -I"$here/.." -I"$here/../../../core/abi" -I"$imgui" -I"$here/../../../third_party" \
+    "$here/style_host_test.cpp" "${objs[@]}" -o "$out/style_host_test"
+"$out/style_host_test"
+# the game's Chinese, Japanese and Korean fonts in the overlay's atlas (style.cpp, font_group.h): made-up resource, system TTF
+# (KILN_TEST_CJK_FONT=<an extracted CJK TTF/OTF, outside the tree> also checks a real CJK glyph)
+g++ -std=c++20 -O1 -g -Wall -Wextra -Wno-unused-function -pthread -fsanitize=address,undefined \
+    -I"$here/stubs" -I"$here/.." -I"$here/../../../core/abi" -I"$imgui" -I"$here/../../../third_party" \
+    "$here/group_host_test.cpp" "${objs[@]}" -o "$out/group_host_test"
+"$out/group_host_test"
 PYTHONDONTWRITEBYTECODE=1 python3 "$here/render_sigdb_test.py"
+# chat history's sigdb names are all gated by chat.ui.input; with the client exe installed, its layout resolves (read only)
+PYTHONDONTWRITEBYTECODE=1 python3 "$here/chat_sigdb_test.py"
 PYTHONDONTWRITEBYTECODE=1 python3 "$here/per_caller_test.py"

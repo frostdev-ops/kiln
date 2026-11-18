@@ -27,6 +27,7 @@ const exampleSchema = (name: string): string => {
   if (name === "native-state.json") return "native-state.schema.json";
   if (name.startsWith("native")) return "native.schema.json";
   if (name === "install-receipt.json") return "install-receipt.schema.json";
+  if (name === "kiln.publish.json") return "kiln-publish.schema.json"; // the project file kiln.publish.json, schema $id kiln-publish
   return name.replace(/\.json$/, ".schema.json");
 };
 

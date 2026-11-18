@@ -7,6 +7,7 @@ import * as api from "../api/commands";
 import type { GameId, LibraryEntry, LibraryVersion, ModKind, RollbackReport } from "../api/commands";
 import { qk } from "../api/hooks";
 import { toast } from "../ui";
+import { t } from "../i18n";
 
 /** The kept versions a mod can roll back to in the profile `profileId`: the ones that profile's change kept (another
  *  profile's are that profile's), never the one its entry uses (by version and hash: two builds can share a version),
@@ -39,8 +40,8 @@ export const liveVersions = (e: LibraryEntry) => e.versions.filter((v) => !v.kep
 /** The toast's second line after a roll back. */
 export function rollbackLine(r: RollbackReport): string | undefined {
   const parts: string[] = [];
-  if (r.settings.length) parts.push(`Its settings from before the update come back with it (${r.settings.length === 1 ? "1 file" : `${r.settings.length} files`}).`);
-  if (r.kept) parts.push(`${r.from.version} is kept: roll back again to return to it.`);
+  if (r.settings.length) parts.push(t("shell.rollback.settingsBack", { count: r.settings.length }));
+  if (r.kept) parts.push(t("shell.rollback.kept", { version: r.from.version }));
   parts.push(...r.notices);
   return parts.length ? parts.join(" ") : undefined;
 }
@@ -61,10 +62,10 @@ export async function rollBack(qc: QueryClient, gameId: GameId, profileId: strin
     if (!(await flush())) return false;
     const r = await api.libraryRollback(gameId, profileId, kind, id, { version: to.version, hash: to.hash });
     await refresh(qc, profileId);
-    toast.ok(`${r.name} is back on ${r.to.version}`, rollbackLine(r), { actions: [{ label: "Undo", onClick: () => void undo(qc, r) }] });
+    toast.ok(t("shell.rollback.backOn", { name: r.name, version: r.to.version }), rollbackLine(r), { actions: [{ label: t("common.undo"), onClick: () => void undo(qc, r) }] });
     return true;
   } catch (e) {
-    toast.error(e, `Could not roll back ${name}`);
+    toast.error(e, t("shell.rollback.failed", { name }));
     return false;
   }
 }
@@ -74,7 +75,7 @@ async function undo(qc: QueryClient, r: RollbackReport) {
     const p = await api.profileRevert(r.profileId, r.changes);
     await refresh(qc, r.profileId);
     const m = (p.mods[r.kind] ?? []).find((x) => x.id === r.id);
-    if (m && m.version === r.from.version && m.hash === r.from.hash) toast.ok(`${r.name} is on ${r.from.version} again`);
-    else toast.info("Undo kept later changes", `${r.name} was changed since the roll back.`);
-  } catch (e) { toast.error(e, "Undo failed"); }
+    if (m && m.version === r.from.version && m.hash === r.from.hash) toast.ok(t("shell.rollback.onAgain", { name: r.name, version: r.from.version }));
+    else toast.info(t("shell.drop.undoKept"), t("shell.rollback.changedSince", { name: r.name }));
+  } catch (e) { toast.error(e, t("shell.catalogInstall.undoFailed")); }
 }

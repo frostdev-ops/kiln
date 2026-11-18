@@ -40,6 +40,9 @@ internal static class GameTypes
         _log = log;
     }
 
+    /// <summary>The variant <see cref="Configure"/> set (null: unknown, or not configured).</summary>
+    public static string? ConfiguredVariant => _variant;
+
     /// <summary><c>&lt;side&gt;-&lt;sha12&gt;</c>, or null when the hash is not 64 hex digits.</summary>
     public static string? Variant(string side, string? exeSha256)
     {

@@ -6,6 +6,7 @@
 #include "services/kiln_caps.h"
 #include "ui.h"
 #include "overlay_guard_runtime.h"
+#include "overlay_guard_file.h"
 #include "overlay_wrappers.h"
 namespace kui {
 namespace {
@@ -54,17 +55,42 @@ std::string modules(bool& streamline) {
     streamline = found.streamline;
     return found.identity;
 }
+// One flush of the record queued at a time; a save after its start queues the next.
+std::atomic<bool> flush_queued{false};
+// On a pool thread: the record (path is set once, before the first save) forced to the disk. Shared for delete, so the
+// next save's rename over it never fails because of this handle.
+DWORD WINAPI flush_record(void*) {
+    flush_queued.store(false);
+    HANDLE h = CreateFileW(path.c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                           OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h != INVALID_HANDLE_VALUE) {
+        FlushFileBuffers(h);
+        CloseHandle(h);
+    }
+    return 0;
+}
+// The record's file operations (overlay_guard_file.h): nothing is forced to the disk on the caller's thread, the
+// game's present call for most stages.
+struct GuardFs {
+    bool write_new(const std::wstring& file, std::string_view text) {
+        HANDLE h = CreateFileW(file.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (h == INVALID_HANDLE_VALUE) return false;
+        DWORD n = 0;
+        const bool ok = WriteFile(h, text.data(), DWORD(text.size()), &n, nullptr) && n == text.size();
+        CloseHandle(h);
+        return ok;
+    }
+    bool replace(const std::wstring& from, const std::wstring& to) {
+        return MoveFileExW(from.c_str(), to.c_str(), MOVEFILE_REPLACE_EXISTING) != 0;
+    }
+    void flush_later(const std::wstring&) {
+        if (flush_queued.exchange(true)) return;
+        if (!QueueUserWorkItem(&flush_record, nullptr, WT_EXECUTEDEFAULT)) flush_queued.store(false);
+    }
+};
 void save() {
-    if (path.empty()) return;
-    const auto text = overlay_guard::encode(record);
-    const auto temp = path + L".tmp";
-    HANDLE h = CreateFileW(temp.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_FLAG_WRITE_THROUGH, nullptr);
-    if (h == INVALID_HANDLE_VALUE) { error(); return; }
-    DWORD n = 0;
-    bool ok = WriteFile(h, text.data(), DWORD(text.size()), &n, nullptr) && n == text.size() && FlushFileBuffers(h);
-    CloseHandle(h);
-    if (ok) ok = MoveFileExW(temp.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
-    if (!ok) error();
+    GuardFs fs;
+    if (!overlay_guard::write_record(fs, path, overlay_guard::encode(record))) error();
 }
 // A guarded start earns the next attempt by RUNNING, not by exiting cleanly: whether a client's normal quit reaches the
 // process's exit call with code 0 is not confirmed (kiln_api.h, on_unload), so a rule that waits for a clean exit

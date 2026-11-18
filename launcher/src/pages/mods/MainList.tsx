@@ -19,18 +19,19 @@ import { RecentAddsButton } from "../../shell/importResult";
 import { ConfigEditor } from "../../components/ConfigEditor";
 import { cookAgain } from "../../shell/cook";
 import { useAddMods } from "../../shell/drop";
-import { takeOver, USE_CHANGED } from "../../shell/libraryChanged";
-import { MOD_FILE_FILTERS, MOD_FILE_WORDS } from "../../shell/modFiles";
+import { changedFilesLabel, takeOver } from "../../shell/libraryChanged";
+import { MOD_FILE_FILTERS, modFileWords } from "../../shell/modFiles";
 import { bulkPlan, filterRows, kindsOf, type ModRow } from "../../shell/mods";
 import { notifyAdd } from "../../shell/notices";
 import { checkNow, noticeable, statusOf, UpdateBadge, UpdateSourceModal, useModUpdates } from "../../shell/modUpdates";
-import { NOT_REMOVABLE, removable, removeMany, removeMod, useRemoveCheck, useRemoveMany, withoutRows, type RemoveTarget } from "../../shell/removeMod";
+import { notRemovableText, removable, removeMany, removeMod, useRemoveCheck, useRemoveMany, withoutRows, type RemoveTarget } from "../../shell/removeMod";
 import { canReplaceDll, replacementLabel } from "../../shell/replaceDll";
 import { otherVersions, rollBack, rollbackTargets } from "../../shell/rollback";
 import { NONE, all as selectAll, ownerOf, pick as pickSelected, pruneSelection, range as selectRange, setSelection, toggle as toggleSelected, useOwnedSelection } from "../../shell/selection";
 import type { useMods } from "../../shell/useMods";
 import { withDropin } from "../profiles/dropins";
 import { Badge, Button, ConfirmDanger, FlameToggle, Menu, Modal, Select, WellInput, pickPaths, runTask, toast, type MenuItem } from "../../ui";
+import { useT } from "../../i18n";
 
 /** More rows than this: the filter shows. */
 const FILTER_FROM = 6;
@@ -43,6 +44,7 @@ const BULK_UNDO_MS = 20_000;
 let liveList: { mods: Mods } | null = null;
 
 export function MainList({ game, mods, running }: { game: GameInstall; mods: Mods; running: boolean }) {
+  const t = useT();
   const qc = useQueryClient();
   const nexus = useNexusEnabled();
   const addMods = useAddMods();
@@ -67,7 +69,7 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
   const replaceDll = async (r: ModRow) => {
     if (!pid || !r.kind || !r.entry) return;
     try {
-      const paths = await pickPaths({ multiple: false, filters: [{ name: "Windows DLL", extensions: ["dll"] }], title: "Replace DLL" });
+      const paths = await pickPaths({ multiple: false, filters: [{ name: t("mods.list.windowsDll"), extensions: ["dll"] }], title: t("mods.list.replaceDllTitle") });
       if (!paths?.length || !(await mods.edit.flush())) return;
       const entry = { kind: r.kind, id: r.id, version: r.entry.version, hash: r.entry.hash };
       const run = async (confirmed: boolean) => {
@@ -76,15 +78,15 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
           const result = await api.libraryReplaceDll(pid, entry, paths[0], confirmed);
           await Promise.all([qc.invalidateQueries({ queryKey: ["library_list"] }), qc.invalidateQueries({ queryKey: qk.profile(pid) }),
             qc.invalidateQueries({ queryKey: ["profile_resolve"] }), qc.invalidateQueries({ queryKey: ["found_scan"] })]);
-          toast.ok(`Replaced DLL of ${r.name}`, result.notices.join(" ") || undefined);
+          toast.ok(t("mods.list.replacedDll", { name: r.name }), result.notices.join(" ") || undefined);
         } catch (e) {
           const err = e as { message?: string; detail?: { replaceDllConfirmation?: boolean } };
-          if (!confirmed && err.detail?.replaceDllConfirmation) setReplaceConfirm({ message: err.message ?? "Confirm replacement?", run: () => run(true) });
-          else toast.error(e, `Could not replace DLL of ${r.name}`);
+          if (!confirmed && err.detail?.replaceDllConfirmation) setReplaceConfirm({ message: err.message ?? t("mods.list.confirmReplacement"), run: () => run(true) });
+          else toast.error(e, t("mods.list.replaceDllFailed", { name: r.name }));
         } finally { setBusy(null); }
       };
       await run(false);
-    } catch (e) { toast.error(e, "Could not open DLL"); }
+    } catch (e) { toast.error(e, t("mods.list.openDllFailed")); }
   };
   const cfg = useQuery({ queryKey: qk.configs({ profile: pid ?? "" }), queryFn: () => api.configList({ profile: pid! }), enabled: !!pid });
   const withConfig = new Set((cfg.data ?? []).map((f) => f.mod).filter(Boolean) as string[]);
@@ -104,10 +106,15 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
   const planOff = bulkPlan(shown, false);
   const bulkTitle = (on: boolean) => {
     const p = on ? planOn : planOff;
-    if (!loaded) return "Load a profile in Settings to switch mods";
+    if (!loaded) return t("mods.list.loadProfileFirst");
     const n = p.change.length;
-    const what = n ? `Switches ${on ? "on" : "off"} ${n} mod${n === 1 ? "" : "s"} of the ${shown.length}${filtered ? " the filter shows" : " in the list"}` : `Every mod ${filtered ? "the filter shows" : "in the list"} is ${on ? "on" : "off"} already`;
-    return p.left.length ? `${what}. ${p.left.length} can't be switched: ${[...new Set(p.left.map((l) => l.why))].join("; ")}.` : `${what}.`;
+    const total = shown.length;
+    const what = n
+      ? on ? (filtered ? t("mods.list.bulkOnFiltered", { count: n, total }) : t("mods.list.bulkOnAll", { count: n, total }))
+        : (filtered ? t("mods.list.bulkOffFiltered", { count: n, total }) : t("mods.list.bulkOffAll", { count: n, total }))
+      : on ? (filtered ? t("mods.list.everyOnFiltered") : t("mods.list.everyOnAll"))
+        : (filtered ? t("mods.list.everyOffFiltered") : t("mods.list.everyOffAll"));
+    return p.left.length ? `${what} ${t("mods.list.cantSwitch", { count: p.left.length, why: [...new Set(p.left.map((l) => l.why))].join("; ") })}` : what;
   };
   // the toast's Undo runs on the list as it is when pressed (its profile, its save queue), never on this render's copy
   const here = useRef({ mods });
@@ -123,11 +130,11 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
     if (!r?.undo) return;
     const { plan, undo } = r;
     const n = plan.change.length;
-    const left = plan.left.length ? `${plan.left.length} left out: ${[...new Set(plan.left.map((l) => l.why))].join("; ")}.` : undefined;
-    toast.ok(`Switched ${n} mod${n === 1 ? "" : "s"} ${on ? "on" : "off"}`, left, { actions: [{ label: "Undo", onClick: async () => {
-      const res = liveList ? await liveList.mods.undoAll(undo) : { ok: false as const, why: "the mods list is not open" };
-      if (!res.ok) toast.info("Can't undo that", `${res.why[0].toUpperCase()}${res.why.slice(1)}. Switch the mods in the list instead.`);
-      else if (res.kept) toast.info("Undo kept later changes", `${res.kept} mod${res.kept === 1 ? " was" : "s were"} switched since.`);
+    const left = plan.left.length ? t("mods.list.leftOut", { count: plan.left.length, why: [...new Set(plan.left.map((l) => l.why))].join("; ") }) : undefined;
+    toast.ok(on ? t("mods.list.switchedOn", { count: n }) : t("mods.list.switchedOff", { count: n }), left, { actions: [{ label: t("common.undo"), onClick: async () => {
+      const res = liveList ? await liveList.mods.undoAll(undo) : { ok: false as const, why: t("mods.list.listNotOpen") };
+      if (!res.ok) toast.info(t("mods.list.cantUndo"), t("mods.list.cantUndoDetail", { why: `${res.why[0].toUpperCase()}${res.why.slice(1)}` }));
+      else if (res.kept) toast.info(t("mods.list.undoKept"), t("mods.list.undoKeptDetail", { count: res.kept }));
     } }], ms: BULK_UNDO_MS });
   };
   const setAll = (on: boolean) => switchRows(shown, on);
@@ -151,9 +158,9 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
   // do not handle goes on untouched
   const listEl = useRef<HTMLUListElement>(null);
   const keys = (e: KeyboardEvent) => {
-    const t = e.target as HTMLElement;
-    if (!listEl.current?.contains(t) || t.closest('[role="menu"], [role="dialog"]')) return;
-    if (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable) return;
+    const el = e.target as HTMLElement;
+    if (!listEl.current?.contains(el) || el.closest('[role="menu"], [role="dialog"]')) return;
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable) return;
     if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === "a" || e.key === "A") && order.length) { e.preventDefault(); setSelection(game.id, owner, selectAll(order)); }
     else if (e.key === "Escape" && !e.ctrlKey && !e.metaKey && !e.altKey && selecting) { e.preventDefault(); clearSel(); }
   };
@@ -169,19 +176,21 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
     setSettings(null); setConfigs(null); setRm(null); setRemoving(null);
     setSource(null); setReplaceConfirm(null);
   }, [game.id, pid]);
-  const skipLine = (p: ReturnType<typeof bulkPlan>) => (p.left.length ? ` ${p.left.length} skipped: ${[...new Set(p.left.map((l) => l.why))].join("; ")}.` : "");
+  const skipLine = (p: ReturnType<typeof bulkPlan>) => (p.left.length ? ` ${t("mods.list.skipped", { count: p.left.length, why: [...new Set(p.left.map((l) => l.why))].join("; ") })}` : "");
   const selTitle = (on: boolean) => {
     const p = on ? selOn : selOff;
-    if (!loaded) return "Load a profile in Settings to switch mods";
-    return `${p.change.length ? `Switches ${on ? "on" : "off"} ${p.change.length} of the ${picked.length} selected.` : `Every selected mod that has a switch is ${on ? "on" : "off"} already.`}${skipLine(p)}`;
+    if (!loaded) return t("mods.list.loadProfileFirst");
+    const n = p.change.length;
+    const total = picked.length;
+    return `${n ? (on ? t("mods.list.selOn", { count: n, total }) : t("mods.list.selOff", { count: n, total })) : (on ? t("mods.list.selEveryOn") : t("mods.list.selEveryOff"))}${skipLine(p)}`;
   };
-  const removeTitle = running ? "Close the game first" : `Removes ${toRemove.length} of the ${picked.length} selected.${skipRemove ? ` ${skipRemove} skipped: ${NOT_REMOVABLE}.` : ""}`;
+  const removeTitle = running ? t("mods.list.closeGameFirst") : `${t("mods.list.selRemove", { count: toRemove.length, total: picked.length })}${skipRemove ? ` ${t("mods.list.skipped", { count: skipRemove, why: notRemovableText() })}` : ""}`;
 
   const pick = async () => {
     try {
-      const paths = await pickPaths({ multiple: true, filters: MOD_FILE_FILTERS, title: "Add mods" });
+      const paths = await pickPaths({ multiple: true, filters: MOD_FILE_FILTERS, title: t("mods.list.addMods") });
       if (paths?.length) await addMods(paths, game);
-    } catch (e) { toast.error(e, "Could not open files"); }
+    } catch (e) { toast.error(e, t("mods.list.openFilesFailed")); }
   };
 
   const fixFound = async (r: ModRow) => {
@@ -194,10 +203,10 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
       const rep = await runTask<AddReport>(() => api.foundAdd(game.id, pid, f.path), { quiet: true });
       const skipped = rep.import.skipped[0];
       notifyAdd(rep);
-      if (!rep.added.length && !rep.already.length && skipped) toast.error({ code: "refused", message: skipped.reason }, `The Library did not take ${f.name}`);
-      else toast.ok(`${f.name} is on`, rep.applied ? "Written to the game." : undefined);
+      if (!rep.added.length && !rep.already.length && skipped) toast.error({ code: "refused", message: skipped.reason }, t("mods.list.libraryRefused", { name: f.name }));
+      else toast.ok(t("mods.list.isOn", { name: f.name }), rep.applied ? t("mods.list.writtenToGame") : undefined);
     } catch (e) {
-      toast.error(e, `Could not add ${f.name}`);
+      toast.error(e, t("mods.list.addFailed", { name: f.name }));
     } finally {
       setBusy(null);
       void qc.invalidateQueries({ queryKey: ["found_scan"] });
@@ -217,31 +226,31 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
     if (r.found) {
       const f = r.found;
       return [
-        ...(f.fix === "dropins" && f.kind ? [{ label: `Load the game-folder ${KIND_SHORT[f.kind]} mods`, onSelect: () => void fixFound(r) }] : []),
-        ...(f.fix === "add" ? [{ label: "Add to my mods", onSelect: () => void fixFound(r) }] : []),
-        { label: "Open folder", onSelect: () => api.appOpenPath(`${game.path}/${f.path}`).catch((e) => toast.error(e)) },
+        ...(f.fix === "dropins" && f.kind ? [{ label: t("mods.list.loadDropins", { kind: KIND_SHORT[f.kind] }), onSelect: () => void fixFound(r) }] : []),
+        ...(f.fix === "add" ? [{ label: t("mods.list.addToMyMods"), onSelect: () => void fixFound(r) }] : []),
+        { label: t("mods.list.openFolder"), onSelect: () => api.appOpenPath(f.path, game.path).catch((e) => toast.error(e)) },
       ];
     }
     const versions = r.lib?.versions ?? [];
     const cur = r.entry?.version ?? versions[0]?.version;
-    const sw: MenuItem[] = loaded && (r.entry || r.lib) ? [{ label: r.on ? "Switch off" : "Switch on", onSelect: () => mods.toggle(r, !r.on) }] : [];
+    const sw: MenuItem[] = loaded && (r.entry || r.lib) ? [{ label: r.on ? t("mods.list.switchOff") : t("mods.list.switchOn"), onSelect: () => mods.toggle(r, !r.on) }] : [];
     const folder = versions.find((v) => v.version === cur)?.folder ?? versions[0]?.folder;
     return [
-      ...(r.changed ? [{ label: USE_CHANGED, disabled: running || !!busy, onSelect: () => void takeChanged(r) }] : []),
+      ...(r.changed ? [{ label: changedFilesLabel(), disabled: running || !!busy, onSelect: () => void takeChanged(r) }] : []),
       ...sw,
-      ...(canReplaceDll(r.kind, !!r.lib, !!r.entry && !!pid) ? [{ label: "Replace DLL…", disabled: !!busy || !api.isTauri(), onSelect: () => void replaceDll(r) }] : []),
-      ...(r.kind && r.entry && SETTINGS_KINDS.includes(r.kind) ? [{ label: "Settings", onSelect: () => setSettings({ kind: r.kind!, id: r.id, name: r.name }) }] : []),
-      ...(withConfig.has(r.id) ? [{ label: "Configs", onSelect: () => setConfigs(r.id) }] : []),
-      ...(r.kind === "kiln" && r.on && cookable.has(r.id) ? [{ label: "Cook again", disabled: running,
+      ...(canReplaceDll(r.kind, !!r.lib, !!r.entry && !!pid) ? [{ label: t("mods.list.replaceDllMenu"), disabled: !!busy || !api.isTauri(), onSelect: () => void replaceDll(r) }] : []),
+      ...(r.kind && r.entry && SETTINGS_KINDS.includes(r.kind) ? [{ label: t("mods.list.settings"), onSelect: () => setSettings({ kind: r.kind!, id: r.id, name: r.name }) }] : []),
+      ...(withConfig.has(r.id) ? [{ label: t("mods.list.configs"), onSelect: () => setConfigs(r.id) }] : []),
+      ...(r.kind === "kiln" && r.on && cookable.has(r.id) ? [{ label: t("mods.list.cookAgain"), disabled: running,
         onSelect: () => void cookAgain(game.id, r.id, r.name).then(() => qc.invalidateQueries({ queryKey: ["cook_plan"] })) }] : []),
-      ...otherVersions(r.lib, cur).map((v) => ({ label: `Use ${v.version}`, disabled: !loaded, onSelect: () => mods.setVersion(r, v.version, v.hash) })),
+      ...otherVersions(r.lib, cur).map((v) => ({ label: t("mods.list.useVersion", { version: v.version }), disabled: !loaded, onSelect: () => mods.setVersion(r, v.version, v.hash) })),
       // an earlier version an update kept, with its settings (shell/rollback.ts)
-      ...(r.kind && r.entry && pid ? rollbackTargets(r.lib, r.entry, pid).map((v) => ({ label: `Roll back to ${v.version}${v.version === r.entry!.version ? " (earlier build)" : ""}`, disabled: !!busy,
+      ...(r.kind && r.entry && pid ? rollbackTargets(r.lib, r.entry, pid).map((v) => ({ label: v.version === r.entry!.version ? t("mods.list.rollBackEarlier", { version: v.version }) : t("mods.list.rollBack", { version: v.version }), disabled: !!busy,
         onSelect: () => void rollBack(qc, game.id, pid, r.kind!, r.id, r.name, v, mods.edit.flush) })) : []),
-      ...(folder ? [{ label: "Open folder", onSelect: () => api.appOpenPath(folder).catch((e) => toast.error(e)) }] : []),
-      ...(r.kind && r.lib ? [{ label: "Updates…", onSelect: () => setSource({ kind: r.kind!, id: r.id, name: r.name }) }] : []),
-      ...(versions.length > 1 ? versions.filter((v) => v.version !== r.entry?.version).map((v) => ({ label: `Remove ${v.version}`, danger: true, disabled: running, onSelect: () => setRm({ row: r, version: v.version }) })) : []),
-      { label: "Remove", danger: true, disabled: running, onSelect: () => setRm({ row: r, version: null }) },
+      ...(folder ? [{ label: t("mods.list.openFolder"), onSelect: () => api.appOpenPath(folder).catch((e) => toast.error(e)) }] : []),
+      ...(r.kind && r.lib ? [{ label: t("mods.list.updates"), onSelect: () => setSource({ kind: r.kind!, id: r.id, name: r.name }) }] : []),
+      ...(versions.length > 1 ? versions.filter((v) => v.version !== r.entry?.version).map((v) => ({ label: t("mods.list.removeVersion", { version: v.version }), danger: true, disabled: running, onSelect: () => setRm({ row: r, version: v.version }) })) : []),
+      { label: t("common.remove"), danger: true, disabled: running, onSelect: () => setRm({ row: r, version: null }) },
     ];
   };
 
@@ -253,118 +262,118 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
       <div className="k-mods-bar">
         {many && (
           <>
-            <WellInput label="Filter" compact value={text} onChange={(e) => setText(e.target.value)} onClear={() => setText("")} wellStyle={{ flex: "1 1 130px", maxWidth: 250 }}
+            <WellInput label={t("mods.list.filter")} compact value={text} onChange={(e) => setText(e.target.value)} onClear={() => setText("")} wellStyle={{ flex: "1 1 130px", maxWidth: 250 }}
               note={text || kind ? `${shown.length}/${mods.rows.length}` : undefined} />
             {kinds.length > 1 && (
-              <Select aria-label="Kind" className="k-mods-kind" value={kind} onChange={(v) => setKind(v as ModKind | "")}
-                options={[{ value: "", label: "Every kind" }, ...kinds.map((k) => ({ value: k, label: KIND_SHORT[k] }))]} />
+              <Select aria-label={t("mods.list.kind")} className="k-mods-kind" value={kind} onChange={(v) => setKind(v as ModKind | "")}
+                options={[{ value: "", label: t("mods.list.everyKind") }, ...kinds.map((k) => ({ value: k, label: KIND_SHORT[k] }))]} />
             )}
           </>
         )}
         {mods.rows.length > 0 && !mods.error && (
           <>
             <button type="button" className="k-link" disabled={!loaded || !planOn.change.length} title={bulkTitle(true)} onClick={() => setAll(true)}>
-              {filtered ? "Shown" : "All"} on ({planOn.change.length})
+              {filtered ? t("mods.list.shownOn", { count: planOn.change.length }) : t("mods.list.allOn", { count: planOn.change.length })}
             </button>
             <button type="button" className="k-link" disabled={!loaded || !planOff.change.length} title={bulkTitle(false)} onClick={() => setAll(false)}>
-              {filtered ? "Shown" : "All"} off ({planOff.change.length})
+              {filtered ? t("mods.list.shownOff", { count: planOff.change.length }) : t("mods.list.allOff", { count: planOff.change.length })}
             </button>
           </>
         )}
         <span className="k-spacer" />
-        {mods.rows.length > 0 && <button type="button" className="k-link" disabled={checking} title="Looks for newer versions of your mods. A notice and a link: nothing is downloaded or installed."
-          onClick={() => { setChecking(true); void checkNow(qc).finally(() => setChecking(false)); }}>{checking ? "Checking…" : "Check for updates"}</button>}
+        {mods.rows.length > 0 && <button type="button" className="k-link" disabled={checking} title={t("mods.list.checkUpdatesHint")}
+          onClick={() => { setChecking(true); void checkNow(qc).finally(() => setChecking(false)); }}>{checking ? t("mods.list.checking") : t("mods.list.checkUpdates")}</button>}
         <FolderNotesButton gameId={game.id} />
         <RecentAddsButton />
-        <Link className="k-link" to="/mods/order">Load order</Link>
-        <Link className="k-link" to="/mods/engines">Engines</Link>
-        {nexus && <Link className="k-link" to="/catalog">Catalog</Link>}
-        <button type="button" className="k-link" disabled={!api.isTauri()} title={api.isTauri() ? "A zip, 7z, rar or DLL of any kind (a folder: drop it on the window)" : "Needs the desktop app: drop a file instead"} onClick={() => void pick()}>Add mods</button>
+        <Link className="k-link" to="/mods/order">{t("mods.tabs.order")}</Link>
+        <Link className="k-link" to="/mods/engines">{t("mods.tabs.engines")}</Link>
+        {nexus && <Link className="k-link" to="/catalog">{t("mods.list.catalog")}</Link>}
+        <button type="button" className="k-link" disabled={!api.isTauri()} title={api.isTauri() ? t("mods.list.addModsHint") : t("mods.list.needsDesktop")} onClick={() => void pick()}>{t("mods.list.addMods")}</button>
       </div>
-      <Modal open={!!replaceConfirm} title="Replace DLL?" onClose={() => setReplaceConfirm(null)}
-        footer={<><Button variant="ghost" onClick={() => setReplaceConfirm(null)}>Cancel</Button><Button onClick={() => {
+      <Modal open={!!replaceConfirm} title={t("mods.list.replaceDllConfirm")} onClose={() => setReplaceConfirm(null)}
+        footer={<><Button variant="ghost" onClick={() => setReplaceConfirm(null)}>{t("common.cancel")}</Button><Button onClick={() => {
           const pending = replaceConfirm; setReplaceConfirm(null); void pending?.run();
-        }}>Replace DLL</Button></>}><p>{replaceConfirm?.message}</p></Modal>
+        }}>{t("mods.list.replaceDllTitle")}</Button></>}><p>{replaceConfirm?.message}</p></Modal>
       {selecting && (
-        <div className="k-mods-selbar" role="toolbar" aria-label="Selected mods">
-          <span className="k-mods-selbar-count" aria-live="polite">{picked.length} selected</span>
-          <button type="button" className="k-link" disabled={!loaded || !selOn.change.length} title={selTitle(true)} onClick={() => switchRows(picked, true)}>Switch on</button>
-          <button type="button" className="k-link" disabled={!loaded || !selOff.change.length} title={selTitle(false)} onClick={() => switchRows(picked, false)}>Switch off</button>
-          <button type="button" className="k-link k-tone-err" disabled={running || !toRemove.length} title={removeTitle} onClick={() => setRemoving(toRemove)}>Remove…</button>
-          <button type="button" className="k-link" onClick={clearSel} title="Esc">Clear</button>
+        <div className="k-mods-selbar" role="toolbar" aria-label={t("mods.list.selectedMods")}>
+          <span className="k-mods-selbar-count" aria-live="polite">{t("mods.list.selectedCount", { count: picked.length })}</span>
+          <button type="button" className="k-link" disabled={!loaded || !selOn.change.length} title={selTitle(true)} onClick={() => switchRows(picked, true)}>{t("mods.list.switchOn")}</button>
+          <button type="button" className="k-link" disabled={!loaded || !selOff.change.length} title={selTitle(false)} onClick={() => switchRows(picked, false)}>{t("mods.list.switchOff")}</button>
+          <button type="button" className="k-link k-tone-err" disabled={running || !toRemove.length} title={removeTitle} onClick={() => setRemoving(toRemove)}>{t("mods.list.removeMenu")}</button>
+          <button type="button" className="k-link" onClick={clearSel} title="Esc">{t("mods.list.clear")}</button>
           {selNote && <span className="k-hint">{selNote}</span>}
         </div>
       )}
       {mods.error ? (
         <div className="k-mods-empty" role="alert">
-          <p>Your mods are not readable.</p>
-          <p className="k-hint">Nothing was changed: Play still starts the game with the mods that were on. The reason is above.</p>
+          <p>{t("mods.list.notReadable")}</p>
+          <p className="k-hint">{t("mods.list.notReadableHint")}</p>
         </div>
       ) : !mods.rows.length ? (
         <div className="k-mods-empty">
-          <p>Add your first mod</p>
-          <p className="k-hint">Drop its {MOD_FILE_WORDS} anywhere on this window: Kiln, native, EMF, EML, ShroudForge, SET and the other loaders' mods all go here.{nexus ? " Or find one in the Catalog." : ""} It is on at the next Play.</p>
+          <p>{t("mods.list.firstMod")}</p>
+          <p className="k-hint">{nexus ? t("mods.list.firstModHintCatalog", { files: modFileWords() }) : t("mods.list.firstModHint", { files: modFileWords() })}</p>
         </div>
       ) : (
-        <ul ref={listEl} className="k-mods-list" aria-label="Mods">
+        <ul ref={listEl} className="k-mods-list" aria-label={t("mods.list.mods")}>
           {shown.map((r, i) => (
             <li key={r.key} className={"k-mod" + (r.on ? " on" : "") + (r.found ? " found" : "") + (i === foundStart && i > 0 ? " first-found" : "") + (sel.keys.includes(r.key) ? " picked" : "")} data-kind={r.kind ?? undefined}>
-              <button type="button" role="checkbox" className="k-mod-check" aria-checked={sel.keys.includes(r.key)} aria-label={`Select ${r.name}`}
-                title="Select (Shift+click: a range, Ctrl+A: every mod shown, Esc: none)"
+              <button type="button" role="checkbox" className="k-mod-check" aria-checked={sel.keys.includes(r.key)} aria-label={t("mods.list.select", { name: r.name })}
+                title={t("mods.list.selectHint")}
                 onClick={(e) => choose(r.key, e.shiftKey)}
                 onKeyDown={(e) => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); choose(r.key, e.shiftKey); } }}>
                 {sel.keys.includes(r.key) && <Check aria-hidden strokeWidth={3} />}
               </button>
-              {r.found ? <span className="k-mod-place" aria-hidden title="In the game folder" /> : (
-                <FlameToggle asSwitch on={r.on} label={r.name} disabled={!loaded} title={loaded ? undefined : "Load a profile in Settings to switch mods"} onChange={(on) => mods.toggle(r, on)} />
+              {r.found ? <span className="k-mod-place" aria-hidden title={t("mods.list.inGameFolder")} /> : (
+                <FlameToggle asSwitch on={r.on} label={r.name} disabled={!loaded} title={loaded ? undefined : t("mods.list.loadProfileFirst")} onChange={(on) => mods.toggle(r, on)} />
               )}
               <span className="k-mod-text">
-                <span className="k-mod-name" title={r.name !== r.id ? `${r.name} (${r.id})` : r.name}>{r.name}</span>
+                <span className="k-mod-name" title={r.name !== r.id ? t("mods.list.nameWithId", { name: r.name, id: r.id }) : r.name}>{r.name}</span>
                 {(r.found || r.note || (r.lib && noticeable(statusOf(updates.data, r.kind, r.id)))) && (
                   <span className="k-mod-note">
                     {r.lib && <UpdateBadge status={statusOf(updates.data, r.kind, r.id)} />}
-                    {r.found && <span className="k-mod-where">Game folder</span>}
+                    {r.found && <span className="k-mod-where">{t("mods.order.gameFolder")}</span>}
                     {r.note && <span className={`k-tone-${r.note.tone}`} title={r.note.title}>{r.note.text}</span>}
                     {r.changed && (
                       <button type="button" className="k-link" disabled={!!busy || running} onClick={() => void takeChanged(r)}
-                        aria-label={`${USE_CHANGED} of ${r.name}`} title="Kiln takes the files in its folder over as the mod's files, with the name and info they give now">
-                        {busy === r.key ? "Taking over…" : USE_CHANGED}
+                        aria-label={t("mods.list.useChangedOf", { action: changedFilesLabel(), name: r.name })} title={t("mods.list.useChangedHint")}>
+                        {busy === r.key ? t("mods.list.takingOver") : changedFilesLabel()}
                       </button>
                     )}
                     {r.found?.fix && (
                       <button type="button" className="k-link" disabled={!!busy || !loaded} onClick={() => void fixFound(r)}
-                        aria-label={r.found.fix === "dropins" && r.found.kind ? `Load the game-folder ${KIND_SHORT[r.found.kind]} mods` : `Add ${r.name} to my mods`}
-                        title={r.found.fix === "dropins" && r.found.kind ? `Load every ${KIND_SHORT[r.found.kind]} mod in the game folder` : "Copy it into the library and switch it on"}>
-                        {busy === r.key ? "Adding…" : r.found.fix === "dropins" ? "Load them" : "Add it"}
+                        aria-label={r.found.fix === "dropins" && r.found.kind ? t("mods.list.loadDropins", { kind: KIND_SHORT[r.found.kind] }) : t("mods.list.addNamed", { name: r.name })}
+                        title={r.found.fix === "dropins" && r.found.kind ? t("mods.list.loadDropinsHint", { kind: KIND_SHORT[r.found.kind] }) : t("mods.list.addHint")}>
+                        {busy === r.key ? t("mods.list.adding") : r.found.fix === "dropins" ? t("mods.list.loadThem") : t("mods.list.addIt")}
                       </button>
                     )}
                   </span>
                 )}
               </span>
               <span className="k-mod-kind">{r.kind && <Badge tone={KIND_TONE[r.kind]} title={KIND_NAME[r.kind]}>{KIND_SHORT[r.kind]}</Badge>}</span>
-              <span className="k-mono k-mod-ver" title={(r.lib?.versions.length ?? 0) > 1 ? `${r.lib!.versions.length} versions in the library` : r.version ?? undefined}>{r.version ?? ""}{replacedNote(r)}</span>
-              <Menu key={pid} label={`More for ${r.name}`} icon={<MoreHorizontal />} size="s" items={menu(r)} />
+              <span className="k-mono k-mod-ver" title={(r.lib?.versions.length ?? 0) > 1 ? t("mods.list.versionsInLibrary", { count: r.lib!.versions.length }) : r.version ?? undefined}>{r.version ?? ""}{replacedNote(r)}</span>
+              <Menu key={pid} label={t("mods.list.moreFor", { name: r.name })} icon={<MoreHorizontal />} size="s" items={menu(r)} />
             </li>
           ))}
-          {!shown.length && <li className="k-mods-none">No mod matches that.</li>}
+          {!shown.length && <li className="k-mods-none">{t("mods.list.noMatch")}</li>}
         </ul>
       )}
       <UpdateSourceModal target={source} onClose={() => setSource(null)} />
       <EngineSettingsModal target={settings} onClose={() => setSettings(null)} profileId={pid ?? ""} gameId={game.id} />
-      <Modal open={!!configs} onClose={() => setConfigs(null)} title="Configs" width={960} footer={<Button onClick={() => setConfigs(null)}>Done</Button>}>
+      <Modal open={!!configs} onClose={() => setConfigs(null)} title={t("mods.list.configs")} width={960} footer={<Button onClick={() => setConfigs(null)}>{t("common.done")}</Button>}>
         {configs && pid && <ConfigEditor target={{ profile: pid }} initial={configs} />}
       </Modal>
-      <ConfirmDanger open={!!removing} onClose={() => setRemoving(null)} relaxable word={String(removing?.length ?? 0)} action={`Remove ${removing?.length ?? 0}`}
-        title={removing ? `Remove ${removing.length} mod${removing.length === 1 ? "" : "s"}?` : ""} disabled={!check2.ready || running}
+      <ConfirmDanger open={!!removing} onClose={() => setRemoving(null)} relaxable word={String(removing?.length ?? 0)} action={t("mods.list.removeCount", { count: removing?.length ?? 0 })}
+        title={removing ? t("mods.list.removeManyTitle", { count: removing.length }) : ""} disabled={!check2.ready || running}
         message={removing && (
           <>
-            <span>{!check2.ready ? "Checking what uses them." : check2.error ? `Kiln could not check what else uses some of them (${check2.error}). Remove stops for a mod something uses.` : "Their files leave the Library."}</span>
-            <ul className="k-remove-list" aria-label="Mods to remove">
+            <span>{!check2.ready ? t("mods.list.checkingUsers") : check2.error ? t("mods.list.checkUsersFailed", { error: check2.error }) : t("mods.list.filesLeave")}</span>
+            <ul className="k-remove-list" aria-label={t("mods.list.modsToRemove")}>
               {removing.map((r) => {
                 const o = check2.others.get(r.key) ?? [];
                 return (
-                  <li key={r.key}>{r.name}{!r.lib ? <span className="k-muted"> · its files are gone already; it leaves your list</span>
-                    : o.length ? <span className="k-muted"> · {o.join(", ")} {o.length === 1 ? "lists" : "list"} it too and will show it as missing</span> : null}</li>
+                  <li key={r.key}>{r.name}{!r.lib ? <span className="k-muted"> · {t("mods.list.filesGone")}</span>
+                    : o.length ? <span className="k-muted"> · {t("mods.list.alsoListed", { count: o.length, names: o.join(", ") })}</span> : null}</li>
                 );
               })}
             </ul>
@@ -375,18 +384,18 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
           try {
             const r = await removeMany(qc, rows, check2.users, async () => { mods.edit.update((p) => withoutRows(p, rows)); return mods.edit.flush(); });
             clearSel();
-            if (!r.left.length) toast.ok(`Removed ${r.removed.length} mod${r.removed.length === 1 ? "" : "s"}`);
-            else toast.info(r.removed.length ? `Removed ${r.removed.length}, ${r.left.length} left` : `Nothing removed`,
-              `${r.left.map((l) => `${l.name}: ${l.why}`).join(" ")} ${r.left.length === 1 ? "It is" : "They are"} out of your list and still in the Library.`, { ms: 0 });
+            if (!r.left.length) toast.ok(t("mods.list.removedMany", { count: r.removed.length }));
+            else toast.info(r.removed.length ? t("mods.list.removedSome", { removed: r.removed.length, left: r.left.length }) : t("mods.list.nothingRemoved"),
+              t("mods.list.leftInLibrary", { count: r.left.length, list: r.left.map((l) => t("mods.list.leftItem", { name: l.name, why: l.why })).join(" ") }), { ms: 0 });
           } catch (e) { toast.error(e); throw e; }
         }} />
-      <ConfirmDanger open={!!rm} onClose={() => setRm(null)} relaxable word={rm?.row.id ?? ""} action="Remove"
-        title={rm ? `Remove ${rm.row.name}${rm.version ? ` ${rm.version}` : ""}?` : ""} message={check.message} disabled={!check.ready || check.users.isFetching}
+      <ConfirmDanger open={!!rm} onClose={() => setRm(null)} relaxable word={rm?.row.id ?? ""} action={t("common.remove")}
+        title={rm ? (rm.version ? t("mods.list.removeVersionTitle", { name: rm.row.name, version: rm.version }) : t("mods.list.removeTitle", { name: rm.row.name })) : ""} message={check.message} disabled={!check.ready || check.users.isFetching}
         onConfirm={async () => {
-          const t = rm!;
+          const target = rm!;
           try {
-            await removeMod(qc, t, check.users.data, async () => { mods.drop(t.row); return mods.edit.flush(); });
-            toast.ok(`Removed ${t.row.name}${t.version ? ` ${t.version}` : ""}`);
+            await removeMod(qc, target, check.users.data, async () => { mods.drop(target.row); return mods.edit.flush(); });
+            toast.ok(target.version ? t("mods.list.removedVersion", { name: target.row.name, version: target.version }) : t("mods.list.removed", { name: target.row.name }));
           } catch (e) { toast.error(e); void check.users.refetch(); throw e; }
         }} />
     </div>

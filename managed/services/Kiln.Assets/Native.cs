@@ -71,6 +71,16 @@ internal static unsafe class AssetsNative
         public delegate* unmanaged[Cdecl]<ulong, int> BlobCatalogClose;
     }
 
+    /// <summary>The table since 0.2.0-dev.29.15: <see cref="TableEx"/>, then texture_rgba (not called by this wrapper) and
+    /// blob_read_resident. Read through the v1 pointer when header.size covers it (an older kiln.assets: never).</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct TableResident
+    {
+        public TableEx Ex;
+        public void* TextureRgba;
+        public delegate* unmanaged[Cdecl]<ContentHash*, void*, nuint, nuint*, int> BlobReadResident;
+    }
+
     /// <summary>KilnBlobCatalogInfo: 32 bytes.</summary>
     [StructLayout(LayoutKind.Sequential)]
     public struct CatalogInfo

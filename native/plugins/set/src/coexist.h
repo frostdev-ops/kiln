@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
@@ -10,6 +11,8 @@
 #include <fstream>
 #include <map>
 #include <mutex>
+#include <optional>
+#include <thread>
 #if defined(_WIN32) || defined(KSET_LOADER_HOST_TEST)
 #include <windows.h>
 #include "../../compat/module_watch.h"  // and winternl.h: LDR_DATA_TABLE_ENTRY
@@ -74,6 +77,28 @@ inline void WINAPI copy_listed(LDR_DATA_TABLE_ENTRY* entry, void* context, BOOLE
     }
 }
 using LdrEnumerate = LONG(WINAPI*)(void* reserved, void(WINAPI* callback)(LDR_DATA_TABLE_ENTRY*, void*, BOOLEAN*), void* context);
+// A path for a prefix comparison: no \\?\ prefix, backslashes, ASCII lower case.
+inline std::wstring folded_path(std::wstring s) {
+    if (s.rfind(L"\\\\?\\", 0) == 0 && s.rfind(L"\\\\?\\UNC\\", 0) != 0) s.erase(0, 4);
+    for (auto& c : s) {
+        if (c == L'/') c = L'\\';
+        else if (c >= L'A' && c <= L'Z') c = static_cast<wchar_t>(c - L'A' + L'a');
+    }
+    return s;
+}
+// The Windows folder (GetWindowsDirectoryW), folded, with its trailing backslash; empty when it cannot be read (then
+// nothing is skipped by it). Everything below it is Windows' or a driver's: System32, its DriverStore (a graphics
+// driver's DLLs: about 400 MB for an NVIDIA card, loaded at the game's first frames), WinSxS. SET is none of them: it
+// ships as a powrprof.dll in the game folder, and the game loads powrprof.dll from its own folder, else from System32.
+inline std::wstring windows_folder() {
+    std::wstring dir(32768, L'\0');  // on the heap: inspections run on threads with small stacks too
+    const UINT n = GetWindowsDirectoryW(dir.data(), 32768);
+    if (!n || n >= 32768) return {};
+    dir.resize(n);
+    dir = folded_path(std::move(dir));
+    if (dir.back() != L'\\') dir += L'\\';
+    return dir;
+}
 // Both kiln-set and kiln.types use this policy. Kiln plugins are excluded because the detector itself contains
 // SET's branding string; native SET does not export kiln_plugin_main, even when renamed.
 // The list of loaded modules is ntdll's own (LdrEnumerateLoadedModules): read in this process's memory under the
@@ -97,6 +122,7 @@ inline Inspection inspect_runtime() {
         return failed(std::string("the Windows system directory could not be identified: ") +
                       (n ? std::string("GetSystemDirectoryW: the path is too long") : call_failed("GetSystemDirectoryW", GetLastError())));
     const std::filesystem::path system(system_path);
+    const std::wstring windows = windows_folder();
     HMODULE self = nullptr;
     if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
                            reinterpret_cast<LPCWSTR>(&inspect_runtime), &self))
@@ -160,6 +186,9 @@ inline Inspection inspect_runtime() {
                           (length ? std::string("GetModuleFileNameW: the path is too long") : call_failed("GetModuleFileNameW", GetLastError())) +
                           " for " + utf8(mod.name));
         const std::filesystem::path file(module_path);
+        // Windows' and the drivers' own files (windows_folder): not opened, not read. This skips about two thirds of a
+        // game's modules, and the graphics driver's DLLs that the first frames load (a whole-file read each, below).
+        if (!windows.empty() && folded_path(module_path).rfind(windows, 0) == 0) continue;
         // Wine's builtin powrprof.dll reports a game-folder powrprof.dll's path without running that file: only a
         // module whose mapped image is the file at its path counts (module_image.h).
         if (!kcompat::module_is_file(held, file)) continue;
@@ -193,6 +222,89 @@ inline Inspection inspect_runtime() {
 // One look, as text: empty when clean. A failed inventory reads like a conflict here; callers that keep running use
 // ConflictGate, which tells the two apart.
 inline std::string runtime_conflict() { return inspect_runtime().text; }
+
+// The re-checks after a DLL load, on a thread of their own: the game's UI frame and server step only start a look and
+// take its result on a later frame or step, they never read module files. A look reads a newly loaded module whole for
+// SET's name (cached afterwards by file identity): at the first frames of a hard-disk player's game, the DLSS DLL and
+// what else loads with the renderer took the window into "not responding" for seconds (perfdiag 2026-11-17, inbox 50).
+// One look at a time; nothing is lost while one runs (the caller keeps its request and starts the next look when it
+// takes this one's result). The startup check (on_ready) stays on its caller's thread: nothing runs before it.
+// start(), take(), running() and wait() are serialized by the caller; finished() is lock-free for the per-frame path.
+class LookWorker {
+public:
+    LookWorker() = default;
+    LookWorker(const LookWorker&) = delete;
+    LookWorker& operator=(const LookWorker&) = delete;
+    // At process exit the thread is gone or about to be: a DLL detach never waits for it. A plugin that is unloaded
+    // while the game runs calls wait() first (on_unload).
+    ~LookWorker() {
+        if (thread_.joinable()) thread_.detach();
+    }
+    // Host tests: run each look on the caller's thread, so start() has its result at once.
+    bool run_inline = false;
+    // Starts a look unless one runs or a finished one waits to be taken. False when no look could start (no thread).
+    bool start() {
+        std::unique_lock lock(mu_);
+        if (busy_ || result_) return false;
+        if (thread_.joinable()) thread_.join();  // the last look's thread, done (busy_ is false)
+        busy_ = true;
+        if (run_inline) {
+            lock.unlock();
+            look();
+            return true;
+        }
+        try {
+            thread_ = std::thread([this] { look(); });
+        } catch (...) {
+            busy_ = false;
+            return false;
+        }
+        return true;
+    }
+    // A finished look is waiting to be taken.
+    bool finished() const { return done_.load(std::memory_order_acquire); }
+    // The finished look, once; nothing while one runs or none was started.
+    std::optional<Inspection> take() {
+        if (!finished()) return std::nullopt;
+        std::lock_guard lock(mu_);
+        done_.store(false, std::memory_order_relaxed);
+        std::optional<Inspection> seen = std::move(result_);
+        result_.reset();
+        return seen;
+    }
+    bool running() const {
+        std::lock_guard lock(mu_);
+        return busy_;
+    }
+    // Until a running look has finished (its result stays to be taken).
+    void wait() {
+        std::unique_lock lock(mu_);
+        cv_.wait(lock, [this] { return !busy_; });
+        lock.unlock();
+        if (thread_.joinable()) thread_.join();
+    }
+
+private:
+    void look() {
+        Inspection seen;
+        try {
+            seen = inspect_runtime();
+        } catch (...) {
+            seen = {Inventory::failed, "loaded modules could not be inspected: the check ran out of memory"};
+        }
+        std::lock_guard lock(mu_);
+        result_ = std::move(seen);
+        busy_ = false;
+        done_.store(true, std::memory_order_release);
+        cv_.notify_all();
+    }
+    mutable std::mutex mu_;
+    std::condition_variable cv_;
+    std::thread thread_;
+    bool busy_ = false;
+    std::optional<Inspection> result_;
+    std::atomic<bool> done_{false};
+};
 
 // Diagnostic only: whether this process can be read through a handle to its own pid, which is what a Toolhelp module
 // snapshot of it needs (and other loaders' module scans through a process handle). "" when it can, else the call and

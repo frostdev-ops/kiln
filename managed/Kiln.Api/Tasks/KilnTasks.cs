@@ -21,7 +21,14 @@ public sealed class KilnTasks
 {
     private readonly ModContext _mod;
 
-    internal KilnTasks(ModContext mod) => _mod = mod;
+    internal KilnTasks(ModContext mod)
+    {
+        _mod = mod;
+        // The mod's unload seals and signals its tasks from BeginUnload (Mod.cs), before any OnUnload: the tick
+        // never waits for them, and a task that ignores its token is joined off the tick by the host.
+        mod.UnloadTaskSeal = () => TaskRun.SealTasks(mod);
+        mod.UnloadTaskBlocker = () => TaskRun.LiveTasks(mod);
+    }
 
     /// <summary>Starts <paramref name="work"/> on a Kiln worker and returns at once. Any thread.</summary>
     /// <param name="name">What logs and diagnostics call the task: 1 to 128 UTF-8 bytes, no control characters.</param>

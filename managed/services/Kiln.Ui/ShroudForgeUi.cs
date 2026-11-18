@@ -22,7 +22,7 @@ internal static class ShroudForgeUi
 {
     /// <summary>What a read or a save left of a package, published as one: the package (or why there is none), the page's
     /// view of it (made on the worker that read it) and a hash of the files it was read from.</summary>
-    private sealed record State(SfPackage? Package, string? Error, View? View, string? Hash);
+    private sealed record State(SfPackage? Package, string? Error, View? View, string? Hash, int Texts = -1);
 
     private sealed class Entry
     {
@@ -41,11 +41,12 @@ internal static class ShroudForgeUi
     private static readonly object Lock = new();
     // edits waiting for the writer: (folder, key; null = the switch, "" is a setting like any other) -> value and when to write it
     private static readonly Dictionary<(string Folder, string? Key), (JsonNode? Value, long DueMs)> Pending = new();
-    private static readonly Dictionary<(string Folder, string? Key), string> Errors = new();
+    // the texts are made when drawn (the language may change while they show)
+    private static readonly Dictionary<(string Folder, string? Key), Func<string>> Errors = new();
     // bumped (under Lock) whenever Pending or Errors change: the page's views of the packages are made again then
     private static long _version;
     // what the last write of each mod did, in words (shown under the switch)
-    private static readonly Dictionary<string, (string Text, bool Ok)> Results = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly Dictionary<string, (Func<string> Text, bool Ok)> Results = new(StringComparer.OrdinalIgnoreCase);
     private static readonly AutoResetEvent Wake = new(false);
     private static int _writer;
     private static (string Folder, string Action, long AtMs)? _armed;
@@ -88,6 +89,7 @@ internal static class ShroudForgeUi
     private static void Refresh(string folder, Entry e)
     {
         var generation = Interlocked.Read(ref e.Generation);
+        var texts = KilnText.Generation;
         SfPackage? package = null;
         string? error = null;
         View? view = null;
@@ -95,7 +97,9 @@ internal static class ShroudForgeUi
         try
         {
             // the files as last read (and the page's view of them) stay: a re-read of the same bytes makes nothing new
-            if (hash is not null && e.Now is { Hash: { } last } now && last == hash && (now.Package is not null || now.Error is not null)) return;
+            // (an error made in another language is made again)
+            if (hash is not null && e.Now is { Hash: { } last } now && last == hash && (now.Package is not null || now.Error is not null) &&
+                (now.Error is null || now.Texts == texts)) return;
             package = ShroudForgePackages.Read(folder);
             if (Unreadable(package) is { } why)
             {
@@ -109,14 +113,14 @@ internal static class ShroudForgeUi
             // never offer stale editable controls for a broken or removed file
             package = null;
             view = null;
-            error = x is SfEditException ? x.Message : $"its files could not be read: {x.Message}";
+            error = x is SfEditException ? x.Message : KilnText.T("shroudforge.files_unreadable", ("error", x.Message));
         }
         finally
         {
             lock (e)
             {
                 // a save that published while this read ran has newer values than this read may have seen
-                if (e.Generation == generation && (package is not null || error is not null)) e.Now = new State(package, error, view, hash);
+                if (e.Generation == generation && (package is not null || error is not null)) e.Now = new State(package, error, view, hash, texts);
             }
             Interlocked.Exchange(ref e.ReadAtMs, Environment.TickCount64);
             Interlocked.Exchange(ref e.Reading, 0);
@@ -187,7 +191,7 @@ internal static class ShroudForgeUi
             }
             catch (Exception e) when (e is InvalidOperationException or FormatException or OverflowException)
             {
-                return $"the value of setting {Clip(s.Key, 80)} cannot be read ({e.Message})";
+                return KilnText.T("shroudforge.value_unreadable", ("setting", Clip(s.Key, 80)), ("error", e.Message));
             }
         }
         return null;
@@ -269,7 +273,7 @@ internal static class ShroudForgeUi
             }
             foreach (var (id, value) in due)
             {
-                string result;
+                Func<string> result;
                 var ok = true;
                 var e = Packages.GetOrAdd(id.Folder, _ => new Entry());
                 var before = FileBytes(id.Folder);
@@ -279,7 +283,8 @@ internal static class ShroudForgeUi
                         ? ShroudForgePackages.SetEnabled(id.Folder, value is JsonValue v && v.GetValueKind() == JsonValueKind.True)
                         : SetSetting(id.Folder, id.Key, value);
                     Publish(id.Folder, e, p, null);
-                    result = Saved(p, id.Key);
+                    var key = id.Key;
+                    result = () => Saved(p, key);
                     UiEngine.Log(LogLevel.Info, $"ShroudForge mod {p.Id}: {(id.Key is null ? "switched " + (p.Enabled ? "on" : "off") : id.Key + " = " + ShroudForgePackages.Render(value))} " +
                                                 $"(extended.mod.json, from the Kiln menu)");
                 }
@@ -290,14 +295,16 @@ internal static class ShroudForgeUi
                     if (before is not null && FileBytes(id.Folder) is { } after && !before.AsSpan().SequenceEqual(after))
                     {
                         // the file changed but cannot be read back: not "not saved", and no controls of the old package
-                        result = $"extended.mod.json was changed, but it cannot be read back: {x.Message}. ShroudForge may refuse the mod until the file is fixed.";
-                        Publish(id.Folder, e, null, result);
+                        var message = x.Message;
+                        result = () => KilnText.T("shroudforge.save.unreadable_after", ("error", message));
+                        Publish(id.Folder, e, null, result());
                         UiEngine.Log(LogLevel.Warn, $"ShroudForge mod in {id.Folder}: {what} written, but extended.mod.json cannot be read back: {x.Message}");
                     }
                     else
                     {
-                        result = x is SfEditException ? x.Message : "Could not save: " + x.Message;
-                        UiEngine.Log(LogLevel.Warn, $"ShroudForge mod in {id.Folder}: {what} not saved: {result}");
+                        var message = x.Message;
+                        result = x is SfEditException ? () => message : () => KilnText.T("shroudforge.save.failed", ("error", message));
+                        UiEngine.Log(LogLevel.Warn, $"ShroudForge mod in {id.Folder}: {what} not saved: {(x is SfEditException ? message : "Could not save: " + message)}");
                     }
                     lock (Lock) Errors[id] = result;
                 }
@@ -317,11 +324,12 @@ internal static class ShroudForgeUi
     private static string Saved(SfPackage p, string? key)
     {
         if (key is null)
-            return p.SwitchLive ? $"Saved: {p.Name} is requested {(p.Enabled ? "on" : "off")}; a running ShroudForge normally picks this up within a second or two. Check its state above."
-                : $"Saved: {p.Name} is configured {(p.Enabled ? "on" : "off")} for the next game start.";
+            return p.SwitchLive
+                ? KilnText.T(p.Enabled ? "shroudforge.save.switch_live_on" : "shroudforge.save.switch_live_off", ("mod", p.Name))
+                : KilnText.T(p.Enabled ? "shroudforge.save.switch_next_on" : "shroudforge.save.switch_next_off", ("mod", p.Name));
         var s = p.Settings.FirstOrDefault(x => x.Key == key);
-        return s is { Live: true } ? $"Saved: {s.Label} can apply while its mod is active; ShroudForge normally picks this up within a second or two."
-            : $"Saved: {s?.Label ?? key} is configured for the next game start.";
+        return s is { Live: true } ? KilnText.T("shroudforge.save.setting_live", ("setting", s.Label))
+            : KilnText.T("shroudforge.save.setting_next", ("setting", s?.Label ?? key));
     }
 
     /// <summary>A setting's text field had the keyboard in the frame before <paramref name="frame"/> (or in it): the page's
@@ -348,9 +356,9 @@ internal static class ShroudForgeUi
     {
         if (p.Repair.Count == 0) return null;
         var names = p.Repair.Take(3).Select(key => Clip(p.Settings.FirstOrDefault(x => x.Key == key)?.Label ?? key, 80)).ToList();
-        var more = p.Repair.Count > 3 ? $" and {p.Repair.Count - 3} more" : "";
-        return $"ShroudForge refuses this mod until its settings are saved once: an earlier Kiln wrote {string.Join(", ", names)}{more} " +
-               "without its fraction.";
+        return p.Repair.Count > 3
+            ? KilnText.T("shroudforge.repair_more", ("settings", string.Join(", ", names)), ("more", p.Repair.Count - 3))
+            : KilnText.T("shroudforge.repair", ("settings", string.Join(", ", names)));
     }
 
     /// <summary>The most settings the page draws of one package; a line says how many more it has.</summary>
@@ -381,6 +389,8 @@ internal static class ShroudForgeUi
     {
         public required SfPackage Package;
         public long Version;
+        /// <summary>The <see cref="KilnText.Generation"/> its texts were made in.</summary>
+        public int Texts;
         public string? Error;
         public string Id = "";
         public bool SwitchOn;
@@ -395,7 +405,7 @@ internal static class ShroudForgeUi
 
     private static View ViewOf(string folder, SfPackage p)
     {
-        var view = new View { Package = p, Version = Interlocked.Read(ref _version), Id = "sf." + folder,
+        var view = new View { Package = p, Version = Interlocked.Read(ref _version), Texts = KilnText.Generation, Id = "sf." + folder,
             RebuildOnWorker = p.Settings.Count > DrawnSettings };
         // The setting cap alone does not bound a frame: one list can have thousands of checkboxes, as can the
         // groups/actions outside settings. Do not truncate editable options (a write could then lose selections).
@@ -403,13 +413,13 @@ internal static class ShroudForgeUi
         bool Fits(int count) => (metadataLeft -= count) >= 0;
         if (!Fits(p.Groups.Count) || !p.Groups.All(g => Fits(g.Actions.Count)) || !p.Settings.All(d => Fits(d.Options.Count)))
         {
-            view.Error = "too many choices, groups or actions for this page (1000 combined at most). Change settings in the mod's extended.mod.json; the file is unchanged.";
+            view.Error = KilnText.T("shroudforge.too_many");
             return view;
         }
         try { Build(view, folder, p); }
         catch (Exception e)  // a value no reader can use: said once, not thrown every frame
         {
-            view.Error = $"a value cannot be read ({e.Message})";
+            view.Error = KilnText.T("shroudforge.value_error", ("error", e.Message));
             UiEngine.Log(LogLevel.Warn, $"ShroudForge mod in {folder}: its settings cannot be shown: {e.Message}");
         }
         return view;
@@ -422,7 +432,7 @@ internal static class ShroudForgeUi
         if (now.Package is not { } p) return null;
         var version = Interlocked.Read(ref _version);
         var view = now.View is { } v && ReferenceEquals(v.Package, p) ? v : null;
-        if (view is not null && view.Version == version) return view;
+        if (view is not null && view.Version == version && view.Texts == KilnText.Generation) return view;
         if (view is { RebuildOnWorker: false })
         {
             view = ViewOf(folder, p);
@@ -441,7 +451,8 @@ internal static class ShroudForgeUi
     private static void Keep(Entry e, SfPackage p, View view)
     {
         lock (e)
-            if (ReferenceEquals(e.Now.Package, p) && (e.Now.View is not { } old || old.Version <= view.Version)) e.Now = e.Now with { View = view };
+            if (ReferenceEquals(e.Now.Package, p) && (e.Now.View is not { } old || old.Version < view.Version || old.Version == view.Version && old.Texts != view.Texts))
+                e.Now = e.Now with { View = view };
     }
 
     private static void Build(View view, string folder, SfPackage p)
@@ -455,7 +466,7 @@ internal static class ShroudForgeUi
             view.Version = _version;
             foreach (var x in p.Settings) values[x.Key] = Pending.TryGetValue((folder, x.Key), out var pe) ? pe.Value : x.Value;
             foreach (var ((f, key), text) in Errors)
-                if (key is not null && string.Equals(f, folder, StringComparison.Ordinal)) errors[key] = text;
+                if (key is not null && string.Equals(f, folder, StringComparison.Ordinal)) errors[key] = text();
             var pending = Pending.TryGetValue((folder, null), out var sw);
             view.SwitchOn = pending ? sw.Value is JsonValue v && v.GetValueKind() == JsonValueKind.True : p.Enabled;
         }
@@ -471,8 +482,8 @@ internal static class ShroudForgeUi
             {
                 var cond = d.EnabledWhen!;
                 var ctl = byKey.GetValueOrDefault(cond.Setting);
-                var want = ctl?.Options.FirstOrDefault(o => JsonNode.DeepEquals(o.Value, cond.EqualsValue))?.Label ?? Plain(cond.EqualsValue);
-                disabled = Clip($"{Plain(value)}  (only used while {ctl?.Label ?? cond.Setting} is {want})", MaxDrawnText);
+                var want = ctl?.Options.FirstOrDefault(o => JsonNode.DeepEquals(o.Value, cond.EqualsValue))?.Label ?? Shown(cond.EqualsValue);
+                disabled = Clip(KilnText.T("shroudforge.only_used_while", ("value", Shown(value)), ("setting", ctl?.Label ?? cond.Setting), ("want", want)), MaxDrawnText);
             }
             var labels = d.Options.Select(o => Clip(o.Label, MaxDrawnText)).ToArray();
             var text = value is JsonValue jv && jv.TryGetValue<string>(out var str) ? str : Plain(value);
@@ -577,41 +588,50 @@ internal static class ShroudForgeUi
     internal static string? WaitingFor(CatalogMod m)
     {
         if (m.Engine != "shroudforge" || m.Word != "waiting" || m.Reason is not { } why) return null;
-        // ShroudForge's own reason (ModCatalog's SfRefine: "ShroudForge: " + its error): the word it starts with
-        const string sf = "ShroudForge: ";
-        if (why.StartsWith(sf, StringComparison.Ordinal))
+        // ShroudForge's own reason (ModCatalog's SfRefine: catalog.sf.error, "ShroudForge: " + its error): the word it starts with
+        if (Unfill(why, KilnText.T("catalog.sf.error", ("error", Hole))) is { } err)
         {
-            var err = why[sf.Length..];
             if (err.StartsWith("restart-required", StringComparison.Ordinal))
-                return "The next game start: ShroudForge loads this mod's changed configuration only when the game starts again.";
+                return KilnText.T("shroudforge.waits.restart");
             if (err.StartsWith("dependency-blocked", StringComparison.Ordinal))
-                return "A mod it needs: ShroudForge starts it once that mod runs (the reason above names it).";
+                return KilnText.T("shroudforge.waits.dependency");
             return null;
         }
-        // the mod's own report (SfRefine: "ShroudForge Lua is active; reported effect: waiting. " + its detail): whole
-        // phrases the mod reports, never a word somewhere inside another one
-        const string effect = "ShroudForge Lua is active; reported effect: waiting. ";
-        if (!why.StartsWith(effect, StringComparison.Ordinal)) return null;
-        var detail = why[effect.Length..].Trim();
+        // the mod's own report (SfRefine: catalog.sf.effect, "ShroudForge Lua is active; reported effect: waiting. " + its
+        // detail): whole phrases the mod reports, never a word somewhere inside another one
+        if (Unfill(why, KilnText.T("catalog.sf.effect", ("effect", "waiting"), ("detail", Hole))) is not { } reported) return null;
+        var detail = reported.Trim();
         switch (detail)
         {
             case "Waiting for typed ECS access and the authoritative write scope":
-                return "Write access to the game world. ShroudForge gives it once a world this game hosts is running: your single-player " +
-                       "world, or a co-op world you host. In someone else's world or on a dedicated server it may never come; there the " +
-                       "mod has to run on the host's game or on the server.";
+                return KilnText.T("shroudforge.waits.write_access");
             case "Waiting for an authoritative world":
-                return "A world: it starts working once you are in a world this game hosts, not in the main menu.";
+                return KilnText.T("shroudforge.waits.world");
             case "Player query is pending":
-                return "Your character in the world.";
+                return KilnText.T("shroudforge.waits.player");
         }
         // ShroudForge's override tracker summary (track_runtime_overrides.lua `summary`): "<message> | writes=N | <reason>
         // | ...", nested once more for SF Unlimited Flight's steering. Gliding is what it waits for only when every reason
         // in it is that one.
         var reasons = detail.Split(" | ").Skip(1).Where(p => !p.StartsWith("writes=", StringComparison.Ordinal)).ToArray();
         if (reasons.Length > 0 && reasons.All(r => r == "Glider settings: Player is not actively using a glider"))
-            return "You to glide. It changes the glider only while you are gliding, so between flights (and whenever this menu is " +
-                   "open) it says waiting. That is normal: it applies when you take off.";
-        return "Something the mod needs is not there yet; its own words are under STATE above.";
+            return KilnText.T("shroudforge.waits.glide");
+        return KilnText.T("shroudforge.waits.other");
+    }
+
+    // what a text made with this in place of one value holds there
+    private const string Hole = "\u0001";
+
+    /// <summary>The value <paramref name="text"/> holds where <paramref name="made"/> (a text made with <see cref="Hole"/> for
+    /// one value) has the hole, or null when the text is not one of those.</summary>
+    private static string? Unfill(string text, string made)
+    {
+        var at = made.IndexOf(Hole, StringComparison.Ordinal);
+        if (at < 0) return null;
+        var before = made[..at];
+        var after = made[(at + Hole.Length)..];
+        return text.Length >= before.Length + after.Length && text.StartsWith(before, StringComparison.Ordinal) && text.EndsWith(after, StringComparison.Ordinal)
+            ? text[before.Length..^after.Length] : null;
     }
 
     /// <summary>The ShroudForge part of a mod's details: its switch, its settings by group, its buttons.</summary>
@@ -620,18 +640,18 @@ internal static class ShroudForgeUi
         if (m.Folder is not { } folder) return;
         if (WaitingFor(m) is { } waits)
         {
-            label(ui, "WHAT IT WAITS FOR", s);
+            label(ui, KilnText.T("shroudforge.labels.waits"), s);
             using (ui.PushColor(UiColorSlot.Text, GameColors.Text)) ui.TextWrapped(waits);
         }
         var now = Current(folder, out var error);
         var p = now.Package;
-        label(ui, "SWITCH AND SETTINGS", s);
+        label(ui, KilnText.T("shroudforge.labels.settings"), s);
         var view = ViewFor(folder, Packages.GetOrAdd(folder, _ => new Entry()), now);
         if (p is null || view?.Error is not null || view is null)
         {
             error = view?.Error ?? error;
             using (ui.PushColor(UiColorSlot.Text, error is null ? GameColors.Muted : GameColors.Warning))
-                ui.TextWrapped(error is null ? "Reading its settings..." : $"Its settings cannot be shown: {Clip(error, MaxDrawnText)}");
+                ui.TextWrapped(error is null ? KilnText.T("shroudforge.reading") : KilnText.T("shroudforge.cannot_show", ("error", Clip(error, MaxDrawnText))));
             Result(ui, folder, k, problemsOnly: true);  // what the last save did to the file stays visible
             return;
         }
@@ -640,24 +660,24 @@ internal static class ShroudForgeUi
         // the switch
         var on = view.SwitchOn;
         var was = on;
-        if (ui.Checkbox(on ? "On###sf.switch" : "Off###sf.switch", ref on) && on != was) Edit(folder, null, JsonValue.Create(on));
+        if (ui.Checkbox((on ? KilnText.T("shroudforge.on") : KilnText.T("shroudforge.off")) + "###sf.switch", ref on) && on != was) Edit(folder, null, JsonValue.Create(on));
         using (ui.FontSize(14 * k))
         using (ui.PushColor(UiColorSlot.Text, GameColors.Muted))
         {
-            ui.TextWrapped(p.SwitchLive ? "ShroudForge switches it on or off while you play." : "Switching it on or off takes effect at the next game start (it changes game data when the game starts).");
+            ui.TextWrapped(p.SwitchLive ? KilnText.T("shroudforge.switch_live") : KilnText.T("shroudforge.switch_next"));
             if (m.Source == "profile")
-                ui.TextWrapped("Your Kiln profile lists this mod: the Kiln launcher sets this switch from the profile when it starts the game. To keep a change, make it in the profile too.");
+                ui.TextWrapped(KilnText.T("shroudforge.switch_profile"));
         }
         Result(ui, folder, k);
         if (RepairNote(p) is { } repair)
             using (ui.FontSize(14 * k))
             using (ui.PushColor(UiColorSlot.Text, GameColors.Warning))
-                ui.TextWrapped(repair + " Changing any setting or its switch here repairs it.");
+                ui.TextWrapped(KilnText.T("shroudforge.repair_here", ("repair", repair)));
 
         if (view.Empty)
         {
             ui.Space(1, 6 * s);
-            using (ui.PushColor(UiColorSlot.Text, GameColors.Muted)) ui.TextWrapped("This mod has no settings.");
+            using (ui.PushColor(UiColorSlot.Text, GameColors.Muted)) ui.TextWrapped(KilnText.T("shroudforge.no_settings"));
             return;
         }
         var running = Running(m);
@@ -681,7 +701,7 @@ internal static class ShroudForgeUi
                 ui.Space(1, 10 * s);
                 using (ui.FontSize(19 * k))
                 using (ui.PushColor(UiColorSlot.Text, GameColors.GoldBright))
-                    ui.Text("Other settings");
+                    ui.Text(KilnText.T("shroudforge.other_settings"));
             }
             foreach (var item in view.Rest) Setting(ui, folder, item, s, k);
         }
@@ -689,13 +709,12 @@ internal static class ShroudForgeUi
         {
             ui.Space(1, 10 * s);
             using (ui.PushColor(UiColorSlot.Text, GameColors.Attention))
-                ui.TextWrapped($"{view.Hidden} more setting{(view.Hidden == 1 ? " is" : "s are")} not shown here (this mod has {p.Settings.Count}; " +
-                               $"the page shows the first {DrawnSettings}). Change them in the mod's extended.mod.json.");
+                ui.TextWrapped(KilnText.Plural("shroudforge.hidden", view.Hidden, ("total", p.Settings.Count), ("shown", DrawnSettings)));
         }
         ui.Space(1, 10 * s);
         using (ui.FontSize(13 * k))
         using (ui.PushColor(UiColorSlot.Text, GameColors.Faint))
-            ui.TextWrapped("Saved to the mod's extended.mod.json, the file ShroudForge and the Kiln launcher read.");
+            ui.TextWrapped(KilnText.T("shroudforge.saved_to"));
     }
 
     // ShroudForge's runtime runs it in this process now (its state.json lists it active), whatever its effect reports
@@ -703,12 +722,12 @@ internal static class ShroudForgeUi
 
     private static void Result(UiDraw ui, string folder, float k, bool problemsOnly = false)
     {
-        (string Text, bool Ok) r;
+        (Func<string> Text, bool Ok) r;
         lock (Lock)
             if (!Results.TryGetValue(folder, out r) || (problemsOnly && r.Ok)) return;
         using (ui.FontSize(14 * k))
         using (ui.PushColor(UiColorSlot.Text, r.Ok ? GameColors.Ok : GameColors.Warning))
-            ui.TextWrapped(r.Text);
+            ui.TextWrapped(r.Text());
     }
 
     private static void Setting(UiDraw ui, string folder, Item item, float s, float k)
@@ -730,7 +749,7 @@ internal static class ShroudForgeUi
             if (item.Description is { } desc)
                 using (ui.PushColor(UiColorSlot.Text, GameColors.Muted)) ui.TextWrapped(desc);
             if (!d.Live)
-                using (ui.PushColor(UiColorSlot.Text, GameColors.Attention)) ui.TextWrapped("Applies at the next game start.");
+                using (ui.PushColor(UiColorSlot.Text, GameColors.Attention)) ui.TextWrapped(KilnText.T("shroudforge.next_start"));
             if (item.Error is { } err)
                 using (ui.PushColor(UiColorSlot.Text, GameColors.Warning)) ui.TextWrapped(err);
         }
@@ -745,6 +764,14 @@ internal static class ShroudForgeUi
         _ => ShroudForgePackages.Render(v),
     };
 
+    // a value in a sentence: true and false as the words on and off
+    private static string Shown(JsonNode? v) => v switch
+    {
+        JsonValue jv when jv.GetValueKind() == JsonValueKind.True => KilnText.T("shroudforge.value_on"),
+        JsonValue jv when jv.GetValueKind() == JsonValueKind.False => KilnText.T("shroudforge.value_off"),
+        _ => Plain(v),
+    };
+
     private static void Widget(UiDraw ui, string folder, Item item, float s, float k)
     {
         var d = item.Def;
@@ -755,10 +782,10 @@ internal static class ShroudForgeUi
             case (_, "keybind"):
             {
                 using (ui.PushColor(UiColorSlot.Text, GameColors.Text))
-                    ui.Text("Shortcut: " + item.KeyLabel);
+                    ui.Text(KilnText.T("shroudforge.shortcut", ("key", item.KeyLabel)));
                 using (ui.FontSize(14 * k))
                 using (ui.PushColor(UiColorSlot.Text, GameColors.Muted))
-                    ui.TextWrapped("Edit the SDL binding below (not key capture): Ctrl+SDL:66 is Ctrl+F9; Mouse:4 is mouse button 4. Empty disables it. SF checks keyboard availability.");
+                    ui.TextWrapped(KilnText.T("shroudforge.shortcut_help"));
                 TextField(ui, folder, d, item.Text, width, text => JsonValue.Create(text));
                 return;
             }
@@ -766,7 +793,7 @@ internal static class ShroudForgeUi
             {
                 var b = value is JsonValue bv && bv.GetValueKind() == JsonValueKind.True;
                 var before = b;
-                if (ui.Checkbox(b ? "On###v" : "Off###v", ref b) && b != before) Edit(folder, d.Key, JsonValue.Create(b));
+                if (ui.Checkbox((b ? KilnText.T("shroudforge.on") : KilnText.T("shroudforge.off")) + "###v", ref b) && b != before) Edit(folder, d.Key, JsonValue.Create(b));
                 return;
             }
             case ("array", _):
@@ -851,8 +878,8 @@ internal static class ShroudForgeUi
             using (ui.PushColor(UiColorSlot.Text, GameColors.Muted)) ui.TextWrapped(Clip(shown.Replace('\0', ' '), MaxDrawnText));
             using (ui.PushColor(UiColorSlot.Text, GameColors.Attention))
                 ui.TextWrapped(nul
-                    ? "This value holds a NUL character, which a text field cannot show or keep: change it in the mod's extended.mod.json."
-                    : $"Too long to edit here ({shown.Length} characters): change it in the mod's extended.mod.json.");
+                    ? KilnText.T("shroudforge.field_nul")
+                    : KilnText.T("shroudforge.field_long", ("length", shown.Length)));
             return;
         }
         ui.NextItemWidth(width);
@@ -873,7 +900,8 @@ internal static class ShroudForgeUi
         else
             lock (Lock)
             {
-                Errors[(folder, d.Key)] = $"{Clip(d.Label, 200)}: \"{Clip(text, 200)}\" is not a number";
+                var (label, typed) = (Clip(d.Label, 200), Clip(text, 200));
+                Errors[(folder, d.Key)] = () => KilnText.T("shroudforge.not_a_number", ("setting", label), ("text", typed));
                 _version++;
             }
     }
@@ -891,10 +919,10 @@ internal static class ShroudForgeUi
         bool clicked;
         // only a mod ShroudForge runs now can take an action: a request left in its folder would run at a later start
         using (ui.PushColor(UiColorSlot.Text, running ? GameColors.Text : GameColors.Faint))
-            clicked = ui.Button(armed ? "Confirm: " + label : label);
+            clicked = ui.Button(armed ? KilnText.T("shroudforge.action.confirm", ("action", label)) : label);
         if (clicked && !running)
         {
-            lock (Lock) Results[folder] = ($"{label} was not sent: ShroudForge runs actions only while it runs the mod (see its state above). Nothing was queued.", false);
+            lock (Lock) Results[folder] = (() => KilnText.T("shroudforge.action.not_running", ("action", label)), false);
         }
         else if (clicked)
         {
@@ -906,7 +934,7 @@ internal static class ShroudForgeUi
                 {
                     lock (ActionGate)
                     {
-                        string text;
+                        Func<string> text;
                         var ok = true;
                         try
                         {
@@ -916,20 +944,20 @@ internal static class ShroudForgeUi
                             if (Waiting(game, p.Id))
                             {
                                 ok = false;
-                                text = $"{label}: an earlier request for {p.Name} (from this or an earlier game start) is still waiting for ShroudForge, " +
-                                       "which runs it once the mod takes it; nothing new was queued.";
+                                text = () => KilnText.T("shroudforge.action.still_waiting", ("action", label), ("mod", p.Name));
                             }
                             else
                             {
                                 QueueAction(game, p, a.Id);
-                                text = $"Requested: {label}.";
+                                text = () => KilnText.T("shroudforge.action.requested", ("action", label));
                                 UiEngine.Log(LogLevel.Info, $"ShroudForge mod {p.Id}: action {a.Id} requested from the Kiln menu");
                             }
                         }
                         catch (Exception e)  // whatever the files or the config hold: the player gets a line, not a silent worker
                         {
                             ok = false;
-                            text = $"{label} could not be sent: {e.Message}";
+                            var message = e.Message;
+                            text = () => KilnText.T("shroudforge.action.failed", ("action", label), ("error", message));
                             UiEngine.Log(LogLevel.Warn, $"ShroudForge mod {p.Id}: action {a.Id} could not be sent: {e.Message}");
                         }
                         lock (Lock) Results[folder] = (text, ok);
@@ -1094,8 +1122,10 @@ internal static class ShroudForgeMenu
             {
                 // Do not silently steal F9 when SF explicitly has no key or a mouse/Meta binding we cannot translate.
                 var key = SdlKeys.ToKilnKey(sfKey ?? "SDL:66") ?? "None";
-                _binding = KeyBindings.Register(BindingId, key, Toggle, "ShroudForge mods: open Kiln's ShroudForge page", "ShroudForge");
+                _binding = KeyBindings.Register(BindingId, key, Toggle, KilnText.T("shroudforge.binding"), "ShroudForge");
                 _binding.WhileCapturing = true;
+                var bound = _binding;
+                KilnText.Changed += () => bound.Description = KilnText.T("shroudforge.binding");  // the Keys page in Kiln's language
                 UiEngine.Log(LogLevel.Info, $"ShroudForge has no Modloader window: key {_binding.Key} and shroudforge.ui.toggle_modloader() toggle Kiln's ShroudForge page (remap in Keys; Mods is always available)");
             }
             finally { ModContext.CurrentMod = mod; }

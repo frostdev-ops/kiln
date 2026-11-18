@@ -14,6 +14,7 @@ the enabled implementation; no personal API key flow is supported. See [catalog.
 | `src/main.tsx`, `src/App.tsx` | entry, routes (HashRouter). Server/admin pages load lazily; optional server slots via `import.meta.glob` (below) |
 | `src/shell/` | AppShell (the stage, the header with nav, tasks and the game's state word, the Play page in front of the stage, the sheet for every other page, the mouth: the Play button and pilot light; toasts, splash, route error boundary, the rows' right click), `play.ts` (the Play control shared by the mouth and the Play page), `firstRun.tsx` (the automatic game detection, Install Kiln on Play, one loaded profile per game: `useEnsureProfile`), `drop.tsx` (a mod dropped anywhere on the window, the dropped-modpack consent), `mods.ts` + `useMods.ts` (the one list of every mod: rows, notes, the count, the switches), `removeMod.ts` (Remove from the list), `runtimeChange.ts` (the runtime install task shared by Runtime and Play), `gameState.ts`, `nav.ts`, `serverNav.ts` (a server's grouped list) |
 | `src/ui/` | the design system |
+| `src/i18n/` | the launcher's texts: `en.json` (every English string, by page and component), other `<tag>.json` files, `t`/`useT`/`rich` (`index.ts`), Settings' Language (`LanguageSync.tsx`, `components/LanguageSettings.tsx`); `scripts/i18n-check.ts` checks a translation ([translating.md](../translating.md)) |
 | `src/components/` | `ConfigEditor`, `SaveBackups` (shared with server pages), `ProfilesSettings` and `LibrarySettings` (Settings' Profiles and Library) |
 | `src/pages/` | client pages (Play with `mods/MainList.tsx`, the mods' views under `/mods` in `mods/` and `profiles/`, Catalog, Runtime, Logs, Saves, Editor, Settings, About) |
 | `src/api/commands.ts` | typed wrappers for every command + `KilnEvents` (contract) |
@@ -568,6 +569,40 @@ is a webview that never painted the page (a player on NVIDIA / X11 with 0.2.0-de
   15 s it should start again without the GPU by itself. If the window stays black, start it with `--software-render`
   (`./Kiln*.AppImage --software-render`, or `kiln-launcher --software-render` for the .deb) and send `launcher.log`
   (the `render:` lines) and, once the window works, a support report.
+
+## Taskbar icon and app menu
+Taskbars, docks and app menus show the launcher with Kiln's icon (`launcher/src-tauri/src/desktop.rs`).
+- **Linux, how the icon is found**: a Wayland bar or dock (GNOME's dash, Omarchy's and other Hyprland bars, Waybar,
+  KDE) takes the window's app id, looks for the `.desktop` file of that name (or one whose `StartupWMClass` is that id)
+  and shows that file's `Icon=` from the icon theme; GTK 3 sends no icon on Wayland. The app id (X11: WM_CLASS) is
+  `kiln-launcher`: main.rs sets GLib's program name before GTK starts, so it does not depend on the executable's name.
+  Tauri's `enableGTKAppId` (app id `io.frostdev.kiln.launcher`) stays off: it also registers the app on the session
+  bus as a single instance. On X11 and XWayland the window also carries its icon (`_NET_WM_ICON`): Tauri sets the
+  first PNG of `bundle.icon`, 256 px, on every window.
+- **deb, rpm**: Tauri's `Kiln Launcher.desktop` (`Exec=kiln-launcher`, `StartupWMClass=kiln-launcher`,
+  `Icon=kiln-launcher`) and `usr/share/icons/hicolor/{16,24,32,48,64,128,256,512}x…/apps/kiln-launcher.png` plus
+  `scalable/apps/kiln-launcher.svg` (`bundle.linux.{deb,rpm}.files`).
+- **AppImage**: it installs nothing, so the launcher adds itself when it runs as one (`$APPIMAGE`), on by default:
+  every start (after the data folder is found) writes `$XDG_DATA_HOME/applications/kiln-launcher.desktop`
+  (`~/.local/share/...`; `Exec` and `TryExec` the AppImage's path, `Icon=kiln-launcher`,
+  `StartupWMClass=kiln-launcher`, `Categories=Game;`, the line `X-Kiln-Desktop-Entry=1`) and the same icons into
+  `$XDG_DATA_HOME/icons/hicolor/`, or rewrites what differs: after the AppImage moved, the entry starts it from its new
+  place. Menus hide the entry while the AppImage is gone (`TryExec`). Settings > Appearance, "Kiln Launcher in the
+  app menu" (`app_desktop_set`): off removes Kiln's entry and icons and `state/desktop-entry.json` keeps it off; on
+  writes them again. Unlike the opt-in nxm handler it changes no default of the system or another program: it adds
+  Kiln's own files, the way AppImage integration tools do. Rules: only inside the home folder, never a system folder;
+  a `kiln-launcher.desktop` without Kiln's line (the player's own, another tool's) stays as it is until the player
+  turns the switch on; removal takes only Kiln's files (icons of the same name only when Kiln's entry was there or
+  the bytes are Kiln's); an existing `hicolor/icon-theme.cache` is rebuilt. `launcher.log`: `desktop:` lines. The
+  first start may show the icon only from the next start on (the shell matched the window before the entry was
+  there). On a Steam Deck the entry also puts Kiln, with its icon, in Steam's "Add a Non-Steam Game" list; the
+  launcher writes no Steam files ([deck.md](deck.md)).
+- **Windows**: `icons/icon.ico` (16, 24, 32, 48, 64, 256 px) is the exe's icon resource (Tauri), the window's icon,
+  the NSIS setup's and uninstaller's icon, and the Start menu and desktop shortcuts' (they point at the exe). The
+  shortcuts carry the AppUserModelID `io.frostdev.kiln.launcher` (Tauri's NSIS template); main.rs gives the process
+  the same one, so a pinned shortcut and the running window are one taskbar button.
+- **Tests**: `cargo test -p kiln-launcher --lib desktop::` (a temporary home: the entry, moving, someone else's entry,
+  removal, system folders refused; the bundle's icon sizes; icon.ico's sizes).
 
 ## `--selftest`
 `kiln-launcher --selftest [--out report.json] [--keep]` runs before `tauri::Builder` (no window), in a temp folder:

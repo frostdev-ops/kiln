@@ -2,6 +2,10 @@
 # SPDX-License-Identifier: MIT
 # Renders the Kiln mod manager to PNGs without the game (tools/ui-preview/README.md).
 #   tools/ui-preview/preview.sh [--font TTF] [--no-game-font] [--scene NAME] [--size WxH --scale S]
+#                               [--language TAG --locales DIR]  (Kiln's texts in that language, e.g. zh-CN with a stub
+#                               translation in DIR; a Chinese, Japanese or Korean one reads the game's own font of that
+#                               language group with game_fonts.py, outside the tree)
+# (--no-game-font also leaves the game's colours out: the game look is then its neutral stand-in)
 # Output: $KILN_OUT/preview/*.png (KILN_OUT default: <repo>/.out). Builds the shim and the preview app first.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
@@ -9,7 +13,7 @@ repo=$(cd "$here/../.." && pwd)
 : "${KILN_OUT:=$repo/.out}"
 out=$KILN_OUT/preview
 mkdir -p "$out" "$KILN_OUT/ui-preview"
-font="" scene="" size="" scale=1 gamefont=1 checkz=0 checktext=0
+font="" scene="" size="" scale=1 gamefont=1 checkz=0 checktext=0 language="" locales=""
 while (($#)); do
   case $1 in
     --font) font=$2; shift 2 ;;
@@ -19,6 +23,8 @@ while (($#)); do
     --scale) scale=$2; shift 2 ;;
     --check-z) checkz=1; shift ;;
     --check-text) checktext=1; shift ;;
+    --language) language=$2; shift 2 ;;
+    --locales) locales=$2; shift 2 ;;
     *) echo "unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -41,6 +47,27 @@ if [[ -z $font && $gamefont == 1 ]]; then
   font=$(python3 -I "$here/game_font.py" "$KILN_OUT/ui-preview/game-ui-font.ttf" 2>/dev/null || true)
   [[ -n $font ]] || echo "game font not found: the preview uses a system font" >&2
 fi
+# the game's UI colours (its UI bundle and the layout of the fields kiln.ui reads), the same way; else the neutral stand-in
+colors=()
+if [[ $gamefont == 1 ]]; then
+  mapfile -t colors < <(python3 -I "$here/game_colors.py" "$KILN_OUT/ui-preview/game-ui-bundle" 2>/dev/null || true)
+  ((${#colors[@]} == 2)) || { colors=(); echo "game colours not found: the game look is its neutral stand-in" >&2; }
+fi
+
+# a Chinese, Japanese or Korean language: the game's font resource and the files of its group (and the default group's)
+fontres=()
+case ${language,,} in
+  zh-tw|zh-hk|zh-mo|zh-hant*) lid=21 ;;
+  zh*) lid=20 ;;
+  ja*) lid=11 ;;
+  ko*) lid=13 ;;
+  *) lid=0 ;;
+esac
+if [[ $lid != 0 && $gamefont == 1 ]]; then
+  res=$(python3 -I "$here/game_fonts.py" "$KILN_OUT/ui-preview/game-fonts" --language "$lid" 2>/dev/null || true)
+  if [[ -n $res ]]; then fontres=(--font-resource "$res" --font-blobs "$KILN_OUT/ui-preview/game-fonts"); font=""
+  else echo "the game's fonts were not found: Kiln's texts stay English in the preview" >&2; fi
+fi
 
 dotnet build "$here/Kiln.Ui.Preview/Kiln.Ui.Preview.csproj" --artifacts-path "$KILN_OUT/dotnet" -v q -nologo | grep -E "error|Error" || true
 app=$KILN_OUT/dotnet/bin/Kiln.Ui.Preview/debug/Kiln.Ui.Preview.dll
@@ -52,6 +79,10 @@ for s in "${sizes[@]}"; do
   [[ -n $font ]] && args+=(--font "$font")
   bold=${font%.ttf}-bold.ttf  # game_font.py writes the game's bold face next to the regular one
   [[ -n $font && -f $bold ]] && args+=(--bold-font "$bold")
+  ((${#colors[@]} == 2)) && args+=(--game-colors "${colors[0]}" --game-layout "${colors[1]}")
   [[ -n $scene ]] && args+=(--scene "$scene")
+  [[ -n $language ]] && args+=(--language "$language")
+  [[ -n $locales ]] && args+=(--locales "$locales")
+  ((${#fontres[@]})) && args+=("${fontres[@]}")
   dotnet "$app" "${args[@]}"
 done

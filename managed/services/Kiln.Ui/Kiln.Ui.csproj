@@ -16,6 +16,11 @@
     <InternalsVisibleTo Include="Kiln.Contract.Tests" />
     <!-- Gems.AllowSockets widens the client's Gem Forge lists through GemForgeSockets.Widen -->
     <InternalsVisibleTo Include="Kiln.Abilities" />
+    <!-- Kiln's own key bindings follow the language of Kiln's texts (KeyBinding.Description and Category, internal set) -->
+    <InternalsVisibleTo Include="Kiln.Rules" />
+    <InternalsVisibleTo Include="Kiln.Skills" />
+    <InternalsVisibleTo Include="Kiln.Testing" />
+    <InternalsVisibleTo Include="Kiln.DevTools" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />

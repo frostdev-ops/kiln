@@ -42,6 +42,9 @@ pub struct AppInfo {
     /// next start for software mode (crate::render). Absent elsewhere.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub render: Option<crate::render::RenderInfo>,
+    /// Linux AppImage only: the app menu entry Kiln writes so taskbars show its icon (crate::desktop). Absent elsewhere.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub desktop: Option<crate::desktop::DesktopInfo>,
 }
 
 /// `<data>/settings.json`
@@ -89,6 +92,10 @@ pub struct LauncherSettings {
     /// for a roll back, with their settings (kiln_manage::kept); 0 keeps none, at most kiln_manage::kept::KEEP_MAX.
     #[serde(default = "one")]
     pub keep_versions: u32,
+    /// The launcher's language (Settings, Language; launcher/src/i18n): absent or "system" = the system's languages,
+    /// else a tag ("zh-CN"). Only the page reads it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
 }
 
 impl Default for LauncherSettings {
@@ -106,6 +113,7 @@ impl Default for LauncherSettings {
             mod_folder_notes: true,
             mod_updates_daily: false,
             keep_versions: kiln_manage::kept::KEEP_DEFAULT,
+            language: None,
         }
     }
 }
@@ -342,6 +350,7 @@ pub async fn app_info(app: AppHandle) -> Result<AppInfo, Error> {
         deck: crate::deck::detect::current(),
         distribution: crate::distribution::CURRENT,
         render: crate::render::info(),
+        desktop: crate::desktop::info(),
     })
 }
 
@@ -358,6 +367,13 @@ pub async fn app_started() -> Result<(), Error> {
 #[tauri::command]
 pub async fn app_render_set(software: bool) -> Result<crate::render::RenderInfo, Error> {
     crate::state::blocking(move || crate::render::set_next(software)).await
+}
+
+/// Settings, "Kiln Launcher in the app menu" (Linux AppImage): on writes the entry and icons (replacing a
+/// `kiln-launcher.desktop` Kiln did not write), off removes Kiln's; kept for the next starts. Elsewhere `unsupported`.
+#[tauri::command]
+pub async fn app_desktop_set(on: bool) -> Result<crate::desktop::DesktopInfo, Error> {
+    crate::state::blocking(move || crate::desktop::set(on)).await
 }
 
 #[tauri::command]
@@ -385,13 +401,94 @@ pub async fn app_settings_set(settings: LauncherSettings) -> Result<LauncherSett
     .await
 }
 
-#[tauri::command]
-pub async fn app_open_path(path: String) -> Result<(), Error> {
-    let p = std::path::PathBuf::from(&path);
-    if path.trim().is_empty() || !p.exists() {
-        return Err(Error::not_found(format!("{path} does not exist")));
+/// `app_locales`: translation files a player put in `<data>/locales/` (docs/kiln/translating.md), for the page to use
+/// beside the ones built in.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LocaleFiles {
+    /// The folder (it need not exist).
+    pub dir: String,
+    /// `<tag>.json` files as text, by name; the page parses them.
+    pub files: Vec<LocaleFile>,
+    /// Files left out, and why.
+    pub errors: Vec<LocaleFileError>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LocaleFile {
+    pub tag: String,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LocaleFileError {
+    pub file: String,
+    pub message: String,
+}
+
+/// A locale file larger than this is not read: texts, not data (as Kiln's mod locales).
+const LOCALE_MAX_BYTES: u64 = 1 << 20;
+/// At most this many files are read.
+const LOCALE_MAX_FILES: usize = 64;
+
+/// A language tag as a file name: "en", "zh-CN", "pt-BR", "es-419".
+fn locale_tag(name: &str) -> Option<&str> {
+    let tag = name.strip_suffix(".json")?;
+    let mut parts = tag.split('-');
+    let first = parts.next()?;
+    let ok = (2..=3).contains(&first.len()) && first.chars().all(|c| c.is_ascii_alphabetic())
+        && parts.all(|p| (2..=8).contains(&p.len()) && p.chars().all(|c| c.is_ascii_alphanumeric()));
+    ok.then_some(tag)
+}
+
+/// Reads `dir/<tag>.json` (sorted by name; other files are not looked at). A missing folder is no files.
+pub fn read_locales(dir: &std::path::Path) -> LocaleFiles {
+    let mut out = LocaleFiles { dir: dir.display().to_string(), ..Default::default() };
+    let Ok(rd) = std::fs::read_dir(dir) else { return out };
+    let mut names: Vec<String> = rd.filter_map(|e| e.ok()).filter_map(|e| e.file_name().into_string().ok()).filter(|n| n.ends_with(".json")).collect();
+    names.sort();
+    for name in names {
+        let Some(tag) = locale_tag(&name) else {
+            out.errors.push(LocaleFileError { file: name, message: "not named <language>.json (en.json, zh-CN.json)".into() });
+            continue;
+        };
+        if out.files.len() >= LOCALE_MAX_FILES {
+            out.errors.push(LocaleFileError { file: name, message: format!("more than {LOCALE_MAX_FILES} files") });
+            continue;
+        }
+        let path = dir.join(&name);
+        let meta = match std::fs::symlink_metadata(&path) {
+            Ok(m) if m.is_file() => m,
+            Ok(_) => continue,
+            Err(e) => {
+                out.errors.push(LocaleFileError { file: name, message: e.to_string() });
+                continue;
+            }
+        };
+        if meta.len() > LOCALE_MAX_BYTES {
+            out.errors.push(LocaleFileError { file: name, message: format!("larger than {} KB", LOCALE_MAX_BYTES / 1024) });
+            continue;
+        }
+        match std::fs::read_to_string(&path) {
+            Ok(text) => out.files.push(LocaleFile { tag: tag.to_string(), text }),
+            Err(e) => out.errors.push(LocaleFileError { file: name, message: e.to_string() }),
+        }
     }
-    crate::state::open_external(p.as_os_str())
+    out
+}
+
+#[tauri::command]
+pub async fn app_locales() -> Result<LocaleFiles, Error> {
+    crate::state::blocking(|| Ok(read_locales(&crate::state::dirs()?.root.join("locales")))).await
+}
+
+/// Opens a folder, or shows a file selected in its folder. `path` relative (a found mod's game-relative path) is under
+/// `base` (the game folder); a path that is gone opens its nearest existing parent folder (reveal.rs).
+#[tauri::command]
+pub async fn app_open_path(path: String, base: Option<String>) -> Result<(), Error> {
+    crate::reveal::open(base.as_deref(), &path)
 }
 
 #[tauri::command]
@@ -888,4 +985,41 @@ fn copy_assets_task(app: &AppHandle, kind: &str, from: std::path::PathBuf) -> Re
         }
         to_value(assets_status()?)
     }))
+}
+
+#[cfg(test)]
+mod locale_tests {
+    use super::*;
+
+    #[test]
+    fn locale_files_are_read_by_tag_and_bad_ones_named() {
+        let dir = std::env::temp_dir().join(format!("kiln-locales-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(read_locales(&dir).files, vec![], "a missing folder is no files");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("zh-CN.json"), r#"{"settings": {"title": "设置"}}"#).unwrap();
+        std::fs::write(dir.join("de.json"), "{}").unwrap();
+        std::fs::write(dir.join("notes.txt"), "x").unwrap();
+        std::fs::write(dir.join("Chinese.json"), "{}").unwrap();
+        std::fs::write(dir.join("ja.json"), vec![b' '; (LOCALE_MAX_BYTES + 1) as usize]).unwrap();
+        let got = read_locales(&dir);
+        assert_eq!(got.files.iter().map(|f| f.tag.as_str()).collect::<Vec<_>>(), ["de", "zh-CN"]);
+        assert!(got.files[1].text.contains("设置"));
+        let bad: Vec<&str> = got.errors.iter().map(|e| e.file.as_str()).collect();
+        assert_eq!(bad, ["Chinese.json", "ja.json"]);
+        assert_eq!(locale_tag("es-419.json"), Some("es-419"));
+        assert_eq!(locale_tag("pt-BR.json"), Some("pt-BR"));
+        assert_eq!(locale_tag("../x.json"), None);
+        assert_eq!(locale_tag("zh_CN.json"), None);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_language_setting_is_optional() {
+        let s: LauncherSettings = serde_json::from_str(r#"{"savesKeep": 3}"#).unwrap();
+        assert_eq!(s.language, None);
+        assert!(!serde_json::to_string(&s).unwrap().contains("language"));
+        let s: LauncherSettings = serde_json::from_str(r#"{"language": "zh-CN"}"#).unwrap();
+        assert_eq!(s.language.as_deref(), Some("zh-CN"));
+    }
 }

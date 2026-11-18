@@ -8,6 +8,7 @@ import type { LibraryRef, ModKind, Profile, ProfileSummary } from "../api/comman
 import { useProfiles } from "../api/hooks";
 import type { ModRow } from "./mods";
 import { forgetSelected } from "./selection";
+import { t } from "../i18n";
 
 export interface RemoveTarget {
   row: ModRow;
@@ -16,17 +17,17 @@ export interface RemoveTarget {
 }
 
 /** The Library versions a removal takes out. */
-export function refsOf(t: RemoveTarget | null): LibraryRef[] {
-  const lib = t?.row.lib;
-  if (!t || !lib) return [];
-  return lib.versions.filter((v) => t.version === null || v.version === t.version).map((v) => ({ kind: lib.kind, id: lib.id, version: v.version, hash: v.hash }));
+export function refsOf(target: RemoveTarget | null): LibraryRef[] {
+  const lib = target?.row.lib;
+  if (!target || !lib) return [];
+  return lib.versions.filter((v) => target.version === null || v.version === target.version).map((v) => ({ kind: lib.kind, id: lib.id, version: v.version, hash: v.hash }));
 }
 
 /** "work" or "work (active in Enshrouded)" from library_users, with the profile's name. */
 export function userLabel(u: string, profiles: ProfileSummary[] | undefined): string {
   const name = (id: string) => profiles?.find((p) => p.id === id)?.name ?? id;
   const m = /^(.*) \((active|play-once) in (.*)\)$/.exec(u);
-  return m ? `${name(m[1])} (${m[2] === "active" ? "loaded" : m[2]} in ${m[3]})` : name(u);
+  return m ? (m[2] === "active" ? t("shell.removeMod.userLoaded", { name: name(m[1]), game: m[3] }) : t("shell.removeMod.userPlayOnce", { name: name(m[1]), game: m[3] })) : name(u);
 }
 
 /** The other profiles (and games) that list `users`, named: the loaded profile is left out, the removal takes the mod
@@ -37,33 +38,33 @@ export function othersOf(users: string[], loadedId: string | null, profiles: Pro
 
 /** What uses the versions (library_users of each), and the sentence for the confirmation. The loaded profile is not
  *  named: the removal takes the mod out of it first. */
-export function useRemoveCheck(t: RemoveTarget | null, loadedId: string | null) {
+export function useRemoveCheck(target: RemoveTarget | null, loadedId: string | null) {
   const profiles = useProfiles();
-  const refs = refsOf(t);
+  const refs = refsOf(target);
   const users = useQuery({
     queryKey: ["library_users", refs], enabled: refs.length > 0, staleTime: 0, gcTime: 0, retry: 1,
     queryFn: async () => Promise.all(refs.map(async (r) => ({ ref: r, users: await api.libraryUsers(r) }))),
   });
   const others = othersOf((users.data ?? []).flatMap((u) => u.users), loadedId, profiles.data);
-  const message = !t ? "" : !t.row.lib ? "Its files are gone from the Library already; it leaves your list."
-    : users.isError ? `Kiln could not check what else uses it (${api.toKilnError(users.error).message}). Remove stops if something does.`
-    : !users.data ? "Checking what uses it."
-    : others.length ? `Its files leave the Library. ${others.join(", ")} ${others.length === 1 ? "lists" : "list"} it too and will show it as missing.`
-    : "Its files leave the Library.";
-  return { users, message, ready: !t?.row.lib || !!users.data || users.isError };
+  const message = !target ? "" : !target.row.lib ? t("shell.removeMod.goneAlready")
+    : users.isError ? t("shell.removeMod.checkFailed", { error: api.toKilnError(users.error).message })
+    : !users.data ? t("shell.removeMod.checking")
+    : others.length ? t("shell.removeMod.leavesListed", { others: others.join(", "), count: others.length })
+    : t("shell.removeMod.leaves");
+  return { users, message, ready: !target?.row.lib || !!users.data || users.isError };
 }
 
 /** Takes the mod out of the loaded profile (`dropFromProfile` resolves once that is saved), then removes the versions,
  *  each past the users the confirmation saw. Throws the first failure (the caller toasts it). */
-export async function removeMod(qc: QueryClient, t: RemoveTarget, shown: { ref: LibraryRef; users: string[] }[] | undefined,
+export async function removeMod(qc: QueryClient, target: RemoveTarget, shown: { ref: LibraryRef; users: string[] }[] | undefined,
   dropFromProfile: () => Promise<boolean>): Promise<void> {
-  const whole = t.version === null || (t.row.entry?.version === t.version);
-  if (t.row.entry && whole) {
-    if (!(await dropFromProfile())) throw { code: "conflict", message: "Your mod list could not be saved; nothing was removed." } satisfies api.KilnError;
+  const whole = target.version === null || (target.row.entry?.version === target.version);
+  if (target.row.entry && whole) {
+    if (!(await dropFromProfile())) throw { code: "conflict", message: t("shell.removeMod.notSaved") } satisfies api.KilnError;
   }
   try {
-    for (const r of refsOf(t)) await api.libraryRemove(r, false, shown?.find((s) => s.ref.version === r.version)?.users ?? []);
-    if (t.version === null) forgetSelected([t.row.key]); // the whole mod is gone: so is its place in a selection
+    for (const r of refsOf(target)) await api.libraryRemove(r, false, shown?.find((s) => s.ref.version === r.version)?.users ?? []);
+    if (target.version === null) forgetSelected([target.row.key]); // the whole mod is gone: so is its place in a selection
   } finally {
     void qc.invalidateQueries({ queryKey: ["library_list"] });
     void qc.invalidateQueries({ queryKey: ["found_scan"] });
@@ -77,7 +78,8 @@ export async function removeMod(qc: QueryClient, t: RemoveTarget, shown: { ref: 
 export function removable(r: ModRow): boolean {
   return !r.found && (!!r.lib || !!r.entry);
 }
-export const NOT_REMOVABLE = "in the game folder, Kiln did not place it: remove it there";
+/** Why a game-folder mod is not removed, in the current language. */
+export const notRemovableText = () => t("shell.removeMod.notRemovable");
 
 /** The loaded profile without the rows' entries: one edit, one save. */
 export function withoutRows(p: Profile, rows: ModRow[]): void {
@@ -102,20 +104,20 @@ export function useRemoveMany(rows: ModRow[], loadedId: string | null, enabled: 
   const profiles = useProfiles();
   const targets = rows.map((row) => ({ row, refs: refsOf({ row, version: null }) }));
   const qs = useQueries({
-    queries: targets.map((t) => ({
-      queryKey: ["library_users", t.refs], enabled: enabled && t.refs.length > 0, staleTime: 0, gcTime: 0, retry: 1,
-      queryFn: async () => Promise.all(t.refs.map(async (r) => ({ ref: r, users: await api.libraryUsers(r) }))),
+    queries: targets.map((x) => ({
+      queryKey: ["library_users", x.refs], enabled: enabled && x.refs.length > 0, staleTime: 0, gcTime: 0, retry: 1,
+      queryFn: async () => Promise.all(x.refs.map(async (r) => ({ ref: r, users: await api.libraryUsers(r) }))),
     })),
   });
   const users = new Map<string, { ref: LibraryRef; users: string[] }[]>();
   const others = new Map<string, string[]>();
   let error: string | null = null;
-  targets.forEach((t, i) => {
+  targets.forEach((x, i) => {
     const q = qs[i];
-    if (q.data) { users.set(t.row.key, q.data); others.set(t.row.key, othersOf(q.data.flatMap((u) => u.users), loadedId, profiles.data)); }
+    if (q.data) { users.set(x.row.key, q.data); others.set(x.row.key, othersOf(q.data.flatMap((u) => u.users), loadedId, profiles.data)); }
     if (q.isError && !error) error = api.toKilnError(q.error).message;
   });
-  const ready = targets.every((t, i) => !t.refs.length || !!qs[i].data || qs[i].isError) && !qs.some((q) => q.isFetching);
+  const ready = targets.every((x, i) => !x.refs.length || !!qs[i].data || qs[i].isError) && !qs.some((q) => q.isFetching);
   return { users, others, ready, error };
 }
 
@@ -127,7 +129,7 @@ export interface ManyResult { removed: string[]; left: { name: string; why: stri
 export async function removeMany(qc: QueryClient, rows: ModRow[], shown: ManyCheck["users"], dropAll: () => Promise<boolean>): Promise<ManyResult> {
   const out: ManyResult = { removed: [], left: [] };
   if (rows.some((r) => r.entry) && !(await dropAll())) {
-    throw { code: "conflict", message: "Your mod list could not be saved; nothing was removed." } satisfies api.KilnError;
+    throw { code: "conflict", message: t("shell.removeMod.notSaved") } satisfies api.KilnError;
   }
   try {
     for (const r of rows) {

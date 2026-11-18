@@ -5,6 +5,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { isTauri } from "../api/commands";
+import { t } from "../i18n";
 
 /** The one base URL of the admin pages' local assets (layout: map/..., data/...):
  *  - VITE_KILN_ASSETS when set;
@@ -49,5 +50,5 @@ export function useCreatureCatalog() {
 }
 
 /** Turns Enemy_Wildlife_Wolf_T2 into "Wolf" */
-export const prettyTemplate = (t?: string | null) =>
-  t ? t.replace(/^(Base_)?(Enemy|Animal)_(Wildlife_|Wildbeast_)?/, "").replace(/_(T\d|AG2|Dungeon|Patrol)$/g, "").replace(/_/g, " ") : "Creature";
+export const prettyTemplate = (template?: string | null) =>
+  template ? template.replace(/^(Base_)?(Enemy|Animal)_(Wildlife_|Wildbeast_)?/, "").replace(/_(T\d|AG2|Dungeon|Patrol)$/g, "").replace(/_/g, " ") : t("admin.catalog.creature");

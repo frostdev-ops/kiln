@@ -206,6 +206,10 @@ internal static unsafe class ItemIcons
     /// kiln.assets with texture_rgba.</summary>
     public static bool Available => UiNative.ImageLoadRgbaSlot != null && ResourceStore.HasTextureRgba;
 
+    /// <summary>The pixels a trimmed icon drawn <paramref name="pixels"/> wide is read for: twice that, so the art, magnified
+    /// out of its margin, stays sharp (a 40 px trimmed icon reads the 128 level; the cache's limits are unchanged).</summary>
+    internal static float TrimmedPixels(float pixels) => pixels * 2;
+
     /// <summary>The image object a mod keeps for an item (one per item; drawing it asks the cache).</summary>
     public static UiImage? View(ItemId item)
     {

@@ -19,7 +19,7 @@ import * as nx from "../../api/nexus";
 import { useNexusAccount } from "../../shell/catalogInstall";
 import { runTask, toast } from "../../ui";
 import { DeckDataFolderRow } from "../DataFolder";
-import { OTHER_FOLDER_PROFILE } from "../../shell/dataFolderText";
+import { otherFolderProfile } from "../../shell/dataFolderText";
 import { ProfileDialog, QuitDialog } from "../dialogs";
 import { useGlyphPref, type GlyphPref } from "../glyphs";
 import { usePads } from "../input";
@@ -27,12 +27,30 @@ import { saveSettings, saveUiMode, switchUi } from "../mode";
 import { DeckButton, Dialog, Row, Screen, Word } from "../ui";
 import { FolderNotesList, useGameFolderNotes } from "../../components/FolderNotes";
 import { folderNotesCount } from "../../shell/notices";
+import { t, useT } from "../../i18n";
 
-const MODES: { id: UiMode; word: string }[] = [{ id: "auto", word: "Auto" }, { id: "deck", word: "Deck mode" }, { id: "desktop", word: "Desktop" }];
-const GLYPHS: { id: GlyphPref; word: string }[] = [{ id: "auto", word: "Auto" }, { id: "deck", word: "Steam Deck" }, { id: "xbox", word: "Xbox" }];
+const MODES: { id: UiMode }[] = [{ id: "auto" }, { id: "deck" }, { id: "desktop" }];
+const GLYPHS: { id: GlyphPref }[] = [{ id: "auto" }, { id: "deck" }, { id: "xbox" }];
+
+function modeWord(m: UiMode): string {
+  switch (m) {
+    case "auto": return t("deck.settings.auto");
+    case "deck": return t("deck.settings.deckMode");
+    case "desktop": return t("deck.settings.desktop");
+  }
+}
+
+function glyphWord(g: GlyphPref): string {
+  switch (g) {
+    case "auto": return t("deck.settings.auto");
+    case "deck": return t("deck.settings.glyphDeck");
+    case "xbox": return t("deck.settings.glyphXbox");
+  }
+}
 const next = <T,>(list: { id: T }[], cur: T) => list[(list.findIndex((x) => x.id === cur) + 1) % list.length].id;
 
 export default function Settings() {
+  const t = useT();
   const qc = useQueryClient();
   const nav = useNavigate();
   const info = useAppInfo();
@@ -45,7 +63,7 @@ export default function Settings() {
   const gameStatus = useGameStatus(game?.id);
   const active = useActiveProfile(game?.id);
   const list = useProfiles();
-  const loadedName = list.data?.find((p) => p.id === active.data?.profileId)?.name ?? (active.isSuccess ? "No profile" : "");
+  const loadedName = list.data?.find((p) => p.id === active.data?.profileId)?.name ?? (active.isSuccess ? t("deck.dialogs.noProfile") : "");
   const notes = useGameFolderNotes(game?.id);
   const noteCount = folderNotesCount(notes);
   const [notesOpen, setNotesOpen] = useState(false);
@@ -60,7 +78,7 @@ export default function Settings() {
     if (nexusBusy) return;
     setNexusBusy(true);
     try {
-      const account = nexusDisconnect ? await nx.nexusSignOut() : await runTask<nx.NexusAccount>(nx.nexusSignIn, { failed: "Not signed in" });
+      const account = nexusDisconnect ? await nx.nexusSignOut() : await runTask<nx.NexusAccount>(nx.nexusSignIn, { failed: t("deck.settings.notSignedIn") });
       qc.setQueryData(nx.nk.account, account);
       for (const queryKey of [["nexus_search"], ["nexus_mod"], nx.nk.installed]) qc.invalidateQueries({ queryKey });
     } catch (e) { if (nexusDisconnect) toast.error(e); }
@@ -83,7 +101,7 @@ export default function Settings() {
     try { qc.setQueryData(["update_status"], await api.updateCheck()); } catch (e) { toast.error(e); }
   };
   const install = async () => {
-    try { qc.setQueryData(["update_status"], await runTask<UpdateStatus>(() => api.updateInstall(), { failed: "Update failed" })); } catch { /* toasted */ }
+    try { qc.setQueryData(["update_status"], await runTask<UpdateStatus>(() => api.updateInstall(), { failed: t("deck.settings.updateFailed") })); } catch { /* toasted */ }
   };
   const restart = () => api.updateRestart().catch((e) => toast.error(e));
   const update = async () => {
@@ -95,12 +113,12 @@ export default function Settings() {
   };
   let upWord = "", upTone: "ok" | "warn" | "info" | "idle" | "ember" = "idle";
   if (u) {
-    if (u.ready) { upWord = `${buildLabel(u.ready.version)} ready`; upTone = "ok"; }
-    else if (u.phase === "downloading") { upWord = "Downloading"; upTone = "ember"; }
-    else if (u.phase === "checking") { upWord = "Checking"; upTone = "ember"; }
-    else if (u.available) { upWord = `${buildLabel(u.available.version)} available`; upTone = "info"; }
-    else if (u.phase === "failed") { upWord = "Check failed"; upTone = "warn"; }
-    else if (u.checked) { upWord = "Up to date"; upTone = "ok"; }
+    if (u.ready) { upWord = t("deck.settings.ready", { version: buildLabel(u.ready.version) }); upTone = "ok"; }
+    else if (u.phase === "downloading") { upWord = t("deck.settings.downloading"); upTone = "ember"; }
+    else if (u.phase === "checking") { upWord = t("deck.shared.checking"); upTone = "ember"; }
+    else if (u.available) { upWord = t("deck.settings.available", { version: buildLabel(u.available.version) }); upTone = "info"; }
+    else if (u.phase === "failed") { upWord = t("deck.settings.checkFailed"); upTone = "warn"; }
+    else if (u.checked) { upWord = t("deck.settings.upToDate"); upTone = "ok"; }
   }
   const pad = Object.values(pads.native)[0]?.name ?? pads.browser[0] ?? null;
   // the channel row: a test build goes back to the release; a release build to the beta (or, following the beta
@@ -113,74 +131,74 @@ export default function Settings() {
     else void saveSettings(qc, () => ({ updateChannel: channelTarget })).then(() => api.updateStatus().then((x) => qc.setQueryData(["update_status"], x)).catch(() => {}));
   };
   return (
-    <Screen name="settings" title="Settings">
+    <Screen name="settings" title={t("deck.app.tabs.settings")}>
       <div className="deck-list deck-scroll">
-        <Row id="set-desktop" title="Desktop UI" sub="Mouse and keyboard, every page" a="Switch" onClick={() => switchUi(nav, "desktop")} />
-        <Row id="set-start" title="Start in" a="Change" end={<Word tone="ember">{MODES.find((m) => m.id === mode)?.word}</Word>}
-          sub={mode === "auto" ? (d?.detected ? "Deck mode on this device" : "Desktop on this device") : undefined}
+        <Row id="set-desktop" title={t("deck.shared.desktopUi")} sub={t("deck.settings.desktopSub")} a={t("deck.settings.switch")} onClick={() => switchUi(nav, "desktop")} />
+        <Row id="set-start" title={t("deck.settings.startIn")} a={t("deck.shared.change")} end={<Word tone="ember">{modeWord(mode)}</Word>}
+          sub={mode === "auto" ? (d?.detected ? t("deck.settings.deckOnDevice") : t("deck.settings.desktopOnDevice")) : undefined}
           onClick={() => void saveUiMode(qc, (cur) => next(MODES, cur))} />
-        <Row id="set-fire" title="Animated fire" a="Change" sub={info.data?.noWebgl ? (info.data.render?.mode === "software" ? "Off: the launcher draws without the GPU" : "Off for this start: KILN_LAUNCHER_NO_WEBGL") : undefined}
+        <Row id="set-fire" title={t("deck.settings.fire")} a={t("deck.shared.change")} sub={info.data?.noWebgl ? (info.data.render?.mode === "software" ? t("deck.settings.fireSoftware") : t("deck.settings.fireNoWebgl")) : undefined}
           disabled={!!info.data?.noWebgl || !settings.data}
-          end={<Word tone="ember">{!info.data?.noWebgl && settings.data?.animatedFire !== false ? "On" : "Off"}</Word>}
+          end={<Word tone="ember">{!info.data?.noWebgl && settings.data?.animatedFire !== false ? t("deck.shared.on") : t("deck.shared.off")}</Word>}
           onClick={() => void saveSettings(qc, (cur) => ({ animatedFire: cur.animatedFire === false }))} />
-        <Row id="set-glyphs" title="Button glyphs" a="Change" end={<Word tone="ember">{GLYPHS.find((g) => g.id === glyph.pref)?.word}</Word>}
+        <Row id="set-glyphs" title={t("deck.settings.glyphs")} a={t("deck.shared.change")} end={<Word tone="ember">{GLYPHS.some((g) => g.id === glyph.pref) ? glyphWord(glyph.pref) : undefined}</Word>}
           onClick={() => glyph.set(next(GLYPHS, glyph.pref))} />
         {api.isTauri() && !d?.gamescope && (
-          <Row id="set-full" title="Fullscreen" a="Change" end={<Word tone="ember">{full === false ? "Off" : "On"}</Word>}
+          <Row id="set-full" title={t("deck.settings.fullscreen")} a={t("deck.shared.change")} end={<Word tone="ember">{full === false ? t("deck.shared.off") : t("deck.shared.on")}</Word>}
             onClick={() => api.deckFullscreen(full === false).then(setFull).catch((e) => toast.error(e))} />
         )}
         {selfUpdates && (
-          <Row id="set-update" title="Launcher updates" a={u?.ready ? "Restart" : u?.available && u.install.inPlace ? "Install" : "Check"}
-            sub={u ? `Kiln Launcher ${u.current}` : undefined} end={upWord ? <Word tone={upTone}>{upWord}</Word> : undefined}
+          <Row id="set-update" title={t("deck.settings.updates")} a={u?.ready ? t("deck.dataFolder.restart") : u?.available && u.install.inPlace ? t("common.install") : t("deck.settings.check")}
+            sub={u ? t("deck.settings.launcherVersion", { version: u.current }) : undefined} end={upWord ? <Word tone={upTone}>{upWord}</Word> : undefined}
             disabled={upBusy || u?.phase === "checking" || u?.phase === "downloading"}
             onClick={() => void update()} />
         )}
         {selfUpdates && u && (
-          <Row id="set-channel" title="Channel" a={onBeta ? "Switch back" : "Change"}
-            sub={onBeta ? `Test build ${u.beta ?? ""} of ${u.current}` : channelName(u.channel)}
-            end={<Word tone={onBeta ? "warn" : "ember"}>{onBeta ? `Beta ${u.beta ?? ""}` : channelWord(u.channel)}</Word>}
+          <Row id="set-channel" title={t("deck.settings.channel")} a={onBeta ? t("deck.settings.switchBack") : t("deck.shared.change")}
+            sub={onBeta ? t("deck.shared.testBuild", { beta: u.beta ?? "", current: u.current }) : channelName(u.channel)}
+            end={<Word tone={onBeta ? "warn" : "ember"}>{onBeta ? t("deck.shared.beta", { beta: u.beta ?? "" }) : channelWord(u.channel)}</Word>}
             disabled={upBusy || u.phase === "downloading"} onClick={changeChannel} />
         )}
         {dist === "nexus" && (
-          <Row id="set-versions" title="New versions" a="Open" sub={info.data ? `Kiln Launcher ${info.data.version}` : undefined}
+          <Row id="set-versions" title={t("deck.settings.newVersions")} a={t("common.open")} sub={info.data ? t("deck.settings.launcherVersion", { version: info.data.version }) : undefined}
             end={<Word tone="info">Nexus Mods</Word>} onClick={() => void api.appOpenUrl(NEXUS_PAGE).catch((e) => toast.error(e))} />
         )}
         {dist === "nexus" && (
-          <Row id="set-test-builds" title="Test builds" a="Open" sub="A launcher from the download page can switch to them"
-            end={<Word tone="info">Download page</Word>} onClick={() => void api.appOpenUrl(DIRECT_DOWNLOAD_PAGE).catch((e) => toast.error(e))} />
+          <Row id="set-test-builds" title={t("deck.settings.testBuilds")} a={t("common.open")} sub={t("deck.settings.testBuildsSub")}
+            end={<Word tone="info">{t("deck.settings.downloadPage")}</Word>} onClick={() => void api.appOpenUrl(DIRECT_DOWNLOAD_PAGE).catch((e) => toast.error(e))} />
         )}
-        {nexusEnabled && <Row id="set-nexus" title="Nexus Mods" a={nexusDisconnect ? "Sign out" : "Sign in"}
+        {nexusEnabled && <Row id="set-nexus" title="Nexus Mods" a={nexusDisconnect ? t("deck.settings.signOut") : t("deck.settings.signIn")}
           disabled={nexusBusy || !nexus.data || (!nexus.data.configured && !nexusDisconnect)}
-          sub={nexus.data?.error?.message ?? (nexus.data?.configured === false ? "Sign-in is not available in this build." : undefined)}
-          end={<Word tone={nexus.data?.signedIn ? "ok" : "idle"}>{nexus.data?.signedIn ? nexus.data.name ?? "Signed in" : "Not signed in"}</Word>}
+          sub={nexus.data?.error?.message ?? (nexus.data?.configured === false ? t("deck.settings.signInUnavailable") : undefined)}
+          end={<Word tone={nexus.data?.signedIn ? "ok" : "idle"}>{nexus.data?.signedIn ? nexus.data.name ?? t("deck.settings.signedIn") : t("deck.settings.notSignedIn")}</Word>}
           onClick={() => void nexusAccount()} />}
         {game && gameStatus.data?.runtime.installed && (
-          <Row id="set-profile" title="Profile" a="Change"
-            sub={gameStatus.data?.otherFolderProfile ? OTHER_FOLDER_PROFILE : "A saved set of mods and their switches; Mods shows the loaded one"}
-            end={gameStatus.data?.otherFolderProfile ? <Word tone="warn">Other folder</Word> : <Word tone="ember">{loadedName}</Word>} onClick={() => setProfiles(true)} />
+          <Row id="set-profile" title={t("deck.dialogs.profile")} a={t("deck.shared.change")}
+            sub={gameStatus.data?.otherFolderProfile ? otherFolderProfile() : t("deck.settings.profileSub")}
+            end={gameStatus.data?.otherFolderProfile ? <Word tone="warn">{t("deck.settings.otherFolder")}</Word> : <Word tone="ember">{loadedName}</Word>} onClick={() => setProfiles(true)} />
         )}
-        <Row id="set-notes-switch" title="Notes about mod folders" a="Change" disabled={!settings.data}
-          sub="Each note shows once when it is new. Off: only a folder that may still run a mod you switched off"
-          end={<Word tone="ember">{settings.data?.modFolderNotes !== false ? "On" : "Off"}</Word>}
+        <Row id="set-notes-switch" title={t("deck.settings.notesSwitch")} a={t("deck.shared.change")} disabled={!settings.data}
+          sub={t("deck.settings.notesSwitchSub")}
+          end={<Word tone="ember">{settings.data?.modFolderNotes !== false ? t("deck.shared.on") : t("deck.shared.off")}</Word>}
           onClick={() => void saveSettings(qc, (cur) => ({ modFolderNotes: cur.modFolderNotes === false }))} />
         {game && (
-          <Row id="set-notes" title="Mod notes" a="Read" disabled={!noteCount} sub="What Kiln last said about your mod folders"
+          <Row id="set-notes" title={t("deck.settings.modNotes")} a={t("deck.shared.read")} disabled={!noteCount} sub={t("deck.settings.modNotesSub")}
             end={<Word tone={noteCount ? "info" : "idle"}>{String(noteCount)}</Word>} onClick={() => setNotesOpen(true)} />
         )}
         <DeckDataFolderRow />
-        <Row id="set-quit" title="Quit" a="Quit" onClick={() => setQuit(true)} />
+        <Row id="set-quit" title={t("deck.dialogs.quit")} a={t("deck.dialogs.quit")} onClick={() => setQuit(true)} />
       </div>
       <p className="deck-foot-note" data-testid="deck-detection">
-        {info.data ? `Launcher ${info.data.version} · Kiln ${info.data.kiln}` : ""}
-        {d ? ` · ${d.forced ? `--${d.forced}` : d.detected ? d.signals.join(", ") : "no Steam Deck found"}` : ""}
+        {info.data ? t("deck.settings.footVersions", { launcher: info.data.version, kiln: info.data.kiln }) : ""}
+        {d ? ` · ${d.forced ? `--${d.forced}` : d.detected ? d.signals.join(", ") : t("deck.settings.noDeckFound")}` : ""}
         {pad ? ` · ${pad}` : ""}
       </p>
       {quit && <QuitDialog onClose={() => setQuit(false)} />}
       {switchTo && u && switchKind(u, switchTo) && <DeckSwitchDialog s={u} target={switchTo} onClose={() => setSwitchTo(null)} />}
       {profiles && game && <ProfileDialog game={game} onClose={() => setProfiles(false)} />}
       {notesOpen && (
-        <Dialog name="folder-notes" title="Notes about your mod folders" wide onClose={() => setNotesOpen(false)} backLabel="Close"
-          buttons={<DeckButton primary onClick={() => setNotesOpen(false)}>OK</DeckButton>}>
+        <Dialog name="folder-notes" title={t("deck.settings.notesTitle")} wide onClose={() => setNotesOpen(false)} backLabel={t("common.close")}
+          buttons={<DeckButton primary onClick={() => setNotesOpen(false)}>{t("common.ok")}</DeckButton>}>
           <div className="deck-scroll" style={{ overflowWrap: "anywhere" }}><FolderNotesList notes={notes} /></div>
         </Dialog>
       )}
@@ -191,6 +209,7 @@ export default function Settings() {
 /** (dev.29) A channel switch on the Deck: what happens (worlds, multiplayer), the build installed now, Restart now. A
  *  switch back with a "before beta" copy offers to put the profiles and settings from before the beta back. */
 function DeckSwitchDialog({ s, target, onClose }: { s: UpdateStatus; target: UpdateChannel; onClose: () => void }) {
+  const t = useT();
   const qc = useQueryClient();
   const kind = switchKind(s, target)!;
   const w = switchWords(kind, s.ready?.version);
@@ -207,19 +226,19 @@ function DeckSwitchDialog({ s, target, onClose }: { s: UpdateStatus; target: Upd
   };
   const r = kind === "back" && s.beforeBeta && s.install.inPlace ? restoreWords(s.beforeBeta.taken) : null;
   const buttons = ready
-    ? <><DeckButton primary onClick={() => api.updateRestart().catch((e) => toast.error(e))}>Restart now</DeckButton><DeckButton onClick={onClose}>Later</DeckButton></>
+    ? <><DeckButton primary onClick={() => api.updateRestart().catch((e) => toast.error(e))}>{t("deck.settings.restartNow")}</DeckButton><DeckButton onClick={onClose}>{t("deck.settings.later")}</DeckButton></>
     : <>
-      <DeckButton primary disabled={downloading || s.phase === "ready"} onClick={() => void go(false)}>{s.install.inPlace ? w.confirm : "Open the download page"}</DeckButton>
-      {r && <DeckButton disabled={downloading || s.phase === "ready"} onClick={() => void go(true)}>Switch back, put back my setup</DeckButton>}
+      <DeckButton primary disabled={downloading || s.phase === "ready"} onClick={() => void go(false)}>{s.install.inPlace ? w.confirm : t("deck.settings.openDownloadPage")}</DeckButton>
+      {r && <DeckButton disabled={downloading || s.phase === "ready"} onClick={() => void go(true)}>{t("deck.settings.switchBackRestore")}</DeckButton>}
     </>;
   return (
-    <Dialog name="channel-switch" title={ready ? `Ready: ${buildLabel(s.ready!.version)}` : w.title} wide onClose={onClose} locked={downloading} buttons={buttons}>
+    <Dialog name="channel-switch" title={ready ? t("deck.settings.readyTitle", { version: buildLabel(s.ready!.version) }) : w.title} wide onClose={onClose} locked={downloading} buttons={buttons}>
       <div className="deck-scroll" data-testid={`deck-switch-${kind}`}>
-        {ready && <p>{acceptedRestore(s) ? "Your profiles and settings from before the beta go back before the restart." : "Your current profiles and settings stay."}</p>}
-        {!!s.beforeBetaWarning?.length && <p>No complete copy from before the beta: {s.beforeBetaWarning.join("; ")}</p>}
+        {ready && <p>{acceptedRestore(s) ? t("deck.settings.restoreGoes") : t("deck.settings.settingsStay")}</p>}
+        {!!s.beforeBetaWarning?.length && <p>{t("deck.settings.noCopy", { warnings: s.beforeBetaWarning.join("; ") })}</p>}
         {w.say.map((line) => <p key={line}>{line}</p>)}
         {!ready && r && <p className="deck-note">{r.hint}</p>}
-        {downloading && <p className="deck-note">Downloading…</p>}
+        {downloading && <p className="deck-note">{t("deck.settings.downloadingDots")}</p>}
       </div>
     </Dialog>
   );

@@ -517,40 +517,42 @@ internal static class ShroudForgePackages
         };
         if (!same)
             return s.Type == "integer" && kind == "number"
-                ? $"{s.Label} takes a whole number"
-                : $"{s.Label} takes a {Kind(s.Type)}, not a {Kind(kind)}";
+                ? KilnText.T("shroudforge.check.whole", ("setting", s.Label))
+                : KilnText.T("shroudforge.check.type", ("setting", s.Label), ("type", Kind(s.Type)), ("given", Kind(kind)));
         // Without a first member ShroudForge retypes every option as text. Keep numeric/boolean lists typed, rather
         // than silently turning the next selection into strings (an already textual list may be cleared).
         if (value is JsonArray { Count: 0 } && ElementType(s.Type, s.Value) != "string")
-            return $"{s.Label} must keep at least one choice so ShroudForge keeps its option type";
+            return KilnText.T("shroudforge.check.keep_one", ("setting", s.Label));
         // JSON has no NaN or infinity (the writer would put null there, and the file would no longer load)
         foreach (var n in value is JsonArray items ? items.ToArray() : new[] { value })
             if (n is JsonValue nv && nv.GetValueKind() == JsonValueKind.Number && NumberOf(nv) is { } f && !double.IsFinite(f))
-                return $"{s.Label} takes a finite number";
+                return KilnText.T("shroudforge.check.finite", ("setting", s.Label));
         // ShroudForge types a list by its first member: a choice without a value (null) there would make it read the
         // list as text and refuse the mod (kiln-manage check_value)
         if (value is JsonArray list && list.Count > 0 && list[0] is null)
-            return $"{s.Label}: \"{s.Options.FirstOrDefault(o => o.Value is null)?.Label ?? "a choice without a value"}\" cannot come first in this list " +
-                   "(it has no value, and ShroudForge would refuse the mod)";
+            return KilnText.T("shroudforge.check.null_first", ("setting", s.Label),
+                ("choice", s.Options.FirstOrDefault(o => o.Value is null)?.Label ?? KilnText.T("shroudforge.check.no_value_choice")));
         if (value is JsonValue sv && sv.GetValueKind() == JsonValueKind.String)
         {
             var text = sv.GetValue<string>();
             if (s.Control == "keybind" && !ValidShortcut(text))
-                return $"{s.Label}: use an SDL shortcut such as Ctrl+SDL:66 or Mouse:4 (empty disables it; modifier order Ctrl, Alt, Shift, Meta)";
+                return KilnText.T("shroudforge.check.shortcut", ("setting", s.Label));
             var n = text.EnumerateRunes().Count();
             if ((s.MinLength is { } lo && n < lo) || (s.MaxLength is { } hi && n > hi))
-                return $"{s.Label} must be {s.MinLength ?? 0} to {s.MaxLength?.ToString(CultureInfo.InvariantCulture) ?? "any number of"} characters long";
+                return s.MaxLength is { } max
+                    ? KilnText.T("shroudforge.check.length", ("setting", s.Label), ("min", s.MinLength ?? 0), ("max", max))
+                    : KilnText.T("shroudforge.check.length_min", ("setting", s.Label), ("min", s.MinLength ?? 0));
         }
         if (NumberOf(value) is { } d)
         {
             if ((s.Min is { } lo && d < lo) || (s.Max is { } hi && d > hi))
-                return $"{s.Label} must be between {Show(s.Min)} and {Show(s.Max)}";
+                return KilnText.T("shroudforge.check.range", ("setting", s.Label), ("min", Show(s.Min)), ("max", Show(s.Max)));
         }
         if (s.Options.Count > 0)
         {
             bool Known(JsonNode? v) => s.Options.Any(o => SameValue(o.Value, v));
             var all = value is JsonArray arr ? arr.All(Known) : Known(value);
-            if (!all) return $"{s.Label}: not one of {string.Join(", ", s.Options.Select(o => o.Label))}";
+            if (!all) return KilnText.T("shroudforge.check.not_option", ("setting", s.Label), ("options", string.Join(", ", s.Options.Select(o => o.Label))));
         }
         return null;
     }
@@ -595,7 +597,7 @@ internal static class ShroudForgePackages
 
     private static string Kind(string? t) => t switch
     {
-        "boolean" => "yes/no value", "integer" => "whole number", "number" => "number", "array" => "list", "string" => "text", _ => "value",
+        "boolean" or "integer" or "number" or "array" or "string" => KilnText.T("shroudforge.kind." + t), _ => KilnText.T("shroudforge.kind.value"),
     };
 
     internal static string Show(double? d) => d is { } v ? v.ToString("0.####", CultureInfo.InvariantCulture) : "";

@@ -8,6 +8,7 @@ import * as api from "../api/commands";
 import type { EngineSettings, Json, ModKind, ProfileId, SchemaSnapshot, SnapshotEntry } from "../api/commands";
 import { KIND_NAME } from "../api/kinds";
 import { useActiveProfile, useGameStatus } from "../api/hooks";
+import { t, useT } from "../i18n";
 import { Banner, Button, EmptyState, Field, Modal, SchemaForm, Skeleton, TextArea, TextInput, Toggle, errorText, toast } from "../ui";
 import { OwnFolderRow, useOwnFolders } from "./OwnFolders";
 
@@ -16,14 +17,14 @@ const isObj = (v: unknown): v is Obj => !!v && typeof v === "object" && !Array.i
 
 /** One SchemaForm entry type for a JSON Schema property (`value`: the current value, for untyped properties). */
 function entryType(p: Obj, value: Json | undefined): string {
-  const t = typeof p.type === "string" ? p.type : value === undefined || value === null ? "string" : Array.isArray(value) ? "array"
+  const ty = typeof p.type === "string" ? p.type : value === undefined || value === null ? "string" : Array.isArray(value) ? "array"
     : typeof value === "boolean" ? "boolean" : typeof value === "number" ? (Number.isInteger(value) ? "integer" : "number") : "string";
   // SchemaForm's enum control emits strings. Numeric SF options must stay numbers for the engine's validator.
-  if (Array.isArray(p.enum) && t !== "integer" && t !== "number") return "enum";
-  if (t === "boolean") return "bool";
-  if (t === "integer") return "int";
-  if (t === "number") return "float";
-  if (t === "array") {
+  if (Array.isArray(p.enum) && ty !== "integer" && ty !== "number") return "enum";
+  if (ty === "boolean") return "bool";
+  if (ty === "integer") return "int";
+  if (ty === "number") return "float";
+  if (ty === "array") {
     const it = isObj(p.items) ? p.items : {};
     return `list<${it.type === "integer" ? "int" : it.type === "number" ? "float" : it.type === "boolean" ? "bool" : "string"}>`;
   }
@@ -98,7 +99,7 @@ function LiteralSetting({ entry, parts, value, disabled, onChange }: {
     try {
       const next: Json = string ? text : JSON.parse(text);
       if (JSON.stringify(next) !== JSON.stringify(value)) onChange(next);
-    } catch { toast.error("Enter a valid JSON value.", "Not saved"); }
+    } catch { toast.error(t("engineSettings.invalidJson"), t("engineSettings.notSaved")); }
   };
   const label = parts.map((p) => JSON.stringify(p)).join(" / ");
   return <Field label={label} hint={entry.comment ?? undefined}>
@@ -112,6 +113,7 @@ function LiteralSetting({ entry, parts, value, disabled, onChange }: {
 export const engineSettingsKey = (kind: ModKind, id: string, profileId: ProfileId, gameId: string | null) => ["engine_settings", kind, id, profileId, gameId] as const;
 
 export function EngineSettingsForm({ kind, id, profileId, gameId }: { kind: ModKind; id: string; profileId: ProfileId; gameId: string | null }) {
+  const t = useT();
   const qc = useQueryClient();
   const status = useGameStatus(gameId);
   const active = useActiveProfile(gameId);
@@ -122,21 +124,21 @@ export function EngineSettingsForm({ kind, id, profileId, gameId }: { kind: ModK
   const set = useMutation({
     mutationFn: ({ k, v }: { k: string; v: Json }) => api.engineSettingsSet(kind, id, profileId, gameId, k, v),
     onSuccess: (d) => qc.setQueryData(key, d),
-    onError: (e) => toast.error(e, "Not saved"),
+    onError: (e) => toast.error(e, t("engineSettings.notSaved")),
   });
   if (q.isLoading) return <Skeleton lines={4} />;
-  if (q.error) return <EmptyState title="The settings are not readable" hint={errorText(q.error)} />;
+  if (q.error) return <EmptyState title={t("engineSettings.unreadable")} hint={errorText(q.error)} />;
   const s = q.data!;
   const groups = s.format === "none" ? [] : settingsGroups(s);
-  const blocked = gameId && (!status.data || status.data.running) ? "Close the game before editing engine settings."
-    : kind === "shroudforge" && (!gameId || active.data?.profileId !== profileId) ? "Activate this profile in the selected game to edit ShroudForge settings." : null;
+  const blocked = gameId && (!status.data || status.data.running) ? t("engineSettings.closeGame")
+    : kind === "shroudforge" && (!gameId || active.data?.profileId !== profileId) ? t("engineSettings.activateProfile") : null;
   return (
     <div className="k-stack" style={{ gap: 14 }} data-engine-settings={`${kind}/${id}`}>
       {blocked && groups.length > 0 && <Banner tone="info" title={blocked} />}
-      {s.ownFolder && <span className="k-hint" data-own-folder="">This is your own folder, not a copy Kiln placed: Kiln changes only the setting you change here.</span>}
+      {s.ownFolder && <span className="k-hint" data-own-folder="">{t("engineSettings.ownFolder")}</span>}
       {s.ownFolder && own && gameId && <OwnFolderRow compact folder={own} profileId={profileId} gameId={gameId} />}
       {s.file && <span className="k-hint k-mono k-ellipsis" title={s.file}>{s.format}: {s.file}</span>}
-      {!groups.length ? <EmptyState title={s.note ? s.note.charAt(0).toUpperCase() + s.note.slice(1) + "." : "No settings."} /> : groups.map((g) => (
+      {!groups.length ? <EmptyState title={s.note ? s.note.charAt(0).toUpperCase() + s.note.slice(1) + "." : t("engineSettings.none")} /> : groups.map((g) => (
         <div key={g.title ?? "_"} className="k-stack" style={{ gap: 6 }}>
           {g.title && <span className="k-label" style={{ fontSize: 16 }}>{g.title}</span>}
           {g.paths.some((parts) => parts.some((p) => /[.\[\]]/.test(p))) ? g.schema.entries.map((entry, index) => {
@@ -156,11 +158,12 @@ export function EngineSettingsForm({ kind, id, profileId, gameId }: { kind: ModK
 export function EngineSettingsModal({ target, onClose, profileId, gameId }: {
   target: { kind: ModKind; id: string; name: string } | null; onClose: () => void; profileId: ProfileId; gameId: string | null;
 }) {
+  const t = useT();
   return (
-    <Modal open={!!target} onClose={onClose} title={target ? `${target.name} settings` : "Settings"} width={640} footer={<Button onClick={onClose}>Done</Button>}>
+    <Modal open={!!target} onClose={onClose} title={target ? t("engineSettings.titleOf", { name: target.name }) : t("engineSettings.title")} width={640} footer={<Button onClick={onClose}>{t("common.done")}</Button>}>
       {target && (
         <>
-          <span className="k-hint">{KIND_NAME[target.kind]} mod. Changes are written right away; the game reads them at its next start.</span>
+          <span className="k-hint">{t("engineSettings.modalHint", { kind: KIND_NAME[target.kind] })}</span>
           <EngineSettingsForm kind={target.kind} id={target.id} profileId={profileId} gameId={gameId} />
         </>
       )}

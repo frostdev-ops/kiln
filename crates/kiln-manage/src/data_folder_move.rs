@@ -2006,6 +2006,8 @@ pub fn move_to(
             Ok(_) => {
                 activated.push(g.id.clone());
                 note(format!("installs/{}.active.json", g.id));
+                // copy mode: the record of the game's config copy (profile::config_sync_record)
+                note(format!("profiles/{pid}/config-sync/{}.json", g.id));
                 let mut cfg = Vec::new();
                 walk_files(&new_dirs.profile(pid).join("config"), &format!("profiles/{pid}/config"), &mut cfg);
                 for rel in cfg {

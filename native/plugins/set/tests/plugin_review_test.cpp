@@ -128,6 +128,9 @@ int main(int argc, char** argv) {
     api.log = [](KilnOwner, int32_t, KilnStr text) { fileLines.emplace_back(text.ptr, text.len); };
     api.server_world = []() -> uintptr_t { return 1; };
     g_api = &api;
+    // The checks below expect a re-check's result on the frame or step that starts it: looks run inline here. The
+    // threaded look (production) has its own case at the end.
+    g_look.run_inline = true;
     if (argc == 3) return loader_lock_check(std::string(argv[2]) == "plugin-lock");
     // Tool debug and LV_LOG diagnostics are file-only; ordinary SET output still reaches the private console.
     ui_sink("tool diagnostics"); sink(LV_LOG "file only"); sink(LV_WARN "warning"); sink("plain");
@@ -636,6 +639,136 @@ int main(int argc, char** argv) {
         check(g_running && lines("; 4 loaded modules read from the loader list, no SET runtime") == 1, "the startup line has the module count");
         on_unload(nullptr);
         g_running = false; g_initialized = false;
+    }
+    {  // Windows' and the drivers' own files are not opened or read for SET's name (coexist.h windows_folder): at the
+       // first frames a graphics driver loads ~400 MB of DLLs from System32\DriverStore (inbox 50, an HDD player).
+        std::filesystem::create_directories(root / "Windows/System32/DriverStore/FileRepository/nv_dispi");
+        std::filesystem::create_directories(root / "Windows2");
+        const auto driver = root / "Windows/System32/DriverStore/FileRepository/nv_dispi/nvoglv64.dll";
+        std::ofstream(driver) << "a driver DLL whose bytes happen to read Shrouded Engine Tweaks";
+        std::ofstream(root / "Windows2/branded.dll") << "Shrouded Engine Tweaks";
+        loader_test::modules = clean;
+        loader_test::modules.push_back(driver.wstring());
+        loader_test::windows.clear();
+        check(!set_in_process().empty(), "without a Windows folder, a driver's DLL is read like any other module");
+        loader_test::windows = (root / "Windows").wstring();
+        check(set_in_process().empty(), "a module below the Windows folder is not read");
+        loader_test::windows = (root / "Windows").wstring() + L"/";
+        check(set_in_process().empty(), "...with or without the folder's trailing separator");
+        loader_test::modules.back() = (root / "Windows2/branded.dll").wstring();
+        check(set_in_process().find("SET-branded") != std::string::npos,
+              "...and a folder whose name only starts like the Windows folder's is read");
+        check(kset::folded_path(L"\\\\?\\C:/Windows/System32") == L"c:\\windows\\system32",
+              "folded paths: no \\\\?\\ prefix, backslashes, lower case");
+        loader_test::windows.clear();
+        loader_test::modules = clean;
+    }
+    {  // The re-check after a DLL load runs on kiln-set's own thread (kset::LookWorker): a look that takes seconds (a
+       // hard disk reading a newly loaded module whole) never holds up the UI frame or the server step; what it saw is
+       // applied on the next frame or step after it finished (inbox 50: the window stood 9.4 s in such a read).
+        loader_test::modules = clean;
+        g_look.run_inline = false;
+        check(g_modules.arm(), "threaded look: the DLL-load watch is armed, as after on_ready");
+        g_running = true;
+        g_gate.reset();
+        std::mutex mu;
+        std::condition_variable cv;
+        bool walking = false, release = false;
+        loader_test::on_walk = [&] {  // the look, stuck in its module reads until released
+            std::unique_lock lock(mu);
+            walking = true;
+            cv.notify_all();
+            cv.wait(lock, [&] { return release; });
+        };
+        const int before = shutdowns, ticked = ticks, framed = frames;
+        loader_test::dll_loaded();
+        frames_and_steps(1, 0);  // the frame after the load starts the look
+        {
+            std::unique_lock lock(mu);
+            check(cv.wait_for(lock, std::chrono::seconds(10), [&] { return walking; }), "the look runs on a thread of its own");
+        }
+        frames_and_steps(100, 0);  // the game goes on while the look reads
+        check(g_running && ticks == ticked + 101 && frames == framed + 101 && g_look.running() && !g_look.finished(),
+              "...and 100 frames and steps run while it is still reading");
+        loader_test::modules.push_back((root / "relocated/powrprof.dll").wstring());  // what this look finds: SET's proxy
+        {
+            std::lock_guard lock(mu);
+            release = true;
+        }
+        cv.notify_all();
+        g_look.wait();
+        loader_test::on_walk = {};
+        check(g_look.finished() && g_running && shutdowns == before, "a finished look waits for the next frame or step");
+        on_pre(nullptr, nullptr);
+        check(!g_running && shutdowns == before + 1 && ticks == ticked + 101 && g_aside.find("powrprof.dll") != std::string::npos,
+              "...which applies it: kiln-set steps aside, as the synchronous check did");
+        // A load while a look runs is not lost: it gets a look of its own once the running one is taken.
+        loader_test::modules = clean;
+        g_running = true;
+        g_gate.reset();
+        walking = release = false;
+        loader_test::on_walk = [&] {
+            std::unique_lock lock(mu);
+            walking = true;
+            cv.notify_all();
+            cv.wait(lock, [&] { return release; });
+        };
+        size_t walked = loader_test::walks;
+        loader_test::dll_loaded();
+        frames_and_steps(1, 0);
+        {
+            std::unique_lock lock(mu);
+            cv.wait_for(lock, std::chrono::seconds(10), [&] { return walking; });
+        }
+        loader_test::dll_loaded();  // a second load during the first look
+        frames_and_steps(5, 0);
+        check(g_look_wanted.load(), "a load during a running look keeps a look wanted");
+        {
+            std::lock_guard lock(mu);
+            release = true;
+        }
+        cv.notify_all();
+        g_look.wait();
+        loader_test::on_walk = {};
+        frames_and_steps(1, 0);  // takes the first look's result, then starts the second look
+        g_look.wait();
+        frames_and_steps(1, 0);  // takes the second
+        check(loader_test::walks == walked + 2 && !g_look_wanted.load() && !g_look.finished() && g_running,
+              "...and that look runs after the first, two walks for two loads");
+        // on_unload waits for a running look: nothing of kiln-set runs once it is unloaded.
+        walking = release = false;
+        loader_test::on_walk = [&] {
+            std::unique_lock lock(mu);
+            walking = true;
+            cv.notify_all();
+            cv.wait(lock, [&] { return release; });
+        };
+        loader_test::dll_loaded();
+        frames_and_steps(1, 0);
+        {
+            std::unique_lock lock(mu);
+            cv.wait_for(lock, std::chrono::seconds(10), [&] { return walking; });
+        }
+        std::atomic<bool> unloaded{false};
+        std::thread unloading([&] {
+            on_unload(nullptr);
+            unloaded = true;
+        });
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        const bool waited = !unloaded.load();
+        {
+            std::lock_guard lock(mu);
+            release = true;
+        }
+        cv.notify_all();
+        unloading.join();
+        loader_test::on_walk = {};
+        check(waited && unloaded && !g_look.running(), "on_unload waits for a running look");
+        (void)g_look.take();
+        g_look.run_inline = true;
+        g_running = false;
+        g_initialized = false;
+        loader_test::modules = clean;
     }
     check(failures == 0, "all edge cases");
     if (failures) return 1;

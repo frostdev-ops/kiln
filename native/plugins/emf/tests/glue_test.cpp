@@ -1058,12 +1058,13 @@ static void test_v46() {
     bb.size = sizeof bb;
     bb.flags = EMF_BREAK_INSTANT | EMF_BREAK_DROPS;
     bb.x = 1, bb.y = 2, bb.z = 3, bb.radius = 2, bb.height = 1;
-    CHECK(t.break_blocks(w, &bb, break_cb, nullptr) == 0 && bb.why == not_yet);
+    // EMF's own text, which mods compare (Night Raids 1.2.1: no wall search, raiders go for doors; GitHub #43)
+    CHECK(t.break_blocks(w, &bb, break_cb, nullptr) == 0 && bb.why == std::string("not available on this game version"));
     // v45: the flag for the world's own blocks gets the same answer
     bb = {};
     bb.size = sizeof bb;
     bb.flags = EMF_BREAK_WORLD;
-    CHECK(t.break_blocks(w, &bb, nullptr, nullptr) == 0 && bb.why == not_yet);
+    CHECK(t.break_blocks(w, &bb, nullptr, nullptr) == 0 && bb.why == std::string("not available on this game version"));
     EmfBlockInfo info{};
     info.size = sizeof info;
     info.kind = 77;

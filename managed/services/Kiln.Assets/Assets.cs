@@ -73,6 +73,16 @@ public static unsafe partial class Assets
         }
     }
 
+    // The table with blob_read_resident (0.2.0-dev.29.15), or null on an older kiln.assets; as TEx, no lookup of its own.
+    internal static AssetsNative.TableResident* TRes
+    {
+        get
+        {
+            var t = T;
+            return t != null && t->Header.Size >= (uint)sizeof(AssetsNative.TableResident) ? (AssetsNative.TableResident*)t : null;
+        }
+    }
+
     /// <summary>True when kiln.assets is loaded and its hooks are on (a verified build or policy "any"; capability
     /// <c>kiln.assets</c>).</summary>
     public static bool Available => T != null;

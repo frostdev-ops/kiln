@@ -7,8 +7,10 @@
  * the game window's own input records for native plugins (subscribe_window_input); v6 appends the mods' entries in the
  * game's menus; v7 appends subscribe_key_ex, key callbacks that also get mouse presses.
  *
- * The size-guarded tail after v7 appends set_next_window_size_constraints, menu_footer (0.2.0-dev.29.11) and
- * image_load_rgba, screen_target and image_state (0.2.0-dev.29.15).
+ * The size-guarded tail after v7 appends set_next_window_size_constraints, menu_footer (0.2.0-dev.29.11),
+ * image_load_rgba, screen_target and image_state (0.2.0-dev.29.15), and looks, themes and fonts (0.2.0-dev.29.16:
+ * theme_create, theme_free, push_theme, set_look, look_info, font_load, font_free, push_font_handle; then image_ex and
+ * image_opaque_rect: part of an image, trimmed item icons; then set_texts: Kiln's own texts in the player's language).
  *
  * How (docs/re/client-render.md):
  *  - The game loads vulkan-1.dll at run time and presents with vkQueuePresentKHR on queue family 0 (no static Vulkan
@@ -207,6 +209,21 @@ enum {
     KILN_UI_IMAGE_FAILED = 3,
 };
 
+/* image_ex (size-guarded tail, 0.2.0-dev.29.16): how an image is drawn */
+enum {
+    /* only the image's opaque bounds (image_opaque_rect: the pixels with alpha >= 16, found when it was loaded), not its
+     * transparent margin; the UVs are ignored. A fully transparent image is drawn whole. */
+    KILN_UI_IMAGE_DRAW_TRIM = 1u,
+    /* keep the source's aspect ratio inside width x height, as large as fits and centred; the whole box is still taken */
+    KILN_UI_IMAGE_DRAW_FIT = 2u,
+};
+typedef struct KilnUiImageDraw {
+    uint32_t size;         /* sizeof(KilnUiImageDraw) */
+    uint32_t flags;        /* KILN_UI_IMAGE_DRAW_* */
+    float width, height;   /* the box; 0 = the source's pixel size */
+    float u0, v0, u1, v1;  /* the source rectangle in texture coordinates (0..1; u1 < u0 flips); all 0 = the whole image */
+} KilnUiImageDraw;
+
 /* menu_footer flags (size-guarded tail after set_next_window_size_constraints) */
 #define KILN_UI_FOOTER_SHOWN 1u /* draw Kiln's line in the main menu's footer (else the game's footer as it was) */
 
@@ -243,6 +260,7 @@ typedef struct KilnUiMenuEntry {
 enum {
     KILN_UI_STYLE_KILN = 0,
     KILN_UI_STYLE_GAME = 1,
+    KILN_UI_STYLE_PLAYER = 2, /* 0.2.0-dev.29.16: the look the player chose (KilnUiLook); an older kiln.ui draws it as KILN */
 };
 
 typedef struct KilnUiScreen {
@@ -382,7 +400,16 @@ enum {
     KILN_UI_COLOR_NAV_CURSOR = 17,      /* the gamepad/keyboard focus outline */
     KILN_UI_COLOR_CHECK_MARK = 18,
     KILN_UI_COLOR_SLIDER_GRAB = 19,
-    KILN_UI_COLOR_COUNT = 20,
+    /* 0.2.0-dev.29.16 (an older kiln.ui ignores them: do not pop them there) */
+    KILN_UI_COLOR_TITLE_BG = 20,
+    KILN_UI_COLOR_TITLE_BG_ACTIVE = 21,
+    KILN_UI_COLOR_POPUP_BG = 22,        /* drop-downs, tooltips */
+    KILN_UI_COLOR_TAB = 23,
+    KILN_UI_COLOR_TAB_HOVERED = 24,
+    KILN_UI_COLOR_TAB_SELECTED = 25,
+    KILN_UI_COLOR_TABLE_HEADER_BG = 26,
+    KILN_UI_COLOR_TEXT_SELECTED_BG = 27,
+    KILN_UI_COLOR_COUNT = 28,           /* 20 before 0.2.0-dev.29.16 */
 };
 
 /* push_var slots: pixels (multiply by the UI scale yourself); _ALIGN ones are 0..1 */
@@ -536,6 +563,97 @@ typedef struct KilnUiWindowInput {
 /* Window thread, inside the window procedure. Keep it short: the game's message loop waits. */
 typedef void(KILN_CALL* KilnUiWindowInputFn)(const KilnUiWindowInput* input, void* user);
 
+/* ---- looks, themes and fonts (size-guarded tail, 0.2.0-dev.29.16; docs/kiln/ui.md "Looks and themes") ----
+ * A look is a palette of roles from which kiln.ui makes ImGui's colours, on one of two bases: the game's (square tiles,
+ * its menu colours read from keen::FbUiBundle at run time, its UI font; a neutral dark stand-in until or unless they can
+ * be read) or Kiln's ember. The player picks the look of Kiln's own UI (KILN_UI_STYLE_PLAYER); a mod's theme applies
+ * where the mod pushes it (push_theme) unless the player picks it for everything. */
+
+/* KilnUiLook.look */
+enum {
+    KILN_UI_LOOK_GAME = 0,         /* the game's look (the default) */
+    KILN_UI_LOOK_TRANSLUCENT = 1,  /* the game's look, the windows' backgrounds at KilnUiLook.background */
+    KILN_UI_LOOK_KILN = 2,         /* Kiln's ember look */
+    KILN_UI_LOOK_THEME = 3,        /* KilnUiLook.theme (a theme a mod offers); the game's look while it does not exist */
+};
+
+/* Palette roles (KilnUiThemeDef.roles, KilnUiLookInfo.roles) */
+enum {
+    KILN_UI_ROLE_TEXT = 0,
+    KILN_UI_ROLE_TEXT_MUTED = 1,        /* disabled and secondary text */
+    KILN_UI_ROLE_WINDOW_BG = 2,         /* windows, title bars, pop-ups */
+    KILN_UI_ROLE_PANEL_BG = 3,          /* child regions and tiles, the chosen tab, table headers */
+    KILN_UI_ROLE_FRAME_BG = 4,          /* text fields, check boxes, slider tracks, idle tabs, scrollbar tracks */
+    KILN_UI_ROLE_BORDER = 5,            /* outlines, separators, table lines */
+    KILN_UI_ROLE_ACCENT = 6,            /* check marks, slider grabs, the chosen tab's line, the focus outline, held items */
+    KILN_UI_ROLE_BUTTON = 7,            /* buttons (hovered: HEADER, held: ACCENT) */
+    KILN_UI_ROLE_HEADER = 8,            /* chosen and hovered rows, collapsing headers, an edited field */
+    KILN_UI_ROLE_ATTENTION = 9,         /* status colours for drawing (look_info): needs a look */
+    KILN_UI_ROLE_WARNING = 10,          /* ... a problem */
+    KILN_UI_ROLE_OK = 11,               /* ... fine */
+    KILN_UI_ROLE_COUNT = 12,
+};
+
+/* theme_create: a theme. Every array is indexed by Kiln's own numbers; a mask bit says the entry is set. */
+typedef struct KilnUiThemeDef {
+    uint32_t size;          /* sizeof(KilnUiThemeDef) */
+    uint32_t base;          /* KILN_UI_STYLE_GAME or KILN_UI_STYLE_KILN: what the theme starts from */
+    uint32_t role_mask;     /* bit r: roles[r] replaces the base's KILN_UI_ROLE_r */
+    uint32_t var_mask;      /* bit v: vars[v] replaces KILN_UI_VAR_v */
+    uint64_t color_mask;    /* bit s: colors[s] sets KILN_UI_COLOR_s, after the roles */
+    uint32_t roles[16];     /* 0xRRGGBBAA; the alpha is ignored (see background) */
+    uint32_t colors[32];    /* 0xRRGGBBAA */
+    float vars[16][2];      /* pixels at UI scale 1 (kiln.ui applies the scale); _ALIGN vars 0..1; y unused for one-value vars */
+    float background;       /* the windows' background opacity 0..1; < 0: the base's */
+    float rounding;         /* every corner (windows, children, frames, pop-ups, grabs, tabs), pixels at scale 1; < 0: the base's */
+    KilnHandle font;        /* 0: the base's font (the game's for GAME); else a font_load handle */
+} KilnUiThemeDef;           /* 360 bytes */
+
+/* set_look: the player's look of Kiln's UI (Kiln.Ui sets it from kiln.json "ui"). */
+typedef struct KilnUiLook {
+    uint32_t size;          /* sizeof(KilnUiLook) */
+    uint32_t look;          /* KILN_UI_LOOK_* (unknown values: GAME) */
+    KilnHandle theme;       /* LOOK_THEME: a theme_create handle */
+    float background;       /* LOOK_TRANSLUCENT: the windows' background opacity, clamped to 0.1..1 */
+    float opacity;          /* the whole overlay, text included (ImGui's global alpha), clamped to 0.3..1 */
+    float scale;            /* the overlay's size on top of the display's scale, clamped to 0.5..2 */
+    uint32_t reserved;
+} KilnUiLook;               /* 32 bytes */
+
+/* KilnUiLookInfo.glyphs (0.2.0-dev.29.16): the game's own font of the language group Kiln's language (else the game's) needs */
+enum {
+    KILN_UI_GLYPHS_LATIN = 0,    /* no Chinese, Japanese or Korean language: the overlay's fonts as they are */
+    KILN_UI_GLYPHS_LOADING = 1,  /* being read from the game's data (Kiln's texts show in English meanwhile) */
+    KILN_UI_GLYPHS_READY = 2,    /* merged into the overlay's font atlas */
+    KILN_UI_GLYPHS_FAILED = 3,   /* not available (kiln.log says why): Kiln's texts stay English */
+};
+
+/* look_info: the player's look and a palette. */
+typedef struct KilnUiLookInfo {
+    uint32_t size;          /* sizeof(KilnUiLookInfo) */
+    uint32_t look;          /* KILN_UI_LOOK_* of the player's look (THEME only while that theme exists) */
+    KilnHandle theme;       /* the player's theme, 0 for none */
+    float background, opacity, scale;  /* as set (clamped) */
+    uint8_t game_colors;    /* 1: the game's colours were read from its data; 0: the neutral stand-in (so far) */
+    uint8_t game_font;      /* 1: the game's UI font is loaded */
+    uint8_t glyphs;         /* KILN_UI_GLYPHS_*: the overlay's glyphs of a Chinese, Japanese or Korean language (set_texts) */
+    uint8_t glyph_language; /* the keen::LanguageId `glyphs` is about (20 zh-CN, 21 zh-TW, 11 ja-JP, 13 ko-KR), 0 none */
+    uint32_t roles[16];     /* KILN_UI_ROLE_COUNT colours, 0xRRGGBBAA: inside a frame callback the look pushed now (the
+                               player's when none is), elsewhere the player's. WINDOW_BG's alpha is the windows' opacity */
+    uint32_t role_count;    /* KILN_UI_ROLE_COUNT */
+    uint32_t reserved2;
+} KilnUiLookInfo;           /* 104 bytes */
+
+/* set_texts: Kiln's own texts that kiln.ui draws, in the language Kiln's UI shows (docs/kiln/translating-game.md). */
+typedef struct KilnUiTexts {
+    uint32_t size;          /* sizeof(KilnUiTexts) */
+    uint32_t count;         /* entries in keys[] and texts[] */
+    KilnStr language;       /* the language Kiln's UI shows, a lower-case tag ("zh-cn", "en-us"): also picks the overlay's
+                               glyphs (the game's own font of a Chinese, Japanese or Korean language group) */
+    const KilnStr* keys;    /* "native.menu.mods", ... (keys outside "native." are ignored) */
+    const KilnStr* texts;   /* their texts, UTF-8 */
+} KilnUiTexts;              /* 40 bytes */
+
 typedef struct KilnUiApi {
     KilnServiceHeader header; /* { sizeof(KilnUiApi), KILN_UI_VERSION } */
     KilnResult(KILN_CALL* status)(KilnUiStatus* out);
@@ -635,8 +753,9 @@ typedef struct KilnUiApi {
 
     /* ---- looks for Kiln's own windows (inside a frame callback) ----
      * push_style: KILN_UI_STYLE_GAME (the game's colours and, once loaded, the game's own UI font read from its
-     *   resources at run time) or KILN_UI_STYLE_KILN (Kiln's ember theme, branding/palette.json); applies to the
-     *   windows begun until the matching pop_style. */
+     *   resources at run time), KILN_UI_STYLE_KILN (Kiln's ember theme, branding/palette.json) or, since
+     *   0.2.0-dev.29.16, KILN_UI_STYLE_PLAYER (the player's look, set_look; windows that push nothing get it too);
+     *   applies to the windows begun until the matching pop_style. */
     void(KILN_CALL* push_style)(uint32_t style);
     void(KILN_CALL* pop_style)(void);
 
@@ -889,6 +1008,49 @@ typedef struct KilnUiApi {
      * Kiln lets at most 960 images exist at once (the pool holds 1024 sets: ImGui keeps the rest for its fonts); past that
      * image_load and image_load_rgba answer 0. */
     int32_t(KILN_CALL* image_state)(KilnHandle image);
+    /* Additive size-guarded tail (0.2.0-dev.29.16; check header.size >= offsetof(KilnUiApi, x) + sizeof(void*) and the
+     * pointer for each): looks, themes and fonts (docs/kiln/ui.md "Looks and themes", docs/kiln/services/ui.md).
+     * theme_create: a theme from `def` (copied). Any thread. INVALID_ARGUMENT: def NULL or too small, base not GAME/KILN,
+     *   a value not finite. Remove it with theme_free (owners free theirs before unloading; a theme in use falls back to
+     *   the player's look; the player's theme falls back to the game's look).
+     * push_theme: like push_style with a theme (inside a frame callback; pop_style pops it). False, nothing pushed: no
+     *   such theme.
+     * set_look: the player's look of Kiln's UI. Kiln.Ui calls it from the player's setting; a call from a native plugin
+     *   is refused (KILN_ERR_UNAVAILABLE): mods never set the player's look. Any thread; the next frame follows it.
+     * look_info: the player's look and a palette (KilnUiLookInfo; set out->size first). Any thread.
+     * font_load: a TrueType / OpenType font (TTF or OTF; bytes copied) for Kiln windows, added to the overlay's font
+     *   atlas at the next frame. 0: refused (not a font, no drawing, past the font budget: 8 fonts, 8 MiB each, 24 MiB in
+     *   all; kiln.log says why). Any thread. font_free drops it (an owner's fonts go when it unloads... free yours).
+     * push_font_handle: text drawn until pop_font uses that font at the current size (inside a frame). False (nothing
+     *   to pop): unknown, or not in the atlas yet. */
+    KilnResult(KILN_CALL* theme_create)(KilnOwner owner, const KilnUiThemeDef* def, KilnHandle* out);
+    KilnResult(KILN_CALL* theme_free)(KilnHandle theme);
+    bool(KILN_CALL* push_theme)(KilnHandle theme);
+    KilnResult(KILN_CALL* set_look)(const KilnUiLook* look);
+    KilnResult(KILN_CALL* look_info)(KilnUiLookInfo* out);
+    KilnHandle(KILN_CALL* font_load)(KilnOwner owner, const void* data, size_t len);
+    void(KILN_CALL* font_free)(KilnHandle font);
+    bool(KILN_CALL* push_font_handle)(KilnHandle font);
+    /* Additive size-guarded tail (0.2.0-dev.29.16; check header.size >= offsetof(KilnUiApi, x) + sizeof(void*) and the
+     * pointer for each): part of an image, trimmed images.
+     * image_ex: image / image_button with a source rectangle and KILN_UI_IMAGE_DRAW_* (draw: set draw->size first; NULL or
+     *   too small: nothing drawn). An empty id draws an image (returns false), else a button of that id (true when
+     *   clicked; the box is the image's, as image_button's, plus the frame padding). Inside a frame callback. Not uploaded
+     *   yet (WAITING) or FAILED: the box is kept, nothing drawn (a button stays clickable). TRIM | FIT draws the game's
+     *   item icons (Kiln.Ui's ItemIcon(item, size, trim: true)) without their wide transparent margins.
+     * image_opaque_rect: the image's opaque bounds in pixels (alpha >= 16; the whole image when nothing is that opaque),
+     *   found once when it was loaded. False: no such image. Any thread. */
+    bool(KILN_CALL* image_ex)(KilnStr id, KilnHandle image, const KilnUiImageDraw* draw);
+    bool(KILN_CALL* image_opaque_rect)(KilnHandle image, uint32_t* x, uint32_t* y, uint32_t* width, uint32_t* height);
+    /* Additive size-guarded tail (0.2.0-dev.29.16; check header.size >= offsetof(KilnUiApi, set_texts) + sizeof(void*) and
+     * the pointer): Kiln's own texts that kiln.ui draws (the Mods entry, Kiln's line in the main menu's footer, the fallback
+     * window), from runtime/locales/<language>.json's "native." section, and the language Kiln's UI shows. Kiln.Ui calls it
+     * at start and whenever that language changes (kiln.json ui.language, or the game's language with "auto"); the next
+     * frame and the game's next menu frame follow it. Until then, and for a key it lacks, kiln.ui draws English. With a
+     * Chinese, Japanese or Korean language (or the game's), kiln.ui adds the game's own font of that language group to the
+     * overlay's font atlas. Copied; any thread. A call from a native plugin is refused (KILN_ERR_UNAVAILABLE): the player
+     * chooses the language. INVALID_ARGUMENT: NULL, size too small, count over 4096 or NULL arrays with a count. */
+    KilnResult(KILN_CALL* set_texts)(const KilnUiTexts* texts);
 } KilnUiApi;
 
 /* ====================================================================================================================

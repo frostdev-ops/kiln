@@ -14,7 +14,7 @@ One per native mod folder (library/native/<id>/<version>+<hash8>/, kiln/native/<
 |---|---|---|---|
 | `$schema` | string |  |  |
 | `after` | `common.schema.json ids` |  | Native mods to load before this one, when present (ordering only). |
-| `asi` | array |  | (dev.30, written by the Library for an Ultimate ASI Loader package) .asi plugins in the folder. Such a mod is placed in the game folder at profile activation and never loaded by kiln-core, so dlls may be empty (it names Ultimate ASI Loader when the package brings it). docs/kiln/engines.md, "Files in the game folder". min items 1 |
+| `asi` | array |  | (since 0.2.0-dev.29.4, written by the Library for an Ultimate ASI Loader package) .asi plugins in the folder. Such a mod is placed in the game folder at profile activation and never loaded by kiln-core, so dlls may be empty (it names Ultimate ASI Loader when the package brings it). docs/kiln/engines.md, "Files in the game folder". min items 1 |
 | `authors` | string or array of string |  |  |
 | `before` | `common.schema.json ids` |  | Native mods to load after this one, when present. |
 | `builds` | array of `common.schema.json sha256` |  | Game exe sha256s the mod was made for. When given and the running exe is not listed, the mod still loads with a warning (status note 'untested build'). |

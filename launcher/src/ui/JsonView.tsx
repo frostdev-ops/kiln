@@ -1,5 +1,6 @@
 // Collapsible JSON tree.
 import type { ReactNode } from "react";
+import { useT } from "../i18n";
 
 export interface JsonViewProps {
   value: unknown;
@@ -22,6 +23,7 @@ function Leaf({ value }: { value: unknown }) {
 }
 
 function Node({ value, depth, open, label }: { value: unknown; depth: number; open: number; label?: ReactNode }) {
+  const t = useT();
   const isArr = Array.isArray(value);
   if (value === null || typeof value !== "object") return <div>{label}<Leaf value={value} /></div>;
   const entries = isArr ? (value as unknown[]).map((v, i) => [String(i), v] as const) : Object.entries(value as Record<string, unknown>);
@@ -29,7 +31,7 @@ function Node({ value, depth, open, label }: { value: unknown; depth: number; op
   if (entries.length === 0) return <div>{label}<span className="meta">{o}{c}</span></div>;
   return (
     <details open={depth < open}>
-      <summary>{label}<span className="meta">{o} {entries.length} {isArr ? "items" : "keys"} {c}</span></summary>
+      <summary>{label}<span className="meta">{o} {isArr ? t("ui.jsonView.items", { n: entries.length }) : t("ui.jsonView.keys", { n: entries.length })} {c}</span></summary>
       <div className="ind">
         {entries.map(([k, v]) => (
           <Node key={k} value={v} depth={depth + 1} open={open} label={<><span className={isArr ? "meta" : "key"}>{isArr ? k : `"${k}"`}</span>: </>} />

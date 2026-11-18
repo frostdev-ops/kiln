@@ -62,3 +62,112 @@ backend submits and waits for each); the rest wait for the next frames. A set th
 one: kiln.log says so once, the image's state is FAILED, and `image`, `image_button` and kiln.render's image draws draw
 nothing for it (keeping its place; a button stays clickable), as they do for an image still WAITING. Vulkan errors of the
 overlay's backend are logged once per error code. Kiln.Ui's item icon cache keeps at most 256 images.
+
+## Looks, themes and fonts (0.2.0-dev.29.16)
+
+Eight more slots are appended after `image_state`; the service version stays 7. On x64 `theme_create` is at byte offset 928,
+`theme_free` 936, `push_theme` 944, `set_look` 952, `look_info` 960, `font_load` 968, `font_free` 976, `push_font_handle` 984,
+and the table is 992 bytes (1008 with [the image tail](#part-of-an-image-trimmed-images-020-dev2916), 1016 with `set_texts`). Readers check `header.size` through the member they call and that its pointer is non-null; the
+managed mirror is `UiNative.TableLooks`. The guide: [Looks and themes](../ui.md#looks-and-themes-020-dev2916).
+
+- **Looks.** `push_style` takes `KILN_UI_STYLE_PLAYER` (2) too: the look the player chose (`set_look`). Windows that push no
+  look are drawn in the player's colours as well (their font stays the overlay's default; a push gives a look's font). An
+  older kiln.ui draws `PLAYER` as `KILN`.
+- **Palettes.** A look is a palette of `KILN_UI_ROLE_*` colours (text, muted text, window, panel, frame, border, accent,
+  button, header, attention, warning, ok) from which kiln.ui makes ImGui's colours (`native/services/ui/look_palette.h`,
+  `style.cpp`). The game look's palette comes from the game's UI bundle at run time: `keen::FbUiBundle.menu` /
+  `.globalColors` colour fields (`keen::UiColor.value`, A B G R from the high byte), their offsets from `kiln.types`
+  (`type_by_name`, `type_info`, `type_field`, walking base classes) and the bundle's bytes from `kiln.assets`
+  (`resource_list` with the type's hash, `resource_read`), read on a worker with the game's font at the first frame in a
+  game-based look (asked again 5 s later, at most 4 times in all, while the game has not listed the bundle or the font
+  resource yet). Without them (no
+  `kiln.types` or `kiln.assets`, a field missing, no bundle) the game look keeps a neutral dark stand-in
+  (`look::neutral`): kiln.log `ui: the game's UI colours are not available (...)` or `... loaded (N of 10 colours ...)`.
+- `theme_create(owner, &KilnUiThemeDef, &handle)`: a theme (copied). `base` GAME or KILN; `roles` (by `role_mask`; R G B
+  over the base's palette, the alpha is the base's), `colors` (by `color_mask`, any `KILN_UI_COLOR_*`, set after the roles),
+  `vars` (by `var_mask`, `KILN_UI_VAR_*` in pixels at scale 1), `background` (the windows' opacity, < 0 the base's),
+  `rounding` (every corner, < 0 the base's), `font` (a `font_load` handle, 0 the base's). `INVALID_ARGUMENT` for a short or
+  null `def`, another base, a value that is not finite. Any thread. `theme_free(handle)` (`NOT_FOUND` when gone).
+- `push_theme(handle)`: inside a frame callback, like `push_style`; `pop_style` pops it, and the end of the frame pops what a
+  callback left. False when there is no such theme (nothing pushed). Kiln.Ui pops what a mod's draw callback left before the
+  next window is drawn.
+- `set_look(&KilnUiLook)`: the player's look: `look` (`KILN_UI_LOOK_GAME`, `TRANSLUCENT`, `KILN`, `THEME` with `theme`;
+  another value is GAME), `background` (TRANSLUCENT's windows' opacity, clamped 0.1..1), `opacity` (ImGui's global alpha and
+  the alpha of `draw_rect` / `draw_text` and their layered forms, clamped 0.3..1), `scale` (multiplies the display's scale
+  for every frame: `KilnUiFrame.dpi_scale` includes it; clamped 0.5..2). Any thread; the next frame follows it. **Kiln.Ui
+  only**: a call whose return address is in a native plugin (a module exporting `kiln_plugin_main`) is refused with
+  `KILN_ERR_UNAVAILABLE` (logged once). A theme the look names that does not exist (yet, or any more) draws the game look.
+- `look_info(&KilnUiLookInfo)`: the player's look (`look`, `theme`, `background`, `opacity`, `scale`; `look` is THEME only
+  while that theme exists), whether the game's colours (`game_colors`) and font (`game_font`) are loaded, and `roles`
+  (`role_count` of them): inside a frame callback the palette of the look pushed now (the player's when none is), elsewhere
+  the player's. Any thread.
+- `font_load(owner, data, len)`: a TrueType or OpenType font (TTF, or OTF with CFF outlines; a collection is refused),
+  copied, added to ImGui's font atlas at the next frame. 0 when the overlay does not draw, the bytes are no font, or the
+  budget is used (`native/services/ui/font_budget.h`: 8 fonts, 8 MiB each, 24 MiB together; kiln.log says which). A font
+  takes no overlay image: the atlas is one texture, glyphs are made on demand. `font_free(handle)` drops it at the next frame.
+  `push_font_handle(handle)`: inside a frame, the font at the current size until `pop_font`; false when it is not in the atlas
+  (yet) or unknown.
+- `KILN_UI_COLOR_COUNT` is 28: `TITLE_BG` 20, `TITLE_BG_ACTIVE` 21, `POPUP_BG` 22, `TAB` 23, `TAB_HOVERED` 24, `TAB_SELECTED`
+  25, `TABLE_HEADER_BG` 26, `TEXT_SELECTED_BG` 27 are new (also for `push_color`; an older kiln.ui ignores them, so do not pop
+  them there).
+- Host test: `native/services/ui/tests/style_host_test.cpp` (in `tests/run.sh`) runs style.cpp on a headless ImGui context
+  with a fake `kiln.types` and `kiln.assets`.
+
+## Part of an image, trimmed images (0.2.0-dev.29.16)
+
+Two more slots are appended after `push_font_handle`; the service version stays 7. On x64 `image_ex` is at byte offset 992,
+`image_opaque_rect` 1000, and the table is 1008 bytes. Readers check `header.size` through the member they call and that its
+pointer is non-null; the managed mirror is `UiNative.TableImageEx`. The guide: [Item icons](../ui.md#item-icons-and-names)
+("Trimmed").
+
+- Every image of `image_load` and `image_load_rgba` gets its **opaque bounds** when it is loaded (on the loading thread,
+  before the lock): the smallest rectangle holding every pixel with alpha >= 16 (`img::kOpaqueAlpha`,
+  `native/services/ui/image_rect.h`); the whole image when no pixel is that opaque. Kept with the image; nothing else changes.
+- `image_ex(id, image, &KilnUiImageDraw)`: `image` / `image_button` with more say. `KilnUiImageDraw` (32 bytes: `size`,
+  `flags`, `width`, `height`, `u0`, `v0`, `u1`, `v1`; set `size` first, a short or null one draws nothing): the box (0 = the
+  source's pixel size), the source rectangle in texture coordinates (all 0 = the whole image; u1 < u0 flips), and
+  `KILN_UI_IMAGE_DRAW_TRIM` (1: the source is the opaque bounds, the UVs are ignored) and `KILN_UI_IMAGE_DRAW_FIT` (2: the
+  source keeps its aspect ratio inside the box, as large as fits, centred; the whole box is still taken). An empty `id`
+  draws an image (a `Dummy` of the box with the picture on the window's draw list, so hover and tooltips cover the box;
+  returns false); else an `ImageButton` of that id whose frame is the box's (FIT's spare room joins the frame padding),
+  true when clicked. Inside a frame callback. Until the image is READY (`image_state`) the box is kept and nothing drawn (a
+  button stays clickable). Kiln.Ui draws `ItemIconTrimmed(item, size)`, `ImageTrimmed(...)` and
+  `ImageButtonTrimmed(...)` with TRIM | FIT, and `ImagePart(img, w, h, u0, v0, u1, v1)` with the UVs.
+- `image_opaque_rect(image, &x, &y, &width, &height)`: the opaque bounds in pixels (any pointer may be null). False: no
+  such image. Any thread. Kiln.Ui's `RenderDraw.ImageTrimmed` reads it and draws through kiln.render's `image` (which
+  already takes UVs).
+- Host tests: `tests/image_rect_test.cpp` (the bounds on synthetic icons with margins, fully transparent and opaque ones,
+  odd sizes, faint pixels, random images against a full scan; UVs; fitting) and the image part of `style_host_test.cpp`
+  (bounds kept from `image_load_rgba`, trimmed / fitted / part-of-image draws and buttons, quads and UVs on the draw list).
+
+## Kiln's own texts and CJK glyphs (0.2.0-dev.29.16)
+
+One more slot after `image_opaque_rect`: `set_texts` at byte offset 1008 (the table is 1016 bytes; check `header.size`
+through it and its pointer). The guide: [translating-game.md](../translating-game.md).
+- `set_texts(&KilnUiTexts)`: Kiln's own texts that kiln.ui draws (the Mods entry in the game's menus, Kiln's line in the main
+  menu's footer, the window shown without the managed host), from `runtime/locales/<language>.json`'s `native` section, and
+  `language`, the language Kiln's UI shows (a lower-case tag). `count` pairs of `keys` / `texts` (UTF-8, copied; keys
+  outside `native.` ignored; at most 4096). Kiln.Ui calls it at start and whenever the language changes; the Mods entries and
+  the footer's line are made again at once. Until then, and for a key it lacks, kiln.ui draws its built-in English
+  (`native/services/ui/ui_text.h`). Plural keys come as `.one` / `.other`; kiln.ui takes `.one` for 1. **Kiln.Ui only**: a
+  native plugin's call is refused with `KILN_ERR_UNAVAILABLE` (logged once), as for `set_look`. `INVALID_ARGUMENT` for NULL, a
+  short `size`, a count over 4096 or NULL arrays with a count. `KilnUiTexts` is 40 bytes (`language` at 8, `keys` 24,
+  `texts` 32).
+- **Glyphs.** When that language (else the game's text language, which mods' texts follow) is Chinese, Japanese or Korean,
+  kiln.ui reads the game's own font of that language group: `keen::UiFontResource` through `kiln.assets` (`resource_list`,
+  `resource_read`, `blob_read`), the group whose `groupLanguages` mask has the language and is not the default group, its
+  regular glyph sets (`fontVariantMask` 0) in order, each font once, at most 4 files, 16 MiB each, 24 MiB together
+  (`font_budget.h`), the fields' places from `kiln.types` when it has them (else 26430625's layout,
+  `native/services/ui/font_group.h`). On a worker, at the first overlay frame that needs it (asked again 5 s later, at most 4
+  times, while the game has not listed the resource). The render thread then merges each file into the overlay's default
+  font, the game's UI font and its bold face (`MergeMode`, the target's size, `GlyphExcludeRanges` = every rune outside the
+  set's ranges), now or as those fonts arrive; another group's files replace them, a Latin language removes them (their
+  sources leave the fonts; glyphs are made again as drawn). Mods' fonts get none.
+- `KilnUiLookInfo.glyphs` (byte 30; it was reserved) is `KILN_UI_GLYPHS_LATIN` (0, no such language), `LOADING` (1),
+  `READY` (2) or `FAILED` (3, kiln.log says why), and `glyph_language` (byte 31) the `keen::LanguageId` it is about (20 zh-CN,
+  21 zh-TW, 11 ja-JP, 13 ko-KR). Kiln.Ui shows its overlay texts in English until `READY` for its language.
+- Host tests (`tests/run.sh`): `ui_text_test.cpp` (the handoff, plurals, placeholders, the built-in English against
+  en.json), `font_group_test.cpp` (the group, sets and exclusions from made-up resource bytes, another layout, bad data, the
+  budget), `group_host_test.cpp` (style.cpp's loading on a headless ImGui context with a made-up resource and a system TTF:
+  the language's choice, the state, merging into fonts that arrive later, replacing, removing, a failed read, the layout
+  from reflection; `KILN_TEST_CJK_FONT=<an extracted CJK font>` also checks a real CJK glyph).

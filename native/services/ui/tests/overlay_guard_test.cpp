@@ -1,7 +1,11 @@
 #include "../overlay_guard.h"
+#include "../overlay_guard_file.h"
 #include "../overlay_mode.h"
 #include "../overlay_wrappers.h"
 #include <cassert>
+#include <string_view>
+#include <vector>
+#include <map>
 #include <chrono>
 #include <cstdio>
 #include <fstream>
@@ -254,6 +258,45 @@ int main() {
            "automatic drawing resumes after removal without deleting the old guard");
     expect(kui::choose_overlay_mode(false, false, sl_disk.streamline, -1) == kui::OverlayMode::drawing_off,
            "a fresh attempt does not bypass automatic Streamline protection");
+    {  // The record's write (overlay_guard_file.h): a temporary file, a rename over the record, then a flush asked for on
+       // another thread; nothing on the caller's thread forces the disk (inbox 50: the present call waited for it).
+        struct FakeFs {
+            std::vector<std::string> calls;
+            std::map<std::wstring, std::string> files;
+            bool fail_write = false, fail_replace = false;
+            static std::string narrow(const std::wstring& w) { return std::string(w.begin(), w.end()); }
+            bool write_new(const std::wstring& f, std::string_view text) {
+                calls.push_back("write " + narrow(f));
+                if (fail_write) return false;
+                files[f] = std::string(text);
+                return true;
+            }
+            bool replace(const std::wstring& from, const std::wstring& to) {
+                calls.push_back("replace " + narrow(from) + " " + narrow(to));
+                if (fail_replace || !files.count(from)) return false;
+                files[to] = files[from];
+                files.erase(from);
+                return true;
+            }
+            void flush_later(const std::wstring& f) { calls.push_back("flush later " + narrow(f)); }
+        };
+        Record r{Phase::trying, Stage::swapchain, Stage::begun, 0, "none"};
+        FakeFs fs;
+        expect(write_record(fs, L"g.guard", encode(r)), "the record is written");
+        expect((fs.calls == std::vector<std::string>{"write g.guard.tmp", "replace g.guard.tmp g.guard", "flush later g.guard"}),
+               "temporary file, rename over the record, then a flush on another thread, in that order");
+        Record back;
+        expect(fs.files.size() == 1 && parse(fs.files[L"g.guard"], back) && back.stage == Stage::swapchain,
+               "the record reads back after the rename");
+        FakeFs failing;
+        failing.fail_write = true;
+        expect(!write_record(failing, L"g.guard", encode(r)) && failing.calls.size() == 1, "a failed write renames and flushes nothing");
+        FakeFs refused;
+        refused.fail_replace = true;
+        expect(!write_record(refused, L"g.guard", encode(r)) && refused.calls.size() == 2, "a refused rename asks for no flush");
+        FakeFs none;
+        expect(write_record(none, L"", encode(r)) && none.calls.empty(), "no state folder: nothing written");
+    }
     std::filesystem::remove_all(root);
     std::printf("overlay_guard: %u checks, %u failures\n", checks, failures);
     return failures ? 1 : 0;

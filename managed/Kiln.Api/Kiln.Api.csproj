@@ -82,4 +82,9 @@
     <InternalsVisibleTo Include="Kiln.CreatureControl" />
     <InternalsVisibleTo Include="Kiln.CreatureControl.Tests" />
   </ItemGroup>
+  <!-- Kiln's own in-game texts in English (KilnText; runtime/locales/en.json, shipped as kiln/locales/en.json too): built
+       in, so a missing or broken file never puts keys on screen -->
+  <ItemGroup>
+    <EmbeddedResource Include="$(MSBuildThisFileDirectory)../../runtime/locales/en.json" LogicalName="Kiln.locales.en.json" Link="locales/en.json" />
+  </ItemGroup>
 </Project>

@@ -60,6 +60,13 @@ fn main() {
         attach_parent_console();
         std::process::exit(kiln_launcher_lib::selftest());
     }
+    // Windows: the AppUserModelID of the installer's shortcuts, so the pinned shortcut and the window are one button
+    #[cfg(windows)]
+    kiln_launcher_lib::desktop::set_app_user_model_id();
+    // the window's Wayland app id and X11 WM_CLASS: `kiln-launcher`, whatever the executable is called, so taskbars and
+    // docks find the entry and its icon (desktop.rs)
+    #[cfg(target_os = "linux")]
+    kiln_launcher_lib::desktop::set_app_id();
     // WebKitGTK's DMA-BUF renderer fails on some Wayland/NVIDIA setups ("Gdk Error 71 (Protocol error)" at start,
     // seen on GNOME + NVIDIA). Off unless the user set it; costs nothing visible for this UI.
     #[cfg(target_os = "linux")]

@@ -1,5 +1,6 @@
 // Mod kinds for the UI: the lists, the names players see and the badge tones. Mirrors kiln_manage::manifest::ModKind
 // (ALL, CORE, is_engine, label) and engine_mods (IMPORTED, plugin_of, runs_yet). docs/kiln/engines.md.
+import { t } from "../i18n";
 import type { ModKind, ProfileMod } from "./commands";
 
 type Tone = "ok" | "warn" | "err" | "info" | "idle" | "ember";
@@ -15,24 +16,26 @@ export const ENGINE_KINDS: ModKind[] = IMPORTED_KINDS;
 /** Kinds the Library holds and profiles and servers carry, but whose plugin can't start them yet (engine_mods::runs_yet:
  *  Ember has published no mod ABI, so kiln-ember only finds and reports its mods). The UI says so wherever they show. */
 export const NOT_RUNNING_KINDS: ModKind[] = ["ember"];
-/** What to tell a player about a kind that doesn't run yet. */
+/** What to tell a player about a kind that doesn't run yet. Getters: each read gives the current language's text. */
 export const NOT_RUNNING_NOTE: Partial<Record<ModKind, string>> = {
-  ember: "Ember mods don't run yet: Ember has not published its mod ABI, so kiln-ember only finds and reports them. They stay in your list; running them will require a compatible loader update.",
+  get ember() { return t("api.kinds.notRunning.ember"); },
 };
 
 export const isEngineKind = (k: ModKind) => !CORE_KINDS.includes(k);
 export const runsYet = (k: ModKind) => !NOT_RUNNING_KINDS.includes(k);
 
-/** ModKind::label: the engine's full name. */
+/** ModKind::label: the engine's full name. Product names stay as they are; the words around them are getters that give
+ *  the current language's text at each read (never spread or copy this object at import time). */
 export const KIND_NAME: Record<ModKind, string> = {
-  kiln: "Kiln", native: "Native", plugin: "Plugin", emf: "EMF", eml: "EML (Enshrouded Mod Loader)", xhl: "XHL (requires XHL-Core)", shroudforge: "ShroudForge",
+  kiln: "Kiln", get native() { return t("api.kinds.name.native"); }, get plugin() { return t("api.kinds.name.plugin"); }, emf: "EMF",
+  get eml() { return t("api.kinds.name.eml"); }, get xhl() { return t("api.kinds.name.xhl"); }, shroudforge: "ShroudForge",
   set: "Shrouded Engine Tweaks", greeneye: "Greeneye Loader", flame: "Flame", shroudtopia: "Shroudtopia", enshwick: "Enshwick",
-  shroudlink: "shroudlink", ember: "Ember (server SDK)",
+  shroudlink: "shroudlink", get ember() { return t("api.kinds.name.ember"); },
 };
-/** The short word for a badge or a filter. */
+/** The short word for a badge or a filter (getters as in KIND_NAME). */
 export const KIND_SHORT: Record<ModKind, string> = {
-  kiln: "Kiln", native: "Native", plugin: "Plugin", emf: "EMF", eml: "EML", xhl: "XHL", shroudforge: "ShroudForge", set: "SET", greeneye: "Greeneye",
-  flame: "Flame", shroudtopia: "Shroudtopia", enshwick: "Enshwick", shroudlink: "shroudlink", ember: "Ember",
+  kiln: "Kiln", get native() { return t("api.kinds.short.native"); }, get plugin() { return t("api.kinds.short.plugin"); }, emf: "EMF", eml: "EML", xhl: "XHL",
+  shroudforge: "ShroudForge", set: "SET", greeneye: "Greeneye", flame: "Flame", shroudtopia: "Shroudtopia", enshwick: "Enshwick", shroudlink: "shroudlink", ember: "Ember",
 };
 export const KIND_TONE: Record<ModKind, Tone> = {
   kiln: "ember", native: "info", emf: "ok", plugin: "idle", eml: "warn", xhl: "warn", shroudforge: "info", set: "ok", greeneye: "ok", flame: "ember",

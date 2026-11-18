@@ -80,6 +80,7 @@ fn game(t: &Path, mode: PathMode) -> GameInstall {
 
 /// A runtime bundle in the launcher's data folder and the game's install receipt naming it; `reader`: the profile.json
 /// reader revision its kiln-runtime.json declares (None: a runtime from before the declaration).
+#[cfg(feature = "zip")]  // a runtime bundle (runtime_in_game) is a zip
 fn runtime_in_game(dirs: &DataDirs, g: &GameInstall, reader: Option<u32>, git: &str) {
     let s = g.path.parent().unwrap().join(format!("stage-{git}"));
     let mut m = serde_json::json!({ "format": 1, "kiln": "0.2.0-dev", "abi": 1, "api": "0.2.0",
@@ -349,6 +350,7 @@ fn walk(root: &Path) -> Vec<String> {
 /// core before calls such a profile invalid and loads no mods at all, so an older one gets the copy under kiln/profiles/
 /// (its kiln-flame runs that DLL, and the mod still finds its files in Kiln's copy in mods\creative).
 #[test]
+#[cfg(feature = "zip")]  // a runtime bundle (runtime_in_game) is a zip
 fn copy_mode_names_the_copy_only_for_a_runtime_that_reads_it() {
     let t = tmp("copy-mode");
     let dirs = DataDirs::at(t.0.join("data"));
@@ -381,6 +383,7 @@ fn copy_mode_names_the_copy_only_for_a_runtime_that_reads_it() {
 }
 
 #[test]
+#[cfg(feature = "zip")]  // a runtime bundle (runtime_in_game) is a zip
 fn upgrading_the_reader_does_not_delete_files_in_the_old_fallback_copy() {
     for name in ["notice.txt", ".settings", "items.json", "linked-settings"] {
         let t = tmp("fallback-written");
@@ -406,6 +409,7 @@ fn upgrading_the_reader_does_not_delete_files_in_the_old_fallback_copy() {
 }
 
 #[test]
+#[cfg(feature = "zip")]  // a runtime bundle (runtime_in_game) is a zip
 fn updating_a_still_used_fallback_keeps_its_changed_files_and_runs_the_new_version() {
     for name in ["notice.txt", ".settings", "items.json", "linked-settings"] {
         let t = tmp("fallback-update");
@@ -445,6 +449,7 @@ fn updating_a_still_used_fallback_keeps_its_changed_files_and_runs_the_new_versi
 /// the copy is still that version's and is used as it is. A fresh sibling at every activation would leave the mod's
 /// settings behind each time and fill the folder. A link in the copy is not followed: that copy is left and kept.
 #[test]
+#[cfg(feature = "zip")]  // a runtime bundle (runtime_in_game) is a zip
 fn a_fallback_copy_the_mod_wrote_into_is_used_again_for_the_same_version() {
     for linked in [false, true] {
         let t = tmp("fallback-same");

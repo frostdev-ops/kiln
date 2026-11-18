@@ -506,33 +506,42 @@ public abstract class ConfigFile
         if (FilePath.Length == 0) return;  // a per-world config while no world is open: the defaults, in memory
         if (adopted is not null)
         {
-            if (adopted.Stamp == ReadStamp())
+            // OnBoot could not read the file: it is there, so it is no missing file to write from the defaults. Read it again now.
+            if (adopted.Unreadable)
+                Log(LogLevel.Warn, $"config {Id}: the mod's OnBoot could not read {FilePath} and used the defaults; reading the file again");
+            else if (adopted.Stamp == ReadStamp())
             {
                 if (adopted.Text is null) LoadMissing(initial, write: true);
                 else Apply(adopted.Text, initial, write: true);
                 return;
             }
-            Log(LogLevel.Warn, $"config {Id}: {FilePath} changed after the mod's OnBoot read it; OnBoot used the earlier values, from now on the file's apply");
+            else Log(LogLevel.Warn, $"config {Id}: {FilePath} changed after the mod's OnBoot read it; OnBoot used the earlier values, from now on the file's apply");
         }
-        if (ReadText(initial, write: true) is { } text) Apply(text, initial, write: true);
+        if (ReadText(initial, write: true, out _) is { } text) Apply(text, initial, write: true);
     }
 
     /// <summary>OnBoot (the boot thread, before the first tick): the file's values (or the defaults when there is none) without writing
-    /// anything; what was read, for the runtime registration to take over.</summary>
+    /// anything; what was read, for the runtime registration to take over. A file that cannot be read is no missing file: OnBoot has
+    /// the defaults in memory, and the runtime registration reads the file again instead of writing it.</summary>
     internal Config.BootRead LoadForBoot()
     {
         string? text = null;
-        if (FilePath.Length > 0 && ReadText(initial: true, write: false) is { } t)
+        var unreadable = false;
+        if (FilePath.Length > 0 && ReadText(initial: true, write: false, out unreadable) is { } t)
         {
             text = t;
             Apply(t, initial: true, write: false);
         }
-        return new Config.BootRead(ModId, text, text is null ? ReadStamp() : Stamp, BootFrame.Current);
+        if (unreadable)
+            Log(LogLevel.Warn, $"config {Id}: OnBoot uses the defaults in memory; {FilePath} is left as it is and read again when the mod loads");
+        return new Config.BootRead(ModId, text, text is null ? ReadStamp() : Stamp, BootFrame.Current, unreadable);
     }
 
-    // The file's text; null when there is none (the running values become the file's, written when `write`) or it cannot be read.
-    private string? ReadText(bool initial, bool write)
+    // The file's text; null when there is none (the running values become the file's, written when `write`) or it cannot be read
+    // (`unreadable`: logged, nothing written, the stamp cleared so the next poll reads it again).
+    private string? ReadText(bool initial, bool write, out bool unreadable)
     {
+        unreadable = false;
         try
         {
             if (!File.Exists(FilePath))
@@ -546,6 +555,7 @@ public abstract class ConfigFile
         {
             Log(LogLevel.Warn, $"config {Id}: cannot read {FilePath}: {e.Message} (retrying)");
             Stamp = default;
+            unreadable = true;
             return null;
         }
     }
@@ -1029,8 +1039,9 @@ public static partial class Config
     // kept by id until the mod's runtime registers the same config, which takes it over (the runtime's T is another type: the
     // author's assembly is gone).
 
-    /// <summary>What a mod's OnBoot read of a config file: its text (null: there was no file) and the file's stamp then.</summary>
-    internal sealed record BootRead(string ModId, string? Text, (long, long) Stamp, BootContext? Frame);
+    /// <summary>What a mod's OnBoot read of a config file: its text (null: there was no file, or <c>Unreadable</c>: it could not
+    /// be read) and the file's stamp then.</summary>
+    internal sealed record BootRead(string ModId, string? Text, (long, long) Stamp, BootContext? Frame, bool Unreadable = false);
 
     private static readonly Dictionary<string, BootRead> BootReads = new(StringComparer.OrdinalIgnoreCase);
 

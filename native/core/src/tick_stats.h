@@ -19,6 +19,8 @@
 #include <utility>
 #include <vector>
 
+#include "tasks_stats.h"
+
 namespace kiln::tick::stats {
 
 inline constexpr float kSlowMs = 50.0f;  // "over50"
@@ -160,6 +162,10 @@ struct Line {
     float worst_pre = 0, worst_step = 0, worst_post = 0, worst_wait = 0, worst_windows = 0;
     unsigned worst_hour = 0, worst_minute = 0, worst_second = 0, worst_milli = 0;
     std::vector<NamedMs> worst_post_subs, worst_pre_subs;  // worst_pre_subs: the kPreTop longest in that step
+    // Issue #49: the kiln.tasks window, appended after every older field. Absent (has_tasks false)
+    // when the task pool does not exist, so a line without a pool keeps its old shape byte for byte.
+    bool has_tasks = false;
+    kiln::tasks_stats::WindowSnapshot tasks;
 };
 
 // Slots by owner name, in run order (an owner's first slot gives its place); one owner's subscribers add up.
@@ -339,6 +345,10 @@ inline std::string format(const Line& l) {
         out += ",\"pre_subs\":";
         detail::named_ms(out, l.worst_pre_subs);
         out += '}';
+    }
+    if (l.has_tasks) {
+        out += ',';
+        out += kiln::tasks_stats::format_window_json(l.tasks);
     }
     out += "}\n";
     return out;

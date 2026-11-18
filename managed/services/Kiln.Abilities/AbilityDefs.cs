@@ -229,7 +229,7 @@ internal static class AbilityRegistry
     private static string HudText(Entry e)
     {
         var left = e.LocalCooldownUntil - Environment.TickCount64;
-        return left > 0 ? $"{e.Def.Name} [{e.Key?.Key}]: {left / 1000.0:F1} s" : "";
+        return left > 0 ? KilnText.T("abilities.cooldown", ("ability", e.Def.Name), ("key", e.Key?.Key), ("seconds", left / 1000.0)) : "";
     }
 
     // ---- services: channel, /cast, tick ----
@@ -286,7 +286,7 @@ internal static class AbilityRegistry
     internal static void RequestCast(string id)
     {
         if (_channel is null || !_channel.SendToServer(new CastRequest(id)))
-            Hud.Toast(Network.ServerHasKiln ? "the server does not have this ability" : "not connected to a Kiln server",
+            Hud.Toast(Network.ServerHasKiln ? KilnText.T("abilities.server_lacks") : KilnText.T("abilities.not_connected"),
                 ToastKind.Warning, 2.5);
     }
 

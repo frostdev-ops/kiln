@@ -20,7 +20,7 @@ public readonly record struct FakeBlobRegistration(string Hash, ulong Owner, boo
 /// The kit's kiln.assets of a harness (<see cref="KilnHarness.Assets"/>): Kiln.Assets' own code runs on it.
 /// </summary>
 /// <remarks>
-/// <para><b>Modelled.</b> Content blobs (add, override, read, remove, revert when a mod unloads) and the blob catalog over
+/// <para><b>Modelled.</b> Content blobs (add, override, read, resident read, remove, revert when a mod unloads) and the blob catalog over
 /// the game index a test scripts here (<see cref="AddGameBlob"/>, <see cref="IndexReady"/>), with kiln.assets' rules.
 /// The hashes are the kit's own (the size and the first 12 bytes of the SHA-256), not the game's.</para>
 /// <para><b>Not modelled.</b> Game resources (<c>assets.resources</c>), UI icons (<c>assets.ui_icons</c>), textures, dumps
@@ -49,7 +49,8 @@ public sealed class HarnessAssets
     }
 
     /// <summary>Whether the game's content index can be read. False: the catalog's default mode refuses with
-    /// <c>NotReady</c>, the registrations-only mode still answers. Default true.</summary>
+    /// <c>NotReady</c>, the registrations-only mode still answers, and <c>Assets.ReadResidentBlob</c> finds no game blob
+    /// (<c>ReadBlob</c> still does, as kiln.assets asks the game itself). Default true.</summary>
     public bool IndexReady
     {
         get { lock (State.Gate) return State.IndexReady; }

@@ -73,7 +73,7 @@ public sealed class ModProjectAnalyzer : DiagnosticAnalyzer
     // KilnServices "Stations" (0.2.0-dev.29.15): the production stations and bases, which live in Kiln.Blocks' assembly. Its
     // types and members are these (World/Stations/*.cs, World/StationRuntime.cs); the rest of Kiln.Blocks still asks for Blocks.
     private static readonly System.Text.RegularExpressions.Regex StationsTypes = new(
-        "^(Stations|Bases|BaseId|BaseInfo|BaseAltar|Station[A-Za-z]*|Ingredient(Category|Option)|CategoryChoice|Fill(Options|Mode|Plan|Input|Limit)|StopWhen|CollectWhat|BasesChangedEvent)$",
+        "^(Stations|Bases|BaseId|BaseIdChange|BaseInfo|BaseAltar|Station[A-Za-z]*|Ingredient(Category|Option)|CategoryChoice|Fill(Options|Mode|Plan|Input|Limit)|StopWhen|CollectWhat|BasesChangedEvent)$",
         System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
     internal static bool IsStationsApi(ISymbol sym)

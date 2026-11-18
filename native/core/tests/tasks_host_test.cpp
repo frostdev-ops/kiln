@@ -339,6 +339,7 @@ KILN_TASKS_TEST(tick_hops_need_a_server_world) {
     s.host_bind(&hop_dispatch);
     const KilnLease l = suspended_lease(s, 1, "hops");
     check(s.host_tick_hop(l) == KILN_ERR_UNAVAILABLE, "no live server world: a hop refuses at once (never waits for one)");
+    check(s.collect_tasks_window().hops_refused == 1, "the refused hop is counted in the tasks window");
     s.session_started(1);
     check(s.host_tick_hop(l) == KILN_OK && s.pending_tick_hops() == 1, "with one: queued");
     check(s.host_tick_hop(0x12345) == KILN_ERR_INTERNAL, "an unknown lease: INTERNAL");
@@ -365,6 +366,15 @@ KILN_TASKS_TEST(tick_hops_budgets) {
     check(s.run_tick_hops() == 67 && hops_of(a) == 64 && hops_of(b) == 3,
           "per owner at most 64 hops a step; the other owner is served in the same step");
     check(s.run_tick_hops() == 6 && hops_of(a) == 70 && s.pending_tick_hops() == 0, "the excess waits for the next step");
+    {
+        // The window's apply account: 73 applied over two steps; the first step's 64-hop cap stopped
+        // owner a with 6 left (an owner-budget stop, those 6 deferred); three owner turns served.
+        const auto w = s.collect_tasks_window();
+        check(w.apply.applied == 73 && w.apply.cancelled == 0 && w.apply.owners_served == 3 &&
+                  w.apply.owner_budget_stops == 1 && w.apply.step_budget_stops == 0 && w.apply.deferred == 6 &&
+                  w.apply.backlog == 0,
+              "apply account: applied, owners served, the count cap as an owner-budget stop, deferred");
+    }
     // time: 1.5 ms a hop: an owner stops after its 2 ms (two hops), all owners after 4 ms; the turn moves on
     {
         std::lock_guard lock(g_hops.mutex);
@@ -377,6 +387,15 @@ KILN_TASKS_TEST(tick_hops_budgets) {
     const std::size_t first = s.run_tick_hops();
     check(first == 3, "4 ms a step in all, checked between callbacks: 3 hops of 1.5 ms (got " + std::to_string(first) + ")");
     check(s.pending_tick_hops() == 12, "the rest wait, none dropped");
+    {
+        // 1.5 ms hops: the first owner stops at its 2 ms (two hops, an owner stop), the next one's first
+        // hop crosses the step's 4 ms (a step stop); 12 left behind, pending at collection too.
+        const auto w = s.collect_tasks_window();
+        check(w.apply.applied == 3 && w.apply.owners_served == 2 && w.apply.owner_budget_stops == 1 &&
+                  w.apply.step_budget_stops == 1 && w.apply.deferred == 12 && w.apply.backlog == 12 &&
+                  w.apply.apply_ns >= 4'000'000ull,
+              "apply account: the owner and step budget stops, deferred and backlog, the step's time");
+    }
     std::size_t steps = 1;
     while (s.pending_tick_hops() && steps < 20) {
         s.run_tick_hops();

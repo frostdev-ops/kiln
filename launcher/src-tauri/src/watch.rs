@@ -41,6 +41,8 @@ fn emit_game(app: &AppHandle, game_id: &str, kind: GameEventKind, pid: Option<u3
 
 /// Copy mode: the game wrote mod configs into `<game>/kiln/profiles/<pid>/config/`; bring them back to the launcher's
 /// profile after it exits (the profile that ran: boot.json's, and the active profile.json's). No-op otherwise.
+/// File by file (kiln_manage::profile::copy_back): what the game changed comes back, a launcher edit the game did not
+/// touch stays; a file both changed keeps the newer, the other is saved beside it, and the launcher's log says so.
 fn copy_back(g: &kiln_manage::game::GameInstall) {
     let Ok(d) = crate::state::dirs() else { return };
     let mut ids: Vec<String> = Vec::new();
@@ -55,8 +57,14 @@ fn copy_back(g: &kiln_manage::game::GameInstall) {
     ids.sort();
     ids.dedup();
     for id in ids {
-        if let Err(e) = kiln_manage::profile::copy_back(&d, &id, g) {
-            eprintln!("copy_back {id}: {e}");
+        match kiln_manage::profile::copy_back(&d, &id, g) {
+            Ok(synced) => {
+                for line in synced.conflicts {
+                    let line = format!("after the game at {} closed: {line}", g.path.display());
+                    crate::commands::app::launcher_log("profile", &line);
+                }
+            }
+            Err(e) => eprintln!("copy_back {id}: {e}"),
         }
     }
 }

@@ -69,8 +69,8 @@ internal static class ConfigScreens
         if (f.Kind != ConfigKind.Server) return null;
         if (Client.IsClient && Client.IsRemote)
             return Network.ServerHasKiln
-                ? "Server config: read-only while connected to a server. Synced entries show the server's values."
-                : "Server config: read-only while connected to a server (it applies when you host).";
+                ? KilnText.T("config.read_only_synced")
+                : KilnText.T("config.read_only");
         return null;
     }
 
@@ -94,17 +94,17 @@ internal static class ConfigScreens
             var ro = ReadOnly(f);
             if (ro is not null) ui.Text(Color.Yellow, ro);
             if (f.ServerValues.Count > 0)
-                ui.Text(Color.Cyan, $"{f.ServerValues.Count} entr{(f.ServerValues.Count == 1 ? "y holds" : "ies hold")} the server's value while connected (read-only).");
-            if (f.LastError is { } err) ui.Text(Color.Red, "file: " + err);
+                ui.Text(Color.Cyan, KilnText.Plural("config.server_values", f.ServerValues.Count));
+            if (f.LastError is { } err) ui.Text(Color.Red, KilnText.T("config.file_error", ("error", err)));
             // the last write failed, whoever wrote (this page's Apply, the mod's Set or Save): the file is behind until a
             // write succeeds, which clears it
-            if (f.LastWriteError is { } writeErr) ui.Text(Color.Red, "not saved: " + writeErr);
+            if (f.LastWriteError is { } writeErr) ui.Text(Color.Red, KilnText.T("config.not_saved", ("error", writeErr)));
             foreach (var w in f.Warnings.Take(3)) ui.Text(Color.Yellow, w);
             string? section = null;
             IReadOnlyList<ConfigEntry> entries;
             try { entries = f.Entries; }
             catch (Exception) { entries = []; }
-            if (ui.BeginTable("entries", "Entry", "Value", ""))
+            if (ui.BeginTable("entries", KilnText.T("config.columns.entry"), KilnText.T("config.columns.value"), ""))
             {
                 foreach (var e in entries)
                 {
@@ -132,16 +132,16 @@ internal static class ConfigScreens
             }
             if (staged > 0)
             {
-                if (ui.Button($"Apply ({staged})")) Apply(f);
+                if (ui.Button(KilnText.T("config.apply", ("count", staged)))) Apply(f);
                 ui.SameLine();
-                if (ui.Button("Undo")) Undo(f);
+                if (ui.Button(KilnText.T("config.undo"))) Undo(f);
                 if (!TickRunning)
                 {
                     ui.SameLine();
-                    ui.TextDisabled("(saved when a world runs)");
+                    ui.TextDisabled(KilnText.T("config.saved_later"));
                 }
             }
-            else if (ro is null && ui.SmallButton("All to defaults"))
+            else if (ro is null && ui.SmallButton(KilnText.T("config.all_defaults")))
             {
                 foreach (var e in entries)
                 {
@@ -152,7 +152,7 @@ internal static class ConfigScreens
             }
             // applied, and no tick has come to save it (the main menu, a paused game): the table shows the new values
             if (staged == 0 && pending > 0 && !TickRunning)
-                ui.TextDisabled(pending == 1 ? "1 change applied (saved when a world runs)" : $"{pending} changes applied (saved when a world runs)");
+                ui.TextDisabled(KilnText.Plural("config.applied", pending));
             ui.Spacing();
         }
     }
@@ -173,7 +173,8 @@ internal static class ConfigScreens
         ui.NextRow();
         ui.NextColumn();
         var name = e.Path[(e.Path.LastIndexOf('.') + 1)..];
-        var marks = (e.FromServer ? " [server]" : "") + (e.Synced ? " (synced)" : "") + (e.RequiresRestart ? " (restart)" : "");
+        var marks = (e.FromServer ? KilnText.T("config.marks.server") : "") + (e.Synced ? KilnText.T("config.marks.synced") : "") +
+                    (e.RequiresRestart ? KilnText.T("config.marks.restart") : "");
         if (staged is not null) ui.Text(Color.Yellow, "* " + name + marks);
         else if (e.FromServer) ui.Text(Color.Cyan, name + marks);
         else ui.Text(name + marks);
@@ -182,7 +183,7 @@ internal static class ConfigScreens
         if (readOnly)
         {
             ui.TextDisabled(Show(e, e.Value));
-            if (e.FromServer) ui.Tooltip($"The server's value. Yours: {Show(e, e.FileValue)} (back when you leave).");
+            if (e.FromServer) ui.Tooltip(KilnText.T("config.server_value", ("value", Show(e, e.FileValue))));
             ui.NextColumn();
             return;
         }
@@ -232,14 +233,13 @@ internal static class ConfigScreens
                 if (ui.InputText("##v", ref text, 512)) Stage(f, e.Path, text);
                 ui.Tooltip(e.Type switch
                 {
-                    "duration" => "a duration: 30s, 5m, 1h30m",
-                    var t when t.StartsWith("list") => "a list: [1, 2, 3] or 1, 2, 3",
+                    "duration" => KilnText.T("config.hint.duration"),
+                    var t when t.StartsWith("list") => KilnText.T("config.hint.list"),
                     _ => e.Type,
                 });
                 // the field shows such a value cut and read-only (UiDraw.InputText): say why
                 if (!UiDraw.Editable(text, 512))
-                    ui.TextDisabled(text.Contains('\0') ? "Read-only here: it holds a NUL character. Change it in the config file."
-                        : "Read-only here: longer than 512 bytes. Change it in the config file.");
+                    ui.TextDisabled(text.Contains('\0') ? KilnText.T("config.read_only_nul") : KilnText.T("config.read_only_long"));
                 break;
             }
         }
@@ -247,8 +247,8 @@ internal static class ConfigScreens
         ui.NextColumn();
         if (staged is not null || !IsDefault(e, pending))
         {
-            if (ui.SmallButton("default")) Stage(f, e.Path, Display(e, e.Default));
-            ui.Tooltip($"Default: {Show(e, e.Default)}");
+            if (ui.SmallButton(KilnText.T("config.default"))) Stage(f, e.Path, Display(e, e.Default));
+            ui.Tooltip(KilnText.T("config.default_tip", ("value", Show(e, e.Default))));
         }
     }
 
@@ -275,9 +275,9 @@ internal static class ConfigScreens
         {
             lock (Lock) Typed.Remove(key);
         }
-        ui.Tooltip("Type the value here.");
+        ui.Tooltip(KilnText.T("config.type_here"));
         if (typed is not null)
-            ui.TextDisabled($"a number from {e.Min?.ToString(CultureInfo.InvariantCulture)} to {e.Max?.ToString(CultureInfo.InvariantCulture)}");
+            ui.TextDisabled(KilnText.T("config.range", ("min", e.Min?.ToString(CultureInfo.InvariantCulture)), ("max", e.Max?.ToString(CultureInfo.InvariantCulture))));
     }
 
     /// <summary>A "float" entry's value as the number field shows it: the shortest text that gives the value back. A
@@ -311,12 +311,14 @@ internal static class ConfigScreens
     {
         var lines = new List<string>();
         if (e.Comment is { Length: > 0 } c) lines.Add(c);
-        lines.Add($"{e.Path}: {e.Type}, default {Show(e, e.Default)}" +
-                  (e.Min is not null || e.Max is not null ? $", range {e.Min?.ToString(CultureInfo.InvariantCulture) ?? "-inf"}..{e.Max?.ToString(CultureInfo.InvariantCulture) ?? "inf"}" : ""));
-        if (e.Options.Count > 0) lines.Add("options: " + string.Join(", ", e.Options));
-        if (e.Synced) lines.Add("Synced: a server sends its value to clients.");
-        if (e.RequiresRestart) lines.Add("Requires a restart: a change applies when the mod loads again.");
-        if (e.FromServer) lines.Add("Holds the server's value while connected.");
+        lines.Add(e.Min is not null || e.Max is not null
+            ? KilnText.T("config.describe.entry_range", ("path", e.Path), ("type", e.Type), ("default", Show(e, e.Default)),
+                ("min", e.Min?.ToString(CultureInfo.InvariantCulture) ?? "-inf"), ("max", e.Max?.ToString(CultureInfo.InvariantCulture) ?? "inf"))
+            : KilnText.T("config.describe.entry", ("path", e.Path), ("type", e.Type), ("default", Show(e, e.Default))));
+        if (e.Options.Count > 0) lines.Add(KilnText.T("config.describe.options", ("options", string.Join(", ", e.Options))));
+        if (e.Synced) lines.Add(KilnText.T("config.describe.synced"));
+        if (e.RequiresRestart) lines.Add(KilnText.T("config.describe.restart"));
+        if (e.FromServer) lines.Add(KilnText.T("config.describe.from_server"));
         return string.Join("\n", lines);
     }
 
@@ -439,6 +441,6 @@ internal static class ConfigScreens
         Backend.Current.Log(0, failed.Count > 0 ? LogLevel.Warn : LogLevel.Info,
             $"ui: config {f.Id}: {ok} change(s) saved from the Kiln menu{(failed.Count > 0 ? "; refused: " + string.Join("; ", failed) : "")}");
         if (failed.Count > 0) Hud.Toast($"{f.Id}: {failed[0]}", ToastKind.Error, 5);
-        else Hud.Toast($"{f.Id}: saved", ToastKind.Success, 2);
+        else Hud.Toast(KilnText.T("config.saved", ("id", f.Id)), ToastKind.Success, 2);
     }
 }

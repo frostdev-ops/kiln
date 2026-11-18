@@ -3,6 +3,7 @@
 // The result is a notice and a link per mod: nothing here downloads, installs or switches a mod. The browser mock
 // answers from ./mockUpdates.ts. The same value arrives as the event `kiln://mod-updates` after every check.
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
+import { t } from "../i18n";
 import { isTauri, loadMock, toKilnError, type LibraryRef, type ModKind } from "./commands";
 
 export const MOD_UPDATES_EVENT = "kiln://mod-updates";
@@ -96,38 +97,50 @@ export async function updatesCheck(request: UpdatesRequest = {}): Promise<CheckR
 
 export const uk = { report: ["updates_check"] as const };
 
-const REASON: Record<UnknownReason, string> = {
-  incomplete_list: "the release list is too long to read to its end",
-  invalid_metadata: "the newest release's kiln-release.json is not valid for this mod",
-  missing_asset: "the newest release has no file with the expected name",
-  ambiguous_asset: "the newest release has several files with the expected name",
-  ambiguous_release: "several releases share the highest version",
-  non_semver: "the versions are not semantic versions, so they cannot be ordered",
-  same_version_unbound: "the same version is published, and Kiln does not know which upload of it you have",
-  network: "no answer (offline, or not signed in where a sign-in is needed)",
-  source_conflict: "its update source changed and waits for your yes",
-  rate_limited: "the provider's request limit is used up for now",
-  not_found: "no repository or no matching release was found",
-  not_checked: "not checked yet",
-  release_removed: "the release this copy came from is gone",
-};
-
 /** Why a status is unknown (or could not be refreshed), in plain words. */
-export const reasonWords = (r: UnknownReason | null): string => (r ? REASON[r] ?? "unknown reason" : "");
+export function reasonWords(r: UnknownReason | null): string {
+  if (!r) return "";
+  switch (r) {
+    case "incomplete_list": return t("api.updates.reason.incompleteList");
+    case "invalid_metadata": return t("api.updates.reason.invalidMetadata");
+    case "missing_asset": return t("api.updates.reason.missingAsset");
+    case "ambiguous_asset": return t("api.updates.reason.ambiguousAsset");
+    case "ambiguous_release": return t("api.updates.reason.ambiguousRelease");
+    case "non_semver": return t("api.updates.reason.nonSemver");
+    case "same_version_unbound": return t("api.updates.reason.sameVersionUnbound");
+    case "network": return t("api.updates.reason.network");
+    case "source_conflict": return t("api.updates.reason.sourceConflict");
+    case "rate_limited": return t("api.updates.reason.rateLimited");
+    case "not_found": return t("api.updates.reason.notFound");
+    case "not_checked": return t("api.updates.reason.notChecked");
+    case "release_removed": return t("api.updates.reason.releaseRemoved");
+    default: return t("api.updates.reason.unknown");
+  }
+}
 
 export interface UpdateWords { word: string; tone: "warn" | "ok" | "idle" | "info"; detail: string }
 
 /** What a status says, in a few words and one sentence. A stale or unknown status never reads as "up to date". */
 export function updateWords(s: ModUpdateStatus): UpdateWords {
-  const stale = s.stale ? ` Not confirmed lately${s.reason ? `: ${reasonWords(s.reason)}` : ""}.` : "";
+  // whole sentences, joined by a space as before
+  const stale = s.stale ? (s.reason ? t("api.updates.staleReason", { reason: reasonWords(s.reason) }) : t("api.updates.stale")) : "";
+  const join = (...parts: string[]) => parts.filter(Boolean).join(" ");
   switch (s.state) {
-    case "available": return { word: `Update ${s.candidateVersion ?? ""}`.trim() + (s.stale ? " (stale)" : ""), tone: "warn",
-      detail: `Version ${s.candidateVersion ?? "?"} is published; you have ${s.installedVersion}.${s.compatibility === "incompatible" ? " Its release says it does not load on this Kiln." : ""}${stale}` };
-    case "new-upload": return { word: "New upload" + (s.stale ? " (stale)" : ""), tone: "warn", detail: `Version ${s.installedVersion} was published again as another file.${stale}` };
-    case "current": return { word: "Up to date", tone: "ok", detail: `${s.installedVersion} is the newest published version.` };
-    case "unsupported": return { word: "No update source", tone: "idle", detail: "Kiln does not know where this mod is published. Set a source to get update notices." };
-    case "disabled": return { word: "Checks off", tone: "idle", detail: "Its provider is switched off in this build." };
-    default: return { word: s.stale ? "Unknown (stale)" : "Unknown", tone: "idle", detail: `Kiln cannot tell whether an update exists: ${reasonWords(s.reason) || "unknown reason"}.` };
+    case "available": {
+      const v = s.candidateVersion ?? "";
+      const word = v.trim() ? (s.stale ? t("api.updates.word.updateToStale", { version: v.trimEnd() }) : t("api.updates.word.updateTo", { version: v.trimEnd() }))
+        : s.stale ? t("api.updates.word.updateStale") : t("api.updates.word.update");
+      return { word, tone: "warn",
+        detail: join(t("api.updates.detail.available", { candidate: s.candidateVersion ?? "?", installed: s.installedVersion }),
+          s.compatibility === "incompatible" ? t("api.updates.detail.incompatible") : "", stale) };
+    }
+    case "new-upload": return { word: s.stale ? t("api.updates.word.newUploadStale") : t("api.updates.word.newUpload"), tone: "warn",
+      detail: join(t("api.updates.detail.newUpload", { installed: s.installedVersion }), stale) };
+    case "current": return { word: t("api.updates.word.current"), tone: "ok", detail: t("api.updates.detail.current", { installed: s.installedVersion }) };
+    case "unsupported": return { word: t("api.updates.word.unsupported"), tone: "idle", detail: t("api.updates.detail.unsupported") };
+    case "disabled": return { word: t("api.updates.word.disabled"), tone: "idle", detail: t("api.updates.detail.disabled") };
+    default: return { word: s.stale ? t("api.updates.word.unknownStale") : t("api.updates.word.unknown"), tone: "idle",
+      detail: t("api.updates.detail.unknown", { reason: reasonWords(s.reason) || t("api.updates.reason.unknown") }) };
   }
 }
 

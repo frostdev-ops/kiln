@@ -85,6 +85,61 @@ internal sealed class TaskRun
         task.Attach(this);
     }
 
+    // ---- the live tasks of each mod, for its unload (ModContext.UnloadTaskSeal / UnloadTaskBlocker) ----
+
+    private static readonly object LiveGate = new();
+    private static readonly Dictionary<ModContext, List<TaskRun>> LiveByMod = new();
+
+    private void RegisterLive()
+    {
+        if (Mod is not { } mod) return;
+        lock (LiveGate)
+        {
+            if (!LiveByMod.TryGetValue(mod, out var list)) LiveByMod[mod] = list = [];
+            list.Add(this);
+        }
+    }
+
+    private void UnregisterLive()
+    {
+        if (Mod is not { } mod) return;
+        lock (LiveGate)
+        {
+            if (!LiveByMod.TryGetValue(mod, out var list)) return;
+            list.Remove(this);
+            if (list.Count == 0) LiveByMod.Remove(mod);
+        }
+    }
+
+    /// <summary>The unload of <paramref name="mod"/> begins: every live task of it is asked to stop (a queued one
+    /// ends cancelled here, a running or suspended one through its token), then the pool seals the owner so no new
+    /// task of it is admitted. Continuations of the cancelled tasks still run. Never waits for any task.</summary>
+    internal static void SealTasks(ModContext mod)
+    {
+        TaskRun[] live;
+        lock (LiveGate) live = LiveByMod.TryGetValue(mod, out var list) ? [.. list] : [];
+        foreach (var run in live)
+            if (!run.Task.IsTerminal) run.RequestCancel();
+        TaskBackend.Current?.SealOwner(mod.Owner);
+    }
+
+    /// <summary>The live tasks of <paramref name="mod"/> as <c>'name' (State)</c> joined by ", ", or null when it
+    /// has none: what an unload still joins off the tick. Ended tasks are pruned as they are seen.</summary>
+    internal static string? LiveTasks(ModContext mod)
+    {
+        lock (LiveGate)
+        {
+            if (!LiveByMod.TryGetValue(mod, out var list)) return null;
+            list.RemoveAll(r => r.Task.IsTerminal);
+            if (list.Count == 0)
+            {
+                LiveByMod.Remove(mod);
+                return null;
+            }
+            return string.Join(", ", list.Select(r => $"'{r.Name}' ({r.Task.State})"));
+        }
+    }
+
     internal CancellationToken Token => _cts.Token;
 
     internal ulong Lease => (ulong)Interlocked.Read(ref _lease);
@@ -109,8 +164,13 @@ internal sealed class TaskRun
         if (owner.Mod is { } mod && (mod.Unloading || !mod.Alive))
             throw new InvalidOperationException("the mod is unloading: it cannot start tasks");
         var run = new TaskRun(backend, owner, name, work, task);
+        run.RegisterLive();  // before the admit: its end, which unregisters it, can come before the admit returns
         var refusal = backend.Admit(owner.Id, name, o, run, out var lease);
-        if (refusal != TaskRefusal.None) throw Refused(refusal, backend);
+        if (refusal != TaskRefusal.None)
+        {
+            run.UnregisterLive();
+            throw Refused(refusal, backend);
+        }
         run.SetLease(lease);
         return task;
     }
@@ -329,6 +389,7 @@ internal sealed class TaskRun
                 _ => LeaseOutcome.Faulted,
             });
             TestHook?.Invoke(Point.BeforePublish, this);
+            UnregisterLive();
             if (Task.Publish(state, fault, cancel) && fault is not null) LogFault(fault);
             TestHook?.Invoke(Point.AfterPublish, this);
             return;
@@ -398,6 +459,7 @@ internal sealed class TaskRun
             if (_started || _finished) return;
             _finished = true;
         }
+        UnregisterLive();
         Task.Publish(KilnTaskState.Cancelled, null, new OperationCanceledException($"the task '{Name}' was cancelled before it started", Token));
     }
 
@@ -432,6 +494,7 @@ internal sealed class TaskRun
             started = _started;
         }
         CancelToken();
+        UnregisterLive();
         if (!started || state == KilnTaskState.Cancelled)
         {
             Task.Publish(KilnTaskState.Cancelled, null,

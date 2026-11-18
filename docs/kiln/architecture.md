@@ -76,7 +76,8 @@ per step. Per step:
 Kiln writes `kiln/logs/tick-stats.jsonl` every 60 s: step time, Kiln's own Pre/Post time, interval, subscribers. Since
 0.2.0-dev.29 each line also carries `post_parts` (the game's job wait, the window services' end and each Post
 subscriber by owner), `pre_parts` (the eight slowest Pre subscribers) and `worst` (the window's slowest step taken
-apart); a support report keeps the last 1 MiB of the file.
+apart); a support report keeps the last 1 MiB of the file. `kilnctl tick-compare` compares two such files
+(before/after a change; `kiln_manage::tick_compare`, the method in [kilnctl.md](kilnctl.md#measuring-a-task-change-tick-compare-t12)).
 
 ## C ABI (`native/core/abi/kiln_api.h`, ABI 1)
 One append-only table: log, build info, features, paths, owners, tick subscribe/post, game-log mirror, and an unstable

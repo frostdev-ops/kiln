@@ -85,6 +85,19 @@ public:
         QueryPerformanceFrequency(&freq);
         return freq.QuadPart ? static_cast<uint64_t>(count.QuadPart * 1000000000.0 / freq.QuadPart) : 0;
     }
+
+    // GetThreadTimes (kernel + user, 100 ns units): exact units, but the values only advance in
+    // steps, the ~15.6 ms quantum on Windows and 10 ms under Wine (the Linux thread's tick count).
+    // QueryThreadCycleTime was not used: its cycles have no documented frequency to convert, and
+    // under Wine it does not advance at all (tasks_windows_host.cpp prints both).
+    uint64_t thread_cpu_ns() override {
+        FILETIME created, exited, kernel, user;
+        if (!GetThreadTimes(GetCurrentThread(), &created, &exited, &kernel, &user)) return 0;
+        const auto ticks = [](const FILETIME& f) {
+            return (static_cast<uint64_t>(f.dwHighDateTime) << 32) | f.dwLowDateTime;
+        };
+        return (ticks(kernel) + ticks(user)) * 100ull;
+    }
 };
 
 }  // namespace

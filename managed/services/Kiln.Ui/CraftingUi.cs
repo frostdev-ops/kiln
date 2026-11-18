@@ -26,7 +26,12 @@ public sealed record CraftingPanelOptions
     public CraftingPanelAnchor Anchor { get; init; } = CraftingPanelAnchor.Right;
     /// <summary>Width in pixels at scale 1 (height fits the contents).</summary>
     public float Width { get; init; } = 340;
-    public UiStyle Style { get; init; } = UiStyle.Game;
+    /// <summary>The panel's look; <see cref="UiStyle.Player"/> by default (the game's look unless the player chose another;
+    /// before 0.2.0-dev.29.16 the default was <see cref="UiStyle.Game"/>).</summary>
+    public UiStyle Style { get; init; } = UiStyle.Player;
+
+    /// <summary>Your own theme for the panel (<see cref="Ui.Themes.Define"/>), over <see cref="Style"/>. Since 0.2.0-dev.29.16.</summary>
+    public UiTheme? Theme { get; init; }
     /// <summary>Show only when this returns true (e.g. one workshop); null = every crafting menu.</summary>
     public Func<CraftingScreen, bool>? When { get; init; }
     /// <summary>Buttons in the panel take the mouse while it is over the panel.</summary>
@@ -256,16 +261,19 @@ public static unsafe partial class Ui
                 ui.NextWindowSize(w, 0, 1);
                 uint flags = (1u << 1) | (1u << 5) | (1u << 6) | (1u << 12); // no resize/collapse, auto-size, no focus on appearing
                 if (!o.Interactive) flags |= (1u << 9) | (1u << 18) | (1u << 19);
-                ui.PushStyleRaw(o.Style);
+                var looks = ui.LookDepth;
+                ui.PushLookRaw(o.Theme, o.Style);
                 var open = true;
                 if (ui.BeginWindowNoClose($"{p.Title}{p.Id}", flags))
                 {
+                    var inner = ui.LookDepth;
                     if (!UiModCalls.Invoke(p.Owner, x2 => p.Draw(x2, c), ui, $"crafting panel '{p.Title}'")) p.Disposed = true;
+                    ui.RestoreLooks(inner);  // a look the panel left on goes before its window ends
                     var (_, _, _, hh) = ui.WindowRect;
                     y[o.Anchor] = used + hh + 10 * s;
                 }
                 ui.EndWindow();
-                ui.PopStyleRaw();
+                ui.RestoreLooks(looks);
                 _ = open;
             }
         }

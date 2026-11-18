@@ -224,7 +224,7 @@ public sealed class ModLocale
                 return null;
             }
             var table = new Dictionary<string, string>(StringComparer.Ordinal);
-            Flatten(doc.RootElement, "", table, name);
+            Flatten(doc.RootElement, "", table, key => Write(LogLevel.Warn, $"locale file {name} of mod {_modId}: '{key}' is not a text; ignored"));
             return table;
         }
         catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException)
@@ -234,7 +234,7 @@ public sealed class ModLocale
         }
     }
 
-    private void Flatten(JsonElement obj, string prefix, Dictionary<string, string> into, string file)
+    private static void Flatten(JsonElement obj, string prefix, Dictionary<string, string> into, Action<string> notText)
     {
         foreach (var p in obj.EnumerateObject())
         {
@@ -245,7 +245,7 @@ public sealed class ModLocale
                     into[key] = p.Value.GetString() ?? "";
                     break;
                 case JsonValueKind.Object:
-                    Flatten(p.Value, key, into, file);
+                    Flatten(p.Value, key, into, notText);
                     break;
                 case JsonValueKind.Number:
                 case JsonValueKind.True:
@@ -253,9 +253,37 @@ public sealed class ModLocale
                     into[key] = p.Value.ToString();
                     break;
                 default:
-                    Write(LogLevel.Warn, $"locale file {file} of mod {_modId}: '{key}' is not a text; ignored");
+                    notText(key);
                     break;
             }
+        }
+    }
+
+    /// <summary>Kiln's own texts (<see cref="KilnText"/>): the table of one language as its file was read (dotted keys),
+    /// or null when no file has <paramref name="language"/> exactly.</summary>
+    internal IReadOnlyDictionary<string, string>? TableOf(string language) =>
+        Load().ByLanguage.TryGetValue(Normalize(language), out var table) ? table : null;
+
+    /// <summary>Kiln's own texts: one locale file's text (the same format as a file in <c>locales/</c>) as a table of
+    /// dotted keys; null when it is not one JSON object. <paramref name="warn"/> hears what was skipped and why.</summary>
+    internal static Dictionary<string, string>? ParseText(string json, Action<string> warn)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json, ConfigSchema.ReadOptions);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                warn("it must hold one { ... } object");
+                return null;
+            }
+            var table = new Dictionary<string, string>(StringComparer.Ordinal);
+            Flatten(doc.RootElement, "", table, key => warn($"'{key}' is not a text; ignored"));
+            return table;
+        }
+        catch (JsonException e)
+        {
+            warn(e.Message);
+            return null;
         }
     }
 

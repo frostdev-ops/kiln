@@ -12,6 +12,7 @@ import { useFound } from "../pages/profiles/GameFolder";
 import { profileQueueState, useProfileEdit, watchProfileEdits, type Edit } from "../pages/profiles/useProfileEdit";
 import { applyBulk, buildRows, bulkPlan, changeKey, countLine, defaultVersion, revertBulk, type BulkChange, type BulkPlan, type ModRow } from "./mods";
 import { useRetained } from "./notices";
+import { t } from "../i18n";
 
 /** The profile a player gets when they never made one (kiln_manage::quick::DEFAULT_PROFILE). Loaded, the main screen
  *  does not name it. */
@@ -107,21 +108,21 @@ export function useMods(game: GameInstall | null) {
   const undoAll = async (rec: BulkUndo): Promise<UndoResult> => {
     const no = (why: string): UndoResult => ({ ok: false, why });
     if (rec.over) return no(rec.over);
-    if (pid !== rec.profileId || !profile) return no(`${rec.profileName} is not the loaded profile now`);
+    if (pid !== rec.profileId || !profile) return no(t("shell.useMods.notLoadedNow", { name: rec.profileName }));
     const q = profileQueueState(rec.profileId);
-    if (!q.idle || edit.saving) return no("the profile is still being saved");
+    if (!q.idle || edit.saving) return no(t("shell.useMods.stillSaving"));
     let disk: Profile;
     try { disk = await api.profileGet(rec.profileId); } catch (e) { return no(api.toKilnError(e).message); }
     if (rec.over) return no(rec.over);
     const now = profileQueueState(rec.profileId);
-    if (!now.idle) return no("the profile is still being saved");
+    if (!now.idle) return no(t("shell.useMods.stillSaving"));
     if (disk.created !== rec.created || disk.generation !== now.generation) {
-      rec.over = `${rec.profileName} changed elsewhere since`;
+      rec.over = t("shell.useMods.changedElsewhere", { name: rec.profileName });
       undos.delete(rec);
       void qc.invalidateQueries({ queryKey: qk.profile(rec.profileId) });
       return no(rec.over);
     }
-    rec.over = "it was undone already";
+    rec.over = t("shell.useMods.undoneAlready");
     undos.delete(rec);
     const kept = rec.changes.filter((c) => rec.touched.has(changeKey(c))).length;
     edit.update((p) => { revertBulk(p, rec.changes, rec.touched); });

@@ -17,16 +17,17 @@ import { useUpdate, useUpdateFeed, useUpdateStore } from "../api/update";
 import { buildLabel } from "../api/channel";
 import { Button, IconButton, ProgressBar, installNote, runTask, toast, useTasks, waitTask } from "../ui";
 import { notifyInstall } from "./notices";
+import { t, useT } from "../i18n";
 import "./update.css";
 
 /** A short error toast; the detail is in launcher.log. */
 const failed = (title: string) => toast.error({ code: "internal", message: title });
 
 function wordFor(s: UpdateStatus): { text: string; tone: "info" | "ember" | "ok" } | null {
-  if (s.justUpdated) return { text: "Updated", tone: "ok" };
-  if (s.phase === "ready") return { text: "Restart", tone: "ok" };
-  if (s.phase === "downloading") return { text: "Updating", tone: "ember" };
-  if (s.phase === "available" && s.available) return { text: "Update", tone: "info" };
+  if (s.justUpdated) return { text: t("shell.updateNotice.updated"), tone: "ok" };
+  if (s.phase === "ready") return { text: t("shell.updateNotice.restart"), tone: "ok" };
+  if (s.phase === "downloading") return { text: t("shell.gameState.updating"), tone: "ember" };
+  if (s.phase === "available" && s.available) return { text: t("common.update"), tone: "info" };
   return null;
 }
 
@@ -36,6 +37,7 @@ export function UpdateTray() {
 }
 
 function SelfUpdateTray() {
+  const t = useT();
   useUpdateFeed();
   const s = useUpdate();
   const open = useUpdateStore((x) => x.open);
@@ -51,7 +53,7 @@ function SelfUpdateTray() {
   return (
     <div className="k-upd">
       <button type="button" className={`k-upd-btn k-tone-${word.tone}`} onClick={() => setOpen(!open)} aria-expanded={open} aria-haspopup="dialog"
-        aria-label={`Launcher update: ${word.text}`}>
+        aria-label={t("shell.updateNotice.trayAria", { word: word.text })}>
         <span className="k-sc">{word.text}</span>
       </button>
       {open && <UpdateCard s={s} onClose={() => setOpen(false)} />}
@@ -60,11 +62,12 @@ function SelfUpdateTray() {
 }
 
 function Card({ title, onDismiss, children }: { title: string; onDismiss: () => void; children?: ReactNode }) {
+  const t = useT();
   return (
     <div className="k-upd-pop" role="dialog" aria-label={title}>
       <div className="k-upd-head">
         <span className="k-upd-title">{title}</span>
-        <IconButton label="Dismiss" size="s" icon={<X />} onClick={onDismiss} />
+        <IconButton label={t("common.dismiss")} size="s" icon={<X />} onClick={onDismiss} />
       </div>
       {children}
     </div>
@@ -72,12 +75,13 @@ function Card({ title, onDismiss, children }: { title: string; onDismiss: () => 
 }
 
 function UpdateCard({ s, onClose }: { s: UpdateStatus; onClose: () => void }) {
+  const t = useT();
   if (s.justUpdated) return <JustUpdated s={s} onClose={onClose} />;
   if (s.phase === "ready") return <ReadyCard onClose={onClose} />;
   if (s.phase === "downloading") {
     const p = s.progress;
     return (
-      <Card title="Updating…" onDismiss={onClose}>
+      <Card title={t("shell.updateNotice.updating")} onDismiss={onClose}>
         <ProgressBar value={p?.total ? p.received / p.total : null} />
       </Card>
     );
@@ -86,52 +90,55 @@ function UpdateCard({ s, onClose }: { s: UpdateStatus; onClose: () => void }) {
 }
 
 function Offer({ s, onClose }: { s: UpdateStatus; onClose: () => void }) {
+  const t = useT();
   const [busy, setBusy] = useState(false);
   const a = s.available;
-  if (!a) return <Card title="Up to date" onDismiss={onClose} />;
+  if (!a) return <Card title={t("shell.updateNotice.upToDate")} onDismiss={onClose} />;
   const update = async () => {
     setBusy(true);
     try {
       await waitTask(await api.updateInstall());
     } catch {
-      failed("Update failed");
+      failed(t("shell.updateNotice.updateFailed"));
     } finally {
       setBusy(false);
     }
   };
-  const skip = () => api.updateSkip(a.version).then(onClose, () => failed("Skip failed"));
+  const skip = () => api.updateSkip(a.version).then(onClose, () => failed(t("shell.updateNotice.skipFailed")));
   return (
-    <Card title={`Kiln ${buildLabel(a.version)}`} onDismiss={onClose}>
+    <Card title={t("shell.updateNotice.offerTitle", { build: buildLabel(a.version) })} onDismiss={onClose}>
       <div className="k-upd-actions">
-        <Button variant="ghost" onClick={skip}>Skip</Button>
+        <Button variant="ghost" onClick={skip}>{t("shell.updateNotice.skip")}</Button>
         {s.install.inPlace
-          ? <Button variant="primary" loading={busy} onClick={update}>Update</Button>
-          : <Button variant="primary" onClick={() => api.appOpenUrl(a.page || s.page).catch(() => failed("Could not open the page"))}>Download</Button>}
+          ? <Button variant="primary" loading={busy} onClick={update}>{t("common.update")}</Button>
+          : <Button variant="primary" onClick={() => api.appOpenUrl(a.page || s.page).catch(() => failed(t("shell.channelSwitch.openPageFailed")))}>{t("shell.updateNotice.download")}</Button>}
       </div>
     </Card>
   );
 }
 
 function ReadyCard({ onClose }: { onClose: () => void }) {
-  const tasks = useTasks((t) => t.tasks);
-  const order = useTasks((t) => t.order);
+  const t = useT();
+  const tasks = useTasks((x) => x.tasks);
+  const order = useTasks((x) => x.order);
   const blocking = order.map((id) => tasks[id]).find((x) => x && (x.state === "running" || x.state === "queued") && x.kind !== "update_install");
   const [busy, setBusy] = useState(false);
   const restart = async () => {
     setBusy(true);
-    try { await api.updateRestart(); } catch { failed("Restart failed"); setBusy(false); }
+    try { await api.updateRestart(); } catch { failed(t("shell.channelSwitch.restartFailed")); setBusy(false); }
   };
   return (
-    <Card title="Ready to restart" onDismiss={onClose}>
+    <Card title={t("shell.updateNotice.readyTitle")} onDismiss={onClose}>
       <div className="k-upd-actions">
-        <Button variant="ghost" onClick={onClose}>Later</Button>
-        <Button variant="primary" loading={busy} disabled={!!blocking} title={blocking ? `Waiting for ${blocking.title}` : undefined} onClick={restart}>Restart</Button>
+        <Button variant="ghost" onClick={onClose}>{t("shell.channelSwitch.later")}</Button>
+        <Button variant="primary" loading={busy} disabled={!!blocking} title={blocking ? t("shell.updateNotice.waitingFor", { task: blocking.title }) : undefined} onClick={restart}>{t("shell.updateNotice.restart")}</Button>
       </div>
     </Card>
   );
 }
 
 function JustUpdated({ s, onClose }: { s: UpdateStatus; onClose: () => void }) {
+  const t = useT();
   const qc = useQueryClient();
   const { game } = useGame();
   const gs = useGameStatus(game?.id);
@@ -150,22 +157,22 @@ function JustUpdated({ s, onClose }: { s: UpdateStatus; onClose: () => void }) {
     try {
       // no explicit parts: the backend keeps the game's parts and adds the ones that are new or became defaults, unless
       // the player turned them off (passing the receipt's list here froze it and skipped new parts)
-      notifyInstall(await runTask<api.InstallResult>(() => api.runtimeInstall(game.id, next, {}), { done: `Kiln ${next} installed`, detail: installNote, quiet: true }));
+      notifyInstall(await runTask<api.InstallResult>(() => api.runtimeInstall(game.id, next, {}), { done: t("shell.play.kilnInstalled", { version: next }), detail: installNote, quiet: true }));
       ack();
     } catch {
-      failed("Update failed");
+      failed(t("shell.updateNotice.updateFailed"));
     } finally {
       setBusy(false);
       invalidateGame(qc, game.id);
     }
   };
   return (
-    <Card title={`Updated to ${buildLabel(u.to)}`} onDismiss={ack}>
-      {back && !rt?.upgradeAvailable && <span className="k-hint" data-testid="switch-back-runtime">This game has Kiln {back.from} from the test build; this installs Kiln {back.to}.</span>}
+    <Card title={t("shell.updateNotice.updatedTo", { build: buildLabel(u.to) })} onDismiss={ack}>
+      {back && !rt?.upgradeAvailable && <span className="k-hint" data-testid="switch-back-runtime">{t("shell.updateNotice.switchBack", { from: back.from, to: back.to })}</span>}
       {next && (
         <div className="k-upd-actions">
-          <Button variant="ghost" onClick={onClose}>Later</Button>
-          <Button variant="primary" loading={busy} disabled={running} title={running ? "Close the game first" : undefined} onClick={updateGame}>Update game</Button>
+          <Button variant="ghost" onClick={onClose}>{t("shell.channelSwitch.later")}</Button>
+          <Button variant="primary" loading={busy} disabled={running} title={running ? t("shell.updateNotice.closeGame") : undefined} onClick={updateGame}>{t("shell.updateNotice.updateGame")}</Button>
         </div>
       )}
     </Card>

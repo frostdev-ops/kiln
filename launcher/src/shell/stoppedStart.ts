@@ -1,10 +1,11 @@
 import type { GameStatus, StoppedStart } from "../api/commands";
+import { t } from "../i18n";
 export const stopKey = (s: StoppedStart) => `${s.pid}:${s.utc}:${s.exitCode}`;
 export const stopSentence = (s: StoppedStart) => s.kind === "roster"
-  ? `These mods add more NPCs to the Survivors roster than the game can hold${s.names.length ? `: ${s.names.join(", ")}` : "."}`
+  ? (s.names.length ? t("shell.stoppedStart.rosterNames", { names: s.names.join(", ") }) : t("shell.stoppedStart.roster"))
   : s.kind === "content"
-  ? `Kiln could not build the NPCs and quests of ${s.names.length ? `these mods, so no world was loaded: ${s.names.join(", ")}` : "the mods, so no world was loaded."}`
-  : `${s.reason}${s.names.length ? ` (${s.names.join(", ")})` : ""}`;
+  ? (s.names.length ? t("shell.stoppedStart.contentNames", { names: s.names.join(", ") }) : t("shell.stoppedStart.content"))
+  : s.names.length ? t("shell.stoppedStart.reasonNames", { reason: s.reason, names: s.names.join(", ") }) : s.reason;
 // The roster and the content stop say what failed in a sentence of their own; the reason is the detail under it.
 export const stopShowsReason = (s: StoppedStart) => s.kind !== "boot-mod";
 export const stopFilter = (ids: string[]) => `ids:${ids.map(encodeURIComponent).join(",")}`;

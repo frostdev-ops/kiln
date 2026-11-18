@@ -1,6 +1,7 @@
 // The files a player can add as mods: what kiln_manage::library imports (library::archive_kind: zip, 7z and rar,
 // unpacked into a private folder; a rar with a tool the PC has) and DLLs. Folders are dropped on the window (the file
 // dialog picks files). The "Add mods" dialog and the hints that name the formats read this.
+import { t } from "../i18n";
 
 /** The file dialog's extensions, without the dot. */
 export const MOD_FILE_EXTENSIONS = ["zip", "7z", "rar", "dll"];
@@ -16,11 +17,12 @@ export const anyCase = (ext: string) => [...ext].map((c) => (c.toLowerCase() ===
  *  `*.[zZ][iI][pP]` takes NightOwl.Zip, a.zip and b.ZIP), so Linux gets one pattern per extension that matches every
  *  letter case. Windows matches `*.zip` without case and macOS by type: one plain pattern each. */
 export function modFileFilters(windowsOrMac: boolean): { name: string; extensions: string[] }[] {
-  return [{ name: "Mods", extensions: windowsOrMac ? MOD_FILE_EXTENSIONS : MOD_FILE_EXTENSIONS.map(anyCase) }];
+  // the filter's name is read when the dialog opens (a getter), so it is in the language of that moment
+  return [{ get name() { return t("shell.modFiles.filterName"); }, extensions: windowsOrMac ? MOD_FILE_EXTENSIONS : MOD_FILE_EXTENSIONS.map(anyCase) }];
 }
 
 /** The filter for this window's platform. */
 export const MOD_FILE_FILTERS = modFileFilters(typeof navigator !== "undefined" && /Windows|Macintosh|Mac OS X/i.test(navigator.userAgent));
 
 /** "zip, 7z, rar, folder or DLL", for a sentence. */
-export const MOD_FILE_WORDS = "zip, 7z, rar, folder or DLL";
+export const modFileWords = () => t("shell.modFiles.words");

@@ -81,6 +81,22 @@ void set_error(const char* fmt, ...);
 KilnHandle next_handle();                    // one handle space for every kiln.ui subscription (any thread)
 extern std::atomic<uint32_t> g_hover_panels; // Kiln panels that take the mouse only while it is over them
 
+// ---- chat_input_probe.cpp (GitHub issue 44: Up/Down history in the game's chat field) ----
+bool chat_input_probe_install();  // game_install: hooks the chat field when chat history (or a diagnostic) is on
+void chat_input_frame_end();      // the game's UI thread, after each GameUiFrame: whether the chat field has focus
+void chat_input_exit();           // on_unload: writes the history file still pending, stops its writer thread
+
+// The window procedure's one hook point for the game's chat field (input.cpp calls it on the window thread, before
+// Kiln's own key handling). Set by chat_input_probe_install while chat history or its diagnostic runs; null otherwise,
+// and in the input.cpp host harnesses, which do not link chat_input_probe.cpp.
+struct ChatInputSink {
+    bool (*key)(uint32_t vk, uint32_t mods, bool down, bool captured);  // a key transition; true keeps a press from the game
+    void (*text)(uint32_t ch);                                           // WM_CHAR / WM_UNICHAR, while Kiln does not capture
+    void (*ime)(bool composing);                                         // an IME composition started (true) or ended
+    void (*blur)();                                                      // the window lost focus / the game was deactivated
+};
+void input_set_chat_sink(const ChatInputSink* sink);  // input.cpp; the sink must live for the process
+
 // ---- input.cpp ----
 void input_install_iat();       // SetCursorPos / ClipCursor slots of the game exe (plugin main)
 void input_hook_xinput();      // after XInput loads: idle pad for the game while Kiln has the input
@@ -158,6 +174,10 @@ bool footer_install();                        // game_install: resolve, copy the
 void footer_set(int32_t mods, uint32_t flags);  // any thread: the mods' count (< 0 unknown) and KILN_UI_FOOTER_* (Kiln.Ui)
 void footer_after_frame(uintptr_t sys10);     // UI thread, after each UI frame: the canvas metrics for the mark
 void footer_overlay();                        // render thread, inside the ImGui frame: the mark
+void footer_texts_changed();                  // any thread: Kiln's texts changed (ui_text.h): the line in the new language
+
+// ---- Kiln's own texts (ui_text.h; set_texts) ----
+void game_texts_changed();                    // any thread: the Mods entry and the drawing-off caption in the new language
 
 // ---- menu_page.cpp (the Kiln menu as a page of the game's main menu: feature ui.menu_page) ----
 bool page_install(bool main_menu_hooked);  // game_install, after the MainMenuEntry hook: resolve, hook Credits
@@ -175,19 +195,32 @@ KilnResult page_state(KilnUiMenuPage* out);
 void page_status_line(char* out, size_t cap);
 bool style_push_font(uint32_t font);       // style.cpp: KILN_UI_FONT_*; false = not loaded (nothing pushed)
 
-// ---- style.cpp (Kiln's and the game's look, the game font, images) ----
-void style_apply_base(float scale);          // the default (Kiln ember) style, scaled
-void style_push(uint32_t style);             // inside a frame
+// ---- style.cpp (the looks: Kiln's, the game's, the player's, mods' themes; the game's font and colours, mod fonts, images) ----
+void style_apply_base(float scale);          // the looks at this scale; windows that push nothing get the player's
+void style_push(uint32_t style);             // inside a frame: KILN_UI_STYLE_*
+bool theme_push(KilnHandle theme);           // inside a frame; false: no such theme (nothing pushed); style_pop pops it
 void style_pop();
-void style_frame_begin();                    // render thread, before NewFrame: fonts and textures to add
+size_t style_depth();                        // looks pushed now (render thread)
+void style_frame_begin();                    // render thread, before NewFrame: fonts, colours, looks and textures
 void style_frame_end();                      // render thread, after the frame: unbalanced pushes
 float style_scale();
+float user_scale();                          // the player's scale (set_look), any thread
+bool style_push_font_handle(KilnHandle font);  // inside a frame: a mod font; false = not in the atlas (nothing pushed)
+KilnResult theme_create(KilnOwner owner, const KilnUiThemeDef* def, KilnHandle* out);  // any thread
+KilnResult theme_free(KilnHandle theme);                                              // any thread
+KilnResult look_set(const KilnUiLook* look);                                           // any thread (the caller is checked in ui.cpp)
+KilnResult look_info(KilnUiLookInfo* out);                                             // any thread
+KilnHandle font_load(KilnOwner owner, const void* data, size_t len);                   // any thread; 0 refused
+void font_free(KilnHandle font);                                                       // any thread
 KilnHandle image_load(KilnOwner owner, const void* png, size_t len);
 KilnHandle image_load_rgba(KilnOwner owner, const uint8_t* rgba, uint32_t w, uint32_t h);  // w*h*4 bytes, copied
 int32_t image_state(KilnHandle h);  // image_budget.h: unknown, waiting, ready, failed
 bool image_size(KilnHandle h, uint32_t* w, uint32_t* hgt);
 void image_draw(KilnHandle h, float w, float hgt);
 bool image_button(const char* id, KilnHandle h, float w, float hgt);
+// image_ex: KILN_UI_IMAGE_DRAW_* flags, uv all 0 = whole; id null = an image (false), else a button. Inside a frame.
+bool image_draw_ex(const char* id, KilnHandle h, uint32_t flags, float w, float hgt, float u0, float v0, float u1, float v1);
+bool image_opaque_rect(KilnHandle h, uint32_t* x, uint32_t* y, uint32_t* w, uint32_t* hgt);  // any thread
 void image_free(KilnHandle h);
 }  // namespace kui
 struct ImTextureRef;

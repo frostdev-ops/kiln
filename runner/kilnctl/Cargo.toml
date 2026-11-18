@@ -6,6 +6,10 @@ license.workspace = true
 description = "Runs Enshrouded dedicated servers with Kiln under Wine on Linux (SteamCMD, no Steam client)"
 publish.workspace = true
 
+# Windows: the exe's icon resource (build.rs, tools/winres/winres.rs); the same crate tauri-build uses
+[build-dependencies]
+embed-resource = "3"
+
 [dependencies]
 kiln-manage = { path = "../../crates/kiln-manage", features = ["server", "zip"] }
 anyhow = "1"

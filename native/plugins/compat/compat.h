@@ -105,6 +105,26 @@ inline bool write_file_atomic(const std::filesystem::path& p, std::string_view d
     return MoveFileExW(tmp.c_str(), p.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
 }
 
+// A status file a plugin rewrites while the game runs (kiln-shroudtopia's state/shroudtopia.json every 5 s): the same
+// temporary file and rename, without MOVEFILE_WRITE_THROUGH. A crash of the game loses nothing Windows already has, and
+// the next write (or the next start) replaces a status that a power cut cut short; forcing each rename to the disk took
+// a seek of the game's disk every few seconds while it streamed the world (inbox 50, a hard disk).
+inline bool write_status_file(const std::filesystem::path& p, std::string_view data) {
+    static std::mutex mu;
+    std::lock_guard lock(mu);
+    std::error_code ec;
+    std::filesystem::create_directories(p.parent_path(), ec);
+    auto tmp = p;
+    tmp += L".tmp";
+    {
+        std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
+        if (!f) return false;
+        f.write(data.data(), static_cast<std::streamsize>(data.size()));
+        if (!f) return false;
+    }
+    return MoveFileExW(tmp.c_str(), p.c_str(), MOVEFILE_REPLACE_EXISTING) != 0;
+}
+
 inline bool exists(const std::filesystem::path& p) {
     std::error_code ec;
     return std::filesystem::exists(p, ec);

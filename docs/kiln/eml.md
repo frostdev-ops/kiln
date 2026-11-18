@@ -491,6 +491,42 @@ mods, which is the Linux case EML can't handle by itself. The profile's entries 
 launcher's copies in `mods/` are skipped as drop-ins. The installer (agent `detect`) may chain EML's `dinput8.dll`
 in `kiln/chain/`. It then loads, and kiln-eml stands aside, as verified on a lab server (section 5).
 
+### Modified EML loaders (a dbghelp.dll with code of its own)
+Some mods ship EML's `dbghelp.dll` rebuilt with code of their own. The first known one is "Put Away Your Weapon"
+(Nexus 371, EML mod `holster-toggle`, player report 2026-11-17; Kiln's analysis of its loader binary): EML's
+`mod-loader-runtime` crate, a stub in EML 0.2.0, grew a `native` layer. With `m182_native.json` next to the game
+(`enabled`, `holster`, `holster_key`, `pvp`, `pvp_friend_checks`) it starts a thread that, on the holster key (default
+F9, the shipped file sets 20 = Caps Lock), finds the weapon poses the mod's Lua part marked in the game data in the
+game's memory and rewrites them from `export/holster/map.json` (written by that Lua part through `io.export`, so EML's
+`eml.json` needs `use_export_flag: true`); and it replaces four of the game's functions (isEnemy/isFriend, found by
+exact byte patterns) with its own, for its PvP switch. That code runs only while the file is the process's EML loader.
+
+What Kiln does with one:
+- The Library recognises it (`engines::eml_loader_extras`: an EML loader whose panic and log locations name
+  `mod-loader-runtime` files other than `lib.rs`/`log.rs`, or known texts of such code) and leaves it out with what it is
+  and what does not run, never as "not needed". The EML mods of the package are imported as usual, and their Library
+  record carries `loaderPart`: the launcher's row says "Only partly runs", the game's `profile.json` hands it to
+  kiln-eml as `emlPartial`, and kiln-eml adds it to the mod's line in `state/eml.json` and warns in kiln.log
+  (`kiln-eml: EML mod holster-toggle: only its Lua part runs: ...`). Kiln runs the mods' Lua part (kiln-eml, or
+  ShroudForge when Kiln hosts it); the loader's own code does not run.
+- `m182_native.json` next to the game while no modified loader runs: kiln-eml warns that its code does nothing this
+  start. A modified loader next to the game that Wine did not load (no override) is named as one in kiln.log and in the
+  support report's `loader-in-folder` finding.
+- Kiln never loads a modified loader by itself: it is a whole EML loader, which patches the game data in its
+  `DllMain` (a second writer next to kiln-eml or ShroudForge), and the PvP part patches game code.
+
+Using one anyway is the player's choice, with the consequences of EML's own loader (section above; not checked in a real
+game with this mod): on Windows it runs from the game folder as `dbghelp.dll`; under Proton it needs
+`WINEDLLOVERRIDES="dbghelp=n,b"`, or, without an override, the name `dbghelp_<name>.dll` and a line in
+`dinput8-chain.ini` (Kiln's proxy loads it by path, kiln-eml stands aside for that name). kiln-eml then stands aside,
+the launcher copies the profile's EML mods into `mods/` for it, EML mods that need ShroudForge's runtime cannot be on
+(activation refuses), and ShroudForge mods do not run (hosted ShroudForge refuses to be a second writer). Its PvP
+part detours isEnemy/isFriend whenever `enabled` is true, also with `pvp: false` (all four patterns match build
+26430625 exactly once): those are the functions Kiln's NPC faction service hooks (`npcai/FactionHostileValue`,
+`npcai/FactionFriendValue`, `npcai/FactionFriendOpt`), so Kiln mods that set NPC relations may not work beside it. Under
+ShroudForge the Lua part's `io.export` files land in ShroudForge's exports folder (`shroudforge/exports`), not in
+`export/`, so the hotkey would not find its map there.
+
 ### Logs and state
 
 `could not prepare the game data: <step>: <cause>` names the refused preparation step and the file or underlying

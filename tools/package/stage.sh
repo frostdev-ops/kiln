@@ -123,6 +123,9 @@ rsync -a "$dotnet_root/" "$k/dotnet/"
 printf '{\n  "policy": "verified-only",\n  "clr": true,\n  "plugins": true,\n  "log_level": "info"\n}\n' > "$k/kiln.json"
 # Kiln's shipped compat rules (dev.29): not config, every update replaces them; the player's own go in <configDir>
 install -m 644 "$repo/native/core/compat-rules.json" "$k/compat-rules.json"
+# Kiln's own in-game texts (runtime/locales/<language>.json, docs/kiln/translating-game.md): every update replaces them
+mkdir -p "$k/locales"
+install -m 644 "$repo"/runtime/locales/*.json "$k/locales/"
 # Kiln's own plugins (native/plugins/*): kiln-emf is the emf component, any other plugin is core
 if [[ -d $bin/plugins ]]; then
   for f in "$bin"/plugins/*.dll "$bin"/plugins/*.pdb; do

@@ -20,13 +20,13 @@ internal static unsafe class SetTools
     internal static void Draw(UiDraw ui, CatalogMod mod)
     {
         ui.Separator();
-        ui.TextWrapped("SET Mod Settings, Compatibility, Entities, Hooks, Bindings, Console and local support report.");
+        ui.TextWrapped(KilnText.T("set.about"));
         var table = Services.Get<Table>("kiln.set.ui", 1);
-        if (table is null) ui.TextDisabled("SET tools are unavailable (kiln-set is not running).");
-        else if (ui.Button("SET settings and tools"))
+        if (table is null) ui.TextDisabled(KilnText.T("set.unavailable"));
+        else if (ui.Button(KilnText.T("set.open")))
         {
             if (Open(table, Path.GetFileName(mod.Folder ?? mod.Id)) != 0)
-                Hud.Toast("SET tools are unavailable; check the engine status.", ToastKind.Warning);
+                Hud.Toast(KilnText.T("set.open_failed"), ToastKind.Warning);
         }
     }
 }

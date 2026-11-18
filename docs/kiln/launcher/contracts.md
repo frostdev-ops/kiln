@@ -119,6 +119,7 @@ Root: `$KILN_DATA_DIR`, else the folder the pointer `data-folder.json` in the de
 | `profiles/<pid>/meta.json` | the profile definition (`kiln_manage::profile::Profile`; dev.21 adds `late`: native mod ids whose dllmain DLLs go to chain.ini `[late]`, left out when empty; dev.22 adds `dropinsEngines: true`: `dropins` names the engine kinds too, profiles.md "Drop-in folders") |
 | `profiles/<pid>/config/` | the profile's mod configs (its `configDir`), with `.schema/`, `native.json` and the player's `compat-rules.json` |
 | `profiles/<pid>/data/` | per-mod data when the profile chooses `dataDir: profile` |
+| `profiles/<pid>/config-sync/<installId>.json` | (0.2.0-dev.29.16) copy mode: the game's config copy of the profile as Kiln last left it (`kiln_manage::profile::config_sync_record`): `{format: 1, files: {"<path below config/, '/'-separated>": {sha256, size, mtimeNs}}}`, written after every copy into the game and every copy back (section 6). The hash decides; size and time are for a reader. Safe to delete: the next copy back then decides by time |
 | `profiles/<pid>/save-backups/<yyyymmddThhmmssZ>/` | automatic save backups, 10 kept (+ `backup.json`) |
 | `installs/<installId>.json` | the launcher's record of a game install: the `GameInstall` + a copy of its receipt |
 | `installs/<installId>.notices-seen.json` | (dev.26) which activation notices the player has closed in the launcher for that game: `{format: 1, seen: [sha256 hex of each sentence]}`, oldest first, at most 512 (`kiln_manage::notices`, `notices_shown`; written through a temp file of its own random name) |
@@ -128,6 +129,7 @@ Root: `$KILN_DATA_DIR`, else the folder the pointer `data-folder.json` in the de
 | `backups/` | `saves/<gameId>/` (save backups without a profile), `install/<installId>/` (mirror of install backups), `profiles/` (deleted profiles) |
 | `logs/launcher.log` | the launcher's own log |
 | `state/software-render.json` | Linux: there, a start without an override draws without the GPU (`{format, why, at, version}`; written by the launcher when its page did not start, or by Settings; [app.md](app.md), "Drawing without the GPU") |
+| `state/desktop-entry.json` | Linux AppImage: there when the player turned "Kiln Launcher in the app menu" off (`{format, on: false, at}`); absent, every start writes or updates the app menu entry and icons ([app.md](app.md), "Taskbar icon and app menu") |
 | `update.json` | the self-update's state: `{format, skipped, checked, updated: {from, to, at, source, notes}}` (releasing.md) |
 | `servers/<id>.json` | launcher records of servers that are not kilnctl instances (steam, windows, remote) and renames (`ServerInstance`) |
 | `modpacks/downloads/<sha256>.zip`, `modpacks/built/<serverId>/`, `modpacks/staging/`, `modpacks/dismissed.json` | modpack downloads (reused when the sha256 matches), built server modpacks, unpack staging, offers and refusals the user dismissed (`{gameId: {serverId: modpack sha256 | "refused <written>"}}`) |
@@ -1020,6 +1022,18 @@ All additive, appended to v1 tables (check `header.size`). Docs: `docs/kiln/netw
   (verified by kdh1 after the copy; unchanged copies are kept), the profile's config dir to
   `<game>/kiln/profiles/<pid>/config/` (copied back to `<data>/profiles/<pid>/config/` before the next activation and
   after the game exits), and writes relative paths (`profiles/<pid>/kiln/<id>`), resolved against `<game>/kiln/`.
+  The copy back goes file by file against `<data>/profiles/<pid>/config-sync/<installId>.json` (section 1), what the
+  game's copy held when Kiln last copied it in or back (0.2.0-dev.29.16; before, the game's copy overwrote every file,
+  so a Configs edit in the launcher was lost at the next activation, a mod update for one): a file the game changed or
+  created comes back; one only the data folder changed (a launcher edit) stays and goes in at the activation; one both
+  changed keeps the newer by modification time (the data folder's on a tie) and the other is saved beside it in the
+  data folder as `<name>.conflict-<yyyymmddThhmmssZ>` (`-2`, ... when taken), with a sentence in the activation's
+  `warnings` (in the launcher's log for the copy back after the game exits). A file missing from the game's copy is
+  never deleted from the data folder; one deleted from the data folder (a whole-file reset) stays deleted while the
+  game's copy of it is unchanged. Without a record (the first copy back after the update, an unreadable record) or
+  without the profile's `config/` in the data folder, every file the two hold differently is such a conflict, and a
+  file only one holds is kept. The profile's native switches are written into the data folder's `native.json` before
+  the copy in, so both copies are the same afterwards.
   The only paths that leave `<game>/kiln/`: an EML mod a native DLL reads in the game's mods folder and an XHL
   companion as `../mods/<folder>`, an enabled Greeneye mod Kiln placed as `../greeneye/<id>`, an enabled Flame mod Kiln
   placed as `../mods/<id>`, each one folder name under the rule of `schema/fixtures/profile/game-folder-names.json`.
@@ -1171,11 +1185,13 @@ Shared types (TypeScript names, defined in `commands.ts`; Rust in kiln-manage un
 
 | File | Command | Arguments | Returns |
 |---|---|---|---|
-| app | `app_info` | - | `AppInfo` {version, kiln, platform, arch, dataDir, commit, mock, noWebgl, deck: `DeckInfo`, distribution: "direct" \| "nexus", render?: `RenderInfo` (Linux)} |
+| app | `app_info` | - | `AppInfo` {version, kiln, platform, arch, dataDir, commit, mock, noWebgl, deck: `DeckInfo`, distribution: "direct" \| "nexus", render?: `RenderInfo` (Linux), desktop?: `DesktopInfo` {on, installed, foreign, file} (Linux AppImage)} |
 | app | `app_started` | - | null (the page's first screen is up; once per start; ends the Linux render watchdog) |
 | app | `app_render_set` | software: boolean | `RenderInfo` (sets or clears `state/software-render.json` for the next start; `unsupported` off Linux) |
+| app | `app_desktop_set` | on: boolean | `DesktopInfo` (on: writes `kiln-launcher.desktop` and the icons, replacing a file of that name Kiln did not write; off: removes Kiln's, and `state/desktop-entry.json` keeps it off; `unsupported` outside a Linux AppImage) |
 | app | `app_settings_get` | - | `LauncherSettings` |
 | app | `app_settings_set` | settings: LauncherSettings | `LauncherSettings` |
+| app | `app_locales` | - | `LocaleFiles` {dir, files: {tag, text}[], errors: {file, message}[]} (translation files in `<data>/locales/<tag>.json`, as text; at most 64, 1 MB each; [translating.md](../translating.md)) |
 | app | `app_open_path` | path: string | null |
 | app | `app_open_url` | url: string (https) | null |
 | app | `task_list` | - | `Task[]` |
@@ -1372,7 +1388,8 @@ that may still run although its mod is off; [app.md](app.md) "Notices about mod 
 number (dev.29, default 1, 0 to 5: "Earlier versions to keep", how many of a mod's earlier versions an update keeps for a
 roll back with their settings; `app_settings_set` refuses more than 5 and trims what is kept to the new count; a
 launcher before dev.29 drops the field when it saves its settings, and dev.29 then keeps 1; [catalog.md](catalog.md)
-"Rolling back an update")}` (`checkUpdates`, never used, is gone;
+"Rolling back an update"), language?: string (dev.29: the launcher's language, "system" or absent = the system's,
+else a tag such as "zh-CN"; [translating.md](../translating.md))}` (`checkUpdates`, never used, is gone;
 readers ignore it), `UpdateStatus` (`launcher/src-tauri/src/selfupdate/mod.rs`; [releasing.md](releasing.md); `distribution`
 "direct", or in the Nexus build "nexus" with `phase: "disabled"`, `commands/update.rs`),
 `Task {id, kind (the command), title, state: 'queued'|'running'|'done'|'failed'|'canceled', progress: number|null,

@@ -314,8 +314,11 @@ yours with the same `id` replaces Kiln's. Plain JSON, no comments.
   `{"symbol": "chat/ChatLogAdd"}` (an overlap on that function). No `when`: always. At most 8 matchers; a module
   pattern with wildcards has at most 64 characters and 4 `*`.
 - `action`: `warn` (log the message), `late` (the `subject` module loads late), `disable` (the `subject` module, mod or
-  engine does not load), `before` (dev.29: the `subject` loads before the `target`, below). `late`, `disable` and
-  `before` need a `subject`; `before` also needs a `target`, and only `before` takes one.
+  engine does not load), `before` (dev.29: the `subject` loads before the `target`, below), `defer` (since
+  0.2.0-dev.29.4: the `subject` native mod waits for the Shroudtopia host's first pass, below) and `original-code`
+  (since 0.2.0-dev.29.6: the `subject` Shroudtopia mod compares against the game's original code, below). Every action
+  but `warn` needs a `subject`; `before` and `defer` also need a `target`, and only they take one; only `defer` takes
+  `max_wait_ms` (required for it).
 - Who applies what: the launcher writes `chain.ini` and the profile, so it applies `late` and `disable` of chain entries
   (a line `; kiln rule <id>` marks what a rule wrote). kiln-core logs `warn` rules, switches off a **mod the profile lists**
   (`disable` on `{"mod": "emf:coolmod"}`, before the plugins read the profile; the rule's message is the reason in the
@@ -326,6 +329,35 @@ yours with the same `id` replaces Kiln's. Plain JSON, no comments.
   undo itself when moving the DLL removes the overlap.
 - A rule that does not validate (bad id, no `subject` for `late`/`disable`, an unknown key) is dropped with a warning in
   kiln.log; the other rules stay. To switch a shipped rule off, give your own rule its `id` and a `when` that never holds.
+
+**Wait for Shroudtopia (`defer`, since 0.2.0-dev.29.4).** Some native mods must start only after a Shroudtopia mod has
+placed its hooks. A `defer` rule keeps its `subject` (a native mod id such as `{"mod": "native:my-mod"}`, a DLL file
+name the mod declares, or an exact path of a companion file in its package, with forward slashes) back until the
+Shroudtopia host's first pass, while its `target` (a `{"mod": "shroudtopia:<id>"}` that is on in the profile) runs, and
+for at most `max_wait_ms` (1 to 30000 ms after the host starts its worker, Shroudtopia's `bootDelay` included). kiln-core
+applies it: the native mod's note and kiln.log say `waits for Shroudtopia's first pass (<id> is on)`, and a native mod
+that loads after it in its declared order waits with it. A native mod with an `init` is never deferred (its `init` stays
+on its documented phase thread; kiln.log says so and the normal phases are used), nor is one when the Shroudtopia host
+is not there or Shroudtopia's own loader runs. Kiln ships no `defer` rule (since 0.2.0-dev.29.5); the action is there
+for your own file.
+
+```json
+{ "id": "my-mod-after-shroudtopia", "action": "defer",
+  "subject": { "mod": "native:my-mod" }, "target": { "mod": "shroudtopia:some-mod" }, "max_wait_ms": 5000,
+  "message": "My Mod hooks the game after Some Mod has placed its hooks." }
+```
+
+**The game's original code for a Shroudtopia mod (`original-code`, since 0.2.0-dev.29.6).** Some Shroudtopia mods check
+the game's code with `memcmp` before they patch it, and refuse when another mod's entry hook changed those bytes. An
+`original-code` rule names exactly one such mod as its `subject` (`{"mod": "shroudtopia:<id>"}`, no `target`): Kiln
+points that mod's imported `memcmp` at a version that compares against the game exe's original bytes where the live
+bytes differ only by another mod's entry hook. It changes nothing in the chain. Kiln ships one:
+
+```json
+{ "id": "shroudtopia-item-skill-text-original-code", "action": "original-code",
+  "subject": { "mod": "shroudtopia:item-skill-text" },
+  "message": "Item Skill Descriptions can check the game's original code while Auto Doors keeps its hooks." }
+```
 
 **One DLL before another (`before`, dev.29).** Some DLL mods must hook the game before another one does, not only before
 or after Kiln. Kiln ships one such rule in `kiln/compat-rules.json`:

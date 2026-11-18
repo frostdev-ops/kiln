@@ -5,6 +5,7 @@
 import { X } from "lucide-react";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { rich, useT } from "../i18n";
 import { Button, IconButton } from "./Button";
 import { TextInput, escClearsFilter } from "./Form";
 
@@ -50,6 +51,7 @@ export function useCoverPage(open: boolean) {
 }
 
 export function Modal({ open, onClose, title, children, footer, width, locked, arch }: ModalProps) {
+  const t = useT();
   const box = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const close = useRef(onClose);
@@ -97,7 +99,7 @@ export function Modal({ open, onClose, title, children, footer, width, locked, a
         <div className="k-modal-head">
           <h2 className="k-modal-title" id={titleId}>{title}</h2>
           <span className="k-spacer" />
-          {!locked && !footer && <IconButton label="Close" icon={<X />} size="s" onClick={onClose} />}
+          {!locked && !footer && <IconButton label={t("common.close")} icon={<X />} size="s" onClick={onClose} />}
         </div>
         <div className="k-modal-body">{children}</div>
         {footer && <div className="k-modal-foot">{footer}</div>}
@@ -145,6 +147,7 @@ export function setTypeToConfirm(on: boolean) {
 
 /** A destructive action behind a typed confirmation, in the arch. The danger fill stays disabled until the word matches. */
 export function ConfirmDanger({ open, onClose, title, message, word, action, onConfirm, disabled, relaxable }: ConfirmDangerProps) {
+  const t = useT();
   const [typed, setTyped] = useState("");
   const [busy, setBusy] = useState(false);
   const [typing, setTyping] = useState(true);
@@ -161,13 +164,13 @@ export function ConfirmDanger({ open, onClose, title, message, word, action, onC
   return (
     <Modal arch open={open} onClose={onClose} title={title} locked={busy}
       footer={<>
-        <Button onClick={onClose} disabled={busy}>Cancel</Button>
+        <Button onClick={onClose} disabled={busy}>{t("common.cancel")}</Button>
         <Button variant="danger-fill" disabled={!ok} loading={busy} onClick={run}>{action}</Button>
       </>}>
       {message && <ArchText>{message}</ArchText>}
       {typing && (
         <div className="k-arch-typed">
-          <label htmlFor="k-confirm-word">Type <span className="k-danger-word">{word}</span> to confirm</label>
+          <label htmlFor="k-confirm-word">{rich("ui.modal.typeToConfirm", { word: <span className="k-danger-word">{word}</span> })}</label>
           <TextInput id="k-confirm-word" data-autofocus value={typed} onChange={(e) => setTyped(e.target.value)} mono autoComplete="off" spellCheck={false}
             onKeyDown={(e) => { if (e.key === "Enter") run(); }} />
         </div>

@@ -16,7 +16,7 @@ import { cookAgain } from "../../shell/cook";
 import { useEnsureProfile } from "../../shell/firstRun";
 import { filterRows, bulkPlan, type ModRow } from "../../shell/mods";
 import { notifyAdd } from "../../shell/notices";
-import { NOT_REMOVABLE, removable, removeMany, removeMod, useRemoveCheck, useRemoveMany, withoutRows, type RemoveTarget } from "../../shell/removeMod";
+import { notRemovableText, removable, removeMany, removeMod, useRemoveCheck, useRemoveMany, withoutRows, type RemoveTarget } from "../../shell/removeMod";
 import { NONE, ownerOf, pick as pickSelected, pruneSelection, setSelection, toggle as toggleSelected, useOwnedSelection } from "../../shell/selection";
 import { useMods } from "../../shell/useMods";
 import { withDropin } from "../../pages/profiles/dropins";
@@ -24,8 +24,10 @@ import { runTask, toast } from "../../ui";
 import { DeckButton, Dialog, Row, Screen, Word } from "../ui";
 import { KIND_WORD } from "../status";
 import type { DeckAction } from "../layers";
+import { useT } from "../../i18n";
 
 export default function Mods() {
+  const t = useT();
   const qc = useQueryClient();
   const nav = useNavigate();
   const [params] = useSearchParams();
@@ -59,9 +61,9 @@ export default function Mods() {
     try {
       const rep = await runTask<AddReport>(() => api.foundAdd(game.id, mods.profileId!, f.path), { quiet: true });
       notifyAdd(rep);
-      if (rep.added.length || rep.already.length) toast.ok(`${f.name} is on`);
-      else toast.error({ code: "refused", message: rep.import.skipped[0]?.reason ?? "not taken" }, `The Library did not take ${f.name}`);
-    } catch (e) { toast.error(e, `Could not add ${f.name}`); }
+      if (rep.added.length || rep.already.length) toast.ok(t("deck.shared.isOn", { name: f.name }));
+      else toast.error({ code: "refused", message: rep.import.skipped[0]?.reason ?? t("deck.mods.notTaken") }, t("deck.mods.notTakenTitle", { name: f.name }));
+    } catch (e) { toast.error(e, t("deck.mods.couldNotAdd", { name: f.name })); }
     finally {
       setBusy(null);
       void qc.invalidateQueries({ queryKey: ["found_scan"] });
@@ -96,11 +98,12 @@ export default function Mods() {
     if (!r?.undo) return;
     const { plan, undo } = r;
     const n = plan.change.length;
-    toast.ok(`Switched ${n} mod${n === 1 ? "" : "s"} ${on ? "on" : "off"}`, plan.left.length ? `${plan.left.length} skipped: ${[...new Set(plan.left.map((l) => l.why))].join("; ")}.` : undefined,
-      { ms: 20_000, actions: [{ label: "Undo", onClick: async () => {
+    toast.ok(on ? t("deck.mods.switchedOn", { count: n }) : t("deck.mods.switchedOff", { count: n }),
+      plan.left.length ? t("deck.mods.skippedWhy", { count: plan.left.length, why: [...new Set(plan.left.map((l) => l.why))].join("; ") }) : undefined,
+      { ms: 20_000, actions: [{ label: t("common.undo"), onClick: async () => {
         const res = await live.current.undoAll(undo);
-        if (!res.ok) toast.info("Can't undo that", `${res.why[0].toUpperCase()}${res.why.slice(1)}.`);
-        else if (res.kept) toast.info("Undo kept later changes", `${res.kept} mod${res.kept === 1 ? " was" : "s were"} switched since.`);
+        if (!res.ok) toast.info(t("deck.mods.cantUndo"), `${res.why[0].toUpperCase()}${res.why.slice(1)}.`);
+        else if (res.kept) toast.info(t("deck.mods.undoKept"), t("deck.mods.undoKeptDetail", { count: res.kept }));
       } }] });
   };
   const selOn = bulkPlan(picked, true);
@@ -110,13 +113,13 @@ export default function Mods() {
   const actions: DeckAction[] = [];
   if (focus && gid) {
     const f = focus;
-    actions.push({ button: "lt", label: sel.keys.includes(f.key) ? "Unselect" : "Select", run: () => setSelection(gid, owner, toggleSelected(sel, f.key)) });
+    actions.push({ button: "lt", label: sel.keys.includes(f.key) ? t("deck.mods.unselect") : t("deck.app.select"), run: () => setSelection(gid, owner, toggleSelected(sel, f.key)) });
   }
-  if (picked.length) actions.push({ button: "rt", label: `${picked.length} selected`, run: () => setSelMenu(true) });
-  if (focus && !focus.found && loaded) actions.push({ button: "x", label: "Remove", run: () => setRemoving({ row: focus, version: null }), disabled: running });
+  if (picked.length) actions.push({ button: "rt", label: t("deck.mods.selected", { count: picked.length }), run: () => setSelMenu(true) });
+  if (focus && !focus.found && loaded) actions.push({ button: "x", label: t("common.remove"), run: () => setRemoving({ row: focus, version: null }), disabled: running });
   if (game && focus && !focus.found && focus.kind === "kiln" && focus.on && cookable.has(focus.id)) {
     const r = focus;
-    actions.push({ button: "y", label: cooking === r.key ? "Cooking" : "Cook again", disabled: running || !!cooking, run: () => {
+    actions.push({ button: "y", label: cooking === r.key ? t("deck.mods.cooking") : t("deck.mods.cookAgain"), disabled: running || !!cooking, run: () => {
       setCooking(r.key);
       void cookAgain(game.id, r.id, r.name).finally(() => {
         setCooking(null);
@@ -126,61 +129,64 @@ export default function Mods() {
   }
 
   let say: string;
-  if (!game) say = "No game yet.";
-  else if (status.data && !installed) say = "Kiln is not in the game yet.";
-  else if (!mods.profileId) say = "No profile is loaded: the mods in the game folder load as they are.";
-  else if (mods.error) say = `Your mods are not readable: ${api.toKilnError(mods.error).message}`;
-  else if (mods.loading) say = "Reading your mods.";
-  else say = `${mods.count.on} mod${mods.count.on === 1 ? "" : "s"} on${mods.count.off ? `, ${mods.count.off} off` : ""}${running ? " · applies at the next start" : ""}`;
+  if (!game) say = t("deck.shared.noGame");
+  else if (status.data && !installed) say = t("deck.shared.kilnNotInGame");
+  else if (!mods.profileId) say = t("deck.mods.noProfile");
+  else if (mods.error) say = t("deck.mods.notReadable", { error: api.toKilnError(mods.error).message });
+  else if (mods.loading) say = t("deck.mods.reading");
+  else {
+    const count = mods.count.off ? t("deck.shared.modsOnOff", { count: mods.count.on, off: mods.count.off }) : t("deck.shared.modsOn", { count: mods.count.on });
+    say = running ? t("deck.mods.appliesNext", { mods: count }) : count;
+  }
 
   const word = (r: ModRow) => {
-    if (r.found) return busy === r.key ? <Word tone="ember">Adding</Word> : <Word tone={r.found.state === "loads" ? "ok" : r.found.state === "off" ? "warn" : "idle"}>{r.note?.text ?? ""}</Word>;
-    if (cooking === r.key) return <Word tone="ember">Cooking</Word>;
-    return <Word tone={r.on ? "ember" : "idle"}>{r.on ? "On" : "Off"}</Word>;
+    if (r.found) return busy === r.key ? <Word tone="ember">{t("deck.shared.adding")}</Word> : <Word tone={r.found.state === "loads" ? "ok" : r.found.state === "off" ? "warn" : "idle"}>{r.note?.text ?? ""}</Word>;
+    if (cooking === r.key) return <Word tone="ember">{t("deck.mods.cooking")}</Word>;
+    return <Word tone={r.on ? "ember" : "idle"}>{r.on ? t("deck.shared.on") : t("deck.shared.off")}</Word>;
   };
-  const sub = (r: ModRow) => [r.found ? "Game folder" : r.kind ? KIND_WORD[r.kind] : "", r.version, !r.found && r.note ? r.note.text : ""].filter(Boolean).join(" · ");
+  const sub = (r: ModRow) => [r.found ? t("deck.mods.gameFolder") : r.kind ? KIND_WORD[r.kind] : "", r.version, !r.found && r.note ? r.note.text : ""].filter(Boolean).join(" · ");
 
   return (
-    <Screen name="mods" title="Mods" say={say} actions={actions}>
+    <Screen name="mods" title={t("deck.app.tabs.mods")} say={say} actions={actions}>
       <SfSelfHostedNotice profile={mods.profile} found={mods.found.data} />
       <ShroudlinkNotice game={game} mods={mods} deck />
-      {params.has("filter") && <DeckButton id="clear-filter" onClick={() => nav("/deck/mods")}>Show all mods</DeckButton>}
+      {params.has("filter") && <DeckButton id="clear-filter" onClick={() => nav("/deck/mods")}>{t("deck.mods.showAll")}</DeckButton>}
       {!game ? (
-        <DeckButton id="go-home" onClick={() => nav("/deck")}>Home</DeckButton>
+        <DeckButton id="go-home" onClick={() => nav("/deck")}>{t("deck.shared.home")}</DeckButton>
       ) : status.data && !installed ? (
-        <DeckButton id="go-kiln" primary onClick={() => nav("/deck/kiln")}>Install Kiln</DeckButton>
+        <DeckButton id="go-kiln" primary onClick={() => nav("/deck/kiln")}>{t("deck.shared.installKiln")}</DeckButton>
       ) : mods.error ? null : !mods.rows.length && !mods.loading ? (
-        <DeckButton id="go-add" primary onClick={() => nav("/deck/add")}>Add mods</DeckButton>
+        <DeckButton id="go-add" primary onClick={() => nav("/deck/add")}>{t("deck.app.tabs.addMods")}</DeckButton>
       ) : (
-        <div className="deck-list deck-scroll" role="list" aria-label="Mods">
+        <div className="deck-list deck-scroll" role="list" aria-label={t("deck.app.tabs.mods")}>
           {filterRows(mods.rows, params.get("filter") ?? "", "").map((r) => r.found ? (
             <Row key={r.key} id={`found-${r.found.path}`} title={sel.keys.includes(r.key) ? `✓ ${r.name}` : r.name} sub={sub(r)} end={word(r)} dim={r.found.state !== "loads"}
-              a={r.found.fix === "dropins" && r.found.kind ? `Load ${KIND_SHORT[r.found.kind]} mods` : r.found.fix === "add" ? "Add" : "-"}
+              a={r.found.fix === "dropins" && r.found.kind ? t("deck.mods.loadKind", { kind: KIND_SHORT[r.found.kind] }) : r.found.fix === "add" ? t("common.add") : "-"}
               disabled={!r.found.fix || !loaded || !!busy} onFocus={() => setFocus(r)} onClick={() => void fix(r)}
-              aria-label={`${r.name}: in the game folder, ${r.note?.text ?? ""}${sel.keys.includes(r.key) ? ", selected" : ""}`} />
+              aria-label={sel.keys.includes(r.key) ? t("deck.mods.foundAriaSelected", { name: r.name, note: r.note?.text ?? "" }) : t("deck.mods.foundAria", { name: r.name, note: r.note?.text ?? "" })} />
           ) : (
-            <Row key={r.key} id={`mod-${r.kind}-${r.id}`} lit={r.on} a={r.on ? "Turn off" : "Turn on"} title={sel.keys.includes(r.key) ? `✓ ${r.name}` : r.name} sub={sub(r)} end={word(r)}
-              disabled={!loaded} onFocus={() => setFocus(r)} onClick={() => mods.toggle(r, !r.on)} aria-label={`${r.name}: ${r.on ? "on" : "off"}${sel.keys.includes(r.key) ? ", selected" : ""}`} />
+            <Row key={r.key} id={`mod-${r.kind}-${r.id}`} lit={r.on} a={r.on ? t("deck.mods.turnOff") : t("deck.mods.turnOn")} title={sel.keys.includes(r.key) ? `✓ ${r.name}` : r.name} sub={sub(r)} end={word(r)}
+              disabled={!loaded} onFocus={() => setFocus(r)} onClick={() => mods.toggle(r, !r.on)} aria-label={sel.keys.includes(r.key) ? (r.on ? t("deck.mods.ariaOnSelected", { name: r.name }) : t("deck.mods.ariaOffSelected", { name: r.name })) : r.on ? t("deck.mods.ariaOn", { name: r.name }) : t("deck.mods.ariaOff", { name: r.name })} />
           ))}
         </div>
       )}
       {selMenu && (
-        <Dialog name="selected" title={`${picked.length} selected`} onClose={() => setSelMenu(false)} backLabel="Close">
-          <div className="deck-list" role="group" aria-label="Selected mods">
-            <Row id="sel-on" title="Switch on" sub={`${selOn.change.length} of ${picked.length}${selOn.left.length ? ` · ${selOn.left.length} skipped: ${selOn.left[0].why}` : ""}`} a="Switch on"
+        <Dialog name="selected" title={t("deck.mods.selected", { count: picked.length })} onClose={() => setSelMenu(false)} backLabel={t("common.close")}>
+          <div className="deck-list" role="group" aria-label={t("deck.mods.selectedAria")}>
+            <Row id="sel-on" title={t("deck.mods.switchOn")} sub={selOn.left.length ? t("deck.mods.ofSkipped", { n: selOn.change.length, total: picked.length, skipped: selOn.left.length, why: selOn.left[0].why }) : t("deck.mods.of", { n: selOn.change.length, total: picked.length })} a={t("deck.mods.switchOn")}
               disabled={!loaded || !selOn.change.length} onClick={() => switchPicked(true)} />
-            <Row id="sel-off" title="Switch off" sub={`${selOff.change.length} of ${picked.length}${selOff.left.length ? ` · ${selOff.left.length} skipped: ${selOff.left[0].why}` : ""}`} a="Switch off"
+            <Row id="sel-off" title={t("deck.mods.switchOff")} sub={selOff.left.length ? t("deck.mods.ofSkipped", { n: selOff.change.length, total: picked.length, skipped: selOff.left.length, why: selOff.left[0].why }) : t("deck.mods.of", { n: selOff.change.length, total: picked.length })} a={t("deck.mods.switchOff")}
               disabled={!loaded || !selOff.change.length} onClick={() => switchPicked(false)} />
-            <Row id="sel-remove" title="Remove…" sub={running ? "Close the game first" : `${toRemove.length} of ${picked.length}${picked.length > toRemove.length ? ` · ${picked.length - toRemove.length} skipped: ${NOT_REMOVABLE}` : ""}`} a="Remove"
+            <Row id="sel-remove" title={t("deck.mods.removeEllipsis")} sub={running ? t("deck.shared.closeGameFirst") : picked.length > toRemove.length ? t("deck.mods.ofSkipped", { n: toRemove.length, total: picked.length, skipped: picked.length - toRemove.length, why: notRemovableText() }) : t("deck.mods.of", { n: toRemove.length, total: picked.length })} a={t("common.remove")}
               disabled={running || !toRemove.length} onClick={() => { setSelMenu(false); setRemovingMany(toRemove); }} />
-            <Row id="sel-clear" title="Clear" sub={`Unselect all ${picked.length}`} a="Clear" onClick={() => { setSelection(gid, owner, NONE); setSelMenu(false); }} />
+            <Row id="sel-clear" title={t("deck.mods.clear")} sub={t("deck.mods.unselectAll", { count: picked.length })} a={t("deck.mods.clear")} onClick={() => { setSelection(gid, owner, NONE); setSelMenu(false); }} />
           </div>
         </Dialog>
       )}
       {removingMany && (
-        <Dialog name="remove-many" title={`Remove ${removingMany.length} mod${removingMany.length === 1 ? "" : "s"}?`} onClose={() => setRemovingMany(null)} wide
+        <Dialog name="remove-many" title={t("deck.mods.removeManyTitle", { count: removingMany.length })} onClose={() => setRemovingMany(null)} wide
           buttons={<>
-            <DeckButton onClick={() => setRemovingMany(null)}>Cancel</DeckButton>
+            <DeckButton onClick={() => setRemovingMany(null)}>{t("common.cancel")}</DeckButton>
             <DeckButton id="remove-many-confirm" primary disabled={!many.ready || running} onClick={async () => {
               const rows = removingMany;
               setRemovingMany(null);
@@ -188,34 +194,34 @@ export default function Mods() {
               try {
                 const r = await removeMany(qc, rows, many.users, async () => { mods.edit.update((p) => withoutRows(p, rows)); return mods.edit.flush(); });
                 setSelection(gid, owner, NONE);
-                if (!r.left.length) toast.ok(`Removed ${r.removed.length} mod${r.removed.length === 1 ? "" : "s"}`);
-                else toast.info(r.removed.length ? `Removed ${r.removed.length}, ${r.left.length} left` : "Nothing removed",
-                  `${r.left.map((l) => `${l.name}: ${l.why}`).join(" ")} ${r.left.length === 1 ? "It is" : "They are"} out of your list and still in the Library.`, { ms: 0 });
+                if (!r.left.length) toast.ok(t("deck.mods.removedMany", { count: r.removed.length }));
+                else toast.info(r.removed.length ? t("deck.mods.removedLeft", { removed: r.removed.length, left: r.left.length }) : t("deck.mods.nothingRemoved"),
+                  t("deck.mods.leftDetail", { count: r.left.length, lines: r.left.map((l) => `${l.name}: ${l.why}`).join(" ") }), { ms: 0 });
               } catch (e) { toast.error(e); }
-            }}>Remove {removingMany.length}</DeckButton>
+            }}>{t("deck.mods.removeCount", { count: removingMany.length })}</DeckButton>
           </>}>
-          <p className="deck-note">{!many.ready ? "Checking what uses them." : many.error ? `Kiln could not check what else uses some of them (${many.error}).` : "Their files leave the Library."}</p>
-          <ul className="deck-remove-list deck-scroll" aria-label="Mods to remove">
+          <p className="deck-note">{!many.ready ? t("deck.mods.checkingUses") : many.error ? t("deck.mods.checkFailed", { error: many.error }) : t("deck.mods.filesLeave")}</p>
+          <ul className="deck-remove-list deck-scroll" aria-label={t("deck.mods.toRemoveAria")}>
             {removingMany.map((r) => {
               const o = many.others.get(r.key) ?? [];
-              return <li key={r.key}>{r.name}{o.length ? <span className="deck-dim"> · {o.join(", ")} {o.length === 1 ? "lists" : "list"} it too</span> : null}</li>;
+              return <li key={r.key}>{r.name}{o.length ? <span className="deck-dim"> {t("deck.mods.listsItToo", { count: o.length, names: o.join(", ") })}</span> : null}</li>;
             })}
           </ul>
         </Dialog>
       )}
       {removing && (
-        <Dialog name="remove" title={`Remove ${removing.row.name}?`} onClose={() => setRemoving(null)}
+        <Dialog name="remove" title={t("deck.mods.removeTitle", { name: removing.row.name })} onClose={() => setRemoving(null)}
           buttons={<>
-            <DeckButton onClick={() => setRemoving(null)}>Cancel</DeckButton>
+            <DeckButton onClick={() => setRemoving(null)}>{t("common.cancel")}</DeckButton>
             <DeckButton id="remove-confirm" primary disabled={!checked} onClick={async () => {
-              const t = removing;
+              const target = removing;
               setRemoving(null);
               setFocus(null);
               try {
-                await removeMod(qc, t, check.users.data, async () => { mods.drop(t.row); return mods.edit.flush(); });
-                toast.ok(`Removed ${t.row.name}`);
+                await removeMod(qc, target, check.users.data, async () => { mods.drop(target.row); return mods.edit.flush(); });
+                toast.ok(t("deck.mods.removed", { name: target.row.name }));
               } catch (e) { toast.error(e); }
-            }}>Remove</DeckButton>
+            }}>{t("common.remove")}</DeckButton>
           </>}>
           <p className="deck-note">{check.message}</p>
         </Dialog>

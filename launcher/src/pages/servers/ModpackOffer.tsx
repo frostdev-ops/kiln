@@ -11,8 +11,10 @@ import { Banner, Button, KeyValue, Modal, Skeleton, Toggle, errorText, fmtBytes,
 import { notifyActivation, notifyActivationOf } from "../../shell/notices";
 import { cookBeforePlay, cookingNotice } from "../../shell/cook";
 import { rememberLaunch } from "../../shell/play";
+import { useT } from "../../i18n";
 
 export default function ModpackOffer({ gameId, lastServer, open, onClose }: { gameId: GameId; lastServer: LastServer; open: boolean; onClose: () => void }) {
+  const t = useT();
   const qc = useQueryClient();
   const settings = useSettings();
   const pack = lastServer.modpack;
@@ -22,14 +24,14 @@ export default function ModpackOffer({ gameId, lastServer, open, onClose }: { ga
   const [done, setDone] = useState<ModpackInstallResult | null>(null);
   const http = !!pack && /^http:\/\//i.test(pack.url);
   const httpOk = !http || !!settings.data?.allowHttpModpacks;
-  const name = lastServer.server.name ?? lastServer.server.id ?? "this server";
+  const name = lastServer.server.name ?? lastServer.server.id ?? t("servers.modpackOffer.thisServer");
   const install = async () => {
     if (!pack) return;
     setBusy(true);
     try {
       const r = await runTask<ModpackInstallResult>(
         () => api.modpackInstall(gameId, { source: { url: pack.url, sha256: pack.sha256 }, consent: true, allowHttp: http, activate: true }),
-        { done: "Modpack installed" },
+        { done: t("servers.modpackOffer.installed") },
       );
       setDone(r);
       notifyActivation(r.activation);
@@ -69,52 +71,52 @@ export default function ModpackOffer({ gameId, lastServer, open, onClose }: { ga
       // the start ended before the game existed: the launcher stops timing it
       void api.launchEnd(gameId).catch(() => {});
       notifyActivationOf(e);
-      toast.error(e, "Launch failed");
+      toast.error(e, t("servers.modpackOffer.launchFailed"));
     } finally {
       setBusy(false);
     }
   };
   const p = preview.data;
   return (
-    <Modal open={open} onClose={onClose} locked={busy} width={620} title={done ? "Modpack installed" : `${name} uses mods`}
+    <Modal open={open} onClose={onClose} locked={busy} width={620} title={done ? t("servers.modpackOffer.installed") : t("servers.modpackOffer.usesMods", { name })}
       footer={done ? (
-        <><Button variant="ghost" onClick={onClose} disabled={busy}>Close</Button><Button variant="molten" loading={busy} onClick={launch}>Launch</Button></>
+        <><Button variant="ghost" onClick={onClose} disabled={busy}>{t("common.close")}</Button><Button variant="molten" loading={busy} onClick={launch}>{t("servers.modpackOffer.launch")}</Button></>
       ) : (
-        <><Button variant="ghost" onClick={dismiss} disabled={busy}>Not now</Button>
-          <Button icon={<Download size={16} />} variant="primary" disabled={!pack || !agree || !httpOk || !!preview.error} loading={busy} onClick={install}>Download and install</Button></>
+        <><Button variant="ghost" onClick={dismiss} disabled={busy}>{t("servers.modpackOffer.notNow")}</Button>
+          <Button icon={<Download size={16} />} variant="primary" disabled={!pack || !agree || !httpOk || !!preview.error} loading={busy} onClick={install}>{t("servers.modpackOffer.downloadInstall")}</Button></>
       )}>
       {done ? (
         <div className="k-stack">
           <KeyValue rows={[
-            ["Profile", done.profile.name],
-            ["Mods", `${done.imported.length} new in the library`],
-            done.backup && ["Save backup", done.backup.id],
+            [t("servers.modpackOffer.profile"), done.profile.name],
+            [t("servers.modpackOffer.mods"), t("servers.modpackOffer.newInLibrary", { n: done.imported.length })],
+            done.backup && [t("servers.modpackOffer.saveBackup"), done.backup.id],
           ]} />
-          <div className="k-hint">{done.profile.name} is loaded: Play starts the game with these mods, then join {name} again.</div>
+          <div className="k-hint">{t("servers.modpackOffer.loadedHint", { profile: done.profile.name, name })}</div>
         </div>
       ) : !pack ? (
-        <Banner tone="info" title="No modpack">{name} did not say where to get its mods. Ask its admin.</Banner>
+        <Banner tone="info" title={t("servers.modpackOffer.noPack")}>{t("servers.modpackOffer.noPackText", { name })}</Banner>
       ) : (
         <div className="k-stack">
-          {lastServer.outcome === "rejected" && <Banner tone="warn" title="The server refused the join">{lastServer.reason ?? "Mods are missing."}</Banner>}
+          {lastServer.outcome === "rejected" && <Banner tone="warn" title={t("servers.modpackOffer.refused")}>{lastServer.reason ?? t("servers.modpackOffer.modsMissing")}</Banner>}
           <KeyValue rows={[
-            ["Server", `${name}${lastServer.server.id ? ` (${lastServer.server.id})` : ""}`],
-            ["Modpack", `${pack.name ?? "-"} ${pack.version ?? ""}`],
-            ["From", <span className="k-mono">{pack.url}</span>],
-            ["Size", pack.size != null ? fmtBytes(pack.size) : "unknown"],
+            [t("servers.modpackOffer.server"), lastServer.server.id ? t("servers.modpackOffer.serverWithId", { name, id: lastServer.server.id }) : name],
+            [t("servers.modpackOffer.modpack"), `${pack.name ?? "-"} ${pack.version ?? ""}`],
+            [t("servers.modpackOffer.from"), <span className="k-mono">{pack.url}</span>],
+            [t("servers.modpackOffer.size"), pack.size != null ? fmtBytes(pack.size) : t("servers.modpackOffer.unknown")],
             ["sha256", <span className="k-mono">{shortHash(pack.sha256)}</span>],
           ]} />
-          {preview.isLoading ? <Skeleton lines={2} /> : preview.error ? <Banner tone="err" title="Cannot check it">{errorText(preview.error)}</Banner> : p && (
+          {preview.isLoading ? <Skeleton lines={2} /> : preview.error ? <Banner tone="err" title={t("servers.modpackOffer.cannotCheck")}>{errorText(preview.error)}</Banner> : p && (
             <div className="k-hint">
-              {p.missing.length ? `Missing here: ${p.missing.map((m) => `${m.name ?? m.id} ${m.version}`).join(", ")}.` : "Everything it lists is in your library already."}
-              {p.nativeCode && " It contains native code (DLLs)."}
+              {p.missing.length ? t("servers.modpackOffer.missingHere", { list: p.missing.map((m) => `${m.name ?? m.id} ${m.version}`).join(", ") }) : t("servers.modpackOffer.allThere")}
+              {p.nativeCode && ` ${t("servers.modpackOffer.nativeCode")}`}
             </div>
           )}
-          {!httpOk && <Banner tone="err" title="Not https">This modpack comes over plain http. Allow http modpacks in Settings to take it.</Banner>}
-          <Banner tone="warn" title="This runs code on your PC">
-            <span className="k-row" style={{ gap: 8 }}><ShieldAlert size={16} />Mods are programs. Install only from servers you trust. The download is checked against the hashes the server sent.</span>
+          {!httpOk && <Banner tone="err" title={t("servers.modpackOffer.notHttps")}>{t("servers.modpackOffer.notHttpsText")}</Banner>}
+          <Banner tone="warn" title={t("servers.modpackOffer.runsCode")}>
+            <span className="k-row" style={{ gap: 8 }}><ShieldAlert size={16} />{t("servers.modpackOffer.runsCodeText")}</span>
           </Banner>
-          <Toggle checked={agree} onChange={setAgree} label={`I trust ${name} and want its mods`} />
+          <Toggle checked={agree} onChange={setAgree} label={t("servers.modpackOffer.trust", { name })} />
         </div>
       )}
     </Modal>

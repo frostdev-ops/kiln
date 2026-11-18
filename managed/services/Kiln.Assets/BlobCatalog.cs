@@ -262,6 +262,9 @@ public static unsafe partial class Assets
 
     /// <summary>The bytes the game reads for a content blob now: a registration's, else the game's own from its container
     /// (kiln.assets' blob_read). Null when no blob has the hash.</summary>
+    /// <remarks>Until the game has opened its content index, this asks the game's content-map accessor for it on the
+    /// calling thread, which is safe only on the game's own threads (OnLoad, a tick, a UI callback): its loading can own
+    /// the index's reader then. A worker thread or a task uses <see cref="ReadResidentBlob"/>, which never does.</remarks>
     [AnyThread]
     [RequiresCapability(Caps.Content)]
     public static byte[]? ReadBlob(ContentHash hash)
@@ -281,6 +284,51 @@ public static unsafe partial class Assets
         fixed (byte* p = buf) rc = t->BlobRead(&h, p, n, &n);
         if (rc == AssetsNative.NotFound) return null;
         Check(rc, "ReadBlob", Caps.Content);
+        return buf;
+    }
+
+    /// <summary>
+    /// <see cref="ReadBlob"/> for any thread, a worker or a task included: the bytes of a <b>resident</b> content blob,
+    /// without ever asking the game for its content index (kiln.assets' <c>blob_read_resident</c>, 0.2.0-dev.29.15).
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Resident</b> means kiln.assets can find the blob without the game's help: a live registration
+    /// (<c>assets.json</c>, <see cref="AddBlob"/>/<see cref="OverrideBlob"/>, a native caller), or a game blob listed in
+    /// the content index the game has already opened. It does not mean the bytes are in memory: a game blob's bytes
+    /// are read from its container file (<c>enshrouded_NNN.dat</c>), just that blob's bytes, on the calling thread. That
+    /// read can take a while on a hard disk the game is loading from, so call it from a worker, not from a frame.</para>
+    /// <para>The answer is the same as <see cref="ReadBlob"/>'s once the game has opened its content index (the first
+    /// time it streams content of its own). Before that, a game blob is not resident and the answer is null, as for a
+    /// hash no blob has: try again later, or wait for
+    /// <see cref="AssetsCatalogChangedEvent"/> with <see cref="AssetsCatalogChange.Ready"/>. A mod's registration is
+    /// resident from the moment it is made.</para>
+    /// </remarks>
+    /// <returns>The bytes the game reads for the hash now (a registration's, else the game's own); null when the blob is
+    /// not resident: no registration has the hash and the game's content index does not list it or is not open
+    /// yet.</returns>
+    /// <exception cref="KilnUnavailableException"><c>assets.content</c>: kiln.assets is not loaded, or is older than
+    /// 0.2.0-dev.29.15 (it has no resident read).</exception>
+    /// <exception cref="InvalidOperationException">The game's container file could not be read.</exception>
+    [AnyThread]
+    [RequiresCapability(Caps.Content)]
+    public static byte[]? ReadResidentBlob(ContentHash hash)
+    {
+        var t = TRes;
+        if (t == null || t->BlobReadResident == null)
+        {
+            Rows.Ensure();
+            throw ServiceCaps.Unavailable(Caps.Content, T == null ? "kiln.assets is not loaded"
+                : "kiln.assets is older than 0.2.0-dev.29.15: it has no resident blob read");
+        }
+        var h = new AssetsNative.ContentHash { Size = hash.Size, H0 = hash.H0, H1 = hash.H1, H2 = hash.H2 };
+        nuint n = 0;
+        var rc = t->BlobReadResident(&h, null, 0, &n);  // the size: nothing is read from a container
+        if (rc == AssetsNative.NotFound) return null;
+        if (rc != AssetsNative.BufferTooSmall && rc != AssetsNative.Ok) Check(rc, "ReadResidentBlob", Caps.Content);
+        var buf = new byte[(int)n];
+        fixed (byte* p = buf) rc = t->BlobReadResident(&h, p, n, &n);
+        if (rc == AssetsNative.NotFound) return null;  // the registration went away meanwhile
+        Check(rc, "ReadResidentBlob", Caps.Content);
         return buf;
     }
 
