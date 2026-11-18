@@ -12,13 +12,14 @@
 #endif
 
 KILN_TEST_ASSERT(KILN_TASKS_VERSION == 1u, "kiln.tasks v1");
-KILN_TEST_ASSERT(sizeof(KilnTasksApi) == 48, "KilnTasksApi: header + 5 pointers");
+KILN_TEST_ASSERT(sizeof(KilnTasksApi) == 56, "KilnTasksApi: header + 5 pointers + submit_in (appended)");
 KILN_TEST_ASSERT(offsetof(KilnTasksApi, header) == 0, "header");
 KILN_TEST_ASSERT(offsetof(KilnTasksApi, submit) == 8, "submit");
 KILN_TEST_ASSERT(offsetof(KilnTasksApi, cancel) == 16, "cancel");
 KILN_TEST_ASSERT(offsetof(KilnTasksApi, status) == 24, "status");
 KILN_TEST_ASSERT(offsetof(KilnTasksApi, release) == 32, "release");
 KILN_TEST_ASSERT(offsetof(KilnTasksApi, drain_owner) == 40, "drain_owner");
+KILN_TEST_ASSERT(offsetof(KilnTasksApi, submit_in) == 48, "submit_in: the first appended member, past v1's 48 bytes");
 
 KILN_TEST_ASSERT(sizeof(KilnTaskInfo) == 32, "KilnTaskInfo v1");
 KILN_TEST_ASSERT(offsetof(KilnTaskInfo, size) == 0, "info.size");
@@ -44,7 +45,7 @@ KILN_TEST_ASSERT(KILN_TASK_LONG_RUNNING == 1u && KILN_TASK_AFTER_STEP == 2u, "fl
 KILN_TEST_ASSERT(KILN_TASK_REFUSAL_NONE == 0 && KILN_TASK_REFUSAL_QUEUE_FULL == 1 && KILN_TASK_REFUSAL_OWNER_SEALED == 2 &&
                      KILN_TASK_REFUSAL_OWNER_QUARANTINED == 3 && KILN_TASK_REFUSAL_CAPABILITY == 4 &&
                      KILN_TASK_REFUSAL_ARGUMENT == 5 && KILN_TASK_REFUSAL_SHUTDOWN == 6 &&
-                     KILN_TASK_REFUSAL_NO_SERVER_WORLD == 7,
-                 "refusal tags");
+                     KILN_TASK_REFUSAL_NO_SERVER_WORLD == 7 && KILN_TASK_REFUSAL_NO_WORLD == 8,
+                 "refusal tags (NO_WORLD appended)");
 
 int kiln_tasks_abi_test_anchor;

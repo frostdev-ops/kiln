@@ -70,6 +70,20 @@ KilnResult KILN_CALL t_submit(KilnOwner owner, const KilnTaskInfo* info, KilnTas
     }
 }
 
+KilnResult KILN_CALL t_submit_in(KilnOwner owner, const KilnTaskInfo* info, uint32_t world, uint32_t session,
+                                 KilnTaskBodyFn body, KilnTaskDoneFn done, void* user, KilnHandle* task,
+                                 uint32_t* refusal) {
+    tasks::Service* service = g_service.load(std::memory_order_acquire);
+    if (!service) return owner ? unavailable(task, refusal) : KILN_ERR_INVALID_ARGUMENT;
+    try {
+        return service->submit_in(owner, info, world, session, body, done, user, task, refusal);
+    } catch (...) {
+        if (task) *task = 0;
+        if (refusal) *refusal = KILN_TASK_REFUSAL_CAPABILITY;
+        return KILN_ERR_INTERNAL;
+    }
+}
+
 KilnResult KILN_CALL t_cancel(KilnOwner owner, KilnHandle task, uint32_t* state) {
     tasks::Service* service = g_service.load(std::memory_order_acquire);
     if (!service) {
@@ -202,6 +216,23 @@ uint32_t KILN_CALL h_on_pool_thread() {
     const tasks::Service* service = g_service.load(std::memory_order_acquire);
     return service ? service->host_on_pool_thread() : 0;
 }
+uint32_t KILN_CALL h_world_session(uint32_t world, uint32_t* state) {
+    const tasks::Service* service = g_service.load(std::memory_order_acquire);
+    if (state) *state = 0;
+    try {
+        return service ? service->host_world_session(world, state) : 0;
+    } catch (...) {
+        return 0;
+    }
+}
+KilnResult KILN_CALL h_tick_hop_in(KilnLease lease, uint32_t world, uint32_t session) {
+    return with_service([&](tasks::Service& s) { return s.host_tick_hop_in(lease, world, session); });
+}
+KilnResult KILN_CALL h_resume_after_step_world(KilnLease lease, uint64_t registration, uint32_t world, uint32_t session,
+                                               uint32_t* refusal) {
+    return with_service(
+        [&](tasks::Service& s) { return s.host_resume_after_step_world(lease, registration, world, session, refusal); });
+}
 uint32_t KILN_CALL h_server_session() {
     const tasks::Service* service = g_service.load(std::memory_order_acquire);
     try {
@@ -267,6 +298,7 @@ KilnResult KILN_CALL h_stats_running_row(uint32_t index, KilnTaskStatsRunningRow
     row->started_ns = r.started_ns;
     row->elapsed_ns = r.elapsed_ns;
     row->state = static_cast<uint32_t>(r.state);
+    row->world = r.state == tasks_stats::EntryState::OnTick ? r.world : 0;
     std::memcpy(row->owner_name, r.owner_name, sizeof(row->owner_name));
     std::memcpy(row->task_name, r.task_name, sizeof(row->task_name));
     return KILN_OK;
@@ -333,7 +365,10 @@ const KilnTasksHostApi kHostTable = {{sizeof(KilnTasksHostApi), KILN_TASKS_HOST_
                                      &h_stats_owner_row,
                                      &h_stats_running_row,
                                      &h_stats_fault_row,
-                                     &h_stats_totals};
+                                     &h_stats_totals,
+                                     &h_world_session,
+                                     &h_tick_hop_in,
+                                     &h_resume_after_step_world};
 
 // tasks.pool's source (caps.cpp reads it lock-free at every registry call): -1 no pool, 0 no worker, 1 available.
 int pool_state() {
@@ -342,7 +377,8 @@ int pool_state() {
 }
 
 const KilnTasksApi kTable = {{sizeof(KilnTasksApi), KILN_TASKS_VERSION}, &t_submit,      &t_cancel,
-                             &t_status,                                 &t_release,     &t_drain_owner};
+                             &t_status,                                 &t_release,     &t_drain_owner,
+                             &t_submit_in};
 
 bool init() {
     tasks::Service* service = nullptr;
