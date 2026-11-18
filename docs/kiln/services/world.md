@@ -698,6 +698,54 @@ when its file names that world:
 
 The write protocol is adapted from ShroudForge's `write_entity_components.cpp` (MIT, bonsaibauer), as the gate is.
 
+#### From C#: compare-exchange (experimental)
+
+`WorldConcurrent` (Kiln.World) has the C# face of these members, `[Experimental("KILNX001")]` like the reads. A task
+reads a component, works out the new value off the tick, and writes it only if nothing changed it meanwhile:
+
+```csharp
+// A plain, untracked component; WritePolicy says which ones are (the in-game check lists them for this build)
+struct Charge { public int Value; public int Max; }
+
+var task = Context.Tasks.Run("recharge", async ctx =>
+{
+    var e = WorldConcurrent.Open(entityId).Value;
+    while (true)
+    {
+        var now = WorldConcurrent.Read<Charge>(e, "Charge");
+        if (!now.IsOk) return;                                    // Stale, Absent, Unavailable ...: give up or reopen
+        var next = now.Value with { Value = Math.Min(now.Value.Max, now.Value.Value + 1) };
+        var r = WorldConcurrent.TryCompareExchange(e, "Charge", now.Value, next);
+        if (r.Status is ExchangeStatus.Busy or ExchangeStatus.Unreadable)
+            await ctx.NextGateWindow();                           // a frame held the gate, or a read faulted: after the step
+        else if (r.Status != ExchangeStatus.Conflict) return;     // Ok, or a refusal a retry can't change (NotWritable,
+                                                                  // Uncertain, Stale, Absent, Unavailable)
+        // Conflict: r.Current is the value now; the loop reads again and retries from it
+    }
+});
+```
+
+| Member | Native member | Notes |
+|---|---|---|
+| `CanWrite` | `capabilities` (`KILN_WORLD_CAP_ECS_WRITE`) | the members are here and on for this build. Any thread |
+| `WritePolicy(component, world)` | `ecs_write_policy` | a `ComponentWritePolicy`: `IsWritable`, `Status`, `Size`, `Budget`, `TrackingKnown`, `IsTracked`, `IsPlain`, `Reason`, `Text`. Any thread |
+| `TryCompareExchange<T>(entity, component, expected, desired)` | `ecs_compare_exchange` | `T` is the whole component (its size is the registered size, else `NotWritable` with `Reason.Size`), and every byte of it is compared and written, padding too: give `T` a field for every byte, or use the byte form; an `ExchangeResult<T>` with `Status`, `Flags`, `Reason`, `Current` (the value the write saw) and `HoldTime` |
+| `TryCompareExchangeBytes(entity, component, expected, desired, mask, current)` | `ecs_compare_exchange` | the same with bytes and an optional per-byte mask; `current` (optional) gets the bytes the write saw |
+| `ComponentExchangedEvent` | `ecs_write_subscribe` | on the server tick after each committed write: `Entity`, `Generation`, `ComponentHash` (`Is("Charge")`), `Session`, `Step`, `Mod` (the mod that wrote, null for a native service). Kiln's service tick posts them; should it stop for many steps, events beyond 65,536 waiting are dropped and kiln.log says how many |
+
+`ExchangeStatus` has the native statuses (`Ok`, `Absent`, `Stale`, `Unreadable`, `Unavailable`, `Busy`, `Conflict`,
+`NotWritable`, `Uncertain`), `ExchangeFlags` the `KILN_MUTATION_*` flags and `WriteReason` the `KILN_ECS_WRITE_WHY_*`
+codes. A refusal never throws; misuse does (a `default` `ConcurrentEntity`, an empty component name, byte buffers of
+different lengths, the wrong thread). The writes may be called where the reads may (inside a Kiln task, or on the tick
+from a mod's code); on the server tick a write is always `Busy` with `Reason.InFrame` and reaches nothing, so write from a
+task's worker and keep the tick for `World.Write`. A mod writes with the refs it opened itself: a ref another mod opened
+is `Stale`, as is every ref after the mod reloads.
+
+**In the test kit.** `KilnHarness` has the writes on its fake world with the same rules. The kit cannot read the engine's
+tracking bits, so a component is writable there only after the test says it is untracked:
+`kiln.Entities.Track("Charge", save: false, replication: false)`. `kiln.Entities.BusyWrites = 1` makes the next write meet
+a busy gate, for the retry loop; the event comes at the next `kiln.Step()`.
+
 ### Entities and teleport from native code
 Tick thread (Pre/Post) or inside your program: `component(e, hash, &size)`, `exists`, `transform`, `position`,
 `find(hash, buf, cap, &count)` (KILN_ERR_BUFFER_TOO_SMALL with the full count when `cap` is short),

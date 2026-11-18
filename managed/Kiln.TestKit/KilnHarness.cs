@@ -477,6 +477,7 @@ public sealed partial class KilnHarness : IDisposable
         public void OwnerRevoke(ulong owner)
         {
             lock (Revoked) Revoked.Add(owner);
+            if (harness.EntitiesFake is { } world) EcsWritesLogic.Retire(world.Reads, owner);  // kiln.world's owner-retiring observer
         }
 
         public void Log(LogLevel level, string text)
