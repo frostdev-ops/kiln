@@ -660,7 +660,10 @@ public static unsafe partial class WorldConcurrent
     };
 
     // The server tick runs inside the server frame: a frame-quiet read there would always meet it.
-    private static bool OnServerTick => TaskExecutionScope.OnTick || TaskBackend.Current?.OnServerTick == true;
+    // A task's server-world hop or the server tick itself: the frame holds the gate there. A client-world hop (#82) runs on
+    // the game's main thread, beside the server world's frame: its calls meet the gate like any task's.
+    private static bool OnServerTick =>
+        (TaskExecutionScope.OnTick && TaskExecutionScope.TickWorld == WorldKind.Server) || TaskBackend.Current?.OnServerTick == true;
 
     // A frame-quiet read on the server tick: the server frame is running (busy; a worker can retry), and a client or
     // prediction world has no frame-quiet window at all (unsupported, as kiln.world says it). No engine read either way.

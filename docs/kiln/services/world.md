@@ -560,10 +560,11 @@ from a mod's code. Anywhere else it throws `InvalidOperationException`: a `new T
 ([KILN105](../modding/analyzers.md#kiln105)). The reads are made for the task's mod, or for the mod whose code runs on the
 tick.
 
-**Frame-quiet on the tick.** The server tick runs inside the server frame (tick handlers, and a task's tick hops), so a
+**Frame-quiet on the tick.** The server tick runs inside the server frame (tick handlers, and a task's server-world hops), so a
 `ReadMode.FrameQuiet` read there would always meet the frame. There it answers `Busy` at once, without reading the
 engine (`Unsupported` for a client-world entity or query, which has no frame-quiet window anywhere). Read `Stable` on the tick, or retry from a worker: `await ctx.NextGateWindow()` takes the work back to one, so
-the retry loop above also works when it starts in a tick hop.
+the retry loop above also works when it starts in a tick hop. A task's client-world hop runs on the game's main thread,
+beside the server world's frame: there a frame-quiet read of the server world is read like one from a worker.
 
 **Reloads.** A mod's owner id is the reload epoch of its reads, and every load of a mod gets a new owner id. Refs taken
 before a reload come back `Stale` after it: open the entities again.
@@ -737,8 +738,9 @@ var task = Context.Tasks.Run("recharge", async ctx =>
 `NotWritable`, `Uncertain`), `ExchangeFlags` the `KILN_MUTATION_*` flags and `WriteReason` the `KILN_ECS_WRITE_WHY_*`
 codes. A refusal never throws; misuse does (a `default` `ConcurrentEntity`, an empty component name, byte buffers of
 different lengths, the wrong thread). The writes may be called where the reads may (inside a Kiln task, or on the tick
-from a mod's code); on the server tick a write is always `Busy` with `Reason.InFrame` and reaches nothing, so write from a
-task's worker and keep the tick for `World.Write`. A mod writes with the refs it opened itself: a ref another mod opened
+from a mod's code); on the server tick (and in a task's server-world hop) a write is always `Busy` with `Reason.InFrame`
+and reaches nothing, so write from a task's worker and keep the tick for `World.Write`. A task's client-world hop is not
+the server tick: a server-world write from there meets the engine's gate like any task write. A mod writes with the refs it opened itself: a ref another mod opened
 is `Stale`, as is every ref after the mod reloads.
 
 **In the test kit.** `KilnHarness` has the writes on its fake world with the same rules. The kit cannot read the engine's

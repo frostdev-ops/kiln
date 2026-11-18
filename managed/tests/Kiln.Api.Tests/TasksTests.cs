@@ -420,7 +420,7 @@ public sealed class TasksTests : TaskTest
             "KilnTask`1.AsTask", "KilnTask`1.Awaiter", "KilnTask`1.GetAwaiter", "KilnTask`1.Result",
             "KilnTask`1.Awaiter.GetResult", "KilnTask`1.Awaiter.IsCompleted", "KilnTask`1.Awaiter.OnCompleted", "KilnTask`1.Awaiter.UnsafeOnCompleted",
             "KilnTaskContext.Cancellation", "KilnTaskContext.GateWindow", "KilnTaskContext.NextGateWindow", "KilnTaskContext.OnTick",
-            "KilnTaskContext.PostToTick", "KilnTaskContext.TickHop", "KilnTaskContext.ToTick",
+            "KilnTaskContext.PostToTick", "KilnTaskContext.TickHop", "KilnTaskContext.TickWorld", "KilnTaskContext.ToTick",
             "KilnTaskContext.GateWindow.Awaiter", "KilnTaskContext.GateWindow.GetAwaiter",
             "KilnTaskContext.GateWindow.Awaiter.GetResult", "KilnTaskContext.GateWindow.Awaiter.IsCompleted",
             "KilnTaskContext.GateWindow.Awaiter.OnCompleted", "KilnTaskContext.GateWindow.Awaiter.UnsafeOnCompleted",

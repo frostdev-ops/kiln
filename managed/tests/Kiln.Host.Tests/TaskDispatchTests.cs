@@ -165,8 +165,9 @@ public sealed class TaskDispatchTests : HostTaskTest
         Native.StartSession();
         Native.Step();
         Assert.Equal(1, woke);
-        // the window is armed for the session it was asked in: the core compares, the host never arms "whatever is live"
-        Assert.Equal((2, 0), (Native.AfterStepInCalls, Native.AfterStepCalls));
+        // the window is armed for the session it was asked in, of its world (#82: resume_after_step_world): the core
+        // compares, the host never arms "whatever is live"
+        Assert.Equal((2, 0, 0), (Native.AfterStepWorldCalls, Native.AfterStepInCalls, Native.AfterStepCalls));
         Quiesce();
     }
 
