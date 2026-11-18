@@ -905,10 +905,11 @@ KilnResult Service::submit_as(KilnOwner owner, const KilnTaskInfo* info, KilnTas
         // submit_in names its world (and maybe its session): NO_WORLD; submit's AFTER_STEP is the server's
         if (!snap.live || (session && session != snap.session))
             return refuse(task, refusal, KILN_ERR_UNAVAILABLE, bound ? Refusal::NoWorld : Refusal::NoServerWorld);
+        args.world = world;
+        args.session = snap.session;
+        args.bound = bound;  // submit_in: never starts after that session ended (checked again under the model's mutex)
         if (info->flags & KILN_TASK_AFTER_STEP) {
             args.after_step = true;
-            args.world = world;
-            args.session = snap.session;
             args.edge = snap.edge;
         }
         if (hook_) hook_(Point::AfterCapture);
@@ -981,10 +982,14 @@ uint64_t Service::refused_edges(uint32_t world) const {
 void Service::session_started(uint32_t world, uint32_t session) {
     if (!session_world(world)) return;
     const std::size_t w = world_line(world);
+    uint32_t stale = 0;  // the session it replaces without a STOPPING (a world that stopped without a destroy event)
     {
         std::lock_guard lock(mutex_);
+        if (snap_[w].live && snap_[w].session != 0 && snap_[w].session != session) stale = snap_[w].session;
         snap_[w] = {session, 0, true};
     }
+    // that session is over now, not at the new one's first Post edge: what waits on it (or is bound to it) is cancelled
+    if (stale) pool_.end_session(world, stale);
     // A world that stopped without a destroy event left its hops queued: taken in the same step that opens the new
     // session, and dispatched cancelled (as at a STOPPING), never carried into the new world.
     std::vector<Hop> old;

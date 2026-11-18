@@ -83,6 +83,9 @@ struct SubmitArgs {
     uint32_t world = KILN_WORLD_SERVER;  // AFTER_STEP: the world of `session` (session_world; else ARGUMENT)
     uint64_t session = 0;     // AFTER_STEP: that world's live session at acceptance (never 0: ARGUMENT)
     uint64_t edge = 0;        // AFTER_STEP: that session's last Post edge the caller observed at acceptance
+    // kiln_tasks.h submit_in: the task is for `world`'s `session` (never 0: ARGUMENT) until its body starts. Still queued
+    // when that session ends (or accepted after it ended), it is CANCELLED and never starts; a running body is signalled.
+    bool bound = false;
     Payload payload;
 };
 

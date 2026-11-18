@@ -396,6 +396,62 @@ KILN_TASKS_TEST(submit_in_binds_a_world_session) {
     check(s.submit(1, &i, &body, &done, &r, &h, &why) == KILN_ERR_UNAVAILABLE && why == KILN_TASK_REFUSAL_NO_SERVER_WORLD,
           "submit's AFTER_STEP stays the server world's: NO_SERVER_WORLD with only a client world");
 }
+
+// submit_in without AFTER_STEP: the binding holds until the body starts. A bound task still queued when its session
+// ends (its STOPPING, or a new session of that world without one) is CANCELLED with its done and its body never runs;
+// one that captured a session ending before it was published is cancelled at once; a running body sees cancelled().
+KILN_TASKS_TEST(submit_in_plain_never_starts_after_its_session) {
+    for (const int how : {0, 1, 2}) {  // 0: STOPPING; 1: a new session without a destroy event; 2: the capture window
+        HostPlatform p;
+        Env env;
+        Pool pool(config(), &p);
+        Service s(pool, env);
+        s.session_started(KILN_WORLD_SERVER, 1);
+        s.session_started(KILN_WORLD_CLIENT, 5);
+        KilnTaskInfo plain = after_step("bound");
+        plain.flags = 0;
+        Job busy1, busy2, bound, server;
+        busy1.block = busy2.block = true;
+        KilnHandle h = 0;
+        if (how == 2) {
+            s.set_test_hook([&](Service::Point at) {
+                if (at != Service::Point::AfterCapture) return;
+                s.session_stopping(KILN_WORLD_CLIENT, 5);
+                s.session_started(KILN_WORLD_CLIENT, 6);
+            });
+            check(s.submit_in(1, &plain, KILN_WORLD_CLIENT, 0, &body, &done, &bound, &h, nullptr) == KILN_OK,
+                  "accepted for session 5");
+            s.set_test_hook(nullptr);
+        } else {
+            // the owner's two slots taken: the bound task stays queued
+            check(s.submit_in(1, &plain, KILN_WORLD_CLIENT, 5, &body, &done, &busy1, &h, nullptr) == KILN_OK &&
+                      s.submit_in(1, &plain, KILN_WORLD_CLIENT, 5, &body, &done, &busy2, &h, nullptr) == KILN_OK &&
+                      until([&] { return busy1.body_runs.load() == 1 && busy2.body_runs.load() == 1; }),
+                  "two bound bodies running");
+            KilnHandle hb = 0;
+            check(s.submit_in(1, &plain, KILN_WORLD_CLIENT, 5, &body, &done, &bound, &hb, nullptr) == KILN_OK &&
+                      s.submit_in(1, &plain, KILN_WORLD_SERVER, 1, &body, &done, &server, &h, nullptr) == KILN_OK,
+                  "a client-bound and a server-bound task queued behind them");
+            if (how == 0) s.session_stopping(KILN_WORLD_CLIENT, 5);
+            else s.session_started(KILN_WORLD_CLIENT, 6);
+            uint32_t state = 0;
+            check(s.status(1, hb, &state) == KILN_OK && state == KILN_TASK_CANCELLED,
+                  "the queued client-bound task is cancelled at its session's end, before its body starts");
+            busy1.release.open();
+            busy2.release.open();
+            check(until([&] { return busy1.done_calls.load() == 1 && busy2.done_calls.load() == 1; }) &&
+                      busy1.saw_cancel.load() == 1 && busy2.saw_cancel.load() == 1,
+                  "the running client-bound bodies saw cancelled()");
+            check(until([&] { return server.done_calls.load() == 1; }) && server.done_state.load() == KILN_TASK_COMPLETED &&
+                      server.saw_cancel.load() == 0,
+                  "the server-bound task is untouched by the client world's end");
+        }
+        check(until([&] { return bound.done_calls.load() == 1; }) && bound.done_state.load() == KILN_TASK_CANCELLED &&
+                  bound.body_runs.load() == 0,
+              how == 2 ? "its session ended inside the capture window: cancelled at once, never run in session 6"
+                       : "never started after its session ended");
+    }
+}
 }  // namespace
 
 int main(int argc, char** argv) { return kiln::tasks::test::run(argc, argv, "tasks edges"); }

@@ -116,9 +116,10 @@ enum {
  * Refused UNAVAILABLE + NO_WORLD when that world has no live session or it is not `session`. With AFTER_STEP the task
  * waits for that world's next Post edge (the client world: the end of its step on the game's main thread, about 60 a
  * second while in game) and is CANCELLED when that session ends, exactly as AFTER_STEP above for the server world; an
- * edge or a STOPPING of the other world changes nothing for it. Without AFTER_STEP the session is checked at
- * acceptance only and the body runs as after submit. The body always runs on a pool worker, never on the world's
- * thread: hand phase-bound work to it with KilnApi.post_world.
+ * edge or a STOPPING of the other world changes nothing for it. Without AFTER_STEP the task is queued at once, and
+ * its body never starts after that session ended: still queued at the session's end (its STOPPING, or a new session
+ * of that world), it is CANCELLED with its done delivered; a body already running sees cancelled(). The body always
+ * runs on a pool worker, never on the world's thread: hand phase-bound work to it with KilnApi.post_world.
  */
 
 typedef struct KilnTaskInfo {

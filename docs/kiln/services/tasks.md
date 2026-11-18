@@ -4,8 +4,8 @@
 A task's body runs on a pool worker, never on the tick, a world thread, a window or render thread or one of the
 game's job workers; then its `done` callback runs, exactly once, also on a pool worker. A body touches game state only
 through members documented as callable from any thread; anything phase-bound is posted back with `KilnApi.post` /
-`post_world`. The public ABI is `native/core/abi/services/kiln_tasks.h`, version 1, 48 bytes on
-Windows x64.
+`post_world`. The public ABI is `native/core/abi/services/kiln_tasks.h`, version 1, 56 bytes on
+Windows x64 (48 before `submit_in` was appended: check `header.size`).
 
 ## Capability
 
@@ -121,7 +121,9 @@ session number from `KilnWorldEvent.session` or `KilnSessionInfo.sessions[]`):
   `ARGUMENT` for another world kind;
 - with `KILN_TASK_AFTER_STEP`, the task waits for that world's next Post edge and is `CANCELLED` when that session
   ends, as `AFTER_STEP` above does for the server world;
-- without it, the session is checked at acceptance only and the body runs as after `submit`.
+- without it, the task is queued at once and its body never starts after that session ended: still queued when the
+  session ends (its `KILN_WORLD_STOPPING`, or a new session of that world), it is `CANCELLED` with its `done`
+  delivered; a body that is already running sees `cancelled()`.
 
 The body always runs on a pool worker, never on the world's thread: hand phase-bound work to it with `post_world`.
 

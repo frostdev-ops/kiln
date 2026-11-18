@@ -31,7 +31,8 @@ struct Record {
     Priority priority = Priority::Normal;
     Slot slot = Slot::Normal;
     uint32_t world = KILN_WORLD_SERVER;  // the world of `session` (AFTER_STEP, or a waiting continuation)
-    uint64_t session = 0;  // AFTER_STEP: the session of `world` captured at acceptance
+    uint64_t session = 0;  // AFTER_STEP (or submit_in's binding): the session of `world` captured at acceptance
+    bool bound = false;    // submit_in: never starts after `session` of `world` ended (SubmitArgs::bound)
     uint64_t edge = 0;
     Payload payload;
     // the cancelled() poll, read without the mutex
@@ -375,7 +376,7 @@ KilnResult Model::submit(KilnOwner owner, const SubmitArgs& args, KilnHandle* ta
         return r;
     };
     if (!task || !valid_name(args.name) || static_cast<uint32_t>(args.priority) > 2 ||
-        (args.after_step && (!args.session || !session_world(args.world))))
+        ((args.after_step || args.bound) && (!args.session || !session_world(args.world))))
         return fail(KILN_ERR_INVALID_ARGUMENT, Refusal::Argument);
     // copied and allocated before the model mutex; published (or dropped) under it
     auto r = std::make_shared<Record>();
@@ -386,6 +387,7 @@ KilnResult Model::submit(KilnOwner owner, const SubmitArgs& args, KilnHandle* ta
     r->world = args.world;
     r->session = args.session;
     r->edge = args.edge;
+    r->bound = args.bound && !args.lease;
     r->lease = args.lease;
     r->payload = args.payload;
     hook(Point::SubmitBeforePublish);
@@ -409,9 +411,10 @@ KilnResult Model::submit(KilnOwner owner, const SubmitArgs& args, KilnHandle* ta
         // Compared under the same mutex as edge()/end_session(), so an edge or an end between the caller's capture
         // and this point is never lost: the task is queued as if it had been accepted after it.
         const Line& line = lines_[world_line(args.world)];
-        if (!args.after_step) {
+        const bool over = args.session <= line.ended || args.session < line.session;
+        if (!args.after_step && !(r->bound && over)) {
             enqueue(*o, r, Work::Kind::Body);
-        } else if (args.session <= line.ended || args.session < line.session) {
+        } else if (over) {
             publish_terminal(*o, r, State::Cancelled);  // its session is over: cancelled at once, never carried over
         } else if (args.session == line.session && args.edge < line.last_edge) {
             enqueue(*o, r, Work::Kind::Body);  // its session already had a newer edge
@@ -594,9 +597,16 @@ KilnResult Model::hop_end(KilnHandle task) {
 void Model::cancel_waiting_before(uint32_t world, uint64_t session) {
     for (const auto& o : ring_) {
         // a continuation an ended session's edge released (ready, or its segment running) sees its cancellation too
-        for (const auto& [seq, r] : o->records)
+        // submit_in's bound tasks of an ended session: a queued body never starts (cancelled), a running one is signalled
+        std::vector<std::shared_ptr<Record>> unstarted;
+        for (const auto& [seq, r] : o->records) {
             if (r->released_session && r->released_world == world && r->released_session < session)
                 r->cancel.store(true, std::memory_order_release);
+            if (!r->bound || r->world != world || r->session >= session) continue;
+            if (r->state == State::Queued && !r->waiting) unstarted.push_back(r);
+            else if (r->state == State::Running) r->cancel.store(true, std::memory_order_release);
+        }
+        for (const auto& r : unstarted) cancel_queued(*o, r);
         std::vector<std::shared_ptr<Record>> over;
         for (const auto& r : o->waiting)
             if (r->world == world && r->session < session) over.push_back(r);

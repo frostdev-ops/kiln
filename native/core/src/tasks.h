@@ -312,7 +312,8 @@ public:
 private:
     KilnResult open(KilnOwner owner);
     // `bound` (submit_in): the task is for `world`'s `session` (0: the live one): refused NO_WORLD unless it is live,
-    // and an AFTER_STEP task waits for that world's edge. Unbound: AFTER_STEP is the live server session's.
+    // an AFTER_STEP task waits for that world's edge, and none starts after that session ended. Unbound: AFTER_STEP is
+    // the live server session's.
     KilnResult submit_as(KilnOwner owner, const KilnTaskInfo* info, KilnTaskBodyFn body, KilnTaskDoneFn done, void* user,
                          bool lease, KilnHandle* task, uint32_t* refusal, uint32_t world = KILN_WORLD_SERVER,
                          uint32_t session = 0, bool bound = false);
