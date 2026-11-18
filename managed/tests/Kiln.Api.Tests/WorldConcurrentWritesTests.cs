@@ -292,6 +292,49 @@ public sealed class WorldConcurrentWritesTests : TaskTest
         Assert.Equal(WorldKind.Server, e.World);
     }
 
+    // A new backend (a test kit's next harness) gets a subscription of its own at its first write; that write's event still
+    // names the mod (the binding forgets the last backend's writers before it records this one).
+    [Fact]
+    public void After_a_new_backend_the_first_write_s_event_names_the_mod()
+    {
+        var seen = new List<ComponentExchangedEvent>();
+        Capabilities.Report(WorldConcurrent.WriteCapability, CapabilityState.Available);
+        using var sub = Events.On<ComponentExchangedEvent>(seen.Add);
+        for (var round = 0; round < 2; round++)
+        {
+            if (round > 0) UsePool(2);
+            var mod = NewMod("alpha" + round);
+            FakeEcsReads.Add((uint)(20 + round), WorldKind.Server, ("Counter", Le(5)));
+            var r = Opened(mod, (uint)(20 + round));
+            Assert.True(InTask(mod, () => WorldConcurrent.TryCompareExchange(r, "Counter", 5L, 6L)).Written);
+            Pool.Step(() =>
+            {
+                FakeEcsReads.Drain();
+                WorldExchanges.Pump();
+            });
+            var e = Assert.Single(seen);
+            Assert.Equal(("alpha" + round, (uint)(20 + round)), (e.Mod, e.Entity.Value));
+            seen.Clear();
+        }
+        Assert.Equal(1, FakeEcsReads.Subscriptions);  // the last backend's subscription ended
+    }
+
+    // The callback queues for the service tick; a service tick that stopped can't make that queue grow without end.
+    [Fact]
+    public void The_events_waiting_for_the_service_tick_are_bounded_and_the_drops_logged()
+    {
+        var seen = 0;
+        Capabilities.Report(WorldConcurrent.WriteCapability, CapabilityState.Available);
+        using var sub = Events.On<ComponentExchangedEvent>(_ => seen++);
+        WorldExchanges.Bind();
+        for (var i = 0; i < WorldExchanges.MaxQueued + 3; i++)
+            WorldExchanges.Deliver(new EcsWriteEventNative { Size = 48, WorldKind = 0, Entity = 12, Generation = 1, Component = 1, Session = 1 });
+        Assert.Equal(WorldExchanges.MaxQueued, WorldExchanges.Queued);
+        Pool.Step(WorldExchanges.Pump);
+        Assert.Equal((WorldExchanges.MaxQueued, 0), (seen, WorldExchanges.Queued));
+        Assert.True(Backend.Logged($"3 ComponentExchangedEvent(s) were dropped: more than {WorldExchanges.MaxQueued} waited"));
+    }
+
     [Fact]
     public void Without_kiln_types_the_writes_are_unavailable()
     {
