@@ -6,13 +6,22 @@
 // PAGE_GUARD or decommitted: every read must come back refused (unreadable or unavailable) with the caller's buffer
 // untouched, and the process must live on; with the pages back the same reads succeed. A thread flips a chunk page's
 // protection while two readers read: no read crashes, none returns a partial buffer.
+// Compare-exchange writes (ecs_writes.cpp) over the same primitives and kiln.engine's real write gate (gate.cpp, the
+// Interlocked words, the SEH write): a write whose second page is read-only faults part-way and is rolled back and
+// proven; a page that turns PAGE_NOACCESS or decommitted between the write and its readback leaves the write uncertain
+// and latched, a PAGE_GUARD one faults once and the rollback is proven; a guard page under the first read refuses before any write; a simulated frame holding
+// the Scene word is busy; a faulting event subscriber is contained by SEH. And the hold's time with real memory.
 #include <windows.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cstdio>
 #include <cstring>
+#include <functional>
+#include <memory>
 #include <string>
 #include <thread>
+#include <tuple>
 #include <vector>
 
 #include "ecs_fake_world.h"
@@ -23,7 +32,10 @@
 
 #include "../ecs_engine.h"
 #include "../ecs_epochs.h"
+#include "../ecs_writes.h"
 #include "../transform_layout.h"
+#include "engine_state.h"
+#include "gate.h"
 
 namespace {
 using namespace fakeworld;
@@ -98,8 +110,57 @@ struct Spoil {
 };
 const char* mode_name(int how) { return how == 0 ? "PAGE_NOACCESS" : how == 1 ? "PAGE_GUARD" : "decommitted"; }
 
+// kiln.internal.engine's gate members, the same bodies engine.cpp publishes, for a caller off the world threads.
+using kiln::engine::EcsGate;
+KilnResult KILN_CALL acquire_member(const kiln::engine::EcsView* expected, EcsGate* gate, std::uint32_t* reason) {
+    const auto r = kiln::engine::gate_acquire(g_layout, *expected, *gate, kiln::engine::CallerThread::Other, g_image.load());
+    *reason = static_cast<std::uint32_t>(r);
+    return r == kiln::engine::Reason::None ? KILN_OK : KILN_ERR_UNAVAILABLE;
+}
+std::int32_t KILN_CALL validate_member(const EcsGate* gate) { return kiln::engine::gate_validate(g_layout, *gate, g_image.load()) ? 1 : 0; }
+std::int32_t KILN_CALL component_member(const EcsGate* gate, std::uint16_t c) { return kiln::engine::gate_component_supported(*gate, c) ? 1 : 0; }
+KilnResult KILN_CALL write_member(const EcsGate* gate, std::uintptr_t address, const void* data, std::size_t bytes) {
+    switch (kiln::engine::gate_write(*gate, address, data, bytes)) {
+        case kiln::engine::GateWrite::Ok: return KILN_OK;
+        case kiln::engine::GateWrite::TooLarge: return KILN_ERR_BUFFER_TOO_SMALL;
+        case kiln::engine::GateWrite::NotHeld: return KILN_ERR_INVALID_ARGUMENT;
+        default: return KILN_ERR_UNAVAILABLE;
+    }
+}
+void KILN_CALL release_member(EcsGate* gate) { kiln::engine::gate_release(*gate); }
+
+// SEH containment of an event subscriber, as kiln.world's seh_call.
+bool seh_guarded(void (*fn)(void*), void* ctx, unsigned long* code) {
+    __try {
+        fn(ctx);
+        return true;
+    } __except (*code = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+writes::HoldPoint g_spoil_at = writes::HoldPoint::Begin;
+std::function<void()> g_spoil;
+void hold_point(writes::HoldPoint p) {
+    if (g_spoil && p == g_spoil_at) {
+        auto f = std::move(g_spoil);
+        g_spoil = nullptr;
+        f();
+    }
+}
+int g_delivered = 0;
+void KILN_CALL faulting_subscriber(const KilnEcsWriteEvent*, void*) {
+    *reinterpret_cast<volatile int*>(fake::unmapped()) = 1;  // an access violation
+}
+void KILN_CALL counting_subscriber(const KilnEcsWriteEvent*, void*) { ++g_delivered; }
+
 }  // namespace
 
+namespace kiln::engine {
+Stats& stats() {
+    static Stats s;
+    return s;
+}
+}  // namespace kiln::engine
 namespace kiln::engine::mem {
 std::uintptr_t image_base() { return g_image.load(); }
 }  // namespace kiln::engine::mem
@@ -242,6 +303,165 @@ int main() {
     std::printf("  flipping page: %d read, %d refused\n", ok.load(), refused.load());
     check(partial.load() == 0 && ok.load() + refused.load() == 4000, "a page flipping under two readers: no partial buffer");
     check(refused.load() > 0, "the flipping page faulted some copies (contained)");
+
+    // ---- compare-exchange writes over the real gate ----
+    {
+        native.ecs_gate_acquire = &acquire_member;
+        native.ecs_gate_validate = &validate_member;
+        native.ecs_gate_component_supported = &component_member;
+        native.ecs_gate_write = &write_member;
+        native.ecs_gate_release = &release_member;
+        w.reg("Counter", 8);
+        w.reg("Span", 256);
+        w.reg("Largest", 4328);
+        w.reg("Max", 65535);
+        const uintptr_t counters = w.archetype({"keen::ecs::Counter"});
+        w.add(7000, 2, counters, 0, nullptr);
+        const uintptr_t span = w.archetype({"keen::ecs::Span"});
+        put<uint16_t>(span + E.component_offsets + w.comp("keen::ecs::Span").index * 2, 4096 - 128);
+        w.add(7001, 1, span, 0, nullptr);
+        w.add(7002, 1, w.archetype({"keen::ecs::Largest"}), 0, nullptr);
+        w.add(7003, 1, w.archetype({"keen::ecs::Max"}), 0, nullptr);
+        // kiln.types: every one of them a static array of bytes (plain)
+        static std::vector<std::pair<std::string, KilnTypeInfo>> infos;
+        static KilnTypeInfo u8{};
+        u8.size = sizeof u8; u8.kind = KILN_TYPE_U8; u8.type_size = 1;
+        for (const char* n : {"Counter", "Span", "Largest", "Max"}) {
+            KilnTypeInfo t{};
+            t.size = sizeof t;
+            t.kind = KILN_TYPE_STATIC_ARRAY;
+            t.type_size = w.comp(std::string("keen::ecs::") + n).size;
+            t.hash = H(w, n);
+            t.inner = reinterpret_cast<const KilnType*>(&u8);
+            infos.emplace_back(n, t);
+        }
+        static KilnTypesApi types{};
+        types.header = {sizeof types, KILN_TYPES_VERSION};
+        types.type_by_hash = [](uint32_t h) -> const KilnType* {
+            for (auto& [n, t] : infos)
+                if (t.hash == h) return reinterpret_cast<const KilnType*>(&t);
+            return nullptr;
+        };
+        types.type_info = [](const KilnType* t, KilnTypeInfo* out) -> KilnResult {
+            const uint32_t size = out->size;
+            *out = *reinterpret_cast<const KilnTypeInfo*>(t);
+            out->size = size;
+            return KILN_OK;
+        };
+        types.type_field = [](const KilnType*, uint32_t, KilnTypeField*) -> KilnResult { return KILN_ERR_NOT_FOUND; };
+        static engine::Reader* s_reader = &reader;
+        static Worlds* s_worlds = &worlds;
+        writes::WriterSource ws;
+        ws.reader = [](void*) { return s_reader; };
+        ws.engine = &native;
+        ws.types = &types;
+        ws.exact_profile = true;
+        ws.server_step = [](void*) -> uint64_t { return s_worlds->steps; };
+        ws.guarded = &seh_guarded;
+        writes::Writer wr(ws);
+        writes::g_hold_test_point = &hold_point;
+        check(wr.available(), "writes: available over the real gate");
+        auto open = [&](uint32_t id) {
+            KilnObjectRef r{};
+            entity_open(b, kOwner, kOwner, KILN_WORLD_SERVER, 0, id, &r);
+            return r;
+        };
+        auto cx = [&](const KilnObjectRef& r, const char* name, const std::vector<uint8_t>& exp, const std::vector<uint8_t>& des,
+                      KilnMutationReply& reply) {
+            ++worlds.steps;
+            reply = KilnMutationReply{};
+            reply.size = sizeof reply;
+            return wr.compare_exchange(kOwner, &r, H(w, name), exp.data(), nullptr, des.data(),
+                                       static_cast<uint32_t>(exp.size()), nullptr, &reply);
+        };
+        auto bytes_of = [](uintptr_t a, size_t n) {
+            std::vector<uint8_t> v(n);
+            std::memcpy(v.data(), reinterpret_cast<const void*>(a), n);
+            return v;
+        };
+        KilnMutationReply rep{};
+        const KilnObjectRef counter = open(7000);
+        const uintptr_t at = w.row_address(counters, 0, "keen::ecs::Counter");
+        std::vector<uint8_t> zero(8, 0), one(8, 0);
+        one[0] = 1;
+        check(cx(counter, "Counter", zero, one, rep) == KILN_OK && (rep.flags & KILN_MUTATION_WRITTEN) && bytes_of(at, 8) == one,
+              "writes: a write through the SEH write, read back");
+        // a frame holds the Scene word Shared
+        InterlockedIncrement(reinterpret_cast<volatile LONG*>(e.scene_word()));
+        check(cx(counter, "Counter", one, zero, rep) == KILN_ECS_ERR_BUSY && bytes_of(at, 8) == one, "writes: a frame: busy");
+        InterlockedDecrement(reinterpret_cast<volatile LONG*>(e.scene_word()));
+        // Span crosses a page boundary: its second page read-only makes the write fault part-way
+        const KilnObjectRef sp = open(7001);
+        const uintptr_t sat = w.row_address(span, 0, "keen::ecs::Span");
+        const uintptr_t page = (sat + 4095) & ~uintptr_t{4095};
+        std::vector<uint8_t> cur(256), want(256);
+        for (size_t i = 0; i < 256; ++i) { cur[i] = static_cast<uint8_t>(i); want[i] = static_cast<uint8_t>(~i); }
+        std::memcpy(reinterpret_cast<void*>(sat), cur.data(), 256);
+        DWORD old = 0;
+        VirtualProtect(reinterpret_cast<void*>(page), 4096, PAGE_READONLY, &old);
+        check(cx(sp, "Span", cur, want, rep) == KILN_ECS_ERR_UNREADABLE && rep.flags == KILN_MUTATION_ROLLED_BACK &&
+                  bytes_of(sat, 256) == cur,
+              "writes: a write faulting part-way (read-only page) is rolled back and proven");
+        VirtualProtect(reinterpret_cast<void*>(page), 4096, PAGE_READWRITE, &old);
+        // a guard page under the first read: refused before any write
+        VirtualProtect(reinterpret_cast<void*>(page), 4096, PAGE_READWRITE | PAGE_GUARD, &old);
+        check(cx(sp, "Span", cur, want, rep) == KILN_ECS_ERR_UNREADABLE && rep.flags == 0 && bytes_of(sat, 128) == std::vector<uint8_t>(cur.begin(), cur.begin() + 128),
+              "writes: a guard page under the first read: unreadable, nothing written");
+        VirtualProtect(reinterpret_cast<void*>(page), 4096, PAGE_READWRITE, &old);
+        // the page turns unreadable between the write and its readback: uncertain, latched
+        for (int how = 0; how < 3; ++how) {
+            worlds.session += 1;  // each mode latches in a session of its own
+            const KilnObjectRef r = open(7001);
+            std::memcpy(reinterpret_cast<void*>(sat), cur.data(), 256);
+            std::unique_ptr<Spoil> spoiled;
+            g_spoil_at = writes::HoldPoint::AfterWrite;
+            g_spoil = [&] { spoiled = std::make_unique<Spoil>(page, 4096, how); };
+            const KilnResult rc = cx(r, "Span", cur, want, rep);
+            spoiled.reset();
+            const KilnResult again = cx(r, "Span", cur, want, rep);
+            if (how == 1) {
+                // A guard page faults once: the readback trips it, the rollback then writes and reads back cleanly.
+                check(rc == KILN_ECS_ERR_UNREADABLE && again == KILN_OK, std::string("writes: the page ") + mode_name(how) +
+                                                                            " after the write: one fault, rolled back and proven");
+            } else {
+                check(rc == KILN_ECS_ERR_UNCERTAIN && again == KILN_ECS_ERR_UNCERTAIN && (rep.flags & KILN_MUTATION_TARGET_LATCHED),
+                      std::string("writes: the page ") + mode_name(how) + " after the write: uncertain, then latched");
+            }
+        }
+        // a subscriber that faults (an access violation) is contained; the next one still gets the event
+        wr.drain();
+        KilnHandle h1 = 0, h2 = 0;
+        wr.subscribe(kOwner, &faulting_subscriber, nullptr, &h1);
+        wr.subscribe(kOwner, &counting_subscriber, nullptr, &h2);
+        worlds.session += 1;
+        const KilnObjectRef c2 = open(7000);
+        std::memcpy(reinterpret_cast<void*>(at), zero.data(), 8);
+        cx(c2, "Counter", zero, one, rep);
+        const size_t drained = wr.drain();
+        check(drained == 1 && g_delivered == 1 && wr.faults() == 1 && wr.unsubscribe(h1) == KILN_ERR_NOT_FOUND,
+              "writes: an access violation in a subscriber is contained and ends it");
+        wr.unsubscribe(h2);
+        // the hold with real memory: the largest writable component of both builds (4328 bytes) and 65535 bytes
+        for (const auto& [name, id, size] : {std::tuple<const char*, uint32_t, uint32_t>{"Largest", 7002, 4328},
+                                             std::tuple<const char*, uint32_t, uint32_t>{"Max", 7003, 65535}}) {
+            const KilnObjectRef r = open(id);
+            std::vector<uint8_t> a(size, 0), n(size, 0);
+            std::vector<uint64_t> times;
+            for (int i = 0; i < 1000; ++i) {
+                std::fill(n.begin(), n.end(), static_cast<uint8_t>(i + 1));
+                if (cx(r, name, a, n, rep) != KILN_OK) break;
+                times.push_back(rep.hold_ns);
+                a = n;
+                wr.drain();
+            }
+            std::sort(times.begin(), times.end());
+            check(times.size() == 1000, std::string("writes: 1000 timed writes of ") + name);
+            if (!times.empty())
+                std::printf("  hold, %u bytes: median %.1f us, p99 %.1f us, worst %.1f us\n", size,
+                            times[times.size() / 2] / 1000.0, times[times.size() * 99 / 100] / 1000.0, times.back() / 1000.0);
+        }
+        writes::g_hold_test_point = nullptr;
+    }
 
     std::printf("ecs_fault_win: %d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;

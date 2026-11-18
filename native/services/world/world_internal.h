@@ -276,7 +276,9 @@ bool seh_write_cb(KilnWorldWriteFn fn, const KilnWorldWriteResult* result, void*
 void ecs_prod_init();       // boot: the context answers; entity reads wait for ecs_prod_ready
 void ecs_prod_ready();      // on_ready: kiln.engine's exact profile, the availability decision, the world.ecs_read row
 bool ecs_prod_available();  // entity reads are on for this build (exact profile, agreeing entity-table layout)
-uint32_t ecs_capability();  // KILN_WORLD_CAP_ECS_READ or 0
+uint32_t ecs_capability();  // KILN_WORLD_CAP_ECS_READ and KILN_WORLD_CAP_ECS_WRITE, each when on
+bool ecs_writes_available();  // compare-exchange writes are on for this build
+void ecs_writes_drain();      // deliver the committed-write events (server Pre, server STOPPING)
 const char* ecs_prod_last_refusal();  // the last reason a read was refused (diagnostics)
 // ecs_check.cpp: the opt-in in-game check of the reads from a task (<kiln>/data/kiln.world/ecs-read-check)
 void ecs_check_init();                          // on_ready
@@ -293,6 +295,16 @@ KilnResult KILN_CALL t_ecs_snapshot_many(KilnOwner owner, const KilnObjectRef* r
                                          const KilnEcsSnapshotSpec* specs, uint32_t count, void* out,
                                          uint32_t capacity, uint32_t* required, uint32_t* presence);
 KilnResult KILN_CALL t_ecs_template_uuid(KilnOwner owner, const KilnObjectRef* ref, uint8_t guid[16]);
+KilnResult KILN_CALL t_ecs_write_policy(uint32_t world_kind, uint32_t component, KilnEcsWritePolicy* out);
+KilnResult KILN_CALL t_ecs_compare_exchange(KilnOwner owner, const KilnObjectRef* ref, uint32_t component,
+                                            const void* expected, const void* mask, const void* desired, uint32_t bytes,
+                                            void* confirmed, KilnMutationReply* reply);
+KilnResult KILN_CALL t_ecs_write_subscribe(KilnOwner owner, KilnEcsWriteEventFn fn, void* user, KilnHandle* out);
+KilnResult KILN_CALL t_ecs_write_unsubscribe(KilnHandle subscription);
+// ecs_write_check.cpp: the opt-in in-game check of the writes on a named test world
+// (<kiln>/data/kiln.world/ecs-write-check)
+void ecs_write_check_init();                         // on_ready
+void ecs_write_check_pre(const KilnTickInfo* tick);  // server Pre
 
 // ---- entities.cpp ----
 bool may_touch_world();  // tick thread or inside a program
