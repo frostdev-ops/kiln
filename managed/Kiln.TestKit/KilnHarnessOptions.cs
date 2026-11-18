@@ -1,9 +1,28 @@
 // SPDX-License-Identifier: MIT
 namespace Kiln.TestKit;
 
+/// <summary>Which game process a <see cref="KilnHarness"/> stands for, for its mods' Kiln tasks (#82).</summary>
+public enum HarnessSide
+{
+    /// <summary>A dedicated server: one server world, on the harness's tick thread (the default).</summary>
+    DedicatedServer = 0,
+
+    /// <summary>A client that hosts the world: the server world on the harness's tick thread, the client world on a game
+    /// main thread of its own (<see cref="KilnHarness.OnMainThread"/>), stepped after the server world in each step.</summary>
+    HostingClient = 1,
+
+    /// <summary>A client joined to someone else's server: no server world; the client world steps on the harness's tick
+    /// thread, which is the game's main thread and drives the mods.</summary>
+    JoinedClient = 2,
+}
+
 /// <summary>Settings of one <see cref="KilnHarness"/>.</summary>
 public sealed class KilnHarnessOptions
 {
+    /// <summary>Which game process the harness stands for, for the mods' Kiln tasks: where their hops can go (the server
+    /// world, the client world) and on which thread (#82). The other fakes are the same on every side.</summary>
+    public HarnessSide Side { get; init; } = HarnessSide.DedicatedServer;
+
     /// <summary>A harness call during which a mod faulted throws <see cref="ModFaultException"/> (default). Off for tests
     /// of the fault policy itself (five faults disable a mod, <see cref="ModDisabledEvent"/>).</summary>
     public bool ThrowOnModFault { get; init; } = true;
