@@ -17,7 +17,7 @@
 // The four members appended in 0.2.0-dev.29, after game_program_contract (440): tests/abi.json says the same.
 static_assert(offsetof(KilnWorldApi, register_program_world) == 496 && offsetof(KilnWorldApi, program_world_state) == 504 &&
               offsetof(KilnWorldApi, bind_program_world) == 512 && offsetof(KilnWorldApi, unbind_program_world) == 520 &&
-              offsetof(KilnWorldApi, entity_open) == 528 && sizeof(KilnWorldApi) == 584); // the ECS reads append at 528
+              offsetof(KilnWorldApi, entity_open) == 528 && sizeof(KilnWorldApi) == 616); // the ECS reads append at 528, the writes at 584
 
 namespace kw {
 const KilnApi* g_api;

@@ -2285,10 +2285,34 @@ void abi(const char* path) {
     }
     {
         // The ECS-read members appended after the client-world members, and their records.
-        auto& l = list("KilnWorldApiEcsReads", sizeof(KilnWorldApi));
+        auto& l = list("KilnWorldApiEcsReads", offsetof(KilnWorldApi, ecs_write_policy));
         F(KilnWorldApi, entity_open); F(KilnWorldApi, entity_validate); F(KilnWorldApi, ecs_context_snapshot);
         F(KilnWorldApi, ecs_query); F(KilnWorldApi, ecs_snapshot); F(KilnWorldApi, ecs_snapshot_many);
         F(KilnWorldApi, ecs_template_uuid);
+    }
+    {
+        // The compare-exchange members appended after the ECS reads, and their records.
+        auto& l = list("KilnWorldApiEcsWrites", sizeof(KilnWorldApi));
+        F(KilnWorldApi, ecs_write_policy); F(KilnWorldApi, ecs_compare_exchange); F(KilnWorldApi, ecs_write_subscribe);
+        F(KilnWorldApi, ecs_write_unsubscribe);
+    }
+    {
+        auto& l = list("KilnEcsWritePolicy", sizeof(KilnEcsWritePolicy));
+        F(KilnEcsWritePolicy, size); F(KilnEcsWritePolicy, status); F(KilnEcsWritePolicy, world_kind);
+        F(KilnEcsWritePolicy, component); F(KilnEcsWritePolicy, component_size); F(KilnEcsWritePolicy, budget);
+        F(KilnEcsWritePolicy, flags); F(KilnEcsWritePolicy, why_code); F(KilnEcsWritePolicy, why);
+    }
+    {
+        auto& l = list("KilnMutationReply", sizeof(KilnMutationReply));
+        F(KilnMutationReply, size); F(KilnMutationReply, status); F(KilnMutationReply, flags); F(KilnMutationReply, why_code);
+        F(KilnMutationReply, engine_reason); F(KilnMutationReply, generation); F(KilnMutationReply, session);
+        F(KilnMutationReply, step); F(KilnMutationReply, hold_ns);
+    }
+    {
+        auto& l = list("KilnEcsWriteEvent", sizeof(KilnEcsWriteEvent));
+        F(KilnEcsWriteEvent, size); F(KilnEcsWriteEvent, world_kind); F(KilnEcsWriteEvent, entity);
+        F(KilnEcsWriteEvent, generation); F(KilnEcsWriteEvent, component); F(KilnEcsWriteEvent, reserved);
+        F(KilnEcsWriteEvent, owner); F(KilnEcsWriteEvent, session); F(KilnEcsWriteEvent, step);
     }
     {
         auto& l = list("KilnObjectRef", sizeof(KilnObjectRef));
@@ -2385,6 +2409,50 @@ void abi(const char* path) {
             for (size_t j = i + 1; j < 5; ++j) distinct = distinct && codes[i] != codes[j];
         }
         check(distinct, "the ECS reads' result codes are distinct and above the core's");
+    }
+    // The compare-exchange writes' constants by value (Kiln.World.Tests checks the C# mirror against the same list).
+    {
+        const std::map<std::string, long long> header = {
+            {"KILN_ECS_CONFLICT", KILN_ECS_CONFLICT}, {"KILN_ECS_NOT_WRITABLE", KILN_ECS_NOT_WRITABLE},
+            {"KILN_ECS_UNCERTAIN", KILN_ECS_UNCERTAIN}, {"KILN_ECS_ERR_CONFLICT", KILN_ECS_ERR_CONFLICT},
+            {"KILN_ECS_ERR_NOT_WRITABLE", KILN_ECS_ERR_NOT_WRITABLE}, {"KILN_ECS_ERR_UNCERTAIN", KILN_ECS_ERR_UNCERTAIN},
+            {"KILN_WORLD_CAP_ECS_WRITE", KILN_WORLD_CAP_ECS_WRITE},
+            {"KILN_ECS_WRITE_POLICY_WRITABLE", KILN_ECS_WRITE_POLICY_WRITABLE},
+            {"KILN_ECS_WRITE_POLICY_TRACKING_KNOWN", KILN_ECS_WRITE_POLICY_TRACKING_KNOWN},
+            {"KILN_ECS_WRITE_POLICY_TRACKED_A", KILN_ECS_WRITE_POLICY_TRACKED_A},
+            {"KILN_ECS_WRITE_POLICY_TRACKED_B", KILN_ECS_WRITE_POLICY_TRACKED_B},
+            {"KILN_ECS_WRITE_POLICY_PLAIN", KILN_ECS_WRITE_POLICY_PLAIN},
+            {"KILN_ECS_WRITE_POLICY_OVER_BUDGET", KILN_ECS_WRITE_POLICY_OVER_BUDGET},
+            {"KILN_MUTATION_WRITTEN", KILN_MUTATION_WRITTEN}, {"KILN_MUTATION_NO_OP", KILN_MUTATION_NO_OP},
+            {"KILN_MUTATION_CONFIRMED", KILN_MUTATION_CONFIRMED}, {"KILN_MUTATION_ROLLED_BACK", KILN_MUTATION_ROLLED_BACK},
+            {"KILN_MUTATION_TARGET_LATCHED", KILN_MUTATION_TARGET_LATCHED},
+            {"KILN_MUTATION_EVENT_QUEUED", KILN_MUTATION_EVENT_QUEUED},
+            {"KILN_ECS_WRITE_WHY_NONE", KILN_ECS_WRITE_WHY_NONE},
+            {"KILN_ECS_WRITE_WHY_NOT_SERVER_WORLD", KILN_ECS_WRITE_WHY_NOT_SERVER_WORLD},
+            {"KILN_ECS_WRITE_WHY_NO_PROFILE", KILN_ECS_WRITE_WHY_NO_PROFILE},
+            {"KILN_ECS_WRITE_WHY_NO_WORLD", KILN_ECS_WRITE_WHY_NO_WORLD},
+            {"KILN_ECS_WRITE_WHY_UNREGISTERED", KILN_ECS_WRITE_WHY_UNREGISTERED},
+            {"KILN_ECS_WRITE_WHY_TRACKED", KILN_ECS_WRITE_WHY_TRACKED},
+            {"KILN_ECS_WRITE_WHY_TRACKING_UNKNOWN", KILN_ECS_WRITE_WHY_TRACKING_UNKNOWN},
+            {"KILN_ECS_WRITE_WHY_NOT_PLAIN", KILN_ECS_WRITE_WHY_NOT_PLAIN}, {"KILN_ECS_WRITE_WHY_SIZE", KILN_ECS_WRITE_WHY_SIZE},
+            {"KILN_ECS_WRITE_WHY_OVER_BUDGET", KILN_ECS_WRITE_WHY_OVER_BUDGET},
+            {"KILN_ECS_WRITE_WHY_IN_FRAME", KILN_ECS_WRITE_WHY_IN_FRAME}, {"KILN_ECS_WRITE_WHY_GATE", KILN_ECS_WRITE_WHY_GATE},
+            {"KILN_ECS_WRITE_WHY_EVENTS_FULL", KILN_ECS_WRITE_WHY_EVENTS_FULL},
+            {"KILN_ECS_WRITE_WHY_TARGET_LATCHED", KILN_ECS_WRITE_WHY_TARGET_LATCHED},
+            {"KILN_ECS_WRITE_WHY_OWNER_RETIRED", KILN_ECS_WRITE_WHY_OWNER_RETIRED},
+            {"KILN_ECS_WRITE_WHY_REF", KILN_ECS_WRITE_WHY_REF}, {"KILN_ECS_WRITE_WHY_COMPARE", KILN_ECS_WRITE_WHY_COMPARE},
+            {"KILN_ECS_WRITE_WHY_FAULT", KILN_ECS_WRITE_WHY_FAULT}, {"KILN_ECS_WRITE_WHY_READBACK", KILN_ECS_WRITE_WHY_READBACK},
+            {"KILN_ECS_WRITE_WHY_NOT_OWNERS_REF", KILN_ECS_WRITE_WHY_NOT_OWNERS_REF},
+            {"KILN_ECS_WRITE_WHY_RETIRE_RACE", KILN_ECS_WRITE_WHY_RETIRE_RACE}};
+        std::map<std::string, long long> listed;
+        for (const auto& v : fx.at("KilnEcsWriteConstants").at("values")) listed[v.at(0).get<std::string>()] = v.at(1).get<long long>();
+        check(listed == header, "abi.json: the compare-exchange writes' constants by value");
+        const long long codes[] = {KILN_WORLD_ERR_CHANGED, KILN_ECS_ERR_STALE, KILN_ECS_ERR_UNREADABLE, KILN_ECS_ERR_BUSY,
+                                   KILN_ECS_ERR_UNSUPPORTED, KILN_ECS_ERR_CONFLICT, KILN_ECS_ERR_NOT_WRITABLE, KILN_ECS_ERR_UNCERTAIN};
+        bool distinct = true;
+        for (size_t i = 0; i < 8; ++i)
+            for (size_t j = i + 1; j < 8; ++j) distinct = distinct && codes[i] != codes[j];
+        check(distinct, "every kiln.world result code is distinct");
     }
     // v4 only appends: the v3 table (the "KilnWorldApi" entry) is a prefix of it, entry for entry.
     const auto& v3 = fx.at("KilnWorldApi").at("fields");

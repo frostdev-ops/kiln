@@ -494,3 +494,43 @@ Time pointer. Systems VERIFY refuted the earlier prototype; chapter 06b now carr
 call in `fuel_setup` (S `0xf73e0`, C `0x3378e0`), fed by GetGameTime. `@weather/SampleAt.site` uniquely captures the
 callee on all three builds. No arbitrary-thread call or runtime weather-sampling proof was established here.
 Other current helper prototypes and Win64 lane/return-buffer evidence are in [hooks.md](hooks.md).
+
+## The change recorder for untracked components (server 26430253, client 26430625) [static]
+
+Kiln's compare-exchange writes from task threads (docs/kiln/services/world.md, "World writes from task threads") do
+not call the engine's ECS change recorder. This is why, from static disassembly of read-only copies of both exact
+builds. The recorder is `ecsWriteLayout.changeTrackerRva` in sigdb/engine: server `0x66F170`, client `0x9D3280`; its
+first 33 bytes are the profile's `changeTrackerBytes`, and the two bodies are instruction for instruction the same.
+Arguments (Win64): rcx the entity manager, rdx the tracking context, r8 the entity record, r9w the component's
+registration index.
+
+```
+mov  r10, [r8+0x20]                 ; the entity's layout record
+mov  r9d, [r8+0x30]                 ; its row
+movzx eax, word [r10+0x14]          ; rbx = r10 + eax + row*16 (a per-row descriptor)
+cmp  byte [rcx+8], 0                ; jne -> skip A
+cmp  word [rcx+0x7bc2d0], 0         ; je  -> skip A
+mov  r8, [rcx]                      ; the registry owner
+test bit index of [r8 + 0x190 + (index/64)*8]   ; tracking bit A (changeTrackerRegistryAOffset 400)
+je   skip A                         ; clear: no call (set: call S 0x66F2C0, the save-tracking queue)
+skip A:
+mov  eax, [rbx+4] ; movzx ecx, byte [rbx+0xd] ; cmp byte [rbx+0xc], 0   ; reads only
+test bit index of [registry + 0x230 + (index/64)*8]   ; tracking bit B (changeTrackerRegistryBOffset 560)
+je   return                         ; clear: no call (set: call S 0x66F360, the replication-tracking queue)
+```
+
+With both bits clear the recorder reads the manager (`+0x8`, `+0x7bc2d0`, its registry pointer), the registry's two bit
+words for the index, the entity's layout record and row and one 16-byte row descriptor; writes only its own stack frame;
+has no `lock`-prefixed instruction and no call on that path; uses no `gs:` or `fs:` state. It records nothing.
+
+The tracked paths are different: S `0x66F2C0` claims a per-component stamp with `lock cmpxchg` and appends to a growable
+buffer (S `0x6B7C70`) whose grow callback is called through a pointer (`call [rcx+0x18]`, an allocator), then
+`lock inc`/`lock dec` on a counter; S `0x66F360` follows the same pattern into the queue code at S `0x650C50`. That is
+one more reason the write policy refuses tracked components.
+
+What Kiln relies on: for the components the policy admits (both bits clear), calling the recorder has no effect on these
+two builds, so the write path leaves it out and no engine code runs inside Kiln's hold. The live check inside the hold
+reads exactly the two words the recorder tests, at the profile's offsets `0x190` and `0x230` (the host test checks the
+profiles name them, and that setting either bit after the policy was cached refuses the write with nothing written).
+A new game build needs the recorder's body and both offsets re-checked; until it has an exact profile, every write is
+unavailable.

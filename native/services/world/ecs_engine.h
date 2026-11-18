@@ -94,6 +94,26 @@ public:
     uint32_t quiet_end(const ContextFact& ctx, uint64_t token);
     const Source& source() const { return src_; }
 
+    // ---- for kiln.world's compare-exchange writes (ecs_writes.cpp) ----
+    // The registration row of `hash` in the catalog of ctx's registry: KILN_ECS_OK with *present false when no
+    // component is registered under it. Takes the catalog lock and may allocate: never inside an engine gate hold.
+    uint32_t registration(const ContextFact& ctx, uint32_t hash, bool* present, uint16_t* index, uint16_t* size);
+    // Where the entity's component of registration row `index` lies now. Safe inside an engine gate hold: guarded
+    // copies and fixed-size locals only, no allocation, no lock, no log; the id probe is bounded by `probe_bound`
+    // (a probe that does not end within it is unreadable, never a longer walk).
+    struct Located {
+        uint32_t generation = 0;
+        uint64_t layout_stamp = 0;
+        uintptr_t address = 0;
+        bool present = false;  // the entity's archetype has the component
+    };
+    uint32_t locate(const ContextFact& ctx, KilnEntity id, uint16_t index, uint16_t size, uint64_t probe_bound,
+                    Located* out) noexcept;
+    // The two change-tracking bits of registration row `index` in the registry owner's bit words at `offset_a` and
+    // `offset_b` (the profile's write.tracking_registry_a/_b: the words the engine's recorder and its write gate test),
+    // each read twice with the registered count around them. false: unreadable or `index` beyond the count.
+    bool tracking(uintptr_t registry, uint16_t index, size_t offset_a, size_t offset_b, bool* a, bool* b) const noexcept;
+
 private:
     struct Table {
         uint64_t count = 0;
@@ -101,6 +121,7 @@ private:
         bool operator==(const Table&) const = default;
     };
     uint32_t table(uintptr_t manager, Table& out) const;
+    uint32_t find(const ContextFact& ctx, KilnEntity id, uint64_t probe_bound, EntityFact* out);
     uint32_t catalog(uintptr_t registry, std::shared_ptr<const Catalog>& out);
     uint32_t refuse(uint32_t status, const char* why);
 

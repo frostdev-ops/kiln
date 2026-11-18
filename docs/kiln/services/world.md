@@ -404,7 +404,7 @@ if (W->register_program(owner, &d, &g_prog) == KILN_OK)
 ### World reads from task threads
 
 A task thread can read entities and components through seven members appended to `kiln.world` (offsets 528 to 576; the
-table is 584 bytes; version stays 4, so check `header.size`) and `kiln.types`' `ecs_registry`. Every one of them runs
+table is 584 bytes with them, 616 with the writes below; version stays 4, so check `header.size`) and `kiln.types`' `ecs_registry`. Every one of them runs
 on the calling thread, the tick included: none posts work to a tick and none waits on one. Every engine byte goes
 through `kiln.internal.engine`'s guarded copy, so a page the game freed or protected fails the read, never the game.
 
@@ -567,6 +567,136 @@ the retry loop above also works when it starts in a tick hop.
 
 **Reloads.** A mod's owner id is the reload epoch of its reads, and every load of a mod gets a new owner id. Refs taken
 before a reload come back `Stale` after it: open the entities again.
+
+### World writes from task threads
+
+Four more members, appended after the reads (offsets 584 to 608; the table is 616 bytes; version stays 4, so check
+`header.size` and `KILN_WORLD_CAP_ECS_WRITE`), let a task thread change one whole component of a server-world entity by
+compare-exchange: Kiln compares the component with the bytes the caller expects and, only when they are equal, writes
+the new bytes. The write happens under the engine's own write gate (`kiln.internal.engine`, the gate the GameServer
+frame holds for its whole update), so it can only land between frames and a frame never sees a half-written component.
+Nothing waits: a call that cannot take the gate now answers busy at once.
+
+| Member | What it does |
+|---|---|
+| `ecs_write_policy(world_kind, component, &policy)` | whether a task may write this component, and why not. Any thread |
+| `ecs_compare_exchange(owner, &ref, component, expected, mask, desired, bytes, confirmed, &reply)` | compare the whole component with `expected`; when equal, write `desired` under `mask`. Any thread but a world's own |
+| `ecs_write_subscribe(owner, fn, user, &handle)` | `fn` once per committed write, on the server tick, after the write's gate was released |
+| `ecs_write_unsubscribe(handle)` | no later event reaches it. From another thread it waits for a callback of it that is running to return, so a callback must never wait on a thread that may unsubscribe it (a deadlock); from inside a callback it returns at once; on the tick outside a delivery it never waits |
+
+**What may be written.** Only what the policy admits, decided by rules, never by a list of names:
+
+1. the server world (the gate is the local authority's): a dedicated server, or a client while it hosts;
+2. an exact engine profile whose write gate is enabled, and a server world running;
+3. a registered component whose two change-tracking bits, read from the engine, are both clear. A tracked component
+   (one the game records for the save or for replication) stays on the tick: use `World.Write`;
+4. plain bytes all the way down: walked through kiln.types' reflection (every base class, field, typedef and static
+   array), only booleans, integers, floats, enums, bit masks and GUIDs. Dynamic arrays, strings, optionals and variants
+   (they own heap memory), blob types (offsets into blob data), object references (pointers), and anything kiln.types
+   cannot describe are refused: swapping a pointer could hand the engine memory it never allocated;
+5. the reflected size is the registered size, and the component is at most the profile's write budget (64 KiB).
+
+`KilnEcsWritePolicy` names the first rule that refused (`why_code` and the same in words). The answer is cached per
+server session; the tracking bits are read again inside every write. Over sigdb's reflection of both exact builds, 535
+of the 687 components are plain (the largest, `ClientCursor`, is 4,328 bytes); which of those are untracked is read
+from the engine at run time, and the in-game check below lists them.
+
+**One call, step by step.**
+
+- Before the gate (the calling thread; this part may allocate and lock): the arguments; the caller's owner (a ref is
+  the caller's when its `reload_epoch` is the caller's owner id, as Kiln's managed host opens every ref; a native
+  caller that writes opens its refs with `entity_open(owner, owner, ...)`); the policy; `bytes` must be the registered
+  size; the uncertain latch below; the ref through the reads' checks (session, reload epoch, generation, layout); the
+  caller's buffers copied once; a place in the event queue; then the gate, taken without waiting.
+- Inside the gate's hold (no wait, allocation, lock, log or call into the engine's code; every loop has a fixed
+  bound): the gate validated; the entity found again from the ref (same generation and layout); the component's two
+  tracking bits read again from the engine's registry, at the profile's offsets; the current bytes copied and
+  compared in full with `expected`; `desired` merged under `mask` (a nonzero mask byte takes the byte from `desired`;
+  no mask takes every byte); nothing to change ends here; the entity found again; the write; the bytes read back and
+  the entity found once more. A write that does not read back is rolled back in the same hold, and the rollback is read
+  back too: after the release the next frame may already have written the component, and a rollback then would undo
+  the game's write.
+- After the release: `confirmed`, the latch, the event, and the reply with the hold's time.
+
+**Outcomes** (`KilnMutationReply.status`; the `KilnResult` says the same):
+
+| Status | Result | When | Retry? |
+|---|---|---|---|
+| `OK` | `KILN_OK` | written and read back (`WRITTEN`), or nothing to change (`NO_OP`: no write, no event) | |
+| `CONFLICT` | `KILN_ECS_ERR_CONFLICT` | the bytes are not `expected`; `confirmed` holds them; nothing written | yes, from the new value |
+| `BUSY` | `KILN_ECS_ERR_BUSY` | a frame holds the gate (every frame), another Kiln writer holds it, this owner had a busy refusal from the gate in this server step, the call came from the server tick (`IN_FRAME`), the event queue is full, or an owner retired during the hold; nothing written | after the step: `NextGateWindow` in C#, a `KILN_TASK_AFTER_STEP` task natively |
+| `STALE` | `KILN_ECS_ERR_STALE` | the generation, session, layout or reload epoch changed, the ref is another owner's, or the calling owner is unloading or unloaded | no: open the entity again |
+| `NOT_WRITABLE` | `KILN_ECS_ERR_NOT_WRITABLE` | the policy refuses the component, `bytes` is not its size, or a tracking bit was set when the hold read it | no |
+| `UNCERTAIN` | `KILN_ECS_ERR_UNCERTAIN` | a write was attempted and neither its readback nor a rollback proved the bytes; also every later call on that target this session (`TARGET_LATCHED`) | no |
+| `UNAVAILABLE` | `KILN_ERR_UNAVAILABLE` | no exact profile or write gate, no kiln.types, not the server world, no server world, or the server world is stopping | use the tick |
+| `ABSENT` | `KILN_ERR_NOT_FOUND` | the entity is gone, or has no such component | |
+| `UNREADABLE` | `KILN_ECS_ERR_UNREADABLE` | a read faulted before any write; or a write was rolled back and the rollback proven (`ROLLED_BACK`): the bytes are as they were | yes |
+
+Only the gate's own busy refusal latches the owner for the rest of the server step (the gate's busy latch); no other
+outcome does, so several writes per step stay possible. Argument errors are `KILN_ERR_INVALID_ARGUMENT` and leave the
+reply untouched.
+
+**Uncertain latches its target.** A fixed table of 512 entries keyed by session, entity, generation and component.
+A latched target answers uncertain without taking the gate. When the table is full, every compare-exchange of that
+server session answers uncertain (one `kiln.log` line says so). A new session clears it.
+
+**Events.** Every committed write gives exactly one `KilnEcsWriteEvent` (entity, generation, component, the owner that
+wrote, session, step), delivered in the order of the holds, on the server tick in kiln.world's Pre, after the write's
+gate was released; at the server world's STOPPING what is left is delivered on the stopping thread. Callbacks run under
+kiln.world's fault containment: one that faults is logged, its subscription ends, and the others still get the event.
+An owner's subscriptions end when it unloads or reloads (a callback already under way then may still finish). The queue holds 4,096 events; a full queue makes writes answer
+busy until the next delivery.
+
+**Threads.** From a task's worker, between frames. On the server tick (tick handlers, a task's tick hops) a
+compare-exchange always answers busy (`IN_FRAME`) before touching an engine word: the frame holds the gate there. Use
+`World.Write` on the tick. Kiln's tracked writes (`World.Write`) handle tracked components and this member refuses them,
+so the two paths never write the same component type. Stable reads from other tasks may meet a write between their two
+copies and answer unreadable (retry); frame-quiet reads see the gate taken and answer busy.
+
+**How long the gate is held.** The work inside the hold is fixed: up to three lookups of the entity (about 70 guarded
+reads with the gate's own checks when the entity's id is found at the first slot it hashes to) plus one read of the
+component, its write and its readback; a rollback adds a write and a read. Each lookup's id probe stops at 8,192 slots,
+so a long run of occupied slots in the entity table adds reads up to that bound, never beyond it. Measured with Kiln's real Windows primitives under Wine (the fake engine of the tests laid out from the server
+profile, 1,000 writes each, three runs): the largest plain component (4,328 bytes) held the gate 12 to 15 µs at the
+median and 24 to 92 µs at worst; a 64 KiB component 44 to 48 µs at the median and 93 to 176 µs at worst. The GameServer thread that wants its next frame meanwhile spins (pause, then `SwitchToThread`); the
+holder runs above normal priority. On a heavily loaded host (load average about 45, the test at the lowest CPU
+priority, three runs under Wine) the medians stayed the same (15 to 18 µs for 4,328 bytes, 68 to 72 µs for 64 KiB) and
+the worst holds reached 0.5 to 2.5 ms: the host's scheduler preempting the holder inside the hold. How long a hold can
+last on native Windows under load, with the priority raise, is measured by the tester kit (#58). The 64 KiB cap stays.
+
+**Relies on, per build.** For the components the policy admits, the engine's change recorder only reads and returns on
+both exact builds (docs/re/world.md, "The change recorder for untracked components"), so the write does not call it and
+no engine code runs inside Kiln's hold. A new game build needs that re-checked; without an exact profile every write is
+unavailable anyway.
+
+**Host and Windows tests, no game.** `KILN_OUT=… native/services/world/tests/run.sh` runs `ecs_writes_test` over the
+real kiln.engine (its write gate) and the fake engine of both exact profiles, under ASan/UBSan and ThreadSanitizer: every
+outcome above forced (a frame holding the gate, the busy latch, a call from the server thread, a second Kiln writer, a
+full queue, a generation bump inside the hold, a tracking bit set after the policy was cached, a rogue write between the
+write and its readback, a write fault part-way through a page, pages that turn unreadable, the latch and its full
+table), no allocation and no core call inside the hold, the id probe's bound, events (order, a faulting subscriber,
+unsubscribing during a delivery, owners retiring), four writers racing on one counter against a simulated frame and a drain, and
+the plain-bytes rule over sigdb's reflection of both builds against an independent walk of the same data.
+`tests/lint_hold.py` checks the code that runs inside the hold; `tests/mutate_writes.py <scratch dir>` breaks each
+check alone and expects the suite to fail. `native/build.sh world-ecs-fault` and `WINEPREFIX=<private prefix>
+native/services/world/tests/wine.sh` run the write's fault paths over the real Windows SEH write and Interlocked words.
+Not covered there: the priority raise against a real GameServer spin on native Windows.
+
+**In-game check (the owner's, on a lab or test world only).** It changes a component of a live world, so it runs only
+when its file names that world:
+
+1. Create the empty file `<game>/kiln/data/kiln.world/ecs-write-check` and start the lab or test world: the check
+   logs `world ecs-write check: this world is <GUID>` and does nothing else.
+2. Put `world=<that GUID>` in the file and start again. With that line only, the check lists the components a task may
+   write and which of them the first player has, and does a no-op exchange. On any other world it stays off.
+3. To check a real write, add `component=<a name from that list>` and optionally `offset=<byte>` (default 0): the check
+   flips the lowest bit of that byte, flips it back and reads the component again, which must equal the original. The
+   change lasts a few frames at most; pick a component whose value does not matter on the test world.
+4. Join with a client and wait about a minute: `world ecs-write check: ...` lines in `kiln.log`, a compare-exchange from
+   the tick answering busy (in frame), two committed-write events, and one `PASS` or `FAIL` line. Send `kiln.log` and
+   remove the file afterwards.
+
+The write protocol is adapted from ShroudForge's `write_entity_components.cpp` (MIT, bonsaibauer), as the gate is.
 
 ### Entities and teleport from native code
 Tick thread (Pre/Post) or inside your program: `component(e, hash, &size)`, `exists`, `transform`, `position`,

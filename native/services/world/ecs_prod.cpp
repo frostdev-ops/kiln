@@ -13,6 +13,11 @@
 // registration row's hash is its name's, every stride is its registered size; a check that fails refuses that read.
 // Before on_ready, and on every build where reads are off, the context still answers and entity reads refuse
 // unavailable.
+//
+// The compare-exchange writes (ecs_writes.cpp) over the same reader, kiln.internal.engine's write gate and kiln.types'
+// reflection: on when the reads are on and the exact profile's write gate is enabled and locates the change-tracking
+// bits (the world.ecs_write row says which failed). Committed-write events are drained on the server tick (Pre) and at
+// the server world's STOPPING; an owner that retires ends its subscriptions and its calls answer stale.
 #include <atomic>
 #include <cstring>
 #include <string>
@@ -20,10 +25,12 @@
 #include "ecs_engine.h"
 #include "ecs_epochs.h"
 #include "ecs_reads.h"
+#include "ecs_writes.h"
 #include "kiln_engine_native.h"
 #include "services/kiln_caps.h"
 #include "services/kiln_engine.h"
 #include "services/kiln_hooks.h"
+#include "services/kiln_types.h"
 #include "world_internal.h"
 #include "wraps.h"  // game_world_session
 
@@ -68,7 +75,11 @@ bool steps_of(void*, uint32_t kind, uint64_t* out) {
 }
 uint64_t epoch_of(void*, KilnOwner owner) { return g_epochs.current(owner); }
 uint64_t open_epoch(void*, KilnOwner owner, uint64_t epoch) { return g_epochs.open(owner, epoch); }
-void KILN_CALL owner_retiring(KilnOwner owner, void*) { g_epochs.retire(owner); }
+void writer_retire(KilnOwner owner);
+void KILN_CALL owner_retiring(KilnOwner owner, void*) {
+    g_epochs.retire(owner);
+    writer_retire(owner);
+}
 
 ecs::engine::Source base_source() {
     ecs::engine::Source s;
@@ -84,6 +95,26 @@ ecs::engine::Reader g_boot_reader(base_source());
 std::atomic<ecs::engine::Reader*> g_reader{&g_boot_reader};
 
 ecs::Backend backend() { return g_reader.load(std::memory_order_acquire)->backend(); }
+
+// The writer, like the readers, is never freed; the boot one answers unavailable until on_ready.
+ecs::engine::Reader* writer_reader(void*) { return g_reader.load(std::memory_order_acquire); }
+uint64_t writer_step(void*) {
+    uint64_t step = 0;
+    return steps_of(nullptr, KILN_WORLD_SERVER, &step) ? step : 0;
+}
+void writer_log(void*, int level, const char* text) { ::kw::logf(level, "%s", text); }
+ecs::writes::WriterSource writer_source() {
+    ecs::writes::WriterSource s;
+    s.reader = &writer_reader;
+    s.server_step = &writer_step;
+    s.guarded = &seh_call;
+    s.log = &writer_log;
+    return s;
+}
+ecs::writes::Writer g_boot_writer(writer_source());
+std::atomic<ecs::writes::Writer*> g_writer{&g_boot_writer};
+std::atomic<bool> g_writes{false};
+void writer_retire(KilnOwner owner) { g_writer.load(std::memory_order_acquire)->owner_retired(owner); }
 bool bad_owner(KilnOwner owner) { return owner == 0; }
 
 int64_t constant(const char* name) {
@@ -91,15 +122,17 @@ int64_t constant(const char* name) {
     return g_api && g_api->constant && g_api->constant(KilnStr{name, std::strlen(name)}, &v) == KILN_OK ? v : -1;
 }
 
-void report(uint32_t state, const std::string& text) {
+void report_row(const char* row, uint32_t state, const std::string& text) {
     if (!g_api || !g_api->service) return;
     const auto* caps = static_cast<const KilnCapsApi*>(
         g_api->service(KilnStr{KILN_CAPS_SERVICE, sizeof(KILN_CAPS_SERVICE) - 1}, KILN_CAPS_VERSION));
     if (!caps || caps->header.size < offsetof(KilnCapsApi, report) + sizeof(void*) || !caps->report) return;
-    caps->report(g_owner, KilnStr{"world.ecs_read", sizeof "world.ecs_read" - 1}, state,
+    caps->report(g_owner, KilnStr{row, std::strlen(row)}, state,
                  state == KILN_CAP_AVAILABLE ? KILN_CAP_REASON_NONE : KILN_CAP_REASON_SYMBOL_MISSING,
                  KilnStr{text.data(), text.size()});
 }
+
+void report(uint32_t state, const std::string& text) { report_row("world.ecs_read", state, text); }
 
 }  // namespace
 
@@ -163,6 +196,30 @@ void ecs_prod_ready() {
             !hooks->subscribe_owner_retiring || hooks->subscribe_owner_retiring(g_owner, &owner_retiring, nullptr, &h) != KILN_OK)
             KW_I("world.ecs_read: no owner-retiring observer here; reload epochs of retired owners age out of a bounded table");
     }
+    // The writes: the same reader, the gate members, kiln.types' reflection.
+    {
+        ecs::writes::WriterSource ws = writer_source();
+        ws.engine = s.engine;
+        ws.exact_profile = s.exact_profile;
+        if (g_api && g_api->service) {
+            const auto* types = static_cast<const KilnTypesApi*>(
+                g_api->service(KilnStr{KILN_TYPES_SERVICE, sizeof(KILN_TYPES_SERVICE) - 1}, KILN_TYPES_VERSION));
+            if (types && types->header.size >= offsetof(KilnTypesApi, type_field) + sizeof(void*)) ws.types = types;
+        }
+        auto* writer = new ecs::writes::Writer(ws);  // process lifetime (see g_reader)
+        g_writer.store(writer, std::memory_order_release);
+        const char* off = writer->unavailable_reason();
+        g_writes.store(off == nullptr, std::memory_order_release);
+        if (!off) {
+            report_row("world.ecs_write", KILN_CAP_AVAILABLE,
+                       "compare-exchange writes of untracked plain components of the server world from task threads, "
+                       "between frames, under the engine's write gate on " + g_profile_id);
+            KW_I("world.ecs_write: on (%s)", g_profile_id.c_str());
+        } else {
+            report_row("world.ecs_write", KILN_CAP_UNAVAILABLE, std::string(off) + "; compare-exchange writes report unavailable");
+            KW_I("world.ecs_write: off (%s)", off);
+        }
+    }
     if (s.reads) {
         const std::string text = "entity and component reads from any thread on " + g_profile_id +
                                  " (the profile's entity table agrees with kiln.world's own resolution); the server "
@@ -177,7 +234,11 @@ void ecs_prod_ready() {
 
 const char* ecs_prod_last_refusal() { return g_reader.load(std::memory_order_acquire)->last_refusal(); }
 
-uint32_t ecs_capability() { return ecs_prod_available() ? KILN_WORLD_CAP_ECS_READ : 0; }
+uint32_t ecs_capability() {
+    return (ecs_prod_available() ? KILN_WORLD_CAP_ECS_READ : 0) | (g_writes.load(std::memory_order_acquire) ? KILN_WORLD_CAP_ECS_WRITE : 0);
+}
+bool ecs_writes_available() { return g_writes.load(std::memory_order_acquire); }
+void ecs_writes_drain() { g_writer.load(std::memory_order_acquire)->drain(); }
 
 KilnResult KILN_CALL t_entity_open(KilnOwner owner, uint64_t reload_epoch, uint32_t world_kind,
                                    uint64_t expected_session, KilnEntity entity, KilnObjectRef* out) {
@@ -210,6 +271,40 @@ KilnResult KILN_CALL t_ecs_snapshot_many(KilnOwner owner, const KilnObjectRef* r
 KilnResult KILN_CALL t_ecs_template_uuid(KilnOwner owner, const KilnObjectRef* ref, uint8_t guid[16]) {
     if (bad_owner(owner)) return KILN_ERR_INVALID_ARGUMENT;
     return ecs::ecs_template_uuid(backend(), owner, ref, guid);
+}
+
+KilnResult KILN_CALL t_ecs_write_policy(uint32_t world_kind, uint32_t component, KilnEcsWritePolicy* out) {
+    ecs::writes::Writer* w = g_writer.load(std::memory_order_acquire);
+    if (!g_writes.load(std::memory_order_acquire) && out && out->size >= sizeof(KilnEcsWritePolicy) && world_kind < KILN_WORLD_KINDS) {
+        // Off on this build: the policy says why without reading anything.
+        const uint32_t size = out->size;
+        *out = KilnEcsWritePolicy{};
+        out->size = size;
+        out->status = KILN_ECS_UNAVAILABLE;
+        out->world_kind = world_kind;
+        out->component = component;
+        out->why_code = world_kind == KILN_WORLD_SERVER ? KILN_ECS_WRITE_WHY_NO_PROFILE : KILN_ECS_WRITE_WHY_NOT_SERVER_WORLD;
+        std::snprintf(out->why, sizeof out->why, "%s", "compare-exchange writes are off on this build (see world.ecs_write)");
+        return KILN_ERR_UNAVAILABLE;
+    }
+    return w->policy(world_kind, component, out);
+}
+KilnResult KILN_CALL t_ecs_compare_exchange(KilnOwner owner, const KilnObjectRef* ref, uint32_t component,
+                                            const void* expected, const void* mask, const void* desired, uint32_t bytes,
+                                            void* confirmed, KilnMutationReply* reply) {
+    return g_writer.load(std::memory_order_acquire)
+        ->compare_exchange(owner, ref, component, expected, mask, desired, bytes, confirmed, reply);
+}
+KilnResult KILN_CALL t_ecs_write_subscribe(KilnOwner owner, KilnEcsWriteEventFn fn, void* user, KilnHandle* out) {
+    // Subscriptions live in the writer on_ready publishes: one made before it would be lost.
+    if (g_writer.load(std::memory_order_acquire) == &g_boot_writer) {
+        if (out) *out = 0;
+        return fn && out && owner ? KILN_ERR_UNAVAILABLE : KILN_ERR_INVALID_ARGUMENT;
+    }
+    return g_writer.load(std::memory_order_acquire)->subscribe(owner, fn, user, out);
+}
+KilnResult KILN_CALL t_ecs_write_unsubscribe(KilnHandle subscription) {
+    return g_writer.load(std::memory_order_acquire)->unsubscribe(subscription);
 }
 
 }  // namespace kw
