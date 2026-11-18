@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 // The tasks guide's example mod (mods/samples/FetchNearby, docs/kiln/modding/tasks.md) on the kit's fakes: its search runs
 // in a Kiln task through the task-thread world reads (and on the tick where they are off), its items move on the tick,
-// nearest container first; a fetch cancelled by an unload or replaced by the next one moves nothing, and a full inventory
-// sends what did not fit back to its container. A sample is what a mod author copies: it must do what the guide says.
+// nearest container first; a fetch cancelled by an unload or replaced by the next one moves nothing, a full inventory
+// sends what did not fit back to its container, and what fits neither waits in the mod until one of them has room. A sample is what a mod author copies: it must do what the guide says.
 using Xunit;
 
 namespace Kiln.TestKit.Tests;
@@ -121,7 +121,7 @@ public sealed class FetchNearbyTests
     }
 
     [Fact]
-    public void A_give_back_that_does_not_fit_is_reported_not_lost_quietly()
+    public void A_give_back_that_does_not_fit_waits_for_room_and_is_never_lost()
     {
         var w = Start();
         using var _ = w.Kiln;
@@ -134,7 +134,33 @@ public sealed class FetchNearbyTests
         w.Near.Put(stone, 7);
         w.Near.Put(w.Wood, 98);
         w.Kiln.StepUntil(() => w.Ada.Chat.Any(l => l.Text.Contains(" found ", StringComparison.Ordinal)), maxSteps: 50);
-        Assert.Contains("[Server] 3 Wood could not go back into the container and were lost", ChatOf(w));
-        Assert.Contains(w.Kiln.LogsOf(w.Mod), l => l.Text.Contains("3 x Wood fitted neither the player nor container", StringComparison.Ordinal));
+        Assert.Contains("[Server] 3 Wood fit neither you nor the container; they go to whichever has room first", ChatOf(w));
+        Assert.Equal((0, 100), (Wood(w), w.Near.Count(w.Wood)));  // the 3 wait in the mod: nowhere in the world yet
+        w.Kiln.Step(5);
+        Assert.Equal(0, Wood(w));  // still no room anywhere: they keep waiting, nothing is dropped
+        // Ada makes room: they come to her
+        var backpack = w.Kiln.Items.Of(w.Ada.Entity)!;
+        backpack.Clear();
+        w.Kiln.StepUntil(() => Wood(w) == 3, maxSteps: 50);
+        Assert.Equal(100, w.Near.Count(w.Wood));
+        Assert.Contains("[Server] 3 Wood that were waiting are in your inventory now", ChatOf(w));
+        Assert.DoesNotContain(w.Kiln.LogsOf(w.Mod), l => l.Text.Contains("lost", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Items_still_waiting_when_the_mod_unloads_are_reported()
+    {
+        var w = Start();
+        using var _ = w.Kiln;
+        var stone = w.Kiln.Items.AddItem("Stone", 1);
+        w.Kiln.Items.Of(w.Ada.Entity)!.Put(stone, 1000);
+        w.Kiln.RunCommand(w.Ada, "fetch Wood 3");
+        w.Kiln.Tasks.Settle();
+        w.Kiln.StepUntil(() => w.Near.Count(w.Wood) == 2, maxSteps: 50);
+        w.Near.Put(stone, 7);
+        w.Near.Put(w.Wood, 98);
+        w.Kiln.StepUntil(() => w.Ada.Chat.Any(l => l.Text.Contains("whichever has room", StringComparison.Ordinal)), maxSteps: 50);
+        w.Kiln.Unload(w.Mod, checkCollected: false);  // the test holds the handle (as the unload test above)
+        Assert.Contains(w.Kiln.LogsOf(w.Mod), l => l.Text.Contains("3 x Wood were still waiting for room", StringComparison.Ordinal));
     }
 }
