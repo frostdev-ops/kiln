@@ -335,7 +335,9 @@ An ordinary miss never throws. The reads are experimental (`KILNX001`): opt in w
 - **Only on the game builds Kiln has an exact engine profile for.** `WorldConcurrent.IsAvailable` says whether this is
   one; everywhere else every read is `Unavailable`.
 - **Fallback.** `WorldConcurrent.OrOnTick(ctx, offTick, onTick)` is the fallback in one line: `offTick` runs at once,
-  where it is called, when the reads work; `onTick` runs on the tick otherwise.
+  where it is called, when the reads work; `onTick` runs on the tick otherwise, through `ctx.OnTick`: in the task's
+  world (`ctx.TickWorld`). A task started on the game's main thread that needs the server world's tick there writes
+  it out: `WorldConcurrent.IsAvailable ? offTick() : await ctx.OnTick(WorldKind.Server, onTick)`.
 - **Statuses and buffers.** A query is complete or nothing: a buffer that is too short says `TooSmall` with the size
   it needs, and a query the world changed under says `Changed`.
 
