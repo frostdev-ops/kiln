@@ -263,7 +263,8 @@ int main() {
     prepare_two(false);
     kiln::exit_call(0);
     check(joined() == "service park" && kiln::g_unload_count == 1 && real_exits == 1,
-          "plugin handlers off (native Windows by default): Kiln's service handler and the park only");
+          "plugin handlers off (no policy picks this in this version; native Windows once confirmed): Kiln's service "
+          "handler and the park only");
     cleanup();
     prepare_two(true);
     kiln::g_modules.clear();  // nothing with an on_unload: the steps of Kiln's own still run

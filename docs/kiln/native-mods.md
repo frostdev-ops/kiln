@@ -99,11 +99,11 @@ compiles both orders (C and C++).
 A native mod gets no call at exit. A plugin (`kiln_plugin_main`, `kiln_api.h`) may set `KilnPluginInfo.on_unload`:
 Kiln calls it once when the game process exits normally with code 0, at the process's exit call: after the game saved,
 closed its worlds and returned from main, before Windows ends the other threads and before any `DLL_PROCESS_DETACH`.
-- **Where it is on:** under Wine (Linux servers, Proton, the Steam Deck). On native Windows a plugin's is off by default
-  in this release, because it has not been proven there; the exit link still runs Kiln's own exit steps there (the task
-  pool parks, the engine's gate closes). `"unloadAtExit"` in `kiln/kiln.json` decides: `"auto"` (default, the rule
-  above), `"on"`, `"off"` (no exit link anywhere, Kiln's own steps included). kiln.log's `unload:` line at boot says
-  which and why.
+- **Where it is on:** under Wine (Linux servers, Proton, the Steam Deck). On native Windows it is off by default in this
+  release, Kiln's own exit steps included (no exit link is placed), because none of it has been confirmed there yet.
+  `"unloadAtExit"` in `kiln/kiln.json` decides: `"auto"` (default, the rule above), `"on"` (also on native Windows:
+  Kiln's own steps, then the plugins'), `"off"` (no exit link anywhere, Kiln's own steps included). kiln.log's `unload:`
+  line at boot says which and why.
 - **Proven:** a dedicated server stopped with Ctrl-C, SIGINT or by the launcher (lab). The client's normal quit is
   expected to call it too, but its exit code is not yet confirmed to be 0: not run in a client.
 - **Order and thread:** Kiln's own exit steps first: Kiln's own services, then the task pool parks (no task body or

@@ -12,9 +12,9 @@ namespace ClientPass;
 // menu; part 3 reads that exit and takes the verdict. The part reached is kept in the mod's data folder.
 public sealed partial class ClientPassMod
 {
-    /// <summary>The kiln.json switch that turns the plugins' exit handlers on for a native Windows game: top-level
-    /// <c>"unloadAtExit": "auto" | "on" | "off"</c> (default auto: every handler under Wine; on native Windows only
-    /// Kiln's own exit steps).</summary>
+    /// <summary>The kiln.json switch that turns the exit link on for a native Windows game: top-level
+    /// <c>"unloadAtExit": "auto" | "on" | "off"</c> (default auto: every handler under Wine; on native Windows no link,
+    /// Kiln's own exit steps included, in this release).</summary>
     private const string WindowsUnloadKey = "unloadAtExit";
 
     [ClientCheck("core.unload-quit", "Kiln unloads cleanly when the game quits", Area = "Core", Since = Dev26,
@@ -24,8 +24,9 @@ public sealed partial class ClientPassMod
     [ClientCheck("core.unload-windows", "Kiln unloads cleanly when the game quits, on Windows", Area = "Core", Since = Dev26,
         Tags = [Windows], Needs = ClientCheckNeeds.Hosted, Order = 915)]
     public Task CoreUnloadWindows(CheckContext c) => UnloadCheck(c, "unload-windows",
-        $"On a native Windows PC the plugins' exit handlers are off by default in this release (only Kiln's own exit " +
-        $"steps run): before part 1, set \"{WindowsUnloadKey}\" to \"on\" in kiln/kiln.json and start the game again. ");
+        "On a native Windows PC the exit link (Kiln's own exit steps and the plugins' exit handlers) is off by " +
+        $"default in this release: before part 1, set \"{WindowsUnloadKey}\" to \"on\" in kiln/kiln.json and start " +
+        "the game again. ");
 
     private static async Task UnloadCheck(CheckContext c, string name, string? first)
     {

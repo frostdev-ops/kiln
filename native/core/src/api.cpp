@@ -617,7 +617,7 @@ void load_plugins() {
 // caught (crash report) and one that blocks is given up after its limit, and the next one runs either way. Nothing
 // else is torn down (no FreeLibrary, no owner revoke, no hook removed): the process is ending.
 //
-// Kiln's own exit steps come first, on every platform (on native Windows they are all the link does by default):
+// Kiln's own exit steps come first, wherever the link is placed (under "auto" not on native Windows in this version):
 // kiln.tasks refuses new tasks and seals its owners, Kiln's own services' handlers run (kiln.engine closes its write
 // gate for good), then the task pool parks (no body or done starts any more; a bounded wait for the running ones), and
 // only then the plugins' handlers, last loaded first.

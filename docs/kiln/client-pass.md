@@ -166,9 +166,9 @@ These checks come last in the list, each tagged so you can see them at a glance.
 | A Steam Deck | `steam-deck` | 921 "No Kiln" in the launcher, 922 the launcher's Steam Deck mode |
 | Another host | `other-host` | 931 a remote server with server mods (joined), 932 the server pack on a rented host, 933 an EML mod where `/home` links to `/var/home` (Fedora Atomic, Bazzite) |
 
-`core.unload-windows` runs like `core.unload-quit`, after one step: on native Windows the exit link runs only Kiln's own
-exit steps by default in this release (the plugins' handlers are off); set `"unloadAtExit"` to `"on"` in
-`kiln/kiln.json` first, so the plugins' handlers are checked too.
+`core.unload-windows` runs like `core.unload-quit`, after one step: on native Windows the exit link is off by default
+in this release (Kiln's own exit steps and the plugins' handlers); set `"unloadAtExit"` to `"on"` in `kiln/kiln.json`
+first, so both are checked.
 
 Checks tagged `launcher` are done (partly) in the launcher or on the desktop; the check only shows the steps and takes
 your answer.

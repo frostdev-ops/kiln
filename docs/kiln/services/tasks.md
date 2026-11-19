@@ -196,11 +196,12 @@ while every other thread still runs:
    it can no longer take the engine's gate and ends with the process.
 5. Then the plugins' `on_unload` handlers, where they are on.
 
-The order is the same on every platform. On native Windows the plugins' handlers run only with `kiln.json`
-`"unloadAtExit"`: `"on"`; with `"auto"` (the default) the link runs Kiln's own steps 1 to 4 there. Under Wine and Proton
-(Linux servers, the Steam Deck) every handler runs, after the park: tasks no longer run while the plugins' handlers do,
-which is new in this version (before, every handler ran last loaded first with the pool sealed but not parked).
-`"off"` places no exit link at all, anywhere; the process exit then simply ends the pool's threads.
+The order is the same wherever the link is placed. Under Wine and Proton (Linux servers, the Steam Deck) every handler
+runs, after the park: tasks no longer run while the plugins' handlers do, which is new in this version (before, every
+handler ran last loaded first with the pool sealed but not parked). On native Windows `"auto"` (the default) places no
+exit link in this version, so none of the steps run there until a Windows run confirms them: the process exit simply
+ends the pool's threads, as in earlier versions. `kiln.json` `"unloadAtExit"`: `"on"` turns the link on there too
+(steps 1 to 5). `"off"` places no exit link at all, anywhere.
 
 An exit called from a `DllMain` (the loader lock is held) does steps 1 and 2 only: nothing waits under the loader
 lock. A body that ends the process itself is never waited for. Once the pool is parked, `drain_owner` does not wait:
@@ -208,7 +209,8 @@ it reports what is left (bodies still running, `done`s that will not be delivere
 `on_unload`.
 
 When the exit call is never reached (a killed process, a crash that does not go through `ExitProcess`,
-`"unloadAtExit": "off"`, or a link that could not be placed), the OS ends every thread at once. What still holds:
+`"unloadAtExit": "off"`, native Windows under `"auto"`, or a link that could not be placed), the OS ends every thread at
+once. What still holds:
 
 - the engine's gate is already closed if the server world stopped first (`KILN_WORLD_STOPPING`);
 - engine reads are guarded copies, so a read of freed memory fails instead of crashing;

@@ -311,12 +311,13 @@ void exit_call(uint32_t code) {
 // Wherever the link is placed, Kiln's own exit steps run first: the task pool refuses new tasks, kiln.engine closes its
 // write gate and the pool parks, before the process ends the pool's threads (ntdll!RtlExitUserProcess runs the link
 // before the loader lock and before it ends the other threads, on Windows as under Wine); then the plugins' handlers.
-// Those are proven under Wine only (Linux servers, Proton clients, the Steam Deck); on native Windows they are off by
-// default in this release (dev.24 called no handler there either), and the link runs Kiln's own steps only.
-// kiln.json "unloadAtExit": "auto" (the default: every handler under Wine, Kiln's own steps on native Windows), "on"
-// (every handler) or "off" (no link at all, also no step of Kiln's own); case does not matter, and any other value
-// counts as "auto" and is warned about. The block between the markers is pure (no Windows, no Kiln calls):
-// native/core/tests/test-unload.sh cuts it out of this file and runs its decision table.
+// All of it is proven under Wine only (Linux servers, Proton clients, the Steam Deck). On native Windows "auto" places
+// no link in this version, Kiln's own steps included, until a Windows run confirms them (the behaviour before those
+// steps existed; dev.24 called no handler there either): the process exit ends the pool's threads.
+// kiln.json "unloadAtExit": "auto" (the default: every handler under Wine, no link on native Windows), "on" (every
+// handler, also on native Windows: the explicit opt-in) or "off" (no link at all, also no step of Kiln's own); case
+// does not matter, and any other value counts as "auto" and is warned about. The block between the markers is pure (no
+// Windows, no Kiln calls): native/core/tests/test-unload.sh cuts it out of this file and runs its decision table.
 // unload-policy:begin
 struct UnloadPolicy {
     bool armed = false;    // the link is placed (Kiln's own exit steps: its services' handlers, the task pool's park)
@@ -346,9 +347,9 @@ inline UnloadPolicy unload_policy(std::string_view wine, const std::string* sett
         p.armed = p.plugins = true;
         p.says = "on (Wine " + std::string(wine) + "; " + key + ")";
     } else {
-        p.armed = true;
-        p.says = "Kiln's own exit steps only on native Windows (plugin on_unload handlers are off there by default, not "
-                 "yet proven; " + key + "); kiln.json \"unloadAtExit\": \"on\" calls them too, \"off\" places no link";
+        p.says = "off on native Windows under \"auto\" in this version (Kiln's own exit steps and the plugins' "
+                 "on_unload handlers wait until they are confirmed on Windows; " + key + "); kiln.json "
+                 "\"unloadAtExit\": \"on\" turns them on";
     }
     return p;
 }
