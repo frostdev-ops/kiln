@@ -101,3 +101,20 @@ installed, the Kiln the launcher would install). For a build it doesn't know, Pl
 
 The game itself runs normally. A Kiln update that knows the build fixes it. The support report says the same in its
 `unknown-build` finding. Known builds say nothing extra.
+
+**Where the build comes from.** The 12 hex digits are the start of the SHA-256 of `enshrouded.exe` (on a dedicated
+server `enshrouded_server.exe`). Kiln looks for `kiln/sigdb/builds/<client|server>/<sha256>.json` with
+`"verified": true`. The game's own build number (its `svn`) is not enough: two exes
+of the same game version can differ, and Kiln's hooks go to exact places in one exe.
+
+**What to do** (GitHub issue 99):
+- A Steam copy: in Steam, Enshrouded > Properties > **Betas** should be "None" (the public branch), and Installed Files >
+  **Verify integrity of game files** puts back an `enshrouded.exe` a tool changed on disk. Kiln knows the current
+  public Steam builds.
+- A copy from another store or launcher: say which one in an issue, so a record for that build can be added.
+- An older game version: update the game. Kiln has no records for builds older than the ones it was checked on.
+- At your own risk: `"policy": "any"` in `<game folder>/kiln/kiln.json` (or only for the game client:
+  `"client": { "policy": "any" }`, [client.md](../client.md#kilnjson-per-side)) makes Kiln resolve its signatures on the
+  unknown exe and run anyway, as the test labs do. A signature can land on the wrong place there, which can crash the
+  game or damage a save: back up your saves first, and set it back to `"verified-only"` if anything misbehaves. Kiln
+  never falls back to another build's record by itself.
