@@ -864,9 +864,21 @@ What upstream 1.8.1 adds that touches Kiln, checked when the bundled runtime mov
   (`E9` to a near trampoline that loads -1.57 rad, 3 `NOP`s). The site is rva `0x26f6fe` in the client
   (26430625) and `0x817fe` in the server (26430253): 0xF3 bytes before Kiln's glider steering mid hook
   (`rules/GlideSteer`, the roll-rate load, `0x26f7f1` / `0x818f1`), so the two never write the same bytes; no other
-  sigdb symbol is within 0x800 bytes. Static check: `glider_site_check.py` (dev30 wave, out/sf-181). SF reads the
-  procedure from live code and stops a path at Kiln's `E9`, which lies after the clamp. While Kiln steers a glider
-  (GLIDE_STEER), Kiln's step replaces the pitch change after SF's clamp, so Kiln's steering wins for that player.
+  sigdb symbol is within 0x800 bytes. Static check: `glider_site_check.py` (dev30 wave, out/sf-181). **Under Kiln the
+  patch is unavailable** (lab `dev30-sf181`, server 26430253, 2026-11-21): SF's resolver refuses actor_rotation while
+  Kiln's glider steering mid hook is in it (`runtime.patch.available` false, nothing written); with `kiln-rules.dll`
+  removed it resolves, and enable, disable and re-enable succeed. SF reads that code live because its original-code
+  reader refuses the whole exe file for another Kiln hook (`function differs from the file other than by an entry
+  detour or an interior jump (RVA 0x0093d310)`, the function of `content/LootItems`; `live-only resolution`). So SF
+  Unlimited Flight's "Upward Gliding" says the native glider pitch control is unavailable on Kiln: a safe failure. Fix
+  candidates: teach the fork's image check the form of Kiln's hooks at 0x93d310 (then SF reads actor_rotation from the
+  file, where the image check already admits interior jumps), or install Kiln's GlideSteer hook only while a player
+  has GlideSteer. When both run, Kiln's step replaces the pitch change after SF's clamp, so Kiln's steering wins.
+- **Unified Tweaks 2.1.2 and its Glider Flight 1.0.1** (Nexus 185; lab boot above, their DLLs off): the packages load
+  under the bundled 1.8.1 (the startup pass with `unifiedemltweaks`, `unified-tweaks-live` and `glider-flight`
+  active, no ShroudForge error). They use no 1.8 DLL bridge, `runtime.patch` or player permissions. Glider Flight's own
+  DLL patches the same 5-degree clamp itself (and three diving sites, none within 0x40 bytes of a Kiln sigdb site), so
+  it and SF Unlimited Flight exclude each other.
 - **Steam P2P channels 65534 (Modloader server mirroring, server log mirror) and 65535 (health)**: ISteamNetworkingMessages,
   not the game's socket. Kiln's own frames use the game's channel 12 (`kiln.net`), so they do not meet. The server log
   and archive mirror answer only an admin session (a password checked against `userGroups` in
