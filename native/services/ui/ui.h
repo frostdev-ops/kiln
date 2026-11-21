@@ -123,6 +123,7 @@ bool chat_input_probe_install();  // game_install: hooks the chat field when cha
 void chat_input_frame_end(uintptr_t sys10);  // game's UI thread, focus and native rectangle conversion
 void chat_input_exit();           // on_unload: writes the history file still pending, stops its writer thread
 KilnResult chat_completion_io(KilnUiChatCompletion* io);  // internal managed snapshot/selection/replacement, NOT game call
+KilnResult chat_search_io(KilnUiChatSearch* io); // internal Ctrl+R search snapshot/mouse selection, NOT a game call
 
 // The window procedure's one hook point for the game's chat field (input.cpp calls it on the window thread, before
 // Kiln's own key handling). Set by chat_input_probe_install while chat history or its diagnostic runs; null otherwise,

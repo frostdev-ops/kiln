@@ -109,6 +109,7 @@ internal static unsafe class UiEngine
         UiLanguage.Start();  // the language of Kiln's own texts (kiln.json "ui.language"), handed to kiln.ui too
         GraphicsTools.Start();  // Kiln's own graphics tools (kiln.json "graphics"), handed to kiln.ui (0.2.0-dev.29.18)
         ChatCompletionNetwork.Start(); // optional kiln:chat completion protocol
+        UiNative.ChatSearchEnable(); // Phase 1c: only a matching managed UI activates Ctrl+R capture
         KeyBindings.Load();
         ApplyMenuKey(KeyBindings.MenuKey);
         // the game page needs the layout calls (v3) for the page itself and v4 for the page state
@@ -399,6 +400,7 @@ internal static unsafe class UiEngine
         Ui.Crafting.DrawPanels(ui);
         UiInventoryScreens.Draw(ui);  // panels beside the game's backpack and chest screens
         ChatCompletionPanel.Draw(ui); // non-focusable suggestions over native HUD/Social chat
+        ChatSearchPanel.Draw(ui); // Ctrl+R history query and matches; native chat retains edit focus
         DrawScreens(ui);
         foreach (var (h, owner) in FrameHandlers.Snapshot())
         {

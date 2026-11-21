@@ -26,6 +26,20 @@ internal static class ChatCompletionDisplayRules
 
     internal static float PopupHeight(float scale, int visible) =>
         (42f + 24f + 40f * Math.Clamp(visible, 0, 10)) * scale;
+
+    // Native-chat overlays all use the same field rect and edge clamping.
+    internal static (float X, float Y, float Width, float Height) PopupRect(
+        UiDraw ui, float fieldX, float fieldY, float fieldWidth, float fieldHeight, int visible,
+        float extraHeaderHeight = 0)
+    {
+        var width = MathF.Min(MathF.Max(fieldWidth, 320 * ui.Scale), MathF.Min(620 * ui.Scale, ui.Width - 8));
+        var height = PopupHeight(ui.Scale, visible) + extraHeaderHeight * ui.Scale;
+        var x = Math.Clamp(fieldX, 4, Math.Max(4, ui.Width - width - 4));
+        var y = fieldY >= height + 12
+            ? fieldY - height - 5
+            : Math.Min(ui.Height - height - 4, fieldY + fieldHeight + 5);
+        return (x, Math.Max(4, y), width, height);
+    }
 }
 
 internal static unsafe class ChatCompletionPanel
@@ -108,6 +122,14 @@ internal static unsafe class ChatCompletionPanel
     internal static void Draw(UiDraw ui)
     {
         UiNative.ChatHover(false); // clear last frame's mouse capture
+        // Ctrl+R takes exclusive ownership of chat query keys; no stale
+        // server replies or Tab list may re-arm while search is open, or
+        // until the user edits an accepted history result.
+        if (UiNative.ChatSearchInput() is { } searching &&
+            (searching.Active != 0 || searching.Suppressed != 0)) {
+            if (_line.Length != 0 || _suggestions.Length != 0) Reset();
+            return;
+        }
         // A completely unsupported ABI or a closed/nonfocused game chat
         // leaves the original native chat and PR #63 history untouched.
         var result = UiNative.ChatInput();
@@ -210,15 +232,10 @@ internal static unsafe class ChatCompletionPanel
         const uint flags = (1u << 0) | (1u << 1) | (1u << 2) | (1u << 3) |
                            (1u << 8) | (1u << 12) |
                            (1u << 18) | (1u << 19);
-        var width = MathF.Min(MathF.Max(input.Width, 320 * ui.Scale), MathF.Min(620 * ui.Scale, ui.Width - 8));
         var count = Math.Min(MaxVisible, _suggestions.Length);
-        var height = ChatCompletionDisplayRules.PopupHeight(ui.Scale, count);
+        var (x, y, width, height) = ChatCompletionDisplayRules.PopupRect(
+            ui, input.X, input.Y, input.Width, input.Height, count);
         var rowHeight = 40f * ui.Scale;
-        var x = Math.Clamp(input.X, 4, Math.Max(4, ui.Width - width - 4));
-        var y = input.Y >= height + 12
-            ? input.Y - height - 5
-            : Math.Min(ui.Height - height - 4, input.Y + input.Height + 5);
-        y = Math.Max(4, y);
 
         var hovered = false;
         ui.PushStyleRaw(UiStyle.Player);

@@ -730,11 +730,16 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 consumed = on_key(vk, (static_cast<uint32_t>(l) >> 16) & 0x1FF, true, false, hold::prev_of_lparam(l));
             else {
                 consumed = g_consumed[vk];
-                // A previous raw keyboard event does not guarantee that
-                // Proton will deliver the *current Tab* as WM_INPUT. Do
-                // not skip this chat-only keydown if raw Tab wasn't taken.
-                // Router deduplicates any subsequent raw report.
-                if (!consumed && vk == VK_TAB && !cap) {
+                // Seeing one raw keyboard record never guarantees that Proton
+                // delivers the next key as WM_INPUT. While Ctrl+R search is
+                // open, printable keys also belong to chat's private query:
+                // sending only Tab/R/Enter/navigation here lets ordinary
+                // letters reach the game's underlying chat editor instead.
+                // Ask the scoped chat router about every missing legacy down.
+                // Outside focused chat/search it returns false; ordinary game
+                // keys and key releases still reach Enshrouded unchanged.
+                // The router deduplicates raw/legacy twins of control keys.
+                if (!consumed && !cap) {
                     if (const ChatInputSink* chat = g_chat_sink.load(std::memory_order_acquire))
                         consumed = chat->key(vk, current_mods(), true, false);
                     if (consumed) g_consumed[vk] = true;
@@ -753,9 +758,12 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
             const uint32_t vk = static_cast<uint32_t>(w) & 0xFF;
             if (g_raw_keyboard_seen && !raw_input::registered_for(6, h)) g_raw_keyboard_seen = false;
             if (!g_raw_keyboard_seen) on_key(vk, (static_cast<uint32_t>(l) >> 16) & 0x1FF, false);
-            else if (vk == VK_TAB) {
-                // The paired raw release may be absent. Always release the
-                // chat router's one-press guard on the legacy Tab keyup.
+            else {
+                // The paired raw release may be missing even for a printable
+                // key routed by the legacy fallback above. Clear every key's
+                // consumed flag here, not just Tab/R/navigation: otherwise a
+                // typed search query can leave that VK stuck as consumed.
+                // Releases always pass through to Enshrouded.
                 if (const ChatInputSink* chat = g_chat_sink.load(std::memory_order_acquire))
                     chat->key(vk, current_mods(), false, cap);
                 g_consumed[vk] = false;
@@ -770,8 +778,18 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
             // intercepted. The scoped native chat hook may drop only the
             // character paired with a consumed completion Tab press.
             bool chat_consumed = false;
+            // Windows/Proton can send an AltGr-produced character as
+            // WM_SYSCHAR (Ctrl+Alt), not only WM_CHAR. The scoped chat sink
+            // must see that text while reverse search is open; it returns
+            // false outside chat/search. Alt-only system characters remain
+            // outside the chat route so OS shortcuts keep working.
+            const uint32_t mods = current_mods();
+            const bool altgr_syschar = m == WM_SYSCHAR &&
+                (mods & (KILN_UI_MOD_CTRL | KILN_UI_MOD_ALT)) ==
+                    (KILN_UI_MOD_CTRL | KILN_UI_MOD_ALT);
             if (const ChatInputSink* chat = g_chat_sink.load(std::memory_order_acquire);
-                chat && !cap && m != WM_SYSCHAR && !(m == WM_UNICHAR && w == UNICODE_NOCHAR))
+                chat && !cap && (m != WM_SYSCHAR || altgr_syschar) &&
+                !(m == WM_UNICHAR && w == UNICODE_NOCHAR))
                 chat_consumed = chat->text(static_cast<uint32_t>(w));
             enqueue(h, m, w, l);
             if (cap || chat_consumed) return 0;

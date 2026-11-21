@@ -85,6 +85,9 @@ g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined "$here/chat_com
 g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined -I"$here/../../../core/abi" \
     "$here/chat_completion_abi_test.cpp" -o "$out/chat_completion_abi_test"
 "$out/chat_completion_abi_test"
+# Issue 44 Phase 1c: bounded reverse history search, matching, UTF-16/UTF-8 and distinct entries.
+g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined "$here/chat_search_test.cpp" -o "$out/chat_search_test"
+"$out/chat_search_test"
 # Issue 44: history draft, commands-only persistence policy, sensitive text, UTF-8.
 g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined "$here/chat_history_test.cpp" -o "$out/chat_history_test"
 "$out/chat_history_test"

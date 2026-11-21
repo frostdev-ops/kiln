@@ -115,6 +115,8 @@ public:
     }
 
     std::size_t count() const { return entries_.size(); }
+    // Phase 1c reads only the entries Up/Down already sees; this is UI-thread-only.
+    const std::vector<Entry>& entries() const { return entries_; }
     bool browsing() const { return cursor_ >= 0; }
 
     // Reject control bytes and malformed UTF-8, to keep the game and JSON safe.

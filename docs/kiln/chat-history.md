@@ -39,6 +39,22 @@ A line is never kept, not even until you quit, when it holds one of these words,
 The file is plain JSON, oldest first. Delete it to forget your commands. It belongs to the game folder, not to a
 Steam account or a server: everyone who plays from this folder shares it.
 
+## Ctrl+R reverse search (issue #44, Phase 1c)
+
+With **Chat history** enabled, press **Ctrl+R** while typing in the HUD or Social chat to search the same submitted
+lines available to Up/Down. Search is local and uses the same sensitive-command filter: ordinary chat is available
+for this session, and slash commands retained from earlier games are available too.
+
+- Type to filter by case-insensitive ASCII substring (non-ASCII text matches exactly). Each distinct line appears
+  once, at its latest position. The search text stays in a private query buffer; the game's draft is untouched.
+- **Ctrl+R** again or **Down** moves to the next older match. **Ctrl+Shift+R** or **Up** moves newer.
+- **Enter** or **Tab** puts the selected line into the original chat edit **without sending it**. Press Enter again to
+  send as usual. **Esc** cancels search with the original draft intact.
+- Search takes precedence over Tab completion until it closes; accepting a match does not reopen suggestions until
+  you manually edit the line. Alt+Tab, losing input focus, closing chat or starting an IME composition cancels search.
+- This uses the existing `ui.chatHistory` setting. It needs no server, new persistence, or public mod API. Query
+  contents and matches are never logged.
+
 ## For mod authors
 - There is no API: the history is the player's, and Kiln never reads or logs the text (kiln.log gets counts only).
 - It does not see your mod's chat messages or replies, only what the player sends from these two fields.

@@ -229,7 +229,7 @@ public unsafe class GraphicsTests : IDisposable
         Assert.Equal(1032, (int)Marshal.OffsetOf<UiNative.TableChat>(nameof(UiNative.TableChat.ChatCompletion)));
         Assert.Equal(1040, (int)Marshal.OffsetOf<UiNative.TablePointer>(nameof(UiNative.TablePointer.SubscribePointerPress)));
         Assert.Equal(1048, sizeof(UiNative.TablePointer));
-        Assert.Contains("KilnResult(KILN_CALL* subscribe_pointer_press)(KilnOwner owner, KilnUiPointerFn fn, void* user, KilnHandle* out);\n} KilnUiApi;",
+        Assert.Contains("KilnResult(KILN_CALL* subscribe_pointer_press)(KilnOwner owner, KilnUiPointerFn fn, void* user, KilnHandle* out);\n",
             h, StringComparison.Ordinal);
         // a kiln.ui without the tail: nothing to call, nothing happens
         Assert.False(GraphicsTools.Available);

@@ -185,6 +185,12 @@ public sealed unsafe class UiLanguageTests : IDisposable
         Assert.Equal(1032, (int)Marshal.OffsetOf<UiNative.TableChat>(nameof(UiNative.TableChat.ChatCompletion)));
         Assert.Equal(1040, sizeof(UiNative.TableChat));
         Assert.Equal(576, sizeof(UiNative.ChatCompletion));
+        Assert.Equal(1048, (int)Marshal.OffsetOf<UiNative.TableSearch>(nameof(UiNative.TableSearch.ChatSearchFn)));
+        Assert.Equal(1056, sizeof(UiNative.TableSearch));
+        Assert.Equal(64, (int)Marshal.OffsetOf<UiNative.ChatSearch>(nameof(UiNative.ChatSearch.Query)));
+        Assert.Equal(321, (int)Marshal.OffsetOf<UiNative.ChatSearch>(nameof(UiNative.ChatSearch.Lines)));
+        Assert.Equal(10572, sizeof(UiNative.ChatSearch));
+        Assert.Contains("KilnResult(KILN_CALL* chat_search)(KilnUiChatSearch* io);", h, StringComparison.Ordinal);
     }
 
     private static string RepoRoot([CallerFilePath] string source = "")

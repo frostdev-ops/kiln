@@ -15,11 +15,13 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include "chat_history.h"
+#include "chat_search.h"
 #include "chat_completion_text.h"
 #include "chat_focus.h"
 #include "chat_keys.h"
@@ -39,6 +41,7 @@ uintptr_t g_state_fn = 0, g_set_text_fn = 0;
 std::atomic<bool> g_hud_seen{false}, g_social_seen{false};
 std::atomic<bool> g_history_on{false};
 std::atomic<bool> g_completion_on{false};
+std::atomic<bool> g_search_on{false}; // search geometry may fail independently of history
 // Read only on the game's UI thread. Never let the overlay render thread
 // dereference a game widget or its native editor.
 uintptr_t g_rect_fn = 0;
@@ -116,6 +119,14 @@ void invalidate_completion_snapshot() {
 }
 
 chat_history::History g_history;
+// UI thread owns the search; the render thread reads only a locked snapshot.
+std::mutex g_search_mu;
+chat_search::Search g_search;
+uint32_t g_search_field = 0, g_search_revision = 0, g_search_cursor = 0;
+std::string g_search_original;
+bool g_search_suppress_completion = false;
+struct SearchClick { uint32_t field, revision, generation, index; };
+std::optional<SearchClick> g_search_click;
 chat_history::DraftCapture g_hud_draft, g_social_draft;
 chat_focus::Grace g_focus_grace;
 std::filesystem::path g_history_file;
@@ -239,9 +250,11 @@ __declspec(noinline) bool game_node_rect(uintptr_t node, float* rect) {
 }
 
 void completion_capture(void* widget, void* state, bool hud) {
-    if (!g_completion_on.load(std::memory_order_acquire) || !editing(state)) return;
+    if (!(g_completion_on.load(std::memory_order_acquire) || g_search_on.load(std::memory_order_acquire)) ||
+        !editing(state)) return;
     std::string line;
-    if (!widget_text(widget, &line) || !safe_line(line)) {
+    if (!widget_text(widget, &line) ||
+        (!line.empty() && !chat_history::History::valid(line))) {
         invalidate_completion_snapshot();
         return;
     }
@@ -273,6 +286,13 @@ void completion_capture(void* widget, void* state, bool hud) {
 
 void completion_before(void* widget, bool hud) {
     if (!g_completion_on.load(std::memory_order_acquire)) return;
+    if (g_keys.searching()) { // pending Tab edits never race a Ctrl+R search
+        std::lock_guard lock(g_completion_mu);
+        g_pending_valid = false;
+        g_completion_actions.clear();
+        g_keys.completion(false, false, false);
+        return;
+    }
     void* state = game_state(widget);
     if (!editing(state)) return;
     PendingEdit pending;
@@ -422,6 +442,74 @@ void save_history() {
     saver->request(g_history.persisted());
 }
 
+// All search model changes and the sole EditSetText call occur on the game UI
+// thread. WndProc queues UTF-16 input and keys; no native game pointers cross threads.
+bool search_event(chat_keys::Action action, uint32_t character, void* state, bool hud) {
+    using A = chat_keys::Action;
+    if (static_cast<uint32_t>(action) < static_cast<uint32_t>(A::SearchStart)) return false;
+    std::lock_guard search_lock(g_search_mu);
+    const uint32_t field = hud ? 1u : 2u;
+    if (action == A::SearchStart) {
+        std::lock_guard completion_lock(g_completion_mu);
+        const auto& snap = g_completion_snapshot;
+        if (!g_search_on.load(std::memory_order_acquire) || !g_keys.focused() ||
+            !snap.focused || !snap.has_rect || snap.field != field || snap.text.size() > 1024) {
+            g_keys.search(false);
+            return true;
+        }
+        g_search.begin(g_history.entries());
+        g_search_original = snap.text;
+        g_search_field = field;
+        g_search_revision = snap.revision;
+        g_search_cursor = snap.cursor;
+        g_search_suppress_completion = false;
+        g_search_click.reset();
+        g_keys.search(true);
+        g_keys.completion(false, false, false);
+        return true;
+    }
+    if (!g_search.active() || field != g_search_field) return true;
+    switch (action) {
+        case A::SearchOlder: g_search.older(); break;
+        case A::SearchNewer: g_search.newer(); break;
+        case A::SearchCharacter: g_search.append_utf16(character, g_history.entries()); break;
+        case A::SearchBackspace: g_search.backspace(g_history.entries()); break;
+        case A::SearchCancel:
+            g_search.cancel(); g_keys.search(false); g_search_click.reset(); break;
+        case A::SearchAccept: {
+            const auto* match = g_search.chosen();
+            if (!match) break; // no match: leave panel open, never send
+            bool valid = editing(state) && !g_ime_composing.load(std::memory_order_acquire) &&
+                !g_window_blurred.load(std::memory_order_acquire) &&
+                !g_manual_text_edit.load(std::memory_order_acquire) && g_keys.focused();
+            {
+                std::lock_guard completion_lock(g_completion_mu);
+                const auto& snap = g_completion_snapshot;
+                valid = valid && snap.focused && snap.field == g_search_field &&
+                    snap.revision == g_search_revision && snap.text == g_search_original;
+            }
+            uint32_t cursor = 0;
+            valid = valid && game_read(reinterpret_cast<const uint8_t*>(state) + L.edit + L.cursor, &cursor) &&
+                cursor == g_search_cursor && chat_history::History::valid(*match);
+            const bool applied = valid && game_set_text(reinterpret_cast<uint8_t*>(state) + L.edit,
+                                                        match->data(), match->size());
+            if (applied) {
+                g_last_applied = *match;
+                g_set_text_pending = true; // history_after verifies the widget after TextInputProcess
+                g_history.edited();
+                g_search_suppress_completion = true; // until the next real manual edit
+            }
+            g_search.cancel();
+            g_keys.search(false);
+            g_search_click.reset();
+            if (!applied) logf(KILN_LOG_WARN, "ui: chat search: accept refused (editor verification); no text logged");
+            break;
+        }
+        default: break;
+    }
+    return true;
+}
+
 // UI-thread-only, before the underlying TextInputProcess.
 // The live draft cache is refreshed after the original function returns.
 void history_before(void* widget, bool hud) {
@@ -435,14 +523,21 @@ void history_before(void* widget, bool hud) {
     // player edited a recalled line: clearing the cursor here lost the draft
     // before Down could restore it. Only explicit user text-edit input resets.
     if (g_manual_text_edit.exchange(false, std::memory_order_acq_rel)) {
+        std::lock_guard search_lock(g_search_mu);
+        g_search_suppress_completion = false;
         const bool was_browsing = g_history.browsing();
         g_history.edited();
         g_last_applied.clear();
         if (was_browsing && g_trace_on.load(std::memory_order_relaxed))
             logf(KILN_LOG_INFO, "ui: chat history trace: navigation reset by user text edit");
     }
+    // Process input before a queued mouse click. If the player typed in the
+    // same frame, search's result generation changes and the stale click
+    // cannot select a different entry from the new result list.
     chat_keys::Action action{};
-    while (g_keys.take(action)) {
+    uint32_t character = 0;
+    while (g_keys.take(action, &character)) {
+        if (search_event(action, character, state, hud)) continue;
         if (action != chat_keys::Action::Older && action != chat_keys::Action::Newer) {
             completion_action(action);
             continue;
@@ -481,6 +576,9 @@ void history_before(void* widget, bool hud) {
         if (!game_set_text(reinterpret_cast<uint8_t*>(state) + L.edit, next.data(), next.size())) {
             g_keys.focus(false);
             g_history_on.store(false, std::memory_order_release);
+            g_search_on.store(false, std::memory_order_release);
+            g_keys.history(false);
+            g_keys.search_enabled(false);
             logf(KILN_LOG_WARN, "ui: chat history: edit replace failed; preview disabled for this process");
             return;
         }
@@ -490,6 +588,18 @@ void history_before(void* widget, bool hud) {
         // Post-call check in history_after(): the game's TextInputProcess
         // first synchronizes its private edit with the outgoing widget string.
     }
+    // Mouse selection is a queued index, never an edit on the render thread.
+    // Both the clicked snapshot and the current result list must agree.
+    bool clicked = false;
+    {
+        std::lock_guard lock(g_search_mu);
+        const auto selection = g_search_click;
+        g_search_click.reset();
+        clicked = selection && g_search.active() && selection->field == (hud ? 1u : 2u) &&
+            selection->field == g_search_field && selection->revision == g_search_revision &&
+            g_search.select_at_generation(selection->index, selection->generation);
+    }
+    if (clicked) search_event(chat_keys::Action::SearchAccept, 0, state, hud);
 }
 
 // The submit result is set by TextInputProcess, before the caller sends and clears.
@@ -502,6 +612,9 @@ void history_after(void* widget, void* result, bool hud) {
         if (!widget_text(widget, &applied) || applied != g_last_applied) {
             g_keys.focus(false);
             g_history_on.store(false, std::memory_order_release);
+            g_search_on.store(false, std::memory_order_release);
+            g_keys.history(false);
+            g_keys.search_enabled(false);
             logf(KILN_LOG_WARN,
                  "ui: chat history: SetText did not reach the chat widget after input processing; "
                  "preview disabled for this process");
@@ -551,6 +664,19 @@ void history_after(void* widget, void* result, bool hud) {
     if (!editing(state)) return;
     g_editing_in_frame = true;
     completion_capture(widget, state, hud);
+    if (g_search_on.load(std::memory_order_relaxed)) {
+        std::lock_guard search_lock(g_search_mu);
+        if (g_search.active()) {
+            std::lock_guard completion_lock(g_completion_mu);
+            const auto& snap = g_completion_snapshot;
+            if (!snap.focused || snap.field != g_search_field ||
+                snap.text != g_search_original || snap.cursor != g_search_cursor) {
+                g_search.cancel();
+                g_keys.search(false);
+                g_search_click.reset();
+            }
+        }
+    }
     // Refresh the live draft ONLY after TextInputProcess synchronizes the
     // caller-owned widget, and never while history browsing is active.
     if (!g_history.browsing()) {
@@ -656,7 +782,9 @@ bool on_text(uint32_t ch) {
             }
         }
     }
-    if (chat_keys::inserts_text(ch) && g_history_on.load(std::memory_order_acquire) && g_keys.focused())
+    if (g_search_on.load(std::memory_order_acquire) && g_keys.search_character(ch)) return true;
+    if (chat_keys::inserts_text(ch) && g_history_on.load(std::memory_order_acquire) &&
+        g_keys.focused() && !g_keys.searching())
         g_manual_text_edit.store(true, std::memory_order_release);
     return false;
 }
@@ -668,7 +796,7 @@ bool on_key(uint32_t vk, uint32_t mods, bool down, bool captured) {
     // While an IME composes, Up/Down pick its candidates and Backspace edits the composition: none of it is ours.
     const bool composing = g_ime_composing.load(std::memory_order_acquire);
     // Keys that change the text without a character (chat_keys::edits_text) end a browse as typing does.
-    if (down && !captured && !composing && chat_keys::edits_text(vk, mods) &&
+    if (down && !captured && !composing && !g_keys.searching() && chat_keys::edits_text(vk, mods) &&
         g_history_on.load(std::memory_order_relaxed) && g_keys.focused())
         g_manual_text_edit.store(true, std::memory_order_release);
     const bool kept = !captured && !composing &&
@@ -689,7 +817,12 @@ bool on_key(uint32_t vk, uint32_t mods, bool down, bool captured) {
     return kept;
 }
 
-void on_ime(bool composing) { g_ime_composing.store(composing, std::memory_order_release); }
+void on_ime(bool composing) {
+    g_ime_composing.store(composing, std::memory_order_release);
+    // IME may handle WM_IME_COMPOSITION directly. Close search on composition
+    // start instead of risking one key reaching an editor behind the panel.
+    if (composing) g_keys.ime_started();
+}
 
 void on_blur() {
     g_keys.focus(false);
@@ -715,7 +848,7 @@ void chat_input_frame_end(uintptr_t sys10) {
     const bool active = g_editing_in_frame && !g_window_blurred.exchange(false);
     // Never swallow gameplay arrows when the native chat edit lacks focus.
     g_keys.focus(active);
-    if (g_completion_on.load(std::memory_order_relaxed)) {
+    if (g_completion_on.load(std::memory_order_relaxed) || g_search_on.load(std::memory_order_relaxed)) {
         std::lock_guard lock(g_completion_mu);
         auto& snap = g_completion_snapshot;
         if (!active) {
@@ -739,6 +872,16 @@ void chat_input_frame_end(uintptr_t sys10) {
             } else snap.has_rect = false;
         }
     }
+    // IME may take over the game's editor without another TextInputProcess
+    // call; dismiss the model as well as the key router during composition.
+    if ((!active || g_ime_composing.load(std::memory_order_acquire)) &&
+        g_search_on.load(std::memory_order_relaxed)) {
+        std::lock_guard lock(g_search_mu);
+        g_search.cancel();
+        g_search_suppress_completion = false;
+        g_search_click.reset();
+        g_keys.search(false);
+    }
     // A single game UI frame may temporarily fail to render either chat
     // control during a transition. That must not erase the saved draft.
     // Exit events explicitly reset the session above; for a real close or
@@ -757,8 +900,9 @@ void chat_input_frame_end(uintptr_t sys10) {
     {
         std::lock_guard lock(g_completion_mu);
         const auto& snap = g_completion_snapshot;
-        const bool visible = g_completion_on.load(std::memory_order_relaxed) && active &&
-            snap.focused && snap.has_rect && !snap.text.empty() && snap.text[0] == '/';
+        const bool visible = active && snap.focused && snap.has_rect &&
+            ((g_completion_on.load(std::memory_order_relaxed) && !snap.text.empty() && snap.text[0] == '/') ||
+             (g_search_on.load(std::memory_order_relaxed) && g_keys.searching()));
         if (visible) g_chat_completion_cleanup_frames = 3;
         else if (g_chat_completion_cleanup_frames > 0) --g_chat_completion_cleanup_frames;
         g_chat_completion_demand.store(
@@ -829,6 +973,60 @@ KilnResult chat_completion_io(KilnUiChatCompletion* io) {
     }
 }
 
+// Private client-only snapshot/selection channel. Managed code never sees a
+// native game pointer, and can only queue an index for the next validated hook.
+KilnResult chat_search_io(KilnUiChatSearch* io) {
+    if (!io || io->size < sizeof(KilnUiChatSearch)) return KILN_ERR_INVALID_ARGUMENT;
+    if (!g_search_on.load(std::memory_order_acquire)) return KILN_ERR_UNAVAILABLE;
+    // An older Kiln.Ui.dll does not understand this slot: do not intercept
+    // Ctrl+R until the matching managed search panel explicitly opts in.
+    if (io->operation == 3) {
+        g_keys.search_enabled(true);
+        return KILN_OK;
+    }
+    std::lock_guard search_lock(g_search_mu);
+    if (io->operation == 1) {
+        io->active = g_search.active() ? 1u : 0u;
+        io->suppressed = g_search_suppress_completion ? 1u : 0u;
+        if (!io->active) return KILN_OK;
+        std::lock_guard completion_lock(g_completion_mu);
+        const auto& snap = g_completion_snapshot;
+        if (!snap.focused || !snap.has_rect || snap.field != g_search_field ||
+            snap.revision != g_search_revision) return KILN_ERR_UNAVAILABLE;
+        io->field = g_search_field; io->revision = g_search_revision;
+        io->x = snap.pixels[0]; io->y = snap.pixels[1];
+        io->width = snap.pixels[2]; io->height = snap.pixels[3];
+        io->query_len = static_cast<uint32_t>(g_search.query().size());
+        std::memset(io->query, 0, sizeof io->query);
+        std::memcpy(io->query, g_search.query().data(), io->query_len);
+        const auto& matches = g_search.matches();
+        io->total = static_cast<uint32_t>(matches.size());
+        io->index = g_search.generation(); // op 1: opaque match-list generation
+        io->first = g_search.selected() >= KILN_UI_CHAT_SEARCH_ROWS ?
+            static_cast<uint32_t>(g_search.selected() - KILN_UI_CHAT_SEARCH_ROWS + 1) : 0u;
+        io->selected = static_cast<uint32_t>(g_search.selected());
+        io->count = static_cast<uint32_t>(std::min(matches.size() - io->first,
+            static_cast<size_t>(KILN_UI_CHAT_SEARCH_ROWS)));
+        std::memset(io->lines, 0, sizeof io->lines);
+        for (uint32_t i = 0; i < io->count; ++i) {
+            const auto& line = matches[io->first + i];
+            std::memcpy(io->lines[i], line.data(), std::min(line.size(), sizeof io->lines[i] - 1));
+        }
+        return KILN_OK;
+    }
+    if (io->operation == 2) {
+        if (!g_search.active() || !g_keys.searching() ||
+            io->field != g_search_field || io->revision != g_search_revision ||
+            io->selected != g_search.generation() ||
+            !g_search.match(io->index)) return KILN_ERR_UNAVAILABLE;
+        // op 2: 'selected' echoes the generation from the rendered snapshot,
+        // while 'index' carries the clicked row; ABI layout is unchanged.
+        g_search_click = SearchClick{io->field, io->revision, io->selected, io->index};
+        return KILN_OK;
+    }
+    return KILN_ERR_INVALID_ARGUMENT;
+}
+
 // on_unload (ui.cpp): the last list is written and the writer thread joined, while the process still runs.
 void chat_input_exit() {
     if (chat_store::Saver* saver = g_saver.load(std::memory_order_acquire)) saver->stop();
@@ -877,20 +1075,25 @@ bool chat_input_probe_install() {
         logf(KILN_LOG_WARN, "ui: chat history unavailable: edit state/replace symbols unresolved");
         return false;
     }
-    // Exact same verified chat UI hook, plus a safe rectangle translation.
-    // Refuse only completion if the optional geometry signatures are missing.
-    if (completion) {
-        completion = read_completion_layout() &&
+    // A verified native rectangle is required for search and completion,
+    // but never for basic history recall.
+    bool geometry = false;
+    if (completion || history) {
+        geometry = read_completion_layout() &&
             symbol("ui/UiNodeRect", &g_rect_fn) &&
             cst("ui/sys.frame_arg", &g_frame_arg) &&
             cst("ui/sys.viewport", &g_viewport) &&
             cst("ui/sys.px_per_unit", &g_ppu) &&
             g_frame_arg >= 0 && g_viewport >= 0 && g_ppu >= 0 &&
             g_frame_arg < 0x10000 && g_viewport < 0x10000 && g_ppu < 0x10000;
-        g_rect_metrics = completion;
-        if (!completion) logf(KILN_LOG_WARN,
+        g_rect_metrics = geometry;
+        if (completion && !geometry) logf(KILN_LOG_WARN,
             "ui: chat completion unavailable: sigdb cursor/node or native rect/viewport unverified; history unaffected");
+        completion = completion && geometry;
+        if (history && !geometry) logf(KILN_LOG_WARN,
+            "ui: chat reverse search unavailable: chat rectangle unverified; Up/Down history unaffected");
     }
+    const bool search = history && geometry;
     if (!history && !completion && !diag && !probe) return false;
     if (!g_input.install(g_api, g_owner, input, reinterpret_cast<void*>(&hk_input), "chatui/TextInputProcess")) {
         logf(KILN_LOG_WARN, "ui: chat input hook unavailable: %s", g_input.error());
@@ -898,6 +1101,8 @@ bool chat_input_probe_install() {
     }
     if (history || completion || diag) input_set_chat_sink(&kSink);
     g_keys.history(history);
+    g_keys.search_enabled(false); // activated by managed search panel op 3
+    g_search_on.store(search, std::memory_order_release);
     g_completion_on.store(completion, std::memory_order_release);
     if (history) {
         if (completion) logf(KILN_LOG_INFO, "ui: chat completion on with chat history (native scoped hook)");

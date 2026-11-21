@@ -13,7 +13,8 @@
  * image_opaque_rect: part of an image, trimmed item icons; then set_texts: Kiln's own texts in the player's language), and
  * graphics_set and graphics_status (0.2.0-dev.29.18): Kiln's own graphics tools, the frame cap, DLSS settings and readout,
  * then chat_completion (internal to Kiln.Ui, refused from native plugins): Tab completion in the game's chat (issue #44),
- * then subscribe_pointer_press (0.2.0-dev.30): left and right presses over the game's own UI, take or pass.
+ * then subscribe_pointer_press (0.2.0-dev.30): left and right presses over the game's own UI, take or pass,
+ * then chat_search (issue #44 Phase 1c, internal only): native Ctrl+R history search snapshots.
  *
  * How (docs/re/client-render.md):
  *  - The game loads vulkan-1.dll at run time and presents with vkQueuePresentKHR on queue family 0 (no static Vulkan
@@ -839,6 +840,26 @@ typedef struct KilnUiPointerPress {
  * this press from the game; anything else passes it. */
 typedef uint32_t(KILN_CALL* KilnUiPointerFn)(const KilnUiPointerPress* press, void* user);
 
+/* Issue #44 Phase 1c: Kiln.Ui-only, read-only search panel snapshot and mouse selection.
+ * Appended at byte 1048. Operation 1 returns active/suppressed state, the query,
+ * up to ten visible rows and field rectangle; operation 2 queues a clicked
+ * absolute match index, validated against field/revision AND match-list
+ * generation on the native UI thread. For operation 1, index returns an
+ * opaque match-list generation; for operation 2, selected echoes that token
+ * while index supplies the clicked row. The struct/slot layout is unchanged.
+ * The game text editor is changed only on a successful accept in the scoped UI hook.
+ * The strings are UTF-8 with explicit lengths, NUL-padded for panel convenience.
+ * No text is written to logs or persisted by the search.
+ */
+enum { KILN_UI_CHAT_SEARCH_ROWS = 10 };
+typedef struct KilnUiChatSearch {
+    uint32_t size, operation, active, suppressed, field, revision;
+    uint32_t query_len, selected, first, count, total, index;
+    float x, y, width, height;
+    char query[257];
+    char lines[KILN_UI_CHAT_SEARCH_ROWS][1025];
+} KilnUiChatSearch;
+
 typedef struct KilnUiApi {
     KilnServiceHeader header; /* { sizeof(KilnUiApi), KILN_UI_VERSION } */
     KilnResult(KILN_CALL* status)(KilnUiStatus* out);
@@ -1264,6 +1285,8 @@ typedef struct KilnUiApi {
      *   once: it runs inside the window procedure. A structured exception in fn removes the subscription (logged).
      *   Remove it with unsubscribe (KILN_OK: a call in flight has ended). INVALID_ARGUMENT: no fn. */
     KilnResult(KILN_CALL* subscribe_pointer_press)(KilnOwner owner, KilnUiPointerFn fn, void* user, KilnHandle* out);
+    /* Phase 1c: append-only internal Kiln.Ui slot. Native plugins are refused. */
+    KilnResult(KILN_CALL* chat_search)(KilnUiChatSearch* io);
 } KilnUiApi;
 
 /* ====================================================================================================================

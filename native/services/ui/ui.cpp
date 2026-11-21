@@ -620,6 +620,11 @@ KilnResult KILN_CALL t_chat_completion(KilnUiChatCompletion* io) {
     if (caller_is_plugin(_ReturnAddress())) return KILN_ERR_UNAVAILABLE;
     return chat_completion_io(io);
 }
+// Client's reverse search contains private chat history; never expose to a native mod.
+KilnResult KILN_CALL t_chat_search(KilnUiChatSearch* io) {
+    if (caller_is_plugin(_ReturnAddress())) return KILN_ERR_UNAVAILABLE;
+    return chat_search_io(io);
+}
 KilnHandle KILN_CALL t_font_load(KilnOwner o, const void* data, size_t len) {
     if (!overlay_drawing_on()) return 0;
     return font_load(o, data, len);
@@ -684,8 +689,12 @@ static_assert(sizeof(KilnUiGraphicsStatus) == KILN_UI_GRAPHICS_STATUS_SIZE_V2 &&
               "KilnUiGraphicsStatus layout (UiNative.GraphicsStatus; phase B fields from 72)");
 static_assert(offsetof(KilnUiApi, chat_completion) == 1032,
               "chat completion appends after graphics_status (internal, Kiln.Ui only; UiNative.TableChat)");
-static_assert(offsetof(KilnUiApi, subscribe_pointer_press) == 1040 && sizeof(KilnUiApi) == 1048 && sizeof(KilnUiPointerPress) == 32,
+static_assert(offsetof(KilnUiApi, subscribe_pointer_press) == 1040 && sizeof(KilnUiPointerPress) == 32,
               "kiln.ui appends subscribe_pointer_press after chat_completion (0.2.0-dev.30; UiNative.TablePointer)");
+static_assert(offsetof(KilnUiApi, chat_search) == 1048 && sizeof(KilnUiApi) == 1056 &&
+              offsetof(KilnUiChatSearch, query) == 64 && offsetof(KilnUiChatSearch, lines) == 321 &&
+              sizeof(KilnUiChatSearch) == 10572,
+              "internal chat search appends after native pointer subscription (managed TableSearch)");
 static_assert(offsetof(KilnUiChatCompletion, text) == 60 &&
               offsetof(KilnUiChatCompletion, replacement) == 317 &&
               sizeof(KilnUiChatCompletion) == 576,
@@ -761,6 +770,7 @@ const KilnUiApi kTable = {
     &t_graphics_set, &t_graphics_status,  // Kiln's own graphics tools (0.2.0-dev.29.18)
     &t_chat_completion,  // issue #44 internal managed completion
     &t_subscribe_pointer_press,  // presses on the game's own UI (0.2.0-dev.30)
+    &t_chat_search,  // issue #44 internal reverse-history search
 };
 
 std::string api_path(int kind) {
