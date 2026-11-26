@@ -259,6 +259,48 @@
       "expect": [
         "game:balance"
       ]
+    },
+    {
+      "name": "creatures take their template's id by GUID",
+      "registry": "creatures",
+      "src": {
+        "key": "templates",
+        "unnamed": "template_%.8s"
+      },
+      "aliases": {},
+      "byKeyGuid": {
+        "aaaaaaaa-0000-0000-0000-000000000001": "game:enemy_vukah_melee",
+        "bbbbbbbb-0000-0000-0000-000000000002": "game:twin~bbbbbbbb"
+      },
+      "entries": [
+        {
+          "guid": "aaaaaaaa-0000-0000-0000-000000000001",
+          "name": "Enemy_Vukah_Melee",
+          "id": 1
+        },
+        {
+          "guid": "bbbbbbbb-0000-0000-0000-000000000002",
+          "name": "Twin",
+          "id": 2
+        },
+        {
+          "guid": "cccccccc-0000-0000-0000-000000000003",
+          "name": "Lonely",
+          "id": 3
+        },
+        {
+          "guid": "dddddddd-0000-0000-0000-000000000004",
+          "name": "Enemy_Vukah_Melee",
+          "id": 4
+        }
+      ],
+      "expect": [
+        "game:enemy_vukah_melee",
+        "game:twin~bbbbbbbb",
+        "game:lonely",
+        "game:enemy_vukah_melee~dddddddd"
+      ],
+      "notes": 0
     }
   ]
 }

@@ -1,0 +1,277 @@
+{
+  "regmap": 1,
+  "registry": "perks",
+  "entries": {
+    "kind": "resource",
+    "resourceType": "keen::Perk",
+    "name": "debugName",
+    "unnamed": "perk_%.8s"
+  },
+  "rows": {
+    "armor.blunt": {
+      "paths": [
+        "perkArmorSetup.distribution.blunt"
+      ],
+      "conv": "float",
+      "read": "now",
+      "backend": "live",
+      "evidence": "docs/re/items.md 8 (Armour): apply_armor runs per update and, for every unlocked perk of each equipped piece, reads the perk's perkArmorSetup (isSet, nine values) from the PerkRegistry's record, the Perk resource in memory",
+      "clientNeeds": true
+    },
+    "armor.cut": {
+      "paths": [
+        "perkArmorSetup.distribution.cut"
+      ],
+      "conv": "float",
+      "read": "now",
+      "backend": "live",
+      "evidence": "docs/re/items.md 8 (Armour): apply_armor runs per update and, for every unlocked perk of each equipped piece, reads the perk's perkArmorSetup (isSet, nine values) from the PerkRegistry's record, the Perk resource in memory",
+      "clientNeeds": true
+    },
+    "armor.enabled": {
+      "paths": [
+        "perkArmorSetup.isSet"
+      ],
+      "conv": "bool",
+      "read": "now",
+      "backend": "live",
+      "evidence": "docs/re/items.md 8 (Armour): apply_armor runs per update and, for every unlocked perk of each equipped piece, reads the perk's perkArmorSetup (isSet, nine values) from the PerkRegistry's record, the Perk resource in memory",
+      "clientNeeds": true
+    },
+    "armor.fire": {
+      "paths": [
+        "perkArmorSetup.distribution.fire"
+      ],
+      "conv": "float",
+      "read": "now",
+      "backend": "live",
+      "evidence": "docs/re/items.md 8 (Armour): apply_armor runs per update and, for every unlocked perk of each equipped piece, reads the perk's perkArmorSetup (isSet, nine values) from the PerkRegistry's record, the Perk resource in memory",
+      "clientNeeds": true
+    },
+    "armor.ice": {
+      "paths": [
+        "perkArmorSetup.distribution.ice"
+      ],
+      "conv": "float",
+      "read": "now",
+      "backend": "live",
+      "evidence": "docs/re/items.md 8 (Armour): apply_armor runs per update and, for every unlocked perk of each equipped piece, reads the perk's perkArmorSetup (isSet, nine values) from the PerkRegistry's record, the Perk resource in memory",
+      "clientNeeds": true
+    },
+    "armor.lightning": {
+      "paths": [
+        "perkArmorSetup.distribution.lightning"
+      ],
+      "conv": "float",
+      "read": "now",
+      "backend": "live",
+      "evidence": "docs/re/items.md 8 (Armour): apply_armor runs per update and, for every unlocked perk of each equipped piece, reads the perk's perkArmorSetup (isSet, nine values) from the PerkRegistry's record, the Perk resource in memory",
+      "clientNeeds": true
+    },
+    "armor.magical": {
+      "paths": [
+        "perkArmorSetup.distribution.magical"
+      ],
+      "conv": "float",
+      "read": "now",
+      "backend": "live",
+      "evidence": "docs/re/items.md 8 (Armour): apply_armor runs per update and, for every unlocked perk of each equipped piece, reads the perk's perkArmorSetup (isSet, nine values) from the PerkRegistry's record, the Perk resource in memory",
+      "clientNeeds": true
+    },
+    "armor.physical": {
+      "paths": [
+        "perkArmorSetup.distribution.physical"
+      ],
+      "conv": "float",
+      "read": "now",
+      "backend": "live",
+      "evidence": "docs/re/items.md 8 (Armour): apply_armor runs per update and, for every unlocked perk of each equipped piece, reads the perk's perkArmorSetup (isSet, nine values) from the PerkRegistry's record, the Perk resource in memory",
+      "clientNeeds": true
+    },
+    "armor.pierce": {
+      "paths": [
+        "perkArmorSetup.distribution.pierce"
+      ],
+      "conv": "float",
+      "read": "now",
+      "backend": "live",
+      "evidence": "docs/re/items.md 8 (Armour): apply_armor runs per update and, for every unlocked perk of each equipped piece, reads the perk's perkArmorSetup (isSet, nine values) from the PerkRegistry's record, the Perk resource in memory",
+      "clientNeeds": true
+    },
+    "armor.shroud": {
+      "paths": [
+        "perkArmorSetup.distribution.fog"
+      ],
+      "conv": "float",
+      "read": "now",
+      "backend": "live",
+      "evidence": "docs/re/items.md 8 (Armour): apply_armor runs per update and, for every unlocked perk of each equipped piece, reads the perk's perkArmorSetup (isSet, nine values) from the PerkRegistry's record, the Perk resource in memory",
+      "clientNeeds": true
+    },
+    "damage.blunt": {
+      "paths": [
+        "damageModifier.distribution.physicalBluntDamage"
+      ],
+      "conv": "float",
+      "read": "unknown",
+      "backend": "live",
+      "state": "unproven",
+      "reason": "when the game reads a perk's damage bonus is not traced yet",
+      "evidence": "no code that reads a perk's damageModifier was traced yet (docs/re/creatures.md 16)"
+    },
+    "damage.cut": {
+      "paths": [
+        "damageModifier.distribution.physicalCutDamage"
+      ],
+      "conv": "float",
+      "read": "unknown",
+      "backend": "live",
+      "state": "unproven",
+      "reason": "when the game reads a perk's damage bonus is not traced yet",
+      "evidence": "no code that reads a perk's damageModifier was traced yet (docs/re/creatures.md 16)"
+    },
+    "damage.enabled": {
+      "paths": [
+        "damageModifier.isSet"
+      ],
+      "conv": "bool",
+      "read": "unknown",
+      "backend": "live",
+      "state": "unproven",
+      "reason": "when the game reads a perk's damage bonus is not traced yet",
+      "evidence": "no code that reads a perk's damageModifier was traced yet (docs/re/creatures.md 16)"
+    },
+    "damage.explosion": {
+      "paths": [
+        "damageModifier.distribution.explosionDamage"
+      ],
+      "conv": "int",
+      "read": "unknown",
+      "backend": "live",
+      "state": "unproven",
+      "reason": "when the game reads a perk's damage bonus is not traced yet",
+      "evidence": "no code that reads a perk's damageModifier was traced yet (docs/re/creatures.md 16)"
+    },
+    "damage.fire": {
+      "paths": [
+        "damageModifier.distribution.magicalFireDamage"
+      ],
+      "conv": "float",
+      "read": "unknown",
+      "backend": "live",
+      "state": "unproven",
+      "reason": "when the game reads a perk's damage bonus is not traced yet",
+      "evidence": "no code that reads a perk's damageModifier was traced yet (docs/re/creatures.md 16)"
+    },
+    "damage.healing": {
+      "paths": [
+        "damageModifier.distribution.healing"
+      ],
+      "conv": "float",
+      "read": "unknown",
+      "backend": "live",
+      "state": "unproven",
+      "reason": "when the game reads a perk's damage bonus is not traced yet",
+      "evidence": "no code that reads a perk's damageModifier was traced yet (docs/re/creatures.md 16)"
+    },
+    "damage.ice": {
+      "paths": [
+        "damageModifier.distribution.magicalIceDamage"
+      ],
+      "conv": "float",
+      "read": "unknown",
+      "backend": "live",
+      "state": "unproven",
+      "reason": "when the game reads a perk's damage bonus is not traced yet",
+      "evidence": "no code that reads a perk's damageModifier was traced yet (docs/re/creatures.md 16)"
+    },
+    "damage.lightning": {
+      "paths": [
+        "damageModifier.distribution.magicalLightningDamage"
+      ],
+      "conv": "float",
+      "read": "unknown",
+      "backend": "live",
+      "state": "unproven",
+      "reason": "when the game reads a perk's damage bonus is not traced yet",
+      "evidence": "no code that reads a perk's damageModifier was traced yet (docs/re/creatures.md 16)"
+    },
+    "damage.metal": {
+      "paths": [
+        "damageModifier.distribution.metalDamage"
+      ],
+      "conv": "int",
+      "read": "unknown",
+      "backend": "live",
+      "state": "unproven",
+      "reason": "when the game reads a perk's damage bonus is not traced yet",
+      "evidence": "no code that reads a perk's damageModifier was traced yet (docs/re/creatures.md 16)"
+    },
+    "damage.pierce": {
+      "paths": [
+        "damageModifier.distribution.physicalPierceDamage"
+      ],
+      "conv": "float",
+      "read": "unknown",
+      "backend": "live",
+      "state": "unproven",
+      "reason": "when the game reads a perk's damage bonus is not traced yet",
+      "evidence": "no code that reads a perk's damageModifier was traced yet (docs/re/creatures.md 16)"
+    },
+    "damage.poison": {
+      "paths": [
+        "damageModifier.distribution.poisonDamage"
+      ],
+      "conv": "float",
+      "read": "unknown",
+      "backend": "live",
+      "state": "unproven",
+      "reason": "when the game reads a perk's damage bonus is not traced yet",
+      "evidence": "no code that reads a perk's damageModifier was traced yet (docs/re/creatures.md 16)"
+    },
+    "damage.shroud": {
+      "paths": [
+        "damageModifier.distribution.magicalFogDamage"
+      ],
+      "conv": "float",
+      "read": "unknown",
+      "backend": "live",
+      "state": "unproven",
+      "reason": "when the game reads a perk's damage bonus is not traced yet",
+      "evidence": "no code that reads a perk's damageModifier was traced yet (docs/re/creatures.md 16)"
+    },
+    "damage.stone": {
+      "paths": [
+        "damageModifier.distribution.stoneDamage"
+      ],
+      "conv": "int",
+      "read": "unknown",
+      "backend": "live",
+      "state": "unproven",
+      "reason": "when the game reads a perk's damage bonus is not traced yet",
+      "evidence": "no code that reads a perk's damageModifier was traced yet (docs/re/creatures.md 16)"
+    },
+    "damage.wood": {
+      "paths": [
+        "damageModifier.distribution.woodDamage"
+      ],
+      "conv": "int",
+      "read": "unknown",
+      "backend": "live",
+      "state": "unproven",
+      "reason": "when the game reads a perk's damage bonus is not traced yet",
+      "evidence": "no code that reads a perk's damageModifier was traced yet (docs/re/creatures.md 16)"
+    },
+    "value": {
+      "paths": [
+        "impactValues"
+      ],
+      "conv": "impactConfig",
+      "read": "now",
+      "backend": "live",
+      "evidence": "docs/re/abilities.md 1 and 4 (Perks), docs/re/gamedata.md 4: equipment_impacts starts a perk's impact program when its item is equipped and the perk unlocked; impact_initialize copies the config values into that instance as it starts; the tooltip row follows by locaId",
+      "config": "shown",
+      "clientNeeds": true
+    }
+  }
+}

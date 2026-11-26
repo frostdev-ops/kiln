@@ -34,7 +34,8 @@ class SameAsNative(unittest.TestCase):
         doc = json.loads(CASES.read_text())
         for c in doc["cases"]:
             by = {int(k): v for k, v in c.get("byItemId", {}).items()} if "byItemId" in c else None
-            ids, notes = ri.derive(c["registry"], c["src"], c["aliases"], c["entries"], by)
+            by_guid = c.get("byKeyGuid")
+            ids, notes = ri.derive(c["registry"], c["src"], c["aliases"], c["entries"], by, by_guid)
             self.assertEqual(ids, c["expect"], c["name"])
             self.assertEqual(len(notes), c.get("notes", 0), (c["name"], notes))
             for i in ids:

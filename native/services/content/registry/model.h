@@ -33,6 +33,9 @@ namespace kc::registry::model {
 // Bumped whenever the model or its reading of the regmap could give other Kiln values for the same bytes: part of every
 // cache key next to the base digest (P1-PLAN section 6: the digest names the data, not the decoder).
 inline constexpr const char* kDecoderVersion = "kiln-model 1";
+// An impactConfig row's config naming the entry's one whole-number or fractional configuration, the value its tooltip shows
+// (perks.value: its id differs per perk), not one config id (regmap/README.md).
+inline constexpr const char* kShownConfig = "shown";
 
 // Where an entry's data is: a resource, or one element of a resource's array member.
 struct Place {

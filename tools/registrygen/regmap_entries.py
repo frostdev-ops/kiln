@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-"""regmap_entries: the R1 registries' game entries of one game build, read offline from the game's own archive and
+"""regmap_entries: the registries' game entries of one game build, read offline from the game's own archive and
 executable (tools/bootsnap's reader: the files are read as data, the exe is never run), for regmap_check.py --record.
 
     regmap_entries.py --exe <a copy of the game exe, its .kfc pair beside it> --out <file outside the repository>
@@ -66,16 +66,39 @@ def main(argv=None):
         # templates' stable names (the same rules), then the drop tables they use
         trows = list(src.templates())
         tids, _ = regmap_ids.derive("templates", {"unnamed": "template_%.8s"}, {}, [{"guid": r.key.guid, "name": r.name, "id": 0} for r in trows])
-        users = {}
+        # one decode of each template: the drop tables and arsenals it names (they are named after it), and whether it is a
+        # creature (regmap/common/creatures.json entries.withComponent: an enemy's, a wild or farm animal's, a villager's behaviour)
+        creature_kinds = ("Enemy01BehaviorState", "Wildlife", "Animal", "ActiveNpcState")
+        users, arsenal_users, creatures = {}, {}, []
         for r, tid in zip(trows, tids):
-            for comp in find(r.value(), "DefaultInventory"):
+            v = r.value()
+            for comp in find(v, "DefaultInventory"):
                 ref = str(comp.get("defaultInventory") or "").lower()
                 if ref:
                     users.setdefault(ref, []).append(tid.split(":", 1)[1])
+            for comp in find(v, "EnemyArsenalReference"):
+                ref = str(comp.get("arsenal") or "").lower()
+                if ref:
+                    arsenal_users.setdefault(ref, []).append(tid.split(":", 1)[1])
+            comps = v.get("components") if isinstance(v, dict) else None
+            types = {c.get("$type") for c in comps if isinstance(c, dict)} if isinstance(comps, list) else set()
+            if any(k in types for k in creature_kinds):
+                creatures.append({"guid": r.key.guid, "name": r.name, "id": 0})
         out["registries"]["templates"] = [{"guid": r.key.guid, "name": r.name, "id": 0} for r in trows]
+        out["registries"]["creatures"] = creatures
         out["registries"]["drops"] = [{"guid": k.guid, "name": "", "id": 0, "namedBy": sorted(users.get(k.guid.lower(), []))}
                                       for k in src.keys("keen::ecs::DefaultInventoryResource")]
         out["registries"]["balance"] = [{"guid": k.guid, "name": "", "id": 0} for k in src.keys("keen::BalancingTable")]
+        # arsenals: the elements of the arsenal registry, named after the creatures that use them
+        _key, blob, el, at, n = src._collection("keen::enemy::EnemyArsenalRegistryResource", "arsenals")
+        b, gf = live.Blob(blob), g.field(el, "guid")[2]
+        out["registries"]["arsenals"] = [
+            {"guid": (gid := live.guid_text(b.bytes(at + i * el.size + gf, 16))), "name": "", "id": 0,
+             "namedBy": sorted(arsenal_users.get(gid.lower(), []))} for i in range(n)]
+        perk_t = src.need("keen::Perk")
+        perk_name = src.need_field(perk_t, "debugName")[2]
+        out["registries"]["perks"] = [{"guid": k.guid, "name": live.Blob(src.kfc.read(k)).blob_string(perk_name), "id": 0}
+                                      for k in src.keys("keen::Perk")]
     finally:
         src.close()
     Path(a.out).write_text(json.dumps(out), encoding="utf-8")

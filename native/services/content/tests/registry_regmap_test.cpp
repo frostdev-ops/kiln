@@ -196,8 +196,11 @@ int main(int argc, char** argv) {
             std::map<uint32_t, std::string> by;
             const map::json by_item = c.value("byItemId", map::json::object());
             for (const auto& [k, v] : by_item.items()) by[static_cast<uint32_t>(std::stoul(k))] = v;
+            std::map<std::string, std::string> by_guid;  // a registry keyed by another by GUID (creatures: their template)
+            const map::json by_key = c.value("byKeyGuid", map::json::object());
+            for (const auto& [k, v] : by_key.items()) by_guid[k] = v;
             std::vector<std::string> notes;
-            const auto ids = map::assign_ids(reg, src, al, es, c.contains("byItemId") ? &by : nullptr, &notes);
+            const auto ids = map::assign_ids(reg, src, al, es, c.contains("byItemId") ? &by : nullptr, &notes, c.contains("byKeyGuid") ? &by_guid : nullptr);
             const auto want = c["expect"].get<std::vector<std::string>>();
             if (ids != want) {
                 std::printf("  case \"%s\":", c["name"].get<std::string>().c_str());

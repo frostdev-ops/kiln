@@ -8,7 +8,8 @@ are tested on native/services/content/tests/registry_ids_cases.json):
   - a removed entry's id is never given again;
   - else game:<the debug name in lower case>, every character outside [a-z0-9_.-] as '_' (pinned by the record);
     an unnamed entry: the registry's "unnamed" pattern; a drop table: the first, in ordinal order, of its templates' names;
-    a loot entry: its item's id;
+    a loot entry: its item's id; an entry of a registry keyed by another (src "key": a creature by its template) that registry's
+    id for its GUID (or, without a GUID, its 32-bit id);
   - the entry that holds a name first keeps it; a later one gets "~<first 8 hex digits of its GUID>", more while taken.
 
 record_aliases() is what regmap_check.py --record does for each registry: from the previous build's record (its pins and
@@ -46,8 +47,9 @@ def _unnamed(src, entry, hexs):
     return "entry_%08x" % (entry.get("id", 0) & 0xFFFFFFFF)
 
 
-def derive(registry, src, aliases, entries, by_item_id=None):
-    """(ids, notes) for entries in the archive's order. aliases: {"pinned": {guid: id}, "removed": {id: build}}."""
+def derive(registry, src, aliases, entries, by_item_id=None, by_key_guid=None):
+    """(ids, notes) for entries in the archive's order. aliases: {"pinned": {guid: id}, "removed": {id: build}}. A registry with
+    src "key" takes the keyed registry's id: by_key_guid ({guid: id}) by the entry's GUID first, else by_item_id ({32-bit id: id})."""
     pinned = {g.lower(): i for g, i in (aliases.get("pinned") or {}).items()}
     taken = set((aliases.get("removed") or {}).keys())
     ids, notes = [None] * len(entries), []
@@ -69,11 +71,18 @@ def derive(registry, src, aliases, entries, by_item_id=None):
         if ids[i] is not None:
             continue
         hexs = _hex(e)
-        if src.get("key") == "items" and by_item_id is not None and e.get("id") in by_item_id:
-            cur = by_item_id[e["id"]]
+        keyed = None
+        if src.get("key"):
+            g = e.get("guid", "").lower()
+            if by_key_guid is not None and g and g in by_key_guid:
+                keyed = by_key_guid[g]
+            elif by_item_id is not None and e.get("id") in by_item_id:
+                keyed = by_item_id[e["id"]]
+        if keyed is not None:
+            cur = keyed
             if cur in taken:
                 notes.append(f"{registry}: a second entry for {cur} ({hexs}) gets a suffix")
-                cur = suffixed(by_item_id[e["id"]], hexs)
+                cur = suffixed(keyed, hexs)
             taken.add(cur)
             ids[i] = cur
             continue
@@ -113,7 +122,7 @@ def _key(e):
     return f"#{e['id']}" if isinstance(e.get("id"), int) and e.get("id") else ""
 
 
-def record_aliases(registry, src, previous, previous_table, entries, build, by_item_id=None):
+def record_aliases(registry, src, previous, previous_table, entries, build, by_item_id=None, by_key_guid=None):
     """(aliases, ids, table) of one registry on a new build. previous: the registry's aliases in the previous record;
     previous_table: GUID -> id of the previous build (may be empty: then the pins alone hold the ids)."""
     pinned = {g.lower(): i for g, i in (previous.get("pinned") or {}).items()}
@@ -126,7 +135,7 @@ def record_aliases(registry, src, previous, previous_table, entries, build, by_i
             removed.setdefault(i, build)
             pinned.pop(g, None)
     for _ in range(8):
-        ids, _notes = derive(registry, src, {"pinned": pinned, "removed": removed}, entries, by_item_id)
+        ids, _notes = derive(registry, src, {"pinned": pinned, "removed": removed}, entries, by_item_id, by_key_guid)
         moved = False
         for e, i in zip(entries, ids):
             g = e.get("guid", "").lower()
