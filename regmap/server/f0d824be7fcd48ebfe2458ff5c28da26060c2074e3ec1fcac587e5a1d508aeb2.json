@@ -5,19 +5,29 @@
   "gameBuild": "1287369",
   "steamBuild": "26430253",
   "verified": true,
-  "proof": "kilnctl regproof (2026-11-26 00:49:49Z): first build (no reflection diff); formulas 10/10; round trip 98/100 fields; ids 0 kept, 24100 added, 0 removed, 0 GUID changes; rows ok 98/100 (2 unproven)",
-  "regmapDigest": "e44bb944f77fe2d4bfe5aea88634664568c9f482eee03c378b21abf7c18ad90d",
+  "proof": "kilnctl regproof (2026-11-26 18:45:42Z): first build (no reflection diff); formulas 10/10; round trip 152/168 fields; ids 0 kept, 24990 added, 0 removed, 0 GUID changes; rows ok 152/168 (16 unproven)",
+  "regmapDigest": "0b93cb3a5434936674548febd4d2bd44f2de2d5c1e74d299b81ab7ba44f8ebb7",
   "provenBy": "lab",
   "layouts": {
     "keen::BalancingTable": "0xe9f12710",
     "keen::ItemInfo": "0x07009d37",
     "keen::LootableItemInfo": "0x9b7a0aec",
     "keen::LootableItemsResource": "0xb06a8c8c",
+    "keen::Perk": "0xeb00eef2",
     "keen::RecipeInfo": "0xdafbedd2",
     "keen::RecipeRegistryResource": "0xff3f624c",
-    "keen::ecs::DefaultInventoryResource": "0xb68d740d"
+    "keen::ecs::DefaultInventoryResource": "0xb68d740d",
+    "keen::ecs::TemplateResource": "0x05eab0b8",
+    "keen::enemy::EnemyArsenalRegistryResource": "0xb23babed",
+    "keen::enemy::EnemyArsenalResource": "0x30a5d455"
   },
   "rows": {
+    "arsenals.attacks": "ok",
+    "arsenals.attacks[].chance": "ok",
+    "arsenals.attacks[].maxHeight": "ok",
+    "arsenals.attacks[].maxRange": "ok",
+    "arsenals.attacks[].minRange": "ok",
+    "arsenals.attacks[].threat": "ok",
     "balance.altarsPerFlameLevel": "ok",
     "balance.buildzoneSizesPerAltarLevel": "ok",
     "balance.buildzoneSizesPerAltarLevel[].x": "ok",
@@ -58,6 +68,43 @@
     "balance.xpCurve.seed": "ok",
     "balance.xpCurve.start": "ok",
     "balance.xpPerLevel": "ok",
+    "creatures.arsenal": "ok",
+    "creatures.damage.multiplier": "ok",
+    "creatures.damage.perPlayer": "ok",
+    "creatures.faction": "ok",
+    "creatures.health.levelFactor": "ok",
+    "creatures.health.perPlayer": "ok",
+    "creatures.kind": "ok",
+    "creatures.level": "ok",
+    "creatures.levelMax": "ok",
+    "creatures.loot.disabled": "ok",
+    "creatures.loot.slots.max": "ok",
+    "creatures.loot.slots.min": "ok",
+    "creatures.resist.blunt": "ok",
+    "creatures.resist.cut": "ok",
+    "creatures.resist.explosion": "ok",
+    "creatures.resist.fire": "ok",
+    "creatures.resist.ice": "ok",
+    "creatures.resist.lightning": "ok",
+    "creatures.resist.metal": "ok",
+    "creatures.resist.physical": "ok",
+    "creatures.resist.pierce": "ok",
+    "creatures.resist.poison": "ok",
+    "creatures.resist.shroud": "ok",
+    "creatures.resist.skillShot": "ok",
+    "creatures.resist.stone": "ok",
+    "creatures.resist.wood": "ok",
+    "creatures.scale": "ok",
+    "creatures.sight.engageRange": "ok",
+    "creatures.sight.range": "ok",
+    "creatures.speed.combat": "ok",
+    "creatures.speed.flee": "ok",
+    "creatures.speed.patrol": "ok",
+    "creatures.speed.run": "ok",
+    "creatures.speed.sneak": "ok",
+    "creatures.speed.sprint": "ok",
+    "creatures.speed.walk": "ok",
+    "creatures.xp": "ok",
     "drops.entries": "ok",
     "drops.entries[].chance": "ok",
     "drops.entries[].count.max": "ok",
@@ -108,6 +155,31 @@
     "loot.stack.maxScaled": "ok",
     "loot.stack.min": "ok",
     "loot.stack.scalable": "ok",
+    "perks.armor.blunt": "ok",
+    "perks.armor.cut": "ok",
+    "perks.armor.enabled": "ok",
+    "perks.armor.fire": "ok",
+    "perks.armor.ice": "ok",
+    "perks.armor.lightning": "ok",
+    "perks.armor.magical": "ok",
+    "perks.armor.physical": "ok",
+    "perks.armor.pierce": "ok",
+    "perks.armor.shroud": "ok",
+    "perks.damage.blunt": "unproven",
+    "perks.damage.cut": "unproven",
+    "perks.damage.enabled": "unproven",
+    "perks.damage.explosion": "unproven",
+    "perks.damage.fire": "unproven",
+    "perks.damage.healing": "unproven",
+    "perks.damage.ice": "unproven",
+    "perks.damage.lightning": "unproven",
+    "perks.damage.metal": "unproven",
+    "perks.damage.pierce": "unproven",
+    "perks.damage.poison": "unproven",
+    "perks.damage.shroud": "unproven",
+    "perks.damage.stone": "unproven",
+    "perks.damage.wood": "unproven",
+    "perks.value": "ok",
     "recipes.duration": "ok",
     "recipes.inputs": "ok",
     "recipes.inputs[].category": "ok",
@@ -120,419 +192,453 @@
     "recipes.unlock": "ok"
   },
   "aliases": {
+    "removals": [],
     "renames": [
       {
-        "registry": "templates",
-        "guid": "023b8911-d151-4d56-887b-40c0f09da660",
-        "id": "game:base_enemy_spawner_crittereggcluster"
-      },
-      {
-        "registry": "templates",
-        "guid": "02c827a1-ab7a-4248-a240-47474684bf0f",
-        "id": "game:prop_desert_lantern_01_a_wall_range"
-      },
-      {
-        "registry": "templates",
-        "guid": "02f9d48d-a4eb-4838-85a7-c7a56e9fe5e2",
-        "id": "game:prop_wetland_bamboo_cage_02_a"
-      },
-      {
-        "registry": "templates",
-        "guid": "0fd18d3f-a01d-43d3-81f5-886742dbc90c",
-        "id": "game:buildings_set_nation01_shed_4m_fence_07"
-      },
-      {
-        "registry": "templates",
-        "guid": "11b6f1aa-dd8c-4854-a7ae-fde0a10fcd42",
-        "id": "game:prop_banner_enemy_camp_wall01a"
-      },
-      {
-        "registry": "templates",
-        "guid": "199d72c2-3aac-4d12-9727-1e252db8b446",
-        "id": "game:prop_banner_enemy_camp_wall02b"
-      },
-      {
-        "registry": "templates",
-        "guid": "236b0020-36a0-4251-8541-f2e2b387e7de",
-        "id": "game:enemy_weakspots_wildlife_generic_fog_head"
-      },
-      {
-        "registry": "templates",
-        "guid": "252e48b2-3a3b-409c-bf18-0ed65d9fe0f2",
-        "id": "game:prop_flowerpot_01_small_red"
-      },
-      {
-        "registry": "templates",
-        "guid": "27ab22dc-8445-40a6-87a0-a9fa0043fd18",
-        "id": "game:base_craftingstation"
-      },
-      {
-        "registry": "templates",
-        "guid": "2af6b05f-dc45-4082-9e3f-97d59c5c1d47",
-        "id": "game:prop_banner_coat_of_arms_hawk02"
-      },
-      {
-        "registry": "templates",
-        "guid": "2e0c4920-5ce8-4ea3-844f-57cd5b09755a",
-        "id": "game:prop_stairs_large_stone_01_2m_02"
-      },
-      {
-        "registry": "templates",
-        "guid": "2e3a4de2-d1ab-4104-81fc-e0330fc96fb2",
-        "id": "game:prop_banner_coat_of_arms_hawk01"
-      },
-      {
-        "registry": "templates",
-        "guid": "2f8d21f2-282f-4bb6-8b98-19c33e2c1db0",
-        "id": "game:prop_furniture_castle_sideboard_large_broken_01"
-      },
-      {
-        "registry": "templates",
-        "guid": "34bd516d-af2e-4336-9dbf-5a5a28eefed4",
-        "id": "game:nonmodalhint_07_savepoint"
-      },
-      {
-        "registry": "templates",
-        "guid": "364bdb31-2c06-4048-83b6-7205bd03263b",
-        "id": "game:lootcontainer_enemy_heavy_key_gold_deprecated"
-      },
-      {
-        "registry": "templates",
-        "guid": "42967409-d707-4c85-814d-fdfe1486256f",
-        "id": "game:prop_desert_lantern_01_a_ground_range"
-      },
-      {
-        "registry": "templates",
-        "guid": "4807ba92-9a8f-44e5-b3d1-69867b6fb1ab",
-        "id": "game:projectile_enemy_scavenger_crossbow_firearrow_encouraged"
-      },
-      {
-        "registry": "templates",
-        "guid": "49ed4f22-dab0-4459-aa79-222e8bb83128",
-        "id": "game:waterdrain_ground_1024_stone_player"
-      },
-      {
-        "registry": "templates",
-        "guid": "4aed4b00-87ae-4808-af67-1ae059553efc",
-        "id": "game:prop_banner_enemy_camp_ground01a"
-      },
-      {
-        "registry": "templates",
-        "guid": "4bc4fcd6-2cc3-45f4-9667-ef16d5af4016",
-        "id": "game:nonmodalhint_14_savepoint"
-      },
-      {
-        "registry": "templates",
-        "guid": "4d48e1d9-65b9-4888-9a2b-48de1322a3f8",
-        "id": "game:prop_buildings_lantern_01_a_ceiling_range"
-      },
-      {
-        "registry": "templates",
-        "guid": "53431928-2ca5-483e-b286-837aa68c9217",
-        "id": "game:explosion_enemy_mushroom_sporecloud_big_death"
-      },
-      {
-        "registry": "templates",
-        "guid": "5f40e80c-32e3-4d16-9d6f-342a6247b6ac",
-        "id": "game:prop_ancients_illumination_03_a_wall_blue_on"
-      },
-      {
-        "registry": "templates",
         "guid": "63d68bec-b68f-42b8-9a42-dafb9b560f71",
-        "id": "game:enemy_skeleton_elite_melee01_dungeon_hound"
+        "id": "game:enemy_skeleton_elite_melee01_dungeon_hound",
+        "registry": "creatures"
       },
       {
-        "registry": "templates",
-        "guid": "6a584da8-084b-446b-b27c-36521adc6ca2",
-        "id": "game:buildings_set_nation01_shed_4m_fence_06"
-      },
-      {
-        "registry": "templates",
-        "guid": "6c3f950c-9ba8-45c5-a5fd-eef6677e0251",
-        "id": "game:buildings_set_nation01_shed_4m_fence_05"
-      },
-      {
-        "registry": "templates",
-        "guid": "704bbf82-e9e9-4921-af57-3efddd7f30f7",
-        "id": "game:deco_ancientland_small_pomegranate_03_do_not_place"
-      },
-      {
-        "registry": "templates",
-        "guid": "7222a275-bd87-4820-8704-6e0e84cc3ff3",
-        "id": "game:base_prop_destructible_ancients"
-      },
-      {
-        "registry": "templates",
-        "guid": "760b378e-a5e2-456e-91a6-cda7e192bfb1",
-        "id": "game:projectile_enemy_scavenger_ranger_grenade_incendiary"
-      },
-      {
-        "registry": "templates",
         "guid": "783fc511-0fb1-4662-949e-f8a1d00ce5a6",
-        "id": "game:base_animal_wildlife_flying"
+        "id": "game:base_animal_wildlife_flying",
+        "registry": "creatures"
       },
       {
-        "registry": "templates",
+        "guid": "023b8911-d151-4d56-887b-40c0f09da660",
+        "id": "game:base_enemy_spawner_crittereggcluster",
+        "registry": "templates"
+      },
+      {
+        "guid": "02c827a1-ab7a-4248-a240-47474684bf0f",
+        "id": "game:prop_desert_lantern_01_a_wall_range",
+        "registry": "templates"
+      },
+      {
+        "guid": "02f9d48d-a4eb-4838-85a7-c7a56e9fe5e2",
+        "id": "game:prop_wetland_bamboo_cage_02_a",
+        "registry": "templates"
+      },
+      {
+        "guid": "0fd18d3f-a01d-43d3-81f5-886742dbc90c",
+        "id": "game:buildings_set_nation01_shed_4m_fence_07",
+        "registry": "templates"
+      },
+      {
+        "guid": "11b6f1aa-dd8c-4854-a7ae-fde0a10fcd42",
+        "id": "game:prop_banner_enemy_camp_wall01a",
+        "registry": "templates"
+      },
+      {
+        "guid": "199d72c2-3aac-4d12-9727-1e252db8b446",
+        "id": "game:prop_banner_enemy_camp_wall02b",
+        "registry": "templates"
+      },
+      {
+        "guid": "236b0020-36a0-4251-8541-f2e2b387e7de",
+        "id": "game:enemy_weakspots_wildlife_generic_fog_head",
+        "registry": "templates"
+      },
+      {
+        "guid": "252e48b2-3a3b-409c-bf18-0ed65d9fe0f2",
+        "id": "game:prop_flowerpot_01_small_red",
+        "registry": "templates"
+      },
+      {
+        "guid": "27ab22dc-8445-40a6-87a0-a9fa0043fd18",
+        "id": "game:base_craftingstation",
+        "registry": "templates"
+      },
+      {
+        "guid": "2af6b05f-dc45-4082-9e3f-97d59c5c1d47",
+        "id": "game:prop_banner_coat_of_arms_hawk02",
+        "registry": "templates"
+      },
+      {
+        "guid": "2e0c4920-5ce8-4ea3-844f-57cd5b09755a",
+        "id": "game:prop_stairs_large_stone_01_2m_02",
+        "registry": "templates"
+      },
+      {
+        "guid": "2e3a4de2-d1ab-4104-81fc-e0330fc96fb2",
+        "id": "game:prop_banner_coat_of_arms_hawk01",
+        "registry": "templates"
+      },
+      {
+        "guid": "2f8d21f2-282f-4bb6-8b98-19c33e2c1db0",
+        "id": "game:prop_furniture_castle_sideboard_large_broken_01",
+        "registry": "templates"
+      },
+      {
+        "guid": "34bd516d-af2e-4336-9dbf-5a5a28eefed4",
+        "id": "game:nonmodalhint_07_savepoint",
+        "registry": "templates"
+      },
+      {
+        "guid": "364bdb31-2c06-4048-83b6-7205bd03263b",
+        "id": "game:lootcontainer_enemy_heavy_key_gold_deprecated",
+        "registry": "templates"
+      },
+      {
+        "guid": "42967409-d707-4c85-814d-fdfe1486256f",
+        "id": "game:prop_desert_lantern_01_a_ground_range",
+        "registry": "templates"
+      },
+      {
+        "guid": "4807ba92-9a8f-44e5-b3d1-69867b6fb1ab",
+        "id": "game:projectile_enemy_scavenger_crossbow_firearrow_encouraged",
+        "registry": "templates"
+      },
+      {
+        "guid": "49ed4f22-dab0-4459-aa79-222e8bb83128",
+        "id": "game:waterdrain_ground_1024_stone_player",
+        "registry": "templates"
+      },
+      {
+        "guid": "4aed4b00-87ae-4808-af67-1ae059553efc",
+        "id": "game:prop_banner_enemy_camp_ground01a",
+        "registry": "templates"
+      },
+      {
+        "guid": "4bc4fcd6-2cc3-45f4-9667-ef16d5af4016",
+        "id": "game:nonmodalhint_14_savepoint",
+        "registry": "templates"
+      },
+      {
+        "guid": "4d48e1d9-65b9-4888-9a2b-48de1322a3f8",
+        "id": "game:prop_buildings_lantern_01_a_ceiling_range",
+        "registry": "templates"
+      },
+      {
+        "guid": "53431928-2ca5-483e-b286-837aa68c9217",
+        "id": "game:explosion_enemy_mushroom_sporecloud_big_death",
+        "registry": "templates"
+      },
+      {
+        "guid": "5f40e80c-32e3-4d16-9d6f-342a6247b6ac",
+        "id": "game:prop_ancients_illumination_03_a_wall_blue_on",
+        "registry": "templates"
+      },
+      {
+        "guid": "63d68bec-b68f-42b8-9a42-dafb9b560f71",
+        "id": "game:enemy_skeleton_elite_melee01_dungeon_hound",
+        "registry": "templates"
+      },
+      {
+        "guid": "6a584da8-084b-446b-b27c-36521adc6ca2",
+        "id": "game:buildings_set_nation01_shed_4m_fence_06",
+        "registry": "templates"
+      },
+      {
+        "guid": "6c3f950c-9ba8-45c5-a5fd-eef6677e0251",
+        "id": "game:buildings_set_nation01_shed_4m_fence_05",
+        "registry": "templates"
+      },
+      {
+        "guid": "704bbf82-e9e9-4921-af57-3efddd7f30f7",
+        "id": "game:deco_ancientland_small_pomegranate_03_do_not_place",
+        "registry": "templates"
+      },
+      {
+        "guid": "7222a275-bd87-4820-8704-6e0e84cc3ff3",
+        "id": "game:base_prop_destructible_ancients",
+        "registry": "templates"
+      },
+      {
+        "guid": "760b378e-a5e2-456e-91a6-cda7e192bfb1",
+        "id": "game:projectile_enemy_scavenger_ranger_grenade_incendiary",
+        "registry": "templates"
+      },
+      {
+        "guid": "783fc511-0fb1-4662-949e-f8a1d00ce5a6",
+        "id": "game:base_animal_wildlife_flying",
+        "registry": "templates"
+      },
+      {
         "guid": "7ab831ae-2c10-41ce-83ea-46b03ab17299",
-        "id": "game:projectile_enemy_scavenger_ranger_grenade_incendiary_encouraged"
+        "id": "game:projectile_enemy_scavenger_ranger_grenade_incendiary_encouraged",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "7ed2370c-75d0-4820-a67b-e845d31f5876",
-        "id": "game:prop_furniture_castle_sideboard_large_broken_02"
+        "id": "game:prop_furniture_castle_sideboard_large_broken_02",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "84d6f4af-40dc-4590-b6ad-07deaee960cf",
-        "id": "game:waterdrain_ground_1024_nature_player"
+        "id": "game:waterdrain_ground_1024_nature_player",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "8c42c5cd-57be-4a68-a0fa-e3b175894c8d",
-        "id": "game:base_door_large_interact"
+        "id": "game:base_door_large_interact",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "9a0ade54-4473-4eca-9fd4-e2b01051f2e0",
-        "id": "game:vfx_subentity_projectile_enemy_vorgothorgan_flower_ball_deflected"
+        "id": "game:vfx_subentity_projectile_enemy_vorgothorgan_flower_ball_deflected",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "ad35c7b0-cf2f-4f26-9f40-e6e6b2c8303f",
-        "id": "game:deco_ancientland_small_pomegranate_02_do_not_place"
+        "id": "game:deco_ancientland_small_pomegranate_02_do_not_place",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "b209c9b4-c02c-44d2-b0ab-bf0a3e0d2b43",
-        "id": "game:prop_ancients_cultivation_rack_large_on"
+        "id": "game:prop_ancients_cultivation_rack_large_on",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "c6af6c99-4652-4d35-8d62-77796ffba233",
-        "id": "game:spawnpoint_trigger_wildbeast_cyclops_fog"
+        "id": "game:spawnpoint_trigger_wildbeast_cyclops_fog",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "c7505379-96b6-4594-92a6-7669b51db500",
-        "id": "game:projectile_enemy_scavenger_crossbow_firearrow"
+        "id": "game:projectile_enemy_scavenger_crossbow_firearrow",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "f190be80-4093-4ee1-ab67-70cf37438ad6",
-        "id": "game:buildings_set_nation01_shed_4m_fence_08"
+        "id": "game:buildings_set_nation01_shed_4m_fence_08",
+        "registry": "templates"
       }
     ],
-    "removals": [],
     "suffixes": [
       {
-        "registry": "templates",
-        "guid": "1d18b507-c5ba-4d37-8c46-c58ddde298a1",
-        "id": "game:prop_wetland_bamboo_cage_02_a~1d18b507"
-      },
-      {
-        "registry": "templates",
-        "guid": "263122b4-6b01-4502-9b6d-519e6e8499e5",
-        "id": "game:prop_banner_enemy_camp_wall02b~263122b4"
-      },
-      {
-        "registry": "templates",
-        "guid": "289568d0-14c9-4ba3-bcbe-91ab3c1881a1",
-        "id": "game:enemy_weakspots_wildlife_generic_fog_head~289568d0"
-      },
-      {
-        "registry": "templates",
-        "guid": "40b0e14e-ee03-494c-b940-f16039a0f2ec",
-        "id": "game:nonmodalhint_07_savepoint~40b0e14e"
-      },
-      {
-        "registry": "templates",
-        "guid": "4aff5b10-2781-4838-920a-9d96a74fb64d",
-        "id": "game:prop_stairs_large_stone_01_2m_02~4aff5b10"
-      },
-      {
-        "registry": "templates",
-        "guid": "4b60f14a-539b-48d3-93b9-25f5612724b6",
-        "id": "game:prop_banner_coat_of_arms_hawk01~4b60f14a"
-      },
-      {
-        "registry": "templates",
-        "guid": "4bd27bda-8ab8-4065-8c57-0304c20ddc4f",
-        "id": "game:lootcontainer_enemy_heavy_key_gold_deprecated~4bd27bda"
-      },
-      {
-        "registry": "templates",
-        "guid": "65792369-e6aa-43a8-91f0-1a27fccd2f00",
-        "id": "game:prop_furniture_castle_sideboard_large_broken_01~65792369"
-      },
-      {
-        "registry": "templates",
-        "guid": "677eea30-f8db-41e4-900a-e131bc8353ba",
-        "id": "game:prop_buildings_lantern_01_a_ceiling_range~677eea30"
-      },
-      {
-        "registry": "templates",
-        "guid": "702d4c54-ba26-455a-8e5b-aff2275f142d",
-        "id": "game:buildings_set_nation01_shed_4m_fence_07~702d4c54"
-      },
-      {
-        "registry": "templates",
-        "guid": "86100fd6-7f00-4dc1-9bba-9be92b930798",
-        "id": "game:deco_ancientland_small_pomegranate_03_do_not_place~86100fd6"
-      },
-      {
-        "registry": "templates",
-        "guid": "88615f56-587b-4eb8-95d0-aa2e07865623",
-        "id": "game:projectile_enemy_scavenger_ranger_grenade_incendiary~88615f56"
-      },
-      {
-        "registry": "templates",
-        "guid": "95db86a4-c7e1-42fa-9d9d-9450873329bf",
-        "id": "game:prop_desert_lantern_01_a_wall_range~95db86a4"
-      },
-      {
-        "registry": "templates",
-        "guid": "983c94e6-94c2-4db7-b17f-5b4909ca875b",
-        "id": "game:projectile_enemy_scavenger_ranger_grenade_incendiary~983c94e6"
-      },
-      {
-        "registry": "templates",
-        "guid": "98933d96-bde3-4a98-9f35-d5b8f933bb58",
-        "id": "game:explosion_enemy_mushroom_sporecloud_big_death~98933d96"
-      },
-      {
-        "registry": "templates",
-        "guid": "a0258155-4f48-4332-a744-cf493292da49",
-        "id": "game:base_door_large_interact~a0258155"
-      },
-      {
-        "registry": "templates",
-        "guid": "a1ff5f72-2ae1-4011-ba6c-7e83338f9b88",
-        "id": "game:base_prop_destructible_ancients~a1ff5f72"
-      },
-      {
-        "registry": "templates",
-        "guid": "a7bfdeec-7293-421f-ba26-85299f9053a9",
-        "id": "game:prop_banner_enemy_camp_wall01a~a7bfdeec"
-      },
-      {
-        "registry": "templates",
-        "guid": "a7cdcdcc-1050-4ef0-aee8-327f18d49104",
-        "id": "game:buildings_set_nation01_shed_4m_fence_06~a7cdcdcc"
-      },
-      {
-        "registry": "templates",
-        "guid": "a818060b-69c5-4c43-95b9-fff5d236f287",
-        "id": "game:prop_furniture_castle_sideboard_large_broken_02~a818060b"
-      },
-      {
-        "registry": "templates",
-        "guid": "ac388a92-039b-4fda-942a-3de432086402",
-        "id": "game:prop_banner_coat_of_arms_hawk02~ac388a92"
-      },
-      {
-        "registry": "templates",
         "guid": "b05ee799-fe97-4206-abd8-3cd0a3d509b1",
-        "id": "game:enemy_skeleton_elite_melee01_dungeon_hound~b05ee799"
+        "id": "game:enemy_skeleton_elite_melee01_dungeon_hound~b05ee799",
+        "registry": "creatures"
       },
       {
-        "registry": "templates",
-        "guid": "b17408d0-ac4e-464a-b949-e0bb04ac7cb9",
-        "id": "game:prop_flowerpot_01_small_red~b17408d0"
-      },
-      {
-        "registry": "templates",
-        "guid": "b352c131-376b-466a-87bb-59974dbc68dc",
-        "id": "game:waterdrain_ground_1024_stone_player~b352c131"
-      },
-      {
-        "registry": "templates",
-        "guid": "c0fa309a-4d5a-427f-9258-53adef3620fc",
-        "id": "game:prop_ancients_illumination_03_a_wall_blue_on~c0fa309a"
-      },
-      {
-        "registry": "templates",
-        "guid": "cc036491-6419-479a-a071-f3833b7ec808",
-        "id": "game:waterdrain_ground_1024_nature_player~cc036491"
-      },
-      {
-        "registry": "templates",
-        "guid": "d66ffc3c-b2d3-428a-88ad-3e1a09f343be",
-        "id": "game:projectile_enemy_scavenger_crossbow_firearrow~d66ffc3c"
-      },
-      {
-        "registry": "templates",
-        "guid": "d6eb9891-8d98-4fc0-a25e-bd7e17f9c0c6",
-        "id": "game:prop_banner_enemy_camp_ground01a~d6eb9891"
-      },
-      {
-        "registry": "templates",
-        "guid": "d9d8b29d-d3a3-4770-95ca-cf1b68d3786b",
-        "id": "game:deco_ancientland_small_pomegranate_02_do_not_place~d9d8b29d"
-      },
-      {
-        "registry": "templates",
-        "guid": "dd17a648-30d0-4868-8596-0718907abc1a",
-        "id": "game:projectile_enemy_scavenger_crossbow_firearrow_encouraged~dd17a648"
-      },
-      {
-        "registry": "templates",
-        "guid": "dd3b6725-29f8-4fb8-8c2d-a911e9fde711",
-        "id": "game:base_craftingstation~dd3b6725"
-      },
-      {
-        "registry": "templates",
-        "guid": "e03539bb-816f-49be-a531-3d4abd1fde07",
-        "id": "game:prop_ancients_cultivation_rack_large_on~e03539bb"
-      },
-      {
-        "registry": "templates",
-        "guid": "e1d92262-abdd-45a9-9c43-d6ff2f024f61",
-        "id": "game:projectile_enemy_scavenger_ranger_grenade_incendiary_encouraged~e1d92262"
-      },
-      {
-        "registry": "templates",
-        "guid": "f058aa26-9eb8-4d6f-9681-510ef77c6146",
-        "id": "game:nonmodalhint_14_savepoint~f058aa26"
-      },
-      {
-        "registry": "templates",
-        "guid": "f3ab1f11-9c36-4d6e-9351-d261720349e4",
-        "id": "game:buildings_set_nation01_shed_4m_fence_08~f3ab1f11"
-      },
-      {
-        "registry": "templates",
         "guid": "f637117a-ad92-47fe-b803-7f84da5f085a",
-        "id": "game:base_animal_wildlife_flying~f637117a"
+        "id": "game:base_animal_wildlife_flying~f637117a",
+        "registry": "creatures"
       },
       {
-        "registry": "templates",
+        "guid": "1d18b507-c5ba-4d37-8c46-c58ddde298a1",
+        "id": "game:prop_wetland_bamboo_cage_02_a~1d18b507",
+        "registry": "templates"
+      },
+      {
+        "guid": "263122b4-6b01-4502-9b6d-519e6e8499e5",
+        "id": "game:prop_banner_enemy_camp_wall02b~263122b4",
+        "registry": "templates"
+      },
+      {
+        "guid": "289568d0-14c9-4ba3-bcbe-91ab3c1881a1",
+        "id": "game:enemy_weakspots_wildlife_generic_fog_head~289568d0",
+        "registry": "templates"
+      },
+      {
+        "guid": "40b0e14e-ee03-494c-b940-f16039a0f2ec",
+        "id": "game:nonmodalhint_07_savepoint~40b0e14e",
+        "registry": "templates"
+      },
+      {
+        "guid": "4aff5b10-2781-4838-920a-9d96a74fb64d",
+        "id": "game:prop_stairs_large_stone_01_2m_02~4aff5b10",
+        "registry": "templates"
+      },
+      {
+        "guid": "4b60f14a-539b-48d3-93b9-25f5612724b6",
+        "id": "game:prop_banner_coat_of_arms_hawk01~4b60f14a",
+        "registry": "templates"
+      },
+      {
+        "guid": "4bd27bda-8ab8-4065-8c57-0304c20ddc4f",
+        "id": "game:lootcontainer_enemy_heavy_key_gold_deprecated~4bd27bda",
+        "registry": "templates"
+      },
+      {
+        "guid": "65792369-e6aa-43a8-91f0-1a27fccd2f00",
+        "id": "game:prop_furniture_castle_sideboard_large_broken_01~65792369",
+        "registry": "templates"
+      },
+      {
+        "guid": "677eea30-f8db-41e4-900a-e131bc8353ba",
+        "id": "game:prop_buildings_lantern_01_a_ceiling_range~677eea30",
+        "registry": "templates"
+      },
+      {
+        "guid": "702d4c54-ba26-455a-8e5b-aff2275f142d",
+        "id": "game:buildings_set_nation01_shed_4m_fence_07~702d4c54",
+        "registry": "templates"
+      },
+      {
+        "guid": "86100fd6-7f00-4dc1-9bba-9be92b930798",
+        "id": "game:deco_ancientland_small_pomegranate_03_do_not_place~86100fd6",
+        "registry": "templates"
+      },
+      {
+        "guid": "88615f56-587b-4eb8-95d0-aa2e07865623",
+        "id": "game:projectile_enemy_scavenger_ranger_grenade_incendiary~88615f56",
+        "registry": "templates"
+      },
+      {
+        "guid": "95db86a4-c7e1-42fa-9d9d-9450873329bf",
+        "id": "game:prop_desert_lantern_01_a_wall_range~95db86a4",
+        "registry": "templates"
+      },
+      {
+        "guid": "983c94e6-94c2-4db7-b17f-5b4909ca875b",
+        "id": "game:projectile_enemy_scavenger_ranger_grenade_incendiary~983c94e6",
+        "registry": "templates"
+      },
+      {
+        "guid": "98933d96-bde3-4a98-9f35-d5b8f933bb58",
+        "id": "game:explosion_enemy_mushroom_sporecloud_big_death~98933d96",
+        "registry": "templates"
+      },
+      {
+        "guid": "a0258155-4f48-4332-a744-cf493292da49",
+        "id": "game:base_door_large_interact~a0258155",
+        "registry": "templates"
+      },
+      {
+        "guid": "a1ff5f72-2ae1-4011-ba6c-7e83338f9b88",
+        "id": "game:base_prop_destructible_ancients~a1ff5f72",
+        "registry": "templates"
+      },
+      {
+        "guid": "a7bfdeec-7293-421f-ba26-85299f9053a9",
+        "id": "game:prop_banner_enemy_camp_wall01a~a7bfdeec",
+        "registry": "templates"
+      },
+      {
+        "guid": "a7cdcdcc-1050-4ef0-aee8-327f18d49104",
+        "id": "game:buildings_set_nation01_shed_4m_fence_06~a7cdcdcc",
+        "registry": "templates"
+      },
+      {
+        "guid": "a818060b-69c5-4c43-95b9-fff5d236f287",
+        "id": "game:prop_furniture_castle_sideboard_large_broken_02~a818060b",
+        "registry": "templates"
+      },
+      {
+        "guid": "ac388a92-039b-4fda-942a-3de432086402",
+        "id": "game:prop_banner_coat_of_arms_hawk02~ac388a92",
+        "registry": "templates"
+      },
+      {
+        "guid": "b05ee799-fe97-4206-abd8-3cd0a3d509b1",
+        "id": "game:enemy_skeleton_elite_melee01_dungeon_hound~b05ee799",
+        "registry": "templates"
+      },
+      {
+        "guid": "b17408d0-ac4e-464a-b949-e0bb04ac7cb9",
+        "id": "game:prop_flowerpot_01_small_red~b17408d0",
+        "registry": "templates"
+      },
+      {
+        "guid": "b352c131-376b-466a-87bb-59974dbc68dc",
+        "id": "game:waterdrain_ground_1024_stone_player~b352c131",
+        "registry": "templates"
+      },
+      {
+        "guid": "c0fa309a-4d5a-427f-9258-53adef3620fc",
+        "id": "game:prop_ancients_illumination_03_a_wall_blue_on~c0fa309a",
+        "registry": "templates"
+      },
+      {
+        "guid": "cc036491-6419-479a-a071-f3833b7ec808",
+        "id": "game:waterdrain_ground_1024_nature_player~cc036491",
+        "registry": "templates"
+      },
+      {
+        "guid": "d66ffc3c-b2d3-428a-88ad-3e1a09f343be",
+        "id": "game:projectile_enemy_scavenger_crossbow_firearrow~d66ffc3c",
+        "registry": "templates"
+      },
+      {
+        "guid": "d6eb9891-8d98-4fc0-a25e-bd7e17f9c0c6",
+        "id": "game:prop_banner_enemy_camp_ground01a~d6eb9891",
+        "registry": "templates"
+      },
+      {
+        "guid": "d9d8b29d-d3a3-4770-95ca-cf1b68d3786b",
+        "id": "game:deco_ancientland_small_pomegranate_02_do_not_place~d9d8b29d",
+        "registry": "templates"
+      },
+      {
+        "guid": "dd17a648-30d0-4868-8596-0718907abc1a",
+        "id": "game:projectile_enemy_scavenger_crossbow_firearrow_encouraged~dd17a648",
+        "registry": "templates"
+      },
+      {
+        "guid": "dd3b6725-29f8-4fb8-8c2d-a911e9fde711",
+        "id": "game:base_craftingstation~dd3b6725",
+        "registry": "templates"
+      },
+      {
+        "guid": "e03539bb-816f-49be-a531-3d4abd1fde07",
+        "id": "game:prop_ancients_cultivation_rack_large_on~e03539bb",
+        "registry": "templates"
+      },
+      {
+        "guid": "e1d92262-abdd-45a9-9c43-d6ff2f024f61",
+        "id": "game:projectile_enemy_scavenger_ranger_grenade_incendiary_encouraged~e1d92262",
+        "registry": "templates"
+      },
+      {
+        "guid": "f058aa26-9eb8-4d6f-9681-510ef77c6146",
+        "id": "game:nonmodalhint_14_savepoint~f058aa26",
+        "registry": "templates"
+      },
+      {
+        "guid": "f3ab1f11-9c36-4d6e-9351-d261720349e4",
+        "id": "game:buildings_set_nation01_shed_4m_fence_08~f3ab1f11",
+        "registry": "templates"
+      },
+      {
+        "guid": "f637117a-ad92-47fe-b803-7f84da5f085a",
+        "id": "game:base_animal_wildlife_flying~f637117a",
+        "registry": "templates"
+      },
+      {
         "guid": "f7ae8928-2024-4204-ad11-2bb04d188429",
-        "id": "game:projectile_enemy_scavenger_ranger_grenade_incendiary_encouraged~f7ae8928"
+        "id": "game:projectile_enemy_scavenger_ranger_grenade_incendiary_encouraged~f7ae8928",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "f7e3f47c-d44d-449f-86fe-6d9856e0669a",
-        "id": "game:base_enemy_spawner_crittereggcluster~f7e3f47c"
+        "id": "game:base_enemy_spawner_crittereggcluster~f7e3f47c",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "f8f806ef-e290-488b-93e5-1dc260b26d47",
-        "id": "game:spawnpoint_trigger_wildbeast_cyclops_fog~f8f806ef"
+        "id": "game:spawnpoint_trigger_wildbeast_cyclops_fog~f8f806ef",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "fa9fb660-9931-42df-86fa-9ee0a1178aed",
-        "id": "game:prop_desert_lantern_01_a_ground_range~fa9fb660"
+        "id": "game:prop_desert_lantern_01_a_ground_range~fa9fb660",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "ff1d4e51-48b7-4dbc-bb03-53149a5cdc89",
-        "id": "game:buildings_set_nation01_shed_4m_fence_05~ff1d4e51"
+        "id": "game:buildings_set_nation01_shed_4m_fence_05~ff1d4e51",
+        "registry": "templates"
       }
     ]
   },
   "reasons": {
     "items.fuel.burnTime": "no game code reads an item's burn time on this build, only whether the item is a fuel, so an edit of it would change nothing",
+    "perks.damage.blunt": "when the game reads a perk's damage bonus is not traced yet",
+    "perks.damage.cut": "when the game reads a perk's damage bonus is not traced yet",
+    "perks.damage.enabled": "when the game reads a perk's damage bonus is not traced yet",
+    "perks.damage.explosion": "when the game reads a perk's damage bonus is not traced yet",
+    "perks.damage.fire": "when the game reads a perk's damage bonus is not traced yet",
+    "perks.damage.healing": "when the game reads a perk's damage bonus is not traced yet",
+    "perks.damage.ice": "when the game reads a perk's damage bonus is not traced yet",
+    "perks.damage.lightning": "when the game reads a perk's damage bonus is not traced yet",
+    "perks.damage.metal": "when the game reads a perk's damage bonus is not traced yet",
+    "perks.damage.pierce": "when the game reads a perk's damage bonus is not traced yet",
+    "perks.damage.poison": "when the game reads a perk's damage bonus is not traced yet",
+    "perks.damage.shroud": "when the game reads a perk's damage bonus is not traced yet",
+    "perks.damage.stone": "when the game reads a perk's damage bonus is not traced yet",
+    "perks.damage.wood": "when the game reads a perk's damage bonus is not traced yet",
     "recipes.station": "a recipe's station is a stations id, and Kiln has no stations registry yet, so no recipe's station reads as a Kiln id on any build"
   },
   "kinds": {
@@ -544,6 +650,10 @@
     "items.staminaCost": {
       "float": "none on this build",
       "sint32": "proven (48 entries on this build)"
+    },
+    "perks.value": {
+      "float": "proven (128 entries on this build)",
+      "sint32": "proven (222 entries on this build)"
     }
   }
 }

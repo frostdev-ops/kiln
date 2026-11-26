@@ -306,7 +306,7 @@ int main(int argc, char** argv) {
             if (one.build.regmap_digest != one.common_digest)
                 std::printf("  regmap %s: the record's regmapDigest %s is not regmap/common's %s\n", side, one.build.regmap_digest.c_str(), one.common_digest.c_str());
             CHECK(one.build.regmap_digest == one.common_digest);
-            CHECK(one.registries.size() == 5);
+            CHECK(one.registries.size() == std::size(gen::kRegistries));  // every schema registry has its regmap/common file
             for (const auto& [name, reg] : one.registries) {
                 const auto r = map::check_routing(reg);
                 for (const std::string& e : r) std::printf("  routing: %s\n", e.c_str());
@@ -339,7 +339,19 @@ int main(int argc, char** argv) {
             }
             CHECK(one.mapping("items", "fuel.burnTime", &why) == Mapping::Unproven && why.find("no game code reads") != std::string::npos);
             CHECK(one.mapping("recipes", "station", &why) == Mapping::Unproven && why.find("no stations registry") != std::string::npos);
-            CHECK(mapped == static_cast<int>(std::size(gen::kFields)) - 2 && unproven == 2);
+            // dev.32 (lane registry-r2a, lab-proven on f0d824be, mirrored on the client): every creatures and arsenals row, a perk's
+            // value (both kinds) and armour; the perk damage bonus stays off with its reason (its read time is not traced)
+            for (const auto& [reg, field] : {std::pair{"creatures", "kind"}, {"creatures", "level"}, {"creatures", "faction"}, {"creatures", "scale"},
+                                             {"creatures", "arsenal"}, {"creatures", "resist.fire"}, {"creatures", "speed.walk"}, {"creatures", "sight.range"},
+                                             {"creatures", "health.levelFactor"}, {"creatures", "loot.slots.max"}, {"arsenals", "attacks"},
+                                             {"arsenals", "attacks[].chance"}, {"arsenals", "attacks[].maxRange"}, {"perks", "value"}, {"perks", "armor.enabled"},
+                                             {"perks", "armor.shroud"}}) {
+                const bool ok = one.mapping(reg, field, &why) == Mapping::Mapped;
+                if (!ok) std::printf("  %s: %s.%s: %s\n", side, reg, field, why.c_str());
+                CHECK(ok);
+            }
+            CHECK(one.mapping("perks", "damage.ice", &why) == Mapping::Unproven && why.find("damage bonus is not traced") != std::string::npos);
+            CHECK(mapped == static_cast<int>(std::size(gen::kFields)) - 16 && unproven == 16);
             if (std::string(side) == "client") {
                 // review3 N4: row for row only where the client's layout of the registry's root type is the server's (a
                 // later client layout may differ legitimately: those rows are unproven); never ok where the server is not
