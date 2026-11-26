@@ -299,7 +299,7 @@ Three registries over the game's creature and perk data, experimental (`KILNX031
 { "format": 1,
   "registry": { "alter": [
     { "registry": "creatures", "select": { "id": "game:enemy_vukah_*", "has": ["enemy"] }, "field": "sight.range", "op": { "mul": 1.5 } },
-    { "registry": "creatures", "select": "game:animal_wildlife_wolf", "field": "level", "op": 12 },
+    { "registry": "creatures", "select": "game:enemy_wildbeast_wolf_earlygame", "field": "level", "op": 12 },
     { "registry": "arsenals", "select": "game:enemy_vukah_melee", "field": "attacks[*].chance", "op": { "mul": 0.5 } },
     { "registry": "perks", "select": "game:perk_damage_ice", "field": "value", "op": { "mul": 2 } } ] } }
 ```
