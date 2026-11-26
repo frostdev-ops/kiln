@@ -1248,7 +1248,7 @@ bool gd_registry_slot(uint32_t section, uint32_t id, const std::string& path, Gd
     if (!resolve(R.root, root_of(section, *e), path, &rs, &err) || rs.size() != 1 || !rs[0].node.t)
         return *why = "the game's value of this field is missing on this game build", false;
     Field f;
-    if (!leaf_of(rs[0].node.t, &f) || f.ref || f.vt == KILN_CV_GUID) return *why = "the game's value of this field is not a plain value on this game build", false;
+    if (!leaf_of(rs[0].node.t, &f) || f.ref || f.vt == KILN_CV_GUID) return *why = "the game's value of this field is missing on this game build: it is not a plain value there", false;
     out->addr = rs[0].node.addr + f.offset, out->f = f, out->kind = GD_KIND_BASE + section, out->id = e->id, out->field = path_index(rs[0].path);
     out->tip = 0, out->tip_format = 0;
     SlotInfo& si = g_info[out->addr];
