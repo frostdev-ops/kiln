@@ -841,15 +841,19 @@ void Model::fill(const Need& need, BaseModel* out) {
         const bool traits = need.all || need.traits.count(reg);
         auto& dst = out->registries[reg];
         // fields an entry has no value of (an item without a cost or an armor value): one note per field with the count and the
-        // first entry's reason, never one per entry (31.18 logged 34,207 such lines at a start with registry content)
+        // first entry's reason, never one per entry (31.18 logged 34,207 such lines at a start with registry content); out of
+        // the entries the field was read for: every entry for `fields`, else only the entries read whole
         std::map<std::string, std::pair<size_t, std::string>> missing;
+        size_t read_whole = 0;
         for (size_t i = 0; i < es->size(); ++i) {
             BaseModel::Entry e;
             e.id = (*es)[i].id;
             std::set<std::string> want = fields;
-            if (whole != need.whole.end() && whole->second.count(e.id))
+            if (whole != need.whole.end() && whole->second.count(e.id)) {
+                ++read_whole;
                 for (const auto& [fn, f] : rs->fields)
                     if (fn.find("[]") == std::string::npos) want.insert(fn);
+            }
             for (const std::string& fn : want) {
                 if (!rs->field(fn) || rs->field(fn)->name.find("[]") != std::string::npos) continue;
                 std::string w;
@@ -898,7 +902,7 @@ void Model::fill(const Need& need, BaseModel* out) {
             dst.push_back(std::move(e));
         }
         for (const auto& [fn, m] : missing)
-            d_->note(reg + "." + fn + " has no value in " + std::to_string(m.first) + " of " + std::to_string(es->size()) +
+            d_->note(reg + "." + fn + " has no value in " + std::to_string(m.first) + " of " + std::to_string(fields.count(fn) ? es->size() : read_whole) +
                      " entries on this build (the first: " + m.second + "); an edit of those composes over no value");
         // ids the ledger says a game build removed: every edit naming one is refused "removed by game build ..."
         for (const auto& [rid, build] : d_->rm.build.aliases.removed) {
