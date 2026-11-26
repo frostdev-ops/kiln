@@ -303,7 +303,7 @@ int main(int argc, char** argv) {
             if (one.build.regmap_digest != one.common_digest)
                 std::printf("  regmap %s: the record's regmapDigest %s is not regmap/common's %s\n", side, one.build.regmap_digest.c_str(), one.common_digest.c_str());
             CHECK(one.build.regmap_digest == one.common_digest);
-            CHECK(one.registries.size() == 5);
+            CHECK(one.registries.size() == 7);  // the five R1 registries and dev.32's buffs and abilities
             for (const auto& [name, reg] : one.registries) {
                 const auto r = map::check_routing(reg);
                 for (const std::string& e : r) std::printf("  routing: %s\n", e.c_str());
@@ -324,6 +324,12 @@ int main(int argc, char** argv) {
             // (owner ruling 2026-11-23: no client proof of its own), and keeps the server's reasons.
             std::string why;
             CHECK(one.mapping("items", "maxStack", &why) == Mapping::Mapped);
+            // dev.32 (registry-r2b): every buffs and abilities row proven in the lab on f0d824be (live round trips and base reads)
+            // and mirrored onto the client
+            for (const auto& [reg, field] : {std::pair{"buffs", "duration"}, {"buffs", "stacking"}, {"buffs", "kind"}, {"buffs", "saved"},
+                                             {"abilities", "timing.release"}, {"abilities", "timing.hit"}, {"abilities", "timing.cost"},
+                                             {"abilities", "timing.buff"}})
+                CHECK(one.mapping(reg, field, &why) == Mapping::Mapped);
             // registry-proof (31.x): the drop rows (lab drop tables), the loot rows (the roll's disassembly), block and comfort (their readers
             // found) are proven; two rows stay off with a proven reason, refused cleanly
             for (const auto& [reg, field] : {std::pair{"items", "block"}, {"items", "comfort"}, {"loot", "rarities"}, {"loot", "fixedRarity"},

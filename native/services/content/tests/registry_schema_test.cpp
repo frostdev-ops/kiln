@@ -29,9 +29,9 @@ static std::vector<Refusal> parse(const Schema& s, const char* doc, Batch* b) {
 
 int main() {
     const Schema s = generated_schema();
-    // ---- the five R1 registries, every row
-    CHECK(s.registries.size() == 5);
-    for (const char* r : {"items", "recipes", "loot", "drops", "balance"}) CHECK(s.registry(r) != nullptr);
+    // ---- the five R1 registries and dev.32's buffs and abilities, every row
+    CHECK(s.registries.size() == 7);
+    for (const char* r : {"items", "recipes", "loot", "drops", "balance", "buffs", "abilities"}) CHECK(s.registry(r) != nullptr);
     size_t rows = 0;
     for (const auto& g : gen::kRegistries) rows += g.count;
     CHECK(rows == std::size(gen::kFields));
