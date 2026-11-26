@@ -639,9 +639,9 @@ A ShroudForge writer refusal carries its own lock or handoff explanation; let th
   files for the change cache cost this start, and since dev.24 `ownershipBytes` (what the ownership receipt's SHA-256
   checks read, apart). `phase: "running"` and `progress` (dev.22, only while the run goes on) are
   described under [What you see while it runs](#what-you-see-while-it-runs).
-  `generation` (next release, phase `done` only): the SHA-256 of the ownership receipt of the game data this start
+  `generation` (0.2.0-dev.31.18, phase `done` only): the SHA-256 of the ownership receipt of the game data this start
   runs on (the one it published, or the one an unchanged start found live); the change journal below names it.
-- `kiln/eml/ownership/<file>.change-journal.json` (next release): which EML mod wrote which of the game's resources
+- `kiln/eml/ownership/<file>.change-journal.json` (0.2.0-dev.31.18): which EML mod wrote which of the game's resources
   and which members of each, written after each publication beside the receipt and kept by an unchanged start. Kiln's
   registry uses it to name EML mods on the Conflicts page ("<mod> (EML package) wrote this field in the game's archive
   before Kiln"); format and rules: [eml-startup.md](services/eml-startup.md#emls-own-pass-format-2).

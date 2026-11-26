@@ -440,6 +440,43 @@ fn an_nxm_download_is_checked_added_to_the_profile_recorded_and_undoable() {
     let n = m.calls("/versions");
     cat.check_updates(&d, false).unwrap();
     assert_eq!(m.calls("/versions"), n);
+
+    // the player gets 1.3.0 by hand (the file's page, then a drop or Add mod: a library import) instead of through the
+    // catalog: no "Update to 1.3.0" beside the 1.3.0 that is in (netjunk, 2026-11-26), with nothing asked
+    let by_hand = t.0.join("lantern-glow-1.3.0.zip");
+    let manifest_130 = String::from_utf8(MANIFEST.to_vec()).unwrap().replace("1.2.0", "1.3.0");
+    std::fs::write(&by_hand, zip_of(&[("lantern-glow/kiln.mod.json", manifest_130.as_bytes()), ("lantern-glow/LanternGlow.dll", b"dll 1.3")])).unwrap();
+    crate::library::import(&d, &[by_hand], &mut crate::task::NoProgress).unwrap();
+    let after = cat.installed(&d).unwrap();
+    assert!(after[0].info.in_library && !after[0].info.update_available, "{:?}", after[0].info);
+    assert_eq!(after[0].info.latest_version.as_deref(), Some("1.3.0"), "what Nexus Mods has is still known");
+    // a newer upload after that one is an update again
+    m.json("GET", &format!("{API}/v3/mod-files/90310/versions"), json!({"data": {"versions": [
+        version_json("310", "1009", "1.3.0", "3", manifest, "main"),
+        version_json("310", "1012", "1.4.0", "4", manifest, "main"),
+    ]}}));
+    let u = cat.check_updates(&d, true).unwrap();
+    assert!(u[0].info.update_available && u[0].info.latest_version.as_deref() == Some("1.4.0"), "{:?}", u[0].info);
+    assert_eq!(m.calls("/versions"), n + 1);
+}
+
+/// A mod whose Nexus Mods versions do not follow its manifest's (the page says 1.0 and 1.1, the manifest 1.4.2): the
+/// Library's versions say nothing about the page's, so a newer upload stays an update.
+#[test]
+fn a_mod_numbered_otherwise_on_nexus_keeps_its_update() {
+    let (_m, cat, t) = setup(Some(KEY));
+    let d = dirs(&t);
+    let src = t.0.join("src/lantern-glow");
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::write(src.join("kiln.mod.json"), String::from_utf8(MANIFEST.to_vec()).unwrap().replace("1.2.0", "1.4.2")).unwrap();
+    std::fs::write(src.join("LanternGlow.dll"), b"dll").unwrap();
+    let lref = crate::library::import(&d, &[src], &mut crate::task::NoProgress).unwrap().imported[0].clone();
+    std::fs::create_dir_all(cat.root()).unwrap();
+    std::fs::write(cat.root().join("installs.json"), serde_json::to_vec(&json!({"format": 1, "mods": [{"modId": "310", "name": "Lantern Glow", "fileId": "90310",
+        "fileName": "Main file", "versionId": "8010012", "versionGsid": "1001", "version": "1.0", "refs": [lref], "installed": "2026-11-07T10:00:00Z", "source": "nxm"}]})).unwrap()).unwrap();
+    std::fs::write(cat.root().join("latest.json"), serde_json::to_vec(&json!({"90310": {"version": "1.1", "versionGsid": "1002", "checked": crate::util::now_unix()}})).unwrap()).unwrap();
+    let inst = cat.installed(&d).unwrap();
+    assert!(inst[0].info.in_library && inst[0].info.update_available, "{:?}", inst[0].info);
 }
 
 #[test]

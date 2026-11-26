@@ -258,3 +258,61 @@ test("the Catalog's banner comes from the same result", async ({ page }) => {
   await page.getByRole("button", { name: "Open page" }).click();
   await expect.poll(() => opened(page)).toEqual(["https://www.nexusmods.com/enshrouded/mods/316?tab=files"]);
 });
+
+/** Drops files (by name: mock mode) on Play, as the browser does (add-updated.spec.ts). */
+async function drop(page: Page, ...files: string[]) {
+  const dt = await page.evaluateHandle((names) => { const d = new DataTransfer(); for (const n of names) d.items.add(new File(["x"], n)); return d; }, files);
+  await page.locator(".k-hero").dispatchEvent("dragover", { dataTransfer: dt });
+  await page.locator(".k-hero").dispatchEvent("drop", { dataTransfer: dt });
+}
+
+// netjunk (Discord, 2026-11-26): "Update 0.2.10" beside Kiln Auto Loot 0.2.10, still there after he updated by drag and
+// drop and by Add mod, and gone only after a restart. The notice clears as soon as the update is in, with no request
+// to any provider, and the next "Check for updates" names the newest version published by then.
+test("an update dropped on the launcher clears its notice at once, and the next check names the newest version", async ({ page }) => {
+  await desktop(page);
+  await expect(row(page, "New Items")).toContainText("Update 1.1.0", { timeout: 10_000 });
+  await expect(row(page, "New Items")).toContainText("1.0.0");
+  const asked = await mock(page, "githubRequests");
+  // the player downloads 1.1.0 from the release page and drops it on Play
+  await drop(page, "new-items-1.1.0.zip");
+  await expect(page.locator(".k-toast").filter({ hasText: "Updated New Items: 1.0.0 → 1.1.0" })).toBeVisible({ timeout: 8000 });
+  await expect(row(page, "New Items")).toContainText("1.1.0");
+  await expect(row(page, "New Items")).not.toContainText(/Update 1\.1\.0/, { timeout: 5000 });
+  await expect(row(page, "New Items").getByRole("button", { name: /^Update / })).toHaveCount(0);
+  // worked out again from what is remembered: an offline check, nothing asked of GitHub
+  await expect.poll(async () => (await requests(page)).filter((r) => r.offline === true).length).toBeGreaterThan(1);
+  expect(await mock(page, "githubRequests")).toBe(asked);
+  // the dialog says up to date with the installed version
+  const dialog = await openUpdates(page, "New Items");
+  await expect(dialog).toContainText("Up to date");
+  await page.keyboard.press("Escape");
+  // 1.2.0 is out; "Check for updates" asks and names it
+  await mock(page, "publish", "example-org/new-items", "1.2.0");
+  await checkButton(page).click();
+  await expect(row(page, "New Items")).toContainText("Update 1.2.0");
+  await expect(row(page, "New Items")).not.toContainText("Update 1.1.0");
+  // and it clears the same way after that update is dropped too
+  await drop(page, "new-items-1.2.0.zip");
+  await expect(page.locator(".k-toast").filter({ hasText: "Updated New Items: 1.1.0 → 1.2.0" })).toBeVisible({ timeout: 8000 });
+  await expect(row(page, "New Items")).not.toContainText(/Update 1\.2\.0/, { timeout: 5000 });
+  console.log("PASS updates.clears-after-update (launcher)");
+});
+
+// An update from the Catalog itself, with no page that reads the Library open (only the Catalog): the Catalog's banner
+// is worked out again at once (offline: nothing asked), not only on the way back to Play.
+test("an update from the Catalog clears the Catalog's banner at once", async ({ page }) => {
+  await page.goto("/?nexus=premium#/catalog");
+  await page.locator(".k-splash").waitFor({ state: "detached" });
+  await expect(page.getByText("Update ready: Weather Plus")).toBeVisible({ timeout: 10_000 });
+  const asked = (await requests(page)).filter((r) => !r.offline).length;
+  await page.getByRole("list", { name: "Mods" }).getByRole("listitem", { name: "Weather Plus", exact: true }).click();
+  const d = page.getByRole("dialog", { name: "Weather Plus" });
+  await d.getByRole("button", { name: "Update to 1.1.0" }).click();
+  await expect(page.locator(".k-toast").filter({ hasText: "Updated Weather Plus" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByText("Update ready: Weather Plus")).toHaveCount(0, { timeout: 5000 });
+  expect((await requests(page)).filter((r) => !r.offline).length, "worked out offline").toBe(asked);
+  expect(await mock(page, "githubRequests")).toBe(0);
+  console.log("PASS updates.catalog-banner-clears (launcher)");
+});

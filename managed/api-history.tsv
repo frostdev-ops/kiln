@@ -4952,6 +4952,8 @@ managed	Kiln.Blocks	Kiln.CraftSourceOptions.Locks.get -> bool	0.2.0-dev.31.12	0.
 managed	Kiln.Blocks	Kiln.CraftSourceOptions.Locks.init -> void	0.2.0-dev.31.12	0.2.21
 managed	Kiln.Blocks	Kiln.CraftSourceOptions.Order.get -> Kiln.CraftSourceOrder	0.2.0-dev.30.6	0.2.15
 managed	Kiln.Blocks	Kiln.CraftSourceOptions.Order.init -> void	0.2.0-dev.30.6	0.2.15
+managed	Kiln.Blocks	Kiln.CraftSourceOptions.Respec.get -> bool	0.2.0-dev.31.18	0.2.25
+managed	Kiln.Blocks	Kiln.CraftSourceOptions.Respec.init -> void	0.2.0-dev.31.18	0.2.25
 managed	Kiln.Blocks	Kiln.CraftSourceOrder	0.2.0-dev.30.6	0.2.15
 managed	Kiln.Blocks	Kiln.CraftSourceOrder.AfterStationOutputs = 1 -> Kiln.CraftSourceOrder	0.2.0-dev.30.6	0.2.15
 managed	Kiln.Blocks	Kiln.CraftSourceOrder.BeforeStationOutputs = 0 -> Kiln.CraftSourceOrder	0.2.0-dev.30.6	0.2.15
@@ -9130,6 +9132,7 @@ managed	Kiln.Blocks	const Kiln.BlockUi.StateCapability = "ui.blocks.state" -> st
 managed	Kiln.Blocks	const Kiln.ClientStations.Capability = "stations.client_view" -> string!	0.2.0-dev.31.13	0.2.22
 managed	Kiln.Blocks	const Kiln.Crafting.BuildSourcesCapability = "crafting.build_sources" -> string!	0.2.0-dev.31.12	0.2.21
 managed	Kiln.Blocks	const Kiln.Crafting.LockSourcesCapability = "items.lock_sources" -> string!	0.2.0-dev.31.12	0.2.21
+managed	Kiln.Blocks	const Kiln.Crafting.RespecSourcesCapability = "crafting.respec_sources" -> string!	0.2.0-dev.31.18	0.2.25
 managed	Kiln.Blocks	const Kiln.Crafting.SourceUiCapability = "crafting.source_ui" -> string!	0.2.0-dev.30.6	0.2.15
 managed	Kiln.Blocks	const Kiln.Crafting.SourcesCapability = "crafting.sources" -> string!	0.2.0-dev.30.6	0.2.15
 managed	Kiln.Blocks	const Kiln.Stations.ControlCapability = "stations.control" -> string!	0.2.0-dev.29.14	0.2.6
@@ -27742,6 +27745,8 @@ managed	Kiln.TestKit	Kiln.TestKit.FakeCraftSourceRegistration.Owner.get -> ulong
 managed	Kiln.TestKit	Kiln.TestKit.FakeCraftSourceRegistration.Owner.init -> void	0.2.0-dev.30.6	0.2.15
 managed	Kiln.TestKit	Kiln.TestKit.FakeCraftSourceRegistration.Player.get -> Kiln.EntityId	0.2.0-dev.30.6	0.2.15
 managed	Kiln.TestKit	Kiln.TestKit.FakeCraftSourceRegistration.Player.init -> void	0.2.0-dev.30.6	0.2.15
+managed	Kiln.TestKit	Kiln.TestKit.FakeCraftSourceRegistration.Respec.get -> bool	0.2.0-dev.31.18	0.2.25
+managed	Kiln.TestKit	Kiln.TestKit.FakeCraftSourceRegistration.Respec.init -> void	0.2.0-dev.31.18	0.2.25
 managed	Kiln.TestKit	Kiln.TestKit.FakeCrosshair	0.2.0-dev.31.13	0.2.22
 managed	Kiln.TestKit	Kiln.TestKit.FakeEcall	0.2.0-dev.29	0.2.4
 managed	Kiln.TestKit	Kiln.TestKit.FakeEcall.Deconstruct(out string! Native, out uint Site) -> void	0.2.0-dev.29	0.2.4
@@ -28373,6 +28378,7 @@ managed	Kiln.TestKit	Kiln.TestKit.HarnessCrafting.BuildStock(Kiln.EntityId playe
 managed	Kiln.TestKit	Kiln.TestKit.HarnessCrafting.Dyes(Kiln.EntityId player) -> System.Collections.Generic.IReadOnlyDictionary<Kiln.ItemId, long>!	0.2.0-dev.30.6	0.2.15
 managed	Kiln.TestKit	Kiln.TestKit.HarnessCrafting.FillStock(Kiln.EntityId player) -> System.Collections.Generic.IReadOnlyDictionary<Kiln.ItemId, long>!	0.2.0-dev.31.12	0.2.21
 managed	Kiln.TestKit	Kiln.TestKit.HarnessCrafting.LockStock(Kiln.EntityId player) -> System.Collections.Generic.IReadOnlyDictionary<Kiln.ItemId, long>!	0.2.0-dev.31.12	0.2.21
+managed	Kiln.TestKit	Kiln.TestKit.HarnessCrafting.RespecStock(Kiln.EntityId player) -> System.Collections.Generic.IReadOnlyDictionary<Kiln.ItemId, long>!	0.2.0-dev.31.18	0.2.25
 managed	Kiln.TestKit	Kiln.TestKit.HarnessCrafting.Sources.get -> System.Collections.Generic.IReadOnlyList<Kiln.TestKit.FakeCraftSourceRegistration!>!	0.2.0-dev.30.6	0.2.15
 managed	Kiln.TestKit	Kiln.TestKit.HarnessCrafting.Stock(Kiln.EntityId player) -> System.Collections.Generic.IReadOnlyDictionary<Kiln.ItemId, long>!	0.2.0-dev.30.6	0.2.15
 managed	Kiln.TestKit	Kiln.TestKit.HarnessCreatureControl	0.2.0-dev.28	0.2.3
@@ -33679,6 +33685,7 @@ native	services/kiln_stations.h	services/kiln_stations.h:KilnStationsApi:set_dye
 native	services/kiln_stations.h	services/kiln_stations.h:KilnStationsApi:set_fill_answers	0.2.0-dev.29.19	0.2.11
 native	services/kiln_stations.h	services/kiln_stations.h:KilnStationsApi:set_lock_stock	0.2.0-dev.31.12	0.2.21
 native	services/kiln_stations.h	services/kiln_stations.h:KilnStationsApi:set_output_source	0.2.0-dev.29.17	0.2.9
+native	services/kiln_stations.h	services/kiln_stations.h:KilnStationsApi:set_respec_stock	0.2.0-dev.31.18	0.2.25
 native	services/kiln_stations.h	services/kiln_stations.h:KilnStationsApi:source_stock	0.2.0-dev.30.6	0.2.15
 native	services/kiln_stations.h	services/kiln_stations.h:KilnStationsApi:station_read	0.2.0-dev.29.14	0.2.6
 native	services/kiln_stations.h	services/kiln_stations.h:KilnStationsApi:stations	0.2.0-dev.29.14	0.2.6

@@ -1,0 +1,96 @@
+{
+  "aside": "ShroudForge owns startup asset patching and runs EML packages in its mods folder",
+  "cached": false,
+  "eml": "0.2.0",
+  "error": null,
+  "file": null,
+  "format": 1,
+  "kilnEml": "0.1.0",
+  "mods": [
+    {
+      "capabilities": [],
+      "id": "emf_beastmaster_bear",
+      "name": null,
+      "path": "D:\\Steam\\steamapps\\common\\Enshrouded\\mods\\emf_beastmaster_bear",
+      "reason": "runs under ShroudForge (hosted by Kiln): its ShroudForge switch is on (Kiln's copy at D:\\Steam\\steamapps\\common\\Enshrouded\\mods\\emf_beastmaster_bear)",
+      "source": "profile",
+      "state": "own-loader",
+      "version": null
+    },
+    {
+      "capabilities": [],
+      "id": "emf_beastmaster_beasts",
+      "name": null,
+      "path": "D:\\Steam\\steamapps\\common\\Enshrouded\\mods\\emf_beastmaster_beasts",
+      "reason": "runs under ShroudForge (hosted by Kiln): its ShroudForge switch is on (Kiln's copy at D:\\Steam\\steamapps\\common\\Enshrouded\\mods\\emf_beastmaster_beasts)",
+      "source": "profile",
+      "state": "own-loader",
+      "version": null
+    },
+    {
+      "capabilities": [],
+      "id": "emf_beastmaster_wilds",
+      "name": null,
+      "path": "D:\\Steam\\steamapps\\common\\Enshrouded\\mods\\emf_beastmaster_wilds",
+      "reason": "runs under ShroudForge (hosted by Kiln): its ShroudForge switch is on (Kiln's copy at D:\\Steam\\steamapps\\common\\Enshrouded\\mods\\emf_beastmaster_wilds)",
+      "source": "profile",
+      "state": "own-loader",
+      "version": null
+    },
+    {
+      "capabilities": [],
+      "id": "endless-chests",
+      "name": null,
+      "path": "D:\\Steam\\SteamApps\\common\\Enshrouded\\mods\\endless-chests",
+      "reason": "runs under ShroudForge (hosted by Kiln): its ShroudForge switch is on (Kiln's copy at D:\\Steam\\SteamApps\\common\\Enshrouded\\mods\\endless-chests)",
+      "source": "profile",
+      "state": "own-loader",
+      "version": null
+    },
+    {
+      "capabilities": [],
+      "id": "less_dense_shroud_fog",
+      "name": null,
+      "path": "D:\\Steam\\steamapps\\common\\Enshrouded\\mods\\less_dense_shroud_fog",
+      "reason": "runs under ShroudForge (hosted by Kiln): its ShroudForge switch is on (Kiln's copy at D:\\Steam\\steamapps\\common\\Enshrouded\\mods\\less_dense_shroud_fog)",
+      "source": "profile",
+      "state": "own-loader",
+      "version": null
+    },
+    {
+      "capabilities": [],
+      "id": "loot-multipliers",
+      "name": null,
+      "path": "D:\\Steam\\steamapps\\common\\Enshrouded\\mods\\loot-multipliers",
+      "reason": "runs under ShroudForge (hosted by Kiln): its ShroudForge switch is on (Kiln's copy at D:\\Steam\\steamapps\\common\\Enshrouded\\mods\\loot-multipliers)",
+      "source": "profile",
+      "state": "own-loader",
+      "version": null
+    },
+    {
+      "capabilities": [],
+      "id": "mineral-refill-box",
+      "name": null,
+      "path": "D:\\Steam\\steamapps\\common\\Enshrouded\\mods\\mineral-refill-box",
+      "reason": "runs under ShroudForge (hosted by Kiln): its ShroudForge switch is on (Kiln's copy at D:\\Steam\\steamapps\\common\\Enshrouded\\mods\\mineral-refill-box)",
+      "source": "profile",
+      "state": "own-loader",
+      "version": null
+    },
+    {
+      "capabilities": [],
+      "id": "more-gliders",
+      "name": null,
+      "path": "D:\\Steam\\steamapps\\common\\Enshrouded\\mods\\more-gliders",
+      "reason": "runs under ShroudForge (hosted by Kiln): its ShroudForge switch is on (Kiln's copy at D:\\Steam\\steamapps\\common\\Enshrouded\\mods\\more-gliders)",
+      "source": "profile",
+      "state": "own-loader",
+      "version": null
+    }
+  ],
+  "ms": 0.0,
+  "patched": 0,
+  "phase": "aside",
+  "pid": 18264,
+  "restored": false
+}

@@ -1,0 +1,354 @@
+[
+ {
+  "id": 264000022,
+  "tag_name": "v0.2.12",
+  "name": "Kiln Auto Loot 0.2.12",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-11-26T07:06:16Z",
+  "assets": [
+   {
+    "id": 2640000221,
+    "name": "kiln-auto-loot-0.2.12.zip",
+    "size": 313200,
+    "content_type": "application/zip"
+   }
+  ]
+ },
+ {
+  "id": 264000021,
+  "tag_name": "v0.2.11",
+  "name": "Kiln Auto Loot 0.2.11",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-11-25T19:15:02Z",
+  "assets": [
+   {
+    "id": 2640000211,
+    "name": "kiln-auto-loot-0.2.11.zip",
+    "size": 313100,
+    "content_type": "application/zip"
+   }
+  ]
+ },
+ {
+  "id": 264000020,
+  "tag_name": "v0.2.10",
+  "name": "Kiln Auto Loot 0.2.10",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-11-25T06:24:37Z",
+  "assets": [
+   {
+    "id": 2640000201,
+    "name": "kiln-auto-loot-0.2.10.zip",
+    "size": 313000,
+    "content_type": "application/zip"
+   }
+  ]
+ },
+ {
+  "id": 264000019,
+  "tag_name": "v0.2.9",
+  "name": "Kiln Auto Loot 0.2.9",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-11-24T04:49:01Z",
+  "assets": [
+   {
+    "id": 2640000191,
+    "name": "kiln-auto-loot-0.2.9.zip",
+    "size": 312900,
+    "content_type": "application/zip"
+   }
+  ]
+ },
+ {
+  "id": 264000018,
+  "tag_name": "v0.2.8",
+  "name": "Kiln Auto Loot 0.2.8",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-11-24T03:22:09Z",
+  "assets": [
+   {
+    "id": 2640000181,
+    "name": "kiln-auto-loot-0.2.8.zip",
+    "size": 312800,
+    "content_type": "application/zip"
+   }
+  ]
+ },
+ {
+  "id": 264000017,
+  "tag_name": "v0.2.7",
+  "name": "Kiln Auto Loot 0.2.7",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-11-23T15:08:23Z",
+  "assets": [
+   {
+    "id": 2640000171,
+    "name": "kiln-auto-loot-0.2.7.zip",
+    "size": 312700,
+    "content_type": "application/zip"
+   }
+  ]
+ },
+ {
+  "id": 264000016,
+  "tag_name": "v0.2.6",
+  "name": "Kiln Auto Loot 0.2.6",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-11-20T22:30:41Z",
+  "assets": [
+   {
+    "id": 2640000161,
+    "name": "kiln-auto-loot-0.2.6.zip",
+    "size": 312600,
+    "content_type": "application/zip"
+   }
+  ]
+ },
+ {
+  "id": 264000015,
+  "tag_name": "v0.2.5",
+  "name": "Kiln Auto Loot 0.2.5",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-11-20T20:47:32Z",
+  "assets": [
+   {
+    "id": 2640000151,
+    "name": "kiln-auto-loot-0.2.5.zip",
+    "size": 312500,
+    "content_type": "application/zip"
+   }
+  ]
+ },
+ {
+  "id": 264000014,
+  "tag_name": "v0.2.4",
+  "name": "Kiln Auto Loot 0.2.4",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-11-20T20:33:53Z",
+  "assets": [
+   {
+    "id": 2640000141,
+    "name": "kiln-auto-loot-0.2.4.zip",
+    "size": 312400,
+    "content_type": "application/zip"
+   }
+  ]
+ },
+ {
+  "id": 264000013,
+  "tag_name": "v0.2.3",
+  "name": "Kiln Auto Loot 0.2.3",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-11-20T16:11:34Z",
+  "assets": [
+   {
+    "id": 2640000131,
+    "name": "kiln-auto-loot-0.2.3.zip",
+    "size": 312300,
+    "content_type": "application/zip"
+   }
+  ]
+ },
+ {
+  "id": 264000012,
+  "tag_name": "v0.2.2",
+  "name": "Kiln Auto Loot 0.2.2",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-11-20T14:31:16Z",
+  "assets": [
+   {
+    "id": 2640000121,
+    "name": "kiln-auto-loot-0.2.2.zip",
+    "size": 312200,
+    "content_type": "application/zip"
+   }
+  ]
+ },
+ {
+  "id": 264000011,
+  "tag_name": "v0.2.1",
+  "name": "Kiln Auto Loot 0.2.1",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-11-20T05:51:25Z",
+  "assets": [
+   {
+    "id": 2640000111,
+    "name": "kiln-auto-loot-0.2.1.zip",
+    "size": 312100,
+    "content_type": "application/zip"
+   }
+  ]
+ },
+ {
+  "id": 264000010,
+  "tag_name": "v0.2.0",
+  "name": "Kiln Auto Loot 0.2.0",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-11-20T04:02:03Z",
+  "assets": [
+   {
+    "id": 2640000101,
+    "name": "kiln-auto-loot-0.2.0.zip",
+    "size": 312000,
+    "content_type": "application/zip"
+   }
+  ]
+ },
+ {
+  "id": 264000009,
+  "tag_name": "v0.1.8",
+  "name": "Kiln Auto Loot 0.1.8",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-11-19T21:54:15Z",
+  "assets": [
+   {
+    "id": 2640000091,
+    "name": "kiln-auto-loot-0.1.8.zip",
+    "size": 311900,
+    "content_type": "application/zip"
+   }
+  ]
+ },
+ {
+  "id": 264000008,
+  "tag_name": "v0.1.7",
+  "name": "Kiln Auto Loot 0.1.7",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-11-17T22:41:01Z",
+  "assets": [
+   {
+    "id": 2640000081,
+    "name": "kiln-auto-loot-0.1.7.zip",
+    "size": 311800,
+    "content_type": "application/zip"
+   }
+  ]
+ },
+ {
+  "id": 264000007,
+  "tag_name": "v0.1.6",
+  "name": "Kiln Auto Loot 0.1.6",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-11-17T16:59:49Z",
+  "assets": [
+   {
+    "id": 2640000071,
+    "name": "kiln-auto-loot-0.1.6.zip",
+    "size": 311700,
+    "content_type": "application/zip"
+   }
+  ]
+ },
+ {
+  "id": 264000006,
+  "tag_name": "v0.1.5",
+  "name": "Kiln Auto Loot 0.1.5",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-11-17T01:05:12Z",
+  "assets": [
+   {
+    "id": 2640000061,
+    "name": "kiln-auto-loot-0.1.5.zip",
+    "size": 311600,
+    "content_type": "application/zip"
+   }
+  ]
+ },
+ {
+  "id": 264000005,
+  "tag_name": "v0.1.4",
+  "name": "Kiln Auto Loot 0.1.4",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-11-16T21:06:31Z",
+  "assets": [
+   {
+    "id": 2640000051,
+    "name": "kiln-auto-loot-0.1.4.zip",
+    "size": 311500,
+    "content_type": "application/zip"
+   }
+  ]
+ },
+ {
+  "id": 264000004,
+  "tag_name": "v0.1.3",
+  "name": "Kiln Auto Loot 0.1.3",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-11-16T18:52:11Z",
+  "assets": [
+   {
+    "id": 2640000041,
+    "name": "kiln-auto-loot-0.1.3.zip",
+    "size": 311400,
+    "content_type": "application/zip"
+   }
+  ]
+ },
+ {
+  "id": 264000003,
+  "tag_name": "v0.1.2",
+  "name": "Kiln Auto Loot 0.1.2",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-11-16T15:09:14Z",
+  "assets": [
+   {
+    "id": 2640000031,
+    "name": "kiln-auto-loot-0.1.2.zip",
+    "size": 311300,
+    "content_type": "application/zip"
+   }
+  ]
+ },
+ {
+  "id": 264000002,
+  "tag_name": "v0.1.1",
+  "name": "Kiln Auto Loot 0.1.1",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-11-16T05:12:13Z",
+  "assets": [
+   {
+    "id": 2640000021,
+    "name": "kiln-auto-loot-0.1.1.zip",
+    "size": 311200,
+    "content_type": "application/zip"
+   }
+  ]
+ },
+ {
+  "id": 264000001,
+  "tag_name": "v0.1.0",
+  "name": "Kiln Auto Loot 0.1.0",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-11-15T22:21:03Z",
+  "assets": [
+   {
+    "id": 2640000011,
+    "name": "kiln-auto-loot-0.1.0.zip",
+    "size": 311100,
+    "content_type": "application/zip"
+   }
+  ]
+ }
+]

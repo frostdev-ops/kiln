@@ -88,6 +88,10 @@ internal static unsafe class UiEngine
     private static uint _lastDemand = uint.MaxValue, _lastCapture = uint.MaxValue, _lastHover = uint.MaxValue;
     private static volatile string? _remapping;  // binding id waiting for "press a key"
     private static uint _remapPadHeld;  // a pad's LB/RB/LT/RT went down while waiting (0.2.0-dev.30.5): alone on its release
+    private static volatile CaptureBox? _box;     // a "press a key" box outside the Keys page (ShroudForge shortcuts)
+    private static bool _boxDrawn;                // ... drawn this frame
+    private static volatile Tuple<string, long>? _boxEnded;  // the box a press last ended, and when
+    private const string RemapBox = "keys\n";     // _boxEnded's id of a Keys page rebind: this and the binding's id
     private static bool _keysDrawn;               // the Keys tab was drawn this frame
     private static long _keysDrawnAtMs;           // ... and when it was drawn last
     private static bool _pageHost;      // this Kiln.Ui draws the Kiln menu inside the game's main menu (kiln.ui v4)
@@ -426,7 +430,54 @@ internal static unsafe class UiEngine
     {
         if (!_keysDrawn) _remapping = null;
         _keysDrawn = false;
+        if (!_boxDrawn) _box = null;
+        _boxDrawn = false;
     }
+
+    /// <summary>What a capture box did with a press.</summary>
+    internal enum CaptureResult
+    {
+        /// <summary>Taken (saved, cleared or cancelled): the box closes, the press stays out of the game.</summary>
+        Done,
+        /// <summary>Refused with a reason the box shows: it keeps waiting, the press stays out of the game.</summary>
+        Refused,
+        /// <summary>Refused, and the press goes on as if the box were not there (a wheel notch scrolls the page): it keeps
+        /// waiting.</summary>
+        Pass,
+    }
+
+    /// <summary>A "press a key" box other than the Keys page's (a ShroudForge mod's shortcut, 0.2.0-dev.31.18): while it is
+    /// armed and drawn, the first press (a key with Ctrl, Shift or Alt held, the middle or a side mouse button, a wheel
+    /// notch, a controller button) goes to <paramref name="Take"/> on the window thread, never to the game nor to a key
+    /// binding. Like the Keys page's: the box lasts only while it is drawn (Escape closes the Kiln menu inside kiln.ui,
+    /// and another section or a closed menu drops it); a lone Ctrl, Shift or Alt waits for the key it goes with.</summary>
+    internal sealed record CaptureBox(string Id, Func<uint, uint, KeyMods, CaptureResult> Take);
+
+    /// <summary>Arms <paramref name="box"/> (null: none); the box's page must call <see cref="CaptureDrawn"/> each frame.</summary>
+    internal static void ArmCapture(CaptureBox? box)
+    {
+        _remapping = null;
+        _box = box;
+        _boxDrawn = box is not null;
+    }
+
+    /// <summary>The id of the armed capture box, or null.</summary>
+    internal static string? CaptureId => _box?.Id;
+
+    /// <summary>The armed box <paramref name="id"/> was drawn this frame.</summary>
+    internal static void CaptureDrawn(string id)
+    {
+        if (_box?.Id == id) _boxDrawn = true;
+    }
+
+    /// <summary>A press ended box <paramref name="id"/> within the last <paramref name="ms"/>: ImGui still gets that key (Enter
+    /// or Space on the box's own button would arm it again).</summary>
+    internal static bool CaptureJustEnded(string id, int ms = 300) =>
+        _boxEnded is { } e && e.Item1 == id && Environment.TickCount64 - e.Item2 < ms;
+
+    /// <summary>A press ended a box whose id starts with <paramref name="prefix"/> within the last <paramref name="ms"/>.</summary>
+    internal static bool CaptureJustEndedFor(string prefix, int ms = 300) =>
+        _boxEnded is { } e && e.Item1.StartsWith(prefix, StringComparison.Ordinal) && Environment.TickCount64 - e.Item2 < ms;
 
     /// <summary>The registered windows (any thread; a snapshot).</summary>
     internal static UiWindow[] Windows
@@ -671,6 +722,7 @@ internal static unsafe class UiEngine
             }
             _remapping = null;
             _remapPadHeld = 0;
+            _boxEnded = Tuple.Create(RemapBox + id, Environment.TickCount64);
             if (pad)
             {
                 RemapTo(id, new KeyChord(k.Vk, mods));
@@ -681,6 +733,23 @@ internal static unsafe class UiEngine
             // a punctuation key is saved by its place (Backquote is the key left of 1 on any layout: key_names.h)
             RemapTo(id, new KeyChord(KeyNames.PressCode(k.Vk, k.Scan), mods));
             return true;
+        }
+        // a capture box (a ShroudForge mod's shortcut): the same rules as the Keys page's "press a key"
+        if (_box is not null && down && k.Repeat == 0 && !Ui.MenuOpen) _box = null;
+        // a Kiln text field has the keyboard since (the player clicked the field below the box, or the search box: a left
+        // click is no press the box sees): what is typed there is text, not the shortcut
+        if (_box is not null && down && k.TextInput != 0) _box = null;
+        if (_box is { } box && down)
+        {
+            if (k.Repeat != 0) return true;  // a held key's repeats while it waits
+            if (!pad && k.Vk is 0x10 or 0x11 or 0x12 or 0xA0 or 0xA1 or 0xA2 or 0xA3 or 0xA4 or 0xA5) return true;  // wait for a non-modifier
+            var result = box.Take(k.Vk, k.Scan, mods);
+            if (result == CaptureResult.Done)
+            {
+                if (ReferenceEquals(_box, box)) _box = null;
+                _boxEnded = Tuple.Create(box.Id, Environment.TickCount64);
+            }
+            return result != CaptureResult.Pass;
         }
         // A text field blocks presses, but a hold that started before it still needs its release.
         if (k.TextInput != 0 && down) return false;
@@ -755,7 +824,7 @@ internal static unsafe class UiEngine
     private static void RemapTo(string id, KeyChord chord)
     {
         if (KeyBindings.Rebind(id, chord) || id != KeyBindings.MenuId)
-            Hud.Toast($"{id}: {chord}", ToastKind.Success, 2.5);
+            Hud.Toast($"{id}: {KeyLayout.Show(chord)}", ToastKind.Success, 2.5);
         else if (chord.IsPad)
             Hud.Toast(KilnText.T("keys.toast.pad_menu", ("key", chord)), ToastKind.Warning, 4);
         else
@@ -1042,9 +1111,14 @@ internal static unsafe class UiEngine
         ui.Text(what);
         ui.Tooltip(id);
         ui.NextColumn();
-        if (ui.Button(_remapping == id ? KilnText.T("keys.press") : key.ToString(), 160 * ui.Scale)) _remapping = _remapping == id ? null : id;
+        // the names in the player's keyboard layout (KeyLayout: "Ü" where Kiln stores LeftBracket); the stored form stays.
+        // One id while the label changes, so ImGui's navigation may press it with the Enter or Space that just ended the
+        // rebind: that press does not arm it again (as a ShroudForge shortcut's capture box)
+        if (ui.Button((_remapping == id ? KilnText.T("keys.press") : KeyLayout.Show(key)) + "###key", 160 * ui.Scale) &&
+            !CaptureJustEnded(RemapBox + id))
+            _remapping = _remapping == id ? null : id;
         ui.NextColumn();
-        ui.TextDisabled(def.ToString());
+        ui.TextDisabled(KeyLayout.Show(def));
         ui.NextColumn();
         var reset = key != def;
         if (reset && ui.SmallButton(KilnText.T("keys.reset"))) KeyBindings.Reset(id);

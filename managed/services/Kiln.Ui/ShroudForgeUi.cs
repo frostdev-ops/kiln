@@ -334,9 +334,10 @@ internal static class ShroudForgeUi
             : KilnText.T("shroudforge.save.setting_next", ("setting", s?.Label ?? key));
     }
 
-    /// <summary>A setting's text field had the keyboard in the frame before <paramref name="frame"/> (or in it): the page's
-    /// section keys (Tab, LB / RB) leave it alone, as they do the search box.</summary>
-    internal static bool FieldActive(ulong frame) => _activeFrame != 0 && frame >= _activeFrame && frame - _activeFrame <= 1;
+    /// <summary>A setting's text field had the keyboard in the frame before <paramref name="frame"/> (or in it), or a
+    /// shortcut's capture box waits for a press: the page's section keys (Tab, LB / RB) leave it alone, as they do the
+    /// search box.</summary>
+    internal static bool FieldActive(ulong frame) => _activeFrame != 0 && frame >= _activeFrame && frame - _activeFrame <= 1 || Capturing;
 
     /// <summary>Waits until every queued edit is written (tests, the preview).</summary>
     internal static void Flush()
@@ -393,6 +394,8 @@ internal static class ShroudForgeUi
         public long Version;
         /// <summary>The <see cref="KilnText.Generation"/> its texts were made in.</summary>
         public int Texts;
+        /// <summary>The keyboard layout its shortcut names were made in (<see cref="KeyLayout.Stamp"/>).</summary>
+        public long Layout;
         public string? Error;
         public string Id = "";
         public bool SwitchOn;
@@ -407,7 +410,7 @@ internal static class ShroudForgeUi
 
     private static View ViewOf(string folder, SfPackage p)
     {
-        var view = new View { Package = p, Version = Interlocked.Read(ref _version), Texts = KilnText.Generation, Id = "sf." + folder,
+        var view = new View { Package = p, Version = Interlocked.Read(ref _version), Texts = KilnText.Generation, Layout = KeyLayout.Stamp(), Id = "sf." + folder,
             RebuildOnWorker = p.Settings.Count > DrawnSettings };
         // The setting cap alone does not bound a frame: one list can have thousands of checkboxes, as can the
         // groups/actions outside settings. Do not truncate editable options (a write could then lose selections).
@@ -434,7 +437,7 @@ internal static class ShroudForgeUi
         if (now.Package is not { } p) return null;
         var version = Interlocked.Read(ref _version);
         var view = now.View is { } v && ReferenceEquals(v.Package, p) ? v : null;
-        if (view is not null && view.Version == version && view.Texts == KilnText.Generation) return view;
+        if (view is not null && view.Version == version && view.Texts == KilnText.Generation && view.Layout == KeyLayout.Stamp()) return view;
         if (view is { RebuildOnWorker: false })
         {
             view = ViewOf(folder, p);
@@ -453,7 +456,8 @@ internal static class ShroudForgeUi
     private static void Keep(Entry e, SfPackage p, View view)
     {
         lock (e)
-            if (ReferenceEquals(e.Now.Package, p) && (e.Now.View is not { } old || old.Version < view.Version || old.Version == view.Version && old.Texts != view.Texts))
+            if (ReferenceEquals(e.Now.Package, p) && (e.Now.View is not { } old || old.Version < view.Version ||
+                                                      old.Version == view.Version && (old.Texts != view.Texts || old.Layout != view.Layout)))
                 e.Now = e.Now with { View = view };
     }
 
@@ -506,7 +510,7 @@ internal static class ShroudForgeUi
             {
                 Id = d.Key.Length <= 200 ? d.Key : "#" + made++,
                 Text = text,
-                KeyLabel = d.Control == "keybind" ? Clip(SdlKeys.Label(value is JsonValue kv && kv.GetValueKind() == JsonValueKind.String ? text : "") ?? text, 200) : "",
+                KeyLabel = d.Control == "keybind" ? Clip(value is JsonValue kv && kv.GetValueKind() == JsonValueKind.String ? SfShortcuts.Label(text) : text, 200) : "",
                 OptionIds = labels.Select((l, oi) => l + "###o" + oi).ToArray(),
                 Chosen = d.Options.Select(o => chosen?.Any(x => JsonNode.DeepEquals(x, o.Value)) == true).ToArray(),
                 ComboItems = d.Options.Count > 0 ? UiDraw.ComboItems(labels) : [],
@@ -816,12 +820,16 @@ internal static class ShroudForgeUi
         {
             case (_, "keybind"):
             {
+                var none = KilnText.T("shroudforge.shortcut_off");
                 using (ui.PushColor(UiColorSlot.Text, GameColors.Text))
-                    ui.Text(KilnText.T("shroudforge.shortcut", ("key", item.KeyLabel)));
+                    ui.Text(KilnText.T("shroudforge.shortcut", ("key", item.KeyLabel.Length > 0 ? item.KeyLabel : none)));
                 using (ui.FontSize(14 * k))
                 using (ui.PushColor(UiColorSlot.Text, GameColors.Muted))
                     ui.TextWrapped(KilnText.T("shroudforge.shortcut_help"));
-                TextField(ui, folder, d, item.Text, width, text => JsonValue.Create(text));
+                CaptureBox(ui, folder, item, none, s);
+                // what the player types the way Kiln names keys ("Ctrl+G", "F5", "Mouse4") is saved in ShroudForge's form; text
+                // that is no shortcut goes on as typed, and the check says why it is refused
+                TextField(ui, folder, d, item.Text, width, text => JsonValue.Create(SfShortcuts.Normalize(text) ?? text));
                 return;
             }
             case ("boolean", _) when d.Options.Count == 0:
@@ -888,6 +896,75 @@ internal static class ShroudForgeUi
                 TextField(ui, folder, d, item.Text, width, text => JsonValue.Create(text));
                 return;
         }
+    }
+
+    // ------------------------------------------------------------------------------------- a shortcut's capture box ----
+
+    private static string CaptureId(string folder, string key) => "sf\n" + folder + "\n" + key;
+
+    /// <summary>A ShroudForge shortcut's capture box is waiting for a press, or a press just ended one (ImGui gets that key
+    /// in a later frame): the page's section keys leave it alone (a captured Tab is the shortcut, not the next section).</summary>
+    internal static bool Capturing =>
+        UiEngine.CaptureId is { } id && id.StartsWith("sf\n", StringComparison.Ordinal) || UiEngine.CaptureJustEndedFor("sf\n");
+
+    /// <summary>The shortcut as a button: click it, then press the key or mouse button (with Ctrl, Shift or Alt); Kiln saves
+    /// ShroudForge's code for that key (UiEngine.Key takes the press on the window thread, kept from the game and the key
+    /// bindings). Click it again to stop waiting; Backspace or Delete clears the shortcut, as Unbind does.</summary>
+    private static void CaptureBox(UiDraw ui, string folder, Item item, string none, float s)
+    {
+        var d = item.Def;
+        var id = CaptureId(folder, d.Key);
+        var armed = UiEngine.CaptureId == id;
+        if (armed) UiEngine.CaptureDrawn(id);
+        var shown = armed ? KilnText.T("keys.press") : item.KeyLabel.Length > 0 ? item.KeyLabel : none;
+        // (Enter or Space that just ended the box also reaches ImGui, which would press the focused box again)
+        if (ui.Button(shown + "###capture", 240 * s) && !UiEngine.CaptureJustEnded(id))
+        {
+            if (armed) UiEngine.ArmCapture(null);
+            else
+            {
+                var label = item.Label;
+                UiEngine.ArmCapture(new UiEngine.CaptureBox(id, (vk, scan, mods) => Captured(folder, d.Key, label, vk, scan, mods)));
+            }
+        }
+        if (item.Text.Length == 0) return;
+        ui.SameLine();
+        if (ui.SmallButton(KilnText.T("keys.unbind") + "###clear"))
+        {
+            if (armed) UiEngine.ArmCapture(null);
+            Edit(folder, d.Key, JsonValue.Create(""));
+        }
+    }
+
+    /// <summary>A press in the capture box of setting <paramref name="key"/> (window thread): saved in ShroudForge's form, or
+    /// refused with the reason under the setting.</summary>
+    internal static UiEngine.CaptureResult Captured(string folder, string key, string label, uint vk, uint scan, KeyMods mods)
+    {
+        if (vk == 0x1B) return UiEngine.CaptureResult.Done;  // Escape (when kiln.ui lets one through): stop waiting
+        if (vk is 0x08 or 0x2E && mods == KeyMods.None)
+        {
+            Edit(folder, key, JsonValue.Create(""));  // Backspace, Delete: no shortcut
+            return UiEngine.CaptureResult.Done;
+        }
+        var (binding, why) = SfShortcuts.FromPress(vk, scan, mods);
+        if (binding is not null)
+        {
+            Edit(folder, key, JsonValue.Create(binding));
+            return UiEngine.CaptureResult.Done;
+        }
+        var name = KeyNames.Name(vk);
+        Func<string> text = why switch
+        {
+            SfShortcuts.Refusal.Wheel => () => KilnText.T("shroudforge.capture_wheel", ("setting", label)),
+            SfShortcuts.Refusal.Pad => () => KilnText.T("shroudforge.capture_pad", ("setting", label)),
+            _ => () => KilnText.T("shroudforge.capture_unknown", ("setting", label), ("key", name)),
+        };
+        lock (Lock)
+        {
+            Errors[(folder, key)] = text;
+            _version++;
+        }
+        return why == SfShortcuts.Refusal.Wheel ? UiEngine.CaptureResult.Pass : UiEngine.CaptureResult.Refused;
     }
 
     // A text or number field: what the player types is kept until they leave the field, then saved.
@@ -1089,9 +1166,6 @@ internal static class SdlKeys
         }
         return null;
     }
-
-    /// <summary>A ShroudForge shortcut for people: the keyboard part as Kiln names it, else the raw text.</summary>
-    public static string? Label(string binding) => ToKilnKey(binding) ?? (binding.Length > 0 ? binding : null);
 }
 
 /// <summary>ShroudForge's menu shortcut (F9 by default) and <c>shroudforge.ui.toggle_modloader()</c> when no ShroudForge

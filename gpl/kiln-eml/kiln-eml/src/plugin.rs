@@ -539,7 +539,10 @@ fn loader_roots(game: &Utf8Path) -> Vec<Utf8PathBuf> {
         .and_then(|v| v.pointer("/paths/mods").and_then(|m| m.as_str()).map(str::to_owned))
         .filter(|m| !m.trim().is_empty());
     if let Some(m) = sf {
-        let p = Utf8PathBuf::from(m.replace('\\', "/"));
+        // Windows (the game, also under Wine): as Windows names the folder, not ShroudForge's canonical `\\?\C:\…\mods`.
+        // The folders kiln-eml names in it are this root joined with their names (`C:\…\mods\bare` in kiln.log, eml.json
+        // and the launcher, never `//?/C:/…/mods\bare`). Elsewhere (kiln-eml-run) `\` is no separator.
+        let p = Utf8PathBuf::from(if cfg!(windows) { discover::windows_plain_path(&m) } else { m.replace('\\', "/") });
         roots.push(if p.is_absolute() { p } else { game.join(p) });
     }
     roots.push(game.join("mods"));
@@ -1096,6 +1099,35 @@ mod records_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ShroudForge writes its `paths.mods` from a canonical path (`\\?\C:\…\mods`). The folders kiln-eml names in it,
+    /// in kiln.log, eml.json and the launcher's engine status, are that root joined with a folder's name: they read
+    /// `C:\…\mods\bare`, as Windows and the launcher name them, never `//?/C:/…/mods\bare`.
+    #[cfg(windows)]
+    #[test]
+    fn shroudforges_mods_folder_is_named_as_windows_names_it() {
+        let game = Utf8PathBuf::from_path_buf(std::env::temp_dir()).unwrap().join(format!("kiln-eml-sf-root-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&game);
+        let mods = game.join("mods");
+        std::fs::create_dir_all(mods.join("bare").join("src")).unwrap();
+        std::fs::write(mods.join("bare").join("mod.json"), r#"{"id":"bare","name":"N","version":"1.0.0","capabilities":["patch"]}"#).unwrap();
+        std::fs::write(mods.join("bare").join("src").join("mod.lua"), "-- x").unwrap();
+        std::fs::create_dir_all(game.join("shroudforge").join("config")).unwrap();
+        for configured in [format!(r"\\?\{mods}"), format!(r"\\?\{mods}").replace('\\', "/"), mods.as_str().replace('\\', "/")] {
+            std::fs::write(game.join("shroudforge").join("config").join("modloader-config.json"),
+                serde_json::json!({"paths": {"mods": configured}}).to_string()).unwrap();
+            let root = shroudforge_root(&game);
+            // what a dedicated server's kiln.log and eml.json say about a package ShroudForge has off
+            let rows = discover::aside_dropins(&root, &game.join("kiln"), &[], &[], "ShroudForge (hosted by Kiln)", true);
+            let reason = rows[0].reason.as_deref().unwrap();
+            assert!(reason.contains(&format!(r"at {mods}\bare switched off")), "{configured}: {reason}");
+            let listed: Vec<_> = discover::folder_candidates(&root, "game-mods").into_iter().map(|c| c.path.to_string()).collect();
+            assert_eq!(listed, [format!(r"{mods}\bare")], "{configured}");
+            assert_eq!(root.as_str(), mods.as_str(), "{configured}");
+        }
+        std::fs::remove_dir_all(&game).unwrap();
+    }
+
     /// Proton without a dbghelp override (player report 2026-11-17, Holster Toggle): the line names who the file is
     /// (it was ShroudForge's loader, not EML's) and the file it is, and for a modified EML loader that its own code does
     /// not run either.

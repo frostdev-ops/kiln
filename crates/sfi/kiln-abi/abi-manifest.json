@@ -988,7 +988,7 @@
           "size": 72
         }
       },
-      "sha256": "d918425d6c8fd40c87b753daf2fa5ab1cd01f41bf6e698378da3d902bb095bd0"
+      "sha256": "b506c216dc7beaf5368adddf0b5cf44b829183764efc9b139e4477dd0b3a90d0"
     },
     "native/core/abi/services/kiln_camera.h": {
       "function_macros": [],
@@ -7061,6 +7061,7 @@
             "set_fill_answers": 232,
             "set_lock_stock": 288,
             "set_output_source": 176,
+            "set_respec_stock": 320,
             "source_stock": 272,
             "station_read": 80,
             "stations": 72,
@@ -7069,7 +7070,7 @@
             "watch": 152,
             "workshop_recipes": 120
           },
-          "size": 320
+          "size": 328
         },
         "KilnStationsStatus": {
           "align": 4,
@@ -7092,7 +7093,7 @@
           "size": 188
         }
       },
-      "sha256": "942253f31e0760508ea3f50841a9998a0f907240f001892ef4eb9a884e789a8c"
+      "sha256": "06da9a763a0e23d09f9ab0b6959bf48e54732fe1526b4fc4d9d56b8c8aea4f38"
     },
     "native/core/abi/services/kiln_stations_client.h": {
       "function_macros": [],
@@ -10364,14 +10365,14 @@
   },
   "outputs": {
     "src/bindings.rs": "134028a6a9914076cab3f71f98d356141d4fe36c4d7f51bac6a11819501ed935",
-    "src/layout.rs": "ad854edfa6218d8ec9fec7d2065bf90fe80646bbe10635684d72a0b528c60b4a",
+    "src/layout.rs": "b9cdfdfde6bd2d9b90ef8dac6b8cc69870531db9269979aef17e029ad270a995",
     "src/services/kiln_abilities.rs": "a24dff6123db80e30ed1b2e33f87c772a40982ec3ce379347ca96bb81579f6cb",
     "src/services/kiln_assets.rs": "e7fe4eb1c4d53ad31eeaf05be06f41c551a49362ad5bd4174465ec18a03effe0",
     "src/services/kiln_assets_vfx.rs": "90ed8ce5ad512bbf4f002db3277bc3b439d648ca437a58d4477eac4ce46c3b81",
     "src/services/kiln_audio.rs": "52a49e9a14975f3abecbe7200bb2dce40c0af7fd54f50faf7890befe559d8d7c",
     "src/services/kiln_base_rules.rs": "051981ceeb97a78f02f625d8fb573289c0b388bd10a2dd303fa99a20fd53c53a",
     "src/services/kiln_boot.rs": "0b39658851db27fcdc6b7b5345ebd269fedaed2e7f837df0dd00be2e17ef501d",
-    "src/services/kiln_build.rs": "aa7aa753e9a3cc411b48d3e1cb32144efaf5c60bf3bdaf9818ca295dcbd008c9",
+    "src/services/kiln_build.rs": "92054a5cae61df45406955bfb847d2dee853d54e714cebf53b6f2ece3834b060",
     "src/services/kiln_camera.rs": "ae8af992fc075f61140c42b7864c0391b93a31ea214fe47ac9c8200cd157c0f7",
     "src/services/kiln_capacity.rs": "1fce521cbd490bd4f58c65e527a9c668067d9f909420b7f3d8713b3216af92f5",
     "src/services/kiln_caps.rs": "98d4b069c4331afcbbdfcadee61e85920bc25cce16fd3134c4b5c5e74fe58c44",
@@ -10424,7 +10425,7 @@
     "src/services/kiln_skills_client.rs": "77c319c395ef94591f37bfb76a007a25a5b8a3f8f971a9613fb01bf133de21ed",
     "src/services/kiln_spawn.rs": "b6ced999b7a1ecd93684a0a7c138081547ccec6f496aee7c69c0f807d1bb83dc",
     "src/services/kiln_station_menus.rs": "f9755639d612efc6c34785105f36e6798337387dfe8a642b78ca413a1e70cac8",
-    "src/services/kiln_stations.rs": "b689caf7d94c157f434e9bd618b8eb34b32a0371e49eb6142833e3d9dbf272b4",
+    "src/services/kiln_stations.rs": "509e5f0e4ce3ef3009304eefef401f3af8b2935d2004a4b44a9363857861b9ee",
     "src/services/kiln_stations_client.rs": "de710dc230986c0b606b9594a313660301616c2e4dfde3fdbcd80fbfd6c4eb4b",
     "src/services/kiln_steamguard.rs": "f14ecec92f945c2b34f4682c216940187797b8db81a8de652fcba6ddb61f072c",
     "src/services/kiln_surfaces.rs": "d4d991aef0a14f4be7246227b95a0f34161ca23fe04561e9c94d6d2aba0db4a0",

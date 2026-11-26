@@ -285,6 +285,7 @@ internal static class CraftStock
         DyeStock.Attach(channel);
         LockStock.Attach(channel);  // GitHub #147, 0.2.0-dev.31.12: locks from linked sources
         BuildStock.Attach(channel);  // GitHub #132, 0.2.0-dev.31.12: block placements from linked sources
+        RespecStock.Attach(channel);  // GitHub #150: the skill respec from linked sources
         return channel;
     }
 

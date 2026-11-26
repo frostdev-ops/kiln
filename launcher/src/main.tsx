@@ -2,7 +2,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { HashRouter } from "react-router-dom";
+import { createHashRouter, RouterProvider } from "react-router-dom";
 import App from "./App";
 import { isTauri, loadMock } from "./api/commands";
 // the admin pages talk to Kiln.Admin through the launcher's backend (Tauri commands); the hub gets that transport here
@@ -29,19 +29,26 @@ setLanguage(storedLanguage());
 // closing the window while work would be lost asks first (the desktop app only: shell/closeGuard.ts)
 installCloseGuard();
 
+// a data router (one splat route; App's own <Routes> under it) for its navigation blocker: a page with unsaved work asks
+// before any way out (shell/leaveGuard.tsx)
+const router = createHashRouter([{
+  path: "*",
+  element: (
+    // a data folder that cannot be used: only its dialog, before either UI (shell/DataFolderGate.tsx)
+    <DataFolderGate>
+      <SnapshotGate><LanguageSync /><UiModeGate>
+        <App />
+      </UiModeGate></SnapshotGate>
+    </DataFolderGate>
+  ),
+}]);
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     {/* tells the backend the first screen is up (shell/started.ts): the Linux launcher's render watchdog */}
     <Started />
     <QueryClientProvider client={queryClient}>
-      <HashRouter>
-        {/* a data folder that cannot be used: only its dialog, before either UI (shell/DataFolderGate.tsx) */}
-        <DataFolderGate>
-          <SnapshotGate><LanguageSync /><UiModeGate>
-            <App />
-          </UiModeGate></SnapshotGate>
-        </DataFolderGate>
-      </HashRouter>
+      <RouterProvider router={router} />
     </QueryClientProvider>
   </StrictMode>,
 );

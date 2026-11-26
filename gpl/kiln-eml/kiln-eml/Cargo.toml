@@ -59,6 +59,11 @@ kiln-abi = { path = "../../../crates/sfi/kiln-abi" }
 # kiln-eml.dll has no gate (`cargo tree -e no-dev,features -p kiln-eml` lists no test-gate).
 mod-loader-lua = { path = "../eml/mod-loader-lua", features = ["test-gate"] }
 
+# Test-only, Windows: finds MSVC's cl.exe to build the C consumers of tests/c (tests/support/c_consumer); already in
+# this graph as lua-src's build dependency.
+[target.'cfg(windows)'.dev-dependencies]
+cc = "1.2"
+
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.61.3", features = [
     "Win32_Foundation",

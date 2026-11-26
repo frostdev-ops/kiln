@@ -605,7 +605,7 @@ Each is marked `kiln-eml:` in the source.
     `hosted_shroudforge_output_is_proven_by_its_whole_record_only`.
 44. `mod-loader-lua` `env/writes.rs` (new), the value wrappers (`value/mapped.rs`, `value/simple.rs`, `value.rs`
     `walk_writes`/`note_put`), `env/app_state.rs`, `env/game/assets.rs`, `runner/mod.rs`, `runner/state.rs`, `lib.rs` (`RunResult::journal`,
-    `RunResult::generation`) (kiln-eml's own code, next release): EML's pass records which mod wrote which resource
+    `RunResult::generation`) (kiln-eml's own code, 0.2.0-dev.31.18): EML's pass records which mod wrote which resource
     and where, for the EML dialect's change journal (kiln-eml `sf_startup/journal.rs`, format 2). The runner names the
     running entrypoint (`require("mods.<id>")`; a mod's entry module is its own mod's code even when another mod requires
     it before its turn); each value wrapper keeps a log of the writes made through it (a field

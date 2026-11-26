@@ -430,7 +430,7 @@ At each start Kiln runs three stages, each across **all** mods (in the load orde
   `{"mul": 4, "max": 9999, "raiseOnly": true}` gives wood logs 250 x 4 = 1000 even where a registry pack made them 2000
   (`raiseOnly` means "never below the game's value", not "never below the value under the layer"). That has been so since
   registry edits exist and stays so, since changing it would change what existing mod sets get. registry.json says so
-  (next release): the code writer is the field's winner and one certain `overridden` line names it, the registry edit it
+  (0.2.0-dev.31.18): the code writer is the field's winner and one certain `overridden` line names it, the registry edit it
   replaced and both values ("... (a Content change made by code) sets 1000 over registry-mixed-test's 2000 (code wins over
   registry edits; a relative change made through Content is computed on the game's value, 250, not on the registry's)").
   A mod that wants its change to stack on the registry's value makes it a registry edit (a relative op there composes on
@@ -444,7 +444,7 @@ with a certainty:
 | Writer | Certainty | Where Kiln learns it |
 |---|---|---|
 | Kiln's older paths (boot resource patches, data packs, `Content.*` code) and registry edits | `certain` | Kiln applies them itself |
-| A change made through Kiln's content service by code, also another loader's (an EMF DLL mod's `set_item_max_stack`) | `certain` | named `<who>: <Kiln place>`, `<who>` being the mod, else the loader's own name for its mod (`emf:big_stacks`); a label the mod gave its change (`Content.Apply(json, "bigstacks x4")`) stays as it wrote it (next release; before, such a row named the game's item and member, `owner 67: items Material_T1_Wood_Logs.maxStackSize`) |
+| A change made through Kiln's content service by code, also another loader's (an EMF DLL mod's `set_item_max_stack`) | `certain` | named `<who>: <Kiln place>`, `<who>` being the mod, else the loader's own name for its mod (`emf:big_stacks`); a label the mod gave its change (`Content.Apply(json, "bigstacks x4")`) stays as it wrote it (0.2.0-dev.31.18; before, such a row named the game's item and member, `owner 67: items Material_T1_Wood_Logs.maxStackSize`) |
 | A ShroudForge or EML package that wrote the entry (or, from EML's own pass, the field) before Kiln (`archiveWriter`, who `shroudforge:<package>` or `eml:<package>`) | `named` | kiln-eml's change journal of the start's archive writer (below) |
 | Something outside Kiln changed the game's value (`drift`, who `outside Kiln (best effort; suspects: ...)`) | `bestEffort` | the drift probe at each world load and pack reload (below) |
 
@@ -500,7 +500,7 @@ base).
   engines) keep none either. What they wrote is still in the base, and registry edits still win over it, but no row names
   them; the report says so (`base.journal.state` `none`). (The first start after a Kiln update runs the EML mods again,
   as kiln-eml's change cache belongs to one kiln-eml build, so an EML start gets its journal then.)
-- **Who published the base** (next release; before, `base.writer` said `none` on every start but a kiln-mode one, also where
+- **Who published the base** (0.2.0-dev.31.18; before, `base.writer` said `none` on every start but a kiln-mode one, also where
   kiln-eml or hosted ShroudForge had patched the archive): `base.writer` is this start's archive writer: `kiln-eml` (its EML
   pass, or Kiln's interpreter in kiln mode), `shroudforge-hosted` or `shroudforge-installed` (ShroudForge reserved the startup
   data writer), `external` (another loader's proxy ran instead of kiln-eml, or the game data differs from kiln-eml's vanilla
@@ -520,7 +520,7 @@ rebuilds `registry.json`'s live rows (at each world load and pack reload, and wh
 loads later changes them; never per tick) and costs one more read of each field it writes live, about a tenth of what
 rebuilding the rows costs anyway.
 
-**Writes after the last report** (next release; before, they stayed out of `registry.json` until the next pack reload or
+**Writes after the last report** (0.2.0-dev.31.18; before, they stayed out of `registry.json` until the next pack reload or
 world load: the compat rehearsal saw wood logs at 300 there while EMF's big_stacks had made them 1200). Kiln also looks
 again between those rebuilds, never per tick: about 2 s after a change through Kiln's content service (code, another
 loader's change through Kiln) and every 10 s for a write outside it, comparing each field it writes live with what the last
@@ -575,7 +575,7 @@ they resolved to (`values`, `"<registry>[<id>].<field>"`, restart fields as the 
 stage composed them over the base), the entries added and removed, and the game build, side and Kiln version. The same mods
 with the same edits give the same plan.
 
-**Which plans are kept** (next release; before, none was ever removed, so the folder grew by one file for every changed set of
+**Which plans are kept** (0.2.0-dev.31.18; before, none was ever removed, so the folder grew by one file for every changed set of
 mods and settings). At the end of a successful start Kiln keeps the last good plan and the good plan before it, the plan the
 last world ran on, this start's plan and its `previous`, every plan a pending `rollback.json` names (its `plan` and `from`,
 read again at that moment), and the newest 10 other plans (by the file's last write: a start on the same edits writes its plan

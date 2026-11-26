@@ -80,6 +80,11 @@ add_executable(items-lock-sources-test tests/lock_sources_test.cpp)
 target_include_directories(items-lock-sources-test PRIVATE "${CMAKE_SOURCE_DIR}/core/abi" "${CMAKE_SOURCE_DIR}/third_party")
 set_target_properties(items-lock-sources-test PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/items-tests")
 
+# GitHub #150: the skill tree's respec from linked sources (the payment's respec branch, the snapshot, the client checks)
+add_executable(items-respec-sources-test tests/respec_sources_test.cpp)
+target_include_directories(items-respec-sources-test PRIVATE "${CMAKE_SOURCE_DIR}/core/abi" "${CMAKE_SOURCE_DIR}/third_party")
+set_target_properties(items-respec-sources-test PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/items-tests")
+
 # GitHub #132: block placements from linked sources (the cursor hook, the snapshot, the payment's scope, the stand-down)
 add_executable(items-build-sources-test tests/build_sources_test.cpp)
 target_include_directories(items-build-sources-test PRIVATE "${CMAKE_SOURCE_DIR}/core/abi" "${CMAKE_SOURCE_DIR}/third_party")

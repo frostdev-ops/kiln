@@ -807,6 +807,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "camino",
+ "cc",
  "half",
  "kfc",
  "kiln-abi",

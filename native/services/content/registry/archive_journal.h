@@ -6,7 +6,7 @@
 //  - format 1 (schema/sfi/eml-journal/startup-journal.schema.json): a kiln-mode ShroudForge-dialect pass. Per package of
 //    the committed attempt, in run order (ShroudForge packages and EML packages the pass ran), the archive resources its
 //    entrypoint wrote and the ones it created, by resource key (GUID, type hash, part);
-//  - format 2 (eml-journal-2.schema.json, next release): EML's own pass (an EML start outside kiln mode). The
+//  - format 2 (eml-journal-2.schema.json, 0.2.0-dev.31.18): EML's own pass (an EML start outside kiln mode). The
 //    same per mod of the run, and on each written resource the member paths the mod wrote there, at their published
 //    places ("maxStackSize", "recipes[37].craftingDuration", "input[]" for a list's members, "" for the whole resource).
 // Never a value. This reader takes that record (Kiln's own code over the documented file formats; nothing of kiln-eml's

@@ -24,6 +24,8 @@ public sealed record FakeCraftSourceRegistration(ulong Owner, EntityId Player, E
     public bool Fills { get; init; }
     /// <summary>Registered with <see cref="CraftSourceOptions.Building"/>: block placements may count and pay from it. Since 0.2.0-dev.31.12.</summary>
     public bool Building { get; init; }
+    /// <summary>Registered with <see cref="CraftSourceOptions.Respec"/>: the skill respec may count and pay its respec item from it. Since 0.2.0-dev.31.18.</summary>
+    public bool Respec { get; init; }
 }
 
 /// <summary>Player-source registrations and their filtered counts in the kit. No base, game payment hook, station
@@ -38,7 +40,7 @@ public sealed class HarnessCrafting
         var s = KitFakes.State<CraftingState>(_harness);
         lock (s.Gate) return (IReadOnlyList<FakeCraftSourceRegistration>)[..s.Sources.Select(x=>new FakeCraftSourceRegistration(x.Owner,
             new EntityId(x.Player),new EntityId(x.Container),(CraftSourceOrder)x.Order,x.Deny?CraftSourceFilter.Deny:CraftSourceFilter.Allow,
-            Array.AsReadOnly(x.Items.Select(i=>new ItemId(i)).ToArray())){Locks=x.Locks,Fills=x.Fills,Building=x.Building})];
+            Array.AsReadOnly(x.Items.Select(i=>new ItemId(i)).ToArray())){Locks=x.Locks,Fills=x.Fills,Building=x.Building,Respec=x.Respec})];
     });
     /// <summary>Registered source counts only (not the bag), with the same per-player allow/deny union and current
     /// inventory permission check as source_stock. No base restriction is applied.</summary>
@@ -64,6 +66,13 @@ public sealed class HarnessCrafting
     /// only, likewise. No build cursor or placement payment is simulated. Since 0.2.0-dev.31.12.</summary>
     public IReadOnlyDictionary<ItemId, long> BuildStock(EntityId player) => _harness.Run(() =>
         (IReadOnlyDictionary<ItemId, long>)CraftingFake.Counts(KitFakes.State<CraftingState>(_harness), player.Value, building: true)
+            .ToDictionary(x => new ItemId(x.Key), x => x.Value));
+
+    /// <summary>The counts the skill respec (a node's unlearn, the Flame Altar's reset) may use: the links registered with
+    /// <see cref="CraftSourceOptions.Respec"/> only, every item, likewise (the game pays only its respec item, the Runes).
+    /// No respec payment or respec screen is simulated. Since 0.2.0-dev.31.18.</summary>
+    public IReadOnlyDictionary<ItemId, long> RespecStock(EntityId player) => _harness.Run(() =>
+        (IReadOnlyDictionary<ItemId, long>)CraftingFake.Counts(KitFakes.State<CraftingState>(_harness), player.Value, respec: true)
             .ToDictionary(x => new ItemId(x.Key), x => x.Value));
 
     /// <summary>The same registered counts restricted to ColorPalette items (dyes), with current filters, player-session
