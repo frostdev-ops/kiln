@@ -201,7 +201,9 @@ type, field or GUID, and two mods with base rules never conflict.
 
 A rule never lowers the game's numbers. A value out of range (17 altars, a size of 300 m, altar level 0) throws
 `ArgumentException` when it is staged; in a blocks file it refuses the mod before the game starts, naming the rule and
-the member. Above 16 Flame Altars is not a base rule: the game counts no more than 16.
+the member. Above 16 Flame Altars is not a base rule: the game's code counts no more than 16. Since dev.32 the registry field
+`limits.maxAltars` (with `balance.altarsPerFlameLevel` above 16) raises that through Kiln's own hook of the game's altar check
+([registries/limits.md](../modding/registries/limits.md)); the game's bases still count 16.
 
 ```csharp
 // in Mod.OnBoot (kiln.mod.json: "boot": true)

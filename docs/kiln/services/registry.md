@@ -43,6 +43,14 @@ persists flattened effective item definitions and restores the same identity wit
 distribution. Returning mods adopt that identity; restarting without a removing mod restores original game visibility.
 The [entry guide](../modding/registries/README.md#entry-add-and-remove-gamestart-only) documents the exact refusal and lifetime rules.
 
+### Limits in the game's code (dev.32)
+
+The `limits` registry's values are numbers in the game's code, not data (regmap entries kind `hooks`). At start the stage
+composes them like any restart field and kiln.content takes them (`registry/limits.cpp`): Kiln reads the game's own value
+from its code (sigdb `limits/*`) and installs its own hook of the game's check only for a value that is not the game's, so a
+start without such an edit touches none of that code. The hook answers on whatever thread the game asks; the value holds for
+the process (later entry points: `RestartRequired`). No ABI member: the values go through the existing stage and report.
+
 ## Native live changes: kiln.registry.live v1
 
 Since mod API **0.2.17**, this is a separate 56-byte table, not an extension of the stage table. Its header is

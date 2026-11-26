@@ -21,7 +21,8 @@ Adding a registry (schema, mapping, back-ends, proof, tests, and the pitfalls th
 ```jsonc
 { "regmap": 1, "registry": "items",
   "entries": { "kind": "resource",            // resource: one resource per entry; array: the elements of one resource's
-                                              // array member ("array"); single: one resource ("resourceGuid")
+                                              // array member ("array"); single: one resource ("resourceGuid"); hooks: no
+                                              // resource, one entry ("unnamed") whose values are Kiln's hooks (below)
                "resourceType": "keen::ItemInfo", "name": "debugName", "guid": "objectId", "id": "itemId",
                "unnamed": "item_%08x",        // the stable name of an entry without a debug name (printf over its id;
                                               // "%.8s" takes the GUID text instead)
@@ -36,8 +37,12 @@ Adding a registry (schema, mapping, back-ends, proof, tests, and the pitfalls th
 
 A row: `paths` (the game's member paths from the entry's root; for a field of a list's elements, from the element),
 `conv` (below), `read` (when the game reads the member: now, worldLoad, restart, unknown), `backend` (live: kiln.content's
-store at world load; boot: the boot resource patch before the game reads it; none: read-only), `clientNeeds` (a client
-shows or predicts from its own copy), `state` (mapped, unproven, unmapped; the last two with a `reason`), `evidence`.
+store at world load; boot: the boot resource patch before the game reads it; hook: a hooks registry's value, below; none:
+read-only), `clientNeeds` (a client
+shows or predicts from its own copy), `state` (mapped, unproven, unmapped; the last two with a `reason`), `evidence`, and for a
+list row of the boot back-end `resize` (true: the boot back-end may give the list another length, placing the new list behind
+the copy's bytes as a resource patch's clear, append and replace do; an element that stays keeps its bytes, a new one starts as
+zeros with its mapped leaves; elements that hold data of their own are refused; without it a list is written in place only).
 
 | conv | paths | Kiln value |
 |---|---|---|
@@ -54,6 +59,16 @@ shows or predicts from its own copy), `state` (mapped, unproven, unmapped; the l
 | stackCount | the count members of the element's alternatives (item stack, input category) | the count |
 | inventoryWalk | the root group: stacks first, then each child group, depth first | the table's entries in walk order |
 | unlock | the knowledge requirement | game or always |
+| position | a world position's axis (a signed 64-bit 32.32 fixed-point number, `keen::WorldPosition`'s x, y, z) | metres |
+
+**Hooks registries** (`"kind": "hooks"`, since dev.32: `limits`). Some limits are not data but numbers in the game's code (the
+16 of the altar check, the 50 m of the gifting check). A hooks registry has one entry and no resource; each row's single path
+names one of Kiln's hook values (`altarCap`, `giftRange`; native `registry/limits.h`, regmap_check.py `HOOK_VALUES`), its
+`conv` the value's type, its `backend` `hook` (restart fields only). Kiln reads the game's own value from its code at start
+(sigdb `limits/*`) and installs its hook only when the registry's value is not the game's. regmap_check.py checks a row against
+the hook values and, with `--exe`, that the value's sigdb names resolve on that exe (a candidate row is ok only then); kilnctl
+has no reflection to diff for them (the sigdb build record and the candidate are their layout), and the producer samples
+them by calling the game's function with Kiln's hook answering a probe (P54).
 
 **The routing rule.** The schema's `applies` is the contract. A row's `read` may not be later than its field's
 `applies` (now < worldLoad < restart); a `boot` back-end serves only restart fields and `live` only now and worldLoad

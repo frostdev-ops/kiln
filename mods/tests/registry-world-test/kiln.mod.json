@@ -1,0 +1,11 @@
+{
+  "id": "registry-world-test",
+  "name": "world-rule registries lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "RegistryWorldTest.dll",
+  "side": "server",
+  "clients": "none",
+  "advanced": true,
+  "description": "PASS/FAIL lines (dev.32 registry-r3b): its own registry section clears the world's no-build zones raises difficulty.enemyDamageFactor.max to 10, sets limits.maxAltars 20 and limits.giftingRange 500 m; with the lab's server settings at Custom, enemyDamageFactor 8 and enemyHealthFactor 8, it checks the served scene and settings resource and the settings the game started with (8 kept under the raised bound, 8 clamped to the game's 4), and calls the game's altar check (over a scratch table of 255s) and gifting distance getter: Kiln's hooks answer 20 and 500 m."
+}

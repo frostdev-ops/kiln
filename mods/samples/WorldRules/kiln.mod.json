@@ -1,0 +1,9 @@
+{
+  "id": "world-rules-sample",
+  "name": "World rules (registry sample)",
+  "version": "1.0.0",
+  "apiVersion": "0.2",
+  "side": "both",
+  "clients": "mod",
+  "description": "A data-only mod over Kiln's world-rule registries (dev.32, experimental): build anywhere (the world's no-build zones cleared), no big-dungeon bounds (their playable areas cleared), and the enemy settings' highest values raised to 100 (10000 %), as XHL's Enemy Difficulty Limits does. content/world-rules.json, no code, no game names. Restart fields: they apply at the next start, and every player needs the mod (side both, clients mod)."
+}

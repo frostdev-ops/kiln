@@ -44,9 +44,21 @@ registry has a breaking step yet: every schema is 0.1.0, and Kiln ships no migra
 | `loot` | random loot per item: stack sizes, rarities | [loot.md](loot.md) |
 | `drops` | the game's drop tables (default inventories) | [drops.md](drops.md) |
 | `balance` | the balance table: experience, levels, flame, durability, sockets, perk costs | [balance.md](balance.md) |
+| `world` | the world's build rules from its scene: no-build zones, the big dungeons' playable areas (dev.32) | [world.md](world.md) |
+| `difficulty` | the bounds of the world's difficulty settings: each setting's lowest and highest value (dev.32) | [difficulty.md](difficulty.md) |
+| `limits` | limits the game's code holds as fixed numbers: the most Flame Altars, the gifting distance; Kiln's own hooks answer the game's checks (dev.32) | [limits.md](limits.md) |
 
 The per-registry pages are generated from `schema/registry/<registry>.json` by `tools/registrygen/registrygen.py`; edit
 the schema, never the page. Kiln maintainers adding a registry: [adding-a-registry.md](../../adding-a-registry.md).
+
+**World rules and limits (dev.32).** `world` and `difficulty` are data the game reads at start (the world scene's boxes, the
+settings' bounds); `limits` are numbers the game keeps in its code, which Kiln answers through hooks of its own, installed only
+for a value that is not the game's. What existing mods do that these cover: EMBER's build anywhere and no boundary
+(`world.noBuildZones`, `world.playableAreas` cleared), XHL Enemy Difficulty Limits' raised bounds (`difficulty.<setting>.max`),
+XHL Unlimited Gifting Range (`limits.giftingRange`), More Flame Altars' altars above 16 (`limits.maxAltars` with
+`balance.altarsPerFlameLevel` above 16). Not covered: the settings screen's slider steps (only a game client has them; resource
+patches still edit them), and what those mods do beyond a number (Enemy Difficulty Limits' wider perception, More Flame Altars'
+merged bases): those stay their own hooks.
 
 ## C# authoring (API 0.2.17)
 
@@ -138,7 +150,7 @@ results remain snapshots. A resolved `Registry.Read(view => ...)` frame is expir
 | `items` | `AddLike(id, like, configure)` on the stage's Items collection | Hide from random-loot candidates and recipes; disable direct-drop slots that name the item. |
 | `recipes` | `AddLike(id, like, configure)` on the stage's Recipes collection | Hide from station lists and the all-recipes/crafting view. |
 | `loot` | Not supported | `Remove(pattern)` on the stage's Loot collection excludes random-loot candidates; it does not remove the item, its recipes or direct drops. |
-| `drops`, `balance` | Not supported | Not supported; ordinary mapped field/list edits remain separate. |
+| `drops`, `balance`, `world`, `difficulty`, `limits` | Not supported | Not supported; ordinary mapped field/list edits remain separate. |
 
 ```csharp
 if (context.EntryPoint == RegistryEntryPoint.GameStart)
@@ -262,6 +274,10 @@ the capability name when querying `Capabilities`.
 | `registry.balance.buildzoneSizesPerAltarLevel.x` | `balance.buildzoneSizesPerAltarLevel[].x` |
 | `registry.balance.buildzoneSizesPerAltarLevel.y` | `balance.buildzoneSizesPerAltarLevel[].y` |
 | `registry.balance.buildzoneSizesPerAltarLevel.z` | `balance.buildzoneSizesPerAltarLevel[].z` |
+| `registry.world.noBuildZones.min.x` (`.y`, `.z`) | `world.noBuildZones[].min.x` (`.y`, `.z`) |
+| `registry.world.noBuildZones.max.x` (`.y`, `.z`) | `world.noBuildZones[].max.x` (`.y`, `.z`) |
+| `registry.world.playableAreas.min.x` (`.y`, `.z`) | `world.playableAreas[].min.x` (`.y`, `.z`) |
+| `registry.world.playableAreas.max.x` (`.y`, `.z`) | `world.playableAreas[].max.x` (`.y`, `.z`) |
 
 ## When an edit takes effect: applies
 
@@ -312,7 +328,7 @@ files ([data-pack caveat](../../services/content.md#multiplayer-registry-and-ski
 |---|---|---|
 | `loot`, `drops`; any `serverOnly` field (including the read-only balance gear constants, which cannot be edited) | `none` | Only the server needs the values. |
 | Synced `items` / `recipes` fields (`now` or `worldLoad`) | `kiln` for matching UI/prediction; `none` deliberately permits vanilla UI/prediction | Kiln clients get server layers; vanilla clients do not. |
-| Client-needed `balance` fields (`restart`) | `mod`, with `side: "both"` | Each process must bake its own matching value/settings and load order; `kiln` alone cannot transfer it. |
+| Client-needed `balance`, `world`, `difficulty` and `limits` fields (`restart`) | `mod`, with `side: "both"` | Each process must bake its own matching value/settings and load order; `kiln` alone cannot transfer it. |
 | Client-only fields (`localOnly`, currently `recipes.unlock`) | `mod`, with `side: "both"` | The client's own mod supplies them; a dedicated server refuses client-only edits. |
 | Item/recipe entry add/remove | At least `kiln`; `mod` for custom assets or other client-local content | Definitions and visibility are not just scalar server rules. Existing content/look-alike rules still apply. Loot removal alone remains server-only (`none`). |
 | Unproven/unknown or raw fields | Inspect the field/refusal first | No automatic safety claim; lint does not guess. |
@@ -333,7 +349,11 @@ choice knowingly rather than assuming vanilla clients acquire the server's numbe
 with fields (`recipes.inputs`) takes clear, append (a new entry, then its fields) and remove (the entries a condition
 picks, named by their values), so two mods' appends and removals stack. A list of fixed length (`balance.xpPerLevel`,
 exactly 5; `balance.altarsPerFlameLevel`, one value per flame level) is edited one element at a time
-(`xpPerLevel[2]`). A reference that may be absent (a recipe input's item or category) can be cleared.
+(`xpPerLevel[2]`). A reference that may be absent (a recipe input's item or category) can be cleared. The world's lists (`world.noBuildZones`,
+`world.playableAreas`, restart fields) take clear, append, remove and replace whole at game start: Kiln gives the list its new
+length in the copy of the world scene the game reads (since dev.32). An element that stays keeps the game's bytes; an appended
+element has only the corners you give (a playable area appended is a plain box: not a big dungeon, no map marker).
+`balance.buildzoneSizesPerAltarLevel` is still edited in place: an edit that changes its length is refused at start.
 
 ### What a reload changes
 A `reload <id>` (or an `unload` and a `load`) of a mod with registry edits changes what its `applies` allows now, and says
@@ -591,9 +611,10 @@ edit of them against the value without it (the game's, or what an older path wro
 | `perkSlots` | `items.perks`: a filled slot changed or emptied | saved copies keep rarity and unlocked count, and have the slot's new perk (perks are read from the item's slots while it is used) | **warning**, applied |
 | `progressionCap` | `balance.levelCap`, `balance.skillPointsPerLevel` lower | saved characters keep their level and spent points; what the game does past the new cap is not traced | **warning**, applied |
 | `experienceCurve` | `balance.xpPerLevel`, `balance.xpCurve.*` changed | saved characters keep their experience; a level whose threshold moved is not recomputed by Kiln | **warning**, applied |
-| `baseLimits` | `balance.altarsPerFlameLevel`, `waterSourcesPerFlameLevel`, `buildzoneSizesPerAltarLevel` values lower | saved bases keep what they hold above the new limit; what the game does with it is not traced | **warning**, applied |
+| `baseLimits` | `balance.altarsPerFlameLevel`, `waterSourcesPerFlameLevel`, `buildzoneSizesPerAltarLevel` values lower; `limits.maxAltars` lower (dev.32) | saved bases keep what they hold above the new limit; what the game does with it is not traced | **warning**, applied |
 | `durability` | `balance.durability.*`, `balance.rarityDurability.*` | each saved copy keeps its share of durability; max and current follow the new value at load | **reported**, applied |
-| (none) | everything else: recipes, loot, drops; an item's rarity, rolled, socket, power, speed, damage, armour, costs; the balance table's gear, unlock, socket chance and fog numbers | read at use, or only for new copies | applied |
+| `settingsRange` | `difficulty.<setting>.max` lower, `difficulty.<setting>.min` higher (dev.32) | a world's own (Custom) setting outside the new bounds is clamped into them when the game reads the settings at start; whether the game then saves the clamped value is not traced | **warning**, applied |
+| (none) | everything else: recipes, loot, drops; an item's rarity, rolled, socket, power, speed, damage, armour, costs; the balance table's gear, unlock, socket chance and fog numbers; the world's no-build zones and playable areas; a difficulty setting's wider bounds | read at use, or only for new copies | applied |
 
 Refusals are in registry.json `refused` and kiln.log (`saves: ...; this edit was not applied`), the rest in registry.json
 `saves` (field, class, decision, text) and kiln.log (`registry: saves: ...`). Restart fields are checked at the stage, live
@@ -624,6 +645,9 @@ How a game entry's stable name is made (each registry's page repeats its own rul
 | loot | the id of its item | 4,213 entries |
 | drops | see "Drop tables" below | 420 tables |
 | balance | `game:balance` (one entry) | 1 |
+| world | `game:world` (one entry: the world's scene; the game's menu and character scenes are not entries) | 1 |
+| difficulty | `game:difficulty` (one entry) | 1 |
+| limits | `game:limits` (one entry: no game resource; its values are Kiln's hooks of the game's code) | 1 |
 
 **Two entries with one name.** The entry that held a stable name first keeps it for good; a later entry whose name is the
 same (also when the two differ only in case) gets `game:<name>~<first 8 hex digits of its GUID>` (more digits if those
