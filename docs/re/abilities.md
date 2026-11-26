@@ -724,6 +724,12 @@ argument is the `BuffType*`:
   buff's new end (`0x15e6af`: WriteOther, ProgramTime, `[rdi+8]`); `Replace` (3) and `ReplaceAtEnd` (2) destroy the running buff
   entity (CmdDestroyEntity `0x15e4b3`) and apply a new one. **Read now.** No other GetBuffType caller reads `+0x05`
   (registers tracked after each call). On this build ReplaceAtEnd and Replace behave the same here.
+- (review of dev.32) The `ResetTime` path's new end is ProgramTime plus the running buff entity's own `lifeTime` (`[rdi]`,
+  `0x15e712`, written to `[rdi+8]` endOfLife at `0x15e734`), not `+0x08`: a refreshed buff restarts with the length it started
+  with, so a `buffs.duration` edit reaches a running buff only when it ends and is applied again.
+- (review of dev.32) `+0x04 slot` Food (0) multiplies the time by the float `0x9378f0` returns (`0x15e395`..`0x15e3d8`; the world's
+  food buff duration factor, settings.md `foodBuffDurationFactor`); `slot` Debuff (2) for the one buff id `0x946f50` returns takes
+  a value off it (`0x15e306`..`0x15e393`).
 - The 274 buffs (`BuffTypeCollectionResource` 02022e86-…, decoded with tools/kfc): applyType ResetTime 211, Replace 38,
   ReplaceAtEnd 15, Invalid 10; slots Buff 127, Debuff 118, Food 17, TerrainDebuff 11, Rested 1; defaultLifeTime 0 to 900 s.
 - Magnitude and tick rate are configs of each buff's own program (`impactValues`: 346 config ids in the game, the buffs use

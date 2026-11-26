@@ -17,7 +17,7 @@ public sealed partial class BuffEntry : IRegistryEntry
     /// <summary>The registry's name.</summary>
     public string Registry => "buffs";
 
-    /// <summary>How long the buff lasts when it is applied without a time of its own (an item, an ability or a program that gives one overrides it). The next application takes it; a buff already running keeps its end.</summary>
+    /// <summary>How long the buff lasts when it is applied without a time of its own (an item, an ability or a program that gives one overrides it; a food buff's time is also scaled by the world's food buff duration setting). The next new application takes it; a buff already running keeps its end, and applying it again while it runs (refresh) restarts it with the length it started with.</summary>
     [RegistryField("buffs.duration", RegistryApplies.Now, JoinedClient = "serverOnly")]
     public global::System.TimeSpan Duration { get => RegistryCells.Time(_c, BuffFields.Duration, _i); set => RegistryCells.Set(_c, BuffFields.Duration, _i, value); }
 

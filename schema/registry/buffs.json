@@ -21,7 +21,7 @@
       "max": 86400,
       "applies": "now",
       "ops": "number",
-      "doc": "How long the buff lasts when it is applied without a time of its own (an item, an ability or a program that gives one overrides it). The next application takes it; a buff already running keeps its end.",
+      "doc": "How long the buff lasts when it is applied without a time of its own (an item, an ability or a program that gives one overrides it; a food buff's time is also scaled by the world's food buff duration setting). The next new application takes it; a buff already running keeps its end, and applying it again while it runs (refresh) restarts it with the length it started with.",
       "joinedClient": "serverOnly"
     },
     "stacking": {
