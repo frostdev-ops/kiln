@@ -4,6 +4,7 @@
 #include "../gamedata_walk.cpp"
 #include "../registry/model_bytes.cpp"
 
+#include <cmath>
 #include <cstdarg>
 #include <cstdio>
 #include <stdexcept>
@@ -61,7 +62,12 @@ KilnContentValue decode(const Field& f, const uint8_t* b) {
     KilnContentValue v{};
     v.type = f.vt;
     if (f.vt == KILN_CV_GUID) std::memcpy(v.guid, b, 16);
-    else if (f.vt == KILN_CV_FLOAT) {
+    else if (f.vt == KILN_CV_TIME) {  // as refl.cpp: the nanoseconds in i, the seconds in f
+        int64_t ns = 0;
+        std::memcpy(&ns, b, 8);
+        v.i = ns;
+        v.f = static_cast<double>(ns) / 1e9;
+    } else if (f.vt == KILN_CV_FLOAT) {
         float x;
         std::memcpy(&x, b, 4);
         v.f = x;
@@ -78,6 +84,11 @@ bool path_exists(const std::string&) { return false; }
 std::string data_dir() { return {}; }
 double as_double(const KilnContentValue& v) { return v.type == KILN_CV_INT ? static_cast<double>(v.i) : v.f; }
 bool encode(const Field& f, const KilnContentValue& v, uint8_t* bytes, std::string*) {
+    if (f.vt == KILN_CV_TIME) {  // as refl.cpp: a time value's nanoseconds, else seconds as given
+        const int64_t ns = v.type == KILN_CV_TIME && v.f == 0 ? v.i : static_cast<int64_t>(std::llround(as_double(v) * 1e9));
+        std::memcpy(bytes, &ns, 8);
+        return true;
+    }
     if (f.vt == KILN_CV_FLOAT) {
         const float x = static_cast<float>(v.f);
         std::memcpy(bytes, &x, 4);
@@ -205,6 +216,18 @@ void scene_type() {
     nested.name = "test::Nested", nested.brief = "Nested", nested.kind = K_STRUCT, nested.size = 8;
     nested.fields = {{"lists", rec(outers), 0}};
     named()[nested.name] = &nested;
+}
+// test::Timed {t keen::Time +0}, keen::Time {value sint64 nanoseconds}: a boot-routed time field (difficulty's durations)
+void timed_type() {
+    using namespace kc::gd;
+    static TType s64, time, timed;
+    auto rec = [](const TType& t) { return reinterpret_cast<uintptr_t>(&t); };
+    s64.name = s64.brief = "sint64", s64.kind = K_S64, s64.size = 8;
+    time.name = "keen::Time", time.brief = "Time", time.kind = K_STRUCT, time.size = 8;
+    time.fields = {{"value", rec(s64), 0}};
+    timed.name = "test::Timed", timed.brief = "Timed", timed.kind = K_STRUCT, timed.size = 8;
+    timed.fields = {{"t", rec(time), 0}};
+    named()[timed.name] = &timed;
 }
 }  // namespace rbtest
 }  // namespace kc

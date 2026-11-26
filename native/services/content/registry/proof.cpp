@@ -18,6 +18,13 @@ std::string sha_of(const std::vector<uint8_t>& b) { return sha_of(std::string(b.
 
 bool mapped(const map::Row& r) { return r.state != map::RowState::Unmapped && !r.paths.empty(); }
 
+// A raw member value as the record's contract has it (regmap/README.md "Raw values"): a time member's nanoseconds (the
+// reflection reads a keen::Time as seconds), everything else as read.
+json raw_of(const map::Row& row, json m) {
+    if (row.conv == "time" && m.is_number()) return static_cast<int64_t>(std::llround(m.get<double>() * 1e9));
+    return m;
+}
+
 // "inputs[].count" -> ("inputs", "count"); a field of the entry -> ("", "")
 std::pair<std::string, std::string> element_of(const std::string& field) {
     const size_t at = field.find("[].");
@@ -66,7 +73,7 @@ void read_only(model::Model& m, model::Source& src, const Env& e, const map::Reg
                         all = all && !sha.empty();
                         raw.push_back("resource:" + sha);
                     }
-                    else if (src.member(en.place, list.empty() ? p : wit->second.paths[0] + "[0]." + p, &mv, &w) && !mv.is_null()) raw.push_back(mv);
+                    else if (src.member(en.place, list.empty() ? p : wit->second.paths[0] + "[0]." + p, &mv, &w) && !mv.is_null()) raw.push_back(raw_of(row, mv));
                     else all = false;
                 }
                 if (!all) continue;
@@ -179,7 +186,7 @@ json boot_sample(const map::RegistryMap& reg, const RegistrySpec& rs, const std:
             const std::string path = list.empty() ? p : wrow.paths.at(0) + "[0]." + p;
             json m;
             std::string w;
-            a.push_back(model::bytes_member(b.data(), b.size(), type, path, &m, &w) ? m : json(nullptr));
+            a.push_back(model::bytes_member(b.data(), b.size(), type, path, &m, &w) ? raw_of(row, std::move(m)) : json(nullptr));
         }
         return a;
     };

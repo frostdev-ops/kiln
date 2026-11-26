@@ -26,6 +26,7 @@ namespace rbtest {
 void balance_type();  // keen::BalancingTable {playerLevelCap u32 +0, skillPointsPerLevel u32 +4}, 8 bytes
 void byte_blob_type(uintptr_t unreadable);
 void byte_table_type();  // keen::ByteTable {altarsPerFlameLevel u8[21] +0, playerLevelCap u32 +24}, 28 bytes
+void timed_type();       // test::Timed {t keen::Time +0}, 8 bytes
 }
 }  // namespace kc
 
@@ -180,6 +181,26 @@ void boot_sample_on_bytes() {
     check(ro["read"] == 4 && ro["rawBefore"] == json::array({4}) && !ro.contains("probe") && !ro.contains("error"), "a read-only field is read only: " + ro.dump());
     const json none = proof::boot_sample(reg, *schema.registry("balance"), "nothing", "game:balance", key, "keen::BalancingTable", base);
     check(none.is_null(), "a field without a mapped row gives no sample");
+}
+
+// R3b (the lab's first proof of difficulty: six rows "changed"): a boot-routed time field's raw value is the member's
+// nanoseconds, as the record's contract says (the reflection reads a keen::Time as seconds)
+void boot_time_raw_is_nanoseconds() {
+    kc::rbtest::timed_type();
+    const Schema schema = generated_schema();
+    map::RegistryMap reg;
+    reg.registry = "difficulty";
+    map::Row row;
+    row.field = "dayTimeDuration.max", row.paths = {"t"}, row.conv = "time", row.backend = map::Backend::Boot;
+    reg.rows[row.field] = row;
+    std::vector<uint8_t> base(8);
+    const int64_t ns = 3600LL * 1000000000LL;
+    std::memcpy(base.data(), &ns, 8);
+    const json s = proof::boot_sample(reg, *schema.registry("difficulty"), "dayTimeDuration.max", "game:difficulty",
+                                      key_of("46e14df6-fb8f-4f66-9463-e23b9e19e48e", "test::Timed"), "test::Timed", base);
+    check(!s.is_null() && !s.contains("error") && s["read"] == 3600.0 && s["rawBefore"] == json::array({ns}),
+          "read 3600 s, raw 3.6e12 ns: " + s.dump());
+    check(s["probe"] == 4500.0 && s["rawAfter"] == json::array({4500LL * 1000000000LL}), "the probe written: its raw nanoseconds: " + s.dump());
 }
 
 // The balance table's per-flame-level altar and water-source counts are arrays of 21 bytes: the registry reads and writes
@@ -383,7 +404,8 @@ int main() {
                                                        {"empty_boot_list_is_missing_evidence", empty_boot_list_is_missing_evidence},
                                                        {"structural_refusals_are_disagreements", structural_refusals_are_disagreements},
                                                        {"with_the_request", with_the_request},
-                                                       {"hooks_registry_samples", hooks_registry_samples}};
+                                                       {"hooks_registry_samples", hooks_registry_samples},
+                                                       {"boot_time_raw_is_nanoseconds", boot_time_raw_is_nanoseconds}};
     for (const auto& [name, fn] : groups) {
         try {
             fn();

@@ -134,6 +134,7 @@ int main() {
     CHECK(lm::base_value("altarCap", &v, &why) && v == 16, "altarCap: the game's 16 (limits/altars.cap): " + why);
     CHECK(lm::base_value("giftRange", &v, &why) && v.get<double>() == 50.0, "giftRange: the getter's literal 2500 is 50 m: " + why);
     CHECK(!lm::base_value("noSuch", &v, &why) && why.find("no hook value") != std::string::npos, "an unknown value: " + why);
+    setup();  // the shape is checked at the first read (later reads keep the first: P56)
     g_code[0] = 0x90;
     CHECK(!lm::base_value("giftRange", &v, &why) && why.find("another shape") != std::string::npos, "a getter of another shape is refused: " + why);
     g_code[0] = 0xF3;
@@ -182,6 +183,23 @@ int main() {
         CHECK(lm::apply(rb, &out, &notes) == 1 && out[0].ok && g_installed.empty() && lm::answers().altar_cap == 0,
               "16 is the game's own: taken, no hook");
         CHECK(!notes.empty() && notes[0].find("(the game's own: no hook)") != std::string::npos, "kiln.log says so");
+    }
+    // the lab's first proof: the producer's probe put Kiln's hook in before the stage read the game's value, and the getter's
+    // first bytes were the hook's jump: the game's values are read once, before any hook, and kept
+    {
+        setup();
+        CHECK(lm::base_value("giftRange", &v, &why) && v.get<double>() == 50.0, "read before the hook: " + why);
+        CHECK(lm::probe_set("giftRange", 62.5, &why), "the producer's probe: the hook goes in: " + why);
+        lm::probe_clear("giftRange");
+        g_code[0] = 0xE9;  // the hook's jump over the getter's first instruction
+        CHECK(lm::base_value("giftRange", &v, &why) && v.get<double>() == 50.0, "after the hook went in: still the game's 50 m: " + why);
+        stage::BootResource rb;
+        rb.type = model::kHooksType;
+        rb.fields = {field("giftingRange", "giftRange", set(Value::number(500)))};
+        std::vector<stage::BootOutcome> out;
+        std::vector<std::string> notes;
+        CHECK(lm::apply(rb, &out, &notes) == 1 && out[0].ok && fake_gift() == 250000.0f, "the stage's value is taken: 500 m: " + (out.empty() ? std::string() : out[0].why));
+        g_code[0] = 0xF3;
     }
     // a range of 0 m is a value (no gift at any distance), not "the game's own"
     {

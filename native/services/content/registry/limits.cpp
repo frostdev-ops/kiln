@@ -30,6 +30,9 @@ struct Taken {
 std::map<std::string, Taken> g_taken;   // the registry's values apply() took
 std::map<std::string, double> g_probe;  // the lab producer's probes (over the taken values while set)
 std::set<std::string> g_hooked;         // values whose hook is in
+// the game's values as first read from its code: once Kiln's hook is in, the function's first bytes are the hook's jump, so a
+// later read would see another shape (the lab: the producer hooks before the stage reads the base)
+std::map<std::string, double> g_game;
 
 void log(int level, const std::string& line) {
     if (g_env.log) g_env.log(level, line);
@@ -41,8 +44,15 @@ uint32_t bits_of(float f) {
     return b;
 }
 
-// The game's value of a hook value from its code (under g_mu).
+// The game's value of a hook value from its code (under g_mu), read once and kept.
+bool read_game_value(const std::string& name, double* out, std::string* why);
 bool game_value(const std::string& name, double* out, std::string* why) {
+    if (const auto it = g_game.find(name); it != g_game.end()) return *out = it->second, true;
+    if (!read_game_value(name, out, why)) return false;
+    g_game[name] = *out;
+    return true;
+}
+bool read_game_value(const std::string& name, double* out, std::string* why) {
     if (name == "altarCap") {
         uintptr_t fn = 0;
         int64_t cap = 0, table = 0;
@@ -128,7 +138,7 @@ void bind(Env env) {
 void reset() {
     std::lock_guard lk(g_mu);
     g_env = {};
-    g_taken.clear(), g_probe.clear(), g_hooked.clear();
+    g_taken.clear(), g_probe.clear(), g_hooked.clear(), g_game.clear();
     a_cap.store(0), a_game_cap.store(0), a_table.store(0), a_gift_bits.store(0), a_gift_on.store(false);
 }
 
