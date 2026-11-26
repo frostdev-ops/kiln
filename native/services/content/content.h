@@ -367,8 +367,19 @@ struct GdValueSlot {
     int32_t field = -1;
     uintptr_t tip = 0;  // the tooltip row's value (sint32), 0: none
     uint8_t tip_format = 0;
+    bool absent = false;  // false return: this entry lacks the component / config the path starts at (only some entries have one)
 };
 bool gd_item_config_slot(const Entry& e, const std::string& path, GdValueSlot* out, std::string* why);
+// dev.32 registries over kiln.gamedata's sections (creatures: KILN_GD_TEMPLATES, arsenals, perks), the same shape:
+// the section's entry with this GUID (lower-case text) in this world, as kiln.content's Entry (id, name, address, GUID);
+bool gd_registry_entry(uint32_t section, const std::string& guid, Entry* out);
+// one value below its root (a template's path starts at a component: "Level.dataStorage[0]") as a store slot of the section,
+// with its tooltip row when the path names a config's value; false + *why (out->absent: this entry has none of it);
+bool gd_value_slot(uint32_t section, const Entry& e, const std::string& path, GdValueSlot* out, std::string* why);
+// the path of its one whole or fractional config below `configs` ("impactValues.0x0a0c87e7"); false + *why "none" / "several";
+bool gd_shown_config(uint32_t section, const Entry& e, const std::string& configs, std::string* path, std::string* why);
+// how many elements the list at path has.
+bool gd_list_size(uint32_t section, const Entry& e, const std::string& path, uint32_t* n, std::string* why);
 bool gd_ui_scale(uint8_t format, double v, int64_t* out);  // a config value as its tooltip row shows it
 constexpr int32_t kSubUnlock = 101;  // Slot.sub of a recipe's knowledgeRequirement (registry recipes.unlock)
 

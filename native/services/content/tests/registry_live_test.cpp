@@ -77,7 +77,12 @@ void* near_alloc(uintptr_t, size_t n) {
     g_near += (n + 15) & ~size_t(15);
     return p;
 }
-Registry& reg(uint32_t kind) { return g_regs[kind]; }
+// a gamedata slot's kind (GD_KIND_BASE + section, registry_gd_live_test) is no kiln.content registry: kiln.gamedata names it in
+// the real build (KC_GAMEDATA); here an empty registry
+Registry& reg(uint32_t kind) {
+    static Registry none;
+    return kind < 5 ? g_regs[kind] : (none = Registry{});
+}
 const Entry* Registry::get(uint32_t id) const {
     auto it = by_id.find(id);
     return it == by_id.end() ? nullptr : &entries[it->second];
@@ -133,6 +138,41 @@ bool gd_item_config_slot(const Entry& e, const std::string& path, GdValueSlot* o
     return true;
 }
 bool gd_ui_scale(uint8_t, double v, int64_t* out) { return *out = std::llround(v), true; }
+// dev.32: a made-up kiln.gamedata world for the creatures, arsenals and perks registries (registry_gd_live_test.cpp fills it):
+// entries by GUID, value slots by (entry id, path), the paths an entry lacks (a component it has none of), a perk's one value.
+struct GdFake {
+    std::map<std::string, Entry> entries;                         // lower-case GUID -> the entry
+    std::map<std::pair<uint32_t, std::string>, GdValueSlot> slots; // (entry id, path) -> its slot
+    std::set<std::pair<uint32_t, std::string>> absent;             // (entry id, path): the entry has none of it
+    std::map<uint32_t, std::string> shown;                         // entry id -> its one value's path, or "none" / "several"
+    std::map<std::pair<uint32_t, std::string>, uint32_t> lists;    // (entry id, list path) -> its length
+};
+std::map<uint32_t, GdFake> g_gd;  // by section
+bool gd_registry_entry(uint32_t section, const std::string& guid, Entry* out) {
+    const auto s = g_gd.find(section);
+    if (s == g_gd.end()) return false;
+    const auto it = s->second.entries.find(guid);
+    if (it == s->second.entries.end()) return false;
+    return *out = it->second, true;
+}
+bool gd_value_slot(uint32_t section, const Entry& e, const std::string& path, GdValueSlot* out, std::string* why) {
+    GdFake& f = g_gd[section];
+    if (f.absent.count({e.id, path})) return out->absent = true, *why = "no component " + path, false;
+    const auto it = f.slots.find({e.id, path});
+    if (it == f.slots.end()) return *why = "the template has no member " + path, false;
+    return *out = it->second, true;
+}
+bool gd_shown_config(uint32_t section, const Entry& e, const std::string& configs, std::string* path, std::string* why) {
+    const auto it = g_gd[section].shown.find(e.id);
+    if (it == g_gd[section].shown.end()) return *why = "the perk has no " + configs, false;
+    if (it->second == "none" || it->second == "several") return *why = it->second, false;
+    return *path = it->second, true;
+}
+bool gd_list_size(uint32_t section, const Entry& e, const std::string& path, uint32_t* n, std::string* why) {
+    const auto it = g_gd[section].lists.find({e.id, path});
+    if (it == g_gd[section].lists.end()) return *why = "the arsenal has no member " + path, false;
+    return *n = it->second, true;
+}
 const registry::Schema& registry_schema() {
     static const registry::Schema s = registry::generated_schema();
     return s;

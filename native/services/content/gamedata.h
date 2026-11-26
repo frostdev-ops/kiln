@@ -134,6 +134,9 @@ gjson leaf_json(const Field& f, const uint8_t* bytes, bool raw = false);  // raw
 
 // ---- config vocabulary (aliases) --------------------------------------------------------------------------------
 std::vector<uint32_t> config_ids(const std::string& alias);  // alias / 0x id -> ids (several: ambiguous)
+// The ids of the configs below a keen::impact::Configurations node whose type is one of briefs (by its name without namespaces:
+// "Sint32ImpactConfig"), simple then scaled, in order (registry perks.value: a perk's one whole or fractional value).
+std::vector<uint32_t> configs_of_types(const Node& configs, const std::vector<std::string>& briefs);
 std::string config_name(uint32_t id);                         // the best alias, else "0x%08x"
 gjson configs_json();
 void configs_build();                                         // program variables + the C++-read table (once)

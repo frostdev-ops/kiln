@@ -1244,4 +1244,20 @@ bool parse_leaf(const Field& f, const gjson& j, const uint8_t* original, uint8_t
     return encode(w, v, out, err);
 }
 
+std::vector<uint32_t> configs_of_types(const Node& configs, const std::vector<std::string>& briefs) {
+    std::vector<uint32_t> out;
+    if (!is_configs(configs.t)) return out;
+    for (const char* arr : {"simple", "scaled"}) {
+        const TField* af = configs.t->field(arr);
+        const TType* at = af && af->type() ? af->type()->resolved() : nullptr;
+        std::vector<Node> els;
+        if (!at || !elements(Node{at, configs.addr + af->offset}, &els)) continue;
+        for (const Node& e : els) {
+            const Node c = deref(e);
+            if (c.t && std::find(briefs.begin(), briefs.end(), c.t->brief) != briefs.end()) out.push_back(config_id_of(c));
+        }
+    }
+    return out;
+}
+
 }  // namespace kc::gd

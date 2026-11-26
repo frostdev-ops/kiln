@@ -1,7 +1,7 @@
 # Adding a registry (maintainer guide)
 
-For Kiln maintainers who add the next registry (perks, skills, stations, NPCs, ...) to the five that ship today (items,
-recipes, loot, drops, balance). It says what a new registry gets for free, the steps in order, every pitfall the first
+For Kiln maintainers who add the next registry (skills, stations, NPCs, ...) to the ones that ship today (items,
+recipes, loot, drops, balance; since dev.32 creatures, arsenals and perks). It says what a new registry gets for free, the steps in order, every pitfall the first
 five hit and the fix that is in the code now, and when a new registry is done. Mod-facing docs are
 [modding/registries/README.md](modding/registries/README.md); the native tables are [services/registry.md](services/registry.md);
 the mapping and its proof are [regmap/README.md](../../regmap/README.md) and [sigport.md](sigport.md#the-registry-proof-kilnctl-regproof).
@@ -186,6 +186,32 @@ warn or report (README "Edits that change existing saves"), with a `registry_sav
 stage (`stage.cpp` `compose_checked`), live scalar fields at each write over the value under them (`registry_live.cpp`
 `save_check`; a new entry's first values are not judged), and every field of a rollback's plan also against the plan it rolls
 away from (`stage.cpp`, whole plan); a field read only at use or for new copies needs nothing.
+
+### 2.8b Registries over kiln.gamedata's sections (dev.32: creatures, arsenals, perks)
+
+Templates, arsenals, sequences, buffs, perks and skill nodes are kiln.gamedata's sections, not kiln.content store kinds. A
+registry over one needs no kiln.content kind:
+
+- **Live binding**: `gd_section_of` (registry_live.cpp) names the section; `bind_gd` finds the entry by its GUID
+  (`gd_registry_entry`) and binds each row through `gd_value_slot`: gamedata resolves the row's path below the entry's root
+  (a template's path starts at a component by type name, `Level.dataStorage[0]`; `[i]` indexes an array) and gives the slot
+  in its own store kind (`GD_KIND_BASE + section`) with its SlotInfo, so the content sync and the conflict report name it as
+  they name a pack's write. Scalars and enums bind generically (`bind_gd_scalar`); a perk-like entry's one numeric config is
+  `impactConfig` with `"config": "shown"` (`gd_shown_config`, `bind_gd_impact`: not_exact and the tooltip row as items'
+  costs); a list of structs whose leaves are the element rows binds with `bind_gd_list` and keeps its length. The four
+  `gd_*` seams are declared in content.h and faked by `registry_live_test.cpp`'s GdFake (`registry_gd_live_test`).
+- **An entry without the member** (a creature without the component a field lives in): the model reads `null` (no note per
+  entry), an absolute edit is refused for that entry alone ("this creature has no value of this field"), and a relative op
+  has no number there, so composition refuses the edit whole (an edit is all or nothing; authors select by trait or id).
+  `GdValueSlot::absent` tells it from a mapping that broke ("missing on this game build ... needs an update").
+- **Entries**: `entries.withComponent` keeps only the templates holding one of the listed components (creatures);
+  `entries.key: "templates"` gives each entry its template's id by GUID, so one id names the template everywhere (Python twin:
+  regmap_ids.derive `by_key_guid`, regmap_entries.py, the shared `registry_ids_cases.json` case). `nameFrom` names array
+  entries after the templates that reference them (arsenals, as drop tables).
+- **Proof**: regmap_check.py and kilnctl's reflection walk resolve component-first paths and `[i]` (kilnctl's closure dump
+  adds the components a template registry's rows start at); the producer samples gamedata entries through
+  `Content.Templates` / `Arsenals` / `Perks` (`Probed`), with the resource digest of the entry's own resource (a template, a
+  perk) or the shared one (the arsenal registry).
 
 ### 2.9 Managed typed API and analyzers
 
