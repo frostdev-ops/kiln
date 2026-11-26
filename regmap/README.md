@@ -34,6 +34,25 @@ Adding a registry (schema, mapping, back-ends, proof, tests, and the pitfalls th
                   "state": "unproven", "reason": "no game code reads an item's burn time on this build, ..." } } }
 ```
 
+**Kind arrays (0.2.0-dev.31.19, randomLoot).** The entries of one registry from several game sources:
+
+```jsonc
+"entries": { "kind": "arrays", "sources": [
+  { "resourceType": "keen::DefaultLootLabelCollectionResource", "array": "lootSettings", "id": "id", "unnamed": "labels_%08x" },
+  { "resourceType": "keen::SceneRandomLootResource", "array": "lootSettings", "unnamed": "world_%.8s_%u" } ] }
+```
+
+Each source is the array member `array` of **every** resource of its `resourceType` (kind array reads only the first), in
+the archive's order, sources in their order. An entry's stable name is its source's `unnamed` pattern: over the element's
+32-bit `id` member (`%08x`), or, for a source without one, over its resource's GUID text (`%.8s`) and its index (`%u`);
+such an entry's 32-bit number (the id tables' `#<number>` key, kiln.content's entry id) is
+`native/services/content/registry/element_num.h` (FNV-1a over the resource's GUID bytes mixed with the index;
+`regmap_entries.py` has its twin). Entries of this kind have no GUID. Every row must resolve on every source's element
+type (`regmap_check.py` refuses a row one source lacks), so the sources' element types share the rows' members.
+
+A path may index a static array of the game (`globalRarityDropRates[0]`, `modifier.rarities[2].value`), as kiln.content's
+flattened fields name its elements; the index must be below the array's length.
+
 A row: `paths` (the game's member paths from the entry's root; for a field of a list's elements, from the element),
 `conv` (below), `read` (when the game reads the member: now, worldLoad, restart, unknown), `backend` (live: kiln.content's
 store at world load; boot: the boot resource patch before the game reads it; none: read-only), `clientNeeds` (a client

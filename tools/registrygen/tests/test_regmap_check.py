@@ -78,17 +78,47 @@ ROWS = {
 }
 
 
+# Two game sources of one registry's entries (kind arrays, randomLoot): a collection of tables with ids, and resources of
+# tables without; both element types start with the same fixed array of {mode, value} and a float.
+ARRAY_TYPES = {"types": TYPES["types"] + [
+    T("keen::Mode", 12, 1, inner="keen::uint8", values=[("Set", 0), ("None", 3)]),
+    T("keen::ModVal", 18, 8, fields=[("mode", "keen::Mode", 0), ("value", "keen::float32", 4)]),
+    T("keen::StaticArray<keen::ModVal,2>", 19, 16, inner="keen::ModVal", count=2),
+    T("keen::Table", 18, 20, fields=[("vals", "keen::StaticArray<keen::ModVal,2>", 0), ("top", "keen::float32", 16)]),
+    T("keen::IdTable", 18, 24, inner="keen::Table", fields=[("id", "keen::uint32", 20)]),
+    T("keen::BlobArray<keen::IdTable>", 24, 8, inner="keen::IdTable"),
+    T("keen::BlobArray<keen::Table>", 24, 8, inner="keen::Table"),
+    T("keen::Collection", 18, 8, fields=[("tables", "keen::BlobArray<keen::IdTable>", 0)]),
+    T("keen::Scene", 18, 8, fields=[("tables", "keen::BlobArray<keen::Table>", 0)]),
+]}
+ARRAY_SCHEMA = dict(SCHEMA, registry="tables", fields={
+    "first": {"type": "struct", "applies": "now", "fields": {
+        "mode": {"type": "enum", "values": ["set", "none"], "ops": "set"},
+        "weight": {"type": "float", "min": 0, "max": 9, "ops": "number"}}},
+    "top": {"type": "float", "min": 0, "max": 9, "applies": "now", "ops": "number"},
+}, entry={"add": False, "remove": False})
+ARRAY_ROWS = {
+    "first.mode": {"paths": ["vals[0].mode"], "conv": "enum", "values": {"set": "Set", "none": "None"}, "read": "now", "backend": "live"},
+    "first.weight": {"paths": ["vals[0].value"], "conv": "float", "read": "now", "backend": "live"},
+    "top": {"paths": ["top"], "conv": "float", "read": "now", "backend": "live"},
+}
+ARRAY_ENTRIES = {"kind": "arrays", "sources": [
+    {"resourceType": "keen::Collection", "array": "tables", "id": "id", "unnamed": "labels_%08x"},
+    {"resourceType": "keen::Scene", "array": "tables", "unnamed": "world_%.8s_%u"}]}
+
+
 class Tree:
-    def __init__(self, rows=None, schema=None):
+    def __init__(self, rows=None, schema=None, entries=None):
         self.root = Path(tempfile.mkdtemp(prefix="regmap-check-"))
         (self.root / "schema" / "registry").mkdir(parents=True)
-        (self.root / "schema" / "registry" / "things.json").write_text(json.dumps(schema or SCHEMA))
+        name = (schema or SCHEMA)["registry"]
+        (self.root / "schema" / "registry" / f"{name}.json").write_text(json.dumps(schema or SCHEMA))
         sys.path.insert(0, str(HERE.parent))
         import registrygen
         registrygen.update_lock(self.root)
         (self.root / "regmap" / "common").mkdir(parents=True)
-        (self.root / "regmap" / "common" / "things.json").write_text(json.dumps({
-            "regmap": 1, "registry": "things", "entries": {"kind": "resource", "resourceType": "keen::Thing", "name": "debugName"},
+        (self.root / "regmap" / "common" / f"{name}.json").write_text(json.dumps({
+            "regmap": 1, "registry": name, "entries": entries or {"kind": "resource", "resourceType": "keen::Thing", "name": "debugName"},
             "rows": ROWS if rows is None else rows}))
 
     def close(self):
@@ -96,12 +126,50 @@ class Tree:
 
 
 class Checks(unittest.TestCase):
-    def run_check(self, rows=None, schema=None, types=TYPES):
-        t = Tree(rows, schema)
+    def run_check(self, rows=None, schema=None, types=TYPES, entries=None):
+        t = Tree(rows, schema, entries)
         try:
             return rc.check(t.root, rc.TypeDb.from_refl(types))
         finally:
             t.close()
+
+    def test_a_path_may_index_a_static_array(self):
+        r = self.run_check(ARRAY_ROWS, ARRAY_SCHEMA, ARRAY_TYPES, ARRAY_ENTRIES)
+        self.assertEqual(r.errors, [])
+        rows = copy.deepcopy(ARRAY_ROWS)
+        rows["first.weight"]["paths"] = ["vals[2].value"]  # two elements only
+        errs = self.run_check(rows, ARRAY_SCHEMA, ARRAY_TYPES, ARRAY_ENTRIES).errors
+        self.assertTrue(any("tables.first.weight" in e and "2 elements" in e for e in errs), errs)
+        rows["first.weight"]["paths"] = ["top[0]"]  # not an array
+        errs = self.run_check(rows, ARRAY_SCHEMA, ARRAY_TYPES, ARRAY_ENTRIES).errors
+        self.assertTrue(any("not a static array" in e for e in errs), errs)
+
+    def test_kind_arrays_resolves_every_row_on_every_source(self):
+        r = self.run_check(ARRAY_ROWS, ARRAY_SCHEMA, ARRAY_TYPES, ARRAY_ENTRIES)
+        self.assertEqual(r.errors, [])
+        self.assertEqual(r.resolved, len(ARRAY_ROWS))
+        self.assertEqual(set(r.rows.values()), {"ok"})
+        self.assertIn("keen::IdTable", r.layouts)
+        self.assertIn("keen::Table", r.layouts)
+        # a member only one source's element has: the row is refused (unmapped), with the error
+        rows = copy.deepcopy(ARRAY_ROWS)
+        rows["top"]["paths"] = ["id"]
+        r = self.run_check(rows, ARRAY_SCHEMA, ARRAY_TYPES, ARRAY_ENTRIES)
+        self.assertEqual(r.rows["tables.top"], "unmapped")
+        self.assertTrue(any("keen::Table has no member id" in e for e in r.errors), r.errors)
+        # a source whose array or id is missing
+        bad = copy.deepcopy(ARRAY_ENTRIES)
+        bad["sources"][1]["array"] = "nope"
+        r = self.run_check(ARRAY_ROWS, ARRAY_SCHEMA, ARRAY_TYPES, bad)
+        self.assertTrue(any("entries.sources[1].array" in e for e in r.errors), r.errors)
+        self.assertEqual(set(r.rows.values()), {"unmapped"})
+        bad = copy.deepcopy(ARRAY_ENTRIES)
+        bad["sources"][0]["id"] = "nope"
+        r = self.run_check(ARRAY_ROWS, ARRAY_SCHEMA, ARRAY_TYPES, bad)
+        self.assertTrue(any("entries.sources[0].id" in e for e in r.errors), r.errors)
+        # a source type the type source does not have is counted absent
+        r = self.run_check(ARRAY_ROWS, ARRAY_SCHEMA, TYPES, ARRAY_ENTRIES)
+        self.assertEqual(sorted(r.absent), ["keen::Collection", "keen::Scene"])
 
     def test_good_rows_pass(self):
         r = self.run_check()

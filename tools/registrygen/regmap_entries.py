@@ -34,6 +34,44 @@ def find(value, kind):
             stack.extend(v)
 
 
+def element_num(guid, index):
+    """kiln.content's 32-bit number of an element without an id member (regmap.cpp element_num): FNV-1a over its resource's
+    16 GUID bytes in the game's order, mixed with its index."""
+    import uuid
+    h = 2166136261
+    for c in uuid.UUID(guid).bytes_le:
+        h = ((h ^ c) * 16777619) & 0xFFFFFFFF
+    return h ^ (((index + 1) * 0x9E3779B1) & 0xFFFFFFFF)
+
+
+def element_name(pattern, num, guid, index):
+    """regmap.cpp element_name: "%08x" the number, "%.8s" the resource GUID text's first 8 characters, "%u" the index."""
+    return pattern.replace("%08x", "%08x" % num).replace("%.8s", guid.lower()[:8]).replace("%u", str(index))
+
+
+def random_loot(src, g):
+    """randomLoot's entries (kind arrays): every element of each source's array, in every resource of its type, named by
+    the source's pattern (regmap/common/randomLoot.json); no GUID of their own (id tables key them "#<number>")."""
+    from bootdata import live
+    regmap = json.loads((HERE.parents[1] / "regmap" / "common" / "randomLoot.json").read_text(encoding="utf-8"))
+    rows = []
+    for source in regmap["entries"]["sources"]:
+        t = src.need(source["resourceType"])
+        f = src.need_field(t, source["array"])
+        at_t = g.resolved(g.get(f[1]))
+        el = g.resolved(g.inner(at_t)) if at_t is not None else None
+        idf = g.field(el, source["id"])[2] if source.get("id") else None
+        for key in src.keys(source["resourceType"]):
+            b = live.Blob(src.kfc.read(key))
+            rel, n = b.i32(f[2]), b.u32(f[2] + 4)
+            count = n if rel else 0
+            for i in range(count):
+                o = f[2] + rel + i * el.size
+                num = b.u32(o + idf) if idf is not None else element_num(key.guid, i)
+                rows.append({"guid": "", "name": element_name(source["unnamed"], num, key.guid, i), "id": num})
+    return rows
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--exe", required=True)
@@ -76,6 +114,8 @@ def main(argv=None):
         out["registries"]["drops"] = [{"guid": k.guid, "name": "", "id": 0, "namedBy": sorted(users.get(k.guid.lower(), []))}
                                       for k in src.keys("keen::ecs::DefaultInventoryResource")]
         out["registries"]["balance"] = [{"guid": k.guid, "name": "", "id": 0} for k in src.keys("keen::BalancingTable")]
+        out["registries"]["lootRules"] = [{"guid": k.guid, "name": "", "id": 0} for k in src.keys("keen::LootableItemsResource")]
+        out["registries"]["randomLoot"] = random_loot(src, g)
     finally:
         src.close()
     Path(a.out).write_text(json.dumps(out), encoding="utf-8")

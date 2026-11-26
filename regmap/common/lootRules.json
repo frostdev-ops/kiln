@@ -1,0 +1,57 @@
+{
+  "regmap": 1,
+  "registry": "lootRules",
+  "entries": {
+    "kind": "single",
+    "resourceType": "keen::LootableItemsResource",
+    "resourceGuid": "3064d35d-7342-40ca-bdc9-aad58f83bf45",
+    "unnamed": "loot"
+  },
+  "rows": {
+    "rarityWeights.common": {
+      "paths": [
+        "globalRarityDropRates[0]"
+      ],
+      "conv": "float",
+      "read": "now",
+      "backend": "live",
+      "evidence": "docs/re/content.md section 12: the roll's context build (server 0x16c1d0, client 0x3c8690) reads the five weights at each roll through the getter 0x936660 / 0xe8f520 (loot registry +0x38 -> the resource, float at 4*i); nothing is cached between rolls"
+    },
+    "rarityWeights.uncommon": {
+      "paths": [
+        "globalRarityDropRates[1]"
+      ],
+      "conv": "float",
+      "read": "now",
+      "backend": "live",
+      "evidence": "docs/re/content.md section 12: the roll's context build (server 0x16c1d0, client 0x3c8690) reads the five weights at each roll through the getter 0x936660 / 0xe8f520 (loot registry +0x38 -> the resource, float at 4*i); nothing is cached between rolls"
+    },
+    "rarityWeights.rare": {
+      "paths": [
+        "globalRarityDropRates[2]"
+      ],
+      "conv": "float",
+      "read": "now",
+      "backend": "live",
+      "evidence": "docs/re/content.md section 12: the roll's context build (server 0x16c1d0, client 0x3c8690) reads the five weights at each roll through the getter 0x936660 / 0xe8f520 (loot registry +0x38 -> the resource, float at 4*i); nothing is cached between rolls"
+    },
+    "rarityWeights.epic": {
+      "paths": [
+        "globalRarityDropRates[3]"
+      ],
+      "conv": "float",
+      "read": "now",
+      "backend": "live",
+      "evidence": "docs/re/content.md section 12: the roll's context build (server 0x16c1d0, client 0x3c8690) reads the five weights at each roll through the getter 0x936660 / 0xe8f520 (loot registry +0x38 -> the resource, float at 4*i); nothing is cached between rolls"
+    },
+    "rarityWeights.legendary": {
+      "paths": [
+        "globalRarityDropRates[4]"
+      ],
+      "conv": "float",
+      "read": "now",
+      "backend": "live",
+      "evidence": "docs/re/content.md section 12: the roll's context build (server 0x16c1d0, client 0x3c8690) reads the five weights at each roll through the getter 0x936660 / 0xe8f520 (loot registry +0x38 -> the resource, float at 4*i); nothing is cached between rolls"
+    }
+  }
+}

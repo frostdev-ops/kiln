@@ -28,7 +28,7 @@ using json = nlohmann::json;
 enum class Read : uint8_t { Now, WorldLoad, Restart, Unknown };
 enum class Backend : uint8_t { Live, Boot, None };
 enum class RowState : uint8_t { Mapped, Unproven, Unmapped };
-enum class EntryKind : uint8_t { Resource, Array, Single };
+enum class EntryKind : uint8_t { Resource, Array, Single, Arrays };
 // Unproven (kilnctl regproof): nothing is wrong that the proof can see, but the lab gave no evidence for the row on this build
 // (the record's "reasons" says what is missing); kept off like Changed, with that reason instead of "a Kiln update is needed".
 enum class BuildRow : uint8_t { Ok, Changed, Unmapped, Unproven };
@@ -60,7 +60,18 @@ struct EntrySource {
     std::string unnamed;        // the stable name of an entry without one: printf over the id ("item_%08x") or the GUID text ("drops_%.8s")
     std::string name_from;      // drop tables: "<component type>.<member>" whose templates name the entry
     std::string key;            // loot: "items": the entry has the id of the items entry with the same 32-bit id
+    // kind Arrays: the game sources of one registry's entries, in order, each the array member `array` of every resource of
+    // its resourceType (in the archive's order). An entry is named by its source's "unnamed" pattern: over the element's
+    // 32-bit id member ("labels_%08x") or, without one, over its resource's GUID text and its index ("world_%.8s_%u"), whose
+    // 32-bit number is then element_num(). randomLoot: the creature/container label tables and the world's scene tables.
+    std::vector<EntrySource> sources;
 };
+// The 32-bit number of an element without an id member (kind Arrays): FNV-1a over its resource's 16 GUID bytes (the game's
+// byte order), mixed with its index. kiln.content's live registry and the stage's id table must agree on it.
+uint32_t element_num(const uint8_t guid[16], uint32_t index);
+// A kind Arrays entry's stable name from its source's pattern (see EntrySource::sources): "%08x" takes num, "%.8s" the
+// resource's GUID text (lower case, with dashes) and "%u" the element's index.
+std::string element_name(const EntrySource& source, uint32_t num, const std::string& guid_text, uint32_t index);
 
 struct RegistryMap {
     std::string registry;

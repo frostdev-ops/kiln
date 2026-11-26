@@ -607,6 +607,46 @@ const std::vector<Entry>* Model::entries(const std::string& registry, std::strin
     const map::EntrySource& s = *R.src;
     std::vector<KilnAssetKey> keys;
     std::string w;
+    if (s.kind == map::EntryKind::Arrays) {
+        // every element of each source's array member, in every resource of the source's type: named by the source's pattern
+        // (its 32-bit id member, else the resource's GUID text and the index: element_num), no GUID of its own
+        std::vector<map::GameEntry> game;
+        for (const map::EntrySource& one : s.sources) {
+            keys.clear();
+            if (!src_.list(one.resource_type, &keys, &w)) return fail(w);
+            for (const KilnAssetKey& k : keys) {
+                size_t n = 0;
+                if (!src_.count(Place{k, one.resource_type, one.array, -1}, &n, &w)) return fail(w);
+                const std::string gtext = lc(guid_text(k.guid));
+                for (size_t i = 0; i < n; ++i) {
+                    Entry e;
+                    e.place = Place{k, one.resource_type, one.array, static_cast<int32_t>(i)};
+                    json j;
+                    std::string e1;
+                    double num = 0;
+                    if (!one.id.empty()) {
+                        if (!src_.member(e.place, one.id, &j, &e1) || !number_of(j, &num)) return fail(one.resource_type + " element " + std::to_string(i) + " has no 32-bit id: " + e1);
+                        e.num = static_cast<uint32_t>(num);
+                    } else {
+                        e.num = map::element_num(k.guid, static_cast<uint32_t>(i));
+                    }
+                    e.name = map::element_name(one, e.num, gtext, static_cast<uint32_t>(i));
+                    game.push_back({"", e.name, e.num, {}});
+                    R.entries.push_back(std::move(e));
+                }
+            }
+        }
+        std::vector<std::string> notes;
+        const std::vector<std::string> ids = map::assign_ids(registry, s, d_->rm.build.aliases, game, nullptr, &notes);
+        for (const std::string& n : notes) d_->note(n);
+        for (size_t i = 0; i < R.entries.size() && i < ids.size(); ++i) {
+            const std::string id = lc(ids[i]);
+            R.entries[i].id = id;
+            R.by_id.emplace(id, i);
+            if (!R.by_num.emplace(R.entries[i].num, i).second) d_->note(registry + ": " + id + " has the 32-bit number of an earlier entry; live edits reach the first");
+        }
+        return &R.entries;
+    }
     if (!src_.list(s.resource_type, &keys, &w)) return fail(w);
     std::vector<Place> places;
     if (s.kind == map::EntryKind::Resource) {

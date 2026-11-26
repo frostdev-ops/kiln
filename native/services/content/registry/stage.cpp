@@ -233,8 +233,11 @@ std::string regmap_digest(const map::RegMap& rm) {
         for (const auto& [f, row] : r.rows)
             rows[f] = {row.paths, row.conv, row.values, row.formula, row.config, static_cast<int>(row.read), static_cast<int>(row.backend),
                        static_cast<int>(row.state), row.client_needs};
+        json sources = json::array();
+        for (const map::EntrySource& s : e.sources) sources.push_back({s.resource_type, s.array, s.id, s.unnamed});
         j["registries"][n] = {{"entries", {static_cast<int>(e.kind), e.resource_type, e.array, e.resource_guid, e.name, e.guid, e.id, e.unnamed, e.name_from, e.key}},
                               {"rows", rows}};
+        if (!sources.empty()) j["registries"][n]["sources"] = sources;  // kind arrays only: other registries' digests stay as they were
     }
     if (rm.has_build) {
         json rows = json::object();
@@ -466,8 +469,11 @@ struct Runner::Impl {
         std::string shared;
         ArchiveFields fields;
         for (const auto& [name, rmap] : rm.registries) {
-            if (rmap.entries.kind != map::EntryKind::Array) whole.insert(name);
-            else shared += (shared.empty() ? "" : ", ") + name, fields.array[name] = rmap.entries.array;
+            if (rmap.entries.kind != map::EntryKind::Array && rmap.entries.kind != map::EntryKind::Arrays) whole.insert(name);
+            else
+                shared += (shared.empty() ? "" : ", ") + name,
+                    fields.array[name] = rmap.entries.kind == map::EntryKind::Arrays && !rmap.entries.sources.empty() ? rmap.entries.sources[0].array
+                                                                                                                    : rmap.entries.array;
             for (const auto& [field, row] : rmap.rows)
                 if (field.find("[]") == std::string::npos) fields.rows[name][field] = row.paths;
         }

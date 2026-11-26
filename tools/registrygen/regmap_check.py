@@ -100,21 +100,33 @@ class TypeDb:
         return None
 
     def path(self, root, dotted):
-        """The type at a dotted member path from a root type; (type, error)."""
+        """The type at a dotted member path from a root type; (type, error). A part may index a static array of the game
+        (name[i], as kiln.content's flattened fields name its elements): the element's type, i below the array's length."""
         t = self.get(root)
         for part in dotted.split("."):
+            m = re.fullmatch(r"([A-Za-z_][A-Za-z0-9_]*)\[([0-9]+)\]", part)
+            name, index = (m.group(1), int(m.group(2))) if m else (part, None)
             r = self.resolve(t)
             if r is None or r["kind"] != K_STRUCT:
                 return None, f"{dotted}: {t['name'] if t else '?'} has no members"
             nxt = None
             for f in self.fields(r):
-                if f["name"] == part:
+                if f["name"] == name:
                     nxt = self.get(f["type"])
                     if nxt is None:
-                        return None, f"{dotted}: the type of {part} ({f['type']}) is not in the type source"
+                        return None, f"{dotted}: the type of {name} ({f['type']}) is not in the type source"
                     break
             if nxt is None:
-                return None, f"{dotted}: {r['name']} has no member {part}"
+                return None, f"{dotted}: {r['name']} has no member {name}"
+            if index is not None:
+                a = self.resolve(nxt)
+                if a is None or a["kind"] != K_STATIC_ARRAY:
+                    return None, f"{dotted}: {name} is not a static array"
+                if a.get("count") is not None and index >= a["count"]:
+                    return None, f"{dotted}: {name} has {a['count']} elements"
+                nxt = self.get(a.get("inner"))
+                if nxt is None:
+                    return None, f"{dotted}: the element type of {name} is not in the type source"
             t = nxt
         return t, None
 
@@ -330,6 +342,10 @@ def check(root, db):
                 res.errors.append(f"{name}.{f}: the reason names the game's {bad.group(0) if hasattr(bad, 'group') else bad!r} "
                                   "(Kiln words only; game members go in evidence)")
         e = m.get("entries", {})
+        if e.get("kind") == "arrays":
+            # several game sources (randomLoot): every row resolves from every source's element type
+            check_arrays(db, name, e, specs, rows, res)
+            continue
         rtype = e.get("resourceType", "")
         root_t = db.get(rtype)
         if root_t is None:
@@ -349,6 +365,13 @@ def check(root, db):
             for member in ("name", "guid", "id"):
                 if e.get(member) and entry_root and db.path(entry_root, e[member])[1]:
                     res.errors.append(f"{name}: entries.{member} {e[member]}: {db.path(entry_root, e[member])[1]}")
+        check_rows(db, name, specs, rows, res, entry_root, root_t is not None)
+    return res
+
+
+def check_rows(db, name, specs, rows, res, entry_root, root_known):
+    """Each schema field's row against its member types from entry_root (None: the root type is not in the source)."""
+    if True:
         for path, spec_row in specs.items():
             q = f"{name}.{path}"
             row = rows.get(path)
@@ -382,7 +405,7 @@ def check(root, db):
             base = entry_root
             if spec_row.list_path:
                 base = list_element_root(db, entry_root, rows, spec_row.list_path) if entry_root else None
-            if root_t is not None and base is None:
+            if root_known and base is None:
                 errs.append(f"{q}: its list's element type is not found")
             if base is not None:
                 types = []
@@ -397,7 +420,52 @@ def check(root, db):
                     res.resolved += 1
             res.errors += errs
             res.rows[q] = "ok" if not errs and base is not None else "unmapped"
-    return res
+
+
+def check_arrays(db, name, e, specs, rows, res):
+    """Entries of kind arrays: each source's array member must exist; a row is ok only when it resolves on every source's
+    element type (randomLoot: the label tables and the scene tables share their leading layout)."""
+    sources = e.get("sources") or []
+    if not sources:
+        res.errors.append(f"{name}: entries.sources lists the game sources of kind arrays")
+        return
+    per = []
+    for i, src in enumerate(sources):
+        rtype = src.get("resourceType", "")
+        root_t = db.get(rtype)
+        if root_t is None:
+            res.absent.append(rtype)
+            per.append(None)
+            continue
+        res.layouts[rtype] = root_t.get("layout")
+        t, err = db.path(rtype, src.get("array", ""))
+        el = db.element(t) if t else None
+        if err or el is None:
+            res.errors.append(f"{name}: entries.sources[{i}].array {src.get('array')}: {err or 'not an array'}")
+            per.append(None)
+            continue
+        res.layouts[el["name"]] = el.get("layout")
+        if src.get("id") and db.path(el["name"], src["id"])[1]:
+            res.errors.append(f"{name}: entries.sources[{i}].id {src['id']}: {db.path(el['name'], src['id'])[1]}")
+        per.append(el["name"])
+    if any(p is None for p in per):
+        for path in specs:
+            res.rows[f"{name}.{path}"] = "unmapped"
+        return
+    results = []
+    for root in per:
+        sub = Result()
+        check_rows(db, name, specs, rows, sub, root, True)
+        results.append(sub)
+    first = results[0]
+    for sub in results:
+        for err in sub.errors:
+            if err not in res.errors:
+                res.errors.append(err)
+    for q, state in first.rows.items():
+        res.rows[q] = "ok" if all(sub.rows.get(q) == "ok" for sub in results) else "unmapped"
+    res.unmapped += [q for q in first.unmapped]
+    res.resolved += min(sub.resolved for sub in results)
 
 
 def previous_record(root, side, game_build):
@@ -434,7 +502,7 @@ def compute_aliases(root, entries, previous, previous_table, game_build):
     # templates have no regmap file (the model's builtin source names them: debug name, else template_<guid8>); their
     # clashes and names outside the grammar are pinned here like any registry's
     builtin = {"templates": {"unnamed": "template_%.8s"}}
-    for name in ("templates", "items", "recipes", "loot", "drops", "balance"):
+    for name in ("templates", "items", "recipes", "loot", "drops", "balance", "lootRules", "randomLoot"):
         if (name not in maps and name not in builtin) or name not in entries.get("registries", {}):
             continue
         src = maps[name].get("entries", {}) if name in maps else builtin[name]

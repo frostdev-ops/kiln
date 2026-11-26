@@ -1,0 +1,208 @@
+{
+  "regmap": 1,
+  "registry": "randomLoot",
+  "entries": {
+    "kind": "arrays",
+    "sources": [
+      {
+        "resourceType": "keen::DefaultLootLabelCollectionResource",
+        "array": "lootSettings",
+        "id": "id",
+        "unnamed": "labels_%08x"
+      },
+      {
+        "resourceType": "keen::SceneRandomLootResource",
+        "array": "lootSettings",
+        "unnamed": "world_%.8s_%u"
+      }
+    ]
+  },
+  "rows": {
+    "level.mode": {
+      "paths": [
+        "modifier.level.mode"
+      ],
+      "conv": "enum",
+      "values": {
+        "none": "None",
+        "set": "Set",
+        "add": "Add",
+        "multiply": "Multiply"
+      },
+      "read": "now",
+      "backend": "live",
+      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time"
+    },
+    "level.value": {
+      "paths": [
+        "modifier.level.value"
+      ],
+      "conv": "float",
+      "read": "now",
+      "backend": "live",
+      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time"
+    },
+    "levelOffset.mode": {
+      "paths": [
+        "modifier.levelOffset.mode"
+      ],
+      "conv": "enum",
+      "values": {
+        "none": "None",
+        "set": "Set",
+        "add": "Add",
+        "multiply": "Multiply"
+      },
+      "read": "now",
+      "backend": "live",
+      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time"
+    },
+    "levelOffset.value": {
+      "paths": [
+        "modifier.levelOffset.value"
+      ],
+      "conv": "float",
+      "read": "now",
+      "backend": "live",
+      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time"
+    },
+    "levelOffsetRange.min": {
+      "paths": [
+        "modifier.levelOffsetRangeMin"
+      ],
+      "conv": "float",
+      "read": "now",
+      "backend": "live",
+      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time"
+    },
+    "levelOffsetRange.max": {
+      "paths": [
+        "modifier.levelOffsetRangeMax"
+      ],
+      "conv": "float",
+      "read": "now",
+      "backend": "live",
+      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time"
+    },
+    "rarity.common.mode": {
+      "paths": [
+        "modifier.rarities[0].mode"
+      ],
+      "conv": "enum",
+      "values": {
+        "none": "None",
+        "set": "Set",
+        "add": "Add",
+        "multiply": "Multiply"
+      },
+      "read": "now",
+      "backend": "live",
+      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time"
+    },
+    "rarity.common.weight": {
+      "paths": [
+        "modifier.rarities[0].value"
+      ],
+      "conv": "float",
+      "read": "now",
+      "backend": "live",
+      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time"
+    },
+    "rarity.uncommon.mode": {
+      "paths": [
+        "modifier.rarities[1].mode"
+      ],
+      "conv": "enum",
+      "values": {
+        "none": "None",
+        "set": "Set",
+        "add": "Add",
+        "multiply": "Multiply"
+      },
+      "read": "now",
+      "backend": "live",
+      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time"
+    },
+    "rarity.uncommon.weight": {
+      "paths": [
+        "modifier.rarities[1].value"
+      ],
+      "conv": "float",
+      "read": "now",
+      "backend": "live",
+      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time"
+    },
+    "rarity.rare.mode": {
+      "paths": [
+        "modifier.rarities[2].mode"
+      ],
+      "conv": "enum",
+      "values": {
+        "none": "None",
+        "set": "Set",
+        "add": "Add",
+        "multiply": "Multiply"
+      },
+      "read": "now",
+      "backend": "live",
+      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time"
+    },
+    "rarity.rare.weight": {
+      "paths": [
+        "modifier.rarities[2].value"
+      ],
+      "conv": "float",
+      "read": "now",
+      "backend": "live",
+      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time"
+    },
+    "rarity.epic.mode": {
+      "paths": [
+        "modifier.rarities[3].mode"
+      ],
+      "conv": "enum",
+      "values": {
+        "none": "None",
+        "set": "Set",
+        "add": "Add",
+        "multiply": "Multiply"
+      },
+      "read": "now",
+      "backend": "live",
+      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time"
+    },
+    "rarity.epic.weight": {
+      "paths": [
+        "modifier.rarities[3].value"
+      ],
+      "conv": "float",
+      "read": "now",
+      "backend": "live",
+      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time"
+    },
+    "rarity.legendary.mode": {
+      "paths": [
+        "modifier.rarities[4].mode"
+      ],
+      "conv": "enum",
+      "values": {
+        "none": "None",
+        "set": "Set",
+        "add": "Add",
+        "multiply": "Multiply"
+      },
+      "read": "now",
+      "backend": "live",
+      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time"
+    },
+    "rarity.legendary.weight": {
+      "paths": [
+        "modifier.rarities[4].value"
+      ],
+      "conv": "float",
+      "read": "now",
+      "backend": "live",
+      "evidence": "docs/re/content.md section 12: the context build (server 0x16c1d0, client 0x3c8690) applies the scene node's table, the template's label table and a second label table at each roll through 0x16ef20 / 0x3cb230 (Set/Add/Multiply/None per value; a non-zero range replaces the roll's range); the tables are read from the resource each time"
+    }
+  }
+}
