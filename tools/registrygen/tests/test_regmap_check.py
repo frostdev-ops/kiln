@@ -271,6 +271,89 @@ class Checks(unittest.TestCase):
         self.assertEqual(db.member_type("keen::Row", "n")["name"], "keen::uint32")
 
 
+# A sequence-like resource for dev.32's abilities: a blob array of sub-sequences whose events are variants of a base event
+# (paths with an index and a [Type#k] selector, the eventTime conversion).
+SEQ_TYPES = {"types": TYPES["types"] + [
+    T("keen::sint64", 9, 8),
+    T("keen::Event", 18, 16, fields=[("time", "keen::Time", 0), ("duration", "keen::Time", 8)]),
+    T("keen::BaseSpawn", 18, 24, inner="keen::Event", fields=[("count", "keen::uint8", 16)]),
+    T("keen::act::Spawn", 18, 32, inner="keen::BaseSpawn", fields=[("radius", "keen::float32", 24)]),
+    T("keen::ds::Spawn", 18, 32, fields=[("time", "keen::Time", 0)]),            # same last name, another base
+    T("keen::act::Pay", 18, 24, inner="keen::Event"),
+    T("keen::BlobVariant<keen::Event>", 27, 12, inner="keen::Event"),
+    T("keen::BlobArray<keen::BlobVariant<keen::Event>>", 24, 8, inner="keen::BlobVariant<keen::Event>"),
+    T("keen::Events", 17, 8, inner="keen::BlobArray<keen::BlobVariant<keen::Event>>"),
+    T("keen::BlobString", 25, 8),
+    T("keen::Sub", 18, 24, fields=[("events", "keen::Events", 0), ("length", "keen::Time", 8), ("name", "keen::BlobString", 16)]),
+    T("keen::BlobArray<keen::Sub>", 24, 8, inner="keen::Sub"),
+    T("keen::Seq", 18, 24, fields=[("id", "keen::Guid", 0), ("subs", "keen::BlobArray<keen::Sub>", 16)]),
+]}
+
+SEQ_SCHEMA = {
+    "registrySchema": 1, "registry": "things", "version": "1.0.0", "stability": "experimental", "experimentalId": "KILNX032",
+    "doc": "Test.", "ids": {"game": "game:<stable name>", "mod": "(none)", "rule": "Lower case."}, "traits": {},
+    "fields": {"release": {"type": "time", "min": 0, "max": 600, "applies": "now", "ops": "number"},
+               "length": {"type": "time", "min": 0, "max": 600, "applies": "now", "ops": "number"}},
+    "entry": {"add": False, "remove": False}, "raw": "refused",
+}
+SEQ_ROWS = {"release": {"paths": ["subs[0].events[keen::act::Spawn#0].time"], "conv": "eventTime", "read": "now", "backend": "live"},
+            "length": {"paths": ["subs[0].length"], "conv": "time", "read": "now", "backend": "live"}}
+
+
+class Selectors(unittest.TestCase):
+    def check(self, rows=None, name="subs[0].name"):
+        t = Tree(rows if rows is not None else SEQ_ROWS, SEQ_SCHEMA)
+        try:
+            common = t.root / "regmap" / "common" / "things.json"
+            d = json.loads(common.read_text())
+            d["entries"] = {"kind": "resource", "resourceType": "keen::Seq", "name": name}
+            common.write_text(json.dumps(d))
+            return rc.check(t.root, rc.TypeDb.from_refl(SEQ_TYPES))
+        finally:
+            t.close()
+
+    def test_an_index_and_a_variant_selector_resolve(self):
+        r = self.check()
+        self.assertEqual(r.errors, [])
+        self.assertEqual(r.resolved, 2)
+        db = rc.TypeDb.from_refl(SEQ_TYPES)
+        t, err = db.path("keen::Seq", "subs[0].events[keen::act::Spawn#3].radius")
+        self.assertIsNone(err)
+        self.assertEqual(t["name"], "keen::float32")
+        t, err = db.path("keen::Seq", "subs[0].events[Spawn#0].count")  # a last name: the one variant of the base
+        self.assertIsNone(err, err)
+        self.assertEqual(t["name"], "keen::uint8")
+
+    def test_a_selector_names_a_variant_of_the_lists_base(self):
+        db = rc.TypeDb.from_refl(SEQ_TYPES)
+        for path, why in (("subs[0].events[keen::ds::Spawn#0].time", "keen::Event"),     # another base
+                          ("subs[0].events[keen::act::Nope#0].time", "keen::act::Nope"),
+                          ("subs[0].length[0]", "not a list"),                           # an index on a scalar
+                          ("subs[0].events[keen::act::Spawn#x].time", "#x"),
+                          ("subs[x].length", "[x]"),
+                          ("subs[0].events[0].time", "variant")):                         # a plain index into variants
+            t, err = db.path("keen::Seq", path)
+            self.assertIsNotNone(err, path)
+            self.assertIn(why, err, path)
+
+    def test_entry_names_resolve_through_an_index(self):
+        self.assertEqual(self.check(name="subs[0].name").errors, [])
+        errs = self.check(name="subs[0].label").errors
+        self.assertTrue(any("entries.name" in e and "label" in e for e in errs), errs)
+
+    def test_event_time_names_the_first_event_of_a_kind(self):
+        rows = copy.deepcopy(SEQ_ROWS)
+        rows["release"]["paths"] = ["subs[0].events[keen::act::Spawn#1].time"]
+        errs = self.check(rows).errors
+        self.assertTrue(any("things.release" in e and "#0" in e for e in errs), errs)
+        rows["release"]["paths"] = ["subs[0].length"]
+        errs = self.check(rows).errors
+        self.assertTrue(any("things.release" in e and "#0" in e for e in errs), errs)
+        rows["release"]["paths"] = ["subs[0].events[keen::act::Spawn#0].count"]
+        errs = self.check(rows).errors
+        self.assertTrue(any("things.release" in e and "keen::Time" in e for e in errs), errs)
+
+
 class Records(unittest.TestCase):
     """review3 S3: a committed verified record is bound to the tree's regmap/common (regmapDigest), so an edit of
     regmap/common that was not re-proven fails the check (kiln.content would enable no row of that build)."""

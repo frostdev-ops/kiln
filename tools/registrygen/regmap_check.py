@@ -32,7 +32,7 @@ import regmap_ids  # noqa: E402
 # reflection kinds (tools/kfc/kfc/refl.py, the same numbers in sigdb/types)
 K_BOOL, K_U8, K_S8, K_U16, K_S16, K_U32, K_S32, K_U64, K_S64, K_F32, K_F64 = range(1, 12)
 K_ENUM, K_BM8, K_BM16, K_BM32, K_BM64, K_TYPEDEF, K_STRUCT, K_STATIC_ARRAY = range(12, 20)
-K_BLOB_ARRAY, K_OBJECT_REF, K_GUID = 24, 28, 29
+K_BLOB_ARRAY, K_BLOB_VARIANT, K_OBJECT_REF, K_GUID = 24, 27, 28, 29
 INT_RANGE = {K_U8: (0, 255), K_S8: (-128, 127), K_U16: (0, 65535), K_S16: (-32768, 32767), K_U32: (0, 4294967295),
              K_S32: (-2147483648, 2147483647), K_U64: (0, 2 ** 64 - 1), K_S64: (-2 ** 63, 2 ** 63 - 1)}
 FLOATS = (K_F32, K_F64)
@@ -40,7 +40,28 @@ BITMASKS = (K_BM8, K_BM16, K_BM32, K_BM64)
 ARRAYS = (K_STATIC_ARRAY, K_BLOB_ARRAY)
 READ_RANK = {"now": 0, "worldLoad": 1, "restart": 2}
 CONVS = ("int", "float", "bool", "time", "enum", "flags", "ref", "refList", "formula", "impactConfig", "list", "stackCount",
-         "inventoryWalk", "unlock", "optionalEnum")
+         "inventoryWalk", "unlock", "optionalEnum", "eventTime")
+# One member of a path: a name, then optionally selectors: [<index>] (an array's element) or [<Type>#<k>] (the k-th element of
+# that type in a list of variants; Type qualified, or its last name part when one variant of the list's base has it). The
+# same grammar as kiln.gamedata's paths (docs/kiln/services/gamedata.md "Paths"), which kiln.content reads them with.
+PART = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)((?:\[[^\[\]]+\])*)$")
+SELECTOR = re.compile(r"\[([^\[\]]+)\]")
+FIRST_EVENT_TIME = re.compile(r"\[[^\[\]#]+#0\]\.time$")
+
+
+def split_path(dotted):
+    """A path's members: dots outside brackets split it."""
+    parts, depth, cur = [], 0, ""
+    for ch in dotted:
+        depth += ch == "["
+        depth -= ch == "]"
+        if ch == "." and depth == 0:
+            parts.append(cur)
+            cur = ""
+        else:
+            cur += ch
+    parts.append(cur)
+    return parts
 
 
 class TypeDb:
@@ -99,23 +120,73 @@ class TypeDb:
                 return self.get(f["type"])
         return None
 
+    def derives(self, t, base):
+        """t is base, or a struct whose chain of bases reaches it."""
+        for _ in range(32):
+            if t is None:
+                return False
+            if t["name"] == base:
+                return True
+            t = self.get(t.get("inner")) if t.get("kind") == K_STRUCT and t.get("inner") else None
+        return False
+
+    def variant(self, base, want):
+        """(type, error): the type a [Type#k] selector names among the variants of base."""
+        if "::" in want:
+            t = self.get(want)
+            if t is None:
+                return None, f"{want} is not in the type source"
+            return (t, None) if self.derives(t, base) else (None, f"{want} is not a variant of {base}")
+        found = [t for n, t in self.by_name.items() if n.rsplit("::", 1)[-1] == want and self.derives(t, base)]
+        if len(found) == 1:
+            return found[0], None
+        return None, f"{want}: {'no' if not found else str(len(found))} variants of {base} have that name"
+
     def path(self, root, dotted):
-        """The type at a dotted member path from a root type; (type, error)."""
+        """The type at a dotted member path from a root type; (type, error). A member may carry selectors: [<index>] for an
+        array's element, [<Type>#<k>] for a variant of a list of variants."""
         t = self.get(root)
-        for part in dotted.split("."):
+        for part in split_path(dotted):
+            m = PART.match(part)
+            if not m:
+                return None, f"{dotted}: {part!r} is not a member name with [<index>] or [<Type>#<k>] selectors"
+            name, sels = m.group(1), SELECTOR.findall(m.group(2))
             r = self.resolve(t)
             if r is None or r["kind"] != K_STRUCT:
                 return None, f"{dotted}: {t['name'] if t else '?'} has no members"
             nxt = None
             for f in self.fields(r):
-                if f["name"] == part:
+                if f["name"] == name:
                     nxt = self.get(f["type"])
                     if nxt is None:
-                        return None, f"{dotted}: the type of {part} ({f['type']}) is not in the type source"
+                        return None, f"{dotted}: the type of {name} ({f['type']}) is not in the type source"
                     break
             if nxt is None:
-                return None, f"{dotted}: {r['name']} has no member {part}"
+                return None, f"{dotted}: {r['name']} has no member {name}"
             t = nxt
+            for sel in sels:
+                arr = self.resolve(t)
+                if arr is None or arr["kind"] not in ARRAYS:
+                    return None, f"{dotted}: {name} is not a list ([{sel}])"
+                el = self.get(arr.get("inner"))
+                if el is None:
+                    return None, f"{dotted}: the elements of {name} ({arr.get('inner')}) are not in the type source"
+                elr = self.resolve(el)
+                if sel.isdigit():
+                    if elr is not None and elr["kind"] == K_BLOB_VARIANT:
+                        return None, f"{dotted}: {name} holds variants: name one with [<Type>#<k>], not [{sel}]"
+                    if arr["kind"] == K_STATIC_ARRAY and arr.get("count") and int(sel) >= arr["count"]:
+                        return None, f"{dotted}: {name} holds {arr['count']} elements, not [{sel}]"
+                    t = el
+                    continue
+                want, hash_, k = sel.partition("#")
+                if not want or (hash_ and not k.isdigit()):
+                    return None, f"{dotted}: [{sel}] is neither an index nor <Type>#<k>"
+                if elr is None or elr["kind"] != K_BLOB_VARIANT:
+                    return None, f"{dotted}: [{sel}] picks a variant, and {name} holds no variants"
+                t, err = self.variant(elr.get("inner"), want)
+                if err:
+                    return None, f"{dotted}: {err}"
         return t, None
 
     def element(self, t):
@@ -223,6 +294,11 @@ def check_conv(db, q, conv, types, row, spec):
         want(0, lambda r: r["kind"] == K_BOOL, "a bool")
     elif conv == "time":
         want(0, lambda r: r["name"] == "keen::Time", "a keen::Time")
+    elif conv == "eventTime":
+        # the first event of a kind in a list of events, by its time; kiln.content moves every event of that kind at the same
+        # time with it (regmap/README.md)
+        if want(0, lambda r: r["name"] == "keen::Time", "a keen::Time") and not FIRST_EVENT_TIME.search(row["paths"][0]):
+            errs.append(f"{q}: an eventTime row names the first event of a kind: <list>[<Type>#0].time")
     elif conv in ("enum", "optionalEnum"):
         at = 1 if conv == "optionalEnum" else 0
         if conv == "optionalEnum":
@@ -434,7 +510,7 @@ def compute_aliases(root, entries, previous, previous_table, game_build):
     # templates have no regmap file (the model's builtin source names them: debug name, else template_<guid8>); their
     # clashes and names outside the grammar are pinned here like any registry's
     builtin = {"templates": {"unnamed": "template_%.8s"}}
-    for name in ("templates", "items", "recipes", "loot", "drops", "balance"):
+    for name in ("templates", "items", "recipes", "loot", "drops", "balance", "buffs", "abilities"):
         if (name not in maps and name not in builtin) or name not in entries.get("registries", {}):
             continue
         src = maps[name].get("entries", {}) if name in maps else builtin[name]

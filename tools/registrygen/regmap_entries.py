@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-"""regmap_entries: the R1 registries' game entries of one game build, read offline from the game's own archive and
+"""regmap_entries: the registries' game entries of one game build, read offline from the game's own archive and
 executable (tools/bootsnap's reader: the files are read as data, the exe is never run), for regmap_check.py --record.
 
     regmap_entries.py --exe <a copy of the game exe, its .kfc pair beside it> --out <file outside the repository>
@@ -76,6 +76,20 @@ def main(argv=None):
         out["registries"]["drops"] = [{"guid": k.guid, "name": "", "id": 0, "namedBy": sorted(users.get(k.guid.lower(), []))}
                                       for k in src.keys("keen::ecs::DefaultInventoryResource")]
         out["registries"]["balance"] = [{"guid": k.guid, "name": "", "id": 0} for k in src.keys("keen::BalancingTable")]
+        # dev.32: buffs (the one collection's records, named by their 32-bit id) and abilities (one action sequence each,
+        # named by its first sub-sequence: regmap/common/abilities.json's "subSequences[0].name")
+        out["registries"]["buffs"] = array("keen::BuffTypeCollectionResource", "buffs", None, None, "buffTypeId")
+        seq_t = src.need("keen::actor::ActorSequenceResource")
+        subs_at = src.need_field(seq_t, "subSequences")[2]
+        sub_t = src.need("keen::actor::ActorSubSequenceResource")
+        sub_name = src.need_field(sub_t, "name")[2]
+        abilities = []
+        for k in src.keys("keen::actor::ActorSequenceResource"):
+            b = live.Blob(src.kfc.read(k))
+            rel, n = b.i32(subs_at), b.u32(subs_at + 4)
+            name = b.blob_string(subs_at + rel + sub_name) if rel and n else ""
+            abilities.append({"guid": k.guid, "name": name, "id": 0})
+        out["registries"]["abilities"] = abilities
     finally:
         src.close()
     Path(a.out).write_text(json.dumps(out), encoding="utf-8")
