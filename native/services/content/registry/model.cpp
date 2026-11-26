@@ -840,6 +840,9 @@ void Model::fill(const Need& need, BaseModel* out) {
         const auto whole = need.whole.find(reg);
         const bool traits = need.all || need.traits.count(reg);
         auto& dst = out->registries[reg];
+        // fields an entry has no value of (an item without a cost or an armor value): one note per field with the count and the
+        // first entry's reason, never one per entry (31.18 logged 34,207 such lines at a start with registry content)
+        std::map<std::string, std::pair<size_t, std::string>> missing;
         for (size_t i = 0; i < es->size(); ++i) {
             BaseModel::Entry e;
             e.id = (*es)[i].id;
@@ -851,7 +854,7 @@ void Model::fill(const Need& need, BaseModel* out) {
                 if (!rs->field(fn) || rs->field(fn)->name.find("[]") != std::string::npos) continue;
                 std::string w;
                 if (auto v = value(reg, i, fn, &w)) e.fields[fn] = std::move(*v);
-                else d_->note("registry: " + reg + "." + fn + " is not read on this build (" + w + "); an edit composes over no value");
+                else if (auto& m = missing[fn]; m.first++ == 0) m.second = w;
             }
             if (reg == "drops" && e.fields.count("entries")) {
                 // Safety metadata only: preserve grouping while the schema's list remains a flat walk.
@@ -894,6 +897,9 @@ void Model::fill(const Need& need, BaseModel* out) {
             }
             dst.push_back(std::move(e));
         }
+        for (const auto& [fn, m] : missing)
+            d_->note(reg + "." + fn + " has no value in " + std::to_string(m.first) + " of " + std::to_string(es->size()) +
+                     " entries on this build (the first: " + m.second + "); an edit of those composes over no value");
         // ids the ledger says a game build removed: every edit naming one is refused "removed by game build ..."
         for (const auto& [rid, build] : d_->rm.build.aliases.removed) {
             const size_t bar = rid.find('|');

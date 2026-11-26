@@ -451,14 +451,13 @@ void notes_per_field(const std::string& dir) {
     std::map<std::string, size_t> per_field;
     std::string sample;
     for (const std::string& n : f.m->take_notes()) {
-        const size_t at = n.find("registry: ");
-        const size_t sp = n.find(' ', at + 10);
-        if (at == std::string::npos || sp == std::string::npos) continue;
         if (n.find("is not read on this build") == std::string::npos && n.find(" has no value in ") == std::string::npos) continue;
-        ++per_field[n.substr(at + 10, sp - at - 10)], sample = n;
+        const size_t at = n.rfind("registry: ", 0) == 0 ? 10 : 0;  // the stage adds "registry: " (31.18 wrote it twice)
+        ++per_field[n.substr(at, n.find(' ', at) - at)], sample = n;
     }
     check(!per_field.empty(), "the fixture has fields some entries have no value of");
     for (const auto& [field, count] : per_field) check(count == 1, field + ": one note, not one per entry (" + std::to_string(count) + ")");
+    check(sample.rfind("registry: ", 0) != 0, "the note does not start with \"registry: \" (the stage adds it once): " + sample);
     check(sample.find(" has no value in ") != std::string::npos && sample.find(" entries on this build (the first: ") != std::string::npos,
           "the note gives the count and the first entry: " + sample);
 }
