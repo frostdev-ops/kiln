@@ -12,6 +12,8 @@
 mod fixture;
 #[path = "support/m6_reader/mod.rs"]
 mod reader;
+#[path = "support/c_consumer/mod.rs"]
+mod c_consumer;
 
 use fixture::{
     archive::{self, ArchiveFixture, STEM},
@@ -2104,40 +2106,13 @@ fn load(path: &Path) -> ConsumerRun {
     unsafe { std::mem::transmute::<unsafe extern "system" fn() -> isize, ConsumerRun>(symbol) }
 }
 
-/// The consumer libraries: `M6_ARCHIVE_READ_CONSUMERS` (paths, `;`-separated; the native Windows run builds them with
-/// MSVC), else built here from tests/c/m6_archive_read_consumer.c with `$CC` (C11) and `$CXX` (C++20).
+/// The consumer libraries: `M6_ARCHIVE_READ_CONSUMERS` (paths, `;`-separated), else built here from
+/// tests/c/m6_archive_read_consumer.c as C11 and as C++20 (`$CC`/`$CXX` on Unix, MSVC on Windows: support/c_consumer).
 fn consumers() -> Vec<std::path::PathBuf> {
     if let Ok(list) = std::env::var("M6_ARCHIVE_READ_CONSUMERS") {
         return list.split(';').filter(|p| !p.is_empty()).map(Into::into).collect();
     }
-    if !cfg!(unix) {
-        panic!("set M6_ARCHIVE_READ_CONSUMERS to the consumer DLLs (C11 and C++20) on this platform");
-    }
-    let here = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let abi = here.join("../../../native/core/abi");
-    let source = here.join("tests/c/m6_archive_read_consumer.c");
-    let out = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("m6-archive-read-consumer-{}", std::process::id()));
-    fs::create_dir_all(&out).unwrap();
-    let cc = std::env::var("CC").unwrap_or_else(|_| "cc".into());
-    let cxx = std::env::var("CXX").unwrap_or_else(|_| "c++".into());
-    let mut built = Vec::new();
-    for (compiler, lang, standard, name) in [(cc, "c", "-std=c11", "c11"), (cxx, "c++", "-std=c++20", "cpp20")] {
-        let library = out.join(format!("libm6_archive_read_consumer_{name}.so"));
-        let status = std::process::Command::new(&compiler)
-            .args([
-                "-x", lang, standard, "-Wall", "-Wextra", "-Werror", "-fPIC", "-shared", "-I",
-            ])
-            .arg(&abi)
-            .arg(&source)
-            .arg("-o")
-            .arg(&library)
-            .arg("-lpthread")
-            .status()
-            .unwrap_or_else(|e| panic!("{compiler}: {e}"));
-        assert!(status.success(), "{compiler} {standard} built the consumer");
-        built.push(library);
-    }
-    built
+    c_consumer::build("m6_archive_read_consumer", "M6_ARCHIVE_READ_CONSUMERS")
 }
 
 // Red-first: a C consumer, compiled as C11 and as C++20 against the MIT header only, drives the real read group:

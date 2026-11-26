@@ -80,7 +80,7 @@ int main() {
     static_assert(sizeof(KilnStationEvent) == 112 && offsetof(KilnStationEvent, by) == 64 && offsetof(KilnStationEvent, position) == 72 &&
                   offsetof(KilnStationEvent, base) == 96);
     static_assert(sizeof(KilnStationsStatus) == 188);
-    static_assert(sizeof(KilnStationsApi) == 8 + 39 * 8 && offsetof(KilnStationsApi, set_output_source) == 8 + 21 * 8 &&
+    static_assert(sizeof(KilnStationsApi) == 8 + 40 * 8 && offsetof(KilnStationsApi, set_output_source) == 8 + 21 * 8 &&
                   offsetof(KilnStationsApi, max_chests) == 8 + 23 * 8 && offsetof(KilnStationsApi, collect) == 8 + 24 * 8 &&
                   offsetof(KilnStationsApi, base_stock_with_stations) == 8 + 25 * 8 &&
                   offsetof(KilnStationsApi, set_craft_stock) == 8 + 26 * 8 && offsetof(KilnStationsApi, craft_items) == 8 + 27 * 8 &&
@@ -94,7 +94,10 @@ int main() {
                   KILN_CRAFT_SOURCE_REQUEST_V1 == 32 && KILN_STATIONS_MAX_LOCK_STOCK == 256 && KILN_STATIONS_MAX_LOCK_ASKS == 16);
     static_assert(offsetof(KilnStationsApi, set_build_stock) == 304);  // after #147's members
     // GitHub #132 (0.2.0-dev.31.16): fill_flags after set_build_stock; the request's item where reserved[0] was
-    static_assert(offsetof(KilnStationsApi, fill_flags) == 312 && sizeof(KilnStationsApi) == 320);
+    static_assert(offsetof(KilnStationsApi, fill_flags) == 312);
+    // GitHub #150 (0.2.0-dev.31.18): set_respec_stock after fill_flags; RESPEC the next link flag and stock flag
+    static_assert(offsetof(KilnStationsApi, set_respec_stock) == 320 && sizeof(KilnStationsApi) == 328 &&
+                  KILN_CRAFT_SOURCE_RESPEC == 8 && KILN_CRAFT_SOURCE_STOCK_RESPEC == 16 && KILN_STATIONS_MAX_RESPEC_STOCK == 16);
     static_assert(offsetof(KilnStationRequest, item) == 72 && offsetof(KilnStationRequest, reserved) == 76 && KILN_STATION_FILL_ITEM == 0x200);
     static_assert(KILN_CRAFT_SOURCE_FILLS == 2 && KILN_CRAFT_SOURCE_BUILDING == 4 && KILN_CRAFT_SOURCE_STOCK_FILLS == 4 &&
                   KILN_CRAFT_SOURCE_STOCK_BUILDING == 8 && KILN_STATION_FILL_LINKED == 0x100);

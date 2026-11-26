@@ -31,6 +31,7 @@ pub const KILN_BUILD_FIND_PLAYER_TERRAIN: i32 = 1;
 pub const KILN_BUILD_FIND_TERRAIN: i32 = 2;
 pub const KILN_BUILD_F_ALLOW_ALTARS: i32 = 4;
 pub const KILN_BUILD_F_DRY_RUN: i32 = 16;
+pub const KILN_BUILD_F_GAME_SAVE: i32 = 64;
 pub const KILN_BUILD_F_IN_BASES: i32 = 2;
 pub const KILN_BUILD_F_RESPECT_ZONES: i32 = 1;
 pub const KILN_BUILD_F_TRANSIENT: i32 = 32;

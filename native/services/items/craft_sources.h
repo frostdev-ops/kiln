@@ -14,6 +14,7 @@ struct CraftSource {
     bool locks = false;  // GitHub #147: also counts and pays an InteractionLock's required item (KILN_CRAFT_SOURCE_LOCKS)
     bool fills = false;     // GitHub #132: production-station fills named KILN_STATION_FILL_LINKED (KILN_CRAFT_SOURCE_FILLS)
     bool building = false;  // GitHub #132: the player's block placements (KILN_CRAFT_SOURCE_BUILDING)
+    bool respec = false;    // GitHub #150: the skill tree's paid reset and a node's unlearn (KILN_CRAFT_SOURCE_RESPEC)
     bool allows(uint32_t item) const {
         const bool found = std::binary_search(items.begin(), items.end(), item);
         return item && (deny ? !found : found);
@@ -40,7 +41,7 @@ public:
         items.erase(std::unique(items.begin(), items.end()), items.end());
         const auto id = ++next_;
         sources_.push_back({owner,id,player,container,after,deny,std::move(items),session,(flags & 1u) != 0,(flags & 2u) != 0,
-                            (flags & 4u) != 0});
+                            (flags & 4u) != 0,(flags & 8u) != 0});
         return id;
     }
     bool remove(uint64_t owner, uint64_t handle) {
@@ -71,6 +72,10 @@ public:
     bool any_building() const {
         std::lock_guard lock(mutex_);
         return std::any_of(sources_.begin(), sources_.end(), [](const CraftSource& s) { return s.building; });
+    }
+    bool any_respec() const {  // GitHub #150
+        std::lock_guard lock(mutex_);
+        return std::any_of(sources_.begin(), sources_.end(), [](const CraftSource& s) { return s.respec; });
     }
     std::vector<CraftSource> copy(uint32_t player) const {
         std::lock_guard lock(mutex_);

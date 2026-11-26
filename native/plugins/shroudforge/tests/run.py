@@ -363,6 +363,19 @@ with tempfile.TemporaryDirectory(prefix='kiln-sf-fixtures-', dir=build.parent) a
         assert feed_calls(calls) == ['feed-version', 'feed-begin'] + FED + want + ['feed-end'], feed_calls(calls)
     keys_case('keys-raw-unregistered', installed='corrupt', runtime='runtime_feed',
               extra_env=dict(ui5, KILN_SF_FEED_UNREGISTER='1'), verify=raw_unregistered)
+    # netjunk 0.2.0-dev.31.18: while Kiln has the keyboard (its menu, a text field, a shortcut capture box: kiln.ui's
+    # status capturing) no press reaches the runtime, as Kiln's interpreter counts none then; releases always do, so
+    # nothing stays held
+    def capture_dropped(status, calls, out):
+        # Print Screen's lone WM_KEYUP is a press to the runtime: dropped while Kiln captures unless the runtime holds the
+        # key (its WM_KEYDOWN came in play)
+        want = ['feed-raw 43 0 78', 'feed-raw 43 1 78', 'feed-raw 1a 1 db', 'feed-mouse 4 0', 'feed-raw 1a 0 db',
+                'feed-raw 1a 1 db', 'feed-window 78 c0430001', 'feed-mouse 4 0', 'feed-window 78 430001',
+                'feed-window 78 c0430001', 'feed-window 2c c1370001', 'feed-window 2c 1370001',
+                'feed-window 2c c1370001']
+        assert feed_calls(calls) == ['feed-version', 'feed-begin'] + FED + want + ['feed-end'], feed_calls(calls)
+    keys_case('keys-captured', installed='corrupt', runtime='runtime_feed',
+              extra_env=dict(ui5, KILN_SF_FEED_CAPTURE='1'), verify=capture_dropped)
     # one export missing (an upstream runtime has none; the fork before 9d586f1 neither): no call to any of them
     keys_case('keys-export-missing', installed='corrupt', runtime='runtime_feed_partial', extra_env=ui5,
               verify=no_feed('none', 'has no host key feed'))

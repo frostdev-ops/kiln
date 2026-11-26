@@ -109,6 +109,16 @@ static bool marked(const char* what) {
     const std::string line = std::string("\n") + what + "\n";
     return text.find(line) != std::string::npos || text.rfind(std::string(what) + "\n", 0) == 0;
 }
+// kiln.ui's status: capturing is what the window thread's script sets (KILN_SF_FEED_CAPTURE: Kiln's menu, a Kiln text
+// field or a shortcut capture box has the keyboard for part of the script)
+static std::atomic<bool> ui_capturing{false};
+static KilnResult ui_status(KilnUiStatus* out) {
+    if (!out || out->size < sizeof(KilnUiStatus)) return KILN_ERR_INVALID_ARGUMENT;
+    std::memset(out, 0, sizeof *out);
+    out->size = sizeof *out;
+    out->capturing = ui_capturing.load() ? 1 : 0;
+    return KILN_OK;
+}
 static std::mutex ui_gate, ui_mu;
 static KilnUiWindowInputFn ui_fn = nullptr;
 static void* ui_user = nullptr;
@@ -235,6 +245,39 @@ static void play_script() {
     auto short_record = raw(0x44, 0, VK_F10);
     short_record.size = offsetof(KilnUiWindowInput, wparam);
     ui_deliver(short_record);
+    if (GetEnvironmentVariableW(L"KILN_SF_FEED_CAPTURE", nullptr, 0)) {
+        // F9 went down in play, then Kiln took the keyboard (its menu, a text field, a shortcut capture box): F9's release
+        // still reaches the runtime, nothing pressed while Kiln has it does (the key typed or captured there, a side
+        // button clicked), every release does; once Kiln lets go, presses count again.
+        ui_deliver(raw(0x43, 0, VK_F9));
+        ui_capturing = true;
+        ui_deliver(raw(0x43, RI_KEY_BREAK, VK_F9));
+        ui_deliver(raw(0x1a, 0, VK_OEM_4));
+        ui_deliver(raw(0x1a, RI_KEY_BREAK, VK_OEM_4));
+        ui_deliver(button(WM_INPUT, 4, 1));
+        ui_deliver(button(WM_INPUT, 4, 0));
+        ui_capturing = false;
+        ui_deliver(raw(0x1a, 0, VK_OEM_4));
+        ui_deliver(raw(0x1a, RI_KEY_BREAK, VK_OEM_4));
+        // without raw input, by the window's key messages: a press while Kiln has the keyboard is dropped too
+        feed_registration(false, false);
+        ui_capturing = true;
+        ui_deliver(key(WM_KEYDOWN, VK_F9, 0x430001));
+        ui_deliver(key(WM_KEYUP, VK_F9, 0xc0430001));
+        ui_deliver(button(WM_XBUTTONDOWN, 4, 1));
+        ui_deliver(button(WM_XBUTTONUP, 4, 0));
+        // Print Screen: Windows sends the window its WM_KEYUP alone, which the runtime counts as a press and its release
+        ui_deliver(key(WM_KEYUP, VK_SNAPSHOT, 0xc1370001));
+        ui_capturing = false;
+        ui_deliver(key(WM_KEYDOWN, VK_F9, 0x430001));
+        ui_deliver(key(WM_KEYUP, VK_F9, 0xc0430001));
+        ui_deliver(key(WM_KEYUP, VK_SNAPSHOT, 0xc1370001));
+        // a WM_KEYDOWN of Print Screen in play (Wine may send one): held into Kiln's capture, its WM_KEYUP is a release
+        ui_deliver(key(WM_KEYDOWN, VK_SNAPSHOT, 0x1370001));
+        ui_capturing = true;
+        ui_deliver(key(WM_KEYUP, VK_SNAPSHOT, 0xc1370001));
+        ui_capturing = false;
+    }
     if (GetEnvironmentVariableW(L"KILN_SF_FEED_UNREGISTER", nullptr, 0)) {
         // A held raw key/button must still get its legacy release after raw input stops.
         ui_deliver(raw(0x43, 0, VK_F9));
@@ -326,6 +369,7 @@ static void* ui_table() {
     if (!GetEnvironmentVariableW(L"KILN_SF_FAKE_UI", v, 8)) return nullptr;
     fake_ui.header = {sizeof fake_ui, 5};
     fake_ui.unsubscribe = ui_unsubscribe;
+    fake_ui.status = ui_status;
     fake_ui.subscribe_window_input = ui_subscribe;
     if (!wcscmp(v, L"4")) fake_ui.header = {static_cast<uint32_t>(offsetof(KilnUiApi, subscribe_window_input)), 4};
     if (!wcscmp(v, L"short")) fake_ui.header.size = static_cast<uint32_t>(offsetof(KilnUiApi, subscribe_window_input));

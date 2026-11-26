@@ -825,14 +825,15 @@ export function mockStopGame(gameId = "client-steam") {
 
 // ---------------------------------------------------------------- last server (Play's refusal banner)
 
-// <game>/kiln/state/last-server.json and dismissed.json, filtered like commands/modpack.rs (worth_showing).
+// <game>/kiln/state/last-server.json and dismissed.json, filtered like commands/modpack.rs (worth_showing_in; the mock's
+// game has no server id of its own, so only `hosted` says its own world).
 let lastServer: LastServer | null = FRESH ? null : clone(lastServerExample as unknown as LastServer);
 const dismissedOffers: Record<string, string> = {};
 const dismissKey = (l: LastServer) => (l.modpack ? l.modpack.sha256 : `refused ${l.written}`);
 function pendingLastServer(): LastServer | null {
   const l = lastServer;
   if (!l || dismissedOffers[l.server.id ?? ""] === dismissKey(l)) return null;
-  return l.outcome === "rejected" || (l.outcome === "welcome" && !!l.modpack && l.missing.length > 0) ? l : null;
+  return l.outcome === "rejected" || (l.outcome === "welcome" && !l.hosted && !!l.modpack && l.missing.length > 0) ? l : null;
 }
 /** Dev/test helper: the game wrote a new last-server.json (the watcher's kiln://last-server follows). */
 export function mockSetLastServer(l: LastServer | null, gameId = "client-steam") {

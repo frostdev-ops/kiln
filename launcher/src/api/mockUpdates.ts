@@ -11,6 +11,7 @@ import type { KilnError, LibraryEntry } from "./commands";
 import type { InstalledCatalogMod } from "./nexus";
 import { NEXUS_MOCK_ENABLED } from "./mockNexus";
 import type { CheckReport, ModUpdateStatus, SourceChange, UpdateSourceInfo, UpdatesRequest, UpdatesSpec } from "./updates";
+import { compareVersions } from "./updates";
 
 type Handler = (args: Record<string, unknown>) => unknown;
 type Emit = (name: string, payload: unknown) => void;
@@ -65,10 +66,13 @@ export function updatesMockHandlers(handlers: Record<string, Handler>, emit: Emi
       s = { ...base, source: { provider: "github", destination: repo, origin: src.origin, authenticated: false, spec: src.spec }, pageUrl: `https://github.com/${repo}/releases`, state: "unknown", reason: "not_checked" };
       if (at !== undefined && !newest) s = { ...s, reason: "not_found", checkedAt: iso(at), coverage: "complete" };
       else if (at !== undefined && newest) {
-        const newer = newest !== s.installedVersion;
+        // by precedence, as the backend compares (0.2.10 is above 0.2.9); the release's own zip imported is "current"
+        // (the backend matches the archive's digest with the one GitHub lists), a copy above it too
+        const order = compareVersions(newest, s.installedVersion);
+        const newer = order === 1;
         s = { ...s, candidateVersion: newest, candidateIdentity: { releaseId: "9001", tag: `v${newest}`, assetId: null, assetName: null, artifactSha256: null, fileVersionId: null },
           coverage: "complete", checkedAt: iso(at), pageUrl: `https://github.com/${repo}/releases/tag/v${newest}`,
-          ...(newer ? { state: "available" as const, reason: null } : { state: "unknown" as const, reason: "same_version_unbound" as const }) };
+          ...(newer ? { state: "available" as const, reason: null } : order === null ? { state: "unknown" as const, reason: "non_semver" as const } : { state: "current" as const, reason: null }) };
         // an answer older than a day is stale: an update seen then stays, anything else is unknown
         if (now - at > 86_400_000 || (!online && unreachable)) s = { ...s, stale: true, ...(newer ? { reason: "network" as const } : { state: "unknown" as const, reason: "network" as const }) };
       } else if (!online) s = { ...s, reason: unreachable ? "network" : "not_checked" };

@@ -8,10 +8,12 @@ pub const KILN_CRAFT_SOURCE_BUILDING: i32 = 4;
 pub const KILN_CRAFT_SOURCE_FILLS: i32 = 2;
 pub const KILN_CRAFT_SOURCE_LOCKS: i32 = 1;
 pub const KILN_CRAFT_SOURCE_REQUEST_V1: u32 = 32;
+pub const KILN_CRAFT_SOURCE_RESPEC: i32 = 8;
 pub const KILN_CRAFT_SOURCE_STOCK_ALL: i32 = 1;
 pub const KILN_CRAFT_SOURCE_STOCK_BUILDING: i32 = 8;
 pub const KILN_CRAFT_SOURCE_STOCK_FILLS: i32 = 4;
 pub const KILN_CRAFT_SOURCE_STOCK_LOCKS: i32 = 2;
+pub const KILN_CRAFT_SOURCE_STOCK_RESPEC: i32 = 16;
 pub const KILN_STATIONS_MAX_ALTARS: u32 = 16;
 pub const KILN_STATIONS_MAX_BASES: u32 = 16;
 pub const KILN_STATIONS_MAX_CHANGES: u32 = 32;
@@ -23,6 +25,7 @@ pub const KILN_STATIONS_MAX_KEEP: u32 = 64;
 pub const KILN_STATIONS_MAX_LOCK_ASKS: u32 = 16;
 pub const KILN_STATIONS_MAX_LOCK_STOCK: u32 = 256;
 pub const KILN_STATIONS_MAX_OUTPUTS: u32 = 8;
+pub const KILN_STATIONS_MAX_RESPEC_STOCK: u32 = 16;
 pub const KILN_STATIONS_SERVICE: &[u8] = b"kiln.stations\0";
 pub const KILN_STATIONS_VERSION: u32 = 1;
 pub const KILN_STATION_AFTER_CRAFT: i32 = 16;
@@ -379,6 +382,7 @@ pub struct KilnStationsApi {
     pub lock_asks: Option<unsafe extern "C" fn(*mut KilnItemId, u32, *mut u32) -> KilnResult>,
     pub set_build_stock: Option<unsafe extern "C" fn(u32, *const KilnStationStack, u32) -> KilnResult>,
     pub fill_flags: Option<unsafe extern "C" fn() -> u32>,
+    pub set_respec_stock: Option<unsafe extern "C" fn(u32, *const KilnStationStack, u32) -> KilnResult>,
 }
 
 #[repr(C)]

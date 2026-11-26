@@ -587,6 +587,43 @@ world's transaction does not check out, `stations: the server world's block plac
 (its accessors) ...` (a placement's transaction is checked by its InventorySetup and Inventory accessors since #148: the
 blueprint program's has no Fuel accessor, and before that every placement paid from the bag and the base alone).
 
+### The skill respec from linked sources
+
+**Since 0.2.0-dev.31.18 (GitHub #150)**, a link registered with `new CraftSourceOptions { Respec = true }` also pays
+its player's **skill respec**: unlearning one node on the skill tree and the Flame Altar's skill reset, both of which cost
+the game's respec item (Runes). docs/re/respec.md has the game's code.
+- **The payment** (server or host): the game's respec payer takes the cost from the bag, then the Magic chests of the
+  base the player stands in. When those two cover it, that is all that happens: nothing from the links. When they fall
+  short and the player's respec links hold the rest, Kiln pays the whole cost in the game's own transaction: the bag, the
+  chests, then the links in link order, all or nothing. Short even with the links, or a refused or faulting take: nothing
+  moves, the unlearn puts the node back and the reset does not happen, as the game does without Runes. Station outputs
+  never pay a respec. A link to a Magic chest of that base counts once, as the base's.
+- **The free reset** the game makes itself (a character whose tree no longer checks out when it joins, for example after a
+  mod's skill node is gone) costs nothing and never reaches the payment: unchanged.
+- **The screens** (a Kiln client): the respec skill tree offers a node's unlearn only when its own count of Runes reaches
+  the node's cost, and the Flame Altar enables its reset only when it reaches the points spent; a vanilla client counts the
+  bag and the base's Magic chests and so sends nothing that only the links cover. A Kiln client gets the server's respec
+  snapshot (`kiln:craftstock`, `required: false`: what the player's respec links hold of the respec item, again when it
+  changes, about every 1.2 s) and both checks count it on top of the game's count; the respec tree's Rune row shows the
+  same total. A hosting player's own screens get it in process.
+
+Tested: `native/services/items/tests/respec_sources_test.cpp` (the payment's respec branch, the snapshot, the client
+checks, the stand-downs), `respec_sources_sigdb_test.py` on the pinned exes, and the lab test `mods/tests/respec-test` on
+a dedicated server (20 PASS, [docs/re/respec.md section 5](../../re/respec.md#5-lab-dev31-respec-lab)): the unlearn and the
+paid reset through the game's own input handler, paid from a linked chest. A lab has no logged-in player, so it starts the
+server with `KILN_STATIONS_CRAFT_LAB=1`, which also lets a spawned player character have respec links of its own (never
+a real player; only on a dedicated server, never in a client's process; at most 16; kiln.log warns at start and names
+each link).
+
+Needs `crafting.respec_sources` on the server or host. Where another module patched the respec payer or its payment call,
+Kiln stands the respec half down with one kiln.log line naming the function, the first foreign byte and its module; the
+same links keep crafting and the other purposes. kiln.log: `respec: a link opted in with Respec: ...` once; `respec: a skill
+respec paid n from additional crafting sources ...`, `respec: a skill respec left to the game: the bag, the Magic chests and
+the respec links cannot cover it (short by n of item 0x...; payer P)`, `... rolled back ...`; `respec: player P's skill
+respec left to the game: <why>` while the server half's check has not run or it stood down; on a client, once per change,
+`respec: the skill tree's unlearn check counts the linked sources: item 0x..., the game's count g + linked l, needs n
+(offered)` (or `(short: not offered)`), the same for `the Flame Altar's reskill check`, and the snapshot's on/off lines.
+
 ### Beside other native mods
 
 Each path checks only the code it runs through, and a foreign patch stands down only that path, once, with one kiln.log
@@ -601,6 +638,10 @@ line naming the function, its state (`FOREIGN` / `UNKNOWN`), the first differing
   game's base stock list already holds every base's Magic chests; Kiln counts them once and adds only links not in it.
 - Building: the cursor's stock-count call and the stock count (Cross-Base Storage patches the latter: the building half
   stands down, Cross-Base Storage's own cross-base building applies), ApplyMaterials and the blueprint program's call.
+- The skill respec (since 0.2.0-dev.31.18, GitHub #150): the respec payer's entry and its payment call on a server or
+  host (the payment itself goes through the hook on InventoryPay's entry above), and on a Kiln client the skill tree's
+  unlearn check and the Flame Altar's reskill check; the respec tree's Rune row is checked apart and keeps the game's
+  count alone.
 - Fills run inside Kiln's own program through the game's `AutoTransferRecipe`; nothing of the game's is patched.
 
 ### Dyes from the same links
@@ -1091,6 +1132,10 @@ native slot for them.
 
 ## Changelog
 
+- **0.2.0-dev.31.18 (GitHub #150):** `CraftSourceOptions.Respec`: the skill tree's unlearn and the Flame Altar's skill
+  reset count and pay their Runes from the player's respec links after the bag and the base's Magic chests, all or
+  nothing, with a Kiln client's respec snapshot for its two respec screens; the free reset stays free; capability
+  `crafting.respec_sources`. Thanks Fuzen777.
 - **0.2.0-dev.31.16 (GitHub #132):** a production station row's per-ingredient "+1" / "+n" take from the player's
   fill-opted links when the bag and the Magic chests fall short (Kiln's item fill, `stations.fill_items`), and a Kiln
   client's rows count those links. Thanks Fuzen777.

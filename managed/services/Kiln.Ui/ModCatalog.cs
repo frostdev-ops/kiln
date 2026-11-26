@@ -73,6 +73,10 @@ internal sealed record CatalogMod
     /// <summary>ShroudForge mods of a start Kiln's interpreter has (SfiCatalog): what the page draws beyond the state.</summary>
     public SfiRow? Sfi { get; init; }
 
+    /// <summary>Loaded and running, with a problem the mod reported and handled itself (a ShroudForge mod's
+    /// <c>write-failed</c>: its last change did not apply). Drawn in the attention colour, never as failed.</summary>
+    public bool Warn { get; init; }
+
     public bool NeedsAttention => State == ModRunState.Failed || Missing;
 
     /// <summary>The state chip's text.</summary>
@@ -1370,6 +1374,15 @@ internal static class ModCatalog
             return m with { State = ModRunState.NotLoaded, Word = "inactive", Reason = KilnText.T("catalog.sf.inactive"), Help = null };
         if (runtime.Effects.TryGetValue(p.Id, out var effect))
         {
+            // the mod's own report that its last change did not apply: it still runs (ShroudForge lists it active; the mod
+            // itself made the report), so it is loaded, with that report as a warning; a fault or unload takes it off the list
+            if (effect.State == "write-failed")
+                return m with
+                {
+                    State = ModRunState.Loaded, Word = effect.State, Warn = true, Active = true,
+                    Reason = KilnText.T("catalog.sf.effect_last_failed", ("detail", effect.Detail)),
+                    Help = KilnText.T("catalog.sf.effect_last_failed_help"),
+                };
             var effectState = EffectState(effect.State);
             return m with
             {
@@ -1382,7 +1395,7 @@ internal static class ModCatalog
 
     /// <summary>A mod's reported effect state as the launcher shows it: a mod reports waiting, no-target, no-change,
     /// write-confirmed or write-failed; ShroudForge's runtime also sets loading, loaded, error and restart-required.
-    /// write-failed and error are Failed; write-confirmed, loaded and no-change are Loaded; every other state (waiting,
+    /// write-failed and error are Failed (SfRefine shows a running mod's write-failed as loaded with a warning); write-confirmed, loaded and no-change are Loaded; every other state (waiting,
     /// no-target, loading, restart-required, a word Kiln does not know) is Waiting, never a healthy green.</summary>
     internal static ModRunState EffectState(string state) => state switch
     {

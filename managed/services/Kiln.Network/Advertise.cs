@@ -164,7 +164,7 @@ internal static partial class NetAdvertise
 
     // ------------------------------------------------------------------------------------------------ required mods
 
-    private sealed record Candidate(string Kind, string Id, string Version, string? Name, string Dir);
+    internal sealed record Candidate(string Kind, string Id, string Version, string? Name, string Dir);
 
     private static volatile NetRequiredMod[] _required = [];
     private static volatile string[] _kilnClientMods = [];
@@ -289,21 +289,14 @@ internal static partial class NetAdvertise
             string hash;
             try
             {
-                // a Kiln mod is advertised by its identity: its files without what the cook made on this machine (assets/cooked),
-                // so a server's cooked folder and a player's give the same hash; another engine's mod by what stays the same
-                // while it runs (AdvertiseIdentity.cs: the Library entry of Kiln's copy); a native mod's folder is all its own,
-                // and so is an EMF mod's: emf is one of Kiln's own kinds for kiln-manage (ModKind::CORE, not is_engine), whose
-                // engine_identity does not apply to it
-                var mod = c.Kind == "kiln";
-                var engine = !mod && c.Kind is not ("native" or "emf");
-                var tree = engine ? EngineSignature(c.Dir, game) : DirHash.Signature(c.Dir, mod);
+                var tree = IsEngineKind(c.Kind) ? EngineSignature(c.Dir, game) : DirHash.Signature(c.Dir, c.Kind == "kiln");
                 lock (HashCache)
                     if (HashCache.TryGetValue(c.Dir, out var cached) && cached.Sig == tree)
                     {
                         list.Add(new NetRequiredMod(c.Id, c.Version, cached.Hash, c.Kind, c.Name));
                         continue;
                     }
-                hash = mod ? DirHash.ModIdentity(c.Dir) : engine ? EngineHash(c.Kind, c.Dir, game) : DirHash.Compute(c.Dir);
+                hash = AdvertisedHash(c.Kind, c.Dir, game);
                 lock (HashCache) HashCache[c.Dir] = (tree, hash);
             }
             catch (Exception e) when (e is DirHashException or IOException or UnauthorizedAccessException)
@@ -323,6 +316,20 @@ internal static partial class NetAdvertise
             NetEngine.Log(LogLevel.Info, $"advertising {list.Count} mod(s) players need: " +
                                           (list.Count == 0 ? "none" : string.Join(", ", list.Take(12).Select(r => $"{r.Id} {r.Version} {r.Hash[..13]}"))));
     }
+
+    /// <summary>Another engine's kind, advertised by <see cref="EngineHash"/>: not <c>kiln</c>, <c>native</c> or <c>emf</c>
+    /// (emf is one of Kiln's own kinds for kiln-manage: ModKind::CORE, not is_engine, whose engine_identity does not apply
+    /// to it).</summary>
+    internal static bool IsEngineKind(string kind) => kind is not ("kiln" or "native" or "emf");
+
+    /// <summary>The hash required[] carries for a mod of <paramref name="kind"/> in <paramref name="dir"/>, the same on the
+    /// server that advertises it and on the client that compares its own copy (LastServer.Missing). A Kiln mod by its
+    /// identity: its files without what the cook made on this machine (assets/cooked), so a server's cooked folder and a
+    /// player's give the same hash; another engine's mod by what stays the same while it runs (AdvertiseIdentity.cs: the
+    /// Library entry of Kiln's copy, else its files without logs and settings); a native or EMF mod's folder is all its
+    /// own. <paramref name="game"/>: the game or server folder whose kiln/state holds the receipts.</summary>
+    internal static string AdvertisedHash(string kind, string dir, string game) =>
+        kind == "kiln" ? DirHash.ModIdentity(dir) : IsEngineKind(kind) ? EngineHash(kind, dir, game) : DirHash.Compute(dir);
 
     /// <summary>Kiln.Host's reason for a mod whose profile entry is off (Mods.cs, "disabled in profile").</summary>
     internal const string DisabledInProfile = "disabled in profile";

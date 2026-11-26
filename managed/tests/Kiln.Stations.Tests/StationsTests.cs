@@ -274,6 +274,7 @@ public sealed unsafe class StationsTests : IDisposable
         StationsCore.UseBackend(null);
         StationOutputKeeper.Reset();
         BuildStock.ResetForTests();
+        RespecStock.ResetForTests();
         StationsCore.CanAccessInventories = static p => p.PermissionsKnown ? p.Can(PlayerPermissions.AccessInventories) : null;
     }
 
@@ -310,7 +311,7 @@ public sealed unsafe class StationsTests : IDisposable
         Assert.Equal(96, (int)Marshal.OffsetOf<StationsNative.Request>("Chests"));
         Assert.Equal(72, (int)Marshal.OffsetOf<StationsNative.Request>("Item"));      // 0.2.0-dev.31.16: reserved[0] before
         Assert.Equal(76, (int)Marshal.OffsetOf<StationsNative.Request>("Reserved"));
-        Assert.Equal(8 + 39 * sizeof(nint), sizeof(StationsNative.Table));          // fill_flags after set_build_stock
+        Assert.Equal(8 + 40 * sizeof(nint), sizeof(StationsNative.Table));          // fill_flags after set_build_stock; #150 set_respec_stock
         Assert.Equal(StationsNative.TableBuild + sizeof(nint), StationsNative.TableItemFills);
         Assert.Equal(0x200u, StationsNative.FillItem);
         Assert.Equal(32, sizeof(StationsNative.MoveChange));
@@ -338,7 +339,8 @@ public sealed unsafe class StationsTests : IDisposable
         Assert.Equal(72, (int)Marshal.OffsetOf<StationsNative.Event>("Position"));
         Assert.Equal(96, (int)Marshal.OffsetOf<StationsNative.Event>("Base"));
         Assert.Equal(188, sizeof(StationsNative.Status));
-        Assert.Equal(320, sizeof(StationsNative.Table));  // GitHub #147: SetLockStock, LockAsks; #132: SetBuildStock, FillFlags appended
+        Assert.Equal(328, sizeof(StationsNative.Table));  // GitHub #147: SetLockStock, LockAsks; #132: SetBuildStock, FillFlags; #150: SetRespecStock
+        Assert.Equal(320, (int)Marshal.OffsetOf<StationsNative.Table>("SetRespecStock"));
         Assert.Equal(312, (int)Marshal.OffsetOf<StationsNative.Table>("FillFlags"));
         Assert.Equal(304, (int)Marshal.OffsetOf<StationsNative.Table>("SetBuildStock"));
         Assert.Equal(312, StationsNative.TableBuild);

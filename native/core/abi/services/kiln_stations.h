@@ -440,6 +440,13 @@ enum { KILN_CRAFT_SOURCE_FILLS = 2u, KILN_CRAFT_SOURCE_BUILDING = 4u };
  * Both leave out the Magic chests of the base the player stands in (FILLS since 0.2.0-dev.31.16): the bag and those chests
  * pay first and are counted apart, so a link to one of them never counts twice. */
 enum { KILN_CRAFT_SOURCE_STOCK_FILLS = 4u, KILN_CRAFT_SOURCE_STOCK_BUILDING = 8u };
+/* Since 0.2.0-dev.31.18 (GitHub #150): RESPEC, the skill tree's paid reset and a node's unlearn count and pay their
+ * respec item (the game's Runes) from the link (capability crafting.respec_sources). Default off: a link serves crafting
+ * only. source_stock with KILN_CRAFT_SOURCE_STOCK_RESPEC: one row, the respec item and what the RESPEC links hold of it
+ * (0 when none), without the Magic chests of the base the player stands in (the bag and those chests pay first and are
+ * counted apart, as for BUILDING); KILN_ERR_UNAVAILABLE where crafting.respec_sources did not resolve. */
+enum { KILN_CRAFT_SOURCE_RESPEC = 8u };
+enum { KILN_CRAFT_SOURCE_STOCK_RESPEC = 16u };
 /* The request's size before flags: an older caller's request (no flags, no lock use). */
 #define KILN_CRAFT_SOURCE_REQUEST_V1 32u
 typedef struct KilnCraftSourceRequest {
@@ -460,6 +467,8 @@ typedef struct KilnCraftSourceRequest {
  * KILN_STATIONS_MAX_LOCK_ASKS. */
 #define KILN_STATIONS_MAX_LOCK_STOCK 256u
 #define KILN_STATIONS_MAX_LOCK_ASKS 16u
+/* A Kiln client's respec snapshot (GitHub #150): rows the server sends for its respec item, at most this many. */
+#define KILN_STATIONS_MAX_RESPEC_STOCK 16u
 
 typedef struct KilnStationsApi {
     KilnServiceHeader header; /* { sizeof(KilnStationsApi), KILN_STATIONS_VERSION } */
@@ -602,6 +611,17 @@ typedef struct KilnStationsApi {
     /* The KILN_STATION_FILL_* request flags plan and submit take for a FILL on this build: KILN_STATION_FILL_ITEM only
      * where the game's item transfer resolved (feature stations.fill_items) and stations.fill is on. Any thread. */
     uint32_t(KILN_CALL* fill_flags)(void);
+    /* ---- the skill tree's respec from linked sources, since 0.2.0-dev.31.18 (GitHub #150; capability
+     * crafting.respec_sources; header.size tells whether this is here) ---- */
+    /* A Kiln client: the server's respec snapshot for the local player. on 1: the server counts and pays the skill tree's
+     * paid reset and a node's unlearn from the player's links registered with KILN_CRAFT_SOURCE_RESPEC; rows are per item
+     * the count those links hold (the bag and the Magic chests of the player's base not included; the server sends its
+     * respec item's row, 0 when the links hold none), at most KILN_STATIONS_MAX_RESPEC_STOCK. on 0 clears it (rows
+     * ignored): the game's own counts again. While on, the respec skill tree's unlearn check, the Flame Altar's reskill
+     * check and the respec tree's Rune row count the game's count (the bag and the base's Magic chests) plus the item's
+     * row. Not authority: the server pays from the bag and the Magic chests first, then the links, all or nothing. Any
+     * thread. KILN_ERR_INVALID_ARGUMENT: on over 1, count over the limit, rows null with count set, an item 0. */
+    KilnResult(KILN_CALL* set_respec_stock)(uint32_t on, const KilnStationStack* rows, uint32_t count);
 } KilnStationsApi;
 
 /* KilnStationCollect.flags. Bits 16 and up, so a result's flags never read as a request flag (KILN_STATION_DRY_RUN). */

@@ -310,7 +310,7 @@ created, never a value; at most 4096 entries per package and 32768 in all (`trun
 ### EML's own pass (format 2)
 
 An EML start outside kiln mode (`runner::run`, kiln-eml's plugin with EML mods) that publishes a generation writes the
-same file in format 2 (`schema/sfi/eml-journal/eml-journal-2.schema.json`, dialect `eml`, next release): per
+same file in format 2 (`schema/sfi/eml-journal/eml-journal-2.schema.json`, dialect `eml`, 0.2.0-dev.31.18): per
 EML mod of the committed run, in the order their entrypoints ran, the resources it wrote with the **member paths** it
 wrote in each, at their places in the published resource (`maxStackSize`, `recipes[37].craftingDuration`, `input[]` for a
 list's members, `""` for the whole resource), the ones it created and the contents it created; no plan digests (`null`).

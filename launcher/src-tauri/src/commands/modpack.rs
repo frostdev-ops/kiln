@@ -34,7 +34,17 @@ fn dismiss_key(last: &LastServer) -> String {
 
 /// What Play shows from the last server answer: every refusal (its banner, with the offer when the server advertises
 /// a modpack), and a welcome that still lists missing mods from a server with a modpack (joined despite a mismatch,
-/// modSync warn); not one the user dismissed. `dismissed` is this game's part of dismissed.json.
+/// modSync warn), never from the world this game hosted itself (`game_dir`: it runs what it advertises; up to
+/// 0.2.0-dev.31.17 its welcome listed the other engines' mods it ran as missing); not one the user dismissed.
+/// `dismissed` is this game's part of dismissed.json.
+fn worth_showing_in(last: &LastServer, dismissed: Option<&BTreeMap<String, String>>, game_dir: &std::path::Path) -> bool {
+    if last.outcome == JoinOutcome::Welcome && last.from_own_world(game_dir) {
+        return false;
+    }
+    worth_showing(last, dismissed)
+}
+
+/// [`worth_showing_in`] without the hosted world's check.
 fn worth_showing(last: &LastServer, dismissed: Option<&BTreeMap<String, String>>) -> bool {
     let server_id = last.server.id.clone().unwrap_or_default();
     if dismissed.and_then(|m| m.get(&server_id)).is_some_and(|key| *key == dismiss_key(last)) {
@@ -50,7 +60,7 @@ fn worth_showing(last: &LastServer, dismissed: Option<&BTreeMap<String, String>>
 pub(crate) fn pending_for(game_id: &str) -> Result<Option<LastServer>, Error> {
     let g = game(game_id)?;
     let Some(last) = kiln_manage::state::read_last_server(&g.path)? else { return Ok(None) };
-    let wanted = worth_showing(&last, dismissed().get(game_id));
+    let wanted = worth_showing_in(&last, dismissed().get(game_id), &g.path);
     Ok(wanted.then_some(last))
 }
 
@@ -219,5 +229,29 @@ mod tests {
         no_pack.outcome = JoinOutcome::Vanilla;
         no_pack.server = ServerRef::default();
         assert!(!worth_showing(&no_pack, None));
+    }
+
+    /// netjunk's report (2026-11-26): the welcome of the player's own hosted world listed the Flame and ShroudForge mods
+    /// that game ran as missing. The hosted world is never offered as a server whose mods are missing; a refusal from it
+    /// still shows.
+    #[test]
+    fn the_own_hosted_world_is_not_offered() {
+        let dir = std::env::temp_dir().join(format!("kl-own-world-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("kiln/data/kiln-network")).unwrap();
+        let mut w = refusal("2026-11-26T13:29:19Z", true);
+        w.outcome = JoinOutcome::Welcome;
+        assert!(worth_showing_in(&w, None, &dir), "someone else's server");
+        w.hosted = Some(true);
+        assert!(!worth_showing_in(&w, None, &dir), "hosted: true (Kiln after 0.2.0-dev.31.17)");
+        w.hosted = None;
+        std::fs::write(dir.join(kiln_manage::modpack::SERVER_ID_FILE), "srv-d09b032bfe63\n").unwrap();
+        assert!(!worth_showing_in(&w, None, &dir), "an older file: the game's own server id");
+        w.hosted = Some(false);
+        assert!(worth_showing_in(&w, None, &dir), "hosted: false (no world ran here): a server with this game's id is offered");
+        let mut r = refusal("2026-11-26T13:29:19Z", true);
+        r.hosted = Some(true);
+        assert!(worth_showing_in(&r, None, &dir), "a refusal from the own world still shows");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -497,11 +497,27 @@ pub struct LastServer {
     pub truncated: bool,
     #[serde(default)]
     pub missing: Vec<String>,
+    /// The server was this game's own world (the player hosting it): nothing it advertises can be missing. Written by
+    /// Kiln after 0.2.0-dev.31.17, which checks that the world runs in this game; None in an older file
+    /// ([`LastServer::from_own_world`] looks at the server id then).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hosted: Option<bool>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub history: Vec<LastServer>,
 }
 
 impl LastServer {
+    /// Whether this answer came from the world `game_dir` itself hosted: `hosted` when the file says it (Kiln saw the world
+    /// run in this game, or not: a server with this game's id that is not running here is someone else's), else (a file
+    /// an older Kiln wrote) the server id is this game's own ([`crate::modpack::own_server_id`]). Up to
+    /// 0.2.0-dev.31.17 such a welcome listed the other engines' mods the game ran as missing (netjunk's report,
+    /// 2026-11-26).
+    pub fn from_own_world(&self, game_dir: &Path) -> bool {
+        self.hosted.unwrap_or_else(|| {
+            self.server.id.as_deref().is_some_and(|id| crate::modpack::own_server_id(game_dir).as_deref() == Some(id))
+        })
+    }
+
     /// The profile binding a modpack install creates from this.
     pub fn bound_server(&self) -> Option<BoundServer> {
         Some(BoundServer {
@@ -669,4 +685,87 @@ pub fn cook_folder_lock_path(dir: &Path) -> std::path::PathBuf {
 /// mods for each folder it loads until Steam was asked ([`crate::launch::play_with`]).
 pub fn lock_cook_folder(dir: &Path, wait: std::time::Duration, canceled: &dyn Fn() -> bool, busy: &str) -> Result<HeldLock> {
     lock_file(&cook_folder_lock_path(dir), wait, canceled, busy)
+}
+
+#[cfg(test)]
+mod last_server_tests {
+    use super::*;
+
+    struct Tmp(std::path::PathBuf);
+    impl Drop for Tmp {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn game(tag: &str) -> Tmp {
+        let p = std::env::temp_dir().join(format!("km-last-server-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&p);
+        std::fs::create_dir_all(p.join("kiln/state")).unwrap();
+        Tmp(p)
+    }
+
+    /// netjunk's last-server.json (2026-11-26): the welcome of his own hosted world, written by 0.2.0-dev.31.17 (no
+    /// `hosted`), with the engine mods that game ran as `missing`.
+    fn welcome(hosted: Option<bool>) -> LastServer {
+        let mut v = serde_json::json!({
+            "format": 1, "written": "2026-11-26T13:29:19Z", "outcome": "welcome", "reason": null,
+            "server": { "id": "srv-8383ec52951c", "name": null, "address": null, "kiln": "0.2.0-dev.31.17" },
+            "modpack": { "url": "https://example.org/pack.zip", "sha256": "a".repeat(64) },
+            "required": [{ "id": "creative", "version": "3.2.0", "hash": format!("kdh1:{}", "2".repeat(64)), "kind": "flame" }],
+            "truncated": false, "missing": ["creative"],
+        });
+        if let Some(h) = hosted {
+            v["hosted"] = serde_json::json!(h);
+        }
+        serde_json::from_value(v).unwrap()
+    }
+
+    #[test]
+    fn hosted_is_read_and_absent_in_an_older_file() {
+        assert_eq!(welcome(Some(true)).hosted, Some(true));
+        assert_eq!(welcome(Some(false)).hosted, Some(false));
+        assert_eq!(welcome(None).hosted, None);
+        let v = serde_json::to_value(welcome(None)).unwrap();
+        assert!(v.get("hosted").is_none(), "an older file stays without the field when written back");
+    }
+
+    // Kiln.Network says hosted: false after checking that no world ran in the game: a dedicated server with the game's
+    // own id (a hand-set serverId copied over, or a server started from the same folder) is someone else's server, and
+    // its modpack is still offered. Only a file without the field falls back to the id.
+    #[test]
+    fn hosted_false_is_not_overruled_by_the_server_id() {
+        let g = game("said");
+        std::fs::create_dir_all(g.0.join("kiln/data/kiln-network")).unwrap();
+        std::fs::write(g.0.join(crate::modpack::SERVER_ID_FILE), "srv-8383ec52951c\n").unwrap();
+        assert!(!welcome(Some(false)).from_own_world(&g.0));
+        assert!(welcome(None).from_own_world(&g.0));
+    }
+
+    #[test]
+    fn the_hosted_flag_says_the_games_own_world() {
+        let g = game("flag");
+        assert!(welcome(Some(true)).from_own_world(&g.0));
+        assert!(!welcome(Some(false)).from_own_world(&g.0), "no server id here: someone else's server");
+    }
+
+    // A file an older Kiln wrote (no `hosted`): the game's own server id says it, as Kiln.Network makes it
+    // (network.json serverId, else kiln/data/kiln-network/server-id); reading it never makes one.
+    #[test]
+    fn an_older_file_is_the_own_world_when_the_server_id_is_this_games() {
+        let g = game("id");
+        assert!(!welcome(None).from_own_world(&g.0));
+        assert!(!g.0.join(crate::modpack::SERVER_ID_FILE).exists(), "reading made no server id");
+        std::fs::create_dir_all(g.0.join("kiln/data/kiln-network")).unwrap();
+        std::fs::write(g.0.join(crate::modpack::SERVER_ID_FILE), "srv-8383ec52951c\n").unwrap();
+        assert!(welcome(None).from_own_world(&g.0));
+        std::fs::write(g.0.join(crate::modpack::SERVER_ID_FILE), "srv-0123456789ab\n").unwrap();
+        assert!(!welcome(None).from_own_world(&g.0), "a dedicated server's id");
+        std::fs::create_dir_all(g.0.join("kiln/config")).unwrap();
+        std::fs::write(g.0.join("kiln/config/network.json"), "{ // the owner's\n \"serverId\": \"srv-8383ec52951c\" }").unwrap();
+        assert!(welcome(None).from_own_world(&g.0), "network.json serverId wins, as in Kiln.Network");
+        let mut no_id = welcome(None);
+        no_id.server.id = None;
+        assert!(!no_id.from_own_world(&g.0));
+    }
 }
