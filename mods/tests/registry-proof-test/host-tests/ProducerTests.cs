@@ -210,4 +210,30 @@ public class ProducerTests
     [InlineData(0, 2.0, 10, 1)]
     public void Scaled_stack_is_clamped(int n, double amount, int maxScaled, int expected) =>
         Assert.Equal(expected, (int)Call("ScaledCount", n, amount, maxScaled)!);
+
+    // dev.32: an ability's regmap path starts at the sequence resource; kiln.gamedata lists the sequence's first part, so the raw
+    // read leaves "subSequences[0]." off. A buff's path is its record's, as kiln.gamedata lists it.
+    [Theory]
+    [InlineData("abilities", "subSequences[0].events[keen::actor::SpawnEntityEvent#0].time", "events[keen::actor::SpawnEntityEvent#0].time")]
+    [InlineData("abilities", "subSequences[1].length", "subSequences[1].length")]
+    [InlineData("buffs", "defaultLifeTime", "defaultLifeTime")]
+    public void Gamedata_raw_paths_start_where_kiln_gamedata_lists_the_entry(string registry, string path, string expected)
+    {
+        var method = typeof(RegistryProofTestMod).GetMethod("GameDataPath", BindingFlags.Static | BindingFlags.NonPublic)!;
+        Assert.Equal(expected, (string)method.Invoke(null, new object[] { registry, path })!);
+    }
+
+    // dev.32: an eventTime probe moves the first event of a kind earlier (0.75 x), never later: a later time could pass another
+    // event of that kind, and the raw path [<Type>#0] would then read that one. At 0 there is no earlier time: no probe.
+    [Theory]
+    [InlineData(0.65, 0.4875)]
+    [InlineData(2.0, 1.5)]
+    [InlineData(0.0, null)]
+    public void Event_time_probes_move_the_first_event_earlier(double read, double? expected)
+    {
+        var method = typeof(RegistryProofTestMod).GetMethod("EventTimeProbe", BindingFlags.Static | BindingFlags.NonPublic)!;
+        var probe = (JsonNode?)method.Invoke(null, new object?[] { JsonValue.Create(read) });
+        Assert.Equal(expected, probe is null ? null : probe.GetValue<double>());
+        if (probe is not null) Assert.True(probe.GetValue<double>() < read);
+    }
 }
