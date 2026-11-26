@@ -285,11 +285,12 @@ bool to_game(const Field& f, const rmap::Row* row, const FieldSpec& spec, const 
             break;
         case FieldType::Bool: kv.type = KILN_CV_BOOL, kv.i = v.kind == Value::Bool ? v.b : v.as_double() != 0; break;
         case FieldType::Enum: {
-            const std::string name = game_name(row, v.t);
+            // review-registry-r3a (P45): the game's name of the value is looked up, the refusal names the Kiln field (`name`)
+            const std::string game = game_name(row, v.t);
             bool found = false;
             if (f.en)
                 for (auto& [n, x] : f.en->values)
-                    if (!found && (n == name || lower(n) == lower(name))) kv.type = KILN_CV_INT, kv.i = x, found = true;
+                    if (!found && (n == game || lower(n) == lower(game))) kv.type = KILN_CV_INT, kv.i = x, found = true;
             if (!found) return *why = "\"" + v.t + "\" is not a value of " + name + " on this game build", false;
             break;
         }

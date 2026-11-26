@@ -641,6 +641,29 @@ void relative_over_packs_and_reload() {
     check(named, "conflicts name the registry layer's mod, file and field");
 }
 
+// review-registry-r3a (P45): a value the game's enum of this build lacks is refused naming the Kiln field, never the game's name of
+// the value (to_game named the game's enum value where it meant the field: "\"legendary\" is not a value of Legendary"). The
+// gamedata-section binder (skills, bind_gd_scalar) takes enum rows through the same code.
+void enum_refusal_names_the_kiln_field() {
+    world();
+    for (Field& f : g_regs[KILN_CONTENT_ITEMS].schema.fields)
+        if (f.path == "rarity") {
+            auto en = std::make_shared<EnumInfo>(*f.en);
+            std::erase_if(en->values, [](const auto& v) { return v.first == "Legendary"; });  // a build without the value
+            f.en = en;
+        }
+    g_files = {{"m/content/a.json", R"({"registry": {"alter": [
+        {"registry": "items", "select": {"id": "game:material_t1_wood_logs"}, "field": "rarity", "op": "legendary"}]}})"}};
+    const auto files = files_of({{"m", "m/content/a.json"}});
+    stage(files);
+    apply_registry_files(files);
+    std::string reasons;
+    for (const registry::Refusal& r : g_last_report.refused) reasons += r.reason + " | ";
+    check(at<uint32_t>(WOOD_AT + 4) == 0 && reported("\"legendary\" is not a value of items.rarity on this game build"),
+          "refused for the entry, naming the Kiln field: " + reasons);
+    check(!reported("Legendary"), "the game's name of the value is not in the refusal: " + reasons);
+}
+
 // set values of every live kind: enum (Kiln name -> the game's), time, formula (power), recipe lists, drop-entry leaves
 void every_live_kind() {
     world();
@@ -1539,6 +1562,7 @@ int main() {
         {"live_formula_report", live_formula_report},
         {"report_caps_lists", report_caps_lists},
         {"every_live_kind", every_live_kind},
+        {"enum_refusal_names_the_kiln_field", enum_refusal_names_the_kiln_field},
         {"perks_costs_unlock_loot", perks_costs_unlock_loot},
         {"refusals_and_restart_fields", refusals_and_restart_fields},
         {"hot_reload", hot_reload},
