@@ -95,3 +95,20 @@ public sealed class PetControlChangedEvent : KilnEvent
     /// <summary>The lease now.</summary>
     public ControlLeaseSnapshot After { get; }
 }
+
+/// <summary>A revive is about to start: its cost was quoted and nothing has moved. A handler may cancel it (nothing is taken
+/// and no PetReviveStartedEvent follows): the mod's own revive rules (a cooldown, a zone). The completion checks the quote
+/// again; no handler runs between the debit and the activation. Server tick thread. Since 0.2.0-dev.32.</summary>
+public sealed class PetRevivingEvent : CancelableEvent
+{
+    internal PetRevivingEvent(CharacterKey owner, PetSnapshot pet, Guid operation, PetCostDefinition? cost) =>
+        (Owner, Pet, OperationId, Cost) = (owner, pet, operation, cost);
+    /// <summary>The owner.</summary>
+    public CharacterKey Owner { get; }
+    /// <summary>The downed pet before the channel.</summary>
+    public PetSnapshot Pet { get; }
+    /// <summary>The revive's operation id (CancelRevive names it).</summary>
+    public Guid OperationId { get; }
+    /// <summary>The quoted cost; null: free.</summary>
+    public PetCostDefinition? Cost { get; }
+}

@@ -121,6 +121,39 @@ public static partial class Pets
         });
     }
 
+    /// <summary>Revives a downed pet: the owner channels next to its recovery anchor (summon it first) for the definition's
+    /// channel seconds; at completion the cost is quoted again and taken exactly, and the pet gets a new protected body at the
+    /// definition's health fraction, following. Leaving range, leaving the world or going down cancels; so do moving and being
+    /// hurt when the definition says so. A cancel or refusal before the debit takes nothing.</summary>
+    /// <param name="owner">The owner, in game.</param>
+    /// <param name="pet">The downed pet.</param>
+    /// <param name="request">The request (its operation id names the channel for <see cref="CancelRevive"/>).</param>
+    /// <param name="cost">Which stack the cost is taken from; null: any stacks of the item.</param>
+    /// <returns>Ok with the revived pet and the cost receipts; else <c>RecoveryNotSummoned</c>, <c>OutOfRange</c>,
+    /// <c>ReviveNotAllowed</c>, <c>CostUnavailable</c>, <c>ReviveRefused</c> (a mod), <c>CanceledNoCost</c>,
+    /// <c>CanceledCostCommitted</c> or <c>ReviveFailedCostCommitted</c> (with the receipts of what was taken).</returns>
+    [ServerOnly, TickThreadOnly, RequiresCapability(Caps.Downed)]
+    public static Task<PetResult> Revive(PlayerRef owner, PetId pet, PetRequest request, ItemSelection? cost = null) =>
+        Request(PetRoster.Kind.Revive, "Pets.Revive", Caps.Downed, owner, pet, request, o =>
+        {
+            o.Selection = cost;
+            o.Payload += $"|{cost?.Slot}";
+        });
+
+    /// <summary>Cancels the revive <paramref name="reviveOperation"/> names (never a later one). Before its cost is taken it
+    /// spends nothing; a revive that already completed is not undone (<c>AlreadyCompleted</c>). Repeating the same cancel
+    /// request gives its first answer.</summary>
+    [ServerOnly, TickThreadOnly, RequiresCapability(Caps.Downed)]
+    public static Task<PetResult> CancelRevive(PlayerRef owner, PetId pet, Guid reviveOperation, PetRequest request)
+    {
+        if (reviveOperation == Guid.Empty) throw new ArgumentException("no revive operation", nameof(reviveOperation));
+        return Request(PetRoster.Kind.CancelRevive, "Pets.CancelRevive", Caps.Downed, owner, pet, request, o =>
+        {
+            o.CancelTarget = reviveOperation;
+            o.Payload += $"|{reviveOperation}";
+        });
+    }
+
     /// <summary>Declares (true) or ends (false) a consensual hostility between two characters: for pets whose
     /// <see cref="PetTargetPolicy.Pvp"/> is <see cref="PetPvpMode.ByModRule"/>, each character's pets may then harm the
     /// other character and the other's pets of that mode, and be harmed by them. Who duels, and when, is the mod's rule

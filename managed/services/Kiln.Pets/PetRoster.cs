@@ -307,7 +307,8 @@ internal sealed partial class PetRoster
         if (!_owners.TryGetValue(key, out var o)) return;
         foreach (var p in o.Pets)
         {
-            if (p.Running is { } op) Complete(op, false, "OwnerLeft: the owner left the world", p);
+            if (p.Running is { Kind: Kind.Revive }) CancelChannel(p, PetChangeCause.Logout);   // its preview goes with it
+            else if (p.Running is { } op) Complete(op, false, "OwnerLeft: the owner left the world", p);
             CancelChannel(p, PetChangeCause.Logout);
             if (p.Body is not null) RetireForLeave(p, PetChangeCause.Logout);
             else if (p.Presence == PetPresence.RecoveryAnchor)

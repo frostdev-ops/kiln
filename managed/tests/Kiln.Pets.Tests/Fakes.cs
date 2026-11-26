@@ -111,6 +111,8 @@ internal sealed class FakeWorld : IPetWorld
             ? new PetBodyReading(true, b.Health, b.Max, b.Dead, b.DownPending, b.Position, b.ProtectionLost, b.ControlLost)
             : new PetBodyReading(false, 0, 0, false, false, default);
 
+    public readonly Dictionary<CharacterKey, int> OwnerHp = [];
+    public int? OwnerHealth(PetOwner owner) => OwnerHp.TryGetValue(owner.Key, out var h) ? h : 100;
     public readonly Dictionary<uint, PetTargetInfo> Targets = [];
     public readonly List<List<(CharacterKey A, CharacterKey B)>> HostilitySyncs = [];
     public PetTargetInfo Classify(EntityRef target) => Targets.TryGetValue(target.Id.Value, out var t) ? t : default;

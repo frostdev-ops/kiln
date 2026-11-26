@@ -84,6 +84,12 @@ internal sealed unsafe partial class GamePetWorld
         t->SetOwnerEntity(0, PetsNative.Key(c.Key), owner.Value);
     }
 
+    public int? OwnerHealth(PetOwner owner)
+    {
+        try { return Combat.GetHealth(owner.Entity.Id) is { } h ? h.Current : null; }
+        catch (Exception e) when (e is NotSupportedException or InvalidOperationException) { return null; }
+    }
+
     public PetTargetInfo Classify(EntityRef target)
     {
         try

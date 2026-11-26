@@ -79,6 +79,8 @@ internal interface IPetWorld
     bool Activate(PetBody body, out string? reason);
     /// <summary>The body now.</summary>
     PetBodyReading Read(PetBody body);
+    /// <summary>The owner's health now (null: unknown): a revive channel watches it.</summary>
+    int? OwnerHealth(PetOwner owner);
     /// <summary>A would-be attack target, as the game has it now.</summary>
     PetTargetInfo Classify(EntityRef target);
     /// <summary>The declared hostile character pairs (PvP by mod rule): the native rule gets the pairs of characters in game.</summary>

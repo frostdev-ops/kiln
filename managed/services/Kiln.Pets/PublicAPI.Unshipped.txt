@@ -272,6 +272,11 @@ Kiln.PetRevivePolicy.RangeMeters.get -> double
 Kiln.PetRevivePolicy.RangeMeters.init -> void
 Kiln.PetReviveStartedEvent
 Kiln.PetRevivedEvent
+Kiln.PetRevivingEvent
+Kiln.PetRevivingEvent.Cost.get -> Kiln.PetCostDefinition?
+Kiln.PetRevivingEvent.OperationId.get -> System.Guid
+Kiln.PetRevivingEvent.Owner.get -> Kiln.CharacterKey
+Kiln.PetRevivingEvent.Pet.get -> Kiln.PetSnapshot!
 Kiln.PetSnapshot
 Kiln.PetSnapshot.<Clone>$() -> Kiln.PetSnapshot!
 Kiln.PetSnapshot.Body.get -> Kiln.EntityRef
@@ -433,6 +438,7 @@ static Kiln.PetSnapshot.operator ==(Kiln.PetSnapshot? left, Kiln.PetSnapshot? ri
 static Kiln.PetTargetPolicy.DefaultHostileFactions.get -> System.Collections.Generic.IReadOnlyList<Kiln.Faction>!
 static Kiln.PetTargetPolicy.operator !=(Kiln.PetTargetPolicy? left, Kiln.PetTargetPolicy? right) -> bool
 static Kiln.PetTargetPolicy.operator ==(Kiln.PetTargetPolicy? left, Kiln.PetTargetPolicy? right) -> bool
+static Kiln.Pets.CancelRevive(Kiln.PlayerRef owner, Kiln.PetId pet, System.Guid reviveOperation, Kiln.PetRequest! request) -> System.Threading.Tasks.Task<Kiln.PetResult!>!
 static Kiln.Pets.Command(Kiln.PlayerRef owner, Kiln.PetId pet, Kiln.PetOrder order, Kiln.EntityRef target, Kiln.PetRequest! request) -> System.Threading.Tasks.Task<Kiln.PetResult!>!
 static Kiln.Pets.Define(Kiln.PetDefinition! definition) -> Kiln.PetDefinitionResult!
 static Kiln.Pets.Definition(string! id) -> Kiln.PetDefinition?
@@ -443,6 +449,7 @@ static Kiln.Pets.Grant(Kiln.CharacterKey owner, string! definition, Kiln.PetRequ
 static Kiln.Pets.IsHostile(Kiln.CharacterKey a, Kiln.CharacterKey b) -> bool
 static Kiln.Pets.Of(Kiln.CharacterKey owner) -> System.Collections.Generic.IReadOnlyList<Kiln.PetSnapshot!>!
 static Kiln.Pets.Release(Kiln.PlayerRef owner, Kiln.PetId pet, Kiln.PetRequest! request) -> System.Threading.Tasks.Task<Kiln.PetResult!>!
+static Kiln.Pets.Revive(Kiln.PlayerRef owner, Kiln.PetId pet, Kiln.PetRequest! request, Kiln.ItemSelection? cost = null) -> System.Threading.Tasks.Task<Kiln.PetResult!>!
 static Kiln.Pets.SetHostile(Kiln.CharacterKey a, Kiln.CharacterKey b, bool hostile) -> void
 static Kiln.Pets.Summon(Kiln.PlayerRef owner, Kiln.PetId pet, Kiln.PetRequest! request) -> System.Threading.Tasks.Task<Kiln.PetResult!>!
 ~override Kiln.PetId.Equals(object obj) -> bool
