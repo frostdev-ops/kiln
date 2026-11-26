@@ -282,7 +282,8 @@ Three registries over the game's creature and perk data, experimental (`KILNX031
   that). Fields a creature copies as it spawns (level, faction, size, resistances, speeds, loot, the damage multiplier) reach
   creatures that **spawn after** the edit; the health and damage scaling and an enemy's sight are read at once by every
   creature of the entry, also those already in the world. Not every creature has every field (most have no size of their
-  own, only enemies have sight and an arsenal): such an entry reads `null`, an absolute value is refused for it alone
+  own, only enemies have sight and an arsenal): such an entry reads `null` (a typed C# property reads 0, or false, there:
+  tell such creatures by their `Kind` or id, never by a 0, which for `resist.*` would mean immune), an absolute value is refused for it alone
   ("this creature has no value of this field"), and a relative op over it refuses that edit, so select the creatures that
   have one (`"select": {"id": "game:*", "has": ["enemy"]}`, or by id).
 - **`arsenals`**: the attacks an enemy chooses from. Enemies of one kind share an arsenal, named after the first creature
