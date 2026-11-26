@@ -21,6 +21,11 @@ public sealed class SpellRegistryMod : Mod
 
     public override void OnRegistry(RegistryContext context)
     {
+        if (!Capabilities.Is("kiln.registry"))
+        {
+            Log.Warn($"Kiln's registries are not available here ({Capabilities.Why("kiln.registry")}): Poisoned keeps the game's duration");
+            return;
+        }
         var settings = Config.Register<Settings>().Value;
         var registry = DataRegistry.For(context);
         registry.Alter(view =>
