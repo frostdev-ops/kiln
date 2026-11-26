@@ -384,6 +384,11 @@ fn registry_only_clients_guidance_tracks_the_edited_fields() {
     check("good-item", "kiln", "items", "maxStack", None);
     check("good-balance", "mod", "balance", "levelCap", None);
     check("unknown", "kiln", "unknown", "x", None);
+    // dev.32: a skill node's cost follows the content sync to a Kiln client's tree (its screen and its own PointsSpent)
+    check("skill-cost", "none", "skills", "cost", Some("kiln"));
+    check("good-skill-cost", "kiln", "skills", "cost", None);
+    // stations are read-only: an edit of them is refused, so lint makes no claim about it
+    check("station", "kiln", "stations", "npc", None);
 }
 
 #[test]
