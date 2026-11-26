@@ -33,7 +33,7 @@ public sealed partial class RecipeEntry : IRegistryEntry
     [RegistryField("recipes.unlock", RegistryApplies.Now, JoinedClient = "localOnly")]
     public RecipeUnlockMode Unlock { get => (RecipeUnlockMode)RegistryCells.Enum(_c, RecipeFields.Unlock, _i, RecipeUnlockModeNames.All); set => RegistryCells.SetEnum(_c, RecipeFields.Unlock, _i, RecipeUnlockModeNames.All, (int)value); }
 
-    /// <summary>The workshop the recipe belongs to. Read-only for game recipes: the game sorts recipes into stations once at start.</summary>
+    /// <summary>The station the recipe belongs to: a stations id, none for a recipe of the player's own crafting. Read-only for game recipes: the game sorts recipes into stations once at start.</summary>
     [RegistryField("recipes.station", RegistryApplies.Restart, JoinedClient = "serverOnly")]
     public RegistryId Station => RegistryCells.Id(_c, RecipeFields.Station, _i);
 }

@@ -276,7 +276,7 @@ class TreeSource final : public Source {
 };
 
 // The entry sources of the registries outside the schema that R1's references name (P1-PLAN 9.2: "templates", "perks",
-// "inputCategories"); their ids follow the same rules. Stations have no source yet: a station reference decodes as null.
+// "inputCategories"); their ids follow the same rules. Stations have their own schema and regmap since dev.32.
 const map::EntrySource* builtin(const std::string& r) {
     static const map::EntrySource templates = [] {
         map::EntrySource s;
@@ -662,7 +662,9 @@ const std::vector<Entry>* Model::entries(const std::string& registry, std::strin
         if (!s.id.empty() && src_.member(p, s.id, &j, &e1) && number_of(j, &n)) e.num = static_cast<uint32_t>(n);
         else if (s.id.empty() && p.array.empty()) e.num = fnv1a(p.key.guid, 16);
         if (!s.name_from.empty()) e.named_by = users[e.guid];
-        game.push_back({e.guid, e.name, e.num, e.named_by});
+        uint32_t key = 0;  // stations: the item that builds the entry names it (keyMember)
+        if (!s.key_member.empty() && src_.member(p, s.key_member, &j, &e1) && number_of(j, &n)) key = static_cast<uint32_t>(n);
+        game.push_back({e.guid, e.name, e.num, e.named_by, key});
         R.entries.push_back(std::move(e));
     }
     std::vector<std::string> notes;
@@ -862,6 +864,11 @@ void Model::fill(const Need& need, BaseModel* out) {
                     json j;
                     if (src_.member((*es)[i].place, "isCookingRecipe", &j, &w) && j.is_boolean() && j.get<bool>()) e.traits.insert("cooking");
                     if (src_.member((*es)[i].place, "isUpgrade", &j, &w) && j.is_boolean() && j.get<bool>()) e.traits.insert("upgrade");
+                } else if (reg == "skills") {
+                    if (auto v = value(reg, i, "kind", &w); v && v->kind == Value::Text && v->t == "active") e.traits.insert("active");
+                    if (auto v = value(reg, i, "maxLevel", &w); v && v->numeric() && v->as_double() > 0) e.traits.insert("leveled");
+                } else if (reg == "stations") {
+                    if (auto v = value(reg, i, "npc", &w); v && v->kind == Value::Bool && v->b) e.traits.insert("npc");
                 }
             }
             dst.push_back(std::move(e));

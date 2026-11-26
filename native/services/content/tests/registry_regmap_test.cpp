@@ -176,11 +176,12 @@ int main(int argc, char** argv) {
         std::stringstream ss;
         ss << f.rdbuf();
         const auto doc = map::json::parse(ss.str(), nullptr, false);
-        CHECK(!doc.is_discarded() && doc["cases"].size() >= 8);
+        CHECK(!doc.is_discarded() && doc["cases"].size() >= 10);
         for (const auto& c : doc["cases"]) {
             map::EntrySource src;
             const auto& s = c["src"];
             src.unnamed = s.value("unnamed", ""), src.name_from = s.value("nameFrom", ""), src.key = s.value("key", "");
+            src.key_member = s.value("keyMember", "");
             map::Aliases al;
             const std::string reg = c["registry"];
             const map::json pinned = c["aliases"].value("pinned", map::json::object()), removed = c["aliases"].value("removed", map::json::object());
@@ -188,7 +189,7 @@ int main(int argc, char** argv) {
             for (const auto& [id, b] : removed.items()) al.removed[reg + "|" + id] = b;
             std::vector<map::GameEntry> es;
             for (const auto& e : c["entries"]) {
-                map::GameEntry x{e["guid"], e["name"], e["id"].get<uint32_t>(), {}};
+                map::GameEntry x{e["guid"], e["name"], e["id"].get<uint32_t>(), {}, e.value("keyId", 0u)};
                 const map::json named = e.value("namedBy", map::json::array());
                 for (const auto& t : named) x.named_by.push_back(t);
                 es.push_back(x);

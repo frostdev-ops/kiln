@@ -112,7 +112,7 @@
       "registry": "stations",
       "readOnly": true,
       "applies": "restart",
-      "doc": "The workshop the recipe belongs to. Read-only for game recipes: the game sorts recipes into stations once at start.",
+      "doc": "The station the recipe belongs to: a stations id, none for a recipe of the player's own crafting. Read-only for game recipes: the game sorts recipes into stations once at start.",
       "joinedClient": "serverOnly"
     }
   },

@@ -102,12 +102,13 @@ static bool refused_with(const std::vector<Refusal>& v, uint32_t n, const std::s
 int main() {
     const Schema s = generated_schema();
     // ---- the glue: the generated rows as the IR's descriptor
-    CHECK(s.format == 1 && s.registries.size() == 5);
+    CHECK(s.format == 1 && s.registries.size() == 7);  // the five R1 registries, skills and stations (dev.32)
     size_t specs = 0;
     for (const auto& [n, r] : s.registries) {
         specs += r.fields.size();
-        // the shipped schema versions: items 0.1.1 since 31.x (block and comfort apply now), the others 0.1.0
-        CHECK(r.version == (n == "items" ? "0.1.1" : "0.1.0") && r.raw);
+        // the shipped schema versions: items 0.1.1 since 31.x (block and comfort apply now), the others 0.1.0; skills and
+        // stations take no raw game paths (raw: refused)
+        CHECK(r.version == (n == "items" ? "0.1.1" : "0.1.0") && r.raw == (n != "skills" && n != "stations"));
     }
     CHECK(specs == std::size(gen::kFields));  // every generated row, leaves of list elements kept
     const RegistrySpec& rec = *s.registry("recipes");
@@ -269,7 +270,7 @@ int main() {
     meta.regmap = {"server", "f0d824be7fcd48ebfe2458ff5c28da26060c2074e3ec1fcac587e5a1d508aeb2", "regmap/server/f0d824be7fcd48ebfe2458ff5c28da26060c2074e3ec1fcac587e5a1d508aeb2.json", true};
     meta.order = {{"newstuff", "1.0.0", ""}, {"tuner", "1.0.0", ""}, {"remover", "1.0.0", ""}};
     const json doc = report_json(s, r, meta);
-    CHECK(doc["schema"]["registrySchema"] == 1 && doc["schema"]["registries"]["items"] == "0.1.1" && doc["schema"]["registries"].size() == 5);
+    CHECK(doc["schema"]["registrySchema"] == 1 && doc["schema"]["registries"]["items"] == "0.1.1" && doc["schema"]["registries"].size() == 7);
     bool saw_ms = false, saw_xp = false;
     for (const json& f : doc["fields"]) {
         saw_ms = saw_ms || (f["registry"] == "items" && f["id"] == "game:wood" && f["field"] == "maxStack" && f["applies"] == "worldLoad");

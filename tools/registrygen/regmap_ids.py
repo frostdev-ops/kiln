@@ -69,11 +69,13 @@ def derive(registry, src, aliases, entries, by_item_id=None):
         if ids[i] is not None:
             continue
         hexs = _hex(e)
-        if src.get("key") == "items" and by_item_id is not None and e.get("id") in by_item_id:
-            cur = by_item_id[e["id"]]
+        # loot: the entry's own id is the item's; stations ("keyMember"): the item that builds it (none: the name rules)
+        item = e.get("keyId", 0) if src.get("keyMember") else e.get("id")
+        if src.get("key") == "items" and by_item_id is not None and (item or not src.get("keyMember")) and item in by_item_id:
+            cur = by_item_id[item]
             if cur in taken:
                 notes.append(f"{registry}: a second entry for {cur} ({hexs}) gets a suffix")
-                cur = suffixed(by_item_id[e["id"]], hexs)
+                cur = suffixed(by_item_id[item], hexs)
             taken.add(cur)
             ids[i] = cur
             continue

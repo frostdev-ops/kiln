@@ -60,6 +60,8 @@ struct EntrySource {
     std::string unnamed;        // the stable name of an entry without one: printf over the id ("item_%08x") or the GUID text ("drops_%.8s")
     std::string name_from;      // drop tables: "<component type>.<member>" whose templates name the entry
     std::string key;            // loot: "items": the entry has the id of the items entry with the same 32-bit id
+    std::string key_member;     // stations: with key "items", the member whose 32-bit item id names the entry (keyMember;
+                                // empty: the entry's own id, as loot's)
 };
 
 struct RegistryMap {
@@ -124,12 +126,14 @@ struct GameEntry {
     std::string name;                     // its debug name ("" when it has none)
     uint32_t id = 0;                      // its 32-bit id
     std::vector<std::string> named_by;    // drop tables: the stable names of the templates that use it
+    uint32_t key = 0;                     // the 32-bit item id a "key": "items" source names it by (keyMember; else id)
 };
 // The Kiln ids of a registry's game entries, given in the archive's order: a pinned id first; else game:<stable name>,
 // where the stable name is the debug name in lower case (an unnamed entry: the source's "unnamed" pattern; a drop table:
 // the first of its templates' names in ordinal order). The entry that holds a name first keeps it; a later one with the
 // same name (also in another case) gets "~<first 8 hex digits of its GUID>", more digits while that is taken.
-// by_item_id: the items registry's ids by 32-bit item id (loot).
+// by_item_id: the items registry's ids by 32-bit item id (loot: the entry's own id; stations: its keyMember, the item that
+// builds it; an entry whose item no items entry has, or none, falls back to the name rules).
 // A name outside the id grammar (spaces, apostrophes, non-ASCII bytes) has each such character as '_' and is named in
 // *notes (the record pins it); so is a second loot entry for one item. Removed ids (aliases.removed) are never given again.
 std::vector<std::string> assign_ids(const std::string& registry, const EntrySource& src, const Aliases& aliases,

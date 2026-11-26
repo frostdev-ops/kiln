@@ -58,6 +58,8 @@ inline constexpr Registry kRegistries[] = {
     {3, "loot", "0.1.0", true, false, "disabled", true, 48, 6},
     {4, "drops", "0.1.0", true, false, "", true, 54, 6},
     {5, "balance", "0.1.0", true, false, "", true, 60, 40},
+    {6, "skills", "0.1.0", true, false, "", false, 100, 5},
+    {7, "stations", "0.1.0", true, false, "", false, 105, 2},
 };
 
 inline constexpr Field kFields[] = {
@@ -161,6 +163,13 @@ inline constexpr Field kFields[] = {
     {0x00050026u, "balance", "gear.creep", Kind::Float, Kind::Float, true, true, 0.0, 100.0, 0u, "", "", "", true, Applies::Restart, Ops::None, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
     {0x00050027u, "balance", "gear.armorOffset", Kind::Float, Kind::Float, true, true, 0.0, 100000.0, 0u, "", "", "", true, Applies::Restart, Ops::None, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
     {0x00050028u, "balance", "gear.armorGradient", Kind::Float, Kind::Float, true, true, 0.0, 100000.0, 0u, "", "", "", true, Applies::Restart, Ops::None, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00060001u, "skills", "cost", Kind::Int, Kind::Int, true, true, 0.0, 65535.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "now"},
+    {0x00060002u, "skills", "maxLevel", Kind::Int, Kind::Int, true, true, 0.0, 7.0, 0u, "", "", "", true, Applies::Now, Ops::None, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00060003u, "skills", "kind", Kind::Enum, Kind::Enum, false, false, 0.0, 0.0, 0u, "root|attribute|active|passive", "", "", true, Applies::Now, Ops::None, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00060004u, "skills", "class", Kind::Enum, Kind::Enum, false, false, 0.0, 0.0, 0u, "warrior|mage|ranger|neutral", "", "", true, Applies::Now, Ops::None, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00060005u, "skills", "unlocks", Kind::Ref, Kind::Ref, false, false, 0.0, 0.0, 0u, "", "items", "", true, Applies::Now, Ops::None, "", "", true, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00070001u, "stations", "item", Kind::Ref, Kind::Ref, false, false, 0.0, 0.0, 0u, "", "items", "", true, Applies::Restart, Ops::None, "", "", true, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00070002u, "stations", "npc", Kind::Bool, Kind::Bool, false, false, 0.0, 0.0, 0u, "", "", "", true, Applies::Restart, Ops::None, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
 };
 
 // The id migrations of the schemas' breaking steps (schema/registry/migrations/<registry>-<from>-<to>.json), oldest
@@ -281,6 +290,13 @@ inline constexpr uint32_t balance_gear_seed = 0x00050025u;
 inline constexpr uint32_t balance_gear_creep = 0x00050026u;
 inline constexpr uint32_t balance_gear_armorOffset = 0x00050027u;
 inline constexpr uint32_t balance_gear_armorGradient = 0x00050028u;
+inline constexpr uint32_t skills_cost = 0x00060001u;
+inline constexpr uint32_t skills_maxLevel = 0x00060002u;
+inline constexpr uint32_t skills_kind = 0x00060003u;
+inline constexpr uint32_t skills_class = 0x00060004u;
+inline constexpr uint32_t skills_unlocks = 0x00060005u;
+inline constexpr uint32_t stations_item = 0x00070001u;
+inline constexpr uint32_t stations_npc = 0x00070002u;
 }  // namespace field
 
 }  // namespace kc::registry::gen

@@ -145,7 +145,7 @@
         },
         {
           "guid": "88888888-0000-0000-0000-000000000008",
-          "name": "Épée",
+          "name": "\u00c9p\u00e9e",
           "id": 8
         },
         {
@@ -258,6 +258,91 @@
       ],
       "expect": [
         "game:balance"
+      ]
+    },
+    {
+      "name": "stations take the id of the item that builds them (keyMember), never of an item that shares their own id",
+      "registry": "stations",
+      "src": {
+        "key": "items",
+        "keyMember": "item",
+        "unnamed": "station_%08x"
+      },
+      "aliases": {},
+      "byItemId": {
+        "5": "game:craftingstation_workbench",
+        "6": "game:prop_production_t1_forge"
+      },
+      "entries": [
+        {
+          "guid": "aaaaaaaa-0000-0000-0000-000000000001",
+          "name": "",
+          "id": 1302892403,
+          "keyId": 5
+        },
+        {
+          "guid": "bbbbbbbb-0000-0000-0000-000000000002",
+          "name": "",
+          "id": 3005669442,
+          "keyId": 0
+        },
+        {
+          "guid": "cccccccc-0000-0000-0000-000000000003",
+          "name": "",
+          "id": 2378837065,
+          "keyId": 6
+        },
+        {
+          "guid": "dddddddd-0000-0000-0000-000000000004",
+          "name": "",
+          "id": 286331153,
+          "keyId": 6
+        },
+        {
+          "guid": "eeeeeeee-0000-0000-0000-000000000005",
+          "name": "",
+          "id": 572662306,
+          "keyId": 99
+        },
+        {
+          "guid": "ffffffff-0000-0000-0000-000000000006",
+          "name": "",
+          "id": 5,
+          "keyId": 0
+        }
+      ],
+      "expect": [
+        "game:craftingstation_workbench",
+        "game:station_b326e042",
+        "game:prop_production_t1_forge",
+        "game:prop_production_t1_forge~dddddddd",
+        "game:station_22222222",
+        "game:station_00000005"
+      ],
+      "notes": 1
+    },
+    {
+      "name": "skill nodes: no debug name and no GUID, named by their 32-bit node id",
+      "registry": "skills",
+      "src": {
+        "unnamed": "skill_%08x"
+      },
+      "aliases": {},
+      "entries": [
+        {
+          "guid": "",
+          "name": "",
+          "id": 1148578013
+        },
+        {
+          "guid": "",
+          "name": "",
+          "id": 2398930034
+        }
+      ],
+      "expect": [
+        "game:skill_4475e8dd",
+        "game:skill_8efcc472"
       ]
     }
   ]

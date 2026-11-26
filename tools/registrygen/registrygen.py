@@ -52,7 +52,7 @@ HANDWRITTEN_TYPES = ("RegistryId", "RegistryValueList", "RegistryEntryList", "Re
                      "IRegistryCells", "RegistryCells", "RegistryApplies", "RegistryListOp")
 # Registries a ref may name besides the schemas here: Kiln registries that later phases add (their ids follow the same
 # rules; until they exist, a ref to them is checked as an id's shape only).
-LATER_REGISTRIES = ("perks", "stations", "inputCategories", "templates")
+LATER_REGISTRIES = ("perks", "inputCategories", "templates")
 NAME = re.compile(r"^[a-z][A-Za-z0-9]*$")
 TYPE_NAME = re.compile(r"^[A-Z][A-Za-z0-9]*$")
 # Game words a schema must not carry (Kiln names only; the game's names and offsets live in regmap/).

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-"""regmap_entries: the R1 registries' game entries of one game build, read offline from the game's own archive and
+"""regmap_entries: the registries' game entries of one game build, read offline from the game's own archive and
 executable (tools/bootsnap's reader: the files are read as data, the exe is never run), for regmap_check.py --record.
 
     regmap_entries.py --exe <a copy of the game exe, its .kfc pair beside it> --out <file outside the repository>
@@ -48,21 +48,27 @@ def main(argv=None):
         items = [{"guid": r.key.guid, "name": r.name, "id": live.Blob(src.kfc.read(r.key)).u32(0) or 0} for r in src.items()]
         out["registries"]["items"] = items
 
-        def array(type_name, member, name_field, guid_field, id_field):
+        def array(type_name, member, name_field, guid_field, id_field, key_field=None):
             key, blob, el, at, n = src._collection(type_name, member)
             b = live.Blob(blob)
             nf = g.field(el, name_field)[2] if name_field else None
             gf = g.field(el, guid_field)[2] if guid_field else None
             idf = g.field(el, id_field)[2]
+            kf = g.field(el, key_field)[2] if key_field else None
             rows = []
             for i in range(n):
                 o = at + i * el.size
                 guid = live.guid_text(b.bytes(o + gf, 16)) if gf is not None else ""
-                rows.append({"guid": guid, "name": b.blob_string(o + nf) if nf is not None else "", "id": b.u32(o + idf)})
+                row = {"guid": guid, "name": b.blob_string(o + nf) if nf is not None else "", "id": b.u32(o + idf)}
+                if kf is not None:
+                    row["keyId"] = b.u32(o + kf)  # stations: the item that builds it names it (regmap entries keyMember)
+                rows.append(row)
             return rows
 
         out["registries"]["recipes"] = array("keen::RecipeRegistryResource", "recipes", "debugName", "recipeGuid", "recipeId")
         out["registries"]["loot"] = array("keen::LootableItemsResource", "items", None, None, "itemId")
+        out["registries"]["stations"] = array("keen::WorkshopRegistryResource", "workshops", None, "workshopGuid", "workshopId", "item")
+        out["registries"]["skills"] = array("keen::SkillTreeResource", "nodes", None, None, "id")
         # templates' stable names (the same rules), then the drop tables they use
         trows = list(src.templates())
         tids, _ = regmap_ids.derive("templates", {"unnamed": "template_%.8s"}, {}, [{"guid": r.key.guid, "name": r.name, "id": 0} for r in trows])

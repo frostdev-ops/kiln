@@ -26,7 +26,7 @@ Applies: `now` = takes effect at the next use; `worldLoad` = takes effect when a
 | `outputs[].count` | int 1..65535 | now | number | 0.1.0 | mapped | now | How many of the item one craft makes. |
 | `duration` | time s 0..86400 | now | number | 0.1.0 | mapped | now | How long a station takes for one craft. |
 | `unlock` | enum (game, always) | now | set | 0.1.0 | mapped | localOnly | When players see the recipe: game = the game's own knowledge requirement, always = from the start. Only the crafting menu reads it (a client without Kiln keeps the game's). Read by game clients only. |
-| `station` | ref stations | restart | read-only | 0.1.0 | unproven: a recipe's station is a stations id, and Kiln has no stations registry yet, so no recipe's station reads as a Kiln id on any build | serverOnly | The workshop the recipe belongs to. Read-only for game recipes: the game sorts recipes into stations once at start. |
+| `station` | ref stations | restart | read-only | 0.1.0 | mapped | serverOnly | The station the recipe belongs to: a stations id, none for a recipe of the player's own crafting. Read-only for game recipes: the game sorts recipes into stations once at start. |
 
 ## Traits
 

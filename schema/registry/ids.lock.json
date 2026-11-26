@@ -1077,6 +1077,106 @@
         }
       },
       "retired": {}
+    },
+    "skills": {
+      "id": 6,
+      "version": "0.1.0",
+      "since": "0.1.0",
+      "history": [
+        {
+          "version": "0.1.0"
+        }
+      ],
+      "fields": {
+        "cost": {
+          "id": 1,
+          "since": "0.1.0",
+          "kind": "int",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 65535
+        },
+        "maxLevel": {
+          "id": 2,
+          "since": "0.1.0",
+          "kind": "int",
+          "applies": "now",
+          "ops": "none",
+          "readOnly": true,
+          "min": 0,
+          "max": 7
+        },
+        "kind": {
+          "id": 3,
+          "since": "0.1.0",
+          "kind": "enum",
+          "applies": "now",
+          "ops": "none",
+          "readOnly": true,
+          "values": [
+            "root",
+            "attribute",
+            "active",
+            "passive"
+          ]
+        },
+        "class": {
+          "id": 4,
+          "since": "0.1.0",
+          "kind": "enum",
+          "applies": "now",
+          "ops": "none",
+          "readOnly": true,
+          "values": [
+            "warrior",
+            "mage",
+            "ranger",
+            "neutral"
+          ]
+        },
+        "unlocks": {
+          "id": 5,
+          "since": "0.1.0",
+          "kind": "ref",
+          "applies": "now",
+          "ops": "none",
+          "readOnly": true,
+          "optional": true
+        }
+      },
+      "retired": {}
+    },
+    "stations": {
+      "id": 7,
+      "version": "0.1.0",
+      "since": "0.1.0",
+      "history": [
+        {
+          "version": "0.1.0"
+        }
+      ],
+      "fields": {
+        "item": {
+          "id": 1,
+          "since": "0.1.0",
+          "kind": "ref",
+          "applies": "restart",
+          "ops": "none",
+          "readOnly": true,
+          "optional": true
+        },
+        "npc": {
+          "id": 2,
+          "since": "0.1.0",
+          "kind": "bool",
+          "applies": "restart",
+          "ops": "none",
+          "readOnly": true
+        }
+      },
+      "retired": {}
     }
   },
   "retiredRegistries": {}

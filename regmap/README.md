@@ -26,7 +26,10 @@ Adding a registry (schema, mapping, back-ends, proof, tests, and the pitfalls th
                "unnamed": "item_%08x",        // the stable name of an entry without a debug name (printf over its id;
                                               // "%.8s" takes the GUID text instead)
                "nameFrom": "",                // drop tables: "<component>.<member>": the templates that use the entry name it
-               "key": "" },                   // loot: "items": the entry has the id of the item with its 32-bit id
+               "key": "",                     // loot: "items": the entry has the id of the item with its 32-bit id
+               "keyMember": "" },             // stations: with "key": "items", the member whose 32-bit item id names the
+                                              // entry (the item that builds it); none, or an item no items entry has: the
+                                              // name rules ("unnamed")
   "rows": {
     "maxStack": { "paths": ["maxStackSize"], "conv": "int", "read": "worldLoad", "backend": "live", "clientNeeds": true,
                   "evidence": "docs/re/content.md (StackClamp)" },

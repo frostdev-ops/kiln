@@ -346,9 +346,11 @@ def check(root, db):
                 else:
                     entry_root = el["name"]
                     res.layouts[entry_root] = el.get("layout")
-            for member in ("name", "guid", "id"):
+            for member in ("name", "guid", "id", "keyMember"):
                 if e.get(member) and entry_root and db.path(entry_root, e[member])[1]:
                     res.errors.append(f"{name}: entries.{member} {e[member]}: {db.path(entry_root, e[member])[1]}")
+        if e.get("keyMember") and e.get("key") != "items":
+            res.errors.append(f"{name}: entries.keyMember goes with \"key\": \"items\"")
         for path, spec_row in specs.items():
             q = f"{name}.{path}"
             row = rows.get(path)
@@ -434,7 +436,7 @@ def compute_aliases(root, entries, previous, previous_table, game_build):
     # templates have no regmap file (the model's builtin source names them: debug name, else template_<guid8>); their
     # clashes and names outside the grammar are pinned here like any registry's
     builtin = {"templates": {"unnamed": "template_%.8s"}}
-    for name in ("templates", "items", "recipes", "loot", "drops", "balance"):
+    for name in ("templates", "items", "recipes", "loot", "drops", "balance", "skills", "stations"):
         if (name not in maps and name not in builtin) or name not in entries.get("registries", {}):
             continue
         src = maps[name].get("entries", {}) if name in maps else builtin[name]

@@ -516,6 +516,84 @@
         }
       }
     },
+    "skills": {
+      "$defs": {
+        "field": {
+          "enum": [
+            "cost"
+          ]
+        },
+        "edit": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "registry"
+          ],
+          "description": "An edit of the skills registry (docs/kiln/modding/registries/skills.md).",
+          "properties": {
+            "registry": {
+              "const": "skills"
+            },
+            "select": {
+              "$ref": "#/$defs/select"
+            },
+            "field": {
+              "$ref": "#/$defs/skills/$defs/field"
+            },
+            "op": {
+              "$ref": "#/$defs/op"
+            },
+            "list": {
+              "$ref": "#/$defs/list"
+            },
+            "exclusive": {
+              "type": "boolean"
+            },
+            "yield": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    },
+    "stations": {
+      "$defs": {
+        "field": {
+          "enum": []
+        },
+        "edit": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "registry"
+          ],
+          "description": "An edit of the stations registry (docs/kiln/modding/registries/stations.md).",
+          "properties": {
+            "registry": {
+              "const": "stations"
+            },
+            "select": {
+              "$ref": "#/$defs/select"
+            },
+            "field": {
+              "$ref": "#/$defs/stations/$defs/field"
+            },
+            "op": {
+              "$ref": "#/$defs/op"
+            },
+            "list": {
+              "$ref": "#/$defs/list"
+            },
+            "exclusive": {
+              "type": "boolean"
+            },
+            "yield": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    },
     "edit": {
       "oneOf": [
         {
@@ -532,6 +610,12 @@
         },
         {
           "$ref": "#/$defs/balance/$defs/edit"
+        },
+        {
+          "$ref": "#/$defs/skills/$defs/edit"
+        },
+        {
+          "$ref": "#/$defs/stations/$defs/edit"
         }
       ]
     }
