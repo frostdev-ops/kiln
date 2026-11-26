@@ -60,6 +60,10 @@ order, conflicts, reload and revert rules: docs/kiln/services/content.md):
 
 Other services add sections of their own (`creatures`: kiln.creatures' variants and spawn rules); see "Pack sections
 of other services".
+
+A skill node's cost is also a registry field since 0.2.0-dev.32 (`skills.cost`, Kiln ids `game:skill_<id>`:
+[registries/skills.md](../modding/registries/skills.md)): the registry writes the same `costs` member as this section, as a
+layer above it (a registry edit wins over the section's and is reported with it; a relative edit composes on it).
 An enemy's sight is `combatCommitmentSetup.view.range` (the example's 1.5 makes a Vukah's 18 m by day 27 m), not `aggroSetup.viewRange`,
 which only sizes the search for candidates; see [creatures.md](creatures.md), "Sight and aggro".
 

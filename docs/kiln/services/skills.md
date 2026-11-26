@@ -24,6 +24,10 @@ Evidence and layouts: `docs/re/abilities.md` §4 "Expanding the skill tree".
 | Test | `mods/tests/skills-test/` (PASS / FAIL lines; fresh boot 55/0 with `shadownet.py`, the fake client for the client sync) |
 | Sample | `mods/samples/SkillTreeSample/` (two nodes in the game's tree, the Kiln tree "Ember Arts") |
 
+The cost of the game's own nodes is also a registry field since 0.2.0-dev.32: `skills.cost` of `game:skill_<node id>`
+([registries/skills.md](../modding/registries/skills.md)), with the nodes' levels, kind, class and unlocked ability
+read-only. The nodes a mod adds here are not registry entries; their definition holds their cost.
+
 ## A. The game's own tree
 
 ### Data: `skills/*.json` in the mod folder
