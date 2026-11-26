@@ -1,0 +1,415 @@
+{
+  "$schema": "../registry-schema.schema.json",
+  "registrySchema": 1,
+  "registry": "creatures",
+  "typeName": "Creature",
+  "version": "0.1.0",
+  "stability": "experimental",
+  "experimentalId": "KILNX031",
+  "doc": "Every creature the game defines: enemies, wildlife, farm animals and villagers: their level, faction, size, health and damage scaling, resistances, speeds, random loot and the enemy's sight. An edit is global: every creature of the entry, now or later, as the field says.",
+  "ids": {
+    "game": "game:<the creature's stable name>",
+    "mod": "<mod id>:<name>",
+    "rule": "A creature has the id of its template: the template's debug name in lower case (Enemy_Vukah_Melee is game:enemy_vukah_melee). A template without a name is game:template_<first 8 hex digits of its GUID>. When two templates would get the same name, the one that held it first keeps it and the other is game:<name>~<first 8 hex digits of its GUID>. The entries are the templates with an enemy's, a wild animal's, a farm animal's or a villager's behaviour; the same id names the template in every registry."
+  },
+  "traits": {
+    "enemy": "an enemy (kind enemy)",
+    "wildlife": "a wild animal (kind wildlife)",
+    "animal": "a farm animal or pet (kind animal)",
+    "villager": "a villager or workshop NPC (kind villager)"
+  },
+  "fields": {
+    "kind": {
+      "type": "enum",
+      "values": [
+        "enemy",
+        "wildlife",
+        "animal",
+        "villager"
+      ],
+      "readOnly": true,
+      "applies": "now",
+      "doc": "What the creature is, by the behaviour it has: an enemy, a wild animal, a farm animal or pet, a villager.",
+      "typeName": "CreatureKind",
+      "joinedClient": "serverOnly"
+    },
+    "level": {
+      "type": "int",
+      "min": 1,
+      "max": 10000,
+      "ops": "number",
+      "doc": "The level a creature spawns at when its spawner sets none (most spawners set their own). Creatures that spawn after the edit get it; creatures already in the world keep the value they spawned with.",
+      "joinedClient": "serverOnly",
+      "applies": "now"
+    },
+    "levelMax": {
+      "type": "int",
+      "min": 1,
+      "max": 10000,
+      "ops": "number",
+      "doc": "The highest level the creature can have; a level above it is cut to it. Creatures that spawn after the edit get it; creatures already in the world keep the value they spawned with.",
+      "joinedClient": "serverOnly",
+      "applies": "now"
+    },
+    "faction": {
+      "type": "enum",
+      "values": [
+        "environment",
+        "hitAll",
+        "fogger",
+        "vukah",
+        "scavenger",
+        "wildlife",
+        "wildBeast",
+        "player",
+        "automatedPlayer",
+        "hitOthers",
+        "skeleton",
+        "playerAlly",
+        "farmAnimal",
+        "cyclops",
+        "drak",
+        "ancients"
+      ],
+      "ops": "set",
+      "applies": "now",
+      "doc": "The side the creature fights for (playerAlly: on the players' side). Creatures that spawn after the edit get it; creatures already in the world keep the value they spawned with.",
+      "typeName": "CreatureFaction",
+      "joinedClient": "serverOnly"
+    },
+    "scale": {
+      "type": "float",
+      "min": 0.01,
+      "max": 100,
+      "ops": "number",
+      "doc": "The creature's size (1 = as made). Only a creature that has a size value of its own can take one. Creatures that spawn after the edit get it; creatures already in the world keep the value they spawned with.",
+      "joinedClient": "serverOnly",
+      "applies": "now"
+    },
+    "xp": {
+      "type": "float",
+      "min": 0,
+      "max": 1000,
+      "ops": "number",
+      "doc": "The factor on the experience a kill gives (1 = as the game gives). Creatures that spawn after the edit get it; creatures already in the world keep the value they spawned with.",
+      "joinedClient": "serverOnly",
+      "applies": "now"
+    },
+    "health": {
+      "type": "struct",
+      "applies": "now",
+      "typeName": "CreatureHealth",
+      "doc": "How the creature's health grows. Health itself comes from its level through the game's formulas.",
+      "fields": {
+        "levelFactor": {
+          "type": "float",
+          "min": 0,
+          "max": 1000,
+          "ops": "number",
+          "doc": "The factor of the health a level adds (the game's level scaling). Read at the creature's next health update.",
+          "joinedClient": "serverOnly"
+        },
+        "perPlayer": {
+          "type": "float",
+          "min": 0,
+          "max": 100,
+          "ops": "number",
+          "doc": "The health added per player nearby beyond the first, as a share (0.48 = 48 %). Read at the creature's next health update.",
+          "joinedClient": "serverOnly"
+        }
+      }
+    },
+    "damage": {
+      "type": "struct",
+      "applies": "now",
+      "typeName": "CreatureDamage",
+      "doc": "How hard the creature hits.",
+      "fields": {
+        "multiplier": {
+          "type": "float",
+          "min": 0,
+          "max": 1000,
+          "ops": "number",
+          "doc": "The factor on all the damage the creature deals (1 = as made). Creatures that spawn after the edit get it; creatures already in the world keep the value they spawned with.",
+          "joinedClient": "serverOnly"
+        },
+        "perPlayer": {
+          "type": "float",
+          "min": 0,
+          "max": 100,
+          "ops": "number",
+          "doc": "The damage added per player nearby beyond the first, as a share (0.05 = 5 %). Read at the creature's next health update.",
+          "joinedClient": "serverOnly"
+        }
+      }
+    },
+    "resist": {
+      "type": "struct",
+      "applies": "now",
+      "typeName": "CreatureResistances",
+      "doc": "How much of each kind of damage the creature takes: 1 = normal, 0 = immune, 2 = double. Creatures that spawn after the edit get it; creatures already in the world keep the value they spawned with.",
+      "fields": {
+        "physical": {
+          "type": "float",
+          "min": 0,
+          "max": 100,
+          "ops": "number",
+          "doc": "The share of physical damage as a whole the creature takes.",
+          "joinedClient": "serverOnly"
+        },
+        "cut": {
+          "type": "float",
+          "min": 0,
+          "max": 100,
+          "ops": "number",
+          "doc": "The share of cutting damage the creature takes.",
+          "joinedClient": "serverOnly"
+        },
+        "pierce": {
+          "type": "float",
+          "min": 0,
+          "max": 100,
+          "ops": "number",
+          "doc": "The share of piercing damage the creature takes.",
+          "joinedClient": "serverOnly"
+        },
+        "blunt": {
+          "type": "float",
+          "min": 0,
+          "max": 100,
+          "ops": "number",
+          "doc": "The share of blunt damage the creature takes.",
+          "joinedClient": "serverOnly"
+        },
+        "wood": {
+          "type": "float",
+          "min": 0,
+          "max": 100,
+          "ops": "number",
+          "doc": "The share of wood damage (tools) the creature takes.",
+          "joinedClient": "serverOnly"
+        },
+        "stone": {
+          "type": "float",
+          "min": 0,
+          "max": 100,
+          "ops": "number",
+          "doc": "The share of stone damage (tools) the creature takes.",
+          "joinedClient": "serverOnly"
+        },
+        "metal": {
+          "type": "float",
+          "min": 0,
+          "max": 100,
+          "ops": "number",
+          "doc": "The share of metal damage (tools) the creature takes.",
+          "joinedClient": "serverOnly"
+        },
+        "poison": {
+          "type": "float",
+          "min": 0,
+          "max": 100,
+          "ops": "number",
+          "doc": "The share of poison damage the creature takes.",
+          "joinedClient": "serverOnly"
+        },
+        "explosion": {
+          "type": "float",
+          "min": 0,
+          "max": 100,
+          "ops": "number",
+          "doc": "The share of explosion damage the creature takes.",
+          "joinedClient": "serverOnly"
+        },
+        "skillShot": {
+          "type": "float",
+          "min": 0,
+          "max": 100,
+          "ops": "number",
+          "doc": "The share of skill-shot hits (weak spots) the creature takes.",
+          "joinedClient": "serverOnly"
+        },
+        "fire": {
+          "type": "float",
+          "min": 0,
+          "max": 100,
+          "ops": "number",
+          "doc": "The share of fire damage the creature takes.",
+          "joinedClient": "serverOnly"
+        },
+        "shroud": {
+          "type": "float",
+          "min": 0,
+          "max": 100,
+          "ops": "number",
+          "doc": "The share of shroud damage the creature takes.",
+          "joinedClient": "serverOnly"
+        },
+        "ice": {
+          "type": "float",
+          "min": 0,
+          "max": 100,
+          "ops": "number",
+          "doc": "The share of ice damage the creature takes.",
+          "joinedClient": "serverOnly"
+        },
+        "lightning": {
+          "type": "float",
+          "min": 0,
+          "max": 100,
+          "ops": "number",
+          "doc": "The share of lightning damage the creature takes.",
+          "joinedClient": "serverOnly"
+        }
+      }
+    },
+    "speed": {
+      "type": "struct",
+      "applies": "now",
+      "typeName": "CreatureSpeeds",
+      "doc": "How fast the creature moves, in metres per second. Creatures that spawn after the edit get it; creatures already in the world keep the value they spawned with.",
+      "fields": {
+        "sneak": {
+          "type": "float",
+          "min": 0,
+          "max": 1000,
+          "ops": "number",
+          "doc": "Its speed when sneaking.",
+          "joinedClient": "serverOnly",
+          "unit": "m/s"
+        },
+        "walk": {
+          "type": "float",
+          "min": 0,
+          "max": 1000,
+          "ops": "number",
+          "doc": "Its speed when walking.",
+          "joinedClient": "serverOnly",
+          "unit": "m/s"
+        },
+        "run": {
+          "type": "float",
+          "min": 0,
+          "max": 1000,
+          "ops": "number",
+          "doc": "Its speed when running.",
+          "joinedClient": "serverOnly",
+          "unit": "m/s"
+        },
+        "sprint": {
+          "type": "float",
+          "min": 0,
+          "max": 1000,
+          "ops": "number",
+          "doc": "Its speed when sprinting.",
+          "joinedClient": "serverOnly",
+          "unit": "m/s"
+        },
+        "combat": {
+          "type": "float",
+          "min": 0,
+          "max": 1000,
+          "ops": "number",
+          "doc": "Its speed when moving in combat.",
+          "joinedClient": "serverOnly",
+          "unit": "m/s"
+        },
+        "patrol": {
+          "type": "float",
+          "min": 0,
+          "max": 1000,
+          "ops": "number",
+          "doc": "Its speed when patrolling.",
+          "joinedClient": "serverOnly",
+          "unit": "m/s"
+        },
+        "flee": {
+          "type": "float",
+          "min": 0,
+          "max": 1000,
+          "ops": "number",
+          "doc": "Its speed when fleeing.",
+          "joinedClient": "serverOnly",
+          "unit": "m/s"
+        }
+      }
+    },
+    "loot": {
+      "type": "struct",
+      "applies": "now",
+      "typeName": "CreatureLoot",
+      "doc": "The random loot a killed creature leaves. Creatures that spawn after the edit get it; creatures already in the world keep the value they spawned with.",
+      "fields": {
+        "disabled": {
+          "type": "bool",
+          "ops": "set",
+          "doc": "The creature leaves no random loot.",
+          "joinedClient": "serverOnly"
+        },
+        "slots": {
+          "type": "struct",
+          "typeName": "CreatureLootSlots",
+          "doc": "How many random loot rolls a kill gives: a number from min to max.",
+          "fields": {
+            "min": {
+              "type": "int",
+              "min": 0,
+              "max": 255,
+              "ops": "number",
+              "doc": "The fewest random loot rolls.",
+              "joinedClient": "serverOnly"
+            },
+            "max": {
+              "type": "int",
+              "min": 0,
+              "max": 255,
+              "ops": "number",
+              "doc": "The most random loot rolls.",
+              "joinedClient": "serverOnly"
+            }
+          }
+        }
+      }
+    },
+    "arsenal": {
+      "type": "ref",
+      "registry": "arsenals",
+      "readOnly": true,
+      "optional": true,
+      "applies": "now",
+      "doc": "The enemy's arsenal: the attacks it chooses from (arsenals registry). Creatures of the same kind share one.",
+      "joinedClient": "serverOnly"
+    },
+    "sight": {
+      "type": "struct",
+      "applies": "now",
+      "typeName": "CreatureSight",
+      "doc": "What an enemy sees. Read at once by every enemy of the entry, also those already in the world.",
+      "fields": {
+        "range": {
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "ops": "number",
+          "doc": "How far the enemy sees a target by day, in metres (night shortens it by the game's night factor).",
+          "joinedClient": "serverOnly",
+          "unit": "m"
+        },
+        "engageRange": {
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "ops": "number",
+          "doc": "Within this distance, in metres, the enemy engages a target it sees at once.",
+          "joinedClient": "serverOnly",
+          "unit": "m"
+        }
+      }
+    }
+  },
+  "entry": {
+    "add": false,
+    "remove": false
+  },
+  "raw": "allowed"
+}

@@ -516,6 +516,212 @@
         }
       }
     },
+    "arsenals": {
+      "$defs": {
+        "field": {
+          "enum": [
+            "attacks",
+            "attacks[].chance",
+            "attacks[].threat",
+            "attacks[].minRange",
+            "attacks[].maxRange",
+            "attacks[].maxHeight"
+          ]
+        },
+        "fieldIndexed": {
+          "type": "string",
+          "pattern": "^(attacks\\[([0-9]+|\\*)\\]\\.chance|attacks\\[([0-9]+|\\*)\\]\\.threat|attacks\\[([0-9]+|\\*)\\]\\.minRange|attacks\\[([0-9]+|\\*)\\]\\.maxRange|attacks\\[([0-9]+|\\*)\\]\\.maxHeight|attacks\\[([0-9]+|\\*)\\])$"
+        },
+        "edit": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "registry"
+          ],
+          "description": "An edit of the arsenals registry (docs/kiln/modding/registries/arsenals.md).",
+          "properties": {
+            "registry": {
+              "const": "arsenals"
+            },
+            "select": {
+              "$ref": "#/$defs/select"
+            },
+            "field": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/arsenals/$defs/field"
+                },
+                {
+                  "$ref": "#/$defs/arsenals/$defs/fieldIndexed"
+                }
+              ]
+            },
+            "op": {
+              "$ref": "#/$defs/op"
+            },
+            "list": {
+              "$ref": "#/$defs/list"
+            },
+            "exclusive": {
+              "type": "boolean"
+            },
+            "yield": {
+              "type": "boolean"
+            },
+            "raw": {
+              "type": "object",
+              "description": "Advanced tier: raw game paths; refused per entry where the game's names changed."
+            }
+          }
+        }
+      }
+    },
+    "creatures": {
+      "$defs": {
+        "field": {
+          "enum": [
+            "level",
+            "levelMax",
+            "faction",
+            "scale",
+            "xp",
+            "health.levelFactor",
+            "health.perPlayer",
+            "damage.multiplier",
+            "damage.perPlayer",
+            "resist.physical",
+            "resist.cut",
+            "resist.pierce",
+            "resist.blunt",
+            "resist.wood",
+            "resist.stone",
+            "resist.metal",
+            "resist.poison",
+            "resist.explosion",
+            "resist.skillShot",
+            "resist.fire",
+            "resist.shroud",
+            "resist.ice",
+            "resist.lightning",
+            "speed.sneak",
+            "speed.walk",
+            "speed.run",
+            "speed.sprint",
+            "speed.combat",
+            "speed.patrol",
+            "speed.flee",
+            "loot.disabled",
+            "loot.slots.min",
+            "loot.slots.max",
+            "sight.range",
+            "sight.engageRange"
+          ]
+        },
+        "edit": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "registry"
+          ],
+          "description": "An edit of the creatures registry (docs/kiln/modding/registries/creatures.md).",
+          "properties": {
+            "registry": {
+              "const": "creatures"
+            },
+            "select": {
+              "$ref": "#/$defs/select"
+            },
+            "field": {
+              "$ref": "#/$defs/creatures/$defs/field"
+            },
+            "op": {
+              "$ref": "#/$defs/op"
+            },
+            "list": {
+              "$ref": "#/$defs/list"
+            },
+            "exclusive": {
+              "type": "boolean"
+            },
+            "yield": {
+              "type": "boolean"
+            },
+            "raw": {
+              "type": "object",
+              "description": "Advanced tier: raw game paths; refused per entry where the game's names changed."
+            }
+          }
+        }
+      }
+    },
+    "perks": {
+      "$defs": {
+        "field": {
+          "enum": [
+            "value",
+            "armor.enabled",
+            "armor.physical",
+            "armor.magical",
+            "armor.cut",
+            "armor.pierce",
+            "armor.blunt",
+            "armor.fire",
+            "armor.ice",
+            "armor.shroud",
+            "armor.lightning",
+            "damage.enabled",
+            "damage.cut",
+            "damage.pierce",
+            "damage.blunt",
+            "damage.fire",
+            "damage.ice",
+            "damage.shroud",
+            "damage.lightning",
+            "damage.poison",
+            "damage.healing",
+            "damage.wood",
+            "damage.stone",
+            "damage.metal",
+            "damage.explosion"
+          ]
+        },
+        "edit": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "registry"
+          ],
+          "description": "An edit of the perks registry (docs/kiln/modding/registries/perks.md).",
+          "properties": {
+            "registry": {
+              "const": "perks"
+            },
+            "select": {
+              "$ref": "#/$defs/select"
+            },
+            "field": {
+              "$ref": "#/$defs/perks/$defs/field"
+            },
+            "op": {
+              "$ref": "#/$defs/op"
+            },
+            "list": {
+              "$ref": "#/$defs/list"
+            },
+            "exclusive": {
+              "type": "boolean"
+            },
+            "yield": {
+              "type": "boolean"
+            },
+            "raw": {
+              "type": "object",
+              "description": "Advanced tier: raw game paths; refused per entry where the game's names changed."
+            }
+          }
+        }
+      }
+    },
     "edit": {
       "oneOf": [
         {
@@ -532,6 +738,15 @@
         },
         {
           "$ref": "#/$defs/balance/$defs/edit"
+        },
+        {
+          "$ref": "#/$defs/arsenals/$defs/edit"
+        },
+        {
+          "$ref": "#/$defs/creatures/$defs/edit"
+        },
+        {
+          "$ref": "#/$defs/perks/$defs/edit"
         }
       ]
     }

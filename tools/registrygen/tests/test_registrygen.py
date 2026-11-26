@@ -543,14 +543,39 @@ class Repository(unittest.TestCase):
     def test_r1_registries(self):
         m = rg.load(REPO)
         self.assertEqual(m.errors, [])
-        self.assertEqual(sorted(m.registries), ["balance", "drops", "items", "loot", "recipes"])
+        # R1's five; later waves add registries of their own (each pinned by its own test below)
+        self.assertLessEqual({"balance", "drops", "items", "loot", "recipes"}, set(m.registries))
         for r in m.registries.values():
             for f in r.rows:
                 self.assertIn(f.applies, ("now", "worldLoad", "restart"), f.qualified)
                 self.assertIn(f.spec.get("joinedClient"), rg.JOINED_CLIENT, f.qualified)
         # experimental 0.x; items 0.1.1 since 31.x (block and comfort apply now: an earlier applies, additive)
-        self.assertEqual({n: r.version for n, r in m.registries.items()},
+        self.assertEqual({n: r.version for n, r in m.registries.items() if n in ("balance", "drops", "items", "loot", "recipes")},
                          {"balance": "0.1.0", "drops": "0.1.0", "items": "0.1.1", "loot": "0.1.0", "recipes": "0.1.0"})
+
+    def test_dev32_creatures_arsenals_and_perks(self):
+        """dev.32 R2a: creatures (with their arsenals) and perks, experimental 0.1.0; pets and taming read a creature's kind,
+        level and faction, so kind is a read-only field and every leaf names when a joined client sees it."""
+        m = rg.load(REPO)
+        self.assertEqual(m.errors, [])
+        for name in ("creatures", "arsenals", "perks"):
+            self.assertIn(name, m.registries)
+            r = m.registries[name]
+            self.assertEqual((r.version, r.doc["stability"], r.doc["experimentalId"]), ("0.1.0", "experimental", "KILNX031"))
+            self.assertEqual(r.doc["entry"], {"add": False, "remove": False})
+        rows = {f.qualified: f for r in m.registries.values() for f in r.rows}
+        self.assertTrue(rows["creatures.kind"].read_only)
+        self.assertEqual(rows["creatures.kind"].spec["values"], ["enemy", "wildlife", "animal", "villager"])
+        self.assertTrue(rows["creatures.arsenal"].read_only)
+        self.assertEqual(rows["creatures.arsenal"].spec["registry"], "arsenals")
+        self.assertFalse(rows["creatures.level"].read_only)
+        self.assertFalse(rows["creatures.faction"].read_only)
+        self.assertEqual(rows["arsenals.attacks"].ops, "list")
+        self.assertEqual(rows["arsenals.attacks[].chance"].list_path, "attacks")
+        # the perk damage bonus: its read time is not traced, so it ships the cautious applies (never now)
+        self.assertEqual(rows["perks.damage.cut"].applies, "worldLoad")
+        self.assertEqual(rows["perks.value"].applies, "now")
+        self.assertEqual(rows["perks.value"].spec.get("min"), -100000)
 
 
 if __name__ == "__main__":
