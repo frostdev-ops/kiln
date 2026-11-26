@@ -93,6 +93,19 @@ public class ProducerTests
     public void A_perks_value_is_its_one_numeric_config(string configs, string? expected) =>
         Assert.Equal(expected, (string?)Call("ShownConfig", JsonNode.Parse(configs)));
 
+    // dev.32 perks.value: the kind and raw value come from the config itself ($config, value), never through its name (a name
+    // several config ids share can resolve to another config of the entry: lab f0d824be, two perks of "unknown" kind)
+    [Theory]
+    [InlineData("""{"path":"impactValues","value":{"Amount":{"$config":"Sint32ImpactConfig","value":140},"Amount2":{"$config":"AttributeReferenceConfig","value":"x"}}}""", "Int", "140")]
+    [InlineData("""{"path":"impactValues","value":{"Chance":{"$config":"keen::impact::FloatImpactConfig","value":-0.1}}}""", "Float", "-0.1")]
+    public void A_perks_value_kind_and_raw_come_from_the_config(string configs, string type, string raw)
+    {
+        dynamic? r = Call("ShownEntry", JsonNode.Parse(configs));
+        Assert.NotNull(r);
+        Assert.Equal(type, r!.Item2.ToString());
+        Assert.Equal(raw, ((JsonNode)r.Item3).ToJsonString());
+    }
+
     // dev.32: the resource each registry's entry is read from for its byte digest (an arsenal shares the arsenal registry's)
     [Theory]
     [InlineData("creatures", "keen::ecs::TemplateResource", false)]

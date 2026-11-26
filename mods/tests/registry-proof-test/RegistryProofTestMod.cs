@@ -213,27 +213,44 @@ public sealed unsafe partial class RegistryProofTestMod : Mod
         return null;
     }
 
-    private static JsonNode? ConfigRaw(Probed e, string path) => ConfigValue(e, path) is { } v ? RawValue(v) : null;
 
     /// <summary>An impactConfig row's config "shown" (perks.value): the entry's one whole-number or fractional config, as the
     /// key kiln.gamedata gives it in the entry's configurations (<paramref name="configs"/>, GetJson of the row's path: {"name":
     /// {"$config": "Sint32ImpactConfig", "value": 6}}); null when the entry has none or more than one (no guess).</summary>
-    private static string? ShownConfig(JsonNode? configs)
+    private static string? ShownConfig(JsonNode? configs) => ShownEntry(configs)?.Key;
+
+    /// <summary>The entry's one whole-number or fractional config as kiln.gamedata gives it: (its key, its type, its value);
+    /// null when there is none or more than one.</summary>
+    private static (string Key, ContentValueType Type, JsonNode? Value)? ShownEntry(JsonNode? configs)
     {
         // GetJson of a path gives the member wrapped ({"path", "type", "address", "value": {...}}): its value is the configurations
         if (configs is JsonObject w && w["value"] is JsonObject inner && w.ContainsKey("path")) configs = inner;
         if (configs is not JsonObject o) return null;
-        var numeric = o.Where(p => p.Value is JsonObject c && ((string?)c["$config"])?.Split("::")[^1] is "Sint32ImpactConfig" or "FloatImpactConfig")
-                       .Select(p => p.Key).ToList();
-        return numeric.Count == 1 ? numeric[0] : null;
+        var numeric = o.Where(p => p.Value is JsonObject c && ((string?)c["$config"])?.Split("::")[^1] is "Sint32ImpactConfig" or "FloatImpactConfig").ToList();
+        if (numeric.Count != 1) return null;
+        var (key, node) = (numeric[0].Key, (JsonObject)numeric[0].Value!);
+        var type = ((string?)node["$config"])!.EndsWith("Sint32ImpactConfig", StringComparison.Ordinal) ? ContentValueType.Int : ContentValueType.Float;
+        return (key, type, node["value"]?.DeepClone());
     }
 
-    /// <summary>The member path of an impactConfig row's value on one entry: a named config's (items' costs), or the perk's one value.</summary>
-    private static string? ConfigPathOf(Probed e, JsonObject row, string configsPath)
+    /// <summary>A perk's one value, kind and raw value, read from its configurations as kiln.gamedata gives them (never by a
+    /// path through the config's name: a name several config ids share can lead to another config of the same entry; lab,
+    /// f0d824be: two perks).</summary>
+    private static (ContentValueType Type, JsonNode? Value)? ShownOf(Probed e, string configsPath)
     {
-        if ((string?)row["config"] == "shown")
-            return e.Data?.GetJson(configsPath) is var j && ShownConfig(j) is { } key ? configsPath + "." + key + ".value" : null;
-        return ConfigId((string?)row["config"]) is { } id ? configsPath + "." + id + ".value" : null;
+        try { return e.Data is { } d && ShownEntry(d.GetJson(configsPath)) is { } x ? (x.Type, x.Value) : null; }
+        catch (Exception) { return null; }
+    }
+
+    /// <summary>The member path of an impactConfig row's value on one entry: a named config's (items' costs); null for "shown".</summary>
+    private static string? ConfigPathOf(Probed e, JsonObject row, string configsPath) =>
+        (string?)row["config"] != "shown" && ConfigId((string?)row["config"]) is { } id ? configsPath + "." + id + ".value" : null;
+
+    /// <summary>The kind (Int: Sint32, Float) and raw value of an impactConfig row on one entry.</summary>
+    private static (ContentValueType Type, JsonNode? Raw)? ConfigOf(Probed e, JsonObject row, string configsPath)
+    {
+        if ((string?)row["config"] == "shown") return ShownOf(e, configsPath);
+        return ConfigPathOf(e, row, configsPath) is { } path && ConfigValue(e, path) is { } v ? (v.Type, RawValue(v)) : null;
     }
 
     /// <summary>The config of an id table entry Content's enumeration does not list: kiln.gamedata by the table's GUID text in
@@ -540,9 +557,9 @@ public sealed unsafe partial class RegistryProofTestMod : Mod
             var text = Read(registry, id, field);
             var holds = text != null && JsonNode.Parse(text) is JsonValue jv && jv.TryGetValue<double>(out _);
             var inWorld = byKey.TryGetValue(key, out var e);
-            var path = inWorld ? ConfigPathOf(e!, row, paths[0]) : shown ? null : ConfigPathOf(new Probed(Guid.Empty, "", 0, null, null), row, paths[0]);
-            var value = path is null ? null : inWorld ? ConfigValue(e!, path) : ConfigValueOf(key, path);
-            if (ConfigKind(value?.Type, holds, inWorld) is not { } kind) continue;
+            var path = inWorld || shown ? null : ConfigPathOf(new Probed(Guid.Empty, "", 0, null, null), row, paths[0]);
+            var type = inWorld ? ConfigOf(e!, row, paths[0])?.Type : path is null ? null : ConfigValueOf(key, path)?.Type;
+            if (ConfigKind(type, holds, inWorld) is not { } kind) continue;
             counts[kind]++;
             if (kind == "notInWorld") outside.Add(id);
         }
@@ -595,7 +612,7 @@ public sealed unsafe partial class RegistryProofTestMod : Mod
         // a structured value (list, reference, unlock...) is not one scalar member: its raw view is the entry's resource bytes;
         // a scalar of a recipe's list element (outputs[].count), which Content.Get does not address, from the game's stacks
         JsonArray RawOf(Probed e, AssetKey? key) =>
-            new(rawPaths.Select((p, i) => FlagsRaw(conv, conv == "impactConfig" ? (ConfigPathOf(e, row, paths[0]) is { } cp ? ConfigRaw(e, cp) : null) : Raw(e, p)) ?? (registry == "recipes" && element && Compared.Contains(conv) ? StackRaw(e, listPath, paths[i]) : null)
+            new(rawPaths.Select((p, i) => FlagsRaw(conv, conv == "impactConfig" ? ConfigOf(e, row, paths[0])?.Raw : Raw(e, p)) ?? (registry == "recipes" && element && Compared.Contains(conv) ? StackRaw(e, listPath, paths[i]) : null)
                 ?? (Compared.Contains(conv) ? null : JsonValue.Create("resource:" + BytesSha(key)))).ToArray());
         var tries = 0;
         var why = new SortedDictionary<string, int>(StringComparer.Ordinal); // why the entries tried gave no sample (the log, when none did)
@@ -618,7 +635,7 @@ public sealed unsafe partial class RegistryProofTestMod : Mod
             if (mode.Length > 0)
             {
                 ContentValueType kind;
-                if (ConfigPathOf(e, row, paths[0]) is not { } configPath || ConfigValue(e, configPath) is not { } cv) { Skip("config kind unreadable"); continue; }
+                if (ConfigOf(e, row, paths[0]) is not { } cv) { Skip("config kind unreadable"); continue; }
                 kind = cv.Type;
                 if (kind != (mode == "float" ? ContentValueType.Float : ContentValueType.Int)) continue;
             }
