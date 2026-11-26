@@ -7,6 +7,8 @@
 #         made (no C# registry edit): its old data pack and old boot patch only;
 #   full  the same with the registry section and the C# edit; registry-mixed-test hot-reloads its packs three times
 #         (section edited, removed, restored), registry-compat-test dumps at the world load and after each reload.
+# dev.32: the older mod's pack also edits a creature template, an arsenal and a perk through the old gamedata sections, and the
+# section edits them through the creatures, arsenals and perks registries (the fields allowed in the old-vs-full diff).
 # Then compat.py: every resource of the registries' types is byte-identical to the game's archive (a Kiln-off boot) except
 # keen::BalancingTable (the old patch and the registry's boot writes); old vs full differ only in the fields the registry
 # edits; the dump after the section's removal equals the old-only one but for the C# edit (no residue); the restored one
@@ -57,7 +59,10 @@ step python3 -I "$C" check --dump "$F1" --archive "$OUTD/archive.json" --allow "
 step python3 -I "$C" check --dump "$O1" --archive "$OUTD/archive.json" --allow "$BAL"
 step python3 -I "$C" diff --before "$O1" --after "$F1" --allow "$BAL" \
   --allow-field items:Material_T1_Wood_Logs.maxStackSize --allow-field items:Material_T1_Plant_Fibre.maxStackSize \
-  --allow-field recipes:Material_T1_Factory_String_SpinningWheel.craftingDuration
+  --allow-field recipes:Material_T1_Factory_String_SpinningWheel.craftingDuration \
+  --allow-field templates:Enemy_Vukah_Melee.Enemy01BehaviorState.combatCommitmentSetup.view.range \
+  --allow-field arsenals:e30312e7-9749-4329-8bfd-469a295747b5.attacks[0].description.maxRange \
+  --allow-field perks:Perk_Armor_Fog.perkArmorSetup.distribution.fog
 step python3 -I "$C" diff --before "$O1" --after "$OUTD/full/dump-3.json" --allow "$BAL" --allow-field items:Material_T1_Plant_Fibre.maxStackSize
 step python3 -I "$C" diff --before "$F1" --after "$OUTD/full/dump-4.json"
 say "session over: $([[ $rc == 0 ]] && echo PASS || echo FAIL)"

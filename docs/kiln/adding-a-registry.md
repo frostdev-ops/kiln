@@ -419,7 +419,11 @@ A new registry is done when all of this holds, with the counts in the report.
   Unshipped only; `cargo test` in runner/kilnctl if it changed; launcher units if report.ts changed; `abigen --check` if
   a header changed; the Windows DLL build; `drift.py` clean for touched docs.
 - A compat lab run (`tools/registry-compat/session.sh`) if the registry has live fields: old packs alone, registry over
-  old packs, reload, section removed with no residue, byte comparison against a Kiln-off boot.
+  old packs, reload, section removed with no residue, byte comparison against a Kiln-off boot. The run covers the new
+  registry only once its test mods do: an old-path edit of one of its live fields in `registry-compat-test`'s pack, the
+  resource type in its dump (and, for a kiln.gamedata section, the section's changed leaves), a section edit in
+  `registry-mixed-test` with a check at every step, and the field in `session.sh`'s old-vs-full `--allow-field` list
+  (dev.32: creatures, arsenals and perks over the `templates`, `arsenals` and `perks` sections).
 
 **The proof shows:**
 - A committed server record for the current build from a fresh lab: `verified`, `provenBy: lab`, `regmapDigest` equal to

@@ -13,6 +13,8 @@
 //     Real mods get their retained owner through P2's OnRegistry integration, not this test-only bridge.
 // After the world load: the live values read back, registry.json's rows. Then three pack hot reloads: the section's x4 made
 // x3 (x6), the section removed (the old pack's x2 alone: no residue), the section back (x8). The C# edit stays throughout.
+// dev.32: the same for a creature's sight, an arsenal's first attack's range and a perk's armour over the older mod's old
+// gamedata sections (templates x2, arsenals +1, perks x2): x1.5 (x3), 9, x3 (x6) at the world load, gone with the section.
 // With <data>/old-only present (the compat runner's baseline session) the mod does nothing of the registry's and checks
 // only the old pack. Lines "registry-mixed-test: PASS/FAIL ..." and "registry-mixed-test: DONE pass=N fail=M" in kiln.log.
 using System.Reflection;
@@ -92,6 +94,22 @@ public sealed unsafe class RegistryMixedTestMod : Mod
     }
 
     private double Num(string item) => Content.Items.Get(item)?.GetNumber("maxStackSize") ?? double.NaN;
+    // dev.32: a creature's sight, an arsenal's first attack's range and a perk's armour, over registry-compat-test's old gamedata sections
+    private const string Sight = "Enemy01BehaviorState.combatCommitmentSetup.view.range", Range = "attacks[0].description.maxRange", Fog = "perkArmorSetup.distribution.fog";
+    private static GameDataEntry? Vukah => Content.Templates.Get("Enemy_Vukah_Melee");
+    private static GameDataEntry? VukahArsenal => Content.Arsenals.Get("template:Enemy_Vukah_Melee");
+    private static GameDataEntry? FogPerk => Content.Perks.Get("Perk_Armor_Fog");
+    private static double Gd(GameDataEntry? e, string path) => e?.GetNumber(path) ?? double.NaN;
+    private static double Gd0(GameDataEntry? e, string path) => e?.Original(path).AsDouble ?? double.NaN;
+    private static bool Near(double a, double b) => Math.Abs(a - b) <= 1e-4 * Math.Max(1, Math.Abs(b));
+    // the registry over the old pack (registry: true), or the old pack alone
+    private void CheckGamedata(string when, bool registry)
+    {
+        double s0 = Gd0(Vukah, Sight), r0 = Gd0(VukahArsenal, Range), f0 = Gd0(FogPerk, Fog);
+        Check(Near(Gd(Vukah, Sight), (registry ? 3 : 2) * s0), $"{when}: creatures.sight.range {(registry ? "x1.5 composed on the old pack's x2" : "the old pack's x2 alone")}: {Gd(Vukah, Sight)} (game {s0})");
+        Check(Near(Gd(VukahArsenal, Range), registry ? 9 : r0 + 1), $"{when}: arsenals attacks[0].maxRange {(registry ? "9 over the old pack's +1" : "the old pack's +1 alone")}: {Gd(VukahArsenal, Range)} (game {r0})");
+        Check(Near(Gd(FogPerk, Fog), (registry ? 6 : 2) * f0), $"{when}: perks.armor.shroud {(registry ? "x3 composed on the old pack's x2" : "the old pack's x2 alone")}: {Gd(FogPerk, Fog)} (game {f0})");
+    }
 
     private JsonNode? Row(JsonNode doc, string registry, string id, string field)
     {
@@ -110,6 +128,7 @@ public sealed unsafe class RegistryMixedTestMod : Mod
             if (OldOnly)
             {
                 Check(Num(Wood) == 2 * _wood0, $"old-only: the old pack's x2 alone: {Num(Wood)} (game {_wood0})");
+                CheckGamedata("old-only", false);
                 _step = 99;
                 Done();
                 return;
@@ -117,6 +136,7 @@ public sealed unsafe class RegistryMixedTestMod : Mod
             _section = File.ReadAllText(SectionPath);
             Check(Num(Wood) == 8 * _wood0, $"world load: the registry's x4 composed on the old pack's x2: {Num(Wood)} = 8 x {_wood0}");
             Check(Num(Fibre) == 500, $"world load: the C# edit's maxStack 500 on {Fibre}: {Num(Fibre)}");
+            CheckGamedata("world load", true);
             var d = Content.Recipes.Get(Recipe)?.GetNumber("craftingDuration") ?? double.NaN;
             Check(Math.Abs(d - 7) < 1e-6, $"world load: {Recipe} craftingDuration 7 s: {d}");
             var state = Path.GetFullPath(Path.Combine(Context.Info.Directory, "..", "..", "state", "registry.json"));
@@ -135,6 +155,11 @@ public sealed unsafe class RegistryMixedTestMod : Mod
             Check(ms is not null && (int?)ms["result"] == (int)(8 * _wood0) && ms["writers"]!.AsArray().Any(w => (string?)w?["kind"] == "oldPack"),
                 $"registry.json at world load: maxStack's row has the older mod's pack below and the live result: {ms?.ToJsonString()}");
             Check(Line("maxStack", "composedOn", "registry-compat-test"), "registry.json at world load: the x4 composed on the older mod's pack");
+            // dev.32: the same report for a gamedata registry's live field over the older mod's old gamedata section
+            var sight = Row(doc, "creatures", "game:enemy_vukah_melee", "sight.range");
+            Check(sight is not null && Near((double?)sight["result"] ?? double.NaN, 3 * Gd0(Vukah, Sight)) && sight["writers"]!.AsArray().Any(w => (string?)w?["kind"] == "oldPack"),
+                $"registry.json at world load: creatures sight.range's row has the older mod's pack below and the live result: {sight?.ToJsonString()}");
+            Check(Line("sight.range", "composedOn", "registry-compat-test"), "registry.json at world load: the creatures x1.5 composed on the older mod's pack");
             _step = 1;
             File.WriteAllText(SectionPath, _section.Replace("\"mul\": 4", "\"mul\": 3"));
             Content.ReloadPacks();
@@ -144,6 +169,7 @@ public sealed unsafe class RegistryMixedTestMod : Mod
         if (_step == 1)
         {
             Check(Num(Wood) == 6 * _wood0, $"reload, the section edited (x3): {Num(Wood)} = 6 x {_wood0}");
+            CheckGamedata("reload, the section edited", true);
             Check(Num(Fibre) == 500, $"reload: the C# edit stays: {Num(Fibre)}");
             _step = 2;
             File.Delete(SectionPath);
@@ -155,6 +181,7 @@ public sealed unsafe class RegistryMixedTestMod : Mod
             var d = Content.Recipes.Get(Recipe)?.GetNumber("craftingDuration") ?? double.NaN;
             var d0 = Content.Recipes.Get(Recipe)?.Original("craftingDuration").AsDouble ?? double.NaN;
             Check(d == d0, $"reload, the section removed: {Recipe} craftingDuration back to the game's {d0}: {d}");
+            CheckGamedata("reload, the section removed (no residue)", false);
             _step = 3;
             File.WriteAllText(SectionPath, _section);
             Content.ReloadPacks();
@@ -162,6 +189,7 @@ public sealed unsafe class RegistryMixedTestMod : Mod
         else if (_step == 3)
         {
             Check(Num(Wood) == 8 * _wood0, $"reload, the section back: x8 again: {Num(Wood)}");
+            CheckGamedata("reload, the section back", true);
             _step = 99;
             Done();
         }

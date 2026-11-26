@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "comment": "a registry section: composes on the old pack's value (live) and wins over the old boot patch (boot)",
+  "comment": "a registry section: composes on the old pack's value (live) and wins over the old boot patch (boot); dev.32: creatures, arsenals and perks over the old pack's gamedata sections",
   "registry": {
     "alter": [
       {
@@ -28,6 +28,34 @@
         },
         "field": "levelCap",
         "op": 60
+      },
+      {
+        "registry": "creatures",
+        "select": {
+          "id": "game:enemy_vukah_melee"
+        },
+        "field": "sight.range",
+        "op": {
+          "mul": 1.5
+        }
+      },
+      {
+        "registry": "arsenals",
+        "select": {
+          "id": "game:enemy_vukah_melee"
+        },
+        "field": "attacks[0].maxRange",
+        "op": 9
+      },
+      {
+        "registry": "perks",
+        "select": {
+          "id": "game:perk_armor_fog"
+        },
+        "field": "armor.shroud",
+        "op": {
+          "mul": 3
+        }
       }
     ]
   }
