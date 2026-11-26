@@ -5,8 +5,8 @@
   "gameBuild": "1287369",
   "steamBuild": "26430253",
   "verified": true,
-  "proof": "kilnctl regproof (2026-11-26 00:49:49Z): first build (no reflection diff); formulas 10/10; round trip 98/100 fields; ids 0 kept, 24100 added, 0 removed, 0 GUID changes; rows ok 98/100 (2 unproven)",
-  "regmapDigest": "e44bb944f77fe2d4bfe5aea88634664568c9f482eee03c378b21abf7c18ad90d",
+  "proof": "kilnctl regproof (2026-11-26 17:45:17Z): first build (no reflection diff); formulas 10/10; round trip 106/107 fields; ids 0 kept, 24394 added, 0 removed, 0 GUID changes; rows ok 106/107 (1 unproven)",
+  "regmapDigest": "59c827a6f4390b7c9436c4738c55cebd14e97f8e815ad7a68519b26dd64adfcc",
   "provenBy": "lab",
   "layouts": {
     "keen::BalancingTable": "0xe9f12710",
@@ -15,6 +15,10 @@
     "keen::LootableItemsResource": "0xb06a8c8c",
     "keen::RecipeInfo": "0xdafbedd2",
     "keen::RecipeRegistryResource": "0xff3f624c",
+    "keen::SkillTreeNode": "0xddb12eb0",
+    "keen::SkillTreeResource": "0xc457fda0",
+    "keen::WorkshopRegistryResource": "0xc76fb407",
+    "keen::WorkshopResource": "0x3c3b5834",
     "keen::ecs::DefaultInventoryResource": "0xb68d740d"
   },
   "rows": {
@@ -116,8 +120,15 @@
     "recipes.outputs": "ok",
     "recipes.outputs[].count": "ok",
     "recipes.outputs[].item": "ok",
-    "recipes.station": "unproven",
-    "recipes.unlock": "ok"
+    "recipes.station": "ok",
+    "recipes.unlock": "ok",
+    "skills.class": "ok",
+    "skills.cost": "ok",
+    "skills.kind": "ok",
+    "skills.maxLevel": "ok",
+    "skills.unlocks": "ok",
+    "stations.item": "ok",
+    "stations.npc": "ok"
   },
   "aliases": {
     "renames": [
@@ -532,8 +543,7 @@
     ]
   },
   "reasons": {
-    "items.fuel.burnTime": "no game code reads an item's burn time on this build, only whether the item is a fuel, so an edit of it would change nothing",
-    "recipes.station": "a recipe's station is a stations id, and Kiln has no stations registry yet, so no recipe's station reads as a Kiln id on any build"
+    "items.fuel.burnTime": "no game code reads an item's burn time on this build, only whether the item is a fuel, so an edit of it would change nothing"
   },
   "kinds": {
     "items.manaCost": {
