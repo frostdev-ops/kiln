@@ -384,6 +384,11 @@ fn registry_only_clients_guidance_tracks_the_edited_fields() {
     check("good-item", "kiln", "items", "maxStack", None);
     check("good-balance", "mod", "balance", "levelCap", None);
     check("unknown", "kiln", "unknown", "x", None);
+    // dev.32: a buff's duration and stacking are the server's (serverOnly); an ability's timing reaches Kiln clients (now)
+    check("buff", "kiln", "buffs", "duration", Some("none"));
+    check("good-buff", "none", "buffs", "stacking", None);
+    check("ability", "none", "abilities", "timing.release", Some("kiln"));
+    check("good-ability", "kiln", "abilities", "timing.cost", None);
 }
 
 #[test]
