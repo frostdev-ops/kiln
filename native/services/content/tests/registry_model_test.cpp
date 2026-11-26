@@ -439,12 +439,37 @@ void single_scalar_structs(const std::string&) {
 }
 }  // namespace
 
+// 31.18's kiln.log held 34,207 "items.manaCost/staminaCost is not read on this build (... of game:<item> ...)" lines at every
+// start with registry content: one per entry without a value (review of dev.32 R2b). A field many entries have no value of is
+// one note per field, with the count and the first entry.
+void notes_per_field(const std::string& dir) {
+    Fixture f(dir);
+    model::Need need;
+    need.all = true;
+    BaseModel base;
+    f.m->fill(need, &base);
+    std::map<std::string, size_t> per_field;
+    std::string sample;
+    for (const std::string& n : f.m->take_notes()) {
+        const size_t at = n.find("registry: ");
+        const size_t sp = n.find(' ', at + 10);
+        if (at == std::string::npos || sp == std::string::npos) continue;
+        if (n.find("is not read on this build") == std::string::npos && n.find(" has no value in ") == std::string::npos) continue;
+        ++per_field[n.substr(at + 10, sp - at - 10)], sample = n;
+    }
+    check(!per_field.empty(), "the fixture has fields some entries have no value of");
+    for (const auto& [field, count] : per_field) check(count == 1, field + ": one note, not one per entry (" + std::to_string(count) + ")");
+    check(sample.find(" has no value in ") != std::string::npos && sample.find(" entries on this build (the first: ") != std::string::npos,
+          "the note gives the count and the first entry: " + sample);
+}
+
 int main(int argc, char** argv) {
     const std::string dir = argc > 1 ? argv[1] : "regmap";
     int failed = 0;
     const std::pair<const char*, void (*)(const std::string&)> groups[] = {
         {"byte_array_bounds", byte_array_bounds}, {"single_scalar_structs", single_scalar_structs}, {"entries_and_ids", entries_and_ids}, {"values", values}, {"needs_and_compose", needs_and_compose},
-        {"encode_writes", encode_writes},     {"id_table", id_table}, {"live_bytes", live_bytes}, {"live_event_times", live_event_times}};
+        {"encode_writes", encode_writes},     {"id_table", id_table}, {"live_bytes", live_bytes}, {"live_event_times", live_event_times},
+        {"notes_per_field", notes_per_field}};
     for (const auto& [name, fn] : groups) {
         try {
             fn(dir);
