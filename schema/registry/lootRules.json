@@ -1,0 +1,71 @@
+{
+  "$schema": "../registry-schema.schema.json",
+  "registrySchema": 1,
+  "registry": "lootRules",
+  "typeName": "LootRules",
+  "version": "0.1.0",
+  "stability": "experimental",
+  "experimentalId": "KILNX031",
+  "doc": "World-wide random loot rules: the rarity weights a random roll uses where its table (randomLoot) has none of its own.",
+  "ids": {
+    "game": "game:loot",
+    "mod": "(none: one entry)",
+    "rule": "One entry, game:loot."
+  },
+  "traits": {},
+  "entry": {
+    "add": false,
+    "remove": false
+  },
+  "raw": "allowed",
+  "fields": {
+    "rarityWeights": {
+      "type": "struct",
+      "applies": "now",
+      "typeName": "LootRulesRarityWeights",
+      "doc": "How likely each rarity is in a random roll, as weights: a rarity's chance is its weight divided by the sum of the weights of the rarities the item can have.",
+      "fields": {
+        "common": {
+          "type": "float",
+          "min": 0,
+          "max": 1000000000000,
+          "ops": "number",
+          "doc": "The weight of common drops.",
+          "joinedClient": "serverOnly"
+        },
+        "uncommon": {
+          "type": "float",
+          "min": 0,
+          "max": 1000000000000,
+          "ops": "number",
+          "doc": "The weight of uncommon drops.",
+          "joinedClient": "serverOnly"
+        },
+        "rare": {
+          "type": "float",
+          "min": 0,
+          "max": 1000000000000,
+          "ops": "number",
+          "doc": "The weight of rare drops.",
+          "joinedClient": "serverOnly"
+        },
+        "epic": {
+          "type": "float",
+          "min": 0,
+          "max": 1000000000000,
+          "ops": "number",
+          "doc": "The weight of epic drops.",
+          "joinedClient": "serverOnly"
+        },
+        "legendary": {
+          "type": "float",
+          "min": 0,
+          "max": 1000000000000,
+          "ops": "number",
+          "doc": "The weight of legendary drops.",
+          "joinedClient": "serverOnly"
+        }
+      }
+    }
+  }
+}

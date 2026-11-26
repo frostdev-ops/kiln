@@ -543,14 +543,15 @@ class Repository(unittest.TestCase):
     def test_r1_registries(self):
         m = rg.load(REPO)
         self.assertEqual(m.errors, [])
-        self.assertEqual(sorted(m.registries), ["balance", "drops", "items", "loot", "recipes"])
+        self.assertEqual(sorted(m.registries), ["balance", "drops", "items", "loot", "lootRules", "randomLoot", "recipes"])
         for r in m.registries.values():
             for f in r.rows:
                 self.assertIn(f.applies, ("now", "worldLoad", "restart"), f.qualified)
                 self.assertIn(f.spec.get("joinedClient"), rg.JOINED_CLIENT, f.qualified)
         # experimental 0.x; items 0.1.1 since 31.x (block and comfort apply now: an earlier applies, additive)
         self.assertEqual({n: r.version for n, r in m.registries.items()},
-                         {"balance": "0.1.0", "drops": "0.1.0", "items": "0.1.1", "loot": "0.1.0", "recipes": "0.1.0"})
+                         {"balance": "0.1.0", "drops": "0.1.0", "items": "0.1.1", "loot": "0.1.0", "recipes": "0.1.0",
+                          "lootRules": "0.1.0", "randomLoot": "0.1.0"})
 
 
 if __name__ == "__main__":

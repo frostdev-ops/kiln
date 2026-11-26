@@ -58,6 +58,8 @@ inline constexpr Registry kRegistries[] = {
     {3, "loot", "0.1.0", true, false, "disabled", true, 48, 6},
     {4, "drops", "0.1.0", true, false, "", true, 54, 6},
     {5, "balance", "0.1.0", true, false, "", true, 60, 40},
+    {6, "lootRules", "0.1.0", true, false, "", true, 100, 5},
+    {7, "randomLoot", "0.1.0", true, false, "", true, 105, 16},
 };
 
 inline constexpr Field kFields[] = {
@@ -161,6 +163,27 @@ inline constexpr Field kFields[] = {
     {0x00050026u, "balance", "gear.creep", Kind::Float, Kind::Float, true, true, 0.0, 100.0, 0u, "", "", "", true, Applies::Restart, Ops::None, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
     {0x00050027u, "balance", "gear.armorOffset", Kind::Float, Kind::Float, true, true, 0.0, 100000.0, 0u, "", "", "", true, Applies::Restart, Ops::None, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
     {0x00050028u, "balance", "gear.armorGradient", Kind::Float, Kind::Float, true, true, 0.0, 100000.0, 0u, "", "", "", true, Applies::Restart, Ops::None, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00060001u, "lootRules", "rarityWeights.common", Kind::Float, Kind::Float, true, true, 0.0, 1000000000000.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00060002u, "lootRules", "rarityWeights.uncommon", Kind::Float, Kind::Float, true, true, 0.0, 1000000000000.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00060003u, "lootRules", "rarityWeights.rare", Kind::Float, Kind::Float, true, true, 0.0, 1000000000000.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00060004u, "lootRules", "rarityWeights.epic", Kind::Float, Kind::Float, true, true, 0.0, 1000000000000.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00060005u, "lootRules", "rarityWeights.legendary", Kind::Float, Kind::Float, true, true, 0.0, 1000000000000.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00070001u, "randomLoot", "level.mode", Kind::Enum, Kind::Enum, false, false, 0.0, 0.0, 0u, "none|set|add|multiply", "", "", false, Applies::Now, Ops::Set, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00070002u, "randomLoot", "level.value", Kind::Float, Kind::Float, true, true, -1000.0, 1000.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00070003u, "randomLoot", "levelOffset.mode", Kind::Enum, Kind::Enum, false, false, 0.0, 0.0, 0u, "none|set|add|multiply", "", "", false, Applies::Now, Ops::Set, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00070004u, "randomLoot", "levelOffset.value", Kind::Float, Kind::Float, true, true, -1000.0, 1000.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00070005u, "randomLoot", "levelOffsetRange.min", Kind::Float, Kind::Float, true, true, -1000.0, 1000.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00070006u, "randomLoot", "levelOffsetRange.max", Kind::Float, Kind::Float, true, true, -1000.0, 1000.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00070007u, "randomLoot", "rarity.common.mode", Kind::Enum, Kind::Enum, false, false, 0.0, 0.0, 0u, "none|set|add|multiply", "", "", false, Applies::Now, Ops::Set, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00070008u, "randomLoot", "rarity.common.weight", Kind::Float, Kind::Float, true, true, 0.0, 1000000000000.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00070009u, "randomLoot", "rarity.uncommon.mode", Kind::Enum, Kind::Enum, false, false, 0.0, 0.0, 0u, "none|set|add|multiply", "", "", false, Applies::Now, Ops::Set, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x0007000au, "randomLoot", "rarity.uncommon.weight", Kind::Float, Kind::Float, true, true, 0.0, 1000000000000.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x0007000bu, "randomLoot", "rarity.rare.mode", Kind::Enum, Kind::Enum, false, false, 0.0, 0.0, 0u, "none|set|add|multiply", "", "", false, Applies::Now, Ops::Set, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x0007000cu, "randomLoot", "rarity.rare.weight", Kind::Float, Kind::Float, true, true, 0.0, 1000000000000.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x0007000du, "randomLoot", "rarity.epic.mode", Kind::Enum, Kind::Enum, false, false, 0.0, 0.0, 0u, "none|set|add|multiply", "", "", false, Applies::Now, Ops::Set, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x0007000eu, "randomLoot", "rarity.epic.weight", Kind::Float, Kind::Float, true, true, 0.0, 1000000000000.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x0007000fu, "randomLoot", "rarity.legendary.mode", Kind::Enum, Kind::Enum, false, false, 0.0, 0.0, 0u, "none|set|add|multiply", "", "", false, Applies::Now, Ops::Set, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00070010u, "randomLoot", "rarity.legendary.weight", Kind::Float, Kind::Float, true, true, 0.0, 1000000000000.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
 };
 
 // The id migrations of the schemas' breaking steps (schema/registry/migrations/<registry>-<from>-<to>.json), oldest
@@ -281,6 +304,27 @@ inline constexpr uint32_t balance_gear_seed = 0x00050025u;
 inline constexpr uint32_t balance_gear_creep = 0x00050026u;
 inline constexpr uint32_t balance_gear_armorOffset = 0x00050027u;
 inline constexpr uint32_t balance_gear_armorGradient = 0x00050028u;
+inline constexpr uint32_t lootRules_rarityWeights_common = 0x00060001u;
+inline constexpr uint32_t lootRules_rarityWeights_uncommon = 0x00060002u;
+inline constexpr uint32_t lootRules_rarityWeights_rare = 0x00060003u;
+inline constexpr uint32_t lootRules_rarityWeights_epic = 0x00060004u;
+inline constexpr uint32_t lootRules_rarityWeights_legendary = 0x00060005u;
+inline constexpr uint32_t randomLoot_level_mode = 0x00070001u;
+inline constexpr uint32_t randomLoot_level_value = 0x00070002u;
+inline constexpr uint32_t randomLoot_levelOffset_mode = 0x00070003u;
+inline constexpr uint32_t randomLoot_levelOffset_value = 0x00070004u;
+inline constexpr uint32_t randomLoot_levelOffsetRange_min = 0x00070005u;
+inline constexpr uint32_t randomLoot_levelOffsetRange_max = 0x00070006u;
+inline constexpr uint32_t randomLoot_rarity_common_mode = 0x00070007u;
+inline constexpr uint32_t randomLoot_rarity_common_weight = 0x00070008u;
+inline constexpr uint32_t randomLoot_rarity_uncommon_mode = 0x00070009u;
+inline constexpr uint32_t randomLoot_rarity_uncommon_weight = 0x0007000au;
+inline constexpr uint32_t randomLoot_rarity_rare_mode = 0x0007000bu;
+inline constexpr uint32_t randomLoot_rarity_rare_weight = 0x0007000cu;
+inline constexpr uint32_t randomLoot_rarity_epic_mode = 0x0007000du;
+inline constexpr uint32_t randomLoot_rarity_epic_weight = 0x0007000eu;
+inline constexpr uint32_t randomLoot_rarity_legendary_mode = 0x0007000fu;
+inline constexpr uint32_t randomLoot_rarity_legendary_weight = 0x00070010u;
 }  // namespace field
 
 }  // namespace kc::registry::gen

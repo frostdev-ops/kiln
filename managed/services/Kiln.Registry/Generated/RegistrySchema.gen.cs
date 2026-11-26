@@ -110,6 +110,27 @@ public static partial class RegistrySchema
         new(0x00050026, "balance.gear.creep", RegistryFieldType.Float, null, RegistryApplies.Restart, RegistryOps.None, 0.0, 100.0, 0, null, null, null, null, true, false, 0, null, 0, "0.1.0") { JoinedClient = "serverOnly" },
         new(0x00050027, "balance.gear.armorOffset", RegistryFieldType.Float, null, RegistryApplies.Restart, RegistryOps.None, 0.0, 100000.0, 0, null, null, null, null, true, false, 0, null, 0, "0.1.0") { JoinedClient = "serverOnly" },
         new(0x00050028, "balance.gear.armorGradient", RegistryFieldType.Float, null, RegistryApplies.Restart, RegistryOps.None, 0.0, 100000.0, 0, null, null, null, null, true, false, 0, null, 0, "0.1.0") { JoinedClient = "serverOnly" },
+        new(0x00060001, "lootRules.rarityWeights.common", RegistryFieldType.Float, null, RegistryApplies.Now, RegistryOps.Number, 0.0, 1000000000000.0, 0, null, null, null, null, false, false, 0, null, 0, "0.1.0") { JoinedClient = "serverOnly" },
+        new(0x00060002, "lootRules.rarityWeights.uncommon", RegistryFieldType.Float, null, RegistryApplies.Now, RegistryOps.Number, 0.0, 1000000000000.0, 0, null, null, null, null, false, false, 0, null, 0, "0.1.0") { JoinedClient = "serverOnly" },
+        new(0x00060003, "lootRules.rarityWeights.rare", RegistryFieldType.Float, null, RegistryApplies.Now, RegistryOps.Number, 0.0, 1000000000000.0, 0, null, null, null, null, false, false, 0, null, 0, "0.1.0") { JoinedClient = "serverOnly" },
+        new(0x00060004, "lootRules.rarityWeights.epic", RegistryFieldType.Float, null, RegistryApplies.Now, RegistryOps.Number, 0.0, 1000000000000.0, 0, null, null, null, null, false, false, 0, null, 0, "0.1.0") { JoinedClient = "serverOnly" },
+        new(0x00060005, "lootRules.rarityWeights.legendary", RegistryFieldType.Float, null, RegistryApplies.Now, RegistryOps.Number, 0.0, 1000000000000.0, 0, null, null, null, null, false, false, 0, null, 0, "0.1.0") { JoinedClient = "serverOnly" },
+        new(0x00070001, "randomLoot.level.mode", RegistryFieldType.Enum, null, RegistryApplies.Now, RegistryOps.Set, null, null, 0, new[] { "none", "set", "add", "multiply" }, null, null, null, false, false, 0, null, 0, "0.1.0") { JoinedClient = "serverOnly" },
+        new(0x00070002, "randomLoot.level.value", RegistryFieldType.Float, null, RegistryApplies.Now, RegistryOps.Number, -1000.0, 1000.0, 0, null, null, null, null, false, false, 0, null, 0, "0.1.0") { JoinedClient = "serverOnly" },
+        new(0x00070003, "randomLoot.levelOffset.mode", RegistryFieldType.Enum, null, RegistryApplies.Now, RegistryOps.Set, null, null, 0, new[] { "none", "set", "add", "multiply" }, null, null, null, false, false, 0, null, 0, "0.1.0") { JoinedClient = "serverOnly" },
+        new(0x00070004, "randomLoot.levelOffset.value", RegistryFieldType.Float, null, RegistryApplies.Now, RegistryOps.Number, -1000.0, 1000.0, 0, null, null, null, null, false, false, 0, null, 0, "0.1.0") { JoinedClient = "serverOnly" },
+        new(0x00070005, "randomLoot.levelOffsetRange.min", RegistryFieldType.Float, null, RegistryApplies.Now, RegistryOps.Number, -1000.0, 1000.0, 0, null, null, null, null, false, false, 0, null, 0, "0.1.0") { JoinedClient = "serverOnly" },
+        new(0x00070006, "randomLoot.levelOffsetRange.max", RegistryFieldType.Float, null, RegistryApplies.Now, RegistryOps.Number, -1000.0, 1000.0, 0, null, null, null, null, false, false, 0, null, 0, "0.1.0") { JoinedClient = "serverOnly" },
+        new(0x00070007, "randomLoot.rarity.common.mode", RegistryFieldType.Enum, null, RegistryApplies.Now, RegistryOps.Set, null, null, 0, new[] { "none", "set", "add", "multiply" }, null, null, null, false, false, 0, null, 0, "0.1.0") { JoinedClient = "serverOnly" },
+        new(0x00070008, "randomLoot.rarity.common.weight", RegistryFieldType.Float, null, RegistryApplies.Now, RegistryOps.Number, 0.0, 1000000000000.0, 0, null, null, null, null, false, false, 0, null, 0, "0.1.0") { JoinedClient = "serverOnly" },
+        new(0x00070009, "randomLoot.rarity.uncommon.mode", RegistryFieldType.Enum, null, RegistryApplies.Now, RegistryOps.Set, null, null, 0, new[] { "none", "set", "add", "multiply" }, null, null, null, false, false, 0, null, 0, "0.1.0") { JoinedClient = "serverOnly" },
+        new(0x0007000a, "randomLoot.rarity.uncommon.weight", RegistryFieldType.Float, null, RegistryApplies.Now, RegistryOps.Number, 0.0, 1000000000000.0, 0, null, null, null, null, false, false, 0, null, 0, "0.1.0") { JoinedClient = "serverOnly" },
+        new(0x0007000b, "randomLoot.rarity.rare.mode", RegistryFieldType.Enum, null, RegistryApplies.Now, RegistryOps.Set, null, null, 0, new[] { "none", "set", "add", "multiply" }, null, null, null, false, false, 0, null, 0, "0.1.0") { JoinedClient = "serverOnly" },
+        new(0x0007000c, "randomLoot.rarity.rare.weight", RegistryFieldType.Float, null, RegistryApplies.Now, RegistryOps.Number, 0.0, 1000000000000.0, 0, null, null, null, null, false, false, 0, null, 0, "0.1.0") { JoinedClient = "serverOnly" },
+        new(0x0007000d, "randomLoot.rarity.epic.mode", RegistryFieldType.Enum, null, RegistryApplies.Now, RegistryOps.Set, null, null, 0, new[] { "none", "set", "add", "multiply" }, null, null, null, false, false, 0, null, 0, "0.1.0") { JoinedClient = "serverOnly" },
+        new(0x0007000e, "randomLoot.rarity.epic.weight", RegistryFieldType.Float, null, RegistryApplies.Now, RegistryOps.Number, 0.0, 1000000000000.0, 0, null, null, null, null, false, false, 0, null, 0, "0.1.0") { JoinedClient = "serverOnly" },
+        new(0x0007000f, "randomLoot.rarity.legendary.mode", RegistryFieldType.Enum, null, RegistryApplies.Now, RegistryOps.Set, null, null, 0, new[] { "none", "set", "add", "multiply" }, null, null, null, false, false, 0, null, 0, "0.1.0") { JoinedClient = "serverOnly" },
+        new(0x00070010, "randomLoot.rarity.legendary.weight", RegistryFieldType.Float, null, RegistryApplies.Now, RegistryOps.Number, 0.0, 1000000000000.0, 0, null, null, null, null, false, false, 0, null, 0, "0.1.0") { JoinedClient = "serverOnly" },
     };
 
     private static readonly global::System.Collections.Generic.Dictionary<string, string> s_versions = new()
@@ -119,5 +140,7 @@ public static partial class RegistrySchema
         ["loot"] = "0.1.0",
         ["drops"] = "0.1.0",
         ["balance"] = "0.1.0",
+        ["lootRules"] = "0.1.0",
+        ["randomLoot"] = "0.1.0",
     };
 }

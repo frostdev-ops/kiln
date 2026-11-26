@@ -102,7 +102,7 @@ static bool refused_with(const std::vector<Refusal>& v, uint32_t n, const std::s
 int main() {
     const Schema s = generated_schema();
     // ---- the glue: the generated rows as the IR's descriptor
-    CHECK(s.format == 1 && s.registries.size() == 5);
+    CHECK(s.format == 1 && s.registries.size() == 7);
     size_t specs = 0;
     for (const auto& [n, r] : s.registries) {
         specs += r.fields.size();
@@ -269,7 +269,7 @@ int main() {
     meta.regmap = {"server", "f0d824be7fcd48ebfe2458ff5c28da26060c2074e3ec1fcac587e5a1d508aeb2", "regmap/server/f0d824be7fcd48ebfe2458ff5c28da26060c2074e3ec1fcac587e5a1d508aeb2.json", true};
     meta.order = {{"newstuff", "1.0.0", ""}, {"tuner", "1.0.0", ""}, {"remover", "1.0.0", ""}};
     const json doc = report_json(s, r, meta);
-    CHECK(doc["schema"]["registrySchema"] == 1 && doc["schema"]["registries"]["items"] == "0.1.1" && doc["schema"]["registries"].size() == 5);
+    CHECK(doc["schema"]["registrySchema"] == 1 && doc["schema"]["registries"]["items"] == "0.1.1" && doc["schema"]["registries"].size() == 7 && doc["schema"]["registries"]["randomLoot"] == "0.1.0" && doc["schema"]["registries"]["lootRules"] == "0.1.0");
     bool saw_ms = false, saw_xp = false;
     for (const json& f : doc["fields"]) {
         saw_ms = saw_ms || (f["registry"] == "items" && f["id"] == "game:wood" && f["field"] == "maxStack" && f["applies"] == "worldLoad");
