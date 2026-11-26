@@ -398,12 +398,40 @@ void single_scalar_structs(const std::string&) {
 }
 }  // namespace
 
+// dev.32: a selector's traits over skills (active: the node unlocks an ability) and a where on recipes.station (a stations id)
+// pick the entries a data pack means; composed over the decoded base.
+void skills_and_stations_selectors(const std::string& dir) {
+    Fixture f(dir);
+    std::vector<ModInput> mods(1);
+    mods[0].id = "testmod";
+    Batch b;
+    std::vector<Refusal> refused;
+    std::string err;
+    const json doc = {{"ir", 1}, {"mod", "testmod"}, {"stage", "alter"}, {"source", "content/a.json"},
+                      {"edits", json::array({{{"registry", "skills"}, {"select", {{"id", "*"}, {"has", json::array({"active"})}}}, {"field", "cost"}, {"op", 0}},
+                                             {{"registry", "recipes"}, {"select", {{"id", "*"}, {"where", {{"station", "game:sword_t1"}}}}},
+                                              {"field", "duration"}, {"op", {{"mul", 0.5}}}}})}};
+    check(parse_batch(doc, f.schema, &b, &refused, &err) && refused.empty(), "the batch parses: " + err);
+    mods[0].batches.push_back(b);
+    const model::Need need = model::needs_of(f.schema, mods);
+    check(need.traits.count("skills") && need.fields.at("recipes").count("station"), "needs: the skills traits, and the station the where reads");
+    BaseModel base;
+    f.m->fill(need, &base);
+    const Result r = compose(f.schema, base, {}, mods);
+    const auto active = r.fields.find(FieldRef{"skills", "game:skill_4475e8dd", "cost"});
+    check(active != r.fields.end() && active->second.result == Value::integer(0), "the active node (it unlocks an ability) costs 0");
+    check(!r.fields.count(FieldRef{"skills", "game:skill_8efcc472", "cost"}), "the root is not active: untouched");
+    const auto planks = r.fields.find(FieldRef{"recipes", "game:craft_planks", "duration"});
+    check(planks != r.fields.end() && planks->second.result == Value::number(1.25), "the station's recipe: 2.5 s x 0.5");
+    check(!r.fields.count(FieldRef{"recipes", "game:craft_stew", "duration"}), "a recipe of no station: untouched");
+}
+
 int main(int argc, char** argv) {
     const std::string dir = argc > 1 ? argv[1] : "regmap";
     int failed = 0;
     const std::pair<const char*, void (*)(const std::string&)> groups[] = {
         {"byte_array_bounds", byte_array_bounds}, {"single_scalar_structs", single_scalar_structs}, {"entries_and_ids", entries_and_ids}, {"values", values}, {"needs_and_compose", needs_and_compose},
-        {"encode_writes", encode_writes},     {"id_table", id_table}, {"live_bytes", live_bytes}};
+        {"encode_writes", encode_writes},     {"id_table", id_table}, {"live_bytes", live_bytes}, {"skills_and_stations_selectors", skills_and_stations_selectors}};
     for (const auto& [name, fn] : groups) {
         try {
             fn(dir);
