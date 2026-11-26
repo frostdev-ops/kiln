@@ -102,12 +102,13 @@ static bool refused_with(const std::vector<Refusal>& v, uint32_t n, const std::s
 int main() {
     const Schema s = generated_schema();
     // ---- the glue: the generated rows as the IR's descriptor
-    CHECK(s.format == 1 && s.registries.size() == 5);
+    CHECK(s.format == 1 && s.registries.size() == 7);
     size_t specs = 0;
     for (const auto& [n, r] : s.registries) {
         specs += r.fields.size();
-        // the shipped schema versions: items 0.1.1 since 31.x (block and comfort apply now), the others 0.1.0
-        CHECK(r.version == (n == "items" ? "0.1.1" : "0.1.0") && r.raw);
+        // the shipped schema versions: items 0.1.1 since 31.x (block and comfort apply now), the others 0.1.0; dev.32's
+        // gamedata registries (buffs, abilities) refuse raw paths
+        CHECK(r.version == (n == "items" ? "0.1.1" : "0.1.0") && r.raw == (n != "buffs" && n != "abilities"));
     }
     CHECK(specs == std::size(gen::kFields));  // every generated row, leaves of list elements kept
     const RegistrySpec& rec = *s.registry("recipes");
@@ -122,6 +123,57 @@ int main() {
     CHECK(xp && xp->type == FieldType::List && xp->ops == FieldOps::Indexed && xp->fixed_length == 5);
     CHECK(s.registry("balance")->field("altarsPerFlameLevel")->ops == FieldOps::Indexed && s.registry("balance")->field("flameLevelMax")->read_only);
     CHECK(s.registry("drops")->field("entries")->element == FieldType::Struct && s.registry("drops")->field("entries[0].count.min"));
+
+    // ---- dev.32: buffs and abilities (gamedata registries: scalar fields, no raw paths, no entry add/remove)
+    {
+        const RegistrySpec* buffs = s.registry("buffs");
+        const RegistrySpec* abil = s.registry("abilities");
+        CHECK(buffs && abil && !buffs->raw && !abil->raw);
+        const FieldSpec* dur = buffs ? buffs->field("duration") : nullptr;
+        CHECK(dur && dur->type == FieldType::Float && dur->applies == Applies::Now && dur->min == 0 && dur->max == 86400 && dur->ops == FieldOps::Number);
+        const FieldSpec* st = buffs ? buffs->field("stacking") : nullptr;
+        CHECK(st && st->type == FieldType::Enum && st->enum_values == std::vector<std::string>({"keep", "refresh", "replace", "replaceAtEnd"}));
+        CHECK(buffs && buffs->field("kind") && buffs->field("kind")->read_only && buffs->field("saved") && buffs->field("saved")->read_only);
+        for (const char* t : {"timing.release", "timing.hit", "timing.cost", "timing.buff"}) {
+            const FieldSpec* f = abil ? abil->field(t) : nullptr;
+            CHECK(f && f->type == FieldType::Float && f->applies == Applies::Now && f->min == 0 && f->max == 600);
+        }
+        BaseModel b = base();
+        BaseModel::Entry poison, fireball;
+        poison.id = "game:buff_5f425faf";
+        poison.fields["duration"] = Value::number(10), poison.fields["stacking"] = Value::text("refresh");
+        b.registries["buffs"] = {poison};
+        fireball.id = "game:attack_player_staff_fixedanim_fireball_fast";
+        fireball.fields["timing.release"] = Value::number(0.65), fireball.fields["timing.cost"] = Value::number(0.65);
+        b.registries["abilities"] = {fireball};
+        std::vector<Refusal> rf;
+        ModInput m;
+        m.id = "spells";
+        m.batches.push_back(batch(s, "spells", "alter", R"([
+            {"registry": "buffs", "select": {"id": "game:buff_5f425faf"}, "field": "duration", "op": {"mul": 2}},
+            {"registry": "buffs", "select": {"id": "game:buff_5f425faf"}, "field": "stacking", "op": "replace"},
+            {"registry": "abilities", "select": {"id": "game:attack_player_staff_fixedanim_fireball_fast"}, "field": "timing.release", "op": 0.45},
+            {"registry": "abilities", "select": {"id": "game:attack_player_staff_fixedanim_fireball_fast"}, "field": "timing.cost", "op": {"add": -0.2}}
+        ])", &rf));
+        CHECK(rf.empty());
+        const Result r = compose(s, b, {}, {m});
+        const FieldOutcome* d = field(r, "buffs", "game:buff_5f425faf", "duration");
+        const FieldOutcome* k = field(r, "buffs", "game:buff_5f425faf", "stacking");
+        const FieldOutcome* rel = field(r, "abilities", "game:attack_player_staff_fixedanim_fireball_fast", "timing.release");
+        const FieldOutcome* cost = field(r, "abilities", "game:attack_player_staff_fixedanim_fireball_fast", "timing.cost");
+        CHECK(d && d->result.as_double() == 20 && k && k->result.t == "replace");
+        CHECK(rel && rel->result.as_double() == 0.45 && cost && cost->result.as_double() > 0.449 && cost->result.as_double() < 0.451);
+        // refused: a value the enum lacks, a read-only field, a duration past the range, a raw path, an entry add
+        std::vector<Refusal> bad;
+        batch(s, "bad", "alter", R"([
+            {"registry": "buffs", "select": {"id": "game:buff_5f425faf"}, "field": "stacking", "op": "stack"},
+            {"registry": "buffs", "select": {"id": "game:buff_5f425faf"}, "field": "kind", "op": "food"},
+            {"registry": "buffs", "select": {"id": "game:buff_5f425faf"}, "field": "duration", "op": 100000},
+            {"registry": "abilities", "select": {"id": "game:attack_player_staff_fixedanim_fireball_fast"}, "field": "timing.release", "op": 601},
+            {"registry": "buffs", "select": {"id": "game:buff_5f425faf"}, "raw": {"defaultLifeTime": 5}}
+        ])", &bad);
+        CHECK(bad.size() == 5);
+    }
 
     // ---- what the generated schema refuses
     {
@@ -269,7 +321,7 @@ int main() {
     meta.regmap = {"server", "f0d824be7fcd48ebfe2458ff5c28da26060c2074e3ec1fcac587e5a1d508aeb2", "regmap/server/f0d824be7fcd48ebfe2458ff5c28da26060c2074e3ec1fcac587e5a1d508aeb2.json", true};
     meta.order = {{"newstuff", "1.0.0", ""}, {"tuner", "1.0.0", ""}, {"remover", "1.0.0", ""}};
     const json doc = report_json(s, r, meta);
-    CHECK(doc["schema"]["registrySchema"] == 1 && doc["schema"]["registries"]["items"] == "0.1.1" && doc["schema"]["registries"].size() == 5);
+    CHECK(doc["schema"]["registrySchema"] == 1 && doc["schema"]["registries"]["items"] == "0.1.1" && doc["schema"]["registries"].size() == 7);
     bool saw_ms = false, saw_xp = false;
     for (const json& f : doc["fields"]) {
         saw_ms = saw_ms || (f["registry"] == "items" && f["id"] == "game:wood" && f["field"] == "maxStack" && f["applies"] == "worldLoad");

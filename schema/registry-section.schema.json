@@ -516,6 +516,90 @@
         }
       }
     },
+    "abilities": {
+      "$defs": {
+        "field": {
+          "enum": [
+            "timing.release",
+            "timing.hit",
+            "timing.cost",
+            "timing.buff"
+          ]
+        },
+        "edit": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "registry"
+          ],
+          "description": "An edit of the abilities registry (docs/kiln/modding/registries/abilities.md).",
+          "properties": {
+            "registry": {
+              "const": "abilities"
+            },
+            "select": {
+              "$ref": "#/$defs/select"
+            },
+            "field": {
+              "$ref": "#/$defs/abilities/$defs/field"
+            },
+            "op": {
+              "$ref": "#/$defs/op"
+            },
+            "list": {
+              "$ref": "#/$defs/list"
+            },
+            "exclusive": {
+              "type": "boolean"
+            },
+            "yield": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    },
+    "buffs": {
+      "$defs": {
+        "field": {
+          "enum": [
+            "duration",
+            "stacking"
+          ]
+        },
+        "edit": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "registry"
+          ],
+          "description": "An edit of the buffs registry (docs/kiln/modding/registries/buffs.md).",
+          "properties": {
+            "registry": {
+              "const": "buffs"
+            },
+            "select": {
+              "$ref": "#/$defs/select"
+            },
+            "field": {
+              "$ref": "#/$defs/buffs/$defs/field"
+            },
+            "op": {
+              "$ref": "#/$defs/op"
+            },
+            "list": {
+              "$ref": "#/$defs/list"
+            },
+            "exclusive": {
+              "type": "boolean"
+            },
+            "yield": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    },
     "edit": {
       "oneOf": [
         {
@@ -532,6 +616,12 @@
         },
         {
           "$ref": "#/$defs/balance/$defs/edit"
+        },
+        {
+          "$ref": "#/$defs/abilities/$defs/edit"
+        },
+        {
+          "$ref": "#/$defs/buffs/$defs/edit"
         }
       ]
     }

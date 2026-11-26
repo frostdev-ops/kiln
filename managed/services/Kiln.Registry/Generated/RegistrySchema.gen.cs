@@ -110,6 +110,14 @@ public static partial class RegistrySchema
         new(0x00050026, "balance.gear.creep", RegistryFieldType.Float, null, RegistryApplies.Restart, RegistryOps.None, 0.0, 100.0, 0, null, null, null, null, true, false, 0, null, 0, "0.1.0") { JoinedClient = "serverOnly" },
         new(0x00050027, "balance.gear.armorOffset", RegistryFieldType.Float, null, RegistryApplies.Restart, RegistryOps.None, 0.0, 100000.0, 0, null, null, null, null, true, false, 0, null, 0, "0.1.0") { JoinedClient = "serverOnly" },
         new(0x00050028, "balance.gear.armorGradient", RegistryFieldType.Float, null, RegistryApplies.Restart, RegistryOps.None, 0.0, 100000.0, 0, null, null, null, null, true, false, 0, null, 0, "0.1.0") { JoinedClient = "serverOnly" },
+        new(0x00060001, "abilities.timing.release", RegistryFieldType.Time, null, RegistryApplies.Now, RegistryOps.Number, 0.0, 600.0, 0, null, null, "s", null, false, false, 0, null, 0, "0.1.0") { JoinedClient = "now" },
+        new(0x00060002, "abilities.timing.hit", RegistryFieldType.Time, null, RegistryApplies.Now, RegistryOps.Number, 0.0, 600.0, 0, null, null, "s", null, false, false, 0, null, 0, "0.1.0") { JoinedClient = "now" },
+        new(0x00060003, "abilities.timing.cost", RegistryFieldType.Time, null, RegistryApplies.Now, RegistryOps.Number, 0.0, 600.0, 0, null, null, "s", null, false, false, 0, null, 0, "0.1.0") { JoinedClient = "now" },
+        new(0x00060004, "abilities.timing.buff", RegistryFieldType.Time, null, RegistryApplies.Now, RegistryOps.Number, 0.0, 600.0, 0, null, null, "s", null, false, false, 0, null, 0, "0.1.0") { JoinedClient = "now" },
+        new(0x00070001, "buffs.duration", RegistryFieldType.Time, null, RegistryApplies.Now, RegistryOps.Number, 0.0, 86400.0, 0, null, null, "s", null, false, false, 0, null, 0, "0.1.0") { JoinedClient = "serverOnly" },
+        new(0x00070002, "buffs.stacking", RegistryFieldType.Enum, null, RegistryApplies.Now, RegistryOps.Set, null, null, 0, new[] { "keep", "refresh", "replace", "replaceAtEnd" }, null, null, null, false, false, 0, null, 0, "0.1.0") { JoinedClient = "serverOnly" },
+        new(0x00070003, "buffs.kind", RegistryFieldType.Enum, null, RegistryApplies.Now, RegistryOps.None, null, null, 0, new[] { "food", "buff", "debuff", "rested", "terrain" }, null, null, null, true, false, 0, null, 0, "0.1.0") { JoinedClient = "serverOnly" },
+        new(0x00070004, "buffs.saved", RegistryFieldType.Bool, null, RegistryApplies.Now, RegistryOps.None, null, null, 0, null, null, null, null, true, false, 0, null, 0, "0.1.0") { JoinedClient = "serverOnly" },
     };
 
     private static readonly global::System.Collections.Generic.Dictionary<string, string> s_versions = new()
@@ -119,5 +127,7 @@ public static partial class RegistrySchema
         ["loot"] = "0.1.0",
         ["drops"] = "0.1.0",
         ["balance"] = "0.1.0",
+        ["abilities"] = "0.1.0",
+        ["buffs"] = "0.1.0",
     };
 }

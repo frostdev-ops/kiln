@@ -543,14 +543,27 @@ class Repository(unittest.TestCase):
     def test_r1_registries(self):
         m = rg.load(REPO)
         self.assertEqual(m.errors, [])
-        self.assertEqual(sorted(m.registries), ["balance", "drops", "items", "loot", "recipes"])
+        self.assertTrue({"balance", "drops", "items", "loot", "recipes"} <= set(m.registries))
         for r in m.registries.values():
             for f in r.rows:
                 self.assertIn(f.applies, ("now", "worldLoad", "restart"), f.qualified)
                 self.assertIn(f.spec.get("joinedClient"), rg.JOINED_CLIENT, f.qualified)
         # experimental 0.x; items 0.1.1 since 31.x (block and comfort apply now: an earlier applies, additive)
-        self.assertEqual({n: r.version for n, r in m.registries.items()},
+        self.assertEqual({n: r.version for n, r in m.registries.items() if n in ("balance", "drops", "items", "loot", "recipes")},
                          {"balance": "0.1.0", "drops": "0.1.0", "items": "0.1.1", "loot": "0.1.0", "recipes": "0.1.0"})
+
+    def test_dev32_buffs_and_abilities(self):
+        """dev.32's gamedata registries: experimental (KILNX032) 0.1.0, no raw paths, no entry add or remove, every field now."""
+        m = rg.load(REPO)
+        for name in ("buffs", "abilities"):
+            r = m.registries[name]
+            self.assertEqual((r.version, r.doc["stability"], r.doc["experimentalId"], r.doc["raw"]), ("0.1.0", "experimental", "KILNX032", "refused"))
+            self.assertEqual((r.doc["entry"]["add"], r.doc["entry"]["remove"]), (False, False))
+            self.assertTrue(all(f.applies == "now" for f in r.rows))
+        self.assertEqual(sorted(f.path for f in m.registries["abilities"].rows),
+                         ["timing.buff", "timing.cost", "timing.hit", "timing.release"])
+        self.assertEqual({f.path: f.read_only for f in m.registries["buffs"].rows},
+                         {"duration": False, "stacking": False, "kind": True, "saved": True})
 
 
 if __name__ == "__main__":

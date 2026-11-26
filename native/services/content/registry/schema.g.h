@@ -58,6 +58,8 @@ inline constexpr Registry kRegistries[] = {
     {3, "loot", "0.1.0", true, false, "disabled", true, 48, 6},
     {4, "drops", "0.1.0", true, false, "", true, 54, 6},
     {5, "balance", "0.1.0", true, false, "", true, 60, 40},
+    {6, "abilities", "0.1.0", true, false, "", false, 100, 4},
+    {7, "buffs", "0.1.0", true, false, "", false, 104, 4},
 };
 
 inline constexpr Field kFields[] = {
@@ -161,6 +163,14 @@ inline constexpr Field kFields[] = {
     {0x00050026u, "balance", "gear.creep", Kind::Float, Kind::Float, true, true, 0.0, 100.0, 0u, "", "", "", true, Applies::Restart, Ops::None, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
     {0x00050027u, "balance", "gear.armorOffset", Kind::Float, Kind::Float, true, true, 0.0, 100000.0, 0u, "", "", "", true, Applies::Restart, Ops::None, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
     {0x00050028u, "balance", "gear.armorGradient", Kind::Float, Kind::Float, true, true, 0.0, 100000.0, 0u, "", "", "", true, Applies::Restart, Ops::None, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00060001u, "abilities", "timing.release", Kind::Time, Kind::Time, true, true, 0.0, 600.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "s", "", false, 0u, "", 0, Side::Both, "now"},
+    {0x00060002u, "abilities", "timing.hit", Kind::Time, Kind::Time, true, true, 0.0, 600.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "s", "", false, 0u, "", 0, Side::Both, "now"},
+    {0x00060003u, "abilities", "timing.cost", Kind::Time, Kind::Time, true, true, 0.0, 600.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "s", "", false, 0u, "", 0, Side::Both, "now"},
+    {0x00060004u, "abilities", "timing.buff", Kind::Time, Kind::Time, true, true, 0.0, 600.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "s", "", false, 0u, "", 0, Side::Both, "now"},
+    {0x00070001u, "buffs", "duration", Kind::Time, Kind::Time, true, true, 0.0, 86400.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "s", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00070002u, "buffs", "stacking", Kind::Enum, Kind::Enum, false, false, 0.0, 0.0, 0u, "keep|refresh|replace|replaceAtEnd", "", "", false, Applies::Now, Ops::Set, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00070003u, "buffs", "kind", Kind::Enum, Kind::Enum, false, false, 0.0, 0.0, 0u, "food|buff|debuff|rested|terrain", "", "", true, Applies::Now, Ops::None, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00070004u, "buffs", "saved", Kind::Bool, Kind::Bool, false, false, 0.0, 0.0, 0u, "", "", "", true, Applies::Now, Ops::None, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
 };
 
 // The id migrations of the schemas' breaking steps (schema/registry/migrations/<registry>-<from>-<to>.json), oldest
@@ -281,6 +291,14 @@ inline constexpr uint32_t balance_gear_seed = 0x00050025u;
 inline constexpr uint32_t balance_gear_creep = 0x00050026u;
 inline constexpr uint32_t balance_gear_armorOffset = 0x00050027u;
 inline constexpr uint32_t balance_gear_armorGradient = 0x00050028u;
+inline constexpr uint32_t abilities_timing_release = 0x00060001u;
+inline constexpr uint32_t abilities_timing_hit = 0x00060002u;
+inline constexpr uint32_t abilities_timing_cost = 0x00060003u;
+inline constexpr uint32_t abilities_timing_buff = 0x00060004u;
+inline constexpr uint32_t buffs_duration = 0x00070001u;
+inline constexpr uint32_t buffs_stacking = 0x00070002u;
+inline constexpr uint32_t buffs_kind = 0x00070003u;
+inline constexpr uint32_t buffs_saved = 0x00070004u;
 }  // namespace field
 
 }  // namespace kc::registry::gen
