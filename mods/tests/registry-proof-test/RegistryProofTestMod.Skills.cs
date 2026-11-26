@@ -98,7 +98,7 @@ public sealed unsafe partial class RegistryProofTestMod
 
     /// <summary>The game's own PointsSpent over a scratch tree that holds only <paramref name="node"/> (GameTree.Simulate), null when
     /// kiln.skills cannot run the game's skill functions here.</summary>
-    private static int? Spent(uint node)
+    private int? Spent(uint node)
     {
         try
         {
