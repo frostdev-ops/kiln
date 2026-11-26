@@ -4,7 +4,7 @@
 namespace Kiln.Registry;
 
 /// <summary>An entry of the abilities registry. Every action the game plays as a timed sequence: spell casts, weapon attacks, abilities (the double jump, the dodge, blink), item uses and creature attacks. Their timing: when a cast releases what it spawns, when a hit lands, when the cost is paid and when a buff is applied. Costs themselves are the item's (items.manaCost, items.staminaCost); the game has no cooldown for players beyond this timing.</summary>
-[global::System.Diagnostics.CodeAnalysis.Experimental("KILNX032", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/registries/abilities.md")]
+[global::System.Diagnostics.CodeAnalysis.Experimental("KILNX031", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/registries/abilities.md")]
 public sealed partial class AbilityEntry : IRegistryEntry
 {
     private readonly IRegistryCells _c;
@@ -22,7 +22,7 @@ public sealed partial class AbilityEntry : IRegistryEntry
 }
 
 /// <summary>When the ability does things, in seconds from its start. Each field is the first such moment of the ability; every event of the same kind at that moment moves with it, and the others stay where they are. The next time the ability plays takes the new time. An ability without such a moment refuses the edit; a time after the ability ends never comes.</summary>
-[global::System.Diagnostics.CodeAnalysis.Experimental("KILNX032", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/registries/abilities.md")]
+[global::System.Diagnostics.CodeAnalysis.Experimental("KILNX031", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/registries/abilities.md")]
 public sealed partial class AbilityTiming
 {
     private readonly IRegistryCells _c;

@@ -5,7 +5,7 @@
   "typeName": "Buff",
   "version": "0.1.0",
   "stability": "experimental",
-  "experimentalId": "KILNX032",
+  "experimentalId": "KILNX031",
   "doc": "Every buff and debuff the game defines (food buffs, Well Rested, Poisoned, Burning, the slows and the shields of spells and potions): how long one lasts and what applying it again does.",
   "ids": {
     "game": "game:buff_<its 32-bit buff id as 8 hex digits>",

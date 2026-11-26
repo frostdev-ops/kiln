@@ -4,7 +4,7 @@
 namespace Kiln.Registry;
 
 /// <summary>An entry of the buffs registry. Every buff and debuff the game defines (food buffs, Well Rested, Poisoned, Burning, the slows and the shields of spells and potions): how long one lasts and what applying it again does.</summary>
-[global::System.Diagnostics.CodeAnalysis.Experimental("KILNX032", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/registries/buffs.md")]
+[global::System.Diagnostics.CodeAnalysis.Experimental("KILNX031", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/registries/buffs.md")]
 public sealed partial class BuffEntry : IRegistryEntry
 {
     private readonly IRegistryCells _c;
@@ -35,7 +35,7 @@ public sealed partial class BuffEntry : IRegistryEntry
 }
 
 /// <summary>What applying the buff again does while it runs: keep (the running one stays and the new one is refused), refresh (the running one starts its time again), replace (the running one ends and a new one starts, its effects with it). replaceAtEnd: on this game build the game applies it as replace. A buff in the same place as another buff (a food slot) always replaces it.</summary>
-[global::System.Diagnostics.CodeAnalysis.Experimental("KILNX032", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/registries/buffs.md")]
+[global::System.Diagnostics.CodeAnalysis.Experimental("KILNX031", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/registries/buffs.md")]
 public enum BuffStacking
 {
     /// <summary>keep</summary>
@@ -54,7 +54,7 @@ internal static class BuffStackingNames
 }
 
 /// <summary>Where the buff sits on a character: a food slot, the buffs, the debuffs, the rested slot or the terrain debuff slot.</summary>
-[global::System.Diagnostics.CodeAnalysis.Experimental("KILNX032", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/registries/buffs.md")]
+[global::System.Diagnostics.CodeAnalysis.Experimental("KILNX031", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/registries/buffs.md")]
 public enum BuffKind
 {
     /// <summary>food</summary>

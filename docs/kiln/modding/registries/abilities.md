@@ -4,7 +4,7 @@
 
 Every action the game plays as a timed sequence: spell casts, weapon attacks, abilities (the double jump, the dodge, blink), item uses and creature attacks. Their timing: when a cast releases what it spawns, when a hit lands, when the cost is paid and when a buff is applied. Costs themselves are the item's (items.manaCost, items.staminaCost); the game has no cooldown for players beyond this timing.
 
-Schema version 0.1.0, experimental (KILNX032: may change in any release until it is marked stable). C# entry type `Kiln.Registry.AbilityEntry`. What registries are, the stages, the conflict rules and how ids are made: [README](README.md).
+Schema version 0.1.0, experimental (KILNX031: may change in any release until it is marked stable). C# entry type `Kiln.Registry.AbilityEntry`. What registries are, the stages, the conflict rules and how ids are made: [README](README.md).
 
 ## Ids
 

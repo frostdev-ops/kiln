@@ -4,7 +4,7 @@
 
 Every buff and debuff the game defines (food buffs, Well Rested, Poisoned, Burning, the slows and the shields of spells and potions): how long one lasts and what applying it again does.
 
-Schema version 0.1.0, experimental (KILNX032: may change in any release until it is marked stable). C# entry type `Kiln.Registry.BuffEntry`. What registries are, the stages, the conflict rules and how ids are made: [README](README.md).
+Schema version 0.1.0, experimental (KILNX031: may change in any release until it is marked stable). C# entry type `Kiln.Registry.BuffEntry`. What registries are, the stages, the conflict rules and how ids are made: [README](README.md).
 
 ## Ids
 

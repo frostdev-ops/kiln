@@ -290,7 +290,7 @@ SEQ_TYPES = {"types": TYPES["types"] + [
 ]}
 
 SEQ_SCHEMA = {
-    "registrySchema": 1, "registry": "things", "version": "1.0.0", "stability": "experimental", "experimentalId": "KILNX032",
+    "registrySchema": 1, "registry": "things", "version": "1.0.0", "stability": "experimental", "experimentalId": "KILNX031",
     "doc": "Test.", "ids": {"game": "game:<stable name>", "mod": "(none)", "rule": "Lower case."}, "traits": {},
     "fields": {"release": {"type": "time", "min": 0, "max": 600, "applies": "now", "ops": "number"},
                "length": {"type": "time", "min": 0, "max": 600, "applies": "now", "ops": "number"}},
