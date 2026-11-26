@@ -44,6 +44,9 @@ registry has a breaking step yet: every schema is 0.1.0, and Kiln ships no migra
 | `loot` | random loot per item: stack sizes, rarities | [loot.md](loot.md) |
 | `drops` | the game's drop tables (default inventories) | [drops.md](drops.md) |
 | `balance` | the balance table: experience, levels, flame, durability, sockets, perk costs | [balance.md](balance.md) |
+| `creatures` | every creature (enemies, wildlife, farm animals, villagers): level, faction, size, health and damage scaling, resistances, speeds, random loot, sight; its kind and arsenal read-only (since dev.32) | [creatures.md](creatures.md) |
+| `arsenals` | the enemies' arsenals: each attack's chance, threat and ranges (since dev.32) | [arsenals.md](arsenals.md) |
+| `perks` | every perk: the value it grants, the armour and damage bonus of the simple perks (since dev.32) | [perks.md](perks.md) |
 
 The per-registry pages are generated from `schema/registry/<registry>.json` by `tools/registrygen/registrygen.py`; edit
 the schema, never the page. Kiln maintainers adding a registry: [adding-a-registry.md](../../adding-a-registry.md).
@@ -259,9 +262,52 @@ the capability name when querying `Capabilities`.
 | `registry.drops.entries.count.max` | `drops.entries[].count.max` |
 | `registry.drops.entries.chance` | `drops.entries[].chance` |
 | `registry.drops.entries.weight` | `drops.entries[].weight` |
+| `registry.arsenals.attacks.chance` | `arsenals.attacks[].chance` |
+| `registry.arsenals.attacks.threat` | `arsenals.attacks[].threat` |
+| `registry.arsenals.attacks.minRange` | `arsenals.attacks[].minRange` |
+| `registry.arsenals.attacks.maxRange` | `arsenals.attacks[].maxRange` |
+| `registry.arsenals.attacks.maxHeight` | `arsenals.attacks[].maxHeight` |
 | `registry.balance.buildzoneSizesPerAltarLevel.x` | `balance.buildzoneSizesPerAltarLevel[].x` |
 | `registry.balance.buildzoneSizesPerAltarLevel.y` | `balance.buildzoneSizesPerAltarLevel[].y` |
 | `registry.balance.buildzoneSizesPerAltarLevel.z` | `balance.buildzoneSizesPerAltarLevel[].z` |
+
+## Creatures, arsenals and perks (dev.32, experimental)
+
+Three registries over the game's creature and perk data, experimental (`KILNX031`, schema 0.1.0) for this release:
+
+- **`creatures`**: one entry per creature template: enemies, wild animals, farm animals and villagers (689 on the current
+  build). A creature's id is its template's id (`game:enemy_vukah_melee`), the same id pets, taming and spawning name it by.
+  Its `kind` (enemy, wildlife, animal, villager) and `arsenal` are read-only; the kind is also its trait (`"has":
+  ["enemy"]` in a selector). An edit is global to the creature kind, never one creature (kiln.creatures' per-creature setters stay for
+  that). Fields a creature copies as it spawns (level, faction, size, resistances, speeds, loot, the damage multiplier) reach
+  creatures that **spawn after** the edit; the health and damage scaling and an enemy's sight are read at once by every
+  creature of the entry, also those already in the world. Not every creature has every field (most have no size of their
+  own, only enemies have sight and an arsenal): such an entry reads `null`, an absolute value is refused for it alone
+  ("this creature has no value of this field"), and a relative op over it refuses that edit, so select the creatures that
+  have one (`"select": {"id": "game:*", "has": ["enemy"]}`, or by id).
+- **`arsenals`**: the attacks an enemy chooses from. Enemies of one kind share an arsenal, named after the first creature
+  that uses it (`game:enemy_vukah_melee`); an edit reaches every enemy that uses it, at its next decision. `attacks[i]` is the
+  game's order; an arsenal keeps its attacks (only their values change: an append or removal is refused).
+- **`perks`**: the ids `items.perks` already holds. `value` is the amount the perk grants, the number its tooltip shows (a
+  share as a fraction where the tooltip shows a percentage; below 0 for a perk that lowers a cost), read when the perk's
+  effect starts (the item equipped, the perk unlocked): an effect already running keeps its value until it starts again. A
+  perk whose game value is a whole number takes whole numbers only (`not_exact: ...`, never rounded), and the tooltip row
+  follows. The simple armour perks' `armor.*` is read whenever armour is computed; the simple damage perks' `damage.*` is
+  refused until a Kiln update traces when the game reads it.
+
+```json
+{ "format": 1,
+  "registry": { "alter": [
+    { "registry": "creatures", "select": { "id": "game:enemy_vukah_*", "has": ["enemy"] }, "field": "sight.range", "op": { "mul": 1.5 } },
+    { "registry": "creatures", "select": "game:animal_wildlife_wolf", "field": "level", "op": 12 },
+    { "registry": "arsenals", "select": "game:enemy_vukah_melee", "field": "attacks[*].chance", "op": { "mul": 0.5 } },
+    { "registry": "perks", "select": "game:perk_damage_ice", "field": "value", "op": { "mul": 2 } } ] } }
+```
+
+Data packs with only creatures, arsenals or perks edits: `creatures` and `arsenals` are `serverOnly` (`clients: "none"`);
+`perks.value` and `perks.armor.*` follow the content sync to Kiln clients (`clients: "kiln"` for matching tooltips and
+armour; a vanilla client keeps its own numbers). C# names them `view.Creatures[...]`, `view.Arsenals[...]` and
+`view.Perks[...]` ([RegistryEdits sample](../../../../mods/samples/RegistryEdits/RegistryEditsMod.cs)).
 
 ## When an edit takes effect: applies
 

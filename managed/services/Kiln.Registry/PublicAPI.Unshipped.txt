@@ -1,1 +1,188 @@
 #nullable enable
+[KILNX031]Kiln.Registry.ArsenalAttack
+[KILNX031]Kiln.Registry.ArsenalAttack.Chance.get -> double
+[KILNX031]Kiln.Registry.ArsenalAttack.Chance.set -> void
+[KILNX031]Kiln.Registry.ArsenalAttack.Index.get -> int
+[KILNX031]Kiln.Registry.ArsenalAttack.MaxHeight.get -> double
+[KILNX031]Kiln.Registry.ArsenalAttack.MaxHeight.set -> void
+[KILNX031]Kiln.Registry.ArsenalAttack.MaxRange.get -> double
+[KILNX031]Kiln.Registry.ArsenalAttack.MaxRange.set -> void
+[KILNX031]Kiln.Registry.ArsenalAttack.MinRange.get -> double
+[KILNX031]Kiln.Registry.ArsenalAttack.MinRange.set -> void
+[KILNX031]Kiln.Registry.ArsenalAttack.Threat.get -> double
+[KILNX031]Kiln.Registry.ArsenalAttack.Threat.set -> void
+[KILNX031]Kiln.Registry.ArsenalEntry
+[KILNX031]Kiln.Registry.ArsenalEntry.Attacks.get -> Kiln.Registry.RegistryEntryList<Kiln.Registry.ArsenalAttack!>!
+[KILNX031]Kiln.Registry.ArsenalEntry.Id.get -> Kiln.Registry.RegistryId
+[KILNX031]Kiln.Registry.ArsenalEntry.Registry.get -> string!
+[KILNX031]Kiln.Registry.CreatureDamage
+[KILNX031]Kiln.Registry.CreatureDamage.Multiplier.get -> double
+[KILNX031]Kiln.Registry.CreatureDamage.Multiplier.set -> void
+[KILNX031]Kiln.Registry.CreatureDamage.PerPlayer.get -> double
+[KILNX031]Kiln.Registry.CreatureDamage.PerPlayer.set -> void
+[KILNX031]Kiln.Registry.CreatureEntry
+[KILNX031]Kiln.Registry.CreatureEntry.Arsenal.get -> Kiln.Registry.RegistryId?
+[KILNX031]Kiln.Registry.CreatureEntry.Damage.get -> Kiln.Registry.CreatureDamage!
+[KILNX031]Kiln.Registry.CreatureEntry.Faction.get -> Kiln.Registry.CreatureFaction
+[KILNX031]Kiln.Registry.CreatureEntry.Faction.set -> void
+[KILNX031]Kiln.Registry.CreatureEntry.Health.get -> Kiln.Registry.CreatureHealth!
+[KILNX031]Kiln.Registry.CreatureEntry.Id.get -> Kiln.Registry.RegistryId
+[KILNX031]Kiln.Registry.CreatureEntry.Kind.get -> Kiln.Registry.CreatureKind
+[KILNX031]Kiln.Registry.CreatureEntry.Level.get -> int
+[KILNX031]Kiln.Registry.CreatureEntry.LevelMax.get -> int
+[KILNX031]Kiln.Registry.CreatureEntry.LevelMax.set -> void
+[KILNX031]Kiln.Registry.CreatureEntry.Level.set -> void
+[KILNX031]Kiln.Registry.CreatureEntry.Loot.get -> Kiln.Registry.CreatureLoot!
+[KILNX031]Kiln.Registry.CreatureEntry.Registry.get -> string!
+[KILNX031]Kiln.Registry.CreatureEntry.Resist.get -> Kiln.Registry.CreatureResistances!
+[KILNX031]Kiln.Registry.CreatureEntry.Scale.get -> double
+[KILNX031]Kiln.Registry.CreatureEntry.Scale.set -> void
+[KILNX031]Kiln.Registry.CreatureEntry.Sight.get -> Kiln.Registry.CreatureSight!
+[KILNX031]Kiln.Registry.CreatureEntry.Speed.get -> Kiln.Registry.CreatureSpeeds!
+[KILNX031]Kiln.Registry.CreatureEntry.Xp.get -> double
+[KILNX031]Kiln.Registry.CreatureEntry.Xp.set -> void
+[KILNX031]Kiln.Registry.CreatureFaction
+[KILNX031]Kiln.Registry.CreatureFaction.Ancients = 15 -> Kiln.Registry.CreatureFaction
+[KILNX031]Kiln.Registry.CreatureFaction.AutomatedPlayer = 8 -> Kiln.Registry.CreatureFaction
+[KILNX031]Kiln.Registry.CreatureFaction.Cyclops = 13 -> Kiln.Registry.CreatureFaction
+[KILNX031]Kiln.Registry.CreatureFaction.Drak = 14 -> Kiln.Registry.CreatureFaction
+[KILNX031]Kiln.Registry.CreatureFaction.Environment = 0 -> Kiln.Registry.CreatureFaction
+[KILNX031]Kiln.Registry.CreatureFaction.FarmAnimal = 12 -> Kiln.Registry.CreatureFaction
+[KILNX031]Kiln.Registry.CreatureFaction.Fogger = 2 -> Kiln.Registry.CreatureFaction
+[KILNX031]Kiln.Registry.CreatureFaction.HitAll = 1 -> Kiln.Registry.CreatureFaction
+[KILNX031]Kiln.Registry.CreatureFaction.HitOthers = 9 -> Kiln.Registry.CreatureFaction
+[KILNX031]Kiln.Registry.CreatureFaction.Player = 7 -> Kiln.Registry.CreatureFaction
+[KILNX031]Kiln.Registry.CreatureFaction.PlayerAlly = 11 -> Kiln.Registry.CreatureFaction
+[KILNX031]Kiln.Registry.CreatureFaction.Scavenger = 4 -> Kiln.Registry.CreatureFaction
+[KILNX031]Kiln.Registry.CreatureFaction.Skeleton = 10 -> Kiln.Registry.CreatureFaction
+[KILNX031]Kiln.Registry.CreatureFaction.Vukah = 3 -> Kiln.Registry.CreatureFaction
+[KILNX031]Kiln.Registry.CreatureFaction.WildBeast = 6 -> Kiln.Registry.CreatureFaction
+[KILNX031]Kiln.Registry.CreatureFaction.Wildlife = 5 -> Kiln.Registry.CreatureFaction
+[KILNX031]Kiln.Registry.CreatureHealth
+[KILNX031]Kiln.Registry.CreatureHealth.LevelFactor.get -> double
+[KILNX031]Kiln.Registry.CreatureHealth.LevelFactor.set -> void
+[KILNX031]Kiln.Registry.CreatureHealth.PerPlayer.get -> double
+[KILNX031]Kiln.Registry.CreatureHealth.PerPlayer.set -> void
+[KILNX031]Kiln.Registry.CreatureKind
+[KILNX031]Kiln.Registry.CreatureKind.Animal = 2 -> Kiln.Registry.CreatureKind
+[KILNX031]Kiln.Registry.CreatureKind.Enemy = 0 -> Kiln.Registry.CreatureKind
+[KILNX031]Kiln.Registry.CreatureKind.Villager = 3 -> Kiln.Registry.CreatureKind
+[KILNX031]Kiln.Registry.CreatureKind.Wildlife = 1 -> Kiln.Registry.CreatureKind
+[KILNX031]Kiln.Registry.CreatureLoot
+[KILNX031]Kiln.Registry.CreatureLoot.Disabled.get -> bool
+[KILNX031]Kiln.Registry.CreatureLoot.Disabled.set -> void
+[KILNX031]Kiln.Registry.CreatureLootSlots
+[KILNX031]Kiln.Registry.CreatureLoot.Slots.get -> Kiln.Registry.CreatureLootSlots!
+[KILNX031]Kiln.Registry.CreatureLootSlots.Max.get -> int
+[KILNX031]Kiln.Registry.CreatureLootSlots.Max.set -> void
+[KILNX031]Kiln.Registry.CreatureLootSlots.Min.get -> int
+[KILNX031]Kiln.Registry.CreatureLootSlots.Min.set -> void
+[KILNX031]Kiln.Registry.CreatureResistances
+[KILNX031]Kiln.Registry.CreatureResistances.Blunt.get -> double
+[KILNX031]Kiln.Registry.CreatureResistances.Blunt.set -> void
+[KILNX031]Kiln.Registry.CreatureResistances.Cut.get -> double
+[KILNX031]Kiln.Registry.CreatureResistances.Cut.set -> void
+[KILNX031]Kiln.Registry.CreatureResistances.Explosion.get -> double
+[KILNX031]Kiln.Registry.CreatureResistances.Explosion.set -> void
+[KILNX031]Kiln.Registry.CreatureResistances.Fire.get -> double
+[KILNX031]Kiln.Registry.CreatureResistances.Fire.set -> void
+[KILNX031]Kiln.Registry.CreatureResistances.Ice.get -> double
+[KILNX031]Kiln.Registry.CreatureResistances.Ice.set -> void
+[KILNX031]Kiln.Registry.CreatureResistances.Lightning.get -> double
+[KILNX031]Kiln.Registry.CreatureResistances.Lightning.set -> void
+[KILNX031]Kiln.Registry.CreatureResistances.Metal.get -> double
+[KILNX031]Kiln.Registry.CreatureResistances.Metal.set -> void
+[KILNX031]Kiln.Registry.CreatureResistances.Physical.get -> double
+[KILNX031]Kiln.Registry.CreatureResistances.Physical.set -> void
+[KILNX031]Kiln.Registry.CreatureResistances.Pierce.get -> double
+[KILNX031]Kiln.Registry.CreatureResistances.Pierce.set -> void
+[KILNX031]Kiln.Registry.CreatureResistances.Poison.get -> double
+[KILNX031]Kiln.Registry.CreatureResistances.Poison.set -> void
+[KILNX031]Kiln.Registry.CreatureResistances.Shroud.get -> double
+[KILNX031]Kiln.Registry.CreatureResistances.Shroud.set -> void
+[KILNX031]Kiln.Registry.CreatureResistances.SkillShot.get -> double
+[KILNX031]Kiln.Registry.CreatureResistances.SkillShot.set -> void
+[KILNX031]Kiln.Registry.CreatureResistances.Stone.get -> double
+[KILNX031]Kiln.Registry.CreatureResistances.Stone.set -> void
+[KILNX031]Kiln.Registry.CreatureResistances.Wood.get -> double
+[KILNX031]Kiln.Registry.CreatureResistances.Wood.set -> void
+[KILNX031]Kiln.Registry.CreatureSight
+[KILNX031]Kiln.Registry.CreatureSight.EngageRange.get -> double
+[KILNX031]Kiln.Registry.CreatureSight.EngageRange.set -> void
+[KILNX031]Kiln.Registry.CreatureSight.Range.get -> double
+[KILNX031]Kiln.Registry.CreatureSight.Range.set -> void
+[KILNX031]Kiln.Registry.CreatureSpeeds
+[KILNX031]Kiln.Registry.CreatureSpeeds.Combat.get -> double
+[KILNX031]Kiln.Registry.CreatureSpeeds.Combat.set -> void
+[KILNX031]Kiln.Registry.CreatureSpeeds.Flee.get -> double
+[KILNX031]Kiln.Registry.CreatureSpeeds.Flee.set -> void
+[KILNX031]Kiln.Registry.CreatureSpeeds.Patrol.get -> double
+[KILNX031]Kiln.Registry.CreatureSpeeds.Patrol.set -> void
+[KILNX031]Kiln.Registry.CreatureSpeeds.Run.get -> double
+[KILNX031]Kiln.Registry.CreatureSpeeds.Run.set -> void
+[KILNX031]Kiln.Registry.CreatureSpeeds.Sneak.get -> double
+[KILNX031]Kiln.Registry.CreatureSpeeds.Sneak.set -> void
+[KILNX031]Kiln.Registry.CreatureSpeeds.Sprint.get -> double
+[KILNX031]Kiln.Registry.CreatureSpeeds.Sprint.set -> void
+[KILNX031]Kiln.Registry.CreatureSpeeds.Walk.get -> double
+[KILNX031]Kiln.Registry.CreatureSpeeds.Walk.set -> void
+[KILNX031]Kiln.Registry.PerkArmor
+[KILNX031]Kiln.Registry.PerkArmor.Blunt.get -> double
+[KILNX031]Kiln.Registry.PerkArmor.Blunt.set -> void
+[KILNX031]Kiln.Registry.PerkArmor.Cut.get -> double
+[KILNX031]Kiln.Registry.PerkArmor.Cut.set -> void
+[KILNX031]Kiln.Registry.PerkArmor.Enabled.get -> bool
+[KILNX031]Kiln.Registry.PerkArmor.Enabled.set -> void
+[KILNX031]Kiln.Registry.PerkArmor.Fire.get -> double
+[KILNX031]Kiln.Registry.PerkArmor.Fire.set -> void
+[KILNX031]Kiln.Registry.PerkArmor.Ice.get -> double
+[KILNX031]Kiln.Registry.PerkArmor.Ice.set -> void
+[KILNX031]Kiln.Registry.PerkArmor.Lightning.get -> double
+[KILNX031]Kiln.Registry.PerkArmor.Lightning.set -> void
+[KILNX031]Kiln.Registry.PerkArmor.Magical.get -> double
+[KILNX031]Kiln.Registry.PerkArmor.Magical.set -> void
+[KILNX031]Kiln.Registry.PerkArmor.Physical.get -> double
+[KILNX031]Kiln.Registry.PerkArmor.Physical.set -> void
+[KILNX031]Kiln.Registry.PerkArmor.Pierce.get -> double
+[KILNX031]Kiln.Registry.PerkArmor.Pierce.set -> void
+[KILNX031]Kiln.Registry.PerkArmor.Shroud.get -> double
+[KILNX031]Kiln.Registry.PerkArmor.Shroud.set -> void
+[KILNX031]Kiln.Registry.PerkDamage
+[KILNX031]Kiln.Registry.PerkDamage.Blunt.get -> double
+[KILNX031]Kiln.Registry.PerkDamage.Blunt.set -> void
+[KILNX031]Kiln.Registry.PerkDamage.Cut.get -> double
+[KILNX031]Kiln.Registry.PerkDamage.Cut.set -> void
+[KILNX031]Kiln.Registry.PerkDamage.Enabled.get -> bool
+[KILNX031]Kiln.Registry.PerkDamage.Enabled.set -> void
+[KILNX031]Kiln.Registry.PerkDamage.Explosion.get -> int
+[KILNX031]Kiln.Registry.PerkDamage.Explosion.set -> void
+[KILNX031]Kiln.Registry.PerkDamage.Fire.get -> double
+[KILNX031]Kiln.Registry.PerkDamage.Fire.set -> void
+[KILNX031]Kiln.Registry.PerkDamage.Healing.get -> double
+[KILNX031]Kiln.Registry.PerkDamage.Healing.set -> void
+[KILNX031]Kiln.Registry.PerkDamage.Ice.get -> double
+[KILNX031]Kiln.Registry.PerkDamage.Ice.set -> void
+[KILNX031]Kiln.Registry.PerkDamage.Lightning.get -> double
+[KILNX031]Kiln.Registry.PerkDamage.Lightning.set -> void
+[KILNX031]Kiln.Registry.PerkDamage.Metal.get -> int
+[KILNX031]Kiln.Registry.PerkDamage.Metal.set -> void
+[KILNX031]Kiln.Registry.PerkDamage.Pierce.get -> double
+[KILNX031]Kiln.Registry.PerkDamage.Pierce.set -> void
+[KILNX031]Kiln.Registry.PerkDamage.Poison.get -> double
+[KILNX031]Kiln.Registry.PerkDamage.Poison.set -> void
+[KILNX031]Kiln.Registry.PerkDamage.Shroud.get -> double
+[KILNX031]Kiln.Registry.PerkDamage.Shroud.set -> void
+[KILNX031]Kiln.Registry.PerkDamage.Stone.get -> int
+[KILNX031]Kiln.Registry.PerkDamage.Stone.set -> void
+[KILNX031]Kiln.Registry.PerkDamage.Wood.get -> int
+[KILNX031]Kiln.Registry.PerkDamage.Wood.set -> void
+[KILNX031]Kiln.Registry.PerkEntry
+[KILNX031]Kiln.Registry.PerkEntry.Armor.get -> Kiln.Registry.PerkArmor!
+[KILNX031]Kiln.Registry.PerkEntry.Damage.get -> Kiln.Registry.PerkDamage!
+[KILNX031]Kiln.Registry.PerkEntry.Id.get -> Kiln.Registry.RegistryId
+[KILNX031]Kiln.Registry.PerkEntry.Registry.get -> string!
+[KILNX031]Kiln.Registry.PerkEntry.Value.get -> double
+[KILNX031]Kiln.Registry.PerkEntry.Value.set -> void
+[KILNX031]Kiln.Registry.RegistryStage.Arsenals.get -> Kiln.Registry.RegistryEntries<Kiln.Registry.ArsenalEntry!>!
+[KILNX031]Kiln.Registry.RegistryStage.Creatures.get -> Kiln.Registry.RegistryEntries<Kiln.Registry.CreatureEntry!>!
+[KILNX031]Kiln.Registry.RegistryStage.Perks.get -> Kiln.Registry.RegistryEntries<Kiln.Registry.PerkEntry!>!
