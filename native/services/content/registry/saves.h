@@ -11,7 +11,9 @@
 //     saved copy has the slot's new perk;
 //   - the balance table: durability is recomputed for every copy at load keeping its share (docs/re/items.md "Max
 //     durability"); level cap, skill points, the experience curve, flame-level limits and build-zone sizes are read against
-//     saved characters and bases, and a saved altar's level indexes the build-zone list.
+//     saved characters and bases, and a saved altar's level indexes the build-zone list;
+//   - a skill node's cost (dev.32): the game's join check counts a character's unlocked nodes against their skill points and
+//     resets the whole tree, free, when they cost more (docs/re/abilities.md section 4).
 // judge() says, per field, what an edit from `before` (the value without the registry: the game's, or an older path's) to
 // `after` does to existing saves, and what Kiln does:
 //   Refuse  the edit is refused for that entry, the value stays `before` (nothing a save holds is lost or left dangling);
@@ -20,7 +22,8 @@
 //   Warn    applied, with a warning: saves keep their data, but what it means changes, or what the game does is not traced;
 //   Report  applied, with a line: saves follow the new value and nothing is lost.
 // Every other field (recipes, loot, drops; an item's rarity, rolled, socket, power, speed, damage, armour, costs; the balance
-// table's gear, unlock, socket chance and fog numbers) is read at use or only for new copies: a save holds nothing it changes.
+// table's gear, unlock, socket chance and fog numbers; a lower skill node cost; stations, read-only) is read at use or only for
+// new copies: a save holds nothing it changes.
 // Plain data in, plain data out: no game, no file, no lock.
 #pragma once
 #include <optional>
@@ -35,7 +38,8 @@ enum class Decision : uint8_t { Refuse, Guard, Warn, Report };
 const char* decision_name(Decision d);  // "refuse", "guard", "warn", "report"
 
 struct Verdict {
-    std::string cls;   // "stackCut", "levelRange", "perkSlots", "durability", "progressionCap", "experienceCurve", "baseLimits", "listShape"
+    std::string cls;   // "stackCut", "levelRange", "perkSlots", "durability", "progressionCap", "experienceCurve", "baseLimits", "listShape",
+                       // "skillTree"
     Decision decision = Decision::Warn;
     std::string text;  // what it does to saves, in Kiln words, for registry.json and kiln.log (no game names)
     std::string unguarded;  // Guard: the refusal when the protection is not available ("...; this edit was not applied")

@@ -96,6 +96,16 @@ std::optional<Verdict> judge(const std::string& registry, const std::string& fie
         }
         return std::nullopt;
     }
+    if (registry == "skills") {
+        // the game's join check counts every unlocked node's cost against the character's skill points; over them, it resets the
+        // whole tree, free (docs/re/abilities.md section 4 "Joins, saves, unknown ids")
+        if (field == "cost" && higher(after, before))
+            return Verdict{"skillTree", Decision::Warn,
+                "raises a skill node's cost " + text(before) + " -> " + text(after) + ": a character in a save whose unlocked nodes now cost more than " +
+                    "their skill points gets the game's free reset of the whole skill tree at their next join (the points come back; the nodes " +
+                    "have to be unlocked again)"};
+        return std::nullopt;
+    }
     if (registry != "balance") return std::nullopt;
     if (field.rfind("durability.", 0) == 0 || field.rfind("rarityDurability.", 0) == 0)
         return Verdict{"durability", Decision::Report,

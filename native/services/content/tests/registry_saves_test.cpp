@@ -66,6 +66,13 @@ int main() {
     const auto shorter = sv::judge("balance", "buildzoneSizesPerAltarLevel", zones, L({xyz(40, 40, 40), xyz(60, 60, 60)}));
     CHECK(is(shorter, "listShape", sv::Decision::Refuse) && shorter->text.find("2 altar level(s) from 3") != std::string::npos, "a shorter build-zone list: refused");
     CHECK(!sv::judge("balance", "buildzoneSizesPerAltarLevel", zones, L({xyz(40, 40, 40), xyz(60, 60, 60), xyz(80, 80, 80), xyz(99, 99, 99)})), "a longer one: nothing");
+    // skillTree (dev.32): a higher node cost can put a saved character's unlocked nodes over their skill points, and the
+    // game's join check then resets the whole tree (free: the points come back): warn; a lower cost frees points: nothing
+    const auto cost = sv::judge("skills", "cost", I(3), I(5));
+    CHECK(is(cost, "skillTree", sv::Decision::Warn) && cost->text.find("3 -> 5") != std::string::npos &&
+              cost->text.find("whole skill tree") != std::string::npos, "a higher skill node cost: warn");
+    CHECK(!sv::judge("skills", "cost", I(3), I(0)), "a lower skill node cost changes nothing a save holds");
+    CHECK(!sv::judge("stations", "npc", Value::boolean(false), Value::boolean(true)), "stations: read-only, nothing a save holds");
     // no save state: read at use, or for new copies only
     for (const auto& [reg, field] : std::vector<std::pair<const char*, const char*>>{
              {"recipes", "duration"}, {"recipes", "inputs"}, {"loot", "stack.max"}, {"drops", "entries"}, {"items", "power"}, {"items", "rarity"},

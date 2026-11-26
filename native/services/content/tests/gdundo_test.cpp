@@ -378,9 +378,22 @@ void journal_cost() {
 
 }  // namespace
 
+// dev.32: the registry's slot over a gamedata section (gd_registry_slot, the skills registry's live back-end) refuses in Kiln
+// words where this world has no such entry, and for a section that is not one of kiln.gamedata's (no world here: no entries).
+void registry_slot_refusals() {
+    kc::GdValueSlot slot;
+    std::string why;
+    check(!kc::gd_registry_slot(KILN_GD_SKILLS, 0x4475e8dd, "costs", &slot, &why) && why == "the entry is not in this world",
+          "a skill node no world has: \"" + why + "\"");
+    why.clear();
+    check(!kc::gd_registry_slot(99, 1, "costs", &slot, &why) && why == "this registry has no game data section", "another section: \"" + why + "\"");
+    check(slot.addr == 0, "no slot is made");
+}
+
 int main() {
     run();
     journal_cost();
+    registry_slot_refusals();
     if (failures) std::printf("gdundo-test: %d check(s) FAILED\n", failures);
     else std::printf("gdundo-test: all checks passed\n");
     return failures ? 1 : 0;

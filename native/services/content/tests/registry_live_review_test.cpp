@@ -110,6 +110,8 @@ bool gd_item_config_slot(const Entry& e, const std::string& path, GdValueSlot* o
     return true;
 }
 bool gd_ui_scale(uint8_t, double v, int64_t* out) { return *out = std::llround(v), true; }
+// kiln.gamedata's sections for the registries over them (skills): no skill tree in this suite's world
+bool gd_registry_slot(uint32_t, uint32_t, const std::string&, GdValueSlot*, std::string* why) { return *why = "the entry is not in this world", false; }
 bool read_recipe_stacks(const Entry&, uint32_t, std::vector<KilnContentStack>*) { return false; }
 bool nc_is_new(uint32_t, uint32_t) { return false; }
 void nc_pack_add(KilnOwner, uint32_t, const std::string&, const std::string&, ApplyResult*) {}

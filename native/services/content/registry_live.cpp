@@ -18,6 +18,7 @@
 #include "registry/formulas.h"
 #include "registry/stage.h"
 #include "registry/unmapped.h"
+#include "services/kiln_gamedata.h"
 #include "services/kiln_registry_live.h"
 
 namespace kc {
@@ -145,6 +146,13 @@ uint32_t kind_of(const std::string& registry) {
     if (registry == "recipes") return KILN_CONTENT_RECIPES;
     if (registry == "loot") return KILN_CONTENT_LOOT;
     if (registry == "drops") return KILN_CONTENT_DROPS;
+    return 0;
+}
+// A registry whose live fields are kiln.gamedata's: its entries are a gamedata section's (found by the 32-bit id the stage's id
+// table gives each Kiln id) and its slots are that section's store kind, so a data pack's section layers lie below the
+// registry's and the content sync sends the registry's (dev.32: skills, the skill tree's nodes). 0: not one.
+uint32_t gd_section_of(const std::string& registry) {
+    if (registry == "skills") return KILN_GD_SKILLS;
     return 0;
 }
 
@@ -370,6 +378,29 @@ void bind_scalar(const std::shared_ptr<Binding>& b, const Field* f) {
     };
     if (!put(b, index_of(b->kind, f), -1, b->entry.addr + f->offset, f->bytes, std::move(ev))) fail(b, "the field is not readable");
     else track_scalar(b, b->entry.addr + f->offset, *f);
+}
+
+// ---- a gamedata section's scalar (skills.cost): the member of the section's entry, one slot of the section's store kind ----
+// A refusal of the mapping on this build ends with it (bind() below; the proof producer reads "... on this game build").
+constexpr const char* kMappingUpdate = " (Kiln's mapping of it needs an update)";
+void bind_gd_scalar(const std::shared_ptr<Binding>& b, uint32_t section, const std::string& path) {
+    GdValueSlot s;
+    std::string why;
+    if (!gd_registry_slot(section, b->entry.id, path, &s, &why)) {
+        LOGD("registry (live): %s: %s (regmap path %s)", b->ref.text().c_str(), why.c_str(), path.c_str());
+        return (void)fail(b, why.find("on this game build") != std::string::npos ? why + kMappingUpdate : why);
+    }
+    if ((!g.reading || g.initializing_entry) && !s.f.writable) return (void)fail(b, "the game's value of this field is not writable on this game build");
+    const Field fc = s.f;
+    LayerEval ev = [b, fc](const uint8_t* below, uint8_t, uint8_t* out, std::string* why) {
+        const rmap::Row* row = b->row ? &*b->row : nullptr;
+        const Value under = to_kiln(fc, row, b->spec, below);
+        const Value v = registry::evaluate(b->rows, under, b->spec);
+        if (!in_range(b->spec, v, why) || !save_check(b, under, v, why) || !to_game(fc, row, b->spec, v, out, why, kiln_field_name(b->ref))) return fail(b, *why);
+        return true;
+    };
+    if (!put_at(b, s.kind, s.id, s.field, -1, s.addr, fc.bytes, std::move(ev))) return (void)fail(b, "the field is not readable");
+    track_scalar(b, s.addr, fc);
 }
 
 // ---- flags: a bitmask member as a set of Kiln names (the row's values), held in the schema's order ----
@@ -892,7 +923,6 @@ void bind_unlock(const std::shared_ptr<Binding>& b) {
 // maintainers, never in the refusal (owner's principle; registry-fixes item 5). The words keep the phrases the proof producer
 // (RegistryProofTestMod.IsDisagreement) takes for a mapping that disagrees with the build: "is missing on this game build",
 // "is not writable on this game build".
-constexpr const char* kMappingUpdate = " (Kiln's mapping of it needs an update)";
 void refuse_mapping(const registry::FieldRef& fr, const std::vector<const ChainRow*>& rows, const std::string& why, const std::string& member) {
     LOGD("registry (live): %s: %s (regmap path %s)", fr.text().c_str(), why.c_str(), member.c_str());
     refuse(fr, rows, why);
@@ -911,18 +941,26 @@ void bind(const registry::FieldRef& fr, const registry::FieldOutcome& fo) {
     for (const ChainRow* r : rows) b->rows.push_back(*r);
     b->spec = *spec;
     b->kind = kind_of(fr.registry);
-    if (!b->kind) return refuse(fr, rows, "this registry has no live back-end");
-    std::string guid;
-    const Entry* e = find_entry(fr.registry, fr.id, &guid);
-    if (!e) {
-        if (b->kind == KILN_CONTENT_DROPS && !guid.empty()) {  // the game loads drop tables as it needs them
-            if (g.reading) g.read_reason = "the drop table has not loaded in this world";
-            else g.pending_tables.push_back({fr, guid});
-            return;
+    const uint32_t section = gd_section_of(fr.registry);
+    if (!b->kind && !section) return refuse(fr, rows, "this registry has no live back-end");
+    if (section) {  // a gamedata section's entry: by the 32-bit id the stage's id table gives its Kiln id
+        const auto num = g.in->nums.find(fr.registry + "|" + fr.id);
+        if (num == g.in->nums.end() || !num->second) return refuse(fr, rows, "the entry is not in this world");
+        if (raw) return refuse(fr, rows, "the member " + fo.raw + " is not a writable member on this game build");
+        b->entry.id = num->second;
+    } else {
+        std::string guid;
+        const Entry* e = find_entry(fr.registry, fr.id, &guid);
+        if (!e) {
+            if (b->kind == KILN_CONTENT_DROPS && !guid.empty()) {  // the game loads drop tables as it needs them
+                if (g.reading) g.read_reason = "the drop table has not loaded in this world";
+                else g.pending_tables.push_back({fr, guid});
+                return;
+            }
+            return refuse(fr, rows, "the entry is not in this world");
         }
-        return refuse(fr, rows, "the entry is not in this world");
+        b->entry = *e;
     }
-    b->entry = *e;
     const Schema& sc = binding_schema(b->kind);
     if (raw) {
         const Field* f = sc.find(fr.field.substr(4));
@@ -940,6 +978,11 @@ void bind(const registry::FieldRef& fr, const registry::FieldOutcome& fo) {
     if (rw.backend != rmap::Backend::Live) return refuse(fr, rows, "this field has no live back-end on this game build");
     const std::string& conv = rw.conv;
     const std::string member0 = rw.paths.empty() ? std::string("?") : rw.paths[0];
+    if (section) {  // only plain values have a binder over a gamedata section so far
+        if ((conv == "int" || conv == "float" || conv == "bool" || conv == "time" || conv == "enum") && rw.paths.size() == 1)
+            return bind_gd_scalar(b, section, rw.paths[0]);
+        return refuse(fr, rows, "the live back-end does not write " + conv + " fields of this registry yet");
+    }
     if (conv == "int" || conv == "float" || conv == "bool" || conv == "time" || conv == "enum") {
         const Field* f = rw.paths.empty() ? nullptr : sc.find(rw.paths[0]);
         // refl.cpp exposes a one-scalar struct (GemSlotOverride {isSet}) at its parent path.

@@ -16,6 +16,7 @@
 #include <stdexcept>
 #include <string>
 #include "../content.h"
+#include "services/kiln_gamedata.h"
 #include "../registry/formulas.h"
 #include "../registry/report.h"
 #include "../registry/schema_ir.h"
@@ -40,6 +41,7 @@ std::function<void()> g_before_write; // test-only: one callback just before a r
 std::function<void()> g_after_each_write; // test-only: after every single write lands (what a game thread could read between two)
 std::set<uintptr_t> g_fail_addrs; // test-only: writes to these addresses fail; the batch goes on with the others (as write_batch does)
 std::set<std::string> g_integer_impacts; // made-up per-entry Sint32 vs Float cost storage
+std::set<uint32_t> g_missing_nodes;      // test-only: skill nodes this world's tree does not have
 }  // namespace
 uintptr_t A(size_t off) { return reinterpret_cast<uintptr_t>(g_arena) + off; }
 std::vector<std::string> g_log_lines;  // test-only: every kiln.log line, "<level> <text>" (KILN_LOG_DEBUG lines too)
@@ -77,7 +79,7 @@ void* near_alloc(uintptr_t, size_t n) {
     g_near += (n + 15) & ~size_t(15);
     return p;
 }
-Registry& reg(uint32_t kind) { return g_regs[kind]; }
+Registry& reg(uint32_t kind) { return g_regs[kind < 5 ? kind : 0]; }  // as registries.cpp: another kind (a gamedata slot's) is no registry of these
 const Entry* Registry::get(uint32_t id) const {
     auto it = by_id.find(id);
     return it == by_id.end() ? nullptr : &entries[it->second];
@@ -133,6 +135,17 @@ bool gd_item_config_slot(const Entry& e, const std::string& path, GdValueSlot* o
     return true;
 }
 bool gd_ui_scale(uint8_t, double v, int64_t* out) { return *out = std::llround(v), true; }
+// The made-up skill tree (dev.32): two nodes' costs (u16) where kiln.gamedata's skills section has them, the regmap row's "costs".
+constexpr uint32_t SKILL_NODE = 0x4475e8dd, ROOT_NODE = 0x8efcc472;
+constexpr size_t SKILL_AT = 0x50000, ROOT_AT = 0x50100;
+bool gd_registry_slot(uint32_t section, uint32_t id, const std::string& path, GdValueSlot* out, std::string* why) {
+    if (section != KILN_GD_SKILLS || (id != SKILL_NODE && id != ROOT_NODE) || g_missing_nodes.count(id)) return *why = "the entry is not in this world", false;
+    if (path != "costs") return *why = "the game's value of this field is missing on this game build", false;
+    out->addr = A(id == SKILL_NODE ? SKILL_AT : ROOT_AT), out->kind = 1006, out->id = id, out->field = 1;
+    out->f.path = path, out->f.offset = 0, out->f.bytes = 2, out->f.vt = KILN_CV_INT, out->f.is_signed = false, out->f.writable = true;
+    out->tip = 0;
+    return true;
+}
 const registry::Schema& registry_schema() {
     static const registry::Schema s = registry::generated_schema();
     return s;
@@ -212,7 +225,7 @@ registry::Result g_last_report;
 int g_reports = 0;
 
 void world() {
-    g_write_limits.clear(); g_before_write = {}; g_after_each_write = {}; g_fail_addrs.clear(); g_integer_impacts.clear();
+    g_write_limits.clear(); g_before_write = {}; g_after_each_write = {}; g_fail_addrs.clear(); g_integer_impacts.clear(); g_missing_nodes.clear();
     g_registry_type_size = [](const char* q) -> uint32_t { return std::string(q) == "keen::KnowledgeQueryData" ? 12u : 0u; };
     std::string e;
     store_reset(false, &e);
@@ -290,6 +303,7 @@ void world() {
     for (size_t s : {size_t(0x31000), size_t(0x31040)}) {
         mem<uint32_t>(s + 0x10, WOOD), mem<uint32_t>(s + 0x14, 1), mem<uint32_t>(s + 0x18, 3), mem<float>(s + 0x1C, 0.5f), mem<float>(s + 0x20, 1.0f);
     }
+    mem<uint16_t>(SKILL_AT, 3), mem<uint16_t>(ROOT_AT, 1);  // the skill nodes' costs
 }
 void add_drop_table() { add_entry(g_regs[KILN_CONTENT_DROPS], 0x444, "DT_Wolf", 0x30000, G3); }
 
@@ -347,6 +361,12 @@ registry::BaseModel base() {
     lt.fields["rarities"] = registry::Value::of_list({registry::Value::text("common"), registry::Value::text("uncommon"), registry::Value::text("rare")});
     lt.fields["fixedRarity"] = registry::Value::text("none");
     b.registries["loot"].push_back(lt);
+    for (const auto& [id, cost] : std::vector<std::pair<const char*, int>>{{"game:skill_4475e8dd", 3}, {"game:skill_8efcc472", 1}}) {
+        registry::BaseModel::Entry node;
+        node.id = id;
+        node.fields["cost"] = registry::Value::integer(cost);
+        b.registries["skills"].push_back(node);
+    }
     registry::BaseModel::Entry bal;  // a restart field's entry (the boot back-end's): a reload changes it at the next start
     bal.id = "game:balance";
     bal.fields["levelCap"] = registry::Value::integer(25);
@@ -394,8 +414,9 @@ void stage(const std::vector<PackFile>& files, const std::vector<registry::Batch
               {"loot|game:material_t1_wood_logs", guid_text(G1)}, {"perks|game:perk_a", guid_text(P1)}, {"perks|game:perk_b", guid_text(P2)}};
     in.nums = {{"items|game:material_t1_wood_logs", WOOD}, {"items|game:sword_t2", SWORD}, {"items|game:material_stone", STONE},
                {"recipes|game:plank_recipe", PLANK}, {"drops|game:dt_wolf", 0x444},
-               {"loot|game:material_t1_wood_logs", WOOD}, {"perks|game:perk_a", 0x901}, {"perks|game:perk_b", 0x902}};
-    in.decoded = {"items.socket", "items.perks", "items.manaCost", "items.staminaCost", "recipes.unlock", "loot.stack.max", "loot.rarities", "loot.fixedRarity", "items.maxStack", "items.rarity", "items.power", "recipes.duration", "recipes.inputs", "recipes.outputs", "drops.entries"};
+               {"loot|game:material_t1_wood_logs", WOOD}, {"perks|game:perk_a", 0x901}, {"perks|game:perk_b", 0x902},
+               {"skills|game:skill_4475e8dd", SKILL_NODE}, {"skills|game:skill_8efcc472", ROOT_NODE}};
+    in.decoded = {"skills.cost", "items.socket", "items.perks", "items.manaCost", "items.staminaCost", "recipes.unlock", "loot.stack.max", "loot.rarities", "loot.fixedRarity", "items.maxStack", "items.rarity", "items.power", "recipes.duration", "recipes.inputs", "recipes.outputs", "drops.entries"};
     in.report = [](const registry::Result& r, bool) {
         g_last_report = r;
         ++g_reports;
@@ -1079,6 +1100,75 @@ void save_checks_at_world_load() {
     g_registry_stack_guard = &fake_guard, g_guard_ok = true;
 }
 
+// dev.32 skills: a skill node's cost is kiln.gamedata's slot (the skills section's store kind): a pack's registry edit, a relative
+// edit over an older skills-section layer, a Manual live change read back and reverted, another writer's value kept and named
+// by its Kiln place, the range, a node missing from this world refused for that entry only, and the saves note of a raise.
+void skills_cost_live() {
+    world();
+    g_files = {{"m/content/a.json", R"({"registry": {"alter": [{"registry": "skills", "select": {"id": "game:skill_4475e8dd"}, "field": "cost", "op": 0}]}})"}};
+    auto files = files_of({{"m", "m/content/a.json"}});
+    stage(files);
+    apply_registry_files(files);
+    check(at<uint16_t>(SKILL_AT) == 0 && g_last_report.refused.empty(), "skills.cost 3 -> 0 from a data pack (" + std::to_string(at<uint16_t>(SKILL_AT)) + ")");
+    check(json_field({"skills", "game:skill_4475e8dd", "cost"})["result"] == 0, "the report row of skills.cost");
+    apply_registry_files({});
+    check(at<uint16_t>(SKILL_AT) == 3, "the pack gone: the game's cost is back");
+    // relative over an older path's layer (kiln.gamedata's skills section: "skills": {"0x4475e8dd": {"costs": 2}})
+    world();
+    g_files["m/content/a.json"] = R"({"registry": {"alter": [{"registry": "skills", "select": {"id": "game:skill_4475e8dd"}, "field": "cost", "op": {"add": 1}}]}})";
+    stage(files);
+    set_owner_label(PACK, "pack oldskills");
+    const uint8_t two[2] = {2, 0};
+    store_put(PACK, kPackSeq, 1006, SKILL_NODE, 1, -1, A(SKILL_AT), 2, two, "oldskills: content/a.json");
+    apply_registry_files(files);
+    check(at<uint16_t>(SKILL_AT) == 3, "the registry's +1 composes on the old skills section's 2 (" + std::to_string(at<uint16_t>(SKILL_AT)) + ")");
+    const auto row = json_field({"skills", "game:skill_4475e8dd", "cost"});
+    check(row["writers"].size() == 2 && row["writers"][0]["kind"] == "oldPack" && row["writers"][0]["value"] == 2 && row["result"] == 3,
+          "the old section's layer is a writer below the registry: " + row.dump());
+    // a Manual live change, read back through the schema, reverted
+    world(); g_files.clear(); stage({}); registry_live_world_begin(); apply_registry_files({});
+    uint64_t h = 0;
+    RegistryLiveReply reply;
+    check(registry_live_begin(77, "change", KILN_REGISTRY_LIVE_MANUAL, &h) == KILN_OK, "begin");
+    check(registry_live_submit(77, h, R"({"ir":1,"mod":"change","stage":"alter","edits":[{"registry":"skills","select":"game:skill_8efcc472","field":"cost","op":5}]})",
+                               &reply, nullptr) == KILN_OK && reply.accepted == 1, "submit a skills.cost edit");
+    check(registry_live_commit(77, h, &reply) == KILN_OK && reply.outcome == RegistryLiveOutcome::Applied && at<uint16_t>(ROOT_AT) == 5,
+          "commit: the node costs 5 (" + std::to_string(at<uint16_t>(ROOT_AT)) + ", " + reply.reason + ")");
+    std::string text;
+    check(registry_live_read("skills", "game:skill_8efcc472", "cost", &text) == KILN_OK && text == "5", "read back through the schema: " + text);
+    check(registry_live_read("skills", "game:skill_00000001", "cost", &text) == KILN_ERR_NOT_FOUND, "a node id no world has: NOT_FOUND");
+    check(registry_live_revert(77, h, &reply) == KILN_OK && at<uint16_t>(ROOT_AT) == 1, "revert: the game's cost is back");
+    // another writer after Kiln's layer: its value stays, named by the Kiln place
+    world();
+    g_files["m/content/a.json"] = R"({"registry": {"alter": [{"registry": "skills", "select": {"id": "game:skill_4475e8dd"}, "field": "cost", "op": 0}]}})";
+    stage(files);
+    apply_registry_files(files);
+    mem<uint16_t>(SKILL_AT, 9);
+    apply_registry_files(files);
+    check(at<uint16_t>(SKILL_AT) == 9 && reported("skills[game:skill_4475e8dd].cost was written by another writer after Kiln's layer"),
+          "another writer's cost stays, the row names the Kiln place");
+    // the range: refused, the game's value stays
+    world();
+    g_files["m/content/a.json"] = R"({"registry": {"alter": [{"registry": "skills", "select": {"id": "game:skill_4475e8dd"}, "field": "cost", "op": {"mul": 30000}}]}})";
+    stage(files);
+    apply_registry_files(files);
+    check(at<uint16_t>(SKILL_AT) == 3 && reported("outside the field's range"), "90000 is outside 0..65535: refused, the cost stays 3");
+    // a node this world's tree does not have: that entry is refused, the other is written
+    world();
+    g_missing_nodes = {ROOT_NODE};
+    g_files["m/content/a.json"] = R"({"registry": {"alter": [{"registry": "skills", "select": "game:skill_*", "field": "cost", "op": {"add": 1}}]}})";
+    stage(files);
+    apply_registry_files(files);
+    check(at<uint16_t>(SKILL_AT) == 4 && at<uint16_t>(ROOT_AT) == 1 && reported("skills[game:skill_8efcc472].cost: the entry is not in this world"),
+          "per entry: the missing node refused, the other written");
+    // a raise is a saves note (skillTree, warn): written, and registry.json's "saves" (stage.cpp saves_json) says what it does to
+    // characters in saves
+    const auto notes = registry::saves::notes_json(registry::saves::notes(g_last_report));
+    bool note = false;
+    for (const auto& n : notes) note = note || (n["class"] == "skillTree" && n["decision"] == "warn" && n["field"] == "skills[game:skill_4475e8dd].cost");
+    check(note, "the raise has a skillTree warning for registry.json: " + notes.dump());
+}
+
 // review of registry-rollback: a start on a rolled-back plan. A pack reload's changed registry section is RestartRequired, not
 // composed over the plan's edits; a mod the plan leaves out has its live changes RestartRequired too; a plan mod's are applied.
 void rolled_back_start_live() {
@@ -1135,6 +1225,7 @@ int main() {
         {"live_transaction_points_and_revoke", live_transaction_points_and_revoke},
         {"save_checks_at_world_load", save_checks_at_world_load},
         {"rolled_back_start_live", rolled_back_start_live},
+        {"skills_cost_live", skills_cost_live},
     };
     int failed = 0;
     for (auto& [name, fn] : tests) {

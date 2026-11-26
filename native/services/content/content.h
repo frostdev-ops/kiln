@@ -369,6 +369,11 @@ struct GdValueSlot {
     uint8_t tip_format = 0;
 };
 bool gd_item_config_slot(const Entry& e, const std::string& path, GdValueSlot* out, std::string* why);
+// The registry's live back-end over a gamedata section (skills since dev.32): the scalar leaf at `path` (the regmap row's
+// member path) below the section's entry whose 32-bit id is `id` in this world, registered as a pack's slot is (the content
+// sync sends a changed one to Kiln clients; the report names it). false + *why, in Kiln words: no such entry in this world,
+// or the member is not a scalar the store can hold.
+bool gd_registry_slot(uint32_t section, uint32_t id, const std::string& path, GdValueSlot* out, std::string* why);
 bool gd_ui_scale(uint8_t format, double v, int64_t* out);  // a config value as its tooltip row shows it
 constexpr int32_t kSubUnlock = 101;  // Slot.sub of a recipe's knowledgeRequirement (registry recipes.unlock)
 
