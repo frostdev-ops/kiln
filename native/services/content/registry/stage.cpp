@@ -465,6 +465,12 @@ struct Runner::Impl {
     void log(int level, const std::string& line) {
         if (env.log) env.log(level, line);
     }
+    // a model's notes at info; the entries behind its per-field notes at debug (kiln.log with "log_level": "debug"), one line
+    // each: a start with registry content has tens of thousands (31.18 wrote them all at info)
+    void log_notes(model::Model& m) {
+        for (const std::string& n : m.take_notes()) log(0, "registry: " + n);
+        for (const std::string& n : m.take_details()) log(-1, "registry: " + n);
+    }
     void revoked_queue(const std::string& mod, uint64_t owner, size_t batches, size_t edits, Stage stage) {
         if (!batches) return;
         const std::string why = "owner " + std::to_string(owner) + " was revoked; dropped " + std::to_string(batches) +
@@ -1065,7 +1071,7 @@ std::vector<BootResource> Runner::run(const OldWritesFn& old_fn, const std::vect
         d.env.write_data(ids_rel, ids_model.id_table_json().dump());
         d.log(0, "registry: the id table of this game build (" + d.env.side + " " + d.env.exe_sha256.substr(0, 8) + ") is written to the data folder (" +
                      std::to_string(d.ids.size()) + " entries); no mod has registry content");
-        for (const auto& note : ids_model.take_notes()) d.log(0, "registry: " + note);
+        d.log_notes(ids_model);
     };
     bool ledger_written = false;
     if (freeze_old && ids_missing && src) {
@@ -1150,7 +1156,7 @@ std::vector<BootResource> Runner::run(const OldWritesFn& old_fn, const std::vect
         }
         d.name_archive(&base, d.ids, m.get());
         if (old_fn) old = old_fn(*m);
-        for (const std::string& n : m->take_notes()) d.log(0, "registry: " + n);
+        d.log_notes(*m);
     }
     // compose, then the saves check of restart fields (saves.h; the live back-end checks every live write over the value under
     // it): an edit the saves refuse is taken out before the boot back-end writes anything. A plan a rollback starts on is
@@ -1498,7 +1504,7 @@ bool Runner::prepare_live(LiveData* out, std::string* why) {
                 data.result.refused.insert(data.result.refused.begin(), d.outside.begin(), d.outside.end());
                 // Stable live data must not carry the model's raw resolver beyond this owned read session.
                 data.base.raw = {};
-                for (const auto& note : model.take_notes()) d.log(0, "registry: " + note);
+                d.log_notes(model);
                 d.base = std::move(data.base); d.old = std::move(data.old);
                 d.live_result = std::move(data.result); d.result = d.live_result;
                 d.ids = std::move(data.ids); d.nums = std::move(data.nums); d.decoded = std::move(data.decoded);

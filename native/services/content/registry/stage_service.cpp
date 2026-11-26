@@ -342,6 +342,7 @@ Env make_env() {
     e.log = [](int level, const std::string& line) {
         if (level >= 2) LOGE("%s", line.c_str());
         else if (level == 1) LOGW("%s", line.c_str());
+        else if (level < 0) LOGD("%s", line.c_str());
         else LOGI("%s", line.c_str());
     };
     return e;
