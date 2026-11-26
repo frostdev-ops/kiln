@@ -16,7 +16,8 @@
 // What it can and cannot say:
 //  - format 1 is per resource: a package is named on every field of an entry whose resource it wrote, whatever member
 //    it changed. Format 2 is per field where its paths name one: a package is named on the Kiln fields whose regmap
-//    member paths a written path holds or lies in (a path "" or a resource named whole is every field). "Wrote" means
+//    member paths a written path holds or lies in (a path "" or a resource named whole is every field; a member's [<Type>#<k>]
+//    variant selector, dev.32 abilities, takes any index there). "Wrote" means
 //    written, not changed (writing a field's current value names it too). The journal can over-name a writer, never miss
 //    one, within its bounds;
 //  - format 1 names only registries whose entries are each one whole resource (regmap entries kind resource or single:
