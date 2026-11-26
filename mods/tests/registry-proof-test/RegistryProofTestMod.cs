@@ -220,6 +220,8 @@ public sealed unsafe partial class RegistryProofTestMod : Mod
     /// {"$config": "Sint32ImpactConfig", "value": 6}}); null when the entry has none or more than one (no guess).</summary>
     private static string? ShownConfig(JsonNode? configs)
     {
+        // GetJson of a path gives the member wrapped ({"path", "type", "address", "value": {...}}): its value is the configurations
+        if (configs is JsonObject w && w["value"] is JsonObject inner && w.ContainsKey("path")) configs = inner;
         if (configs is not JsonObject o) return null;
         var numeric = o.Where(p => p.Value is JsonObject c && ((string?)c["$config"])?.Split("::")[^1] is "Sint32ImpactConfig" or "FloatImpactConfig")
                        .Select(p => p.Key).ToList();

@@ -88,6 +88,8 @@ public class ProducerTests
     [InlineData("""{"a":{"$config":"FloatImpactConfig","value":0.1},"b":{"$config":"Sint32ImpactConfig","value":2}}""", null)]
     [InlineData("""{"SkillId":{"$config":"SkillIdConfig","value":3}}""", null)]
     [InlineData("""[]""", null)]
+    // as GameDataEntry.GetJson gives a path: the member wrapped (lab, f0d824be: every perk read "config kind unreadable" without this)
+    [InlineData("""{"path":"impactValues","type":"keen::impact::Configurations","address":1,"value":{"0x0a0c87e7":{"$config":"Sint32ImpactConfig","value":6}}}""", "0x0a0c87e7")]
     public void A_perks_value_is_its_one_numeric_config(string configs, string? expected) =>
         Assert.Equal(expected, (string?)Call("ShownConfig", JsonNode.Parse(configs)));
 
