@@ -1,1 +1,36 @@
 #nullable enable
+[KILNX031]Kiln.Registry.AbilityEntry
+[KILNX031]Kiln.Registry.AbilityEntry.Id.get -> Kiln.Registry.RegistryId
+[KILNX031]Kiln.Registry.AbilityEntry.Registry.get -> string!
+[KILNX031]Kiln.Registry.AbilityEntry.Timing.get -> Kiln.Registry.AbilityTiming!
+[KILNX031]Kiln.Registry.AbilityTiming
+[KILNX031]Kiln.Registry.AbilityTiming.Buff.get -> System.TimeSpan
+[KILNX031]Kiln.Registry.AbilityTiming.Buff.set -> void
+[KILNX031]Kiln.Registry.AbilityTiming.Cost.get -> System.TimeSpan
+[KILNX031]Kiln.Registry.AbilityTiming.Cost.set -> void
+[KILNX031]Kiln.Registry.AbilityTiming.Hit.get -> System.TimeSpan
+[KILNX031]Kiln.Registry.AbilityTiming.Hit.set -> void
+[KILNX031]Kiln.Registry.AbilityTiming.Release.get -> System.TimeSpan
+[KILNX031]Kiln.Registry.AbilityTiming.Release.set -> void
+[KILNX031]Kiln.Registry.BuffEntry
+[KILNX031]Kiln.Registry.BuffEntry.Duration.get -> System.TimeSpan
+[KILNX031]Kiln.Registry.BuffEntry.Duration.set -> void
+[KILNX031]Kiln.Registry.BuffEntry.Id.get -> Kiln.Registry.RegistryId
+[KILNX031]Kiln.Registry.BuffEntry.Kind.get -> Kiln.Registry.BuffKind
+[KILNX031]Kiln.Registry.BuffEntry.Registry.get -> string!
+[KILNX031]Kiln.Registry.BuffEntry.Saved.get -> bool
+[KILNX031]Kiln.Registry.BuffEntry.Stacking.get -> Kiln.Registry.BuffStacking
+[KILNX031]Kiln.Registry.BuffEntry.Stacking.set -> void
+[KILNX031]Kiln.Registry.BuffKind
+[KILNX031]Kiln.Registry.BuffKind.Buff = 1 -> Kiln.Registry.BuffKind
+[KILNX031]Kiln.Registry.BuffKind.Debuff = 2 -> Kiln.Registry.BuffKind
+[KILNX031]Kiln.Registry.BuffKind.Food = 0 -> Kiln.Registry.BuffKind
+[KILNX031]Kiln.Registry.BuffKind.Rested = 3 -> Kiln.Registry.BuffKind
+[KILNX031]Kiln.Registry.BuffKind.Terrain = 4 -> Kiln.Registry.BuffKind
+[KILNX031]Kiln.Registry.BuffStacking
+[KILNX031]Kiln.Registry.BuffStacking.Keep = 0 -> Kiln.Registry.BuffStacking
+[KILNX031]Kiln.Registry.BuffStacking.Refresh = 1 -> Kiln.Registry.BuffStacking
+[KILNX031]Kiln.Registry.BuffStacking.Replace = 2 -> Kiln.Registry.BuffStacking
+[KILNX031]Kiln.Registry.BuffStacking.ReplaceAtEnd = 3 -> Kiln.Registry.BuffStacking
+[KILNX031]Kiln.Registry.RegistryStage.Abilities.get -> Kiln.Registry.RegistryEntries<Kiln.Registry.AbilityEntry!>!
+[KILNX031]Kiln.Registry.RegistryStage.Buffs.get -> Kiln.Registry.RegistryEntries<Kiln.Registry.BuffEntry!>!
