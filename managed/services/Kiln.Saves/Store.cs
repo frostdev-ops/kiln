@@ -550,11 +550,16 @@ internal sealed unsafe class WorldStore
         }
         var t0 = System.Diagnostics.Stopwatch.GetTimestamp();
         Storage.Stage(gen);
+        // Kiln's services write their per-character records now (19d §4.7: the final snapshot staging re-reads live state first)
+        ServiceCharacters.RaiseStaging(gen, snapshot, late, _epoch);
         var bundles = new List<(string Scope, byte[] Data)>();
         foreach (var b in _bundles.Values)
         {
             if (b.Keys.Count == 0) continue;
-            bundles.Add((b.Scope, Serialize(b, _json.GetValueOrDefault(b.Mod))));
+            var data = Serialize(b, _json.GetValueOrDefault(b.Mod));
+            bundles.Add((b.Scope, data));
+            // the exact bytes this staging serialized: what a service acknowledges once the generation is committed
+            if (b.Scope.StartsWith(ServiceCharacters.Prefix, StringComparison.Ordinal)) ServiceCharacters.RaiseStaged(b.Scope, data, gen, snapshot, _epoch);
         }
         ServiceEntityData.RaiseStaging();  // Kiln services refresh their values on entities (Kiln.World's transform scale)
         foreach (var (mod, data) in Entities.Stage(_json)) bundles.Add(("entity/" + mod, data));
@@ -639,6 +644,7 @@ internal sealed unsafe class WorldStore
         if (!_stagedGens.Contains(rev)) Stage(rev, reason, late: true);  // the save began before Kiln.Saves was started
         if (Root == null || !_stagedGens.Contains(rev)) return;
         _stagedGens.RemoveWhere(g => g <= rev);
+        ServiceCharacters.RaiseCommitted(rev, unix, _epoch);
         var job = new SaveWriter.CommitJob
         {
             Epoch = _epoch, Root = Root, WorldId = WorldId, Rev = rev, Unix = unix, Reason = reason, Prune = ++_commits % 10 == 1,

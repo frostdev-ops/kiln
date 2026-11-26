@@ -11,6 +11,9 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Kiln.Blocks.Tests" />
     <InternalsVisibleTo Include="Kiln.Saves.Tests" />
+    <!-- 19d: Kiln.Pets keeps its per-character records through ServiceCharacters (service scope, staged receipts) -->
+    <InternalsVisibleTo Include="Kiln.Pets" />
+    <InternalsVisibleTo Include="Kiln.Pets.Tests" />
     <InternalsVisibleTo Include="Kiln.World.Tests" />
     <InternalsVisibleTo Include="Kiln.Terrain" />
     <InternalsVisibleTo Include="Kiln.TestKit" />

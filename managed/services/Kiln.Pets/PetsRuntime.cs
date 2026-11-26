@@ -100,6 +100,9 @@ internal static partial class PetsRuntime
     private static void Tick(in TickInfo tick)
     {
         DrainEvents();
+        if (Roster is null && Lifecycle.IsServerRunning && !_testOwned) Roster = MakeRoster(new GamePetWorld(), new GamePetStore());
+        Roster?.Step();
+        DrainEvents();
     }
 
     internal static void DrainEvents()
@@ -136,10 +139,77 @@ internal static partial class PetsRuntime
 
 internal static partial class PetsRuntime
 {
-    /// <summary>The rows besides kiln.pets and pets.definitions (the mechanisms that are not here yet say so).</summary>
+    internal const string ServiceName = "kiln.pets";
+
+    /// <summary>The world's pets (server side, once a server world runs); null on a joined client.</summary>
+    internal static PetRoster? Roster { get; private set; }
+    private static bool _testOwned;
+
+    /// <summary>Tests that drive a roster without a capability registry: every row counts as on.</summary>
+    internal static bool TestRows;
+
+    /// <summary>Wires the packages' parts onto a roster (the broker, the follower, the guard, the owners' view).</summary>
+    internal static Action<PetRoster>? Wire;
+
+    private static PetRoster MakeRoster(IPetWorld world, IPetStore store)
+    {
+        var r = new PetRoster(world, store);
+        InUse = id => Roster?.DefinitionInUse(id) ?? false;
+        Wire?.Invoke(r);
+        return r;
+    }
+
+    /// <summary>Tests: a roster on a fake world and store (no game tick drives it; the test calls Step).</summary>
+    internal static PetRoster UseForTests(IPetWorld world, IPetStore store)
+    {
+        Roster?.Detach();
+        _testOwned = true;
+        Roster = MakeRoster(world, store);
+        return Roster;
+    }
+
+    internal static void StopForTests()
+    {
+        Roster?.Detach();
+        Roster = null;
+        _testOwned = false;
+    }
+
+    /// <summary>The world's id (anchors remember it).</summary>
+    internal static string? WorldId
+    {
+        get
+        {
+            try { return Saves.WorldId; }
+            catch (Exception) { return null; }
+        }
+    }
+
+    /// <summary>The rows besides kiln.pets and pets.definitions.</summary>
     internal static void ReportRows()
     {
-        foreach (var row in new[] { Pets.Caps.Records, Pets.Caps.Summon, Pets.Caps.Control, Pets.Caps.Follow, Pets.Caps.Fight, Pets.Caps.Downed, Pets.Caps.HudServer, Pets.Caps.HudClient })
+        var server = Lifecycle.IsServerRunning;
+        if (Roster is not null || server)
+            ServiceCaps.Report(Pets.Caps.Records, CapabilityState.Available);
+        else
+            ServiceCaps.Report(Pets.Caps.Records, CapabilityState.Unavailable, CapabilityReason.WrongSide, "pet records live on the server (no server world here)");
+        var world = Roster?.World;
+        var why = "";
+        if (world is not null && world.CanMakeBodies(out why)) ServiceCaps.Report(Pets.Caps.Summon, CapabilityState.Available);
+        else ServiceCaps.Report(Pets.Caps.Summon, CapabilityState.Unavailable, server ? CapabilityReason.Session : CapabilityReason.WrongSide,
+            world is not null ? why : "bodies are made on the server");
+        ReportLaterRows();
+    }
+
+    static partial void ReportLaterRows();
+}
+
+internal static partial class PetsRuntime
+{
+    /// <summary>The rows of mechanisms that are not in this Kiln yet say so (each package fills its own).</summary>
+    static partial void ReportLaterRows()
+    {
+        foreach (var row in new[] { Pets.Caps.Control, Pets.Caps.Follow, Pets.Caps.Fight, Pets.Caps.Downed, Pets.Caps.HudServer, Pets.Caps.HudClient })
             ServiceCaps.Report(row, CapabilityState.Unavailable, CapabilityReason.ServiceMissing, "not in this Kiln yet");
     }
 }
