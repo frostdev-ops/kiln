@@ -445,8 +445,15 @@ fn find_paths(db: &TypeDb, base: &str, name: &str, depth: usize, prefix: &str, o
 fn propose(old: &TypeDb, new: &TypeDb, nbase: &str, path: &str, os: &[Step], stop: &Stop) -> Option<Proposal> {
     let was = os.get(stop.at)?;
     let old_names: Vec<String> = old.get(&was.owner).map(|t| old.fields(t).iter().map(|f| f.name.clone()).collect()).unwrap_or_default();
+    // a member with selectors ("events[keen::actor::SpawnEntityEvent#0]"): its step's type is the element or variant it picks;
+    // a rename is the member itself, so compare the member's own type (the list) and keep its selectors in the proposal
+    let (was_name, selectors) = was.member.split_at(was.member.find('[').unwrap_or(was.member.len()));
+    let was_ty = old
+        .get(&was.owner)
+        .and_then(|t| old.fields(t).into_iter().find(|f| f.name == was_name).map(|f| f.ty.clone()))
+        .unwrap_or_else(|| was.ty.clone());
     let owner = new.get(&stop.owner)?;
-    let cands: Vec<&Member> = new.fields(owner).into_iter().filter(|f| !old_names.contains(&f.name) && !retyped(old, new, &was.ty, &f.ty)).collect();
+    let cands: Vec<&Member> = new.fields(owner).into_iter().filter(|f| !old_names.contains(&f.name) && !retyped(old, new, &was_ty, &f.ty)).collect();
     let same_place: Vec<&&Member> = cands.iter().filter(|f| f.offset == was.offset).collect();
     let rename = match (same_place.len(), cands.len()) {
         (1, _) => Some((same_place[0].name.clone(), "renamed: a new member with the same offset and type")),
@@ -457,7 +464,7 @@ fn propose(old: &TypeDb, new: &TypeDb, nbase: &str, path: &str, os: &[Step], sto
     let fits = |p: &str| walk(new, nbase, p).is_ok_and(|s| !retyped(old, new, &old_leaf, &leaf(&s)));
     if let Some((name, why)) = rename {
         let mut parts: Vec<String> = split_path(path).into_iter().map(str::to_string).collect();
-        parts[stop.at] = name;
+        parts[stop.at] = name + selectors;
         let now = parts.join(".");
         if fits(&now) {
             return Some(Proposal { was: path.into(), now, why: why.into() });
@@ -762,6 +769,28 @@ pub(crate) mod tests {
                             ("subSequences[0].events[demo::act::Spawn#x].time", "neither an index")] {
             let e = walk(&d, "demo::Seq", path).err().unwrap_or_else(|| panic!("{path} resolved"));
             assert!(e.why.contains(why), "{path}: {}", e.why);
+        }
+    }
+
+    /// Review of dev.32: a member with selectors renamed on a new build (the update rehearsal) is proposed with its selectors kept,
+    /// compared by the member's own type (the list), never by the variant its selector picks.
+    #[test]
+    fn a_renamed_member_with_selectors_is_proposed_with_them() {
+        let old = db(seq_types(), "a");
+        let path = "subSequences[0].events[demo::act::Spawn#0].time";
+        let os = walk(&old, "demo::Seq", path).unwrap();
+        for (replacement, now) in [
+            (st("demo::Sub", 24, 0x14, &[("timeline", "demo::Events", 0), ("length", "demo::Time", 8), ("name", "demo::Text", 16)]),
+             "subSequences[0].timeline[demo::act::Spawn#0].time"),
+            (st("demo::Seq", 24, 0x15, &[("id", "demo::Guid", 0), ("parts", "demo::Subs", 16)]), "parts[0].events[demo::act::Spawn#0].time"),
+        ] {
+            let mut n = seq_types();
+            replace(&mut n, replacement);
+            let new = db(n, "b");
+            let stop = walk(&new, "demo::Seq", path).unwrap_err();
+            let p = propose(&old, &new, "demo::Seq", path, &os, &stop).unwrap_or_else(|| panic!("no proposal for {now}"));
+            assert_eq!(p.now, now);
+            assert!(p.why.starts_with("renamed"), "{p:?}");
         }
     }
 
