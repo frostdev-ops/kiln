@@ -29,6 +29,15 @@ public sealed class RegistryEditsMod : Mod
             registry.Alter(view => view.Loot.Remove("game:material_t1_wood_logs"));
         }
         registry.Alter(view => view.Items["game:material_t1_wood_logs"].MaxStack = settings.WoodStack);
+        // Since 0.2.0-dev.32: a skill node's cost (game:skill_<node id>; Airborne Architect here) and recipes by their station
+        // (a stations id: the id of the item that builds the station). Stations and recipes.station are read-only.
+        registry.Alter(view => view.Skills["game:skill_4475e8dd"].Cost = 0);
+        var forge = new RegistryId("game:prop_production_t1_forge");
+        registry.Alter(view =>
+        {
+            foreach (var recipe in view.Recipes.Select())
+                if (recipe.Station == forge) recipe.Duration /= 2;
+        });
         // A Final helper is explicit. Ordinary assignments target Alter and are ignored in Add/Final.
         // Do not retain context, entries or lists: their operations expire when this callback returns.
     }

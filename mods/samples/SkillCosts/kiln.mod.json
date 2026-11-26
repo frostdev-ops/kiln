@@ -1,0 +1,10 @@
+{
+  "id": "skill-costs",
+  "name": "Skill costs and forge recipes (registry example)",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "side": "server",
+  "clients": "kiln",
+  "license": "MIT",
+  "description": "A data pack for the skills and stations registries (since 0.2.0-dev.32, KILNX031): Airborne Architect costs no skill points, every active skill costs one point less, and every recipe of the forge takes half as long. Kiln clients get the costs and durations from the server (their skill screen and crafting menu follow); vanilla clients show the game's numbers."
+}

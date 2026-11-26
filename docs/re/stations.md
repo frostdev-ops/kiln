@@ -1349,4 +1349,4 @@ regmap/common/stations.json).
   villager's station up to 9 NPC templates), so a station is not a template, and the crafting stock (the
   `InventoryCraftingStock` component of 10 templates: the five Magic chests and five refilling plants) and the area
   deposit switch (its `canReceiveAreaDeposit`) are templates' data, not a station's: no station field maps them (see
-  docs/kiln/modding/registries/stations.md).
+  docs/kiln/modding/registries/README.md "Stations, recipes and the base's storage").

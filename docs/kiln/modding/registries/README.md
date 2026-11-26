@@ -44,6 +44,8 @@ registry has a breaking step yet: every schema is 0.1.0, and Kiln ships no migra
 | `loot` | random loot per item: stack sizes, rarities | [loot.md](loot.md) |
 | `drops` | the game's drop tables (default inventories) | [drops.md](drops.md) |
 | `balance` | the balance table: experience, levels, flame, durability, sockets, perk costs | [balance.md](balance.md) |
+| `skills` | the skill tree's nodes: their cost in skill points; levels, kind, class and unlocked ability read-only (since 0.2.0-dev.32) | [skills.md](skills.md) |
+| `stations` | the crafting stations (workbench, production stations, villagers' stations), read-only; a recipe names its station (since 0.2.0-dev.32) | [stations.md](stations.md) |
 
 The per-registry pages are generated from `schema/registry/<registry>.json` by `tools/registrygen/registrygen.py`; edit
 the schema, never the page. Kiln maintainers adding a registry: [adding-a-registry.md](../../adding-a-registry.md).
@@ -276,10 +278,22 @@ Every field of every registry says when an edit of it takes effect, in the schem
 
 A field whose read time Kiln has not traced yet ships with the more cautious value (worldLoad or restart, never now) and an
 unproven mapping (refused per entry, with a reason, until a Kiln update proves it); no field is in that state in this release.
-Two fields stay off on the current build, each for a proven reason, and every edit of them is refused with it:
-`items.fuel.burnTime` (no game code reads an item's burn time on this build, so an edit would change nothing) and
-`recipes.station` (read-only; a station is a stations id, which comes with the stations registry). Each page's Mapping
-column says which fields this Kiln maps, which are unproven and why.
+One field stays off on the current build, for a proven reason, and every edit of it is refused with it:
+`items.fuel.burnTime` (no game code reads an item's burn time on this build, so an edit would change nothing).
+`recipes.station` is mapped since 0.2.0-dev.32 (read-only: it names a `stations` id, `null` for a recipe of the player's
+own crafting), so data packs and C# can select recipes by station (`"where": {"station": "game:prop_production_t1_forge"}`).
+Each page's Mapping column says which fields this Kiln maps, which are unproven and why.
+
+### Stations, recipes and the base's storage
+
+A station (`stations`, since 0.2.0-dev.32) is what a recipe names: the workbench, a production station such as the forge, a
+villager's crafting station. A station's recipes are the recipes that name it (`recipes.station`), so a selector over recipes
+picks them; the stations themselves are read-only on this build. One station can have many placed forms (the game has 17 for
+the workbench), so what a placed chest or station does for its base is not a station's data: which containers count as a
+base's crafting stock (the Magic chests) and which take area deposits are the containers' templates. No registry maps them yet;
+until one does, a boot resource patch copies the Magic chest's crafting stock onto a template
+([resource-patches.md](../resource-patches.md), its `copyComponents` example), and `Bases.Storage(id, deposit: true)` in Kiln.Blocks
+lists the placed containers that take deposits ([stations.md](../../services/stations.md)).
 
 ### What a joined client sees
 
@@ -299,9 +313,14 @@ each generated page's **Joined client** column describe the multiplayer path (si
 | `unknown` | Read timing/mapping is unproven or missing; the edit is refused, not promised to become visible on rejoin. |
 
 These are field contracts, not proof of a specific UI refreshing or an equipped/save-backed instance being rebuilt.
-ContentSync must be enabled on both sides; vanilla clients keep their own UI/prediction numbers. Skills node costs are
-**not** registry fields; their independently built client tree can retain an old cost until rejoining with matching
-files ([data-pack caveat](../../services/content.md#multiplayer-registry-and-skills-edits)).
+ContentSync must be enabled on both sides; vanilla clients keep their own UI/prediction numbers.
+
+`skills.cost` (since 0.2.0-dev.32) is `now`: the server's edit is kiln.gamedata's skills slot of that node, which ContentSync
+carries; a Kiln client writes it into its own skill tree resource, which the client's tree reads through its node map, so its
+skill screen and its own point count follow at the next draw. A vanilla client keeps its own costs on its screen (the
+server's unlock check decides). Nodes a mod **adds** through kiln.skills (`skills/*.json`, `GameTree.Define`) are not registry
+entries: each side builds them from its own files, and a joined client sees a changed definition only after rejoining with
+matching files ([data-pack caveat](../../services/content.md#multiplayer-registry-and-skills-edits)).
 
 ### Registry-only packs: choosing `clients`
 
@@ -311,7 +330,7 @@ files ([data-pack caveat](../../services/content.md#multiplayer-registry-and-ski
 | Fields / operation | `clients` | Why |
 |---|---|---|
 | `loot`, `drops`; any `serverOnly` field (including the read-only balance gear constants, which cannot be edited) | `none` | Only the server needs the values. |
-| Synced `items` / `recipes` fields (`now` or `worldLoad`) | `kiln` for matching UI/prediction; `none` deliberately permits vanilla UI/prediction | Kiln clients get server layers; vanilla clients do not. |
+| Synced `items` / `recipes` fields (`now` or `worldLoad`), `skills.cost` | `kiln` for matching UI/prediction; `none` deliberately permits vanilla UI/prediction | Kiln clients get server layers; vanilla clients do not. |
 | Client-needed `balance` fields (`restart`) | `mod`, with `side: "both"` | Each process must bake its own matching value/settings and load order; `kiln` alone cannot transfer it. |
 | Client-only fields (`localOnly`, currently `recipes.unlock`) | `mod`, with `side: "both"` | The client's own mod supplies them; a dedicated server refuses client-only edits. |
 | Item/recipe entry add/remove | At least `kiln`; `mod` for custom assets or other client-local content | Definitions and visibility are not just scalar server rules. Existing content/look-alike rules still apply. Loot removal alone remains server-only (`none`). |
@@ -321,7 +340,8 @@ For `items`, `rolled`, `socket` and the read-only `hasDamage` / `hasArmor` are `
 mapping (`staminaCost` follows ContentSync like `manaCost`: the server charges it, but a client's tooltip and prediction
 read their own copy); `block`, `comfort` and `fuel.burnTime` are `unknown` until their read timing is proven. Other item
 fields follow ContentSync. `recipes.station` is read-only/server-only; the remaining recipe fields sync except
-`unlock`. `loot`/`drops` never require a client copy. The generated pages are the per-field reference.
+`unlock`. `loot`/`drops` never require a client copy. `skills.cost` follows ContentSync; the other `skills` fields and every
+`stations` field are read-only. The generated pages are the per-field reference.
 
 `kiln lint` / `kiln-manage lint` reports `KL213` for a registry-only pack whose effective `clients` requirement differs
 from those fields, with a suggested value. It does not silently change admission, lower a mixed/code mod's policy, or
@@ -559,7 +579,8 @@ edit of them against the value without it (the game's, or what an older path wro
 | `experienceCurve` | `balance.xpPerLevel`, `balance.xpCurve.*` changed | saved characters keep their experience; a level whose threshold moved is not recomputed by Kiln | **warning**, applied |
 | `baseLimits` | `balance.altarsPerFlameLevel`, `waterSourcesPerFlameLevel`, `buildzoneSizesPerAltarLevel` values lower | saved bases keep what they hold above the new limit; what the game does with it is not traced | **warning**, applied |
 | `durability` | `balance.durability.*`, `balance.rarityDurability.*` | each saved copy keeps its share of durability; max and current follow the new value at load | **reported**, applied |
-| (none) | everything else: recipes, loot, drops; an item's rarity, rolled, socket, power, speed, damage, armour, costs; the balance table's gear, unlock, socket chance and fog numbers | read at use, or only for new copies | applied |
+| `skillTree` | `skills.cost` higher (since 0.2.0-dev.32) | a character in a save whose unlocked nodes now cost more than their skill points gets the game's free reset of the whole skill tree at their next join (the points come back; the nodes have to be unlocked again) | **warning**, applied |
+| (none) | everything else: recipes, loot, drops; an item's rarity, rolled, socket, power, speed, damage, armour, costs; the balance table's gear, unlock, socket chance and fog numbers; a lower `skills.cost` | read at use, or only for new copies | applied |
 
 Refusals are in registry.json `refused` and kiln.log (`saves: ...; this edit was not applied`), the rest in registry.json
 `saves` (field, class, decision, text) and kiln.log (`registry: saves: ...`). Restart fields are checked at the stage, live
@@ -590,6 +611,8 @@ How a game entry's stable name is made (each registry's page repeats its own rul
 | loot | the id of its item | 4,213 entries |
 | drops | see "Drop tables" below | 420 tables |
 | balance | `game:balance` (one entry) | 1 |
+| skills | `skill_<node id, 8 hex>` (a node has no debug name; kiln.gamedata's and the catalogs' name) | 243 nodes |
+| stations | the id of the item that builds the station (a villager's: the villager's item); `station_<station id, 8 hex>` when it has none | 51 stations, 7 without an item; no two share an item |
 
 **Two entries with one name.** The entry that held a stable name first keeps it for good; a later entry whose name is the
 same (also when the two differ only in case) gets `game:<name>~<first 8 hex digits of its GUID>` (more digits if those
