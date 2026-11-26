@@ -197,7 +197,8 @@ clamps saved copies into, a list a saved index points into) and add its case to 
 warn or report (README "Edits that change existing saves"), with a `registry_saves` test. Restart fields are judged at the
 stage (`stage.cpp` `compose_checked`), live scalar fields at each write over the value under them (`registry_live.cpp`
 `save_check`; a new entry's first values are not judged), and every field of a rollback's plan also against the plan it rolls
-away from (`stage.cpp`, whole plan); a field read only at use or for new copies needs nothing.
+away from (`stage.cpp`, whole plan); a start's fields are judged against the plan the last world ran on too (a Refuse or Warn
+verdict there is a warning where the start's own value has none: P52); a field read only at use or for new copies needs nothing.
 
 ### 2.9 Managed typed API and analyzers
 
@@ -368,6 +369,7 @@ Each row: the symptom we saw, why, the fix that is in now, and the code or test 
 | P49 | the registry's live read of a read-only field in a running world fails (UNAVAILABLE) | the live back-end binds only live rows; read-only rows come from the base (proof.cpp `read_only`, the stage's base) | expected: read-only rows are proven from the base and read from the resolved view; the producer samples only live rows of a gamedata-backed registry | `RegistryProofTestMod.Skills.cs` |
 | P50 | a node of the game's skill tree changed in the resource but the game's tree did not follow (the fear; not seen: the dev.32 lab showed the game's PointsSpent and NodeById follow a registry write, 3 -> 4, with no mod nodes served) | kiln.skills serves an expanded copy of the tree when mods add nodes; a world whose tree was built before the copy was served would hold the old bytes | kiln.gamedata resolves the resource at the world's start, after kiln.skills serves it; the proof producer's effect reads the cost back through the game's NodeById and PointsSpent (a lab with mod nodes would show the served-copy case) | docs/re/abilities.md "The skills registry" |
 | P51 | a live enum value the build's game lacks was refused "\"legendary\" is not a value of Legendary on this game build": the game's name of the value, not the Kiln field (P45) | `to_game` looked the value up into a local `name` that shadowed the Kiln field's name its refusal meant | the local is `game`; the refusal names the field ("is not a value of items.rarity"); every scalar binder, the gamedata-section one (`bind_gd_scalar`) included, goes through it | `registry_live.cpp` `to_game`; `registry_live_test` `enum_refusal_names_the_kiln_field` |
+| P52 | a start that took a lowered `skills.cost` back up (1 for the last world, 2 now, the game's 3) got no saves warning, while characters who spent their points at 1 get the game's free tree reset at their next join | warning classes were judged only against the value without the registry (3 -> 2: lower); only Refuse classes were judged against the plan the last world ran on | a Warn verdict against that plan is a warning too, where the start's own value has no verdict of its own (one note per field). Not covered: a start where no mod has registry content (no base is read), and a live change's revert (never judged) | `stage.cpp` (start against the last world's plan); `registry_stage_test` `a_start_raising_a_skill_cost_over_the_last_worlds_warns` |
 
 Regmap reasons are player-facing (P31's rule for records): `regmap_check.py:324-330`. A reason must say what is not
 known in Kiln words, without nested parentheses (kiln.content wraps it in parentheses).

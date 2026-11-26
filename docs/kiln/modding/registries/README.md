@@ -613,8 +613,8 @@ edit of them against the value without it (the game's, or what an older path wro
 | `experienceCurve` | `balance.xpPerLevel`, `balance.xpCurve.*` changed | saved characters keep their experience; a level whose threshold moved is not recomputed by Kiln | **warning**, applied |
 | `baseLimits` | `balance.altarsPerFlameLevel`, `waterSourcesPerFlameLevel`, `buildzoneSizesPerAltarLevel` values lower | saved bases keep what they hold above the new limit; what the game does with it is not traced | **warning**, applied |
 | `durability` | `balance.durability.*`, `balance.rarityDurability.*` | each saved copy keeps its share of durability; max and current follow the new value at load | **reported**, applied |
-| `skillTree` | `skills.cost` higher (since 0.2.0-dev.32) | a character in a save whose unlocked nodes now cost more than their skill points gets the game's free reset of the whole skill tree at their next join (the points come back; the nodes have to be unlocked again) | **warning**, applied |
-| (none) | everything else: recipes, loot, drops; an item's rarity, rolled, socket, power, speed, damage, armour, costs; the balance table's gear, unlock, socket chance and fog numbers; a lower `skills.cost` | read at use, or only for new copies | applied |
+| `skillTree` | `skills.cost` higher (since 0.2.0-dev.32), also than the cost the last world ran on (a lowered cost taken back up) | a character in a save whose unlocked nodes now cost more than their skill points gets the game's free reset of the whole skill tree at their next join (the points come back; the nodes have to be unlocked again) | **warning**, applied |
+| (none) | everything else: recipes, loot, drops; an item's rarity, rolled, socket, power, speed, damage, armour, costs; the balance table's gear, unlock, socket chance and fog numbers; a lower `skills.cost` (until a later start takes it back up: `skillTree` above) | read at use, or only for new copies | applied |
 
 Refusals are in registry.json `refused` and kiln.log (`saves: ...; this edit was not applied`), the rest in registry.json
 `saves` (field, class, decision, text) and kiln.log (`registry: saves: ...`). Restart fields are checked at the stage, live
@@ -623,7 +623,11 @@ too. A new entry's first values (its add's `fields`, over the entry it is like) 
 yet; its later edits are. The value under an edit is the game's (or an older path's), not what an earlier start gave it, so
 a mod that lowers its own earlier raise of `items.levels.max` is not refused (without the edit the game's value applies,
 lower still); a start whose level range is narrower, or whose build-zone list is shorter, than the plan the last world ran on
-gets a `levelRange` or `listShape` warning in `saves` instead. A rollback is judged against the plan it rolls away from and
+gets a `levelRange` or `listShape` warning in `saves` instead. A warning class is judged against that plan too, where this
+start's own value gets no warning against the value without the registry (since 0.2.0-dev.32): a skill node's cost lowered to 1
+for that world and 2 now is a `skillTree` warning (characters spent their points at 1), though 2 is below the game's 3; so is a
+level cap lower than that world's (`progressionCap`). A start where no mod has registry content reads no base and judges
+nothing. A rollback is judged against the plan it rolls away from and
 refused whole ("Plans and rollback"). Balance fields stay restart-only.
 
 ## Ids

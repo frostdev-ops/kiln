@@ -1009,6 +1009,55 @@ void a_start_below_the_last_worlds_range_warns(const std::string& dir) {
     check(logged(s.log, "1 registry: saves: items[game:plank].levels.max narrows the level range"), "a kiln.log warning");
 }
 
+// review-registry-r3a: a skill node's cost against the plan the last world ran on. Characters spend their points at the cost their
+// world ran with; a start that takes a lowered cost back up (1, then 2) puts such a character over their points, and the game's
+// join check resets the whole tree, as a raise over the game's cost does: a skillTree warning against that plan, although against
+// the game's 3 the start still lowers it. Keeping or lowering the world's cost says nothing; a start whose own value is warned
+// against the game's (5 over 3) is warned once.
+void a_start_raising_a_skill_cost_over_the_last_worlds_warns(const std::string& dir) {
+    Files files;
+    auto view = [] {
+        TreeView v = world();
+        v.add("keen::SkillTreeResource", g(600),
+              {{"nodes", json::array({{{"id", 0x4475e8dd}, {"costs", 3}, {"maxLevel", 0}, {"type", "PassiveSkill"}, {"classAlignment", "Neutral"},
+                                       {"activeSkillUnlock", 0}, {"activeSkillUnlockRef", "none"}}})}});
+        return v;
+    };
+    auto cost = [](int c) {
+        return R"({"registry": {"alter": [{"registry": "skills", "select": {"id": "game:skill_4475e8dd"}, "field": "cost", "op": )" + std::to_string(c) + "}]}}";
+    };
+    auto notes = [](const PlanStart& s) {
+        std::vector<std::string> out;
+        for (const auto& n : s.report.value("saves", json::array()))
+            if (n["field"] == "skills[game:skill_4475e8dd].cost")
+                out.push_back(n["class"].get<std::string>() + "/" + n["decision"].get<std::string>() + ": " + n["text"].get<std::string>());
+        return json(out);
+    };
+    g_stacks = cost(1);
+    TreeView v1 = view();
+    PlanStart a = plan_start(dir, &files, &v1);
+    const std::string ha = plan_hash(a);
+    check(a.report["refused"].empty() && field_row(a.report, "game:skill_4475e8dd", "cost")["result"] == 1 && notes(a).empty(),
+          "3 -> 1: applied, nothing a save holds is at stake yet: " + notes(a).dump());
+    g_stacks = cost(2);
+    TreeView v2 = view();
+    PlanStart b = plan_start(dir, &files, &v2);
+    const json nb = notes(b);
+    check(nb.size() == 1 && nb[0].get<std::string>().rfind("skillTree/warn: raises a skill node's cost 1 -> 2 against plan " + ha.substr(0, 12), 0) == 0,
+          "2 after a world that ran on 1: a skillTree warning against that plan: " + nb.dump());
+    check(logged(b.log, "1 registry: saves: skills[game:skill_4475e8dd].cost raises a skill node's cost 1 -> 2"), "a kiln.log warning");
+    g_stacks = cost(1);
+    TreeView v3 = view();
+    PlanStart c = plan_start(dir, &files, &v3);
+    check(notes(c).empty(), "1 after a world that ran on 2: lower, nothing: " + notes(c).dump());
+    g_stacks = cost(5);
+    TreeView v4 = view();
+    PlanStart d = plan_start(dir, &files, &v4);
+    const json nd = notes(d);
+    check(nd.size() == 1 && nd[0].get<std::string>().rfind("skillTree/warn: raises a skill node's cost 3 -> 5: ", 0) == 0,
+          "5: warned once, against the game's 3: " + nd.dump());
+}
+
 // A plan whose max stack is lower than the value under it needs the stack guard at the stage, not per entry at the world's load
 // (here the index was deleted, so no highest stack is known, and the request names no plan rolled away from).
 void rollback_plan_lowering_a_stack_asks_the_guard_at_the_stage(const std::string& dir) {
@@ -1420,6 +1469,7 @@ int main(int argc, char** argv) {
         {"rollback_changed_back_names_every_value", [&] { rollback_changed_back_names_every_value(dir); }},
         {"rollback_judged_against_the_plan_rolled_away_from", [&] { rollback_judged_against_the_plan_rolled_away_from(dir); }},
         {"a_start_below_the_last_worlds_range_warns", [&] { a_start_below_the_last_worlds_range_warns(dir); }},
+        {"a_start_raising_a_skill_cost_over_the_last_worlds_warns", [&] { a_start_raising_a_skill_cost_over_the_last_worlds_warns(dir); }},
         {"rollback_plan_lowering_a_stack_asks_the_guard_at_the_stage", [&] { rollback_plan_lowering_a_stack_asks_the_guard_at_the_stage(dir); }},
         {"an_unreadable_index_is_kept_and_reported", [&] { an_unreadable_index_is_kept_and_reported(dir); }},
         {"migrated_names_of_a_callback_turn", [&] { migrated_names_of_a_callback_turn(dir); }},

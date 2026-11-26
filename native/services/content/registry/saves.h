@@ -15,7 +15,8 @@
 //   - a skill node's cost (dev.32): the game's join check counts a character's unlocked nodes against their skill points and
 //     resets the whole tree, free, when they cost more (docs/re/abilities.md section 4).
 // judge() says, per field, what an edit from `before` (the value without the registry: the game's, or an older path's) to
-// `after` does to existing saves, and what Kiln does:
+// `after` does to existing saves, and what Kiln does (the stage also judges a start against the plan the last world ran on, as
+// `before`: a Refuse or a Warn verdict there is a warning where this start's value has none of its own, stage.cpp):
 //   Refuse  the edit is refused for that entry, the value stays `before` (nothing a save holds is lost or left dangling);
 //   Guard   applied, and Kiln protects the saves: the stack guard keeps a bigger saved stack whole (refused where the guard is
 //           not available);
