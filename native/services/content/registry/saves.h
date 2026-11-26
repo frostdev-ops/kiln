@@ -12,6 +12,8 @@
 //   - the balance table: durability is recomputed for every copy at load keeping its share (docs/re/items.md "Max
 //     durability"); level cap, skill points, the experience curve, flame-level limits and build-zone sizes are read against
 //     saved characters and bases, and a saved altar's level indexes the build-zone list.
+//   - the difficulty settings' bounds: the game clamps a world's own (Custom) settings into them when it reads them at start
+//     (docs/re/settings.md section 8).
 // judge() says, per field, what an edit from `before` (the value without the registry: the game's, or an older path's) to
 // `after` does to existing saves, and what Kiln does:
 //   Refuse  the edit is refused for that entry, the value stays `before` (nothing a save holds is lost or left dangling);
@@ -35,7 +37,8 @@ enum class Decision : uint8_t { Refuse, Guard, Warn, Report };
 const char* decision_name(Decision d);  // "refuse", "guard", "warn", "report"
 
 struct Verdict {
-    std::string cls;   // "stackCut", "levelRange", "perkSlots", "durability", "progressionCap", "experienceCurve", "baseLimits", "listShape"
+    std::string cls;   // "stackCut", "levelRange", "perkSlots", "durability", "progressionCap", "experienceCurve", "baseLimits", "listShape",
+                       // "settingsRange"
     Decision decision = Decision::Warn;
     std::string text;  // what it does to saves, in Kiln words, for registry.json and kiln.log (no game names)
     std::string unguarded;  // Guard: the refusal when the protection is not available ("...; this edit was not applied")

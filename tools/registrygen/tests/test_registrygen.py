@@ -543,14 +543,17 @@ class Repository(unittest.TestCase):
     def test_r1_registries(self):
         m = rg.load(REPO)
         self.assertEqual(m.errors, [])
-        self.assertEqual(sorted(m.registries), ["balance", "drops", "items", "loot", "recipes"])
+        # the five R1 registries, and dev.32's world rules (world, difficulty) and limits
+        self.assertEqual(sorted(m.registries), ["balance", "difficulty", "drops", "items", "limits", "loot", "recipes", "world"])
         for r in m.registries.values():
             for f in r.rows:
                 self.assertIn(f.applies, ("now", "worldLoad", "restart"), f.qualified)
                 self.assertIn(f.spec.get("joinedClient"), rg.JOINED_CLIENT, f.qualified)
-        # experimental 0.x; items 0.1.1 since 31.x (block and comfort apply now: an earlier applies, additive)
+        # experimental 0.x; items 0.1.1 since 31.x (block and comfort apply now: an earlier applies, additive); balance 0.1.1 since
+        # dev.32 (altarsPerFlameLevel up to 255 with limits.maxAltars: a wider range, additive)
         self.assertEqual({n: r.version for n, r in m.registries.items()},
-                         {"balance": "0.1.0", "drops": "0.1.0", "items": "0.1.1", "loot": "0.1.0", "recipes": "0.1.0"})
+                         {"balance": "0.1.1", "difficulty": "0.1.0", "drops": "0.1.0", "items": "0.1.1", "limits": "0.1.0", "loot": "0.1.0",
+                          "recipes": "0.1.0", "world": "0.1.0"})
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <mutex>
 #include <unordered_map>
 
 #include "formulas.h"
@@ -370,6 +371,13 @@ std::optional<Value> decode(const map::RegistryMap& reg, const map::Row& row, co
         if (!at(0, &a)) return std::nullopt;
         return scalar(f, f.type == FieldType::List ? f.element : f.type, a, why);
     }
+    if (c == "position") {
+        // a world position's axis: 32.32 fixed-point metres (keen::WorldPosition), exact as a double up to 2^53 / 2^32 m
+        if (!at(0, &a)) return std::nullopt;
+        double d = 0;
+        if (!number_of(a, &d)) return *why = "not a number: " + a.dump(), std::nullopt;
+        return Value::number(d / kPositionUnit);
+    }
     if (c == "enum") {
         if (!at(0, &a)) return std::nullopt;
         if (auto k = kiln_enum(row, a)) return Value::text(*k);
@@ -506,22 +514,30 @@ std::optional<Value> decode(const map::RegistryMap& reg, const map::Row& row, co
     return *why = "conversion " + c + " is not decoded", std::nullopt;
 }
 
+bool encode_leaf(const FieldSpec& spec, const map::Row& r, const Value& x, json* out, std::string* why) {
+    if (r.conv == "enum") {
+        const auto it = x.kind == Value::Text ? r.values.find(x.t) : r.values.end();
+        if (it == r.values.end()) return *why = "no game value for " + x.text_of(), false;
+        return *out = it->second, true;
+    }
+    if (r.conv == "position") {
+        if (!x.numeric() || !std::isfinite(x.as_double())) return *why = "not a number: " + x.text_of(), false;
+        const double fixed = std::round(x.as_double() * kPositionUnit);
+        if (!(fixed >= -0x1p63 && fixed < 0x1p63)) return *why = x.text_of() + " m does not fit the game's storage of this field", false;
+        return *out = static_cast<int64_t>(fixed), true;
+    }
+    if (r.conv != "int" && r.conv != "float" && r.conv != "bool" && r.conv != "time")
+        return *why = "the boot back-end does not write " + r.conv + " values", false;
+    if (x.kind == Value::Bool) return *out = x.b, true;
+    if (!x.numeric()) return *why = "not a number: " + x.text_of(), false;
+    *out = spec.type == FieldType::Int || (spec.type == FieldType::List && spec.element == FieldType::Int) ? json(x.i) : json(x.as_double());
+    if (x.kind == Value::Num && spec.type == FieldType::Int) *out = static_cast<int64_t>(std::llround(x.d));
+    return true;
+}
+
 bool encode(const map::RegistryMap& reg, const map::Row& row, const FieldSpec& f, const Value& v, const Value& below,
             std::vector<std::pair<std::string, json>>* writes, std::string* why) {
-    auto scalar_json = [&](const FieldSpec& spec, const map::Row& r, const Value& x, json* out) {
-        if (r.conv == "enum") {
-            const auto it = x.kind == Value::Text ? r.values.find(x.t) : r.values.end();
-            if (it == r.values.end()) return *why = "no game value for " + x.text_of(), false;
-            return *out = it->second, true;
-        }
-        if (r.conv != "int" && r.conv != "float" && r.conv != "bool" && r.conv != "time")
-            return *why = "the boot back-end does not write " + r.conv + " values", false;
-        if (x.kind == Value::Bool) return *out = x.b, true;
-        if (!x.numeric()) return *why = "not a number: " + x.text_of(), false;
-        *out = spec.type == FieldType::Int || (spec.type == FieldType::List && spec.element == FieldType::Int) ? json(x.i) : json(x.as_double());
-        if (x.kind == Value::Num && spec.type == FieldType::Int) *out = static_cast<int64_t>(std::llround(x.d));
-        return true;
-    };
+    auto scalar_json = [&](const FieldSpec& spec, const map::Row& r, const Value& x, json* out) { return encode_leaf(spec, r, x, out, why); };
     if (row.paths.empty()) return *why = "the row has no path", false;
     if (row.conv != "list") {
         if (v == below) return true;
@@ -558,6 +574,16 @@ bool encode(const map::RegistryMap& reg, const map::Row& row, const FieldSpec& f
         }
     }
     return true;
+}
+
+// ---- the hooks registries' values ----
+namespace {
+std::mutex g_hooks_mu;
+HookValueFn g_hooks;
+}  // namespace
+void set_hook_values(HookValueFn fn) {
+    std::lock_guard lk(g_hooks_mu);
+    g_hooks = std::move(fn);
 }
 
 // ---- the model ----
@@ -606,9 +632,11 @@ const std::vector<Entry>* Model::entries(const std::string& registry, std::strin
     const map::EntrySource& s = *R.src;
     std::vector<KilnAssetKey> keys;
     std::string w;
-    if (!src_.list(s.resource_type, &keys, &w)) return fail(w);
+    if (s.kind != map::EntryKind::Hooks && !src_.list(s.resource_type, &keys, &w)) return fail(w);
     std::vector<Place> places;
-    if (s.kind == map::EntryKind::Resource) {
+    if (s.kind == map::EntryKind::Hooks) {
+        places.push_back({KilnAssetKey{}, kHooksType, "", -1});  // one entry, no resource: its values are Kiln's hooks
+    } else if (s.kind == map::EntryKind::Resource) {
         for (const KilnAssetKey& k : keys) places.push_back({k, s.resource_type, "", -1});
     } else if (s.kind == map::EntryKind::Single) {
         for (const KilnAssetKey& k : keys)
@@ -653,7 +681,9 @@ const std::vector<Entry>* Model::entries(const std::string& registry, std::strin
         json j;
         std::string e1;
         if (!s.name.empty() && src_.member(p, s.name, &j, &e1) && j.is_string()) e.name = j.get<std::string>();
-        if (!s.guid.empty()) {
+        if (s.kind == map::EntryKind::Hooks) {
+            e.guid = lc(added_guid(registry, "game:" + s.unnamed));  // the id table's key: fixed, as an added entry's
+        } else if (!s.guid.empty()) {
             if (src_.member(p, s.guid, &j, &e1) && !is_none_ref(j)) e.guid = lc(j.get<std::string>());
         } else if (p.array.empty()) {
             e.guid = lc(guid_text(p.key.guid));
@@ -724,6 +754,12 @@ std::optional<Value> Model::value(const std::string& registry, size_t i, const s
     if (row == R.map->rows.end()) return done(std::nullopt, registry + "." + field + " has no regmap row");
     const Place place = (*es)[i].place;
     MemberFn get = [&](const std::string& path, json* out, std::string* w) { return src_.member(place, path, out, w); };
+    if (R.src && R.src->kind == map::EntryKind::Hooks)
+        get = [](const std::string& path, json* out, std::string* w) {
+            std::lock_guard lk(g_hooks_mu);
+            if (!g_hooks) return *w = "Kiln's hooks of the game's code are not here", false;
+            return g_hooks(path, out, w);
+        };
     RefFn refs = [this](const std::string& reg, const std::string& guid, uint32_t num) -> std::optional<std::string> {
         std::string w;
         if (!entries(reg, &w)) return std::nullopt;
@@ -890,7 +926,7 @@ void Model::fill(const Need& need, BaseModel* out) {
                 if (!raw_key(r.paths[0], &key, &err)) continue;
                 const bool converted = r.conv == "formula" || r.conv == "enum" || r.conv == "optionalEnum" || r.conv == "flags" || r.conv == "impactConfig" ||
                                        r.conv == "ref" || r.conv == "refList" || r.conv == "unlock" || r.conv == "stackCount" || r.conv == "list" ||
-                                       r.conv == "inventoryWalk";
+                                       r.conv == "inventoryWalk" || r.conv == "position";
                 out->raw_cover[reg][key] = {fn, converted};
             }
     }

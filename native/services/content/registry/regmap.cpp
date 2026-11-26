@@ -100,16 +100,19 @@ bool load_common(const json& doc, RegistryMap* out, std::vector<std::string>* er
     for (const auto& [k, v] : e.items())
         if (std::none_of(std::begin(ekeys), std::end(ekeys), [&](const char* x) { return k == x; })) errs->push_back(r + ": entries: unknown member \"" + k + "\"");
     const std::string kind = str(e, "kind");
-    out->entries.kind = kind == "array" ? EntryKind::Array : kind == "single" ? EntryKind::Single : EntryKind::Resource;
-    if (kind != "resource" && kind != "array" && kind != "single") errs->push_back(r + ": entries.kind is resource, array or single");
+    out->entries.kind = kind == "array" ? EntryKind::Array : kind == "single" ? EntryKind::Single : kind == "hooks" ? EntryKind::Hooks : EntryKind::Resource;
+    if (kind != "resource" && kind != "array" && kind != "single" && kind != "hooks") errs->push_back(r + ": entries.kind is resource, array, single or hooks");
     out->entries.resource_type = str(e, "resourceType");
-    if (out->entries.resource_type.empty()) errs->push_back(r + ": entries.resourceType names the game's root type");
+    const bool hooks = out->entries.kind == EntryKind::Hooks;
+    if (hooks && !out->entries.resource_type.empty()) errs->push_back(r + ": entries of kind hooks have no resourceType (their values are Kiln's hooks)");
+    if (hooks && out->entries.unnamed.empty() && str(e, "unnamed").empty()) errs->push_back(r + ": entries of kind hooks name their one entry (\"unnamed\")");
+    if (!hooks && out->entries.resource_type.empty()) errs->push_back(r + ": entries.resourceType names the game's root type");
     out->entries.array = str(e, "array"), out->entries.resource_guid = str(e, "resourceGuid");
     out->entries.name = str(e, "name"), out->entries.guid = str(e, "guid"), out->entries.id = str(e, "id");
     out->entries.unnamed = str(e, "unnamed"), out->entries.name_from = str(e, "nameFrom"), out->entries.key = str(e, "key");
     if (out->entries.kind == EntryKind::Array && out->entries.array.empty()) errs->push_back(r + ": entries.array names the member that holds the entries");
     if (out->entries.kind == EntryKind::Single && !is_hex_guid(out->entries.resource_guid)) errs->push_back(r + ": entries.resourceGuid is the one resource's GUID");
-    static const char* const rkeys[] = {"paths", "conv", "values", "formula", "config", "read", "backend", "clientNeeds", "state", "reason", "evidence"};
+    static const char* const rkeys[] = {"paths", "conv", "values", "formula", "config", "read", "backend", "clientNeeds", "state", "reason", "evidence", "resize"};
     const json rows = doc.value("rows", json::object());
     for (const auto& [field, j] : rows.items()) {
         const std::string q = r + "." + field;
@@ -140,10 +143,16 @@ bool load_common(const json& doc, RegistryMap* out, std::vector<std::string>* er
         if (!is_conv(row.conv)) errs->push_back(q + ": conv \"" + row.conv + "\" is not one of regmap/README.md's conversions"), ok = false;
         if (!read_of(str(j, "read"), &row.read)) errs->push_back(q + ": read is now, worldLoad, restart or unknown"), ok = false;
         const std::string be = str(j, "backend");
-        row.backend = be == "live" ? Backend::Live : be == "boot" ? Backend::Boot : Backend::None;
-        if (be != "live" && be != "boot" && be != "none") errs->push_back(q + ": backend is live, boot or none"), ok = false;
+        row.backend = be == "live" ? Backend::Live : be == "boot" ? Backend::Boot : be == "hook" ? Backend::Hook : Backend::None;
+        if (be != "live" && be != "boot" && be != "none" && be != "hook") errs->push_back(q + ": backend is live, boot, hook or none"), ok = false;
+        // a hooks registry's values are written by Kiln's hooks only; a resource's never are
+        if ((row.backend == Backend::Hook) != (hooks && be != "none")) errs->push_back(q + ": the hook back-end serves the rows of a hooks registry, and only it does"), ok = false;
         if (j.contains("clientNeeds") && !j["clientNeeds"].is_boolean()) errs->push_back(q + ": clientNeeds is true or false"), ok = false;
         row.client_needs = j.value("clientNeeds", false);
+        if (j.contains("resize") && !j["resize"].is_boolean()) errs->push_back(q + ": resize is true or false"), ok = false;
+        row.resize = j.contains("resize") && j["resize"].is_boolean() && j["resize"].get<bool>();
+        if (row.resize && (row.conv != "list" || row.backend != Backend::Boot))
+            errs->push_back(q + ": resize is for a list row of the boot back-end"), ok = false;
         if (j.contains("values")) {
             if (!j["values"].is_object()) errs->push_back(q + ": values maps Kiln names to the game's"), ok = false;
             else
@@ -381,6 +390,7 @@ std::vector<std::string> check_routing(const RegistryMap& m) {
             continue;
         }
         if (row.backend == Backend::Boot && applies != 2) out.push_back(q + ": a boot back-end write acts only after a restart, the schema says otherwise");
+        if (row.backend == Backend::Hook && applies != 2) out.push_back(q + ": a hook takes its value at start, the schema says otherwise");
         if (row.backend == Backend::Live && applies == 2) out.push_back(q + ": a restart field goes through the boot back-end (before the game reads it)");
         if (row.backend == Backend::None) out.push_back(q + ": a writable field needs a back-end (live or boot)");
     }

@@ -149,6 +149,19 @@ std::string added_guid(const std::string& registry, const std::string& kiln_id);
 // written there (a list whose length would change, a conversion the boot back-end does not write).
 bool encode(const map::RegistryMap& reg, const map::Row& row, const FieldSpec& f, const Value& v, const Value& below,
             std::vector<std::pair<std::string, json>>* writes, std::string* why);
+// One plain Kiln value (spec: its field, or a list's element field) as the JSON gd::parse_leaf takes for the row's member:
+// enum names through the row's values, numbers, bools, a time's seconds, a position's metres as the game's 32.32 fixed point.
+// false + *why: not a value the boot back-end writes (another conversion, not a number).
+bool encode_leaf(const FieldSpec& spec, const map::Row& row, const Value& v, json* out, std::string* why);
+// The values of a "hooks" registry (regmap entries kind hooks): the game's own value of each Kiln hook by the name a row's path
+// gives ("altarCap"), as the model reads a member (limits.cpp sets it in kiln-content.dll from the game's code; host tests set
+// their own). Unset: such a registry's fields have no value ("Kiln's hooks are not here").
+using HookValueFn = std::function<bool(const std::string& name, json* out, std::string* why)>;
+void set_hook_values(HookValueFn fn);
+// The place of a hooks registry's one entry: no resource (its key is all zeros), this type name.
+inline constexpr const char* kHooksType = "kiln:hooks";
+// A position (conv "position"): the game keeps a world position's axis as a signed 64-bit 32.32 fixed-point number of metres.
+constexpr double kPositionUnit = 4294967296.0;  // 2^32: one metre
 // The decoder alone, over a member getter (paths from the root the row's paths start at): what the boot back-end reads back
 // from the copy after the old documents. refs: a reference's Kiln id from (registry, GUID text, 32-bit id); may be empty.
 using MemberFn = std::function<bool(const std::string& path, json* out, std::string* why)>;

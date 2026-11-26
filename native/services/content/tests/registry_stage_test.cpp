@@ -21,6 +21,7 @@ std::string guid_text(const uint8_t g[16]);
 bool guid_parse(const std::string& s, uint8_t out[16]);
 namespace rbtest {
 void balance_type();  // keen::BalancingTable {playerLevelCap u32 +0, skillPointsPerLevel u32 +4}, 8 bytes
+void scene_type();    // keen::SceneResource {flag +0, noBuildZones BlobArray<Zone {min, max WorldPosition, marker u8}> +8, tail +16}
 }
 }  // namespace kc
 
@@ -528,6 +529,170 @@ void bridge_write() {
     out.clear();
     check(boothook::write(rb.key, rb.type, &bytes, rb, &out, &notes) == 0 && out.size() == 1 && !out[0].ok && !out[0].why.empty(), "a member that is not there: not written, with why: " + (out.empty() ? "" : out[0].why));
 }
+// ---- R3b: the boot back-end gives a "resize" list another length behind the copy (world.noBuildZones), positions in metres ----
+namespace r3b {
+constexpr double kM = 4294967296.0;  // one metre in the game's 32.32 fixed point
+struct Zone { int64_t mn[3], mx[3]; uint8_t marker; };
+// the scene's bytes: the 24-byte header, then the zones' data behind it at 32 (16-aligned), as the archive lays them out
+std::vector<uint8_t> scene_bytes(const std::vector<Zone>& zs) {
+    std::vector<uint8_t> b(32 + zs.size() * 0x38, 0);
+    const uint32_t flag = 7, tail = 9, count = static_cast<uint32_t>(zs.size());
+    const int32_t rel = zs.empty() ? 0 : 32 - 8;
+    std::memcpy(b.data(), &flag, 4), std::memcpy(b.data() + 8, &rel, 4), std::memcpy(b.data() + 12, &count, 4), std::memcpy(b.data() + 16, &tail, 4);
+    for (size_t i = 0; i < zs.size(); ++i) {
+        uint8_t* at = b.data() + 32 + i * 0x38;
+        std::memcpy(at, zs[i].mn, 24), std::memcpy(at + 0x18, zs[i].mx, 24), at[0x30] = zs[i].marker;
+    }
+    return b;
+}
+std::vector<Zone> zones_of(const std::vector<uint8_t>& b) {
+    int32_t rel = 0;
+    uint32_t count = 0;
+    std::memcpy(&rel, b.data() + 8, 4), std::memcpy(&count, b.data() + 12, 4);
+    std::vector<Zone> out(count);
+    for (uint32_t i = 0; i < count; ++i) {
+        const uint8_t* at = b.data() + 8 + rel + i * 0x38;
+        std::memcpy(out[i].mn, at, 24), std::memcpy(out[i].mx, at + 0x18, 24), out[i].marker = at[0x30];
+    }
+    return out;
+}
+int64_t m(double metres) { return static_cast<int64_t>(metres * kM); }
+map::RegistryMap world_map(bool resize) {
+    map::RegistryMap reg;
+    reg.registry = "world";
+    map::Row list;
+    list.field = "noBuildZones", list.paths = {"noBuildZones"}, list.conv = "list", list.backend = map::Backend::Boot, list.resize = resize;
+    reg.rows["noBuildZones"] = list;
+    for (const char* c : {"min", "max"})
+        for (const char* a : {"x", "y", "z"}) {
+            map::Row r;
+            r.field = std::string("noBuildZones[].") + c + "." + a;
+            r.paths = {std::string(c[1] == 'i' ? "worldBoxMin." : "worldBoxMax.") + a}, r.conv = "position", r.backend = map::Backend::Boot;
+            reg.rows[r.field] = r;
+        }
+    return reg;
+}
+// one element value as the schema has it: keys sorted ("max.x" ... "min.z"), metres
+Value zone_value(double x0, double y0, double z0, double x1, double y1, double z1) {
+    Value v;
+    v.kind = Value::Struct;
+    v.keys = {"max.x", "max.y", "max.z", "min.x", "min.y", "min.z"};
+    v.list = {Value::number(x1), Value::number(y1), Value::number(z1), Value::number(x0), Value::number(y0), Value::number(z0)};
+    return v;
+}
+struct Wrote {
+    size_t n = 0;
+    std::vector<stage::BootOutcome> out;
+    std::vector<std::string> notes;
+};
+Wrote write(std::vector<uint8_t>* bytes, const map::RegistryMap& reg, ChainRow row) {
+    const Schema schema = generated_schema();
+    stage::BootResource rb;
+    rb.key = key_of("509feadb-4c60-425f-9c7c-deeefd9b6920", "keen::SceneResource");
+    rb.type = "keen::SceneResource";
+    row.kind = WriterKind::Registry, row.mod = row.who = "anywhere";
+    rb.fields.push_back({{"world", "game:world", "noBuildZones"}, &reg, &reg.rows.at("noBuildZones"), *schema.registry("world")->field("noBuildZones"), {row}});
+    Wrote w;
+    w.n = boothook::write(rb.key, rb.type, bytes, rb, &w.out, &w.notes);
+    return w;
+}
+}  // namespace r3b
+
+void bridge_resize() {
+    using namespace r3b;
+    kc::rbtest::scene_type();
+    const std::vector<Zone> game = {{{m(-364), m(-500), m(6748)}, {m(2636), m(1500), m(10252)}, 3}, {{m(5100), m(828), m(4340)}, {m(5156), m(856), m(4420)}, 4}};
+    // clear: EMBER's build anywhere as a registry edit; the header says empty, the bytes around it are the game's
+    {
+        std::vector<uint8_t> b = scene_bytes(game);
+        const map::RegistryMap reg = world_map(true);
+        ChainRow clear;
+        clear.list = ListOp::Clear;
+        const Wrote w = write(&b, reg, clear);
+        int32_t rel = -1;
+        uint32_t count = 99, flag = 0, tail = 0;
+        std::memcpy(&rel, b.data() + 8, 4), std::memcpy(&count, b.data() + 12, 4), std::memcpy(&flag, b.data(), 4), std::memcpy(&tail, b.data() + 16, 4);
+        check(w.n > 0 && w.out.size() == 1 && w.out[0].ok && w.out[0].written.kind == Value::List && w.out[0].written.list.empty(),
+              "a clear of a resize list is written: " + (w.out.empty() ? std::string("no outcome") : w.out[0].why));
+        check(rel == 0 && count == 0 && flag == 7 && tail == 9, "the list's header says empty (no data), the resource's other members are the game's");
+    }
+    // append: the game's two zones keep their bytes (the marker Kiln has no field for), the new one is zeros plus its corners
+    {
+        std::vector<uint8_t> b = scene_bytes(game);
+        const size_t before = b.size();
+        const map::RegistryMap reg = world_map(true);
+        ChainRow app;
+        app.list = ListOp::Append;
+        app.list_values = {zone_value(1, 2, 3, 4.5, 5.25, -6)};
+        const Wrote w = write(&b, reg, app);
+        const std::vector<Zone> z = zones_of(b);
+        int32_t rel = 0;
+        std::memcpy(&rel, b.data() + 8, 4);
+        check(w.out.size() == 1 && w.out[0].ok && z.size() == 3, "an append makes three zones: " + (w.out.empty() ? std::string() : w.out[0].why));
+        check(z.size() == 3 && z[0].marker == 3 && z[1].marker == 4 && z[0].mn[0] == m(-364) && z[1].mx[2] == m(4420), "the game's zones keep their bytes, the marker too");
+        check(z.size() == 3 && z[2].marker == 0 && z[2].mn[0] == m(1) && z[2].mn[2] == m(3) && z[2].mx[0] == m(4.5) && z[2].mx[1] == m(5.25) && z[2].mx[2] == m(-6),
+              "the new zone: its corners in 32.32 fixed point, the member Kiln has no field for zero");
+        check(static_cast<size_t>(8 + rel) >= before && (8 + rel) % 16 == 0 && b.size() >= before + 3 * 0x38, "the new list lies behind the copy's bytes, 16-aligned");
+        check(!w.notes.empty() && w.notes[0].find("3 element(s) in a list of another length") != std::string::npos, "kiln.log's line says so: " + (w.notes.empty() ? "" : w.notes[0]));
+    }
+    // remove the first: the second keeps its bytes (marker 4)
+    {
+        std::vector<uint8_t> b = scene_bytes(game);
+        const map::RegistryMap reg = world_map(true);
+        ChainRow rm;
+        rm.list = ListOp::Remove;
+        rm.list_values = {zone_value(-364, -500, 6748, 2636, 1500, 10252)};
+        const Wrote w = write(&b, reg, rm);
+        const std::vector<Zone> z = zones_of(b);
+        check(w.out.size() == 1 && w.out[0].ok && z.size() == 1 && z[0].marker == 4 && z[0].mn[0] == m(5100),
+              "a remove leaves the other zone, its bytes as they were: " + (w.out.empty() ? std::string() : w.out[0].why));
+    }
+    // a corner in place (same length): one fixed-point value written, nothing moved
+    {
+        std::vector<uint8_t> b = scene_bytes(game);
+        const size_t before = b.size();
+        const map::RegistryMap reg = world_map(true);
+        ChainRow set;
+        set.op.set = true;
+        set.op.value = Value::of_list({zone_value(-364, -500, 6748, 2636, 1500, 10252.5), zone_value(5100, 828, 4340, 5156, 856, 4420)});
+        const Wrote w = write(&b, reg, set);
+        const std::vector<Zone> z = zones_of(b);
+        check(w.out.size() == 1 && w.out[0].ok && b.size() == before && z.size() == 2 && z[0].mx[2] == static_cast<int64_t>(10252.5 * kM) && z[0].marker == 3,
+              "a corner edited in place: 10252.5 m as 32.32 fixed point, the list where it was: " + (w.out.empty() ? std::string() : w.out[0].why));
+    }
+    // a list row without "resize" keeps the in-place rule (additive: the shipped registries' lists behave as before)
+    {
+        std::vector<uint8_t> b = scene_bytes(game);
+        const std::vector<uint8_t> was = b;
+        const map::RegistryMap reg = world_map(false);
+        ChainRow clear;
+        clear.list = ListOp::Clear;
+        const Wrote w = write(&b, reg, clear);
+        check(w.n == 0 && w.out.size() == 1 && !w.out[0].ok && w.out[0].why.find("its length (2) cannot change") != std::string::npos && b == was,
+              "without resize a length change is refused, nothing written: " + (w.out.empty() ? std::string() : w.out[0].why));
+    }    // elements that hold data of their own (a list in each) cannot move: refused, nothing written
+    {
+        std::vector<uint8_t> b(32 + 8, 0);
+        const int32_t rel = 24, count = 1;
+        std::memcpy(b.data(), &rel, 4), std::memcpy(b.data() + 4, &count, 4);
+        const std::vector<uint8_t> was = b;
+        map::RegistryMap reg = world_map(true);
+        reg.rows["noBuildZones"].paths = {"lists"};
+        const Schema schema = generated_schema();
+        stage::BootResource rb;
+        rb.key = key_of("509feadb-4c60-425f-9c7c-deeefd9b6920", "test::Nested");
+        rb.type = "test::Nested";
+        ChainRow clear;
+        clear.kind = WriterKind::Registry, clear.mod = clear.who = "anywhere", clear.list = ListOp::Clear;
+        rb.fields.push_back({{"world", "game:world", "noBuildZones"}, &reg, &reg.rows.at("noBuildZones"), *schema.registry("world")->field("noBuildZones"), {clear}});
+        std::vector<stage::BootOutcome> out;
+        std::vector<std::string> notes;
+        const size_t n = boothook::write(rb.key, rb.type, &b, rb, &out, &notes);
+        check(n == 0 && out.size() == 1 && !out[0].ok && out[0].why.find("hold data of their own") != std::string::npos && b == was,
+              "a list whose elements hold lists is not moved: refused, with why: " + (out.empty() ? std::string() : out[0].why));
+    }
+}
+
 // ---- registry-rollback: the plan keeps its edits and values, the last good plan is "previous", a rollback starts on it ----
 std::string g_stacks = R"({"registry": {"alter": [
     {"registry": "items", "select": {"id": "game:plank"}, "field": "maxStack", "op": {"mul": 4}},
@@ -1398,11 +1563,47 @@ void old_writes_element_of_its_resource(const std::string& dir) {
         for (const json& w : f["writers"]) check(w["kind"] != "oldPatch", "no old patch row in registry.json: " + f.dump());
 }
 
+// R3b: the limits registry's restart fields go to the hook back-end: one BootResource of type kHooksType (no resource), composed
+// over the game's values from its code; and they are client-needed boot values of the join's fingerprint
+void limits_go_to_the_hooks(const std::string& dir) {
+    model::set_hook_values([](const std::string& n, json* out, std::string* why) {
+        if (n == "altarCap") return *out = 16, true;
+        if (n == "giftRange") return *out = 50.0, true;
+        return *why = "no such hook value", false;
+    });
+    Files files;
+    g_stacks = R"({"registry": {"alter": [
+        {"registry": "limits", "select": {"id": "game:limits"}, "field": "maxAltars", "op": 24},
+        {"registry": "limits", "select": {"id": "game:limits"}, "field": "giftingRange", "op": {"mul": 2}}]}})";
+    TreeView v = world();
+    stage::Runner r(env_of(&v, &files, dir, &stacks));
+    const auto boot = r.run({});
+    const stage::BootResource* hooks = nullptr;
+    for (const auto& b : boot)
+        if (b.type == model::kHooksType) hooks = &b;
+    check(hooks && hooks->fields.size() == 2, "one hooks resource with both limits fields: " + std::to_string(boot.size()) + " boot resource(s)");
+    std::vector<stage::BootOutcome> outcomes;
+    if (hooks)
+        for (const auto& f : hooks->fields) {
+            const Value v = evaluate(f.rows, f.field.field == "maxAltars" ? Value::integer(16) : Value::number(50), f.spec);
+            check(f.field.field == "maxAltars" ? v == Value::integer(24) : v == Value::number(100), f.field.text() + " composes over the game's value: " + v.text_of());
+            outcomes.push_back({f.field, true, v, ""});
+        }
+    r.finish(outcomes);
+    const json rep = json::parse(files.report);
+    check(rep["refused"].empty(), "nothing refused: " + rep["refused"].dump().substr(0, 400));
+    check(field_row(rep, "game:limits", "maxAltars")["result"] == 24 && field_row(rep, "game:limits", "giftingRange")["result"] == 100,
+          "registry.json: the values the hooks took");
+    check(rep.contains("bootSync") && rep["bootSync"].is_object() && rep["bootSync"].contains("values"),
+          "client-needed boot values (limits are clientNeeds): the join fingerprint is published: " + rep.value("bootSync", json()).dump());
+    model::set_hook_values(nullptr);
+}
+
 int main(int argc, char** argv) {
     const std::string dir = argc > 1 ? argv[1] : "regmap";
     int failed = 0;
     const std::pair<const char*, std::function<void()>> groups[] = {
-        {"boot_sync", [&] { boot_sync(dir); }}, {"one_start", [&] { one_start(dir); }}, {"host_order_and_code", [&] { host_order_and_code(dir); }}, {"id_table_without_content", [&] { id_table_without_content(dir); }}, {"bridge_write", [] { bridge_write(); }},
+        {"boot_sync", [&] { boot_sync(dir); }}, {"one_start", [&] { one_start(dir); }}, {"host_order_and_code", [&] { host_order_and_code(dir); }}, {"id_table_without_content", [&] { id_table_without_content(dir); }}, {"bridge_write", [] { bridge_write(); }}, {"bridge_resize", [] { bridge_resize(); }}, {"limits_go_to_the_hooks", [&] { limits_go_to_the_hooks(dir); }},
         {"registry_caps", [&] { registry_caps(dir); }}, {"other_mapping_report", [&] { other_mapping_report(dir); }},
         {"plans_link_the_last_good_plan", [&] { plans_link_the_last_good_plan(dir); }},
         {"rollback_starts_on_the_previous_plan", [&] { rollback_starts_on_the_previous_plan(dir); }},

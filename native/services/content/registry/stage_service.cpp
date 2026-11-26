@@ -40,6 +40,8 @@
 #include "stage.h"
 #include "stage_owner.h"
 #include "live_table.h"
+#include "limits.h"
+#include "kiln_hook.hpp"
 
 namespace kc {
 bool eml_live_generation(std::string* hex, std::string* why);  // gamedata_bootview_eml.cpp
@@ -556,6 +558,29 @@ KilnResult KILN_CALL h_read_pass(KilnOwner owner, KilnStr reg, KilnStr id, KilnS
 }
 const KilnRegistryHostApi kHostTable = {{sizeof(KilnRegistryHostApi), KILN_REGISTRY_HOST_VERSION}, &h_set_order, &h_set_mode, &h_read_pass};
 
+// ---- the limits registry's hooks (limits.h): installed only when a registry value is not the game's ----
+kiln::RawHook g_altar_hook, g_gift_hook;
+uint32_t hk_altar_limit(void* registry, uint32_t level) {
+    const uint32_t original = g_altar_hook.call<uint32_t>(registry, level);
+    return limits::altar_hook_answer(registry, level, original);
+}
+float hk_gift_range() {
+    float squared = 0;
+    if (limits::gift_hook_answer(&squared)) return squared;
+    return g_gift_hook.call<float>();
+}
+bool install_limit_hook(const std::string& name, std::string* why) {
+    const bool altar = name == "altarCap";
+    const char* sym = altar ? "limits/AltarLimit" : name == "giftRange" ? "limits/GiftRange" : nullptr;
+    uintptr_t target = 0;
+    if (!sym || g_api->symbol(KilnStr{sym, std::strlen(sym)}, &target) != KILN_OK || !target) return *why = "the game's function was not found on this game build", false;
+    kiln::RawHook& hook = altar ? g_altar_hook : g_gift_hook;
+    void* fn = altar ? reinterpret_cast<void*>(&hk_altar_limit) : reinterpret_cast<void*>(&hk_gift_range);
+    if (!hook.install(g_api, g_owner, target, fn, sym)) return *why = hook.error() ? hook.error() : "kiln.hooks refused the hook", false;
+    LOGI("registry: limits: Kiln's hook of %s is in", sym);
+    return true;
+}
+
 }  // namespace
 
 Runner& runner() {
@@ -585,7 +610,20 @@ void bind_service() {
             if (!docs.empty()) old = [docs](model::Model& model) { return boothook::old_writes(docs, model); };
             return runner().run(old, freeze);
         },
-        &boothook::write, [](const std::vector<BootOutcome>& o) { runner().finish(o); }};
+        &boothook::write, [](const std::vector<BootOutcome>& o) { runner().finish(o); }, &limits::apply};
+    // the limits registry: the game's own values from its code (sigdb), Kiln's hooks only where a value is not the game's
+    limits::Env lenv;
+    lenv.symbol = [](const char* n, uintptr_t* out) { return g_api->symbol(KilnStr{n, std::strlen(n)}, out) == KILN_OK && *out != 0; };
+    lenv.constant = [](const char* n, int64_t* out) { return g_api->constant(KilnStr{n, std::strlen(n)}, out) == KILN_OK; };
+    lenv.read = [](uintptr_t a, void* out, size_t n) { return kc::rd(a, out, n); };
+    lenv.install = &install_limit_hook;
+    lenv.log = [](int level, const std::string& line) {
+        if (level >= 2) LOGE("%s", line.c_str());
+        else if (level == 1) LOGW("%s", line.c_str());
+        else LOGI("%s", line.c_str());
+    };
+    limits::bind(std::move(lenv));
+    model::set_hook_values(&limits::base_value);
     boothook::set(&hooks);
     // the live back-end (registry_live.cpp, S9): now and worldLoad fields as store layers at each world load
     runner().set_live([](const LiveHandoff& h) {

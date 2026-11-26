@@ -1,0 +1,525 @@
+{
+  "regmap": 1,
+  "registry": "difficulty",
+  "entries": {
+    "kind": "single",
+    "resourceType": "keen::GameSettingsPresetsResource",
+    "resourceGuid": "46e14df6-fb8f-4f66-9463-e23b9e19e48e",
+    "unnamed": "difficulty"
+  },
+  "rows": {
+    "playerHealthFactor.min": {
+      "paths": [
+        "minValues.playerHealthFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true,
+      "evidence": "docs/re/settings.md section 8: the server's startup config loader looks the presets resource up (server 26430253 0x53b9e3) and clamps a Custom world's settings into minValues..maxValues (0x53bbf4 -> 0x172e00) once per start; lab dev32-regr3b (difficulty effect)"
+    },
+    "playerHealthFactor.max": {
+      "paths": [
+        "maxValues.playerHealthFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true
+    },
+    "playerManaFactor.min": {
+      "paths": [
+        "minValues.playerManaFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true,
+      "evidence": "docs/re/settings.md section 8: the server's startup config loader looks the presets resource up (server 26430253 0x53b9e3) and clamps a Custom world's settings into minValues..maxValues (0x53bbf4 -> 0x172e00) once per start; lab dev32-regr3b (difficulty effect)"
+    },
+    "playerManaFactor.max": {
+      "paths": [
+        "maxValues.playerManaFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true
+    },
+    "playerStaminaFactor.min": {
+      "paths": [
+        "minValues.playerStaminaFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true,
+      "evidence": "docs/re/settings.md section 8: the server's startup config loader looks the presets resource up (server 26430253 0x53b9e3) and clamps a Custom world's settings into minValues..maxValues (0x53bbf4 -> 0x172e00) once per start; lab dev32-regr3b (difficulty effect)"
+    },
+    "playerStaminaFactor.max": {
+      "paths": [
+        "maxValues.playerStaminaFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true
+    },
+    "playerBodyHeatFactor.min": {
+      "paths": [
+        "minValues.playerBodyHeatFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true,
+      "evidence": "docs/re/settings.md section 8: the server's startup config loader looks the presets resource up (server 26430253 0x53b9e3) and clamps a Custom world's settings into minValues..maxValues (0x53bbf4 -> 0x172e00) once per start; lab dev32-regr3b (difficulty effect)"
+    },
+    "playerBodyHeatFactor.max": {
+      "paths": [
+        "maxValues.playerBodyHeatFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true
+    },
+    "playerDivingTimeFactor.min": {
+      "paths": [
+        "minValues.playerDivingTimeFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true,
+      "evidence": "docs/re/settings.md section 8: the server's startup config loader looks the presets resource up (server 26430253 0x53b9e3) and clamps a Custom world's settings into minValues..maxValues (0x53bbf4 -> 0x172e00) once per start; lab dev32-regr3b (difficulty effect)"
+    },
+    "playerDivingTimeFactor.max": {
+      "paths": [
+        "maxValues.playerDivingTimeFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true
+    },
+    "foodBuffDurationFactor.min": {
+      "paths": [
+        "minValues.foodBuffDurationFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true,
+      "evidence": "docs/re/settings.md section 8: the server's startup config loader looks the presets resource up (server 26430253 0x53b9e3) and clamps a Custom world's settings into minValues..maxValues (0x53bbf4 -> 0x172e00) once per start; lab dev32-regr3b (difficulty effect)"
+    },
+    "foodBuffDurationFactor.max": {
+      "paths": [
+        "maxValues.foodBuffDurationFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true
+    },
+    "fromHungerToStarving.min": {
+      "paths": [
+        "minValues.fromHungerToStarving"
+      ],
+      "conv": "time",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true,
+      "evidence": "docs/re/settings.md section 8: the server's startup config loader looks the presets resource up (server 26430253 0x53b9e3) and clamps a Custom world's settings into minValues..maxValues (0x53bbf4 -> 0x172e00) once per start; lab dev32-regr3b (difficulty effect)"
+    },
+    "fromHungerToStarving.max": {
+      "paths": [
+        "maxValues.fromHungerToStarving"
+      ],
+      "conv": "time",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true
+    },
+    "shroudTimeFactor.min": {
+      "paths": [
+        "minValues.shroudTimeFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true,
+      "evidence": "docs/re/settings.md section 8: the server's startup config loader looks the presets resource up (server 26430253 0x53b9e3) and clamps a Custom world's settings into minValues..maxValues (0x53bbf4 -> 0x172e00) once per start; lab dev32-regr3b (difficulty effect)"
+    },
+    "shroudTimeFactor.max": {
+      "paths": [
+        "maxValues.shroudTimeFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true
+    },
+    "miningDamageFactor.min": {
+      "paths": [
+        "minValues.miningDamageFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true,
+      "evidence": "docs/re/settings.md section 8: the server's startup config loader looks the presets resource up (server 26430253 0x53b9e3) and clamps a Custom world's settings into minValues..maxValues (0x53bbf4 -> 0x172e00) once per start; lab dev32-regr3b (difficulty effect)"
+    },
+    "miningDamageFactor.max": {
+      "paths": [
+        "maxValues.miningDamageFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true
+    },
+    "plantGrowthSpeedFactor.min": {
+      "paths": [
+        "minValues.plantGrowthSpeedFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true,
+      "evidence": "docs/re/settings.md section 8: the server's startup config loader looks the presets resource up (server 26430253 0x53b9e3) and clamps a Custom world's settings into minValues..maxValues (0x53bbf4 -> 0x172e00) once per start; lab dev32-regr3b (difficulty effect)"
+    },
+    "plantGrowthSpeedFactor.max": {
+      "paths": [
+        "maxValues.plantGrowthSpeedFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true
+    },
+    "resourceDropStackAmountFactor.min": {
+      "paths": [
+        "minValues.resourceDropStackAmountFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true,
+      "evidence": "docs/re/settings.md section 8: the server's startup config loader looks the presets resource up (server 26430253 0x53b9e3) and clamps a Custom world's settings into minValues..maxValues (0x53bbf4 -> 0x172e00) once per start; lab dev32-regr3b (difficulty effect)"
+    },
+    "resourceDropStackAmountFactor.max": {
+      "paths": [
+        "maxValues.resourceDropStackAmountFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true
+    },
+    "factoryProductionSpeedFactor.min": {
+      "paths": [
+        "minValues.factoryProductionSpeedFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true,
+      "evidence": "docs/re/settings.md section 8: the server's startup config loader looks the presets resource up (server 26430253 0x53b9e3) and clamps a Custom world's settings into minValues..maxValues (0x53bbf4 -> 0x172e00) once per start; lab dev32-regr3b (difficulty effect)"
+    },
+    "factoryProductionSpeedFactor.max": {
+      "paths": [
+        "maxValues.factoryProductionSpeedFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true
+    },
+    "perkUpgradeRecyclingFactor.min": {
+      "paths": [
+        "minValues.perkUpgradeRecyclingFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true,
+      "evidence": "docs/re/settings.md section 8: the server's startup config loader looks the presets resource up (server 26430253 0x53b9e3) and clamps a Custom world's settings into minValues..maxValues (0x53bbf4 -> 0x172e00) once per start; lab dev32-regr3b (difficulty effect)"
+    },
+    "perkUpgradeRecyclingFactor.max": {
+      "paths": [
+        "maxValues.perkUpgradeRecyclingFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true
+    },
+    "perkCostFactor.min": {
+      "paths": [
+        "minValues.perkCostFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true,
+      "evidence": "docs/re/settings.md section 8: the server's startup config loader looks the presets resource up (server 26430253 0x53b9e3) and clamps a Custom world's settings into minValues..maxValues (0x53bbf4 -> 0x172e00) once per start; lab dev32-regr3b (difficulty effect)"
+    },
+    "perkCostFactor.max": {
+      "paths": [
+        "maxValues.perkCostFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true
+    },
+    "experienceCombatFactor.min": {
+      "paths": [
+        "minValues.experienceCombatFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true,
+      "evidence": "docs/re/settings.md section 8: the server's startup config loader looks the presets resource up (server 26430253 0x53b9e3) and clamps a Custom world's settings into minValues..maxValues (0x53bbf4 -> 0x172e00) once per start; lab dev32-regr3b (difficulty effect)"
+    },
+    "experienceCombatFactor.max": {
+      "paths": [
+        "maxValues.experienceCombatFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true
+    },
+    "experienceMiningFactor.min": {
+      "paths": [
+        "minValues.experienceMiningFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true,
+      "evidence": "docs/re/settings.md section 8: the server's startup config loader looks the presets resource up (server 26430253 0x53b9e3) and clamps a Custom world's settings into minValues..maxValues (0x53bbf4 -> 0x172e00) once per start; lab dev32-regr3b (difficulty effect)"
+    },
+    "experienceMiningFactor.max": {
+      "paths": [
+        "maxValues.experienceMiningFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true
+    },
+    "experienceExplorationQuestsFactor.min": {
+      "paths": [
+        "minValues.experienceExplorationQuestsFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true,
+      "evidence": "docs/re/settings.md section 8: the server's startup config loader looks the presets resource up (server 26430253 0x53b9e3) and clamps a Custom world's settings into minValues..maxValues (0x53bbf4 -> 0x172e00) once per start; lab dev32-regr3b (difficulty effect)"
+    },
+    "experienceExplorationQuestsFactor.max": {
+      "paths": [
+        "maxValues.experienceExplorationQuestsFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true
+    },
+    "enemyDamageFactor.min": {
+      "paths": [
+        "minValues.enemyDamageFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true,
+      "evidence": "docs/re/settings.md section 8: the server's startup config loader looks the presets resource up (server 26430253 0x53b9e3) and clamps a Custom world's settings into minValues..maxValues (0x53bbf4 -> 0x172e00) once per start; lab dev32-regr3b (difficulty effect)"
+    },
+    "enemyDamageFactor.max": {
+      "paths": [
+        "maxValues.enemyDamageFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true
+    },
+    "enemyHealthFactor.min": {
+      "paths": [
+        "minValues.enemyHealthFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true,
+      "evidence": "docs/re/settings.md section 8: the server's startup config loader looks the presets resource up (server 26430253 0x53b9e3) and clamps a Custom world's settings into minValues..maxValues (0x53bbf4 -> 0x172e00) once per start; lab dev32-regr3b (difficulty effect)"
+    },
+    "enemyHealthFactor.max": {
+      "paths": [
+        "maxValues.enemyHealthFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true
+    },
+    "enemyStaminaFactor.min": {
+      "paths": [
+        "minValues.enemyStaminaFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true,
+      "evidence": "docs/re/settings.md section 8: the server's startup config loader looks the presets resource up (server 26430253 0x53b9e3) and clamps a Custom world's settings into minValues..maxValues (0x53bbf4 -> 0x172e00) once per start; lab dev32-regr3b (difficulty effect)"
+    },
+    "enemyStaminaFactor.max": {
+      "paths": [
+        "maxValues.enemyStaminaFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true
+    },
+    "enemyPerceptionRangeFactor.min": {
+      "paths": [
+        "minValues.enemyPerceptionRangeFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true,
+      "evidence": "docs/re/settings.md section 8: the server's startup config loader looks the presets resource up (server 26430253 0x53b9e3) and clamps a Custom world's settings into minValues..maxValues (0x53bbf4 -> 0x172e00) once per start; lab dev32-regr3b (difficulty effect)"
+    },
+    "enemyPerceptionRangeFactor.max": {
+      "paths": [
+        "maxValues.enemyPerceptionRangeFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true
+    },
+    "bossDamageFactor.min": {
+      "paths": [
+        "minValues.bossDamageFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true,
+      "evidence": "docs/re/settings.md section 8: the server's startup config loader looks the presets resource up (server 26430253 0x53b9e3) and clamps a Custom world's settings into minValues..maxValues (0x53bbf4 -> 0x172e00) once per start; lab dev32-regr3b (difficulty effect)"
+    },
+    "bossDamageFactor.max": {
+      "paths": [
+        "maxValues.bossDamageFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true
+    },
+    "bossHealthFactor.min": {
+      "paths": [
+        "minValues.bossHealthFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true,
+      "evidence": "docs/re/settings.md section 8: the server's startup config loader looks the presets resource up (server 26430253 0x53b9e3) and clamps a Custom world's settings into minValues..maxValues (0x53bbf4 -> 0x172e00) once per start; lab dev32-regr3b (difficulty effect)"
+    },
+    "bossHealthFactor.max": {
+      "paths": [
+        "maxValues.bossHealthFactor"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true
+    },
+    "threatBonus.min": {
+      "paths": [
+        "minValues.threatBonus"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true,
+      "evidence": "docs/re/settings.md section 8: the server's startup config loader looks the presets resource up (server 26430253 0x53b9e3) and clamps a Custom world's settings into minValues..maxValues (0x53bbf4 -> 0x172e00) once per start; lab dev32-regr3b (difficulty effect)"
+    },
+    "threatBonus.max": {
+      "paths": [
+        "maxValues.threatBonus"
+      ],
+      "conv": "float",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true
+    },
+    "dayTimeDuration.min": {
+      "paths": [
+        "minValues.dayTimeDuration"
+      ],
+      "conv": "time",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true,
+      "evidence": "docs/re/settings.md section 8: the server's startup config loader looks the presets resource up (server 26430253 0x53b9e3) and clamps a Custom world's settings into minValues..maxValues (0x53bbf4 -> 0x172e00) once per start; lab dev32-regr3b (difficulty effect)"
+    },
+    "dayTimeDuration.max": {
+      "paths": [
+        "maxValues.dayTimeDuration"
+      ],
+      "conv": "time",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true
+    },
+    "nightTimeDuration.min": {
+      "paths": [
+        "minValues.nightTimeDuration"
+      ],
+      "conv": "time",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true,
+      "evidence": "docs/re/settings.md section 8: the server's startup config loader looks the presets resource up (server 26430253 0x53b9e3) and clamps a Custom world's settings into minValues..maxValues (0x53bbf4 -> 0x172e00) once per start; lab dev32-regr3b (difficulty effect)"
+    },
+    "nightTimeDuration.max": {
+      "paths": [
+        "maxValues.nightTimeDuration"
+      ],
+      "conv": "time",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true
+    },
+    "flameLevelFogRemoval.min": {
+      "paths": [
+        "minValues.flameLevelFogRemoval"
+      ],
+      "conv": "int",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true,
+      "evidence": "docs/re/settings.md section 8: the server's startup config loader looks the presets resource up (server 26430253 0x53b9e3) and clamps a Custom world's settings into minValues..maxValues (0x53bbf4 -> 0x172e00) once per start; lab dev32-regr3b (difficulty effect)"
+    },
+    "flameLevelFogRemoval.max": {
+      "paths": [
+        "maxValues.flameLevelFogRemoval"
+      ],
+      "conv": "int",
+      "read": "restart",
+      "backend": "boot",
+      "clientNeeds": true
+    }
+  }
+}

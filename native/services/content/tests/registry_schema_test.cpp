@@ -29,9 +29,9 @@ static std::vector<Refusal> parse(const Schema& s, const char* doc, Batch* b) {
 
 int main() {
     const Schema s = generated_schema();
-    // ---- the five R1 registries, every row
-    CHECK(s.registries.size() == 5);
-    for (const char* r : {"items", "recipes", "loot", "drops", "balance"}) CHECK(s.registry(r) != nullptr);
+    // ---- the five R1 registries and dev.32's world, difficulty and limits, every row
+    CHECK(s.registries.size() == 8);
+    for (const char* r : {"items", "recipes", "loot", "drops", "balance", "world", "difficulty", "limits"}) CHECK(s.registry(r) != nullptr);
     size_t rows = 0;
     for (const auto& g : gen::kRegistries) rows += g.count;
     CHECK(rows == std::size(gen::kFields));
@@ -52,7 +52,7 @@ int main() {
     const FieldSpec* cap = s.registry("balance")->field("levelCap");
     CHECK(cap && cap->applies == Applies::Restart);
     const FieldSpec* alt = s.registry("balance")->field("altarsPerFlameLevel");
-    CHECK(alt && alt->type == FieldType::List && alt->element == FieldType::Int && alt->max && *alt->max == 16.0 && alt->ops == FieldOps::Indexed);
+    CHECK(alt && alt->type == FieldType::List && alt->element == FieldType::Int && alt->max && *alt->max == 255.0 && alt->ops == FieldOps::Indexed);  // 255 since dev.32 (limits.maxAltars)
     const FieldSpec* rarities = s.registry("loot")->field("rarities");
     CHECK(rarities && rarities->type == FieldType::Flags && rarities->max_items == 5);
     const FieldSpec* cnt = s.registry("recipes")->field("inputs[].count");

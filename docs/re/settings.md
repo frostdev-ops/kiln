@@ -232,5 +232,25 @@ identically on both builds; it now lives in the core file.)
   `*_max_scaling` programs use them every step is inferred from their names and flags, not traced.
 - Whether an in-game ban rewrites `enshrouded_server.json` while the server runs (it would write the startup
   `gameSettings`, undoing a `save()`).
-- `GameSettingsPresetsResource` (min/max/preset blocks, a game resource) was not located in server memory; ranges come
-  from the readme.
+- `GameSettingsPresetsResource` (min/max/preset blocks, a game resource): its reader is the startup config loader (section 8);
+  kiln.settings' ranges still come from the readme.
+
+## 8. The settings' bounds and presets (`keen::GameSettingsPresetsResource`; dev.32 world-rules registry)
+
+Server 26430253 (`f0d824be…`), static, capstone over the read-only copy; the resource from the server's archive (`kfc.py decode`).
+
+- One resource `46e14df6-fb8f-4f66-9463-e23b9e19e48e` of type `keen::GameSettingsPresetsResource` (296 bytes, hash `0x6ffb1e9f`):
+  `minValues` (`+0x0`) and `maxValues` (`+0x90`), each a whole `keen::ecs::GameSettings` block, and `presets` (`+0x120`,
+  `BlobArray<GameSettingsPresetConfig {presetId +0, settings GameSettings +8}>`, stride `0x98`: Relaxed, Hard, Survival and one
+  more). The client has the same resource (and its `keen::FbUiBundle`, the settings screen's steps, under the same GUID; the server's
+  `FbUiBundle` type is an empty struct and it has no such resource).
+- **The reader:** the startup config loader (section 5) looks the resource up by type hash and GUID (`mov qword [rsp+0x70],0x6ffb1e9f`
+  at `0x53b9e3`, the resource lookup `0x827f50`). With a preset other than Custom (`cmp r12b,4` at `0x53bb3b`) it copies that preset's
+  `settings` whole into the parsed config (`0x53bb8c`–`0x53bbeb`); with Custom it calls `0x172e00(config+0x430, minValues, maxValues)`
+  (`0x53bbf4`–`0x53bc05`), which keeps each setting inside its bounds. So the game reads the bounds once per start, after its resources
+  are up: a boot override of the resource at resources-ready is what it reads.
+- On this build the bounds are narrower than the server readme's ranges in places (`enemyDamageFactor` max 2.5, the readme and
+  kiln.settings' catalog say 5). kiln.settings' own ranges (`native/services/settings/catalog.cpp`) are its own and do not follow
+  this resource.
+- Kiln: the `difficulty` registry (`difficulty.<setting>.min`/`.max`, boot back-end); XHL Enemy Difficulty Limits raises seven
+  `maxValues` to 100 through a resource patch on the same resource.

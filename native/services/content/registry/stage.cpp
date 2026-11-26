@@ -1414,7 +1414,9 @@ std::vector<BootResource> Runner::run(const OldWritesFn& old_fn, const std::vect
         const auto reg = d.rm.registries.find(ref.registry);
         if (reg == d.rm.registries.end() || is_raw_field(ref.field)) continue;
         const auto row = reg->second.rows.find(ref.field);
-        if (row == reg->second.rows.end() || row->second.backend != map::Backend::Boot) continue;
+        // a hooks registry's restart fields go the same way: one "resource" of type kHooksType, which kiln.content hands to its
+        // hooks (limits.h) instead of a resource copy
+        if (row == reg->second.rows.end() || (row->second.backend != map::Backend::Boot && row->second.backend != map::Backend::Hook)) continue;
         std::vector<ChainRow> rows;
         for (const ChainRow& c : fo.chain)
             if (c.kind == WriterKind::Registry) rows.push_back(c);
@@ -1569,7 +1571,8 @@ void Runner::finish(const std::vector<BootOutcome>& outcomes) {
             std::string g = generic_path(field);
             auto row = reg->second.rows.find(g);
             if (row == reg->second.rows.end() && g.size() > 2 && g.ends_with("[]")) row = reg->second.rows.find(g.substr(0, g.size() - 2));
-            return row != reg->second.rows.end() && row->second.backend == map::Backend::Boot && row->second.client_needs;
+            return row != reg->second.rows.end() && (row->second.backend == map::Backend::Boot || row->second.backend == map::Backend::Hook) &&
+                   row->second.client_needs;
         };
         // Both sides hash their own fields, so a field one side leaves out and the other keeps would make every join differ, with
         // nothing the player can change. The part is published only when this start applied each client-held boot edit of the mods
@@ -1599,7 +1602,9 @@ void Runner::finish(const std::vector<BootOutcome>& outcomes) {
             auto reg = d.rm.registries.find(ref.registry);
             if (reg == d.rm.registries.end()) continue;
             auto row = reg->second.rows.find(ref.field);
-            if (row == reg->second.rows.end() || row->second.backend != map::Backend::Boot || !row->second.client_needs) continue;
+            if (row == reg->second.rows.end() || (row->second.backend != map::Backend::Boot && row->second.backend != map::Backend::Hook) ||
+                !row->second.client_needs)
+                continue;
             // a field a side server/client mod writes (any writer kind) differs by design: the other side never runs that mod. It
             // stays out on both sides only while no side-both mod edits it too (the other side keeps such a field).
             const auto foreign = std::find_if(fo.chain.begin(), fo.chain.end(), [&](const ChainRow& c) { return !c.mod.empty() && one_side(c.mod); });

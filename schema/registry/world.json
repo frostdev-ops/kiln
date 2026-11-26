@@ -1,0 +1,189 @@
+{
+  "$schema": "../registry-schema.schema.json",
+  "registrySchema": 1,
+  "registry": "world",
+  "typeName": "World",
+  "version": "0.1.0",
+  "stability": "experimental",
+  "experimentalId": "KILNX031",
+  "doc": "The world's build rules from its scene: the boxes where nobody may build (around points of interest and dungeons), and the playable areas of the big dungeons. The game takes them when it loads the world.",
+  "ids": {
+    "game": "game:world",
+    "mod": "(none: one entry)",
+    "rule": "One entry, game:world: the world's scene."
+  },
+  "traits": {},
+  "fields": {
+    "noBuildZones": {
+      "type": "list",
+      "maxItems": 4096,
+      "applies": "restart",
+      "ops": "list",
+      "doc": "The world's no-build zones: boxes in which nothing may be built. Clear the list to build anywhere the other rules allow (a base's build zone, the Shroud, enemies nearby). The game's no-build zones of furniture and creatures are not in this list.",
+      "joinedClient": "restart",
+      "of": {
+        "type": "struct",
+        "typeName": "WorldNoBuildZone",
+        "doc": "One no-build zone: a box in world positions.",
+        "fields": {
+          "min": {
+            "type": "struct",
+            "typeName": "WorldNoBuildZoneMin",
+            "doc": "The zone's lowest corner",
+            "fields": {
+              "x": {
+                "type": "float",
+                "unit": "m",
+                "min": -100000,
+                "max": 100000,
+                "ops": "number",
+                "doc": "The zone's lowest corner: the position along x, in metres from the world's origin.",
+                "joinedClient": "restart"
+              },
+              "y": {
+                "type": "float",
+                "unit": "m",
+                "min": -100000,
+                "max": 100000,
+                "ops": "number",
+                "doc": "The zone's lowest corner: the position up (height), in metres from the world's origin.",
+                "joinedClient": "restart"
+              },
+              "z": {
+                "type": "float",
+                "unit": "m",
+                "min": -100000,
+                "max": 100000,
+                "ops": "number",
+                "doc": "The zone's lowest corner: the position along z, in metres from the world's origin.",
+                "joinedClient": "restart"
+              }
+            }
+          },
+          "max": {
+            "type": "struct",
+            "typeName": "WorldNoBuildZoneMax",
+            "doc": "The zone's highest corner",
+            "fields": {
+              "x": {
+                "type": "float",
+                "unit": "m",
+                "min": -100000,
+                "max": 100000,
+                "ops": "number",
+                "doc": "The zone's highest corner: the position along x, in metres from the world's origin.",
+                "joinedClient": "restart"
+              },
+              "y": {
+                "type": "float",
+                "unit": "m",
+                "min": -100000,
+                "max": 100000,
+                "ops": "number",
+                "doc": "The zone's highest corner: the position up (height), in metres from the world's origin.",
+                "joinedClient": "restart"
+              },
+              "z": {
+                "type": "float",
+                "unit": "m",
+                "min": -100000,
+                "max": 100000,
+                "ops": "number",
+                "doc": "The zone's highest corner: the position along z, in metres from the world's origin.",
+                "joinedClient": "restart"
+              }
+            }
+          }
+        }
+      }
+    },
+    "playableAreas": {
+      "type": "list",
+      "maxItems": 4096,
+      "applies": "restart",
+      "ops": "list",
+      "doc": "The playable areas of the world's big dungeons: boxes the game keeps players inside while they are in that dungeon (it puts a player who leaves one back). Clear the list to lift those bounds. An area appended here is a plain box: it is not marked as a big dungeon and names no map marker.",
+      "joinedClient": "restart",
+      "of": {
+        "type": "struct",
+        "typeName": "WorldPlayableArea",
+        "doc": "One playable area: a box in world positions.",
+        "fields": {
+          "min": {
+            "type": "struct",
+            "typeName": "WorldPlayableAreaMin",
+            "doc": "The area's lowest corner",
+            "fields": {
+              "x": {
+                "type": "float",
+                "unit": "m",
+                "min": -100000,
+                "max": 100000,
+                "ops": "number",
+                "doc": "The area's lowest corner: the position along x, in metres from the world's origin.",
+                "joinedClient": "restart"
+              },
+              "y": {
+                "type": "float",
+                "unit": "m",
+                "min": -100000,
+                "max": 100000,
+                "ops": "number",
+                "doc": "The area's lowest corner: the position up (height), in metres from the world's origin.",
+                "joinedClient": "restart"
+              },
+              "z": {
+                "type": "float",
+                "unit": "m",
+                "min": -100000,
+                "max": 100000,
+                "ops": "number",
+                "doc": "The area's lowest corner: the position along z, in metres from the world's origin.",
+                "joinedClient": "restart"
+              }
+            }
+          },
+          "max": {
+            "type": "struct",
+            "typeName": "WorldPlayableAreaMax",
+            "doc": "The area's highest corner",
+            "fields": {
+              "x": {
+                "type": "float",
+                "unit": "m",
+                "min": -100000,
+                "max": 100000,
+                "ops": "number",
+                "doc": "The area's highest corner: the position along x, in metres from the world's origin.",
+                "joinedClient": "restart"
+              },
+              "y": {
+                "type": "float",
+                "unit": "m",
+                "min": -100000,
+                "max": 100000,
+                "ops": "number",
+                "doc": "The area's highest corner: the position up (height), in metres from the world's origin.",
+                "joinedClient": "restart"
+              },
+              "z": {
+                "type": "float",
+                "unit": "m",
+                "min": -100000,
+                "max": 100000,
+                "ops": "number",
+                "doc": "The area's highest corner: the position along z, in metres from the world's origin.",
+                "joinedClient": "restart"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "entry": {
+    "add": false,
+    "remove": false
+  },
+  "raw": "allowed"
+}

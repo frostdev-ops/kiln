@@ -11,9 +11,13 @@
 //     the read-only rows of the registries without a boot row (the first entry that reads a value; none that reads: no sample).
 #include <cstdio>
 #include <cstring>
+#include <set>
 #include <stdexcept>
+#include <string>
+#include <tuple>
 
 #include "../registry/proof.h"
+#include "../registry/limits.h"
 #include "../registry/schema_ir.h"
 
 namespace kc {
@@ -304,6 +308,71 @@ void with_the_request() {
 
 }  // namespace
 
+// R3b: a hooks registry's sample (limits.h): the game's value from its code, the hooked function's answer with the probe given
+// for a moment, and the game's own again after it (the fake functions answer as the hooked game functions do)
+namespace hooks {
+std::set<std::string> installed;
+uint32_t altar(void* registry, uint32_t level) {
+    uintptr_t table = 0;
+    std::memcpy(&table, static_cast<uint8_t*>(registry) + 0x20, sizeof table);
+    int32_t rel = 0;
+    std::memcpy(&rel, reinterpret_cast<void*>(table + 0x1b8), 4);
+    const uint8_t v = *reinterpret_cast<const uint8_t*>(table + 0x1b8 + rel + level);
+    const uint32_t original = v > 16 ? 16 : v;
+    return installed.count("altarCap") ? kc::registry::limits::altar_hook_answer(registry, level, original) : original;
+}
+float gift() {
+    float f = 0;
+    return installed.count("giftRange") && kc::registry::limits::gift_hook_answer(&f) ? f : 2500.0f;
+}
+uint8_t code[9] = {0xF3, 0x0F, 0x10, 0x05, 0, 0, 0, 0, 0xC3};
+float literal = 2500.0f;
+}  // namespace hooks
+
+void hooks_registry_samples() {
+    namespace lm = kc::registry::limits;
+    lm::reset();
+    hooks::installed.clear();
+    const int64_t d = reinterpret_cast<intptr_t>(&hooks::literal) - (reinterpret_cast<intptr_t>(&hooks::gift) + 8);
+    const int32_t d32 = static_cast<int32_t>(d);
+    std::memcpy(hooks::code + 4, &d32, 4);
+    lm::Env e;
+    e.symbol = [](const char* n, uintptr_t* out) {
+        if (std::string(n) == "limits/AltarLimit") return *out = reinterpret_cast<uintptr_t>(&hooks::altar), true;
+        if (std::string(n) == "limits/GiftRange") return *out = reinterpret_cast<uintptr_t>(&hooks::gift), true;
+        return false;
+    };
+    e.constant = [](const char* n, int64_t* out) { return std::string(n) == "limits/altars.cap" ? (*out = 16, true) : std::string(n) == "limits/altars.table" ? (*out = 0x1b8, true) : false; };
+    e.read = [](uintptr_t a, void* out, size_t n) {
+        if (a == reinterpret_cast<uintptr_t>(&hooks::gift)) return std::memcpy(out, hooks::code, n), true;
+        std::memcpy(out, reinterpret_cast<const void*>(a), n);
+        return true;
+    };
+    e.install = [](const std::string& name, std::string*) { return hooks::installed.insert(name), true; };
+    lm::bind(e);
+    map::RegistryMap reg;
+    reg.registry = "limits";
+    reg.entries.kind = map::EntryKind::Hooks, reg.entries.unnamed = "limits";
+    for (const auto& [f, path, conv] : {std::tuple{"maxAltars", "altarCap", "int"}, std::tuple{"giftingRange", "giftRange", "float"}}) {
+        map::Row r;
+        r.field = f, r.paths = {path}, r.conv = conv, r.backend = map::Backend::Hook;
+        reg.rows[f] = r;
+    }
+    const Schema schema = generated_schema();
+    std::string why;
+    const json a = proof::hook_sample(reg, *schema.registry("limits"), "maxAltars", "game:limits", &why);
+    check(!a.is_null() && a["read"] == 16 && a["probe"] == 17 && a["readBack"] == 17 && a["rawBefore"] == json::array({16}) && a["rawAfter"] == json::array({17}) &&
+              a["reverted"] == true && a["bytesBefore"] == a["bytesAfter"],
+          "maxAltars: the game's 16, the hooked function answers the probe 17 over a table of 255, 16 again after: " + a.dump() + " " + why);
+    const json g = proof::hook_sample(reg, *schema.registry("limits"), "giftingRange", "game:limits", &why);
+    check(!g.is_null() && g["read"] == 50.0 && g["probe"] == 62.5 && g["readBack"] == 62.5 && g["rawAfter"] == json::array({62.5}) && g["reverted"] == true,
+          "giftingRange: 50 m, the probe 62.5 m answered squared by the getter, 50 m again: " + g.dump() + " " + why);
+    check(kc::registry::limits::answers().altar_cap == 0 && kc::registry::limits::answers().gift_squared == 0, "the probes are taken back: the game's own answers");
+    lm::reset();
+    const json none = proof::hook_sample(reg, *schema.registry("limits"), "maxAltars", "game:limits", &why);
+    check(none.is_null() && why.find("not found on this game build") != std::string::npos, "a build without the hook: no sample (unproven), with why: " + why);
+}
+
 int main() {
     int failed = 0;
     const std::pair<const char*, void (*)()> groups[] = {{"nothing_without_the_request", nothing_without_the_request},
@@ -313,7 +382,8 @@ int main() {
                                                        {"byte_array_lists", byte_array_lists},
                                                        {"empty_boot_list_is_missing_evidence", empty_boot_list_is_missing_evidence},
                                                        {"structural_refusals_are_disagreements", structural_refusals_are_disagreements},
-                                                       {"with_the_request", with_the_request}};
+                                                       {"with_the_request", with_the_request},
+                                                       {"hooks_registry_samples", hooks_registry_samples}};
     for (const auto& [name, fn] : groups) {
         try {
             fn();

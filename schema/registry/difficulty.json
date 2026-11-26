@@ -1,0 +1,677 @@
+{
+  "$schema": "../registry-schema.schema.json",
+  "registrySchema": 1,
+  "registry": "difficulty",
+  "typeName": "Difficulty",
+  "version": "0.1.0",
+  "stability": "experimental",
+  "experimentalId": "KILNX031",
+  "doc": "The bounds of the world's difficulty settings: for each setting a world can choose, the lowest and the highest value the game accepts. The game keeps a world's own (Custom) settings inside them when it reads the settings at start; the presets (Default, Relaxed, Hard, Survival) keep their own values. Setting names are the server's enshrouded_server.json \"gameSettings\" keys, as Kiln's settings service names them.",
+  "ids": {
+    "game": "game:difficulty",
+    "mod": "(none: one entry)",
+    "rule": "One entry, game:difficulty."
+  },
+  "traits": {},
+  "fields": {
+    "playerHealthFactor": {
+      "type": "struct",
+      "applies": "restart",
+      "typeName": "DifficultyPlayerHealthFactor",
+      "doc": "The setting for players' health (playerHealthFactor).",
+      "fields": {
+        "min": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The lowest value of the setting for players' health."
+        },
+        "max": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The highest value of the setting for players' health."
+        }
+      }
+    },
+    "playerManaFactor": {
+      "type": "struct",
+      "applies": "restart",
+      "typeName": "DifficultyPlayerManaFactor",
+      "doc": "The setting for players' mana (playerManaFactor).",
+      "fields": {
+        "min": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The lowest value of the setting for players' mana."
+        },
+        "max": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The highest value of the setting for players' mana."
+        }
+      }
+    },
+    "playerStaminaFactor": {
+      "type": "struct",
+      "applies": "restart",
+      "typeName": "DifficultyPlayerStaminaFactor",
+      "doc": "The setting for players' stamina (playerStaminaFactor).",
+      "fields": {
+        "min": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The lowest value of the setting for players' stamina."
+        },
+        "max": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The highest value of the setting for players' stamina."
+        }
+      }
+    },
+    "playerBodyHeatFactor": {
+      "type": "struct",
+      "applies": "restart",
+      "typeName": "DifficultyPlayerBodyHeatFactor",
+      "doc": "The setting for players' body heat (playerBodyHeatFactor).",
+      "fields": {
+        "min": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The lowest value of the setting for players' body heat."
+        },
+        "max": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The highest value of the setting for players' body heat."
+        }
+      }
+    },
+    "playerDivingTimeFactor": {
+      "type": "struct",
+      "applies": "restart",
+      "typeName": "DifficultyPlayerDivingTimeFactor",
+      "doc": "The setting for players' diving time (playerDivingTimeFactor).",
+      "fields": {
+        "min": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The lowest value of the setting for players' diving time."
+        },
+        "max": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The highest value of the setting for players' diving time."
+        }
+      }
+    },
+    "foodBuffDurationFactor": {
+      "type": "struct",
+      "applies": "restart",
+      "typeName": "DifficultyFoodBuffDurationFactor",
+      "doc": "The setting for how long food buffs last (foodBuffDurationFactor).",
+      "fields": {
+        "min": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The lowest value of the setting for how long food buffs last."
+        },
+        "max": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The highest value of the setting for how long food buffs last."
+        }
+      }
+    },
+    "fromHungerToStarving": {
+      "type": "struct",
+      "applies": "restart",
+      "typeName": "DifficultyFromHungerToStarving",
+      "doc": "The setting for the time from hungry to starving (fromHungerToStarving).",
+      "fields": {
+        "min": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "time",
+          "unit": "s",
+          "min": 0,
+          "max": 604800,
+          "doc": "The lowest value of the setting for the time from hungry to starving."
+        },
+        "max": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "time",
+          "unit": "s",
+          "min": 0,
+          "max": 604800,
+          "doc": "The highest value of the setting for the time from hungry to starving."
+        }
+      }
+    },
+    "shroudTimeFactor": {
+      "type": "struct",
+      "applies": "restart",
+      "typeName": "DifficultyShroudTimeFactor",
+      "doc": "The setting for players' time in the Shroud (shroudTimeFactor).",
+      "fields": {
+        "min": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The lowest value of the setting for players' time in the Shroud."
+        },
+        "max": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The highest value of the setting for players' time in the Shroud."
+        }
+      }
+    },
+    "miningDamageFactor": {
+      "type": "struct",
+      "applies": "restart",
+      "typeName": "DifficultyMiningDamageFactor",
+      "doc": "The setting for mining damage (miningDamageFactor).",
+      "fields": {
+        "min": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The lowest value of the setting for mining damage."
+        },
+        "max": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The highest value of the setting for mining damage."
+        }
+      }
+    },
+    "plantGrowthSpeedFactor": {
+      "type": "struct",
+      "applies": "restart",
+      "typeName": "DifficultyPlantGrowthSpeedFactor",
+      "doc": "The setting for how fast plants grow (plantGrowthSpeedFactor).",
+      "fields": {
+        "min": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The lowest value of the setting for how fast plants grow."
+        },
+        "max": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The highest value of the setting for how fast plants grow."
+        }
+      }
+    },
+    "resourceDropStackAmountFactor": {
+      "type": "struct",
+      "applies": "restart",
+      "typeName": "DifficultyResourceDropStackAmountFactor",
+      "doc": "The setting for how much resources drop (resourceDropStackAmountFactor).",
+      "fields": {
+        "min": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The lowest value of the setting for how much resources drop."
+        },
+        "max": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The highest value of the setting for how much resources drop."
+        }
+      }
+    },
+    "factoryProductionSpeedFactor": {
+      "type": "struct",
+      "applies": "restart",
+      "typeName": "DifficultyFactoryProductionSpeedFactor",
+      "doc": "The setting for how fast workshops make things (factoryProductionSpeedFactor).",
+      "fields": {
+        "min": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The lowest value of the setting for how fast workshops make things."
+        },
+        "max": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The highest value of the setting for how fast workshops make things."
+        }
+      }
+    },
+    "perkUpgradeRecyclingFactor": {
+      "type": "struct",
+      "applies": "restart",
+      "typeName": "DifficultyPerkUpgradeRecyclingFactor",
+      "doc": "The setting for what salvaging an upgraded perk gives back (perkUpgradeRecyclingFactor).",
+      "fields": {
+        "min": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The lowest value of the setting for what salvaging an upgraded perk gives back."
+        },
+        "max": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The highest value of the setting for what salvaging an upgraded perk gives back."
+        }
+      }
+    },
+    "perkCostFactor": {
+      "type": "struct",
+      "applies": "restart",
+      "typeName": "DifficultyPerkCostFactor",
+      "doc": "The setting for what upgrading a weapon costs (perkCostFactor).",
+      "fields": {
+        "min": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The lowest value of the setting for what upgrading a weapon costs."
+        },
+        "max": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The highest value of the setting for what upgrading a weapon costs."
+        }
+      }
+    },
+    "experienceCombatFactor": {
+      "type": "struct",
+      "applies": "restart",
+      "typeName": "DifficultyExperienceCombatFactor",
+      "doc": "The setting for experience from combat (experienceCombatFactor).",
+      "fields": {
+        "min": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The lowest value of the setting for experience from combat."
+        },
+        "max": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The highest value of the setting for experience from combat."
+        }
+      }
+    },
+    "experienceMiningFactor": {
+      "type": "struct",
+      "applies": "restart",
+      "typeName": "DifficultyExperienceMiningFactor",
+      "doc": "The setting for experience from mining (experienceMiningFactor).",
+      "fields": {
+        "min": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The lowest value of the setting for experience from mining."
+        },
+        "max": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The highest value of the setting for experience from mining."
+        }
+      }
+    },
+    "experienceExplorationQuestsFactor": {
+      "type": "struct",
+      "applies": "restart",
+      "typeName": "DifficultyExperienceExplorationQuestsFactor",
+      "doc": "The setting for experience from exploring and quests (experienceExplorationQuestsFactor).",
+      "fields": {
+        "min": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The lowest value of the setting for experience from exploring and quests."
+        },
+        "max": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The highest value of the setting for experience from exploring and quests."
+        }
+      }
+    },
+    "enemyDamageFactor": {
+      "type": "struct",
+      "applies": "restart",
+      "typeName": "DifficultyEnemyDamageFactor",
+      "doc": "The setting for enemies' damage (enemyDamageFactor).",
+      "fields": {
+        "min": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The lowest value of the setting for enemies' damage."
+        },
+        "max": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The highest value of the setting for enemies' damage."
+        }
+      }
+    },
+    "enemyHealthFactor": {
+      "type": "struct",
+      "applies": "restart",
+      "typeName": "DifficultyEnemyHealthFactor",
+      "doc": "The setting for enemies' health (enemyHealthFactor).",
+      "fields": {
+        "min": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The lowest value of the setting for enemies' health."
+        },
+        "max": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The highest value of the setting for enemies' health."
+        }
+      }
+    },
+    "enemyStaminaFactor": {
+      "type": "struct",
+      "applies": "restart",
+      "typeName": "DifficultyEnemyStaminaFactor",
+      "doc": "The setting for enemies' stamina (enemyStaminaFactor).",
+      "fields": {
+        "min": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The lowest value of the setting for enemies' stamina."
+        },
+        "max": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The highest value of the setting for enemies' stamina."
+        }
+      }
+    },
+    "enemyPerceptionRangeFactor": {
+      "type": "struct",
+      "applies": "restart",
+      "typeName": "DifficultyEnemyPerceptionRangeFactor",
+      "doc": "The setting for how far enemies see and hear (enemyPerceptionRangeFactor).",
+      "fields": {
+        "min": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The lowest value of the setting for how far enemies see and hear."
+        },
+        "max": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The highest value of the setting for how far enemies see and hear."
+        }
+      }
+    },
+    "bossDamageFactor": {
+      "type": "struct",
+      "applies": "restart",
+      "typeName": "DifficultyBossDamageFactor",
+      "doc": "The setting for bosses' damage (bossDamageFactor).",
+      "fields": {
+        "min": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The lowest value of the setting for bosses' damage."
+        },
+        "max": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The highest value of the setting for bosses' damage."
+        }
+      }
+    },
+    "bossHealthFactor": {
+      "type": "struct",
+      "applies": "restart",
+      "typeName": "DifficultyBossHealthFactor",
+      "doc": "The setting for bosses' health (bossHealthFactor).",
+      "fields": {
+        "min": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The lowest value of the setting for bosses' health."
+        },
+        "max": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The highest value of the setting for bosses' health."
+        }
+      }
+    },
+    "threatBonus": {
+      "type": "struct",
+      "applies": "restart",
+      "typeName": "DifficultyThreatBonus",
+      "doc": "The setting for how often enemies attack (threatBonus).",
+      "fields": {
+        "min": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The lowest value of the setting for how often enemies attack."
+        },
+        "max": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "float",
+          "min": 0,
+          "max": 10000,
+          "doc": "The highest value of the setting for how often enemies attack."
+        }
+      }
+    },
+    "dayTimeDuration": {
+      "type": "struct",
+      "applies": "restart",
+      "typeName": "DifficultyDayTimeDuration",
+      "doc": "The setting for how long a day lasts (dayTimeDuration).",
+      "fields": {
+        "min": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "time",
+          "unit": "s",
+          "min": 0,
+          "max": 604800,
+          "doc": "The lowest value of the setting for how long a day lasts."
+        },
+        "max": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "time",
+          "unit": "s",
+          "min": 0,
+          "max": 604800,
+          "doc": "The highest value of the setting for how long a day lasts."
+        }
+      }
+    },
+    "nightTimeDuration": {
+      "type": "struct",
+      "applies": "restart",
+      "typeName": "DifficultyNightTimeDuration",
+      "doc": "The setting for how long a night lasts (nightTimeDuration).",
+      "fields": {
+        "min": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "time",
+          "unit": "s",
+          "min": 0,
+          "max": 604800,
+          "doc": "The lowest value of the setting for how long a night lasts."
+        },
+        "max": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "time",
+          "unit": "s",
+          "min": 0,
+          "max": 604800,
+          "doc": "The highest value of the setting for how long a night lasts."
+        }
+      }
+    },
+    "flameLevelFogRemoval": {
+      "type": "struct",
+      "applies": "restart",
+      "typeName": "DifficultyFlameLevelFogRemoval",
+      "doc": "The setting for the Flame level from which the Shroud lifts where players build (flameLevelFogRemoval).",
+      "fields": {
+        "min": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "int",
+          "min": 0,
+          "max": 255,
+          "doc": "The lowest value of the setting for the Flame level from which the Shroud lifts where players build."
+        },
+        "max": {
+          "ops": "number",
+          "joinedClient": "restart",
+          "type": "int",
+          "min": 0,
+          "max": 255,
+          "doc": "The highest value of the setting for the Flame level from which the Shroud lifts where players build."
+        }
+      }
+    }
+  },
+  "entry": {
+    "add": false,
+    "remove": false
+  },
+  "raw": "allowed"
+}

@@ -11,6 +11,6 @@ echo "== registry-proof-test (host)"
 r=$here/../registry
 g++ -std=c++20 -O1 -g -Wall -Wextra -Wno-unused-function -Wno-missing-field-initializers -D__fastcall= -ffunction-sections -fdata-sections \
     -fsanitize=address,undefined -I"$here/host" -I"$here/../../../core/abi" -I"$here/../../../third_party" \
-    "$here/registry_proof_test.cpp" "$here/registry_model_fakes.cpp" "$r/proof.cpp" "$r/boot_bridge.cpp" "$r/model.cpp" "$r/regmap.cpp" \
+    "$here/registry_proof_test.cpp" "$here/registry_model_fakes.cpp" "$r/proof.cpp" "$r/limits.cpp" "$r/boot_bridge.cpp" "$r/model.cpp" "$r/regmap.cpp" \
     "$r/ir.cpp" "$r/compose.cpp" "$r/formulas.cpp" "$here/../gear.cpp" -Wl,--gc-sections -o "$out/registry-proof-test"
 "$out/registry-proof-test"

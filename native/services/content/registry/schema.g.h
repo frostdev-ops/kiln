@@ -57,7 +57,10 @@ inline constexpr Registry kRegistries[] = {
     {2, "recipes", "0.1.0", true, true, "hidden", true, 38, 10},
     {3, "loot", "0.1.0", true, false, "disabled", true, 48, 6},
     {4, "drops", "0.1.0", true, false, "", true, 54, 6},
-    {5, "balance", "0.1.0", true, false, "", true, 60, 40},
+    {5, "balance", "0.1.1", true, false, "", true, 60, 40},
+    {6, "difficulty", "0.1.0", true, false, "", true, 100, 54},
+    {7, "world", "0.1.0", true, false, "", true, 154, 14},
+    {8, "limits", "0.1.0", true, false, "", false, 168, 2},
 };
 
 inline constexpr Field kFields[] = {
@@ -130,7 +133,7 @@ inline constexpr Field kFields[] = {
     {0x00050007u, "balance", "levelCap", Kind::Int, Kind::Int, true, true, 1.0, 1000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
     {0x00050008u, "balance", "skillPointsPerLevel", Kind::Int, Kind::Int, true, true, 0.0, 1000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
     {0x00050009u, "balance", "flameLevelMax", Kind::Int, Kind::Int, true, true, 0.0, 1000.0, 0u, "", "", "", true, Applies::Restart, Ops::None, "", "", false, 0u, "", 0, Side::Both, "restart"},
-    {0x0005000au, "balance", "altarsPerFlameLevel", Kind::List, Kind::Int, true, true, 0.0, 16.0, 0u, "", "", "", false, Applies::Restart, Ops::Indexed, "", "", false, 0u, "flameLevelMax", 1, Side::Both, "restart"},
+    {0x0005000au, "balance", "altarsPerFlameLevel", Kind::List, Kind::Int, true, true, 0.0, 255.0, 0u, "", "", "", false, Applies::Restart, Ops::Indexed, "", "", false, 0u, "flameLevelMax", 1, Side::Both, "restart"},
     {0x0005000bu, "balance", "waterSourcesPerFlameLevel", Kind::List, Kind::Int, true, true, 0.0, 255.0, 0u, "", "", "", false, Applies::Restart, Ops::Indexed, "", "", false, 0u, "flameLevelMax", 1, Side::Both, "restart"},
     {0x0005000cu, "balance", "buildzoneSizesPerAltarLevel", Kind::List, Kind::Struct, false, false, 0.0, 0.0, 1001u, "", "", "", false, Applies::Restart, Ops::List, "", "", false, 0u, "", 0, Side::Both, "restart"},
     {0x0005000du, "balance", "buildzoneSizesPerAltarLevel[].x", Kind::Float, Kind::Float, true, true, 0.0, 100000.0, 0u, "", "", "buildzoneSizesPerAltarLevel", false, Applies::Restart, Ops::Number, "m", "", false, 0u, "", 0, Side::Both, "restart"},
@@ -161,6 +164,76 @@ inline constexpr Field kFields[] = {
     {0x00050026u, "balance", "gear.creep", Kind::Float, Kind::Float, true, true, 0.0, 100.0, 0u, "", "", "", true, Applies::Restart, Ops::None, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
     {0x00050027u, "balance", "gear.armorOffset", Kind::Float, Kind::Float, true, true, 0.0, 100000.0, 0u, "", "", "", true, Applies::Restart, Ops::None, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
     {0x00050028u, "balance", "gear.armorGradient", Kind::Float, Kind::Float, true, true, 0.0, 100000.0, 0u, "", "", "", true, Applies::Restart, Ops::None, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00060001u, "difficulty", "playerHealthFactor.min", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00060002u, "difficulty", "playerHealthFactor.max", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00060003u, "difficulty", "playerManaFactor.min", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00060004u, "difficulty", "playerManaFactor.max", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00060005u, "difficulty", "playerStaminaFactor.min", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00060006u, "difficulty", "playerStaminaFactor.max", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00060007u, "difficulty", "playerBodyHeatFactor.min", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00060008u, "difficulty", "playerBodyHeatFactor.max", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00060009u, "difficulty", "playerDivingTimeFactor.min", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x0006000au, "difficulty", "playerDivingTimeFactor.max", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x0006000bu, "difficulty", "foodBuffDurationFactor.min", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x0006000cu, "difficulty", "foodBuffDurationFactor.max", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x0006000du, "difficulty", "fromHungerToStarving.min", Kind::Time, Kind::Time, true, true, 0.0, 604800.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "s", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x0006000eu, "difficulty", "fromHungerToStarving.max", Kind::Time, Kind::Time, true, true, 0.0, 604800.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "s", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x0006000fu, "difficulty", "shroudTimeFactor.min", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00060010u, "difficulty", "shroudTimeFactor.max", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00060011u, "difficulty", "miningDamageFactor.min", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00060012u, "difficulty", "miningDamageFactor.max", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00060013u, "difficulty", "plantGrowthSpeedFactor.min", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00060014u, "difficulty", "plantGrowthSpeedFactor.max", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00060015u, "difficulty", "resourceDropStackAmountFactor.min", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00060016u, "difficulty", "resourceDropStackAmountFactor.max", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00060017u, "difficulty", "factoryProductionSpeedFactor.min", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00060018u, "difficulty", "factoryProductionSpeedFactor.max", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00060019u, "difficulty", "perkUpgradeRecyclingFactor.min", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x0006001au, "difficulty", "perkUpgradeRecyclingFactor.max", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x0006001bu, "difficulty", "perkCostFactor.min", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x0006001cu, "difficulty", "perkCostFactor.max", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x0006001du, "difficulty", "experienceCombatFactor.min", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x0006001eu, "difficulty", "experienceCombatFactor.max", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x0006001fu, "difficulty", "experienceMiningFactor.min", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00060020u, "difficulty", "experienceMiningFactor.max", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00060021u, "difficulty", "experienceExplorationQuestsFactor.min", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00060022u, "difficulty", "experienceExplorationQuestsFactor.max", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00060023u, "difficulty", "enemyDamageFactor.min", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00060024u, "difficulty", "enemyDamageFactor.max", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00060025u, "difficulty", "enemyHealthFactor.min", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00060026u, "difficulty", "enemyHealthFactor.max", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00060027u, "difficulty", "enemyStaminaFactor.min", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00060028u, "difficulty", "enemyStaminaFactor.max", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00060029u, "difficulty", "enemyPerceptionRangeFactor.min", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x0006002au, "difficulty", "enemyPerceptionRangeFactor.max", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x0006002bu, "difficulty", "bossDamageFactor.min", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x0006002cu, "difficulty", "bossDamageFactor.max", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x0006002du, "difficulty", "bossHealthFactor.min", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x0006002eu, "difficulty", "bossHealthFactor.max", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x0006002fu, "difficulty", "threatBonus.min", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00060030u, "difficulty", "threatBonus.max", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00060031u, "difficulty", "dayTimeDuration.min", Kind::Time, Kind::Time, true, true, 0.0, 604800.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "s", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00060032u, "difficulty", "dayTimeDuration.max", Kind::Time, Kind::Time, true, true, 0.0, 604800.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "s", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00060033u, "difficulty", "nightTimeDuration.min", Kind::Time, Kind::Time, true, true, 0.0, 604800.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "s", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00060034u, "difficulty", "nightTimeDuration.max", Kind::Time, Kind::Time, true, true, 0.0, 604800.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "s", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00060035u, "difficulty", "flameLevelFogRemoval.min", Kind::Int, Kind::Int, true, true, 0.0, 255.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00060036u, "difficulty", "flameLevelFogRemoval.max", Kind::Int, Kind::Int, true, true, 0.0, 255.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00070001u, "world", "noBuildZones", Kind::List, Kind::Struct, false, false, 0.0, 0.0, 4096u, "", "", "", false, Applies::Restart, Ops::List, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00070002u, "world", "noBuildZones[].min.x", Kind::Float, Kind::Float, true, true, -100000.0, 100000.0, 0u, "", "", "noBuildZones", false, Applies::Restart, Ops::Number, "m", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00070003u, "world", "noBuildZones[].min.y", Kind::Float, Kind::Float, true, true, -100000.0, 100000.0, 0u, "", "", "noBuildZones", false, Applies::Restart, Ops::Number, "m", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00070004u, "world", "noBuildZones[].min.z", Kind::Float, Kind::Float, true, true, -100000.0, 100000.0, 0u, "", "", "noBuildZones", false, Applies::Restart, Ops::Number, "m", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00070005u, "world", "noBuildZones[].max.x", Kind::Float, Kind::Float, true, true, -100000.0, 100000.0, 0u, "", "", "noBuildZones", false, Applies::Restart, Ops::Number, "m", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00070006u, "world", "noBuildZones[].max.y", Kind::Float, Kind::Float, true, true, -100000.0, 100000.0, 0u, "", "", "noBuildZones", false, Applies::Restart, Ops::Number, "m", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00070007u, "world", "noBuildZones[].max.z", Kind::Float, Kind::Float, true, true, -100000.0, 100000.0, 0u, "", "", "noBuildZones", false, Applies::Restart, Ops::Number, "m", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00070008u, "world", "playableAreas", Kind::List, Kind::Struct, false, false, 0.0, 0.0, 4096u, "", "", "", false, Applies::Restart, Ops::List, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00070009u, "world", "playableAreas[].min.x", Kind::Float, Kind::Float, true, true, -100000.0, 100000.0, 0u, "", "", "playableAreas", false, Applies::Restart, Ops::Number, "m", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x0007000au, "world", "playableAreas[].min.y", Kind::Float, Kind::Float, true, true, -100000.0, 100000.0, 0u, "", "", "playableAreas", false, Applies::Restart, Ops::Number, "m", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x0007000bu, "world", "playableAreas[].min.z", Kind::Float, Kind::Float, true, true, -100000.0, 100000.0, 0u, "", "", "playableAreas", false, Applies::Restart, Ops::Number, "m", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x0007000cu, "world", "playableAreas[].max.x", Kind::Float, Kind::Float, true, true, -100000.0, 100000.0, 0u, "", "", "playableAreas", false, Applies::Restart, Ops::Number, "m", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x0007000du, "world", "playableAreas[].max.y", Kind::Float, Kind::Float, true, true, -100000.0, 100000.0, 0u, "", "", "playableAreas", false, Applies::Restart, Ops::Number, "m", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x0007000eu, "world", "playableAreas[].max.z", Kind::Float, Kind::Float, true, true, -100000.0, 100000.0, 0u, "", "", "playableAreas", false, Applies::Restart, Ops::Number, "m", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00080001u, "limits", "maxAltars", Kind::Int, Kind::Int, true, true, 1.0, 255.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "restart"},
+    {0x00080002u, "limits", "giftingRange", Kind::Float, Kind::Float, true, true, 0.0, 1000000.0, 0u, "", "", "", false, Applies::Restart, Ops::Number, "m", "", false, 0u, "", 0, Side::Both, "restart"},
 };
 
 // The id migrations of the schemas' breaking steps (schema/registry/migrations/<registry>-<from>-<to>.json), oldest
@@ -281,6 +354,76 @@ inline constexpr uint32_t balance_gear_seed = 0x00050025u;
 inline constexpr uint32_t balance_gear_creep = 0x00050026u;
 inline constexpr uint32_t balance_gear_armorOffset = 0x00050027u;
 inline constexpr uint32_t balance_gear_armorGradient = 0x00050028u;
+inline constexpr uint32_t difficulty_playerHealthFactor_min = 0x00060001u;
+inline constexpr uint32_t difficulty_playerHealthFactor_max = 0x00060002u;
+inline constexpr uint32_t difficulty_playerManaFactor_min = 0x00060003u;
+inline constexpr uint32_t difficulty_playerManaFactor_max = 0x00060004u;
+inline constexpr uint32_t difficulty_playerStaminaFactor_min = 0x00060005u;
+inline constexpr uint32_t difficulty_playerStaminaFactor_max = 0x00060006u;
+inline constexpr uint32_t difficulty_playerBodyHeatFactor_min = 0x00060007u;
+inline constexpr uint32_t difficulty_playerBodyHeatFactor_max = 0x00060008u;
+inline constexpr uint32_t difficulty_playerDivingTimeFactor_min = 0x00060009u;
+inline constexpr uint32_t difficulty_playerDivingTimeFactor_max = 0x0006000au;
+inline constexpr uint32_t difficulty_foodBuffDurationFactor_min = 0x0006000bu;
+inline constexpr uint32_t difficulty_foodBuffDurationFactor_max = 0x0006000cu;
+inline constexpr uint32_t difficulty_fromHungerToStarving_min = 0x0006000du;
+inline constexpr uint32_t difficulty_fromHungerToStarving_max = 0x0006000eu;
+inline constexpr uint32_t difficulty_shroudTimeFactor_min = 0x0006000fu;
+inline constexpr uint32_t difficulty_shroudTimeFactor_max = 0x00060010u;
+inline constexpr uint32_t difficulty_miningDamageFactor_min = 0x00060011u;
+inline constexpr uint32_t difficulty_miningDamageFactor_max = 0x00060012u;
+inline constexpr uint32_t difficulty_plantGrowthSpeedFactor_min = 0x00060013u;
+inline constexpr uint32_t difficulty_plantGrowthSpeedFactor_max = 0x00060014u;
+inline constexpr uint32_t difficulty_resourceDropStackAmountFactor_min = 0x00060015u;
+inline constexpr uint32_t difficulty_resourceDropStackAmountFactor_max = 0x00060016u;
+inline constexpr uint32_t difficulty_factoryProductionSpeedFactor_min = 0x00060017u;
+inline constexpr uint32_t difficulty_factoryProductionSpeedFactor_max = 0x00060018u;
+inline constexpr uint32_t difficulty_perkUpgradeRecyclingFactor_min = 0x00060019u;
+inline constexpr uint32_t difficulty_perkUpgradeRecyclingFactor_max = 0x0006001au;
+inline constexpr uint32_t difficulty_perkCostFactor_min = 0x0006001bu;
+inline constexpr uint32_t difficulty_perkCostFactor_max = 0x0006001cu;
+inline constexpr uint32_t difficulty_experienceCombatFactor_min = 0x0006001du;
+inline constexpr uint32_t difficulty_experienceCombatFactor_max = 0x0006001eu;
+inline constexpr uint32_t difficulty_experienceMiningFactor_min = 0x0006001fu;
+inline constexpr uint32_t difficulty_experienceMiningFactor_max = 0x00060020u;
+inline constexpr uint32_t difficulty_experienceExplorationQuestsFactor_min = 0x00060021u;
+inline constexpr uint32_t difficulty_experienceExplorationQuestsFactor_max = 0x00060022u;
+inline constexpr uint32_t difficulty_enemyDamageFactor_min = 0x00060023u;
+inline constexpr uint32_t difficulty_enemyDamageFactor_max = 0x00060024u;
+inline constexpr uint32_t difficulty_enemyHealthFactor_min = 0x00060025u;
+inline constexpr uint32_t difficulty_enemyHealthFactor_max = 0x00060026u;
+inline constexpr uint32_t difficulty_enemyStaminaFactor_min = 0x00060027u;
+inline constexpr uint32_t difficulty_enemyStaminaFactor_max = 0x00060028u;
+inline constexpr uint32_t difficulty_enemyPerceptionRangeFactor_min = 0x00060029u;
+inline constexpr uint32_t difficulty_enemyPerceptionRangeFactor_max = 0x0006002au;
+inline constexpr uint32_t difficulty_bossDamageFactor_min = 0x0006002bu;
+inline constexpr uint32_t difficulty_bossDamageFactor_max = 0x0006002cu;
+inline constexpr uint32_t difficulty_bossHealthFactor_min = 0x0006002du;
+inline constexpr uint32_t difficulty_bossHealthFactor_max = 0x0006002eu;
+inline constexpr uint32_t difficulty_threatBonus_min = 0x0006002fu;
+inline constexpr uint32_t difficulty_threatBonus_max = 0x00060030u;
+inline constexpr uint32_t difficulty_dayTimeDuration_min = 0x00060031u;
+inline constexpr uint32_t difficulty_dayTimeDuration_max = 0x00060032u;
+inline constexpr uint32_t difficulty_nightTimeDuration_min = 0x00060033u;
+inline constexpr uint32_t difficulty_nightTimeDuration_max = 0x00060034u;
+inline constexpr uint32_t difficulty_flameLevelFogRemoval_min = 0x00060035u;
+inline constexpr uint32_t difficulty_flameLevelFogRemoval_max = 0x00060036u;
+inline constexpr uint32_t world_noBuildZones = 0x00070001u;
+inline constexpr uint32_t world_noBuildZones_min_x = 0x00070002u;
+inline constexpr uint32_t world_noBuildZones_min_y = 0x00070003u;
+inline constexpr uint32_t world_noBuildZones_min_z = 0x00070004u;
+inline constexpr uint32_t world_noBuildZones_max_x = 0x00070005u;
+inline constexpr uint32_t world_noBuildZones_max_y = 0x00070006u;
+inline constexpr uint32_t world_noBuildZones_max_z = 0x00070007u;
+inline constexpr uint32_t world_playableAreas = 0x00070008u;
+inline constexpr uint32_t world_playableAreas_min_x = 0x00070009u;
+inline constexpr uint32_t world_playableAreas_min_y = 0x0007000au;
+inline constexpr uint32_t world_playableAreas_min_z = 0x0007000bu;
+inline constexpr uint32_t world_playableAreas_max_x = 0x0007000cu;
+inline constexpr uint32_t world_playableAreas_max_y = 0x0007000du;
+inline constexpr uint32_t world_playableAreas_max_z = 0x0007000eu;
+inline constexpr uint32_t limits_maxAltars = 0x00080001u;
+inline constexpr uint32_t limits_giftingRange = 0x00080002u;
 }  // namespace field
 
 }  // namespace kc::registry::gen

@@ -26,9 +26,13 @@ namespace kc::registry::map {
 using json = nlohmann::json;
 
 enum class Read : uint8_t { Now, WorldLoad, Restart, Unknown };
-enum class Backend : uint8_t { Live, Boot, None };
+// Hook: a value of a "hooks" registry (EntryKind::Hooks): Kiln's own hook of the game's code answers with it (limits.h);
+// restart fields only, like Boot.
+enum class Backend : uint8_t { Live, Boot, None, Hook };
 enum class RowState : uint8_t { Mapped, Unproven, Unmapped };
-enum class EntryKind : uint8_t { Resource, Array, Single };
+// Hooks: no resource: one entry ("unnamed" gives its name) whose fields are values the game's code holds as fixed numbers and
+// Kiln answers through hooks of its own (limits.h); each row's path names one of those values.
+enum class EntryKind : uint8_t { Resource, Array, Single, Hooks };
 // Unproven (kilnctl regproof): nothing is wrong that the proof can see, but the lab gave no evidence for the row on this build
 // (the record's "reasons" says what is missing); kept off like Changed, with that reason instead of "a Kiln update is needed".
 enum class BuildRow : uint8_t { Ok, Changed, Unmapped, Unproven };
@@ -37,7 +41,7 @@ enum class Mapping : uint8_t { Mapped = 0, Unmapped = 1, Unproven = 2, Removed =
 // The conversions between a Kiln value and the game's (regmap/README.md).
 inline constexpr const char* kConvs[] = {"int",     "float",   "bool",    "time",         "enum",          "flags",
                                          "ref",     "refList", "formula", "impactConfig", "list",          "stackCount",
-                                         "inventoryWalk", "unlock", "optionalEnum"};
+                                         "inventoryWalk", "unlock", "optionalEnum", "position"};
 
 struct Row {
     std::string field;               // the Kiln field ("maxStack", "inputs[].count")
@@ -48,12 +52,15 @@ struct Row {
     Read read = Read::Unknown;
     Backend backend = Backend::None;
     bool client_needs = false;
+    // a list row the boot back-end may give another length ("resize": true): it places the new list behind the copy's bytes,
+    // as a resource patch's clear, append and replace do (boot_bridge.cpp); without it a list is written in place only
+    bool resize = false;
     RowState state = RowState::Mapped;
 };
 
 struct EntrySource {
     EntryKind kind = EntryKind::Resource;
-    std::string resource_type;  // the game's root type of the resource
+    std::string resource_type;  // the game's root type of the resource (kind Hooks: none)
     std::string array;          // kind Array: the member holding the entries
     std::string resource_guid;  // kind Single: the one resource
     std::string name, guid, id; // members: the debug name, the entry's GUID (empty: the resource's), the 32-bit id

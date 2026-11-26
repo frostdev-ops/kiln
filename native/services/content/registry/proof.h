@@ -68,5 +68,8 @@ bool disagreement(const std::string& why);
 // (key, root type) has the base bytes given: a registry-roundtrip sample object, or null when the producer lacks evidence.
 json boot_sample(const map::RegistryMap& reg, const RegistrySpec& rs, const std::string& field, const std::string& id, const KilnAssetKey& key,
                  const std::string& type, const std::vector<uint8_t>& base);
+// One sample of a hooks registry's field (limits.h): the game's value from its code, the answer of the game's function with
+// the producer's probe given to Kiln's hook for a moment, and after it is taken back; null + *why: no evidence on this build.
+json hook_sample(const map::RegistryMap& reg, const RegistrySpec& rs, const std::string& field, const std::string& id, std::string* why);
 
 }  // namespace kc::registry::proof

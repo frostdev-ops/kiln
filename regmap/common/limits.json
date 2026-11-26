@@ -1,0 +1,30 @@
+{
+  "regmap": 1,
+  "registry": "limits",
+  "entries": {
+    "kind": "hooks",
+    "unnamed": "limits"
+  },
+  "rows": {
+    "maxAltars": {
+      "paths": [
+        "altarCap"
+      ],
+      "conv": "int",
+      "read": "now",
+      "backend": "hook",
+      "clientNeeds": true,
+      "evidence": "sigdb limits/AltarLimit (server 26430253 0x93dea0, client 26430625 0xe96c80, the same bytes): min(altarsPerFlameLevel[level], 16) with the 16 as an immediate in both of its paths (limits/altars.cap), called by the build cursor, the placement checks, the reclaim check and the UI's counts (More Flame Altars' AltarLimitHook.cs, XHL); docs/re/build.md section 13"
+    },
+    "giftingRange": {
+      "paths": [
+        "giftRange"
+      ],
+      "conv": "float",
+      "read": "now",
+      "backend": "hook",
+      "clientNeeds": true,
+      "evidence": "sigdb limits/GiftRange (server 0x93de70, client 0xe96c50): movss xmm0,[rip+d]; ret, the squared distance 2500 (50 m) the host's gift check compares with (server 0x19e9f9, client 0x3fd719) and the players' UI asks (client 0x2bb572, 0x2bb7b9); the literal is shared with one more reader, so Kiln hooks the getter, never the literal; XHL Unlimited Gifting Range's PORTING.md; docs/re/build.md section 13"
+    }
+  }
+}

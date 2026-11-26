@@ -231,6 +231,58 @@ class Checks(unittest.TestCase):
             finally:
                 t.close()
 
+    def test_a_position_needs_a_signed_64_bit_member(self):
+        # dev.32 (world.noBuildZones): a world position's axis is a signed 64-bit 32.32 fixed-point number of metres
+        types = copy.deepcopy(TYPES)
+        thing = next(t for t in types["types"] if t["name"] == "keen::Thing")
+        thing["fields"].append({"name": "x", "type": "keen::sint64", "offset": 56})
+        s = copy.deepcopy(SCHEMA)
+        s["fields"]["px"] = {"type": "float", "unit": "m", "min": -100000, "max": 100000, "applies": "now", "ops": "number"}
+        rows = copy.deepcopy(ROWS)
+        rows["px"] = {"paths": ["x"], "conv": "position", "read": "now", "backend": "live"}
+        self.assertEqual(self.run_check(rows, s, types).errors, [])
+        rows["px"]["paths"] = ["size"]
+        errs = self.run_check(rows, s, types).errors
+        self.assertTrue(any("things.px" in e and "signed 64-bit" in e for e in errs), errs)
+
+    def test_a_hooks_registry_names_kilns_hook_values(self):
+        # dev.32 (limits): no resource; each row names one of Kiln's hook values; restart fields through the hook back-end
+        s = copy.deepcopy(SCHEMA)
+        s["registry"] = "caps"
+        s["fields"] = {"most": {"type": "int", "min": 1, "max": 255, "applies": "restart", "ops": "number"},
+                       "reach": {"type": "float", "min": 0, "max": 1000, "applies": "restart", "ops": "number"}}
+        t = Path(tempfile.mkdtemp(prefix="regmap-hooks-"))
+        try:
+            (t / "schema" / "registry").mkdir(parents=True)
+            (t / "schema" / "registry" / "caps.json").write_text(json.dumps(s))
+            import registrygen
+            registrygen.update_lock(t)
+            (t / "regmap" / "common").mkdir(parents=True)
+
+            def check(rows, entries=None):
+                (t / "regmap" / "common" / "caps.json").write_text(json.dumps({
+                    "regmap": 1, "registry": "caps", "entries": entries or {"kind": "hooks", "unnamed": "caps"}, "rows": rows}))
+                return rc.check(t, rc.TypeDb.from_refl(TYPES))
+            good = {"most": {"paths": ["altarCap"], "conv": "int", "read": "now", "backend": "hook"},
+                    "reach": {"paths": ["giftRange"], "conv": "float", "read": "now", "backend": "hook"}}
+            r = check(good)
+            self.assertEqual(r.errors, [])
+            self.assertEqual(r.absent, [])  # no root type to look for
+            self.assertEqual(r.resolved, 2)
+            bad = copy.deepcopy(good)
+            bad["most"]["paths"] = ["altarLimit"]
+            self.assertTrue(any("caps.most" in e and "hook values" in e for e in check(bad).errors))
+            bad = copy.deepcopy(good)
+            bad["reach"]["conv"] = "int"
+            self.assertTrue(any("caps.reach" in e and "float" in e for e in check(bad).errors))
+            bad = copy.deepcopy(good)
+            bad["most"]["backend"] = "boot"
+            self.assertTrue(any("caps.most" in e and "hook back-end" in e for e in check(bad).errors))
+            r = check(good, {"kind": "hooks", "unnamed": "caps", "resourceType": "keen::Thing"})
+            self.assertTrue(any("no resourceType" in e for e in r.errors), r.errors)
+        finally:
+            shutil.rmtree(t, ignore_errors=True)
+
     def test_missing_rows_are_unmapped_not_errors(self):
         rows = copy.deepcopy(ROWS)
         del rows["on"]

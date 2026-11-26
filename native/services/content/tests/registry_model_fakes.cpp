@@ -180,6 +180,32 @@ void byte_table_type() {
     tab.fields = {{"altarsPerFlameLevel", rec(arr), 0}, {"playerLevelCap", rec(u32), 24}};
     named()["keen::ByteTable"] = &tab;
 }
+// keen::SceneResource as R3b's tests need it: {flag u32 +0, noBuildZones BlobArray<Zone> +8, tail u32 +16}, 24 bytes;
+// Zone {worldBoxMin WorldPosition +0, worldBoxMax WorldPosition +0x18, marker u8 +0x30 (no Kiln field)}, 0x38 bytes;
+// WorldPosition {x, y, z sint64}, 32.32 fixed-point metres. test::Nested holds a list whose elements hold a list (not movable).
+void scene_type() {
+    using namespace kc::gd;
+    static TType u8, u32, s64, pos, zone, zones, scene, inner, outer, outers, nested;
+    auto rec = [](const TType& t) { return reinterpret_cast<uintptr_t>(&t); };
+    u8.name = u8.brief = "uint8", u8.kind = K_U8, u8.size = 1;
+    u32.name = u32.brief = "uint32", u32.kind = K_U32, u32.size = 4;
+    s64.name = s64.brief = "sint64", s64.kind = K_S64, s64.size = 8;
+    pos.name = "keen::WorldPosition", pos.brief = "WorldPosition", pos.kind = K_STRUCT, pos.size = 24;
+    pos.fields = {{"x", rec(s64), 0}, {"y", rec(s64), 8}, {"z", rec(s64), 16}};
+    zone.name = "keen::SceneNoBuildZone", zone.brief = "SceneNoBuildZone", zone.kind = K_STRUCT, zone.size = 0x38;
+    zone.fields = {{"worldBoxMin", rec(pos), 0}, {"worldBoxMax", rec(pos), 0x18}, {"marker", rec(u8), 0x30}};
+    zones.name = zones.brief = "keen::BlobArray<keen::SceneNoBuildZone>", zones.kind = K_BLOBARRAY, zones.size = 8, zones.inner_rec = rec(zone);
+    scene.name = "keen::SceneResource", scene.brief = "SceneResource", scene.kind = K_STRUCT, scene.size = 24;
+    scene.fields = {{"flag", rec(u32), 0}, {"noBuildZones", rec(zones), 8}, {"tail", rec(u32), 16}};
+    named()[scene.name] = &scene;
+    inner.name = inner.brief = "keen::BlobArray<uint32>", inner.kind = K_BLOBARRAY, inner.size = 8, inner.inner_rec = rec(u32);
+    outer.name = "test::Outer", outer.brief = "Outer", outer.kind = K_STRUCT, outer.size = 8;
+    outer.fields = {{"values", rec(inner), 0}};
+    outers.name = outers.brief = "keen::BlobArray<test::Outer>", outers.kind = K_BLOBARRAY, outers.size = 8, outers.inner_rec = rec(outer);
+    nested.name = "test::Nested", nested.brief = "Nested", nested.kind = K_STRUCT, nested.size = 8;
+    nested.fields = {{"lists", rec(outers), 0}};
+    named()[nested.name] = &nested;
+}
 }  // namespace rbtest
 }  // namespace kc
 
