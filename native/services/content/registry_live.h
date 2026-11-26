@@ -80,6 +80,16 @@ struct RegistryLive {
     // The drift probe's suspects (registry/drift.h): asked once per world at registry_live_world_begin, with no lock of
     // kiln.content's held. Unset: none are named.
     std::function<std::vector<std::string>()> suspects;
+    // dev.32: registries whose entries are kiln.gamedata's (buffs, abilities; content.h gd_registry_*). gd_kind: their store kind
+    // (0: not such a registry); gd_entry: a Kiln id's game entry in this world, by the stage's 32-bit id or GUID; gd_slots: the value
+    // slots of a row's path over it (group: an eventTime row, the first event of a kind and every event of that kind at its time);
+    // gd_written: after every flush, so kiln.gamedata re-sorts events and lets its buff mirror follow. Unset: such a registry has no
+    // live back-end (each edit refused, named).
+    std::function<uint32_t(const std::string& registry)> gd_kind;
+    std::function<bool(const std::string& registry, uint32_t num, const std::string& guid, Entry* out, std::string* why)> gd_entry;
+    std::function<bool(const std::string& registry, const Entry& e, const std::string& path, bool group, std::vector<GdValueSlot>* out,
+                       std::string* why)> gd_slots;
+    std::function<void()> gd_written;
 };
 
 // One pack file's "registry" section, lowered (packs.cpp registry_sections).

@@ -22,6 +22,7 @@ namespace rbtest {
 void byte_blob_type(uintptr_t unreadable);
 void wrapped_id_type();
 void item_type();  // keen::ItemInfo {itemId u32 +0, objectId Guid +4, maxStackSize u16 +0x14, debugName BlobString +0x18}, 40 bytes
+void sequence_types();  // keen::actor::ActorSequenceResource with sub-sequences whose events are variants
 }
 }  // namespace kc
 
@@ -112,6 +113,19 @@ TreeView world() {
     v.add("keen::ecs::DefaultInventoryResource", g(301), {{"rootGroup", {{"stacks", json::array()}}}});  // no template uses it
     v.add("keen::ecs::TemplateResource", g(400), {{"name", "LootContainer_Enemy_A"}, {"components", json::array({{{"$type", "DefaultInventory"}, {"defaultInventory", g(300)}}})}});
     v.add("keen::ecs::TemplateResource", g(401), {{"name", "Chest_B"}, {"components", json::array({{{"$type", "Health"}}})}});
+    // dev.32: the buff collection (records named by their 32-bit id) and action sequences (named by their first part; events
+    // are variants, {"$type": <brief>, ...} in a tree)
+    v.add("keen::BuffTypeCollectionResource", g(500),
+          {{"buffs", json::array({{{"buffTypeId", 0xcdbe9c80u}, {"slot", "Rested"}, {"applyType", "ResetTime"}, {"defaultLifeTime", 5.0}, {"isSaved", true}},
+                                  {{"buffTypeId", 0x5f425fafu}, {"slot", "Debuff"}, {"applyType", "Invalid"}, {"defaultLifeTime", 10.0}, {"isSaved", false}}})}});
+    auto seq = [&](int n, const std::string& name, json events) {
+        v.add("keen::actor::ActorSequenceResource", g(n), {{"resourceId", g(n)}, {"subSequences", json::array({{{"name", name}, {"length", 2.0}, {"events", events}}})}});
+    };
+    seq(600, "Attack_Player_Staff_FixedAnim_Fireball_fast",
+        json::array({{{"$type", "VfxNotifierEvent"}, {"time", 0.63}}, {{"$type", "SpawnEntityEvent"}, {"time", 0.65}},
+                     {{"$type", "PayUsageCost"}, {"time", 0.65}}, {{"$type", "PayUsageCost"}, {"time", 0.65}}, {{"$type", "SpawnEntityEvent"}, {"time", 0.9}}}));
+    seq(601, "npc_turn", json::array());
+    seq(602, "NPC_Turn", json::array({{{"$type", "SpawnImpact"}, {"time", 0.25}}}));  // the same name in another case: a clash
     v.add("keen::BalancingTable", kBalance,
           {{"experienceNeedPerLevel", json::array({1000, 2000, 3000, 4000, 5000})}, {"playerLevelCap", 50}, {"genericWeaponSeed", 10.0}, {"powerCreepWeapon", 0.15},
            {"armorSetup", {{"offset", 23.0}, {"gradient", 15.0}}}, {"flameLevelMax", 2}, {"altarsPerFlameLevel", json::array({1, 2, 3})}});
@@ -163,6 +177,9 @@ void entries_and_ids(const std::string& dir) {
     check(ids_of(*f.m, "loot") == "game:material_t1_wood_logs,game:sword_t1", "loot keyed by the item's 32-bit id: " + ids_of(*f.m, "loot"));
     check(ids_of(*f.m, "drops") == "game:lootcontainer_enemy_a,game:drops_0000012d", "drop tables named after the template that uses them, else by GUID: " + ids_of(*f.m, "drops"));
     check(ids_of(*f.m, "balance") == "game:balance", "the one balance table: " + ids_of(*f.m, "balance"));
+    check(ids_of(*f.m, "buffs") == "game:buff_cdbe9c80,game:buff_5f425faf", "buffs: buff_<32-bit id> (no debug name): " + ids_of(*f.m, "buffs"));
+    check(ids_of(*f.m, "abilities") == "game:attack_player_staff_fixedanim_fireball_fast,game:npc_turn,game:npc_turn~0000025a",
+          "abilities: the first part's name, a clash gets ~<guid8>: " + ids_of(*f.m, "abilities"));
     const auto* e = f.m->find("items", "GAME:SWORD_T1");
     check(e && e->num == 1002 && e->guid == g(2) && e->name == "Sword_T1", "find: case-insensitive, with GUID, number and name");
 }
@@ -186,6 +203,18 @@ void values(const std::string& dir) {
           "inventoryWalk: the root's stacks, then each child group's: " + walk.text_of());
     check(f.val("balance", "game:balance", "xpPerLevel").text_of() == "[1000,2000,3000,4000,5000]", "a list of ints");
     check(f.val("balance", "game:balance", "levelCap") == Value::integer(50), "balance int");
+    check(f.val("buffs", "game:buff_cdbe9c80", "duration") == Value::number(5.0) && f.val("buffs", "game:buff_5f425faf", "duration") == Value::number(10.0), "buffs.duration (time)");
+    check(f.val("buffs", "game:buff_cdbe9c80", "stacking") == Value::text("refresh") && f.val("buffs", "game:buff_5f425faf", "stacking") == Value::text("keep"), "buffs.stacking");
+    check(f.val("buffs", "game:buff_cdbe9c80", "kind") == Value::text("rested") && f.val("buffs", "game:buff_5f425faf", "saved") == Value::boolean(false), "buffs read-only");
+    check(f.val("abilities", "game:attack_player_staff_fixedanim_fireball_fast", "timing.release") == Value::number(0.65), "eventTime: the first spawn's time");
+    check(f.val("abilities", "game:attack_player_staff_fixedanim_fireball_fast", "timing.cost") == Value::number(0.65), "eventTime: the first payment's time");
+    check(f.val("abilities", "game:npc_turn~0000025a", "timing.hit") == Value::number(0.25), "eventTime of the other entry");
+    {
+        std::string w;
+        const auto* ab = f.m->entries("abilities", &w);
+        check(ab && !f.m->value("abilities", 0, "timing.hit", &w) && !f.m->value("abilities", 1, "timing.release", &w),
+              "an ability without such a moment has no value of it (an edit of it is refused per entry)");
+    }
     std::string why;
     const auto* items = f.m->entries("items", &why);
     check(!f.m->value("items", 0, "noSuchField", &why) && why.find("not in the schema") != std::string::npos, "an unknown field: " + why);
@@ -335,6 +364,46 @@ void live_bytes(const std::string& dir) {
     m.release();
     check(view.released && m.digest() == "live-digest", "released: the view let go; the digest is kept");
 }
+// dev.32: an ability's timing from live bytes: the regmap's "subSequences[0].events[keen::actor::SpawnEntityEvent#0].time" picks the
+// first event of that qualified type (an event of another namespace with the same last name is not it), its time in seconds
+void live_event_times(const std::string& dir) {
+    kc::rbtest::sequence_types();
+    std::string b(0xc0, '\0');
+    auto put32 = [&](size_t at, uint32_t v) { std::memcpy(&b[at], &v, 4); };
+    auto put64 = [&](size_t at, int64_t v) { std::memcpy(&b[at], &v, 8); };
+    kc::guid_parse(g(700), reinterpret_cast<uint8_t*>(&b[0]));
+    put32(0x10, 0x20 - 0x10), put32(0x14, 1);                // subSequences: one at 0x20
+    put32(0x20, 0x40 - 0x20), put32(0x24, 4);                // events: four variants at 0x40
+    put64(0x28, 2000000000);                                 // length 2 s
+    put32(0x34, 0xb0 - 0x34), put32(0x38, 9);                // name "Fire_Cast" at 0xb0
+    const uint32_t hashes[4] = {0x4e5c0937u, 0xc089f628u, 0x51e20bf3u, 0x51e20bf3u};  // pay, ds spawn, spawn, spawn
+    const int64_t times[4] = {400000000, 500000000, 650000000, 900000000};
+    for (size_t i = 0; i < 4; ++i) {
+        const size_t v = 0x40 + i * 12, data = 0x70 + i * 0x10;  // 16-byte events at 0x70
+        put32(v, hashes[i]), put32(v + 4, static_cast<uint32_t>(data - (v + 4))), put32(v + 8, 16);
+        put64(data, times[i]);
+    }
+    std::memcpy(&b[0xb0], "Fire_Cast", 9);
+    BytesView view;
+    view.res[g(700)] = b;
+    map::RegMap rm;
+    std::vector<std::string> errs;
+    map::load_dir(dir, "server", std::string(64, '0'), &rm, &errs);
+    const Schema schema = generated_schema();
+    auto src = model::live_source(view, [&](uint32_t type, std::vector<KilnAssetKey>* out) {
+        if (type == kiln::boot_gd::fnv1a32("keen::actor::ActorSequenceResource")) out->push_back(key_of(g(700), "keen::actor::ActorSequenceResource"));
+        return true;
+    });
+    model::Model m(*src, rm, schema);
+    check(ids_of(m, "abilities") == "game:fire_cast", "live: an ability named by its first part: " + ids_of(m, "abilities"));
+    std::string why;
+    auto rel = m.value("abilities", 0, "timing.release", &why);
+    check(rel && rel->as_double() > 0.6499 && rel->as_double() < 0.6501, "live: the first keen::actor::SpawnEntityEvent's time, not the other namespace's: " + why +
+          (rel ? " " + rel->text_of() : ""));
+    auto cost = m.value("abilities", 0, "timing.cost", &why);
+    check(cost && cost->as_double() > 0.3999 && cost->as_double() < 0.4001, "live: the first payment's time: " + why);
+    check(!m.value("abilities", 0, "timing.hit", &why), "live: no impact: no value");
+}
 void byte_array_bounds(const std::string&) {
     std::vector<uint8_t> bytes(65560, 7);
     const int32_t rel = 16;
@@ -375,7 +444,7 @@ int main(int argc, char** argv) {
     int failed = 0;
     const std::pair<const char*, void (*)(const std::string&)> groups[] = {
         {"byte_array_bounds", byte_array_bounds}, {"single_scalar_structs", single_scalar_structs}, {"entries_and_ids", entries_and_ids}, {"values", values}, {"needs_and_compose", needs_and_compose},
-        {"encode_writes", encode_writes},     {"id_table", id_table}, {"live_bytes", live_bytes}};
+        {"encode_writes", encode_writes},     {"id_table", id_table}, {"live_bytes", live_bytes}, {"live_event_times", live_event_times}};
     for (const auto& [name, fn] : groups) {
         try {
             fn(dir);

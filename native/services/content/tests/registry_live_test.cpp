@@ -77,7 +77,7 @@ void* near_alloc(uintptr_t, size_t n) {
     g_near += (n + 15) & ~size_t(15);
     return p;
 }
-Registry& reg(uint32_t kind) { return g_regs[kind]; }
+Registry& reg(uint32_t kind) { return g_regs[kind < 5 ? kind : 0]; }  // as registries.cpp: a gamedata kind (>= 16) is no registry of kiln.content
 const Entry* Registry::get(uint32_t id) const {
     auto it = by_id.find(id);
     return it == by_id.end() ? nullptr : &entries[it->second];

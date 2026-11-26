@@ -589,6 +589,13 @@ void bind_service() {
         in.left_out = h.left_out;
         in.on_world_thread = [](uint32_t kind) { return g_api && g_api->on_world_thread && g_api->on_world_thread(kind); };
         in.suspects = &drift_suspects_now;
+#if KC_GAMEDATA
+        // dev.32: buffs and abilities are kiln.gamedata's entries
+        in.gd_kind = &gd_registry_kind;
+        in.gd_entry = &gd_registry_entry;
+        in.gd_slots = &gd_registry_slots;
+        in.gd_written = &gd_registry_written;
+#endif
         if (!in.result.definitions.empty()) registry_entries_prepare(&in);
         const Result reconciled = in.result;
         registry_live_install(std::move(in));

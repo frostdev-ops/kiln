@@ -68,6 +68,7 @@ bash "$here/registry_stage_test.sh"
 bash "$here/registry_store_test.sh"
 bash "$here/registry_live_test.sh"
 bash "$here/registry_live_transactions_test.sh"
+bash "$here/registry_live_gamedata_test.sh"  # dev.32: buffs and abilities over kiln.gamedata's entries
 bash "$here/registry_stage_review_test.sh"
 bash "$here/registry_live_review_test.sh"
 echo "== recipe-water-test (host)"
