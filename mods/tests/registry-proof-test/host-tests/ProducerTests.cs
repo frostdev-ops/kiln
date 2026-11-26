@@ -210,4 +210,27 @@ public class ProducerTests
     [InlineData(0, 2.0, 10, 1)]
     public void Scaled_stack_is_clamped(int n, double amount, int maxScaled, int expected) =>
         Assert.Equal(expected, (int)Call("ScaledCount", n, amount, maxScaled)!);
+
+    // dev.32 skills: the producer takes the skill nodes from the id table's number keys (the nodes have no GUID), in table order
+    [Fact]
+    public void Skill_nodes_come_from_the_id_tables_number_keys()
+    {
+        var table = new JsonObject { ["#1148578013"] = "game:skill_4475e8dd", ["0002f740-86a7-4764-ad8e-06423588a054"] = "game:x", ["#abc"] = "game:bad",
+            ["#2398930034"] = "game:skill_8efcc472" };
+        var method = typeof(RegistryProofTestMod).GetMethod("SkillNodes", BindingFlags.Static | BindingFlags.NonPublic)!;
+        var nodes = (List<(uint Node, string Id)>)method.Invoke(null, new object[] { table })!;
+        Assert.Equal(new List<(uint, string)> { (0x4475e8ddu, "game:skill_4475e8dd"), (0x8efcc472u, "game:skill_8efcc472") }, nodes);
+    }
+
+    // dev.32 skills: the read-time effect reads a node's cost from kiln.skills' dump of the game's tree (its NodeById view)
+    [Fact]
+    public void A_nodes_cost_is_read_from_the_game_trees_dump()
+    {
+        const string dump = """{"world":"server","nodes":[{"index":0,"id":"0x8efcc472","cost":0},{"index":1,"id":"0x4475E8DD","cost":3},{"index":2,"id":"0x00000001","missing":true}]}""";
+        var method = typeof(RegistryProofTestMod).GetMethod("TreeCostOf", BindingFlags.Static | BindingFlags.NonPublic)!;
+        Assert.Equal(3L, (long?)method.Invoke(null, new object[] { dump, 0x4475e8ddu }));
+        Assert.Equal(0L, (long?)method.Invoke(null, new object[] { dump, 0x8efcc472u }));
+        Assert.Null((long?)method.Invoke(null, new object[] { dump, 1u }));
+        Assert.Null((long?)method.Invoke(null, new object[] { dump, 2u }));
+    }
 }

@@ -6,6 +6,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- GameTree.Simulate, the game's own skill functions on a scratch tree (a lab member, [Experimental("KILNX001")]) -->
+    <NoWarn>$(NoWarn);KILNX001</NoWarn>
     <EnableDynamicLoading>true</EnableDynamicLoading>
     <GenerateRuntimeConfigurationFiles>false</GenerateRuntimeConfigurationFiles>
     <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
@@ -19,6 +21,7 @@
     <ProjectReference Include="../../../managed/services/Kiln.Spawn/Kiln.Spawn.csproj" Private="false" ExcludeAssets="runtime" />
     <ProjectReference Include="../../../managed/services/Kiln.Creatures/Kiln.Creatures.csproj" Private="false" ExcludeAssets="runtime" />
     <ProjectReference Include="../../../managed/services/Kiln.World/Kiln.World.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Skills/Kiln.Skills.csproj" Private="false" ExcludeAssets="runtime" />
     <None Include="kiln.mod.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
