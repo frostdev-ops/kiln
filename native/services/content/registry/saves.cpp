@@ -96,6 +96,13 @@ std::optional<Verdict> judge(const std::string& registry, const std::string& fie
         }
         return std::nullopt;
     }
+    if (registry == "creatures") {  // dev.32: everything else is read at use or copied into creatures as they spawn
+        if (field == "levelMax" && lower(after, before))
+            return Verdict{"creatureLevel", Decision::Warn,
+                "lowers a creature's highest level " + text(before) + " -> " + text(after) + ": a saved creature of this kind (a villager, a farm animal) above " +
+                    text(after) + " may load at " + text(after) + " (its level is clamped to the highest); whether the game keeps a creature's level in a save is not traced"};
+        return std::nullopt;
+    }
     if (registry != "balance") return std::nullopt;
     if (field.rfind("durability.", 0) == 0 || field.rfind("rarityDurability.", 0) == 0)
         return Verdict{"durability", Decision::Report,

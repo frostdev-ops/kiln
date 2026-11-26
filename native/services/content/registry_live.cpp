@@ -1256,6 +1256,13 @@ void name_code_writer(ChainRow& row, const Layer& layer, const Slot& slot, const
     // item and member names)
     const uint32_t kind = slot.kind >= KILN_CONTENT_ITEMS && slot.kind <= KILN_CONTENT_DROPS ? slot.kind : kind_of(ref.registry);
     const Entry* e = kind ? reg(kind).get(slot.id) : nullptr;
+    // dev.32: a gamedata-section registry's entry (a creature's template, an arsenal, a perk), by the Kiln id's GUID
+    Entry gd_entry;
+    if (!e && g.in)
+        if (const uint32_t section = gd_section_of(ref.registry))
+            if (const auto it = g.in->ids.find(ref.registry + "|" + ref.id);
+                it != g.in->ids.end() && gd_section_entry(section, lower(it->second), &gd_entry) && gd_entry.id == slot.id)
+                e = &gd_entry;
     const std::string rest = layer.source.substr(head.size());
     const size_t space = rest.find(' ');
     if (!e || e->name.empty() || space == std::string::npos || space == 0 || rest.compare(space + 1, e->name.size(), e->name) != 0 ||

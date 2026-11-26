@@ -309,6 +309,34 @@ void creature_read_only_and_unknown() {
     check(at<uint32_t>(VUKAH_AT) == 7, "nothing written");
     check(reported("no entry game:no_such_creature in creatures"), "an id that names no creature is refused" + refusals());
 }
+// registry-followups 1 for the gamedata registries: a code writer through kiln.gamedata's set on a creature's slot is named in
+// Kiln words (the mod and creatures[<id>].<field>), never the template's or the member's name
+void creature_code_writer_in_kiln_words() {
+    gd_world();
+    const auto files = pack(R"([{"registry": "creatures", "select": "game:enemy_vukah_melee", "field": "level", "op": 12}])");
+    stage_gd(files);
+    registry_live_world_begin();
+    apply_registry_files(files);
+    set_owner_label(46, "mod creaturetweaks");
+    const uint32_t v = 30;
+    uint8_t b[4];
+    std::memcpy(b, &v, 4);
+    const GdValueSlot& s = g_gd_sections[KILN_GD_TEMPLATES].slots[{VUKAH, "Level.dataStorage[0]"}];
+    // as gamedata_api.cpp t_set puts it on a template's value
+    check(store_put(46, next_code_seq(), s.kind, VUKAH, s.field, -1, s.addr, 4, b, "mod creaturetweaks: templates Enemy_Vukah_Melee.Level.dataStorage[0]"),
+          "kiln.gamedata's code layer");
+    store_flush(nullptr);
+    apply_registry_files(files);
+    check(at<uint32_t>(VUKAH_AT) == 30, "code wins over the registry");
+    const auto row = json_field({"creatures", "game:enemy_vukah_melee", "level"});
+    registry::json code;
+    for (const auto& w : row["writers"])
+        if (w["kind"] == "code") code = w;
+    check(!code.is_null() && code["who"] == "creaturetweaks: creatures[game:enemy_vukah_melee].level" && code["mod"] == "creaturetweaks",
+          "the mod and the Kiln place: " + row["writers"].dump());
+    check(row.dump().find("Enemy_Vukah_Melee") == std::string::npos && row.dump().find("dataStorage") == std::string::npos,
+          "no game template or member name in the row: " + row.dump());
+}
 }  // namespace
 
 int main() {
@@ -329,6 +357,7 @@ int main() {
         {"perk_damage_unproven", perk_damage_unproven},
         {"arsenal_attacks", arsenal_attacks},
         {"creature_read_only_and_unknown", creature_read_only_and_unknown},
+        {"creature_code_writer_in_kiln_words", creature_code_writer_in_kiln_words},
     };
     int failed = 0;
     for (auto& [name, fn] : tests) {

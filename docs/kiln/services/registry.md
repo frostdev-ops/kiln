@@ -25,7 +25,7 @@ A faulted stage turn is dropped; a fault in either callback kind removes its sub
 ### GameStart entries
 
 The stage supports `items`/`recipes` add and `items`/`recipes`/`loot` remove; `loot` add and `drops`/`balance` entry
-operations are unsupported. C# uses `RegistryStage.Add` with typed `AddLike` extensions, and typed `Remove(pattern)` in
+operations are unsupported, and so are the dev.32 registries' (`creatures`, `arsenals`, `perks`: fields only). C# uses `RegistryStage.Add` with typed `AddLike` extensions, and typed `Remove(pattern)` in
 Alter/Final. Each addition clones a present Kiln `like` chain, with stable identity, inherited fields and checked overrides.
 Definitions register through the existing content path; per-world registration failures refuse dependent additions too.
 
