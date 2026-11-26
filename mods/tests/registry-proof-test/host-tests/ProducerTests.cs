@@ -233,4 +233,20 @@ public class ProducerTests
         Assert.Null((long?)method.Invoke(null, new object[] { dump, 1u }));
         Assert.Null((long?)method.Invoke(null, new object[] { dump, 2u }));
     }
+
+    // dev.32 skills: the round trip takes a node that is not a root and has no levels; the kind reads as the game's enum name, or
+    // as its value when the reader gives numbers; unreadable is skipped, never guessed
+    [Theory]
+    [InlineData("\"Root\"", "0", true)]
+    [InlineData("\"PassiveSkill\"", "0", false)]
+    [InlineData("\"ActiveSkill\"", "3", true)]
+    [InlineData("0", "0", true)]
+    [InlineData("3", "0", false)]
+    [InlineData("null", "0", true)]
+    [InlineData("\"PassiveSkill\"", "null", true)]
+    public void A_root_or_a_leveled_node_is_not_the_skills_probe(string type, string maxLevel, bool skipped)
+    {
+        var method = typeof(RegistryProofTestMod).GetMethod("IsRootOrLeveled", BindingFlags.Static | BindingFlags.NonPublic)!;
+        Assert.Equal(skipped, (bool)method.Invoke(null, new object?[] { JsonNode.Parse(type), JsonNode.Parse(maxLevel) })!);
+    }
 }

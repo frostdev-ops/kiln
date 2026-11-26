@@ -53,8 +53,7 @@ public sealed unsafe partial class RegistryProofTestMod
             var g = Content.Skills.Get(node);
             if (g is null) { Skip("not in kiln.gamedata's skills section"); continue; }
             // a node the effect can show alone: not a root (always unlocked), no levels (its cost counts once)
-            if (RawValue(g.Get("type")) is not JsonValue type || (string?)type == "Root" || RawValue(g.Get("maxLevel")) is not JsonValue ml ||
-                !ml.TryGetValue<long>(out var maxLevel) || maxLevel != 0) { Skip("a root or a node with levels"); continue; }
+            if (IsRootOrLeveled(RawValue(g.Get("type")), RawValue(g.Get("maxLevel")))) { Skip("a root or a node with levels"); continue; }
             var readText = Read("skills", id, field, out var rc);
             if (readText is null) { Skip($"read rc={rc}"); continue; }
             var read = JsonNode.Parse(readText);
@@ -80,6 +79,15 @@ public sealed unsafe partial class RegistryProofTestMod
         }
         Log.Info($"registry-proof-test: no sample of {q} ({nodes.Count} nodes): " + (why.Count == 0 ? "no node" : string.Join(", ", why.Select(p => $"{p.Key} x{p.Value}"))));
         return null;
+    }
+
+    /// <summary>A node the effect cannot show alone, or whose kind and levels cannot be read: a root (the game's enum name "Root",
+    /// or its value 0 when the reader gives numbers) or a node with levels (maxLevel above 0).</summary>
+    internal static bool IsRootOrLeveled(JsonNode? type, JsonNode? maxLevel)
+    {
+        if (type is not JsonValue t || maxLevel is not JsonValue m || !m.TryGetValue<long>(out var levels)) return true;
+        var root = t.TryGetValue<string>(out var name) ? name == "Root" : !t.TryGetValue<long>(out var value) || value == 0;
+        return root || levels != 0;
     }
 
     private static AssetKey? SkillTreeKey()
