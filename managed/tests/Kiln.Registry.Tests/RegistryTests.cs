@@ -120,7 +120,7 @@ public class RegistryTests
             Assert.DoesNotContain("0x", f.Field);
             Assert.InRange((int)f.Applies, 1, 3);
         }
-        Assert.Equal(new[] { "balance", "drops", "items", "loot", "recipes" }, RegistrySchema.Versions.Keys.OrderBy(k => k, StringComparer.Ordinal));
+        Assert.Equal(new[] { "balance", "drops", "items", "loot", "recipes", "skills", "stations" }, RegistrySchema.Versions.Keys.OrderBy(k => k, StringComparer.Ordinal));
     }
 
     [Fact]
