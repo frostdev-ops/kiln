@@ -37,12 +37,22 @@ fn fields() -> &'static Fields {
             include_str!("../../../../schema/registry/loot.json"),
             include_str!("../../../../schema/registry/drops.json"),
             include_str!("../../../../schema/registry/balance.json"),
+            // dev.32 (experimental)
+            include_str!("../../../../schema/registry/creatures.json"),
+            include_str!("../../../../schema/registry/arsenals.json"),
+            include_str!("../../../../schema/registry/perks.json"),
         ] {
             let doc: serde_json::Value = serde_json::from_str(text).expect("shipped registry schema");
             visit(&mut fields, doc["registry"].as_str().expect("registry name"), "", &doc["fields"], false);
         }
         fields
     })
+}
+
+/// The registries the field table holds (tests: every shipped schema is one of them).
+#[cfg(test)]
+pub(super) fn registries() -> std::collections::BTreeSet<String> {
+    fields().keys().map(|(registry, _)| registry.clone()).collect()
 }
 
 fn generic_field(path: &str) -> Option<String> {
