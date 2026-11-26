@@ -24,10 +24,12 @@ const uint8_t G5[16] = {5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5}, G6[16] 
 constexpr size_t SPAWN0 = CAST_AT + 0x00, PAY0 = CAST_AT + 0x20, SPAWN1 = CAST_AT + 0x40, SPAWN2 = CAST_AT + 0x60, TURN_SPAWN = TURN_AT;
 int g_written = 0;
 bool g_hooks = true;
+bool g_no_replace_at_end = false;  // a game build whose buffs have no ReplaceAtEnd
 
 std::shared_ptr<EnumInfo> apply_types() {
     auto en = std::make_shared<EnumInfo>();
     en->values = {{"Invalid", 0}, {"ResetTime", 1}, {"ReplaceAtEnd", 2}, {"Replace", 3}};
+    if (g_no_replace_at_end) std::erase_if(en->values, [](const auto& v) { return v.first == "ReplaceAtEnd"; });
     return en;
 }
 std::shared_ptr<EnumInfo> slot_types() {
@@ -56,6 +58,7 @@ void gd_world() {
 }
 
 void install_hooks(RegistryLive& in) {
+    g_no_replace_at_end = false;
     in.ids["abilities|game:fire_cast"] = guid_text(G5), in.ids["abilities|game:turn"] = guid_text(G6);
     in.nums["buffs|game:buff_cdbe9c80"] = BUFF;
     for (const char* f : {"buffs.duration", "buffs.stacking", "buffs.kind", "abilities.timing.release", "abilities.timing.cost", "abilities.timing.hit"})
@@ -299,6 +302,19 @@ void gamedata_code_writers_in_kiln_words() {
     g_files.clear();
 }
 
+// review of dev.32 (P45): a stacking value this build's buffs lack is refused in Kiln words: the field, never the game's value
+void buff_stacking_value_missing_names_the_kiln_field() {
+    gd_fresh();
+    g_no_replace_at_end = true;  // on through the commit (the binding asks for the slot's enum then); install_hooks turns it off
+    RegistryLiveReply reply;
+    const auto h = begin_change(71, "a", "[{" + buff + R"("field":"stacking","op":"replaceAtEnd"}])");
+    registry_live_commit(71, h, &reply);
+    check(reply.outcome == RegistryLiveOutcome::Refused && at<uint8_t>(BUFF_AT + 5) == 1, "refused, nothing written: " + reply.reason);
+    check(reply.reason.find("\"replaceAtEnd\" is not a value of buffs.stacking on this game build") != std::string::npos,
+          "the refusal names the Kiln field: " + reply.reason);
+    check(reply.reason.find("ReplaceAtEnd") == std::string::npos, "never the game's value: " + reply.reason);
+}
+
 void without_hooks_no_live_back_end() {
     g_hooks = false;
     gd_fresh();
@@ -325,6 +341,7 @@ int main() {
         {"data_section_binds_at_world_load", data_section_binds_at_world_load},
         {"gamedata_code_writers_in_kiln_words", gamedata_code_writers_in_kiln_words},
         {"without_hooks_no_live_back_end", without_hooks_no_live_back_end},
+        {"buff_stacking_value_missing_names_the_kiln_field", buff_stacking_value_missing_names_the_kiln_field},
     };
     for (const auto& [name, fn] : tests) {
         try {
