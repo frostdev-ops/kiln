@@ -104,6 +104,13 @@ void registry_caps(const std::string& dir) {
     expect(server, "registry.recipes.inputs.count", KILN_CAP_REASON_NONE, "applies: now");
     expect(server, "registry.items.fuel.burnTime", KILN_CAP_REASON_SYMBOL_MISSING, "unverified");
     expect(server, "registry.recipes.unlock", KILN_CAP_REASON_WRONG_SIDE, "client");
+    // dev.32: the skills and stations registries' rows, and recipes.station now that it names a stations id
+    expect(server, "registry.skills", KILN_CAP_REASON_NONE, "verified");
+    expect(server, "registry.skills.cost", KILN_CAP_REASON_NONE, "applies: now");
+    expect(server, "registry.skills.unlocks", KILN_CAP_REASON_NONE, "applies: now");
+    expect(server, "registry.stations", KILN_CAP_REASON_NONE, "verified");
+    expect(server, "registry.stations.npc", KILN_CAP_REASON_NONE, "applies: restart");
+    expect(server, "registry.recipes.station", KILN_CAP_REASON_NONE, "applies: restart");
 
     const auto client = run("client", kClientExe);
     expect(client, "registry.recipes.unlock", KILN_CAP_REASON_NONE, "applies: now");

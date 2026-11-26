@@ -226,7 +226,9 @@ The lab writes the evidence kilnctl judges (regmap/README.md "The producer"):
   sampled").
 - Live fields: `mods/tests/registry-proof-test/RegistryProofTestMod.cs` lists the live registries (`Live`), enumerates their
   entries through `Content.*` (`RegistryOf`) and reads raw bytes by resource (`ResourceOf`). A new live registry needs
-  an entry there. Phase 1 runs at the world's first content ready; phase 2 (`RegistryProofTestMod.Later.cs`) runs once the
+  an entry there; a registry over a kiln.gamedata section has no Content registry to enumerate and gets its own sampler
+  (`RegistryProofTestMod.Skills.cs`: entries from the id table's `#<id>` keys, raw reads through `Content.Skills`, and the
+  read time as an effect, the game's own PointsSpent and NodeById over the written cost). Phase 1 runs at the world's first content ready; phase 2 (`RegistryProofTestMod.Later.cs`) runs once the
   world runs: it loads drop tables the way the game does for a player (`LoadDropTables`: a few of the game's loot containers
   spawned next to a container of the lab's world, or at the lab world's spot when it has none, whose default_inventory
   program acquires their tables), samples the drop
@@ -364,7 +366,7 @@ Each row: the symptom we saw, why, the fix that is in now, and the code or test 
 | P47 | `recipes.station` read null for every recipe although 2,485 name a station | the recipes' station GUID is all zeros on this build: the reference resolves by the 32-bit id only, so the stations entries' 32-bit id must be the station's own (`workshopId`), not the item that names it | names from `keyMember` (the item), numbers from `id` (the station) | `registry_model_test` `values` (recipes.station), `registry_ids_cases.json` "stations take the id of the item..." |
 | P48 | every back-end test of a new registry's live row refused "Unmapped" | `regmap_fixture.sh` set only the record's rows ok, and a new registry's rows are in the record only after its lab proof | the fixture enables every row of regmap/common too | `native/services/content/tests/regmap_fixture.sh` |
 | P49 | the registry's live read of a read-only field in a running world fails (UNAVAILABLE) | the live back-end binds only live rows; read-only rows come from the base (proof.cpp `read_only`, the stage's base) | expected: read-only rows are proven from the base and read from the resolved view; the producer samples only live rows of a gamedata-backed registry | `RegistryProofTestMod.Skills.cs` |
-| P50 | a node of the game's skill tree changed in the resource but the game's tree did not follow (the fear, not seen) | kiln.skills serves an expanded copy of the tree when mods add nodes; a world whose tree was built before the copy was served would hold the old bytes | kiln.gamedata resolves the resource at the world's start, after kiln.skills serves it; the proof producer's effect reads the cost back through the game's NodeById and PointsSpent (a lab with mod nodes would show the served-copy case) | docs/re/abilities.md "The skills registry" |
+| P50 | a node of the game's skill tree changed in the resource but the game's tree did not follow (the fear; not seen: the dev.32 lab showed the game's PointsSpent and NodeById follow a registry write, 3 -> 4, with no mod nodes served) | kiln.skills serves an expanded copy of the tree when mods add nodes; a world whose tree was built before the copy was served would hold the old bytes | kiln.gamedata resolves the resource at the world's start, after kiln.skills serves it; the proof producer's effect reads the cost back through the game's NodeById and PointsSpent (a lab with mod nodes would show the served-copy case) | docs/re/abilities.md "The skills registry" |
 
 Regmap reasons are player-facing (P31's rule for records): `regmap_check.py:324-330`. A reason must say what is not
 known in Kiln words, without nested parentheses (kiln.content wraps it in parentheses).
