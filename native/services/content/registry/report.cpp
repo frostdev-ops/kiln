@@ -80,6 +80,7 @@ json report_json(const Schema& schema, const Result& r, const ReportMeta& meta, 
     doc["regmap"]["record"] = meta.regmap.record.empty() ? json(nullptr) : json(meta.regmap.record);
     doc["base"] = {{"origin", meta.base.origin}, {"writer", meta.base.writer}};
     if (!meta.base.token.empty()) doc["base"]["token"] = meta.base.token;
+    if (meta.base.archive.is_object()) doc["base"]["archive"] = meta.base.archive;
     {
         const auto& jr = meta.base.journal;
         json journal = {{"state", jr.state}, {"packages", jr.packages}, {"entries", jr.entries}, {"truncated", jr.truncated}};

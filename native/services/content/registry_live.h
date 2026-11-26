@@ -80,6 +80,10 @@ struct RegistryLive {
     // The drift probe's suspects (registry/drift.h): asked once per world at registry_live_world_begin, with no lock of
     // kiln.content's held. Unset: none are named.
     std::function<std::vector<std::string>()> suspects;
+    // The core's id of an owner (kiln.internal.owners owner_id: "emf:big_stacks" for an EMF DLL mod's owner), for a code
+    // writer's row whose owner no "mod <id>" label names (registry-followups 1). Asked once per owner, under the store's lock
+    // (a leaf lookup in the core that never calls out). Unset or empty: the owner's label names it.
+    std::function<std::string(KilnOwner)> owner_name;
 };
 
 // One pack file's "registry" section, lowered (packs.cpp registry_sections).
@@ -144,6 +148,10 @@ void registry_live_world_stop();
 void registry_live_owner_gone(KilnOwner owner); // notification thread: mark only, never call the game
 // How the live back-end sizes a game type (type_size; tests replace it).
 extern uint32_t (*g_registry_type_size)(const char* qname);
+// A monotonic clock in milliseconds (steady_ms; tests replace it): when registry_live_publish looks again for writes made
+// after the last report.
+uint64_t steady_ms();
+extern uint64_t (*g_registry_now_ms)();
 // Switches kiln.content's stack guard on (store.cpp guard_set) before a registry layer lowers a max stack below the value
 // under it, so the game keeps the stacks a save holds whole (registry/saves.h "stackCut"); false + *why: not available
 // (the edit is refused for that entry). Tests replace it.

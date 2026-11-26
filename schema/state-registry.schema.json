@@ -124,11 +124,28 @@
         },
         "writer": {
           "type": "string",
-          "description": "This start's archive writer: kiln-eml, shroudforge-hosted, external or none."
+          "description": "This start's archive writer: kiln-eml (its EML pass, or Kiln's interpreter in kiln mode), shroudforge-hosted or shroudforge-installed (ShroudForge reserved the startup data writer), external (another loader's proxy ran, or the game data differs from kiln-eml's vanilla backup and is not its output), or none (the game's data as shipped, as far as kiln-eml can tell). Before the next release only a kiln-mode start said kiln-eml; every other start said none, also where kiln-eml or hosted ShroudForge had patched the archive. base.archive says what it rests on."
         },
         "token": {
           "type": "string",
           "description": "The archive writer's publication token, when it has one."
+        },
+        "archive": {
+          "type": "object",
+          "description": "What Kiln knows the archive writer did this start and what that rests on (since the next release): kiln-eml's state (kiln/state/eml.json, through kiln.eml) and the names of kiln-eml's ownership receipt and ShroudForge's record of its pass, never their contents.",
+          "required": ["source", "text"],
+          "properties": {
+            "source": { "enum": ["kiln-eml", "none"], "description": "kiln-eml: kiln-eml's state of this start; none: kiln-eml did not answer (no kiln-eml, or an older one)." },
+            "phase": { "type": "string", "description": "kiln-eml's phase: done, aside, idle, failed." },
+            "patched": { "type": "integer", "minimum": 0, "description": "Resources kiln-eml's run patched this start." },
+            "cached": { "type": "boolean", "description": "kiln-eml found nothing changed since its last run: the archive keeps its patches." },
+            "restored": { "type": "boolean", "description": "kiln-eml put the game's own data back from its vanilla backup." },
+            "mods": { "type": "integer", "minimum": 0, "description": "EML mods kiln-eml's run loaded." },
+            "receipt": { "type": ["string", "null"], "description": "kiln-eml's ownership receipt of what it published (kiln/eml/ownership/<stem>.json), relative to the game folder; null when it is not there." },
+            "record": { "type": ["string", "null"], "description": "ShroudForge's record of its startup pass (<stem>.kfc.prepared.json), relative to the game folder, named only (Kiln never reads it); null when it is not there." },
+            "text": { "type": "string", "description": "One English sentence: who published the archive and how Kiln knows." }
+          },
+          "additionalProperties": false
         },
         "journal": {
           "type": "object",
@@ -700,7 +717,7 @@
         },
         "who": {
           "type": "string",
-          "description": "What the writer is called when that is not just the mod: \"<mod>: content/<file>\", \"<mod>/<key>\", \"shroudforge:<package>\", \"eml:<package>\" (an EML mod: of EML's own pass, or an EML package of the kiln-mode startup pass), \"kiln-eml:unattributed\" (a startup write no package made, or an EML mod whose id the journal cannot name), \"outside Kiln (best effort; suspects: ...)\" (a drift row)."
+          "description": "What the writer is called when that is not just the mod: \"<mod>: content/<file>\", \"<mod>/<key>\", \"<mod or loader's mod>: <Kiln place>\" (a code change made through Kiln's content service, also another loader's: \"emf:big_stacks: items[game:material_t1_wood_logs].maxStack\"; since the next release, before it the game's item and member), \"shroudforge:<package>\", \"eml:<package>\" (an EML mod: of EML's own pass, or an EML package of the kiln-mode startup pass), \"kiln-eml:unattributed\" (a startup write no package made, or an EML mod whose id the journal cannot name), \"outside Kiln (best effort; suspects: ...)\" (a drift row)."
         },
         "stage": {
           "enum": [
@@ -735,7 +752,7 @@
           "description": "An element edit of this list: the element path (\"inputs[2].count\", \"inputs[*].count\", \"perks[1]\"); op applies to that element or its leaf."
         },
         "op": {
-          "description": "An absolute write supplies a plain value or array. A relative write supplies an object with mul, add, min, max, raiseOnly, or lowerOnly. Absent on an archiveWriter row: kiln-eml's journal names the entry the package wrote, not what it did to this field.",
+          "description": "An absolute write supplies a plain value or array. A relative write supplies an object with mul, add, min, max, raiseOnly, or lowerOnly. Absent on an archiveWriter row: kiln-eml's journal says where the package wrote (the entry, or with a format-2 journal the field: named), never what it did there; the row's value is the archive's, the base.",
           "anyOf": [
             {
               "type": [

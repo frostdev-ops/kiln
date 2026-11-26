@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -24,6 +25,10 @@
 namespace kc {
 
 uint32_t (*g_registry_type_size)(const char* qname) = &type_size;
+uint64_t steady_ms() {
+    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
+}
+uint64_t (*g_registry_now_ms)() = &steady_ms;
 bool (*g_registry_stack_guard)(std::string* why) = [](std::string* why) { return guard_set(true, why); };
 
 namespace {
@@ -40,6 +45,12 @@ using SlotBytes = std::array<uint8_t, kSlotBytes>;
 struct LiveSlot {
     uintptr_t addr;
     uint8_t size;
+};
+// One bound slot as the last report saw it (the later-writes look, late_check): its game bytes and store layers, as one number.
+struct LateSlot {
+    uintptr_t addr;
+    uint8_t size;
+    uint64_t sig;
 };
 struct LiveField {
     FieldSpec spec;
@@ -77,6 +88,15 @@ struct LiveState {
     std::unordered_map<uintptr_t, std::string> slot_places;
     std::vector<std::string> suspects;  // the drift probe's suspects in this world (drift.h), read at world begin
     std::set<registry::EntryRef> boot_written;  // entries an old boot document wrote (RegistryLive::old's OldPatch rows), per report
+    // Writes made after the last report (registry-followups 1): what that report saw, so registry_live_publish can tell, cheaply
+    // and never per tick, when a bound field's slot changed since (late_check): the store's generation, a signature of each
+    // bound slot (the game's bytes there and its store layers), when it last looked and how long the next look waits. A look
+    // goes over late_slots a batch a tick (late_next: the next one; late_slots.size(): no look going on).
+    uint64_t late_gen = 0, late_at = 0, late_wait = 0;
+    std::vector<LateSlot> late_slots;
+    size_t late_next = 0;
+    size_t late_rebuilds = 0;  // in this install (kiln.log names the first one, the others go to the debug log)
+    std::map<KilnOwner, std::string> owner_names;  // the core's id of an owner a code writer's row names (name_code_writer)
     registry::Result reported;
     bool have_report = false;
     uint32_t ordinal = 0;
@@ -1056,10 +1076,47 @@ std::string layer_mod_of(const Layer& l) {
     return {};
 }
 
+// registry-followups 1: a code writer's row in Kiln words. kiln.content's own calls (set, set_stacks, set_ref, kiln.gamedata's
+// values) describe their layer as "<owner's label>: <registry or section> <the entry's game name>.<the game's member or list>"
+// (the rehearsal's "owner 67: items Material_T1_Wood_Logs.maxStackSize", EMF's big_stacks); the store and kiln.log's conflict
+// lines keep that. The report names "<who>: <Kiln place>" instead: the mod the owner's label gives, else the core's id of the
+// owner ("emf:big_stacks"; a Kiln.Host owner's "mod:<id>" is that mod), else the label. A source the mod chose itself
+// (Content.Apply's own label, a file and the selector it wrote) is the mod's wording and stays.
+void name_code_writer(ChainRow& row, const Layer& layer, const Slot& slot, const registry::FieldRef& ref) {
+    const std::string label = owner_label(layer.owner);
+    const std::string head = label + ": ";
+    if (layer.source.rfind(head, 0) != 0) return;
+    // the entry: a kiln.content slot carries its registry's kind; a kiln.gamedata value slot (an item's config value, which
+    // items.manaCost and items.staminaCost write) carries a gamedata kind and the item's own id (review: its row kept the game's
+    // item and member names)
+    const uint32_t kind = slot.kind >= KILN_CONTENT_ITEMS && slot.kind <= KILN_CONTENT_DROPS ? slot.kind : kind_of(ref.registry);
+    const Entry* e = kind ? reg(kind).get(slot.id) : nullptr;
+    const std::string rest = layer.source.substr(head.size());
+    const size_t space = rest.find(' ');
+    if (!e || e->name.empty() || space == std::string::npos || space == 0 || rest.compare(space + 1, e->name.size(), e->name) != 0 ||
+        rest.size() <= space + 1 + e->name.size() + 1 || rest[space + 1 + e->name.size()] != '.')
+        return;  // not kiln.content's own wording of this entry
+    std::string who = row.mod;
+    if (who.empty() && g.in && g.in->owner_name) {
+        auto it = g.owner_names.find(layer.owner);
+        if (it == g.owner_names.end()) {
+            std::string id = g.in->owner_name(layer.owner);
+            if (!id.empty()) it = g.owner_names.emplace(layer.owner, std::move(id)).first;
+        }
+        if (it != g.owner_names.end()) {
+            who = it->second;
+            if (who.rfind("mod:", 0) == 0 && who.size() > 4) row.mod = who = who.substr(4);
+        }
+    }
+    if (who.empty()) who = label;
+    row.who = who + ": " + ref.text();
+}
+
 // Replay the store's writes as whole field values. A pack or code call can write several slots
 // of the same list or formula, so apply all its slots before decoding that writer's row.
 void live_row(registry::Result& r, const registry::FieldRef& ref, const LiveField& field) {
-    std::vector<SlotBytes> bytes(field.slots.size()), effective(field.slots.size());
+    // kiln_wrote: what Kiln last wrote into each slot (the store's current bytes; the game's bytes where the store holds none)
+    std::vector<SlotBytes> bytes(field.slots.size()), effective(field.slots.size()), kiln_wrote(field.slots.size());
     struct Write {
         size_t slot;
         SlotBytes bytes;
@@ -1071,15 +1128,19 @@ void live_row(registry::Result& r, const registry::FieldRef& ref, const LiveFiel
     std::map<std::tuple<uint64_t, KilnOwner, std::string>, Writer> writers;
     std::vector<Write> applied;
     bool blocked = false;
+    bool late = false;  // the game's bytes of a slot are not what Kiln last wrote there, and no flush has seen it yet
     for (size_t i = 0; i < field.slots.size(); ++i) {
         const auto [addr, size] = field.slots[i];
         if (!rd(addr, effective[i].data(), size)) return;
         Slot slot;
         if (!store_slot_copy(addr, &slot) || slot.n != size) {
             bytes[i] = effective[i];
+            kiln_wrote[i] = effective[i];
             continue;
         }
         std::memcpy(bytes[i].data(), slot.original, size);
+        std::memcpy(kiln_wrote[i].data(), slot.current, size);
+        late = late || (!slot.foreign && std::memcmp(effective[i].data(), slot.current, size) != 0);
         for (const Layer& layer : slot.layers) {
             Write write{i, {}};
             std::memcpy(write.bytes.data(), layer.bytes, size);
@@ -1094,10 +1155,14 @@ void live_row(registry::Result& r, const registry::FieldRef& ref, const LiveFiel
                 writer.row.kind = layer.seq < kRegistrySeq ? registry::WriterKind::OldPack : registry::WriterKind::Code;
                 writer.row.mod = layer_mod_of(layer);
                 writer.row.who = layer.source;
+                if (writer.row.kind == registry::WriterKind::Code) name_code_writer(writer.row, layer, slot, ref);
             }
             writer.writes.push_back(write);
         }
     }
+    // what kiln.content holds as the original of each slot (the game's value before any Kiln layer): what a data-pack op of code
+    // was computed on (registry-followups 3)
+    const auto original = field.decode(bytes, nullptr);
     std::vector<double> formula_inputs;
     auto result = field.decode(effective, &formula_inputs);
     if (!result) return;
@@ -1194,11 +1259,37 @@ void live_row(registry::Result& r, const registry::FieldRef& ref, const LiveFiel
         }
     }
     if (skipped) fo.winner = pack && below && *result == *below ? pack->who : "";
+    // the registry's value, before any code layer above it (registry-followups 3)
+    std::optional<Value> reg_value;
+    std::string reg_mod;
+    if (first_reg && !skipped && !chain.empty()) {
+        reg_value = chain.back().after;
+        for (auto it = chain.rbegin(); it != chain.rend() && reg_mod.empty(); ++it)
+            if (it->kind == registry::WriterKind::Registry) reg_mod = it->mod;
+    }
+    const ChainRow* code_top = nullptr;
     for (; next != writers.end(); ++next) {
         if (record(next->second)) {
             fo.winner = next->second.row.who;
             chain.push_back(std::move(next->second.row));
+            code_top = &chain.back();
         }
+    }
+    // registry-followups 3: a Content.* change made by code sits above registry edits and wins (D1; services/registry.md), and
+    // kiln.content computes a data-pack op it was given (mul, add, raiseOnly, ...) on the game's original value, never on what
+    // the registry made of it (services/content.md). That is how BigStacks' x4 raiseOnly gave wood logs 1000 over a registry
+    // pack's 2000; it stays so (what older mod sets get must not change). The report says it: one certain line.
+    // Review: the value the code layer gives (its row's), never the game's value now: a write outside Kiln after it (the late
+    // look's best-effort row below) is not the code's, and code that kept the registry's value replaced nothing.
+    if (code_top && reg_value && !(code_top->after == *reg_value)) {
+        registry::Line line;
+        line.field = ref, line.winner = code_top->who, line.loser = reg_mod, line.kind = registry::LineKind::Overridden;
+        line.text = ref.text() + ": " + code_top->who + " (a Content change made by code) sets " + registry::report_value_text(code_top->after) +
+                    " over " + reg_mod + "'s " + registry::report_value_text(*reg_value) +
+                    " (code wins over registry edits; a relative change made through Content is computed on " +
+                    (added ? std::string("the entry's own value as its mod added it, ") : std::string("the game's value, ")) +
+                    registry::report_value_text(original ? *original : fo.base) + ", not on the registry's)";
+        r.lines.push_back(std::move(line));
     }
     // a slot another writer changed after Kiln's layer (the store's compare-before-write skipped Kiln's write): the same
     // best-effort row, last, with the value the game holds
@@ -1211,11 +1302,33 @@ void live_row(registry::Result& r, const registry::FieldRef& ref, const LiveFiel
         row.after = *result;
         if (fo.winner.empty() || skipped) fo.winner = row.who;
         chain.push_back(std::move(row));
+    } else if (late) {
+        // registry-followups 1: a write outside Kiln's store after Kiln's last write in this world (a DLL writing game memory),
+        // seen by the later-writes look (late_check) before any flush of the slot has: the same best-effort row, last, and a
+        // line. The game's value decides the result; nothing is refused or written back here.
+        ChainRow row;
+        row.kind = registry::WriterKind::Drift;
+        row.who = registry::drift_who(g.suspects);
+        if (result->kind == Value::List) row.list = registry::ListOp::Replace, row.list_values = result->list;
+        else row.op.set = true, row.op.value = *result;
+        row.after = *result;
+        const auto wrote = field.decode(kiln_wrote, nullptr);
+        registry::Line line;
+        line.field = ref, line.winner = row.who, line.certainty = registry::Certainty::BestEffort, line.kind = registry::LineKind::Overridden;
+        if (!chain.empty()) line.loser = chain.back().mod.empty() ? chain.back().who : chain.back().mod;
+        line.text = ref.text() + ": the game's value changed outside Kiln after Kiln's last write in this world (" +
+                    (wrote ? registry::report_value_text(*wrote) : std::string("?")) + " -> " + registry::report_value_text(*result) +
+                    "), and no writer Kiln knows explains it; " + row.who;
+        r.lines.push_back(std::move(line));
+        fo.winner = row.who;
+        chain.push_back(std::move(row));
     }
     fo.chain = std::move(chain);
     fo.result = std::move(*result);
     fo.formula_inputs = std::move(formula_inputs);
 }
+
+void late_seen();
 
 // A write compare-before-write skipped, in Kiln words (P32): the store's own row names the game's debug and member
 // names; the report names the Kiln place the slot's bound field had (slot_places, refreshed from g.fields per report).
@@ -1264,11 +1377,81 @@ void report(bool application = true) {
     g.pending = std::move(r);  // written by registry_live_publish, outside the store's lock (review finding 10)
     g.pending_set = true;
     g.pending_application |= application;
+    late_seen();
 }
 
 void queue_change_report() {
     report(false);
     g.pending_change = true;
+}
+
+// registry-followups 1: writes made after the last report. registry.json's live rows are rebuilt at each application (world
+// load, pack reload, a live change, a drop table bound later), so a write after the last one (another loader's code change
+// through kiln.content, as EMF's set_item_max_stack makes; a DLL writing game memory) stayed out of it until the next. The
+// tick's publish now looks again: once kiln.content's store generation moved (any Kiln-side write) and kLateWaitMs passed,
+// and every kLateScanMs for a write outside Kiln's store. A look compares each bound slot (its bytes and the store's signature
+// of it: no copy, nothing written) with what the last report saw, and rebuilds the live rows (report(false): registry.json
+// and the Conflicts view, no new generation or ready event) only when one differs. Never per tick: a tick compares the
+// generation and the clock. A field that keeps changing doubles the wait, up to kLateWaitMaxMs.
+// Review: a look reads at most kLateBatch slots a tick and goes on at the next ticks (under the store's lock, which the game's
+// job threads wait for too): reading every slot at once cost about 19 ms at 40,000 bound slots (a pack over every entry's
+// stacks or drops binds that many), every 10 s.
+constexpr uint64_t kLateWaitMs = 2000, kLateScanMs = 10000, kLateWaitMaxMs = 60000;
+constexpr size_t kLateBatch = 1024;
+
+uint64_t late_signature(uintptr_t addr, uint8_t size) {
+    uint8_t b[kSlotBytes] = {};
+    const uint8_t ok = rd(addr, b, size) ? 1 : 0;
+    const uint64_t store = store_slot_signature(addr);
+    uint64_t h = 1469598103934665603ull;
+    auto mix = [&h](const void* p, size_t n) {
+        for (size_t i = 0; i < n; ++i) h = (h ^ static_cast<const uint8_t*>(p)[i]) * 1099511628211ull;
+    };
+    mix(&ok, 1), mix(b, size), mix(&store, sizeof store);
+    return h;
+}
+
+void late_seen() {  // what the report just built saw (report() calls it last); a look going on starts over at its next turn
+    g.late_slots.clear();
+    for (const auto& [ref, field] : g.fields)
+        for (const LiveSlot& slot : field.slots) g.late_slots.push_back({slot.addr, slot.size, 0});
+    // each slot once (formula inputs and list slots are shared by fields), in address order (the store's map is too)
+    std::sort(g.late_slots.begin(), g.late_slots.end(), [](const LateSlot& a, const LateSlot& b) { return a.addr != b.addr ? a.addr < b.addr : a.size < b.size; });
+    g.late_slots.erase(std::unique(g.late_slots.begin(), g.late_slots.end(), [](const LateSlot& a, const LateSlot& b) { return a.addr == b.addr && a.size == b.size; }),
+                       g.late_slots.end());
+    for (LateSlot& s : g.late_slots) s.sig = late_signature(s.addr, s.size);
+    g.late_next = g.late_slots.size();
+    g.late_gen = store_generation();
+    g.late_at = g_registry_now_ms();
+}
+
+void late_check() {
+    if (!g.in || !g.applied || !g.have_report || g.pending_set || g.late_slots.empty()) return;
+    if (g.late_next >= g.late_slots.size()) {  // no look going on: one starts when it is due
+        const uint64_t now = g_registry_now_ms();
+        const bool moved = store_generation() != g.late_gen;
+        const uint64_t wait = std::max(g.late_wait, kLateWaitMs);
+        if (now - g.late_at < (moved ? wait : std::max(wait, kLateScanMs))) return;
+        g.late_at = now;
+        g.late_gen = store_generation();
+        g.late_next = 0;
+    }
+    const size_t end = std::min(g.late_next + kLateBatch, g.late_slots.size());
+    for (; g.late_next < end; ++g.late_next) {
+        const LateSlot& s = g.late_slots[g.late_next];
+        if (late_signature(s.addr, s.size) == s.sig) continue;
+        const uint64_t wait = std::max(g.late_wait, kLateWaitMs);
+        if (++g.late_rebuilds == 1)
+            LOGI("registry (live): a field the registry writes changed after the last report (a later code change or another writer): "
+                 "state/registry.json updated (later ones too, at most every %llu s while they keep coming)",
+                 static_cast<unsigned long long>(kLateWaitMaxMs / 1000));
+        else
+            LOGD("registry (live): a later write changed a field the registry writes: state/registry.json updated (%zu)", g.late_rebuilds);
+        report(false);  // late_seen: what this report saw, no look going on
+        g.late_wait = std::min(wait * 2, kLateWaitMaxMs);
+        return;
+    }
+    if (g.late_next >= g.late_slots.size()) g.late_wait = kLateWaitMs;  // a whole look found nothing changed
 }
 
 // Each committed transaction is a later composition turn. Preserve claims and chains rather than flattening values.
@@ -1905,6 +2088,11 @@ void registry_live_install(RegistryLive in) {
     g.tables_changed = false;
     g.skipped_logged = 0;
     g.slot_places.clear();
+    g.late_gen = g.late_at = g.late_wait = 0;
+    g.late_slots.clear();
+    g.late_next = 0;
+    g.late_rebuilds = 0;
+    g.owner_names.clear();
 }
 
 std::shared_ptr<const registry::Schema> registry_live_schema() {
@@ -1968,6 +2156,7 @@ void registry_live_publish() {
                 if (!rollback.error.empty()) LOGW("registry (live): drop exclusion rollback unverified: %s", rollback.error.c_str());
             } else report(false);
         }
+        late_check();  // writes made after the last report (registry-followups 1): a look every 2-10 s, a batch of slots a tick
         if (!g.in || !g.pending_set) return;
         r = std::move(g.pending);
         const bool change = !application && g.pending_change && bool(g.in->changed);

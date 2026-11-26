@@ -1092,6 +1092,7 @@ std::vector<BootResource> Runner::run(const OldWritesFn& old_fn, const std::vect
     d.meta.kiln = d.env.kiln_version;
     d.meta.regmap = {d.env.side, d.env.exe_sha256, d.rm.has_build ? "regmap/" + d.env.side + "/" + d.env.exe_sha256 + ".json" : "", d.rm.verified()};
     d.meta.base.writer = d.env.writer;
+    d.meta.base.archive = d.env.archive;
     BaseModel base;
     std::vector<OldWrite> old;
     std::unique_ptr<Inventory> inventory;  // before m: the model reads through it

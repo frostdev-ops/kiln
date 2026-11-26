@@ -54,7 +54,9 @@ void logf(int level, const char* fmt, ...) {
     std::fprintf(stderr, "%s\n", b);
     if (g_log_lines.size() < 100000) g_log_lines.push_back(std::to_string(level) + " " + b);
 }
+size_t g_rd_calls = 0;  // test-only: reads of game memory (what one tick of the later-writes look reads)
 bool rd(uintptr_t address, void* out, size_t n) {
+    ++g_rd_calls;
     if (address < A(0) || address + n > A(sizeof g_arena)) return false;
     std::memcpy(out, reinterpret_cast<const void*>(address), n);
     return true;
@@ -223,8 +225,12 @@ void add_entry(Registry& r, uint32_t id, const char* name, size_t at_off, const 
 std::shared_ptr<registry::map::RegMap> g_regmap;
 registry::Result g_last_report;
 int g_reports = 0;
+std::function<std::string(KilnOwner)> g_owner_name;  // stage(): RegistryLive::owner_name (the core's id of an owner)
+std::function<void(RegistryLive&)> g_stage_extra;    // stage(): more base entries, ids and numbers (composed again after it)
 
 void world() {
+    g_owner_name = {};
+    g_stage_extra = {};
     g_write_limits.clear(); g_before_write = {}; g_after_each_write = {}; g_fail_addrs.clear(); g_integer_impacts.clear(); g_missing_nodes.clear();
     g_registry_type_size = [](const char* q) -> uint32_t { return std::string(q) == "keen::KnowledgeQueryData" ? 12u : 0u; };
     std::string e;
@@ -416,6 +422,10 @@ void stage(const std::vector<PackFile>& files, const std::vector<registry::Batch
                {"recipes|game:plank_recipe", PLANK}, {"drops|game:dt_wolf", 0x444},
                {"loot|game:material_t1_wood_logs", WOOD}, {"perks|game:perk_a", 0x901}, {"perks|game:perk_b", 0x902},
                {"skills|game:skill_4475e8dd", SKILL_NODE}, {"skills|game:skill_8efcc472", ROOT_NODE}};
+    if (g_stage_extra) {
+        g_stage_extra(in);
+        in.result = registry::compose(sc, in.base, old, mods);
+    }
     in.decoded = {"skills.cost", "items.socket", "items.perks", "items.manaCost", "items.staminaCost", "recipes.unlock", "loot.stack.max", "loot.rarities", "loot.fixedRarity", "items.maxStack", "items.rarity", "items.power", "recipes.duration", "recipes.inputs", "recipes.outputs", "drops.entries"};
     in.report = [](const registry::Result& r, bool) {
         g_last_report = r;
@@ -429,6 +439,7 @@ void stage(const std::vector<PackFile>& files, const std::vector<registry::Batch
         if (sp && sp->applies == registry::Applies::Restart) in.boot_fields[ref] = field;
     }
     in.rollback = rollback, in.left_out = left_out;  // a rolled-back start (stage.h LiveHandoff::rollback, left_out)
+    in.owner_name = g_owner_name;
     registry_live_install(std::move(in));
 }
 
@@ -885,6 +896,323 @@ void drift_probe() {
     apply_registry_files(files);
     check(json_field({"items", "game:material_t1_wood_logs", "maxStack"})["writers"][0]["kind"] == "drift", "a reload reports it again");
 }
+// registry-followups 1 (the compat rehearsal: EMF's big_stacks raised the logs to 1200 after the world load's report, and
+// registry.json said 300 until the next pack reload). A write made after the report reaches registry.json without a reload:
+// another loader's code change through kiln.content (as EMF's set_item_max_stack makes one) once the store's generation moved
+// and a short wait passed, and a write outside Kiln's store (a DLL writing game memory) at the next modest timer. Looks in
+// between do nothing (never per tick), a look that finds nothing changed rebuilds nothing, and a drift row is never a refusal.
+uint64_t g_now = 1000;
+void later_writes_reach_the_report() {
+    world();
+    g_registry_now_ms = [] { return g_now; };
+    g_files = {{"compat/content/a.json",
+                R"({"registry": {"alter": [{"registry": "items", "select": {"id": "game:material_t1_wood_logs"}, "field": "maxStack", "op": 30}]}})"}};
+    const auto files = files_of({{"compat", "compat/content/a.json"}});
+    stage(files);
+    registry_live_world_begin();
+    apply_registry_files(files);
+    const registry::FieldRef logs{"items", "game:material_t1_wood_logs", "maxStack"};
+    check(at<uint32_t>(WOOD_AT) == 30 && json_field(logs)["result"] == 30, "the world load's report: the registry's 30");
+    const int reports = g_reports;
+    const size_t refused = g_last_report.refused.size();
+    // EMF's big_stacks after the report: a code layer through kiln.content's set() (its source in the game's words)
+    uint8_t b[4] = {120, 0, 0, 0};
+    store_put(CODE, next_code_seq(), KILN_CONTENT_ITEMS, WOOD, 0, -1, A(WOOD_AT), 4, b, "owner 44: items Material_T1_Wood_Logs.maxStackSize");
+    store_flush(nullptr);
+    check(at<uint32_t>(WOOD_AT) == 120, "the code change is in the game");
+    registry_live_publish();
+    check(g_reports == reports, "not at the next tick: the look waits");
+    g_now += 500;
+    registry_live_publish();
+    check(g_reports == reports, "nor half a second later");
+    g_now += 2000;
+    registry_live_publish();
+    check(g_reports == reports + 1, "the store moved and the wait passed: registry.json is rebuilt (" + std::to_string(g_reports - reports) + ")");
+    auto row = json_field(logs);
+    check(row["result"] == 120 && row["writers"].back()["kind"] == "code" && row["writers"].back()["certainty"] == "certain",
+          "the report has the later code writer: " + row.dump());
+    // nothing changed since: later looks rebuild nothing, also a mod that sets the same value again
+    g_now += 20000;
+    registry_live_publish();
+    store_put(CODE, next_code_seq(), KILN_CONTENT_ITEMS, WOOD, 0, -1, A(WOOD_AT), 4, b, "owner 44: items Material_T1_Wood_Logs.maxStackSize");
+    store_flush(nullptr);
+    g_now += 3000;
+    registry_live_publish();
+    check(g_reports == reports + 1, "the same value set again rebuilds nothing (" + std::to_string(g_reports - reports) + ")");
+    // a write outside Kiln's store: the store's generation does not move, the timer's look finds it
+    mem<uint32_t>(WOOD_AT, 777);
+    g_now += 1000;
+    registry_live_publish();
+    check(g_reports == reports + 1, "not before the timer");
+    g_now += 15000;
+    registry_live_publish();
+    check(g_reports == reports + 2, "the timer's look rebuilds registry.json (" + std::to_string(g_reports - reports) + ")");
+    row = json_field(logs);
+    const auto& last = row["writers"].back();
+    check(row["result"] == 777 && last["kind"] == "drift" && last["certainty"] == "bestEffort" && last["value"] == 777 &&
+              last["who"].get<std::string>().rfind("outside Kiln (best effort", 0) == 0 && row["winner"] == last["who"],
+          "a later write outside Kiln is a best-effort row, last: " + row.dump());
+    bool line = false;
+    for (const registry::Line& l : g_last_report.lines)
+        line = line || (l.field == logs && l.certainty == registry::Certainty::BestEffort && l.text.find("after Kiln's last write") != std::string::npos);
+    check(line, "with a best-effort line");
+    check(g_last_report.refused.size() == refused, "never a refusal");
+    check(at<uint32_t>(WOOD_AT) == 777, "and nothing was written over it");
+    g_registry_now_ms = &steady_ms;
+}
+// registry-followups 1: a code writer's row names the Kiln place and the mod, never the game's debug or member names (the
+// rehearsal's "owner 67: items Material_T1_Wood_Logs.maxStackSize", EMF's big_stacks). kiln.content's own calls (set, set_stacks,
+// set_ref, kiln.gamedata's values) describe their layer in the game's words after the owner's label, and kiln.log's conflict
+// lines keep that; registry.json names "<mod>: <Kiln place>": the mod the owner's label gives, else the core's id of the owner
+// ("emf:big_stacks"), else the label. A source the mod chose itself (Content.Apply's label, a file name) stays as it is.
+void code_writers_are_named_in_kiln_words() {
+    world();
+    g_owner_name = [](KilnOwner o) -> std::string { return o == CODE ? "emf:big_stacks" : ""; };
+    g_files = {{"compat/content/a.json",
+                R"({"registry": {"alter": [{"registry": "items", "select": {"id": "game:material_t1_wood_logs"}, "field": "maxStack", "op": 30}]}})"}};
+    const auto files = files_of({{"compat", "compat/content/a.json"}});
+    stage(files);
+    registry_live_world_begin();
+    apply_registry_files(files);
+    auto code = [](KilnOwner owner, uint32_t v, const std::string& source) {
+        uint8_t b[4];
+        std::memcpy(b, &v, 4);
+        check(store_put(owner, next_code_seq(), KILN_CONTENT_ITEMS, WOOD, 0, -1, A(WOOD_AT), 4, b, source), "code layer " + source);
+    };
+    set_owner_label(45, "mod bigstacks");
+    set_owner_label(46, "mod chosen");
+    set_owner_label(48, "mod files");
+    code(CODE, 120, "owner 44: items Material_T1_Wood_Logs.maxStackSize");      // EMF's big_stacks through kiln.content's set()
+    code(45, 121, "mod bigstacks: items Material_T1_Wood_Logs.maxStackSize");   // a Kiln mod's Content set()
+    code(46, 122, "chosen x2: items *");                                         // Content.Apply with the mod's own label
+    code(47, 123, "owner 47: items Material_T1_Wood_Logs.maxStackSize");        // an owner the core has no id for
+    code(48, 124, "mod files: content/b.json: items Material_T1_Wood_Logs");     // ApplyFile: the mod's file and its own selector
+    store_flush(nullptr);
+    apply_registry_files(files);  // a reload rebuilds the rows
+    const auto row = json_field({"items", "game:material_t1_wood_logs", "maxStack"});
+    std::vector<registry::json> codes;
+    for (const auto& w : row["writers"])
+        if (w["kind"] == "code") codes.push_back(w);
+    check(codes.size() == 5, "five code writers: " + row["writers"].dump());
+    const std::string place = "items[game:material_t1_wood_logs].maxStack";
+    check(codes[0]["who"] == "emf:big_stacks: " + place && !codes[0].contains("mod"), "the core's id of an unlabelled owner: " + codes[0].dump());
+    check(codes[1]["who"] == "bigstacks: " + place && codes[1]["mod"] == "bigstacks", "a labelled mod: " + codes[1].dump());
+    check(codes[2]["who"] == "chosen x2: items *" && codes[2]["mod"] == "chosen", "the mod's own label stays: " + codes[2].dump());
+    check(codes[3]["who"] == "owner 47: " + place, "no id for the owner: its label, and the Kiln place: " + codes[3].dump());
+    check(codes[4]["who"] == "mod files: content/b.json: items Material_T1_Wood_Logs" && codes[4]["mod"] == "files",
+          "a file and selector the mod wrote stay: " + codes[4].dump());
+    check(row["winner"] == "mod files: content/b.json: items Material_T1_Wood_Logs" && row["result"] == 124, "the last code writer wins");
+    for (size_t i : {size_t(0), size_t(1), size_t(3)}) {
+        const std::string text = codes[i].dump();
+        check(text.find("Material_T1_Wood_Logs") == std::string::npos && text.find("maxStackSize") == std::string::npos,
+              "no game debug or member name in Kiln's own wording: " + text);
+    }
+    // kiln.log's conflict lines keep the store's own text (diagnostics)
+    bool kept = false;
+    for (const Conflict& c : store_conflicts()) kept = kept || c.loser == "owner 44: items Material_T1_Wood_Logs.maxStackSize";
+    check(kept, "the store's conflicts keep their text");
+}
+// registry-followups 3 (the compat rehearsal's mixed set: BigStacks' Content.Apply {"mul": 4, "max": 9999, "raiseOnly": true}
+// gave wood logs 1000 over the registry's 2000). Content.* changes made by code sit above registry edits (D1, services/
+// registry.md), and a data-pack op made by code is computed on the game's original value (services/content.md "an op relative
+// to the game's original value"; raiseOnly: "never below the game's value"), never on what the registry made of it. That is
+// 31.15's behaviour and stays (a later code layer wins, at the value it computed); registry.json now says so: one certain
+// "overridden" line naming the code writer, the registry edit it replaced and both values. No line when code sets the
+// registry's own value.
+void code_over_a_registry_value_is_reported() {
+    world();
+    g_files = {{"m/content/a.json",
+                R"({"registry": {"alter": [{"registry": "items", "select": {"id": "game:material_t1_wood_logs"}, "field": "maxStack", "op": {"mul": 200}}]}})"}};
+    const auto files = files_of({{"m", "m/content/a.json"}});
+    stage(files);
+    registry_live_world_begin();
+    apply_registry_files(files);
+    check(at<uint32_t>(WOOD_AT) == 2000, "the registry's x200 over the game's 10");
+    // BigStacks: Content.Apply's x4 raiseOnly, computed by kiln.content on the game's 10, a code layer of 40
+    set_owner_label(45, "mod bigstacks");
+    uint8_t b[4] = {40, 0, 0, 0};
+    store_put(45, next_code_seq(), KILN_CONTENT_ITEMS, WOOD, 0, -1, A(WOOD_AT), 4, b, "bigstacks x4 max 9999: items *");
+    store_flush(nullptr);
+    apply_registry_files(files);
+    check(at<uint32_t>(WOOD_AT) == 40, "the code layer above the registry wins, at the value it computed (31.15's behaviour, kept)");
+    const registry::FieldRef logs{"items", "game:material_t1_wood_logs", "maxStack"};
+    const auto row = json_field(logs);
+    check(row["result"] == 40 && row["winner"] == "bigstacks x4 max 9999: items *", "the report's result and winner: " + row.dump());
+    const registry::Line* line = nullptr;
+    for (const registry::Line& l : g_last_report.lines)
+        if (l.field == logs && l.loser == "m") line = &l;
+    check(line && line->kind == registry::LineKind::Overridden && line->certainty == registry::Certainty::Certain &&
+              line->winner == "bigstacks x4 max 9999: items *" && line->text.find("sets 40 over m's 2000") != std::string::npos &&
+              line->text.find("game's value, 10") != std::string::npos,
+          "one overridden line names the code writer and the registry edit it replaced: " + (line ? line->text : std::string("none")));
+    check(g_last_report.refused.empty(), "never a refusal");
+    // code that sets the registry's own value: no line
+    uint8_t same[4];
+    const uint32_t v = 2000;
+    std::memcpy(same, &v, 4);
+    store_put(45, next_code_seq(), KILN_CONTENT_ITEMS, WOOD, 0, -1, A(WOOD_AT), 4, same, "bigstacks x4 max 9999: items *");
+    store_flush(nullptr);
+    apply_registry_files(files);
+    bool any = false;
+    for (const registry::Line& l : g_last_report.lines) any = any || (l.field == logs && l.loser == "m");
+    check(!any && at<uint32_t>(WOOD_AT) == 2000, "code that keeps the registry's value: no line");
+    // the value code's op was computed on is the one kiln.content holds as the original (the game's before any Kiln layer),
+    // not the stage's base: here another loader made it 12 before Kiln's first write (a drift row), and the line says 12
+    world();
+    stage(files);
+    registry_live_world_begin();
+    mem<uint32_t>(WOOD_AT, 12);
+    apply_registry_files(files);
+    uint8_t c[4] = {48, 0, 0, 0};
+    store_put(45, next_code_seq(), KILN_CONTENT_ITEMS, WOOD, 0, -1, A(WOOD_AT), 4, c, "bigstacks x4 max 9999: items *");
+    store_flush(nullptr);
+    apply_registry_files(files);
+    line = nullptr;
+    for (const registry::Line& l : g_last_report.lines)
+        if (l.field == logs && l.loser == "m") line = &l;
+    check(line && line->text.find("sets 48 over m's 2400") != std::string::npos && line->text.find("game's value, 12,") != std::string::npos,
+          "the value code computed on: " + (line ? line->text : std::string("none")));
+}
+// Review (registry-followups 1): the later-writes look runs in the tick's publish under the store's lock, and read every bound
+// slot in one tick (a slot's bytes and its store signature): about 19 ms at 40,000 slots with four layers each (a loot or
+// stacks pack over every entry binds that many), every 10 s, and every 2 s while the store moves, also holding up the game's
+// job threads waiting for the lock. A look now reads at most kLateBatch slots a tick and goes on at the next ticks; a write
+// it finds anywhere is in registry.json within the look's ticks, as before.
+void later_writes_look_a_batch_a_tick() {
+    world();
+    g_registry_now_ms = [] { return g_now; };
+    constexpr size_t kBulk = 2500;  // more than two batches
+    constexpr size_t kBulkAt = 0x50000;
+    Registry& I = g_regs[KILN_CONTENT_ITEMS];
+    std::vector<std::string> names;
+    for (size_t i = 0; i < kBulk; ++i) names.push_back("Bulk_" + std::to_string(i));
+    for (size_t i = 0; i < kBulk; ++i) {
+        uint8_t guid[16] = {0xB0, 0x1C};
+        std::memcpy(guid + 4, &i, sizeof i);
+        add_entry(I, static_cast<uint32_t>(0x100000 + i), names[i].c_str(), kBulkAt + i * 4, guid);
+        mem<uint32_t>(kBulkAt + i * 4, 20);
+    }
+    g_stage_extra = [](RegistryLive& in) {
+        for (size_t i = 0; i < kBulk; ++i) {
+            const std::string id = "game:bulk_" + std::to_string(i);
+            registry::BaseModel::Entry e;
+            e.id = id;
+            e.fields["maxStack"] = registry::Value::integer(20);
+            in.base.registries["items"].push_back(e);
+            in.ids["items|" + id] = guid_text(g_regs[KILN_CONTENT_ITEMS].get(static_cast<uint32_t>(0x100000 + i))->guid);
+            in.nums["items|" + id] = static_cast<uint32_t>(0x100000 + i);
+        }
+    };
+    g_files = {{"bulk/content/a.json",
+                R"({"registry": {"alter": [{"registry": "items", "select": {"id": "game:bulk_*"}, "field": "maxStack", "op": {"mul": 2}}]}})"}};
+    const auto files = files_of({{"bulk", "bulk/content/a.json"}});
+    stage(files);
+    registry_live_world_begin();
+    apply_registry_files(files);
+    check(at<uint32_t>(kBulkAt) == 40 && at<uint32_t>(kBulkAt + (kBulk - 1) * 4) == 40, "the pack's x2 on every bulk item");
+    const int reports = g_reports;
+    g_now += 11000;  // the timer's look is due
+    g_rd_calls = 0;
+    registry_live_publish();
+    check(g_rd_calls <= kLateBatch, "one tick of the look reads at most a batch of slots (" + std::to_string(g_rd_calls) + " reads)");
+    check(g_reports == reports, "nothing changed so far");
+    // a write outside Kiln on the last bound slot: found by the same look, a batch a tick
+    mem<uint32_t>(kBulkAt + (kBulk - 1) * 4, 777);
+    int ticks = 1;
+    for (; ticks < 16 && g_reports == reports; ++ticks) {
+        g_rd_calls = 0;
+        registry_live_publish();
+        check(g_reports != reports || g_rd_calls <= kLateBatch, "every tick of the look reads at most a batch (" + std::to_string(g_rd_calls) + ")");
+    }
+    check(g_reports == reports + 1, "the write is in registry.json within the look (" + std::to_string(ticks) + " ticks)");
+    const auto row = json_field({"items", "game:bulk_" + std::to_string(kBulk - 1), "maxStack"});
+    check(row["result"] == 777 && row["writers"].back()["kind"] == "drift", "a best-effort row, last: " + row.dump());
+    // the next look starts over from the new report: nothing changed since, nothing rebuilt
+    const int after = g_reports;
+    g_now += 11000;
+    for (int t = 0; t < 16; ++t) registry_live_publish();
+    check(g_reports == after, "a whole look over unchanged slots rebuilds nothing");
+    g_registry_now_ms = &steady_ms;
+}
+// Review (registry-followups 1): kiln.gamedata's values (t_set, t_set_json) word their layer "<label>: items <game name>.<config
+// path>" as kiln.content's do, on a slot of a gamedata kind: the config value items.manaCost and items.staminaCost write. Its
+// row kept the game's item and member names ("mod spelltweaks: items Sword_T2.impactValues.0xaf236ece.value"); it is in Kiln
+// words like the other code writers.
+void gamedata_code_writer_in_kiln_words() {
+    world();
+    g_files = {{"m/content/a.json",
+                R"({"registry": {"alter": [{"registry": "items", "select": {"id": "game:sword_t2"}, "field": "manaCost", "op": {"mul": 1.5}}]}})"}};
+    const auto files = files_of({{"m", "m/content/a.json"}});
+    stage(files);
+    registry_live_world_begin();
+    apply_registry_files(files);
+    check(at<float>(SWORD_AT + 0x40) == 15.0f, "the registry's x1.5 on the mana cost");
+    set_owner_label(45, "mod spelltweaks");
+    const float v = 20.0f;
+    uint8_t b[4];
+    std::memcpy(b, &v, 4);
+    // as gamedata_api.cpp t_set_json puts it, on the config value's slot (gd_item_config_slot: a gamedata kind, the item's id)
+    check(store_put(45, next_code_seq(), 1000, SWORD, 7, -1, A(SWORD_AT + 0x40), 4, b, "mod spelltweaks: items Sword_T2.impactValues.0xaf236ece.value"),
+          "kiln.gamedata's code layer");
+    store_flush(nullptr);
+    apply_registry_files(files);
+    const auto row = json_field({"items", "game:sword_t2", "manaCost"});
+    registry::json code;
+    for (const auto& w : row["writers"])
+        if (w["kind"] == "code") code = w;
+    check(!code.is_null() && code["who"] == "spelltweaks: items[game:sword_t2].manaCost" && code["mod"] == "spelltweaks",
+          "the mod and the Kiln place: " + row["writers"].dump());
+    check(row.dump().find("Sword_T2") == std::string::npos && row.dump().find("impactValues") == std::string::npos,
+          "no game item or member name in the row: " + row.dump());
+}
+// Review (registry-followups 3): the code-over-registry line said the code writer "sets" the value the game holds now. After a
+// later write outside Kiln (the late look's best-effort row) that is the other writer's value, not the code's: the line named
+// BigStacks as setting 777, and a code layer that kept the registry's own value got the line too. It names the value the
+// code layer gives; the write outside Kiln has its own best-effort line.
+void code_over_registry_line_names_the_code_value() {
+    world();
+    g_registry_now_ms = [] { return g_now; };
+    g_files = {{"m/content/a.json",
+                R"({"registry": {"alter": [{"registry": "items", "select": {"id": "game:material_t1_wood_logs"}, "field": "maxStack", "op": {"mul": 200}}]}})"}};
+    const auto files = files_of({{"m", "m/content/a.json"}});
+    stage(files);
+    registry_live_world_begin();
+    apply_registry_files(files);
+    const registry::FieldRef logs{"items", "game:material_t1_wood_logs", "maxStack"};
+    set_owner_label(45, "mod bigstacks");
+    auto code = [](uint32_t v) {
+        uint8_t b[4];
+        std::memcpy(b, &v, 4);
+        store_put(45, next_code_seq(), KILN_CONTENT_ITEMS, WOOD, 0, -1, A(WOOD_AT), 4, b, "bigstacks x4 max 9999: items *");
+        store_flush(nullptr);
+    };
+    auto code_line = [&]() -> const registry::Line* {
+        for (const registry::Line& l : g_last_report.lines)
+            if (l.field == logs && l.loser == "m" && l.certainty == registry::Certainty::Certain) return &l;
+        return nullptr;
+    };
+    code(40);
+    apply_registry_files(files);
+    mem<uint32_t>(WOOD_AT, 777);  // a DLL writes the game's memory after it
+    g_now += 11000;
+    registry_live_publish();
+    auto row = json_field(logs);
+    check(row["result"] == 777 && row["writers"].back()["kind"] == "drift", "the late look's best-effort row: " + row.dump());
+    const registry::Line* line = code_line();
+    check(line && line->text.find("sets 40 over m's 2000") != std::string::npos && line->text.find("777") == std::string::npos,
+          "the line names what the code layer sets: " + (line ? line->text : std::string("none")));
+    // code that keeps the registry's value, then a write outside Kiln: the code replaced nothing, no code line
+    code(2000);
+    apply_registry_files(files);
+    check(at<uint32_t>(WOOD_AT) == 2000 && !code_line(), "code that keeps the registry's value: no line");
+    mem<uint32_t>(WOOD_AT, 777);
+    g_now += 11000;
+    registry_live_publish();
+    row = json_field(logs);
+    check(row["result"] == 777, "the write outside Kiln is in the report: " + row.dump());
+    check(!code_line(), "still no code line: " + (code_line() ? code_line()->text : std::string()));
+    g_registry_now_ms = &steady_ms;
+}
 // Review (registry-writers): an entry an old boot document wrote (boot_bridge.cpp's entry mark: a path no Kiln field's row
 // covers, such as a formula's input or "[*]" over a registry's elements) holds Kiln's own patch where the stage read the
 // value before it: the drift probe never calls that change another loader's. An entry no document wrote is still checked.
@@ -1220,6 +1548,12 @@ int main() {
         {"skipped_revert_names_the_kiln_place", skipped_revert_names_the_kiln_place},
         {"drift_probe", drift_probe},
         {"drift_probe_kiln_boot_patch", drift_probe_kiln_boot_patch},
+        {"later_writes_reach_the_report", later_writes_reach_the_report},
+        {"code_writers_are_named_in_kiln_words", code_writers_are_named_in_kiln_words},
+        {"code_over_a_registry_value_is_reported", code_over_a_registry_value_is_reported},
+        {"later_writes_look_a_batch_a_tick", later_writes_look_a_batch_a_tick},
+        {"gamedata_code_writer_in_kiln_words", gamedata_code_writer_in_kiln_words},
+        {"code_over_registry_line_names_the_code_value", code_over_registry_line_names_the_code_value},
         {"live_transactions", live_transactions},
         {"live_transaction_foreign_revert", live_transaction_foreign_revert},
         {"live_transaction_points_and_revoke", live_transaction_points_and_revoke},

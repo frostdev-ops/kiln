@@ -24,12 +24,14 @@
 #include "../../../core/src/owners_internal.h"
 #include "kiln_boot_collector.hpp"
 #include "pristine.h"
+#include "archive_base.h"
 #include "archive_journal.h"
 #include "drift.h"
 #include "entry_compat.h"
 #include "visibility.h"
 #include "services/kiln_assets.h"
 #include "services/kiln_caps.h"
+#include "services/kiln_eml.h"
 #include "services/kiln_launch.h"
 #include "services/kiln_registry.h"
 #include "services/kiln_registry_live.h"
@@ -156,14 +158,49 @@ std::string utc_now() {
     return b;
 }
 
-std::string writer_of() {
-    const auto* t = g_api ? static_cast<const KilnLaunchApi*>(g_api->service(KilnStr{KILN_LAUNCH_SERVICE, sizeof(KILN_LAUNCH_SERVICE) - 1}, KILN_LAUNCH_VERSION)) : nullptr;
-    if (!t || t->header.size < offsetof(KilnLaunchApi, status) + sizeof(void*) || !t->status) return "none";
-    KilnLaunchStatus st{};
-    st.size = sizeof st;
-    if (t->status(&st) != KILN_OK) return "none";
-    return st.backend == KILN_LAUNCH_BACKEND_KILN ? "kiln-eml" : "none";
+// This start's archive writer and what Kiln knows it from (archive_base.h, registry-followups 2): kiln.launch's backend,
+// kiln-eml's state (kiln.eml state_json: the text of kiln/state/eml.json), and whether kiln-eml's ownership receipt and
+// ShroudForge's record of its pass exist (their names only; neither is read).
+registry::ArchiveBase archive_writer() {
+    registry::ArchiveBaseInputs in;
+    if (const auto* t = g_api ? static_cast<const KilnLaunchApi*>(g_api->service(KilnStr{KILN_LAUNCH_SERVICE, sizeof(KILN_LAUNCH_SERVICE) - 1}, KILN_LAUNCH_VERSION)) : nullptr;
+        t && t->header.size >= offsetof(KilnLaunchApi, status) + sizeof(void*) && t->status) {
+        KilnLaunchStatus st{};
+        st.size = sizeof st;
+        if (t->status(&st) == KILN_OK)
+            in.backend = st.backend == KILN_LAUNCH_BACKEND_KILN        ? "kiln"
+                         : st.backend == KILN_LAUNCH_BACKEND_HOSTED    ? "hosted"
+                         : st.backend == KILN_LAUNCH_BACKEND_INSTALLED ? "installed"
+                                                                       : "none";
+    }
+    if (const auto* e = g_api ? static_cast<const KilnEmlApi*>(g_api->service(KilnStr{KILN_EML_SERVICE, sizeof(KILN_EML_SERVICE) - 1}, 1)) : nullptr;
+        e && e->header.size >= offsetof(KilnEmlApi, state_json) + sizeof(void*) && e->state_json) {
+        size_t len = 0;
+        e->state_json(nullptr, 0, &len);
+        if (len > 0 && len < (size_t{4} << 20)) {
+            std::string text(len, '\0');
+            size_t got = 0;
+            if (e->state_json(text.data(), text.size(), &got) == KILN_OK || got == len) {
+                in.eml_state = json::parse(text.substr(0, std::min(got, len)), nullptr, false);
+                in.eml = in.eml_state.is_object();
+            }
+        }
+    }
+    wchar_t exe[MAX_PATH * 2] = {};
+    const DWORD n = GetModuleFileNameW(nullptr, exe, static_cast<DWORD>(std::size(exe)));
+    if (n > 0 && n < std::size(exe)) {
+        const std::u8string stem = fs::path(exe).stem().u8string();
+        in.stem.assign(stem.begin(), stem.end());
+    }
+    const std::string game = api_path(KILN_PATH_GAME);
+    in.exists = [game](const std::string& rel) {
+        if (game.empty() || rel.find("..") != std::string::npos) return false;
+        std::error_code ec;
+        return fs::is_regular_file(u8(game) / u8(rel), ec);
+    };
+    return registry::archive_base(in);
 }
+std::string writer_of() { return archive_writer().writer; }
 
 // kiln-eml's change journal of this start (archive_journal.h read_archive_journal): <kiln>/eml/ownership/<exe
 // stem>.change-journal.json, only from the game folder itself (no part of the path a symbolic link, a junction or another
@@ -225,7 +262,11 @@ Env make_env() {
     e.owner_gone = &registry_live_owner_gone;
     e.pid = GetCurrentProcessId();
     e.now = &utc_now;
-    e.writer = writer_of();
+    {
+        const registry::ArchiveBase a = archive_writer();
+        e.writer = a.writer;
+        e.archive = a.archive;
+    }
     e.archive_journal = &archive_journal;
     e.source = [](std::string* why) -> std::unique_ptr<model::Source> {
         kiln::boot_view::LiveView& v = live_view();
@@ -388,6 +429,19 @@ std::string bound_mod(KilnOwner owner, bool* revoked = nullptr) {
         if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
     std::string err;
     return mod_id_ok(id, &err) ? id : std::string();
+}
+
+// The core's id of an owner as it keeps it ("emf:big_stacks", "mod:bigstacks"), for a code writer's row in registry.json
+// (registry_live.cpp name_code_writer). Empty: no such owner (revoked or never made), or an id that is not plain text.
+std::string owner_text(KilnOwner owner) {
+    const auto* t = owners();
+    if (!owner || !t || t->header.version < 2 || t->header.size < offsetof(KilnOwnersInternalApi, owner_id) + sizeof(void*) || !t->owner_id) return {};
+    char buf[128];
+    size_t len = 0;
+    if (t->owner_id(owner, buf, sizeof buf, &len) != KILN_OK || len == 0 || len >= sizeof buf) return {};
+    for (size_t i = 0; i < len; ++i)
+        if (static_cast<unsigned char>(buf[i]) < 0x20 || buf[i] == 0x7f) return {};
+    return std::string(buf, len);
 }
 
 KilnResult KILN_CALL t_status(KilnRegistryStatus* out) {
@@ -589,6 +643,7 @@ void bind_service() {
         in.left_out = h.left_out;
         in.on_world_thread = [](uint32_t kind) { return g_api && g_api->on_world_thread && g_api->on_world_thread(kind); };
         in.suspects = &drift_suspects_now;
+        in.owner_name = &owner_text;
         if (!in.result.definitions.empty()) registry_entries_prepare(&in);
         const Result reconciled = in.result;
         registry_live_install(std::move(in));
