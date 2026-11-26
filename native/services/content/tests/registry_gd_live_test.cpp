@@ -111,6 +111,8 @@ registry::BaseModel gd_base() {
     return b;
 }
 
+bool g_vukah_by_num = false;  // the id table names the Vukah by its 32-bit id only (an element entry without a GUID, a skill node's way)
+
 // registry_live_test's stage() with the gamedata registries' entries and ids
 void stage_gd(const std::vector<PackFile>& files) {
     const registry::Schema& sc = registry_schema();
@@ -133,6 +135,7 @@ void stage_gd(const std::vector<PackFile>& files) {
               {"perks|game:perk_max_adder_health_t7", guid_text(B1)}, {"perks|game:perk_mana_cost_mod_10", guid_text(B2)},
               {"perks|game:perk_armor_fog", guid_text(B3)}};
     in.nums = {{"items|game:material_t1_wood_logs", WOOD}};
+    if (g_vukah_by_num) in.ids["creatures|game:enemy_vukah_melee"] = "", in.nums["creatures|game:enemy_vukah_melee"] = VUKAH;
     for (const char* f : {"creatures.level", "creatures.faction", "creatures.scale", "creatures.sight.range", "creatures.resist.cut", "arsenals.attacks",
                           "perks.value", "perks.armor.enabled", "perks.armor.shroud"})
         in.decoded.insert(f);
@@ -337,6 +340,14 @@ void creature_code_writer_in_kiln_words() {
     check(row.dump().find("Enemy_Vukah_Melee") == std::string::npos && row.dump().find("dataStorage") == std::string::npos,
           "no game template or member name in the row: " + row.dump());
 }
+// an entry the id table names by its 32-bit id only (no GUID: an element entry such as a skill node) binds by that id
+void entry_by_its_number() {
+    gd_world();
+    g_vukah_by_num = true;
+    apply_gd(R"([{"registry": "creatures", "select": "game:enemy_vukah_melee", "field": "level", "op": 21}])");
+    g_vukah_by_num = false;
+    check(at<uint32_t>(VUKAH_AT) == 21 && g_last_report.refused.empty(), "bound by its 32-bit id" + refusals());
+}
 }  // namespace
 
 int main() {
@@ -358,6 +369,7 @@ int main() {
         {"arsenal_attacks", arsenal_attacks},
         {"creature_read_only_and_unknown", creature_read_only_and_unknown},
         {"creature_code_writer_in_kiln_words", creature_code_writer_in_kiln_words},
+        {"entry_by_its_number", entry_by_its_number},
     };
     int failed = 0;
     for (auto& [name, fn] : tests) {

@@ -111,7 +111,7 @@ bool gd_item_config_slot(const Entry& e, const std::string& path, GdValueSlot* o
 }
 bool gd_ui_scale(uint8_t, double v, int64_t* out) { return *out = std::llround(v), true; }
 // dev.32's gamedata-section registries are not part of this review's cases (registry_gd_live_test.cpp has them)
-bool gd_section_entry(uint32_t, const std::string&, Entry*) { return false; }
+bool gd_section_entry(uint32_t, const std::string&, uint32_t, Entry*) { return false; }
 bool gd_value_slot(uint32_t, const Entry&, const std::string&, GdValueSlot*, std::string* why) { return *why = "none here", false; }
 bool gd_shown_config(uint32_t, const Entry&, const std::string&, std::string*, std::string* why) { return *why = "none here", false; }
 bool gd_list_size(uint32_t, const Entry&, const std::string&, uint32_t*, std::string* why) { return *why = "none here", false; }

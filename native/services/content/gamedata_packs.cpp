@@ -1259,10 +1259,10 @@ bool gd_item_config_slot(const Entry& e, const std::string& path, GdValueSlot* o
     return value_slot(KILN_GD_ITEMS, e.id, e.name, Root::Plain, Node{I.type, e.addr}, path, "the item", out, why);
 }
 
-bool gd_section_entry(uint32_t section, const std::string& guid, Entry* out) {
+bool gd_section_entry(uint32_t section, const std::string& guid, uint32_t num, Entry* out) {
     std::lock_guard lock(store_mutex());
-    if (!valid_section(section) || guid.size() != 36) return false;
-    const GEntry* e = greg(section).lookup(guid);
+    if (!valid_section(section) || (guid.size() != 36 && !num)) return false;
+    const GEntry* e = guid.size() == 36 ? greg(section).lookup(guid) : greg(section).get(num);
     if (!e || e->sub > 0) return false;
     out->id = e->id, out->name = e->name, out->addr = e->addr;
     std::memcpy(out->guid, e->guid, 16);

@@ -150,12 +150,12 @@ struct GdSectionFake {
     std::map<std::pair<uint32_t, std::string>, uint32_t> lists;    // (entry id, list path) -> its length
 };
 std::map<uint32_t, GdSectionFake> g_gd_sections;  // by section
-bool gd_section_entry(uint32_t section, const std::string& guid, Entry* out) {
+bool gd_section_entry(uint32_t section, const std::string& guid, uint32_t num, Entry* out) {
     const auto s = g_gd_sections.find(section);
     if (s == g_gd_sections.end()) return false;
-    const auto it = s->second.entries.find(guid);
-    if (it == s->second.entries.end()) return false;
-    return *out = it->second, true;
+    for (const auto& [g, e] : s->second.entries)
+        if (guid.empty() ? (num && e.id == num) : g == guid) return *out = e, true;
+    return false;
 }
 bool gd_value_slot(uint32_t section, const Entry& e, const std::string& path, GdValueSlot* out, std::string* why) {
     GdSectionFake& f = g_gd_sections[section];

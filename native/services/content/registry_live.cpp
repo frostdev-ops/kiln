@@ -1084,9 +1084,12 @@ void bind_section_list(const std::shared_ptr<Binding>& b, uint32_t section, cons
 // One field of a gamedata-section registry's entry: the entry by its GUID in this world, then the row's conversion.
 void bind_section(const std::shared_ptr<Binding>& b, const registry::FieldRef& fr, const registry::FieldOutcome& fo,
              const std::vector<const ChainRow*>& rows, bool raw, uint32_t section) {
+    // by its GUID; an element entry without one (a skill node of the skill tree's array) by its 32-bit id
     std::string guid;
+    uint32_t num = 0;
     if (auto it = g.in->ids.find(fr.registry + "|" + fr.id); it != g.in->ids.end()) guid = lower(it->second);
-    if (guid.empty() || !gd_section_entry(section, guid, &b->entry)) return refuse(fr, rows, "the entry is not in this world");
+    if (auto it = g.in->nums.find(fr.registry + "|" + fr.id); it != g.in->nums.end()) num = it->second;
+    if ((guid.empty() && !num) || !gd_section_entry(section, guid, num, &b->entry)) return refuse(fr, rows, "the entry is not in this world");
     GdValueSlot s;
     if (raw) {  // the Advanced tier: a member path below the entry's root, as kiln.gamedata names it
         if (!section_slot(b, section, rows, fr.field.substr(4), &s)) return;
@@ -1261,7 +1264,7 @@ void name_code_writer(ChainRow& row, const Layer& layer, const Slot& slot, const
     if (!e && g.in)
         if (const uint32_t section = gd_section_of(ref.registry))
             if (const auto it = g.in->ids.find(ref.registry + "|" + ref.id);
-                it != g.in->ids.end() && gd_section_entry(section, lower(it->second), &gd_entry) && gd_entry.id == slot.id)
+                gd_section_entry(section, it != g.in->ids.end() ? lower(it->second) : std::string(), slot.id, &gd_entry) && gd_entry.id == slot.id)
                 e = &gd_entry;
     const std::string rest = layer.source.substr(head.size());
     const size_t space = rest.find(' ');
