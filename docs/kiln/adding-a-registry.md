@@ -169,7 +169,7 @@ entry point is `RestartRequired`, never applied (owner ruling 2026-11-22 on entr
 - Add the registry to `kind_of` (registry_live.cpp:129) with its kiln.content store kind (`KILN_CONTENT_*`, `reg(kind)`,
   registries.cpp). Without it every live field is refused "this registry has no live back-end" (:726). A registry
   kiln.content has no store kind for yet needs one first: entries in the world (`find_entry`, :165) and the store's
-  writable field schema come from it.
+  writable field schema come from it; a registry over kiln.gamedata's entries goes through its hooks instead (2.8b).
 - Writes go through the store's layers (packs < registry < code) with compare-before-write: a slot another writer changed
   after Kiln's layer stays with that writer for the world and is reported "another writer" (store.cpp:519-538, ruling
   2026-11-22 5:22 PM).
@@ -177,14 +177,6 @@ entry point is `RestartRequired`, never applied (owner ruling 2026-11-22 on entr
   (P6).
 - Runtime entry points refuse per entry; Manual transactions are atomic (P19). A failed write is charged to the change
   that owns the slot (P17).
-- **Entries kiln.gamedata lists** (dev.32 buffs, abilities; templates, perks, skills next): no kiln.content store kind.
-  `RegistryLive`'s `gd_kind` / `gd_entry` / `gd_slots` / `gd_written` hooks (set in `stage_service.cpp`, implemented by
-  `gd_registry_*` in gamedata_packs.cpp) give the store kind (`GD_KIND_BASE + section`), the entry by the stage's 32-bit id or
-  GUID, and the value slots of a row's path; `bind_gamedata` binds int/float/bool/time/enum and eventTime rows over them, and
-  `gd_written` runs after every flush (event order re-sorted, the buff mirror following). A new gamedata registry adds its
-  name to `gd_registry_kind`/`gd_registry_entry`/`registry_root`, a producer entry in `RegistryProofTestMod.GameData.cs`, and
-  its entries to `regmap_entries.py` and `compute_aliases` (regmap_check.py). Slots are named in `g_info` as kiln.gamedata
-  names its own, so the content sync carries registry layers to Kiln clients.
 
 ### 2.8a Fields that change existing saves
 
@@ -194,6 +186,27 @@ warn or report (README "Edits that change existing saves"), with a `registry_sav
 stage (`stage.cpp` `compose_checked`), live scalar fields at each write over the value under them (`registry_live.cpp`
 `save_check`; a new entry's first values are not judged), and every field of a rollback's plan also against the plan it rolls
 away from (`stage.cpp`, whole plan); a field read only at use or for new copies needs nothing.
+
+### 2.8b Registries over kiln.gamedata's sections (dev.32: buffs, abilities)
+
+Entries kiln.gamedata lists (buffs, sequences; templates, perks, skills next) have no kiln.content store kind and no flat schema:
+- `RegistryLive`'s `gd_kind` / `gd_entry` / `gd_slots` / `gd_written` hooks (set in `stage_service.cpp`, implemented by
+  `gd_registry_*` in gamedata_packs.cpp) give the store kind (`GD_KIND_BASE + section`), the entry by the stage's 32-bit id or
+  GUID (a clone never: the registry names the game's entries), and the value slots of a row's path; `bind_gamedata` binds
+  int/float/bool/time/enum and eventTime rows over them (compare-before-write, rollback and per-entry refusals as for every live
+  field), and `gd_written` runs after every flush: kiln.gamedata re-sorts the events lists it was told about and lets its buff
+  mirror (the game reads Kiln's copy of the buff collection once there are buff clones) follow the game's records.
+- Slots are named in kiln.gamedata's `g_info` as it names its own, so the content sync carries registry layers to Kiln clients
+  (as `sequences` / `buffs` values of the receiver's gamedata sections) and a code writer of them (kiln.gamedata's own
+  `<label>: <section> <entry>.<path>` layers) is named in Kiln words (`name_code_writer`, from the entry the binding found).
+- Paths start at the registry's entry root (a buff's record; a sequence resource, so `subSequences[0].`); kiln.gamedata's
+  paths start at the entry it lists (a sub-sequence): the producer leaves the prefix off for raw reads.
+- A path's selectors (`[<index>]`, `[<Type>#<k>]` with a qualified type) are checked by regmap_check.py and kilnctl, and kilnctl
+  dumps the variant types they name (regmap/README.md). An eventTime row resolves the first event of its kind over the game's
+  own order (the store's original events header), never over Kiln's sorted copy.
+- A new gamedata registry adds its name to `gd_registry_kind`, `gd_registry_entry` and `registry_root`, a producer entry in
+  `RegistryProofTestMod.GameData.cs`, its entries to `regmap_entries.py` and `compute_aliases` (regmap_check.py), and host cases
+  to `registry_live_gamedata_test.cpp`.
 
 ### 2.9 Managed typed API and analyzers
 

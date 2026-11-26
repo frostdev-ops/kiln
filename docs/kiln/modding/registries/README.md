@@ -300,7 +300,7 @@ each generated page's **Joined client** column describe the multiplayer path (si
 
 | Joined client | Server edit on an already joined Kiln client |
 |---|---|
-| `now` | ContentSync transfers the effective item/recipe layer; the client uses it at the next use after receipt. Not instantaneous: generation/changed-count updates are checked periodically, and value-only changes are exported at least every 10 seconds while sync is enabled. |
+| `now` | ContentSync transfers the effective item/recipe layer (for `abilities`, kiln.gamedata's sequence values); the client uses it at the next use after receipt. Not instantaneous: generation/changed-count updates are checked periodically, and value-only changes are exported at least every 10 seconds while sync is enabled. |
 | `worldLoad` | ContentSync transfers the layer, but a consumer that read it at world load (notably stack clamping) is not replayed. The next client world load consumes it. |
 | `restart` | Not transferred by ContentSync. Both sides need the same boot values at process start; the join compares the resolved values when both peers send them ([network.md](../../network.md#registry-boot-values-and-order)). A rejoin alone is not enough. |
 | `serverOnly` | The client needs no copy for this field; server outcomes apply. There is no client-held value to refresh. |
