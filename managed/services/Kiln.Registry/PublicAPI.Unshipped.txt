@@ -10,6 +10,10 @@
 [KILNX031]Kiln.Registry.DifficultyBossHealthFactor.Min.get -> double
 [KILNX031]Kiln.Registry.DifficultyBossHealthFactor.Min.set -> void
 [KILNX031]Kiln.Registry.DifficultyDayTimeDuration
+[KILNX031]Kiln.Registry.DifficultyDayTimeDuration.Max.get -> System.TimeSpan
+[KILNX031]Kiln.Registry.DifficultyDayTimeDuration.Max.set -> void
+[KILNX031]Kiln.Registry.DifficultyDayTimeDuration.Min.get -> System.TimeSpan
+[KILNX031]Kiln.Registry.DifficultyDayTimeDuration.Min.set -> void
 [KILNX031]Kiln.Registry.DifficultyEnemyDamageFactor
 [KILNX031]Kiln.Registry.DifficultyEnemyDamageFactor.Max.get -> double
 [KILNX031]Kiln.Registry.DifficultyEnemyDamageFactor.Max.set -> void
@@ -91,12 +95,20 @@
 [KILNX031]Kiln.Registry.DifficultyFoodBuffDurationFactor.Min.get -> double
 [KILNX031]Kiln.Registry.DifficultyFoodBuffDurationFactor.Min.set -> void
 [KILNX031]Kiln.Registry.DifficultyFromHungerToStarving
+[KILNX031]Kiln.Registry.DifficultyFromHungerToStarving.Max.get -> System.TimeSpan
+[KILNX031]Kiln.Registry.DifficultyFromHungerToStarving.Max.set -> void
+[KILNX031]Kiln.Registry.DifficultyFromHungerToStarving.Min.get -> System.TimeSpan
+[KILNX031]Kiln.Registry.DifficultyFromHungerToStarving.Min.set -> void
 [KILNX031]Kiln.Registry.DifficultyMiningDamageFactor
 [KILNX031]Kiln.Registry.DifficultyMiningDamageFactor.Max.get -> double
 [KILNX031]Kiln.Registry.DifficultyMiningDamageFactor.Max.set -> void
 [KILNX031]Kiln.Registry.DifficultyMiningDamageFactor.Min.get -> double
 [KILNX031]Kiln.Registry.DifficultyMiningDamageFactor.Min.set -> void
 [KILNX031]Kiln.Registry.DifficultyNightTimeDuration
+[KILNX031]Kiln.Registry.DifficultyNightTimeDuration.Max.get -> System.TimeSpan
+[KILNX031]Kiln.Registry.DifficultyNightTimeDuration.Max.set -> void
+[KILNX031]Kiln.Registry.DifficultyNightTimeDuration.Min.get -> System.TimeSpan
+[KILNX031]Kiln.Registry.DifficultyNightTimeDuration.Min.set -> void
 [KILNX031]Kiln.Registry.DifficultyPerkCostFactor
 [KILNX031]Kiln.Registry.DifficultyPerkCostFactor.Max.get -> double
 [KILNX031]Kiln.Registry.DifficultyPerkCostFactor.Max.set -> void
