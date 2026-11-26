@@ -157,6 +157,7 @@ public sealed class DataClientsTests
         { "affixes", """{ "name": "of the Bear", "stat": "strength", "tiers": [ { "min": 2, "max": 4 } ] }""", null },
         { "affixPools", """{ "items": [ "Weapon_T1_1H_SwordEpic_01" ], "affixes": [ { "affix": "bear" } ] }""", null },
         { "routines", """{ "windows": [ { "startMinute": 1320, "endMinute": 360, "task": { "kind": "sleep" } } ], "fallback": { "kind": "roam" } }""", null },
+        { "pets", """{ "creature": "game:enemy_wildbeast_wolf", "revive": { "channelSeconds": 3 } }""", null },
         { "npcMotions", """{ "bindings": [ { "role": "sit", "variant": 0, "state": "sit-enter" } ], "optionalFallback": "Idle" }""", null },
         { "rarityRolls", """{ "items": [ "Weapon_*" ], "sources": "craft, loot", "weights": { "common": 50, "rare": 10, "legendary": 1 } }""", null },
         { "rarityUpgrades", """{ "items": [ "Weapon_*" ], "steps": { "uncommon": { "cost": { "Material_T1_Metal_Scraps": 10 } } } }""", null },

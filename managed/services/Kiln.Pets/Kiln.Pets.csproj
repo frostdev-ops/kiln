@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Kiln.Pets: the pet framework (dossier 19d, dev.32). Kiln ships the mechanisms (durable owned records, the control
+       broker's leases, lifecycle and events, revive and cost receipts, the owner's view data, typed definitions); every
+       behaviour choice (who a pet may target, what a downed pet is, revive cost and timing, follow distances, caps, the
+       HUD) is the mod's, declared in its PetDefinition or decided through the API. Deployed to kiln/host/ and shared by
+       every mod (mods reference it with Private="false" ExcludeAssets="runtime"). docs/kiln/services/pets.md. -->
+  <PropertyGroup>
+    <RootNamespace>Kiln</RootNamespace>
+    <AssemblyName>Kiln.Pets</AssemblyName>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Kiln.Pets.Tests" />
+    <!-- PetBlock lowers onto Pets.Define and registers the creature blocks it names (Pets/PetCompiler.cs in Kiln.Blocks) -->
+    <InternalsVisibleTo Include="Kiln.Blocks" />
+    <InternalsVisibleTo Include="Kiln.Blocks.Tests" />
+    <InternalsVisibleTo Include="Kiln.TestKit" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Creatures/Kiln.Creatures.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.CreatureControl/Kiln.CreatureControl.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Spawn/Kiln.Spawn.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.World/Kiln.World.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Saves/Kiln.Saves.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Queries/Kiln.Queries.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Items/Kiln.Items.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Players/Kiln.Players.csproj" Private="false" />
+  </ItemGroup>
+</Project>
