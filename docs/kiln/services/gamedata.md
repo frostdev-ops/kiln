@@ -20,6 +20,11 @@ per language). Evidence and layouts: `docs/re/gamedata.md`; research:
 | Samples | `mods/samples/SpellTweaks/` (Fireball I and the double jump), `mods/samples/CreatureTweaks/` (every Vukah, an Elite Vukah clone), `mods/samples/NewItems/` (`content/frostbite.json`: a perk and a buff clone with texts, on Glacier) |
 
 ## Data packs
+Since dev.32 the registries [`buffs`](../modding/registries/buffs.md) (duration, stacking) and
+[`abilities`](../modding/registries/abilities.md) (timing.release, hit, cost, buff) give the most edited of these values Kiln
+names that survive game updates; the sections below keep working unchanged, and a registry edit of the same value is the later
+layer (it wins, reported).
+
 The sections sit in the same `content/*.json` files as kiln.content's `items` / `recipes` (same discovery, load
 order, conflicts, reload and revert rules: docs/kiln/services/content.md):
 

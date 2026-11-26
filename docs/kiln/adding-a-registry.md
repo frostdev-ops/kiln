@@ -177,6 +177,14 @@ entry point is `RestartRequired`, never applied (owner ruling 2026-11-22 on entr
   (P6).
 - Runtime entry points refuse per entry; Manual transactions are atomic (P19). A failed write is charged to the change
   that owns the slot (P17).
+- **Entries kiln.gamedata lists** (dev.32 buffs, abilities; templates, perks, skills next): no kiln.content store kind.
+  `RegistryLive`'s `gd_kind` / `gd_entry` / `gd_slots` / `gd_written` hooks (set in `stage_service.cpp`, implemented by
+  `gd_registry_*` in gamedata_packs.cpp) give the store kind (`GD_KIND_BASE + section`), the entry by the stage's 32-bit id or
+  GUID, and the value slots of a row's path; `bind_gamedata` binds int/float/bool/time/enum and eventTime rows over them, and
+  `gd_written` runs after every flush (event order re-sorted, the buff mirror following). A new gamedata registry adds its
+  name to `gd_registry_kind`/`gd_registry_entry`/`registry_root`, a producer entry in `RegistryProofTestMod.GameData.cs`, and
+  its entries to `regmap_entries.py` and `compute_aliases` (regmap_check.py). Slots are named in `g_info` as kiln.gamedata
+  names its own, so the content sync carries registry layers to Kiln clients.
 
 ### 2.8a Fields that change existing saves
 

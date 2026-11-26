@@ -44,6 +44,16 @@ registry has a breaking step yet: every schema is 0.1.0, and Kiln ships no migra
 | `loot` | random loot per item: stack sizes, rarities | [loot.md](loot.md) |
 | `drops` | the game's drop tables (default inventories) | [drops.md](drops.md) |
 | `balance` | the balance table: experience, levels, flame, durability, sockets, perk costs | [balance.md](balance.md) |
+| `buffs` | every buff and debuff: duration, what applying it again does (since dev.32) | [buffs.md](buffs.md) |
+| `abilities` | every timed action (spell casts, attacks, abilities, item uses): when it releases, hits, pays and applies a buff (since dev.32) | [abilities.md](abilities.md) |
+
+`buffs` and `abilities` (dev.32) are kiln.gamedata's data under Kiln names: the same buffs and sequences a data pack's
+`buffs` / `sequences` sections change by the game's paths ([gamedata.md](../../services/gamedata.md)), which keep working as
+they are; a registry edit is the later layer and wins (reported). They take no raw paths and no entry add or remove (a mod's
+own buffs and abilities are kiln.gamedata clones or blocks). A spell's costs are its item's (`items.manaCost`,
+`items.staminaCost`); `abilities.timing.*` moves the moment of the first event of a kind together with every event of that kind
+at the same moment. Example: [SpellRegistry sample](../../../../mods/samples/SpellRegistry/SpellRegistryMod.cs) (a data pack for
+Fireball I's timing, C# for a buff's duration).
 
 The per-registry pages are generated from `schema/registry/<registry>.json` by `tools/registrygen/registrygen.py`; edit
 the schema, never the page. Kiln maintainers adding a registry: [adding-a-registry.md](../../adding-a-registry.md).

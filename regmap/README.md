@@ -54,6 +54,13 @@ shows or predicts from its own copy), `state` (mapped, unproven, unmapped; the l
 | stackCount | the count members of the element's alternatives (item stack, input category) | the count |
 | inventoryWalk | the root group: stacks first, then each child group, depth first | the table's entries in walk order |
 | unlock | the knowledge requirement | game or always |
+| eventTime | the first event of a kind in a list of events, `<list>[<Type>#0].time` | seconds; every event of that kind at the same time in the game's data moves with it (abilities.timing.*) |
+
+Paths may select inside lists with kiln.gamedata's grammar ([gamedata.md](../docs/kiln/services/gamedata.md) "Paths"): `[<index>]`
+an array's element (`subSequences[0].name`), `[<Type>#<k>]` the k-th element of that type in a list of variants, the type
+qualified (`events[keen::actor::SpawnEntityEvent#0]`; regmap_check and kilnctl check that it is a variant of the list's base,
+and kilnctl adds it to the reflection it dumps). An eventTime row is resolved over the game's own order of the events, never
+over the sorted copy Kiln points the list at after a time change.
 
 **The routing rule.** The schema's `applies` is the contract. A row's `read` may not be later than its field's
 `applies` (now < worldLoad < restart); a `boot` back-end serves only restart fields and `live` only now and worldLoad
