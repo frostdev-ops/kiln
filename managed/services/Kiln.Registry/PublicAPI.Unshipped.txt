@@ -1,1 +1,205 @@
 #nullable enable
+[KILNX031]Kiln.Registry.DifficultyBossDamageFactor
+[KILNX031]Kiln.Registry.DifficultyBossDamageFactor.Max.get -> double
+[KILNX031]Kiln.Registry.DifficultyBossDamageFactor.Max.set -> void
+[KILNX031]Kiln.Registry.DifficultyBossDamageFactor.Min.get -> double
+[KILNX031]Kiln.Registry.DifficultyBossDamageFactor.Min.set -> void
+[KILNX031]Kiln.Registry.DifficultyBossHealthFactor
+[KILNX031]Kiln.Registry.DifficultyBossHealthFactor.Max.get -> double
+[KILNX031]Kiln.Registry.DifficultyBossHealthFactor.Max.set -> void
+[KILNX031]Kiln.Registry.DifficultyBossHealthFactor.Min.get -> double
+[KILNX031]Kiln.Registry.DifficultyBossHealthFactor.Min.set -> void
+[KILNX031]Kiln.Registry.DifficultyDayTimeDuration
+[KILNX031]Kiln.Registry.DifficultyEnemyDamageFactor
+[KILNX031]Kiln.Registry.DifficultyEnemyDamageFactor.Max.get -> double
+[KILNX031]Kiln.Registry.DifficultyEnemyDamageFactor.Max.set -> void
+[KILNX031]Kiln.Registry.DifficultyEnemyDamageFactor.Min.get -> double
+[KILNX031]Kiln.Registry.DifficultyEnemyDamageFactor.Min.set -> void
+[KILNX031]Kiln.Registry.DifficultyEnemyHealthFactor
+[KILNX031]Kiln.Registry.DifficultyEnemyHealthFactor.Max.get -> double
+[KILNX031]Kiln.Registry.DifficultyEnemyHealthFactor.Max.set -> void
+[KILNX031]Kiln.Registry.DifficultyEnemyHealthFactor.Min.get -> double
+[KILNX031]Kiln.Registry.DifficultyEnemyHealthFactor.Min.set -> void
+[KILNX031]Kiln.Registry.DifficultyEnemyPerceptionRangeFactor
+[KILNX031]Kiln.Registry.DifficultyEnemyPerceptionRangeFactor.Max.get -> double
+[KILNX031]Kiln.Registry.DifficultyEnemyPerceptionRangeFactor.Max.set -> void
+[KILNX031]Kiln.Registry.DifficultyEnemyPerceptionRangeFactor.Min.get -> double
+[KILNX031]Kiln.Registry.DifficultyEnemyPerceptionRangeFactor.Min.set -> void
+[KILNX031]Kiln.Registry.DifficultyEnemyStaminaFactor
+[KILNX031]Kiln.Registry.DifficultyEnemyStaminaFactor.Max.get -> double
+[KILNX031]Kiln.Registry.DifficultyEnemyStaminaFactor.Max.set -> void
+[KILNX031]Kiln.Registry.DifficultyEnemyStaminaFactor.Min.get -> double
+[KILNX031]Kiln.Registry.DifficultyEnemyStaminaFactor.Min.set -> void
+[KILNX031]Kiln.Registry.DifficultyEntry
+[KILNX031]Kiln.Registry.DifficultyEntry.BossDamageFactor.get -> Kiln.Registry.DifficultyBossDamageFactor!
+[KILNX031]Kiln.Registry.DifficultyEntry.BossHealthFactor.get -> Kiln.Registry.DifficultyBossHealthFactor!
+[KILNX031]Kiln.Registry.DifficultyEntry.DayTimeDuration.get -> Kiln.Registry.DifficultyDayTimeDuration!
+[KILNX031]Kiln.Registry.DifficultyEntry.EnemyDamageFactor.get -> Kiln.Registry.DifficultyEnemyDamageFactor!
+[KILNX031]Kiln.Registry.DifficultyEntry.EnemyHealthFactor.get -> Kiln.Registry.DifficultyEnemyHealthFactor!
+[KILNX031]Kiln.Registry.DifficultyEntry.EnemyPerceptionRangeFactor.get -> Kiln.Registry.DifficultyEnemyPerceptionRangeFactor!
+[KILNX031]Kiln.Registry.DifficultyEntry.EnemyStaminaFactor.get -> Kiln.Registry.DifficultyEnemyStaminaFactor!
+[KILNX031]Kiln.Registry.DifficultyEntry.ExperienceCombatFactor.get -> Kiln.Registry.DifficultyExperienceCombatFactor!
+[KILNX031]Kiln.Registry.DifficultyEntry.ExperienceExplorationQuestsFactor.get -> Kiln.Registry.DifficultyExperienceExplorationQuestsFactor!
+[KILNX031]Kiln.Registry.DifficultyEntry.ExperienceMiningFactor.get -> Kiln.Registry.DifficultyExperienceMiningFactor!
+[KILNX031]Kiln.Registry.DifficultyEntry.FactoryProductionSpeedFactor.get -> Kiln.Registry.DifficultyFactoryProductionSpeedFactor!
+[KILNX031]Kiln.Registry.DifficultyEntry.FlameLevelFogRemoval.get -> Kiln.Registry.DifficultyFlameLevelFogRemoval!
+[KILNX031]Kiln.Registry.DifficultyEntry.FoodBuffDurationFactor.get -> Kiln.Registry.DifficultyFoodBuffDurationFactor!
+[KILNX031]Kiln.Registry.DifficultyEntry.FromHungerToStarving.get -> Kiln.Registry.DifficultyFromHungerToStarving!
+[KILNX031]Kiln.Registry.DifficultyEntry.Id.get -> Kiln.Registry.RegistryId
+[KILNX031]Kiln.Registry.DifficultyEntry.MiningDamageFactor.get -> Kiln.Registry.DifficultyMiningDamageFactor!
+[KILNX031]Kiln.Registry.DifficultyEntry.NightTimeDuration.get -> Kiln.Registry.DifficultyNightTimeDuration!
+[KILNX031]Kiln.Registry.DifficultyEntry.PerkCostFactor.get -> Kiln.Registry.DifficultyPerkCostFactor!
+[KILNX031]Kiln.Registry.DifficultyEntry.PerkUpgradeRecyclingFactor.get -> Kiln.Registry.DifficultyPerkUpgradeRecyclingFactor!
+[KILNX031]Kiln.Registry.DifficultyEntry.PlantGrowthSpeedFactor.get -> Kiln.Registry.DifficultyPlantGrowthSpeedFactor!
+[KILNX031]Kiln.Registry.DifficultyEntry.PlayerBodyHeatFactor.get -> Kiln.Registry.DifficultyPlayerBodyHeatFactor!
+[KILNX031]Kiln.Registry.DifficultyEntry.PlayerDivingTimeFactor.get -> Kiln.Registry.DifficultyPlayerDivingTimeFactor!
+[KILNX031]Kiln.Registry.DifficultyEntry.PlayerHealthFactor.get -> Kiln.Registry.DifficultyPlayerHealthFactor!
+[KILNX031]Kiln.Registry.DifficultyEntry.PlayerManaFactor.get -> Kiln.Registry.DifficultyPlayerManaFactor!
+[KILNX031]Kiln.Registry.DifficultyEntry.PlayerStaminaFactor.get -> Kiln.Registry.DifficultyPlayerStaminaFactor!
+[KILNX031]Kiln.Registry.DifficultyEntry.Registry.get -> string!
+[KILNX031]Kiln.Registry.DifficultyEntry.ResourceDropStackAmountFactor.get -> Kiln.Registry.DifficultyResourceDropStackAmountFactor!
+[KILNX031]Kiln.Registry.DifficultyEntry.ShroudTimeFactor.get -> Kiln.Registry.DifficultyShroudTimeFactor!
+[KILNX031]Kiln.Registry.DifficultyEntry.ThreatBonus.get -> Kiln.Registry.DifficultyThreatBonus!
+[KILNX031]Kiln.Registry.DifficultyExperienceCombatFactor
+[KILNX031]Kiln.Registry.DifficultyExperienceCombatFactor.Max.get -> double
+[KILNX031]Kiln.Registry.DifficultyExperienceCombatFactor.Max.set -> void
+[KILNX031]Kiln.Registry.DifficultyExperienceCombatFactor.Min.get -> double
+[KILNX031]Kiln.Registry.DifficultyExperienceCombatFactor.Min.set -> void
+[KILNX031]Kiln.Registry.DifficultyExperienceExplorationQuestsFactor
+[KILNX031]Kiln.Registry.DifficultyExperienceExplorationQuestsFactor.Max.get -> double
+[KILNX031]Kiln.Registry.DifficultyExperienceExplorationQuestsFactor.Max.set -> void
+[KILNX031]Kiln.Registry.DifficultyExperienceExplorationQuestsFactor.Min.get -> double
+[KILNX031]Kiln.Registry.DifficultyExperienceExplorationQuestsFactor.Min.set -> void
+[KILNX031]Kiln.Registry.DifficultyExperienceMiningFactor
+[KILNX031]Kiln.Registry.DifficultyExperienceMiningFactor.Max.get -> double
+[KILNX031]Kiln.Registry.DifficultyExperienceMiningFactor.Max.set -> void
+[KILNX031]Kiln.Registry.DifficultyExperienceMiningFactor.Min.get -> double
+[KILNX031]Kiln.Registry.DifficultyExperienceMiningFactor.Min.set -> void
+[KILNX031]Kiln.Registry.DifficultyFactoryProductionSpeedFactor
+[KILNX031]Kiln.Registry.DifficultyFactoryProductionSpeedFactor.Max.get -> double
+[KILNX031]Kiln.Registry.DifficultyFactoryProductionSpeedFactor.Max.set -> void
+[KILNX031]Kiln.Registry.DifficultyFactoryProductionSpeedFactor.Min.get -> double
+[KILNX031]Kiln.Registry.DifficultyFactoryProductionSpeedFactor.Min.set -> void
+[KILNX031]Kiln.Registry.DifficultyFlameLevelFogRemoval
+[KILNX031]Kiln.Registry.DifficultyFlameLevelFogRemoval.Max.get -> int
+[KILNX031]Kiln.Registry.DifficultyFlameLevelFogRemoval.Max.set -> void
+[KILNX031]Kiln.Registry.DifficultyFlameLevelFogRemoval.Min.get -> int
+[KILNX031]Kiln.Registry.DifficultyFlameLevelFogRemoval.Min.set -> void
+[KILNX031]Kiln.Registry.DifficultyFoodBuffDurationFactor
+[KILNX031]Kiln.Registry.DifficultyFoodBuffDurationFactor.Max.get -> double
+[KILNX031]Kiln.Registry.DifficultyFoodBuffDurationFactor.Max.set -> void
+[KILNX031]Kiln.Registry.DifficultyFoodBuffDurationFactor.Min.get -> double
+[KILNX031]Kiln.Registry.DifficultyFoodBuffDurationFactor.Min.set -> void
+[KILNX031]Kiln.Registry.DifficultyFromHungerToStarving
+[KILNX031]Kiln.Registry.DifficultyMiningDamageFactor
+[KILNX031]Kiln.Registry.DifficultyMiningDamageFactor.Max.get -> double
+[KILNX031]Kiln.Registry.DifficultyMiningDamageFactor.Max.set -> void
+[KILNX031]Kiln.Registry.DifficultyMiningDamageFactor.Min.get -> double
+[KILNX031]Kiln.Registry.DifficultyMiningDamageFactor.Min.set -> void
+[KILNX031]Kiln.Registry.DifficultyNightTimeDuration
+[KILNX031]Kiln.Registry.DifficultyPerkCostFactor
+[KILNX031]Kiln.Registry.DifficultyPerkCostFactor.Max.get -> double
+[KILNX031]Kiln.Registry.DifficultyPerkCostFactor.Max.set -> void
+[KILNX031]Kiln.Registry.DifficultyPerkCostFactor.Min.get -> double
+[KILNX031]Kiln.Registry.DifficultyPerkCostFactor.Min.set -> void
+[KILNX031]Kiln.Registry.DifficultyPerkUpgradeRecyclingFactor
+[KILNX031]Kiln.Registry.DifficultyPerkUpgradeRecyclingFactor.Max.get -> double
+[KILNX031]Kiln.Registry.DifficultyPerkUpgradeRecyclingFactor.Max.set -> void
+[KILNX031]Kiln.Registry.DifficultyPerkUpgradeRecyclingFactor.Min.get -> double
+[KILNX031]Kiln.Registry.DifficultyPerkUpgradeRecyclingFactor.Min.set -> void
+[KILNX031]Kiln.Registry.DifficultyPlantGrowthSpeedFactor
+[KILNX031]Kiln.Registry.DifficultyPlantGrowthSpeedFactor.Max.get -> double
+[KILNX031]Kiln.Registry.DifficultyPlantGrowthSpeedFactor.Max.set -> void
+[KILNX031]Kiln.Registry.DifficultyPlantGrowthSpeedFactor.Min.get -> double
+[KILNX031]Kiln.Registry.DifficultyPlantGrowthSpeedFactor.Min.set -> void
+[KILNX031]Kiln.Registry.DifficultyPlayerBodyHeatFactor
+[KILNX031]Kiln.Registry.DifficultyPlayerBodyHeatFactor.Max.get -> double
+[KILNX031]Kiln.Registry.DifficultyPlayerBodyHeatFactor.Max.set -> void
+[KILNX031]Kiln.Registry.DifficultyPlayerBodyHeatFactor.Min.get -> double
+[KILNX031]Kiln.Registry.DifficultyPlayerBodyHeatFactor.Min.set -> void
+[KILNX031]Kiln.Registry.DifficultyPlayerDivingTimeFactor
+[KILNX031]Kiln.Registry.DifficultyPlayerDivingTimeFactor.Max.get -> double
+[KILNX031]Kiln.Registry.DifficultyPlayerDivingTimeFactor.Max.set -> void
+[KILNX031]Kiln.Registry.DifficultyPlayerDivingTimeFactor.Min.get -> double
+[KILNX031]Kiln.Registry.DifficultyPlayerDivingTimeFactor.Min.set -> void
+[KILNX031]Kiln.Registry.DifficultyPlayerHealthFactor
+[KILNX031]Kiln.Registry.DifficultyPlayerHealthFactor.Max.get -> double
+[KILNX031]Kiln.Registry.DifficultyPlayerHealthFactor.Max.set -> void
+[KILNX031]Kiln.Registry.DifficultyPlayerHealthFactor.Min.get -> double
+[KILNX031]Kiln.Registry.DifficultyPlayerHealthFactor.Min.set -> void
+[KILNX031]Kiln.Registry.DifficultyPlayerManaFactor
+[KILNX031]Kiln.Registry.DifficultyPlayerManaFactor.Max.get -> double
+[KILNX031]Kiln.Registry.DifficultyPlayerManaFactor.Max.set -> void
+[KILNX031]Kiln.Registry.DifficultyPlayerManaFactor.Min.get -> double
+[KILNX031]Kiln.Registry.DifficultyPlayerManaFactor.Min.set -> void
+[KILNX031]Kiln.Registry.DifficultyPlayerStaminaFactor
+[KILNX031]Kiln.Registry.DifficultyPlayerStaminaFactor.Max.get -> double
+[KILNX031]Kiln.Registry.DifficultyPlayerStaminaFactor.Max.set -> void
+[KILNX031]Kiln.Registry.DifficultyPlayerStaminaFactor.Min.get -> double
+[KILNX031]Kiln.Registry.DifficultyPlayerStaminaFactor.Min.set -> void
+[KILNX031]Kiln.Registry.DifficultyResourceDropStackAmountFactor
+[KILNX031]Kiln.Registry.DifficultyResourceDropStackAmountFactor.Max.get -> double
+[KILNX031]Kiln.Registry.DifficultyResourceDropStackAmountFactor.Max.set -> void
+[KILNX031]Kiln.Registry.DifficultyResourceDropStackAmountFactor.Min.get -> double
+[KILNX031]Kiln.Registry.DifficultyResourceDropStackAmountFactor.Min.set -> void
+[KILNX031]Kiln.Registry.DifficultyShroudTimeFactor
+[KILNX031]Kiln.Registry.DifficultyShroudTimeFactor.Max.get -> double
+[KILNX031]Kiln.Registry.DifficultyShroudTimeFactor.Max.set -> void
+[KILNX031]Kiln.Registry.DifficultyShroudTimeFactor.Min.get -> double
+[KILNX031]Kiln.Registry.DifficultyShroudTimeFactor.Min.set -> void
+[KILNX031]Kiln.Registry.DifficultyThreatBonus
+[KILNX031]Kiln.Registry.DifficultyThreatBonus.Max.get -> double
+[KILNX031]Kiln.Registry.DifficultyThreatBonus.Max.set -> void
+[KILNX031]Kiln.Registry.DifficultyThreatBonus.Min.get -> double
+[KILNX031]Kiln.Registry.DifficultyThreatBonus.Min.set -> void
+[KILNX031]Kiln.Registry.LimitsEntry
+[KILNX031]Kiln.Registry.LimitsEntry.GiftingRange.get -> double
+[KILNX031]Kiln.Registry.LimitsEntry.GiftingRange.set -> void
+[KILNX031]Kiln.Registry.LimitsEntry.Id.get -> Kiln.Registry.RegistryId
+[KILNX031]Kiln.Registry.LimitsEntry.MaxAltars.get -> int
+[KILNX031]Kiln.Registry.LimitsEntry.MaxAltars.set -> void
+[KILNX031]Kiln.Registry.LimitsEntry.Registry.get -> string!
+[KILNX031]Kiln.Registry.RegistryStage.Difficulty.get -> Kiln.Registry.DifficultyEntry!
+[KILNX031]Kiln.Registry.RegistryStage.Limits.get -> Kiln.Registry.LimitsEntry!
+[KILNX031]Kiln.Registry.RegistryStage.World.get -> Kiln.Registry.WorldEntry!
+[KILNX031]Kiln.Registry.WorldEntry
+[KILNX031]Kiln.Registry.WorldEntry.Id.get -> Kiln.Registry.RegistryId
+[KILNX031]Kiln.Registry.WorldEntry.NoBuildZones.get -> Kiln.Registry.RegistryEntryList<Kiln.Registry.WorldNoBuildZone!>!
+[KILNX031]Kiln.Registry.WorldEntry.PlayableAreas.get -> Kiln.Registry.RegistryEntryList<Kiln.Registry.WorldPlayableArea!>!
+[KILNX031]Kiln.Registry.WorldEntry.Registry.get -> string!
+[KILNX031]Kiln.Registry.WorldNoBuildZone
+[KILNX031]Kiln.Registry.WorldNoBuildZone.Index.get -> int
+[KILNX031]Kiln.Registry.WorldNoBuildZone.Max.get -> Kiln.Registry.WorldNoBuildZoneMax!
+[KILNX031]Kiln.Registry.WorldNoBuildZone.Min.get -> Kiln.Registry.WorldNoBuildZoneMin!
+[KILNX031]Kiln.Registry.WorldNoBuildZoneMax
+[KILNX031]Kiln.Registry.WorldNoBuildZoneMax.X.get -> double
+[KILNX031]Kiln.Registry.WorldNoBuildZoneMax.X.set -> void
+[KILNX031]Kiln.Registry.WorldNoBuildZoneMax.Y.get -> double
+[KILNX031]Kiln.Registry.WorldNoBuildZoneMax.Y.set -> void
+[KILNX031]Kiln.Registry.WorldNoBuildZoneMax.Z.get -> double
+[KILNX031]Kiln.Registry.WorldNoBuildZoneMax.Z.set -> void
+[KILNX031]Kiln.Registry.WorldNoBuildZoneMin
+[KILNX031]Kiln.Registry.WorldNoBuildZoneMin.X.get -> double
+[KILNX031]Kiln.Registry.WorldNoBuildZoneMin.X.set -> void
+[KILNX031]Kiln.Registry.WorldNoBuildZoneMin.Y.get -> double
+[KILNX031]Kiln.Registry.WorldNoBuildZoneMin.Y.set -> void
+[KILNX031]Kiln.Registry.WorldNoBuildZoneMin.Z.get -> double
+[KILNX031]Kiln.Registry.WorldNoBuildZoneMin.Z.set -> void
+[KILNX031]Kiln.Registry.WorldPlayableArea
+[KILNX031]Kiln.Registry.WorldPlayableArea.Index.get -> int
+[KILNX031]Kiln.Registry.WorldPlayableArea.Max.get -> Kiln.Registry.WorldPlayableAreaMax!
+[KILNX031]Kiln.Registry.WorldPlayableArea.Min.get -> Kiln.Registry.WorldPlayableAreaMin!
+[KILNX031]Kiln.Registry.WorldPlayableAreaMax
+[KILNX031]Kiln.Registry.WorldPlayableAreaMax.X.get -> double
+[KILNX031]Kiln.Registry.WorldPlayableAreaMax.X.set -> void
+[KILNX031]Kiln.Registry.WorldPlayableAreaMax.Y.get -> double
+[KILNX031]Kiln.Registry.WorldPlayableAreaMax.Y.set -> void
+[KILNX031]Kiln.Registry.WorldPlayableAreaMax.Z.get -> double
+[KILNX031]Kiln.Registry.WorldPlayableAreaMax.Z.set -> void
+[KILNX031]Kiln.Registry.WorldPlayableAreaMin
+[KILNX031]Kiln.Registry.WorldPlayableAreaMin.X.get -> double
+[KILNX031]Kiln.Registry.WorldPlayableAreaMin.X.set -> void
+[KILNX031]Kiln.Registry.WorldPlayableAreaMin.Y.get -> double
+[KILNX031]Kiln.Registry.WorldPlayableAreaMin.Y.set -> void
+[KILNX031]Kiln.Registry.WorldPlayableAreaMin.Z.get -> double
+[KILNX031]Kiln.Registry.WorldPlayableAreaMin.Z.set -> void

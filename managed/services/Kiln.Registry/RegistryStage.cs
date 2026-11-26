@@ -43,6 +43,15 @@ public sealed class RegistryStage
     public RegistryEntries<DropTableEntry> Drops { get { Context.Ensure(); return new(this, "drops", static (id, cells) => new(id, cells)); } }
     /// <summary>The singleton balance table. Its restart fields are editable only at game start.</summary>
     public BalanceEntry Balance { get { Context.Ensure(); return new(new("game:balance"), Cells("balance", "game:balance")); } }
+    /// <summary>The world's build rules from its scene (no-build zones, the big dungeons' playable areas). Restart fields: editable
+    /// only at game start.</summary>
+    public WorldEntry World { get { Context.Ensure(); return new(new("game:world"), Cells("world", "game:world")); } }
+    /// <summary>The bounds of the world's difficulty settings (each setting's lowest and highest value). Restart fields: editable only
+    /// at game start.</summary>
+    public DifficultyEntry Difficulty { get { Context.Ensure(); return new(new("game:difficulty"), Cells("difficulty", "game:difficulty")); } }
+    /// <summary>Limits the game's code holds as fixed numbers (the most Flame Altars, the gifting distance): Kiln answers the game's
+    /// check with them through hooks of its own. Restart fields: editable only at game start.</summary>
+    public LimitsEntry Limits { get { Context.Ensure(); return new(new("game:limits"), Cells("limits", "game:limits")); } }
     /// <summary>Authors new entries in the add pass. Entry creation is GameStart-only; later native points report RestartRequired.</summary>
     public void Add(Action<RegistryStage> entries) { ArgumentNullException.ThrowIfNull(entries); In(RegistryPhase.Add, () => entries(this)); }
     /// <summary>Authors ordinary field edits, once in the alter pass.</summary>

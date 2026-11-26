@@ -120,7 +120,9 @@ public class RegistryTests
             Assert.DoesNotContain("0x", f.Field);
             Assert.InRange((int)f.Applies, 1, 3);
         }
-        Assert.Equal(new[] { "balance", "drops", "items", "loot", "recipes" }, RegistrySchema.Versions.Keys.OrderBy(k => k, StringComparer.Ordinal));
+        // the five R1 registries and dev.32's world rules (world, difficulty) and limits
+        Assert.Equal(new[] { "balance", "difficulty", "drops", "items", "limits", "loot", "recipes", "world" },
+            RegistrySchema.Versions.Keys.OrderBy(k => k, StringComparer.Ordinal));
     }
 
     [Fact]
