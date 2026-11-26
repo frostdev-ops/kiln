@@ -205,7 +205,7 @@ pub fn constants(suites: &[&Suite]) -> BTreeMap<String, f64> {
 
 fn raw_kind(conv: &str) -> Raw {
     match conv {
-        "int" | "float" | "impactConfig" | "bool" | "time" | "enum" | "flags" | "optionalEnum" => Raw::Compared,
+        "int" | "float" | "impactConfig" | "bool" | "time" | "eventTime" | "enum" | "flags" | "optionalEnum" => Raw::Compared,
         "formula" => Raw::Formula,
         _ => Raw::SchemaOnly,
     }
@@ -257,7 +257,8 @@ fn raw_mismatch(row: &Row, raw: &[Value], kiln: &Value) -> Option<String> {
         "int" => num(first).is_some() && num(first) == num(kiln),
         "float" | "impactConfig" => num(first).zip(num(kiln)).is_some_and(|(a, b)| close(a, b)),
         "bool" => truthy(first).is_some() && truthy(first) == kiln.as_bool(),
-        "time" => num(first).zip(num(kiln)).is_some_and(|(ns, s)| (ns / 1e9 - s).abs() <= 1e-9 * s.abs().max(1.0)),
+        // eventTime: the first event of a kind (dev.32 abilities.timing.*), a keen::Time like time
+        "time" | "eventTime" => num(first).zip(num(kiln)).is_some_and(|(ns, s)| (ns / 1e9 - s).abs() <= 1e-9 * s.abs().max(1.0)),
         "enum" => first.as_str().is_some() && first.as_str() == kiln.as_str().and_then(|k| row.values.get(k)).map(String::as_str),
         "flags" => {
             let want: Option<std::collections::BTreeSet<String>> =
@@ -524,6 +525,17 @@ pub(crate) mod tests {
     use serde_json::json;
 
     pub(crate) const SHA: &str = "1111111111111111111111111111111111111111111111111111111111111111";
+
+    /// dev.32: an eventTime row (abilities.timing.*: the first event of a kind) compares its raw keen::Time (nanoseconds) with
+    /// the Kiln seconds, as a time row does; it is a compared kind, not schema-only.
+    #[test]
+    fn event_time_rows_compare_nanoseconds_with_seconds() {
+        let row = Row { paths: vec!["subSequences[0].events[keen::actor::SpawnEntityEvent#0].time".into()], conv: "eventTime".into(),
+                        backend: "live".into(), ..Default::default() };
+        assert_eq!(raw_kind("eventTime"), Raw::Compared);
+        assert!(raw_mismatch(&row, &[json!(650000000)], &json!(0.65)).is_none());
+        assert!(raw_mismatch(&row, &[json!(900000000)], &json!(0.65)).is_some(), "another event's time does not give the field's");
+    }
 
     /// The check without a values export (the rows these tests judge have no kind counts).
     fn check(map: &RegMap, side: &str, exe_sha256: &str, regmap_digest: &str, suites: &[Suite]) -> Report {
