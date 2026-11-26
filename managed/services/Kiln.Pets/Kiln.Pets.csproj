@@ -28,5 +28,7 @@
     <ProjectReference Include="../Kiln.Queries/Kiln.Queries.csproj" Private="false" />
     <ProjectReference Include="../Kiln.Items/Kiln.Items.csproj" Private="false" />
     <ProjectReference Include="../Kiln.Players/Kiln.Players.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Content/Kiln.Content.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Combat/Kiln.Combat.csproj" Private="false" />
   </ItemGroup>
 </Project>

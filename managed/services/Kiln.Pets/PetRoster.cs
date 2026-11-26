@@ -198,6 +198,7 @@ internal sealed partial class PetRoster
         if (_world.WorldEpoch != _epoch) WorldChanged();
         Presence();
         Reconcile();
+        Move();
         AdvanceRunning();
         StartQueued();
         Expire();
@@ -233,7 +234,7 @@ internal sealed partial class PetRoster
             p.Target = EntityRef.None;
             p.ReviveOperation = null;
             p.Snapshot = null;
-            p.Session = null;
+            DropSession(p);
         }
         foreach (var op in _queue) Complete(op, false, "WorldEnded: the server world ended", null);
         _queue.Clear();
@@ -305,7 +306,7 @@ internal sealed partial class PetRoster
             s.Transition = PetTransition.None;
             s.Target = EntityRef.None;
             s.Snapshot = null;
-            s.Session = null;
+            DropSession(s);
         }, c => new PetBodyRetiredEvent(c));
     }
 
@@ -485,7 +486,7 @@ internal sealed partial class PetRoster
             s.Order = PetOrder.Follow;
             s.Target = EntityRef.None;
             s.Snapshot = null;
-            s.Session = null;
+            DropSession(s);
             s.Anchor = anchor;
             s.AnchorWorld = PetsRuntime.WorldId;
             s.Presence = outcome == PetDownedOutcome.RecoveryAnchor && anchor is not null ? PetPresence.RecoveryAnchor : PetPresence.Absent;
@@ -494,6 +495,43 @@ internal sealed partial class PetRoster
         p.DownOutcome = null;
         p.DownCause = null;
         p.DownCaptured = false;
+    }
+
+    // ---- movement (package 4) ----
+
+    /// <summary>The engine side of followers; null: bodies are not moved (no follower in this process).</summary>
+    internal IPetMover? Mover { get; set; }
+
+    private void DropSession(PetState p)
+    {
+        if (p.Session is PetFollower f && Mover is not null) f.Forget(Mover);
+        p.Session = null;
+    }
+
+    /// <summary>Every live pet's follower, after the bodies were read and before requests: follow, stay, attack.</summary>
+    private void Move()
+    {
+        if (Mover is null) return;
+        foreach (var p in _pets.Values.ToList())
+        {
+            if (p.Body is null || p.Presence != PetPresence.Live || p.Transition != PetTransition.None || p.Life != PetLife.Ready) continue;
+            if (_world.OnlineOwner(p.Owner) is not { } owner) continue;
+            var def = p.Snapshot ?? PetsRuntime.Definition(p.Definition);
+            if (def is null) continue;
+            var f = p.Session as PetFollower;
+            if (f is null) p.Session = f = new PetFollower();
+            try { f.Step(p, def, owner, Mover, _world.Now); }
+            catch (Exception e) when (e is NotSupportedException or InvalidOperationException or ArgumentException)
+            {
+                PetsRuntime.Log(LogLevel.Warn, $"Kiln.Pets: pet {p.Id}'s follower: {e.Message}");
+            }
+            if (f.TargetEnded && p.Order == PetOrder.Attack)
+            {
+                // the target is gone or dead: back to following (the broker resumes the base lease under the combat one)
+                _world.Order(p.Body, PetOrder.Follow, EntityRef.None, out _);
+                Mutate(p, Guid.Empty, PetChangeCause.Control, s => { s.Order = PetOrder.Follow; s.Target = EntityRef.None; }, c => new PetCommandChangedEvent(c));
+            }
+        }
     }
 
     // ---- running requests ----
@@ -874,7 +912,7 @@ internal sealed partial class PetRoster
             s.WantsSummoned = false;
             s.Target = EntityRef.None;
             s.Snapshot = null;
-            s.Session = null;
+            DropSession(s);
             if (release) s.Life = PetLife.Released;
         }, c => new PetBodyRetiredEvent(c), release ? c => new PetReleasedEvent(c) : c => new PetDismissedEvent(c));
         Complete(op, true, null, p);

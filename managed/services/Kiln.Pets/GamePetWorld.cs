@@ -98,12 +98,18 @@ internal sealed partial class GamePetWorld : IPetWorld
 
     // ---- bodies ----
 
-    private sealed class BodyTag
+    /// <summary>A body's broker leases (GamePetMover reads the authority through it).</summary>
+    internal interface IHasControl
+    {
+        PetControl? Control { get; }
+    }
+
+    private sealed class BodyTag : IHasControl
     {
         public double HealthFraction = 1;
         public bool HealthSet;
         public PetBodyRequest Request = null!;
-        public PetControl? Control;
+        public PetControl? Control { get; set; }
         public bool Quarantined;
         public ulong QuarantinedAt;
     }

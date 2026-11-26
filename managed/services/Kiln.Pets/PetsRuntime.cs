@@ -100,7 +100,11 @@ internal static partial class PetsRuntime
     private static void Tick(in TickInfo tick)
     {
         DrainEvents();
-        if (Roster is null && Lifecycle.IsServerRunning && !_testOwned) Roster = MakeRoster(new GamePetWorld(), new GamePetStore());
+        if (Roster is null && Lifecycle.IsServerRunning && !_testOwned)
+        {
+            Roster = MakeRoster(new GamePetWorld(), new GamePetStore());
+            Roster.Mover = new GamePetMover();
+        }
         Roster?.Step();
         DrainEvents();
     }

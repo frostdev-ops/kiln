@@ -32,19 +32,58 @@ internal static class PetPlacement
             }
     }
 
-    /// <summary>The first candidate with voxel ground within the definition's search height, as the floor + 0.05 m; null when
-    /// none (or the ground cannot be read here).</summary>
-    internal static WorldPosition? Find(WorldPosition near, double min, double max, PetDefinition def, PetCreatureInfo? creature)
+    internal const double FootRadius = 0.5, DefaultHeight = 2, MaxFloorSpread = 0.5, KeepAway = 2;
+
+    /// <summary>A spot's samples: the floor under its centre and under 4 footprint points, whether the column above the floor
+    /// is clear up to the body's height, and the origins of entities nearby (other than the owner and the pet itself).</summary>
+    internal readonly record struct Samples(double? Centre, IReadOnlyList<double?> Foot, bool Clear, int Neighbours);
+
+    /// <summary>19d §4.3a's checks on a spot: ground under the centre and every footprint point, a floor spread of at most
+    /// 0.5 m, a clear column, no entity origin within the footprint + 2 m. Voxel/settling validation, not a collider proof.</summary>
+    internal static bool Accept(Samples s) =>
+        s.Centre is { } c && s.Foot.All(f => f is not null) && s.Foot.Select(f => Math.Abs(f!.Value - c)).DefaultIfEmpty(0).Max() <= MaxFloorSpread &&
+        s.Clear && s.Neighbours == 0;
+
+    /// <summary>The first candidate that passes <see cref="Accept"/>, as its floor + 0.05 m; null when none (or the ground cannot
+    /// be read here: kiln.queries' ground ray is off, or its budget for this step is used up).</summary>
+    internal static WorldPosition? Find(WorldPosition near, double min, double max, PetDefinition def, PetCreatureInfo? creature, EntityId owner = default, EntityId pet = default)
     {
         if (!double.IsFinite(near.X) || !double.IsFinite(near.Y) || !double.IsFinite(near.Z)) return null;
         if (!Capabilities.Is("queries.ground")) return null;
         var search = def.Movement.GroundSearchMeters;
-        foreach (var c in Candidates(near, min, max))
+        var height = DefaultHeight * def.Level.Scale;
+        try
         {
-            VoxelRayResult r;
-            try { r = Queries.GroundBelow(new WorldPosition(c.X, c.Y + search, c.Z), search * 2); }
-            catch (Exception e) when (e is NotSupportedException or InvalidOperationException or ArgumentException) { return null; }
-            if (r is { Ok: true, Hit: { } hit }) return new WorldPosition(hit.Position.X, hit.Position.Y + 0.05, hit.Position.Z);
+            foreach (var c in Candidates(near, min, max))
+            {
+                double? Floor(WorldPosition at)
+                {
+                    var r = Queries.GroundBelow(new WorldPosition(at.X, at.Y + search, at.Z), search * 2);
+                    return r is { Ok: true, Hit: { } hit } ? hit.Position.Y : null;
+                }
+                var centre = Floor(c);
+                if (centre is null) continue;
+                var foot = new List<double?>();
+                for (var k = 0; k < 4; k++)
+                {
+                    var a = k * Math.PI / 2;
+                    foot.Add(Floor(new WorldPosition(c.X + FootRadius * Math.Sin(a), centre.Value, c.Z + FootRadius * Math.Cos(a))));
+                }
+                var top = new WorldPosition(c.X, centre.Value + height, c.Z);
+                var up = Queries.RaycastVoxels(new WorldPosition(c.X, centre.Value + 0.1, c.Z), top);
+                var clear = up is { Ok: true, Hit: null };
+                var neighbours = 0;
+                if (Capabilities.Is("queries.overlap_origins"))
+                {
+                    var q = Queries.EntitiesInSphere(new WorldPosition(c.X, centre.Value, c.Z), FootRadius + KeepAway, owner);
+                    neighbours = q.Ok ? q.Entities.Count(e => e != pet && !e.IsNone) : 1;
+                }
+                if (Accept(new Samples(centre, foot, clear, neighbours))) return new WorldPosition(c.X, centre.Value + 0.05, c.Z);
+            }
+        }
+        catch (Exception e) when (e is NotSupportedException or InvalidOperationException or ArgumentException)
+        {
+            return null;
         }
         return null;
     }
