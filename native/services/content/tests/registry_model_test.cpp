@@ -462,13 +462,31 @@ void notes_per_field(const std::string& dir) {
           "the note gives the count and the first entry: " + sample);
 }
 
+// review of the per-field note: its "N of M entries" counts the entries the field was read for, not every entry of the registry.
+// A fill that reads one entry whole (an added entry "like" it, without need.all) says "1 of 1", not "1 of 4".
+void notes_count_the_entries_read(const std::string& dir) {
+    Fixture f(dir);
+    model::Need need;
+    need.registries.insert("items");
+    need.whole["items"].insert("game:sword_t1");
+    BaseModel base;
+    f.m->fill(need, &base);
+    size_t notes = 0;
+    for (const std::string& n : f.m->take_notes()) {
+        if (n.find(" has no value in ") == std::string::npos) continue;
+        ++notes;
+        check(n.find(" has no value in 1 of 1 entries ") != std::string::npos, "only the entry read whole is counted: " + n);
+    }
+    check(notes > 0, "the entry read whole has fields without a value (an unset armor)");
+}
+
 int main(int argc, char** argv) {
     const std::string dir = argc > 1 ? argv[1] : "regmap";
     int failed = 0;
     const std::pair<const char*, void (*)(const std::string&)> groups[] = {
         {"byte_array_bounds", byte_array_bounds}, {"single_scalar_structs", single_scalar_structs}, {"entries_and_ids", entries_and_ids}, {"values", values}, {"needs_and_compose", needs_and_compose},
         {"encode_writes", encode_writes},     {"id_table", id_table}, {"live_bytes", live_bytes}, {"live_event_times", live_event_times},
-        {"notes_per_field", notes_per_field}};
+        {"notes_per_field", notes_per_field}, {"notes_count_the_entries_read", notes_count_the_entries_read}};
     for (const auto& [name, fn] : groups) {
         try {
             fn(dir);
