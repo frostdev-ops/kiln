@@ -64,6 +64,13 @@ enum {
                                              earlier cells back at the next start (journal: kiln/data/kiln.build/transient).
                                              Not with KILN_BUILD_F_UNLOADED (INVALID_ARGUMENT); UNAVAILABLE when the
                                              journal is full or cannot be written, or the world's id is unknown */
+    KILN_BUILD_F_GAME_SAVE = 1u << 6,     /* write and shape: the game's own rule, no Kiln save region: the game saves
+                                             the cells inside base build zones (and in a chunk another edit keeps),
+                                             elsewhere they regrow at the next restart (as ShroudForge's
+                                             runtime.world.voxel.write and the game's own tools). Needs no
+                                             save-region hook; cells of the transient journal it sets are taken out of it as
+                                             a kept write's are. Since 0.2.0-dev.31.18 (an older kiln.build ignores the bit and
+                                             keeps the chunks). Not with KILN_BUILD_F_TRANSIENT (INVALID_ARGUMENT) */
 };
 
 /* KilnBuildResult.flags */

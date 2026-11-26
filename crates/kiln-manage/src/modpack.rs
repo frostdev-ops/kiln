@@ -430,6 +430,16 @@ fn server_id_ok(s: &str) -> bool {
         && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'_' || b == b'-')
 }
 
+/// The server id Kiln.Network advertises for a world `dir` serves (network.json `serverId`, else the generated
+/// `kiln/data/kiln-network/server-id`), without making one: None when this folder never served a world (and has no
+/// `serverId`). A client's last-server.json naming it came from the game's own hosted world.
+pub fn own_server_id(dir: &Path) -> Option<String> {
+    let configured = network_json(dir).ok().and_then(|(_, _, net)| net.get("serverId").and_then(|v| v.as_str()).map(str::to_string));
+    configured.filter(|s| server_id_ok(s)).or_else(|| {
+        std::fs::read_to_string(dir.join(SERVER_ID_FILE)).ok().map(|t| t.trim().to_string()).filter(|t| server_id_ok(t))
+    })
+}
+
 /// The server's id and name as Kiln.Network computes them: network.json `serverId`, else the generated
 /// `kiln/data/kiln-network/server-id` (written here in Kiln.Network's format when the server never ran);
 /// network.json `serverName`, else enshrouded_server.json `name`.

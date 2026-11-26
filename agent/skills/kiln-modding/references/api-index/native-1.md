@@ -1,4 +1,4 @@
-# Native ABI rows (mod API 0.2.24): part 1 of 3
+# Native ABI rows (mod API 0.2.25): part 1 of 3
 
 One line per row: header, `Table.row`, @offset, mod API, comment (native.md says more).
 
@@ -280,7 +280,7 @@ One line per row: header, `Table.row`, @offset, mod API, comment (native.md says
 - kiln_content.h `KilnContentApi.revert_owner` @120 — Removes every layer of 'owner' (fields, stacks, drop rules); returns how many fields were put back.
 - kiln_content.h `KilnContentApi.dump` @128 — Writes every registry (schema + entries with their non-zero fields, stacks, originals of changed fields)...
 - kiln_content.h `KilnContentApi.reload_packs` @136 — Re-reads every mod folder's content/\<file>.json now (also happens when a file changes).
-- kiln_content.h `KilnContentApi.report` @144 — JSON report of the last data-pack application: packs, errors, conflicts.
+- kiln_content.h `KilnContentApi.report` @144 — JSON report of the last data-pack application: generation, packs, errors, conflicts, skipped, and setApart...
 - kiln_content.h `KilnContentApi.subscribe_ready` @152 — fn runs after every application (world load, pack reload), on the tick thread (Pre), after the data packs...
 - kiln_content.h `KilnContentApi.unsubscribe_ready` @160
 - kiln_content.h `KilnContentApi.stack_guard` @168 — The stack guard: while on, the game no longer cuts a stack down to its item's max stack size (its...

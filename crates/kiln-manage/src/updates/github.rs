@@ -13,7 +13,8 @@
 //! its version only.
 //!
 //! What it remembers is in [`super::cache`]: a source answered recently is not asked again (30 minutes for a check
-//! the player started, a day for the automatic one; `refresh` asks anyway), the list is asked for conditionally
+//! the player started, a day for the automatic one; `refresh` asks anyway; so does a check after another copy of the
+//! mod was installed when the remembered answer offers that copy nothing), the list is asked for conditionally
 //! (ETag, Last-Modified: a 304 confirms the earlier answer), a request limit (403 or 429 with GitHub's limit
 //! headers) stops every further request to GitHub until its reset and is not lifted by `refresh`, and any other
 //! failure waits 5 minutes, doubling up to a day. A failure never replaces an earlier success: that one is shown,
@@ -356,6 +357,16 @@ impl<'a> GithubProvider<'a> {
         let before = entry.clone();
         let receipt_release = item.receipt.as_ref().and_then(|r| r.release_id.as_deref());
         let receipt_changed = entry.selection.is_some() && entry.receipt.release_id.as_deref() != receipt_release;
+        // Another copy is installed than the one the remembered answer was compared with (an update by drop, Add mod
+        // or import, a roll back), and that answer has nothing above it: typically the very version just installed,
+        // while a newer one may be out by now. A check that may ask does not reuse such an answer however recent it
+        // is (netjunk, 2026-11-26: "Update 0.2.10" with 0.2.10 installed and 0.2.12 out).
+        // (Once per check: a source this check asked already is not asked again for another copy.)
+        let installed = &item.target.library_ref;
+        let installed_changed = !run.asked.contains(&key)
+            && entry.selection.as_ref().is_some_and(|sel| {
+                (entry.receipt.version != installed.version || entry.receipt.hash != installed.hash) && !select::offers_more_than(sel, &installed.version)
+            });
 
         // Whether to ask, and if not, why not (None: because the remembered answer is recent enough).
         let ttl = if opts.automatic { STALE_AFTER_SECS } else { MANUAL_TTL_SECS };
@@ -375,7 +386,7 @@ impl<'a> GithubProvider<'a> {
             } else if entry_wait > 0 && (entry.reason == Some(UnknownReason::RateLimited) || !opts.refresh) {
                 // the wait after a failure; --refresh skips it unless the failure was a request limit
                 Some(entry.reason)
-            } else if !opts.refresh && !receipt_changed && entry.status != Some(Attempt::Failed) && entry.success_within(now, ttl) {
+            } else if !opts.refresh && !receipt_changed && !installed_changed && entry.status != Some(Attempt::Failed) && entry.success_within(now, ttl) {
                 Some(None)
             } else {
                 None
@@ -387,9 +398,13 @@ impl<'a> GithubProvider<'a> {
         }
         let receipt = item.receipt.as_ref();
         let receipt_confirmed = !receipt_changed || (held.is_none() && entry.status != Some(Attempt::Failed));
+        // A check that would have asked again for another copy but could not (GitHub's request limit, the cap on
+        // sources, the wait after a failure) keeps the copy the remembered answer was compared with, so the next check
+        // that may ask still asks; otherwise the change would be forgotten until the answer ages out.
+        let (version, hash) = if installed_changed && held.is_some() { (before.receipt.version.clone(), before.receipt.hash.clone()) } else { (installed.version.clone(), installed.hash.clone()) };
         entry.receipt = InstalledIdentity {
-            version: item.target.library_ref.version.clone(),
-            hash: item.target.library_ref.hash.clone(),
+            version,
+            hash,
             artifact_sha256: receipt.and_then(|r| r.artifact_sha256.clone()),
             release_id: if receipt_confirmed { receipt_release.map(str::to_string) } else { before.receipt.release_id.clone() },
         };

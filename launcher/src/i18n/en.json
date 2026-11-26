@@ -1987,6 +1987,7 @@
       "running": "The server is running",
       "runningText": "The game rewrites this file while it runs: stop it to change settings.",
       "discard": "Discard",
+      "leaveWhat": "the server's settings",
       "general": "General",
       "serverName": "Server name",
       "playerSlots": "Player slots",
@@ -4608,6 +4609,14 @@
       "saveEditorNamed": "Your changes to {name} in the save editor are not saved. Closing Kiln now throws them away.",
       "close": "Close anyway",
       "stay": "Keep Kiln open"
+    },
+    "leaveGuard": {
+      "title": "Leave without saving?",
+      "text": "Not saved yet: {what}.",
+      "cannotSave": "It cannot be saved right now. Stay to keep the changes, or discard them.",
+      "stay": "Stay",
+      "discard": "Discard changes",
+      "save": "Save and leave"
     },
     "updateNotice": {
       "updated": "Updated",

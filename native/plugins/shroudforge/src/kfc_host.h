@@ -37,7 +37,18 @@ struct KfcHost {
                                       uintptr_t* address);
     uint64_t(__cdecl* install_hook)(const char* name, uintptr_t target, uint32_t kind, void* callback, uintptr_t extra);
     void(__cdecl* remove_hook)(uint64_t handle);
+    // Since dev.31.18, optional (a runtime that does not know them reads only as far as its own table): ShroudForge's
+    // runtime.world.voxel.write goes to Kiln (host_voxels.cpp). ready: non-zero when a write may be tried now (a world
+    // this game hosts runs). write: KfcRuntimeWorldVoxelWrite's contract and outcome codes (0 written, 1 refused before
+    // any change, 2 put back, 3 uncertain); called on ShroudForge's mods thread.
+    uint32_t(__cdecl* voxel_write_ready)(void);
+    bool(__cdecl* voxel_write)(const int32_t* origin, const uint32_t* dimensions, const uint16_t* values, size_t count,
+                               uint32_t* outcome);
 };
+// kfc-runtime reads this layout as the fork's KfcRuntimeHost (abi/runtime_host.h): members are only ever appended.
+static_assert(sizeof(void*) != 8 || (offsetof(KfcHost, remove_hook) == 24 && offsetof(KfcHost, voxel_write_ready) == 32 &&
+                                     offsetof(KfcHost, voxel_write) == 40 && sizeof(KfcHost) == 48),
+              "KfcHost must keep KfcRuntimeHost's layout");
 
 using KfcSetHost = bool(__cdecl*)(const KfcHost*);
 

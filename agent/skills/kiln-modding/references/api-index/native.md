@@ -1,4 +1,4 @@
-# Native ABI rows (mod API 0.2.24): map
+# Native ABI rows (mod API 0.2.25): map
 
 The function tables of native/core/abi/kiln_api.h and native/core/abi/services/*.h, one line per row: header, `Table.row`, @byte offset in the table (crates/sfi/kiln-abi/abi-manifest.json), the mod API that added it (no mark: 0.2.0 or older), the comment directly above the row or after it (no comment: the header says no more). Pages: docs/kiln/services/NAME.md. Generated: do not edit. Too large for one file: the headers are split; grep a row name.
 

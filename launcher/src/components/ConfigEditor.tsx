@@ -10,6 +10,7 @@ import { qk } from "../api/hooks";
 import { useT } from "../i18n";
 import { Badge, Button, Card, EmptyState, Segmented, SchemaForm, Skeleton, TextArea, TextInput, errorText, fmtAgo, toast } from "../ui";
 import { useMarkUnsaved } from "../shell/unsaved";
+import { useLeaveGuard } from "../shell/leaveGuard";
 
 /** `initial`: the file, or the mod id whose file, to open first (the main list's Configs). */
 export function ConfigEditor({ target, readOnly, initial }: { target: ConfigTarget; readOnly?: boolean; initial?: string }) {
@@ -70,26 +71,33 @@ function ConfigFile({ target, file, readOnly }: { target: ConfigTarget; file: st
         <SchemaForm schema={d.schema!} values={d.values} errors={d.errors} disabled={readOnly || set.isPending} filter={filter}
           onChange={(path, value) => set.mutate({ path, value })} onReset={(path) => reset.mutate(path)} />
       ) : (
-        <RawEditor doc={d} readOnly={readOnly} onSave={async (text) => { onDoc(await api.configWrite(target, file, text)); }} />
+        <RawEditor doc={d} file={file} readOnly={readOnly} onSave={async (text) => { onDoc(await api.configWrite(target, file, text)); }} />
       ))}
     </Card>
   );
 }
 
-function RawEditor({ doc, readOnly, onSave }: { doc: ConfigDocument; readOnly?: boolean; onSave: (text: string) => Promise<void> }) {
+function RawEditor({ doc, file, readOnly, onSave }: { doc: ConfigDocument; file: string; readOnly?: boolean; onSave: (text: string) => Promise<void> }) {
   const t = useT();
   const [text, setText] = useState(doc.text);
   const [busy, setBusy] = useState(false);
   useEffect(() => setText(doc.text), [doc.text]);
   const dirty = text !== doc.text;
   useMarkUnsaved("editor", dirty && !readOnly);
+  /** True once written (else the toast says why). */
+  const save = async (): Promise<boolean> => {
+    setBusy(true);
+    try { await onSave(text); toast.ok(t("configEditor.saved")); return true; } catch (e) { toast.error(e); return false; } finally { setBusy(false); }
+  };
+  // leaving the page with the file changed asks: Save, Discard or Stay (shell/leaveGuard.tsx)
+  useLeaveGuard(dirty && !readOnly, { what: file, save, discard: () => setText(doc.text) });
   return (
     <div className="k-stack">
       <TextArea aria-label={t("configEditor.file")} rows={18} value={text} onChange={(e) => setText(e.target.value)} readOnly={readOnly} spellCheck={false} />
       {doc.errors.length > 0 && <div className="k-error-text">{doc.errors.map((e) => `${e.path}: ${e.message}`).join(" · ")}</div>}
       {!readOnly && (
         <div className="k-row">
-          <Button variant="primary" size="s" disabled={!dirty} loading={busy} onClick={async () => { setBusy(true); try { await onSave(text); toast.ok(t("configEditor.saved")); } catch (e) { toast.error(e); } finally { setBusy(false); } }}>{t("common.save")}</Button>
+          <Button variant="primary" size="s" disabled={!dirty} loading={busy} onClick={() => void save()}>{t("common.save")}</Button>
           <Button variant="ghost" size="s" disabled={!dirty} onClick={() => setText(doc.text)}>{t("configEditor.revert")}</Button>
         </div>
       )}

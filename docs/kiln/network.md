@@ -144,7 +144,7 @@ The order hash covers participating mods and their resolved field contributions 
 participating boot edits do not contribute. A field that a mod with side `server` or `client` writes (by any path) is
 left out, because the other side never runs that mod; `kiln.boot` leaves such mods out too. The immutable start snapshot remains available as `bootSync` in
 `kiln/state/registry.json` after world load and hot reload too. A `reload <id>` (or an `unload` and a `load`) whose new
-`kiln.mod.json` changes the mod's `side` is refused (`RestartRequired: ...`, the running version stays; next release), so
+`kiln.mod.json` changes the mod's `side` is refused (`RestartRequired: ...`, the running version stays; 0.2.0-dev.31.18), so
 the side-`both` lists the join compares keep the sides this snapshot was made with.
 
 Each side hashes its own fields, so a field that one side leaves out and the other keeps would make every join differ,
@@ -507,9 +507,23 @@ previous entries as history (newest first, at most 20). Written on the thread po
   is what the server refused for. Under the default policy that's only mods that state `clients: "mod"`; required[]
   can hold more (a `side: both` mod whose `clients` only defaults to `"mod"` is in the modpack, but no reason to refuse).
   A REJECT without details falls back to the rule below.
-- `missing[]` otherwise: required ids this client lacks or has with another hash, from its loaded mods and
-  `state/native.json`. A Kiln mod is compared by its identity, as the server advertises it: its cook outputs
-  (`assets/cooked`) do not count, on either side.
+- `missing[]` otherwise: required ids this client lacks, has switched off or has with another hash, from its loaded
+  mods, `state/native.json` and the other engines' mods in its game folder (the folders and ids the server reads its own
+  from: ShroudForge, Flame, Green Eye, SET ...). Each kind is compared by the hash the server advertises: a Kiln mod by
+  its identity (its cook outputs, `assets/cooked`, do not count, on either side), another engine's mod by what stays the
+  same while it runs (the Library entry of Kiln's copy, else its files without logs and settings). Only a mod that runs
+  in this game counts, as the server needs it running: a ShroudForge copy switched off (`enabled: false` in its
+  `extended.mod.json`, which Kiln writes for a mod switched off in the profile) or whose `targets` leave out `client`
+  is missing, as a Kiln mod switched off in the profile is. Not yet matched: mods a Kiln client runs from the Library
+  rather than an engine folder (EML mods, EMF's DLL mods and Shroudtopia mods without that engine's own loader), so
+  they are still listed. Up to 0.2.0-dev.31.17 only Kiln and native mods were looked at, so every other engine's mod
+  was listed.
+- `hosted: true`, `missing[]` empty: the server is this game's own world (the server role runs in this process and
+  advertised this game's server id). kiln.log says `welcome from your hosted world (<id>, this game)`; another server
+  is `server <id> "<name>"`. The launcher offers no modpack for it. `hosted: false` is final, also for a server that
+  advertises this game's id while no world runs here (a copied `serverId`). Only an older file without `hosted` makes
+  the launcher compare the server id with the game folder's own (network.json `serverId` or
+  `kiln/data/kiln-network/server-id`).
 
 ## Wire format (one kiln.net frame each)
 `'K' 'N' 0x01 type`, then:

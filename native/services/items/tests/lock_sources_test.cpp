@@ -171,7 +171,7 @@ int main() {
     CHECK(add(LATE,true,0,{},KILN_CRAFT_SOURCE_LOCKS).first==KILN_OK);   // locks, after station outputs
     CHECK(add(EARLY,false,0,{},KILN_CRAFT_SOURCE_LOCKS).first==KILN_OK); // locks
     CHECK(add(NINES,false,1,{NINE},KILN_CRAFT_SOURCE_LOCKS).first==KILN_OK); // locks, allow 9 only
-    CHECK(add(EARLY,false,0,{},8).first==KILN_ERR_INVALID_ARGUMENT);     // an unknown flag (2 FILLS and 4 BUILDING since #132)
+    CHECK(add(EARLY,false,0,{},16).first==KILN_ERR_INVALID_ARGUMENT);    // an unknown flag (2 FILLS, 4 BUILDING since #132, 8 RESPEC since #150)
     {
         KilnCraftSourceRequest r{sizeof r,PLAYER,EARLY,0,0,0,nullptr,KILN_CRAFT_SOURCE_LOCKS,1};uint64_t h=0;
         CHECK(t_add_source(10,&r,&h)==KILN_ERR_INVALID_ARGUMENT && !h);   // reserved set
@@ -189,7 +189,7 @@ int main() {
         CHECK(t_source_stock(PLAYER,KILN_CRAFT_SOURCE_STOCK_LOCKS,rows,4,&n)==KILN_OK && n==2);
         CHECK(rows[0].item==PICK && rows[0].count==3 && rows[1].item==NINE && rows[1].count==6);  // 9 picks of CRAFT not counted
         CHECK(t_source_stock(PLAYER,KILN_CRAFT_SOURCE_STOCK_LOCKS,rows,1,&n)==KILN_ERR_BUFFER_TOO_SMALL && n==2);
-        CHECK(t_source_stock(PLAYER,16,rows,4,&n)==KILN_ERR_INVALID_ARGUMENT); // 4/8 FILLS/BUILDING since #132
+        CHECK(t_source_stock(PLAYER,32,rows,4,&n)==KILN_ERR_INVALID_ARGUMENT); // 4/8 FILLS/BUILDING since #132, 16 RESPEC since #150
     }
     // ---- the server's cache and the server world's lock check (locks/LockCountRet) ----
     lock_cache_refresh(1);

@@ -546,22 +546,13 @@ fn is_root(dir: &Utf8Path, root: &Utf8Path) -> bool {
 }
 
 /// Two spellings of one folder, told apart as Windows tells them: not by the verbatim prefix, the separator, an empty
-/// or `.` part, or case. ShroudForge writes its `paths.mods` from a canonical path, `\\?\C:\…\mods` on Windows
-/// (`//?/C:/…/mods` once plugin.rs `loader_roots` turned its `\` into `/`), while the launcher names its game-folder copies
-/// from the game folder, `C:\…\mods\<folder>` (a player's Nexus report, 2026-11-14: kiln-eml took Kiln's copy there for
-/// a folder of the player's). Strings in, so a test checks it on any system.
+/// or `.` part, or case. ShroudForge writes its `paths.mods` from a canonical path, `\\?\C:\…\mods` on Windows (plugin.rs
+/// `loader_roots` names it as [`windows_plain_path`] does), while the launcher names its game-folder copies from the game
+/// folder, `C:\…\mods\<folder>` (a player's Nexus report, 2026-11-14: kiln-eml took Kiln's copy there for a folder of
+/// the player's). Strings in, so a test checks it on any system.
 fn windows_same_folder(a: &str, b: &str) -> bool {
     fn key(p: &str) -> (usize, Vec<String>) {
-        let mut p = p.replace('/', "\\");
-        // `\\?\C:\x` names `C:\x`, `\\?\UNC\host\share` names `\\host\share`; other verbatim paths have no other name
-        // Literal trailing dots/spaces need the extended namespace; an ordinary Win32 path
-        // would trim them. Keep that namespace in the key instead of aliasing another folder.
-        let literal = p.split('\\').any(|name| name.ends_with('.') || name.ends_with(' '));
-        if let Some(rest) = p.strip_prefix(r"\\?\UNC\").filter(|_| !literal) {
-            p = format!(r"\\{rest}");
-        } else if let Some(rest) = p.strip_prefix(r"\\?\").filter(|r| !literal && r.as_bytes().get(1) == Some(&b':')) {
-            p = rest.to_owned();
-        }
+        let p = windows_plain_path(p);
         let rooted = p.bytes().take_while(|&c| c == b'\\').count().min(2)
             + usize::from(p.as_bytes().get(1) == Some(&b':') && p.as_bytes().get(2) == Some(&b'\\')) * 3;
         // Windows' ordinal case-blind comparison: one upper-case character for each
@@ -571,6 +562,26 @@ fn windows_same_folder(a: &str, b: &str) -> bool {
         (rooted, p.split('\\').filter(|s| !s.is_empty() && *s != ".").map(fold).collect())
     }
     key(a) == key(b)
+}
+
+/// A Windows path as Windows names it to a player: `\` between its names, and no verbatim prefix where the plain
+/// spelling names the same folder (`\\?\C:\…\mods` and `//?/C:/…/mods` are `C:\…\mods`, `\\?\UNC\nas\share` is
+/// `\\nas\share`). ShroudForge writes its `paths.mods` from a canonical path; kiln-eml names the folders in it (kiln.log,
+/// eml.json, the launcher's engine status) as that root joined with each folder's name, which must not read
+/// `//?/C:/…/mods\bare`. Strings in, so a test checks it on any system.
+pub(crate) fn windows_plain_path(p: &str) -> String {
+    let p = p.replace('/', "\\");
+    // `\\?\C:\x` names `C:\x`, `\\?\UNC\host\share` names `\\host\share`; other verbatim paths have no other name
+    // Literal trailing dots/spaces need the extended namespace; an ordinary Win32 path
+    // would trim them. Keep that namespace instead of aliasing another folder.
+    let literal = p.split('\\').any(|name| name.ends_with('.') || name.ends_with(' '));
+    if let Some(rest) = p.strip_prefix(r"\\?\UNC\").filter(|_| !literal) {
+        format!(r"\\{rest}")
+    } else if let Some(rest) = p.strip_prefix(r"\\?\").filter(|r| !literal && r.as_bytes().get(1) == Some(&b':')) {
+        rest.to_owned()
+    } else {
+        p
+    }
 }
 
 /// Why ShroudForge does not run a package ([`shroudforge_switch`]).
@@ -966,7 +977,7 @@ pub fn resolve(candidates: &[Candidate]) -> (Vec<Utf8PathBuf>, Vec<Entry>) {
 mod tests {
     use super::*;
 
-    /// ShroudForge's `paths.mods` on Windows after its first start, as loader_roots reads it (`//?/C:/…/mods`), and the
+    /// ShroudForge's `paths.mods` on Windows after its first start (`\\?\C:\…\mods`, also with `/`), and the
     /// folder of the launcher's game-folder copy (`C:\…\mods`): one folder.
     #[test]
     fn windows_folders_compare_without_the_verbatim_prefix_or_case() {
@@ -983,6 +994,21 @@ mod tests {
         assert!(!windows_same_folder(r"\mods", "mods"), "rooted is not relative");
     }
 
+    /// What a player reads for ShroudForge's folder: Windows' own spelling, one separator, no verbatim prefix where the
+    /// plain path names the same folder.
+    #[test]
+    fn windows_folders_are_named_without_the_verbatim_prefix() {
+        let mods = r"C:\Program Files (x86)\Steam\steamapps\common\Enshrouded\mods";
+        assert_eq!(windows_plain_path(&format!(r"\\?\{mods}")), mods);
+        assert_eq!(windows_plain_path(&format!(r"\\?\{mods}").replace('\\', "/")), mods);
+        assert_eq!(windows_plain_path(&mods.replace('\\', "/")), mods);
+        assert_eq!(windows_plain_path(r"\\?\UNC\nas\share\mods"), r"\\nas\share\mods");
+        assert_eq!(windows_plain_path("mods/sub"), r"mods\sub", "relative: the game folder's");
+        // only the verbatim namespace has these: they keep it
+        assert_eq!(windows_plain_path(r"\\?\C:\Game.\mods"), r"\\?\C:\Game.\mods");
+        assert_eq!(windows_plain_path(r"\\?\Volume{1}\mods"), r"\\?\Volume{1}\mods");
+    }
+
     #[test]
     fn windows_verbatim_literal_names_are_not_plain_names() {
         assert!(!windows_same_folder(r"\\?\C:\Game.\mods", r"C:\Game.\mods"));
@@ -997,8 +1023,10 @@ mod tests {
         d
     }
 
+    /// `dir` is `/`-separated; the folder is joined part by part, so its text is the one the product reads back from the
+    /// folder (`…\mods\bare` on Windows, never `…\mods/bare`), and a test can compare the paths in reasons as text.
     pub(super) fn eml_mod(root: &Utf8Path, dir: &str, id: &str) -> Utf8PathBuf {
-        let p = root.join(dir);
+        let p = dir.split('/').fold(root.to_owned(), |p, part| p.join(part));
         std::fs::create_dir_all(p.join("src")).unwrap();
         std::fs::write(p.join("mod.json"), format!(r#"{{"id":"{id}","name":"N","version":"1.0.0","capabilities":["patch"]}}"#)).unwrap();
         std::fs::write(p.join("src/mod.lua"), "-- x").unwrap();

@@ -59,7 +59,7 @@ Machine-readable copies:
 | `<game>/kiln/state/last-server.json` | Kiln.Network (client) | launcher | `state-last-server.schema.json`, `examples/state-last-server.json` |
 | `<game>/kiln/state/graphics.json` | Kiln.Ui (client, 0.2.0-dev.29.18): what Kiln's graphics tools do, the upscaler behind the game's FSR 3 above all; written atomically at start and when it changes (checked every 2 s; no frame rates) | launcher (`GameStatus.graphicsState`; "Now" while the process that wrote it runs: `launch::written_after_start` against that process, and on Windows its pid) | `state-graphics.schema.json`, `examples/state-graphics.json`; [../graphics.md](../graphics.md) "What runs now, and why not" |
 | `<game>/kiln/state/registry.json` | kiln.content's registry stage (0.2.0-dev.31, experimental KILNX031): written atomically when the stage ends (phase `start`) and again at each world load (`worldLoad`, the generation grows) | launcher (the Conflicts view, registry P2), kilnctl, support reports | `state-registry.schema.json`, `examples/state-registry.json`; section 5.9 |
-| `<game>/kiln/data/content/registry/rollback.json`, `plans/<sha256>.json`, `plans/index.json` | the request: `kilnctl registry rollback` and the launcher's Conflicts view (Registry plan card, Tauri `registry_rollback`; since 0.2.0-dev.31.17) (`kiln_manage::registry_plan::ask`, removed by `--clear` / Clear); the plans and their index: kiln.content's registry stage, every start (older plans no start or pending request needs are removed at the end of a successful start, the newest 10 others kept; next release) | the stage (the request, at every start until it is removed), kilnctl (`registry status`, `rollback`), the launcher (the plan card's dry run) | request `{format: 1, plan, from, requested, by}`; plans format 2 ([registries README](../modding/registries/README.md#plans-and-rollback)); registry.json `plan`, `rollback` |
+| `<game>/kiln/data/content/registry/rollback.json`, `plans/<sha256>.json`, `plans/index.json` | the request: `kilnctl registry rollback` and the launcher's Conflicts view (Registry plan card, Tauri `registry_rollback`; since 0.2.0-dev.31.17) (`kiln_manage::registry_plan::ask`, removed by `--clear` / Clear); the plans and their index: kiln.content's registry stage, every start (older plans no start or pending request needs are removed at the end of a successful start, the newest 10 others kept; 0.2.0-dev.31.18) | the stage (the request, at every start until it is removed), kilnctl (`registry status`, `rollback`), the launcher (the plan card's dry run) | request `{format: 1, plan, from, requested, by}`; plans format 2 ([registries README](../modding/registries/README.md#plans-and-rollback)); registry.json `plan`, `rollback` |
 | `<server>/kiln/data/kiln-admin/endpoint.json` | Kiln.Admin | launcher, kilnctl | `admin-endpoint.schema.json`, `examples/admin-endpoint.json` |
 | `<server>/kiln/data/kiln-admin/admin-token` | Kiln.Admin (first start) | launcher, kilnctl | 64 hex chars ([admin-protocol.md](admin-protocol.md)) |
 | `<game>/kiln/logs/proxy.log` | proxy | humans, launcher | one line per decision, rewritten at each start |
@@ -899,7 +899,7 @@ All written atomically; a file whose `pid` is not a live process is stale.
   `applies` (`now`, `worldLoad`, `restart`), the base value and its origin, every writer in the order they apply (Kiln's
   older paths and the archive writer's packages below, then the registry's edits by stage and load order; each with its
   certainty: `certain` for Kiln's own writers, `named` for a ShroudForge/EML package kiln-eml's change journal names, with
-  `named` `entry` or `field` (next release) saying whether the journal names it on the entry or on this field,
+  `named` `entry` or `field` (0.2.0-dev.31.18) saying whether the journal names it on the entry or on this field,
   `bestEffort` for a `drift` row of the drift probe), the result and the winner; `base.journal` (since 0.2.0-dev.31.17)
   says whether the journal named the archive writer's packages (`read`, `none`, `stale`, `unreadable`). Every
   conflict line (`conflicts[]`: `overridden`, `composed`, `composedOn`, `exclusive`, `dropped`, `yielded`, with winner,
@@ -954,7 +954,8 @@ All written atomically; a file whose `pid` is not a live process is stale.
   or "", folder}`). Example: `{"format":1,"plugin":"kiln-set","pid":388,"status":"running","mods":[{"id":"sprint",
   "name":"Sprint Forever","version":"1.0.0","status":"loaded","reason":"","folder":"…\\shrouded_engine_tweaks\\mods\\sprint"}]}`.
 - `last-server.json` (Kiln.Network on a client): `written`, `outcome` (`rejected|welcome|vanilla`), `reason`,
-  `server{id, name, address, kiln}`, `modpack`, `required[]`, `truncated`, `missing[]`, `history[]` (<= 20 earlier
+  `server{id, name, address, kiln}`, `modpack`, `required[]`, `truncated`, `missing[]`, `hosted` (the game's own hosted
+  world: nothing missing, never offered; absent in an older file: the launcher compares the server id), `history[]` (<= 20 earlier
   entries, newest first, without their own history).
 
 ### 5.10 Admin endpoint

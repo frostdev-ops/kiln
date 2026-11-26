@@ -120,7 +120,7 @@ int main() {
     CHECK(t_source_stock(1,0,stocks,2,&n)==KILN_OK && n==1 && stocks[0].item==7 && stocks[0].count==2);
     CHECK(t_source_stock(1,0,nullptr,0,&n)==KILN_ERR_BUFFER_TOO_SMALL && n==1);
     CHECK(t_source_stock(1,KILN_CRAFT_SOURCE_STOCK_ALL,stocks,2,&n)==KILN_OK && n==1 && stocks[0].count==2);
-    CHECK(t_source_stock(1,16,stocks,2,&n)==KILN_ERR_INVALID_ARGUMENT); // 2 LOCKS (#147), 4 FILLS and 8 BUILDING (#132) since 0.2.0-dev.31.12
+    CHECK(t_source_stock(1,32,stocks,2,&n)==KILN_ERR_INVALID_ARGUMENT); // 2 LOCKS (#147), 4 FILLS and 8 BUILDING (#132) since 0.2.0-dev.31.12, 16 RESPEC (#150)
     // GitHub #132: one purpose's rows count only the links opted into it; two purposes at once are refused
     CHECK(t_source_stock(1,KILN_CRAFT_SOURCE_STOCK_FILLS,stocks,2,&n)==KILN_OK && n==0);    // the link above: crafting only
     CHECK(t_source_stock(1,KILN_CRAFT_SOURCE_STOCK_FILLS|KILN_CRAFT_SOURCE_STOCK_BUILDING,stocks,2,&n)==KILN_ERR_INVALID_ARGUMENT);

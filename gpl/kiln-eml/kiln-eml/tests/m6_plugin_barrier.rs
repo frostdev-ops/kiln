@@ -1156,12 +1156,20 @@ fn windows_the_early_export_is_in_kiln_eml_dll() {
     assert!(!t1.is_null() && t0 == t1 && t2.is_null());
     // SAFETY: the module's process-lifetime table.
     let table = unsafe { &*t1 };
-    assert_eq!((table.header.size, table.header.version), (48, 1));
+    // kiln_eml_startup.h v1: 56 bytes since published_identity was appended (48 -> 56), as
+    // the_early_export_serves_one_table_and_grants_nothing checks on the linked copy
+    assert_eq!((table.header.size, table.header.version), (56, 1));
+    assert_eq!(table.header.size as usize, std::mem::size_of_val(table));
     let k = barrier::key(LAUNCH_ID, [1; 32], 0);
     let mut session = 0u64;
     // SAFETY: a sized key, a live out-pointer.
     let rc = unsafe { (table.attach.unwrap())(&raw const k, 0, &raw mut session) };
     assert_eq!((rc, session), (KILN_ERR_UNAVAILABLE, 0), "that copy has no start");
+    // the appended member answers too: no launch installed in that copy, so no identity, and the record is not written
+    let mut identity = barrier::blank_identity();
+    // SAFETY: a sized key, a 160-byte record that says so.
+    let rc = unsafe { (table.published_identity.expect("published_identity"))(&raw const k, &raw mut identity) };
+    assert_eq!((rc, identity.generation), (KILN_ERR_UNAVAILABLE, 0xdead), "that copy has no identity");
     for name in [
         &b"kiln_plugin_early\0"[..],
         b"kiln_plugin_main\0",

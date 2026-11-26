@@ -619,22 +619,25 @@ public sealed class ModCatalogTests : IDisposable
         Assert.Equal("inactive", Mod(s, "shroudforge", "inactive").Word);
         Assert.Equal("startup", Mod(s, "shroudforge", "patch").Word);
         // the five states a mod reports (runtime.report_effect; mods/tests/sf-probe) and the four ShroudForge's runtime
-        // sets, as the launcher shows them: write-failed and error an error, write-confirmed, loaded and no-change plain,
-        // anything else (pending or unknown) a warning
-        foreach (var (effect, want) in new[]
+        // sets: error (its native DLL failed to load) an error, write-confirmed, loaded and no-change plain, anything else
+        // (pending or unknown) a warning. write-failed is the mod's own report of one change that did not apply: a mod
+        // that still runs stays loaded, with that report as a warning (netjunk, Altar Cleanup: the whole mod showed red
+        // after one refused voxel write it had handled, undo intact).
+        foreach (var (effect, want, warn) in new[]
                  {
-                     ("write-failed", ModRunState.Failed), ("waiting", ModRunState.Waiting), ("no-target", ModRunState.Waiting),
-                     ("no-change", ModRunState.Loaded), ("write-confirmed", ModRunState.Loaded),
-                     ("loading", ModRunState.Waiting), ("loaded", ModRunState.Loaded), ("error", ModRunState.Failed),
-                     ("restart-required", ModRunState.Waiting), ("something-new", ModRunState.Waiting),
+                     ("write-failed", ModRunState.Loaded, true), ("waiting", ModRunState.Waiting, false), ("no-target", ModRunState.Waiting, false),
+                     ("no-change", ModRunState.Loaded, false), ("write-confirmed", ModRunState.Loaded, false),
+                     ("loading", ModRunState.Waiting, false), ("loaded", ModRunState.Loaded, false), ("error", ModRunState.Failed, false),
+                     ("restart-required", ModRunState.Waiting, false), ("something-new", ModRunState.Waiting, false),
                  })
         {
             Runtime(Pid, true, now, effect);
             var m = Mod(Read(), "shroudforge", "active");
-            Assert.Equal((effect, want), (effect, m.State));
+            Assert.Equal((effect, want, warn), (effect, m.State, m.Warn));
             Assert.Contains("effect diagnostic", m.Reason);
             Assert.Equal(want == ModRunState.Failed, m.NeedsAttention);
             Assert.True(m.Active);  // ShroudForge runs it, whatever its effect says
+            Assert.Equal(warn ? GameColors.Attention : GameColors.Of(m.State, m.Missing), GameColors.Of(m));
         }
         Assert.False(Mod(Read(), "shroudforge", "inactive").Active);
         foreach (var stale in new[] { (Pid + 1, true, now), (Pid, false, now), (Pid, true, now - 60) })

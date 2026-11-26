@@ -150,8 +150,43 @@ export function pageOf(s: ModUpdateStatus): string | null {
   return u && (u.startsWith("https://github.com/") || u.startsWith("https://www.nexusmods.com/")) && !/[\s<>"'\\]/.test(u) ? u : null;
 }
 
-/** The statuses that are a notice: a newer version or a new upload. */
-export const hasUpdate = (s: ModUpdateStatus) => s.state === "available" || s.state === "new-upload";
+const SEMVER = /^[vV]?(0|[1-9]\d*)(?:\.(0|[1-9]\d*))?(?:\.(0|[1-9]\d*))?(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+/** Two numbers written in digits, by value whatever their length. */
+const byValue = (a: string, b: string) => (a.length !== b.length ? a.length - b.length : a < b ? -1 : a > b ? 1 : 0);
+const sign = (n: number) => (n < 0 ? -1 : n > 0 ? 1 : 0);
+
+/** Semantic version precedence of two version texts, as kiln_manage::semver reads them (`1`, `1.2`, `1.2.3-pre+build`,
+ *  a leading "v"; build metadata does not order): -1, 0 or 1. null when either is not a semantic version (Nexus Mods'
+ *  free text): then nothing is said from the text. */
+export function compareVersions(a: string, b: string): -1 | 0 | 1 | null {
+  const x = SEMVER.exec(a.trim()), y = SEMVER.exec(b.trim());
+  if (!x || !y) return null;
+  for (const i of [1, 2, 3]) {
+    const c = byValue(x[i] ?? "0", y[i] ?? "0");
+    if (c) return sign(c) as -1 | 1;
+  }
+  const [p, q] = [x[4]?.split(".") ?? [], y[4]?.split(".") ?? []];
+  // a release is above its pre-releases
+  if (!p.length || !q.length) return sign(q.length - p.length) as -1 | 0 | 1;
+  for (let i = 0; i < Math.min(p.length, q.length); i++) {
+    const [m, n] = [/^\d+$/.test(p[i]), /^\d+$/.test(q[i])];
+    const c = m && n ? byValue(p[i].replace(/^0+(?=\d)/, ""), q[i].replace(/^0+(?=\d)/, "")) : m ? -1 : n ? 1 : p[i] < q[i] ? -1 : p[i] > q[i] ? 1 : 0;
+    if (c) return sign(c) as -1 | 1;
+  }
+  return sign(p.length - q.length) as -1 | 0 | 1;
+}
+
+/** Whether `offered` is still something for a copy at `installed`: an update needs a version above it, a new upload one
+ *  that is not below it. True when the two cannot be compared (the backend's word stands). */
+export function offeredFor(s: ModUpdateStatus, installed: string): boolean {
+  const c = s.candidateVersion ? compareVersions(s.candidateVersion, installed) : null;
+  if (c === null) return true;
+  return s.state === "new-upload" ? c >= 0 : c > 0;
+}
+
+/** The statuses that are a notice: a newer version or a new upload, offering something to the copy it was checked
+ *  for. "Update 0.2.10" beside 0.2.10 is never one (netjunk, 2026-11-26). */
+export const hasUpdate = (s: ModUpdateStatus) => (s.state === "available" || s.state === "new-upload") && offeredFor(s, s.installedVersion);
 
 const DAY = 24 * 60 * 60_000;
 /** The daily check's timing: the first one 2 to 15 minutes after the start, then every 24 to 25 hours; while the

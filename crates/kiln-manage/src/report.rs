@@ -1398,19 +1398,34 @@ fn stood_aside(state: &serde_json::Value) -> bool {
         })
 }
 
-/// kiln-eml stood aside for ShroudForge while Kiln hosted it, not for EML's own loader (docs/kiln/eml.md, "ShroudForge
-/// asset mods and EML mods together"): ShroudForge is the one writer of the game data in such a start and runs the EML
-/// packages that are switched on in its mods folder. `sf_hosted_pid`: the pid of kiln/state/shroudforge.json when it
-/// says `hosted` and is of the last start. kiln-eml's file must name the same pid (two files of different starts, or
-/// one without a pid, prove nothing about one start: an older start's pair must not hide EML's own loader in a later
-/// one), and its `aside` must be the reason Kiln's ShroudForge plugin gives it (it starts with the engine's name; the
-/// reason for EML's own loader names the loader's DLL). A player's report of 13 Nov 2026 read "EML's own loader runs
-/// in the game" in a start that had no such loader.
-fn eml_under_hosted_shroudforge(kind: ModKind, state: &serde_json::Value, sf_hosted_pid: Option<u64>) -> bool {
-    kind == ModKind::Eml
-        && sf_hosted_pid.is_some()
-        && state.get("pid").and_then(|v| v.as_u64()) == sf_hosted_pid
-        && jstr(state.get("aside")).is_some_and(|a| a.starts_with("ShroudForge "))
+/// kiln-eml stood aside for ShroudForge, not for EML's own loader (docs/kiln/eml.md, "ShroudForge asset mods and EML mods
+/// together"): ShroudForge is the one writer of the game data in such a start and runs the EML packages that are switched
+/// on in its mods folder. kiln-eml's `aside` is the reason Kiln's ShroudForge plugin gives it when it takes the start's
+/// data writer (it starts with the engine's name; the reason for EML's own loader names the loader's DLL), so kiln-eml's
+/// own file says whom it stood aside for. Whether that file is of the last start is its pid's to say: the pid of
+/// kiln/state/shroudforge.json when that says `hosted` and is of the last start (`sf_hosted_pid`), or the last start's
+/// own (`last_pid`: kiln.log's last boot, else boot.json). A player's report of 13 Nov 2026 read "EML's own loader runs
+/// in the game" in a start that had no such loader; KR-YNQZ (26 Nov) again, written before ShroudForge's state file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EmlHandoff {
+    /// In the last start; `kiln_hosted`: no ShroudForge state of that start says another mode than `hosted`.
+    LastStart { kiln_hosted: bool },
+    /// In the start the file is of (`pid`), which is not known to be the last start.
+    OtherStart { pid: Option<u64> },
+}
+
+/// The EML packs kiln-eml's file says run under ShroudForge (`own-loader` rows: "runs under ShroudForge ...").
+fn handed_packs(state: &serde_json::Value) -> usize {
+    engine_mod_lines(state).iter().filter(|(_, st, _)| st.as_deref() == Some("own-loader")).count()
+}
+
+fn eml_handoff(kind: ModKind, state: &serde_json::Value, sf: Option<(u64, &str)>, sf_hosted_pid: Option<u64>,
+               last_pid: Option<u64>) -> Option<EmlHandoff> {
+    if kind != ModKind::Eml || !jstr(state.get("aside")).is_some_and(|a| a.starts_with("ShroudForge ")) { return None; }
+    let pid = state.get("pid").and_then(|v| v.as_u64());
+    if pid.is_none() || (pid != sf_hosted_pid && pid != last_pid) { return Some(EmlHandoff::OtherStart { pid }); }
+    let kiln_hosted = !sf.is_some_and(|(p, mode)| Some(p) == pid && mode != "hosted");
+    Some(EmlHandoff::LastStart { kiln_hosted })
 }
 
 /// kiln-emf stood aside because EMF's own loader or core runs in the game (kiln-emf's `steppedAsideReason`, plugin.cpp
@@ -2002,13 +2017,25 @@ pub fn build(input: &ReportInput) -> Report {
             cx.find("native-loader", Level::Warning, format!("The profile's {}.", crate::profile::native_loader_warning(id, *engine, file)));
         }
     }
-    // Kiln hosted ShroudForge in the start its state file is of: that file's pid, when it is the last start's (the
-    // process boot.json names, when there is one). Without a pid the file is of no known start.
     let boot_pid = boot.as_ref().map(|b| u64::from(b.pid));
+    // the last start's process: kiln.log's last boot (written first: a start that did not get to boot.json, KR-YNQZ),
+    // else boot.json's
+    let log_pid = tail(&rel(&game, "kiln/logs/kiln.log"), KILN_LOG_MAX).ok().flatten()
+        .and_then(|(text, _)| crate::logs::boot_state(&text).pid).map(u64::from);
+    let last_pid = log_pid.or(boot_pid);
+    // Kiln hosted ShroudForge in the start its state file is of: that file's pid, when it is the last start's (the
+    // process above, when one is known; boot.json's alone would take a pair of the start before for a later start
+    // that ended before its boot.json). Without a pid the file is of no known start.
     let sf_hosted_pid = engines.iter().filter(|e| e.kind == ModKind::ShroudForge).filter_map(|e| e.state.as_ref())
         .find(|st| jstr(st.get("mode")).as_deref() == Some("hosted"))
         .and_then(|st| st.get("pid").and_then(|v| v.as_u64()))
-        .filter(|pid| boot_pid.is_none_or(|b| b == *pid));
+        .filter(|pid| last_pid.is_none_or(|b| b == *pid));
+    // ShroudForge's state file: its pid and mode (kiln-eml's handoff names Kiln's ShroudForge unless that start's file
+    // says another mode)
+    let sf_state: Option<(u64, String)> = engines.iter().filter(|e| e.kind == ModKind::ShroudForge).filter_map(|e| e.state.as_ref())
+        .find_map(|st| Some((st.get("pid").and_then(|v| v.as_u64())?, jstr(st.get("mode")).unwrap_or_default())));
+    let sf = sf_state.as_ref().map(|(p, m)| (*p, m.as_str()));
+    let handoff = |kind: ModKind, st: &serde_json::Value| eml_handoff(kind, st, sf, sf_hosted_pid, last_pid);
     let _ = writeln!(ls, "Engines:");
     let mut any_engine = false;
     for e in &engines {
@@ -2056,7 +2083,19 @@ pub fn build(input: &ReportInput) -> Report {
         if stood_aside(st) && let Some((id, engine, file)) = native_loaders.iter().find(|(_, en, _)| Some(*en) == e.kind.engine()) {
             cx.find("native-loader", Level::Problem, format!("{} stood aside at the last start: the profile's {}.",
                 e.plugin, crate::profile::native_loader_warning(id, *engine, file)));
-        } else if stood_aside(st) && eml_under_hosted_shroudforge(e.kind, st, sf_hosted_pid) {
+        } else if stood_aside(st) && let Some(EmlHandoff::OtherStart { pid }) = handoff(e.kind, st) {
+            // kiln-eml handed the packs to ShroudForge in the start its file is of: that, and not an own loader the file
+            // does not show (a loader in the game folder has its own finding: check_loaders_in_folder)
+            let n = handed_packs(st);
+            let of = match (pid, last_pid) {
+                (Some(p), Some(l)) => format!("an earlier start (pid {p}) than the last one (pid {l})"),
+                (Some(p), None) => format!("a start (pid {p}) that no file here names as the last one"),
+                (None, _) => "a start it does not name (no pid)".to_string(),
+            };
+            cx.find("eml-under-shroudforge", Level::Info, format!(
+                "{}'s state file is of {of}: in that start it handed {} to ShroudForge. It says nothing about the last start.",
+                e.plugin, if n == 0 { "its EML packs".to_string() } else { plural(n, "EML pack", "EML packs") }));
+        } else if stood_aside(st) && let Some(EmlHandoff::LastStart { kiln_hosted }) = handoff(e.kind, st) {
             // by design, and no own loader: the mods that did not run are the finding, if there are any
             let off: Vec<String> = engine_mod_lines(st).into_iter()
                 .filter(|(_, state, _)| matches!(state.as_deref(), Some("off-in-shroudforge" | "not-loaded")))
@@ -2067,16 +2106,20 @@ pub fn build(input: &ReportInput) -> Report {
                     && jstr(m.get("source")).is_some_and(|s| s != "profile")
             }));
             let (one, many) = if dropins { ("EML mod", "EML mods") } else { ("EML mod of the profile", "EML mods of the profile") };
+            let sf_name = if kiln_hosted { "Kiln's ShroudForge" } else { "ShroudForge" };
             if off.is_empty() {
+                // what kiln-eml did: the packs it handed over (KR-YNQZ: "handed your 8 EML packs to Kiln's ShroudForge")
+                let n = handed_packs(st);
+                let packs = if n == 0 { "the EML packs".to_string() } else { format!("your {}", plural(n, "EML pack", "EML packs")) };
                 cx.find("eml-under-shroudforge", Level::Info, format!(
-                    "{} stood aside at the last start for ShroudForge, which Kiln hosted: ShroudForge alone writes the game data then, \
-                     and it runs the EML mods that are switched on in its mods folder. This is how the two work together.", e.plugin));
+                    "{} handed {packs} to {sf_name} at the last start: ShroudForge alone writes the game data then, and it runs \
+                     the EML packs that are switched on in its mods folder. This is how the two work together.", e.plugin));
             } else {
                 cx.find("eml-under-shroudforge", Level::Warning, format!(
-                    "{} did not run at the last start: Kiln hosted ShroudForge, which runs the EML mods then, and {} switched off in \
+                    "{} did not run at the last start: {} ShroudForge, which runs the EML mods then, and {} switched off in \
                      ShroudForge or missing from its mods folder: {}. The lines under {} in \"The last start\" say what to do for each.",
-                    plural(off.len(), one, many), if off.len() == 1 { "this one is" } else { "these are" },
-                    off.join(", "), e.plugin));
+                    plural(off.len(), one, many), if kiln_hosted { "Kiln hosted" } else { "kiln-eml handed them to" },
+                    if off.len() == 1 { "this one is" } else { "these are" }, off.join(", "), e.plugin));
             }
         } else if stood_aside(st) && e.kind == ModKind::Shroudlink
             && let Some(core) = jstr(st.get("corePath")).filter(|p| !p.is_empty())
@@ -2132,7 +2175,7 @@ pub fn build(input: &ReportInput) -> Report {
         cx.find("sf-startup-skipped", Level::Warning, format!("{}.", s.text()));
     }
     let aside: Vec<ModKind> = engines.iter()
-        .filter(|e| e.state.as_ref().is_some_and(|st| stood_aside(st) && !eml_under_hosted_shroudforge(e.kind, st, sf_hosted_pid)))
+        .filter(|e| e.state.as_ref().is_some_and(|st| stood_aside(st) && handoff(e.kind, st).is_none()))
         .map(|e| e.kind).collect();
     // a plugin that says it did not stand aside, in a state file of the last start (boot.json's time or later)
     // of the last start: the process boot.json names (kiln-greeneye writes its pid; it writes before boot.json, so the
@@ -2700,6 +2743,26 @@ fn check_unlisted(cx: &mut Ctx, install: Option<&GameInstall>, dirs: Option<&Dat
         shown.join(", "), if off.len() > 15 { ", ..." } else { "" }, if off.len() == 1 { "it" } else { "them" }, kinds.join(", ")));
 }
 
+/// The progress.json of a start that began at `launched` (unix seconds) or later, give or take boot.json's 30 s, and ended
+/// while Kiln was starting: not `ready`, `idle` or `failed` (each written with boot.json, or after it).
+fn stopped_while_starting(game: &Path, launched: i64) -> Option<crate::start_progress::Progress> {
+    let p = crate::start_progress::parse_progress(&std::fs::read_to_string(rel(game, crate::start_progress::PROGRESS_JSON)).ok()?)?;
+    let started = crate::start_progress::parse_ms(&p.started)?.div_euclid(1000);
+    (started + 30 >= launched && !p.is_final()).then_some(p)
+}
+
+/// The step a start began last, as the launcher's start window says it: "Running the early plugins (ShroudForge, 3 of 5)".
+fn progress_step(p: &crate::start_progress::Progress) -> Option<String> {
+    let s = p.steps.last()?;
+    let label = if s.label.is_empty() { s.id.as_str() } else { s.label.as_str() };
+    let count = match (s.done, s.total) {
+        (Some(d), Some(t)) => Some(format!("{d} of {t}")),
+        _ => None,
+    };
+    let more: Vec<String> = [s.detail.clone().filter(|d| !d.is_empty()), count].into_iter().flatten().collect();
+    Some(if more.is_empty() { label.to_string() } else { format!("{label} ({})", more.join(", ")) })
+}
+
 /// The last start did not load Kiln: the game runs without a fresh boot.json, a launch from the launcher wrote none,
 /// or the game ran and Kiln's proxy never logged anything. Under Proton without the DLL override, why.
 #[allow(clippy::too_many_arguments)]
@@ -2734,9 +2797,20 @@ fn check_not_loaded(cx: &mut Ctx, install: Option<&GameInstall>, dirs: Option<&D
     {
         let boot_at = boot_time.map(crate::util::unix);
         if boot_at.is_none_or(|b| b + 30 < launched) {
-            cx.find("not-loaded", Level::Problem, format!(
-                "The last start from the launcher ({}) did not load Kiln: boot.json is {}.{why}",
-                last.launched, boot_at.map(|b| format!("older ({})", crate::util::rfc3339(b))).unwrap_or_else(|| "missing".into())));
+            let boot_is = boot_at.map(|b| format!("older ({})", crate::util::rfc3339(b))).unwrap_or_else(|| "missing".into());
+            // Kiln loaded in that start when its progress.json is of it: the game ended while Kiln was starting (KR-YNQZ:
+            // in ShroudForge's early step, 1.2 s in), which is no reason to doubt dinput8.dll
+            let text = match stopped_while_starting(&i.path, launched) {
+                Some(p) => {
+                    let secs = p.at_ms as f64 / 1000.0;
+                    let at = progress_step(&p).map(|s| format!("its last step, {secs:.1} s in, was \"{s}\""))
+                        .unwrap_or_else(|| format!("{secs:.1} s in, before its first step"));
+                    format!("The last start from the launcher ({}) loaded Kiln (pid {}), but the game ended before Kiln finished starting: \
+                        {at} ({}), and boot.json is {boot_is}.", last.launched, p.pid, crate::start_progress::PROGRESS_JSON)
+                }
+                None => format!("The last start from the launcher ({}) did not load Kiln: boot.json is {boot_is}.{why}", last.launched),
+            };
+            cx.find("not-loaded", Level::Problem, text);
             said = true;
         }
     }

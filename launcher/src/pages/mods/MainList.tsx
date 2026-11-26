@@ -334,9 +334,9 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
               )}
               <span className="k-mod-text">
                 <span className="k-mod-name" title={r.name !== r.id ? t("mods.list.nameWithId", { name: r.name, id: r.id }) : r.name}>{r.name}</span>
-                {(r.found || r.note || (r.lib && noticeable(statusOf(updates.data, r.kind, r.id)))) && (
+                {(r.found || r.note || (r.lib && noticeable(statusOf(updates.data, r.kind, r.id), r.entry?.version))) && (
                   <span className="k-mod-note">
-                    {r.lib && <UpdateBadge status={statusOf(updates.data, r.kind, r.id)} />}
+                    {r.lib && <UpdateBadge status={statusOf(updates.data, r.kind, r.id)} installed={r.entry?.version} />}
                     {r.found && <span className="k-mod-where">{t("mods.order.gameFolder")}</span>}
                     {r.note && <span className={`k-tone-${r.note.tone}`} title={r.note.title}>{r.note.text}</span>}
                     {r.note?.link && (

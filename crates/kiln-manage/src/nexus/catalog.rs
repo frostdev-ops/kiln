@@ -657,7 +657,14 @@ impl Catalog {
             let in_library = !record.refs.is_empty() && record.refs.iter().any(has);
             // the file's newest version is another upload, and not an older version string (a re-upload of the same
             // version counts: its position in the file is newer)
-            let update = in_library && l.is_some_and(|l| l.version_gsid != record.version_gsid && !version::is_newer(&record.version, &l.version));
+            // ... unless the player has put a version of the mod in the Library by hand since (a drop, Add mod) that is
+            // above the recorded one and not below the newest: no "Update to 0.2.10" beside 0.2.10 (netjunk, 2026-11-26).
+            // Only for a mod whose page numbers it as its manifest does (the installed upload's version is its Library
+            // version): otherwise the Library's versions say nothing about the page's.
+            let aligned = record.refs.iter().any(|r| version::compare(&r.version, &record.version) == std::cmp::Ordering::Equal);
+            let caught_up = |l: &Latest| aligned && library.iter().filter(|e| record.refs.iter().any(|r| r.kind == e.kind && r.id == e.id)).flat_map(|e| &e.versions)
+                .any(|v| version::is_newer(&v.version, &record.version) && !version::is_newer(&l.version, &v.version));
+            let update = in_library && l.is_some_and(|l| l.version_gsid != record.version_gsid && !version::is_newer(&record.version, &l.version) && !caught_up(l));
             let info = InstalledInfo {
                 version: record.version.clone(),
                 version_gsid: record.version_gsid.clone(),

@@ -96,6 +96,25 @@ public sealed class KeyRemapTests : IDisposable
         Assert.Equal("F2", _binding.Key.ToString());
     }
 
+    /// <summary>The Keys page's button keeps one ImGui id while its label changes ("###key", 0.2.0-dev.31.18): ImGui's
+    /// keyboard navigation presses the focused button with the Enter or Space that ended the rebind, which must not arm it
+    /// again (the next key would replace the binding).</summary>
+    [Fact]
+    public void Enter_that_ends_a_rebind_does_not_arm_it_again()
+    {
+        var ui = new UiDraw();
+        FakeUiTable.MenuOpen = true;
+        Remapping.SetValue(null, _binding.Id);
+        Assert.True(Press(0x0D));  // Enter: the new binding
+        Assert.Equal("Enter", _binding.Key.ToString());
+        FakeUiTable.Click = "Enter###key";  // the same frame's ImGui navigation presses the focused button with it
+        UiEngine.KeyLine(ui, _binding.Id, "test", _binding.Key, _binding.Default);
+        Assert.Null(FakeUiTable.Click);  // the button was pressed
+        Assert.Null(Remapping.GetValue(null));  // and the rebind does not wait again
+        Assert.False(Press(0x28));  // Down, to move on: not the binding
+        Assert.Equal("Enter", _binding.Key.ToString());
+    }
+
     /// <summary>Inbox 40: the Keys page had no way to unbind a key (only "None" in keybinds.json). A binding's row has an
     /// Unbind button that sets it to None; the menu's own key has none (it would lock the menu away).</summary>
     [Fact]

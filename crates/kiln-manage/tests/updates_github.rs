@@ -144,14 +144,15 @@ fn a_check_reads_the_list_and_the_winners_binding_and_compares() {
     assert_eq!(s.checked_at.as_deref(), Some("2027-01-15T08:00:00Z"));
     done(&t);
     assert_eq!(t.requests().len(), 3);
-    // the same source for other installed copies: answered from what is remembered, compared anew, no request
-    let bound_same = one(&dirs, &t, &glow("1.10.0", Some(GLOW_SHA)), &opts(NOW + 60));
+    // the same source for other installed copies: answered from what is remembered, compared anew, no request (an
+    // offline check; one that may ask asks again for a copy the answer offers nothing: tests/updates_after_update.rs)
+    let bound_same = one(&dirs, &t, &glow("1.10.0", Some(GLOW_SHA)), &off(NOW + 60));
     assert_eq!((bound_same.state, bound_same.reason), (UpdateState::Current, None));
-    let bound_other = one(&dirs, &t, &glow("1.10.0", Some(&"b".repeat(64))), &opts(NOW + 60));
+    let bound_other = one(&dirs, &t, &glow("1.10.0", Some(&"b".repeat(64))), &off(NOW + 60));
     assert_eq!((bound_other.state, bound_other.candidate_version.as_deref()), (UpdateState::NewUpload, Some("1.10.0")));
-    let hand_copied = one(&dirs, &t, &glow("1.10.0", None), &opts(NOW + 60));
+    let hand_copied = one(&dirs, &t, &glow("1.10.0", None), &off(NOW + 60));
     assert_eq!((hand_copied.state, hand_copied.reason), (UpdateState::Unknown, Some(UnknownReason::SameVersionUnbound)));
-    let ahead = one(&dirs, &t, &glow("1.11.0-dev.1", None), &opts(NOW + 60));
+    let ahead = one(&dirs, &t, &glow("1.11.0-dev.1", None), &off(NOW + 60));
     assert_eq!(ahead.state, UpdateState::Current);
     assert_eq!(t.requests().len(), 3, "{:?}", urls(&t));
 }

@@ -956,9 +956,10 @@ struct CraftStats {
     std::atomic<uint32_t> rollback{0};      // a take faulted, or a line stayed short after a take: 4, the craft rolled back
     std::atomic<uint32_t> skipped{0};       // the game's for another reason (unreadable, an item twice, a stock list too long)
     std::atomic<uint32_t> lab{0};           // KILN_STATIONS_CRAFT_LAB's stand-in stock list was used
+    std::atomic<uint32_t> respec{0};        // GitHub #150: calls of the respec payer (respec/RespecPaid), whatever came of them
 };
 CraftStats CS;
-constexpr uint32_t kCraftStatCount = 13;
+constexpr uint32_t kCraftStatCount = 14;
 bool g_craft_lab = false;  // KILN_STATIONS_CRAFT_LAB=1 (stations_resolve): labs only, never a real server
 // The server world's bases system and recipe registry, cached by the tick thread (Pre) for the payment.
 std::atomic<void*> g_srv_bases{nullptr}, g_srv_recipes{nullptr};
@@ -999,11 +1000,73 @@ thread_local bool t_build_pay = false;
 LogLimit g_log_build_pay{16};
 std::atomic<bool> g_build_dirty{true};  // a registration changed: the server's count of building links is read again
 
-void left_to_game(const char* why, unsigned mode, unsigned err, uint32_t owner, bool build = false) {
+// GitHub #150 (0.2.0-dev.31.18): the skill tree's paid reset and a node's unlearn from the player's respec links (respec
+// section below). Both pay through the respec payer's one InventoryPay call (respec/RespecPaid, its return address), a
+// stock-mode-2 transaction (the bag, then the Magic chests of the player's base) with one cost line of the respec item.
+struct RespecSites {
+    uintptr_t payer = 0, paid = 0, pay_fn = 0;                        // the server half (both executables)
+    uintptr_t node_ret = 0, altar_ret = 0, header_ret = 0, avail_fn = 0;  // a client's screens
+    uint32_t item = 0;                                               // respec/item, the payer's own constant (Runes)
+    int64_t ui_item = 0, ui_cost = 0;                                // G38UiPlayData's respec item and cost (a client)
+};
+RespecSites g_respec;
+bool g_respec_feat = false;                 // crafting.respec_sources resolved (stations_resolve)
+std::atomic<bool> g_respec_off{false};      // a stand-down: a foreign patch, a failed hook, a fault, no payment hook
+std::atomic<bool> g_respec_ready{false};    // the server half's code check passed (respec_server_pre): links may pay
+LogLimit g_log_respec_pay{24}, g_log_respec_world{2};
+
+// Labs only (KILN_STATIONS_CRAFT_LAB=1, as for the craft lab): a lab has no logged-in player, so a spawned player character
+// (an id outside the player range, never a real player) may have respec links of its own, set through the private
+// kiln_stations_lab_respec_link below. They pay only its respec (the respec branch), with the container checks of a real
+// link and no player record (the character has none). Never on a real server: the switch is off without the variable,
+// which kiln-items reads once at its start, before any mod runs. Review of #150: only a dedicated server's process (never
+// a client's, so never a hosted world), at most kMaxRespecLab links in all, each named in kiln.log.
+std::mutex g_respec_lab_mu;
+std::vector<std::pair<uint32_t, uint32_t>> g_respec_lab;  // (character, container), g_respec_lab_mu
+constexpr size_t kMaxRespecLab = 16;
+bool respec_lab_on() { return g_craft_lab && g_api && g_api->side() == KILN_SIDE_SERVER; }
+std::vector<CraftSource> respec_lab_sources(uint32_t character) {
+    std::vector<CraftSource> out;
+    std::lock_guard lock(g_respec_lab_mu);
+    for (const auto& [who, container] : g_respec_lab)
+        if (who == character) {
+            CraftSource s;
+            s.player = who, s.container = container, s.respec = true;
+            out.push_back(std::move(s));
+        }
+    return out;
+}
+bool respec_lab_any() {
+    std::lock_guard lock(g_respec_lab_mu);
+    return !g_respec_lab.empty();
+}
+
+// The respec branch of the payment adapter (any thread: the game's player_skilltree, a hosting client's game thread):
+// false, with a kiln.log line, while the server half may not pay from links (its code check has not run yet, or it stood
+// down). The game then pays as it always does: the bag and the Magic chests of the player's base, or refuses.
+bool respec_may_pay(uint32_t owner) {
+    const char* const why = g_respec_off.load(std::memory_order_relaxed)
+                                ? "respec from linked sources stood down on this build (an earlier respec: line says why)"
+                            : !g_respec_ready.load(std::memory_order_acquire)
+                                ? "the server half's code check has not run yet (it runs on the next server tick)"
+                                : nullptr;
+    if (!why) return true;
+    if (const uint32_t n = g_log_respec_pay.take())
+        LOGI("respec: player %u's skill respec left to the game: %s (the bag and the Magic chests pay)%s", owner, why,
+             n > 1 ? " (more held back)" : "");
+    return false;
+}
+
+// What one payment adapter call is (craft_pay_impl): a recipe's craft, a block placement (GitHub #132), a respec (#150).
+enum PayKind : int { kPayCraft = 0, kPayBuild = 1, kPayRespec = 2 };
+const char* pay_noun(int kind) { return kind == kPayRespec ? "skill respec" : kind == kPayBuild ? "block placement" : "craft"; }
+LogLimit& pay_log(int kind, LogLimit& craft) { return kind == kPayRespec ? g_log_respec_pay : kind == kPayBuild ? g_log_build_pay : craft; }
+
+void left_to_game(const char* why, unsigned mode, unsigned err, uint32_t owner, int kind = kPayCraft) {
     trace(kTraceLeft, 0, why);
-    if (const uint32_t n = (build ? g_log_build_pay : g_log_left).take())
-        LOGI("stations: %s payment left to the game (%s; mode %u, stock error %u, payer %u)%s", build ? "block placement" : "craft",
-             why, mode, err, owner, n > 1 ? " (more held back)" : "");
+    if (const uint32_t n = pay_log(kind, g_log_left).take())
+        LOGI("%s: %s payment left to the game (%s; mode %u, stock error %u, payer %u)%s", kind == kPayRespec ? "respec" : "stations",
+             pay_noun(kind), why, mode, err, owner, n > 1 ? " (more held back)" : "");
 }
 
 // 1: this call was paid here (*code is 0 or 4). 0: the game's InventoryPay should run.
@@ -1015,19 +1078,31 @@ int craft_pay_impl(void* tx, void* costs, uint32_t owner, uint32_t multiplier, v
     // GitHub #132: a block placement (ApplyMaterials' take, scoped to the blueprint program by hk_build_apply) pays from the
     // player's building links only, never from station outputs; otherwise the same adapter as a craft's.
     const bool build = g_build.paid && ret == g_build.paid && t_build_pay;
-    if (ret != G.recipe_paid && !build) {
+    // GitHub #150: the respec payer's call (the skill tree's paid reset or a node's unlearn) pays from the player's respec
+    // links only, never from station outputs, after the bag and the Magic chests (the game's stock mode 2)
+    const bool respec = !build && g_respec.paid && ret == g_respec.paid;
+    if (ret != G.recipe_paid && !build && !respec) {
         trace(kTraceOtherPayer);
         return 0;
     }
-    const char* const what = build ? "a block placement" : "a craft";
+    const int kind = respec ? kPayRespec : build ? kPayBuild : kPayCraft;
+    if (respec) CS.respec.fetch_add(1, std::memory_order_relaxed);
+    const bool linked_only = kind != kPayCraft;  // one purpose's links: no station outputs, the transaction's reads only
+    const char* const what = respec ? "a skill respec" : build ? "a block placement" : "a craft";
+    const char* const tag = respec ? "respec" : "stations";  // kiln.log's prefix: respec lines read as the locks: lines do
     CS.calls.fetch_add(1, std::memory_order_relaxed);
     auto registered = G.registered_ok ? craft_sources_copy(owner) : std::vector<CraftSource>{};
-    if (build)
-        registered.erase(std::remove_if(registered.begin(), registered.end(), [](const CraftSource& s) { return !s.building; }),
+    if (linked_only)
+        registered.erase(std::remove_if(registered.begin(), registered.end(),
+                                        [&](const CraftSource& s) { return respec ? !s.respec : !s.building; }),
                          registered.end());
+    // labs only: a spawned character's lab links (respec_lab_sources); a real player's links are the registry's
+    const bool lab_payer = respec && owner > kMaxPlayerEntity && respec_lab_on();
+    if (lab_payer) registered = respec_lab_sources(owner);
+    if (respec && !registered.empty() && !respec_may_pay(owner)) return 0;  // a stand-down: the game's (bag and Magic chests)
     {
         std::lock_guard lock(g_mu);
-        if ((build || g_sources.empty()) && registered.empty()) {
+        if ((linked_only || g_sources.empty()) && registered.empty()) {
             CS.idle.fetch_add(1, std::memory_order_relaxed);
             // links of this payer that craft_sources_copy left out: another login's, or an unreadable player record
             trace(t_trace.active && G.registered_ok && !g_registered.copy(owner).empty() ? kTraceDropped : kTraceIdle);
@@ -1042,7 +1117,7 @@ int craft_pay_impl(void* tx, void* costs, uint32_t owner, uint32_t multiplier, v
     unsigned long fault = 0;
     if (!guard(&tx_head_impl, &head, &fault)) {
         CS.skipped.fetch_add(1, std::memory_order_relaxed);
-        left_to_game("the transaction could not be read", 0, 0, owner, build);
+        left_to_game("the transaction could not be read", 0, 0, owner, kind);
         return 0;
     }
     if (head.mode == 0 && registered.empty()) {  // a factory never has player-bound registrations
@@ -1059,7 +1134,18 @@ int craft_pay_impl(void* tx, void* costs, uint32_t owner, uint32_t multiplier, v
     // section 13), so the full check refused every placement and the game paid from the bag and the base alone. A
     // placement's payment reads only InventorySetup and Inventory (count_pages, setup_flags) and takes through the game's
     // PayMaterial: it is checked by those two, as a lock's payment is.
-    const bool accessors = same_bases && (build ? access_from_tx_reads(tx, &a) : access_from_tx(tx, &a));
+    // GitHub #150: the respec payer's transaction is set up the same way (no Fuel accessor either, S 0xb9230)
+    const bool accessors = same_bases && (linked_only ? access_from_tx_reads(tx, &a) : access_from_tx(tx, &a));
+    if (respec && !same_bases) {
+        // GitHub #150: a hosting client's prediction world runs the same payer on its own transaction; only the server
+        // world's payment counts (the server's state then reaches the prediction)
+        CS.other_world.fetch_add(1, std::memory_order_relaxed);
+        trace(kTraceOtherWorld);
+        if (const uint32_t n = g_log_respec_world.take())
+            LOGI("respec: a skill respec in another world (a hosting client's prediction world) is the game's own; the server "
+                 "world's payment counts the respec links (payer %u)%s", owner, n > 1 ? " (more held back)" : "");
+        return 0;
+    }
     if (!same_bases || !accessors) {
         CS.other_world.fetch_add(1, std::memory_order_relaxed);
         // Another world's transaction (a hosting client's own dry runs) and the server world's transaction whose accessors
@@ -1067,15 +1153,15 @@ int craft_pay_impl(void* tx, void* costs, uint32_t owner, uint32_t multiplier, v
         trace(same_bases ? kTraceTxRefused : kTraceOtherWorld);
         if (same_bases) {
             if (const uint32_t n = g_log_tx.take())
-                LOGW("stations: the server world's %s transaction did not check out (its accessors): its payment is the "
-                     "game's, crafting sources not asked (mode %u, payer %u)%s", build ? "block placement" : "craft", head.mode, owner,
+                LOGW("%s: the server world's %s transaction did not check out (its accessors): its payment is the "
+                     "game's, crafting sources not asked (mode %u, payer %u)%s", tag, pay_noun(kind), head.mode, owner,
                      n > 1 ? " (more held back)" : "");
         } else if (const uint32_t n = g_log_dry.take()) {
             TxWords w{static_cast<const uint8_t*>(tx), {}};
             guard(&tx_words_impl, &w, &fault);
-            LOGI("stations: %s payment left to the game (not the server world's transaction: bases words %p / %p, the "
+            LOGI("%s: %s payment left to the game (not the server world's transaction: bases words %p / %p, the "
                  "server's %p, accessors %s; words 0:%p 1:%p 3:%p 4:%p 5:%p 7:%p 12:%p 14:%p 1d:%p; mode %u, payer %u)%s",
-                 build ? "block placement" : "craft", reinterpret_cast<void*>(head.bases), reinterpret_cast<void*>(head.arg4), srv_bases,
+                 tag, pay_noun(kind), reinterpret_cast<void*>(head.bases), reinterpret_cast<void*>(head.arg4), srv_bases,
                  same_bases ? "refused" : "not read",
                  reinterpret_cast<void*>(w.w[0]), reinterpret_cast<void*>(w.w[1]), reinterpret_cast<void*>(w.w[3]),
                  reinterpret_cast<void*>(w.w[4]), reinterpret_cast<void*>(w.w[5]), reinterpret_cast<void*>(w.w[7]),
@@ -1087,7 +1173,7 @@ int craft_pay_impl(void* tx, void* costs, uint32_t owner, uint32_t multiplier, v
     StockJob stock{&head, owner, {}, {}};
     if (head.mode != 0 && !guard(&stock_job_impl, &stock, &fault)) {
         CS.skipped.fetch_add(1, std::memory_order_relaxed);
-        left_to_game("the base stock call faulted", head.mode, 0, owner, build);
+        left_to_game("the base stock call faulted", head.mode, 0, owner, kind);
         return 0;
     }
     const int32_t base = base_index_at(srv_bases, KilnVec3{head.pos[0], head.pos[1], head.pos[2]});
@@ -1107,13 +1193,13 @@ int craft_pay_impl(void* tx, void* costs, uint32_t owner, uint32_t multiplier, v
         if (!lab && registered.empty()) {
             CS.no_access.fetch_add(1, std::memory_order_relaxed);
             left_to_game(stock.err.error == 0x16 ? "the payer may not access the base's inventories" : "the payer stands in no base",
-                         head.mode, stock.err.error, owner, build);
+                         head.mode, stock.err.error, owner, kind);
             return 0;
         }
     }
     auto skip = [&](const char* why) {
         CS.skipped.fetch_add(1, std::memory_order_relaxed);
-        left_to_game(why, head.mode, stock.err.error, owner, build);
+        left_to_game(why, head.mode, stock.err.error, owner, kind);
         return 0;
     };
     if (base < 0 && registered.empty()) return skip("the transaction's position is in no base");
@@ -1160,7 +1246,7 @@ int craft_pay_impl(void* tx, void* costs, uint32_t owner, uint32_t multiplier, v
     const uintptr_t world = items_server_world();
     void* const reg = g_srv_recipes.load(std::memory_order_acquire);
     std::vector<CraftLender> cands;
-    for (KilnEntity e : (head.mode != 0 && !stock.err.error && base >= 0 && !build ? sources_copy() : std::vector<KilnEntity>{})) {
+    for (KilnEntity e : (head.mode != 0 && !stock.err.error && base >= 0 && !linked_only ? sources_copy() : std::vector<KilnEntity>{})) {
         CraftLender l;
         l.entity = e;
         FsBytes fs{};
@@ -1178,7 +1264,8 @@ int craft_pay_impl(void* tx, void* costs, uint32_t owner, uint32_t multiplier, v
     craft_lenders(cands, exclude, base, order, items, have, &lent);
     merge_craft_sources(registered, owner, exclude, order, items,
         [&](uint32_t player, uint32_t container) {
-            if (!source_access(srv_bases,player,container)) return false;
+            if (lab_payer ? !(container > kMaxPlayerEntity && is_character(a, player) && !storage_contains(container) && source_container(container))
+                          : !source_access(srv_bases,player,container)) return false;
             uint8_t flags = 0;
             PageSet pages{}; bool initialized = false;
             return setup_flags(a,container,&flags) && !(flags & 3) && read_pages(a,container,&pages,&initialized) && initialized;
@@ -1219,9 +1306,15 @@ int craft_pay_impl(void* tx, void* costs, uint32_t owner, uint32_t multiplier, v
             for (const CraftCost& c : lines)
                 if (c.need > c.game + c.outputs) short_by += c.need - c.game - c.outputs;
             trace(kTraceShort, short_by);
-            if (const uint32_t n = (build ? g_log_build_pay : g_log_refused).take())
-                LOGI("stations: %s left to the game: linked sources and base %d's opted-in outputs cannot cover it (short by "
-                     "%llu; payer %u)%s", what, base, static_cast<unsigned long long>(short_by), owner, n > 1 ? " (more held back)" : "");
+            if (const uint32_t n = pay_log(kind, g_log_refused).take()) {
+                if (respec)  // the game then refuses it: the unlearn puts the node back, the reset does not happen
+                    LOGI("respec: %s left to the game: the bag, the Magic chests and the respec links cannot cover it (short by "
+                         "%llu of item 0x%08x; payer %u)%s", what, static_cast<unsigned long long>(short_by), lines[0].item, owner,
+                         n > 1 ? " (more held back)" : "");
+                else
+                    LOGI("stations: %s left to the game: linked sources and base %d's opted-in outputs cannot cover it (short by "
+                         "%llu; payer %u)%s", what, base, static_cast<unsigned long long>(short_by), owner, n > 1 ? " (more held back)" : "");
+            }
         } else {
             trace(kTraceCovered);
         }
@@ -1231,10 +1324,10 @@ int craft_pay_impl(void* tx, void* costs, uint32_t owner, uint32_t multiplier, v
         CS.paid.fetch_add(1, std::memory_order_relaxed);
         CS.from_outputs.fetch_add(static_cast<uint32_t>(std::min<uint64_t>(from, 0xffffffffu)), std::memory_order_relaxed);
         trace(kTracePaid, from);
-        if (const uint32_t n = (build ? g_log_build_pay : g_log_paid).take())
-            LOGI("stations: %s paid %llu from additional crafting sources (base %d, payer %u; the bag and Magic chests "
+        if (const uint32_t n = pay_log(kind, g_log_paid).take())
+            LOGI("%s: %s paid %llu from additional crafting sources (base %d, payer %u; the bag and Magic chests "
                  "counted %llu, paid %llu; the payer's bag held %llu, paid %llu; %u take(s) refused, last error 0x%02x)%s",
-                 what, static_cast<unsigned long long>(from), base, owner, static_cast<unsigned long long>(game_counted),
+                 tag, what, static_cast<unsigned long long>(from), base, owner, static_cast<unsigned long long>(game_counted),
                  static_cast<unsigned long long>(game_paid), static_cast<unsigned long long>(payer_held),
                  static_cast<unsigned long long>(payer_paid), refusals, static_cast<unsigned>(last_refusal),
                  n > 1 ? " (more held back)" : "");
@@ -1246,8 +1339,8 @@ int craft_pay_impl(void* tx, void* costs, uint32_t owner, uint32_t multiplier, v
                                : why == kCraftWhyGamePaidLess ? "the bag and the Magic chests paid less than they were counted to hold"
                                                               : "a line stayed short";
     trace(kTraceRollback, from, rolled);
-    LOGW("stations: %s paid from additional sources rolled back (%s; base %d, payer %u; counted %llu, paid %llu; "
-         "%u take(s) refused, last error 0x%02x): nothing moved", what, rolled, base, owner,
+    LOGW("%s: %s paid from additional sources rolled back (%s; base %d, payer %u; counted %llu, paid %llu; "
+         "%u take(s) refused, last error 0x%02x): nothing moved", tag, what, rolled, base, owner,
          static_cast<unsigned long long>(game_counted), static_cast<unsigned long long>(game_paid), refusals,
          static_cast<unsigned>(last_refusal));
     *code = 4;  // a take may already be queued: CraftRecipe rolls the transaction back
@@ -1795,7 +1888,7 @@ void fill_hook_on_demand() {
 uint32_t craft_stats(uint32_t* out, uint32_t n) {
     const std::atomic<uint32_t>* f[kCraftStatCount] = {&CS.calls, &CS.idle, &CS.other_world, &CS.mode0, &CS.no_access,
                                                        &CS.considered, &CS.covered, &CS.short_, &CS.paid, &CS.from_outputs,
-                                                       &CS.rollback, &CS.skipped, &CS.lab};
+                                                       &CS.rollback, &CS.skipped, &CS.lab, &CS.respec};
     for (uint32_t i = 0; out && i < n && i < kCraftStatCount; ++i) out[i] = f[i]->load(std::memory_order_relaxed);
     return kCraftStatCount;
 }
@@ -4549,6 +4642,157 @@ KilnResult KILN_CALL t_lock_asks(KilnItemId* out, uint32_t capacity, uint32_t* o
     return n > capacity ? KILN_ERR_BUFFER_TOO_SMALL : KILN_OK;
 }
 
+// ---- GitHub #150 (0.2.0-dev.31.18): the skill tree's respec from the player's respec links (docs/re/respec.md) ----
+// The game charges its respec item (Runes, respec/item) in two places, both through one payer (respec/Payer, S 0xb9230):
+// a node's unlearn (its cost; a refusal puts the node back) and the skill tree's reset with its pay flag set (the points
+// spent). The payer opens a stock-mode-2 transaction (the bag, then the Magic chests of the base the player stands in) and
+// pays one cost line with rules/InventoryPay, whose return is respec/RespecPaid. kiln.rules' payment hook hands that call
+// to craft_pay_impl (the respec branch above): the game pays alone when the bag and the chests cover it; else Kiln pays the
+// line itself in the same transaction, the bag and the chests first, then the links opted in with Respec, all or nothing.
+// The join check's reset passes pay 0 and never reaches the payer: it stays free. A Kiln client's two screens that decide
+// whether a respec is sent count the item with the game's UI count (stations/client.UiAvailableCount) and offer nothing
+// when it is short: the respec tree's unlearn (respec/client.NodeCountRet, against the node's cost) and the Flame Altar's
+// reskill dialog (respec/client.AltarCountRet, against the points spent). Mid hooks at those returns add the server's
+// respec snapshot (set_respec_stock), as the lock checks do; the respec tree's Rune row (respec/client.HeaderCountRet) is
+// display only and degrades alone.
+// A Kiln client's snapshot from the server (g_respec_snap_mu): on, the rows.
+std::mutex g_respec_snap_mu;
+std::atomic<bool> g_respec_on{false};
+std::unordered_map<uint32_t, uint32_t> g_respec_have;  // g_respec_snap_mu
+bool g_respec_row_feat = false;                         // respec/client.HeaderCountRet resolved (a client; display only)
+std::atomic<bool> g_respec_row_off{false};             // the Rune row's own stand-down
+kiln::MidHook2 h_respec_node, h_respec_altar, h_respec_row;
+std::atomic<bool> g_respec_node_on{false}, g_respec_altar_on{false}, g_respec_row_on{false};
+std::atomic<bool> g_respec_fault_report{false};  // a hook faulted: the next Pre lowers crafting.respec_sources (faulted)
+LogLimit g_log_respec_snap{8}, g_log_respec_check{24};
+std::atomic<uint64_t> g_respec_last[3]{};        // per client site: the last logged (item, state), the UI runs every frame
+
+// The client's snapshot (any thread). False: no snapshot (a vanilla or older server, no respec link). *row: the item named.
+bool respec_snapshot(uint32_t item, uint64_t* held, bool* row) {
+    std::lock_guard lock(g_respec_snap_mu);
+    if (!g_respec_on.load(std::memory_order_relaxed)) return false;
+    const auto it = g_respec_have.find(item);
+    *row = it != g_respec_have.end();
+    *held = *row ? it->second : 0;
+    return true;
+}
+
+// One client respec check (the game's UI thread): the game counted `game` of `item` (the bag mirror and the published
+// Magic chests); `need` is what the screen compares it with (0: the display row). Returns the count the screen should
+// see: the game's plus the snapshot's row whenever the snapshot names the item, so the screen shows what the server will
+// count; the screen's own compare decides. Logs the site's state once per change.
+enum RespecSite : uint32_t { kRespecNode = 0, kRespecAltar = 1, kRespecRow = 2 };
+enum RespecState : uint8_t { kRespecCounted = 1, kRespecShort, kRespecNoRow };
+uint32_t respec_check(uint32_t site, uint32_t item, uint32_t game, uint32_t need) {
+    if (!item || g_respec_off.load(std::memory_order_relaxed)) return game;
+    uint64_t linked = 0;
+    bool row = false;
+    if (!respec_snapshot(item, &linked, &row)) return game;  // no snapshot (cleared): the game's own count
+    RespecState state = kRespecCounted;
+    uint32_t counted = game;
+    if (!row) state = kRespecNoRow;
+    else counted = static_cast<uint32_t>(std::min<uint64_t>(uint64_t{game} + linked, 0xffffffffull));
+    if (need && game >= need) return counted;  // the game's count covers it: nothing to say
+    if (state == kRespecCounted && need && counted < need) state = kRespecShort;
+    if (site > kRespecRow) return counted;
+    const uint64_t key = (uint64_t{item} << 8) | state;
+    if (g_respec_last[site].exchange(key, std::memory_order_relaxed) == key) return counted;
+    if (const uint32_t n = g_log_respec_check.take()) {
+        const char* const what = site == kRespecNode ? "the skill tree's unlearn check" : site == kRespecAltar ? "the Flame Altar's reskill check"
+                                                                                                         : "the respec tree's item row";
+        if (state == kRespecCounted || state == kRespecShort)
+            LOGI("respec: %s counts the linked sources: item 0x%08x, the game's count %u + linked %llu%s%u%s%s", what, item, game,
+                 static_cast<unsigned long long>(linked), need ? ", needs " : " (shown", need ? need : counted,
+                 !need ? ")" : state == kRespecShort ? " (short: not offered)" : " (offered)", n > 1 ? " (more held back)" : "");
+        else
+            LOGI("respec: %s counts the game's count only: item 0x%08x, %s (count %u%s%u)%s", what, item,
+                 "no snapshot row for the item (the server sends its own respec item's row only)", game, need ? ", needs " : "", need, n > 1 ? " (more held back)" : "");
+    }
+    return counted;
+}
+// A fault in the unlearn or reskill check's hook (the game's UI thread): the feature stands down at once, its row on the
+// next Pre (respec_fault_lower), as a lock hook's does.
+void respec_fault(const char* what, unsigned long code) {
+    if (g_respec_off.exchange(true)) return;
+    LOGE("respec: %s faulted (0x%08lx): the skill respec from linked sources stands down (the game's own counts and payment)",
+         what, code);
+    g_respec_fault_report.store(true);
+}
+void respec_fault_lower() {
+    if (g_respec_fault_report.exchange(false))
+        lower("crafting.respec_sources", KILN_CAP_REASON_FAULTED,
+              "a respec hook faulted (see kiln.log): the game's own respec counts and payment are used");
+}
+// respec/client.NodeCountRet: eax the game's count, r14d the node's cost (a u16), r12 G38UiPlayData (all pinned).
+void respec_node_impl(KilnRegisters& r) {
+    const uint32_t item = rd<uint32_t>(reinterpret_cast<const void*>(r.r12), static_cast<size_t>(g_respec.ui_item));
+    const uint32_t game = static_cast<uint32_t>(r.rax), need = static_cast<uint32_t>(r.r14 & 0xffff);
+    const uint32_t counted = respec_check(kRespecNode, item, game, need);
+    if (counted != game) r.rax = counted;  // a 32-bit register: the upper half is zero
+}
+void hk_respec_node(KilnRegisters& r) {
+    __try {
+        if (!g_respec_off.load(std::memory_order_relaxed)) respec_node_impl(r);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        respec_fault("the skill tree's unlearn check hook", GetExceptionCode());
+    }
+}
+// respec/client.AltarCountRet: eax the game's count, rdi G38UiPlayData (its respec cost next, compared with eax).
+void respec_altar_impl(KilnRegisters& r) {
+    const auto* ui = reinterpret_cast<const uint8_t*>(r.rdi);
+    const uint32_t item = rd<uint32_t>(ui, static_cast<size_t>(g_respec.ui_item)), need = rd<uint32_t>(ui, static_cast<size_t>(g_respec.ui_cost));
+    const uint32_t game = static_cast<uint32_t>(r.rax);
+    const uint32_t counted = respec_check(kRespecAltar, item, game, need);
+    if (counted != game) r.rax = counted;
+}
+void hk_respec_altar(KilnRegisters& r) {
+    __try {
+        if (!g_respec_off.load(std::memory_order_relaxed)) respec_altar_impl(r);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        respec_fault("the Flame Altar's reskill check hook", GetExceptionCode());
+    }
+}
+// respec/client.HeaderCountRet: eax the count the respec tree's item row shows, rbx G38UiPlayData. Display only: a fault
+// leaves only the row to the game.
+void hk_respec_row(KilnRegisters& r) {
+    if (g_respec_row_off.load(std::memory_order_relaxed) || g_respec_off.load(std::memory_order_relaxed)) return;
+    __try {
+        const uint32_t item = rd<uint32_t>(reinterpret_cast<const void*>(r.rbx), static_cast<size_t>(g_respec.ui_item));
+        const uint32_t game = static_cast<uint32_t>(r.rax), counted = respec_check(kRespecRow, item, game, 0);
+        if (counted != game) r.rax = counted;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        if (!g_respec_row_off.exchange(true))
+            LOGE("respec: the respec tree's item row hook faulted (0x%08lx): the row keeps the game's count; the unlearn and "
+                 "reskill checks and the payment still count linked sources", GetExceptionCode());
+    }
+}
+
+// The client's snapshot (a Kiln client, any thread).
+KilnResult KILN_CALL t_set_respec_stock(uint32_t on, const KilnStationStack* rows, uint32_t count) {
+    if (on > 1 || (on && (count > KILN_STATIONS_MAX_RESPEC_STOCK || (count && !rows)))) return KILN_ERR_INVALID_ARGUMENT;
+    for (uint32_t i = 0; on && i < count; ++i)
+        if (!rows[i].item) return KILN_ERR_INVALID_ARGUMENT;
+    bool was = false;
+    size_t kept = 0;
+    {
+        std::lock_guard lock(g_respec_snap_mu);
+        was = g_respec_on.load(std::memory_order_relaxed);
+        g_respec_have.clear();
+        if (on)
+            for (uint32_t i = 0; i < count; ++i) g_respec_have[rows[i].item] = rows[i].count;
+        kept = g_respec_have.size();
+        g_respec_on.store(on != 0, std::memory_order_release);
+    }
+    if (on != static_cast<uint32_t>(was)) {
+        for (auto& last : g_respec_last) last.store(0, std::memory_order_relaxed);
+        if (const uint32_t n = g_log_respec_snap.take())
+            LOGI(on ? "respec: the server counts the respec item from linked sources: %u item row(s)%s"
+                    : "respec: respec snapshot cleared: the game's own respec counts again%s",
+                 static_cast<unsigned>(kept), n > 1 ? " (more held back)" : "");
+    }
+    return KILN_OK;
+}
+
 KilnResult KILN_CALL t_add_source(KilnOwner owner, const KilnCraftSourceRequest* r, uint64_t* out) {
     if (!out) return KILN_ERR_INVALID_ARGUMENT;
     *out = 0;
@@ -4557,7 +4801,8 @@ KilnResult KILN_CALL t_add_source(KilnOwner owner, const KilnCraftSourceRequest*
     // Since 0.2.0-dev.31.12 (GitHub #147): flags, read only when the request's size covers them.
     const bool has_flags = r->size >= sizeof *r;
     const uint32_t flags = has_flags ? r->flags : 0u;
-    constexpr uint32_t kKnownFlags = uint32_t{KILN_CRAFT_SOURCE_LOCKS} | uint32_t{KILN_CRAFT_SOURCE_FILLS} | uint32_t{KILN_CRAFT_SOURCE_BUILDING};  // 31.12
+    constexpr uint32_t kKnownFlags = uint32_t{KILN_CRAFT_SOURCE_LOCKS} | uint32_t{KILN_CRAFT_SOURCE_FILLS} | uint32_t{KILN_CRAFT_SOURCE_BUILDING} |
+                                     uint32_t{KILN_CRAFT_SOURCE_RESPEC};  // 31.12; RESPEC since 31.18 (GitHub #150)
     if ((flags & ~kKnownFlags) || (has_flags && r->reserved)) return KILN_ERR_INVALID_ARGUMENT;
     if (KilnResult g = read_gate(); g != KILN_OK) return g;
     if (!G.registered_ok || g_off.load()) return KILN_ERR_UNAVAILABLE;
@@ -4586,13 +4831,26 @@ void KILN_CALL t_cancel_sources(KilnOwner owner) {
 
 KilnResult KILN_CALL t_source_stock(KilnEntity player, uint32_t flags, KilnStationStack* out, uint32_t capacity, uint32_t* out_count) {
     constexpr uint32_t kPurpose = uint32_t{KILN_CRAFT_SOURCE_STOCK_LOCKS} | uint32_t{KILN_CRAFT_SOURCE_STOCK_FILLS} |
-                                  uint32_t{KILN_CRAFT_SOURCE_STOCK_BUILDING};
+                                  uint32_t{KILN_CRAFT_SOURCE_STOCK_BUILDING} | uint32_t{KILN_CRAFT_SOURCE_STOCK_RESPEC};
     if (!out_count || (capacity && !out) || !player || player > kMaxPlayerEntity ||
         (flags & ~(static_cast<uint32_t>(KILN_CRAFT_SOURCE_STOCK_ALL) | kPurpose)) ||
         __builtin_popcount(flags & kPurpose) > 1) return KILN_ERR_INVALID_ARGUMENT;
     *out_count = 0;
     if (KilnResult g = read_gate(); g != KILN_OK) return g;
     if (!G.registered_ok || g_off.load()) return KILN_ERR_UNAVAILABLE;
+    if (flags & KILN_CRAFT_SOURCE_STOCK_RESPEC) {  // GitHub #150: the respec item's row from the respec links alone
+        if (!g_respec_feat) return KILN_ERR_UNAVAILABLE;
+        void* const bases = singleton("PlayerBasesSystemServer");
+        if (!bases) return KILN_ERR_UNAVAILABLE;
+        // without the Magic chests of the player's base: the payment counts them with the bag, before any link
+        uint32_t held = 0;
+        for (const KilnStationStack& row : link_rows(bases, player, craft_sources_copy(player), &CraftSource::respec, player_base_chests(player)))
+            if (row.item == g_respec.item) held = row.count;
+        *out_count = 1;
+        if (capacity < 1) return KILN_ERR_BUFFER_TOO_SMALL;
+        out[0] = {g_respec.item, held};
+        return KILN_OK;
+    }
     if (flags & (KILN_CRAFT_SOURCE_STOCK_FILLS | KILN_CRAFT_SOURCE_STOCK_BUILDING)) {  // GitHub #132: one purpose's links alone
         void* const bases = singleton("PlayerBasesSystemServer");
         if (!bases) return KILN_ERR_UNAVAILABLE;
@@ -5207,6 +5465,7 @@ const KilnStationsApi kTable = {
     &t_set_lock_stock, &t_lock_asks,
     &t_set_build_stock,  // GitHub #132 (0.2.0-dev.31.12), after #147's members
     &t_fill_flags,       // GitHub #132 (0.2.0-dev.31.16)
+    &t_set_respec_stock, // GitHub #150 (0.2.0-dev.31.18)
 };
 
 bool sym(const char* name, uintptr_t* out) {
@@ -5413,6 +5672,127 @@ bool lock_row_install() {
     return true;
 }
 
+// ---- GitHub #150: the respec symbols, their code check and the client hooks on demand ----
+// stations_resolve: crafting.respec_sources. The payer's payment call must call rules/InventoryPay (the hook that carries
+// the payment) and the client's count returns must follow calls to stations/client.UiAvailableCount; the respec tree's
+// item row is display only (g_respec_row_feat), never part of the feature.
+void respec_resolve() {
+    g_respec_row_feat = false;
+    if (!feat("crafting.respec_sources")) return;
+    RespecSites s;
+    int64_t item = 0;
+    bool ok = cst("respec/item", &item) && item > 0 && item <= 0xffffffffll && sym("respec/Payer", &s.payer) &&
+              sym("respec/RespecPaid", &s.paid) && sym("rules/InventoryPay", &s.pay_fn) && call_matches(s.paid, s.pay_fn) &&
+              s.paid > s.payer && s.paid - s.payer < 0x21a;
+    if (ok && g_api->side() == KILN_SIDE_CLIENT) {
+        ok = sym("respec/client.NodeCountRet", &s.node_ret) && sym("respec/client.AltarCountRet", &s.altar_ret) &&
+             sym("stations/client.UiAvailableCount", &s.avail_fn) && cst("respec/client.ui.item", &s.ui_item) &&
+             cst("respec/client.ui.cost", &s.ui_cost) && s.ui_item > 0 && s.ui_cost == s.ui_item + 4 &&
+             call_matches(s.node_ret, s.avail_fn) && call_matches(s.altar_ret, s.avail_fn);
+        g_respec_row_feat = ok && sym("respec/client.HeaderCountRet", &s.header_ret) && call_matches(s.header_ret, s.avail_fn);
+        if (ok && !g_respec_row_feat)
+            LOGW("respec: the respec tree's item row keeps the game's count: respec/client.HeaderCountRet did not resolve on this build "
+                 "(the unlearn and reskill checks and the payment still count linked sources)");
+    }
+    s.item = static_cast<uint32_t>(item);
+    g_respec_feat = ok;
+    if (ok) {
+        g_respec = s;
+        return;
+    }
+    g_respec = {};
+    LOGW("respec: the skill respec from linked sources is unavailable: a symbol of crafting.respec_sources did not check out");
+    lower("crafting.respec_sources", KILN_CAP_REASON_SYMBOL_MISSING,
+          "respec/Payer, respec/RespecPaid (a call to rules/InventoryPay), respec/item (and on a client the unlearn and reskill "
+          "checks' UiAvailableCount returns) did not check out on this build");
+}
+
+// Foreign code on what the respec path relies on: the payer's entry (its cost test and stock mode) and its payment call
+// (on a server), the client checks' count calls. Named in kiln.log; the feature then stands down.
+bool respec_code_ok(bool client_sites, bool server_sites, LockCodeRefusal* why) {
+    struct Dep { uintptr_t at; size_t size; const char* name; bool want; };
+    for (const Dep& d : {Dep{g_respec.payer, 0x3b, "the respec payer's entry", server_sites},
+                         Dep{g_respec.paid ? g_respec.paid - 0x4a : 0, 0x4a + 0x18, "the respec payer's payment call", server_sites},
+                         Dep{g_respec.node_ret ? g_respec.node_ret - 0x39 : 0, 0x39 + 0x14, "the skill tree's unlearn check count", client_sites},
+                         Dep{g_respec.altar_ret ? g_respec.altar_ret - 0x3c : 0, 0x3c + 0xf, "the Flame Altar's reskill check count", client_sites}}) {
+        if (d.want && !lock_dep_ok(d.at, d.size, d.name, why)) return false;
+    }
+    return true;
+}
+void respec_stand_down(const char* what, const LockCodeRefusal& why) {
+    PreviewCodeRefusal p{why.name, why.at, why.size, why.state, why.rc};
+    char note[512]{};
+    preview_code_note(p, note, sizeof note);
+    LOGW("respec: %s stands down%s (the game's own respec counts and payment are used)", what, note);
+    lower("crafting.respec_sources", KILN_CAP_REASON_FAULTED, "another module patched the code the respec path reads (see kiln.log)");
+}
+
+// The server world's Pre (tick thread): the payment may use links once a link with Respec exists and the code checked out.
+// Nothing is hooked here: the payment is kiln.rules' InventoryPay hook (craft_pay_impl's respec branch).
+void respec_server_pre() {
+    respec_fault_lower();
+    if (!g_respec_feat || !G.registered_ok || g_respec_off.load() || g_respec_ready.load()) return;
+    if (!g_registered.any_respec() && !(respec_lab_on() && respec_lab_any())) return;
+    LockCodeRefusal why;
+    if (!respec_code_ok(false, true, &why)) {
+        g_respec_off.store(true);
+        respec_stand_down("the skill respec payment from linked sources", why);
+        return;
+    }
+    g_respec_ready.store(true, std::memory_order_release);
+    LOGI("respec: a link opted in with Respec: the skill tree's paid reset and unlearn pay the respec item 0x%08x from linked "
+         "sources after the bag and the Magic chests (the join check's reset stays free)", g_respec.item);
+}
+
+// The client world's Pre (a client process): the unlearn and reskill checks' hooks once a Kiln server's respec snapshot is
+// on; the item row's hook on its own (display only).
+void respec_client_pre() {
+    respec_fault_lower();
+    if (!g_respec_feat || g_respec_off.load() || !g_respec_on.load(std::memory_order_acquire)) return;
+    if (g_respec_node_on.load() && g_respec_altar_on.load() &&
+        (g_respec_row_on.load() || !g_respec_row_feat || g_respec_row_off.load())) return;
+    static bool failed = false;
+    if (failed) return;
+    LockCodeRefusal why;
+    if (!respec_code_ok(true, false, &why)) {
+        failed = true;
+        g_respec_off.store(true);
+        respec_stand_down("the client's respec checks from linked sources", why);
+        return;
+    }
+    auto install = [&](kiln::MidHook2& hook, std::atomic<bool>& on, uintptr_t at, void (*fn)(KilnRegisters&), const char* label) {
+        if (on.load()) return true;
+        if (!hook.install(g_api, g_owner, at, fn, label)) {
+            if (!g_respec_off.exchange(true))
+                LOGW("respec: %s could not be hooked (%s): the skill respec from linked sources stands down", label,
+                     hook.error() ? hook.error() : "refused");
+            lower("crafting.respec_sources", KILN_CAP_REASON_FAULTED, "a respec hook could not be installed (see kiln.log)");
+            return false;
+        }
+        on.store(true);
+        return true;
+    };
+    if (!install(h_respec_node, g_respec_node_on, g_respec.node_ret, &hk_respec_node, "respec/client.NodeCountRet") ||
+        !install(h_respec_altar, g_respec_altar_on, g_respec.altar_ret, &hk_respec_altar, "respec/client.AltarCountRet")) {
+        failed = true;
+        return;
+    }
+    bool row = false;
+    if (g_respec_row_feat && !g_respec_row_off.load()) {
+        if (!lock_dep_ok(g_respec.header_ret - 0x3d, 0x3d + 7, "the respec tree's item row count", &why) ||
+            !h_respec_row.install(g_api, g_owner, g_respec.header_ret, &hk_respec_row, "respec/client.HeaderCountRet")) {
+            g_respec_row_off.store(true);
+            LOGW("respec: the respec tree's item row keeps the game's count (its code or hook did not check out); the unlearn and "
+                 "reskill checks still count linked sources");
+        } else {
+            g_respec_row_on.store(true);
+            row = true;
+        }
+    }
+    LOGI("respec: the server's respec snapshot is on: this client's unlearn and reskill checks count the game's count plus linked "
+         "sources%s", row ? " (and the respec tree's item row)" : "");
+}
+
 // The server world's Pre (tick thread): the cache, and the server's hooks once a link with Locks exists.
 void lock_server_pre(uint64_t step) {
     lock_fault_lower();
@@ -5476,6 +5856,7 @@ void craft_pre(uint64_t step) {
     g_srv_recipes.store(recipes_registry(), std::memory_order_release);
     lock_server_pre(step);
     build_server_pre(step);  // GitHub #132
+    respec_server_pre();     // GitHub #150
     static bool checked = false;
     if (!checked) {
         checked = true;
@@ -5489,6 +5870,10 @@ void craft_pre(uint64_t step) {
             if (g_build_feat) {  // GitHub #132: a placement pays through the same hook; the cursor must not count links then
                 g_build_off.store(true);
                 lower("crafting.build_sources", reason, why.c_str());
+            }
+            if (g_respec_feat) {  // GitHub #150: the respec payer's payment goes through the same hook
+                g_respec_off.store(true);
+                lower("crafting.respec_sources", reason, why.c_str());
             }
             G.craft_ok = G.registered_ok = false;
             return;
@@ -5537,6 +5922,7 @@ void KILN_CALL client_pre(const KilnTickInfo*, void*) {
     avail_hook_on_demand();
     lock_client_pre();
     build_client_pre();  // GitHub #132
+    respec_client_pre();  // GitHub #150
     static bool checked = false;
     if (!checked && w && feat("stations.craft_ui")) {
         checked = true;
@@ -5561,6 +5947,7 @@ void KILN_CALL client_world(const KilnWorldEvent* ev, void*) {
     t_set_lock_stock(0, nullptr, 0);  // the lock snapshot named this session's lock items
     g_lock_prompt_last.store(0, std::memory_order_relaxed);  // the next world's requirement line logs its state again
     t_set_build_stock(0, nullptr, 0);  // and the building snapshot this session's materials (GitHub #132)
+    t_set_respec_stock(0, nullptr, 0);  // and the respec snapshot (GitHub #150)
     g_client_recipes.store(nullptr, std::memory_order_release);
     // A stand-down is checked again in the next world (GitHub #132: it was decided once per session); hooks already in stay.
     if (!g_preview_hooked.load()) g_preview_failed.store(false);
@@ -5682,6 +6069,7 @@ void stations_resolve() {
     if (g_api->side() == KILN_SIDE_CLIENT && feat("stations.stock_ui")) avail_resolve();
     lock_resolve();  // GitHub #147, after G.pay may have resolved
     build_resolve();  // GitHub #132
+    respec_resolve();  // GitHub #150
     G.fill_ok = G.read && feat("stations.fill") && E.tx_ok && sym("stations/AutoTransferRecipe", &G.fill) &&
                 sym("stations/FactoryInfoInvalidate", &G.invalidate) && E.setup_operator > 0 &&
                 E.setup_operator + 4 <= static_cast<int64_t>(kSetupBlock);
@@ -5712,6 +6100,8 @@ void stations_resolve() {
         lower("crafting.sources",KILN_CAP_REASON_SYMBOL_MISSING,"the server recipe payment, inventory access or player permission layout is unavailable");
     if (!G.registered_ok && g_lock_feat && g_api->side() == KILN_SIDE_SERVER)
         lower("items.lock_sources",KILN_CAP_REASON_SYMBOL_MISSING,"crafting.sources (the links a lock uses) is unavailable on this build");
+    if (!G.registered_ok && g_respec_feat && g_api->side() == KILN_SIDE_SERVER)  // GitHub #150: the same links pay a respec
+        lower("crafting.respec_sources",KILN_CAP_REASON_SYMBOL_MISSING,"crafting.sources (the links a respec uses) is unavailable on this build");
     // the recipe map, for the items a Kiln client is sent (craft_items); absolute offsets in the RecipeRegistry
     if (!(cst("content/recipes.cap", &g_rmap_cap) && cst("content/recipes.bits", &g_rmap_bits) &&
           cst("content/recipes.values", &g_rmap_values) && cst("content/recipes.count", &g_rmap_count)))
@@ -5721,7 +6111,8 @@ void stations_resolve() {
         g_craft_lab = GetEnvironmentVariableA("KILN_STATIONS_CRAFT_LAB", lab, sizeof lab) > 0 && lab[0] == '1';
         if (g_craft_lab)
             LOGW("stations: KILN_STATIONS_CRAFT_LAB is set: a spawned player character's craft counts the base's Magic "
-                 "chests without the game's inventory right (labs only). Never set this on a real server");
+                 "chests without the game's inventory right%s (labs only). Never set this on a real server",
+                 g_api->side() == KILN_SIDE_SERVER ? ", and it may have respec links of its own (GitHub #150)" : "");
     }
     G.events = G.read && feat("stations.events");
     if (!G.read) {
@@ -5935,6 +6326,29 @@ KilnResult stations_publish(const KilnApi* api, KilnOwner owner) {
 
 }  // namespace kitems
 
+// Labs only (GitHub #150): a respec link of a spawned player character, as Crafting.AddSource's Respec gives a player.
+// Answers 0 unless this is a dedicated server started with KILN_STATIONS_CRAFT_LAB=1 (never a client's process, so never
+// a hosted world), the character's id is outside the player range and the container is an entity, and while fewer than
+// 16 lab links exist (one already there answers 1 again); container 0 removes the character's lab links. Each new link is
+// a kiln.log warning. Not an ABI (as kiln_stations_craft_stats).
+extern "C" KILN_EXPORT int kiln_stations_lab_respec_link(uint32_t character, uint32_t container) {
+    if (!kitems::respec_lab_on() || character <= kitems::kMaxPlayerEntity || (container && container <= kitems::kMaxPlayerEntity)) return 0;
+    {
+        std::lock_guard lock(kitems::g_respec_lab_mu);
+        auto& v = kitems::g_respec_lab;
+        if (!container) {
+            v.erase(std::remove_if(v.begin(), v.end(), [&](const auto& l) { return l.first == character; }), v.end());
+            return 1;
+        }
+        if (std::find(v.begin(), v.end(), std::make_pair(character, container)) != v.end()) return 1;
+        if (v.size() >= kitems::kMaxRespecLab) return 0;
+        v.emplace_back(character, container);
+    }
+    kitems::items_log(KILN_LOG_WARN, "respec: lab respec link: spawned character %u's skill respec may pay from container %u "
+                      "(KILN_STATIONS_CRAFT_LAB, labs only)", character, container);
+    return 1;
+}
+
 // kiln.rules calls this from its inventory-payment hook. 1: *code is the payment's result. 0: run the game's function.
 extern "C" KILN_EXPORT int kiln_stations_craft_pay(void* tx, void* costs, uint32_t owner, uint32_t multiplier, void* extra,
                                                    uintptr_t ret, uint32_t* code) {
@@ -5970,7 +6384,7 @@ extern "C" KILN_EXPORT int kiln_stations_craft_adjust(uint32_t recipe, uint32_t 
 }
 
 // The craft payment's counters (labs, diagnostics; not an ABI): calls, idle, other_world, mode0, no_access, considered,
-// covered, short, paid, from_outputs, rollback, skipped, lab, in that order. Writes up to n; returns how many there are.
+// covered, short, paid, from_outputs, rollback, skipped, lab, respec (GitHub #150), in that order. Writes up to n; returns how many there are.
 extern "C" KILN_EXPORT uint32_t kiln_stations_craft_stats(uint32_t* out, uint32_t n) {
     return kitems::craft_stats(out, n);
 }

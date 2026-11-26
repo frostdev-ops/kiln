@@ -230,6 +230,8 @@ internal static unsafe class StationsNative
         public delegate* unmanaged[Cdecl]<uint, Stack*, uint, int> SetBuildStock;
         // ---- the FILL flags this kiln.stations takes (GitHub #132, 0.2.0-dev.31.16). Header.Size tells whether it is here. ----
         public delegate* unmanaged[Cdecl]<uint> FillFlags;
+        // ---- the skill tree's respec from linked sources (GitHub #150, 0.2.0-dev.31.18). Header.Size tells whether it is here. ----
+        public delegate* unmanaged[Cdecl]<uint, Stack*, uint, int> SetRespecStock;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -241,10 +243,14 @@ internal static unsafe class StationsNative
         public uint Flags, Reserved;
     }
 
-    /// <summary>KilnCraftSourceRequest.flags: KILN_CRAFT_SOURCE_LOCKS (GitHub #147), _FILLS and _BUILDING (GitHub #132).</summary>
-    public const uint SourceLocks = 1, SourceFills = 2, SourceBuilding = 4;
-    /// <summary>source_stock's flags: KILN_CRAFT_SOURCE_STOCK_ALL, _LOCKS (GitHub #147), _FILLS and _BUILDING (GitHub #132).</summary>
-    public const uint StockAll = 1, StockLocks = 2, StockFills = 4, StockBuilding = 8;
+    /// <summary>KilnCraftSourceRequest.flags: KILN_CRAFT_SOURCE_LOCKS (GitHub #147), _FILLS and _BUILDING (GitHub #132),
+    /// _RESPEC (GitHub #150).</summary>
+    public const uint SourceLocks = 1, SourceFills = 2, SourceBuilding = 4, SourceRespec = 8;
+    /// <summary>source_stock's flags: KILN_CRAFT_SOURCE_STOCK_ALL, _LOCKS (GitHub #147), _FILLS and _BUILDING (GitHub #132),
+    /// _RESPEC (GitHub #150: one row, the respec item).</summary>
+    public const uint StockAll = 1, StockLocks = 2, StockFills = 4, StockBuilding = 8, StockRespec = 16;
+    /// <summary>KILN_STATIONS_MAX_RESPEC_STOCK (GitHub #150).</summary>
+    public const int MaxRespecStock = 16;
     /// <summary>KILN_STATIONS_MAX_LOCK_STOCK / KILN_STATIONS_MAX_LOCK_ASKS.</summary>
     public const int MaxLockStock = 256, MaxLockAsks = 16;
 
@@ -298,6 +304,8 @@ internal static unsafe class StationsNative
     public static readonly int TableBuild = TableLocks + sizeof(nint);
     /// <summary>The table size through <see cref="Table.FillFlags"/>: item fills (the per-ingredient transfer, 0.2.0-dev.31.16).</summary>
     public static readonly int TableItemFills = TableBuild + sizeof(nint);
+    /// <summary>The table size through <see cref="Table.SetRespecStock"/>: the skill respec from linked sources (GitHub #150).</summary>
+    public static readonly int TableRespec = TableItemFills + sizeof(nint);
     /// <summary>The plan's size before 0.2.0-dev.29.17 (no <see cref="Plan.Outputs"/>).</summary>
     public static readonly int PlanV1 = sizeof(Plan) - 3 * MaxInputs * sizeof(uint);
     /// <summary>The plan's size with outputs and without <see cref="Plan.Chests"/>.</summary>

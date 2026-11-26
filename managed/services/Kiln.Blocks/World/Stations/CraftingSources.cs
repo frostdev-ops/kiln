@@ -56,6 +56,15 @@ public sealed class CraftSourceOptions
     /// client for the player's own cursor and build menu counts (a vanilla client shows the placement as missing materials
     /// and does not send it). Since 0.2.0-dev.31.12.</summary>
     public bool Building { get; init; }
+    /// <summary>The skill respec too (default false): a skill node's unlearn and the Flame Altar's skill reset pay their
+    /// respec item (the game's Runes) from this container, through <see cref="Filter"/> and <see cref="Items"/>: after the
+    /// player's bag and the Magic chests of the base the player stands in (the game's own order), only what they cannot
+    /// cover, in the respec's one all-or-nothing payment, in any base. The reset the game makes for free (a character whose
+    /// skill tree no longer checks out at join) stays free. Needs capability <see cref="Crafting.RespecSourcesCapability"/>
+    /// on the server or host: the server pays, so it works for every player, but only a Kiln client's skill tree and Flame
+    /// Altar offer the unlearn and the reset when the bag and the Magic chests alone are short (a vanilla client greys
+    /// them out and sends nothing). Without the capability the link still serves crafting. Since 0.2.0-dev.31.18.</summary>
+    public bool Respec { get; init; }
 }
 
 /// <summary>A session-only player crafting source. Dispose or unload its registering mod to remove it. In-flight
@@ -68,8 +77,9 @@ public sealed class CraftSourceHandle : IDisposable
     private readonly bool _locks;
     private readonly object? _lockSession;  // the lock session this handle counts in (GitHub #147)
     private readonly object? _fillSession, _buildSession;  // GitHub #132
+    private readonly object? _respecSession;               // GitHub #150
     internal CraftSourceHandle(ulong owner, ulong handle, EntityId player, EntityId container, ModContext? mod, bool locks = false,
-        bool fills = false, bool building = false)
+        bool fills = false, bool building = false, bool respec = false)
     {
         _owner = owner; _handle = unchecked((long)handle); Player = player; Container = container; _mod = mod; _locks = locks;
         if (mod is not null) mod.Retiring += Dispose;
@@ -80,6 +90,7 @@ public sealed class CraftSourceHandle : IDisposable
             StationsCore.StartPump();  // the station screen's fill button is followed from the stations pump
         }
         if (building) _buildSession = BuildStock.Track(player);
+        if (respec) _respecSession = RespecStock.Track(player);
     }
     /// <summary>The only player this registration can supply.</summary>
     public EntityId Player { get; }
@@ -100,6 +111,7 @@ public sealed class CraftSourceHandle : IDisposable
             if (_locks) LockStock.Untrack(Player, _lockSession);
             if (_fillSession is not null) LinkPurposes.Fills.Untrack(Player, _fillSession);
             if (_buildSession is not null) BuildStock.Untrack(Player, _buildSession);
+            if (_respecSession is not null) RespecStock.Untrack(Player, _respecSession);
         }
     }
 }
@@ -121,6 +133,12 @@ public static class Crafting
     /// build cursor (from the server's snapshot). Off, or faulted, when a symbol, a hook or the game's code it relies on is
     /// missing or patched by another module (kiln.log names it). Since 0.2.0-dev.31.12.</summary>
     public const string BuildSourcesCapability = "crafting.build_sources";
+    /// <summary>The skill respec (a node's unlearn, the Flame Altar's reset) counts and pays its respec item from links
+    /// registered with <see cref="CraftSourceOptions.Respec"/>: on a server or host the respec payment (the bag and the Magic
+    /// chests first), on a Kiln client the skill tree's unlearn check and the Flame Altar's reset check (from the server's
+    /// snapshot). Off, or faulted, when a symbol, a hook or the game's code it relies on is missing or patched by another
+    /// module (kiln.log names it). Since 0.2.0-dev.31.18.</summary>
+    public const string RespecSourcesCapability = "crafting.respec_sources";
 
     /// <summary>Registers a container for this player, in any base or none. The mod decides which containers the player
     /// may use; the server rechecks the player's own global CanAccessInventories permission and a readable initialized
@@ -155,8 +173,9 @@ public static class Crafting
         var fills = o.Fills && purposes;
         var building = o.Building && purposes;
         if (building) CraftingCore.NoteBuilding();
-        var handle = CraftingCore.Add(owner, player, container, o.Order, o.Filter, items, o.Locks, fills, building);
-        return new CraftSourceHandle(owner, handle, player, container, mod, o.Locks, fills, building);
+        var respec = o.Respec && CraftingCore.NoteRespec();
+        var handle = CraftingCore.Add(owner, player, container, o.Order, o.Filter, items, o.Locks, fills, building, respec);
+        return new CraftSourceHandle(owner, handle, player, container, mod, o.Locks, fills, building, respec);
     }
 }
 
@@ -221,8 +240,30 @@ internal static unsafe class CraftingCore
         ModLog.Warn("crafting: a source asked for Building, but block placements do not use linked sources here (the link still " +
                     "serves crafting): " + Capabilities.Why(Crafting.BuildSourcesCapability));
     }
+    // GitHub #150: kiln.stations' respec flag and set_respec_stock came in one release (after fill_flags).
+    internal static bool HasRespecMembers(uint size) => size >= (uint)StationsNative.TableRespec;
+    internal static bool HasRespec => Table is var t && t != null && HasRespecMembers(t->Header.Size) && t->SetRespecStock != null;
+    private static int _respecNoted;
+    /// <summary>A link asked for Respec: false (the link serves crafting only) when this kiln-items.dll has no respec
+    /// members; says once why the respec will not use it when the capability is off.</summary>
+    internal static bool NoteRespec()
+    {
+        if (!HasRespec)
+        {
+            ServiceCaps.Static(Crafting.RespecSourcesCapability, false, CapabilityReason.ServiceOlder,
+                "kiln.stations has no respec-source members (older kiln-items.dll)", StationsNative.Name);
+            if (Interlocked.Exchange(ref _respecNoted, 1) == 0)
+                ModLog.Warn("crafting: a source asked for Respec, but kiln.stations has no such member (older kiln-items.dll): " +
+                            "the link serves crafting only");
+            return false;
+        }
+        if (!Capabilities.Is(Crafting.RespecSourcesCapability) && Interlocked.Exchange(ref _respecNoted, 1) == 0)
+            ModLog.Warn("crafting: a source asked for Respec, but the skill respec does not use linked sources here (the link still " +
+                        "serves crafting): " + Capabilities.Why(Crafting.RespecSourcesCapability));
+        return true;
+    }
     internal static ulong Add(ulong owner, EntityId player, EntityId container, CraftSourceOrder order, CraftSourceFilter filter, uint[] items,
-        bool locks = false, bool fills = false, bool building = false)
+        bool locks = false, bool fills = false, bool building = false, bool respec = false)
     {
         var t = Need(); ulong id = 0; int rc;
         fixed (uint* p = items)
@@ -237,7 +278,8 @@ internal static unsafe class CraftingCore
                 ItemCount = (uint)items.Length,
                 Items = p,
                 Flags = (locks && HasLocks ? StationsNative.SourceLocks : 0u) |
-                        (fills && HasPurposes ? StationsNative.SourceFills : 0u) | (building && HasPurposes ? StationsNative.SourceBuilding : 0u),
+                        (fills && HasPurposes ? StationsNative.SourceFills : 0u) | (building && HasPurposes ? StationsNative.SourceBuilding : 0u) |
+                        (respec && HasRespec ? StationsNative.SourceRespec : 0u),
             };
             rc = t->AddSource(owner, &r, &id);
         }
@@ -269,6 +311,14 @@ internal static unsafe class CraftingCore
     {
         if (!HasPurposes) return StationsNative.Unavailable;
         fixed (StationsNative.Stack* p = rows) return Table->SetBuildStock(on ? 1u : 0u, p, (uint)rows.Length);
+    }
+    /// <summary>GitHub #150: the respec links' row of the respec item (no bag, no Magic chests of the player's base).</summary>
+    internal static (int Rc, StationsNative.Stack[] Rows) RespecStockRows(EntityId player) =>
+        HasRespec ? Stock(player, StationsNative.StockRespec) : (StationsNative.Unavailable, []);
+    internal static int SetRespecStock(bool on, StationsNative.Stack[] rows)
+    {
+        if (!HasRespec) return StationsNative.Unavailable;
+        fixed (StationsNative.Stack* p = rows) return Table->SetRespecStock(on ? 1u : 0u, p, (uint)rows.Length);
     }
     internal static (int Rc, uint[] Items) LockAsks()
     {

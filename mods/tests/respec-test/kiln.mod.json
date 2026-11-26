@@ -1,0 +1,9 @@
+{
+  "id": "respec-test",
+  "name": "skill respec from linked sources lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "RespecTest.dll",
+  "side": "server",
+  "description": "PASS/FAIL lines: the skill respec (a node's unlearn, the paid reset) paying its Runes from linked sources (GitHub #150) on a dedicated server started with KILN_STATIONS_CRAFT_LAB=1. A spawned player character with a vanilla node unlearns and resets through the game's own input handler: no Runes anywhere, Runes only in a linked chest, bag first, the bag alone, short, the Magic chest before the link, the paid reset and a reset with nothing spent, each against Kiln's own payment counters."
+}

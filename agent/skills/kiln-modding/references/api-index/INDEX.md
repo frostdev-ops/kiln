@@ -1,4 +1,4 @@
-# Kiln mod API index (mod API 0.2.24)
+# Kiln mod API index (mod API 0.2.25)
 
 Every public type and member of the mod API, one line each, to grep: a name (`BlockAt`), a word of what it does (`refusal`), a mod API (`0.2.15` finds what that release added). Then open that assembly's file: its name is the `KilnServices` entry (`Items.md` needs `<KilnServices>Items</KilnServices>`; `Api.md` needs none). A file that was too large is a map (`Blocks.md`) of its parts (`Blocks-items.md`).
 
@@ -13,7 +13,7 @@ Every public type and member of the mod API, one line each, to grep: a name (`Bl
 | Kiln.Api | (always) | The mod base class and context, events, config, mods, capabilities, ids and refs, tasks. Always referenced | [api-contract.md](../api-contract.md), [api-events.md](../api-events.md) | `modding/contract.md`, `modding/lifecycle.md`, `modding/tasks.md` | 174 | 1039 | [Api.md](Api.md) (95 KB) |
 | Kiln.Assets | `Assets` | Mod resources, overrides, icons and retextures | [api-content.md](../api-content.md) | `services/assets.md` | 16 | 98 | [Assets.md](Assets.md) (10 KB) |
 | Kiln.Audio | `Audio` | Sounds, music, voice-over and narration | [quests-talents-sounds.md](../quests-talents-sounds.md) | `services/audio.md`, `modding/sounds.md` | 13 | 135 | [Audio.md](Audio.md) (15 KB) |
-| Kiln.Blocks | `Blocks` | Data blocks (items, recipes, props, NPCs, spells, gear rules), stations, bases, crafting, affixes, AI rule helpers | [blocks.md](../blocks.md), [api-gear.md](../api-gear.md), [gameplay.md](../gameplay.md) | `modding/blocks.md`, `modding/item-blocks.md`, `modding/world-blocks.md`, `services/stations.md` | 492 | 3082 | [Blocks.md](Blocks.md) (map of 12 parts) |
+| Kiln.Blocks | `Blocks` | Data blocks (items, recipes, props, NPCs, spells, gear rules), stations, bases, crafting, affixes, AI rule helpers | [blocks.md](../blocks.md), [api-gear.md](../api-gear.md), [gameplay.md](../gameplay.md) | `modding/blocks.md`, `modding/item-blocks.md`, `modding/world-blocks.md`, `services/stations.md` | 492 | 3084 | [Blocks.md](Blocks.md) (map of 12 parts) |
 | Kiln.Build | `Build` | World edits the game saves and replicates: cells, shapes, schematics, block queries and breaking | [api-world.md](../api-world.md) | `services/build.md`, `services/build-blocks.md` | 45 | 406 | [Build.md](Build.md) (40 KB) |
 | Kiln.Camera | `Camera` | Camera overrides as leases: stock camera modes the server holds, visual cameras on Kiln clients, projection | - | `services/camera.md` | 28 | 216 | [Camera.md](Camera.md) (15 KB) |
 | Kiln.Chat | `Chat` | Chat lines, commands and selectors | [api-events.md](../api-events.md) | `services/chat.md` | 38 | 247 | [Chat.md](Chat.md) (27 KB) |
@@ -47,13 +47,13 @@ Every public type and member of the mod API, one line each, to grep: a name (`Bl
 | Kiln.Spawn | `Spawn` | Create and destroy entities from templates: creatures, item drops, props | [api-world.md](../api-world.md) | `services/spawn.md` | 14 | 104 | [Spawn.md](Spawn.md) (13 KB) |
 | Kiln.Systems | `Systems` | Wrapping the game's own ECS programs: typed system hooks | [world-programs.md](../world-programs.md), [api-world.md](../api-world.md) | `services/systems.md`, `modding/ecs-programs.md` | 26 | 154 | [Systems.md](Systems.md) (18 KB) |
 | Kiln.Terrain | `Terrain` | Terrain reads and edits | [api-world.md](../api-world.md) | `services/terrain.md` | 18 | 100 | [Terrain.md](Terrain.md) (11 KB) |
-| Kiln.TestKit | (package Kiln.TestKit) | Offline tests under dotnet test: fake server, fake world, fake services | [testing.md](../testing.md) | `modding/unit-tests.md` | 125 | 936 | [TestKit.md](TestKit.md) (map of 3 parts) |
+| Kiln.TestKit | (package Kiln.TestKit) | Offline tests under dotnet test: fake server, fake world, fake services | [testing.md](../testing.md) | `modding/unit-tests.md` | 125 | 938 | [TestKit.md](TestKit.md) (map of 3 parts) |
 | Kiln.Testing | `Testing` | In-server tests: [KilnTest], Assert, [ClientCheck] | [testing.md](../testing.md) | `modding/testing.md` | 16 | 92 | [Testing.md](Testing.md) (10 KB) |
 | Kiln.Time | `Time` | Time of day and weather | [api-world.md](../api-world.md) | `services/time.md` | 13 | 93 | [Time.md](Time.md) (11 KB) |
 | Kiln.Tools | `Tools` | Building tools: terrain tool actions, modes, tool materials | [api-world.md](../api-world.md) | `services/tools.md`, `services/tool-actions.md`, `services/tool-payment.md` | 5 | 20 | [Tools.md](Tools.md) (3 KB) |
 | Kiln.Ui | `Ui` | Menus, screens, HUD, key bindings, themes, item icons, tooltips, values in the game's UI | [api-ui.md](../api-ui.md) | `services/ui.md`, `modding/ui-blocks.md` | 155 | 1252 | [Ui.md](Ui.md) (map of 2 parts) |
 | Kiln.Vfx | `Vfx` | The game's particles, lights and screen effects | [vfx.md](../vfx.md) | `services/vfx.md`, `services/screen.md`, `modding/vfx.md` | 16 | 193 | [Vfx.md](Vfx.md) (15 KB) |
 | Kiln.World | `World` | Typed ECS reads, tracked writes, teleport, nearby queries, concurrent reads | [api-world.md](../api-world.md) | `services/world.md` | 53 | 402 | [World.md](World.md) (41 KB) |
-| Native ABI | C plugins | The function tables of native/core/abi: 90 tables, 1229 rows | - | `services/README.md` | 90 | 1229 | [native.md](native.md) (map of 3 parts) |
+| Native ABI | C plugins | The function tables of native/core/abi: 90 tables, 1230 rows | - | `services/README.md` | 90 | 1230 | [native.md](native.md) (map of 3 parts) |
 
 Left out as experimental: KILNX001 Kiln.Abilities 3; KILNX001 Kiln.Api 3; KILNX001 Kiln.Blocks 5; KILNX001 Kiln.Creatures 1; KILNX001 Kiln.Items 14; KILNX001 Kiln.Markers 5; KILNX001 Kiln.Players 35; KILNX001 Kiln.Quests 12; KILNX001 Kiln.Replication 58; KILNX001 Kiln.Rules 1; KILNX001 Kiln.Saves 2; KILNX001 Kiln.Skills 51; KILNX001 Kiln.Testing 8; KILNX001 Kiln.Vfx 10; KILNX001 Kiln.World 2; KILNX002 Kiln.Client 32; KILNX002 Kiln.Network 8; KILNX031 Kiln.Api 50; KILNX031 Kiln.Registry 429; KILNX031 Kiln.TestKit 4. KILNX001 is lab and test API. KILNX002 (Kiln.Client SteamGuard) is real but unproven: a mod opts in with `NoWarn` for the id, and it may change in any release (docs/kiln/services/steamguard.md).

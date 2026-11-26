@@ -204,7 +204,11 @@ read the same result (`CheckReport`, also sent as the event `kiln://mod-updates`
   what the last check remembered, without asking anybody. Settings, Launcher, **Check for mod updates once a day**
   (`LauncherSettings.modUpdatesDaily`, off by default) adds a background check: the first one 2 to 15 minutes after
   the launcher starts, then about once a day (24 to 25 hours), and only while no task runs and the game is closed.
-  The daily check asks a source at most once a day; a check you start asks again after 30 minutes. GitHub's
+  When the Library changes (a drop, Add mod, an import, an install from the Catalog, a roll back), the notices are
+  worked out again at once from what was remembered, without asking anybody: an update you installed stops being
+  offered, and a notice never names the version you have. The daily check asks a source at most once a day; a check
+  you start asks again after 30 minutes, or at once when another copy of the mod is installed since and the last
+  answer has nothing above it (so the check after an update names the newest version published by then). GitHub's
   anonymous limit is 60 requests an hour for your connection: when it is used up, checks stop until it resets
   ("the provider's request limit is used up for now"), also for a check you start.
 - **A source that changes.** When a new version of a mod names another repository or file than the one it was checked

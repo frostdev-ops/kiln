@@ -217,7 +217,7 @@ Manifests say `"side": "server" | "client" | "both"`.
   tried again in the next.
 - `load`/`reload` (control folder, `Mods.LoadAsync`/`ReloadAsync`) accept `server` mods while hosting; in the menu they
   answer the skip reason. A new version with another `"side"` is refused (`RestartRequired: mod <id>'s new version changes
-  "side" ...`, next release), at a `load`, a `reload` and the next hosted world alike: the registry stage ordered the
+  "side" ...`, 0.2.0-dev.31.18), at a `load`, a `reload` and the next hosted world alike: the registry stage ordered the
   start's `server` mods with their side ([architecture.md](architecture.md#what-reload-id-covers)). `state/mods.json` and `Mods.All` show `skipped` in the menu, `loaded` while hosting.
 - kiln.json `"mods": {"hosted": false}` keeps `server` mods off on a client (`side 'server': not loaded on a client
   (kiln.json mods.hosted is false)`). Both reasons are `HostedReasons` in managed/Kiln.Api/Mods.cs (Kiln.Host writes
