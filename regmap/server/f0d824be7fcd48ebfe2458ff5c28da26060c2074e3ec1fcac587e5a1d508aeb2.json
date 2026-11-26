@@ -5,19 +5,26 @@
   "gameBuild": "1287369",
   "steamBuild": "26430253",
   "verified": true,
-  "proof": "kilnctl regproof (2026-11-26 00:49:49Z): first build (no reflection diff); formulas 10/10; round trip 98/100 fields; ids 0 kept, 24100 added, 0 removed, 0 GUID changes; rows ok 98/100 (2 unproven)",
-  "regmapDigest": "e44bb944f77fe2d4bfe5aea88634664568c9f482eee03c378b21abf7c18ad90d",
+  "proof": "kilnctl regproof (2026-11-26 17:58:58Z): first build (no reflection diff); formulas 10/10; round trip 106/108 fields; ids 0 kept, 26531 added, 0 removed, 0 GUID changes; rows ok 106/108 (2 unproven)",
+  "regmapDigest": "988c08094563b4eaaa2027ff0dd4f943797f30f04a7e9963d3a8df05121c771a",
   "provenBy": "lab",
   "layouts": {
     "keen::BalancingTable": "0xe9f12710",
+    "keen::BuffType": "0x77585fab",
+    "keen::BuffTypeCollectionResource": "0x0d8b0231",
     "keen::ItemInfo": "0x07009d37",
     "keen::LootableItemInfo": "0x9b7a0aec",
     "keen::LootableItemsResource": "0xb06a8c8c",
     "keen::RecipeInfo": "0xdafbedd2",
     "keen::RecipeRegistryResource": "0xff3f624c",
+    "keen::actor::ActorSequenceResource": "0x60aef8b0",
     "keen::ecs::DefaultInventoryResource": "0xb68d740d"
   },
   "rows": {
+    "abilities.timing.buff": "ok",
+    "abilities.timing.cost": "ok",
+    "abilities.timing.hit": "ok",
+    "abilities.timing.release": "ok",
     "balance.altarsPerFlameLevel": "ok",
     "balance.buildzoneSizesPerAltarLevel": "ok",
     "balance.buildzoneSizesPerAltarLevel[].x": "ok",
@@ -58,6 +65,10 @@
     "balance.xpCurve.seed": "ok",
     "balance.xpCurve.start": "ok",
     "balance.xpPerLevel": "ok",
+    "buffs.duration": "ok",
+    "buffs.kind": "ok",
+    "buffs.saved": "ok",
+    "buffs.stacking": "ok",
     "drops.entries": "ok",
     "drops.entries[].chance": "ok",
     "drops.entries[].count.max": "ok",
@@ -120,414 +131,744 @@
     "recipes.unlock": "ok"
   },
   "aliases": {
+    "removals": [],
     "renames": [
       {
-        "registry": "templates",
+        "guid": "082e1682-9af3-4eb0-bfee-2b9424385c18",
+        "id": "game:npc_barber_turn_right_big",
+        "registry": "abilities"
+      },
+      {
+        "guid": "094636dc-63aa-413c-860d-780946025219",
+        "id": "game:enemy_scavenger_deepforest_heavy_attack_03_earthcracker",
+        "registry": "abilities"
+      },
+      {
+        "guid": "0a49e392-04ad-4621-b88f-67973c787538",
+        "id": "game:enemy_fogger_soldier_spawn",
+        "registry": "abilities"
+      },
+      {
+        "guid": "0c5044bb-e968-479e-9958-2e3340154727",
+        "id": "game:enemy_skeleton_elite_melee_turn_right_big",
+        "registry": "abilities"
+      },
+      {
+        "guid": "0d19272d-87fa-42b3-b6aa-121109c1cb08",
+        "id": "game:npc_barber_turn_left_big",
+        "registry": "abilities"
+      },
+      {
+        "guid": "113ec263-45a5-4eaa-80c1-061de36de5b0",
+        "id": "game:animal_babycatdeer_turn_right_big",
+        "registry": "abilities"
+      },
+      {
+        "guid": "137c2b92-e0ec-4cb3-b7ab-9c6a158ab465",
+        "id": "game:lizard_melee_spear_turn_right_big",
+        "registry": "abilities"
+      },
+      {
+        "guid": "1537f4cb-9b02-4b47-a8ce-abecaece0304",
+        "id": "game:enemy_skeleton_elite_melee_turn_left_small",
+        "registry": "abilities"
+      },
+      {
+        "guid": "212298ba-33da-47ad-a8a8-808e784c3442",
+        "id": "game:enemy_fogger_soldier_shout",
+        "registry": "abilities"
+      },
+      {
+        "guid": "24336b6e-75e7-4bf0-b0cb-da43b9cd00a8",
+        "id": "game:lizard_melee_spear_turn_left_small",
+        "registry": "abilities"
+      },
+      {
+        "guid": "24c67c5d-9b66-4f4e-ba8d-e77af7cc521a",
+        "id": "game:enemy_fogger_soldier_hitreaction_stun_long",
+        "registry": "abilities"
+      },
+      {
+        "guid": "289af490-99b7-4fbf-8bea-6ef997dec216",
+        "id": "game:npc_barber_turn_right_small",
+        "registry": "abilities"
+      },
+      {
+        "guid": "3213b386-5f18-45bf-97da-6f30be71a309",
+        "id": "game:animal_babycatdeer_turn_left_small",
+        "registry": "abilities"
+      },
+      {
+        "guid": "3d475525-78c1-4a88-9ea7-f7ce3d2dc214",
+        "id": "game:npc_barber_turn_left_small",
+        "registry": "abilities"
+      },
+      {
+        "guid": "3e384c2c-bd18-45c6-8b4e-b71ddc1190f4",
+        "id": "game:enemy_fogger_soldier_spawn_calcified_short",
+        "registry": "abilities"
+      },
+      {
+        "guid": "3f519412-7a8a-468e-abe4-4082e26f4a38",
+        "id": "game:enemy_fogger_soldier_death",
+        "registry": "abilities"
+      },
+      {
+        "guid": "4224c9e2-5e66-4d00-bb3c-8f4319d5d54c",
+        "id": "game:enemy_scavenger_deepforest_heavy_death",
+        "registry": "abilities"
+      },
+      {
+        "guid": "4e08b762-729f-4a3c-ba26-820a928748bf",
+        "id": "game:animal_baby_catdeer_grazing",
+        "registry": "abilities"
+      },
+      {
+        "guid": "510d73c5-3c34-4d10-9714-0cbdb707ab79",
+        "id": "game:animal_baby_catdeer_sadidle",
+        "registry": "abilities"
+      },
+      {
+        "guid": "51395915-d77d-42f4-aa63-12c5967be9dd",
+        "id": "game:enemy_fogger_soldier_spawn_calcified",
+        "registry": "abilities"
+      },
+      {
+        "guid": "51877c57-c5d8-4ae7-93b2-b8aeabd277ed",
+        "id": "game:animal_baby_catdeer_sleep",
+        "registry": "abilities"
+      },
+      {
+        "guid": "5aa459fb-1a1c-4d4f-8b16-7deec27cf2ac",
+        "id": "game:animal_baby_catdeer_inspect",
+        "registry": "abilities"
+      },
+      {
+        "guid": "5b8268d2-0493-4396-bb07-a61cee96f06f",
+        "id": "game:animal_babycatdeer_turn_left_big",
+        "registry": "abilities"
+      },
+      {
+        "guid": "5c40e36d-0459-44b7-9c33-cae9acc6270a",
+        "id": "game:animal_baby_catdeer_shortrest",
+        "registry": "abilities"
+      },
+      {
+        "guid": "782f9828-27a6-447e-a483-d0567a154506",
+        "id": "game:animal_baby_catdeer_being_petted_01",
+        "registry": "abilities"
+      },
+      {
+        "guid": "7de479ea-366a-453e-b6a0-9a0682c6d6d9",
+        "id": "game:lizard_melee_spear_turn_right_small",
+        "registry": "abilities"
+      },
+      {
+        "guid": "7f2b13e6-8cca-476b-a1de-799857bfe4b9",
+        "id": "game:lizard_melee_spear_turn_left_big",
+        "registry": "abilities"
+      },
+      {
+        "guid": "918b89eb-fd8c-4000-89a7-c709ce280671",
+        "id": "game:enemy_skeleton_elite_melee_turn_left_big",
+        "registry": "abilities"
+      },
+      {
+        "guid": "91ca0015-ca0b-4a87-b464-bc31a6c436b8",
+        "id": "game:enemy_scavenger_deepforest_heavy_block",
+        "registry": "abilities"
+      },
+      {
+        "guid": "a207aa78-07eb-4506-a33c-13f7a309d045",
+        "id": "game:enemy_fogger_soldier_hitreaction_stagger",
+        "registry": "abilities"
+      },
+      {
+        "guid": "b68208bd-62f2-41cd-9864-d32f7d62323e",
+        "id": "game:enemy_scavenger_deepforest_heavy_taunt",
+        "registry": "abilities"
+      },
+      {
+        "guid": "d4e16b24-7023-4fa0-b8dd-e54e40f4e6a2",
+        "id": "game:animal_babycatdeer_turn_right_small",
+        "registry": "abilities"
+      },
+      {
+        "guid": "d5ae0790-ee05-4232-b11e-e86458e957b7",
+        "id": "game:enemy_skeleton_elite_melee_turn_right_small",
+        "registry": "abilities"
+      },
+      {
         "guid": "023b8911-d151-4d56-887b-40c0f09da660",
-        "id": "game:base_enemy_spawner_crittereggcluster"
+        "id": "game:base_enemy_spawner_crittereggcluster",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "02c827a1-ab7a-4248-a240-47474684bf0f",
-        "id": "game:prop_desert_lantern_01_a_wall_range"
+        "id": "game:prop_desert_lantern_01_a_wall_range",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "02f9d48d-a4eb-4838-85a7-c7a56e9fe5e2",
-        "id": "game:prop_wetland_bamboo_cage_02_a"
+        "id": "game:prop_wetland_bamboo_cage_02_a",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "0fd18d3f-a01d-43d3-81f5-886742dbc90c",
-        "id": "game:buildings_set_nation01_shed_4m_fence_07"
+        "id": "game:buildings_set_nation01_shed_4m_fence_07",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "11b6f1aa-dd8c-4854-a7ae-fde0a10fcd42",
-        "id": "game:prop_banner_enemy_camp_wall01a"
+        "id": "game:prop_banner_enemy_camp_wall01a",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "199d72c2-3aac-4d12-9727-1e252db8b446",
-        "id": "game:prop_banner_enemy_camp_wall02b"
+        "id": "game:prop_banner_enemy_camp_wall02b",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "236b0020-36a0-4251-8541-f2e2b387e7de",
-        "id": "game:enemy_weakspots_wildlife_generic_fog_head"
+        "id": "game:enemy_weakspots_wildlife_generic_fog_head",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "252e48b2-3a3b-409c-bf18-0ed65d9fe0f2",
-        "id": "game:prop_flowerpot_01_small_red"
+        "id": "game:prop_flowerpot_01_small_red",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "27ab22dc-8445-40a6-87a0-a9fa0043fd18",
-        "id": "game:base_craftingstation"
+        "id": "game:base_craftingstation",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "2af6b05f-dc45-4082-9e3f-97d59c5c1d47",
-        "id": "game:prop_banner_coat_of_arms_hawk02"
+        "id": "game:prop_banner_coat_of_arms_hawk02",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "2e0c4920-5ce8-4ea3-844f-57cd5b09755a",
-        "id": "game:prop_stairs_large_stone_01_2m_02"
+        "id": "game:prop_stairs_large_stone_01_2m_02",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "2e3a4de2-d1ab-4104-81fc-e0330fc96fb2",
-        "id": "game:prop_banner_coat_of_arms_hawk01"
+        "id": "game:prop_banner_coat_of_arms_hawk01",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "2f8d21f2-282f-4bb6-8b98-19c33e2c1db0",
-        "id": "game:prop_furniture_castle_sideboard_large_broken_01"
+        "id": "game:prop_furniture_castle_sideboard_large_broken_01",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "34bd516d-af2e-4336-9dbf-5a5a28eefed4",
-        "id": "game:nonmodalhint_07_savepoint"
+        "id": "game:nonmodalhint_07_savepoint",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "364bdb31-2c06-4048-83b6-7205bd03263b",
-        "id": "game:lootcontainer_enemy_heavy_key_gold_deprecated"
+        "id": "game:lootcontainer_enemy_heavy_key_gold_deprecated",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "42967409-d707-4c85-814d-fdfe1486256f",
-        "id": "game:prop_desert_lantern_01_a_ground_range"
+        "id": "game:prop_desert_lantern_01_a_ground_range",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "4807ba92-9a8f-44e5-b3d1-69867b6fb1ab",
-        "id": "game:projectile_enemy_scavenger_crossbow_firearrow_encouraged"
+        "id": "game:projectile_enemy_scavenger_crossbow_firearrow_encouraged",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "49ed4f22-dab0-4459-aa79-222e8bb83128",
-        "id": "game:waterdrain_ground_1024_stone_player"
+        "id": "game:waterdrain_ground_1024_stone_player",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "4aed4b00-87ae-4808-af67-1ae059553efc",
-        "id": "game:prop_banner_enemy_camp_ground01a"
+        "id": "game:prop_banner_enemy_camp_ground01a",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "4bc4fcd6-2cc3-45f4-9667-ef16d5af4016",
-        "id": "game:nonmodalhint_14_savepoint"
+        "id": "game:nonmodalhint_14_savepoint",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "4d48e1d9-65b9-4888-9a2b-48de1322a3f8",
-        "id": "game:prop_buildings_lantern_01_a_ceiling_range"
+        "id": "game:prop_buildings_lantern_01_a_ceiling_range",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "53431928-2ca5-483e-b286-837aa68c9217",
-        "id": "game:explosion_enemy_mushroom_sporecloud_big_death"
+        "id": "game:explosion_enemy_mushroom_sporecloud_big_death",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "5f40e80c-32e3-4d16-9d6f-342a6247b6ac",
-        "id": "game:prop_ancients_illumination_03_a_wall_blue_on"
+        "id": "game:prop_ancients_illumination_03_a_wall_blue_on",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "63d68bec-b68f-42b8-9a42-dafb9b560f71",
-        "id": "game:enemy_skeleton_elite_melee01_dungeon_hound"
+        "id": "game:enemy_skeleton_elite_melee01_dungeon_hound",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "6a584da8-084b-446b-b27c-36521adc6ca2",
-        "id": "game:buildings_set_nation01_shed_4m_fence_06"
+        "id": "game:buildings_set_nation01_shed_4m_fence_06",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "6c3f950c-9ba8-45c5-a5fd-eef6677e0251",
-        "id": "game:buildings_set_nation01_shed_4m_fence_05"
+        "id": "game:buildings_set_nation01_shed_4m_fence_05",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "704bbf82-e9e9-4921-af57-3efddd7f30f7",
-        "id": "game:deco_ancientland_small_pomegranate_03_do_not_place"
+        "id": "game:deco_ancientland_small_pomegranate_03_do_not_place",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "7222a275-bd87-4820-8704-6e0e84cc3ff3",
-        "id": "game:base_prop_destructible_ancients"
+        "id": "game:base_prop_destructible_ancients",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "760b378e-a5e2-456e-91a6-cda7e192bfb1",
-        "id": "game:projectile_enemy_scavenger_ranger_grenade_incendiary"
+        "id": "game:projectile_enemy_scavenger_ranger_grenade_incendiary",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "783fc511-0fb1-4662-949e-f8a1d00ce5a6",
-        "id": "game:base_animal_wildlife_flying"
+        "id": "game:base_animal_wildlife_flying",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "7ab831ae-2c10-41ce-83ea-46b03ab17299",
-        "id": "game:projectile_enemy_scavenger_ranger_grenade_incendiary_encouraged"
+        "id": "game:projectile_enemy_scavenger_ranger_grenade_incendiary_encouraged",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "7ed2370c-75d0-4820-a67b-e845d31f5876",
-        "id": "game:prop_furniture_castle_sideboard_large_broken_02"
+        "id": "game:prop_furniture_castle_sideboard_large_broken_02",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "84d6f4af-40dc-4590-b6ad-07deaee960cf",
-        "id": "game:waterdrain_ground_1024_nature_player"
+        "id": "game:waterdrain_ground_1024_nature_player",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "8c42c5cd-57be-4a68-a0fa-e3b175894c8d",
-        "id": "game:base_door_large_interact"
+        "id": "game:base_door_large_interact",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "9a0ade54-4473-4eca-9fd4-e2b01051f2e0",
-        "id": "game:vfx_subentity_projectile_enemy_vorgothorgan_flower_ball_deflected"
+        "id": "game:vfx_subentity_projectile_enemy_vorgothorgan_flower_ball_deflected",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "ad35c7b0-cf2f-4f26-9f40-e6e6b2c8303f",
-        "id": "game:deco_ancientland_small_pomegranate_02_do_not_place"
+        "id": "game:deco_ancientland_small_pomegranate_02_do_not_place",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "b209c9b4-c02c-44d2-b0ab-bf0a3e0d2b43",
-        "id": "game:prop_ancients_cultivation_rack_large_on"
+        "id": "game:prop_ancients_cultivation_rack_large_on",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "c6af6c99-4652-4d35-8d62-77796ffba233",
-        "id": "game:spawnpoint_trigger_wildbeast_cyclops_fog"
+        "id": "game:spawnpoint_trigger_wildbeast_cyclops_fog",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "c7505379-96b6-4594-92a6-7669b51db500",
-        "id": "game:projectile_enemy_scavenger_crossbow_firearrow"
+        "id": "game:projectile_enemy_scavenger_crossbow_firearrow",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "f190be80-4093-4ee1-ab67-70cf37438ad6",
-        "id": "game:buildings_set_nation01_shed_4m_fence_08"
+        "id": "game:buildings_set_nation01_shed_4m_fence_08",
+        "registry": "templates"
       }
     ],
-    "removals": [],
     "suffixes": [
       {
-        "registry": "templates",
+        "guid": "091533a9-51b7-434f-bcad-1331625fa998",
+        "id": "game:npc_barber_turn_right_big~091533a9",
+        "registry": "abilities"
+      },
+      {
+        "guid": "2a8a6d49-e3f8-4967-a8f5-7babf7de8e42",
+        "id": "game:lizard_melee_spear_turn_right_big~2a8a6d49",
+        "registry": "abilities"
+      },
+      {
+        "guid": "2ef5cc3d-79c3-47da-97b0-61907c78f6e2",
+        "id": "game:lizard_melee_spear_turn_left_small~2ef5cc3d",
+        "registry": "abilities"
+      },
+      {
+        "guid": "38560f8d-32f8-4c35-9d95-1efe89c78cb6",
+        "id": "game:enemy_fogger_soldier_hitreaction_stun_long~38560f8d",
+        "registry": "abilities"
+      },
+      {
+        "guid": "3e3ca153-0808-42ca-9c24-940542c280df",
+        "id": "game:enemy_fogger_soldier_spawn~3e3ca153",
+        "registry": "abilities"
+      },
+      {
+        "guid": "473e11a7-a7b3-404a-bf89-26c76bd943f9",
+        "id": "game:animal_babycatdeer_turn_left_small~473e11a7",
+        "registry": "abilities"
+      },
+      {
+        "guid": "4e4850ac-25a8-41ae-bbf6-0d3694c2e413",
+        "id": "game:animal_babycatdeer_turn_right_big~4e4850ac",
+        "registry": "abilities"
+      },
+      {
+        "guid": "55f61d5e-549e-4879-ad22-b37f0e61cf87",
+        "id": "game:animal_baby_catdeer_grazing~55f61d5e",
+        "registry": "abilities"
+      },
+      {
+        "guid": "59fb759b-d019-47f4-9b58-26ae67199981",
+        "id": "game:enemy_scavenger_deepforest_heavy_attack_03_earthcracker~59fb759b",
+        "registry": "abilities"
+      },
+      {
+        "guid": "5d241fdf-e2aa-429f-b182-dea652cf3faa",
+        "id": "game:animal_baby_catdeer_sadidle~5d241fdf",
+        "registry": "abilities"
+      },
+      {
+        "guid": "714b5e25-aba1-4302-847f-76d507a28083",
+        "id": "game:animal_baby_catdeer_shortrest~714b5e25",
+        "registry": "abilities"
+      },
+      {
+        "guid": "74fb168a-24eb-4944-afc2-419a99772da6",
+        "id": "game:enemy_fogger_soldier_spawn_calcified~74fb168a",
+        "registry": "abilities"
+      },
+      {
+        "guid": "76934b2b-edfb-4d5b-a807-7e5ed6f7e653",
+        "id": "game:enemy_skeleton_elite_melee_turn_left_small~76934b2b",
+        "registry": "abilities"
+      },
+      {
+        "guid": "8e777dfc-30ff-402d-97d9-6356808c8ff5",
+        "id": "game:npc_barber_turn_left_big~8e777dfc",
+        "registry": "abilities"
+      },
+      {
+        "guid": "916f9cf8-988d-4570-9eeb-b390d5caab80",
+        "id": "game:npc_barber_turn_right_small~916f9cf8",
+        "registry": "abilities"
+      },
+      {
+        "guid": "aabb2ad7-03d5-48dd-b23c-61f2080a0f3d",
+        "id": "game:animal_baby_catdeer_sleep~aabb2ad7",
+        "registry": "abilities"
+      },
+      {
+        "guid": "ad2aba10-0b9e-443f-b65a-dd26aa713b1a",
+        "id": "game:animal_baby_catdeer_being_petted_01~ad2aba10",
+        "registry": "abilities"
+      },
+      {
+        "guid": "b4fd7f23-d61c-4b42-8af4-3f1c1faa45dc",
+        "id": "game:animal_babycatdeer_turn_left_big~b4fd7f23",
+        "registry": "abilities"
+      },
+      {
+        "guid": "b8fce0e4-494f-4fcf-96e4-76251132d505",
+        "id": "game:enemy_fogger_soldier_spawn_calcified_short~b8fce0e4",
+        "registry": "abilities"
+      },
+      {
+        "guid": "bca5b180-fc97-4b30-8411-32cf8249728b",
+        "id": "game:enemy_fogger_soldier_hitreaction_stagger~bca5b180",
+        "registry": "abilities"
+      },
+      {
+        "guid": "c97787d1-c284-4145-a198-7bb1afaf2302",
+        "id": "game:enemy_skeleton_elite_melee_turn_right_big~c97787d1",
+        "registry": "abilities"
+      },
+      {
+        "guid": "ce2c4e96-4312-4e0d-a535-04e48817ca6b",
+        "id": "game:enemy_scavenger_deepforest_heavy_block~ce2c4e96",
+        "registry": "abilities"
+      },
+      {
+        "guid": "cf32a977-1f80-4c83-befe-9b557d4d7da6",
+        "id": "game:enemy_scavenger_deepforest_heavy_death~cf32a977",
+        "registry": "abilities"
+      },
+      {
+        "guid": "d8b0665d-ac29-4c08-b126-7a208f333d2d",
+        "id": "game:enemy_scavenger_deepforest_heavy_taunt~d8b0665d",
+        "registry": "abilities"
+      },
+      {
+        "guid": "d8dbb60d-8e88-44d4-a9cb-97dc89ca2ff5",
+        "id": "game:animal_babycatdeer_turn_right_small~d8dbb60d",
+        "registry": "abilities"
+      },
+      {
+        "guid": "de815602-d823-4b21-a094-1a0dce69a351",
+        "id": "game:animal_baby_catdeer_inspect~de815602",
+        "registry": "abilities"
+      },
+      {
+        "guid": "e27e4ac9-2eaa-4e80-bae6-14fe856f8cae",
+        "id": "game:npc_barber_turn_left_small~e27e4ac9",
+        "registry": "abilities"
+      },
+      {
+        "guid": "e7e6f6dd-7196-43ee-8670-e8b061e4c0b4",
+        "id": "game:enemy_fogger_soldier_death~e7e6f6dd",
+        "registry": "abilities"
+      },
+      {
+        "guid": "f07dfbbf-b54b-4371-9a8c-0748cb77352b",
+        "id": "game:enemy_skeleton_elite_melee_turn_left_big~f07dfbbf",
+        "registry": "abilities"
+      },
+      {
+        "guid": "f24e25fc-83c4-46cf-8639-0372e3c44f6e",
+        "id": "game:lizard_melee_spear_turn_right_small~f24e25fc",
+        "registry": "abilities"
+      },
+      {
+        "guid": "f51adfa7-ccc1-4e98-a85e-1dbda6477ba9",
+        "id": "game:enemy_skeleton_elite_melee_turn_right_small~f51adfa7",
+        "registry": "abilities"
+      },
+      {
+        "guid": "f73bb0b5-c758-47a6-82dd-a3148fa8e7d6",
+        "id": "game:enemy_fogger_soldier_shout~f73bb0b5",
+        "registry": "abilities"
+      },
+      {
+        "guid": "fc51fdd8-0c8e-4390-a71d-cc2e1f576828",
+        "id": "game:lizard_melee_spear_turn_left_big~fc51fdd8",
+        "registry": "abilities"
+      },
+      {
         "guid": "1d18b507-c5ba-4d37-8c46-c58ddde298a1",
-        "id": "game:prop_wetland_bamboo_cage_02_a~1d18b507"
+        "id": "game:prop_wetland_bamboo_cage_02_a~1d18b507",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "263122b4-6b01-4502-9b6d-519e6e8499e5",
-        "id": "game:prop_banner_enemy_camp_wall02b~263122b4"
+        "id": "game:prop_banner_enemy_camp_wall02b~263122b4",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "289568d0-14c9-4ba3-bcbe-91ab3c1881a1",
-        "id": "game:enemy_weakspots_wildlife_generic_fog_head~289568d0"
+        "id": "game:enemy_weakspots_wildlife_generic_fog_head~289568d0",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "40b0e14e-ee03-494c-b940-f16039a0f2ec",
-        "id": "game:nonmodalhint_07_savepoint~40b0e14e"
+        "id": "game:nonmodalhint_07_savepoint~40b0e14e",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "4aff5b10-2781-4838-920a-9d96a74fb64d",
-        "id": "game:prop_stairs_large_stone_01_2m_02~4aff5b10"
+        "id": "game:prop_stairs_large_stone_01_2m_02~4aff5b10",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "4b60f14a-539b-48d3-93b9-25f5612724b6",
-        "id": "game:prop_banner_coat_of_arms_hawk01~4b60f14a"
+        "id": "game:prop_banner_coat_of_arms_hawk01~4b60f14a",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "4bd27bda-8ab8-4065-8c57-0304c20ddc4f",
-        "id": "game:lootcontainer_enemy_heavy_key_gold_deprecated~4bd27bda"
+        "id": "game:lootcontainer_enemy_heavy_key_gold_deprecated~4bd27bda",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "65792369-e6aa-43a8-91f0-1a27fccd2f00",
-        "id": "game:prop_furniture_castle_sideboard_large_broken_01~65792369"
+        "id": "game:prop_furniture_castle_sideboard_large_broken_01~65792369",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "677eea30-f8db-41e4-900a-e131bc8353ba",
-        "id": "game:prop_buildings_lantern_01_a_ceiling_range~677eea30"
+        "id": "game:prop_buildings_lantern_01_a_ceiling_range~677eea30",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "702d4c54-ba26-455a-8e5b-aff2275f142d",
-        "id": "game:buildings_set_nation01_shed_4m_fence_07~702d4c54"
+        "id": "game:buildings_set_nation01_shed_4m_fence_07~702d4c54",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "86100fd6-7f00-4dc1-9bba-9be92b930798",
-        "id": "game:deco_ancientland_small_pomegranate_03_do_not_place~86100fd6"
+        "id": "game:deco_ancientland_small_pomegranate_03_do_not_place~86100fd6",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "88615f56-587b-4eb8-95d0-aa2e07865623",
-        "id": "game:projectile_enemy_scavenger_ranger_grenade_incendiary~88615f56"
+        "id": "game:projectile_enemy_scavenger_ranger_grenade_incendiary~88615f56",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "95db86a4-c7e1-42fa-9d9d-9450873329bf",
-        "id": "game:prop_desert_lantern_01_a_wall_range~95db86a4"
+        "id": "game:prop_desert_lantern_01_a_wall_range~95db86a4",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "983c94e6-94c2-4db7-b17f-5b4909ca875b",
-        "id": "game:projectile_enemy_scavenger_ranger_grenade_incendiary~983c94e6"
+        "id": "game:projectile_enemy_scavenger_ranger_grenade_incendiary~983c94e6",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "98933d96-bde3-4a98-9f35-d5b8f933bb58",
-        "id": "game:explosion_enemy_mushroom_sporecloud_big_death~98933d96"
+        "id": "game:explosion_enemy_mushroom_sporecloud_big_death~98933d96",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "a0258155-4f48-4332-a744-cf493292da49",
-        "id": "game:base_door_large_interact~a0258155"
+        "id": "game:base_door_large_interact~a0258155",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "a1ff5f72-2ae1-4011-ba6c-7e83338f9b88",
-        "id": "game:base_prop_destructible_ancients~a1ff5f72"
+        "id": "game:base_prop_destructible_ancients~a1ff5f72",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "a7bfdeec-7293-421f-ba26-85299f9053a9",
-        "id": "game:prop_banner_enemy_camp_wall01a~a7bfdeec"
+        "id": "game:prop_banner_enemy_camp_wall01a~a7bfdeec",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "a7cdcdcc-1050-4ef0-aee8-327f18d49104",
-        "id": "game:buildings_set_nation01_shed_4m_fence_06~a7cdcdcc"
+        "id": "game:buildings_set_nation01_shed_4m_fence_06~a7cdcdcc",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "a818060b-69c5-4c43-95b9-fff5d236f287",
-        "id": "game:prop_furniture_castle_sideboard_large_broken_02~a818060b"
+        "id": "game:prop_furniture_castle_sideboard_large_broken_02~a818060b",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "ac388a92-039b-4fda-942a-3de432086402",
-        "id": "game:prop_banner_coat_of_arms_hawk02~ac388a92"
+        "id": "game:prop_banner_coat_of_arms_hawk02~ac388a92",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "b05ee799-fe97-4206-abd8-3cd0a3d509b1",
-        "id": "game:enemy_skeleton_elite_melee01_dungeon_hound~b05ee799"
+        "id": "game:enemy_skeleton_elite_melee01_dungeon_hound~b05ee799",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "b17408d0-ac4e-464a-b949-e0bb04ac7cb9",
-        "id": "game:prop_flowerpot_01_small_red~b17408d0"
+        "id": "game:prop_flowerpot_01_small_red~b17408d0",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "b352c131-376b-466a-87bb-59974dbc68dc",
-        "id": "game:waterdrain_ground_1024_stone_player~b352c131"
+        "id": "game:waterdrain_ground_1024_stone_player~b352c131",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "c0fa309a-4d5a-427f-9258-53adef3620fc",
-        "id": "game:prop_ancients_illumination_03_a_wall_blue_on~c0fa309a"
+        "id": "game:prop_ancients_illumination_03_a_wall_blue_on~c0fa309a",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "cc036491-6419-479a-a071-f3833b7ec808",
-        "id": "game:waterdrain_ground_1024_nature_player~cc036491"
+        "id": "game:waterdrain_ground_1024_nature_player~cc036491",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "d66ffc3c-b2d3-428a-88ad-3e1a09f343be",
-        "id": "game:projectile_enemy_scavenger_crossbow_firearrow~d66ffc3c"
+        "id": "game:projectile_enemy_scavenger_crossbow_firearrow~d66ffc3c",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "d6eb9891-8d98-4fc0-a25e-bd7e17f9c0c6",
-        "id": "game:prop_banner_enemy_camp_ground01a~d6eb9891"
+        "id": "game:prop_banner_enemy_camp_ground01a~d6eb9891",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "d9d8b29d-d3a3-4770-95ca-cf1b68d3786b",
-        "id": "game:deco_ancientland_small_pomegranate_02_do_not_place~d9d8b29d"
+        "id": "game:deco_ancientland_small_pomegranate_02_do_not_place~d9d8b29d",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "dd17a648-30d0-4868-8596-0718907abc1a",
-        "id": "game:projectile_enemy_scavenger_crossbow_firearrow_encouraged~dd17a648"
+        "id": "game:projectile_enemy_scavenger_crossbow_firearrow_encouraged~dd17a648",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "dd3b6725-29f8-4fb8-8c2d-a911e9fde711",
-        "id": "game:base_craftingstation~dd3b6725"
+        "id": "game:base_craftingstation~dd3b6725",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "e03539bb-816f-49be-a531-3d4abd1fde07",
-        "id": "game:prop_ancients_cultivation_rack_large_on~e03539bb"
+        "id": "game:prop_ancients_cultivation_rack_large_on~e03539bb",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "e1d92262-abdd-45a9-9c43-d6ff2f024f61",
-        "id": "game:projectile_enemy_scavenger_ranger_grenade_incendiary_encouraged~e1d92262"
+        "id": "game:projectile_enemy_scavenger_ranger_grenade_incendiary_encouraged~e1d92262",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "f058aa26-9eb8-4d6f-9681-510ef77c6146",
-        "id": "game:nonmodalhint_14_savepoint~f058aa26"
+        "id": "game:nonmodalhint_14_savepoint~f058aa26",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "f3ab1f11-9c36-4d6e-9351-d261720349e4",
-        "id": "game:buildings_set_nation01_shed_4m_fence_08~f3ab1f11"
+        "id": "game:buildings_set_nation01_shed_4m_fence_08~f3ab1f11",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "f637117a-ad92-47fe-b803-7f84da5f085a",
-        "id": "game:base_animal_wildlife_flying~f637117a"
+        "id": "game:base_animal_wildlife_flying~f637117a",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "f7ae8928-2024-4204-ad11-2bb04d188429",
-        "id": "game:projectile_enemy_scavenger_ranger_grenade_incendiary_encouraged~f7ae8928"
+        "id": "game:projectile_enemy_scavenger_ranger_grenade_incendiary_encouraged~f7ae8928",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "f7e3f47c-d44d-449f-86fe-6d9856e0669a",
-        "id": "game:base_enemy_spawner_crittereggcluster~f7e3f47c"
+        "id": "game:base_enemy_spawner_crittereggcluster~f7e3f47c",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "f8f806ef-e290-488b-93e5-1dc260b26d47",
-        "id": "game:spawnpoint_trigger_wildbeast_cyclops_fog~f8f806ef"
+        "id": "game:spawnpoint_trigger_wildbeast_cyclops_fog~f8f806ef",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "fa9fb660-9931-42df-86fa-9ee0a1178aed",
-        "id": "game:prop_desert_lantern_01_a_ground_range~fa9fb660"
+        "id": "game:prop_desert_lantern_01_a_ground_range~fa9fb660",
+        "registry": "templates"
       },
       {
-        "registry": "templates",
         "guid": "ff1d4e51-48b7-4dbc-bb03-53149a5cdc89",
-        "id": "game:buildings_set_nation01_shed_4m_fence_05~ff1d4e51"
+        "id": "game:buildings_set_nation01_shed_4m_fence_05~ff1d4e51",
+        "registry": "templates"
       }
     ]
   },
