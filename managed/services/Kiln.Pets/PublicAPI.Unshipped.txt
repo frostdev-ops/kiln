@@ -440,7 +440,9 @@ static Kiln.Pets.Definitions.get -> System.Collections.Generic.IReadOnlyList<Kil
 static Kiln.Pets.Dismiss(Kiln.PlayerRef owner, Kiln.PetId pet, Kiln.PetRequest! request) -> System.Threading.Tasks.Task<Kiln.PetResult!>!
 static Kiln.Pets.Get(Kiln.PetId pet) -> Kiln.PetSnapshot?
 static Kiln.Pets.Grant(Kiln.CharacterKey owner, string! definition, Kiln.PetRequest! request) -> System.Threading.Tasks.Task<Kiln.PetResult!>!
+static Kiln.Pets.IsHostile(Kiln.CharacterKey a, Kiln.CharacterKey b) -> bool
 static Kiln.Pets.Of(Kiln.CharacterKey owner) -> System.Collections.Generic.IReadOnlyList<Kiln.PetSnapshot!>!
 static Kiln.Pets.Release(Kiln.PlayerRef owner, Kiln.PetId pet, Kiln.PetRequest! request) -> System.Threading.Tasks.Task<Kiln.PetResult!>!
+static Kiln.Pets.SetHostile(Kiln.CharacterKey a, Kiln.CharacterKey b, bool hostile) -> void
 static Kiln.Pets.Summon(Kiln.PlayerRef owner, Kiln.PetId pet, Kiln.PetRequest! request) -> System.Threading.Tasks.Task<Kiln.PetResult!>!
 ~override Kiln.PetId.Equals(object obj) -> bool

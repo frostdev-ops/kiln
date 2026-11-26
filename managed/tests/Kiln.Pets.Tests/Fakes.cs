@@ -21,6 +21,7 @@ internal sealed class FakeWorld : IPetWorld
     public readonly Dictionary<uint, FakeBody> Bodies = [];
     public readonly List<string> Log = [];
     private uint _next = 2000;
+    private ulong _sessions = 100;
     private ulong _gen;
 
     internal sealed class FakeBody
@@ -37,7 +38,7 @@ internal sealed class FakeWorld : IPetWorld
 
     public PetOwner Join(CharacterKey key, WorldPosition at = default, int level = 10)
     {
-        var o = new PetOwner(key, new EntityRef(new EntityId((uint)(Online.Count + 1)), 1), at, level, (ulong)Online.Count + 100);
+        var o = new PetOwner(key, new EntityRef(new EntityId((uint)(Online.Count + 1)), 1), at, level, ++_sessions);
         Online[key] = o;
         return o;
     }
@@ -109,6 +110,11 @@ internal sealed class FakeWorld : IPetWorld
         Bodies.TryGetValue(body.Entity.Id.Value, out var b) && body.WorldEpoch == WorldEpoch
             ? new PetBodyReading(true, b.Health, b.Max, b.Dead, b.DownPending, b.Position, b.ProtectionLost, b.ControlLost)
             : new PetBodyReading(false, 0, 0, false, false, default);
+
+    public readonly Dictionary<uint, PetTargetInfo> Targets = [];
+    public readonly List<List<(CharacterKey A, CharacterKey B)>> HostilitySyncs = [];
+    public PetTargetInfo Classify(EntityRef target) => Targets.TryGetValue(target.Id.Value, out var t) ? t : default;
+    public void SyncHostility(IReadOnlyCollection<(CharacterKey A, CharacterKey B)> pairs) => HostilitySyncs.Add(pairs.ToList());
 
     public bool Order(PetBody body, PetOrder order, EntityRef target, out string? reason)
     {

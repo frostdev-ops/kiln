@@ -164,6 +164,7 @@ void KILN_CALL on_pre(const KilnTickInfo* tick, void*) {
     if (!g_broker) return;
     const uint64_t epoch = current_epoch();
     g_broker->set_world(epoch, "the server world ended");
+    pets_pre(epoch, tick ? tick->step : 0);
     // once a server world runs its programs, the broker's program must be in it, or nothing can be moved
     if (g_ready && epoch) {
         const uint32_t st = program_state();
@@ -329,6 +330,10 @@ void KILN_CALL on_ready(void*) {
 }
 
 }  // namespace
+
+uint64_t server_epoch() { return current_epoch(); }
+bool body_exists(KilnEntity e) { return W && W->exists(e); }
+
 }  // namespace kcc
 
 extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api, KilnOwner owner, KilnPluginInfo* info) {
@@ -345,5 +350,6 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     if (KilnResult rc = api->subscribe_tick(owner, KILN_TICK_PRE, &on_pre, nullptr, &h); rc != KILN_OK) return rc;
     if (api->feature && api->feature(KilnStr{"world.lifecycle", 15}) && api->subscribe_world)
         api->subscribe_world(owner, &on_world, nullptr, &h);
+    pets_register(api, owner);  // dev.32: kiln.pets, the pets' native safety module, beside the broker
     return api->register_service(owner, KilnStr{KILN_CREATURE_CONTROL_SERVICE, sizeof(KILN_CREATURE_CONTROL_SERVICE) - 1}, &kTable);
 }

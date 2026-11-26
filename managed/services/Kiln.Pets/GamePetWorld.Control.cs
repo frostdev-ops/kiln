@@ -16,6 +16,12 @@ internal sealed partial class GamePetWorld
         var control = PetControl.Prepare(body.Entity, out reason);
         if (control is null) return false;
         Tag(body).Control = control;
+        // the native guard row in the same tick as the spawn: the body is never one step unguarded
+        if (!NativeBind(body, request, control.Key, out reason))
+        {
+            control.Release();
+            return false;
+        }
         return true;
     }
 
@@ -51,7 +57,8 @@ internal sealed partial class GamePetWorld
     private partial bool ActivateBody(PetBody body, out string? reason)
     {
         reason = null;
-        return Tag(body).Control is not { } c || c.Prepared;
+        if (Tag(body).Control is { Prepared: false }) return false;
+        return NativeActivate(body, out reason);
     }
 
     private partial bool SetOrder(PetBody body, PetOrder order, EntityRef target, out string? reason)
@@ -88,5 +95,5 @@ internal sealed partial class GamePetWorld
         return Step >= tag.QuarantinedAt + RiderSteps;
     }
 
-    private partial void Retired(PetBody body) { }
+    private partial void Retired(PetBody body) => NativeRetire(body);
 }

@@ -121,6 +121,26 @@ public static partial class Pets
         });
     }
 
+    /// <summary>Declares (true) or ends (false) a consensual hostility between two characters: for pets whose
+    /// <see cref="PetTargetPolicy.Pvp"/> is <see cref="PetPvpMode.ByModRule"/>, each character's pets may then harm the
+    /// other character and the other's pets of that mode, and be harmed by them. Who duels, and when, is the mod's rule
+    /// (a challenge accepted, an arena entered); Kiln enforces the pair in every hit and order. Pets of PvP off stay
+    /// protected whatever the pairs. Pairs last for this world session (the mod declares them again after a restart).</summary>
+    /// <exception cref="ArgumentException">No character, or the same character twice.</exception>
+    [ServerOnly, TickThreadOnly, RequiresCapability(Caps.Fight)]
+    public static void SetHostile(CharacterKey a, CharacterKey b, bool hostile)
+    {
+        if (a.IsNone || a.IsAccountOnly || b.IsNone || b.IsAccountOnly) throw new ArgumentException("hostility is between two characters", nameof(a));
+        if (a == b) throw new ArgumentException("a character is never hostile to itself", nameof(b));
+        var r = Roster("Pets.SetHostile");
+        Require(Caps.Fight);
+        r.SetHostile(a, b, hostile);
+    }
+
+    /// <summary>Whether the two characters were declared hostile (<see cref="SetHostile"/>). Server tick thread.</summary>
+    [ServerOnly, TickThreadOnly, RequiresCapability(Caps.Records)]
+    public static bool IsHostile(CharacterKey a, CharacterKey b) => Roster("Pets.IsHostile").IsHostile(a, b);
+
     // ---- helpers ----
 
     private static PetRoster Roster(string api)

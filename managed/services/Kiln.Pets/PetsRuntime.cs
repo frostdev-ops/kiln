@@ -206,6 +206,12 @@ internal static partial class PetsRuntime
     }
 
     static partial void ReportLaterRows();
+
+    private static unsafe bool PetsNativeAvailable()
+    {
+        try { return PetsNative.T != null; }
+        catch (Exception) { return false; }
+    }
 }
 
 internal static partial class PetsRuntime
@@ -217,7 +223,19 @@ internal static partial class PetsRuntime
         if (control.State == CapabilityState.Available) ServiceCaps.Report(Pets.Caps.Control, CapabilityState.Available);
         else ServiceCaps.Report(Pets.Caps.Control, CapabilityState.Unavailable, control.Reason == CapabilityReason.None ? CapabilityReason.ServiceMissing : control.Reason,
             $"needs creature_control: {control.ReasonText}");
-        foreach (var row in new[] { Pets.Caps.Follow, Pets.Caps.Fight, Pets.Caps.Downed, Pets.Caps.HudServer, Pets.Caps.HudClient })
+        var server = Lifecycle.IsServerRunning;
+        var native = PetsNativeAvailable();
+        var follow = Capabilities.Get(Pets.Caps.Control).State == CapabilityState.Available;
+        ServiceCaps.Report(Pets.Caps.Follow, follow ? CapabilityState.Available : CapabilityState.Unavailable,
+            follow ? CapabilityReason.None : CapabilityReason.ServiceMissing, follow ? "" : "needs pets.control");
+        if (native && Capabilities.Is("kiln.combat")) ServiceCaps.Report(Pets.Caps.Fight, CapabilityState.Available);
+        else ServiceCaps.Report(Pets.Caps.Fight, CapabilityState.Unavailable, CapabilityReason.ServiceMissing,
+            native ? "needs kiln.combat (its hit seam asks the pets' target rule)" : "needs kiln.pets' native safety module (kiln-creature-control.dll of dev.32)");
+        var guards = Capabilities.Get("decisions.native_guards");
+        if (native && guards.State != CapabilityState.Unavailable) ServiceCaps.Report(Pets.Caps.Downed, CapabilityState.Available);
+        else ServiceCaps.Report(Pets.Caps.Downed, CapabilityState.Unavailable, native ? guards.Reason : CapabilityReason.ServiceMissing,
+            native ? $"needs decisions.native_guards: {guards.ReasonText}" : "needs kiln.pets' native safety module");
+        foreach (var row in new[] { Pets.Caps.HudServer, Pets.Caps.HudClient })
             ServiceCaps.Report(row, CapabilityState.Unavailable, CapabilityReason.ServiceMissing, "not in this Kiln yet");
     }
 }

@@ -9,6 +9,7 @@ namespace Kiln;
 internal sealed partial class GamePetWorld : IPetWorld
 {
     private ulong _generations;
+    private readonly Dictionary<ulong, PetBody> _live = [];   // bodies made and not yet retired, by generation
     private double _now;
     private ulong _lastStep;
 
@@ -182,7 +183,9 @@ internal sealed partial class GamePetWorld : IPetWorld
         catch (Exception x) when (x is NotSupportedException or InvalidOperationException) { body = new EntityRef(e, 0); }
         if (body.IsNone) body = new EntityRef(e, 0);
         var pb = new PetBody(body, WorldEpoch, ++_generations) { Tag = new BodyTag { HealthFraction = request.HealthFraction, Request = request } };
-        return Attach(pb, request, out reason) ? pb : Abandon(pb, reason);
+        if (!Attach(pb, request, out reason)) return Abandon(pb, reason);
+        _live[pb.Generation] = pb;
+        return pb;
     }
 
     private PetBody? Abandon(PetBody b, string? reason)
@@ -253,13 +256,21 @@ internal sealed partial class GamePetWorld : IPetWorld
 
     public bool Retire(PetBody body, PetChangeCause cause)
     {
-        if (body.WorldEpoch != WorldEpoch) return true;  // another world: nothing of it is here to remove
+        if (body.WorldEpoch != WorldEpoch)
+        {
+            _live.Remove(body.Generation);
+            return true;  // another world: nothing of it is here to remove
+        }
         if (!Detach(body, cause)) return false;   // producers revoked; a rider gets its two steps to get off first
         try
         {
             if (Spawn.Exists(body.Entity.Id)) Spawn.Destroy(body.Entity.Id);
             var gone = !Spawn.Exists(body.Entity.Id);
-            if (gone) Retired(body);
+            if (gone)
+            {
+                Retired(body);
+                _live.Remove(body.Generation);
+            }
             return gone;
         }
         catch (Exception x) when (x is NotSupportedException or InvalidOperationException)
@@ -285,13 +296,6 @@ internal sealed partial class GamePetWorld : IPetWorld
     private partial bool ProtectionLost(PetBody body);
 
     internal static string Num(double v) => v.ToString("0.##", CultureInfo.InvariantCulture);
-}
-
-/// <summary>The body parts that come with package 5 (the native guard), until it lands.</summary>
-internal sealed partial class GamePetWorld
-{
-    private partial bool NativeDownPending(PetBody body) => false;
-    private partial bool ProtectionLost(PetBody body) => false;
 }
 
 /// <summary>IPetStore over Kiln.Saves' service records (scope service/kiln.pets/character/&lt;key&gt;).</summary>

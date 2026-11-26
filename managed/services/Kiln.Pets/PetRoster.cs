@@ -86,14 +86,37 @@ internal sealed partial class PetRoster
     private readonly Dictionary<uint, Dictionary<CharacterKey, (string Sha, Dictionary<PetId, (ulong Revision, PetLife Life)> Revisions)>> _receipts = [];
     private int _saveSession = -1;
     private ulong _epoch;
+    private bool _presenceChanged;
     private readonly List<KilnEvent> _events = [];
 
     /// <summary>Where settled after-events go (PetsRuntime's queue; tests read them).</summary>
     internal Action<KilnEvent> Post { get; set; } = PetsRuntime.Enqueue;
     /// <summary>Asks the mods what a pet that goes down becomes (posts PetDowningEvent at once; tests answer).</summary>
     internal Func<PetDowningEvent, PetDowningEvent> AskDowning { get; set; } = e => Events.Post(e);
-    /// <summary>Whether a target may be attacked by the pet (package 5's rule); null: yes, else the reason.</summary>
-    internal Func<PetState, EntityRef, string?> TargetCheck { get; set; } = (_, _) => "FightUnavailable: pets.fight is not in this Kiln yet";
+    /// <summary>Whether a target may be attacked by the pet; null: yes, else the reason. Default: the pets' target rule
+    /// (PetTargetRule) on what the world says of the target.</summary>
+    internal Func<PetState, EntityRef, string?> TargetCheck { get; set; }
+
+    /// <summary>Character pairs a mod declared hostile (PvP by mod rule), each ordered.</summary>
+    private readonly HashSet<(CharacterKey, CharacterKey)> _hostile = [];
+    private bool _hostileDirty;
+
+    internal void SetHostile(CharacterKey a, CharacterKey b, bool on)
+    {
+        var pair = PetTargetRule.Pair(a, b);
+        if (on ? _hostile.Add(pair) : _hostile.Remove(pair)) _hostileDirty = true;
+    }
+
+    internal bool IsHostile(CharacterKey a, CharacterKey b) => _hostile.Contains(PetTargetRule.Pair(a, b));
+
+    private string? DefaultTargetCheck(PetState p, EntityRef target)
+    {
+        var def = p.Snapshot ?? PetsRuntime.Definition(p.Definition);
+        if (def is null) return "DefinitionUnknown";
+        var targetPet = _pets.Values.FirstOrDefault(x => x.Body is { } b && b.Entity.Id == target.Id);
+        var targetDef = targetPet is null ? null : targetPet.Snapshot ?? PetsRuntime.Definition(targetPet.Definition);
+        return PetTargetRule.Check(p, def, target, _world.Classify(target), targetPet, targetDef, _hostile);
+    }
 
     internal sealed class OwnerState(CharacterKey key)
     {
@@ -105,6 +128,7 @@ internal sealed partial class PetRoster
 
     public PetRoster(IPetWorld world, IPetStore store)
     {
+        TargetCheck = DefaultTargetCheck;
         _world = world;
         _store = store;
         _epoch = world.WorldEpoch;
@@ -131,6 +155,7 @@ internal sealed partial class PetRoster
     }
 
     internal PetState? State(PetId id) => _pets.GetValueOrDefault(id);
+
     internal IEnumerable<PetState> AllStates => _pets.Values;
     internal IPetWorld World => _world;
 
@@ -197,6 +222,11 @@ internal sealed partial class PetRoster
     {
         if (_world.WorldEpoch != _epoch) WorldChanged();
         Presence();
+        if (_hostileDirty || _presenceChanged)
+        {
+            _world.SyncHostility(_hostile);
+            _hostileDirty = _presenceChanged = false;
+        }
         Reconcile();
         Move();
         AdvanceRunning();
@@ -258,11 +288,13 @@ internal sealed partial class PetRoster
             if (!o.Key.IsNone && !o.Key.IsAccountOnly) now.Add(o.Key);
         foreach (var left in _online.Where(k => !now.Contains(k)).ToList())
         {
+            _presenceChanged = true;
             _online.Remove(left);
             OwnerLeft(left);
         }
         foreach (var came in now.Where(k => !_online.Contains(k)).ToList())
         {
+            _presenceChanged = true;
             _online.Add(came);
             OwnerCame(came);
         }

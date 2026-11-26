@@ -50,6 +50,7 @@ internal static class ServiceNames
         "kiln.npcai",
         "kiln.npcspeech",
         "kiln.pacing",
+        "kiln.pets",
         "kiln.playeranim",
         "kiln.players",
         "kiln.playerstate",

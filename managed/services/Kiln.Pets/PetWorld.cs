@@ -49,6 +49,9 @@ internal readonly record struct PetBodyReading(bool Exists, int Health, int Heal
 
 internal enum PetBodyPoll { Pending, Ready, Failed }
 
+/// <summary>What the world says of a would-be target (the roster adds what it knows of pets).</summary>
+internal readonly record struct PetTargetInfo(bool Exists, bool Alive, bool IsPlayer, CharacterKey Player, Faction Faction, bool EnemyAi);
+
 internal interface IPetWorld
 {
     /// <summary>The server world's session number (0: no server world here).</summary>
@@ -76,6 +79,10 @@ internal interface IPetWorld
     bool Activate(PetBody body, out string? reason);
     /// <summary>The body now.</summary>
     PetBodyReading Read(PetBody body);
+    /// <summary>A would-be attack target, as the game has it now.</summary>
+    PetTargetInfo Classify(EntityRef target);
+    /// <summary>The declared hostile character pairs (PvP by mod rule): the native rule gets the pairs of characters in game.</summary>
+    void SyncHostility(IReadOnlyCollection<(CharacterKey A, CharacterKey B)> pairs);
     /// <summary>A live body's order: its base lease (Follow, Stay) or a PetCombat lease (Attack). Admission only.</summary>
     bool Order(PetBody body, PetOrder order, EntityRef target, out string? reason);
     /// <summary>Removes the body (its producers revoked first) and confirms it is gone; false when it is still there.</summary>
