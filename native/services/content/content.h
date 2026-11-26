@@ -296,6 +296,10 @@ bool store_effective_without_registry(uintptr_t addr, uint8_t n, const LayerEval
 void store_set_gate(uintptr_t addr);
 uint32_t store_mark_evals();  // every slot holding an evaluated layer is flushed (evaluated) again; returns how many
 bool store_slot_copy(uintptr_t addr, Slot* out);  // a snapshot of the slot and its last evaluated layer bytes; false: none
+// What the slot holds, as one number that changes when it does (FNV-1a 64 over the bytes Kiln last wrote there, the foreign
+// mark and each layer's owner, band, bytes, source and mod, in order; a layer's seq itself is left out, so a mod setting the
+// same value again keeps it); 0: no slot. Cheap: no copy (the registry's later-writes look, registry_live.cpp).
+uint64_t store_slot_signature(uintptr_t addr);
 // Compare-before-write (sfi R3, owner decision D1): a registry write, or a registry layer's revert, on a slot whose memory is
 // not what Kiln last wrote there is not made: another writer (a ShroudForge run-time write in kiln mode, or any other) wrote
 // it since. Each such slot once per world (store_reset forgets them).

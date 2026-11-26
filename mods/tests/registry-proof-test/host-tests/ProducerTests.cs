@@ -226,6 +226,28 @@ public class ProducerTests
         Assert.Equal("4", ((JsonNode)Call("ProbeOf", JsonNode.Parse("3"), JsonNode.Parse("[3]")!.AsArray(), row, Array.Empty<string>())!).ToJsonString());
     }
 
+    // registry-followups 4: the compat rehearsal's producer gave items.levels.min no sample on either build. Its probe (+1 on
+    // a whole number) raises an item's lowest level, which narrows the level range, and the registry's save check (31.x,
+    // registry/saves.h levelRange) refuses that ("saves: ... this edit was not applied"): every entry, 20 tries, no sample.
+    // A probe a save check refuses is tried the other way on the same entry (one lower, staying at 1 or more); any other
+    // refusal, a number that cannot go lower, or a fraction gets no second probe.
+    [Theory]
+    [InlineData("int", 20.0, "registry-proof-test: the live transaction was not committed: items[game:x].levels.min: saves: items[game:x].levels.min narrows the level range (levels.min 20 -> 21): a world load clamps saved copies outside it and the save keeps the clamped level; this edit was not applied", 19L)]
+    [InlineData("int", 2.0, "items[game:x].levels.min: saves: narrows the level range (levels.min 2 -> 3); this edit was not applied", 1L)]
+    // the lab's reason as the producer gets it: kiln.registry.live's reply cuts its reason to 192 bytes (the 31.x lab run)
+    [InlineData("int", 40.0, "commit outcome=2: the live transaction was not committed: items[game:armor_t6_mage_healer_helmet].levels.min: saves: items[game:armor_t6_mage_healer_helmet].levels.min narrows the level range (levels.min 40 -> ", 39L)]
+    [InlineData("int", 1.0, "items[game:x].levels.min: saves: narrows the level range (levels.min 1 -> 2); this edit was not applied", null)]
+    [InlineData("int", 0.0, "items[game:x].levels.min: saves: narrows the level range (levels.min 0 -> 1); this edit was not applied", null)]
+    [InlineData("int", 20.0, "Unproven: items.levels.min is not proven for this game build (x); this edit was not applied", null)]
+    [InlineData("int", 20.0, "items[game:x].levels.min: the result 106 is outside the field's range", null)]
+    [InlineData("float", 2.5, "items[game:x].block: saves: something; this edit was not applied", null)]
+    public void A_probe_a_save_check_refuses_is_tried_the_other_way(string conv, double read, string refusal, long? expected)
+    {
+        var probe = (JsonNode?)Call("SaveCheckProbe", JsonValue.Create(read), new JsonObject { ["conv"] = conv }, refusal);
+        Assert.Equal(expected, probe?.GetValue<long>());
+        Assert.Equal(expected != null || refusal.Contains("saves: "), (bool)Call("IsSaveCheck", refusal)!);
+    }
+
     // The roll's scaled stack (0x16db30): n x the world's loot amount, at least 1, at most maxScaled.
     [Theory]
     [InlineData(3, 2.0, 1000, 6)]

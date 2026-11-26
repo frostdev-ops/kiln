@@ -396,6 +396,31 @@ bool store_slot_copy(uintptr_t addr, Slot* out) {
     return true;
 }
 
+uint64_t store_slot_signature(uintptr_t addr) {
+    std::lock_guard lock(g_mu);
+    const auto it = g_slots.find(addr);
+    if (it == g_slots.end()) return 0;
+    const Slot& s = it->second;
+    uint64_t h = 1469598103934665603ull;
+    auto mix = [&h](const void* p, size_t n) {
+        for (size_t i = 0; i < n; ++i) h = (h ^ static_cast<const uint8_t*>(p)[i]) * 1099511628211ull;
+    };
+    const uint8_t foreign = s.foreign ? 1 : 0;
+    mix(&foreign, 1);
+    mix(s.current, s.n);
+    for (const Layer& l : s.layers) {
+        const uint8_t band = static_cast<uint8_t>(l.seq >> 62);  // pack, registry or code
+        mix(&l.owner, sizeof l.owner);
+        mix(&band, 1);
+        mix(l.bytes, s.n);
+        mix(l.source.data(), l.source.size());
+        mix("\n", 1);
+        mix(l.mod.data(), l.mod.size());
+        mix("\n", 1);
+    }
+    return h ? h : 1;
+}
+
 uint32_t store_mark_evals() {
     std::lock_guard lock(g_mu);
     uint32_t n = 0;

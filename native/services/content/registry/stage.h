@@ -83,7 +83,8 @@ struct Env {
     std::function<std::string()> now;                              // RFC 3339 UTC
     uint32_t pid = 0;
     std::string kiln_version, side, exe_sha256;
-    std::string writer = "none";  // the archive writer of this start (kiln-eml, shroudforge-hosted, external, none)
+    std::string writer = "none";  // the archive writer of this start (kiln-eml, shroudforge-hosted, shroudforge-installed, external, none)
+    json archive;                 // what Kiln knows that writer did and what it rests on (archive_base.h): registry.json base.archive
     // The archive writer's change journal (archive_journal.h): its text and the generation this start's archive writer
     // published (lower-case hex). nullopt + *why: this start has none (why says which loader path keeps none). Asked once,
     // when the stage reads its base; unset: no journal.

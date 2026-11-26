@@ -66,7 +66,9 @@ in mod load order and file-name order inside a mod. A pack follows its mod: unlo
   stacks of one item (`countMin`, `countMax`, `spawnProbability`, `weight`). The game loads tables when it first
   fills a default inventory; rules apply at that moment, before the roll.
 - **Order and conflicts**: within a pack, later entries win; across packs, the later mod in load order wins; changes
-  made from code win over every pack (in call order). Two owners giving one field different values is a conflict:
+  made from code win over every pack (in call order) and over registry edits. An op of a pack or of code is always computed
+  on the game's original value (`raiseOnly`: never below the game's value), never on what another pack, a registry edit or
+  other code made of it ([registries README](../modding/registries/README.md#stages-and-conflicts)). Two owners giving one field different values is a conflict:
   logged (`conflict: items Material_T1_Twigs.maxStackSize: pack … sets 600, bigstacks … sets 1000 (the later one wins: …)`)
   and listed in `Content.PackReport()`. A clone's definition and its own mod's later changes to it are not: the definition is
   the clone's starting value (a block writes `none` until a game VFX's name is known, then a rule writes that VFX). Problems (unknown field, value out of range, selector matching nothing) are
