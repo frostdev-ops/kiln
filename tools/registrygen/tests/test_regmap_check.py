@@ -341,6 +341,15 @@ class Selectors(unittest.TestCase):
         errs = self.check(name="subs[0].label").errors
         self.assertTrue(any("entries.name" in e and "label" in e for e in errs), errs)
 
+    def test_a_rows_variant_selector_names_its_type_qualified(self):
+        # review of dev.32: kilnctl dumps only the variant types a path names qualified and kiln.content's eventTime binder finds
+        # the event by its qualified type, so a last name would pass here and fail every lab proof and every edit
+        rows = copy.deepcopy(SEQ_ROWS)
+        rows["release"]["paths"] = ["subs[0].events[Spawn#0].time"]
+        errs = self.check(rows).errors
+        self.assertTrue(any("things.release" in e and "qualified" in e for e in errs), errs)
+        self.assertEqual(self.check().errors, [])
+
     def test_event_time_names_the_first_event_of_a_kind(self):
         rows = copy.deepcopy(SEQ_ROWS)
         rows["release"]["paths"] = ["subs[0].events[keen::act::Spawn#1].time"]

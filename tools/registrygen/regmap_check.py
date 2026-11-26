@@ -455,6 +455,12 @@ def check(root, db):
                 errs.append(f"{q}: a restart field goes through the boot back-end (before the game reads it)")
             elif backend not in ("live", "boot"):
                 errs.append(f"{q}: a writable field needs a back-end (live or boot)")
+            # a row's [<Type>#<k>] selector names its type qualified: kilnctl dumps only the types a path names that way and
+            # kiln.content's eventTime binder finds the event by it (a last name, which TypeDb.path accepts, would fail both)
+            for p in row.get("paths", []):
+                for sel in SELECTOR.findall(p):
+                    if not sel.isdigit() and "::" not in sel.partition("#")[0]:
+                        errs.append(f"{q}: [{sel}] names a variant type by its last name; Kiln's mapping names it qualified")
             base = entry_root
             if spec_row.list_path:
                 base = list_element_root(db, entry_root, rows, spec_row.list_path) if entry_root else None
