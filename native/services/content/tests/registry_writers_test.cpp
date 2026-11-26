@@ -429,6 +429,15 @@ int main(int argc, char** argv) {
                   archive_fields_of(af.rows["items"], {"perkIds[]"}) == std::set<std::string>({"perks"}) &&
                   archive_fields_of(af.rows["items"], {"maxStackSizeX"}).empty() && archive_fields_of(af.rows["items"], {""}).size() == 3,
               "a path names the fields it holds or lies in, at member boundaries only; \"\" names every field");
+        // dev.32 creatures: a template's fields live in its component list, which a journal names by place, not by the
+        // component type the rows start at: any write in the list names every field (never a miss), its name none
+        std::map<std::string, std::vector<std::string>> creature_rows;
+        for (const auto& [f, paths] : std::map<std::string, std::vector<std::string>>{{"level", {"Level.dataStorage[0]"}}, {"scale", {"ScaleComponent.uniformScale"}}})
+            creature_rows[f] = archive_paths_of("keen::ecs::TemplateResource", paths);
+        CHECK(archive_fields_of(creature_rows, {"components[12].value.dataStorage[0]"}) == std::set<std::string>({"level", "scale"}) &&
+                  archive_fields_of(creature_rows, {"components"}).size() == 2 && archive_fields_of(creature_rows, {"name"}).empty() &&
+                  archive_paths_of("keen::ItemInfo", {"maxStackSize"}) == std::vector<std::string>({"maxStackSize"}),
+              "a write in a template's component list names every creature field; other resources keep their rows' paths");
         // the same journal without the regmap's fields: per entry as before, never an element
         BaseModel plain = eb;
         for (auto& [reg, es2] : plain.registries)

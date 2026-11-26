@@ -198,6 +198,11 @@ bool eml_state_generation(const std::string& state_json, std::string* hex, std::
     return true;
 }
 
+std::vector<std::string> archive_paths_of(const std::string& resource_type, const std::vector<std::string>& row_paths) {
+    if (resource_type == "keen::ecs::TemplateResource") return {"components"};
+    return row_paths;
+}
+
 std::set<std::string> archive_fields_of(const std::map<std::string, std::vector<std::string>>& rows, const std::vector<std::string>& paths) {
     // a and b are one member or one holds the other, at a member boundary ('.' or '[')
     auto overlap = [](const std::string& a, const std::string& b) {

@@ -118,6 +118,11 @@ struct ArchiveFields {
     std::function<const std::map<int32_t, std::string>*(const std::string& registry, const std::string& guid)> elements;
 };
 
+// The member paths a registry field is named by in a format-2 journal: its regmap row's paths, except on a template (creatures):
+// its fields live in the component list, which a journal names by its published place ("components[12].value..."), not by the
+// component's type the rows start at, so any write in the list names every field ("components": over-naming, never a miss).
+std::vector<std::string> archive_paths_of(const std::string& resource_type, const std::vector<std::string>& row_paths);
+
 // The Kiln fields of `rows` that a written member path names: the path holds a field's member path, or lies inside one
 // ("damageSetup" names damage.cut and power; "input[2].itemStack.count" names inputs). "" names every field.
 std::set<std::string> archive_fields_of(const std::map<std::string, std::vector<std::string>>& rows, const std::vector<std::string>& paths);
