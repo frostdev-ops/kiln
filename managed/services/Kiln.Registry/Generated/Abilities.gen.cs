@@ -17,11 +17,11 @@ public sealed partial class AbilityEntry : IRegistryEntry
     /// <summary>The registry's name.</summary>
     public string Registry => "abilities";
 
-    /// <summary>When the ability does things, in seconds from its start. Each field is the first such moment of the ability; every event of the same kind at that moment moves with it, and the others stay where they are. The next time the ability plays takes the new time. An ability without such a moment refuses the edit; a time after the ability ends never comes.</summary>
+    /// <summary>When the ability does things, in seconds from its start. Each field is the first such moment of the ability; every event of the same kind at that moment moves with it, and every other event stays where it is (later moments of that kind, the ability's sounds, visual effects and animation events). The next time the ability plays takes the new time. An ability without such a moment refuses the edit; a time after the ability ends never comes.</summary>
     public AbilityTiming Timing => new(_c, _i);
 }
 
-/// <summary>When the ability does things, in seconds from its start. Each field is the first such moment of the ability; every event of the same kind at that moment moves with it, and the others stay where they are. The next time the ability plays takes the new time. An ability without such a moment refuses the edit; a time after the ability ends never comes.</summary>
+/// <summary>When the ability does things, in seconds from its start. Each field is the first such moment of the ability; every event of the same kind at that moment moves with it, and every other event stays where it is (later moments of that kind, the ability's sounds, visual effects and animation events). The next time the ability plays takes the new time. An ability without such a moment refuses the edit; a time after the ability ends never comes.</summary>
 [global::System.Diagnostics.CodeAnalysis.Experimental("KILNX031", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/registries/abilities.md")]
 public sealed partial class AbilityTiming
 {

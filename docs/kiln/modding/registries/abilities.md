@@ -17,7 +17,7 @@ Applies: `now` = takes effect at the next use; `worldLoad` = takes effect when a
 
 Groups of fields:
 
-- `timing`: When the ability does things, in seconds from its start. Each field is the first such moment of the ability; every event of the same kind at that moment moves with it, and the others stay where they are. The next time the ability plays takes the new time. An ability without such a moment refuses the edit; a time after the ability ends never comes.
+- `timing`: When the ability does things, in seconds from its start. Each field is the first such moment of the ability; every event of the same kind at that moment moves with it, and every other event stays where it is (later moments of that kind, the ability's sounds, visual effects and animation events). The next time the ability plays takes the new time. An ability without such a moment refuses the edit; a time after the ability ends never comes.
 
 | Field | Type | Applies | Ops | Since | Mapping | Joined client | About |
 |---|---|---|---|---|---|---|---|

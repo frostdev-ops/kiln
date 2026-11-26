@@ -55,6 +55,12 @@ own buffs and abilities are kiln.gamedata clones or blocks). A spell's costs are
 at the same moment. Example: [SpellRegistry sample](../../../../mods/samples/SpellRegistry/SpellRegistryMod.cs) (a data pack for
 Fireball I's timing, C# for a buff's duration).
 
+In multiplayer, `buffs` fields are the server's alone (`serverOnly`: a client shows the time the server gave the buff). An
+`abilities.timing.*` edit makes the server spawn, hit, pay and apply buffs at the new time; a vanilla client keeps playing the
+ability's animation and effects at the old times, and a Kiln client gets the new time through the content sync. One exception:
+a time moved past a later event of the same kind in that ability is not sent, so Kiln clients keep the old time there too (the
+server still acts at the new one); a move that keeps the order (earlier, or later but not past such an event) is sent.
+
 The per-registry pages are generated from `schema/registry/<registry>.json` by `tools/registrygen/registrygen.py`; edit
 the schema, never the page. Kiln maintainers adding a registry: [adding-a-registry.md](../../adding-a-registry.md).
 
