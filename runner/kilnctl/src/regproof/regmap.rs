@@ -60,9 +60,10 @@ impl Row {
         self.state.as_deref() != Some("unmapped") && !self.paths.is_empty()
     }
 
-    /// A write goes through a back-end (live: kiln.content's store at world load; boot: the boot generation).
+    /// A write goes through a back-end (live: kiln.content's store at world load; boot: the boot generation; hook: a hooks
+    /// registry's value, Kiln's own hook of the game's code, sampled in the boot generation).
     pub fn writable(&self) -> bool {
-        self.backend == "live" || self.backend == "boot"
+        self.backend == "live" || self.backend == "boot" || self.backend == "hook"
     }
 }
 

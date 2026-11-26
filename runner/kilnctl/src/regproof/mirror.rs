@@ -282,6 +282,24 @@ mod tests {
         assert_eq!(p.rows["plans.parts[].count"].state, "unproven");
     }
 
+    /// dev.32 limits: a hooks registry has no reflection; its client row is ok where the server proved it and regmap_check.py
+    /// resolved Kiln's hook of it on the client exe (the candidate), unproven otherwise
+    #[test]
+    fn a_hooks_row_mirrors_on_the_clients_candidate() {
+        let caps = r#"{"regmap": 1, "registry": "caps", "entries": {"kind": "hooks", "unnamed": "caps"},
+            "rows": {"most": {"paths": ["altarCap"], "conv": "int", "read": "now", "backend": "hook"}}}"#;
+        let mut inp = inputs();
+        inp.map.insert("caps".into(), crate::regproof::regmap::parse(caps, "caps").unwrap());
+        inp.server.as_mut().unwrap()["rows"]["caps.most"] = json!("ok");
+        inp.candidate.as_mut().unwrap()["rows"]["caps.most"] = json!("ok");
+        let p = mirror(&inp, "T");
+        assert!(p.verified, "{:?}", p.blockers);
+        assert_eq!(p.rows["caps.most"].state, "ok", "{:?}", p.rows["caps.most"]);
+        inp.candidate.as_mut().unwrap()["rows"]["caps.most"] = json!("unmapped");
+        let p = mirror(&inp, "T");
+        assert_eq!((p.rows["caps.most"].state.as_str(), p.rows["caps.most"].reason.as_deref()), ("unproven", Some(LAYOUT_DIFFERS)));
+    }
+
     #[test]
     fn the_mirror_fails_closed() {
         type Strip = fn(&mut MirrorInputs);
