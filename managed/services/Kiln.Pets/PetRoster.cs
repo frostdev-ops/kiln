@@ -399,6 +399,13 @@ internal sealed partial class PetRoster
                 BeginDown(p, PetChangeCause.ProtectionLost);
                 continue;
             }
+            if (r.ControlLost is { } lost)
+            {
+                // the broker ended a lease of ours: the body is no longer held as a pet; it is retired (never left wild)
+                PetsRuntime.Log(LogLevel.Warn, $"Kiln.Pets: pet {p.Id}: {lost}; its body is retired");
+                BeginDown(p, PetChangeCause.Control);
+                continue;
+            }
             if (r.Lethal)
             {
                 BeginDown(p, PetChangeCause.NativeLethal);
@@ -891,6 +898,11 @@ internal sealed partial class PetRoster
         if (p.Order == op.Order && p.Target == target)
         {
             Complete(op, true, null, p);
+            return;
+        }
+        if (!_world.Order(p.Body, op.Order, target, out var refused))
+        {
+            Complete(op, false, refused ?? "ControlRefused", p);
             return;
         }
         Mutate(p, op.OperationId, PetChangeCause.Request, s => { s.Order = op.Order; s.Target = target; }, c => new PetCommandChangedEvent(c));

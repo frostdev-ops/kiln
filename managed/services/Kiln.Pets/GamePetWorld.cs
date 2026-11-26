@@ -34,6 +34,7 @@ internal sealed partial class GamePetWorld : IPetWorld
     {
         if (!Lifecycle.IsServerRunning) { reason = "WorldNotRunning: no server world runs here"; return false; }
         if (!Spawn.Available || !Spawn.WorldRunning) { reason = "SpawnUnavailable: kiln.spawn cannot make bodies here"; return false; }
+        if (!Capabilities.Is("creature_control")) { reason = "ControlUnavailable: the creature control broker takes no new leases (creature_control is off)"; return false; }
         if (!Creatures.Available) { reason = "CreaturesUnavailable: kiln.creatures is not loaded"; return false; }
         reason = "";
         return true;
@@ -102,6 +103,9 @@ internal sealed partial class GamePetWorld : IPetWorld
         public double HealthFraction = 1;
         public bool HealthSet;
         public PetBodyRequest Request = null!;
+        public PetControl? Control;
+        public bool Quarantined;
+        public ulong QuarantinedAt;
     }
 
     public PetBody? CreateBody(PetBodyRequest request, out string? reason)
@@ -192,7 +196,13 @@ internal sealed partial class GamePetWorld : IPetWorld
             return PetBodyPoll.Failed;
         }
         var tag = (BodyTag)body.Tag!;
-        if (info.Value.HealthMax > 0 && info.Value.Health > 0 && !info.Value.Dead && ControlReady(body, out var waiting))
+        var control = ControlPoll(body, out var why);
+        if (control == PetBodyPoll.Failed)
+        {
+            reason = why;
+            return PetBodyPoll.Failed;
+        }
+        if (info.Value.HealthMax > 0 && info.Value.Health > 0 && !info.Value.Dead && control == PetBodyPoll.Ready)
         {
             if (!tag.HealthSet)
             {
@@ -205,7 +215,7 @@ internal sealed partial class GamePetWorld : IPetWorld
         }
         if (Now - since >= 5)
         {
-            reason = "BodyNotReady: the body was not ready within 5 s (no player near it?)";
+            reason = why ?? "BodyNotReady: the body was not ready within 5 s (no player near it?)";
             return PetBodyPoll.Failed;
         }
         return PetBodyPoll.Pending;
@@ -216,7 +226,7 @@ internal sealed partial class GamePetWorld : IPetWorld
         var info = Inspect(body.Entity.Id);
         if (info is null || body.WorldEpoch != WorldEpoch) return new PetBodyReading(false, 0, 0, false, false, default);
         var (hp, max, dead, pos) = info.Value;
-        return new PetBodyReading(true, hp, max, dead, NativeDownPending(body), pos, ProtectionLost(body));
+        return new PetBodyReading(true, hp, max, dead, NativeDownPending(body), pos, ProtectionLost(body), ControlLost(body));
     }
 
     private static (int Health, int HealthMax, bool Dead, WorldPosition Position)? Inspect(EntityId e)
@@ -238,7 +248,7 @@ internal sealed partial class GamePetWorld : IPetWorld
     public bool Retire(PetBody body, PetChangeCause cause)
     {
         if (body.WorldEpoch != WorldEpoch) return true;  // another world: nothing of it is here to remove
-        Detach(body, cause);
+        if (!Detach(body, cause)) return false;   // producers revoked; a rider gets its two steps to get off first
         try
         {
             if (Spawn.Exists(body.Entity.Id)) Spawn.Destroy(body.Entity.Id);
@@ -255,26 +265,25 @@ internal sealed partial class GamePetWorld : IPetWorld
 
     public bool Activate(PetBody body, out string? reason) => ActivateBody(body, out reason);
 
+    public bool Order(PetBody body, PetOrder order, EntityRef target, out string? reason) => SetOrder(body, order, target, out reason);
+
     // ---- the parts packages 3 (broker) and 5 (native guard) fill ----
     private partial bool Attach(PetBody body, PetBodyRequest request, out string? reason);
-    private partial bool ControlReady(PetBody body, out string? waiting);
+    private partial PetBodyPoll ControlPoll(PetBody body, out string? reason);
+    private partial string? ControlLost(PetBody body);
     private partial bool ActivateBody(PetBody body, out string? reason);
-    private partial void Detach(PetBody body, PetChangeCause cause);
+    private partial bool Detach(PetBody body, PetChangeCause cause);
     private partial void Retired(PetBody body);
+    private partial bool SetOrder(PetBody body, PetOrder order, EntityRef target, out string? reason);
     private partial bool NativeDownPending(PetBody body);
     private partial bool ProtectionLost(PetBody body);
 
     internal static string Num(double v) => v.ToString("0.##", CultureInfo.InvariantCulture);
 }
 
-/// <summary>The body parts that come with later packages, until they land: a body is ready when its health is.</summary>
+/// <summary>The body parts that come with package 5 (the native guard), until it lands.</summary>
 internal sealed partial class GamePetWorld
 {
-    private partial bool Attach(PetBody body, PetBodyRequest request, out string? reason) { reason = null; return true; }
-    private partial bool ControlReady(PetBody body, out string? waiting) { waiting = null; return true; }
-    private partial bool ActivateBody(PetBody body, out string? reason) { reason = null; return true; }
-    private partial void Detach(PetBody body, PetChangeCause cause) { }
-    private partial void Retired(PetBody body) { }
     private partial bool NativeDownPending(PetBody body) => false;
     private partial bool ProtectionLost(PetBody body) => false;
 }

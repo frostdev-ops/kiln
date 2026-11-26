@@ -14,6 +14,8 @@ internal sealed class FakeWorld : IPetWorld
     public bool GroundOn { get; set; } = true;
     public int ReadySteps { get; set; } = 1;
     public bool RetireRefuses { get; set; }
+    public string? OrderRefusal { get; set; }
+    public readonly List<(uint Body, PetOrder Order)> Orders = [];
     public string? CreateRefusal { get; set; }
     public readonly Dictionary<CharacterKey, PetOwner> Online = [];
     public readonly Dictionary<uint, FakeBody> Bodies = [];
@@ -26,6 +28,7 @@ internal sealed class FakeWorld : IPetWorld
         public uint Entity;
         public int Health = 100, Max = 100;
         public bool Dead, DownPending, ProtectionLost;
+        public string? ControlLost;
         public WorldPosition Position;
         public int ReadyIn;
         public bool Active;
@@ -104,8 +107,16 @@ internal sealed class FakeWorld : IPetWorld
 
     public PetBodyReading Read(PetBody body) =>
         Bodies.TryGetValue(body.Entity.Id.Value, out var b) && body.WorldEpoch == WorldEpoch
-            ? new PetBodyReading(true, b.Health, b.Max, b.Dead, b.DownPending, b.Position, b.ProtectionLost)
+            ? new PetBodyReading(true, b.Health, b.Max, b.Dead, b.DownPending, b.Position, b.ProtectionLost, b.ControlLost)
             : new PetBodyReading(false, 0, 0, false, false, default);
+
+    public bool Order(PetBody body, PetOrder order, EntityRef target, out string? reason)
+    {
+        reason = OrderRefusal;
+        if (reason is not null) return false;
+        Orders.Add((body.Entity.Id.Value, order));
+        return true;
+    }
 
     public bool Retire(PetBody body, PetChangeCause cause)
     {

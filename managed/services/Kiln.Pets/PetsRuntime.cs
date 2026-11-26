@@ -209,7 +209,11 @@ internal static partial class PetsRuntime
     /// <summary>The rows of mechanisms that are not in this Kiln yet say so (each package fills its own).</summary>
     static partial void ReportLaterRows()
     {
-        foreach (var row in new[] { Pets.Caps.Control, Pets.Caps.Follow, Pets.Caps.Fight, Pets.Caps.Downed, Pets.Caps.HudServer, Pets.Caps.HudClient })
+        var control = Capabilities.Get("creature_control");
+        if (control.State == CapabilityState.Available) ServiceCaps.Report(Pets.Caps.Control, CapabilityState.Available);
+        else ServiceCaps.Report(Pets.Caps.Control, CapabilityState.Unavailable, control.Reason == CapabilityReason.None ? CapabilityReason.ServiceMissing : control.Reason,
+            $"needs creature_control: {control.ReasonText}");
+        foreach (var row in new[] { Pets.Caps.Follow, Pets.Caps.Fight, Pets.Caps.Downed, Pets.Caps.HudServer, Pets.Caps.HudClient })
             ServiceCaps.Report(row, CapabilityState.Unavailable, CapabilityReason.ServiceMissing, "not in this Kiln yet");
     }
 }

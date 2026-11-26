@@ -79,3 +79,19 @@ public sealed class PetRecordCommittedEvent : KilnEvent
     /// <summary>The save.</summary>
     public PetCommit Commit { get; }
 }
+
+/// <summary>One of a pet's leases on its body changed (the broker's states before and after). Standalone callers watch
+/// ControlChangedEvent; this one names the pet. Server tick thread. Since 0.2.0-dev.32.</summary>
+public sealed class PetControlChangedEvent : KilnEvent
+{
+    internal PetControlChangedEvent(PetId pet, CharacterKey owner, ControlLeaseSnapshot? before, ControlLeaseSnapshot after) =>
+        (Pet, Owner, Before, After) = (pet, owner, before, after);
+    /// <summary>The pet.</summary>
+    public PetId Pet { get; }
+    /// <summary>Its owner.</summary>
+    public CharacterKey Owner { get; }
+    /// <summary>The lease before (null: first seen).</summary>
+    public ControlLeaseSnapshot? Before { get; }
+    /// <summary>The lease now.</summary>
+    public ControlLeaseSnapshot After { get; }
+}

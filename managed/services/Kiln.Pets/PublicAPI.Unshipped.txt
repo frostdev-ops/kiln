@@ -77,6 +77,11 @@ Kiln.PetCommit.WorldRevision.get -> uint
 Kiln.PetCommit.WorldRevision.init -> void
 Kiln.PetCommit.WorldUnix.get -> uint
 Kiln.PetCommit.WorldUnix.init -> void
+Kiln.PetControlChangedEvent
+Kiln.PetControlChangedEvent.After.get -> Kiln.ControlLeaseSnapshot!
+Kiln.PetControlChangedEvent.Before.get -> Kiln.ControlLeaseSnapshot?
+Kiln.PetControlChangedEvent.Owner.get -> Kiln.CharacterKey
+Kiln.PetControlChangedEvent.Pet.get -> Kiln.PetId
 Kiln.PetCostDefinition
 Kiln.PetCostDefinition.<Clone>$() -> Kiln.PetCostDefinition!
 Kiln.PetCostDefinition.Count.get -> int

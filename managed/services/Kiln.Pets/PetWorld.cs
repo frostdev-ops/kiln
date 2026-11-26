@@ -40,7 +40,9 @@ internal sealed class PetBody(EntityRef entity, ulong worldEpoch, ulong generati
 /// <param name="DownPending">The native guard latched a down (pkg 5).</param>
 /// <param name="Position">Where it is.</param>
 /// <param name="ProtectionLost">Kiln can no longer protect it (its rows or a capability went away).</param>
-internal readonly record struct PetBodyReading(bool Exists, int Health, int HealthMax, bool Dead, bool DownPending, WorldPosition Position, bool ProtectionLost = false)
+/// <param name="ControlLost">A lease of the pet's ended without its asking (the broker failed it): why; null otherwise.</param>
+internal readonly record struct PetBodyReading(bool Exists, int Health, int HealthMax, bool Dead, bool DownPending, WorldPosition Position, bool ProtectionLost = false,
+    string? ControlLost = null)
 {
     public bool Lethal => Exists && (Dead || DownPending || Health <= 0);
 }
@@ -74,6 +76,8 @@ internal interface IPetWorld
     bool Activate(PetBody body, out string? reason);
     /// <summary>The body now.</summary>
     PetBodyReading Read(PetBody body);
+    /// <summary>A live body's order: its base lease (Follow, Stay) or a PetCombat lease (Attack). Admission only.</summary>
+    bool Order(PetBody body, PetOrder order, EntityRef target, out string? reason);
     /// <summary>Removes the body (its producers revoked first) and confirms it is gone; false when it is still there.</summary>
     bool Retire(PetBody body, PetChangeCause cause);
 }
