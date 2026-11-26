@@ -14,7 +14,7 @@ using Kiln;
 
 namespace RegistryWorldTest;
 
-public sealed unsafe class RegistryWorldTestMod : Mod
+public sealed class RegistryWorldTestMod : Mod
 {
     private static readonly Guid Scene = Guid.Parse("509feadb-4c60-425f-9c7c-deeefd9b6920");
     private static readonly Guid Presets = Guid.Parse("46e14df6-fb8f-4f66-9463-e23b9e19e48e");
@@ -33,7 +33,7 @@ public sealed unsafe class RegistryWorldTestMod : Mod
     }
 
     // the game's functions, called as the game calls them: Kiln's hooks answer the registry's limits
-    private void LimitsChecks()
+    private unsafe void LimitsChecks()
     {
         if (Symbols.TryGet("limits/AltarLimit", out var altar) && Constants.TryGet("limits/altars.table", out var off) && off > 0 && off < 0x10000)
         {
