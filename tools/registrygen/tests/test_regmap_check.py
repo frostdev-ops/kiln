@@ -283,6 +283,22 @@ class Checks(unittest.TestCase):
         finally:
             shutil.rmtree(t, ignore_errors=True)
 
+    @unittest.skipUnless(Path("/mnt/Dongus/kiln-wave/sfi/out/binaries/server-26430253/enshrouded_server.exe").is_file(), "no pinned server exe")
+    def test_hooks_rows_resolve_in_a_scratch_root(self):
+        # kilnctl and the lab check a scratch root with only regmap/ and schema/: the hooks rows' sigdb names still resolve
+        exe = "/mnt/Dongus/kiln-wave/sfi/out/binaries/server-26430253/enshrouded_server.exe"
+        t = Path(tempfile.mkdtemp(prefix="regmap-scratch-"))
+        try:
+            shutil.copytree(REPO / "schema", t / "schema")
+            (t / "regmap").mkdir()
+            shutil.copytree(REPO / "regmap" / "common", t / "regmap" / "common")
+            db = rc.TypeDb.from_refl({"types": [], "exe_sha256": "x"})
+            db.exe_path, db.side = exe, "server"
+            names = db.hook_names(t)
+            self.assertTrue({"limits/AltarLimit", "limits/GiftRange", "limits/altars.cap", "limits/altars.table"} <= names, names)
+        finally:
+            shutil.rmtree(t, ignore_errors=True)
+
     def test_missing_rows_are_unmapped_not_errors(self):
         rows = copy.deepcopy(ROWS)
         del rows["on"]

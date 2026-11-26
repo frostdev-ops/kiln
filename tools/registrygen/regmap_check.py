@@ -90,10 +90,13 @@ class TypeDb:
         if getattr(self, "_hooks", None) is not None:
             return self._hooks
         side = self.side or ("server" if "server" in Path(self.exe_path).name.lower() else "client")
-        sys.path.insert(0, str(Path(root) / "tools" / "sigport"))
+        # the resolver from this tool's own tree; the fragment from the checked root, else from this tool's tree (kilnctl and the
+        # lab run the check in a scratch root that holds only regmap/ and schema/)
+        sys.path.insert(0, str(HERE.parent / "sigport"))
         from peimg import Image  # noqa: E402
         from sigdb_check import Resolver  # noqa: E402
-        frag = Path(root) / "sigdb" / "symbols" / f"{side}.d" / "limits.json"
+        rel = Path("sigdb") / "symbols" / f"{side}.d" / "limits.json"
+        frag = Path(root) / rel if (Path(root) / rel).is_file() else HERE.parents[1] / rel
         ok = set()
         if frag.is_file():
             syms, consts, _ = Resolver(Image(self.exe_path), json.loads(frag.read_text(encoding="utf-8"))).run()
