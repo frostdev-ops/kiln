@@ -372,7 +372,7 @@ struct GdValueSlot {
 bool gd_item_config_slot(const Entry& e, const std::string& path, GdValueSlot* out, std::string* why);
 // dev.32 registries over kiln.gamedata's sections (creatures: KILN_GD_TEMPLATES, arsenals, perks), the same shape:
 // the section's entry with this GUID (lower-case text) in this world, as kiln.content's Entry (id, name, address, GUID);
-bool gd_registry_entry(uint32_t section, const std::string& guid, Entry* out);
+bool gd_section_entry(uint32_t section, const std::string& guid, Entry* out);
 // one value below its root (a template's path starts at a component: "Level.dataStorage[0]") as a store slot of the section,
 // with its tooltip row when the path names a config's value; false + *why (out->absent: this entry has none of it);
 bool gd_value_slot(uint32_t section, const Entry& e, const std::string& path, GdValueSlot* out, std::string* why);

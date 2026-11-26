@@ -192,14 +192,14 @@ away from (`stage.cpp`, whole plan); a field read only at use or for new copies 
 Templates, arsenals, sequences, buffs, perks and skill nodes are kiln.gamedata's sections, not kiln.content store kinds. A
 registry over one needs no kiln.content kind:
 
-- **Live binding**: `gd_section_of` (registry_live.cpp) names the section; `bind_gd` finds the entry by its GUID
-  (`gd_registry_entry`) and binds each row through `gd_value_slot`: gamedata resolves the row's path below the entry's root
+- **Live binding**: `gd_section_of` (registry_live.cpp) names the section; `bind_section` finds the entry by its GUID
+  (`gd_section_entry`) and binds each row through `gd_value_slot`: gamedata resolves the row's path below the entry's root
   (a template's path starts at a component by type name, `Level.dataStorage[0]`; `[i]` indexes an array) and gives the slot
   in its own store kind (`GD_KIND_BASE + section`) with its SlotInfo, so the content sync and the conflict report name it as
-  they name a pack's write. Scalars and enums bind generically (`bind_gd_scalar`); a perk-like entry's one numeric config is
-  `impactConfig` with `"config": "shown"` (`gd_shown_config`, `bind_gd_impact`: not_exact and the tooltip row as items'
-  costs); a list of structs whose leaves are the element rows binds with `bind_gd_list` and keeps its length. The four
-  `gd_*` seams are declared in content.h and faked by `registry_live_test.cpp`'s GdFake (`registry_gd_live_test`).
+  they name a pack's write. Scalars and enums bind generically (`bind_section_scalar`); a perk-like entry's one numeric config is
+  `impactConfig` with `"config": "shown"` (`gd_shown_config`, `bind_section_impact`: not_exact and the tooltip row as items'
+  costs); a list of structs whose leaves are the element rows binds with `bind_section_list` and keeps its length. The four
+  `gd_*` seams are declared in content.h and faked by `registry_live_test.cpp`'s GdSectionFake (`registry_gd_live_test`).
 - **An entry without the member** (a creature without the component a field lives in): the model reads `null` (no note per
   entry), an absolute edit is refused for that entry alone ("this creature has no value of this field"), and a relative op
   has no number there, so composition refuses the edit whole (an edit is all or nothing; authors select by trait or id).

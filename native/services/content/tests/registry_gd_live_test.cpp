@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // kiln.content, host test: dev.32's registries over kiln.gamedata's sections (creatures, arsenals, perks) in the live back-end
-// (registry_live.cpp bind_gd and its binders), over the real store, IR and composition, on a made-up gamedata world
-// (registry_live_test.cpp's GdFake: entries by GUID, value slots by path, components an entry lacks, a perk's one value).
+// (registry_live.cpp bind_section and its binders), over the real store, IR and composition, on a made-up gamedata world
+// (registry_live_test.cpp's GdSectionFake: entries by GUID, value slots by path, components an entry lacks, a perk's one value).
 // Each live field: write, read, revert, a relative op over the value below, another writer, a per-entry refusal in Kiln
 // words; a perk's whole-number value refuses a fraction (not_exact) and its tooltip row follows; an arsenal keeps its attacks.
 // registry_gd_live_test.sh builds and runs it.
@@ -29,20 +29,20 @@ Entry gd_entry(uint32_t id, const char* name, size_t at, const uint8_t g[16]) {
 void gd_slot_at(uint32_t section, uint32_t id, const std::string& path, size_t at, uint8_t bytes, uint8_t vt, std::shared_ptr<EnumInfo> en = nullptr,
                 size_t tip = 0) {
     GdValueSlot s;
-    s.addr = A(at), s.kind = 16 + section, s.id = id, s.field = static_cast<int32_t>(g_gd[section].slots.size());
+    s.addr = A(at), s.kind = 16 + section, s.id = id, s.field = static_cast<int32_t>(g_gd_sections[section].slots.size());
     s.f.path = path, s.f.offset = 0, s.f.bytes = bytes, s.f.vt = vt, s.f.writable = true, s.f.is_signed = vt == KILN_CV_INT;
     if (en) s.f.enum_kind = KILN_CONTENT_ENUM, s.f.en = std::move(en);
     if (tip) s.tip = A(tip), s.tip_format = 0;
-    g_gd[section].slots[{id, path}] = s;
+    g_gd_sections[section].slots[{id, path}] = s;
 }
 
 // the made-up gamedata world, beside registry_live_test's items
 void gd_world() {
     world();
-    g_gd.clear();
+    g_gd_sections.clear();
     auto factions = std::make_shared<EnumInfo>();
     factions->values = {{"Environment", 0}, {"Vukah", 3}, {"Wildlife", 5}, {"PlayerAlly", 11}};
-    GdFake& T = g_gd[KILN_GD_TEMPLATES];
+    GdSectionFake& T = g_gd_sections[KILN_GD_TEMPLATES];
     T.entries[guid_text(C1)] = gd_entry(VUKAH, "Enemy_Vukah_Melee", VUKAH_AT, C1);
     T.entries[guid_text(C2)] = gd_entry(WOLF, "Animal_Wildlife_Wolf", WOLF_AT, C2);
     gd_slot_at(KILN_GD_TEMPLATES, VUKAH, "Level.dataStorage[0]", VUKAH_AT + 0x0, 4, KILN_CV_INT);
@@ -54,7 +54,7 @@ void gd_world() {
     gd_slot_at(KILN_GD_TEMPLATES, WOLF, "ScaleComponent.uniformScale", WOLF_AT + 0x4, 4, KILN_CV_FLOAT);
     mem<uint32_t>(VUKAH_AT, 7), mem<uint8_t>(VUKAH_AT + 4, 3), mem<float>(VUKAH_AT + 8, 18.0f), mem<float>(VUKAH_AT + 0xC, 1.5f);
     mem<uint32_t>(WOLF_AT, 3), mem<float>(WOLF_AT + 4, 1.5f);
-    GdFake& R = g_gd[KILN_GD_ARSENALS];
+    GdSectionFake& R = g_gd_sections[KILN_GD_ARSENALS];
     R.entries[guid_text(A1)] = gd_entry(ARS, "", ARS_AT, A1);
     R.lists[{ARS, "attacks"}] = 2;
     for (int i = 0; i < 2; ++i)
@@ -62,7 +62,7 @@ void gd_world() {
             gd_slot_at(KILN_GD_ARSENALS, ARS, "attacks[" + std::to_string(i) + "].description." + kLeaves[k], ARS_AT + 0x20 * i + 4 * k, 4, KILN_CV_FLOAT);
     mem<float>(ARS_AT + 0x00, 1.0f), mem<float>(ARS_AT + 0x04, 9.0f), mem<float>(ARS_AT + 0x0C, 2.5f);  // attack 0
     mem<float>(ARS_AT + 0x20, 0.5f), mem<float>(ARS_AT + 0x24, 3.0f), mem<float>(ARS_AT + 0x2C, 8.0f);  // attack 1
-    GdFake& P = g_gd[KILN_GD_PERKS];
+    GdSectionFake& P = g_gd_sections[KILN_GD_PERKS];
     P.entries[guid_text(B1)] = gd_entry(PERK_INT, "Perk_Max_Adder_Health_T7", PERK_INT_AT, B1);
     P.entries[guid_text(B2)] = gd_entry(PERK_FLOAT, "Perk_Mana_Cost_Mod_10", PERK_FLOAT_AT, B2);
     P.entries[guid_text(B3)] = gd_entry(PERK_ARMOR, "Perk_Armor_Fog", PERK_ARMOR_AT, B3);

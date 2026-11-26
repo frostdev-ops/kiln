@@ -918,7 +918,7 @@ void refuse_mapping(const registry::FieldRef& fr, const std::vector<const ChainR
 // A value of a gamedata entry: an evaluated layer on gamedata's slot of it (its store kind, so the content sync and the
 // conflict report name it), compare-before-write and rollback as for every registry slot. A refusal names the Kiln field and
 // entry; gamedata's own reason (game members) goes to kiln.log at debug level (P45).
-bool gd_slot(const std::shared_ptr<Binding>& b, uint32_t section, const std::vector<const ChainRow*>& rows, const std::string& path,
+bool section_slot(const std::shared_ptr<Binding>& b, uint32_t section, const std::vector<const ChainRow*>& rows, const std::string& path,
              GdValueSlot* s) {
     std::string why;
     if (gd_value_slot(section, b->entry, path, s, &why)) {
@@ -936,7 +936,7 @@ bool gd_slot(const std::shared_ptr<Binding>& b, uint32_t section, const std::vec
     return false;
 }
 
-void bind_gd_scalar(const std::shared_ptr<Binding>& b, const GdValueSlot& s) {
+void bind_section_scalar(const std::shared_ptr<Binding>& b, const GdValueSlot& s) {
     const Field fc = s.f;
     LayerEval ev = [b, fc](const uint8_t* below, uint8_t, uint8_t* out, std::string* why) {
         const rmap::Row* row = b->row ? &*b->row : nullptr;
@@ -951,7 +951,7 @@ void bind_gd_scalar(const std::shared_ptr<Binding>& b, const GdValueSlot& s) {
 
 // perks.value: the perk's one whole or fractional config (impactConfig "shown"), as bind_impact: a fraction on a whole-number
 // config refused with not_exact, never rounded; its tooltip row follows the value the registry gives.
-void bind_gd_impact(const std::shared_ptr<Binding>& b, const GdValueSlot& s) {
+void bind_section_impact(const std::shared_ptr<Binding>& b, const GdValueSlot& s) {
     const Field vf = s.f;
     LayerEval ev = [b, vf](const uint8_t* below, uint8_t, uint8_t* out, std::string* why) {
         const Value v = registry::evaluate(b->rows, to_kiln(vf, nullptr, b->spec, below), b->spec);
@@ -985,7 +985,7 @@ void bind_gd_impact(const std::shared_ptr<Binding>& b, const GdValueSlot& s) {
 
 // arsenals.attacks: a list of structs whose leaves are the element rows ("attacks[].chance"); the list keeps its elements
 // (an arsenal's attacks are not added or removed live), each leaf a slot of its own.
-void bind_gd_list(const std::shared_ptr<Binding>& b, uint32_t section, const rmap::RegistryMap& rm, const std::vector<const ChainRow*>& rows) {
+void bind_section_list(const std::shared_ptr<Binding>& b, uint32_t section, const rmap::RegistryMap& rm, const std::vector<const ChainRow*>& rows) {
     const rmap::Row& row = *b->row;
     const std::string prefix = b->ref.field + "[].";
     struct Leaf {
@@ -1004,28 +1004,31 @@ void bind_gd_list(const std::shared_ptr<Binding>& b, uint32_t section, const rma
         LOGD("registry (live): %s: %s", b->ref.text().c_str(), why.c_str());
         return refuse_mapping(b->ref, rows, std::string("the game's value of this field is missing on this game build") + kMappingUpdate, row.paths[0]);
     }
-    std::vector<std::vector<GdValueSlot>> slots(n, std::vector<GdValueSlot>(leaves.size()));
+    auto all = std::make_shared<std::vector<std::vector<GdValueSlot>>>(n, std::vector<GdValueSlot>(leaves.size()));
     for (uint32_t i = 0; i < n; ++i)
         for (size_t k = 0; k < leaves.size(); ++k)
-            if (!gd_slot(b, section, rows, row.paths[0] + "[" + std::to_string(i) + "]." + leaves[k].path, &slots[i][k])) return;
+            if (!section_slot(b, section, rows, row.paths[0] + "[" + std::to_string(i) + "]." + leaves[k].path, &(*all)[i][k])) return;
+    const std::shared_ptr<const std::vector<std::vector<GdValueSlot>>> slots = all;  // shared by every slot's layer, never copied per slot
+    const auto leaf_list = std::make_shared<const std::vector<Leaf>>(leaves);
     // the whole list's value, the slot being evaluated taken from its own value below
-    auto list_at = [b, slots, leaves](size_t mine_i, size_t mine_k, const uint8_t* below) {
+    auto list_at = [slots, leaf_list](size_t mine_i, size_t mine_k, const uint8_t* below) {
         std::vector<Value> list;
-        for (size_t i = 0; i < slots.size(); ++i) {
+        for (size_t i = 0; i < slots->size(); ++i) {
             std::vector<std::pair<std::string, Value>> el;
-            for (size_t k = 0; k < leaves.size(); ++k) {
+            for (size_t k = 0; k < leaf_list->size(); ++k) {
+                const GdValueSlot& sk = (*slots)[i][k];
                 SlotBytes bytes{};
-                if (i == mine_i && k == mine_k) std::memcpy(bytes.data(), below, slots[i][k].f.bytes);
-                else store_below_registry(slots[i][k].addr, slots[i][k].f.bytes, bytes.data());
-                el.emplace_back(leaves[k].name, to_kiln(slots[i][k].f, nullptr, leaves[k].spec, bytes.data()));
+                if (i == mine_i && k == mine_k) std::memcpy(bytes.data(), below, sk.f.bytes);
+                else store_below_registry(sk.addr, sk.f.bytes, bytes.data());
+                el.emplace_back((*leaf_list)[k].name, to_kiln(sk.f, nullptr, (*leaf_list)[k].spec, bytes.data()));
             }
             list.push_back(make_struct(std::move(el)));
         }
         return Value::of_list(std::move(list));
     };
-    for (size_t i = 0; i < slots.size(); ++i)
+    for (size_t i = 0; i < slots->size(); ++i)
         for (size_t k = 0; k < leaves.size(); ++k) {
-            const GdValueSlot s = slots[i][k];
+            const GdValueSlot& s = (*slots)[i][k];
             const Leaf lf = leaves[k];
             LayerEval ev = [b, list_at, i, k, s, lf](const uint8_t* below, uint8_t, uint8_t* out, std::string* why) {
                 const Value before = list_at(i, k, below);
@@ -1041,7 +1044,7 @@ void bind_gd_list(const std::shared_ptr<Binding>& b, uint32_t section, const rma
         }
     std::vector<LiveSlot> live;
     std::vector<Field> fs;
-    for (const auto& el : slots)
+    for (const auto& el : *slots)
         for (const GdValueSlot& s : el) live.push_back({s.addr, s.f.bytes}), fs.push_back(s.f);
     std::vector<FieldSpec> specs;
     std::vector<std::string> names;
@@ -1059,16 +1062,16 @@ void bind_gd_list(const std::shared_ptr<Binding>& b, uint32_t section, const rma
 }
 
 // One field of a gamedata-section registry's entry: the entry by its GUID in this world, then the row's conversion.
-void bind_gd(const std::shared_ptr<Binding>& b, const registry::FieldRef& fr, const registry::FieldOutcome& fo,
+void bind_section(const std::shared_ptr<Binding>& b, const registry::FieldRef& fr, const registry::FieldOutcome& fo,
              const std::vector<const ChainRow*>& rows, bool raw, uint32_t section) {
     std::string guid;
     if (auto it = g.in->ids.find(fr.registry + "|" + fr.id); it != g.in->ids.end()) guid = lower(it->second);
-    if (guid.empty() || !gd_registry_entry(section, guid, &b->entry)) return refuse(fr, rows, "the entry is not in this world");
+    if (guid.empty() || !gd_section_entry(section, guid, &b->entry)) return refuse(fr, rows, "the entry is not in this world");
     GdValueSlot s;
     if (raw) {  // the Advanced tier: a member path below the entry's root, as kiln.gamedata names it
-        if (!gd_slot(b, section, rows, fr.field.substr(4), &s)) return;
+        if (!section_slot(b, section, rows, fr.field.substr(4), &s)) return;
         if (!s.f.writable && (!g.reading || g.initializing_entry)) return refuse(fr, rows, "the member " + fo.raw + " is not a writable member on this game build");
-        return bind_gd_scalar(b, s);
+        return bind_section_scalar(b, s);
     }
     std::string reason;
     if (g.in->regmap->mapping(fr.registry, fr.field, &reason) != rmap::Mapping::Mapped) return refuse(fr, rows, reason);
@@ -1082,10 +1085,10 @@ void bind_gd(const std::shared_ptr<Binding>& b, const registry::FieldRef& fr, co
     const std::string member0 = rw.paths.empty() ? std::string("?") : rw.paths[0];
     if (rw.paths.empty()) return refuse_mapping(fr, rows, std::string("the game's value of this field is missing on this game build") + kMappingUpdate, member0);
     if (rw.conv == "int" || rw.conv == "float" || rw.conv == "bool" || rw.conv == "time" || rw.conv == "enum") {
-        if (!gd_slot(b, section, rows, rw.paths[0], &s)) return;
+        if (!section_slot(b, section, rows, rw.paths[0], &s)) return;
         if (rw.conv == "enum" && (s.f.enum_kind != KILN_CONTENT_ENUM || !s.f.en))
             return refuse_mapping(fr, rows, std::string("the game's value of this field is not an enum on this game build") + kMappingUpdate, member0);
-        return bind_gd_scalar(b, s);
+        return bind_section_scalar(b, s);
     }
     if (rw.conv == "impactConfig" && rw.config == registry::model::kShownConfig) {
         std::string path, why;
@@ -1095,10 +1098,10 @@ void bind_gd(const std::shared_ptr<Binding>& b, const registry::FieldRef& fr, co
                 return refuse(fr, rows, std::string("this ") + entry_word(fr.registry) + (why == "none" ? " has no value" : " has more than one value Kiln could mean"));
             return refuse_mapping(fr, rows, std::string("the game's value of this field is missing on this game build") + kMappingUpdate, member0);
         }
-        if (!gd_slot(b, section, rows, path, &s)) return;
-        return bind_gd_impact(b, s);
+        if (!section_slot(b, section, rows, path, &s)) return;
+        return bind_section_impact(b, s);
     }
-    if (rw.conv == "list") return bind_gd_list(b, section, rm->second, rows);
+    if (rw.conv == "list") return bind_section_list(b, section, rm->second, rows);
     refuse(fr, rows, "the live back-end does not write " + rw.conv + " fields yet");
 }
 
@@ -1115,7 +1118,7 @@ void bind(const registry::FieldRef& fr, const registry::FieldOutcome& fo) {
     for (const ChainRow* r : rows) b->rows.push_back(*r);
     b->spec = *spec;
     b->kind = kind_of(fr.registry);
-    if (const uint32_t section = b->kind ? 0 : gd_section_of(fr.registry)) return bind_gd(b, fr, fo, rows, raw, section);
+    if (const uint32_t section = b->kind ? 0 : gd_section_of(fr.registry)) return bind_section(b, fr, fo, rows, raw, section);
     if (!b->kind) return refuse(fr, rows, "this registry has no live back-end");
     std::string guid;
     const Entry* e = find_entry(fr.registry, fr.id, &guid);

@@ -1,0 +1,12 @@
+{
+  "format": 1,
+  "comment": "dev.32 (experimental): the creatures, arsenals and perks registries as a data pack. Every Vukah enemy sees half again as far; early-game wolves spawn at level 12 (when their spawner sets no level of its own); the Vukah warrior's arsenal picks each attack half as often; one perk grants 10 more. Docs: docs/kiln/modding/registries/README.md.",
+  "registry": {
+    "alter": [
+      { "registry": "creatures", "select": { "id": "game:enemy_vukah_*", "has": ["enemy"] }, "field": "sight.range", "op": { "mul": 1.5 } },
+      { "registry": "creatures", "select": "game:enemy_wildbeast_wolf_earlygame", "field": "level", "op": 12 },
+      { "registry": "arsenals", "select": "game:enemy_vukah_melee", "field": "attacks[*].chance", "op": { "mul": 0.5 } },
+      { "registry": "perks", "select": "game:perk_max_adder_health_t7", "field": "value", "op": { "add": 10 } }
+    ]
+  }
+}
