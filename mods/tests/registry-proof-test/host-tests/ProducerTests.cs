@@ -80,6 +80,30 @@ public class ProducerTests
         Assert.Equal(expected, (string?)method.Invoke(null, new object?[] { config }));
     }
 
+    // dev.32 perks.value: an impactConfig row's config "shown" is the perk's one whole-number or fractional config, whatever
+    // its id; none or more than one gives no path (no sample, never a guess).
+    [Theory]
+    [InlineData("""{"0x0a0c87e7":{"$config":"Sint32ImpactConfig","value":6},"BuffType":{"$config":"BuffImpactConfig","value":"x"}}""", "0x0a0c87e7")]
+    [InlineData("""{"Damage":{"$config":"keen::impact::FloatImpactConfig","value":0.1}}""", "Damage")]
+    [InlineData("""{"a":{"$config":"FloatImpactConfig","value":0.1},"b":{"$config":"Sint32ImpactConfig","value":2}}""", null)]
+    [InlineData("""{"SkillId":{"$config":"SkillIdConfig","value":3}}""", null)]
+    [InlineData("""[]""", null)]
+    public void A_perks_value_is_its_one_numeric_config(string configs, string? expected) =>
+        Assert.Equal(expected, (string?)Call("ShownConfig", JsonNode.Parse(configs)));
+
+    // dev.32: the resource each registry's entry is read from for its byte digest (an arsenal shares the arsenal registry's)
+    [Theory]
+    [InlineData("creatures", "keen::ecs::TemplateResource", false)]
+    [InlineData("perks", "keen::Perk", false)]
+    [InlineData("arsenals", "keen::enemy::EnemyArsenalRegistryResource", true)]
+    [InlineData("items", "keen::ItemInfo", false)]
+    [InlineData("loot", "keen::LootableItemsResource", true)]
+    public void Each_registry_names_its_resource(string registry, string type, bool shared)
+    {
+        var r = Call("ResourceTypeOf", registry)!;
+        Assert.Equal((type, shared), ((string, bool))r);
+    }
+
     [Theory]
     [InlineData(2.0)]
     [InlineData(2.5)]
