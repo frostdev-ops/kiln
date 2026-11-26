@@ -106,6 +106,7 @@ internal static partial class PetsRuntime
             Roster.Mover = new GamePetMover();
         }
         Roster?.Step();
+        if (Roster is not null && !_testOwned) Publish(Roster);
         DrainEvents();
     }
 
@@ -155,9 +156,21 @@ internal static partial class PetsRuntime
     /// <summary>Wires the packages' parts onto a roster (the broker, the follower, the guard, the owners' view).</summary>
     internal static Action<PetRoster>? Wire;
 
+    /// <summary>The owners' view publisher of the world's roster.</summary>
+    internal static PetViewPublisher Publisher { get; private set; } = new();
+
+    private static void Publish(PetRoster r)
+    {
+        if (PetsClient.Channel is not { } channel || !Network.Available) return;
+        Publisher.Step(r, r.World.OnlineOwners(), r.World.WorldEpoch, r.World.Now, (owner, bytes) =>
+            Network.PeerOf(owner.Entity.Id) is { State: NetPeerState.Ready } peer && channel.SendRaw(peer, PetViewCodec.ViewMessage, bytes));
+    }
+
     private static PetRoster MakeRoster(IPetWorld world, IPetStore store)
     {
         var r = new PetRoster(world, store);
+        Publisher = new PetViewPublisher();
+        r.Changes += p => Publisher.MarkDirty(p.Owner);
         InUse = id => Roster?.DefinitionInUse(id) ?? false;
         Wire?.Invoke(r);
         return r;
@@ -235,7 +248,12 @@ internal static partial class PetsRuntime
         if (native && guards.State != CapabilityState.Unavailable) ServiceCaps.Report(Pets.Caps.Downed, CapabilityState.Available);
         else ServiceCaps.Report(Pets.Caps.Downed, CapabilityState.Unavailable, native ? guards.Reason : CapabilityReason.ServiceMissing,
             native ? $"needs decisions.native_guards: {guards.ReasonText}" : "needs kiln.pets' native safety module");
-        foreach (var row in new[] { Pets.Caps.HudServer, Pets.Caps.HudClient })
-            ServiceCaps.Report(row, CapabilityState.Unavailable, CapabilityReason.ServiceMissing, "not in this Kiln yet");
+        var net = Network.Available && PetsClient.Channel is not null;
+        if (server && net) ServiceCaps.Report(Pets.Caps.HudServer, CapabilityState.Available);
+        else ServiceCaps.Report(Pets.Caps.HudServer, CapabilityState.Unavailable, server ? CapabilityReason.ServiceMissing : CapabilityReason.WrongSide,
+            server ? "needs Kiln.Network (kiln.net) for the channel kiln:pets" : "owners' views are sent by the server");
+        if (net && Render.Available) ServiceCaps.Report(Pets.Caps.HudClient, CapabilityState.Available);
+        else ServiceCaps.Report(Pets.Caps.HudClient, CapabilityState.Unavailable, CapabilityReason.ServiceMissing,
+            net ? "needs the renderer (kiln.render) for the bar" : "needs Kiln.Network (kiln.net) for the channel kiln:pets");
     }
 }

@@ -48,5 +48,12 @@ internal static class PetsStartup
     {
         Pets.Caps.Rows.Ensure();
         PetsRuntime.Start();
+        // the owners' view: the channel on both sides, the built-in bar where frames are drawn
+        PetsClient.Start();
+        try { Events.On<RenderFrameEvent>(PetsClient.Draw); }
+        catch (Exception e) when (e is InvalidOperationException or NotSupportedException)
+        {
+            PetsRuntime.Log(LogLevel.Info, $"Kiln.Pets: no pet bar on this side: {e.Message}");
+        }
     }
 }

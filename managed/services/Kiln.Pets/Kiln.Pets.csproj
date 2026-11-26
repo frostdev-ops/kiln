@@ -30,5 +30,8 @@
     <ProjectReference Include="../Kiln.Players/Kiln.Players.csproj" Private="false" />
     <ProjectReference Include="../Kiln.Content/Kiln.Content.csproj" Private="false" />
     <ProjectReference Include="../Kiln.Combat/Kiln.Combat.csproj" Private="false" />
+    <!-- the owners' view: channel kiln:pets (Kiln.Network) and the built-in bar (Kiln.Ui's RenderFrameEvent) -->
+    <ProjectReference Include="../Kiln.Network/Kiln.Network.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.Ui/Kiln.Ui.csproj" Private="false" />
   </ItemGroup>
 </Project>

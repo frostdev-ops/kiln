@@ -156,6 +156,27 @@ internal sealed partial class PetRoster
 
     internal PetState? State(PetId id) => _pets.GetValueOrDefault(id);
 
+    /// <summary>The owner's view of their pets (released ones left out), for the channel kiln:pets.</summary>
+    internal IReadOnlyList<PetViewEntry> ViewOf(CharacterKey owner)
+    {
+        if (!_owners.TryGetValue(owner, out var o)) return [];
+        var list = new List<PetViewEntry>();
+        foreach (var p in o.Pets.Where(p => p.Life != PetLife.Released))
+        {
+            var v = p.View(_epoch);
+            var hud = (p.Snapshot ?? PetsRuntime.Definition(p.Definition))?.Hud ?? new PetHudPolicy();
+            list.Add(new PetViewEntry
+            {
+                Id = p.Id, Definition = p.Definition, Label = v.Label, Life = v.Life, Presence = v.Presence, Transition = v.Transition,
+                Body = p.Body is { } b ? new PetBodyViewKey(b.Entity.Id.Value, b.Generation) : null,
+                RecoveryAnchor = v.Presence == PetPresence.RecoveryAnchor ? v.RecoveryAnchor : null, RequestedOrder = v.RequestedOrder,
+                Level = v.Level, Current = v.Health, Maximum = v.HealthMax, ReviveOperation = v.ReviveOperation,
+                ReviveElapsedMs = (uint)Math.Clamp(v.ReviveElapsed * 1000, 0, uint.MaxValue), ReviveDurationMs = (uint)Math.Clamp(v.ReviveDuration * 1000, 0, uint.MaxValue),
+                StateRevision = v.StateRevision, DurableRevision = v.DurableRevision, ShowBar = hud.Bar, ShowMarker = hud.RecoveryMarker,
+            });
+        }
+        return list;
+    }
     internal IEnumerable<PetState> AllStates => _pets.Values;
     internal IPetWorld World => _world;
 
