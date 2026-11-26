@@ -57,7 +57,7 @@ step python3 -I "$C" check --dump "$F1" --archive "$OUTD/archive.json" --allow "
 step python3 -I "$C" check --dump "$O1" --archive "$OUTD/archive.json" --allow "$BAL"
 step python3 -I "$C" diff --before "$O1" --after "$F1" --allow "$BAL" \
   --allow-field items:Material_T1_Wood_Logs.maxStackSize --allow-field items:Material_T1_Plant_Fibre.maxStackSize \
-  --allow-field recipes:Material_T1_Factory_String_SpinningWheel.craftingDuration
+  --allow-field recipes:Material_T1_Factory_String_SpinningWheel.craftingDuration --allow-field skills:0x4475e8dd.costs
 step python3 -I "$C" diff --before "$O1" --after "$OUTD/full/dump-3.json" --allow "$BAL" --allow-field items:Material_T1_Plant_Fibre.maxStackSize
 step python3 -I "$C" diff --before "$F1" --after "$OUTD/full/dump-4.json"
 say "session over: $([[ $rc == 0 ]] && echo PASS || echo FAIL)"

@@ -1,11 +1,16 @@
 {
   "format": 1,
-  "comment": "an old data pack: below the registry (D1)",
+  "comment": "an old data pack: below the registry (D1); since dev.32 also an old skills section (kiln.gamedata) under skills.cost",
   "items": {
     "Material_T1_Wood_Logs": {
       "maxStackSize": {
         "mul": 2
       }
+    }
+  },
+  "skills": {
+    "0x4475e8dd": {
+      "costs": 2
     }
   }
 }

@@ -5,7 +5,8 @@
 //   - registry-compat-test, the older mod (earlier in the load order): an old data pack, Material_T1_Wood_Logs maxStackSize
 //     x2, and an old boot patch on keen::BalancingTable (experienceNeedPerLevel[0] 1500, playerLevelCap 55);
 //   - content/registry.json: the registry section: items maxStack x4 (composes on the pack: x8), a recipe's duration 7 s,
-//     balance levelCap 60 (over the old patch's 55);
+//     balance levelCap 60 (over the old patch's 55), and since dev.32 skills.cost x2 of Airborne Architect (composes on the
+//     older mod's old skills section, cost 2: 4);
 //   - OnBoot: a C# registry edit through kiln.registry's submit (the native form of P2's Mod.OnRegistry; this test reaches it
 //     through Kiln.Content's internal service lookup, which no mod should do): items plant fibre maxStack 500, balance
 //     xpPerLevel[0] 2222 (over the old patch's 1500). Its copied IR uses a process-lived test owner, not the transient
@@ -92,6 +93,9 @@ public sealed unsafe class RegistryMixedTestMod : Mod
     }
 
     private double Num(string item) => Content.Items.Get(item)?.GetNumber("maxStackSize") ?? double.NaN;
+    // dev.32: Airborne Architect's cost (the skills registry over kiln.gamedata's skills slot): the old pack sets 2, the section x2
+    private const uint Node = 0x4475e8dd;
+    private static double Cost() => Content.Skills.Get(Node)?.GetNumber("costs") ?? double.NaN;
 
     private JsonNode? Row(JsonNode doc, string registry, string id, string field)
     {
@@ -110,6 +114,7 @@ public sealed unsafe class RegistryMixedTestMod : Mod
             if (OldOnly)
             {
                 Check(Num(Wood) == 2 * _wood0, $"old-only: the old pack's x2 alone: {Num(Wood)} (game {_wood0})");
+                Check(Cost() == 2, $"old-only: the old skills section's cost 2 alone: {Cost()}");
                 _step = 99;
                 Done();
                 return;
@@ -135,6 +140,10 @@ public sealed unsafe class RegistryMixedTestMod : Mod
             Check(ms is not null && (int?)ms["result"] == (int)(8 * _wood0) && ms["writers"]!.AsArray().Any(w => (string?)w?["kind"] == "oldPack"),
                 $"registry.json at world load: maxStack's row has the older mod's pack below and the live result: {ms?.ToJsonString()}");
             Check(Line("maxStack", "composedOn", "registry-compat-test"), "registry.json at world load: the x4 composed on the older mod's pack");
+            Check(Cost() == 4, $"world load: skills.cost x2 composed on the old skills section's 2: {Cost()}");
+            var cost = Row(doc, "skills", "game:skill_4475e8dd", "cost");
+            Check(cost is not null && (int?)cost["result"] == 4 && cost["writers"]!.AsArray().Any(w => (string?)w?["kind"] == "oldPack"),
+                $"registry.json at world load: skills.cost's row has the old skills section below and the live result: {cost?.ToJsonString()}");
             _step = 1;
             File.WriteAllText(SectionPath, _section.Replace("\"mul\": 4", "\"mul\": 3"));
             Content.ReloadPacks();
@@ -145,6 +154,7 @@ public sealed unsafe class RegistryMixedTestMod : Mod
         {
             Check(Num(Wood) == 6 * _wood0, $"reload, the section edited (x3): {Num(Wood)} = 6 x {_wood0}");
             Check(Num(Fibre) == 500, $"reload: the C# edit stays: {Num(Fibre)}");
+            Check(Cost() == 4, $"reload, the section edited: skills.cost x2 stays: {Cost()}");
             _step = 2;
             File.Delete(SectionPath);
             Content.ReloadPacks();
@@ -155,6 +165,7 @@ public sealed unsafe class RegistryMixedTestMod : Mod
             var d = Content.Recipes.Get(Recipe)?.GetNumber("craftingDuration") ?? double.NaN;
             var d0 = Content.Recipes.Get(Recipe)?.Original("craftingDuration").AsDouble ?? double.NaN;
             Check(d == d0, $"reload, the section removed: {Recipe} craftingDuration back to the game's {d0}: {d}");
+            Check(Cost() == 2, $"reload, the section removed: the old skills section's cost 2 alone, no residue: {Cost()}");
             _step = 3;
             File.WriteAllText(SectionPath, _section);
             Content.ReloadPacks();
@@ -162,6 +173,7 @@ public sealed unsafe class RegistryMixedTestMod : Mod
         else if (_step == 3)
         {
             Check(Num(Wood) == 8 * _wood0, $"reload, the section back: x8 again: {Num(Wood)}");
+            Check(Cost() == 4, $"reload, the section back: skills.cost 4 again: {Cost()}");
             _step = 99;
             Done();
         }

@@ -28,6 +28,16 @@
         },
         "field": "levelCap",
         "op": 60
+      },
+      {
+        "registry": "skills",
+        "select": {
+          "id": "game:skill_4475e8dd"
+        },
+        "field": "cost",
+        "op": {
+          "mul": 2
+        }
       }
     ]
   }
