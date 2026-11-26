@@ -156,7 +156,7 @@ struct Registry {
     const Entry* get(uint32_t id) const;
     const Entry* lookup(const std::string& key) const;  // name, case-insensitive name, 0x id, decimal id, GUID (drops)
 };
-Registry& reg(uint32_t kind);  // 1..4
+Registry& reg(uint32_t kind);  // 1..6 (KILN_CONTENT_ITEMS .. KILN_CONTENT_RANDOM_LOOT)
 bool valid_kind(uint32_t kind);
 
 // Recipe layout (from reflection; filled by registries.cpp).
@@ -178,6 +178,9 @@ extern std::unordered_map<uint32_t, std::vector<uint8_t>> g_category_guid;  // i
 
 // Snapshot of the four registries (tick thread). false + *why when nothing usable.
 bool build_registries(uintptr_t world, std::string* why);
+// The loot rules (one entry) and the random loot tables, from resident resources (kiln.assets) and, for the rules, the loot
+// registry `lreg` (0: none). Called by build_registries; off in a joined client's world.
+void build_loot_tables(uintptr_t lreg);
 // Stacks of a recipe list / a drop table as they are in memory now.
 bool read_recipe_stacks(const Entry& e, uint32_t which, std::vector<KilnContentStack>* out);
 struct DropStackRef {

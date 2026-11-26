@@ -12,6 +12,14 @@
  *             loads them on demand, so this registry fills as the game uses them; id = FNV-1a-32 of the table GUID,
  *             name = the GUID ("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"). Data-pack rules for drop tables apply the
  *             moment the game first uses a table (before that roll).
+ *  - LOOT_RULES (0.2.0-dev.31.19): the one keen::LootableItemsResource's head (the five world-wide rarity weights,
+ *             globalRarityDropRates[0..4]), id = FNV-1a-32 of the resource GUID, name = the GUID. The registries'
+ *             lootRules entry game:loot; data packs have no section of their own for it.
+ *  - RANDOM_LOOT (0.2.0-dev.31.19): every random loot table (keen::LootSettingsResource fields, "modifier.level.mode",
+ *             "modifier.rarities[2].value"): the label collection's tables (id = the table's own 32-bit id, name
+ *             "labels_<id as 8 hex digits>"), then each keen::SceneRandomLootResource's (id = FNV-1a-32 of the resource
+ *             GUID mixed with the index, registry/element_num.h; name "world_<GUID's first 8 hex digits>_<index>"). The
+ *             registries' randomLoot entries game:labels_* / game:world_*. Server world only (rolled there).
  *
  * Fields: the layout of each registry's struct comes from the game's own reflection (keen::ItemInfo, keen::RecipeInfo,
  * keen::LootableItemInfo, keen::ecs::ItemStackInfoResource), flattened into dotted paths: "maxStackSize",
@@ -64,6 +72,8 @@ enum {
     KILN_CONTENT_RECIPES = 2,
     KILN_CONTENT_LOOT = 3,
     KILN_CONTENT_DROPS = 4,
+    KILN_CONTENT_LOOT_RULES = 5,   /* 0.2.0-dev.31.19: check status().registries for KILN_CONTENT_HAS_LOOT_RULES */
+    KILN_CONTENT_RANDOM_LOOT = 6,  /* 0.2.0-dev.31.19: KILN_CONTENT_HAS_RANDOM_LOOT */
 };
 
 /* KilnContentValue.type / KilnContentField.value_type */
@@ -144,7 +154,8 @@ typedef struct KilnContentStack {
 } KilnContentStack;
 
 /* KilnContentStatus.registries bits: which registries work on this build */
-enum { KILN_CONTENT_HAS_ITEMS = 1, KILN_CONTENT_HAS_RECIPES = 2, KILN_CONTENT_HAS_LOOT = 4, KILN_CONTENT_HAS_DROPS = 8 };
+enum { KILN_CONTENT_HAS_ITEMS = 1, KILN_CONTENT_HAS_RECIPES = 2, KILN_CONTENT_HAS_LOOT = 4, KILN_CONTENT_HAS_DROPS = 8,
+       KILN_CONTENT_HAS_LOOT_RULES = 16, KILN_CONTENT_HAS_RANDOM_LOOT = 32 };
 
 typedef struct KilnContentStatus {
     uint32_t size;          /* in: sizeof(KilnContentStatus) */

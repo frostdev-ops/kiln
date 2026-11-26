@@ -985,6 +985,130 @@ void loot_flags_foreign_revert_is_skipped() {
     registry_live_revert(71, h, &reply);
     check(reply.outcome == RegistryLiveOutcome::Skipped && at<uint8_t>(MASK_AT) == 0x10, "a flags revert keeps another writer's byte (compare before write)");
 }
+// 0.2.0-dev.31.19, Loot Rarity Leveler: lootRules (the world-wide rarity weights) and randomLoot (each random loot table's
+// level rules and rarity weights) are plain floats and enums of resident tables, written by the generic scalar binder
+constexpr size_t RULES_AT = 0x44000, TABLE_AT = 0x44100, WORLD_AT = 0x44200;
+constexpr uint32_t RULES = 0x51, TABLE = 0x80943338u, WORLD_TABLE = 0x61;
+void random_loot_world() {
+    world();
+    // the back-end, not the proof: the fixture's build record has every row of the two registries ok
+    static const registry::Schema schema = registry::generated_schema();
+    for (const char* r : {"lootRules", "randomLoot"})
+        for (const auto& [path, spec] : schema.registry(r)->fields)
+            g_regmap->build.rows[std::string(r) + "." + path] = registry::map::BuildRow::Ok;
+    Registry& R = g_regs[KILN_CONTENT_LOOT_RULES];
+    R.kind = KILN_CONTENT_LOOT_RULES, R.label = "loot rules", R.available = true;
+    for (int i = 0; i < 5; ++i) add_field(R.schema, fld(("globalRarityDropRates[" + std::to_string(i) + "]").c_str(), 4 * i, 4, KILN_CV_FLOAT));
+    add_entry(R, RULES, "loot", RULES_AT, G1);
+    const float vanilla[5] = {40.59f, 27.35f, 17.06f, 9.71f, 5.29f};
+    for (int i = 0; i < 5; ++i) mem<float>(RULES_AT + 4 * i, vanilla[i]);
+    Registry& T = g_regs[KILN_CONTENT_RANDOM_LOOT];
+    T.kind = KILN_CONTENT_RANDOM_LOOT, T.label = "random loot tables", T.available = true;
+    auto mode = std::make_shared<EnumInfo>();
+    mode->values = {{"Set", 0}, {"Add", 1}, {"Multiply", 2}, {"None", 3}};
+    auto mode_at = [&](const std::string& path, uint32_t off) { Field m = fld(path.c_str(), off, 1, KILN_CV_INT); m.enum_kind = KILN_CONTENT_ENUM; m.en = mode; add_field(T.schema, m); };
+    mode_at("modifier.level.mode", 0x00), add_field(T.schema, fld("modifier.level.value", 0x04, 4, KILN_CV_FLOAT));
+    mode_at("modifier.levelOffset.mode", 0x08), add_field(T.schema, fld("modifier.levelOffset.value", 0x0C, 4, KILN_CV_FLOAT));
+    add_field(T.schema, fld("modifier.levelOffsetRangeMin", 0x10, 4, KILN_CV_FLOAT));
+    add_field(T.schema, fld("modifier.levelOffsetRangeMax", 0x14, 4, KILN_CV_FLOAT));
+    for (int i = 0; i < 5; ++i) {
+        mode_at("modifier.rarities[" + std::to_string(i) + "].mode", 0x18 + 8 * i);
+        add_field(T.schema, fld(("modifier.rarities[" + std::to_string(i) + "].value").c_str(), 0x1C + 8 * i, 4, KILN_CV_FLOAT));
+    }
+    add_entry(T, TABLE, "labels_80943338", TABLE_AT, G2);
+    add_entry(T, WORLD_TABLE, "world_509feadb_0", WORLD_AT, G3);
+    for (size_t at : {TABLE_AT, WORLD_AT}) {
+        mem<uint8_t>(at + 0x00, 3), mem<uint8_t>(at + 0x08, 3);  // level and offset: None
+        for (int i = 0; i < 5; ++i) mem<uint8_t>(at + 0x18 + 8 * i, 3);
+    }
+    const float wood[5] = {59.74f, 40.26f, 0, 0, 0};
+    for (int i = 0; i < 5; ++i) mem<uint8_t>(TABLE_AT + 0x18 + 8 * i, 0), mem<float>(TABLE_AT + 0x1C + 8 * i, wood[i]);  // all five Set
+    g_stage_extra = [vanilla, wood](RegistryLive& in) {
+        static const registry::Schema schema = registry::generated_schema();
+        static const char* const rar[5] = {"common", "uncommon", "rare", "epic", "legendary"};
+        registry::BaseModel::Entry r;
+        r.id = "game:loot";
+        for (int i = 0; i < 5; ++i) r.fields[std::string("rarityWeights.") + rar[i]] = registry::Value::number(vanilla[i]);
+        in.base.registries["lootRules"].push_back(r);
+        for (const char* id : {"game:labels_80943338", "game:world_509feadb_0", "game:world_509feadb_1"}) {  // _1: in the base, not in this world
+            registry::BaseModel::Entry t;
+            t.id = id;
+            const bool chest = std::string(id) == "game:labels_80943338";
+            t.fields["level.mode"] = registry::Value::text("none"), t.fields["level.value"] = registry::Value::number(0);
+            t.fields["levelOffset.mode"] = registry::Value::text("none"), t.fields["levelOffset.value"] = registry::Value::number(0);
+            t.fields["levelOffsetRange.min"] = registry::Value::number(0), t.fields["levelOffsetRange.max"] = registry::Value::number(0);
+            for (int i = 0; i < 5; ++i) {
+                t.fields[std::string("rarity.") + rar[i] + ".mode"] = registry::Value::text(chest ? "set" : "none");
+                t.fields[std::string("rarity.") + rar[i] + ".weight"] = registry::Value::number(chest ? wood[i] : 0);
+            }
+            in.base.registries["randomLoot"].push_back(t);
+        }
+        for (const char* r : {"lootRules", "randomLoot"})
+            for (const auto& [path, spec] : schema.registry(r)->fields) in.decoded.insert(std::string(r) + "." + path);
+        in.ids["lootRules|game:loot"] = guid_text(G1), in.nums["lootRules|game:loot"] = RULES;
+        in.ids["randomLoot|game:labels_80943338"] = "", in.nums["randomLoot|game:labels_80943338"] = TABLE;
+        in.ids["randomLoot|game:world_509feadb_0"] = "", in.nums["randomLoot|game:world_509feadb_0"] = WORLD_TABLE;
+        in.ids["randomLoot|game:world_509feadb_1"] = "", in.nums["randomLoot|game:world_509feadb_1"] = 0x62;  // listed, not in this world
+    };
+    g_files.clear(); stage({}); registry_live_world_begin(); apply_registry_files({});
+}
+std::string rl_read(const char* registry, const char* id, const char* field) {
+    std::string v;
+    return registry_live_read(registry, id, field, &v) == KILN_OK ? registry::json::parse(v).dump() : "<refused>";
+}
+const std::string chest_table = R"("registry":"randomLoot","select":"game:labels_80943338",)";
+const std::string world_table = R"("registry":"randomLoot","select":"game:world_509feadb_0",)";
+const std::string loot_rules = R"("registry":"lootRules","select":"game:loot",)";
+void random_loot_read_write_revert() {
+    random_loot_world(); RegistryLiveReply reply;
+    check(rl_read("randomLoot", "game:labels_80943338", "rarity.uncommon.mode") == R"("set")" &&
+              std::stod(rl_read("randomLoot", "game:labels_80943338", "rarity.uncommon.weight")) == static_cast<double>(40.26f),
+          "a table reads its mode as a Kiln name and its weight: " + rl_read("randomLoot", "game:labels_80943338", "rarity.uncommon.weight"));
+    // the plan of a Loot Rarity Leveler pass: a chest table's weights, a table's level rules, the world-wide weights
+    const auto h = change(71, "leveler", "[{" + chest_table + R"("field":"rarity.uncommon.weight","op":80.52},{)" + chest_table +
+                                              R"("field":"rarity.legendary.weight","op":124.5926},{)" + world_table + R"("field":"level.mode","op":"set"},{)" +
+                                              world_table + R"("field":"level.value","op":25},{)" + world_table + R"("field":"levelOffset.mode","op":"add"},{)" +
+                                              world_table + R"("field":"levelOffset.value","op":5},{)" + world_table + R"("field":"levelOffsetRange.max","op":3},{)" +
+                                              loot_rules + R"("field":"rarityWeights.legendary","op":{"mul":16}}])");
+    registry_live_commit(71, h, &reply);
+    check(reply.outcome == RegistryLiveOutcome::Applied && reply.accepted == 8, "the pass applies: " + reply.reason);
+    check(at<float>(TABLE_AT + 0x1C + 8 * 1) == 80.52f && at<float>(TABLE_AT + 0x1C + 8 * 4) == 124.5926f, "the chest table's weights are the f32 values written");
+    check(at<uint8_t>(TABLE_AT + 0x18 + 8 * 1) == 0, "its mode stays Set");
+    check(at<uint8_t>(WORLD_AT + 0x00) == 0 && at<float>(WORLD_AT + 0x04) == 25.0f && at<uint8_t>(WORLD_AT + 0x08) == 1 && at<float>(WORLD_AT + 0x0C) == 5.0f &&
+              at<float>(WORLD_AT + 0x14) == 3.0f,
+          "a world table's level Set 25, offset Add 5, range max 3: the game's mode numbers");
+    check(at<float>(RULES_AT + 16) == 5.29f * 16, "the world-wide legendary weight x16 over the game's");
+    check(rl_read("randomLoot", "game:world_509feadb_0", "levelOffset.mode") == R"("add")", "the write reads back as a Kiln name");
+    registry_live_revert(71, h, &reply);
+    check(reply.outcome == RegistryLiveOutcome::Reverted && at<float>(TABLE_AT + 0x1C + 8 * 1) == 40.26f && at<uint8_t>(WORLD_AT) == 3 &&
+              at<float>(WORLD_AT + 0x04) == 0 && at<float>(RULES_AT + 16) == 5.29f,
+          "the revert puts the game's values back");
+}
+void random_loot_foreign_and_refusals() {
+    random_loot_world(); RegistryLiveReply reply;
+    auto h = change(71, "leveler", "[{" + world_table + R"("field":"level.value","op":40}])");
+    registry_live_commit(71, h, &reply);
+    check(reply.outcome == RegistryLiveOutcome::Applied && at<float>(WORLD_AT + 4) == 40.0f, "applied");
+    mem<float>(WORLD_AT + 4, 7.0f);  // another writer (the original mod patching the same memory)
+    registry_live_revert(71, h, &reply);
+    check(reply.outcome == RegistryLiveOutcome::Skipped && at<float>(WORLD_AT + 4) == 7.0f, "a revert keeps another writer's value (compare before write)");
+    random_loot_world();
+    // a table listed in the id table but not in this world, and a value outside the schema's range: refused, nothing written
+    h = change(71, "leveler", R"([{"registry":"randomLoot","select":"game:world_509feadb_1","field":"level.value","op":25},{)" + world_table +
+                                  R"("field":"level.value","op":30}])");
+    registry_live_commit(71, h, &reply);
+    check(reply.outcome == RegistryLiveOutcome::Refused && reply.reason.find("the entry is not in this world") != std::string::npos && at<float>(WORLD_AT + 4) == 0,
+          "a Manual change with a table not in this world is refused whole: " + reply.reason);
+    h = change(72, "leveler", "[{" + chest_table + R"("field":"rarity.rare.weight","op":-1}])");
+    registry_live_commit(72, h, &reply);
+    check(reply.outcome != RegistryLiveOutcome::Applied && at<float>(TABLE_AT + 0x1C + 16) == 0, "a negative weight is outside the schema's range");
+    // an entry point refuses the missing table alone and applies the other
+    h = change(73, "leveler", R"([{"registry":"randomLoot","select":"game:world_509feadb_1","field":"level.value","op":25},{)" + world_table +
+                                  R"("field":"level.value","op":30}])", KILN_REGISTRY_LIVE_WORLD_LOAD);
+    registry_live_commit(73, h, &reply);
+    check(reply.outcome == RegistryLiveOutcome::Applied && reply.refused == 1 && at<float>(WORLD_AT + 4) == 30.0f,
+          "a WorldLoad pass refuses per entry: the table in this world applies");
+}
 // review-registry-proof nit: a read-only bitmask is refused as read-only, not as "is not a bitmask"
 void loot_flags_read_only_is_refused_as_read_only() {
     fresh_loot(); RegistryLiveReply reply;
@@ -1267,6 +1391,8 @@ int main() {
         {"entry_point_selector_refuses_per_entry", entry_point_selector_refuses_per_entry},
         {"selector_conflict_refuses_one_entry_at_entry_points", selector_conflict_refuses_one_entry_at_entry_points},
         {"loot_flags_read_write_revert", loot_flags_read_write_revert},
+        {"random_loot_read_write_revert", random_loot_read_write_revert},
+        {"random_loot_foreign_and_refusals", random_loot_foreign_and_refusals},
         {"loot_flags_keep_bits_kiln_has_no_name_for", loot_flags_keep_bits_kiln_has_no_name_for},
         {"loot_flags_value_missing_on_the_build_is_refused", loot_flags_value_missing_on_the_build_is_refused},
         {"loot_flags_foreign_revert_is_skipped", loot_flags_foreign_revert_is_skipped},

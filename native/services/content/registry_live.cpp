@@ -165,6 +165,8 @@ uint32_t kind_of(const std::string& registry) {
     if (registry == "recipes") return KILN_CONTENT_RECIPES;
     if (registry == "loot") return KILN_CONTENT_LOOT;
     if (registry == "drops") return KILN_CONTENT_DROPS;
+    if (registry == "lootRules") return KILN_CONTENT_LOOT_RULES;
+    if (registry == "randomLoot") return KILN_CONTENT_RANDOM_LOOT;
     return 0;
 }
 
@@ -1047,7 +1049,7 @@ void name_code_writer(ChainRow& row, const Layer& layer, const Slot& slot, const
     // the entry: a kiln.content slot carries its registry's kind; a kiln.gamedata value slot (an item's config value, which
     // items.manaCost and items.staminaCost write) carries a gamedata kind and the item's own id (review: its row kept the game's
     // item and member names)
-    const uint32_t kind = slot.kind >= KILN_CONTENT_ITEMS && slot.kind <= KILN_CONTENT_DROPS ? slot.kind : kind_of(ref.registry);
+    const uint32_t kind = slot.kind >= KILN_CONTENT_ITEMS && slot.kind <= KILN_CONTENT_RANDOM_LOOT ? slot.kind : kind_of(ref.registry);
     const Entry* e = kind ? reg(kind).get(slot.id) : nullptr;
     const std::string rest = layer.source.substr(head.size());
     const size_t space = rest.find(' ');

@@ -313,10 +313,11 @@ void try_ready(uint64_t step, uint32_t kind, uintptr_t world) {
     gd_world_ready(world, kind);
 #endif
     LOGI("registries ready at step %llu (%.0f ms after the %s world's first step): %zu items, %zu recipes (%zu input "
-         "categories), %zu random-loot items, drop tables %s; snapshot in %.1f ms",
+         "categories), %zu random-loot items, drop tables %s, loot rules %s, %zu random loot tables; snapshot in %.1f ms",
          static_cast<unsigned long long>(step), since, kind_name(kind), reg(KILN_CONTENT_ITEMS).entries.size(),
          reg(KILN_CONTENT_RECIPES).entries.size(), g_category_guid.size(), reg(KILN_CONTENT_LOOT).entries.size(),
-         reg(KILN_CONTENT_DROPS).available ? "on (filled as the game loads them)" : "off", ms_build);
+         reg(KILN_CONTENT_DROPS).available ? "on (filled as the game loads them)" : "off",
+         reg(KILN_CONTENT_LOOT_RULES).available ? "on" : "off", reg(KILN_CONTENT_RANDOM_LOOT).entries.size(), ms_build);
     // Where the data lives (evidence for docs/re/content.md): protection, type and size of each registry's region.
     for (uint32_t k = KILN_CONTENT_ITEMS; k <= KILN_CONTENT_LOOT; ++k) {
         const Registry& r = reg(k);
@@ -603,7 +604,9 @@ KilnResult KILN_CALL t_status(KilnContentStatus* out) {
     if (out->ready) {
         std::lock_guard lock(store_mutex());
         out->registries = (reg(1).available ? KILN_CONTENT_HAS_ITEMS : 0) | (reg(2).available ? KILN_CONTENT_HAS_RECIPES : 0) |
-                          (reg(3).available ? KILN_CONTENT_HAS_LOOT : 0) | (reg(4).available ? KILN_CONTENT_HAS_DROPS : 0);
+                          (reg(3).available ? KILN_CONTENT_HAS_LOOT : 0) | (reg(4).available ? KILN_CONTENT_HAS_DROPS : 0) |
+                          (reg(KILN_CONTENT_LOOT_RULES).available ? KILN_CONTENT_HAS_LOOT_RULES : 0) |
+                          (reg(KILN_CONTENT_RANDOM_LOOT).available ? KILN_CONTENT_HAS_RANDOM_LOOT : 0);
         out->items = static_cast<uint32_t>(reg(1).entries.size());
         out->recipes = static_cast<uint32_t>(reg(2).entries.size());
         out->loot = static_cast<uint32_t>(reg(3).entries.size());
