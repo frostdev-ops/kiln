@@ -15,6 +15,7 @@
 
 #include <unistd.h>
 
+#include "../registry/archive_base.h"
 #include "../registry/archive_journal.h"
 #include "../registry/drift.h"
 #include "../registry/report.h"
@@ -316,6 +317,8 @@ int main(int argc, char** argv) {
     meta.written = "2026-11-25T20:00:00Z", meta.generation = 1, meta.base.writer = "kiln-eml";
     meta.regmap = {"server", std::string(64, 'f'), "", false};  // a document the schema check accepts
     meta.base.journal = {j.state, j.text, j.packages.size(), named, j.truncated};
+    meta.base.archive = {{"source", "kiln-eml"}, {"phase", "done"}, {"patched", 3}, {"cached", false}, {"restored", false}, {"mods", 2},
+                         {"receipt", "kiln/eml/ownership/enshrouded_server.json"}, {"text", "kiln-eml's EML pass patched 3 resources of the archive this start"}};
     const json doc = report_json(s, r, meta);
     CHECK(doc["base"]["journal"]["state"] == "read" && doc["base"]["journal"]["packages"] == 4 && doc["base"]["journal"]["entries"] == 2 &&
               doc["base"]["journal"]["truncated"] == false,
@@ -575,6 +578,111 @@ int main(int argc, char** argv) {
     CHECK(drift_who({}) == "outside Kiln (best effort; no other loader's hook seen)" &&
               drift_who({"xhl-core.dll", "emf.dll"}) == "outside Kiln (best effort; suspects: xhl-core.dll, emf.dll)",
           "a drift row's writer says best effort and names the suspects");
+
+    // ---- who published the archive (archive_base.h; registry-followups 2) ----
+    // The compat rehearsal's starts, by the state kiln-eml gave (kiln/state/eml.json): before, base.writer said "none" on all
+    // of them but kiln mode, also where kiln-eml's EML pass or hosted ShroudForge had patched the archive.
+    {
+        const std::string stem = "enshrouded_server";
+        std::set<std::string> files;
+        ArchiveBaseInputs in;
+        in.stem = stem;
+        in.exists = [&files](const std::string& rel) { return files.count(rel) != 0; };
+        auto with = [&](const char* backend, const char* state) {
+            in.backend = backend;
+            in.eml = state != nullptr;
+            in.eml_state = state ? json::parse(state) : json();
+            return archive_base(in);
+        };
+        // kiln-eml's own EML pass (Free Skill Unlocks, Unlimited Flame Altars: 3 patched), hosted ShroudForge with no package
+        files = {"kiln/eml/ownership/enshrouded_server.json"};
+        ArchiveBase b = with("hosted", R"({"format": 1, "phase": "done", "file": "enshrouded_server", "patched": 3, "cached": false, "restored": false,
+                                           "aside": null, "mods": [{"id": "free-skill-unlocks", "state": "loaded"}, {"id": "xhl-unlimited-flame-altars", "state": "loaded"}]})");
+        CHECK(b.writer == "kiln-eml", "kiln-eml's EML pass patched the archive: the base is kiln-eml's, not as shipped (" + b.writer + ")");
+        CHECK(b.archive.value("source", "") == "kiln-eml" && b.archive.value("phase", "") == "done" && b.archive.value("patched", -1) == 3 &&
+                  b.archive.value("cached", true) == false && b.archive.value("receipt", "") == "kiln/eml/ownership/enshrouded_server.json" &&
+                  b.archive.value("mods", -1) == 2 && !b.archive.value("text", "").empty(),
+              "base.archive: what kiln-eml did and the receipt it rests on: " + b.archive.dump());
+        // nothing changed since the last run: the archive keeps kiln-eml's patches
+        b = with("hosted", R"({"phase": "done", "file": "enshrouded_server", "patched": 0, "cached": true, "restored": false, "mods": [{"id": "a", "state": "loaded"}]})");
+        CHECK(b.writer == "kiln-eml" && b.archive.value("cached", false) == true, "a cached run is still kiln-eml's: " + b.archive.dump());
+        // no receipt (an older kiln-eml's output): named all the same, receipt null
+        files.clear();
+        b = with("hosted", R"({"phase": "done", "file": "enshrouded_server", "patched": 1, "cached": false, "restored": false, "mods": []})");
+        CHECK(b.writer == "kiln-eml" && b.archive.contains("receipt") && b.archive["receipt"].is_null(), "no receipt: null: " + b.archive.dump());
+        // hosted ShroudForge reserved the writer (SF Crafting Essentials, Unlimited Flame Altars): kiln-eml stood aside
+        files = {"enshrouded_server.kfc.prepared.json"};
+        const char* aside = R"({"phase": "aside", "file": null, "patched": 0, "cached": false, "restored": false,
+                                "aside": "ShroudForge owns startup asset patching and runs EML packages in its mods folder", "mods": []})";
+        b = with("hosted", aside);
+        CHECK(b.writer == "shroudforge-hosted", "hosted ShroudForge published the archive (" + b.writer + ")");
+        CHECK(b.archive.value("source", "") == "kiln-eml" && b.archive.value("phase", "") == "aside" &&
+                  b.archive.value("record", "") == "enshrouded_server.kfc.prepared.json" && b.archive.value("receipt", "x") == "x",
+              "it rests on ShroudForge's record of its pass (named, never read): " + b.archive.dump());
+        CHECK(b.archive.value("text", "").find("ShroudForge") != std::string::npos, "the sentence names ShroudForge: " + b.archive.dump());
+        CHECK(with("installed", aside).writer == "shroudforge-installed", "the player's own ShroudForge");
+        files.clear();
+        b = with("hosted", aside);
+        CHECK(b.writer == "shroudforge-hosted" && b.archive.contains("record") && b.archive["record"].is_null(), "no record yet: null: " + b.archive.dump());
+        // EML's own proxy ran instead of kiln-eml: another loader published it
+        b = with("hosted", R"({"phase": "aside", "file": null, "patched": 0, "cached": false, "restored": false,
+                               "aside": "EML's own dbghelp.dll is loaded and ran instead", "loaders": ["dbghelp.dll"], "mods": []})");
+        CHECK(b.writer == "external", "another loader's proxy wrote the archive (" + b.writer + ")");
+        CHECK(with("none", R"({"phase": "aside", "aside": "someone", "mods": []})").writer == "external", "aside without a ShroudForge backend: external");
+        // the DLL engines set and the repo's labs: no EML mod, the game files untouched
+        b = with("hosted", R"({"phase": "idle", "file": "enshrouded_server", "patched": 0, "cached": false, "restored": false, "aside": null, "mods": []})");
+        CHECK(b.writer == "none" && b.archive.value("phase", "") == "idle", "nothing patched it: as shipped: " + b.archive.dump());
+        b = with("hosted", R"({"phase": "idle", "file": "enshrouded_server", "patched": 0, "cached": false, "restored": true, "mods": []})");
+        CHECK(b.writer == "none" && b.archive.value("restored", false) == true, "kiln-eml put the game's own data back: " + b.archive.dump());
+        b = with("hosted", R"({"phase": "idle", "file": "enshrouded_server", "staleBackup": true, "mods": []})");
+        CHECK(b.writer == "none", "a backup of an earlier build: the data is the new build's own");
+        b = with("hosted", R"({"phase": "idle", "file": "enshrouded_server", "restored": false, "mods": [],
+                               "reason": "The game data differs from its vanilla backup, and Kiln cannot prove it is its own EML output (x), so it was left as it is."})");
+        CHECK(b.writer == "external", "the data differs from the backup and is not kiln-eml's: not as shipped (" + b.writer + ")");
+        b = with("hosted", R"({"phase": "idle", "file": "enshrouded_server", "restored": false, "mods": [],
+                               "reason": "Extra archive containers retained: enshrouded_server_010.dat. They may belong to another loader"})");
+        CHECK(b.writer == "none", "retained containers alone say nothing about the archive's bytes");
+        b = with("hosted", R"({"phase": "failed", "file": "enshrouded_server", "restored": true, "error": "x", "mods": []})");
+        CHECK(b.writer == "none", "a failed run that put the game's data back");
+        b = with("hosted", R"({"phase": "failed", "file": "enshrouded_server", "restored": false, "error": "x", "mods": []})");
+        CHECK(b.writer == "external", "a failed run that left the data as it was: not known to be the game's own");
+        // kiln mode: Kiln's interpreter through kiln-eml (its journal names the packages), as before
+        b = with("kiln", R"({"phase": "done", "file": "enshrouded_server", "patched": 4, "mods": []})");
+        CHECK(b.writer == "kiln-eml", "kiln mode: kiln-eml");
+        CHECK(with("kiln", nullptr).writer == "kiln-eml", "kiln mode without kiln-eml's state: kiln-eml all the same (as before)");
+        // review: kiln mode's sentence follows kiln-eml's phase (startup_seam.rs settle_entries: done = committed or cached, idle =
+        // unchanged or restored, failed = refused or failed, and run_kiln's start with no pass): it said "published the archive"
+        // on every one. The writer stays kiln-eml, as before.
+        CHECK(b.archive.value("text", "").find("published the archive") != std::string::npos, "a done pass published it: " + b.archive.dump());
+        b = with("kiln", R"({"phase": "idle", "file": "enshrouded_server", "patched": 0, "restored": true, "mods": []})");
+        CHECK(b.writer == "kiln-eml" && b.archive.value("text", "").find("published the archive") == std::string::npos &&
+                  b.archive.value("text", "").find("vanilla backup") != std::string::npos,
+              "kiln mode put the game's own data back: " + b.archive.dump());
+        b = with("kiln", R"({"phase": "idle", "file": "enshrouded_server", "patched": 0, "restored": false, "mods": []})");
+        CHECK(b.writer == "kiln-eml" && b.archive.value("text", "").find("published nothing") != std::string::npos,
+              "kiln mode published nothing this start: " + b.archive.dump());
+        b = with("kiln", R"({"phase": "failed", "file": "enshrouded_server", "restored": false, "error": "x", "mods": []})");
+        CHECK(b.writer == "kiln-eml" && b.archive.value("text", "").find("failed") != std::string::npos &&
+                  b.archive.value("text", "").find("published the archive") == std::string::npos,
+              "kiln mode's pass failed: " + b.archive.dump());
+        CHECK(with("kiln", nullptr).archive.value("text", "").find("published the archive") == std::string::npos,
+              "kiln mode without kiln-eml's state: what was published is not known: " + with("kiln", nullptr).archive.dump());
+        // no kiln-eml: Kiln cannot tell; "none", as before, and the sentence says so
+        b = with("hosted", nullptr);
+        CHECK(b.writer == "none" && b.archive.value("source", "") == "none" && !b.archive.value("text", "").empty(),
+              "no kiln-eml: none, said: " + b.archive.dump());
+        // registry.json carries it
+        ReportMeta am;
+        am.written = meta.written;
+        am.base.writer = "kiln-eml";
+        am.base.archive = with("hosted", R"({"phase": "done", "file": "enshrouded_server", "patched": 3, "cached": false, "restored": false, "mods": []})").archive;
+        const json d3 = report_json(s, compose(s, base(), {}, {}), am);
+        CHECK(d3["base"]["writer"] == "kiln-eml" && d3["base"].contains("archive") && d3["base"]["archive"].value("patched", -1) == 3,
+              "registry.json base.archive: " + d3["base"].dump());
+        ReportMeta none;
+        none.written = meta.written;
+        CHECK(!report_json(s, compose(s, base(), {}, {}), none)["base"].contains("archive"), "no archive object when nothing was said");
+    }
 
     std::printf("registry writers: %d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;

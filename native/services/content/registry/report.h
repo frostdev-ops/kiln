@@ -32,7 +32,8 @@ struct ReportMeta {
         bool verified = false;
     } regmap;
     // Where the stage's base came from (S5 / S10 fill it): "live" = kiln.assets' bytes at resources-ready; the archive
-    // writer of this start ("kiln-eml", "shroudforge-hosted", "external", "none") and its token.
+    // writer of this start ("kiln-eml", "shroudforge-hosted", "shroudforge-installed", "external", "none"; archive_base.h)
+    // and its token.
     struct Base {
         std::string origin = "live", writer = "none", token;
         // The archive writer's change journal (archive_journal.h): read (its packages are named on the entries they wrote),
@@ -42,6 +43,8 @@ struct ReportMeta {
             size_t packages = 0, entries = 0;
             bool truncated = false;
         } journal;
+        // registry.json base.archive (archive_base.h): what Kiln knows the archive writer did and what it rests on; null: none.
+        json archive;
     } base;
     struct Order {
         std::string mod, version, edits_hash;

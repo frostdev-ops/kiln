@@ -242,7 +242,12 @@ state/registry.json names it:
   "registries": { "items": { "game:...": { "maxStack": 20, "power": 31 } } } }
 ```
 An export whose base origin is empty, `none` or `unknown`, or whose writer is empty or `unknown`, is refused (writer `none`
-is the game's own data, as shipped).
+is the game's own data, as shipped; any other writer, `kiln-eml`, `shroudforge-hosted`, `shroudforge-installed` or `external`,
+is named in a note of the diff, and two exports with different writers get one more). Since the next release the writer is
+this start's real archive writer (state/registry.json `base.writer` and `base.archive`, registries README "Who else wrote a
+field"); before, every start but a kiln-mode one said `none`, also where kiln-eml or hosted ShroudForge had patched the
+archive. kilnctl compares the same way: a lab with EML or ShroudForge packages now gives a note instead of passing as the
+game's own data.
 
 **The old build** is the newest cached exe whose build has a verified regmap record (the instance's `kiln/regmap` or the
 tree), not sigport's baseline. Its record, from the tree or else the instance (marked there and not committed yet),

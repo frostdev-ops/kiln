@@ -127,7 +127,9 @@ an unrelated pack edit or a committing candidate's own failure. The current word
 writer”; naming a ShroudForge runtime package needs the later owner-write journal integration. Since 0.2.0-dev.31.17 the
 field's row in `registry.json` also gets a best-effort `drift` writer naming the suspects Kiln can see (the drift probe,
 [registries guide](../modding/registries/README.md#who-else-wrote-a-field)). This is not a promise to identify arbitrary
-DLL writes.
+DLL writes. Next release: writes made after the last report (a later code change, another loader's write) reach
+`registry.json` without a reload, at a look about 2 s after Kiln's content store changes and every 10 s otherwise (a look
+reads at most 1,024 of the slots the registry writes a tick; no new generation or ready event).
 
 Transactions queue a rewrite of `kiln/state/registry.json` and advance `kiln.registry`'s snapshot generation at the next
 registry pump, outside the store lock; multiple updates before that pump may coalesce. They do not send `WORLDLOAD`

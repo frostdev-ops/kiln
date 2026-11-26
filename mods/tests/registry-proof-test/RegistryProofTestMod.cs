@@ -626,6 +626,25 @@ public sealed unsafe partial class RegistryProofTestMod : Mod
                 }
                 (ok, refusal, exactRefusal) = Change(registry, id, element ? list : field, op, out handle);
             }
+            // registry-followups 4: a save check refused the probe (a levels.min raised narrows the item's level range): the other
+            // way on the same entry; an entry that cannot go that way is skipped without counting as a failed try (it says
+            // nothing about the mapping), so the producer looks on to an entry that can (gear has a lowest level of 2 or more)
+            if (!ok && mode.Length == 0 && IsSaveCheck(refusal))
+            {
+                if (SaveCheckProbe(read, row, refusal) is { } other && !JsonNode.DeepEquals(other, read))
+                {
+                    probe = other;
+                    op = probe;
+                    if (element)
+                    {
+                        var copy = (JsonArray)whole!.DeepClone();
+                        SetLeaf((JsonObject)copy[0]!, leafName, probe);
+                        op = copy;
+                    }
+                    (ok, refusal, exactRefusal) = Change(registry, id, element ? list : field, op, out handle);
+                }
+                if (!ok && IsSaveCheck(refusal)) { Skip("a save check refused the probe"); continue; }
+            }
             s["probe"] = probe.DeepClone();
             if (mode == "sint32-refusal")
             {
@@ -715,6 +734,19 @@ public sealed unsafe partial class RegistryProofTestMod : Mod
     /// <summary>A bitmask's raw value: the list of the game's names kiln.content gives as text ("Common,Rare", "Epic", "").</summary>
     private static JsonArray FlagNames(string names) =>
         new(names.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(n => (JsonNode)JsonValue.Create(n)!).ToArray());
+
+    /// <summary>A refusal of the registry's save checks (registry/saves.h: "&lt;place&gt;: saves: ... this edit was not applied"): the
+    /// probe would change what saves hold in a way Kiln refuses (an item's level range narrowed), which says nothing about the
+    /// mapping. Known by the place's ": saves: " alone: kiln.registry.live's reply cuts its reason to 192 bytes, so the end of
+    /// the sentence is often not there (the 31.x lab run).</summary>
+    private static bool IsSaveCheck(string refusal) => refusal.Contains(": saves: ", StringComparison.Ordinal);
+
+    /// <summary>The probe the other way after a save check refused one (registry-followups 4): a whole number one lower, at 1 or
+    /// more (a lowest level raised narrows the range; lowered, it widens it). Null for any other refusal, a fraction, or a
+    /// number that cannot go lower.</summary>
+    private static JsonNode? SaveCheckProbe(JsonNode? v, JsonObject row, string refusal) =>
+        IsSaveCheck(refusal) && (string?)row["conv"] is "int" or "stackCount" && v is JsonValue n && n.TryGetValue<double>(out var d) &&
+        d == Math.Floor(d) && d - 1 >= 1 ? JsonValue.Create((long)d - 1) : null;
 
     /// <summary>A second probe for a float the field's range refused at 1.25 x (a chance of 1.0, a block of 1.0): 0.75 x.
     /// Null for every other conversion (no second guess).</summary>

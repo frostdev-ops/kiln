@@ -387,6 +387,18 @@ At each start Kiln runs three stages, each across **all** mods (in the load orde
   loader wrote into the game's archive before Kiln, and are reported with them. Old mods are never refused because of a
   registry edit. Conflicts inside the registry and with Kiln's older paths are found for certain; other loaders' DLL
   patches and hooks are best-effort and labelled so.
+- `Content.*` changes made by code (`Content.Apply`, `ContentEntry.Set`, another loader's change through Kiln's content
+  service) sit **above** registry edits and win, as they win over data packs. A relative op such code gives (`mul`, `add`,
+  `min`, `max`, `raiseOnly`, `lowerOnly`) is computed by kiln.content on the **game's original value**, as for any data pack
+  ([services/content.md](../../services/content.md#data-packs)), never on what a registry edit made of it: BigStacks'
+  `{"mul": 4, "max": 9999, "raiseOnly": true}` gives wood logs 250 x 4 = 1000 even where a registry pack made them 2000
+  (`raiseOnly` means "never below the game's value", not "never below the value under the layer"). That has been so since
+  registry edits exist and stays so, since changing it would change what existing mod sets get. registry.json says so
+  (next release): the code writer is the field's winner and one certain `overridden` line names it, the registry edit it
+  replaced and both values ("... (a Content change made by code) sets 1000 over registry-mixed-test's 2000 (code wins over
+  registry edits; a relative change made through Content is computed on the game's value, 250, not on the registry's)").
+  A mod that wants its change to stack on the registry's value makes it a registry edit (a relative op there composes on
+  the value below it).
 
 ### Who else wrote a field
 
@@ -396,6 +408,7 @@ with a certainty:
 | Writer | Certainty | Where Kiln learns it |
 |---|---|---|
 | Kiln's older paths (boot resource patches, data packs, `Content.*` code) and registry edits | `certain` | Kiln applies them itself |
+| A change made through Kiln's content service by code, also another loader's (an EMF DLL mod's `set_item_max_stack`) | `certain` | named `<who>: <Kiln place>`, `<who>` being the mod, else the loader's own name for its mod (`emf:big_stacks`); a label the mod gave its change (`Content.Apply(json, "bigstacks x4")`) stays as it wrote it (next release; before, such a row named the game's item and member, `owner 67: items Material_T1_Wood_Logs.maxStackSize`) |
 | A ShroudForge or EML package that wrote the entry (or, from EML's own pass, the field) before Kiln (`archiveWriter`, who `shroudforge:<package>` or `eml:<package>`) | `named` | kiln-eml's change journal of the start's archive writer (below) |
 | Something outside Kiln changed the game's value (`drift`, who `outside Kiln (best effort; suspects: ...)`) | `bestEffort` | the drift probe at each world load and pack reload (below) |
 
@@ -451,6 +464,15 @@ base).
   engines) keep none either. What they wrote is still in the base, and registry edits still win over it, but no row names
   them; the report says so (`base.journal.state` `none`). (The first start after a Kiln update runs the EML mods again,
   as kiln-eml's change cache belongs to one kiln-eml build, so an EML start gets its journal then.)
+- **Who published the base** (next release; before, `base.writer` said `none` on every start but a kiln-mode one, also where
+  kiln-eml or hosted ShroudForge had patched the archive): `base.writer` is this start's archive writer: `kiln-eml` (its EML
+  pass, or Kiln's interpreter in kiln mode), `shroudforge-hosted` or `shroudforge-installed` (ShroudForge reserved the startup
+  data writer), `external` (another loader's proxy ran instead of kiln-eml, or the game data differs from kiln-eml's vanilla
+  backup and is not its output) or `none` (the game's data as shipped, as far as kiln-eml can tell). `base.archive` says what
+  that rests on: kiln-eml's state of the start (`phase`, `patched`, `cached`, `restored`, `mods`), the name of kiln-eml's
+  ownership receipt (`receipt`, `kiln/eml/ownership/<stem>.json`) or of ShroudForge's record of its pass (`record`,
+  `<stem>.kfc.prepared.json`; named, never read), and a sentence. kilnctl's values diff still takes only `none` as the game's
+  own data ([regmap/README.md](../../../../regmap/README.md)).
 
 **The drift probe (best effort).** At each world load and each pack reload Kiln compares, for every field it writes live,
 the game's value just before Kiln's first write in that world with what the stage read at start plus the writers Kiln knows
@@ -460,7 +482,19 @@ the row says so and names the suspects Kiln can see, the modules that patched ga
 row (Kiln's edit is then skipped for that world, as before). The probe never refuses anything. It runs whenever Kiln
 rebuilds `registry.json`'s live rows (at each world load and pack reload, and when a live change or a drop table the game
 loads later changes them; never per tick) and costs one more read of each field it writes live, about a tenth of what
-rebuilding the rows costs anyway. A suspect list is a hint, not proof: a writer that hooks nothing is not
+rebuilding the rows costs anyway.
+
+**Writes after the last report** (next release; before, they stayed out of `registry.json` until the next pack reload or
+world load: the compat rehearsal saw wood logs at 300 there while EMF's big_stacks had made them 1200). Kiln also looks
+again between those rebuilds, never per tick: about 2 s after a change through Kiln's content service (code, another
+loader's change through Kiln) and every 10 s for a write outside it, comparing each field it writes live with what the last
+report saw. When one changed, `registry.json` and the Conflicts view get the field's new writers and result (a code writer
+as above; a write outside Kiln as a best-effort row last, with a line: "the game's value changed outside Kiln after Kiln's
+last write in this world"); no new generation, no ready event, nothing written into the game. A field that keeps changing
+is looked at less often (up to once a minute). kiln.log says so once. A look reads each slot Kiln writes live, at most
+1,024 of them a tick (a pack over every entry's stacks or drops writes tens of thousands: its look takes a few dozen ticks),
+and rebuilds nothing when nothing changed; when something did, the rebuild costs what a pack reload's report costs. A write
+outside Kiln that comes back to Kiln's value between two looks is not seen. A suspect list is a hint, not proof: a writer that hooks nothing is not
 seen, and a field nobody edits through the registry is not checked. Neither is an entry an old boot resource patch (an
 `OnBoot` or `resourcePatches` document) writes: the game holds Kiln's own patch there, and many of its paths (a formula's
 input, an element of a list of structs, `[*]` over every recipe) have no field row to explain it, so a change there is
