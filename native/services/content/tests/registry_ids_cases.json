@@ -344,6 +344,52 @@
         "game:skill_4475e8dd",
         "game:skill_8efcc472"
       ]
+    },
+    {
+      "name": "stations keep a pinned id whatever item builds them on a later build; a new station of the pinned id's item gets a suffix",
+      "registry": "stations",
+      "src": {
+        "key": "items",
+        "keyMember": "item",
+        "unnamed": "station_%08x"
+      },
+      "aliases": {
+        "pinned": {
+          "aaaaaaaa-0000-0000-0000-000000000001": "game:craftingstation_workbench",
+          "bbbbbbbb-0000-0000-0000-000000000002": "game:station_b326e042"
+        }
+      },
+      "byItemId": {
+        "5": "game:craftingstation_workbench",
+        "7": "game:craftingstation_workbench_v2",
+        "8": "game:altar"
+      },
+      "entries": [
+        {
+          "guid": "cccccccc-0000-0000-0000-000000000003",
+          "name": "",
+          "id": 2378837065,
+          "keyId": 5
+        },
+        {
+          "guid": "aaaaaaaa-0000-0000-0000-000000000001",
+          "name": "",
+          "id": 1302892403,
+          "keyId": 7
+        },
+        {
+          "guid": "bbbbbbbb-0000-0000-0000-000000000002",
+          "name": "",
+          "id": 3005669442,
+          "keyId": 8
+        }
+      ],
+      "expect": [
+        "game:craftingstation_workbench~cccccccc",
+        "game:craftingstation_workbench",
+        "game:station_b326e042"
+      ],
+      "notes": 1
     }
   ]
 }

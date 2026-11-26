@@ -121,6 +121,41 @@ class AcrossBuilds(unittest.TestCase):
         self.assertEqual(ids, ["game:bob_s_sword"])
         self.assertEqual(al["pinned"], {G[0]: "game:bob_s_sword"})
 
+    def test_stations_keep_their_ids_across_builds(self):
+        # dev.32: a station takes the id of the item that builds it (keyMember) and keeps it by its GUID. An update that gives a
+        # station another item, none, or one where it had none pins the id it had; a new station built by the old item gets a
+        # suffix, never that id; the record's pins alone (no previous table) hold every id.
+        st = {"key": "items", "keyMember": "item", "unnamed": "station_%08x"}
+
+        def S(guid, station_id, item):
+            return dict(E(guid, "", station_id), keyId=item)
+
+        items1 = {5: "game:workbench", 6: "game:forge"}
+        b1 = [S(G[0], 0xA1, 5), S(G[1], 0xA2, 6), S(G[2], 0xA3, 0)]
+        al1, ids1, t1 = ri.record_aliases("stations", st, {}, {}, b1, "1", items1)
+        self.assertEqual(ids1, ["game:workbench", "game:forge", "game:station_000000a3"])
+        self.assertEqual(al1, {"pinned": {}, "removed": {}})
+        items2 = {5: "game:workbench", 6: "game:forge", 7: "game:workbench_v2", 8: "game:altar"}
+        b2 = [S(G[3], 0xA4, 5), S(G[0], 0xA1, 7), S(G[1], 0xA2, 0), S(G[2], 0xA3, 8)]
+        al2, ids2, t2 = ri.record_aliases("stations", st, al1, t1, b2, "2", items2)
+        self.assertEqual(ids2, [f"game:workbench~{G[3][:8]}", "game:workbench", "game:forge", "game:station_000000a3"])
+        self.assertEqual(al2["removed"], {})
+        self.assertEqual({G[0], G[1], G[2]} - set(al2["pinned"]), set())
+        al3, ids3, _ = ri.record_aliases("stations", st, al2, {}, b2, "3", items2)
+        self.assertEqual(ids3, ids2)
+
+    def test_skill_nodes_without_a_guid_keep_their_ids_across_builds(self):
+        # dev.32: a skill node has no GUID; its id is its 32-bit node id and its key in the id table "#<id>": the same node keeps
+        # its id, a node the update no longer has is removed, never given again
+        sk = {"unnamed": "skill_%08x"}
+        n1 = [E("", "", 0x4475E8DD), E("", "", 0x8EFCC472)]
+        al1, ids1, t1 = ri.record_aliases("skills", sk, {}, {}, n1, "1")
+        self.assertEqual(ids1, ["game:skill_4475e8dd", "game:skill_8efcc472"])
+        self.assertEqual(t1, {f"#{0x4475E8DD}": "game:skill_4475e8dd", f"#{0x8EFCC472}": "game:skill_8efcc472"})
+        al2, ids2, t2 = ri.record_aliases("skills", sk, al1, t1, [E("", "", 0x8EFCC472)], "2")
+        self.assertEqual(ids2, ["game:skill_8efcc472"])
+        self.assertEqual(al2["removed"], {"game:skill_4475e8dd": "2"})
+
     def test_record_shape(self):
         al, _, _ = self.record("items", ITEMS, [E(G[0], "Sword", 1), E(G[1], "Sword", 2)], build="1")
         rec = ri.aliases_json({"items": al})
