@@ -86,6 +86,8 @@ struct LiveState {
     // write or revert is named in Kiln words even after its field was unbound (a removed pack, an ended world)
     std::unordered_map<uintptr_t, std::string> slot_places;
     std::vector<std::string> suspects;  // the drift probe's suspects in this world (drift.h), read at world begin
+    // dev.32: the game name of each kiln.gamedata entry a binding found, by (store kind, id): a code writer's own wording names it
+    std::map<std::pair<uint32_t, uint32_t>, std::string> gd_names;
     std::set<registry::EntryRef> boot_written;  // entries an old boot document wrote (RegistryLive::old's OldPatch rows), per report
     // Writes made after the last report (registry-followups 1): what that report saw, so registry_live_publish can tell, cheaply
     // and never per tick, when a bound field's slot changed since (late_check): the store's generation, a signature of each
@@ -970,6 +972,7 @@ void bind_gamedata(const registry::FieldRef& fr, const std::vector<const ChainRo
     if (!g.in->gd_entry(fr.registry, num == g.in->nums.end() ? 0 : num->second, guid == g.in->ids.end() ? "" : guid->second, &e, &why))
         return refuse(fr, rows, why.empty() ? "the entry is not in this world" : why);
     b->entry = e;
+    g.gd_names[{b->kind, e.id}] = e.name;  // a code writer of its slots is named in Kiln words (name_code_writer)
     std::vector<GdValueSlot> slots;
     if (!g.in->gd_slots(fr.registry, e, rw.paths[0], conv == "eventTime", &slots, &why) || slots.empty())
         return refuse_mapping(fr, rows, why.empty() ? "the game's value of this field is missing on this game build" : why, rw.paths[0]);
@@ -1129,6 +1132,10 @@ void name_code_writer(ChainRow& row, const Layer& layer, const Slot& slot, const
     // item and member names)
     const uint32_t kind = slot.kind >= KILN_CONTENT_ITEMS && slot.kind <= KILN_CONTENT_DROPS ? slot.kind : kind_of(ref.registry);
     const Entry* e = kind ? reg(kind).get(slot.id) : nullptr;
+    // dev.32: a registry over kiln.gamedata's entries (buffs, abilities): the entry its binding found ("<label>: buffs buff_<id>.<path>")
+    Entry gd;
+    if (!e && gd_kind_of(ref.registry))
+        if (const auto it = g.gd_names.find({slot.kind, slot.id}); it != g.gd_names.end()) gd.name = it->second, e = &gd;
     const std::string rest = layer.source.substr(head.size());
     const size_t space = rest.find(' ');
     if (!e || e->name.empty() || space == std::string::npos || space == 0 || rest.compare(space + 1, e->name.size(), e->name) != 0 ||

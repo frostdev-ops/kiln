@@ -267,6 +267,38 @@ void data_section_binds_at_world_load() {
     g_files.clear();
 }
 
+// registry-followups 1 over dev.32's registries: kiln.gamedata's own code layer (gamedata_api.cpp: "<label>: buffs buff_<id>.<path>",
+// "<label>: sequences <name>.<path>") on a buff's or an ability's slot is named in Kiln words, never the game's entry and member.
+void gamedata_code_writers_in_kiln_words() {
+    g_files = {{"m/content/a.json", R"({"registry":{"alter":[
+        {"registry":"buffs","select":"game:buff_cdbe9c80","field":"duration","op":{"mul":2}},
+        {"registry":"abilities","select":"game:fire_cast","field":"timing.release","op":0.45}]}})"}};
+    const auto files = files_of({{"m", "m/content/a.json"}});
+    gd_fresh(files);
+    set_owner_label(45, "mod spelltweaks");
+    const int64_t nine = 9'000'000'000ll, half = 500'000'000ll;
+    uint8_t b[8];
+    std::memcpy(b, &nine, 8);
+    check(store_put(45, next_code_seq(), GD_BUFFS, BUFF, 1, -1, A(BUFF_AT + 8), 8, b, "mod spelltweaks: buffs buff_cdbe9c80.defaultLifeTime"), "code layer on the buff");
+    std::memcpy(b, &half, 8);
+    check(store_put(45, next_code_seq(), GD_SEQUENCES, CAST, 4, -1, A(SPAWN0), 8, b, "mod spelltweaks: sequences Fire_Cast.events[SpawnEntityEvent#0].time"),
+          "code layer on the cast");
+    store_flush(nullptr);
+    apply_registry_files(files);
+    for (const auto& [ref, place] : {std::pair{registry::FieldRef{"buffs", "game:buff_cdbe9c80", "duration"}, "spelltweaks: buffs[game:buff_cdbe9c80].duration"},
+                                     std::pair{registry::FieldRef{"abilities", "game:fire_cast", "timing.release"}, "spelltweaks: abilities[game:fire_cast].timing.release"}}) {
+        const auto row = json_field(ref);
+        registry::json code;
+        for (const auto& w : row["writers"])
+            if (w["kind"] == "code") code = w;
+        check(!code.is_null() && code["who"] == place && code["mod"] == "spelltweaks", "the mod and the Kiln place: " + row["writers"].dump());
+        check(row.dump().find("defaultLifeTime") == std::string::npos && row.dump().find("SpawnEntityEvent") == std::string::npos &&
+                  row.dump().find("Fire_Cast") == std::string::npos,
+              "no game entry or member name in the row: " + row.dump());
+    }
+    g_files.clear();
+}
+
 void without_hooks_no_live_back_end() {
     g_hooks = false;
     gd_fresh();
@@ -291,6 +323,7 @@ int main() {
         {"ability_release_moves_the_moment", ability_release_moves_the_moment},
         {"ability_without_the_moment_refuses_that_entry", ability_without_the_moment_refuses_that_entry},
         {"data_section_binds_at_world_load", data_section_binds_at_world_load},
+        {"gamedata_code_writers_in_kiln_words", gamedata_code_writers_in_kiln_words},
         {"without_hooks_no_live_back_end", without_hooks_no_live_back_end},
     };
     for (const auto& [name, fn] : tests) {

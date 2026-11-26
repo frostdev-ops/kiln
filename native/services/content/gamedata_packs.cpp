@@ -1294,8 +1294,11 @@ bool gd_registry_slots(const std::string& registry, const Entry& e, const std::s
         std::vector<Resolved> rs;
         std::string err;
         Field f;
-        if (!resolve(Root::Plain, root, path, &rs, &err) || rs.size() != 1 || !rs[0].node.t || !leaf_of(rs[0].node.t, &f))
-            return *why = std::string("the game's value of this field is missing on this game build") + (err.empty() ? "" : " (" + err + ")"), false;
+        // P45: the refusal names no game member; the path and the walker's words go to kiln.log for maintainers
+        if (!resolve(Root::Plain, root, path, &rs, &err) || rs.size() != 1 || !rs[0].node.t || !leaf_of(rs[0].node.t, &f)) {
+            LOGD("registry (live): %s %s: %s (%s)", registry.c_str(), e.name.c_str(), path.c_str(), err.c_str());
+            return *why = "the game's value of this field is missing on this game build (Kiln's mapping of it needs an update)", false;
+        }
         GdValueSlot s;
         // kiln.gamedata's own path from the entry it lists (a buff's record is the registry's entry root)
         name_slot(section, e, rs[0].path, f, rs[0].node.addr + f.offset, &s);
@@ -1310,8 +1313,10 @@ bool gd_registry_slots(const std::string& registry, const Entry& e, const std::s
     const std::string list = path.substr(0, open), type = path.substr(open + 1, close - 2 - open - 1);
     std::vector<Resolved> rs;
     std::string err;
-    if (!resolve(Root::Plain, root, list, &rs, &err) || rs.size() != 1 || !rs[0].node.t)
-        return *why = std::string("the game's value of this field is missing on this game build") + (err.empty() ? "" : " (" + err + ")"), false;
+    if (!resolve(Root::Plain, root, list, &rs, &err) || rs.size() != 1 || !rs[0].node.t) {
+        LOGD("registry (live): %s %s: %s (%s)", registry.c_str(), e.name.c_str(), list.c_str(), err.c_str());
+        return *why = "the game's value of this field is missing on this game build (Kiln's mapping of it needs an update)", false;
+    }
     const uintptr_t header = rs[0].node.addr;
     uint8_t ob[16];
     if (!original_bytes(header, 8, ob)) return *why = "the ability's events are not readable", false;
