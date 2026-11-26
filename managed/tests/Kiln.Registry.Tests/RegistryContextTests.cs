@@ -56,7 +56,7 @@ public sealed class RegistryContextTests
         var ir = JsonNode.Parse(context.CaptureIr()!)!;
         var edits = ir["edits"]!.AsArray();
         Assert.Contains(edits, e => e!["registry"]!.GetValue<string>() == "world" && e["field"]!.GetValue<string>() == "noBuildZones" &&
-                                    e["select"]!["id"]!.GetValue<string>() == "game:world");
+                                    e["select"]!.GetValue<string>() == "game:world" && e["list"] is not null);
         Assert.Contains(edits, e => e!["registry"]!.GetValue<string>() == "difficulty" && e["field"]!.GetValue<string>() == "enemyDamageFactor.max" &&
                                     e["op"]!.GetValue<double>() == 100);
         Assert.Contains(edits, e => e!["registry"]!.GetValue<string>() == "limits" && e["field"]!.GetValue<string>() == "maxAltars" &&
