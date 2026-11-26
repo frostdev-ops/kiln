@@ -203,7 +203,9 @@ Entries kiln.gamedata lists (buffs, sequences; templates, perks, skills next) ha
   paths start at the entry it lists (a sub-sequence): the producer leaves the prefix off for raw reads.
 - A path's selectors (`[<index>]`, `[<Type>#<k>]` with a qualified type) are checked by regmap_check.py and kilnctl, and kilnctl
   dumps the variant types they name (regmap/README.md). An eventTime row resolves the first event of its kind over the game's
-  own order (the store's original events header), never over Kiln's sorted copy.
+  own order (the store's original events header), never over Kiln's sorted copy. Every event of the moment is one of the
+  field's slots (review of 2.8b): a failed write or another writer on any of them is the field's and its change's (P17, P44),
+  so a moment is never reported moved while part of it stays.
 - A new gamedata registry adds its name to `gd_registry_kind`, `gd_registry_entry` and `registry_root`, a producer entry in
   `RegistryProofTestMod.GameData.cs`, its entries to `regmap_entries.py` and `compute_aliases` (regmap_check.py), and host cases
   to `registry_live_gamedata_test.cpp`.

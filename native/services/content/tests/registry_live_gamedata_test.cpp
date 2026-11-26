@@ -315,6 +315,34 @@ void buff_stacking_value_missing_names_the_kiln_field() {
     check(reply.reason.find("ReplaceAtEnd") == std::string::npos, "never the game's value: " + reply.reason);
 }
 
+// review of dev.32 (P17, P44): every event of a moment is the field's slot. A write of the second spawn that fails takes the
+// whole change back (never a moment moved in part reported applied), named by the Kiln field; another writer on it after Kiln's
+// layer is named by the Kiln field too.
+void ability_moment_is_written_whole() {
+    gd_fresh();
+    RegistryLiveReply reply;
+    const auto h = begin_change(71, "a", "[{" + cast + R"("field":"timing.release","op":0.45}])");
+    g_fail_addrs = {A(SPAWN1)};
+    registry_live_commit(71, h, &reply);
+    g_fail_addrs.clear();
+    check(reply.outcome == RegistryLiveOutcome::Refused && at<int64_t>(SPAWN0) == 650'000'000ll && at<int64_t>(SPAWN1) == 650'000'000ll,
+          "a moment written in part is rolled back whole: " + reply.reason + " (" + std::to_string(at<int64_t>(SPAWN0)) + ")");
+    check(reply.reason.find("abilities[game:fire_cast].timing.release") != std::string::npos, "the failure names the Kiln field: " + reply.reason);
+    g_files = {{"a/content/spells.json", R"({"registry":{"alter":[{"registry":"abilities","select":"game:fire_cast","field":"timing.release","op":0.45}]}})"}};
+    const auto files = files_of({{"a", "a/content/spells.json"}});
+    gd_fresh(files);
+    check(at<int64_t>(SPAWN1) == 450'000'000ll, "the pack moves the moment");
+    mem<int64_t>(SPAWN1, 777'000'000ll);  // another writer on the second spawn
+    apply_registry_files(files);           // a pack reload
+    check(at<int64_t>(SPAWN1) == 777'000'000ll, "the other writer's value stays");
+    check(reported("abilities[game:fire_cast].timing.release was written by another writer after Kiln's layer"), "the skipped row names the Kiln field");
+    const auto c = begin_change(72, "b", "[{" + cast + R"("field":"timing.release","op":0.4}])");
+    registry_live_commit(72, c, &reply);
+    check(reply.outcome == RegistryLiveOutcome::Skipped, "a change over the moment another writer holds part of is skipped, never applied in part: " +
+                                                             std::string(reply.outcome == RegistryLiveOutcome::Applied ? "Applied" : "other"));
+    g_files.clear();
+}
+
 void without_hooks_no_live_back_end() {
     g_hooks = false;
     gd_fresh();
@@ -342,6 +370,7 @@ int main() {
         {"gamedata_code_writers_in_kiln_words", gamedata_code_writers_in_kiln_words},
         {"without_hooks_no_live_back_end", without_hooks_no_live_back_end},
         {"buff_stacking_value_missing_names_the_kiln_field", buff_stacking_value_missing_names_the_kiln_field},
+        {"ability_moment_is_written_whole", ability_moment_is_written_whole},
     };
     for (const auto& [name, fn] : tests) {
         try {

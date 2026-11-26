@@ -948,7 +948,12 @@ void bind_event_time(const std::shared_ptr<Binding>& b, const std::vector<GdValu
         };
         if (!put_at(b, s.kind, s.id, s.field, -1, s.addr, s.f.bytes, std::move(ev))) return (void)fail(b, "the field is not readable");
     }
-    track_scalar(b, anchor, fa);
+    // every event of the moment is the field's slot (the first is its value): a failed write or another writer on any of them is
+    // this field's and its change's (P17, P44), named by the Kiln field (P32), and the later-writes look watches them all
+    std::vector<LiveSlot> all;
+    for (const GdValueSlot& s : slots) all.push_back({s.addr, s.f.bytes});
+    fields_target().insert_or_assign(b->ref, LiveField{b->spec, std::move(all),
+        [b, fa](const std::vector<SlotBytes>& bytes, std::vector<double>*) -> std::optional<Value> { return to_kiln(fa, nullptr, b->spec, bytes[0].data()); }});
 }
 
 void bind_gamedata(const registry::FieldRef& fr, const std::vector<const ChainRow*>& rows, const std::shared_ptr<Binding>& b) {
