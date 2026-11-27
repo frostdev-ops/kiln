@@ -191,3 +191,7 @@ shows where the petting player can be read.
   - NativeTaming over a made-up world.
 - Lab (`mods/tests/item-costs-test`, `mods/tests/native-taming-test`, player-free): the adapter against the real game,
   and the game's taming with the server petting.
+- Lab with a LABBOT bot player as the tamer (`mods/tests/taming-review-test`, 15 PASS, 0 FAIL on 11-27, server build
+  f0d824be): a taming defined in `OnLoad` before any world, the `tamings` blocks of a data file, `PlaceBait` refused, Kiln's
+  steps end to end with the pet summoned next to its owner and the wild body removed, an escrow refund given back once
+  (`AlreadyRefunded` for a second request), a roster filled during the attempt refused before the last cost.
