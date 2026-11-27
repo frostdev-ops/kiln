@@ -724,6 +724,64 @@ void front_only_start(const std::string& dir, size_t table) {
           "the game's view holds the pre-patch 145, the resolved view the document's 290: " + v0 + " " + v2);
     std::printf("gear-frontend: a front-end-only start reads the balance registry only; the whole base at first use (%d checks so far)\n", checks);
 }
+
+// The integration of J2 with J3 (dev.32 INT): a start whose registry work is a front-end AND the recording of an archive
+// writer's package (effect replay, D6: every package that ran is recorded, once per journal generation) is not a
+// front-end-only start: the recording reads the whole base at the stage (need.all), so it is an ordinary eager start (its
+// base cache kept, the live back-end prepared there), never one whose source the front-end's lazy first use let go of.
+void front_end_with_a_recording(const std::string& dir, size_t table) {
+    const Game g;
+    TreeView view;
+    view.types["keen::BalancingTable"].push_back(kBalance);
+    view.values[kBalance] = tree_of(g);
+    Files files;
+    {  // the build's id table, as in front_only_start
+        stage::Runner first(env_of(&view, &files, dir));
+        first.run({});
+        first.finish({});
+    }
+    view.listed.clear();
+    const boothook::OldDoc d = doc_of({{"set", {{"durabilityStart", {{"mul", 2}}}}}});
+    stage::Env e = env_of(&view, &files, dir);
+    e.prepare_live = true;
+    e.writer = "kiln-eml";
+    const std::string generation(64, 'a');
+    const json pkg = {{"id", "quiet"}, {"version", "1.0.0"}, {"kind", "shroudforge"}, {"contentSha256", std::string(64, '1')},
+                      {"settingsSha256", std::string(64, '2')}, {"truncated", false}, {"changed", json::array()},
+                      {"created", json::array()}, {"contents", json::array()}};
+    const json journal = {{"format", 2}, {"stem", "enshrouded_server"}, {"generation", generation}, {"receiptSha256", std::string(64, 'b')},
+                          {"dialect", "shroudforge"}, {"attempt", "first"}, {"truncated", false}, {"packages", json::array({pkg})},
+                          {"notApplied", json::array()},
+                          {"unattributed", {{"truncated", false}, {"changed", json::array()}, {"created", json::array()}, {"contents", json::array()}}}};
+    const std::string text = journal.dump();
+    e.archive_journal = [generation, text](std::string* gen, std::string*) -> std::optional<std::string> { return *gen = generation, text; };
+    size_t cache_writes = 0;
+    e.write_data = [&files, &cache_writes](const std::string& rel, const std::string& t) {
+        if (rel.rfind("cache/", 0) == 0) ++cache_writes;
+        files.data[rel] = t;
+        return true;
+    };
+    stage::Runner r(std::move(e));
+    stage::LiveHandoff live;
+    r.set_live([&](const stage::LiveHandoff& h) { live = h; });
+    const std::set<std::string> ids = {kDoc};
+    const std::vector<stage::BootResource> boot =
+        r.run([&](model::Model& m) { return boothook::old_writes({d}, m, &ids); }, {{d.res, d.type}}, {{kDoc, d.type}});
+    check(boot.size() == 1 && boot[0].front == std::vector<std::string>{kDoc}, "the front-end is still taken at a recording start");
+    check(view.listed.size() > 1, "a recording start reads the whole base at the stage");
+    check(cache_writes > 0, "and keeps its base cache as any full start does (" + std::to_string(cache_writes) + " written): it is no front-end-only start");
+    std::vector<uint8_t> copy = bytes_of(g, table);
+    std::vector<stage::BootOutcome> out;
+    std::vector<std::string> notes;
+    boothook::write(boot[0].key, boot[0].type, &copy, boot[0], &out, &notes);
+    check(copy == patched(bytes_of(g, table), d), "the same bytes as its resource patch");
+    r.finish(out, {{"gearmod", "gearRules@gear.json", "registry", "", 0}});
+    const json rep = json::parse(files.report);
+    bool recorded = false;
+    for (const json& row : rep.value("replay", json::array())) recorded = recorded || (row.value("who", "") == "shroudforge:quiet" && row.value("state", "") == "recorded");
+    check(recorded, "the package is recorded: " + rep.value("replay", json()).dump());
+    std::printf("gear-frontend: a front-end with a recording start reads the whole base, as any recording start (%d checks so far)\n", checks);
+}
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -741,6 +799,7 @@ int main(int argc, char** argv) {
         std::printf("gear-frontend: registry.json frontEnds and the frontEnd mark (%d checks so far)\n", checks);
         composition(dir, table);
         front_only_start(dir, table);
+        front_end_with_a_recording(dir, table);
     } catch (const std::exception& e) {
         std::fprintf(stderr, "FAIL %s\n", e.what());
         return 1;
