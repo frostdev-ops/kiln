@@ -44,8 +44,25 @@ registry has a breaking step yet: every schema is 0.1.0, and Kiln ships no migra
 | `loot` | random loot per item: stack sizes, rarities | [loot.md](loot.md) |
 | `drops` | the game's drop tables (default inventories) | [drops.md](drops.md) |
 | `balance` | the balance table: experience, levels, flame, durability, sockets, perk costs | [balance.md](balance.md) |
-| `lootRules` | the world-wide random-loot rules: the rarity weights of rolls whose table sets none (one entry, `game:loot`; 0.2.0-dev.31.19) | [lootRules.md](lootRules.md) |
-| `randomLoot` | every random loot table: its level rules (level, offset, random range) and its own rarity weights; `game:labels_*` serve enemies and generic containers, `game:world_*` the chests placed in the world (0.2.0-dev.31.19) | [randomLoot.md](randomLoot.md) |
+| `lootRules` | the world-wide random-loot rules: the rarity weights of rolls whose table sets none (one entry, `game:loot`; 0.2.0-dev.32) | [lootRules.md](lootRules.md) |
+| `randomLoot` | every random loot table: its level rules (level, offset, random range) and its own rarity weights; `game:labels_*` serve enemies and generic containers, `game:world_*` the chests placed in the world (0.2.0-dev.32) | [randomLoot.md](randomLoot.md) |
+
+**Loot odds and loot levels (`lootRules`, `randomLoot`, 0.2.0-dev.32).** A data pack doubles the world-wide legendary
+weight and gives every enemy and generic-container table two levels more; the tables of the chests placed in the world
+are `game:world_*`:
+
+```json
+{ "registry": { "alter": [
+  { "registry": "lootRules", "select": { "id": "game:loot" }, "field": "rarityWeights.legendary", "op": { "mul": 2 } },
+  { "registry": "randomLoot", "select": { "id": "game:labels_*" }, "field": "levelOffset.mode", "op": "add" },
+  { "registry": "randomLoot", "select": { "id": "game:labels_*" }, "field": "levelOffset.value", "op": 2 } ] } }
+```
+
+In C# the same from settings ([RegistryEdits sample](../../../../mods/samples/RegistryEdits/RegistryEditsMod.cs); to follow
+a settings change while a world runs, `Registry.Reauthor(RegistryEntryPoint.WorldLoad)` below): select tables by the id
+prefixes and their values (`table.Rarity.Legendary.Mode == RandomLootMode.Set`: the elite, boss and
+chest tables with their own odds), not by a table's full id from another build. Both registries are read by the server
+world at each roll, so an edit reaches the next roll; loot already rolled keeps what it got.
 
 The per-registry pages are generated from `schema/registry/<registry>.json` by `tools/registrygen/registrygen.py`; edit
 the schema, never the page. Kiln maintainers adding a registry: [adding-a-registry.md](../../adding-a-registry.md).
