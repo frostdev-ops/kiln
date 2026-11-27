@@ -335,32 +335,40 @@ internal static class PetClearance
         return null;
     }
 
-    private static readonly Dictionary<Guid, PetClearanceBody?> Bodies = [];
+    private static readonly Dictionary<Guid, (PetClearanceBody? Body, double At)> Bodies = [];
 
-    /// <summary>The template's walker, movement collider and own scale (kiln.gamedata), cached per template for the
-    /// process.</summary>
-    private static PetClearanceBody? TemplateBody(PetDefinition def)
+    /// <summary>A template's body as the game data holds it now (tests replace it).</summary>
+    internal static Func<Guid, PetClearanceBody?> TemplateReader { get; set; } = ReadTemplate;
+
+    /// <summary>The template's body (kiln.gamedata), read again every <see cref="RecheckSeconds"/>: a data pack, a reload or
+    /// a mod's change to the template's walker, collider or scale is a changed body.</summary>
+    internal static PetClearanceBody? TemplateBody(PetDefinition def)
     {
         var info = PetCreatures.Resolve(def.Creature, out _);
         if (info is null) return null;
+        var now = Clock();
         lock (Gate)
-            if (Bodies.TryGetValue(info.Template, out var known)) return known;
-        PetClearanceBody? body = null;
+            if (Bodies.TryGetValue(info.Template, out var known) && now - known.At < RecheckSeconds) return known.Body;
+        var body = TemplateReader(info.Template);
+        lock (Gate) Bodies[info.Template] = (body, now);
+        return body;
+    }
+
+    private static PetClearanceBody? ReadTemplate(Guid template)
+    {
         try
         {
-            if (Capabilities.Is("kiln.gamedata") && Content.Templates.Get(info.Template.ToString("D")) is { } t)
-                body = new PetClearanceBody(t.GetNumber("PathWalker.horizontalRadius"), t.GetNumber("PathWalker.height"),
-                    t.GetNumber("MovementColliderConfig.width"), t.GetNumber("MovementColliderConfig.height"))
-                {
-                    TemplateScale = Optional(t, "ScaleComponent.uniformScale") ?? 1,
-                };
+            if (!Capabilities.Is("kiln.gamedata") || Content.Templates.Get(template.ToString("D")) is not { } t) return null;
+            return new PetClearanceBody(t.GetNumber("PathWalker.horizontalRadius"), t.GetNumber("PathWalker.height"),
+                t.GetNumber("MovementColliderConfig.width"), t.GetNumber("MovementColliderConfig.height"))
+            {
+                TemplateScale = Optional(t, "ScaleComponent.uniformScale") ?? 1,
+            };
         }
-        catch (Exception e) when (e is KeyNotFoundException or InvalidOperationException or NotSupportedException or ArgumentException)
+        catch (Exception e) when (e is KeyNotFoundException or InvalidOperationException or NotSupportedException or ArgumentException or FormatException)
         {
-            body = null;
+            return null;
         }
-        lock (Gate) Bodies[info.Template] = body;
-        return body;
     }
 
     /// <summary>A number the template may not have (its component absent): null then.</summary>
@@ -395,6 +403,7 @@ internal static class PetClearance
             SourcesOn = false;
             GameBuild = RunningBuild;
             BodyOf = TemplateBody;
+            TemplateReader = ReadTemplate;
             ShippedJson = ReadShipped;
             ServerFile = () => Path.Combine(KilnPaths.Root, "data", "kiln.pets", FileName);
             ModFolder = ModDirectory;

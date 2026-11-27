@@ -367,4 +367,28 @@ public sealed class ClearanceTests : IDisposable
         Assert.Empty(problems);
         Assert.Equal(new[] { 1.5, 1.0 }, parsed.Select(e => e.Body.TemplateScale));
     }
+
+    [Fact]
+    public void A_template_body_changed_in_the_game_data_is_read_again()
+    {
+        // a data pack (or its reload, or a mod) widens the wolf's collider while the server runs: the profile measured on
+        // the old body stops applying
+        PetCreatures.Source = new FakeCreatures();
+        var now = Wolf;
+        PetClearance.TemplateReader = _ => now;
+        PetClearance.BodyOf = PetClearance.TemplateBody;
+        Put(ServerFile, File1(Profile()));
+        try
+        {
+            Assert.NotNull(PetClearance.For(_def, out _));
+            now = Wolf with { ColliderWidth = 2 };
+            _clock += 1;
+            Assert.NotNull(PetClearance.For(_def, out _));   // within the recheck interval: the body as last read
+            _clock += 10;
+            Assert.Null(PetClearance.For(_def, out var why));
+            Assert.Contains("changed since its path clearance was measured", why);
+            Assert.Contains("collider width 2", why);
+        }
+        finally { PetCreatures.ResetForTests(); }
+    }
 }
