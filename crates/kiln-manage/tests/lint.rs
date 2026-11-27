@@ -817,10 +817,24 @@ fn content_pack_registry_section() {
     let bad_stage = r#"{"registry": {"later": []}}"#;
     let r = lint_as(&dir.join("stage"), "content/a.json", bad_stage);
     assert!(!refuses(&r, &[]).is_empty(), "an unknown stage is refused");
-    // dev.32 api-shape: what the parser (ir.cpp) takes, the schema takes: "select" as a plain string (the samples' form)
+    // dev.32 api-shape: what the parser (ir.cpp) takes, the schema takes. "select" as a plain string (the samples' form) ...
     let plain = r#"{"registry": {"alter": [{"registry": "creatures", "select": "game:enemy_wildbeast_wolf_earlygame", "field": "level", "op": 12}]}}"#;
     let r = lint_as(&dir.join("plain-select"), "content/a.json", plain);
     assert!(refuses(&r, &[]).is_empty(), "a plain string selector: {:?}", refuses(&r, &[]));
+    // ... and an appended element's struct as a nested object (as the C# types and the docs show it) or by its older dotted leaves
+    for (name, element) in [("nested", r#"{"item": "game:material_t1_wood_logs", "count": {"min": 1, "max": 3}, "chance": 0.5}"#),
+                            ("dotted", r#"{"item": "game:material_t1_wood_logs", "count.min": 1, "count.max": 3, "chance": 0.5}"#)] {
+        let doc = format!(r#"{{"registry": {{"alter": [{{"registry": "drops", "select": "game:x", "field": "entries", "list": {{"append": [{element}]}}}}]}}}}"#);
+        let r = lint_as(&dir.join(name), "content/a.json", &doc);
+        assert!(refuses(&r, &[]).is_empty(), "a {name} drop entry: {:?}", refuses(&r, &[]));
+    }
+    // the elements are checked: a leaf the element lacks, nested or flat, is the mistake lint catches
+    for (name, element) in [("misspelt", r#"{"item": "game:x", "count": {"least": 1}}"#), ("flat-struct", r#"{"item": "game:x", "count": 2}"#),
+                            ("unknown", r#"{"item": "game:x", "amount": 2}"#), ("range", r#"{"item": "game:x", "chance": 4}"#)] {
+        let doc = format!(r#"{{"registry": {{"alter": [{{"registry": "drops", "select": "game:x", "field": "entries", "list": {{"append": [{element}]}}}}]}}}}"#);
+        let r = lint_as(&dir.join(name), "content/a.json", &doc);
+        assert!(!refuses(&r, &[]).is_empty(), "a {name} drop entry is refused");
+    }
 }
 
 /// The same boundary matrix Kiln.Blocks.Tests compiles, checked by both kiln lint and independent draft-2020-12 AJV.

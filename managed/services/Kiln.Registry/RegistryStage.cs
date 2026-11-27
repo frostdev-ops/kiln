@@ -29,6 +29,13 @@ public sealed class RegistryStage
     private readonly JsonArray _edits = [];
     private readonly Dictionary<(string Registry, string Id, string Field), JsonNode?> _view = new();
     private readonly Dictionary<(string Registry, string Id), (string Like, JsonObject Fields)> _added = new();
+    // dev.32 api-shape: the elements this callback appended to a list of entries with fields (AppendNew), while no later list
+    // operation named the list: their fields go in the append itself (a data pack's append gives the element whole), so they
+    // compose by value with other mods' appends and removals, never as an index edit that another mod's append would shift
+    // onto its own element; an element's identity (a drop entry's item, read-only once made) is given there. View element ->
+    // the element of the recorded append (null: an entry being added, whose fields carry its whole list).
+    private readonly Dictionary<JsonNode, JsonObject?> _pending = new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<(string Registry, string Id, string List), List<JsonNode>> _pendingOf = new();
     private RegistryPhase _target = RegistryPhase.Alter;
     private static readonly IReadOnlyDictionary<int, RegistryFieldSpec> Specs = RegistrySchema.Fields.ToDictionary(x => x.Id);
     internal RegistryStage(RegistryContext context) { Context = context; context.Capture = Capture; }
@@ -187,6 +194,32 @@ public sealed class RegistryStage
         IEnumerable values => new JsonArray(values.Cast<object?>().Select(Json).ToArray()),
         _ => System.Text.Json.JsonSerializer.SerializeToNode(value),
     };
+    // An element of a list of entries with fields as the IR takes it from C#: a struct inside the element nested
+    // ({"count": {"min": 1}}), as the types and the docs show it; the stage's view keeps the live reads' flat dotted leaves.
+    private static JsonNode? Nested(JsonNode? element)
+    {
+        if (element is not JsonObject flat) return element?.DeepClone();
+        var o = new JsonObject();
+        foreach (var (key, value) in flat)
+        {
+            var at = o;
+            var parts = key.Split('.');
+            for (var i = 0; i < parts.Length - 1; ++i)
+                at = at[parts[i]] as JsonObject ?? (JsonObject)(at[parts[i]] = new JsonObject());
+            at[parts[^1]] = value?.DeepClone();
+        }
+        return o;
+    }
+    private static JsonArray NestedList(IEnumerable<JsonNode?> elements) => new(elements.Select(Nested).ToArray());
+    // A leaf of a nested element ("count.min" in {"count": {...}}).
+    private static void SetNested(JsonObject element, string path, JsonNode? value)
+    {
+        var parts = path.Split('.');
+        var at = element;
+        for (var i = 0; i < parts.Length - 1; ++i)
+            at = at[parts[i]] as JsonObject ?? (JsonObject)(at[parts[i]] = new JsonObject());
+        at[parts[^1]] = value;
+    }
     private static JsonNode? Leaf(JsonNode? node, string path)
     {
         if (node is JsonObject o && o.TryGetPropertyValue(path, out var exact)) return exact;
@@ -236,13 +269,14 @@ public sealed class RegistryStage
         public void Set(int field, int index, object? value)
         {
             var spec = Field(field);
-            if (spec.ReadOnly) throw new ArgumentException("the registry field is read-only");
+            var bracket = spec.Path.IndexOf("[]", StringComparison.Ordinal);
+            // an element's identity (a drop entry's item) is read-only once the element is made: given on one this callback appended
+            if (spec.ReadOnly && !(bracket >= 0 && Appended(spec, bracket, index))) throw new ArgumentException("the registry field is read-only");
             if (!stage.Writable(phase)) return;
             var node = Json(value);
             var path = spec.Path.Replace("[]", $"[{index}]", StringComparison.Ordinal);
             if (spec.Type == RegistryFieldType.List && index >= 0) path += $"[{index}]";
             // Validate the projected write before recording it: a caller may catch an invalid index and continue.
-            var bracket = spec.Path.IndexOf("[]", StringComparison.Ordinal);
             JsonArray? list = null; JsonObject? obj = null;
             if (bracket >= 0)
             {
@@ -256,36 +290,65 @@ public sealed class RegistryStage
                 if (list is null || index >= list.Count) throw new ArgumentOutOfRangeException(nameof(index));
             }
             var adding = stage._added.TryGetValue((registry, id), out var creation);
-            if (!adding) stage.Record(new JsonObject { ["registry"] = registry, ["select"] = id, ["field"] = path, ["op"] = node?.DeepClone() });
-            if (obj is not null) obj[spec.Path[(bracket + 3)..]] = node;
+            var leaf = bracket >= 0 ? spec.Path[(bracket + 3)..] : "";
+            // a leaf of an element this callback appended goes in that append (by value), not in an edit by index after it
+            JsonObject? element = null;
+            var appended = obj is not null && stage._pending.TryGetValue(obj, out element);
+            if (appended && element is not null) SetNested(element, leaf, node?.DeepClone());
+            if (!adding && !appended) stage.Record(new JsonObject { ["registry"] = registry, ["select"] = id, ["field"] = path, ["op"] = node?.DeepClone() });
+            if (obj is not null) obj[leaf] = node;
             else if (list is not null) list[index] = node;
             else stage._view[(registry, id, spec.Path)] = node;
             if (adding)
             {
                 var root = bracket >= 0 ? spec.Path[..bracket] : spec.Path;
-                creation.Fields[root] = stage._view[(registry, id, root)]?.DeepClone();
+                var now = stage._view[(registry, id, root)];
+                creation.Fields[root] = bracket >= 0 && now is JsonArray elements ? NestedList(elements) : now?.DeepClone();
             }
         }
+        // Whether element `index` of the leaf's list is one this callback appended (and no later list operation named the list).
+        private bool Appended(RegistryFieldSpec leaf, int bracket, int index)
+            => index >= 0 && stage.Read(registry, id, leaf.Path[..bracket]) is JsonArray list && index < list.Count &&
+               list[index] is { } element && stage._pending.ContainsKey(element);
         public int Count(int listField) => stage.Read(registry, id, Field(listField).Path) is JsonArray array ? array.Count : 0;
         public void ListOp(int listField, RegistryListOp op, IReadOnlyList<object?> values)
         {
             var spec = Field(listField);
             if (spec.ReadOnly) throw new ArgumentException("the registry field is read-only");
             if (!stage.Writable(phase)) return;
-            var json = values.Select(value => value is null && spec.Element == RegistryFieldType.Struct ? new JsonObject() : Json(value)).ToArray();
-            var payload = new JsonObject { [op.ToString().ToLowerInvariant()] = op == RegistryListOp.Clear ? JsonValue.Create(true) : new JsonArray(json.Select(x => x?.DeepClone()).ToArray()) };
+            var structs = spec.Element == RegistryFieldType.Struct;
+            var json = values.Select(value => value is null && structs ? new JsonObject() : Json(value)).ToArray();
+            var items = op == RegistryListOp.Clear ? null : structs ? NestedList(json) : new JsonArray(json.Select(x => x?.DeepClone()).ToArray());
+            var payload = new JsonObject { [op.ToString().ToLowerInvariant()] = items is null ? JsonValue.Create(true) : items };
+            var key = (registry, id, spec.Path);
             var old = stage.Read(registry, id, spec.Path) as JsonArray ?? [];
+            // the elements stay the same nodes (an appended one is known by its node): taken out of the list before
+            var kept = old.ToArray();
+            old.Clear();
             var next = op switch
             {
                 RegistryListOp.Clear => new JsonArray(),
                 RegistryListOp.Replace => new JsonArray(json),
-                RegistryListOp.Append => new JsonArray(old.Select(x => x?.DeepClone()).Concat(json).ToArray()),
-                RegistryListOp.Remove => new JsonArray(old.Where(x => !json.Any(v => JsonNode.DeepEquals(x, v))).Select(x => x?.DeepClone()).ToArray()),
+                RegistryListOp.Append => new JsonArray(kept.Concat(json).ToArray()),
+                RegistryListOp.Remove => new JsonArray(kept.Where(x => !json.Any(v => JsonNode.DeepEquals(x, v))).ToArray()),
                 _ => throw new ArgumentOutOfRangeException(nameof(op)),
             };
-            if (stage._added.TryGetValue((registry, id), out var creation)) creation.Fields[spec.Path] = next.DeepClone();
+            // a later operation names the list's elements by value: the ones appended before it are made, their fields edited by index
+            if (op != RegistryListOp.Append && stage._pendingOf.Remove(key, out var sealedNodes))
+                foreach (var node in sealedNodes) stage._pending.Remove(node);
+            var adding = stage._added.TryGetValue((registry, id), out var creation);
+            if (adding) creation.Fields[spec.Path] = structs ? NestedList(next) : next.DeepClone();
             else stage.Record(new JsonObject { ["registry"] = registry, ["select"] = id, ["field"] = spec.Path, ["list"] = payload });
-            stage._view[(registry, id, spec.Path)] = next;
+            if (op == RegistryListOp.Append && structs)
+            {
+                if (!stage._pendingOf.TryGetValue(key, out var mine)) stage._pendingOf[key] = mine = [];
+                for (var i = 0; i < json.Length; ++i)
+                {
+                    stage._pending[json[i]!] = adding ? null : (JsonObject)items![i]!;
+                    mine.Add(json[i]!);
+                }
+            }
+            stage._view[key] = next;
         }
     }
 }

@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT
 // The list fields of a registry entry. Three shapes, so that only the edits that compose across mods compile:
-//   RegistryValueList<T>  a list of plain values (perks): Clear, Append, Remove (by value), Replace
-//   RegistryEntryList<T>  a list of entries with fields (a recipe's inputs): Clear, AppendNew, RemoveWhere, and the
-//                         entries' own fields
+//   RegistryValueList<T>  a list of plain values (perks): Clear, Append, Remove (by value), Replace, and one element set by
+//                         index (perks[0], as a data pack's element edit)
+//   RegistryEntryList<T>  a list of entries with fields (a recipe's inputs): Clear, AppendNew (the new element's fields go in
+//                         the append), RemoveWhere, and the entries' own fields
 //   RegistryFixedList<T>  a list of fixed length (xpPerLevel): read and set one element at a time
-// Every edit is recorded by value (never by index), as the data section's "remove" names values: two mods' removals and
-// appends stack.
+// The list operations are recorded by value, as the data section's "remove" names values: two mods' removals and appends
+// stack. An element set by index is an absolute edit of that element, as a data pack's "perks[0]" is.
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -20,20 +21,35 @@ public sealed class RegistryValueList<T> : IReadOnlyList<T>
     private readonly IRegistryCells _cells;
     private readonly int _field;
     private readonly Func<IRegistryCells, int, T> _element;
+    private readonly Action<IRegistryCells, int, T>? _set;
 
-    internal RegistryValueList(IRegistryCells cells, int field, Func<IRegistryCells, int, T> element)
+    internal RegistryValueList(IRegistryCells cells, int field, Func<IRegistryCells, int, T> element, Action<IRegistryCells, int, T>? set = null)
     {
         _cells = cells;
         _field = field;
         _element = element;
+        _set = set;
     }
 
     /// <summary>How many values the list has.</summary>
     public int Count => _cells.Count(_field);
 
-    /// <summary>The value at an index. ArgumentOutOfRangeException outside the list.</summary>
-    public T this[int index] => (uint)index < (uint)Count ? _element(_cells, index)
-        : throw new ArgumentOutOfRangeException(nameof(index), index, $"the list has {Count} values");
+    /// <summary>The value at an index; setting it records an absolute edit of that element (a data pack's <c>"perks[0]"</c>,
+    /// since 0.2.0-dev.32). ArgumentOutOfRangeException outside the list.</summary>
+    public T this[int index]
+    {
+        get => (uint)index < (uint)Count ? _element(_cells, index) : throw Outside(index);
+        set
+        {
+            if ((uint)index >= (uint)Count)
+                throw Outside(index);
+            if (_set is null)
+                throw new InvalidOperationException("the list is read-only");
+            _set(_cells, index, value);
+        }
+    }
+
+    private ArgumentOutOfRangeException Outside(int index) => new(nameof(index), index, $"the list has {Count} values");
 
     /// <summary>Empties the list.</summary>
     public void Clear() => _cells.ListOp(_field, RegistryListOp.Clear, Array.Empty<object?>());

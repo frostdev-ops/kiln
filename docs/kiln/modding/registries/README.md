@@ -539,9 +539,15 @@ infer that raw/unknown fields are safe. A mixed pack follows the requirements of
 edits. A server operator may intentionally admit vanilla clients for synced existing-item/recipe tweaks; retain that
 choice knowingly rather than assuming vanilla clients acquire the server's numbers.
 
-**Lists.** A list of plain values (`items.perks`) takes clear, append, remove (by value) and replace; a list of entries
-with fields (`recipes.inputs`) takes clear, append (a new entry, then its fields) and remove (the entries a condition
-picks, named by their values), so two mods' appends and removals stack. A list of fixed length (`balance.xpPerLevel`,
+**Lists.** A list of plain values (`items.perks`) takes clear, append, remove (by value) and replace, and one element set
+by index (`perks[1]`; C# `item.Perks[1] = id`, since dev.32); a list of entries with fields (`recipes.inputs`) takes clear,
+append (a new entry with its fields) and remove (the entries a condition picks, named by their values), so two mods'
+appends and removals stack. An element names a struct of its own as a nested object, as the C# types show it:
+`{"item": "game:material_stone", "count": {"min": 1, "max": 3}, "chance": 0.5}` appends a drop entry (the dotted leaves
+`"count.min"` of earlier data packs still read; one element names a leaf once). A leaf that is the element's identity (a drop
+entry's item) is given in the append and read-only after it. In C#, `AppendNew()` gives the new element: what you set on it
+(its item too) goes in the append itself, by value, until a later clear, removal or replace of that list names its elements
+(since dev.32). The section's schema checks each element, so `kiln lint` names a leaf the element lacks. A list of fixed length (`balance.xpPerLevel`,
 exactly 5; `balance.altarsPerFlameLevel`, one value per flame level) is edited one element at a time
 (`xpPerLevel[2]`). A reference that may be absent (a recipe input's item or category) can be cleared. The world's lists (`world.noBuildZones`,
 `world.playableAreas`, restart fields) take clear, append, remove and replace whole at game start: Kiln gives the list its new

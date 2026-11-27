@@ -178,6 +178,47 @@
           "type": "string",
           "pattern": "^(perks\\[([0-9]+|\\*)\\])$"
         },
+        "list.perks": {
+          "anyOf": [
+            {
+              "const": "clear"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "minProperties": 1,
+              "maxProperties": 1,
+              "properties": {
+                "clear": {
+                  "const": true
+                },
+                "append": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "string",
+                    "pattern": ":"
+                  }
+                },
+                "remove": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "string",
+                    "pattern": ":"
+                  }
+                },
+                "replace": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": ":"
+                  }
+                }
+              }
+            }
+          ]
+        },
         "edit": {
           "type": "object",
           "additionalProperties": false,
@@ -236,9 +277,39 @@
               "type": "object",
               "propertyNames": {
                 "$ref": "#/$defs/items/$defs/field"
+              },
+              "properties": {
+                "perks": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": ":"
+                  }
+                }
               }
             }
-          }
+          },
+          "allOf": [
+            {
+              "if": {
+                "required": [
+                  "field"
+                ],
+                "properties": {
+                  "field": {
+                    "const": "perks"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "list": {
+                    "$ref": "#/$defs/items/$defs/list.perks"
+                  }
+                }
+              }
+            }
+          ]
         }
       }
     },
@@ -260,6 +331,214 @@
         "fieldIndexed": {
           "type": "string",
           "pattern": "^(inputs\\[([0-9]+|\\*)\\]\\.item|inputs\\[([0-9]+|\\*)\\]\\.category|inputs\\[([0-9]+|\\*)\\]\\.count|outputs\\[([0-9]+|\\*)\\]\\.item|outputs\\[([0-9]+|\\*)\\]\\.count|inputs\\[([0-9]+|\\*)\\]|outputs\\[([0-9]+|\\*)\\])$"
+        },
+        "list.inputs": {
+          "anyOf": [
+            {
+              "const": "clear"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "minProperties": 1,
+              "maxProperties": 1,
+              "properties": {
+                "clear": {
+                  "const": true
+                },
+                "append": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "item": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "pattern": ":"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "category": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "pattern": ":"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "count": {
+                        "type": "number",
+                        "minimum": 1,
+                        "maximum": 65535
+                      }
+                    },
+                    "description": "An element: its fields by name; a struct of the element as a nested object."
+                  }
+                },
+                "remove": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "item": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "pattern": ":"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "category": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "pattern": ":"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "count": {
+                        "type": "number",
+                        "minimum": 1,
+                        "maximum": 65535
+                      }
+                    },
+                    "description": "An element: its fields by name; a struct of the element as a nested object."
+                  }
+                },
+                "replace": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "item": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "pattern": ":"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "category": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "pattern": ":"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "count": {
+                        "type": "number",
+                        "minimum": 1,
+                        "maximum": 65535
+                      }
+                    },
+                    "description": "An element: its fields by name; a struct of the element as a nested object."
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "list.outputs": {
+          "anyOf": [
+            {
+              "const": "clear"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "minProperties": 1,
+              "maxProperties": 1,
+              "properties": {
+                "clear": {
+                  "const": true
+                },
+                "append": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "item": {
+                        "type": "string",
+                        "pattern": ":"
+                      },
+                      "count": {
+                        "type": "number",
+                        "minimum": 1,
+                        "maximum": 65535
+                      }
+                    },
+                    "description": "An element: its fields by name; a struct of the element as a nested object."
+                  }
+                },
+                "remove": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "item": {
+                        "type": "string",
+                        "pattern": ":"
+                      },
+                      "count": {
+                        "type": "number",
+                        "minimum": 1,
+                        "maximum": 65535
+                      }
+                    },
+                    "description": "An element: its fields by name; a struct of the element as a nested object."
+                  }
+                },
+                "replace": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "item": {
+                        "type": "string",
+                        "pattern": ":"
+                      },
+                      "count": {
+                        "type": "number",
+                        "minimum": 1,
+                        "maximum": 65535
+                      }
+                    },
+                    "description": "An element: its fields by name; a struct of the element as a nested object."
+                  }
+                }
+              }
+            }
+          ]
         },
         "edit": {
           "type": "object",
@@ -319,9 +598,107 @@
               "type": "object",
               "propertyNames": {
                 "$ref": "#/$defs/recipes/$defs/field"
+              },
+              "properties": {
+                "inputs": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "item": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "pattern": ":"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "category": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "pattern": ":"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "count": {
+                        "type": "number",
+                        "minimum": 1,
+                        "maximum": 65535
+                      }
+                    },
+                    "description": "An element: its fields by name; a struct of the element as a nested object."
+                  }
+                },
+                "outputs": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "item": {
+                        "type": "string",
+                        "pattern": ":"
+                      },
+                      "count": {
+                        "type": "number",
+                        "minimum": 1,
+                        "maximum": 65535
+                      }
+                    },
+                    "description": "An element: its fields by name; a struct of the element as a nested object."
+                  }
+                }
               }
             }
-          }
+          },
+          "allOf": [
+            {
+              "if": {
+                "required": [
+                  "field"
+                ],
+                "properties": {
+                  "field": {
+                    "const": "inputs"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "list": {
+                    "$ref": "#/$defs/recipes/$defs/list.inputs"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "required": [
+                  "field"
+                ],
+                "properties": {
+                  "field": {
+                    "const": "outputs"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "list": {
+                    "$ref": "#/$defs/recipes/$defs/list.outputs"
+                  }
+                }
+              }
+            }
+          ]
         }
       }
     },
@@ -394,6 +771,182 @@
           "type": "string",
           "pattern": "^(entries\\[([0-9]+|\\*)\\]\\.count\\.min|entries\\[([0-9]+|\\*)\\]\\.count\\.max|entries\\[([0-9]+|\\*)\\]\\.chance|entries\\[([0-9]+|\\*)\\]\\.weight|entries\\[([0-9]+|\\*)\\])$"
         },
+        "list.entries": {
+          "anyOf": [
+            {
+              "const": "clear"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "minProperties": 1,
+              "maxProperties": 1,
+              "properties": {
+                "clear": {
+                  "const": true
+                },
+                "append": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "item": {
+                        "type": "string",
+                        "pattern": ":"
+                      },
+                      "count": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "min": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 1000000
+                          },
+                          "max": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 1000000
+                          }
+                        }
+                      },
+                      "count.min": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1000000,
+                        "description": "The older, dotted spelling of count: {...}'s leaf."
+                      },
+                      "count.max": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1000000,
+                        "description": "The older, dotted spelling of count: {...}'s leaf."
+                      },
+                      "chance": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "weight": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1000000
+                      }
+                    },
+                    "description": "An element: its fields by name; a struct of the element as a nested object."
+                  }
+                },
+                "remove": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "item": {
+                        "type": "string",
+                        "pattern": ":"
+                      },
+                      "count": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "min": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 1000000
+                          },
+                          "max": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 1000000
+                          }
+                        }
+                      },
+                      "count.min": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1000000,
+                        "description": "The older, dotted spelling of count: {...}'s leaf."
+                      },
+                      "count.max": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1000000,
+                        "description": "The older, dotted spelling of count: {...}'s leaf."
+                      },
+                      "chance": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "weight": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1000000
+                      }
+                    },
+                    "description": "An element: its fields by name; a struct of the element as a nested object."
+                  }
+                },
+                "replace": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "item": {
+                        "type": "string",
+                        "pattern": ":"
+                      },
+                      "count": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "min": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 1000000
+                          },
+                          "max": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 1000000
+                          }
+                        }
+                      },
+                      "count.min": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1000000,
+                        "description": "The older, dotted spelling of count: {...}'s leaf."
+                      },
+                      "count.max": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1000000,
+                        "description": "The older, dotted spelling of count: {...}'s leaf."
+                      },
+                      "chance": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "weight": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1000000
+                      }
+                    },
+                    "description": "An element: its fields by name; a struct of the element as a nested object."
+                  }
+                }
+              }
+            }
+          ]
+        },
         "edit": {
           "type": "object",
           "additionalProperties": false,
@@ -434,7 +987,28 @@
               "type": "object",
               "description": "Advanced tier: raw game paths; refused per entry where the game's names changed."
             }
-          }
+          },
+          "allOf": [
+            {
+              "if": {
+                "required": [
+                  "field"
+                ],
+                "properties": {
+                  "field": {
+                    "const": "entries"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "list": {
+                    "$ref": "#/$defs/drops/$defs/list.entries"
+                  }
+                }
+              }
+            }
+          ]
         }
       }
     },
@@ -480,6 +1054,101 @@
           "type": "string",
           "pattern": "^(buildzoneSizesPerAltarLevel\\[([0-9]+|\\*)\\]\\.x|buildzoneSizesPerAltarLevel\\[([0-9]+|\\*)\\]\\.y|buildzoneSizesPerAltarLevel\\[([0-9]+|\\*)\\]\\.z|xpPerLevel\\[([0-9]+|\\*)\\]|altarsPerFlameLevel\\[([0-9]+|\\*)\\]|waterSourcesPerFlameLevel\\[([0-9]+|\\*)\\]|buildzoneSizesPerAltarLevel\\[([0-9]+|\\*)\\])$"
         },
+        "list.buildzoneSizesPerAltarLevel": {
+          "anyOf": [
+            {
+              "const": "clear"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "minProperties": 1,
+              "maxProperties": 1,
+              "properties": {
+                "clear": {
+                  "const": true
+                },
+                "append": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "x": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 100000
+                      },
+                      "y": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 100000
+                      },
+                      "z": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 100000
+                      }
+                    },
+                    "description": "An element: its fields by name; a struct of the element as a nested object."
+                  }
+                },
+                "remove": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "x": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 100000
+                      },
+                      "y": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 100000
+                      },
+                      "z": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 100000
+                      }
+                    },
+                    "description": "An element: its fields by name; a struct of the element as a nested object."
+                  }
+                },
+                "replace": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "x": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 100000
+                      },
+                      "y": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 100000
+                      },
+                      "z": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 100000
+                      }
+                    },
+                    "description": "An element: its fields by name; a struct of the element as a nested object."
+                  }
+                }
+              }
+            }
+          ]
+        },
         "edit": {
           "type": "object",
           "additionalProperties": false,
@@ -520,7 +1189,28 @@
               "type": "object",
               "description": "Advanced tier: raw game paths; refused per entry where the game's names changed."
             }
-          }
+          },
+          "allOf": [
+            {
+              "if": {
+                "required": [
+                  "field"
+                ],
+                "properties": {
+                  "field": {
+                    "const": "buildzoneSizesPerAltarLevel"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "list": {
+                    "$ref": "#/$defs/balance/$defs/list.buildzoneSizesPerAltarLevel"
+                  }
+                }
+              }
+            }
+          ]
         }
       }
     },
@@ -539,6 +1229,131 @@
         "fieldIndexed": {
           "type": "string",
           "pattern": "^(attacks\\[([0-9]+|\\*)\\]\\.chance|attacks\\[([0-9]+|\\*)\\]\\.threat|attacks\\[([0-9]+|\\*)\\]\\.minRange|attacks\\[([0-9]+|\\*)\\]\\.maxRange|attacks\\[([0-9]+|\\*)\\]\\.maxHeight|attacks\\[([0-9]+|\\*)\\])$"
+        },
+        "list.attacks": {
+          "anyOf": [
+            {
+              "const": "clear"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "minProperties": 1,
+              "maxProperties": 1,
+              "properties": {
+                "clear": {
+                  "const": true
+                },
+                "append": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "chance": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "threat": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1000
+                      },
+                      "minRange": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 10000
+                      },
+                      "maxRange": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 10000
+                      },
+                      "maxHeight": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 10000
+                      }
+                    },
+                    "description": "An element: its fields by name; a struct of the element as a nested object."
+                  }
+                },
+                "remove": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "chance": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "threat": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1000
+                      },
+                      "minRange": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 10000
+                      },
+                      "maxRange": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 10000
+                      },
+                      "maxHeight": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 10000
+                      }
+                    },
+                    "description": "An element: its fields by name; a struct of the element as a nested object."
+                  }
+                },
+                "replace": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "chance": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "threat": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1000
+                      },
+                      "minRange": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 10000
+                      },
+                      "maxRange": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 10000
+                      },
+                      "maxHeight": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 10000
+                      }
+                    },
+                    "description": "An element: its fields by name; a struct of the element as a nested object."
+                  }
+                }
+              }
+            }
+          ]
         },
         "edit": {
           "type": "object",
@@ -580,7 +1395,28 @@
               "type": "object",
               "description": "Advanced tier: raw game paths; refused per entry where the game's names changed."
             }
-          }
+          },
+          "allOf": [
+            {
+              "if": {
+                "required": [
+                  "field"
+                ],
+                "properties": {
+                  "field": {
+                    "const": "attacks"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "list": {
+                    "$ref": "#/$defs/arsenals/$defs/list.attacks"
+                  }
+                }
+              }
+            }
+          ]
         }
       }
     },
@@ -1015,6 +1851,574 @@
           "type": "string",
           "pattern": "^(noBuildZones\\[([0-9]+|\\*)\\]\\.min\\.x|noBuildZones\\[([0-9]+|\\*)\\]\\.min\\.y|noBuildZones\\[([0-9]+|\\*)\\]\\.min\\.z|noBuildZones\\[([0-9]+|\\*)\\]\\.max\\.x|noBuildZones\\[([0-9]+|\\*)\\]\\.max\\.y|noBuildZones\\[([0-9]+|\\*)\\]\\.max\\.z|playableAreas\\[([0-9]+|\\*)\\]\\.min\\.x|playableAreas\\[([0-9]+|\\*)\\]\\.min\\.y|playableAreas\\[([0-9]+|\\*)\\]\\.min\\.z|playableAreas\\[([0-9]+|\\*)\\]\\.max\\.x|playableAreas\\[([0-9]+|\\*)\\]\\.max\\.y|playableAreas\\[([0-9]+|\\*)\\]\\.max\\.z|noBuildZones\\[([0-9]+|\\*)\\]|playableAreas\\[([0-9]+|\\*)\\])$"
         },
+        "list.noBuildZones": {
+          "anyOf": [
+            {
+              "const": "clear"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "minProperties": 1,
+              "maxProperties": 1,
+              "properties": {
+                "clear": {
+                  "const": true
+                },
+                "append": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "min": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "x": {
+                            "type": "number",
+                            "minimum": -100000,
+                            "maximum": 100000
+                          },
+                          "y": {
+                            "type": "number",
+                            "minimum": -100000,
+                            "maximum": 100000
+                          },
+                          "z": {
+                            "type": "number",
+                            "minimum": -100000,
+                            "maximum": 100000
+                          }
+                        }
+                      },
+                      "min.x": {
+                        "type": "number",
+                        "minimum": -100000,
+                        "maximum": 100000,
+                        "description": "The older, dotted spelling of min: {...}'s leaf."
+                      },
+                      "min.y": {
+                        "type": "number",
+                        "minimum": -100000,
+                        "maximum": 100000,
+                        "description": "The older, dotted spelling of min: {...}'s leaf."
+                      },
+                      "min.z": {
+                        "type": "number",
+                        "minimum": -100000,
+                        "maximum": 100000,
+                        "description": "The older, dotted spelling of min: {...}'s leaf."
+                      },
+                      "max": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "x": {
+                            "type": "number",
+                            "minimum": -100000,
+                            "maximum": 100000
+                          },
+                          "y": {
+                            "type": "number",
+                            "minimum": -100000,
+                            "maximum": 100000
+                          },
+                          "z": {
+                            "type": "number",
+                            "minimum": -100000,
+                            "maximum": 100000
+                          }
+                        }
+                      },
+                      "max.x": {
+                        "type": "number",
+                        "minimum": -100000,
+                        "maximum": 100000,
+                        "description": "The older, dotted spelling of max: {...}'s leaf."
+                      },
+                      "max.y": {
+                        "type": "number",
+                        "minimum": -100000,
+                        "maximum": 100000,
+                        "description": "The older, dotted spelling of max: {...}'s leaf."
+                      },
+                      "max.z": {
+                        "type": "number",
+                        "minimum": -100000,
+                        "maximum": 100000,
+                        "description": "The older, dotted spelling of max: {...}'s leaf."
+                      }
+                    },
+                    "description": "An element: its fields by name; a struct of the element as a nested object."
+                  }
+                },
+                "remove": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "min": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "x": {
+                            "type": "number",
+                            "minimum": -100000,
+                            "maximum": 100000
+                          },
+                          "y": {
+                            "type": "number",
+                            "minimum": -100000,
+                            "maximum": 100000
+                          },
+                          "z": {
+                            "type": "number",
+                            "minimum": -100000,
+                            "maximum": 100000
+                          }
+                        }
+                      },
+                      "min.x": {
+                        "type": "number",
+                        "minimum": -100000,
+                        "maximum": 100000,
+                        "description": "The older, dotted spelling of min: {...}'s leaf."
+                      },
+                      "min.y": {
+                        "type": "number",
+                        "minimum": -100000,
+                        "maximum": 100000,
+                        "description": "The older, dotted spelling of min: {...}'s leaf."
+                      },
+                      "min.z": {
+                        "type": "number",
+                        "minimum": -100000,
+                        "maximum": 100000,
+                        "description": "The older, dotted spelling of min: {...}'s leaf."
+                      },
+                      "max": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "x": {
+                            "type": "number",
+                            "minimum": -100000,
+                            "maximum": 100000
+                          },
+                          "y": {
+                            "type": "number",
+                            "minimum": -100000,
+                            "maximum": 100000
+                          },
+                          "z": {
+                            "type": "number",
+                            "minimum": -100000,
+                            "maximum": 100000
+                          }
+                        }
+                      },
+                      "max.x": {
+                        "type": "number",
+                        "minimum": -100000,
+                        "maximum": 100000,
+                        "description": "The older, dotted spelling of max: {...}'s leaf."
+                      },
+                      "max.y": {
+                        "type": "number",
+                        "minimum": -100000,
+                        "maximum": 100000,
+                        "description": "The older, dotted spelling of max: {...}'s leaf."
+                      },
+                      "max.z": {
+                        "type": "number",
+                        "minimum": -100000,
+                        "maximum": 100000,
+                        "description": "The older, dotted spelling of max: {...}'s leaf."
+                      }
+                    },
+                    "description": "An element: its fields by name; a struct of the element as a nested object."
+                  }
+                },
+                "replace": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "min": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "x": {
+                            "type": "number",
+                            "minimum": -100000,
+                            "maximum": 100000
+                          },
+                          "y": {
+                            "type": "number",
+                            "minimum": -100000,
+                            "maximum": 100000
+                          },
+                          "z": {
+                            "type": "number",
+                            "minimum": -100000,
+                            "maximum": 100000
+                          }
+                        }
+                      },
+                      "min.x": {
+                        "type": "number",
+                        "minimum": -100000,
+                        "maximum": 100000,
+                        "description": "The older, dotted spelling of min: {...}'s leaf."
+                      },
+                      "min.y": {
+                        "type": "number",
+                        "minimum": -100000,
+                        "maximum": 100000,
+                        "description": "The older, dotted spelling of min: {...}'s leaf."
+                      },
+                      "min.z": {
+                        "type": "number",
+                        "minimum": -100000,
+                        "maximum": 100000,
+                        "description": "The older, dotted spelling of min: {...}'s leaf."
+                      },
+                      "max": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "x": {
+                            "type": "number",
+                            "minimum": -100000,
+                            "maximum": 100000
+                          },
+                          "y": {
+                            "type": "number",
+                            "minimum": -100000,
+                            "maximum": 100000
+                          },
+                          "z": {
+                            "type": "number",
+                            "minimum": -100000,
+                            "maximum": 100000
+                          }
+                        }
+                      },
+                      "max.x": {
+                        "type": "number",
+                        "minimum": -100000,
+                        "maximum": 100000,
+                        "description": "The older, dotted spelling of max: {...}'s leaf."
+                      },
+                      "max.y": {
+                        "type": "number",
+                        "minimum": -100000,
+                        "maximum": 100000,
+                        "description": "The older, dotted spelling of max: {...}'s leaf."
+                      },
+                      "max.z": {
+                        "type": "number",
+                        "minimum": -100000,
+                        "maximum": 100000,
+                        "description": "The older, dotted spelling of max: {...}'s leaf."
+                      }
+                    },
+                    "description": "An element: its fields by name; a struct of the element as a nested object."
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "list.playableAreas": {
+          "anyOf": [
+            {
+              "const": "clear"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "minProperties": 1,
+              "maxProperties": 1,
+              "properties": {
+                "clear": {
+                  "const": true
+                },
+                "append": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "min": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "x": {
+                            "type": "number",
+                            "minimum": -100000,
+                            "maximum": 100000
+                          },
+                          "y": {
+                            "type": "number",
+                            "minimum": -100000,
+                            "maximum": 100000
+                          },
+                          "z": {
+                            "type": "number",
+                            "minimum": -100000,
+                            "maximum": 100000
+                          }
+                        }
+                      },
+                      "min.x": {
+                        "type": "number",
+                        "minimum": -100000,
+                        "maximum": 100000,
+                        "description": "The older, dotted spelling of min: {...}'s leaf."
+                      },
+                      "min.y": {
+                        "type": "number",
+                        "minimum": -100000,
+                        "maximum": 100000,
+                        "description": "The older, dotted spelling of min: {...}'s leaf."
+                      },
+                      "min.z": {
+                        "type": "number",
+                        "minimum": -100000,
+                        "maximum": 100000,
+                        "description": "The older, dotted spelling of min: {...}'s leaf."
+                      },
+                      "max": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "x": {
+                            "type": "number",
+                            "minimum": -100000,
+                            "maximum": 100000
+                          },
+                          "y": {
+                            "type": "number",
+                            "minimum": -100000,
+                            "maximum": 100000
+                          },
+                          "z": {
+                            "type": "number",
+                            "minimum": -100000,
+                            "maximum": 100000
+                          }
+                        }
+                      },
+                      "max.x": {
+                        "type": "number",
+                        "minimum": -100000,
+                        "maximum": 100000,
+                        "description": "The older, dotted spelling of max: {...}'s leaf."
+                      },
+                      "max.y": {
+                        "type": "number",
+                        "minimum": -100000,
+                        "maximum": 100000,
+                        "description": "The older, dotted spelling of max: {...}'s leaf."
+                      },
+                      "max.z": {
+                        "type": "number",
+                        "minimum": -100000,
+                        "maximum": 100000,
+                        "description": "The older, dotted spelling of max: {...}'s leaf."
+                      }
+                    },
+                    "description": "An element: its fields by name; a struct of the element as a nested object."
+                  }
+                },
+                "remove": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "min": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "x": {
+                            "type": "number",
+                            "minimum": -100000,
+                            "maximum": 100000
+                          },
+                          "y": {
+                            "type": "number",
+                            "minimum": -100000,
+                            "maximum": 100000
+                          },
+                          "z": {
+                            "type": "number",
+                            "minimum": -100000,
+                            "maximum": 100000
+                          }
+                        }
+                      },
+                      "min.x": {
+                        "type": "number",
+                        "minimum": -100000,
+                        "maximum": 100000,
+                        "description": "The older, dotted spelling of min: {...}'s leaf."
+                      },
+                      "min.y": {
+                        "type": "number",
+                        "minimum": -100000,
+                        "maximum": 100000,
+                        "description": "The older, dotted spelling of min: {...}'s leaf."
+                      },
+                      "min.z": {
+                        "type": "number",
+                        "minimum": -100000,
+                        "maximum": 100000,
+                        "description": "The older, dotted spelling of min: {...}'s leaf."
+                      },
+                      "max": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "x": {
+                            "type": "number",
+                            "minimum": -100000,
+                            "maximum": 100000
+                          },
+                          "y": {
+                            "type": "number",
+                            "minimum": -100000,
+                            "maximum": 100000
+                          },
+                          "z": {
+                            "type": "number",
+                            "minimum": -100000,
+                            "maximum": 100000
+                          }
+                        }
+                      },
+                      "max.x": {
+                        "type": "number",
+                        "minimum": -100000,
+                        "maximum": 100000,
+                        "description": "The older, dotted spelling of max: {...}'s leaf."
+                      },
+                      "max.y": {
+                        "type": "number",
+                        "minimum": -100000,
+                        "maximum": 100000,
+                        "description": "The older, dotted spelling of max: {...}'s leaf."
+                      },
+                      "max.z": {
+                        "type": "number",
+                        "minimum": -100000,
+                        "maximum": 100000,
+                        "description": "The older, dotted spelling of max: {...}'s leaf."
+                      }
+                    },
+                    "description": "An element: its fields by name; a struct of the element as a nested object."
+                  }
+                },
+                "replace": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "min": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "x": {
+                            "type": "number",
+                            "minimum": -100000,
+                            "maximum": 100000
+                          },
+                          "y": {
+                            "type": "number",
+                            "minimum": -100000,
+                            "maximum": 100000
+                          },
+                          "z": {
+                            "type": "number",
+                            "minimum": -100000,
+                            "maximum": 100000
+                          }
+                        }
+                      },
+                      "min.x": {
+                        "type": "number",
+                        "minimum": -100000,
+                        "maximum": 100000,
+                        "description": "The older, dotted spelling of min: {...}'s leaf."
+                      },
+                      "min.y": {
+                        "type": "number",
+                        "minimum": -100000,
+                        "maximum": 100000,
+                        "description": "The older, dotted spelling of min: {...}'s leaf."
+                      },
+                      "min.z": {
+                        "type": "number",
+                        "minimum": -100000,
+                        "maximum": 100000,
+                        "description": "The older, dotted spelling of min: {...}'s leaf."
+                      },
+                      "max": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "x": {
+                            "type": "number",
+                            "minimum": -100000,
+                            "maximum": 100000
+                          },
+                          "y": {
+                            "type": "number",
+                            "minimum": -100000,
+                            "maximum": 100000
+                          },
+                          "z": {
+                            "type": "number",
+                            "minimum": -100000,
+                            "maximum": 100000
+                          }
+                        }
+                      },
+                      "max.x": {
+                        "type": "number",
+                        "minimum": -100000,
+                        "maximum": 100000,
+                        "description": "The older, dotted spelling of max: {...}'s leaf."
+                      },
+                      "max.y": {
+                        "type": "number",
+                        "minimum": -100000,
+                        "maximum": 100000,
+                        "description": "The older, dotted spelling of max: {...}'s leaf."
+                      },
+                      "max.z": {
+                        "type": "number",
+                        "minimum": -100000,
+                        "maximum": 100000,
+                        "description": "The older, dotted spelling of max: {...}'s leaf."
+                      }
+                    },
+                    "description": "An element: its fields by name; a struct of the element as a nested object."
+                  }
+                }
+              }
+            }
+          ]
+        },
         "edit": {
           "type": "object",
           "additionalProperties": false,
@@ -1055,7 +2459,47 @@
               "type": "object",
               "description": "Advanced tier: raw game paths; refused per entry where the game's names changed."
             }
-          }
+          },
+          "allOf": [
+            {
+              "if": {
+                "required": [
+                  "field"
+                ],
+                "properties": {
+                  "field": {
+                    "const": "noBuildZones"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "list": {
+                    "$ref": "#/$defs/world/$defs/list.noBuildZones"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "required": [
+                  "field"
+                ],
+                "properties": {
+                  "field": {
+                    "const": "playableAreas"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "list": {
+                    "$ref": "#/$defs/world/$defs/list.playableAreas"
+                  }
+                }
+              }
+            }
+          ]
         }
       }
     },

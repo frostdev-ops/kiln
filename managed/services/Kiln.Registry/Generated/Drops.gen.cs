@@ -52,7 +52,7 @@ public sealed partial class DropEntry
 
     /// <summary>The item. Given when an entry is appended; read-only afterwards.</summary>
     [RegistryField("drops.entries[].item", RegistryApplies.Now, JoinedClient = "serverOnly")]
-    public RegistryId Item => RegistryCells.Id(_c, DropTableFields.EntriesItem, _i);
+    public RegistryId Item { get => RegistryCells.Id(_c, DropTableFields.EntriesItem, _i); set => RegistryCells.Set(_c, DropTableFields.EntriesItem, _i, value); }
 
     /// <summary>How many of the item the entry gives: a number from min to max.</summary>
     public DropEntryCount Count => new(_c, _i);

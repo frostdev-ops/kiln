@@ -647,3 +647,5 @@
 [KILNX031]static Kiln.Registry.RegistryViews.All.get -> System.Collections.Generic.IReadOnlyList<Kiln.Registry.RegistryView!>!
 [KILNX031]static Kiln.Registry.RegistryViews.Available.get -> bool
 [KILNX031]static Kiln.Registry.RegistryViews.Find(string! name) -> Kiln.Registry.RegistryView?
+[KILNX031]Kiln.Registry.DropEntry.Item.set -> void
+[KILNX031]Kiln.Registry.RegistryValueList<T>.this[int index].set -> void

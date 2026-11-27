@@ -299,12 +299,37 @@ bool flags_of(const json& j, const FieldSpec& f, Value* out, std::string* err) {
     return true;
 }
 
+// An element's object in the one spelling the parser keys leaves by: a leaf of a struct inside the element given nested, as
+// the C# types and the docs show it ({"count": {"min": 1}}), is named dotted ({"count.min": 1}), the older spelling a data pack
+// or a kept plan may still carry, which stays as it is. false + *err: a leaf named twice (nested and dotted), or a nested
+// object that is no struct of the element.
+bool dotted_element(const json& j, const FieldSpec& list, json* out, std::string* err, const std::string& prefix = "") {
+    if (prefix.empty()) *out = json::object();
+    for (const auto& [k, x] : j.items()) {
+        const std::string name = prefix + k;
+        const bool group = !list.element_field(name) && x.is_object() &&
+                           std::any_of(list.element_fields.begin(), list.element_fields.end(), [&](const FieldSpec& f) {
+                               return f.name.size() > name.size() + 1 && f.name.compare(0, name.size(), name) == 0 && f.name[name.size()] == '.';
+                           });
+        if (group) {
+            if (!dotted_element(x, list, out, err, name + ".")) return false;
+            continue;
+        }
+        if (!prefix.empty() && !list.element_field(name)) return *err = list.name + ": an element has no field \"" + name + "\"", false;
+        if (out->contains(name)) return *err = list.name + ": an element names \"" + name + "\" twice (nested and dotted)", false;
+        (*out)[name] = x;
+    }
+    return true;
+}
+
 // One element of a list with fields of its own ({"item": "game:x", "count": 2}): its leaves, each typed by its spec.
 bool struct_of(const json& j, const FieldSpec& list, Value* out, std::string* err) {
     if (!j.is_object()) return *err = list.name + ": an element is {\"<field>\": <value>, ...}, not " + brief(j), false;
+    json flat;
+    if (!dotted_element(j, list, &flat, err)) return false;
     Value v;
     v.kind = Value::Struct;
-    for (const auto& [k, x] : j.items()) {  // nlohmann's object is ordered: keys come sorted
+    for (const auto& [k, x] : flat.items()) {  // nlohmann's object is ordered: keys come sorted
         const FieldSpec* leaf = list.element_field(k);
         if (!leaf) return *err = list.name + ": an element has no field \"" + k + "\"", false;
         // a read-only leaf (an element's identity: a drop entry's item) is given when the element is made, never edited after
@@ -777,6 +802,11 @@ struct Renamer {
         if (f.type != FieldType::List) return;
         auto element = [&](json* x) {
             if (f.element == FieldType::Struct && x->is_object()) {
+                // nested leaves ({"count": {"min": 1}}) by their dotted names first, so a step renames them too (a shape the
+                // parser refuses stays as written: struct_of says why)
+                json flat;
+                std::string why;
+                if (dotted_element(*x, f, &flat, &why)) *x = std::move(flat);
                 keys(x, reg.name + "." + f.name + "[].", [&](const std::string& k) { return leaf_name(reg, f, written, k); },
                      [&](const std::string& k, const std::string&, json* lv) {
                          if (const FieldSpec* leaf = f.element_field(k); leaf && !leaf->ref.empty()) id(leaf->ref, lv);

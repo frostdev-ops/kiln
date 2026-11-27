@@ -987,7 +987,8 @@ class CsWriter:
             elif row.read_only:
                 body = f"public global::System.Collections.Generic.IReadOnlyList<{t}> {name} => new RegistryValueList<{t}>(_c, {fid}, static (c, i) => {get});"
             else:
-                body = f"public RegistryValueList<{t}> {name} => new(_c, {fid}, static (c, i) => {get});"
+                body = (f"public RegistryValueList<{t}> {name} => new(_c, {fid}, static (c, i) => {get}, "
+                        f"static (c, i, v) => RegistryCells.Set(c, {fid}, i, v));")
             return doc + [attr, indent + body]
         if row.kind in ("enum", "flags"):
             t = row.enum_type
@@ -1007,7 +1008,10 @@ class CsWriter:
             t = CS_SCALAR[row.kind]
             getter = f"RegistryCells.{CS_GET[row.kind]}(_c, {fid}, _i)"
             setter = f"RegistryCells.Set(_c, {fid}, _i, value)"
-        if row.read_only:
+        # a read-only leaf of a list's elements is the element's identity (a drop entry's item): given on an element the callback
+        # appends, read-only once it is made (the stage refuses the set then), as a data pack's append gives it
+        given = row.read_only and row.list_path and row.spec.get("readOnly") and not self.rows[row.list_path].read_only
+        if row.read_only and not given:
             return doc + [attr, f"{indent}public {t} {name} => {getter};"]
         return doc + [attr, f"{indent}public {t} {name} {{ get => {getter}; set => {setter}; }}"]
 
@@ -1149,6 +1153,64 @@ def render_cs_catalog(model, lock):
 
 # ---------------------------------------------------------------- the data section's schema
 
+def value_schema(spec):
+    """A plain value of a field's spec as the parser takes it (ir.cpp scalar_of / flags_of): its JSON type, a number's range.
+    An enum's names stay plain strings (the parser reads them in any case); an id is <namespace>:<name>."""
+    t = spec.get("type")
+    out = {"int": {"type": "number"}, "float": {"type": "number"}, "time": {"type": "number"}, "bool": {"type": "boolean"},
+           "enum": {"type": "string"}, "flags": {"type": "array", "items": {"type": "string"}},
+           "ref": {"type": "string", "pattern": ":"}}.get(t, {})
+    out = dict(out)
+    if t in NUMBERS:
+        if spec.get("min") is not None:
+            out["minimum"] = spec["min"]
+        if spec.get("max") is not None:
+            out["maximum"] = spec["max"]
+    if t == "ref" and spec.get("optional"):
+        out = {"anyOf": [out, {"type": "null"}]}
+    return out
+
+
+def element_schema(of):
+    """One element of a list field as the parser takes it (ir.cpp struct_of): a plain value, or an object of the element's
+    fields where a struct inside the element is a nested object ({"count": {"min": 1}}, as the C# types and the docs show
+    it) or, the older spelling the parser still reads, dotted leaves ({"count.min": 1})."""
+    if of.get("type") != "struct":
+        return value_schema(of)
+
+    def obj(fields, dotted):
+        props = {}
+        for key, spec in (fields or {}).items():
+            if not isinstance(spec, dict):
+                continue
+            if spec.get("type") == "struct":
+                props[key] = obj(spec.get("fields"), False)
+                if dotted:
+                    for leaf, leaf_spec in leaves(spec.get("fields"), key + "."):
+                        props[leaf] = dict(value_schema(leaf_spec), description=f"The older, dotted spelling of {key}: {{...}}'s leaf.")
+            else:
+                props[key] = value_schema(spec)
+        return {"type": "object", "additionalProperties": False, "properties": props}
+
+    def leaves(fields, prefix):
+        for key, spec in (fields or {}).items():
+            if isinstance(spec, dict) and spec.get("type") == "struct":
+                yield from leaves(spec.get("fields"), prefix + key + ".")
+            elif isinstance(spec, dict):
+                yield prefix + key, spec
+
+    return dict(obj(of.get("fields"), True), description="An element: its fields by name; a struct of the element as a nested object.")
+
+
+def list_schema(element):
+    """The list operations of one list field with its elements' schema (the shared "list" def says the shape only)."""
+    arr = {"type": "array", "minItems": 1, "items": element}
+    return {"anyOf": [{"const": "clear"},
+                      {"type": "object", "additionalProperties": False, "minProperties": 1, "maxProperties": 1,
+                       "properties": {"clear": {"const": True}, "append": arr, "remove": arr,
+                                      "replace": {"type": "array", "items": element}}}]}
+
+
 def render_section(model, lock):
     defs = {
         # the parser's two forms (ir.cpp selector_of, the IR's schema): a plain string is {"id": <it>}
@@ -1206,14 +1268,27 @@ def render_section(model, lock):
         kinds = (["add"] if e.get("add") else []) + (["remove"] if e.get("remove") else [])
         if kinds:
             props["entry"] = {"enum": kinds}
+        # a list field's elements are checked by its own schema: a list op naming the field (append, remove, replace), and the
+        # list's value in an added entry's fields
+        lists = [r for r in reg.rows if r.kind == "list" and not r.read_only and r.ops == "list"]
+        checks = []
+        for r in lists:
+            key = "list." + r.path
+            rd["$defs"][key] = list_schema(element_schema(r.spec["of"]))
+            checks.append({"if": {"required": ["field"], "properties": {"field": {"const": r.path}}},
+                           "then": {"properties": {"list": {"$ref": f"#/$defs/{name}/$defs/{key}"}}}})
         if e.get("add"):
             # the one id grammar (KILN_ID) for a mod's own entry: not the reserved game: and kiln:, no clash suffix
             props["id"] = {"type": "string", "pattern": "^(?!(game|kiln):)[a-z0-9][a-z0-9_.-]*:[a-z0-9_.-]+$"}
             props["like"] = {"type": "string", "minLength": 1}
             props["fields"] = {"type": "object", "propertyNames": {"$ref": f"#/$defs/{name}/$defs/field"}}
+            if lists:
+                props["fields"]["properties"] = {r.path: {"type": "array", "items": element_schema(r.spec["of"])} for r in lists}
         rd["$defs"]["edit"] = {"type": "object", "additionalProperties": False, "required": ["registry"],
                                "description": f"An edit of the {name} registry (docs/kiln/modding/registries/{name}.md).",
                                "properties": props}
+        if checks:
+            rd["$defs"]["edit"]["allOf"] = checks
         defs[name] = rd
         edits.append({"$ref": f"#/$defs/{name}/$defs/edit"})
     defs["edit"] = {"oneOf": edits}

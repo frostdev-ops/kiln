@@ -55,6 +55,18 @@ static Schema schema() {
     altars.element = FieldType::Int, altars.min = 0, altars.max = 64;
     bal.fields[altars.name] = altars;
     s.registries["balance"] = bal;
+    // drops.entries: an element whose count is a struct of its own (count.min, count.max) and whose item is given when it is made
+    RegistrySpec drops;
+    drops.name = "drops", drops.add = false;
+    FieldSpec entries = spec("entries", FieldType::List);
+    FieldSpec ditem = spec("entries[].item", FieldType::Id);
+    ditem.read_only = true;
+    FieldSpec cmin = spec("entries[].count.min", FieldType::Int), cmax = spec("entries[].count.max", FieldType::Int);
+    cmin.min = cmax.min = 0, cmin.max = cmax.max = 1000;
+    FieldSpec chance = spec("entries[].chance", FieldType::Float);
+    chance.min = 0, chance.max = 1;
+    for (const FieldSpec& f : {entries, ditem, cmin, cmax, chance}) drops.fields[f.name] = f;
+    s.registries["drops"] = drops;
     link_elements(&s);
     return s;
 }
@@ -409,6 +421,42 @@ int main() {
         std::vector<Refusal> rf2;
         parse_batch(R"({"ir": 1, "mod": "a", "stage": "alter", "edits": )" + alter("recipes", "game:arrow", "time", "op", "4") + "}", s, &plain, &rf2, &err);
         CHECK(plain.edits.empty() && rf2.size() == 1 && rf2[0].reason.find("no field \"time\"") != std::string::npos, "no migration: the old name is refused, with why");
+    }
+
+    // ---- api-shape (dev.32): an appended element's struct leaves nested, as the C# types and the docs show them ----
+    {
+        std::vector<Refusal> rf;
+        const Batch nb = batch(s, "a", "alter", R"([
+            {"registry": "drops", "select": "game:dt", "field": "entries", "list": {"append": [{"item": "game:x", "count": {"min": 1, "max": 3}, "chance": 0.5}]}},
+            {"registry": "drops", "select": "game:dt", "field": "entries", "list": {"append": [{"item": "game:x", "count.min": 1, "count.max": 3, "chance": 0.5}]}},
+            {"registry": "drops", "select": "game:dt", "field": "entries", "list": {"remove": [{"item": "game:x", "count": {"max": 3}}]}},
+            {"registry": "drops", "select": "game:dt", "field": "entries[0]", "op": {"set": {"item": "game:y", "count": {"min": 2}}}}])", &rf);
+        CHECK(rf.empty() && nb.edits.size() == 4, ("nested leaves parse in append, remove and a whole element's set: " + (rf.empty() ? std::string("ok") : rf[0].reason)).c_str());
+        if (rf.empty() && nb.edits.size() == 4) {
+            const Value& nested = nb.edits[0].list_values.at(0);
+            const Value& dotted = nb.edits[1].list_values.at(0);
+            CHECK(nested == dotted && nested.keys == std::vector<std::string>({"chance", "count.max", "count.min", "item"}),
+                  "a nested element is the dotted one: the same leaves, keyed count.min / count.max, sorted");
+            CHECK(nb.edits[2].list_values.at(0).leaf("count.max") && nb.edits[2].list_values.at(0).leaf("count.max")->i == 3, "a removal names a nested leaf");
+            CHECK(nb.edits[3].op.value.leaf("count.min") && nb.edits[3].op.value.leaf("count.min")->i == 2, "a whole element's set takes nested leaves");
+        }
+        auto refused = [&](const char* edits, const char* why) {
+            std::vector<Refusal> r;
+            const Batch x = batch(s, "a", "alter", edits, &r);
+            const bool ok = x.edits.empty() && r.size() == 1 && r[0].reason.find(why) != std::string::npos;
+            if (!ok) std::printf("  refusal: %s\n", r.empty() ? "(none)" : r[0].reason.c_str());
+            return ok;
+        };
+        CHECK(refused(R"([{"registry": "drops", "select": "game:dt", "field": "entries", "list": {"append": [{"item": "game:x", "count": {"min": 1}, "count.min": 2}]}}])", "twice"),
+              "one leaf given nested and dotted is refused (which one it meant is unknown)");
+        CHECK(refused(R"([{"registry": "drops", "select": "game:dt", "field": "entries", "list": {"append": [{"item": "game:x", "count": {"least": 1}}]}}])", "no field \"count.least\""),
+              "a nested name the element does not have is refused by its dotted name");
+        CHECK(refused(R"([{"registry": "drops", "select": "game:dt", "field": "entries", "list": {"append": [{"item": "game:x", "count": 2}]}}])", "no field \"count\""),
+              "a struct given as a plain value is refused");
+        CHECK(refused(R"([{"registry": "drops", "select": "game:dt", "field": "entries", "list": {"append": [{"item": "game:x", "count": {"min": 2000}}]}}])", "count.min: 2000"),
+              "a nested leaf keeps its range");
+        CHECK(refused(R"([{"registry": "recipes", "select": "game:arrow", "field": "inputs", "list": {"append": [{"item": {"id": "game:x"}, "count": 1}]}}])", "item: an id"),
+              "an object where a leaf (no struct) belongs is that leaf's wrong value");
     }
 
     std::printf("registry-ir-test: %d passed, %d failed\n", g_pass, g_fail);

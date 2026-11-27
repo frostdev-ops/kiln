@@ -508,6 +508,22 @@ class Outputs(unittest.TestCase):
         self.assertIn("are reserved", md)
         self.assertIn("\x60game\x60 and \x60kiln\x60", md)
 
+    def test_value_lists_set_by_index_and_element_identities_are_given(self):
+        """dev.32 api-shape: a list of plain values sets an element by index (a data pack's tags[0]); a read-only leaf of a
+        list's elements (its identity) has a setter, for an element the callback appends (the stage refuses it on others)."""
+        s = copy.deepcopy(MINI)
+        s["fields"]["rows"]["of"]["fields"]["key"] = {"type": "ref", "registry": "things", "readOnly": True}
+        t = Tree(s)
+        try:
+            rg.update_lock(t.root)
+            cs = rg.render(rg.load(t.root), rg.read_lock(t.root))["managed/services/Kiln.Registry/Generated/Things.gen.cs"]
+            self.assertIn("public RegistryValueList<RegistryId> Tags => new(_c, ThingFields.Tags, static (c, i) => RegistryCells.Id(c, ThingFields.Tags, i), "
+                          "static (c, i, v) => RegistryCells.Set(c, ThingFields.Tags, i, v));", cs)
+            self.assertIn("public RegistryId Key { get => RegistryCells.Id(_c, ThingFields.RowsKey, _i); set => RegistryCells.Set(_c, ThingFields.RowsKey, _i, value); }", cs)
+            self.assertIn("public int Fixed => ", cs)  # a read-only field of the entry itself: no setter
+        finally:
+            t.close()
+
     def test_section_select_takes_both_forms(self):
         """ir.cpp selector_of reads "select" as a plain string or as {"id": ...} (the IR's schema and the samples use both):
         the section's schema takes what the parser takes, so lint never refuses a working data pack's selector."""
@@ -517,6 +533,26 @@ class Outputs(unittest.TestCase):
         obj = next(f for f in forms if f.get("type") == "object")
         self.assertEqual(obj["required"], ["id"])
         self.assertEqual(sorted(obj["properties"]), ["has", "hasNot", "id", "where"])
+
+    def test_section_checks_list_elements(self):
+        """A list field's list ops name its elements by its own schema (ir.cpp struct_of): an element's struct as a nested
+        object, as the C# types and the docs show it, or by the older dotted leaves; a name the element lacks is refused."""
+        s = json.loads(self.out["schema/registry-section.schema.json"])
+        things = s["$defs"]["things"]["$defs"]
+        checks = {c["if"]["properties"]["field"]["const"]: c["then"]["properties"]["list"]["$ref"] for c in things["edit"]["allOf"]}
+        self.assertEqual(checks, {"tags": "#/$defs/things/$defs/list.tags", "rows": "#/$defs/things/$defs/list.rows"})
+        ops = next(f for f in things["list.rows"]["anyOf"] if f.get("type") == "object")["properties"]
+        el = ops["append"]["items"]
+        self.assertFalse(el["additionalProperties"])
+        self.assertEqual(sorted(el["properties"]), ["inner", "inner.x", "n"])
+        self.assertEqual(el["properties"]["inner"], {"type": "object", "additionalProperties": False,
+                                                    "properties": {"x": {"type": "number", "minimum": 0, "maximum": 1}}})
+        self.assertEqual(el["properties"]["n"], {"type": "number", "minimum": 0, "maximum": 9})
+        self.assertEqual(ops["remove"]["items"], el)
+        tag = next(f for f in things["list.tags"]["anyOf"] if f.get("type") == "object")["properties"]["append"]["items"]
+        self.assertEqual(tag, {"type": "string", "pattern": ":"})
+        # an added entry's list values are its elements too
+        self.assertEqual(things["edit"]["properties"]["fields"]["properties"]["rows"]["items"], el)
 
     def test_section_add_ids(self):
         s = json.loads(self.out["schema/registry-section.schema.json"])
