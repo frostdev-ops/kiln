@@ -1444,12 +1444,20 @@
       ],
       "capabilities": [
         {
+          "name": "kiln.taming",
+          "members": 4
+        },
+        {
           "name": "taming.native",
           "members": 3
         },
         {
+          "name": "taming.native_bait",
+          "members": 1
+        },
+        {
           "name": "taming.steps",
-          "members": 8
+          "members": 6
         }
       ],
       "samples": [

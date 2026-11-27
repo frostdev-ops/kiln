@@ -792,10 +792,10 @@ internal static partial class KilnApis
         "M:Kiln.Taming.Choices(Kiln.PlayerRef,Kiln.TameAttemptId)", // Taming.Choices(PlayerRef, TameAttemptId): via Taming.Engine(string)
         "M:Kiln.Taming.Define(Kiln.TamingDefinition)", // Taming.Define(TamingDefinition): Services.RequireTickThread
         "M:Kiln.Taming.DefineJson(System.String)", // Taming.DefineJson(string): via Taming.Define(TamingDefinition)
-        "M:Kiln.Taming.Definition(System.String)", // Taming.Definition(string): via Taming.Engine(string)
+        "M:Kiln.Taming.Definition(System.String)", // Taming.Definition(string): via Taming.DefinitionEngine(string)
         "M:Kiln.Taming.Inspect(Kiln.TameAttemptId)", // Taming.Inspect(TameAttemptId): via Taming.Engine(string)
         "M:Kiln.Taming.Retry(Kiln.PlayerRef,Kiln.TameAttemptId,Kiln.TamingToken)", // Taming.Retry(PlayerRef, TameAttemptId, TamingToken): via Taming.Engine(string)
-        "M:Kiln.Taming.get_Definitions", // Taming.Definitions.get: via Taming.Engine(string)
+        "M:Kiln.Taming.get_Definitions", // Taming.Definitions.get: via Taming.DefinitionEngine(string)
         "M:Kiln.Teleport.To(Kiln.EntityId,Kiln.WorldPosition,Kiln.TeleportOptions)", // Teleport.To(EntityId, WorldPosition, TeleportOptions?): via Teleport.Start(EntityId, WorldPosition, EntityId, TeleportOptions)
         "M:Kiln.Teleport.ToEntity(Kiln.EntityId,Kiln.EntityId,System.Double,Kiln.TeleportOptions)", // Teleport.ToEntity(EntityId, EntityId, double, TeleportOptions?): Services.RequireTickThread
         "M:Kiln.Teleport.ToSpawnPoint(Kiln.EntityId,Kiln.EntityId,Kiln.TeleportOptions)", // Teleport.ToSpawnPoint(EntityId, EntityId, TeleportOptions?): via Teleport.Start(EntityId, WorldPosition, EntityId, TeleportOptions)
