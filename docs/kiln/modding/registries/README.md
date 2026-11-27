@@ -554,7 +554,9 @@ decision D6: mechanism, not policy).
   follow the game's own new values where the package set a field (the recorded value is set as it was). A data pack's
   value on a live field (items, recipes) sits below every registry edit, a stand-in's too, while the package's own archive
   value sat below the pack: on such a field the replayed value wins over the pack, and the Conflicts page says so (a
-  parity difference not yet closed). Each side keeps its own records, so a joined client replays only what it recorded
+  parity difference not yet closed). The saves check of a live field runs at the world's load, field by field: one that
+  refuses a replayed value there leaves that field alone and the rest of the package replayed (restart fields are
+  checked at the stage, and refuse the package whole). Each side keeps its own records, so a joined client replays only what it recorded
   and opted in itself; boot fields a replay changes take part in the join's comparison as any registry edit does, so a
   side that replays and one that does not show as registry boot values that differ (opt the package in on both).
 

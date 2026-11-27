@@ -5,6 +5,7 @@
 // chain (certainty "named"), the conflict line that says the package wrote the entry before Kiln and Kiln's edit wins, and
 // registry.json's base.journal. argv[1]: the repository root (for the schema fixture); argv[2] (optional): where to write
 // the document it builds, for a schema check against schema/state-registry.schema.json.
+#include <chrono>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -820,6 +821,17 @@ int main(int argc, char** argv) {
         fs::create_symlink(tmp / "elsewhere" / "j.json", game / "enshrouded.kfc.change-journal.json");
         why.clear();
         CHECK(!read_hosted_journal(game, "enshrouded", {}, &why) && why.find("the journal is a link") != std::string::npos, "a linked hosted record is not followed: " + why);
+        // review-j3: what proving a hosted journal costs (the hash of a <stem>.kfc as big as the game's, about 9 MiB); effect
+        // replay's unchanged start does without it (Env::archive_journal_text)
+        {
+            std::ofstream big(game / "enshrouded.kfc", std::ios::binary | std::ios::trunc);
+            const std::string mib(1 << 20, 'k');
+            for (int i = 0; i < 9; ++i) big << mib;
+        }
+        const auto h0 = std::chrono::steady_clock::now();
+        CHECK(hosted_generation(game, "enshrouded", {}, &hex, &why) && hex.size() == 64, "a 9 MiB <stem>.kfc is hashed: " + why);
+        std::printf("hosted journal proof: SHA-256 of a 9 MiB <stem>.kfc %.1f ms (ASan build)\n",
+                    std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - h0).count());
         fs::remove(game / "enshrouded.kfc");
         fs::create_symlink(tmp / "elsewhere" / "j.json", game / "enshrouded.kfc");
         why.clear();
