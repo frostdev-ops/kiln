@@ -3644,6 +3644,9 @@ KilnResult registry_live_install_turn(uint64_t ticket, uint32_t flags, std::vect
     std::vector<uintptr_t> missed;
     std::string ignored;
     store_flush_checked(&ignored, &missed);
+    // review-int: kiln.gamedata is told after this flush as after apply_changes' (its events lists sorted again, the buff
+    // mirror following the game's records): a re-authored pass may move an ability's moment or change a buff
+    gd_section_written();
     const auto foreign = store_skipped_since(skipped_before);
     bool own = false;  // a call's own slot not written, or another writer's (registry_live_replace rolls such a turn back)
     for (const PlanCall& c : p->calls)

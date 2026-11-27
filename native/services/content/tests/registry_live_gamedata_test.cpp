@@ -350,6 +350,37 @@ void ability_moment_is_written_whole() {
     g_files.clear();
 }
 
+// review-int (the registry trial merge x LOOT-2): a re-authored pass's turn, prepared off the world tick and landed in one flush
+// (registry_live_prepare, registry_live_install_turn), tells kiln.gamedata after that flush as every other write of the live
+// back-end does (gd_section_written: an ability's events sorted again, the buff mirror following the game's records, the
+// modified list for the content sync). The landing flushed without it: a Registry.Reauthor pass that moved an ability's moment
+// left the events list out of the game's order, and one that changed a buff left Kiln's copy of the buffs behind.
+void a_reauthored_turn_tells_gamedata_after_its_flush() {
+    gd_fresh();
+    RegistryLiveReply reply;
+    const auto h = begin_change(71, "a", "[{" + cast + R"("field":"timing.release","op":0.45},{)" + buff + R"("field":"duration","op":20}])", 2);
+    registry_live_commit(71, h, &reply);
+    check(reply.outcome == RegistryLiveOutcome::Applied && at<int64_t>(SPAWN0) == 450'000'000ll && at<int64_t>(BUFF_AT + 8) == 20'000'000'000ll,
+          "the pass's first turn: the moment at 0.45 s, the buff 20 s");
+    const int before = g_written;
+    uint64_t ticket = 0;
+    uint32_t stale = 0;
+    const std::string next = "[{" + cast + R"("field":"timing.release","op":0.3},{)" + buff + R"("field":"duration","op":25}])";
+    check(registry_live_prepare({{71, "a", KILN_REGISTRY_LIVE_WORLD_LOAD, doc_of("a", next)}}, {{71, h}}, registry_live_epoch(), &ticket, &stale) == KILN_OK && stale == 0,
+          "the re-authored pass's turn is prepared");
+    std::vector<RegistryLiveReply> replies;
+    std::vector<uint64_t> handles;
+    check(registry_live_install_turn(ticket, 0, &replies, &handles, &stale) == KILN_OK && stale == 0 && replies.size() == 2 &&
+              replies[0].outcome == RegistryLiveOutcome::Applied && replies[1].outcome == RegistryLiveOutcome::Reverted,
+          "and lands in one step");
+    check(at<int64_t>(SPAWN0) == 300'000'000ll && at<int64_t>(SPAWN1) == 300'000'000ll && at<int64_t>(SPAWN2) == 900'000'000ll &&
+              at<int64_t>(BUFF_AT + 8) == 25'000'000'000ll,
+          "the moment moved to 0.3 s, the buff 25 s");
+    check(g_written > before, "kiln.gamedata is told after the landed turn's flush (" + std::to_string(g_written - before) + " times)");
+    registry_live_revert(71, handles.empty() ? 0 : handles[0], &reply);
+    check(at<int64_t>(SPAWN0) == 650'000'000ll && at<int64_t>(BUFF_AT + 8) == 10'000'000'000ll, "its revert puts the game's values back");
+}
+
 // (R2b's "without the hooks": on the one writer kiln.gamedata is always linked; what it can lack is this world's entries)
 void without_gamedata_entries_refused() {
     g_hooks = false;
@@ -381,6 +412,7 @@ int main() {
         {"without_gamedata_entries_refused", without_gamedata_entries_refused},
         {"buff_stacking_value_missing_names_the_kiln_field", buff_stacking_value_missing_names_the_kiln_field},
         {"ability_moment_is_written_whole", ability_moment_is_written_whole},
+        {"a_reauthored_turn_tells_gamedata_after_its_flush", a_reauthored_turn_tells_gamedata_after_its_flush},
     };
     for (const auto& [name, fn] : tests) {
         try {
