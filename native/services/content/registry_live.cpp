@@ -3705,6 +3705,9 @@ bool registry_live_build_report() {
     {
         std::lock_guard lock(store_mutex());
         if (!g.in || !g.report_owed) return true;
+        // as report(): this report asks kiln.assets' run-time write records again when a row needs a name (sfi R3), never the
+        // last report's (emptied after it, or taken before the writes this report shows) (review-int)
+        g.runtime_asked = false, g.runtime = {};
         epoch = g.epoch, bind = g.bind_epoch, gen = store_generation();
         r.lines = g.in->result.lines, r.refused = g.in->result.refused, r.added = g.in->result.added, r.removed = g.in->result.removed;
         r.definitions = g.in->result.definitions, r.removals = g.in->result.removals;
@@ -3799,6 +3802,7 @@ bool registry_live_build_report() {
         g.late_gen = store_generation();
         g.late_at = g_registry_now_ms();
         g.report_owed = false;
+        g.runtime = {};  // the records this report asked for go with it, as report()'s
         // delivered from here, as registry_live_publish would deliver queue_change_report's (a change: the generation moves,
         // never a ready event), so the stage's own copy of the report is made off the tick too
         seq = ++g.report_seq;

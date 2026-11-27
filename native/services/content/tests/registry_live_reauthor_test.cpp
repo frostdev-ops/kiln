@@ -260,6 +260,44 @@ void a_prepared_turn_lands_as_the_turn_does() {
               at<float>(WORLD_AT + 4) == 0 && at<float>(RULES_AT + 12) == 9.71f,
           "the earlier change is gone, the new one reverts");
 }
+// review-int (J3b x LOOT-2): a landed turn's registry.json, built off the tick (registry_live_build_report), names a
+// ShroudForge package that wrote a field at run time (sfi R3) as the tick's report() does. report() asks kiln.assets' records
+// afresh for each report and lets them go after it; the off-tick builder, LOOT-2's copy of report()'s steps, did not: it took
+// the cache the last tick report had emptied, so the package was "another writer" again and its writer row a drift row.
+void an_off_tick_report_names_run_time_writers() {
+    world();
+    g_files = {{"bigstacks/content/a.json",
+                R"({"registry": {"alter": [{"registry": "items", "select": {"id": "game:material_t1_wood_logs"}, "field": "maxStack", "op": {"mul": 4}}]}})"}};
+    const auto files = files_of({{"bigstacks", "bigstacks/content/a.json"}});
+    const registry::FieldRef logs{"items", "game:material_t1_wood_logs", "maxStack"};
+    stage(files);
+    registry_live_world_begin();
+    apply_registry_files(files);
+    check(at<uint32_t>(WOOD_AT) == 40, "Kiln's 40");
+    mem<uint32_t>(WOOD_AT, 777);  // the package's write at run time, recorded by kiln.assets
+    g_runtime = {runtime_write(WOOD_AT, 40, 777, "shroudforge:big-sf", 5)};
+    apply_registry_files(files);  // a pack reload: compare-before-write skips Kiln's write; the tick's report names the package
+    const std::string named = "items[game:material_t1_wood_logs].maxStack was written by shroudforge:big-sf at run time after Kiln's layer";
+    check(reported(named) && json_field(logs)["writers"].back()["kind"] == "runtimeWriter", "the tick's report names the package");
+    // a re-authored pass of another mod lands; its report is built off the tick
+    RegistryLiveReply reply;
+    const uint64_t h1 = draft(71, "leveler", "[{" + stone + R"("op":70}])");
+    registry_live_commit(71, h1, &reply);
+    registry_live_publish();
+    check(reported(named), "the commit's report (the tick's) names it too");
+    const int reports = g_reports, asked = g_runtime_asked;
+    const Landed l = install(prepare({call(71, "leveler", "[{" + stone + R"("op":80}])")}, {{71, h1}}));
+    check(l.rc == KILN_OK && l.stale == 0 && l.handles.size() == 1 && l.handles[0] != 0, "the prepared turn lands");
+    check(registry_live_build_report(), "its report is built off the tick");
+    registry_live_publish();
+    check(g_reports == reports + 1, "and published");
+    check(reported(named) && !reported("was written by another writer"), "the off-tick report names the run-time writer: " + normalized_report());
+    const auto last = json_field(logs)["writers"].back();
+    check(last["kind"] == "runtimeWriter" && last["who"] == "shroudforge:big-sf", "its writer row is the named run-time writer: " + last.dump());
+    check(g_runtime_asked == asked + 1, "kiln.assets asked once for that report (" + std::to_string(g_runtime_asked - asked) + ")");
+    registry_live_revert(71, l.handles[0], &reply);
+    g_files.clear();
+}
 // A pass's calls in order (Alter, then Final), a pass that switches off (nothing to commit), and a pass refused whole at
 // submit (over a cap) land as registry_live_replace's turn does.
 void a_prepared_turn_keeps_the_turn_rules() {
@@ -672,6 +710,7 @@ int main() {
         {"a_turn_checks_its_handles", a_turn_checks_its_handles},
         {"a_prepared_turn_lands_as_the_turn_does", a_prepared_turn_lands_as_the_turn_does},
         {"a_prepared_turn_keeps_the_turn_rules", a_prepared_turn_keeps_the_turn_rules},
+        {"an_off_tick_report_names_run_time_writers", an_off_tick_report_names_run_time_writers},
         {"a_stale_preparation_is_never_written", a_stale_preparation_is_never_written},
         {"a_preparation_stale_only_in_its_bindings_lands_on_request", a_preparation_stale_only_in_its_bindings_lands_on_request},
         {"a_drop_table_loaded_while_a_turn_is_prepared_is_not_left_waiting", a_drop_table_loaded_while_a_turn_is_prepared_is_not_left_waiting},
