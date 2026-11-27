@@ -150,19 +150,30 @@ bool under(const std::string& path, const std::string& prefix) {
     return path.size() == prefix.size() || path[prefix.size()] == '.' || path[prefix.size()] == '[';
 }
 
-constexpr const char* kExactConvs[] = {"int", "float", "bool", "time", "enum", "flags"};
+// Conversions whose Kiln value is the game's value: the same number or true/false (registrygen HINT_EXACT, KILN124). An enum's
+// or flags' Kiln names are the registry's own, so those are covered but not the same value.
+constexpr const char* kExactConvs[] = {"int", "float", "bool", "time"};
 
+// A member several rows name: the row that maps it one to one first, then a row whose own member it is (its first path), and
+// only then a row that reads it as one input of a formula (itemLevelRange.minLevel is items.levels.min; the armor and power
+// formulas only read it). Ties: registry, then field, in name order.
 void cover(View* v, const map::RegMap* rm) {
     if (!rm) return;
+    std::vector<int> rank(v->fields.size(), 3);
     for (const auto& [reg, m] : rm->registries) {
         if (m.entries.resource_type != v->type) continue;
         const std::string base = m.entries.kind == map::EntryKind::Array ? m.entries.array + "[]." : "";
         for (const auto& [field, row] : m.rows) {
             if (field.find("[]") != std::string::npos) continue;  // element rows: their paths are from the list's element
             const bool exact = row.paths.size() == 1 && std::find(std::begin(kExactConvs), std::end(kExactConvs), row.conv) != std::end(kExactConvs);
-            for (const std::string& p : row.paths)
-                for (ViewField& f : v->fields)
-                    if (f.game == base + p && f.covered_by.empty()) f.covered_by = reg + "." + field, f.exact = exact;
+            for (size_t k = 0; k < row.paths.size(); ++k) {
+                const int r = exact ? 0 : k == 0 ? 1 : 2;
+                for (size_t i = 0; i < v->fields.size(); ++i) {
+                    ViewField& f = v->fields[i];
+                    if (f.game != base + row.paths[k] || r >= rank[i]) continue;
+                    f.covered_by = reg + "." + field, f.exact = exact, rank[i] = r;
+                }
+            }
         }
     }
 }

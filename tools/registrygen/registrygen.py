@@ -1382,13 +1382,20 @@ def render_hints(model, root):
             if not base:
                 continue
             exact = len(ps) == 1 and row.get("conv") in HINT_EXACT
-            for p in ps:
-                paths.append((base, p.lower(), f"{name}.{field}", exact))
+            # rank: 0 one to one, 1 the field's own member (its first path), 2 an input its formula only reads
+            ranked = [(p, 0 if exact else 1 if k == 0 else 2) for k, p in enumerate(ps)]
+            for p, rank in ranked:
+                paths.append((base, p.lower(), f"{name}.{field}", exact, rank))
                 if entries.get("kind") == "array":
                     # a resource patch on the registry's resource names the element through the array
                     rtype, arr = base.split("/", 1)
-                    paths.append((rtype, f"{arr}.{p}".lower(), f"{name}.{field}", exact))
-    paths = sorted(set(paths))
+                    paths.append((rtype, f"{arr}.{p}".lower(), f"{name}.{field}", exact, rank))
+    # a member several fields name is the field(s) of its best rank: itemLevelRange.minLevel is items.levels.min, not the armor
+    # or power formula that reads it (views.cpp cover() ranks the same way)
+    best = {}
+    for root_, p, _, _, rank in paths:
+        best[(root_, p)] = min(rank, best.get((root_, p), 3))
+    paths = sorted({r[:4] for r in paths if r[4] == best[(r[0], r[1])]})
     hooks = sorted(set(hooks))
 
     def lit(v):

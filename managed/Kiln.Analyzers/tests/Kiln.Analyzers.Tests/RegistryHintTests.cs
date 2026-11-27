@@ -147,6 +147,19 @@ public class RegistryHintTests
     }
 
     [Fact]
+    public async Task AMemberIsTheFieldWhoseOwnMemberItIsNotAFormulaThatReadsIt()
+    {
+        var pack = """{ "items": { "Wood": { "itemLevelRange.minLevel": 5, "damageSetup.speedMod": 1.2 } } }""";
+        var hints = (await Run(Empty, ("/mod/content/levels.json", pack))).Where(d => d.Id == "KILN124").ToList();
+        Assert.Equal(2, hints.Count);
+        Assert.Contains("items.levels.min", hints[0].GetMessage());
+        Assert.DoesNotContain("armor", hints[0].GetMessage());
+        Assert.Contains("items.speed", hints[1].GetMessage());
+        Assert.DoesNotContain("items.power", hints[1].GetMessage());
+        Assert.All(hints, d => Assert.Equal("true", d.Properties[RegistryHintAnalyzer.FixableKey]));
+    }
+
+    [Fact]
     public void TheFixMovesAOneToOneValueIntoTheRegistrySection()
     {
         var pack = """

@@ -255,6 +255,32 @@ int main() {
         CHECK(at(&v, "maxStackSize").covered_by == "items.maxStack" && at(&v, "maxStackSize").exact);
         CHECK(at(&v, "damageSetup.dmgMod").covered_by == "items.power" && !at(&v, "damageSetup.dmgMod").exact);
         CHECK(at(&v, "weight").path == "weight" && at(&v, "weight").covered_by.empty());
+        // a member that one field maps one to one and others read through a formula (the game's own rows: itemLevelRange.minLevel
+        // is items.levels.min, and an input of the armor and power formulas; damageSetup.speedMod is items.speed, and an input of
+        // power): the field whose own member it is covers it, never a formula that only reads it
+        map::RegMap formulas;
+        std::vector<std::string> errs;
+        map::load_common(map::json::parse(R"({"regmap": 1, "registry": "items",
+            "entries": {"kind": "resource", "resourceType": "keen::ItemInfo", "name": "debugName", "guid": "objectId", "id": "itemId"},
+            "rows": {
+              "armor.blunt": {"paths": ["armorSetup.distribution.blunt", "itemLevelRange.minLevel"], "conv": "formula", "formula": "gear.armor", "read": "now", "backend": "live"},
+              "levels.min": {"paths": ["itemLevelRange.minLevel"], "conv": "int", "read": "now", "backend": "live"},
+              "power": {"paths": ["damageSetup.dmgMod", "damageSetup.speedMod", "itemLevelRange.minLevel"], "conv": "formula", "formula": "gear.power", "read": "now", "backend": "live"},
+              "rarity": {"paths": ["rarity"], "conv": "enum", "values": {"common": "Common", "rare": "Rare"}, "read": "now", "backend": "live"},
+              "speed": {"paths": ["damageSetup.speedMod"], "conv": "float", "read": "now", "backend": "live"}}})"),
+                         &formulas.registries["items"], &errs);
+        const TypeDesc gear = root("keen::ItemInfo", {{"debugName", leaf(TypeKind::Text)},
+                                                      {"armorSetup", st("keen::ArmorSetup", {{"distribution", st("keen::Dist", {{"blunt", leaf(TypeKind::Float)}})}})},
+                                                      {"itemLevelRange", st("keen::LevelRange", {{"minLevel", leaf(TypeKind::Int)}})},
+                                                      {"damageSetup", st("keen::DamageSetup", {{"dmgMod", leaf(TypeKind::Float)}, {"speedMod", leaf(TypeKind::Float)}})},
+                                                      {"rarity", en({"Common", "Rare"})}});
+        const views::View g = views::derive(gear, "itemInfo", none, &formulas);
+        CHECK(at(&g, "itemLevelRange.minLevel").covered_by == "items.levels.min" && at(&g, "itemLevelRange.minLevel").exact);
+        CHECK(at(&g, "damageSetup.speedMod").covered_by == "items.speed" && at(&g, "damageSetup.speedMod").exact);
+        CHECK(at(&g, "damageSetup.dmgMod").covered_by == "items.power" && !at(&g, "damageSetup.dmgMod").exact);
+        CHECK(at(&g, "armorSetup.distribution.blunt").covered_by == "items.armor.blunt" && !at(&g, "armorSetup.distribution.blunt").exact);
+        // an enum's Kiln names are the registry's, not the view's derived ones: covered, not the same value (as KILN124 says)
+        CHECK(at(&g, "rarity").covered_by == "items.rarity" && !at(&g, "rarity").exact);
         const TypeDesc recipes = root("keen::RecipeRegistryResource",
                                       {{"recipes", list(st("keen::Recipe", {{"craftingDuration", leaf(TypeKind::Time)}, {"debugName", leaf(TypeKind::Text)}}))}});
         const views::View r = views::derive(recipes, "recipeRegistry", none, &rm);

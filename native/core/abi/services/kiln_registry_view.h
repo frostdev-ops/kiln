@@ -56,7 +56,9 @@ typedef struct KilnRegistryViewApi {
     /* One view's fields: {"view", "tier", "fields": [{"path", "type": "int" | "float" | "bool" | "enum" | "flags" | "time" |
      * "id" | "text" | "list" | "struct" | "unread", "element"?, "values"?, "ref"?: the view its ids name, "readOnly",
      * "state": "readable" | "unread" | "removed" (advanced) or "mapped" | "unmapped" | "unproven" | "removed" (stable),
-     * "reason"?, "coveredBy"?: "<registry>.<field>", "exact"?: one to one}], "truncated"?}. */
+     * "reason"?, "coveredBy"?: "<registry>.<field>" (of several: the one that maps the member one to one, else the one whose own
+     * member it is, never a formula that only reads it), "exact"?: that field holds the same number or true/false (false: a
+     * formula, an enum's or flags' own Kiln names, another conversion)}], "truncated"?}. */
     KilnResult(KILN_CALL* fields_json)(KilnStr view, char* buf, size_t cap, size_t* out_len);
     /* One field of one entry, as JSON. */
     KilnResult(KILN_CALL* read)(KilnStr view, KilnStr id, KilnStr field, char* buf, size_t cap, size_t* out_len);

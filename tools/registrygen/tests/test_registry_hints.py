@@ -87,6 +87,20 @@ class HintsTest(unittest.TestCase):
         self.assertIn("balance", [r[0] for r in rows(text, "Registries")])
         self.assertNotIn("keen::", "".join(r[2] for r in paths))  # the Kiln side names Kiln fields only
 
+    def test_a_member_is_the_field_whose_own_member_it_is_never_a_formula_that_only_reads_it(self):
+        # itemLevelRange.minLevel is items.levels.min (and only an input of the armor and power formulas); damageSetup.speedMod
+        # is items.speed (and an input of power): KILN124 names the field a mod edits by changing the member
+        paths = rows(rg.render_hints(rg.load(REPO), REPO), "Paths")
+
+        def fields(root, path):
+            return sorted((r[2], r[3]) for r in paths if r[0] == root and r[1] == path)
+        self.assertEqual([("items.levels.min", True)], fields("keen::ItemInfo", "itemlevelrange.minlevel"))
+        self.assertEqual([("items.speed", True)], fields("keen::ItemInfo", "damagesetup.speedmod"))
+        self.assertEqual([("items.power", False)], fields("keen::ItemInfo", "damagesetup.dmgmod"))
+        self.assertEqual([("items.armor.blunt", False)], fields("keen::ItemInfo", "armorsetup.distribution.blunt"))
+        # two fields whose own member it is (two configurations of one list): both stay
+        self.assertEqual([("items.manaCost", False), ("items.staminaCost", False)], fields("keen::ItemInfo", "impactvalues"))
+
     def test_a_later_registry_is_picked_up_from_its_schema_and_regmap(self):
         root = tree_with((CREATURES, CREATURES_MAP), (LIMITS, LIMITS_MAP))
         try:

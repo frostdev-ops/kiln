@@ -38,25 +38,36 @@ public sealed class RegistryHintAnalyzer : DiagnosticAnalyzer
     private static readonly HashSet<string> Ops = new(StringComparer.Ordinal) { "set", "mul", "add", "min", "max", "raiseOnly", "lowerOnly", "reset", "yield", "exclusive" };
 
     /// <summary>The registry field covering a path below a root, and whether it is the same value one to one; null when none.
-    /// A list element ("altarsPerFlameLevel[2]") is covered by its list's field, never one to one.</summary>
+    /// A list element ("altarsPerFlameLevel[2]") is covered by its list's field, never one to one. Several fields whose own
+    /// member it is (two configurations of one list) are named together ("items.manaCost or items.staminaCost"), never one to
+    /// one; the generated table already keeps only the best fields of a member (one to one, else its own, never a formula's
+    /// input).</summary>
     internal static (string Field, bool Exact)? Covering(string root, string path)
     {
         var p = path.ToLowerInvariant();
-        foreach (var hit in ByPath[(root, p)]) return hit;
+        if (Hit(ByPath[(root, p)], true) is { } direct) return direct;
         var generic = Index.Replace(p, "[]");
-        foreach (var hit in ByPath[(root, generic)]) return (hit.Field, hit.Exact && generic == p);
-        if (generic.EndsWith("[]", StringComparison.Ordinal))
-            foreach (var hit in ByPath[(root, generic.Substring(0, generic.Length - 2))]) return (hit.Field, false);
+        if (Hit(ByPath[(root, generic)], generic == p) is { } element) return element;
+        if (generic.EndsWith("[]", StringComparison.Ordinal) && Hit(ByPath[(root, generic.Substring(0, generic.Length - 2))], false) is { } list)
+            return list;
         // a resource patch on an array entry's resource names the element through its array
         foreach (var (section, sroot) in RegistryHints.Sections)
         {
             var slash = sroot.IndexOf('/');
             if (slash < 0 || sroot.Substring(0, slash) != root) continue;
             var arr = sroot.Substring(slash + 1).ToLowerInvariant();  // "recipes[]"
-            if (generic.StartsWith(arr + ".", StringComparison.Ordinal))
-                foreach (var hit in ByPath[(sroot, generic.Substring(arr.Length + 1))]) return (hit.Field, false);
+            if (generic.StartsWith(arr + ".", StringComparison.Ordinal) && Hit(ByPath[(sroot, generic.Substring(arr.Length + 1))], false) is { } inArray)
+                return inArray;
         }
         return null;
+    }
+
+    private static (string Field, bool Exact)? Hit(IEnumerable<(string Field, bool Exact)> hits, bool exactAllowed)
+    {
+        var all = hits.ToList();
+        if (all.Count == 0) return null;
+        if (all.Count == 1) return (all[0].Field, exactAllowed && all[0].Exact);
+        return (string.Join(" or ", all.Select(h => h.Field).Distinct()), false);
     }
 
     /// <summary>The Kiln field a hooked game function's name stands for (the part after the last '/' or "::"), or null.</summary>

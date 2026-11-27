@@ -82,8 +82,10 @@ public enum RegistryViewFieldState
 /// <param name="State">Whether it reads on this build.</param>
 /// <param name="Reason">Why it does not, in Kiln words; null when it does.</param>
 /// <param name="CoveredBy">The registry field over the same member (<c>"items.maxStack"</c>): the stable way to read and
-/// write it; null when none.</param>
-/// <param name="Exact">CoveredBy holds the same value (one to one), not one computed through a formula.</param>
+/// write it; of several, the one that maps the member one to one, else the one whose own member it is (never a formula that
+/// only reads it); null when none.</param>
+/// <param name="Exact">CoveredBy holds the same number or true/false, one to one: not a value computed through a formula,
+/// an enum's or flags' own Kiln names, or another conversion.</param>
 [Experimental("KILNX031")]
 public sealed record RegistryViewField(string Path, RegistryViewFieldType Type, RegistryViewFieldType? Element,
     IReadOnlyList<string> Values, string? Ref, bool ReadOnly, RegistryViewFieldState State, string? Reason, string? CoveredBy, bool Exact)

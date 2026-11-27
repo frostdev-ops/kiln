@@ -79,6 +79,9 @@ info KILN124: 'maxStackSize' of items is the registry field items.maxStack: edit
 Kiln maps it onto every game build it proves ([tiers.md](tiers.md)). The old path keeps working; this is a hint, never an
 error.
 
+When several registry fields name the member, the hint names the one that maps it one to one, else the one whose own member it
+is: `itemLevelRange.minLevel` is `items.levels.min` (the armor and power formulas only read it).
+
 **Fix.** Where the field holds the same value one to one (a whole number, a number, a bool or a time, not a formula or an
 enum whose values have other names), the value is plain or `{"set": v}`, and the entry is named by its key (not a glob), the
 code fix moves it from the old section into the pack's `registry` section (`"registry": {"items": {"Wood": {"maxStack": 500}}}`;

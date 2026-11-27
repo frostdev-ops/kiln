@@ -95,8 +95,9 @@ struct ViewField {
     bool read_only = true; // advanced fields: always (this release); stable fields: the schema's
     bool removed = false;  // the alias table says a game build removed its member: refused per entry
     std::string reason;    // why it is not readable (Unread, removed), in Kiln words
-    std::string covered_by;  // "items.maxStack": a registry field over the same member (stable tier)
-    bool exact = false;      // ... one to one (same value; else through a formula or a conversion)
+    std::string covered_by;  // "items.maxStack": a registry field over the same member (stable tier); of several, the one-to-one
+                             // one, else the one whose own member it is (never a formula that only reads it)
+    bool exact = false;      // ... the same number or true/false (false: a formula, an enum's own names, another conversion)
 };
 
 struct View {
