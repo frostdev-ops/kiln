@@ -131,7 +131,11 @@ internal sealed class TamingEngine
         public IReadOnlyList<CostReceipt> BindReceipts = [];
         public Guid BindRequest;
         public bool BindRetry;
-        public bool Settling => Cost is not null || Binding is not null;
+        /// <summary>A before-event of this attempt runs (19e 4.4's transient reentrancy guard): a cancel or a failure asked
+        /// meanwhile (a mod's handler calling Taming.Cancel) waits for it, as for a cost in flight, and then ends the attempt
+        /// with nothing new spent.</summary>
+        public bool InBefore;
+        public bool Settling => Cost is not null || Binding is not null || InBefore;
         // refunds in flight at the end
         public List<(CostReceipt Paid, Task<CostReceipt> Refund)>? RefundsPending;
         public Action? AfterRefunds;
@@ -282,6 +286,10 @@ internal sealed class TamingEngine
         if (_tombstones.Count >= MaxTombstones) return Refuse(requestId, "Cap: this world's closed attempts are at their limit");
         var asked = (TamingBeginningEvent)Ask(new TamingBeginningEvent(new TamingBeginContext(requestId, player, target, def.Id, def.Steps.Count)));
         if (asked.Canceled) return Refuse(requestId, $"Canceled: {asked.CanceledBy ?? "a mod"} refused it");
+        // a handler may have begun another attempt on this target meanwhile: one claimant per target, the first one wins
+        if (_claims.TryGetValue(target.Id, out claimant) && _attempts.TryGetValue(claimant, out other) && !Terminal(other.State))
+            return Refuse(requestId, "Busy: another taming of this target began meanwhile");
+        if (_attempts.Values.Count(x => !Terminal(x.State)) >= MaxActive) return Refuse(requestId, "Cap: 512 attempts run in this world");
         var a = new Attempt
         {
             Id = new TameAttemptId(NewId()), Owner = player, OwnerEntity = owner.Entity, Session = owner.Session, Epoch = _world.WorldEpoch, Target = target,
@@ -375,7 +383,8 @@ internal sealed class TamingEngine
         a.State = TamingState.CostPending;  // a reentrant request now gets Busy
         var quoted = step is FeedStep q ? q.Count : 0;
         var wear = step is UseToolStep u ? u.Wear : 0;
-        var advancing = (TamingAdvancingEvent)Ask(new TamingAdvancingEvent(new TamingAdvanceContext(before, token, a.Completed, step.Kind, selection, quoted, wear, last)));
+        var advancing = (TamingAdvancingEvent)AskGuarded(a, new TamingAdvancingEvent(new TamingAdvanceContext(before, token, a.Completed, step.Kind, selection, quoted, wear, last)));
+        if (EndedInBefore(a, request) is { } endedA) return Task.FromResult(endedA);
         if (advancing.Canceled)
         {
             a.State = TamingState.Active;
@@ -388,8 +397,9 @@ internal sealed class TamingEngine
                 a.State = TamingState.Active;
                 return Task.FromResult(Refuse(request, pre.Reason, View(a)));
             }
-            var committing = (TamingCommittingEvent)Ask(new TamingCommittingEvent(new TamingCommitContext(a.Id, request, a.Owner, a.Target, a.Def.Id, a.Spent.ToArray(),
+            var committing = (TamingCommittingEvent)AskGuarded(a, new TamingCommittingEvent(new TamingCommitContext(a.Id, request, a.Owner, a.Target, a.Def.Id, a.Spent.ToArray(),
                 selection, quoted, wear, false)));
+            if (EndedInBefore(a, request) is { } endedC) return Task.FromResult(endedC);
             if (committing.Canceled)
             {
                 a.State = TamingState.Active;
@@ -482,6 +492,24 @@ internal sealed class TamingEngine
             return;
         }
         StartCommit(a, request, after, receipts, retry: false, tcs);
+    }
+
+    // a before-event under the reentrancy guard: what its handlers ask of this attempt (a cancel, a failure) waits for it
+    private CancelableEvent AskGuarded(Attempt a, CancelableEvent ev)
+    {
+        a.InBefore = true;
+        try { return Ask(ev); }
+        finally { a.InBefore = false; }
+    }
+
+    // after a guarded before-event: a cancel or a failure its handlers asked ends the attempt here, before any cost (the
+    // request that posted the event answers with that end; nothing new was spent). Null: none was asked.
+    private TamingResult? EndedInBefore(Attempt a, Guid request)
+    {
+        if (!a.CancelRequested && a.FailAfterSettle is null) return null;
+        a.State = TamingState.Active;
+        var end = EndAfterSettle(a, "NoCost")!;
+        return new TamingResult(false, end.Reason, end.Progress, null, request, false, a.Spent.ToArray());
     }
 
     private double Deadline(Attempt a) => Math.Min(a.LastProgress + a.Def.InactivitySeconds, a.Started + a.Def.MaxAttemptSeconds);
@@ -603,8 +631,14 @@ internal sealed class TamingEngine
             task = Task.FromResult(Refuse(token.RequestId, pre.Transient ? $"CommitDeferred: {pre.Reason}" : pre.Reason, View(a)));
         else
         {
-            var asked = (TamingCommittingEvent)Ask(new TamingCommittingEvent(new TamingCommitContext(a.Id, token.RequestId, a.Owner, a.Target, a.Def.Id, a.Spent.ToArray(), null, 0, 0, true)));
-            if (asked.Canceled) task = Task.FromResult(Refuse(token.RequestId, $"Canceled: {asked.CanceledBy ?? "a mod"} refused the tame", View(a)));
+            var asked = (TamingCommittingEvent)AskGuarded(a, new TamingCommittingEvent(new TamingCommitContext(a.Id, token.RequestId, a.Owner, a.Target, a.Def.Id, a.Spent.ToArray(), null, 0, 0, true)));
+            if (a.CancelRequested || a.FailAfterSettle is not null)
+            {
+                // a handler canceled (or failed) the attempt: it ends here, cost-free, and binds nothing
+                var end = EndAfterSettle(a, "NoCost")!;
+                task = Task.FromResult(new TamingResult(false, end.Reason, end.Progress, null, token.RequestId, false, a.Spent.ToArray()));
+            }
+            else if (asked.Canceled) task = Task.FromResult(Refuse(token.RequestId, $"Canceled: {asked.CanceledBy ?? "a mod"} refused the tame", View(a)));
             else
             {
                 var tcs = new TaskCompletionSource<TamingResult>(TaskCreationOptions.RunContinuationsAsynchronously);

@@ -110,7 +110,10 @@ a dedicated server steps 15 to 25 times a second, so a step is not 1/60 s; a pau
 - Deferred: `TamingStepChangedEvent`, then `TamingCommitDeferredEvent`.
 - The end: `TamingCanceledEvent`, `TamingExpiredEvent` or `TamingFailedEvent`, after the refunds settled.
 
-Before-events carry copied, read-only contexts. A canceled one spends nothing, and the same token stays valid.
+Before-events carry copied, read-only contexts. A canceled one spends nothing, and the same token stays valid. While a
+before-event runs, its attempt is guarded (19e 4.4): a handler that calls `Taming.Cancel` on it gets the cancel's answer
+once the event is over, and the attempt then ends with nothing new spent (no step's cost, no bind); a handler's `Begin` on
+the same target claims it first, and the `Begin` that posted the event answers `Busy`.
 
 ## Costs and the refund policy
 
