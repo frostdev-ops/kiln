@@ -77,6 +77,8 @@ struct TreeView final : kiln::boot_view::BaseView {
 
 const char* kBalance = "82706b40-61b1-4b8f-8b23-dcec6971bda1";
 
+// Every resource of the fixture has a GUID of its own (registry trial merge: three lanes' resources shared g(500) and two
+// g(600), and the later one replaced the earlier, so the stations and the skill tree read nothing).
 TreeView world() {
     TreeView v;
     auto item = [&](int n, const std::string& name, int stack, const std::string& rarity, double dmg) {
@@ -112,7 +114,7 @@ TreeView world() {
           {{"workshops", json::array({{{"isNpc", false}, {"workshopGuid", g(501)}, {"workshopId", 0x4da88f73}, {"item", 1002}, {"itemRef", g(2)}},
                                       {{"isNpc", false}, {"workshopGuid", g(502)}, {"workshopId", 0xb326e042}, {"item", 0}, {"itemRef", "none"}},
                                       {{"isNpc", true}, {"workshopGuid", g(503)}, {"workshopId", 0xc86873f9}, {"item", 1004}, {"itemRef", g(4)}}})}});
-    v.add("keen::SkillTreeResource", g(600),
+    v.add("keen::SkillTreeResource", g(610),
           {{"nodes", json::array({{{"id", 0x4475e8dd}, {"costs", 3}, {"maxLevel", 0}, {"type", "ActiveSkill"}, {"classAlignment", "Neutral"},
                                    {"activeSkillUnlock", 1002}, {"activeSkillUnlockRef", g(2)}},
                                   {{"id", 0x8efcc472}, {"costs", 0}, {"maxLevel", 3}, {"type", "Root"}, {"classAlignment", "Mage"},
@@ -127,7 +129,7 @@ TreeView world() {
     v.add("keen::ecs::TemplateResource", g(401), {{"name", "Chest_B"}, {"components", json::array({{{"$type", "Health"}}})}});
     // dev.32: the buff collection (records named by their 32-bit id) and action sequences (named by their first part; events
     // are variants, {"$type": <brief>, ...} in a tree)
-    v.add("keen::BuffTypeCollectionResource", g(500),
+    v.add("keen::BuffTypeCollectionResource", g(520),
           {{"buffs", json::array({{{"buffTypeId", 0xcdbe9c80u}, {"slot", "Rested"}, {"applyType", "ResetTime"}, {"defaultLifeTime", 5.0}, {"isSaved", true}},
                                   {{"buffTypeId", 0x5f425fafu}, {"slot", "Debuff"}, {"applyType", "Invalid"}, {"defaultLifeTime", 10.0}, {"isSaved", false}}})}});
     auto seq = [&](int n, const std::string& name, json events) {
@@ -146,7 +148,7 @@ TreeView world() {
     auto box = [&](const char* lo, const char* hi, double x0, double y0, double z0, double x1, double y1, double z1) {
         return json{{lo, {{"x", fx(x0)}, {"y", fx(y0)}, {"z", fx(z0)}}}, {hi, {{"x", fx(x1)}, {"y", fx(y1)}, {"z", fx(z1)}}}};
     };
-    v.add("keen::SceneResource", g(500), {{"noBuildZones", json::array()}, {"resetPlayersOutOfBounds", {{"playableAreas", json::array()}}}});
+    v.add("keen::SceneResource", g(530), {{"noBuildZones", json::array()}, {"resetPlayersOutOfBounds", {{"playableAreas", json::array()}}}});
     json area = box("areaMin", "areaMax", 359.5, 298, 9420.75, 1159.5, 448, 9770.25);
     area["flags"] = json::array({"BigDungeon"});
     v.add("keen::SceneResource", "509feadb-4c60-425f-9c7c-deeefd9b6920",
