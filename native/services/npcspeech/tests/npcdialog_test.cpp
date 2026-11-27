@@ -217,6 +217,14 @@ int main() {
     // ---- slice 4: talk pages: Kiln's topics after the game's own, and their picks -----------------------------------
     npcspeech::TopicLayout tl;
     CHECK(tl.sane(), "the game's topic layout is sane");
+    // the list's place in the window and its count's, two sigdb captures from different instructions (BuildTopics'
+    // `lea` of the list and its `mov` clearing the count): they must agree, or topics stay the game's
+    CHECK(npcspeech::topics_place_ok(0x12a8, 0x12b0, tl), "26430625: win.topics 0x12a8 + list.count 8 = win.topics_count 0x12b0");
+    CHECK(!npcspeech::topics_place_ok(0x12a8, 0x12b8, tl), "review: captures that disagree (the code moved) are refused");
+    CHECK(!npcspeech::topics_place_ok(0, 8, tl) && !npcspeech::topics_place_ok(0x10000, 0x10008, tl), "a window offset out of range");
+    npcspeech::TopicLayout badl = tl;
+    badl.stride = 0x80;
+    CHECK(!npcspeech::topics_place_ok(0x12a8, 0x12b0, badl), "an insane topic layout");
     const KilnSpeechTopic food[] = {{0x70d1, 0xa001, 0xb001, 2, 0, {0, 0}}, {0x70d2, 0xa002, 0, 0, 1, {0, 0}}};
     {  // an NPC with no topic of its own (Ramone) gets Kiln's: the list grows through the game's own callback
         npcspeech::Core c;

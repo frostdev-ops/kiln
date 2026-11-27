@@ -54,6 +54,13 @@ struct TopicLayout {
 };
 using GrowFn = bool (*)(void*, int64_t, uint8_t);
 
+// The topic list's place in the dialogue window: sigdb captures it (npcdialog/win.topics, BuildTopics' lea of the list)
+// and its count's (npcdialog/win.topics_count, the mov that clears the count) from two instructions; they must agree
+// with the list's own layout (win.topics + list.count), or the code moved under the patterns and topics stay the game's.
+inline bool topics_place_ok(int64_t win_topics, int64_t win_topics_count, const TopicLayout& t) {
+    return t.sane() && win_topics > 0 && win_topics < 0x10000 && win_topics + t.count == win_topics_count;
+}
+
 // The dialogue window's offsets (sigdb client.d/npcdialog.json; 26430625's values as defaults for the tests).
 struct DialogLayout {
     int64_t line = 0x2b0;   // the speech box's text (LocaTagId)

@@ -170,7 +170,7 @@ bool g_farewell_ok = false;  // npcspeech.farewell
 bool g_menu_ok = false;      // npcspeech.menu_line: SetLine too
 bool g_topics_ok = false;    // npcspeech.topics: BuildTopics, SayLine and the list's layout
 uintptr_t g_build_at = 0, g_say_at = 0;
-int64_t g_win_topics = 0;
+int64_t g_win_topics = 0, g_win_topics_count = 0;
 npcspeech::TopicLayout g_tlay;
 kiln::RawHook g_h_build, g_h_say;
 std::atomic<bool> g_topics_installed{false}, g_topics_failed{false};
@@ -202,9 +202,17 @@ void resolve_dialog() {
                   constant("npcdialog/entry.texts", &v) && (g_tlay.texts = v, true) && constant("npcdialog/entry.texts_n", &v) &&
                   (g_tlay.texts_n = v, true) && constant("npcdialog/entry.vo_n", &v) && (g_tlay.vo_n = v, true) &&
                   constant("npcdialog/entry.hint", &v) && (g_tlay.hint = v, true) && constant("npcdialog/entry.end_action", &v) &&
-                  (g_tlay.end = v, true) && g_win_topics > 0 && g_win_topics < 0x10000 && g_tlay.sane();
+                  (g_tlay.end = v, true) && constant("npcdialog/win.topics_count", &v) && (g_win_topics_count = v, true);
+    if (g_topics_ok && !npcspeech::topics_place_ok(g_win_topics, g_win_topics_count, g_tlay)) {
+        g_topics_ok = false;
+        NS_W("npcspeech.topics: the topic list's captures disagree (win.topics 0x%llx + list.count 0x%llx, win.topics_count 0x%llx) "
+             "or its layout is not sane: talk pages stay the game's",
+             static_cast<unsigned long long>(g_win_topics), static_cast<unsigned long long>(g_tlay.count),
+             static_cast<unsigned long long>(g_win_topics_count));
+    } else if (!g_topics_ok) {
+        NS_W("npcspeech.topics did not resolve: talk pages stay the game's");
+    }
     if (!g_farewell_ok) NS_W("npcspeech.farewell did not resolve: farewells stay the game's");
-    if (!g_topics_ok) NS_W("npcspeech.topics did not resolve: talk pages stay the game's");
     if (!g_menu_ok) NS_W("npcspeech.menu_line did not resolve: the dialogue menu's own line stays the game's");
 }
 
