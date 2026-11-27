@@ -33,6 +33,7 @@ pub mod kiln_item_costs;
 pub mod kiln_items;
 pub mod kiln_items_inventory_kinds;
 pub mod kiln_items_storage;
+pub mod kiln_labbot;
 pub mod kiln_launch;
 pub mod kiln_log;
 pub mod kiln_markers;

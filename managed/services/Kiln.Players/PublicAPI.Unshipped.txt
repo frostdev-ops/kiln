@@ -1,1 +1,87 @@
 #nullable enable
+[KILNX001]Kiln.LabBotGroup
+[KILNX001]Kiln.LabBotGroup.Admin = 0 -> Kiln.LabBotGroup
+[KILNX001]Kiln.LabBotGroup.Index = 2 -> Kiln.LabBotGroup
+[KILNX001]Kiln.LabBotGroup.Least = 1 -> Kiln.LabBotGroup
+[KILNX001]Kiln.LabBotInfo
+[KILNX001]Kiln.LabBotInfo.<Clone>$() -> Kiln.LabBotInfo!
+[KILNX001]Kiln.LabBotInfo.Account.get -> ulong
+[KILNX001]Kiln.LabBotInfo.Account.init -> void
+[KILNX001]Kiln.LabBotInfo.CharacterId.get -> System.Guid
+[KILNX001]Kiln.LabBotInfo.CharacterId.init -> void
+[KILNX001]Kiln.LabBotInfo.Connection.get -> uint
+[KILNX001]Kiln.LabBotInfo.Connection.init -> void
+[KILNX001]Kiln.LabBotInfo.Deconstruct(out int Id, out Kiln.LabBotPhase Phase, out string! Name, out int Slot, out uint Machine, out uint Connection, out Kiln.EntityId Entity, out int RecordState, out uint Permissions, out uint Group, out int SavesAcked, out ulong Account, out System.Guid CharacterId, out ulong JoinedStep, out ulong InGameStep, out string! Reason) -> void
+[KILNX001]Kiln.LabBotInfo.Ended.get -> bool
+[KILNX001]Kiln.LabBotInfo.Entity.get -> Kiln.EntityId
+[KILNX001]Kiln.LabBotInfo.Entity.init -> void
+[KILNX001]Kiln.LabBotInfo.Equals(Kiln.LabBotInfo? other) -> bool
+[KILNX001]Kiln.LabBotInfo.Group.get -> uint
+[KILNX001]Kiln.LabBotInfo.Group.init -> void
+[KILNX001]Kiln.LabBotInfo.Id.get -> int
+[KILNX001]Kiln.LabBotInfo.Id.init -> void
+[KILNX001]Kiln.LabBotInfo.InGame.get -> bool
+[KILNX001]Kiln.LabBotInfo.InGameStep.get -> ulong
+[KILNX001]Kiln.LabBotInfo.InGameStep.init -> void
+[KILNX001]Kiln.LabBotInfo.JoinedStep.get -> ulong
+[KILNX001]Kiln.LabBotInfo.JoinedStep.init -> void
+[KILNX001]Kiln.LabBotInfo.LabBotInfo(int Id, Kiln.LabBotPhase Phase, string! Name, int Slot, uint Machine, uint Connection, Kiln.EntityId Entity, int RecordState, uint Permissions, uint Group, int SavesAcked, ulong Account, System.Guid CharacterId, ulong JoinedStep, ulong InGameStep, string! Reason) -> void
+[KILNX001]Kiln.LabBotInfo.Machine.get -> uint
+[KILNX001]Kiln.LabBotInfo.Machine.init -> void
+[KILNX001]Kiln.LabBotInfo.Name.get -> string!
+[KILNX001]Kiln.LabBotInfo.Name.init -> void
+[KILNX001]Kiln.LabBotInfo.Permissions.get -> uint
+[KILNX001]Kiln.LabBotInfo.Permissions.init -> void
+[KILNX001]Kiln.LabBotInfo.Phase.get -> Kiln.LabBotPhase
+[KILNX001]Kiln.LabBotInfo.Phase.init -> void
+[KILNX001]Kiln.LabBotInfo.Reason.get -> string!
+[KILNX001]Kiln.LabBotInfo.Reason.init -> void
+[KILNX001]Kiln.LabBotInfo.RecordState.get -> int
+[KILNX001]Kiln.LabBotInfo.RecordState.init -> void
+[KILNX001]Kiln.LabBotInfo.SavesAcked.get -> int
+[KILNX001]Kiln.LabBotInfo.SavesAcked.init -> void
+[KILNX001]Kiln.LabBotInfo.Slot.get -> int
+[KILNX001]Kiln.LabBotInfo.Slot.init -> void
+[KILNX001]Kiln.LabBotPhase
+[KILNX001]Kiln.LabBotPhase.Connecting = 1 -> Kiln.LabBotPhase
+[KILNX001]Kiln.LabBotPhase.Failed = 8 -> Kiln.LabBotPhase
+[KILNX001]Kiln.LabBotPhase.Free = 0 -> Kiln.LabBotPhase
+[KILNX001]Kiln.LabBotPhase.InGame = 5 -> Kiln.LabBotPhase
+[KILNX001]Kiln.LabBotPhase.Leaving = 6 -> Kiln.LabBotPhase
+[KILNX001]Kiln.LabBotPhase.Left = 7 -> Kiln.LabBotPhase
+[KILNX001]Kiln.LabBotPhase.Loading = 3 -> Kiln.LabBotPhase
+[KILNX001]Kiln.LabBotPhase.LoggingIn = 2 -> Kiln.LabBotPhase
+[KILNX001]Kiln.LabBotPhase.Spawning = 4 -> Kiln.LabBotPhase
+[KILNX001]Kiln.LabBotStatus
+[KILNX001]Kiln.LabBotStatus.<Clone>$() -> Kiln.LabBotStatus!
+[KILNX001]Kiln.LabBotStatus.Available.get -> bool
+[KILNX001]Kiln.LabBotStatus.Available.init -> void
+[KILNX001]Kiln.LabBotStatus.Bots.get -> int
+[KILNX001]Kiln.LabBotStatus.Bots.init -> void
+[KILNX001]Kiln.LabBotStatus.Deconstruct(out bool Available, out int Bots, out int Groups, out ulong Publishes, out string! Why) -> void
+[KILNX001]Kiln.LabBotStatus.Equals(Kiln.LabBotStatus? other) -> bool
+[KILNX001]Kiln.LabBotStatus.Groups.get -> int
+[KILNX001]Kiln.LabBotStatus.Groups.init -> void
+[KILNX001]Kiln.LabBotStatus.LabBotStatus(bool Available, int Bots, int Groups, ulong Publishes, string! Why) -> void
+[KILNX001]Kiln.LabBotStatus.Publishes.get -> ulong
+[KILNX001]Kiln.LabBotStatus.Publishes.init -> void
+[KILNX001]Kiln.LabBotStatus.Why.get -> string!
+[KILNX001]Kiln.LabBotStatus.Why.init -> void
+[KILNX001]Kiln.LabBots
+[KILNX001]const Kiln.LabBots.Capability = "labbot.join" -> string!
+[KILNX001]const Kiln.LabBots.Max = 4 -> int
+[KILNX001]override Kiln.LabBotInfo.Equals(object? obj) -> bool
+[KILNX001]override Kiln.LabBotInfo.GetHashCode() -> int
+[KILNX001]override Kiln.LabBotInfo.ToString() -> string!
+[KILNX001]override Kiln.LabBotStatus.Equals(object? obj) -> bool
+[KILNX001]override Kiln.LabBotStatus.GetHashCode() -> int
+[KILNX001]override Kiln.LabBotStatus.ToString() -> string!
+[KILNX001]static Kiln.LabBotInfo.operator !=(Kiln.LabBotInfo? left, Kiln.LabBotInfo? right) -> bool
+[KILNX001]static Kiln.LabBotInfo.operator ==(Kiln.LabBotInfo? left, Kiln.LabBotInfo? right) -> bool
+[KILNX001]static Kiln.LabBotStatus.operator !=(Kiln.LabBotStatus? left, Kiln.LabBotStatus? right) -> bool
+[KILNX001]static Kiln.LabBotStatus.operator ==(Kiln.LabBotStatus? left, Kiln.LabBotStatus? right) -> bool
+[KILNX001]static Kiln.LabBots.All() -> System.Collections.Generic.IReadOnlyList<Kiln.LabBotInfo!>!
+[KILNX001]static Kiln.LabBots.Info(int id) -> Kiln.LabBotInfo?
+[KILNX001]static Kiln.LabBots.Join(string! name, Kiln.LabBotGroup group = Kiln.LabBotGroup.Admin, int groupIndex = 0) -> int
+[KILNX001]static Kiln.LabBots.Leave(int id, bool drop = false) -> void
+[KILNX001]static Kiln.LabBots.Status() -> Kiln.LabBotStatus!

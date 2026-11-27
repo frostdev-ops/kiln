@@ -1013,6 +1013,10 @@
           "members": 10
         },
         {
+          "name": "labbot.join",
+          "members": 2
+        },
+        {
           "name": "players.bans",
           "members": 3
         },

@@ -1,0 +1,131 @@
+{
+  "format": 1,
+  "side": "server",
+  "comment": "kiln.labbot (lab servers only): bot players the dedicated server hosts itself. The session publishes its machines and players to the GameServer in a double-buffered state (session +0x3c the published buffer, +0x48 the two 0x2668-byte buffers; players at +0x178, 16 x 0x150; machines at +0x1678, 17 x 0xf0); SessionPublish(session, buffer) makes a filled back buffer current, so a bot added to it there is seen by every reader. The join then calls the game's own receive handlers, as ServerReceive does for a client: AddPlayer (machine channel 0, Login), Save2Receive (player save channel, the character upload, acks and the final request) and net/MachineLogin (SystemsReady, GameplayReady). Evidence: docs/re/labbot.md (server f0d824be, svn 1287369).",
+  "symbols": {
+    "labbot/SessionPublish": {
+      "find": [
+        { "pattern": "4C 8B DC 48 81 EC 98 00 00 00 8B 41 38 4C 8D 41 38 85 C0 74 ?? 39 02 73 ??" }
+      ]
+    },
+    "@labbot/SessionPublish.fields": {
+      "find": [
+        { "scope": { "symbol": "labbot/SessionPublish", "size": 192 }, "pattern": "48 2B D1 45 33 C9 48 83 EA {labbot/session.buffers:d8} 45 89 08 48 B8 DF 24 8B F4 12 39 A6 6A 90 48 F7 EA 48 C1 FA 0C 48 8B C2 48 C1 E8 3F 48 03 D0 89 51 {labbot/session.current:d8}" }
+      ]
+    },
+    "@labbot/SessionCurrent": {
+      "find": [
+        { "pattern": "8B 41 {labbot/session.current:d8} 90 F0 FF 44 81 {labbot/session.refs:d8} 48 69 C0 {labbot/session.stride:d32} 48 83 C0 {labbot/session.buffers:d8} 48 03 C1 C3" }
+      ]
+    },
+    "@labbot/SessionPlayerInfo": {
+      "find": [
+        { "pattern": "40 53 48 83 EC 20 8B 42 3C 4C 8D 52 40 90 F0 41 FF 04 82 4C 69 C8 {labbot/session.stride:d32} 41 8B C0 83 E0 3F 49 83 C1 48 4C 69 D8 {labbot/snap.player_stride:d32} 4C 03 CA 48 B8 DF 24 8B F4 12 39 A6 6A 4D 03 D9 4C 2B CA 49 83 E9 48 49 F7 E9 48 C1 FA 0C 48 8B C2 48 C1 E8 3F 48 03 C2 8B C0 49 8D 1C 82 45 39 83 {labbot/snap.players:d32}" }
+      ]
+    },
+    "@labbot/SessionMachineInfo": {
+      "find": [
+        { "pattern": "40 53 48 83 EC 20 8B 42 3C 4C 8D 52 40 90 F0 41 FF 04 82 4C 69 C8 {labbot/session.stride:d32} 41 8B C0 83 E0 7F 49 83 C1 48 4C 69 D8 {labbot/snap.machine_stride:d32} 4C 03 CA 48 B8 DF 24 8B F4 12 39 A6 6A 4D 03 D9 4C 2B CA 49 83 E9 48 49 F7 E9 48 C1 FA 0C 48 8B C2 48 C1 E8 3F 48 03 C2 8B C0 49 8D 1C 82 45 39 83 {labbot/snap.machines:d32}" }
+      ]
+    },
+    "labbot/MachineInfoCopy": {
+      "find": [
+        { "pattern": "48 89 5C 24 10 48 89 74 24 18 48 89 7C 24 20 41 56 48 83 EC 20 8B 02 48 8D B9 {labbot/minfo.players:d32} 89 01" }
+      ]
+    },
+    "@labbot/MachineInfoCopy.fields": {
+      "find": [
+        { "scope": { "symbol": "labbot/MachineInfoCopy", "size": 416 }, "pattern": "48 8B 9A {labbot/minfo.players_count:d32} 48 8B B2 {labbot/minfo.players:d32} 48 C7" },
+        { "scope": { "symbol": "labbot/MachineInfoCopy", "size": 416 }, "pattern": "48 03 D2 48 3B D3 72 F8 48 3B D0 76 0B 45 33 C0 48 8B CF E8 {labbot/ArrayReserve:rel32} 48 8B 0F 4C 8D 04 9D 00" }
+      ]
+    },
+    "labbot/AddPlayer": {
+      "find": [
+        { "pattern": "48 89 5C 24 18 48 89 74 24 20 55 57 41 56 48 8D AC 24 70 FE FF FF 48 81 EC 90 02 00 00 49 8B F0 8B DA 4C 8B F1 E8" }
+      ]
+    },
+    "@labbot/AddPlayer.fields": {
+      "find": [
+        { "scope": { "symbol": "labbot/AddPlayer", "size": 256 }, "pattern": "41 8B 40 {labbot/login.name_len:d8} 49 8D 48 {labbot/login.name:d8} 48 2B C1 48 89 4C 24 20 48 83 C0 08 4D 8D 88 {labbot/login.character:d32} 48 03 C6" },
+        { "scope": { "symbol": "labbot/AddPlayer", "size": 768 }, "pattern": "44 38 A6 {labbot/login.version_present:d32} 74 ?? 41 8B 86 {labbot/gs.build_version:d32} 39 86 {labbot/login.version:d32} 74 ?? C6 47 0A 06 44 38 67 09 75 ?? C6 47 09 01 C6 47 08 01 EB ?? C6 47 0A 01 44 38 A6 {labbot/login.new_present:d32} 74 ?? 0F B6 86 {labbot/login.is_new:d32} 88 87 ?? ?? ?? ?? 44 38 A6 {labbot/login.toggle_present:d32} 74 ?? 48 8B 86 {labbot/login.toggle:d32}" }
+      ]
+    },
+    "@labbot/ServerReceive.login": {
+      "find": [
+        { "scope": { "symbol": "net/ServerReceive", "size": 1024 }, "pattern": "44 39 A5 {labbot/recv.login_name_len:d32} 74 ?? 44 38 A5 {labbot/recv.login_character_present:d32} 74 ?? 44 38 A5 {labbot/recv.login_toggle_present:d32} 74 ?? 8B 17 4C 8D 85 {labbot/recv.login:d32} 49 8B CD E8" }
+      ]
+    },
+    "labbot/Save2Receive": {
+      "find": [
+        { "pattern": "44 89 44 24 18 48 83 EC 58 41 83 E0 3F 4A 8B 94 C2 {labbot/save2.slots:d32} 83 7A {labbot/save.handle:d8} 00 75" }
+      ]
+    },
+    "@labbot/Save2.fields": {
+      "find": [
+        { "pattern": "83 E2 3F 48 8B 84 D1 {labbot/save2.slots:d32} 80 B8 {labbot/save.status:d32} 00 74 03 32 C0 C3 80 B8 {labbot/save.has_entity:d32} 01 0F 94 C0 C3" },
+        { "pattern": "8B 45 77 39 87 {labbot/save.version:d32} 75 ?? 80 7F {labbot/save.state:d8} 04 75 ?? 44 38 AF {labbot/save.final:d32} 74" },
+        { "pattern": "8B 55 77 48 8D 9F {labbot/save.upload:d32} 48 3B 53 10 76" }
+      ]
+    },
+    "@labbot/UserGroups": {
+      "find": [
+        { "scope": { "symbol": "players/UpdatePlayers", "size": 2048 }, "pattern": "48 8B 96 {labbot/gs.groups_count:d32} 4D 8B C4 48 85 D2 74 ?? 48 8B 8E {labbot/gs.groups:d32} 8B 85 ?? ?? ?? ?? 90 39 01 74 ?? 49 FF C0 48 83 C1 {labbot/group.stride:d8} 4C 3B C2 72" }
+      ]
+    }
+  },
+  "constants": {
+    "labbot/session.current": { "min_votes": 2 },
+    "labbot/session.buffers": { "min_votes": 2 },
+    "labbot/session.refs": { "min_votes": 1 },
+    "labbot/session.stride": { "min_votes": 3 },
+    "labbot/snap.players": { "min_votes": 1 },
+    "labbot/snap.player_stride": { "min_votes": 1 },
+    "labbot/snap.machines": { "min_votes": 1 },
+    "labbot/snap.machine_stride": { "min_votes": 1 },
+    "labbot/snap.player_count": { "value": 16 },
+    "labbot/snap.machine_count": { "value": 17 },
+    "labbot/snap.p_remote": { "value": 4 },
+    "labbot/snap.p_machine": { "value": 8 },
+    "labbot/snap.p_group": { "value": 12 },
+    "labbot/snap.p_account": { "value": 32 },
+    "labbot/snap.m_remote": { "value": 4 },
+    "labbot/minfo.players": { "min_votes": 2 },
+    "labbot/minfo.players_count": { "min_votes": 1 },
+    "labbot/login.size": { "value": 320 },
+    "labbot/login.name_len": { "min_votes": 1 },
+    "labbot/login.name": { "min_votes": 1 },
+    "labbot/login.character": { "min_votes": 1 },
+    "labbot/login.version_present": { "min_votes": 1 },
+    "labbot/login.version": { "min_votes": 1 },
+    "labbot/login.new_present": { "min_votes": 1 },
+    "labbot/login.is_new": { "min_votes": 1 },
+    "labbot/login.toggle_present": { "min_votes": 1 },
+    "labbot/login.toggle": { "min_votes": 1 },
+    "labbot/recv.login": { "min_votes": 1 },
+    "labbot/recv.login_name_len": { "min_votes": 1 },
+    "labbot/recv.login_character_present": { "min_votes": 1 },
+    "labbot/recv.login_toggle_present": { "min_votes": 1 },
+    "labbot/gs.build_version": { "min_votes": 1 },
+    "labbot/save2.slots": { "min_votes": 2 },
+    "labbot/save.handle": { "min_votes": 1 },
+    "labbot/save.state": { "min_votes": 1 },
+    "labbot/save.status": { "min_votes": 1 },
+    "labbot/save.has_entity": { "min_votes": 1 },
+    "labbot/save.version": { "min_votes": 1 },
+    "labbot/save.final": { "min_votes": 1 },
+    "labbot/save.upload": { "min_votes": 1 },
+    "labbot/gs.groups": { "min_votes": 1 },
+    "labbot/gs.groups_count": { "min_votes": 1 },
+    "labbot/group.stride": { "min_votes": 1 }
+  },
+  "features": {
+    "labbot.session": {
+      "symbols": ["labbot/SessionPublish", "@labbot/SessionPublish.fields", "@labbot/SessionCurrent", "@labbot/SessionPlayerInfo", "@labbot/SessionMachineInfo", "labbot/MachineInfoCopy", "@labbot/MachineInfoCopy.fields", "labbot/ArrayReserve"],
+      "constants": ["labbot/session.current", "labbot/session.buffers", "labbot/session.refs", "labbot/session.stride", "labbot/snap.players", "labbot/snap.player_stride", "labbot/snap.machines", "labbot/snap.machine_stride", "labbot/snap.player_count", "labbot/snap.machine_count", "labbot/snap.p_remote", "labbot/snap.p_machine", "labbot/snap.p_group", "labbot/snap.p_account", "labbot/snap.m_remote", "labbot/minfo.players", "labbot/minfo.players_count"]
+    },
+    "labbot.join": {
+      "symbols": ["labbot/AddPlayer", "@labbot/AddPlayer.fields", "@labbot/ServerReceive.login", "labbot/Save2Receive", "@labbot/Save2.fields", "@labbot/UserGroups", "net/ServerReceive", "net/MachineLogin", "saves/RequestServerSave"],
+      "constants": ["labbot/login.size", "labbot/login.name_len", "labbot/login.name", "labbot/login.character", "labbot/login.version_present", "labbot/login.version", "labbot/login.new_present", "labbot/login.is_new", "labbot/login.toggle_present", "labbot/login.toggle", "labbot/recv.login", "labbot/recv.login_name_len", "labbot/recv.login_character_present", "labbot/recv.login_toggle_present", "labbot/save2.slots", "labbot/save.handle", "labbot/save.state", "labbot/save.status", "labbot/save.has_entity", "labbot/save.version", "labbot/save.final", "labbot/save.upload", "labbot/gs.groups", "labbot/gs.groups_count", "labbot/group.stride", "net/gs.session", "net/gs.sockets", "net/sockets.machines", "net/machine.stride", "net/gs.machines", "net/gs.records", "net/rec.stride", "net/rec.state", "net/rec.peer", "net/rec.entity", "saves/inst.save2", "players/rec.permissions"]
+    }
+  }
+}

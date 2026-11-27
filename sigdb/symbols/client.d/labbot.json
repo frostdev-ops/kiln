@@ -1,0 +1,8 @@
+{
+  "format": 1,
+  "side": "client",
+  "comment": "kiln.labbot runs on dedicated lab servers only (native/core/abi/services/kiln_labbot.h): the game client declares none of server.d/labbot.json's names, so this standalone definition replaces it with nothing.",
+  "symbols": {},
+  "constants": {},
+  "features": {}
+}
