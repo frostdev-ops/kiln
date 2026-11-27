@@ -5047,9 +5047,10 @@
             "set": 8,
             "set_lines": 48,
             "status": 40,
-            "text": 24
+            "text": 24,
+            "topics": 88
           },
-          "size": 88
+          "size": 96
         },
         "KilnNpcSpeechStatus": {
           "align": 8,
@@ -5077,9 +5078,21 @@
             "value": 12
           },
           "size": 16
+        },
+        "KilnSpeechTopic": {
+          "align": 4,
+          "fields": {
+            "close": 13,
+            "hint": 12,
+            "id": 0,
+            "label": 4,
+            "reply": 8,
+            "reserved": 14
+          },
+          "size": 16
         }
       },
-      "sha256": "609df2846add9a2f7627579c24d35baa50748e6e0b24555a0cc066631e1cadd6"
+      "sha256": "746acaa81dd99bfde824a7981414a65e97745b950ee5d7ef94f54cab4d70baf1"
     },
     "native/core/abi/services/kiln_pacing.h": {
       "function_macros": [],
@@ -10400,7 +10413,7 @@
   },
   "outputs": {
     "src/bindings.rs": "134028a6a9914076cab3f71f98d356141d4fe36c4d7f51bac6a11819501ed935",
-    "src/layout.rs": "899ad185734fd6db27e60e5e3be01c0b45f12538f8893bb19e38678fb18b8b9c",
+    "src/layout.rs": "fc9ad8d3ca2069bc661c95b6f9b022075f53b2b6d7a65c1d65fc284a673628a7",
     "src/services/kiln_abilities.rs": "a24dff6123db80e30ed1b2e33f87c772a40982ec3ce379347ca96bb81579f6cb",
     "src/services/kiln_assets.rs": "e7fe4eb1c4d53ad31eeaf05be06f41c551a49362ad5bd4174465ec18a03effe0",
     "src/services/kiln_assets_vfx.rs": "90ed8ce5ad512bbf4f002db3277bc3b439d648ca437a58d4477eac4ce46c3b81",
@@ -10440,7 +10453,7 @@
     "src/services/kiln_mod_values.rs": "b8ffa4c778b215cf6b6a9137e8b1ec0925ccdc0a9b23a916c352d9aeee00af90",
     "src/services/kiln_net.rs": "a80d9ff754549a78c03fdc6423f97a582bacbcc11a114ce68a75ecefd873b9ca",
     "src/services/kiln_npcai.rs": "479ad37b5babfc928b3cbb617ca391a623f64a11f3e4f8cf24e42e8a9241cdfa",
-    "src/services/kiln_npcspeech.rs": "c44ae0a964f205f74a9580ac1b8dd0d1e6d9017291ff17e829130a1fbf389900",
+    "src/services/kiln_npcspeech.rs": "4c558200c0f57867b9917ac0fc24f37a04230ec2b56352f01e800f584d731388",
     "src/services/kiln_pacing.rs": "2cc1f9c6c389216b999d3cccf105d3fb348c7605400e76858ec40628e40c04b3",
     "src/services/kiln_playeranim.rs": "6c643167c2d27d84553f2756f7942b58194c8552574e1724980b54b1d7fd5dd8",
     "src/services/kiln_players.rs": "dc3f63ebf4167a06131ce27f55bfc771f00a802eca21fe04ae2541bc5f76a5cd",

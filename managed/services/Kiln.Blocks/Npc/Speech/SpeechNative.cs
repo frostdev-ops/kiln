@@ -34,6 +34,15 @@ internal static unsafe class SpeechNative
         public uint Value;
     }
 
+    /// <summary>KilnSpeechTopic: one topic of Kiln's on a talk page (since 0.2.0-dev.32).</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Topic
+    {
+        public uint Id, Label, Reply;
+        public byte Hint, Close;
+        public ushort Reserved;
+    }
+
     /// <summary>KilnNpcDialogStatus (since 0.2.0-dev.32).</summary>
     [StructLayout(LayoutKind.Sequential)]
     public struct DialogStatus
@@ -57,12 +66,13 @@ internal static unsafe class SpeechNative
         public delegate* unmanaged<Event*, uint, uint*, int> Events;
         public delegate* unmanaged<DialogStatus*, int> DialogStatus;
         public delegate* unmanaged<uint, uint, int> MenuSay;
+        public delegate* unmanaged<uint, Topic*, uint, int> Topics;
     }
 
     /// <summary>The table ends at the 31.21 members (48 bytes) in a fake or an older kiln-npcspeech.dll: no dev.32
     /// members then, and none that a table left null.</summary>
     private const int V1Size = 48;
-    public const int EventOpen = 0, EventTopic = 1;
+    public const byte EventOpen = 0, EventTopic = 1;
     public const byte PickChange = 0, PickRandom = 1, PickOrder = 2, PickSeeded = 3, PickHost = 4;
 
     private static bool Has(Table* t, int end) => t != null && t->HeaderSize >= end;
@@ -187,6 +197,13 @@ internal static unsafe class SpeechNative
     {
         var t = T;
         return Has(t, V1Size + 40) && t->MenuSay != null ? t->MenuSay(npc, tag) : Unavailable;
+    }
+
+    public static int Topics(uint npc, Topic[] topics)
+    {
+        var t = T;
+        if (!Has(t, V1Size + 48) || t->Topics == null) return Unavailable;
+        fixed (Topic* p = topics) return t->Topics(npc, topics.Length == 0 ? null : p, (uint)topics.Length);
     }
 
     public static DialogStatus? ReadDialog()

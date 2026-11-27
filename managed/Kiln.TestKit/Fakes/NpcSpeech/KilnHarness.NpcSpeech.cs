@@ -88,6 +88,19 @@ public sealed class HarnessNpcSpeech
                 .ToArray();
     }
 
+    /// <summary>The labels of the Kiln topics a Kiln client's talk page of the NPC shows after the NPC's own
+    /// (<c>Npcs.Topics</c>, every mod's), in <paramref name="language"/>. Since 0.2.0-dev.32.</summary>
+    public IReadOnlyList<string> TopicsOf(EntityId npc, string language = "en-us")
+    {
+        lock (S.Lock)
+            return S.Topics.TryGetValue(npc.Value, out var t) ? t.Select(x => TextOf(x.Label, language)).ToArray() : [];
+    }
+
+    /// <summary>A pick of the topic <paramref name="topicId"/> (the id a mod gave it) by <paramref name="player"/>, as
+    /// the host runs it: the topic's OnPick, now, on this thread. False when no mod's topic of the NPC has that id. Since
+    /// 0.2.0-dev.32.</summary>
+    public bool PickTopic(EntityId npc, string topicId, EntityId player) => _harness.Run(() => NpcSpeechEngine.PickLocal(npc, topicId, player));
+
     /// <summary>How many set and say calls reached the fake (a test that expects nothing new compares it).</summary>
     public int Calls
     {

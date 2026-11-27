@@ -37,7 +37,22 @@ struct Layout {
 struct Counts {
     uint32_t overrides = 0, says = 0, texts = 0, lines = 0, queued = 0;
     uint64_t bubbles = 0, changed = 0, muted = 0, opens = 0, dropped = 0, farewells = 0, menu_lines = 0;
+    uint32_t topics = 0;               // NPCs with Kiln topics
+    uint64_t topic_rows = 0, picks = 0;
 };
+
+// The dialogue window's topic list and a topic (sigdb client.d/npcdialog.json; 26430625's values as defaults).
+struct TopicLayout {
+    int64_t count = 8, cap = 0x10, grow = 0x18;      // in the list {ptr, count, cap, grow callback}
+    int64_t stride = 0x2a0, entry = 4, ptr = 0x298;  // a topic: kind byte at 0, its line entry, a pointer
+    int64_t line = 0, label = 4, texts = 8, texts_n = 0x88, vo_n = 0x28c, hint = 0x290, end = 0x292;  // in the entry
+    bool sane() const {
+        return count > 0 && cap > count && grow > cap && grow + 8 <= 0x40 && stride >= 0x100 && stride <= 0x1000 && entry > 0 &&
+               ptr + 8 <= stride && line >= 0 && label > line && texts > label && texts_n > texts && vo_n > texts_n && hint > vo_n &&
+               end > hint && entry + end < stride && entry + end < ptr;
+    }
+};
+using GrowFn = bool (*)(void*, int64_t, uint8_t);
 
 // The dialogue window's offsets (sigdb client.d/npcdialog.json; 26430625's values as defaults for the tests).
 struct DialogLayout {
@@ -62,6 +77,7 @@ constexpr uint64_t kReopenMs = KILN_SPEECH_REOPEN_MS;  // hidden this long, then
 constexpr uint32_t kMaxEvents = 512;                   // events() keeps this many; older ones are dropped
 constexpr uint32_t kKinds = 3;
 constexpr uint64_t kMenuSayMs = 5000;                  // a host's reply waits this long for its NPC's menu
+constexpr uint32_t kMaxTopics = KILN_SPEECH_MAX_TOPICS;
 
 class Core {
 public:
@@ -138,8 +154,101 @@ public:
         return k;
     }
 
-    // A farewell or menu line is set for some NPC, or a reply waits (the dialogue window's hook has work).
-    bool dialog_active() const { return lines_.load(std::memory_order_acquire) || says_waiting_.load(std::memory_order_acquire); }
+    // A farewell or menu line is set for some NPC, or a reply waits, or topics (the dialogue window's hooks have work).
+    bool dialog_active() const {
+        return lines_.load(std::memory_order_acquire) || says_waiting_.load(std::memory_order_acquire) || topics_.load(std::memory_order_acquire);
+    }
+
+    // Some NPC has Kiln topics (the topic list's hooks have work).
+    bool has_topics() const { return topics_.load(std::memory_order_acquire); }
+
+    static bool valid_topics(uint32_t npc, const KilnSpeechTopic* t, uint32_t n) {
+        if (!npc || n > kMaxTopics || (n && !t)) return false;
+        for (uint32_t i = 0; i < n; ++i) {
+            if (t[i].id <= 1 || !t[i].label || t[i].hint > 3 || t[i].close > 1) return false;
+            for (uint32_t j = 0; j < i; ++j)
+                if (t[j].id == t[i].id) return false;
+        }
+        return true;
+    }
+
+    // The NPC's Kiln topics (replaces; n 0 clears). False (nothing changes) when invalid.
+    bool topics(uint32_t npc, const KilnSpeechTopic* t, uint32_t n) {
+        if (!valid_topics(npc, t, n)) return false;
+        std::lock_guard lock(mu_);
+        auto& s = npcs_[npc];
+        s.topics.assign(t, t + n);
+        prune(npc, s);
+        publish();
+        return true;
+    }
+
+    // After the game's BuildTopics for the dialogue with npc: Kiln's topics after the game's, in the list at `list`,
+    // grown through its own callback as the game grows it. Returns how many were added. Faults are the caller's (SEH):
+    // game memory is touched outside the lock.
+    uint32_t append(uint32_t npc, uint8_t* list, const TopicLayout& t) {
+        if (!npc || !list) return 0;
+        std::vector<KilnSpeechTopic> mine;
+        {
+            std::lock_guard lock(mu_);
+            auto it = npcs_.find(npc);
+            if (it == npcs_.end() || it->second.topics.empty()) return 0;
+            mine = it->second.topics;
+        }
+        uint32_t added = 0;
+        for (const auto& k : mine) {
+            uint64_t count, cap;
+            std::memcpy(&count, list + t.count, 8);
+            std::memcpy(&cap, list + t.cap, 8);
+            if (count >= 4096) break;  // not a topic list
+            if (count + 1 > cap) {
+                GrowFn grow;
+                std::memcpy(&grow, list + t.grow, sizeof grow);
+                if (!grow || !grow(list, -static_cast<int64_t>(count + 1), 0)) break;
+                std::memcpy(&cap, list + t.cap, 8);
+                if (count + 1 > cap) break;
+            }
+            uint8_t* base;
+            std::memcpy(&base, list, sizeof base);
+            if (!base) break;
+            uint8_t* topic = base + count * static_cast<uint64_t>(t.stride);
+            std::memset(topic, 0, static_cast<size_t>(t.stride));  // kind 0: say the entry; no voice-over; pointer 0
+            uint8_t* e = topic + t.entry;
+            std::memcpy(e + t.line, &k.id, 4);
+            std::memcpy(e + t.label, &k.label, 4);
+            if (k.reply) {
+                std::memcpy(e + t.texts, &k.reply, 4);
+                e[t.texts_n] = 1;
+            }
+            e[t.hint] = k.hint;
+            e[t.end] = k.close ? 1 : 0;
+            ++count;
+            std::memcpy(list + t.count, &count, 8);
+            ++added;
+        }
+        if (added) {
+            std::lock_guard lock(mu_);
+            topic_rows_ += added;
+        }
+        return added;
+    }
+
+    // SayLine with a line entry of id `line` in npc's menu: a Kiln topic was picked (an event); has_reply: its entry has
+    // a reply to show (else the caller skips the empty box).
+    bool picked(uint32_t npc, uint32_t line, bool* has_reply) {
+        if (!npc) return false;
+        std::lock_guard lock(mu_);
+        auto it = npcs_.find(npc);
+        if (it == npcs_.end()) return false;
+        for (const auto& k : it->second.topics)
+            if (k.id == line) {
+                if (has_reply) *has_reply = k.reply != 0;
+                push({npc, KILN_SPEECH_EVENT_TOPIC, 0, 0, 0, line});
+                picks_++;
+                return true;
+            }
+        return false;
+    }
 
     // A host's reply waits for a menu (the window's hook looks every frame, not only at an open or a close).
     bool menu_say_pending() const { return says_waiting_.load(std::memory_order_acquire); }
@@ -222,6 +331,7 @@ public:
         says_.clear();
         for (auto it = npcs_.begin(); it != npcs_.end();) {
             for (auto& L : it->second.kinds) L = Lines{};
+            it->second.topics.clear();
             it->second.say_tag = 0;
             it->second.say_until = 0;
             // keep the NPC while voice-overs are muted: its next bubble call puts them back
@@ -348,6 +458,8 @@ public:
         c.dropped = dropped_;
         c.farewells = farewells_;
         c.menu_lines = menu_lines_;
+        c.topic_rows = topic_rows_;
+        c.picks = picks_;
         c.queued = static_cast<uint32_t>(events_.size());
         return c;
     }
@@ -379,6 +491,7 @@ private:
     };
     struct Npc {
         Lines kinds[kKinds];
+        std::vector<KilnSpeechTopic> topics;
         uint32_t say_tag = 0;
         uint64_t say_until = 0;
         uint32_t seen_game = 0;        // the game's last pick in the bubble
@@ -389,7 +502,7 @@ private:
         bool idle() const {
             for (auto& L : kinds)
                 if (L.mode != KILN_SPEECH_GAME) return false;
-            return !say_tag;
+            return !say_tag && topics.empty();
         }
     };
 
@@ -459,8 +572,9 @@ private:
     }
 
     void publish() {
-        bool any = false, lines = false;
+        bool any = false, lines = false, topics = false;
         for (auto& [k, v] : npcs_) {
+            if (!v.topics.empty()) topics = true;
             if (v.kinds[KILN_SPEECH_KIND_GREETING].mode != KILN_SPEECH_GAME || v.say_tag || !v.muted.empty()) any = true;
             if (v.kinds[KILN_SPEECH_KIND_FAREWELL].mode != KILN_SPEECH_GAME || v.kinds[KILN_SPEECH_KIND_MENU].mode != KILN_SPEECH_GAME)
                 lines = true;
@@ -468,6 +582,7 @@ private:
         any_.store(any, std::memory_order_release);
         lines_.store(lines, std::memory_order_release);
         says_waiting_.store(!says_.empty(), std::memory_order_release);
+        topics_.store(topics, std::memory_order_release);
     }
 
     void tally(Counts& c) const {
@@ -476,6 +591,7 @@ private:
             if (v.say_tag) c.says++;
             if (v.kinds[KILN_SPEECH_KIND_FAREWELL].mode != KILN_SPEECH_GAME || v.kinds[KILN_SPEECH_KIND_MENU].mode != KILN_SPEECH_GAME)
                 c.lines++;
+            if (!v.topics.empty()) c.topics++;
         }
     }
 
@@ -546,7 +662,8 @@ private:
         uint64_t until;
     };
     std::unordered_map<uint32_t, MenuSay> says_;  // a host's replies waiting for their NPC's menu
-    std::atomic<bool> says_waiting_{false};
+    std::atomic<bool> says_waiting_{false}, topics_{false};
+    uint64_t topic_rows_ = 0, picks_ = 0;
     uint32_t rng_ = 0x9e3779b9u;
 };
 

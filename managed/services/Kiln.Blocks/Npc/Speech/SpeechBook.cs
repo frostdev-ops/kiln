@@ -125,11 +125,16 @@ internal sealed class SpeechBook
     private sealed record Entry(string Owner, NpcLineKind Kind, SpeechMode Mode, UiText[] Lines, int Priority, long Seq, SpeechPick Pick);
     private sealed record SayEntry(string Owner, UiText Text, long UntilMs);
 
+    /// <summary>One owner's topics of an NPC (Wire: the line id Kiln clients show it with); Seq keeps its place on the page.</summary>
+    internal sealed record TopicEntry(string Owner, NpcTopic Topic, uint Wire, long Seq, SpeechLayer Layer);
+
     private sealed class Npc
     {
         public readonly List<Entry>[] Overrides = [new(), new()];
         public readonly SayEntry?[] Says = new SayEntry?[2];
-        public bool Empty => Overrides[0].Count == 0 && Overrides[1].Count == 0 && Says[0] is null && Says[1] is null;
+        public readonly List<TopicEntry>[] Topics = [new(), new()];
+        public bool Empty => Overrides[0].Count == 0 && Overrides[1].Count == 0 && Says[0] is null && Says[1] is null &&
+                             Topics[0].Count == 0 && Topics[1].Count == 0;
     }
 
     private readonly object _gate = new();
@@ -194,6 +199,7 @@ internal sealed class SpeechBook
             {
                 var hit = false;
                 foreach (var list in n.Overrides) hit |= list.RemoveAll(e => e.Owner == owner) > 0;
+                foreach (var list in n.Topics) hit |= list.RemoveAll(e => e.Owner == owner) > 0;
                 for (var i = 0; i < n.Says.Length; i++)
                     if (n.Says[i]?.Owner == owner) { n.Says[i] = null; hit = true; }
                 if (hit) touched.Add(npc);
@@ -203,9 +209,9 @@ internal sealed class SpeechBook
         }
     }
 
-    /// <summary>Drops a layer's overrides of some kinds (and, with <paramref name="says"/>, its Says): a v1 or a
-    /// kiln:npcdialog Reset from the server; returns the NPCs touched.</summary>
-    public uint[] DropLayer(SpeechLayer layer, Func<NpcLineKind, bool> kinds, bool says)
+    /// <summary>Drops a layer's overrides of some kinds (and, with <paramref name="says"/>, its Says; with
+    /// <paramref name="topics"/>, its topics): a v1 or a kiln:npcdialog Reset from the server; returns the NPCs touched.</summary>
+    public uint[] DropLayer(SpeechLayer layer, Func<NpcLineKind, bool> kinds, bool says, bool topics = false)
     {
         lock (_gate)
         {
@@ -216,6 +222,11 @@ internal sealed class SpeechBook
                 if (says && n.Says[(int)layer] is not null)
                 {
                     n.Says[(int)layer] = null;
+                    hit = true;
+                }
+                if (topics && n.Topics[(int)layer].Count > 0)
+                {
+                    n.Topics[(int)layer].Clear();
                     hit = true;
                 }
                 if (hit) touched.Add(npc);
@@ -233,9 +244,10 @@ internal sealed class SpeechBook
             var touched = new List<uint>();
             foreach (var (npc, n) in _npcs.ToArray())
             {
-                if (n.Overrides[(int)layer].Count > 0 || n.Says[(int)layer] is not null) touched.Add(npc);
+                if (n.Overrides[(int)layer].Count > 0 || n.Says[(int)layer] is not null || n.Topics[(int)layer].Count > 0) touched.Add(npc);
                 n.Overrides[(int)layer].Clear();
                 n.Says[(int)layer] = null;
+                n.Topics[(int)layer].Clear();
                 Drop(npc, n);
             }
             return touched.ToArray();
@@ -249,6 +261,43 @@ internal sealed class SpeechBook
             return _npcs.TryGetValue(npc, out var n) && n.Overrides[(int)layer].Find(e => e.Owner == owner && e.Kind == kind) is { } e
                 ? e.Mode
                 : SpeechMode.Game;
+    }
+
+    /// <summary>An owner's topics of the NPC become these (with their wire ids); its place on the page stays while it
+    /// has any.</summary>
+    public void SetTopics(SpeechLayer layer, uint npc, string owner, IReadOnlyList<(NpcTopic Topic, uint Wire)> topics)
+    {
+        lock (_gate)
+        {
+            var n = Get(npc);
+            var list = n.Topics[(int)layer];
+            var seq = list.Find(e => e.Owner == owner)?.Seq ?? ++_seq;
+            list.RemoveAll(e => e.Owner == owner);
+            list.AddRange(topics.Select(t => new TopicEntry(owner, t.Topic, t.Wire, seq, layer)));
+            Drop(npc, n);
+        }
+    }
+
+    /// <summary>One owner's topics of the NPC in a layer, in order.</summary>
+    public IReadOnlyList<TopicEntry> TopicsOf(SpeechLayer layer, uint npc, string owner)
+    {
+        lock (_gate)
+            return _npcs.TryGetValue(npc, out var n) ? n.Topics[(int)layer].Where(e => e.Owner == owner).ToArray() : [];
+    }
+
+    /// <summary>The NPC's page of Kiln topics: this process's own (Local) first, each owner's block where it began, then
+    /// the server's; at most <see cref="NpcTopics.MaxTopics"/>.</summary>
+    public IReadOnlyList<TopicEntry> EffectiveTopics(uint npc, SpeechLayer? only = null)
+    {
+        lock (_gate)
+        {
+            if (!_npcs.TryGetValue(npc, out var n)) return [];
+            var all = new List<TopicEntry>();
+            foreach (var layer in new[] { 0, 1 })
+                if (only is null || (int)only == layer)
+                    all.AddRange(n.Topics[layer].Select((e, i) => (e, i)).OrderBy(x => x.e.Seq).ThenBy(x => x.i).Select(x => x.e));
+            return all.Take(NpcTopics.MaxTopics).ToArray();
+        }
     }
 
     /// <summary>What the NPC's greeting shows now: Local over Remote; the highest priority, then the most recent; a Say

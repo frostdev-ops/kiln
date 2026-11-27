@@ -60,6 +60,18 @@ typedef struct KilnNpcSpeechStatus {
  * line (a dialogue closed). */
 #define KILN_SPEECH_REOPEN_MS 1000u
 
+#define KILN_SPEECH_MAX_TOPICS 16u /* Kiln topics per NPC */
+
+/* One topic of Kiln's on an NPC's talk page (feature npcspeech.topics), after the game's own. */
+typedef struct KilnSpeechTopic {
+    uint32_t id;    /* its line id: not 0 or 1 (the game's farewell and missing-requirement ids), unique per NPC */
+    uint32_t label; /* its text in the topic list (a tag) */
+    uint32_t reply; /* the NPC's answer in the speech box when picked (a tag); 0: none (the pick is reported, no box) */
+    uint8_t hint;   /* the list's style: 0 None, 1 Hint, 2 Attention, 3 MainQuest */
+    uint8_t close;  /* 1: the dialogue ends after the reply (the game's PlayOutro) */
+    uint8_t reserved[2];
+} KilnSpeechTopic;
+
 typedef struct KilnSpeechEvent {
     uint32_t npc;
     uint8_t type; /* KILN_SPEECH_EVENT_* */
@@ -125,6 +137,11 @@ typedef struct KilnNpcSpeechApi {
      * thread. KILN_ERR_UNAVAILABLE: npcspeech.menu_line is not on this build (or kiln.content's loca hooks are not here);
      * KILN_ERR_INVALID_ARGUMENT: entity 0. */
     KilnResult(KILN_CALL* menu_say)(KilnEntity npc, uint32_t tag);
+    /* The NPC's Kiln topics (0..KILN_SPEECH_MAX_TOPICS; replaces the last call's, n 0 clears): rows after the game's own
+     * on its talk page (a villager with none gets one), each pick an event (KILN_SPEECH_EVENT_TOPIC). Any thread.
+     * KILN_ERR_UNAVAILABLE: npcspeech.topics is not on this build (or kiln.content's loca hooks are not here);
+     * KILN_ERR_INVALID_ARGUMENT: entity 0, too many, an id 0 or 1 or twice, no label, a bad hint. */
+    KilnResult(KILN_CALL* topics)(KilnEntity npc, const KilnSpeechTopic* topics, uint32_t n);
 } KilnNpcSpeechApi;
 
 #ifdef __cplusplus
@@ -132,6 +149,8 @@ typedef struct KilnNpcSpeechApi {
 #endif
 #ifdef __cplusplus
 static_assert(sizeof(KilnSpeechEvent) == 16, "KilnSpeechEvent is 16 bytes");
+static_assert(sizeof(KilnSpeechTopic) == 16, "KilnSpeechTopic is 16 bytes");
+static_assert(offsetof(KilnNpcSpeechApi, topics) == 88 && sizeof(KilnNpcSpeechApi) == 96, "topics is appended at 88");
 static_assert(sizeof(KilnNpcDialogStatus) == 72, "KilnNpcDialogStatus is 72 bytes");
 static_assert(offsetof(KilnNpcSpeechApi, status) == 40, "31.16's table ends with status at 40 (48 bytes)");
 static_assert(offsetof(KilnNpcSpeechApi, set_lines) == 48, "set_lines is appended at 48");
@@ -140,6 +159,8 @@ static_assert(offsetof(KilnNpcSpeechApi, next) == 56 && offsetof(KilnNpcSpeechAp
               "next, events, dialog_status and menu_say follow");
 #else
 _Static_assert(sizeof(KilnSpeechEvent) == 16, "KilnSpeechEvent is 16 bytes");
+_Static_assert(sizeof(KilnSpeechTopic) == 16, "KilnSpeechTopic is 16 bytes");
+_Static_assert(offsetof(KilnNpcSpeechApi, topics) == 88 && sizeof(KilnNpcSpeechApi) == 96, "topics is appended at 88");
 _Static_assert(sizeof(KilnNpcDialogStatus) == 72, "KilnNpcDialogStatus is 72 bytes");
 _Static_assert(offsetof(KilnNpcSpeechApi, status) == 40, "31.16's table ends with status at 40 (48 bytes)");
 _Static_assert(offsetof(KilnNpcSpeechApi, set_lines) == 48, "set_lines is appended at 48");

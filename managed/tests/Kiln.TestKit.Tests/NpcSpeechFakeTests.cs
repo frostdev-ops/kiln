@@ -98,6 +98,31 @@ public sealed class NpcSpeechFakeTests
     }
 
     [Fact]
+    public void A_talk_page_of_a_mods_topics_and_a_pick_by_a_player()
+    {
+        using var h = new KilnHarness();
+        h.Step();
+        var player = new EntityId(501);
+        EntityId? fedBy = null;
+        h.Run(() => Npcs.Topics(Npc).Set(new NpcTopic("feed", "Here, have some bread.")
+        {
+            Reply = "Thank you!",
+            OnPick = ctx =>
+            {
+                fedBy = ctx.Player;
+                ctx.Reply("Now I can work again.");
+            },
+        }));
+        Assert.Equal(["Here, have some bread."], h.NpcSpeech.TopicsOf(Npc));
+        Assert.True(h.NpcSpeech.PickTopic(Npc, "feed", player));
+        Assert.Equal(player, fedBy);
+        Assert.Equal([(Npc, "Now I can work again.")], h.NpcSpeech.RepliesTo(player));
+        Assert.False(h.NpcSpeech.PickTopic(Npc, "nothing", player));
+        h.Run(() => Npcs.Topics(Npc).Clear());
+        Assert.Empty(h.NpcSpeech.TopicsOf(Npc));
+    }
+
+    [Fact]
     public void A_second_harness_shows_the_same_texts_and_starts_clear()
     {
         for (var round = 0; round < 2; round++)

@@ -13,6 +13,7 @@ pub const KILN_SPEECH_KIND_MENU: u32 = 2;
 pub const KILN_SPEECH_LINE_GAME: i32 = -1;
 pub const KILN_SPEECH_MAX_LINES: u32 = 32;
 pub const KILN_SPEECH_MAX_SAY_MS: u32 = 60000;
+pub const KILN_SPEECH_MAX_TOPICS: u32 = 16;
 pub const KILN_SPEECH_PICK_CHANGE: u32 = 0;
 pub const KILN_SPEECH_PICK_HOST: u32 = 4;
 pub const KILN_SPEECH_PICK_ORDER: u32 = 2;
@@ -34,6 +35,17 @@ pub struct KilnNpcSpeechStatus {
     pub bubbles: u64,
     pub changed: u64,
     pub muted: u64,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct KilnSpeechTopic {
+    pub id: u32,
+    pub label: u32,
+    pub reply: u32,
+    pub hint: u8,
+    pub close: u8,
+    pub reserved: [u8; 2],
 }
 
 #[repr(C)]
@@ -78,4 +90,5 @@ pub struct KilnNpcSpeechApi {
     pub events: Option<unsafe extern "C" fn(*mut KilnSpeechEvent, u32, *mut u32) -> KilnResult>,
     pub dialog_status: Option<unsafe extern "C" fn(*mut KilnNpcDialogStatus) -> KilnResult>,
     pub menu_say: Option<unsafe extern "C" fn(KilnEntity, u32) -> KilnResult>,
+    pub topics: Option<unsafe extern "C" fn(KilnEntity, *const KilnSpeechTopic, u32) -> KilnResult>,
 }

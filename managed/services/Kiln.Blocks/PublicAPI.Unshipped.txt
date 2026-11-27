@@ -39,3 +39,48 @@ static Kiln.Npcs.Farewells(Kiln.EntityId npc) -> Kiln.NpcSpeech!
 static Kiln.Npcs.MenuLine(Kiln.EntityId npc) -> Kiln.NpcSpeech!
 static Kiln.Npcs.MenuSay(Kiln.EntityId npc, Kiln.EntityId player, Kiln.UiText! text) -> Kiln.SpeechResult!
 static Kiln.Npcs.MenuSay(Kiln.EntityId npc, Kiln.EntityId player, string! text) -> Kiln.SpeechResult!
+Kiln.NpcTopic
+Kiln.NpcTopic.<Clone>$() -> Kiln.NpcTopic!
+Kiln.NpcTopic.Close.get -> bool
+Kiln.NpcTopic.Close.init -> void
+Kiln.NpcTopic.Equals(Kiln.NpcTopic? other) -> bool
+Kiln.NpcTopic.Hint.get -> Kiln.NpcTopicHint
+Kiln.NpcTopic.Hint.init -> void
+Kiln.NpcTopic.Id.get -> string!
+Kiln.NpcTopic.Label.get -> Kiln.UiText!
+Kiln.NpcTopic.NpcTopic(string! id, Kiln.UiText! label) -> void
+Kiln.NpcTopic.NpcTopic(string! id, string! label) -> void
+Kiln.NpcTopic.OnPick.get -> System.Action<Kiln.NpcTopicContext!>?
+Kiln.NpcTopic.OnPick.init -> void
+Kiln.NpcTopic.Reply.get -> Kiln.UiText?
+Kiln.NpcTopic.Reply.init -> void
+Kiln.NpcTopicContext
+Kiln.NpcTopicContext.ModId.get -> string!
+Kiln.NpcTopicContext.Npc.get -> Kiln.EntityId
+Kiln.NpcTopicContext.Player.get -> Kiln.EntityId
+Kiln.NpcTopicContext.Reply(Kiln.UiText! text) -> Kiln.SpeechResult!
+Kiln.NpcTopicContext.Reply(string! text) -> Kiln.SpeechResult!
+Kiln.NpcTopicContext.Topic.get -> Kiln.NpcTopic!
+Kiln.NpcTopicHint
+Kiln.NpcTopicHint.Attention = 2 -> Kiln.NpcTopicHint
+Kiln.NpcTopicHint.Hint = 1 -> Kiln.NpcTopicHint
+Kiln.NpcTopicHint.MainQuest = 3 -> Kiln.NpcTopicHint
+Kiln.NpcTopicHint.None = 0 -> Kiln.NpcTopicHint
+Kiln.NpcTopics
+Kiln.NpcTopics.Add(Kiln.NpcTopic! topic) -> Kiln.SpeechResult!
+Kiln.NpcTopics.Clear() -> void
+Kiln.NpcTopics.List.get -> System.Collections.Generic.IReadOnlyList<Kiln.NpcTopic!>!
+Kiln.NpcTopics.ModId.get -> string!
+Kiln.NpcTopics.Npc.get -> Kiln.EntityId
+Kiln.NpcTopics.Remove(string! id) -> Kiln.SpeechResult!
+Kiln.NpcTopics.Set(params Kiln.NpcTopic![]! topics) -> Kiln.SpeechResult!
+const Kiln.NpcTopic.MaxIdLength = 64 -> int
+const Kiln.NpcTopics.MaxTopics = 16 -> int
+override Kiln.NpcTopic.Equals(object? obj) -> bool
+override Kiln.NpcTopic.GetHashCode() -> int
+override Kiln.NpcTopic.ToString() -> string!
+override Kiln.NpcTopicContext.ToString() -> string!
+override Kiln.NpcTopics.ToString() -> string!
+static Kiln.NpcTopic.operator !=(Kiln.NpcTopic? left, Kiln.NpcTopic? right) -> bool
+static Kiln.NpcTopic.operator ==(Kiln.NpcTopic? left, Kiln.NpcTopic? right) -> bool
+static Kiln.Npcs.Topics(Kiln.EntityId npc) -> Kiln.NpcTopics!

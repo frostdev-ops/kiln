@@ -214,6 +214,19 @@ public static class Npcs
         return NpcSpeechEngine.MenuSay(npc, player, text);
     }
 
+    /// <summary>The calling mod's topics on the NPC's talk page in the game's dialogue menu: rows after the NPC's own
+    /// (never removed), so a villager without topics of its own (Ramone) gets a page. A pick shows the topic's
+    /// <see cref="NpcTopic.Reply"/> and runs its <see cref="NpcTopic.OnPick"/> on the host for that player. Kiln clients
+    /// since 0.2.0-dev.32 (capability <c>npcspeech.topics</c>); a vanilla or older client sees the game's page. Any
+    /// thread. Since 0.2.0-dev.32.</summary>
+    /// <exception cref="ArgumentException"><paramref name="npc"/> is None.</exception>
+    public static NpcTopics Topics(EntityId npc)
+    {
+        if (npc.IsNone) throw new ArgumentException("no NPC (EntityId.None)", nameof(npc));
+        NpcSpeechEngine.Start();
+        return new NpcTopics(npc, NpcSpeechEngine.Owner());
+    }
+
     /// <summary>What the NPC's greeting bubble does now, from every mod's overrides (a Say aside). Any thread.</summary>
     public static SpeechMode SpeechOf(EntityId npc) => NpcSpeechEngine.Book.Effective(npc.Value, NpcSpeechEngine.Clock()).Mode;
 

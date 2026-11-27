@@ -3590,6 +3590,14 @@ const _: () = {
     assert!(core::mem::offset_of!(crate::services::kiln_npcspeech::KilnNpcSpeechStatus, bubbles) == 24);
     assert!(core::mem::offset_of!(crate::services::kiln_npcspeech::KilnNpcSpeechStatus, changed) == 32);
     assert!(core::mem::offset_of!(crate::services::kiln_npcspeech::KilnNpcSpeechStatus, muted) == 40);
+    assert!(core::mem::size_of::<crate::services::kiln_npcspeech::KilnSpeechTopic>() == 16);
+    assert!(core::mem::align_of::<crate::services::kiln_npcspeech::KilnSpeechTopic>() == 4);
+    assert!(core::mem::offset_of!(crate::services::kiln_npcspeech::KilnSpeechTopic, id) == 0);
+    assert!(core::mem::offset_of!(crate::services::kiln_npcspeech::KilnSpeechTopic, label) == 4);
+    assert!(core::mem::offset_of!(crate::services::kiln_npcspeech::KilnSpeechTopic, reply) == 8);
+    assert!(core::mem::offset_of!(crate::services::kiln_npcspeech::KilnSpeechTopic, hint) == 12);
+    assert!(core::mem::offset_of!(crate::services::kiln_npcspeech::KilnSpeechTopic, close) == 13);
+    assert!(core::mem::offset_of!(crate::services::kiln_npcspeech::KilnSpeechTopic, reserved) == 14);
     assert!(core::mem::size_of::<crate::services::kiln_npcspeech::KilnSpeechEvent>() == 16);
     assert!(core::mem::align_of::<crate::services::kiln_npcspeech::KilnSpeechEvent>() == 4);
     assert!(core::mem::offset_of!(crate::services::kiln_npcspeech::KilnSpeechEvent, npc) == 0);
@@ -3612,7 +3620,7 @@ const _: () = {
     assert!(core::mem::offset_of!(crate::services::kiln_npcspeech::KilnNpcDialogStatus, topic_rows) == 48);
     assert!(core::mem::offset_of!(crate::services::kiln_npcspeech::KilnNpcDialogStatus, picks) == 56);
     assert!(core::mem::offset_of!(crate::services::kiln_npcspeech::KilnNpcDialogStatus, dropped) == 64);
-    assert!(core::mem::size_of::<crate::services::kiln_npcspeech::KilnNpcSpeechApi>() == 88);
+    assert!(core::mem::size_of::<crate::services::kiln_npcspeech::KilnNpcSpeechApi>() == 96);
     assert!(core::mem::align_of::<crate::services::kiln_npcspeech::KilnNpcSpeechApi>() == 8);
     assert!(core::mem::offset_of!(crate::services::kiln_npcspeech::KilnNpcSpeechApi, header) == 0);
     assert!(core::mem::offset_of!(crate::services::kiln_npcspeech::KilnNpcSpeechApi, set) == 8);
@@ -3625,6 +3633,7 @@ const _: () = {
     assert!(core::mem::offset_of!(crate::services::kiln_npcspeech::KilnNpcSpeechApi, events) == 64);
     assert!(core::mem::offset_of!(crate::services::kiln_npcspeech::KilnNpcSpeechApi, dialog_status) == 72);
     assert!(core::mem::offset_of!(crate::services::kiln_npcspeech::KilnNpcSpeechApi, menu_say) == 80);
+    assert!(core::mem::offset_of!(crate::services::kiln_npcspeech::KilnNpcSpeechApi, topics) == 88);
     assert!(core::mem::size_of::<crate::services::kiln_pacing::KilnPacingLoopWait>() == 24);
     assert!(core::mem::align_of::<crate::services::kiln_pacing::KilnPacingLoopWait>() == 8);
     assert!(core::mem::offset_of!(crate::services::kiln_pacing::KilnPacingLoopWait, size) == 0);

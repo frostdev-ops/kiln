@@ -38,6 +38,7 @@ public sealed unsafe class NpcDialogTests : IDisposable
             _table->Events = &FakeEvents;
             _table->DialogStatus = &FakeDialogStatus;
             _table->MenuSay = &FakeMenuSay;
+            _table->Topics = &FakeTopics;
         }
         lock (Calls) Calls.Clear();
         Wire.Clear();
@@ -133,6 +134,15 @@ public sealed unsafe class NpcDialogTests : IDisposable
 
     [UnmanagedCallersOnly]
     private static int FakeDialogStatus(SpeechNative.DialogStatus* s) => 0;
+
+    [UnmanagedCallersOnly]
+    private static int FakeTopics(uint npc, SpeechNative.Topic* t, uint n)
+    {
+        var rows = new List<string>();
+        for (var i = 0; i < n; i++) rows.Add($"{t[i].Id:x8}:{t[i].Label:x8}:{t[i].Reply:x8}:{t[i].Hint}:{t[i].Close}");
+        lock (Calls) Calls.Add($"topics {npc} [{string.Join(",", rows)}]");
+        return 0;
+    }
 
     [UnmanagedCallersOnly]
     private static int FakeMenuSay(uint npc, uint tag)
@@ -459,5 +469,151 @@ public sealed unsafe class NpcDialogTests : IDisposable
         NpcSpeechEngine.EncodeMenuSay(new MenuSayMsg(5, text), w);
         var rd = new NetReader(w.ToArray());
         Assert.Equal(new MenuSayMsg(5, text), NpcSpeechEngine.DecodeMenuSay(ref rd));
+    }
+
+    // ----------------------------------------------------------------------------------- slice 4: talk pages ----
+
+    private static readonly List<(string Topic, EntityId Player, EntityId Npc)> Picks = new();
+
+    private static NpcTopic Feed() => new("feed", "Here, have some bread.")
+    {
+        Reply = "Thank you, Flameborn!",
+        Hint = NpcTopicHint.Attention,
+        OnPick = ctx => Picks.Add((ctx.Topic.Id, ctx.Player, ctx.Npc)),
+    };
+
+    [Fact]
+    public void A_villager_gets_a_talk_page_of_the_mods_topics()
+    {
+        Picks.Clear();
+        var page = Npcs.Topics(Ramone);
+        NpcTopic Bye() => new("bye", "I have to go.") { Reply = "Take care.", Close = true };
+        NpcTopic How() => new("how", "How are you?");               // no reply: the host answers, or nothing shows
+        Assert.True(page.Set(Feed(), Bye(), How()).Ok);
+        Assert.Equal(["feed", "bye", "how"], page.List.Select(t => t.Id));
+        var feed = NpcSpeechEngine.TopicId("kiln", "feed");
+        var bye = NpcSpeechEngine.TopicId("kiln", "bye");
+        var how = NpcSpeechEngine.TopicId("kiln", "how");
+        Assert.Contains($"topics {Ramone.Value} [{feed:x8}:{Tag("Here, have some bread."):x8}:{Tag("Thank you, Flameborn!"):x8}:2:0," +
+                        $"{bye:x8}:{Tag("I have to go."):x8}:{Tag("Take care."):x8}:0:1," +
+                        $"{how:x8}:{Tag("How are you?"):x8}:00000000:0:0]", Snapshot());
+        var m = Assert.Single(Wire.OfType<TopicsMsg>());
+        Assert.Equal((Ramone.Value, 3), (m.Npc, m.Topics.Length));
+        Assert.Equal((feed, (byte)2, false), (m.Topics[0].Id, m.Topics[0].Hint, m.Topics[0].Close));
+        Assert.True(m.Topics[1].Close);
+        Assert.Equal("", m.Topics[2].Reply);
+        Assert.Empty(Wire.OfType<SpeechMsg>());
+        Assert.Throws<ArgumentException>(() => page.Add(new NpcTopic("x", "y") { Close = true }));   // Close needs a Reply
+
+        Wire.Clear();
+        page.Set(Feed(), Bye(), How());
+        Assert.Empty(Wire);                                             // the same page again: nothing goes out
+        Assert.True(page.Remove("bye").Ok);
+        Assert.True(page.Remove("how").Ok);
+        Assert.Contains($"topics {Ramone.Value} [{feed:x8}:{Tag("Here, have some bread."):x8}:{Tag("Thank you, Flameborn!"):x8}:2:0]", Snapshot());
+        page.Clear();
+        Assert.Contains($"topics {Ramone.Value} []", Snapshot());
+        Assert.Empty(Wire.OfType<TopicsMsg>().Last().Topics);
+    }
+
+    [Fact]
+    public void A_joined_players_pick_runs_the_handler_on_the_host_and_its_reply_goes_to_that_player()
+    {
+        Picks.Clear();
+        Peers.Add(new SpeechPeer(1, P1, Dialog: true));
+        Npcs.Topics(Ramone).Set(Feed() with { OnPick = ctx => { Picks.Add((ctx.Topic.Id, ctx.Player, ctx.Npc)); ctx.Reply("You already fed me today."); } });
+        var feed = NpcSpeechEngine.TopicId("kiln", "feed");
+        NpcSpeechEngine.Received(new PickedMsg(Ramone.Value, feed), Peers[0]);
+        Assert.Empty(Picks);                                            // mod code: on the tick
+        NpcSpeechEngine.Tick();
+        Assert.Equal([("feed", P1, Ramone)], Picks);
+        Assert.Contains((1u, (object)new MenuSayMsg(Ramone.Value, SpeechText.Json(new UiText("You already fed me today.")))), ToPeers);
+
+        NpcSpeechEngine.Received(new PickedMsg(Ramone.Value, 12345), Peers[0]);   // not a topic of this host
+        NpcSpeechEngine.Received(new PickedMsg(Hannah.Value, feed), Peers[0]);   // not that NPC's
+        NpcSpeechEngine.Tick();
+        Assert.Single(Picks);
+    }
+
+    [Fact]
+    public void The_hosts_own_pick_comes_from_kiln_npcspeech()
+    {
+        Picks.Clear();
+        Npcs.Topics(Ramone).Set(Feed());
+        Events.Enqueue(new(Ramone.Value, 1, 0, 0, NpcSpeechEngine.TopicId("kiln", "feed")));
+        NpcSpeechEngine.Tick();
+        Assert.Equal([("feed", Local, Ramone)], Picks);
+        Assert.Empty(Wire.OfType<PickedMsg>());
+    }
+
+    [Fact]
+    public void A_joined_client_shows_the_hosts_topics_and_sends_their_picks_but_runs_its_own()
+    {
+        Picks.Clear();
+        _host = false;
+        var label = SpeechText.Json(new UiText("Here, have some bread."));
+        NpcSpeechEngine.Received(new TopicsMsg(Ramone.Value, [new TopicWire(0x7001, label, "", 2, false)]));
+        Assert.Contains($"topics {Ramone.Value} [00007001:{SpeechText.Tag(label):x8}:00000000:2:0]", Snapshot());
+        Events.Enqueue(new(Ramone.Value, 1, 0, 0, 0x7001));
+        NpcSpeechEngine.Tick();
+        Assert.Equal(new PickedMsg(Ramone.Value, 0x7001), Assert.Single(Wire.OfType<PickedMsg>()));
+
+        Npcs.Topics(Ramone).Set(Feed());                               // this player's own client-only mod: added after
+        var mine = NpcSpeechEngine.TopicId("kiln", "feed");
+        Assert.Contains(Snapshot(), c => c.StartsWith($"topics {Ramone.Value} [{mine:x8}:", StringComparison.Ordinal) && c.Contains(",00007001:"));
+        Events.Enqueue(new(Ramone.Value, 1, 0, 0, mine));
+        NpcSpeechEngine.Tick();
+        Assert.Equal([("feed", Local, Ramone)], Picks);
+        Assert.Single(Wire.OfType<PickedMsg>());                         // its own pick stays here
+
+        NpcSpeechEngine.ReceivedDialogReset();
+        Assert.DoesNotContain(",00007001:", Snapshot().Last());
+    }
+
+    [Fact]
+    public void Topics_of_several_mods_add_up_after_each_other_up_to_sixteen()
+    {
+        NpcSpeechEngine.SetTopics(Ramone, "a", [new NpcTopic("x", "A's")]);
+        NpcSpeechEngine.SetTopics(Ramone, "b", Enumerable.Range(0, 16).Select(i => new NpcTopic($"t{i}", $"B's {i}")).ToArray());
+        var last = Snapshot().Last(c => c.StartsWith($"topics {Ramone.Value} ", StringComparison.Ordinal));
+        Assert.Equal(16, last.Split(',').Length);                        // the page holds 16; the rest waits
+        Assert.StartsWith($"topics {Ramone.Value} [{NpcSpeechEngine.TopicId("a", "x"):x8}:", last);
+        NpcSpeechEngine.SetTopics(Ramone, "a", []);
+        last = Snapshot().Last(c => c.StartsWith($"topics {Ramone.Value} ", StringComparison.Ordinal));
+        Assert.Contains($"{NpcSpeechEngine.TopicId("b", "t15"):x8}:", last);
+    }
+
+    [Fact]
+    public void Topics_are_checked_and_their_ids_are_stable()
+    {
+        Assert.Equal(NpcSpeechEngine.TopicId("living-larder", "feed"), NpcSpeechEngine.TopicId("living-larder", "feed"));
+        Assert.NotEqual(NpcSpeechEngine.TopicId("living-larder", "feed"), NpcSpeechEngine.TopicId("other", "feed"));
+        Assert.True(NpcSpeechEngine.TopicId("m", "t") > 1);
+        Assert.Throws<ArgumentException>(() => new NpcTopic("", "x"));
+        Assert.Throws<ArgumentException>(() => new NpcTopic("x", ""));
+        Assert.Throws<ArgumentException>(() => new NpcTopic("x", "y") { Reply = new string('a', 201) }.Check());
+        var page = Npcs.Topics(Ramone);
+        Assert.Throws<ArgumentException>(() => page.Set(Enumerable.Range(0, 17).Select(i => new NpcTopic($"t{i}", "x")).ToArray()));
+        Assert.Throws<ArgumentException>(() => page.Set(new NpcTopic("a", "x"), new NpcTopic("a", "y")));
+        Assert.Throws<ArgumentException>(() => Npcs.Topics(EntityId.None));
+    }
+
+    [Fact]
+    public void The_topic_wire_round_trips_and_the_world_ending_clears_pages()
+    {
+        var m = new TopicsMsg(9, [new TopicWire(0x7001, SpeechText.Json(new UiText("a")), SpeechText.Json(new UiText("b")), 3, true)]);
+        var w = new NetWriter();
+        NpcSpeechEngine.EncodeTopics(m, w);
+        var r = new NetReader(w.ToArray());
+        var back = NpcSpeechEngine.DecodeTopics(ref r);
+        Assert.Equal((m.Npc, m.Topics[0]), (back.Npc, back.Topics[0]));
+        var bad = new NetWriter().UInt32(9).Byte(1).UInt32(0x7001).String("{}").String("").Byte(4).Bool(false);
+        Assert.Throws<NetFormatException>(() => { var rr = new NetReader(bad.ToArray()); NpcSpeechEngine.DecodeTopics(ref rr); });
+
+        Npcs.Topics(Ramone).Set(Feed());
+        lock (Calls) Calls.Clear();
+        NpcSpeechEngine.WorldEnded();
+        Assert.Empty(Npcs.Topics(Ramone).List);
+        Assert.Contains("clear", Snapshot());
     }
 }

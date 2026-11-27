@@ -31,6 +31,52 @@ struct Window {
 };
 
 constexpr uint32_t kSeeYouSoon = 653977772u;  // Ramone's farewell "See you soon!"
+
+// The window's topic list as on 26430625: {ptr, count +8, cap +0x10, grow +0x18}; topics of 0x2a0 bytes, the line entry
+// at +4 (line id +0, option text +4, body texts +8, count +0x88, voice-overs' count +0x28c, hint +0x290, end action +0x292),
+// a pointer at +0x298. The grow callback is the game's: bool(list*, -needed, 0).
+struct TopicList {
+    uint8_t* ptr = nullptr;
+    uint64_t count = 0, cap = 0;
+    bool (*grow)(void*, int64_t, uint8_t) = nullptr;
+};
+static_assert(sizeof(TopicList) == 0x20);
+std::vector<uint8_t> g_storage;
+int g_grows = 0;
+bool g_grow_fails = false;
+bool fake_grow(void* list, int64_t neg, uint8_t flag) {
+    auto* l = static_cast<TopicList*>(list);
+    ++g_grows;
+    if (g_grow_fails || flag != 0 || neg >= 0) return false;
+    const uint64_t want = static_cast<uint64_t>(-neg);
+    std::vector<uint8_t> bigger((want + 4) * 0x2a0);
+    if (l->ptr) std::memcpy(bigger.data(), l->ptr, l->count * 0x2a0);
+    g_storage.swap(bigger);
+    l->ptr = g_storage.data();
+    l->cap = want + 4;
+    return true;
+}
+struct Topic {
+    const uint8_t* p;
+    uint8_t kind() const { return p[0]; }
+    uint32_t u32(size_t off) const {
+        uint32_t v;
+        std::memcpy(&v, p + 4 + off, 4);
+        return v;
+    }
+    uint32_t id() const { return u32(0); }
+    uint32_t label() const { return u32(4); }
+    uint32_t reply() const { return u32(8); }
+    uint8_t texts() const { return p[4 + 0x88]; }
+    uint8_t vo() const { return p[4 + 0x28c]; }
+    uint8_t hint() const { return p[4 + 0x290]; }
+    uint8_t end() const { return p[4 + 0x292]; }
+    uint64_t ptr() const {
+        uint64_t v;
+        std::memcpy(&v, p + 0x298, 8);
+        return v;
+    }
+};
 }  // namespace
 
 int main() {
@@ -161,6 +207,90 @@ int main() {
         c.menu_say(7, 0xd6, 3000);
         c.clear_all();
         CHECK(!c.menu_say_pending() && !c.dialog_active(), "clear_all drops waiting replies");
+    }
+    // ---- slice 4: talk pages: Kiln's topics after the game's own, and their picks -----------------------------------
+    npcspeech::TopicLayout tl;
+    CHECK(tl.sane(), "the game's topic layout is sane");
+    const KilnSpeechTopic food[] = {{0x70d1, 0xa001, 0xb001, 2, 0, {0, 0}}, {0x70d2, 0xa002, 0, 0, 1, {0, 0}}};
+    {  // an NPC with no topic of its own (Ramone) gets Kiln's: the list grows through the game's own callback
+        npcspeech::Core c;
+        CHECK(c.topics(7, food, 2), "topics");
+        CHECK(c.dialog_active() && c.has_topics(), "topics need the list's hook");
+        TopicList list;
+        list.grow = &fake_grow;
+        g_grows = 0;
+        CHECK(c.append(7, reinterpret_cast<uint8_t*>(&list), tl) == 2, "two topics added");
+        CHECK(list.count == 2 && g_grows >= 1, "count 2, grown by the game's callback");
+        Topic a{list.ptr}, b{list.ptr + 0x2a0};
+        CHECK(a.kind() == 0 && a.id() == 0x70d1 && a.label() == 0xa001 && a.reply() == 0xb001 && a.texts() == 1 && a.vo() == 0 &&
+                  a.hint() == 2 && a.end() == 0 && a.ptr() == 0,
+              "a topic: say its entry, Kiln's id, label, one reply, no voice-over, its hint");
+        CHECK(b.id() == 0x70d2 && b.texts() == 0 && b.end() == 1, "a topic without a reply, closing the talk");
+        CHECK(c.counts().topic_rows == 2, "rows counted");
+    }
+    {  // after the game's own topics, within its capacity; another NPC gets nothing; a list that cannot grow stops
+        npcspeech::Core c;
+        c.topics(7, food, 2);
+        std::vector<uint8_t> mem(4 * 0x2a0);
+        TopicList list;
+        list.ptr = mem.data();
+        list.cap = 4;
+        list.count = 1;
+        const uint32_t game_id = 1116149345u;
+        std::memcpy(mem.data() + 4, &game_id, 4);
+        list.grow = &fake_grow;
+        g_grows = 0;
+        CHECK(c.append(7, reinterpret_cast<uint8_t*>(&list), tl) == 2 && list.count == 3 && g_grows == 0, "room: no grow");
+        CHECK(Topic{mem.data()}.id() == game_id && Topic{mem.data() + 0x2a0}.id() == 0x70d1, "the game's topic stays first (additive)");
+        TopicList other;
+        other.grow = &fake_grow;
+        CHECK(c.append(8, reinterpret_cast<uint8_t*>(&other), tl) == 0 && other.count == 0, "another NPC: nothing");
+        TopicList stuck;
+        stuck.grow = nullptr;
+        CHECK(c.append(7, reinterpret_cast<uint8_t*>(&stuck), tl) == 0 && stuck.count == 0, "no grow callback: nothing");
+        g_grow_fails = true;
+        TopicList refused;
+        refused.grow = &fake_grow;
+        CHECK(c.append(7, reinterpret_cast<uint8_t*>(&refused), tl) == 0 && refused.count == 0, "the callback refuses: nothing");
+        g_grow_fails = false;
+    }
+    {  // a pick of a Kiln topic is reported once per click; the game's own topics are not Kiln's
+        npcspeech::Core c;
+        c.topics(7, food, 2);
+        bool reply = false;
+        CHECK(c.picked(7, 0x70d1, &reply) && reply, "Kiln's topic with a reply");
+        CHECK(c.picked(7, 0x70d2, &reply) && !reply, "Kiln's topic without one (the caller skips the empty box)");
+        CHECK(!c.picked(7, 1116149345u, &reply), "the game's topic is the game's");
+        CHECK(!c.picked(8, 0x70d1, &reply), "another NPC's menu");
+        KilnSpeechEvent ev[4];
+        const uint32_t n = c.drain(ev, 4);
+        CHECK(n == 2 && ev[0].type == KILN_SPEECH_EVENT_TOPIC && ev[0].npc == 7 && ev[0].value == 0x70d1 && ev[1].value == 0x70d2,
+              "picks are events with the topic's id");
+        CHECK(c.counts().picks == 2, "picks counted");
+    }
+    {  // limits and clearing
+        npcspeech::Core c;
+        std::vector<KilnSpeechTopic> many(npcspeech::kMaxTopics + 1, KilnSpeechTopic{0x7000, 0xa001, 0xb001, 0, 0, {0, 0}});
+        for (size_t i = 0; i < many.size(); ++i) many[i].id = 0x7000 + static_cast<uint32_t>(i);
+        CHECK(!npcspeech::Core::valid_topics(7, many.data(), static_cast<uint32_t>(many.size())), "more than kMaxTopics");
+        KilnSpeechTopic zero = food[0];
+        zero.id = 1;
+        CHECK(!npcspeech::Core::valid_topics(7, &zero, 1), "ids 0 and 1 are the game's (farewell, missing requirement)");
+        zero = food[0];
+        zero.label = 0;
+        CHECK(!npcspeech::Core::valid_topics(7, &zero, 1), "a topic needs a label");
+        zero = food[0];
+        zero.hint = 4;
+        CHECK(!npcspeech::Core::valid_topics(7, &zero, 1), "an unknown hint");
+        KilnSpeechTopic dup[] = {food[0], food[0]};
+        CHECK(!npcspeech::Core::valid_topics(7, dup, 2), "the same id twice");
+        CHECK(npcspeech::Core::valid_topics(7, nullptr, 0), "none: clears");
+        c.topics(7, food, 2);
+        c.topics(7, nullptr, 0);
+        CHECK(!c.has_topics() && c.tracked() == 0, "cleared, NPC forgotten");
+        c.topics(7, food, 2);
+        c.clear_all();
+        CHECK(!c.has_topics(), "clear_all ends topics");
     }
     std::printf("npcdialog core: %d PASS, %d FAIL\n", g_pass, g_fail);
     return g_fail ? 1 : 0;

@@ -4,9 +4,11 @@
 // so 31.16-31.21 clients keep kiln:npcspeech v1 exactly as they know it. docs/kiln/services/npc-speech.md.
 //   1 Lines   ToClient  u32 npc, u8 kind, u8 mode, u8 pick, u32 seed, u8 n, n x string (text JSON): the effective override
 //   2 Next    ToClient  u32 npc, u8 kind, i32 line: a host-picked line (SpeechPick.By) for this player's next open
+//   3 Topics  ToClient  u32 npc, u8 n, n x {u32 id, string label, string reply ("" none), u8 hint, bool close}: the host's page
 //   4 MenuSay ToClient  u32 npc, string (text JSON): a host's reply to this player in that NPC's menu (Npcs.MenuSay)
 //   5 Reset   ToClient  bool: forget everything this channel sent (the snapshot's first message)
 //   6 Opened  ToServer  u32 npc, u8 kind, i32 line, u32 opens: a host-picked line showed on this player's screen
+//   7 Picked  ToServer  u32 npc, u32 id: this player picked one of the host's topics
 // A dev.32 client whose server has this channel takes greetings from Lines (with their pick) and ignores v1 Speech.
 // SpeechPick.By runs where its override lives (the host for the host's mods, a client for its own mods) on the tick
 // thread, one greeting ahead: for every Kiln player when the override begins or Refresh() asks, then after each open.
@@ -19,6 +21,9 @@ internal sealed record NextMsg(uint Npc, NpcLineKind Kind, int Line);
 internal sealed record OpenedMsg(uint Npc, NpcLineKind Kind, int Line, uint Opens);
 internal sealed record DialogResetMsg(bool All);
 internal sealed record MenuSayMsg(uint Npc, string Text);
+internal sealed record TopicWire(uint Id, string Label, string Reply, byte Hint, bool Close);
+internal sealed record TopicsMsg(uint Npc, TopicWire[] Topics);
+internal sealed record PickedMsg(uint Npc, uint Id);
 
 /// <summary>A Kiln client as the host sees it: its peer id, its player, whether it has kiln:npcdialog (Local: this
 /// process's own player, whose picks go to kiln.npcspeech here).</summary>
@@ -28,7 +33,7 @@ internal static partial class NpcSpeechEngine
 {
     public const string DialogChannel = "kiln:npcdialog";
     public const string DialogVersion = "1";
-    public const ushort MsgLines = 1, MsgNext = 2, MsgMenuSay = 4, MsgDialogReset = 5, MsgOpened = 6;
+    public const ushort MsgLines = 1, MsgNext = 2, MsgTopics = 3, MsgMenuSay = 4, MsgDialogReset = 5, MsgOpened = 6, MsgPicked = 7;
 
     /// <summary>Test seams: per-peer sends, the host's Kiln clients, whether the server has kiln:npcdialog, the local player.</summary>
     internal static Action<SpeechPeer, object>? SendToHook;
@@ -49,6 +54,10 @@ internal static partial class NpcSpeechEngine
     private static readonly Dictionary<(uint, NpcLineKind, uint), (int Opens, int Last)> ByState = new();
     private static readonly ConcurrentQueue<(uint Npc, NpcLineKind Kind, SpeechPeer? To)> ByWork = new();
     private static readonly SpeechPeer LocalTarget = new(0, EntityId.None, false, null, Local: true);
+    // talk pages: what this process's menu and the clients were told per NPC, and the picks due on the tick
+    private static readonly Dictionary<uint, TopicWire[]> AppliedTopics = new();
+    private static readonly Dictionary<uint, TopicWire[]> SentTopics = new();
+    private static readonly ConcurrentQueue<(uint Npc, uint Id, EntityId Player)> PickWork = new();
     private static int _byWarned;
 
     internal static bool ServerHasDialog
@@ -88,7 +97,10 @@ internal static partial class NpcSpeechEngine
             .Register<LinesMsg>(MsgLines, EncodeLines, DecodeLines, static (m, _) => Received(m), NetDirection.ToClient)
             .Register<NextMsg>(MsgNext, static (m, w) => w.UInt32(m.Npc).Byte((byte)m.Kind).Int32(m.Line),
                 static (ref NetReader r) => new NextMsg(r.UInt32(), Kind(r.Byte()), r.Int32()), static (m, _) => Received(m), NetDirection.ToClient)
+            .Register<TopicsMsg>(MsgTopics, EncodeTopics, DecodeTopics, static (m, _) => Received(m), NetDirection.ToClient)
             .Register<MenuSayMsg>(MsgMenuSay, EncodeMenuSay, DecodeMenuSay, static (m, _) => Received(m), NetDirection.ToClient)
+            .Register<PickedMsg>(MsgPicked, static (m, w) => w.UInt32(m.Npc).UInt32(m.Id), static (ref NetReader r) => new PickedMsg(r.UInt32(), r.UInt32()),
+                static (m, ctx) => Received(m, PeerOf(ctx.Sender)), NetDirection.ToServer)
             .Register<DialogResetMsg>(MsgDialogReset, static (m, w) => w.Bool(m.All), static (ref NetReader r) => new DialogResetMsg(r.Bool()),
                 static (_, _) => ReceivedDialogReset(), NetDirection.ToClient)
             .Register<OpenedMsg>(MsgOpened, static (m, w) => w.UInt32(m.Npc).Byte((byte)m.Kind).Int32(m.Line).UInt32(m.Opens),
@@ -113,8 +125,10 @@ internal static partial class NpcSpeechEngine
         return m switch
         {
             LinesMsg s => _dialog.SendToAll(s),
+            TopicsMsg s => _dialog.SendToAll(s),
             DialogResetMsg s => _dialog.SendToAll(s),
             OpenedMsg s => _dialog.SendToServer(s) ? 1 : 0,
+            PickedMsg s => _dialog.SendToServer(s) ? 1 : 0,
             _ => 0,
         };
     }
@@ -130,6 +144,7 @@ internal static partial class NpcSpeechEngine
                 LinesMsg s => _dialog.SendTo(np, s),
                 NextMsg s => _dialog.SendTo(np, s),
                 MenuSayMsg s => _dialog.SendTo(np, s),
+                TopicsMsg s => _dialog.SendTo(np, s),
                 DialogResetMsg s => _dialog.SendTo(np, s),
                 _ => false,
             };
@@ -148,6 +163,7 @@ internal static partial class NpcSpeechEngine
         Changed(npc);
         ChangedLines(npc, NpcLineKind.Farewell);
         ChangedLines(npc, NpcLineKind.MenuLine);
+        ChangedTopics(npc);
     }
 
     /// <summary>The NPC's farewell or menu line changed (maybe): this process's menu follows, and as the host the clients.</summary>
@@ -255,8 +271,12 @@ internal static partial class NpcSpeechEngine
     {
         if (SpeechNative.Loaded)
             foreach (var e in SpeechNative.DrainEvents())
+            {
                 if (e.Type == SpeechNative.EventOpen && e.Kind <= (byte)NpcLineKind.MenuLine) Opened(e.Npc, (NpcLineKind)e.Kind, e.Line, e.Value);
+                else if (e.Type == SpeechNative.EventTopic) TopicPicked(e.Npc, e.Value);
+            }
         while (ByWork.TryDequeue(out var w)) Decide(w.Npc, w.Kind, w.To);
+        while (PickWork.TryDequeue(out var p)) RunPick(p.Npc, p.Id, p.Player);
     }
 
     /// <summary>This game showed a host-picked line: decide the next one here, or tell the host.</summary>
@@ -376,6 +396,184 @@ internal static partial class NpcSpeechEngine
 
     internal static MenuSayMsg DecodeMenuSay(ref NetReader r) => new(r.UInt32(), r.String(MaxLineBytes));
 
+    // ---------------------------------------------------------------------------------------- talk pages ----
+
+    /// <summary>The line id a topic shows with on Kiln clients: FNV-1a-32 of "kiln.npctopic", the mod and the topic's id
+    /// (never 0 or 1, the game's farewell and missing-requirement ids).</summary>
+    internal static uint TopicId(string owner, string id)
+    {
+        var h = 2166136261u;
+        foreach (var b in System.Text.Encoding.UTF8.GetBytes("kiln.npctopic\n" + owner + "\n" + id))
+        {
+            h ^= b;
+            h *= 16777619u;
+        }
+        return h <= 1 ? h + 2 : h;
+    }
+
+    internal static SpeechResult SetTopics(EntityId npc, string owner, NpcTopic[] topics)
+    {
+        if (npc.IsNone) throw new ArgumentException("no NPC (EntityId.None)", nameof(npc));
+        if (topics.Length > NpcTopics.MaxTopics)
+            throw new ArgumentException($"an NPC's page holds {NpcTopics.MaxTopics} topics, not {topics.Length}", nameof(topics));
+        foreach (var t in topics) (t ?? throw new ArgumentNullException(nameof(topics))).Check();
+        if (topics.Select(t => t.Id).Distinct(StringComparer.Ordinal).Count() != topics.Length)
+            throw new ArgumentException("two topics with one id", nameof(topics));
+        Start();
+        Book.SetTopics(SpeechLayer.Local, npc.Value, owner, topics.Select(t => (t, TopicId(owner, t.Id))).ToArray());
+        return ChangedTopics(npc.Value);
+    }
+
+    private static TopicWire[] WireOf(IEnumerable<SpeechBook.TopicEntry> page) =>
+        page.Select(e => new TopicWire(e.Wire, SpeechText.Json(e.Topic.Label), e.Topic.Reply is { } r ? SpeechText.Json(r) : "", (byte)e.Topic.Hint,
+            e.Topic.Close)).ToArray();
+
+    /// <summary>The NPC's page changed (maybe): this process's menu follows, and as the host the clients.</summary>
+    internal static SpeechResult ChangedTopics(uint npc)
+    {
+        lock (Order)
+        {
+            var note = ApplyTopics(npc);
+            if (IsHost) BroadcastTopics(npc);
+            if (!IsHost && !SpeechNative.Loaded) return SpeechResult.No(note ?? "kiln.npcspeech is not here: this game shows no Kiln speech");
+            return note is null ? SpeechResult.Yes : new SpeechResult(true, note);
+        }
+    }
+
+    private static string? ApplyTopics(uint npc)
+    {
+        var page = WireOf(Book.EffectiveTopics(npc));
+        lock (Gate)
+            if (AppliedTopics.TryGetValue(npc, out var was) ? was.SequenceEqual(page) : page.Length == 0) return null;
+        if (!SpeechNative.Loaded) return null;
+        string? note = null;
+        var rows = new List<SpeechNative.Topic>();
+        foreach (var t in page)
+        {
+            if (Register(SpeechText.FromJson(t.Label), ref note) is not { } label) continue;
+            uint reply = 0;
+            if (t.Reply.Length > 0 && Register(SpeechText.FromJson(t.Reply), ref note) is { } r) reply = r;
+            if (t.Reply.Length > 0 && reply == 0) continue;  // a reply that cannot show: leave the row out, not an empty box
+            rows.Add(new SpeechNative.Topic { Id = t.Id, Label = label, Reply = reply, Hint = t.Hint, Close = (byte)(t.Close ? 1 : 0) });
+        }
+        var rc = SpeechNative.Topics(npc, rows.ToArray());
+        if (rc != SpeechNative.Ok) note ??= Capabilities.Why(SpeechNative.TopicsCapability) ?? "npcspeech.topics is off here";
+        lock (Gate)
+        {
+            if (rc == SpeechNative.Ok && note is null && page.Length > 0) AppliedTopics[npc] = page;
+            else if (rc == SpeechNative.Ok && page.Length == 0) AppliedTopics.Remove(npc);
+            else AppliedTopics.Remove(npc);
+        }
+        if (note is not null && Interlocked.Increment(ref _warned) <= 3) ModLog.Warn($"kiln.npcspeech: {note}");
+        return note;
+    }
+
+    private static void BroadcastTopics(uint npc)
+    {
+        var page = WireOf(Book.EffectiveTopics(npc, SpeechLayer.Local));
+        lock (Gate)
+        {
+            if (SentTopics.TryGetValue(npc, out var was) ? was.SequenceEqual(page) : page.Length == 0) return;
+            if (page.Length == 0) SentTopics.Remove(npc);
+            else SentTopics[npc] = page;
+        }
+        Send(new TopicsMsg(npc, page));
+    }
+
+    /// <summary>This game's menu reported a pick of a Kiln topic: run it here (its own topic), or tell the host.</summary>
+    private static void TopicPicked(uint npc, uint id)
+    {
+        var e = Book.EffectiveTopics(npc).FirstOrDefault(t => t.Wire == id);
+        if (e is null) return;
+        if (e.Layer == SpeechLayer.Local)
+        {
+            if (LocalPlayer() is { IsNone: false } player) PickWork.Enqueue((npc, id, player));
+        }
+        else if (!IsHost) Send(new PickedMsg(npc, id));
+    }
+
+    /// <summary>Host: a client picked one of the host's topics.</summary>
+    internal static void Received(PickedMsg m, SpeechPeer from)
+    {
+        if (!IsHost || from.Player.IsNone) return;
+        if (Book.EffectiveTopics(m.Npc, SpeechLayer.Local).Any(t => t.Wire == m.Id)) PickWork.Enqueue((m.Npc, m.Id, from.Player));
+    }
+
+    /// <summary>Runs a pick's OnPick on the tick thread, as the mod that set the topic.</summary>
+    private static void RunPick(uint npc, uint id, EntityId player)
+    {
+        var e = Book.EffectiveTopics(npc, SpeechLayer.Local).FirstOrDefault(t => t.Wire == id);
+        if (e?.Topic.OnPick is not { } onPick) return;
+        var outer = ModContext.CurrentMod;
+        try
+        {
+            ModContext.CurrentMod = ModContext.OwnerOf(onPick);
+            onPick(new NpcTopicContext(new EntityId(npc), player, e.Topic, e.Owner));
+        }
+        catch (Exception ex)
+        {
+            if (Interlocked.Increment(ref _byWarned) <= 5)
+                ModLog.Warn($"kiln.npcspeech: topic {e.Owner}/{e.Topic.Id} of {npc} threw in OnPick (player {player}): {ex.Message}");
+        }
+        finally
+        {
+            ModContext.CurrentMod = outer;
+        }
+    }
+
+    /// <summary>Kiln.TestKit: a pick of the topic <paramref name="topicId"/> (any mod's) by a player, run now.</summary>
+    internal static bool PickLocal(EntityId npc, string topicId, EntityId player)
+    {
+        var e = Book.EffectiveTopics(npc.Value, SpeechLayer.Local).FirstOrDefault(t => t.Topic.Id == topicId);
+        if (e is null) return false;
+        RunPick(npc.Value, e.Wire, player);
+        return true;
+    }
+
+    internal static void Received(TopicsMsg m)
+    {
+        if (IsHost) return;
+        var list = new List<(NpcTopic, uint)>();
+        try
+        {
+            foreach (var t in m.Topics)
+                list.Add((new NpcTopic($"server:{t.Id:x8}", SpeechText.FromJson(t.Label))
+                {
+                    Reply = t.Reply.Length > 0 ? SpeechText.FromJson(t.Reply) : null,
+                    Hint = (NpcTopicHint)t.Hint,
+                    Close = t.Close,
+                }, t.Id));
+        }
+        catch (Exception e) when (e is FormatException or System.Text.Json.JsonException or ArgumentException) { return; }
+        Book.SetTopics(SpeechLayer.Remote, m.Npc, "server", list);
+        ChangedTopics(m.Npc);
+    }
+
+    internal static void EncodeTopics(TopicsMsg m, NetWriter w)
+    {
+        if (m.Topics.Length > NpcTopics.MaxTopics) throw new NetFormatException("too many topics");
+        w.UInt32(m.Npc).Byte((byte)m.Topics.Length);
+        foreach (var t in m.Topics) w.UInt32(t.Id).String(t.Label).String(t.Reply).Byte(t.Hint).Bool(t.Close);
+    }
+
+    internal static TopicsMsg DecodeTopics(ref NetReader r)
+    {
+        var npc = r.UInt32();
+        var n = r.Byte();
+        if (n > NpcTopics.MaxTopics) throw new NetFormatException($"{n} topics");
+        var topics = new TopicWire[n];
+        for (var i = 0; i < n; i++)
+        {
+            var id = r.UInt32();
+            var label = r.String(MaxLineBytes);
+            var reply = r.String(MaxLineBytes);
+            var hint = r.Byte();
+            if (hint > (byte)NpcTopicHint.MainQuest) throw new NetFormatException($"topic hint {hint}");
+            topics[i] = new TopicWire(id, label, reply, hint, r.Bool());
+        }
+        return new TopicsMsg(npc, topics);
+    }
+
     // ---------------------------------------------------------------------------------------- client side ----
 
     internal static void Received(LinesMsg m)
@@ -404,7 +602,7 @@ internal static partial class NpcSpeechEngine
     internal static void ReceivedDialogReset()
     {
         if (IsHost) return;
-        foreach (var npc in Book.DropLayer(SpeechLayer.Remote, _ => true, says: false)) ChangedAll(npc);
+        foreach (var npc in Book.DropLayer(SpeechLayer.Remote, _ => true, says: false, topics: true)) ChangedAll(npc);
     }
 
     /// <summary>Host: everything of kiln:npcdialog to one client that just became ready (a Reset first).</summary>
@@ -423,6 +621,8 @@ internal static partial class NpcSpeechEngine
                     SendToPeer(peer, LinesOf(npc, kind, eff));
                     if (eff.Pick.Choose is not null) ByWork.Enqueue((npc, kind, peer));
                 }
+            foreach (var npc in Book.Npcs())
+                if (WireOf(Book.EffectiveTopics(npc, SpeechLayer.Local)) is { Length: > 0 } page) SendToPeer(peer, new TopicsMsg(npc, page));
         }
     }
 
@@ -434,8 +634,11 @@ internal static partial class NpcSpeechEngine
             SentLines.Clear();
             Deciding.Clear();
             ByState.Clear();
+            AppliedTopics.Clear();
+            SentTopics.Clear();
         }
         while (ByWork.TryDequeue(out _)) { }
+        while (PickWork.TryDequeue(out _)) { }
     }
 
     internal static void EncodeLines(LinesMsg m, NetWriter w)
