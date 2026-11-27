@@ -178,6 +178,7 @@ source.Dispose();                                        // any thread; unload r
 [api-pets.md](api-pets.md)); any server mod may. Pages `docs/kiln/modding/item-costs.md` (a walkthrough), `docs/kiln/services/item-costs.md`. Rows `items.costs.exact` (stack takes
 and refunds), `items.costs.wear` (gear wear); `ItemCosts.StacksAvailable`, `WearAvailable`.
 ```csharp
+if (!Capabilities.Is("items.costs.exact")) return;
 var twigs = Items.Lookup("Material_T1_Twigs")!.Id;
 var sel = ItemCosts.Choose(EntityRef.Of(player), twigs, 3);                              // the first plain stack that can pay; null: none
 if (sel is not { } slot) return;

@@ -19,11 +19,11 @@ talk page. For NPCs of your own (`NpcBlock`, quests, conversations) see
 
 ```csharp
 foreach (var v in Villagers.List().Where(v => Npcs.CanSpeak(v.Entity))) { /* an NPC with dialogue lines */ }
-Npcs.Say(npc, "I'm starving...", TimeSpan.FromSeconds(6));         // once, now, no voice-over; 0.5 s to 60 s
+_ = Npcs.Say(npc, "I'm starving...", TimeSpan.FromSeconds(6));      // once, now, no voice-over; 0.5 s to 60 s
 var speech = Npcs.Speech(npc);                                      // this mod's override of that NPC's greetings
 speech.Priority = 10;                                               // outranks other mods' overrides of the same NPC
 speech.Pick = SpeechPick.InOrder;                                   // set before Replace
-speech.Replace("No food, no work.", "My stomach is louder than my anvil.");
+_ = speech.Replace("No food, no work.", "My stomach is louder than my anvil.");
 // speech.Suppress();                                               // or: no greeting bubble at all
 speech.Clear();                                                     // the game's lines (or the next mod's) again
 ```
@@ -42,7 +42,7 @@ languages.
 | `Npcs.Topics(npc)` -> `NpcTopics` | your topics on the NPC's talk page: `Set(params NpcTopic[])`, `Add`, `Remove(id)`, `Clear()`, `List` |
 | `Npcs.SpeechOf(npc)`, `IsSaying(npc)`, `CanSpeak(npc)` | what the NPC does now, from every mod; `CanSpeak` is tick-thread |
 
-`SpeechResult(Ok, Reason)`. Wrong arguments (no NPC, a duration out of range, an empty or too long text, no line or more than
+`SpeechResult(Ok, Reason)`: read it, or write `_ =` where a refusal does not matter (KILN120). Wrong arguments (no NPC, a duration out of range, an empty or too long text, no line or more than
 32) throw `ArgumentException`. **Do not guard these calls with `Npcs.Available` or `Capabilities.Is("npcspeech.bubble")`:** both
 are false on a dedicated server (it draws no bubbles itself) and it still sends to its Kiln players, so a guarded mod shows
 nothing to anyone.
@@ -67,10 +67,10 @@ A greeting is the bubble showing after at least 1 s hidden, or the game picking 
 ```csharp
 var plea = Npcs.MenuLine(npc);
 plea.Pick = SpeechPick.By(ctx => fed.Contains(ctx.Player) ? -1 : 0);   // no plea for a player who fed it
-plea.Replace("Please, Flameborn, I haven't eaten in days.");
+_ = plea.Replace("Please, Flameborn, I haven't eaten in days.");
 // later, when `fed` changes:
 plea.Refresh();
-Npcs.Farewells(npc).Replace("Come back with something to eat.", "Don't forget me, Flameborn.");
+_ = Npcs.Farewells(npc).Replace("Come back with something to eat.", "Don't forget me, Flameborn.");
 ```
 
 ## A talk page: topics

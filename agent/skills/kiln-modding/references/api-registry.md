@@ -86,6 +86,7 @@ public sealed class Tweaks : Mod
 {
     public override void OnRegistry(RegistryContext context)
     {
+        if (!Capabilities.Is("kiln.registry")) return;                            // the transport; fields have their own rows
         var registry = Kiln.Registry.Registry.For(context);
         registry.Alter(view =>
         {
@@ -165,10 +166,13 @@ Edits derived from a config file or the game's state (a player's level) can foll
 [RegistryEntryPoints(RegistryEntryPoint.WorldLoad)]
 public sealed class Leveler : Mod
 {
-    public override void OnLoad() => Config.Register<Settings>().Changed += _ => Kiln.Registry.Registry.Reauthor(RegistryEntryPoint.WorldLoad);
+    public override void OnLoad() => Config.Register<Settings>().Changed += _ =>
+    {
+        if (Capabilities.Is("kiln.registry.live")) Kiln.Registry.Registry.Reauthor(RegistryEntryPoint.WorldLoad);
+    };
     public override void OnRegistry(RegistryContext context)
     {
-        if (context.Phase != RegistryPhase.Alter) return;
+        if (context.Phase != RegistryPhase.Alter || !Capabilities.Is("kiln.registry")) return;
         var w = Kiln.Registry.Registry.For(context).LootRules.RarityWeights;   // the values below this mod: the game's, or other mods' edits
         w.Legendary = w.Legendary * 4;                                          // never stacks: each pass reads below its own last edit
     }
@@ -210,7 +214,7 @@ one entry.
 are named by Kiln from the game's reflection, verified per game build, read only.
 
 ```csharp
-if (RegistryViews.Available && RegistryViews.Find("quest") is { } quests)
+if (Capabilities.Is("kiln.registry.view") && RegistryViews.Find("quest") is { } quests)
 {
     foreach (var id in quests.Select("game:quest_*"))
         if (quests[id].TryGet<int>("xpReward", out var xp, out var why)) Log.Info($"{id.Value}: {xp} xp");
@@ -229,8 +233,9 @@ field where one covers the member, or the old path (a data pack section, a resou
 
 ## Checks
 
-- Capability rows: `registry.<name>` and `registry.<name>.<field>` (the field's case and dots, no `[]`);
-  `Registry.Available` and `RegistryViews.Available` check the transport.
+- Capability rows: `kiln.registry` (the transport: `Registry.For`), `kiln.registry.live` (`Registry.Change`, `Reauthor`),
+  `kiln.registry.view` (`RegistryViews`), and `registry.<name>` and `registry.<name>.<field>` (the field's case and dots, no `[]`).
+  The analyzer (KILN121) wants a `Capabilities.Is("row")` before each of those calls, as the snippets above do.
 - `kiln/state/registry.json`: the live value and its writer chain per field, `overridden`, `composed`, `exclusive`, `yielded`,
   refused edits with a reason, `frontEnds`, `replay`. Written off the world tick after the start.
 - Tests: `KilnHarness.Registry` in Kiln.TestKit is a recording fake (`Seed`, `Author`): it proves your callback, not the game
