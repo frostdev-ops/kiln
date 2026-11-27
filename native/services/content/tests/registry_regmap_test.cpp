@@ -303,7 +303,7 @@ int main(int argc, char** argv) {
             if (one.build.regmap_digest != one.common_digest)
                 std::printf("  regmap %s: the record's regmapDigest %s is not regmap/common's %s\n", side, one.build.regmap_digest.c_str(), one.common_digest.c_str());
             CHECK(one.build.regmap_digest == one.common_digest);
-            CHECK(one.registries.size() == 5);
+            CHECK(one.registries.size() == std::size(gen::kRegistries));  // every schema registry has its regmap/common file
             for (const auto& [name, reg] : one.registries) {
                 const auto r = map::check_routing(reg);
                 for (const std::string& e : r) std::printf("  routing: %s\n", e.c_str());
@@ -329,7 +329,11 @@ int main(int argc, char** argv) {
             for (const auto& [reg, field] : {std::pair{"items", "block"}, {"items", "comfort"}, {"loot", "rarities"}, {"loot", "fixedRarity"},
                                              {"loot", "stack.scalable"}, {"loot", "stack.maxScaled"}, {"drops", "entries"}, {"drops", "entries[].item"},
                                              {"drops", "entries[].count.min"}, {"drops", "entries[].count.max"}, {"drops", "entries[].chance"},
-                                             {"drops", "entries[].weight"}}) {
+                                             {"drops", "entries[].weight"},
+                                             // dev.32 (review of registry-loot): the loot registries' rows, lab-proven (write, raw read, revert)
+                                             {"lootRules", "rarityWeights.common"}, {"lootRules", "rarityWeights.legendary"},
+                                             {"randomLoot", "level.mode"}, {"randomLoot", "level.value"}, {"randomLoot", "levelOffsetRange.max"},
+                                             {"randomLoot", "rarity.legendary.mode"}, {"randomLoot", "rarity.legendary.weight"}}) {
                 const bool ok = one.mapping(reg, field, &why) == Mapping::Mapped;
                 if (!ok) std::printf("  %s: %s.%s: %s\n", side, reg, field, why.c_str());
                 CHECK(ok);
