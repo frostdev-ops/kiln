@@ -70,6 +70,11 @@ static_assert(sizeof(KilnItemsFuelResult) == 720 && offsetof(KilnItemsFuelResult
               offsetof(KilnItemsFuelResult, message) == 560);
 
 static_assert(sizeof(KilnItemsMoveRequest) == 40 && offsetof(KilnItemsMoveRequest, slot) == 24);
+// checked moves (0.2.0-dev.32): the 40-byte request, then the source and destination witnesses (Kiln.Items' MoveRequest)
+static_assert(sizeof(KilnItemsSlotWitness) == 16 && offsetof(KilnItemsSlotWitness, pide) == 8 &&
+              sizeof(KilnItemsCheckedMoveRequest) == 72 && offsetof(KilnItemsCheckedMoveRequest, source) == 40 &&
+              offsetof(KilnItemsCheckedMoveRequest, destination) == 56);
+static_assert(KILN_ITEMS_MOVE_CHECKED == 0x10u && KILN_ITEMS_HAS_CHECKED_MOVE == 0x01u);
 static_assert(sizeof(KilnItemsMoveChange) == 32);
 static_assert(sizeof(KilnItemsMoveResult) == 736 && offsetof(KilnItemsMoveResult, changes) == 64 &&
               offsetof(KilnItemsMoveResult, message) == 576);
