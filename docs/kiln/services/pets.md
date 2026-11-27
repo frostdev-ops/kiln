@@ -26,6 +26,10 @@ Author guide: [modding/pets.md](../modding/pets.md). Sample: `mods/samples/PetsS
 | Who gets a pet | `Pets.Grant` (a reward, a quest, a command); taming (19e) when it lands | none |
 | Attack, assist, defend | `Pets.Command(..., PetOrder.Attack, target, ...)`: the mod decides when; Kiln checks the target rule | Kiln never attacks by itself |
 
+Every time on this page and in a definition (the revive channel, stuck and repath times, a new body's 5 s to get ready,
+the owner's view's rates) is seconds of the game's own world clock, whatever the server's step rate (a dedicated server
+steps 15 to 25 times a second). A paused world's clock stands still.
+
 Not possible yet, with what it would take:
 
 - **A body left lying when a pet goes down** (a decorative corpse): needs a client-side decorative body that can neither

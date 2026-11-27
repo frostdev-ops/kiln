@@ -112,9 +112,10 @@ internal static partial class PetsRuntime
         }
     }
 
-    /// <summary>The service tick (start of each step, tick thread): queued events, then the roster's step.</summary>
+    /// <summary>The service tick (start of each step, tick thread): the pets' clock, queued events, then the roster's step.</summary>
     private static void Tick(in TickInfo tick)
     {
+        GamePetWorld.Advance(in tick);
         DrainEvents();
         if (Roster is null && Lifecycle.IsServerRunning && !_testOwned)
         {
