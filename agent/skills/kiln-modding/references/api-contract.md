@@ -114,7 +114,7 @@ dependents reference it with `Private="false"`. Reloading a provider reloads its
 Everything is in namespace `Kiln` (only the test helpers are in `Kiln.Testing`), so a `using` never tells you which assembly
 a type needs. A service is the assembly `Kiln.<Name>.dll`, and `KilnServices` lists it as `<Name>` (`Players;Chat`).
 `Kiln.Api` is always referenced. List what your code names: the SDK adds the assemblies those types need, and KILN108 warns
-about a service you use and did not list ([setup.md](setup.md)). The table is built from the `PublicAPI.*.txt` files (mod API 0.2.15);
+about a service you use and did not list ([setup.md](setup.md)). The table is built from the `PublicAPI.*.txt` files (every service, dev.32);
 look a type up here before you guess its entry.
 
 | `KilnServices` | Types and entry points (nested ones as `Ui.Inventory`) |
@@ -123,9 +123,10 @@ look a type up here before you guess its entry.
 | `Abilities` | `Abilities`, `Gems` |
 | `Assets` | `Assets` |
 | `Audio` | `Sound`, `Voiceover` |
-| `Blocks` | `Blocks` and every block type (`ItemBlock`, `RecipeBlock`, `PropBlock`, `NpcBlock`, `RarityRollBlock`, `RarityUpgradeBlock`, `KnowledgeBlock`, `BuildingToolBlock`, `TerrainBrushBlock`, `ToolMaterialPoolBlock`, ...), `Rarity`, `Stat`, `ItemRef`, `BlockIdentity`, `UpgradeAction`, `UpgradeStation`, `Affixes`, `WorldTables`; with the `Is` and `Act` rule extensions (below). **`Stations`, `Bases` and `Crafting` are here too** |
+| `Blocks` | `Blocks` and every block type (`ItemBlock`, `RecipeBlock`, `PropBlock`, `NpcBlock`, `RarityRollBlock`, `RarityUpgradeBlock`, `KnowledgeBlock`, `BuildingToolBlock`, `TerrainBrushBlock`, `ToolMaterialPoolBlock`, ...), `PetBlock`, `TamingBlock` (dev.32), `Npcs`, `NpcSpeech`, `SpeechPick`, `NpcTopic` (NPC speech and dialogue), `Rarity`, `Stat`, `ItemRef`, `BlockIdentity`, `UpgradeAction`, `UpgradeStation`, `Affixes`, `WorldTables`; with the `Is` and `Act` rule extensions (below). **`Stations`, `Bases` and `Crafting` are here too** |
 | `Stations` | no assembly of its own: references Kiln.Blocks for `Stations`, `Bases` and `Crafting` without `Blocks`' side and clients defaults |
 | `Build` | `Build`, `Schematic`, `BuildShape`, `CellBox`, `BuildOptions`, `BlockInfo`, `BlockQueryResult`, `BlockBreakOptions`, `BlockBreakResult` |
+| `Camera` | `Camera`, `CameraLease`, `CameraBlend` (leases on the camera) |
 | `Chat` | `Chat`, `Commands`, `Arg`, `Selectors` |
 | `Client` | `Client`, `BuildingInput`, `SteamGuard` |
 | `Combat` | `Combat`, `Attributes` |
@@ -135,13 +136,17 @@ look a type up here before you guess its entry.
 | `Game` | `Ecs`: a typed struct for each game component and event (generated per game build; Kiln.Game) |
 | `Gameplay` | `Gameplay`, `Offers` |
 | `Hooks` | `Hooks`, `Symbols`, `Memory`, `OriginalCode`, `Keep` |
-| `Items` | `Items`, `Gear`, `ItemInfo`, `ItemRarity`, `ItemCategory`, `EquipmentSlot`, `InventorySlot`, `GearState`, `GearResult`, `RarityUpgradeRule`, `UpgradeResult` |
+| `Items` | `Items`, `Gear`, `ItemInfo`, `ItemRarity`, `ItemCategory`, `EquipmentSlot`, `InventorySlot`, `GearState`, `GearResult`, `RarityUpgradeRule`, `UpgradeResult`; since dev.32 `ItemCosts`, `ItemSelection`, `CostReceipt` |
+| `Markers` | `Markers`, `MarkerIcon`, `MarkerAnchor` (map markers, the compass, world labels) |
+| `ModValues` | `ModValues`, `ModValueDefinition`, `ModValueKey` (per-character counters and currencies) |
 | `Network` | `Network`, `SteamMessages`, `ConfigSync` |
 | `Permissions` | `Permissions` |
 | `PlayerAnim` | `PlayerAnimStates` |
+| `Pets` | dev.32: `Pets`, `PetsClient`, `PetDefinition` and its policies, `PetSnapshot`, `PetRequest`, `PetResult`, the `Pet...Event`s (`PetBlock` is Kiln.Blocks') |
 | `Players` | `Players`, `Player`, `PlayerStates`, `Bans`, `PlayerCharacters` |
 | `Queries` | `Queries` |
 | `Quests` | `Quests`, `WorldProgress`, `Knowledge`, `Dialogues`, `Journal`, `NativeQuests`, `QuestInput` |
+| `Registry` | `Registry`, `RegistryViews`, `RegistrySchema`, `RegistryStage`, the entry types; experimental (`KILNX031`): [api-registry.md](api-registry.md). `Mod.OnRegistry`, `RegistryContext` and `RegistryEntryPoints` are Kiln.Api |
 | `Rules` | `Rules`, `NoClip`, `Creative` |
 | `Saves` | `Saves`, `WorldData`, `PlayerData`, `EntityData`, `InstanceData`, `CharacterData` |
 | `Settings` | `Settings` |
@@ -149,6 +154,7 @@ look a type up here before you guess its entry.
 | `Skills` | `Skills`, `GameTree`, `TalentHolder`, `TalentAttributes` |
 | `Spawn` | `Spawn` |
 | `Systems` | `Systems` |
+| `Taming` | dev.32: `Taming`, `NativeTaming`, `TamingDefinition`, the steps (`FeedStep`, `WeakenStep`, `UseToolStep`, `NativeStep`), `TamingProgress`, `TamingToken`, `TamedEvent` |
 | `Terrain` | `Terrain` |
 | `Time` | `Time` |
 | `Tools` | `TerrainToolAction`, `TerrainToolMode`, `ToolMaterials`, `ToolMaterialSnapshot` |

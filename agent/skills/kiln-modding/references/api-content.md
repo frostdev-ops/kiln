@@ -27,7 +27,8 @@ dev.30.3+ **a recipe's tank water:** `RecipeDefinition.Water` (new recipes) and 
 `waterCharges`, charges per craft (1 charge = 64 water units), 0..1023: the six tank stations (Seedbed, Oven, Cooking
 Station, Laboratory, Coffee Brewer, Beehive) take it from their own tank, crafting menus (hand, Workbench, Kitchen, NPCs)
 from the player and the base's wells and barrels. Not the old "Water" canteen item. Replaces `Fields["waterCharges"]` (`Water` sends a pack's `"water"`; never both).
-**Kiln registries (preferred over raw `Content` paths for data edits; experimental `KILNX031`):** `Mod.OnRegistry` +
+**Kiln registries (preferred over raw `Content` paths for data edits; experimental `KILNX031`; the full guide is
+[api-registry.md](api-registry.md)):** `Mod.OnRegistry` +
 `Kiln.Registry.Registry.For(context)`: `Items`, `Recipes`, `Loot`, `Drops`, `Balance`, and since 0.2.0-dev.32
 `LootRules` (`game:loot`: `RarityWeights.Common..Legendary`, the world-wide rarity weights) and `RandomLoot` (every random
 loot table: `Level`, `LevelOffset`, `LevelOffsetRange`, `Rarity.<rarity>.Mode/Weight`; `game:labels_*` enemies and

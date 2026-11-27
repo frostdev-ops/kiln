@@ -1,6 +1,6 @@
 ---
 name: kiln-modding
-description: Build, test and debug Enshrouded mods with Kiln.Sdk, C# APIs, JSON blocks, data packs and assets. Use for Kiln mod projects, the kiln.mod.json manifest, the kiln CLI, local test servers, hot reload, lint and mod-load failures, native (C++) plugins and hooks, and porting EMF, ShroudForge or EML mods to Kiln or running them beside it; not for Kiln launcher or framework internals.
+description: Build, test and debug Enshrouded mods with Kiln.Sdk, C# APIs, JSON blocks, data packs and assets. Use for Kiln mod projects, the kiln.mod.json manifest, the kiln CLI, local test servers, hot reload, lint and mod-load failures, game-data registries (creatures, loot odds, skills, world rules), pets, taming, NPC speech and dialogue, native (C++) plugins and hooks, and porting EMF, ShroudForge or EML mods to Kiln or running them beside it; not for Kiln launcher or framework internals.
 ---
 
 # Kiln modding
@@ -18,7 +18,7 @@ Enshrouded is a trademark of Keen Games GmbH. Kiln is unofficial.
 2. The current build, its mod API and the MDK to use are in [references/versions.md](references/versions.md), which also
    says which build added what and what a real game has shown. A mod can read the running Kiln's mod API at run time as
    `Mods.RuntimeApiVersion`. A mark like **dev.20+**, **dev.28+** or **dev.29.19+** means that runtime and its MDK or
-   newer; check the installed build (`Mods.RuntimeApiVersion`). Much of dev.28 to dev.29.19 ran only on test servers,
+   newer; check the installed build (`Mods.RuntimeApiVersion`). Much of dev.28 to dev.29.19, and all of dev.32 (the registries, pets, taming, NPC dialogue, exact costs), ran only on test servers,
    in host tests or under Wine: take the verification status from the release notes' "Checked" and "Not yet" text and never claim more.
    Server/offline verification does not establish client rendering, input or multiplayer behavior. The official
    launcher has Nexus integration switched off: import downloaded archives by hand.
@@ -26,6 +26,22 @@ Enshrouded is a trademark of Keen Games GmbH. Kiln is unofficial.
    - `side`: `server` (default), `client`, or `both`;
    - `clients`: `none` (vanilla players can join), `kiln` (players need Kiln; the server sends definitions), or `mod`
      (players need this mod, from a server modpack). A stated `kiln` or `mod` makes servers refuse vanilla clients.
+
+## Which guide for what you make
+
+Find the area first, then the guide: each one has the API, a copyable example and the rules that bite. Everything else is in
+[references/api.md](references/api.md) and [references/docs-map.md](references/docs-map.md).
+
+| You make or change | Read |
+|---|---|
+| a pet: a creature that follows a player, fights by your rules, goes down and is revived (dev.32+) | [references/api-pets.md](references/api-pets.md) |
+| a taming: steps, exact costs, refunds, a pet at the end; or the game's own wildlife taming (dev.32+) | [references/api-taming.md](references/api-taming.md) |
+| what a friendly NPC says: bubbles, greetings, farewells, the menu's line, talk pages (dev.31.16+, dev.32+) | [references/api-npcs.md](references/api-npcs.md) |
+| game data by stable names (dev.31+; twelve more registries in dev.32): creatures, arsenals, perks, skills, buffs, abilities, world rules, difficulty, limits, loot odds and levels, edits that follow a setting, read-only views of everything else | [references/api-registry.md](references/api-registry.md) |
+| a price paid exactly once from a slot you name, with a receipt (dev.32+) | [references/api-items.md](references/api-items.md#exact-costs-and-receipts-dev32) |
+| gear numbers, rarity, upgrades, gear rules (dev.30+, rules on the registry in dev.32) | [references/api-gear.md](references/api-gear.md) |
+| ground: overlays; the game's baked terrain tiles are tools only in dev.32 | [references/api-world.md](references/api-world.md#terrain-overlays-and-the-baked-tiles-dev32-tooling) |
+| items, recipes, blocks, spells, props, NPCs, quests, UI, sounds | [references/docs-map.md](references/docs-map.md) (a question to a page) |
 
 ## Workflow
 
@@ -86,6 +102,21 @@ Never deploy to a server players are using. Use a separate local test server.
   are C# 14 extension members (PublicAPI lists them under `AiRulesApi`). The table:
   [references/api-contract.md](references/api-contract.md#which-assembly-holds-a-type-kilnservices).
 - **Changes are layers.** They come off when the mod unloads. Do content changes in `Content.OnReady(...)`.
+- **Game data: registry first (dev.31+, experimental `KILNX031`).** Where a registry has the field (`items.maxStack`,
+  `creatures.health.perPlayer`, `lootRules.rarityWeights.legendary`), edit it by Kiln id from a data pack's `registry` section or
+  `Mod.OnRegistry`, not by the game's paths. A pass reads the values below its own layers, so `x * 2` never stacks. One call takes at
+  most the registry's edit cap (4,096; `randomLoot` 16,384): over it the whole call is refused (logged, never thrown). Settings or
+  state that change while a world runs (dev.32+): `Registry.Reauthor(RegistryEntryPoint.WorldLoad)`, never from inside `OnRegistry`, and read
+  your inputs first (the pass runs off the tick). `restart` fields (`balance`, `world`, `difficulty`, `limits`) are `GameStart`
+  only and both sides need the same values. [references/api-registry.md](references/api-registry.md).
+- **Pets, taming and exact costs (dev.32+).** Server, tick thread, `await` the result; every action takes a fresh
+  `PetRequest.New()` (or request id) and a taming token built from the last answer. Kiln keeps records, bodies, receipts and
+  timeouts; you choose the creature, the steps, the cost, who fights whom and when a pet attacks. Only enemy creatures that walk
+  are pets. A refusal is a result with a `Reason` starting with a word: read it. Never resubmit an uncertain receipt.
+  [references/api-pets.md](references/api-pets.md), [references/api-taming.md](references/api-taming.md).
+- **NPC lines (dev.31.16+, dev.32+).** The host decides, Kiln clients show it; do not guard `Npcs.*` calls with `Npcs.Available`.
+  Lines are up to 200 characters (2048 bytes for all languages of a line); at most 16 topics per NPC across mods; the menu parts need
+  players on Kiln 0.2.0-dev.32. [references/api-npcs.md](references/api-npcs.md).
 - **Fixed ids.** GUIDs of items, recipes, clones, perks, buffs, tree nodes and NPCs, and ids of quests, steps and talents, never
   change after release. Saves keep them. For native quests and dialogue, names and option order feed the ids too.
 - **Fail soft.** Check `X.Available` and degrade: services can be missing on a build Kiln doesn't know. dev.26+:

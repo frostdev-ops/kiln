@@ -171,3 +171,36 @@ source.Dispose();                                        // any thread; unload r
   Without the capability the link still serves crafting. kiln.log: `respec:` lines per decision and stand-down.
   TestKit: `h.Crafting.Sources[i].Respec`, `h.Crafting.RespecStock(player)`; no respec payment is simulated. Not seen
   in a real game yet.
+
+## Exact costs and receipts (dev.32+)
+`ItemCosts` (Kiln.Items, server, tick thread) takes one cost from **one slot you name**, exactly once, and gives you a
+**receipt**. Kiln.Taming's steps and Kiln.Pets' revives pay through it ([api-taming.md](api-taming.md),
+[api-pets.md](api-pets.md)); any server mod may. Pages `docs/kiln/modding/item-costs.md` (a walkthrough), `docs/kiln/services/item-costs.md`. Rows `items.costs.exact` (stack takes
+and refunds), `items.costs.wear` (gear wear); `ItemCosts.StacksAvailable`, `WearAvailable`.
+```csharp
+if (!Capabilities.Is("items.costs.exact")) return;
+var twigs = Items.Lookup("Material_T1_Twigs")!.Id;
+var sel = ItemCosts.Choose(EntityRef.Of(player), twigs, 3);                              // the first plain stack that can pay; null: none
+if (sel is not { } slot) return;
+CostReceipt r = await ItemCosts.Take(slot, 3, Guid.NewGuid());                          // all or nothing, from that slot only
+if (r.Committed) Log.Info($"took {r.Taken}");                                           // r.State: Committed, Refused or Uncertain
+else if (r.Uncertain) Log.Warn($"unknown whether paid: {r.Reason}");                     // never submit it again as if nothing happened
+else Log.Info($"refused: {r.Refusal}");                                                  // StaleSelection, NotAStack, ...
+CostReceipt back = await ItemCosts.Refund(r, Guid.NewGuid());                            // a committed take, once
+```
+- A **selection** is a snapshot of one slot (`ItemSelection.Of(owner, slot)` from `Items.Read`, or `ItemCosts.Choose`). Nothing
+  searches when the cost runs: a slot that changed refuses (`StaleSelection`) and **nothing** is taken. A client never names a
+  slot id: the server builds the selection from its own read.
+- **One request id, one debit.** The same id with the same cost gives the same receipt (kept: the last 4,096); another cost under
+  the same id is `RequestConflict`. A network retry sends the same id and can never pay twice; a new intended payment takes a new id.
+- `ItemCosts.Take(selection, count 1..100000, id)`; `Wear(selection, units 0..32767, id, allowBreak)` takes durability off one gear
+  item through the game's own durability debit (refuses `WouldBreak` below 1 unless `allowBreak`, `Broken`);
+  `Refund(receipt, id)` gives a committed take back to the same owner (slot first; `NoRoom`, `Partial`) or a wear's durability to
+  the same item (`Full`); `Check(selection, amount)` asks without moving anything.
+- `CostReceipt`: `Item`, `Requested`, `Taken`, `Committed`, `State`, `Kind`, `Disposition` (`Exact`, `WearWaivedByWorld`,
+  `ModifiedByOtherMod`, `Partial`), `Refusal`, `Reason`, `RequestId`, `Selection`, `WorldEpoch`, durability before and after.
+  **Uncertain** means a fault inside the game's change: whether it was paid is not known; `Refund` never refunds it.
+- One paid receipt is refunded at most once (`AlreadyRefunded`), only in the world it was paid in (`WrongWorld`). A refund is a give:
+  no "+N item" popup and no pickup event.
+- Not promised: atomicity with anything else. A pet record or a sidecar is another store; a crash between can lose either side.
+- Event: `ItemCostSettledEvent` (`Receipt`, `Origin`) for every committed or uncertain receipt. TestKit: not simulated yet.

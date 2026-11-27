@@ -11,7 +11,10 @@ This skill's own guides to the C# API, by area ([api.md](api.md) is the index): 
 type](api-contract.md#which-assembly-holds-a-type-kilnservices), [events, config, commands, players](api-events.md),
 [items and recipes](api-items.md), [gear and rarity](api-gear.md), [content, creatures, abilities](api-content.md),
 [world, block queries and building tools](api-world.md), [UI](api-ui.md), [network and client](api-network.md),
-[hooks and other engines](api-hooks.md).
+[hooks and other engines](api-hooks.md); new in dev.32: [registries](api-registry.md), [pets](api-pets.md),
+[taming](api-taming.md), [NPC speech and dialogue](api-npcs.md) (gear rules are a section of [api-gear.md](api-gear.md#gear-rules-on-the-registry-dev32),
+exact costs of [api-items.md](api-items.md#exact-costs-and-receipts-dev32), baked terrain tiles of
+[api-world.md](api-world.md#terrain-overlays-and-the-baked-tiles-dev32-tooling)).
 
 | Question | Page |
 |---|---|
@@ -67,7 +70,17 @@ type](api-contract.md#which-assembly-holds-a-type-kilnservices), [events, config
 | Hooks, patches, typed hooks (advanced tier) | `hooks` |
 | Forge concepts | `forge` |
 | Kiln's menus in the game, chat history, other mods' slash commands, graphics tools | `in-game` |
-| What works today | `status` |
+| Stable names for game data; edit it from a data pack or `OnRegistry` (dev.31+, experimental) | `registries` |
+| The 12 dev.32 registries (creatures, skills, buffs, world rules, limits ...), views | `new-registries` |
+| How random loot rolls: rarity weights and levels, following a setting (`Registry.Reauthor`, dev.32) | `loot-rules` |
+| Pets: records, summon, orders, going down, revives (dev.32) | `pets` |
+| Taming in steps, exact costs, refunds, the game's own wildlife taming (dev.32) | `taming` |
+| The game's NPC speech bubble, farewells, the menu's line, talk pages (dev.31.16+, dev.32) | `npc-dialogue` |
+| Exact costs with receipts (`ItemCosts`, dev.32) | `inventory` ("Exact costs and receipts") |
+| Gear numbers and gear rules, the registry front-end (dev.30+, dev.32) | `data-packs` ("Gear numbers and gear rules") |
+| Your own per-character values; camera; survivors and routines; sidecars (dev.31+) | `mod-values`, `camera`, `survivors`, `replication` |
+| ShroudForge and EML packages after a game update: effect replay (dev.32) | `eml-shroudforge` |
+| What works today, what a real game has shown | `status` |
 
 Core services and the mod lifecycle (pages in the repository's `docs/kiln/`):
 
@@ -138,8 +151,6 @@ dev.28+ and dev.29+ (pages in the repository's `docs/kiln/`):
 | Voxel rays, ground, line of sight, paths | `services/queries.md` |
 | Terrain overlays | `services/terrain.md` |
 | Creature control, NPC perception | `services/creature-control.md`, `modding/npc-blocks.md` |
-| Pets (records, summon, follow, revive, the owner's bar) | `services/pets.md`, `modding/pets.md` |
-| Taming (attempts, exact-cost steps, refund policies, the game's own taming) | `services/taming.md`, `modding/taming.md`, `services/item-costs.md` |
 | Block kinds of your own | `modding/block-kinds.md` |
 | Refusable events (death, pickup, equip) | `services/decisions.md` |
 | Program wraps, `Systems.Define`, prediction storage | `services/systems.md`, `modding/ecs-programs.md` |
@@ -151,7 +162,6 @@ dev.28+ and dev.29+ (pages in the repository's `docs/kiln/`):
 | Material pools, world tables | `services/worldtables.md` |
 | NPC roster past 64 | `services/npcs.md`, `services/quests.md` |
 | NPC speech bubbles: Say, Suppress, Replace (`Kiln.Npcs`, dev.31.16+) | `services/npc-speech.md` |
-| NPC dialogue: greeting picks, farewells, the menu's own line, talk pages (`Npcs.Farewells`, `MenuLine`, `MenuSay`, `Topics`, dev.32+) | `services/npc-speech.md` |
 | Gems | `services/gems.md`, `services/gems-new.md`, `services/gems-forge.md`, `services/gems-sockets.md`, `ui-gemforge.md` |
 | Bases and stations | `services/stations.md` |
 | Item icons and names, looks and themes, fonts | `ui.md` |
@@ -193,6 +203,37 @@ dev.30+ (pages in the repository's `docs/kiln/`):
 | dev.30.6+: mods' rows in the HUD's arrow and spell lists (`Ui.AmmoList`, #127; client) | `ui.md` "The HUD's ammunition and spell lists"; `services/ui.md` "kiln.ui.ammo"; [api-ui.md](api-ui.md#game-ui-hud-keys) |
 
 dev.30+ samples: GearValues, RarityAnvil, SlotMarks.
+
+dev.31+ (pages in the repository's `docs/kiln/`):
+
+| Question | Page |
+|---|---|
+| Registries: stable names for game data, the stage, entry points, conflicts, plans and rollback | `modding/registries/README.md`; one page per registry beside it, from `modding/registries/items.md` to `modding/registries/randomLoot.md` |
+| Writing a registry from C#, a data pack or a native plugin; the service behind it | `modding/registries/README.md` "C# authoring", `services/registry.md` |
+| Adding a registry to Kiln (maintainers) | `adding-a-registry.md` |
+| Mod values (per-character counters and currencies), map markers, camera leases, replication sidecars | `services/mod-values.md`, `services/markers.md`, `services/camera.md`, `services/replication.md` |
+| Survivors, villager routines, NPC bodies | `services/survivors.md`, `services/routines.md`, `modding/npc-blocks.md` |
+| NPC speech bubbles: Say, Suppress, Replace (`Kiln.Npcs`, dev.31.16+) | `services/npc-speech.md` |
+
+dev.32+ (pages in the repository's `docs/kiln/`; new surface on the dev.32 beta, mod API 0.2.27):
+
+| Question | Page |
+|---|---|
+| Make a pet; give, summon, order, revive it (`Kiln.Pets`, `PetBlock`) | `modding/pets.md`, `services/pets.md` |
+| Make a taming: steps, costs, refunds, a pet at the end (`Kiln.Taming`, `TamingBlock`); the game's own taming | `modding/taming.md`, `services/taming.md` |
+| Exact costs with receipts (`ItemCosts`, `ItemSelection`, `CostReceipt`) | `modding/item-costs.md`, `services/item-costs.md` |
+| NPC dialogue: greeting picks, farewells, the menu's own line, talk pages (`Npcs.Farewells`, `MenuLine`, `MenuSay`, `Topics`) | `modding/npc-dialogue.md`, `services/npc-speech.md` |
+| Gear rules: `gear` and `gearRules`, the registry front-end, `front-ends.off` | `modding/gear-rules.md`, `services/content.md` "Gear rules on the registry" |
+| Terrain overlays, and the baked tiles (tools only; `terrain.baked` off) | `modding/terrain-tiles.md`, `services/terrain.md` |
+| The 12 new registries: creatures, arsenals, perks, skills, stations, buffs, abilities, world, difficulty, limits, lootRules, randomLoot | `modding/registries/README.md`, and each registry's page beside it (`modding/registries/creatures.md`, `modding/registries/lootRules.md`, ...) |
+| One read-only view over every registry and resource type (`RegistryViews`) | `modding/registries/views.md` |
+| `Registry.Reauthor`, the edit cap per call, ids of random loot tables | `modding/registries/README.md` "C# authoring", `modding/registries/randomLoot.md` |
+| What survives a game update: the stable, advanced and native tiers; `"native": true` | `modding/tiers.md` |
+| Effect replay of ShroudForge and EML packages; the hosted journal | `modding/registries/README.md` "Effect replay", `shroudforge-compat.md` |
+| Analyzer hints that name a registry field (KILN124, KILN125), KILN122, KILN123 | `modding/analyzers.md` |
+| New capability rows (`pets.*`, `taming.*`, `items.costs.*`, `npcspeech.*`) | `services/caps.md` |
+
+dev.32+ samples: PetsSample, TamingSample, HungryCrafter, RegistryEdits, SpellRegistry.
 
 Sample mods: Hello, SampleLib, SampleConsumer, SampleTests, BigStacks, NewItems, SpellTweaks, CreatureTweaks, EliteVukah, FireNova,
 ImpactSample, AssetSample, ModelSample, SoundSample, VfxSample, SkillTreeSample, quests-sample, NpcSample, Schematics, MenuButtons, UiSample,

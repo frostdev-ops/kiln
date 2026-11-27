@@ -121,6 +121,11 @@ var n = kiln.Run(() => Players.Count);          // Kiln API only through Run/As:
   or joined client; `EnterWorld`, `LeaveWorld`, `OnMainThread`), `FakeWorld.BusyReads`/`BusyWrites` (no experimental opt-in from dev.30.7 / mod API 0.2.16)
   ([tasks.md](tasks.md)); dev.29.19+ `kiln.LogFile` and `kiln.ReadLogFile()` read the harness's kiln.log while it is
   written (`File.ReadAllText` on it fails on Windows).
+- `KilnHarness.Registry` (dev.31+, a recording fake: `Seed` values, `Author(mod, point, phase)` runs one pass and returns the edits
+  it would send, dev.32+ `Reauthors` lists the mods that asked `Registry.Reauthor(RegistryEntryPoint.WorldLoad)`, in order; it proves your
+  callback, never the game's mapping, composition or live application, [api-registry.md](api-registry.md)); `KilnHarness.NpcSpeech`
+  (dev.31.16+; picks, farewells, menu lines, topics and a pick of one, [api-npcs.md](api-npcs.md)). **No fake for pets,
+  taming or `ItemCosts` yet:** test your own rules as plain functions and the flow on a local server.
 - Gaps: a service that caches "no table" (`Kiln.Ui` render, `kiln.net` at the first channel) is asked once per process, so
   a later test can pass where it should be skipped: read the service's `Available` in the test. No client/server pair.
   One harness per process. A blocked test is stopped by the watchdog (Linux tested, Windows not).

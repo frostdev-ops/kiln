@@ -130,3 +130,27 @@ Content.OnReady(_ =>
 - Gear in the UI: lines and scaled numbers in the game's item view (`Ui.Tooltip`), marks and clicks on its slots
   (`Ui.Inventory`, `SlotMark`), panels beside backpack and chest screens (`InventoryScreens`):
   [api-ui.md](api-ui.md#the-games-inventory-slots-item-detail-and-outlines-dev30).
+
+## Gear rules on the registry (dev.32+)
+The 19 `gearRules` keys are fields of the `balance` registry of the same name (`rarityDurability.<rarity>`,
+`socketChance.<rarity>`, `durability.start` / `.growth`, `unlockCost.seed`, `.creep`, `.weapons`, `.armor`, `.rings`,
+`.advanced`, `.advancedFrom`). **Nothing changes for your mod:** the same `content/*.json` file, the same `"boot": true`, the same
+values. Since dev.32 Kiln writes a `gearRules` file's values through its registry mapping instead of the resource patch, where that
+gives the same bytes.
+- **The same bytes, or the old way.** At every start Kiln builds the balancing table both ways and serves the registry's copy only
+  when the two are byte for byte equal. A file stays a resource patch (the reason is in `kiln/state/registry.json`, `frontEnds`,
+  `state: "resourcePatch"`) when a value is not a balance field Kiln proved on this game build, when an op's `min` is above its
+  `max`, or when the copies differ.
+- **Composition as before.** The file stays an older path below every registry edit: a `balance.durability.start` edit in a
+  registry pass wins over the file, a relative one composes on the file's value. Two mods setting one member still conflict.
+  `registry.json` lists every field the file sets as a row with the file as writer (`frontEnd: true`).
+- **The `gear` section stays a data pack** (`Content.Gear`, the `gear` keys): one registry edit per gear key does not always mean
+  what the rule means (a relative power with `levels` in one rule, a speed a float cannot hold, the registry's save checks that
+  refuse a narrower `levels` or lower `maxStack`, the rule's place among other packs). Do not port it.
+- `lootRarityRates` is still refused: use the `lootRules` registry for rarity weights ([api-registry.md](api-registry.md)).
+- A switch for support and labs only: an empty file `<game>/kiln/data/content/registry/front-ends.off` keeps every `gearRules`
+  file a resource patch at the next start. Not a setting for players.
+- A server and a player on dev.31 still join each other: the join compares the boot content of the mod, and the registry's own
+  part counts registry edits only. Not seen in a real game: gear rules through the registry on a client, tooltip numbers, durability,
+  socket and unlock-cost behaviour in play. Pages `docs/kiln/modding/gear-rules.md` (a walkthrough), `docs/kiln/services/content.md` "Gear rules on the registry".
+
