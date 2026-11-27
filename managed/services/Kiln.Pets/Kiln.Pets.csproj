@@ -17,6 +17,12 @@
     <InternalsVisibleTo Include="Kiln.Blocks" />
     <InternalsVisibleTo Include="Kiln.Blocks.Tests" />
     <InternalsVisibleTo Include="Kiln.TestKit" />
+    <!-- the clearance calibration lab (mods/tests/pets-clearance-lab) walks bodies with the real follower and mover -->
+    <InternalsVisibleTo Include="PetsClearanceLab" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Kiln's shipped clearance profiles (PetClearance.cs, gate C6), made by tools/pets-clearance/profile.py -->
+    <EmbeddedResource Include="clearance.json" LogicalName="Kiln.Pets.clearance.json" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />

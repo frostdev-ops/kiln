@@ -37,73 +37,6 @@ internal interface IPetMover
     bool TargetAlive(EntityRef target);
 }
 
-/// <summary>A measured path clearance for a creature at a scale (19d §4.3a, gate C6): the HorizontalSpace and VerticalSpace
-/// a route request asks for. Kiln never derives it from the body's radius; without one, QueryInput follow is catch-up only.</summary>
-internal sealed record PetClearanceProfile(double HorizontalSpace, double VerticalSpace);
-
-internal static class PetClearance
-{
-    private static readonly object Gate = new();
-    private static readonly Dictionary<(string Creature, double Scale), PetClearanceProfile> Profiles = [];
-    private static bool _loaded;
-
-    /// <summary>The accepted profile of a creature at a scale; null when none was measured (ClearanceMappingUnverified).</summary>
-    public static PetClearanceProfile? Of(string creature, double scale)
-    {
-        lock (Gate)
-        {
-            if (!_loaded) Load();
-            return Profiles.GetValueOrDefault((creature, Math.Round(scale, 3)));
-        }
-    }
-
-    internal static void SetForTests(string creature, double scale, PetClearanceProfile? p)
-    {
-        lock (Gate)
-        {
-            _loaded = true;
-            if (p is null) Profiles.Remove((creature, Math.Round(scale, 3)));
-            else Profiles[(creature, Math.Round(scale, 3))] = p;
-        }
-    }
-
-    internal static void ResetForTests()
-    {
-        lock (Gate)
-        {
-            Profiles.Clear();
-            _loaded = true;
-        }
-    }
-
-    // kiln/data/kiln.pets/clearance.json: [{"creature": "game:...", "scale": 1, "horizontalSpace": 1, "verticalSpace": 2}],
-    // the profiles a C6 calibration accepted (re-measured after a game update)
-    private static void Load()
-    {
-        _loaded = true;
-        try
-        {
-            var dir = Path.Combine(KilnPaths.Root, "data", "kiln.pets");
-            var file = Path.Combine(dir, "clearance.json");
-            if (!File.Exists(file)) return;
-            var root = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(file)) as System.Text.Json.Nodes.JsonArray;
-            foreach (var n in root ?? [])
-            {
-                var c = n?["creature"]?.GetValue<string>();
-                var s = n?["scale"]?.GetValue<double>() ?? 1;
-                var h = n?["horizontalSpace"]?.GetValue<double>();
-                var v = n?["verticalSpace"]?.GetValue<double>();
-                if (c is null || h is not (>= 0 and <= 16) || v is not (>= 0 and <= 16)) continue;
-                Profiles[(c, Math.Round(s, 3))] = new PetClearanceProfile(h.Value, v.Value);
-            }
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidOperationException or NotSupportedException)
-        {
-            PetsRuntime.Log(LogLevel.Warn, $"Kiln.Pets: clearance profiles not read: {e.Message}");
-        }
-    }
-}
-
 internal sealed class PetFollower
 {
     internal const uint Stop = 0, Walk = 2, Run = 3;
@@ -203,11 +136,12 @@ internal sealed class PetFollower
             Arrived(body, m, now, at.Value);
             return;
         }
-        var clearance = PetClearance.Of(def.Creature, def.Level.Scale);
+        var clearance = PetClearance.For(def, out var unverified);
         if (clearance is null)
         {
-            // 19d §4.3a: no measured clearance for this creature at this scale: no route is walked (catch-up only)
-            Limited = "ClearanceMappingUnverified: no measured path clearance for this creature at this scale; the pet catches up instead of walking";
+            // 19d §4.3a: no measured clearance for this creature at this scale on this game build and body: no route is
+            // walked (catch-up only)
+            Limited = unverified;
             Halt(body, m);
             return;
         }
