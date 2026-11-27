@@ -425,10 +425,29 @@ size_t name_archive_writers(const ArchiveJournal& journal, const std::map<std::s
         if (p.contents) say("created " + std::to_string(p.contents) + " content(s): assets are not replayed");
         // a member path that names Kiln fields only by holding their members ("damageSetup" over power's
         // "damageSetup.dmgMod") changed more than those fields: what else it holds no field proves (review-j3)
-        auto wider = [&](const std::string& reg, const std::string& place, const std::string& path) {
+        // Per changed resource (review-int): a path one registry over it does not map is residue only when no registry over
+        // the same resource maps it. lootRules' one entry is the head of the resource whose items[] elements are the loot
+        // registry's entries: an item's stack size is no "no Kiln field" of lootRules, a world-wide weight none of loot's. Each
+        // such path is said once, in the words of the most specific registry that looked at it (an element's over the
+        // resource's head, the head's over the array's "a member of the resource").
+        std::set<std::string> explained;                                 // resource paths some registry over it maps
+        std::map<std::string, std::pair<int, std::string>> unexplained;  // resource path -> (how specific, the line)
+        auto no_field = [&](const std::string& key, int rank, const std::string& line) {
+            const auto [it, fresh] = unexplained.try_emplace(key, rank, line);
+            if (!fresh && rank > it->second.first) it->second = {rank, line};
+        };
+        auto settle = [&] {
+            for (const auto& [key, line] : unexplained)
+                if (!explained.count(key)) say(line.second);
+            explained.clear(), unexplained.clear();
+        };
+        // key: the path from the resource's root (path itself for an entry that is the resource, the element's path with its
+        // index for an array registry's element); rank: how specific the place is
+        auto wider = [&](const std::string& reg, const std::string& place, const std::string& path, const std::string& key, int rank) {
             const auto& rows = rows_of(reg);
             const std::set<std::string> named = archive_fields_of(rows, {path});
-            if (named.empty()) return say(place + ": " + path + " is no Kiln field");
+            if (named.empty()) return no_field(key, rank, place + ": " + path + " is no Kiln field");
+            explained.insert(key);
             for (const auto& [field, members] : rows)
                 for (const std::string& m : members)
                     if (path.compare(0, m.size(), m) == 0 && (path.size() == m.size() || path[m.size()] == '.' || path[m.size()] == '['))
@@ -449,11 +468,12 @@ size_t name_archive_writers(const ArchiveJournal& journal, const std::map<std::s
                     } else {
                         name_paths(entry, who, pit->second);
                         for (const std::string& path : pit->second)
-                            if (!path.empty()) wider(entry.first, entry.first + "[" + entry.second + "]", path);
+                            if (!path.empty()) wider(entry.first, entry.first + "[" + entry.second + "]", path, path, 1);
                     }
                 }
             // an array registry's elements: only from paths, which say which element ("<array>[<i>]...")
             if (pit == p.paths.end() || !fields || !fields->elements) {
+                settle();
                 if (!known) say("a resource that is no registry entry (" + g + ")");
                 continue;
             }
@@ -465,7 +485,8 @@ size_t name_archive_writers(const ArchiveJournal& journal, const std::map<std::s
                     const bool under = path.compare(0, array.size() + 1, array + "[") == 0;
                     const bool holds = path.empty() || (array.compare(0, path.size(), path) == 0 &&
                                                         (array.size() == path.size() || array[path.size()] == '.' || array[path.size()] == '['));
-                    if (!under && !holds) say("a member of the " + reg + " resource that is no Kiln field (" + path + ")");
+                    if (!under && !holds) no_field(path, 0, "a member of the " + reg + " resource that is no Kiln field (" + path + ")");
+                    if (holds) explained.insert(path);  // the resource or the list put in place: every element, named whole below
                     if (!under) continue;
                     const size_t close = path.find(']', array.size());
                     // the list's membership: an element added (also named by its index, whole) or removed (named nowhere):
@@ -476,7 +497,9 @@ size_t name_archive_writers(const ArchiveJournal& journal, const std::map<std::s
                     }
                     const std::string rest = close == std::string::npos ? std::string() : path.substr(close + 1);
                     if (rest.size() > 1 && rest[0] == '.')
-                        wider(reg, reg + " element " + path.substr(array.size(), close - array.size() + 1), rest.substr(1));
+                        wider(reg, reg + " element " + path.substr(array.size(), close - array.size() + 1), rest.substr(1), path, 2);
+                    else
+                        explained.insert(path);  // the element whole: named whole below
                 }
                 std::map<int32_t, std::vector<std::string>> at;  // element -> its paths from the element's root
                 for (const std::string& path : pit->second) {
@@ -500,6 +523,7 @@ size_t name_archive_writers(const ArchiveJournal& journal, const std::map<std::s
                 for (const auto& [i, paths] : at)
                     if (const auto e = elements->find(i); e != elements->end()) name_paths({reg, e->second}, who, paths);
             }
+            settle();
             if (!known) say("a resource that is no registry entry (" + g + ")");
         }
     };

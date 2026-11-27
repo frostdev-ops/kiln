@@ -995,6 +995,59 @@ int main(int argc, char** argv) {
               "a field's own member, and a path inside a field's member, are no residue: " + json(un).dump());
     }
 
+    // ---- review-int (J3 x the registry trial merge): one resource, two registries. lootRules' one entry is the head of the
+    // resource whose items[] elements are the loot registry's entries (stage.cpp name_archive: lootRules is "partial"). A
+    // path one of them maps is no residue because the other does not: an item's stack size is loot's (never "no Kiln field"
+    // of lootRules), a world-wide weight is lootRules' (never "a member of the loot resource that is no Kiln field"). Before,
+    // every format-2 package that edited loot or the weights was residue, so effect replay refused it whole ----
+    {
+        std::string g8;
+        for (int i = 0; i < 32; ++i) g8 += "8d";
+        const std::string lootable = "3064d35d-7342-40ca-bdc9-aad58f83bf45";
+        auto pkg = [&](const std::string& id, std::vector<std::string> paths) {
+            return json{{"id", id}, {"version", "1.0.0"}, {"kind", "eml"}, {"contentSha256", nullptr}, {"settingsSha256", nullptr}, {"truncated", false},
+                        {"changed", json::array({{{"guid", lootable}, {"typeHash", "0badf00d"}, {"part", 0}, {"createdBy", nullptr}, {"paths", paths}}})},
+                        {"created", json::array()}, {"contents", json::array()}};
+        };
+        const json doc = {{"format", 2}, {"stem", "enshrouded_server"}, {"generation", g8}, {"receiptSha256", g8}, {"dialect", "eml"},
+                          {"attempt", "first"}, {"truncated", false},
+                          {"packages", json::array({pkg("stacks", {"items[0].stackSizeMax"}), pkg("weights", {"globalRarityDropRates[4]"}),
+                                                    pkg("both", {"globalRarityDropRates[1]", "items[0].stackSizeMin"}),
+                                                    pkg("other", {"items[0].somethingElse", "lootTableVersion"})})},
+                          {"unattributed", {{"truncated", false}, {"changed", json::array()}, {"created", json::array()}, {"contents", json::array()}}},
+                          {"writer", "kiln-eml"}};
+        const ArchiveJournal lj = parse_archive_journal(doc.dump(), g8);
+        CHECK(lj.state == "read" && lj.packages.size() == 4, "the loot journal reads: " + lj.state + " " + lj.text);
+        BaseModel lb;
+        BaseModel::Entry rules, plank;
+        rules.id = "game:loot", rules.fields["rarityWeights.legendary"] = Value::number(2), rules.fields["rarityWeights.uncommon"] = Value::number(30);
+        plank.id = "game:plank", plank.fields["stack.max"] = Value::integer(2), plank.fields["stack.min"] = Value::integer(1);
+        lb.registries["lootRules"] = {rules};
+        lb.registries["loot"] = {plank};
+        ArchiveFields lf;
+        lf.rows["lootRules"] = {{"rarityWeights.uncommon", {"globalRarityDropRates[1]"}}, {"rarityWeights.legendary", {"globalRarityDropRates[4]"}}};
+        lf.rows["loot"] = {{"stack.min", {"stackSizeMin"}}, {"stack.max", {"stackSizeMax"}}};
+        lf.array = {{"loot", "items"}};
+        lf.partial = {"lootRules"};
+        const std::map<int32_t, std::string> lels = {{0, "game:plank"}};
+        lf.elements = [&](const std::string& reg, const std::string& guid) -> const std::map<int32_t, std::string>* {
+            return reg == "loot" && guid == lootable ? &lels : nullptr;
+        };
+        std::map<std::string, std::vector<std::string>> lu;
+        name_archive_writers(lj, {{"lootRules|game:loot", lootable}}, {"lootRules"}, &lb, &lf, &lu);
+        CHECK(lb.registries["loot"][0].archive_fields.count("eml:stacks") && lb.registries["loot"][0].archive_fields.at("eml:stacks") == std::set<std::string>({"stack.max"}) &&
+                  lb.registries["lootRules"][0].archive_fields.count("eml:weights") &&
+                  lb.registries["lootRules"][0].archive_fields.at("eml:weights") == std::set<std::string>({"rarityWeights.legendary"}),
+              "each package named on its own registry's field");
+        CHECK(lu["eml:stacks"].empty(), "an item's stack size (loot's) is no residue of lootRules: " + json(lu["eml:stacks"]).dump());
+        CHECK(lu["eml:weights"].empty(), "a world-wide weight (lootRules') is no residue of the loot resource: " + json(lu["eml:weights"]).dump());
+        CHECK(lu["eml:both"].empty(), "a package that edited both is no residue either: " + json(lu["eml:both"]).dump());
+        bool elem = false, head = false;
+        for (const std::string& l : lu["eml:other"]) elem = elem || l.find("somethingElse") != std::string::npos, head = head || l.find("lootTableVersion") != std::string::npos;
+        CHECK(elem && head, "a member neither registry maps is still residue, once each: " + json(lu["eml:other"]).dump());
+        CHECK(lu["eml:other"].size() == 2, "and only once each: " + json(lu["eml:other"]).dump());
+    }
+
     std::printf("registry writers: %d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }
