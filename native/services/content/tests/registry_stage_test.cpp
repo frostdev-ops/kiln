@@ -702,6 +702,46 @@ void rollback_starts_on_the_previous_plan(const std::string& dir) {
           "cleared: the mods' current edits again");
 }
 
+// review-registry-loot (rollback plans were untested for the loot registries): a plan keeps lootRules and randomLoot edits and
+// their values like any live field, and a rollback starts on them, saying what changes back
+void rollback_carries_the_loot_registries(const std::string& dir) {
+    Files files;
+    g_stacks = R"({"registry": {"alter": [
+        {"registry": "lootRules", "select": {"id": "game:loot"}, "field": "rarityWeights.legendary", "op": {"mul": 4}},
+        {"registry": "randomLoot", "select": {"id": "game:labels_80943338"}, "field": "rarity.epic.weight", "op": 50},
+        {"registry": "randomLoot", "select": {"id": "game:world_00000258_38db0fdc"}, "field": "level.mode", "op": "set"},
+        {"registry": "randomLoot", "select": {"id": "game:world_00000258_38db0fdc"}, "field": "level.value", "op": 30}]}})";
+    TreeView v1 = world();
+    PlanStart a = plan_start(dir, &files, &v1);
+    const std::string ha = plan_hash(a);
+    json pa = json::parse(files.data["plans/" + ha + ".json"]);
+    check(pa["values"]["lootRules[game:loot].rarityWeights.legendary"] == 8 && pa["values"]["randomLoot[game:labels_80943338].rarity.epic.weight"] == 50 &&
+              pa["values"]["randomLoot[game:world_00000258_38db0fdc].level.mode"] == "set" && pa["values"]["randomLoot[game:world_00000258_38db0fdc].level.value"] == 30,
+          "the plan keeps the loot registries' resolved values: " + pa["values"].dump());
+    g_stacks = R"({"registry": {"alter": [
+        {"registry": "lootRules", "select": {"id": "game:loot"}, "field": "rarityWeights.legendary", "op": {"mul": 10}},
+        {"registry": "randomLoot", "select": {"id": "game:world_00000258_38db0fdc"}, "field": "level.value", "op": 45}]}})";
+    TreeView v2 = world();
+    PlanStart b = plan_start(dir, &files, &v2);
+    const std::string hb = plan_hash(b);
+    check(!hb.empty() && hb != ha && b.report["plan"]["previous"] == ha, "a changed plan: " + b.report["plan"].dump());
+    files.data["rollback.json"] = json{{"format", 1}, {"plan", ha}, {"from", hb}}.dump();
+    TreeView v3 = world();
+    PlanStart r = plan_start(dir, &files, &v3);
+    check(r.report["rollback"]["state"] == "applied", "the rollback applies: " + r.report["rollback"].dump());
+    std::map<std::string, std::pair<json, json>> back;
+    for (const auto& row : r.report["rollback"]["changedBack"]) back[row["field"]] = {row["from"], row["to"]};
+    check(back.count("lootRules[game:loot].rarityWeights.legendary") && back["lootRules[game:loot].rarityWeights.legendary"].first == 20 &&
+              back["lootRules[game:loot].rarityWeights.legendary"].second == 8,
+          "changed back: the world-wide legendary weight 20 -> 8: " + r.report["rollback"]["changedBack"].dump());
+    check(back.count("randomLoot[game:world_00000258_38db0fdc].level.value") && back["randomLoot[game:world_00000258_38db0fdc].level.value"].first == 45 &&
+              back["randomLoot[game:world_00000258_38db0fdc].level.value"].second == 30 && back.count("randomLoot[game:labels_80943338].rarity.epic.weight") &&
+              back.count("randomLoot[game:world_00000258_38db0fdc].level.mode"),
+          "and the tables' fields the plans differ in: " + r.report["rollback"]["changedBack"].dump());
+    check(field_row(r.report, "game:world_00000258_38db0fdc", "level.value")["result"] == 30, "the start runs on the plan's values");
+    files.data.erase("rollback.json");
+}
+
 void rollback_refused_whole(const std::string& dir) {
     Files files;
     g_stacks = kGood;
@@ -1498,6 +1538,7 @@ int main(int argc, char** argv) {
         {"plans_link_the_last_good_plan", [&] { plans_link_the_last_good_plan(dir); }},
         {"rollback_starts_on_the_previous_plan", [&] { rollback_starts_on_the_previous_plan(dir); }},
         {"rollback_refused_whole", [&] { rollback_refused_whole(dir); }},
+        {"rollback_carries_the_loot_registries", [&] { rollback_carries_the_loot_registries(dir); }},
         {"archive_journal_loot_rules_shares_its_resource", [&] { archive_journal_loot_rules_shares_its_resource(dir); }},
         {"save_checks_of_restart_fields", [&] { save_checks_of_restart_fields(dir); }},
         {"stack_guard_against_the_last_world", [&] { stack_guard_against_the_last_world(dir); }},
