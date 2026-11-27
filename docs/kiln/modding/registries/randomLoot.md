@@ -6,7 +6,7 @@ The random loot tables: for each kind of enemy, generic container (barrels, crat
 
 Schema version 0.1.0, experimental (KILNX031: may change in any release until it is marked stable). C# entry type `Kiln.Registry.RandomLootEntry`. What registries are, the stages, the conflict rules and how ids are made: [README](README.md).
 
-Edits per call: 16,384. One `OnRegistry` callback (one phase of one entry point) or one `Registry.Change` takes at most this many edits of this registry; a call with more is refused whole, with the reason in kiln.log and registry.json, and nothing of it applies (the other calls do). The schema declares it (`editsPerCall`) to fit every field of every entry of the current game data.
+Edits per call: 16,384. One `OnRegistry` callback (one phase of one entry point) or one `Registries.Change` takes at most this many edits of this registry; a call with more is refused whole, with the reason in kiln.log and registry.json, and nothing of it applies (the other calls do). The schema declares it (`editsPerCall`) to fit every field of every entry of the current game data.
 
 ## Ids
 

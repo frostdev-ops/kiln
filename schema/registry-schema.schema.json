@@ -47,7 +47,7 @@
       "type": "integer",
       "minimum": 4096,
       "maximum": 16384,
-      "description": "How many edits of this registry one call takes: one OnRegistry callback (one phase of one entry point), one Registry.Change draft, one code batch at the stage. A call with more is refused whole (kiln.log, registry.json). Default 4096; a registry declares more when every field of every entry of the current game data needs it."
+      "description": "How many edits of this registry one call takes: one OnRegistry callback (one phase of one entry point), one Registries.Change draft, one code batch at the stage. A call with more is refused whole (kiln.log, registry.json). Default 4096; a registry declares more when every field of every entry of the current game data needs it."
     },
     "doc": {
       "type": "string",

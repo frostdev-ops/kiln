@@ -15,7 +15,7 @@ namespace Kiln.Host;
 
 /// <summary>kiln.internal.registry v3 (kiln_registry_host.h), 80 bytes: field order is the table's. v1 (24 bytes) ends
 /// after SetMode; ReadPass (v2, 32 bytes) is a runtime pass's read without the reading mod's own layers (review4 NS5); v3
-/// (dev.32 LOOT-2) prepares a Registry.Reauthor turn off the world thread and lands it on the tick.</summary>
+/// (dev.32 LOOT-2) prepares a Registries.Reauthor turn off the world thread and lands it on the tick.</summary>
 [StructLayout(LayoutKind.Sequential)]
 internal unsafe struct KilnRegistryHostApi
 {

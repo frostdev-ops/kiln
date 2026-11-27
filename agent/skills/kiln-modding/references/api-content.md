@@ -28,12 +28,12 @@ dev.30.3+ **a recipe's tank water:** `RecipeDefinition.Water` (new recipes) and 
 Station, Laboratory, Coffee Brewer, Beehive) take it from their own tank, crafting menus (hand, Workbench, Kitchen, NPCs)
 from the player and the base's wells and barrels. Not the old "Water" canteen item. Replaces `Fields["waterCharges"]` (`Water` sends a pack's `"water"`; never both).
 **Kiln registries (preferred over raw `Content` paths for data edits; experimental `KILNX031`):** `Mod.OnRegistry` +
-`Kiln.Registry.Registry.For(context)`: `Items`, `Recipes`, `Loot`, `Drops`, `Balance`, and since 0.2.0-dev.32
+`Kiln.Registry.Registries.For(context)`: `Items`, `Recipes`, `Loot`, `Drops`, `Balance`, and since 0.2.0-dev.32
 `LootRules` (`game:loot`: `RarityWeights.Common..Legendary`, the world-wide rarity weights) and `RandomLoot` (every random
 loot table: `Level`, `LevelOffset`, `LevelOffsetRange`, `Rarity.<rarity>.Mode/Weight`; `game:labels_*` enemies and
 generic containers, `game:world_*` chests placed in the world). Edits read below the mod's own layers; for settings- or
 state-driven edits declare `[RegistryEntryPoints(RegistryEntryPoint.WorldLoad)]` and call
-`Registry.Reauthor(RegistryEntryPoint.WorldLoad)` when an input changes, never from inside `OnRegistry` (the pass runs
+`Registries.Reauthor()` when an input changes, never from inside `OnRegistry` (the pass runs
 again, replacing its layers, never stacking; its layers are then the newest, over other mods' WorldLoad edits; the
 re-authored pass runs on a worker thread and lands in one turn, so read settings and game state before asking and never call
 tick-thread APIs in it; requests while one runs coalesce into one more pass). One call

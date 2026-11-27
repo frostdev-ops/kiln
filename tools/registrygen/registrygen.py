@@ -137,7 +137,7 @@ class Registry:
 
     @property
     def edits_per_call(self):
-        """How many edits of this registry one call (an OnRegistry callback's batch, a Registry.Change draft) takes."""
+        """How many edits of this registry one call (an OnRegistry callback's batch, a Registries.Change draft) takes."""
         return self.doc.get("editsPerCall", DEFAULT_EDITS_PER_CALL)
 
 
@@ -1425,7 +1425,7 @@ def render_doc(model, lock, reg):
            "What registries are, the stages, the conflict rules and how ids are made: [README](README.md).",
            "",
            f"Edits per call: {reg.edits_per_call:,}. One {code('OnRegistry')} callback (one phase of one entry point) or one "
-           f"{code('Registry.Change')} takes at most this many edits of this registry; a call with more is refused whole, with "
+           f"{code('Registries.Change')} takes at most this many edits of this registry; a call with more is refused whole, with "
            "the reason in kiln.log and registry.json, and nothing of it applies (the other calls do). "
            + ("The schema declares it (" + code("editsPerCall") + ") to fit every field of every entry of the current game data."
               if "editsPerCall" in d else f"The default for a registry whose schema declares none ({DEFAULT_EDITS_PER_CALL:,})."),

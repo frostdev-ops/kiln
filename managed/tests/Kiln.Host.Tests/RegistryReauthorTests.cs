@@ -6,7 +6,7 @@ using Xunit;
 
 namespace Kiln.Host.Tests;
 
-// Registry.Reauthor off the world tick (dev.32 LOOT-2): with kiln-content's kiln.internal.registry v3 the re-authored pass runs on
+// Registries.Reauthor off the world tick (dev.32 LOOT-2): with kiln-content's kiln.internal.registry v3 the re-authored pass runs on
 // a worker thread of Kiln.Host's, its turn is prepared there and lands on the tick in one step (FakeRegistry's v3 stands in for
 // kiln-content; registry_live_reauthor_test covers the native side).
 public sealed class RegistryReauthorTests : ModsFixture
@@ -195,7 +195,7 @@ public sealed class RegistryReauthorTests : ModsFixture
         Settle(rig.Dispatch);
         Assert.Equal(22, rig.Native.Value);  // the request ran again, on the tick, and landed
         Assert.Equal(rig.Tick, threads[^1]); Assert.Equal(1, rig.Native.Installs); Assert.Equal(1, rig.Native.LayerCount);
-        Assert.False(rig.Native.Host.Has("OnRegistry WorldLoad (Registry.Reauthor)"), rig.Native.Host.Dump());
+        Assert.False(rig.Native.Host.Has("OnRegistry WorldLoad (Registries.Reauthor)"), rig.Native.Host.Dump());
         Assert.True(rig.Native.Host.Has("needs the tick thread: its passes run on the world tick"), rig.Native.Host.Dump());
         owner.Retire();
     }
@@ -257,7 +257,7 @@ public sealed class RegistryReauthorTests : ModsFixture
         rig.Dispatch.FlushLoads();  // the job starts; its pass waits inside the mod's code
         Assert.True(entered.Wait(10_000), "the pass runs on the worker");
         var waits = owner.BeginUnload();
-        Assert.NotNull(waits); Assert.Contains("Registry.Reauthor", waits);
+        Assert.NotNull(waits); Assert.Contains("Registries.Reauthor", waits);
         hold.Set();
         Assert.True(rig.Dispatch.ReauthorWork!.Wait(10_000));
         Assert.Null(owner.UnloadWaitsFor());
@@ -307,7 +307,7 @@ public sealed class RegistryReauthorTests : ModsFixture
         owner.Retire();
     }
     // dev.32 api-shape: a pass says where it runs. A point's own pass (the world load's here): Point, on the tick. A pass
-    // Registry.Reauthor asked for, on Kiln's worker: ReauthoredOffTick (OffTick: tick-thread APIs are refused); one Kiln runs
+    // Registries.Reauthor asked for, on Kiln's worker: ReauthoredOffTick (OffTick: tick-thread APIs are refused); one Kiln runs
     // on the tick (its mod called one off it): ReauthoredOnTick.
     [Fact(Timeout = 30_000)]
     public async Task APassSaysWhereItRuns()

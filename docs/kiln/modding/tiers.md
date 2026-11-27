@@ -32,7 +32,7 @@ writes `"advanced"`. The Advanced tier needs no opt-in.
 | Surface | Tier | Notes |
 |---|---|---|
 | Registries: `schema/registry/*.json`, Kiln ids (`game:<stable name>`, `<mod>:<name>`), Kiln fields | Stable | experimental (KILNX031) until marked stable; then frozen |
-| `Kiln.Registry`: the typed entries, `RegistryStage` (and `Entries(name)`), `RegistrySchema`, `Registry.Change` / `Read` / `Ready` | Stable | [registries/README.md](registries/README.md) |
+| `Kiln.Registry`: the typed entries, `RegistryStage` (and `Entries(name)`), `RegistrySchema`, `Registries.Change` / `Read` / `Ready` | Stable | [registries/README.md](registries/README.md) |
 | `Mod.OnRegistry`, `[RegistryEntryPoints]`, `RegistryContext` (Kiln.Api) | Stable | |
 | A data pack's `registry` section (`content/*.json`) | Stable | [registries/README.md](registries/README.md) |
 | `RegistryViews` and `kiln.registry.view`: a **stable** view (a registry) | Stable | [registries/views.md](registries/views.md) |
@@ -59,7 +59,7 @@ default tier; types of another tier are listed by name; a test fails when an ass
 | You use | Move to | How |
 |---|---|---|
 | a data pack path the registry covers (`"maxStackSize": 500` on an item) | the registry field (`items.maxStack`) | KILN124's fix moves a one-to-one value into the pack's `registry` section; relative ops stay where they are, since an old section's op works on the game's value and the registry's on the value below it |
-| `ContentEntry.Set("maxStackSize", ...)` in code | `Registry.Change(stage => stage.Items[id].MaxStack = ...)` or `OnRegistry` | by hand: a registry change is a transaction on the world thread with a result, not a code layer above every pack |
+| `ContentEntry.Set("maxStackSize", ...)` in code | `Registries.Change(stage => stage.Items[id].MaxStack = ...)` or `OnRegistry` | by hand: a registry change is a transaction on the world thread with a result, not a code layer above every pack |
 | a resource patch on the balancing table | `balance.*` fields | by hand, in the registry section or `OnRegistry` (GameStart) |
 | a member no registry has yet | the advanced view (`RegistryViews.Find("quest")`) to read it under Kiln names, or the old path to write it | a view field that a registry covers says so (`CoveredBy`) |
 | a hook of a game function Kiln owns a rule for (the altar limit) | a hooks registry's field (the limits registry's `maxAltars`, once that registry ships) | KILN125 names the field when the registry's regmap row names the function |

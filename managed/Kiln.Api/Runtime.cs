@@ -151,7 +151,7 @@ public static class Game
         throw new InvalidOperationException(InBoot ? NotInBoot(member) : "This must run on the tick thread; use Scheduler.Post.");
     }
 
-    /// <summary>A re-authored registry pass (Registry.Reauthor, 0.2.0-dev.32) runs on a worker thread of Kiln.Host's, off the
+    /// <summary>A re-authored registry pass (Registries.Reauthor, 0.2.0-dev.32) runs on a worker thread of Kiln.Host's, off the
     /// world tick. A tick-thread call in it is refused and noted (<see cref="OffTickRefused"/>): Kiln.Host then runs that mod's
     /// passes on the tick, so a mod that caught the refusal never lands a result built around it. Every tick-thread check
     /// notes it: <see cref="AssertTickThread()"/>, Services.RequireTickThread (most services' members) and a service's own
@@ -164,7 +164,7 @@ public static class Game
     internal static InvalidOperationException OffTick(string member)
     {
         OffTickRefused ??= member;
-        return new InvalidOperationException($"{member} must run on the tick thread, and a re-authored registry pass (Registry.Reauthor) runs off it: " +
+        return new InvalidOperationException($"{member} must run on the tick thread, and a re-authored registry pass (Registries.Reauthor) runs off it: " +
             "read game state before asking for the pass and keep it in the mod, or Kiln runs this mod's passes on the tick");
     }
 

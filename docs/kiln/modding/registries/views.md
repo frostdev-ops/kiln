@@ -4,7 +4,7 @@ Since 0.2.0-dev.32 (experimental, `KILNX031`). One read-only view over everythin
 
 - **stable views** are the registries (`items`, `recipes`, `loot`, `drops`, `balance` and every registry a later schema
   adds): their fields read what the registry resolved, mapped and proven per game build as the registry is. They are written
-  as before, through `Mod.OnRegistry`, `Registry.Change` and a data pack's `registry` section.
+  as before, through `Mod.OnRegistry`, `Registries.Change` and a data pack's `registry` section.
 - **advanced views** are every other resource type of the running build: quests, NPC dialogs, materials, UI data, the long
   tail no registry covers yet. Their names are Kiln's, derived from the game's reflection, and the view only reads them
   (tier Advanced, [tiers.md](../tiers.md): verified per game build, not lab-proven).
@@ -48,7 +48,7 @@ data pack's or a registry's change shows in the next read).
 **First calls are slow; make them off the game's thread** (`Task.Run`, a load screen), never in a tick. Measured on the lab's
 server build:
 - a stable view's first read is the registry's first resolved read, which prepares the registry's values: 4 to 11 s
-  (`Registry.Read` costs the same); later reads take milliseconds;
+  (`Registries.Read` costs the same); later reads take milliseconds;
 - an advanced view's first `Select`, read or `Snapshot` lists its entries, reading each one's name: about 0.2 s for
   `itemInfo` (4,268 entries) or `template` (12,269); Kiln keeps the listing until the type's resources change;
 - a `Snapshot` decodes every field, every element of every list: up to about 1.2 s for one resource with long lists
@@ -59,7 +59,7 @@ view's listing waits for it.
 
 Writing a registry by name, from code that does not know the registry's typed property (a registry a later schema adds):
 `RegistryStage.Entries("creatures")["game:enemy_vukah_melee"].Set("health.perPlayer", 1.2)` inside `OnRegistry` or
-`Registry.Change`. The generic `RegistryEntry` makes the same edits as the generated entry types and checks the value against
+`Registries.Change`. The generic `RegistryEntry` makes the same edits as the generated entry types and checks the value against
 the field's schema type first.
 
 ## Names

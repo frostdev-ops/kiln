@@ -41,12 +41,12 @@ public enum RegistryPhase
 public enum RegistryPassKind
 {
     /// <summary>The entry point's own pass: GameStart's at resources-ready; ModLoad's, WorldLoad's, HotReload's and a
-    /// <c>Registry.Change</c> or <c>Registry.Read</c> on the world tick.</summary>
+    /// <c>Registries.Change</c> or <c>Registries.Read</c> on the world tick.</summary>
     Point = 1,
-    /// <summary>A WorldLoad pass <c>Registry.Reauthor</c> asked for, on the world tick: Kiln runs a mod's re-authored passes
+    /// <summary>A WorldLoad pass <c>Registries.Reauthor</c> asked for, on the world tick: Kiln runs a mod's re-authored passes
     /// there once one of them called a tick-thread API off it (or the registry kept moving under the pass).</summary>
     ReauthoredOnTick = 2,
-    /// <summary>A WorldLoad pass <c>Registry.Reauthor</c> asked for, on a worker thread of Kiln's, off the world tick: a
+    /// <summary>A WorldLoad pass <c>Registries.Reauthor</c> asked for, on a worker thread of Kiln's, off the world tick: a
     /// tick-thread API is refused there (Kiln lands nothing of such a pass and runs the mod's later passes on the tick). Read
     /// game state on the tick before asking for the pass and keep it in the mod.</summary>
     ReauthoredOffTick = 3,
@@ -114,7 +114,7 @@ public sealed class RegistryContextException : InvalidOperationException
     public RegistryContextError Code { get; }
 }
 
-/// <summary>The host-owned frame of Mod.OnRegistry. Use Kiln.Registry.Registry.For(context) for typed access.
+/// <summary>The host-owned frame of Mod.OnRegistry. Use Kiln.Registry.Registries.For(context) for typed access.
 /// Operations expire when the callback returns or the mod retires; immutable identity metadata remains a snapshot.</summary>
 [Experimental("KILNX031")]
 public sealed class RegistryContext
@@ -151,7 +151,7 @@ public sealed class RegistryContext
     /// <summary>The world's identity, or null before one exists.</summary>
     public RegistryWorld? World { get; }
     /// <summary>Which pass this is and where it runs: the point's own (<see cref="RegistryPassKind.Point"/>), or one
-    /// <c>Registry.Reauthor</c> asked for, on the tick or on Kiln's worker (since 0.2.0-dev.32).</summary>
+    /// <c>Registries.Reauthor</c> asked for, on the tick or on Kiln's worker (since 0.2.0-dev.32).</summary>
     public RegistryPassKind Pass { get; internal init; } = RegistryPassKind.Point;
     /// <summary>True when this pass runs off the world tick (<see cref="RegistryPassKind.ReauthoredOffTick"/>): a tick-thread API
     /// is refused here, so read game state before asking for the pass (since 0.2.0-dev.32).</summary>
@@ -265,7 +265,7 @@ internal static class RegistryRuntime
     internal static Func<ModContext, Action<RegistryContext>, RegistryCompletion>? Manual;
     internal static Func<ModContext, ulong, RegistryCompletion>? Revert;
     internal static Action<ModContext, Action<RegistryContext>>? Read;
-    // Registry.Reauthor: queues the owner's declared point to be authored again; null when queued, else why not.
+    // Registries.Reauthor: queues the owner's declared point to be authored again; null when queued, else why not.
     internal static Func<ModContext, RegistryEntryPoint, string?>? Reauthor;
     internal static Action<string?>? WorldChanged;
     internal static Action<RegistryReadyPhase, ulong, RegistryWorld?>? Ready;

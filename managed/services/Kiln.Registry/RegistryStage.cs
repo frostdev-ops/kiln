@@ -100,7 +100,7 @@ public sealed class RegistryStage
     /// <summary>Authors ordinary field edits, once in the alter pass.</summary>
     public void Alter(Action<RegistryStage> edits) { ArgumentNullException.ThrowIfNull(edits); In(RegistryPhase.Alter, () => edits(this)); }
     /// <summary>Authors final edits, once in the final automatic pass. Other mods' final edits are not in its read view.
-    /// Inside Registry.Change this is an ordinary Alter edit in that single transaction, not a global Final pass.</summary>
+    /// Inside Registries.Change this is an ordinary Alter edit in that single transaction, not a global Final pass.</summary>
     public void Final(Action<RegistryStage> edits) { ArgumentNullException.ThrowIfNull(edits); In(RegistryPhase.Final, () => edits(this)); }
 
     internal void In(RegistryPhase target, Action action)
@@ -125,7 +125,7 @@ public sealed class RegistryStage
         foreach (var (registry, count) in _counts)
             if (count > CapOf(registry))
             {
-                Context.Owner.Log.Warn($"registry: {(Context.EntryPoint == RegistryEntryPoint.Manual ? "Registry.Change" : $"OnRegistry {Context.EntryPoint} {Context.Phase}")}: " +
+                Context.Owner.Log.Warn($"registry: {(Context.EntryPoint == RegistryEntryPoint.Manual ? "Registries.Change" : $"OnRegistry {Context.EntryPoint} {Context.Phase}")}: " +
                     $"{count} {registry} edits in one call, over its cap of " +
                     $"{CapOf(registry)} edits per call (RegistrySchema.EditsPerCall); Kiln refuses this call whole (registry.json), the other calls apply. " +
                     "Split the edits over the entry point's phases (Alter, Final) or over several calls.");
