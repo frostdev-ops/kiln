@@ -4,7 +4,8 @@
 // internal bridge as registry-live-native-test, and reads Kiln's regmap, which no mod should.
 //
 // With <kiln>/data/content/registry/proof/request.json, at the world's first content ready, for every mapped field of the live
-// registries (items, recipes, loot, drops; since dev.32 creatures, arsenals and perks, whose entries are kiln.gamedata's, skills in
+// registries (items, recipes, loot, drops; since dev.32 creatures, arsenals and perks, whose entries are kiln.gamedata's, lootRules and
+// randomLoot (kiln.content kinds 5 and 6), skills in
 // RegistryProofTestMod.Skills.cs, buffs and abilities in RegistryProofTestMod.GameData.cs) it takes one entry that reads, and:
 //   - reads the value through the schema (kiln.registry.live read), the row's members raw (Content.* by the game's member
 //     paths), and the SHA-256 of the entry's resource bytes (kiln.assets);
@@ -36,7 +37,7 @@ public sealed unsafe partial class RegistryProofTestMod : Mod
         public fixed byte Reason[192];
     }
     private const uint Manual = 4, Applied = 0, Refused = 2, Reverted = 5;
-    private static readonly string[] Live = { "items", "recipes", "loot", "drops", "creatures", "arsenals", "perks" };
+    private static readonly string[] Live = { "items", "recipes", "loot", "drops", "creatures", "arsenals", "perks", "lootRules", "randomLoot" };
     private byte* _table;
     private ulong _owner;
     private int _pass, _fail;
@@ -150,7 +151,19 @@ public sealed unsafe partial class RegistryProofTestMod : Mod
 
     private static IEnumerable<Probed> RegistryOf(string name) => DataOf(name) is { } data
         ? data.Select(Probed.Of)
-        : (name switch { "items" => Content.Items, "recipes" => Content.Recipes, "loot" => Content.Loot, _ => Content.Drops }).Select(Probed.Of);
+        : (name switch
+        {
+            "items" => Content.Items, "recipes" => Content.Recipes, "loot" => Content.Loot,
+            // kiln.content serves the random-loot rules and tables as kinds 5 and 6 (KILN_CONTENT_LOOT_RULES / RANDOM_LOOT); Content
+            // has no public property for them (the registries are their API), so the lab reaches them by kind, as it reaches
+            // kiln.registry.live through the internal bridge
+            "lootRules" => ByKind(5), "randomLoot" => ByKind(6),
+            _ => Content.Drops,
+        }).Select(Probed.Of);
+
+    private static ContentRegistry ByKind(int kind) =>
+        (ContentRegistry)Activator.CreateInstance(typeof(ContentRegistry), BindingFlags.Instance | BindingFlags.NonPublic, null,
+            new object[] { (ContentKind)kind }, CultureInfo.InvariantCulture)!;
 
     /// <summary>The resource type an entry of the registry is in, and whether every entry shares one resource (an array entry).</summary>
     private static (string Type, bool Shared) ResourceTypeOf(string registry) => registry switch
@@ -161,13 +174,23 @@ public sealed unsafe partial class RegistryProofTestMod : Mod
         "creatures" => ("keen::ecs::TemplateResource", false),
         "perks" => ("keen::Perk", false),
         "arsenals" => ("keen::enemy::EnemyArsenalRegistryResource", true),
+        "randomLoot" => ("keen::DefaultLootLabelCollectionResource", true),  // a label table; a world table: Scene below
         _ => ("keen::LootableItemsResource", true),
     };
 
     private static AssetKey? ResourceOf(string registry, Probed e)
     {
+        // a world table lives in the scene resource its name starts with
+        if (registry == "randomLoot" && e.Name.StartsWith("world_", StringComparison.Ordinal)) return Scene(e.Name);
         var (type, shared) = ResourceTypeOf(registry);
         return shared ? First(type) : new AssetKey(e.Guid, type);
+        static AssetKey? Scene(string name)
+        {
+            var head = name.Length >= 14 ? name.Substring(6, 8) : "";
+            foreach (var k in Assets.ListResources(Assets.TypeHash("keen::SceneRandomLootResource")))
+                if (k.Guid.ToString().StartsWith(head, StringComparison.OrdinalIgnoreCase)) return k;
+            return null;
+        }
         static AssetKey? First(string type)
         {
             var keys = Assets.ListResources(Assets.TypeHash(type));

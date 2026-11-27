@@ -2764,6 +2764,270 @@
         }
       },
       "retired": {}
+    },
+    "lootRules": {
+      "id": 16,
+      "version": "0.1.0",
+      "since": "0.1.0",
+      "history": [
+        {
+          "version": "0.1.0"
+        }
+      ],
+      "fields": {
+        "rarityWeights.common": {
+          "id": 1,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 1000000000000
+        },
+        "rarityWeights.uncommon": {
+          "id": 2,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 1000000000000
+        },
+        "rarityWeights.rare": {
+          "id": 3,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 1000000000000
+        },
+        "rarityWeights.epic": {
+          "id": 4,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 1000000000000
+        },
+        "rarityWeights.legendary": {
+          "id": 5,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 1000000000000
+        }
+      },
+      "retired": {}
+    },
+    "randomLoot": {
+      "id": 17,
+      "version": "0.1.0",
+      "since": "0.1.0",
+      "history": [
+        {
+          "version": "0.1.0"
+        }
+      ],
+      "fields": {
+        "level.mode": {
+          "id": 1,
+          "since": "0.1.0",
+          "kind": "enum",
+          "applies": "now",
+          "ops": "set",
+          "readOnly": false,
+          "values": [
+            "none",
+            "set",
+            "add",
+            "multiply"
+          ]
+        },
+        "level.value": {
+          "id": 2,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": -1000,
+          "max": 1000
+        },
+        "levelOffset.mode": {
+          "id": 3,
+          "since": "0.1.0",
+          "kind": "enum",
+          "applies": "now",
+          "ops": "set",
+          "readOnly": false,
+          "values": [
+            "none",
+            "set",
+            "add",
+            "multiply"
+          ]
+        },
+        "levelOffset.value": {
+          "id": 4,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": -1000,
+          "max": 1000
+        },
+        "levelOffsetRange.min": {
+          "id": 5,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": -1000,
+          "max": 1000
+        },
+        "levelOffsetRange.max": {
+          "id": 6,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": -1000,
+          "max": 1000
+        },
+        "rarity.common.mode": {
+          "id": 7,
+          "since": "0.1.0",
+          "kind": "enum",
+          "applies": "now",
+          "ops": "set",
+          "readOnly": false,
+          "values": [
+            "none",
+            "set",
+            "add",
+            "multiply"
+          ]
+        },
+        "rarity.common.weight": {
+          "id": 8,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 1000000000000
+        },
+        "rarity.uncommon.mode": {
+          "id": 9,
+          "since": "0.1.0",
+          "kind": "enum",
+          "applies": "now",
+          "ops": "set",
+          "readOnly": false,
+          "values": [
+            "none",
+            "set",
+            "add",
+            "multiply"
+          ]
+        },
+        "rarity.uncommon.weight": {
+          "id": 10,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 1000000000000
+        },
+        "rarity.rare.mode": {
+          "id": 11,
+          "since": "0.1.0",
+          "kind": "enum",
+          "applies": "now",
+          "ops": "set",
+          "readOnly": false,
+          "values": [
+            "none",
+            "set",
+            "add",
+            "multiply"
+          ]
+        },
+        "rarity.rare.weight": {
+          "id": 12,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 1000000000000
+        },
+        "rarity.epic.mode": {
+          "id": 13,
+          "since": "0.1.0",
+          "kind": "enum",
+          "applies": "now",
+          "ops": "set",
+          "readOnly": false,
+          "values": [
+            "none",
+            "set",
+            "add",
+            "multiply"
+          ]
+        },
+        "rarity.epic.weight": {
+          "id": 14,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 1000000000000
+        },
+        "rarity.legendary.mode": {
+          "id": 15,
+          "since": "0.1.0",
+          "kind": "enum",
+          "applies": "now",
+          "ops": "set",
+          "readOnly": false,
+          "values": [
+            "none",
+            "set",
+            "add",
+            "multiply"
+          ]
+        },
+        "rarity.legendary.weight": {
+          "id": 16,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 1000000000000
+        }
+      },
+      "retired": {}
     }
   },
   "retiredRegistries": {}

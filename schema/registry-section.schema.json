@@ -1090,6 +1090,113 @@
         }
       }
     },
+    "lootRules": {
+      "$defs": {
+        "field": {
+          "enum": [
+            "rarityWeights.common",
+            "rarityWeights.uncommon",
+            "rarityWeights.rare",
+            "rarityWeights.epic",
+            "rarityWeights.legendary"
+          ]
+        },
+        "edit": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "registry"
+          ],
+          "description": "An edit of the lootRules registry (docs/kiln/modding/registries/lootRules.md).",
+          "properties": {
+            "registry": {
+              "const": "lootRules"
+            },
+            "select": {
+              "$ref": "#/$defs/select"
+            },
+            "field": {
+              "$ref": "#/$defs/lootRules/$defs/field"
+            },
+            "op": {
+              "$ref": "#/$defs/op"
+            },
+            "list": {
+              "$ref": "#/$defs/list"
+            },
+            "exclusive": {
+              "type": "boolean"
+            },
+            "yield": {
+              "type": "boolean"
+            },
+            "raw": {
+              "type": "object",
+              "description": "Advanced tier: raw game paths; refused per entry where the game's names changed."
+            }
+          }
+        }
+      }
+    },
+    "randomLoot": {
+      "$defs": {
+        "field": {
+          "enum": [
+            "level.mode",
+            "level.value",
+            "levelOffset.mode",
+            "levelOffset.value",
+            "levelOffsetRange.min",
+            "levelOffsetRange.max",
+            "rarity.common.mode",
+            "rarity.common.weight",
+            "rarity.uncommon.mode",
+            "rarity.uncommon.weight",
+            "rarity.rare.mode",
+            "rarity.rare.weight",
+            "rarity.epic.mode",
+            "rarity.epic.weight",
+            "rarity.legendary.mode",
+            "rarity.legendary.weight"
+          ]
+        },
+        "edit": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "registry"
+          ],
+          "description": "An edit of the randomLoot registry (docs/kiln/modding/registries/randomLoot.md).",
+          "properties": {
+            "registry": {
+              "const": "randomLoot"
+            },
+            "select": {
+              "$ref": "#/$defs/select"
+            },
+            "field": {
+              "$ref": "#/$defs/randomLoot/$defs/field"
+            },
+            "op": {
+              "$ref": "#/$defs/op"
+            },
+            "list": {
+              "$ref": "#/$defs/list"
+            },
+            "exclusive": {
+              "type": "boolean"
+            },
+            "yield": {
+              "type": "boolean"
+            },
+            "raw": {
+              "type": "object",
+              "description": "Advanced tier: raw game paths; refused per entry where the game's names changed."
+            }
+          }
+        }
+      }
+    },
     "edit": {
       "oneOf": [
         {
@@ -1136,6 +1243,12 @@
         },
         {
           "$ref": "#/$defs/limits/$defs/edit"
+        },
+        {
+          "$ref": "#/$defs/lootRules/$defs/edit"
+        },
+        {
+          "$ref": "#/$defs/randomLoot/$defs/edit"
         }
       ]
     }

@@ -167,6 +167,8 @@ uint32_t kind_of(const std::string& registry) {
     if (registry == "recipes") return KILN_CONTENT_RECIPES;
     if (registry == "loot") return KILN_CONTENT_LOOT;
     if (registry == "drops") return KILN_CONTENT_DROPS;
+    if (registry == "lootRules") return KILN_CONTENT_LOOT_RULES;
+    if (registry == "randomLoot") return KILN_CONTENT_RANDOM_LOOT;
     return 0;
 }
 
@@ -1313,7 +1315,7 @@ void name_code_writer(ChainRow& row, const Layer& layer, const Slot& slot, const
     // the entry: a kiln.content slot carries its registry's kind; a kiln.gamedata value slot (an item's config value, which
     // items.manaCost and items.staminaCost write) carries a gamedata kind and the item's own id (review: its row kept the game's
     // item and member names)
-    const uint32_t kind = slot.kind >= KILN_CONTENT_ITEMS && slot.kind <= KILN_CONTENT_DROPS ? slot.kind : kind_of(ref.registry);
+    const uint32_t kind = slot.kind >= KILN_CONTENT_ITEMS && slot.kind <= KILN_CONTENT_RANDOM_LOOT ? slot.kind : kind_of(ref.registry);
     const Entry* e = kind ? reg(kind).get(slot.id) : nullptr;
     // dev.32: a gamedata-section registry's entry (a creature's template, an arsenal, a perk), by the Kiln id's GUID
     Entry gd_entry;
@@ -2481,9 +2483,12 @@ KilnResult registry_live_submit(KilnOwner owner, uint64_t handle, const std::str
     const KilnResult rc = change_of(owner, handle, &change);
     if (rc != KILN_OK) return rc;
     if (change->order) return KILN_ERR_UNAVAILABLE;
-    size_t bytes = 0, edits = change->refused.size();
+    size_t bytes = 0;
+    std::map<std::string, size_t> prior;  // the change's earlier edits by registry (refuse_over_cap: each registry's own cap)
     for (const auto& [h, c] : g.changes) bytes += c.bytes;
-    for (const auto& b : change->batches) edits += b.edits.size();
+    for (const auto& b : change->batches)
+        for (const auto& e : b.edits) ++prior[e.registry];
+    for (const auto& r : change->refused) ++prior[r.registry];
     if (ir.size() > 16u * 1024 * 1024 || bytes + ir.size() > 64u * 1024 * 1024) return KILN_ERR_INVALID_ARGUMENT;
     registry::Batch batch;
     std::vector<registry::Refusal> refused;
@@ -2517,7 +2522,22 @@ KilnResult registry_live_submit(KilnOwner owner, uint64_t handle, const std::str
         return KILN_ERR_INVALID_ARGUMENT;
     }
     refused.insert(refused.end(), std::make_move_iterator(parsed_refusals.begin()), std::make_move_iterator(parsed_refusals.end()));
-    if (batch.mod != change->mod || edits + batch.edits.size() + refused.size() > 4096) return KILN_ERR_INVALID_ARGUMENT;
+    if (batch.mod != change->mod) return KILN_ERR_INVALID_ARGUMENT;
+    // each registry's edits in the change against its own cap (schema editsPerCall): a batch over one is refused whole, with a
+    // row per registry it names, and nothing of it is kept (owner 2026-11-26; before: one 4096 cap per change, INVALID_ARGUMENT)
+    if (auto over = registry::refuse_over_cap(batch, refused, *g.in->schema, prior); !over.empty()) {
+        batch.source = "live:" + std::to_string(handle) + ":" + std::to_string(change->point) + ":" + std::to_string(change->batches.size()) + ":" + batch.source;
+        for (auto& row : over) row.source = batch.source;
+        LOGW("registry (live): %s: %s", change->mod.c_str(), over.front().reason.c_str());
+        if (out) { *out = {}; out->accepted = 0; out->refused = static_cast<uint32_t>(over.size()); out->world = g.world; }
+        if (report_text) {
+            registry::json rows = registry::json::array();
+            for (const auto& r : over) rows.push_back({{"n", r.n}, {"reason", r.reason}});
+            *report_text = registry::json{{"accepted", 0}, {"refused", rows}}.dump();
+        }
+        change->refused.insert(change->refused.end(), over.begin(), over.end());
+        return KILN_OK;
+    }
     if (entry_restart) change->restart = change->entry_restart = true;
     batch.source = "live:" + std::to_string(handle) + ":" + std::to_string(change->point) + ":" + std::to_string(change->batches.size()) + ":" + batch.source;
     for (auto& row : refused) row.source = batch.source;
@@ -2870,7 +2890,14 @@ KilnResult registry_live_read(const std::string& reg_name, const std::string& id
                 return r.kind == registry::WriterKind::Registry && r.mod == exclude_mod; }))
             own = &it->second;
     auto others = [&](const ChainRow& r) { return !(r.kind == registry::WriterKind::Registry && r.mod == exclude_mod); };
-    if (own && (!g.world || spec->applies == registry::Applies::Restart)) {
+    // review of registry-loot (dev.32): a drop table the world has not loaded yet has no game bytes to read; it reads the value
+    // it takes when it loads (its base and the writers' rows, a pass leaving out its own), as before a world. An edit of such a
+    // table already waits for it (PendingResource), so a read-derived pass (Loot Rarity Leveler's drop chances) composes the same
+    // way instead of faulting whole on UNAVAILABLE while the game has loaded only some of its drop tables.
+    std::string table_guid;
+    const bool unloaded = g.world && spec->applies != registry::Applies::Restart && kind_of(reg_name) == KILN_CONTENT_DROPS &&
+                          !find_entry(reg_name, id, &table_guid) && !table_guid.empty();
+    if (own && (!g.world || spec->applies == registry::Applies::Restart || unloaded)) {
         Value v = own->base;
         for (const ChainRow& r : own->chain)
             if (others(r)) v = registry::evaluate({r}, v, *spec);
@@ -2878,7 +2905,7 @@ KilnResult registry_live_read(const std::string& reg_name, const std::string& id
         return KILN_OK;
     }
     // a read-only field (items.hasDamage, creatures.kind and arsenal) has no live binding: in a world too it reads the base
-    if (!g.world || spec->applies == registry::Applies::Restart || spec->read_only) {
+    if (!g.world || spec->applies == registry::Applies::Restart || spec->read_only || unloaded) {
         if (auto it = g.in->result.fields.find(ref); it != g.in->result.fields.end()) { *out = it->second.result.to_json().dump(); return KILN_OK; }
         if (const auto added = g.in->result.definitions.find({reg_name, id}); added != g.in->result.definitions.end()) {
             const auto value = added->second.values.find(field);

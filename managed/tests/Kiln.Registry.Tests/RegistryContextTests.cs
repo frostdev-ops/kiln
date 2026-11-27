@@ -97,6 +97,114 @@ public sealed class RegistryContextTests
         context.Close();
     }
 
+    // 0.2.0-dev.32: the singleton loot rules and the keyed random loot tables record edits in Kiln names and shapes
+    [Fact]
+    public void LootRulesAndRandomLootRecordKilnShapedEdits()
+    {
+        var context = new RegistryContext(Mod(), RegistryEntryPoint.WorldLoad, RegistryPhase.Alter, null, "test-code",
+            (registry, id, field) => field.EndsWith(".mode", StringComparison.Ordinal) ? "\"none\"" : "5.29",
+            (registry, _) => registry == "randomLoot" ? new[] { "game:labels_80943338", "game:world_509feadb_0" } : new[] { "game:loot" });
+        using var scope = context.Enter();
+        var r = DataRegistry.For(context);
+        Assert.Equal(5.29, r.LootRules.RarityWeights.Legendary);
+        r.LootRules.RarityWeights.Legendary = 84.64;
+        Assert.Equal(new[] { "game:labels_80943338", "game:world_509feadb_0" }, r.RandomLoot.Select("*").Select(t => t.Id.Value));
+        var t = r.RandomLoot["game:world_509feadb_0"];
+        Assert.Equal(RandomLootMode.None, t.Level.Mode);
+        t.Level.Mode = RandomLootMode.Set;
+        t.Level.Value = 25;
+        t.Rarity.Epic.Weight = 320;
+        var edits = JsonNode.Parse(context.CaptureIr()!)!["edits"]!.AsArray();
+        Assert.Equal(("lootRules", "game:loot", "rarityWeights.legendary"), Edit(edits[0]!));
+        Assert.Equal(84.64, edits[0]!["op"]!.GetValue<double>());
+        Assert.Equal(("randomLoot", "game:world_509feadb_0", "level.mode"), Edit(edits[1]!));
+        Assert.Equal("set", edits[1]!["op"]!.GetValue<string>());
+        Assert.Equal(("randomLoot", "game:world_509feadb_0", "rarity.epic.weight"), Edit(edits[3]!));
+        context.Close();
+        static (string, string, string) Edit(JsonNode e) => (e["registry"]!.GetValue<string>(), e["select"]!.GetValue<string>(), e["field"]!.GetValue<string>());
+    }
+
+    // owner 2026-11-26 ("make it a registry"): one call's cap is per registry (RegistrySchema.EditsPerCall). A call over it is
+    // never thrown in the mod's code (a caught exception used to cut the call at 4096, an uncaught one dropped the whole pass):
+    // the stage keeps one edit past the cap so Kiln refuses the call whole at submit, and the mod's log names the count.
+    private sealed class LogBackend : IKilnBackend
+    {
+        public readonly List<string> Lines = [];
+        public string Version => "test";
+        public bool IsTickThread => true;
+        public bool HasFeature(string name) => false;
+        public void Log(ulong owner, LogLevel level, string text) { lock (Lines) Lines.Add($"{level}: {text}"); }
+        public nint Service(string name, uint minVersion) => 0;
+    }
+    [Fact]
+    public void EditCapsArePerRegistryAndAnOverCapCallIsNeverThrown()
+    {
+        Assert.Equal(16384, RegistrySchema.EditsPerCall["randomLoot"]);
+        Assert.Equal(4096, RegistrySchema.EditsPerCall["lootRules"]);
+        foreach (var shipped in new[] { "items", "recipes", "loot", "drops", "balance" }) Assert.Equal(4096, RegistrySchema.EditsPerCall[shipped]);
+        var backend = Backend.Current; var log = new LogBackend(); Backend.Current = log;
+        try
+        {
+            RegistryContext Context() => new(Mod(), RegistryEntryPoint.WorldLoad, RegistryPhase.Alter, null, "test-code",
+                (registry, id, field) => field.EndsWith(".mode", StringComparison.Ordinal) ? "\"none\"" : "1", (_, _) => new[] { "game:world_509feadb_38db0fdc" });
+            // under: a Loot Rarity Leveler sized call (more than 4096 edits in all, each registry within its own cap)
+            var context = Context();
+            using (context.Enter())
+            {
+                var r = DataRegistry.For(context);
+                var table = r.RandomLoot["game:world_509feadb_38db0fdc"];
+                for (int i = 0; i < 6000; ++i) table.Level.Value = i;
+                for (int i = 0; i < 4096; ++i) r.LootRules.RarityWeights.Common = i;
+                Assert.Equal(10096, JsonNode.Parse(context.CaptureIr()!)!["edits"]!.AsArray().Count);
+            }
+            context.Close();
+            List<string> Mine() { lock (log.Lines) return log.Lines.Where(l => l.Contains("edits in one call", StringComparison.Ordinal)).ToList(); }
+            Assert.Empty(Mine());
+            // over: no exception in the mod's code; the call keeps one edit past randomLoot's cap (Kiln refuses it whole) and
+            // the mod's log names the count and the cap
+            context = Context();
+            using (context.Enter())
+            {
+                var r = DataRegistry.For(context);
+                var table = r.RandomLoot["game:world_509feadb_38db0fdc"];
+                for (int i = 0; i < 20000; ++i) table.Level.Value = i;
+                r.LootRules.RarityWeights.Common = 2;
+                var edits = JsonNode.Parse(context.CaptureIr()!)!["edits"]!.AsArray();
+                Assert.Equal(16385 + 1, edits.Count);
+                Assert.Equal(16385, edits.Count(e => e!["registry"]!.GetValue<string>() == "randomLoot"));
+            }
+            context.Close();
+            var line = Assert.Single(Mine());
+            Assert.Contains("OnRegistry WorldLoad Alter: 20000 randomLoot edits in one call, over its cap of 16384 edits per call", line);
+            Assert.Contains("Kiln refuses this call whole", line);
+            Assert.StartsWith("Warn", line);
+        }
+        finally { Backend.Current = backend; }
+    }
+
+    // Registry.Reauthor inside a pass would queue that pass again from the pass itself: on every tick for ever when a mod
+    // asks in each OnRegistry. It is asked for when settings or game state change, outside the callbacks: refused inside.
+    [Fact]
+    public void ReauthorInsideARegistryCallbackIsRefusedAndNeverQueued()
+    {
+        var backend = Backend.Current; var log = new LogBackend(); Backend.Current = log;
+        var previous = RegistryRuntime.Reauthor; var queued = 0;
+        RegistryRuntime.Reauthor = (_, _) => { ++queued; return null; };
+        var mod = Mod();
+        try
+        {
+            var context = new RegistryContext(mod, RegistryEntryPoint.WorldLoad, RegistryPhase.Alter, null, "test-code", (_, _, _) => "1", (_, _) => []);
+            using (context.Enter()) Assert.False(DataRegistry.Reauthor(RegistryEntryPoint.WorldLoad));
+            context.Close();
+            Assert.Equal(0, queued);
+            lock (log.Lines) Assert.Contains(log.Lines, l => l.Contains("Reauthor(WorldLoad) was not queued: it is asked for outside OnRegistry", StringComparison.Ordinal));
+            HostAccess.Current = mod;
+            try { Assert.True(DataRegistry.Reauthor(RegistryEntryPoint.WorldLoad)); } finally { HostAccess.Current = null; }
+            Assert.Equal(1, queued);
+        }
+        finally { RegistryRuntime.Reauthor = previous; Backend.Current = backend; mod.Retire(); }
+    }
+
     [Fact]
     public void UnloadedOwnerFailsBeforeAnyBackendAccess()
     {

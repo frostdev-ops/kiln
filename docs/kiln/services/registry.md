@@ -158,7 +158,10 @@ or dispatch ready callbacks from `commit`/`revert`. Only real world/pack applica
 and entry point. Waiting drafts do not pretend that game bytes changed.
 
 There are at most **64 open drafts** and **1,024 retained changes** in the process, **16 open drafts** and **256 retained
-changes** per owner (begin returns `UNAVAILABLE`; kiln.log names the cap), **4,096 edits per change**, **64 MiB of copied IR** in
+changes** per owner (begin returns `UNAVAILABLE`; kiln.log names the cap), **each registry's edits per change at most its
+schema's `editsPerCall`** (4,096 unless the schema declares more; `randomLoot` 16,384; since 0.2.0-dev.32, before: 4,096 edits in
+all, past it `INVALID_ARGUMENT`; a submit past a registry's cap now takes nothing and refuses its batch whole, one row per
+registry it names, the over-cap ones first; the stage's code batches the same per batch), **64 MiB of copied IR** in
 all changes, and the stage's existing 16 MiB/32-level document limit. Revert releases a handle. Handles and world tokens
 are never reused in a process. `begin`, `submit` and `status` accept any thread; live `commit`, `revert` and `read` require
 the active world's thread. Without a world they operate only on copied data.

@@ -34,7 +34,7 @@ std::unordered_map<uint32_t, std::vector<uint8_t>> g_category_guid;
 namespace {
 alignas(16) uint8_t g_arena[1 << 20];  // the made-up game memory (real addresses, so near memory is within reach)
 size_t g_near = 1 << 19;
-Registry g_regs[5];
+Registry g_regs[7];  // KILN_CONTENT_ITEMS .. KILN_CONTENT_RANDOM_LOOT
 std::map<std::string, std::string> g_files;  // pack file rel -> its text
 std::vector<size_t> g_write_limits; // test-only: successful writes allowed in each next batch (empty: no injected failure)
 std::function<void()> g_before_write; // test-only: one callback just before a real batch writes
@@ -84,7 +84,7 @@ void* near_alloc(uintptr_t, size_t n) {
 // the real build (KC_GAMEDATA); here an empty registry
 Registry& reg(uint32_t kind) {
     static Registry none;
-    return kind < 5 ? g_regs[kind] : (none = Registry{});
+    return kind < std::size(g_regs) ? g_regs[kind] : (none = Registry{});  // kinds 0..6 (loot rules, random loot since dev.32)
 }
 const Entry* Registry::get(uint32_t id) const {
     auto it = by_id.find(id);
@@ -487,7 +487,7 @@ void stage(const std::vector<PackFile>& files, const std::vector<registry::Batch
         g_stage_extra(in);
         in.result = registry::compose(sc, in.base, old, mods);
     }
-    in.decoded = {"skills.cost", "items.socket", "items.perks", "items.manaCost", "items.staminaCost", "recipes.unlock", "loot.stack.max", "loot.rarities", "loot.fixedRarity", "items.maxStack", "items.rarity", "items.power", "recipes.duration", "recipes.inputs", "recipes.outputs", "drops.entries"};
+    in.decoded.insert({"skills.cost", "items.socket", "items.perks", "items.manaCost", "items.staminaCost", "recipes.unlock", "loot.stack.max", "loot.rarities", "loot.fixedRarity", "items.maxStack", "items.rarity", "items.power", "recipes.duration", "recipes.inputs", "recipes.outputs", "drops.entries"});
     in.report = [](const registry::Result& r, bool) {
         g_last_report = r;
         ++g_reports;

@@ -136,7 +136,7 @@ std::string lower(std::string s) {
 std::string guid_text(const uint8_t*) { return "00000000-0000-0000-0000-000000000000"; }
 
 // registries.cpp: one item registry (items Wood and Stone; field maxStackSize, u32 at +0)
-Registry g_regs[5];
+Registry g_regs[7];  // KILN_CONTENT_ITEMS .. KILN_CONTENT_RANDOM_LOOT
 Registry& reg(uint32_t kind) { return g_regs[valid_kind(kind) ? kind : 0]; }
 bool valid_kind(uint32_t k) { return k >= KILN_CONTENT_ITEMS && k <= KILN_CONTENT_DROPS; }
 void Registry::add(Entry e) {

@@ -345,7 +345,7 @@ fn walk(db: &TypeDb, base: &str, path: &str) -> std::result::Result<Vec<Step>, S
     }
     for part in parts {
         let owner = db.resolve(cur);
-        let stop = |why: String| Stop { at: steps.len(), owner: owner.name.clone(), member: part.into(), why };
+        let stop = |why: String| Stop { at: steps.len(), owner: owner.name.clone(), member: name.into(), why };
         if owner.kind != K_STRUCT {
             return Err(stop(format!("{} has no members", owner.name)));
         }
@@ -372,10 +372,11 @@ fn walk(db: &TypeDb, base: &str, path: &str) -> std::result::Result<Vec<Step>, S
                 // this build changes the row, a moved slot is carried by its offset
                 if arr.kind == K_STATIC_ARRAY {
                     let i: u64 = sel.parse().map_err(|_| stop(format!("[{sel}] is not an index")))?;
-                    if el.size > 0 && i >= arr.size / el.size {
-                        return Err(stop(format!("{name} has {} elements, not {}", arr.size / el.size, i + 1)));
+                    let es = db.resolve(el).size;
+                    if es == 0 || (i + 1) * es > arr.size {
+                        return Err(stop(format!("{name} has {} elements, not {}", if es == 0 { 0 } else { arr.size / es }, i + 1)));
                     }
-                    offset += i * el.size;
+                    offset += i * es;
                 }
                 next = el;
                 continue;
@@ -655,6 +656,16 @@ fn entries_diff(old: &TypeDb, new: &TypeDb, f: &RegFile, oroot: &Base, nroot: &B
             }
         }
     }
+    // a kind arrays source named by what uses its elements: the users' array, and their index and id members
+    if let Some(u) = &f.entries.used_by {
+        let root = &f.entries.resource_type;
+        let users = |db: &TypeDb| walk(db, root, &u.array).ok().and_then(|s| db.element(&leaf(&s)).map(|t| t.name.clone()));
+        match (users(old), users(new)) {
+            (Some(o), Some(n)) => paths.extend([&u.index, &u.id].into_iter().map(|m| (o.clone(), n.clone(), m.clone()))),
+            (Some(_), None) => changes.push(Change::Entries { what: format!("{}.{}: no longer an array of the new build", root, u.array) }),
+            (None, _) => {}
+        }
+    }
     for (ot, nt, p) in &paths {
         match (walk(old, ot, p), walk(new, nt, p)) {
             (Ok(os), Ok(ns)) => {
@@ -674,11 +685,11 @@ fn entries_diff(old: &TypeDb, new: &TypeDb, f: &RegFile, oroot: &Base, nroot: &B
 /// The diff of every row with a mapping, and of each registry's entry members.
 pub fn diff(map: &RegMap, old: &TypeDb, new: &TypeDb) -> ReflDiff {
     let mut out = ReflDiff::default();
-    for (name, f) in map {
-        if f.entries.kind == "hooks" {
+    for (name, whole) in map {
+        if whole.entries.kind == "hooks" {
             // a hooks registry (limits) has no resource and no member path: its values are Kiln's hooks of the game's code, which
             // sigdb resolves and its build record verifies, and regmap_check.py --exe checks per row on each exe (the candidate)
-            for (field, row) in &f.rows {
+            for (field, row) in &whole.rows {
                 if row.has_mapping() {
                     out.rows.insert(format!("{name}.{field}"), RowDiff::of(vec![], vec![], vec![]));
                 }
@@ -686,6 +697,38 @@ pub fn diff(map: &RegMap, old: &TypeDb, new: &TypeDb) -> ReflDiff {
             out.rows.insert(format!("{name}.(entries)"), RowDiff::of(vec![], vec![], vec![]));
             continue;
         }
+        // kind arrays: each source as a registry of its own; a row (and the entries) is as good as its worst source
+        let parts: Vec<ReflDiff> = whole.per_source().iter().map(|f| diff_one(name, f, old, new)).collect();
+        let mut keys: Vec<String> = parts.iter().flat_map(|p| p.rows.keys().cloned()).collect();
+        keys.sort();
+        keys.dedup();
+        for q in keys {
+            let ds: Vec<&RowDiff> = parts.iter().filter_map(|p| p.rows.get(&q)).collect();
+            let changed = ds.iter().any(|d| d.status == Status::Changed);
+            let merged = if !changed && ds.iter().any(|d| d.status == Status::New) {
+                RowDiff::new_row()
+            } else {
+                let (mut c, mut n, mut pr) = (Vec::new(), Vec::new(), Vec::new());
+                for d in &ds {
+                    c.extend(d.changes.iter().filter(|x| !c.contains(*x)).cloned().collect::<Vec<_>>());
+                    n.extend(d.notes.iter().filter(|x| !n.contains(*x)).cloned().collect::<Vec<_>>());
+                    pr.extend(d.proposals.iter().filter(|x| !pr.contains(*x)).cloned().collect::<Vec<_>>());
+                }
+                RowDiff::of(c, n, pr)
+            };
+            out.rows.insert(q, merged);
+        }
+        for p in parts {
+            out.layouts.extend(p.layouts);
+        }
+    }
+    out
+}
+
+/// One registry (or one source of a kind arrays registry) of [`diff`].
+fn diff_one(name: &str, f: &RegFile, old: &TypeDb, new: &TypeDb) -> ReflDiff {
+    let mut out = ReflDiff::default();
+    {
         let (oroot, nroot) = (entry_root(old, f), entry_root(new, f));
         let mut roots = vec![f.entries.resource_type.clone()];
         if let (Ok(o), Ok(n)) = (&oroot, &nroot) {
@@ -1113,4 +1156,70 @@ pub(crate) mod tests {
         let d2 = diff(&map, &db(old_types(), "a"), &db(old_types(), "b"));
         assert!(matches!(d2.rows["gadgets.size"].changes[..], [Change::Unresolvable { .. }]), "{:?}", d2.rows["gadgets.size"]);
     }
+
+    /// randomLoot's shapes: entries of kind arrays (two sources, no root type of their own; one names its elements by an id
+    /// member, the other by the chests that use them) and rows that index a static array (`vals[1].value`).
+    fn arrays_map() -> RegMap {
+        let tables = r#"{"regmap": 1, "registry": "tables",
+            "entries": {"kind": "arrays", "sources": [
+              {"resourceType": "demo::Collection", "array": "tables", "id": "id", "unnamed": "labels_%08x"},
+              {"resourceType": "demo::Scene", "array": "tables", "usedBy": {"array": "chests", "index": "tableIndex", "id": "nodeId"},
+               "unnamed": "world_%.8s_%08x"}]},
+            "rows": {
+              "second.weight": {"paths": ["vals[1].value"], "conv": "float", "read": "now", "backend": "live"},
+              "top":           {"paths": ["top"], "conv": "float", "read": "now", "backend": "live"}}}"#;
+        RegMap::from([("tables".to_string(), crate::regproof::regmap::parse(tables, "tables").unwrap())])
+    }
+    fn arrays_types() -> Vec<Value> {
+        let mut v = old_types();
+        v.extend([
+            st("demo::ModVal", 8, 0x7001, &[("mode", "demo::u32", 0), ("value", "demo::f32", 4)]),
+            json!({"name": "demo::StaticArray<demo::ModVal,2>", "kind": K_STATIC_ARRAY, "size": 16, "layout": 0, "inner": "demo::ModVal"}),
+            st("demo::Table", 20, 0x7002, &[("vals", "demo::StaticArray<demo::ModVal,2>", 0), ("top", "demo::f32", 16)]),
+            json!({"name": "demo::IdTable", "kind": K_STRUCT, "size": 24, "layout": 0x7003, "inner": "demo::Table",
+                   "fields": [{"name": "id", "type": "demo::u32", "offset": 20}]}),
+            arr("demo::IdTableArray", "demo::IdTable"), arr("demo::TableArray", "demo::Table"), arr("demo::ChestArray", "demo::Chest"),
+            st("demo::Collection", 8, 0x7004, &[("tables", "demo::IdTableArray", 0)]),
+            st("demo::Chest", 8, 0x7005, &[("nodeId", "demo::u32", 0), ("tableIndex", "demo::u32", 4)]),
+            st("demo::Scene", 16, 0x7006, &[("tables", "demo::TableArray", 0), ("chests", "demo::ChestArray", 8)]),
+        ]);
+        v
+    }
+
+    #[test]
+    fn kind_arrays_and_indexed_paths_are_walked_on_every_source() {
+        let map = arrays_map();
+        assert_eq!(crate::regproof::roots(&map), ["demo::Collection", "demo::Scene"], "the reflection dump needs every source's type");
+        let d = diff(&map, &db(arrays_types(), "a"), &db(arrays_types(), "b"));
+        for q in ["tables.second.weight", "tables.top", "tables.(entries)"] {
+            assert_eq!(status(&d, q), Status::Same, "{q}: {:?}", d.rows[q]);
+        }
+        // an element of the static array retyped: the indexed row changes, the other row stays
+        let mut n = arrays_types();
+        replace(&mut n, st("demo::ModVal", 8, 0x7011, &[("mode", "demo::u32", 0), ("value", "demo::u32", 4)]));
+        let d = diff(&map, &db(arrays_types(), "a"), &db(n, "b"));
+        assert!(matches!(d.rows["tables.second.weight"].changes[..], [Change::Retyped { .. }]), "{:?}", d.rows["tables.second.weight"]);
+        assert_eq!(status(&d, "tables.top"), Status::Same);
+        // a static array too short for the index: the row does not resolve on the new build
+        let mut n = arrays_types();
+        replace(&mut n, json!({"name": "demo::StaticArray<demo::ModVal,2>", "kind": K_STATIC_ARRAY, "size": 8, "layout": 0, "inner": "demo::ModVal"}));
+        let d = diff(&map, &db(arrays_types(), "a"), &db(n, "b"));
+        assert_eq!(status(&d, "tables.second.weight"), Status::Changed, "{:?}", d.rows["tables.second.weight"]);
+        // a member only one source lacks changes the row (it must resolve on every source)
+        let mut n = arrays_types();
+        replace(&mut n, st("demo::Table", 20, 0x7012, &[("vals", "demo::StaticArray<demo::ModVal,2>", 0), ("peak", "demo::f32", 16)]));
+        let d = diff(&map, &db(arrays_types(), "a"), &db(n, "b"));
+        assert_eq!(status(&d, "tables.top"), Status::Changed);
+        // what names the entries: the id member of one source, the chests' index and id of the other
+        let mut n = arrays_types();
+        replace(&mut n, st("demo::Chest", 8, 0x7015, &[("node", "demo::u32", 0), ("tableIndex", "demo::u32", 4)]));
+        let d = diff(&map, &db(arrays_types(), "a"), &db(n, "b"));
+        assert_eq!(status(&d, "tables.(entries)"), Status::Changed, "{:?}", d.rows["tables.(entries)"]);
+        assert!(d.rows["tables.top"].changes.iter().any(|c| matches!(c, Change::Entries { .. })), "{:?}", d.rows["tables.top"]);
+        let mut n = arrays_types();
+        n.retain(|x| x["name"] != "demo::Scene");
+        let d = diff(&map, &db(arrays_types(), "a"), &db(n, "b"));
+        assert_eq!(d.rows["tables.top"].changes, [Change::RootMissing { ty: "demo::Scene".into() }]);
+    }
+
 }

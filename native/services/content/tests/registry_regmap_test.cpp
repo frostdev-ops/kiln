@@ -339,7 +339,11 @@ int main(int argc, char** argv) {
             for (const auto& [reg, field] : {std::pair{"items", "block"}, {"items", "comfort"}, {"loot", "rarities"}, {"loot", "fixedRarity"},
                                              {"loot", "stack.scalable"}, {"loot", "stack.maxScaled"}, {"drops", "entries"}, {"drops", "entries[].item"},
                                              {"drops", "entries[].count.min"}, {"drops", "entries[].count.max"}, {"drops", "entries[].chance"},
-                                             {"drops", "entries[].weight"}}) {
+                                             {"drops", "entries[].weight"},
+                                             // dev.32 (review of registry-loot): the loot registries' rows, lab-proven (write, raw read, revert)
+                                             {"lootRules", "rarityWeights.common"}, {"lootRules", "rarityWeights.legendary"},
+                                             {"randomLoot", "level.mode"}, {"randomLoot", "level.value"}, {"randomLoot", "levelOffsetRange.max"},
+                                             {"randomLoot", "rarity.legendary.mode"}, {"randomLoot", "rarity.legendary.weight"}}) {
                 const bool ok = one.mapping(reg, field, &why) == Mapping::Mapped;
                 if (!ok) std::printf("  %s: %s.%s: %s\n", side, reg, field, why.c_str());
                 CHECK(ok);

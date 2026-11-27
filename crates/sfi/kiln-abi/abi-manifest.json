@@ -1848,7 +1848,7 @@
           "size": 40
         }
       },
-      "sha256": "9b14e0f22123b36c7fa9d3a5e6daf5874c2d6aa0e6c59666e3924ad821bb75f1"
+      "sha256": "e6e926e31eef32910de96e00a5b24414f1b9d2e03de43a115a5e056d35660a4f"
     },
     "native/core/abi/services/kiln_creature_control.h": {
       "function_macros": [],
@@ -5785,7 +5785,7 @@
           "size": 32
         }
       },
-      "sha256": "9ffaf11c920f454d0cf9a9de26d8cade9e36a00bc182883ad04dd6520e6f0dab"
+      "sha256": "8ea5f6d613f772244a35fe126312632de1918ed3a307fc21527eeffe6103df00"
     },
     "native/core/abi/services/kiln_render.h": {
       "function_macros": [],
@@ -10381,7 +10381,7 @@
     "src/services/kiln_client_crosshair.rs": "09a1563a385122b9a6c5952bc016876c03c4c72a31fe41ef76ccff8702a27dda",
     "src/services/kiln_combat.rs": "9169650eb5d67472f057e80219789229e51a5d7e17435b5d39af0434c8880006",
     "src/services/kiln_component_changes.rs": "91d043f6b4257e141af61bc4659fcb8a5d3be65dbcdfac9d338dc9910f108288",
-    "src/services/kiln_content.rs": "288d63c1d976da8ee9ee96e0a07ef115f70dc33e87ab91a1bce630cc37eb28b4",
+    "src/services/kiln_content.rs": "97d208074903a0a0c62d90c9d8238ea56adf8c91be77d9c2b85795f8d5f81056",
     "src/services/kiln_creature_control.rs": "57bd170993d6d3b4462e01d79eb1b117a91f39fc2ec86dc733d6cf9aea6a080e",
     "src/services/kiln_creatures.rs": "78c648da71e905df9e7b816a6a962393ccde88b559b44858da73beb13a387f45",
     "src/services/kiln_decisions.rs": "45c2c15581e800dcfb3ca6764fdee2760cadc07af59b2ddc5e9691953176d740",

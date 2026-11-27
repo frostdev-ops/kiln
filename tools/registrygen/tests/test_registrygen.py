@@ -94,6 +94,37 @@ class SchemaChecks(unittest.TestCase):
         s["fields"]["size"]["joinedClient"] = "laterMaybe"
         self.assertTrue(any("joinedClient" in e for e in self.errors_of(s)))
 
+    # owner 2026-11-26 ("make it a registry"): a schema may declare how many edits of it one call takes; registrygen carries
+    # it into the native descriptor, RegistrySchema.EditsPerCall and the page; without it, 4096
+    def test_edits_per_call_is_declared_per_registry_and_generated(self):
+        for value in (16384, 4096):
+            s = copy.deepcopy(MINI)
+            s["editsPerCall"] = value
+            t = Tree(s)
+            try:
+                model = rg.load(t.root)
+                self.assertEqual(model.errors, [])
+                rg.update_lock(t.root)
+                lock = t.lock()
+                self.assertIn(f", {value}u}},", rg.render_native(model, lock))
+                self.assertIn(f'["things"] = {value},', rg.render_cs_catalog(model, lock))
+                self.assertIn(f"Edits per call: {value:,}.", rg.render_doc(model, lock, model.registries["things"]))
+            finally:
+                t.close()
+        t = Tree(MINI)
+        try:
+            model = rg.load(t.root)
+            rg.update_lock(t.root)
+            self.assertIn(", 4096u},", rg.render_native(model, t.lock()))
+            self.assertIn('["things"] = 4096,', rg.render_cs_catalog(model, t.lock()))
+            self.assertIn("Edits per call: 4,096. ", rg.render_doc(model, t.lock(), model.registries["things"]))
+        finally:
+            t.close()
+        for bad in (0, 4095, 16385, 5000.5, "8192", True):
+            s = copy.deepcopy(MINI)
+            s["editsPerCall"] = bad
+            self.assertTrue(any("editsPerCall" in e for e in self.errors_of(s)), bad)
+
     def test_mini_is_valid(self):
         self.assertEqual(self.errors_of(MINI), [])
 
@@ -545,7 +576,7 @@ class Repository(unittest.TestCase):
         self.assertEqual(m.errors, [])
         # R1's five and dev.32's; later waves add registries of their own (each pinned by its own test below)
         self.assertLessEqual({"balance", "drops", "items", "loot", "recipes", "skills", "stations", "buffs", "abilities", "world", "difficulty",
-                              "limits"}, set(m.registries))
+                              "limits", "lootRules", "randomLoot"}, set(m.registries))
         for r in m.registries.values():
             for f in r.rows:
                 self.assertIn(f.applies, ("now", "worldLoad", "restart"), f.qualified)
@@ -554,9 +585,10 @@ class Repository(unittest.TestCase):
         # dev.32 (altarsPerFlameLevel up to 255 with limits.maxAltars: a wider range, additive)
         self.assertEqual({n: r.version for n, r in m.registries.items()
                           if n in ("balance", "drops", "items", "loot", "recipes", "skills", "stations", "buffs", "abilities", "world", "difficulty",
-                                   "limits")},
+                                   "limits", "lootRules", "randomLoot")},
                          {"balance": "0.1.1", "drops": "0.1.0", "items": "0.1.1", "loot": "0.1.0", "recipes": "0.1.0", "skills": "0.1.0",
-                          "stations": "0.1.0", "buffs": "0.1.0", "abilities": "0.1.0", "world": "0.1.0", "difficulty": "0.1.0", "limits": "0.1.0"})
+                          "stations": "0.1.0", "buffs": "0.1.0", "abilities": "0.1.0", "world": "0.1.0", "difficulty": "0.1.0", "limits": "0.1.0",
+                          "lootRules": "0.1.0", "randomLoot": "0.1.0"})
 
     def test_dev32_creatures_arsenals_and_perks(self):
         """dev.32 R2a: creatures (with their arsenals) and perks, experimental 0.1.0; pets and taming read a creature's kind,

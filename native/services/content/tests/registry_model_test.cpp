@@ -76,6 +76,7 @@ struct TreeView final : kiln::boot_view::BaseView {
 };
 
 const char* kBalance = "82706b40-61b1-4b8f-8b23-dcec6971bda1";
+const char* kLootItems = "3064d35d-7342-40ca-bdc9-aad58f83bf45";  // lootRules' one resource (regmap/common/lootRules.json)
 
 // Every resource of the fixture has a GUID of its own (registry trial merge: three lanes' resources shared g(500) and two
 // g(600), and the later one replaced the earlier, so the stations and the skill tree read nothing).
@@ -119,8 +120,29 @@ TreeView world() {
                                    {"activeSkillUnlock", 1002}, {"activeSkillUnlockRef", g(2)}},
                                   {{"id", 0x8efcc472}, {"costs", 0}, {"maxLevel", 3}, {"type", "Root"}, {"classAlignment", "Mage"},
                                    {"activeSkillUnlock", 0}, {"activeSkillUnlockRef", "none"}}})}});
-    v.add("keen::LootableItemsResource", g(200),
-          {{"items", json::array({{{"itemId", 1001}, {"stackSizeMin", 1}, {"stackSizeMax", 4}}, {{"itemId", 1002}, {"stackSizeMin", 1}, {"stackSizeMax", 1}}})}});
+    v.add("keen::LootableItemsResource", kLootItems,
+          {{"globalRarityDropRates", json::array({40.59, 27.35, 17.06, 9.71, 5.29})},
+           {"items", json::array({{{"itemId", 1001}, {"stackSizeMin", 1}, {"stackSizeMax", 4}}, {{"itemId", 1002}, {"stackSizeMin", 1}, {"stackSizeMax", 1}}})}});
+    // randomLoot's two sources: the label collection's tables (with ids) and the scene resources' tables (without)
+    auto table = [](const char* level, double lv, const char* off, double ov, double rmax, const char* rmode, std::vector<double> w) {
+        json r = json::array();
+        for (double x : w) r.push_back({{"mode", rmode}, {"value", x}});
+        return json{{"modifier", {{"level", {{"mode", level}, {"value", lv}}}, {"levelOffset", {{"mode", off}, {"value", ov}}},
+                                  {"levelOffsetRangeMin", 0.0}, {"levelOffsetRangeMax", rmax}, {"rarities", r}}}};
+    };
+    json labels = json::array({table("None", 0, "None", 0, 0, "Set", {59.74, 40.26, 0, 0, 0}), table("None", 0, "None", 0, 3, "None", {0, 0, 0, 0, 0})});
+    labels[0]["id"] = 0x80943338u;
+    labels[1]["id"] = 0xd76791b1u;
+    v.add("keen::DefaultLootLabelCollectionResource", g(540), {{"lootSettings", labels}});
+    // a scene resource's tables are named after the smallest node id of the chests that use them (lootContainer), never by
+    // their index; table 2 is used by no chest (no stable name: no entry), a chest pointing past the tables is ignored
+    auto chest = [](uint32_t node, uint32_t index) { return json{{"nodeId", {{"value", node}}}, {"parentId", {{"value", 1}}}, {"lootSettingsIndex", index}}; };
+    v.add("keen::SceneRandomLootResource", g(600), {{"lootSettings", json::array({table("None", 0, "Add", 5, 0, "None", {0, 0, 0, 0, 0}),
+                                                                                   table("Set", 12, "None", 0, 0, "None", {0, 0, 0, 0, 0}),
+                                                                                   table("None", 0, "None", 0, 0, "None", {0, 0, 0, 0, 0})})},
+                                                    {"lootContainer", json::array({chest(0x5000, 0), chest(0x4000, 0), chest(0x9000, 1), chest(0x0300, 1),
+                                                                                   chest(0x0001, 7)})}});
+    v.add("keen::SceneRandomLootResource", g(601), {{"lootSettings", json::array()}, {"lootContainer", json::array()}});  // the game ships empty ones too
     v.add("keen::ecs::DefaultInventoryResource", g(300),
           {{"rootGroup", {{"stacks", json::array({{{"item", 1001}, {"itemRef", g(1)}, {"countMin", 1}, {"countMax", 2}, {"spawnProbability", 0.5}, {"weight", 1.0}}})},
                           {"groups", json::array({{{"stacks", json::array({{{"item", 1002}, {"itemRef", g(2)}, {"countMin", 1}, {"countMax", 1}, {"spawnProbability", 1.0}, {"weight", 3.0}}})}}})}}}});
@@ -135,10 +157,10 @@ TreeView world() {
     auto seq = [&](int n, const std::string& name, json events) {
         v.add("keen::actor::ActorSequenceResource", g(n), {{"resourceId", g(n)}, {"subSequences", json::array({{{"name", name}, {"length", 2.0}, {"events", events}}})}});
     };
-    seq(600, "Attack_Player_Staff_FixedAnim_Fireball_fast",
+    seq(620, "Attack_Player_Staff_FixedAnim_Fireball_fast",
         json::array({{{"$type", "VfxNotifierEvent"}, {"time", 0.63}}, {{"$type", "SpawnEntityEvent"}, {"time", 0.65}},
                      {{"$type", "PayUsageCost"}, {"time", 0.65}}, {{"$type", "PayUsageCost"}, {"time", 0.65}}, {{"$type", "SpawnEntityEvent"}, {"time", 0.9}}}));
-    seq(601, "npc_turn", json::array());
+    seq(621, "npc_turn", json::array());
     seq(602, "NPC_Turn", json::array({{{"$type", "SpawnImpact"}, {"time", 0.25}}}));  // the same name in another case: a clash
     v.add("keen::BalancingTable", kBalance,
           {{"experienceNeedPerLevel", json::array({1000, 2000, 3000, 4000, 5000})}, {"playerLevelCap", 50}, {"genericWeaponSeed", 10.0}, {"powerCreepWeapon", 0.15},
@@ -213,6 +235,25 @@ void entries_and_ids(const std::string& dir) {
     check(ids_of(*f.m, "buffs") == "game:buff_cdbe9c80,game:buff_5f425faf", "buffs: buff_<32-bit id> (no debug name): " + ids_of(*f.m, "buffs"));
     check(ids_of(*f.m, "abilities") == "game:attack_player_staff_fixedanim_fireball_fast,game:npc_turn,game:npc_turn~0000025a",
           "abilities: the first part's name, a clash gets ~<guid8>: " + ids_of(*f.m, "abilities"));
+    check(ids_of(*f.m, "lootRules") == "game:loot", "the one loot rules entry: " + ids_of(*f.m, "lootRules"));
+    check(ids_of(*f.m, "randomLoot") == "game:labels_80943338,game:labels_d76791b1,game:world_00000258_00004000,game:world_00000258_00000300",
+          "kind arrays: the label tables by their ids, then every scene resource's tables by GUID and the smallest node id of the chests "
+          "that use them, never by index (a table no chest uses and an empty resource add none): " + ids_of(*f.m, "randomLoot"));
+    {
+        std::string why;
+        const auto* rl = f.m->entries("randomLoot", &why);
+        uint8_t k[16];
+        kc::guid_parse(g(600), k);
+        check(rl && rl->size() == 4 && (*rl)[0].num == 0x80943338u && (*rl)[0].guid.empty() && (*rl)[2].num == map::element_num(k, 0x4000) &&
+                  (*rl)[3].num == map::element_num(k, 0x300) && (*rl)[3].num != (*rl)[2].num && (*rl)[3].place.element == 1,
+              "numbers: a label table's id, a scene table's element_num over its resource's GUID bytes and its first chest's node id; no GUID");
+        std::map<std::string, std::string> ids;
+        std::map<std::string, uint32_t> nums;
+        f.m->id_table(&ids, &nums);
+        check(nums.at("randomLoot|game:world_00000258_00000300") == map::element_num(k, 0x300) && ids.at("randomLoot|game:labels_d76791b1").empty(),
+              "the id table carries the numbers the live back-end finds the tables by");
+        check(f.m->id_table_json()["registries"]["randomLoot"]["#" + std::to_string(0xd76791b1u)] == "game:labels_d76791b1", "keyed #<number>");
+    }
     const auto* e = f.m->find("items", "GAME:SWORD_T1");
     check(e && e->num == 1002 && e->guid == g(2) && e->name == "Sword_T1", "find: case-insensitive, with GUID, number and name");
 }
@@ -259,6 +300,21 @@ void values(const std::string& dir) {
         check(ab && !f.m->value("abilities", 0, "timing.hit", &w) && !f.m->value("abilities", 1, "timing.release", &w),
               "an ability without such a moment has no value of it (an edit of it is refused per entry)");
     }
+    check(f.val("lootRules", "game:loot", "rarityWeights.common") == Value::number(40.59) &&
+              f.val("lootRules", "game:loot", "rarityWeights.legendary") == Value::number(5.29),
+          "a fixed array's elements by index (globalRarityDropRates[i])");
+    check(f.val("randomLoot", "game:labels_80943338", "rarity.common.mode") == Value::text("set") &&
+              f.val("randomLoot", "game:labels_80943338", "rarity.uncommon.weight") == Value::number(40.26) &&
+              f.val("randomLoot", "game:labels_80943338", "rarity.legendary.weight") == Value::number(0),
+          "a label table's rarities: the game's mode names as Kiln's, the weights by index");
+    check(f.val("randomLoot", "game:labels_d76791b1", "levelOffsetRange.max") == Value::number(3) &&
+              f.val("randomLoot", "game:labels_d76791b1", "level.mode") == Value::text("none"),
+          "a label table's range and level mode");
+    check(f.val("randomLoot", "game:world_00000258_00004000", "levelOffset.mode") == Value::text("add") &&
+              f.val("randomLoot", "game:world_00000258_00004000", "levelOffset.value") == Value::number(5) &&
+              f.val("randomLoot", "game:world_00000258_00000300", "level.mode") == Value::text("set") &&
+              f.val("randomLoot", "game:world_00000258_00000300", "level.value") == Value::number(12),
+          "a scene table's offset and level, through the same rows");
     std::string why;
     const auto* items = f.m->entries("items", &why);
     check(!f.m->value("items", 0, "noSuchField", &why) && why.find("not in the schema") != std::string::npos, "an unknown field: " + why);

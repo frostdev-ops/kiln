@@ -145,7 +145,8 @@ std::vector<OldWrite> old_writes(const std::vector<OldDoc>& docs, model::Model& 
     std::map<FieldRef, Value> lists;  // a list's value as the old documents leave it so far
     for (const OldDoc& d : docs) {
         for (const auto& [regname, rmap] : rm.registries) {
-            if (rmap.entries.resource_type != d.type) continue;
+            // a kind arrays registry (randomLoot) has no restart field: the old documents are below its live rows, nothing to read back
+            if (rmap.entries.kind == map::EntryKind::Arrays || rmap.entries.resource_type != d.type) continue;
             std::string why;
             const std::vector<model::Entry>* es = m.entries(regname, &why);
             if (!es) continue;

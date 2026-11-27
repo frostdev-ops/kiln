@@ -32,7 +32,7 @@ std::unordered_map<uint32_t, std::vector<uint8_t>> g_category_guid;
 namespace {
 alignas(16) uint8_t g_arena[1 << 20];  // the made-up game memory (real addresses, so near memory is within reach)
 size_t g_near = 1 << 19;
-Registry g_regs[5];
+Registry g_regs[7];  // KILN_CONTENT_ITEMS .. KILN_CONTENT_RANDOM_LOOT
 std::map<std::string, std::string> g_files;  // pack file rel -> its text
 std::filesystem::path g_pack_root;
 }  // namespace

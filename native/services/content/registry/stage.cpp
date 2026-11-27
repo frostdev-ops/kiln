@@ -233,8 +233,15 @@ std::string regmap_digest(const map::RegMap& rm) {
         for (const auto& [f, row] : r.rows)
             rows[f] = {row.paths, row.conv, row.values, row.formula, row.config, static_cast<int>(row.read), static_cast<int>(row.backend),
                        static_cast<int>(row.state), row.client_needs};
+        json sources = json::array();
+        for (const map::EntrySource& s : e.sources) {
+            json one = {s.resource_type, s.array, s.id, s.unnamed};
+            if (!s.used_by_array.empty()) one.push_back({s.used_by_array, s.used_by_index, s.used_by_id});  // what names the elements
+            sources.push_back(one);
+        }
         j["registries"][n] = {{"entries", {static_cast<int>(e.kind), e.resource_type, e.array, e.resource_guid, e.name, e.guid, e.id, e.unnamed, e.name_from, e.key}},
                               {"rows", rows}};
+        if (!sources.empty()) j["registries"][n]["sources"] = sources;  // kind arrays only: other registries' digests stay as they were
     }
     if (rm.has_build) {
         json rows = json::object();
@@ -465,9 +472,22 @@ struct Runner::Impl {
         std::set<std::string> whole;
         std::string shared;
         ArchiveFields fields;
+        std::set<std::string> element_types;  // resource types some registry's entries are elements of
         for (const auto& [name, rmap] : rm.registries) {
-            if (rmap.entries.kind != map::EntryKind::Array) whole.insert(name);
-            else shared += (shared.empty() ? "" : ", ") + name, fields.array[name] = rmap.entries.array;
+            if (rmap.entries.kind == map::EntryKind::Array) element_types.insert(rmap.entries.resource_type);
+            for (const map::EntrySource& src : rmap.entries.sources) element_types.insert(src.resource_type);
+        }
+        for (const auto& [name, rmap] : rm.registries) {
+            // a singleton that is the head of such a resource (lootRules in the loot registry's resource): only from paths
+            if (rmap.entries.kind == map::EntryKind::Single && element_types.count(rmap.entries.resource_type)) {
+                fields.partial.insert(name);
+                shared += (shared.empty() ? "" : ", ") + name;
+            }
+            if (rmap.entries.kind != map::EntryKind::Array && rmap.entries.kind != map::EntryKind::Arrays) whole.insert(name);
+            else
+                shared += (shared.empty() ? "" : ", ") + name,
+                    fields.array[name] = rmap.entries.kind == map::EntryKind::Arrays && !rmap.entries.sources.empty() ? rmap.entries.sources[0].array
+                                                                                                                    : rmap.entries.array;
             for (const auto& [field, row] : rmap.rows)  // a template's: any write in its component list (archive_paths_of)
                 if (field.find("[]") == std::string::npos) fields.rows[name][field] = archive_paths_of(rmap.entries.resource_type, row.paths);
         }
@@ -494,7 +514,7 @@ struct Runner::Impl {
         const size_t named = name_archive_writers(*journal, ids, whole, base, &fields);
         std::string text = journal->text;
         if (journal->state == "read" && !shared.empty() && journal->format == 1)
-            text += "; " + shared + " entries are not named (each is an element of a resource its registry's entries share, and this journal does not say which element a package wrote)";
+            text += "; " + shared + " entries are not named (each is an element or a part of a resource other entries share, and this journal does not say which part a package wrote)";
         else if (journal->state == "read" && journal->format == 2)
             text += "; each mod is named on the fields its member paths name (on recipe and loot entries by their element)";
         meta.base.journal = {journal->state, text, journal->packages.size(), named, journal->truncated};
@@ -816,6 +836,13 @@ KilnResult Runner::submit(uint64_t owner, const std::string& owner_mod, const st
         err = "the batch names mod " + b.mod + ", not the caller's own mod " + owner_mod;
         b.edits.clear();
         return say(KILN_ERR_INVALID_ARGUMENT);
+    }
+    // one call's edits per registry against its cap (schema editsPerCall): over it, the batch is refused whole with a row per
+    // registry it names (owner 2026-11-26: refused loudly, never cut)
+    if (auto over = refuse_over_cap(b, refused, d_->schema); !over.empty()) {
+        d_->log(1, "registry: " + b.mod + ": " + over.front().reason);
+        b.edits.clear();
+        refused = std::move(over);
     }
     std::lock_guard lk(d_->mu);
     if (!d_->alive(owner)) {

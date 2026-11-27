@@ -264,6 +264,18 @@ int64_t field_offset(const char* qname, const char* field) {
     return -1;
 }
 
+bool derives_from(const char* qname, const char* base) {
+    Rec r;
+    if (!load(type_of(qname), &r)) return false;
+    for (int i = 0; i < 16 && r.kind == K_STRUCT && r.inner; ++i) {
+        Rec b;
+        if (!load(r.inner, &b)) return false;
+        if (b.name == base) return true;
+        r = b;
+    }
+    return false;
+}
+
 uint32_t type_size(const char* qname) {
     Rec r;
     return load(type_of(qname), &r) ? r.size : 0;

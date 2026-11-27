@@ -117,6 +117,9 @@ struct ArchiveFields {
     // An array registry's entries in the resource with this GUID (lower case): element index -> Kiln id. null: not known
     // (no element of it is named).
     std::function<const std::map<int32_t, std::string>*(const std::string& registry, const std::string& guid)> elements;
+    // Registries whose one entry is a part of a resource another registry's entries are elements of (lootRules: the weights at
+    // the head of the loot registry's resource): named from member paths only, never from a resource key alone.
+    std::set<std::string> partial;
 };
 
 // The member paths a registry field is named by in a format-2 journal: its regmap row's paths, except on a template (creatures):

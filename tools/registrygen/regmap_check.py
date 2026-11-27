@@ -468,6 +468,10 @@ def check(root, db):
         if e.get("kind") == "hooks":
             check_hooks(root, db, name, e, rows, specs, res)
             continue
+        if e.get("kind") == "arrays":
+            # several game sources (randomLoot): every row resolves from every source's element type
+            check_arrays(db, name, e, specs, rows, res)
+            continue
         rtype = e.get("resourceType", "")
         root_t = db.get(rtype)
         if root_t is None:
@@ -497,6 +501,13 @@ def check(root, db):
                             res.errors.append(f"{name}: entries.withComponent {c}: not a component type of the type source")
         if e.get("keyMember") and e.get("key") != "items":
             res.errors.append(f"{name}: entries.keyMember goes with \"key\": \"items\"")
+        check_rows(db, name, specs, rows, res, entry_root, root_t is not None)
+    return res
+
+
+def check_rows(db, name, specs, rows, res, entry_root, root_known):
+    """Each schema field's row against its member types from entry_root (None: the root type is not in the source)."""
+    if True:
         for path, spec_row in specs.items():
             q = f"{name}.{path}"
             row = rows.get(path)
@@ -539,7 +550,7 @@ def check(root, db):
             base = entry_root
             if spec_row.list_path:
                 base = list_element_root(db, entry_root, rows, spec_row.list_path) if entry_root else None
-            if root_t is not None and base is None:
+            if root_known and base is None:
                 errs.append(f"{q}: its list's element type is not found")
             if base is not None:
                 types = []
@@ -554,7 +565,72 @@ def check(root, db):
                     res.resolved += 1
             res.errors += errs
             res.rows[q] = "ok" if not errs and base is not None else "unmapped"
-    return res
+
+
+def check_arrays(db, name, e, specs, rows, res):
+    """Entries of kind arrays: each source's array member must exist; a row is ok only when it resolves on every source's
+    element type (randomLoot: the label tables and the scene tables share their leading layout)."""
+    sources = e.get("sources") or []
+    if not sources:
+        res.errors.append(f"{name}: entries.sources lists the game sources of kind arrays")
+        return
+    per = []
+    for i, src in enumerate(sources):
+        rtype = src.get("resourceType", "")
+        root_t = db.get(rtype)
+        if root_t is None:
+            res.absent.append(rtype)
+            per.append(None)
+            continue
+        res.layouts[rtype] = root_t.get("layout")
+        t, err = db.path(rtype, src.get("array", ""))
+        el = db.element(t) if t else None
+        if err or el is None:
+            res.errors.append(f"{name}: entries.sources[{i}].array {src.get('array')}: {err or 'not an array'}")
+            per.append(None)
+            continue
+        res.layouts[el["name"]] = el.get("layout")
+        if src.get("id") and db.path(el["name"], src["id"])[1]:
+            res.errors.append(f"{name}: entries.sources[{i}].id {src['id']}: {db.path(el['name'], src['id'])[1]}")
+        used = src.get("usedBy")
+        if bool(src.get("id")) == bool(used):
+            res.errors.append(f"{name}: entries.sources[{i}] names its elements by their id member or by usedBy (one of them)")
+        pattern = src.get("unnamed", "")
+        if "%08x" not in pattern or "%u" in pattern:
+            res.errors.append(f"{name}: entries.sources[{i}].unnamed takes its key (%08x: the id, or usedBy's id) and may take its "
+                              "resource's GUID (%.8s); an index is no stable name")
+        if isinstance(used, dict):
+            ut, uerr = db.path(rtype, used.get("array", ""))
+            uel = db.element(ut) if ut else None
+            if uerr or uel is None:
+                res.errors.append(f"{name}: entries.sources[{i}].usedBy.array {used.get('array')}: {uerr or 'not an array'}")
+            else:
+                res.layouts[uel["name"]] = uel.get("layout")
+                for member in ("index", "id"):
+                    err = db.path(uel["name"], used.get(member, ""))[1]
+                    if err:
+                        res.errors.append(f"{name}: entries.sources[{i}].usedBy.{member} {used.get(member)}: {err}")
+        elif used is not None:
+            res.errors.append(f"{name}: entries.sources[{i}].usedBy names the array that uses the elements, its index and its id member")
+        per.append(el["name"])
+    if any(p is None for p in per):
+        for path in specs:
+            res.rows[f"{name}.{path}"] = "unmapped"
+        return
+    results = []
+    for root in per:
+        sub = Result()
+        check_rows(db, name, specs, rows, sub, root, True)
+        results.append(sub)
+    first = results[0]
+    for sub in results:
+        for err in sub.errors:
+            if err not in res.errors:
+                res.errors.append(err)
+    for q, state in first.rows.items():
+        res.rows[q] = "ok" if all(sub.rows.get(q) == "ok" for sub in results) else "unmapped"
+    res.unmapped += [q for q in first.unmapped]
+    res.resolved += min(sub.resolved for sub in results)
 
 
 def check_hooks(root, db, name, e, rows, specs, res):

@@ -12,6 +12,7 @@
 
 #include "../../../core/src/services/boot_gamedata.h"
 
+#include "element_num.h"
 #include "schema.g.h"
 
 namespace kc::registry::map {
@@ -96,17 +97,63 @@ bool load_common(const json& doc, RegistryMap* out, std::vector<std::string>* er
     if (out->registry.empty()) return errs->push_back("a regmap file names its \"registry\""), false;
     const std::string& r = out->registry;
     const json e = doc.value("entries", json::object());
-    static const char* const ekeys[] = {"kind", "resourceType", "array", "resourceGuid", "name", "guid", "id", "unnamed", "nameFrom", "key", "keyMember", "withComponent"};
+    static const char* const ekeys[] = {"kind", "resourceType", "array", "resourceGuid", "name", "guid", "id", "unnamed", "nameFrom", "key", "keyMember", "withComponent",
+                                        "sources"};
     for (const auto& [k, v] : e.items())
         if (std::none_of(std::begin(ekeys), std::end(ekeys), [&](const char* x) { return k == x; })) errs->push_back(r + ": entries: unknown member \"" + k + "\"");
     const std::string kind = str(e, "kind");
-    out->entries.kind = kind == "array" ? EntryKind::Array : kind == "single" ? EntryKind::Single : kind == "hooks" ? EntryKind::Hooks : EntryKind::Resource;
-    if (kind != "resource" && kind != "array" && kind != "single" && kind != "hooks") errs->push_back(r + ": entries.kind is resource, array, single or hooks");
+    out->entries.kind = kind == "array"    ? EntryKind::Array
+                        : kind == "single" ? EntryKind::Single
+                        : kind == "hooks"  ? EntryKind::Hooks
+                        : kind == "arrays" ? EntryKind::Arrays
+                                           : EntryKind::Resource;
+    if (kind != "resource" && kind != "array" && kind != "single" && kind != "hooks" && kind != "arrays")
+        errs->push_back(r + ": entries.kind is resource, array, single, hooks or arrays");
     out->entries.resource_type = str(e, "resourceType");
     const bool hooks = out->entries.kind == EntryKind::Hooks;
-    if (hooks && !out->entries.resource_type.empty()) errs->push_back(r + ": entries of kind hooks have no resourceType (their values are Kiln's hooks)");
-    if (hooks && out->entries.unnamed.empty() && str(e, "unnamed").empty()) errs->push_back(r + ": entries of kind hooks name their one entry (\"unnamed\")");
-    if (!hooks && out->entries.resource_type.empty()) errs->push_back(r + ": entries.resourceType names the game's root type");
+    if (out->entries.kind == EntryKind::Arrays) {
+        // the sources say where the entries are; the kind has no root type of its own
+        if (!out->entries.resource_type.empty()) errs->push_back(r + ": entries of kind arrays name their types in sources, not resourceType");
+        const json sources = e.value("sources", json::array());
+        if (!sources.is_array() || sources.empty()) errs->push_back(r + ": entries.sources lists the game sources of kind arrays");
+        else
+            for (const json& sj : sources) {
+                static const char* const skeys[] = {"resourceType", "array", "id", "unnamed", "usedBy"};
+                EntrySource s;
+                s.kind = EntryKind::Array;
+                if (!sj.is_object()) { errs->push_back(r + ": entries.sources holds objects"); continue; }
+                for (const auto& [k, v] : sj.items())
+                    if (std::none_of(std::begin(skeys), std::end(skeys), [&](const char* x) { return k == x; }))
+                        errs->push_back(r + ": entries.sources: unknown member \"" + k + "\"");
+                s.resource_type = str(sj, "resourceType"), s.array = str(sj, "array"), s.id = str(sj, "id"), s.unnamed = str(sj, "unnamed");
+                if (s.resource_type.empty() || s.array.empty()) errs->push_back(r + ": each entries.sources item names resourceType and array");
+                // an element without an id member is named by what uses it (usedBy), never by its index: an index moves
+                // when a game update inserts an element, and an edit naming it would then reach another table
+                if (sj.contains("usedBy")) {
+                    const json& u = sj["usedBy"];
+                    static const char* const ukeys[] = {"array", "index", "id"};
+                    if (!u.is_object()) errs->push_back(r + ": entries.sources[].usedBy is an object");
+                    else
+                        for (const auto& [k, v] : u.items())
+                            if (std::none_of(std::begin(ukeys), std::end(ukeys), [&](const char* x) { return k == x; }))
+                                errs->push_back(r + ": entries.sources[].usedBy: unknown member \"" + k + "\"");
+                    if (u.is_object()) s.used_by_array = str(u, "array"), s.used_by_index = str(u, "index"), s.used_by_id = str(u, "id");
+                    if (s.used_by_array.empty() || s.used_by_index.empty() || s.used_by_id.empty())
+                        errs->push_back(r + ": entries.sources[].usedBy names the array that uses the elements, its index member and its id member");
+                }
+                if (s.id.empty() == s.used_by_array.empty())
+                    errs->push_back(r + ": each entries.sources item names its elements by their id member or by usedBy (one of them)");
+                if (s.unnamed.find("%08x") == std::string::npos || s.unnamed.find("%u") != std::string::npos)
+                    errs->push_back(r + ": a source's unnamed pattern takes its key (\"%08x\": the id, or usedBy's id) and may take its resource's GUID "
+                                        "(\"%.8s\"); an index is no stable name");
+                out->entries.sources.push_back(std::move(s));
+            }
+    } else {
+        if (e.contains("sources")) errs->push_back(r + ": entries.sources is for kind arrays");
+        if (hooks && !out->entries.resource_type.empty()) errs->push_back(r + ": entries of kind hooks have no resourceType (their values are Kiln's hooks)");
+        if (hooks && out->entries.unnamed.empty() && str(e, "unnamed").empty()) errs->push_back(r + ": entries of kind hooks name their one entry (\"unnamed\")");
+        if (!hooks && out->entries.resource_type.empty()) errs->push_back(r + ": entries.resourceType names the game's root type");
+    }
     out->entries.array = str(e, "array"), out->entries.resource_guid = str(e, "resourceGuid");
     out->entries.name = str(e, "name"), out->entries.guid = str(e, "guid"), out->entries.id = str(e, "id");
     out->entries.unnamed = str(e, "unnamed"), out->entries.name_from = str(e, "nameFrom"), out->entries.key = str(e, "key");
@@ -406,6 +453,25 @@ std::vector<std::string> check_routing(const RegistryMap& m) {
         if (row.backend == Backend::Hook && applies != 2) out.push_back(q + ": a hook takes its value at start, the schema says otherwise");
         if (row.backend == Backend::Live && applies == 2) out.push_back(q + ": a restart field goes through the boot back-end (before the game reads it)");
         if (row.backend == Backend::None) out.push_back(q + ": a writable field needs a back-end (live or boot)");
+    }
+    return out;
+}
+
+uint32_t element_num(const uint8_t guid[16], uint32_t key) { return kc::registry::element_num(guid, key); }
+
+std::string element_name(const EntrySource& source, uint32_t key, const std::string& guid_text) {
+    std::string out;
+    const std::string& p = source.unnamed;
+    for (size_t i = 0; i < p.size(); ++i) {
+        char buf[16];
+        if (p.compare(i, 4, "%08x") == 0) {
+            std::snprintf(buf, sizeof buf, "%08x", static_cast<unsigned>(key));
+            out += buf, i += 3;
+        } else if (p.compare(i, 4, "%.8s") == 0) {
+            out += lower(guid_text).substr(0, 8), i += 3;
+        } else {
+            out += p[i];
+        }
     }
     return out;
 }

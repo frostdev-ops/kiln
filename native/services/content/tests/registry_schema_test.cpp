@@ -29,11 +29,11 @@ static std::vector<Refusal> parse(const Schema& s, const char* doc, Batch* b) {
 
 int main() {
     const Schema s = generated_schema();
-    // ---- the five R1 registries and dev.32's creatures, arsenals, perks, skills, stations, buffs, abilities, world, difficulty and
-    // limits, every row (later waves add theirs)
+    // ---- the five R1 registries and dev.32's creatures, arsenals, perks, skills, stations, buffs, abilities, world, difficulty,
+    // limits, lootRules and randomLoot, every row (later waves add theirs)
     CHECK(s.registries.size() == std::size(gen::kRegistries));
     for (const char* r : {"items", "recipes", "loot", "drops", "balance", "creatures", "arsenals", "perks", "skills", "stations", "buffs", "abilities",
-                          "world", "difficulty", "limits"})
+                          "world", "difficulty", "limits", "lootRules", "randomLoot"})
         CHECK(s.registry(r) != nullptr);
     // pets and taming read a creature's kind (read-only) and its template id; an arsenal's attacks are a list of structs
     const FieldSpec* kind = s.registry("creatures")->field("kind");
@@ -72,6 +72,21 @@ int main() {
     CHECK(cnt && cnt->type == FieldType::Int && cnt->min == 1.0);
     CHECK(!s.registry("items")->add == false && s.registry("drops")->add == false && s.registry("drops")->remove == false);
     CHECK(s.registry("loot")->remove && !s.registry("loot")->add);
+    // ---- the random-loot registries: plain scalar leaves, read at each roll, tables neither added nor removed
+    for (const char* r : {"common", "uncommon", "rare", "epic", "legendary"}) {
+        const FieldSpec* w = s.registry("lootRules")->field(std::string("rarityWeights.") + r);
+        CHECK(w && w->type == FieldType::Float && w->min == 0.0 && w->max == 1e12 && w->applies == Applies::Now && !w->read_only);
+        const FieldSpec* m = s.registry("randomLoot")->field(std::string("rarity.") + r + ".mode");
+        CHECK(m && m->type == FieldType::Enum && m->enum_values == std::vector<std::string>({"none", "set", "add", "multiply"}) && m->applies == Applies::Now);
+        const FieldSpec* tw = s.registry("randomLoot")->field(std::string("rarity.") + r + ".weight");
+        CHECK(tw && tw->type == FieldType::Float && tw->min == 0.0 && tw->max == 1e12);
+    }
+    CHECK(s.registry("randomLoot")->field("source") == nullptr);  // where a table is used shows in its id (game:labels_*, game:world_*)
+    for (const char* f : {"level.value", "levelOffset.value", "levelOffsetRange.min", "levelOffsetRange.max"}) {
+        const FieldSpec* l = s.registry("randomLoot")->field(f);
+        CHECK(l && l->type == FieldType::Float && l->min == -1000.0 && l->max == 1000.0 && l->applies == Applies::Now);
+    }
+    for (const char* r : {"lootRules", "randomLoot"}) CHECK(!s.registry(r)->add && !s.registry(r)->remove);
     // ---- lists whose elements have fields: Struct elements with their leaves (link_elements)
     for (const char* q : {"recipes.inputs", "recipes.outputs", "drops.entries", "balance.buildzoneSizesPerAltarLevel"}) {
         const std::string qs = q;

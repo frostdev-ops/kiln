@@ -1,0 +1,254 @@
+{
+  "$schema": "../registry-schema.schema.json",
+  "registrySchema": 1,
+  "registry": "randomLoot",
+  "typeName": "RandomLoot",
+  "version": "0.1.0",
+  "stability": "experimental",
+  "experimentalId": "KILNX031",
+  "editsPerCall": 16384,
+  "doc": "The random loot tables: for each kind of enemy, generic container (barrels, crates, generic chests) and chest placed in the world, the level its random loot rolls at and its own rarity weights. Which items can drop is the loot registry's; the world-wide rarity weights are lootRules'. Where a table is used shows in its id: game:labels_* tables serve enemies and generic containers, game:world_* tables the chests placed in the world.",
+  "ids": {
+    "game": "game:labels_<8 hex digits> or game:world_<8 hex digits>_<8 hex digits>",
+    "mod": "(none: tables are not added)",
+    "rule": "Random loot tables have no names in the game. A table that enemies and generic containers use is game:labels_<its 32-bit id as 8 hex digits>; a table of the chests placed in the world is game:world_<the first 8 hex digits of its world's loot GUID>_<the scene node id of the first chest that uses it, as 8 hex digits> (the smallest node id among its chests). Both stay with their table when a game update inserts or moves tables; a table whose first chest changes gets a new id, and edits naming the old one are refused. A world table no chest uses has no id. Select by the prefixes (game:labels_*, game:world_*) and by the tables' values, or by an id read in the same run."
+  },
+  "traits": {},
+  "entry": {
+    "add": false,
+    "remove": false
+  },
+  "raw": "allowed",
+  "fields": {
+    "level": {
+      "type": "struct",
+      "applies": "now",
+      "typeName": "RandomLootLevel",
+      "doc": "The level the table's random loot rolls at. Without a mode the level of the place decides (the area level).",
+      "fields": {
+        "mode": {
+          "type": "enum",
+          "values": [
+            "none",
+            "set",
+            "add",
+            "multiply"
+          ],
+          "ops": "set",
+          "typeName": "RandomLootMode",
+          "doc": "How value changes the level: none leaves the area level, set uses value as the level, add adds value to it, multiply multiplies it by value.",
+          "joinedClient": "serverOnly"
+        },
+        "value": {
+          "type": "float",
+          "min": -1000,
+          "max": 1000,
+          "ops": "number",
+          "doc": "The level, or what is added to or multiplied with it, as mode says.",
+          "joinedClient": "serverOnly"
+        }
+      }
+    },
+    "levelOffset": {
+      "type": "struct",
+      "applies": "now",
+      "typeName": "RandomLootLevelOffset",
+      "doc": "Levels applied after level, before the random range.",
+      "fields": {
+        "mode": {
+          "type": "enum",
+          "values": [
+            "none",
+            "set",
+            "add",
+            "multiply"
+          ],
+          "ops": "set",
+          "typeName": "RandomLootMode",
+          "doc": "How value changes the level after level: none, set, add or multiply.",
+          "joinedClient": "serverOnly"
+        },
+        "value": {
+          "type": "float",
+          "min": -1000,
+          "max": 1000,
+          "ops": "number",
+          "doc": "The offset, as mode says.",
+          "joinedClient": "serverOnly"
+        }
+      }
+    },
+    "levelOffsetRange": {
+      "type": "struct",
+      "applies": "now",
+      "typeName": "RandomLootLevelOffsetRange",
+      "doc": "A random number of extra levels each roll adds, from min to max (0 and 0: none).",
+      "fields": {
+        "min": {
+          "type": "float",
+          "min": -1000,
+          "max": 1000,
+          "ops": "number",
+          "doc": "The fewest extra levels a roll adds.",
+          "joinedClient": "serverOnly"
+        },
+        "max": {
+          "type": "float",
+          "min": -1000,
+          "max": 1000,
+          "ops": "number",
+          "doc": "The most extra levels a roll adds.",
+          "joinedClient": "serverOnly"
+        }
+      }
+    },
+    "rarity": {
+      "type": "struct",
+      "applies": "now",
+      "typeName": "RandomLootRarity",
+      "doc": "The table's own rarity weights. A table whose five modes are none rolls with the world-wide weights (lootRules); elites, bosses and special chests set all five.",
+      "fields": {
+        "common": {
+          "type": "struct",
+          "typeName": "RandomLootRarityCommon",
+          "doc": "The table's own weight of common drops.",
+          "fields": {
+            "mode": {
+              "type": "enum",
+              "values": [
+                "none",
+                "set",
+                "add",
+                "multiply"
+              ],
+              "ops": "set",
+              "typeName": "RandomLootMode",
+              "doc": "How the table's common weight combines with the world-wide weight (lootRules.rarityWeights.common): none keeps the world-wide weight, set replaces it, add adds to it, multiply multiplies it.",
+              "joinedClient": "serverOnly"
+            },
+            "weight": {
+              "type": "float",
+              "min": 0,
+              "max": 1000000000000,
+              "ops": "number",
+              "doc": "The table's common weight (used as its mode says).",
+              "joinedClient": "serverOnly"
+            }
+          }
+        },
+        "uncommon": {
+          "type": "struct",
+          "typeName": "RandomLootRarityUncommon",
+          "doc": "The table's own weight of uncommon drops.",
+          "fields": {
+            "mode": {
+              "type": "enum",
+              "values": [
+                "none",
+                "set",
+                "add",
+                "multiply"
+              ],
+              "ops": "set",
+              "typeName": "RandomLootMode",
+              "doc": "How the table's uncommon weight combines with the world-wide weight (lootRules.rarityWeights.uncommon): none keeps the world-wide weight, set replaces it, add adds to it, multiply multiplies it.",
+              "joinedClient": "serverOnly"
+            },
+            "weight": {
+              "type": "float",
+              "min": 0,
+              "max": 1000000000000,
+              "ops": "number",
+              "doc": "The table's uncommon weight (used as its mode says).",
+              "joinedClient": "serverOnly"
+            }
+          }
+        },
+        "rare": {
+          "type": "struct",
+          "typeName": "RandomLootRarityRare",
+          "doc": "The table's own weight of rare drops.",
+          "fields": {
+            "mode": {
+              "type": "enum",
+              "values": [
+                "none",
+                "set",
+                "add",
+                "multiply"
+              ],
+              "ops": "set",
+              "typeName": "RandomLootMode",
+              "doc": "How the table's rare weight combines with the world-wide weight (lootRules.rarityWeights.rare): none keeps the world-wide weight, set replaces it, add adds to it, multiply multiplies it.",
+              "joinedClient": "serverOnly"
+            },
+            "weight": {
+              "type": "float",
+              "min": 0,
+              "max": 1000000000000,
+              "ops": "number",
+              "doc": "The table's rare weight (used as its mode says).",
+              "joinedClient": "serverOnly"
+            }
+          }
+        },
+        "epic": {
+          "type": "struct",
+          "typeName": "RandomLootRarityEpic",
+          "doc": "The table's own weight of epic drops.",
+          "fields": {
+            "mode": {
+              "type": "enum",
+              "values": [
+                "none",
+                "set",
+                "add",
+                "multiply"
+              ],
+              "ops": "set",
+              "typeName": "RandomLootMode",
+              "doc": "How the table's epic weight combines with the world-wide weight (lootRules.rarityWeights.epic): none keeps the world-wide weight, set replaces it, add adds to it, multiply multiplies it.",
+              "joinedClient": "serverOnly"
+            },
+            "weight": {
+              "type": "float",
+              "min": 0,
+              "max": 1000000000000,
+              "ops": "number",
+              "doc": "The table's epic weight (used as its mode says).",
+              "joinedClient": "serverOnly"
+            }
+          }
+        },
+        "legendary": {
+          "type": "struct",
+          "typeName": "RandomLootRarityLegendary",
+          "doc": "The table's own weight of legendary drops.",
+          "fields": {
+            "mode": {
+              "type": "enum",
+              "values": [
+                "none",
+                "set",
+                "add",
+                "multiply"
+              ],
+              "ops": "set",
+              "typeName": "RandomLootMode",
+              "doc": "How the table's legendary weight combines with the world-wide weight (lootRules.rarityWeights.legendary): none keeps the world-wide weight, set replaces it, add adds to it, multiply multiplies it.",
+              "joinedClient": "serverOnly"
+            },
+            "weight": {
+              "type": "float",
+              "min": 0,
+              "max": 1000000000000,
+              "ops": "number",
+              "doc": "The table's legendary weight (used as its mode says).",
+              "joinedClient": "serverOnly"
+            }
+          }
+        }
+      }
+    }
+  }
+}

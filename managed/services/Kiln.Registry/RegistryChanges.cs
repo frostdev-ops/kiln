@@ -154,6 +154,32 @@ public static partial class Registry
         var run = RegistryRuntime.Manual ?? throw new KilnUnavailableException("kiln.registry.live");
         return new(owner, run(owner, context => edits(For(context))));
     }
+    /// <summary>Authors this mod's declared <see cref="RegistryEntryPoint.WorldLoad"/> point again on the next host tick,
+    /// for edits made from settings or game state that changed (a config file, a player's level). The pass runs as Kiln runs
+    /// the point at a world load: every callback reads the pre-pass values without the mod's own registry layers (the game's
+    /// data and other mods' edits, so the edit is derived from them again, never from its own last result), entries refuse
+    /// one by one, and its commits replace the layers that point made in this world once they are in (a pass that faults
+    /// keeps the earlier layers). Requests made before the pass runs are one pass. Returns false, with the reason in
+    /// kiln.log, when the mod declares no WorldLoad point, another point is asked for (only WorldLoad is authored again
+    /// on request), the call is made inside an OnRegistry callback (ask when settings or game state change, never from the
+    /// pass), or the live back-end is not there; with no world loaded, the next world's load authors the point anyway.
+    /// The re-authored layers are committed after every other mod's: they win over other mods' WorldLoad edits of the same
+    /// fields (Final ones too) until those points are authored again, and the pass reads those mods' edits as the values
+    /// below it. Tick thread, inside the mod.</summary>
+    [TickThreadOnly, RequiresCapability("kiln.registry.live")]
+    public static bool Reauthor(RegistryEntryPoint point)
+    {
+        var owner = CallingMod();
+        var run = RegistryRuntime.Reauthor ?? throw new KilnUnavailableException("kiln.registry.live");
+        // inside a pass the request would queue the pass again from the pass itself (every tick, for a mod that asks in each
+        // OnRegistry): it belongs where settings or game state change
+        var why = RegistryContext.Current is not null
+            ? "it is asked for outside OnRegistry, when settings or game state change; inside a pass it would run the pass again on every tick"
+            : run(owner, point);
+        if (why is null) return true;
+        owner.Log.Warn($"registry: Reauthor({point}) was not queued: {why}");
+        return false;
+    }
     /// <summary>Reads the resolved mapped view in an expiring, read-only context. Keep copied values, not entries.</summary>
     [TickThreadOnly, RequiresCapability("kiln.registry")]
     public static void Read(Action<RegistryStage> read)

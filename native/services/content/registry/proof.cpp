@@ -333,7 +333,7 @@ std::vector<std::string> run(const Env& e) {
         std::vector<uint8_t> base;
         std::string err;
         if (!es || es->empty()) err = "no entry to sample (" + why + ")";
-        else if (reg.entries.kind == map::EntryKind::Array) err = "boot fields of array entries are not sampled";
+        else if (reg.entries.kind == map::EntryKind::Array || reg.entries.kind == map::EntryKind::Arrays) err = "boot fields of array entries are not sampled";
         else if (!e.bytes || !e.bytes((*es)[0].place.key, &base, &why)) err = "the entry's resource cannot be read (" + why + ")";
         if (!err.empty()) {
             log(1, name + ": unproven (" + err + ")");

@@ -54,6 +54,8 @@ registry has a breaking step yet: every schema is 0.1.x (balance 0.1.1 widened a
 | `world` | the world's build rules from its scene: no-build zones, the big dungeons' playable areas (since 0.2.0-dev.32) | [world.md](world.md) |
 | `difficulty` | the bounds of the world's difficulty settings: each setting's lowest and highest value (since 0.2.0-dev.32) | [difficulty.md](difficulty.md) |
 | `limits` | limits the game's code holds as fixed numbers: the most Flame Altars, the gifting distance; Kiln's own hooks answer the game's checks (since 0.2.0-dev.32) | [limits.md](limits.md) |
+| `lootRules` | the world-wide random-loot rules: the rarity weights of rolls whose table sets none (one entry, `game:loot`; 0.2.0-dev.32) | [lootRules.md](lootRules.md) |
+| `randomLoot` | every random loot table: its level rules (level, offset, random range) and its own rarity weights; `game:labels_*` serve enemies and generic containers, `game:world_*` the chests placed in the world (0.2.0-dev.32) | [randomLoot.md](randomLoot.md) |
 
 `buffs` and `abilities` (dev.32) are kiln.gamedata's data under Kiln names: the same buffs and sequences a data pack's
 `buffs` / `sequences` sections change by the game's paths ([gamedata.md](../../services/gamedata.md)), which keep working as
@@ -68,6 +70,23 @@ In multiplayer, `buffs` fields are the server's alone (`serverOnly`: a client sh
 ability's animation and effects at the old times, and a Kiln client gets the new time through the content sync. One exception:
 a time moved past a later event of the same kind in that ability is not sent, so Kiln clients keep the old time there too (the
 server still acts at the new one); a move that keeps the order (earlier, or later but not past such an event) is sent.
+
+**Loot odds and loot levels (`lootRules`, `randomLoot`, 0.2.0-dev.32).** A data pack doubles the world-wide legendary
+weight and gives every enemy and generic-container table two levels more; the tables of the chests placed in the world
+are `game:world_*`:
+
+```json
+{ "registry": { "alter": [
+  { "registry": "lootRules", "select": { "id": "game:loot" }, "field": "rarityWeights.legendary", "op": { "mul": 2 } },
+  { "registry": "randomLoot", "select": { "id": "game:labels_*" }, "field": "levelOffset.mode", "op": "add" },
+  { "registry": "randomLoot", "select": { "id": "game:labels_*" }, "field": "levelOffset.value", "op": 2 } ] } }
+```
+
+In C# the same from settings ([RegistryEdits sample](../../../../mods/samples/RegistryEdits/RegistryEditsMod.cs); to follow
+a settings change while a world runs, `Registry.Reauthor(RegistryEntryPoint.WorldLoad)` below): select tables by the id
+prefixes and their values (`table.Rarity.Legendary.Mode == RandomLootMode.Set`: the elite, boss and
+chest tables with their own odds), not by a table's full id from another build. Both registries are read by the server
+world at each roll, so an edit reaches the next roll; loot already rolled keeps what it got.
 
 The per-registry pages are generated from `schema/registry/<registry>.json` by `tools/registrygen/registrygen.py`; edit
 the schema, never the page. Kiln maintainers adding a registry: [adding-a-registry.md](../../adding-a-registry.md).
@@ -257,9 +276,58 @@ separate all-mod Final pass. The transaction still applies in commit order over 
 
 `RegistryChangeResult` copies outcome, accepted/refused/skipped counts, world token, generation and reason. `Ok` means
 Applied or Reverted with no refused edits or skipped foreign bytes. PendingWorld/PendingResource do not claim bytes were
-changed. RestartRequired, WorldRequired, Refused, Skipped and Unverified stay distinct. A change is not disposable:
+changed. A drop table the game has not loaded yet (it loads them as it needs them; an edit of one is PendingResource)
+reads, through `Registry.Read` and inside a pass, the value it takes when it loads: its base and the writers' layers, a
+pass leaving out its own (0.2.0-dev.32; before, such a read threw `KilnUnavailableException`, which faulted the whole pass). RestartRequired, WorldRequired, Refused, Skipped and Unverified stay distinct. A change is not disposable:
 only explicit `Revert()` on the tick thread or owner retirement removes its layer, never leaving a scope. Process ModLoad layers persist across worlds; world-bound layers expire with
 their world. Already committed GameStart layers stay until process restart, including through a runtime hot reload.
+
+**Edits per call (0.2.0-dev.32).** One call (one `OnRegistry` callback, that is one phase of one entry point, one
+`Registry.Change`, one batch a native plugin submits) takes at most a registry's cap of edits of that registry, declared by
+its schema (`editsPerCall`; each registry page says it; `RegistrySchema.EditsPerCall` in C#): 16,384 for `randomLoot`
+(every field of every table of the current game data, with room), 4,096 for the others. Each registry is counted on its
+own, so a Loot Rarity Leveler pass (about 4,000 table edits, 433 drop chances and the world-wide weights) fits one call. A
+call over a registry's cap is refused whole: nothing of it applies, registry.json has a row for each registry it names (the
+over-cap one with its count and the cap), and the mod's log says so; the mod's other calls (its other phases, its other
+points) still apply. Kiln never throws for it in the mod's code: before 0.2.0-dev.32 an edit past 4,096 threw, so a mod
+that caught the exception kept a cut call and one that did not lost its whole pass. Split edits over the point's phases
+(`Alter`, `Final`) or several `Registry.Change` calls when one registry needs more.
+
+**Authoring the WorldLoad point again (0.2.0-dev.32).** Edits made from settings or from the game's state (a config file, a
+player's level) can follow a change at once: `Kiln.Registry.Registry.Reauthor(RegistryEntryPoint.WorldLoad)` asks Kiln to run
+the mod's declared WorldLoad pass again on the next host tick, in the same world. The pass runs as at a world load: every
+callback reads the pre-pass values without the mod's own layers (so a value is derived from the game's data and other mods'
+edits again, never from the mod's own last result), entries refuse one by one, and its commits replace the layers that point
+made in this world once they are in, so the game never sees a moment without the mod's values; a pass that throws keeps the
+earlier layers (logged as a fault), a transient refusal asks again on a later tick. Requests before the tick are one pass.
+It returns false, with the reason in kiln.log, for another point (only WorldLoad is authored again on request), a mod that
+declares no WorldLoad point, a call from inside an `OnRegistry` callback (ask when settings or game state change; from the
+pass itself it would run the pass again on every tick), or no live back-end; with no world loaded the next world's load
+authors the point anyway. A split pass (Alter, then Final for what one call's cap does not take) is re-authored whole: both
+calls commit, then both earlier layers are taken back.
+
+The re-authored layers are the newest: live layers compose in commit order, so they win over other mods' WorldLoad edits of
+the same fields (Final ones too) until those mods' points are authored again, and the pass reads those mods' layers as the
+values below it. At a world load every mod's callbacks read before any of them commits (Alters before Finals, in load order);
+a re-authored pass sees what the others committed. Two mods that both set the same field from what they read give a
+different result after one of them re-authors: keep re-authored edits to fields other mods leave alone, or derive them from
+the game's values (`Registry.Read` the base).
+Loot Rarity Leveler (Kiln) uses it for its live settings and the character level:
+
+```csharp
+[RegistryEntryPoints(RegistryEntryPoint.WorldLoad)]
+public sealed class Leveler : Mod
+{
+    public override void OnLoad() => Config.Register<Settings>().Changed += _ => Kiln.Registry.Registry.Reauthor(RegistryEntryPoint.WorldLoad);
+    public override void OnRegistry(RegistryContext context)
+    {
+        if (context.Phase != RegistryPhase.Alter) return;
+        var r = Kiln.Registry.Registry.For(context);
+        var w = r.LootRules.RarityWeights;      // the values below this mod: the game's, or other mods' edits
+        w.Legendary = w.Legendary * 4;          // never stacks: each pass reads below its own last edit
+    }
+}
+```
 
 Subscribe to `Registry.Ready` in `OnLoad` for copied stage/live ready notifications; the Host removes the handler at unload.
 Its `RegistryReady.Phase` uses `RegistryReadyPhase.Start` or `WorldLoad`, not the author's `RegistryPhase` passes.
@@ -748,6 +816,8 @@ How a game entry's stable name is made (each registry's page repeats its own rul
 | world | `game:world` (one entry: the world's scene; the game's menu and character scenes are not entries) | 1 |
 | difficulty | `game:difficulty` (one entry) | 1 |
 | limits | `game:limits` (one entry: no game resource; its values are Kiln's hooks of the game's code) | 1 |
+| lootRules | `game:loot` (one entry) | 1 |
+| randomLoot | a table of the label collection (enemies, generic containers): `labels_<its 32-bit id, 8 hex>`; a table of a world's scene loot: `world_<the first 8 hex digits of that resource's GUID>_<the scene node id of the first chest that uses it (the smallest), 8 hex>`, never its index, so a game update that inserts a table moves no id (a table whose first chest changes gets a new id, and edits naming the old one are refused); a table no chest uses has no id | 797 tables: 99 `labels_` (23 set all five rarities) and 698 `world_` (all in `world_509feadb_*`, every one used by a chest); no clash |
 
 **Two entries with one name.** The entry that held a stable name first keeps it for good; a later entry whose name is the
 same (also when the two differ only in case) gets `game:<name>~<first 8 hex digits of its GUID>` (more digits if those

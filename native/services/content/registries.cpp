@@ -6,23 +6,29 @@
 //  - loot:    g38_loot::LootGenerationSystem +lootgen.lootreg -> the random-loot registry, HashMap<ItemId,
 //             LootableItemInfo*> at +lootreg.map (the roll reads stackSizeMin/Max live through LootFind)
 //  - drops:   DefaultInventoryResource blobs, registered by the DefaultInventoryAcquire hook as the game loads them
+//  - loot rules: the one LootableItemsResource's head (globalRarityDropRates), where the loot registry points (+lootreg.data)
+//  - random loot: every loot settings table of the label collection and of each SceneRandomLootResource, in resident
+//             resource memory (kiln.assets resource_data); the game reads both at every roll (docs/re/content.md section 12);
+//             a world table is named after the smallest node id of the chests (lootContainer) that use it
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
 #include "content.h"
+#include "registry/element_num.h"
 
 namespace kc {
 
 namespace {
-Registry g_regs[5];
+Registry g_regs[7];
 }  // namespace
 
 RecipeLayout RL;
 DropLayout DL;
 std::unordered_map<uint32_t, std::vector<uint8_t>> g_category_guid;
 
-bool valid_kind(uint32_t kind) { return kind >= KILN_CONTENT_ITEMS && kind <= KILN_CONTENT_DROPS; }
+bool valid_kind(uint32_t kind) { return kind >= KILN_CONTENT_ITEMS && kind <= KILN_CONTENT_RANDOM_LOOT; }
 Registry& reg(uint32_t kind) { return g_regs[valid_kind(kind) ? kind : 0]; }
 
 void Registry::add(Entry e) {
@@ -157,6 +163,28 @@ bool schemas(std::string* why) {
         LOGW("drop tables off: %s", err.c_str());
         E.drops = false;
     }
+    // the random-loot rules and tables: optional (the other registries work without them)
+    Registry& Rules = reg(KILN_CONTENT_LOOT_RULES);
+    Registry& Tables = reg(KILN_CONTENT_RANDOM_LOOT);
+    Rules.kind = KILN_CONTENT_LOOT_RULES, Rules.label = "loot rules";
+    Tables.kind = KILN_CONTENT_RANDOM_LOOT, Tables.label = "random loot tables";
+    if (!build_schema("keen::LootableItemsResource", {"items", "shufflebagCategoryWeights", "itemClassCategoryMask", "weaponCategoryMask", "armorCategoryMask"},
+                      &Rules.schema, &err)) {
+        LOGW("loot rules off: %s", err.c_str());
+        Rules.schema = Schema{};
+    }
+    // a label table (DefaultLootSettingsResource) is a scene table (LootSettingsResource) plus its id: one schema for both
+    if (!build_schema("keen::LootSettingsResource", {"tags", "specialLootItemLabelsId"}, &Tables.schema, &err)) {
+        LOGW("random loot tables off: %s", err.c_str());
+        Tables.schema = Schema{};
+    } else if ((!derives_from("keen::DefaultLootSettingsResource", "keen::LootSettingsResource") &&
+                field_offset("keen::DefaultLootSettingsResource", "modifier") != field_offset("keen::LootSettingsResource", "modifier")) ||
+               type_size("keen::DefaultLootSettingsResource") < Tables.schema.size) {
+        // a label table is a scene table plus its id: on the current builds it derives from it (its modifier is inherited, which
+        // field_offset does not see, so comparing the two offsets alone turned every random loot table off)
+        LOGW("random loot tables off: the label tables do not start like the scene tables on this build");
+        Tables.schema = Schema{};
+    }
     if (!layouts(why)) return false;
     done = true;
     LOGI("reflection: keen::ItemInfo %u bytes, %zu fields; keen::RecipeInfo %u bytes, %zu fields (inputs +0x%x x%u B, "
@@ -280,7 +308,185 @@ bool build_registries(uintptr_t world, std::string* why) {
             LOGW("random-loot items off: the loot registry is not readable");
     }
     D.available = E.drops;
+    build_loot_tables(lreg);
     return true;
+}
+
+namespace {
+// Every resident resource of a type (part 0) through kiln.assets, with its live bytes.
+struct Res {
+    KilnAssetKey key{};
+    uintptr_t data = 0;
+    size_t size = 0;
+};
+bool resources_of(const char* qtype, std::vector<Res>* out, std::string* why) {
+    out->clear();
+    const KilnAssetsApi* a = assets_api();
+    if (!a || a->header.size < offsetof(KilnAssetsApi, resource_data) + sizeof(void*) || !a->resource_data || !a->resource_list)
+        return *why = "kiln.assets cannot list the game's resources", false;
+    const uint32_t type = fnv1a(qtype, std::strlen(qtype));
+    size_t n = 0;
+    a->resource_list(type, nullptr, 0, &n);
+    std::vector<KilnAssetKey> keys(n);
+    if (n && a->resource_list(type, keys.data(), keys.size(), &n) != KILN_OK) return *why = std::string("the resources of ") + qtype + " cannot be listed", false;
+    keys.resize(std::min(n, keys.size()));
+    for (const KilnAssetKey& k : keys) {
+        if (k.part != 0) continue;
+        Res r;
+        r.key = k;
+        const void* p = nullptr;
+        if (a->resource_data(&k, &p, &r.size) != KILN_OK || !p) continue;  // not loaded: not in this world
+        r.data = reinterpret_cast<uintptr_t>(p);
+        out->push_back(r);
+    }
+    return true;
+}
+// The elements of a resource's BlobArray member that lie inside it (count, first element's address); false when it does not.
+bool elements_of(const Res& r, int64_t member, uint32_t stride, uint32_t* count, uintptr_t* first) {
+    *count = 0, *first = 0;
+    if (member < 0 || stride == 0 || static_cast<size_t>(member) + 8 > r.size) return false;
+    const BlobArr a = blob_array(r.data + static_cast<uintptr_t>(member));
+    if (!a.count) return true;
+    if (a.data < r.data || a.data + static_cast<uint64_t>(a.count) * stride > r.data + r.size) return false;
+    *count = a.count, *first = a.data;
+    return true;
+}
+}  // namespace
+
+void build_loot_tables(uintptr_t lreg) {
+    Registry& Rules = reg(KILN_CONTENT_LOOT_RULES);
+    Registry& Tables = reg(KILN_CONTENT_RANDOM_LOOT);
+    Rules.entries.clear(), Rules.by_id.clear(), Rules.by_name.clear(), Rules.by_lower.clear(), Rules.by_addr.clear(), Rules.available = false;
+    Tables.entries.clear(), Tables.by_id.clear(), Tables.by_name.clear(), Tables.by_lower.clear(), Tables.by_addr.clear(), Tables.available = false;
+    if (active_kind() == KILN_WORLD_CLIENT) return;  // a joined client: the server rolls the loot
+    std::string why;
+    std::vector<Res> rs;
+    // ---- loot rules: the resource the loot registry reads its weights from (+lootreg.data), else kiln.assets' copy ----
+    if (!Rules.schema.fields.empty()) {
+        if (!resources_of("keen::LootableItemsResource", &rs, &why)) LOGW("loot rules off: %s", why.c_str());
+        else if (rs.size() != 1) LOGW("loot rules off: %zu resources hold the world-wide rarity weights, Kiln knows one", rs.size());
+        else {
+            Entry e;
+            std::memcpy(e.guid, rs[0].key.guid, 16);
+            e.id = fnv1a(e.guid, 16);
+            e.name = guid_text(e.guid);
+            e.addr = rs[0].data;
+            int64_t off = 0x38;
+            uintptr_t game = 0;
+            if (lreg && g_api->constant(KilnStr{"content/lootreg.data", 20}, &off) == KILN_OK && off > 0 && off < 0x100 &&
+                rdv(lreg + static_cast<uintptr_t>(off), game) && game && game != e.addr) {
+                LOGI("loot rules: the loot registry reads its weights at %p, not at kiln.assets' copy %p: Kiln writes there",
+                     reinterpret_cast<void*>(game), reinterpret_cast<void*>(e.addr));
+                e.addr = game;
+            }
+            if (rs[0].size >= Rules.schema.size || e.addr != rs[0].data) {
+                Rules.add(std::move(e));
+                Rules.available = true;
+            } else {
+                LOGW("loot rules off: the resource is shorter (%zu bytes) than its type (%u)", rs[0].size, Rules.schema.size);
+            }
+        }
+    }
+    // ---- random loot tables: the label collection's (by their id), then each scene resource's, each named after the
+    // scene node of the first chest (the smallest node id) that uses it, never by its index (regmap/common/randomLoot.json
+    // usedBy; the stage's model.cpp names them the same way) ----
+    if (!Tables.schema.fields.empty()) {
+        struct Src {
+            const char* type;
+            const char* element;
+            const char* prefix;
+            bool by_id;
+        };
+        const Src srcs[] = {{"keen::DefaultLootLabelCollectionResource", "keen::DefaultLootSettingsResource", "labels_", true},
+                            {"keen::SceneRandomLootResource", "keen::LootSettingsResource", "world_", false}};
+        bool ok = true;
+        uint32_t clashes = 0, unused = 0;
+        // a world table's users: the scene resource's chests (index of the table they use, their node id)
+        Schema users;
+        const int64_t users_at = field_offset("keen::SceneRandomLootResource", "lootContainer");
+        const uint32_t user_stride = type_size("keen::LootContainerResource");
+        const Field* user_index = nullptr;
+        const Field* user_node = nullptr;
+        Schema node;  // nodeId is a member of the chest's base type (keen::LootNodeResource, at its start): the schema flattens own members only
+        if (users_at >= 0 && user_stride && build_schema("keen::LootContainerResource", {}, &users, &why)) {
+            user_index = users.find("lootSettingsIndex");
+            user_node = users.find("nodeId");
+            if (!user_node && derives_from("keen::LootContainerResource", "keen::LootNodeResource") &&
+                build_schema("keen::LootNodeResource", {}, &node, &why) && user_index && node.size <= user_index->offset)
+                user_node = node.find("nodeId");
+        }
+        for (const Src& src : srcs) {
+            const int64_t member = field_offset(src.type, "lootSettings");
+            const uint32_t stride = type_size(src.element);
+            const int64_t id_at = src.by_id ? field_offset(src.element, "id") : -1;
+            if (member < 0 || stride < Tables.schema.size || (src.by_id && (id_at < 0 || static_cast<uint32_t>(id_at) + 4 > stride))) {
+                LOGW("random loot tables off: %s has no table array Kiln knows on this build", src.type);
+                ok = false;
+                break;
+            }
+            if (!src.by_id && (!user_index || !user_node || user_index->bytes != 4 || user_node->bytes != 4 || user_index->offset + 4 > user_stride ||
+                               user_node->offset + 4 > user_stride)) {
+                LOGW("random loot tables off: %s has no chests Kiln can name its tables after on this build", src.type);
+                ok = false;
+                break;
+            }
+            if (!resources_of(src.type, &rs, &why)) {
+                LOGW("random loot tables off: %s", why.c_str());
+                ok = false;
+                break;
+            }
+            for (const Res& r : rs) {
+                uint32_t n = 0;
+                uintptr_t first = 0;
+                if (!elements_of(r, member, stride, &n, &first)) {
+                    LOGW("random loot tables: %s %s: its table array lies outside it; left out", src.type, guid_text(r.key.guid).c_str());
+                    continue;
+                }
+                std::vector<uint32_t> key(n, 0);
+                std::vector<bool> used(n, false);
+                if (!src.by_id && n) {
+                    uint32_t un = 0;
+                    uintptr_t uf = 0;
+                    if (!elements_of(r, users_at, user_stride, &un, &uf)) {
+                        LOGW("random loot tables: %s %s: its chests lie outside it; left out", src.type, guid_text(r.key.guid).c_str());
+                        continue;
+                    }
+                    for (uint32_t u = 0; u < un; ++u) {
+                        uint32_t at = 0, node = 0;
+                        const uintptr_t ue = uf + static_cast<uintptr_t>(u) * user_stride;
+                        if (!rdv(ue + user_index->offset, at) || !rdv(ue + user_node->offset, node) || at >= n) continue;
+                        if (!used[at] || node < key[at]) key[at] = node, used[at] = true;
+                    }
+                }
+                const std::string gtext = guid_text(r.key.guid);
+                for (uint32_t i = 0; i < n; ++i) {
+                    Entry e;
+                    e.addr = first + static_cast<uintptr_t>(i) * stride;
+                    char name[64];
+                    if (src.by_id) {
+                        if (!rdv(e.addr + static_cast<uintptr_t>(id_at), e.id)) continue;
+                        std::snprintf(name, sizeof name, "%s%08x", src.prefix, e.id);
+                    } else {
+                        if (!used[i]) {
+                            ++unused;  // no chest uses it: no stable name (the stage leaves it out too)
+                            continue;
+                        }
+                        e.id = registry::element_num(r.key.guid, key[i]);
+                        std::snprintf(name, sizeof name, "%s%.8s_%08x", src.prefix, gtext.c_str(), key[i]);
+                    }
+                    if (Tables.by_id.count(e.id)) {
+                        ++clashes;
+                        continue;
+                    }
+                    e.name = name;
+                    Tables.add(std::move(e));
+                }
+            }
+        }
+        if (unused) LOGI("random loot tables: %u world table(s) no chest uses are left out (nothing names them)", unused);
+        if (clashes) LOGW("random loot tables: %u table(s) share a 32-bit number with an earlier one; the earlier one is used", clashes);
+        Tables.available = ok && !Tables.entries.empty();
+    }
 }
 
 bool read_recipe_stacks(const Entry& e, uint32_t which, std::vector<KilnContentStack>* out) {

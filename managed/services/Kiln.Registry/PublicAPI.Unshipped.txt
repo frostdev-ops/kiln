@@ -331,6 +331,21 @@
 [KILNX031]Kiln.Registry.LimitsEntry.MaxAltars.get -> int
 [KILNX031]Kiln.Registry.LimitsEntry.MaxAltars.set -> void
 [KILNX031]Kiln.Registry.LimitsEntry.Registry.get -> string!
+[KILNX031]Kiln.Registry.LootRulesEntry
+[KILNX031]Kiln.Registry.LootRulesEntry.Id.get -> Kiln.Registry.RegistryId
+[KILNX031]Kiln.Registry.LootRulesEntry.RarityWeights.get -> Kiln.Registry.LootRulesRarityWeights!
+[KILNX031]Kiln.Registry.LootRulesEntry.Registry.get -> string!
+[KILNX031]Kiln.Registry.LootRulesRarityWeights
+[KILNX031]Kiln.Registry.LootRulesRarityWeights.Common.get -> double
+[KILNX031]Kiln.Registry.LootRulesRarityWeights.Common.set -> void
+[KILNX031]Kiln.Registry.LootRulesRarityWeights.Epic.get -> double
+[KILNX031]Kiln.Registry.LootRulesRarityWeights.Epic.set -> void
+[KILNX031]Kiln.Registry.LootRulesRarityWeights.Legendary.get -> double
+[KILNX031]Kiln.Registry.LootRulesRarityWeights.Legendary.set -> void
+[KILNX031]Kiln.Registry.LootRulesRarityWeights.Rare.get -> double
+[KILNX031]Kiln.Registry.LootRulesRarityWeights.Rare.set -> void
+[KILNX031]Kiln.Registry.LootRulesRarityWeights.Uncommon.get -> double
+[KILNX031]Kiln.Registry.LootRulesRarityWeights.Uncommon.set -> void
 [KILNX031]Kiln.Registry.PerkArmor
 [KILNX031]Kiln.Registry.PerkArmor.Blunt.get -> double
 [KILNX031]Kiln.Registry.PerkArmor.Blunt.set -> void
@@ -388,13 +403,73 @@
 [KILNX031]Kiln.Registry.PerkEntry.Registry.get -> string!
 [KILNX031]Kiln.Registry.PerkEntry.Value.get -> double
 [KILNX031]Kiln.Registry.PerkEntry.Value.set -> void
+[KILNX031]Kiln.Registry.RandomLootEntry
+[KILNX031]Kiln.Registry.RandomLootEntry.Id.get -> Kiln.Registry.RegistryId
+[KILNX031]Kiln.Registry.RandomLootEntry.Level.get -> Kiln.Registry.RandomLootLevel!
+[KILNX031]Kiln.Registry.RandomLootEntry.LevelOffset.get -> Kiln.Registry.RandomLootLevelOffset!
+[KILNX031]Kiln.Registry.RandomLootEntry.LevelOffsetRange.get -> Kiln.Registry.RandomLootLevelOffsetRange!
+[KILNX031]Kiln.Registry.RandomLootEntry.Rarity.get -> Kiln.Registry.RandomLootRarity!
+[KILNX031]Kiln.Registry.RandomLootEntry.Registry.get -> string!
+[KILNX031]Kiln.Registry.RandomLootLevel
+[KILNX031]Kiln.Registry.RandomLootLevel.Mode.get -> Kiln.Registry.RandomLootMode
+[KILNX031]Kiln.Registry.RandomLootLevel.Mode.set -> void
+[KILNX031]Kiln.Registry.RandomLootLevel.Value.get -> double
+[KILNX031]Kiln.Registry.RandomLootLevel.Value.set -> void
+[KILNX031]Kiln.Registry.RandomLootLevelOffset
+[KILNX031]Kiln.Registry.RandomLootLevelOffset.Mode.get -> Kiln.Registry.RandomLootMode
+[KILNX031]Kiln.Registry.RandomLootLevelOffset.Mode.set -> void
+[KILNX031]Kiln.Registry.RandomLootLevelOffset.Value.get -> double
+[KILNX031]Kiln.Registry.RandomLootLevelOffset.Value.set -> void
+[KILNX031]Kiln.Registry.RandomLootLevelOffsetRange
+[KILNX031]Kiln.Registry.RandomLootLevelOffsetRange.Max.get -> double
+[KILNX031]Kiln.Registry.RandomLootLevelOffsetRange.Max.set -> void
+[KILNX031]Kiln.Registry.RandomLootLevelOffsetRange.Min.get -> double
+[KILNX031]Kiln.Registry.RandomLootLevelOffsetRange.Min.set -> void
+[KILNX031]Kiln.Registry.RandomLootMode
+[KILNX031]Kiln.Registry.RandomLootMode.Add = 2 -> Kiln.Registry.RandomLootMode
+[KILNX031]Kiln.Registry.RandomLootMode.Multiply = 3 -> Kiln.Registry.RandomLootMode
+[KILNX031]Kiln.Registry.RandomLootMode.None = 0 -> Kiln.Registry.RandomLootMode
+[KILNX031]Kiln.Registry.RandomLootMode.Set = 1 -> Kiln.Registry.RandomLootMode
+[KILNX031]Kiln.Registry.RandomLootRarity
+[KILNX031]Kiln.Registry.RandomLootRarity.Common.get -> Kiln.Registry.RandomLootRarityCommon!
+[KILNX031]Kiln.Registry.RandomLootRarity.Epic.get -> Kiln.Registry.RandomLootRarityEpic!
+[KILNX031]Kiln.Registry.RandomLootRarity.Legendary.get -> Kiln.Registry.RandomLootRarityLegendary!
+[KILNX031]Kiln.Registry.RandomLootRarity.Rare.get -> Kiln.Registry.RandomLootRarityRare!
+[KILNX031]Kiln.Registry.RandomLootRarity.Uncommon.get -> Kiln.Registry.RandomLootRarityUncommon!
+[KILNX031]Kiln.Registry.RandomLootRarityCommon
+[KILNX031]Kiln.Registry.RandomLootRarityCommon.Mode.get -> Kiln.Registry.RandomLootMode
+[KILNX031]Kiln.Registry.RandomLootRarityCommon.Mode.set -> void
+[KILNX031]Kiln.Registry.RandomLootRarityCommon.Weight.get -> double
+[KILNX031]Kiln.Registry.RandomLootRarityCommon.Weight.set -> void
+[KILNX031]Kiln.Registry.RandomLootRarityEpic
+[KILNX031]Kiln.Registry.RandomLootRarityEpic.Mode.get -> Kiln.Registry.RandomLootMode
+[KILNX031]Kiln.Registry.RandomLootRarityEpic.Mode.set -> void
+[KILNX031]Kiln.Registry.RandomLootRarityEpic.Weight.get -> double
+[KILNX031]Kiln.Registry.RandomLootRarityEpic.Weight.set -> void
+[KILNX031]Kiln.Registry.RandomLootRarityLegendary
+[KILNX031]Kiln.Registry.RandomLootRarityLegendary.Mode.get -> Kiln.Registry.RandomLootMode
+[KILNX031]Kiln.Registry.RandomLootRarityLegendary.Mode.set -> void
+[KILNX031]Kiln.Registry.RandomLootRarityLegendary.Weight.get -> double
+[KILNX031]Kiln.Registry.RandomLootRarityLegendary.Weight.set -> void
+[KILNX031]Kiln.Registry.RandomLootRarityRare
+[KILNX031]Kiln.Registry.RandomLootRarityRare.Mode.get -> Kiln.Registry.RandomLootMode
+[KILNX031]Kiln.Registry.RandomLootRarityRare.Mode.set -> void
+[KILNX031]Kiln.Registry.RandomLootRarityRare.Weight.get -> double
+[KILNX031]Kiln.Registry.RandomLootRarityRare.Weight.set -> void
+[KILNX031]Kiln.Registry.RandomLootRarityUncommon
+[KILNX031]Kiln.Registry.RandomLootRarityUncommon.Mode.get -> Kiln.Registry.RandomLootMode
+[KILNX031]Kiln.Registry.RandomLootRarityUncommon.Mode.set -> void
+[KILNX031]Kiln.Registry.RandomLootRarityUncommon.Weight.get -> double
+[KILNX031]Kiln.Registry.RandomLootRarityUncommon.Weight.set -> void
 [KILNX031]Kiln.Registry.RegistryStage.Abilities.get -> Kiln.Registry.RegistryEntries<Kiln.Registry.AbilityEntry!>!
 [KILNX031]Kiln.Registry.RegistryStage.Arsenals.get -> Kiln.Registry.RegistryEntries<Kiln.Registry.ArsenalEntry!>!
 [KILNX031]Kiln.Registry.RegistryStage.Buffs.get -> Kiln.Registry.RegistryEntries<Kiln.Registry.BuffEntry!>!
 [KILNX031]Kiln.Registry.RegistryStage.Creatures.get -> Kiln.Registry.RegistryEntries<Kiln.Registry.CreatureEntry!>!
 [KILNX031]Kiln.Registry.RegistryStage.Difficulty.get -> Kiln.Registry.DifficultyEntry!
 [KILNX031]Kiln.Registry.RegistryStage.Limits.get -> Kiln.Registry.LimitsEntry!
+[KILNX031]Kiln.Registry.RegistryStage.LootRules.get -> Kiln.Registry.LootRulesEntry!
 [KILNX031]Kiln.Registry.RegistryStage.Perks.get -> Kiln.Registry.RegistryEntries<Kiln.Registry.PerkEntry!>!
+[KILNX031]Kiln.Registry.RegistryStage.RandomLoot.get -> Kiln.Registry.RegistryEntries<Kiln.Registry.RandomLootEntry!>!
 [KILNX031]Kiln.Registry.RegistryStage.Skills.get -> Kiln.Registry.RegistryEntries<Kiln.Registry.SkillNodeEntry!>!
 [KILNX031]Kiln.Registry.RegistryStage.Stations.get -> Kiln.Registry.RegistryEntries<Kiln.Registry.StationEntry!>!
 [KILNX031]Kiln.Registry.RegistryStage.World.get -> Kiln.Registry.WorldEntry!
@@ -463,3 +538,5 @@
 [KILNX031]Kiln.Registry.WorldPlayableAreaMin.Y.set -> void
 [KILNX031]Kiln.Registry.WorldPlayableAreaMin.Z.get -> double
 [KILNX031]Kiln.Registry.WorldPlayableAreaMin.Z.set -> void
+[KILNX031]static Kiln.Registry.Registry.Reauthor(Kiln.RegistryEntryPoint point) -> bool
+[KILNX031]static Kiln.Registry.RegistrySchema.EditsPerCall.get -> System.Collections.Generic.IReadOnlyDictionary<string!, int>!

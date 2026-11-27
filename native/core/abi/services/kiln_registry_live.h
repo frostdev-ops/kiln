@@ -27,7 +27,10 @@
  * already committed returns UNAVAILABLE. A commit that accepts nothing (REFUSED, RESTART_REQUIRED) consumes the handle, as
  * revert does; a WORLD_REQUIRED commit leaves the draft for the caller to revert.
  * Limits: 64 open drafts and 1024 retained changes in the process, 16 open drafts and 256 retained changes per owner (begin
- * returns UNAVAILABLE at any of them; kiln.log names the cap), 4096 edits per change, 64 MiB copied IR total. Revert releases
+ * returns UNAVAILABLE at any of them; kiln.log names the cap), each registry's edits per change at most its schema's
+ * editsPerCall (4096 unless the schema declares more; randomLoot 16384; since 0.2.0-dev.32, before: 4096 edits in all, a submit
+ * past it INVALID_ARGUMENT): a submit past a registry's cap is KILN_OK with nothing accepted and its batch refused whole, one
+ * refused row per registry it names (the over-cap ones first), 64 MiB copied IR total. Revert releases
  * the handle.
  * Entry add/remove and raw game paths are refused by this stable API (the existing Advanced APIs are unchanged).
  *
