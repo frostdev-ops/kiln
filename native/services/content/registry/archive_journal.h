@@ -6,9 +6,15 @@
 //  - format 1 (schema/sfi/eml-journal/startup-journal.schema.json): a kiln-mode ShroudForge-dialect pass. Per package of
 //    the committed attempt, in run order (ShroudForge packages and EML packages the pass ran), the archive resources its
 //    entrypoint wrote and the ones it created, by resource key (GUID, type hash, part);
-//  - format 2 (eml-journal-2.schema.json, 0.2.0-dev.31.18): EML's own pass (an EML start outside kiln mode). The
-//    same per mod of the run, and on each written resource the member paths the mod wrote there, at their published
-//    places ("maxStackSize", "recipes[37].craftingDuration", "input[]" for a list's members, "" for the whole resource).
+//  - format 2 (eml-journal-2.schema.json): the same per package, and on each written resource the member paths the package
+//    wrote there, at their published places ("maxStackSize", "recipes[37].craftingDuration", "input[]" for a list's
+//    members, "" for the whole resource). Dialect "eml": EML's own pass (an EML start outside kiln mode, 0.2.0-dev.31.18;
+//    a kiln-mode plan of EML mods only, next release); dialect "shroudforge": a kiln-mode ShroudForge-dialect pass (next
+//    release; a package is named where its entrypoint changed a member, compared with what the resource held before it).
+// Kiln's hosted ShroudForge (the bundled fork) keeps the same record of its own pass, format 2 of dialect "shroudforge" with
+// "writer": "shroudforge", beside its record of the pass: <game>/<stem>.kfc.change-journal.json, bound to the SHA-256 of
+// the <stem>.kfc it published (read_hosted_journal, hosted_generation). Either record may list the packages whose Lua the
+// committed run did not apply ("notApplied": the failed package and the ones left out with it; effect replay reads it).
 // Never a value. This reader takes that record (Kiln's own code over the documented file formats; nothing of kiln-eml's
 // source) and names each package on the registry entries whose resource it lists, so the report says "<package> (EML
 // package) wrote this before Kiln; Kiln's edit wins (D1)" instead of nothing.
@@ -30,8 +36,9 @@
 //    outcome's archiveSha256, in an EML start the receipt kiln-eml reports live in its state (eml.json "generation"). A
 //    writer that ignores the receipt (hosted ShroudForge, another loader) can leave one behind that names another
 //    generation. Such a journal is "stale" and names nobody; an old reader refuses format 2 whole (it names nobody);
-//  - hosted or installed ShroudForge and other loaders keep none: their pregame values are in the base and the report
-//    says no journal named them (Journal::state).
+//  - the player's own installed ShroudForge and other loaders keep none: their pregame values are in the base and the
+//    report says no journal named them (Journal::state); a hosted record left beside an installed ShroudForge's output
+//    names its packages only while the <stem>.kfc it is bound to is the live one.
 // Plain data apart from read_archive_journal (one file): no game memory, no lock.
 #pragma once
 #include <cstdint>
@@ -52,11 +59,13 @@ struct ArchiveJournal {
     // for another generation; unreadable: the file is not a journal of format 1 or 2 (the text says what is wrong).
     std::string state = "none";
     std::string text;
-    std::string dialect;  // "shroudforge" (format 1) | "eml" (format 2)
+    std::string dialect;  // "shroudforge" (format 1, or format 2 of a kiln-mode or hosted SF pass) | "eml" (format 2)
     int format = 0;       // 1 or 2 once read
+    std::string writer = "kiln-eml";  // who wrote it: "kiln-eml" | "shroudforge" (Kiln's hosted ShroudForge)
     bool truncated = false;
     struct Package {
         std::string id, version, kind;  // kind "shroudforge" | "eml"
+        std::string content;            // its contentSha256 (lower-case hex; empty: null, no plan froze it)
         std::vector<std::string> changed, created;  // resource GUIDs, lower case, as the game prints them
         // format 2: the member paths written in each changed resource (GUID -> paths, sorted; "" the whole resource; a
         // GUID listed with several type hashes or parts: all their paths). A GUID without paths (format 1) is named whole.
@@ -65,6 +74,11 @@ struct ArchiveJournal {
     };
     std::vector<Package> packages;  // in run order
     Package unattributed;           // id empty: writes made while no entrypoint ran
+    // format 2 "notApplied": the plan's packages whose pregame Lua the committed run did not apply, in the plan's order
+    struct NotApplied {
+        std::string id, version, kind, content, reason;  // content: contentSha256 (empty: null); reason: one line
+    };
+    std::vector<NotApplied> not_applied;
 };
 
 // The largest journal read: kiln-eml reads its own at most this big (StartupJournal::read), and its bounds keep one far
@@ -83,24 +97,42 @@ using ArchiveLinkTest = std::function<bool(const std::filesystem::path&)>;
 std::optional<std::string> read_archive_journal(const std::filesystem::path& kiln, const std::filesystem::path& stem, const ArchiveLinkTest& is_link,
                                                 std::string* why);
 
+// Kiln's hosted ShroudForge's journal of its own pass: <game>/<stem>.kfc.change-journal.json, read only from the game folder
+// itself (neither the file nor the game folder a link: is_link as above), at most kArchiveJournalMax, read and closed at once.
+// nullopt + *why when there is none or it cannot be read so.
+std::optional<std::string> read_hosted_journal(const std::filesystem::path& game, const std::filesystem::path& stem, const ArchiveLinkTest& is_link,
+                                               std::string* why);
+// The generation a hosted journal is bound to: the SHA-256 (lower-case hex) of the live <game>/<stem>.kfc, the archive's
+// header the game reads (about 9 MB; the hosted ShroudForge's record of its pass keeps the same digest). false + *why: the
+// file is not there, is a link, is larger than kHostedKfcMax or cannot be read.
+constexpr uintmax_t kHostedKfcMax = 256u << 20;
+bool hosted_generation(const std::filesystem::path& game, const std::filesystem::path& stem, const ArchiveLinkTest& is_link, std::string* hex,
+                       std::string* why);
+
 // The journal's text against the generation this start's archive writer published (lower-case hex, 64 digits). Never
 // throws: a malformed file is state "unreadable" with the reason. A package must be named as the format says (a ShroudForge
-// identifier, kind "shroudforge" or "eml", each id once; format 2: dialect "eml", kind "eml", every changed resource with
-// 1 to kArchiveJournalPaths member paths as the schema writes them): a journal that names one otherwise names nobody.
-ArchiveJournal parse_archive_journal(const std::string& text, const std::string& live_generation);
+// identifier, kind "shroudforge" or "eml", each id once; format 2: dialect "eml" with kind "eml" only, or "shroudforge",
+// every changed resource with 1 to kArchiveJournalPaths member paths as the schema writes them; a "notApplied" row a
+// ShroudForge identifier, a kind, one line of reason): a journal that names one otherwise names nobody. `writer`: whose
+// place the text was read from ("kiln-eml", or "shroudforge" for the hosted record): a record whose "writer" is another's
+// (or a hosted one of another dialect or format than 2 of dialect "shroudforge") is unreadable.
+ArchiveJournal parse_archive_journal(const std::string& text, const std::string& live_generation, const std::string& writer = "kiln-eml");
 
 // The live generation of an EML start (outside kiln mode) from kiln-eml's state of this process (kiln.eml state_json, the
 // text of kiln/state/eml.json): its "generation" when the phase is "done", lower-case hex. false + *why otherwise (kiln-eml
 // stood aside, ran no mod, failed, or is older than its journal).
 bool eml_state_generation(const std::string& state_json, std::string* hex, std::string* why);
 
-// What the report calls a package: "shroudforge:<id>" / "eml:<id>"; "kiln-eml:unattributed" for the unattributed bucket.
-inline std::string archive_writer_who(const std::string& kind, const std::string& id) {
-    return id.empty() ? std::string("kiln-eml:unattributed") : (kind == "eml" ? "eml:" : "shroudforge:") + id;
+// What the report calls a package: "shroudforge:<id>" / "eml:<id>"; "kiln-eml:unattributed" (or, in a hosted record,
+// "shroudforge-hosted:unattributed") for the unattributed bucket.
+inline std::string archive_writer_who(const std::string& kind, const std::string& id, const std::string& writer = "kiln-eml") {
+    if (id.empty()) return writer == "shroudforge" ? std::string("shroudforge-hosted:unattributed") : std::string("kiln-eml:unattributed");
+    return (kind == "eml" ? "eml:" : "shroudforge:") + id;
 }
 // For messages: "<id> (ShroudForge package)", "<id> (EML package)", "a startup write of no package Kiln can name (kiln-eml)".
 inline std::string archive_writer_label(const std::string& who) {
     if (who == "kiln-eml:unattributed") return "a startup write of no package Kiln can name (kiln-eml)";
+    if (who == "shroudforge-hosted:unattributed") return "a startup write of no package Kiln can name (hosted ShroudForge)";
     if (who.rfind("eml:", 0) == 0) return who.substr(4) + " (EML package)";
     if (who.rfind("shroudforge:", 0) == 0) return who.substr(12) + " (ShroudForge package)";
     return who;

@@ -90,6 +90,9 @@ const CHANGED = ['guid', 'typeHash', 'part', 'createdBy'];
 const CHANGED2 = [...CHANGED, 'paths'];
 const CREATED = ['ordinal', 'guid', 'typeHash', 'part', 'explicit'];
 const CONTENT = ['guid', 'size'];
+// format 2's optional members, after the required ones and in this order (0.2.0-dev.32: the hosted writer, effect replay)
+const OPTIONAL2 = ['writer', 'notApplied'];
+const NOT_APPLIED = ['id', 'version', 'kind', 'contentSha256', 'reason'];
 assert.deepEqual(Object.keys(schema.properties), ORDER); ++assertions;
 assert.deepEqual([...schema.required].sort(), [...ORDER].sort()); ++assertions;
 for (const [def, order] of [['package', PACKAGE], ['changes', CHANGES]]) {
@@ -100,7 +103,10 @@ for (const [def, order] of [['changedList', CHANGED], ['createdList', CREATED], 
   assert.deepEqual(Object.keys(schema.$defs[def].items.properties), order, def); ++assertions;
   assert.deepEqual([...schema.$defs[def].items.required].sort(), [...order].sort(), def); ++assertions;
 }
-assert.deepEqual(Object.keys(schema2.properties), ORDER); ++assertions;
+assert.deepEqual(Object.keys(schema2.properties), [...ORDER, ...OPTIONAL2]); ++assertions;
+assert.deepEqual([...schema2.required].sort(), [...ORDER].sort(), 'format 2: the optional members are optional'); ++assertions;
+assert.deepEqual(Object.keys(schema2.$defs.notApplied.properties), NOT_APPLIED); ++assertions;
+assert.deepEqual([...schema2.$defs.notApplied.required].sort(), [...NOT_APPLIED].sort()); ++assertions;
 for (const [def, order] of [['package', PACKAGE], ['changes', CHANGES]]) {
   assert.deepEqual(Object.keys(schema2.$defs[def].properties), order, `format 2 ${def}`); ++assertions;
 }
@@ -112,7 +118,14 @@ const keyOf = e => `${e.guid}/${e.typeHash}/${e.part}`;
 function rules(j, label) {
   const inOrder = (o, order, where) => assert.deepEqual(Object.keys(o), order, `${label}: ${where} field order`);
   const changedOrder = j.format === 2 ? CHANGED2 : CHANGED;
-  inOrder(j, ORDER, 'record');
+  inOrder(j, j.format === 2 ? [...ORDER, ...OPTIONAL2.filter(k => k in j)] : ORDER, 'record');
+  for (const n of j.notApplied ?? []) inOrder(n, NOT_APPLIED, 'notApplied');
+  // a package not applied did not run: it is not among the packages, and is listed once
+  const missed = (j.notApplied ?? []).map(n => n.id);
+  assert.equal(new Set(missed).size, missed.length, `${label}: notApplied lists a package once`); ++assertions;
+  assert(!missed.some(id => j.packages.some(p => p.id === id)), `${label}: a package not applied is not among those that ran`); ++assertions;
+  // the hosted writer keeps no receipt: its receipt is its generation
+  if (j.writer === 'shroudforge') { assert.equal(j.receiptSha256, j.generation, `${label}: hosted receipt`); ++assertions; }
   const ids = j.packages.map(p => p.id);
   assert.equal(new Set(ids).size, ids.length, `${label}: one entry per package`); ++assertions;
   const buckets = [...j.packages.map(p => [p.id, p]), [null, j.unattributed]];
@@ -245,7 +258,13 @@ for (const [what, ok] of [
   ['format 2: createdBy', records2.some(r => r.packages.some(p => p.changed.some(c => c.createdBy)))],
   ['format 2: truncated', records2.some(r => r.truncated)],
   ['format 2: unattributed', records2.some(r => r.unattributed.changed.length > 0)],
-  ['format 2: a version not known', records2.some(r => r.packages.some(p => p.version === null))]]) {
+  ['format 2: a version not known', records2.some(r => r.packages.some(p => p.version === null))],
+  ['format 2: the ShroudForge dialect', records2.some(r => r.dialect === 'shroudforge')],
+  ['format 2: a ShroudForge and an EML package in one pass', records2.some(r => ['shroudforge', 'eml'].every(k => r.packages.some(p => p.kind === k)))],
+  ['format 2: the hosted writer', records2.some(r => r.writer === 'shroudforge')],
+  ['format 2: kiln-eml named as the writer', records2.some(r => r.writer === 'kiln-eml')],
+  ['format 2: a package not applied', records2.some(r => (r.notApplied ?? []).length > 0)],
+  ['format 2: an empty notApplied', records2.some(r => Array.isArray(r.notApplied) && r.notApplied.length === 0)]]) {
   assert(ok, `a fixture with ${what}`); ++assertions;
 }
 // kiln-eml's own record of a fixed pass (gpl/kiln-eml/kiln-eml/tests/journal_contract.rs fails unless it is byte for byte

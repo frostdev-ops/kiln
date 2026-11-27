@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: MIT
 // kiln.content registry stage: archive-writer attribution from kiln-eml's change journal (archive_journal.h).
 // Reads the documented records (schema/sfi/eml-journal/startup-journal.schema.json, format 1, and eml-journal-2.schema.json,
-// format 2); no kiln-eml code.
+// format 2); no kiln-eml or ShroudForge code.
 #include "archive_journal.h"
 
 #include <algorithm>
 #include <cctype>
 #include <fstream>
 #include <set>
+
+#include "../../../core/src/services/boot_gamedata.h"
 
 namespace kc::registry {
 
@@ -101,11 +103,56 @@ bool sf_id(const std::string& id) {
     return true;
 }
 
-ArchiveJournal unreadable(const std::string& why) {
+// Whose record the text names in messages.
+std::string journal_name(const std::string& writer) {
+    return writer == "shroudforge" ? "hosted ShroudForge's change journal" : "kiln-eml's change journal";
+}
+
+ArchiveJournal unreadable(const std::string& why, const std::string& writer) {
     ArchiveJournal j;
+    j.writer = writer;
     j.state = "unreadable";
-    j.text = "kiln-eml's change journal is not one Kiln reads (format 1 or 2: " + why + "): no archive-writer package is named in this start";
+    j.text = journal_name(writer) + " is not one Kiln reads (format " + (writer == "shroudforge" ? "2" : "1 or 2") + ": " + why +
+             "): no archive-writer package is named in this start";
     return j;
+}
+
+// One line a person reads (a notApplied reason): no control character, at most 512 bytes.
+bool one_line(const std::string& s) {
+    if (s.empty() || s.size() > 512) return false;
+    return std::none_of(s.begin(), s.end(), [](char c) { return static_cast<unsigned char>(c) < 0x20 || c == 0x7f; });
+}
+
+// A plan digest as the format writes it: null (empty) or 64 lower-case hex digits. false: neither.
+bool digest_of(const json& p, const char* key, std::string* out) {
+    out->clear();
+    if (!p.contains(key) || p[key].is_null()) return true;
+    if (!p[key].is_string()) return false;
+    const std::string d = p[key].get<std::string>();
+    if (d.size() != 64 || d.find_first_not_of("0123456789abcdef") != std::string::npos) return false;
+    *out = d;
+    return true;
+}
+
+// A file of the game folder read whole and closed at once, only when it is a regular file that is no link (nor any part named
+// in `parts`), at most kArchiveJournalMax. nullopt + *why (begun with `what`) otherwise.
+std::optional<std::string> read_regular(const std::filesystem::path& file, const std::vector<std::pair<std::filesystem::path, const char*>>& parts,
+                                        const ArchiveLinkTest& is_link, const std::string& what, std::string* why) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    for (const auto& [p, name] : parts)
+        if (fs::is_symlink(fs::symlink_status(p, ec)) || (is_link && is_link(p)))
+            return *why = what + " is not read: " + name + " is a link, which may lead out of the game folder", std::nullopt;
+    if (!fs::is_regular_file(fs::symlink_status(file, ec))) return *why = what + " is no regular file: not read", std::nullopt;
+    const uintmax_t size = fs::file_size(file, ec);
+    if (ec) return *why = what + " could not be read", std::nullopt;
+    if (size > kArchiveJournalMax) return *why = what + " is larger than 16 MiB: not read", std::nullopt;
+    std::ifstream in(file, std::ios::binary);
+    std::string text;
+    text.resize(static_cast<size_t>(size));
+    if (!in || !in.read(text.data(), static_cast<std::streamsize>(size)) || in.peek() != std::char_traits<char>::eof())
+        return *why = what + " could not be read whole (it changed while it was read)", std::nullopt;
+    return text;
 }
 
 }  // namespace
@@ -117,40 +164,64 @@ std::optional<std::string> read_archive_journal(const std::filesystem::path& kil
     std::error_code ec;
     if (!fs::exists(fs::symlink_status(file, ec)))
         return *why = "kiln-eml wrote no change journal for this start (kiln/eml/ownership): its packages are not named", std::nullopt;
-    const std::pair<fs::path, const char*> parts[] = {{kiln, "the kiln folder"}, {kiln / "eml", "kiln/eml"}, {kiln / "eml" / "ownership", "kiln/eml/ownership"}, {file, "the journal"}};
-    for (const auto& [p, name] : parts)
-        if (fs::is_symlink(fs::symlink_status(p, ec)) || (is_link && is_link(p)))
-            return *why = std::string("kiln-eml's change journal is not read: ") + name + " is a link, which may lead out of the game folder", std::nullopt;
-    if (!fs::is_regular_file(fs::symlink_status(file, ec))) return *why = "kiln-eml's change journal is no regular file: not read", std::nullopt;
-    const uintmax_t size = fs::file_size(file, ec);
-    if (ec) return *why = "kiln-eml's change journal could not be read", std::nullopt;
-    if (size > kArchiveJournalMax) return *why = "kiln-eml's change journal is larger than 16 MiB: not read", std::nullopt;
-    std::ifstream in(file, std::ios::binary);
-    std::string text;
-    text.resize(static_cast<size_t>(size));
-    if (!in || !in.read(text.data(), static_cast<std::streamsize>(size)) || in.peek() != std::char_traits<char>::eof())
-        return *why = "kiln-eml's change journal could not be read whole (it changed while it was read)", std::nullopt;
-    return text;
+    return read_regular(file, {{kiln, "the kiln folder"}, {kiln / "eml", "kiln/eml"}, {kiln / "eml" / "ownership", "kiln/eml/ownership"}, {file, "the journal"}},
+                        is_link, "kiln-eml's change journal", why);
 }
 
-ArchiveJournal parse_archive_journal(const std::string& text, const std::string& live_generation) {
+std::optional<std::string> read_hosted_journal(const std::filesystem::path& game, const std::filesystem::path& stem, const ArchiveLinkTest& is_link,
+                                               std::string* why) {
+    namespace fs = std::filesystem;
+    const fs::path file = game / (stem.native() + fs::path(".kfc.change-journal.json").native());
+    std::error_code ec;
+    if (!fs::exists(fs::symlink_status(file, ec)))
+        return *why = "hosted ShroudForge wrote no change journal of its pass (" + file.filename().string() +
+                      "): its packages are not named (a ShroudForge older than this Kiln's, or the player's own installed one, keeps none)",
+               std::nullopt;
+    return read_regular(file, {{game, "the game folder"}, {file, "the journal"}}, is_link, "hosted ShroudForge's change journal", why);
+}
+
+bool hosted_generation(const std::filesystem::path& game, const std::filesystem::path& stem, const ArchiveLinkTest& is_link, std::string* hex,
+                       std::string* why) {
+    namespace fs = std::filesystem;
+    const fs::path kfc = game / (stem.native() + fs::path(".kfc").native());
+    std::error_code ec;
+    if (fs::is_symlink(fs::symlink_status(kfc, ec)) || (is_link && is_link(kfc)) || fs::is_symlink(fs::symlink_status(game, ec)) || (is_link && is_link(game)))
+        return *why = "the game's archive header (" + kfc.filename().string() + ") or the game folder is a link: no hosted journal is used", false;
+    if (!fs::is_regular_file(fs::symlink_status(kfc, ec))) return *why = "the game's archive header (" + kfc.filename().string() + ") is not there", false;
+    const uintmax_t size = fs::file_size(kfc, ec);
+    if (ec || size > kHostedKfcMax) return *why = "the game's archive header (" + kfc.filename().string() + ") cannot be hashed", false;
+    *hex = kiln::boot_gd::file_sha256(kfc);
+    if (hex->size() != 64) return *why = "the game's archive header (" + kfc.filename().string() + ") could not be read", false;
+    return true;
+}
+
+ArchiveJournal parse_archive_journal(const std::string& text, const std::string& live_generation, const std::string& writer) {
+    auto unreadable = [&](const std::string& why) { return ::kc::registry::unreadable(why, writer); };
     const json doc = json::parse(text, nullptr, false);
     if (doc.is_discarded() || !doc.is_object()) return unreadable("not JSON");
     if (!doc.contains("format") || (doc["format"] != 1 && doc["format"] != 2)) return unreadable("format is not 1 or 2");
     const int format = doc["format"].get<int>();
     if (!doc.contains("generation") || !doc["generation"].is_string()) return unreadable("no generation");
     ArchiveJournal j;
+    j.writer = writer;
+    // whose record it is: kiln-eml's (the member absent, as 0.2.0-dev.31.18 writes format 2) or the hosted ShroudForge's; a
+    // record in the other's place is no journal of this start's writer
+    const std::string says = doc.contains("writer") && doc["writer"].is_string() ? doc["writer"].get<std::string>() : (doc.contains("writer") ? "?" : "kiln-eml");
+    if (says != "kiln-eml" && says != "shroudforge") return unreadable("its writer is not kiln-eml or shroudforge");
+    if (says != writer) return unreadable("it says " + says + " wrote it, in " + (writer == "shroudforge" ? "hosted ShroudForge's" : "kiln-eml's") + " place");
     const std::string generation = lower(doc["generation"].get<std::string>());
     if (live_generation.empty() || generation != lower(live_generation)) {
         j.state = "stale";
-        j.text = "kiln-eml's change journal names another generation than the one this start reads (" + generation.substr(0, 12) +
+        j.text = journal_name(writer) + " names another generation than the one this start reads (" + generation.substr(0, 12) +
                  " is not the live " + (live_generation.empty() ? std::string("one") : lower(live_generation).substr(0, 12)) +
                  "): left by an earlier start, it names no package in this one";
         return j;
     }
     if (doc.contains("dialect") && doc["dialect"].is_string()) j.dialect = doc["dialect"].get<std::string>();
-    // format 2 is the EML dialect's (its packages EML mods): anything else is no journal Kiln knows
-    if (format == 2 && j.dialect != "eml") return unreadable("a format-2 journal of another dialect than eml");
+    // format 2: EML's pass (its packages EML mods) or a ShroudForge pass (kiln mode, or the hosted one); format 1 is kiln-eml's
+    // ShroudForge pass only
+    if (format == 2 && j.dialect != "eml" && j.dialect != "shroudforge") return unreadable("a format-2 journal of another dialect than eml or shroudforge");
+    if (writer == "shroudforge" && (format != 2 || j.dialect != "shroudforge")) return unreadable("a hosted journal that is not format 2 of the ShroudForge dialect");
     j.format = format;
     if (doc.contains("truncated") && doc["truncated"].is_boolean()) j.truncated = doc["truncated"].get<bool>();
     if (!doc.contains("packages") || !doc["packages"].is_array()) return unreadable("no packages");
@@ -165,19 +236,43 @@ ArchiveJournal parse_archive_journal(const std::string& text, const std::string&
         if (!ids.insert(pkg.id).second) return unreadable("the package " + pkg.id + " is listed twice");
         if (p.contains("version") && p["version"].is_string()) pkg.version = p["version"].get<std::string>();
         if (!p.contains("kind") || (p["kind"] != "shroudforge" && p["kind"] != "eml")) return unreadable("the package " + pkg.id + " has no kind shroudforge or eml");
-        if (format == 2 && p["kind"] != "eml") return unreadable("the package " + pkg.id + " of an EML pass is not kind eml");
+        if (format == 2 && j.dialect == "eml" && p["kind"] != "eml") return unreadable("the package " + pkg.id + " of an EML pass is not kind eml");
         pkg.kind = p["kind"].get<std::string>();
+        if (!digest_of(p, "contentSha256", &pkg.content)) return unreadable("the package " + pkg.id + " has a content digest that is not one");
         if (!changes_of(p, &pkg, format, &why)) return unreadable(why);
         j.packages.push_back(std::move(pkg));
     }
     if (doc.contains("unattributed") && !changes_of(doc["unattributed"], &j.unattributed, format, &why)) return unreadable(why);
-    if (format == 2) j.unattributed.kind = "eml";
+    j.unattributed.kind = format == 2 && j.dialect == "eml" ? "eml" : "shroudforge";
+    // the packages whose Lua the committed run did not apply (format 2, optional): one line each, never a package that ran
+    if (doc.contains("notApplied")) {
+        if (format != 2 || !doc["notApplied"].is_array()) return unreadable("notApplied is not a list of a format-2 journal");
+        std::set<std::string> missed;
+        for (const json& n : doc["notApplied"]) {
+            ArchiveJournal::NotApplied row;
+            if (!n.is_object() || !n.contains("id") || !n["id"].is_string() || !sf_id(n["id"].get<std::string>())) return unreadable("a package not applied has no ShroudForge identifier");
+            row.id = n["id"].get<std::string>();
+            if (ids.count(row.id) || !missed.insert(row.id).second) return unreadable("the package " + row.id + " is listed as not applied and as run, or twice");
+            if (!n.contains("kind") || (n["kind"] != "shroudforge" && n["kind"] != "eml") || (j.dialect == "eml" && n["kind"] != "eml"))
+                return unreadable("the package " + row.id + " not applied has no kind of its dialect");
+            row.kind = n["kind"].get<std::string>();
+            if (n.contains("version") && n["version"].is_string()) row.version = n["version"].get<std::string>();
+            if (!digest_of(n, "contentSha256", &row.content)) return unreadable("the package " + row.id + " not applied has a content digest that is not one");
+            if (!n.contains("reason") || !n["reason"].is_string() || !one_line(n["reason"].get<std::string>()))
+                return unreadable("the package " + row.id + " not applied has no one-line reason");
+            row.reason = n["reason"].get<std::string>();
+            j.not_applied.push_back(std::move(row));
+        }
+    }
     j.state = "read";
     size_t rows = 0;
     for (const auto& p : j.packages) rows += p.changed.size() + p.created.size();
-    j.text = "kiln-eml's change journal names " + std::to_string(j.packages.size()) +
-             (format == 2 ? (j.packages.size() == 1 ? " EML mod" : " EML mods") : (j.packages.size() == 1 ? " package" : " packages")) +
-             " of the startup pass (" + std::to_string(rows) + " resources written or created" + (format == 2 ? ", with the members written" : "") + ")" +
+    const bool eml = format == 2 && j.dialect == "eml";
+    j.text = journal_name(writer) + " names " + std::to_string(j.packages.size()) +
+             (eml ? (j.packages.size() == 1 ? " EML mod" : " EML mods") : (j.packages.size() == 1 ? " package" : " packages")) +
+             " of the startup pass (" + std::to_string(rows) + " resources " + (format == 2 && !eml ? "changed" : "written") + " or created" +
+             (format == 2 ? (eml ? ", with the members written" : ", with the members changed") : "") + ")" +
+             (j.not_applied.empty() ? "" : "; " + std::to_string(j.not_applied.size()) + (j.not_applied.size() == 1 ? " package's" : " packages'") + " Lua was not applied") +
              (j.truncated ? "; it is truncated, so a package past its bounds is not named everywhere it wrote" : "");
     return j;
 }
@@ -253,7 +348,7 @@ size_t name_archive_writers(const ArchiveJournal& journal, const std::map<std::s
         if (!f.empty()) name(entry, who, &f);
     };
     auto note = [&](const ArchiveJournal::Package& p) {
-        const std::string who = archive_writer_who(p.kind, p.id);
+        const std::string who = archive_writer_who(p.kind, p.id, journal.writer);
         for (const std::string& g : p.created)
             if (const auto it = by_guid.find(g); it != by_guid.end())
                 for (const auto& entry : it->second) name(entry, who, nullptr);

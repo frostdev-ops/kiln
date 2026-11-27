@@ -149,14 +149,15 @@
         },
         "journal": {
           "type": "object",
-          "description": "The archive writer's change journal (kiln-eml's <stem>.change-journal.json: format 1 from a kiln-mode start, format 2 (0.2.0-dev.31.18) from an EML start, EML's own pass): read when it is this start's and its packages are named where they wrote (writer rows of kind archiveWriter, certainty named; format 1 per entry, on registries whose entries are each a whole resource only: items, drops, balance, never a recipe or loot entry; format 2 per field from its member paths, recipe and loot entries by their element); none when this start has none (hosted or installed ShroudForge and other loaders keep none: what they changed is part of the base, unnamed); stale when the file names another generation; unreadable when it is not a journal of format 1 or 2. Since 0.2.0-dev.31.17 (format 2: 0.2.0-dev.31.18).",
+          "description": "The archive writer's change journal: kiln-eml's <stem>.change-journal.json (format 1 from a kiln-mode start; format 2 (0.2.0-dev.31.18) from an EML start, EML's own pass, and (next release) from a kiln-mode start, ShroudForge's or EML's pass) or (next release) Kiln's hosted ShroudForge's <stem>.kfc.change-journal.json (format 2, bound to the live <stem>.kfc): read when it is this start's and its packages are named where they wrote (writer rows of kind archiveWriter, certainty named; format 1 per entry, on registries whose entries are each a whole resource only: items, drops, balance, never a recipe or loot entry; format 2 per field from its member paths, recipe and loot entries by their element); none when this start has none (the player's own installed ShroudForge and other loaders keep none: what they changed is part of the base, unnamed); stale when the file names another generation; unreadable when it is not a journal of format 1 or 2. Since 0.2.0-dev.31.17 (format 2: 0.2.0-dev.31.18).",
           "required": ["state", "packages", "entries", "truncated"],
           "properties": {
             "state": { "enum": ["read", "none", "stale", "unreadable"] },
             "packages": { "type": "integer", "minimum": 0, "description": "The packages the journal lists (0 unless read)." },
             "entries": { "type": "integer", "minimum": 0, "description": "The registry entries of this start's base it named." },
             "truncated": { "type": "boolean", "description": "The journal left entries out past its bounds: a package may have written entries it does not name." },
-            "text": { "type": "string", "description": "One English sentence: what was read, or why nothing is named." }
+            "text": { "type": "string", "description": "One English sentence: what was read, or why nothing is named." },
+            "writer": { "enum": ["kiln-eml", "shroudforge"], "description": "Whose record was looked at (next release): kiln-eml's, or Kiln's hosted ShroudForge's (a start whose base.writer is shroudforge-hosted or shroudforge-installed)." }
           },
           "additionalProperties": false
         }

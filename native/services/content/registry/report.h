@@ -42,6 +42,7 @@ struct ReportMeta {
             std::string state = "none", text;
             size_t packages = 0, entries = 0;
             bool truncated = false;
+            std::string writer;  // whose record was looked at: "kiln-eml" | "shroudforge" (hosted); empty: none was asked
         } journal;
         // registry.json base.archive (archive_base.h): what Kiln knows the archive writer did and what it rests on; null: none.
         json archive;

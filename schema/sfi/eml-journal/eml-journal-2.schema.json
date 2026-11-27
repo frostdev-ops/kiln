@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "eml-journal/eml-journal-2.schema.json",
   "$comment": "SPDX-License-Identifier: MIT",
-  "description": "kiln-eml's change journal of an EML-dialect pass, format 2 (0.2.0-dev.31.18): the same file as format 1, <game>/kiln/eml/ownership/<stem>.change-journal.json, written by EML's own pass outside kiln mode after it published a generation. Per mod of the run (in the order their entrypoints ran), the archive resources its entrypoint wrote, each with the member paths it wrote there, the ones it created and the contents it created, never a value. Bound to the ownership receipt the publication wrote: 'generation' and 'receiptSha256' are that receipt's SHA-256, which kiln-eml's eml.json reports as 'generation' for the start whose live data it is (a publication, or an unchanged start that found that receipt's output live); every publication and restore removes the journal before it changes the receipt or the live files, and an unchanged start keeps it byte for byte. A reader uses it only when 'generation' is the start's live generation. A typed serializer writes the fields in this order. Attribution: a write is listed for the mod whose entrypoint was running when it was made (code that runs inside an entrypoint is that entrypoint's, whoever wrote it); the member paths come from EML's value wrappers walked once the mods ran, as the resource is written: a write that no longer reaches the published resource (into a value detached from it) is not listed; a value put in place over another (a field, an element, a variant's value, the resource's data) takes over the writes logged in the one it replaced, member by member where it has that member (a copy has them all), so they move with their members afterwards (the new value can be a copy of it); a mod's entry module writes as that mod, whoever requires it first. A mod whose id is not 1-80 of A-Z a-z 0-9 . _ - is listed in 'unattributed'. Bounds: at most 4096 entries (changed, created, contents) per package and in 'unattributed', 32768 in all, at most 16384 paths per changed resource (more: the whole resource, ['']), a path at most 256 bytes (longer: the member holding it), at most 8 MiB of paths in all (a resource past that: the whole resource, so a journal stays below the 16 MiB a reader takes); over the entry bounds, entries are left out and 'truncated' is true on the package and the journal. A format-1 reader refuses this record (format 2) and so names nobody from it.",
+  "description": "kiln-eml's change journal with member paths, format 2. Written by EML's own pass outside kiln mode (0.2.0-dev.31.18; dialect 'eml'), by kiln-eml's kiln-mode passes (next release: dialect 'shroudforge', the SF pass with its ShroudForge and EML packages, and dialect 'eml', EML's pass of a kiln-mode plan) beside the ownership receipt, <game>/kiln/eml/ownership/<stem>.change-journal.json, and by Kiln's hosted ShroudForge (next release: 'writer' 'shroudforge', dialect 'shroudforge') beside its record of the pass, <game>/<stem>.kfc.change-journal.json. Per package of the committed run (in the order their entrypoints ran), the archive resources its entrypoint wrote (dialect eml) or changed (dialect shroudforge), each with the member paths it wrote or changed there, the ones it created and the contents it created, never a value. Bound to one generation: an EML start outside kiln mode to the ownership receipt the publication wrote ('generation' and 'receiptSha256' are that receipt's SHA-256, which kiln-eml's eml.json reports as 'generation' while it is live); a kiln-mode start to kiln-eml's generation digest (the startup outcome's archiveSha256, as format 1) and its receipt; the hosted writer to the SHA-256 of the <stem>.kfc it published ('receiptSha256' the same). Every publication and restore removes the journal before it changes the live files, and an unchanged start keeps it byte for byte. A reader uses it only when 'generation' is the start's live generation. A typed serializer writes the fields in this order, the optional 'writer' and 'notApplied' last. Attribution (dialect eml): a write is listed for the mod whose entrypoint was running when it was made (code that runs inside an entrypoint is that entrypoint's, whoever wrote it); the member paths come from EML's value wrappers walked once the mods ran, as the resource is written: a write that no longer reaches the published resource (into a value detached from it) is not listed; a value put in place over another (a field, an element, a variant's value, the resource's data) takes over the writes logged in the one it replaced, member by member where it has that member (a copy has them all), so they move with their members afterwards (the new value can be a copy of it); a mod's entry module writes as that mod, whoever requires it first. Attribution (dialect shroudforge): after each package's entrypoint the resources it wrote (format 1's rule) are compared with what they held before it ran, member by member: a member whose value differs is listed for that package at its place then, and moves with later insertions and removals to its published place; a list whose length changed lists its membership ([]) and the elements between its unchanged first and last ones; a resource whose value is as it was before the package ran is not listed, so a package is named where it changed something, never where it wrote a value back. A mod whose id is not 1-80 of A-Z a-z 0-9 . _ - is listed in 'unattributed'. Bounds: at most 4096 entries (changed, created, contents) per package and in 'unattributed', 32768 in all, at most 16384 paths per changed resource (more: the whole resource, ['']), a path at most 256 bytes (longer: the member holding it), at most 8 MiB of paths in all (a resource past that: the whole resource, so a journal stays below the 16 MiB a reader takes); over the entry bounds, entries are left out and 'truncated' is true on the package and the journal. A format-1 reader refuses this record (format 2) and so names nobody from it; a 0.2.0-dev.31.18 reader refuses dialect shroudforge likewise.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -29,24 +29,25 @@
     },
     "generation": {
       "$ref": "#/$defs/sha256",
-      "description": "The SHA-256 of the ownership receipt of the generation the pass published (kiln-eml's eml.json 'generation' while it is live)."
+      "description": "The generation the record is bound to: an EML start's ownership receipt SHA-256 (kiln-eml's eml.json 'generation'); a kiln-mode start's generation digest (the startup outcome's archiveSha256); the hosted writer's SHA-256 of the published <stem>.kfc."
     },
     "receiptSha256": {
       "$ref": "#/$defs/sha256",
-      "description": "The same receipt's SHA-256 (format 1 binds a generation digest and its receipt; an EML-dialect generation is its receipt)."
+      "description": "The ownership receipt's SHA-256 (an EML start: the same as 'generation'; a kiln-mode start: the outcome's receiptSha256; the hosted writer, which keeps no receipt: the same as 'generation')."
     },
     "dialect": {
       "enum": [
-        "eml"
+        "eml",
+        "shroudforge"
       ],
-      "description": "The startup dialect whose pass the journal records: EML's own pass."
+      "description": "The startup dialect whose pass the journal records: eml (EML's pass; every package kind eml), shroudforge (ShroudForge's pass: its ShroudForge packages and the EML packages it runs)."
     },
     "attempt": {
       "enum": [
         "first",
         "retry"
       ],
-      "description": "retry: a mod's Lua failed and the pass ran again without it; only the committed run's writes are recorded."
+      "description": "retry: a package's Lua failed and the pass ran again without it; only the committed run's writes are recorded."
     },
     "truncated": {
       "type": "boolean",
@@ -63,8 +64,75 @@
     "unattributed": {
       "$ref": "#/$defs/changes",
       "description": "What was written or created while no entrypoint ran (normally nothing), and by mods whose id the record cannot name."
+    },
+    "writer": {
+      "enum": [
+        "kiln-eml",
+        "shroudforge"
+      ],
+      "description": "Who wrote the record: kiln-eml (absent: kiln-eml) or Kiln's hosted ShroudForge (the record beside <stem>.kfc.prepared.json). A reader takes a hosted record only from the hosted place and a kiln-eml record only from kiln-eml's."
+    },
+    "notApplied": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": {
+        "$ref": "#/$defs/notApplied"
+      },
+      "description": "The plan's packages whose pregame Lua the committed run did not apply (each once, in the plan's order): the package that failed (the pass ran again without it) and the ones left out with it. Effect replay (the registry's opt-in D6) reads it: a package listed here did not change the archive this start."
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "dialect": {
+            "const": "eml"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "packages": {
+            "items": {
+              "properties": {
+                "kind": {
+                  "const": "eml"
+                }
+              }
+            }
+          },
+          "notApplied": {
+            "items": {
+              "properties": {
+                "kind": {
+                  "const": "eml"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "writer"
+        ],
+        "properties": {
+          "writer": {
+            "const": "shroudforge"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "dialect": {
+            "const": "shroudforge"
+          }
+        }
+      }
+    }
+  ],
   "$defs": {
     "sha256": {
       "type": "string",
@@ -100,7 +168,7 @@
           "$ref": "#/$defs/sha256"
         }
       ],
-      "description": "A plan digest; null when no launch plan froze it (an EML start outside kiln mode)."
+      "description": "A plan digest (the package folder's content, its settings: with id and version the identity effect replay keys on); null when no launch plan froze it (an EML start outside kiln mode, the hosted writer)."
     },
     "path": {
       "type": "string",
@@ -125,7 +193,7 @@
       "properties": {
         "id": {
           "$ref": "#/$defs/sfId",
-          "description": "The EML mod's id (its mod.json)."
+          "description": "The package's id (a ShroudForge package's or an EML mod's mod.json id)."
         },
         "version": {
           "type": [
@@ -134,13 +202,14 @@
           ],
           "minLength": 1,
           "maxLength": 64,
-          "description": "Its mod.json version (null when not known)."
+          "description": "Its version (null when not known)."
         },
         "kind": {
           "enum": [
-            "eml"
+            "eml",
+            "shroudforge"
           ],
-          "description": "An EML mod."
+          "description": "An EML mod, or (dialect shroudforge) a ShroudForge package."
         },
         "contentSha256": {
           "$ref": "#/$defs/nullableSha256"
@@ -307,6 +376,46 @@
         }
       },
       "description": "The contents the entrypoint created (create_content), each once, in the order first created."
+    },
+    "notApplied": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "version",
+        "kind",
+        "contentSha256",
+        "reason"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/sfId"
+        },
+        "version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "kind": {
+          "enum": [
+            "eml",
+            "shroudforge"
+          ]
+        },
+        "contentSha256": {
+          "$ref": "#/$defs/nullableSha256"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]*$",
+          "description": "Why its Lua was not applied, one line (the pass's error, cut to 512 characters, or 'needs <id>, which failed')."
+        }
+      }
     }
   }
 }

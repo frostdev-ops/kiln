@@ -85,6 +85,7 @@ json report_json(const Schema& schema, const Result& r, const ReportMeta& meta, 
         const auto& jr = meta.base.journal;
         json journal = {{"state", jr.state}, {"packages", jr.packages}, {"entries", jr.entries}, {"truncated", jr.truncated}};
         if (!jr.text.empty()) journal["text"] = jr.text;
+        if (!jr.writer.empty()) journal["writer"] = jr.writer;
         doc["base"]["journal"] = std::move(journal);
     }
     json order = json::array();

@@ -456,7 +456,7 @@ struct Runner::Impl {
             journal.emplace();
             std::string generation, why;
             const std::optional<std::string> text = env.archive_journal ? env.archive_journal(&generation, &why) : std::nullopt;
-            if (text) *journal = parse_archive_journal(*text, generation);
+            if (text) *journal = parse_archive_journal(*text, generation, env.archive_journal_writer);
             else journal->text = why.empty() ? "this start's archive writer keeps no change journal: what it changed is part of the base and not named" : why;
             if (journal->state == "stale" || journal->state == "unreadable") log(1, "registry: " + journal->text);
         }
@@ -496,8 +496,10 @@ struct Runner::Impl {
         if (journal->state == "read" && !shared.empty() && journal->format == 1)
             text += "; " + shared + " entries are not named (each is an element of a resource its registry's entries share, and this journal does not say which element a package wrote)";
         else if (journal->state == "read" && journal->format == 2)
-            text += "; each mod is named on the fields its member paths name (on recipe and loot entries by their element)";
-        meta.base.journal = {journal->state, text, journal->packages.size(), named, journal->truncated};
+            text += journal->dialect == "eml" ? "; each mod is named on the fields its member paths name (on recipe and loot entries by their element)"
+                                              : "; each package is named on the fields its changed members name (on recipe and loot entries by their element)";
+        meta.base.journal = {journal->state, text, journal->packages.size(), named, journal->truncated,
+                             env.archive_journal ? env.archive_journal_writer : std::string()};
         if (journal->state == "read")
             log(0, "registry: " + journal->text + "; " + std::to_string(named) + (named == 1 ? " entry" : " entries") +
                        " of the registries name their archive-writer packages");

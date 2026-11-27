@@ -111,7 +111,8 @@ inline ArchiveBase archive_base(const ArchiveBaseInputs& in) {
         a["record"] = file(stem + ".kfc.prepared.json");
         a["text"] = std::string(in.backend == "hosted" ? "ShroudForge (hosted)" : "the installed ShroudForge") +
                     " reserved the startup data writer and published the archive (kiln-eml stood aside); ShroudForge's record of its "
-                    "pass is named, not read, and no package is named in its values";
+                    "pass is named, not read; its packages are named from the change journal Kiln's ShroudForge keeps beside it, "
+                    "where it is this archive's (base.journal)";
     } else if (phase == "aside") {
         out.writer = "external";
         a["text"] = "another loader published the archive instead of kiln-eml (" +

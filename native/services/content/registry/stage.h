@@ -92,6 +92,9 @@ struct Env {
     // published (lower-case hex). nullopt + *why: this start has none (why says which loader path keeps none). Asked once,
     // when the stage reads its base; unset: no journal.
     std::function<std::optional<std::string>(std::string* generation, std::string* why)> archive_journal;
+    // Whose record archive_journal reads: "kiln-eml" (kiln/eml/ownership) or "shroudforge" (Kiln's hosted ShroudForge, the
+    // record beside <stem>.kfc.prepared.json, bound to the live <stem>.kfc's SHA-256).
+    std::string archive_journal_writer = "kiln-eml";
 };
 
 // The boot back-end's part of one resource: the registry rows of each boot-routed field, evaluated over the value the old

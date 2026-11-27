@@ -224,6 +224,26 @@ std::optional<std::string> archive_journal(std::string* generation, std::string*
     return read_archive_journal(u8(api_path(KILN_PATH_KILN)), fs::path(exe).stem(), reparse, why);
 }
 
+// Kiln's hosted ShroudForge's change journal of its pass (archive_journal.h read_hosted_journal): <game>/<exe stem>
+// .kfc.change-journal.json, only from the game folder itself (neither it nor the game folder a link or another reparse
+// point), bound to the SHA-256 of the live <exe stem>.kfc (hashed only when there is a journal: about 9 MB).
+std::optional<std::string> hosted_journal(std::string* generation, std::string* why) {
+    wchar_t exe[MAX_PATH * 2] = {};
+    const DWORD n = GetModuleFileNameW(nullptr, exe, static_cast<DWORD>(std::size(exe)));
+    if (n == 0 || n >= std::size(exe)) return *why = "the game's file name is not known", std::nullopt;
+    const std::string game = api_path(KILN_PATH_GAME);
+    if (game.empty()) return *why = "the game folder is not known", std::nullopt;
+    const auto reparse = [](const fs::path& p) {
+        const DWORD a = GetFileAttributesW(p.c_str());
+        return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+    };
+    const fs::path stem = fs::path(exe).stem();
+    auto text = read_hosted_journal(u8(game), stem, reparse, why);
+    if (!text) return std::nullopt;
+    if (!hosted_generation(u8(game), stem, reparse, generation, why)) return std::nullopt;
+    return text;
+}
+
 // The drift probe's suspects (drift.h): the hook map's foreign modules and hosted ShroudForge. Once per world, no lock held.
 std::vector<std::string> drift_suspects_now() {
     bool hosted = false;
@@ -273,8 +293,13 @@ Env make_env() {
         const registry::ArchiveBase a = archive_writer();
         e.writer = a.writer;
         e.archive = a.archive;
+        // hosted or installed ShroudForge published the archive (kiln-eml stood aside): Kiln's hosted ShroudForge keeps the
+        // journal of its pass beside its record (a player's own installed copy keeps none; a hosted record names its packages
+        // only while the <stem>.kfc it is bound to is the live one)
+        const bool sf = a.writer == "shroudforge-hosted" || a.writer == "shroudforge-installed";
+        e.archive_journal = sf ? &hosted_journal : &archive_journal;
+        e.archive_journal_writer = sf ? "shroudforge" : "kiln-eml";
     }
-    e.archive_journal = &archive_journal;
     e.source = [](std::string* why) -> std::unique_ptr<model::Source> {
         kiln::boot_view::LiveView& v = live_view();
         v.restart(); // each owned source is a new read generation; the prior stage/ledger source may be released

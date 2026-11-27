@@ -5513,13 +5513,13 @@
   },
   {
     "schema": "eml-journal-2",
-    "why": "the ShroudForge dialect",
+    "why": "the hosted writer with the EML dialect",
     "record": {
       "format": 2,
       "stem": "enshrouded",
       "generation": "9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f",
       "receiptSha256": "9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f",
-      "dialect": "shroudforge",
+      "dialect": "eml",
       "attempt": "first",
       "truncated": false,
       "packages": [
@@ -5617,7 +5617,8 @@
         "changed": [],
         "created": [],
         "contents": []
-      }
+      },
+      "writer": "shroudforge"
     }
   },
   {
@@ -6807,6 +6808,663 @@
         "created": [],
         "contents": []
       }
+    }
+  },
+  {
+    "schema": "eml-journal-2",
+    "why": "an unknown writer",
+    "record": {
+      "format": 2,
+      "stem": "enshrouded",
+      "generation": "7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c",
+      "receiptSha256": "7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c",
+      "dialect": "shroudforge",
+      "attempt": "first",
+      "truncated": false,
+      "packages": [
+        {
+          "id": "betterstacks",
+          "version": "1.2.0",
+          "kind": "shroudforge",
+          "contentSha256": null,
+          "settingsSha256": null,
+          "truncated": false,
+          "changed": [
+            {
+              "guid": "01234567-89ab-cdef-0123-456789abcdef",
+              "typeHash": "8b4f2d1e",
+              "part": 0,
+              "createdBy": null,
+              "paths": [
+                "maxStackSize"
+              ]
+            },
+            {
+              "guid": "aaaaaaaa-0000-4000-8000-000000000001",
+              "typeHash": "8b4f2d1e",
+              "part": 0,
+              "createdBy": null,
+              "paths": [
+                ""
+              ]
+            }
+          ],
+          "created": [],
+          "contents": []
+        },
+        {
+          "id": "quiet",
+          "version": null,
+          "kind": "shroudforge",
+          "contentSha256": null,
+          "settingsSha256": null,
+          "truncated": false,
+          "changed": [],
+          "created": [],
+          "contents": []
+        }
+      ],
+      "unattributed": {
+        "truncated": false,
+        "changed": [],
+        "created": [],
+        "contents": []
+      },
+      "writer": "emf",
+      "notApplied": []
+    }
+  },
+  {
+    "schema": "eml-journal-2",
+    "why": "a notApplied reason with a line break",
+    "record": {
+      "format": 2,
+      "stem": "enshrouded_server",
+      "generation": "7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c",
+      "receiptSha256": "3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e",
+      "dialect": "shroudforge",
+      "attempt": "retry",
+      "truncated": false,
+      "packages": [
+        {
+          "id": "betterstacks",
+          "version": "1.2.0",
+          "kind": "shroudforge",
+          "contentSha256": "1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d",
+          "settingsSha256": "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b",
+          "truncated": false,
+          "changed": [
+            {
+              "guid": "01234567-89ab-cdef-0123-456789abcdef",
+              "typeHash": "8b4f2d1e",
+              "part": 0,
+              "createdBy": null,
+              "paths": [
+                "maxStackSize"
+              ]
+            }
+          ],
+          "created": [],
+          "contents": []
+        },
+        {
+          "id": "more-recipes",
+          "version": "0.4.1",
+          "kind": "eml",
+          "contentSha256": "1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d",
+          "settingsSha256": "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b",
+          "truncated": false,
+          "changed": [
+            {
+              "guid": "7a1d3e55-0b2c-4d6e-8f10-23456789abcd",
+              "typeHash": "3c6e0a11",
+              "part": 0,
+              "createdBy": null,
+              "paths": [
+                "recipes[2542]",
+                "recipes[]"
+              ]
+            }
+          ],
+          "created": [],
+          "contents": []
+        },
+        {
+          "id": "slow-craft",
+          "version": "2.0.0",
+          "kind": "shroudforge",
+          "contentSha256": "1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d",
+          "settingsSha256": "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b",
+          "truncated": false,
+          "changed": [
+            {
+              "guid": "7a1d3e55-0b2c-4d6e-8f10-23456789abcd",
+              "typeHash": "3c6e0a11",
+              "part": 0,
+              "createdBy": null,
+              "paths": [
+                "recipes[37].craftingDuration"
+              ]
+            }
+          ],
+          "created": [],
+          "contents": []
+        }
+      ],
+      "unattributed": {
+        "truncated": false,
+        "changed": [],
+        "created": [],
+        "contents": []
+      },
+      "writer": "kiln-eml",
+      "notApplied": [
+        {
+          "id": "broken-pack",
+          "version": "0.9.0",
+          "kind": "shroudforge",
+          "contentSha256": "1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d",
+          "reason": "one\nregistry: forged"
+        }
+      ]
+    }
+  },
+  {
+    "schema": "eml-journal-2",
+    "why": "a notApplied row without a reason",
+    "record": {
+      "format": 2,
+      "stem": "enshrouded_server",
+      "generation": "7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c",
+      "receiptSha256": "3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e",
+      "dialect": "shroudforge",
+      "attempt": "retry",
+      "truncated": false,
+      "packages": [
+        {
+          "id": "betterstacks",
+          "version": "1.2.0",
+          "kind": "shroudforge",
+          "contentSha256": "1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d",
+          "settingsSha256": "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b",
+          "truncated": false,
+          "changed": [
+            {
+              "guid": "01234567-89ab-cdef-0123-456789abcdef",
+              "typeHash": "8b4f2d1e",
+              "part": 0,
+              "createdBy": null,
+              "paths": [
+                "maxStackSize"
+              ]
+            }
+          ],
+          "created": [],
+          "contents": []
+        },
+        {
+          "id": "more-recipes",
+          "version": "0.4.1",
+          "kind": "eml",
+          "contentSha256": "1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d",
+          "settingsSha256": "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b",
+          "truncated": false,
+          "changed": [
+            {
+              "guid": "7a1d3e55-0b2c-4d6e-8f10-23456789abcd",
+              "typeHash": "3c6e0a11",
+              "part": 0,
+              "createdBy": null,
+              "paths": [
+                "recipes[2542]",
+                "recipes[]"
+              ]
+            }
+          ],
+          "created": [],
+          "contents": []
+        },
+        {
+          "id": "slow-craft",
+          "version": "2.0.0",
+          "kind": "shroudforge",
+          "contentSha256": "1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d",
+          "settingsSha256": "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b",
+          "truncated": false,
+          "changed": [
+            {
+              "guid": "7a1d3e55-0b2c-4d6e-8f10-23456789abcd",
+              "typeHash": "3c6e0a11",
+              "part": 0,
+              "createdBy": null,
+              "paths": [
+                "recipes[37].craftingDuration"
+              ]
+            }
+          ],
+          "created": [],
+          "contents": []
+        }
+      ],
+      "unattributed": {
+        "truncated": false,
+        "changed": [],
+        "created": [],
+        "contents": []
+      },
+      "writer": "kiln-eml",
+      "notApplied": [
+        {
+          "id": "broken-pack",
+          "version": "0.9.0",
+          "kind": "shroudforge",
+          "contentSha256": "1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d"
+        }
+      ]
+    }
+  },
+  {
+    "schema": "eml-journal-2",
+    "why": "an empty notApplied reason",
+    "record": {
+      "format": 2,
+      "stem": "enshrouded_server",
+      "generation": "7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c",
+      "receiptSha256": "3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e",
+      "dialect": "shroudforge",
+      "attempt": "retry",
+      "truncated": false,
+      "packages": [
+        {
+          "id": "betterstacks",
+          "version": "1.2.0",
+          "kind": "shroudforge",
+          "contentSha256": "1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d",
+          "settingsSha256": "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b",
+          "truncated": false,
+          "changed": [
+            {
+              "guid": "01234567-89ab-cdef-0123-456789abcdef",
+              "typeHash": "8b4f2d1e",
+              "part": 0,
+              "createdBy": null,
+              "paths": [
+                "maxStackSize"
+              ]
+            }
+          ],
+          "created": [],
+          "contents": []
+        },
+        {
+          "id": "more-recipes",
+          "version": "0.4.1",
+          "kind": "eml",
+          "contentSha256": "1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d",
+          "settingsSha256": "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b",
+          "truncated": false,
+          "changed": [
+            {
+              "guid": "7a1d3e55-0b2c-4d6e-8f10-23456789abcd",
+              "typeHash": "3c6e0a11",
+              "part": 0,
+              "createdBy": null,
+              "paths": [
+                "recipes[2542]",
+                "recipes[]"
+              ]
+            }
+          ],
+          "created": [],
+          "contents": []
+        },
+        {
+          "id": "slow-craft",
+          "version": "2.0.0",
+          "kind": "shroudforge",
+          "contentSha256": "1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d",
+          "settingsSha256": "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b",
+          "truncated": false,
+          "changed": [
+            {
+              "guid": "7a1d3e55-0b2c-4d6e-8f10-23456789abcd",
+              "typeHash": "3c6e0a11",
+              "part": 0,
+              "createdBy": null,
+              "paths": [
+                "recipes[37].craftingDuration"
+              ]
+            }
+          ],
+          "created": [],
+          "contents": []
+        }
+      ],
+      "unattributed": {
+        "truncated": false,
+        "changed": [],
+        "created": [],
+        "contents": []
+      },
+      "writer": "kiln-eml",
+      "notApplied": [
+        {
+          "id": "broken-pack",
+          "version": "0.9.0",
+          "kind": "shroudforge",
+          "contentSha256": "1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d",
+          "reason": ""
+        }
+      ]
+    }
+  },
+  {
+    "schema": "eml-journal-2",
+    "why": "an unknown member on a notApplied row",
+    "record": {
+      "format": 2,
+      "stem": "enshrouded_server",
+      "generation": "7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c",
+      "receiptSha256": "3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e",
+      "dialect": "shroudforge",
+      "attempt": "retry",
+      "truncated": false,
+      "packages": [
+        {
+          "id": "betterstacks",
+          "version": "1.2.0",
+          "kind": "shroudforge",
+          "contentSha256": "1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d",
+          "settingsSha256": "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b",
+          "truncated": false,
+          "changed": [
+            {
+              "guid": "01234567-89ab-cdef-0123-456789abcdef",
+              "typeHash": "8b4f2d1e",
+              "part": 0,
+              "createdBy": null,
+              "paths": [
+                "maxStackSize"
+              ]
+            }
+          ],
+          "created": [],
+          "contents": []
+        },
+        {
+          "id": "more-recipes",
+          "version": "0.4.1",
+          "kind": "eml",
+          "contentSha256": "1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d",
+          "settingsSha256": "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b",
+          "truncated": false,
+          "changed": [
+            {
+              "guid": "7a1d3e55-0b2c-4d6e-8f10-23456789abcd",
+              "typeHash": "3c6e0a11",
+              "part": 0,
+              "createdBy": null,
+              "paths": [
+                "recipes[2542]",
+                "recipes[]"
+              ]
+            }
+          ],
+          "created": [],
+          "contents": []
+        },
+        {
+          "id": "slow-craft",
+          "version": "2.0.0",
+          "kind": "shroudforge",
+          "contentSha256": "1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d",
+          "settingsSha256": "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b",
+          "truncated": false,
+          "changed": [
+            {
+              "guid": "7a1d3e55-0b2c-4d6e-8f10-23456789abcd",
+              "typeHash": "3c6e0a11",
+              "part": 0,
+              "createdBy": null,
+              "paths": [
+                "recipes[37].craftingDuration"
+              ]
+            }
+          ],
+          "created": [],
+          "contents": []
+        }
+      ],
+      "unattributed": {
+        "truncated": false,
+        "changed": [],
+        "created": [],
+        "contents": []
+      },
+      "writer": "kiln-eml",
+      "notApplied": [
+        {
+          "id": "broken-pack",
+          "version": "0.9.0",
+          "kind": "shroudforge",
+          "contentSha256": "1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d",
+          "reason": "attempt to index a nil value (field 'damageSetup')",
+          "code": "x"
+        }
+      ]
+    }
+  },
+  {
+    "schema": "eml-journal-2",
+    "why": "a notApplied kind that is no kind",
+    "record": {
+      "format": 2,
+      "stem": "enshrouded_server",
+      "generation": "7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c",
+      "receiptSha256": "3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e",
+      "dialect": "shroudforge",
+      "attempt": "retry",
+      "truncated": false,
+      "packages": [
+        {
+          "id": "betterstacks",
+          "version": "1.2.0",
+          "kind": "shroudforge",
+          "contentSha256": "1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d",
+          "settingsSha256": "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b",
+          "truncated": false,
+          "changed": [
+            {
+              "guid": "01234567-89ab-cdef-0123-456789abcdef",
+              "typeHash": "8b4f2d1e",
+              "part": 0,
+              "createdBy": null,
+              "paths": [
+                "maxStackSize"
+              ]
+            }
+          ],
+          "created": [],
+          "contents": []
+        },
+        {
+          "id": "more-recipes",
+          "version": "0.4.1",
+          "kind": "eml",
+          "contentSha256": "1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d",
+          "settingsSha256": "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b",
+          "truncated": false,
+          "changed": [
+            {
+              "guid": "7a1d3e55-0b2c-4d6e-8f10-23456789abcd",
+              "typeHash": "3c6e0a11",
+              "part": 0,
+              "createdBy": null,
+              "paths": [
+                "recipes[2542]",
+                "recipes[]"
+              ]
+            }
+          ],
+          "created": [],
+          "contents": []
+        },
+        {
+          "id": "slow-craft",
+          "version": "2.0.0",
+          "kind": "shroudforge",
+          "contentSha256": "1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d",
+          "settingsSha256": "2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b",
+          "truncated": false,
+          "changed": [
+            {
+              "guid": "7a1d3e55-0b2c-4d6e-8f10-23456789abcd",
+              "typeHash": "3c6e0a11",
+              "part": 0,
+              "createdBy": null,
+              "paths": [
+                "recipes[37].craftingDuration"
+              ]
+            }
+          ],
+          "created": [],
+          "contents": []
+        }
+      ],
+      "unattributed": {
+        "truncated": false,
+        "changed": [],
+        "created": [],
+        "contents": []
+      },
+      "writer": "kiln-eml",
+      "notApplied": [
+        {
+          "id": "broken-pack",
+          "version": "0.9.0",
+          "kind": "dll",
+          "contentSha256": "1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d",
+          "reason": "attempt to index a nil value (field 'damageSetup')"
+        }
+      ]
+    }
+  },
+  {
+    "schema": "eml-journal-2",
+    "why": "a ShroudForge package not applied in the EML dialect",
+    "record": {
+      "format": 2,
+      "stem": "enshrouded",
+      "generation": "9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f",
+      "receiptSha256": "9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f9f",
+      "dialect": "eml",
+      "attempt": "first",
+      "truncated": false,
+      "packages": [
+        {
+          "id": "alpha",
+          "version": "1.0.0",
+          "kind": "eml",
+          "contentSha256": null,
+          "settingsSha256": null,
+          "truncated": false,
+          "changed": [
+            {
+              "guid": "01234567-89ab-cdef-0123-456789abcdef",
+              "typeHash": "8b4f2d1e",
+              "part": 0,
+              "createdBy": null,
+              "paths": [
+                "child.base",
+                "children[1].extra"
+              ]
+            }
+          ],
+          "created": [
+            {
+              "ordinal": 1,
+              "guid": "5d2f8a90-1c3b-4e7f-9a12-6b4c8d0e2f13",
+              "typeHash": "8b4f2d1e",
+              "part": 0,
+              "explicit": false
+            }
+          ],
+          "contents": []
+        },
+        {
+          "id": "bravo",
+          "version": "1.0.0",
+          "kind": "eml",
+          "contentSha256": null,
+          "settingsSha256": null,
+          "truncated": false,
+          "changed": [
+            {
+              "guid": "01234567-89ab-cdef-0123-456789abcdef",
+              "typeHash": "8b4f2d1e",
+              "part": 0,
+              "createdBy": null,
+              "paths": [
+                "fixed[]"
+              ]
+            },
+            {
+              "guid": "01234567-89ab-cdef-0123-456789abcdef",
+              "typeHash": "8b4f2d1e",
+              "part": 3,
+              "createdBy": null,
+              "paths": [
+                "child.extra"
+              ]
+            },
+            {
+              "guid": "5d2f8a90-1c3b-4e7f-9a12-6b4c8d0e2f13",
+              "typeHash": "8b4f2d1e",
+              "part": 0,
+              "createdBy": {
+                "package": "alpha",
+                "ordinal": 1
+              },
+              "paths": [
+                "text"
+              ]
+            }
+          ],
+          "created": [],
+          "contents": [
+            {
+              "guid": "00000004-365d-c510-4862-8533f701d253",
+              "size": 4
+            }
+          ]
+        },
+        {
+          "id": "quiet",
+          "version": null,
+          "kind": "eml",
+          "contentSha256": null,
+          "settingsSha256": null,
+          "truncated": false,
+          "changed": [],
+          "created": [],
+          "contents": []
+        }
+      ],
+      "unattributed": {
+        "truncated": false,
+        "changed": [],
+        "created": [],
+        "contents": []
+      },
+      "notApplied": [
+        {
+          "id": "broken-pack",
+          "version": "0.9.0",
+          "kind": "shroudforge",
+          "contentSha256": null,
+          "reason": "failed"
+        }
+      ]
     }
   }
 ]
