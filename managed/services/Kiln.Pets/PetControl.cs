@@ -77,8 +77,9 @@ internal sealed class PetControl
             if (!Replace(final, out reason)) return PetBodyPoll.Failed;
             return PetBodyPoll.Pending;
         }
+        // the body is the pet's now; its base lease is reported by the next Changes() as first seen (PetControlChangedEvent
+        // with Before null), not recorded here unreported
         Prepared = true;
-        _lastBase = s;
         return PetBodyPoll.Ready;
     }
 

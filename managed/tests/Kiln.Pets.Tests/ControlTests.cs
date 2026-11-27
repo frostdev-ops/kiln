@@ -57,6 +57,23 @@ public sealed class ControlTests
     }
 
     [Fact]
+    public void The_final_base_lease_is_reported_first_seen_once_the_body_is_the_pets()
+    {
+        // PetControlChangedEvent's "Before null: first seen": the base lease a summoned or revived body ends its preparation on
+        // (PetFollow Active) is the first change the pet's leases report (PETS-E2E: the lab's bot owner saw a hound's leases only
+        // from its first order on, never the PetFollow lease it was summoned under)
+        var (kiln, body) = Start();
+        using var harness = kiln;
+        var c = Prepared(kiln, body);
+        var change = Assert.Single(kiln.Run(() => c.Changes().ToList()));
+        Assert.Null(change.Before);
+        Assert.Equal(ControlRole.PetFollow, change.After.EffectiveRole);
+        Assert.Equal(ControlLeaseState.Active, change.After.State);
+        Assert.True(change.After.CanDrive);
+        Assert.Empty(kiln.Run(() => c.Changes().ToList()));   // nothing changed since
+    }
+
+    [Fact]
     public void An_engine_guard_pet_ends_on_the_AI_on_role()
     {
         var (kiln, body) = Start();
