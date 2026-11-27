@@ -301,7 +301,7 @@ enum: PendingRestart, Ready, Failed, RemovalPendingRestart, Removed
 ## NpcEffectOn — Where a rule's effect lands.
 enum: Target, Self
 
-## NpcLineContext `0.2.25` — What a `SpeechPick.By` callback is asked: which of the lines this player sees next.
+## NpcLineContext `0.2.26` — What a `SpeechPick.By` callback is asked: which of the lines this player sees next.
 - `NpcLineContext(EntityId Npc, EntityId Player, NpcLineKind Kind, int Opens, int Last, int Lines)`
 - `Kind { get; init; } -> NpcLineKind` — The greeting, the farewell or the menu's line.
 - `Last { get; init; } -> int` — The index this player saw last; -1 when none (or the game's own line).
@@ -310,10 +310,10 @@ enum: Target, Self
 - `Opens { get; init; } -> int` — How many times this player has seen this kind of line of this NPC since the override began.
 - `Player { get; init; } -> EntityId` — The player whose game shows the line (the host's own player in a hosted world).
 
-## NpcLineKind `0.2.25` — Which line of an NPC an override is for (since 0.2.0-dev.32).
+## NpcLineKind `0.2.26` — Which line of an NPC an override is for (since 0.2.0-dev.32).
 enum: Greeting, Farewell, MenuLine
 
-## NpcLines `0.2.25` — One mod's override of one NPC's farewell (`Npcs.Farewells`) or menu line (`Npcs.MenuLine`): its lines replace the game's, or `NpcLines.Clear` gives them back.
+## NpcLines `0.2.26` — One mod's override of one NPC's farewell (`Npcs.Farewells`) or menu line (`Npcs.MenuLine`): its lines replace the game's, or `NpcLines.Clear` gives them back.
 - `Clear() -> void` — Ends this override: the next mod's shows, else the game's own line.
 - `Kind { get; } -> NpcLineKind` — Which line it is for: `NpcLineKind.Farewell` or `NpcLineKind.MenuLine`.
 - `Mode { get; } -> SpeechMode` — What this override does now (`SpeechMode.Game` when it is clear).
@@ -372,34 +372,34 @@ enum: DistanceAndFaction, Voxels
 ## Npcs `0.2.23` — Friendly NPCs' speech bubbles: a mod's own lines in the game's bubble over a villager, craftsperson or assistant.
 - `static Available { get; } -> bool` — This game shows Kiln's speech in its own bubbles (a game client whose kiln.npcspeech found the bubble on this build...
 - `static CanSpeak(EntityId npc) -> bool` — The entity is a friendly NPC with dialogue lines, the kind that has a speech bubble (a villager, a craftsperson, an...
-- `static Farewells(EntityId npc) -> NpcLines` `0.2.25` — The calling mod's override of the NPC's farewell: the line in the dialogue menu's speech box when a player leaves...
+- `static Farewells(EntityId npc) -> NpcLines` `0.2.26` — The calling mod's override of the NPC's farewell: the line in the dialogue menu's speech box when a player leaves...
 - `static IsSaying(EntityId npc) -> bool` — True when a Say is showing over the NPC now.
 - `static readonly MaxSay -> TimeSpan` — The shortest and longest `Npcs.Say`.
-- `static MenuLine(EntityId npc) -> NpcLines` `0.2.25` — The calling mod's override of the NPC's own line in its dialogue menu: the speech box's text when a player opens the...
-- `static MenuSay(EntityId npc, EntityId player, UiText text) -> SpeechResult` `0.2.25` — As `Npcs.MenuSay`, with a text per language.
-- `static MenuSay(EntityId npc, EntityId player, string text) -> SpeechResult` `0.2.25` — Shows `text` in the speech box of `player`'s dialogue menu with the NPC: now if it is open, else when the player...
+- `static MenuLine(EntityId npc) -> NpcLines` `0.2.26` — The calling mod's override of the NPC's own line in its dialogue menu: the speech box's text when a player opens the...
+- `static MenuSay(EntityId npc, EntityId player, UiText text) -> SpeechResult` `0.2.26` — As `Npcs.MenuSay`, with a text per language.
+- `static MenuSay(EntityId npc, EntityId player, string text) -> SpeechResult` `0.2.26` — Shows `text` in the speech box of `player`'s dialogue menu with the NPC: now if it is open, else when the player...
 - `static readonly MinSay -> TimeSpan` — The shortest and longest `Npcs.Say`.
 - `static Say(EntityId npc, UiText text, TimeSpan duration, SayOptions? options = null) -> SpeechResult` — As `Npcs.Say`, with a text per language (`UiText.Of(("en", "I'm starving"), ("de", "Ich verhungere"))`).
 - `static Say(EntityId npc, string text, TimeSpan duration, SayOptions? options = null) -> SpeechResult` — Shows `text` in the NPC's speech bubble for `duration` (0.5 s to 60 s), with no voice-over, also when the NPC is not...
 - `static Speech(EntityId npc) -> NpcSpeech` — The calling mod's override of the NPC's greeting bubble (a new handle each call; they all name the same override).
 - `static SpeechOf(EntityId npc) -> SpeechMode` — What the NPC's greeting bubble does now, from every mod's overrides (a Say aside).
 - `static StopSaying(EntityId npc) -> void` — Ends the calling mod's Say over the NPC before its time (another mod's Say stays).
-- `static Topics(EntityId npc) -> NpcTopics` `0.2.25` — The calling mod's topics on the NPC's talk page in the game's dialogue menu: rows after the NPC's own (never...
+- `static Topics(EntityId npc) -> NpcTopics` `0.2.26` — The calling mod's topics on the NPC's talk page in the game's dialogue menu: rows after the NPC's own (never...
 
 ## NpcSpeech `0.2.23` — One mod's override of one NPC's greeting bubble (`Npcs.Speech`; a farewell or the menu line is an `NpcLines`).
 - `Clear() -> void` — Ends this override: the next mod's shows, else the game's own lines.
-- `Kind { get; } -> NpcLineKind` `0.2.25` — Which line it is for: the bubble's greeting, the menu's farewell or the menu's own line.
+- `Kind { get; } -> NpcLineKind` `0.2.26` — Which line it is for: the bubble's greeting, the menu's farewell or the menu's own line.
 - `Mode { get; } -> SpeechMode` — What this override does now (`SpeechMode.Game` when it is clear).
 - `ModId { get; } -> string` — The mod this override belongs to ("kiln" outside a mod).
 - `Npc { get; } -> EntityId` — The NPC.
-- `Pick { get; set; } -> SpeechPick` `0.2.25` — How `NpcSpeech.Replace` picks among its lines each time the NPC greets (says farewell, opens its menu)...
+- `Pick { get; set; } -> SpeechPick` `0.2.26` — How `NpcSpeech.Replace` picks among its lines each time the NPC greets (says farewell, opens its menu)...
 - `Priority { get; set; } -> int` — Its rank against other mods' overrides of the same NPC (higher wins).
-- `Refresh() -> void` `0.2.25` — Asks a `SpeechPick.By` callback again for every player now (its condition changed), instead of at each player's next...
+- `Refresh() -> void` `0.2.26` — Asks a `SpeechPick.By` callback again for every player now (its condition changed), instead of at each player's next...
 - `Replace(IEnumerable<UiText> lines) -> SpeechResult` — As `NpcSpeech.Replace`, with a text per language for each line (`UiText.Of(("en", "..."), ("de", "..."))`).
 - `Replace(params string[] lines) -> SpeechResult` — The NPC shows one of these lines instead of its own (a new pick each time it greets, as `NpcSpeech.Pick` says), with...
 - `Suppress() -> SpeechResult` — No greeting bubble while this override is on, and no greeting voice-over (a player who presses E still gets the...
 
-## NpcTopic `0.2.25` — One topic of a mod on an NPC's talk page: its `NpcTopic.Label` in the list, the NPC's `NpcTopic.Reply` in the speech box when a player picks it, and...
+## NpcTopic `0.2.26` — One topic of a mod on an NPC's talk page: its `NpcTopic.Label` in the list, the NPC's `NpcTopic.Reply` in the speech box when a player picks it, and...
 - `NpcTopic(string id, UiText label)` — A topic with a label per language.
 - `NpcTopic(string id, string label)` — A topic with the same label in every language.
 - `Close { get; init; } -> bool` — The dialogue ends after the `NpcTopic.Reply` (the game's outro).
@@ -410,7 +410,7 @@ enum: DistanceAndFaction, Voxels
 - `OnPick { get; init; } -> Action<NpcTopicContext>?` — Runs on the host's tick thread when a player picks the topic (the host's own player too), as the mod that set it.
 - `Reply { get; init; } -> UiText?` — What the NPC answers in the speech box when a player picks it (the game's reveal, no voice-over).
 
-## NpcTopicContext `0.2.25` — A pick of a topic: which NPC, which player, which topic.
+## NpcTopicContext `0.2.26` — A pick of a topic: which NPC, which player, which topic.
 - `ModId { get; } -> string` — The mod whose topic it is.
 - `Npc { get; } -> EntityId` — The NPC.
 - `Player { get; } -> EntityId` — The player who picked it.
@@ -418,10 +418,10 @@ enum: DistanceAndFaction, Voxels
 - `Reply(string text) -> SpeechResult` — Answers this player in the speech box of their menu with the NPC (`Npcs.MenuSay`).
 - `Topic { get; } -> NpcTopic` — The topic picked.
 
-## NpcTopicHint `0.2.25` — The marker a topic gets in the dialogue menu's list (the game's uiHintType).
+## NpcTopicHint `0.2.26` — The marker a topic gets in the dialogue menu's list (the game's uiHintType).
 enum: None, Hint, Attention, MainQuest
 
-## NpcTopics `0.2.25` — One mod's topics on one NPC's talk page (`Npcs.Topics`).
+## NpcTopics `0.2.26` — One mod's topics on one NPC's talk page (`Npcs.Topics`).
 - `Add(NpcTopic topic) -> SpeechResult` — Adds a topic at the end, or replaces this mod's topic with the same id where it is.
 - `Clear() -> void` — Removes all of this mod's topics of the NPC.
 - `List { get; } -> IReadOnlyList<NpcTopic>` — This mod's topics of the NPC now, in their order.
@@ -558,7 +558,7 @@ enum: None, Chosen, Started, Completed, Refused, Suspended
 ## SpeechMode `0.2.23` — What an NPC's greeting bubble does now.
 enum: Game, Suppress, Replace
 
-## SpeechPick `0.2.25` — How a `NpcSpeech.Replace` picks its line each time the NPC greets (says farewell, opens its menu).
+## SpeechPick `0.2.26` — How a `NpcSpeech.Replace` picks its line each time the NPC greets (says farewell, opens its menu).
 - `static By(Func<NpcLineContext, int> choose) -> SpeechPick` — The host decides for each player: `choose` runs on the host's tick thread and returns the index of the line that...
 - `static InOrder { get; } -> SpeechPick` — The lines in turn, one per greeting, from the first, picked by each player's own game.
 - `static Random { get; } -> SpeechPick` — A new line at random each time (never the same line twice in a row when there are two or more), picked by each...

@@ -33,13 +33,13 @@ enum: One, Half, All, CustomAmount, Destroy
 - `Item { get; init; } -> ItemId` — The item type.
 - `Source { get; init; } -> SlotId` — Its inventory slot.
 
-## CostDisposition `0.2.25` — How a committed cost compares with what was asked.
+## CostDisposition `0.2.26` — How a committed cost compares with what was asked.
 enum: None, Exact, WearWaivedByWorld, ModifiedByOtherMod, Partial
 
-## CostKind `0.2.25` — What a cost does.
+## CostKind `0.2.26` — What a cost does.
 enum: StackTake, GearWear, StackRefund, GearRestore
 
-## CostReceipt `0.2.25` — A cost's receipt: what was asked, what moved, and whether it happened.
+## CostReceipt `0.2.26` — A cost's receipt: what was asked, what moved, and whether it happened.
 - `CostReceipt(ItemId Item, int Requested, int Taken, bool Committed)`
 - `Committed { get; init; } -> bool` — True when it happened (state `CostState.Committed`).
 - `Disposition { get; init; } -> CostDisposition` — How what moved compares with what was asked (committed and uncertain receipts).
@@ -60,10 +60,10 @@ enum: StackTake, GearWear, StackRefund, GearRestore
 - `Uncertain { get; init; } -> bool` — True when it is not known whether the cost was paid (`CostState.Uncertain`).
 - `WorldEpoch { get; init; } -> ulong` — The server world the cost was submitted in (kiln.item_costs' world epoch; 0: it never reached it).
 
-## CostRefusal `0.2.25` — Why a cost changed nothing.
+## CostRefusal `0.2.26` — Why a cost changed nothing.
 enum: None, StaleSelection, NotAStack, NotGear, WouldBreak, Broken, GameRefused, NoRoom, WorldEnded, NotRun, Full, RequestConflict, RequestClosed, Busy, WrongWorld, StaleSession, NothingToRefund, AlreadyRefunded
 
-## CostState `0.2.25` — Where a cost ended.
+## CostState `0.2.26` — Where a cost ended.
 enum: Refused, Committed, Uncertain
 
 ## DurabilityRule `0.2.12` — What happens to an item's durability when its rarity, enhancements or level change.
@@ -477,7 +477,7 @@ enum: Customization, Equipment, Weapons, Tools, Instrument, FishingRod, BuildToo
 - `Ref { get; init; } -> ItemInstanceRef` — The item entity as one particular item, with the stamp kiln.items gave it at the commit (a give: the item the game...
 - `Slot { get; init; } -> SlotId` — The slot that changed.
 
-## ItemCosts `0.2.25` — Exact costs from a selected slot, with receipts (kiln.item_costs).
+## ItemCosts `0.2.26` — Exact costs from a selected slot, with receipts (kiln.item_costs).
 - `static Check(ItemSelection selection, int amount, bool allowBreak = false) -> string?` — Whether `selection` could pay `amount` now (items for a stack, durability units for gear): null when it could; else...
 - `static Choose(EntityRef owner, ItemId item, int count = 1) -> ItemSelection?` — The first slot of `owner`'s inventories (in their link order) holding a plain stack of at least `count` of `item`...
 - `const MaxCount = 100000 -> int` — The most items one stack cost moves.
@@ -490,7 +490,7 @@ enum: Customization, Equipment, Weapons, Tools, Instrument, FishingRod, BuildToo
 - `static WearAvailable { get; } -> bool` — True when gear costs can be submitted (capability `items.costs.wear`).
 - `const WearCapability = "items.costs.wear" -> string` — The capability of gear wear and gear restores.
 
-## ItemCostSettledEvent `0.2.25` — A cost was paid, or may have been (its receipt is `CostState.Committed` or `CostState.Uncertain`): posted on the tick thread when the receipt arrives, before the...
+## ItemCostSettledEvent `0.2.26` — A cost was paid, or may have been (its receipt is `CostState.Committed` or `CostState.Uncertain`): posted on the tick thread when the receipt arrives, before the...
 - `Origin { get; } -> string` — The mod that asked ("kiln" outside mod code).
 - `Receipt { get; } -> CostReceipt` — The receipt.
 
@@ -630,7 +630,7 @@ enum: Common, Uncommon, Rare, Epic, Legendary
 - `static ParseAction(ReadOnlySpan<byte> payload) -> ClientTransfer?` — Reads the payload of a client's `inventoryTransferAction` (32 bytes: the 4-byte version, source and target entity...
 - `static Status() -> ItemsV3Status?` — The hooks' and rules' state, counters included.
 
-## ItemSelection `0.2.25` — One slot of one inventory owner, as it was read, chosen to pay a cost: the slot must still hold exactly this when the cost runs (the same item, the same count, and...
+## ItemSelection `0.2.26` — One slot of one inventory owner, as it was read, chosen to pay a cost: the slot must still hold exactly this when the cost runs (the same item, the same count, and...
 - `ItemSelection(EntityRef InventoryOwner, SlotId Slot, ItemId ExpectedItem, int ExpectedCount, ItemInstanceRef Instance)`
 - `ExpectedCount { get; init; } -> int` — How many it holds (1 for gear).
 - `ExpectedItem { get; init; } -> ItemId` — The item the slot holds.
@@ -651,8 +651,8 @@ enum: Common, Uncommon, Rare, Epic, Legendary
 - `GameError { get; init; } -> int` — The game's own error code when its transaction returned one (`ItemsStatus.Refused`); 0 otherwise.
 - `Item { get; init; } -> ItemId` — The item asked for.
 - `Message { get; init; } -> string` — Why it failed or fell short, in words; empty when there is nothing to add.
-- `Ok { get; } -> bool` `0.2.25` — Everything requested was given / taken (`ItemsStatus.Done`), as every Kiln result's Ok says (`IKilnResult`); a...
-- `Reason { get; } -> string?` `0.2.25` — Why it was not `ItemsResult.Ok`: the status and the message; null when Ok.
+- `Ok { get; } -> bool` `0.2.26` — Everything requested was given / taken (`ItemsStatus.Done`), as every Kiln result's Ok says (`IKilnResult`); a...
+- `Reason { get; } -> string?` `0.2.26` — Why it was not `ItemsResult.Ok`: the status and the message; null when Ok.
 - `Requested { get; init; } -> int` — How many were asked for.
 - `Status { get; init; } -> ItemsStatus` — How it ended.
 - `Steps { get; init; } -> int` — How many sim steps passed between the request and the transaction.
