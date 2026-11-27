@@ -146,9 +146,23 @@ server restart between a logout and the same character's next login.
 Since the review of the lane (dev.32 review-labbot), kiln.labbot refuses such a join at once instead of failing it after
 the 60 s load limit: `labbot::Played` remembers every character and account that logged in on the server (AddPlayer
 made its record), and `join` answers `KILN_ERR_INVALID_ARGUMENT` for one of them, with the reason in kiln.log; the
-managed `LabBots.Join` throws an `ArgumentException` that says so. A lead for the cause **[static]**, not followed
-further: the spawn position function `0x7aded0` looks the record's character id (record `+0x48`) up in a per-character
-table (`[gs+0x20]+0x18`, `0x7b0720`). Without an entry it takes the default spawn; with one it walks the entry's ten
-pairs (stride 0x30) for the 16 bytes at record `+0x50` and, on a match, starts from the position stored there (copied to
-record `+0x60`) and an id beside it (checked through `0x64efe0`). A character that logged out in this session has such
-an entry; the stored-position path is where the returning bot's search stays.
+managed `LabBots.Join` throws an `ArgumentException` that says so.
+
+**The review's labs (dev32-review-labbot, 2026-11-27) found more: a new name after a logout stays there too.**
+
+| Run | Before | The next join | Result |
+|---|---|---|---|
+| g1 | Gate Alder 5 min in game, 10 saves acked, logout | Gate Birch (new name), 0.15 s later, slot 15, the same handles | record state 1 until the 60 s limit |
+| g2 (`requireKiln`) | R Ash 30 s in game, logout | R Beech 5 s later; R Cherry at once after Beech failed; R Dogwood 5 s after that | all three: state 1 until the limit |
+| g3 | as g1 | Gate Birch 0.15 s later, slot 15, **new handles** (a test build with a new machine and player generation per join: machine 0x2b10, player 0x158f) | state 1 until the limit |
+
+So neither the name nor the reused handles decide it. Only the lane's s6 had a join after a logout that spawned (Bot
+Cedar, 3.5 s after Bot Alder's logout, which followed Bot Birch's drop). What the state-1 step waits for **[static]**:
+it calls the search `0x7aded0` each frame. The search itself waits (result 1) while bit 1 of `[[gs+0x20]+0x70]` is
+clear. For the bot's new character (record `+0x140` set, from the login's new-character byte) it then asks the spawn
+point query `0x653930` and computes the position from the spawn entity (`0x7aebf0`). The step stores it at record
+`+0x100` and goes on to state 2 only when four checks pass: `0xa45c10` (on `[gs+0x1770]`, given the position),
+`0x66c710` (`[gs+0x1d0]`), `0x23a180` (`[gs+0x1d8]`), and `0x7b6460`, which reads the machine's socket entry
+(`[gs+0x30]+0x28`, by the record's `+4` peer handle) and calls `0xa033b0` on it. Which of them stays false after a
+logout is not known yet: the next step is a lab probe that reads them for a stuck bot. Until then: restart the lab
+between a logout and the next join (tools/lab/README.md).

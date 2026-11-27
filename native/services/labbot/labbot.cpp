@@ -496,7 +496,7 @@ KilnResult KILN_CALL t_join(KilnOwner owner, const KilnLabBotJoin* rq, uint32_t*
         // the game would leave it in the spawn position search until the load limit (lab p1, p2, s6; docs/re/labbot.md)
         logf(KILN_LOG_WARN,
              "labbot: join of '%s' refused: that character (or account) logged in earlier on this server; the game does not "
-             "spawn it again after its logout until the server restarts: join under a new name",
+             "spawn it again after its logout until the server restarts: restart the lab (docs/re/labbot.md)",
              name.c_str());
         return KILN_ERR_INVALID_ARGUMENT;
     }

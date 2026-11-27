@@ -287,10 +287,11 @@ used. How it works: `docs/re/labbot.md`.
    `tools/lab/README.md`, "Bot players".
 
 The bot's name picks its character and account, so the same name is the same character on a world: its per-character
-data (pets, quests) is there when it joins again in a later server session. Known limit: a name joins once per server
-session (the game does not spawn the character again after its logout until the server restarts), so `LabBots.Join`
-refuses a name that logged in earlier in this session at once, with an `ArgumentException` that says so; use a new
-name per join, or restart the lab. What a bot does not give: a client (what the server sends it goes
+data (pets, quests) is there when it joins again in a later server session. Known limit: after a bot's logout, restart
+the lab before the next join. The game does not spawn the character again until the server restarts, so `LabBots.Join`
+refuses a name that logged in earlier in this session at once, with an `ArgumentException` that says so; a new name
+after a logout stayed in the game's spawn search as well in the review's labs (`docs/re/labbot.md`). What a bot does
+not give: a client (what the server sends it goes
 nowhere; it never acknowledges replication), and movement of its own (it stays where it is until something teleports
 it). Without policy `any` and a lab port every `LabBots` member that changes something throws
 `KilnUnavailableException("labbot.join")` (reason `policy`).

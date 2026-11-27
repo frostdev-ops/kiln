@@ -126,8 +126,8 @@ public static unsafe class LabBots
     /// <param name="groupIndex">With <see cref="LabBotGroup.Index"/>: the entry of userGroups.</param>
     /// <returns>The bot's id.</returns>
     /// <exception cref="ArgumentException">A bad name, a live bot has it, or a bot of that name logged in earlier in this
-    /// server session (the game does not spawn that character again after its logout until the server restarts: join
-    /// under a new name). The message says which.</exception>
+    /// server session (the game does not spawn that character again after its logout until the server restarts). The
+    /// message says which.</exception>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="group"/> is none of <see cref="LabBotGroup"/>.</exception>
     /// <exception cref="InvalidOperationException"><see cref="Max"/> bots are live, no player slot or machine is free,
     /// or no such user group.</exception>
@@ -222,7 +222,8 @@ public static unsafe class LabBots
             return "a bot name uses letters, digits, space, '_', '-' and '.' only";
         if (All().Any(b => !b.Ended && b.Name == name)) return "a live bot has that name";
         return "a bot of that name (the same character) logged in earlier in this server session; the game does not spawn " +
-               "a character again after its logout until the server restarts, so join under a new name";
+               "it again after its logout until the server restarts (a later join under another name may stay in the spawn " +
+               "search too), so restart the lab";
     }
 
     private static LabBotInfo Convert(LabBotNative.Info* i) =>

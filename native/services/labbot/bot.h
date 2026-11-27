@@ -232,9 +232,9 @@ private:
 };
 
 // The characters (and accounts) that logged in on this server since it started: Bot::logged_in. The game does not spawn
-// one of them again after its logout while the server keeps running (lab p1, p2, s6: the next join of that name stays in
-// the spawn position search, record state 1, until the load limit; a new name joins at once), so kiln.labbot refuses
-// such a join at once, with the reason, instead of failing it 60 s later.
+// one of them again after its logout while the server keeps running (lab p1-p4, s6: the next join of that name stays in
+// the spawn position search, record state 1, until the load limit), so kiln.labbot refuses such a join at once, with the
+// reason, instead of failing it 60 s later. (A new name after a logout stayed there too in lab g1-g3; docs/re/labbot.md.)
 class Played {
 public:
     void add(const uint8_t character[16], uint64_t account);

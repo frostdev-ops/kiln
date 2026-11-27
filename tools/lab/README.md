@@ -64,11 +64,13 @@ async command such as `/pet summon` answers there). `wait_told` takes only a lin
 `command` (their replies carry that point as `"told"`; `since=` picks another), so a reply to an earlier command never
 passes for the newest one. Two lines added in the same server step show only the second.
 
-Known limit: a name joins **once per server session**. The game does not spawn a character again after its logout
-while the server keeps running (it stays in the spawn position search; `docs/re/labbot.md`), so a join under a name
-that logged in earlier in that session is refused at once: `LabBotError` "... logged in earlier in this server
-session ...". Use a new name for each join in one server session, or restart the lab between a logout and the same
-character's next login (the first join of a session works, with the character's per-character data).
+Known limit: **after a bot logs out, restart the lab before the next join.** The game does not spawn a character again
+after its logout while the server keeps running (the join stays in the spawn position search, record state 1, until the
+60 s load limit; `docs/re/labbot.md`), so a join under a name that logged in earlier in that session is refused at
+once: `LabBotError` "... logged in earlier in this server session ...". A new name after a logout stayed in that search
+too in the review's labs (5 of 5 joins, 0.1 s to 5 s after the logout, with fresh handles as well); one joined in the
+lane's s6, after a drop. Bots that are in the world at the same time are fine (two at once, a drop, then the other's
+logout). The first join of a server session works, with the character's per-character data.
 
 From a shell: `python3 -I tools/labbot/labbot.py --port <labPort> status|list|players|spawn NAME|info ID|wait ID|say ID
 TEXT|command ID LINE|move ID X Y Z|position ID|character ID|leave ID [--drop]` (JSON out; exit 1 = the server answered

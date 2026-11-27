@@ -178,7 +178,9 @@ public sealed unsafe class LabBotsTests : IDisposable
         // a valid name no live bot has: its character logged in earlier in this server session (lab p1, p2, s6)
         var e = Assert.Throws<ArgumentException>(() => LabBots.Join("Bot Alder"));
         Assert.Contains("logged in earlier in this server session", e.Message);
-        Assert.Contains("new name", e.Message);
+        // and the way out that works: a restart (lab g1-g3: after a logout, a new name stayed in the spawn search too)
+        Assert.Contains("restart the lab", e.Message);
+        Assert.DoesNotContain("join under a new name", e.Message);
         Assert.Throws<ArgumentOutOfRangeException>(() => LabBots.Join("Bot Alder", (LabBotGroup)7));
     }
 
