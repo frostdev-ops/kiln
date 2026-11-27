@@ -347,7 +347,8 @@ edits) lands in a few milliseconds where it took 0.5 s (and 0.6 to 2.1 s on a lo
 - `context.Pass` says which pass a callback is (since dev.32): `Point` (the entry point's own: the world load's, on the tick),
   `ReauthoredOffTick` (on Kiln's worker: `context.OffTick` is true and a tick-thread API is refused) or `ReauthoredOnTick` (Kiln
   runs the mod's re-authored passes on the tick). Kiln runs one pass of a mod at a time, across a world change too: a new
-  world's pass waits for a re-authored pass of the world before that is still on the worker (the tick waits up to 10 s, then
+  world's pass (and a HotReload pass replayed for the new world's settings) waits for a re-authored pass of the world before
+  that is still on the worker (the tick waits up to 10 s, then
   the world goes on and that mod's pass runs on a later tick, once the old one ended; the old one lands nothing). A mod's pass
   state need not be thread-safe.
 

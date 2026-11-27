@@ -328,9 +328,11 @@ internal sealed class RegistryDispatch(ModManager mods) : IDisposable
             if (bound)
             {
                 // A replacing HotReload pass that read the previous world's settings expired with that world: author it again
-                // with this world's settings, as its ModLoad point would have persisted (review4 NS3).
-                var replays = _runtime.Where(r => !r.Pending && r.Context.Alive && r.ReplayWorld != 0 && r.ReplayWorld != world.Token &&
-                    r.RetryAt <= now).ToArray();
+                // with this world's settings, as its ModLoad point would have persisted (review4 NS3). Held like the world
+                // pass below while the mod's re-authored pass is on the worker (review of api-shape: it is the same mod's
+                // OnRegistry on the tick); it runs on a later tick.
+                var replays = Free(_runtime.Where(r => !r.Pending && r.Context.Alive && r.ReplayWorld != 0 && r.ReplayWorld != world.Token &&
+                    r.RetryAt <= now).ToArray());
                 var previous = replays.ToDictionary(r => r, r => r.ReplayWorld);
                 foreach (var record in replays) record.ReplayWorld = 0;
                 foreach (var record in Apply(replays, RegistryEntryPoint.HotReload, static _ => true)) record.ReplayWorld = previous[record];
@@ -338,21 +340,8 @@ internal sealed class RegistryDispatch(ModManager mods) : IDisposable
             var records = _runtime.Where(r => !r.Pending && r.Context.Alive && (r.Points & RegistryEntryPoint.WorldLoad) != 0 &&
                 r.RetryAt <= now && (r.World != world.Token || (bound && r.WorldId is null && world.Id is not null))).ToArray();
             // a re-authored pass of the world before may still run on the worker: it ends before the same mods' new world pass
-            // runs, never beside it (one re-author at a time: a mod's pass state need not be thread-safe). The tick waits for it a
-            // while (a world load); past that, those mods' new world passes wait on later ticks, however long it takes, while the
-            // world and the other mods' passes go on. Its turn is dropped when it lands (ReauthorStep: another world).
-            if (records.Length > 0 && _reauthor is { Work: { IsCompleted: false } work } running && running.Records.Any(records.Contains) &&
-                !work.Wait(ReferenceEquals(_held, running) ? TimeSpan.Zero : ReauthorWait))
-            {
-                var held = records.Where(running.Records.Contains).ToArray();
-                if (!ReferenceEquals(_held, running))
-                {
-                    _held = running;  // waited once for this job; later ticks only look
-                    mods.Host.Log(LogLevel.Info, $"registry: {string.Join(", ", held.Select(r => r.Context.Info.Id))}: the new world's pass waits for " +
-                        "the re-authored pass of the world before, still on Kiln's worker (never both at once)");
-                }
-                records = records.Where(r => !held.Contains(r)).ToArray();
-            }
+            // runs, never beside it (Free). Its turn is dropped when it lands (ReauthorStep: another world).
+            records = Free(records);
             foreach (var record in records)
             {
                 // Adoption reauthors this point with its settings, rather than stacking it on the id-less turn.
@@ -445,6 +434,24 @@ internal sealed class RegistryDispatch(ModManager mods) : IDisposable
     /// mods it holds wait on later ticks (tests shorten it).</summary>
     internal TimeSpan ReauthorWait { get; set; } = TimeSpan.FromSeconds(10);
     private ReauthorJob? _held;  // the job whose worker a world load waited for (once) and that holds its mods' new world passes
+    // The records whose pass may run on the tick now: one re-author at a time (a mod's pass state need not be thread-safe), so
+    // none of a mod whose re-authored pass of the world before is still on the worker. The tick waits for that pass a while
+    // once per job (a world load); past that, those mods' passes (the new world's, a HotReload replay) wait on later ticks,
+    // however long it takes, while the world and the other mods' passes go on.
+    private Runtime[] Free(Runtime[] records)
+    {
+        if (records.Length == 0 || _reauthor is not { Work: { IsCompleted: false } work } running || !running.Records.Any(records.Contains) ||
+            work.Wait(ReferenceEquals(_held, running) ? TimeSpan.Zero : ReauthorWait))
+            return records;
+        var held = records.Where(running.Records.Contains).ToArray();
+        if (!ReferenceEquals(_held, running))
+        {
+            _held = running;  // waited once for this job; later ticks only look
+            mods.Host.Log(LogLevel.Info, $"registry: {string.Join(", ", held.Select(r => r.Context.Info.Id))}: the new world's passes wait for " +
+                "the re-authored pass of the world before, still on Kiln's worker (never both at once)");
+        }
+        return records.Where(r => !held.Contains(r)).ToArray();
+    }
     private void ReauthorStep(RegistryWorld world, long now)
     {
         if (_reauthor is { } job)

@@ -377,6 +377,75 @@ public sealed class RegistryReauthorTests : ModsFixture
         Assert.Equal(73, rig.Native.Value);    // the new world's own pass
         owner.Retire();
     }
+    [RegistryEntryPoints(RegistryEntryPoint.ModLoad | RegistryEntryPoint.HotReload | RegistryEntryPoint.WorldLoad)]
+    private sealed class EveryPointAuthor(Action<RegistryContext> callback) : Mod
+    {
+        public override void OnRegistry(RegistryContext context) => callback(context);
+    }
+    private sealed class WorldInput { public int Count { get; set; } = 3; }
+    // review of api-shape: the hold covers a HotReload pass replayed at the new world too (review4 NS3: a replacing HotReload
+    // pass that read per-world settings runs again at the next bound world). That replay is the same mod's OnRegistry on the
+    // tick: with the mod's re-authored pass still on the worker it would run beside it, so it waits for it as the world pass does.
+    [Fact(Timeout = 60_000)]
+    public async Task AHotReloadReplayWaitsForAReauthoredPassStillOnTheWorker()
+    {
+        await Task.Yield();
+        WorldConfigs.Reset();
+        try
+        {
+            using var rig = new Rig(this);
+            WorldConfigs.Announce(Path.Combine(DataDir, "world-a"));
+            var inside = 0; var most = 0; var worlds = new List<string?>();
+            using var hold = new ManualResetEventSlim(true);
+            using var entered = new ManualResetEventSlim(false);
+            void Pass(RegistryContext c)
+            {
+                if (c.Phase != RegistryPhase.Alter) return;
+                var now = Interlocked.Increment(ref inside);
+                lock (worlds) most = Math.Max(most, now);
+                try
+                {
+                    if (c.EntryPoint == RegistryEntryPoint.HotReload)
+                    {
+                        lock (worlds) worlds.Add(c.World?.Id);
+                        Edit(c, 60 + Config.RegisterWorld<WorldInput>().Value.Count);  // per-world settings: replayed at the next world
+                    }
+                    else if (c.Pass == RegistryPassKind.ReauthoredOffTick) { entered.Set(); hold.Wait(); Edit(c, 80); }
+                    else Edit(c, 70);
+                }
+                finally { Interlocked.Decrement(ref inside); }
+            }
+            var old = Owner(rig.Native, "replayer");
+            rig.Dispatch.Loaded(new EveryPointAuthor(Pass), old, Root, false);
+            rig.Dispatch.FlushLoads();
+            old.Retire();
+            var replacement = Owner(rig.Native, "replayer");
+            rig.Dispatch.Loaded(new EveryPointAuthor(Pass), replacement, Root, true);
+            rig.Dispatch.FlushLoads();
+            Assert.Equal(new string?[] { "world-a" }, worlds);  // the replacing HotReload pass read world-a's settings
+            hold.Reset();
+            Assert.Null(RegistryRuntime.Reauthor!(replacement, RegistryEntryPoint.WorldLoad));
+            rig.Dispatch.FlushLoads();  // the job starts; its pass waits inside the mod's code on the worker
+            Assert.True(entered.Wait(10_000), "the re-authored pass runs on the worker");
+            rig.Native.ChangeWorld(2); WorldConfigs.Announce(Path.Combine(DataDir, "world-b"));
+            rig.Dispatch.ReauthorWait = TimeSpan.FromMilliseconds(50);
+            int heldMost;
+            try
+            {
+                rig.Dispatch.FlushLoads();  // the new world: neither the replay nor the world pass of this mod runs beside the worker
+                rig.Dispatch.FlushLoads();
+                lock (worlds) heldMost = most;
+            }
+            finally { hold.Set(); }
+            Settle(rig.Dispatch);
+            for (var i = 0; i < 5; ++i) rig.Dispatch.FlushLoads();
+            Assert.Equal(1, heldMost);  // never two of the mod's passes at once
+            Assert.Equal(1, most);
+            lock (worlds) Assert.Equal(new string?[] { "world-a", "world-b" }, worlds);  // the replay ran once the worker was done
+            replacement.Retire();
+        }
+        finally { WorldConfigs.Reset(); }
+    }
     // The world ended while the pass ran: its turn is for that world and is not landed.
     [Fact(Timeout = 30_000)]
     public async Task ATurnForAnEndedWorldIsDropped()
