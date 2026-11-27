@@ -79,6 +79,8 @@ internal sealed class TamingEngine
     internal Func<string, Guid?> ResolveCreature = _ => null;
 
     private readonly Dictionary<string, (TamingDefinition Def, string Mod)> _defs = new(StringComparer.Ordinal);
+    // the definitions as any thread reads them (Taming.Definition): a copy the tick thread replaces after each change
+    private volatile IReadOnlyDictionary<string, TamingDefinition> _published = new Dictionary<string, TamingDefinition>(StringComparer.Ordinal);
     private readonly Dictionary<TameAttemptId, Attempt> _attempts = new();
     private readonly Dictionary<EntityId, TameAttemptId> _claims = new();
     private readonly Dictionary<(PlayerRef, Guid), (string Fingerprint, TamingResult Result)> _begins = new();
@@ -195,11 +197,16 @@ internal sealed class TamingEngine
                 throw new InvalidOperationException($"DefinitionInUse: {d.Id} has attempts running; it changes when they end");
         }
         _defs[d.Id] = (d, mod);
+        Publish();
     }
 
-    internal TamingDefinition? Definition(string id) => _defs.TryGetValue(id, out var d) ? d.Def : null;
+    /// <summary>Any thread: the published copy.</summary>
+    internal TamingDefinition? Definition(string id) => _published.TryGetValue(id, out var d) ? d : null;
 
-    internal IReadOnlyList<TamingDefinition> Definitions => _defs.Values.Select(v => v.Def).ToArray();
+    /// <summary>Any thread: the published copy.</summary>
+    internal IReadOnlyList<TamingDefinition> Definitions => _published.Values.ToArray();
+
+    private void Publish() => _published = _defs.ToDictionary(kv => kv.Key, kv => kv.Value.Def, StringComparer.Ordinal);
 
     /// <summary>The same definition by value (its lists by their items).</summary>
     internal static bool Same(TamingDefinition a, TamingDefinition b) =>
@@ -211,6 +218,7 @@ internal sealed class TamingEngine
         foreach (var id in _defs.Where(kv => kv.Value.Mod == mod).Select(kv => kv.Key).ToList())
         {
             _defs.Remove(id);
+            Publish();
             foreach (var a in _attempts.Values.Where(a => a.Def.Id == id && !Terminal(a.State)).ToList()) Fail(a, "DefinitionGone", Guid.Empty);
         }
     }

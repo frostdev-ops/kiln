@@ -16,7 +16,7 @@ Kiln's sample is only a sample.
 | | |
 |---|---|
 | Side | server (the authoritative world) |
-| Threads | every `Taming.*` and `NativeTaming.*` call on the tick thread |
+| Threads | every `Taming.*` and `NativeTaming.*` call on the tick thread, but `Taming.Definition` and `Taming.Definitions` (any thread, as Kiln.Pets' `Pets.Definition`) |
 | Capabilities | `kiln.taming` (definitions: a mod defines its tamings when it loads, before any world runs), `taming.steps` (Kiln's steps: the attempts, while a server world runs), `taming.native` (the game's taming read and driven: sigdb), `taming.native_observe` (who tamed a native animal: **off**, not proven); an attempt of a definition also needs the rows of its steps: `items.costs.exact` (feed), `items.costs.wear` (tool), `taming.native` (native), `pets.records` (a definition that names a pet) |
 | Costs | [item-costs.md](item-costs.md): `ItemCosts.Take` for feed steps, `ItemCosts.Wear` for tool steps, `ItemCosts.Refund` for refunds |
 | Binds to | [pets.md](pets.md): a tame of a definition with `Pet` grants a Kiln.Pets record |

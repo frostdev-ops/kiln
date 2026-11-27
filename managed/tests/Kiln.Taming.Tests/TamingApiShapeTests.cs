@@ -154,4 +154,19 @@ public sealed class TamingApiShapeTests
         Assert.Same(f.Engine.Cancel(f.A, p.Id, cancel), f.Engine.Cancel(f.A, p.Id, cancel));   // the same request, the same answer
         Assert.Equal(TamingRefusal.AttemptClosed, Done(f.Engine.Cancel(f.A, p.Id, TamingRequest.New())).Refusal);
     }
+
+    // ---- A11: the definitions are read on any thread, as Kiln.Pets' are ----
+
+    [Fact]
+    public void Definition_and_Definitions_are_any_thread()
+    {
+        foreach (var m in new MemberInfo[] { typeof(Taming).GetMethod(nameof(Taming.Definition))!, typeof(Taming).GetProperty(nameof(Taming.Definitions))! })
+        {
+            Assert.Contains(m.GetCustomAttributes(false), a => a.GetType().Name == "AnyThreadAttribute");
+            Assert.DoesNotContain(m.GetCustomAttributes(false), a => a.GetType().Name == "TickThreadOnlyAttribute");
+        }
+        var f = new TamingFixture().With(FeedTwice());
+        var seen = Task.Run(() => (f.Engine.Definition("mod-a:wolf"), f.Engine.Definitions.Count)).Result;
+        Assert.Equal(("mod-a:wolf", 1), (seen.Item1!.Id, seen.Count));
+    }
 }

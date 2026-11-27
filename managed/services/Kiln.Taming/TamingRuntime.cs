@@ -101,7 +101,8 @@ internal static class TamingRuntime
             var e = new TamingEngine(new GameTamingWorld(), new GameTamingCosts());
             e.Binder = new PetsTamingBinder();
             e.ResolveCreature = id => PetCreatures.Resolve(id, out _)?.Template;
-            return _engine = e;
+            // Taming.Definition reads on any thread: the first engine made is the one (never two)
+            return Interlocked.CompareExchange(ref _engine, e, null) ?? e;
         }
         set => _engine = value;
     }

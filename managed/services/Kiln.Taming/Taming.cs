@@ -65,13 +65,14 @@ public static class Taming
         return defs;
     }
 
-    /// <summary>The definition registered under <paramref name="id"/>, or null.</summary>
-    [TickThreadOnly]
-    public static TamingDefinition? Definition(string id) => DefinitionEngine("Taming.Definition").Definition(id);
+    /// <summary>The definition registered under <paramref name="id"/>, or null. Any thread, as Kiln.Pets'
+    /// <see cref="Pets.Definition"/>.</summary>
+    [AnyThread]
+    public static TamingDefinition? Definition(string id) => DefinitionReader().Definition(id);
 
-    /// <summary>Every registered definition.</summary>
-    [TickThreadOnly]
-    public static IReadOnlyList<TamingDefinition> Definitions => DefinitionEngine("Taming.Definitions").Definitions;
+    /// <summary>Every registered definition. Any thread.</summary>
+    [AnyThread]
+    public static IReadOnlyList<TamingDefinition> Definitions => DefinitionReader().Definitions;
 
     /// <summary>Starts an attempt of <paramref name="definition"/> by <paramref name="player"/> on
     /// <paramref name="target"/>: the target is claimed (another attempt on it is <c>Busy</c>), the pet's roster slot is held
@@ -141,10 +142,9 @@ public static class Taming
     [RequiresCapability("taming.steps")]
     public static TamingChoicesResult Choices(PlayerRef player, TameAttemptId attempt) => Engine("Taming.Choices").Choices(player, attempt);
 
-    // the definitions are data: Kiln.Taming loaded is all they need (a mod's OnLoad, no world yet)
-    private static TamingEngine DefinitionEngine(string api)
+    // the definitions are data: Kiln.Taming loaded is all they need (a mod's OnLoad, no world yet); read on any thread
+    private static TamingEngine DefinitionReader()
     {
-        Services.RequireTickThread(api);
         TamingCaps.Require(TamingCaps.Service);
         return TamingRuntime.Engine;
     }
