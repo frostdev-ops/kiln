@@ -69,8 +69,7 @@ public sealed class RegistryAuthoringTests
         var ir = JsonNode.Parse(kiln.Registry.RunReauthored(mod)!)!;    // the mod's Alter pass reads context.OffTick
         Assert.Equal(1, ir["edits"]![1]!["op"]!.GetValue<int>());        // TkRegistryMod: MaxStack = 1 off the tick
         Assert.Null(kiln.Registry.Refused);
-        var e = Assert.Throws<InvalidOperationException>(() => kiln.Registry.RunReauthored(mod, phase: RegistryPhase.Final));
-        Assert.Contains("re-authored registry pass", e.Message);
+        Assert.Contains("re-authored registry pass", OffTickRefusal(kiln, mod));
         Assert.Contains("needs the tick thread", kiln.Registry.Refused);
         Assert.NotNull(kiln.Registry.RunReauthored(mod, offTick: false, phase: RegistryPhase.Final));  // on the tick it is taken
         Assert.Null(kiln.Registry.Refused);
@@ -84,6 +83,10 @@ public sealed class RegistryAuthoringTests
         MissingSeed(kiln, mod);
         kiln.Unload(mod);
     }
+    // The off-tick refusal the pass did not catch, as its message only: the exception's stack references the collectible mod
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static string OffTickRefusal(KilnHarness kiln, ModHandle mod)
+        => Assert.Throws<InvalidOperationException>(() => kiln.Registry.RunReauthored(mod, phase: RegistryPhase.Final)).Message;
     // A caught exception's stack itself references the collectible author's method. Release the assertion's local first.
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
     private static void MissingSeed(KilnHarness kiln, ModHandle mod)
