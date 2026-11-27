@@ -45,8 +45,14 @@ void t_wire() {
     const uint8_t a[] = {'a'};
     CHECK(fnv1a32(a, 1) == 0xe40c292cu, "'a' = %08x", fnv1a32(a, 1));
     const auto up = new_character_upload();
-    const std::vector<uint8_t> want = {0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0};
+    // u8 not compressed, u8 no saved entity, u32 38 + the character creator's 38 bytes (u8, 9 x u32, u8: what the spawn
+    // of a new character reads, 0x6ff580), u32 knowledge size 4, u32 no knowledge entries (lab s2: with a 0-byte section
+    // the game logged "Could not spawn Player Entity")
+    std::vector<uint8_t> want = {0, 0, 38, 0, 0, 0};
+    want.insert(want.end(), 38, 0);
+    for (uint8_t b : {4, 0, 0, 0, 0, 0, 0, 0}) want.push_back(b);
     CHECK(up == want, "upload is %zu bytes", up.size());
+    CHECK(up.size() == 52 && kCharacterBytes == 38, "52 bytes, a 38-byte character section");
     const auto c = save_chunk(up);
     CHECK(c.size() == 1 + 4 + 4 + 4 + 2 + up.size(), "chunk size %zu", c.size());
     if (c.size() >= 15) {
@@ -444,7 +450,8 @@ void t_failures() {
         bool uploaded = false;
         for (auto& c : g.calls) uploaded |= c == "upload";
         CHECK(b.phase == Phase::Failed && !uploaded, "too big: %s, uploaded %d", phase_name(b.phase), uploaded);
-        CHECK(b.reason.find("14 bytes") != std::string::npos && b.reason.find("8") != std::string::npos, "reason '%s'", b.reason.c_str());
+        const std::string size = "(" + std::to_string(new_character_upload().size()) + " bytes)";
+        CHECK(b.reason.find(size) != std::string::npos && b.reason.find("(8 bytes)") != std::string::npos, "reason '%s'", b.reason.c_str());
         FakeGame h;
         h.upload_capacity = 0;  // not known on this build: the bot sends it and the game decides
         Bot c = make_bot();

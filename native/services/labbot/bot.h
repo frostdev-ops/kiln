@@ -17,9 +17,12 @@ namespace labbot {
 // FNV-1a 32: the game's hash over a whole character upload (Save2's chunk receive compares it).
 uint32_t fnv1a32(const uint8_t* p, size_t n);
 
-// The character upload of a new character: u8 compressed 0, u8 has-entity 0, u32 entity size 0, u32 knowledge size 4,
-// u32 knowledge count 0. With has-entity 0 the server spawns the player from the game's own player template (the
-// branch a character with no saved entity takes), so the bot needs no character file.
+// The character upload of a new character: u8 compressed 0, u8 has-entity 0, u32 kCharacterBytes, the character
+// creator's choices (u8, 9 x u32, u8; all 0: the defaults), u32 knowledge size 4, u32 knowledge count 0. With has-entity
+// 0 the server spawns the player from the game's own player template with those choices (the branch a character with no
+// saved entity takes, which reads them from the same section a saved entity would fill), so the bot needs no character
+// file.
+constexpr size_t kCharacterBytes = 38;
 std::vector<uint8_t> new_character_upload();
 // One Save2 message on the player's save channel carrying `body` whole: u8 1, u32 hash, u32 total, u32 offset 0, u16
 // length, the bytes. Empty when the body does not fit one chunk (65535 bytes).
