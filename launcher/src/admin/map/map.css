@@ -13,7 +13,13 @@
 .ka-map-root { display: flex; flex: 1 1 auto; min-height: 0; position: relative; isolation: isolate; background: #0d0907; border-radius: var(--k-radius-m); overflow: hidden; box-shadow: inset 0 0 0 1px var(--k-line-strong); }
 .ka-map-root.noside .ka-map-side { display: none; }
 .ka-map-side { position: relative; width: 300px; flex: none; display: flex; flex-direction: column; box-shadow: inset -1px 0 0 var(--k-line); background: rgba(10, 7, 5, .9); min-height: 0; }
-.ka-map-area { flex: 1; position: relative; min-width: 0; }
+/* the map area: the map (inset 0) and its corner controls are placed on it; what stands at its top, the art banner and
+   the route panel, flows down a column 12 px from its top and 56 px from each side (clear of the side toggle and the
+   zoom buttons) that ends 48 px above its foot (clear of the pointer's coordinates, .ka-map-coords: 12 px up, about
+   24 px tall). So the route panel stands below the banner, whatever the banner holds, instead of under it (31.20: the
+   banner, z-index 1001 in the same place, took the route panel's ✕), and a banner that fills the column leaves the route
+   panel above the coordinates, not under them (tests/admin-map-dialogs.spec.ts) */
+.ka-map-area { flex: 1; position: relative; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 12px 56px 48px; }
 .ka-map { position: absolute; inset: 0; background: #0d0907; }
 .ka-map.leaflet-container { font: 15px/1.35 var(--k-font-ui); background: #0d0907; }
 
@@ -87,11 +93,13 @@
 .ka-map-coords b { color: var(--k-text-0); font-weight: 500; }
 .ka-map-loading { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); z-index: 1000; font-size: 15px; font-style: italic; color: var(--k-text-2);
   background: rgba(10, 7, 5, .85); box-shadow: inset 0 0 0 1px var(--k-line); border-radius: var(--k-radius-s); padding: 4px 12px; }
-/* the banner over the map while it has no map art (placed by MapView's inline style, which Kilnwarden's rule finds it
-   by): a host's words (AdminHost.useMapNoArt: steps, a fix with its progress) may be taller than the map, so they
-   scroll inside it instead of running past the map's clipped edge (tests/admin-map-noart.spec.ts) */
-.ka-map-noart { max-height: calc(100% - 24px); overflow: auto; border-radius: var(--k-radius-s); }
-.ka-map-route { position: absolute; left: 56px; top: 12px; z-index: 1000; display: flex; gap: 12px; align-items: center; font-size: 15px;
+/* the banner over the map while it has no map art, first in the map area's column (its z-index, 1001, is inline in
+   MapView: Kilnwarden's rule finds it by that): a host's words (AdminHost.useMapNoArt: steps, a fix with its progress)
+   may be taller than the map, so they scroll inside what the column leaves them (the map's height less the column's
+   margins and an open route panel) instead of running past the map's clipped edge or over the route panel
+   (tests/admin-map-noart.spec.ts) */
+.ka-map-noart { position: relative; align-self: stretch; flex: 0 1 auto; min-height: 0; overflow: auto; border-radius: var(--k-radius-s); }
+.ka-map-route { position: relative; z-index: 1000; flex: none; max-width: 100%; display: flex; gap: 12px; align-items: center; font-size: 15px;
   background: rgba(10, 7, 5, .9); box-shadow: inset 0 0 0 1px var(--k-line-strong), 0 12px 30px rgba(0, 0, 0, .6); color: var(--k-text-0); border-radius: var(--k-radius-s); padding: 5px 8px 5px 12px; }
 .ka-map-route .big { font-size: 16px; font-weight: 700; color: var(--k-gold-400); }
 .ka-map-route .up { color: var(--k-ok); } .ka-map-route .down { color: var(--k-err); }

@@ -30,8 +30,9 @@ public sealed partial class KilnHarness
 /// the game builds its rows again (a pick of its row reaches <c>Picked</c> in the game since 0.2.0-dev.31.10, GitHub issue
 /// 145; in Append also for a mod's row kept behind the game's row of the same item, since 0.2.0-dev.31.12) is not
 /// modelled; a pick after <see cref="SetGameRows"/> and before the next step is decided by the new rows, as in
-/// the game, while <see cref="Shown"/> still composes the earlier snapshot with them (the game shows only its own rows
-/// until Kiln publishes for them).</para>
+/// the game, while <see cref="Shown"/> still composes the earlier snapshot with them. In the game that is so in Replace
+/// (since 0.2.0-dev.31.21, GitHub issue 151: the earlier snapshot and the selection stay up for at most a second until
+/// Kiln publishes for the new rows); in Append the game shows only its own rows until then.</para>
 /// </remarks>
 public sealed class HarnessAmmoList
 {

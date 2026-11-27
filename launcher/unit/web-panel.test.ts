@@ -5,7 +5,7 @@
 import { expect, test } from "bun:test";
 import type { WebPanelInfo } from "../src/api/commands";
 import { t } from "../src/i18n";
-import { shortFingerprint, webPanelLines, webPanelOf } from "../src/pages/servers/webPanel";
+import { alwaysLocal, offerHere, shortFingerprint, webPanelLines, webPanelOf } from "../src/pages/servers/webPanel";
 
 const panel = (p: Partial<WebPanelInfo> = {}): WebPanelInfo => ({
   serverId: "lab", origin: "https://127.88.4.9:41234", fingerprint: "ab".repeat(30) + "cdef", via: "local", isolated: true, idleCloseS: 120, connections: 1,
@@ -57,4 +57,29 @@ test("when the panel's own address failed the check, it opened on this computer 
     "Your panel's own address isn't ready for the launcher's sign-in, so it opened on this computer.",
   );
   expect(webPanelLines(panel(), t).join(" ")).not.toContain("own address");
+});
+
+// (0.2.0-dev.31.20) "Always open the web panel on this computer", per server (web-panel-settings.json)
+test("Open on this computer instead is offered after a hosted open, unless the server always opens here", () => {
+  const hosted = panel({ via: "hosted", origin: "https://alpha.kiln.nexus", public: "https://alpha.kiln.nexus/", idleCloseS: 0, connections: 0 });
+  expect(offerHere(hosted, false)).toBe(true);
+  expect(offerHere(hosted, true)).toBe(false);
+  expect(offerHere(panel(), false)).toBe(false);
+  expect(offerHere(panel({ fallback: "unreachable" }), false)).toBe(false);
+  expect(offerHere(null, false)).toBe(false);
+});
+
+test("the setting reads as off until the launcher says otherwise", () => {
+  expect(alwaysLocal(undefined)).toBe(false);
+  expect(alwaysLocal({ alwaysLocal: false })).toBe(false);
+  expect(alwaysLocal({ alwaysLocal: true })).toBe(true);
+});
+
+test("the setting's words: one line on each route", () => {
+  expect(t("servers.overview.webPanelAlwaysLocal")).toBe("Always open the web panel on this computer");
+  const hint = t("servers.overview.webPanelAlwaysLocalHint");
+  expect(hint).toContain("frostdev.io's relay");
+  expect(hint).toContain("encrypted end to end");
+  expect(hint).toContain("only works from this computer");
+  expect(hint).not.toContain("\n");
 });

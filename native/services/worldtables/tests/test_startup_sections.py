@@ -36,6 +36,13 @@ class StartupSections(unittest.TestCase):
             with self.subTest(section=section):
                 self.assertNotIn(f'"{section}"', gate)
 
+    def test_replayed_pools_keep_their_section(self):
+        # kiln#152: a pool kept for the next start is read back through pool_replay_document (test_pool_store.cpp runs it),
+        # never wrapped in one fixed section here: a tool pool as buildingMaterialPools never registered.
+        replay = reader.split("for(auto definition:g_pool_replayed)", 1)[1].split("for(const auto& frozen", 1)[0]
+        self.assertIn("pool_replay_document(definition)", replay)
+        self.assertNotIn("MaterialPools", replay)
+
 
 if __name__ == "__main__":
     unittest.main()

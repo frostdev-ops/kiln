@@ -475,6 +475,7 @@
       "failed": "{action} не удалось отправить: {error}"
     },
     "binding": "Моды ShroudForge: открыть страницу ShroudForge в Kiln",
+    "joined_world_edit": "Мод ShroudForge пытался изменить блоки, но в игре, к которой вы присоединились, это может только сервер или хост. Запустите этот мод там.",
     "check": {
       "whole": "{setting} принимает целое число",
       "type": "{setting} принимает {type}, а не {given}",

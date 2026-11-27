@@ -353,7 +353,7 @@ void read_mod(const std::string& dir, const fs::path& pending_root, const kiln::
         }
     for(auto definition:g_pool_replayed)if(definition.mod==man.id) {
         definition.dependencies=man.dependencies;
-        docs.emplace_back("kept pool receipt: "+definition.guid.text(),ojson{{"buildingMaterialPools",{{definition.block,ojson::parse(definition.definition)}}}});
+        docs.emplace_back("kept pool receipt: "+definition.guid.text(),pool_replay_document(definition));
         g_pending_dirs[man.id]=pending_root/to_path(man.id);
     }
     for(const auto& frozen:g_pending_boot.files) {
@@ -1545,16 +1545,17 @@ KilnResult KILN_CALL t_define(KilnStr json, char* report, size_t cap, size_t* ou
                 blocks.push_back(std::move(b));
             }
             for (const auto& p:mf.pools) {
+                const std::string kind=p.tool?"block toolMaterialPool ":"block buildingMaterialPool ";
                 const auto registered=std::find_if(g_custom_pools.begin(),g_custom_pools.end(),[&](const auto& g){return g.guid==p.guid;});
                 const auto boot=g_boot_definitions.find(mf.mod+"/p/"+p.block);
-                if(!g_pool_layout_ok) { errors.push_back("block buildingMaterialPool "+p.block+": "+g_pool_reason); continue; }
+                if(!g_pool_layout_ok) { errors.push_back(kind+p.block+": "+g_pool_reason); continue; }
                 const auto admission=pool_admission(p);
-                if(admission.code){errors.push_back("block buildingMaterialPool "+p.block+" (mod "+p.mod+"): refused: "+admission.reason);continue;}
+                if(admission.code){errors.push_back(kind+p.block+" (mod "+p.mod+"): refused: "+admission.reason);continue;}
                 const bool identical=registered!=g_custom_pools.end() && boot!=g_boot_definitions.end() && boot->second==p.definition;
                 auto receipt=g_pool_registrations.commit(g_pool_registrations.prepare(p,KILN_DEFINE_ALLOW_NEXT_START,identical),persist_pool);
-                if(!receipt.reply.ok){errors.push_back("block buildingMaterialPool "+p.block+": "+receipt.reason);continue;}
+                if(!receipt.reply.ok){errors.push_back(kind+p.block+": "+receipt.reason);continue;}
                 if(!restore_pruned_pool(g_pool_pruned,receipt,persist_pool)) {
-                    errors.push_back("block buildingMaterialPool "+p.block+": could not restore its stored definition for the next start");
+                    errors.push_back(kind+p.block+": could not restore its stored definition for the next start");
                     rc=KILN_ERR_INTERNAL;continue;
                 }
                 g_defined.insert(mf.mod+"/@pool/"+p.block);

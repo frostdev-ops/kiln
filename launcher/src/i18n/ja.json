@@ -2705,6 +2705,9 @@
       "title": "外観",
       "fire": "炎のアニメーション",
       "fireHint": "「プレイ」の炎（WebGL）。オフ: シンプルな「プレイ」ボタンになり、性能の低い GPU に優しくなります。",
+      "festive": "ホリデーシーズン",
+      "festiveHint": "炎の上に冬の飾り棚と雪。1月7日まで。",
+      "festiveMore": "さまざまな冬の伝統のランプ、ろうそく、ランタンを炎の上の飾り棚に並べ、アーチの外には雪、ページには花飾り。感謝祭の週末明けの月曜日から1月7日まで。オフにすると、このシーズンの残りはいつもの見た目になり、次のシーズンにまた表示されます。",
       "noGpu": "GPU を使わずにランチャーを描画",
       "fireOffSoftware": "ランチャーを GPU なしで描画している間はオフです。",
       "fireOffEnv": "今回の起動ではオフ: KILN_LAUNCHER_NO_WEBGL が設定されています。",
@@ -3592,6 +3595,7 @@
     },
     "appShell": {
       "thanksgiving": "ハッピー サンクスギビング",
+      "festive": "ハッピーホリデー",
       "headStart": "{progress} · {step}",
       "pct": "{pct}%",
       "labelTime": "{label} {time}",

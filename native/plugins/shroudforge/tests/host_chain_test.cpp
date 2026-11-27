@@ -395,6 +395,10 @@ const json* target_of(const json& map, uintptr_t live_addr) {
 const void* g_fake_build = nullptr;
 uintptr_t g_server_world = 0;
 uint32_t g_server_session = 1;  // kiln-core's count of server worlds since boot (KilnSessionInfo.sessions)
+uintptr_t g_client_world = 0;    // a game client's own world (a joined game: this one and no server world)
+uint32_t g_client_session = 0;
+bool g_client_stale = false;    // the client world's pointer outlived it (no destroy hook): the core's state says none
+std::vector<ksf::joined::Worlds> g_joined_calls;  // host_voxels_on_joined's callback
 thread_local bool t_world_thread = false;
 bool g_post_refuses = false;
 std::mutex g_posts_mutex;
@@ -514,7 +518,12 @@ int main() {
         out->size = sizeof *out;
         out->worlds[KILN_WORLD_SERVER] = g_server_world;
         out->sessions[KILN_WORLD_SERVER] = g_server_session;
-        out->state = g_server_world ? KILN_SESSION_DEDICATED : KILN_SESSION_NONE;
+        out->worlds[KILN_WORLD_CLIENT] = g_client_world;
+        out->sessions[KILN_WORLD_CLIENT] = g_client_session;
+        // as kiln-core's session(): a server world, else a client world alone (a joined game), else none
+        out->state = g_server_world                     ? KILN_SESSION_DEDICATED
+                     : g_client_world && !g_client_stale ? KILN_SESSION_REMOTE
+                                                         : KILN_SESSION_NONE;
         return KILN_OK;
     };
     api.post = [](KilnOwner, KilnTaskFn fn, void* user) -> KilnResult {
@@ -781,6 +790,38 @@ int main() {
         for (const auto& l : g_lines) said |= l.find("ShroudForge voxel write refused before changing the world") != std::string::npos &&
                                               l.find("did not take the write within 2 seconds") != std::string::npos;
         check(said, "kiln.log says why a write was refused");
+    }
+
+    // a game that joined a server (a client world, no server world): refused with the joined reason, and the notice's
+    // callback hears of it (joined_notice.h); ready() asks without telling anyone (ShroudForge asks it often)
+    {
+        const uintptr_t server = g_server_world;
+        g_server_world = 0, g_client_world = 0x5678, g_client_session = 3;
+        ksf::host_voxels_on_joined([](const ksf::joined::Worlds& w) { g_joined_calls.push_back(w); });
+        const uint16_t want[4] = {1, 2, 3, 4};
+        check(g_host->voxel_write_ready() == 0 && g_joined_calls.empty(), "a joined game: not ready, and asking tells nobody");
+        outcome = 9;
+        check(!g_host->voxel_write(at, box, want, 4, &outcome) && outcome == 1, "a joined game: refused before any change");
+        check(g_joined_calls.size() == 1 && g_joined_calls[0].client && !g_joined_calls[0].server &&
+                  g_joined_calls[0].client_session == 3,
+              "the refusal reaches the joined notice with the client world's session");
+        {
+            std::lock_guard lock(g_log_mutex);
+            bool said = false;
+            for (const auto& l : g_lines) said |= l.find("ShroudForge voxel write refused before changing the world") != std::string::npos &&
+                                                  l.find(ksf::joined::kReason) != std::string::npos;
+            check(said, "kiln.log gives the joined reason");
+        }
+        g_joined_calls.clear();
+        g_client_stale = true;  // back at the main menu without the core's world destroy hook: the pointer is still there
+        check(!g_host->voxel_write(at, box, want, 4, &outcome) && outcome == 1 && g_joined_calls.empty(),
+              "the main menu after a joined game, the client world's pointer stale: refused, no joined notice");
+        g_client_stale = false;
+        g_client_world = 0;
+        check(!g_host->voxel_write(at, box, want, 4, &outcome) && outcome == 1 && g_joined_calls.empty(),
+              "no world at all (the main menu): refused, no joined notice");
+        ksf::host_voxels_on_joined(nullptr);
+        g_server_world = server;
     }
 
     {

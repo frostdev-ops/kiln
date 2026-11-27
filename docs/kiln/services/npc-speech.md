@@ -32,8 +32,14 @@ Requested by Marshall (Ryrin) for survival add-ons (NPCs that eat; craftspeople 
   lines and not again when repeated; a peer that joins later gets Reset, the Replace and the running Say (24.3 s left);
   Suppress, StopSaying (an empty Say) and Clear (mode 0) go out; the vanilla peer gets no Kiln frame. kiln.log:
   `npcspeech: npcspeech.bubble is off in this process (a dedicated server ...)` and the service skipped, no error.
-  `Npcs.Available` is false there, as it must be. **Not seen in a game client yet**: the bubble showing Kiln's text, a Say over an NPC that is
-  not the target, Suppress hiding the greeting, the muted voice-over of a craftsperson. Marshall tests a dev build.
+  `Npcs.Available` is false there, as it must be.
+- **Real game (Marshall/Ryrin, Living Larder, 31.19)**, a game client with his mod (#mod-dev, 2026-11-26): Replace lines
+  show in the game's own bubble, with no voice-over; pressing E on a crafter kept her screen shut and showed the mod's
+  Say line; the NPCs' own greetings came back when the condition cleared (Clear); farewells stayed the game's (as
+  Limits says). One villager repeated the same Replace line while another varied: most likely the game keeps its last
+  greeting pick for an NPC until the player leaves the area, and Replace chooses among your lines only when the game
+  picks a new greeting (Rules). **Not seen yet**: Suppress hiding the greeting, a Say over an NPC that is not the
+  player's target, how far a Say shows (Limits), the talk gesture on E [hyp].
 
 ## Using it
 

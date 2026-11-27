@@ -1,6 +1,65 @@
 {
   "released": [
     {
+      "version": "0.2.0-dev.31.21",
+      "date": "2026-11-27",
+      "title": "Building tools, spell lists and ShroudForge in multiplayer",
+      "summary": "Mods' building tools keep their own brushes and add terrain from the second start, a mod's spell or arrow list stays put while you scroll, and a ShroudForge mod that changes blocks tells you why it does nothing in a game you joined.",
+      "patch": true,
+      "features": [
+        {
+          "title": "Building tools keep their brushes",
+          "text": "Picking another brush size for a mod's building tool keeps the tool and its own brushes instead of turning it into the vanilla Overgrowth Tool, and each brush's preview shows the vanilla size nearest its own (thanks SonjaNemitz).",
+          "area": "content",
+          "kind": "fix"
+        },
+        {
+          "title": "Building tools that add terrain",
+          "text": "A building tool that adds terrain works from the second start of the game, also with the tool pool an earlier version kept (thanks SonjaNemitz).",
+          "area": "content",
+          "kind": "fix"
+        },
+        {
+          "title": "Spell lists stay put while you scroll",
+          "text": "A mod's spell or arrow list in place of the game's keeps its spells and arrows on screen while the game builds the list again: no flash of the game's own list after a switch, and on a dedicated server the cursor no longer jumps back to the equipped spell (thanks Fuzen777).",
+          "area": "content",
+          "kind": "fix"
+        },
+        {
+          "title": "ShroudForge block edits in a joined game",
+          "text": "A ShroudForge mod that changes the world's blocks in a game you joined now says why it does nothing there: one message over the game and a kiln.log line naming the mod. Only the server or the player hosting can change blocks, so run such a mod there (thanks netjunk).",
+          "area": "compat",
+          "kind": "improved"
+        }
+      ]
+    },
+    {
+      "version": "0.2.0-dev.31.20",
+      "date": "2026-11-26",
+      "title": "The festive season",
+      "summary": "From the Monday after Thanksgiving through 7 January the launcher's fire is dressed for the winter holidays, and a server's web panel can always open on this computer.",
+      "patch": true,
+      "features": [
+        {
+          "title": "Warm wishes for the season",
+          "text": "From the Monday after Thanksgiving weekend through 7 January, the launcher's fire wears a festive mantel of lamps, candles and lanterns from many winter traditions, with snow falling outside the arch. You can switch it off in Settings.",
+          "area": "launcher"
+        },
+        {
+          "title": "Always open the web panel on this computer",
+          "text": "A switch on a server's Overview keeps Open web panel on this computer, never at the panel's hosted address.",
+          "area": "servers",
+          "kind": "improved"
+        },
+        {
+          "title": "The route panel on a map without map art",
+          "text": "On a server's Map with no map art, the route panel sits below the notice, so it can be closed again.",
+          "area": "servers",
+          "kind": "fix"
+        }
+      ]
+    },
+    {
       "version": "0.2.0-dev.31.19",
       "date": "2026-11-26",
       "title": "Thanksgiving turkey, smoother registry, ShroudForge news",
@@ -3867,31 +3926,46 @@
       "version": "0.2.0-dev.32",
       "status": "next",
       "title": "Pets, taming and more registries",
-      "summary": "Pets that follow and fight for their owner, taming, and Kiln registries for creatures, spells, buffs, perks, stations, world rules and skills.",
+      "summary": "Kiln makes pets and taming possible for mods, and adds registries for creatures, spells, buffs, perks, stations, skills, world rules, limits and loot.",
       "features": [
         {
-          "title": "Pets that follow you",
-          "text": "Mods can add pets that follow their owner, fight hostile creatures and can be revived instead of dying.",
+          "title": "Pets for mods",
+          "text": "Mods can add pets: Kiln keeps each pet saved with its owner, has it follow and fight, and handles a downed pet and its revive. Each mod decides how its pets behave, such as what they may attack and what reviving costs.",
           "area": "content"
         },
         {
           "title": "Taming creatures",
-          "text": "Players can tame creatures step by step, by feeding, weakening or using a tool, to make them their pet.",
+          "text": "Mods can use the game's own taming of wild animals and add steps of their own, such as feeding, weakening or using a tool, and decide what each step costs and whether a failed step is refunded.",
           "area": "content"
         },
         {
-          "title": "Creature, spell, buff and perk registries",
-          "text": "Mods and data packs edit creatures, spells, buffs and perks by Kiln's stable names, as they edit items and recipes today, so they keep working after game updates.",
-          "area": "api"
+          "title": "Creature, perk, spell and buff registries",
+          "text": "Mods and data packs edit creatures, enemy attacks, perks, buff durations and stacking, and spell and ability timing by Kiln's stable names, as they edit items and recipes today, so they keep working after game updates.",
+          "area": "content"
         },
         {
-          "title": "Station, world-rule, skill and limit registries",
-          "text": "Crafting stations, world rules such as build zones and difficulty, skills and Kiln's limits become registries too.",
+          "title": "Station, skill, world-rule and limit registries",
+          "text": "Crafting stations, skill costs, no-build zones and play areas, difficulty bounds, and Kiln's limits such as the flame altar cap and the gifting range become registries too.",
+          "area": "content"
+        },
+        {
+          "title": "Loot registries",
+          "text": "The world-wide loot rarity weights and every random loot table become registries, so loot mods such as Loot Rarity Leveler run on Kiln's stable names.",
+          "area": "content"
+        },
+        {
+          "title": "NPC dialogue for mods",
+          "text": "Building on NPC speech: a replaced greeting picks a new line each time an NPC greets, mods can set farewells and the talk menu's own line, and villagers without a talk page can get one of the mod's, for survival mods such as Living Larder.",
           "area": "api"
         },
         {
           "title": "One view over every registry",
-          "text": "One typed view over all registries, equipment rules on the registries, and editor hints that point mods from old paths to registry fields.",
+          "text": "One typed view over every game resource with Kiln's names, Stable, Advanced and Native labels across the modding API, and editor hints that point mods from old paths to registry fields.",
+          "area": "api"
+        },
+        {
+          "title": "Equipment rules on the registries",
+          "text": "Mods' gear and equipment-rule calls keep working and become registry edits where Kiln has proven they match, so they show in the Conflicts view and carry over game updates.",
           "area": "api"
         },
         {
@@ -3910,8 +3984,8 @@
     {
       "version": "0.2.0-dev.33",
       "status": "planned",
-      "title": "Mounts",
-      "summary": "Creatures players can ride, fly and drive.",
+      "title": "Custom mounts",
+      "summary": "Mods can build fully custom mounts: creatures and vehicles that players ride, fly and drive, with their own models, animations, stats and abilities.",
       "features": [
         {
           "title": "Riding creatures",
@@ -3927,6 +4001,31 @@
           "title": "Vehicles and carts",
           "text": "Mods can add vehicles with seats and decks, such as a cart a friend can ride in, that stay in the world after a restart.",
           "area": "content"
+        },
+        {
+          "title": "Mounts of your own",
+          "text": "Mods can build a mount from scratch: its own model and animations, the rider's seat and pose, the camera, speeds, stamina and abilities, and how players get it, for example by taming it.",
+          "area": "content"
+        },
+        {
+          "title": "A mount registry",
+          "text": "Mount speeds, stamina, jumping and flight values become a registry, so data packs can tune any mount, the game's or a mod's.",
+          "area": "content"
+        },
+        {
+          "title": "Animations from code",
+          "text": "Mods can play an animation from code and cancel a sequence as it starts.",
+          "area": "api"
+        },
+        {
+          "title": "Player animation states from C#",
+          "text": "Mods can define their own player animation states in C#, such as a rider's pose, not only in a data file.",
+          "area": "api"
+        },
+        {
+          "title": "Mounts in multiplayer",
+          "text": "Riders, passengers and mounts show for every player who has Kiln and the mod, and mounts are saved with their owner.",
+          "area": "servers"
         }
       ]
     }
@@ -3954,18 +4053,6 @@
       "title": "Weather in one place",
       "text": "Mods could place a weather phenomenon where they want it, not only start it in its region.",
       "area": "content",
-      "note": "Not in a release yet"
-    },
-    {
-      "title": "Animations from code",
-      "text": "Mods could play an animation from code and cancel a sequence as it starts.",
-      "area": "api",
-      "note": "Not in a release yet"
-    },
-    {
-      "title": "Player animation states from C#",
-      "text": "Mods could define their own player animation states in C#, not only in a data file.",
-      "area": "api",
       "note": "Not in a release yet"
     },
     {
