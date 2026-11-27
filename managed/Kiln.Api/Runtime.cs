@@ -136,6 +136,7 @@ public static class Game
             throw new InvalidOperationException("This cannot run in a program wrap's handler (it runs inside the world's step); use slice.Post.");
         if (TaskExecutionScope.InMenuHop) throw new InvalidOperationException(TaskExecutionScope.MenuHopRefusal(CallerName()));
         if (IsTickThread) return;
+        if (OffTickPass) throw OffTick(CallerName());
         throw new InvalidOperationException(InBoot ? NotInBoot(CallerName()) : "This must run on the tick thread; use Scheduler.Post.");
     }
 
@@ -146,7 +147,20 @@ public static class Game
             throw new InvalidOperationException($"{member} cannot run in a program wrap's handler (it runs inside the world's step); use slice.Post.");
         if (TaskExecutionScope.InMenuHop) throw new InvalidOperationException(TaskExecutionScope.MenuHopRefusal(member));
         if (IsTickThread) return;
+        if (OffTickPass) throw OffTick(member);
         throw new InvalidOperationException(InBoot ? NotInBoot(member) : "This must run on the tick thread; use Scheduler.Post.");
+    }
+
+    /// <summary>A re-authored registry pass (Registry.Reauthor, 0.2.0-dev.32) runs on a worker thread of Kiln.Host's, off the
+    /// world tick. A tick-thread call in it is refused and noted (<see cref="OffTickRefused"/>): Kiln.Host then runs that mod's
+    /// passes on the tick, so a mod that caught the refusal never lands a result built around it.</summary>
+    [ThreadStatic] internal static bool OffTickPass;
+    [ThreadStatic] internal static string? OffTickRefused;
+    private static InvalidOperationException OffTick(string member)
+    {
+        OffTickRefused ??= member;
+        return new InvalidOperationException($"{member} must run on the tick thread, and a re-authored registry pass (Registry.Reauthor) runs off it: " +
+            "read game state before asking for the pass and keep it in the mod, or Kiln runs this mod's passes on the tick");
     }
 
     // The member that called AssertTickThread() (two frames up from here), as "Type.Member".

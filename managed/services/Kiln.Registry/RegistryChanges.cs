@@ -165,7 +165,11 @@ public static partial class Registry
     /// pass), or the live back-end is not there; with no world loaded, the next world's load authors the point anyway.
     /// The re-authored layers are committed after every other mod's: they win over other mods' WorldLoad edits of the same
     /// fields (Final ones too) until those points are authored again, and the pass reads those mods' edits as the values
-    /// below it. Tick thread, inside the mod.</summary>
+    /// below it. Since 0.2.0-dev.32 the re-authored pass runs on a worker thread of Kiln's and its turn lands on the world
+    /// tick in one step (the new layers in, the earlier ones out, one write of the bytes that change): read settings and game
+    /// state before asking and keep them for the pass; a tick-thread API called in it throws, and Kiln then runs that mod's
+    /// re-authored passes on the tick. One re-author runs at a time; requests made meanwhile are one more pass after it.
+    /// Tick thread, inside the mod.</summary>
     [TickThreadOnly, RequiresCapability("kiln.registry.live")]
     public static bool Reauthor(RegistryEntryPoint point)
     {

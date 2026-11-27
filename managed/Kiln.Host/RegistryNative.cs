@@ -140,6 +140,72 @@ internal sealed unsafe class RegistryNative(IHostServices host)
         return NativeCalls.WithUtf8(registry, r => NativeCalls.WithUtf8(id, i => NativeCalls.WithUtf8(field, f =>
             Text((buffer, cap, length) => t->ReadPass(owner, r, i, f, buffer, cap, length)))));
     }
+    // ---- dev.32 LOOT-2: Registry.Reauthor off the world tick (kiln.internal.registry v3) ----
+    /// <summary>A re-authored pass can run on a worker thread: kiln-content.dll publishes v3's preparation and landing.</summary>
+    internal bool OffTickAvailable
+    {
+        get
+        {
+            var t = Internal;
+            return LiveAvailable && t != null && t->Version >= KilnRegistryHostApi.Version3 && t->Size >= (uint)sizeof(KilnRegistryHostApi) &&
+                   t->Epoch != null && t->ReadPassIn != null && t->Prepare != null && t->Install != null && t->Discard != null && t->BuildReport != null;
+        }
+    }
+    /// <summary>The registry's epoch: what a pass reads moves it. Any thread.</summary>
+    internal ulong Epoch() => Internal->Epoch();
+    /// <summary>read_pass for a pass running off the world thread, in that world only. Any thread.</summary>
+    internal string ReadPassIn(ulong owner, ulong world, string registry, string id, string field)
+    {
+        var t = Internal;
+        return NativeCalls.WithUtf8(registry, r => NativeCalls.WithUtf8(id, i => NativeCalls.WithUtf8(field, f =>
+            Text((buffer, cap, length) => t->ReadPassIn(owner, world, r, i, f, buffer, cap, length)))));
+    }
+    /// <summary>Prepares a turn off the world thread: the calls (owner, IR) in commit order, the replaced retained changes out.
+    /// (rc, ticket, stale): stale 1 the pass's reads are stale, 2 only the preparation is.</summary>
+    internal (int Rc, ulong Ticket, uint Stale) Prepare(IReadOnlyList<(ulong Owner, string Ir)> calls, IReadOnlyList<(ulong Owner, ulong Handle)> replaced, ulong epoch)
+    {
+        var t = Internal;
+        var texts = calls.Select(c => Encoding.UTF8.GetBytes(c.Ir)).ToArray();
+        var pins = new System.Runtime.InteropServices.GCHandle[texts.Length];
+        try
+        {
+            var items = new KilnRegistryPassCall[calls.Count];
+            for (var i = 0; i < texts.Length; ++i)
+            {
+                pins[i] = System.Runtime.InteropServices.GCHandle.Alloc(texts[i], System.Runtime.InteropServices.GCHandleType.Pinned);
+                items[i] = new KilnRegistryPassCall { Owner = calls[i].Owner, Point = Tag(RegistryEntryPoint.WorldLoad),
+                    Ir = new KilnStr { Ptr = (byte*)pins[i].AddrOfPinnedObject(), Len = (nuint)texts[i].Length } };
+            }
+            var turn = replaced.Select(r => new KilnRegistryTurnItem { Owner = r.Owner, Handle = r.Handle }).ToArray();
+            ulong ticket = 0; uint stale = 0; int rc;
+            fixed (KilnRegistryPassCall* c = items) fixed (KilnRegistryTurnItem* r = turn)
+                rc = t->Prepare(c, (nuint)items.Length, r, (nuint)turn.Length, epoch, &ticket, &stale);
+            return (rc, ticket, stale);
+        }
+        finally
+        {
+            foreach (var pin in pins) if (pin.IsAllocated) pin.Free();
+        }
+    }
+    /// <summary>Lands a prepared turn on the world thread: (rc, stale, one completion per call then per replaced change; a
+    /// call's carries its retained handle).</summary>
+    internal (int Rc, uint Stale, RegistryCompletion[] Results) Install(ulong ticket, bool anyway, int calls, int replaced)
+    {
+        var t = Internal;
+        var results = new RegistryLiveReply[calls + replaced];
+        for (var i = 0; i < results.Length; ++i) results[i].Size = 232;
+        var handles = new ulong[calls];
+        uint stale = 0; int rc;
+        fixed (RegistryLiveReply* r = results) fixed (ulong* h = handles)
+            rc = t->Install(ticket, anyway ? KilnRegistryHostApi.InstallAnyway : 0u, r, (nuint)results.Length, h, (nuint)handles.Length, &stale);
+        var completions = new RegistryCompletion[results.Length];
+        if (rc == 0)
+            for (var i = 0; i < results.Length; ++i) completions[i] = results[i].Copy(i < calls ? handles[i] : 0);
+        return (rc, stale, completions);
+    }
+    internal void Discard(ulong ticket) { var t = Internal; if (t != null && t->Discard != null) t->Discard(ticket); }
+    /// <summary>Builds the registry.json report a landed turn owes, off the world thread. False: the registry moved meanwhile.</summary>
+    internal bool BuildReport() => Internal->BuildReport() == 0;
     /// <summary>registry.json's text as kiln.registry has it now (report_json).</summary>
     internal string ReportJson()
     {

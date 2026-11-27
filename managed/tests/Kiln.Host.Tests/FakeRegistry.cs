@@ -44,11 +44,81 @@ internal sealed unsafe class FakeRegistry : IDisposable
         *Live = new() { Size = 56, Version = 1, Begin = &Begin, Submit = &Submit, Commit = &Commit,
             Revert = &Revert, Read = &ReadLive, Status = &Status };
         Internal = (KilnRegistryHostApi*)NativeMemory.AllocZeroed((nuint)sizeof(KilnRegistryHostApi));
-        *Internal = new() { Size = (uint)sizeof(KilnRegistryHostApi), Version = KilnRegistryHostApi.Version2, ReadPass = &ReadPass };
+        *Internal = new() { Size = KilnRegistryHostApi.SizeV2, Version = KilnRegistryHostApi.Version2, ReadPass = &ReadPass };
         Host.Services["kiln.registry"] = (nint)Stage;
         Host.Services["kiln.registry.live"] = (nint)Live;
         Host.Services["kiln.internal.registry"] = (nint)Internal;
     }
+    // ---- kiln.internal.registry v3 (dev.32 LOOT-2): Registry.Reauthor's turn prepared off the world tick ----
+    /// <summary>Publishes v3: a re-authored pass runs on Kiln.Host's worker and its turn is prepared there, landed on the tick.</summary>
+    internal bool OffTick
+    {
+        set
+        {
+            Internal->Version = value ? KilnRegistryHostApi.Version3 : KilnRegistryHostApi.Version2;
+            Internal->Size = value ? (uint)sizeof(KilnRegistryHostApi) : KilnRegistryHostApi.SizeV2;
+            Internal->Epoch = value ? &EpochNow : null; Internal->ReadPassIn = value ? &ReadPassIn : null;
+            Internal->Prepare = value ? &Prepare : null; Internal->Install = value ? &Install : null;
+            Internal->Discard = value ? &Discard : null; Internal->BuildReport = value ? &BuildReport : null;
+        }
+    }
+    /// <summary>Moves with every composition (a commit, a revert, a landed turn), as kiln-content's epoch.</summary>
+    internal ulong Epoch = 1;
+    internal int Prepares, Installs, Reverts, ReportsBuilt, PassReadsIn;
+    internal readonly List<int> InstallThreads = [], PrepareThreads = [];
+    /// <summary>The next install answers UNAVAILABLE with this stale (1: the pass's reads, 2: the preparation), once.</summary>
+    internal uint NextStale;
+    private readonly Dictionary<ulong, (List<(ulong Owner, int Value)> Calls, List<ulong> Replaced, ulong Epoch)> _plans = [];
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static ulong EpochNow() => Current.Epoch;
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int ReadPassIn(ulong owner, ulong world, KilnStr registry, KilnStr id, KilnStr field, byte* output, nuint capacity, nuint* length)
+    {
+        if (world != Current.World) return KilnAbi.ErrUnavailable;
+        ++Current.PassReadsIn;
+        var others = Current._layers.Values.Where(l => l.Owner != owner).ToArray();
+        var value = others.Length == 0 ? 10 : others.Last().Value;
+        return Text(value.ToString(System.Globalization.CultureInfo.InvariantCulture), output, capacity, length);
+    }
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int Prepare(KilnRegistryPassCall* calls, nuint count, KilnRegistryTurnItem* replaced, nuint replacedCount, ulong epoch, ulong* ticket, uint* stale)
+    {
+        ++Current.Prepares; lock (Current.PrepareThreads) Current.PrepareThreads.Add(Environment.CurrentManagedThreadId);
+        if (epoch != Current.Epoch) { *stale = 1; return KilnAbi.ErrUnavailable; }
+        var plan = (new List<(ulong, int)>(), new List<ulong>(), epoch);
+        for (nuint i = 0; i < count; ++i)
+        {
+            var doc = JsonNode.Parse(Encoding.UTF8.GetString(calls[i].Ir.Ptr, checked((int)calls[i].Ir.Len)))!;
+            plan.Item1.Add((calls[i].Owner, doc["edits"]![0]!["op"]!.GetValue<int>()));
+        }
+        for (nuint i = 0; i < replacedCount; ++i) plan.Item2.Add(replaced[i].Handle);
+        *ticket = ++Current._next; Current._plans[*ticket] = plan; return 0;
+    }
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int Install(ulong ticket, uint flags, RegistryLiveReply* results, nuint resultCount, ulong* handles, nuint handleCount, uint* stale)
+    {
+        ++Current.Installs; Current.InstallThreads.Add(Environment.CurrentManagedThreadId);
+        if (!Current._plans.Remove(ticket, out var plan)) return KilnAbi.ErrNotFound;
+        if (Current.NextStale != 0) { *stale = Current.NextStale; Current.NextStale = 0; return KilnAbi.ErrUnavailable; }
+        if (plan.Epoch != Current.Epoch) { *stale = 1; return KilnAbi.ErrUnavailable; }
+        for (var j = 0; j < plan.Replaced.Count; ++j)
+        {
+            Current._layers.Remove(plan.Replaced[j]);
+            results[plan.Calls.Count + j].Outcome = 5; results[plan.Calls.Count + j].World = Current.World;
+        }
+        for (var i = 0; i < plan.Calls.Count; ++i)
+        {
+            var handle = ++Current._next;
+            Current._layers.Add(handle, (plan.Calls[i].Owner, plan.Calls[i].Value, Current.World));
+            results[i].Outcome = 0; results[i].Accepted = 1; results[i].World = Current.World; handles[i] = handle;
+        }
+        ++Current.Epoch; ++Current.Generation;
+        return 0;
+    }
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int Discard(ulong ticket) { Current._plans.Remove(ticket); return 0; }
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int BuildReport() { Interlocked.Increment(ref Current.ReportsBuilt); return 0; }
     internal void FireStage(RegistryPhase phase)
     {
         var info = new RegistryStageInfo { Size = 24, Stage = (uint)phase };
@@ -136,13 +206,14 @@ internal sealed unsafe class FakeRegistry : IDisposable
         result->Outcome = draft.Restart ? 3u : 0u; result->Refused = draft.Restart ? 1u : 0u;
         result->Accepted = draft.Restart ? 0u : 1u; result->World = Current.World;
         if (!draft.Restart) Current._layers.Add(handle, (owner, draft.Value!.Value, draft.Point == 1 ? 0 : Current.World));
-        result->Generation = ++Current.Generation;
+        result->Generation = ++Current.Generation; ++Current.Epoch;
         return 0;
     }
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static int Revert(ulong owner, ulong handle, RegistryLiveReply* result)
     {
         if (!Current._drafts.Remove(handle) && !Current._layers.Remove(handle)) return KilnAbi.ErrNotFound;
+        ++Current.Reverts; ++Current.Epoch;
         result->Outcome = 5; result->Generation = ++Current.Generation; result->World = Current.World; return 0;
     }
     public void Dispose()

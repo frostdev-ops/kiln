@@ -69,7 +69,8 @@ public abstract class Mod
 
     /// <summary>Authors registry edits at the declared points (default: GameStart). Called once per add/alter/final pass;
     /// use Kiln.Registry.Registry.For(context). GameStart uses a retained author instance, not the transient OnBoot owner.
-    /// Only world-load or later frames may read per-world settings. The context expires when this call returns.</summary>
+    /// Only world-load or later frames may read per-world settings. The context expires when this call returns. A WorldLoad pass
+    /// re-authored on request (Registry.Reauthor) runs on a worker thread of Kiln's, not the world's (0.2.0-dev.32).</summary>
     [RegistryThreadOnly, System.Diagnostics.CodeAnalysis.Experimental("KILNX031")]
     public virtual void OnRegistry(RegistryContext context) { }
 

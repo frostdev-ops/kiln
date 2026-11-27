@@ -57,6 +57,10 @@ internal sealed class RegistryDispatch(ModManager mods) : IDisposable
         internal readonly HashSet<ulong> WorldChanges = [];
         // Registry.Reauthor(WorldLoad): author the WorldLoad point again in this world on the next tick (TryWorld)
         internal bool ReauthorWorld;
+        // dev.32: the pass called a tick-thread API off the tick (Game.OffTickRefused): its re-authors run their pass on the tick
+        internal bool PassOnTick;
+        // re-authors in a row whose turn the registry moved past before it landed (a later one runs whole on the tick)
+        internal int StaleReauthors;
     }
     internal void Prepare(ulong hostOwner)
     {
@@ -236,12 +240,14 @@ internal sealed class RegistryDispatch(ModManager mods) : IDisposable
         lock (_signals) { if (_worldChanged) { _worldBinding.Signal(_worldDirectory); _worldChanged = false; } }
         return _worldBinding.Matches(world) || _worldBinding.Bind(world) ? world : world with { Id = null };
     }
+    // offTick: a re-authored pass on a worker thread (dev.32) reads in that world only (kiln.internal.registry v3 read_pass_in)
     private RegistryContext Context(ModContext owner, RegistryEntryPoint point, RegistryPhase phase, RegistryWorld? world,
-        Func<string> code, bool stage, Dictionary<string, ConfigFile> inputs, bool readOnly = false, bool pass = false)
+        Func<string> code, bool stage, Dictionary<string, ConfigFile> inputs, bool readOnly = false, bool pass = false, ulong offTick = 0)
     {
         var nativeOwner = owner.Owner; // transport delegates must not retain a collectible mod context
         return new(owner, point, phase, world, code,
-            pass ? (registry, id, field) => _native.ReadPass(nativeOwner, registry, id, field)
+            offTick != 0 ? (registry, id, field) => _native.ReadPassIn(nativeOwner, offTick, registry, id, field)
+            : pass ? (registry, id, field) => _native.ReadPass(nativeOwner, registry, id, field)
                  : (registry, id, field) => _native.Read(nativeOwner, stage, registry, id, field),
             (registry, pattern) => _native.Select(stage, registry, pattern), inputs)
             { ReadOnly = readOnly, CurrentWorldToken = () => _native.Status().World, CurrentStep = static () => ServiceTick.Step };
@@ -321,6 +327,10 @@ internal sealed class RegistryDispatch(ModManager mods) : IDisposable
             }
             var records = _runtime.Where(r => !r.Pending && r.Context.Alive && (r.Points & RegistryEntryPoint.WorldLoad) != 0 &&
                 r.RetryAt <= now && (r.World != world.Token || (bound && r.WorldId is null && world.Id is not null))).ToArray();
+            // a re-authored pass of the world before may still run on the worker: it ends before the same mods' new world pass
+            // runs (a world load, so the tick may wait), never beside it; its turn is dropped when it lands (ReauthorStep)
+            if (records.Length > 0 && _reauthor is { Work: { IsCompleted: false } work } running && running.Records.Any(records.Contains))
+                work.Wait(TimeSpan.FromSeconds(10));
             foreach (var record in records)
             {
                 // Adoption reauthors this point with its settings, rather than stacking it on the id-less turn.
@@ -337,10 +347,16 @@ internal sealed class RegistryDispatch(ModManager mods) : IDisposable
             // A transiently unavailable point authors this world again on a later tick, from scratch.
             foreach (var record in Apply(records, RegistryEntryPoint.WorldLoad, static _ => true)) { record.World = 0; record.WorldId = null; }
             foreach (var record in records) record.ReauthorWorld = false; // just authored for this world
-            // Registry.Reauthor: the point again in the same world. The new pass commits first (its reads leave the mod's own
-            // layers out, so it derives from what lies below them), then the layers the point made before are taken back: the
-            // game never sees a moment without the mod's values. A pass that faults keeps the earlier layers; a transient
+            // Registry.Reauthor: the point again in the same world. With kiln-content's v3 the pass runs on a worker thread and its
+            // turn lands on the tick in one step (ReauthorStep); else, as before, here: the new pass commits first (its reads leave
+            // the mod's own layers out, so it derives from what lies below them), then the layers the point made before are taken
+            // back: the game never sees a moment without the mod's values. A pass that faults keeps the earlier layers; a transient
             // refusal asks again on a later tick.
+            if (_native.OffTickAvailable)
+            {
+                ReauthorStep(world, now);
+                return;
+            }
             var again = _runtime.Where(r => r.ReauthorWorld && !r.Pending && r.Context.Alive && (r.Points & RegistryEntryPoint.WorldLoad) != 0 &&
                 r.World == world.Token && r.RetryAt <= now).ToArray();
             if (again.Length > 0)
@@ -367,6 +383,228 @@ internal sealed class RegistryDispatch(ModManager mods) : IDisposable
             }
         }
         finally { _dispatchingWorld = false; }
+    }
+    // ---- Registry.Reauthor off the world tick (dev.32 LOOT-2, kiln.internal.registry v3) ----
+    // A re-author is one job at a time: the mods that asked since the last one, their passes run together (every callback reads
+    // the pre-pass values, the calls commit Adds, then Alters, then Finals, in load order) on a worker thread of Kiln.Host's,
+    // which also has kiln-content prepare the turn (parse, compose, bind, evaluate); the tick only lands it (the changes and
+    // layers swap in, one write of the bytes that change), and registry.json is built off the tick after. Requests made while a
+    // job runs make one more job when it ends (coalescing: a burst of requests is at most two passes). The pass reads the registry
+    // as it is when it starts; if the registry moved before its turn lands (another mod's change, a data pack, a write below), the
+    // pass runs again; three times in a row, and the next one runs whole on the tick. A mod whose pass calls a tick-thread API
+    // (refused off the tick) has its passes run on the tick from then on; Kiln still prepares their turns off it.
+    private sealed class ReauthorJob
+    {
+        internal required Runtime[] Records;            // in load order
+        internal required RegistryWorld World;
+        internal required Dictionary<Runtime, ulong[]> Earlier;  // each record's layers of this world's point, taken out by the turn
+        internal bool OnTick;                            // the passes run on the tick (a mod bound to it, or stale three times)
+        internal ulong Epoch;
+        internal readonly Dictionary<Runtime, Dictionary<string, ConfigFile>> Inputs = [];
+        internal readonly List<(Runtime Record, string Ir)> Calls = [];  // in commit order
+        internal readonly Dictionary<Runtime, Exception> Faults = [];
+        internal readonly Dictionary<Runtime, string> TickOnly = [];     // a tick-thread member the pass called off the tick
+        internal Exception? Transport;  // Kiln's own failure (the world's status, a native call), not the author's
+        internal List<(Runtime Record, ulong Handle)> Replaced = [];
+        internal List<(Runtime Record, string Ir)> Prepared = [];  // the calls the turn was prepared with, in its order
+        internal ulong Ticket;
+        internal int Rc;
+        internal uint Stale;
+        internal int Prepares;
+        internal Task? Work;
+        internal double PassMs, PrepareMs;
+    }
+    private ReauthorJob? _reauthor;
+    /// <summary>Tests: the re-author job's worker, if one runs.</summary>
+    internal Task? ReauthorWork => _reauthor?.Work;
+    private void ReauthorStep(RegistryWorld world, long now)
+    {
+        if (_reauthor is { } job)
+        {
+            if (job.Work is { IsCompleted: false }) return;  // the worker is still at it; the tick goes on
+            _reauthor = null;
+            Land(job, world);
+            now = Environment.TickCount64;  // requests made meanwhile start the next job now
+        }
+        var again = _runtime.Where(r => r.ReauthorWorld && !r.Pending && r.Context.Alive && (r.Points & RegistryEntryPoint.WorldLoad) != 0 &&
+            r.World == world.Token && r.RetryAt <= now).ToArray();
+        if (again.Length == 0) return;
+        foreach (var record in again) record.ReauthorWorld = false;
+        var next = new ReauthorJob { Records = again, World = world, Earlier = again.ToDictionary(r => r, r => r.WorldChanges.ToArray()) };
+        next.OnTick = again.Any(r => r.PassOnTick || r.StaleReauthors >= 3);
+        if (again.Any(r => r.StaleReauthors >= 3))
+        {
+            // the registry moved under three turns in a row: this one runs whole on the tick (pass, preparation, landing in
+            // one step), so nothing can move under it and it lands
+            Guarded(next, () => { RunPass(next); PrepareTurn(next); });
+            Land(next, world);
+            return;
+        }
+        _reauthor = next;
+        // the pass on the tick when its mod calls tick-thread APIs or the registry kept moving; Kiln's work off it either way
+        if (next.OnTick) Guarded(next, () => RunPass(next));
+        next.Work = Task.Factory.StartNew(() => Guarded(next, () => { if (!next.OnTick) RunPass(next); PrepareTurn(next); }),
+            CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+    }
+    private static void Guarded(ReauthorJob job, Action work)
+    {
+        try { work(); }
+        catch (Exception e) { job.Transport ??= e; }  // Kiln's own failure: Land retries later
+    }
+    // The passes of the job's records, phase by phase in load order (Apply's order), on this thread: the tick's or the worker's.
+    private void RunPass(ReauthorJob job)
+    {
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var offTick = !job.OnTick;
+        try { job.Epoch = _native.Epoch(); }
+        catch (Exception e) { job.Transport = e; return; }
+        foreach (var record in job.Records) job.Inputs[record] = new Dictionary<string, ConfigFile>(StringComparer.Ordinal);
+        foreach (var phase in new[] { RegistryPhase.Add, RegistryPhase.Alter, RegistryPhase.Final })
+            foreach (var record in job.Records)
+            {
+                if (!record.Context.Alive || job.Faults.ContainsKey(record) || job.TickOnly.ContainsKey(record)) continue;
+                RegistryContext context;
+                try { context = Context(record.Context, RegistryEntryPoint.WorldLoad, phase, job.World, record.Code, false, job.Inputs[record], pass: true, offTick: offTick ? job.World.Token : 0); }
+                catch (Exception e) { job.Transport = e; return; }  // Kiln's world/status query, not the author
+                var outer = Game.OffTickPass;
+                Game.OffTickPass = offTick; Game.OffTickRefused = null;
+                try
+                {
+                    using var scope = context.Enter();
+                    record.Instance.OnRegistry(context);
+                    var ir = context.CaptureIr();
+                    context.Close();
+                    if (ir is not null) job.Calls.Add((record, ir));
+                }
+                catch (Exception e) { job.Faults[record] = e; }  // the author's code: a fault, whatever the exception
+                finally
+                {
+                    context.Close();
+                    if (offTick && Game.OffTickRefused is { } member) job.TickOnly[record] = member;
+                    Game.OffTickPass = outer; Game.OffTickRefused = null;
+                }
+            }
+        job.PassMs = clock.Elapsed.TotalMilliseconds;
+    }
+    // Has kiln-content prepare the job's turn (off the tick): its records' calls in, their earlier layers out. Faulted records
+    // and records bound to the tick keep theirs and add nothing.
+    private void PrepareTurn(ReauthorJob job)
+    {
+        if (job.Transport is not null || job.TickOnly.Count > 0) return;
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        job.Prepared = job.Calls.Where(c => !job.Faults.ContainsKey(c.Record) && c.Record.Context.Alive).ToList();
+        var calls = job.Prepared.Select(c => (c.Record.Context.Owner, c.Ir)).ToList();
+        job.Replaced = job.Records.Where(r => !job.Faults.ContainsKey(r) && r.Context.Alive).SelectMany(r => job.Earlier[r].Select(h => (Record: r, Handle: h))).ToList();
+        if (calls.Count == 0 && job.Replaced.Count == 0) return;
+        try
+        {
+            for (job.Prepares = 1; ; ++job.Prepares)
+            {
+                (job.Rc, job.Ticket, job.Stale) = _native.Prepare(calls, job.Replaced.Select(x => (x.Record.Context.Owner, x.Handle)).ToList(), job.Epoch);
+                if (job.Rc != KilnAbi.ErrUnavailable || job.Stale != 2 || job.Prepares >= 3) break;
+            }
+        }
+        catch (Exception e) { job.Transport = e; }
+        job.PrepareMs = clock.Elapsed.TotalMilliseconds;
+    }
+    // On the tick: the job's turn lands, or the job says why not and what comes next.
+    private void Land(ReauthorJob job, RegistryWorld world)
+    {
+        var names = string.Join(", ", job.Records.Select(r => r.Context.Info.Id));
+        void Again(IEnumerable<Runtime> records) { foreach (var r in records) if (r.Context.Alive) r.ReauthorWorld = true; }
+        // another world since the job began: its turn is for a world that ended (this world's own pass is authored by TryWorld)
+        if (job.World.Token != world.Token || job.Records.Any(r => r.World != job.World.Token))
+        {
+            if (job.Ticket != 0) _native.Discard(job.Ticket);
+            return;
+        }
+        foreach (var (record, e) in job.Faults)
+        {
+            record.Faulted = true;
+            Log(record.Context.Info.Id + " OnRegistry WorldLoad (Registry.Reauthor)", e);
+        }
+        if (job.TickOnly.Count > 0)
+        {
+            // results built around a refused tick-thread call are never landed: the job runs again, those mods' passes on the tick
+            foreach (var (record, member) in job.TickOnly)
+            {
+                record.PassOnTick = true;
+                mods.Host.Log(LogLevel.Warn, $"registry: {record.Context.Info.Id}'s re-authored pass calls {member}, which needs the tick thread: " +
+                    "its passes run on the world tick from now on (slower; read game state before Registry.Reauthor and keep it in the mod to keep them off it)");
+            }
+            if (job.Ticket != 0) _native.Discard(job.Ticket);
+            Again(job.Records.Where(r => !job.Faults.ContainsKey(r)));
+            return;
+        }
+        if (job.Transport is null && job.Rc == KilnAbi.ErrInvalidArgument)
+        {
+            // the registry refused the pass's calls themselves (an IR it cannot read): the author's, as a refused submit is
+            foreach (var record in job.Records.Where(r => !job.Faults.ContainsKey(r) && r.Context.Alive))
+            {
+                record.Faulted = true;
+                Log(record.Context.Info.Id + " OnRegistry WorldLoad (Registry.Reauthor)", new ArgumentException("the registry refused the pass's edits as invalid"));
+            }
+            return;
+        }
+        if (job.Transport is not null || (job.Rc != 0 && !(job.Rc == KilnAbi.ErrUnavailable && job.Stale == 1)))
+        {
+            // Kiln's own state (no world yet, a budget, a native error): asked again later, backing off (Apply's NS4 rule)
+            var e = job.Transport ?? new KilnUnavailableException("kiln.registry", $"preparing the re-authored turn returned {job.Rc}");
+            foreach (var record in job.Records.Where(r => !job.Faults.ContainsKey(r) && r.Context.Alive))
+            {
+                if (record.Retries == 0) mods.Host.Log(LogLevel.Warn, $"registry: {record.Context.Info.Id} Registry.Reauthor: the registry cannot take the pass yet ({e.Message}); retrying on a later tick");
+                if (record.Retries >= MaxRetries) { Log(record.Context.Info.Id + " Registry.Reauthor (after " + record.Retries + " tries)", e); record.Retries = 0; continue; }
+                record.RetryAt = Environment.TickCount64 + (record.Retries == 0 ? 0 : Math.Min(5000, 100L << Math.Min(record.Retries, 6)));
+                ++record.Retries; record.ReauthorWorld = true;
+            }
+            return;
+        }
+        if (job.Ticket == 0 && job.Rc == 0) return;  // nothing to write: no calls, no earlier layers
+        var calls = job.Prepared;
+        (int Rc, uint Stale, RegistryCompletion[] Results) landed = (job.Rc, job.Stale, Array.Empty<RegistryCompletion>());
+        var tick = System.Diagnostics.Stopwatch.StartNew();
+        if (job.Rc == 0)
+            landed = _native.Install(job.Ticket, anyway: job.OnTick || job.Prepares >= 3, calls.Count, job.Replaced.Count);
+        var landedMs = tick.Elapsed.TotalMilliseconds;
+        if (landed.Rc == KilnAbi.ErrUnavailable)
+        {
+            // the registry moved before the turn landed: the pass runs again (its reads are stale), or only the preparation
+            var stale = landed.Stale == 2 ? "its preparation is stale" : "the registry moved since the pass read it";
+            foreach (var record in job.Records.Where(r => !job.Faults.ContainsKey(r))) record.StaleReauthors += landed.Stale == 1 ? 1 : 0;
+            mods.Host.Log(LogLevel.Debug, $"registry: Registry.Reauthor for {names}: {stale}; the pass runs again");
+            Again(job.Records.Where(r => !job.Faults.ContainsKey(r)));
+            return;
+        }
+        if (landed.Rc != 0)
+        {
+            Log(names + " Registry.Reauthor turn", new KilnUnavailableException("kiln.registry.live", $"landing the re-authored turn returned {landed.Rc}"));
+            return;
+        }
+        for (var i = 0; i < calls.Count; ++i)
+        {
+            var (record, _) = calls[i];
+            var result = Applied(record.Context, landed.Results[i], worldScoped: true);
+            if (Retained(result)) record.WorldChanges.Add(result.Handle);
+        }
+        for (var j = 0; j < job.Replaced.Count; ++j)
+        {
+            var (record, handle) = job.Replaced[j];
+            var result = landed.Results[calls.Count + j];
+            if (result.Outcome is 5 or 6 or 7)
+            {
+                if (result.Outcome is 6 or 7) Applied(record.Context, result);
+                ForgetChange(record.Context, handle); record.WorldChanges.Remove(handle);
+            }
+        }
+        foreach (var record in job.Records.Where(r => !job.Faults.ContainsKey(r)))
+        {
+            record.Faulted = false; record.StaleReauthors = 0; record.Retries = 0; record.RetryAt = 0;
+        }
+        mods.Host.Log(LogLevel.Info, $"registry: WorldLoad authored again on request (Registry.Reauthor) for {names}: " +
+            (job.OnTick ? $"pass {job.PassMs:F1} ms on the tick, turn prepared off it in {job.PrepareMs:F1} ms"
+                        : $"pass and turn prepared off the tick in {job.PassMs + job.PrepareMs:F1} ms") + $", landed in {landedMs:F1} ms on the tick");
+        // registry.json off the tick (the tick builds it a few seconds later if this does not)
+        _ = Task.Run(() => { try { _native.BuildReport(); } catch { /* the tick builds it */ } });
     }
     // Returns the records whose point met a transient KilnUnavailableException: the caller schedules them again.
     // review4 NS5 (coordinator ruling, Nov 23): a runtime pass behaves like GameStart's stage. Every callback of the pass reads
