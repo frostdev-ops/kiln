@@ -1,0 +1,10 @@
+{
+  "id": "pets-clearance-lab",
+  "name": "Pet clearance calibration (lab)",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "PetsClearanceLab.dll",
+  "side": "server",
+  "advanced": true,
+  "description": "Lab only (dossier 19d, gate C6): builds clearance fixtures (corridors 0.5/1/2 m wide with 1/2/3 m headroom, a doorway, two S-bends, a wide control) and, for each creature of kiln/data/pets-clearance-lab/plan.json, spawned without an owner and held by Kiln.Pets' broker leases, sweeps kiln.queries route requirements and walks every accepted route with Kiln.Pets' real follower and mover (catch-up and teleport off), the body's own walker as the comparison. Evidence in kiln/data/pets-clearance-lab/runs.jsonl for tools/pets-clearance/profiles.py. Needs kiln/data/kiln.creatures/force-ready."
+}
