@@ -47,7 +47,7 @@ internal static class BlockJson
     private static readonly (string Section, Func<ModBlocks, string, JsonElement, BlockHandle> Make)[] Kinds =
     [
         ("statuses", Make<StatusBlock>), ("effects", Make<EffectBlock>), ("spells", Make<SpellBlock>), ("weapons", Make<WeaponBlock>), ("vfx", MakeVfx), ("materials", MakeMaterial), ("screenEffects", Make<ScreenEffectBlock>), ("sounds", Make<SoundBlock>), .. WorldJson.Kinds, .. ItemJson.Kinds, .. AbilityJson.Kinds, .. FurnitureJson.Kinds, .. NpcJson.Kinds, .. QuestBlockJson.Kinds, .. UiJson.Kinds,
-        .. RoutineJson.Kinds, .. PetJson.Kinds,
+        .. RoutineJson.Kinds, .. PetJson.Kinds, .. TamingBlockJson.Kinds,
         ("buildingTools", Make<BuildingToolBlock>), ("terrainBrushes", Make<TerrainBrushBlock>), ("toolMaterialPools", Make<ToolMaterialPoolBlock>),
         ("affixes", Make<AffixBlock>), ("affixPools", Make<AffixPoolBlock>), ("rarityRolls", Make<RarityRollBlock>), ("rarityUpgrades", Make<RarityUpgradeBlock>),
     ];

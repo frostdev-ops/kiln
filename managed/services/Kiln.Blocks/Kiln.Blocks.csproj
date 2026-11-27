@@ -51,6 +51,8 @@
     <ProjectReference Include="../Kiln.CreatureControl/Kiln.CreatureControl.csproj" Private="false" />
     <!-- PetBlock lowers onto Kiln.Pets' PetDefinition (Pets/PetBlocks.cs) -->
     <ProjectReference Include="../Kiln.Pets/Kiln.Pets.csproj" Private="false" />
+    <!-- TamingBlock lowers onto Kiln.Taming's TamingDefinition (Pets/TamingBlocks.cs) -->
+    <ProjectReference Include="../Kiln.Taming/Kiln.Taming.csproj" Private="false" />
     <!-- UI blocks bind stats.<mod>/<id> to 05b's stat source (ModValuesStatSource, internal) -->
     <ProjectReference Include="../Kiln.ModValues/Kiln.ModValues.csproj" Private="false" />
   </ItemGroup>

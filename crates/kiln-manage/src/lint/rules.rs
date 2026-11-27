@@ -1999,7 +1999,7 @@ fn blocks(out: &mut Out, m: &LMod, code: &Code, cat: Option<&Catalog>) {
         ("lootTables", "loot table"), ("recipes", "recipe"),
         ("quests", "quest"), ("dialogues", "dialogue"), ("knowledge", "tracked item or recipe"),
         ("windows", "window"), ("hudLines", "HUD line"), ("keyBindings", "key binding"),
-        ("routines", "routine"), ("npcMotions", "NPC motion"), ("pets", "pet"),
+        ("routines", "routine"), ("npcMotions", "NPC motion"), ("pets", "pet"), ("tamings", "taming"),
         ("affixes", "affix"), ("affixPools", "affix pool"), ("rarityRolls", "rarity roll"), ("rarityUpgrades", "rarity upgrade"),
         ("buildingMaterialPools", "building material pool"),
         ("buildingTools", "building tool"), ("terrainBrushes", "terrain brush"), ("toolMaterialPools", "tool material pool"),

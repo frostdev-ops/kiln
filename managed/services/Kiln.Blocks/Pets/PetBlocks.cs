@@ -96,22 +96,7 @@ internal static class PetCompiler
         if (p.Creature is null) throw new BlockError(ctx.Block, "creature", "a pet needs a creature");
 
         // the creature: a game creature by its registry id, or a creature block (compiled now when written inline)
-        string creatureId;
-        PetCreatureInfo? block = null;
-        if (p.Creature.Name is { } named && named.StartsWith("game:", StringComparison.Ordinal))
-        {
-            creatureId = named;
-            if (!PetDefinitionRules.ValidId(creatureId)) throw new BlockError(ctx.Block, "creature", $"\"{named}\" is not a creatures registry id (game:<name>, lower case)");
-        }
-        else
-        {
-            var handle = CreatureHandleOf(ctx, p.Creature, name);
-            creatureId = $"{handle.Mod.ToLowerInvariant()}:{handle.Name.ToLowerInvariant()}";
-            var info = handle.Info;
-            var template = info.TemplateGuid != Guid.Empty ? info.TemplateGuid : Creatures.Available && Creatures.Template(info.Template) is { } t ? t.Id : Guid.Empty;
-            var gameMax = Creatures.Available && Creatures.Template(info.Template) is { } gt ? gt.LevelMax : 0;
-            block = new PetCreatureInfo(creatureId, template, info.Variant, gameMax, handle.Block.Name ?? handle.Name);
-        }
+        var (creatureId, block) = CreatureOf(ctx, p.Creature, $"{name}.creature", "creature");
 
         // the revive cost: an item of the game or of a mod, as a plain stack
         // (an item not readable now is checked once content is ready, as loot tables do: the SDK's bake and a game client's
@@ -158,21 +143,38 @@ internal static class PetCompiler
         return new BlockHandle<PetBlock>(mod, name, BlockIds.Derive(mod, "pet", key), id, p);
     }
 
-    /// <summary>The handle of the creature block a pet names (an inline one is compiled now as <c>&lt;pet&gt;.creature</c>).</summary>
-    private static CreatureHandle CreatureHandleOf(BlockContext ctx, PartRef<CreatureBlock> r, string petName)
+    /// <summary>A creature a pet or a taming names: a game creature by its creatures registry id (no block info), or a
+    /// creature block by <c>&lt;mod&gt;:&lt;name&gt;</c> with what Kiln.Pets registers for it (an inline one is compiled now as
+    /// <paramref name="inlineName"/>). Errors name <paramref name="path"/>.</summary>
+    internal static (string Id, PetCreatureInfo? Block) CreatureOf(BlockContext ctx, PartRef<CreatureBlock> r, string inlineName, string path)
+    {
+        if (r.Name is { } named && named.StartsWith("game:", StringComparison.Ordinal))
+        {
+            if (!PetDefinitionRules.ValidId(named)) throw new BlockError(ctx.Block, path, $"\"{named}\" is not a creatures registry id (game:<name>, lower case)");
+            return (named, null);
+        }
+        var handle = CreatureHandleOf(ctx, r, inlineName, path);
+        var id = $"{handle.Mod.ToLowerInvariant()}:{handle.Name.ToLowerInvariant()}";
+        var info = handle.Info;
+        var template = info.TemplateGuid != Guid.Empty ? info.TemplateGuid : Creatures.Available && Creatures.Template(info.Template) is { } t ? t.Id : Guid.Empty;
+        var gameMax = Creatures.Available && Creatures.Template(info.Template) is { } gt ? gt.LevelMax : 0;
+        return (id, new PetCreatureInfo(id, template, info.Variant, gameMax, handle.Block.Name ?? handle.Name));
+    }
+
+    /// <summary>The handle of the creature block a pet names (an inline one is compiled now as <paramref name="inner"/>).</summary>
+    private static CreatureHandle CreatureHandleOf(BlockContext ctx, PartRef<CreatureBlock> r, string inner, string path)
     {
         if (r.Name is null)
         {
-            var inner = $"{petName}.creature";
             if (ctx.Mod.Handles.TryGetValue(inner, out var known) && known is CreatureHandle same && ReferenceEquals(same.Block, r.Inline)) return same;
             return (CreatureHandle)Compiler.Define(ctx.Mod, inner, r.Inline!);
         }
         var colon = r.Name.IndexOf(':');
         if (colon > 0 && r.Name[..colon] == ctx.Mod.Id && ctx.Mod.Handles.TryGetValue(r.Name[(colon + 1)..], out var own) && own is CreatureHandle oc) return oc;
-        var h = ctx.Find(r.Name, "creature");
+        var h = ctx.Find(r.Name, path);
         if (h is CreatureHandle ch) return ch;
-        if (h is not null) throw new BlockError(ctx.Block, "creature", $"\"{r.Name}\" is a {h.BlockType.Name.Replace("Block", "").ToLowerInvariant()}, not a creature");
-        throw new BlockError(ctx.Block, "creature", $"no creature block \"{r.Name}\" (a game creature is named by its creatures registry id: \"game:<name>\")");
+        if (h is not null) throw new BlockError(ctx.Block, path, $"\"{r.Name}\" is a {h.BlockType.Name.Replace("Block", "").ToLowerInvariant()}, not a creature");
+        throw new BlockError(ctx.Block, path, $"no creature block \"{r.Name}\" (a game creature is named by its creatures registry id: \"game:<name>\")");
     }
 
     /// <summary>A cost item that is not readable yet (a game client's OnLoad, the SDK's bake): resolved at content ready.</summary>

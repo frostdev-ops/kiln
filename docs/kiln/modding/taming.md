@@ -52,11 +52,49 @@ Rules for the JSON:
   - `game:<name>~<first 8 hex digits of its GUID>` when two items share a name;
   - `game:item_<8 hex>`;
   - or an item id `0x<hex>`.
-- **A mod's own items** are named in C# by their `ItemId`.
+- **A mod's own items** are named by a `TamingBlock` (below), or in C# by their `ItemId`.
 - **Errors:** an unknown field, a wrong type or an unknown item is an `ArgumentException` naming the exact path
   (`$.steps[1].count`), and nothing is registered.
 - **When:** a definition needs no world (a mod declares it in `OnLoad`), but these item ids resolve only once the game's
   items are readable (`Items.Available`).
+
+### As a block (`TamingBlock`, blocks/*.json `tamings`)
+
+A `TamingBlock` is the same definition written as a block: items, creatures and pets are named as every block names
+them, so a mod's own items work in JSON too. It compiles to the `TamingDefinition` above with the id
+`<mod id>:<name>`, which `Taming.Begin` takes.
+
+```json
+{ "items": { "wolf-bait": { "name": "Wolf Bait", "stack": 20 } },
+  "pets": { "tame-wolf": { "creature": "game:enemy_wildbeast_wolf_earlygame", "name": "Tamed Wolf" } },
+  "tamings": {
+    "wolf": { "creatures": ["game:enemy_wildbeast_wolf_earlygame"], "pet": "tame-wolf",
+              "steps": [ { "kind": "weaken", "maxHealthFraction": 0.4 },
+                         { "kind": "feed", "item": "wolf-bait", "count": 2 } ],
+              "refund": "refundOnFail" } } }
+```
+
+```csharp
+var bait = Blocks.Define("wolf-bait", new ItemBlock { Name = "Wolf Bait", Stack = 20 });
+var pet = Blocks.Define("tame-wolf", new PetBlock { Creature = "game:enemy_wildbeast_wolf_earlygame", Name = "Tamed Wolf" });
+Blocks.Define("wolf", new TamingBlock
+{
+    Creatures = ["game:enemy_wildbeast_wolf_earlygame"],
+    Steps = [TamingStepBlock.Weaken(0.4), TamingStepBlock.Feed(bait, 2)],
+    Pet = (BlockHandle<PetBlock>)pet,
+    Refund = TamingRefundPolicy.RefundOnFail,
+});
+```
+
+- **Items:** a game item (`Food_T2_Dog_Bait`, a `GameItems` constant) or an item block of this mod (its name) or of
+  another (`other-mod:name`). A feed step takes a plain stack item, a tool step a gear item.
+- **Creatures:** a game creature by its creatures registry id (`game:...`, a trailing `*` for a prefix of game ids), or a
+  creature block (its name, or `other-mod:name`).
+- **Pet:** a pet block (inline, its name, `other-mod:name`), or the id of a pet a mod defined in code.
+- **Errors** are `BlockError`s naming the field (`steps[1].count`). An item the game's catalog does not have while the
+  block compiles (a game client's `OnLoad`, the SDK's bake) is checked once content is ready; if it is still unknown
+  then, the taming is not defined (its `Begin` answers `DefinitionUnknown`) and the mod's problem says why.
+- It asks nothing of players' games (server only).
 
 ## Drive an attempt
 

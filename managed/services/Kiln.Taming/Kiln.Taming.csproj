@@ -13,6 +13,9 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Kiln.Taming.Tests" />
     <InternalsVisibleTo Include="Kiln.TestKit" />
+    <!-- TamingBlock (Kiln.Blocks) registers its definitions as the block's mod and checks them by the engine's own rules -->
+    <InternalsVisibleTo Include="Kiln.Blocks" />
+    <InternalsVisibleTo Include="Kiln.Blocks.Tests" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />

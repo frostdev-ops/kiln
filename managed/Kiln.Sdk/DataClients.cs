@@ -33,6 +33,8 @@ internal static class DataClients
         ["routines"] = None,
         // a pet: Kiln's records and protection on the server; a pet on a game creature is that creature to every player (a creature block of the mod's own says more)
         ["pets"] = None,
+        // a taming: Kiln.Taming's attempts on the server (the game's own taming is the game's); asks nothing of players' games
+        ["tamings"] = None,
         // rarity at creation and rarity upgrades: the server's rules (kiln.items); the rarity they give is the game's own item state
         ["rarityRolls"] = None, ["rarityUpgrades"] = None,
         // built by every player's game from the mod's own files
