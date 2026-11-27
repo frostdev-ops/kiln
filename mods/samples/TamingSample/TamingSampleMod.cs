@@ -33,17 +33,24 @@ public sealed class TamingSampleMod : Mod
             // once the game's items are readable (a TamingBlock names items, the mod's own too, and needs no wait)
             if (_defined || t.Step % 25 != 0 || !Items.Available) return;
             _defined = true;
-            Taming.DefineJson(Wolf);
-            Taming.Define(new TamingDefinition
+            foreach (var r in Taming.DefineJson(Wolf)) Defined(r);
+            Defined(Taming.Define(new TamingDefinition
             {
                 Id = "taming-sample:dog", Creatures = ["game:animal_wildlife_dog_*"], Steps = [new NativeStep(1), new NativeStep(1)],
                 InactivityTimeout = TimeSpan.FromSeconds(120), MaxAttemptDuration = TimeSpan.FromMinutes(10),
-            });
+            }));
         };
         Events.On<TamingStepChangedEvent>(e => Log.Info($"{e.After.Definition}: step {e.After.CompletedSteps}/{e.After.TotalSteps}, paid {e.Receipts.Sum(r => r.Taken)}"));
         Events.On<TamedEvent>(e => Log.Info($"{e.After.Definition} tamed{(e.Pet is { } p ? $": pet {p.Id}" : "")}"));
         Events.On<TamingFailedEvent>(e => Log.Info($"{e.After.Definition} failed ({e.Cause}); refunds: {e.After.Refunds.Count}"));
         Events.On<NativeTamedEvent>(e => Log.Info($"the game tamed {e.Creature} after {e.Steps} step(s)"));
+    }
+
+    // a definition answers as Pets.Define does: Ok, or why not as a value (DefinitionInUse: another one under the id while
+    // attempts of it run); decide by Refusal, log the text
+    private void Defined(TamingDefinitionResult r)
+    {
+        if (!r.Ok) Log.Warn($"taming {r.Definition?.Id}: {r.Refusal} ({r.Reason})");
     }
 
     private static PlayerRef Player(CommandContext c) =>

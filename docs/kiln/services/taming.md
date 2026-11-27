@@ -25,7 +25,7 @@ Kiln's sample is only a sample.
 ## A taming, as a mod declares it
 
 ```csharp
-Taming.Define(new TamingDefinition
+var defined = Taming.Define(new TamingDefinition
 {
     Id = "my-mod:wolf",
     Creatures = ["game:enemy_wildbeast_wolf_earlygame"],          // creatures registry ids; "game:animal_wildlife_dog_*" for a prefix
@@ -33,6 +33,7 @@ Taming.Define(new TamingDefinition
     Pet = "my-mod:wolf-pet",                             // a Kiln.Pets definition: a tame grants a record of it
     Refund = TamingRefundPolicy.Escrow,                  // the default is NonRefundable
 });
+if (!defined.Ok) Log.Warn($"{defined.Refusal}: {defined.Reason}");   // DefinitionInUse: attempts of the old one run
 ```
 
 The steps run in order; the last one tames.

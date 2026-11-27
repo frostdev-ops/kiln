@@ -17,7 +17,7 @@ C#, with ids from the registries (creatures by their creatures registry id, item
 
 ```csharp
 Blocks.Define("tame-wolf", new PetBlock { Creature = "game:enemy_wildbeast_wolf_earlygame", Name = "Tamed Wolf" });
-Taming.Define(new TamingDefinition
+var defined = Taming.Define(new TamingDefinition
 {
     Id = "my-mod:wolf",
     Creatures = ["game:enemy_wildbeast_wolf_earlygame"],
@@ -25,6 +25,7 @@ Taming.Define(new TamingDefinition
     Pet = "my-mod:tame-wolf",
     Refund = TamingRefundPolicy.RefundOnFail,
 });
+if (!defined.Ok) Log.Warn($"{defined.Refusal}: {defined.Reason}");   // DefinitionInUse: attempts of the old one run
 ```
 
 JSON, the same definition (`Taming.DefineJson`; one object or an array):
