@@ -175,6 +175,7 @@ bool gd_list_size(uint32_t section, const Entry& e, const std::string& path, uin
     const auto it = g_gd_sections[section].lists.find({e.id, path});
     if (it == g_gd_sections[section].lists.end()) return *why = "the arsenal has no member " + path, false;
     return *n = it->second, true;
+}
 // The made-up skill tree (dev.32): two nodes' costs (u16) where kiln.gamedata's skills section has them, the regmap row's "costs",
 // in the gamedata-section fake above (the one writer, R2a's): skill nodes have no GUID, so they are found by their 32-bit id.
 constexpr uint32_t SKILL_NODE = 0x4475e8dd, ROOT_NODE = 0x8efcc472;

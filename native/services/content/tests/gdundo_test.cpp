@@ -404,6 +404,8 @@ void value_slot_absent() {
     }
     kc::gd::g_first_missing = false;
     kc::gd::g_none = kc::gd::GRegistry{};
+}
+
 // dev.32: the registry's entry and slot over a gamedata section (gd_section_entry / gd_value_slot, the one writer the skills
 // registry's live back-end shares with creatures, arsenals and perks) find nothing where this world has no such entry (a skill
 // node by its 32-bit id: no GUID), and refuse a section that is not one of kiln.gamedata's (no world here: no entries).
