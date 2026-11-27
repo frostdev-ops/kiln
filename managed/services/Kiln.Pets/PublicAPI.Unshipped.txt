@@ -602,7 +602,7 @@ static Kiln.Pets.IsHostile(Kiln.CharacterKey a, Kiln.CharacterKey b) -> bool
 static Kiln.Pets.Of(Kiln.CharacterKey owner) -> System.Collections.Generic.IReadOnlyList<Kiln.PetSnapshot!>!
 static Kiln.Pets.Of(Kiln.PlayerRef player) -> System.Collections.Generic.IReadOnlyList<Kiln.PetSnapshot!>!
 static Kiln.Pets.Release(Kiln.PlayerRef owner, Kiln.PetId pet, Kiln.PetRequest! request) -> System.Threading.Tasks.Task<Kiln.PetResult!>!
-static Kiln.Pets.Revive(Kiln.PlayerRef owner, Kiln.PetId pet, Kiln.PetRequest! request, Kiln.ItemSelection? cost = null) -> System.Threading.Tasks.Task<Kiln.PetResult!>!
+static Kiln.Pets.Revive(Kiln.PlayerRef owner, Kiln.PetId pet, Kiln.PetRequest! request, Kiln.ItemSelection? selection = null) -> System.Threading.Tasks.Task<Kiln.PetResult!>!
 static Kiln.Pets.SetHostile(Kiln.CharacterKey a, Kiln.CharacterKey b, bool hostile) -> void
 static Kiln.Pets.Summon(Kiln.PlayerRef owner, Kiln.PetId pet, Kiln.PetRequest! request) -> System.Threading.Tasks.Task<Kiln.PetResult!>!
 static Kiln.PetsClient.Configure(Kiln.PetHudOptions! options) -> void

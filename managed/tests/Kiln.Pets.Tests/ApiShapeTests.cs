@@ -193,6 +193,16 @@ public sealed class ApiShapeTests
         Assert.Equal(e, back!.Entries[0]);
         Assert.Equal(TimeSpan.FromMilliseconds(1500), back.Entries[0].ReviveElapsed);
     }
+
+    // ---- C6: one way to pay a revive: the definition's cost, from the slot the request selects ----
+
+    [Fact]
+    public void Revive_takes_the_slot_that_pays_the_definitions_cost_as_its_selection()
+    {
+        var p = typeof(Pets).GetMethod(nameof(Pets.Revive))!.GetParameters();
+        Assert.Equal(["owner", "pet", "request", "selection"], p.Select(x => x.Name));
+        Assert.Equal(typeof(ItemSelection), p[3].ParameterType);
+    }
 }
 
 /// <summary>Kiln.Pets' facade on a roster of the test's (a fake world and store) and a tick thread that is the test's.</summary>

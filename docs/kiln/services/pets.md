@@ -100,7 +100,7 @@ for this pet; the down itself cannot be refused. `PetDownedEvent` comes only aft
     Task<PetResult> Summon(PlayerRef owner, PetId pet, PetRequest request);    // pets.summon
     Task<PetResult> Dismiss(PlayerRef owner, PetId pet, PetRequest request);
     Task<PetResult> Command(PlayerRef owner, PetId pet, PetOrder order, EntityRef target, PetRequest request); // pets.follow (+ pets.fight for Attack)
-    Task<PetResult> Revive(PlayerRef owner, PetId pet, PetRequest request, ItemSelection? cost = null);       // pets.downed
+    Task<PetResult> Revive(PlayerRef owner, PetId pet, PetRequest request, ItemSelection? selection = null);  // pets.downed
     Task<PetResult> CancelRevive(PlayerRef owner, PetId pet, Guid reviveRequest, PetRequest request);
     Task<PetResult> Release(PlayerRef owner, PetId pet, PetRequest request);   // pets.records
     void SetHostile(CharacterKey a, CharacterKey b, bool hostile); bool IsHostile(CharacterKey a, CharacterKey b); // pets.fight
@@ -127,8 +127,9 @@ for this pet; the down itself cannot be refused. `PetDownedEvent` comes only aft
   Live. A channel cut by a logout or an unload while its debit settles waits for the exact receipt and answers
   `CanceledCostCommitted` with it. The cost goes through the exact-cost adapter (`kiln.item_costs`, Kiln.Items'
   `ItemCosts`, [item-costs.md](item-costs.md)): `ItemCosts.Take` from one slot, all or nothing, under one request id per
-  revive operation and world. The `cost` selection (Kiln.Items' `ItemSelection`) must be the owner's plain stack of the
-  cost's item holding at least the cost, and only that slot pays; with none, the first slot holding a plain stack of the
+  revive request and world. One way to pay: the definition's `PetRevivePolicy.Cost` says what a revive costs, and the
+  request's `selection` (Kiln.Items' `ItemSelection`) only says which slot pays it (as `Taming.Advance` takes the slot that
+  pays a feed step): the owner's plain stack of the cost's item holding at least the cost, and only that slot pays; with none, the first slot holding a plain stack of the
   whole cost pays (`ItemCosts.Choose`: a cost split over two stacks is not taken). An uncertain receipt (a fault inside the
   game's change) answers `UncertainCommit` with that receipt and the pet stays Downed.
 - **Events:** every change is a `PetChangeEvent` (subscribe to the base for all): Granted, TransitionChanged, Summoned,
