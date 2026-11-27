@@ -1,24 +1,4 @@
 #nullable enable
-Kiln.CostReceipt
-Kiln.CostReceipt.<Clone>$() -> Kiln.CostReceipt!
-Kiln.CostReceipt.Committed.get -> bool
-Kiln.CostReceipt.Committed.init -> void
-Kiln.CostReceipt.CostReceipt(Kiln.ItemId Item, int Requested, int Taken, bool Committed) -> void
-Kiln.CostReceipt.Deconstruct(out Kiln.ItemId Item, out int Requested, out int Taken, out bool Committed) -> void
-Kiln.CostReceipt.Equals(Kiln.CostReceipt? other) -> bool
-Kiln.CostReceipt.Item.get -> Kiln.ItemId
-Kiln.CostReceipt.Item.init -> void
-Kiln.CostReceipt.Requested.get -> int
-Kiln.CostReceipt.Requested.init -> void
-Kiln.CostReceipt.Taken.get -> int
-Kiln.CostReceipt.Taken.init -> void
-Kiln.ItemSelection
-Kiln.ItemSelection.<Clone>$() -> Kiln.ItemSelection!
-Kiln.ItemSelection.Deconstruct(out Kiln.SlotId Slot) -> void
-Kiln.ItemSelection.Equals(Kiln.ItemSelection? other) -> bool
-Kiln.ItemSelection.ItemSelection(Kiln.SlotId Slot) -> void
-Kiln.ItemSelection.Slot.get -> Kiln.SlotId
-Kiln.ItemSelection.Slot.init -> void
 Kiln.PetBodyLostEvent
 Kiln.PetBodyRetiredEvent
 Kiln.PetBodyViewKey
@@ -437,12 +417,6 @@ Kiln.PetViewStateChangedEvent
 Kiln.PetViewStateChangedEvent.State.get -> Kiln.PetViewState
 Kiln.Pets
 Kiln.PetsClient
-override Kiln.CostReceipt.Equals(object? obj) -> bool
-override Kiln.CostReceipt.GetHashCode() -> int
-override Kiln.CostReceipt.ToString() -> string!
-override Kiln.ItemSelection.Equals(object? obj) -> bool
-override Kiln.ItemSelection.GetHashCode() -> int
-override Kiln.ItemSelection.ToString() -> string!
 override Kiln.PetBodyViewKey.Equals(object? obj) -> bool
 override Kiln.PetBodyViewKey.GetHashCode() -> int
 override Kiln.PetBodyViewKey.ToString() -> string!
@@ -502,10 +476,6 @@ override Kiln.PetTargetPolicy.ToString() -> string!
 override Kiln.PetViewEntry.Equals(object? obj) -> bool
 override Kiln.PetViewEntry.GetHashCode() -> int
 override Kiln.PetViewEntry.ToString() -> string!
-static Kiln.CostReceipt.operator !=(Kiln.CostReceipt? left, Kiln.CostReceipt? right) -> bool
-static Kiln.CostReceipt.operator ==(Kiln.CostReceipt? left, Kiln.CostReceipt? right) -> bool
-static Kiln.ItemSelection.operator !=(Kiln.ItemSelection? left, Kiln.ItemSelection? right) -> bool
-static Kiln.ItemSelection.operator ==(Kiln.ItemSelection? left, Kiln.ItemSelection? right) -> bool
 static Kiln.PetBodyViewKey.operator !=(Kiln.PetBodyViewKey? left, Kiln.PetBodyViewKey? right) -> bool
 static Kiln.PetBodyViewKey.operator ==(Kiln.PetBodyViewKey? left, Kiln.PetBodyViewKey? right) -> bool
 static Kiln.PetCaps.operator !=(Kiln.PetCaps? left, Kiln.PetCaps? right) -> bool

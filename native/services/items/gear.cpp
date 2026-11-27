@@ -34,6 +34,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "costs.h"
 #include "engine.h"
 #include "gear_logic.h"
 #include "upgrade_logic.h"
@@ -41,6 +42,7 @@
 #include "services/kiln_caps.h"
 #include "services/kiln_saves.h"
 #include "services/kiln_types.h"
+#include "wear.h"
 
 namespace kitems {
 void items_log(int level, const char* fmt, ...);
@@ -695,9 +697,218 @@ void run_upgrades(const Reader& reader, uint64_t step, unsigned long* code) {
     for (auto& r : results) g_up_done.push_back(r);
 }
 
+// ---- kiln.item_costs (since 0.2.0-dev.32, kiln_item_costs.h, costs.h): one exact cost per job, in this program ----
+constexpr size_t kCostsPerStep = 8;  // a stack cost is one inventory transaction
+
+struct CostCall {
+    const Reader* reader;
+    const costs::Job* job;
+    KilnCostResult* res;
+    bool committing;  // the game's commit or WearDelta ran (a fault from here on is UNCERTAIN)
+};
+
+void cost_refuse(KilnCostResult* r, uint32_t refusal, const char* fmt, ...) {
+    r->state = KILN_COST_REFUSED;
+    r->refusal = refusal;
+    va_list ap;
+    va_start(ap, fmt);
+    std::vsnprintf(r->reason, sizeof r->reason, fmt, ap);
+    va_end(ap);
+}
+
+// The stack in `slot`, when that slot is one of `holder`'s (its inventory tree, Virtual links expanded).
+bool holder_stack(const Access& a, KilnEntity holder, uint64_t slot, Stack* out) {
+    bool init = false;
+    if (!read_pages(a, holder, &g_pages, &init) || !init) return false;
+    const uint32_t inv = static_cast<uint32_t>(slot & 0xFFFFFFFFu), index = static_cast<uint32_t>((slot >> 32) & 0xFFu);
+    for (uint32_t i = 0; i < g_pages.n; ++i)
+        if (g_pages.p[i].entity == inv && index < kSlotsPerPage) {
+            *out = g_pages.p[i].s[index];
+            return true;
+        }
+    return false;
+}
+
+void cost_stack(CostCall* c) {
+    const Access& a = *c->reader->a;
+    const KilnSelectedCost& k = c->job->cost;
+    KilnCostResult* r = c->res;
+    const auto* info = static_cast<const uint8_t*>(E.item_find(k.item, a.items));
+    if (!info) return cost_refuse(r, KILN_COST_STALE_SELECTION, "item 0x%08x is not in the item registry", k.item);
+    if (rd<uint32_t>(info, E.item_flags) & 2u)
+        return cost_refuse(r, KILN_COST_NOT_A_STACK, "item 0x%08x has an item entity of its own (gear, a gem): not a stack", k.item);
+    Job j{};
+    j.r.size = sizeof j.r;
+    j.r.entity = k.holder;
+    j.r.item = k.item;
+    j.r.count = k.amount;
+    KilnItemsResult res{};
+    res.size = sizeof res;
+    unsigned long code = 0;
+    if (k.kind == KILN_COST_STACK_TAKE) {
+        Stack before{};
+        if (!holder_stack(a, k.holder, k.slot, &before))
+            return cost_refuse(r, KILN_COST_STALE_SELECTION, "the slot is not one of entity %u's inventory slots now", k.holder);
+        if (before.item != k.item || pide_of(before) != 0 || before.count != k.expected_count)
+            return cost_refuse(r, KILN_COST_STALE_SELECTION, "the slot holds %u of item 0x%08x%s now, not the %u selected", before.count,
+                               before.item, pide_of(before) ? " (an item entity)" : "", k.expected_count);
+        j.take = true;
+        j.r.flags = KILN_ITEMS_EXACT_SLOT;
+        j.r.slot = k.slot;
+        c->committing = true;  // run_job commits inside; a fault there may have taken the cost
+        const bool ran = run_job(a, j, g_tx, &res, &code);
+        if (!ran) abandon_tx(g_tx);
+        Stack after{};
+        const bool read = holder_stack(a, k.holder, k.slot, &after);
+        const uint32_t left = read && after.item == k.item ? after.count : 0;
+        const uint32_t taken = read && left <= before.count ? before.count - left : 0;
+        r->game_error = res.game_error;
+        if (!ran) {
+            r->state = KILN_COST_UNCERTAIN;
+            r->quantity_taken = taken;
+            r->disposition = taken == k.amount ? KILN_COST_EXACT : KILN_COST_PARTIAL;
+            std::snprintf(r->reason, sizeof r->reason, "the game's take faulted (0x%08lx); the slot holds %u now (%u before)", code, left, before.count);
+            return;
+        }
+        if (res.status != KILN_ITEMS_DONE) {
+            if (taken != 0) {  // refused, yet the slot changed: say so, never call it nothing
+                r->state = KILN_COST_UNCERTAIN;
+                r->quantity_taken = taken;
+                r->disposition = KILN_COST_PARTIAL;
+                std::snprintf(r->reason, sizeof r->reason, "the take ended %d (%s) but the slot holds %u, not %u", res.status, res.message, left, before.count);
+                return;
+            }
+            const uint32_t refusal = res.status == KILN_ITEMS_SLOT_CHANGED || res.status == KILN_ITEMS_NOT_ENOUGH ? KILN_COST_STALE_SELECTION
+                                     : res.status == KILN_ITEMS_REFUSED                                       ? KILN_COST_GAME_REFUSED
+                                                                                                              : KILN_COST_NOT_RUN;
+            return cost_refuse(r, refusal, "%s", res.message[0] ? res.message : "the game's transaction refused the take");
+        }
+        r->quantity_taken = taken;
+        if (taken == k.amount) {
+            r->state = KILN_COST_COMMITTED;
+            r->disposition = KILN_COST_EXACT;
+        } else if (taken == 0) {
+            r->state = KILN_COST_UNCERTAIN;  // the commit said done, the slot did not change: never an unverified success
+            std::snprintf(r->reason, sizeof r->reason, "the take reported done but the slot still holds %u", left);
+        } else {
+            r->state = KILN_COST_COMMITTED;
+            r->disposition = KILN_COST_PARTIAL;
+            std::snprintf(r->reason, sizeof r->reason, "the slot went from %u to %u, not by %u", before.count, left, k.amount);
+        }
+        return;
+    }
+    // a refund: given back to the holder, the cost's slot first; merging into stacks is fine (stacks are fungible)
+    j.r.slot = k.slot;
+    c->committing = true;
+    if (!run_job(a, j, g_tx, &res, &code)) {
+        abandon_tx(g_tx);
+        r->state = KILN_COST_UNCERTAIN;
+        std::snprintf(r->reason, sizeof r->reason, "the game's give faulted (0x%08lx)", code);
+        return;
+    }
+    r->game_error = res.game_error;
+    if (res.change_count) r->slot = res.changes[0].slot;
+    if (res.status == KILN_ITEMS_DONE || res.status == KILN_ITEMS_PARTIAL) {
+        r->state = KILN_COST_COMMITTED;
+        r->quantity_taken = res.done;
+        r->disposition = res.done == k.amount ? KILN_COST_EXACT : KILN_COST_PARTIAL;
+        if (r->disposition == KILN_COST_PARTIAL) std::snprintf(r->reason, sizeof r->reason, "only %u of %u fit", res.done, k.amount);
+        return;
+    }
+    cost_refuse(r, res.status == KILN_ITEMS_NO_ROOM ? KILN_COST_NO_ROOM : KILN_COST_GAME_REFUSED, "%s",
+                res.message[0] ? res.message : "the game's transaction refused the give");
+}
+
+void cost_gear(CostCall* c) {
+    const Reader& rd_ = *c->reader;
+    const Access& a = *rd_.a;
+    const KilnSelectedCost& k = c->job->cost;
+    KilnCostResult* r = c->res;
+    const wear::Facts& wf = wear::facts();
+    KilnItemsGearState s{};
+    Blocks b;
+    if (!read_state(rd_, k.item_entity, &s, &b)) return cost_refuse(r, KILN_COST_STALE_SELECTION, "entity %u is no item entity now", k.item_entity);
+    if (s.item != k.item || stamp_for(k.item_entity, s.item) != k.item_stamp)
+        return cost_refuse(r, KILN_COST_STALE_SELECTION, "entity %u is not the stamped item entity any more", k.item_entity);
+    const uint64_t at = rd<uint64_t>(b.state, 0);  // ItemState.containedInSlotId
+    Stack st{};
+    if (!holder_stack(a, k.holder, at, &st) || pide_of(st) != k.item_entity)
+        return cost_refuse(r, KILN_COST_STALE_SELECTION, "the item is not in entity %u's inventories now", k.holder);
+    if (k.kind == KILN_COST_GEAR_WEAR && at != k.slot)
+        return cost_refuse(r, KILN_COST_STALE_SELECTION, "the item moved out of the selected slot");
+    if (!(s.flags & KILN_ITEMS_GEAR_HAS_DURABILITY) || !b.dur || b.du < 0)
+        return cost_refuse(r, KILN_COST_NOT_GEAR, "item 0x%08x has no durability", s.item);
+    r->durability_before = r->durability_after = s.durability;
+    const bool enabled = wf.enable_durability(a.balancing);
+    const costs::WearPlan p = k.kind == KILN_COST_GEAR_WEAR ? costs::plan_wear(s.durability, s.durability_max, k.amount, k.allow_break != 0, enabled)
+                                                            : costs::plan_restore(s.durability, s.durability_max, k.amount);
+    if (p.refusal != KILN_COST_REFUSAL_NONE) return cost_refuse(r, p.refusal, "%s", p.why);
+    if (p.waived || p.delta == 0) {
+        r->state = KILN_COST_COMMITTED;
+        r->disposition = costs::gear_disposition(p, 0);
+        return;
+    }
+    // the game's own path: the tracked Durability write (as WearItem gets it), then WearDelta with no skills (no
+    // skill-saving roll: an authored cost is exact). The notification of a break needs a NotifyEvent output this program
+    // does not have, so a wear that breaks the tool names no actor (the game then sends no break notice).
+    if (!marked(a, rd_.acc_dur, k.item_entity, b.dur))
+        return cost_refuse(r, KILN_COST_GAME_REFUSED, "the game's tracked write did not return the Durability that was read");
+    wear::WearEnv env{};
+    env.durability_index = static_cast<uint16_t>(b.du);
+    env.ctx = a.ctx;
+    env.attributes = a.attributes;
+    c->committing = true;
+    wf.wear_delta(const_cast<uint8_t*>(b.dur), nullptr, p.delta, p.crosses_zero ? 0u : k.holder, &env);
+    KilnItemsGearState now{};
+    Blocks back;
+    if (!read_state(rd_, k.item_entity, &now, &back) || !(now.flags & KILN_ITEMS_GEAR_HAS_DURABILITY)) {
+        r->state = KILN_COST_UNCERTAIN;
+        std::snprintf(r->reason, sizeof r->reason, "the item could not be read again after WearDelta");
+        return;
+    }
+    r->durability_after = now.durability;
+    r->wear_applied = k.kind == KILN_COST_GEAR_WEAR ? s.durability - now.durability : now.durability - s.durability;
+    r->state = KILN_COST_COMMITTED;
+    r->disposition = costs::gear_disposition(p, r->wear_applied);
+}
+
+void cost_impl(void* p) {
+    auto* c = static_cast<CostCall*>(p);
+    if (costs::is_stack(c->job->cost.kind)) cost_stack(c);
+    else cost_gear(c);
+}
+
+void run_costs(const Reader& reader, uint64_t step) {
+    if (!costs::pending()) return;
+    const std::vector<costs::Job> jobs = costs::take(kCostsPerStep);
+    for (const costs::Job& j : jobs) {
+        KilnCostResult res = costs::blank_result(j.ticket, j.cost);
+        res.step = step;
+        char why[160] = "";
+        if (g_off.load() || (costs::is_stack(j.cost.kind) ? !gear_costs_stacks(why) : !gear_costs_wear(why))) {
+            cost_refuse(&res, KILN_COST_NOT_RUN, "%s", why[0] ? why : "gear writes were switched off (see kiln.log)");
+            costs::settle(res);
+            continue;
+        }
+        CostCall call{&reader, &j, &res, false};
+        unsigned long code = 0;
+        if (!guard(&cost_impl, &call, &code)) {
+            // run_job rolls its own transaction back; a fault anywhere else never had one open
+            res.state = call.committing ? KILN_COST_UNCERTAIN : KILN_COST_REFUSED;
+            res.refusal = call.committing ? KILN_COST_REFUSAL_NONE : KILN_COST_NOT_RUN;
+            char b[160];
+            std::snprintf(b, sizeof b, "an item cost faulted (0x%08lx) on entity %u%s", code, j.cost.holder,
+                          call.committing ? " while the game changed the item: what changed is not known" : "");
+            std::snprintf(res.reason, sizeof res.reason, "%s", b);
+            switch_off(KILN_CAP_REASON_FAULTED, b);
+        }
+        costs::settle(res);
+    }
+}
+
 void KILN_CALL each(KilnProgramCtx* ctx, uint64_t* it, KilnEntity, void*) {
     g_last_update.store(current_step(), std::memory_order_relaxed);
-    if (g_off.load() || g_pending_n.load(std::memory_order_acquire) == 0) return;
+    if (g_off.load() || (g_pending_n.load(std::memory_order_acquire) == 0 && !costs::pending())) return;
     if (!resolve_slots()) return switch_off(KILN_CAP_REASON_FAULTED, "kiln.world did not report kiln_items_gear's iterator slots");
     Reader reader{};
     Access a{};
@@ -768,6 +979,7 @@ void KILN_CALL each(KilnProgramCtx* ctx, uint64_t* it, KilnEntity, void*) {
         for (auto& r : results) g_done.push_back(r);
     }
     run_upgrades(reader, step, &code);
+    run_costs(reader, step);
 }
 
 bool guarded_done(KilnItemsGearDoneFn fn, const KilnItemsGearResult* r, void* user) {
@@ -1464,6 +1676,34 @@ KilnResult gear_read(KilnEntity entity, uint32_t stamp, KilnItemsGearState* out)
         return KILN_ERR_NOT_FOUND;
     }
     return KILN_OK;
+}
+
+// kiln.item_costs (costs.h): what this program can run now.
+bool gear_costs_stacks(char* why) {
+    const char* no = !F.sym ? "gear writes are off on this build (items.gear), so kiln_items_gear does not run"
+                     : g_off.load() ? "kiln_items_gear was switched off (see kiln.log)"
+                     : !usable() ? "kiln_items_gear is not registered with kiln.world"
+                     : (!E.tx_ok || !g_tx) ? "the game's inventory transaction is not available on this build"
+                                           : nullptr;
+    if (no && why) std::snprintf(why, 160, "%s", no);
+    return no == nullptr;
+}
+
+bool gear_costs_wear(char* why) {
+    if (!gear_costs_stacks(why)) return false;
+    const char* no = !E.wear_ok || !wear::facts().ok ? "the durability debit (WearDelta, enableDurability) is not known on this build (items.tool_wear_debit)"
+                     : !F.attr_dur || !F.attr_dur_max ? "the durability attributes are not known on this build"
+                                                       : nullptr;
+    if (no && why) std::snprintf(why, 160, "%s: %s", no, wear::facts().why[0] ? wear::facts().why : "see kiln.log");
+    return no == nullptr;
+}
+
+uint64_t gear_last_update_step() { return g_last_update.load(std::memory_order_relaxed); }
+
+bool gear_switched_off(char* why) {
+    if (!g_off.load()) return false;
+    if (why) std::snprintf(why, 160, "kiln_items_gear was switched off (see kiln.log)");
+    return true;
 }
 
 KilnResult gear_status(KilnItemsGearStatus* out) {

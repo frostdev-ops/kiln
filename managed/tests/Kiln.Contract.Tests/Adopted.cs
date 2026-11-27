@@ -40,6 +40,7 @@ internal static class Adopted
         typeof(World),
         typeof(Blocks),
         typeof(CreatureControl),
+        typeof(Taming),
     ];
 
     internal static IEnumerable<Assembly> Assemblies => Anchors.Select(t => t.Assembly).Distinct();

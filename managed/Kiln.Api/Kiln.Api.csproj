@@ -85,6 +85,9 @@
     <!-- dev.28, 19d-creature-control (not in the reserved list above) -->
     <InternalsVisibleTo Include="Kiln.CreatureControl" />
     <InternalsVisibleTo Include="Kiln.CreatureControl.Tests" />
+    <!-- dev.32, TAME: the taming framework (Kiln.Taming) -->
+    <InternalsVisibleTo Include="Kiln.Taming" />
+    <InternalsVisibleTo Include="Kiln.Taming.Tests" />
   </ItemGroup>
   <!-- Kiln's own in-game texts in English (KilnText; runtime/locales/en.json, shipped as kiln/locales/en.json too): built
        in, so a missing or broken file never puts keys on screen -->

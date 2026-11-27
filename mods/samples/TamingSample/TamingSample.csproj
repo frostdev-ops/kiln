@@ -1,0 +1,16 @@
+<Project>
+  <!-- Sample: Kiln.Taming, the taming framework (docs/kiln/modding/taming.md). Two tamings that make different choices: a
+       wolf tamed with Kiln's steps (weaken it, then feed it raw meat; refund on fail; a tame grants a Kiln.Pets record and
+       the pet comes out), declared in JSON; and a wild dog tamed the game's own way (bait and petting), followed through
+       Kiln's native step and the native events. /tame commands drive the attempt. Server side: vanilla clients watch. -->
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.props" />
+  <PropertyGroup>
+    <KilnModId>taming-sample</KilnModId>
+    <KilnModName>Taming (framework sample)</KilnModName>
+    <Version>0.1.0</Version>
+    <Description>Taming on Kiln.Taming: a wolf tamed with Kiln's steps into a pet, a dog tamed the game's own way.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <KilnServices>Taming;Pets;Blocks;Items;Creatures;Players;Saves;Chat;World</KilnServices>
+  </PropertyGroup>
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.targets" />
+</Project>

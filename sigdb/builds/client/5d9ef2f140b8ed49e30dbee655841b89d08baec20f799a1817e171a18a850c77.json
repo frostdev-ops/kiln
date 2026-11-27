@@ -9,9 +9,9 @@
   "verified": true,
   "note": "runtime-verified through Steam (GE-Proton11-11), policy any, core + every service + kiln-emf + probe + ui-test + menubuttons: side client, sigdb 306/306 symbols, 434/434 constants (client.d composed), SimStep + WorldDestroy hooked, boot complete, 0 errors; main menu entries Kiln / ui-test / Mods (the Kiln sample screen opened); hosted a LOCAL world offline (saves: world loaded: slot 0x0002 (world1.ksd)): server world 60 steps/s on the GameServer thread, client and prediction worlds on the main thread, local player 1; ui-test all checks PASS (screens MainMenu/Loading/InGame/PauseMenu/Map/Crafting, menu entries chosen, crafting state), Kiln crafting tabs and subcategories shown, Insert overlay; tick cost as on ce6fdba6 (server step p50 2.5 ms, Kiln Pre 0.037 ms; client 1.2 ms); back to the menu (worlds stopping, shutdown save), clean quit (Shutdown 'Steam'). Not covered: joining a remote server, service write paths on the client. Added in dev.22 from static analysis only (resolved offline with sigdb_check.py, not yet seen running): ui.menu_page, ui.menu_page_sound, ui.error_popup (ui/PreGameCredits, ui/PreGameCreditsRet, ui/UiPlaySound and their constants). Levels (record 2, refreshed offline on 2026-11-11, no client run): lab = the names the boot above resolved, as its record listed them (199 named symbols, 434 constants, 106 features), each resolving to the same value today; every service loaded in that boot, but only ui-test ran, so lab here means loaded with Kiln's checks passing, not that the service test mods ran on the client. static = everything else, resolved offline only: the 186 @ probes (the boot's record did not list probes), the dev.22 ui names above, and every name declared since (the services audio, characters, emf-net, npcai, pacing, progression, quests, render, rules, skills, types and vfx, and new names of combat, creatures, gamedata, items, net, players, time and ui): 158 symbols, 210 constants and 70 features. sigdb now declares 543 symbols (441 defined, 102 captured), 644 constants (595 defined, 49 captured) and 176 features; all of them resolve offline on this exe.",
   "declared": {
-    "symbols": 1127,
-    "constants": 1184,
-    "features": 301
+    "symbols": 1131,
+    "constants": 1200,
+    "features": 302
   },
   "features": {
     "abilities.attributes": true,
@@ -248,6 +248,7 @@
     "stations.stock_ui": true,
     "steam.achievement_guard": true,
     "survivors.assignment.layout": true,
+    "taming.native": true,
     "tick": true,
     "tick.wait_jobs": true,
     "time.read": true,
@@ -894,6 +895,10 @@
     "steamguard/AchievementUnlockText": "0x1dd0f10",
     "steamguard/ReportAchievements": "0x1088440",
     "survivors/AssignNpcProgram": "0x2d81d0",
+    "taming/EnemyTransformer": "0x488600",
+    "taming/FarmTransformer": "0x4889f0",
+    "taming/InteractionTaming": "0x2aaeb0",
+    "taming/Wildlife": "0x488400",
     "time/DaytimeSyncIfChanged": "0xec7ed0",
     "time/DaytimeUpdate": "0xec1bd0",
     "time/GameTimeToTod": "0xe8b230",
@@ -1957,6 +1962,22 @@
     "survivors/npc_saved.home": "0x0",
     "survivors/npc_saved.size": "0x30",
     "survivors/npc_tpl.bed_radius": "0xbc",
+    "taming/DynamicWildlife.foodBaitEntityId": "0x88",
+    "taming/DynamicWildlife.hasFullyAtenFoodBait": "0x8d",
+    "taming/DynamicWildlife.size": "0xb0",
+    "taming/DynamicWildlife.state": "0x0",
+    "taming/DynamicWildlife.tamingProgress": "0x8e",
+    "taming/FoodBait.size": "0x1",
+    "taming/IsTame.size": "0x1",
+    "taming/NetworkWildlife.isEatingFoodBait": "0x11",
+    "taming/NetworkWildlife.size": "0x18",
+    "taming/NetworkWildlife.tamingProgress": "0x10",
+    "taming/TamingSetup.favoriteFood": "0x4",
+    "taming/TamingSetup.foodBaitSensorRange": "0x18",
+    "taming/TamingSetup.necessaryTamingSteps": "0x14",
+    "taming/TamingSetup.size": "0x48",
+    "taming/Wildlife.size": "0x2e0",
+    "taming/Wildlife.tamingSetup": "0x1c0",
     "time/daytime.anchor_ecs": "0x10",
     "time/daytime.anchor_game": "0x18",
     "time/daytime.counter": "0x24",
@@ -5822,6 +5843,38 @@
         "world.read_other": "lab",
         "world.teleport": "lab",
         "world.write": "lab"
+      }
+    },
+    "taming": {
+      "level": "static",
+      "date": "2026-11-26",
+      "evidence": "resolved offline (tools/sigport/build_record.py)",
+      "symbols": {
+        "taming/EnemyTransformer": "static",
+        "taming/FarmTransformer": "static",
+        "taming/InteractionTaming": "static",
+        "taming/Wildlife": "static"
+      },
+      "constants": {
+        "taming/DynamicWildlife.foodBaitEntityId": "static",
+        "taming/DynamicWildlife.hasFullyAtenFoodBait": "static",
+        "taming/DynamicWildlife.size": "static",
+        "taming/DynamicWildlife.state": "static",
+        "taming/DynamicWildlife.tamingProgress": "static",
+        "taming/FoodBait.size": "static",
+        "taming/IsTame.size": "static",
+        "taming/NetworkWildlife.isEatingFoodBait": "static",
+        "taming/NetworkWildlife.size": "static",
+        "taming/NetworkWildlife.tamingProgress": "static",
+        "taming/TamingSetup.favoriteFood": "static",
+        "taming/TamingSetup.foodBaitSensorRange": "static",
+        "taming/TamingSetup.necessaryTamingSteps": "static",
+        "taming/TamingSetup.size": "static",
+        "taming/Wildlife.size": "static",
+        "taming/Wildlife.tamingSetup": "static"
+      },
+      "features": {
+        "taming.native": "static"
       }
     }
   }

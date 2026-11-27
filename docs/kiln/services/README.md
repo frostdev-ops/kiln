@@ -32,6 +32,7 @@ available is generated from a boot's `capabilities.json`: [../status.generated.m
 | [gems.md](gems.md) | Gems: how a gem works, changing one with a data pack, the `Gems` read API and gem events; with [gems-new.md](gems-new.md) (new gems, `Gems.Register`), [gems-forge.md](gems-forge.md) (forge actions from code) and [gems-sockets.md](gems-sockets.md) (sockets on rings, armour, shields) |
 | [gameplay.md](gameplay.md) | kiln.gameplay: player/world interaction events and protection zones |
 | [hooks.md](hooks.md) | kiln.hooks v2: one registry for every hook |
+| [item-costs.md](item-costs.md) | kiln.item_costs: exact costs from a selected slot, with receipts (since 0.2.0-dev.32) |
 | [items.md](items.md) | kiln.items: items in inventories |
 | [knowledge.md](knowledge.md) | kiln.knowledge: the game's knowledge, the vanilla journal, dialogue events, the client veto |
 | [client-building-input.md](client-building-input.md) | kiln.client / BuildingInput: the local player's building input (select, place, remove, undo, dismantle) on game client 26430625, hooked at the first request (since 0.2.0-dev.30.3) |
@@ -81,6 +82,7 @@ row above and grows its own page.
 | [boot.md](boot.md) | kiln.boot (in-core): `Mod.OnBoot`'s one generation per process; the table, the collector contract (bind, prepare, destroy), `activation_fault`, exit code 0x4B01, `state/boot.json` |
 | [creature-control.md](creature-control.md) | kiln.creature_control / CreatureControl: the one broker that owns a controlled creature body's AI-off layer and SteeringAgent; leases for pets, mounts, vehicles and NPC brains |
 | [pets.md](pets.md) | Kiln.Pets / kiln.pets (dev.32): the pet framework: owned records, bodies through the broker, the native guard and target rule, revive with cost receipts, the owner's view and bar; every behaviour choice is the mod's |
+| [taming.md](taming.md) | Kiln.Taming (dev.32): the taming framework: attempts with exact-cost steps and receipts, replay-safe requests, timeouts, refund policies, tames bound to Kiln.Pets records, and the game's own taming as mechanism (NativeTaming); every policy is the mod's |
 | [systems.md](systems.md) | `Kiln.Systems` / kiln.world v4: Before, After and Replace on the game's own ECS programs, per slice or per entity; entity views, write events, attribute formulas |
 
 ### Service pages added in dev.29

@@ -205,7 +205,7 @@ pub fn constants(suites: &[&Suite]) -> BTreeMap<String, f64> {
 
 fn raw_kind(conv: &str) -> Raw {
     match conv {
-        "int" | "float" | "impactConfig" | "bool" | "time" | "eventTime" | "enum" | "flags" | "optionalEnum" | "position" => Raw::Compared,
+        "int" | "float" | "impactConfig" | "bool" | "time" | "eventTime" | "enum" | "flags" | "optionalEnum" | "position" | "flag" => Raw::Compared,
         "formula" => Raw::Formula,
         _ => Raw::SchemaOnly,
     }
@@ -267,6 +267,11 @@ fn raw_mismatch(row: &Row, raw: &[Value], kiln: &Value) -> Option<String> {
                 kiln.as_array().and_then(|a| a.iter().map(|k| k.as_str().and_then(|k| row.values.get(k)).cloned()).collect());
             want.is_some() && names(first) == want
         }
+        // one named bit of a bitmask (creatures.tameable): set exactly when the Kiln value is true
+        "flag" => match (names(first), kiln.as_bool(), row.values.values().next()) {
+            (Some(set), Some(on), Some(bit)) => set.contains(bit) == on,
+            _ => false,
+        },
         "optionalEnum" => match kiln.as_str() {
             Some("none") => first.is_null() || truthy(first) == Some(false),
             Some(k) => (first.is_null() || truthy(first) == Some(true)) &&
@@ -909,6 +914,27 @@ pub(crate) mod tests {
         let f = run(&map, "live", json!({"sint32": 3, "float": 0, "unknown": 0, "notInWorld": 2, "uint32": 0}),
                     Some(json!(["game:h3", "game:h4"])), Some(&values));
         assert!(f.ok, "{f:?}");
+    }
+
+    // dev.32 TAME review: a flag row (creatures.tameable) is one bit of a bitmask, read-only: the lab's read is compared
+    // with the bit in the raw bitmask
+    #[test]
+    fn a_flag_row_compares_its_one_bit_raw() {
+        let rows = r#"{"regmap": 1, "registry": "kit",
+            "entries": {"kind": "resource", "resourceType": "demo::Kit"},
+            "rows": {"tame": {"paths": ["mask"], "conv": "flag", "read": "now", "backend": "none", "values": {"tame": "Tameable"}}}}"#;
+        let mut map = RegMap::new();
+        map.insert("kit".into(), crate::regproof::regmap::parse(rows, "kit").unwrap());
+        let mk = |samples: Value| parse(&json!({"format": 1, "kind": KIND, "side": "server", "exeSha256": SHA, "generation": "live",
+                                                "regmapDigest": DIGEST, "samples": samples}).to_string()).unwrap();
+        let ok = mk(json!([
+            {"field": "kit.tame", "entry": "game:dog", "read": true, "rawBefore": [["Roaming", "Tameable"]]},
+            {"field": "kit.tame", "entry": "game:deer", "read": false, "rawBefore": [["Roaming"]]}]));
+        let r = check(&map, "server", SHA, DIGEST, &[ok]);
+        assert!(r.fields["kit.tame"].ok, "{:?}", r.fields["kit.tame"]);
+        let bad = mk(json!([{"field": "kit.tame", "entry": "game:deer", "read": true, "rawBefore": [["Roaming"]]}]));
+        let r2 = check(&map, "server", SHA, DIGEST, &[bad]);
+        assert!(!r2.fields["kit.tame"].ok, "a read true over a bitmask without the bit must fail: {:?}", r2.fields["kit.tame"]);
     }
 
     #[test]

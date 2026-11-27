@@ -152,3 +152,61 @@ static Kiln.ReviveBlock.operator !=(Kiln.ReviveBlock? left, Kiln.ReviveBlock? ri
 static Kiln.ReviveBlock.operator ==(Kiln.ReviveBlock? left, Kiln.ReviveBlock? right) -> bool
 static Kiln.ReviveCostBlock.operator !=(Kiln.ReviveCostBlock? left, Kiln.ReviveCostBlock? right) -> bool
 static Kiln.ReviveCostBlock.operator ==(Kiln.ReviveCostBlock? left, Kiln.ReviveCostBlock? right) -> bool
+Kiln.TamingBlock
+Kiln.TamingBlock.<Clone>$() -> Kiln.TamingBlock!
+Kiln.TamingBlock.Creatures.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.TamingBlock.Creatures.init -> void
+Kiln.TamingBlock.Equals(Kiln.TamingBlock? other) -> bool
+Kiln.TamingBlock.InactivitySeconds.get -> double
+Kiln.TamingBlock.InactivitySeconds.init -> void
+Kiln.TamingBlock.MaxAttemptSeconds.get -> double
+Kiln.TamingBlock.MaxAttemptSeconds.init -> void
+Kiln.TamingBlock.Pet.get -> Kiln.PartRef<Kiln.PetBlock!>?
+Kiln.TamingBlock.Pet.init -> void
+Kiln.TamingBlock.RangeMeters.get -> double
+Kiln.TamingBlock.RangeMeters.init -> void
+Kiln.TamingBlock.Refund.get -> Kiln.TamingRefundPolicy
+Kiln.TamingBlock.Refund.init -> void
+Kiln.TamingBlock.RemoveTarget.get -> bool
+Kiln.TamingBlock.RemoveTarget.init -> void
+Kiln.TamingBlock.RequireThresholdUntilCommit.get -> bool
+Kiln.TamingBlock.RequireThresholdUntilCommit.init -> void
+Kiln.TamingBlock.Steps.get -> System.Collections.Generic.IReadOnlyList<Kiln.TamingStepBlock!>!
+Kiln.TamingBlock.Steps.init -> void
+Kiln.TamingBlock.SummonPet.get -> bool
+Kiln.TamingBlock.SummonPet.init -> void
+Kiln.TamingBlock.TamingBlock() -> void
+Kiln.TamingBlock.Was.get -> string?
+Kiln.TamingBlock.Was.init -> void
+Kiln.TamingStepBlock
+Kiln.TamingStepBlock.<Clone>$() -> Kiln.TamingStepBlock!
+Kiln.TamingStepBlock.AllowBreak.get -> bool?
+Kiln.TamingStepBlock.AllowBreak.init -> void
+Kiln.TamingStepBlock.Count.get -> int?
+Kiln.TamingStepBlock.Count.init -> void
+Kiln.TamingStepBlock.Equals(Kiln.TamingStepBlock? other) -> bool
+Kiln.TamingStepBlock.Item.get -> Kiln.ItemRef?
+Kiln.TamingStepBlock.Item.init -> void
+Kiln.TamingStepBlock.Kind.get -> string!
+Kiln.TamingStepBlock.Kind.init -> void
+Kiln.TamingStepBlock.MaxHealthFraction.get -> double?
+Kiln.TamingStepBlock.MaxHealthFraction.init -> void
+Kiln.TamingStepBlock.Steps.get -> int?
+Kiln.TamingStepBlock.Steps.init -> void
+Kiln.TamingStepBlock.TamingStepBlock() -> void
+Kiln.TamingStepBlock.Wear.get -> int?
+Kiln.TamingStepBlock.Wear.init -> void
+override Kiln.TamingBlock.Equals(object? obj) -> bool
+override Kiln.TamingBlock.GetHashCode() -> int
+override Kiln.TamingBlock.ToString() -> string!
+override Kiln.TamingStepBlock.Equals(object? obj) -> bool
+override Kiln.TamingStepBlock.GetHashCode() -> int
+override Kiln.TamingStepBlock.ToString() -> string!
+static Kiln.TamingBlock.operator !=(Kiln.TamingBlock? left, Kiln.TamingBlock? right) -> bool
+static Kiln.TamingBlock.operator ==(Kiln.TamingBlock? left, Kiln.TamingBlock? right) -> bool
+static Kiln.TamingStepBlock.Feed(Kiln.ItemRef item, int count = 1) -> Kiln.TamingStepBlock!
+static Kiln.TamingStepBlock.Native(int steps = 1) -> Kiln.TamingStepBlock!
+static Kiln.TamingStepBlock.Tool(Kiln.ItemRef item, int wear = 1, bool allowBreak = false) -> Kiln.TamingStepBlock!
+static Kiln.TamingStepBlock.Weaken(double maxHealthFraction) -> Kiln.TamingStepBlock!
+static Kiln.TamingStepBlock.operator !=(Kiln.TamingStepBlock? left, Kiln.TamingStepBlock? right) -> bool
+static Kiln.TamingStepBlock.operator ==(Kiln.TamingStepBlock? left, Kiln.TamingStepBlock? right) -> bool

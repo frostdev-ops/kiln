@@ -1156,11 +1156,14 @@
     },
     "creatures": {
       "id": 7,
-      "version": "0.1.0",
+      "version": "0.1.1",
       "since": "0.1.0",
       "history": [
         {
           "version": "0.1.0"
+        },
+        {
+          "version": "0.1.1"
         }
       ],
       "fields": {
@@ -1550,6 +1553,33 @@
           "readOnly": false,
           "min": 0,
           "max": 10000
+        },
+        "tameable": {
+          "id": 38,
+          "since": "0.1.1",
+          "kind": "bool",
+          "applies": "now",
+          "ops": "none",
+          "readOnly": true
+        },
+        "tamingSteps": {
+          "id": 39,
+          "since": "0.1.1",
+          "kind": "int",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 1,
+          "max": 255
+        },
+        "favoriteBait": {
+          "id": 40,
+          "since": "0.1.1",
+          "kind": "ref",
+          "applies": "now",
+          "ops": "none",
+          "readOnly": true,
+          "optional": true
         }
       },
       "retired": {}

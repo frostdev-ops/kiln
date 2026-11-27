@@ -1,0 +1,453 @@
+#nullable enable
+Kiln.FeedStep
+Kiln.FeedStep.Count.get -> int
+Kiln.FeedStep.Count.init -> void
+Kiln.FeedStep.Deconstruct(out Kiln.ItemId Item, out int Count) -> void
+Kiln.FeedStep.Equals(Kiln.FeedStep? other) -> bool
+Kiln.FeedStep.FeedStep(Kiln.ItemId Item, int Count = 1) -> void
+Kiln.FeedStep.Item.get -> Kiln.ItemId
+Kiln.FeedStep.Item.init -> void
+Kiln.NativeBaitEatenEvent
+Kiln.NativeBaitEatenEvent.Bait.get -> Kiln.EntityId
+Kiln.NativeBaitEatenEvent.Counted.get -> bool
+Kiln.NativeBaitEatenEvent.Creature.get -> Kiln.EntityId
+Kiln.NativeStep
+Kiln.NativeStep.Deconstruct(out int Steps) -> void
+Kiln.NativeStep.Equals(Kiln.NativeStep? other) -> bool
+Kiln.NativeStep.NativeStep(int Steps = 1) -> void
+Kiln.NativeStep.Steps.get -> int
+Kiln.NativeStep.Steps.init -> void
+Kiln.NativeStepResult
+Kiln.NativeStepResult.<Clone>$() -> Kiln.NativeStepResult!
+Kiln.NativeStepResult.Deconstruct(out bool Ok, out string? Reason) -> void
+Kiln.NativeStepResult.Equals(Kiln.NativeStepResult? other) -> bool
+Kiln.NativeStepResult.NativeStepResult(bool Ok, string? Reason) -> void
+Kiln.NativeStepResult.Ok.get -> bool
+Kiln.NativeStepResult.Ok.init -> void
+Kiln.NativeStepResult.Reason.get -> string?
+Kiln.NativeStepResult.Reason.init -> void
+Kiln.NativeTamedEvent
+Kiln.NativeTamedEvent.Creature.get -> Kiln.EntityId
+Kiln.NativeTamedEvent.Steps.get -> int
+Kiln.NativeTaming
+Kiln.NativeTamingCause
+Kiln.NativeTamingCause.Other = 2 -> Kiln.NativeTamingCause
+Kiln.NativeTamingCause.Startle = 1 -> Kiln.NativeTamingCause
+Kiln.NativeTamingCause.Step = 0 -> Kiln.NativeTamingCause
+Kiln.NativeTamingPhase
+Kiln.NativeTamingPhase.Dead = 4 -> Kiln.NativeTamingPhase
+Kiln.NativeTamingPhase.EatingBait = 2 -> Kiln.NativeTamingPhase
+Kiln.NativeTamingPhase.PursuingBait = 1 -> Kiln.NativeTamingPhase
+Kiln.NativeTamingPhase.Tamed = 3 -> Kiln.NativeTamingPhase
+Kiln.NativeTamingPhase.Wild = 0 -> Kiln.NativeTamingPhase
+Kiln.NativeTamingProgressEvent
+Kiln.NativeTamingProgressEvent.After.get -> int
+Kiln.NativeTamingProgressEvent.Before.get -> int
+Kiln.NativeTamingProgressEvent.Cause.get -> Kiln.NativeTamingCause
+Kiln.NativeTamingProgressEvent.Creature.get -> Kiln.EntityId
+Kiln.NativeTamingProgressEvent.Required.get -> int
+Kiln.NativeTamingState
+Kiln.NativeTamingState.<Clone>$() -> Kiln.NativeTamingState!
+Kiln.NativeTamingState.Bait.get -> Kiln.EntityId
+Kiln.NativeTamingState.Bait.init -> void
+Kiln.NativeTamingState.BaitTemplate.get -> System.Guid
+Kiln.NativeTamingState.BaitTemplate.init -> void
+Kiln.NativeTamingState.Creature.get -> Kiln.EntityId
+Kiln.NativeTamingState.Creature.init -> void
+Kiln.NativeTamingState.Deconstruct(out Kiln.EntityId Creature, out bool Tameable, out int Progress, out int Required, out Kiln.NativeTamingPhase Phase, out Kiln.EntityId Bait, out System.Guid BaitTemplate, out double SensorRangeMeters, out double EatSeconds) -> void
+Kiln.NativeTamingState.EatSeconds.get -> double
+Kiln.NativeTamingState.EatSeconds.init -> void
+Kiln.NativeTamingState.Equals(Kiln.NativeTamingState? other) -> bool
+Kiln.NativeTamingState.NativeTamingState(Kiln.EntityId Creature, bool Tameable, int Progress, int Required, Kiln.NativeTamingPhase Phase, Kiln.EntityId Bait, System.Guid BaitTemplate, double SensorRangeMeters, double EatSeconds) -> void
+Kiln.NativeTamingState.Phase.get -> Kiln.NativeTamingPhase
+Kiln.NativeTamingState.Phase.init -> void
+Kiln.NativeTamingState.Progress.get -> int
+Kiln.NativeTamingState.Progress.init -> void
+Kiln.NativeTamingState.RawState.get -> int
+Kiln.NativeTamingState.RawState.init -> void
+Kiln.NativeTamingState.Required.get -> int
+Kiln.NativeTamingState.Required.init -> void
+Kiln.NativeTamingState.SensorRangeMeters.get -> double
+Kiln.NativeTamingState.SensorRangeMeters.init -> void
+Kiln.NativeTamingState.Tameable.get -> bool
+Kiln.NativeTamingState.Tameable.init -> void
+Kiln.NativeTamingState.TamedBy.get -> Kiln.PlayerRef?
+Kiln.TameAttemptId
+Kiln.TameAttemptId.Deconstruct(out System.Guid Value) -> void
+Kiln.TameAttemptId.Equals(Kiln.TameAttemptId other) -> bool
+Kiln.TameAttemptId.TameAttemptId() -> void
+Kiln.TameAttemptId.TameAttemptId(System.Guid Value) -> void
+Kiln.TameAttemptId.Value.get -> System.Guid
+Kiln.TameAttemptId.Value.init -> void
+Kiln.TamedEvent
+Kiln.TamedEvent.Pet.get -> Kiln.PetSnapshot?
+Kiln.Taming
+Kiln.TamingAdvanceContext
+Kiln.TamingAdvanceContext.<Clone>$() -> Kiln.TamingAdvanceContext!
+Kiln.TamingAdvanceContext.Before.get -> Kiln.TamingProgress!
+Kiln.TamingAdvanceContext.Before.init -> void
+Kiln.TamingAdvanceContext.Deconstruct(out Kiln.TamingProgress! Before, out Kiln.TamingToken! Token, out int StepIndex, out string! StepKind, out Kiln.ItemSelection? Selection, out int QuotedQuantity, out int QuotedWear, out bool WillTryFinalCommit) -> void
+Kiln.TamingAdvanceContext.Equals(Kiln.TamingAdvanceContext? other) -> bool
+Kiln.TamingAdvanceContext.QuotedQuantity.get -> int
+Kiln.TamingAdvanceContext.QuotedQuantity.init -> void
+Kiln.TamingAdvanceContext.QuotedWear.get -> int
+Kiln.TamingAdvanceContext.QuotedWear.init -> void
+Kiln.TamingAdvanceContext.Selection.get -> Kiln.ItemSelection?
+Kiln.TamingAdvanceContext.Selection.init -> void
+Kiln.TamingAdvanceContext.StepIndex.get -> int
+Kiln.TamingAdvanceContext.StepIndex.init -> void
+Kiln.TamingAdvanceContext.StepKind.get -> string!
+Kiln.TamingAdvanceContext.StepKind.init -> void
+Kiln.TamingAdvanceContext.TamingAdvanceContext(Kiln.TamingProgress! Before, Kiln.TamingToken! Token, int StepIndex, string! StepKind, Kiln.ItemSelection? Selection, int QuotedQuantity, int QuotedWear, bool WillTryFinalCommit) -> void
+Kiln.TamingAdvanceContext.Token.get -> Kiln.TamingToken!
+Kiln.TamingAdvanceContext.Token.init -> void
+Kiln.TamingAdvanceContext.WillTryFinalCommit.get -> bool
+Kiln.TamingAdvanceContext.WillTryFinalCommit.init -> void
+Kiln.TamingAdvancingEvent
+Kiln.TamingAdvancingEvent.Context.get -> Kiln.TamingAdvanceContext!
+Kiln.TamingBeginContext
+Kiln.TamingBeginContext.<Clone>$() -> Kiln.TamingBeginContext!
+Kiln.TamingBeginContext.Deconstruct(out System.Guid RequestId, out Kiln.PlayerRef Player, out Kiln.EntityRef Target, out string! Definition, out int TotalSteps) -> void
+Kiln.TamingBeginContext.Definition.get -> string!
+Kiln.TamingBeginContext.Definition.init -> void
+Kiln.TamingBeginContext.Equals(Kiln.TamingBeginContext? other) -> bool
+Kiln.TamingBeginContext.Player.get -> Kiln.PlayerRef
+Kiln.TamingBeginContext.Player.init -> void
+Kiln.TamingBeginContext.RequestId.get -> System.Guid
+Kiln.TamingBeginContext.RequestId.init -> void
+Kiln.TamingBeginContext.TamingBeginContext(System.Guid RequestId, Kiln.PlayerRef Player, Kiln.EntityRef Target, string! Definition, int TotalSteps) -> void
+Kiln.TamingBeginContext.Target.get -> Kiln.EntityRef
+Kiln.TamingBeginContext.Target.init -> void
+Kiln.TamingBeginContext.TotalSteps.get -> int
+Kiln.TamingBeginContext.TotalSteps.init -> void
+Kiln.TamingBeginningEvent
+Kiln.TamingBeginningEvent.Context.get -> Kiln.TamingBeginContext!
+Kiln.TamingCanceledEvent
+Kiln.TamingChangedEvent
+Kiln.TamingChangedEvent.After.get -> Kiln.TamingProgress!
+Kiln.TamingChangedEvent.Before.get -> Kiln.TamingProgress?
+Kiln.TamingChangedEvent.Cause.get -> string!
+Kiln.TamingChangedEvent.Receipts.get -> System.Collections.Generic.IReadOnlyList<Kiln.CostReceipt!>!
+Kiln.TamingChangedEvent.RequestId.get -> System.Guid
+Kiln.TamingChoicesResult
+Kiln.TamingChoicesResult.<Clone>$() -> Kiln.TamingChoicesResult!
+Kiln.TamingChoicesResult.Choices.get -> System.Collections.Generic.IReadOnlyList<Kiln.TamingItemChoice!>!
+Kiln.TamingChoicesResult.Choices.init -> void
+Kiln.TamingChoicesResult.Deconstruct(out bool Ok, out string? Reason, out ulong Revision, out System.Guid StepChallenge, out System.Collections.Generic.IReadOnlyList<Kiln.TamingItemChoice!>! Choices) -> void
+Kiln.TamingChoicesResult.Equals(Kiln.TamingChoicesResult? other) -> bool
+Kiln.TamingChoicesResult.Ok.get -> bool
+Kiln.TamingChoicesResult.Ok.init -> void
+Kiln.TamingChoicesResult.Reason.get -> string?
+Kiln.TamingChoicesResult.Reason.init -> void
+Kiln.TamingChoicesResult.Revision.get -> ulong
+Kiln.TamingChoicesResult.Revision.init -> void
+Kiln.TamingChoicesResult.StepChallenge.get -> System.Guid
+Kiln.TamingChoicesResult.StepChallenge.init -> void
+Kiln.TamingChoicesResult.TamingChoicesResult(bool Ok, string? Reason, ulong Revision, System.Guid StepChallenge, System.Collections.Generic.IReadOnlyList<Kiln.TamingItemChoice!>! Choices) -> void
+Kiln.TamingCommitContext
+Kiln.TamingCommitContext.<Clone>$() -> Kiln.TamingCommitContext!
+Kiln.TamingCommitContext.Attempt.get -> Kiln.TameAttemptId
+Kiln.TamingCommitContext.Attempt.init -> void
+Kiln.TamingCommitContext.CostFreeRetry.get -> bool
+Kiln.TamingCommitContext.CostFreeRetry.init -> void
+Kiln.TamingCommitContext.Deconstruct(out Kiln.TameAttemptId Attempt, out System.Guid RequestId, out Kiln.PlayerRef Owner, out Kiln.EntityRef Target, out string! Definition, out System.Collections.Generic.IReadOnlyList<Kiln.CostReceipt!>! EarlierCosts, out Kiln.ItemSelection? PendingSelection, out int PendingQuantity, out int PendingWear, out bool CostFreeRetry) -> void
+Kiln.TamingCommitContext.Definition.get -> string!
+Kiln.TamingCommitContext.Definition.init -> void
+Kiln.TamingCommitContext.EarlierCosts.get -> System.Collections.Generic.IReadOnlyList<Kiln.CostReceipt!>!
+Kiln.TamingCommitContext.EarlierCosts.init -> void
+Kiln.TamingCommitContext.Equals(Kiln.TamingCommitContext? other) -> bool
+Kiln.TamingCommitContext.Owner.get -> Kiln.PlayerRef
+Kiln.TamingCommitContext.Owner.init -> void
+Kiln.TamingCommitContext.PendingQuantity.get -> int
+Kiln.TamingCommitContext.PendingQuantity.init -> void
+Kiln.TamingCommitContext.PendingSelection.get -> Kiln.ItemSelection?
+Kiln.TamingCommitContext.PendingSelection.init -> void
+Kiln.TamingCommitContext.PendingWear.get -> int
+Kiln.TamingCommitContext.PendingWear.init -> void
+Kiln.TamingCommitContext.RequestId.get -> System.Guid
+Kiln.TamingCommitContext.RequestId.init -> void
+Kiln.TamingCommitContext.TamingCommitContext(Kiln.TameAttemptId Attempt, System.Guid RequestId, Kiln.PlayerRef Owner, Kiln.EntityRef Target, string! Definition, System.Collections.Generic.IReadOnlyList<Kiln.CostReceipt!>! EarlierCosts, Kiln.ItemSelection? PendingSelection, int PendingQuantity, int PendingWear, bool CostFreeRetry) -> void
+Kiln.TamingCommitContext.Target.get -> Kiln.EntityRef
+Kiln.TamingCommitContext.Target.init -> void
+Kiln.TamingCommitDeferredEvent
+Kiln.TamingCommittingEvent
+Kiln.TamingCommittingEvent.Context.get -> Kiln.TamingCommitContext!
+Kiln.TamingCompletedEvent
+Kiln.TamingDefinition
+Kiln.TamingDefinition.<Clone>$() -> Kiln.TamingDefinition!
+Kiln.TamingDefinition.Creatures.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.TamingDefinition.Creatures.init -> void
+Kiln.TamingDefinition.Equals(Kiln.TamingDefinition? other) -> bool
+Kiln.TamingDefinition.Id.get -> string!
+Kiln.TamingDefinition.Id.init -> void
+Kiln.TamingDefinition.InactivitySeconds.get -> double
+Kiln.TamingDefinition.InactivitySeconds.init -> void
+Kiln.TamingDefinition.MaxAttemptSeconds.get -> double
+Kiln.TamingDefinition.MaxAttemptSeconds.init -> void
+Kiln.TamingDefinition.Pet.get -> string?
+Kiln.TamingDefinition.Pet.init -> void
+Kiln.TamingDefinition.RangeMeters.get -> double
+Kiln.TamingDefinition.RangeMeters.init -> void
+Kiln.TamingDefinition.Refund.get -> Kiln.TamingRefundPolicy
+Kiln.TamingDefinition.Refund.init -> void
+Kiln.TamingDefinition.RemoveTarget.get -> bool
+Kiln.TamingDefinition.RemoveTarget.init -> void
+Kiln.TamingDefinition.RequireThresholdUntilCommit.get -> bool
+Kiln.TamingDefinition.RequireThresholdUntilCommit.init -> void
+Kiln.TamingDefinition.Steps.get -> System.Collections.Generic.IReadOnlyList<Kiln.TamingStep!>!
+Kiln.TamingDefinition.Steps.init -> void
+Kiln.TamingDefinition.SummonPet.get -> bool
+Kiln.TamingDefinition.SummonPet.init -> void
+Kiln.TamingDefinition.TamingDefinition() -> void
+Kiln.TamingExpiredEvent
+Kiln.TamingFailedEvent
+Kiln.TamingItemChoice
+Kiln.TamingItemChoice.<Clone>$() -> Kiln.TamingItemChoice!
+Kiln.TamingItemChoice.Deconstruct(out Kiln.ItemSelection! Selection, out string! Label) -> void
+Kiln.TamingItemChoice.Equals(Kiln.TamingItemChoice? other) -> bool
+Kiln.TamingItemChoice.Label.get -> string!
+Kiln.TamingItemChoice.Label.init -> void
+Kiln.TamingItemChoice.Selection.get -> Kiln.ItemSelection!
+Kiln.TamingItemChoice.Selection.init -> void
+Kiln.TamingItemChoice.TamingItemChoice(Kiln.ItemSelection! Selection, string! Label) -> void
+Kiln.TamingProgress
+Kiln.TamingProgress.<Clone>$() -> Kiln.TamingProgress!
+Kiln.TamingProgress.CancelRequested.get -> bool
+Kiln.TamingProgress.CancelRequested.init -> void
+Kiln.TamingProgress.CharacterSession.get -> ulong
+Kiln.TamingProgress.CharacterSession.init -> void
+Kiln.TamingProgress.CompletedSteps.get -> int
+Kiln.TamingProgress.CompletedSteps.init -> void
+Kiln.TamingProgress.Deconstruct(out Kiln.TameAttemptId Id, out Kiln.PlayerRef Owner, out ulong WorldEpoch, out ulong CharacterSession, out Kiln.EntityRef Target, out string! Definition, out Kiln.TamingState State, out int CompletedSteps, out int TotalSteps, out ulong Revision, out System.Guid StepChallenge, out double StartedAtSimSeconds, out double LastProgressAtSimSeconds, out double ExpiresAtSimSeconds, out System.Collections.Generic.IReadOnlyList<Kiln.CostReceipt!>! Spent) -> void
+Kiln.TamingProgress.Definition.get -> string!
+Kiln.TamingProgress.Definition.init -> void
+Kiln.TamingProgress.Equals(Kiln.TamingProgress? other) -> bool
+Kiln.TamingProgress.ExpiresAtSimSeconds.get -> double
+Kiln.TamingProgress.ExpiresAtSimSeconds.init -> void
+Kiln.TamingProgress.Id.get -> Kiln.TameAttemptId
+Kiln.TamingProgress.Id.init -> void
+Kiln.TamingProgress.LastProgressAtSimSeconds.get -> double
+Kiln.TamingProgress.LastProgressAtSimSeconds.init -> void
+Kiln.TamingProgress.Owner.get -> Kiln.PlayerRef
+Kiln.TamingProgress.Owner.init -> void
+Kiln.TamingProgress.Refunds.get -> System.Collections.Generic.IReadOnlyList<Kiln.TamingRefund!>!
+Kiln.TamingProgress.Refunds.init -> void
+Kiln.TamingProgress.Revision.get -> ulong
+Kiln.TamingProgress.Revision.init -> void
+Kiln.TamingProgress.Spent.get -> System.Collections.Generic.IReadOnlyList<Kiln.CostReceipt!>!
+Kiln.TamingProgress.Spent.init -> void
+Kiln.TamingProgress.StartedAtSimSeconds.get -> double
+Kiln.TamingProgress.StartedAtSimSeconds.init -> void
+Kiln.TamingProgress.State.get -> Kiln.TamingState
+Kiln.TamingProgress.State.init -> void
+Kiln.TamingProgress.StepChallenge.get -> System.Guid
+Kiln.TamingProgress.StepChallenge.init -> void
+Kiln.TamingProgress.TamingProgress(Kiln.TameAttemptId Id, Kiln.PlayerRef Owner, ulong WorldEpoch, ulong CharacterSession, Kiln.EntityRef Target, string! Definition, Kiln.TamingState State, int CompletedSteps, int TotalSteps, ulong Revision, System.Guid StepChallenge, double StartedAtSimSeconds, double LastProgressAtSimSeconds, double ExpiresAtSimSeconds, System.Collections.Generic.IReadOnlyList<Kiln.CostReceipt!>! Spent) -> void
+Kiln.TamingProgress.Target.get -> Kiln.EntityRef
+Kiln.TamingProgress.Target.init -> void
+Kiln.TamingProgress.TotalSteps.get -> int
+Kiln.TamingProgress.TotalSteps.init -> void
+Kiln.TamingProgress.WorldEpoch.get -> ulong
+Kiln.TamingProgress.WorldEpoch.init -> void
+Kiln.TamingRefund
+Kiln.TamingRefund.<Clone>$() -> Kiln.TamingRefund!
+Kiln.TamingRefund.Deconstruct(out Kiln.CostReceipt! Paid, out Kiln.CostReceipt? Refund) -> void
+Kiln.TamingRefund.Equals(Kiln.TamingRefund? other) -> bool
+Kiln.TamingRefund.Paid.get -> Kiln.CostReceipt!
+Kiln.TamingRefund.Paid.init -> void
+Kiln.TamingRefund.Refund.get -> Kiln.CostReceipt?
+Kiln.TamingRefund.Refund.init -> void
+Kiln.TamingRefund.TamingRefund(Kiln.CostReceipt! Paid, Kiln.CostReceipt? Refund) -> void
+Kiln.TamingRefundPolicy
+Kiln.TamingRefundPolicy.Escrow = 2 -> Kiln.TamingRefundPolicy
+Kiln.TamingRefundPolicy.NonRefundable = 0 -> Kiln.TamingRefundPolicy
+Kiln.TamingRefundPolicy.RefundOnFail = 1 -> Kiln.TamingRefundPolicy
+Kiln.TamingResult
+Kiln.TamingResult.<Clone>$() -> Kiln.TamingResult!
+Kiln.TamingResult.Deconstruct(out bool Ok, out string? Reason, out Kiln.TamingProgress? Progress, out Kiln.PetSnapshot? Pet, out System.Guid RequestId, out bool StepApplied, out System.Collections.Generic.IReadOnlyList<Kiln.CostReceipt!>! Receipts) -> void
+Kiln.TamingResult.Equals(Kiln.TamingResult? other) -> bool
+Kiln.TamingResult.Ok.get -> bool
+Kiln.TamingResult.Ok.init -> void
+Kiln.TamingResult.Pet.get -> Kiln.PetSnapshot?
+Kiln.TamingResult.Pet.init -> void
+Kiln.TamingResult.Progress.get -> Kiln.TamingProgress?
+Kiln.TamingResult.Progress.init -> void
+Kiln.TamingResult.Reason.get -> string?
+Kiln.TamingResult.Reason.init -> void
+Kiln.TamingResult.Receipts.get -> System.Collections.Generic.IReadOnlyList<Kiln.CostReceipt!>!
+Kiln.TamingResult.Receipts.init -> void
+Kiln.TamingResult.RequestId.get -> System.Guid
+Kiln.TamingResult.RequestId.init -> void
+Kiln.TamingResult.StepApplied.get -> bool
+Kiln.TamingResult.StepApplied.init -> void
+Kiln.TamingResult.TamingResult(bool Ok, string? Reason, Kiln.TamingProgress? Progress, Kiln.PetSnapshot? Pet, System.Guid RequestId, bool StepApplied, System.Collections.Generic.IReadOnlyList<Kiln.CostReceipt!>! Receipts) -> void
+Kiln.TamingStartedEvent
+Kiln.TamingState
+Kiln.TamingState.Active = 0 -> Kiln.TamingState
+Kiln.TamingState.AwaitingCommit = 2 -> Kiln.TamingState
+Kiln.TamingState.Canceled = 4 -> Kiln.TamingState
+Kiln.TamingState.Committed = 3 -> Kiln.TamingState
+Kiln.TamingState.CostPending = 1 -> Kiln.TamingState
+Kiln.TamingState.Expired = 6 -> Kiln.TamingState
+Kiln.TamingState.Failed = 5 -> Kiln.TamingState
+Kiln.TamingStep
+Kiln.TamingStep.TamingStep(Kiln.TamingStep! original) -> void
+Kiln.TamingStepChangedEvent
+Kiln.TamingToken
+Kiln.TamingToken.<Clone>$() -> Kiln.TamingToken!
+Kiln.TamingToken.Deconstruct(out System.Guid RequestId, out System.Guid StepChallenge, out ulong ExpectedRevision, out int StepIndex) -> void
+Kiln.TamingToken.Equals(Kiln.TamingToken? other) -> bool
+Kiln.TamingToken.ExpectedRevision.get -> ulong
+Kiln.TamingToken.ExpectedRevision.init -> void
+Kiln.TamingToken.RequestId.get -> System.Guid
+Kiln.TamingToken.RequestId.init -> void
+Kiln.TamingToken.StepChallenge.get -> System.Guid
+Kiln.TamingToken.StepChallenge.init -> void
+Kiln.TamingToken.StepIndex.get -> int
+Kiln.TamingToken.StepIndex.init -> void
+Kiln.TamingToken.TamingToken(System.Guid RequestId, System.Guid StepChallenge, ulong ExpectedRevision, int StepIndex) -> void
+Kiln.UseToolStep
+Kiln.UseToolStep.AllowBreak.get -> bool
+Kiln.UseToolStep.AllowBreak.init -> void
+Kiln.UseToolStep.Deconstruct(out Kiln.ItemId Item, out int Wear, out bool AllowBreak) -> void
+Kiln.UseToolStep.Equals(Kiln.UseToolStep? other) -> bool
+Kiln.UseToolStep.Item.get -> Kiln.ItemId
+Kiln.UseToolStep.Item.init -> void
+Kiln.UseToolStep.UseToolStep(Kiln.ItemId Item, int Wear = 1, bool AllowBreak = false) -> void
+Kiln.UseToolStep.Wear.get -> int
+Kiln.UseToolStep.Wear.init -> void
+Kiln.WeakenStep
+Kiln.WeakenStep.Deconstruct(out double MaxHealthFraction) -> void
+Kiln.WeakenStep.Equals(Kiln.WeakenStep? other) -> bool
+Kiln.WeakenStep.MaxHealthFraction.get -> double
+Kiln.WeakenStep.MaxHealthFraction.init -> void
+Kiln.WeakenStep.WeakenStep(double MaxHealthFraction) -> void
+abstract Kiln.TamingStep.<Clone>$() -> Kiln.TamingStep!
+abstract Kiln.TamingStep.Kind.get -> string!
+const Kiln.NativeTaming.BaitCapability = "taming.native_bait" -> string!
+const Kiln.NativeTaming.Capability = "taming.native" -> string!
+const Kiln.Taming.Capability = "taming.steps" -> string!
+override Kiln.FeedStep.<Clone>$() -> Kiln.FeedStep!
+override Kiln.FeedStep.Equals(object? obj) -> bool
+override Kiln.FeedStep.GetHashCode() -> int
+override Kiln.FeedStep.Kind.get -> string!
+override Kiln.FeedStep.ToString() -> string!
+override Kiln.NativeBaitEatenEvent.ToString() -> string!
+override Kiln.NativeStep.<Clone>$() -> Kiln.NativeStep!
+override Kiln.NativeStep.Equals(object? obj) -> bool
+override Kiln.NativeStep.GetHashCode() -> int
+override Kiln.NativeStep.Kind.get -> string!
+override Kiln.NativeStep.ToString() -> string!
+override Kiln.NativeStepResult.Equals(object? obj) -> bool
+override Kiln.NativeStepResult.GetHashCode() -> int
+override Kiln.NativeStepResult.ToString() -> string!
+override Kiln.NativeTamedEvent.ToString() -> string!
+override Kiln.NativeTamingProgressEvent.ToString() -> string!
+override Kiln.NativeTamingState.Equals(object? obj) -> bool
+override Kiln.NativeTamingState.GetHashCode() -> int
+override Kiln.NativeTamingState.ToString() -> string!
+override Kiln.TameAttemptId.GetHashCode() -> int
+override Kiln.TameAttemptId.ToString() -> string!
+override Kiln.TamingAdvanceContext.Equals(object? obj) -> bool
+override Kiln.TamingAdvanceContext.GetHashCode() -> int
+override Kiln.TamingAdvanceContext.ToString() -> string!
+override Kiln.TamingBeginContext.Equals(object? obj) -> bool
+override Kiln.TamingBeginContext.GetHashCode() -> int
+override Kiln.TamingBeginContext.ToString() -> string!
+override Kiln.TamingChangedEvent.ToString() -> string!
+override Kiln.TamingChoicesResult.Equals(object? obj) -> bool
+override Kiln.TamingChoicesResult.GetHashCode() -> int
+override Kiln.TamingChoicesResult.ToString() -> string!
+override Kiln.TamingCommitContext.Equals(object? obj) -> bool
+override Kiln.TamingCommitContext.GetHashCode() -> int
+override Kiln.TamingCommitContext.ToString() -> string!
+override Kiln.TamingDefinition.Equals(object? obj) -> bool
+override Kiln.TamingDefinition.GetHashCode() -> int
+override Kiln.TamingDefinition.ToString() -> string!
+override Kiln.TamingItemChoice.Equals(object? obj) -> bool
+override Kiln.TamingItemChoice.GetHashCode() -> int
+override Kiln.TamingItemChoice.ToString() -> string!
+override Kiln.TamingProgress.Equals(object? obj) -> bool
+override Kiln.TamingProgress.GetHashCode() -> int
+override Kiln.TamingProgress.ToString() -> string!
+override Kiln.TamingRefund.Equals(object? obj) -> bool
+override Kiln.TamingRefund.GetHashCode() -> int
+override Kiln.TamingRefund.ToString() -> string!
+override Kiln.TamingResult.Equals(object? obj) -> bool
+override Kiln.TamingResult.GetHashCode() -> int
+override Kiln.TamingResult.ToString() -> string!
+override Kiln.TamingStep.Equals(object? obj) -> bool
+override Kiln.TamingStep.GetHashCode() -> int
+override Kiln.TamingStep.ToString() -> string!
+override Kiln.TamingToken.Equals(object? obj) -> bool
+override Kiln.TamingToken.GetHashCode() -> int
+override Kiln.TamingToken.ToString() -> string!
+override Kiln.UseToolStep.<Clone>$() -> Kiln.UseToolStep!
+override Kiln.UseToolStep.Equals(object? obj) -> bool
+override Kiln.UseToolStep.GetHashCode() -> int
+override Kiln.UseToolStep.Kind.get -> string!
+override Kiln.UseToolStep.ToString() -> string!
+override Kiln.WeakenStep.<Clone>$() -> Kiln.WeakenStep!
+override Kiln.WeakenStep.Equals(object? obj) -> bool
+override Kiln.WeakenStep.GetHashCode() -> int
+override Kiln.WeakenStep.Kind.get -> string!
+override Kiln.WeakenStep.ToString() -> string!
+override sealed Kiln.FeedStep.Equals(Kiln.TamingStep? other) -> bool
+override sealed Kiln.NativeStep.Equals(Kiln.TamingStep? other) -> bool
+override sealed Kiln.UseToolStep.Equals(Kiln.TamingStep? other) -> bool
+override sealed Kiln.WeakenStep.Equals(Kiln.TamingStep? other) -> bool
+static Kiln.FeedStep.operator !=(Kiln.FeedStep? left, Kiln.FeedStep? right) -> bool
+static Kiln.FeedStep.operator ==(Kiln.FeedStep? left, Kiln.FeedStep? right) -> bool
+static Kiln.NativeStep.operator !=(Kiln.NativeStep? left, Kiln.NativeStep? right) -> bool
+static Kiln.NativeStep.operator ==(Kiln.NativeStep? left, Kiln.NativeStep? right) -> bool
+static Kiln.NativeStepResult.operator !=(Kiln.NativeStepResult? left, Kiln.NativeStepResult? right) -> bool
+static Kiln.NativeStepResult.operator ==(Kiln.NativeStepResult? left, Kiln.NativeStepResult? right) -> bool
+static Kiln.NativeTaming.Available.get -> bool
+[KILNX002]static Kiln.NativeTaming.PetStep(Kiln.EntityId creature) -> Kiln.NativeStepResult!
+[KILNX002]static Kiln.NativeTaming.PlaceBait(Kiln.EntityId creature, Kiln.WorldPosition? at = null, double distance = 2.5) -> System.Threading.Tasks.Task<Kiln.EntityId>!
+static Kiln.NativeTaming.Read(Kiln.EntityId creature) -> Kiln.NativeTamingState?
+static Kiln.NativeTamingState.operator !=(Kiln.NativeTamingState? left, Kiln.NativeTamingState? right) -> bool
+static Kiln.NativeTamingState.operator ==(Kiln.NativeTamingState? left, Kiln.NativeTamingState? right) -> bool
+static Kiln.TameAttemptId.operator !=(Kiln.TameAttemptId left, Kiln.TameAttemptId right) -> bool
+static Kiln.TameAttemptId.operator ==(Kiln.TameAttemptId left, Kiln.TameAttemptId right) -> bool
+static Kiln.Taming.Advance(Kiln.PlayerRef player, Kiln.TameAttemptId attempt, Kiln.TamingToken! token, Kiln.ItemSelection? selection = null) -> System.Threading.Tasks.Task<Kiln.TamingResult!>!
+static Kiln.Taming.Available.get -> bool
+static Kiln.Taming.Begin(Kiln.PlayerRef player, Kiln.EntityRef target, string! definition, System.Guid requestId) -> Kiln.TamingResult!
+static Kiln.Taming.Cancel(Kiln.PlayerRef player, Kiln.TameAttemptId attempt, Kiln.TamingToken! token) -> System.Threading.Tasks.Task<Kiln.TamingResult!>!
+static Kiln.Taming.Choices(Kiln.PlayerRef player, Kiln.TameAttemptId attempt) -> Kiln.TamingChoicesResult!
+static Kiln.Taming.Define(Kiln.TamingDefinition! definition) -> void
+static Kiln.Taming.DefineJson(string! json) -> System.Collections.Generic.IReadOnlyList<Kiln.TamingDefinition!>!
+static Kiln.Taming.Definition(string! id) -> Kiln.TamingDefinition?
+static Kiln.Taming.Definitions.get -> System.Collections.Generic.IReadOnlyList<Kiln.TamingDefinition!>!
+static Kiln.Taming.Inspect(Kiln.TameAttemptId attempt) -> Kiln.TamingProgress?
+static Kiln.Taming.Retry(Kiln.PlayerRef player, Kiln.TameAttemptId attempt, Kiln.TamingToken! token) -> System.Threading.Tasks.Task<Kiln.TamingResult!>!
+static Kiln.TamingAdvanceContext.operator !=(Kiln.TamingAdvanceContext? left, Kiln.TamingAdvanceContext? right) -> bool
+static Kiln.TamingAdvanceContext.operator ==(Kiln.TamingAdvanceContext? left, Kiln.TamingAdvanceContext? right) -> bool
+static Kiln.TamingBeginContext.operator !=(Kiln.TamingBeginContext? left, Kiln.TamingBeginContext? right) -> bool
+static Kiln.TamingBeginContext.operator ==(Kiln.TamingBeginContext? left, Kiln.TamingBeginContext? right) -> bool
+static Kiln.TamingChoicesResult.operator !=(Kiln.TamingChoicesResult? left, Kiln.TamingChoicesResult? right) -> bool
+static Kiln.TamingChoicesResult.operator ==(Kiln.TamingChoicesResult? left, Kiln.TamingChoicesResult? right) -> bool
+static Kiln.TamingCommitContext.operator !=(Kiln.TamingCommitContext? left, Kiln.TamingCommitContext? right) -> bool
+static Kiln.TamingCommitContext.operator ==(Kiln.TamingCommitContext? left, Kiln.TamingCommitContext? right) -> bool
+static Kiln.TamingDefinition.operator !=(Kiln.TamingDefinition? left, Kiln.TamingDefinition? right) -> bool
+static Kiln.TamingDefinition.operator ==(Kiln.TamingDefinition? left, Kiln.TamingDefinition? right) -> bool
+static Kiln.TamingItemChoice.operator !=(Kiln.TamingItemChoice? left, Kiln.TamingItemChoice? right) -> bool
+static Kiln.TamingItemChoice.operator ==(Kiln.TamingItemChoice? left, Kiln.TamingItemChoice? right) -> bool
+static Kiln.TamingProgress.operator !=(Kiln.TamingProgress? left, Kiln.TamingProgress? right) -> bool
+static Kiln.TamingProgress.operator ==(Kiln.TamingProgress? left, Kiln.TamingProgress? right) -> bool
+static Kiln.TamingRefund.operator !=(Kiln.TamingRefund? left, Kiln.TamingRefund? right) -> bool
+static Kiln.TamingRefund.operator ==(Kiln.TamingRefund? left, Kiln.TamingRefund? right) -> bool
+static Kiln.TamingResult.operator !=(Kiln.TamingResult? left, Kiln.TamingResult? right) -> bool
+static Kiln.TamingResult.operator ==(Kiln.TamingResult? left, Kiln.TamingResult? right) -> bool
+static Kiln.TamingStep.operator !=(Kiln.TamingStep? left, Kiln.TamingStep? right) -> bool
+static Kiln.TamingStep.operator ==(Kiln.TamingStep? left, Kiln.TamingStep? right) -> bool
+static Kiln.TamingToken.operator !=(Kiln.TamingToken? left, Kiln.TamingToken? right) -> bool
+static Kiln.TamingToken.operator ==(Kiln.TamingToken? left, Kiln.TamingToken? right) -> bool
+static Kiln.UseToolStep.operator !=(Kiln.UseToolStep? left, Kiln.UseToolStep? right) -> bool
+static Kiln.UseToolStep.operator ==(Kiln.UseToolStep? left, Kiln.UseToolStep? right) -> bool
+static Kiln.WeakenStep.operator !=(Kiln.WeakenStep? left, Kiln.WeakenStep? right) -> bool
+static Kiln.WeakenStep.operator ==(Kiln.WeakenStep? left, Kiln.WeakenStep? right) -> bool
+virtual Kiln.TamingStep.EqualityContract.get -> System.Type!
+virtual Kiln.TamingStep.Equals(Kiln.TamingStep? other) -> bool
+virtual Kiln.TamingStep.PrintMembers(System.Text.StringBuilder! builder) -> bool
+~override Kiln.TameAttemptId.Equals(object obj) -> bool

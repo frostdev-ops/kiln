@@ -1,0 +1,10 @@
+{
+  "id": "taming-review-test",
+  "name": "taming review: lab probe",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "TamingReviewTest.dll",
+  "side": "server",
+  "clients": "none",
+  "description": "PASS/FAIL lines in kiln.log (review of dev.32 TAME), with a LABBOT bot player as the tamer: tamings defined in OnLoad and as blocks, Kiln's steps end to end, the pet summoned after the tame, an escrow refund given back once only, a full roster refused before the last cost, PlaceBait refused."
+}

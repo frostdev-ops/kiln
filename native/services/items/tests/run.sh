@@ -26,6 +26,10 @@ done
 echo "== inventory_kinds_test (host)"
 g++ -std=c++20 -Wall -Wextra -I"$here/../../../core/abi" "$here/inventory_kinds_test.cpp" -o "$KILN_OUT/inventory_kinds_test" &&
   "$KILN_OUT/inventory_kinds_test" || fail=1
+# kiln.item_costs' pure part (costs_logic.h, 0.2.0-dev.32) on the host (no Wine, no game)
+echo "== costs_test (host)"
+g++ -std=c++20 -Wall -Wextra -I"$here/../../../core/abi" "$here/costs_test.cpp" -o "$KILN_OUT/costs_test" &&
+  "$KILN_OUT/costs_test" || fail=1
 # the approved builds of kiln.toolwear against the program catalog (no Wine, no game)
 echo "== wear_catalog_test.py"
 python3 -I "$here/wear_catalog_test.py" || fail=1

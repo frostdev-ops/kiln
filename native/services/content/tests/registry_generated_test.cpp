@@ -107,9 +107,9 @@ int main() {
     for (const auto& [n, r] : s.registries) {
         specs += r.fields.size();
         // the shipped schema versions: items 0.1.1 since 31.x (block and comfort apply now), balance 0.1.1 since dev.32
-        // (altarsPerFlameLevel up to 255), the others 0.1.0; dev.32's skills, stations, buffs and abilities take no raw game paths
-        // (raw: refused), and limits are Kiln's hooks (no raw game path)
-        CHECK(r.version == (n == "items" || n == "balance" ? "0.1.1" : "0.1.0") &&
+        // (altarsPerFlameLevel up to 255), creatures 0.1.1 since dev.32's taming fields, the others 0.1.0; dev.32's skills,
+        // stations, buffs and abilities take no raw game paths (raw: refused), and limits are Kiln's hooks (no raw game path)
+        CHECK(r.version == (n == "items" || n == "balance" || n == "creatures" ? "0.1.1" : "0.1.0") &&
               r.raw == (n != "skills" && n != "stations" && n != "buffs" && n != "abilities" && n != "limits"));
     }
     CHECK(specs == std::size(gen::kFields));  // every generated row, leaves of list elements kept
@@ -324,7 +324,7 @@ int main() {
     meta.order = {{"newstuff", "1.0.0", ""}, {"tuner", "1.0.0", ""}, {"remover", "1.0.0", ""}};
     const json doc = report_json(s, r, meta);
     CHECK(doc["schema"]["registrySchema"] == 1 && doc["schema"]["registries"]["items"] == "0.1.1" && doc["schema"]["registries"].size() == s.registries.size() &&
-          doc["schema"]["registries"]["creatures"] == "0.1.0" && doc["schema"]["registries"]["randomLoot"] == "0.1.0" &&
+          doc["schema"]["registries"]["creatures"] == "0.1.1" && doc["schema"]["registries"]["randomLoot"] == "0.1.0" &&  // creatures: TAME's fields
           doc["schema"]["registries"]["lootRules"] == "0.1.0");
     bool saw_ms = false, saw_xp = false;
     for (const json& f : doc["fields"]) {

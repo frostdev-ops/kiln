@@ -122,6 +122,7 @@ public static unsafe partial class Items
     {
         PlayerStorageRuntime.ReportCapabilities();  // kiln.items.storage is a table of its own: its rows do not follow kiln.items'
         ReportInventoryKinds();                     // so is kiln.items.inventory_kinds (0.2.0-dev.31)
+        ItemCosts.Runtime.ReportCapabilities();     // and kiln.item_costs (0.2.0-dev.32): items.costs.exact, items.costs.wear
         RefreshGiveEquip();
         var t = T;  // Services.Get puts the reason on kiln.items when the table is missing or older
         if (t == null)

@@ -334,6 +334,7 @@
         "ScreenEffects",
         "StationBlocks",
         "SurfaceSample",
+        "TamingSample",
         "TerrainSample",
         "UiBlocks",
         "VfxSample",
@@ -458,6 +459,7 @@
         "Schematics",
         "SkyControl",
         "SurvivorBeds",
+        "TamingSample",
         "TerrainSample",
         "TransformScale",
         "UiBlocks",
@@ -619,6 +621,7 @@
         "HungryCrafter",
         "NpcSample",
         "RuleVukah",
+        "TamingSample",
         "VillagerRoutine"
       ]
     },
@@ -728,6 +731,14 @@
           "members": 4
         },
         {
+          "name": "items.costs.exact",
+          "members": 2
+        },
+        {
+          "name": "items.costs.wear",
+          "members": 1
+        },
+        {
           "name": "items.equip",
           "members": 3
         },
@@ -819,6 +830,7 @@
         "SavedData",
         "Schematics",
         "SlotMarks",
+        "TamingSample",
         "equipment-sets",
         "quests-sample"
       ]
@@ -955,7 +967,8 @@
         }
       ],
       "samples": [
-        "PetsSample"
+        "PetsSample",
+        "TamingSample"
       ]
     },
     {
@@ -1036,6 +1049,7 @@
         "SavedData",
         "SlotMarks",
         "SurvivorBeds",
+        "TamingSample",
         "equipment-sets",
         "quests-sample"
       ]
@@ -1271,6 +1285,7 @@
         "PetsSample",
         "SavedData",
         "Schematics",
+        "TamingSample",
         "UiBlocks"
       ]
     },
@@ -1422,6 +1437,32 @@
       ],
       "samples": [
         "WaterWorks"
+      ]
+    },
+    {
+      "assembly": "Kiln.Taming",
+      "name": "Taming",
+      "summary": "Taming for mods: attempts with exact-cost steps and receipts, replay-safe requests, timeouts and refund policies, tames bound to Kiln.Pets records, and the game's own taming as mechanism; every policy is the mod's",
+      "guides": [
+        "docs/kiln/services/taming.md",
+        "docs/kiln/modding/taming.md"
+      ],
+      "capabilities": [
+        {
+          "name": "taming.native",
+          "members": 3
+        },
+        {
+          "name": "taming.native_bait",
+          "members": 1
+        },
+        {
+          "name": "taming.steps",
+          "members": 6
+        }
+      ],
+      "samples": [
+        "TamingSample"
       ]
     },
     {
@@ -1623,6 +1664,7 @@
         "ShaderSample",
         "SlotMarks",
         "SurvivorBeds",
+        "TamingSample",
         "TerrainSample",
         "TransformScale",
         "VfxSample",

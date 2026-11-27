@@ -1,0 +1,113 @@
+{
+  "format": 1,
+  "side": "client",
+  "comment": "The game's own taming (docs/re/taming.md; dossier 19e 2.1-2.2, ported to dev.32 TAME): the four programs and the component layouts Kiln.Taming's NativeTaming reads. Nothing here is hooked: the programs are located so a build that moves or splits them turns taming.native off; the layout values are this build's reflection (fixed values: revalidate through reflection on any update).",
+  "symbols": {
+    "taming/Wildlife": {
+      "find": [
+        {
+          "pattern": "40 56 48 81 EC 80 03 00 00 48 8B F1 33 D2 48 8D 4C 24 60 E8 ?? ?? ?? ?? 41 B8 18 03 00 00 48 8D 54 24 68 48 8B CE E8 ?? ?? ?? ?? 48 8D 84 24 58 03 00 00"
+        }
+      ]
+    },
+    "taming/FarmTransformer": {
+      "find": [
+        {
+          "pattern": "48 89 7C 24 20 55 48 8D 6C 24 A9 48 81 EC B0 00 00 00 41 B8 80 00 00 00 48 8D 55 D7 48 8B F9 E8 ?? ?? ?? ?? 41 B8 80 00 00 00 48 8D 55 D7"
+        }
+      ]
+    },
+    "taming/EnemyTransformer": {
+      "find": [
+        {
+          "pattern": "48 89 4C 24 08 55 41 56 48 8D 6C 24 F8 48 81 EC 08 01 00 00 41 B8 A8 00 00 00 48 8D 54 24 30 4C 8B F1 E8 ?? ?? ?? ?? 41 B8 A8 00 00 00"
+        }
+      ]
+    },
+    "taming/InteractionTaming": {
+      "find": [
+        {
+          "pattern": "40 56 48 81 EC 80 00 00 00 41 B8 50 00 00 00 48 8D 54 24 30 48 8B F1 E8 ?? ?? ?? ?? 41 B8 50 00 00 00 48 8D 54 24 30 48 8B CE E8 ?? ?? ?? ?? 84 C0 0F 84 ?? ?? ?? ?? 48 89 9C 24 90 00 00 00 48 89 BC 24 98 00 00 00 66 0F 1F 84 00 00 00 00 00 48 8B 44 24 48"
+        }
+      ]
+    }
+  },
+  "constants": {
+    "taming/TamingSetup.size": {
+      "value": 72
+    },
+    "taming/TamingSetup.favoriteFood": {
+      "value": 4
+    },
+    "taming/TamingSetup.necessaryTamingSteps": {
+      "value": 20
+    },
+    "taming/TamingSetup.foodBaitSensorRange": {
+      "value": 24
+    },
+    "taming/Wildlife.size": {
+      "value": 736
+    },
+    "taming/Wildlife.tamingSetup": {
+      "value": 448
+    },
+    "taming/IsTame.size": {
+      "value": 1
+    },
+    "taming/FoodBait.size": {
+      "value": 1
+    },
+    "taming/DynamicWildlife.size": {
+      "value": 176
+    },
+    "taming/DynamicWildlife.state": {
+      "value": 0
+    },
+    "taming/DynamicWildlife.foodBaitEntityId": {
+      "value": 136
+    },
+    "taming/DynamicWildlife.hasFullyAtenFoodBait": {
+      "value": 141
+    },
+    "taming/DynamicWildlife.tamingProgress": {
+      "value": 142
+    },
+    "taming/NetworkWildlife.size": {
+      "value": 24
+    },
+    "taming/NetworkWildlife.tamingProgress": {
+      "value": 16
+    },
+    "taming/NetworkWildlife.isEatingFoodBait": {
+      "value": 17
+    }
+  },
+  "features": {
+    "taming.native": {
+      "symbols": [
+        "taming/EnemyTransformer",
+        "taming/FarmTransformer",
+        "taming/InteractionTaming",
+        "taming/Wildlife"
+      ],
+      "constants": [
+        "taming/DynamicWildlife.foodBaitEntityId",
+        "taming/DynamicWildlife.hasFullyAtenFoodBait",
+        "taming/DynamicWildlife.size",
+        "taming/DynamicWildlife.state",
+        "taming/DynamicWildlife.tamingProgress",
+        "taming/FoodBait.size",
+        "taming/IsTame.size",
+        "taming/NetworkWildlife.isEatingFoodBait",
+        "taming/NetworkWildlife.size",
+        "taming/NetworkWildlife.tamingProgress",
+        "taming/TamingSetup.favoriteFood",
+        "taming/TamingSetup.foodBaitSensorRange",
+        "taming/TamingSetup.necessaryTamingSteps",
+        "taming/TamingSetup.size",
+        "taming/Wildlife.size",
+        "taming/Wildlife.tamingSetup"
+      ]
+    }
+  }
+}

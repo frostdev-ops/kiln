@@ -42,6 +42,10 @@ public sealed class RegistryEditsMod : Mod
             vukah.Resist.Fire = 2.0;  // takes double fire damage
             view.Arsenals["game:enemy_vukah_melee"].Attacks[0].Chance = 0.5;
             view.Perks["game:perk_max_adder_health_t7"].Value = 150;  // a whole-number value: a fraction would be refused
+            // a wild animal's taming (read at once by every animal of the entry): the white dog takes 3 pettings, not 2;
+            // whether it is tameable and its favourite bait are read only
+            var dog = view.Creatures["game:animal_wildlife_dog_05_white_ag2"];
+            if (dog.Tameable) dog.TamingSteps = 3;
         });
         // Since 0.2.0-dev.32: a skill node's cost (game:skill_<node id>; Airborne Architect here) and recipes by their station
         // (a stations id: the id of the item that builds the station). Stations and recipes.station are read-only.

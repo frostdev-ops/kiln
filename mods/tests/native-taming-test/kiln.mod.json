@@ -1,0 +1,9 @@
+{
+  "id": "native-taming-test",
+  "name": "the game's own taming: lab probe",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "NativeTamingTest.dll",
+  "side": "server",
+  "clients": "none"
+}

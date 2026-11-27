@@ -9,9 +9,9 @@
   "verified": true,
   "note": "runtime-verified in labs on this exe, 2026-11-11, Kiln 0.2.0-dev+20261112.68988ae, policy any, standard lab save copied fresh for each group, one group per boot (or per run of boots): the running core resolved sigdb 447/447 symbols (355 defined, 92 captured), 542/542 constants (493 defined, 49 captured) and 146/146 features, each to the same value as the offline resolve (compared per name from sigdb-report.json); base world 24/0, players 30/0, chat+time 50/0, hooks 17/0, content 33/0, newcontent 24/0; api 74/0; settings 70/0; items 95/0 (kiln.items self-test on); combat 203/0 (watch-all); spawn 57/0 over 3 boots; gameplay 48/0; creatures 63/0; assets 17/0; rules 53/0; pacing 21/0; types 32/0 + types-peer 8/0; progression 45/0 (no player); net 168/0 with nettest 95 PASS, 0 FAIL; quests 188/0 over 3 boots; skills 124/0 over 2 boots; characters 53/0 over 3 boots; gamedata 71/0 over 2 boots (reload, restart); saves 54/0 over 8 boots (SIGINT, kill -9 x3, restore, game backup); build 79/0 over 4 boots; placeholder 34/0 over 4 boots (kill -9). Failing, so their names stay static: abilities 70/3, 70/3, 71/2 over three runs (the bow shot is refused by the core's PlaySequence guard every time, the Greet emote ran 73/66/79 steps of the 80 the test wants, the staff cast 38/35 then passed, the PC under heavy load); npcai 25/6 twice (force ready unavailable on four spawned creatures, the peacekeeper's relations not applied). Not run: emf (its probe needs third-party EMF mods). Levels: lab 1093 names in 24 services, static 42 (abilities, npcai, emf). With this record under verified-only: build verified, SimStep hooked, every server service loaded (27; audio, screen, ui and vfx skipped as client-only), 0 error lines.",
   "declared": {
-    "symbols": 777,
-    "constants": 844,
-    "features": 217
+    "symbols": 781,
+    "constants": 860,
+    "features": 218
   },
   "features": {
     "abilities.attributes": true,
@@ -201,6 +201,7 @@
     "stations.output_sources": true,
     "stations.read": true,
     "survivors.assignment.layout": true,
+    "taming.native": true,
     "tick": true,
     "tick.wait_jobs": true,
     "time.read": true,
@@ -684,6 +685,10 @@
     "stations/ResolveRecipeInputs": "0x92d4c0",
     "stations/StationWrite": "0xabf70",
     "survivors/AssignNpcProgram": "0xc4170",
+    "taming/EnemyTransformer": "0x21fa80",
+    "taming/FarmTransformer": "0x21fe70",
+    "taming/InteractionTaming": "0xa8320",
+    "taming/Wildlife": "0x21f880",
     "time/DaytimeSyncIfChanged": "0x96fd70",
     "time/DaytimeUpdate": "0x969a70",
     "time/GameTimeToTod": "0x932370",
@@ -1462,6 +1467,22 @@
     "survivors/npc_saved.home": "0x0",
     "survivors/npc_saved.size": "0x30",
     "survivors/npc_tpl.bed_radius": "0xbc",
+    "taming/DynamicWildlife.foodBaitEntityId": "0x88",
+    "taming/DynamicWildlife.hasFullyAtenFoodBait": "0x8d",
+    "taming/DynamicWildlife.size": "0xb0",
+    "taming/DynamicWildlife.state": "0x0",
+    "taming/DynamicWildlife.tamingProgress": "0x8e",
+    "taming/FoodBait.size": "0x1",
+    "taming/IsTame.size": "0x1",
+    "taming/NetworkWildlife.isEatingFoodBait": "0x11",
+    "taming/NetworkWildlife.size": "0x18",
+    "taming/NetworkWildlife.tamingProgress": "0x10",
+    "taming/TamingSetup.favoriteFood": "0x4",
+    "taming/TamingSetup.foodBaitSensorRange": "0x18",
+    "taming/TamingSetup.necessaryTamingSteps": "0x14",
+    "taming/TamingSetup.size": "0x48",
+    "taming/Wildlife.size": "0x2e0",
+    "taming/Wildlife.tamingSetup": "0x1c0",
     "time/daytime.anchor_ecs": "0x10",
     "time/daytime.anchor_game": "0x18",
     "time/daytime.counter": "0x24",
@@ -4093,6 +4114,38 @@
         "world.read_other": "lab",
         "world.teleport": "lab",
         "world.write": "lab"
+      }
+    },
+    "taming": {
+      "level": "static",
+      "date": "2026-11-26",
+      "evidence": "resolved offline (tools/sigport/build_record.py)",
+      "symbols": {
+        "taming/EnemyTransformer": "static",
+        "taming/FarmTransformer": "static",
+        "taming/InteractionTaming": "static",
+        "taming/Wildlife": "static"
+      },
+      "constants": {
+        "taming/DynamicWildlife.foodBaitEntityId": "static",
+        "taming/DynamicWildlife.hasFullyAtenFoodBait": "static",
+        "taming/DynamicWildlife.size": "static",
+        "taming/DynamicWildlife.state": "static",
+        "taming/DynamicWildlife.tamingProgress": "static",
+        "taming/FoodBait.size": "static",
+        "taming/IsTame.size": "static",
+        "taming/NetworkWildlife.isEatingFoodBait": "static",
+        "taming/NetworkWildlife.size": "static",
+        "taming/NetworkWildlife.tamingProgress": "static",
+        "taming/TamingSetup.favoriteFood": "static",
+        "taming/TamingSetup.foodBaitSensorRange": "static",
+        "taming/TamingSetup.necessaryTamingSteps": "static",
+        "taming/TamingSetup.size": "static",
+        "taming/Wildlife.size": "static",
+        "taming/Wildlife.tamingSetup": "static"
+      },
+      "features": {
+        "taming.native": "static"
       }
     }
   }

@@ -71,6 +71,10 @@
 [KILNX031]Kiln.Registry.CreatureEntry.Scale.get -> double
 [KILNX031]Kiln.Registry.CreatureEntry.Scale.set -> void
 [KILNX031]Kiln.Registry.CreatureEntry.Sight.get -> Kiln.Registry.CreatureSight!
+[KILNX031]Kiln.Registry.CreatureEntry.Tameable.get -> bool
+[KILNX031]Kiln.Registry.CreatureEntry.TamingSteps.get -> int
+[KILNX031]Kiln.Registry.CreatureEntry.TamingSteps.set -> void
+[KILNX031]Kiln.Registry.CreatureEntry.FavoriteBait.get -> Kiln.Registry.RegistryId?
 [KILNX031]Kiln.Registry.CreatureEntry.Speed.get -> Kiln.Registry.CreatureSpeeds!
 [KILNX031]Kiln.Registry.CreatureEntry.Xp.get -> double
 [KILNX031]Kiln.Registry.CreatureEntry.Xp.set -> void

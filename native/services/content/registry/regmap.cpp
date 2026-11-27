@@ -221,6 +221,9 @@ bool load_common(const json& doc, RegistryMap* out, std::vector<std::string>* er
         row.formula = str(j, "formula"), row.config = str(j, "config");
         if (row.conv == "formula" && row.formula.empty()) errs->push_back(q + ": a formula row names its formula"), ok = false;
         if (row.conv == "impactConfig" && row.config.empty()) errs->push_back(q + ": an impactConfig row names its config"), ok = false;
+        // one named bit of a bitmask, a bool (creatures.tameable); read-only until Kiln has a writer of one bit
+        if (row.conv == "flag" && (row.values.size() != 1 || row.paths.size() != 1 || row.backend != Backend::None))
+            errs->push_back(q + ": a flag row is read-only and maps one Kiln name to one bit of its bitmask (\"values\")"), ok = false;
         if (row.conv == "component" && (row.values.size() != row.paths.size() || row.backend != Backend::None))
             errs->push_back(q + ": a component row is read-only and maps one Kiln name to each of its component types (\"values\")"), ok = false;
         if (ok) out->rows[field] = std::move(row);

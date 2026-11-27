@@ -60,17 +60,17 @@ inline constexpr Registry kRegistries[] = {
     {4, "drops", "0.1.0", true, false, "", true, 54, 6, 4096u},
     {5, "balance", "0.1.1", true, false, "", true, 60, 40, 4096u},
     {6, "arsenals", "0.1.0", true, false, "", true, 100, 6, 4096u},
-    {7, "creatures", "0.1.0", true, false, "", true, 106, 37, 4096u},
-    {8, "perks", "0.1.0", true, false, "", true, 143, 25, 4096u},
-    {9, "skills", "0.1.0", true, false, "", false, 168, 5, 4096u},
-    {10, "stations", "0.1.0", true, false, "", false, 173, 2, 4096u},
-    {11, "abilities", "0.1.0", true, false, "", false, 175, 4, 4096u},
-    {12, "buffs", "0.1.0", true, false, "", false, 179, 4, 4096u},
-    {13, "difficulty", "0.1.0", true, false, "", true, 183, 54, 4096u},
-    {14, "world", "0.1.0", true, false, "", true, 237, 14, 4096u},
-    {15, "limits", "0.1.0", true, false, "", false, 251, 2, 4096u},
-    {16, "lootRules", "0.1.0", true, false, "", true, 253, 5, 4096u},
-    {17, "randomLoot", "0.1.0", true, false, "", true, 258, 16, 16384u},
+    {7, "creatures", "0.1.1", true, false, "", true, 106, 40, 4096u},
+    {8, "perks", "0.1.0", true, false, "", true, 146, 25, 4096u},
+    {9, "skills", "0.1.0", true, false, "", false, 171, 5, 4096u},
+    {10, "stations", "0.1.0", true, false, "", false, 176, 2, 4096u},
+    {11, "abilities", "0.1.0", true, false, "", false, 178, 4, 4096u},
+    {12, "buffs", "0.1.0", true, false, "", false, 182, 4, 4096u},
+    {13, "difficulty", "0.1.0", true, false, "", true, 186, 54, 4096u},
+    {14, "world", "0.1.0", true, false, "", true, 240, 14, 4096u},
+    {15, "limits", "0.1.0", true, false, "", false, 254, 2, 4096u},
+    {16, "lootRules", "0.1.0", true, false, "", true, 256, 5, 4096u},
+    {17, "randomLoot", "0.1.0", true, false, "", true, 261, 16, 16384u},
 };
 
 inline constexpr Field kFields[] = {
@@ -217,6 +217,9 @@ inline constexpr Field kFields[] = {
     {0x00070023u, "creatures", "arsenal", Kind::Ref, Kind::Ref, false, false, 0.0, 0.0, 0u, "", "arsenals", "", true, Applies::Now, Ops::None, "", "", true, 0u, "", 0, Side::Both, "serverOnly"},
     {0x00070024u, "creatures", "sight.range", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "m", "", false, 0u, "", 0, Side::Both, "serverOnly"},
     {0x00070025u, "creatures", "sight.engageRange", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "m", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00070026u, "creatures", "tameable", Kind::Bool, Kind::Bool, false, false, 0.0, 0.0, 0u, "", "", "", true, Applies::Now, Ops::None, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00070027u, "creatures", "tamingSteps", Kind::Int, Kind::Int, true, true, 1.0, 255.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00070028u, "creatures", "favoriteBait", Kind::Ref, Kind::Ref, false, false, 0.0, 0.0, 0u, "", "templates", "", true, Applies::Now, Ops::None, "", "", true, 0u, "", 0, Side::Both, "serverOnly"},
     {0x00080001u, "perks", "value", Kind::Float, Kind::Float, true, true, -100000.0, 100000.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "now"},
     {0x00080002u, "perks", "armor.enabled", Kind::Bool, Kind::Bool, false, false, 0.0, 0.0, 0u, "", "", "", false, Applies::Now, Ops::Set, "", "", false, 0u, "", 0, Side::Both, "now"},
     {0x00080003u, "perks", "armor.physical", Kind::Float, Kind::Float, true, true, 0.0, 10.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "now"},
@@ -511,6 +514,9 @@ inline constexpr uint32_t creatures_loot_slots_max = 0x00070022u;
 inline constexpr uint32_t creatures_arsenal = 0x00070023u;
 inline constexpr uint32_t creatures_sight_range = 0x00070024u;
 inline constexpr uint32_t creatures_sight_engageRange = 0x00070025u;
+inline constexpr uint32_t creatures_tameable = 0x00070026u;
+inline constexpr uint32_t creatures_tamingSteps = 0x00070027u;
+inline constexpr uint32_t creatures_favoriteBait = 0x00070028u;
 inline constexpr uint32_t perks_value = 0x00080001u;
 inline constexpr uint32_t perks_armor_enabled = 0x00080002u;
 inline constexpr uint32_t perks_armor_physical = 0x00080003u;

@@ -614,7 +614,8 @@
             "loot.slots.min",
             "loot.slots.max",
             "sight.range",
-            "sight.engageRange"
+            "sight.engageRange",
+            "tamingSteps"
           ]
         },
         "edit": {

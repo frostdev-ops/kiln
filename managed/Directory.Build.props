@@ -46,8 +46,8 @@
          KILNX031  Kiln's registries (Kiln.Registry: the generated entry types and the field catalog) until the registry
                    stage is wired and each registry is marked stable (docs/kiln/modding/registries/README.md)
        In use today: KILNX001 on lab and test members in Kiln.Creatures, Kiln.Items, Kiln.Players, Kiln.Quests,
-       Kiln.Rules, Kiln.Saves, Kiln.Skills and Kiln.Vfx; KILNX002 on Kiln.Client's SteamGuard and Kiln.Network's
-       SteamGuardRelay; KILNX031 on Kiln.Registry's types and Kiln.RegistryApplies. A mod that calls such API has to opt in
+       Kiln.Rules, Kiln.Saves, Kiln.Skills and Kiln.Vfx; KILNX002 on Kiln.Client's SteamGuard, Kiln.Network's
+       SteamGuardRelay and Kiln.Taming's NativeTaming.PlaceBait and NativeTaming.PetStep; KILNX031 on Kiln.Registry's types and Kiln.RegistryApplies. A mod that calls such API has to opt in
        with NoWarn for the id. -->
   <PropertyGroup Condition="Exists('$(MSBuildProjectDirectory)/PublicAPI.Shipped.txt')">
     <KilnPublicApi>true</KilnPublicApi>

@@ -663,6 +663,30 @@ void creatures_arsenals_perks(const std::string& dir) {
     check(base.registries["creatures"].size() == 3 && base.registries["creatures"][0].traits.count("enemy") && base.registries["creatures"][1].traits.count("wildlife"),
           "a creature's kind is its trait (\"@has\": [\"enemy\"])");
 }
+
+// dev.32 TAME review: a wild animal's taming on the creatures registry, from its template's Wildlife: tameable (one bit of
+// its features, a flag row), its steps, its favourite bait (a template by GUID alone); a creature with no Wildlife has none.
+void creatures_taming(const std::string& dir) {
+    Fixture f(dir);
+    auto tmpl = [&](int n, const std::string& name, json comps) {
+        f.view.add("keen::ecs::TemplateResource", g(n), {{"name", name}, {"components", std::move(comps)}});
+    };
+    tmpl(420, "FoodBait_T2_Dog", json::array({{{"$type", "FoodBait"}}}));
+    tmpl(421, "Animal_Wildlife_Dog_05_white_AG2", json::array({{{"$type", "Wildlife"}, {"enabledFeatures", json::array({"Roaming", "Flee", "Tameable", "RunAway"})},
+                                                                 {"tamingSetup", {{"favoriteFood", g(420)}, {"necessaryTamingSteps", 2}}}}}));
+    tmpl(422, "Animal_Wildlife_Deer", json::array({{{"$type", "Wildlife"}, {"enabledFeatures", json::array({"Roaming", "Flee"})},
+                                                     {"tamingSetup", {{"favoriteFood", "none"}, {"necessaryTamingSteps", 0}}}}}));
+    tmpl(423, "Enemy_Vukah_Melee", json::array({{{"$type", "Enemy01BehaviorState"}}}));
+    check(f.val("creatures", "game:animal_wildlife_dog_05_white_ag2", "tameable") == Value::boolean(true), "tameable: the Tameable bit of its features");
+    check(f.val("creatures", "game:animal_wildlife_deer", "tameable") == Value::boolean(false), "a wild animal without the bit is not tameable");
+    check(f.val("creatures", "game:animal_wildlife_dog_05_white_ag2", "tamingSteps") == Value::integer(2), "tamingSteps: its template's steps");
+    check(f.val("creatures", "game:animal_wildlife_dog_05_white_ag2", "favoriteBait") == Value::text("game:foodbait_t2_dog"),
+          "favoriteBait: the bait's template by GUID: " + f.val("creatures", "game:animal_wildlife_dog_05_white_ag2", "favoriteBait").text_of());
+    check(f.val("creatures", "game:animal_wildlife_deer", "favoriteBait").kind == Value::None, "no favourite bait: none");
+    check(f.val("creatures", "game:enemy_vukah_melee", "tameable").kind == Value::None && f.val("creatures", "game:enemy_vukah_melee", "tamingSteps").kind == Value::None &&
+              f.val("creatures", "game:enemy_vukah_melee", "favoriteBait").kind == Value::None,
+          "a creature with no Wildlife has no taming: null");
+}
 }  // namespace
 
 // 31.18's kiln.log held 34,207 "items.manaCost/staminaCost is not read on this build (... of game:<item> ...)" lines at every
@@ -741,8 +765,8 @@ int main(int argc, char** argv) {
         {"byte_array_bounds", byte_array_bounds}, {"single_scalar_structs", single_scalar_structs}, {"entries_and_ids", entries_and_ids}, {"values", values}, {"needs_and_compose", needs_and_compose},
         {"encode_writes", encode_writes},     {"id_table", id_table}, {"live_bytes", live_bytes}, {"live_event_times", live_event_times},
         {"notes_per_field", notes_per_field}, {"notes_count_the_entries_read", notes_count_the_entries_read},
-        {"creatures_arsenals_perks", creatures_arsenals_perks}, {"skills_and_stations_selectors", skills_and_stations_selectors},
-        {"world_rules", world_rules}, {"hooks_registry", hooks_registry}};
+        {"creatures_arsenals_perks", creatures_arsenals_perks}, {"creatures_taming", creatures_taming},
+        {"skills_and_stations_selectors", skills_and_stations_selectors}, {"world_rules", world_rules}, {"hooks_registry", hooks_registry}};
     for (const auto& [name, fn] : groups) {
         try {
             fn(dir);

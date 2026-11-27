@@ -40,7 +40,7 @@ BITMASKS = (K_BM8, K_BM16, K_BM32, K_BM64)
 ARRAYS = (K_STATIC_ARRAY, K_BLOB_ARRAY)
 READ_RANK = {"now": 0, "worldLoad": 1, "restart": 2}
 CONVS = ("int", "float", "bool", "time", "enum", "flags", "ref", "refList", "formula", "impactConfig", "list", "stackCount",
-         "inventoryWalk", "unlock", "optionalEnum", "component", "eventTime", "position")
+         "inventoryWalk", "unlock", "optionalEnum", "component", "eventTime", "position", "flag")
 TEMPLATE = "keen::ecs::TemplateResource"  # a template's paths start at one of its components, by type name (Level.dataStorage[0])
 # One member of a path: a name, then optionally selectors: [<index>] (an array's element) or [<Type>#<k>] (the k-th element of
 # that type in a list of variants; Type qualified, or its last name part when one variant of the list's base has it). The
@@ -369,6 +369,18 @@ def check_conv(db, q, conv, types, row, spec):
             for k in spec.get("values", []):
                 if k not in row.get("values", {}):
                     errs.append(f"{q}: the schema's value {k} has no game name in the row")
+    elif conv == "flag":  # one named bit of a bitmask, a bool (creatures.tameable); read-only until a writer of one bit exists
+        if want(0, lambda r: r["kind"] in BITMASKS, "a bitmask"):
+            en = db.resolve(db.get(rs[0].get("inner")))
+            have = {v["name"] for v in (en or {}).get("values", [])}
+            values = row.get("values", {})
+            if len(values) != 1:
+                errs.append(f"{q}: a flag row maps one Kiln name to one bit of the bitmask (\"values\")")
+            for k, v in values.items():
+                if v not in have:
+                    errs.append(f"{q}: {k} maps to {v}, which the bitmask's enum does not have")
+        if row.get("backend") != "none":
+            errs.append(f"{q}: a flag row is read-only (backend none): Kiln has no writer of one bit yet")
     elif conv == "ref" and len(row.get("paths", [])) == 1:
         want(0, lambda r: r["kind"] in (K_OBJECT_REF, K_GUID), "the reference (an object reference or a GUID)")
     elif conv == "ref":

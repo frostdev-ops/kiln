@@ -100,6 +100,7 @@ qualified (`events[keen::actor::SpawnEntityEvent#0]`; regmap_check and kilnctl c
 and kilnctl adds it to the reflection it dumps). An eventTime row is resolved over the game's own order of the events, never
 over the sorted copy Kiln points the list at after a time change.
 | position | a world position's axis (a signed 64-bit 32.32 fixed-point number, `keen::WorldPosition`'s x, y, z) | metres |
+| flag | a bitmask member; `values` maps one Kiln name to one of its bits, read-only (no writer of one bit yet) | true when that bit is set (creatures.tameable) |
 
 **Hooks registries** (`"kind": "hooks"`, since dev.32: `limits`). Some limits are not data but numbers in the game's code (the
 16 of the altar check, the 50 m of the gifting check). A hooks registry has one entry and no resource; each row's single path

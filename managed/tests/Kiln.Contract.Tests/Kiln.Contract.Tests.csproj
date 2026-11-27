@@ -51,6 +51,7 @@
     <ProjectReference Include="../../services/Kiln.World/Kiln.World.csproj" />
     <ProjectReference Include="../../services/Kiln.Blocks/Kiln.Blocks.csproj" />
     <ProjectReference Include="../../services/Kiln.CreatureControl/Kiln.CreatureControl.csproj" />
+    <ProjectReference Include="../../services/Kiln.Taming/Kiln.Taming.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="../../../mods/tests/material-pools-test/PoolGround.cs" Link="Fixtures/PoolGround.cs" />

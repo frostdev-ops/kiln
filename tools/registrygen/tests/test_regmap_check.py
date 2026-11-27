@@ -220,6 +220,26 @@ class Checks(unittest.TestCase):
         del rows["mask"]["values"]["rare"]
         self.assertTrue(any("things.mask" in e and "rare" in e for e in self.run_check(rows).errors))
 
+    # dev.32 TAME review: a bool that is one bit of a bitmask (creatures.tameable: Wildlife.enabledFeatures' Tameable)
+    def test_a_flag_row_is_one_named_bit_of_a_bitmask_read_only(self):
+        s = copy.deepcopy(SCHEMA)
+        s["fields"]["rare"] = {"type": "bool", "readOnly": True, "applies": "now"}
+        rows = copy.deepcopy(ROWS)
+        rows["rare"] = {"paths": ["mask"], "conv": "flag", "values": {"rare": "Rare"}, "read": "now", "backend": "none"}
+        self.assertEqual(self.run_check(rows, s).errors, [])
+        bad = copy.deepcopy(rows)
+        bad["rare"]["values"] = {"rare": "Mythic"}           # a bit the bitmask's enum does not have
+        self.assertTrue(any("things.rare" in e and "Mythic" in e for e in self.run_check(bad, s).errors))
+        bad = copy.deepcopy(rows)
+        bad["rare"]["values"] = {"rare": "Rare", "common": "Common"}   # one bit, one name
+        self.assertTrue(any("things.rare" in e and "one" in e for e in self.run_check(bad, s).errors))
+        bad = copy.deepcopy(rows)
+        bad["rare"]["paths"] = ["on"]                         # not a bitmask
+        self.assertTrue(any("things.rare" in e and "bitmask" in e for e in self.run_check(bad, s).errors))
+        bad = copy.deepcopy(rows)
+        bad["rare"]["backend"] = "live"                       # no writer of one bit yet
+        self.assertTrue(any("things.rare" in e for e in self.run_check(bad, s).errors))
+
     def test_static_array_holds_max_items(self):
         s = copy.deepcopy(SCHEMA)
         s["fields"]["three"]["maxItems"] = 4

@@ -58,6 +58,7 @@ internal static class ServiceTick
          ("Kiln.Replication", "Kiln.ReplicationStartup"),
          ("Kiln.Mounts", "Kiln.MountsStartup"),
          ("Kiln.Pets", "Kiln.PetsStartup"),
+         ("Kiln.Taming", "Kiln.TamingStartup"),  // dev.32 TAME
          ("Kiln.Terrain", "Kiln.TerrainStartup"),
          ("Kiln.ClientOptions", "Kiln.ClientOptionsStartup"),
          ("Kiln.CreatureControl", "Kiln.CreatureControlStartup"),  // 19d-creature-control (not in the reserved set)

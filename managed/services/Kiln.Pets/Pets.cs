@@ -128,16 +128,20 @@ public static partial class Pets
     /// <param name="owner">The owner, in game.</param>
     /// <param name="pet">The downed pet.</param>
     /// <param name="request">The request (its operation id names the channel for <see cref="CancelRevive"/>).</param>
-    /// <param name="cost">Which stack the cost is taken from; null: any stacks of the item.</param>
+    /// <param name="cost">The owner's slot the cost is taken from, as read (<see cref="ItemSelection.Of"/> of a slot of
+    /// <c>Items.Read</c>): a plain stack of the cost's item holding at least the cost; only that slot pays, and it must
+    /// still hold what was read when the cost runs. Null: the first slot of the owner's inventories holding a plain stack of
+    /// the whole cost (<see cref="ItemCosts.Choose"/>; a cost split over two stacks is not taken).</param>
     /// <returns>Ok with the revived pet and the cost receipts; else <c>RecoveryNotSummoned</c>, <c>OutOfRange</c>,
     /// <c>ReviveNotAllowed</c>, <c>CostUnavailable</c>, <c>ReviveRefused</c> (a mod), <c>CanceledNoCost</c>,
-    /// <c>CanceledCostCommitted</c> or <c>ReviveFailedCostCommitted</c> (with the receipts of what was taken).</returns>
+    /// <c>CanceledCostCommitted</c> or <c>ReviveFailedCostCommitted</c> (with the receipts of what was taken), or
+    /// <c>UncertainCommit</c> (with the receipt of a cost that may have been taken; the pet stays downed).</returns>
     [ServerOnly, TickThreadOnly, RequiresCapability(Caps.Downed)]
     public static Task<PetResult> Revive(PlayerRef owner, PetId pet, PetRequest request, ItemSelection? cost = null) =>
         Request(PetRoster.Kind.Revive, "Pets.Revive", Caps.Downed, owner, pet, request, o =>
         {
             o.Selection = cost;
-            o.Payload += $"|{cost?.Slot}";
+            o.Payload += cost is null ? "|-" : $"|{cost.InventoryOwner.Id.Value}:{cost.InventoryOwner.Serial}|{cost.Slot}|{cost.ExpectedItem}|{cost.ExpectedCount}|{cost.Instance.Entity.Id.Value}:{cost.Instance.Entity.Serial}";
         });
 
     /// <summary>Cancels the revive <paramref name="reviveOperation"/> names (never a later one). Before its cost is taken it

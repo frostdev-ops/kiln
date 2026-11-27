@@ -17,6 +17,8 @@
     <InternalsVisibleTo Include="Kiln.Blocks" />
     <InternalsVisibleTo Include="Kiln.Blocks.Tests" />
     <InternalsVisibleTo Include="Kiln.TestKit" />
+    <!-- dev.32 TAME: Kiln.Taming binds tames to pet records and resolves creature ids as pets do -->
+    <InternalsVisibleTo Include="Kiln.Taming" />
     <!-- the clearance calibration lab (mods/tests/pets-clearance-lab) walks bodies with the real follower and mover -->
     <InternalsVisibleTo Include="PetsClearanceLab" />
   </ItemGroup>

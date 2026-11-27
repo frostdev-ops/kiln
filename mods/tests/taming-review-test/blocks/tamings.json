@@ -1,0 +1,14 @@
+{
+  // TamingBlock (review of dev.32 TAME): a pet block and two tamings as blocks of a data file; the feed item is a game item
+  // by its debug name, resolved once the game's items are readable
+  "format": 1,
+  "pets": {
+    "block-wolf-pet": { "creature": "game:enemy_wildbeast_wolf_earlygame", "name": "Review Wolf" }
+  },
+  "tamings": {
+    "block-wolf": { "creatures": ["game:enemy_wildbeast_wolf_earlygame"], "pet": "block-wolf-pet", "rangeMeters": 8,
+                    "steps": [ { "kind": "weaken", "maxHealthFraction": 1 }, { "kind": "feed", "item": "Food_T1_raw_bad_meat_LeanMeat", "count": 2 } ] },
+    "block-escrow": { "creatures": ["game:enemy_wildbeast_wolf_earlygame"], "rangeMeters": 8, "refund": "escrow",
+                      "steps": [ { "kind": "feed", "item": "Food_T1_raw_bad_meat_LeanMeat" }, { "kind": "feed", "item": "Food_T1_raw_bad_meat_LeanMeat" } ] }
+  }
+}

@@ -28,6 +28,7 @@
 #include "engine.h"
 #include "completed_results.h"
 #include "equip.h"
+#include "costs.h"
 #include "gear.h"
 #include "scale.h"
 #include "gems.h"
@@ -1195,6 +1196,7 @@ void KILN_CALL on_pre(const KilnTickInfo* tick, void*) {
     gems_pre(tick->step);  // gem wave G3: forge actions' layout check, results, held players' actions
     stations_pre(tick->step);  // kiln.stations: unlock checks, results, the watch
     gear_pre(tick->step);      // v8: the gear program's state, timeouts, results
+    costs::pre(tick->step);    // kiln.item_costs (0.2.0-dev.32): what did not run, expiry, the receipts' log lines
     rename_pre(tick->step);    // v9: container renames through the game's rename, results
     scale_pre();               // v8 (P7): the stamps were forgotten (the id counter went down): so are the scales
     xfer_deliver();
@@ -2353,6 +2355,7 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     // Published even when give/take are off on this build: their functions then return KILN_ERR_UNAVAILABLE, and
     // status() says why.
     toolwear::publish(api, owner);  // kiln.toolwear: published also where its hooks are off (status says why)
+    costs::publish(api, owner);     // kiln.item_costs (0.2.0-dev.32): also where costs are off (status says why)
     gems_publish(api, owner);       // kiln.gemcraft: published also where gems.craft is off (status says why)
     stations_publish(api, owner);   // kiln.stations: published also where its features are off (status says why)
     client_stations_publish(api, owner);  // kiln.stations.client: also where it is off (status says why)

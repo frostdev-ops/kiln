@@ -794,6 +794,7 @@ time with them sees almost none pass between steps, and an `await Task.Delay(...
 | kiln.gamedata | unavailable | `kiln.gamedata` | no fake: the service finds no native table, so its own Available is false and its row says offline |
 | kiln.gameplay | unavailable | `kiln.gameplay` | no fake: the service finds no native table, so its own Available is false and its row says offline |
 | kiln.hooks | unavailable | `kiln.hooks` | no fake: the service finds no native table, so its own Available is false and its row says offline |
+| kiln.item_costs | unavailable | `kiln.item_costs` | no fake: the service finds no native table, so its own Available is false and its row says offline |
 | kiln.knowledge | unavailable | `kiln.knowledge` | no fake: the service finds no native table, so its own Available is false and its row says offline |
 | kiln.labbot | unavailable | `kiln.labbot` | no fake: the service finds no native table, so its own Available is false and its row says offline |
 | kiln.log | unavailable | `kiln.log` | no fake: the service finds no native table, so its own Available is false and its row says offline |
