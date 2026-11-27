@@ -553,11 +553,16 @@ fn entries_diff(old: &TypeDb, new: &TypeDb, f: &RegFile, oroot: &Base, nroot: &B
     if let Some((ty, member)) = f.entries.name_from.rsplit_once('.') {
         paths.push((ty.to_string(), ty.to_string(), member.to_string()));
     }
-    // a template registry's entries are the templates holding one of these components: each must still be a component type
-    if f.entries.resource_type == TEMPLATE {
-        paths.extend(f.entries.with_component.iter().map(|c| (ob.clone(), nb.clone(), c.clone())));
-    }
     let (mut changes, mut notes) = (Vec::new(), Vec::new());
+    // a template registry's entries are the templates holding one of these components: each must still be a component type
+    // (its layout may change: the rows that start at it carry or change on their own)
+    if f.entries.resource_type == TEMPLATE {
+        for c in &f.entries.with_component {
+            if let (Ok(_), Err(s)) = (walk(old, ob, c), walk(new, nb, c)) {
+                changes.push(Change::Entries { what: format!("{c}: {}", s.why) });
+            }
+        }
+    }
     for (ot, nt, p) in &paths {
         match (walk(old, ot, p), walk(new, nt, p)) {
             (Ok(os), Ok(ns)) => {
@@ -763,6 +768,10 @@ pub(crate) mod tests {
         };
         let old = db(with_brain(), "a");
         assert_eq!(status(&diff(&m, &old, &db(with_brain(), "b")), "beasts.(entries)"), Status::Same);
+        // an entry component's layout changes (a member added): the entries are the same templates
+        let mut grown = with_brain();
+        replace(&mut grown, st("keen::ecs::Brain", 12, 0xbbbc, &[("state", "demo::u32", 4)]));
+        assert_eq!(status(&diff(&m, &old, &db(grown, "b")), "beasts.(entries)"), Status::Same);
         let gone = db(creature_types(2), "b");  // no Brain component type on the new build
         let d = diff(&m, &old, &gone);
         assert_eq!(status(&d, "beasts.(entries)"), Status::Changed, "{:?}", d.rows["beasts.(entries)"]);
