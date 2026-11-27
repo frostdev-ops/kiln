@@ -5,23 +5,41 @@
   "gameBuild": "1287369",
   "steamBuild": "26430253",
   "verified": true,
-  "proof": "kilnctl regproof (2026-11-26 18:45:42Z): first build (no reflection diff); formulas 10/10; round trip 152/168 fields; ids 0 kept, 24990 added, 0 removed, 0 GUID changes; rows ok 152/168 (16 unproven)",
-  "regmapDigest": "0b93cb3a5434936674548febd4d2bd44f2de2d5c1e74d299b81ab7ba44f8ebb7",
+  "proof": "kilnctl regproof (2026-11-27 10:29:14Z): first build (no reflection diff); formulas 10/10; round trip 259/274 fields; ids 0 kept, 28516 added, 0 removed, 0 GUID changes; rows ok 259/274 (15 unproven)",
+  "regmapDigest": "a602e4e49e340243abad5b071b1f03535bbe790089695bb7bf56f0d5542a2ed9",
   "provenBy": "lab",
   "layouts": {
     "keen::BalancingTable": "0xe9f12710",
+    "keen::BuffType": "0x77585fab",
+    "keen::BuffTypeCollectionResource": "0x0d8b0231",
+    "keen::DefaultLootLabelCollectionResource": "0x8172ce2d",
+    "keen::DefaultLootSettingsResource": "0xaea7808e",
+    "keen::GameSettingsPresetsResource": "0x215742cf",
     "keen::ItemInfo": "0x07009d37",
+    "keen::LootContainerResource": "0xaab836e6",
+    "keen::LootSettingsResource": "0x4d3fb8dc",
     "keen::LootableItemInfo": "0x9b7a0aec",
     "keen::LootableItemsResource": "0xb06a8c8c",
     "keen::Perk": "0xeb00eef2",
     "keen::RecipeInfo": "0xdafbedd2",
     "keen::RecipeRegistryResource": "0xff3f624c",
+    "keen::SceneRandomLootResource": "0x86cf6cd2",
+    "keen::SceneResource": "0x89f3cd52",
+    "keen::SkillTreeNode": "0xddb12eb0",
+    "keen::SkillTreeResource": "0xc457fda0",
+    "keen::WorkshopRegistryResource": "0xc76fb407",
+    "keen::WorkshopResource": "0x3c3b5834",
+    "keen::actor::ActorSequenceResource": "0x60aef8b0",
     "keen::ecs::DefaultInventoryResource": "0xb68d740d",
     "keen::ecs::TemplateResource": "0x05eab0b8",
     "keen::enemy::EnemyArsenalRegistryResource": "0xb23babed",
     "keen::enemy::EnemyArsenalResource": "0x30a5d455"
   },
   "rows": {
+    "abilities.timing.buff": "ok",
+    "abilities.timing.cost": "ok",
+    "abilities.timing.hit": "ok",
+    "abilities.timing.release": "ok",
     "arsenals.attacks": "ok",
     "arsenals.attacks[].chance": "ok",
     "arsenals.attacks[].maxHeight": "ok",
@@ -68,6 +86,10 @@
     "balance.xpCurve.seed": "ok",
     "balance.xpCurve.start": "ok",
     "balance.xpPerLevel": "ok",
+    "buffs.duration": "ok",
+    "buffs.kind": "ok",
+    "buffs.saved": "ok",
+    "buffs.stacking": "ok",
     "creatures.arsenal": "ok",
     "creatures.damage.multiplier": "ok",
     "creatures.damage.perPlayer": "ok",
@@ -105,6 +127,60 @@
     "creatures.speed.sprint": "ok",
     "creatures.speed.walk": "ok",
     "creatures.xp": "ok",
+    "difficulty.bossDamageFactor.max": "ok",
+    "difficulty.bossDamageFactor.min": "ok",
+    "difficulty.bossHealthFactor.max": "ok",
+    "difficulty.bossHealthFactor.min": "ok",
+    "difficulty.dayTimeDuration.max": "ok",
+    "difficulty.dayTimeDuration.min": "ok",
+    "difficulty.enemyDamageFactor.max": "ok",
+    "difficulty.enemyDamageFactor.min": "ok",
+    "difficulty.enemyHealthFactor.max": "ok",
+    "difficulty.enemyHealthFactor.min": "ok",
+    "difficulty.enemyPerceptionRangeFactor.max": "ok",
+    "difficulty.enemyPerceptionRangeFactor.min": "ok",
+    "difficulty.enemyStaminaFactor.max": "ok",
+    "difficulty.enemyStaminaFactor.min": "ok",
+    "difficulty.experienceCombatFactor.max": "ok",
+    "difficulty.experienceCombatFactor.min": "ok",
+    "difficulty.experienceExplorationQuestsFactor.max": "ok",
+    "difficulty.experienceExplorationQuestsFactor.min": "ok",
+    "difficulty.experienceMiningFactor.max": "ok",
+    "difficulty.experienceMiningFactor.min": "ok",
+    "difficulty.factoryProductionSpeedFactor.max": "ok",
+    "difficulty.factoryProductionSpeedFactor.min": "ok",
+    "difficulty.flameLevelFogRemoval.max": "ok",
+    "difficulty.flameLevelFogRemoval.min": "ok",
+    "difficulty.foodBuffDurationFactor.max": "ok",
+    "difficulty.foodBuffDurationFactor.min": "ok",
+    "difficulty.fromHungerToStarving.max": "ok",
+    "difficulty.fromHungerToStarving.min": "ok",
+    "difficulty.miningDamageFactor.max": "ok",
+    "difficulty.miningDamageFactor.min": "ok",
+    "difficulty.nightTimeDuration.max": "ok",
+    "difficulty.nightTimeDuration.min": "ok",
+    "difficulty.perkCostFactor.max": "ok",
+    "difficulty.perkCostFactor.min": "ok",
+    "difficulty.perkUpgradeRecyclingFactor.max": "ok",
+    "difficulty.perkUpgradeRecyclingFactor.min": "ok",
+    "difficulty.plantGrowthSpeedFactor.max": "ok",
+    "difficulty.plantGrowthSpeedFactor.min": "ok",
+    "difficulty.playerBodyHeatFactor.max": "ok",
+    "difficulty.playerBodyHeatFactor.min": "ok",
+    "difficulty.playerDivingTimeFactor.max": "ok",
+    "difficulty.playerDivingTimeFactor.min": "ok",
+    "difficulty.playerHealthFactor.max": "ok",
+    "difficulty.playerHealthFactor.min": "ok",
+    "difficulty.playerManaFactor.max": "ok",
+    "difficulty.playerManaFactor.min": "ok",
+    "difficulty.playerStaminaFactor.max": "ok",
+    "difficulty.playerStaminaFactor.min": "ok",
+    "difficulty.resourceDropStackAmountFactor.max": "ok",
+    "difficulty.resourceDropStackAmountFactor.min": "ok",
+    "difficulty.shroudTimeFactor.max": "ok",
+    "difficulty.shroudTimeFactor.min": "ok",
+    "difficulty.threatBonus.max": "ok",
+    "difficulty.threatBonus.min": "ok",
     "drops.entries": "ok",
     "drops.entries[].chance": "ok",
     "drops.entries[].count.max": "ok",
@@ -149,12 +225,19 @@
     "items.socket": "ok",
     "items.speed": "ok",
     "items.staminaCost": "ok",
+    "limits.giftingRange": "ok",
+    "limits.maxAltars": "ok",
     "loot.fixedRarity": "ok",
     "loot.rarities": "ok",
     "loot.stack.max": "ok",
     "loot.stack.maxScaled": "ok",
     "loot.stack.min": "ok",
     "loot.stack.scalable": "ok",
+    "lootRules.rarityWeights.common": "ok",
+    "lootRules.rarityWeights.epic": "ok",
+    "lootRules.rarityWeights.legendary": "ok",
+    "lootRules.rarityWeights.rare": "ok",
+    "lootRules.rarityWeights.uncommon": "ok",
     "perks.armor.blunt": "ok",
     "perks.armor.cut": "ok",
     "perks.armor.enabled": "ok",
@@ -180,6 +263,22 @@
     "perks.damage.stone": "unproven",
     "perks.damage.wood": "unproven",
     "perks.value": "ok",
+    "randomLoot.level.mode": "ok",
+    "randomLoot.level.value": "ok",
+    "randomLoot.levelOffset.mode": "ok",
+    "randomLoot.levelOffset.value": "ok",
+    "randomLoot.levelOffsetRange.max": "ok",
+    "randomLoot.levelOffsetRange.min": "ok",
+    "randomLoot.rarity.common.mode": "ok",
+    "randomLoot.rarity.common.weight": "ok",
+    "randomLoot.rarity.epic.mode": "ok",
+    "randomLoot.rarity.epic.weight": "ok",
+    "randomLoot.rarity.legendary.mode": "ok",
+    "randomLoot.rarity.legendary.weight": "ok",
+    "randomLoot.rarity.rare.mode": "ok",
+    "randomLoot.rarity.rare.weight": "ok",
+    "randomLoot.rarity.uncommon.mode": "ok",
+    "randomLoot.rarity.uncommon.weight": "ok",
     "recipes.duration": "ok",
     "recipes.inputs": "ok",
     "recipes.inputs[].category": "ok",
@@ -188,12 +287,198 @@
     "recipes.outputs": "ok",
     "recipes.outputs[].count": "ok",
     "recipes.outputs[].item": "ok",
-    "recipes.station": "unproven",
-    "recipes.unlock": "ok"
+    "recipes.station": "ok",
+    "recipes.unlock": "ok",
+    "skills.class": "ok",
+    "skills.cost": "ok",
+    "skills.kind": "ok",
+    "skills.maxLevel": "ok",
+    "skills.unlocks": "ok",
+    "stations.item": "ok",
+    "stations.npc": "ok",
+    "world.noBuildZones": "ok",
+    "world.noBuildZones[].max.x": "ok",
+    "world.noBuildZones[].max.y": "ok",
+    "world.noBuildZones[].max.z": "ok",
+    "world.noBuildZones[].min.x": "ok",
+    "world.noBuildZones[].min.y": "ok",
+    "world.noBuildZones[].min.z": "ok",
+    "world.playableAreas": "ok",
+    "world.playableAreas[].max.x": "ok",
+    "world.playableAreas[].max.y": "ok",
+    "world.playableAreas[].max.z": "ok",
+    "world.playableAreas[].min.x": "ok",
+    "world.playableAreas[].min.y": "ok",
+    "world.playableAreas[].min.z": "ok"
   },
   "aliases": {
     "removals": [],
     "renames": [
+      {
+        "guid": "082e1682-9af3-4eb0-bfee-2b9424385c18",
+        "id": "game:npc_barber_turn_right_big",
+        "registry": "abilities"
+      },
+      {
+        "guid": "094636dc-63aa-413c-860d-780946025219",
+        "id": "game:enemy_scavenger_deepforest_heavy_attack_03_earthcracker",
+        "registry": "abilities"
+      },
+      {
+        "guid": "0a49e392-04ad-4621-b88f-67973c787538",
+        "id": "game:enemy_fogger_soldier_spawn",
+        "registry": "abilities"
+      },
+      {
+        "guid": "0c5044bb-e968-479e-9958-2e3340154727",
+        "id": "game:enemy_skeleton_elite_melee_turn_right_big",
+        "registry": "abilities"
+      },
+      {
+        "guid": "0d19272d-87fa-42b3-b6aa-121109c1cb08",
+        "id": "game:npc_barber_turn_left_big",
+        "registry": "abilities"
+      },
+      {
+        "guid": "113ec263-45a5-4eaa-80c1-061de36de5b0",
+        "id": "game:animal_babycatdeer_turn_right_big",
+        "registry": "abilities"
+      },
+      {
+        "guid": "137c2b92-e0ec-4cb3-b7ab-9c6a158ab465",
+        "id": "game:lizard_melee_spear_turn_right_big",
+        "registry": "abilities"
+      },
+      {
+        "guid": "1537f4cb-9b02-4b47-a8ce-abecaece0304",
+        "id": "game:enemy_skeleton_elite_melee_turn_left_small",
+        "registry": "abilities"
+      },
+      {
+        "guid": "212298ba-33da-47ad-a8a8-808e784c3442",
+        "id": "game:enemy_fogger_soldier_shout",
+        "registry": "abilities"
+      },
+      {
+        "guid": "24336b6e-75e7-4bf0-b0cb-da43b9cd00a8",
+        "id": "game:lizard_melee_spear_turn_left_small",
+        "registry": "abilities"
+      },
+      {
+        "guid": "24c67c5d-9b66-4f4e-ba8d-e77af7cc521a",
+        "id": "game:enemy_fogger_soldier_hitreaction_stun_long",
+        "registry": "abilities"
+      },
+      {
+        "guid": "289af490-99b7-4fbf-8bea-6ef997dec216",
+        "id": "game:npc_barber_turn_right_small",
+        "registry": "abilities"
+      },
+      {
+        "guid": "3213b386-5f18-45bf-97da-6f30be71a309",
+        "id": "game:animal_babycatdeer_turn_left_small",
+        "registry": "abilities"
+      },
+      {
+        "guid": "3d475525-78c1-4a88-9ea7-f7ce3d2dc214",
+        "id": "game:npc_barber_turn_left_small",
+        "registry": "abilities"
+      },
+      {
+        "guid": "3e384c2c-bd18-45c6-8b4e-b71ddc1190f4",
+        "id": "game:enemy_fogger_soldier_spawn_calcified_short",
+        "registry": "abilities"
+      },
+      {
+        "guid": "3f519412-7a8a-468e-abe4-4082e26f4a38",
+        "id": "game:enemy_fogger_soldier_death",
+        "registry": "abilities"
+      },
+      {
+        "guid": "4224c9e2-5e66-4d00-bb3c-8f4319d5d54c",
+        "id": "game:enemy_scavenger_deepforest_heavy_death",
+        "registry": "abilities"
+      },
+      {
+        "guid": "4e08b762-729f-4a3c-ba26-820a928748bf",
+        "id": "game:animal_baby_catdeer_grazing",
+        "registry": "abilities"
+      },
+      {
+        "guid": "510d73c5-3c34-4d10-9714-0cbdb707ab79",
+        "id": "game:animal_baby_catdeer_sadidle",
+        "registry": "abilities"
+      },
+      {
+        "guid": "51395915-d77d-42f4-aa63-12c5967be9dd",
+        "id": "game:enemy_fogger_soldier_spawn_calcified",
+        "registry": "abilities"
+      },
+      {
+        "guid": "51877c57-c5d8-4ae7-93b2-b8aeabd277ed",
+        "id": "game:animal_baby_catdeer_sleep",
+        "registry": "abilities"
+      },
+      {
+        "guid": "5aa459fb-1a1c-4d4f-8b16-7deec27cf2ac",
+        "id": "game:animal_baby_catdeer_inspect",
+        "registry": "abilities"
+      },
+      {
+        "guid": "5b8268d2-0493-4396-bb07-a61cee96f06f",
+        "id": "game:animal_babycatdeer_turn_left_big",
+        "registry": "abilities"
+      },
+      {
+        "guid": "5c40e36d-0459-44b7-9c33-cae9acc6270a",
+        "id": "game:animal_baby_catdeer_shortrest",
+        "registry": "abilities"
+      },
+      {
+        "guid": "782f9828-27a6-447e-a483-d0567a154506",
+        "id": "game:animal_baby_catdeer_being_petted_01",
+        "registry": "abilities"
+      },
+      {
+        "guid": "7de479ea-366a-453e-b6a0-9a0682c6d6d9",
+        "id": "game:lizard_melee_spear_turn_right_small",
+        "registry": "abilities"
+      },
+      {
+        "guid": "7f2b13e6-8cca-476b-a1de-799857bfe4b9",
+        "id": "game:lizard_melee_spear_turn_left_big",
+        "registry": "abilities"
+      },
+      {
+        "guid": "918b89eb-fd8c-4000-89a7-c709ce280671",
+        "id": "game:enemy_skeleton_elite_melee_turn_left_big",
+        "registry": "abilities"
+      },
+      {
+        "guid": "91ca0015-ca0b-4a87-b464-bc31a6c436b8",
+        "id": "game:enemy_scavenger_deepforest_heavy_block",
+        "registry": "abilities"
+      },
+      {
+        "guid": "a207aa78-07eb-4506-a33c-13f7a309d045",
+        "id": "game:enemy_fogger_soldier_hitreaction_stagger",
+        "registry": "abilities"
+      },
+      {
+        "guid": "b68208bd-62f2-41cd-9864-d32f7d62323e",
+        "id": "game:enemy_scavenger_deepforest_heavy_taunt",
+        "registry": "abilities"
+      },
+      {
+        "guid": "d4e16b24-7023-4fa0-b8dd-e54e40f4e6a2",
+        "id": "game:animal_babycatdeer_turn_right_small",
+        "registry": "abilities"
+      },
+      {
+        "guid": "d5ae0790-ee05-4232-b11e-e86458e957b7",
+        "id": "game:enemy_skeleton_elite_melee_turn_right_small",
+        "registry": "abilities"
+      },
       {
         "guid": "63d68bec-b68f-42b8-9a42-dafb9b560f71",
         "id": "game:enemy_skeleton_elite_melee01_dungeon_hound",
@@ -406,6 +691,171 @@
       }
     ],
     "suffixes": [
+      {
+        "guid": "091533a9-51b7-434f-bcad-1331625fa998",
+        "id": "game:npc_barber_turn_right_big~091533a9",
+        "registry": "abilities"
+      },
+      {
+        "guid": "2a8a6d49-e3f8-4967-a8f5-7babf7de8e42",
+        "id": "game:lizard_melee_spear_turn_right_big~2a8a6d49",
+        "registry": "abilities"
+      },
+      {
+        "guid": "2ef5cc3d-79c3-47da-97b0-61907c78f6e2",
+        "id": "game:lizard_melee_spear_turn_left_small~2ef5cc3d",
+        "registry": "abilities"
+      },
+      {
+        "guid": "38560f8d-32f8-4c35-9d95-1efe89c78cb6",
+        "id": "game:enemy_fogger_soldier_hitreaction_stun_long~38560f8d",
+        "registry": "abilities"
+      },
+      {
+        "guid": "3e3ca153-0808-42ca-9c24-940542c280df",
+        "id": "game:enemy_fogger_soldier_spawn~3e3ca153",
+        "registry": "abilities"
+      },
+      {
+        "guid": "473e11a7-a7b3-404a-bf89-26c76bd943f9",
+        "id": "game:animal_babycatdeer_turn_left_small~473e11a7",
+        "registry": "abilities"
+      },
+      {
+        "guid": "4e4850ac-25a8-41ae-bbf6-0d3694c2e413",
+        "id": "game:animal_babycatdeer_turn_right_big~4e4850ac",
+        "registry": "abilities"
+      },
+      {
+        "guid": "55f61d5e-549e-4879-ad22-b37f0e61cf87",
+        "id": "game:animal_baby_catdeer_grazing~55f61d5e",
+        "registry": "abilities"
+      },
+      {
+        "guid": "59fb759b-d019-47f4-9b58-26ae67199981",
+        "id": "game:enemy_scavenger_deepforest_heavy_attack_03_earthcracker~59fb759b",
+        "registry": "abilities"
+      },
+      {
+        "guid": "5d241fdf-e2aa-429f-b182-dea652cf3faa",
+        "id": "game:animal_baby_catdeer_sadidle~5d241fdf",
+        "registry": "abilities"
+      },
+      {
+        "guid": "714b5e25-aba1-4302-847f-76d507a28083",
+        "id": "game:animal_baby_catdeer_shortrest~714b5e25",
+        "registry": "abilities"
+      },
+      {
+        "guid": "74fb168a-24eb-4944-afc2-419a99772da6",
+        "id": "game:enemy_fogger_soldier_spawn_calcified~74fb168a",
+        "registry": "abilities"
+      },
+      {
+        "guid": "76934b2b-edfb-4d5b-a807-7e5ed6f7e653",
+        "id": "game:enemy_skeleton_elite_melee_turn_left_small~76934b2b",
+        "registry": "abilities"
+      },
+      {
+        "guid": "8e777dfc-30ff-402d-97d9-6356808c8ff5",
+        "id": "game:npc_barber_turn_left_big~8e777dfc",
+        "registry": "abilities"
+      },
+      {
+        "guid": "916f9cf8-988d-4570-9eeb-b390d5caab80",
+        "id": "game:npc_barber_turn_right_small~916f9cf8",
+        "registry": "abilities"
+      },
+      {
+        "guid": "aabb2ad7-03d5-48dd-b23c-61f2080a0f3d",
+        "id": "game:animal_baby_catdeer_sleep~aabb2ad7",
+        "registry": "abilities"
+      },
+      {
+        "guid": "ad2aba10-0b9e-443f-b65a-dd26aa713b1a",
+        "id": "game:animal_baby_catdeer_being_petted_01~ad2aba10",
+        "registry": "abilities"
+      },
+      {
+        "guid": "b4fd7f23-d61c-4b42-8af4-3f1c1faa45dc",
+        "id": "game:animal_babycatdeer_turn_left_big~b4fd7f23",
+        "registry": "abilities"
+      },
+      {
+        "guid": "b8fce0e4-494f-4fcf-96e4-76251132d505",
+        "id": "game:enemy_fogger_soldier_spawn_calcified_short~b8fce0e4",
+        "registry": "abilities"
+      },
+      {
+        "guid": "bca5b180-fc97-4b30-8411-32cf8249728b",
+        "id": "game:enemy_fogger_soldier_hitreaction_stagger~bca5b180",
+        "registry": "abilities"
+      },
+      {
+        "guid": "c97787d1-c284-4145-a198-7bb1afaf2302",
+        "id": "game:enemy_skeleton_elite_melee_turn_right_big~c97787d1",
+        "registry": "abilities"
+      },
+      {
+        "guid": "ce2c4e96-4312-4e0d-a535-04e48817ca6b",
+        "id": "game:enemy_scavenger_deepforest_heavy_block~ce2c4e96",
+        "registry": "abilities"
+      },
+      {
+        "guid": "cf32a977-1f80-4c83-befe-9b557d4d7da6",
+        "id": "game:enemy_scavenger_deepforest_heavy_death~cf32a977",
+        "registry": "abilities"
+      },
+      {
+        "guid": "d8b0665d-ac29-4c08-b126-7a208f333d2d",
+        "id": "game:enemy_scavenger_deepforest_heavy_taunt~d8b0665d",
+        "registry": "abilities"
+      },
+      {
+        "guid": "d8dbb60d-8e88-44d4-a9cb-97dc89ca2ff5",
+        "id": "game:animal_babycatdeer_turn_right_small~d8dbb60d",
+        "registry": "abilities"
+      },
+      {
+        "guid": "de815602-d823-4b21-a094-1a0dce69a351",
+        "id": "game:animal_baby_catdeer_inspect~de815602",
+        "registry": "abilities"
+      },
+      {
+        "guid": "e27e4ac9-2eaa-4e80-bae6-14fe856f8cae",
+        "id": "game:npc_barber_turn_left_small~e27e4ac9",
+        "registry": "abilities"
+      },
+      {
+        "guid": "e7e6f6dd-7196-43ee-8670-e8b061e4c0b4",
+        "id": "game:enemy_fogger_soldier_death~e7e6f6dd",
+        "registry": "abilities"
+      },
+      {
+        "guid": "f07dfbbf-b54b-4371-9a8c-0748cb77352b",
+        "id": "game:enemy_skeleton_elite_melee_turn_left_big~f07dfbbf",
+        "registry": "abilities"
+      },
+      {
+        "guid": "f24e25fc-83c4-46cf-8639-0372e3c44f6e",
+        "id": "game:lizard_melee_spear_turn_right_small~f24e25fc",
+        "registry": "abilities"
+      },
+      {
+        "guid": "f51adfa7-ccc1-4e98-a85e-1dbda6477ba9",
+        "id": "game:enemy_skeleton_elite_melee_turn_right_small~f51adfa7",
+        "registry": "abilities"
+      },
+      {
+        "guid": "f73bb0b5-c758-47a6-82dd-a3148fa8e7d6",
+        "id": "game:enemy_fogger_soldier_shout~f73bb0b5",
+        "registry": "abilities"
+      },
+      {
+        "guid": "fc51fdd8-0c8e-4390-a71d-cc2e1f576828",
+        "id": "game:lizard_melee_spear_turn_left_big~fc51fdd8",
+        "registry": "abilities"
+      },
       {
         "guid": "b05ee799-fe97-4206-abd8-3cd0a3d509b1",
         "id": "game:enemy_skeleton_elite_melee01_dungeon_hound~b05ee799",
@@ -638,8 +1088,7 @@
     "perks.damage.poison": "when the game reads a perk's damage bonus is not traced yet",
     "perks.damage.shroud": "when the game reads a perk's damage bonus is not traced yet",
     "perks.damage.stone": "when the game reads a perk's damage bonus is not traced yet",
-    "perks.damage.wood": "when the game reads a perk's damage bonus is not traced yet",
-    "recipes.station": "a recipe's station is a stations id, and Kiln has no stations registry yet, so no recipe's station reads as a Kiln id on any build"
+    "perks.damage.wood": "when the game reads a perk's damage bonus is not traced yet"
   },
   "kinds": {
     "items.manaCost": {
