@@ -103,6 +103,8 @@ internal static class RegistryHints
         ("keen::ItemInfo", "generaterarity", "items.rolled", true),
         ("keen::ItemInfo", "impactvalues", "items.manaCost", false),
         ("keen::ItemInfo", "impactvalues", "items.staminaCost", false),
+        ("keen::ItemInfo", "impactvalues.manacost", "items.manaCost", false),
+        ("keen::ItemInfo", "impactvalues.staminacost", "items.staminaCost", false),
         ("keen::ItemInfo", "itemlevelrange.maxlevel", "items.levels.max", true),
         ("keen::ItemInfo", "itemlevelrange.minlevel", "items.levels.min", true),
         ("keen::ItemInfo", "maxstacksize", "items.maxStack", true),

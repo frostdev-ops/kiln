@@ -101,6 +101,13 @@ class HintsTest(unittest.TestCase):
         # two fields whose own member it is (two configurations of one list): both stay
         self.assertEqual([("items.manaCost", False), ("items.staminaCost", False)], fields("keen::ItemInfo", "impactvalues"))
 
+    def test_a_configuration_is_named_by_its_config(self):
+        # a data pack names one configuration of a list by its name ("impactValues.ManaCost": 30, SpellTweaks): that is the
+        # field whose row names that config, not every field of the list
+        paths = rows(rg.render_hints(rg.load(REPO), REPO), "Paths")
+        self.assertIn(("keen::ItemInfo", "impactvalues.manacost", "items.manaCost", False), paths)
+        self.assertIn(("keen::ItemInfo", "impactvalues.staminacost", "items.staminaCost", False), paths)
+
     def test_a_later_registry_is_picked_up_from_its_schema_and_regmap(self):
         root = tree_with((CREATURES, CREATURES_MAP), (LIMITS, LIMITS_MAP))
         try:

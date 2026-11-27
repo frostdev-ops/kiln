@@ -160,6 +160,19 @@ public class RegistryHintTests
     }
 
     [Fact]
+    public async Task AConfigurationIsTheFieldThatNamesIt()
+    {
+        // SpellTweaks' form: one configuration of the impact list by its name
+        var pack = """{ "items": { "Ammo_T1_Spell_Fire_Ball_lvl10": { "impactValues.ManaCost": 30 }, "Ability_DoubleJump": { "impactValues": { "StaminaCost": 5 } } } }""";
+        var hints = (await Run(Empty, ("/mod/content/spelltweaks.json", pack))).Where(d => d.Id == "KILN124").ToList();
+        Assert.Equal(2, hints.Count);
+        Assert.Contains("items.manaCost", hints[0].GetMessage());
+        Assert.DoesNotContain("staminaCost", hints[0].GetMessage());
+        Assert.Contains("items.staminaCost", hints[1].GetMessage());
+        Assert.All(hints, d => Assert.False(d.Properties.ContainsKey(RegistryHintAnalyzer.FixableKey)));  // a configuration: no fix
+    }
+
+    [Fact]
     public void TheFixMovesAOneToOneValueIntoTheRegistrySection()
     {
         var pack = """

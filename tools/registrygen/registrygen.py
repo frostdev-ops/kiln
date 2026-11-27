@@ -1384,6 +1384,9 @@ def render_hints(model, root):
             exact = len(ps) == 1 and row.get("conv") in HINT_EXACT
             # rank: 0 one to one, 1 the field's own member (its first path), 2 an input its formula only reads
             ranked = [(p, 0 if exact else 1 if k == 0 else 2) for k, p in enumerate(ps)]
+            if row.get("conv") == "impactConfig" and isinstance(row.get("config"), str):
+                # one configuration of the list, as a data pack names it ("impactValues.ManaCost"): that field's own member
+                ranked += [(f"{p}.{row['config']}", 1) for p in ps]
             for p, rank in ranked:
                 paths.append((base, p.lower(), f"{name}.{field}", exact, rank))
                 if entries.get("kind") == "array":
