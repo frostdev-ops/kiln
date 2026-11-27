@@ -167,7 +167,9 @@ out of range, an empty or too long text, no line or more than 32) throw `Argumen
   menu line opens its menu instead of going straight to crafting, so the line is seen. A reply waiting
   (`MenuSay`) wins over it at that open.
 - **Talk pages**: the NPC's own topics stay first and are never removed; every mod's topics follow (this process's own
-  mods first, then the host's), at most 16 in all. A topic's `Reply` shows in the speech box when picked; `OnPick` runs
+  mods first, then the host's), at most 16 in all: a mod whose topics do not all fit gets `Ok` with a note saying how
+  many are left off (they show when there is room). A topic that a mod on both sides set on the host and on a joined
+  client shows once there (the client's own). A topic's `Reply` shows in the speech box when picked; `OnPick` runs
   on the host for the player who picked it, as the mod that set it. The same page again sends nothing. Topic ids are
   per mod (`Remove`, the pick); a page holds them in the order the mods first set theirs.
 - **Texts**: a `string` is the same in every language; a `UiText` per language (exact key, the primary language, `en`,
