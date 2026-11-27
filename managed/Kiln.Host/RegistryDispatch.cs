@@ -338,9 +338,21 @@ internal sealed class RegistryDispatch(ModManager mods) : IDisposable
             var records = _runtime.Where(r => !r.Pending && r.Context.Alive && (r.Points & RegistryEntryPoint.WorldLoad) != 0 &&
                 r.RetryAt <= now && (r.World != world.Token || (bound && r.WorldId is null && world.Id is not null))).ToArray();
             // a re-authored pass of the world before may still run on the worker: it ends before the same mods' new world pass
-            // runs (a world load, so the tick may wait), never beside it; its turn is dropped when it lands (ReauthorStep)
-            if (records.Length > 0 && _reauthor is { Work: { IsCompleted: false } work } running && running.Records.Any(records.Contains))
-                work.Wait(TimeSpan.FromSeconds(10));
+            // runs, never beside it (one re-author at a time: a mod's pass state need not be thread-safe). The tick waits for it a
+            // while (a world load); past that, those mods' new world passes wait on later ticks, however long it takes, while the
+            // world and the other mods' passes go on. Its turn is dropped when it lands (ReauthorStep: another world).
+            if (records.Length > 0 && _reauthor is { Work: { IsCompleted: false } work } running && running.Records.Any(records.Contains) &&
+                !work.Wait(ReferenceEquals(_held, running) ? TimeSpan.Zero : ReauthorWait))
+            {
+                var held = records.Where(running.Records.Contains).ToArray();
+                if (!ReferenceEquals(_held, running))
+                {
+                    _held = running;  // waited once for this job; later ticks only look
+                    mods.Host.Log(LogLevel.Info, $"registry: {string.Join(", ", held.Select(r => r.Context.Info.Id))}: the new world's pass waits for " +
+                        "the re-authored pass of the world before, still on Kiln's worker (never both at once)");
+                }
+                records = records.Where(r => !held.Contains(r)).ToArray();
+            }
             foreach (var record in records)
             {
                 // Adoption reauthors this point with its settings, rather than stacking it on the id-less turn.
@@ -429,6 +441,10 @@ internal sealed class RegistryDispatch(ModManager mods) : IDisposable
     private ReauthorJob? _reauthor;
     /// <summary>Tests: the re-author job's worker, if one runs.</summary>
     internal Task? ReauthorWork => _reauthor?.Work;
+    /// <summary>How long a world load's tick waits for a re-authored pass of the world before still on the worker, before the
+    /// mods it holds wait on later ticks (tests shorten it).</summary>
+    internal TimeSpan ReauthorWait { get; set; } = TimeSpan.FromSeconds(10);
+    private ReauthorJob? _held;  // the job whose worker a world load waited for (once) and that holds its mods' new world passes
     private void ReauthorStep(RegistryWorld world, long now)
     {
         if (_reauthor is { } job)

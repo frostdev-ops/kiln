@@ -331,6 +331,50 @@ public sealed class RegistryReauthorTests : ModsFixture
                              (RegistryPassKind.ReauthoredOffTick, true, false), (RegistryPassKind.ReauthoredOnTick, false, true) }, seen);
         owner.Retire();
     }
+    // dev.32 api-shape (LOOT-2 review's open finding): one re-author at a time holds across a world change too. A re-authored
+    // pass still on the worker when a new world loads keeps that mod's new world pass back until it ends, however long it
+    // takes: the two never run beside each other (a mod's pass state need not be thread-safe), and the old turn lands nothing.
+    [Fact(Timeout = 60_000)]
+    public async Task ANewWorldsPassWaitsForAReauthoredPassStillOnTheWorker()
+    {
+        await Task.Yield();
+        using var rig = new Rig(this);
+        var owner = Owner(rig.Native, "leveler"); var inside = 0; var most = 0; var passes = 0;
+        using var hold = new ManualResetEventSlim(true);
+        using var entered = new ManualResetEventSlim(false);
+        rig.Dispatch.Loaded(new WorldOnlyAuthor(c => {
+            if (c.Phase != RegistryPhase.Alter) return;
+            var now = Interlocked.Increment(ref inside);
+            lock (hold) most = Math.Max(most, now);
+            try
+            {
+                if (Interlocked.Increment(ref passes) == 2) { entered.Set(); hold.Wait(); }
+                Edit(c, 70 + Volatile.Read(ref passes));
+            }
+            finally { Interlocked.Decrement(ref inside); }
+        }), owner, Root, false);
+        rig.Dispatch.FlushLoads(); Assert.Equal(1, passes);
+        hold.Reset();
+        Assert.Null(RegistryRuntime.Reauthor!(owner, RegistryEntryPoint.WorldLoad));
+        rig.Dispatch.FlushLoads();  // the job starts; its pass waits inside the mod's code
+        Assert.True(entered.Wait(10_000), "the re-authored pass runs on the worker");
+        rig.Native.ChangeWorld(2);
+        rig.Dispatch.ReauthorWait = TimeSpan.FromMilliseconds(50);
+        int held;
+        try
+        {
+            rig.Dispatch.FlushLoads();  // the new world: the tick waits a moment, then goes on without this mod's pass
+            rig.Dispatch.FlushLoads();
+            held = Volatile.Read(ref passes);
+        }
+        finally { hold.Set(); }
+        Settle(rig.Dispatch);
+        Assert.Equal(2, held);  // held: the new world's pass did not run beside the worker's
+        Assert.Equal(3, passes); Assert.Equal(1, most);
+        Assert.Equal(0, rig.Native.Installs);  // the old world's turn landed nothing
+        Assert.Equal(73, rig.Native.Value);    // the new world's own pass
+        owner.Retire();
+    }
     // The world ended while the pass ran: its turn is for that world and is not landed.
     [Fact(Timeout = 30_000)]
     public async Task ATurnForAnEndedWorldIsDropped()
