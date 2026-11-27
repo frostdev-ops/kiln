@@ -2705,6 +2705,9 @@
       "title": "모양",
       "fire": "불꽃 애니메이션",
       "fireHint": "플레이 화면의 불꽃 (WebGL). 꺼짐: 단순한 플레이 버튼, 약한 GPU에 부담이 적습니다.",
+      "festive": "연말연시",
+      "festiveHint": "불 위에 겨울 장식 선반과 눈. 1월 7일까지.",
+      "festiveMore": "여러 겨울 전통의 등잔, 초, 등불을 불 위의 장식 선반에 놓고, 아치 밖에는 눈이 내리고, 페이지에는 화환이 걸립니다. 추수감사절 주말 다음 월요일부터 1월 7일까지. 끄면 이번 시즌 남은 기간 동안 평소 모습으로 돌아가며, 다음 시즌에 다시 나타납니다.",
       "noGpu": "GPU 없이 런처 그리기",
       "fireOffSoftware": "런처가 GPU 없이 그리는 동안 꺼짐.",
       "fireOffEnv": "이번 실행에서 꺼짐: KILN_LAUNCHER_NO_WEBGL이 설정되어 있습니다.",
@@ -3592,6 +3595,7 @@
     },
     "appShell": {
       "thanksgiving": "해피 땡스기빙",
+      "festive": "즐거운 연말연시 보내세요",
       "headStart": "{progress} · {step}",
       "pct": "{pct}%",
       "labelTime": "{label} {time}",

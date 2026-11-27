@@ -97,6 +97,32 @@ public sealed class ToolCompilerContentTests : IDisposable
     }
 
     [Fact]
+    public void Each_brush_previews_with_the_cursor_effect_of_the_vanilla_shape_nearest_its_radius()
+    {
+        // kiln#153: the game's cursor preview is the shape item's own equipment.cursorVfx, one effect per vanilla size
+        // (Small 0.5 m, Medium 1.5 m, Big 2.5 m); the impact radius is the brush's own (impactValues.0x5258131e). Every brush
+        // was based on Building_Overgrowth_Shape_Small and kept its small preview whatever its radius.
+        var (_, low, _, brushes) = LowerRemover();
+        var items = low.Json["items"]!.AsArray().Select(x => x!.AsObject()).ToArray();
+        var shapes = new[] { "Building_Overgrowth_Shape_Small", "Building_Overgrowth_Shape_Medium", "Building_Overgrowth_Shape_Big" };
+        for (var i = 0; i < brushes.Length; i++)
+            Assert.Equal("item:" + shapes[i], (string?)items[i + 1]["refs"]!["equipment.cursorVfx"]);
+        Assert.Null(items[0]["refs"]!["equipment.cursorVfx"]); // the root keeps Overgrowth Tool's (it has none)
+    }
+
+    [Theory]
+    [InlineData(0.25, "Building_Overgrowth_Shape_Small")]
+    [InlineData(0.5, "Building_Overgrowth_Shape_Small")]
+    [InlineData(0.99, "Building_Overgrowth_Shape_Small")]
+    [InlineData(1.0, "Building_Overgrowth_Shape_Medium")]
+    [InlineData(1.5, "Building_Overgrowth_Shape_Medium")]
+    [InlineData(1.99, "Building_Overgrowth_Shape_Medium")]
+    [InlineData(2.0, "Building_Overgrowth_Shape_Big")]
+    [InlineData(8.0, "Building_Overgrowth_Shape_Big")]
+    public void The_preview_shape_is_the_vanilla_size_nearest_the_radius_ties_to_the_larger(double radius, string shape)
+        => Assert.Equal(shape, Compiler.BrushPreviewShape(radius));
+
+    [Fact]
     public void A_remove_action_asks_the_game_cursor_for_no_building_material()
     {
         // The game's build cursor checks the selected building material for an action whose item asks for it, and the

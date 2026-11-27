@@ -100,6 +100,14 @@ let webVia: "local" | "ssh" = "local";
 // launcher's check of it goes (kiln_manage::admin::web_panel::public); every open, with its route and where it went
 let webPublic: { url: string; check: "ok" | "unreachable" | "refused" } | null = null;
 const webOpens: { serverId: string; route: string; via: string }[] = [];
+// (0.2.0-dev.31.20) each check of the public address (the server's id), and each server's web panel settings
+// (kiln_manage::admin::web_panel::settings), kept in local storage as the launcher keeps web-panel-settings.json
+const webChecks: string[] = [];
+const WEB_SETTINGS = "kiln.mock.webPanelSettings";
+const webSettings = (): Record<string, { alwaysLocal: boolean }> => {
+  try { return JSON.parse(localStorage.getItem(WEB_SETTINGS) ?? "{}"); } catch { return {}; }
+};
+const webAlwaysLocal = (id: string) => webSettings()[id]?.alwaysLocal === true;
 const asInfo = (p: MockWebPanel, fallback: "unreachable" | "refused" | null = null) => ({ ...p, public: null, fallback });
 const webadminMod = { id: "kiln-webadmin", version: "0.1.0", folder: "kiln-webadmin", enabled: true, source: null, clients: "none", state: "loaded", kind: "kiln" };
 const originOf = (id: string) => {
@@ -119,6 +127,8 @@ export const webPanelMockHooks = {
   setPublic: (url: string | null, check: "ok" | "unreachable" | "refused" = "ok") => { webPublic = url ? { url, check } : null; },
   /** (0.2.0-dev.31.19) Each admin_open_web_panel: its route ("auto", "local") and where the panel opened. */
   opens: () => webOpens.map((o) => ({ ...o })),
+  /** (0.2.0-dev.31.20) Each check of a panel's public address, by server id. */
+  checks: () => [...webChecks],
 };
 
 export const serverMockHandlers: Record<string, (args: Args) => unknown> = {
@@ -128,18 +138,31 @@ export const serverMockHandlers: Record<string, (args: Args) => unknown> = {
     const mod = listeningPanel();
     if (!mod) throw { code: "admin_unavailable", message: "Kilnwarden is not listening. Check that the current mod is loaded." };
     panelOpens.push({ serverId: id, mod, consumer: mod });
+    // (0.2.0-dev.31.20) "Always open the web panel on this computer": auto is local, with no check
+    const checked = route === "auto" && !webAlwaysLocal(id) && webPublic !== null;
+    if (checked) webChecks.push(id);
     // (0.2.0-dev.31.19) the panel's own address when its check passes: the browser goes there, no gateway
-    if (route === "auto" && webPublic?.check === "ok") {
+    if (checked && webPublic?.check === "ok") {
       webOpens.push({ serverId: id, route, via: "hosted" });
       return { serverId: id, origin: webPublic.url.replace(/\/$/, ""), fingerprint: "cd".repeat(32), via: "hosted", isolated: true, idleCloseS: 0, connections: 0, public: webPublic.url, fallback: null };
     }
     const p = webPanels.get(id) ?? { serverId: id, origin: originOf(id), fingerprint: "ab".repeat(32), via: webVia, isolated: true, idleCloseS: 120, connections: 1 };
     webPanels.set(id, p);
     webOpens.push({ serverId: id, route, via: p.via });
-    return asInfo(p, route === "auto" && webPublic ? (webPublic.check as "unreachable" | "refused") : null);
+    return asInfo(p, checked && webPublic ? (webPublic.check as "unreachable" | "refused") : null);
   },
   admin_close_web_panel: (a) => webPanels.delete(String(a.serverId)),
   admin_web_panels: () => [...webPanels.values()].map((p) => asInfo(p)),
+  admin_web_panel_settings: (a) => ({ alwaysLocal: webAlwaysLocal(String(a.serverId)) }),
+  admin_web_panel_settings_set: (a) => {
+    const id = String(a.serverId);
+    const next = { alwaysLocal: (a.settings as { alwaysLocal?: unknown } | undefined)?.alwaysLocal === true };
+    const all = webSettings();
+    if (next.alwaysLocal) all[id] = next;
+    else delete all[id];
+    localStorage.setItem(WEB_SETTINGS, JSON.stringify(all));
+    return next;
+  },
   server_console_open: (a) => ({ subscription: "console-mock", serverId: a.serverId, source: "capture", path: "/home/player/.local/state/kiln/lab.run.log", truncated: false, lines: consoleLines }),
   server_console_close: () => null,
   server_settings_get: () => ({ path: "/home/player/srv/enshrouded/lab/enshrouded_server.json", values: settings, schema, running: false }),

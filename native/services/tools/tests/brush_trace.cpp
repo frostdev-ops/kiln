@@ -53,6 +53,12 @@ void exits() {
     {Frame a;const uint32_t other=7;std::memcpy(Frame::at(a.f.frame+0x118),&other,4);same(a,BrushFrameExit::NotSelected);}
     {Frame a;const uintptr_t none=0;std::memcpy(Frame::at(a.f.frame+0xe0),&none,sizeof none);same(a,BrushFrameExit::NotSelected);}
     {Frame a;a.info=99;same(a,BrushFrameExit::NotResolved);}
+    // kiln#153: after a pick the slot holds the picked brush (its ItemInfo resolved): still the family's frame
+    for(const auto brush:three) {Frame a;std::memcpy(Frame::at(a.f.frame+0x118),&brush,4);a.info=brush;const auto o=run(a);
+        CHECK(o.exit==BrushFrameExit::Patched&&a.count()==3&&a.tags(family_tag)&&a.row(0).item==three[0]);}
+    {Frame a;std::memcpy(Frame::at(a.f.frame+0x118),&three[1],4);same(a,BrushFrameExit::NotResolved);} // ItemInfo still the root's
+    {Frame a;const uint32_t none=0;std::memcpy(Frame::at(a.f.frame+0x118),&none,4);a.info=0;same(a,BrushFrameExit::NotSelected);}
+    {Frame a;std::vector<uint32_t> too_many(65,0xd0000000);for(uint32_t i=0;i<65;++i)too_many[i]+=i;same(a,BrushFrameExit::NoFamily,too_many);}
     {Frame a;const uint64_t one=1;std::memcpy(Frame::at(a.f.output+8),&one,8);same(a,BrushFrameExit::OutputNotFresh);}
     {Frame a;const uint64_t eight=8;std::memcpy(Frame::at(a.f.output+16),&eight,8);same(a,BrushFrameExit::OutputNotFresh);}
     {Frame a;const uintptr_t heap=0x1000;std::memcpy(Frame::at(a.f.output),&heap,sizeof heap);same(a,BrushFrameExit::OutputNotFresh);}

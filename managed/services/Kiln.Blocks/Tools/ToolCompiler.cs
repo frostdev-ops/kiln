@@ -6,6 +6,10 @@ internal static partial class Compiler
 {
     /// <summary>The brush radius as an item rule: the base brush's FloatImpactConfig of id 0x5258131e (BrushRadius).</summary>
     internal const string BrushRadiusRule="impactValues.0x5258131e";
+    /// <summary>The vanilla Overgrowth shape whose cursor preview a brush of this radius shows (kiln#153). The game's preview is
+    /// the shape item's own <c>equipment.cursorVfx</c>, one fixed effect per vanilla size (Small 0.5 m, Medium 1.5 m, Big 2.5 m),
+    /// not drawn from the radius: the nearest of the three, a tie going to the larger. The stroke uses the brush's own radius.</summary>
+    internal static string BrushPreviewShape(double radius)=>radius<1.0?"Building_Overgrowth_Shape_Small":radius<2.0?"Building_Overgrowth_Shape_Medium":"Building_Overgrowth_Shape_Big";
     private static BlockHandle DefineToolPool(BlockContext ctx,Lowered low,string name,ToolMaterialPoolBlock block)
     {
         ctx.Need(ClientsLevel.Mod,null,"a tool pool and its terrain identities must agree in every player's game");
@@ -77,8 +81,9 @@ internal static partial class Compiler
             // starters carry Secondary/Primary sequence entries that an action plan can replace.
             low.Item(root);
             foreach(var brush in brushes) {
+                // Its cursor preview is the nearest vanilla size's effect: the base's own is Small's, whatever the radius (kiln#153).
                 var item=new ItemDefinition {Guid=brush.Guid,Name=brush.GameName,BaseOn="Building_Overgrowth_Shape_Small",DisplayName=brush.Block.Name,Description=brush.Block.Description??"",
-                    Refs=new Dictionary<string,string>(refs) {["equipment.terrainVoxelObject"]=brush.Guid.ToString()}};
+                    Refs=new Dictionary<string,string>(refs) {["equipment.terrainVoxelObject"]=brush.Guid.ToString(),["equipment.cursorVfx"]="item:"+BrushPreviewShape(brush.Block.Radius)}};
                 low.Item(ApplyToolActions(ctx,low,item,actions));
                 // The radius is the brush item's own impact config: Building_Overgrowth_Shape_Small carries FloatImpactConfig
                 // 0x5258131e (0.5), the config the tool programs' BrushRadius reads. It is no item field of that name.

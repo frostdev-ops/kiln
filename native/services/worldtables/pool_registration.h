@@ -104,6 +104,12 @@ public:
         kiln::capacity::reply_refused(&r.reply,KILN_DEFINE_NOT_FOUND,revision);return r;
     }
 };
+// The blocks document a replayed pool is read back from at the next start (worldtables.cpp read_mod): the section it was
+// defined in, which pool_envelope read it from (a tool pool's canonical lists "entries", a building pool's "materials").
+// A ToolMaterialPoolBlock wrapped as buildingMaterialPools was refused there at every start and never registered (kiln#152).
+inline ojson pool_replay_document(const PoolDefinition& definition) {
+    return ojson{{definition.tool?"toolMaterialPools":"buildingMaterialPools",{{definition.block,ojson::parse(definition.definition)}}}};
+}
 inline bool pool_envelope(const ojson& envelope,const std::string& mod,PoolDefinition* out,std::string* why) {
     try {
         if(!envelope.is_object() || envelope.value("format",0)!=1 || envelope.value("mod","")!=mod)throw std::runtime_error("invalid envelope owner/format");

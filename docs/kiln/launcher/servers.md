@@ -128,6 +128,11 @@ local servers). It holds the shared admin session while the server runs.
   (hosted access `https://<name>.kiln.nexus`, Kilnwarden 0.1.4) and the launcher's quick check of it passes, the panel
   opens there; the status says so, with "Open on this computer instead" beside it. When the check fails it opens on this
   computer and the status says why ("didn't answer in time", "isn't ready for the launcher's sign-in").
+  (0.2.0-dev.31.20) Under the buttons, the server's "Always open the web panel on this computer" switch (off by default;
+  kept in the launcher's data folder, `web-panel-settings.json`, for local and remote servers): while it is on, Open web
+  panel opens the panel on this computer and never checks the hosted address. Its one line says why someone would want
+  it: hosted addresses go through frostdev.io's relay (encrypted end to end), and this computer's address only works
+  from this computer.
 - **logs**: the shared LogsFor (kiln.log, the game log, proxy.log, mod logs). **ticks**: the tick stats.
 - **settings**: `enshrouded_server.json`: name, slots, port, chat, preset, every difficulty setting (the game's
   ranges, minutes stored as nanoseconds), user groups (passwords unique, permissions, reserved

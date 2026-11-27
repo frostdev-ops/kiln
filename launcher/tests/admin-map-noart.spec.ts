@@ -98,6 +98,10 @@ test("a host's long words stay inside the map: the banner scrolls and its action
   await page.goto(HARNESS);
   const box = page.locator(".ka-map-area .ka-map-noart");
   await expect(box.locator(".k-banner")).toBeVisible(LOAD);
+  // the web fonts in first (font-display: swap): one that lands after the scroll below rewraps the host's words and
+  // moves the action, which the banner centres beside them, out of the banner's view, as it did on a loaded PC in the
+  // 31.20 review (the action 7 px above the map)
+  await page.evaluate(() => document.fonts.ready);
   const rect = (sel: string) => page.locator(sel).evaluate((e) => { const b = e.getBoundingClientRect(); return { top: Math.round(b.top), bottom: Math.round(b.bottom) }; });
   const area = await rect(".ka-map-area");
   // the box ends inside the map, and what does not fit scrolls inside it (the map clips everything past its edge)

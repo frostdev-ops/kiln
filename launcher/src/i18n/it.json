@@ -2761,6 +2761,9 @@
       "title": "Aspetto",
       "fire": "Fuoco animato",
       "fireHint": "Il fuoco su Gioca (WebGL). Spento: un semplice pulsante Gioca, più leggero per GPU deboli.",
+      "festive": "Periodo delle feste",
+      "festiveHint": "Una mensola invernale sopra il fuoco, con la neve, fino al 7 gennaio.",
+      "festiveMore": "Lampade, candele e lanterne di molte tradizioni invernali su una mensola sopra il fuoco, neve fuori dall'arco e ghirlande sulle pagine, dal lunedì dopo il weekend del Ringraziamento al 7 gennaio. Disattivato: l'aspetto consueto per il resto di questa stagione; torna con la prossima stagione.",
       "noGpu": "Disegna il launcher senza GPU",
       "fireOffSoftware": "Spento mentre il launcher disegna senza GPU.",
       "fireOffEnv": "Spento per questo avvio: KILN_LAUNCHER_NO_WEBGL è impostato.",
@@ -3667,6 +3670,7 @@
     },
     "appShell": {
       "thanksgiving": "Buon Thanksgiving",
+      "festive": "Buone feste",
       "headStart": "{progress} · {step}",
       "pct": "{pct}%",
       "labelTime": "{label} {time}",

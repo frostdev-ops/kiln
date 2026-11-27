@@ -467,6 +467,7 @@
       "failed": "{action} could not be sent: {error}"
     },
     "binding": "ShroudForge mods: open Kiln's ShroudForge page",
+    "joined_world_edit": "A ShroudForge mod tried to change blocks, but in a joined game only the server or host can. Run that mod there.",
     "check": {
       "whole": "{setting} takes a whole number",
       "type": "{setting} takes a {type}, not a {given}",
