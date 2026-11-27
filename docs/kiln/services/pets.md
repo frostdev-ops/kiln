@@ -18,7 +18,7 @@ Author guide: [modding/pets.md](../modding/pets.md). Sample: `mods/samples/PetsS
 | Which creature the body is | `PetDefinition.Creature`: a `creatures` registry id (`game:enemy_wildbeast_wolf`) or a creature block (`<mod>:<name>`) | none (required) |
 | Level and size | `PetLevelPolicy`: fixed, the owner's at grant/tame, the owner's at each summon; scale 0.25..4 | fixed 1, scale 1 |
 | How it follows | `PetMovementPolicy`: Kiln's walk-only routes or the game's guard; follow, run and catch-up distances, stuck time, catch-up on/off | routes, 3 m, run past 10 m, catch up past 60 m or 5 s stuck |
-| Who it may harm, who may harm it | `PetTargetPolicy`: the hostile creature factions; PvP off, or by the mod's rule (`Pets.SetHostile` pairs) | PvP off; Fogger, Vukah, Scavenger, WildBeast, Skeleton, Cyclops, Drak, Ancients |
+| Who it may harm, who may harm it | `PetTargetPolicy`: the hostile creature factions (never Player, AutomatedPlayer, PlayerAlly or FarmAnimal: `Define` refuses them); PvP off, or by the mod's rule (`Pets.SetHostile` pairs) | PvP off; Fogger, Vukah, Scavenger, WildBeast, Skeleton, Cyclops, Drak, Ancients |
 | What a downed pet is | `PetDownedPolicy.Outcome` (recovery anchor, absent, released); per pet in `PetDowningEvent` | a recovery anchor where it fell |
 | Revive: allowed, channel, range, health, cost, what cancels | `PetRevivePolicy`; a refusal per attempt in `PetRevivingEvent` | allowed, 3 s, 3 m, half health, free, movement and damage cancel |
 | How many | `PetCaps`: records per character, live per character, live per world | 32, 1, 16 |
@@ -51,13 +51,14 @@ and committed with the world's other mod data). A random `PetId`, the definition
 Saved: id, definition, life, wish, order (an attack order is saved as follow), level, health share, last maximum,
 anchor, state revision. Never saved: bodies, leases, targets, transitions, the HUD. A record whose definition is not
 defined in this session stays as it is (dormant), never erased. A document of a newer Kiln is kept and never
-overwritten (`RecordsUnreadable`).
+overwritten (`RecordsUnreadable`); a single record that does not read (or names a pet another character holds) is
+written back as it was.
 
 **Revisions.** `StateRevision` rises once per change (not per event); every event of one change carries it.
 `DurableRevision` is the revision the last committed save's bytes hold: Kiln reads it out of exactly what each staging
-serialized, and the final snapshot staging re-reads every live body first, so a pet that took a lethal hit in the step
-of the save is written Downed (and retired at the next step with that same revision), never Ready. A failed save
-acknowledges nothing (`PetRecordCommittedEvent` says when it moves).
+serialized, and the final snapshot staging re-reads every body first, so a pet that took a lethal hit in the step
+of the save, or whose down is still retiring its body, is written Downed (and settles with that same revision), never
+Ready. A failed save acknowledges nothing (`PetRecordCommittedEvent` says when it moves).
 
 ## The life of a pet
 
@@ -111,7 +112,9 @@ for this pet; the down itself cannot be refused. `PetDownedEvent` comes only aft
   channel runs in simulation time (leaving range, the owner leaving or going down always cancel; moving past
   `MaxOwnerDisplacement` and being hurt when the definition says so); at completion everything is checked again, an inert
   preview body is prepared (invulnerable, harmless), the cost is taken exactly once, and only then is the pet Ready and
-  Live. The cost adapter is the minimal form of 19e's exact-cost adapter (the taming lane widens it).
+  Live. A channel cut by a logout or an unload while its debit settles waits for the exact receipt and answers
+  `CanceledCostCommitted` with it. The cost adapter is the minimal form of 19e's exact-cost adapter (the taming lane
+  widens it).
 - **Events:** every change is a `PetChangeEvent` (subscribe to the base for all): Granted, TransitionChanged, Summoned,
   Dismissed, CommandChanged, RecoveryAnchorChanged, BodyRetired, BodyLost, Downed, ReviveStarted, ReviveCanceled,
   Revived, Released, StatsChanged, ProtectionLost. Also `PetDowningEvent` (the outcome), `PetRevivingEvent` (cancelable),
@@ -130,7 +133,8 @@ with a new transition sequence; an order during the ride commits with its lease 
 without its asking is lost control: the body is retired and the pet goes down (never left as a wild creature).
 
 Retiring a body quarantines it first (every lease, a rider's too, loses authority at once, its root is denied), gives a
-rider two steps to get off, then destroys it; the broker retires its rows when it sees the body gone.
+rider two steps to get off, then destroys it; the broker retires its rows when it sees the body gone. Every try of a
+dismiss, release or logout retirement reads the wounds again: a down latched in between is a down.
 
 Following (QueryInput): walk-only routes from kiln.queries (Found, reaching the target, every point a walk; never code 0
 with no points, never partial), at most 4 requests in flight, a new route past 2 m of owner movement or each
@@ -138,8 +142,10 @@ with no points, never partial), at most 4 requests in flight, a new route past 2
 (19d §4.3a, gate C6): the HorizontalSpace/VerticalSpace a route asks for come from an accepted profile per creature and
 scale (`kiln/data/kiln.pets/clearance.json`); without one the pet does not walk routes and only catches up
 (`ClearanceMappingUnverified`). Catch-up puts the body on validated ground next to the owner (ground under its centre and
-4 footprint points, a floor spread of at most 0.5 m, a clear column, no entity origin within 2.5 m), then checks that it
-settled (within 1 m after 0.5 s); one that does not settle stops and waits 10 s before another checked try. Stay holds
+4 footprint points, a floor spread of at most 0.5 m, a clear column, no entity origin within 2.5 m but the owner's and
+the pet's own; the same check places a summoned body, an anchor and a revived body), and only with the broker's
+authority, then checks that it settled (within 1 m after 0.5 s); one that does not settle stops and waits 10 s before
+another checked try. Stay holds
 with zero input. EngineGuard sends the game's own guard event (Kiln.Creatures' keeper is not run beside it). Attack hands
 the body to the game's AI under PetCombat with the target preferred; a target that is gone or dead puts the pet back on
 follow.
@@ -160,6 +166,7 @@ Native, in the pinned broker DLL, POD records, no managed code on a worker:
   (no death, reaction or aggro). Staging, down-pending and protection-lost rows: every hit denied.
 - **Two-phase protection loss:** when decisions.native_guards goes off (or `withdraw`), every row is marked
   ProtectionLost at once and stays guarded; Kiln.Pets retires each body at the next Pre; rows go only with their bodies.
+  No new body is admitted after that, also when none was bound at the moment, nor in a later world of the process.
 - Ceilings: 256 rows, 256 hostile pairs; a full table refuses before anything is made.
 
 Table: `bind`, `activate`, `inspect_body`, `collect_dirty`, `retire_binding`, `death_policy`, `hit_policy`, `involved`,
