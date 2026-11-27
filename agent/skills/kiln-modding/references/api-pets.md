@@ -92,7 +92,7 @@ await Pets.Release(who, pet, PetRequest.New());         // for good: a tombstone
 foreach (var p in Pets.Of(key)) Log.Info($"{p.Label}: {p.Life} {p.Presence} {p.Health}/{p.HealthMax}");
 ```
 
-- **Server, tick thread** (`Pets.Define`, `Definition`, `Definitions` aside, which are fine from anywhere). Every
+- **Server, tick thread** (`Pets.Define` is made in `OnLoad`; `Definition` and `Definitions` read from any thread). Every
   request returns `Task<PetResult>`: `await` it from a handler or command. A handler's own request runs at the next step.
 - **`PetRequest.New()`** makes a fresh operation id. The same id again gives the first answer back for 10 minutes (a retry never
   does it twice); the same id for another request is `RequestConflict`; a nonzero `ExpectedStateRevision` that moved on is

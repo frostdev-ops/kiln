@@ -208,7 +208,7 @@ dev.31+ (pages in the repository's `docs/kiln/`):
 
 | Question | Page |
 |---|---|
-| Registries: stable names for game data, the stage, entry points, conflicts, plans and rollback | `modding/registries/README.md`; one page per registry beside it (`items.md` ... `randomLoot.md`) |
+| Registries: stable names for game data, the stage, entry points, conflicts, plans and rollback | `modding/registries/README.md`; one page per registry beside it, from `modding/registries/items.md` to `modding/registries/randomLoot.md` |
 | Writing a registry from C#, a data pack or a native plugin; the service behind it | `modding/registries/README.md` "C# authoring", `services/registry.md` |
 | Adding a registry to Kiln (maintainers) | `adding-a-registry.md` |
 | Mod values (per-character counters and currencies), map markers, camera leases, replication sidecars | `services/mod-values.md`, `services/markers.md`, `services/camera.md`, `services/replication.md` |
@@ -225,7 +225,7 @@ dev.32+ (pages in the repository's `docs/kiln/`; new surface on the dev.32 beta,
 | NPC dialogue: greeting picks, farewells, the menu's own line, talk pages (`Npcs.Farewells`, `MenuLine`, `MenuSay`, `Topics`) | `modding/npc-dialogue.md`, `services/npc-speech.md` |
 | Gear rules: `gear` and `gearRules`, the registry front-end, `front-ends.off` | `modding/gear-rules.md`, `services/content.md` "Gear rules on the registry" |
 | Terrain overlays, and the baked tiles (tools only; `terrain.baked` off) | `modding/terrain-tiles.md`, `services/terrain.md` |
-| The 12 new registries: creatures, arsenals, perks, skills, stations, buffs, abilities, world, difficulty, limits, lootRules, randomLoot | `modding/registries/README.md`, each `modding/registries/<registry>.md` |
+| The 12 new registries: creatures, arsenals, perks, skills, stations, buffs, abilities, world, difficulty, limits, lootRules, randomLoot | `modding/registries/README.md`, and each registry's page beside it (`modding/registries/creatures.md`, `modding/registries/lootRules.md`, ...) |
 | One read-only view over every registry and resource type (`RegistryViews`) | `modding/registries/views.md` |
 | `Registry.Reauthor`, the edit cap per call, ids of random loot tables | `modding/registries/README.md` "C# authoring", `modding/registries/randomLoot.md` |
 | What survives a game update: the stable, advanced and native tiers; `"native": true` | `modding/tiers.md` |
