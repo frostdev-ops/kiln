@@ -245,6 +245,18 @@ class Checks(unittest.TestCase):
         errs = self.run_check(rows, s, types).errors
         self.assertTrue(any("things.px" in e and "signed 64-bit" in e for e in errs), errs)
 
+    def test_resize_is_for_a_list_row_of_the_boot_back_end(self):
+        # dev.32 review: the native loader (regmap.cpp load_common) refuses "resize" anywhere but on a list row of the boot
+        # back-end, and not as true/false; tools/check.sh must fail the same rows before a build turns them off
+        rows = copy.deepcopy(ROWS)
+        rows["three"]["resize"] = True
+        self.assertEqual(self.run_check(rows).errors, [])
+        for field, value in (("size", True), ("rows", True), ("three", "yes")):
+            bad = copy.deepcopy(ROWS)
+            bad[field]["resize"] = value
+            errs = self.run_check(bad).errors
+            self.assertTrue(any(f"things.{field}" in e and "resize" in e for e in errs), (field, value, errs))
+
     def test_a_hooks_registry_names_kilns_hook_values(self):
         # dev.32 (limits): no resource; each row names one of Kiln's hook values; restart fields through the hook back-end
         s = copy.deepcopy(SCHEMA)

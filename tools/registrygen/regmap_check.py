@@ -415,6 +415,9 @@ def check(root, db):
                 errs.append(f"{q}: a restart field goes through the boot back-end (before the game reads it)")
             elif backend not in ("live", "boot"):
                 errs.append(f"{q}: a writable field needs a back-end (live or boot)")
+            # dev.32: the native loader (regmap.cpp load_common) turns such a row off; fail it here first
+            if "resize" in row and (not isinstance(row["resize"], bool) or (row["resize"] and (conv != "list" or backend != "boot"))):
+                errs.append(f"{q}: resize is true or false, and only for a list row of the boot back-end")
             base = entry_root
             if spec_row.list_path:
                 base = list_element_root(db, entry_root, rows, spec_row.list_path) if entry_root else None
