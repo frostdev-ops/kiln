@@ -1,0 +1,424 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+"""Turns pet clearance lab runs into clearance.json profiles (dossier 19d, gate C6).
+
+  python3 -I tools/pets-clearance/profiles.py <runs.jsonl>... --out clearance.json [--report report.md] [--merge old.json]
+
+Input: the lab mod's evidence (mods/tests/pets-clearance-lab: session, fixture, body, query, walk and native lines).
+For each creature, scale and game build, every route pair (HorizontalSpace/VerticalSpace) is judged on every fixture:
+  refused       kiln.queries gave no walk-only route that reaches the target (the pet would not walk it): safe;
+  pass          the route was accepted, it crosses the measured opening, and Kiln.Pets' follower walked the body past the
+                exit by at least its body length without clipping (its movement collider overlapping a wall or a ceiling),
+                a stall, a push through a wall or off the floor, or a teleport;
+  fail          the route was accepted and the walk was not a pass: the pet would take a route its body cannot walk;
+  inconclusive  the answer is not known (unloaded/unknown query, an accepted route not walked, a route beside or over the
+                opening, a teleported crossing).
+A pair passes the gate when no fixture failed or stayed inconclusive and the wide/high control passed. The chosen pair
+is the passing pair that walks the most fixtures (then the smaller horizontal, then the smaller vertical requirement).
+Every session's evidence counts: one fail anywhere fails the pair. The profile is keyed by the game build the session
+ran on: a game update invalidates it (Kiln.Pets checks the build and the body it was measured on).
+"""
+import argparse
+import datetime
+import json
+import math
+import sys
+from dataclasses import dataclass, field
+
+TOL_WALL = 0.10     # m the movement collider may meet a wall (contact, float noise) before it counts as clipping
+TOL_HEAD = 0.10     # m the same for a ceiling
+TOL_FLOOR = 0.6     # m off the floor that counts as pushed up or down
+TOL_ROUTE = 0.30    # m a route point may stray outside the free space (path nodes sit on cell centres)
+SAMPLE = 0.05       # m between samples of the free space's boundary and along a route
+# answers that are not "no route": the game did not say (load the area, ask again); a refusal stands only on a real answer
+UNKNOWN = {"Pending", "NotLoadedOrUnknown", "TimedOut", "NotCompleted", "QueueFull", "OwnerIdentityUnavailable", "OwnerGone",
+           "Cancelled", "WorldClosed", "OwnerRetired", "Refused", "Truncated", "MalformedResult", "OutOfGrid"}
+STALLS = {"Stuck", "LostAuthority", "NoRoute", "Timeout", "PlaceFailed"}
+
+
+# ---- the body ----
+
+@dataclass
+class Body:
+    walker_radius: float
+    walker_height: float
+    collider_width: float
+    collider_height: float
+    scale: float
+    length: float
+    kiln: dict = field(default_factory=dict)
+
+    @property
+    def radius(self):
+        return self.collider_width * self.scale / 2
+
+    @property
+    def height(self):
+        return self.collider_height * self.scale
+
+    @staticmethod
+    def of(rec):
+        k = rec.get("kilnBody") or {}
+        def num(name):
+            v = k.get(name, rec.get(name))
+            return float(v) if isinstance(v, (int, float)) and math.isfinite(v) else 0.0
+        scale = float(rec.get("scale") or 1)
+        lo, hi = rec.get("boundsMin") or [], rec.get("boundsMax") or []
+        extents = [abs(b - a) for a, b in zip(lo, hi) if isinstance(a, (int, float)) and isinstance(b, (int, float))]
+        horizontal = [extents[i] for i in (0, 2) if i < len(extents)]
+        length = max(horizontal) * scale if horizontal else 0.0
+        length = max(length, num("colliderWidth") * scale, 0.5)
+        kiln = {n: num(n) for n in ("walkerRadius", "walkerHeight", "colliderWidth", "colliderHeight")}
+        return Body(kiln["walkerRadius"], kiln["walkerHeight"], kiln["colliderWidth"], kiln["colliderHeight"], scale, length, kiln)
+
+
+# ---- the fixture's free space ----
+
+class Space:
+    """A fixture's free space in XZ (the union of its rooms and passage boxes) and its boundary, sampled."""
+
+    def __init__(self, f):
+        self.f = f
+        self.floor = float(f["floorY"])
+        self.wall_top = float(f.get("wallTop") or self.floor + 5)
+        self.boxes = [f["startRoom"], *f["passage"], f["exitRoom"]]
+        self.passage = f["passage"]
+        self.z0, self.z1 = f["passageZ"]
+        self.buckets = {}
+        for x0, x1, _, _, z0, z1 in self.boxes:
+            for (ax, az, bx, bz, nx, nz) in ((x0, z0, x1, z0, 0, -1), (x0, z1, x1, z1, 0, 1), (x0, z0, x0, z1, -1, 0), (x1, z0, x1, z1, 1, 0)):
+                n = max(1, int(round(math.hypot(bx - ax, bz - az) / SAMPLE)))
+                for i in range(n + 1):
+                    x, z = ax + (bx - ax) * i / n, az + (bz - az) * i / n
+                    if not self.inside(x + nx * 1e-3, z + nz * 1e-3):
+                        self.buckets.setdefault((math.floor(x), math.floor(z)), []).append((x, z))
+
+    def inside(self, x, z, tol=0.0):
+        return any(b[0] - tol <= x <= b[1] + tol and b[4] - tol <= z <= b[5] + tol for b in self.boxes)
+
+    def clearance(self, x, z):
+        """Metres from (x, z) to the nearest wall (up to 2 m; more is 2); negative when (x, z) is inside a wall."""
+        if not self.inside(x, z, 0.02):
+            return -1.0
+        best = 2.0
+        for i in range(math.floor(x) - 2, math.floor(x) + 3):
+            for j in range(math.floor(z) - 2, math.floor(z) + 3):
+                for (bx, bz) in self.buckets.get((i, j), ()):
+                    best = min(best, math.hypot(bx - x, bz - z))
+        return best
+
+    def headroom(self, x, z):
+        """The headroom over (x, z) when it is under a passage ceiling, else None."""
+        for b in self.passage:
+            if b[0] <= x <= b[1] and b[4] <= z <= b[5] and b[3] < self.wall_top - 1e-6:
+                return b[3] - self.floor
+        return None
+
+    def in_passage(self, x, z, tol=0.0):
+        return any(b[0] - tol <= x <= b[1] + tol and b[4] - tol <= z <= b[5] + tol for b in self.passage)
+
+
+_spaces = {}
+
+
+def space(f):
+    key = id(f)
+    if key not in _spaces:
+        _spaces[key] = Space(f)
+    return _spaces[key]
+
+
+def route_crossing(f, points):
+    """Whether a route goes through the measured opening: every sample of it inside the passage's z range lies in the
+    passage (not beside or over it), on the floor, and it starts before and ends after it. (True, None) or (False, why)."""
+    s = space(f)
+    if len(points) < 2:
+        return False, "the route has fewer than 2 points"
+    if not (points[0][2] < s.z0 and points[-1][2] > s.z1):
+        return False, "the route does not run from before the passage to after it"
+    for a, b in zip(points, points[1:]):
+        d = math.dist(a[:3], b[:3])
+        n = max(1, int(d / 0.1))
+        for i in range(n + 1):
+            x, y, z = (a[k] + (b[k] - a[k]) * i / n for k in range(3))
+            if y > s.floor + 1.0:
+                return False, f"the route runs above the floor (y {y - s.floor:.2f} m at z {z:.2f}): over a wall, not through the opening"
+            if not s.inside(x, z, TOL_ROUTE):
+                return False, f"the route leaves the fixture's free space at ({x:.2f}, {z:.2f})"
+            if s.z0 + 0.05 < z < s.z1 - 0.05 and not s.in_passage(x, z, TOL_ROUTE):
+                return False, f"the route runs outside the passage at ({x:.2f}, {z:.2f})"
+    return True, None
+
+
+def judge_walk(f, w, body):
+    """("pass" | "fail" | "inconclusive", why) for one walk of the real follower."""
+    s = space(f)
+    trace = w.get("trace") or []
+    if w.get("catchUps") or w.get("jumps"):
+        return "inconclusive", f"teleported crossing (catch-ups {w.get('catchUps')}, jumps {w.get('jumps')})"
+    if not trace:
+        return "inconclusive", f"no trace ({w.get('outcome')})"
+    worst_wall, worst_head, worst_floor = 9.0, None, 0.0
+    crossed_at = None
+    need = s.z1 + body.length
+    for t, x, y, z in trace:
+        if x is None or y is None or z is None:
+            continue
+        c = s.clearance(x, z)
+        if c < 0:
+            return "fail", f"pushed into a wall at ({x:.2f}, {z:.2f}) at {t:.1f} s"
+        worst_wall = min(worst_wall, c)
+        h = s.headroom(x, z)
+        if h is not None and (worst_head is None or h < worst_head):
+            worst_head = h
+        worst_floor = max(worst_floor, abs(y - s.floor))
+        if crossed_at is None and z >= need:
+            crossed_at = t
+    if worst_floor > TOL_FLOOR:
+        return "fail", f"pushed off the floor ({worst_floor:.2f} m)"
+    if worst_wall < body.radius - TOL_WALL:
+        return "fail", f"clipped: {worst_wall:.2f} m from a wall with a collider radius of {body.radius:.2f} m"
+    if worst_head is not None and body.height > worst_head + TOL_HEAD:
+        return "fail", f"clipped through the ceiling: {body.height:.2f} m tall under {worst_head:.2f} m of headroom"
+    if crossed_at is None:
+        far = max((p[3] for p in trace if p[3] is not None), default=float("nan"))
+        return "fail", f"{w.get('outcome')}: never {body.length:.2f} m (its length) past the exit (got {far - s.z1:+.2f} m)"
+    return "pass", f"{body.length:.2f} m past the exit at {crossed_at:.1f} s, nearest wall {worst_wall:.2f} m"
+
+
+# ---- the evidence ----
+
+@dataclass
+class Session:
+    game: object
+    fixtures: dict = field(default_factory=dict)
+    bodies: dict = field(default_factory=dict)
+    queries: list = field(default_factory=list)
+    walks: dict = field(default_factory=dict)
+    natives: dict = field(default_factory=dict)
+    refused: dict = field(default_factory=dict)
+
+
+def pair_of(r):
+    return (num(r["horizontalSpace"]), num(r["verticalSpace"]))
+
+
+def num(v):
+    v = float(v)
+    return int(v) if v == int(v) else v
+
+
+def load_records(records):
+    """Records (dicts) in file order -> sessions; a "session" line starts a new one."""
+    sessions = []
+    cur = None
+    for r in records:
+        k = r.get("kind")
+        if k == "session" or cur is None:
+            cur = Session(game=r.get("game") if k == "session" else None)
+            sessions.append(cur)
+            if k == "session":
+                continue
+        key = (r.get("creature"), float(r.get("scale") or 1))
+        if k == "fixture":
+            cur.fixtures[r["name"]] = r
+        elif k == "body":
+            cur.bodies[key] = r
+        elif k == "creature" and r.get("refused"):
+            cur.refused[key] = r["refused"]
+        elif k == "query" and "horizontalSpace" in r:
+            cur.queries.append(r)
+        elif k == "walk":
+            cur.walks.setdefault((*key, r["fixture"], pair_of(r)), []).append(r)
+        elif k == "native":
+            cur.natives.setdefault((*key, r.get("fixture")), []).append(r)
+    return sessions
+
+
+def read(paths):
+    records = []
+    for p in paths:
+        with open(p) as fh:
+            for line in fh:
+                line = line.strip()
+                if line:
+                    records.append(json.loads(line))
+    return records
+
+
+def merge_verdicts(vs):
+    kinds = {v for v, _ in vs}
+    for k in ("fail", "inconclusive", "pass"):
+        if k in kinds:
+            return k, "; ".join(w for v, w in vs if v == k and w)
+    return "refused", "; ".join(w for _, w in vs if w)
+
+
+def decide(sessions):
+    """{(creature, scale, game): {"body", "pairs": {(h, v): {...}}, "chosen", "why", "native", "fixtures"}}."""
+    found = {}
+    for s in sessions:
+        for (creature, scale), b in s.bodies.items():
+            key = (creature, scale, s.game)
+            d = found.setdefault(key, {"body": Body.of(b), "verdicts": {}, "native": {}, "fixtures": {}, "control": set(), "sessions": 0})
+            d["sessions"] += 1
+            for name, f in s.fixtures.items():
+                d["fixtures"][name] = f
+                if f.get("fixtureKind") == "control":
+                    d["control"].add(name)
+            for q in s.queries:
+                if (q.get("creature"), float(q.get("scale") or 1)) != (creature, scale) or q["fixture"] not in s.fixtures:
+                    continue
+                f = s.fixtures[q["fixture"]]
+                pair = pair_of(q)
+                if q.get("accepted"):
+                    ok, why = route_crossing(f, q.get("points") or [])
+                    if not ok:
+                        v = ("inconclusive", f"accepted, but {why}")
+                    else:
+                        ws = s.walks.get((creature, scale, q["fixture"], pair))
+                        if not ws:
+                            v = ("inconclusive", "accepted, not walked")
+                        else:
+                            v = merge_verdicts([judge_walk(f, w, d["body"]) for w in ws])
+                elif q.get("status") in UNKNOWN or q.get("error"):
+                    v = ("inconclusive", f"not known: {q.get('status') or q.get('error')}")
+                else:
+                    v = ("refused", q.get("refusal") or q.get("status"))
+                d["verdicts"].setdefault((q["fixture"], pair), []).append(v)
+            for (c, sc, fx), ns in s.natives.items():
+                if (c, sc) == (creature, scale) and fx in s.fixtures:
+                    n = ns[-1]
+                    f = s.fixtures[fx]
+                    far = max((p[3] for p in n.get("trace") or [] if p[3] is not None), default=None)
+                    d["native"][fx] = {"outcome": n.get("outcome"), "past": None if far is None else round(far - f["passageZ"][1], 2),
+                                       "walker": (n.get("walker") or [[None, None]])[-1][1]}
+    result = {}
+    for key, d in found.items():
+        cells = {k: merge_verdicts(vs) for k, vs in d["verdicts"].items()}
+        pairs = {}
+        for pair in sorted({p for _, p in cells}):
+            row = {name: cells[(name, pair)] for name, p in cells if p == pair}
+            failed = sorted(n for n, (v, _) in row.items() if v == "fail")
+            unknown = sorted(n for n, (v, _) in row.items() if v == "inconclusive")
+            passed = sorted(n for n, (v, _) in row.items() if v == "pass")
+            refused = sorted(n for n, (v, _) in row.items() if v == "refused")
+            control_ok = bool(d["control"]) and all(row.get(c, ("missing", ""))[0] == "pass" for c in d["control"])
+            why = None
+            if failed:
+                why = "accepted a route the body cannot walk: " + ", ".join(failed)
+            elif unknown:
+                why = "inconclusive: " + ", ".join(unknown)
+            elif not control_ok:
+                c = next(iter(d["control"]), None)
+                why = "the control passage is not a pass" + (f" ({row.get(c, ('missing', 'not measured'))[0]}: {row.get(c, ('', 'not measured'))[1]})" if c else " (no control fixture)")
+            pairs[pair] = {"passes": why is None, "why": why, "failed": failed, "inconclusive": unknown, "passed": passed,
+                           "refused": refused, "row": row}
+        good = [p for p, r in pairs.items() if r["passes"]]
+        chosen = max(good, key=lambda p: (len(pairs[p]["passed"]), -p[0], -p[1])) if good else None
+        why = None
+        if key[2] is None:
+            chosen, why = None, "no game build: the session did not know the running game build"
+        elif chosen is None:
+            why = "no pair passes"
+        result[key] = {"body": d["body"], "pairs": pairs, "chosen": chosen, "why": why, "native": d["native"],
+                       "fixtures": d["fixtures"], "sessions": d["sessions"]}
+    return result
+
+
+# ---- the outputs ----
+
+def fmt(p):
+    return f"{p[0]}/{p[1]}"
+
+
+def clearance(result, lab="lab", merge=None, date=None):
+    """clearance.json format 1 (Kiln.Pets' PetClearance.Parse): the chosen pairs; merged profiles of other keys kept."""
+    date = date or datetime.date.today().isoformat()
+    profiles = []
+    for (creature, scale, game), d in sorted(result.items(), key=lambda kv: (kv[0][0], kv[0][1], kv[0][2] or 0)):
+        if d["chosen"] is None:
+            continue
+        h, v = d["chosen"]
+        p = d["pairs"][d["chosen"]]
+        profiles.append({
+            "creature": creature, "scale": scale, "game": game, "horizontalSpace": h, "verticalSpace": v, "body": d["body"].kiln,
+            "calibration": {
+                "lab": lab, "date": date, "sessions": d["sessions"], "gate": "19d C6", "passed": p["passed"], "refused": p["refused"],
+                "pairs": {fmt(q): ("pass" if r["passes"] else r["why"]) for q, r in sorted(d["pairs"].items())},
+                "bodyLength": round(d["body"].length, 2),
+            },
+        })
+    done = set(result)
+    for old in (merge or {}).get("profiles", []):
+        key = (old.get("creature"), float(old.get("scale") or 1), old.get("game"))
+        if key not in done:
+            profiles.append(old)
+    profiles.sort(key=lambda p: (p["creature"], float(p.get("scale") or 1), p.get("game") or 0))
+    return {"format": 1, "generator": "tools/pets-clearance/profiles.py (dossier 19d, gate C6)", "profiles": profiles}
+
+
+SYM = {"pass": "walks", "fail": "FAIL", "inconclusive": "?", "refused": "-"}
+
+
+def report(result):
+    out = ["# Pet clearance calibration", "",
+           "Cells: `walks` = accepted and walked past the exit; `FAIL` = accepted but the body could not walk it; `-` = no route "
+           "(refused); `?` = inconclusive. Native = the body's own walker (the game's guard walk), for comparison.", ""]
+    for (creature, scale, game), d in sorted(result.items(), key=lambda kv: (kv[0][0], kv[0][1], kv[0][2] or 0)):
+        b = d["body"]
+        out.append(f"## {creature} at scale {scale:g}, game build {game}")
+        out.append("")
+        out.append(f"Body: walker radius {b.walker_radius:g} height {b.walker_height:g}; movement collider width {b.collider_width:g} "
+                   f"height {b.collider_height:g}; length {b.length:.2f} m (x{b.scale:g}). Sessions: {d['sessions']}.")
+        out.append("")
+        if d["chosen"]:
+            out.append(f"**Chosen: HorizontalSpace {d['chosen'][0]}, VerticalSpace {d['chosen'][1]}** (gate passes).")
+        else:
+            out.append(f"**No profile: {d['why']}.**")
+        out.append("")
+        pairs = sorted(d["pairs"])
+        names = sorted({n for p in pairs for n in d["pairs"][p]["row"]}, key=lambda n: (d["fixtures"].get(n, {}).get("lane", 99), n))
+        out.append("| fixture | " + " | ".join(fmt(p) for p in pairs) + " | native |")
+        out.append("|---" * (len(pairs) + 2) + "|")
+        for n in names:
+            cells = []
+            for p in pairs:
+                v = d["pairs"][p]["row"].get(n)
+                cells.append(SYM.get(v[0], v[0]) if v else "")
+            nat = d["native"].get(n)
+            out.append(f"| {n} | " + " | ".join(cells) + f" | {(nat['outcome'] + ' ' + format(nat['past'], '+.2f') + ' m') if nat and nat['past'] is not None else (nat or {}).get('outcome', '')} |")
+        out.append("")
+        for p in pairs:
+            r = d["pairs"][p]
+            out.append(f"- {fmt(p)}: {'passes' if r['passes'] else r['why']}")
+            for n, (v, why) in sorted(r["row"].items()):
+                if v in ("fail", "inconclusive") and why:
+                    out.append(f"  - {n}: {v}: {why}")
+        out.append("")
+    return "\n".join(out) + "\n"
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("runs", nargs="+")
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--report")
+    ap.add_argument("--merge", help="an existing clearance.json whose profiles of other creatures, scales or builds are kept")
+    ap.add_argument("--lab", default="lab")
+    a = ap.parse_args(argv)
+    result = decide(load_records(read(a.runs)))
+    merge = json.load(open(a.merge)) if a.merge else None
+    with open(a.out, "w") as fh:
+        json.dump(clearance(result, a.lab, merge), fh, indent=2)
+        fh.write("\n")
+    if a.report:
+        with open(a.report, "w") as fh:
+            fh.write(report(result))
+    for (creature, scale, game), d in sorted(result.items(), key=lambda kv: (kv[0][0], kv[0][1], kv[0][2] or 0)):
+        print(f"{creature} x{scale:g} build {game}: " + (f"{fmt(d['chosen'])}" if d["chosen"] else f"none ({d['why']})"))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
