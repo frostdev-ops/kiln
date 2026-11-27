@@ -217,9 +217,9 @@ test("the effect replay card opts a package in and out", async ({ page }) => {
   await expect(card.getByText("Effect replay", { exact: true })).toBeVisible();
   const toggle = card.getByRole("switch", { name: "Replay shroudforge:betterstacks after a game update" });
   await expect(toggle).not.toBeChecked();
-  await toggle.check();
+  await toggle.click({ force: true });  // the switch's track lies over its input (as community-posts.spec.ts clicks one)
   await expect(toggle).toBeChecked();
   await expect(card.getByTestId("registry-replay-saved")).toHaveText("Saved. The next start reads it.");
-  await toggle.uncheck();
+  await toggle.click({ force: true });
   await expect(toggle).not.toBeChecked();
 });
