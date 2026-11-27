@@ -103,9 +103,10 @@ are. Nothing is kept by hand.
 
 Native-tier code ([tiers.md](tiers.md)): `Hooks.Mid` / `Hooks.Detour` with an address, `Memory.Write` /
 `Memory.Patch`, `Marshal.Write*` and `Marshal.Copy` into an address the code did not allocate itself (a local or field from
-`Marshal.AllocHGlobal` is left alone). When the hooked function (a symbol string, `Hooks.Detour("my-mod/AltarLimit", ...)`,
-`Symbols.TryGet(...)`) is one a hooks registry's field covers (the generated table reads the field's sigdb function from its
-regmap row), the message names the field.
+`Marshal.AllocHGlobal` is left alone). A hook by a symbol's name is not a hook by address: `Hooks.Detour("my-mod/AltarLimit", ...)`,
+and an address `Symbols.Get("name")` or `Symbols.TryGet("name", out var a)` found, are reported only when the function is one a
+hooks registry's field covers (the generated table reads the field's sigdb function from its regmap row), and then the message
+names the field. An address the mod computes (`base + rva`, a pattern of its own) is.
 
 **Why info.** These keep working until a game update moves the code or the memory; then only the mod can fix them. Kiln's
 registries and services cover much of the game's data and rules and keep working across updates.

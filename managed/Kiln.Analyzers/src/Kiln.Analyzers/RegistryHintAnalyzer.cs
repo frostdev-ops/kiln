@@ -140,7 +140,8 @@ public sealed class RegistryHintAnalyzer : DiagnosticAnalyzer
         if (Kinds.Same(type, kinds.Hooks) && m.Name is "Mid" or "Detour" && inv.Arguments.Length > 0)
         {
             var first = inv.Arguments[0].Value;
-            if (first.ConstantValue is { HasValue: true, Value: string symbol })
+            // a symbol, by its name or by the address Symbols.Get / TryGet found for that name: the same hook as Hooks.Mid("name")
+            if ((first.ConstantValue is { HasValue: true, Value: string named } ? named : SymbolOf(first, kinds, 0)) is { } symbol)
             {
                 if (CoveringFunction(symbol) is { } field)
                     ctx.ReportDiagnostic(Diagnostic.Create(Descriptors.NativeTier, inv.Syntax.GetLocation(), $"Hooks.{m.Name}(\"{symbol}\")",
@@ -171,6 +172,27 @@ public sealed class RegistryHintAnalyzer : DiagnosticAnalyzer
             ctx.ReportDiagnostic(Diagnostic.Create(Descriptors.NativeTier, inv.Syntax.GetLocation(), $"Marshal.{m.Name}",
                 "writes into memory by address (if that address is the game's)", Advice));
         }
+    }
+
+    /// <summary>The constant symbol name an address came from: <c>Symbols.Get("name")</c>, a local it initialised, or the
+    /// <c>out</c> local of <c>Symbols.TryGet("name", out var a)</c>; null for any other address.</summary>
+    private static string? SymbolOf(IOperation op, Kinds kinds, int depth)
+    {
+        while (op is IConversionOperation c) op = c.Operand;
+        if (op is IInvocationOperation call && Kinds.Same(call.TargetMethod.ContainingType, kinds.Symbols) && call.TargetMethod.Name is "Get" or "TryGet" &&
+            call.Arguments.Length > 0 && call.Arguments[0].Value.ConstantValue is { HasValue: true, Value: string name })
+            return name;
+        if (depth > 0 || op is not ILocalReferenceOperation local || local.SemanticModel is not { } model || local.Local.DeclaringSyntaxReferences.Length != 1)
+            return null;
+        var decl = local.Local.DeclaringSyntaxReferences[0].GetSyntax();
+        if (decl.SyntaxTree != model.SyntaxTree) return null;
+        if (decl is VariableDeclaratorSyntax { Initializer.Value: { } init })
+            return model.GetOperation(init) is { } value ? SymbolOf(value, kinds, depth + 1) : null;
+        // out var a / out nuint a: the declaration sits in an argument of the call that found it
+        if (decl is SingleVariableDesignationSyntax && decl.FirstAncestorOrSelf<ArgumentSyntax>()?.Parent?.Parent is InvocationExpressionSyntax found &&
+            model.GetOperation(found) is IInvocationOperation tryGet && Kinds.Same(tryGet.TargetMethod.ContainingType, kinds.Symbols) && tryGet.TargetMethod.Name == "TryGet")
+            return SymbolOf(tryGet, kinds, depth + 1);
+        return null;
     }
 
     // ---- C# resource patches (OnBoot): new ResourcePatchBlock { Type = "keen::BalancingTable", Set = { ["path"] = v } }, and

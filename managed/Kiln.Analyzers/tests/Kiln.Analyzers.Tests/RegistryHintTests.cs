@@ -255,6 +255,28 @@ public class RegistryHintTests
     }
 
     [Fact]
+    public async Task AHookBySymbolNameIsNotAHookByAddress()
+    {
+        var src = """
+        public sealed class M : Mod
+        {
+            private static void Handler(ref Registers regs) { }
+            public override void OnLoad()
+            {
+                Hooks.Mid(Symbols.Get("my-mod/Site"), Handler);
+                var at = Symbols.Get("my-mod/Other");
+                Hooks.Mid(at, Handler);
+                if (Symbols.TryGet("my-mod/Third", out var third)) Hooks.Mid(third, Handler);
+                Hooks.Mid(Symbols.Find("48 8B ?? 90") + 4, Handler);  // a pattern the mod scans for itself: an address
+            }
+        }
+        """;
+        var diags = (await Run(src)).Where(d => d.Id == "KILN125").ToList();
+        Assert.Single(diags);
+        Assert.Contains("by address", diags[0].GetMessage());
+    }
+
+    [Fact]
     public async Task TheFixIsOfferedOnTheDataPackInTheWorkspace()
     {
         var pack = """{ "format": 1, "items": { "Wood": { "maxStackSize": 500 } } }""";
