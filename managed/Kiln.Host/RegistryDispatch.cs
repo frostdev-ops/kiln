@@ -629,8 +629,17 @@ internal sealed class RegistryDispatch(ModManager mods) : IDisposable
         mods.Host.Log(LogLevel.Info, $"registry: WorldLoad authored again on request (Registry.Reauthor) for {names}: " +
             (job.OnTick ? $"pass {job.PassMs:F1} ms on the tick, turn prepared off it in {job.PrepareMs:F1} ms"
                         : $"pass and turn prepared off the tick in {job.PassMs + job.PrepareMs:F1} ms") + $", landed in {landedMs:F1} ms on the tick");
-        // registry.json off the tick (the tick builds it a few seconds later if this does not)
-        _ = Task.Run(() => { try { _native.BuildReport(); } catch { /* the tick builds it */ } });
+        // registry.json off the tick. review of LOOT-2: one that found the registry moved meanwhile (a drop table bound, another
+        // write) is tried again here a few times; the world tick builds it itself a few seconds later (the whole report on the tick)
+        _ = Task.Run(async () =>
+        {
+            for (var i = 0; i < 5; ++i)
+            {
+                try { if (_native.BuildReport()) return; }
+                catch { return; }  // the tick builds it
+                await Task.Delay(100);
+            }
+        });
     }
     // Returns the records whose point met a transient KilnUnavailableException: the caller schedules them again.
     // review4 NS5 (coordinator ruling, Nov 23): a runtime pass behaves like GameStart's stage. Every callback of the pass reads

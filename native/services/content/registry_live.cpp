@@ -2216,7 +2216,11 @@ void registry_live_publish() {
             } else report(false);
         }
         // a landed turn's report not built off the world thread in time (no worker asked for it): built here
-        if (g.report_owed && g.in && g_registry_now_ms() - g.report_owed_at >= kReportOwedMs) queue_change_report();
+        if (g.report_owed && g.in && g_registry_now_ms() - g.report_owed_at >= kReportOwedMs) {
+            LOGI("registry (live): a landed turn's registry.json was not built off the world thread in %llu s: built on the world tick",
+                 static_cast<unsigned long long>(kReportOwedMs / 1000));
+            queue_change_report();
+        }
         late_check();  // writes made after the last report (registry-followups 1): a look every 2-10 s, a batch of slots a tick
         if (!g.in || !g.pending_set) return;
         r = std::move(g.pending);

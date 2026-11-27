@@ -123,7 +123,14 @@ internal sealed unsafe class FakeRegistry : IDisposable
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static int Discard(ulong ticket) { Current._plans.Remove(ticket); return 0; }
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-    private static int BuildReport() { Interlocked.Increment(ref Current.ReportsBuilt); return 0; }
+    private static int BuildReport()
+    {
+        Interlocked.Increment(ref Current.ReportBuilds);
+        if (Interlocked.Decrement(ref Current.ReportMoves) >= 0) return KilnAbi.ErrUnavailable;  // the registry moved meanwhile
+        Interlocked.Increment(ref Current.ReportsBuilt); return 0;
+    }
+    /// <summary>review of LOOT-2: the next ReportMoves report builds find the registry moved meanwhile (UNAVAILABLE).</summary>
+    internal int ReportMoves, ReportBuilds;
     internal void FireStage(RegistryPhase phase)
     {
         var info = new RegistryStageInfo { Size = 24, Stage = (uint)phase };

@@ -269,6 +269,27 @@ public sealed class RegistryReauthorTests : ModsFixture
         Assert.Equal(1, rig.Native.LayerCount); Assert.Equal(41, rig.Native.Value);  // and its layers stay for the retirement
         owner.Retire(); Assert.Equal(10, rig.Native.Value);
     }
+    // review of LOOT-2: a landed turn's registry.json is built off the tick; one that found the registry moved meanwhile (a drop
+    // table bound, another write) is tried again a few times there before the world tick builds it itself (a hitch of up to a
+    // hundred milliseconds on the tick for the full report).
+    [Fact(Timeout = 30_000)]
+    public async Task AReportThatFindsTheRegistryMovedIsBuiltAgainOffTheTick()
+    {
+        await Task.Yield();
+        using var rig = new Rig(this);
+        var owner = Owner(rig.Native, "leveler"); var value = 40;
+        rig.Dispatch.Loaded(new WorldOnlyAuthor(c => { if (c.Phase == RegistryPhase.Alter) Edit(c, value); }), owner, Root, false);
+        rig.Dispatch.FlushLoads();
+        rig.Native.ReportMoves = 2;
+        value = 45;
+        Assert.Null(RegistryRuntime.Reauthor!(owner, RegistryEntryPoint.WorldLoad));
+        Settle(rig.Dispatch);
+        Assert.Equal(45, rig.Native.Value);
+        for (var i = 0; i < 200 && Volatile.Read(ref rig.Native.ReportsBuilt) == 0; ++i) await Task.Delay(20);
+        Assert.Equal(1, Volatile.Read(ref rig.Native.ReportsBuilt));
+        Assert.Equal(3, Volatile.Read(ref rig.Native.ReportBuilds));
+        owner.Retire();
+    }
     // The registry moved after the pass read it (another mod's commit): that turn is not landed and the pass runs again.
     [Fact(Timeout = 30_000)]
     public async Task AStaleTurnRunsThePassAgain()
