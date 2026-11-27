@@ -7,6 +7,7 @@
 // folder, a second start from the cache giving the same registry.json, Kiln.Host's order, a native stage callback's edits,
 // the registry's writes on a resource's bytes after the old documents.
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <stdexcept>
@@ -1363,14 +1364,20 @@ void effect_replay(const std::string& dir) {
           "with its identity and the build it was recorded on: " + d.dump());
     check(d["fields"] == json::array({{{"registry", "items"}, {"id", "game:plank"}, {"field", "maxStack"}, {"value", 20}}}) && d["residue"] == json::array(),
           "the field it changed and the value it left: " + d.dump());
-    check(one.rep["replay"].is_array() && one.rep["replay"].size() == 1 && one.rep["replay"][0]["state"] == "recorded" && one.rep["replay"][0]["fields"] == 1,
-          "registry.json replay: recorded (the package not opted in is not listed): " + one.rep.value("replay", json()).dump());
+    check(one.rep["replay"].is_array() && one.rep["replay"].size() == 1 && one.rep["replay"][0]["state"] == "recorded" && one.rep["replay"][0]["fields"] == 1 &&
+              one.rep["replay"][0]["optIn"] == true && one.rep["replay"][0]["mod"] == "replay.sf.betterstacks",
+          "registry.json replay: recorded, opted in, its stand-in mod id (a package the journal does not list and not opted in is not listed): " +
+              one.rep.value("replay", json()).dump());
     bool said = false, early = false;
     for (const std::string& l : one.files.log) {
-        said = said || l == "0 registry: replay: betterstacks (ShroudForge package): its Lua ran this start: its effect is recorded (1 field(s)), replayable after a game update";
+        said = said || l == "0 registry: replay: recorded the effect of 1 ShroudForge/EML package(s) for effect replay after a game update (1 field(s); 0 with parts no proven Kiln field holds)";
         early = early || l.find("recorded from what it changed") != std::string::npos;
     }
     check(said && !early, "kiln.log says what was recorded, once it is kept (not before)");
+    const json idx = one.files.data.count("replay/index.json") ? json::parse(one.files.data["replay/index.json"]) : json();
+    check(idx.is_object() && idx["generation"] == live && idx["exe"] == kExe && idx["writer"] == "kiln-eml" && idx["packages"]["shroudforge:betterstacks"]["fields"] == 1 &&
+              d["generation"] == live,
+          "the index says which journal, build and side the records were taken from: " + idx.dump());
     // 2: another build, its Lua not applied: replayed below every mod; the mods' x4 and x2 compose on its value
     Files later = one.files;
     json rec = json::parse(later.data[file]);
@@ -1454,20 +1461,24 @@ void effect_replay(const std::string& dir) {
     Files none = later;
     none.data.erase(file);
     refused_with(none, other, journal(false, "1.0.0"), "no effect of it was recorded");
-    // not opted in: nothing recorded, nothing listed; an unreadable opt-in file opts nothing in and says so
+    // review-j3 (coordinator: record every package by default): opted out, or no opt-in file at all, its effect is recorded
+    // and listed, never replayed; an unreadable opt-in file opts nothing in and says so
     Files off;
     off.data["replay/opt-in.json"] = R"({"format": 1, "packages": {"shroudforge:betterstacks": false}})";
     Start o = start(off, kExe, journal(true, "1.0.0"), &no_sections);
-    check(!o.files.data.count(file) && !o.rep.contains("replay"), "a package opted out is never recorded: " + o.rep.value("replay", json()).dump());
+    check(o.files.data.count(file) && row0(o.rep).value("state", "") == "recorded" && row0(o.rep).value("optIn", true) == false,
+          "a package opted out is recorded all the same: " + o.rep.value("replay", json()).dump());
     Files bad;
     bad.data["replay/opt-in.json"] = R"({"format": 1, "packages": {"betterstacks": true}})";
     Start b = start(bad, kExe, journal(true, "1.0.0"), &no_sections);
-    check(!b.files.data.count(file) && row0(b.rep).value("state", "") == "refused" && row0(b.rep).contains("who") && row0(b.rep)["who"] == "", "an unreadable opt-in opts nothing in: " + b.rep.value("replay", json()).dump());
+    check(row0(b.rep).value("state", "") == "refused" && row0(b.rep).contains("who") && row0(b.rep)["who"] == "", "an unreadable opt-in opts nothing in: " + b.rep.value("replay", json()).dump());
     Files nofile;
     Start n = start(nofile, kExe, journal(true, "1.0.0"), &no_sections);
-    bool kept_any = false;
-    for (const auto& [k, v] : n.files.data) kept_any = kept_any || k.rfind("replay/", 0) == 0;
-    check(!n.rep.contains("replay") && !kept_any, "no opt-in file: no replay at all (nothing in replay/)");
+    check(n.files.data.count(file) && n.files.data.count("replay/index.json") && row0(n.rep).value("state", "") == "recorded" && row0(n.rep).value("optIn", true) == false,
+          "no opt-in file: the package's effect is recorded, listed not opted in: " + n.rep.value("replay", json()).dump());
+    Start n2 = start(nofile, other, journal(false, "1.0.0"), &no_sections);
+    check(row0(n2.rep).value("state", "") == "none" && row0(n2.rep).value("text", "").find("not opted in") != std::string::npos,
+          "not opted in, its Lua not applied after an update: never replayed, and the row says it could be: " + n2.rep.value("replay", json()).dump());
     // review-j3: one stand-in id (and one record) per package: ShroudForge ids that differ only in letter case are two packages
     // (A-Z a-z), never one Kiln mod id or one file; and a record that names another package is never replayed for this one
     {
@@ -1512,6 +1523,88 @@ void effect_replay(const std::string& dir) {
         check(row0(b2.rep).value("state", "") == "refused" && row0(b2.rep).value("text", "").find("oldmod/stacks") != std::string::npos && !stood,
               "an old document's relative change of a replayed field: refused whole, named: " + b2.rep.value("replay", json()).dump());
     }
+}
+
+// review-j3 (coordinator decision 2026-11-27): every ShroudForge/EML package's effect is recorded by default, cached. A start
+// whose journal names the generation, build and side the index has, with no package the index lacks, reads no base for it
+// (no source is asked for), and with Kiln's hosted ShroudForge not even the proof of the journal's generation (the hash of
+// the ~9 MB <stem>.kfc: Env::archive_journal_text); a new generation (a package changed, or its writer published again) or
+// a new game build records again. The cost of each kind of start is measured (kiln.log of this test).
+void effect_replay_cache(const std::string& dir) {
+    const std::string gen1 = std::string(64, 'a'), gen2 = std::string(64, 'c'), other = std::string(64, 'e');
+    auto journal = [&](const std::string& generation, const std::string& version) {
+        json pkg = {{"id", "betterstacks"}, {"version", version}, {"kind", "shroudforge"}, {"contentSha256", nullptr}, {"settingsSha256", nullptr},
+                    {"truncated", false},
+                    {"changed", json::array({{{"guid", g(2)}, {"typeHash", "8c3dbe3d"}, {"part", 0}, {"createdBy", nullptr}, {"paths", {"maxStackSize"}}}})},
+                    {"created", json::array()}, {"contents", json::array()}};
+        return json{{"format", 2}, {"stem", "enshrouded_server"}, {"generation", generation}, {"receiptSha256", generation}, {"dialect", "shroudforge"},
+                    {"attempt", "first"}, {"truncated", false}, {"packages", json::array({pkg})},
+                    {"unattributed", {{"truncated", false}, {"changed", json::array()}, {"created", json::array()}, {"contents", json::array()}}},
+                    {"writer", "shroudforge"}, {"notApplied", json::array()}}
+            .dump();
+    };
+    struct Run {
+        Files files;
+        json rep;
+        int sources = 0, proofs = 0;
+        double ms = 0;
+    };
+    // hosted ShroudForge: the journal's text alone is cheap, its proof (archive_journal) hashes the archive
+    auto start = [&](Files files, const std::string& exe, const std::string& live, const std::string& text, bool has_journal) {
+        TreeView view = world();
+        Run x;
+        x.files = std::move(files);
+        stage::Env e = env_of(&view, &x.files, dir, &no_sections);
+        e.exe_sha256 = exe;
+        e.writer = "shroudforge-hosted";
+        e.archive_journal_writer = "shroudforge";
+        auto source = e.source;
+        e.source = [&x, source](std::string* why) { ++x.sources; return source(why); };
+        e.archive_journal = [&](std::string* generation, std::string* why) -> std::optional<std::string> {
+            ++x.proofs;
+            if (!has_journal) return *why = "no journal", std::nullopt;
+            return *generation = live, text;
+        };
+        e.archive_journal_text = [&](std::string* why) -> std::optional<std::string> {
+            if (!has_journal) return *why = "no journal", std::nullopt;
+            return text;
+        };
+        stage::Runner r(std::move(e));
+        const auto t0 = std::chrono::steady_clock::now();
+        const auto boot = r.run({});
+        x.ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+        r.finish({});
+        x.rep = json::parse(x.files.report);
+        return x;
+    };
+    const std::string file = "replay/replay.sf.betterstacks.json";
+    // a start with no journal at all (no ShroudForge or EML package): nothing is read for effect replay
+    Run bare = start({}, kExe, gen1, "", false);
+    // the first start with the package: recorded (one base read), the index written
+    Run first = start(bare.files, kExe, gen1, journal(gen1, "1.0.0"), true);
+    check(first.files.data.count(file) && first.files.data.count("replay/index.json") && first.sources >= 1 && first.proofs == 1,
+          "the first start records the package (a base read, the journal proven): sources " + std::to_string(first.sources) + ", proofs " + std::to_string(first.proofs));
+    // nothing changed: no base read, no proof of the journal (no hash of the archive), the row says the record is current
+    Run same = start(first.files, kExe, gen1, journal(gen1, "1.0.0"), true);
+    check(same.sources == 0 && same.proofs == 0, "an unchanged start reads no base and proves no journal: sources " + std::to_string(same.sources) + ", proofs " +
+                                                     std::to_string(same.proofs));
+    check(same.rep.contains("replay") && same.rep["replay"][0]["state"] == "recorded" && same.rep["replay"][0]["text"].get<std::string>().find("is current") != std::string::npos &&
+              same.rep["replay"][0]["fields"] == 1,
+          "and says its record is current: " + same.rep.value("replay", json()).dump());
+    check(same.files.data[file] == first.files.data[file], "the record is not written again");
+    // a new generation (its writer published again: a package's files or the set of packages changed): recorded again
+    Run next = start(same.files, kExe, gen2, journal(gen2, "1.0.0"), true);
+    check(next.sources >= 1 && next.proofs == 1 && json::parse(next.files.data[file])["generation"] == gen2 &&
+              json::parse(next.files.data["replay/index.json"])["generation"] == gen2,
+          "a new generation records again: " + next.files.data["replay/index.json"]);
+    // a new game build with the package running on it: recorded again, on that build
+    Run build = start(next.files, other, gen2, journal(gen2, "1.0.0"), true);
+    check(build.sources >= 1 && json::parse(build.files.data[file])["exe"] == other, "a new game build records again, on it");
+    // a journal that is not this start's (stale: another generation than the live one) records nothing
+    Run stale = start(bare.files, kExe, gen1, journal(gen2, "1.0.0"), true);
+    check(!stale.files.data.count(file) && stale.proofs == 1, "a stale journal records nothing");
+    std::printf("effect replay cost (host fake, 1 package): no journal %.2f ms; first start (records, base read) %.2f ms; unchanged start %.2f ms; new generation %.2f ms\n",
+                bare.ms, first.ms, same.ms, next.ms);
 }
 
 // Review (registry-writers): the journal lists resources by their key, so only a registry whose entries are each a whole
@@ -1672,6 +1765,7 @@ int main(int argc, char** argv) {
         {"archive_journal_writers", [&] { archive_journal_writers(dir); }},
         {"archive_journal_shared_resources", [&] { archive_journal_shared_resources(dir); }},
         {"effect_replay", [&] { effect_replay(dir); }},
+        {"effect_replay_cache", [&] { effect_replay_cache(dir); }},
         {"old_writes_marks", [&] { old_writes_marks(dir); }},
         {"old_writes_element_of_its_resource", [&] { old_writes_element_of_its_resource(dir); }},
         {"per_entry_detail_at_debug", [&] { per_entry_detail_at_debug(dir); }}};

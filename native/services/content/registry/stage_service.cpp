@@ -233,6 +233,20 @@ std::optional<std::string> archive_journal(std::string* generation, std::string*
 // Kiln's hosted ShroudForge's change journal of its pass (archive_journal.h read_hosted_journal): <game>/<exe stem>
 // .kfc.change-journal.json, only from the game folder itself (neither it nor the game folder a link or another reparse
 // point), bound to the SHA-256 of the live <exe stem>.kfc (hashed only when there is a journal: about 9 MB).
+// Its text alone (Env::archive_journal_text: effect replay's check that nothing changed, no hash of the <stem>.kfc).
+std::optional<std::string> hosted_journal_text(std::string* why) {
+    wchar_t exe[MAX_PATH * 2] = {};
+    const DWORD n = GetModuleFileNameW(nullptr, exe, static_cast<DWORD>(std::size(exe)));
+    if (n == 0 || n >= std::size(exe)) return *why = "the game's file name is not known", std::nullopt;
+    const std::string game = api_path(KILN_PATH_GAME);
+    if (game.empty()) return *why = "the game folder is not known", std::nullopt;
+    const auto reparse = [](const fs::path& p) {
+        const DWORD a = GetFileAttributesW(p.c_str());
+        return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+    };
+    return read_hosted_journal(u8(game), fs::path(exe).stem(), reparse, why);
+}
+
 std::optional<std::string> hosted_journal(std::string* generation, std::string* why) {
     wchar_t exe[MAX_PATH * 2] = {};
     const DWORD n = GetModuleFileNameW(nullptr, exe, static_cast<DWORD>(std::size(exe)));
@@ -307,6 +321,7 @@ Env make_env() {
                         ((backend == "hosted" || backend == "installed") && a.writer == "none");
         e.archive_journal = sf ? &hosted_journal : &archive_journal;
         e.archive_journal_writer = sf ? "shroudforge" : "kiln-eml";
+        if (sf) e.archive_journal_text = &hosted_journal_text;
     }
     e.source = [](std::string* why) -> std::unique_ptr<model::Source> {
         kiln::boot_view::LiveView& v = live_view();

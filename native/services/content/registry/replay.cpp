@@ -77,6 +77,7 @@ json description_json(const Description& d) {
             {"kiln", d.kiln},
             {"recorded", d.recorded},
             {"writer", d.writer},
+            {"generation", d.generation},
             {"fields", std::move(fields)},
             {"residue", d.residue}};
 }
@@ -87,6 +88,7 @@ bool parse_description(const std::string& text, Description* out, std::string* w
     Description d;
     d.who = str(doc, "who"), d.id = str(doc, "id"), d.kind = str(doc, "kind"), d.version = str(doc, "version"), d.content = str(doc, "contentSha256");
     d.side = str(doc, "side"), d.exe = str(doc, "exe"), d.kiln = str(doc, "kiln"), d.recorded = str(doc, "recorded"), d.writer = str(doc, "writer");
+    d.generation = str(doc, "generation");
     if (!who_ok(d.who) || d.exe.empty() || d.side.empty()) return *why = "the recorded effect names no package, game build or side", false;
     if (!doc.contains("fields") || !doc["fields"].is_array() || !doc.contains("residue") || !doc["residue"].is_array())
         return *why = "the recorded effect has no fields or residue list", false;
@@ -170,11 +172,48 @@ bool replay_batch(const Description& d, const Schema& schema, Batch* out, std::s
 json outcomes_json(const std::vector<Outcome>& rows) {
     json out = json::array();
     for (const Outcome& o : rows) {
-        json r = {{"who", o.who}, {"state", o.state}, {"text", o.text}, {"fields", o.fields}};
+        json r = {{"who", o.who}, {"state", o.state}, {"text", o.text}, {"fields", o.fields}, {"optIn", o.opt_in}};
         if (!o.recorded_on.empty()) r["recordedOn"] = o.recorded_on;
+        if (!o.who.empty()) r["mod"] = mod_id_of(o.who);  // its stand-in writer's mod id (the launcher names its rows so)
         out.push_back(std::move(r));
     }
     return out;
+}
+
+json index_json(const Index& x) {
+    json packages = json::object();
+    for (const auto& [who, e] : x.packages)
+        packages[who] = {{"version", e.version.empty() ? json(nullptr) : json(e.version)},
+                         {"contentSha256", e.content.empty() ? json(nullptr) : json(e.content)},
+                         {"generation", e.generation},
+                         {"fields", e.fields},
+                         {"residue", e.residue}};
+    return {{"format", 1}, {"writer", x.writer}, {"generation", x.generation}, {"exe", x.exe}, {"side", x.side}, {"packages", std::move(packages)}};
+}
+
+bool parse_index(const std::string& text, Index* out) {
+    const json doc = json::parse(text, nullptr, false);
+    if (doc.is_discarded() || !doc.is_object() || doc.value("format", 0) != 1 || !doc.contains("packages") || !doc["packages"].is_object()) return false;
+    Index x;
+    x.writer = str(doc, "writer"), x.generation = str(doc, "generation"), x.exe = str(doc, "exe"), x.side = str(doc, "side");
+    for (auto it = doc["packages"].begin(); it != doc["packages"].end(); ++it) {
+        if (!who_ok(it.key()) || !it.value().is_object()) return false;
+        const json& e = it.value();
+        Index::Entry entry;
+        entry.version = str(e, "version"), entry.content = str(e, "contentSha256"), entry.generation = str(e, "generation");
+        entry.fields = e.contains("fields") && e["fields"].is_number_unsigned() ? e["fields"].get<size_t>() : 0;
+        entry.residue = e.contains("residue") && e["residue"].is_number_unsigned() ? e["residue"].get<size_t>() : 0;
+        x.packages[it.key()] = std::move(entry);
+    }
+    *out = std::move(x);
+    return true;
+}
+
+bool recorded(const Index& x, const std::string& who, const ArchiveJournal::Package& p, const std::string& writer, const std::string& generation,
+              const std::string& exe, const std::string& side) {
+    if (x.writer != writer || x.generation != generation || x.exe != exe || x.side != side || generation.empty()) return false;
+    const auto it = x.packages.find(who);
+    return it != x.packages.end() && it->second.generation == generation && it->second.version == p.version && it->second.content == p.content;
 }
 
 }  // namespace kc::registry::replay

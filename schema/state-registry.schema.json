@@ -356,14 +356,16 @@
       }
     },
     "replay": {
-      "description": "Effect replay (next release; owner decision D6, opt-in per package): what became of each package opted in by kiln/data/content/registry/replay/opt-in.json. recorded: its Lua ran this start and its effect (the registry fields it changed, with their values) was kept for a later game build; replayed: its Lua was not applied on this game build and its effect recorded on another build was applied through the registry as a stand-in writer below every mod; refused: not replayed, the text says why (a package is replayed whole or not at all); none: this start's journal does not list it. Absent: no package is opted in.",
+      "description": "Effect replay (next release; owner decision D6, opt-in per package): what became of each ShroudForge and EML package this start's change journal lists, and of each package kiln/data/content/registry/replay/opt-in.json opts in that it does not. Every package's effect is recorded by default (kiln/data/content/registry/replay/, cached: recorded again only when the journal's generation, the game build or the side changes); only an opted-in one is replayed. recorded: its Lua ran this start and its effect (the registry fields it changed, with their values) is kept for a later game build, recorded now or current; replayed: its Lua was not applied on this game build and its effect recorded on another build was applied through the registry as a stand-in writer below every mod; refused: an opted-in package not replayed, the text says why (a package is replayed whole or not at all); none: nothing was done (not opted in, or the journal does not list it). Absent: the journal lists no package and none is opted in.",
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["who", "state", "text", "fields"],
+        "required": ["who", "state", "text", "fields", "optIn"],
         "additionalProperties": false,
         "properties": {
           "who": { "type": "string", "description": "shroudforge:<id> or eml:<id>; empty for the opt-in file itself when it cannot be read." },
+          "optIn": { "type": "boolean", "description": "The opt-in file opts the package in (read at this start)." },
+          "mod": { "type": "string", "description": "The Kiln mod id its replayed edits carry as a stand-in writer (writer rows with standIn): replay.sf.<id> or replay.eml.<id>, lower case, an id with a capital letter or a long one told apart by 8 hex digits." },
           "state": { "enum": ["recorded", "replayed", "refused", "none"] },
           "text": { "type": "string", "description": "One English sentence." },
           "fields": { "type": "integer", "minimum": 0, "description": "The fields recorded or replayed." },

@@ -507,38 +507,56 @@ never called another loader's.
 
 A ShroudForge or EML package edits the game's data by its own Lua, which names the game's types, member paths and GUIDs.
 After a game update that Lua can fail, and the package then changes nothing until its author updates it. **Effect replay**
-keeps such a package's last effect in registry terms and applies it through the registry on a later game build where its
-Lua was not applied. It is off: nothing is recorded or replayed for a package unless the player opts it in (owner decision
-D6: opt-in per package; mechanism, not policy).
+keeps every package's last effect in registry terms and, for a package the player opts in, applies it through the registry
+on a later game build where its Lua was not applied. Recording is on by default; replaying is opt-in per package (owner
+decision D6: mechanism, not policy).
 
-- **Opting in:** `kiln/data/content/registry/replay/opt-in.json` (the registry's data folder), on each side that runs the
-  package: `{"format": 1, "packages": {"shroudforge:<id>": true, "eml:<id>": true}}`. `false` (or leaving it out) opts
-  a package out. A file Kiln cannot read opts nothing in, and `registry.json` `replay` says so.
-- **Recording:** in a start whose change journal names an opted-in package as having run (format 2, above), Kiln keeps
-  the registry fields the journal names it on, with the values the base holds there (what its write left in the game's
-  archive), its identity (id, version, content digest), the game build and the side, in
-  `kiln/data/content/registry/replay/replay.sf.<id>.json` (`replay.eml.<id>.json` for an EML package). What of its effect no
-  proven Kiln field holds is listed as the record's residue: a member no field covers, a resource that is no registry
-  entry, an entry or content it created, an entry named whole (a format-1 journal), a field another package changed too, a
-  journal cut short. A start that records reads the whole base (the cost of a registry start with a live registry user).
-- **Replaying:** in a start whose journal lists the package as not applied (`notApplied`: its Lua failed, or it needs a
-  package that did), on another game build than the one its record was made on, with the same id, version and content
-  digest (hosted ShroudForge's journal carries no content digest: id and version), Kiln adds the record's values as
-  absolute registry edits of a stand-in writer, `replay.sf.<id>`, before every mod. Registry mods' edits win over them and relative edits compose on them, as on the package's own archive values
-  (D1); a stand-in edit never makes another mod's `exclusive` edit a conflict or its `yield` edit stand back. kiln.log says
-  so as a warning, and `registry.json` `replay` lists it (`replayed`, its fields, the build its effect was recorded on); its
-  writer rows say `"standIn": true`. The start's plan keeps its edits (the input says `"standIn": true`), so a rollback to
-  that plan brings them back as stand-ins with the plan, with no installed mod needed for them; a rolled-back start
-  replays nothing else.
+- **Opting in:** `kilnctl registry replay <server> --opt-in <mod>` (and `--opt-out <mod>`; `<mod>` is `shroudforge:<id>`,
+  `eml:<id>`, or an id the last start names once; without a flag it lists the file and the last start's packages), or the
+  toggle per package on the launcher's Conflicts page (Effect replay). Both write `kiln/data/content/registry/replay/opt-in.json`
+  (the registry's data folder), on each side that runs the package: `{"format": 1, "packages": {"shroudforge:<id>": true,
+  "eml:<id>": true}}`. `false` (or leaving it out) opts a package out. A file Kiln cannot read opts nothing in, and
+  `registry.json` `replay` says so; the tools refuse to write over it.
+- **Recording (every package, cached):** in a start whose change journal names a package as having run (format 2, above),
+  Kiln keeps the registry fields the journal names it on, with the values the base holds there (what its write left in the
+  game's archive), its identity (id, version, content digest), the journal's writer and generation, the game build and the
+  side, in `kiln/data/content/registry/replay/replay.sf.<id>.json` (`replay.eml.<id>.json` for an EML package; an id with a
+  capital letter gets 8 hex digits of its SHA-256 after it, so two ids never share a file). What of its effect no proven
+  Kiln field holds is listed as the record's residue: a member no field covers or one wider than the fields under it, a
+  list's membership (a recipe or loot element added or removed), a resource that is no registry entry, an entry or content
+  it created, an entry named whole (a format-1 journal), a field another package changed too, a journal cut short.
+  `replay/index.json` says which journal generation, game build and side the records were taken from: a start where the
+  journal names the same generation (no package, package file or game build changed, so its writer did not publish again)
+  reads the journal and the index and nothing else, not even a hash of the archive. A start that records reads the whole
+  base once for all its packages (about 4 to 5 s on a dedicated server, the cost of a registry start with a live registry
+  user); it happens after a pass that published a new generation, which itself took longer.
+- **Replaying:** in a start whose journal lists an opted-in package as not applied (`notApplied`: its Lua failed, or it
+  needs a package that did), on another game build than the one its record was made on, from the same archive writer's
+  journal, with the same id, version and content digest (hosted ShroudForge's journal carries a digest of each package's
+  files since this release; EML's own pass carries none: id and version), Kiln adds the record's values as absolute
+  registry edits of a stand-in writer, `replay.sf.<id>`, before every mod, in the journal's (the plan's) order. Registry
+  mods' edits win over them and relative edits compose on them, as on the package's own archive values (D1); a stand-in
+  edit never makes another mod's `exclusive` edit a conflict or its `yield` edit stand back. The package's value lay below
+  Kiln's older paths, and so does the stand-in: a field an old boot document of a Kiln mod sets keeps that document's value
+  (the row says how many), and a package whose field an old boot document changes relatively (it composed on the package's
+  own value) is refused whole. kiln.log says so as a warning, and `registry.json` `replay` lists it (`replayed`, its fields,
+  the build its effect was recorded on); its writer rows say `"standIn": true`. The start's plan keeps its edits (the
+  input says `"standIn": true`), so a rollback to that plan brings them back as stand-ins with the plan, with no installed
+  mod needed for them; a rolled-back start replays nothing else.
 - **Refused whole, never in part:** a record with residue, a value that no longer fits its field, an entry or field this
-  build's mapping has not proven, any of its edits the stage refuses, a package that changed since its record, the same
-  game build its record was made on (its Lua failed for another reason than an update), the other side's record, a Kiln
-  mod whose id is the stand-in's (`replay.sf.<id>`), or no record at all: nothing of the package is replayed, and `replay`
-  says why (`refused`). A start that cannot read the base records nothing (`none`).
+  build's mapping has not proven, any of its edits the stage refuses, a package that changed since its record, a record
+  from another archive writer's journal, the same game build its record was made on (its Lua failed for another reason than
+  an update), the other side's record, a record that names another package, a Kiln mod whose id is the stand-in's
+  (`replay.sf.<id>`), an old boot document's relative change of one of its fields, or no record at all: nothing of the
+  package is replayed, and `replay` says why (`refused`). A start that cannot read the base records nothing (`none`; the
+  next start tries again).
 - **What it cannot do:** run the package's Lua, create entries, replay contents or anything outside the registries, or
-  follow the game's own new values where the package set a field (the recorded value is set as it was). Each side keeps
-  its own records, so a joined client replays only what it recorded itself; boot fields a replay changes take part in the
-  join's comparison as any registry edit does.
+  follow the game's own new values where the package set a field (the recorded value is set as it was). A data pack's
+  value on a live field (items, recipes) sits below every registry edit, a stand-in's too, while the package's own archive
+  value sat below the pack: on such a field the replayed value wins over the pack, and the Conflicts page says so (a
+  parity difference not yet closed). Each side keeps its own records, so a joined client replays only what it recorded
+  and opted in itself; boot fields a replay changes take part in the join's comparison as any registry edit does, so a
+  side that replays and one that does not show as registry boot values that differ (opt the package in on both).
 
 ### Native callback and owner lifetime
 

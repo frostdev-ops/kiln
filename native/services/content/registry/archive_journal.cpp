@@ -196,15 +196,18 @@ bool hosted_generation(const std::filesystem::path& game, const std::filesystem:
     return true;
 }
 
-ArchiveJournal parse_archive_journal(const std::string& text, const std::string& live_generation, const std::string& writer) {
+namespace {
+// parse_archive_journal over a parsed document; `any`: whatever generation it names is taken as the live one (peek).
+ArchiveJournal parse_doc(const json& doc, const std::string& given_generation, const std::string& writer, bool any) {
     auto unreadable = [&](const std::string& why) { return ::kc::registry::unreadable(why, writer); };
-    const json doc = json::parse(text, nullptr, false);
     if (doc.is_discarded() || !doc.is_object()) return unreadable("not JSON");
     if (!doc.contains("format") || (doc["format"] != 1 && doc["format"] != 2)) return unreadable("format is not 1 or 2");
     const int format = doc["format"].get<int>();
     if (!doc.contains("generation") || !doc["generation"].is_string()) return unreadable("no generation");
+    const std::string live_generation = any ? doc["generation"].get<std::string>() : given_generation;
     ArchiveJournal j;
     j.writer = writer;
+    j.generation = lower(doc["generation"].get<std::string>());
     // whose record it is: kiln-eml's (the member absent, as 0.2.0-dev.31.18 writes format 2) or the hosted ShroudForge's; a
     // record in the other's place is no journal of this start's writer
     const std::string says = doc.contains("writer") && doc["writer"].is_string() ? doc["writer"].get<std::string>() : (doc.contains("writer") ? "?" : "kiln-eml");
@@ -276,6 +279,16 @@ ArchiveJournal parse_archive_journal(const std::string& text, const std::string&
              (j.not_applied.empty() ? "" : "; " + std::to_string(j.not_applied.size()) + (j.not_applied.size() == 1 ? " package's" : " packages'") + " Lua was not applied") +
              (j.truncated ? "; it is truncated, so a package past its bounds is not named everywhere it wrote" : "");
     return j;
+}
+
+}  // namespace
+
+ArchiveJournal parse_archive_journal(const std::string& text, const std::string& live_generation, const std::string& writer) {
+    return parse_doc(json::parse(text, nullptr, false), live_generation, writer, false);
+}
+
+ArchiveJournal peek_archive_journal(const std::string& text, const std::string& writer) {
+    return parse_doc(json::parse(text, nullptr, false), std::string(), writer, true);
 }
 
 bool eml_state_generation(const std::string& state_json, std::string* hex, std::string* why) {

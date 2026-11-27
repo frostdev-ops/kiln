@@ -62,6 +62,7 @@ struct ArchiveJournal {
     std::string dialect;  // "shroudforge" (format 1, or format 2 of a kiln-mode or hosted SF pass) | "eml" (format 2)
     int format = 0;       // 1 or 2 once read
     std::string writer = "kiln-eml";  // who wrote it: "kiln-eml" | "shroudforge" (Kiln's hosted ShroudForge)
+    std::string generation;           // the generation it names (lower-case hex; empty: not read that far)
     bool truncated = false;
     struct Package {
         std::string id, version, kind;  // kind "shroudforge" | "eml"
@@ -118,6 +119,10 @@ bool hosted_generation(const std::filesystem::path& game, const std::filesystem:
 // place the text was read from ("kiln-eml", or "shroudforge" for the hosted record): a record whose "writer" is another's
 // (or a hosted one of another dialect or format than 2 of dialect "shroudforge") is unreadable.
 ArchiveJournal parse_archive_journal(const std::string& text, const std::string& live_generation, const std::string& writer = "kiln-eml");
+// The same, taking whatever generation the record names as the live one (state "read" for a well-formed record): what it
+// lists, without the proof that it is this start's. Effect replay (replay.h) uses it only to see that nothing changed since
+// its last record, which needs no hash of the archive; everything it records or replays comes from parse_archive_journal.
+ArchiveJournal peek_archive_journal(const std::string& text, const std::string& writer = "kiln-eml");
 
 // The live generation of an EML start (outside kiln mode) from kiln-eml's state of this process (kiln.eml state_json, the
 // text of kiln/state/eml.json): its "generation" when the phase is "done", lower-case hex. false + *why otherwise (kiln-eml

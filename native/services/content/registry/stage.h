@@ -95,6 +95,10 @@ struct Env {
     // Whose record archive_journal reads: "kiln-eml" (kiln/eml/ownership) or "shroudforge" (Kiln's hosted ShroudForge, the
     // record beside <stem>.kfc.prepared.json, bound to the live <stem>.kfc's SHA-256).
     std::string archive_journal_writer = "kiln-eml";
+    // The same record's text without its generation proven (Kiln's hosted ShroudForge: no hash of the ~9 MB <stem>.kfc).
+    // Effect replay (replay.h) reads it in each start to see whether anything changed since its records were taken; only
+    // when something did is archive_journal asked. Unset: archive_journal is asked (its generation is cheap: kiln-eml's).
+    std::function<std::optional<std::string>(std::string* why)> archive_journal_text;
 };
 
 // The boot back-end's part of one resource: the registry rows of each boot-routed field, evaluated over the value the old
