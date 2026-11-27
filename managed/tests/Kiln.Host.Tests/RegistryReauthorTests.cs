@@ -236,6 +236,39 @@ public sealed class RegistryReauthorTests : ModsFixture
         Assert.False(rig.Native.Host.Has("cannot take the pass yet"), rig.Native.Host.Dump());
         owner.Retire();
     }
+    // review of LOOT-2: a mod's unload while its re-authored pass runs on the worker waits for the pass (ModContext.UnloadStarting,
+    // as every service that calls into a mod from another thread does): its OnUnload and disposal never run beside the pass, no
+    // phase of it starts once its unload began, and a pass cut short so lands nothing (its earlier layers stay for the retirement).
+    [Fact(Timeout = 30_000)]
+    public async Task AnUnloadWaitsForThePassOnTheWorker()
+    {
+        await Task.Yield();
+        using var rig = new Rig(this);
+        var owner = Owner(rig.Native, "leveler"); var passes = 0;
+        using var hold = new ManualResetEventSlim(true);
+        using var entered = new ManualResetEventSlim(false);
+        rig.Dispatch.Loaded(new WorldOnlyAuthor(c => {
+            if (c.Phase != RegistryPhase.Alter) return;
+            Interlocked.Increment(ref passes); entered.Set(); hold.Wait(); Edit(c, 40 + passes);
+        }), owner, Root, false);
+        rig.Dispatch.FlushLoads(); Assert.Equal(41, rig.Native.Value);
+        hold.Reset(); entered.Reset();
+        Assert.Null(RegistryRuntime.Reauthor!(owner, RegistryEntryPoint.WorldLoad));
+        rig.Dispatch.FlushLoads();  // the job starts; its pass waits inside the mod's code
+        Assert.True(entered.Wait(10_000), "the pass runs on the worker");
+        var waits = owner.BeginUnload();
+        Assert.NotNull(waits); Assert.Contains("Registry.Reauthor", waits);
+        hold.Set();
+        Assert.True(rig.Dispatch.ReauthorWork!.Wait(10_000));
+        Assert.Null(owner.UnloadWaitsFor());
+        Settle(rig.Dispatch);
+        Assert.Equal(1, rig.Native.LayerCount); Assert.Equal(41, rig.Native.Value);  // its Final phase did not run: nothing of it lands
+        Assert.Null(RegistryRuntime.Reauthor!(owner, RegistryEntryPoint.WorldLoad));  // asked again while the unload waits
+        Settle(rig.Dispatch);
+        Assert.Equal(2, passes);                     // no pass of an unloading mod starts
+        Assert.Equal(1, rig.Native.LayerCount); Assert.Equal(41, rig.Native.Value);  // and its layers stay for the retirement
+        owner.Retire(); Assert.Equal(10, rig.Native.Value);
+    }
     // The registry moved after the pass read it (another mod's commit): that turn is not landed and the pass runs again.
     [Fact(Timeout = 30_000)]
     public async Task AStaleTurnRunsThePassAgain()

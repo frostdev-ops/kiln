@@ -61,7 +61,10 @@ internal sealed class RegistryDispatch(ModManager mods) : IDisposable
         internal bool PassOnTick;
         // re-authors in a row whose turn the registry moved past before it landed (a later one runs whole on the tick)
         internal int StaleReauthors;
+        // review of LOOT-2: passes of this mod inside its code on Kiln's worker (its unload waits for them, Loaded)
+        internal readonly PassGate Gate = new();
     }
+    internal sealed class PassGate { internal int Inside; }
     internal void Prepare(ulong hostOwner)
     {
         RegistryRuntime.Host = this;
@@ -126,6 +129,11 @@ internal sealed class RegistryDispatch(ModManager mods) : IDisposable
             {
                 record = new Runtime(instance, context, points, Code(directory), reload);
                 _runtime.Add(record);
+                // review of LOOT-2: a re-authored pass runs the mod's OnRegistry on Kiln's worker thread. As every service that
+                // calls into a mod from another thread, its unload waits for a pass inside (OnUnload and the disposal run in a
+                // later Pre), and once the unload began no pass of it starts (RunPass)
+                var gate = record.Gate;
+                context.UnloadStarting += () => Volatile.Read(ref gate.Inside) > 0 ? "its re-authored registry pass (Registry.Reauthor) on Kiln's worker thread" : null;
             }
             if (reload) NoteGameStart(context.Info.Id, points, record?.Code);
         }
@@ -405,6 +413,7 @@ internal sealed class RegistryDispatch(ModManager mods) : IDisposable
         internal readonly List<(Runtime Record, string Ir)> Calls = [];  // in commit order
         internal readonly Dictionary<Runtime, Exception> Faults = [];
         internal readonly Dictionary<Runtime, string> TickOnly = [];     // a tick-thread member the pass called off the tick
+        internal readonly HashSet<Runtime> Skipped = [];  // its unload began before or while its pass ran: keeps its layers, adds nothing
         internal Exception? Transport;  // Kiln's own failure (the world's status, a native call), not the author's
         internal List<(Runtime Record, ulong Handle)> Replaced = [];
         internal List<(Runtime Record, string Ir)> Prepared = [];  // the calls the turn was prepared with, in its order
@@ -463,39 +472,47 @@ internal sealed class RegistryDispatch(ModManager mods) : IDisposable
         foreach (var phase in new[] { RegistryPhase.Add, RegistryPhase.Alter, RegistryPhase.Final })
             foreach (var record in job.Records)
             {
-                if (!record.Context.Alive || job.Faults.ContainsKey(record) || job.TickOnly.ContainsKey(record)) continue;
-                RegistryContext context;
-                try { context = Context(record.Context, RegistryEntryPoint.WorldLoad, phase, job.World, record.Code, false, job.Inputs[record], pass: true, offTick: offTick ? job.World.Token : 0); }
-                catch (Exception e) { job.Transport = e; return; }  // Kiln's world/status query, not the author
-                var outer = Game.OffTickPass;
-                Game.OffTickPass = offTick; Game.OffTickRefused = null;
+                if (!record.Context.Alive || job.Faults.ContainsKey(record) || job.TickOnly.ContainsKey(record) || job.Skipped.Contains(record)) continue;
+                // the gate before the unload's flag (both full fences): the unload's step sees this pass, or this pass sees the unload
+                Interlocked.Increment(ref record.Gate.Inside);
                 try
                 {
-                    using var scope = context.Enter();
-                    record.Instance.OnRegistry(context);
-                    var ir = context.CaptureIr();
-                    context.Close();
-                    if (ir is not null) job.Calls.Add((record, ir));
+                    if (record.Context.Unloading) { job.Skipped.Add(record); continue; }
+                    RegistryContext context;
+                    try { context = Context(record.Context, RegistryEntryPoint.WorldLoad, phase, job.World, record.Code, false, job.Inputs[record], pass: true, offTick: offTick ? job.World.Token : 0); }
+                    catch (Exception e) { job.Transport = e; return; }  // Kiln's world/status query, not the author
+                    var outer = Game.OffTickPass;
+                    Game.OffTickPass = offTick; Game.OffTickRefused = null;
+                    try
+                    {
+                        using var scope = context.Enter();
+                        record.Instance.OnRegistry(context);
+                        var ir = context.CaptureIr();
+                        context.Close();
+                        if (ir is not null) job.Calls.Add((record, ir));
+                    }
+                    catch (Exception e) { job.Faults[record] = e; }  // the author's code: a fault, whatever the exception
+                    finally
+                    {
+                        context.Close();
+                        if (offTick && Game.OffTickRefused is { } member) job.TickOnly[record] = member;
+                        Game.OffTickPass = outer; Game.OffTickRefused = null;
+                    }
                 }
-                catch (Exception e) { job.Faults[record] = e; }  // the author's code: a fault, whatever the exception
-                finally
-                {
-                    context.Close();
-                    if (offTick && Game.OffTickRefused is { } member) job.TickOnly[record] = member;
-                    Game.OffTickPass = outer; Game.OffTickRefused = null;
-                }
+                finally { Interlocked.Decrement(ref record.Gate.Inside); }
             }
         job.PassMs = clock.Elapsed.TotalMilliseconds;
     }
-    // Has kiln-content prepare the job's turn (off the tick): its records' calls in, their earlier layers out. Faulted records
-    // and records bound to the tick keep theirs and add nothing.
+    // Has kiln-content prepare the job's turn (off the tick): its records' calls in, their earlier layers out. Faulted records,
+    // records bound to the tick and records whose unload began keep theirs and add nothing.
     private void PrepareTurn(ReauthorJob job)
     {
         if (job.Transport is not null || job.TickOnly.Count > 0) return;
         var clock = System.Diagnostics.Stopwatch.StartNew();
-        job.Prepared = job.Calls.Where(c => !job.Faults.ContainsKey(c.Record) && c.Record.Context.Alive).ToList();
+        bool Ran(Runtime r) => !job.Faults.ContainsKey(r) && !job.Skipped.Contains(r) && r.Context.Alive;
+        job.Prepared = job.Calls.Where(c => Ran(c.Record)).ToList();
         var calls = job.Prepared.Select(c => (c.Record.Context.Owner, c.Ir)).ToList();
-        job.Replaced = job.Records.Where(r => !job.Faults.ContainsKey(r) && r.Context.Alive).SelectMany(r => job.Earlier[r].Select(h => (Record: r, Handle: h))).ToList();
+        job.Replaced = job.Records.Where(Ran).SelectMany(r => job.Earlier[r].Select(h => (Record: r, Handle: h))).ToList();
         if (calls.Count == 0 && job.Replaced.Count == 0) return;
         try
         {
