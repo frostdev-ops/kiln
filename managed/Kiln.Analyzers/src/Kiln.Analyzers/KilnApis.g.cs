@@ -965,6 +965,7 @@ internal static partial class KilnApis
         "P:Kiln.Hooks.Available=kiln.hooks", // HooksNative.T != null: Services.Get("kiln.hooks")
         "P:Kiln.Items.ArmorAvailable=items.gear.armor,kiln.items", // Can("items.gear.armor"); V8Scales != null: Services.Get("kiln.items")
         "P:Kiln.Items.Available=kiln.items", // Can("kiln.items")
+        "P:Kiln.Items.CheckedMovesAvailable=items.move", // Can("items.move")
         "P:Kiln.Items.ContainerNamesAvailable=items.names", // Can("items.names")
         "P:Kiln.Items.ContainerRenameAvailable=items.rename", // Can("items.rename")
         "P:Kiln.Items.Fuel.Available=items.fuel", // Can("items.fuel")
