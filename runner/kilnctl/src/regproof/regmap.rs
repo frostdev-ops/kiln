@@ -31,6 +31,9 @@ pub struct Entries {
     /// creatures: the entries are the templates holding a component of one of these types (by type name without namespaces)
     #[serde(default)]
     pub with_component: Vec<String>,
+    /// stations: with key "items", the member whose 32-bit item id names the entry (the item that builds it)
+    #[serde(default)]
+    pub key_member: String,
 }
 
 /// One Kiln field's row.

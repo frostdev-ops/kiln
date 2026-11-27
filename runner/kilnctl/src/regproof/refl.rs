@@ -626,7 +626,7 @@ fn row_diff(old: &TypeDb, new: &TypeDb, f: &RegFile, field: &str, row: &Row, oro
 }
 
 /// The members a registry's entries are named and keyed by (and a drop table's naming component; a template registry's entry
-/// components, `entries.withComponent`).
+/// components, `entries.withComponent`; a stations-like registry's `entries.keyMember`, the item that names each entry).
 fn entries_diff(old: &TypeDb, new: &TypeDb, f: &RegFile, oroot: &Base, nroot: &Base) -> RowDiff {
     let (ob, nb) = match (oroot, nroot) {
         (Ok(o), Ok(n)) => (o, n),
@@ -637,7 +637,7 @@ fn entries_diff(old: &TypeDb, new: &TypeDb, f: &RegFile, oroot: &Base, nroot: &B
             return RowDiff::of(vec![Change::Unresolved { path: path.clone(), owner: stop.owner.clone(), member: stop.member.clone() }], vec![], vec![]);
         }
     };
-    let mut paths: Vec<(String, String, String)> = [&f.entries.name, &f.entries.guid, &f.entries.id]
+    let mut paths: Vec<(String, String, String)> = [&f.entries.name, &f.entries.guid, &f.entries.id, &f.entries.key_member]
         .into_iter()
         .filter(|m| !m.is_empty())
         .map(|m| (ob.clone(), nb.clone(), m.clone()))
@@ -904,6 +904,54 @@ pub(crate) mod tests {
     /// dev.32 creatures: the components that make a template an entry (`entries.withComponent`) define the registry's entries
     /// like a name or GUID member: a build without one of them changes the registry's entries (every row), and the closure
     /// kilnctl dumps names them even when no row starts at them.
+    /// Registry trial merge (dev.32): the lanes' path forms where they meet. From a template root a path starts at a component
+    /// by its type (R2a), and below it may pick a variant of a list (R2b) or index a static array (R2a: the element's offset is
+    /// part of the member's step, bounds checked).
+    #[test]
+    fn a_component_first_path_takes_indexes_and_variant_selectors() {
+        let mut types = creature_types(2);
+        let have: Vec<String> = types.iter().map(|v| v["name"].as_str().unwrap_or_default().to_string()).collect();
+        types.extend(seq_types().into_iter().filter(|v| !have.iter().any(|n| n == v["name"].as_str().unwrap_or_default())));
+        types.push(st("keen::ecs::Brain", 24, 0xb1, &[("events", "demo::Events", 0), ("slots", "demo::Slots", 8)]));
+        let d = db(types, "a");
+        let steps = walk(&d, TEMPLATE, "Brain.events[demo::act::Spawn#0].time").unwrap();
+        let tys: Vec<&str> = steps.iter().map(|s| s.ty.as_str()).collect();
+        assert_eq!(tys, ["keen::ecs::Brain", "demo::act::Spawn", "demo::Time"]);
+        let slot = walk(&d, TEMPLATE, "Brain.slots[1]").unwrap();
+        assert_eq!((leaf(&slot).as_str(), slot[1].offset), ("demo::u32", 8 + 4), "a static array's element: its offset within the owner");
+        for (path, why) in [("Brain.events[0].time", "holds variants"), ("Brain.slots[2]", "2 elements, not 3"),
+                            ("Brain.slots[demo::act::Spawn#0]", "holds no variants"), ("Brains.events[demo::act::Spawn#0].time", "not a component type"),
+                            ("Brain.events[demo::ds::Spawn#0].time", "not one variant")] {
+            let e = walk(&d, TEMPLATE, path).err().unwrap_or_else(|| panic!("{path} resolved"));
+            assert!(e.why.contains(why), "{path}: {}", e.why);
+        }
+    }
+
+    /// Registry trial merge: a stations-like registry names its entries by the item that builds each (`entries.keyMember`, R3a),
+    /// a member like a name or an id: a build without it would rename every entry (all falling back to `station_<id>`), so the
+    /// registry's entries changed (every row); a build that keeps it is the same.
+    #[test]
+    fn a_key_member_is_an_entry_member() {
+        let stations = r#"{"regmap": 1, "registry": "benches",
+            "entries": {"kind": "array", "resourceType": "demo::Benches", "array": "benches", "id": "benchId", "key": "items",
+                        "keyMember": "item", "unnamed": "bench_%08x"},
+            "rows": {"npc": {"paths": ["npc"], "conv": "bool", "read": "restart", "backend": "none"}}}"#;
+        let mut m = RegMap::new();
+        m.insert("benches".into(), crate::regproof::regmap::parse(stations, "benches").unwrap());
+        let types = |with_item: bool| {
+            let mut fields = vec![("benchId", "demo::u32", 0), ("npc", "demo::bool", 8)];
+            if with_item {
+                fields.push(("item", "demo::u32", 4));
+            }
+            vec![t("demo::u32", 6, 4), t("demo::bool", 1, 1), st("demo::Bench", 12, if with_item { 0x1 } else { 0x2 }, &fields),
+                 arr("demo::BenchArray", "demo::Bench"), st("demo::Benches", 8, 0x3, &[("benches", "demo::BenchArray", 0)])]
+        };
+        let old = db(types(true), "a");
+        assert_eq!(status(&diff(&m, &old, &db(types(true), "b")), "benches.(entries)"), Status::Same);
+        let d = diff(&m, &old, &db(types(false), "b"));
+        assert_eq!(status(&d, "benches.(entries)"), Status::Changed, "{:?}", d.rows["benches.(entries)"]);
+    }
+
     #[test]
     fn entry_components_are_entry_members() {
         let creatures = r#"{"regmap": 1, "registry": "beasts",
