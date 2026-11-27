@@ -901,8 +901,22 @@ void move_why(MoveOutcome* mo, int32_t status, const char* fmt, uint32_t a = 0, 
     std::snprintf(mo->why, sizeof mo->why, fmt, a, b);
 }
 
+const Stack* checked_cell(const PageSet& pages, KilnSlotId slot) {
+    for (uint32_t i = 0; i < pages.n; ++i)
+        if (pages.p[i].entity == KILN_SLOT_INVENTORY(slot) && KILN_SLOT_INDEX(slot) < kSlotsPerPage)
+            return &pages.p[i].s[KILN_SLOT_INDEX(slot)];
+    return nullptr;
+}
+
+bool matches_witness(const Stack* cell, const KilnItemsSlotWitness& witness) {
+    if (!cell) return false;
+    if (is_empty(*cell)) return witness.item == 0 && witness.count == 0 && witness.pide == 0 && witness.stamp == 0;
+    return cell->item == witness.item && cell->count == witness.count && pide_of(*cell) == witness.pide &&
+           (!witness.pide || (witness.stamp && stamp_for(witness.pide, witness.item) == witness.stamp));
+}
+
 uint32_t move_stack_impl(const Access& a, void* tx, KilnEntity from, uint64_t slot, KilnEntity to, uint32_t count,
-                         uint64_t to_slot, bool allow_equipped, bool actionbar, MoveOutcome* mo) {
+                         uint64_t to_slot, bool allow_equipped, bool actionbar, MoveOutcome* mo, const MoveJob* checked = nullptr) {
     *mo = MoveOutcome{};
     if (!E.slot_transfer) return move_why(mo, KILN_ITEMS_UNAVAILABLE, "the game's slot transfer is not available"), 0;
     std::vector<PageSet> sets(2);
@@ -914,9 +928,10 @@ uint32_t move_stack_impl(const Access& a, void* tx, KilnEntity from, uint64_t sl
     if (!read_pages_impl(a, to, &tp, &init_t) || !init_t)
         return move_why(mo, KILN_ITEMS_NO_INVENTORY, "entity %u has no initialized inventory", to), 0;
     const uint32_t inv = KILN_SLOT_INVENTORY(slot);
-    const Stack* src = nullptr;
-    for (uint32_t i = 0; i < fp.n && !src; ++i)
-        if (fp.p[i].entity == inv && KILN_SLOT_INDEX(slot) < kSlotsPerPage) src = &fp.p[i].s[KILN_SLOT_INDEX(slot)];
+    const Stack* src = checked_cell(fp, slot);
+    if (checked && (!matches_witness(src, checked->source) ||
+                    (to_slot && !matches_witness(checked_cell(tp, to_slot), checked->destination))))
+        return move_why(mo, KILN_ITEMS_SLOT_CHANGED, "the selected source or destination stack changed"), 0;
     if (!src) return move_why(mo, KILN_ITEMS_SLOT_CHANGED, "the slot (inventory %u) is not one of entity %u's slots", inv, from), 0;
     if (is_empty(*src)) return move_why(mo, KILN_ITEMS_SLOT_CHANGED, "the slot holds nothing"), 0;
     const Stack first = *src;
@@ -930,6 +945,8 @@ uint32_t move_stack_impl(const Access& a, void* tx, KilnEntity from, uint64_t sl
     if (!info) return move_why(mo, KILN_ITEMS_REFUSED, "item 0x%08x is not in the item registry", first.item), 0;
     const uint32_t max_stack = rd<uint16_t>(info, E.item_max_stack);
     const bool gear = pide_of(first) != 0 || (rd<uint32_t>(info, E.item_flags) & 2u) != 0;
+    if (checked && gear && !pide_of(first))
+        return move_why(mo, KILN_ITEMS_REFUSED, "the selected gear has no item identity"), 0;
     if (!storage_accepts(to, first.item, gear, to_slot))
         return move_why(mo, KILN_ITEMS_FILTERED, "the player storage filter refuses this stack"), 0;
     const uint32_t want = count ? count : first.count;
@@ -947,7 +964,7 @@ uint32_t move_stack_impl(const Access& a, void* tx, KilnEntity from, uint64_t sl
         if (!cur || rd<uint32_t>(cur, 0) != first.item || rd<uint32_t>(cur, 4) == 0) break;
         uint64_t dst = 0;
         const char* refusal = "";
-        const uint64_t named = placed_first ? 0 : to_slot;
+        const uint64_t named = checked || !placed_first ? to_slot : 0;
         const DestKind where = choose_destination(tp.p, tp.cat, tp.n, first.item, max_stack, gear, rules, named, &dst, &refusal);
         if (where == DestKind::Refused) {
             if (moved == 0) {
@@ -957,7 +974,7 @@ uint32_t move_stack_impl(const Access& a, void* tx, KilnEntity from, uint64_t sl
             }
             break;
         }
-        if (where != DestKind::Found) break;
+        if (where != DestKind::Found || (checked && to_slot && dst != to_slot)) break;
         if (!storage_accepts(to, first.item, gear, dst)) break;
         alignas(8) Result12 r[3] = {};
         E.slot_transfer(&r[0], tx, dst, slot, whole ? 0 : 2);
@@ -1002,7 +1019,9 @@ LedgerTotals fill_changes(KilnItemsMoveResult* res, const std::vector<PageSet>& 
     return t;
 }
 
-void run_move_impl(const Access& a, const KilnItemsMoveRequest& r, uint8_t* tx, KilnItemsMoveResult* res) {
+void run_move_impl(const Access& a, const MoveJob& job, uint8_t* tx, KilnItemsMoveResult* res) {
+    const auto& r = job.r;
+    const auto* checked = (r.flags & KILN_ITEMS_MOVE_CHECKED) ? &job : nullptr;
     if (!storage_mutable(r.from) || !storage_mutable(r.to))
         return move_fail(res, KILN_ITEMS_UNAVAILABLE, "player storage persistence is unavailable");
     if ((r.from >= 1 && r.from <= 16 && !storage_actor(r.to, r.from)) ||
@@ -1033,7 +1052,7 @@ void run_move_impl(const Access& a, const KilnItemsMoveRequest& r, uint8_t* tx, 
         MoveOutcome mo;
         const uint32_t moved = move_stack_impl(a, tx, r.from, r.slot, r.to, r.count, r.to_slot,
                                                (r.flags & KILN_ITEMS_MOVE_EQUIPPED) != 0,
-                                               (r.flags & KILN_ITEMS_MOVE_ACTIONBAR) != 0, &mo);
+                                               (r.flags & KILN_ITEMS_MOVE_ACTIONBAR) != 0, &mo, checked);
         res->status = mo.status;
         res->game_error = mo.error;
         std::snprintf(res->message, sizeof res->message, "%s", mo.why);
@@ -1082,6 +1101,18 @@ void run_move_impl(const Access& a, const KilnItemsMoveRequest& r, uint8_t* tx, 
                 std::snprintf(res->message, sizeof res->message,
                               "rolled back: %u item(s) left the slot without arriving in entity %u", totals.lost, r.to);
         }
+    }
+    if (checked && (res->status == KILN_ITEMS_DONE || res->status == KILN_ITEMS_PARTIAL)) {
+        // An engine transfer returning a different landing or item is never safe to report as a checked move.
+        bool wrong = landed.empty();
+        for (const auto& c : landed)
+            wrong |= c.from_slot != r.slot || c.item != job.source.item || c.pide != job.source.pide ||
+                     (r.to_slot && c.to_slot != r.to_slot);
+        if (wrong) move_fail(res, KILN_ITEMS_REFUSED, "the exact move would not land as requested");
+        // All of it went where it should, but the named slot had room for only part of the count: NoRoom, like a
+        // named slot that has none (the move is rolled back below, so nothing moves).
+        else if (r.to_slot && res->done != res->requested)
+            move_fail(res, KILN_ITEMS_NO_ROOM, "the named slot has room for %u of the %u", res->done, res->requested);
     }
     for (const Change& c : landed) {
         if (!storage_accepts(r.to, c.item, c.pide != 0, c.to_slot)) {
@@ -1426,7 +1457,7 @@ bool access_from_tx(void* tx, Access* a) {
 
 bool run_move(const Access& a, const MoveJob& job, uint8_t* tx, KilnItemsMoveResult* res, unsigned long* code) {
     __try {
-        run_move_impl(a, job.r, tx, res);
+        run_move_impl(a, job, tx, res);
         return true;
     } __except (*code = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER) {
         xfer_mod_end();

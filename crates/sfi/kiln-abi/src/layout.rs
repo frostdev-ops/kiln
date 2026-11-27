@@ -2586,6 +2586,17 @@ const _: () = {
     assert!(core::mem::offset_of!(crate::services::kiln_items::KilnItemsMoveRequest, count) == 20);
     assert!(core::mem::offset_of!(crate::services::kiln_items::KilnItemsMoveRequest, slot) == 24);
     assert!(core::mem::offset_of!(crate::services::kiln_items::KilnItemsMoveRequest, to_slot) == 32);
+    assert!(core::mem::size_of::<crate::services::kiln_items::KilnItemsSlotWitness>() == 16);
+    assert!(core::mem::align_of::<crate::services::kiln_items::KilnItemsSlotWitness>() == 4);
+    assert!(core::mem::offset_of!(crate::services::kiln_items::KilnItemsSlotWitness, item) == 0);
+    assert!(core::mem::offset_of!(crate::services::kiln_items::KilnItemsSlotWitness, count) == 4);
+    assert!(core::mem::offset_of!(crate::services::kiln_items::KilnItemsSlotWitness, pide) == 8);
+    assert!(core::mem::offset_of!(crate::services::kiln_items::KilnItemsSlotWitness, stamp) == 12);
+    assert!(core::mem::size_of::<crate::services::kiln_items::KilnItemsCheckedMoveRequest>() == 72);
+    assert!(core::mem::align_of::<crate::services::kiln_items::KilnItemsCheckedMoveRequest>() == 8);
+    assert!(core::mem::offset_of!(crate::services::kiln_items::KilnItemsCheckedMoveRequest, base) == 0);
+    assert!(core::mem::offset_of!(crate::services::kiln_items::KilnItemsCheckedMoveRequest, source) == 40);
+    assert!(core::mem::offset_of!(crate::services::kiln_items::KilnItemsCheckedMoveRequest, destination) == 56);
     assert!(core::mem::size_of::<crate::services::kiln_items::KilnItemsMoveChange>() == 32);
     assert!(core::mem::align_of::<crate::services::kiln_items::KilnItemsMoveChange>() == 8);
     assert!(core::mem::offset_of!(crate::services::kiln_items::KilnItemsMoveChange, from_slot) == 0);

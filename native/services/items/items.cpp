@@ -70,6 +70,11 @@ static_assert(sizeof(KilnItemsFuelResult) == 720 && offsetof(KilnItemsFuelResult
               offsetof(KilnItemsFuelResult, message) == 560);
 
 static_assert(sizeof(KilnItemsMoveRequest) == 40 && offsetof(KilnItemsMoveRequest, slot) == 24);
+// checked moves (0.2.0-dev.32): the 40-byte request, then the source and destination witnesses (Kiln.Items' MoveRequest)
+static_assert(sizeof(KilnItemsSlotWitness) == 16 && offsetof(KilnItemsSlotWitness, pide) == 8 &&
+              sizeof(KilnItemsCheckedMoveRequest) == 72 && offsetof(KilnItemsCheckedMoveRequest, source) == 40 &&
+              offsetof(KilnItemsCheckedMoveRequest, destination) == 56);
+static_assert(KILN_ITEMS_MOVE_CHECKED == 0x10u && KILN_ITEMS_HAS_CHECKED_MOVE == 0x01u);
 static_assert(sizeof(KilnItemsMoveChange) == 32);
 static_assert(sizeof(KilnItemsMoveResult) == 736 && offsetof(KilnItemsMoveResult, changes) == 64 &&
               offsetof(KilnItemsMoveResult, message) == 576);
@@ -1377,7 +1382,7 @@ KilnResult KILN_CALL t_fuel_keep_end(uint64_t handle) {
 KilnResult KILN_CALL t_move(KilnOwner owner, const KilnItemsMoveRequest* r, KilnItemsMoveDoneFn done, void* user,
                             uint64_t* out_ticket) {
     constexpr uint32_t kAllowed = KILN_ITEMS_MOVE_DRY_RUN | KILN_ITEMS_MOVE_EQUIPPED | KILN_ITEMS_MOVE_ACTIONBAR |
-                                  KILN_ITEMS_MOVE_SILENT;
+                                  KILN_ITEMS_MOVE_SILENT | KILN_ITEMS_MOVE_CHECKED;
     if (!r || r->size < sizeof(KilnItemsMoveRequest) || r->from == 0 || r->to == 0 || r->from == r->to ||
         r->kind > KILN_MOVE_ALL || (r->flags & ~kAllowed))
         return KILN_ERR_INVALID_ARGUMENT;
@@ -1397,6 +1402,21 @@ KilnResult KILN_CALL t_move(KilnOwner owner, const KilnItemsMoveRequest* r, Kiln
     MoveRequest q{};
     q.ticket = g_next_ticket.fetch_add(1);
     q.owner = owner;
+    if (r->flags & KILN_ITEMS_MOVE_CHECKED) {
+        if (r->kind != KILN_MOVE_STACK || r->size < sizeof(KilnItemsCheckedMoveRequest))
+            return KILN_ERR_INVALID_ARGUMENT;
+        const auto& checked = *reinterpret_cast<const KilnItemsCheckedMoveRequest*>(r);
+        auto valid = [](const KilnItemsSlotWitness& w) {
+            return w.item && w.count && ((w.pide == 0) == (w.stamp == 0)) && w.pide != 0xffffffffu;
+        };
+        if (!valid(checked.source)) return KILN_ERR_INVALID_ARGUMENT;
+        const auto& d = checked.destination;
+        if (d.item || d.count || d.pide || d.stamp) {
+            if (!r->to_slot || !valid(d)) return KILN_ERR_INVALID_ARGUMENT;
+        }
+        q.job.source = checked.source;
+        q.job.destination = checked.destination;
+    }
     q.job.r = *r;
     q.job.r.size = sizeof(KilnItemsMoveRequest);
     q.submitted = g_step.load();
@@ -1444,6 +1464,7 @@ KilnResult KILN_CALL t_status2(KilnItemsStatus2* out) {
     out->moves = E.move_ok && g_program.load() == KILN_ITEMS_PROGRAM_RUNNING;
     out->names = E.names_ok && E.read_ok;
     xfer_status(out);
+    out->reserved = KILN_ITEMS_HAS_CHECKED_MOVE;
     out->moves_done = g_moves_done.load();
     out->names_found = names_found();
     if (!out->detail[0]) {

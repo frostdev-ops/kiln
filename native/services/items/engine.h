@@ -366,6 +366,7 @@ bool access_from_tx_reads(void* tx, Access* a);
 // a dry run), and fills the result including the ledger. Guarded: false on a fault.
 struct MoveJob {
     KilnItemsMoveRequest r{};
+    KilnItemsSlotWitness source{}, destination{};
 };
 bool run_move(const Access& a, const MoveJob& job, uint8_t* tx, KilnItemsMoveResult* res, unsigned long* code);
 
