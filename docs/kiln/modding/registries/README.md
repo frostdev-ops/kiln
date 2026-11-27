@@ -498,8 +498,10 @@ a `runtimeWriter` writer (`shroudforge:<package>`, certainty `named`, its value 
 instead of the best-effort `drift` row. A skipped write names it too (`items[game:material_t1_wood_logs].maxStack was
 written by shroudforge:big_stacks at run time after Kiln's layer: Kiln's edit not applied`), and so do the lines (`...
 shroudforge:big_stacks changed it at run time after Kiln's last write in this world (40 -> 777)`). The Conflicts page
-shows the row's `who` and kind as they are. Anything the records do not prove keeps the `drift` row: a value something
-else wrote over the package's, a package that wrote over another value than Kiln's, writes of a Kiln interpreter or
+names the package as it names an archive-writer package (`big_stacks (ShroudForge package)`, kind "Run-time writer").
+A record's writer is what its caller said: Kiln shows only a ShroudForge package's name (`shroudforge:` and a plain id, as
+Kiln's interpreter writes it), any other text names nobody. Anything the records do not prove keeps the `drift` row: a
+value something else wrote over the package's, a package that wrote over another value than Kiln's, writes of a Kiln interpreter or
 kiln.assets older than this release (their records name no package), hosted or installed ShroudForge (its run-time
 writes go to memory outside Kiln). kiln.assets keeps 16,384 places for the process; the place written longest ago goes
 first. The records are asked for only when a row needs a name, once per report.

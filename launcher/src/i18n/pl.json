@@ -6569,7 +6569,8 @@
     "kind": {
       "archiveWriter": "Zapisał ten wpis przed Kiln (archiwum)",
       "archiveWriterField": "Zapisał to pole przed Kiln (archiwum)",
-      "drift": "Zmienione poza Kiln"
+      "drift": "Zmienione poza Kiln",
+      "runtimeWriter": "Zmienione w trakcie działania (interpreter Kiln)"
     },
     "unverified": "Mapowanie niezweryfikowane",
     "unverifiedBody": "Zmiany pól mogą zostać odrzucone jako Unproven. Przeczytaj powód każdego odrzucenia.",

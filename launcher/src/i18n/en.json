@@ -6876,7 +6876,8 @@
     "kind": {
       "archiveWriter": "Wrote this entry before Kiln (archive)",
       "archiveWriterField": "Wrote this field before Kiln (archive)",
-      "drift": "Changed outside Kiln"
+      "drift": "Changed outside Kiln",
+      "runtimeWriter": "Changed at run time (Kiln's interpreter)"
     },
     "unverified": "Mapping unverified",
     "unverifiedBody": "Field edits may be refused as Unproven. Read each refusal for its reason.",

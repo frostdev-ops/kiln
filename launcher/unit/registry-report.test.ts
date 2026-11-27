@@ -170,6 +170,23 @@ describe("untrusted registry report", () => {
       conflicts: [{ ...r.conflicts[0], winner: "stacker", loser: "replay.sf.betterstacks.1a2b3c4d" }] });
     expect(lost.conflicts[0].loser).toBe("BetterStacks (ShroudForge package, replayed from its recorded effect)");
   });
+  // review-j3 (J3b, sfi R3): a run-time writer of kiln mode (kind runtimeWriter, who shroudforge:<package>) is named as an
+  // archive-writer package is, with its own kind text; so is the field's winner and a conflict line's writer it names
+  test("a run-time writer of kiln mode is named as its package, with its kind", () => {
+    const r = registryFixture();
+    r.fields[0].writers = [
+      ...r.fields[0].writers,
+      { kind: "runtimeWriter", who: "shroudforge:big_stacks", op: 777, value: 777, certainty: "named" },
+    ] as typeof r.fields[0].writers;
+    const out = parse({ ...r, fields: [{ ...r.fields[0], winner: "shroudforge:big_stacks" }],
+      conflicts: [{ ...r.conflicts[0], winner: "shroudforge:big_stacks", loser: "stacker" }] });
+    const w = out.fields[0].writers[out.fields[0].writers.length - 1];
+    expect([w.owner, w.kind, w.certain]).toEqual(["big_stacks (ShroudForge package)", "Changed at run time (Kiln's interpreter)", false]);
+    expect(out.fields[0].winner).toBe("big_stacks (ShroudForge package)");
+    expect(out.conflicts[0].winner).toBe("big_stacks (ShroudForge package)");
+    // a Kiln mod's own id is never read as a package (mod ids have no ':')
+    expect(parse({ ...r, fields: [{ ...r.fields[0], winner: "stacker" }] }).fields[0].winner).toBe("stacker");
+  });
   test.each(["null", "[]", "{}", "{", '{"format":2}'])("rejects invalid or unsupported document %s", text => {
     expect(() => parseRegistryReport(text)).toThrow();
   });
@@ -378,7 +395,9 @@ describe("snapshot freshness", () => {
 test("every locale has the archive-writer texts, the EML pass's field-level ones too, with English's placeholders", () => {
   const keys = ["journal.read", "journal.truncated", "archiveUnattributed", "archiveOp", "archiveOpField", "kind.archiveWriter", "kind.archiveWriterField", "certaintyHint",
     // review-j3: the effect replay card (its toggle writes the opt-in file)
-    "replay.row", "replay.title", "replay.sub", "replay.toggle", "replay.toggleFor", "replay.saved", "replay.notSaved", "replay.unavailable", "replay.none"];
+    "replay.row", "replay.title", "replay.sub", "replay.toggle", "replay.toggleFor", "replay.saved", "replay.notSaved", "replay.unavailable", "replay.none",
+    // review-j3 (J3b): a run-time writer's kind
+    "kind.runtimeWriter"];
   const at = (o: unknown, k: string) => k.split(".").reduce<unknown>((x, p) => (x as Record<string, unknown> | undefined)?.[p], (o as Record<string, unknown>).registry);
   const ph = (s: unknown) => (String(s).match(/\{[a-z]+\}/gi) ?? []).sort().join();
   const old: Record<string, string> = { de: "Rezept- oder Beute-Eintrag wird nicht benannt", es: "no se nombra ninguna entrada de receta", fr: "recette ou de butin n'est pas nommée",

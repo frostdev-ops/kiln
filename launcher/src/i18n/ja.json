@@ -6128,7 +6128,8 @@
     "kind": {
       "archiveWriter": "Kiln より前にこのエントリを書き込み (アーカイブ)",
       "archiveWriterField": "Kiln より前にこのフィールドを書き込み (アーカイブ)",
-      "drift": "Kiln の外で変更"
+      "drift": "Kiln の外で変更",
+      "runtimeWriter": "実行中に変更 (Kiln のインタープリター)"
     },
     "unverified": "対応付けは未検証",
     "unverifiedBody": "フィールドの変更が Unproven として拒否されることがあります。各拒否の理由を確認してください。",

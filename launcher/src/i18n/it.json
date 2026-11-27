@@ -6275,7 +6275,8 @@
     "kind": {
       "archiveWriter": "Ha scritto questa voce prima di Kiln (archivio)",
       "archiveWriterField": "Ha scritto questo campo prima di Kiln (archivio)",
-      "drift": "Cambiato fuori da Kiln"
+      "drift": "Cambiato fuori da Kiln",
+      "runtimeWriter": "Modificato durante l'esecuzione (interprete di Kiln)"
     },
     "unverified": "Mappatura non verificata",
     "unverifiedBody": "Le modifiche ai campi possono essere rifiutate come Unproven. Leggi il motivo di ogni rifiuto.",

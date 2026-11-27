@@ -6275,7 +6275,8 @@
     "kind": {
       "archiveWriter": "Hat diesen Eintrag vor Kiln geschrieben (Archiv)",
       "archiveWriterField": "Hat dieses Feld vor Kiln geschrieben (Archiv)",
-      "drift": "Außerhalb von Kiln geändert"
+      "drift": "Außerhalb von Kiln geändert",
+      "runtimeWriter": "Zur Laufzeit geändert (Kilns Interpreter)"
     },
     "unverified": "Zuordnung nicht geprüft",
     "unverifiedBody": "Feldänderungen können als Unproven abgelehnt werden. Lies bei jeder Ablehnung ihren Grund.",

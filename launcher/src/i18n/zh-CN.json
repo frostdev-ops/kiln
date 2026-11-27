@@ -6615,7 +6615,8 @@
     "kind": {
       "archiveWriter": "在 Kiln 之前写入了此条目（存档）",
       "archiveWriterField": "在 Kiln 之前写入了此字段（存档）",
-      "drift": "在 Kiln 之外被修改"
+      "drift": "在 Kiln 之外被修改",
+      "runtimeWriter": "运行时更改（Kiln 解释器）"
     },
     "unverified": "映射未验证",
     "unverifiedBody": "字段修改可能会以 Unproven 被拒绝。请查看每条拒绝的原因。",
