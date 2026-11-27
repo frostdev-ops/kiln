@@ -8,6 +8,7 @@ reads it, and a game update that moves a member changes a row here, not a mod.
 |---|---|
 | `common/<registry>.json` | where the registry's entries come from and one row per Kiln field |
 | `server/<exe sha256>.json`, `client/<exe sha256>.json` | the record of one game build: verified or not, each row's state, the root types' layout hashes, the alias deltas |
+| `views.json` | the advanced registry views' alias table (since 0.2.0-dev.32; [views.md](../docs/kiln/modding/registries/views.md)): deltas only |
 
 Read by kiln.content (`native/services/content/registry/regmap.{h,cpp}`); checked offline by
 `tools/registrygen/regmap_check.py` (against the committed type dumps under `sigdb/types/`, or against a game
@@ -318,3 +319,21 @@ tables are pinned when their name would move (or clash), not all at once: pinnin
 put a list of the game's template names in the repository; the previous build's id table plus these deltas keep every
 id. How ids are made: docs/kiln/modding/registries/README.md "Ids"; the same rules in regmap_ids.py and regmap.cpp, tested
 on native/services/content/tests/registry_ids_cases.json.
+
+## views.json: the advanced views' alias table
+
+The advanced registry views (`kiln.registry.view`, docs/kiln/modding/registries/views.md) name every other resource type and
+its members after the game's reflection on the running build. This file keeps those Kiln names when a game update renames
+something. It is not under `common/`, so it is not part of `regmapDigest`: an edit of it turns no registry row off.
+
+```jsonc
+{ "views": 1,
+  "types":   { "quest": "keen::QuestDefinitionResource" },                    // the view keeps its name on the renamed type
+  "fields":  { "quest": { "xpReward": "experienceReward" } },                 // the Kiln field keeps its name on the renamed member
+  "removed": { "quest": { "repeatable": "1300000" } },                        // refused "removed by game build 1300000", never reused
+  "ids":     { "pinned": { "quest|<guid>": "game:old_quest" }, "removed": { "quest|game:gone": "1300000" } } }
+```
+
+Deltas only (identifiers, never a list of the game's names or values); an empty or missing file is valid, and every name
+without a row is the derived one (`registry/views.h`). A file that does not read is not used (kiln.log says why). Shipped beside
+`common/` (tools/package/stage.sh, tools/deploy-server.sh) when it exists.

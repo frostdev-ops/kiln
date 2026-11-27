@@ -43,6 +43,7 @@
 #include "live_table.h"
 #include "limits.h"
 #include "kiln_hook.hpp"
+#include "view_service.h"
 
 namespace kc {
 bool eml_live_generation(std::string* hex, std::string* why);  // gamedata_bootview_eml.cpp
@@ -776,6 +777,7 @@ void bind_service() {
     live_env.generation = [] { return runner().generation(); };
     const KilnResult c = g_api->register_service(g_owner, KilnStr{KILN_REGISTRY_LIVE_SERVICE, sizeof(KILN_REGISTRY_LIVE_SERVICE) - 1}, live_table(live_env));
     if (a != KILN_OK || b != KILN_OK || c != KILN_OK) LOGW("registry: kiln.registry rc %d, kiln.internal.registry rc %d, kiln.registry.live rc %d", a, b, c);
+    views::bind_view_service();  // kiln.registry.view: one read-only view over every registry and resource type (dev.32 J1)
 }
 
 }  // namespace kc::registry::stage

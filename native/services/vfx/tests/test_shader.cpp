@@ -28,6 +28,12 @@ static void spit(const std::filesystem::path& p, const kvb::Bytes& b) {
 int main(int argc, char** argv) {
     using namespace kvb;
     require(argc == 3, "usage: test_shader OUTDIR REPO");
+    // the manifest's Native-tier opt-in: "native" (since 0.2.0-dev.32) or its older name "advanced"
+    require(manifest_native(parse_relaxed(R"({"id": "a", "native": true})")), "\"native\": true opts a mod's own GPU code in");
+    require(manifest_native(parse_relaxed(R"({"id": "a", "advanced": true})")), "\"advanced\": true still does");
+    require(!manifest_native(parse_relaxed(R"({"id": "a"})")) && !manifest_native(parse_relaxed(R"({"id": "a", "native": false})")),
+            "without either a mod's own GPU code stays out");
+    require(manifest_native(parse_relaxed(R"({"id": "a", "advanced": false, "native": true})")), "\"native\" decides when both are there");
     const std::filesystem::path out = argv[1], repo = argv[2];
     const Bytes swirl = slurp(repo / "mods/samples/ShaderSample/shaders/build/swirl.spv");
     require(!swirl.empty(), "the sample's hook module is there");

@@ -23,9 +23,12 @@ extension notes and the sample links are added too (since.py, apiids.py, samples
   Extension member of Is: call it as Is.InCombat       on AiRulesApi.get_InCombat, the static method the compiler makes
   Extension members                          on Is: what other classes add to it, with links (remarks)
   Used in samples: Hello/HelloMod.cs, ...    on each type, with links to the sample's file on GitHub (remarks)
+  Tier: Stable (...)                          on each type: its tier (docs/kiln/modding/tiers.md), from the repository's
+                                              tools/docs-site/tiers.json (its assembly's default, or the type's own row)
 """
 import copy
 import importlib.util
+import json
 from pathlib import Path
 import sys
 import xml.etree.ElementTree as ET
@@ -108,6 +111,31 @@ USAGE_CODE = {label: any(t is None for l, t in USAGE.values() if l == label) for
 
 
 TYPES = ("Class", "Struct", "Enum", "Interface", "Delegate")
+# The tiers (docs/kiln/modding/tiers.md, decision D5) as a type's line says them.
+TIER_TEXT = {
+    "stable": "Stable (Kiln's names: survives game updates; its contract is frozen with API 1.0.0)",
+    "advanced": "Advanced (the game's names: verified per game build, outside the update promise)",
+    "native": "Native (addresses, raw memory, native code: the mod's own risk on every game update)",
+}
+
+
+def load_tiers(repo):
+    """tools/docs-site/tiers.json of the repository ({"assemblies": {name: tier}, "types": {full name: tier}}), or None."""
+    p = Path(repo) / "tools" / "docs-site" / "tiers.json"
+    if not p.is_file():
+        return None
+    return json.loads(p.read_text(encoding="utf-8"))
+
+
+def tier_of(tiers, item):
+    """A type's tier: its own row (generic arity left out), else its assembly's; None when tiers.json names neither."""
+    name = item["uid"].split("`")[0]
+    if name in tiers.get("types", {}):
+        return tiers["types"][name]
+    for asm in item.get("assemblies") or []:
+        if asm in tiers.get("assemblies", {}):
+            return tiers["assemblies"][asm]
+    return None
 SAMPLES_SHOWN = 8
 
 
@@ -153,7 +181,8 @@ def annotate(api, stage, repo=None):
         name = (tree.findtext("assembly/name") or f.stem).strip()
         docs[name] = (f, tree, {m.get("name"): m for m in tree.iter("member")})
     items = [i for f in sorted(Path(api).glob("*.yml")) if f.name != "toc.yml" for i in undocumented.items(f)]
-    counts = {"usage": 0, "capability": 0, "since": 0, "extension": 0, "receivers": 0, "samples": 0}
+    counts = {"usage": 0, "capability": 0, "since": 0, "extension": 0, "receivers": 0, "samples": 0, "tier": 0}
+    tiers = load_tiers(repo) if repo else None
     changed = set()
     since = since_mod.Since(repo) if repo else None
     repo_samples = samples_mod.Samples(repo) if repo else None
@@ -184,6 +213,11 @@ def annotate(api, stage, repo=None):
         usage = usage_para(item["attributes"], item["arguments"])
         if usage is not None:
             paras.append(usage)
+        if tiers is not None and item.get("type") in TYPES:
+            tier = tier_of(tiers, item)
+            if tier in TIER_TEXT:
+                paras.append(docxml.para("Tier: " + TIER_TEXT[tier]))
+                counts["tier"] += 1
         if since is not None and item.get("type") != "Namespace":
             text = since.text(cid)
             if text:
@@ -310,7 +344,7 @@ def main():
     c = annotate(args[0], args[1], repo)
     print(f"annotate: {c['usage']} members with a thread/side line, {c['capability']} with a capability"
           + (f", {c['since']} with a since line, {c['extension']} extension members, {c['receivers']} receivers of them, "
-             f"{c['samples']} types with samples" if repo else ""))
+             f"{c['samples']} types with samples, {c['tier']} types with a tier" if repo else ""))
 
 
 if __name__ == "__main__":

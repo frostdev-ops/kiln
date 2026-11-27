@@ -1,0 +1,7 @@
+{
+  "raw": "{\"id\":\"ok\",\"version\":\"1\",\"apiVersion\":\"0.1\",\"entryAssembly\":\"a.dll\",\"advanced\":false,\"native\":true}",
+  "expect": {
+    "ok": false,
+    "error": "kiln.mod.json: advanced and native are one setting (native is its newer name): give one of them, or both the same"
+  }
+}

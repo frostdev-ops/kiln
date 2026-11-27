@@ -16,6 +16,9 @@ Outputs:
   managed/services/Kiln.Registry/Generated/RegistrySchema.gen.cs   the field catalog (Kiln.Registry.RegistrySchema)
   schema/registry-section.schema.json                    the data section's schema (content/*.json "registry")
   docs/kiln/modding/registries/<registry>.md             one page per registry
+  managed/Kiln.Analyzers/src/Kiln.Analyzers/RegistryHints.g.cs   the analyzers' hint table (KILN124, KILN125): the old data
+                                                         paths and game functions each registry field covers, from
+                                                         regmap/common (Kiln's part: the analyzers read a mod's old paths)
 
 The rules the schemas follow are schema/registry-schema.schema.json's plus what a JSON schema cannot say: every leaf has
 "applies" (its own or its parent's), ops fit the type, Kiln names only (no game member, type or offset), refs name a
@@ -35,6 +38,24 @@ NATIVE = "native/services/content/registry/schema.g.h"
 CS_DIR = "managed/services/Kiln.Registry/Generated"
 SECTION = "schema/registry-section.schema.json"
 DOCS = "docs/kiln/modding/registries"
+HINTS = "managed/Kiln.Analyzers/src/Kiln.Analyzers/RegistryHints.g.cs"
+HAND_PAGES = ("README.md", "views.md")  # pages of the registries' folder that no schema makes
+# The old paths' sections and the game type their paths start from: kiln.gamedata's (native gamedata_res.cpp builds each from
+# that type; tests check the two agree) and the item data section. kiln.content's items, recipes, loot and drops sections start
+# where the registry of the same name does (regmap/common entries).
+GAMEDATA_SECTIONS = {"templates": "keen::ecs::TemplateResource", "arsenals": "keen::enemy::EnemyArsenalResource",
+                     "sequences": "keen::actor::ActorSubSequenceResource", "buffs": "keen::BuffType", "perks": "keen::Perk",
+                     "skills": "keen::SkillTreeNode", "itemdata": "keen::ItemInfo"}
+CONTENT_SECTIONS = ("items", "recipes", "loot", "drops")
+# The old kiln.gamedata sections whose entries are the elements of one collection's array (gamedata_res.cpp build_collection;
+# the tests check the two agree): a registry over that array covers the section's paths, which start at the element.
+SECTION_COLLECTIONS = {"arsenals": ("keen::enemy::EnemyArsenalRegistryResource", "arsenals"),
+                       "buffs": ("keen::BuffTypeCollectionResource", "buffs"), "skills": ("keen::SkillTreeResource", "nodes")}
+# ... and "sequences", one entry per sub-sequence of an actor sequence: a registry row on subSequences[k] covers its paths
+# (not one to one: the row names one sub-sequence, a sequences entry may be another)
+SECTION_SUBSEQUENCES = ("sequences", "keen::actor::ActorSequenceResource", "subSequences")
+# conversions whose Kiln value is the game's value (a data pack's number or bool moves to the registry unchanged)
+HINT_EXACT = ("int", "float", "bool", "time")
 
 APPLIES = ("now", "worldLoad", "restart")
 JOINED_CLIENT = ("now", "worldLoad", "rejoin", "restart", "serverOnly", "localOnly", "unknown")
@@ -1327,12 +1348,144 @@ def render_doc(model, lock, reg):
     return "\n".join(out) + "\n"
 
 
+# ---------------------------------------------------------------- the analyzers' hint table
+
+def regmap_docs(root):
+    out = {}
+    folder = Path(root) / "regmap" / "common"
+    for p in sorted(folder.glob("*.json")) if folder.is_dir() else []:
+        try:
+            d = json.loads(p.read_text(encoding="utf-8"))
+        except ValueError:
+            continue
+        if isinstance(d, dict) and d.get("registry") == p.stem:
+            out[p.stem] = d
+    return out
+
+
+def entry_root(entries):
+    """The root an entry's row paths start at: the resource type, or "<type>/<array>[]" for the elements of an array."""
+    kind, rtype = entries.get("kind", "resource"), entries.get("resourceType", "")
+    if not rtype or kind == "hooks":
+        return None
+    if kind == "array":
+        return f"{rtype}/{entries.get('array', '')}[]"
+    return rtype
+
+
+def section_drift(root):
+    """GAMEDATA_SECTIONS against native gamedata_res.cpp's section table: one line per section that names another type."""
+    p = Path(root) / "native" / "services" / "content" / "gamedata_res.cpp"
+    if not p.is_file():
+        return []
+    src = p.read_text(encoding="utf-8")
+    found = dict(re.findall(r'\{KILN_GD_[A-Z]+, "([a-z]+)", "([^"]+)"', src))
+    out = []
+    for section, rtype in GAMEDATA_SECTIONS.items():
+        if section in found and found[section] != rtype:
+            out.append(f"gamedata section {section} starts at {found[section]} in gamedata_res.cpp, not {rtype}")
+    return out
+
+
+def hint_path(path):
+    """A row's member path as the analyzers match a mod's: lower case, a type in brackets without its namespaces
+    ("events[keen::actor::SpawnImpact#0].time" -> "events[spawnimpact#0].time", as data packs write it)."""
+    return re.sub(r"\[(?:[A-Za-z0-9_]+::)+", "[", path).lower()
+
+
+def render_hints(model, root):
+    """RegistryHints.g.cs: every old data path a registry field covers, for KILN124 and its fix, and every game function a
+    hooks registry's field covers, for KILN125. Made from the schemas and regmap/common, so a new registry is in it once its
+    files are; nothing here is kept by hand."""
+    docs = regmap_docs(root)
+    paths, hooks, sections = [], [], dict(GAMEDATA_SECTIONS)
+    for name in sorted(model.registries):
+        reg = model.registries[name]
+        m = docs.get(name)
+        if not m:
+            continue
+        entries = m.get("entries") or {}
+        base = entry_root(entries)
+        if base and name in CONTENT_SECTIONS:
+            sections[name] = base
+        fields = {r.path for r in reg.rows}
+        for field, row in sorted((m.get("rows") or {}).items()):
+            if field not in fields or "[]" in field or not isinstance(row, dict) or row.get("state") == "unmapped":
+                continue
+            ps = [p for p in row.get("paths") or [] if isinstance(p, str)]
+            if entries.get("kind") == "hooks":
+                for fn in re.findall(r"\bsigdb [a-z][a-z0-9_.-]*/([A-Za-z_][A-Za-z0-9_]*)", str(row.get("evidence", ""))):
+                    hooks.append((fn.lower(), f"{name}.{field}"))
+                continue
+            if not base:
+                continue
+            exact = len(ps) == 1 and row.get("conv") in HINT_EXACT
+            # rank: 0 one to one, 1 the field's own member (its first path), 2 an input its formula only reads
+            ranked = [(p, 0 if exact else 1 if k == 0 else 2) for k, p in enumerate(ps)]
+            if row.get("conv") == "impactConfig" and isinstance(row.get("config"), str):
+                # one configuration of the list, as a data pack names it ("impactValues.ManaCost"): that field's own member
+                ranked += [(f"{p}.{row['config']}", 1) for p in ps]
+            for p, rank in ranked:
+                q = hint_path(p)
+                paths.append((base, q, f"{name}.{field}", exact, rank))
+                if entries.get("kind") == "array":
+                    # a resource patch on the registry's resource names the element through the array
+                    rtype, arr = base.split("/", 1)
+                    paths.append((rtype, f"{arr}.{q}", f"{name}.{field}", exact, rank))
+                    # an old section that lists that array's elements names the member from the element
+                    for section, coll in SECTION_COLLECTIONS.items():
+                        if coll == (rtype, entries.get("array")):
+                            paths.append((GAMEDATA_SECTIONS[section], q, f"{name}.{field}", exact, rank))
+                sub = re.match(r"%s\[\d+\]\.(.+)$" % re.escape(SECTION_SUBSEQUENCES[2].lower()), q)
+                if base == SECTION_SUBSEQUENCES[1] and sub:
+                    paths.append((GAMEDATA_SECTIONS[SECTION_SUBSEQUENCES[0]], sub.group(1), f"{name}.{field}", False, rank))
+    # a member several fields name is the field(s) of its best rank: itemLevelRange.minLevel is items.levels.min, not the armor
+    # or power formula that reads it (views.cpp cover() ranks the same way)
+    best = {}
+    for root_, p, _, _, rank in paths:
+        best[(root_, p)] = min(rank, best.get((root_, p), 3))
+    paths = sorted({r[:4] for r in paths if r[4] == best[(r[0], r[1])]})
+    hooks = sorted(set(hooks))
+
+    def lit(v):
+        return "true" if v is True else "false" if v is False else json.dumps(v)
+
+    def table(rows):
+        return "".join(f"        ({', '.join(lit(x) for x in r)}),\n" for r in rows)
+
+    regs = [(n, model.registries[n].version) for n in sorted(model.registries)]
+    return ("// SPDX-License-Identifier: MIT\n"
+            "// Generated by tools/registrygen/registrygen.py from schema/registry/*.json and regmap/common/*.json. Do not edit.\n"
+            "// The registry fields that cover a mod's old paths (docs/kiln/modding/analyzers.md, KILN124 and KILN125): Kiln's\n"
+            "// part, like regmap/; the analyzers compare what a mod already names (its data pack paths, resource patches, hooked\n"
+            "// functions) with it and point at the Kiln field. Paths are lower case, as the game's walker matches them.\n"
+            "namespace Kiln.Analyzers;\n\n"
+            "internal static class RegistryHints\n{\n"
+            "    /// <summary>Every registry of the schema: name and schema version.</summary>\n"
+            "    internal static readonly (string Name, string Version)[] Registries = {\n"
+            + table(regs) +
+            "    };\n\n"
+            "    /// <summary>Where an old section's paths start (a game type, or \"&lt;type&gt;/&lt;array&gt;[]\" for an array's elements).</summary>\n"
+            "    internal static readonly (string Section, string Root)[] Sections = {\n"
+            + table(sorted(sections.items())) +
+            "    };\n\n"
+            "    /// <summary>(root, member path, Kiln field, exact): exact = the same value one to one (a number or a bool).</summary>\n"
+            "    internal static readonly (string Root, string Path, string Field, bool Exact)[] Paths = {\n"
+            + table(paths) +
+            "    };\n\n"
+            "    /// <summary>(game function, Kiln field): a hooks registry's field over the function a mod hooks.</summary>\n"
+            "    internal static readonly (string Function, string Field)[] Hooks = {\n"
+            + table(hooks) +
+            "    };\n}\n")
+
+
 # ---------------------------------------------------------------- driver
 
 def render(model, lock):
     out = {NATIVE: render_native(model, lock),
            f"{CS_DIR}/RegistrySchema.gen.cs": render_cs_catalog(model, lock),
-           SECTION: render_section(model, lock)}
+           SECTION: render_section(model, lock),
+           HINTS: render_hints(model, model.root)}
     for reg in ordered(model, lock):
         out[f"{CS_DIR}/{pascal(reg.name)}.gen.cs"] = CsWriter(model, lock, reg).render()
         out[f"{DOCS}/{reg.name}.md"] = render_doc(model, lock, reg)
@@ -1354,7 +1507,7 @@ def stale(root, outputs):
         folder = Path(root) / d
         for p in sorted(folder.glob(pat)) if folder.is_dir() else []:
             rel = f"{d}/{p.name}"
-            if rel not in outputs and p.name != "README.md":
+            if rel not in outputs and p.name not in HAND_PAGES:
                 bad.append(rel + " (no schema makes it)")
     return bad
 

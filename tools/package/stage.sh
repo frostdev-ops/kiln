@@ -362,6 +362,8 @@ cp "$repo"/sigdb/builds/client/*.json "$s/builds/client/" 2>/dev/null || true
 # beside that side's sigdb.
 mkdir -p "$stage/core/kiln/regmap/common"
 install -m 644 "$repo"/regmap/common/*.json "$stage/core/kiln/regmap/common/"
+# the advanced registry views' alias table (regmap/README.md "views.json"): both sides, so core's too
+if [ -f "$repo/regmap/views.json" ]; then install -m 644 "$repo/regmap/views.json" "$stage/core/kiln/regmap/views.json"; fi
 for side in server client; do
   r=$stage/sigdb-$side/kiln/regmap
   mkdir -p "$r/$side"

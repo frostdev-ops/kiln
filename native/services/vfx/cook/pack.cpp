@@ -313,7 +313,7 @@ CookResult cook_mods(const std::vector<ModInput>& mods, const CookOptions& opt) 
                 if (b.def.game_sprite) why = "gameSpriteModule draws with the game's module, so this one isn't used";
                 else if (opt.skip_shaders) why = "mods' own particle shaders are off (kiln/config/vfx.json \"shaders\": false)";
                 else if (opt.skip_shader_mods.count(mod.id)) why = "this mod's particle shaders are off (kiln/config/vfx.json \"skipShaderMods\")";
-                else if (!mod.advanced) why = "a mod with its own GPU code has to say \"advanced\": true in kiln.mod.json";
+                else if (!mod.advanced) why = "a mod with its own GPU code has to say \"native\": true (or its older name \"advanced\": true) in kiln.mod.json";
                 else if (!safe_rel(p.shader)) why = "must be relative, inside the mod's folder";
                 if (why.empty() && !mod_modules.count(p.shader)) {
                     Bytes code;

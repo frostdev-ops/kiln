@@ -75,7 +75,7 @@ internal sealed class Manifest
     [
         "$schema", "id", "name", "version", "authors", "author", "description", "license", "url", "apiVersion", "side",
         "clients", "dependencies", "loadBefore", "loadAfter", "incompatible", "features", "entryAssembly", "entryType", "exports",
-        "advanced", "tests", "kilnBuild", "writes", "boot", "updates",
+        "advanced", "native", "tests", "kilnBuild", "writes", "boot", "updates",
         "steamMessages",  // 0.2.0-dev.30.3: the mod opens its own Steam peer message leases (Kiln.Network's SteamMessages)
         "systems",  // dev.29 06a: {"replaces": [program names]}, a declaration for tools (Kiln.Systems); the host only accepts it
     ];
@@ -115,6 +115,8 @@ internal sealed class Manifest
     public IReadOnlyList<ManifestIncompatibility> Incompatible { get; init; } = [];
     public IReadOnlyList<string> Features { get; init; } = [];
     public IReadOnlyList<string> Exports { get; init; } = [];
+    /// <summary><c>"advanced": true</c> or <c>"native": true</c> (its newer name, since 0.2.0-dev.32): the mod uses the Native
+    /// tier (hooks, symbols, raw memory; docs/kiln/modding/tiers.md).</summary>
     public bool Advanced { get; init; }
 
     /// <summary><c>"steamMessages": true</c>: the mod talks to Steam users directly (its own Steam peer message leases,
@@ -236,14 +238,16 @@ internal sealed class Manifest
                 if (builtWith == null) warnings.Add("kilnBuild must be {\"version\": \"<semver>+<build>\", \"created\": \"<UTC time>\"} (ignored)");
             }
 
-            var advanced = false;
-            if (root.TryGetProperty("advanced", out var adv))
-                advanced = adv.ValueKind switch
-                {
-                    JsonValueKind.True => true,
-                    JsonValueKind.False => false,
-                    _ => throw Bad("advanced must be true or false"),
-                };
+            // "native" (since 0.2.0-dev.32) is the newer name of "advanced": hooks, symbols and raw memory, the Native tier of
+            // docs/kiln/modding/tiers.md. Either opts in; both must agree.
+            bool? Flag(string key) => root.TryGetProperty(key, out var f)
+                ? f.ValueKind switch { JsonValueKind.True => true, JsonValueKind.False => false, _ => throw Bad($"{key} must be true or false") }
+                : null;
+            var advancedKey = Flag("advanced");
+            var nativeKey = Flag("native");
+            if (advancedKey is { } a && nativeKey is { } n && a != n)
+                throw Bad("advanced and native are one setting (native is its newer name): give one of them, or both the same");
+            var advanced = nativeKey ?? advancedKey ?? false;
 
             var steamMessages = false;
             if (root.TryGetProperty("steamMessages", out var sm))

@@ -13,7 +13,7 @@ Validated by Kiln.Host at load time and by Kiln.Sdk at build time (managed/Kiln.
 | Key | Type | Required | Notes |
 |---|---|---|---|
 | `$schema` | string |  |  |
-| `advanced` | boolean |  | Opt into the advanced tier (raw hooks, symbols, coremod-style patches); exposed as ModInfo.Advanced. Default `false`. |
+| `advanced` | boolean |  | Opt into the Native tier (raw hooks, symbols, raw memory, coremod-style patches; docs/kiln/modding/tiers.md); exposed as ModInfo.Advanced. "native" is its newer name (since 0.2.0-dev.32): give one of them, or both the same. Default `false`. |
 | `apiVersion` | string | yes | Kiln mod API the mod needs. A bare version ("0.2") means that version or any later one with the same major (the API is additive within a major, 0.x included); anything else is a range checked against Kiln.Mods.ApiVersion. |
 | `author` | string |  | Shorthand for a single author. |
 | `authors` | string or array of string |  |  |
@@ -32,6 +32,7 @@ Validated by Kiln.Host at load time and by Kiln.Sdk at build time (managed/Kiln.
 | `loadAfter` | array of [id](#id) |  | Load after these mods when they are present (no requirement). |
 | `loadBefore` | array of [id](#id) |  | Load before these mods when they are present (no requirement). |
 | `name` | string |  | Display name (default: the id). |
+| `native` | boolean |  | Opt into the Native tier (raw hooks, symbols, raw memory, coremod-style patches; docs/kiln/modding/tiers.md): the newer name of "advanced" (since 0.2.0-dev.32; a Kiln before it warns about an unknown key and does not opt the mod in), exposed as ModInfo.Advanced. Give one of them, or both the same. Default `false`. |
 | `side` | `"server"` \| `"client"` \| `"both"` |  | Where the mod loads; mods for the other side are skipped. Default `"server"`. |
 | `steamMessages` | boolean |  | The mod talks to Steam users directly: it opens its own Steam peer message leases (Kiln.Network's SteamMessages, since 0.2.0-dev.30.3); exposed as ModInfo.SteamMessages. SteamMessages.Open refuses a mod without it. Default `false`. |
 | `systems` | object |  | What the mod does to the game's own ECS programs (Kiln.Systems, docs/kiln/services/systems.md). |

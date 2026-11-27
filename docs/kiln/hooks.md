@@ -7,7 +7,8 @@ arbitrary game code safely. It is an in-core service (`native/core/src/services/
 
 ## The gate
 Hooking and patching game code is powerful and build-specific, so only a mod whose `kiln.mod.json` has
-`"advanced": true` may use any of it. The flag is `ModInfo.Advanced`, which the loader fills from the manifest. A call
+`"advanced": true` (or `"native": true`, its newer name since 0.2.0-dev.32: the Native tier of
+[modding/tiers.md](modding/tiers.md)) may use any of it. The flag is `ModInfo.Advanced`, which the loader fills from the manifest. A call
 from a non-advanced mod throws `InvalidOperationException`, and so does a call from a thread with no current mod (a
 background thread, a raw native job handler), even for an advanced mod: read what such a thread needs in `OnLoad`. A
 mod that has unloaded cannot install hooks. Every hook, patch and symbol load a mod installs is logged to `kiln.log`

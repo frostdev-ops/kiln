@@ -39,6 +39,17 @@ public sealed class AdvancedTests
     }
 
     [Fact]
+    public async Task Native_is_the_newer_name_of_advanced()
+    {
+        // "native": true (since 0.2.0-dev.32) opts in as "advanced": true does; false stays out
+        Ids(await Run(A, Source, Props(("KilnAdvanced", "false"), ("KilnServices", "Chat;Hooks")),
+            manifest: "{ \"id\": \"m\", \"native\": true }"));
+        Ids(await Run(A, Source, Props(("KilnServices", "Chat;Hooks")), manifest: "{ \"id\": \"m\", \"native\": false }"),
+            "KILN107", "KILN107");
+        Assert.Contains("\"native\": true", (await Run(A, Source, Props(("KilnAdvanced", "false"), ("KilnServices", "Chat;Hooks"))))[0].GetMessage());
+    }
+
+    [Fact]
     public async Task Manifest_without_advanced_is_not_advanced()
     {
         var d = await Run(A, Source, Props(("KilnServices", "Chat,Hooks")), manifest: """{ "id": "m" }""");

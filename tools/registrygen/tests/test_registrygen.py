@@ -470,6 +470,7 @@ class Outputs(unittest.TestCase):
             "managed/services/Kiln.Registry/Generated/RegistrySchema.gen.cs",
             "schema/registry-section.schema.json",
             "docs/kiln/modding/registries/things.md",
+            "managed/Kiln.Analyzers/src/Kiln.Analyzers/RegistryHints.g.cs",
         ]))
 
     def test_deterministic(self):

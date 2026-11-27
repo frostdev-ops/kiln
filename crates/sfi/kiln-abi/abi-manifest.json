@@ -5787,6 +5787,25 @@
       },
       "sha256": "8ea5f6d613f772244a35fe126312632de1918ed3a307fc21527eeffe6103df00"
     },
+    "native/core/abi/services/kiln_registry_view.h": {
+      "function_macros": [],
+      "inline_helpers": [],
+      "layouts": {
+        "KilnRegistryViewApi": {
+          "align": 8,
+          "fields": {
+            "entry_json": 40,
+            "fields_json": 16,
+            "header": 0,
+            "read": 24,
+            "select": 32,
+            "views_json": 8
+          },
+          "size": 48
+        }
+      },
+      "sha256": "167785c6e394f59432a3cca582b5857dfba410b98748c6f3ac34883799f0cc9a"
+    },
     "native/core/abi/services/kiln_render.h": {
       "function_macros": [],
       "inline_helpers": [],
@@ -10365,7 +10384,7 @@
   },
   "outputs": {
     "src/bindings.rs": "134028a6a9914076cab3f71f98d356141d4fe36c4d7f51bac6a11819501ed935",
-    "src/layout.rs": "b9cdfdfde6bd2d9b90ef8dac6b8cc69870531db9269979aef17e029ad270a995",
+    "src/layout.rs": "3fa54b8732e0ea0a440040c951632ef1dfd303e30c4835fe86bb979f8310bd48",
     "src/services/kiln_abilities.rs": "a24dff6123db80e30ed1b2e33f87c772a40982ec3ce379347ca96bb81579f6cb",
     "src/services/kiln_assets.rs": "e7fe4eb1c4d53ad31eeaf05be06f41c551a49362ad5bd4174465ec18a03effe0",
     "src/services/kiln_assets_vfx.rs": "90ed8ce5ad512bbf4f002db3277bc3b439d648ca437a58d4477eac4ce46c3b81",
@@ -10415,6 +10434,7 @@
     "src/services/kiln_queries.rs": "c4888b701b298033d8b9ad525a22b3eba46ceec57a77f900fa1d0ff9002ace19",
     "src/services/kiln_registry.rs": "034e3e2035ab96e710860efd46b427b4c555d99916c7e8ae36ba8b36a250bd48",
     "src/services/kiln_registry_live.rs": "da9a69836002b7be3e9ae74260cc342c848da7ff6a71b1c6ca9ef8424f079805",
+    "src/services/kiln_registry_view.rs": "0652506c8fd76d707b2c3d283ad6727bb1b5e81ae40b241346d3721f9f15d3f6",
     "src/services/kiln_render.rs": "0d63717bf1a2388f2bf5e03ad5ffe2fc5be815c9522ff4fa124151c4853ccb91",
     "src/services/kiln_repl.rs": "49a43d82f7481a93068e9f63735be39c0420ad3b8945338ed84369debc2689e1",
     "src/services/kiln_routines.rs": "c8465a921ab6157d0e176802cfb3e6fa09c2ea2ecd23220ef2643309561b148b",
@@ -10451,7 +10471,7 @@
     "src/services/kiln_world.rs": "3cb0272179db9c198f154ce6c008837e4bb95245a2ec62993be78879c4b330b8",
     "src/services/kiln_world_budget.rs": "b196426492d0525df1317c08e4927f3f3ff35817990bed8f2b58c02d174bab98",
     "src/services/kiln_worldtables.rs": "3d423bb8cfd5235f82230a1942bbc334d86b55d343e5e5880c671a57d1469fce",
-    "src/services/mod.rs": "ff80f65ba3f1bbe1a2c97ad75826ecabb47456dfc87cdeda348ddfafa42bc7ec"
+    "src/services/mod.rs": "d7cb348575e924e1f19335d09f93f7ab0c25f1ba082e70afb07751ec3e7d5655"
   },
   "schema": 1,
   "target": "x86_64-pc-windows-msvc"

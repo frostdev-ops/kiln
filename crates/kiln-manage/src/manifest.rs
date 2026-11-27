@@ -501,10 +501,10 @@ const RESERVED: [&str; 6] = ["kiln", "kiln.api", "game", "enshrouded", "native",
 /// Manifest.NativeNamespacePrefix: kiln.mod-values gives every native owner "native." plus a hash of its name as its
 /// namespace, and a mod's manifest id is its namespace, so ids starting with it are refused.
 const NATIVE_NAMESPACE_PREFIX: &str = "native.";
-const KNOWN: [&str; 28] = [
+const KNOWN: [&str; 29] = [
     "$schema", "id", "name", "version", "authors", "author", "description", "license", "url", "apiVersion", "side",
     "clients", "dependencies", "loadBefore", "loadAfter", "incompatible", "features", "entryAssembly", "entryType", "exports",
-    "advanced", "tests", "kilnBuild", "writes", "boot", "updates", "steamMessages", "systems",
+    "advanced", "native", "tests", "kilnBuild", "writes", "boot", "updates", "steamMessages", "systems",
 ];
 
 fn id_rule(s: &str) -> bool {
@@ -772,10 +772,21 @@ pub fn parse_kiln(text: &str) -> Result<KilnManifest> {
             warnings.push(r#"kilnBuild must be {"version": "<semver>+<build>", "created": "<UTC time>"} (ignored)"#.to_string());
         }
     }
-    let advanced = match root.get("advanced") {
-        None => false,
-        Some(a) => a.as_bool().ok_or_else(|| bad("advanced must be true or false"))?,
+    // "native" (since 0.2.0-dev.32) is the newer name of "advanced": hooks, symbols and raw memory, the Native tier
+    // (docs/kiln/modding/tiers.md). Either opts in; both must agree (Manifest.cs, the same texts).
+    let flag = |key: &str| -> Result<Option<bool>, Error> {
+        match root.get(key) {
+            None => Ok(None),
+            Some(v) => v.as_bool().map(Some).ok_or_else(|| bad(format!("{key} must be true or false"))),
+        }
     };
+    let (advanced_key, native_key) = (flag("advanced")?, flag("native")?);
+    if let (Some(a), Some(n)) = (advanced_key, native_key) {
+        if a != n {
+            return Err(bad("advanced and native are one setting (native is its newer name): give one of them, or both the same"));
+        }
+    }
+    let advanced = native_key.or(advanced_key).unwrap_or(false);
     let steam_messages = match root.get("steamMessages") {
         None => false,
         Some(s) => s.as_bool().ok_or_else(|| bad("steamMessages must be true or false"))?,

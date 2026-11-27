@@ -4104,6 +4104,14 @@ const _: () = {
     assert!(core::mem::offset_of!(crate::services::kiln_registry_live::KilnRegistryLiveApi, revert) == 32);
     assert!(core::mem::offset_of!(crate::services::kiln_registry_live::KilnRegistryLiveApi, read) == 40);
     assert!(core::mem::offset_of!(crate::services::kiln_registry_live::KilnRegistryLiveApi, status) == 48);
+    assert!(core::mem::size_of::<crate::services::kiln_registry_view::KilnRegistryViewApi>() == 48);
+    assert!(core::mem::align_of::<crate::services::kiln_registry_view::KilnRegistryViewApi>() == 8);
+    assert!(core::mem::offset_of!(crate::services::kiln_registry_view::KilnRegistryViewApi, header) == 0);
+    assert!(core::mem::offset_of!(crate::services::kiln_registry_view::KilnRegistryViewApi, views_json) == 8);
+    assert!(core::mem::offset_of!(crate::services::kiln_registry_view::KilnRegistryViewApi, fields_json) == 16);
+    assert!(core::mem::offset_of!(crate::services::kiln_registry_view::KilnRegistryViewApi, read) == 24);
+    assert!(core::mem::offset_of!(crate::services::kiln_registry_view::KilnRegistryViewApi, select) == 32);
+    assert!(core::mem::offset_of!(crate::services::kiln_registry_view::KilnRegistryViewApi, entry_json) == 40);
     assert!(core::mem::size_of::<crate::services::kiln_render::KilnRenderCamera>() == 88);
     assert!(core::mem::align_of::<crate::services::kiln_render::KilnRenderCamera>() == 8);
     assert!(core::mem::offset_of!(crate::services::kiln_render::KilnRenderCamera, size) == 0);

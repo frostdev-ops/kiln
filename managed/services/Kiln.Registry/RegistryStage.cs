@@ -74,6 +74,16 @@ public sealed class RegistryStage
     /// <summary>Random loot tables, by Kiln id: game:labels_* (enemies and generic containers), game:world_* (chests placed
     /// in the world).</summary>
     public RegistryEntries<RandomLootEntry> RandomLoot { get { Context.Ensure(); return new(this, "randomLoot", static (id, cells) => new(id, cells)); } }
+    /// <summary>Any registry of <see cref="RegistrySchema"/> by name (<c>"items"</c>, or one a later schema adds), its fields by Kiln
+    /// path: the same edits as the typed properties above. <see cref="ArgumentException"/> when the schema has no such registry.
+    /// Since 0.2.0-dev.32.</summary>
+    /// <param name="registry">The registry's name.</param>
+    public RegistryEntries<RegistryEntry> Entries(string registry)
+    {
+        Context.Ensure(); ArgumentException.ThrowIfNullOrEmpty(registry);
+        if (!RegistrySchema.Versions.ContainsKey(registry)) throw new ArgumentException($"there is no registry {registry} in this Kiln's schema", nameof(registry));
+        return new(this, registry, (id, cells) => new RegistryEntry(registry, id, cells));
+    }
     /// <summary>Authors new entries in the add pass. Entry creation is GameStart-only; later native points report RestartRequired.</summary>
     public void Add(Action<RegistryStage> entries) { ArgumentNullException.ThrowIfNull(entries); In(RegistryPhase.Add, () => entries(this)); }
     /// <summary>Authors ordinary field edits, once in the alter pass.</summary>

@@ -49,6 +49,7 @@ pub mod kiln_progress;
 pub mod kiln_queries;
 pub mod kiln_registry;
 pub mod kiln_registry_live;
+pub mod kiln_registry_view;
 pub mod kiln_render;
 pub mod kiln_repl;
 pub mod kiln_routines;

@@ -81,7 +81,8 @@
     "entryAssembly": { "$ref": "#/$defs/dll", "description": "The mod's assembly, in the mod folder. Leave it out for a mod of data only (content packs, assets): Kiln loads it with no code to run, so it takes its place in the load order and its data applies." },
     "entryType": { "type": "string", "description": "Full name of the Kiln.Mod subclass (default: the only public one)." },
     "exports": { "type": "array", "items": { "$ref": "#/$defs/dll" }, "description": "Assemblies dependents compile against; at run time they get these copies (shared types and state)." },
-    "advanced": { "type": "boolean", "default": false, "description": "Opt into the advanced tier (raw hooks, symbols, coremod-style patches); exposed as ModInfo.Advanced." },
+    "advanced": { "type": "boolean", "default": false, "description": "Opt into the Native tier (raw hooks, symbols, raw memory, coremod-style patches; docs/kiln/modding/tiers.md); exposed as ModInfo.Advanced. \"native\" is its newer name (since 0.2.0-dev.32): give one of them, or both the same." },
+    "native": { "type": "boolean", "default": false, "description": "Opt into the Native tier (raw hooks, symbols, raw memory, coremod-style patches; docs/kiln/modding/tiers.md): the newer name of \"advanced\" (since 0.2.0-dev.32; a Kiln before it warns about an unknown key and does not opt the mod in), exposed as ModInfo.Advanced. Give one of them, or both the same." },
     "steamMessages": { "type": "boolean", "default": false, "description": "The mod talks to Steam users directly: it opens its own Steam peer message leases (Kiln.Network's SteamMessages, since 0.2.0-dev.30.3); exposed as ModInfo.SteamMessages. SteamMessages.Open refuses a mod without it." },
     "systems": {
       "type": "object",

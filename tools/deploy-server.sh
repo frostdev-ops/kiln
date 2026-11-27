@@ -131,6 +131,7 @@ cp "$repo"/sigdb/symbols/server.d/*.json "$k/sigdb/server.d/" 2>/dev/null || tru
 cp "$repo"/sigdb/builds/server/*.json "$k/sigdb/builds/server/" 2>/dev/null || true
 rm -rf "$k/regmap" && mkdir -p "$k/regmap/common" "$k/regmap/server"
 install -m 644 "$repo"/regmap/common/*.json "$k/regmap/common/"
+if [ -f "$repo/regmap/views.json" ]; then install -m 644 "$repo/regmap/views.json" "$k/regmap/views.json"; fi
 cp "$repo"/regmap/server/*.json "$k/regmap/server/" 2>/dev/null || true
 rsync -a --delete "$repo/.cache/dotnet-win-x64/root/" "$k/dotnet/"
 rsync -a --delete --include='Kiln.*' --include='game/***' --exclude='*' "$out/host/" "$k/host/"

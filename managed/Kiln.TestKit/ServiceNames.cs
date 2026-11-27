@@ -60,6 +60,7 @@ internal static class ServiceNames
         "kiln.questmark",
         "kiln.registry",
         "kiln.registry.live",
+        "kiln.registry.view",
         "kiln.render",
         "kiln.routines",
         "kiln.repl",
