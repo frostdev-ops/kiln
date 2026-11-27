@@ -460,6 +460,7 @@
       "failed": "{action} を送信できませんでした: {error}"
     },
     "binding": "ShroudForge モッド: Kiln の ShroudForge ページを開く",
+    "joined_world_edit": "ShroudForge モッドがブロックを変更しようとしましたが、参加したゲームではサーバーかホストしか変更できません。そのモッドはそちらで動かしてください。",
     "check": {
       "whole": "{setting} には整数を指定します",
       "type": "{setting} には {given} ではなく {type} を指定します",

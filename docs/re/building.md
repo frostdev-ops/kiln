@@ -171,17 +171,37 @@ function-local disassembly) and LLVM disassembly. No client execution was perfor
   `08aea6cf…` exclude `918b8e6c…`; Decay branch include/ratio `851efd4c…` exclude `ac4e9069…`), `0xd180a0` (Decay
   tags), `0xd20190` (Overgrowth tags), `0xd6aa05` (zero include, exclude `3c68fe37…` (the rakes' tag), ratio
   `db153a96…`). Only the `0xc3f210` frame drawer's call at **0xc3fe18** is adapted:
-  a unique pattern qualifies the instruction and its rel32 target. A checked MID requires the current held family root
-  to match selected hotbar ID `[RBP+0x118]` and resolved ItemInfo `[RBP+0xe0]`. The Overgrowth branch has
+  a unique pattern qualifies the instruction and its rel32 target. A checked MID requires the selected hotbar ID
+  `[RBP+0x118]` to be the held family's root or one of its brushes (root only until 0.2.0-dev.31.20: after a pick the
+  slot holds the picked brush, see the pick below, kiln#153) and the resolved ItemInfo `[RBP+0xe0]` to name that same
+  item. The Overgrowth branch has
   `RBP=RSP+0x100`, output `RCX=RBP+0x690` (fresh empty capacity16 array), include `R9=RSP+0x30`, ratio
   `R8=RBP+0x100`, exclude `RDX=RSP+0x40`. The include/ratio GUID **values** in these distinct caller-owned
   temporaries are replaced, and (since 0.2.0-dev.30.7) the family's rows go into the output's inline storage
   (`RBP+0x6b8`, 16 rows of 72 bytes, up to `RBP+0xb38`), its count (`RBP+0x698`) written last. After the call the
   drawer copies the output's data pointer and count into a 0x68-byte entry of its own list at `RBP+0x248` and draws
   from that view; nothing outlives the frame, so a later vanilla frame starts from a fresh empty output again. Other
-  three query sites, the Decay tuple and persistent callback outputs stay untouched.
+  three query sites, the Decay tuple and persistent callback outputs stay untouched. Nothing reaches those three on
+  this build (raw scan of the client, review of kiln#153): `0xd18070` and `0xd20160` (wrappers that pass the caller's
+  output with the Decay or Overgrowth tags) and `0xd6a670` (its mode-2 branch at `0xd6aa05` only counts the non-rake
+  tools, for a formatted text) have no rel32 or rel8 call or jump, no VA64 and no RVA32 but their `.pdata` rows. The
+  frame drawer (called only at `0xbed3ba`) is the one list of brushes the client draws and picks from.
   There is no inherited TLS admission. `RawHook::caller()` alone is insufficient: its per-target caller record is not
   restored after a recursive predecessor. A write fault skips this one empty-output query, never a half-patched query.
+- **The pick** (client 26430625, server `f0d824be…` 26430253, read-only disassembly, review of kiln#153). The UI's
+  command dispatcher `0x85c7f0` posts a 24-byte UI event (at `0x85d3a6`: player +8, actionbar slot byte +0xc, item
+  +0x10); the client's input handler `0x3af670` reads that stream for the local player and at `0x3b0d27` writes
+  `createBuildingItemAction` (`CreateBuildingItemAction {versionData, selectedIndex, itemId}`, `ClientPlayerInputData`
+  +0x1f4/+0x1f8/+0x1fc) from it. The host's `inventory_actions` (S `0x1a5af0` / C `0x4047f0`)
+  takes it when `PlayerInput` +0x1fc differs from `ServerConsumedPlayerInput` +0x30: the item (+0x204) must resolve
+  through the item lookup (S `0x93b5b0` / C `0xe94470`, the registry map that holds runtime items too) and its ItemInfo
+  flags (+0x5d8) must hold `IsBlueprint`, `IsBuildingScrewdriverTool`, `IsTerraformer` or `IsNpc` (`ItemFlag` 3, 6, 7,
+  8). CreateBuildingItem (S `0x1a0010` / C `0x3fed30`) then requires the slot below 16 and, when the slot holds an
+  item, that item to carry one of those flags too; it does nothing when the slot holds the picked item already, and
+  otherwise puts one of the picked item in the slot in its place. No tag, no `terraformingTools` list and no family is
+  checked, so a dedicated server takes a family brush (a clone of `Building_Overgrowth_Shape_Small`:
+  `IsBuildingOvergrowthTool`, `IsTerraformer`) as a host does, and from then on the slot, the frame drawer's selected
+  hotbar item and the held item are that brush.
 - Item tags (0.2.0-dev.30.7) are no resources: the game data cooks no `keen::ItemTag` (`{label}`), and no resource has
   a tag's GUID. `ItemRegistryResource.itemTags` (+8, BlobArray of 20-byte `ItemTagInfo {tagGuid, labelId}`) lists the
   210 tags the game knows, every tag an item carries among them (many with the empty label `0x69691905`). The readers
@@ -255,9 +275,12 @@ Static qualification on the exact client 26430625 (`5d9ef2f1…`), read-only; no
   0.2.0-dev.31.12 `Ui.AmmoList` in `Append` publishes a mod's row of an item the game lists (with stock or at 0) behind the
   game's row, which `compose_ammo` keeps in its place (game rows win duplicates in `Append`, and take the room), so
   these reads and decisions cover its rows too (one walk per new set of rows, so one per arrow shot while a mod lists
-  that arrow, as in `Replace` since 0.2.0-dev.31.10). When the game's rows change, Kiln binds nothing until the provider publishes for the new serial, so the
-  game's own rows show for that interval; a pick of a provided item there is decided by its row as the group shows it at
-  the pick: with stock the game's, at count 0 as for a bound one. `0x40ca70` (equip reconciliation) returns the
+  that arrow, as in `Replace` since 0.2.0-dev.31.10). When the game's rows change, Kiln binds an `Append` publication only once the provider publishes for the new serial,
+  so the game's own rows show for that interval; a pick of a provided item there is decided by its row as the group
+  shows it at the pick: with stock the game's, at count 0 as for a bound one. A `Replace` publication is bound over the
+  newer build in the same client session, generation, player and held item until the next publication (since
+  0.2.0-dev.31.21, GitHub issue 151), with the backpack read of that build's rows and Kiln's selection, at most 1 s
+  from the first such build; past that the game's own rows show and are decided as above. `0x40ca70` (equip reconciliation) returns the
   pending item `+0x63c` while its version `+0x640` differs from the input's, else the equipped stack's item via
   `0x3853c0`. Which pick emptied the reporter's slot, and the server's order of the mod's swap and the game's wish, are
   runtime facts not established here.

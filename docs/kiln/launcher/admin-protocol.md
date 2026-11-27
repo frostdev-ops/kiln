@@ -417,7 +417,9 @@ is tried once for `kiln-webadmin`). Kiln.Admin takes any consumer name, so nothi
   is on; contracts.md, `admin_open_web_panel`), the bootstrap page sends the browser to `<public>launcher#secret=`
   instead, and the panel redeems it the same way through the relay. Kilnwarden refuses such a login through the relay
   while no owner exists (a setup grant works on the server's own computer only), and its threat model for the public
-  address is in its docs/protocol-relay-broker.md §7.1.
+  address is in its docs/protocol-relay-broker.md §7.1. A server whose "Always open the web panel on this computer" is
+  on (contracts.md, `admin_web_panel_settings`) never gets that check: the login always goes to the gateway on this
+  computer, as before 0.2.0-dev.31.19.
 
 ### Commands as forms
 `commands_describe` gives a panel what it needs to turn every command into a form. Per command (unchanged): `name`,

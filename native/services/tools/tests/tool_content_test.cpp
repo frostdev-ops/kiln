@@ -13,6 +13,7 @@
 #include "reflection_fixture.h"
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <set>
 #include <stdexcept>
 
@@ -81,13 +82,16 @@ void check(bool ok,const std::string& why){if(!ok)throw std::runtime_error(why);
 std::vector<uint8_t> read_file(const char* path){std::ifstream f(path,std::ios::binary);return {std::istreambuf_iterator<char>(f),{}};}
 Schema schema;
 const TType* item_type=nullptr;
-std::vector<uint8_t> brush,pool_item;
+std::vector<uint8_t> brush,pool_item,shape_medium,shape_big;
 std::vector<uintptr_t> world_items;
+// "item:<name>" in refs: the vanilla Overgrowth shapes a brush takes its cursor preview from (kiln#153).
+std::map<std::string,const std::vector<uint8_t>*> named_items;
+uintptr_t find_item(const std::string& name){auto i=named_items.find(name);return i==named_items.end()?0:reinterpret_cast<uintptr_t>(i->second->data());}
 
 // kitbash() as newcontent.cpp calls it for a definition's "refs": every key resolves and writes the GUID it names.
 std::string refs_problem(const std::string& key,const Doc& value,const uint8_t* self,uint8_t written[16]){
     t_kitbash_item=self;
-    KitbashOut out;kitbash(schema,key,nlohmann::ordered_json::parse(value.dump()),[](const std::string&){return uintptr_t(0);},world_items,&out,reinterpret_cast<uintptr_t>(self));
+    KitbashOut out;kitbash(schema,key,nlohmann::ordered_json::parse(value.dump()),&find_item,world_items,&out,reinterpret_cast<uintptr_t>(self));
     t_kitbash_item=nullptr;
     if(!out.problems.empty())return out.problems[0];
     const Field* f=schema.find(key);
@@ -125,13 +129,15 @@ double float_at(const std::vector<uint8_t>& bytes,const std::string& path){
 
 int main(int argc,char** argv){
     try{
-        if(argc!=6)throw std::runtime_error("arguments: compiler.json types.json brush.bin pool-item.bin registry.bin");
+        if(argc!=8)throw std::runtime_error("arguments: compiler.json types.json brush.bin pool-item.bin registry.bin shape-medium.bin shape-big.bin");
         Doc compiler,types;std::ifstream(argv[1])>>compiler;std::ifstream(argv[2])>>types;fixture::load_types(types);
-        brush=read_file(argv[3]);pool_item=read_file(argv[4]);probe::registry=read_file(argv[5]);
+        brush=read_file(argv[3]);pool_item=read_file(argv[4]);probe::registry=read_file(argv[5]);shape_medium=read_file(argv[6]);shape_big=read_file(argv[7]);
+        named_items={{"Building_Overgrowth_Shape_Small",&brush},{"Building_Overgrowth_Shape_Medium",&shape_medium},{"Building_Overgrowth_Shape_Big",&shape_big}};
         for(const auto& s:compiler["sequences"])probe::sequences.insert(s.get<std::string>());
         for(const auto& s:compiler["servedModels"])probe::served_models.insert(s.get<std::string>());
         item_type=type_named("keen::ItemInfo");
-        if(!item_type||brush.size()<item_type->size||pool_item.size()<item_type->size)throw std::runtime_error("real ItemInfo inputs missing");
+        if(!item_type||brush.size()<item_type->size||pool_item.size()<item_type->size||shape_medium.size()<item_type->size||shape_big.size()<item_type->size)
+            throw std::runtime_error("real ItemInfo inputs missing");
         std::string why;if(!build_schema("keen::ItemInfo",{},&schema,&why))throw std::runtime_error("real schema: "+why);
         world_items={reinterpret_cast<uintptr_t>(brush.data()),reinterpret_cast<uintptr_t>(pool_item.data())};
         // kiln.worldtables (no mod pool) and kiln.assets (the terrain models it serves for registered brushes)
@@ -146,19 +152,29 @@ int main(int argc,char** argv){
         g_api=&probe::api;
 
         // 1. Item definitions: every field and reference names something the content layer resolves.
-        size_t refs=0,brushes=0;
+        size_t refs=0,brushes=0;std::set<std::string> previews;
         for(const auto& item:compiler["items"]) {
             const std::string name=item["name"];
             for(const auto& [path,value]:item["fields"].items())check(schema.find(path)!=nullptr,name+": field "+path+" is no ItemInfo field");
             for(const auto& [path,value]:item["refs"].items()) {
                 uint8_t written[16]{},want[16]{};const auto problem=refs_problem(path,value,brush.data(),written);
                 check(problem.empty(),name+": refs "+path+" refused: "+problem);
-                check(guid_parse(value.get<std::string>(),want)&&!std::memcmp(written,want,16),name+": refs "+path+" writes another GUID");
+                const std::string spec=value.get<std::string>();
+                if(spec.rfind("item:",0)==0) { // copied from that item's own field
+                    const Field* f=schema.find(path);const uintptr_t from=find_item(spec.substr(5));
+                    check(f&&f->bytes==16&&from,name+": refs "+path+": "+spec+" names no input item");
+                    std::memcpy(want,reinterpret_cast<const uint8_t*>(from)+f->offset,16);
+                    check(!std::memcmp(written,want,16),name+": refs "+path+" writes another GUID than "+spec+"'s");
+                    if(path=="equipment.cursorVfx")previews.insert(guid_text(written));
+                }
+                else check(guid_parse(spec,want)&&!std::memcmp(written,want,16),name+": refs "+path+" writes another GUID");
                 ++refs;
             }
             if(item["refs"].contains("equipment.terrainVoxelObject"))++brushes;
         }
         check(brushes==compiler["servedModels"].size()&&brushes>0,"every brush names its served terrain model");
+        // the fixture's brushes are 0.5, 1.5 and 2.5 m: Small's, Medium's and Big's cursor effects, three distinct ones
+        check(previews.size()==3&&!previews.count("00000000-0000-0000-0000-000000000000"),"each brush previews as the vanilla shape of its size");
         // 2. Item rules on a copy of the brush base each (the radius config).
         size_t rules=0;
         for(const auto& [game,set]:compiler["itemRules"].items()) {

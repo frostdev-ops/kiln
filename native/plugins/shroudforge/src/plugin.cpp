@@ -324,6 +324,25 @@ bool wanted(std::string* reason) {
     return false;
 }
 
+// ---- a joined game's ShroudForge world edits (joined_notice.h) ----
+// The mirror below hands every ShroudForge line to the notice; host_voxels.cpp's refusals come through
+// joined_write_refused. What it tells goes to kiln.log and to shroudforge.json "joinedWorldEdit" ({session, mod, at}),
+// from which Kiln.Ui shows its toast once per session.
+std::mutex g_joined_mutex;
+joined::Notice g_joined;
+uint64_t g_mirror_polls = 0;  // under g_joined_mutex
+
+// host_voxels.cpp refused a write in a joined game (any thread)
+void joined_write_refused(const joined::Worlds& worlds) {
+    std::lock_guard lock(g_joined_mutex);
+    g_joined.write_refused(worlds, g_mirror_polls);
+}
+
+void tell_joined(const joined::Fire& f) {
+    logf(KILN_LOG_WARN, "%s", f.log.c_str());
+    set_status("joinedWorldEdit", {{"session", f.session}, {"mod", f.mod}, {"at", static_cast<int64_t>(std::time(nullptr))}});
+}
+
 // ---- ShroudForge's log mirrored into kiln.log ----
 struct LogTail {
     std::filesystem::path file;
@@ -339,7 +358,15 @@ struct LogTail {
         std::error_code ec;
         const uint64_t size = std::filesystem::exists(file, ec) ? std::filesystem::file_size(file, ec) : 0;
         if (size < offset) offset = 0;  // rotated
-        if (size == offset) return;
+        if (size == offset) {
+            if (!g_server) {
+                const joined::Worlds worlds = session_worlds(g_api);
+                std::lock_guard joined_lock(g_joined_mutex);
+                ++g_mirror_polls;
+                flush_joined(worlds);
+            }
+            return;
+        }
         std::ifstream in(file, std::ios::binary);
         if (!in) return;
         in.seekg(static_cast<std::streamoff>(offset));
@@ -348,6 +375,9 @@ struct LogTail {
         chunk.resize(static_cast<size_t>(in.gcount()));
         offset += chunk.size();
         partial += chunk;
+        const joined::Worlds worlds = g_server ? joined::Worlds{} : session_worlds(g_api);
+        std::lock_guard joined_lock(g_joined_mutex);
+        ++g_mirror_polls;
         size_t start = 0, nl;
         while ((nl = partial.find('\n', start)) != std::string::npos) {
             std::string line = partial.substr(start, nl - start);
@@ -355,9 +385,15 @@ struct LogTail {
             while (!line.empty() && (line.back() == '\r' || line.back() == ' ')) line.pop_back();
             if (line.empty()) continue;
             logf(sf_line_level(line), "[sf] %s", line.c_str());
+            if (const auto f = g_joined.line(line, worlds, g_mirror_polls)) tell_joined(*f);
         }
         partial.erase(0, start);
         if (partial.size() > 65536) partial.erase(0, partial.size() - 65536);
+        flush_joined(worlds);
+    }
+    // a refused write that no line named: told unnamed after two polls (also polls with no new line)
+    static void flush_joined(const joined::Worlds& worlds) {
+        if (const auto f = g_joined.flush(worlds, g_mirror_polls)) tell_joined(*f);
     }
 };
 LogTail g_tail;
@@ -684,6 +720,7 @@ void seed_profiles(const std::filesystem::path& src) {
 // an older bundle), a start without kiln.hooks v2 (safe idle) or KILN_SF_ENGINE_HOOKS=self leave it hooking the game
 // itself, exactly as before.
 void offer_engine_hooks() {
+    host_voxels_on_joined(&joined_write_refused);  // a joined game's refused write: the notice (joined_notice.h)
     const auto set_host = reinterpret_cast<KfcSetHost>(GetProcAddress(g_kfc, "KfcRuntimeSetHost"));
     wchar_t env[16] = L"";
     const DWORD n = GetEnvironmentVariableW(L"KILN_SF_ENGINE_HOOKS", env, 16);

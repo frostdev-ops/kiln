@@ -11,6 +11,7 @@ import { languageName, languages, useT } from "../../../i18n";
 import { applyLanguage, userLocalesKey, useUserLocales } from "../../../i18n/LanguageSync";
 import { Button, IconButton, PathText, Segmented, Select, Toggle, getPath, toast } from "../../../ui";
 import { Group, Hi, SettingRow, useSettingsView } from "../parts";
+import { setFestive, useFestiveSwitch } from "../../../shell/season";
 
 export function GeneralSection() {
   return (
@@ -89,17 +90,23 @@ function LanguageGroup() {
 }
 
 /** The fire on Play. Off (or KILN_LAUNCHER_NO_WEBGL=1 for one start) draws the plain Play button, the same one a machine
- *  without WebGL gets. */
+ *  without WebGL gets. And during the festive season (shell/season.ts) its look, on unless the player switched it off
+ *  (kept in local storage for the season). */
 function LookGroup() {
   const qc = useQueryClient();
   const s = useSettings();
   const info = useAppInfo();
   const forced = !!info.data?.noWebgl;
+  const festive = useFestiveSwitch();
   return (
-    <Group id="look" items={["fire"]}>
+    <Group id="look" items={festive.offered ? ["fire", "festive"] : ["fire"]}>
       <SettingRow id="fire" htmlFor="st-fire"
         control={<Toggle id="st-fire" checked={!forced && s.data?.animatedFire !== false} disabled={forced || !s.data}
           onChange={(on) => void saveSettings(qc, () => ({ animatedFire: on }))} />} />
+      {festive.offered && (
+        <SettingRow id="festive" htmlFor="st-festive"
+          control={<Toggle id="st-festive" checked={festive.on} onChange={(on) => setFestive(on)} />} />
+      )}
     </Group>
   );
 }

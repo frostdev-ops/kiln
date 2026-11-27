@@ -465,6 +465,7 @@
       "failed": "{action} n'a pas pu être envoyé : {error}"
     },
     "binding": "Mods ShroudForge : ouvrir la page ShroudForge de Kiln",
+    "joined_world_edit": "Un mod ShroudForge a tenté de modifier des blocs, mais dans une partie que vous avez rejointe, seul le serveur ou l'hôte peut le faire. Lancez ce mod là-bas.",
     "check": {
       "whole": "{setting} attend un nombre entier",
       "type": "{setting} attend une valeur de type {type}, pas {given}",

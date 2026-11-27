@@ -2873,6 +2873,9 @@
       "title": "Wygląd",
       "fire": "Animowany ogień",
       "fireHint": "Ogień na stronie Graj (WebGL). Wyłączony: zwykły przycisk Graj, lżejszy dla słabych GPU.",
+      "festive": "Okres świąteczny",
+      "festiveHint": "Zimowy gzyms nad ogniem i śnieg, do 7 stycznia.",
+      "festiveMore": "Lampki, świece i lampiony wielu zimowych tradycji na gzymsie nad ogniem, śnieg za łukiem i girlandy na stronach, od poniedziałku po weekendzie Święta Dziękczynienia do 7 stycznia. Wyłączone: zwykły wygląd do końca tego sezonu; wróci w przyszłym sezonie.",
       "noGpu": "Rysuj launcher bez GPU",
       "fireOffSoftware": "Wyłączony, gdy launcher rysuje bez GPU.",
       "fireOffEnv": "Wyłączony w tym uruchomieniu: ustawiono KILN_LAUNCHER_NO_WEBGL.",
@@ -3817,6 +3820,7 @@
     },
     "appShell": {
       "thanksgiving": "Szczęśliwego Święta Dziękczynienia",
+      "festive": "Ciepłych świąt",
       "headStart": "{progress} · {step}",
       "pct": "{pct}%",
       "labelTime": "{label} {time}",

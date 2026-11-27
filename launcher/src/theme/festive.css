@@ -1,0 +1,42 @@
+/* The festive season's look (shell/season.ts, shell/Festive.tsx): from the Monday after Thanksgiving weekend to 7
+   January. The mantel, the threshold's diyas and the sheets' garland exist only then; the accent is under
+   .k-app[data-theme="festive"]: every other day's look is untouched. */
+
+/* ---------------------------------------------------------------- the mantel on Play (over the mouth's box, mouth units) */
+.k-fest-mantel { position: absolute; z-index: 1; pointer-events: none; overflow: visible;
+  left: calc(100% - 48px - var(--kiln)); top: calc(100% - 84px - var(--kiln) * .88); width: var(--kiln); height: calc(var(--kiln) * .88);
+  opacity: 1; visibility: visible; transition: opacity .45s, visibility 0s; }
+.is-sheet .k-fest-mantel { opacity: 0; visibility: hidden; transition: opacity .3s, visibility 0s linear .3s; }
+/* its three layers (Festive.tsx): under the garland, the garland (still), what moves; each its own, so a flame's frame
+   never draws the garland's needles again */
+.k-fest-mantel > svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; will-change: transform; }
+.k-fest-mantel .kf-light { mix-blend-mode: screen; }
+/* the threshold's diyas stand in front of the Play button (after it, as high): they take no clicks */
+.k-fest-hearth { z-index: 4; }
+.k-fest-mantel .kf-greet text { font-family: var(--k-font-display); font-weight: 600; font-size: 37px; fill: url(#kf-letter);
+  paint-order: stroke; stroke: #0b0604; stroke-width: 2.2px; stroke-opacity: .7; }
+
+/* ---------------------------------------------------------------- the garland on a sheet's top edge */
+.k-fest-rim { position: absolute; z-index: 2; left: 0; top: 0; width: 100%; height: 34px; pointer-events: none; overflow: visible; }
+
+/* ---------------------------------------------------------------- the season's accent: deeper reds, golds, evergreens */
+.k-app[data-theme="festive"] {
+  --k-ember-500: #f2561e;           /* the primary buttons: a deeper, redder ember (its dark text 5.7:1) */
+  --k-ember-400: #ff7f3c;
+  --k-gold-400: #f6c24c;
+  --k-ok: #94d8a6;                  /* evergreen-leaning; 11:1 on the sheet */
+  --k-line: #ffb48c24;
+}
+.k-app[data-theme="festive"] .k-sheet { background: linear-gradient(#21110f, #150d0b 120px, var(--k-bg-1) 260px); }
+.k-app[data-theme="festive"] .k-btn-primary:hover:not(:disabled) { background: #ff6c32; }
+/* the nav's gold diamond becomes a small four-pointed star */
+.k-app[data-theme="festive"] .k-nav-dia .k-dia { width: 11px; height: 11px; transform: none; border-radius: 0; background: #ffd77a;
+  clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%); box-shadow: none; filter: drop-shadow(0 0 4px rgba(255, 205, 110, .9)); }
+
+/* the threshold's diyas (Festive.tsx FestiveHearth) stand on the floor in front of the jambs, the band the Crucible dock's
+   row sits in (PlayPage, crucible.css: 6 px under the mouth, as wide as it): the row's controls keep to the middle 82%
+   of the mouth, clear of the diyas (their flames reach about 8.4% in from each side), so where the row is nearly as wide
+   as the mouth (a small window, a longer language) it wraps sooner instead of running under a lamp; where it fits it
+   stands as always (centred, the same padding on both sides). Not while the fire burns where WebKit composites nothing:
+   no diyas there (AppShell.tsx) */
+.k-app:has(> .k-fest-hearth) .kcr-dock-row { padding-inline: 9%; }

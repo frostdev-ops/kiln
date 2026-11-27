@@ -1,0 +1,10 @@
+{
+  "id": "kiln-sf-net-probe",
+  "name": "Kiln ShroudForge network probe",
+  "version": "0.1.0",
+  "description": "Test probe for ShroudForge's runtime.network between a joined game and the server it joined: the joined game sends a ping to the same mod on the server with runtime.network.send_mod every 10 s; the server (or the player hosting) logs the sender and its runtime.network.player_permissions, and answers. Both sides log what they see in ShroudForge's log (kiln.log mirrors it). Install it on both. Test only.",
+  "authors": ["Kiln contributors"],
+  "license": "MIT",
+  "dependencies": [],
+  "capabilities": ["runtime"]
+}
