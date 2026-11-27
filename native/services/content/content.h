@@ -374,7 +374,7 @@ struct GdValueSlot {
     bool absent = false;  // false return: this entry lacks the component / config the path starts at (only some entries have one)
 };
 bool gd_item_config_slot(const Entry& e, const std::string& path, GdValueSlot* out, std::string* why);
-// dev.32 registries over kiln.gamedata's sections (creatures: KILN_GD_TEMPLATES, arsenals, perks), the same shape:
+// dev.32 registries over kiln.gamedata's sections (creatures: KILN_GD_TEMPLATES, arsenals, perks, skills), the same shape:
 // the section's entry with this GUID (lower-case text) in this world, else (no GUID: an element entry such as a skill node) with
 // this 32-bit id, as kiln.content's Entry (id, name, address, GUID);
 bool gd_section_entry(uint32_t section, const std::string& guid, uint32_t num, Entry* out);
@@ -385,11 +385,6 @@ bool gd_value_slot(uint32_t section, const Entry& e, const std::string& path, Gd
 bool gd_shown_config(uint32_t section, const Entry& e, const std::string& configs, std::string* path, std::string* why);
 // how many elements the list at path has.
 bool gd_list_size(uint32_t section, const Entry& e, const std::string& path, uint32_t* n, std::string* why);
-// The registry's live back-end over a gamedata section (skills since dev.32): the scalar leaf at `path` (the regmap row's
-// member path) below the section's entry whose 32-bit id is `id` in this world, registered as a pack's slot is (the content
-// sync sends a changed one to Kiln clients; the report names it). false + *why, in Kiln words: no such entry in this world,
-// or the member is not a scalar the store can hold.
-bool gd_registry_slot(uint32_t section, uint32_t id, const std::string& path, GdValueSlot* out, std::string* why);
 bool gd_ui_scale(uint8_t format, double v, int64_t* out);  // a config value as its tooltip row shows it
 constexpr int32_t kSubUnlock = 101;  // Slot.sub of a recipe's knowledgeRequirement (registry recipes.unlock)
 

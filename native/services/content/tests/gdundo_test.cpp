@@ -404,15 +404,16 @@ void value_slot_absent() {
     }
     kc::gd::g_first_missing = false;
     kc::gd::g_none = kc::gd::GRegistry{};
-// dev.32: the registry's slot over a gamedata section (gd_registry_slot, the skills registry's live back-end) refuses in Kiln
-// words where this world has no such entry, and for a section that is not one of kiln.gamedata's (no world here: no entries).
+// dev.32: the registry's entry and slot over a gamedata section (gd_section_entry / gd_value_slot, the one writer the skills
+// registry's live back-end shares with creatures, arsenals and perks) find nothing where this world has no such entry (a skill
+// node by its 32-bit id: no GUID), and refuse a section that is not one of kiln.gamedata's (no world here: no entries).
 void registry_slot_refusals() {
     kc::GdValueSlot slot;
+    kc::Entry e;
     std::string why;
-    check(!kc::gd_registry_slot(KILN_GD_SKILLS, 0x4475e8dd, "costs", &slot, &why) && why == "the entry is not in this world",
-          "a skill node no world has: \"" + why + "\"");
-    why.clear();
-    check(!kc::gd_registry_slot(99, 1, "costs", &slot, &why) && why == "this registry has no game data section", "another section: \"" + why + "\"");
+    check(!kc::gd_section_entry(KILN_GD_SKILLS, "", 0x4475e8dd, &e), "a skill node no world has: no entry");
+    e.id = 1;
+    check(!kc::gd_value_slot(99, e, "costs", &slot, &why) && why == "no such gamedata section", "another section: \"" + why + "\"");
     check(slot.addr == 0, "no slot is made");
 }
 

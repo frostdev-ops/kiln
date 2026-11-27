@@ -174,14 +174,8 @@ entry point is `RestartRequired`, never applied (owner ruling 2026-11-22 on entr
   registries.cpp). Without it every live field is refused "this registry has no live back-end" (:726). A registry
   kiln.content has no store kind for yet needs one first: entries in the world (`find_entry`, :165) and the store's
   writable field schema come from it.
-- **A registry over one of kiln.gamedata's sections** (templates, sequences, buffs, perks, skills: dev.32's `skills`) needs no
-  new store kind: add it to `gd_section_of` (registry_live.cpp). Its entry is found by the 32-bit id the stage's id table gives
-  the Kiln id (`g.in->nums`), and `bind_gd_scalar` takes each plain row's slot from `gd_registry_slot` (gamedata_packs.cpp:
-  the member at the row's path below the section's entry, `GD_KIND_BASE + section`, registered as a pack's slot is), so a
-  data pack's section layer of the same member lies below the registry's, and the content sync sends the registry's layer
-  (`gd_export` needs the slot's `SlotInfo`). Lists, references and configs over a section have no binder yet. Host tests
-  define `gd_registry_slot` over made-up memory (registry_live_test.cpp) and give it a store kind the fixture's `reg()` does
-  not index (the fixture clamps it, as registries.cpp does).
+- **A registry over one of kiln.gamedata's sections** (templates, arsenals, sequences, buffs, perks, skill nodes) needs no
+  new store kind: add it to `gd_section_of` (registry_live.cpp) and bind it through the one gamedata-section writer, 2.8b.
 - Writes go through the store's layers (packs < registry < code) with compare-before-write: a slot another writer changed
   after Kiln's layer stays with that writer for the world and is reported "another writer" (store.cpp:519-538, ruling
   2026-11-22 5:22 PM).
@@ -200,13 +194,14 @@ stage (`stage.cpp` `compose_checked`), live scalar fields at each write over the
 away from (`stage.cpp`, whole plan); a start's fields are judged against the plan the last world ran on too (a Refuse or Warn
 verdict there is a warning where the start's own value has none: P59); a field read only at use or for new copies needs nothing.
 
-### 2.8b Registries over kiln.gamedata's sections (dev.32: creatures, arsenals, perks)
+### 2.8b Registries over kiln.gamedata's sections (dev.32: creatures, arsenals, perks, skills)
 
 Templates, arsenals, sequences, buffs, perks and skill nodes are kiln.gamedata's sections, not kiln.content store kinds. A
 registry over one needs no kiln.content kind:
 
-- **Live binding**: `gd_section_of` (registry_live.cpp) names the section; `bind_section` finds the entry by its GUID
-  (`gd_section_entry`) and binds each row through `gd_value_slot`: gamedata resolves the row's path below the entry's root
+- **Live binding**: `gd_section_of` (registry_live.cpp) names the section; `bind_section` finds the entry by its GUID, or by
+  the 32-bit id the stage's id table gives the Kiln id where the entry has none (a skill node, an element of the skill tree's
+  array) (`gd_section_entry`), and binds each row through `gd_value_slot`: gamedata resolves the row's path below the entry's root
   (a template's path starts at a component by type name, `Level.dataStorage[0]`; `[i]` indexes an array) and gives the slot
   in its own store kind (`GD_KIND_BASE + section`) with its SlotInfo, so the content sync and the conflict report name it as
   they name a pack's write. Scalars and enums bind generically (`bind_section_scalar`); a perk-like entry's one numeric config is

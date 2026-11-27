@@ -546,7 +546,7 @@ What schema/registry/skills.json and regmap/common/skills.json rest on.
   serves it before a world's tree loads (skills.md "When it takes effect").
 - **A joined client.** The client builds its own tree from its own resource with the same loader (`0xec6be0`), its node map
   pointing into that resource. The content sync sends kiln.gamedata's skills slots that differ from the game's (packs.cpp's
-  export: `skills` section, the registry's layer included, gd_registry_slot registers it), and a Kiln client writes them into
+  export: `skills` section, the registry's layer included, gd_value_slot registers it), and a Kiln client writes them into
   its resource: its screen and its own PointsSpent read the new cost. A vanilla client keeps its own costs (its screen
   shows them; the server's unlock check decides).
 - **Saves.** A character's save keeps unlocked node ids and levels, never costs. The join check (`0xe00b0`) counts the
