@@ -74,7 +74,7 @@ One line per row: header, `Table.row`, @offset, mod API, comment (native.md says
 - kiln_abilities.h `KilnAbilitiesApi.item_use` @312 `0.2.13` — since 0.2.0-dev.30.3 (mod API 0.2.13): an item used from a player's slot, check header.size (a table...
 
 ## services/kiln_assets.h — service `kiln.assets`
-### KilnAssetsApi — 256 bytes
+### KilnAssetsApi — 272 bytes
 - kiln_assets.h `KilnAssetsApi.icon_register_png` @8 — icon_register_png: 'png' = the bytes of a PNG file (8-bit RGBA/RGB/grey, any size up to 1024x1024; drawn...
 - kiln_assets.h `KilnAssetsApi.icon_register_file` @16
 - kiln_assets.h `KilnAssetsApi.icon_remove` @24
@@ -106,6 +106,8 @@ One line per row: header, `Table.row`, @offset, mod API, comment (native.md says
 - kiln_assets.h `KilnAssetsApi.loaded_snapshot` @232 `0.2.13` — since 0.2.0-dev.30.3 (check header.size >= offsetof(KilnAssetsApi, loaded_list) + sizeof(void*)) ----...
 - kiln_assets.h `KilnAssetsApi.loaded_list` @240 `0.2.13`
 - kiln_assets.h `KilnAssetsApi.loaded_scalar_compare_exchange` @248 `0.2.13` — since 0.2.0-dev.30.3 (check header.size >= offsetof(KilnAssetsApi, loaded_scalar_compare_exchange) +...
+- kiln_assets.h `KilnAssetsApi.loaded_scalar_compare_exchange_named` @256 `0.2.25` — since 0.2.0-dev.32 (check header.size >= offsetof(KilnAssetsApi, loaded_write_records) + sizeof(void*)...
+- kiln_assets.h `KilnAssetsApi.loaded_write_records` @264 `0.2.25`
 
 ## services/kiln_assets_vfx.h — service `kiln.assets.vfx`
 ### KilnAssetsVfxApi — 32 bytes

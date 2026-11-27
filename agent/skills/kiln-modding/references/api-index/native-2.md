@@ -45,6 +45,13 @@ One line per row: header, `Table.row`, @offset, mod API, comment (native.md says
 - kiln_hooks.h `KilnHooksApi.open_module` @312 `0.2.11` — ======== hooks inside other modules (since 0.2.0-dev.29.19): check header.size covers each member ========...
 - kiln_hooks.h `KilnHooksApi.module_scan` @320 `0.2.11`
 
+## services/kiln_item_costs.h — service `kiln.item_costs`
+### KilnItemCostsApi — 40 bytes
+- kiln_item_costs.h `KilnItemCostsApi.submit` @8 `0.2.25` — Queues one cost; *ticket = its ticket (never 0).
+- kiln_item_costs.h `KilnItemCostsApi.peek` @16 `0.2.25` — The receipt now (QUEUED until it ran).
+- kiln_item_costs.h `KilnItemCostsApi.acknowledge` @24 `0.2.25` — The owner has the receipt: it is let go (its request id stays closed).
+- kiln_item_costs.h `KilnItemCostsApi.status` @32 `0.2.25` — What can be submitted now, and the counters.
+
 ## services/kiln_items.h — service `kiln.items`
 ### KilnItemsApi — 392 bytes
 - kiln_items.h `KilnItemsApi.give` @8 — Queues a give / take. *out_ticket (optional) = the request's ticket (never 0).
@@ -117,6 +124,15 @@ One line per row: header, `Table.row`, @offset, mod API, comment (native.md says
 - kiln_items_storage.h `KilnItemsStorageApi.restore` @104 `0.2.16` — Restores the chosen document for join 'join' of slot 'slot' (once per join, at any time after the game...
 - kiln_items_storage.h `KilnItemsStorageApi.park` @112 `0.2.16` — Parks the player's storage 'key' in the next sim step: its holder's contents are frozen into a PARKED...
 - kiln_items_storage.h `KilnItemsStorageApi.unpark` @120 `0.2.16` — Puts the player's parked records of 'key' (any reason) back into its holder in the next sim step: each...
+
+## services/kiln_labbot.h — service `kiln.labbot`
+### KilnLabBotApi — 56 bytes
+- kiln_labbot.h `KilnLabBotApi.status` @8 `0.2.25` — Any thread.
+- kiln_labbot.h `KilnLabBotApi.join` @16 `0.2.25` — Starts a bot's join; *out_id names it.
+- kiln_labbot.h `KilnLabBotApi.leave` @24 `0.2.25` — Ends the bot's game (KILN_LABBOT_LEAVE_*): a logout unless DROP.
+- kiln_labbot.h `KilnLabBotApi.info` @32 `0.2.25` — Any thread.
+- kiln_labbot.h `KilnLabBotApi.list` @40 `0.2.25` — Every remembered bot (live ones and the last LEFT/FAILED of each slot), newest first; *count = how many...
+- kiln_labbot.h `KilnLabBotApi.input` @48 `0.2.25` — since dev.32 labbot-2: check header.size ---- Sets parts of the bot's client input (KILN_LABBOT_INPUT_*)...
 
 ## services/kiln_launch.h — service `kiln.launch`
 ### KilnLaunchApi — 24 bytes
@@ -232,6 +248,20 @@ One line per row: header, `Table.row`, @offset, mod API, comment (native.md says
 - kiln_pacing.h `KilnPacingApi.cap_task_workers` @32 `0.2.0` — Caps the worker threads each task group starts with (0: leave a group).
 - kiln_pacing.h `KilnPacingApi.status` @40 `0.2.0`
 
+## services/kiln_pets.h — service `kiln.pets`
+### KilnPetsApi — 96 bytes
+- kiln_pets.h `KilnPetsApi.bind` @8 `0.2.25` — A guard row for a body the owner bound in kiln.creature_control.
+- kiln_pets.h `KilnPetsApi.activate` @16 `0.2.25` — A staging row becomes a pet's guarded body (its final lease is Active).
+- kiln_pets.h `KilnPetsApi.inspect_body` @24 `0.2.25` — The row now.
+- kiln_pets.h `KilnPetsApi.collect_dirty` @32 `0.2.25` — Up to 'capacity' rows with DownPending or ProtectionLost, oldest latch first; *needs_rescan = 1 when more...
+- kiln_pets.h `KilnPetsApi.retire_binding` @40 `0.2.25` — The owner destroyed the body: its row goes (the broker keeps its root denied for the world epoch).
+- kiln_pets.h `KilnPetsApi.death_policy` @48 `0.2.25` — kiln.decisions' native death guard: KILN_DEATH_GUARD_SKIP (1) for a guarded body (latching DownPending...
+- kiln_pets.h `KilnPetsApi.hit_policy` @56 `0.2.25` — The pet target rule for one hit: KILN_PET_HIT_DENY (1) denies the whole hit before ApplyHit (no health...
+- kiln_pets.h `KilnPetsApi.involved` @64 `0.2.25` — 1 when the entity is a guarded pet body of this world epoch (kiln.combat asks before it reads anything).
+- kiln_pets.h `KilnPetsApi.set_owner_entity` @72 `0.2.25` — The owner's player entity changed (a login): owner heals and hostile pairs follow it.
+- kiln_pets.h `KilnPetsApi.set_hostile` @80 `0.2.25` — Declares (on 1) or ends (on 0) a consensual hostility between two player entities, for pets of the...
+- kiln_pets.h `KilnPetsApi.withdraw` @88 `0.2.25` — Two-phase protection loss, phase 1: every row is marked ProtectionLost at once (and stays guarded); new...
+
 ## services/kiln_playeranim.h — service `kiln.playeranim`
 ### KilnPlayerAnimApi — 104 bytes
 - kiln_playeranim.h `KilnPlayerAnimApi.state` @8 `0.2.1` — KILN_PA_*
@@ -338,6 +368,14 @@ One line per row: header, `Table.row`, @offset, mod API, comment (native.md says
 - kiln_registry_live.h `KilnRegistryLiveApi.revert` @32 `0.2.17`
 - kiln_registry_live.h `KilnRegistryLiveApi.read` @40 `0.2.17`
 - kiln_registry_live.h `KilnRegistryLiveApi.status` @48 `0.2.17`
+
+## services/kiln_registry_view.h — service `kiln.registry.view`
+### KilnRegistryViewApi — 48 bytes
+- kiln_registry_view.h `KilnRegistryViewApi.views_json` @8 `0.2.25` — Every view: {"format": 1, "views": [{"name", "tier": "stable" | "advanced", "fields": n, "registry"?...
+- kiln_registry_view.h `KilnRegistryViewApi.fields_json` @16 `0.2.25` — One view's fields: {"view", "tier", "fields": [{"path", "type": "int" | "float" | "bool" | "enum" |...
+- kiln_registry_view.h `KilnRegistryViewApi.read` @24 `0.2.25` — One field of one entry, as JSON.
+- kiln_registry_view.h `KilnRegistryViewApi.select` @32 `0.2.25` — The ids a selector names, as a JSON array in the view's order: an id, a case-insensitive glob over ids...
+- kiln_registry_view.h `KilnRegistryViewApi.entry_json` @40 `0.2.25` — Every field of one entry: {"view", "id", "tier", "fields": {"\<path>": value}, "refused": {"\<path>"...
 
 ## services/kiln_render.h — service `kiln.render`
 ### KilnRenderApi — 152 bytes
