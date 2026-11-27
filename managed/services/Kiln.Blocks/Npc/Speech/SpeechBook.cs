@@ -286,16 +286,19 @@ internal sealed class SpeechBook
     }
 
     /// <summary>The NPC's page of Kiln topics: this process's own (Local) first, each owner's block where it began, then
-    /// the server's; at most <see cref="NpcTopics.MaxTopics"/>.</summary>
+    /// the server's; each line id once (a mod on both sides that set the same topic here and on the host: this process's
+    /// own); at most <see cref="NpcTopics.MaxTopics"/>.</summary>
     public IReadOnlyList<TopicEntry> EffectiveTopics(uint npc, SpeechLayer? only = null)
     {
         lock (_gate)
         {
             if (!_npcs.TryGetValue(npc, out var n)) return [];
             var all = new List<TopicEntry>();
+            var ids = new HashSet<uint>();
             foreach (var layer in new[] { 0, 1 })
                 if (only is null || (int)only == layer)
-                    all.AddRange(n.Topics[layer].Select((e, i) => (e, i)).OrderBy(x => x.e.Seq).ThenBy(x => x.i).Select(x => x.e));
+                    foreach (var e in n.Topics[layer].Select((e, i) => (e, i)).OrderBy(x => x.e.Seq).ThenBy(x => x.i).Select(x => x.e))
+                        if (ids.Add(e.Wire)) all.Add(e);   // kiln.npcspeech refuses a page with one id twice
             return all.Take(NpcTopics.MaxTopics).ToArray();
         }
     }

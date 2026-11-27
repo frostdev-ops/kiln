@@ -140,7 +140,13 @@ public sealed unsafe class NpcDialogTests : IDisposable
     private static int FakeTopics(uint npc, SpeechNative.Topic* t, uint n)
     {
         var rows = new List<string>();
-        for (var i = 0; i < n; i++) rows.Add($"{t[i].Id:x8}:{t[i].Label:x8}:{t[i].Reply:x8}:{t[i].Hint}:{t[i].Close}");
+        var ids = new HashSet<uint>();
+        for (var i = 0; i < n; i++)
+        {
+            // as kiln.npcspeech's valid_topics: an id 0 or 1, or one id twice, refuses the whole page
+            if (t[i].Id <= 1 || !ids.Add(t[i].Id)) return 1;
+            rows.Add($"{t[i].Id:x8}:{t[i].Label:x8}:{t[i].Reply:x8}:{t[i].Hint}:{t[i].Close}");
+        }
         lock (Calls) Calls.Add($"topics {npc} [{string.Join(",", rows)}]");
         return 0;
     }
@@ -749,5 +755,25 @@ public sealed unsafe class NpcDialogTests : IDisposable
         player = P1;
         NpcSpeechEngine.Tick();
         Assert.Contains((9u, (object)new NextMsg(Ramone.Value, NpcLineKind.MenuLine, -1)), ToPeers);
+    }
+
+    [Fact]
+    public void A_mod_on_both_sides_with_the_same_topic_keeps_its_page_on_the_client()
+    {
+        // review: a mod on the host and on a joined client that sets the same topic on both gave that client's
+        // kiln.npcspeech one line id twice, which refuses the whole page (and the note blamed npcspeech.topics)
+        _host = false;
+        var feed = NpcSpeechEngine.TopicId("kiln", "feed");
+        NpcSpeechEngine.Received(new TopicsMsg(Ramone.Value,
+        [
+            new TopicWire(feed, SpeechText.Json(new UiText("Here, have some bread.")), SpeechText.Json(new UiText("Thank you, Flameborn!")), 2, false),
+            new TopicWire(0x7001, SpeechText.Json(new UiText("Other")), "", 0, false),
+        ]));
+        var r = Npcs.Topics(Ramone).Set(Feed());
+        Assert.True(r.Ok && r.Reason is null, r.ToString());
+        var page = Snapshot().Last(c => c.StartsWith($"topics {Ramone.Value} ", StringComparison.Ordinal));
+        Assert.Equal(2, page.Split(',').Length);                         // the topic once, then the host's other one
+        Assert.StartsWith($"topics {Ramone.Value} [{feed:x8}:", page);
+        Assert.Contains(",00007001:", page);
     }
 }
