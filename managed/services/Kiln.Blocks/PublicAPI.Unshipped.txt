@@ -1,1 +1,37 @@
 #nullable enable
+Kiln.NpcLineContext
+Kiln.NpcLineContext.<Clone>$() -> Kiln.NpcLineContext!
+Kiln.NpcLineContext.Deconstruct(out Kiln.EntityId Npc, out Kiln.EntityId Player, out Kiln.NpcLineKind Kind, out int Opens, out int Last, out int Lines) -> void
+Kiln.NpcLineContext.Equals(Kiln.NpcLineContext? other) -> bool
+Kiln.NpcLineContext.Kind.get -> Kiln.NpcLineKind
+Kiln.NpcLineContext.Kind.init -> void
+Kiln.NpcLineContext.Last.get -> int
+Kiln.NpcLineContext.Last.init -> void
+Kiln.NpcLineContext.Lines.get -> int
+Kiln.NpcLineContext.Lines.init -> void
+Kiln.NpcLineContext.Npc.get -> Kiln.EntityId
+Kiln.NpcLineContext.Npc.init -> void
+Kiln.NpcLineContext.NpcLineContext(Kiln.EntityId Npc, Kiln.EntityId Player, Kiln.NpcLineKind Kind, int Opens, int Last, int Lines) -> void
+Kiln.NpcLineContext.Opens.get -> int
+Kiln.NpcLineContext.Opens.init -> void
+Kiln.NpcLineContext.Player.get -> Kiln.EntityId
+Kiln.NpcLineContext.Player.init -> void
+Kiln.NpcLineKind
+Kiln.NpcLineKind.Farewell = 1 -> Kiln.NpcLineKind
+Kiln.NpcLineKind.Greeting = 0 -> Kiln.NpcLineKind
+Kiln.NpcLineKind.MenuLine = 2 -> Kiln.NpcLineKind
+Kiln.NpcSpeech.Kind.get -> Kiln.NpcLineKind
+Kiln.NpcSpeech.Pick.get -> Kiln.SpeechPick!
+Kiln.NpcSpeech.Pick.set -> void
+Kiln.NpcSpeech.Refresh() -> void
+Kiln.SpeechPick
+override Kiln.NpcLineContext.Equals(object? obj) -> bool
+override Kiln.NpcLineContext.GetHashCode() -> int
+override Kiln.NpcLineContext.ToString() -> string!
+override Kiln.SpeechPick.ToString() -> string!
+static Kiln.NpcLineContext.operator !=(Kiln.NpcLineContext? left, Kiln.NpcLineContext? right) -> bool
+static Kiln.NpcLineContext.operator ==(Kiln.NpcLineContext? left, Kiln.NpcLineContext? right) -> bool
+static Kiln.SpeechPick.By(System.Func<Kiln.NpcLineContext!, int>! choose) -> Kiln.SpeechPick!
+static Kiln.SpeechPick.InOrder.get -> Kiln.SpeechPick!
+static Kiln.SpeechPick.Random.get -> Kiln.SpeechPick!
+static Kiln.SpeechPick.Seeded(int seed) -> Kiln.SpeechPick!

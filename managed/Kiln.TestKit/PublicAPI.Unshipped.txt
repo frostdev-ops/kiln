@@ -1,1 +1,2 @@
 #nullable enable
+Kiln.TestKit.HarnessNpcSpeech.PickOf(Kiln.EntityId npc, Kiln.NpcLineKind kind = Kiln.NpcLineKind.Greeting) -> string?

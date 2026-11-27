@@ -49,6 +49,17 @@ public sealed class HarnessNpcSpeech
             return S.Says.TryGetValue(npc.Value, out var s) && s.Until > Environment.TickCount64 ? TextOf(s.Tag, language) : null;
     }
 
+    /// <summary>How the NPC's line of <paramref name="kind"/> picks among its lines: "Random", "InOrder",
+    /// "Seeded(seed)" or "By" (the host's callback), as a Kiln client would be told; null when Kiln leaves that line to
+    /// the game. Since 0.2.0-dev.32.</summary>
+    public string? PickOf(EntityId npc, NpcLineKind kind = NpcLineKind.Greeting)
+    {
+        lock (S.Lock)
+            return S.Picks.TryGetValue((npc.Value, (uint)kind), out var p)
+                ? p.Pick switch { 1 => "Random", 2 => "InOrder", 3 => $"Seeded({unchecked((int)p.Seed)})", 4 => "By", _ => "WhenTheGamePicks" }
+                : null;
+    }
+
     /// <summary>How many set and say calls reached the fake (a test that expects nothing new compares it).</summary>
     public int Calls
     {

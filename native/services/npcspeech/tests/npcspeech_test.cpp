@@ -123,6 +123,138 @@ int main() {
         }
         CHECK(varied, "a new game pick can bring another line");
     }
+    // ---- dev.32: a new pick at each greeting (Ramone's one greeting showed the same Replace line forever) ----------
+    // A greeting = the bubble shows after at least kReopenMs hidden (or for the first time), or the game picks anew.
+    auto greet = [&](npcspeech::Core& c, uint32_t npc, uint64_t& now, uint32_t game = 2262475715u) {
+        Params p;
+        p.set(game, 0);
+        c.draw(npc, p.b, l, now);  // hidden (the player looks away)
+        now += npcspeech::kReopenMs;
+        p.set(game, 1);
+        c.draw(npc, p.b, l, now);  // shown again
+        const uint32_t shown = p.text();
+        now += 50;
+        p.set(game, 1);
+        c.draw(npc, p.b, l, now);  // the next frame keeps it
+        CHECK(p.text() == shown, "a greeting keeps its line while it shows");
+        now += 50;
+        return shown;
+    };
+    {  // Random: the same game line (Ramone), yet a new line at each greeting, never the same twice in a row
+        npcspeech::Core c;
+        CHECK(c.set_lines(7, KILN_SPEECH_KIND_GREETING, KILN_SPEECH_REPLACE, tags, 3, KILN_SPEECH_PICK_RANDOM, 0), "set_lines random");
+        uint64_t now = 1000;
+        uint32_t prev = greet(c, 7, now), changes = 0;
+        bool repeat = false;
+        for (int i = 0; i < 30; ++i) {
+            const uint32_t t = greet(c, 7, now);
+            CHECK(t == 0xa1 || t == 0xa2 || t == 0xa3, "random: one of ours");
+            repeat |= t == prev;
+            changes += t != prev;
+            prev = t;
+        }
+        CHECK(!repeat && changes == 30, "random: a new line at every greeting, never the same twice in a row");
+        // a glance away shorter than kReopenMs is the same greeting
+        Params p;
+        p.set(2262475715u, 0);
+        c.draw(7, p.b, l, now);
+        p.set(2262475715u, 1);
+        c.draw(7, p.b, l, now + npcspeech::kReopenMs / 2);
+        CHECK(p.text() == prev, "hidden for less than kReopenMs: the same greeting, the same line");
+        const uint32_t one[] = {0xb1};
+        c.set_lines(8, KILN_SPEECH_KIND_GREETING, KILN_SPEECH_REPLACE, one, 1, KILN_SPEECH_PICK_RANDOM, 0);
+        CHECK(greet(c, 8, now) == 0xb1 && greet(c, 8, now) == 0xb1, "random with one line: that line");
+    }
+    {  // the v1 rule stays for set(): a new pick only when the game's pick changes
+        npcspeech::Core c;
+        c.set(7, KILN_SPEECH_REPLACE, tags, 3);
+        uint64_t now = 1000;
+        const uint32_t first = greet(c, 7, now);
+        bool same = true;
+        for (int i = 0; i < 10; ++i) same &= greet(c, 7, now) == first;
+        CHECK(same, "set() (PICK_CHANGE): the same game line keeps the same line of ours, as in 31.16");
+    }
+    {  // InOrder: the lines in turn from seed % n; Seeded: the same line for the same open, wherever it runs
+        npcspeech::Core c;
+        c.set_lines(7, KILN_SPEECH_KIND_GREETING, KILN_SPEECH_REPLACE, tags, 3, KILN_SPEECH_PICK_ORDER, 1);
+        uint64_t now = 1000;
+        uint32_t seq[6];
+        for (auto& t : seq) t = greet(c, 7, now);
+        CHECK(seq[0] == 0xa2 && seq[1] == 0xa3 && seq[2] == 0xa1 && seq[3] == 0xa2 && seq[4] == 0xa3 && seq[5] == 0xa1, "in order from seed 1");
+        npcspeech::Core a, b;
+        a.set_lines(7, KILN_SPEECH_KIND_GREETING, KILN_SPEECH_REPLACE, tags, 3, KILN_SPEECH_PICK_SEEDED, 42);
+        b.set_lines(7, KILN_SPEECH_KIND_GREETING, KILN_SPEECH_REPLACE, tags, 3, KILN_SPEECH_PICK_SEEDED, 42);
+        uint64_t na = 1000, nb = 777777;
+        bool equal = true;
+        uint32_t distinct = 0, prev = 0;
+        for (int i = 0; i < 12; ++i) {
+            const uint32_t x = greet(a, 7, na), y = greet(b, 7, nb);
+            equal &= x == y;
+            distinct += x != prev;
+            prev = x;
+        }
+        CHECK(equal, "seeded: two clients show the same line for the same open");
+        CHECK(distinct >= 4, "seeded: the lines vary across opens");
+        CHECK(npcspeech::Core::seeded(42, 7, 0, 3) == npcspeech::Core::seeded(42, 7, 0, 3) &&
+                  npcspeech::Core::seeded(42, 7, 0, 3) < 3,
+              "seeded: a pure function of seed, NPC, open and count");
+    }
+    {  // HOST (By): the line next() gave, reported once per open; -1 = the game's line; none yet: random among ours
+        npcspeech::Core c;
+        c.set_lines(7, KILN_SPEECH_KIND_GREETING, KILN_SPEECH_REPLACE, tags, 3, KILN_SPEECH_PICK_HOST, 0);
+        uint64_t now = 1000;
+        const uint32_t before = greet(c, 7, now);
+        CHECK(before == 0xa1 || before == 0xa2 || before == 0xa3, "host pick not there yet: one of ours");
+        KilnSpeechEvent ev[8];
+        uint32_t n = c.drain(ev, 8);
+        CHECK(n == 1 && ev[0].npc == 7 && ev[0].type == KILN_SPEECH_EVENT_OPEN && ev[0].kind == KILN_SPEECH_KIND_GREETING &&
+                  ev[0].value == 1,
+              "an open of a host-picked line is reported (its count)");
+        CHECK(c.next(7, KILN_SPEECH_KIND_GREETING, 2), "next() for host lines");
+        CHECK(greet(c, 7, now) == 0xa3, "the host's pick shows at the next greeting");
+        CHECK(greet(c, 7, now) == 0xa3, "and again until the host sends another");
+        n = c.drain(ev, 8);
+        CHECK(n == 2 && ev[0].line == 2 && ev[0].value == 2 && ev[1].value == 3, "each open reported with the line shown");
+        c.next(7, KILN_SPEECH_KIND_GREETING, KILN_SPEECH_LINE_GAME);
+        CHECK(greet(c, 7, now) == 2262475715u, "-1: the game's own line this time");
+        n = c.drain(ev, 8);
+        CHECK(n == 1 && ev[0].line == -1, "reported as the game's line");
+        CHECK(!c.next(7, KILN_SPEECH_KIND_GREETING, 3), "an index past the lines is refused");
+        CHECK(!c.next(9, KILN_SPEECH_KIND_GREETING, 0), "next() for an NPC without host lines is refused");
+        c.set_lines(8, KILN_SPEECH_KIND_GREETING, KILN_SPEECH_REPLACE, tags, 3, KILN_SPEECH_PICK_RANDOM, 0);
+        greet(c, 8, now);
+        CHECK(c.drain(ev, 8) == 0, "random lines report nothing (no traffic per greeting)");
+        const auto k = c.counts();
+        CHECK(k.opens >= 5, "opens are counted");
+    }
+    {  // the event queue is bounded: the oldest go, the count of dropped ones says so
+        npcspeech::Core c;
+        c.set_lines(7, KILN_SPEECH_KIND_GREETING, KILN_SPEECH_REPLACE, tags, 3, KILN_SPEECH_PICK_HOST, 0);
+        uint64_t now = 1000;
+        for (uint32_t i = 0; i < npcspeech::kMaxEvents + 10; ++i) greet(c, 7, now);
+        KilnSpeechEvent ev[4];
+        CHECK(c.drain(ev, 4) == 4 && ev[0].value == 11, "the oldest events were dropped first");
+        CHECK(c.counts().dropped == 10, "dropped events are counted");
+    }
+    {  // set_lines checks its arguments; the same lines again keep the rotation going
+        const uint32_t zero[] = {0xa1, 0};
+        CHECK(!npcspeech::Core::valid_lines(7, KILN_SPEECH_KIND_GREETING, KILN_SPEECH_REPLACE, tags, 3, 5), "unknown pick");
+        CHECK(!npcspeech::Core::valid_lines(7, 3, KILN_SPEECH_REPLACE, tags, 3, 1), "unknown kind");
+        CHECK(!npcspeech::Core::valid_lines(7, KILN_SPEECH_KIND_FAREWELL, KILN_SPEECH_SUPPRESS, nullptr, 0, 1), "a farewell is replaced or the game's");
+        CHECK(!npcspeech::Core::valid_lines(7, KILN_SPEECH_KIND_MENU, KILN_SPEECH_REPLACE, zero, 2, 1), "a zero tag");
+        CHECK(npcspeech::Core::valid_lines(7, KILN_SPEECH_KIND_MENU, KILN_SPEECH_GAME, nullptr, 0, 0), "clearing the menu line");
+        npcspeech::Core c;
+        c.set_lines(7, KILN_SPEECH_KIND_GREETING, KILN_SPEECH_REPLACE, tags, 3, KILN_SPEECH_PICK_ORDER, 0);
+        uint64_t now = 1000;
+        const uint32_t a = greet(c, 7, now);
+        c.set_lines(7, KILN_SPEECH_KIND_GREETING, KILN_SPEECH_REPLACE, tags, 3, KILN_SPEECH_PICK_ORDER, 0);  // a host resends it
+        CHECK(a == 0xa1 && greet(c, 7, now) == 0xa2, "the same lines again: the rotation goes on");
+        c.set_lines(7, KILN_SPEECH_KIND_GREETING, KILN_SPEECH_GAME, nullptr, 0, 0, 0);
+        Params p;
+        p.set(2262475715u, 1);
+        c.draw(7, p.b, l, now + 5000);
+        CHECK(p.text() == 2262475715u && c.tracked() == 0, "cleared through set_lines: the game's line, NPC forgotten");
+    }
     {  // Say: over an override, shown even when the game hides the bubble, ends at its time
         npcspeech::Core c;
         c.set(7, KILN_SPEECH_SUPPRESS, nullptr, 0);

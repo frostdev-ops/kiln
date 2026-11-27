@@ -150,6 +150,15 @@ bool install() {
     return true;
 }
 
+// ------------------------------------------------------------------------------------------------ dialogue menu --
+// The dialogue window's parts (farewell, the menu's line, topics): docs/re/npc-speech.md section 6. Until they are
+// resolved, the dev.32 kinds other than the greeting answer KILN_ERR_UNAVAILABLE.
+KilnResult dialog_usable(uint32_t) { return KILN_ERR_UNAVAILABLE; }
+bool install_dialog() { return false; }
+uint32_t dialog_resolved() { return 0; }
+uint32_t dialog_installed() { return 0; }
+void dialog_counts(KilnNpcDialogStatus*) {}
+
 // ------------------------------------------------------------------------------------------------ table ----------
 KilnResult usable() {
     if (!g_bubble_ok || g_install_failed.load()) return KILN_ERR_UNAVAILABLE;
@@ -187,6 +196,45 @@ KilnResult KILN_CALL clear_all() {
     return KILN_OK;
 }
 
+// ---- since 0.2.0-dev.32 ----
+KilnResult KILN_CALL set_lines(KilnEntity npc, uint32_t kind, uint32_t mode, const uint32_t* tags, uint32_t n, uint32_t pick, uint32_t seed) {
+    if (!npcspeech::Core::valid_lines(npc, kind, mode, tags, n, pick)) return KILN_ERR_INVALID_ARGUMENT;
+    if (kind == KILN_SPEECH_KIND_GREETING) {
+        if (KilnResult rc = usable(); rc != KILN_OK) return rc;
+        if (mode == KILN_SPEECH_REPLACE && !texts_here()) return KILN_ERR_UNAVAILABLE;
+        if (mode != KILN_SPEECH_GAME && !install()) return KILN_ERR_UNAVAILABLE;
+    } else if (mode != KILN_SPEECH_GAME) {
+        if (KilnResult rc = dialog_usable(kind); rc != KILN_OK) return rc;
+        if (!texts_here() || !install_dialog()) return KILN_ERR_UNAVAILABLE;
+    }
+    g_core.set_lines(npc, kind, mode, tags, n, pick, seed);
+    return KILN_OK;
+}
+
+KilnResult KILN_CALL next(KilnEntity npc, uint32_t kind, int32_t line) {
+    return g_core.next(npc, kind, line) ? KILN_OK : KILN_ERR_INVALID_ARGUMENT;
+}
+
+KilnResult KILN_CALL events(KilnSpeechEvent* out, uint32_t max, uint32_t* n) {
+    if (!n || (max && !out)) return KILN_ERR_INVALID_ARGUMENT;
+    *n = g_core.drain(out, max);
+    return KILN_OK;
+}
+
+KilnResult KILN_CALL dialog_status(KilnNpcDialogStatus* out) {
+    if (!out || out->size < sizeof(KilnNpcDialogStatus)) return KILN_ERR_INVALID_ARGUMENT;
+    std::memset(reinterpret_cast<uint8_t*>(out) + sizeof(uint32_t), 0, sizeof(KilnNpcDialogStatus) - sizeof(uint32_t));
+    out->resolved = dialog_resolved();
+    out->installed = dialog_installed();
+    const auto c = g_core.counts();
+    out->lines = c.lines;
+    out->queued = c.queued;
+    out->opens = c.opens;
+    out->dropped = c.dropped;
+    dialog_counts(out);
+    return KILN_OK;
+}
+
 KilnResult KILN_CALL status(KilnNpcSpeechStatus* out) {
     if (!out || out->size < sizeof(KilnNpcSpeechStatus)) return KILN_ERR_INVALID_ARGUMENT;
     out->resolved = (g_bubble_at ? 1u : 0u) | (g_draw_at ? 2u : 0u) | (g_voice_ok ? 4u : 0u) | (texts_here() ? 8u : 0u);
@@ -202,7 +250,8 @@ KilnResult KILN_CALL status(KilnNpcSpeechStatus* out) {
     return KILN_OK;
 }
 
-const KilnNpcSpeechApi kTable = {{sizeof(KilnNpcSpeechApi), KILN_NPCSPEECH_VERSION}, &set, &say, &text, &clear_all, &status};
+const KilnNpcSpeechApi kTable = {{sizeof(KilnNpcSpeechApi), KILN_NPCSPEECH_VERSION}, &set, &say, &text, &clear_all, &status,
+                                  &set_lines, &next, &events, &dialog_status};
 
 void KILN_CALL on_ready(void*) {
     if (!texts_here()) NS_W("kiln.content's loca hooks (content.loca) are not here: Kiln's lines cannot be shown, only Suppress works");

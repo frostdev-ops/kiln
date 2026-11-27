@@ -44,6 +44,32 @@ public sealed class NpcSpeechFakeTests
     }
 
     [Fact]
+    public void A_replace_says_how_it_picks_per_greeting()
+    {
+        using var h = new KilnHarness();
+        h.Step();
+        h.Run(() => Npcs.Speech(Npc).Replace("No food, no work.", "My stomach..."));
+        Assert.Equal("Random", h.NpcSpeech.PickOf(Npc));
+        h.Run(() =>
+        {
+            var s = Npcs.Speech(Npc);
+            s.Pick = SpeechPick.InOrder;
+            s.Replace("No food, no work.", "My stomach...");
+        });
+        Assert.Equal("InOrder", h.NpcSpeech.PickOf(Npc));
+        Assert.Equal(["No food, no work.", "My stomach..."], h.NpcSpeech.LinesOf(Npc));
+        h.Run(() =>
+        {
+            var s = Npcs.Speech(Npc);
+            s.Pick = SpeechPick.Seeded(7);
+            s.Replace("No food, no work.", "My stomach...");
+        });
+        Assert.Equal("Seeded(7)", h.NpcSpeech.PickOf(Npc));
+        h.Run(() => Npcs.Speech(Npc).Clear());
+        Assert.Null(h.NpcSpeech.PickOf(Npc));
+    }
+
+    [Fact]
     public void A_second_harness_shows_the_same_texts_and_starts_clear()
     {
         for (var round = 0; round < 2; round++)

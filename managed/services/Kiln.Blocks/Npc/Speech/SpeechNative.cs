@@ -21,6 +21,25 @@ internal static unsafe class SpeechNative
         public ulong Bubbles, Changed, Muted;
     }
 
+    /// <summary>KilnSpeechEvent: an open of a host-picked line (Type 0) or a pick of a Kiln topic (Type 1).</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Event
+    {
+        public uint Npc;
+        public byte Type, Kind;
+        public ushort Reserved;
+        public int Line;
+        public uint Value;
+    }
+
+    /// <summary>KilnNpcDialogStatus (since 0.2.0-dev.32).</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct DialogStatus
+    {
+        public uint Size, Resolved, Installed, Lines, Topics, Queued;
+        public ulong Opens, Farewells, MenuLines, TopicRows, Picks, Dropped;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     public struct Table
     {
@@ -30,7 +49,20 @@ internal static unsafe class SpeechNative
         public delegate* unmanaged<uint, byte*, nuint, int> Text;
         public delegate* unmanaged<int> ClearAll;
         public delegate* unmanaged<Status*, int> GetStatus;
+        // ---- since 0.2.0-dev.32, appended (a 31.16-31.21 table ends here, at 48) ----
+        public delegate* unmanaged<uint, uint, uint, uint*, uint, uint, uint, int> SetLines;
+        public delegate* unmanaged<uint, uint, int, int> Next;
+        public delegate* unmanaged<Event*, uint, uint*, int> Events;
+        public delegate* unmanaged<DialogStatus*, int> DialogStatus;
     }
+
+    /// <summary>The table ends at the 31.21 members (48 bytes) in a fake or an older kiln-npcspeech.dll: no dev.32
+    /// members then, and none that a table left null.</summary>
+    private const int V1Size = 48;
+    public const int EventOpen = 0, EventTopic = 1;
+    public const byte PickChange = 0, PickRandom = 1, PickOrder = 2, PickSeeded = 3, PickHost = 4;
+
+    private static bool Has(Table* t, int end) => t != null && t->HeaderSize >= end;
 
     private static Table* _t;
     private static bool _looked;
@@ -105,6 +137,55 @@ internal static unsafe class SpeechNative
         var t = T;
         if (t == null) return Unavailable;
         fixed (uint* p = tags) return t->Set(npc, (uint)mode, tags.Length == 0 ? null : p, (uint)tags.Length);
+    }
+
+    /// <summary>The dev.32 member set_lines is here (else the caller uses set() for greetings and nothing else).</summary>
+    public static bool HasLines
+    {
+        get
+        {
+            var t = T;
+            return Has(t, V1Size + 8) && t->SetLines != null;
+        }
+    }
+
+    public static int SetLines(uint npc, NpcLineKind kind, SpeechMode mode, uint[] tags, uint pick, uint seed)
+    {
+        var t = T;
+        if (!Has(t, V1Size + 8) || t->SetLines == null) return Unavailable;
+        fixed (uint* p = tags) return t->SetLines(npc, (uint)kind, (uint)mode, tags.Length == 0 ? null : p, (uint)tags.Length, pick, seed);
+    }
+
+    public static int Next(uint npc, NpcLineKind kind, int line)
+    {
+        var t = T;
+        return Has(t, V1Size + 16) && t->Next != null ? t->Next(npc, (uint)kind, line) : Unavailable;
+    }
+
+    /// <summary>What the bubbles and the dialogue menu reported since the last call (opens of host-picked lines, topic
+    /// picks); empty where the table has no such member.</summary>
+    public static Event[] DrainEvents()
+    {
+        var t = T;
+        if (!Has(t, V1Size + 24) || t->Events == null) return [];
+        var all = new List<Event>();
+        var buf = stackalloc Event[64];
+        for (var round = 0; round < 16; round++)
+        {
+            uint n = 0;
+            if (t->Events(buf, 64, &n) != Ok || n == 0) break;
+            for (var i = 0; i < n && i < 64; i++) all.Add(buf[i]);
+            if (n < 64) break;
+        }
+        return all.ToArray();
+    }
+
+    public static DialogStatus? ReadDialog()
+    {
+        var t = T;
+        if (!Has(t, V1Size + 32) || t->DialogStatus == null) return null;
+        var s = new DialogStatus { Size = (uint)sizeof(DialogStatus) };
+        return t->DialogStatus(&s) == Ok ? s : null;
     }
 
     public static int Say(uint npc, uint tag, uint ms)

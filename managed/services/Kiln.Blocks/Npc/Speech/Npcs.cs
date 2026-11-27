@@ -30,16 +30,18 @@ public sealed record SpeechResult(bool Ok, string? Reason) : IKilnResult
 /// mod's. False: refused while another mod's Say shows (the calling mod's own is always replaced).</param>
 public sealed record SayOptions(bool Interrupt = true);
 
-/// <summary>One mod's override of one NPC's greeting bubble (<see cref="Npcs.Speech"/>). Several mods can each have one
-/// for the same NPC: the highest <see cref="Priority"/> shows, on a tie the most recent <see cref="Suppress"/> or
+/// <summary>One mod's override of one NPC's greeting bubble (<see cref="Npcs.Speech"/>), farewell
+/// (<c>Npcs.Farewells</c>) or menu line (<c>Npcs.MenuLine</c>). Several mods can each have one for the same
+/// NPC and kind: the highest <see cref="Priority"/> shows, on a tie the most recent <see cref="Suppress"/> or
 /// <see cref="Replace(string[])"/>; when it clears, the next one does, else the game's own lines come back. It ends by
 /// <see cref="Clear"/>, when the mod unloads, or when the world ends.</summary>
 public sealed class NpcSpeech
 {
-    internal NpcSpeech(EntityId npc, string owner)
+    internal NpcSpeech(EntityId npc, string owner, NpcLineKind kind = NpcLineKind.Greeting)
     {
         Npc = npc;
         ModId = owner;
+        Kind = kind;
     }
 
     /// <summary>The NPC.</summary>
@@ -48,19 +50,39 @@ public sealed class NpcSpeech
     /// <summary>The mod this override belongs to ("kiln" outside a mod).</summary>
     public string ModId { get; }
 
+    /// <summary>Which line it is for: the bubble's greeting, the menu's farewell or the menu's own line. Since
+    /// 0.2.0-dev.32.</summary>
+    public NpcLineKind Kind { get; }
+
     /// <summary>What this override does now (<see cref="SpeechMode.Game"/> when it is clear). Any thread.</summary>
-    public SpeechMode Mode => NpcSpeechEngine.Book.ModeOf(NpcSpeechEngine.Layer, Npc.Value, ModId);
+    public SpeechMode Mode => NpcSpeechEngine.Book.ModeOf(NpcSpeechEngine.Layer, Npc.Value, ModId, Kind);
 
     /// <summary>Its rank against other mods' overrides of the same NPC (higher wins). Set it before
     /// <see cref="Suppress"/> or <see cref="Replace(string[])"/>; a change counts at the next of those.</summary>
     public int Priority { get; set; }
 
-    /// <summary>No greeting bubble while this override is on, and no greeting voice-over (a player who presses E still
-    /// gets the NPC's menu). Any thread.</summary>
-    public SpeechResult Suppress() => NpcSpeechEngine.Set(Npc, ModId, SpeechMode.Suppress, [], Priority);
+    /// <summary>How <see cref="Replace(string[])"/> picks among its lines each time the NPC greets (says farewell, opens
+    /// its menu): <see cref="SpeechPick.Random"/> (the default), <see cref="SpeechPick.InOrder"/>,
+    /// <see cref="SpeechPick.Seeded"/> or the host's own <see cref="SpeechPick.By"/>. Set it before Replace; a change
+    /// counts at the next Replace. Since 0.2.0-dev.32.</summary>
+    public SpeechPick Pick
+    {
+        get => _pick;
+        set => _pick = value ?? throw new ArgumentNullException(nameof(value));
+    }
 
-    /// <summary>The NPC's greeting bubble shows one of these lines instead of its own (a new pick each time the game
-    /// picks a new line), with no voice-over. 1 to 32 lines of up to 200 characters, the same in every language. Any thread.</summary>
+    private SpeechPick _pick = SpeechPick.Random;
+
+    /// <summary>No greeting bubble while this override is on, and no greeting voice-over (a player who presses E still
+    /// gets the NPC's menu). Greetings only: a farewell or a menu line is replaced or the game's (the answer says so).
+    /// Any thread.</summary>
+    public SpeechResult Suppress() => Kind == NpcLineKind.Greeting
+        ? NpcSpeechEngine.Set(Npc, ModId, Kind, SpeechMode.Suppress, [], Priority, Pick)
+        : SpeechResult.No($"a {(Kind == NpcLineKind.Farewell ? "farewell" : "menu line")} cannot be suppressed: Replace it, or Clear for the game's");
+
+    /// <summary>The NPC shows one of these lines instead of its own (a new pick each time it greets, as
+    /// <see cref="Pick"/> says), with no voice-over. 1 to 32 lines of up to 200 characters, the same in every language.
+    /// Any thread.</summary>
     /// <exception cref="ArgumentException">No line, more than 32, or an empty or too long one.</exception>
     public SpeechResult Replace(params string[] lines)
     {
@@ -81,14 +103,19 @@ public sealed class NpcSpeech
             throw new ArgumentException($"Replace takes 1 to {SpeechText.MaxLines} lines, not {all.Length}", nameof(lines));
         for (var i = 0; i < all.Length; i++)
             if (SpeechText.Problem(all[i]) is { } p) throw new ArgumentException($"line {i}: {p}", nameof(lines));
-        return NpcSpeechEngine.Set(Npc, ModId, SpeechMode.Replace, all, Priority);
+        return NpcSpeechEngine.Set(Npc, ModId, Kind, SpeechMode.Replace, all, Priority, Pick);
     }
 
     /// <summary>Ends this override: the next mod's shows, else the game's own lines. Any thread.</summary>
-    public void Clear() => NpcSpeechEngine.Set(Npc, ModId, SpeechMode.Game, [], Priority);
+    public void Clear() => NpcSpeechEngine.Set(Npc, ModId, Kind, SpeechMode.Game, [], Priority, Pick);
 
-    /// <summary>The NPC, the mod and the mode.</summary>
-    public override string ToString() => $"speech of {Npc} by {ModId}: {Mode}";
+    /// <summary>Asks a <see cref="SpeechPick.By"/> callback again for every player now (its condition changed), instead
+    /// of at each player's next greeting. Nothing for the other picks. Any thread; the callback runs on the tick thread.
+    /// Since 0.2.0-dev.32.</summary>
+    public void Refresh() => NpcSpeechEngine.Refresh(Npc.Value, Kind);
+
+    /// <summary>The NPC, the mod, the kind and the mode.</summary>
+    public override string ToString() => $"{(Kind == NpcLineKind.Greeting ? "speech" : Kind == NpcLineKind.Farewell ? "farewell" : "menu line")} of {Npc} by {ModId}: {Mode}";
 }
 
 /// <summary>Friendly NPCs' speech bubbles: a mod's own lines in the game's bubble over a villager, craftsperson or

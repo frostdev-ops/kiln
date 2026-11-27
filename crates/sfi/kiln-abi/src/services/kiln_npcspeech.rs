@@ -4,9 +4,21 @@
 use crate::*;
 pub const KILN_NPCSPEECH_SERVICE: &[u8] = b"kiln.npcspeech\0";
 pub const KILN_NPCSPEECH_VERSION: u32 = 1;
+pub const KILN_SPEECH_EVENT_OPEN: u32 = 0;
+pub const KILN_SPEECH_EVENT_TOPIC: u32 = 1;
 pub const KILN_SPEECH_GAME: u32 = 0;
+pub const KILN_SPEECH_KIND_FAREWELL: u32 = 1;
+pub const KILN_SPEECH_KIND_GREETING: u32 = 0;
+pub const KILN_SPEECH_KIND_MENU: u32 = 2;
+pub const KILN_SPEECH_LINE_GAME: i32 = -1;
 pub const KILN_SPEECH_MAX_LINES: u32 = 32;
 pub const KILN_SPEECH_MAX_SAY_MS: u32 = 60000;
+pub const KILN_SPEECH_PICK_CHANGE: u32 = 0;
+pub const KILN_SPEECH_PICK_HOST: u32 = 4;
+pub const KILN_SPEECH_PICK_ORDER: u32 = 2;
+pub const KILN_SPEECH_PICK_RANDOM: u32 = 1;
+pub const KILN_SPEECH_PICK_SEEDED: u32 = 3;
+pub const KILN_SPEECH_REOPEN_MS: u32 = 1000;
 pub const KILN_SPEECH_REPLACE: u32 = 2;
 pub const KILN_SPEECH_SUPPRESS: u32 = 1;
 
@@ -26,6 +38,34 @@ pub struct KilnNpcSpeechStatus {
 
 #[repr(C)]
 #[derive(Clone, Copy)]
+pub struct KilnSpeechEvent {
+    pub npc: u32,
+    pub r#type: u8,
+    pub kind: u8,
+    pub reserved: u16,
+    pub line: i32,
+    pub value: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct KilnNpcDialogStatus {
+    pub size: u32,
+    pub resolved: u32,
+    pub installed: u32,
+    pub lines: u32,
+    pub topics: u32,
+    pub queued: u32,
+    pub opens: u64,
+    pub farewells: u64,
+    pub menu_lines: u64,
+    pub topic_rows: u64,
+    pub picks: u64,
+    pub dropped: u64,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
 pub struct KilnNpcSpeechApi {
     pub header: KilnServiceHeader,
     pub set: Option<unsafe extern "C" fn(KilnEntity, u32, *const u32, u32) -> KilnResult>,
@@ -33,4 +73,8 @@ pub struct KilnNpcSpeechApi {
     pub text: Option<unsafe extern "C" fn(u32, *const core::ffi::c_char, usize) -> KilnResult>,
     pub clear_all: Option<unsafe extern "C" fn() -> KilnResult>,
     pub status: Option<unsafe extern "C" fn(*mut KilnNpcSpeechStatus) -> KilnResult>,
+    pub set_lines: Option<unsafe extern "C" fn(KilnEntity, u32, u32, *const u32, u32, u32, u32) -> KilnResult>,
+    pub next: Option<unsafe extern "C" fn(KilnEntity, u32, i32) -> KilnResult>,
+    pub events: Option<unsafe extern "C" fn(*mut KilnSpeechEvent, u32, *mut u32) -> KilnResult>,
+    pub dialog_status: Option<unsafe extern "C" fn(*mut KilnNpcDialogStatus) -> KilnResult>,
 }
