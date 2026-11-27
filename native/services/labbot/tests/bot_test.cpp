@@ -169,6 +169,17 @@ void t_snapshot() {
     SnapEntry bad = e;
     bad.slot = 16;
     CHECK(put_entries(s.buf.data(), s.L, bad) == Put::Bad, "slot out of range");
+    // the bot left: its entries go from the buffer the session copies forward; a real connection's never do
+    CHECK(clear_entries(s.buf.data(), s.L, e), "cleared");
+    CHECK(!has_entries(s.buf.data(), s.L, e) && player_in(s.buf.data(), s.L, 15) == 0 && machine_in(s.buf.data(), s.L, 16) == 0,
+          "no entries left");
+    CHECK(s.count(16) == 0 && s.m(16)[s.L.m_remote] == 0 && rd32(s.p(15) + s.L.p_remote) == 0, "machine list and remote marks reset");
+    std::memcpy(&acct, s.p(15) + s.L.p_account, 8);
+    CHECK(acct == 0 && rd32(s.p(15) + s.L.p_group) == 0, "account and group reset");
+    CHECK(!clear_entries(s.buf.data(), s.L, e), "nothing left to clear");
+    CHECK(!clear_entries(t.buf.data(), t.L, e) && rd32(t.p(15)) == real, "a real player's slot is never cleared");
+    CHECK(!clear_entries(u.buf.data(), u.L, e) && rd32(u.m(16)) == realm, "a real machine is never cleared");
+    CHECK(!clear_entries(s.buf.data(), s.L, bad), "slot out of range: nothing");
 }
 
 // ---- 5..10: a fake GameServer ----

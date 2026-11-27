@@ -195,6 +195,29 @@ bool has_entries(const uint8_t* buf, const SnapLayout& L, const SnapEntry& e) {
     return false;
 }
 
+bool clear_entries(uint8_t* buf, const SnapLayout& L, const SnapEntry& e) {
+    if (!buf || !L.valid() || e.slot >= L.player_count || e.machine_index >= L.machine_count || !e.machine || !e.player)
+        return false;
+    bool any = false;
+    uint8_t* p = pent(buf, L, e.slot);
+    if (get32(p + L.p_handle) == e.player) {
+        set32(p + L.p_handle, 0);
+        set32(p + L.p_remote, 0);
+        set32(p + L.p_machine, 0);
+        set32(p + L.p_group, 0);
+        set64(p + L.p_account, 0);
+        any = true;
+    }
+    uint8_t* m = ment(buf, L, e.machine_index);
+    if (get32(m + L.m_handle) == e.machine) {
+        set32(m + L.m_handle, 0);
+        m[L.m_remote] = 0;
+        set64(m + L.m_players + 8, 0);  // the array the game owns stays; only its count goes
+        any = true;
+    }
+    return any;
+}
+
 // ---------------------------------------------------------------------------------- join and leave ----------------
 const char* phase_name(Phase p) {
     switch (p) {

@@ -88,6 +88,11 @@ enum class Put { Ok, NeedCapacity, Taken, Bad };
 Put put_entries(uint8_t* buf, const SnapLayout& L, const SnapEntry& e);
 // Whether `buf` (a published buffer) shows the bot: both entries, and the machine lists the player.
 bool has_entries(const uint8_t* buf, const SnapLayout& L, const SnapEntry& e);
+// After the bot left: removes its entries from `buf` (a back buffer, before it is published), each only while it still
+// holds the bot's handle (a real connection's entry is never touched). The session copies the current buffer forward
+// into the next, so without this a left bot stays listed until the session next copies its own state. true: something
+// was removed.
+bool clear_entries(uint8_t* buf, const SnapLayout& L, const SnapEntry& e);
 // The real session's use of a slot / machine in `buf` (0: free there).
 uint32_t player_in(const uint8_t* buf, const SnapLayout& L, uint32_t slot);
 uint32_t machine_in(const uint8_t* buf, const SnapLayout& L, uint32_t index);
