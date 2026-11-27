@@ -95,7 +95,8 @@ for this pet; the down itself cannot be refused. `PetDownedEvent` comes only aft
     PetDefinition? Definition(string id); IReadOnlyList<PetDefinition> Definitions;
     IReadOnlyList<PetSnapshot> Of(CharacterKey owner); IReadOnlyList<PetSnapshot> Of(PlayerRef player);   // pets.records (a player: in game)
     PetSnapshot? Get(PetId pet);
-    Task<PetResult> Grant(CharacterKey owner, string definition, PetRequest request);
+    Task<PetResult> Grant(PlayerRef owner, string definition, PetRequest request);   // in game, as every request
+    Task<PetResult> Grant(CharacterKey owner, string definition, PetRequest request); // a character, also offline
     Task<PetResult> Summon(PlayerRef owner, PetId pet, PetRequest request);    // pets.summon
     Task<PetResult> Dismiss(PlayerRef owner, PetId pet, PetRequest request);
     Task<PetResult> Command(PlayerRef owner, PetId pet, PetOrder order, EntityRef target, PetRequest request); // pets.follow (+ pets.fight for Attack)

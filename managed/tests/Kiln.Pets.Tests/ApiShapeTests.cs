@@ -252,6 +252,21 @@ public sealed class PetsFacadeShapeTests : IDisposable
         return t.Result;
     }
 
+    // ---- C4: Grant takes the player in game, as every other request does (a CharacterKey still grants offline) ----
+
+    [Fact]
+    public void Grant_takes_a_player_in_game_and_a_character_key_still_grants_offline()
+    {
+        var a = Join(_a);
+        var r = Run(Pets.Grant(a, "mod-a:wolf", PetRequest.New()));
+        Assert.True(r.Ok, r.Reason);
+        Assert.Equal(_a, r.Pet!.Owner);
+        var offline = new PlayerRef(_b.Account, _b.Id, new EntityRef(new EntityId(99), 1));
+        var refused = Run(Pets.Grant(offline, "mod-a:wolf", PetRequest.New()));
+        Assert.Equal(PetRefusal.OwnerOffline, refused.Refusal);
+        Assert.True(Run(Pets.Grant(_b, "mod-a:wolf", PetRequest.New())).Ok);
+    }
+
     // ---- A12: Pets.Of takes a player too ----
 
     [Fact]

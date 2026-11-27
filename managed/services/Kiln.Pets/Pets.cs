@@ -103,6 +103,23 @@ public static partial class Pets
         });
     }
 
+    /// <summary>Gives the player's character a new pet of <paramref name="definition"/>, as
+    /// <see cref="Grant(CharacterKey, string, PetRequest)"/> does, naming its owner as every other request does (a
+    /// <see cref="PlayerRef"/> in game). A character that is offline is given a pet by its key.</summary>
+    /// <returns>As the other overload; also <c>OwnerOffline</c> (not in game) or <c>NoCharacter</c>.</returns>
+    /// <exception cref="ArgumentException">No player, an empty definition id, or an empty request id.</exception>
+    [ServerOnly, TickThreadOnly, RequiresCapability(Caps.Records)]
+    public static Task<PetResult> Grant(PlayerRef owner, string definition, PetRequest request)
+    {
+        if (owner.IsNone) throw new ArgumentException("no owner", nameof(owner));
+        ArgumentException.ThrowIfNullOrEmpty(definition);
+        Check(request);
+        var r = Roster("Pets.Grant");
+        if (r.World.Owner(owner, out var why) is not { } who)
+            return Task.FromResult(new PetResult(false, why ?? "OwnerOffline: the owner is not in game", null, request.RequestId, []));
+        return Grant(who.Key, definition, request);
+    }
+
     /// <summary>Brings the pet out: a Ready pet gets a protected body 2 to 4 m from its owner, at its kept health, following;
     /// a Downed pet's recovery anchor is put next to its owner (no body, no health). Already out: Ok, nothing changes.</summary>
     /// <returns>Ok with the pet once its body is live (or its anchor shown); else <c>Busy</c>, <c>Capacity</c>,

@@ -91,7 +91,7 @@ public sealed record TamingDefinition
     /// <summary>What happens to paid steps when the attempt ends without a tame.</summary>
     public TamingRefundPolicy Refund { get; init; } = TamingRefundPolicy.NonRefundable;
     /// <summary>The Kiln.Pets definition (<see cref="PetDefinition.Id"/>) a tame binds: when the tame commits, the owner's
-    /// character gets a new pet record of it (<see cref="Pets.Grant"/>), and <see cref="TamingResult.Pet"/> is that pet. A
+    /// character gets a new pet record of it (<see cref="Pets.Grant(CharacterKey, string, PetRequest)"/>), and <see cref="TamingResult.Pet"/> is that pet. A
     /// roster slot of it is held from Begin to the end of the attempt, and checked again before the last step's cost
     /// (no cost is taken for a tame the roster cannot hold). Null: no pet; the tame is the attempt's own result and the
     /// mod's handlers decide what it means.</summary>

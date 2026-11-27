@@ -18,7 +18,7 @@ public abstract class PetChangeEvent : KilnEvent
 
 /// <summary>A pet entered or left a transition (Spawning, Downing, Dismissing, Reviving, Releasing). Since 0.2.0-dev.32.</summary>
 public sealed class PetTransitionChangedEvent : PetChangeEvent { internal PetTransitionChangedEvent(PetChange c) : base(c) { } }
-/// <summary>A character was given a new pet (<see cref="Pets.Grant"/>). Since 0.2.0-dev.32.</summary>
+/// <summary>A character was given a new pet (<see cref="Pets.Grant(CharacterKey, string, PetRequest)"/>). Since 0.2.0-dev.32.</summary>
 public sealed class PetGrantedEvent : PetChangeEvent { internal PetGrantedEvent(PetChange c) : base(c) { } }
 /// <summary>A pet was summoned: a body (Ready) or its recovery anchor next to its owner (Downed). Since 0.2.0-dev.32.</summary>
 public sealed class PetSummonedEvent : PetChangeEvent { internal PetSummonedEvent(PetChange c) : base(c) { } }
