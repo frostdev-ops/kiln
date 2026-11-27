@@ -66,9 +66,12 @@ bool read_game_value(const std::string& name, double* out, std::string* why) {
     if (name == "giftRange") {
         uintptr_t fn = 0;
         if (!g_env.symbol || !g_env.symbol("limits/GiftRange", &fn) || !fn) return *why = "the game's gifting distance was not found on this game build", false;
-        // the getter is `movss xmm0,[rip+d]; ret`: the literal is at fn + 8 + d
+        // the getter is `movss xmm0,[rip+d]; ret`: the literal is at fn + 8 + d. Its code as the exe file has it where kiln.hooks
+        // can give that (a hook another module put in first starts the live bytes with its jump), else the live bytes
         uint8_t code[9] = {};
-        if (!g_env.read || !g_env.read(fn, code, sizeof code) || code[0] != 0xF3 || code[1] != 0x0F || code[2] != 0x10 || code[3] != 0x05 || code[8] != 0xC3)
+        const bool shipped = g_env.read_code && g_env.read_code(fn, code, sizeof code);
+        if ((!shipped && (!g_env.read || !g_env.read(fn, code, sizeof code))) || code[0] != 0xF3 || code[1] != 0x0F || code[2] != 0x10 || code[3] != 0x05 ||
+            code[8] != 0xC3)
             return *why = "the game's gifting distance has another shape on this game build", false;
         int32_t d = 0;
         std::memcpy(&d, code + 4, 4);
@@ -258,7 +261,7 @@ std::optional<double> game_answer(const std::string& name, uint32_t table_value,
     return static_cast<double>(answer);
 }
 
-// ---- the hooks (kiln-content.dll installs them through Env.install; limits_hooks.cpp) ----
+// ---- the hooks (kiln-content.dll installs them through Env.install: stage_service.cpp install_limit_hook) ----
 std::optional<uint32_t> table_value_at(void* registry, uint32_t level) {
     if (!g_read || !registry) return std::nullopt;
     uintptr_t table = 0;

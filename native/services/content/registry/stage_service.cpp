@@ -631,6 +631,11 @@ void bind_service() {
     lenv.symbol = [](const char* n, uintptr_t* out) { return g_api->symbol(KilnStr{n, std::strlen(n)}, out) == KILN_OK && *out != 0; };
     lenv.constant = [](const char* n, int64_t* out) { return g_api->constant(KilnStr{n, std::strlen(n)}, out) == KILN_OK; };
     lenv.read = [](uintptr_t a, void* out, size_t n) { return kc::rd(a, out, n); };
+    lenv.read_code = [](uintptr_t a, void* out, size_t n) {  // the exe file's code (kiln.hooks read_original, dev.29.19)
+        const KilnHooksApi* h = kiln::hooks_v2(g_api);
+        return h && h->header.size >= offsetof(KilnHooksApi, read_original) + sizeof(h->read_original) && h->read_original &&
+               h->read_original(a, out, n) == KILN_OK;
+    };
     lenv.install = &install_limit_hook;
     lenv.log = [](int level, const std::string& line) {
         if (level >= 2) LOGE("%s", line.c_str());

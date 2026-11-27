@@ -201,6 +201,28 @@ int main() {
         CHECK(lm::apply(rb, &out, &notes) == 1 && out[0].ok && fake_gift() == 250000.0f, "the stage's value is taken: 500 m: " + (out.empty() ? std::string() : out[0].why));
         g_code[0] = 0xF3;
     }
+    // dev.32 review: another module hooked the getter before Kiln first read it (a plugin, a mod's early hook; or a lazy first
+    // decode after a mod's OnLoad hook): the live bytes begin with its jump, but the game's value comes from the exe file's code
+    // (kiln.hooks read_original), so Kiln still knows the game's 50 m and takes the stage's value
+    {
+        setup();
+        lm::Env e = env();
+        e.read_code = [](uintptr_t a, void* out, size_t n) {  // the exe file's bytes: the getter as the game shipped it
+            if (a != reinterpret_cast<uintptr_t>(&fake_gift)) return false;
+            uint8_t shipped[16] = {0xF3, 0x0F, 0x10, 0x05, 0, 0, 0, 0, 0xC3};
+            std::memcpy(shipped + 4, g_code + 4, 4);
+            return std::memcpy(out, shipped, n), true;
+        };
+        lm::bind(e);
+        g_code[0] = 0xE9;  // the live bytes: another module's jump over the getter's first instruction
+        CHECK(lm::base_value("giftRange", &v, &why) && v.get<double>() == 50.0, "hooked before Kiln read it: the game's 50 m from the exe's code: " + why);
+        g_code[0] = 0xF3;
+        setup();
+        lm::Env f = env();
+        f.read_code = [](uintptr_t, void*, size_t) { return false; };  // no exe file view: the live bytes, as before
+        lm::bind(f);
+        CHECK(lm::base_value("giftRange", &v, &why) && v.get<double>() == 50.0, "without the exe's code: the live bytes: " + why);
+    }
     // a range of 0 m is a value (no gift at any distance), not "the game's own"
     {
         setup();

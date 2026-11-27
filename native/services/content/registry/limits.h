@@ -51,6 +51,9 @@ struct Env {
     std::function<bool(const char* name, uintptr_t* out)> symbol;    // sigdb symbol, absolute address
     std::function<bool(const char* name, int64_t* out)> constant;    // sigdb constant
     std::function<bool(uintptr_t addr, void* out, size_t n)> read;   // a guarded read of the game's memory
+    // the exe file's bytes of the game's code at addr (kiln.hooks read_original): a hook another module put in before Kiln's
+    // first read does not hide the game's own code; unset or false: the live bytes (read)
+    std::function<bool(uintptr_t addr, void* out, size_t n)> read_code;
     // installs the hook of one value (its answer is read from answers() at each call); false + *why: not installed
     std::function<bool(const std::string& name, std::string* why)> install;
     std::function<void(int level, const std::string& line)> log;     // 0 info, 1 warn, 2 error
