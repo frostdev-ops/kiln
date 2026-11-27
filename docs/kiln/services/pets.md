@@ -106,15 +106,19 @@ for this pet; the down itself cannot be refused. `PetDownedEvent` comes only aft
   a refusal is `Ok = false` with a reason (`Busy`, `NotOwner`, `OwnerOffline`, `AlreadyReleased`, `Capacity`,
   `NoSafeGround`, `BodyNotReady`, `ControlRefused`, `ProtectionUnavailable`, `TargetProtected`, `RecoveryNotSummoned`,
   `OutOfRange`, `CostUnavailable`, `ReviveRefused`, `CanceledNoCost`, `CanceledCostCommitted`,
-  `ReviveFailedCostCommitted`, ...). A refusal after a cost was taken carries its receipts (`PetResult.Costs`): no refund
-  is invented.
-- **Revive:** quoted before anything starts (a dry run of the exact take); a mod may refuse (`PetRevivingEvent`); the
+  `ReviveFailedCostCommitted`, `UncertainCommit`, ...). A refusal after a cost was taken carries its receipts
+  (`PetResult.Costs`, Kiln.Items' `CostReceipt`): no refund is invented.
+- **Revive:** quoted before anything starts (`ItemCosts.Check`, a read: nothing moves); a mod may refuse (`PetRevivingEvent`); the
   channel runs in simulation time (leaving range, the owner leaving or going down always cancel; moving past
   `MaxOwnerDisplacement` and being hurt when the definition says so); at completion everything is checked again, an inert
   preview body is prepared (invulnerable, harmless), the cost is taken exactly once, and only then is the pet Ready and
   Live. A channel cut by a logout or an unload while its debit settles waits for the exact receipt and answers
-  `CanceledCostCommitted` with it. The cost adapter is the minimal form of 19e's exact-cost adapter (the taming lane
-  widens it).
+  `CanceledCostCommitted` with it. The cost goes through the exact-cost adapter (`kiln.item_costs`, Kiln.Items'
+  `ItemCosts`, [item-costs.md](item-costs.md)): `ItemCosts.Take` from one slot, all or nothing, under one request id per
+  revive operation and world. The `cost` selection (Kiln.Items' `ItemSelection`) must be the owner's plain stack of the
+  cost's item holding at least the cost, and only that slot pays; with none, the first slot holding a plain stack of the
+  whole cost pays (`ItemCosts.Choose`: a cost split over two stacks is not taken). An uncertain receipt (a fault inside the
+  game's change) answers `UncertainCommit` with that receipt and the pet stays Downed.
 - **Events:** every change is a `PetChangeEvent` (subscribe to the base for all): Granted, TransitionChanged, Summoned,
   Dismissed, CommandChanged, RecoveryAnchorChanged, BodyRetired, BodyLost, Downed, ReviveStarted, ReviveCanceled,
   Revived, Released, StatsChanged, ProtectionLost. Also `PetDowningEvent` (the outcome), `PetRevivingEvent` (cancelable),

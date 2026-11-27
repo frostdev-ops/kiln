@@ -15,6 +15,7 @@ internal sealed class FakeCosts : IPetCosts
     public int Quotes, Commits;
     public Func<string?>? SecondQuote;
     public TaskCompletionSource<CostReceipt>? HeldCommit;
+    public readonly List<Guid> Requests = [];
 
     public Task<string?> Quote(PetOwner owner, PetCostDefinition cost, ItemSelection? selection)
     {
@@ -23,9 +24,10 @@ internal sealed class FakeCosts : IPetCosts
         return Task.FromResult(QuoteRefusal);
     }
 
-    public Task<CostReceipt> Commit(PetOwner owner, PetCostDefinition cost, ItemSelection? selection)
+    public Task<CostReceipt> Commit(PetOwner owner, PetCostDefinition cost, ItemSelection? selection, Guid requestId)
     {
         Commits++;
+        Requests.Add(requestId);
         if (HeldCommit is { } held) return held.Task;
         return Task.FromResult(new CostReceipt(cost.Item, cost.Count, CommitFails ? 0 : cost.Count, !CommitFails));
     }
@@ -304,6 +306,34 @@ public sealed class ReviveTests : IDisposable
         _t.Step();
         Assert.StartsWith("CanceledNoCost", t.Result.Reason);
         Assert.Empty(t.Result.Costs);
+    }
+
+    // dev.32 TAME: an uncertain receipt (a fault inside the game's change) is neither paid nor free: it is reported as it
+    // is, with the receipt, and never as "nothing was taken"
+    [Fact]
+    public void An_uncertain_debit_reports_UncertainCommit_with_its_receipt_and_stays_downed()
+    {
+        var d = Downed();
+        _costs.HeldCommit = new TaskCompletionSource<CostReceipt>();
+        var t = Revive(d);
+        for (var i = 0; i < 200 && _costs.Commits == 0; i++) _t.Step();
+        _costs.HeldCommit.SetResult(new CostReceipt(new ItemId(77), 3, 3, false) { Uncertain = true, Reason = "a fault in the game's change" });
+        var r = _t.Run(t);
+        Assert.False(r.Ok);
+        Assert.StartsWith("UncertainCommit", r.Reason);
+        Assert.Equal(CostState.Uncertain, Assert.Single(r.Costs).State);
+        Assert.Equal(PetLife.Downed, _t.Roster.Get(d.Id)!.Life);
+        Assert.Empty(_t.World.Bodies);
+    }
+
+    // dev.32 TAME: the debit runs under one request id per revive operation and world (kiln.item_costs: one debit per id)
+    [Fact]
+    public void The_debit_request_id_is_the_operation_s_in_this_world()
+    {
+        var d = Downed();
+        var id = Guid.NewGuid();
+        Assert.True(_t.Run(Revive(d, id), 200).Ok);
+        Assert.Equal(GamePetCosts.RequestFor(id, _t.World.WorldEpoch), Assert.Single(_costs.Requests));
     }
 
     [Fact]

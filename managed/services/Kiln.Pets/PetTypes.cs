@@ -144,18 +144,6 @@ public sealed record PetRequest(Guid OperationId, ulong ExpectedStateRevision = 
     public static PetRequest New(ulong expectedStateRevision = 0) => new(Guid.NewGuid(), expectedStateRevision);
 }
 
-/// <summary>What a cost took, exactly (19e's receipt in its minimal form: Kiln.Pets' revive cost). Since 0.2.0-dev.32.</summary>
-/// <param name="Item">The item taken.</param>
-/// <param name="Requested">How many the cost asked for.</param>
-/// <param name="Taken">How many were taken.</param>
-/// <param name="Committed">True once the items are gone (a refusal after this keeps them gone: no refund is invented).</param>
-public sealed record CostReceipt(ItemId Item, int Requested, int Taken, bool Committed);
-
-/// <summary>Which stack a cost is taken from (19e's selection in its minimal form). Null: any stacks of the item in the
-/// owner's inventory. Since 0.2.0-dev.32.</summary>
-/// <param name="Slot">The owner's inventory slot to take from.</param>
-public sealed record ItemSelection(SlotId Slot);
-
 /// <summary>The answer to a request. Since 0.2.0-dev.32.</summary>
 /// <param name="Ok">True when the request did what it asked (or found it done: an idempotent repeat).</param>
 /// <param name="Reason">Why not: <c>Busy</c>, <c>StaleRevision</c>, <c>RequestConflict</c>, <c>NotOwner</c>,
@@ -163,7 +151,8 @@ public sealed record ItemSelection(SlotId Slot);
 /// <c>RecoveryNotSummoned</c>, <c>ReviveFailedCostCommitted</c>, ...</param>
 /// <param name="Pet">The pet after it (also after a refusal, when Kiln knows it).</param>
 /// <param name="OperationId">The request's operation id.</param>
-/// <param name="Costs">What costs took, also on a refusal that came after a cost was taken.</param>
+/// <param name="Costs">The receipts (Kiln.Items' <see cref="CostReceipt"/>) of costs that were taken or may have been
+/// (committed or uncertain), also on a refusal that came after a cost was taken.</param>
 public sealed record PetResult(bool Ok, string? Reason, PetSnapshot? Pet, Guid OperationId, IReadOnlyList<CostReceipt> Costs) : IKilnResult;
 
 /// <summary>Why a pet changed. Since 0.2.0-dev.32.</summary>

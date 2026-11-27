@@ -3,8 +3,9 @@
 // quoted first (nothing moves), the mods may refuse the attempt (PetRevivingEvent), the owner channels in simulation time
 // (leaving range, the owner leaving or going down always cancel; moving and being hurt cancel when the definition says so),
 // then everything is checked again, a private inert preview body is prepared (invulnerable, harmless), the exact cost is
-// taken, and only then does the pet become Ready/Live with a new protected body. A cancel or refusal before the debit
-// spends nothing; a failure after it reports its receipt and leaves the pet Downed (no refund is invented).
+// taken (kiln.item_costs, one request id per operation and world), and only then does the pet become Ready/Live with a new
+// protected body. A cancel or refusal before the debit spends nothing; a failure after it reports its receipt and leaves
+// the pet Downed (no refund is invented); an uncertain receipt ends UncertainCommit with that receipt.
 namespace Kiln;
 
 internal sealed partial class PetRoster
@@ -176,7 +177,7 @@ internal sealed partial class PetRoster
                     EndChannel(op, p, notReady ?? "BodyNotReady", PetChangeCause.Channel);
                     return;
                 }
-                rv.Commit = rv.Def.Revive.Cost is { } cost ? Costs.Commit(op.Owner, cost, op.Selection) : null;
+                rv.Commit = rv.Def.Revive.Cost is { } cost ? Costs.Commit(op.Owner, cost, op.Selection, GamePetCosts.RequestFor(op.OperationId, _epoch)) : null;
                 op.Phase = 5;
                 goto case 5;
             case 5:   // the exact debit, then activation
@@ -185,6 +186,15 @@ internal sealed partial class PetRoster
                 {
                     var receipt = commit.IsCompletedSuccessfully ? commit.Result : new CostReceipt(rv.Def.Revive.Cost!.Item, rv.Def.Revive.Cost.Count, 0, false);
                     if (receipt.Committed) op.Costs.Add(receipt);
+                    else if (receipt.Uncertain)
+                    {
+                        // neither paid nor free: reported as it is, never as "nothing was taken", and the pet stays downed
+                        op.Costs.Add(receipt);
+                        DropPreview(op, p);
+                        EndChannel(op, p, "UncertainCommit: whether the cost was taken is not known (the receipt says what was read); the pet stays downed",
+                            rv.Cut is null && rv.CancelRequested ? PetChangeCause.Request : PetChangeCause.Channel);
+                        return;
+                    }
                     else if (!rv.CancelRequested)
                     {
                         DropPreview(op, p);
