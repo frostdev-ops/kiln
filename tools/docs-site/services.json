@@ -70,6 +70,11 @@
       "assembly": "Kiln.TestKit",
       "name": null,
       "summary": "Mod tests under `dotnet test`, with no game",
+      "start": [
+        "KilnHarness",
+        "HarnessNpcSpeech",
+        "HarnessRegistry"
+      ],
       "guides": [
         "docs/kiln/modding/unit-tests.md"
       ],
@@ -202,7 +207,15 @@
     {
       "assembly": "Kiln.Blocks",
       "name": "Blocks",
-      "summary": "Building blocks for mods: a block says what the author means (a spell, a weapon, an effect, a status) and Kiln makes the game's resources from it",
+      "summary": "Building blocks for mods: a block says what the author means (a spell, a weapon, an effect, a status, a pet, a taming) and Kiln makes the game's resources from it; also an NPC's speech and talk pages (Npcs)",
+      "start": [
+        "Blocks",
+        "PetBlock",
+        "TamingBlock",
+        "Npcs",
+        "NpcTopics",
+        "NpcTopic"
+      ],
       "guides": [
         "docs/kiln/modding/blocks.md",
         "docs/kiln/modding/npc-dialogue.md",
@@ -724,7 +737,13 @@
     {
       "assembly": "Kiln.Items",
       "name": "Items",
-      "summary": "Give / take / read inventories, the item catalog",
+      "summary": "Inventories (give, take, move, equip, read), the item catalog, gear state and upgrades, equipment sets, fuel and tool wear, and exact costs from a chosen slot with receipts (ItemCosts)",
+      "start": [
+        "Items",
+        "ItemCosts",
+        "ItemSelection",
+        "CostReceipt"
+      ],
       "guides": [
         "docs/kiln/services/items.md",
         "docs/kiln/modding/item-costs.md",
@@ -937,6 +956,15 @@
       "assembly": "Kiln.Pets",
       "name": "Pets",
       "summary": "Pets for mods: owned records per character, bodies held through the creature control broker and guarded natively, follow and attack orders, downed and revive with cost receipts, the owner's HUD; every behaviour choice is the mod's",
+      "start": [
+        "Pets",
+        "PetDefinition",
+        "PetSnapshot",
+        "PetRequest",
+        "PetResult",
+        "PetChangeEvent",
+        "PetsClient"
+      ],
       "guides": [
         "docs/kiln/services/pets.md",
         "docs/kiln/modding/pets.md"
@@ -996,7 +1024,7 @@
     {
       "assembly": "Kiln.Players",
       "name": "Players",
-      "summary": "Who is on the server",
+      "summary": "Who is on the server: players and their states, characters, bans and progression, and bot players for labs (experimental)",
       "guides": [
         "docs/kiln/services/players.md"
       ],
@@ -1148,7 +1176,14 @@
     {
       "assembly": "Kiln.Registry",
       "name": "Registry",
-      "summary": "Kiln's registries (items, recipes, loot, drops, balance, lootRules, randomLoot) as typed C# entries over Kiln-owned field names, generated from schema/registry/*.json by tools/registrygen/registrygen.py (Generated/*.g.cs; never edit those by hand)",
+      "summary": "Kiln's registries (items, recipes, loot, drops, balance, creatures, perks, skills and the rest of schema/registry/*.json) as typed C# entries over Kiln-owned field names, with the stage, live-change (Change, Reauthor, Read, Ready) and read-only view (RegistryViews) calls; the entry types are generated from schema/registry/*.json by tools/registrygen/registrygen.py (never edit them by hand)",
+      "start": [
+        "Registry",
+        "RegistryStage",
+        "RegistrySchema",
+        "RegistryViews",
+        "RegistryEntry"
+      ],
       "guides": [
         "docs/kiln/services/registry.md"
       ],
@@ -1448,6 +1483,15 @@
       "assembly": "Kiln.Taming",
       "name": "Taming",
       "summary": "Taming for mods: attempts with exact-cost steps and receipts, replay-safe requests, timeouts and refund policies, tames bound to Kiln.Pets records, and the game's own taming as mechanism; every policy is the mod's",
+      "start": [
+        "Taming",
+        "TamingDefinition",
+        "TamingProgress",
+        "TamingToken",
+        "TamingResult",
+        "TamedEvent",
+        "NativeTaming"
+      ],
       "guides": [
         "docs/kiln/services/taming.md",
         "docs/kiln/modding/taming.md"
