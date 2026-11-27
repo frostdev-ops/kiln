@@ -108,6 +108,25 @@ public sealed record RegistryViewSnapshot(string View, RegistryId Id, IReadOnlyD
 /// first calls are slow (a stable view's first read prepares the registry's values: seconds; an advanced view's first call lists
 /// its entries; a Snapshot decodes every list): make them off the game's thread. A call holds back no other. Since
 /// 0.2.0-dev.32.</summary>
+/// <remarks>
+/// <para>Two tiers (<see cref="RegistryViewTier"/>): a <i>stable</i> view is one of Kiln's registries, mapped and proven per game
+/// build; an <i>advanced</i> view is any other resource type of the running game (quests, NPC dialogs, materials, UI data), under
+/// Kiln names that follow the game's reflection and are verified per build. A field that a registry covers names the stable way
+/// to the same data (<see cref="RegistryViewField.CoveredBy"/>). To change data, use <see cref="Registry"/>: views never write.</para>
+/// <para>Availability: the views open once the game's resources are loaded. Before that, every call throws
+/// <see cref="KilnUnavailableException"/> with the reason; ask <see cref="Available"/> first, or catch it and try again later.</para>
+/// <para>Reads: a field that cannot be read for one entry says so for that entry only (<see cref="RegistryView.TryRead"/>,
+/// <see cref="RegistryViewSnapshot.Refused"/>); the other entries and fields are not affected.</para>
+/// </remarks>
+/// <example><code>
+/// if (RegistryViews.Available &amp;&amp; RegistryViews.Find("quest") is { } quests)
+///     foreach (RegistryId id in quests.Select("game:quest_*"))
+///         if (quests.TryRead(id, "xpReward", out var xp, out var why)) Log.Info($"{id}: {xp}");
+///         else Log.Info($"{id}: {why}");
+/// </code></example>
+/// <seealso cref="RegistryView"/>
+/// <seealso cref="Registry"/>
+/// <seealso href="https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/registries/views.md">Registry views</seealso>
 [Experimental("KILNX031")]
 public static class RegistryViews
 {
@@ -119,7 +138,11 @@ public static class RegistryViews
     [AnyThread]
     public static bool Available => Backend() is not null;
 
-    /// <summary>Every view, stable ones first. <see cref="KilnUnavailableException"/> when there are none yet.</summary>
+    /// <summary>Every view, stable ones first.</summary>
+    /// <exception cref="KilnUnavailableException">There are none yet (the game's resources are not loaded), or Kiln serves no views here.</exception>
+    /// <example><code>
+    /// foreach (RegistryView v in RegistryViews.All) Log.Info($"{v.Name}: {v.Tier}");
+    /// </code></example>
     [AnyThread, RequiresCapability(Service)]
     public static IReadOnlyList<RegistryView> All
     {
@@ -134,6 +157,10 @@ public static class RegistryViews
     }
 
     /// <summary>A view by its name (<c>"items"</c>, <c>"quest"</c>); null when this game build has none.</summary>
+    /// <param name="name">The view's Kiln name, as <see cref="RegistryView.Name"/>.</param>
+    /// <returns>The view, or null.</returns>
+    /// <exception cref="ArgumentException"><paramref name="name"/> is null or empty.</exception>
+    /// <exception cref="KilnUnavailableException">Kiln serves no views here yet (see <see cref="All"/>).</exception>
     [AnyThread, RequiresCapability(Service)]
     public static RegistryView? Find(string name)
     {
@@ -280,6 +307,9 @@ public sealed class RegistryView
     public IReadOnlyList<RegistryViewField> Fields => _fields ??= LoadFields();
 
     /// <summary>A field by its Kiln path (an index reads as the list's row); null when the view has none.</summary>
+    /// <param name="path">The field's Kiln path (<c>"xpReward"</c>, <c>"rewardItems[2].count"</c>).</param>
+    /// <exception cref="ArgumentException"><paramref name="path"/> is null or empty.</exception>
+    /// <exception cref="KilnUnavailableException">Kiln serves no views here yet.</exception>
     [AnyThread, RequiresCapability(RegistryViews.Service)]
     public RegistryViewField? Field(string path)
     {
@@ -292,6 +322,13 @@ public sealed class RegistryView
     /// (<c>"game:quest_*"</c>, <c>"*"</c>), or an entry's debug name (a stable view reads it as a registry edit does:
     /// <c>"Material_T1_Wood_Logs"</c> is <c>game:material_t1_wood_logs</c>). The first call on an advanced view lists its
     /// entries, a stable view's first call prepares the registry's values: make it off the game's thread.</summary>
+    /// <param name="selector">An id, a glob (<c>"game:quest_*"</c>, <c>"*"</c> for every entry), or an entry's debug name.</param>
+    /// <returns>The matching ids, in the view's order; empty when nothing matches.</returns>
+    /// <exception cref="ArgumentException"><paramref name="selector"/> is null or empty, or not a valid selector.</exception>
+    /// <exception cref="KilnUnavailableException">Kiln serves no views here yet.</exception>
+    /// <example><code>
+    /// IReadOnlyList&lt;RegistryId&gt; woods = RegistryViews.Find("items")!.Select("game:material_t1_wood_*");
+    /// </code></example>
     [AnyThread, RequiresCapability(RegistryViews.Service)]
     public IReadOnlyList<RegistryId> Select(string selector = "*")
     {
@@ -304,14 +341,25 @@ public sealed class RegistryView
     }
 
     /// <summary>An entry of this view by its id (nothing is read until a field is).</summary>
+    /// <param name="id">The entry's Kiln id.</param>
+    /// <exception cref="ArgumentException">The id is empty.</exception>
     public RegistryViewEntry this[RegistryId id] => id.Value is null ? throw new ArgumentException("an empty registry id", nameof(id)) : new(this, id);
 
     /// <summary>An entry of this view by its id's text.</summary>
+    /// <param name="id">The entry's Kiln id, as text (<c>"game:quest_intro"</c>).</param>
+    /// <exception cref="ArgumentException">The text is not a Kiln id.</exception>
     public RegistryViewEntry this[string id] => this[new RegistryId(id)];
 
     /// <summary>One field of one entry as JSON (numbers, true/false, Kiln names, ids, text, lists). false and the reason in
     /// Kiln words when it does not read for this entry: the view, entry or field is not on this build, the member is of a
     /// kind the view cannot read, or this entry has no value of it. Other entries are not affected.</summary>
+    /// <param name="id">The entry.</param>
+    /// <param name="field">A Kiln path.</param>
+    /// <param name="value">The field as JSON when it read; null otherwise (and null when the field's value is null: an id that names no entry).</param>
+    /// <param name="reason">Why it did not read, in Kiln words; null when it did.</param>
+    /// <returns>True when the field read.</returns>
+    /// <exception cref="ArgumentException">The id is empty, <paramref name="field"/> is empty, or Kiln calls the path malformed.</exception>
+    /// <exception cref="KilnUnavailableException">Kiln serves no views here yet.</exception>
     [AnyThread, RequiresCapability(RegistryViews.Service)]
     public bool TryRead(RegistryId id, string field, out JsonNode? value, [NotNullWhen(false)] out string? reason)
     {
@@ -403,6 +451,14 @@ public sealed class RegistryViewEntry
     /// reads as null into a reference or nullable type (<c>RegistryId?</c>, <see cref="string"/>, <see cref="JsonNode"/>) and
     /// as <see cref="InvalidCastException"/> into a value type.</summary>
     /// <param name="field">A Kiln path (<c>"xpReward"</c>, <c>"rewardItems[0].count"</c>).</param>
+    /// <typeparam name="T">The type to read the value as (see above).</typeparam>
+    /// <returns>The field's value.</returns>
+    /// <exception cref="KeyNotFoundException">The view has no such entry or field on this build.</exception>
+    /// <exception cref="KilnUnavailableException">The field does not read for this entry (the message says why), or Kiln serves no views here.</exception>
+    /// <exception cref="InvalidCastException">The value is not a <typeparamref name="T"/>.</exception>
+    /// <example><code>
+    /// int stack = RegistryViews.Find("items")!["game:material_t1_wood_logs"].Get&lt;int&gt;("maxStack");
+    /// </code></example>
     [AnyThread, RequiresCapability(RegistryViews.Service)]
     public T Get<T>(string field)
     {
@@ -442,6 +498,10 @@ public sealed class RegistryViewEntry
     }
 
     /// <summary>Every field of the entry at once: the values that read and, per field, why the others did not.</summary>
+    /// <returns>A copy: later changes in the game do not reach it.</returns>
+    /// <exception cref="KeyNotFoundException">The view has no such entry on this build.</exception>
+    /// <exception cref="KilnUnavailableException">Kiln serves no views here yet.</exception>
+    /// <remarks>This decodes every field, lists included, so it is slow: keep it off the game's thread and off hot paths.</remarks>
     [AnyThread, RequiresCapability(RegistryViews.Service)]
     public RegistryViewSnapshot Snapshot()
     {

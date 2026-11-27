@@ -6,11 +6,55 @@ using System.Text.Json.Nodes;
 
 namespace Kiln.Registry;
 
-/// <summary>Typed registry access. Contexts are supplied by Mod.OnRegistry, never constructed by a mod.</summary>
+/// <summary>
+/// Typed access to Kiln's registries: the game's data (items, recipes, loot, creatures, perks, skills, ...) as typed entries over
+/// Kiln-owned ids and field names, never the game's own names. A mod edits them from <see cref="Mod.OnRegistry"/>, from a live
+/// <see cref="Change"/>, or authors its edits again when its settings change (<see cref="Reauthor"/>).
+/// </summary>
+/// <remarks>
+/// <para>The contexts are supplied by Kiln (<see cref="RegistryContext"/>, a parameter of <see cref="Mod.OnRegistry"/>); a mod
+/// never constructs one. Get the typed view of one with <see cref="For"/>. An edit is buffered while the callback runs and
+/// submitted only if it returns; a callback that throws submits nothing. Never keep a context, an entry or a list after the
+/// callback returns: they expire, and using one then throws <see cref="RegistryContextException"/>.</para>
+/// <para>Entry points: a mod declares the points it authors at with <see cref="RegistryEntryPointsAttribute"/>:
+/// <see cref="RegistryEntryPoint.GameStart"/> (the default; the only point that can add entries and change restart fields),
+/// <see cref="RegistryEntryPoint.ModLoad"/>, <see cref="RegistryEntryPoint.WorldLoad"/> (each new world; the point to re-author
+/// with <see cref="Reauthor"/>) and <see cref="RegistryEntryPoint.HotReload"/>. Inside a point the edits run in three passes
+/// shared by all mods, in order: Add, then Alter (ordinary assignments), then Final (explicit, <see cref="RegistryStage.Final"/>).
+/// A field Kiln has not proven on this game build is refused per entry, with a reason in <c>kiln.log</c> and
+/// <c>registry.json</c>; it never corrupts and never fails the other entries.</para>
+/// <para>Stability: these types are experimental (<c>KILNX031</c>) until each registry is marked stable; a mod opts in with
+/// <c>NoWarn</c> for the id (<c>#pragma warning disable KILNX031</c>). The registries' fields and ids are listed in
+/// <c>docs/kiln/modding/registries</c>.</para>
+/// </remarks>
+/// <example><code>
+/// [RegistryEntryPoints(RegistryEntryPoint.GameStart | RegistryEntryPoint.WorldLoad)]
+/// public sealed class StackMod : Mod
+/// {
+///     public override void OnRegistry(RegistryContext context)
+///     {
+///         var registry = Kiln.Registry.Registry.For(context);                      // the typed view of this callback
+///         registry.Alter(view => view.Items["game:material_t1_wood_logs"].MaxStack = 500);
+///         registry.Alter(view =>
+///         {
+///             foreach (var recipe in view.Recipes.Select()) recipe.Duration /= 2;   // every recipe crafts twice as fast
+///         });
+///     }
+/// }
+/// </code></example>
+/// <seealso cref="RegistryStage"/>
+/// <seealso cref="RegistrySchema"/>
+/// <seealso href="https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/registries/README.md">Registries: the modder's guide</seealso>
 [Experimental("KILNX031")]
 public static partial class Registry
 {
     /// <summary>The typed adapter of this callback. Retaining it or its entries does not extend the context's lifetime.</summary>
+    /// <param name="context">The context Kiln gave the <see cref="Mod.OnRegistry"/> callback (or <see cref="Change"/> or
+    /// <see cref="Read"/>).</param>
+    /// <returns>The typed view of that callback: the same object for the same context.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="context"/> is null.</exception>
+    /// <exception cref="RegistryContextException">The callback has returned or the mod unloaded (the context expired).</exception>
+    /// <exception cref="KilnUnavailableException">The capability <c>kiln.registry</c> is off.</exception>
     [RegistryThreadOnly, RequiresCapability("kiln.registry")]
     public static RegistryStage For(RegistryContext context)
     {
