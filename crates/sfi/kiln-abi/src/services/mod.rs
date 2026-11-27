@@ -29,6 +29,7 @@ pub mod kiln_gamedata;
 pub mod kiln_gameplay;
 pub mod kiln_gemcraft;
 pub mod kiln_hooks;
+pub mod kiln_item_costs;
 pub mod kiln_items;
 pub mod kiln_items_inventory_kinds;
 pub mod kiln_items_storage;

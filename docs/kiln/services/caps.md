@@ -634,3 +634,10 @@ The station screen's per-ingredient fill of the same release is `stations.fill_i
 Window docking (`UiWindowOptions.AcceptDock`, `Ui.FindWindow`, kiln.ui's `window_state`, GitHub issue 149) has no row of
 its own: next to a kiln-ui.dll without `window_state` the window the others dock to always leads, so dragging a docked
 window does not move its target ([ui.md](../ui.md#docking-windows-since-020-dev3116-mod-api-0223)).
+
+## Rows added in dev.32 (item costs)
+
+| Row | Kind | Reported by | Unconfirmed | What it says |
+|---|---|---|---|---|
+| `items.costs.exact` | managed (since 0.2.0-dev.32) | Kiln.Items, from kiln.item_costs' status every 25 steps: off without the table, without gear writes (`items.gear`, the program `kiln_items_gear`) or the game's inventory transaction, and after kiln_items_gear was switched off | lab | `ItemCosts.Take` and stack refunds: exact costs from a selected slot with receipts ([item-costs.md](item-costs.md)) |
+| `items.costs.wear` | managed (since 0.2.0-dev.32) | Kiln.Items, as `items.costs.exact`, and off where the durability debit's facts (`items.tool_wear_debit`: WearDelta, enableDurability, an approved build) are not known | lab | `ItemCosts.Wear` and gear restores through the game's own durability debit ([item-costs.md](item-costs.md)) |

@@ -1,5 +1,5 @@
 kiln_service(items items.cpp engine.cpp pide.cpp moves.cpp xfer.cpp names.cpp stamps.cpp instances.cpp equip.cpp wear.cpp toolwear.cpp toolwear_table.cpp
-             setsnap.cpp sets.cpp setexec.cpp gems.cpp stations.cpp gear.cpp scale.cpp rename.cpp dyes.cpp storage.cpp storage_engine.cpp client_stations.cpp)
+             setsnap.cpp sets.cpp setexec.cpp gems.cpp stations.cpp gear.cpp scale.cpp rename.cpp dyes.cpp storage.cpp storage_engine.cpp client_stations.cpp costs.cpp)
 
 add_executable(items-storage-logic-test tests/storage_logic_test.cpp)
 target_include_directories(items-storage-logic-test PRIVATE "${CMAKE_SOURCE_DIR}/core/abi" "${CMAKE_SOURCE_DIR}/third_party")

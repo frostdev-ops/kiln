@@ -32,6 +32,7 @@ available is generated from a boot's `capabilities.json`: [../status.generated.m
 | [gems.md](gems.md) | Gems: how a gem works, changing one with a data pack, the `Gems` read API and gem events; with [gems-new.md](gems-new.md) (new gems, `Gems.Register`), [gems-forge.md](gems-forge.md) (forge actions from code) and [gems-sockets.md](gems-sockets.md) (sockets on rings, armour, shields) |
 | [gameplay.md](gameplay.md) | kiln.gameplay: player/world interaction events and protection zones |
 | [hooks.md](hooks.md) | kiln.hooks v2: one registry for every hook |
+| [item-costs.md](item-costs.md) | kiln.item_costs: exact costs from a selected slot, with receipts (since 0.2.0-dev.32) |
 | [items.md](items.md) | kiln.items: items in inventories |
 | [knowledge.md](knowledge.md) | kiln.knowledge: the game's knowledge, the vanilla journal, dialogue events, the client veto |
 | [client-building-input.md](client-building-input.md) | kiln.client / BuildingInput: the local player's building input (select, place, remove, undo, dismantle) on game client 26430625, hooked at the first request (since 0.2.0-dev.30.3) |

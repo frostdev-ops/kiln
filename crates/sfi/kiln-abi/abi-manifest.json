@@ -3335,6 +3335,88 @@
       },
       "sha256": "5b720c8d3fab2e60098cd27c7ae2e228681b1444044b54b6d20726efaa994835"
     },
+    "native/core/abi/services/kiln_item_costs.h": {
+      "function_macros": [],
+      "inline_helpers": [],
+      "layouts": {
+        "KilnCostResult": {
+          "align": 8,
+          "fields": {
+            "disposition": 12,
+            "durability_after": 44,
+            "durability_before": 40,
+            "game_error": 8,
+            "item": 52,
+            "item_entity": 64,
+            "item_stamp": 68,
+            "kind": 48,
+            "quantity_taken": 24,
+            "reason": 104,
+            "refusal": 36,
+            "request_hi": 88,
+            "request_lo": 80,
+            "size": 0,
+            "slot": 56,
+            "state": 4,
+            "step": 96,
+            "ticket": 16,
+            "wear_applied": 32,
+            "wear_requested": 28,
+            "world_epoch": 72
+          },
+          "size": 264
+        },
+        "KilnItemCostsApi": {
+          "align": 8,
+          "fields": {
+            "acknowledge": 24,
+            "header": 0,
+            "peek": 16,
+            "status": 32,
+            "submit": 8
+          },
+          "size": 40
+        },
+        "KilnItemCostsStatus": {
+          "align": 8,
+          "fields": {
+            "committed": 16,
+            "held": 12,
+            "refused": 24,
+            "size": 0,
+            "stacks": 4,
+            "stacks_reason": 48,
+            "uncertain": 32,
+            "wear": 8,
+            "wear_reason": 208,
+            "world_epoch": 40
+          },
+          "size": 368
+        },
+        "KilnSelectedCost": {
+          "align": 8,
+          "fields": {
+            "allow_break": 60,
+            "amount": 56,
+            "character_session": 16,
+            "expected_count": 44,
+            "holder": 24,
+            "item": 40,
+            "item_entity": 48,
+            "item_stamp": 52,
+            "kind": 4,
+            "request_hi": 72,
+            "request_lo": 64,
+            "reserved": 28,
+            "size": 0,
+            "slot": 32,
+            "world_epoch": 8
+          },
+          "size": 80
+        }
+      },
+      "sha256": "d8a4b326ad0505d9709bc7aff7c84b363f657df6c3dc00722ce0426fa51667a4"
+    },
     "native/core/abi/services/kiln_items.h": {
       "function_macros": [
         "KILN_SLOT_ID",
@@ -10365,7 +10447,7 @@
   },
   "outputs": {
     "src/bindings.rs": "134028a6a9914076cab3f71f98d356141d4fe36c4d7f51bac6a11819501ed935",
-    "src/layout.rs": "b9cdfdfde6bd2d9b90ef8dac6b8cc69870531db9269979aef17e029ad270a995",
+    "src/layout.rs": "f273e4e8f938ae3f2cfa6272754b0c734a17ec81c727b21ae1743cbbd68ff785",
     "src/services/kiln_abilities.rs": "a24dff6123db80e30ed1b2e33f87c772a40982ec3ce379347ca96bb81579f6cb",
     "src/services/kiln_assets.rs": "e7fe4eb1c4d53ad31eeaf05be06f41c551a49362ad5bd4174465ec18a03effe0",
     "src/services/kiln_assets_vfx.rs": "90ed8ce5ad512bbf4f002db3277bc3b439d648ca437a58d4477eac4ce46c3b81",
@@ -10395,6 +10477,7 @@
     "src/services/kiln_gameplay.rs": "697b6e9a231122dd29e33b1b96bc050afd822950077bc1ca2d5d1caabf70fe43",
     "src/services/kiln_gemcraft.rs": "07cb3321ad95f3ec8b694f78a02d561a14002338c8ee536b2df6fe17c8f1a4e6",
     "src/services/kiln_hooks.rs": "d3ff34a15e0da4580df5ffcdd09dafd5d31d949e3cafcfc3924bf9d2c729c1b6",
+    "src/services/kiln_item_costs.rs": "03ee279dcc3e9f4d9ac01b84bc12943d37cfa7bdbf2c0a8b03b20e780582e43e",
     "src/services/kiln_items.rs": "997cdc279dc7704128c8d47efff8cd395652e0b93679a9c34848d6c54b6d5519",
     "src/services/kiln_items_inventory_kinds.rs": "8527dd431495bac7067076e59756f8ca82c3113c07e79603247356dee89c3fe2",
     "src/services/kiln_items_storage.rs": "391c254d91450e0f3c935d59c3d4917ce6aafe49fd7b645d1de00ee38f6d1c07",
@@ -10451,7 +10534,7 @@
     "src/services/kiln_world.rs": "3cb0272179db9c198f154ce6c008837e4bb95245a2ec62993be78879c4b330b8",
     "src/services/kiln_world_budget.rs": "b196426492d0525df1317c08e4927f3f3ff35817990bed8f2b58c02d174bab98",
     "src/services/kiln_worldtables.rs": "3d423bb8cfd5235f82230a1942bbc334d86b55d343e5e5880c671a57d1469fce",
-    "src/services/mod.rs": "ff80f65ba3f1bbe1a2c97ad75826ecabb47456dfc87cdeda348ddfafa42bc7ec"
+    "src/services/mod.rs": "27196968e1288fcd68f5f9529634ff1619b75938a50491fa7942ce0a07f32541"
   },
   "schema": 1,
   "target": "x86_64-pc-windows-msvc"

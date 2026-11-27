@@ -1,1 +1,115 @@
 #nullable enable
+const Kiln.ItemCosts.MaxCount = 100000 -> int
+const Kiln.ItemCosts.MaxWear = 32767 -> int
+const Kiln.ItemCosts.StacksCapability = "items.costs.exact" -> string!
+const Kiln.ItemCosts.WearCapability = "items.costs.wear" -> string!
+Kiln.CostDisposition
+Kiln.CostDisposition.Exact = 1 -> Kiln.CostDisposition
+Kiln.CostDisposition.ModifiedByOtherMod = 3 -> Kiln.CostDisposition
+Kiln.CostDisposition.None = 0 -> Kiln.CostDisposition
+Kiln.CostDisposition.Partial = 4 -> Kiln.CostDisposition
+Kiln.CostDisposition.WearWaivedByWorld = 2 -> Kiln.CostDisposition
+Kiln.CostKind
+Kiln.CostKind.GearRestore = 4 -> Kiln.CostKind
+Kiln.CostKind.GearWear = 2 -> Kiln.CostKind
+Kiln.CostKind.StackRefund = 3 -> Kiln.CostKind
+Kiln.CostKind.StackTake = 1 -> Kiln.CostKind
+Kiln.CostReceipt
+Kiln.CostReceipt.<Clone>$() -> Kiln.CostReceipt!
+Kiln.CostReceipt.Committed.get -> bool
+Kiln.CostReceipt.Committed.init -> void
+Kiln.CostReceipt.CostReceipt(Kiln.ItemId Item, int Requested, int Taken, bool Committed) -> void
+Kiln.CostReceipt.Deconstruct(out Kiln.ItemId Item, out int Requested, out int Taken, out bool Committed) -> void
+Kiln.CostReceipt.Disposition.get -> Kiln.CostDisposition
+Kiln.CostReceipt.Disposition.init -> void
+Kiln.CostReceipt.DurabilityAfter.get -> int?
+Kiln.CostReceipt.DurabilityAfter.init -> void
+Kiln.CostReceipt.DurabilityBefore.get -> int?
+Kiln.CostReceipt.DurabilityBefore.init -> void
+Kiln.CostReceipt.Equals(Kiln.CostReceipt? other) -> bool
+Kiln.CostReceipt.Item.get -> Kiln.ItemId
+Kiln.CostReceipt.Item.init -> void
+Kiln.CostReceipt.Kind.get -> Kiln.CostKind
+Kiln.CostReceipt.Kind.init -> void
+Kiln.CostReceipt.NativeTicket.get -> ulong
+Kiln.CostReceipt.NativeTicket.init -> void
+Kiln.CostReceipt.Reason.get -> string!
+Kiln.CostReceipt.Reason.init -> void
+Kiln.CostReceipt.RefundOf.get -> System.Guid?
+Kiln.CostReceipt.RefundOf.init -> void
+Kiln.CostReceipt.Refusal.get -> Kiln.CostRefusal
+Kiln.CostReceipt.Refusal.init -> void
+Kiln.CostReceipt.RequestId.get -> System.Guid
+Kiln.CostReceipt.RequestId.init -> void
+Kiln.CostReceipt.Requested.get -> int
+Kiln.CostReceipt.Requested.init -> void
+Kiln.CostReceipt.Selection.get -> Kiln.ItemSelection?
+Kiln.CostReceipt.Selection.init -> void
+Kiln.CostReceipt.State.get -> Kiln.CostState
+Kiln.CostReceipt.Step.get -> ulong
+Kiln.CostReceipt.Step.init -> void
+Kiln.CostReceipt.Taken.get -> int
+Kiln.CostReceipt.Taken.init -> void
+Kiln.CostReceipt.Uncertain.get -> bool
+Kiln.CostReceipt.Uncertain.init -> void
+Kiln.CostRefusal
+Kiln.CostRefusal.Broken = 5 -> Kiln.CostRefusal
+Kiln.CostRefusal.Busy = 13 -> Kiln.CostRefusal
+Kiln.CostRefusal.Full = 10 -> Kiln.CostRefusal
+Kiln.CostRefusal.GameRefused = 6 -> Kiln.CostRefusal
+Kiln.CostRefusal.NoRoom = 7 -> Kiln.CostRefusal
+Kiln.CostRefusal.None = 0 -> Kiln.CostRefusal
+Kiln.CostRefusal.NotAStack = 2 -> Kiln.CostRefusal
+Kiln.CostRefusal.NotGear = 3 -> Kiln.CostRefusal
+Kiln.CostRefusal.NothingToRefund = 16 -> Kiln.CostRefusal
+Kiln.CostRefusal.NotRun = 9 -> Kiln.CostRefusal
+Kiln.CostRefusal.RequestClosed = 12 -> Kiln.CostRefusal
+Kiln.CostRefusal.RequestConflict = 11 -> Kiln.CostRefusal
+Kiln.CostRefusal.StaleSelection = 1 -> Kiln.CostRefusal
+Kiln.CostRefusal.StaleSession = 15 -> Kiln.CostRefusal
+Kiln.CostRefusal.WorldEnded = 8 -> Kiln.CostRefusal
+Kiln.CostRefusal.WouldBreak = 4 -> Kiln.CostRefusal
+Kiln.CostRefusal.WrongWorld = 14 -> Kiln.CostRefusal
+Kiln.CostState
+Kiln.CostState.Committed = 1 -> Kiln.CostState
+Kiln.CostState.Refused = 0 -> Kiln.CostState
+Kiln.CostState.Uncertain = 2 -> Kiln.CostState
+Kiln.ItemCostSettledEvent
+Kiln.ItemCostSettledEvent.Origin.get -> string!
+Kiln.ItemCostSettledEvent.Receipt.get -> Kiln.CostReceipt!
+Kiln.ItemCosts
+Kiln.ItemSelection
+Kiln.ItemSelection.<Clone>$() -> Kiln.ItemSelection!
+Kiln.ItemSelection.Deconstruct(out Kiln.EntityRef InventoryOwner, out Kiln.SlotId Slot, out Kiln.ItemId ExpectedItem, out int ExpectedCount, out Kiln.ItemInstanceRef Instance) -> void
+Kiln.ItemSelection.Equals(Kiln.ItemSelection? other) -> bool
+Kiln.ItemSelection.ExpectedCount.get -> int
+Kiln.ItemSelection.ExpectedCount.init -> void
+Kiln.ItemSelection.ExpectedItem.get -> Kiln.ItemId
+Kiln.ItemSelection.ExpectedItem.init -> void
+Kiln.ItemSelection.Instance.get -> Kiln.ItemInstanceRef
+Kiln.ItemSelection.Instance.init -> void
+Kiln.ItemSelection.InventoryOwner.get -> Kiln.EntityRef
+Kiln.ItemSelection.InventoryOwner.init -> void
+Kiln.ItemSelection.IsStack.get -> bool
+Kiln.ItemSelection.ItemSelection(Kiln.EntityRef InventoryOwner, Kiln.SlotId Slot, Kiln.ItemId ExpectedItem, int ExpectedCount, Kiln.ItemInstanceRef Instance) -> void
+Kiln.ItemSelection.Slot.get -> Kiln.SlotId
+Kiln.ItemSelection.Slot.init -> void
+override Kiln.CostReceipt.Equals(object? obj) -> bool
+override Kiln.CostReceipt.GetHashCode() -> int
+override Kiln.CostReceipt.ToString() -> string!
+override Kiln.ItemCostSettledEvent.ToString() -> string!
+override Kiln.ItemSelection.Equals(object? obj) -> bool
+override Kiln.ItemSelection.GetHashCode() -> int
+override Kiln.ItemSelection.ToString() -> string!
+static Kiln.CostReceipt.operator !=(Kiln.CostReceipt? left, Kiln.CostReceipt? right) -> bool
+static Kiln.CostReceipt.operator ==(Kiln.CostReceipt? left, Kiln.CostReceipt? right) -> bool
+static Kiln.ItemCosts.Check(Kiln.ItemSelection! selection, int amount, bool allowBreak = false) -> string?
+static Kiln.ItemCosts.Choose(Kiln.EntityRef owner, Kiln.ItemId item, int count = 1) -> Kiln.ItemSelection?
+static Kiln.ItemCosts.Refund(Kiln.CostReceipt! receipt, System.Guid requestId) -> System.Threading.Tasks.Task<Kiln.CostReceipt!>!
+static Kiln.ItemCosts.StacksAvailable.get -> bool
+static Kiln.ItemCosts.Take(Kiln.ItemSelection! selection, int count, System.Guid requestId) -> System.Threading.Tasks.Task<Kiln.CostReceipt!>!
+static Kiln.ItemCosts.Wear(Kiln.ItemSelection! selection, int units, System.Guid requestId, bool allowBreak = false) -> System.Threading.Tasks.Task<Kiln.CostReceipt!>!
+static Kiln.ItemCosts.WearAvailable.get -> bool
+static Kiln.ItemSelection.Of(Kiln.EntityRef owner, Kiln.InventorySlot! slot) -> Kiln.ItemSelection!
+static Kiln.ItemSelection.operator !=(Kiln.ItemSelection? left, Kiln.ItemSelection? right) -> bool
+static Kiln.ItemSelection.operator ==(Kiln.ItemSelection? left, Kiln.ItemSelection? right) -> bool
