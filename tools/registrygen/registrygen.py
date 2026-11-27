@@ -1151,12 +1151,16 @@ def render_cs_catalog(model, lock):
 
 def render_section(model, lock):
     defs = {
+        # the parser's two forms (ir.cpp selector_of, the IR's schema): a plain string is {"id": <it>}
         "select": {
-            "type": "object", "additionalProperties": False, "required": ["id"],
-            "description": "Which entries: an id, a case-insensitive glob over ids (game:material_*), or an old debug-name selector; where: conditions on the entry's fields; has / hasNot: traits.",
-            "properties": {"id": {"type": "string", "minLength": 1}, "where": {"type": "object"},
-                           "has": {"type": "array", "items": {"type": "string"}},
-                           "hasNot": {"type": "array", "items": {"type": "string"}}},
+            "description": "Which entries: an id, a case-insensitive glob over ids (game:material_*), or an old debug-name selector, as a plain string or as {\"id\": ...}; the object form also takes where: conditions on the entry's fields; has / hasNot: traits.",
+            "anyOf": [
+                {"type": "string", "minLength": 1},
+                {"type": "object", "additionalProperties": False, "required": ["id"],
+                 "properties": {"id": {"type": "string", "minLength": 1}, "where": {"type": "object"},
+                                "has": {"type": "array", "items": {"type": "string"}},
+                                "hasNot": {"type": "array", "items": {"type": "string"}}}},
+            ],
         },
         "op": {
             "description": "A value (set), or relative operations evaluated as data packs evaluate them: r = clamp(v * mul + add, min, max), then raiseOnly / lowerOnly against v.",

@@ -429,7 +429,8 @@ Three registries over the game's creature and perk data, experimental (`KILNX031
   own, only enemies have sight and an arsenal): such an entry reads `null` (a typed C# property reads 0, or false, there:
   tell such creatures by their `Kind` or id, never by a 0, which for `resist.*` would mean immune), an absolute value is refused for it alone
   ("this creature has no value of this field"), and a relative op over it refuses that edit, so select the creatures that
-  have one (`"select": {"id": "game:*", "has": ["enemy"]}`, or by id).
+  have one (`"select": {"id": "game:*", "has": ["enemy"]}`, or by id: a plain string, `"select": "game:enemy_vukah_melee"`, is the
+  short form of `{"id": ...}` in every edit, and `kiln lint` takes both).
 - **`arsenals`**: the attacks an enemy chooses from. Enemies of one kind share an arsenal, named after the first creature
   that uses it (`game:enemy_vukah_melee`); an edit reaches every enemy that uses it, at its next decision. `attacks[i]` is the
   game's order; an arsenal keeps its attacks (only their values change: an append or removal is refused).

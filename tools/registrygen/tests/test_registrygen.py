@@ -508,6 +508,16 @@ class Outputs(unittest.TestCase):
         self.assertIn("are reserved", md)
         self.assertIn("\x60game\x60 and \x60kiln\x60", md)
 
+    def test_section_select_takes_both_forms(self):
+        """ir.cpp selector_of reads "select" as a plain string or as {"id": ...} (the IR's schema and the samples use both):
+        the section's schema takes what the parser takes, so lint never refuses a working data pack's selector."""
+        s = json.loads(self.out["schema/registry-section.schema.json"])
+        forms = s["$defs"]["select"]["anyOf"]
+        self.assertIn({"type": "string", "minLength": 1}, forms)
+        obj = next(f for f in forms if f.get("type") == "object")
+        self.assertEqual(obj["required"], ["id"])
+        self.assertEqual(sorted(obj["properties"]), ["has", "hasNot", "id", "where"])
+
     def test_section_add_ids(self):
         s = json.loads(self.out["schema/registry-section.schema.json"])
         pat = re.compile(s["$defs"]["things"]["$defs"]["edit"]["properties"]["id"]["pattern"])

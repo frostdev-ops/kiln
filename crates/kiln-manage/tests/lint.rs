@@ -817,6 +817,10 @@ fn content_pack_registry_section() {
     let bad_stage = r#"{"registry": {"later": []}}"#;
     let r = lint_as(&dir.join("stage"), "content/a.json", bad_stage);
     assert!(!refuses(&r, &[]).is_empty(), "an unknown stage is refused");
+    // dev.32 api-shape: what the parser (ir.cpp) takes, the schema takes: "select" as a plain string (the samples' form)
+    let plain = r#"{"registry": {"alter": [{"registry": "creatures", "select": "game:enemy_wildbeast_wolf_earlygame", "field": "level", "op": 12}]}}"#;
+    let r = lint_as(&dir.join("plain-select"), "content/a.json", plain);
+    assert!(refuses(&r, &[]).is_empty(), "a plain string selector: {:?}", refuses(&r, &[]));
 }
 
 /// The same boundary matrix Kiln.Blocks.Tests compiles, checked by both kiln lint and independent draft-2020-12 AJV.
