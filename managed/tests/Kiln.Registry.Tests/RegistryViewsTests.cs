@@ -25,13 +25,15 @@ internal sealed class FakeViews : RegistryViews.IBackend
     {
         Calls++;
         if (view != "quest") { text = "there is no view " + view + " on this game build"; return RegistryViews.NotFound; }
-        text = """{"view":"quest","tier":"advanced","fields":[
+        text = """
+            {"view":"quest","tier":"advanced","fields":[
             {"path":"xpReward","type":"int","readOnly":true,"state":"readable"},
             {"path":"kind","type":"enum","values":["main","sideQuest"],"readOnly":true,"state":"readable"},
             {"path":"rewardItems","type":"list","element":"struct","readOnly":true,"state":"readable"},
             {"path":"rewardItems[].item","type":"id","ref":"itemInfo","readOnly":true,"state":"readable"},
             {"path":"events","type":"list","element":"unread","readOnly":true,"state":"unread","reason":"a member that holds one of several kinds of value"},
-            {"path":"maxStackSize","type":"int","readOnly":true,"state":"readable","coveredBy":"items.maxStack","exact":true}]}""";
+            {"path":"maxStackSize","type":"int","readOnly":true,"state":"readable","coveredBy":"items.maxStack","exact":true}]}
+            """;
         return 0;
     }
     public int Read(string view, string id, string field, out string text)
