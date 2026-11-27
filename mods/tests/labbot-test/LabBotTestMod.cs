@@ -20,7 +20,8 @@
 //                                earlier answer
 // Using items (since dev.32 labbot-2; docs/re/labbot.md "Using an item"):
 //   give {id, item, count?}      Items.Give to the bot (the game's own inventory add): item by name or id; answers when
-//                                the give ended: status, done
+//                                the give ended: status, done (give and use act only while the bot is still in game in
+//                                the same entity: BotPeers.Still; an error when it left while they waited)
 //   inventory {id}               the bot's non-empty slots: slot, item, name, count, category
 //   look {id, at?:[x,y,z] | yaw?, pitch?, eye?, distance?}
 //                                the bot's client camera (LabBots.SetCamera): at its eyes (its position + eye metres,
@@ -360,6 +361,14 @@ public sealed class LabBotTestMod : Mod
         }
     }
 
+    // an op that waited acts only on the same bot in game (its entity is its player slot's: after a leave the next player
+    // in that slot, another bot or a player's game, has it)
+    private static void StillThere(LabBotInfo b, string op)
+    {
+        if (!BotPeers.Still(b, LabBots.Info(b.Id)))
+            throw new InvalidOperationException($"bot {b.Id} '{b.Name}' is no longer in game: {op} not done");
+    }
+
     private JsonObject GiveBot(JsonObject rq, NetPeer sender, long seq)
     {
         var b = InGame(rq);
@@ -367,6 +376,7 @@ public sealed class LabBotTestMod : Mod
         Later(sender, seq, async () =>
         {
             var item = await ItemOf(rq);
+            StillThere(b, "give");
             var r = await Items.Give(b.Entity, item.Id, count);
             Log.Info($"labbot-test: bot {b.Id} '{b.Name}' given {count} x {item.Name}: {r.Status} {r.Done} {r.Message}");
             var o = new JsonObject { ["id"] = b.Id, ["item"] = item.Name, ["status"] = r.Status.ToString(), ["done"] = r.Done, ["message"] = r.Message };
@@ -471,6 +481,7 @@ public sealed class LabBotTestMod : Mod
             while (r is ItemUseResult.NotReady or ItemUseResult.Busy && waited.Elapsed.TotalSeconds < UseWaitSeconds(rq))
             {
                 await Context.Scheduler.NextTick();
+                StillThere(b, "use");
                 r = Abilities.UseItem(b.Entity, slot.Slot);
                 tries++;
             }

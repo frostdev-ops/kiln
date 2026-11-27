@@ -32,4 +32,19 @@ public sealed class LabBotPeersTests
         Assert.False(BotPeers.IsBot(0x2a8d, bots));
         Assert.False(BotPeers.IsBot(0x2a90, []));
     }
+
+    // labbot-test's use and give wait (the first-time spawn intro, the item catalog) before they act on the bot's entity
+    [Fact]
+    public void AWaitingOpActsOnlyOnTheSameBotInGame()
+    {
+        var was = Bot(1, LabBotPhase.InGame, 0x2a90);
+        Assert.True(BotPeers.Still(was, was));
+        Assert.True(BotPeers.Still(was, was with { SavesAcked = 3 }));
+        Assert.False(BotPeers.Still(was, null));  // forgotten
+        Assert.False(BotPeers.Still(was, was with { Phase = LabBotPhase.Leaving }));  // logging out
+        Assert.False(BotPeers.Still(was, Bot(1, LabBotPhase.Left, 0x2a90)));
+        // the next bot in the slot it left has its entity (slot + 1) under a new id: not this bot
+        Assert.False(BotPeers.Still(was, Bot(2, LabBotPhase.InGame, 0x2a8f)));
+        Assert.False(BotPeers.Still(was, was with { Entity = new EntityId(15) }));
+    }
 }
