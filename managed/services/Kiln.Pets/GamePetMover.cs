@@ -109,7 +109,8 @@ internal sealed class GamePetMover : IPetMover
         }
     }
 
-    public WorldPosition? SafeGround(WorldPosition near, double min, double max, PetDefinition def) => PetPlacement.Find(near, min, max, def, null);
+    public WorldPosition? SafeGround(WorldPosition near, double min, double max, PetDefinition def, EntityId owner, EntityId pet) =>
+        PetPlacement.Find(near, min, max, def, null, owner, pet);
 
     public void Guard(PetBody body, EntityId owner)
     {

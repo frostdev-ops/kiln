@@ -65,7 +65,7 @@ internal sealed class FakeWorld : IPetWorld
     public PetOwner? OnlineOwner(CharacterKey key) => Online.TryGetValue(key, out var o) ? o : null;
     public IReadOnlyList<PetOwner> OnlineOwners() => Online.Values.ToList();
 
-    public WorldPosition? SafeGround(WorldPosition near, double minRadius, double maxRadius, PetDefinition definition, PetCreatureInfo? creature) =>
+    public WorldPosition? SafeGround(WorldPosition near, double minRadius, double maxRadius, PetDefinition definition, PetCreatureInfo? creature, EntityId owner) =>
         GroundOn ? new WorldPosition(near.X + Math.Max(minRadius, 1), near.Y, near.Z) : null;
 
     public PetBody? CreateBody(PetBodyRequest request, out string? reason)

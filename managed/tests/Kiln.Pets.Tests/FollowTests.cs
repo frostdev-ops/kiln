@@ -56,7 +56,7 @@ internal sealed class FakeMover : IPetMover
         return true;
     }
 
-    public WorldPosition? SafeGround(WorldPosition near, double min, double max, PetDefinition def) => Ground ? new WorldPosition(near.X + 2, near.Y, near.Z) : null;
+    public WorldPosition? SafeGround(WorldPosition near, double min, double max, PetDefinition def, EntityId owner, EntityId pet) => Ground ? new WorldPosition(near.X + 2, near.Y, near.Z) : null;
     public void Guard(PetBody body, EntityId owner) => Guards.Add(owner);
     public void Attack(PetBody body, EntityId target) => Attacks.Add(target);
     bool IPetMover.TargetAlive(EntityRef target) => TargetAlive;

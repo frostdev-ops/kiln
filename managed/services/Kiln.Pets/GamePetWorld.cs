@@ -94,8 +94,8 @@ internal sealed partial class GamePetWorld : IPetWorld
 
     // ---- placement (package 4 refines it: footprint samples, clearance, settling) ----
 
-    public WorldPosition? SafeGround(WorldPosition near, double minRadius, double maxRadius, PetDefinition definition, PetCreatureInfo? creature) =>
-        PetPlacement.Find(near, minRadius, maxRadius, definition, creature);
+    public WorldPosition? SafeGround(WorldPosition near, double minRadius, double maxRadius, PetDefinition definition, PetCreatureInfo? creature, EntityId owner) =>
+        PetPlacement.Find(near, minRadius, maxRadius, definition, creature, owner);
 
     // ---- bodies ----
 

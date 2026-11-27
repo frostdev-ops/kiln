@@ -131,7 +131,7 @@ internal sealed partial class PetRoster
                     EndChannel(op, p, costGone, PetChangeCause.Channel);
                     return;
                 }
-                var spot = _world.SafeGround(p.Anchor!.Value, 0, 2, rv.Def, rv.Creature);
+                var spot = _world.SafeGround(p.Anchor!.Value, 0, 2, rv.Def, rv.Creature, op.Owner.Entity.Id);
                 if (spot is null)
                 {
                     EndChannel(op, p, "NoSafeGround: no safe ground at the recovery anchor", PetChangeCause.Channel);

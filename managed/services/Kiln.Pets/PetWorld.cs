@@ -69,8 +69,9 @@ internal interface IPetWorld
     /// <summary>Every character in game.</summary>
     IReadOnlyList<PetOwner> OnlineOwners();
     /// <summary>A safe spot on the ground within <paramref name="minRadius"/>..<paramref name="maxRadius"/> of
-    /// <paramref name="near"/> for a body of <paramref name="definition"/>; null when none.</summary>
-    WorldPosition? SafeGround(WorldPosition near, double minRadius, double maxRadius, PetDefinition definition, PetCreatureInfo? creature);
+    /// <paramref name="near"/> for a body of <paramref name="definition"/>; null when none. <paramref name="owner"/> (the
+    /// owner's player entity, standing at or next to <paramref name="near"/>) never counts as an entity in the way.</summary>
+    WorldPosition? SafeGround(WorldPosition near, double minRadius, double maxRadius, PetDefinition definition, PetCreatureInfo? creature, EntityId owner);
     /// <summary>Makes a protected staging body now (synchronously, on the tick), or null with the reason.</summary>
     PetBody? CreateBody(PetBodyRequest request, out string? reason);
     /// <summary>Whether a staging body is ready (health initialized, placed, quiet); Failed after its bound with the reason.</summary>

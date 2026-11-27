@@ -28,7 +28,8 @@ internal interface IPetMover
     void CancelPath(object request);
     /// <summary>Puts the body at <paramref name="to"/> (exactly, no ground search: the spot was validated).</summary>
     bool Teleport(PetBody body, WorldPosition to);
-    WorldPosition? SafeGround(WorldPosition near, double min, double max, PetDefinition def);
+    /// <summary>A validated spot near <paramref name="near"/>; the owner and the pet itself never count as in the way.</summary>
+    WorldPosition? SafeGround(WorldPosition near, double min, double max, PetDefinition def, EntityId owner, EntityId pet);
     /// <summary>The game's guard keeps the body near the entity (EngineGuard).</summary>
     void Guard(PetBody body, EntityId owner);
     /// <summary>The game's AI attacks the target (PetCombat: the target preferred, threat added).</summary>
@@ -315,7 +316,7 @@ internal sealed class PetFollower
         _route = null;
         Halt(body, m);
         if (now < _catchUpBlockedUntil) return;   // the last one did not settle: wait before another checked try
-        var spot = m.SafeGround(owner.Position, 2, 4, def);
+        var spot = m.SafeGround(owner.Position, 2, 4, def, owner.Entity.Id, body.Entity.Id);
         if (spot is null)
         {
             Limited = "NoSafeGround: no validated spot near the owner to catch up to";

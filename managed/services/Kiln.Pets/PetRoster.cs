@@ -826,7 +826,7 @@ internal sealed partial class PetRoster
             return;
         }
         level = Math.Clamp(level, 1, creature.LevelMax > 0 ? Math.Min(creature.LevelMax, PetDefinitionRules.MaxLevel) : PetDefinitionRules.MaxLevel);
-        var at = _world.SafeGround(op.Owner.Position, 2, 4, def, creature);
+        var at = _world.SafeGround(op.Owner.Position, 2, 4, def, creature, op.Owner.Entity.Id);
         if (at is null)
         {
             Complete(op, false, "NoSafeGround: no safe ground 2 to 4 m from the owner", p);
@@ -906,7 +906,7 @@ internal sealed partial class PetRoster
             Complete(op, true, null, p);   // idempotent
             return;
         }
-        var spot = def is null ? (WorldPosition?)null : _world.SafeGround(op.Owner.Position, 0, AnchorMeters, def, null);
+        var spot = def is null ? (WorldPosition?)null : _world.SafeGround(op.Owner.Position, 0, AnchorMeters, def, null, op.Owner.Entity.Id);
         if (spot is null)
         {
             Complete(op, false, def is null ? $"DefinitionUnknown: {p.Definition}" : "NoSafeGround: no safe ground within 3 m of the owner", p);
