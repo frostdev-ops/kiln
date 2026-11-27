@@ -13,6 +13,7 @@
 
 #include "services/kiln_caps.h"
 #include "../registry/boot_hooks.h"
+#include "../registry/replay.h"
 #include "../registry/schema_ir.h"
 #include "../registry/stage.h"
 
@@ -1324,7 +1325,8 @@ void effect_replay(const std::string& dir) {
         json rep;
         Files files;
     };
-    auto start = [&](Files files, const std::string& exe, const std::string& journal_text, std::vector<stage::Env::DataFile> (*data)(const Schema&)) {
+    auto start = [&](Files files, const std::string& exe, const std::string& journal_text, std::vector<stage::Env::DataFile> (*data)(const Schema&),
+                     std::vector<OldWrite> old = {}) {
         TreeView view = world();
         Start s;
         s.files = std::move(files);
@@ -1333,7 +1335,7 @@ void effect_replay(const std::string& dir) {
         e.writer = "kiln-eml";
         e.archive_journal = [&](std::string* generation, std::string*) -> std::optional<std::string> { return *generation = live, journal_text; };
         stage::Runner r(std::move(e));
-        const auto boot = r.run({});
+        const auto boot = old.empty() ? r.run({}) : r.run([&](model::Model&) { return old; });
         std::vector<stage::BootOutcome> outcomes;
         for (const auto& res : boot)
             for (const auto& f : res.fields) outcomes.push_back({f.field, true, Value::integer(0), ""});
@@ -1466,6 +1468,21 @@ void effect_replay(const std::string& dir) {
     bool kept_any = false;
     for (const auto& [k, v] : n.files.data) kept_any = kept_any || k.rfind("replay/", 0) == 0;
     check(!n.rep.contains("replay") && !kept_any, "no opt-in file: no replay at all (nothing in replay/)");
+    // review-j3: one stand-in id (and one record) per package: ShroudForge ids that differ only in letter case are two packages
+    // (A-Z a-z), never one Kiln mod id or one file; and a record that names another package is never replayed for this one
+    {
+        const std::string upper = replay::mod_id_of("shroudforge:BetterStacks"), lower_id = replay::mod_id_of("shroudforge:betterstacks");
+        std::string err;
+        check(upper != lower_id && replay::file_of("shroudforge:BetterStacks") != replay::file_of("shroudforge:betterstacks"),
+              "two ids that differ in case get two stand-in ids: " + upper + " " + lower_id);
+        check(mod_id_ok(upper, &err) && mod_id_ok(lower_id, &err), "each a Kiln mod id: " + err);
+        check(mod_id_ok(replay::mod_id_of("eml:" + std::string(80, 'Z')), &err), "a long one too: " + err);
+        Files foreign = later;
+        json f = json::parse(foreign.data[file]);
+        f["who"] = "shroudforge:BetterStacks";
+        foreign.data[file] = f.dump();
+        refused_with(foreign, other, journal(false, "1.0.0"), "another package's");
+    }
 }
 
 // Review (registry-writers): the journal lists resources by their key, so only a registry whose entries are each a whole

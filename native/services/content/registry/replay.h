@@ -64,9 +64,10 @@ struct Description {
     std::vector<std::string> residue;  // one line each: what of its effect no proven Kiln field holds
 };
 
-// The Kiln mod id a replayed package's edits carry: "replay.sf.<id>" / "replay.eml.<id>" (lower case; a long one cut and
-// told apart by 8 hex digits of its SHA-256), and its description's file: "replay/<that id>.json". Its writer rows in
-// registry.json say "standIn": true; a start with a Kiln mod of that id refuses the replay (the id is the mod's).
+// The Kiln mod id a replayed package's edits carry: "replay.sf.<id>" / "replay.eml.<id>" (lower case; one with a capital
+// letter, or a long one cut, told apart by 8 hex digits of its SHA-256, so each package has its own), and its description's
+// file: "replay/<that id>.json". Its writer rows in registry.json say "standIn": true; a start with a Kiln mod of that id
+// refuses the replay (the id is the mod's).
 std::string mod_id_of(const std::string& who);
 std::string file_of(const std::string& who);
 

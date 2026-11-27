@@ -497,7 +497,9 @@ struct Runner::Impl {
             replay::Description d;
             std::string why;
             const auto text = env.read_data(replay::file_of(who));
-            const bool have = text && replay::parse_description(*text, &d, &why);
+            // a record is this package's only (review-j3: never another package's effect under its name)
+            const bool have = text && replay::parse_description(*text, &d, &why) &&
+                              (d.who == who || (why = "the recorded effect in " + replay::file_of(who) + " is another package's (" + d.who + ")", false));
             if (have) row.recorded_on = d.exe;
             if (j.state != "read") {
                 row.text = "this start's change journal names no package (" + j.text + "): nothing is recorded or replayed";

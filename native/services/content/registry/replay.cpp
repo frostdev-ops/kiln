@@ -52,8 +52,12 @@ OptIn parse_opt_in(const std::string& text) {
 std::string mod_id_of(const std::string& who) {
     const size_t colon = who.find(':');
     const std::string kind = colon == std::string::npos ? std::string() : who.substr(0, colon);
-    std::string id = "replay." + std::string(kind == "eml" ? "eml." : "sf.") + lower(colon == std::string::npos ? who : who.substr(colon + 1));
-    if (id.size() > 64) id = id.substr(0, 55) + "." + kiln::boot_gd::hex_of(kiln::boot_gd::sha256(who)).substr(0, 8);
+    const std::string raw = colon == std::string::npos ? who : who.substr(colon + 1);
+    std::string id = "replay." + std::string(kind == "eml" ? "eml." : "sf.") + lower(raw);
+    // a Kiln mod id is lower case, a package id is not (A-Z a-z): an id with a capital, or one too long, is told apart by 8 hex
+    // digits of its SHA-256, so two packages never share a stand-in id or a record (review-j3)
+    const bool capital = std::any_of(raw.begin(), raw.end(), [](char c) { return std::isupper(static_cast<unsigned char>(c)) != 0; });
+    if (capital || id.size() > 64) id = id.substr(0, std::min<size_t>(id.size(), 55)) + "." + kiln::boot_gd::hex_of(kiln::boot_gd::sha256(who)).substr(0, 8);
     return id;
 }
 
