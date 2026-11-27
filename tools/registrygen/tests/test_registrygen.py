@@ -561,12 +561,17 @@ class Repository(unittest.TestCase):
         for name in ("creatures", "arsenals", "perks"):
             self.assertIn(name, m.registries)
             r = m.registries[name]
-            self.assertEqual((r.version, r.doc["stability"], r.doc["experimentalId"]), ("0.1.0", "experimental", "KILNX031"))
+            # creatures 0.1.1: the taming fields added within the 0.1 line (dev.32 TAME review)
+            self.assertEqual((r.version, r.doc["stability"], r.doc["experimentalId"]), ("0.1.1" if name == "creatures" else "0.1.0", "experimental", "KILNX031"))
             self.assertEqual(r.doc["entry"], {"add": False, "remove": False})
         rows = {f.qualified: f for r in m.registries.values() for f in r.rows}
         self.assertTrue(rows["creatures.kind"].read_only)
         self.assertEqual(rows["creatures.kind"].spec["values"], ["enemy", "wildlife", "animal", "villager"])
         self.assertTrue(rows["creatures.arsenal"].read_only)
+        # a wild animal's taming: tameable and its favourite bait read only, its steps live (dev.32 TAME review)
+        self.assertTrue(rows["creatures.tameable"].read_only and rows["creatures.favoriteBait"].read_only)
+        self.assertFalse(rows["creatures.tamingSteps"].read_only)
+        self.assertEqual(rows["creatures.favoriteBait"].spec["registry"], "templates")
         self.assertEqual(rows["creatures.arsenal"].spec["registry"], "arsenals")
         self.assertFalse(rows["creatures.level"].read_only)
         self.assertFalse(rows["creatures.faction"].read_only)
