@@ -20,6 +20,7 @@
 // the JSON rbytes::member gives. No game memory, no service table, no lock.
 #pragma once
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>

@@ -151,7 +151,7 @@ views::ServiceEnv env(Game& g, std::optional<Schema> schema = std::nullopt) {
 void quests(Game& g) {
     g.res[kQuest] = {
         {key(1, kQuest), json::parse(R"({"debugName": "Quest_Main", "xpReward": 100, "kind": "Main", "bonus": 1.5,
-             "rewardItems": [{"item": "00000000-0000-0000-0000-00000000000a", "count": 2}], "events": []})")},
+             "rewardItems": [{"item": "00000000-0000-0000-0000-000000000020", "count": 2}], "events": []})")},
         {key(2, kQuest), json::parse(R"({"debugName": "Quest_Side", "xpReward": 40, "kind": "Side_Quest",
              "rewardItems": [], "events": []})")},  // no "bonus": this entry lacks the member
         {key(3, kQuest), json::parse(R"({"debugName": "Quest_Odd", "xpReward": 7, "kind": "Daily", "bonus": 0, "rewardItems": [], "events": []})")}};
@@ -213,15 +213,14 @@ int main() {
     CHECK(s.read("quest", "game:quest_side", "kind", &out) == KILN_OK && out == "\"sideQuest\"");
     // no view entry has the item's GUID (yet): the GUID text stays
     CHECK(s.read("quest", "game:quest_main", "rewardItems", &out) == KILN_OK &&
-          json::parse(out) == json::parse(R"([{"item": "00000000-0000-0000-0000-00000000000a", "count": 2}])"));
+          json::parse(out, nullptr, false) == json::parse(R"([{"item": "00000000-0000-0000-0000-000000000020", "count": 2}])"));
     // the item exists as an itemInfo entry when its GUID matches one: the id names it
-    g.res[kItem].push_back({key(0x0a, kItem), json::parse(R"({"debugName": "Rope", "maxStackSize": 10})")});
+    g.res[kItem].push_back({key(0x20, kItem), json::parse(R"({"debugName": "Rope", "maxStackSize": 10})")});
     CHECK(s.read("quest", "game:quest_main", "rewardItems[0].item", &out) == KILN_OK && out == "\"game:rope\"");
     CHECK(s.read("quest", "game:quest_main", "rewardItems[0].count", &out) == KILN_OK && out == "2");
     CHECK(s.read("itemInfo", "game:wood", "maxStackSize", &out) == KILN_OK && out == "20");
     // refusals per entry, in Kiln words, logged once
-    CHECK(s.read("quest", "game:quest_side", "bonus", &out) == KILN_ERR_UNAVAILABLE && out.find("game:quest_side") != std::string::npos &&
-          out.find("quest.bonus") != std::string::npos);
+    CHECK(s.read("quest", "game:quest_side", "bonus", &out) == KILN_ERR_UNAVAILABLE && out.find("quest[game:quest_side].bonus") != std::string::npos);
     CHECK(s.read("quest", "game:quest_main", "bonus", &out) == KILN_OK && out == "1.5");  // the other entries still read
     CHECK(s.read("quest", "game:quest_odd", "kind", &out) == KILN_ERR_UNAVAILABLE && out.find("no name for") != std::string::npos &&
           out.find("Daily") == std::string::npos);

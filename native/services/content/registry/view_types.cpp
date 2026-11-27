@@ -18,7 +18,7 @@ std::shared_ptr<const TypeDesc> desc(const gd::TType* decl, int depth) {
     if (!t) return d;  // Other
     d->name = t->name;
     d->hash = t->hash;
-    Field f;
+    kc::Field f;
     if (t->kind != gd::K_BLOBVAR && gd::leaf_of(decl, &f)) {
         switch (f.vt) {
             case KILN_CV_BOOL: d->kind = TypeKind::Bool; break;

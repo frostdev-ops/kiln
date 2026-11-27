@@ -307,7 +307,9 @@ int main() {
     // ---- values in Kiln form
     {
         const views::Catalog c = views::catalog(generated_schema(), {quest(), root("keen::ItemInfo", {{"maxStackSize", leaf(TypeKind::Int)}}, 9)}, none, nullptr);
-        const views::View& v = view(c, "quest");
+        const views::View* found = c.find("quest");
+        CHECK(found != nullptr);
+        const views::View& v = found ? *found : kNoView;
         CHECK(at(&v, "rewardItems[].item").ref == "itemInfo");
         std::string why;
         const views::RefFn refs = [](const std::string& view, const std::string& guid) -> std::optional<std::string> {
