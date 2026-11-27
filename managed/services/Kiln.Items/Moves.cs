@@ -56,6 +56,18 @@ public static unsafe partial class Items
         }
     }
 
+    // Why MoveChecked cannot run now, in words (its status is Unavailable either way).
+    private static string CheckedMovesMissing()
+    {
+        const string api = "Items.MoveChecked: ";
+        if (V3 == null) return api + (T == null ? "kiln.items is unavailable" : "this Kiln runtime's kiln.items has no moves (update Kiln)");
+        var s = Status3();
+        if (!Can(Caps.Move) || s is not { Moves: true })
+            return api + "moves are not available: " + (s?.Detail is { Length: > 0 } d ? d
+                : Can(Caps.Move) ? "the kiln_items program is not running" : "capability items.move is off");
+        return api + "this Kiln runtime's kiln.items has no checked moves (update Kiln)";
+    }
+
     /// <summary>True when <see cref="ContainerName"/> can read names on this game build (capability
     /// <c>items.names</c>).</summary>
     public static bool ContainerNamesAvailable => Can(Caps.Names);
@@ -194,7 +206,7 @@ public static unsafe partial class Items
         ArgumentNullException.ThrowIfNull(expected);
         Services.RequireTickThread("Items.MoveChecked");
         if (!CheckedMovesAvailable)
-            return Task.FromResult(MoveResult.Fail(ItemsStatus.Unavailable, MoveKind.Stack, from, to, "checked moves are unavailable"));
+            return Task.FromResult(MoveResult.Fail(ItemsStatus.Unavailable, MoveKind.Stack, from, to, CheckedMovesMissing()));
         if (expected.IsEmpty || expected.Slot.IsNone || count < 1 || count > 100000 || count > expected.Count ||
             destination is { Slot.IsNone: true })
             return MoveInvalid(MoveKind.Stack, from, to, "invalid source, destination or amount");

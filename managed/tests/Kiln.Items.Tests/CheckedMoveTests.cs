@@ -89,4 +89,23 @@ public sealed unsafe class CheckedMoveTests : IDisposable
         Assert.Equal("expected", e.ParamName);
         Assert.Equal(0, _calls);
     }
+
+    [Fact]
+    public void A_runtime_without_checked_moves_says_to_update_Kiln_and_moves_that_are_off_say_why()
+    {
+        _reserved = 0;  // kiln.items before checked moves: status2's bits are 0, and its move refuses the flag
+        Assert.True(Items.MovesAvailable);
+        Assert.False(Items.CheckedMovesAvailable);
+        var old = Items.MoveChecked(Chest, Plain(ChestSlot, Wood, 7), Player, 2).Result;
+        Assert.Equal(ItemsStatus.Unavailable, old.Status);
+        Assert.Contains("update Kiln", old.Message);
+
+        (_reserved, _moves, _detail) = (1, 0, "the kiln_items program is not running yet");
+        Assert.False(Items.CheckedMovesAvailable);
+        var off = Items.MoveChecked(Chest, Plain(ChestSlot, Wood, 7), Player, 2).Result;
+        Assert.Equal(ItemsStatus.Unavailable, off.Status);
+        Assert.Contains("the kiln_items program is not running yet", off.Message);
+        Assert.DoesNotContain("update Kiln", off.Message);
+        Assert.Equal(0, _calls);
+    }
 }
