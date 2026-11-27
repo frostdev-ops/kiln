@@ -457,6 +457,7 @@ internal static partial class KilnApis
         "M:Kiln.Items.LabMoveUnseen(Kiln.EntityId,Kiln.SlotId,Kiln.EntityId)", // Items.LabMoveUnseen(EntityId, SlotId, EntityId): via Items.SubmitMove(ItemsNative.MoveRequest, string, bool)
         "M:Kiln.Items.Move(Kiln.EntityId,Kiln.SlotId,Kiln.EntityId,System.Int32,Kiln.MoveOptions,System.Nullable{Kiln.SlotId})", // Items.Move(EntityId, SlotId, EntityId, int, MoveOptions, SlotId?): via Items.SubmitMove(ItemsNative.MoveRequest, string, bool)
         "M:Kiln.Items.MoveAll(Kiln.EntityId,Kiln.EntityId,Kiln.MoveOptions)", // Items.MoveAll(EntityId, EntityId, MoveOptions): via Items.SubmitMove(ItemsNative.MoveRequest, string, bool)
+        "M:Kiln.Items.MoveChecked(Kiln.EntityId,Kiln.InventorySlot,Kiln.EntityId,System.Int32,Kiln.InventorySlot)", // Items.MoveChecked(EntityId, InventorySlot, EntityId, int, InventorySlot?): Services.RequireTickThread
         "M:Kiln.Items.PlanSet(Kiln.EntityId,Kiln.EquipmentSet)", // Items.PlanSet(EntityId, EquipmentSet): Services.RequireTickThread
         "M:Kiln.Items.PlayerStorages.Of(Kiln.EntityId)", // Items.PlayerStorages.Of(EntityId): via PlayerStorageRuntime.Of(EntityId)
         "M:Kiln.Items.PlayerStorages.ReturnOrphans(Kiln.EntityId,System.String,Kiln.OrphanTarget)", // Items.PlayerStorages.ReturnOrphans(EntityId, string, OrphanTarget): via PlayerStorageRuntime.ReturnOrphans(EntityId, string, OrphanTarget)

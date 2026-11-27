@@ -13,6 +13,8 @@ public sealed class TablesTests
     // Creative effects (0.2.0-dev.31.2, Kiln.Rules): missing from the table until its regeneration for 0.2.0-dev.31.14
     [InlineData("M:Kiln.Creative.Effects(Kiln.EntityId)")]
     [InlineData("M:Kiln.Creative.SetEffect(Kiln.EntityId,System.String,System.Boolean)")]
+    // Items.MoveChecked (0.2.0-dev.32): Services.RequireTickThread, missing until the table's regeneration in its review
+    [InlineData("M:Kiln.Items.MoveChecked(Kiln.EntityId,Kiln.InventorySlot,Kiln.EntityId,System.Int32,Kiln.InventorySlot)")]
     public void Tick_thread_members(string id) => Assert.Contains(id, KilnApis.TickThread);
 
     [Theory]
