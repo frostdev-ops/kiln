@@ -329,4 +329,88 @@ public sealed unsafe class ItemCostsTests : IDisposable
         Assert.Equal((Tool().Instance, 1, false), (s.Instance, s.ExpectedCount, s.IsStack));
         Assert.Throws<ArgumentException>(() => ItemSelection.Of(Player, slot with { Count = 0 }));
     }
+
+    // ---- review of dev.32 TAME: refunds that can never double-pay ------------------------------------------------------
+    // ItemCosts.Refund gave back what any receipt it was handed said, once per *refund* request id: the same paid receipt
+    // under a second request id was given back again, a copy with a larger Taken gave back more, and a receipt of an earlier
+    // world was refunded into the world running now (the refund carried the current world's epoch).
+
+    // a refund's answer that must already be there (a refused one never waits for a step): never blocks a test
+    private static CostReceipt Now(Task<CostReceipt> t)
+    {
+        Assert.True(t.IsCompleted, "the refund was submitted: it did not answer at once");
+        return t.Result;
+    }
+
+    private CostReceipt Paid(int count = 2, ulong ticket = 100)
+    {
+        var t = ItemCosts.Take(Stack(), count, Guid.NewGuid());
+        _table.Settle(ticket, ItemCostsNative.Committed, taken: (uint)count);
+        ItemCosts.Runtime.Pump();
+        return t.Result;
+    }
+
+    [Fact]
+    public void A_paid_receipt_is_given_back_once_whatever_request_id_asks_again()
+    {
+        var paid = Paid();
+        var first = Guid.NewGuid();
+        var back = ItemCosts.Refund(paid, first);
+        Assert.Equal(2, _table.Submitted.Count);
+        Assert.Same(back, ItemCosts.Refund(paid, first));                  // the same refund request: the same task
+        var twice = Now(ItemCosts.Refund(paid, Guid.NewGuid()));         // another request while it runs
+        Assert.Equal((false, "AlreadyRefunded"), (twice.Committed, twice.Refusal.ToString()));
+        _table.Settle(101, ItemCostsNative.Committed, taken: 2);
+        ItemCosts.Runtime.Pump();
+        Assert.True(Now(back).Committed);
+        var thrice = Now(ItemCosts.Refund(paid, Guid.NewGuid()));        // and after it gave everything back
+        Assert.Equal((false, "AlreadyRefunded"), (thrice.Committed, thrice.Refusal.ToString()));
+        Assert.Same(back.Result, Now(ItemCosts.Refund(paid, first)));    // the first one's replay still answers
+        Assert.Equal(2, _table.Submitted.Count);
+    }
+
+    [Fact]
+    public void A_refund_gives_back_what_Kiln_took_never_what_a_changed_copy_of_the_receipt_says()
+    {
+        var paid = Paid();
+        var r = Now(ItemCosts.Refund(paid with { Taken = 99 }, Guid.NewGuid()));
+        Assert.False(r.Committed);
+        Assert.Equal(CostRefusal.NothingToRefund, r.Refusal);
+        var forged = new CostReceipt(new ItemId(Bait), 50, 50, true) { RequestId = Guid.NewGuid(), Selection = Stack(), Kind = CostKind.StackTake };
+        Assert.Equal(CostRefusal.NothingToRefund, Now(ItemCosts.Refund(forged, Guid.NewGuid())).Refusal);
+        Assert.Single(_table.Submitted);                                   // the take only
+    }
+
+    [Fact]
+    public void A_receipt_of_an_earlier_world_is_never_refunded_into_the_world_that_runs_now()
+    {
+        var paid = Paid();
+        _table.Epoch = 6;
+        var r = Now(ItemCosts.Refund(paid, Guid.NewGuid()));
+        Assert.Equal((false, CostRefusal.WrongWorld), (r.Committed, r.Refusal));
+        Assert.Single(_table.Submitted);
+    }
+
+    [Fact]
+    public void A_refund_that_gave_nothing_may_be_asked_again_and_one_that_gave_part_gives_only_the_rest()
+    {
+        var paid = Paid(3);
+        var full = ItemCosts.Refund(paid, Guid.NewGuid());
+        _table.Settle(101, ItemCostsNative.Refused, refusal: 7, reason: "no room");
+        ItemCosts.Runtime.Pump();
+        Assert.Equal(CostRefusal.NoRoom, Now(full).Refusal);
+        var part = ItemCosts.Refund(paid, Guid.NewGuid());                  // nothing came back: it may be asked again
+        Assert.Equal(3u, _table.Submitted[2].Amount);
+        _table.Settle(102, ItemCostsNative.Committed, taken: 1, disposition: ItemCostsNative.Partial);
+        ItemCosts.Runtime.Pump();
+        Assert.Equal((true, 1), (Now(part).Committed, Now(part).Taken));
+        ItemCosts.Refund(paid, Guid.NewGuid());                             // the rest: 2
+        Assert.Equal(2u, _table.Submitted[3].Amount);
+        _table.Settle(103, ItemCostsNative.Uncertain, taken: 0);
+        ItemCosts.Runtime.Pump();
+        var after = Now(ItemCosts.Refund(paid, Guid.NewGuid()));          // an uncertain refund: never again
+        Assert.Equal("AlreadyRefunded", after.Refusal.ToString());
+        Assert.Equal(4, _table.Submitted.Count);
+    }
 }
+

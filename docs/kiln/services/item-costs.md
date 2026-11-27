@@ -42,10 +42,19 @@ Every call carries the caller's request id (a `Guid`, never empty):
 
 So a network retry sends the **same** id and can never pay twice; a new intended payment takes a new id.
 
+**One refund per paid receipt.** `Refund` gives back what kiln.item_costs itself took under the receipt's request id (it
+keeps the last 65,536 paid takes and wears of the process), never what a receipt handed in says: a changed copy, one made
+by hand, or one too old to remember is `NothingToRefund`. One paid receipt is given back at most once, whatever request
+id asks: while its refund runs, after it gave everything back, or after a refund of it ended uncertain, another request
+is `AlreadyRefunded`. A refund that gave nothing (`NoRoom`, `StaleSession`) may be asked again, and one that gave part
+(`Partial`) leaves only the rest to give. A refund runs only in the server world the cost was paid in
+(`CostReceipt.WorldEpoch`); in another one it is `WrongWorld`, nothing submitted.
+
+
 ## Receipts
 
 `CostReceipt(Item, Requested, Taken, Committed)` plus `RequestId`, `NativeTicket`, `Kind`, `Selection`, `State`,
-`Disposition`, `Refusal`, `Reason`, `DurabilityBefore`/`After`, `RefundOf` and `Step`.
+`Disposition`, `Refusal`, `Reason`, `DurabilityBefore`/`After`, `RefundOf`, `Step` and `WorldEpoch`.
 
 | State | Means |
 |---|---|

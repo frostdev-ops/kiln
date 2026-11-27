@@ -48,6 +48,8 @@ Kiln.CostReceipt.Selection.init -> void
 Kiln.CostReceipt.State.get -> Kiln.CostState
 Kiln.CostReceipt.Step.get -> ulong
 Kiln.CostReceipt.Step.init -> void
+Kiln.CostReceipt.WorldEpoch.get -> ulong
+Kiln.CostReceipt.WorldEpoch.init -> void
 Kiln.CostReceipt.Taken.get -> int
 Kiln.CostReceipt.Taken.init -> void
 Kiln.CostReceipt.Uncertain.get -> bool
@@ -62,6 +64,7 @@ Kiln.CostRefusal.None = 0 -> Kiln.CostRefusal
 Kiln.CostRefusal.NotAStack = 2 -> Kiln.CostRefusal
 Kiln.CostRefusal.NotGear = 3 -> Kiln.CostRefusal
 Kiln.CostRefusal.NothingToRefund = 16 -> Kiln.CostRefusal
+Kiln.CostRefusal.AlreadyRefunded = 17 -> Kiln.CostRefusal
 Kiln.CostRefusal.NotRun = 9 -> Kiln.CostRefusal
 Kiln.CostRefusal.RequestClosed = 12 -> Kiln.CostRefusal
 Kiln.CostRefusal.RequestConflict = 11 -> Kiln.CostRefusal

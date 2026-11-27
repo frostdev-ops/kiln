@@ -114,8 +114,12 @@ public enum CostRefusal
     WrongWorld = 14,
     /// <summary>The owner is a player who is not in game with the session the selection was read in.</summary>
     StaleSession = 15,
-    /// <summary>A refund of a receipt that took nothing, was refused, or is uncertain.</summary>
+    /// <summary>A refund of a receipt that took nothing, was refused, or is uncertain; or of a receipt Kiln did not issue in
+    /// this process (a changed copy, one made by hand, one too old to remember).</summary>
     NothingToRefund = 16,
+    /// <summary>A refund of a receipt that was given back already, or whose refund runs or is uncertain: one paid receipt is
+    /// given back at most once, whatever request id asks.</summary>
+    AlreadyRefunded = 17,
 }
 
 /// <summary>A cost's receipt: what was asked, what moved, and whether it happened. The four positional values are the
@@ -156,6 +160,9 @@ public sealed record CostReceipt(ItemId Item, int Requested, int Taken, bool Com
     public Guid? RefundOf { get; init; }
     /// <summary>The server step the cost ran in (0: it did not run).</summary>
     public ulong Step { get; init; }
+    /// <summary>The server world the cost was submitted in (kiln.item_costs' world epoch; 0: it never reached it). A refund
+    /// runs only in that world.</summary>
+    public ulong WorldEpoch { get; init; }
 }
 
 /// <summary>A cost was paid, or may have been (its receipt is <see cref="CostState.Committed"/> or
@@ -327,18 +334,41 @@ public static unsafe class ItemCosts
         if (requestId == Guid.Empty) throw new ArgumentException("an empty request id", nameof(requestId));
         if (receipt.Kind is CostKind.StackRefund or CostKind.GearRestore) throw new ArgumentException("a refund is not refunded", nameof(receipt));
         var kind = receipt.Kind == CostKind.StackTake ? CostKind.StackRefund : CostKind.GearRestore;
-        var amount = receipt.Taken;
-        if (!receipt.Committed || receipt.Uncertain || amount <= 0 || receipt.Selection is not { } sel)
-            return Task.FromResult(new CostReceipt(receipt.Item, amount, 0, false)
-            {
-                RequestId = requestId, Kind = kind, Selection = receipt.Selection, Refusal = CostRefusal.NothingToRefund, RefundOf = receipt.RequestId,
-                Reason = receipt.Uncertain ? "an uncertain cost is never refunded automatically" : "the receipt took nothing",
-            });
+        Task<CostReceipt> Nothing(CostRefusal why, string reason, int amount) => Task.FromResult(new CostReceipt(receipt.Item, amount, 0, false)
+        {
+            RequestId = requestId, Kind = kind, Selection = receipt.Selection, Refusal = why, RefundOf = receipt.RequestId, Reason = reason,
+        });
+        lock (Gate)
+        {
+            // this refund request again: its own answer (the same task while it runs, the same receipt after)
+            if (ByRequest.TryGetValue(requestId, out var running))
+                return running.Ask.RefundOf == receipt.RequestId ? running.Tcs.Task : Nothing(CostRefusal.RequestConflict, "the request id is held by another cost", receipt.Taken);
+            if (Settled.TryGetValue(requestId, out var done))
+                return done.Receipt.RefundOf == receipt.RequestId ? Task.FromResult(done.Receipt) : Nothing(CostRefusal.RequestConflict, "the request id was used by another cost", receipt.Taken);
+        }
+        if (!receipt.Committed || receipt.Uncertain || receipt.Taken <= 0 || receipt.Selection is not { } sel)
+            return Nothing(CostRefusal.NothingToRefund, receipt.Uncertain ? "an uncertain cost is never refunded automatically" : "the receipt took nothing", receipt.Taken);
+        int amount;
+        ulong world;
+        lock (Gate)
+        {
+            // what Kiln itself took under that request id, never what a receipt handed in says
+            if (!Ledger.TryGetValue(receipt.RequestId, out var paid))
+                return Nothing(CostRefusal.NothingToRefund, "not a cost kiln.item_costs took in this process (or one too old to remember)", receipt.Taken);
+            if (paid.Receipt != receipt)
+                return Nothing(CostRefusal.NothingToRefund, "the receipt is not the one kiln.item_costs issued for its request id", receipt.Taken);
+            if (paid.Closed) return Nothing(CostRefusal.AlreadyRefunded, "an earlier refund of it is uncertain: it is never given back again", receipt.Taken);
+            if (paid.Running is { } other) return Nothing(CostRefusal.AlreadyRefunded, $"a refund of it runs (request {other})", receipt.Taken);
+            amount = paid.Receipt.Taken - paid.Returned;
+            if (amount <= 0) return Nothing(CostRefusal.AlreadyRefunded, "it was given back already", receipt.Taken);
+            world = paid.World;
+        }
         var c = kind == CostKind.StackRefund
             ? Native(ItemCostsNative.StackRefund, sel, receipt.Item, 0, (uint)Math.Min(amount, MaxCount), false, requestId)
             : Native(ItemCostsNative.GearRestore, sel, receipt.Item, 0, (uint)Math.Min(amount, MaxWear), false, requestId);
-        return Submit(c, new Ask(kind, sel, receipt.Item, amount, requestId, receipt.RequestId), "ItemCosts.Refund");
+        return Submit(c, new Ask(kind, sel, receipt.Item, amount, requestId, receipt.RequestId), "ItemCosts.Refund", world);
     }
+
 
     // ------------------------------------------------------------------------------------------- plumbing ------
 
@@ -410,7 +440,21 @@ public static unsafe class ItemCosts
     private static IDisposable? _tick;
     private const int SettledKept = 4096;
 
-    private static Task<CostReceipt> Submit(ItemCostsNative.SelectedCost c, Ask ask, string api)
+    /// <summary>A paid cost (a committed take or wear) as kiln.item_costs issued it, and what of it came back.</summary>
+    private sealed class PaidCost(CostReceipt receipt, ulong world)
+    {
+        public readonly CostReceipt Receipt = receipt;
+        public readonly ulong World = world;
+        public int Returned;      // given back by committed refunds
+        public Guid? Running;     // a refund in flight (its request id)
+        public bool Closed;       // a refund of it is uncertain: never again
+    }
+
+    private static readonly Dictionary<Guid, PaidCost> Ledger = new();   // by the paid request id
+    private static readonly Queue<Guid> LedgerOrder = new();
+    private const int LedgerKept = 65536;
+
+    private static Task<CostReceipt> Submit(ItemCostsNative.SelectedCost c, Ask ask, string api, ulong world = 0)
     {
         var stack = ask.Kind is CostKind.StackTake or CostKind.StackRefund;
         if (!(stack ? Runtime.StacksOn() : Runtime.WearOn()))
@@ -432,6 +476,8 @@ public static unsafe class ItemCosts
         if (ask.Selection.InventoryOwner.HasSerial && !Runtime.Alive(ask.Selection.InventoryOwner))
             return Refused(ask, CostRefusal.StaleSession, "the owner's entity is not the one the selection was read from");
         if (!t.Status(out var st) || st.WorldEpoch == 0) return Refused(ask, CostRefusal.WrongWorld, "no server world runs here");
+        // a refund runs in the world its cost was paid in, or nowhere
+        if (world != 0 && world != st.WorldEpoch) return Refused(ask, CostRefusal.WrongWorld, "the cost was paid in another server world than the one running now");
         c.WorldEpoch = st.WorldEpoch;
         c.CharacterSession = isPlayer ? session : 0;
         var rc = t.Submit(in c, out var ticket);
@@ -454,6 +500,7 @@ public static unsafe class ItemCosts
             var p = new Pending(new TaskCompletionSource<CostReceipt>(TaskCreationOptions.RunContinuationsAsynchronously), mod, ask, c) { Ticket = ticket };
             InFlight[ticket] = p;
             ByRequest[ask.RequestId] = p;
+            if (ask.RefundOf is { } of && Ledger.TryGetValue(of, out var paid)) paid.Running = ask.RequestId;
             if (mod != null && Watched.Add(mod)) mod.Retiring += () => Retire(mod);
             _tick ??= Runtime.AddTick("kiln.item_costs receipts", _ => Runtime.Pump());
             return p.Tcs.Task;
@@ -503,7 +550,7 @@ public static unsafe class ItemCosts
         var taken = gear ? n.WearApplied : (int)Math.Min(n.QuantityTaken, int.MaxValue);
         return new CostReceipt(ask.Item, ask.Amount, committed || uncertain ? taken : 0, committed)
         {
-            RequestId = ask.RequestId, NativeTicket = n.Ticket, Kind = ask.Kind, Selection = ask.Selection, Uncertain = uncertain,
+            RequestId = ask.RequestId, NativeTicket = n.Ticket, Kind = ask.Kind, Selection = ask.Selection, Uncertain = uncertain, WorldEpoch = n.WorldEpoch,
             Disposition = committed || uncertain ? DispositionOf(n.Disposition) : CostDisposition.None,
             Refusal = n.State == ItemCostsNative.Refused ? RefusalOf(n.Refusal) : CostRefusal.None,
             Reason = ItemsNative.Text(n.Reason, 160), DurabilityBefore = gear && n.DurabilityBefore >= 0 ? n.DurabilityBefore : null,
@@ -640,6 +687,8 @@ public static unsafe class ItemCosts
                 ByRequest.Clear();
                 Settled.Clear();
                 SettledOrder.Clear();
+                Ledger.Clear();
+                LedgerOrder.Clear();
                 Watched.Clear();
                 _tick?.Dispose();
                 _tick = null;
@@ -687,7 +736,7 @@ public static unsafe class ItemCosts
             foreach (var p in live)
             {
                 if (t.Peek(p.Ticket, out var n) != ItemCostsNative.Ok || n.State == ItemCostsNative.Queued) continue;
-                var receipt = ReceiptOf(n, p.Ask);
+                var receipt = ReceiptOf(n, p.Ask) with { WorldEpoch = p.Cost.WorldEpoch };
                 t.Acknowledge(p.Ticket);
                 lock (Gate)
                 {
@@ -696,10 +745,27 @@ public static unsafe class ItemCosts
                     Settled[p.Ask.RequestId] = (p.Cost, receipt);
                     SettledOrder.Enqueue(p.Ask.RequestId);
                     while (SettledOrder.Count > SettledKept) Settled.Remove(SettledOrder.Dequeue());
+                    Account(receipt, p.Cost.WorldEpoch);
                 }
                 Report(receipt, p.Mod?.Info.Id ?? "kiln");
                 if (!p.Retired) p.Tcs.TrySetResult(receipt);
             }
+        }
+
+        // the ledger (Gate held): a paid take or wear is remembered as issued; a refund's end tells its paid cost what came
+        // back (a committed one: that much; an uncertain one: never again; a refused one: nothing, it may be asked again)
+        private static void Account(CostReceipt r, ulong world)
+        {
+            if (r is { Committed: true, Uncertain: false, Taken: > 0, RefundOf: null } && r.Kind is CostKind.StackTake or CostKind.GearWear)
+            {
+                if (Ledger.TryAdd(r.RequestId, new PaidCost(r, world))) LedgerOrder.Enqueue(r.RequestId);
+                while (LedgerOrder.Count > LedgerKept) Ledger.Remove(LedgerOrder.Dequeue());
+                return;
+            }
+            if (r.RefundOf is not { } of || !Ledger.TryGetValue(of, out var paid) || paid.Running != r.RequestId) return;
+            paid.Running = null;
+            if (r.Uncertain) paid.Closed = true;
+            else if (r.Committed) paid.Returned += Math.Max(0, r.Taken);
         }
 
         private static void Report(CostReceipt r, string origin)
