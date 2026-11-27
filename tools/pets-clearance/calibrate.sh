@@ -106,8 +106,12 @@ run() {
   elif [[ -x /mnt/Dongus/kiln-wave/tools/labstart ]]; then /mnt/Dongus/kiln-wave/tools/labstart "$lab"
   else nice -n 19 tools/lab/lab.sh start "$lab"; fi
   rc=0
-  timeout "$timeout" bash -c 'until grep -q "pets-clearance-lab: DONE" "$1" 2>/dev/null; do sleep 5; done' _ "$log" || rc=$?
-  ((rc)) && echo "run: no DONE line within $timeout s" >&2
+  # until the lab mod's DONE line; a server that ended (a crash, a Kiln that refused the mod) ends the wait at once instead
+  # of holding the shared lab lock until the timeout
+  timeout "$timeout" bash -c 'until grep -q "pets-clearance-lab: DONE" "$1" 2>/dev/null; do
+      [[ -n $(tools/lab/lab.sh pid "$2" 2>/dev/null) ]] || exit 3; sleep 5; done' _ "$log" "$lab" || rc=$?
+  ((rc == 3)) && echo "run: the lab server stopped before the lab mod's DONE line (see $dest/kiln.log and $dest/game.log)" >&2
+  ((rc && rc != 3)) && echo "run: no DONE line within $timeout s" >&2
   stop
   trap - EXIT
   cp "$log" "$dest/kiln.log" 2>/dev/null || true
