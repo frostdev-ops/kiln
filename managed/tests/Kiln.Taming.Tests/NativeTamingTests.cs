@@ -145,7 +145,7 @@ public sealed class NativeTamingTests : IDisposable
         NativeTaming.Read(Dog);
         _w.AddDog(new EntityId(30), template: _w.Templates[Dog]);   // another dog of the same template
         Assert.Equal(2, NativeTaming.Read(new EntityId(30))!.Required);
-        Assert.Equal(reads, _w.FieldReads);
+        Assert.Equal(reads + 2, _w.FieldReads);   // only the steps again, once a read (the registry's tamingSteps is live)
     }
 
     [Fact]
@@ -269,6 +269,19 @@ public sealed class NativeTamingTests : IDisposable
         Assert.Null(NativeTaming.Read(Dog));
         Assert.Equal("NotWild", Reason(NativeTaming.PetStep(Dog)));
         Assert.Empty(_w.Played);
+    }
+
+    // The creatures registry's tamingSteps is live (every animal of the entry, at once), but NativeTaming kept a template's
+    // whole taming setup from its first read for the life of the process: after a registry edit Read, PetStep and the
+    // watch went on with the old number of steps.
+    [Fact]
+    public void A_registry_edit_of_the_steps_shows_at_once()
+    {
+        Assert.Equal(2, NativeTaming.Read(Dog)!.Required);
+        _w.Fields[Dog]["Wildlife.tamingSetup.necessaryTamingSteps"] = "3";   // creatures.tamingSteps = 3 on the dog's template
+        Assert.Equal(3, NativeTaming.Read(Dog)!.Required);
+        _w.Set(Dog, 15, bait: 9001, progress: 2);
+        Assert.Equal("ok", Reason(NativeTaming.PetStep(Dog)));               // 2 of 3: it still needs a step
     }
 }
 

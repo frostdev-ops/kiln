@@ -294,8 +294,11 @@ internal static class NativeTamingRuntime
         if (!Available()) throw new KilnUnavailableException(NativeTaming.Capability, $"{api}: the game's taming is not readable on this build");
     }
 
-    /// <summary>A Wildlife template's taming setup.</summary>
+    /// <summary>A Wildlife template's taming setup (its steps are read again at every read: the creatures registry's
+    /// tamingSteps is live).</summary>
     internal sealed record Setup(bool Tameable, int Steps, Guid Bait, double SensorMeters, double EatSeconds, Guid PetSequence);
+
+    internal const string StepsPath = "Wildlife.tamingSetup.necessaryTamingSteps";
 
     private static readonly Dictionary<Guid, Setup> Setups = new();
 
@@ -308,7 +311,7 @@ internal static class NativeTamingRuntime
         if (features is null) return null;
         var setup = new Setup(
             features.Split('|', StringSplitOptions.TrimEntries).Contains("Tameable"),
-            (int)(Number(World.TemplateField(e, "Wildlife.tamingSetup.necessaryTamingSteps")) ?? 0),
+            (int)(Number(World.TemplateField(e, StepsPath)) ?? 0),
             GuidIn(World.TemplateField(e, "Wildlife.tamingSetup.favoriteFood")),
             Number(World.TemplateField(e, "Wildlife.tamingSetup.foodBaitSensorRange")) ?? 0,
             Number(World.TemplateField(e, "Wildlife.tamingSetup.foodBaitEatMaxDuration")) ?? 0,
@@ -328,6 +331,9 @@ internal static class NativeTamingRuntime
         var d = World.ReadBytes(creature, "DynamicWildlife");
         if (d is null || d.Length != DynamicSize) return null;   // another build's layout (shorter or longer): refused, never misread
         if (SetupOf(creature) is not { } setup) return null;
+        // the steps as the template has them now (a registry edit of creatures.tamingSteps reaches every animal at once);
+        // the rest of the setup is the cached first read
+        var steps = (int)(Number(World.TemplateField(creature, StepsPath)) ?? setup.Steps);
         var tame = World.Has(creature, "IsTame");
         var state = d[State];
         var phase = tame ? NativeTamingPhase.Tamed : state switch
@@ -338,7 +344,7 @@ internal static class NativeTamingRuntime
             _ => NativeTamingPhase.Wild,
         };
         var bait = BinaryPrimitives.ReadUInt32LittleEndian(d.AsSpan(Bait));
-        return new NativeTamingState(creature, setup.Tameable, d[Progress], setup.Steps, phase, new EntityId(bait), setup.Bait, setup.SensorMeters, setup.EatSeconds)
+        return new NativeTamingState(creature, setup.Tameable, d[Progress], steps, phase, new EntityId(bait), setup.Bait, setup.SensorMeters, setup.EatSeconds)
         {
             RawState = state,
         };
