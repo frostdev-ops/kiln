@@ -132,9 +132,12 @@ moved since dev.28.
 
 ## 6. Lab [lab]
 
-`mods/tests/native-taming-test` on a dedicated lab server (no player, no client): four runs on 2026-11-27, server build
-`f0d824be…`, Kiln at dev32/tame. Logs: `out/tame/lab/kiln-native-1127-{0737,0742,0752,0756}.log` (the whole kiln.log)
-and `lines-native-*.txt` (the probe's lines).
+`mods/tests/native-taming-test` on dedicated lab servers, no game client: four runs with no player and one with a LABBOT
+bot player (`tools/labbot`, dev32/labbot 8e1d701d) standing 4 m from the animals, on 2026-11-27, server build
+`f0d824be…`, Kiln at dev32/tame. Logs: `out/tame/lab/kiln-native-1127-{0737,0742,0752,0756}.log` and
+`kiln-bot-1127-0855.log` (the whole kiln.log), `lines-*.txt` (the probe's lines). The wildlife states by name (reflection,
+`wildlife::State`): 1 Start, 2 Spawning, 3 Idle, 4 Alert, 5 Flee, 6 Roaming, 7 RunAway, 8 Hit, 12 Dead, 14
+FoodBaitPursue, 15 FoodBaitEat.
 
 | Run | Result | What it showed |
 |---|---|---|
@@ -142,6 +145,7 @@ and `lines-native-*.txt` (the probe's lines).
 | 0742 | 5 PASS, 4 FAIL | the components a spawned wild dog has, and the template's setup by reflection path |
 | 0752 | 6 PASS, 4 FAIL | `NativeTaming.Read` (now over the template) right in a game; no simulation with no player near |
 | 0756 | 8 PASS, 4 FAIL | the farm transformation and Kiln's native events with no player near |
+| bot 0855 | 17 PASS, 4 FAIL | with a bot near, the dog is simulated; Kiln's own steps end to end with the bot as the tamer (section 6.1) |
 
 What the lab settles:
 
@@ -158,11 +162,14 @@ What the lab settles:
   1. The first runs failed on the same mistake the dossier's layout invited (`World.ReadBytes(dog, "Wildlife")` is null);
   Kiln.Taming reads the template since this lab.
 - **No player near: the wildlife program does not move the animal** (0752, 0756). Over 6 s the dog's position and every
-  byte of its `DynamicWildlife` stayed the same (`state 1, lastState 1`, the rest 0: the dossier's probe dumped the same
-  bytes in dev.28). Its own bait 2.5 m away was never sensed (state never 14 or 15), its `InteractionOfferRuntime` stayed
+  byte of its `DynamicWildlife` stayed the same (`state 1` Start, `lastState 1`, the rest 0: the dossier's probe dumped
+  the same bytes in dev.28). **With the bot 4 m away it runs** (bot 0855): Spawning then Idle, its position and
+  `DynamicWildlife` changed within 6 s. Its own bait 2.5 m away was never sensed (state never 14 or 15), its `InteractionOfferRuntime` stayed
   zero, and the pet sequence played on it did not run (`SequenceOf` 0). So the bait, the eating, the petting, the
-  step and the startle (section 3) **cannot be shown without a player**: the four FAIL lines of every run are exactly
-  these, and they stay **[open]** for the LABBOT bot (section 7).
+  step and the startle (section 3) **cannot be shown without a player**: the four FAIL lines of the first four runs are
+  exactly these. **With the bot near they still fail** (bot 0855): the Idle dog never sensed its own bait 2.5 m away in
+  8 s (`hasSensedFoodBait` 0, no state 14), so no eating, step or tame followed. The bait was spawned by Kiln from its
+  template; see the next point. **[open]**: the natural flow needs a bait the game itself places (section 7).
 - **The farm transformation runs with no player near** (0756): a fresh dog's `tamingProgress` written to 2 (a raw write
   of the server's working state, lab only) made it a farm animal within 40 steps: `IsTame` present, faction FarmAnimal,
   `NativeTaming.Read` phase Tamed 2/2.
@@ -170,21 +177,38 @@ What the lab settles:
   `NativeTamedEvent`). The watch sees only the progress, so it reports a raw write as a step.
 - **`NativeTaming.PetStep`** refuses a tamed dog (`Tamed`) and a wild dog that does not eat (`NotEating`); that it counts a
   step on an eating dog is **[open]** with the eating itself.
-- **A spawned bait** (`FoodBait_T2_Cat`) has `PickupItem` and `DoNotSave`, but `World.Has(bait, "FoodBait")` is false:
-  whether the 1-byte marker is stored per entity, and whether a bait Kiln spawns is sensed like a placed one, is
-  **[open]** (a player near).
+- **A spawned bait** (`FoodBait_T2_Cat`, `FoodBait_T2_Dog`) has `PickupItem` and `DoNotSave`, but
+  `World.Has(bait, "FoodBait")` is false, and the simulated dog did not sense it (above). The likely reading: the bait
+  item's placement makes what the sensor looks for, a template spawn does not. So `NativeTaming.PlaceBait` (a template
+  spawn) and the counted half of `NativeTaming.PetStep` ship **experimental (KILNX002)**; which part of the placement
+  the sensor needs is **[open]**.
+- **IsTame is readable per entity** (0756, bot 0855: `World.Has(dog, "IsTame")` true after the transformation), unlike
+  `FoodBait` on a spawned bait.
 - **Rows**: `taming.native` (sigdb) Available, `kiln.taming` and `taming.steps` Available, `taming.native_observe`
   Unavailable (policy, as designed). The startle setting reads `LoseSomeProgress` (the default).
+
+### 6.1 Kiln's own steps with a bot as the tamer (bot 0855)
+
+The probe's step G ran Kiln.Taming end to end with the bot as the player:
+- Begin on a game wolf (`Enemy_Wildbeast_Wolf_earlygame`, made Wildlife so it does not attack the bot);
+- a weaken step (health at most 100 %, no cost);
+- `Taming.Choices` (the bot's slot of 3 raw lean meat);
+- a feed of 2 from that slot through `kiln.item_costs`: 3 to 1, receipt committed, native ticket 1.
+
+The tame committed and bound a Kiln.Pets record of `native-taming-test:wolf-pet` to the bot's character (Ready; its
+summon was off: the pets review is fixing summon), and the wild wolf was removed. An escrow attempt fed one meat
+(1 to 0), and its cancel refunded it (1, refund receipt committed). Events: StepChanged 1/2 and 2/2, Tamed, then
+StepChanged 1/2 and Canceled with 1 refund.
 
 ## 7. Steps that need a signed-in player (for the LABBOT bot)
 
 Each is a step a bot player can drive on a dedicated lab server; none needs a game client.
 
-0. **The wildlife program runs with a player near**: with the bot standing at the probe's spawn point, a wild dog's
-   position and `DynamicWildlife` change within a few seconds (section 6: they do not with no player). Then
-   `mods/tests/native-taming-test`'s steps A to E (its own bait sensed and eaten, eaten to the end without a step, the
-   pet sequence while it eats as a step, the farm transformation at 2 steps, a startle) and whether a bait Kiln spawns is
-   sensed like one a player places.
+0. **Done** (bot 0855): the wildlife program runs with a player near. **Next**: a bait the game places. The bot
+   cannot use an item yet (LABBOT has no "use item"), so either LABBOT gains the bait item's primary action, or Kiln
+   finds which part of the item's placement the bait sensor needs (the bait has no `FoodBait` per entity when spawned).
+   Then `mods/tests/native-taming-test`'s steps A to E (its own bait sensed and eaten, eaten to the end without a step,
+   the pet sequence while it eats as a step, the farm transformation at 2 steps, a startle).
 
 1. **Bait placement**: equip `Food_T2_Dog_Bait`, place it within 8 m of a wild dog; expect one item fewer and a
    `FoodBait_T2_Dog` entity at the cursor, the dog's state 14 then 15.

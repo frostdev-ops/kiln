@@ -97,6 +97,6 @@ A wild dog, cat, goat, bunny, catdeer, turkey, yak, capybara or sanddigger tames
 3. at its required steps it becomes a farm animal.
 
 Kiln does not change any of it. `NativeTaming.Read` shows where an animal is, the native events report progress and the
-tame, and `NativeTaming.PlaceBait` and `NativeTaming.PetStep` let a server mod drive it. A `NativeStep` in a definition
+tame, and `NativeTaming.PlaceBait` and `NativeTaming.PetStep` (experimental, KILNX002: not yet proven to make the game count a step; opt in with `NoWarn` KILNX002) let a server mod drive it. A `NativeStep` in a definition
 follows the game's count, so your taming can be the game's, Kiln's, or both. The game does not record who tamed an animal:
 your mod decides that.

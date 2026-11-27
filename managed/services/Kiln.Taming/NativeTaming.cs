@@ -171,6 +171,9 @@ public static class NativeTaming
     /// <exception cref="ArgumentException">The creature is no tameable wild animal.</exception>
     /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
     /// <exception cref="KilnUnavailableException">The capability <c>taming.native</c> is off.</exception>
+    /// <remarks>Experimental (KILNX002): in the lab (docs/re/taming.md 6) a bait spawned from its template was not sensed
+    /// by a simulated wild animal 2.5 m away; whether the game senses it as one a player places is not proven yet.</remarks>
+    [System.Diagnostics.CodeAnalysis.Experimental("KILNX002", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx002")]
     [TickThreadOnly]
     [RequiresCapability("taming.native")]
     public static Task<EntityId> PlaceBait(EntityId creature, WorldPosition? at = null, double distance = 2.5)
@@ -191,6 +194,9 @@ public static class NativeTaming
     /// costs a bait like the game's own; the step's cost to a player is the mod's.</summary>
     /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
     /// <exception cref="KilnUnavailableException">The capability <c>taming.native</c> is off.</exception>
+    /// <remarks>Experimental (KILNX002): its refusals are lab-proven; that the game counts the step on an eating animal is not
+    /// proven yet (the lab's animals never ate a Kiln-placed bait; docs/re/taming.md 6).</remarks>
+    [System.Diagnostics.CodeAnalysis.Experimental("KILNX002", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx002")]
     [TickThreadOnly]
     [RequiresCapability("taming.native")]
     public static NativeStepResult PetStep(EntityId creature)

@@ -402,8 +402,8 @@ static Kiln.NativeStep.operator ==(Kiln.NativeStep? left, Kiln.NativeStep? right
 static Kiln.NativeStepResult.operator !=(Kiln.NativeStepResult? left, Kiln.NativeStepResult? right) -> bool
 static Kiln.NativeStepResult.operator ==(Kiln.NativeStepResult? left, Kiln.NativeStepResult? right) -> bool
 static Kiln.NativeTaming.Available.get -> bool
-static Kiln.NativeTaming.PetStep(Kiln.EntityId creature) -> Kiln.NativeStepResult!
-static Kiln.NativeTaming.PlaceBait(Kiln.EntityId creature, Kiln.WorldPosition? at = null, double distance = 2.5) -> System.Threading.Tasks.Task<Kiln.EntityId>!
+[KILNX002]static Kiln.NativeTaming.PetStep(Kiln.EntityId creature) -> Kiln.NativeStepResult!
+[KILNX002]static Kiln.NativeTaming.PlaceBait(Kiln.EntityId creature, Kiln.WorldPosition? at = null, double distance = 2.5) -> System.Threading.Tasks.Task<Kiln.EntityId>!
 static Kiln.NativeTaming.Read(Kiln.EntityId creature) -> Kiln.NativeTamingState?
 static Kiln.NativeTamingState.operator !=(Kiln.NativeTamingState? left, Kiln.NativeTamingState? right) -> bool
 static Kiln.NativeTamingState.operator ==(Kiln.NativeTamingState? left, Kiln.NativeTamingState? right) -> bool

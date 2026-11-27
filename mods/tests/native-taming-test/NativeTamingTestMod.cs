@@ -117,7 +117,15 @@ public sealed class NativeTamingTestMod : Mod
         try
         {
             await Steps(25 * 4);
-            var a = new WorldPosition(3865, 833, 1434);
+            // a player near (a lab bot): the wildlife program runs only with one (lab 11-27); the probe works next to it
+            Player? bot = null;
+            for (var i = 0; i < 25 * 120 && !_stop && bot is null; i++)
+            {
+                bot = Players.All.FirstOrDefault(p => p.InGame && p.Position is not null);
+                if (bot is null) await Steps(1);
+            }
+            var a = bot?.Position is { } bp ? bp with { X = bp.X + 4 } : new WorldPosition(3865, 833, 1434);
+            Obs(bot is null ? "no player in game after 120 s: the natural flow cannot run (section 6)" : $"player {bot.Name} (entity {bot.Entity}) at {bot.Position}: working 4 m from it");
             var dog = await Make(Dog, a);
             await Steps(12);
             if (dog.IsNone)
@@ -237,7 +245,9 @@ public sealed class NativeTamingTestMod : Mod
                 $"progress written to {steps} with no player near: the farm transformer tamed it (IsTame {World.Has(dog3, "IsTame")}, faction {faction3}); NativeTaming.Read: {after}");
             Check(seen.Any(x => x.Contains($"taming 0 -> {steps}")) && seen.Any(x => x.Contains("tamed after")),
                 $"Kiln's watch reported the progress and the tame: {string.Join(" | ", seen)}");
-            Obs($"PetStep on the tamed dog: {TryGet(() => NativeTaming.PetStep(dog3).ToString())}; on the unsimulated wild dog: {TryGet(() => NativeTaming.PetStep(dog2).ToString())}");
+            Obs($"PetStep on the tamed dog: {TryGet(() => NativeTaming.PetStep(dog3).ToString())}; on the other wild dog: {TryGet(() => NativeTaming.PetStep(dog2).ToString())}");
+
+            if (bot is not null) await KilnSteps(bot, a);
         }
         catch (Exception e)
         {
@@ -259,6 +269,78 @@ public sealed class NativeTamingTestMod : Mod
         played = Abilities.PlaySequence(dog, PetTaming, abortCurrent: true);
         Obs($"{label}: PlaySequence(Enemy_Wildlife_Pet_Taming, abortCurrent true) {played}; sequence now {Abilities.SequenceOf(dog)}");
         return played;
+    }
+
+    // G: Kiln's own steps end to end, the bot as the tamer: a weaken and a feed of 2 raw lean meat from the bot's inventory
+    // (kiln.item_costs), bound to a Kiln.Pets record (its summon is off: the pets review fixes summon); then an escrow
+    // attempt fed once and canceled gives its meat back
+    private async Task KilnSteps(Player bot, WorldPosition near)
+    {
+        const string Wolf = "Enemy_Wildbeast_Wolf_earlygame";
+        var who = PlayerRef.Of(bot.Entity);
+        var meat = Items.Lookup("Food_T1_raw_bad_meat_LeanMeat")!.Id;
+        int Meat() => Items.Read(bot.Entity)?.Slots.Where(s => s.Item == meat).Sum(s => s.Count) ?? 0;
+        var give = await Items.Give(bot.Entity, meat, 3);
+        Check(give.Status == ItemsStatus.Done && Meat() >= 3, $"the bot holds raw lean meat: {Meat()} ({give.Status})");
+        var petDef = Pets.Define(new PetDefinition { Id = "native-taming-test:wolf-pet", Creature = "game:enemy_wildbeast_wolf_earlygame" });
+        Obs($"pet definition: {petDef}");
+        Taming.Define(new TamingDefinition
+        {
+            Id = "native-taming-test:wolf", Creatures = ["game:enemy_wildbeast_wolf_earlygame"], Steps = [new WeakenStep(1), new FeedStep(meat, 2)],
+            Pet = "native-taming-test:wolf-pet", SummonPet = false, RangeMeters = 8,
+        });
+        Taming.Define(new TamingDefinition
+        {
+            Id = "native-taming-test:escrow", Creatures = ["game:enemy_wildbeast_wolf_earlygame"], Steps = [new FeedStep(meat, 1), new FeedStep(meat, 1)],
+            Refund = TamingRefundPolicy.Escrow, RangeMeters = 8,
+        });
+        var events = new List<string>();
+        using var onTamed = Events.On<TamedEvent>(e => events.Add(e.ToString()));
+        using var onStep = Events.On<TamingStepChangedEvent>(e => events.Add(e.ToString()));
+        using var onCancel = Events.On<TamingCanceledEvent>(e => events.Add($"{e} refunds {e.After.Refunds.Count}"));
+
+        var wolf = await Make(Wolf, bot.Position!.Value with { X = bot.Position.Value.X + 2.5f });
+        await Steps(10);
+        TryGet(() => { Creatures.Of(wolf).Faction = Faction.Wildlife; return null; });   // a lab wolf that does not attack the bot
+        var before = Meat();
+        var begin = Taming.Begin(who, EntityRef.Of(wolf), "native-taming-test:wolf", Guid.NewGuid());
+        Check(begin.Ok, $"Begin with the bot as the tamer: {begin.Reason} {begin.Progress?.State}");
+        if (!begin.Ok) return;
+        var p = begin.Progress!;
+        var weaken = await Taming.Advance(who, p.Id, new TamingToken(Guid.NewGuid(), p.StepChallenge, p.Revision, p.CompletedSteps));
+        Check(weaken is { Ok: true, StepApplied: true }, $"the weaken step (health at most 100 %) applies with no cost: {weaken.Reason} {weaken.Progress?.CompletedSteps}");
+        p = weaken.Progress!;
+        var choices = Taming.Choices(who, p.Id);
+        Check(choices.Ok && choices.Choices.Count > 0, $"Choices lists the bot's meat: {string.Join(", ", choices.Choices.Select(c => c.Label))}");
+        if (choices.Choices.Count == 0) return;
+        var feed = await Taming.Advance(who, p.Id, new TamingToken(Guid.NewGuid(), choices.StepChallenge, choices.Revision, p.CompletedSteps), choices.Choices[0].Selection);
+        await Steps(3);
+        var pets = TryGet(() => string.Join(", ", Pets.Of(CharacterData.KeyOf(bot.Entity)).Select(x => $"{x.Id} {x.Definition} {x.Life}")));
+        Check(feed is { Ok: true, Pet: { } pet } && feed.Progress!.State == TamingState.Committed,
+            $"the last step tamed it and bound a Kiln.Pets record: {feed.Reason} {feed.Progress?.State} pet {feed.Pet?.Id}; the bot's pets: {pets}");
+        Check(feed.Receipts.SingleOrDefault() is { Committed: true, Taken: 2, NativeTicket: > 0 } && Meat() == before - 2,
+            $"the feed took exactly 2 meat from the selected slot ({before} -> {Meat()}): {feed.Receipts.SingleOrDefault()}");
+        Check(!World.Exists(wolf), $"the tamed wild body was removed (RemoveTarget): exists {World.Exists(wolf)}");
+
+        var wolf2 = await Make(Wolf, bot.Position!.Value with { Z = bot.Position.Value.Z + 2.5f });
+        await Steps(10);
+        TryGet(() => { Creatures.Of(wolf2).Faction = Faction.Wildlife; return null; });
+        var held = Meat();
+        var b2 = Taming.Begin(who, EntityRef.Of(wolf2), "native-taming-test:escrow", Guid.NewGuid());
+        Check(b2.Ok, $"an escrow attempt begins: {b2.Reason}");
+        if (!b2.Ok) return;
+        var q = b2.Progress!;
+        var c2 = Taming.Choices(who, q.Id);
+        var fed = c2.Choices.Count > 0 ? await Taming.Advance(who, q.Id, new TamingToken(Guid.NewGuid(), c2.StepChallenge, c2.Revision, 0), c2.Choices[0].Selection) : null;
+        var spent = Meat();
+        q = fed?.Progress ?? q;
+        var cancel = await Taming.Cancel(who, q.Id, new TamingToken(Guid.NewGuid(), q.StepChallenge, q.Revision, q.CompletedSteps));
+        for (var i = 0; i < 10 && Meat() != held; i++) await Steps(1);
+        var refund = cancel.Progress?.Refunds.SingleOrDefault();
+        Check(fed is { StepApplied: true } && spent == held - 1 && cancel.Ok && refund?.Refund is { Committed: true, Taken: 1 } && Meat() == held,
+            $"escrow: one meat paid ({held} -> {spent}), the cancel gave it back ({Meat()}): {cancel.Reason}; refund {refund?.Refund}");
+        Obs($"taming events: {string.Join(" | ", events)}");
+        Drop(wolf2);
     }
 
     private static NativeTamingState? TryRead(EntityId e)
