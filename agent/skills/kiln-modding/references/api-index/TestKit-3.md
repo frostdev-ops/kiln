@@ -1,5 +1,12 @@
 # TestKit (Kiln.TestKit): part 3 of 3
 
+## TestKit.HarnessStorageCopy `0.2.16` — One storage of a restored copy in a test (`HarnessPlayerStorage.Restore`).
+- `HarnessStorageCopy(string FullKey, int Slots, IReadOnlyList<TestKit.HarnessStorageRecord> Records, bool Parked = false)`
+- `FullKey { get; init; } -> string` — "\<mod id>:\<name>".
+- `Parked { get; init; } -> bool` — Saved as parked (no mod had it registered then) rather than live.
+- `Records { get; init; } -> IReadOnlyList<TestKit.HarnessStorageRecord>` — Its stacks.
+- `Slots { get; init; } -> int` — The slots it had when it was saved.
+
 ## TestKit.HarnessStorageRecord `0.2.16` — One record of a player storage in a test: a stack in a slot.
 - `HarnessStorageRecord()`
 - `HarnessStorageRecord(int Slot, ItemId Item, int Count, int Level = 0)`

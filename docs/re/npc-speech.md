@@ -148,8 +148,9 @@ player's NPC info flags). It runs at an open and every frame doVerticalTopicList
 topics gated by named queries (Extern 2239375158 and 1760803964, Equals 0) and his `crafting` text is 0, so E shows his
 plain greeting in the bubble and nothing else. A topic's click: kind 0, SayLine(W, a copy of its entry).
 
-**The server's half.** A reply's voice event becomes `NpcDialogClientSync` and the player's
-`SelectDialogOptionAction {line id, npc}` (creatures.md 7.3): npc_behavior plays the talk sequence;
+**The server's half.** A reply's voice event most likely becomes `NpcDialogClientSync` and the player's
+`SelectDialogOptionAction {line id, npc}` (creatures.md 7.3, **[hyp]**: the event's layout matches): npc_behavior plays the
+talk sequence;
 `unlock_knowledge_from_dialog_option_input` (`0x1fb380` on 26430253) pushes knowledge only when `FindDialogLine` finds
 the id among the NPC's own lines (an unknown id: nothing).
 

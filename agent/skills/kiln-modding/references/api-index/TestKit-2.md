@@ -226,9 +226,15 @@
 
 ## TestKit.HarnessNpcSpeech `0.2.23` — What Kiln clients' speech bubbles would be told (`KilnHarness.NpcSpeech`): the effective override of each NPC (after every mod's priorities) and its running Say, with...
 - `Calls { get; } -> int` — How many set and say calls reached the fake (a test that expects nothing new compares it).
+- `FarewellsOf(EntityId npc, string language = "en-us") -> IReadOnlyList<string>` `0.2.25` — The farewells (`Npcs.Farewells`) a Kiln client's dialogue menu shows for the NPC, in `language`; empty when it keeps...
 - `LinesOf(EntityId npc, string language = "en-us") -> IReadOnlyList<string>` — The lines a `SpeechMode.Replace` shows, in `language` (a game language key such as "en-us" or "de-de"); empty otherwise.
+- `MenuLinesOf(EntityId npc, string language = "en-us") -> IReadOnlyList<string>` `0.2.25` — The menu's own lines (`Npcs.MenuLine`) a Kiln client's dialogue menu shows for the NPC when it opens, in `language`...
 - `ModeOf(EntityId npc) -> SpeechMode` — What the NPC's greeting bubble does: `SpeechMode.Game` when Kiln leaves it to the game.
+- `PickOf(EntityId npc, NpcLineKind kind = NpcLineKind.Greeting) -> string?` `0.2.25` — How the NPC's line of `kind` picks among its lines: "Random", "InOrder", "Seeded(seed)" or "By" (the host's...
+- `PickTopic(EntityId npc, string topicId, EntityId player) -> bool` `0.2.25` — A pick of the topic `topicId` (the id a mod gave it) by `player`, as the host runs it: the topic's OnPick, now, on...
+- `RepliesTo(EntityId player, string language = "en-us") -> IReadOnlyList<(EntityId Npc, string Text)>` `0.2.25` — What `Npcs.MenuSay` (and a topic's reply) told `player`'s menu, oldest first: the NPC and the text in `language`.
 - `Saying(EntityId npc, string language = "en-us") -> string?` — The text of the Say showing over the NPC now, in `language`; null when none.
+- `TopicsOf(EntityId npc, string language = "en-us") -> IReadOnlyList<string>` `0.2.25` — The labels of the Kiln topics a Kiln client's talk page of the NPC shows after the NPC's own (`Npcs.Topics`, every...
 
 ## TestKit.HarnessOutlines `0.2.13` — The fake kiln.render's outlines of a harness (`KilnHarness.Outlines`): Ui.World.Outline's own code runs on it.
 - `All { get; } -> IReadOnlyList<TestKit.FakeOutline>` — Every request this harness got, oldest first, ended ones too.
@@ -323,10 +329,3 @@ enum: DedicatedServer, HostingClient, JoinedClient
 enum: Created, Starting, Running, Stopped, Disposed, Abandoned
 
 ## TestKit.HarnessStoppedException `0.2.1` — The harness's tick thread was given up on (a test blocked it and the watchdog stopped the harness): no call works any more.
-
-## TestKit.HarnessStorageCopy `0.2.16` — One storage of a restored copy in a test (`HarnessPlayerStorage.Restore`).
-- `HarnessStorageCopy(string FullKey, int Slots, IReadOnlyList<TestKit.HarnessStorageRecord> Records, bool Parked = false)`
-- `FullKey { get; init; } -> string` — "\<mod id>:\<name>".
-- `Parked { get; init; } -> bool` — Saved as parked (no mod had it registered then) rather than live.
-- `Records { get; init; } -> IReadOnlyList<TestKit.HarnessStorageRecord>` — Its stacks.
-- `Slots { get; init; } -> int` — The slots it had when it was saved.
