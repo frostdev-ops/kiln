@@ -242,6 +242,15 @@ public sealed unsafe class LabBotsTests : IDisposable
     }
 
     [Fact]
+    public void WithKilnLabbotItsRowIsLeftToTheServiceAndTheCore()
+    {
+        // Kiln.Players' report is Available (it hides behind every other report): kiln.labbot says why it is off on a
+        // server (policy off a lab, a symbol, a hook) and the core's sigdb row covers the rest
+        LabBots.ReportCapability();
+        Assert.Equal(CapabilityState.Available, Capabilities.Get(LabBots.Capability).State);
+    }
+
+    [Fact]
     public void WithoutKilnLabbotEveryMemberThrowsKilnUnavailable()
     {
         LabBotNative.UseTable(null);
