@@ -11,7 +11,7 @@ internal static class TamingCaps
     /// <summary>Who tamed a native animal: not proven on any build.</summary>
     public const string NativeObserve = "taming.native_observe";
 
-    internal static readonly ServiceCapRows Rows = new(Service, Report);
+    internal static readonly ServiceCapRows Rows = new(Service, Report, everySteps: 25);
 
     /// <summary>Whether a capability is on (tests replace it).</summary>
     internal static Func<string, bool> Is = name => Capabilities.Is(name);
@@ -38,7 +38,11 @@ internal static class TamingCaps
     private static void Report()
     {
         ServiceCaps.Report(Service, CapabilityState.Available);
-        ServiceCaps.Report(Taming.Capability, CapabilityState.Available);
+        // attempts run on the server: on while a server world runs, waiting for one otherwise (a joined client never has one)
+        ServiceCaps.Session(Taming.Capability, Lifecycle.IsServerRunning, "no server world runs here: taming runs on the server");
+        // the game's taming is a sigdb feature the core reports; Kiln.Taming reads an animal's taming setup through
+        // kiln.creatures (the Wildlife template by reflection path), so without that service it is lowered
+        ServiceCaps.LowerFeatures("kiln.creatures", NativeTaming.Capability);
         ServiceCaps.Report(NativeObserve, CapabilityState.Unavailable, CapabilityReason.Policy,
             "not proven: the game records no player for a taming step; a lab with a signed-in player must show where the petting player is read");
     }
