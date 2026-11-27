@@ -168,18 +168,24 @@ std::string utc_now() {
 // This start's archive writer and what Kiln knows it from (archive_base.h, registry-followups 2): kiln.launch's backend,
 // kiln-eml's state (kiln.eml state_json: the text of kiln/state/eml.json), and whether kiln-eml's ownership receipt and
 // ShroudForge's record of its pass exist (their names only; neither is read).
-registry::ArchiveBase archive_writer() {
-    registry::ArchiveBaseInputs in;
+// kiln.launch's ShroudForge backend of this start: "kiln", "hosted", "installed", "none" (also: no kiln.launch).
+std::string launch_backend() {
     if (const auto* t = g_api ? static_cast<const KilnLaunchApi*>(g_api->service(KilnStr{KILN_LAUNCH_SERVICE, sizeof(KILN_LAUNCH_SERVICE) - 1}, KILN_LAUNCH_VERSION)) : nullptr;
         t && t->header.size >= offsetof(KilnLaunchApi, status) + sizeof(void*) && t->status) {
         KilnLaunchStatus st{};
         st.size = sizeof st;
         if (t->status(&st) == KILN_OK)
-            in.backend = st.backend == KILN_LAUNCH_BACKEND_KILN        ? "kiln"
-                         : st.backend == KILN_LAUNCH_BACKEND_HOSTED    ? "hosted"
-                         : st.backend == KILN_LAUNCH_BACKEND_INSTALLED ? "installed"
-                                                                       : "none";
+            return st.backend == KILN_LAUNCH_BACKEND_KILN        ? "kiln"
+                   : st.backend == KILN_LAUNCH_BACKEND_HOSTED    ? "hosted"
+                   : st.backend == KILN_LAUNCH_BACKEND_INSTALLED ? "installed"
+                                                                 : "none";
     }
+    return "none";
+}
+
+registry::ArchiveBase archive_writer() {
+    registry::ArchiveBaseInputs in;
+    in.backend = launch_backend();
     if (const auto* e = g_api ? static_cast<const KilnEmlApi*>(g_api->service(KilnStr{KILN_EML_SERVICE, sizeof(KILN_EML_SERVICE) - 1}, 1)) : nullptr;
         e && e->header.size >= offsetof(KilnEmlApi, state_json) + sizeof(void*) && e->state_json) {
         size_t len = 0;
@@ -293,10 +299,12 @@ Env make_env() {
         const registry::ArchiveBase a = archive_writer();
         e.writer = a.writer;
         e.archive = a.archive;
-        // hosted or installed ShroudForge published the archive (kiln-eml stood aside): Kiln's hosted ShroudForge keeps the
-        // journal of its pass beside its record (a player's own installed copy keeps none; a hosted record names its packages
-        // only while the <stem>.kfc it is bound to is the live one)
-        const bool sf = a.writer == "shroudforge-hosted" || a.writer == "shroudforge-installed";
+        // hosted or installed ShroudForge has the start (kiln-eml stood aside, or is not installed): Kiln's hosted ShroudForge
+        // keeps the journal of its pass beside its record (a player's own installed copy keeps none; a hosted record names
+        // its packages only while the <stem>.kfc it is bound to is the live one)
+        const std::string backend = launch_backend();
+        const bool sf = a.writer == "shroudforge-hosted" || a.writer == "shroudforge-installed" ||
+                        ((backend == "hosted" || backend == "installed") && a.writer == "none");
         e.archive_journal = sf ? &hosted_journal : &archive_journal;
         e.archive_journal_writer = sf ? "shroudforge" : "kiln-eml";
     }

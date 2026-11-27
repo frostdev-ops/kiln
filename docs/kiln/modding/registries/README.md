@@ -399,28 +399,43 @@ with a certainty:
 |---|---|---|
 | Kiln's older paths (boot resource patches, data packs, `Content.*` code) and registry edits | `certain` | Kiln applies them itself |
 | A change made through Kiln's content service by code, also another loader's (an EMF DLL mod's `set_item_max_stack`) | `certain` | named `<who>: <Kiln place>`, `<who>` being the mod, else the loader's own name for its mod (`emf:big_stacks`); a label the mod gave its change (`Content.Apply(json, "bigstacks x4")`) stays as it wrote it (0.2.0-dev.31.18; before, such a row named the game's item and member, `owner 67: items Material_T1_Wood_Logs.maxStackSize`) |
-| A ShroudForge or EML package that wrote the entry (or, from EML's own pass, the field) before Kiln (`archiveWriter`, who `shroudforge:<package>` or `eml:<package>`) | `named` | kiln-eml's change journal of the start's archive writer (below) |
+| A ShroudForge or EML package that wrote the entry or the field before Kiln (`archiveWriter`, who `shroudforge:<package>` or `eml:<package>`) | `named` | the change journal of the start's archive writer: kiln-eml's, or Kiln's hosted ShroudForge's (below) |
 | Something outside Kiln changed the game's value (`drift`, who `outside Kiln (best effort; suspects: ...)`) | `bestEffort` | the drift probe at each world load and pack reload (below) |
 
-**Archive-writer packages.** kiln-eml writes a change journal of its startup pass beside its ownership receipt
-(`kiln/eml/ownership/<exe name>.change-journal.json`): which package wrote or created which of the game's resources, in
-the order the packages ran. Two kinds of start write one:
+**Archive-writer packages.** The start's archive writer keeps a change journal of its startup pass: which package wrote
+or created which of the game's resources, and where in them, in the order the packages ran. Three kinds of start write
+one:
 
-- **EML mods** (kiln-eml's own EML pass, a start with EML mods and without Kiln's interpreter for ShroudForge mods; next
-  release): per EML mod, the resources it wrote and the **member paths** it wrote in each, at their places in the data
-  the game reads (format 2). A start that changed nothing keeps the journal of the start that published.
-- **Kiln's interpreter for ShroudForge mods** (kiln mode): per ShroudForge package (and the EML packages its pass ran),
-  the resources it wrote or created (format 1, per resource).
+- **EML mods** (kiln-eml's own EML pass, a start with EML mods and without Kiln's interpreter for ShroudForge mods;
+  0.2.0-dev.31.18): per EML mod, the resources it wrote and the **member paths** it wrote in each, at their places in the
+  data the game reads (format 2), beside kiln-eml's ownership receipt (`kiln/eml/ownership/<exe name>.change-journal.json`).
+  A start that changed nothing keeps the journal of the start that published.
+- **Kiln's interpreter for ShroudForge mods** (kiln mode), in the same place: per ShroudForge package (and the EML packages
+  its pass ran) the resources it **changed**, each with the member paths it changed (format 2 of dialect `shroudforge`,
+  next release; before, format 1: the resources it wrote, per resource). A kiln-mode start of EML mods only (EML's pass
+  in kiln mode) journals its pass too (format 2 of dialect `eml`, next release; before, it kept none).
+- **Hosted ShroudForge** (the default for ShroudForge mods: Kiln's bundled ShroudForge, next release): ShroudForge's own
+  pass writes the same record beside its record of the pass, `<exe name>.kfc.change-journal.json` in the game folder
+  (format 2 of dialect `shroudforge`, `writer` `shroudforge`), bound to the SHA-256 of the `<exe name>.kfc` it published.
+  A start that skips the unchanged pass keeps it; a pass that changes the game files again replaces it.
+
+"Changed" (the ShroudForge dialect, both writers): after each package's entrypoint the resources it wrote are compared
+with what they held before it ran, member by member; a package is named on the members whose values differ, so one that
+writes a value back as it was is not named there. A list whose length changed (an element appended, inserted, removed)
+names the list's membership and the elements between its unchanged first and last ones, and what earlier packages changed
+in that list moves with the elements to their published places.
 
 The registry stage reads it once per start, only when it belongs to this start's archive (the generation kiln-eml
-published or found live this start; a journal left by an earlier start is `stale` and names nobody), and names each
-package where it wrote: a row below every Kiln writer, valued at the base (what the package wrote is the archive Kiln
-reads), and a conflict line such as `items[game:material_stone].maxStack: betterstacks (EML package) wrote this field in
-the game's archive before Kiln; bigmod's edit wins (D1): 25 -> 100`. Registry edits always win over these values, and
-relative edits compose on them. `exclusive` and `yield` do not count a package as an earlier writer (its value is the
-base).
+published or found live this start; for hosted ShroudForge, the live `<exe name>.kfc`; a journal left by an earlier start
+is `stale` and names nobody), and names each package where it wrote: a row below every Kiln writer, valued at the base
+(what the package wrote is the archive Kiln reads), and a conflict line such as `items[game:material_stone].maxStack:
+betterstacks (EML package) wrote this field in the game's archive before Kiln; bigmod's edit wins (D1): 25 -> 100`.
+Registry edits always win over these values, and relative edits compose on them. `exclusive` and `yield` do not count a
+package as an earlier writer (its value is the base). A journal may also list the packages whose Lua the pass did not
+apply (`notApplied`: the one that failed and those that need it), which effect replay reads (below).
 
-- **Per field (EML mods).** A mod is named on the Kiln fields its member paths hold or lie in: a mod that set an item's
+- **Per field (EML mods; ShroudForge packages from a format-2 journal).** A package is named on the Kiln fields its member
+  paths hold or lie in: a mod that set an item's
   `maxStackSize` is named on `items.maxStack` only; one that wrote `damageSetup.dmgMod` on `items.power` (the field
   Kiln computes from it); one that replaced a struct or a list on every field inside it; one that replaced the resource
   whole on every field of the entry. A recipe or a loot entry (an element of the recipe list or the loot list) is named by
@@ -431,13 +446,12 @@ base).
   write moves with the member of the copy (a recipe inserted in front of it afterwards moves it too). A
   mod's own entry module (`src/mod.lua`) writes as that mod, even when another mod requires it first. The field row's
   writer has `"named": "field"`.
-- **Per entry (ShroudForge packages, created entries).** The kiln-mode journal names a package per **entry**: a package
-  that wrote one member of an item is listed on every field of that item a mod edits (`"named": "entry"`). Only **items,
-  drops and balance** are named from it: their entries are each one whole resource, which is what that journal lists; a
-  recipe or a loot entry is an element of a resource its whole registry shares and that journal does not say which
-  element a package wrote, so no ShroudForge package is named on recipes or loot (`base.journal.text` says so). The
-  balance table is one entry: a package that wrote any balance value is listed on every balance field a mod edits. A
-  package that created an entry is named on the whole entry.
+- **Per entry (format-1 journals, created entries).** A format-1 journal (kiln mode before the next release) names a
+  package per **entry**: a package that wrote one member of an item is listed on every field of that item a mod edits
+  (`"named": "entry"`). Only **items, drops and balance** are named from it: their entries are each one whole resource,
+  which is what that journal lists; a recipe or a loot entry is an element of a resource its whole registry shares and
+  that journal does not say which element a package wrote, so no package is named on recipes or loot from it
+  (`base.journal.text` says so). A package that created an entry is named on the whole entry.
 - "Wrote" means written, not changed: a package that set a value to what it already was is listed too. The journal can
   name a package that did not change a field; it never misses one that did, within its bounds (4,096 rows per package,
   32,768 in all, 16,384 member paths per resource and 8 MiB of paths in all; `base.journal.truncated` says when it ran
@@ -446,13 +460,12 @@ base).
   archive's value stands as the base.
 - `base.journal` in `registry.json` says what happened: `read` (with how many packages and entries), `none`, `stale` (a
   journal left by an earlier start, which names nobody) or `unreadable`, with a sentence.
-- **No names without a journal.** Hosted or installed ShroudForge (the default for ShroudForge mods) runs its pregame pass
-  in its own runtime (Kiln's bundled fork, or the player's copy): kiln-eml stands aside and sees none of its writes, and
-  ShroudForge's own record of the pass (`shroudforge/state.json` `assets`) lists the asset mods it applied, not which
-  resource each wrote, and names no generation Kiln could check it against. Naming them needs a per-package write record
-  in ShroudForge's own pass (as kiln-eml keeps for EML's), which is ShroudForge-side work: its packages are not named. Other loaders (EML's own `dbghelp.dll`/`dinput8.dll`, other DLL
-  engines) keep none either. What they wrote is still in the base, and registry edits still win over it, but no row names
-  them; the report says so (`base.journal.state` `none`). (The first start after a Kiln update runs the EML mods again,
+- **No names without a journal.** The player's own installed ShroudForge (not Kiln's bundled one), a ShroudForge older
+  than this Kiln's, and other loaders (EML's own `dbghelp.dll`/`dinput8.dll`, other DLL engines) keep no journal: what
+  they wrote is still in the base, and registry edits still win over it, but no row names them; the report says so
+  (`base.journal.state` `none`). `base.journal.writer` says whose journal was looked for (`kiln-eml`, or `shroudforge`
+  for hosted and installed ShroudForge). Hosted ShroudForge's journal names every package of its pass a ShroudForge
+  package (it runs EML packages as its own), and its packages' content digests are null (no launch plan froze them). (The first start after a Kiln update runs the EML mods again,
   as kiln-eml's change cache belongs to one kiln-eml build, so an EML start gets its journal then.)
 - **Who published the base** (0.2.0-dev.31.18; before, `base.writer` said `none` on every start but a kiln-mode one, also where
   kiln-eml or hosted ShroudForge had patched the archive): `base.writer` is this start's archive writer: `kiln-eml` (its EML

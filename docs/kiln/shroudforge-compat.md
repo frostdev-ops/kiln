@@ -137,6 +137,15 @@ In Wine, SF's own tests pass: `bundled_lua` 3/3 and `survival` 1/1. Kiln's `tool
 `shroudforge` component (default on, both sides). `tools/deploy-server.sh` deploys an existing build.
 `tools/release/release.sh` exports and ships its source (`tools/release/lib/sf-source.sh`) and appends its notice.
 
+**The pass's change journal** (next release; fork branch `dev32/j3-shroudforge-registries`, `kiln/README.md` "The pass's
+change journal"): after each package's entrypoint the pass compares the resources it edited with what they held before
+(as the commit encodes them; at most 3 s of comparing per pass, then the rest is recorded as no package's) and writes
+`<stem>.kfc.change-journal.json` beside its record of the pass: per package, the members it changed at their published
+places, its creations and contents, and the packages the retry ran without, as Kiln's change journal format 2 bound to
+the published `<stem>.kfc`'s SHA-256. Kiln's registry names hosted ShroudForge packages from it per field on the Conflicts
+page, and reads it for effect replay ([registries guide](modding/registries/README.md#who-else-wrote-a-field)). Nothing
+the pass writes changes.
+
 **After a game update, without SF's Updater** (fork `2eb8f0b` and `112d939`, read from the fork's source, not run
 against a real game update). When the working asset backups belong to the previous game version, upstream SF has its
 Updater move them to its recycle bin before it captures new ones; the bundled component has no Updater, so that step,
