@@ -158,8 +158,9 @@ per other resource type of the running build (advanced: Kiln names derived from 
 selector)`, `entry_json(view, id)`; a refusal returns its code (`UNAVAILABLE`, `NOT_FOUND`, `INVALID_ARGUMENT`) and copies the
 reason, in Kiln words, into the buffer. Any thread: an advanced read decodes the resident bytes under kiln.content's store
 lock. The catalog (every struct type kiln.types lists that kiln.assets has resources of) is built once per process at the first
-call after the stage; an advanced view's entries are listed when first needed (seconds for thousands of entries; the service
-lock is not held meanwhile, so no other call waits but one for the same view) and again when its type's resources change, and a
+call after the stage; an advanced view's entries are listed when first needed (about 0.2 s for thousands of entries on the
+lab's server; the service lock is not held meanwhile, so no other call waits but one for the same view; a stable view's first
+read is the registry's first resolved read, 4 to 11 s there) and again when its type's resources change, and a
 call keeps the listing it started on. Code: `registry/views.{h,cpp}` (names, the alias table, values; plain data), `registry/view_service.{h,cpp}` (the
 service and the C table over an env), `registry/view_types.cpp` (the reflection as plain types), `registry/view_table.cpp`
 (the env over the game). Mod-facing: [registries/views.md](../modding/registries/views.md).

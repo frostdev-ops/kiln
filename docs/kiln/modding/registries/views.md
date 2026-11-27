@@ -45,12 +45,17 @@ reason instead. An id that names no entry reads as `null`: `null` into `Registry
 `InvalidCastException` (`TryGet`: false) into `RegistryId` or another value type. Any thread. Nothing is cached in the C# objects: each read asks Kiln, so it follows the game's data (a
 data pack's or a registry's change shows in the next read).
 
-**The first call on a large advanced view is slow.** The first `Select`, read or `Snapshot` of an advanced view lists its
-entries, reading each one's name: on the lab's server build about 4 s for `itemInfo` (4,268 entries), 8.6 s for the first
-entry of every advanced view together. Kiln keeps the listing (until the type's resources change), so later calls take
-milliseconds. Make that first call off the game's thread (`Task.Run`, a load screen), never in a tick. It holds back no
-other call: other views, the registries and the catalog answer meanwhile; only a call that needs the same view's listing
-waits for it. Stable views read through the registry and are fast from the start.
+**First calls are slow; make them off the game's thread** (`Task.Run`, a load screen), never in a tick. Measured on the lab's
+server build:
+- a stable view's first read is the registry's first resolved read, which prepares the registry's values: 4 to 11 s
+  (`Registry.Read` costs the same); later reads take milliseconds;
+- an advanced view's first `Select`, read or `Snapshot` lists its entries, reading each one's name: about 0.2 s for
+  `itemInfo` (4,268 entries) or `template` (12,269); Kiln keeps the listing until the type's resources change;
+- a `Snapshot` decodes every field, every element of every list: up to about 1.2 s for one resource with long lists
+  (`gameKnowledge`, `recipeRegistry`); read the fields you need instead.
+
+A call holds back no other: other views, the registries and the catalog answer meanwhile; only a call that needs the same
+view's listing waits for it.
 
 Writing a registry by name, from code that does not know the registry's typed property (a registry a later schema adds):
 `RegistryStage.Entries("creatures")["game:enemy_vukah_melee"].Set("health.perPlayer", 1.2)` inside `OnRegistry` or
@@ -93,7 +98,7 @@ start):
 its code and copies the reason into the buffer the same way it copies an answer. Any thread; an advanced read decodes the
 resident resource bytes under kiln.content's store lock, so it never sees a half-written value (and waits for a data-pack
 application in progress). The catalog is built once per process at the first call after the stage; an advanced view's
-entries are listed at the first call that needs them (seconds for thousands of entries, above) and again when its type's
+entries are listed at the first call that needs them (about 0.2 s for thousands of entries, above) and again when its type's
 resources change, and a call keeps the listing it started on.
 
 ## Not in this release

@@ -33,10 +33,11 @@
  * Threads: any thread. Advanced reads decode the resident resource bytes under kiln.content's store lock, so they never see
  * a half-written value and wait for a pack application in progress; keep them off hot paths (a read walks the reflection).
  * The catalog is built once per process at the first call after the stage; an advanced view's entries are listed when first
- * needed and again when its type's resources change. That listing reads every entry's name: for a view of thousands of
- * entries the first select, read or entry_json takes seconds (about 4 s for the server's 4,268 item infos), so make that first
- * call off the game's thread (a worker, a load screen). It holds back no other call: only a call that needs the same view's
- * listing waits for it, and a call keeps the listing it started on.
+ * needed and again when its type's resources change (it reads every entry's name: about 0.2 s for the server's 4,268 item
+ * infos or 12,269 templates on the lab). entry_json of a resource with long lists decodes all of them (up to about 1.2 s on
+ * the lab), and a stable view's first read is the registry's first resolved read, which prepares the registry's values (4 to
+ * 11 s on the lab's server). Make first calls off the game's thread (a worker, a load screen). A call holds back no other
+ * call of this table: only a call that needs the same view's listing waits for it, and a call keeps the listing it started on.
  */
 #ifndef KILN_REGISTRY_VIEW_H
 #define KILN_REGISTRY_VIEW_H

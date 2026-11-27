@@ -105,8 +105,9 @@ public sealed record RegistryViewSnapshot(string View, RegistryId Id, IReadOnlyD
 
 /// <summary>The views of the running game: every registry (stable) and every other resource type (advanced), under Kiln
 /// names. Read-only; any thread (advanced reads wait for a data-pack application in progress: keep them off hot paths). The
-/// first call that needs a large advanced view's entries lists them and takes seconds (about 4 s for the server's 4,268 item
-/// infos): make it off the game's thread; it holds back no other call. Since 0.2.0-dev.32.</summary>
+/// first calls are slow (a stable view's first read prepares the registry's values: seconds; an advanced view's first call lists
+/// its entries; a Snapshot decodes every list): make them off the game's thread. A call holds back no other. Since
+/// 0.2.0-dev.32.</summary>
 [Experimental("KILNX031")]
 public static class RegistryViews
 {
@@ -289,8 +290,8 @@ public sealed class RegistryView
 
     /// <summary>The ids a selector names, in the view's order: an id, a case-insensitive glob over ids
     /// (<c>"game:quest_*"</c>, <c>"*"</c>), or an entry's debug name (a stable view reads it as a registry edit does:
-    /// <c>"Material_T1_Wood_Logs"</c> is <c>game:material_t1_wood_logs</c>). The first call on a large advanced view lists its
-    /// entries (seconds): make it off the game's thread.</summary>
+    /// <c>"Material_T1_Wood_Logs"</c> is <c>game:material_t1_wood_logs</c>). The first call on an advanced view lists its
+    /// entries, a stable view's first call prepares the registry's values: make it off the game's thread.</summary>
     [AnyThread, RequiresCapability(RegistryViews.Service)]
     public IReadOnlyList<RegistryId> Select(string selector = "*")
     {
