@@ -76,14 +76,14 @@ _ = Npcs.Farewells(npc).Replace("Come back with something to eat.", "Don't forge
 ## A talk page: topics
 
 ```csharp
-Npcs.Topics(npc).Set(new NpcTopic("feed", "Here, have some bread.")
+_ = Npcs.Topics(npc).Set(new NpcTopic("feed", "Here, have some bread.")
 {
     Reply = "Bread! Bless you.",                 // in the speech box when picked (null: none)
     Hint = NpcTopicHint.Attention,               // the list's marker
     OnPick = ctx =>                              // on the host, as your mod, for the player who picked it
     {
         FeedNpc(ctx.Npc);
-        ctx.Reply("Now I can work again.");      // to that player only (Npcs.MenuSay)
+        _ = ctx.Reply("Now I can work again.");      // to that player only (Npcs.MenuSay)
     },
 });
 ```
