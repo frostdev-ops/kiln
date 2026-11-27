@@ -22,6 +22,7 @@ public sealed unsafe class CheckedMoveTests : IDisposable
     }
 
     private static int _calls;
+    private static ItemsNative.MoveRequest _last;
     private static byte _moves = 1;
     private static uint _reserved = 1;
     private static string _detail = "";
@@ -31,7 +32,8 @@ public sealed unsafe class CheckedMoveTests : IDisposable
         delegate* unmanaged[Cdecl]<ItemsNative.MoveResult*, void*, void> callback, void* user, ulong* ticket)
     {
         _calls++;
-        return ItemsNative.InvalidArgument;  // completes at once
+        _last = *request;
+        return ItemsNative.InvalidArgument;  // completes at once: the request is what these tests look at
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
@@ -51,7 +53,7 @@ public sealed unsafe class CheckedMoveTests : IDisposable
     private readonly ItemsNative.TableV3* _t;
 
     private static readonly EntityId Chest = new(5000), Player = new(3);
-    private static readonly SlotId ChestSlot = SlotId.Of(new EntityId(5001), 2);
+    private static readonly SlotId ChestSlot = SlotId.Of(new EntityId(5001), 2), BagSlot = SlotId.Of(new EntityId(4001), 5);
     private static readonly ItemId Wood = new(0x1111), Sword = new(0x2222);
 
     public CheckedMoveTests()
@@ -64,7 +66,7 @@ public sealed unsafe class CheckedMoveTests : IDisposable
         _fields[0].SetValue(null, Pointer.Box(_t, typeof(ItemsNative.Table*)));
         _fields[1].SetValue(null, null);
         Kiln.Backend.Current = new Backend("items.move", "items.instances");
-        (_calls, _moves, _reserved, _detail) = (0, 1, 1, "");
+        (_calls, _moves, _reserved, _detail, _last) = (0, 1, 1, "", default);
     }
 
     public void Dispose()
@@ -121,6 +123,63 @@ public sealed unsafe class CheckedMoveTests : IDisposable
         // instances on, and a slot that carries no stamp of kiln.items: the caller's slot, Invalid as before
         Kiln.Backend.Current = new Backend("items.move", "items.instances");
         Assert.Equal(ItemsStatus.Invalid, Items.MoveChecked(Chest, Gear(ChestSlot, 3077, ItemInstanceRef.None), Player, 1).Result.Status);
+        Assert.Equal(0, _calls);
+    }
+
+    // ---- what it hands kiln.items ----
+
+    [Fact]
+    public void The_request_mirror_has_the_headers_layout()
+    {
+        // native items.cpp: sizeof(KilnItemsCheckedMoveRequest) == 72 (the 40-byte request, then source at 40 and
+        // destination at 56), sizeof(KilnItemsSlotWitness) == 16; KILN_ITEMS_MOVE_CHECKED, KILN_ITEMS_HAS_CHECKED_MOVE
+        Assert.Equal((72, 16), (sizeof(ItemsNative.MoveRequest), sizeof(ItemsNative.SlotWitness)));
+        Assert.Equal((40, 56), ((int)Marshal.OffsetOf<ItemsNative.MoveRequest>(nameof(ItemsNative.MoveRequest.Source)),
+            (int)Marshal.OffsetOf<ItemsNative.MoveRequest>(nameof(ItemsNative.MoveRequest.Destination))));
+        Assert.Equal(8, (int)Marshal.OffsetOf<ItemsNative.SlotWitness>(nameof(ItemsNative.SlotWitness.Pide)));
+        Assert.Equal((0x10u, 0x01u), (ItemsNative.MoveChecked, ItemsNative.HasCheckedMove));
+    }
+
+    [Fact]
+    public void A_checked_move_hands_kiln_items_the_flag_the_slots_and_both_witnesses()
+    {
+        const uint stamp = 41;
+        var sword = Gear(ChestSlot, 3077, new ItemInstanceRef(new EntityRef(new EntityId(3077), IdentitySources.Stamp(EntitySourceOrder.Items, stamp)), Sword));
+        _ = Items.MoveChecked(Chest, sword, Player, 1, Plain(BagSlot, ItemId.None, 0)).Result;
+        Assert.Equal(1, _calls);
+        Assert.Equal((72u, ItemsNative.MoveChecked, ItemsNative.MoveStack), (_last.Size, _last.Flags, _last.Kind));
+        Assert.Equal((Chest.Value, Player.Value, 1u, ChestSlot.Value, BagSlot.Value), (_last.From, _last.To, _last.Count, _last.Slot, _last.ToSlot));
+        Assert.Equal((Sword.Value, 1u, 3077u, stamp), (_last.Source.Item, _last.Source.Count, _last.Source.Pide, _last.Source.Stamp));
+        Assert.Equal(default, _last.Destination);  // an empty destination: all zeros, it must still be empty
+
+        _ = Items.MoveChecked(Chest, Plain(ChestSlot, Wood, 7), Player, 2, Plain(BagSlot, Wood, 248)).Result;
+        Assert.Equal((Wood.Value, 7u, 0u, 0u), (_last.Source.Item, _last.Source.Count, _last.Source.Pide, _last.Source.Stamp));
+        Assert.Equal((Wood.Value, 248u, 0u, 0u), (_last.Destination.Item, _last.Destination.Count, _last.Destination.Pide, _last.Destination.Stamp));
+        Assert.Equal((2u, BagSlot.Value), (_last.Count, _last.ToSlot));
+
+        _ = Items.MoveChecked(Chest, Plain(ChestSlot, Wood, 7), Player, 7).Result;  // no destination: Kiln's choice
+        Assert.Equal((0ul, 7u), (_last.ToSlot, _last.Count));
+        Assert.Equal(default, _last.Destination);
+        Assert.Equal(3, _calls);
+    }
+
+    public static TheoryData<string> Refusals => new() { "count 0", "count over the stack", "empty source", "destination without a slot", "gear without an item entity" };
+
+    [Theory]
+    [MemberData(nameof(Refusals))]
+    public void What_the_call_refuses_itself_never_reaches_kiln_items(string which)
+    {
+        var wood = Plain(ChestSlot, Wood, 7);
+        var r = (which switch
+        {
+            "count 0" => Items.MoveChecked(Chest, wood, Player, 0),
+            "count over the stack" => Items.MoveChecked(Chest, wood, Player, 8),
+            "empty source" => Items.MoveChecked(Chest, Plain(ChestSlot, ItemId.None, 0), Player, 1),
+            "destination without a slot" => Items.MoveChecked(Chest, wood, Player, 1, Plain(default, ItemId.None, 0)),
+            _ => Items.MoveChecked(Chest, Plain(ChestSlot, Sword, 1) with { IsGear = true }, Player, 1),
+        }).Result;
+        Assert.Equal(ItemsStatus.Invalid, r.Status);
+        Assert.Empty(r.Changes);
         Assert.Equal(0, _calls);
     }
 }
