@@ -186,10 +186,12 @@ public static unsafe partial class Items
     /// <summary>Move the selected inventory slot only while its item, count and optional stamped item entity still match.
     /// When a destination slot is supplied its snapshot must also match and the full count must land in that slot.
     /// Checks and transfer run together in the server inventory transaction. A stale selection returns SlotChanged.</summary>
+    /// <exception cref="ArgumentNullException"><paramref name="expected"/> is null.</exception>
     [RequiresCapability(Caps.Move)]
     [TickThreadOnly]
     public static Task<MoveResult> MoveChecked(EntityId from, InventorySlot expected, EntityId to, int count, InventorySlot? destination = null)
     {
+        ArgumentNullException.ThrowIfNull(expected);
         Services.RequireTickThread("Items.MoveChecked");
         if (!CheckedMovesAvailable)
             return Task.FromResult(MoveResult.Fail(ItemsStatus.Unavailable, MoveKind.Stack, from, to, "checked moves are unavailable"));
