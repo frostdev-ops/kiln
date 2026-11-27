@@ -2616,14 +2616,21 @@ KilnResult registry_live_read(const std::string& reg_name, const std::string& id
                 return r.kind == registry::WriterKind::Registry && r.mod == exclude_mod; }))
             own = &it->second;
     auto others = [&](const ChainRow& r) { return !(r.kind == registry::WriterKind::Registry && r.mod == exclude_mod); };
-    if (own && (!g.world || spec->applies == registry::Applies::Restart)) {
+    // review of registry-loot (dev.32): a drop table the world has not loaded yet has no game bytes to read; it reads the value
+    // it takes when it loads (its base and the writers' rows, a pass leaving out its own), as before a world. An edit of such a
+    // table already waits for it (PendingResource), so a read-derived pass (Loot Rarity Leveler's drop chances) composes the same
+    // way instead of faulting whole on UNAVAILABLE while the game has loaded only some of its drop tables.
+    std::string table_guid;
+    const bool unloaded = g.world && spec->applies != registry::Applies::Restart && kind_of(reg_name) == KILN_CONTENT_DROPS &&
+                          !find_entry(reg_name, id, &table_guid) && !table_guid.empty();
+    if (own && (!g.world || spec->applies == registry::Applies::Restart || unloaded)) {
         Value v = own->base;
         for (const ChainRow& r : own->chain)
             if (others(r)) v = registry::evaluate({r}, v, *spec);
         *out = v.to_json().dump();
         return KILN_OK;
     }
-    if (!g.world || spec->applies == registry::Applies::Restart) {
+    if (!g.world || spec->applies == registry::Applies::Restart || unloaded) {
         if (auto it = g.in->result.fields.find(ref); it != g.in->result.fields.end()) { *out = it->second.result.to_json().dump(); return KILN_OK; }
         if (const auto added = g.in->result.definitions.find({reg_name, id}); added != g.in->result.definitions.end()) {
             const auto value = added->second.values.find(field);

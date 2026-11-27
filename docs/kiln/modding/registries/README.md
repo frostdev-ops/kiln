@@ -234,7 +234,9 @@ separate all-mod Final pass. The transaction still applies in commit order over 
 
 `RegistryChangeResult` copies outcome, accepted/refused/skipped counts, world token, generation and reason. `Ok` means
 Applied or Reverted with no refused edits or skipped foreign bytes. PendingWorld/PendingResource do not claim bytes were
-changed. RestartRequired, WorldRequired, Refused, Skipped and Unverified stay distinct. A change is not disposable:
+changed. A drop table the game has not loaded yet (it loads them as it needs them; an edit of one is PendingResource)
+reads, through `Registry.Read` and inside a pass, the value it takes when it loads: its base and the writers' layers, a
+pass leaving out its own (0.2.0-dev.32; before, such a read threw `KilnUnavailableException`, which faulted the whole pass). RestartRequired, WorldRequired, Refused, Skipped and Unverified stay distinct. A change is not disposable:
 only explicit `Revert()` on the tick thread or owner retirement removes its layer, never leaving a scope. Process ModLoad layers persist across worlds; world-bound layers expire with
 their world. Already committed GameStart layers stay until process restart, including through a runtime hot reload.
 

@@ -200,6 +200,36 @@ void unrelated_pending_table_keeps_a_change_applied() {
           "a change with a field of its own on the pending table still waits for it");
     registry_live_revert(73, mixed, &reply); registry_live_revert(72, h, &reply); registry_live_revert(71, pending, &reply);
 }
+// review of registry-loot (dev.32): a drop table the world has not loaded yet reads the value it takes when it loads (its base
+// and the writers' rows; a pass read leaves the reading mod's own rows out), never UNAVAILABLE. In the lab, Loot Rarity
+// Leveler's WorldLoad pass reads every drop list to derive the chances it writes: the game loads drop tables as it needs
+// them, so the first unloaded one threw and the whole pass (its lootRules and randomLoot edits too) was discarded.
+void unloaded_drop_table_reads_the_value_it_loads_with() {
+    fresh_live(); RegistryLiveReply reply; std::string value;
+    auto read = [&](const std::string& field, const std::string& mod) {
+        value.clear();
+        const KilnResult rc = registry_live_read("drops", "game:dt_wolf", field, &value, mod);
+        return rc == KILN_OK ? value : "rc " + std::to_string(static_cast<int>(rc));
+    };
+    check(read("entries[0].count.max", "") == "3", "a plain read of a drop table the world has not loaded gives its base: " + value);
+    check(read("entries[*].chance", "a") == "[0.5,0.5]", "a pass read of it too: " + value);
+    const auto h = change(71, "a", R"([{"registry":"drops","select":"game:dt_wolf","field":"entries[*].count.max","op":{"mul":2}}])");
+    check(registry_live_commit(71, h, &reply) == KILN_OK && reply.outcome == RegistryLiveOutcome::PendingResource, "a's change waits for the table");
+    check(read("entries[0].count.max", "") == "6", "a plain read includes the waiting change (what the table takes when it loads): " + value);
+    check(read("entries[0].count.max", "a") == "3", "a's pass read leaves a's own waiting change out: " + value);
+    check(read("entries[1].count.max", "b") == "6", "another mod's pass read sees a's change: " + value);
+    check(at<uint32_t>(0x31018) == 3, "a read writes nothing");
+    add_drop_table();
+    registry_live_table(g_regs[KILN_CONTENT_DROPS].entries[0]);
+    std::string err; store_flush(&err);
+    check(at<uint32_t>(0x31018) == 6, "the table takes the change once it loads");
+    check(read("entries[0].count.max", "") == "6" && read("entries[0].count.max", "a") == "3", "once loaded, the same values from its bytes: " + value);
+    check(read("entries[0].count.max", "") == "6" && read("entries[0].count.max", "zzz") == "6", "and for any other reader");
+    registry_live_revert(71, h, &reply);
+    check(at<uint32_t>(0x31018) == 3, "revert restores the stacks");
+    check(registry_live_read("drops", "game:dt_nobody", "entries[0].count.max", &value, "") == KILN_ERR_NOT_FOUND,
+          "an id the game does not have is still NOT_FOUND");
+}
 // review2 S5: a formula transaction (power) writes its input, and its revert leaves another writer's bytes alone.
 void formula_transaction_with_foreign_write() {
     fresh_live(); RegistryLiveReply reply;
@@ -1488,6 +1518,7 @@ int main() {
 
         {"drop_table_change_is_pending_resource", drop_table_change_is_pending_resource},
         {"unrelated_pending_table_keeps_a_change_applied", unrelated_pending_table_keeps_a_change_applied},
+        {"unloaded_drop_table_reads_the_value_it_loads_with", unloaded_drop_table_reads_the_value_it_loads_with},
         {"formula_transaction_with_foreign_write", formula_transaction_with_foreign_write},
         {"draft_cannot_cross_worlds", draft_cannot_cross_worlds},
         {"process_change_reverts_without_a_world", process_change_reverts_without_a_world},
