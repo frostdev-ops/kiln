@@ -80,6 +80,7 @@ public sealed partial class PetsClearanceLabMod
         {
             ["walkerRadius"] = measured.WalkerRadius, ["walkerHeight"] = measured.WalkerHeight,
             ["colliderWidth"] = measured.ColliderWidth, ["colliderHeight"] = measured.ColliderHeight,
+            ["templateScale"] = measured.TemplateScale,
         };
         Evidence.Write("body", numbers);
         Info($"{tag}: body {e}: control {poll} ({why ?? "ok"}), ready {Has(e, Flag_Ready)}, grounded {Grounded(e)}, Kiln.Pets reads {measured?.ToString() ?? "no body"}");

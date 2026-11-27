@@ -13,8 +13,9 @@
 //     "horizontalSpace": 1, "verticalSpace": 2,
 //     "body": {"walkerRadius": 0, "walkerHeight": 2, "colliderWidth": 0.8, "colliderHeight": 1.4}, "calibration": {...}}]}
 // "game" is the game's own build number (svn), as Kiln's build record of the running exe names it, so the dedicated server
-// and the client that hosts share it. "calibration" is the evidence summary; the loader does not read it. A game
-// creature's id matches whatever its case, as the creatures registry resolves it.
+// and the client that hosts share it. "templateScale" (default 1) in "body" is the template's own
+// ScaleComponent.uniformScale, a creature block's Body.Scale. "calibration" is the evidence summary; the loader does not
+// read it. A game creature's id matches whatever its case, as the creatures registry resolves it.
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text.Json.Nodes;
@@ -26,17 +27,23 @@ namespace Kiln;
 internal sealed record PetClearanceProfile(double HorizontalSpace, double VerticalSpace);
 
 /// <summary>The body a profile was measured on: the template's path walker (radius, height) and movement collider (width,
-/// height), unscaled, as the game data holds them.</summary>
+/// height), unscaled, and the template's own uniform scale, as the game data holds them.</summary>
 internal sealed record PetClearanceBody(double WalkerRadius, double WalkerHeight, double ColliderWidth, double ColliderHeight)
 {
     internal const double Tolerance = 0.005;
 
+    /// <summary>The template's own uniform scale (ScaleComponent.uniformScale: a creature block's Body.Scale); 1 when it
+    /// has none.</summary>
+    public double TemplateScale { get; init; } = 1;
+
     public bool Same(PetClearanceBody o) =>
         Math.Abs(WalkerRadius - o.WalkerRadius) <= Tolerance && Math.Abs(WalkerHeight - o.WalkerHeight) <= Tolerance &&
-        Math.Abs(ColliderWidth - o.ColliderWidth) <= Tolerance && Math.Abs(ColliderHeight - o.ColliderHeight) <= Tolerance;
+        Math.Abs(ColliderWidth - o.ColliderWidth) <= Tolerance && Math.Abs(ColliderHeight - o.ColliderHeight) <= Tolerance &&
+        Math.Abs(TemplateScale - o.TemplateScale) <= Tolerance;
 
     public override string ToString() =>
-        FormattableString.Invariant($"walker radius {WalkerRadius:0.###} height {WalkerHeight:0.###}, collider width {ColliderWidth:0.###} height {ColliderHeight:0.###}");
+        FormattableString.Invariant($"walker radius {WalkerRadius:0.###} height {WalkerHeight:0.###}, collider width {ColliderWidth:0.###} height {ColliderHeight:0.###}") +
+        (Math.Abs(TemplateScale - 1) > Tolerance ? FormattableString.Invariant($", template scale {TemplateScale:0.###}") : "");
 }
 
 /// <summary>One profile as a file lists it.</summary>
@@ -246,7 +253,14 @@ internal static class PetClearance
                 problems.Add($"{name}: no measured \"body\" (walkerRadius, walkerHeight, colliderWidth, colliderHeight)");
                 continue;
             }
-            list.Add(new PetClearanceEntry(creature, Math.Round(scale, 3), game, new PetClearanceProfile(h.Value, v.Value), new PetClearanceBody(wr, wh, cw, ch), source));
+            var ts = Num(b["templateScale"]);
+            if (b["templateScale"] is not null && ts is not (> 0 and <= 100))
+            {
+                problems.Add($"{name}: the body's \"templateScale\" is not a scale");
+                continue;
+            }
+            list.Add(new PetClearanceEntry(creature, Math.Round(scale, 3), game, new PetClearanceProfile(h.Value, v.Value),
+                new PetClearanceBody(wr, wh, cw, ch) { TemplateScale = ts ?? 1 }, source));
         }
         return list;
     }
@@ -323,7 +337,8 @@ internal static class PetClearance
 
     private static readonly Dictionary<Guid, PetClearanceBody?> Bodies = [];
 
-    /// <summary>The template's walker and movement collider (kiln.gamedata), cached per template for the process.</summary>
+    /// <summary>The template's walker, movement collider and own scale (kiln.gamedata), cached per template for the
+    /// process.</summary>
     private static PetClearanceBody? TemplateBody(PetDefinition def)
     {
         var info = PetCreatures.Resolve(def.Creature, out _);
@@ -335,7 +350,10 @@ internal static class PetClearance
         {
             if (Capabilities.Is("kiln.gamedata") && Content.Templates.Get(info.Template.ToString("D")) is { } t)
                 body = new PetClearanceBody(t.GetNumber("PathWalker.horizontalRadius"), t.GetNumber("PathWalker.height"),
-                    t.GetNumber("MovementColliderConfig.width"), t.GetNumber("MovementColliderConfig.height"));
+                    t.GetNumber("MovementColliderConfig.width"), t.GetNumber("MovementColliderConfig.height"))
+                {
+                    TemplateScale = Optional(t, "ScaleComponent.uniformScale") ?? 1,
+                };
         }
         catch (Exception e) when (e is KeyNotFoundException or InvalidOperationException or NotSupportedException or ArgumentException)
         {
@@ -343,6 +361,13 @@ internal static class PetClearance
         }
         lock (Gate) Bodies[info.Template] = body;
         return body;
+    }
+
+    /// <summary>A number the template may not have (its component absent): null then.</summary>
+    private static double? Optional(GameDataEntry t, string path)
+    {
+        try { return t.GetNumber(path); }
+        catch (KeyNotFoundException) { return null; }
     }
 
     // ---- tests and the calibration lab ----

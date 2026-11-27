@@ -43,12 +43,20 @@ public sealed class ClearanceTests : IDisposable
         PetClearanceBody? body = null)
     {
         var b = body ?? Wolf;
-        return new JsonObject
+        var o = new JsonObject
         {
             ["creature"] = creature, ["scale"] = scale, ["game"] = game, ["horizontalSpace"] = h, ["verticalSpace"] = v,
-            ["body"] = new JsonObject { ["walkerRadius"] = b.WalkerRadius, ["walkerHeight"] = b.WalkerHeight, ["colliderWidth"] = b.ColliderWidth, ["colliderHeight"] = b.ColliderHeight },
+            ["body"] = BodyJson(b, Math.Abs(b.TemplateScale - 1) > 1e-9),
             ["calibration"] = new JsonObject { ["lab"] = "test" },
-        }.ToJsonString();
+        };
+        return o.ToJsonString();
+    }
+
+    private static JsonObject BodyJson(PetClearanceBody b, bool withScale)
+    {
+        var o = new JsonObject { ["walkerRadius"] = b.WalkerRadius, ["walkerHeight"] = b.WalkerHeight, ["colliderWidth"] = b.ColliderWidth, ["colliderHeight"] = b.ColliderHeight };
+        if (withScale) o["templateScale"] = b.TemplateScale;
+        return o;
     }
 
     private static string File1(params string[] profiles) => $"{{\"format\": 1, \"profiles\": [{string.Join(",", profiles)}]}}";
@@ -341,5 +349,22 @@ public sealed class ClearanceTests : IDisposable
         Put(ServerFile, File1(Profile("mod-a:wolfling")));
         Assert.NotNull(PetClearance.For(_def with { Creature = "mod-a:wolfling" }, out _));
         Assert.Null(PetClearance.For(_def with { Creature = "mod-a:Wolfling" }, out _));
+    }
+
+    [Fact]
+    public void The_templates_own_scale_is_part_of_the_body_it_was_measured_on()
+    {
+        // a creature block's Body.Scale is the template's ScaleComponent.uniformScale: a profile measured at 1 is not its
+        Put(ServerFile, File1(Profile()));
+        PetClearance.BodyOf = _ => Wolf with { TemplateScale = 1.5 };
+        Assert.Null(PetClearance.For(_def, out var why));
+        Assert.Contains("changed since its path clearance was measured", why);
+        Assert.Contains("template scale 1.5", why);
+        _clock += 11;
+        Put(ServerFile, File1(Profile(body: Wolf with { TemplateScale = 1.5 })));
+        Assert.NotNull(PetClearance.For(_def, out _));
+        var parsed = PetClearance.Parse(File1(Profile(body: Wolf with { TemplateScale = 1.5 }), Profile()), "t", out var problems);
+        Assert.Empty(problems);
+        Assert.Equal(new[] { 1.5, 1.0 }, parsed.Select(e => e.Body.TemplateScale));
     }
 }
