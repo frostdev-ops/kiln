@@ -216,7 +216,14 @@ public static unsafe partial class Items
         r.ToSlot = destination?.Slot.Value ?? 0;
         r.Count = (uint)count;
         if (!Witness(expected, out r.Source) || (destination != null && !Witness(destination, out r.Destination)))
-            return MoveInvalid(MoveKind.Stack, from, to, "the selected item has no usable instance stamp");
+        {
+            // gear is witnessed by its stamp: none while items.instances is off (every read's Ref is None then)
+            var gear = !expected.ItemEntity.IsNone || destination is { ItemEntity.IsNone: false };
+            return gear && !Can(Caps.Instances)
+                ? Task.FromResult(MoveResult.Fail(ItemsStatus.Unavailable, MoveKind.Stack, from, to,
+                    "Items.MoveChecked: gear is checked by its stamp, and capability items.instances is off"))
+                : MoveInvalid(MoveKind.Stack, from, to, "the selected item has no usable instance stamp");
+        }
         return SubmitMove(r, "Items.MoveChecked");
     }
 

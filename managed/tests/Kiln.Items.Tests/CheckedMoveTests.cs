@@ -108,4 +108,19 @@ public sealed unsafe class CheckedMoveTests : IDisposable
         Assert.DoesNotContain("update Kiln", off.Message);
         Assert.Equal(0, _calls);
     }
+
+    [Fact]
+    public void Gear_while_item_instances_are_off_is_unavailable_not_invalid()
+    {
+        // items.instances off: a read's Ref is None for every item entity, so no stamp can witness the gear
+        Kiln.Backend.Current = new Backend("items.move");
+        var off = Items.MoveChecked(Chest, Gear(ChestSlot, 3077, ItemInstanceRef.None), Player, 1).Result;
+        Assert.Equal(ItemsStatus.Unavailable, off.Status);
+        Assert.Contains("items.instances", off.Message);
+
+        // instances on, and a slot that carries no stamp of kiln.items: the caller's slot, Invalid as before
+        Kiln.Backend.Current = new Backend("items.move", "items.instances");
+        Assert.Equal(ItemsStatus.Invalid, Items.MoveChecked(Chest, Gear(ChestSlot, 3077, ItemInstanceRef.None), Player, 1).Result.Status);
+        Assert.Equal(0, _calls);
+    }
 }
