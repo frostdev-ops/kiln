@@ -14,7 +14,7 @@
 //   position {id}                where the bot's entity is
 //   character {id}               the bot's CharacterKey (what per-character data such as pets is keyed by)
 //   players                      Players.All with positions
-//   told {id, since?}            the server's chat lines to that bot (a command's replies, Chat.Tell): every new newest
+//   told {id, since?, all?}      the server's chat lines to that bot (a command's replies, Chat.Tell): every new newest
 //                                inbox line is kept with its reader mask (Chat.Diagnostics.LastLine, read in Pre and Post),
 //                                so two lines added in one step show only the second; "since" = a line number from an
 //                                earlier answer
@@ -241,14 +241,16 @@ public sealed class LabBotTestMod : Mod
     }
 
     // lines a bot's reader was to get: its reader is its machine index (a bit set in the mask = that reader is done or
-    // not addressed; a line seen before the game sent it still has the bot's bit clear)
+    // not addressed; a line seen before the game sent it still has the bot's bit clear). A line told to one player carries
+    // that player's connection (lab p4: "[Server] refused: ..." with the bot's connection and only bit 16 clear).
     private JsonObject Told(JsonObject rq)
     {
         var b = Bot(Id(rq)) ?? throw new ArgumentException($"no bot {Id(rq)}");
         var since = rq["since"]?.GetValue<long>() ?? 0;
+        var all = rq["all"]?.GetValue<bool>() ?? false;  // every captured line, whoever it was for
         var reader = (int)(b.Machine & 0x7f);
-        var lines = _lines.Where(x => x.N > since && x.Connection != b.Connection && (x.Mask & (1u << reader)) == 0)
-            .Select(x => (JsonNode)new JsonObject { ["n"] = x.N, ["text"] = x.Text, ["mask"] = x.Mask }).ToArray();
+        var lines = _lines.Where(x => x.N > since && x.Text.Length > 0 && (all || (x.Mask & (1u << reader)) == 0))
+            .Select(x => (JsonNode)new JsonObject { ["n"] = x.N, ["text"] = x.Text, ["mask"] = x.Mask, ["connection"] = x.Connection }).ToArray();
         return new JsonObject { ["id"] = b.Id, ["lines"] = new JsonArray(lines), ["last"] = _lineNo };
     }
 

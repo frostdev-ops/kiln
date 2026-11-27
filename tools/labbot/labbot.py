@@ -191,7 +191,8 @@ class Bot:
         return self.lab.call("character", id=self.id)["key"]
 
     def told(self, since=0):
-        """The server's chat lines to this bot since line number `since` (a command's replies): [{"n", "text", "mask"}].
+        """The server's chat lines to this bot since line number `since` (a command's replies, "[Server] ..."):
+        [{"n", "text", "mask", "connection"}].
         Two lines the server adds in the same step show only the second (labbot-test reads the newest inbox line)."""
         return self.lab.call("told", id=self.id, since=since)["lines"]
 
