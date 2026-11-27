@@ -135,14 +135,107 @@ rider two steps to get off, then destroys it; the broker retires its rows when i
 Following (QueryInput): walk-only routes from kiln.queries (Found, reaching the target, every point a walk; never code 0
 with no points, never partial), at most 4 requests in flight, a new route past 2 m of owner movement or each
 `RepathSeconds`; input written only while the broker's `can_drive` says so. **Path clearance is measured, not guessed**
-(19d §4.3a, gate C6): the HorizontalSpace/VerticalSpace a route asks for come from an accepted profile per creature and
-scale (`kiln/data/kiln.pets/clearance.json`); without one the pet does not walk routes and only catches up
+(19d §4.3a, gate C6): the HorizontalSpace/VerticalSpace a route asks for come from an accepted profile per creature,
+scale and game build ([below](#measured-clearance-gate-c6)); without one the pet does not walk routes and only catches up
 (`ClearanceMappingUnverified`). Catch-up puts the body on validated ground next to the owner (ground under its centre and
 4 footprint points, a floor spread of at most 0.5 m, a clear column, no entity origin within 2.5 m), then checks that it
 settled (within 1 m after 0.5 s); one that does not settle stops and waits 10 s before another checked try. Stay holds
 with zero input. EngineGuard sends the game's own guard event (Kiln.Creatures' keeper is not run beside it). Attack hands
 the body to the game's AI under PetCombat with the target preferred; a target that is gone or dead puts the pet back on
 follow.
+
+## Measured clearance (gate C6)
+
+The space a pet's route asks kiln.queries for (`HorizontalSpace`, `VerticalSpace`) is never derived from the body's radius
+or height: nothing proves what the game's two numbers mean physically. It is a **profile**, measured on a dedicated lab
+server by `tools/pets-clearance` (no game client) and accepted only when the gate passes.
+
+**The gate** (per creature, scale and game build): the lab builds fixtures of building blocks, sealed lanes whose only
+walk from the start to the exit room is one measured opening: corridors 0.5, 1 and 2 m wide with 1, 2 and 3 m of
+headroom, the game's door-wall doorway (2 x 2.5 m), two S-bends (1 and 2 m) and a wide open control. The creature is
+spawned without an owner and held by Kiln.Pets' own broker leases; for every pair of 0.5/1/2 m and 1/2/3 m the lab asks
+for a route through each fixture, and **Kiln.Pets' real follower and mover** walk every accepted route (the body's
+`ActorInput` under the broker's `can_drive`), catch-up and teleport off, logging the body's position every step. All
+times (traces, waits, the follower's repath and stuck timers) are game seconds from the game's own clock, never a count
+of steps: a dedicated server steps its world 15 to 25 times a second (the lab's, about 22). The body's own walker (the
+game's guard walk) walks each fixture too, as the comparison. `tools/pets-clearance/profiles.py` judges each walk: a
+pass crosses the exit by the body's length without its movement collider meeting a wall or a ceiling closer than its
+size allows, without a stall and without a teleport. A pair passes when no accepted route failed or stayed unknown and
+the control passed. The profile is the passing pair that walks the most fixtures; on a tie, the larger vertical and then
+the larger horizontal requirement, which refuses more of what the fixtures did not measure. A body wider than the widest
+measured gap (2 m) or taller than the highest measured headroom (3 m) gets no profile: every pair it passes walks only
+the control, which says nothing about the gaps in between.
+
+**What the lab measured** (game build 1287369):
+- `VerticalSpace` acts as the headroom a route needs. A route is found only where the ceiling is at least that many
+  metres up: under 1 m only 1; under 2 m and the 2.5 m door, 1 and 2; under 3 m, all three.
+- `HorizontalSpace` 0.5 finds routes through 2 m gaps (the 2 m corridors, the door, the 2 m S-bend) and never through
+  1 m or 0.5 m ones. 1 and 2 find only the 5 m control.
+- No calibrated body passes under a 1 m ceiling, whatever its collider's height (the rat's is 0.75 m): every one
+  stalled one collider radius before it, though `VerticalSpace` 1 accepts that route. So 0.5/1 fails the gate for all of
+  them, and 0.5/2 is the passing pair that walks the most fixtures. The 2.5 m Vukah Bonebreaker also stalls under 2 m,
+  so its pair is 0.5/3.
+- The body's own walker (path walker radius 0, height 2) also gets through some 1 m gaps that 0.5 refuses. There a pet
+  catches up instead of walking.
+
+**Kiln's shipped profiles** (game build 1287369, scale 1 unless the row says otherwise):
+
+| Creature | Movement collider (width x height, m) | HorizontalSpace / VerticalSpace |
+|---|---|---|
+| `game:enemy_fogger_wildbeast_infestedboar` (Fell Boar) | 1 x 1.5 | 0.5 / 2 |
+| `game:enemy_scavenger_hound` (Scavenger Hound) | 1 x 1 | 0.5 / 2 |
+| `game:enemy_skeleton_hound` (Hollow Hound) | 1 x 1 | 0.5 / 2 |
+| `game:enemy_vukah_melee` (Vukah) | 1 x 2 | 0.5 / 2 |
+| `game:enemy_vukah_melee_elite_armored` (Vukah Bonebreaker) | 1 x 2.5 | 0.5 / 3 |
+| `game:enemy_wildbeast_boar` (Boar) | 1 x 1 | 0.5 / 2 |
+| `game:enemy_wildbeast_rat_hook` (Rat) | 0.75 x 0.75 | 0.5 / 2 |
+| `game:enemy_wildbeast_sabertooth` (Sabertooth) | 1 x 1 | 0.5 / 2 |
+| `game:enemy_wildbeast_spiderant_huge_hookpte` (Spider Mama) | 2 x 2 | 0.5 / 2 |
+| `game:enemy_wildbeast_spiderant_melee` (Spider) | 1 x 1 | 0.5 / 2 |
+| `game:enemy_wildbeast_wolf_earlygame` (early-game wolf) | 1 x 1 | 0.5 / 2 |
+| `game:enemy_wildbeast_wolf_earlygame` (early-game wolf, scale 1.5) | 1 x 1 | 2 / 3 |
+| `game:enemy_wildbeast_wolf_hook_ag2` (Wolf) | 1 x 1 | 0.5 / 2 |
+
+Of the 389 enemy templates that walk (no bosses), 13 bodies were calibrated: the common beasts, the Vukah, and one of
+each other body size up to 2 m wide and 3 m tall that a pet is likely to use. At scale 1.5 the early-game wolf clips the
+2 m S-bend at HorizontalSpace 0.5, so it walks open ground only. The gate scales the collider, as a player sees the
+body; the wolf's own walker still gets through 1 m gaps at that scale, so the game's collider may not scale with it. A
+body wider than 2 m or taller than 3 m (the crabs, the Fell Critter Queens, the heavy wolf) gets no profile from these
+fixtures and catches up.
+
+**Where profiles come from**, first match wins:
+
+| Source | Applies to |
+|---|---|
+| `<mod folder>/pets/clearance.json` | the pets that mod defines (its own creature block, or a game creature at its scale) |
+| `kiln/data/kiln.pets/clearance.json` | every pet on this server (an operator's file, a calibration run's output) |
+| Kiln's shipped profiles (`clearance.json` inside `Kiln.Pets.dll`) | every pet |
+
+**Format 1:**
+```json
+{ "format": 1, "profiles": [ {
+  "creature": "game:enemy_vukah_melee", "scale": 1, "game": 1287369,
+  "horizontalSpace": 0.5, "verticalSpace": 2,
+  "body": { "walkerRadius": 0, "walkerHeight": 2, "colliderWidth": 1, "colliderHeight": 2 },
+  "calibration": { "lab": "dev32-pets-clearance", "date": "2026-11-27", "gate": "19d C6",
+                   "passed": ["corner-w2", "..."], "refused": ["corridor-w1-h3", "..."],
+                   "pairs": { "0.5/1": "accepted a route the body cannot walk: ...", "0.5/2": "pass" } } } ] }
+```
+- `creature` is the Kiln id, `scale` the definition's `Level.Scale` (0.25..4).
+- `game` is the game's own build number (svn), as Kiln's build record of the running exe names it
+  (`kiln/sigdb/builds/<side>/<sha256>.json`); the dedicated server and a client that hosts share it. Kiln hashes the
+  running exe once, off the tick thread.
+- `body` is the creature's template as it was measured: the path walker's `horizontalRadius`/`height` and the movement
+  collider's `width`/`height` (unscaled). A body that differs now (a game update, a creature block that changed its
+  `Body.Size`) invalidates the profile.
+- `calibration` is the evidence summary; Kiln does not read it.
+- A profile without `game` or `body`, or out of range, is left out with a warning naming it; a file of another format, or
+  the pre-dev.32 bare list, gives none.
+
+**Refusals** (the follower's `Limited`, always `ClearanceMappingUnverified: ...`): no measured path clearance for the
+creature at the scale; it was measured on another game build (a game update needs a new calibration); the body changed
+since it was measured; the body cannot be read here; Kiln does not know this game build; the build is still being
+identified (the first moment after start).
 
 ## The native safety module (kiln.pets v1)
 
@@ -210,3 +303,8 @@ game's creatures; a mod commands pets from its own UI through its own channel (K
   `Kiln.Saves.Tests/ServiceCharactersTests.cs`.
 - Native, host: `native/services/creature_control/tests/run.sh` (`pets_test.cpp`: rows, death and hit policies, pairs,
   withdrawal, worker reads under ASan and UBSan).
+- Clearance: `ClearanceTests.cs` (format 1, the sources and their order, build, scale and body checks, the follower's
+  pair, every shipped profile); `python3 -I tools/pets-clearance/test_profiles.py` (the C6 judgement of walks, the pair
+  chosen, the bodies the fixtures cannot judge, the profile file).
+- Lab (dedicated server, no client): `mods/tests/pets-clearance-lab` through `tools/pets-clearance/calibrate.sh`
+  (fixtures, the route sweep, the real follower's walks, the native walker; evidence in `runs.jsonl`).

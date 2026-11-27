@@ -77,6 +77,33 @@ thread; `await` them from your handlers or commands.
 - Attack, assist, defend: Kiln never attacks by itself. Order an attack when your rule says so (the owner was hit, a key
   was pressed); Kiln refuses targets the pet's rule protects (`TargetProtected`).
 
+## Walking beside the owner: measured clearance
+
+A pet walks routes beside its owner only when Kiln has a **measured clearance profile** for its creature, at its scale,
+on the running game build ([the service page](../services/pets.md#measured-clearance-gate-c6)). Without one it still
+follows, by catching up to its owner on safe ground. Kiln ships profiles for the game creatures it calibrated (the list
+is on the service page: wolves, boars, the Sabertooth, hounds, spiders, the rat and the Vukah, among others); a game
+update invalidates them until Kiln ships new ones.
+
+Your own creature block, or a game creature at a scale Kiln did not calibrate, needs a profile of your own:
+
+1. Build your mod, then calibrate on a dedicated lab server (no game client is involved):
+   ```
+   tools/pets-clearance/calibrate.sh prepare --creature my-mod:wolfling --mod path/to/built/my-mod --out .out/my-clearance
+   tools/pets-clearance/calibrate.sh run --out .out/my-clearance      # one lab session: 1 min + 4.5 min a creature
+   tools/pets-clearance/calibrate.sh profile --out .out/my-clearance
+   ```
+   For a game creature at another scale: `--creature game:enemy_wildbeast_wolf_earlygame@1.5`. `report.md` shows every
+   fixture and requirement pair, and why a pair failed.
+2. Ship `.out/my-clearance/clearance.json` as `pets/clearance.json` in your mod's folder. It applies to your mod's pets
+   only, and only on the game build it names.
+3. Calibrate again after a game update (the profile names the build), and after you change the creature's `Body.Size`
+   (the profile names the body it was measured on).
+
+A creature for which no requirement pair passes gets no profile: a route it accepts somewhere would be one its body
+cannot walk. Nor does a body wider than 2 m or taller than 3 m (the lab's widest gap and highest headroom), which the
+fixtures cannot judge. Its pets catch up instead.
+
 ## The HUD
 
 Kiln draws a pet bar for owners whose game runs Kiln. Per definition: `PetHudPolicy`. Per player:
