@@ -156,6 +156,9 @@ public sealed class RegistryContext
     /// <summary>True when this pass runs off the world tick (<see cref="RegistryPassKind.ReauthoredOffTick"/>): a tick-thread API
     /// is refused here, so read game state before asking for the pass (since 0.2.0-dev.32).</summary>
     public bool OffTick => Pass == RegistryPassKind.ReauthoredOffTick;
+    // Set by Kiln.Registry's stage when the callback's edits of a registry are over its cap of edits per call: Kiln refuses the
+    // call whole at submit (the reason, in Kiln's words); TestKit's harness says so offline. Null: under every cap.
+    internal string? CapRefusal { get; set; }
     /// <summary>Hash of code, point, pass, world and observed settings. The live API has no executable-plan cache.</summary>
     public string Identity
     {

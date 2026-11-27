@@ -389,6 +389,9 @@ one loaded instance's OnRegistry pass and returns copied IR (or null for no edit
 This is a recording-only fake: seed the next pass explicitly. It does not simulate live application, pass composition,
 mapping proof or automatic scheduling, and leaves native registry availability false. Host transport/lifecycle tests and
 native backend tests cover those separate paths; offline authoring is not real-game byte proof.
+Since dev.32 a call over a registry's cap of edits per call returns null too, as Kiln refuses it whole, and `Refused` says why;
+`RunReauthored(mod, offTick, phase, world)` runs the WorldLoad pass as a re-authored one: by default off the tick, on a thread
+of its own (`context.OffTick`), where a tick-thread API throws as in a game and the pass is never taken (`Refused` names the API).
 
 ## Capabilities
 

@@ -15,7 +15,14 @@ public sealed class TkRegistryMod : Mod
         registry.Add(view => view.Items.AddLike(new("tk-registry:logs"), new("game:wood"), item => item.MaxStack = 17));
         registry.Alter(view => view.Loot.Remove("game:wood"));
         _retained = registry.Items["game:wood"];
-        _retained.MaxStack = _retained.MaxStack + 5;
+        _retained.MaxStack = context.OffTick ? 1 : _retained.MaxStack + 5;
+        // Final: every seeded game:bulk_* item, one edit each (the cap test), after a tick-thread call (the off-tick test)
+        registry.Final(view =>
+        {
+            Game.AssertTickThread();
+            foreach (var item in view.Items.Select("game:bulk_*")) item.MaxStack = 2;
+            view.Items["game:wood"].MaxStack = 3;
+        });
     }
     public override void OnUnload()
     {

@@ -6,3 +6,5 @@ Kiln.TestKit.HarnessNpcSpeech.MenuLinesOf(Kiln.EntityId npc, string! language = 
 Kiln.TestKit.HarnessNpcSpeech.RepliesTo(Kiln.EntityId player, string! language = "en-us") -> System.Collections.Generic.IReadOnlyList<(Kiln.EntityId Npc, string! Text)>!
 Kiln.TestKit.HarnessNpcSpeech.PickTopic(Kiln.EntityId npc, string! topicId, Kiln.EntityId player) -> bool
 Kiln.TestKit.HarnessNpcSpeech.TopicsOf(Kiln.EntityId npc, string! language = "en-us") -> System.Collections.Generic.IReadOnlyList<string!>!
+[KILNX031]Kiln.TestKit.HarnessRegistry.Refused.get -> string?
+[KILNX031]Kiln.TestKit.HarnessRegistry.RunReauthored(Kiln.TestKit.ModHandle! mod, bool offTick = true, Kiln.RegistryPhase phase = Kiln.RegistryPhase.Alter, Kiln.RegistryWorld? world = null) -> string?

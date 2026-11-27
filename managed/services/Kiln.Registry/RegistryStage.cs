@@ -117,13 +117,19 @@ public sealed class RegistryStage
     private string? Capture()
     {
         Context.Ensure();
+        Context.CapRefusal = null;
         if (_edits.Count == 0) return null;
         foreach (var (registry, count) in _counts)
             if (count > CapOf(registry))
+            {
                 Context.Owner.Log.Warn($"registry: {(Context.EntryPoint == RegistryEntryPoint.Manual ? "Registry.Change" : $"OnRegistry {Context.EntryPoint} {Context.Phase}")}: " +
                     $"{count} {registry} edits in one call, over its cap of " +
                     $"{CapOf(registry)} edits per call (RegistrySchema.EditsPerCall); Kiln refuses this call whole (registry.json), the other calls apply. " +
                     "Split the edits over the entry point's phases (Alter, Final) or over several calls.");
+                // what Kiln's submit answers (ir.cpp refuse_over_cap), for TestKit's harness offline
+                Context.CapRefusal ??= $"{registry}: {count} edits in one call, over this registry's cap of {CapOf(registry)} edits per call; " +
+                    "the call is refused whole and nothing of it was applied (split the edits over the entry point's phases or over several calls)";
+            }
         return new JsonObject { ["ir"] = 1, ["mod"] = Context.ModId, ["stage"] = Context.Phase.ToString().ToLowerInvariant(),
             ["source"] = "managed:" + Context.Identity, ["edits"] = _edits.DeepClone() }.ToJsonString();
     }

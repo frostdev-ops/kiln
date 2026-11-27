@@ -75,7 +75,9 @@ public static partial class Coverage
             "(client-world hops on the game's main thread). The pool's per-mod caps and per-step budgets are not modelled",
             "tasks.pool");
         Row("Registry authoring", CoverageKind.RecordingFake,
-            "KilnHarness.Registry seeds copied JSON and records one OnRegistry pass's IR with expiring contexts; " +
+            "KilnHarness.Registry seeds copied JSON and records one OnRegistry pass's IR with expiring contexts; a call over a " +
+            "registry's cap of edits per call is refused whole as Kiln refuses it (Refused), and RunReauthored runs a re-authored " +
+            "pass off the tick on a thread of its own, its tick-thread calls refused as in a game; " +
             "no native table, live application, pass composition or mapping/restart proof is simulated");
         Row("Config (global)", CoverageKind.Real,
             "Config.Register of every kind (common, server, client): files in the temp kiln/config, edits on disk reach the " +
