@@ -685,6 +685,18 @@ Ui.AmmoList.Provide(AmmoListKind.Arrow | AmmoListKind.Spell, ctx => MyRows(ctx.K
   publication, and `kiln.log` says so once (`ui.ammo: the spell list shows the game's own rows: ...`). Nothing stays
   over another weapon, player, client session or world, or once the list is cleared. An `Append` list shows the game's
   own rows in that frame, as before (its rows go in around the game's).
+- **The cursor after a pick of your row.** Whenever its selection sync runs (`client_cycle_inventory_stock`, most
+  frames), the game puts the cursor on the item it expects in the slot: its own pick while the server has not answered
+  it, else the equipped arrow or spell. A pick Kiln takes for your row is not the game's own pick, so until your server
+  half's swap reached the game the cursor went back to the equipped spell (the one before the pick) and then forward to
+  the new one when the swap arrived: the picker moved, showed the previous spell for a moment, and came back. That took
+  as long as the swap: about 60 to 140 ms in a hosted world in the reporter's measurements (longest in the first
+  switches after a start), a network round trip more on a dedicated server. Since 0.2.0-dev.31.23 Kiln holds the
+  cursor on your row from the pick until the game itself names that item (the swap arrived), the player picks a row
+  that goes to the game, the list is cleared, the client session, world or player changes, or a second passes (a swap
+  that never comes: then the equipped item shows, as before). This applies only while your rows are up, in either mode, and there is nothing
+  to call (GitHub issue 151, thanks Fuzen777). When your new rows no longer list the item under the cursor, the list
+  takes the game's own selection instead of none (with none, the HUD draws the index it drew last).
 - **Picks.** A row whose item the game lists itself with stock (in `Replace` too) or the player carries is the game's
   own: it equips it as always. The row the game keeps at count 0 for a stack the player used up is not stock: since
   0.2.0-dev.30.7 a mod row of that item raises `Picked` unless the player carries it, in either mode (GitHub issue 131,
@@ -724,6 +736,61 @@ Ui.AmmoList.Provide(AmmoListKind.Arrow | AmmoListKind.Spell, ctx => MyRows(ctx.K
 - **Unit tests.** The test kit's `KilnHarness.AmmoList` plays the game's side (`Hold` a bow or staff with the game's
   rows, `SetGameRows`, `NewSession`, `KnownItems`), shows what the HUD would (`Shown`, `Provided`, `ModeOf`, `Selected`)
   and picks a row (`Pick`, raised at the next `Step`).
+
+### Tracing a pick of the list (testers)
+
+Since 0.2.0-dev.31.23 `kiln.log` can follow each pick of an arrow or spell row through every step that touches the
+cursor, frame by frame (GitHub issue 151). It is off by default. To turn it on, quit the game, open `kiln.json` in the
+`kiln` folder next to the game's `enshrouded.exe`, add `"ammoTrace": true` to its `"ui"` section, save, and start the
+game:
+
+- **Windows:** `<Steam library>\steamapps\common\Enshrouded\kiln\kiln.json`, for example
+  `C:\Program Files (x86)\Steam\steamapps\common\Enshrouded\kiln\kiln.json` (Steam: Enshrouded, Manage, Browse local
+  files, then the `kiln` folder). Steam's launch options cannot set an environment variable on Windows, so use the file.
+- **Linux (Steam with Proton):** the same file in the Linux Steam library, for example
+  `~/.local/share/Steam/steamapps/common/Enshrouded/kiln/kiln.json`. Instead of the file you can put
+  `KILN_AMMO_TRACE=1 %command%` in the game's launch options in Steam (Properties, General).
+
+The section is at the top level of the file, not inside a `client` section. If the file has no `"ui"` section yet, add
+one; a file with nothing else in it reads:
+
+```json
+{ "ui": { "ammoTrace": true } }
+```
+
+If it has one already (the launcher's Settings and Kiln's in-game Look write it), put the key inside it, for example
+`"ui": { "look": "game", "ammoTrace": true }`, and keep everything else: a second `"ui"` section would replace the first.
+The environment variable wins over kiln.json, and `KILN_AMMO_TRACE=0` turns the trace off. Kiln reads the switch once, at
+the game's start, and `kiln/logs/kiln.log` confirms it near the top with `ui.ammo: the pick trace is on (...)`; without
+that line the trace is off. The lines are info lines, so a `"log_level"` in kiln.json must stay `"info"` (the default),
+`"debug"` or `"trace"`. Remove the key afterwards.
+
+For 2 s after each pick, each step writes a line when what it saw changed. Every line has the list, the pick's number
+(`#7`), the time since that pick, and the frame (how many times the HUD list has been drawn since the start):
+
+```text
+ui.ammo trace: spell #7 +0.0 ms frame 4031: pick 0x1a2b3c4d from a scroll (the game's cycle): the mod's (Picked; the game's equip kept back); cursor 0x1a2b3c4d index 3 of 9
+ui.ammo trace: spell #7 +0.4 ms frame 4032: draw: index 3 of 9, 0x1a2b3c4d (the selection)
+ui.ammo trace: spell #7 +16.6 ms frame 4032: sync: before 0x1a2b3c4d index 3 of 9; the game's 0x11111111 index 5 of 9; after 0x1a2b3c4d index 3 of 9 (Kiln held its pick of 16 ms ago)
+ui.ammo trace: spell #7 +16.9 ms frame 4032: build: entry 0x1a2b3c4d index 3 of 9; the game's 0x11111111 index 0 of 6; exit 0x1a2b3c4d index 3 of 9; rows: the mods' of revision 40 kept over revision 41 (since 16 ms)
+ui.ammo trace: spell #7 +17.0 ms frame 4032: final: before 0x1a2b3c4d index 3 of 9; the game's 0x11111111 index 5 of 9; after 0x1a2b3c4d index 3 of 9
+ui.ammo trace: spell #7 +94.1 ms frame 4037: sync: before 0x1a2b3c4d index 3 of 9; the game's 0x1a2b3c4d index 3 of 9; after 0x1a2b3c4d index 3 of 9 (the game's choice is Kiln's pick: the hold ends)
+```
+
+A cursor is the item, its index (from 0) and the number of rows; `no selection (index n of m)` means the list's
+selection-valid flag is off.
+
+| Step | What it says |
+|---|---|
+| `pick` | The requested item; where the pick came from (`a scroll (the game's cycle)`, `a direct selection`, or `elsewhere in the game (not its scroll or direct selection)`: another input, or the game's own pick of the cursor's row); who took it: `the mod's (Picked ...)`, `the game's (its own equip)`, `the game's (no mod lists it)`, or `nobody's` (stale or unreadable rows); then the cursor after it. |
+| `sync` | The game's selection sync: the cursor before it, the item the game chose, and the cursor after Kiln. `Kiln held its pick` means the game chose another item and Kiln put its pick back; `the hold ends` means the game chose Kiln's pick itself (the swap arrived). |
+| `build` | One build of the list: the cursor at its `entry`; `the game's` own selection on its own rows after its build; the cursor at its `exit`; and which rows show: `the mods' (revision n)` (the current publication), `the mods' of revision p kept over revision n` (since 0.2.0-dev.31.21, at most 1 s), or `the game's own` with the reason. |
+| `final` | The game's finalizer after the build: the cursor before it, the game's choice, then the cursor after Kiln. |
+| `draw` | The HUD list's draw: the index it drew and that row's item; `(the selection)` or `(the remembered index: no selection)`. Without a valid selection the game draws the index it drew last, and Kiln reckons that index the same way. |
+
+The first line where `draw` shows another item than the pick (and than the `sync` or `build` just before it) is where
+the picture leaves the pick. At most 100 lines a second are written; when more wait, a line says how many were dropped.
+On a game build where the HUD draw cannot be traced, `kiln.log` says so at the start and every frame number is 0.
 
 ## Outlines on entities in the world (0.2.0-dev.30.3)
 

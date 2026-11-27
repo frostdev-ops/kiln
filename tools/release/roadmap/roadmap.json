@@ -1,6 +1,26 @@
 {
   "released": [
     {
+      "version": "0.2.0-dev.31.23",
+      "date": "2026-11-27",
+      "title": "Spell picker without the flicker",
+      "summary": "A mod's spell or arrow you pick in the HUD list no longer flickers back to the one before it for a moment, and testers can follow each pick in kiln.log.",
+      "patch": true,
+      "features": [
+        {
+          "title": "No flicker after a pick",
+          "text": "A spell or arrow a mod puts in the HUD list (Grimoire, for example) stays under the cursor after you pick it until the mod's swap arrives, instead of showing the previous spell for a moment and coming back, alone and on a dedicated server (thanks Fuzen777).",
+          "area": "content",
+          "kind": "fix"
+        },
+        {
+          "title": "A pick trace for testers",
+          "text": "With \"ammoTrace\": true in kiln.json's \"ui\" section, kiln.log follows each pick of a spell or arrow row frame by frame: the game's choice, each build of the list and what the HUD drew. It is off by default.",
+          "area": "tools"
+        }
+      ]
+    },
+    {
       "version": "0.2.0-dev.31.22",
       "date": "2026-11-27",
       "title": "Settings past the slider and exact asset hashes",

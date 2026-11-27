@@ -335,6 +335,7 @@ bool install_brush_frame() {
 void kiln_tools_presentation_set_held_provider(KilnToolHeldItemProvider provider) {
     held_provider.store(provider,std::memory_order_release);
 }
+void kiln_tools_presentation_set_ammo_trace(bool on) {ammo::trace.enable(on);}
 namespace {
 const char* mode_name(uint32_t mode) {return mode==KILN_TOOL_MODE_REMOVE?"Remove":mode==KILN_TOOL_MODE_ADD?"Add":"none";}
 // One line per published family (kiln#133): this process binds the family's programs, so its strokes reach the trace.

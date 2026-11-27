@@ -11,11 +11,11 @@ $discovery = Start-Process -FilePath $vswhere -ArgumentList '-latest','-products
 if ($discovery.ExitCode -ne 0) { throw 'MSVC toolchain discovery failed' }
 $vs = (Get-Content -Raw "$out\vswhere.txt").Trim()
 if (-not $vs) { throw 'No installed MSVC toolchain' }
-$tests = @('ammo_abi','ammo_list','ammo_allocation','ammo_scope','ammo_sources','ammo_hook','ammo_reveal','presentation','presentation_api','presentation_admission','brush_frame','brush_trace','held_state','held_observer','service_presentation_lifecycle')
+$tests = @('ammo_abi','ammo_list','ammo_allocation','ammo_scope','ammo_sources','ammo_hook','ammo_reveal','ammo_trace','presentation','presentation_api','presentation_admission','brush_frame','brush_trace','held_state','held_observer','service_presentation_lifecycle')
 $lines = @('@echo off', "call `"$vs\VC\Auxiliary\Build\vcvars64.bat`" >nul", 'if errorlevel 1 exit /b 1', "cd /d `"$out`"")
 foreach ($test in $tests) {
     $extra = if ($test -eq 'service_presentation_lifecycle') { "`"$here\..\hooks\presentation.cpp`"" } else { '' }
-    $lines += "cl /nologo /std:c++20 /EHsc /W3 /O2 /I`"$root\native\core\abi`" /I`"$here\..\include`" `"$here\$test.cpp`" `"$here\..\policy.cpp`" $extra /Fe:`"$out\$test.exe`""
+    $lines += "cl /nologo /std:c++20 /EHsc /W3 /O2 /I`"$root\native\core\abi`" /I`"$here\..\include`" /I`"$root\native\third_party`" `"$here\$test.cpp`" `"$here\..\policy.cpp`" $extra /Fe:`"$out\$test.exe`""
     $lines += 'if errorlevel 1 exit /b 1'
 }
 $lines += 'exit /b 0'
