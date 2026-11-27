@@ -23,9 +23,9 @@ public sealed class HarnessRegistry
     private readonly Dictionary<(string Registry, string Id, string Field), string> _seeds = [];
     private readonly List<string> _reauthors = [];
     internal HarnessRegistry(KilnHarness harness) => _harness = harness;
-    /// <summary>The mod ids of every <c>Kiln.Registry.Registry.Reauthor(RegistryEntryPoint.WorldLoad)</c> request the loaded
+    /// <summary>The mod ids of every <c>Kiln.Registry.Registries.Reauthor()</c> request the loaded
     /// mods made, in order (recorded: offline no pass runs by itself; run the next pass with <see cref="Author"/> or
-    /// <see cref="RunReauthored"/>). A request for another point is refused (false) as in a game and not listed.</summary>
+    /// <see cref="RunReauthored"/>).</summary>
     public IReadOnlyList<string> Reauthors { get { lock (_reauthors) return _reauthors.ToArray(); } }
     internal string? RecordReauthor(ModContext mod, RegistryEntryPoint point)
     {
@@ -58,7 +58,7 @@ public sealed class HarnessRegistry
         return Pass(mod, point, phase, world, RegistryPassKind.Point);
     }
 
-    /// <summary>Runs the loaded instance's WorldLoad pass as Kiln runs one <c>Registry.Reauthor</c> asked for (since
+    /// <summary>Runs the loaded instance's WorldLoad pass as Kiln runs one <c>Registries.Reauthor</c> asked for (since
     /// 0.2.0-dev.32): with <paramref name="offTick"/> (Kiln's worker, the usual case) on a thread of its own, where the context
     /// says <see cref="RegistryContext.OffTick"/> and a tick-thread API throws as it does in a game; without it on the harness's
     /// tick (<see cref="RegistryPassKind.ReauthoredOnTick"/>). Returns copied IR as <see cref="Author"/> does; a pass off the tick

@@ -6,9 +6,12 @@ using System.Text.Json.Nodes;
 
 namespace Kiln.Registry;
 
-/// <summary>Typed registry access. Contexts are supplied by Mod.OnRegistry, never constructed by a mod.</summary>
+/// <summary>Typed registry access: a callback's stage (<see cref="For"/>), live changes (<see cref="Change"/>), reads
+/// (<see cref="Read"/>) and the WorldLoad pass again on request (<see cref="Reauthor"/>). Contexts are supplied by
+/// Mod.OnRegistry, never constructed by a mod. Since 0.2.0-dev.32 this name (before it, <see cref="Registry"/>, which is
+/// also its namespace's name, so code inside a <c>Kiln.*</c> namespace needed an alias).</summary>
 [Experimental("KILNX031")]
-public static partial class Registry
+public static partial class Registries
 {
     /// <summary>The typed adapter of this callback. Retaining it or its entries does not extend the context's lifetime.</summary>
     [RegistryThreadOnly, RequiresCapability("kiln.registry")]

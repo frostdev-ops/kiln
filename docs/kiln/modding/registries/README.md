@@ -12,7 +12,10 @@ registry replaces raw data paths, not services.
 **Status in this release: experimental (`KILNX031`), schema version 0.1.0.** The schemas, the generated C# types (`Kiln.Registry`), the field
 catalog (`Kiln.Registry.RegistrySchema`) and these pages ship, and the registry stage reads a data pack's `registry` section at
 start (fields that apply now or at world load also follow a pack's hot reload). Since mod API **0.2.17**, C# mods can author
-through `Mod.OnRegistry(RegistryContext)` and use explicit owner-scoped live changes through `Kiln.Registry.Registry.Change`.
+through `Mod.OnRegistry(RegistryContext)` and use explicit owner-scoped live changes through `Kiln.Registry.Registries.Change` (the entry class is `Registries` since
+0.2.0-dev.32; `Registry`, also its namespace's name, keeps the 0.2.0-dev.31 members for mods built against them). The context
+types (`RegistryContext`, `RegistryEntryPoint`, `RegistryPhase`) are in namespace `Kiln` with `Mod.OnRegistry`, so every mod
+names them without the registry service; the typed data (`RegistryId`, the entries, the stage) is `Kiln.Registry`'s.
 GameStart entry operations add items/recipes through Kiln's content definitions and hide items/recipes/loot without deleting game records.
 Unsupported or unproven operations are refused with their reason in kiln.log and registry.json.
 Until a registry is marked stable its shape may change in any
@@ -83,7 +86,7 @@ are `game:world_*`:
 ```
 
 In C# the same from settings ([RegistryEdits sample](../../../../mods/samples/RegistryEdits/RegistryEditsMod.cs); to follow
-a settings change while a world runs, `Registry.Reauthor(RegistryEntryPoint.WorldLoad)` below): select tables by the id
+a settings change while a world runs, `Registries.Reauthor()` below): select tables by the id
 prefixes and their values (`table.Rarity.Legendary.Mode == RandomLootMode.Set`: the elite, boss and
 chest tables with their own odds), not by a table's full id from another build. Both registries are read by the server
 world at each roll, so an edit reaches the next roll; loot already rolled keeps what it got.
@@ -128,7 +131,7 @@ public sealed class Stacks : Mod
 {
     public override void OnRegistry(RegistryContext context)
     {
-        var registry = Kiln.Registry.Registry.For(context);
+        var registry = Kiln.Registry.Registries.For(context);
         registry.Alter(stage => stage.Items["game:material_t1_wood_logs"].MaxStack = 500);
     }
 }
@@ -275,8 +278,8 @@ clients do not acquire Kiln registry views merely by joining a Kiln server.
 Inside a loaded mod callback on the active world's thread:
 
 ```csharp
-var change = Kiln.Registry.Registry.Change(stage =>
-    view.Items["game:material_t1_wood_logs"].MaxStack = 500);
+var change = Kiln.Registry.Registries.Change(stage =>
+    stage.Items["game:material_t1_wood_logs"].MaxStack = 500);
 if (!change.Result.Ok) Log.Warn(change.Result.Reason ?? "registry change not applied");
 // Keep the owner-bound handle if needed. Revert recomposes the remaining layers, not an old memory snapshot.
 var reverted = change.Revert();
@@ -306,14 +309,14 @@ that caught the exception kept a cut call and one that did not lost its whole pa
 (`Alter`, `Final`) or several `Registry.Change` calls when one registry needs more.
 
 **Authoring the WorldLoad point again (0.2.0-dev.32).** Edits made from settings or from the game's state (a config file, a
-player's level) can follow a change at once: `Kiln.Registry.Registry.Reauthor(RegistryEntryPoint.WorldLoad)` asks Kiln to run
+player's level) can follow a change at once: `Kiln.Registry.Registries.Reauthor()` asks Kiln to run
 the mod's declared WorldLoad pass again, starting on the next host tick, in the same world. The pass runs as at a world load: every
 callback reads the pre-pass values without the mod's own layers (so a value is derived from the game's data and other mods'
 edits again, never from the mod's own last result), entries refuse one by one, and its commits replace the layers that point
 made in this world once they are in, so the game never sees a moment without the mod's values; a pass that throws keeps the
 earlier layers (logged as a fault), a transient refusal asks again on a later tick. Requests before the tick are one pass.
-It returns false, with the reason in kiln.log, for another point (only WorldLoad is authored again on request), a mod that
-declares no WorldLoad point, a call from inside an `OnRegistry` callback (ask when settings or game state change; from the
+Only WorldLoad is authored again on request, so the call names no point. Its answer (`RegistryReauthorResult`, an `IKilnResult`)
+is not Ok, with the reason (also in kiln.log), for a mod that declares no WorldLoad point, a call from inside an `OnRegistry` callback (ask when settings or game state change; from the
 pass itself it would run the pass again on every tick), or no live back-end; with no world loaded the next world's load
 authors the point anyway. A split pass (Alter, then Final for what one call's cap does not take) is re-authored whole.
 
@@ -339,15 +342,15 @@ edits) lands in a few milliseconds where it took 0.5 s (and 0.6 to 2.1 s on a lo
   its landing in one step, nothing moving under it; at the cost re-authors had before 0.2.0-dev.32), so it always lands.
 - The mod's unload (a hot reload too) waits for a pass running on the worker: its `OnUnload` never runs beside its
   `OnRegistry`, and once the unload began no pass of it starts (its earlier layers stay until the unload takes them back).
-
-**Coalescing.** Kiln runs one re-author at a time. Requests made while one runs (or before the next tick) become one more
-pass after it, never one each: a burst of requests (a settings file saved several times, a level-up and a join in the same
 - `context.Pass` says which pass a callback is (since dev.32): `Point` (the entry point's own: the world load's, on the tick),
   `ReauthoredOffTick` (on Kiln's worker: `context.OffTick` is true and a tick-thread API is refused) or `ReauthoredOnTick` (Kiln
   runs the mod's re-authored passes on the tick). Kiln runs one pass of a mod at a time, across a world change too: a new
   world's pass waits for a re-authored pass of the world before that is still on the worker (the tick waits up to 10 s, then
   the world goes on and that mod's pass runs on a later tick, once the old one ended; the old one lands nothing). A mod's pass
   state need not be thread-safe.
+
+**Coalescing.** Kiln runs one re-author at a time. Requests made while one runs (or before the next tick) become one more
+pass after it, never one each: a burst of requests (a settings file saved several times, a level-up and a join in the same
 second) costs at most two passes, the last one with the newest inputs. A mod needs no debounce of its own for Kiln's sake;
 it should still not ask on every tick, nor for a change its edits do not depend on (Loot Rarity Leveler asks when its
 settings or the highest player level change, and checks levels every 2 s).
@@ -364,11 +367,11 @@ Loot Rarity Leveler (Kiln) uses it for its live settings and the character level
 [RegistryEntryPoints(RegistryEntryPoint.WorldLoad)]
 public sealed class Leveler : Mod
 {
-    public override void OnLoad() => Config.Register<Settings>().Changed += _ => Kiln.Registry.Registry.Reauthor(RegistryEntryPoint.WorldLoad);
+    public override void OnLoad() => Config.Register<Settings>().Changed += _ => Kiln.Registry.Registries.Reauthor();
     public override void OnRegistry(RegistryContext context)
     {
         if (context.Phase != RegistryPhase.Alter) return;
-        var r = Kiln.Registry.Registry.For(context);
+        var r = Kiln.Registry.Registries.For(context);
         var w = r.LootRules.RarityWeights;      // the values below this mod: the game's, or other mods' edits
         w.Legendary = w.Legendary * 4;          // never stacks: each pass reads below its own last edit
     }
@@ -386,12 +389,12 @@ per-field capability rows still decide whether a field is mapped.
 
 `KilnHarness.Registry.Seed(registry, id, field, valueJson)` supplies copied JSON. `Author(mod, point, phase, world)` invokes
 one loaded instance's OnRegistry pass and returns copied IR (or null for no edits). Contexts expire before it returns.
-This is a recording-only fake: seed the next pass explicitly. It does not simulate live application, pass composition,
-mapping proof or automatic scheduling, and leaves native registry availability false. Host transport/lifecycle tests and
-native backend tests cover those separate paths; offline authoring is not real-game byte proof.
 Since dev.32 a call over a registry's cap of edits per call returns null too, as Kiln refuses it whole, and `Refused` says why;
 `RunReauthored(mod, offTick, phase, world)` runs the WorldLoad pass as a re-authored one: by default off the tick, on a thread
 of its own (`context.OffTick`), where a tick-thread API throws as in a game and the pass is never taken (`Refused` names the API).
+This is a recording-only fake: seed the next pass explicitly. It does not simulate live application, pass composition,
+mapping proof or automatic scheduling, and leaves native registry availability false. Host transport/lifecycle tests and
+native backend tests cover those separate paths; offline authoring is not real-game byte proof.
 
 ## Capabilities
 

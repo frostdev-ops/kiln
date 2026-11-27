@@ -81,3 +81,28 @@ public sealed class ApiShapeNewApiTests
         context.Close();
     }
 }
+
+public sealed class ApiShapeEntryTests
+{
+    private static ModContext Mod() => HostAccess.CreateContext(new ModInfo("test", "Test", "1.0.0", "."), 77, ".");
+    private static RegistryContext Frame() =>
+        new(Mod(), RegistryEntryPoint.GameStart, RegistryPhase.Alter, null, "test-code",
+            (_, _, field) => field == "level" ? "7" : "null", (_, _) => new[] { "game:wolf" });
+
+    // docs lane A's A1: the entry class is Registries (Registry is also its namespace's name); Registry keeps dev.31's members
+    [Fact]
+    public void RegistriesIsTheEntryAndRegistryForwardsToIt()
+    {
+        var context = Frame();
+        using var scope = context.Enter();
+        Assert.Same(Registries.For(context), DataRegistry.For(context));
+        Assert.Equal(new[] { "Available", "Change", "For", "Read", "Ready" },
+            typeof(DataRegistry).GetMembers(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.DeclaredOnly)
+                .Where(m => m is not System.Reflection.MethodInfo { IsSpecialName: true }).Select(m => m.Name).Distinct().Order().ToArray());
+        Assert.Null(typeof(DataRegistry).GetMethod("Reauthor"));                              // only WorldLoad: Registries.Reauthor()
+        Assert.Empty(typeof(Registries).GetMethod("Reauthor")!.GetParameters());
+        Assert.True(typeof(IKilnResult).IsAssignableFrom(typeof(Registries).GetMethod("Reauthor")!.ReturnType));
+        context.Close();
+    }
+
+}

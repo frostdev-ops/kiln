@@ -2,7 +2,6 @@
 #pragma warning disable KILNX031
 using Kiln;
 using Kiln.Registry;
-using DataRegistry = Kiln.Registry.Registry;
 
 namespace RegistryEdits;
 
@@ -20,7 +19,7 @@ public sealed class RegistryEditsMod : Mod
         // The host supplies a read-only input snapshot when no live config is registered yet.
         // Observed settings, code, point, pass and world identity contribute to context.Identity.
         var settings = Config.Register<Settings>().Value;
-        var registry = DataRegistry.For(context);
+        var registry = Registries.For(context);
         if (context.EntryPoint == RegistryEntryPoint.GameStart)
         {
             // New identities and visibility are process decisions: never restate them at later entry points.

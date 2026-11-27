@@ -194,12 +194,17 @@ public sealed class RegistryContextTests
         try
         {
             var context = new RegistryContext(mod, RegistryEntryPoint.WorldLoad, RegistryPhase.Alter, null, "test-code", (_, _, _) => "1", (_, _) => []);
-            using (context.Enter()) Assert.False(DataRegistry.Reauthor(RegistryEntryPoint.WorldLoad));
+            using (context.Enter())
+            {
+                var refused = Registries.Reauthor();
+                Assert.False(refused.Ok);
+                Assert.StartsWith("it is asked for outside OnRegistry", refused.Reason);  // the reason comes back (dev.32 api-shape), not only in kiln.log
+            }
             context.Close();
             Assert.Equal(0, queued);
-            lock (log.Lines) Assert.Contains(log.Lines, l => l.Contains("Reauthor(WorldLoad) was not queued: it is asked for outside OnRegistry", StringComparison.Ordinal));
+            lock (log.Lines) Assert.Contains(log.Lines, l => l.Contains("Reauthor (WorldLoad) was not queued: it is asked for outside OnRegistry", StringComparison.Ordinal));
             HostAccess.Current = mod;
-            try { Assert.True(DataRegistry.Reauthor(RegistryEntryPoint.WorldLoad)); } finally { HostAccess.Current = null; }
+            try { Assert.Equal(new RegistryReauthorResult(true, null), Registries.Reauthor()); } finally { HostAccess.Current = null; }
             Assert.Equal(1, queued);
         }
         finally { RegistryRuntime.Reauthor = previous; Backend.Current = backend; mod.Retire(); }

@@ -6,7 +6,6 @@
 #pragma warning disable KILNX031
 using Kiln;
 using Kiln.Registry;
-using DataRegistry = Kiln.Registry.Registry;
 
 namespace SpellRegistry;
 
@@ -27,7 +26,7 @@ public sealed class SpellRegistryMod : Mod
             return;
         }
         var settings = Config.Register<Settings>().Value;
-        var registry = DataRegistry.For(context);
+        var registry = Registries.For(context);
         registry.Alter(stage =>
         {
             var poisoned = stage.Buffs["game:buff_5f425faf"];

@@ -638,7 +638,6 @@
 [KILNX031]override Kiln.Registry.RegistryViewSnapshot.Equals(object? obj) -> bool
 [KILNX031]override Kiln.Registry.RegistryViewSnapshot.GetHashCode() -> int
 [KILNX031]override Kiln.Registry.RegistryViewSnapshot.ToString() -> string!
-[KILNX031]static Kiln.Registry.Registry.Reauthor(Kiln.RegistryEntryPoint point) -> bool
 [KILNX031]static Kiln.Registry.RegistrySchema.EditsPerCall.get -> System.Collections.Generic.IReadOnlyDictionary<string!, int>!
 [KILNX031]static Kiln.Registry.RegistryViewField.operator !=(Kiln.Registry.RegistryViewField? left, Kiln.Registry.RegistryViewField? right) -> bool
 [KILNX031]static Kiln.Registry.RegistryViewField.operator ==(Kiln.Registry.RegistryViewField? left, Kiln.Registry.RegistryViewField? right) -> bool
@@ -647,8 +646,6 @@
 [KILNX031]static Kiln.Registry.RegistryViews.All.get -> System.Collections.Generic.IReadOnlyList<Kiln.Registry.RegistryView!>!
 [KILNX031]static Kiln.Registry.RegistryViews.Available.get -> bool
 [KILNX031]static Kiln.Registry.RegistryViews.Find(string! name) -> Kiln.Registry.RegistryView?
-[KILNX031]Kiln.Registry.DropEntry.Item.set -> void
-[KILNX031]Kiln.Registry.RegistryValueList<T>.this[int index].set -> void
 *REMOVED*[KILNX031]Kiln.Registry.ItemLootEntry.FixedRarity.get -> Kiln.Registry.ItemLootRarity
 *REMOVED*[KILNX031]Kiln.Registry.ItemLootRarity
 *REMOVED*[KILNX031]Kiln.Registry.ItemLootRarity.Common = 1 -> Kiln.Registry.ItemLootRarity
@@ -658,3 +655,26 @@
 *REMOVED*[KILNX031]Kiln.Registry.ItemLootRarity.Rare = 3 -> Kiln.Registry.ItemLootRarity
 *REMOVED*[KILNX031]Kiln.Registry.ItemLootRarity.Uncommon = 2 -> Kiln.Registry.ItemLootRarity
 [KILNX031]Kiln.Registry.ItemLootEntry.FixedRarity.get -> Kiln.Registry.RegistryRarity?
+[KILNX031]Kiln.Registry.DropEntry.Item.set -> void
+[KILNX031]Kiln.Registry.RegistryValueList<T>.this[int index].set -> void
+[KILNX031]Kiln.Registry.Registries
+[KILNX031]static Kiln.Registry.Registries.Available.get -> bool
+[KILNX031]static Kiln.Registry.Registries.Change(System.Action<Kiln.Registry.RegistryStage!>! edits) -> Kiln.Registry.RegistryChange!
+[KILNX031]static Kiln.Registry.Registries.For(Kiln.RegistryContext! context) -> Kiln.Registry.RegistryStage!
+[KILNX031]static Kiln.Registry.Registries.Read(System.Action<Kiln.Registry.RegistryStage!>! read) -> void
+[KILNX031]static Kiln.Registry.Registries.Ready -> System.Action<Kiln.Registry.RegistryReady!>!
+[KILNX031]static Kiln.Registry.Registries.Reauthor() -> Kiln.Registry.RegistryReauthorResult!
+[KILNX031]Kiln.Registry.RegistryReauthorResult
+[KILNX031]Kiln.Registry.RegistryReauthorResult.<Clone>$() -> Kiln.Registry.RegistryReauthorResult!
+[KILNX031]Kiln.Registry.RegistryReauthorResult.Deconstruct(out bool Ok, out string? Reason) -> void
+[KILNX031]Kiln.Registry.RegistryReauthorResult.Equals(Kiln.Registry.RegistryReauthorResult? other) -> bool
+[KILNX031]Kiln.Registry.RegistryReauthorResult.Ok.get -> bool
+[KILNX031]Kiln.Registry.RegistryReauthorResult.Ok.init -> void
+[KILNX031]Kiln.Registry.RegistryReauthorResult.Reason.get -> string?
+[KILNX031]Kiln.Registry.RegistryReauthorResult.Reason.init -> void
+[KILNX031]Kiln.Registry.RegistryReauthorResult.RegistryReauthorResult(bool Ok, string? Reason) -> void
+[KILNX031]override Kiln.Registry.RegistryReauthorResult.Equals(object? obj) -> bool
+[KILNX031]override Kiln.Registry.RegistryReauthorResult.GetHashCode() -> int
+[KILNX031]override Kiln.Registry.RegistryReauthorResult.ToString() -> string!
+[KILNX031]static Kiln.Registry.RegistryReauthorResult.operator !=(Kiln.Registry.RegistryReauthorResult? left, Kiln.Registry.RegistryReauthorResult? right) -> bool
+[KILNX031]static Kiln.Registry.RegistryReauthorResult.operator ==(Kiln.Registry.RegistryReauthorResult? left, Kiln.Registry.RegistryReauthorResult? right) -> bool

@@ -65,8 +65,9 @@ public sealed class TablesTests
     [InlineData("P:Kiln.Crosshair.Available", "client.crosshair")]
     [InlineData("P:Kiln.PadInput.Available", "kiln.ui.input")]             // UiNative.Input == null: false
     // dev.32 api-shape (docs lane C's C8): guarded the documented way, these still got KILN121
-    [InlineData("P:Kiln.Registry.Registry.Available", "kiln.registry")]       // [CapabilityGuard]: the host's transport
-    [InlineData("P:Kiln.Registry.Registry.Available", "kiln.registry.live")]
+    [InlineData("P:Kiln.Registry.Registries.Available", "kiln.registry")]     // [CapabilityGuard]: the host's transport
+    [InlineData("P:Kiln.Registry.Registries.Available", "kiln.registry.live")]
+    [InlineData("P:Kiln.Registry.Registry.Available", "kiln.registry.live")]  // the older name: via Registries.Available
     [InlineData("P:Kiln.Registry.RegistryViews.Available", "kiln.registry.view")]
     [InlineData("P:Kiln.ItemCosts.StacksAvailable", "items.costs.exact")]  // => Runtime.StacksOn(), a seam asking the row
     [InlineData("P:Kiln.ItemCosts.WearAvailable", "items.costs.wear")]

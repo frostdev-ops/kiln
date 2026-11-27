@@ -992,7 +992,8 @@ internal static partial class KilnApis
         "P:Kiln.Players.Available=kiln.players", // T != null: Services.Get("kiln.players")
         "P:Kiln.Progression.Available=kiln.progression", // T != null: Services.Get("kiln.progression")
         "P:Kiln.ReflectedResources.Available=assets.resources,kiln.assets,kiln.types", // via Kiln.GameTypes.Available; via Kiln.ResourceStore.Available
-        "P:Kiln.Registry.Registry.Available=kiln.registry,kiln.registry.live", // [CapabilityGuard("kiln.registry")]; [CapabilityGuard("kiln.registry.live")]
+        "P:Kiln.Registry.Registries.Available=kiln.registry,kiln.registry.live", // [CapabilityGuard("kiln.registry")]; [CapabilityGuard("kiln.registry.live")]
+        "P:Kiln.Registry.Registry.Available=kiln.registry,kiln.registry.live", // via Kiln.Registry.Registries.Available
         "P:Kiln.Registry.RegistryViews.Available=kiln.registry.view", // [CapabilityGuard("kiln.registry.view")]
         "P:Kiln.Render.Available=kiln.ui", // via Kiln.UiNative.Available
         "P:Kiln.Rules.Available=kiln.rules", // RulesNative.T != null: Services.Get("kiln.rules")
