@@ -67,6 +67,7 @@ KilnAssetKey key_of(const std::string& guid, const std::string& type) {
 struct TreeView final : kiln::boot_view::BaseView {
     std::map<std::string, json> values;
     std::map<std::string, std::vector<std::string>> types;
+    std::set<std::string> listed;  // every type a source listed (review-j2: what a start decodes)
     const char* source() const override { return "live"; }
     bool ready(std::string*) override { return true; }
     std::string digest() override { return kiln::boot_gd::hex_of(kiln::boot_gd::sha256(values.begin()->second.dump())); }
@@ -120,6 +121,7 @@ stage::Env env_of(TreeView* view, Files* files, const std::string& regmap_dir) {
     e.now = [] { return std::string("2026-11-26T00:00:00Z"); };
     e.source = [view](std::string*) {
         return model::tree_source(*view, [view](const std::string& type, std::vector<KilnAssetKey>* out, std::string*) {
+            view->listed.insert(type);
             for (const std::string& gu : view->types[type]) out->push_back(key_of(gu, type));
             return true;
         });
@@ -655,6 +657,68 @@ void gear_vocabulary(const std::string& dir) {
     }
     std::printf("gear-frontend: the gear section's 13 keys are items registry fields (member paths and formulas, %zu solved values equal)\n", solved);
 }
+
+// review-j2: in the process the stage prepares the live back-end's base too (Env::prepare_live), and a start with registry
+// work decodes the whole base at resources-ready for it. A start whose only registry work is a front-end (a gearRules file:
+// no registry content, no registry user) reads what its candidates need (the balance registry's boot fields), as the host's
+// start without prepare_live does; the whole base waits for a first use (a registry view, a registry user), as at a start
+// with no registry work, over a source that froze the old writers' resources before they wrote (review4 NS1).
+void front_only_start(const std::string& dir, size_t table) {
+    const Game g;
+    TreeView view;
+    view.types["keen::BalancingTable"].push_back(kBalance);
+    view.values[kBalance] = tree_of(g);
+    Files files;
+    {  // the first start of this build writes its id table (a start without one lists every registry for it)
+        stage::Runner first(env_of(&view, &files, dir));
+        first.run({});
+        first.finish({});
+    }
+    check(files.data.count("ids-server-" + kExe + ".json") == 1, "the build's id table");
+    view.listed.clear();
+    const boothook::OldDoc d = doc_of({{"set", {{"durabilityStart", {{"mul", 2}}}}}});
+    stage::Env e = env_of(&view, &files, dir);
+    e.prepare_live = true;
+    // this fixture changes the view's values after the start (the boot writer's patch): no base cache of its synthetic digest
+    e.write_data = [&files](const std::string& rel, const std::string& text) {
+        if (rel.rfind("cache/", 0) != 0) files.data[rel] = text;
+        return true;
+    };
+    stage::Runner r(std::move(e));
+    stage::LiveHandoff live;
+    r.set_live([&](const stage::LiveHandoff& h) { live = h; });
+    const std::set<std::string> ids = {kDoc};
+    const std::vector<stage::BootResource> boot =
+        r.run([&](model::Model& m) { return boothook::old_writes({d}, m, &ids); }, {{d.res, d.type}}, {{kDoc, d.type}});
+    const std::vector<stage::FrontEnd> fe = r.front_ends();
+    check(boot.size() == 1 && boot[0].front == std::vector<std::string>{kDoc} && fe.size() == 1 && fe[0].state == "pending",
+          "the front-end is taken at a start with prepare_live");
+    std::string listed;
+    for (const std::string& t : view.listed) listed += t + " ";
+    check(view.listed == std::set<std::string>{"keen::BalancingTable"},
+          "a front-end-only start lists the balancing table only, not every registry's resources (it listed: " + listed + ")");
+    // the apply: the registry's copy (the same bytes as the resource patch's), then the boot writer's patch is in the game
+    std::vector<uint8_t> copy = bytes_of(g, table);
+    std::vector<stage::BootOutcome> out;
+    std::vector<std::string> notes;
+    boothook::write(boot[0].key, boot[0].type, &copy, boot[0], &out, &notes);
+    check(copy == patched(bytes_of(g, table), d), "the same bytes as its resource patch");
+    r.finish(out, {{"gearmod", "gearRules@gear.json", "registry", "", 0}});
+    view.values[kBalance]["durabilityStart"] = 290;
+    check(bool(live.prepare), "the whole base waits for a first use");
+    stage::LiveData data;
+    std::string why;
+    check(live.prepare(&data, &why), "a first use prepares the whole base: " + why);
+    check(view.listed.size() > 1, "and lists every registry then");
+    const auto f = data.result.fields.find({"balance", "game:balance", "durability.start"});
+    check(f != data.result.fields.end() && f->second.result.as_double() == 290 && !f->second.chain.empty() && f->second.chain[0].front,
+          "over the pre-patch value: the document's mul 2 once (290, not 580), its row still the front-end's");
+    std::string v0, v2;
+    check(r.read(0, "balance", "game:balance", "durability.start", &v0) == KILN_OK && std::stod(v0) == 145 &&
+              r.read(2, "balance", "game:balance", "durability.start", &v2) == KILN_OK && std::stod(v2) == 290,
+          "the game's view holds the pre-patch 145, the resolved view the document's 290: " + v0 + " " + v2);
+    std::printf("gear-frontend: a front-end-only start reads the balance registry only; the whole base at first use (%d checks so far)\n", checks);
+}
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -671,6 +735,7 @@ int main(int argc, char** argv) {
         report(dir);
         std::printf("gear-frontend: registry.json frontEnds and the frontEnd mark (%d checks so far)\n", checks);
         composition(dir, table);
+        front_only_start(dir, table);
     } catch (const std::exception& e) {
         std::fprintf(stderr, "FAIL %s\n", e.what());
         return 1;

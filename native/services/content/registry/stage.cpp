@@ -1111,6 +1111,10 @@ std::vector<BootResource> Runner::run(const OldWritesFn& old_fn, const std::vect
         users = d.registry_users;
     }
     const bool eager = want_base || (users && d.env.prepare_live);
+    // review-j2: a start whose only registry work is a front-end (no registry content, no stack record, no registry user) reads
+    // what its candidates need (below), never the whole base the live back-end's first use needs (need.all): that waits for a
+    // first use, as at a start with no registry work, over a source frozen before the boot writers write (first_use below)
+    const bool fronts_only = !d.front_candidates.empty() && inputs.empty() && fallback.empty() && !then_stacks && !users;
     const bool freeze_old = !eager && d.env.prepare_live && !freeze.empty();
     std::unique_ptr<model::Source> src = !eager && !ids_missing && !freeze_old ? nullptr : d.env.source ? d.env.source(&why) : nullptr;
     if ((!eager || (!want_base && !src)) && d.env.prepare_live) d.lazy_old = old_fn; // production supplies owned document copies
@@ -1169,7 +1173,7 @@ std::vector<BootResource> Runner::run(const OldWritesFn& old_fn, const std::vect
                     (row.conv == "int" || row.conv == "float" || row.conv == "bool" || row.conv == "time" || row.conv == "enum"))
                     need.fields[name].insert(fname), need.registries.insert(name);
         }
-    if (d.env.prepare_live && eager) need.all = true;
+    if (d.env.prepare_live && eager && !fronts_only) need.all = true;
     bool hit = false;
     if (!src && !want_base) {
         if (eager && d.env.prepare_live && !freeze.empty() && d.lazy_error.empty()) {
@@ -1554,7 +1558,30 @@ std::vector<BootResource> Runner::run(const OldWritesFn& old_fn, const std::vect
     }
     // A cache hit has not populated the model's entry locations yet. Locate boot targets before releasing its source.
     if (m) m->release();
+    const bool full_live = eager && need.all && bool(src);
+    // review-j2: a front-end-only start's first use (fronts_only): a fresh source that holds the old writers' resources as they
+    // are now, before any boot writer of this start writes (as an unused start's, freeze_old above); the first use composes the
+    // stage's old writes (d.old, with their front marks) over it. This start's own read is over: let it go first (a new source
+    // is a new read generation of the view).
+    std::unique_ptr<model::Source> first_use;
+    std::string first_use_error;
+    if (fronts_only && d.env.prepare_live) {
+        m.reset();
+        inventory.reset();
+        src.reset();
+        std::string error;
+        first_use = d.env.source ? d.env.source(&error) : nullptr;
+        for (const auto& [key, type] : freeze)
+            if (!first_use || !first_use->touch(key, type, &error)) {
+                first_use.reset();
+                first_use_error = "the registry's pre-patch base could not be frozen: " + (error.empty() ? why : error);
+                d.log(1, "registry: " + first_use_error);
+                break;
+            }
+    }
     std::lock_guard lk(d.mu);
+    if (first_use) d.lazy_source = std::move(first_use);
+    if (!first_use_error.empty() && d.lazy_error.empty()) d.lazy_error = first_use_error;
     d.meta.migrated = std::move(migrated);
     d.meta.rollback = rb;
     if (rolled) {
@@ -1567,7 +1594,7 @@ std::vector<BootResource> Runner::run(const OldWritesFn& old_fn, const std::vect
     } else if (rb.is_object()) {
         d.meta.rollback.erase("previous");
     }
-    d.full_live = eager && need.all && bool(src);
+    d.full_live = full_live;
     d.base = std::move(base);
     d.old = std::move(old);
     for (ModInput& in : inputs) {
