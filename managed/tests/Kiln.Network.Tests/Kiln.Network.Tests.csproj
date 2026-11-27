@@ -30,5 +30,7 @@
     <Compile Include="../../../mods/tests/labbot-test/ControlPeers.cs" Link="LabBotControlPeers.cs" />
     <!-- Which connections labbot-test lets in as bots when kiln.net would refuse a client without Kiln (LabBotPeersTests). -->
     <Compile Include="../../../mods/tests/labbot-test/BotPeers.cs" Link="LabBotPeers.cs" />
+    <!-- Every labbot:control request gets an answer, an error when its op threw (LabBotRepliesTests). -->
+    <Compile Include="../../../mods/tests/labbot-test/Replies.cs" Link="LabBotReplies.cs" />
   </ItemGroup>
 </Project>

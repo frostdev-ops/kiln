@@ -42,7 +42,8 @@
 //   component {entity, name}     whether the entity has the component, its size and bytes (hex, at most 1024)
 //   destroy {entity}             Spawn.Destroy
 // Lab only: LabBots answers KilnUnavailableException off a lab server; the mod then answers every op with that error.
-// Requests count only from a lab peer (ControlPeers): one from a player's game connection is dropped unanswered.
+// Requests count only from a lab peer (ControlPeers): one from a player's game connection is dropped unanswered. Every
+// other request is answered, with the error when its op threw (Replies).
 // A bot that kiln.net would refuse as a client without Kiln is let in (BotPeers; NetVanillaClientEvent).
 using System.Numerics;
 using System.Text.Json;
@@ -133,12 +134,12 @@ public sealed class LabBotTestMod : Mod
             Send(sender, new JsonObject { ["ok"] = false, ["error"] = "bad request: " + e.Message });
             return;
         }
-        var seq = rq["seq"]?.GetValue<long>() ?? 0;
-        var op = rq["op"]?.GetValue<string>() ?? "";
-        JsonObject res;
-        try
+        long seq = 0;
+        var res = Replies.Run(() =>
         {
-            res = op switch
+            seq = rq["seq"]?.GetValue<long>() ?? 0;
+            var op = rq["op"]?.GetValue<string>() ?? "";
+            return op switch
             {
                 "status" => Status(),
                 "join" => Join(rq),
@@ -164,12 +165,7 @@ public sealed class LabBotTestMod : Mod
                 "destroy" => new JsonObject { ["destroyed"] = Spawn.Destroy(new EntityId(U32(rq, "entity"))) },
                 _ => Error($"unknown op '{op}'"),
             };
-        }
-        catch (Exception e) when (e is KilnUnavailableException or ArgumentException or InvalidOperationException or JsonException
-                                      or FormatException or NotSupportedException)
-        {
-            res = Error($"{e.GetType().Name}: {e.Message}");
-        }
+        });
         if (res.ContainsKey("pending")) return;  // the op answers when it ends
         res["seq"] = seq;
         Send(sender, res);
@@ -181,7 +177,7 @@ public sealed class LabBotTestMod : Mod
         _chan?.SendTo(peer, new Reply(o.ToJsonString()));
     }
 
-    private static JsonObject Error(string why) => new() { ["ok"] = false, ["error"] = why };
+    private static JsonObject Error(string why) => Replies.Error(why);
 
     private static int Id(JsonObject rq) => rq["id"]?.GetValue<int>() ?? throw new ArgumentException("no id");
 
@@ -278,17 +274,13 @@ public sealed class LabBotTestMod : Mod
 
         async Task Finish()
         {
-            JsonObject res;
-            try
+            var res = await Replies.RunAsync(async () =>
             {
                 var r = await Teleport.To(b.Entity, to);
-                res = r.Ok ? new JsonObject { ["id"] = b.Id } : Error($"teleport refused: {r.Reason}");
-                if (World.TryGetPosition(b.Entity, out var p)) res["position"] = Pos(p);
-            }
-            catch (Exception e) when (e is KilnUnavailableException or InvalidOperationException or ArgumentException)
-            {
-                res = Error($"{e.GetType().Name}: {e.Message}");
-            }
+                var o = r.Ok ? new JsonObject { ["id"] = b.Id } : Error($"teleport refused: {r.Reason}");
+                if (World.TryGetPosition(b.Entity, out var p)) o["position"] = Pos(p);
+                return o;
+            });
             res["seq"] = seq;
             Send(sender, res);
         }
@@ -346,16 +338,7 @@ public sealed class LabBotTestMod : Mod
 
         async Task Go()
         {
-            JsonObject res;
-            try
-            {
-                res = await run();
-            }
-            catch (Exception e) when (e is KilnUnavailableException or InvalidOperationException or ArgumentException or FormatException
-                                          or JsonException or SpawnException)
-            {
-                res = Error($"{e.GetType().Name}: {e.Message}");
-            }
+            var res = await Replies.RunAsync(run);
             res["seq"] = seq;
             Send(sender, res);
         }
