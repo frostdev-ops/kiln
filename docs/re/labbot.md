@@ -151,10 +151,13 @@ position search `0x7aded0`; on a found position it stores it at record `+0x100` 
 pass: `0xa45c10` (the area at that position, on `[gs+0x1770]`), `0x66c710` (`[[gs+0x1d0]] == 2`), `0x23a180` (on
 `[gs+0x1d8]`) and `0x7b6460`, the **spawn send**: it looks the machine's socket entry up (`[gs+0x30]+0x28`, 32-byte entries
 by machine index, `{u32 handle; ...; +0x10 sockets; +0x18 count}`) and asks the session for a send buffer on it
-(`0xa033b0`, result byte 0 = queued). The session refuses one (result 2) while the socket's backlog is over its budget
-(`0xa03402..0xa03613`: the socket's `+0x24` counts the bytes queued and never acknowledged, `+0x28` the messages, 512 at
-most). A bot never acknowledges anything, so every byte the server sends a bot in game stays counted on the sockets of its
-machine index. And SyncSockets (`0x7bd3c0`) keeps a machine entry's sockets until **another handle takes that index**
+(`0xa033b0`, result byte 0 = queued). The session refuses one (result 2) when the socket's link has no credit left for it
+(`0xa0354b..0xa035b9`: the link `[socket+0x10]` holds the credit at `+0x4` and the frame's reserves at `+0x10`; a request
+whose minimum size neither the credit nor the socket's own reserve `+0x20` covers is refused and its minimum size added
+to the socket's `+0x24`; a granted one counts in `+0x28`, 512 a frame at most, and only then is a buffer allocated,
+`0xa036f0`). A bot never acknowledges anything, and as far as the labs show only a client's acknowledgements give credit
+back: once what the server sent a bot in game used its link's credit up, every later send on that machine index is
+refused, and `+0x24` adds up the refused bytes. And SyncSockets (`0x7bd3c0`) keeps a machine entry's sockets until **another handle takes that index**
 (`0x7b5530` destroys them then; a machine that leaves the published state keeps them). So the next bot on that machine
 index (kiln.labbot gave every bot the highest free one: index 16 again) found its spawn message refused every frame.
 
@@ -173,9 +176,18 @@ Lab p1 (dev32-labbot-2, a probe build that logged the four checks, the spawn sen
 and the refusal of a name that played earlier is gone. A server session has 16 machine indices (1 to 16; 0 is the
 server's own), so about 15 joins per server session, less one for each player connected; then `join` answers
 `KILN_ERR_NOT_FOUND` ("no free machine index that no bot held in this server session"), and a restart gives them back.
-Not fixed: the backlog itself. A bot in game keeps adding to its sockets' counters (channel 11 about 0.2 MB a second in
-p1); they are 32-bit, so a bot in game for some hours could wrap them (not seen; the review's 5-minute stays were fine).
-Draining it would mean answering the session's reliable channel as a client does (acknowledgements), not built.
+Not fixed: the backlog itself. Draining it would mean answering the session's reliable channel as a client does
+(acknowledgements), not built.
+
+**The counters over hours (review-labbot-2) [static].** A bot in game keeps adding to its sockets' `+0x24` (channel 11
+about 0.2 MB a second in p1), a u32 that would wrap after some hours. That changes nothing: no send decision reads it (the
+request above reads the link's credit and reserves and the socket's `+0x20` and `+0x28`). Its one reader is the session's
+frame end over the sockets (`0x9f85b3..0x9f8735`): for a socket that holds a reserve (`+0x20` nonzero) it logs "channel
+%u reserved %u more bandwidth than it used" from `+0x20` and `+0x24` and then zeroes both (a qword store at `+0x20`);
+a bot's sockets hold none, so theirs only grows. `+0x28` is reset there at every frame's end for every socket (after
+"channel %u tried to send %u messages in one frame" at 512 or more), so it never wraps. Nor does memory grow with it: a
+refused request allocates nothing (`0xa036f0` runs only for a granted one), so what the session holds for a bot is
+bounded by the link's credit (its send allocator peaked at 0.98 MB in s5).
 
 ## Using an item (dev.32 labbot-2)
 
