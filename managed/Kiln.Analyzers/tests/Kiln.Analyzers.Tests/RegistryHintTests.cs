@@ -1,0 +1,181 @@
+// SPDX-License-Identifier: MIT
+using System.Collections.Immutable;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CodeActions;
+using Microsoft.CodeAnalysis.CodeFixes;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.Diagnostics;
+using Microsoft.CodeAnalysis.Text;
+using Xunit;
+
+namespace Kiln.Analyzers.Tests;
+
+/// <summary>KILN124 and KILN125: hints from a mod's old paths and Native-tier code toward the registry fields that cover them,
+/// from the generated table (RegistryHints.g.cs, made by tools/registrygen from the schemas and regmap/common), and the fix
+/// that moves a one-to-one data pack value into the "registry" section.</summary>
+public class RegistryHintTests
+{
+    private static async Task<ImmutableArray<Diagnostic>> Run(string source, params (string Path, string Text)[] files)
+    {
+        var comp = Harness.Compile(source);
+        var options = new AnalyzerOptions(files.Select(f => (AdditionalText)new FileText(f.Path, f.Text)).ToImmutableArray());
+        var diags = await comp.WithAnalyzers(ImmutableArray.Create<DiagnosticAnalyzer>(new RegistryHintAnalyzer()), options).GetAnalyzerDiagnosticsAsync();
+        Assert.DoesNotContain(diags, d => d.Id == "AD0001");
+        return diags.OrderBy(d => d.Location.GetLineSpan().Path).ThenBy(d => d.Location.SourceSpan.Start).ToImmutableArray();
+    }
+
+    private const string Empty = "public sealed class M : Mod { }";
+
+    [Fact]
+    public void TheTableComesFromTheSchemasAndRegmap()
+    {
+        Assert.Contains(RegistryHints.Registries, r => r.Name == "items");
+        Assert.Contains(RegistryHints.Paths, p => p is { Root: "keen::ItemInfo", Path: "maxstacksize", Field: "items.maxStack", Exact: true });
+        Assert.Equal(("items.maxStack", true), RegistryHintAnalyzer.Covering("keen::ItemInfo", "maxStackSize"));
+        Assert.Equal("items.power", RegistryHintAnalyzer.Covering("keen::ItemInfo", "damageSetup.dmgMod")?.Field);
+        Assert.False(RegistryHintAnalyzer.Covering("keen::ItemInfo", "damageSetup.dmgMod")!.Value.Exact);  // through a formula
+        Assert.Null(RegistryHintAnalyzer.Covering("keen::ItemInfo", "noSuchMember"));
+        // a list's element is covered by the list, never one to one
+        Assert.Equal(("balance.altarsPerFlameLevel", false), RegistryHintAnalyzer.Covering("keen::BalancingTable", "altarsPerFlameLevel[*]"));
+    }
+
+    [Fact]
+    public async Task DataPackPathsARegistryFieldCovers()
+    {
+        var pack = """
+        { "format": 1,
+          // BigStacks-style
+          "items": { "Material_T1_Wood_Logs": { "maxStackSize": 500, "damageSetup.dmgMod": { "mul": 1.5 }, "weight": 2 },
+                     "Material_*": { "maxStackSize": { "mul": 4 } } },
+          "templates": { "Enemy_Vukah_Melee": { "LifeTime.lifeTime": 5 } } }
+        """;
+        var diags = await Run(Empty, ("/mod/content/stacks.json", pack));
+        var hints = diags.Where(d => d.Id == "KILN124").ToList();
+        Assert.Equal(3, hints.Count);
+        Assert.All(hints, d => Assert.Equal(DiagnosticSeverity.Info, d.Severity));
+        Assert.Contains("items.maxStack", hints[0].GetMessage());
+        Assert.Equal("true", hints[0].Properties[RegistryHintAnalyzer.FixableKey]);
+        Assert.Contains("items.power", hints[1].GetMessage());
+        Assert.False(hints[1].Properties.ContainsKey(RegistryHintAnalyzer.FixableKey));  // a formula
+        Assert.False(hints[2].Properties.ContainsKey(RegistryHintAnalyzer.FixableKey));  // a glob and a relative op
+        Assert.Equal("/mod/content/stacks.json", hints[0].Location.GetLineSpan().Path);
+        Assert.Equal(2, hints[0].Location.GetLineSpan().StartLinePosition.Line);
+    }
+
+    [Fact]
+    public async Task ResourcePatchesInBlocksFiles()
+    {
+        var blocks = """
+        { "format": 1, "resourcePatches": { "more-altars": { "format": 1, "resource": "82706b40-61b1-4b8f-8b23-dcec6971bda1",
+          "type": "keen::BalancingTable", "set": { "altarsPerFlameLevel[*]": { "min": 16 }, "playerLevelCap": 30 } } } }
+        """;
+        var diags = (await Run(Empty, ("/mod/blocks/boot.json", blocks))).Where(d => d.Id == "KILN124").ToList();
+        Assert.Contains(diags, d => d.GetMessage().Contains("balance.altarsPerFlameLevel"));
+        Assert.All(diags, d => Assert.Contains("a resource patch of BalancingTable", d.GetMessage()));
+        Assert.All(diags, d => Assert.False(d.Properties.ContainsKey(RegistryHintAnalyzer.FixableKey)));  // boot documents are not moved
+    }
+
+    [Fact]
+    public async Task ContentEntryPathsInCode()
+    {
+        var src = """
+        public sealed class M : Mod
+        {
+            public override void OnLoad()
+            {
+                Content.Items.Get("Material_T1_Wood_Logs")!.Set("maxStackSize", 500);
+                var e = Content.Items.Get("Material_T1_Wood_Logs");
+                e?.Set("weight", 2);
+                string p = "maxStackSize";
+                e?.Set(p, 3);
+            }
+        }
+        """;
+        var diags = (await Run(src)).Where(d => d.Id == "KILN124").ToList();
+        Assert.Single(diags);  // the constant path; "weight" no registry covers; a computed path is not followed
+        Assert.Contains("items.maxStack", diags[0].GetMessage());
+    }
+
+    [Fact]
+    public async Task NativeTierHooksAndMemoryWrites()
+    {
+        var src = """
+        using System.Runtime.InteropServices;
+        public sealed class M : Mod
+        {
+            private static void Handler(ref Registers regs) { }
+            public override void OnLoad()
+            {
+                nuint b = 0x140000000;
+                Hooks.Mid(b + 0x93dea0, Handler);
+                Memory.Write<int>(b + 16, 5);
+                var own = Marshal.AllocHGlobal(16);
+                Marshal.WriteInt32(own, 1);
+                Marshal.WriteInt32((nint)b, 1);
+            }
+        }
+        """;
+        var diags = (await Run(src)).Where(d => d.Id == "KILN125").ToList();
+        Assert.Equal(3, diags.Count);  // the hook, Memory.Write, the write into an address it did not allocate
+        Assert.All(diags, d => Assert.Equal(DiagnosticSeverity.Info, d.Severity));
+        Assert.Contains("hooks the game's code by address", diags[0].GetMessage());
+    }
+
+    [Fact]
+    public void TheFixMovesAOneToOneValueIntoTheRegistrySection()
+    {
+        var pack = """
+        { "format": 1,
+          "items": { "Material_T1_Wood_Logs": { "maxStackSize": 500, "weight": 2 } } }
+        """;
+        var start = pack.IndexOf("\"maxStackSize\"", StringComparison.Ordinal);
+        var moved = RegistryHintFix.MoveText(pack, start, "items.maxStack", "items", "Material_T1_Wood_Logs");
+        Assert.NotNull(moved);
+        var doc = JsonSpans.Parse(moved!)!;
+        Assert.Null(doc.Find("items")!.Value.Find("Material_T1_Wood_Logs")!.Value.Find("maxStackSize"));
+        Assert.Equal("2", doc.Find("items")!.Value.Find("Material_T1_Wood_Logs")!.Value.Find("weight")!.Value.Text);
+        Assert.Equal("500", doc.Find("registry")!.Value.Find("items")!.Value.Find("Material_T1_Wood_Logs")!.Value.Find("maxStack")!.Value.Text);
+        // into an existing registry section, and {"set": v}
+        var withRegistry = """
+        { "format": 1, "items": { "Wood": { "maxStackSize": { "set": 99 } } },
+          "registry": { "items": { "Wood": { "rarity": "rare" } } } }
+        """;
+        moved = RegistryHintFix.MoveText(withRegistry, withRegistry.IndexOf("\"maxStackSize\"", StringComparison.Ordinal), "items.maxStack", "items", "Wood");
+        var reg = JsonSpans.Parse(moved!)!.Find("registry")!.Value.Find("items")!.Value.Find("Wood")!.Value;
+        Assert.Equal("99", reg.Find("maxStack")!.Value.Text);
+        Assert.Equal("rare", reg.Find("rarity")!.Value.Text);
+        // the registry section already sets the field: no fix
+        var both = """{ "items": { "Wood": { "maxStackSize": 1 } }, "registry": { "items": { "Wood": { "maxStack": 2 } } } }""";
+        Assert.Null(RegistryHintFix.MoveText(both, both.IndexOf("\"maxStackSize\"", StringComparison.Ordinal), "items.maxStack", "items", "Wood"));
+    }
+
+    [Fact]
+    public async Task TheFixIsOfferedOnTheDataPackInTheWorkspace()
+    {
+        var pack = """{ "format": 1, "items": { "Wood": { "maxStackSize": 500 } } }""";
+        using var ws = new AdhocWorkspace();
+        var pid = ProjectId.CreateNewId();
+        var aid = DocumentId.CreateNewId(pid);
+        var sol = ws.CurrentSolution
+            .AddProject(ProjectInfo.Create(pid, VersionStamp.Create(), "TestMod", "TestMod", LanguageNames.CSharp, metadataReferences: Harness.References))
+            .AddDocument(DocumentId.CreateNewId(pid), "Mod.cs", Empty)
+            .AddAdditionalDocument(aid, "stacks.json", SourceText.From(pack), filePath: "/mod/content/stacks.json");
+        var diags = await Run(Empty, ("/mod/content/stacks.json", pack));
+        var d = diags.Single(x => x.Id == "KILN124");
+        var actions = new List<CodeAction>();
+        var fix = new RegistryHintFix();
+        await fix.RegisterCodeFixesAsync(new CodeFixContext(sol.GetAdditionalDocument(aid)!, d, (a, _) => actions.Add(a), CancellationToken.None));
+        var action = Assert.Single(actions);
+        var ops = await action.GetOperationsAsync(CancellationToken.None);
+        var changed = ops.OfType<ApplyChangesOperation>().Single().ChangedSolution.GetAdditionalDocument(aid)!;
+        var text = (await changed.GetTextAsync()).ToString();
+        Assert.Contains("\"registry\": {\"items\": {\"Wood\": {\"maxStack\": 500}}}", text);
+        Assert.DoesNotContain("maxStackSize", text);
+    }
+
+    private sealed class FileText(string path, string text) : AdditionalText
+    {
+        public override string Path => path;
+        public override SourceText GetText(CancellationToken cancellationToken = default) => SourceText.From(text);
+    }
+}
