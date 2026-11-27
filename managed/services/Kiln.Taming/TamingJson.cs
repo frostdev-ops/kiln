@@ -4,10 +4,10 @@
 // error naming the exact field path ($.steps[1].count). The result is the same TamingDefinition C# makes, validated by the
 // engine's own rules. docs/kiln/modding/taming.md.
 //
-//   { "id": "my-mod:wolf", "creatures": ["game:enemy_wildbeast_wolf"], "pet": "my-mod:wolf-pet",
+//   { "id": "my-mod:wolf", "creatures": ["game:enemy_wildbeast_wolf_earlygame"], "pet": "my-mod:wolf-pet",
 //     "steps": [ { "kind": "weaken", "maxHealthFraction": 0.3 },
 //                { "kind": "feed", "item": "game:food_t2_dog_bait", "count": 1 },
-//                { "kind": "tool", "item": "game:tool_t1_whistle", "wear": 1, "allowBreak": false },
+//                { "kind": "tool", "item": "game:tool_t1_fishingrod_basic", "wear": 1, "allowBreak": false },
 //                { "kind": "native", "steps": 1 } ],
 //     "rangeMeters": 3, "requireThresholdUntilCommit": true, "inactivitySeconds": 30, "maxAttemptSeconds": 300,
 //     "refund": "nonRefundable", "removeTarget": true, "summonPet": true }

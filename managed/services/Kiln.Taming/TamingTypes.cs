@@ -73,7 +73,7 @@ public sealed record TamingDefinition
     public required string Id { get; init; }
     /// <summary>The steps (1 to 64).</summary>
     public required IReadOnlyList<TamingStep> Steps { get; init; }
-    /// <summary>Which creatures it tames: creatures registry ids (<c>game:enemy_wildbeast_wolf</c>, a mod's
+    /// <summary>Which creatures it tames: creatures registry ids (<c>game:enemy_wildbeast_wolf_earlygame</c>, a mod's
     /// <c>my-mod:wolf</c>); a trailing <c>*</c> matches a prefix. Empty: none (a definition always names its targets).</summary>
     public IReadOnlyList<string> Creatures { get; init; } = [];
     /// <summary>How close the player must be, 1 to 8 m.</summary>

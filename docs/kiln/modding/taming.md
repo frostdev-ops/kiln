@@ -16,11 +16,11 @@ The service page is [services/taming.md](../services/taming.md); a whole mod is 
 C#, with ids from the registries (creatures by their creatures registry id, items by their `ItemId`):
 
 ```csharp
-Blocks.Define("tame-wolf", new PetBlock { Creature = "game:enemy_wildbeast_wolf", Name = "Tamed Wolf" });
+Blocks.Define("tame-wolf", new PetBlock { Creature = "game:enemy_wildbeast_wolf_earlygame", Name = "Tamed Wolf" });
 Taming.Define(new TamingDefinition
 {
     Id = "my-mod:wolf",
-    Creatures = ["game:enemy_wildbeast_wolf"],
+    Creatures = ["game:enemy_wildbeast_wolf_earlygame"],
     Steps = [new WeakenStep(0.4), new FeedStep(Items.Lookup("Food_T1_raw_bad_meat_LeanMeat")!.Id, 2)],
     Pet = "my-mod:tame-wolf",
     Refund = TamingRefundPolicy.RefundOnFail,
@@ -30,7 +30,7 @@ Taming.Define(new TamingDefinition
 JSON, the same definition (`Taming.DefineJson`; one object or an array):
 
 ```json
-{ "id": "my-mod:wolf", "creatures": ["game:enemy_wildbeast_wolf"], "pet": "my-mod:tame-wolf",
+{ "id": "my-mod:wolf", "creatures": ["game:enemy_wildbeast_wolf_earlygame"], "pet": "my-mod:tame-wolf",
   "steps": [ { "kind": "weaken", "maxHealthFraction": 0.4 },
              { "kind": "feed", "item": "game:food_t1_raw_bad_meat_leanmeat", "count": 2 } ],
   "rangeMeters": 3, "requireThresholdUntilCommit": true, "inactivitySeconds": 30, "maxAttemptSeconds": 300,
