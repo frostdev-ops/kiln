@@ -190,6 +190,7 @@ internal sealed class TamingEngine
     internal TamingDefinitionResult Define(TamingDefinition d, string mod)
     {
         Validate(d);
+        d = Owned(d);
         if (_defs.TryGetValue(d.Id, out var old))
         {
             if (old.Mod != mod) return new(false, $"DefinitionInUse: {d.Id} is mod {old.Mod}'s", old.Def);
@@ -208,6 +209,12 @@ internal sealed class TamingEngine
     internal IReadOnlyList<TamingDefinition> Definitions => _published.Values.ToArray();
 
     private void Publish() => _published = _defs.ToDictionary(kv => kv.Key, kv => kv.Value.Def, StringComparer.Ordinal);
+
+    // the definition as Kiln keeps it: its lists copied into read-only lists of Kiln's, so what any thread reads
+    // (Taming.Definition) and what the attempts run never changes when the mod changes a list it kept, and holds nothing of
+    // the mod's (a collection expression's list is a type of the mod's own assembly: it would keep an unloaded mod alive)
+    private static TamingDefinition Owned(TamingDefinition d) =>
+        d with { Steps = Array.AsReadOnly(d.Steps.ToArray()), Creatures = Array.AsReadOnly(d.Creatures.ToArray()) };
 
     /// <summary>The same definition by value (its lists by their items).</summary>
     internal static bool Same(TamingDefinition a, TamingDefinition b) =>

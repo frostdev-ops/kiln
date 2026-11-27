@@ -183,6 +183,27 @@ public sealed class TamingApiShapeTests
         Assert.Equal(("mod-a:wolf", 1), (seen.Item1!.Id, seen.Count));
     }
 
+    // review of API-SHAPE-2: what any thread reads (and what the attempts run) is a copy Kiln owns, never the mod's own lists
+    [Fact]
+    public void A_registered_definition_is_Kilns_copy_so_the_mods_list_changed_later_changes_nothing()
+    {
+        var steps = new List<TamingStep> { new WeakenStep(0.5) };
+        var creatures = new List<string> { "game:enemy_wildbeast_wolf" };
+        var f = new TamingFixture();
+        var r = f.Engine.Define(Def() with { Steps = steps, Creatures = creatures }, "mod-a");
+        Assert.True(r.Ok, r.Reason);
+        steps.Add(new FeedStep(Bait, 3));   // the mod keeps its lists and changes them after Define
+        creatures.Clear();
+        foreach (var seen in new[] { f.Engine.Definition("mod-a:wolf")!, f.Engine.Definitions.Single(), r.Definition! })
+        {
+            Assert.Single(seen.Steps);
+            Assert.Equal(["game:enemy_wildbeast_wolf"], seen.Creatures);
+            Assert.False(seen.Steps is List<TamingStep> || seen.Creatures is List<string> || seen.Steps is TamingStep[] || seen.Creatures is string[]);   // nobody's to change
+        }
+        var p = f.Begin().Progress!;
+        Assert.Equal(1, p.TotalSteps);   // the attempt runs the definition as it was registered
+    }
+
     // ---- C2: durations are TimeSpan; JSON keeps its seconds ----
 
     [Fact]

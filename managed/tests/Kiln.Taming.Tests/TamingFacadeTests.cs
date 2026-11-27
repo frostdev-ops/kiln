@@ -45,7 +45,7 @@ public sealed class TamingFacadeTests : IDisposable
     {
         var d = TamingFixture.Def(new WeakenStep(0.5)) with { Id = "kiln:wolf" };
         Taming.Define(d);
-        Assert.Same(d, Taming.Definition("kiln:wolf"));
+        Assert.True(TamingEngine.Same(d, Taming.Definition("kiln:wolf")!));   // Kiln's copy of it
         Assert.Single(Taming.Definitions);
         var json = Taming.DefineJson("""{ "id": "kiln:pup", "creatures": ["game:animal_wildlife_dog_*"], "steps": [ { "kind": "native" } ] }""");
         Assert.Equal("kiln:pup", Assert.Single(json).Definition!.Id);
