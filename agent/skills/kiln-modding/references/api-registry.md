@@ -133,8 +133,8 @@ Entry points (`[RegistryEntryPoints]` is constant metadata Kiln reads without ru
 - **Several mods, one field:** the later mod in load order wins and relative edits compose (x4 then x2 is x8); `exclusive`
   refuses another mod's edit of that field; `yield` applies only where nobody set it. `kiln/state/registry.json` has the writer
   chain per field; the launcher's Conflicts page reads it.
-- **A field by name, without its typed property:** `RegistryStage.Entries("creatures")["game:enemy_vukah_melee"].Set("health.perPlayer", 1.2)`
-  inside `OnRegistry` or `Registry.Change`. The generic `RegistryEntry` makes the same edits and checks the value against the
+- **A field by name, without its typed property:** `view.Entries("creatures")["game:enemy_vukah_melee"].Set("health.perPlayer", 1.2)`
+  (`RegistryStage.Entries(name)`) inside `OnRegistry` or `Registry.Change`. The generic `RegistryEntry` makes the same edits and checks the value against the
   schema's type first.
 
 ## When an edit takes effect, and who sees it
