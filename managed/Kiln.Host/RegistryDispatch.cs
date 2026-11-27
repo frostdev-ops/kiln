@@ -249,8 +249,10 @@ internal sealed class RegistryDispatch(ModManager mods) : IDisposable
         return _worldBinding.Matches(world) || _worldBinding.Bind(world) ? world : world with { Id = null };
     }
     // offTick: a re-authored pass on a worker thread (dev.32) reads in that world only (kiln.internal.registry v3 read_pass_in)
+    // kind: which pass the callback is (RegistryContext.Pass: the point's own, or a re-authored one on the tick or off it)
     private RegistryContext Context(ModContext owner, RegistryEntryPoint point, RegistryPhase phase, RegistryWorld? world,
-        Func<string> code, bool stage, Dictionary<string, ConfigFile> inputs, bool readOnly = false, bool pass = false, ulong offTick = 0)
+        Func<string> code, bool stage, Dictionary<string, ConfigFile> inputs, bool readOnly = false, bool pass = false, ulong offTick = 0,
+        RegistryPassKind kind = RegistryPassKind.Point)
     {
         var nativeOwner = owner.Owner; // transport delegates must not retain a collectible mod context
         return new(owner, point, phase, world, code,
@@ -258,7 +260,7 @@ internal sealed class RegistryDispatch(ModManager mods) : IDisposable
             : pass ? (registry, id, field) => _native.ReadPass(nativeOwner, registry, id, field)
                  : (registry, id, field) => _native.Read(nativeOwner, stage, registry, id, field),
             (registry, pattern) => _native.Select(stage, registry, pattern), inputs)
-            { ReadOnly = readOnly, CurrentWorldToken = () => _native.Status().World, CurrentStep = static () => ServiceTick.Step };
+            { ReadOnly = readOnly, CurrentWorldToken = () => _native.Status().World, CurrentStep = static () => ServiceTick.Step, Pass = kind };
     }
     private void Stage(Author author, RegistryPhase phase)
     {
@@ -372,7 +374,7 @@ internal sealed class RegistryDispatch(ModManager mods) : IDisposable
                 var clock = System.Diagnostics.Stopwatch.StartNew(); // the pass runs on the tick (the world thread): its time is the hitch
                 var earlier = again.ToDictionary(r => r, r => r.WorldChanges.ToArray());
                 foreach (var record in again) record.ReauthorWorld = false;
-                var retry = Apply(again, RegistryEntryPoint.WorldLoad, static _ => true);
+                var retry = Apply(again, RegistryEntryPoint.WorldLoad, static _ => true, RegistryPassKind.ReauthoredOnTick);
                 foreach (var record in again)
                 {
                     if (retry.Contains(record)) { record.ReauthorWorld = true; continue; }
@@ -479,7 +481,11 @@ internal sealed class RegistryDispatch(ModManager mods) : IDisposable
                 {
                     if (record.Context.Unloading) { job.Skipped.Add(record); continue; }
                     RegistryContext context;
-                    try { context = Context(record.Context, RegistryEntryPoint.WorldLoad, phase, job.World, record.Code, false, job.Inputs[record], pass: true, offTick: offTick ? job.World.Token : 0); }
+                    try
+                    {
+                        context = Context(record.Context, RegistryEntryPoint.WorldLoad, phase, job.World, record.Code, false, job.Inputs[record], pass: true,
+                            offTick: offTick ? job.World.Token : 0, kind: offTick ? RegistryPassKind.ReauthoredOffTick : RegistryPassKind.ReauthoredOnTick);
+                    }
                     catch (Exception e) { job.Transport = e; return; }  // Kiln's world/status query, not the author
                     var outer = Game.OffTickPass;
                     Game.OffTickPass = offTick; Game.OffTickRefused = null;
@@ -647,7 +653,8 @@ internal sealed class RegistryDispatch(ModManager mods) : IDisposable
     // restates its intent and never stacks), whatever the load order. The pass's edits are captured, then committed only
     // after every callback ran: all Adds, then all Alters, then all Finals, each in Kiln.Host load order (dependencies first).
     // Live commit order across passes still decides between passes.
-    private HashSet<Runtime> Apply(IEnumerable<Runtime> records, RegistryEntryPoint point, Func<Runtime, bool> selected)
+    private HashSet<Runtime> Apply(IEnumerable<Runtime> records, RegistryEntryPoint point, Func<Runtime, bool> selected,
+        RegistryPassKind kind = RegistryPassKind.Point)
     {
         Game.AssertTickThread();
         var ordered = records.Where(r => selected(r) && r.Context.Alive).ToArray();
@@ -707,7 +714,7 @@ internal sealed class RegistryDispatch(ModManager mods) : IDisposable
             {
                 if (!record.Context.Alive || record.Faulted) continue;
                 RegistryContext context;
-                try { context = Context(record.Context, point, phase, World(), record.Code, false, inputs[record], pass: true); }
+                try { context = Context(record.Context, point, phase, World(), record.Code, false, inputs[record], pass: true, kind: kind); }
                 catch (Exception e) { Fault(record, e, transport: true); continue; } // Kiln's world/status query, not the author
                 try
                 {

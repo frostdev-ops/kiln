@@ -342,6 +342,12 @@ edits) lands in a few milliseconds where it took 0.5 s (and 0.6 to 2.1 s on a lo
 
 **Coalescing.** Kiln runs one re-author at a time. Requests made while one runs (or before the next tick) become one more
 pass after it, never one each: a burst of requests (a settings file saved several times, a level-up and a join in the same
+- `context.Pass` says which pass a callback is (since dev.32): `Point` (the entry point's own: the world load's, on the tick),
+  `ReauthoredOffTick` (on Kiln's worker: `context.OffTick` is true and a tick-thread API is refused) or `ReauthoredOnTick` (Kiln
+  runs the mod's re-authored passes on the tick). Kiln runs one pass of a mod at a time, across a world change too: a new
+  world's pass waits for a re-authored pass of the world before that is still on the worker (the tick waits up to 10 s, then
+  the world goes on and that mod's pass runs on a later tick, once the old one ended; the old one lands nothing). A mod's pass
+  state need not be thread-safe.
 second) costs at most two passes, the last one with the newest inputs. A mod needs no debounce of its own for Kiln's sake;
 it should still not ask on every tick, nor for a change its edits do not depend on (Loot Rarity Leveler asks when its
 settings or the highest player level change, and checks levels every 2 s).

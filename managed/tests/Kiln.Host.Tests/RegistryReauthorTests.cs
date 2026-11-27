@@ -306,6 +306,31 @@ public sealed class RegistryReauthorTests : ModsFixture
         Assert.Equal(63, rig.Native.Value); Assert.Equal(1, rig.Native.LayerCount);
         owner.Retire();
     }
+    // dev.32 api-shape: a pass says where it runs. A point's own pass (the world load's here): Point, on the tick. A pass
+    // Registry.Reauthor asked for, on Kiln's worker: ReauthoredOffTick (OffTick: tick-thread APIs are refused); one Kiln runs
+    // on the tick (its mod called one off it): ReauthoredOnTick.
+    [Fact(Timeout = 30_000)]
+    public async Task APassSaysWhereItRuns()
+    {
+        await Task.Yield();
+        using var rig = new Rig(this);
+        var owner = Owner(rig.Native, "leveler"); var seen = new List<(RegistryPassKind Pass, bool OffTick, bool Tick)>(); var needTick = false;
+        rig.Dispatch.Loaded(new WorldOnlyAuthor(c => {
+            if (c.Phase != RegistryPhase.Alter) return;
+            lock (seen) seen.Add((c.Pass, c.OffTick, Environment.CurrentManagedThreadId == rig.Tick));
+            if (needTick && c.OffTick) Game.AssertTickThread();  // refused off the tick: Kiln runs its passes on the tick from then on
+            Edit(c, 30 + seen.Count);
+        }), owner, Root, false);
+        rig.Dispatch.FlushLoads();
+        Assert.Null(RegistryRuntime.Reauthor!(owner, RegistryEntryPoint.WorldLoad));
+        Settle(rig.Dispatch);
+        needTick = true;
+        Assert.Null(RegistryRuntime.Reauthor!(owner, RegistryEntryPoint.WorldLoad));
+        Settle(rig.Dispatch);
+        Assert.Equal(new[] { (RegistryPassKind.Point, false, true), (RegistryPassKind.ReauthoredOffTick, true, false),
+                             (RegistryPassKind.ReauthoredOffTick, true, false), (RegistryPassKind.ReauthoredOnTick, false, true) }, seen);
+        owner.Retire();
+    }
     // The world ended while the pass ran: its turn is for that world and is not landed.
     [Fact(Timeout = 30_000)]
     public async Task ATurnForAnEndedWorldIsDropped()
