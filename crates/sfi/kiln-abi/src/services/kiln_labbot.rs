@@ -8,6 +8,8 @@ pub const KILN_LABBOT_FREE: i32 = 0;
 pub const KILN_LABBOT_GROUP_ADMIN: i32 = 0;
 pub const KILN_LABBOT_GROUP_INDEX: i32 = 2;
 pub const KILN_LABBOT_GROUP_LEAST: i32 = 1;
+pub const KILN_LABBOT_INPUT_CAMERA: i32 = 1;
+pub const KILN_LABBOT_INPUT_READY: i32 = 2;
 pub const KILN_LABBOT_IN_GAME: i32 = 5;
 pub const KILN_LABBOT_JOIN_KILN_CLIENT: i32 = 1;
 pub const KILN_LABBOT_LEAVE_DROP: i32 = 1;
@@ -67,6 +69,17 @@ pub struct KilnLabBotStatus {
 
 #[repr(C)]
 #[derive(Clone, Copy)]
+pub struct KilnLabBotInput {
+    pub size: u32,
+    pub flags: u32,
+    pub camera_position: [i64; 3],
+    pub camera_orientation: [f32; 4],
+    pub camera_distance: f32,
+    pub ready: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
 pub struct KilnLabBotApi {
     pub header: KilnServiceHeader,
     pub status: Option<unsafe extern "C" fn(*mut KilnLabBotStatus) -> KilnResult>,
@@ -74,4 +87,5 @@ pub struct KilnLabBotApi {
     pub leave: Option<unsafe extern "C" fn(u32, u32) -> KilnResult>,
     pub info: Option<unsafe extern "C" fn(u32, *mut KilnLabBotInfo) -> KilnResult>,
     pub list: Option<unsafe extern "C" fn(*mut KilnLabBotInfo, u32, *mut u32) -> KilnResult>,
+    pub input: Option<unsafe extern "C" fn(u32, *const KilnLabBotInput) -> KilnResult>,
 }

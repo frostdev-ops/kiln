@@ -2,6 +2,7 @@
 // Bot players for lab tests (native/core/abi/services/kiln_labbot.h; docs/kiln/modding/testing.md, "Bot players").
 using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
+using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -125,12 +126,12 @@ public static unsafe class LabBots
     /// <param name="group">The user group it joins in (its rights).</param>
     /// <param name="groupIndex">With <see cref="LabBotGroup.Index"/>: the entry of userGroups.</param>
     /// <returns>The bot's id.</returns>
-    /// <exception cref="ArgumentException">A bad name, a live bot has it, or a bot of that name logged in earlier in this
-    /// server session (the game does not spawn that character again after its logout until the server restarts). The
-    /// message says which.</exception>
+    /// <exception cref="ArgumentException">A bad name, or a live bot has it. The message says which.</exception>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="group"/> is none of <see cref="LabBotGroup"/>.</exception>
-    /// <exception cref="InvalidOperationException"><see cref="Max"/> bots are live, no player slot or machine is free,
-    /// or no such user group.</exception>
+    /// <exception cref="InvalidOperationException"><see cref="Max"/> bots are live, no player slot is free, no machine
+    /// index is free that no bot held in this server session (each bot needs a fresh one, about 15 per server session:
+    /// restart the lab), or no such user group. The message says which (the slot and machine cases together; kiln.log
+    /// tells them apart).</exception>
     /// <exception cref="KilnUnavailableException"><c>labbot.join</c> is off (not a lab server) or no server world runs.</exception>
     [ServerOnly]
     [TickThreadOnly]
@@ -160,7 +161,7 @@ public static unsafe class LabBots
             case LabBotNative.InvalidArgument:
                 throw new ArgumentException($"bot '{name}': {WhyRefused(name)}", nameof(name));
             case LabBotNative.NotFound:
-                throw new InvalidOperationException($"no room for bot '{name}': {Max} bots are live, no player slot or machine is free, or no such user group");
+                throw new InvalidOperationException($"no room for bot '{name}': {WhyNoRoom(group, groupIndex)}");
             case LabBotNative.Unavailable:
                 throw new KilnUnavailableException(Capability, Status().Why);
             default:
@@ -183,6 +184,89 @@ public static unsafe class LabBots
         if (rc == LabBotNative.NotFound) throw new ArgumentException($"no live bot {id}", nameof(id));
         if (rc == LabBotNative.Unavailable) throw new KilnUnavailableException(Capability, Status().Why);
         Check(rc, "Leave");
+    }
+
+    /// <summary>Where the bot's client says its camera is and looks: what a client sends with every input and the game's
+    /// own code reads from the player's input. An item whose use spawns at the "crosshair" (a thrown animal bait) starts
+    /// at <paramref name="position"/> moved <paramref name="distance"/> along the view and flies along the view; the game
+    /// turns its view as <paramref name="rotation"/> applied to (0, 0, 1) (yaw about +Y, then pitch: a positive pitch looks
+    /// down). Kiln writes it into the bot's input every server frame from now on while the bot is in game, where a client's
+    /// input lands; it stays until set again. Since dev.32 (lab only).</summary>
+    /// <param name="id">A live bot.</param>
+    /// <param name="position">Where the camera is (the bot's eyes are about 1.7 m above its feet).</param>
+    /// <param name="rotation">Where it looks (normalised here).</param>
+    /// <param name="distance">The camera's boom in metres (0 or more): the game's crosshair point is that far along the
+    /// view.</param>
+    /// <exception cref="ArgumentException"><paramref name="rotation"/> is no rotation (zero or not finite), or no live bot
+    /// of that id.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="distance"/> is negative or not finite.</exception>
+    /// <exception cref="KilnUnavailableException"><c>labbot.join</c> is off, or kiln.labbot cannot write a bot's input on
+    /// this build or is older (kiln.log says why).</exception>
+    [ServerOnly]
+    [TickThreadOnly]
+    [RequiresCapability("labbot.join")]
+    public static void SetCamera(int id, WorldPosition position, Quaternion rotation, float distance = 0f)
+    {
+        var length = rotation.Length();
+        if (!float.IsFinite(length) || length < 1e-3f)
+            throw new ArgumentException($"{rotation} is no rotation", nameof(rotation));
+        if (!float.IsFinite(distance) || distance < 0) throw new ArgumentOutOfRangeException(nameof(distance), distance, "0 or more metres");
+        if (!double.IsFinite(position.X) || !double.IsFinite(position.Y) || !double.IsFinite(position.Z))
+            throw new ArgumentException($"{position} is no position", nameof(position));
+        var q = Quaternion.Normalize(rotation);
+        LabBotNative.InputData d = default;
+        d.Flags = LabBotNative.InputCamera;
+        d.X = Fixed(position.X);
+        d.Y = Fixed(position.Y);
+        d.Z = Fixed(position.Z);
+        (d.Qx, d.Qy, d.Qz, d.Qw) = (q.X, q.Y, q.Z, q.W);
+        d.Distance = distance;
+        Input(id, ref d, "SetCamera");
+    }
+
+    /// <summary>Whether the bot's client says it is ready for gameplay (what a client sends with every input once its
+    /// world is loaded): the game marks the bot's actor ready for gameplay only then, and a use of an item, its control
+    /// programs and the readiness checks of the game wait for it. A bot says nothing until this is called. Kiln writes it
+    /// into the bot's input every server frame from now on while the bot is in game. Since dev.32 (lab only).</summary>
+    /// <exception cref="ArgumentException">No live bot of that id.</exception>
+    /// <exception cref="KilnUnavailableException"><c>labbot.join</c> is off, or kiln.labbot cannot write a bot's input on
+    /// this build or is older (kiln.log says why).</exception>
+    [ServerOnly]
+    [TickThreadOnly]
+    [RequiresCapability("labbot.join")]
+    public static void SetReady(int id, bool ready = true)
+    {
+        LabBotNative.InputData d = default;
+        d.Flags = LabBotNative.InputReady;
+        d.Ready = ready ? 1u : 0u;
+        Input(id, ref d, "SetReady");
+    }
+
+    private static long Fixed(double metres) => checked((long)Math.Round(metres * 4294967296.0));  // keen::WorldPosition 32.32
+
+    private static void Input(int id, ref LabBotNative.InputData d, string api)
+    {
+        Services.RequireTickThread("LabBots." + api);
+        var t = Require(api);
+        if (!LabBotNative.HasInput(t))
+            throw new KilnUnavailableException(Capability, $"LabBots.{api} needs a newer kiln.labbot (one with the bots' client input)");
+        d.Size = (uint)sizeof(LabBotNative.InputData);
+        int rc;
+        fixed (LabBotNative.InputData* p = &d) rc = ((LabBotNative.TableV2*)t)->InputFn((uint)id, p);
+        switch (rc)
+        {
+            case LabBotNative.Ok:
+                return;
+            case LabBotNative.NotFound:
+                throw new ArgumentException($"no live bot {id}", nameof(id));
+            case LabBotNative.InvalidArgument:
+                throw new ArgumentException($"kiln.labbot refused bot {id}'s input (kiln.log says why)", nameof(id));
+            case LabBotNative.Unavailable:
+                throw new KilnUnavailableException(Capability,
+                    $"LabBots.{api}: kiln.labbot cannot write a bot's input here ({(Status() is { Available: false } s ? s.Why : "PlayerInput's client parts did not resolve on this build; kiln.log says which")})");
+            default:
+                throw new InvalidOperationException($"LabBots.{api}: kiln.labbot answered {rc}");
+        }
     }
 
     /// <summary>The bot of <paramref name="id"/>, or null when none is remembered. Any thread.</summary>
@@ -211,8 +295,7 @@ public static unsafe class LabBots
     }
 
     // kiln.labbot's KILN_ERR_INVALID_ARGUMENT for a join, told apart: its name rules (bot.cpp valid_name), a live bot of
-    // that name, else the character logged in on this server before (labbot::Played; the flags and group are this
-    // wrapper's own, checked above).
+    // that name, else kiln.log (the flags and group are this wrapper's own, checked above).
     private static string WhyRefused(string name)
     {
         var bytes = Encoding.UTF8.GetByteCount(name);
@@ -221,9 +304,19 @@ public static unsafe class LabBots
         if (name.Any(c => c is not ((>= 'a' and <= 'z') or (>= 'A' and <= 'Z') or (>= '0' and <= '9') or ' ' or '_' or '-' or '.')))
             return "a bot name uses letters, digits, space, '_', '-' and '.' only";
         if (All().Any(b => !b.Ended && b.Name == name)) return "a live bot has that name";
-        return "a bot of that name (the same character) logged in earlier in this server session; the game does not spawn " +
-               "it again after its logout until the server restarts (a later join under another name may stay in the spawn " +
-               "search too), so restart the lab";
+        return "kiln.labbot refused the join (kiln.log says why)";
+    }
+
+    // kiln.labbot's KILN_ERR_NOT_FOUND for a join, told apart: Max live bots, a user group the server does not have, else
+    // the machine indices (each bot needs one no bot held in this server session) or, on a full server, the player slots
+    private static string WhyNoRoom(LabBotGroup group, int groupIndex)
+    {
+        if (All().Count(b => !b.Ended) >= Max) return $"{Max} bots are live (LabBots.Max): one must leave first";
+        var groups = Status().Groups;
+        if (groups == 0) return "the server has no user groups";
+        if (group == LabBotGroup.Index && groupIndex >= groups) return $"the server has no user group {groupIndex} (it has {groups})";
+        return "no machine index is left that no bot held in this server session (each bot needs a fresh one: about 15 joins " +
+               "per server session, less one for each player on it; restart the lab), or no player slot is free (kiln.log says which)";
     }
 
     private static LabBotInfo Convert(LabBotNative.Info* i) =>
@@ -252,6 +345,10 @@ internal static unsafe class LabBotNative
 {
     public const int Ok = 0, InvalidArgument = 1, NotFound = 2, Unavailable = 3;
     public const uint LeaveDrop = 1;
+    public const uint InputCamera = 1, InputReady = 2;  // KILN_LABBOT_INPUT_*
+
+    /// <summary>The table has input() (kiln.labbot since dev.32 labbot-2).</summary>
+    public static bool HasInput(Table* t) => t != null && t->Header.Size >= (uint)sizeof(TableV2);
 
     [StructLayout(LayoutKind.Sequential)]
     public struct JoinRequest
@@ -282,6 +379,16 @@ internal static unsafe class LabBotNative
         public fixed byte Why[200];
     }
 
+    // kiln_labbot.h KilnLabBotInput
+    [StructLayout(LayoutKind.Sequential)]
+    public struct InputData
+    {
+        public uint Size, Flags;
+        public long X, Y, Z;
+        public float Qx, Qy, Qz, Qw, Distance;
+        public uint Ready;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     public struct Table
     {
@@ -291,6 +398,14 @@ internal static unsafe class LabBotNative
         public delegate* unmanaged[Cdecl]<uint, uint, int> Leave;
         public delegate* unmanaged[Cdecl]<uint, Info*, int> InfoFn;
         public delegate* unmanaged[Cdecl]<Info*, uint, uint*, int> List;
+    }
+
+    // the table with input() (since dev.32 labbot-2); an older kiln-labbot.dll's header is smaller
+    [StructLayout(LayoutKind.Sequential)]
+    public struct TableV2
+    {
+        public Table Base;
+        public delegate* unmanaged[Cdecl]<uint, InputData*, int> InputFn;
     }
 
     private static Table* _table;

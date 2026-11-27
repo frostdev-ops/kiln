@@ -82,13 +82,15 @@ entity from the player template, user-group rights, saves, logout, removal).
 ## What kiln.labbot does
 
 1. join (tick thread): picks the highest player slot and machine index no record, machine slot, published entry or bot
-   uses; the handles are `slot | 0x55 << 6` and `index | 0x55 << 7` (real ones count up from generation 1).
+   uses, the machine index also one no bot held before in this server session (below, "A join after a bot left"); the
+   handles are `slot | 0x55 << 6` and `index | 0x55 << 7` (real ones count up from generation 1).
 2. Every publish (session thread): the bot's entries go in (or come out after it left).
 3. After each `ServerReceive` (GameServer thread): `Bot::step` (bot.cpp): once the current buffer lists the bot and
    SyncSockets made its machine's sockets (the GameServer's socket set, `net/gs.sockets` `+net/sockets.machines`), the
    Login (`AddPlayer`); once Save2's slot carries the bot's handle and waits, the character upload (`Save2Receive`);
    SystemsReady and GameplayReady (`MachineLogin`) when the record is loaded; acks of every save the server sends;
-   and on leave the final request plus what `ServerReceive` does after it.
+   and on leave the final request plus what `ServerReceive` does after it. While it is in game, the parts of its client
+   input a script set (below, "Using an item").
 
 ## The lab sessions (dev32 LABBOT, 2026-11-27, lab dev32-labbot, server f0d824be)
 
@@ -138,35 +140,102 @@ read back.
 rights 32 and the game's command check refused it `/kick` ("You may not use /kick."); a drop takes the player out of
 `Players.All` within 3 s; a new name joins at once after another bot's logout and reuses its slot and machine.
 
-**Not working: the same name again in the same server session.** A bot that logs out and joins again under the same
-name (the same character) while the server keeps running stays in record state 1 (the spawn position search) until
-the 60 s limit (p1, p2, s6). The first join of a server session under a name that played there before works (p1-p4:
-"Bot Alder" each time, with its pets). The search (`0x7aded0`) waits while the save system's state (`[gs+0x20]+0x70`)
-is not 2 or 3, but a new name joined right after the logout, so that global check is not it; what the returning
-character waits for is not found yet. Workaround for tests: a new bot name for each join in one server session, or a
-server restart between a logout and the same character's next login.
+**A join after a bot left (dev.32 review-labbot, then labbot-2).** A bot that joined after another bot left (a logout or
+a drop) stayed in record state 1 until the 60 s load limit: the same name (lane p1, p2, s6) and, in the review's labs, a
+new name too (g1 to g4: 0.1 s to 60 s after the leave, also with a new machine and player generation in a test build).
+Only the lane's s6 had one spawn (Bot Cedar, after Bot Alder's 4 s in game). The review refused a name that played earlier
+in the session (`labbot::Played`) and told scripts to restart the lab after any leave.
 
-Since the review of the lane (dev.32 review-labbot), kiln.labbot refuses such a join at once instead of failing it after
-the 60 s load limit: `labbot::Played` remembers every character and account that logged in on the server (AddPlayer
-made its record), and `join` answers `KILN_ERR_INVALID_ARGUMENT` for one of them, with the reason in kiln.log; the
-managed `LabBots.Join` throws an `ArgumentException` that says so.
+**The cause [static] [lab].** The record's state-1 step (jump table `0x7c0540`, state 1 at `0x7bffc2`) calls the spawn
+position search `0x7aded0`; on a found position it stores it at record `+0x100` and goes to state 2 only when four checks
+pass: `0xa45c10` (the area at that position, on `[gs+0x1770]`), `0x66c710` (`[[gs+0x1d0]] == 2`), `0x23a180` (on
+`[gs+0x1d8]`) and `0x7b6460`, the **spawn send**: it looks the machine's socket entry up (`[gs+0x30]+0x28`, 32-byte entries
+by machine index, `{u32 handle; ...; +0x10 sockets; +0x18 count}`) and asks the session for a send buffer on it
+(`0xa033b0`, result byte 0 = queued). The session refuses one (result 2) when the socket's link has no credit left for it
+(`0xa0354b..0xa035b9`: the link `[socket+0x10]` holds the credit at `+0x4` and the frame's reserves at `+0x10`; a request
+whose minimum size neither the credit nor the socket's own reserve `+0x20` covers is refused and its minimum size added
+to the socket's `+0x24`; a granted one counts in `+0x28`, 512 a frame at most, and only then is a buffer allocated,
+`0xa036f0`). A bot never acknowledges anything, and as far as the labs show only a client's acknowledgements give credit
+back: once what the server sent a bot in game used its link's credit up, every later send on that machine index is
+refused, and `+0x24` adds up the refused bytes. And SyncSockets (`0x7bd3c0`) keeps a machine entry's sockets until **another handle takes that index**
+(`0x7b5530` destroys them then; a machine that leaves the published state keeps them). So the next bot on that machine
+index (kiln.labbot gave every bot the highest free one: index 16 again) found its spawn message refused every frame.
 
-**The review's labs (dev32-review-labbot, 2026-11-27) found more: a new name after a logout stays there too.**
+Lab p1 (dev32-labbot-2, a probe build that logged the four checks, the spawn send's results and the bot's sockets every
+3 s; `out/labbot-2/runs/p1-rejoin`):
 
-| Run | Before | The next join | Result |
+| Step | Machine / slot | Result | What the probe showed |
 |---|---|---|---|
-| g1 | Gate Alder 5 min in game, 10 saves acked, logout | Gate Birch (new name), 0.15 s later, slot 15, the same handles | record state 1 until the 60 s limit |
-| g2 (`requireKiln`) | R Ash 30 s in game, logout | R Beech 5 s later; R Cherry at once after Beech failed; R Dogwood 5 s after that | all three: state 1 until the limit |
-| g3 | as g1 | Gate Birch 0.15 s later, slot 15, **new handles** (a test build with a new machine and player generation per join: machine 0x2b10, player 0x158f) | state 1 until the limit |
-| g4 | D Ash 15 s in game, **drop** | D Birch at once | state 1 until the limit; D Ash left Players.All |
+| Exp Alder joins, 20 s in game, logout | 16 / 15 | in game in 1.6 s | its machine sockets' `+0x24` grew while it was in game: channel 11 to 3.9 MB, 16 to 4.7 MB, 26 to 3,601 bytes; none ever went down |
+| Exp Birch (a new name) | 16 / 15, the same handles | record state 1 after 15 s | the same socket objects (entry 16 still held 0x2a90); the search found a position (`+0x100` set), `[[gs+0x1d0]]` 2, `0x23a180` 1, the save state 0x6; **the spawn send refused 9,088 of 9,089 tries**, channel 10's `+0x24` grew to 148 MB with the refused tries |
+| Fresh Cedar (a new name, an index no bot held) | 15 / 14 | in game in 0.5 s | |
+| Fresh Cedar again (the same character) | 14 / 13 | in game in 0.6 s | the same character spawns again: the name was never the cause |
 
-So neither the name, the reused handles nor the way the bot left decide it. Only the lane's s6 had a join after a
-bot left that spawned (Bot Cedar, 3.5 s after Bot Alder's logout, which followed Bot Birch's drop). What the state-1 step waits for **[static]**:
-it calls the search `0x7aded0` each frame. The search itself waits (result 1) while bit 1 of `[[gs+0x20]+0x70]` is
-clear. For the bot's new character (record `+0x140` set, from the login's new-character byte) it then asks the spawn
-point query `0x653930` and computes the position from the spawn entity (`0x7aebf0`). The step stores it at record
-`+0x100` and goes on to state 2 only when four checks pass: `0xa45c10` (on `[gs+0x1770]`, given the position),
-`0x66c710` (`[gs+0x1d0]`), `0x23a180` (`[gs+0x1d8]`), and `0x7b6460`, which reads the machine's socket entry
-(`[gs+0x30]+0x28`, by the record's `+4` peer handle) and calls `0xa033b0` on it. Which of them stays false after a
-bot left is not known yet: the next step is a lab probe that reads them for a stuck bot. Until then: join every bot a
-test needs first, and restart the lab after one leaves (tools/lab/README.md).
+**The fix (dev.32 labbot-2).** kiln.labbot gives each bot a machine index no bot held before in this server session
+(`labbot::SpentMachines`, `pick_index` in bot.cpp: the highest free one; real clients get the low ones from the session),
+and the refusal of a name that played earlier is gone. A server session has 16 machine indices (1 to 16; 0 is the
+server's own), so about 15 joins per server session, less one for each player connected; then `join` answers
+`KILN_ERR_NOT_FOUND` ("no free machine index that no bot held in this server session"), and a restart gives them back.
+Not fixed: the backlog itself. Draining it would mean answering the session's reliable channel as a client does
+(acknowledgements), not built.
+
+**The counters over hours (review-labbot-2) [static].** A bot in game keeps adding to its sockets' `+0x24` (channel 11
+about 0.2 MB a second in p1), a u32 that would wrap after some hours. That changes nothing: no send decision reads it (the
+request above reads the link's credit and reserves and the socket's `+0x20` and `+0x28`). Its one reader is the session's
+frame end over the sockets (`0x9f85b3..0x9f8735`): for a socket that holds a reserve (`+0x20` nonzero) it logs "channel
+%u reserved %u more bandwidth than it used" from `+0x20` and `+0x24` and then zeroes both (a qword store at `+0x20`);
+a bot's sockets hold none, so theirs only grows. `+0x28` is reset there at every frame's end for every socket (after
+"channel %u tried to send %u messages in one frame" at 512 or more), so it never wraps. Nor does memory grow with it: a
+refused request allocates nothing (`0xa036f0` runs only for a granted one), so what the session holds for a bot is
+bounded by the link's credit (its send allocator peaked at 0.98 MB in s5).
+
+## Using an item (dev.32 labbot-2)
+
+A client uses an item from its hotbar: the player programs turn the press into a trigger of the item's own sequence
+(`ItemInfo.sequences[]` with `triggeredBy` Primary) with the slot as the trigger context's used item, and the sequence's
+events do the rest on the server. Kiln already starts that sequence the same way (`Abilities.UseItem`, kiln.abilities
+`item_use`: the helper player actions use, `ActorInput.triggerContext`), so a bot's use is that call on its slot. Two
+parts of the bot's client input decide whether and where it works **[static] [lab]**:
+
+- **Readiness.** `actor_is_ready_for_gameplay` sets `IsReadyForGameplay` only when the client's
+  `PlayerInput.fromClientIsReadyForGameplay` (+0x5b8) is set and the terrain at the character is loaded
+  (docs/re/player-state.md), and `Abilities.UseItem` refuses a player that is not ready (`NotReady`). A bot sends no input,
+  so it was never ready: `LabBots.SetReady` makes its client say so.
+- **The camera.** The dog bait `Food_T2_Dog_Bait` (`0xb59dfc2c`, category AnimalFood, flag `IsAnimalBait`) has one use
+  sequence, `e638b71f-…` `UseItem_Drop_FoodBait` (0.3 s): at 0.15 s a `SpawnEntityEvent` with an empty template (so the
+  used item's `equipment.placedEntity`, `FoodBait_T2_Dog` `21eb90be-…`), `spawnTransform` **Crosshair**,
+  `useTargetingPosition`, `spawnOffset` local (0, 0, 0.5), `consume` on, and the item's `placedEntityLocalSpawnVelocity`
+  (0, 5, 10) (`tools/kfc` decode of the server's data). The spawn transform's switch (`0x3f72a` in the command builder
+  `0x3f6a0`, a jump table at `0x40558`) sends Crosshair (2) to `0x40580`, which reads the actor's PlayerInput (`ctx+0x88`)
+  at `+0x28` (`fromClient.camera.position`), `+0x40` (`.orientation`) and `+0x50` (`.distance`): the spawn point is the
+  camera's position moved `distance` along its view, turned as the camera. So the bait is thrown from the camera along
+  the view, 5 m/s up and 10 m/s forward. A bot's camera was at the world's origin (kiln.playerstate's `aim` reads it as
+  no camera); `LabBots.SetCamera` sets it.
+
+kiln.labbot writes those parts (`input`, `KilnLabBotInput`) into the bot's PlayerInput after each GameServer receive while
+the bot is in game. That is where a client's input lands: `ServerReceive`'s player channel 8 queues a client's input per
+tick and `InputApply` (`0x600ff0`) copies the step's entry into PlayerInput; no entry ever arrives for a bot's slot, so
+nothing overwrites what kiln.labbot wrote. The parts are found by the game's reflection (kiln.types: PlayerInput,
+ClientPlayerInputData, ClientCamera), the component through kiln.world.
+
+The labbot-test mod's `give` (Items.Give: the game's own inventory add) and `use` ops (ready, the camera at the bot's eyes
+looking at a point, then `Abilities.UseItem` once the game marks the bot ready) are what lab scripts call
+(`tools/labbot`: `bot.give`, `bot.use(item, at=...)`).
+
+**The labs (dev32-labbot-2, 2026-11-27; `out/labbot-2/runs`)** **[lab]**:
+
+| Run | What happened | What it showed |
+|---|---|---|
+| u3 | the bot said it is ready, a use answered Busy for 10 s | ready makes the game play a new character's first-time spawn intro, `Player_Spawn_Initial_FirstTime_PodWakeup` (17.7 s, trigger ActionRespawn, StateFlag Spawning); a bot uploads a new character at every join, so it plays at every join. labbot-test's `use` waits for it (30 s by default) |
+| u4-u6, p2 | 3 dog baits and 3 berries given (Items.Give: Done 3), one berry eaten, one bait thrown | the berry: `UseItem` Started after the intro, the game took one (3 to 2) and put buff `0x4c958a05` (28.5 s) in a Food slot; the bait: Started, the game took one (3 to 2), and a `FoodBait_T2_Dog` entity (template 21eb90be) lay 1.85 m along the view (pitch 43.8 degrees down from 1.7 m: the flat-ground model of (0, 5, 10) says 4 m), carrying `UsedItem` = the bait item (the spawn path's; a bait spawned from its template has none) |
+| p2 (a probe build that hooked the bait sensor `0x21e160` and its query `0x166ef0`, observing only) | a wild dog 3.5 m east of the bot, facing it, the bait 1.8 m in front of it | **the dog's own sensor took the thrown bait**: `DynamicWildlife.foodBaitEntityId` = the thrown bait's entity, `hasSensedFoodBait` 1, then FoodBaitPursue (state 14), alternating with Roaming (6) for 30 s; it never ate (state 15) with the bot 1.85 m from the bait. It sensed after it had been alerted (state 4 Alert, 7 RunAway) |
+| u4, u5, u6 | the same throw; in u6 the bot backed off 9 m after it | not sensed: the dogs stayed in Idle (3) and Roaming (6) and were never alerted |
+| controls (u4, u5, u6) | a bait spawned from its template (Spawn.Entity), u6 on the spot a thrown one lands | never sensed, but its dogs never left Idle and Roaming either (and u5's fell 7 m into a hole), so they do not show that a template spawn cannot be sensed |
+
+The sensor, statically: `0x21e160`, called through `0x220640` from the behaviour update (`0x21eaad`) for a Tameable
+template, every 32 frames per animal (`0x69d740(ctx, 4)`), after a 10 s cooldown from the last step (`0x21d750`, record
+`+0x78`): an AABB query (`0x166ef0` over `0x67a830`, collision mask `0xfb877d0f`) of `foodBaitSensorRange` around the animal
+for an entity whose template is the favourite food (`0x65bc10`), with an angle check beyond
+`foodBaitAngleCheckMinDistance` (2.5 m for the dog). **Open:** which wildlife states reach that call (p2 suggests the
+alerted ones), and why a dog that sensed the bait did not eat it (the bot next to it; `foodBaitEatAdaptFleeRadiusDistance`
+6 m). Next lab steps for TAME: alert the dog first (or find that state), throw, back off, then the pet sequence.

@@ -20,10 +20,23 @@
  *
  * Identity: a bot's CharacterId and account id are derived from its name (KilnLabBotJoin.character_id and .account
  * zero), so a bot that joins under the same name in a later server session is the same character on that world
- * (per-character data such as pets carries over), and two names never share one. Within one server session a character
- * logs in once: the game does not spawn it again after its logout until the server restarts, so join refuses it.
+ * (per-character data such as pets carries over), and two names never share one; the same name may join again in the
+ * same server session too.
  *
- * Threads: join and leave on the tick thread (they queue; the bot moves inside the next GameServer receive step).
+ * Machine indices: the GameServer keeps a machine's sockets until another machine takes its index, and nothing ever
+ * acknowledges what the server sent a bot, so a machine index a bot held stays backed up: the next bot there would stay
+ * in the game's spawn search (record state 1) for good. Each bot gets a machine index no bot held before in this server
+ * session (the highest free one; real clients get the low ones): about 15 joins per server session, less one for each
+ * player on it. Then join answers KILN_ERR_NOT_FOUND until the server restarts.
+ *
+ * The bot's client input (input, since dev.32 labbot-2): what a client sends with every input message and the game's own
+ * programs read from PlayerInput: where its camera is and looks (an item use whose spawn starts at the "crosshair", such
+ * as a thrown animal bait, starts there) and whether it is ready for gameplay (a use of an item, the game's control
+ * programs and the readiness of its actor wait for it). A bot sends nothing until a script sets a part; kiln.labbot then
+ * writes the parts set into the bot's PlayerInput after each GameServer receive while the bot is in game, where a
+ * client's input lands (no input message ever arrives for a bot's slot). Engine facts: docs/re/labbot.md "Using an item".
+ *
+ * Threads: join, leave and input on the tick thread (they queue; the bot moves inside the next GameServer receive step).
  * status, info and list from any thread (a snapshot of the last step). */
 #ifndef KILN_LABBOT_H
 #define KILN_LABBOT_H
@@ -68,6 +81,12 @@ enum {
     KILN_LABBOT_LEAVE_DROP = 0x01u, /* as a lost connection: no logout, the game resets the record (no final save) */
 };
 
+/* KilnLabBotInput.flags: which parts of the bot's client input a call sets (the others stay as last said) */
+enum {
+    KILN_LABBOT_INPUT_CAMERA = 0x01u, /* camera_*: the client's camera (PlayerInput.fromClient.camera) */
+    KILN_LABBOT_INPUT_READY = 0x02u,  /* ready: the client says it is ready for gameplay (fromClientIsReadyForGameplay) */
+};
+
 typedef struct KilnLabBotJoin {
     uint32_t size;            /* sizeof(KilnLabBotJoin) */
     uint32_t flags;           /* KILN_LABBOT_JOIN_* */
@@ -107,14 +126,26 @@ typedef struct KilnLabBotStatus {
     char why[200];            /* available 0: why not */
 } KilnLabBotStatus;
 
+/* What the bot's client says in its input (input()). */
+typedef struct KilnLabBotInput {
+    uint32_t size;               /* sizeof(KilnLabBotInput) */
+    uint32_t flags;              /* KILN_LABBOT_INPUT_*: the parts this call sets */
+    int64_t camera_position[3];  /* where the camera is: x, y, z in 32.32 fixed point metres (keen::WorldPosition) */
+    float camera_orientation[4]; /* where it looks: a quaternion x, y, z, w; the view is it applied to (0, 0, 1) */
+    float camera_distance;       /* the camera's boom, metres (0 or more): the game's crosshair point is the camera's
+                                    position + its view x distance (a third-person camera sits that far behind it) */
+    uint32_t ready;              /* KILN_LABBOT_INPUT_READY: 1 ready for gameplay, 0 not */
+} KilnLabBotInput;
+
 typedef struct KilnLabBotApi {
     KilnServiceHeader header; /* { sizeof(KilnLabBotApi), KILN_LABBOT_VERSION } */
     /* Any thread. KILN_OK also when bots are unavailable (out->available 0, out->why). */
     KilnResult(KILN_CALL* status)(KilnLabBotStatus* out);
-    /* Starts a bot's join; *out_id names it. Tick thread. KILN_ERR_INVALID_ARGUMENT: a bad name, flags or group, a
-     * name a live bot has, or a character or account that logged in on this server before (kiln.log says which);
-     * KILN_ERR_NOT_FOUND: KILN_LABBOT_MAX bots are live, no free player slot or machine, or no
-     * such user group; KILN_ERR_UNAVAILABLE: not a lab server, the symbols did not resolve, or no server world runs. The join then goes on by itself; info() shows where it is. */
+    /* Starts a bot's join; *out_id names it. Tick thread. KILN_ERR_INVALID_ARGUMENT: a bad name, flags or group, or a
+     * name a live bot has (kiln.log says which); KILN_ERR_NOT_FOUND: KILN_LABBOT_MAX bots are live, no free player slot,
+     * no free machine index that no bot held in this server session (restart the server), or no such user group;
+     * KILN_ERR_UNAVAILABLE: not a lab server, the symbols did not resolve, or no server world runs. The join then goes on
+     * by itself; info() shows where it is. */
     KilnResult(KILN_CALL* join)(KilnOwner owner, const KilnLabBotJoin* request, uint32_t* out_id);
     /* Ends the bot's game (KILN_LABBOT_LEAVE_*): a logout unless DROP. Tick thread. KILN_ERR_NOT_FOUND: no such live bot. */
     KilnResult(KILN_CALL* leave)(uint32_t id, uint32_t flags);
@@ -123,6 +154,14 @@ typedef struct KilnLabBotApi {
     /* Every remembered bot (live ones and the last LEFT/FAILED of each slot), newest first; *count = how many there
      * are, also beyond cap. Any thread. */
     KilnResult(KILN_CALL* list)(KilnLabBotInfo* out, uint32_t cap, uint32_t* count);
+
+    /* ---- since dev.32 labbot-2: check header.size ----
+     * Sets parts of the bot's client input (KILN_LABBOT_INPUT_*): kiln.labbot writes them into its PlayerInput after
+     * each GameServer receive from now on while it is in game (before: from when it is). Tick thread.
+     * KILN_ERR_INVALID_ARGUMENT: no flags or unknown ones, or a camera whose orientation is no rotation (not finite, or
+     * zero) or whose distance is negative or not finite; KILN_ERR_NOT_FOUND: no such live bot; KILN_ERR_UNAVAILABLE: not a
+     * lab server, or PlayerInput's client parts did not resolve in the game's reflection (kiln.log says which). */
+    KilnResult(KILN_CALL* input)(uint32_t id, const KilnLabBotInput* input);
 } KilnLabBotApi;
 
 #ifdef __cplusplus
@@ -140,11 +179,16 @@ static_assert(sizeof(KilnLabBotInfo) == 328 && offsetof(KilnLabBotInfo, account)
 static_assert(sizeof(KilnLabBotStatus) == 224 && offsetof(KilnLabBotStatus, publishes) == 16 &&
                   offsetof(KilnLabBotStatus, why) == 24,
               "KilnLabBotStatus layout");
-static_assert(sizeof(KilnLabBotApi) == 48, "KilnLabBotApi is 48 bytes");
+static_assert(sizeof(KilnLabBotInput) == 56 && offsetof(KilnLabBotInput, camera_position) == 8 &&
+                  offsetof(KilnLabBotInput, camera_orientation) == 32 && offsetof(KilnLabBotInput, camera_distance) == 48 &&
+                  offsetof(KilnLabBotInput, ready) == 52,
+              "KilnLabBotInput layout");
+static_assert(sizeof(KilnLabBotApi) == 56 && offsetof(KilnLabBotApi, input) == 48, "KilnLabBotApi is 56 bytes");
 #else
 _Static_assert(sizeof(KilnLabBotJoin) == 56, "KilnLabBotJoin layout");
 _Static_assert(sizeof(KilnLabBotInfo) == 328, "KilnLabBotInfo layout");
 _Static_assert(sizeof(KilnLabBotStatus) == 224, "KilnLabBotStatus layout");
-_Static_assert(sizeof(KilnLabBotApi) == 48, "KilnLabBotApi is 48 bytes");
+_Static_assert(sizeof(KilnLabBotInput) == 56, "KilnLabBotInput layout");
+_Static_assert(sizeof(KilnLabBotApi) == 56, "KilnLabBotApi is 56 bytes");
 #endif
 #endif

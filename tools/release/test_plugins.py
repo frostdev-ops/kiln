@@ -151,7 +151,104 @@ def services_step():
     return script[start:script.index("\nrsync -a --include='Kiln.*'", start)]
 
 
+def deploy_fixture(root):
+    """A copy of tools/deploy-server.sh in a minimal repo with a built KILN_OUT (kiln-labbot among the services, the
+    labbot-test mod among the mods) and a server folder: what a --no-build deploy reads. Nothing is built or run but the
+    script (the server's exe is a fixture file)."""
+    repo, out, server = root / "repo", root / "out", root / "server"
+    files = {
+        repo / "tools/deploy-server.sh": (ROOT / "tools/deploy-server.sh").read_bytes(),
+        repo / "native/core/compat-rules.json": b"{}\n",
+        repo / "runtime/locales/en.json": b"{}\n",
+        repo / "sigdb/symbols/server.json": b"{}\n",
+        repo / "regmap/common/items.json": b"{}\n",
+        repo / ".cache/dotnet-win-x64/root/dotnet.exe": b"MZ fixture",
+        out / "cmake/bin/dinput8.dll": b"MZ fixture",
+        out / "cmake/bin/kiln-core.dll": b"MZ fixture",
+        out / "cmake/bin/kiln-core.pdb": b"pdb",
+        out / "host/Kiln.Host.dll": b"MZ fixture",
+        server / "enshrouded_server.exe": b"MZ fake server exe for the deploy test\n",
+    }
+    for name in ("kiln-labbot.dll", "kiln-labbot.pdb", "kiln-world.dll", "kiln-world.pdb"):
+        files[out / "cmake/bin/services" / name] = b"MZ fixture"
+    for mod, dll in (("labbot-test", "LabBotTest"), ("pets-sample", "PetsSample")):
+        files[out / "mods" / mod / "kiln.mod.json"] = json.dumps({"id": mod, "entryAssembly": dll + ".dll"}).encode()
+        files[out / "mods" / mod / (dll + ".dll")] = b"MZ fixture"
+    for path, data in files.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+    (repo / "tools/deploy-server.sh").chmod(0o755)
+    return repo, out, server
+
+
+def run_deploy(root, *args):
+    repo, out, server = root / "repo", root / "out", root / "server"
+    env = dict(os.environ, KILN_OUT=str(out), KILN_NO_BOOT_SNAPSHOT="1")
+    return subprocess.run(["bash", str(repo / "tools/deploy-server.sh"), str(server), "--no-build", *args],
+                          capture_output=True, text=True, env=env)
+
+
 class WiringTests(unittest.TestCase):
+    def test_lab_only_parts_are_deployed_to_labs_only(self):
+        # tools/deploy-server.sh deploys labs (--policy any) and also real servers: tools/live/live.sh upgrades the live
+        # server with it (--policy verified-only). kiln-labbot and the labbot-test mod (bot players and their control
+        # channel) belong on a lab only: a server whose kiln.json policy is "any" after the deploy (the rule kiln.labbot
+        # reads: the top level, then the "server" section's). Anywhere else they are left out, and removed when an
+        # earlier deploy put them there.
+        def deployed(server):
+            k = server / "kiln"
+            return (sorted(p.name for p in (k / "services").iterdir()), sorted(p.name for p in (k / "mods").iterdir()))
+
+        lab = (["kiln-labbot.dll", "kiln-labbot.pdb", "kiln-world.dll", "kiln-world.pdb"], ["labbot-test", "pets-sample"])
+        real = (["kiln-world.dll", "kiln-world.pdb"], ["pets-sample"])
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            _, _, server = deploy_fixture(root)
+            r = run_deploy(root, "--policy", "any")
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertEqual(deployed(server), lab, "a lab gets the bot players")
+            r = run_deploy(root, "--policy", "verified-only")  # the same folder made a real server: they go again
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertEqual(deployed(server), real, "a server that is not a lab never has them")
+            r = run_deploy(root)  # no --policy: the server's kiln.json decides (verified-only now)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertEqual(deployed(server), real)
+            (server / "kiln/kiln.json").write_text(json.dumps({"policy": "any"}))
+            r = run_deploy(root)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertEqual(deployed(server), lab, "kiln.json says any: a lab")
+            (server / "kiln/kiln.json").write_text(json.dumps({"policy": "any", "server": {"policy": "verified-only"}}))
+            r = run_deploy(root)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertEqual(deployed(server), real, "the server section's policy wins, as kiln.labbot reads it")
+        with tempfile.TemporaryDirectory() as d:  # a first deploy without --policy writes verified-only: no lab
+            root = Path(d)
+            _, _, server = deploy_fixture(root)
+            r = run_deploy(root)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertEqual(deployed(server), real)
+
+    def test_the_client_never_gets_lab_only_services(self):
+        # tools/client/client.sh deploys Kiln into a game client: kiln-labbot (server side only) never goes there, and
+        # an earlier deploy's copy is removed
+        script = (ROOT / "tools/client/client.sh").read_text()
+        start = script.index("    rsync -a --delete --include='*.dll' --include='*.pdb' --exclude='*' \"$bin/services/\"")
+        step = script[start:script.index("    # Kiln's own plugins (bin/plugins/kiln-*.dll)", start)]
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            for name in ("kiln-labbot.dll", "kiln-labbot.pdb", "kiln-world.dll"):
+                f = root / "bin/services" / name
+                f.parent.mkdir(parents=True, exist_ok=True)
+                f.write_bytes(b"MZ fixture")
+            for name in ("kiln-labbot.dll", "kiln-labbot.pdb", "kiln-old.dll"):  # an earlier deploy's
+                f = root / "client/kiln/services" / name
+                f.parent.mkdir(parents=True, exist_ok=True)
+                f.write_bytes(b"MZ fixture")
+            r = subprocess.run(["bash", "-c", 'set -euo pipefail; bin=$1/bin; k=$1/client/kiln;\n' + step, "test", str(root)],
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertEqual(sorted(p.name for p in (root / "client/kiln/services").iterdir()), ["kiln-world.dll"])
+
     def test_lab_only_services_stay_out_of_the_bundle(self):
         # kiln-labbot (bot players, native/services/labbot) is for lab servers, which tools/deploy-server.sh deploys:
         # a release bundle must never carry it, so no player's server or game ever loads it

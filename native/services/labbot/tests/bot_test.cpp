@@ -12,9 +12,13 @@
 //  9 failures, each with its reason: never in the published state, the login refused, the upload refused, no spawn
 //    position, the record taken over; the game removing an in-game bot is Left with the record's state;
 // 10 a leave whose record never frees is dropped after the limit;
-// 11 the characters that logged in on this server (Played): kiln.labbot refuses their next join at once;
+// 11 logged_in: whether the game made the bot's record (it knows the bot's character from then on);
 // 12 the publisher: listed bots in every publish, a left bot cleared from the next ones even when another bot takes its
-//    place at once.
+//    place at once;
+// 13 the bot's client input: PlayerInput's camera and readiness found by the game's reflection (server f0d824be's
+//    layout), refused when a part is missing or of another type or size; written part by part, nothing else touched;
+// 14 machine indices: a bot gets the highest free index no bot held before in this server session (a left bot's machine
+//    index keeps its never-acknowledged backlog: lab p1), slots the highest free one.
 #include <cstdio>
 #include <cstring>
 #include <map>
@@ -542,7 +546,7 @@ void t_leave_timeout() {
 
 // ---- 11: a character that logged in on this server is remembered (kiln.labbot refuses its next join at once: the game
 // never spawns it again after its logout while the server runs, lab p1, p2, s6) ----
-void t_played() {
+void t_logged_in() {
     FakeGame g;
     Bot b = make_bot();
     uint64_t step = 0;
@@ -560,28 +564,6 @@ void t_played() {
     Bot d = make_bot();
     d.step(r, 1, r.L);
     CHECK(d.phase == Phase::Failed && d.logged_in, "a record the game refused (state 6) still names the character");
-
-    Played played;
-    uint8_t alder[16], birch[16];
-    derive_character("Bot Alder", alder);
-    derive_character("Bot Birch", birch);
-    CHECK(!played.has(alder, derive_account("Bot Alder")) && played.size() == 0, "empty");
-    played.add(alder, derive_account("Bot Alder"));
-    CHECK(played.has(alder, derive_account("Bot Alder")), "the same name again");
-    CHECK(!played.has(birch, derive_account("Bot Birch")), "another name");
-    CHECK(played.has(alder, 12345) && played.has(birch, derive_account("Bot Alder")), "the character or the account alone");
-    played.add(alder, derive_account("Bot Alder"));
-    CHECK(played.size() == 1, "kept once (%zu)", played.size());
-    for (int i = 0; i < 40; ++i) {
-        const std::string n = "Bot " + std::to_string(i);
-        uint8_t ch[16];
-        derive_character(n, ch);
-        played.add(ch, derive_account(n));
-    }
-    uint8_t last[16];
-    derive_character("Bot 39", last);
-    CHECK(played.size() == 41 && played.has(last, 1) && played.has(alder, 1), "no limit: every name of the session (%zu)",
-          played.size());
 }
 
 // ---- 12: the publisher: a left bot's entries are cleared from the next publishes even when another bot is listed in
@@ -697,6 +679,154 @@ void t_publisher() {
 
 }  // namespace
 
+// ---- 13 ----
+// keen::ecs::PlayerInput and the types under it as server f0d824be reflects them (tests/fixtures/player-storage/
+// client-input-types.json; the crosshair spawn 0x40580 reads the component's +0x28 position, +0x40 orientation and
+// +0x50 distance)
+struct FakeFields final : Fields {
+    struct F {
+        int64_t off;
+        std::string type;
+        uint32_t size;
+    };
+    std::map<std::string, std::map<std::string, F>> types;
+    std::map<std::string, uint32_t> sizes;
+    FakeFields() {
+        sizes = {{"keen::ecs::PlayerInput", 1472}, {"keen::ecs::ClientPlayerInputData", 952}, {"keen::ecs::ClientCamera", 64},
+                 {"keen::WorldPosition", 24}, {"keen::Quaternion", 16}, {"keen::float32", 4}, {"keen::bool", 1}, {"keen::Time", 8}};
+        types["keen::ecs::PlayerInput"] = {{"serverTime", {0, "keen::Time", 8}},
+                                           {"fromClient", {8, "keen::ecs::ClientPlayerInputData", 952}},
+                                           {"fromClientIsReadyForGameplay", {1464, "keen::bool", 1}}};
+        types["keen::ecs::ClientPlayerInputData"] = {{"camera", {32, "keen::ecs::ClientCamera", 64}}};
+        types["keen::ecs::ClientCamera"] = {{"position", {0, "keen::WorldPosition", 24}},
+                                            {"orientation", {24, "keen::Quaternion", 16}},
+                                            {"distance", {40, "keen::float32", 4}},
+                                            {"fovY", {44, "keen::float32", 4}}};
+    }
+    bool field(std::string_view type, std::string_view name, int64_t* offset, std::string* field_type, uint32_t* field_size) override {
+        auto t = types.find(std::string(type));
+        if (t == types.end()) return false;
+        auto f = t->second.find(std::string(name));
+        if (f == t->second.end()) return false;
+        *offset = f->second.off;
+        *field_type = f->second.type;
+        *field_size = f->second.size;
+        return true;
+    }
+    uint32_t size_of(std::string_view type) override {
+        auto i = sizes.find(std::string(type));
+        return i == sizes.end() ? 0 : i->second;
+    }
+};
+
+void t_input() {
+    FakeFields f;
+    InputLayout L;
+    std::string why;
+    CHECK(resolve_input(f, &L, &why), "resolves: %s", why.c_str());
+    CHECK(L.size == 1472 && L.camera_position == 0x28 && L.camera_orientation == 0x40 && L.camera_distance == 0x50 && L.ready == 1464,
+          "the layout the crosshair spawn reads: size %u position %lld orientation %lld distance %lld ready %lld", L.size,
+          (long long)L.camera_position, (long long)L.camera_orientation, (long long)L.camera_distance, (long long)L.ready);
+    CHECK(L.valid(), "valid");
+
+    // refusals, each with its reason
+    {
+        FakeFields g;
+        g.types["keen::ecs::ClientCamera"].erase("orientation");
+        InputLayout M;
+        std::string w;
+        CHECK(!resolve_input(g, &M, &w) && w.find("orientation") != std::string::npos, "a missing part: %s", w.c_str());
+    }
+    {
+        FakeFields g;
+        g.types["keen::ecs::ClientCamera"]["position"] = {0, "keen::float3", 12};
+        InputLayout M;
+        std::string w;
+        CHECK(!resolve_input(g, &M, &w) && w.find("position") != std::string::npos, "a part of another type: %s", w.c_str());
+    }
+    {
+        FakeFields g;
+        g.types["keen::ecs::PlayerInput"]["fromClientIsReadyForGameplay"] = {1472, "keen::bool", 1};
+        InputLayout M;
+        std::string w;
+        CHECK(!resolve_input(g, &M, &w), "a part past the component's end is refused (%s)", w.c_str());
+    }
+    {
+        FakeFields g;
+        g.sizes.erase("keen::ecs::PlayerInput");
+        InputLayout M;
+        std::string w;
+        CHECK(!resolve_input(g, &M, &w) && w.find("PlayerInput") != std::string::npos, "no PlayerInput: %s", w.c_str());
+    }
+    CHECK(!InputLayout{}.valid(), "an unresolved layout is not valid");
+
+    // writes: only the parts the input sets
+    std::vector<uint8_t> pi(1472, 0xcc);
+    ClientInput in;
+    CHECK(!in.any() && !write_input(pi.data(), pi.size(), L, in), "nothing to write");
+    in.ready = 1;
+    CHECK(write_input(pi.data(), pi.size(), L, in), "ready");
+    CHECK(pi[1464] == 1, "ready byte %u", pi[1464]);
+    size_t other = 0;
+    for (size_t i = 0; i < pi.size(); ++i) other += i != 1464 && pi[i] != 0xcc;
+    CHECK(other == 0, "ready alone touches %zu other bytes", other);
+    in.ready = -1;
+    in.camera = true;
+    in.position[0] = int64_t(3841) << 32 | 0x80000000;  // 3841.5 m
+    in.position[1] = int64_t(837) << 32;
+    in.position[2] = -(int64_t(12) << 32);
+    in.orientation[0] = 0.f;
+    in.orientation[1] = 0.70710677f;
+    in.orientation[2] = 0.f;
+    in.orientation[3] = 0.70710677f;
+    in.distance = 2.5f;
+    CHECK(write_input(pi.data(), pi.size(), L, in), "camera");
+    int64_t pos[3];
+    float q[4], d;
+    std::memcpy(pos, pi.data() + 0x28, 24);
+    std::memcpy(q, pi.data() + 0x40, 16);
+    std::memcpy(&d, pi.data() + 0x50, 4);
+    CHECK(pos[0] == in.position[0] && pos[1] == in.position[1] && pos[2] == in.position[2], "position");
+    CHECK(q[1] == in.orientation[1] && q[3] == in.orientation[3] && q[0] == 0.f && q[2] == 0.f, "orientation");
+    CHECK(d == 2.5f, "distance %f", d);
+    CHECK(pi[1464] == 1, "the camera leaves the readiness as it was");
+    CHECK(pi[0x27] == 0xcc && pi[0x54] == 0xcc && pi[0x56] == 0xcc, "nothing around the camera's parts (fovY stays the game's)");
+    in.ready = 0;
+    in.camera = false;
+    CHECK(write_input(pi.data(), pi.size(), L, in) && pi[1464] == 0, "not ready again");
+    std::memcpy(pos, pi.data() + 0x28, 24);
+    CHECK(pos[0] == (int64_t(3841) << 32 | 0x80000000), "the camera stays as last said");
+    in.ready = 1;
+    CHECK(!write_input(pi.data(), 1000, L, in), "a component smaller than the layout is left alone");
+    CHECK(!write_input(nullptr, 1472, L, in), "no component");
+    CHECK(!write_input(pi.data(), pi.size(), InputLayout{}, in), "an unresolved layout");
+}
+
+// ---- 14 ----
+void t_indices() {
+    std::vector<bool> free17(17, false);
+    SpentMachines spent;
+    CHECK(pick_index(17, 1, free17, &spent) == 16, "the highest machine index: %d", pick_index(17, 1, free17, &spent));
+    spent.add(16);
+    spent.add(16);
+    CHECK(spent.size() == 1 && spent.has(16) && !spent.has(15), "spent once");
+    // lab p1: after 'Exp Alder' left machine 16, 'Exp Birch' on 16 stayed in state 1; 'Fresh Cedar' on 15 spawned
+    CHECK(pick_index(17, 1, free17, &spent) == 15, "a left bot's index is not given again: %d", pick_index(17, 1, free17, &spent));
+    auto busy = free17;
+    busy[15] = true;  // a real client or a live bot
+    CHECK(pick_index(17, 1, busy, &spent) == 14, "a busy index is skipped: %d", pick_index(17, 1, busy, &spent));
+    CHECK(pick_index(17, 1, busy, nullptr) == 16, "without a spent set (player slots) only busy counts");
+    for (uint32_t m = 1; m < 17; ++m) spent.add(m);
+    CHECK(pick_index(17, 1, free17, &spent) == -1, "every index spent: none (restart the lab)");
+    std::vector<bool> only0(17, true);
+    only0[0] = false;
+    CHECK(pick_index(17, 1, only0, nullptr) == -1, "machine 0 (the server's own) is never given");
+    std::vector<bool> slots(16, false);
+    slots[15] = true;
+    CHECK(pick_index(16, 0, slots, nullptr) == 14, "player slots: the highest free one");
+    CHECK(pick_index(16, 0, std::vector<bool>(3, false), nullptr) == -1, "a busy list shorter than the count is refused");
+}
+
 int main() {
     t_wire();
     t_login();
@@ -709,8 +839,10 @@ int main() {
     t_failures();
     t_leave_timeout();
     t_limits_are_time();
-    t_played();
+    t_logged_in();
     t_publisher();
+    t_input();
+    t_indices();
     std::printf("labbot host: %d checks, %d failed\n", g_checks, g_failures);
     return g_failures ? 1 : 0;
 }

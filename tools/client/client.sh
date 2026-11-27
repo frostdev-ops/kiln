@@ -244,6 +244,8 @@ deploy() {
     find "$k/services" -maxdepth 1 -name '*.pdb' -delete
   else
     rsync -a --delete --include='*.dll' --include='*.pdb' --exclude='*' "$bin/services/" "$k/services/" 2>/dev/null || true
+    # kiln-labbot (bot players, lab servers only; deploy-server.sh) never goes into a game
+    rm -f "$k/services/kiln-labbot.dll" "$k/services/kiln-labbot.pdb"
     # Kiln's own plugins (bin/plugins/kiln-*.dll); other plugins already in kiln/plugins stay. Recorded in
     # kiln/.kiln-plugins so undeploy removes exactly these.
     if [[ -d $bin/plugins ]]; then

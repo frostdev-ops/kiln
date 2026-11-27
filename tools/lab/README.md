@@ -24,7 +24,10 @@ replication, and it moves only when something moves it (`move_to`, a teleport). 
 ### Set-up
 
 1. `kiln.json` policy `"any"` (`deploy-server.sh --policy any`) and `kiln/config/network.json` with a `labPort`. Without
-   both, kiln.labbot stays off (capability `labbot.join`, reason "policy") and nothing of it is hooked.
+   both, kiln.labbot stays off (capability `labbot.join`, reason "policy") and nothing of it is hooked. deploy-server.sh
+   deploys `kiln-labbot.dll` and the `labbot-test` mod only where the policy is `"any"` after the deploy (any other
+   server, such as the live one `tools/live/live.sh` deploys with `--policy verified-only`, never gets them and loses an
+   earlier deploy's copy; it prints "deploy: not a lab ...").
 2. The mod `mods/tests/labbot-test` in the lab (`dotnet build mods/tests/labbot-test/LabBotTest.csproj -c Release -o
    $KILN_OUT/mods/labbot-test` before the deploy): it opens the control channel `labbot:control` v1.
 3. A world must be running (the bot joins the server world; on a new lab the first start generates it).
@@ -64,17 +67,42 @@ async command such as `/pet summon` answers there). `wait_told` takes only a lin
 `command` (their replies carry that point as `"told"`; `since=` picks another), so a reply to an earlier command never
 passes for the newest one. Two lines added in the same server step show only the second.
 
-Known limit: **after a bot leaves (a logout or a drop), restart the lab before the next join.** The game does not
-spawn a character again after its logout while the server keeps running (the join stays in the spawn position search,
-record state 1, until the 60 s load limit; `docs/re/labbot.md`), so a join under a name that logged in earlier in that
-session is refused at once: `LabBotError` "... logged in earlier in this server session ...". A new name after a bot
-left stayed in that search too in the review's labs (6 of 6 joins, 0.1 s to 5 s after a logout or a drop, with fresh
-handles as well); only one join in the lane's s6 spawned. Bots that are in the world at the same time are fine (join
-them all first, then end them). The first join of a server session works, with the character's per-character data.
+Joins per server session: each bot gets a machine index no bot held before in that server session (a left bot's index
+stays backed up with what the server sent it, which nothing ever acknowledged: the next bot there stayed in the game's
+spawn search for good, `docs/re/labbot.md` "A join after a bot left"). There are 16 (less one for each player
+connected), so about 15 joins per server session; then `join` refuses with `LabBotError` "... no machine index is left
+that no bot held in this server session ... restart the lab". Bots may leave and join again in any order until then,
+under new names or the same one (the same name is the same character; a bot uploads a new character at each join, so
+its inventory starts empty again: the game keeps a character's save on its client).
+
+### Using items (since dev.32)
+
+```python
+bot.give("Food_T2_Dog_Bait", 3)               # the game's own inventory add (Items.Give); names or item ids
+bot.count("Food_T2_Dog_Bait")                 # 3 (over all its slots); bot.inventory(): the slots
+bot.use("Food_T1_raw_fruit_Red_Berries")      # eats it: the game takes one when its sequence's consume event runs
+bot.buffs()                                   # ... and the meal's buff is in a Food slot
+bot.use("Food_T2_Dog_Bait", at=(x, y, z), pitch=44)  # throws the bait from its eyes towards (x, y, z), 44 degrees down
+lab.near(x, y, z, 10)                         # the placed bait: [{"entity", "name": "FoodBait_T2_Dog", "position", ...}]
+```
+
+`use` is the game's own use of a hotbar item (`Abilities.UseItem`: the item's own sequence with that slot as the used
+item). The bot's client first says it is ready for gameplay (`LabBots.SetReady`: the game refuses a use by a player that is
+not), and with `at` or `yaw`/`pitch` its camera is set first (`LabBots.SetCamera`, at its eyes 1.7 m above its feet): an
+item whose use spawns at the "crosshair" (an animal bait) starts at the camera and flies along its view, the bait at 5 m/s
+up and 10 m/s forward, so `pitch` picks how far it lands (on flat ground about 12.9 m at 0 degrees, 8 m at 22.5, 4 m at
+44, 2 m at 66). `bot.look(...)` and `bot.ready()` set them alone. The answer is `{"result": "Started", ...}`; anything else
+(`NotConsumable`, `Busy`, `NotReady` still after `wait` seconds, 30 by default, ...) raises `LabBotError` with the bot's
+states; the client waits for the answer `wait` + 15 s at least. Saying ready makes the game play a new character's first-time spawn intro (17.7 s; a bot is a new character at every
+join), so the first use waits for it: call `bot.ready()` right after the join. A wild animal senses a thrown bait in the
+game's own way (lab p2: a dog took the bot's bait and pursued it), but only in some of its states; `docs/re/labbot.md`
+"Using an item" has what is open. Lab probes for the result: `lab.spawn_entity(template,
+x, y, z)` (transient), `lab.near(x, y, z, radius, component="PickupItem")`, `lab.component(entity, "DynamicWildlife")`
+(bytes, or None), `lab.destroy(entity)`; the names are the game's, for test scripts only.
 
 From a shell: `python3 -I tools/labbot/labbot.py --port <labPort> status|list|players|spawn NAME|info ID|wait ID|say ID
-TEXT|command ID LINE|move ID X Y Z|position ID|character ID|leave ID [--drop]` (JSON out; exit 1 = the server answered
-an error, 2 = no answer).
+TEXT|command ID LINE|move ID X Y Z|position ID|character ID|give ID ITEM [COUNT]|inventory ID|use ID ITEM [X Y Z]|buffs
+ID|leave ID [--drop]` (JSON out; exit 1 = the server answered an error, 2 = no answer).
 
 Tests of the client without a server: `python3 -I tools/labbot/test_labbot.py`; of the native core without a game:
 `native/services/labbot/tests/test-labbot-host.sh`.

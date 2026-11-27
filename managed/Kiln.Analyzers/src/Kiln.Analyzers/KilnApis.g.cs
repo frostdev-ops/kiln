@@ -509,6 +509,8 @@ internal static partial class KilnApis
         "M:Kiln.KnowledgeScope.Set(System.String,System.UInt32)", // KnowledgeScope.Set(string, uint): via Knowledge.KnowledgeId(string, string)
         "M:Kiln.LabBots.Join(System.String,Kiln.LabBotGroup,System.Int32)", // LabBots.Join(string, LabBotGroup, int): Services.RequireTickThread
         "M:Kiln.LabBots.Leave(System.Int32,System.Boolean)", // LabBots.Leave(int, bool): Services.RequireTickThread
+        "M:Kiln.LabBots.SetCamera(System.Int32,Kiln.WorldPosition,System.Numerics.Quaternion,System.Single)", // LabBots.SetCamera(int, WorldPosition, Quaternion, float): via LabBots.Input(int, ref LabBotNative.InputData, string)
+        "M:Kiln.LabBots.SetReady(System.Int32,System.Boolean)", // LabBots.SetReady(int, bool): via LabBots.Input(int, ref LabBotNative.InputData, string)
         "M:Kiln.Markers.CaptureServerAnchor(Kiln.EntityId)", // Markers.CaptureServerAnchor(EntityId): Services.RequireTickThread
         "M:Kiln.Markers.ClearSent(Kiln.EntityId)", // Markers.ClearSent(EntityId): Services.RequireTickThread
         "M:Kiln.Markers.Send(Kiln.EntityId,Kiln.MarkerSpec)", // Markers.Send(EntityId, MarkerSpec): Services.RequireTickThread

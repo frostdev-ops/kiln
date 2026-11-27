@@ -14,4 +14,10 @@ internal static class BotPeers
 {
     /// <summary>True when <paramref name="peer"/> is the machine of a live bot of <paramref name="bots"/>.</summary>
     internal static bool IsBot(uint peer, IEnumerable<LabBotInfo> bots) => bots.Any(b => !b.Ended && b.Machine == peer);
+
+    /// <summary>True when <paramref name="now"/> (LabBots.Info of the bot's id now) is still the bot <paramref name="was"/>
+    /// in game in the same player entity. An op that waits (use, give) checks it before it acts: a bot that left frees its
+    /// player slot, and the next player in that slot, another bot or a player's game, gets the same entity id.</summary>
+    internal static bool Still(LabBotInfo was, LabBotInfo? now) =>
+        now is { InGame: true } && now.Id == was.Id && now.Entity == was.Entity;
 }

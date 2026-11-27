@@ -84,4 +84,6 @@
 [KILNX001]static Kiln.LabBots.Info(int id) -> Kiln.LabBotInfo?
 [KILNX001]static Kiln.LabBots.Join(string! name, Kiln.LabBotGroup group = Kiln.LabBotGroup.Admin, int groupIndex = 0) -> int
 [KILNX001]static Kiln.LabBots.Leave(int id, bool drop = false) -> void
+[KILNX001]static Kiln.LabBots.SetCamera(int id, Kiln.WorldPosition position, System.Numerics.Quaternion rotation, float distance = 0) -> void
+[KILNX001]static Kiln.LabBots.SetReady(int id, bool ready = true) -> void
 [KILNX001]static Kiln.LabBots.Status() -> Kiln.LabBotStatus!

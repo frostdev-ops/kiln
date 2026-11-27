@@ -277,21 +277,26 @@ template, the spawn, the user group's rights, character saves and the logout run
 `CharacterData.KeyOf`, chat commands and kiln.net see a player like any other. No Steam account, ticket or password is
 used. How it works: `docs/re/labbot.md`.
 
-1. Make the lab and deploy it with policy `any` and a `labPort` (as for the fake players above).
+1. Make the lab and deploy it with policy `any` and a `labPort` (as for the fake players above). `tools/deploy-server.sh`
+   deploys `kiln-labbot` and the `labbot-test` mod only to a server whose kiln.json policy is `any` (a lab); on any other
+   server it leaves them out and removes an earlier deploy's copy. Release bundles and `tools/client` never carry them.
 2. From a mod (reference `Kiln.Players`, opt in to KILNX001), on the tick thread: `var id = LabBots.Join("Bot Alder");`
    (group `LabBotGroup.Admin` by default), then wait until `LabBots.Info(id)!.InGame` (about a second on a loaded world);
    `Info(id).Entity` is its player entity. `LabBots.Leave(id)` logs it out (final save; `drop: true` = a lost
    connection). A mod's bots drop when it unloads; every bot leaves when the world stops.
 3. From a lab script (Python), with `mods/tests/labbot-test` in the lab: `tools/labbot/labbot.py` (`Lab(port).spawn(name)`,
-   `bot.say("/pet give hound")`, `bot.command("pet list")`, `bot.move_to(x, y, z)`, `bot.leave()`); see
-   `tools/lab/README.md`, "Bot players".
+   `bot.say("/pet give hound")`, `bot.command("pet list")`, `bot.move_to(x, y, z)`, `bot.give(item, n)`,
+   `bot.use(item, at=(x, y, z))`, `bot.leave()`); see `tools/lab/README.md`, "Bot players" and "Using items".
+4. Using an item (since dev.32): what a bot's client says in its input is `LabBots.SetReady(id)` (ready for gameplay: the
+   game refuses a use by a player that is not) and `LabBots.SetCamera(id, position, rotation, distance)` (where its
+   camera is and looks: an item whose use spawns at the "crosshair", such as an animal bait, starts there and flies along
+   the view). Then `Abilities.UseItem(entity, slot)` uses an item from its inventory the way the game does for a hotbar
+   use; `Items.Give` gives it one first.
 
 The bot's name picks its character and account, so the same name is the same character on a world: its per-character
-data (pets, quests) is there when it joins again in a later server session. Known limit: after a bot leaves (a logout
-or a drop), restart the lab before the next join; join every bot a test needs first. The game does not spawn the
-character again until the server restarts, so `LabBots.Join` refuses a name that logged in earlier in this session at
-once, with an `ArgumentException` that says so; a new name after a bot left stayed in the game's spawn search as well in
-the review's labs (`docs/re/labbot.md`). What a bot does not give: a client (what the server sends it goes
-nowhere; it never acknowledges replication), and movement of its own (it stays where it is until something teleports
-it). Without policy `any` and a lab port every `LabBots` member that changes something throws
-`KilnUnavailableException("labbot.join")` (reason `policy`).
+data (pets, quests) is there when it joins again, in this server session or a later one. Each bot needs a machine index
+no bot held before in its server session (`docs/re/labbot.md`, "A join after a bot left"): about 15 joins per server
+session, then `LabBots.Join` throws `InvalidOperationException` ("no room ... restart the lab"). What a bot does not
+give: a client (what the server sends it goes nowhere; it never acknowledges replication), and movement of its own (it
+stays where it is until something teleports it). Without policy `any` and a lab port every `LabBots` member that
+changes something throws `KilnUnavailableException("labbot.join")` (reason `policy`).

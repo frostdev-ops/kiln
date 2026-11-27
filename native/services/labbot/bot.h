@@ -141,6 +141,66 @@ private:
     uint64_t taken_ = 0, faults_ = 0;
 };
 
+// ------------------------------------------------------------------------------------------- client input ----------------
+// What the bot's client says in its input: PlayerInput, the component a client's input messages fill (ServerReceive's
+// player channel 8 queues one per client tick, the GameServer's InputApply copies the step's into the component; no
+// message ever arrives for a bot's slot, so nothing else writes a bot's PlayerInput). kiln.labbot writes the parts a
+// script set after each GameServer receive while the bot is in game, where a client's input would land. The game's own
+// programs read them as a client's: the camera is where an item's "Crosshair" spawn starts (a thrown bait: the
+// SpawnEntityEvent's spawn transform, 0x40580: the camera position + its orientation x (0, 0, distance)), the readiness
+// lets actor_is_ready_for_gameplay set IsReadyForGameplay (a use of an item refuses a player that is not ready).
+struct InputLayout {
+    uint32_t size = 0;                // the component's size (keen::ecs::PlayerInput)
+    int64_t camera_position = -1;     // fromClient.camera.position: keen::WorldPosition, 3 x i64, 32.32 fixed metres
+    int64_t camera_orientation = -1;  // fromClient.camera.orientation: keen::Quaternion, 4 x f32 (x y z w)
+    int64_t camera_distance = -1;     // fromClient.camera.distance: f32, the camera's boom
+    int64_t ready = -1;               // fromClientIsReadyForGameplay: bool
+    bool valid() const;
+};
+struct ClientInput {
+    bool camera = false;              // the camera parts are the bot's client's
+    int64_t position[3] = {};
+    float orientation[4] = {0, 0, 0, 1};
+    float distance = 0;
+    int ready = -1;                   // -1: never said; 0 or 1: what the bot's client says
+    bool any() const { return camera || ready >= 0; }
+};
+// Writes the parts `in` sets into `pi`, a PlayerInput of `size` bytes; the rest of it stays as it is. false: nothing
+// written (no input, a layout that is not valid, or a component smaller than the layout).
+bool write_input(uint8_t* pi, size_t size, const InputLayout& L, const ClientInput& in);
+// The game's reflection as kiln.types answers it (labbot.cpp; tests: a fake).
+struct Fields {
+    virtual ~Fields() = default;
+    // The type's own field `name`: its offset, and its type's qualified name and size. false: no such type or field.
+    virtual bool field(std::string_view type, std::string_view name, int64_t* offset, std::string* field_type,
+                       uint32_t* field_size) = 0;
+    virtual uint32_t size_of(std::string_view type) = 0;  // 0: no such type
+};
+// PlayerInput's client parts by the game's reflection: fromClient (keen::ecs::ClientPlayerInputData) .camera
+// (keen::ecs::ClientCamera) .position (keen::WorldPosition, 24 bytes), .orientation (keen::Quaternion, 16), .distance
+// (4), and fromClientIsReadyForGameplay (1 byte). false with *why: a part is not there, or not of that type and size.
+bool resolve_input(Fields& f, InputLayout* out, std::string* why);
+
+// ------------------------------------------------------------------------------------------ machine indices ----------------
+// The GameServer keeps a machine's sockets until another machine handle takes its index (SyncSockets 0x7bd3c0), and the
+// session's sends to a bot are never acknowledged: what the server sent a bot stays queued on the sockets of its machine
+// index. The next bot on that index (whatever its handles and name) gets its spawn message refused every frame (the
+// GameServer's spawn send 0x7b6460 after the spawn position search), so its record stays in state 1 until the load limit
+// (lab p1: 9,088 of 9,089 tries refused; a fresh index spawned at once, the same character too). kiln.labbot gives each bot
+// a machine index no bot held before in this server session.
+class SpentMachines {
+public:
+    void add(uint32_t index);
+    bool has(uint32_t index) const;
+    size_t size() const { return list_.size(); }
+
+private:
+    std::vector<uint32_t> list_;
+};
+// The highest index in [lowest, count) that is not busy and not spent (spent may be null); -1 when there is none. busy[i]:
+// a real connection, a live bot or the published state holds it (real clients get the low ones from the session).
+int pick_index(uint32_t count, uint32_t lowest, const std::vector<bool>& busy, const SpentMachines* spent);
+
 // ---------------------------------------------------------------------------------- join and leave ----------------
 enum class Phase : uint32_t {
     Free = 0,
@@ -213,7 +273,7 @@ struct Bot {
     uint8_t record_state = 0, permissions = 0;
     bool upload_sent = false, ready_sent = false, final_sent = false;
     bool leave_requested = false, drop = false;
-    bool logged_in = false;        // the game's AddPlayer made the bot's record: the game knows its character now (Played)
+    bool logged_in = false;        // the game's AddPlayer made the bot's record: the game knows its character now
     uint32_t acked = 0;            // newest save version acknowledged
     uint32_t saves_acked = 0;
 
@@ -229,25 +289,6 @@ private:
     void go(Phase p, uint64_t now, std::string why = {});
     void fail(uint64_t now, std::string why) { go(Phase::Failed, now, std::move(why)); }
     void ack_saves(Engine& g);
-};
-
-// The characters (and accounts) that logged in on this server since it started: Bot::logged_in. The game does not spawn
-// one of them again after its logout while the server keeps running (lab p1-p4, s6: the next join of that name stays in
-// the spawn position search, record state 1, until the load limit), so kiln.labbot refuses such a join at once, with the
-// reason, instead of failing it 60 s later. (A new name after a logout stayed there too in lab g1-g3; docs/re/labbot.md.)
-class Played {
-public:
-    void add(const uint8_t character[16], uint64_t account);
-    // The character, or the account, logged in before.
-    bool has(const uint8_t character[16], uint64_t account) const;
-    size_t size() const { return list_.size(); }
-
-private:
-    struct One {
-        uint8_t character[16];
-        uint64_t account;
-    };
-    std::vector<One> list_;
 };
 
 }  // namespace labbot

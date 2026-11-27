@@ -1014,7 +1014,7 @@
         },
         {
           "name": "labbot.join",
-          "members": 2
+          "members": 4
         },
         {
           "name": "players.bans",
