@@ -212,7 +212,8 @@
           "description": "An EML mod, or (dialect shroudforge) a ShroudForge package."
         },
         "contentSha256": {
-          "$ref": "#/$defs/nullableSha256"
+          "$ref": "#/$defs/nullableSha256",
+          "description": "The package's content digest: kiln-eml's records the launch plan's (sfi-policy package_content_sha256; null for EML's own pass); Kiln's hosted ShroudForge (writer shroudforge, next release) the digest of the files its pass fingerprint hashes (kiln.shroudforge.package-files.v1, the fork's kiln/README.md). A consumer compares digests of one writer only."
         },
         "settingsSha256": {
           "$ref": "#/$defs/nullableSha256"
