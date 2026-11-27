@@ -17,7 +17,7 @@ public sealed class NpcSpeechTestMod : Mod
     public override void OnLoad() =>
         _command = Commands.Register("npcspeech-test", Run, CommandPermission.Admin,
             usage: "say|replace|suppress|clear|stop|status|pick <mode> [seed]|farewell|farewell-clear|menuline|menuline-clear|topics|" +
-                   "topics-clear|refresh|reply <player>|near <player>|calls <entity>",
+                   "topics-clear|refresh|reply <player>|near <player>|place <player>|calls <entity>",
             description: "Kiln.Npcs lab driver");
 
     public override void OnUnload() => _command?.Dispose();
@@ -59,6 +59,7 @@ public sealed class NpcSpeechTestMod : Mod
                 ? who
                 : new EntityId(1), "Thank you!"),
             "near" => Near(c, out extra),
+            "place" => Place(c),
             _ => null,
         };
         var villagers = Villagers.List();
@@ -108,17 +109,48 @@ public sealed class NpcSpeechTestMod : Mod
         return m.Replace("I can't work like this. Bring me food.");
     }
 
-    // The NPC with speech nearest to a player (a LABBOT bot), from Villagers and every entity with DynamicNpcState.
+    // The NPC with speech nearest to a player (a LABBOT bot), from Villagers and the one `place` put there.
     private static SpeechResult Near(CommandContext c, out string? extra)
     {
         extra = null;
         var who = new EntityId(c.Count > 2 && uint.TryParse(c.Args[2], out var p) ? p : 0u);
         if (who.IsNone || World.Position(who) is not { } at) return new SpeechResult(false, $"no position for player {who.Value}");
-        var best = Villagers.List().Where(v => v.Position is not null && Npcs.CanSpeak(v.Entity))
-            .OrderBy(v => v.Position!.Value.DistanceTo(at)).FirstOrDefault();
-        if (best is null) return new SpeechResult(false, "no villager with speech in this world yet");
-        extra = $"near {best.Entity.Value} at {best.Position!.Value.DistanceTo(at):0} m";
+        var all = Villagers.List().Where(v => v.Position is not null && Npcs.CanSpeak(v.Entity))
+            .Select(v => (v.Entity, Distance: v.Position!.Value.DistanceTo(at))).ToList();
+        if (!_placed.IsNone && Npcs.CanSpeak(_placed) && World.Position(_placed) is { } pp && all.All(x => x.Entity != _placed))
+            all.Add((_placed, pp.DistanceTo(at)));
+        if (all.Count == 0) return new SpeechResult(false, $"no villager with speech in this world yet{(_placeError is null ? "" : $" ({_placeError})")}");
+        var best = all.OrderBy(x => x.Distance).First();
+        extra = $"near {best.Entity.Value} at {best.Distance:0} m";
         return new SpeechResult(true, null);
+    }
+
+    private static EntityId _placed;
+    private static string? _placeError;
+
+    // A fresh lab world has no villagers: Ramone's template (a villager with NpcDialog), spawned 3 m from a player (a
+    // LABBOT bot), so the real-NPC checks have an NPC. `near` finds it a moment later.
+    private const string Ramone = "fe2ce3af-e771-4179-9450-f2dee8d21209";
+
+    private static SpeechResult Place(CommandContext c)
+    {
+        var who = new EntityId(c.Count > 2 && uint.TryParse(c.Args[2], out var p) ? p : 0u);
+        if (who.IsNone || World.Position(who) is not { } at) return new SpeechResult(false, $"no position for player {who.Value}");
+        _placeError = null;
+        _ = PlaceAt(at with { X = at.X + 3 });
+        return new SpeechResult(true, "placing Ramone 3 m from the player");
+    }
+
+    private static async Task PlaceAt(WorldPosition at)
+    {
+        try
+        {
+            _placed = await Creatures.Spawn(Ramone, at, 180, new CreatureSpawnOptions { Tag = "npcspeech-test" });
+        }
+        catch (Exception e)
+        {
+            _placeError = $"place: {e.GetType().Name}: {e.Message}";
+        }
     }
 
     private static SpeechResult Do(Action a)

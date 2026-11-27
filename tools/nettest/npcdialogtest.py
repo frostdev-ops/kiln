@@ -183,15 +183,28 @@ def main():
         check("a reply to a real player (a bot) without Kiln is refused", r is not None and "no Kiln client" in r, repr(r))
         r = run(f"near 0 {who}")
         print(f"INFO {r}", flush=True)
+        if r is None or "; near " not in r:
+            # a fresh world has no villagers: the driver places one (Ramone's template) next to the bot
+            print(f"INFO {run(f'place 0 {who}')}", flush=True)
+            for _ in range(15):
+                time.sleep(1)
+                r = run(f"near 0 {who}")
+                if r is not None and "; near " in r:
+                    break
+            print(f"INFO {r}", flush=True)
+        check("a real NPC with speech next to the bot (placed when the world had none)", r is not None and "; near " in r, repr(r))
         if r is not None and "; near " in r:
             real = int(r.split("; near ")[1].split()[0])
             run(f"farewell {real}")
+            run(f"topics {real}")
             got = new.drain()
             check("a real NPC next to the bot: its farewells go out under its entity",
                   any(m[0] == "lines" and m[1] == real and m[2] == 1 for m in got), repr(got))
+            check("a real NPC next to the bot: its talk page goes out under its entity",
+                  any(m[0] == "topics" and m[1] == real and len(m[2]) == 2 for m in got), repr(got))
             run(f"farewell-clear {real}")
-        else:
-            print("INFO no villager with speech near the bot in this world: the real-NPC check is skipped", flush=True)
+            run(f"topics-clear {real}")
+            new.drain()
         r = run(f"status {npc}")
         check("the host's callbacks still ran for no one (the bot is no Kiln client)", r is not None and "by calls 0" in r, repr(r))
         bot.leave()
