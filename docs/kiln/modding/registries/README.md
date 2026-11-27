@@ -400,6 +400,7 @@ with a certainty:
 | Kiln's older paths (boot resource patches, data packs, `Content.*` code) and registry edits | `certain` | Kiln applies them itself |
 | A change made through Kiln's content service by code, also another loader's (an EMF DLL mod's `set_item_max_stack`) | `certain` | named `<who>: <Kiln place>`, `<who>` being the mod, else the loader's own name for its mod (`emf:big_stacks`); a label the mod gave its change (`Content.Apply(json, "bigstacks x4")`) stays as it wrote it (0.2.0-dev.31.18; before, such a row named the game's item and member, `owner 67: items Material_T1_Wood_Logs.maxStackSize`) |
 | A ShroudForge or EML package that wrote the entry or the field before Kiln (`archiveWriter`, who `shroudforge:<package>` or `eml:<package>`) | `named` | the change journal of the start's archive writer: kiln-eml's, or Kiln's hosted ShroudForge's (below) |
+| A ShroudForge package of kiln mode (Kiln's interpreter) changed the game's value at run time (`runtimeWriter`, who `shroudforge:<package>`; next release) | `named` | kiln.assets' records of the run-time writes the package made through it (below) |
 | Something outside Kiln changed the game's value (`drift`, who `outside Kiln (best effort; suspects: ...)`) | `bestEffort` | the drift probe at each world load and pack reload (below) |
 
 **Archive-writer packages.** The start's archive writer keeps a change journal of its startup pass: which package wrote
@@ -486,6 +487,22 @@ row (Kiln's edit is then skipped for that world, as before). The probe never ref
 rebuilds `registry.json`'s live rows (at each world load and pack reload, and when a live change or a drop table the game
 loads later changes them; never per tick) and costs one more read of each field it writes live, about a tenth of what
 rebuilding the rows costs anyway.
+
+**Run-time writers of kiln mode** (next release; sfi R3). A ShroudForge package run by Kiln's interpreter (kiln mode)
+changes a loaded resource's field at run time through kiln.assets (`game.assets.write_loaded_field`, a resource
+override, a template component's `write_field`), and kiln.assets keeps a record of each place's newest write with the
+package that made it. Where the drift probe, a later write or a skipped write finds the game's value changed outside
+Kiln's layers, Kiln asks those records first: when taking the package's recorded writes back gives exactly what Kiln
+expected there (what the stage read, or Kiln's own last write), the package changed it, and the field's row names it as
+a `runtimeWriter` writer (`shroudforge:<package>`, certainty `named`, its value what the game holds after its writes)
+instead of the best-effort `drift` row. A skipped write names it too (`items[game:material_t1_wood_logs].maxStack was
+written by shroudforge:big_stacks at run time after Kiln's layer: Kiln's edit not applied`), and so do the lines (`...
+shroudforge:big_stacks changed it at run time after Kiln's last write in this world (40 -> 777)`). The Conflicts page
+shows the row's `who` and kind as they are. Anything the records do not prove keeps the `drift` row: a value something
+else wrote over the package's, a package that wrote over another value than Kiln's, writes of a Kiln interpreter or
+kiln.assets older than this release (their records name no package), hosted or installed ShroudForge (its run-time
+writes go to memory outside Kiln). kiln.assets keeps 16,384 places for the process; the place written longest ago goes
+first. The records are asked for only when a row needs a name, once per report.
 
 **Writes after the last report** (0.2.0-dev.31.18; before, they stayed out of `registry.json` until the next pack reload or
 world load: the compat rehearsal saw wood logs at 300 there while EMF's big_stacks had made them 1200). Kiln also looks
