@@ -147,7 +147,7 @@ public sealed class RegistryViewsTests : IDisposable
 
 /// <summary>The generic entry over the generated catalog: every registry by name, its fields by Kiln path, typed and
 /// checked the way the generated properties are, recording the same edits.</summary>
-public sealed class RegistryEntryTests
+public sealed class RegistryGenericEntryTests
 {
     private static int Id(string qualified) => RegistrySchema.Find(qualified)!.Id;
 
