@@ -22,7 +22,8 @@
 //! ([`gateway::offer_once`]); no gateway is started. If the check fails, the panel opens on this computer as before, and
 //! [`WebPanelInfo::fallback`] says why. [`Route::Local`] ("Open on this computer instead") always opens it here. Remote
 //! servers work the same: the file comes over ssh, the check goes straight to the public address, the login is minted
-//! through the ssh tunnel.
+//! through the ssh tunnel. (0.2.0-dev.31.20) A server's "Always open the web panel on this computer" ([`settings`],
+//! kept in the launcher's data folder) makes [`Route::Auto`] [`Route::Local`] for it, with no check at all.
 
 pub mod endpoint;
 pub mod gateway;
@@ -30,6 +31,7 @@ pub mod ids;
 pub mod origins;
 pub mod pin;
 pub mod public;
+pub mod settings;
 /// The same-user check ([`crate::admin::peer`]; the SSH tunnel uses it too).
 pub use crate::admin::peer;
 
@@ -103,19 +105,23 @@ struct Open {
 /// The launcher's open panels, one gateway per server.
 pub struct WebPanels {
     registry: PathBuf,
+    /// (0.2.0-dev.31.20) `web-panel-settings.json`, beside the registry ([`settings::FILE`]).
+    settings: PathBuf,
     limits: Limits,
     open: HashMap<String, Open>,
     public_timeout: std::time::Duration,
 }
 
 impl WebPanels {
-    /// `registry`: the launcher data folder's `web-panel-origins.json` ([`origins::FILE`]).
+    /// `registry`: the launcher data folder's `web-panel-origins.json` ([`origins::FILE`]); each server's web panel
+    /// settings are read from the same folder ([`settings::FILE`]).
     pub fn new(registry: PathBuf) -> WebPanels {
         Self::with_limits(registry, Limits::default())
     }
 
     pub fn with_limits(registry: PathBuf, limits: Limits) -> WebPanels {
-        WebPanels { registry, limits, open: HashMap::new(), public_timeout: public::TIMEOUT }
+        let settings = registry.with_file_name(settings::FILE);
+        WebPanels { registry, settings, limits, open: HashMap::new(), public_timeout: public::TIMEOUT }
     }
 
     fn info(&self, id: &str, o: &Open) -> WebPanelInfo {
@@ -140,9 +146,12 @@ impl WebPanels {
 
     /// Opens the server's panel: at its address on the internet when `route` allows it, the file names one and its
     /// check passes; else through the server's gateway (opened or reused), with the panel's certificate checked through
-    /// it. Mints the one-time login and returns the bootstrap address for the browser.
+    /// it. Mints the one-time login and returns the bootstrap address for the browser. (0.2.0-dev.31.20) While the
+    /// server's "Always open the web panel on this computer" is on ([`settings`]), [`Route::Auto`] is [`Route::Local`]:
+    /// the address on the internet is not even checked.
     pub fn open_via(&mut self, server: &ServerInstance, route: Route) -> Result<Opened> {
         self.sweep();
+        let route = if route == Route::Auto && self.settings(&server.id).always_local { Route::Local } else { route };
         // one data root for everything below: the panel's listener and the Kiln.Admin that mints its login
         let root = endpoint::root(server)?;
         let (panel, ep) = endpoint::find_in(server, &root)?;
@@ -208,6 +217,16 @@ impl WebPanels {
         let o = self.open.get(&server.id).expect("open");
         let url = o.gateway.offer(format!("https://{addr}/launcher#secret={secret}"), self.limits.handle_ttl)?;
         Ok(Opened { url, info: self.info(&server.id, o) })
+    }
+
+    /// (0.2.0-dev.31.20) The server's web panel settings ([`settings::get`]).
+    pub fn settings(&self, server_id: &str) -> settings::WebPanelSettings {
+        settings::get(&self.settings, server_id)
+    }
+
+    /// (0.2.0-dev.31.20) Changes the server's web panel settings ([`settings::set`]); what they are now.
+    pub fn set_settings(&self, server_id: &str, s: settings::WebPanelSettings) -> Result<settings::WebPanelSettings> {
+        settings::set(&self.settings, server_id, s)
     }
 
     /// (0.2.0-dev.31.19) How long the check of a panel's address on the internet may take (tests shorten it).

@@ -213,6 +213,8 @@ pub fn run() {
             commands::admin::admin_open_web_panel,
             commands::admin::admin_close_web_panel,
             commands::admin::admin_web_panels,
+            commands::admin::admin_web_panel_settings,
+            commands::admin::admin_web_panel_settings_set,
             commands::admin::admin_disconnect,
             commands::admin::admin_sessions,
             commands::admin::admin_call,

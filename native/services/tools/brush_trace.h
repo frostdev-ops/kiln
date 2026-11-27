@@ -32,8 +32,8 @@ inline const char* brush_exit_meaning(BrushFrameExit exit) noexcept {
     case BrushFrameExit::NoFamily: return "the picker opened without a registered tool family in hand (a vanilla tool, or no current held-item sample)";
     case BrushFrameExit::NoIdentity: return "the held family has no identity record";
     case BrushFrameExit::FrameMismatch: return "the picker frame is not the Overgrowth branch's (Decay, or another layout)";
-    case BrushFrameExit::NotSelected: return "the picker's selected hotbar item is not the held family's tool";
-    case BrushFrameExit::NotResolved: return "the picker's resolved item is not the held family's tool";
+    case BrushFrameExit::NotSelected: return "the picker's selected hotbar item is neither the held family's tool nor one of its brushes";
+    case BrushFrameExit::NotResolved: return "the picker's resolved item is not its selected hotbar item";
     case BrushFrameExit::OutputNotFresh: return "the picker's brush list is not the fresh empty 16-row array";
     case BrushFrameExit::TagMismatch: return "the picker's include/ratio tags are not vanilla Overgrowth's";
     case BrushFrameExit::ReadFault: return "reading the picker frame faulted";

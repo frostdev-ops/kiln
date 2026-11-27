@@ -17,6 +17,8 @@
 // After an uncertain outcome (3) that world takes no further ShroudForge voxel write, as ShroudForge's own writer marks
 // its session's writes uncertain then; the next server world takes them again.
 // Every refusal or failure goes to kiln.log with its box and its reason (the first ones each time, then every 100th).
+// In a game that joined a server the reason says so (joined_notice.h: the server's world is the server's to change, as
+// in ShroudForge), and plugin.cpp tells it once per joined session in kiln.log and as a Kiln toast.
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -28,6 +30,7 @@
 #include <string>
 #include <vector>
 
+#include "joined_notice.h"
 #include "kfc_host.h"
 #include "sf_internal.h"
 #include "services/kiln_build.h"
@@ -39,6 +42,7 @@ namespace {
 
 const KilnApi* v_api = nullptr;
 KilnOwner v_owner = 0;
+std::atomic<JoinedRefusalFn> v_on_joined{nullptr};
 std::atomic<const KilnBuildApi*> v_build{nullptr};
 
 constexpr unsigned kPostWaitMs = 2000;     // the server world steps many times a second; a stalled one refuses
@@ -79,13 +83,22 @@ bool server_world(WorldId& out) {
     return true;
 }
 
+// Why no server world runs: a joined game (joined_notice.h) or none at all. No side effect: voxel_write_ready asks it
+// whenever ShroudForge checks the operation's availability.
+std::string no_server_world() { return joined::refusal_reason(session_worlds(v_api)); }
+
+// A write refused for that reason: in a joined game the notice is told (once per joined session, plugin.cpp).
+void refused_without_server_world() {
+    const joined::Worlds w = session_worlds(v_api);
+    if (const auto fn = v_on_joined.load(std::memory_order_acquire); fn && joined::joined(w)) fn(w);
+}
+
 // why a write cannot be tried now, or "" when it can (any thread)
 std::string not_ready() {
     const auto* b = build();
     if (!b) return "kiln.build is not available in this start";
     WorldId id;
-    if (!server_world(id))
-        return "no world runs in this game as its host (a joined client's world is the host's to change)";
+    if (!server_world(id)) return no_server_world();
     KilnBuildStatus st{};
     st.size = sizeof st;
     if (b->status(&st) != KILN_OK) return "kiln.build has no status";
@@ -217,6 +230,7 @@ bool __cdecl voxel_write(const int32_t* origin, const uint32_t* dims, const uint
         return false;
     }
     if (std::string busy = not_ready(); !busy.empty()) {
+        if (busy == joined::kReason) refused_without_server_world();
         report(origin, dims, voxels::kRefused, busy);
         return false;
     }
@@ -228,7 +242,8 @@ bool __cdecl voxel_write(const int32_t* origin, const uint32_t* dims, const uint
     }
     auto job = std::make_shared<Job>();
     if (!server_world(job->world)) {
-        report(origin, dims, voxels::kRefused, "no world runs in this game as its host (a joined client's world is the host's to change)");
+        refused_without_server_world();
+        report(origin, dims, voxels::kRefused, no_server_world());
         return false;
     }
     std::memcpy(job->origin, origin, sizeof job->origin);
@@ -272,6 +287,17 @@ bool __cdecl voxel_write(const int32_t* origin, const uint32_t* dims, const uint
 }
 
 }  // namespace
+
+joined::Worlds session_worlds(const KilnApi* api) {
+    joined::Worlds w;
+    if (!api || api->size < offsetof(KilnApi, session) + sizeof api->session || !api->session) return w;
+    KilnSessionInfo s{};
+    s.size = sizeof s;
+    if (api->session(&s) != KILN_OK) return w;
+    return joined::from_session(s);
+}
+
+void host_voxels_on_joined(JoinedRefusalFn fn) { v_on_joined.store(fn, std::memory_order_release); }
 
 void host_voxels_attach(const KilnApi* api, KilnOwner owner, KfcHost* table) {
     v_api = api;

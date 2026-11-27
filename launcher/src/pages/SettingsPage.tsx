@@ -6,6 +6,7 @@
 // a group's anchor (pages/settings/model.ts: #profiles, #crucible, #library, #nexus, #graphics, #upscalers,
 // #shroudforge, ...): it opens the group's section, scrolls to it and flushes it with ember; a search's Enter or "Open in"
 // does the same for the row it found.
+import { useFestiveSwitch } from "../shell/season";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
@@ -59,10 +60,11 @@ function useSettingsCtx(): SettingsCtx {
   const crucible = useCrucibleOn();
   const { game } = useGame();
   const doc = useQuery({ queryKey: qk.kilnJson(game?.id ?? ""), queryFn: () => api.configKilnRead(game!.id), enabled: !!game });
+  const festive = useFestiveSwitch().offered;
   return useMemo(() => ({
     info: info.data, settings: settings.data, dist, nexus, crucible, tauri: api.isTauri(), client: game?.kind === "client",
-    schema: doc.data?.schema, values: doc.data?.values,
-  }), [info.data, settings.data, dist, nexus, crucible, game?.kind, doc.data]);
+    schema: doc.data?.schema, values: doc.data?.values, festive,
+  }), [info.data, settings.data, dist, nexus, crucible, game?.kind, doc.data, festive]);
 }
 
 export default function SettingsPage() {

@@ -2986,6 +2986,9 @@
       "title": "外观",
       "fire": "火焰动画",
       "fireHint": "在「开始游戏」按钮上显示 WebGL 火焰动画。关闭后使用普通按钮，降低 GPU 负担。",
+      "festive": "节日季",
+      "festiveHint": "火焰上方的冬季壁炉架，还有飘雪，持续到 1 月 7 日。",
+      "festiveMore": "多种冬季传统的油灯、蜡烛和灯笼摆在火焰上方的壁炉架上，拱门外飘着雪，页面上挂着花环，从感恩节周末后的星期一持续到 1 月 7 日。关闭：本季余下时间使用平常的外观；下一季会再出现。",
       "noGpu": "启动器使用软件渲染",
       "fireOffSoftware": "启动器使用软件渲染时，此项关闭。",
       "fireOffEnv": "本次启动已设置 KILN_LAUNCHER_NO_WEBGL，动画已关闭。",
@@ -4045,6 +4048,7 @@
     },
     "appShell": {
       "thanksgiving": "感恩节快乐",
+      "festive": "节日快乐",
       "headStart": "{progress} · {step}",
       "pct": "{pct}%",
       "labelTime": "{label} {time}",

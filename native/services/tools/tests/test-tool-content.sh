@@ -10,14 +10,14 @@
 #     another copy of its client exe.
 #   test-tool-content.sh OUTPUT_DIRECTORY [COMPILER_JSON]
 # Inputs extracted before (python3 -I extract_tool_content_inputs.py <repo>/tools/kfc <game folder> <client exe> <scratch>):
-#   test-tool-content.sh OUTPUT_DIRECTORY COMPILER_JSON TYPE_DB_JSON BRUSH_BIN POOL_ITEM_BIN REGISTRY_BIN
+#   test-tool-content.sh OUTPUT_DIRECTORY COMPILER_JSON TYPE_DB_JSON BRUSH_BIN POOL_ITEM_BIN REGISTRY_BIN SHAPE_MEDIUM_BIN SHAPE_BIG_BIN
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
-out=${1:?usage: test-tool-content.sh OUTPUT_DIRECTORY [COMPILER_JSON [TYPE_DB_JSON BRUSH_BIN POOL_ITEM_BIN REGISTRY_BIN]]}
+out=${1:?usage: test-tool-content.sh OUTPUT_DIRECTORY [COMPILER_JSON [TYPE_DB_JSON BRUSH_BIN POOL_ITEM_BIN REGISTRY_BIN SHAPE_MEDIUM_BIN SHAPE_BIG_BIN]]}
 skip() { printf 'SKIP tool content: %s\n' "$1"; exit 0; }
-if (($# >= 6)); then
-    compiler=$2; types=$3; brush=$4; pool=$5; registry=$6
-    for input in "$compiler" "$types" "$brush" "$pool" "$registry"; do
+if (($# >= 8)); then
+    compiler=$2; types=$3; brush=$4; pool=$5; registry=$6; medium=$7; big=$8
+    for input in "$compiler" "$types" "$brush" "$pool" "$registry" "$medium" "$big"; do
         [[ -f $input ]] || { echo "tool content: FAIL: no input $input" >&2; exit 1; }
     done
 elif (($# == 1 || $# == 2)); then
@@ -30,8 +30,9 @@ elif (($# == 1 || $# == 2)); then
     mkdir -p "$out/inputs"
     python3 -I "$here/extract_tool_content_inputs.py" "$here/../../../../tools/kfc" "$game" "$exe" "$out/inputs"
     types=$out/inputs/types.json; brush=$out/inputs/brush.bin; pool=$out/inputs/pool-item.bin; registry=$out/inputs/registry.bin
+    medium=$out/inputs/shape-medium.bin; big=$out/inputs/shape-big.bin
 else
-    echo "usage: test-tool-content.sh OUTPUT_DIRECTORY [COMPILER_JSON [TYPE_DB_JSON BRUSH_BIN POOL_ITEM_BIN REGISTRY_BIN]]" >&2
+    echo "usage: test-tool-content.sh OUTPUT_DIRECTORY [COMPILER_JSON [TYPE_DB_JSON BRUSH_BIN POOL_ITEM_BIN REGISTRY_BIN SHAPE_MEDIUM_BIN SHAPE_BIG_BIN]]" >&2
     exit 2
 fi
 mkdir -p "$out"
@@ -41,4 +42,4 @@ python3 -I "$here/make_tool_content_fixture.py" "$types" "$out/content-types.jso
     -I"$here/../../content/tests/host" -I"$here/../../../core/abi" -I"$here/../../../third_party" \
     "$here/tool_content_test.cpp" "$here/../../content/refl.cpp" "$here/../../content/gamedata_walk.cpp" \
     -Wl,--gc-sections -o "$out/tool-content-test"
-"$out/tool-content-test" "$compiler" "$out/content-types.json" "$brush" "$pool" "$registry"
+"$out/tool-content-test" "$compiler" "$out/content-types.json" "$brush" "$pool" "$registry" "$medium" "$big"
