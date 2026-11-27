@@ -34,7 +34,7 @@ public static class Taming
     /// (<c>&lt;mod id&gt;:&lt;name&gt;</c>).</exception>
     /// <exception cref="InvalidOperationException">Not on the tick thread, the id is another mod's, or attempts of it run.</exception>
     [TickThreadOnly]
-    [RequiresCapability(Capability)]
+    [RequiresCapability("taming.steps")]
     public static void Define(TamingDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
@@ -52,7 +52,7 @@ public static class Taming
     /// <returns>The definitions registered.</returns>
     /// <exception cref="ArgumentException">The JSON is not a taming, with the path of the first field that is wrong.</exception>
     [TickThreadOnly]
-    [RequiresCapability(Capability)]
+    [RequiresCapability("taming.steps")]
     public static IReadOnlyList<TamingDefinition> DefineJson(string json)
     {
         var defs = TamingJson.Read(json, TamingJson.GameItems);
@@ -79,7 +79,7 @@ public static class Taming
     /// items.costs.exact for feed steps, items.costs.wear for tool steps with wear, taming.native for native steps,
     /// pets.records for a definition that names a pet).</exception>
     [TickThreadOnly]
-    [RequiresCapability(Capability)]
+    [RequiresCapability("taming.steps")]
     public static TamingResult Begin(PlayerRef player, EntityRef target, string definition, Guid requestId)
     {
         var e = Engine("Taming.Begin");
@@ -95,33 +95,33 @@ public static class Taming
     /// <returns>The answer when the cost settled (the step after it ran); its receipts say what was taken.</returns>
     /// <exception cref="ArgumentException">An empty request id, or a selection of the wrong shape for the step.</exception>
     [TickThreadOnly]
-    [RequiresCapability(Capability)]
+    [RequiresCapability("taming.steps")]
     public static Task<TamingResult> Advance(PlayerRef player, TameAttemptId attempt, TamingToken token, ItemSelection? selection = null) =>
         Engine("Taming.Advance").Advance(player, attempt, token, selection);
 
     /// <summary>The cost-free retry of a deferred tame (<see cref="TamingState.AwaitingCommit"/>): checks again and binds,
     /// taking nothing.</summary>
     [TickThreadOnly]
-    [RequiresCapability(Capability)]
+    [RequiresCapability("taming.steps")]
     public static Task<TamingResult> Retry(PlayerRef player, TameAttemptId attempt, TamingToken token) =>
         Engine("Taming.Retry").Retry(player, attempt, token);
 
     /// <summary>Ends the attempt. A cost in flight settles first (its receipt says whether the cancel spent it). Paid steps
     /// are given back only as the definition's refund policy says (<see cref="TamingRefundPolicy"/>).</summary>
     [TickThreadOnly]
-    [RequiresCapability(Capability)]
+    [RequiresCapability("taming.steps")]
     public static Task<TamingResult> Cancel(PlayerRef player, TameAttemptId attempt, TamingToken token) =>
         Engine("Taming.Cancel").Cancel(player, attempt, token);
 
     /// <summary>The attempt as it is now; null once it is gone (10 minutes of simulation after it closed).</summary>
     [TickThreadOnly]
-    [RequiresCapability(Capability)]
+    [RequiresCapability("taming.steps")]
     public static TamingProgress? Inspect(TameAttemptId attempt) => Engine("Taming.Inspect").Inspect(attempt);
 
     /// <summary>The slots of the owner's inventories that can pay the next step (at most 256), as selections the server
     /// read, with the current revision and challenge. A read only: it refreshes no timeout.</summary>
     [TickThreadOnly]
-    [RequiresCapability(Capability)]
+    [RequiresCapability("taming.steps")]
     public static TamingChoicesResult Choices(PlayerRef player, TameAttemptId attempt) => Engine("Taming.Choices").Choices(player, attempt);
 
     private static TamingEngine Engine(string api)

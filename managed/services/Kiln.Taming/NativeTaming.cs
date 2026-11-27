@@ -156,7 +156,7 @@ public static class NativeTaming
     /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
     /// <exception cref="KilnUnavailableException">The capability <c>taming.native</c> is off.</exception>
     [TickThreadOnly]
-    [RequiresCapability(Capability)]
+    [RequiresCapability("taming.native")]
     public static NativeTamingState? Read(EntityId creature)
     {
         Services.RequireTickThread("NativeTaming.Read");
@@ -172,7 +172,7 @@ public static class NativeTaming
     /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
     /// <exception cref="KilnUnavailableException">The capability <c>taming.native</c> is off.</exception>
     [TickThreadOnly]
-    [RequiresCapability(Capability)]
+    [RequiresCapability("taming.native")]
     public static Task<EntityId> PlaceBait(EntityId creature, WorldPosition? at = null, double distance = 2.5)
     {
         Services.RequireTickThread("NativeTaming.PlaceBait");
@@ -192,7 +192,7 @@ public static class NativeTaming
     /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
     /// <exception cref="KilnUnavailableException">The capability <c>taming.native</c> is off.</exception>
     [TickThreadOnly]
-    [RequiresCapability(Capability)]
+    [RequiresCapability("taming.native")]
     public static NativeStepResult PetStep(EntityId creature)
     {
         Services.RequireTickThread("NativeTaming.PetStep");

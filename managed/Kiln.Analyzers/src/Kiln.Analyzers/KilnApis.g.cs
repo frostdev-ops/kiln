@@ -417,6 +417,11 @@ internal static partial class KilnApis
         "M:Kiln.InstanceData.Discard``1(Kiln.ParkedInstance{``0})", // InstanceData.Discard<T>(ParkedInstance<T>): via InstanceData.Use(string, InstanceKeyInfo)
         "M:Kiln.InstanceData.Key``1(System.String,Kiln.InstanceKeyOptions)", // InstanceData.Key<T>(string, InstanceKeyOptions?): Services.RequireTickThread
         "M:Kiln.InstanceData.Parked``1(Kiln.InstanceKey{``0})", // InstanceData.Parked<T>(InstanceKey<T>): via InstanceData.Use<T>(string, InstanceKey<T>)
+        "M:Kiln.ItemCosts.Check(Kiln.ItemSelection,System.Int32,System.Boolean)", // ItemCosts.Check(ItemSelection, int, bool): Services.RequireTickThread
+        "M:Kiln.ItemCosts.Choose(Kiln.EntityRef,Kiln.ItemId,System.Int32)", // ItemCosts.Choose(EntityRef, ItemId, int): Services.RequireTickThread
+        "M:Kiln.ItemCosts.Refund(Kiln.CostReceipt,System.Guid)", // ItemCosts.Refund(CostReceipt, Guid): Services.RequireTickThread
+        "M:Kiln.ItemCosts.Take(Kiln.ItemSelection,System.Int32,System.Guid)", // ItemCosts.Take(ItemSelection, int, Guid): via ItemCosts.Validate(ItemSelection, Guid)
+        "M:Kiln.ItemCosts.Wear(Kiln.ItemSelection,System.Int32,System.Guid,System.Boolean)", // ItemCosts.Wear(ItemSelection, int, Guid, bool): via ItemCosts.Validate(ItemSelection, Guid)
         "M:Kiln.ItemInstanceDataExtensions.Get``1(Kiln.ItemInstanceRef,Kiln.InstanceKey{``0})", // ItemInstanceDataExtensions.Get<T>(ItemInstanceRef, InstanceKey<T>): via InstanceData.Use<T>(string, InstanceKey<T>)
         "M:Kiln.ItemInstanceDataExtensions.Has``1(Kiln.ItemInstanceRef,Kiln.InstanceKey{``0})", // ItemInstanceDataExtensions.Has<T>(ItemInstanceRef, InstanceKey<T>): via InstanceData.Use<T>(string, InstanceKey<T>)
         "M:Kiln.ItemInstanceDataExtensions.Remove``1(Kiln.ItemInstanceRef,Kiln.InstanceKey{``0})", // ItemInstanceDataExtensions.Remove<T>(ItemInstanceRef, InstanceKey<T>): via InstanceData.Use<T>(string, InstanceKey<T>)
@@ -519,6 +524,9 @@ internal static partial class KilnApis
         "M:Kiln.NativeQuests.Resync(Kiln.QuestHolder,System.Boolean)", // NativeQuests.Resync(QuestHolder, bool): Game.AssertTickThread
         "M:Kiln.NativeQuests.Wanted(System.String,Kiln.QuestHolder)", // NativeQuests.Wanted(string, QuestHolder): Game.AssertTickThread
         "M:Kiln.NativeRef.Register(Kiln.NativeSyncHandler)", // NativeRef.Register(NativeSyncHandler): via Abilities.Natives.RegisterSync(string, int, NativeSyncHandler)
+        "M:Kiln.NativeTaming.PetStep(Kiln.EntityId)", // NativeTaming.PetStep(EntityId): Services.RequireTickThread
+        "M:Kiln.NativeTaming.PlaceBait(Kiln.EntityId,System.Nullable{Kiln.WorldPosition},System.Double)", // NativeTaming.PlaceBait(EntityId, WorldPosition?, double): Services.RequireTickThread
+        "M:Kiln.NativeTaming.Read(Kiln.EntityId)", // NativeTaming.Read(EntityId): Services.RequireTickThread
         "M:Kiln.Nearby.Entities(Kiln.EntityId,System.Double,System.String)", // Nearby.Entities(EntityId, double, string): via Nearby.Validate(WorldPosition, double)
         "M:Kiln.Nearby.Entities(Kiln.WorldPosition,System.Double,System.String)", // Nearby.Entities(WorldPosition, double, string): via Nearby.Validate(WorldPosition, double)
         "M:Kiln.Nearby.Within(System.Collections.Generic.IEnumerable{Kiln.EntityId},Kiln.EntityId,System.Double)", // Nearby.Within(IEnumerable<EntityId>, EntityId, double): via Nearby.Validate(WorldPosition, double)
@@ -776,6 +784,16 @@ internal static partial class KilnApis
         "M:Kiln.Systems.Define``1(System.String,Kiln.ProgramOptions,Kiln.EntityHandler{``0})", // Systems.Define<T>(string, ProgramOptions, EntityHandler<T>): Services.RequireTickThread
         "M:Kiln.Systems.Wrap(System.String,Kiln.WrapOptions)", // Systems.Wrap(string, WrapOptions?): via Systems.Check(string, WrapOptions, string, out SystemsNative.Table*, out int)
         "M:Kiln.Systems.Wrap``1(Kiln.WrapOptions)", // Systems.Wrap<T>(WrapOptions?): via Systems.Check(string, WrapOptions, string, out SystemsNative.Table*, out int)
+        "M:Kiln.Taming.Advance(Kiln.PlayerRef,Kiln.TameAttemptId,Kiln.TamingToken,Kiln.ItemSelection)", // Taming.Advance(PlayerRef, TameAttemptId, TamingToken, ItemSelection?): via Taming.Engine(string)
+        "M:Kiln.Taming.Begin(Kiln.PlayerRef,Kiln.EntityRef,System.String,System.Guid)", // Taming.Begin(PlayerRef, EntityRef, string, Guid): via Taming.Engine(string)
+        "M:Kiln.Taming.Cancel(Kiln.PlayerRef,Kiln.TameAttemptId,Kiln.TamingToken)", // Taming.Cancel(PlayerRef, TameAttemptId, TamingToken): via Taming.Engine(string)
+        "M:Kiln.Taming.Choices(Kiln.PlayerRef,Kiln.TameAttemptId)", // Taming.Choices(PlayerRef, TameAttemptId): via Taming.Engine(string)
+        "M:Kiln.Taming.Define(Kiln.TamingDefinition)", // Taming.Define(TamingDefinition): Services.RequireTickThread
+        "M:Kiln.Taming.DefineJson(System.String)", // Taming.DefineJson(string): via Taming.Define(TamingDefinition)
+        "M:Kiln.Taming.Definition(System.String)", // Taming.Definition(string): via Taming.Engine(string)
+        "M:Kiln.Taming.Inspect(Kiln.TameAttemptId)", // Taming.Inspect(TameAttemptId): via Taming.Engine(string)
+        "M:Kiln.Taming.Retry(Kiln.PlayerRef,Kiln.TameAttemptId,Kiln.TamingToken)", // Taming.Retry(PlayerRef, TameAttemptId, TamingToken): via Taming.Engine(string)
+        "M:Kiln.Taming.get_Definitions", // Taming.Definitions.get: via Taming.Engine(string)
         "M:Kiln.Teleport.To(Kiln.EntityId,Kiln.WorldPosition,Kiln.TeleportOptions)", // Teleport.To(EntityId, WorldPosition, TeleportOptions?): via Teleport.Start(EntityId, WorldPosition, EntityId, TeleportOptions)
         "M:Kiln.Teleport.ToEntity(Kiln.EntityId,Kiln.EntityId,System.Double,Kiln.TeleportOptions)", // Teleport.ToEntity(EntityId, EntityId, double, TeleportOptions?): Services.RequireTickThread
         "M:Kiln.Teleport.ToSpawnPoint(Kiln.EntityId,Kiln.EntityId,Kiln.TeleportOptions)", // Teleport.ToSpawnPoint(EntityId, EntityId, TeleportOptions?): via Teleport.Start(EntityId, WorldPosition, EntityId, TeleportOptions)
@@ -1036,6 +1054,7 @@ internal static partial class KilnApis
         "Skills",
         "Spawn",
         "Systems",
+        "Taming",
         "Terrain",
         "Time",
         "Tools",
