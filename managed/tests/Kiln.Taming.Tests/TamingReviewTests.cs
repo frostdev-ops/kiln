@@ -150,4 +150,45 @@ public sealed class TamingReviewTests
         Assert.Equal(TamingState.Expired, f.Engine.Inspect(b.Id)!.State);
         Assert.Equal(2, f.Events.OfType<TamingExpiredEvent>().Count());
     }
+
+    // ---- finding: a stack take that moved less than asked counted as the whole step ----------------------------------
+    // kiln.item_costs reports a stack take the game did only in part as Committed with disposition Partial. 19e 5.2: "An
+    // unexpected partial stack mutation instead closes Failed/PartialCostCommitted with the actual quantity receipt". The
+    // engine applied the step as paid in full.
+
+    [Fact]
+    public void A_partial_stack_take_fails_the_attempt_with_its_receipt_and_never_counts_as_the_step()
+    {
+        var f = new TamingFixture().With(FeedTwice() with { Refund = TamingRefundPolicy.RefundOnFail });
+        var p = f.Begin().Progress!;
+        f.Costs.Answer = (s, n, id) => new CostReceipt(s.ExpectedItem, n, 1, true)
+        {
+            RequestId = id, Selection = s, Kind = CostKind.StackTake, Disposition = CostDisposition.Partial, Reason = "the slot went from 5 to 4, not by 2",
+        };
+        var r = f.Advance(p, f.Stack(Bait));
+        Assert.False(r.Ok);
+        Assert.False(r.StepApplied);
+        Assert.StartsWith("PartialCostCommitted", r.Reason);
+        Assert.Equal(1, Assert.Single(r.Receipts).Taken);
+        var closed = f.Engine.Inspect(p.Id)!;
+        Assert.Equal((TamingState.Failed, 0, 1), (closed.State, closed.CompletedSteps, closed.Spent.Count));
+        Assert.Empty(f.Events.OfType<TamingStepChangedEvent>());
+        Assert.Equal("PartialCostCommitted", Assert.Single(f.Events.OfType<TamingFailedEvent>()).Cause);
+        Assert.Single(f.Costs.Refunds);                                    // refund on fail: the one that was taken
+        Assert.Equal(1, f.Costs.Refunds[0].Paid.Taken);
+    }
+
+    [Fact]
+    public void A_gear_wear_another_hook_changed_still_counts_once()
+    {
+        var f = new TamingFixture().With(Def(new UseToolStep(Whistle, 5), new WeakenStep(1)));
+        var p = f.Begin().Progress!;
+        f.Costs.Answer = (s, n, id) => new CostReceipt(s.ExpectedItem, n, 3, true)
+        {
+            RequestId = id, Selection = s, Kind = CostKind.GearWear, Disposition = CostDisposition.ModifiedByOtherMod,
+        };
+        var r = f.Advance(p, f.Gear(Whistle));
+        Assert.True(r.Ok, r.Reason);
+        Assert.Equal(1, r.Progress!.CompletedSteps);
+    }
 }

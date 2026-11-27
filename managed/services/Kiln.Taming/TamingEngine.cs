@@ -463,6 +463,18 @@ internal sealed class TamingEngine
             if (waiting) CompleteCancel(a);
             return;
         }
+        if (receipt is { Committed: true, Kind: CostKind.StackTake } && (receipt.Disposition == CostDisposition.Partial || receipt.Taken < receipt.Requested))
+        {
+            // the game took only part of the stack (19e 5.2): spent as the receipt says, never the step; the attempt ends
+            // PartialCostCommitted (its refund policy gives back what was taken), with no retry of the rest
+            a.Spent.Add(receipt);
+            var waiting = a.CancelRequested;
+            a.CancelRequested = false;
+            a.FailAfterSettle = a.ExpireAfterSettle = null;
+            tcs.TrySetResult(Fail(a, "PartialCostCommitted", request, receipts));
+            if (waiting) CompleteCancel(a);
+            return;
+        }
         if (receipt is { Committed: false })
         {
             a.State = TamingState.Active;  // nothing spent: the same token stays valid

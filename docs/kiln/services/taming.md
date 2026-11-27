@@ -94,7 +94,7 @@ Limits (Kiln's policy, not the game's):
 | `AwaitingCommit` | every step is paid; the tame waits for `Retry` |
 | `Committed` | tamed |
 | `Canceled` | canceled |
-| `Failed` | a failure, in a word: `BodyGone`, `OwnerLeft`, `WorldEnded`, `DefinitionGone`, `UncertainCommit`, `Refused: ...` |
+| `Failed` | a failure, in a word: `BodyGone`, `OwnerLeft`, `WorldEnded`, `DefinitionGone`, `UncertainCommit`, `PartialCostCommitted`, `Refused: ...` |
 | `Expired` | `InactivitySeconds`, `MaxAttemptSeconds` |
 
 **Timeouts** run on the game's own 60 Hz world clock (each step adds what the clock advanced in it, as Kiln.Pets' timers:
@@ -129,6 +129,9 @@ A step's cost is exact and receipted ([item-costs.md](item-costs.md)): `Progress
   second settlement can never refund twice. `Progress.Refunds` pairs each paid receipt with its refund's receipt. A refund
   the adapter refuses before it runs (its row went off) is a refused receipt there (`NotRun`, with the reason): the end
   still comes with its event and its answer.
+- **A partial take** (the game took less of the stack than the step asked: disposition `Partial`) is never the step. It
+  ends the attempt `PartialCostCommitted` with that receipt (spent as it says; the policy decides whether it comes back),
+  and the rest is never taken again (19e 5.2). A gear wear another hook changed (`ModifiedByOtherMod`) is the use, once.
 - **An uncertain receipt** (a fault inside the game's change) is never refunded or retried. It ends the attempt
   `UncertainCommit` with that receipt, and the policy still applies to the receipts that are certain.
 - **Not promised:** crash atomicity across the inventory and the pet record. A committed receipt means the inventory
