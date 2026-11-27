@@ -14,7 +14,10 @@ For each creature, scale and game build, every route pair (HorizontalSpace/Verti
   inconclusive  the answer is not known (unloaded/unknown query, an accepted route not walked, a route beside or over the
                 opening, a teleported crossing).
 A pair passes the gate when no fixture failed or stayed inconclusive and the wide/high control passed. The chosen pair
-is the passing pair that walks the most fixtures (then the smaller horizontal, then the smaller vertical requirement).
+is the passing pair that walks the most fixtures; on a tie the larger vertical, then the larger horizontal requirement
+(the one that refuses more of what the fixtures did not measure). A body wider than the widest measured gap or taller
+than the highest measured headroom gets no profile: every pair it passes walks the control only, which says nothing
+about the gaps between the two (calibrate it with wider or higher fixtures).
 Every session's evidence counts: one fail anywhere fails the pair. The profile is keyed by the game build the session
 ran on: a game update invalidates it (Kiln.Pets checks the build and the body it was measured on).
 """
@@ -315,15 +318,34 @@ def decide(sessions):
             pairs[pair] = {"passes": why is None, "why": why, "failed": failed, "inconclusive": unknown, "passed": passed,
                            "refused": refused, "row": row}
         good = [p for p, r in pairs.items() if r["passes"]]
-        chosen = max(good, key=lambda p: (len(pairs[p]["passed"]), -p[0], -p[1])) if good else None
+        chosen = max(good, key=lambda p: (len(pairs[p]["passed"]), p[1], p[0])) if good else None
         why = None
+        unjudged = beyond(d["body"], d["fixtures"].values())
         if key[2] is None:
             chosen, why = None, "no game build: the session did not know the running game build"
         elif chosen is None:
             why = "no pair passes"
+        elif unjudged:
+            chosen, why = None, unjudged
         result[key] = {"body": d["body"], "pairs": pairs, "chosen": chosen, "why": why, "native": d["native"],
                        "fixtures": d["fixtures"], "sessions": d["sessions"]}
     return result
+
+
+def beyond(body, fixtures):
+    """Why the fixtures cannot judge the body (wider than the widest measured gap, taller than the highest measured
+    headroom, the control is wider and higher than both), or None."""
+    fs = [f for f in fixtures if f.get("fixtureKind") != "control"]
+    gaps = [float(f["gap"]) for f in fs if isinstance(f.get("gap"), (int, float))]
+    heads = [float(f["headroom"]) for f in fs if isinstance(f.get("headroom"), (int, float))]
+    width, height = body.collider_width * body.scale, body.height
+    if not gaps or not heads:
+        return "the fixtures cannot judge this body: no measured gap or headroom besides the control"
+    if width > max(gaps) + 1e-6:
+        return f"the fixtures cannot judge this body: {width:g} m wide, the widest measured gap is {max(gaps):g} m"
+    if height > max(heads) + 1e-6:
+        return f"the fixtures cannot judge this body: {height:g} m tall, the highest measured headroom is {max(heads):g} m"
+    return None
 
 
 # ---- the outputs ----

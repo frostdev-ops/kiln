@@ -173,6 +173,37 @@ class Gate(unittest.TestCase):
         (key, d), = prof.decide(prof.load_records(recs)).items()
         self.assertFalse(d["pairs"][(1, 2)]["passes"])
 
+    def test_ties_go_to_the_larger_requirement_which_refuses_more_of_what_was_not_measured(self):
+        out = []
+        for f in FIXTURES:
+            ok = f["name"] in ("corridor-w1-h3", "control-w5-open")
+            for v in (2, 3):
+                out.append(query(f, 1, v, accepted=ok, status="Found" if ok else "NoPath"))
+                if ok:
+                    out.append(walk(f, 1, v))
+        (key, d), = prof.decide(prof.load_records(records(*out))).items()
+        self.assertTrue(d["pairs"][(1, 2)]["passes"] and d["pairs"][(1, 3)]["passes"])
+        self.assertEqual(d["chosen"], (1, 3))
+
+    def test_a_body_the_fixtures_cannot_judge_gets_no_profile(self):
+        """Wider than the widest measured gap (1 m here) or taller than the highest headroom (3 m): every pair that passes
+        walks the control only, which says nothing about a gap between the two."""
+        out = []
+        for f in FIXTURES:
+            ok = f["fixtureKind"] == "control"
+            out.append(query(f, 2, 3, accepted=ok, status="Found" if ok else "NoPath"))
+            if ok:
+                out.append(walk(f, 2, 3))
+        for kiln, word in (({**WOLF, "colliderWidth": 3.5}, "wide"), ({**WOLF, "colliderHeight": 3.5}, "tall")):
+            recs = session() + [body(kiln=kiln)] + out
+            (key, d), = prof.decide(prof.load_records(recs)).items()
+            self.assertTrue(d["pairs"][(2, 3)]["passes"])
+            self.assertIsNone(d["chosen"], word)
+            self.assertIn("cannot judge", d["why"])
+            self.assertIn(word, d["why"])
+        (key, d), = prof.decide(prof.load_records(records(*out))).items()   # the wolf, 0.8 x 1.4 m, is judged
+        self.assertEqual(d["chosen"], (2, 3))
+
     def test_no_game_build_no_profile(self):
         (key, d), = prof.decide(prof.load_records(records(*self.full(), game=None))).items()
         self.assertIsNone(d["chosen"])
