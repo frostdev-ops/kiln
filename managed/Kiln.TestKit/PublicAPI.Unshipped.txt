@@ -1,1 +1,2 @@
 #nullable enable
+[KILNX031]Kiln.TestKit.HarnessRegistry.Reauthors.get -> System.Collections.Generic.IReadOnlyList<string!>!

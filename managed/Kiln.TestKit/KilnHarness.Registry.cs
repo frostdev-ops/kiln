@@ -21,7 +21,18 @@ public sealed class HarnessRegistry
 {
     private readonly KilnHarness _harness;
     private readonly Dictionary<(string Registry, string Id, string Field), string> _seeds = [];
+    private readonly List<string> _reauthors = [];
     internal HarnessRegistry(KilnHarness harness) => _harness = harness;
+    /// <summary>The mod ids of every <c>Kiln.Registry.Registry.Reauthor(RegistryEntryPoint.WorldLoad)</c> request the loaded
+    /// mods made, in order (recorded: offline no pass runs by itself; run the next pass with <see cref="Author"/>). A request
+    /// for another point is refused (false) as in a game and not listed.</summary>
+    public IReadOnlyList<string> Reauthors { get { lock (_reauthors) return _reauthors.ToArray(); } }
+    internal string? RecordReauthor(ModContext mod, RegistryEntryPoint point)
+    {
+        if (point != RegistryEntryPoint.WorldLoad) return $"only the WorldLoad point is authored again on request, not {point}";
+        lock (_reauthors) _reauthors.Add(mod.Info.Id);
+        return null;
+    }
     /// <summary>Seeds a stable field path with a copied JSON value, for example items/game:wood/maxStack/10.</summary>
     public void Seed(string registry, string id, string field, string valueJson)
     {

@@ -55,6 +55,8 @@ internal sealed class RegistryDispatch(ModManager mods) : IDisposable
         internal bool ReplacesModLoad => Reload && (Points & RegistryEntryPoint.ModLoad) != 0 && (Points & RegistryEntryPoint.HotReload) != 0;
         internal string? WorldId;
         internal readonly HashSet<ulong> WorldChanges = [];
+        // Registry.Reauthor(WorldLoad): author the WorldLoad point again in this world on the next tick (TryWorld)
+        internal bool ReauthorWorld;
     }
     internal void Prepare(ulong hostOwner)
     {
@@ -67,6 +69,7 @@ internal sealed class RegistryDispatch(ModManager mods) : IDisposable
             var result = _native.Revert(mod.Owner, handle); ForgetChange(mod, handle); return result;
         };
         RegistryRuntime.Read = Read;
+        RegistryRuntime.Reauthor = Reauthor;
         RegistryRuntime.WorldChanged = directory =>
         {
             lock (_signals) { _worldDirectory = directory; _worldChanged = true; }
@@ -333,6 +336,32 @@ internal sealed class RegistryDispatch(ModManager mods) : IDisposable
             }
             // A transiently unavailable point authors this world again on a later tick, from scratch.
             foreach (var record in Apply(records, RegistryEntryPoint.WorldLoad, static _ => true)) { record.World = 0; record.WorldId = null; }
+            foreach (var record in records) record.ReauthorWorld = false; // just authored for this world
+            // Registry.Reauthor: the point again in the same world. The new pass commits first (its reads leave the mod's own
+            // layers out, so it derives from what lies below them), then the layers the point made before are taken back: the
+            // game never sees a moment without the mod's values. A pass that faults keeps the earlier layers; a transient
+            // refusal asks again on a later tick.
+            var again = _runtime.Where(r => r.ReauthorWorld && !r.Pending && r.Context.Alive && (r.Points & RegistryEntryPoint.WorldLoad) != 0 &&
+                r.World == world.Token && r.RetryAt <= now).ToArray();
+            if (again.Length > 0)
+            {
+                var earlier = again.ToDictionary(r => r, r => r.WorldChanges.ToArray());
+                foreach (var record in again) record.ReauthorWorld = false;
+                var retry = Apply(again, RegistryEntryPoint.WorldLoad, static _ => true);
+                foreach (var record in again)
+                {
+                    if (retry.Contains(record)) { record.ReauthorWorld = true; continue; }
+                    if (record.Faulted || !record.Context.Alive) continue;
+                    foreach (var handle in earlier[record])
+                        try
+                        {
+                            var result = _native.Revert(record.Context.Owner, handle);
+                            if (result.Outcome is 6 or 7) Applied(record.Context, result);
+                            ForgetChange(record.Context, handle); record.WorldChanges.Remove(handle);
+                        }
+                        catch (Exception e) { Log(record.Context.Info.Id + " re-authored point cleanup", e); }
+                }
+            }
         }
         finally { _dispatchingWorld = false; }
     }
@@ -460,6 +489,18 @@ internal sealed class RegistryDispatch(ModManager mods) : IDisposable
             mods.Host.Log(LogLevel.Warn, $"registry: {owner.Info.Id}: outcome {result.Outcome}, {result.Accepted} accepted, {result.Refused} refused: {result.Reason}");
         return result;
     }
+    // Registry.Reauthor: null when the point is queued, else the reason (the API logs it in the mod's name).
+    private string? Reauthor(ModContext owner, RegistryEntryPoint point)
+    {
+        Game.AssertTickThread();
+        if (point != RegistryEntryPoint.WorldLoad) return $"only the WorldLoad point is authored again on request, not {point}";
+        if (_closed || !_native.LiveAvailable) return "the registry's live back-end is not available";
+        var record = _runtime.FirstOrDefault(r => ReferenceEquals(r.Context, owner));
+        if (record is null || (record.Points & RegistryEntryPoint.WorldLoad) == 0)
+            return "the mod declares no WorldLoad point ([RegistryEntryPoints(RegistryEntryPoint.WorldLoad)] on its Mod class with an OnRegistry override)";
+        record.ReauthorWorld = true;
+        return null;
+    }
     private RegistryCompletion Manual(ModContext owner, Action<RegistryContext> action)
     {
         Game.AssertTickThread();
@@ -525,7 +566,7 @@ internal sealed class RegistryDispatch(ModManager mods) : IDisposable
         {
             BootFingerprint.RegistrySource = null;
             RegistryRuntime.Host = null; RegistryRuntime.Available = null; RegistryRuntime.Manual = null;
-            RegistryRuntime.Revert = null; RegistryRuntime.Read = null; RegistryRuntime.WorldChanged = null;
+            RegistryRuntime.Revert = null; RegistryRuntime.Read = null; RegistryRuntime.Reauthor = null; RegistryRuntime.WorldChanged = null;
             RegistryRuntime.LastReady = null;
         }
     }

@@ -154,6 +154,25 @@ public static partial class Registry
         var run = RegistryRuntime.Manual ?? throw new KilnUnavailableException("kiln.registry.live");
         return new(owner, run(owner, context => edits(For(context))));
     }
+    /// <summary>Authors this mod's declared <see cref="RegistryEntryPoint.WorldLoad"/> point again on the next host tick,
+    /// for edits made from settings or game state that changed (a config file, a player's level). The pass runs as Kiln runs
+    /// the point at a world load: every callback reads the pre-pass values without the mod's own registry layers (the game's
+    /// data and other mods' edits, so the edit is derived from them again, never from its own last result), entries refuse
+    /// one by one, and its commits replace the layers that point made in this world once they are in (a pass that faults
+    /// keeps the earlier layers). Requests made before the pass runs are one pass. Returns false, with the reason in
+    /// kiln.log, when the mod declares no WorldLoad point, another point is asked for (only WorldLoad is authored again
+    /// on request), or the live back-end is not there; with no world loaded, the next world's load authors the point anyway.
+    /// Tick thread, inside the mod.</summary>
+    [TickThreadOnly, RequiresCapability("kiln.registry.live")]
+    public static bool Reauthor(RegistryEntryPoint point)
+    {
+        var owner = CallingMod();
+        var run = RegistryRuntime.Reauthor ?? throw new KilnUnavailableException("kiln.registry.live");
+        var why = run(owner, point);
+        if (why is null) return true;
+        owner.Log.Warn($"registry: Reauthor({point}) was not queued: {why}");
+        return false;
+    }
     /// <summary>Reads the resolved mapped view in an expiring, read-only context. Keep copied values, not entries.</summary>
     [TickThreadOnly, RequiresCapability("kiln.registry")]
     public static void Read(Action<RegistryStage> read)

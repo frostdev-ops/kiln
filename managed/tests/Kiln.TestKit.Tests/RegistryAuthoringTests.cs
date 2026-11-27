@@ -30,6 +30,19 @@ public sealed class RegistryAuthoringTests
         Assert.Contains(Coverage.All, row => row.Area == "Registry authoring" && row.Kind == CoverageKind.RecordingFake && row.Capabilities.Count == 0);
         kiln.Unload(mod); // the mod verifies that a retained cell failed closed and releases it
     }
+    // 0.2.0-dev.31.19: Registry.Reauthor offline is recorded (the test runs the pass itself with Author); another point is
+    // refused as in a game
+    [Fact]
+    public void ReauthorRequestsAreRecordedNotRun()
+    {
+        using var kiln = new KilnHarness();
+        var mod = kiln.Load<TkRegistryMod>(new ModManifest("tk-registry")); kiln.Boot();
+        Assert.True(kiln.As(mod, () => DataRegistry.Reauthor(RegistryEntryPoint.WorldLoad)));
+        Assert.False(kiln.As(mod, () => DataRegistry.Reauthor(RegistryEntryPoint.ModLoad)));
+        Assert.Equal(new[] { "tk-registry" }, kiln.Registry.Reauthors);
+        Assert.True(kiln.HasLog("Reauthor(ModLoad) was not queued: only the WorldLoad point is authored again on request", mod.Id), kiln.DumpLogs());
+        kiln.Unload(mod);
+    }
     [Fact]
     public void MissingSeedsThrowInsteadOfInventingGameValues()
     {

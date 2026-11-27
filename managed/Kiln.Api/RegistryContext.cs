@@ -239,6 +239,8 @@ internal static class RegistryRuntime
     internal static Func<ModContext, Action<RegistryContext>, RegistryCompletion>? Manual;
     internal static Func<ModContext, ulong, RegistryCompletion>? Revert;
     internal static Action<ModContext, Action<RegistryContext>>? Read;
+    // Registry.Reauthor: queues the owner's declared point to be authored again; null when queued, else why not.
+    internal static Func<ModContext, RegistryEntryPoint, string?>? Reauthor;
     internal static Action<string?>? WorldChanged;
     internal static Action<RegistryReadyPhase, ulong, RegistryWorld?>? Ready;
     internal static volatile RegistryReadyState? LastReady;

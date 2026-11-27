@@ -125,6 +125,91 @@ public sealed class RegistryDispatchTests : ModsFixture
     }
     private static int Read(RegistryContext context) =>
         int.Parse(context.ReadValue("items", "game:wood", "maxStack"), System.Globalization.CultureInfo.InvariantCulture);
+    [RegistryEntryPoints(RegistryEntryPoint.WorldLoad)]
+    private sealed class WorldOnlyAuthor(Action<RegistryContext> callback) : Mod
+    {
+        public override void OnRegistry(RegistryContext context) => callback(context);
+    }
+    // Registry.Reauthor (Loot Rarity Leveler's live settings): the WorldLoad point again in the same world, derived from what
+    // lies below the mod's own layers, replacing them; never stacking, never a moment without the mod's value.
+    [Fact(Timeout = 30_000)]
+    public async Task ReauthorRunsTheWorldPointAgainFromBelowAndReplacesItsLayers()
+    {
+        await Task.Yield();
+        using var native = new FakeRegistry(); using var manager = NewManager(native.Host);
+        using var dispatch = new RegistryDispatch(manager); dispatch.Prepare(100);
+        var owner = Owner(native, "leveler"); var factor = 2; var passes = 0;
+        dispatch.Loaded(new WorldOnlyAuthor(c => { if (c.Phase == RegistryPhase.Alter) { ++passes; Edit(c, Read(c) * factor); } }), owner, Root, false);
+        dispatch.FlushLoads();
+        Assert.Equal(20, native.Value); Assert.Equal(1, native.LayerCount); Assert.Equal(1, passes);
+        factor = 3;
+        Assert.Null(RegistryRuntime.Reauthor!(owner, RegistryEntryPoint.WorldLoad));
+        Assert.Null(RegistryRuntime.Reauthor!(owner, RegistryEntryPoint.WorldLoad));
+        Assert.Equal(20, native.Value); // queued: nothing runs before the next host tick
+        dispatch.FlushLoads();
+        Assert.Equal(30, native.Value);        // 10 x 3: read below its own layer, not 20 x 3
+        Assert.Equal(1, native.LayerCount);    // the earlier layer was taken back
+        Assert.Equal(2, passes);               // two requests before the tick are one pass
+        dispatch.FlushLoads(); Assert.Equal(2, passes); // a request runs once
+        owner.Retire(); Assert.Equal(10, native.Value); Assert.Equal(0, native.LayerCount);
+    }
+    [Fact(Timeout = 30_000)]
+    public async Task AReauthoredPassThatThrowsKeepsTheEarlierLayers()
+    {
+        await Task.Yield();
+        using var native = new FakeRegistry(); using var manager = NewManager(native.Host);
+        using var dispatch = new RegistryDispatch(manager); dispatch.Prepare(100);
+        var owner = Owner(native, "leveler"); var fail = false;
+        dispatch.Loaded(new WorldOnlyAuthor(c => {
+            if (c.Phase != RegistryPhase.Alter) return;
+            if (fail) throw new InvalidOperationException("bad settings");
+            Edit(c, 40);
+        }), owner, Root, false);
+        dispatch.FlushLoads(); Assert.Equal(40, native.Value);
+        fail = true;
+        Assert.Null(RegistryRuntime.Reauthor!(owner, RegistryEntryPoint.WorldLoad));
+        dispatch.FlushLoads();
+        Assert.Equal(40, native.Value); Assert.Equal(1, native.LayerCount);
+        fail = false;
+        Assert.Null(RegistryRuntime.Reauthor!(owner, RegistryEntryPoint.WorldLoad)); // the author is asked again, not closed for good
+        dispatch.FlushLoads(); Assert.Equal(40, native.Value); Assert.Equal(1, native.LayerCount);
+        owner.Retire();
+    }
+    [Fact]
+    public void ReauthorRefusesOtherPointsAndModsWithoutAWorldPoint()
+    {
+        using var native = new FakeRegistry(); using var manager = NewManager(native.Host);
+        using var dispatch = new RegistryDispatch(manager); dispatch.Prepare(100);
+        var modload = Owner(native, "modload-only"); var world = Owner(native, "world");
+        dispatch.Loaded(new Author(_ => { }), modload, Root, false);
+        dispatch.Loaded(new WorldOnlyAuthor(_ => { }), world, Root, false);
+        Assert.Contains("declares no WorldLoad point", RegistryRuntime.Reauthor!(modload, RegistryEntryPoint.WorldLoad));
+        Assert.Contains("only the WorldLoad point", RegistryRuntime.Reauthor!(world, RegistryEntryPoint.ModLoad));
+        var plain = Owner(native, "no-author");
+        Assert.Contains("declares no WorldLoad point", RegistryRuntime.Reauthor!(plain, RegistryEntryPoint.WorldLoad));
+        modload.Retire(); world.Retire();
+    }
+    [Fact]
+    public void AReauthorWithoutAWorldWaitsForTheNextWorldsLoad()
+    {
+        WorldConfigs.Reset();
+        try
+        {
+            using var native = new FakeRegistry { World = 0 }; using var manager = NewManager(native.Host);
+            using var dispatch = new RegistryDispatch(manager); dispatch.Prepare(100);
+            var owner = Owner(native, "leveler"); var passes = 0;
+            dispatch.Loaded(new WorldOnlyAuthor(c => { if (c.Phase == RegistryPhase.Alter) { ++passes; Edit(c, 50); } }), owner, Root, false);
+            dispatch.FlushLoads(); Assert.Equal(0, passes);
+            Assert.Null(RegistryRuntime.Reauthor!(owner, RegistryEntryPoint.WorldLoad));
+            dispatch.FlushLoads(); Assert.Equal(0, passes); Assert.Equal(10, native.Value);
+            native.World = 1; WorldConfigs.Announce(Path.Combine(DataDir, "world-a"));
+            dispatch.FlushLoads();
+            Assert.Equal(1, passes); Assert.Equal(50, native.Value); // the world's own pass, not a second one for the request
+            dispatch.FlushLoads(); Assert.Equal(1, passes);
+            owner.Retire();
+        }
+        finally { WorldConfigs.Reset(); }
+    }
     // review4 NS5: a read-derived assignment restates the mod's intent at every point; it never stacks on its own layers.
     [Fact(Timeout = 30_000)]
     public async Task ARuntimeReadExcludesTheReadersOwnLayers()

@@ -101,6 +101,9 @@ public sealed partial class KilnHarness : IDisposable
                 TestTimeout = _options.TestTimeout,
             });
             ModsBackend.Current = _mods;
+#pragma warning disable KILNX031  // the recording registry fake (KilnHarness.Registry.cs): requests are recorded, no pass runs by itself
+            RegistryRuntime.Reauthor = Registry.RecordReauthor;
+#pragma warning restore KILNX031
             _unobserved = (_, e) =>
             {
                 _mods.ReportUnobserved(e.Exception);
@@ -125,6 +128,7 @@ public sealed partial class KilnHarness : IDisposable
         {
             if (_unobserved is not null) TaskScheduler.UnobservedTaskException -= _unobserved;
             if (_mods is not null && ReferenceEquals(ModsBackend.Current, _mods)) ModsBackend.Current = null;
+            RegistryRuntime.Reauthor = null;
             _mods?.Dispose();
             _tick?.Close(TimeSpan.FromSeconds(5));
             KitBackend.Instance.Detach(this);
@@ -417,6 +421,7 @@ public sealed partial class KilnHarness : IDisposable
             }
             if (_tick.AbandonReason is not null) RetireAbandoned();  // the watchdog stopped the tick thread: retire the mods without it (KilnHarness.Tests.cs)
             TaskScheduler.UnobservedTaskException -= _unobserved;
+            RegistryRuntime.Reauthor = null;
             _mods.Dispose();
             EndTasks();  // after the mods: an unloading mod's cancelled tasks still finish on the pool
             EndFakes(faults);  // every fake ends; what one threw waits until the harness has let go
