@@ -28,6 +28,63 @@ pub struct Entries {
     /// drop tables: "<component type>.<member>" (the templates that use the entry name it)
     #[serde(default)]
     pub name_from: String,
+    /// kind arrays (randomLoot): the game sources of the entries, each the array member of every resource of its type
+    #[serde(default)]
+    pub sources: Vec<Source>,
+    /// a source of kind arrays without an id member: the array whose elements point at the entries and name them
+    #[serde(default)]
+    pub used_by: Option<UsedBy>,
+}
+
+/// One game source of a kind arrays registry (`entries.sources[]`).
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Source {
+    #[serde(default)]
+    pub resource_type: String,
+    #[serde(default)]
+    pub array: String,
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub used_by: Option<UsedBy>,
+}
+
+/// `usedBy`: the elements of `array` (a member of the source's resource) point at an entry by `index` and name it by `id`.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct UsedBy {
+    #[serde(default)]
+    pub array: String,
+    #[serde(default)]
+    pub index: String,
+    #[serde(default)]
+    pub id: String,
+}
+
+impl RegFile {
+    /// A kind arrays registry as one kind array registry per source (the rows are the same for every source); any other
+    /// kind as itself.
+    pub fn per_source(&self) -> Vec<RegFile> {
+        if self.entries.kind != "arrays" {
+            return vec![self.clone()];
+        }
+        self.entries
+            .sources
+            .iter()
+            .map(|s| RegFile {
+                registry: self.registry.clone(),
+                entries: Entries {
+                    kind: "array".into(),
+                    resource_type: s.resource_type.clone(),
+                    array: s.array.clone(),
+                    id: s.id.clone(),
+                    used_by: s.used_by.clone(),
+                    ..Default::default()
+                },
+                rows: self.rows.clone(),
+            })
+            .collect()
+    }
 }
 
 /// One Kiln field's row.

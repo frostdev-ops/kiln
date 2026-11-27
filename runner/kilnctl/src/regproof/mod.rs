@@ -666,6 +666,8 @@ pub fn roots(map: &regmap::RegMap) -> Vec<String> {
         if !f.entries.resource_type.is_empty() {
             v.insert(f.entries.resource_type.clone());
         }
+        // kind arrays: every source's resource type (the kind has no root type of its own)
+        v.extend(f.entries.sources.iter().filter(|s| !s.resource_type.is_empty()).map(|s| s.resource_type.clone()));
         if let Some((ty, _)) = f.entries.name_from.rsplit_once('.') {
             v.insert(ty.to_string());
         }
