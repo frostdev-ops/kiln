@@ -98,6 +98,19 @@ public sealed class TamingEngineTests
         Assert.True(f.Advance(p, f.Stack(Bait)).Ok);   // the same token, a new request
     }
 
+    [Fact]
+    public void An_adapter_that_is_off_throws_its_row_and_leaves_the_attempt_as_it_was()
+    {
+        var f = new TamingFixture().With(FeedTwice());
+        var p = f.Begin().Progress!;
+        f.Costs.Throw = new KilnUnavailableException("items.costs.exact", "off");
+        var token = Token(p);
+        Assert.Equal("items.costs.exact", Assert.Throws<KilnUnavailableException>(() => { _ = f.Engine.Advance(f.A, p.Id, token, f.Stack(Bait)); }).Capability);
+        Assert.Equal(TamingState.Active, f.Engine.Inspect(p.Id)!.State);
+        f.Costs.Throw = null;
+        Assert.True(Done(f.Engine.Advance(f.A, p.Id, token, f.Stack(Bait))).Ok);   // the same request, once the row is back
+    }
+
     // ---------------------------------------------------------------------------------------- 3. before-events ---
 
     [Fact]

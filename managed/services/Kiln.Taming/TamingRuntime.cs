@@ -104,7 +104,7 @@ internal static class TamingRuntime
         {
             if (_engine is not null) return _engine;
             var e = new TamingEngine(new GameTamingWorld(), new GameTamingCosts());
-            e.Binder = new PetsTamingBinder(id => e.Definition(id));
+            e.Binder = new PetsTamingBinder();
             e.ResolveCreature = id => PetCreatures.Resolve(id, out _)?.Template;
             return _engine = e;
         }

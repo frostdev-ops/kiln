@@ -30,8 +30,11 @@ internal sealed class FakeTamingCosts : ITamingCosts
     public Func<ItemSelection, int, Guid, CostReceipt>? Answer;
     public List<InventorySlot> Inventory = new();
 
+    public Exception? Throw;
+
     private Task<CostReceipt> Pay(string kind, ItemSelection s, int amount, Guid id)
     {
+        if (Throw is { } t) throw t;
         Calls.Add((kind, s, amount, id));
         if (Hold is { } h)
         {

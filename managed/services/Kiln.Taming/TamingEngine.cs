@@ -400,12 +400,28 @@ internal sealed class TamingEngine
         a.StepSelection = selection;
         a.StepBefore = before;
         a.StepTcs = new TaskCompletionSource<TamingResult>(TaskCreationOptions.RunContinuationsAsynchronously);
-        a.Cost = step switch
+        try
         {
-            FeedStep fd => _costs.Take(selection!, fd.Count, request),
-            UseToolStep tl => _costs.Wear(selection!, tl.Wear, request, tl.AllowBreak),
-            _ => null,
-        };
+            a.Cost = step switch
+            {
+                FeedStep fd => _costs.Take(selection!, fd.Count, request),
+                UseToolStep tl => _costs.Wear(selection!, tl.Wear, request, tl.AllowBreak),
+                _ => null,
+            };
+        }
+        catch (Exception e) when (e is NotSupportedException or InvalidOperationException or ArgumentException)
+        {
+            // the adapter refused before it ran (its capability went off, a shape it does not take): nothing was taken, the
+            // attempt is as it was, and the caller sees the adapter's exception (an off row: KilnUnavailableException)
+            a.Cost = null;
+            a.StepTcs = null;
+            a.StepToken = null;
+            a.StepSelection = null;
+            a.StepBefore = null;
+            a.State = TamingState.Active;
+            a.Replay.Remove(request);
+            throw;
+        }
         if (step is NativeStep) a.NativeBaseline = t.NativeProgress;
         if (step is WeakenStep wk && a.Def.RequireThresholdUntilCommit) a.Threshold = wk.MaxHealthFraction;
         var task = a.StepTcs.Task;

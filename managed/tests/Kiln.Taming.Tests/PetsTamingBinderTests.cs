@@ -22,7 +22,7 @@ public sealed class PetsTamingBinderTests
 
     private static PetDefinition Wolf(int cap = 2) => new() { Id = "mod-a:pet-wolf", Creature = "game:enemy_wildbeast_wolf", Caps = new PetCaps { RetainedPerCharacter = cap } };
 
-    private PetsTamingBinder Binder(Func<string, TamingDefinition?>? defs = null, bool character = true) => new(defs ?? (_ => null))
+    private PetsTamingBinder Binder(bool character = true) => new()
     {
         CharacterOf = _ => character ? Owner : null,
         PetDefinition = id => id == "mod-a:pet-wolf" ? Wolf() : null,
@@ -127,7 +127,7 @@ public sealed class PetsTamingBinderTests
     public void End_to_end_a_finished_tame_binds_one_pet_record()
     {
         var f = new TamingFixture();
-        var binder = Binder(f.Engine.Definition);
+        var binder = Binder();
         f.Engine.Binder = binder;
         f.With(Def(new WeakenStep(1), new FeedStep(Bait)) with { Pet = "mod-a:pet-wolf" });
         var p = f.Begin().Progress!;

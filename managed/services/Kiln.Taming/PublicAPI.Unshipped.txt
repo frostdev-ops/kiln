@@ -81,6 +81,7 @@ Kiln.TameAttemptId.Value.get -> System.Guid
 Kiln.TameAttemptId.Value.init -> void
 Kiln.TamedEvent
 Kiln.TamedEvent.Pet.get -> Kiln.PetSnapshot?
+Kiln.Taming
 Kiln.TamingAdvanceContext
 Kiln.TamingAdvanceContext.<Clone>$() -> Kiln.TamingAdvanceContext!
 Kiln.TamingAdvanceContext.Before.get -> Kiln.TamingProgress!
@@ -324,6 +325,7 @@ Kiln.WeakenStep.WeakenStep(double MaxHealthFraction) -> void
 abstract Kiln.TamingStep.<Clone>$() -> Kiln.TamingStep!
 abstract Kiln.TamingStep.Kind.get -> string!
 const Kiln.NativeTaming.Capability = "taming.native" -> string!
+const Kiln.Taming.Capability = "taming.steps" -> string!
 override Kiln.FeedStep.<Clone>$() -> Kiln.FeedStep!
 override Kiln.FeedStep.Equals(object? obj) -> bool
 override Kiln.FeedStep.GetHashCode() -> int
@@ -407,6 +409,17 @@ static Kiln.NativeTamingState.operator !=(Kiln.NativeTamingState? left, Kiln.Nat
 static Kiln.NativeTamingState.operator ==(Kiln.NativeTamingState? left, Kiln.NativeTamingState? right) -> bool
 static Kiln.TameAttemptId.operator !=(Kiln.TameAttemptId left, Kiln.TameAttemptId right) -> bool
 static Kiln.TameAttemptId.operator ==(Kiln.TameAttemptId left, Kiln.TameAttemptId right) -> bool
+static Kiln.Taming.Advance(Kiln.PlayerRef player, Kiln.TameAttemptId attempt, Kiln.TamingToken! token, Kiln.ItemSelection? selection = null) -> System.Threading.Tasks.Task<Kiln.TamingResult!>!
+static Kiln.Taming.Available.get -> bool
+static Kiln.Taming.Begin(Kiln.PlayerRef player, Kiln.EntityRef target, string! definition, System.Guid requestId) -> Kiln.TamingResult!
+static Kiln.Taming.Cancel(Kiln.PlayerRef player, Kiln.TameAttemptId attempt, Kiln.TamingToken! token) -> System.Threading.Tasks.Task<Kiln.TamingResult!>!
+static Kiln.Taming.Choices(Kiln.PlayerRef player, Kiln.TameAttemptId attempt) -> Kiln.TamingChoicesResult!
+static Kiln.Taming.Define(Kiln.TamingDefinition! definition) -> void
+static Kiln.Taming.DefineJson(string! json) -> System.Collections.Generic.IReadOnlyList<Kiln.TamingDefinition!>!
+static Kiln.Taming.Definition(string! id) -> Kiln.TamingDefinition?
+static Kiln.Taming.Definitions.get -> System.Collections.Generic.IReadOnlyList<Kiln.TamingDefinition!>!
+static Kiln.Taming.Inspect(Kiln.TameAttemptId attempt) -> Kiln.TamingProgress?
+static Kiln.Taming.Retry(Kiln.PlayerRef player, Kiln.TameAttemptId attempt, Kiln.TamingToken! token) -> System.Threading.Tasks.Task<Kiln.TamingResult!>!
 static Kiln.TamingAdvanceContext.operator !=(Kiln.TamingAdvanceContext? left, Kiln.TamingAdvanceContext? right) -> bool
 static Kiln.TamingAdvanceContext.operator ==(Kiln.TamingAdvanceContext? left, Kiln.TamingAdvanceContext? right) -> bool
 static Kiln.TamingBeginContext.operator !=(Kiln.TamingBeginContext? left, Kiln.TamingBeginContext? right) -> bool

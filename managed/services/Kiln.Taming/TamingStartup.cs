@@ -13,9 +13,32 @@ internal static class TamingCaps
 
     internal static readonly ServiceCapRows Rows = new(Service, Report);
 
+    /// <summary>Whether a capability is on (tests replace it).</summary>
+    internal static Func<string, bool> Is = name => Capabilities.Is(name);
+
+    internal static bool StepsOn() => Is(Taming.Capability);
+
+    internal static void Require(string name)
+    {
+        Rows.Ensure();
+        if (!Is(name)) throw ServiceCaps.Unavailable(name, Capabilities.Get(name).ReasonText);
+    }
+
+    /// <summary>What a definition's steps need: taming.steps, items.costs.exact (feed steps, and any refund of them),
+    /// items.costs.wear (tool steps), taming.native (native steps), pets.records (a definition that names a pet).</summary>
+    internal static void RequireFor(TamingDefinition d)
+    {
+        Require(Taming.Capability);
+        if (d.Steps.Any(s => s is FeedStep)) Require(ItemCosts.StacksCapability);
+        if (d.Steps.Any(s => s is UseToolStep)) Require(ItemCosts.WearCapability);
+        if (d.Steps.Any(s => s is NativeStep)) Require(NativeTaming.Capability);
+        if (d.Pet is not null) Require("pets.records");
+    }
+
     private static void Report()
     {
         ServiceCaps.Report(Service, CapabilityState.Available);
+        ServiceCaps.Report(Taming.Capability, CapabilityState.Available);
         ServiceCaps.Report(NativeObserve, CapabilityState.Unavailable, CapabilityReason.Policy,
             "not proven: the game records no player for a taming step; a lab with a signed-in player must show where the petting player is read");
     }

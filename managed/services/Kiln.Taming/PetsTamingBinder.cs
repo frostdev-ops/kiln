@@ -20,10 +20,7 @@ internal sealed class PetsTamingBinder : ITamingBinder
     /// <summary>The roster's own cap of records per character (Kiln.Pets).</summary>
     internal const int MaxRecords = PetRoster.MaxRecordsPerCharacter;
 
-    private readonly Func<string, TamingDefinition?> _definitions;
     private readonly Dictionary<TameAttemptId, (CharacterKey Owner, string Pet)> _held = new();
-
-    internal PetsTamingBinder(Func<string, TamingDefinition?> definitions) => _definitions = definitions;
 
     internal int Held => _held.Count;
 

@@ -139,6 +139,7 @@ dev.28+ and dev.29+ (pages in the repository's `docs/kiln/`):
 | Terrain overlays | `services/terrain.md` |
 | Creature control, NPC perception | `services/creature-control.md`, `modding/npc-blocks.md` |
 | Pets (records, summon, follow, revive, the owner's bar) | `services/pets.md`, `modding/pets.md` |
+| Taming (attempts, exact-cost steps, refund policies, the game's own taming) | `services/taming.md`, `modding/taming.md`, `services/item-costs.md` |
 | Block kinds of your own | `modding/block-kinds.md` |
 | Refusable events (death, pickup, equip) | `services/decisions.md` |
 | Program wraps, `Systems.Define`, prediction storage | `services/systems.md`, `modding/ecs-programs.md` |
