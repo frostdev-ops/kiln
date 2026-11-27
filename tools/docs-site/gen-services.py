@@ -31,15 +31,18 @@ CORE = [("Kiln.Api", None, "managed/Kiln.Api"), ("Kiln.Game", "Game", "managed/K
 # guide pages that are not named like the service: assembly -> repository paths
 GUIDES = {
     "Kiln.Api": ["docs/kiln/modding/contract.md", "docs/kiln/modding/lifecycle.md", "docs/kiln/modding/README.md"],
-    "Kiln.Blocks": ["docs/kiln/modding/blocks.md"],
+    "Kiln.Blocks": ["docs/kiln/modding/blocks.md", "docs/kiln/modding/npc-dialogue.md", "docs/kiln/services/npc-speech.md"],
     "Kiln.Client": ["docs/kiln/modding/client-hooks.md", "docs/kiln/services/client-building-input.md",
                     "docs/kiln/services/client-crosshair.md"],
+    "Kiln.Content": ["docs/kiln/modding/gear-rules.md"],
     "Kiln.CreatureControl": ["docs/kiln/services/creature-control.md"],
     "Kiln.Eml": ["docs/kiln/services/eml-archive.md", "docs/kiln/services/eml-startup.md", "docs/kiln/services/eml-values.md"],
     "Kiln.Game": ["docs/kiln/typegen.md"],
+    "Kiln.Items": ["docs/kiln/modding/item-costs.md", "docs/kiln/services/item-costs.md"],
     "Kiln.Network": ["docs/kiln/services/net-steam-messages.md"],
     "Kiln.PlayerAnim": ["docs/kiln/services/playeranim.md"],
     "Kiln.Sigs": ["docs/kiln/services/hooks.md"],
+    "Kiln.Terrain": ["docs/kiln/modding/terrain-tiles.md"],
     "Kiln.Testing": ["docs/kiln/modding/testing.md"],
     "Kiln.TestKit": ["docs/kiln/modding/unit-tests.md"],
 }
