@@ -96,6 +96,9 @@ public static partial class Pets
     /// <summary>The definition registered under <paramref name="id"/>, or null. Any thread.</summary>
     /// <param name="id">The definition's Kiln id (<c>my-mod:hound</c>).</param>
     /// <returns>The registered definition, or null when none has that id (or the mod that defined it unloaded).</returns>
+    /// <example><code>
+    /// if (Pets.Definition("my-mod:hound") is { } hound) Log.Info($"{hound.Id} uses {hound.Creature}, follows at {hound.Movement.FollowDistance} m");
+    /// </code></example>
     /// <seealso cref="Definitions"/>
     [AnyThread]
     public static PetDefinition? Definition(string id) => PetsRuntime.Definition(id);
@@ -132,6 +135,9 @@ public static partial class Pets
     /// <returns>The pet as it is now, or null (<see cref="PetId.None"/>, or not known here).</returns>
     /// <exception cref="KilnUnavailableException"><c>pets.records</c> is off.</exception>
     /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
+    /// <example><code>
+    /// if (Pets.Get(pet) is { Life: PetLife.Downed } downed) Log.Info($"{downed.Label} is down: revive it next to its anchor");
+    /// </code></example>
     /// <seealso cref="Of"/>
     [ServerOnly, TickThreadOnly, RequiresCapability(Caps.Records)]
     public static PetSnapshot? Get(PetId pet) => pet.IsNone ? null : Roster("Pets.Get").Get(pet);
@@ -313,6 +319,11 @@ public static partial class Pets
     /// <exception cref="ArgumentException">No revive operation, no pet, no owner, or an empty operation id.</exception>
     /// <exception cref="KilnUnavailableException"><c>pets.downed</c> is off.</exception>
     /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
+    /// <example><code>
+    /// var request = PetRequest.New();
+    /// Task&lt;PetResult&gt; revive = Pets.Revive(player, pet, request);                       // the channel starts
+    /// await Pets.CancelRevive(player, pet, request.OperationId, PetRequest.New());        // the owner changed their mind: nothing is taken
+    /// </code></example>
     /// <seealso cref="Revive"/>
     /// <seealso cref="PetReviveCanceledEvent"/>
     [ServerOnly, TickThreadOnly, RequiresCapability(Caps.Downed)]
@@ -361,6 +372,9 @@ public static partial class Pets
     /// <returns>True when the pair is declared hostile now (the order of <paramref name="a"/> and <paramref name="b"/> does not matter).</returns>
     /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
     /// <exception cref="KilnUnavailableException"><c>pets.records</c> is off.</exception>
+    /// <example><code>
+    /// if (!Pets.IsHostile(owner, otherOwner)) Log.Info("no duel is on between them: their pets are protected from each other");
+    /// </code></example>
     /// <seealso cref="SetHostile"/>
     [ServerOnly, TickThreadOnly, RequiresCapability(Caps.Records)]
     public static bool IsHostile(CharacterKey a, CharacterKey b) => Roster("Pets.IsHostile").IsHostile(a, b);
