@@ -408,6 +408,10 @@ fn registry_only_clients_guidance_tracks_the_edited_fields() {
     check("good-buff", "none", "buffs", "stacking", None);
     check("ability", "none", "abilities", "timing.release", Some("kiln"));
     check("good-ability", "kiln", "abilities", "timing.cost", None);
+    // dev.32: the loot rules and random loot tables are read by the server world at each roll (serverOnly)
+    check("loot-rules", "kiln", "lootRules", "rarityWeights.legendary", Some("none"));
+    check("random-loot", "kiln", "randomLoot", "level.value", Some("none"));
+    check("good-random-loot", "none", "randomLoot", "rarity.epic.weight", None);
 }
 
 /// Every registry schema Kiln ships is in KL213's field table (a registry left out gives its packs no guidance at all).
@@ -426,7 +430,7 @@ fn registry_clients_knows_every_shipped_registry() {
         assert!(known.contains(name), "schema/registry/{name}.json is not in lint/registry.rs's field table: {known:?}");
         seen += 1;
     }
-    assert!(seen >= 12, "{seen} registry schemas in {}", dir.display());
+    assert!(seen >= 17, "{seen} registry schemas in {}", dir.display());
 }
 
 #[test]

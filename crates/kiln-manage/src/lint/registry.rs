@@ -48,6 +48,8 @@ fn fields() -> &'static Fields {
             include_str!("../../../../schema/registry/world.json"),
             include_str!("../../../../schema/registry/difficulty.json"),
             include_str!("../../../../schema/registry/limits.json"),
+            include_str!("../../../../schema/registry/lootRules.json"),
+            include_str!("../../../../schema/registry/randomLoot.json"),
         ] {
             let doc: serde_json::Value = serde_json::from_str(text).expect("shipped registry schema");
             visit(&mut fields, doc["registry"].as_str().expect("registry name"), "", &doc["fields"], false);
