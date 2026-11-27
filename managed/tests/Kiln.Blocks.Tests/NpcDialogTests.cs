@@ -68,6 +68,7 @@ public sealed unsafe class NpcDialogTests : IDisposable
         NpcSpeechEngine.PeersHook = null;
         NpcSpeechEngine.ServerDialogHook = null;
         NpcSpeechEngine.LocalPlayerHook = null;
+        NpcSpeechEngine.PlayerOfHook = null;
         SpeechNative.TableHook = null;
     }
 
@@ -312,6 +313,43 @@ public sealed unsafe class NpcDialogTests : IDisposable
         Assert.Contains(got, m => m is LinesMsg { Kind: NpcLineKind.Greeting, Pick: 4 });
         NpcSpeechEngine.Tick();
         Assert.Contains((9u, (object)new NextMsg(Ramone.Value, NpcLineKind.Greeting, 0)), ToPeers);
+    }
+
+    [Fact]
+    public void A_peer_without_its_player_yet_gets_its_pick_when_the_player_comes_and_never_for_no_one()
+    {
+        // lab run2: a ready peer without a player got a Next, the callback asked for EntityId.None
+        var calls = new List<EntityId>();
+        var speech = Npcs.Speech(Ramone);
+        speech.Pick = SpeechPick.By(ctx =>
+        {
+            calls.Add(ctx.Player);
+            return 0;
+        });
+        speech.Replace("first");
+        NpcSpeechEngine.Tick();
+        calls.Clear();
+        var player = EntityId.None;
+        NpcSpeechEngine.PlayerOfHook = p => p.Id == 9 ? player : p.Player;
+        var peer = new SpeechPeer(9, EntityId.None, Dialog: true);
+        NpcSpeechEngine.DialogSnapshot(peer);
+        NpcSpeechEngine.Tick();
+        Assert.DoesNotContain(ToPeers, x => x.Msg is NextMsg);
+        Assert.Empty(calls);                                              // never asked for no one
+        player = P1;                                                      // its character spawned
+        NpcSpeechEngine.Tick();
+        Assert.Contains((9u, (object)new NextMsg(Ramone.Value, NpcLineKind.Greeting, 0)), ToPeers);
+        Assert.Equal([P1], calls);
+
+        ToPeers.Clear();
+        var lab = new SpeechPeer(10, EntityId.None, Dialog: true);        // a peer that never has a player (a lab peer)
+        NpcSpeechEngine.DialogSnapshot(lab);
+        NpcSpeechEngine.Tick();
+        _now += 120_000;
+        NpcSpeechEngine.Tick();
+        NpcSpeechEngine.Tick();
+        Assert.DoesNotContain(ToPeers, x => x.Msg is NextMsg);
+        Assert.Equal(0, NpcSpeechEngine.WaitingForPlayers);               // given up, not kept forever
     }
 
     [Fact]

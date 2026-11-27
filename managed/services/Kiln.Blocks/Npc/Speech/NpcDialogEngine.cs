@@ -40,6 +40,9 @@ internal static partial class NpcSpeechEngine
     internal static Func<IReadOnlyList<SpeechPeer>>? PeersHook;
     internal static Func<bool>? ServerDialogHook;
     internal static Func<EntityId>? LocalPlayerHook;
+    /// <summary>Test seam: a peer's player now (production: the NetPeer's, which the network fills in once the
+    /// client's character exists).</summary>
+    internal static Func<SpeechPeer, EntityId>? PlayerOfHook;
     /// <summary>Kiln.TestKit: where Npcs.MenuSay goes in a kit (the kit is the host and has no players' games).</summary>
     internal static Action<uint, EntityId, UiText>? ReplyHook;
 
@@ -53,6 +56,9 @@ internal static partial class NpcSpeechEngine
     private static readonly Dictionary<(uint, NpcLineKind), SpeechEffect> Deciding = new();
     private static readonly Dictionary<(uint, NpcLineKind, uint), (int Opens, int Last)> ByState = new();
     private static readonly ConcurrentQueue<(uint Npc, NpcLineKind Kind, SpeechPeer? To)> ByWork = new();
+    // host picks for a ready client whose character does not exist yet: asked once it does, given up after WaitMs
+    private static readonly List<(uint Npc, NpcLineKind Kind, SpeechPeer To, long Until)> Waiting = new();
+    private const long WaitMs = 60_000;
     private static readonly SpeechPeer LocalTarget = new(0, EntityId.None, false, null, Local: true);
     // talk pages: what this process's menu and the clients were told per NPC, and the picks due on the tick
     private static readonly Dictionary<uint, TopicWire[]> AppliedTopics = new();
@@ -91,6 +97,15 @@ internal static partial class NpcSpeechEngine
     }
 
     internal static SpeechPeer PeerOf(NetPeer p) => new(p.Id, p.Player, p.HasChannel(DialogChannel), p);
+
+    /// <summary>The peer's player now (EntityId.None until its character exists, and for a lab peer).</summary>
+    private static EntityId PlayerOf(SpeechPeer p) => PlayerOfHook?.Invoke(p) ?? (p.Net is NetPeer np ? np.Player : p.Player);
+
+    /// <summary>Tests: host picks waiting for a client's character.</summary>
+    internal static int WaitingForPlayers
+    {
+        get { lock (Gate) return Waiting.Count; }
+    }
 
     private static NetChannel? RegisterDialog() =>
         Network.Channel(DialogChannel, DialogVersion, required: false, maxMessageBytes: 96 * 1024)
@@ -275,6 +290,14 @@ internal static partial class NpcSpeechEngine
                 if (e.Type == SpeechNative.EventOpen && e.Kind <= (byte)NpcLineKind.MenuLine) Opened(e.Npc, (NpcLineKind)e.Kind, e.Line, e.Value);
                 else if (e.Type == SpeechNative.EventTopic) TopicPicked(e.Npc, e.Value);
             }
+        List<(uint Npc, NpcLineKind Kind, SpeechPeer To, long Until)> due;
+        lock (Gate)
+        {
+            var now = Clock();
+            due = Waiting.Where(x => !PlayerOf(x.To).IsNone).ToList();
+            Waiting.RemoveAll(x => due.Contains(x) || now > x.Until);
+        }
+        foreach (var d in due) ByWork.Enqueue((d.Npc, d.Kind, d.To));
         while (ByWork.TryDequeue(out var w)) Decide(w.Npc, w.Kind, w.To);
         while (PickWork.TryDequeue(out var p)) RunPick(p.Npc, p.Id, p.Player);
     }
@@ -318,8 +341,18 @@ internal static partial class NpcSpeechEngine
         var targets = new List<SpeechPeer>();
         if (to is null || to.Local)
             if (SpeechNative.Loaded && LocalPlayer() is { IsNone: false } local) targets.Add(LocalTarget with { Player = local });
-        if (to is null) targets.AddRange(DialogPeers().Where(p => p.Dialog && !p.Player.IsNone));
-        else if (!to.Local) targets.Add(to);
+        if (to is null) targets.AddRange(DialogPeers().Where(p => p.Dialog).Select(p => p with { Player = PlayerOf(p) }).Where(p => !p.Player.IsNone));
+        else if (!to.Local)
+        {
+            var player = PlayerOf(to);
+            if (player.IsNone)
+            {
+                // a client that became ready before its character exists: ask once it does (never for no one)
+                lock (Gate)
+                    if (!Waiting.Any(x => x.Npc == npc && x.Kind == kind && x.To.Id == to.Id)) Waiting.Add((npc, kind, to, Clock() + WaitMs));
+            }
+            else targets.Add(to with { Player = player });
+        }
         foreach (var t in targets)
         {
             (int Opens, int Last) st;
@@ -636,6 +669,7 @@ internal static partial class NpcSpeechEngine
             ByState.Clear();
             AppliedTopics.Clear();
             SentTopics.Clear();
+            Waiting.Clear();
         }
         while (ByWork.TryDequeue(out _)) { }
         while (PickWork.TryDequeue(out _)) { }
