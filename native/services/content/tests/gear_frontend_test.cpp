@@ -680,8 +680,12 @@ void front_only_start(const std::string& dir, size_t table) {
     stage::Env e = env_of(&view, &files, dir);
     e.prepare_live = true;
     // this fixture changes the view's values after the start (the boot writer's patch): no base cache of its synthetic digest
-    e.write_data = [&files](const std::string& rel, const std::string& text) {
+    // kept; the start itself writes none either (a first start of a build lists every registry for the id table, and a cache
+    // of that read would make every later start touch all of those resources again to check it)
+    size_t cache_writes = 0;
+    e.write_data = [&files, &cache_writes](const std::string& rel, const std::string& text) {
         if (rel.rfind("cache/", 0) != 0) files.data[rel] = text;
+        else ++cache_writes;
         return true;
     };
     stage::Runner r(std::move(e));
@@ -697,6 +701,7 @@ void front_only_start(const std::string& dir, size_t table) {
     for (const std::string& t : view.listed) listed += t + " ";
     check(view.listed == std::set<std::string>{"keen::BalancingTable"},
           "a front-end-only start lists the balancing table only, not every registry's resources (it listed: " + listed + ")");
+    check(cache_writes == 0, "and keeps no base cache of its small read (" + std::to_string(cache_writes) + " written)");
     // the apply: the registry's copy (the same bytes as the resource patch's), then the boot writer's patch is in the game
     std::vector<uint8_t> copy = bytes_of(g, table);
     std::vector<stage::BootOutcome> out;

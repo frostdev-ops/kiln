@@ -1200,7 +1200,9 @@ std::vector<BootResource> Runner::run(const OldWritesFn& old_fn, const std::vect
         m = std::make_unique<model::Model>(*inventory, d.rm, d.schema);
         d.meta.base.origin = src->name();
         const std::string family = cache_family(d.env, d.rm, need);
-        if (need.raw.empty() && !ids_missing) {
+        // review-j2: a front-end-only start's read is a few balance fields: no base cache (a first start of a build lists every
+        // registry for the id table, and a cache of that read would have every later start touch all of it to check it)
+        if (need.raw.empty() && !ids_missing && !fronts_only) {
             LiveData cached;
             hit = read_base_cache(d.env, family, *src, &cached);
             if (hit) {
@@ -1217,7 +1219,7 @@ std::vector<BootResource> Runner::run(const OldWritesFn& old_fn, const std::vect
             d.decoded = m->decoded();
             // review finding 4 (ruling 2026-11-21 19:11): written once per build, when missing, always with every registry
             if (d.env.write_data && want_all) d.env.write_data(ids_rel, m->id_table_json().dump());
-            if (need.raw.empty()) write_base_cache(d.env, family, *src, *inventory, base, d.ids, d.nums, d.decoded);
+            if (need.raw.empty() && !fronts_only) write_base_cache(d.env, family, *src, *inventory, base, d.ids, d.nums, d.decoded);
         }
         d.name_archive(&base, d.ids, m.get());
         if (old_fn) old = old_fn(*m);
