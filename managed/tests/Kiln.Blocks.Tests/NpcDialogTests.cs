@@ -691,4 +691,31 @@ public sealed unsafe class NpcDialogTests : IDisposable
         Assert.Equal(NpcSpeechEngine.OpenedBurst, calls);
         Assert.Equal(NpcSpeechEngine.OpenedBurst, ToPeers.Count(x => x.Peer == 1 && x.Msg is NextMsg));
     }
+
+    [Fact]
+    public void An_opened_line_the_override_does_not_have_reaches_the_callback_as_none()
+    {
+        // review: Opened's line is a player's game's word; it reached the callback's ctx.Last as sent (7 of 2 lines, -9)
+        Peers.Add(new SpeechPeer(1, P1, Dialog: true));
+        var seen = new List<NpcLineContext>();
+        var speech = Npcs.Speech(Ramone);
+        speech.Pick = SpeechPick.By(ctx =>
+        {
+            seen.Add(ctx);
+            return 0;
+        });
+        speech.Replace("first", "second");
+        NpcSpeechEngine.Tick();
+        foreach (var line in new[] { 7, -9, 2 })
+        {
+            seen.Clear();
+            NpcSpeechEngine.Received(new OpenedMsg(Ramone.Value, NpcLineKind.Greeting, line, 3), Peers[0]);
+            NpcSpeechEngine.Tick();
+            Assert.Equal(-1, Assert.Single(seen).Last);
+        }
+        seen.Clear();
+        NpcSpeechEngine.Received(new OpenedMsg(Ramone.Value, NpcLineKind.Greeting, 1, 4), Peers[0]);
+        NpcSpeechEngine.Tick();
+        Assert.Equal((4, 1, P1), (Assert.Single(seen).Opens, seen[0].Last, seen[0].Player));
+    }
 }

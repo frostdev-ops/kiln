@@ -369,8 +369,10 @@ internal static partial class NpcSpeechEngine
         if (!Within(from.Player, pick: false)) return;
         lock (Gate)
         {
-            if (!Deciding.ContainsKey((m.Npc, m.Kind))) return;
-            ByState[(m.Npc, m.Kind, from.Player.Value)] = ((int)Math.Min(m.Opens, int.MaxValue), m.Line);
+            if (!Deciding.TryGetValue((m.Npc, m.Kind), out var eff)) return;
+            // the line the game says it showed: one of the override's, else none (ctx.Last's promise to the callback)
+            var last = m.Line >= 0 && m.Line < eff.Lines.Count ? m.Line : -1;
+            ByState[(m.Npc, m.Kind, from.Player.Value)] = ((int)Math.Min(m.Opens, int.MaxValue), last);
         }
         ByWork.Enqueue((m.Npc, m.Kind, from));
     }
