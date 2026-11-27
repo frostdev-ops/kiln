@@ -253,7 +253,7 @@ that caught the exception kept a cut call and one that did not lost its whole pa
 
 **Authoring the WorldLoad point again (0.2.0-dev.32).** Edits made from settings or from the game's state (a config file, a
 player's level) can follow a change at once: `Kiln.Registry.Registry.Reauthor(RegistryEntryPoint.WorldLoad)` asks Kiln to run
-the mod's declared WorldLoad pass again on the next host tick, in the same world. The pass runs as at a world load: every
+the mod's declared WorldLoad pass again, starting on the next host tick, in the same world. The pass runs as at a world load: every
 callback reads the pre-pass values without the mod's own layers (so a value is derived from the game's data and other mods'
 edits again, never from the mod's own last result), entries refuse one by one, and its commits replace the layers that point
 made in this world once they are in, so the game never sees a moment without the mod's values; a pass that throws keeps the
@@ -261,8 +261,33 @@ earlier layers (logged as a fault), a transient refusal asks again on a later ti
 It returns false, with the reason in kiln.log, for another point (only WorldLoad is authored again on request), a mod that
 declares no WorldLoad point, a call from inside an `OnRegistry` callback (ask when settings or game state change; from the
 pass itself it would run the pass again on every tick), or no live back-end; with no world loaded the next world's load
-authors the point anyway. A split pass (Alter, then Final for what one call's cap does not take) is re-authored whole: both
-calls commit, then both earlier layers are taken back.
+authors the point anyway. A split pass (Alter, then Final for what one call's cap does not take) is re-authored whole.
+
+**Off the world tick (0.2.0-dev.32).** A re-authored pass costs the world tick almost nothing, whatever its size: its
+`OnRegistry` callbacks run on a worker thread of Kiln's, Kiln prepares the pass's turn there (the edits parsed, composed over
+the other mods' layers, bound to the game's data and evaluated), and the world tick only lands it: the pass's new layers in
+and the layers that point made before out, in one turn, and one write of the bytes that change. A table is never half
+written and the game never sees a moment without the mod's values (nor both the old and the new ones). registry.json is
+rebuilt off the tick afterwards. A Loot Rarity Leveler sized pass (every field of the game's ~800 random loot tables, 12,752
+edits) lands in a few milliseconds where it took 0.5 s (and 0.6 to 2.1 s on a loaded server) before. So, in the pass:
+
+- Read your own settings and the game state you need (a player's level) **before** asking, in the event or tick handler
+  that saw them change, and keep them in fields the pass reads. A tick-thread API called inside a re-authored pass throws
+  (`InvalidOperationException`, "... a re-authored registry pass (Registry.Reauthor) runs off it"); Kiln notices even when
+  the mod catches it, never lands that pass, runs it again on the world tick and from then on runs that mod's re-authored
+  passes on the tick (slower: the pass's own time is on the tick again; kiln.log says so once). APIs marked `[AnyThread]`
+  are fine (`Players.All`, `Progression.Get`: the last snapshot off the tick). The world-load pass itself still runs on the
+  world thread, as before.
+- The pass reads the registry as it is when it starts. If the registry moves before its turn lands (another mod's change, a
+  data pack, a world's end), Kiln drops that turn and runs the pass again; after three such turns in a row the next pass
+  runs whole on the tick (the pass, its preparation and its landing in one step, at the cost re-authors had before
+  0.2.0-dev.32), so it always lands.
+
+**Coalescing.** Kiln runs one re-author at a time. Requests made while one runs (or before the next tick) become one more
+pass after it, never one each: a burst of requests (a settings file saved several times, a level-up and a join in the same
+second) costs at most two passes, the last one with the newest inputs. A mod needs no debounce of its own for Kiln's sake;
+it should still not ask on every tick, nor for a change its edits do not depend on (Loot Rarity Leveler asks when its
+settings or the highest player level change, and checks levels every 2 s).
 
 The re-authored layers are the newest: live layers compose in commit order, so they win over other mods' WorldLoad edits of
 the same fields (Final ones too) until those mods' points are authored again, and the pass reads those mods' layers as the
