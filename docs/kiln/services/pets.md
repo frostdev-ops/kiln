@@ -331,9 +331,13 @@ connection never wins), goes Stale after 3 s without one (the bar hides), and cl
     PetOwnerView? Snapshot { get; }   // pets.hud.client; one immutable snapshot
     PetViewState State { get; }       // Disconnected, Current, Stale
     PetHudOptions Options { get; }
-    void Configure(PetHudOptions options);   // this game only
+    void Configure(PetHudOptions options);   // pets.hud.client; this game only
 }
 ```
+
+`Snapshot` and `Configure` check the row they declare: while `pets.hud.client` (`Pets.HudClientCapability`) is off (a
+dedicated server, a game without Kiln.Network or the renderer) they throw `KilnUnavailableException` naming it. Guard
+them with `Capabilities.Is(Pets.HudClientCapability)`. `State` and `Options` read on every side.
 
 The built-in bar: at (0.03, 0.72) of the screen, 220 x UI scale wide, rows 24 x scale, at most 6 rows (live pets first,
 then anchors), name, health, Ready/Downed/Recovering and the channel's progress; recovery anchors as cyan world circles

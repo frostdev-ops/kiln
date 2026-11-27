@@ -110,5 +110,28 @@ public sealed class ApiShapeTests
         Assert.NotNull(typeof(PetChange).GetProperty("RequestId"));
         Assert.NotNull(typeof(PetSnapshot).GetProperty("ReviveRequest"));
     }
+
+    // ---- A10: PetsClient checks the capability it declares ----
+
+    [Fact]
+    public void PetsClient_Snapshot_and_Configure_throw_naming_pets_hud_client_while_it_is_off()
+    {
+        PetsClient.ResetForTests();
+        Assert.False(Capabilities.Is(Pets.HudClientCapability));
+        Assert.Equal(Pets.HudClientCapability, Assert.Throws<KilnUnavailableException>(() => PetsClient.Snapshot).Capability);
+        Assert.Equal(Pets.HudClientCapability, Assert.Throws<KilnUnavailableException>(() => PetsClient.Configure(new PetHudOptions())).Capability);
+        PetsRuntime.TestRows = true;
+        try
+        {
+            Assert.Null(PetsClient.Snapshot);
+            PetsClient.Configure(new PetHudOptions(Enabled: false));
+            Assert.False(PetsClient.Options.Enabled);
+        }
+        finally
+        {
+            PetsRuntime.TestRows = false;
+            PetsClient.ResetForTests();
+        }
+    }
 }
 

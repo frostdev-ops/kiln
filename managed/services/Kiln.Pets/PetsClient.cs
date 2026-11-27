@@ -19,8 +19,17 @@ public static class PetsClient
     private static readonly object Gate = new();
 
     /// <summary>The latest view, or null (none yet, disconnected). One immutable snapshot: read it once per frame.</summary>
+    /// <exception cref="KilnUnavailableException"><c>pets.hud.client</c> is off (no channel or no renderer here: a
+    /// dedicated server, a game without Kiln.Network).</exception>
     [AnyThread, RequiresCapability(Pets.Caps.HudClient)]
-    public static PetOwnerView? Snapshot => Cache.View;
+    public static PetOwnerView? Snapshot
+    {
+        get
+        {
+            RequireHud("PetsClient.Snapshot");
+            return Cache.View;
+        }
+    }
 
     /// <summary>Whether <see cref="Snapshot"/> is current, stale (no keepalive for 3 s) or there is none.</summary>
     [AnyThread]
@@ -42,6 +51,7 @@ public static class PetsClient
 
     /// <summary>Sets where and whether the built-in bar draws (this game only; never a server state).</summary>
     /// <exception cref="ArgumentException">An anchor outside 0..1, a width outside 80..600, or a value that is not finite.</exception>
+    /// <exception cref="KilnUnavailableException"><c>pets.hud.client</c> is off (no built-in bar here).</exception>
     [AnyThread, RequiresCapability(Pets.Caps.HudClient)]
     public static void Configure(PetHudOptions options)
     {
@@ -49,11 +59,19 @@ public static class PetsClient
         if (!double.IsFinite(options.AnchorX) || options.AnchorX is < 0 or > 1) throw new ArgumentException($"AnchorX {options.AnchorX} is outside 0..1", nameof(options));
         if (!double.IsFinite(options.AnchorY) || options.AnchorY is < 0 or > 1) throw new ArgumentException($"AnchorY {options.AnchorY} is outside 0..1", nameof(options));
         if (!double.IsFinite(options.WidthPixels) || options.WidthPixels is < 80 or > 600) throw new ArgumentException($"WidthPixels {options.WidthPixels} is outside 80..600", nameof(options));
+        RequireHud("PetsClient.Configure");
         Volatile.Write(ref _options, options);
         Events.Enqueue(new PetHudOptionsChangedEvent(options));
     }
 
     private static double Now => Clock.Elapsed.TotalSeconds;
+
+    // the row the members declare: any thread (a read of the capability registry; the reason text is the row's own)
+    private static void RequireHud(string api)
+    {
+        if (PetsRuntime.TestRows || Capabilities.Is(Pets.Caps.HudClient)) return;
+        throw ServiceCaps.Unavailable(Pets.Caps.HudClient, $"{api}: this game shows no pets");
+    }
 
     /// <summary>Opens the channel on a game client (server: the publisher's own side) and subscribes the bar.</summary>
     internal static void Start()

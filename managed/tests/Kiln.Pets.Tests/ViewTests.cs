@@ -11,8 +11,18 @@ namespace Kiln.PetsTests;
 
 public sealed class ViewTests : IDisposable
 {
-    public ViewTests() => PetsClient.ResetForTests();
-    public void Dispose() => PetsClient.ResetForTests();
+    // the view's own tests run as a game whose pets.hud.client is on (ApiShapeTests: off, PetsClient refuses)
+    public ViewTests()
+    {
+        PetsClient.ResetForTests();
+        PetsRuntime.TestRows = true;
+    }
+
+    public void Dispose()
+    {
+        PetsRuntime.TestRows = false;
+        PetsClient.ResetForTests();
+    }
 
     private static PetViewEntry Entry(int n, PetPresence presence = PetPresence.Live, PetLife life = PetLife.Ready, int cur = 50, int max = 100) => new()
     {
