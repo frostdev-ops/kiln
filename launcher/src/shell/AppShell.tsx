@@ -25,7 +25,8 @@ import { InstallKilnModal, detectGames, useAutoDetect, useDetect, useInstallProm
 import { clock, usePlayControl, type PlayControl } from "./play";
 import { applyingWord } from "./applying";
 import { Stage, flatDrawing, stageInput, wakeStage, type Heat } from "./Stage";
-import { turkeyTime } from "./thanksgiving";
+import { useSeason } from "./season";
+import { FestiveHearth, FestiveMantel, FestiveRim } from "./Festive";
 import { reportFacts, reportFrames } from "./renderReport";
 import { startWords } from "./startProgress";
 import { useT } from "../i18n";
@@ -52,17 +53,6 @@ function useReducedMotion(): boolean {
     q?.addEventListener?.("change", changed);
     return () => q?.removeEventListener?.("change", changed);
   }, reduced, () => false);
-}
-
-/** Whether it is Thanksgiving weekend (thanksgiving.ts), looked at again every 10 minutes, so a launcher left open turns
- *  the turkey on as the weekend starts and off as it ends. */
-function useThanksgiving(): boolean {
-  const [on, setOn] = useState(() => turkeyTime());
-  useEffect(() => {
-    const timer = setInterval(() => setOn(turkeyTime()), 600_000);
-    return () => clearInterval(timer);
-  }, []);
-  return on;
 }
 
 /** Keeps the last value shown for `ms` after `show` turns false (so a sheet can drop with its page still on it). */
@@ -207,8 +197,11 @@ export function AppShell() {
   // the WebGL fire, unless turned off (Settings, Appearance) or KILN_LAUNCHER_NO_WEBGL=1; decided once both are known
   // (the splash covers that), so a machine set to the plain button never starts the fire
   const fire = info.isFetched && settings.isFetched && !info.data?.noWebgl && settings.data?.animatedFire !== false;
-  // Thanksgiving weekend: the fire roasts a turkey; its greeting shows only while that fire burns (not with the fire off)
-  const turkey = useThanksgiving();
+  // the seasons (season.ts), one at a time, looked at again every 10 minutes. Thanksgiving weekend: the fire roasts a
+  // turkey; its greeting shows only while that fire burns (not with the fire off). The festive season (to 7 January): the
+  // mantel over the mouth, snow in the fire, a garland on the sheets; the player can switch it off in Settings
+  const season = useSeason();
+  const turkey = season === "turkey", festive = season === "festive";
   const loc = useLocation();
   const outlet = useOutlet();
   useTaskFeed();
@@ -259,6 +252,9 @@ export function AppShell() {
   // the CPU, about 24 ms a move in a 2560 x 1440 window; it stands still there, as without the GPU
   const [flat] = useState(flatDrawing);
   const torchOn = lit && !still && !flat;
+  // the festive mantel and the threshold's diyas: not there while the fire burns (each of its frames would paint them
+  // again on the CPU, about three times the Play page's own cost); with the fire off they are drawn once
+  const mantel = festive && !(flat && lit);
   // what the page sees of WebKit's drawing, into launcher.log (renderReport.ts): the facts once the splash is gone (the
   // fire decided by then), a frame sample on Play while the window is visible (tried again when it comes back)
   const litNow = useRef(lit);
@@ -303,9 +299,10 @@ export function AppShell() {
   // `t` changes with the language: the title follows it
   useEffect(() => { document.title = isPlay ? "Kiln" : t("shell.appShell.docTitle", { page: navFor(loc.pathname)?.label ?? "Kiln" }); }, [isPlay, loc.pathname, t]);
   return (
-    <div ref={root} className={"k-app" + (isPlay ? " is-play" : " is-sheet")}
+    <div ref={root} className={"k-app" + (isPlay ? " is-play" : " is-sheet")} data-theme={festive ? "festive" : undefined}
       data-render={info.data?.render?.mode === "software" ? "software" : flat ? "flat" : undefined}>
-      <div className="k-stage" aria-hidden><Stage root={root} key={fire ? (turkey ? "turkey" : "fire") : "plain"} enabled={fire} turkey={turkey} onLit={setLit} /><div className="k-fall" /></div>
+      <div className="k-stage" aria-hidden><Stage root={root} key={fire ? (turkey ? "turkey" : festive ? "festive" : "fire") : "plain"} enabled={fire} turkey={turkey} festive={festive} onLit={setLit} /><div className="k-fall" /></div>
+      {mantel && <FestiveMantel />}
       <Header isPlay={isPlay} ctl={ctl} />
       <div className={"k-hero-layer" + (isPlay ? " on" : "")} aria-hidden={!isPlay}>
         {/* Thanksgiving weekend: a greeting on the wall over the mouth, lit by the fire (--fire, FIRE_READERS); a leaf */}
@@ -316,9 +313,11 @@ export function AppShell() {
         {/* leaves: the lit top edge (the flicker's --fire) and the torch (--mx, --my); nothing goes inside them */}
         <div className="k-sheet-rim" aria-hidden />
         <div ref={light} className="k-torch" aria-hidden />
+        {festive && <FestiveRim />}
         <div className="k-sheet-in">{sheet}</div>
       </main>
       <Mouth isPlay={isPlay} ctl={ctl} />
+      {mantel && <FestiveHearth />}
       <GameArtAuto />
       <DropAnywhere add={(p) => void addMods(p)} />
       <InstallKilnModal onAdd={(p, g) => void addMods(p, g)} />

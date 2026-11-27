@@ -27,6 +27,8 @@ export interface SettingsCtx {
   /** The selected game's kiln.json schema and values, when read. */
   schema?: SchemaSnapshot | null;
   values?: unknown;
+  /** The festive season's switch is offered (shell/season.ts festiveOffered: during the season). */
+  festive?: boolean;
 }
 
 export interface GroupDef {
@@ -70,7 +72,7 @@ export const groupsOf = (s: SectionId, c: SettingsCtx) => GROUPS.filter((g) => g
 /** Other words for an anchor (older names, the data folder's row). */
 const ALIASES: Record<string, string> = {
   "data-folder": "library", data: "library", kept: "library", "kiln-json": "kilnjson", kilnJson: "kilnjson",
-  appearance: "look", fire: "look", launcher: "adding", sandbox: "protection", render: "drawing", gameart: "art",
+  appearance: "look", fire: "look", festive: "look", launcher: "adding", sandbox: "protection", render: "drawing", gameart: "art",
   upscaler: "upscaler", dlss: "graphics", discord: "community", privacy: "sends", dev: "developer",
 };
 

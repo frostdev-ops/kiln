@@ -5,6 +5,7 @@
 use crate::events::{AdminEventPayload, ADMIN};
 use kiln_manage::admin::client::{AdminClient, AdminSession, Transport};
 use kiln_manage::admin::hub::AdminHub;
+use kiln_manage::admin::web_panel::settings::{self as web_panel_settings, WebPanelSettings};
 use kiln_manage::admin::web_panel::{Route, WebPanelInfo, WebPanels};
 use crate::state::blocking;
 use kiln_manage::Error;
@@ -55,6 +56,28 @@ pub async fn admin_close_web_panel(server_id: String) -> Result<bool, Error> {
 #[tauri::command]
 pub async fn admin_web_panels() -> Result<Vec<WebPanelInfo>, Error> {
     blocking(move || Ok(web_panels()?.lock().unwrap_or_else(|p| p.into_inner()).list())).await
+}
+
+/// (0.2.0-dev.31.20) The data folder's web-panel-settings.json, beside web-panel-origins.json (where [`WebPanels`]
+/// reads it). The commands below don't take the web panels' lock, so a change never waits for an open's check.
+fn web_panel_settings_file() -> Result<std::path::PathBuf, Error> {
+    Ok(crate::state::dirs()?.root.join(web_panel_settings::FILE))
+}
+
+/// (0.2.0-dev.31.20) The server's web panel settings: "Always open the web panel on this computer" (`alwaysLocal`).
+#[tauri::command]
+pub async fn admin_web_panel_settings(server_id: String) -> Result<WebPanelSettings, Error> {
+    blocking(move || Ok(web_panel_settings::get(&web_panel_settings_file()?, &server_id))).await
+}
+
+/// (0.2.0-dev.31.20) Saves the server's web panel settings (a known server's only); what they are now.
+#[tauri::command]
+pub async fn admin_web_panel_settings_set(server_id: String, settings: WebPanelSettings) -> Result<WebPanelSettings, Error> {
+    blocking(move || {
+        kiln_manage::server::instance::get(&server_id)?;
+        web_panel_settings::set(&web_panel_settings_file()?, &server_id, settings)
+    })
+    .await
 }
 
 /// The process-wide hub; the first caller's AppHandle receives the events.

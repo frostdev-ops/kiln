@@ -1,6 +1,65 @@
 {
   "released": [
     {
+      "version": "0.2.0-dev.31.21",
+      "date": "2026-11-27",
+      "title": "Building tools, spell lists and ShroudForge in multiplayer",
+      "summary": "Mods' building tools keep their own brushes and add terrain from the second start, a mod's spell or arrow list stays put while you scroll, and a ShroudForge mod that changes blocks tells you why it does nothing in a game you joined.",
+      "patch": true,
+      "features": [
+        {
+          "title": "Building tools keep their brushes",
+          "text": "Picking another brush size for a mod's building tool keeps the tool and its own brushes instead of turning it into the vanilla Overgrowth Tool, and each brush's preview shows the vanilla size nearest its own (thanks SonjaNemitz).",
+          "area": "content",
+          "kind": "fix"
+        },
+        {
+          "title": "Building tools that add terrain",
+          "text": "A building tool that adds terrain works from the second start of the game, also with the tool pool an earlier version kept (thanks SonjaNemitz).",
+          "area": "content",
+          "kind": "fix"
+        },
+        {
+          "title": "Spell lists stay put while you scroll",
+          "text": "A mod's spell or arrow list in place of the game's keeps its spells and arrows on screen while the game builds the list again: no flash of the game's own list after a switch, and on a dedicated server the cursor no longer jumps back to the equipped spell (thanks Fuzen777).",
+          "area": "content",
+          "kind": "fix"
+        },
+        {
+          "title": "ShroudForge block edits in a joined game",
+          "text": "A ShroudForge mod that changes the world's blocks in a game you joined now says why it does nothing there: one message over the game and a kiln.log line naming the mod. Only the server or the player hosting can change blocks, so run such a mod there (thanks netjunk).",
+          "area": "compat",
+          "kind": "improved"
+        }
+      ]
+    },
+    {
+      "version": "0.2.0-dev.31.20",
+      "date": "2026-11-26",
+      "title": "The festive season",
+      "summary": "From the Monday after Thanksgiving through 7 January the launcher's fire is dressed for the winter holidays, and a server's web panel can always open on this computer.",
+      "patch": true,
+      "features": [
+        {
+          "title": "Warm wishes for the season",
+          "text": "From the Monday after Thanksgiving weekend through 7 January, the launcher's fire wears a festive mantel of lamps, candles and lanterns from many winter traditions, with snow falling outside the arch. You can switch it off in Settings.",
+          "area": "launcher"
+        },
+        {
+          "title": "Always open the web panel on this computer",
+          "text": "A switch on a server's Overview keeps Open web panel on this computer, never at the panel's hosted address.",
+          "area": "servers",
+          "kind": "improved"
+        },
+        {
+          "title": "The route panel on a map without map art",
+          "text": "On a server's Map with no map art, the route panel sits below the notice, so it can be closed again.",
+          "area": "servers",
+          "kind": "fix"
+        }
+      ]
+    },
+    {
       "version": "0.2.0-dev.31.19",
       "date": "2026-11-26",
       "title": "Thanksgiving turkey, smoother registry, ShroudForge news",

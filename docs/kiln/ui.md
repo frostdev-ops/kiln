@@ -675,6 +675,16 @@ Ui.AmmoList.Provide(AmmoListKind.Arrow | AmmoListKind.Spell, ctx => MyRows(ctx.K
   rows the game refuses (an item that is not an arrow, or not a spell, for that list) drop that provider's rows only.
   Both go to the mod's log.
 - **Selection.** The game keeps its selection on the same item when the rows change.
+- **A new build of the list in `Replace`.** When the game builds the list again (a pick swapped a stack, a shot used
+  one), Kiln asks the providers at the next UI frame. Until it publishes their rows for the new build, a `Replace` list
+  keeps showing the rows it showed last, with the selection on them, as if they were made for the new build, rather
+  than the game's own rows and the game's selection (the equipped spell); picks of them are decided against the game's
+  new rows, as below. Before 0.2.0-dev.31.21 the game's rows flashed for a frame or two in a hosted world, and on a
+  dedicated server, where a swap comes back a round trip later, the cursor went back to the equipped spell (GitHub issue
+  151, thanks Fuzen777). The rows stay up for at most a second; then the game's own rows show until the next
+  publication, and `kiln.log` says so once (`ui.ammo: the spell list shows the game's own rows: ...`). Nothing stays
+  over another weapon, player, client session or world, or once the list is cleared. An `Append` list shows the game's
+  own rows in that frame, as before (its rows go in around the game's).
 - **Picks.** A row whose item the game lists itself with stock (in `Replace` too) or the player carries is the game's
   own: it equips it as always. The row the game keeps at count 0 for a stack the player used up is not stock: since
   0.2.0-dev.30.7 a mod row of that item raises `Picked` unless the player carries it, in either mode (GitHub issue 131,
@@ -682,7 +692,7 @@ Ui.AmmoList.Provide(AmmoListKind.Arrow | AmmoListKind.Spell, ctx => MyRows(ctx.K
   backpack before the game builds the list again (your server half just swapped it into storage), a pick of its row
   raises `Picked` too, rather than going to the game, which would find no stack and empty the slot. The same holds in
   the frame or two between the game's new build and Kiln's next publication of your rows, when the game's own rows
-  show (since 0.2.0-dev.31.10, GitHub issue 145, thanks Fuzen777). In `Append` (also
+  show (`Append`) or your last rows stay up (`Replace`) (since 0.2.0-dev.31.10, GitHub issue 145, thanks Fuzen777). In `Append` (also
   `PlayerStorage.Client.ProvideAmmo`'s default) this holds since 0.2.0-dev.31.12 for a row of yours that the game's
   own row of the same item hid while the backpack held its stack: list the item while it is in the backpack too
   (a spellbook's equipped spell), and its pick after your swap reaches you. A row you list only once your own data
