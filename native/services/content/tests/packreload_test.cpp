@@ -363,6 +363,9 @@ bool lower_section(const json&, const std::string&, const std::string&, const st
 }
 Schema generated_schema() { return {}; }
 void link_elements(Schema*) {}
+namespace stage {
+void hooks_tick() {}  // content.cpp pre: other mods' hooks next to a limits value (dev.32); no limits hooks in this test
+}  // namespace stage
 }  // namespace registry
 namespace ml {
 void probe_owners() {}
