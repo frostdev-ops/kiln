@@ -66,6 +66,7 @@ public sealed class TablesTests
     [InlineData("P:Kiln.Crosshair.Available", "kiln.client.crosshair")]    // => CrosshairNative.Members != null && Capabilities.Is(...)
     [InlineData("P:Kiln.Crosshair.Available", "client.crosshair")]
     [InlineData("P:Kiln.PadInput.Available", "kiln.ui.input")]             // UiNative.Input == null: false
+    [InlineData("P:Kiln.Items.CheckedMovesAvailable", "items.move")]       // => Can(Caps.Move) && ... (0.2.0-dev.32)
     public void Capability_guards(string property, string row) =>
         Assert.Contains(KilnApis.CapabilityGuards, g => g.StartsWith(property + "=", StringComparison.Ordinal) && g.Substring(property.Length + 1).Split(',').Contains(row));
 

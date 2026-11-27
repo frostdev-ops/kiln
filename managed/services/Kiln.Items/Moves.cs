@@ -43,17 +43,20 @@ public static unsafe partial class Items
     /// The session part is read live; <c>items.moves</c> carries it in the registry, up to a second late.</summary>
     public static bool MovesAvailable => Can(Caps.Move) && Status3()?.Moves == true;
 
+    // `Can(row) && ...`: the shape KILN121's guard table recognises (tools/ApiScan/CapabilityGuards.cs), so a mod that
+    // asks this before Items.MoveChecked has asked for items.move
     /// <summary>True when the server simulation can validate source and destination witnesses inside a move.</summary>
-    public static bool CheckedMovesAvailable
+    public static bool CheckedMovesAvailable => Can(Caps.Move) && CheckedMovesReported();
+
+    // kiln.items' own answer (status2): its moves run, and it sets KILN_ITEMS_HAS_CHECKED_MOVE (an older runtime leaves
+    // status2's reserved word 0, and its move refuses KILN_ITEMS_MOVE_CHECKED)
+    private static bool CheckedMovesReported()
     {
-        get
-        {
-            var t = V3;
-            if (t == null || !Can(Caps.Move)) return false;
-            ItemsNative.Status2 status = default;
-            status.Size = (uint)sizeof(ItemsNative.Status2);
-            return t->GetStatus2(&status) == ItemsNative.Ok && status.Moves != 0 && (status.Reserved & 1) != 0;
-        }
+        var t = V3;
+        if (t == null) return false;
+        ItemsNative.Status2 status = default;
+        status.Size = (uint)sizeof(ItemsNative.Status2);
+        return t->GetStatus2(&status) == ItemsNative.Ok && status.Moves != 0 && (status.Reserved & ItemsNative.HasCheckedMove) != 0;
     }
 
     // Why MoveChecked cannot run now, in words (its status is Unavailable either way).
@@ -211,7 +214,7 @@ public static unsafe partial class Items
             destination is { Slot.IsNone: true })
             return MoveInvalid(MoveKind.Stack, from, to, "invalid source, destination or amount");
         var r = NewMove(MoveKind.Stack, from, to, MoveOptions.None);
-        r.Flags |= 0x10; // KILN_ITEMS_MOVE_CHECKED: older native services refuse this flag.
+        r.Flags |= ItemsNative.MoveChecked;  // an older kiln.items refuses it (CheckedMovesAvailable is false there)
         r.Slot = expected.Slot.Value;
         r.ToSlot = destination?.Slot.Value ?? 0;
         r.Count = (uint)count;
