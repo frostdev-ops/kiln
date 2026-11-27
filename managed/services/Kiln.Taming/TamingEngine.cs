@@ -208,6 +208,9 @@ internal sealed class TamingEngine
     /// <summary>Any thread: the published copy.</summary>
     internal IReadOnlyList<TamingDefinition> Definitions => _published.Values.ToArray();
 
+    /// <summary>Every definition with the mod it is registered as (tick thread): the test kit carries them over to its engine.</summary>
+    internal IReadOnlyList<(TamingDefinition Def, string Mod)> Registered => _defs.Values.ToArray();
+
     private void Publish() => _published = _defs.ToDictionary(kv => kv.Key, kv => kv.Value.Def, StringComparer.Ordinal);
 
     // the definition as Kiln keeps it: its lists copied into read-only lists of Kiln's, so what any thread reads

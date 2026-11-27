@@ -83,4 +83,28 @@ public sealed class PetsFakeTests
         Assert.True(canceled.Ok, canceled.Reason);
         Assert.Equal(4, kiln.Taming.Count(who, bait));   // escrow: the paid step came back
     }
+
+    // ---- review of API-SHAPE-2: the kit's isolation and cleanup ----
+
+    /// <summary>A mod that declares its taming when it loads, as the docs say a mod does.</summary>
+    private sealed class EarlyTamer : Mod
+    {
+        public override void OnLoad() =>
+            _ = Kiln.Taming.Define(new TamingDefinition { Id = "kit-tame:early-wolf", Creatures = ["game:enemy_wildbeast_wolf"], Steps = [new WeakenStep(1)] });
+    }
+
+    [Fact]
+    public void A_taming_a_mod_defined_when_it_loaded_begins_once_the_test_uses_kiln_Taming_and_goes_with_the_mod()
+    {
+        using var kiln = new KilnHarness();
+        var mod = kiln.Load<EarlyTamer>(new ModManifest("kit-tame"));
+        kiln.Step(2);   // the mod's OnLoad defined it, before the test first reached for kiln.Taming
+        var who = kiln.Taming.Join(HarnessPets.Character(7));
+        var wolf = kiln.Taming.Place("game:enemy_wildbeast_wolf", new WorldPosition(1, 0, 0));
+        Assert.NotNull(Kiln.Taming.Definition("kit-tame:early-wolf"));
+        var begun = Settle(kiln, () => Kiln.Taming.Begin(who, wolf, "kit-tame:early-wolf", TamingRequest.New()));
+        Assert.True(begun.Ok, begun.Reason);
+        kiln.Unload(mod);
+        Assert.Null(Kiln.Taming.Definition("kit-tame:early-wolf"));   // still the mod's: its unload takes it
+    }
 }

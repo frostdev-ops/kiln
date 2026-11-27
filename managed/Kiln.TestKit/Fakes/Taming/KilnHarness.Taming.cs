@@ -33,7 +33,14 @@ public sealed class HarnessTaming
             Binder = new PetsTamingBinder { CharacterOf = p => p.CharacterId == Guid.Empty ? null : new CharacterKey(p.SteamId, p.CharacterId) },
             ResolveCreature = id => PetCreatures.Resolve(id, out _)?.Template,
         };
-        kiln.Run(() => { TamingRuntime.Engine = engine; });
+        kiln.Run(() =>
+        {
+            // a mod's tamings defined before its test first used kiln.Taming (its OnLoad: a definition needs no world) stay
+            // its own on the kit's engine: they begin here, and they go when the mod unloads
+            if (TamingRuntime.Current is { } before)
+                foreach (var (d, mod) in before.Registered) engine.Define(d, mod);
+            TamingRuntime.Engine = engine;
+        });
     }
 
     /// <summary>The player is in game at <paramref name="at"/> (a character joined to <see cref="HarnessPets"/> too is the same

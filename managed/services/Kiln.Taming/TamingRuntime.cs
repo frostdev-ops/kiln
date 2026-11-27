@@ -107,6 +107,9 @@ internal static class TamingRuntime
         set => _engine = value;
     }
 
+    /// <summary>The engine if one was made (never makes one).</summary>
+    internal static TamingEngine? Current => Volatile.Read(ref _engine);
+
     /// <summary>A mod's definition; its definitions go when it unloads (their running attempts fail DefinitionGone).</summary>
     internal static TamingDefinitionResult Define(TamingDefinition d, string mod)
     {
