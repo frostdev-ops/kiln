@@ -81,8 +81,23 @@ void placed_in_memory() {
     check(w[1].addr == at(8) && w[1].writer.empty(), "an unnamed write keeps no name");
     check(w[2].addr == at(140) && w[2].writer == "shroudforge:b", "another resource's base");
     KilnLoadedWriteRecord full = record(KA, 0, 4, 0, 0, "", 9);
-    std::memset(full.writer, 'w', sizeof full.writer);  // not NUL-terminated: cut at the array
-    check(place_runtime_writes({full}, resident)[0].writer.size() == sizeof full.writer, "a writer without its NUL stays inside its array");
+    std::memset(full.writer, 'w', sizeof full.writer);  // not NUL-terminated: cut at the array (and no package's name: none)
+    check(place_runtime_writes({full}, resident)[0].writer.empty(), "a writer without its NUL stays inside its array, and names nobody");
+}
+
+// review-j3: kiln.assets keeps what a caller says its writer is ("not a security claim"): the registry names only what
+// kiln-sfi names, a ShroudForge package ("shroudforge:" and a plain id). Any other text (another caller's, a kind Kiln does
+// not show, a sentence) names nobody, so the field keeps its best-effort drift row rather than a wrong name.
+void only_package_names() {
+    const auto resident = [&](const KilnAssetKey&, uintptr_t* a, size_t* len) { return *a = at(0), *len = 64, true; };
+    std::vector<KilnLoadedWriteRecord> records = {record(KA, 0, 4, 1, 2, "shroudforge:Better_Stacks-2.0", 1), record(KA, 4, 4, 1, 2, "Kiln", 2),
+                                                  record(KA, 8, 4, 1, 2, "shroudforge:", 3), record(KA, 12, 4, 1, 2, "shroudforge:two words", 4),
+                                                  record(KA, 16, 4, 1, 2, "eml:more-recipes", 5), record(KA, 20, 4, 1, 2, "shroudforge:a/b", 6),
+                                                  record(KA, 24, 4, 1, 2, "kiln-eml:unattributed", 7)};
+    const auto w = place_runtime_writes(records, resident);
+    check(w.size() == 7 && w[0].writer == "shroudforge:Better_Stacks-2.0", "a package's name is kept");
+    for (size_t i = 1; i < w.size(); ++i) check(w[i].writer.empty(), "not a ShroudForge package's name: names nobody (" + std::to_string(i) + ")");
+    check(RuntimeWrites({w[1]}).explain({{at(4), 4}}, {u32(2)}, is({1})).empty(), "and the field is not named from it");
 }
 
 // A scalar slot: Kiln wrote 40, a package wrote 777 over it: named. Not named when the record names nobody, when something
@@ -147,6 +162,7 @@ int main() {
         {"one_scalar", one_scalar},
         {"two_slots_two_writers", two_slots_two_writers},
         {"widths_and_overlaps", widths_and_overlaps},
+        {"only_package_names", only_package_names},
     };
     int failed = 0;
     for (const auto& [name, fn] : tests) {

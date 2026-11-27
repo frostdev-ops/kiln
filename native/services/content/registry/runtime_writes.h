@@ -37,9 +37,20 @@ struct RuntimeWrite {
     uint64_t id = 0;                        // kiln.assets' write id (write order)
 };
 
+// The writer names the registry shows: what kiln-sfi names, a ShroudForge package ("shroudforge:" and a plain package id:
+// A-Z a-z 0-9 . _ -, at most KILN_LOADED_WRITE_NAME_MAX bytes in all). kiln.assets keeps whatever a caller says its writer is
+// (not a security claim); any other text names nobody here, so its field keeps the best-effort drift row (review-j3).
+inline bool runtime_writer_ok(const std::string& w) {
+    constexpr size_t prefix = sizeof("shroudforge:") - 1;
+    if (w.size() <= prefix || w.size() > KILN_LOADED_WRITE_NAME_MAX || w.compare(0, prefix, "shroudforge:") != 0) return false;
+    return std::all_of(w.begin() + prefix, w.end(), [](char c) {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-';
+    });
+}
+
 // kiln.assets' records placed in game memory: resident(key, &at, &len) says where the resource's bytes live now (kiln.assets
 // resource_data), asked once per key. A record whose scalar lies outside them, or that is not a record of 1, 2, 4 or 8 bytes,
-// is left out.
+// is left out; a writer that is no package's name (runtime_writer_ok) is kept as none.
 inline std::vector<RuntimeWrite> place_runtime_writes(const std::vector<KilnLoadedWriteRecord>& records,
                                                       const std::function<bool(const KilnAssetKey&, uintptr_t*, size_t*)>& resident) {
     std::vector<RuntimeWrite> out;
@@ -63,6 +74,7 @@ inline std::vector<RuntimeWrite> place_runtime_writes(const std::vector<KilnLoad
         std::memcpy(w.before, r.before, 8);
         std::memcpy(w.after, r.after, 8);
         w.writer.assign(r.writer, strnlen(r.writer, sizeof r.writer));
+        if (!runtime_writer_ok(w.writer)) w.writer.clear();  // not a package's name: a write that names nobody
         w.id = r.id;
         out.push_back(std::move(w));
     }
