@@ -3236,8 +3236,9 @@ KilnResult registry_live_install_turn(uint64_t ticket, uint32_t flags, std::vect
     ++g.epoch, ++g.bind_epoch;
     // the registry's layers: off the slots it leaves, on where the plan bound them (put_all's), then one flush
     const KilnOwner owner = registry_owner();
-    store_drop_many(owner, p->drop);
-    store_put_prepared_many(owner, p->layers);
+    std::vector<std::shared_ptr<const LayerEval>> released;  // the replaced layers' evaluations: freed off the tick with the rest
+    store_drop_many(owner, p->drop, &released);
+    store_put_prepared_many(owner, p->layers, &released);
     g.ordinal = static_cast<uint32_t>(p->layers.size());
     const size_t skipped_before = store_skipped_count();
     std::vector<uintptr_t> missed;
@@ -3256,7 +3257,7 @@ KilnResult registry_live_install_turn(uint64_t ticket, uint32_t flags, std::vect
         LOGI("registry (live): a prepared turn did not write whole (%zu writes failed, %zu slots another writer's): it lands the classic way",
              missed.size(), foreign.size());
         land_classic(*p, replies, handles);
-        free_later(std::move(p));
+        free_later(std::make_pair(std::move(p), std::move(released)));
         return KILN_OK;
     }
     for (size_t i = 0; i < p->calls.size(); ++i) {
@@ -3279,7 +3280,7 @@ KilnResult registry_live_install_turn(uint64_t ticket, uint32_t flags, std::vect
     }
     // registry.json: built off the world thread (registry_live_build_report), or by the tick's publish after kReportOwedMs
     g.report_owed = true, g.report_owed_at = g_registry_now_ms();
-    free_later(std::make_pair(std::move(p), std::move(was)));
+    free_later(std::make_tuple(std::move(p), std::move(was), std::move(released)));
     return KILN_OK;
 }
 

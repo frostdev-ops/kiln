@@ -24,6 +24,14 @@ std::vector<uintptr_t> g_dirty;  // the slots a flush writes, so that it costs w
 uint64_t g_gen = 0;              // +1 per change of any slot (store_generation)
 uint64_t g_below_gen = 0;        // +1 per change of what a registry layer is computed over (store_below_generation)
 
+// The slot at addr or the first after it, from `from` (a slot at or before addr): a few steps forward when addresses come in
+// order and close together (a turn's slots: a table's fields side by side), else the map's own search.
+std::map<uintptr_t, Slot>::iterator walk_to(std::map<uintptr_t, Slot>::iterator from, uintptr_t addr) {
+    for (int steps = 0; from != g_slots.end() && steps < 8; ++steps, ++from)
+        if (from->first >= addr) return from;
+    return g_slots.lower_bound(addr);
+}
+
 void mark(uintptr_t addr, Slot& s) {
     ++g_gen;
     if (s.dirty) return;
@@ -374,7 +382,7 @@ uint8_t store_slot_size(uintptr_t addr) {
     return it == g_slots.end() ? 0 : it->second.n;
 }
 
-size_t store_put_prepared_many(KilnOwner owner, std::vector<PreparedLayer>& layers) {
+size_t store_put_prepared_many(KilnOwner owner, std::vector<PreparedLayer>& layers, std::vector<std::shared_ptr<const LayerEval>>* released) {
     std::lock_guard lock(g_mu);
     std::vector<size_t> order(layers.size());
     for (size_t i = 0; i < order.size(); ++i) order[i] = i;
@@ -382,10 +390,12 @@ size_t store_put_prepared_many(KilnOwner owner, std::vector<PreparedLayer>& laye
     // put replaces the earlier, as two store_put_prepared calls would
     std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) { return layers[a].addr < layers[b].addr; });
     size_t done = 0;
+    auto at = g_slots.begin();
+    std::map<std::pair<uint32_t, uint32_t>, std::set<uintptr_t>>::iterator evals = g_evals.end();
     for (size_t k : order) {
         PreparedLayer& p = layers[k];
         if (p.n == 0 || p.n > kSlotBytes || !p.eval) continue;
-        auto it = g_slots.lower_bound(p.addr);
+        auto it = walk_to(at, p.addr);
         if (it == g_slots.end() || it->first != p.addr) {
             Slot fresh;
             fresh.kind = p.kind, fresh.id = p.id, fresh.field = p.field, fresh.sub = p.sub, fresh.n = p.n;
@@ -394,8 +404,10 @@ size_t store_put_prepared_many(KilnOwner owner, std::vector<PreparedLayer>& laye
             it = g_slots.emplace_hint(it, p.addr, std::move(fresh));
             pristine_put(p.addr, it->second);
         } else if (it->second.n != p.n) {
+            at = it;
             continue;
         }
+        at = it;
         Slot& s = it->second;
         for (auto& [tid, txn] : g_txns) {
             if (txn.owner != owner) continue;
@@ -410,15 +422,17 @@ size_t store_put_prepared_many(KilnOwner owner, std::vector<PreparedLayer>& laye
             l = s.layers.end() - 1;
         }
         l->seq = p.seq;
-        l->source = std::move(p.source);
+        std::swap(l->source, p.source);  // the layer's old source goes back with the caller's layers
         l->mod = p.mod;
+        if (released && l->eval) released->push_back(std::move(l->eval));  // its last holder may be here: freed by the caller
         l->eval = std::move(p.eval);
         if (s.layers.size() > 1) std::sort(s.layers.begin(), s.layers.end(), [](const Layer& a, const Layer& b) { return a.seq < b.seq; });
         if (is_registry_seq(p.seq)) s.registry = true;
         else s.old_changed = true, ++g_below_gen;
         if (p.gate) s.gate = true;
         mark(p.addr, s);
-        g_evals[{s.kind, s.id}].insert(p.addr);
+        if (evals == g_evals.end() || evals->first != std::make_pair(s.kind, s.id)) evals = g_evals.try_emplace({s.kind, s.id}).first;
+        evals->second.insert(evals->second.end(), p.addr);  // in address order: at the set's end
         ++done;
     }
     return done;
@@ -549,24 +563,40 @@ bool store_drop(KilnOwner owner, uintptr_t addr) {
     return true;
 }
 
-uint32_t store_drop_many(KilnOwner owner, const std::vector<uintptr_t>& addrs) {
+uint32_t store_drop_many(KilnOwner owner, const std::vector<uintptr_t>& addrs, std::vector<std::shared_ptr<const LayerEval>>* released) {
     std::lock_guard lock(g_mu);
     uint32_t n = 0;
+    std::vector<uintptr_t> sorted = addrs;
+    std::sort(sorted.begin(), sorted.end());
     std::set<std::pair<uint32_t, uint32_t>> entries;  // their evaluated slots flushed again once each, not once per dropped slot
-    for (uintptr_t addr : addrs) {
-        auto it = g_slots.find(addr);
-        if (it == g_slots.end()) continue;
+    auto at = g_slots.begin();
+    for (uintptr_t addr : sorted) {
+        auto it = walk_to(at, addr);
+        if (it == g_slots.end() || it->first != addr) { at = it == g_slots.end() ? g_slots.begin() : it; continue; }
+        at = it;
         Slot& s = it->second;
         const size_t before = s.layers.size();
-        for (const Layer& x : s.layers)
-            if (x.owner == owner && !is_registry_seq(x.seq)) s.old_changed = true, ++g_below_gen;
+        for (Layer& x : s.layers) {
+            if (x.owner != owner) continue;
+            if (!is_registry_seq(x.seq)) s.old_changed = true, ++g_below_gen;
+            if (released && x.eval) released->push_back(std::move(x.eval));
+        }
         std::erase_if(s.layers, [&](const Layer& x) { return x.owner == owner; });
         if (s.layers.size() == before) continue;
         mark(addr, s);
         entries.insert({s.kind, s.id});
         ++n;
     }
-    for (const auto& [kind, id] : entries) mark_entry_evals(kind, id, 0);
+    // an entry's other evaluated slots (a formula reads its entry's fields): marked unless already (most were dropped here too)
+    for (const auto& key : entries) {
+        const auto ev = g_evals.find(key);
+        if (ev == g_evals.end()) continue;
+        for (uintptr_t a : ev->second) {
+            if (std::binary_search(sorted.begin(), sorted.end(), a)) continue;
+            const auto sl = g_slots.find(a);
+            if (sl != g_slots.end()) mark(a, sl->second);
+        }
+    }
     return n;
 }
 
