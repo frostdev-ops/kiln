@@ -47,6 +47,13 @@ GAMEDATA_SECTIONS = {"templates": "keen::ecs::TemplateResource", "arsenals": "ke
                      "sequences": "keen::actor::ActorSubSequenceResource", "buffs": "keen::BuffType", "perks": "keen::Perk",
                      "skills": "keen::SkillTreeNode", "itemdata": "keen::ItemInfo"}
 CONTENT_SECTIONS = ("items", "recipes", "loot", "drops")
+# The old kiln.gamedata sections whose entries are the elements of one collection's array (gamedata_res.cpp build_collection;
+# the tests check the two agree): a registry over that array covers the section's paths, which start at the element.
+SECTION_COLLECTIONS = {"arsenals": ("keen::enemy::EnemyArsenalRegistryResource", "arsenals"),
+                       "buffs": ("keen::BuffTypeCollectionResource", "buffs"), "skills": ("keen::SkillTreeResource", "nodes")}
+# ... and "sequences", one entry per sub-sequence of an actor sequence: a registry row on subSequences[k] covers its paths
+# (not one to one: the row names one sub-sequence, a sequences entry may be another)
+SECTION_SUBSEQUENCES = ("sequences", "keen::actor::ActorSequenceResource", "subSequences")
 # conversions whose Kiln value is the game's value (a data pack's number or bool moves to the registry unchanged)
 HINT_EXACT = ("int", "float", "bool", "time")
 
@@ -1355,6 +1362,12 @@ def section_drift(root):
     return out
 
 
+def hint_path(path):
+    """A row's member path as the analyzers match a mod's: lower case, a type in brackets without its namespaces
+    ("events[keen::actor::SpawnImpact#0].time" -> "events[spawnimpact#0].time", as data packs write it)."""
+    return re.sub(r"\[(?:[A-Za-z0-9_]+::)+", "[", path).lower()
+
+
 def render_hints(model, root):
     """RegistryHints.g.cs: every old data path a registry field covers, for KILN124 and its fix, and every game function a
     hooks registry's field covers, for KILN125. Made from the schemas and regmap/common, so a new registry is in it once its
@@ -1388,11 +1401,19 @@ def render_hints(model, root):
                 # one configuration of the list, as a data pack names it ("impactValues.ManaCost"): that field's own member
                 ranked += [(f"{p}.{row['config']}", 1) for p in ps]
             for p, rank in ranked:
-                paths.append((base, p.lower(), f"{name}.{field}", exact, rank))
+                q = hint_path(p)
+                paths.append((base, q, f"{name}.{field}", exact, rank))
                 if entries.get("kind") == "array":
                     # a resource patch on the registry's resource names the element through the array
                     rtype, arr = base.split("/", 1)
-                    paths.append((rtype, f"{arr}.{p}".lower(), f"{name}.{field}", exact, rank))
+                    paths.append((rtype, f"{arr}.{q}", f"{name}.{field}", exact, rank))
+                    # an old section that lists that array's elements names the member from the element
+                    for section, coll in SECTION_COLLECTIONS.items():
+                        if coll == (rtype, entries.get("array")):
+                            paths.append((GAMEDATA_SECTIONS[section], q, f"{name}.{field}", exact, rank))
+                sub = re.match(r"%s\[\d+\]\.(.+)$" % re.escape(SECTION_SUBSEQUENCES[2].lower()), q)
+                if base == SECTION_SUBSEQUENCES[1] and sub:
+                    paths.append((GAMEDATA_SECTIONS[SECTION_SUBSEQUENCES[0]], sub.group(1), f"{name}.{field}", False, rank))
     # a member several fields name is the field(s) of its best rank: itemLevelRange.minLevel is items.levels.min, not the armor
     # or power formula that reads it (views.cpp cover() ranks the same way)
     best = {}

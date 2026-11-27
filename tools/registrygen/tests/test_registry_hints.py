@@ -47,6 +47,28 @@ LIMITS_MAP = {
                            "evidence": "sigdb limits/AltarLimit (server 0x93dea0): min(altarsPerFlameLevel[level], 16)"}}}
 
 
+# dev.32's registries over the elements of a collection (as R2b's buffs and abilities do): the old kiln.gamedata sections
+# "buffs" (keen::BuffType) and "sequences" (keen::actor::ActorSubSequenceResource) name the same members from the element
+BUFFS = {
+    "registrySchema": 1, "registry": "buffs", "typeName": "Buff", "version": "0.1.0", "stability": "experimental",
+    "experimentalId": "KILNX031", "doc": "Fixture buffs.", "ids": {"game": "game:<stable name>", "mod": "<mod id>:<name>", "rule": "Ids."},
+    "fields": {"duration": {"type": "float", "min": 0, "max": 3600, "applies": "now", "ops": "number"}},
+    "entry": {"add": False, "remove": False}, "raw": "refused"}
+BUFFS_MAP = {
+    "regmap": 1, "registry": "buffs",
+    "entries": {"kind": "array", "resourceType": "keen::BuffTypeCollectionResource", "array": "buffs", "id": "buffTypeId", "unnamed": "buff_%08x"},
+    "rows": {"duration": {"paths": ["duration"], "conv": "float", "read": "now", "backend": "live"}}}
+ABILITIES = {
+    "registrySchema": 1, "registry": "abilities", "typeName": "Ability", "version": "0.1.0", "stability": "experimental",
+    "experimentalId": "KILNX031", "doc": "Fixture abilities.", "ids": {"game": "game:<stable name>", "mod": "<mod id>:<name>", "rule": "Ids."},
+    "fields": {"timing": {"type": "struct", "applies": "now", "fields": {"hit": {"type": "float", "min": 0, "max": 60, "ops": "number"}}}},
+    "entry": {"add": False, "remove": False}, "raw": "refused"}
+ABILITIES_MAP = {
+    "regmap": 1, "registry": "abilities",
+    "entries": {"kind": "resource", "resourceType": "keen::actor::ActorSequenceResource", "name": "subSequences[0].name", "unnamed": "ability_%.8s"},
+    "rows": {"timing.hit": {"paths": ["subSequences[0].events[keen::actor::SpawnImpact#0].time"], "conv": "eventTime", "read": "now", "backend": "live"}}}
+
+
 def tree_with(*extra):
     """A copy of the repository's schemas and regmap/common, plus fixture registries."""
     import tempfile
@@ -126,6 +148,20 @@ class HintsTest(unittest.TestCase):
         finally:
             shutil.rmtree(root)
 
+    def test_a_registry_over_a_collection_covers_the_old_section_of_its_elements(self):
+        # an old section that lists a collection's elements (buffs, skills, arsenals) or a sequence's sub-sequences starts at the
+        # element; a registry over the collection's array, or over the first sub-sequence, covers it there too, with the event
+        # type's namespace left out as a data pack writes it ("events[SpawnImpact#0].time")
+        root = tree_with((BUFFS, BUFFS_MAP), (ABILITIES, ABILITIES_MAP))
+        try:
+            model = rg.load(root)
+            self.assertEqual([], model.errors)
+            paths = rows(rg.render_hints(model, root), "Paths")
+            self.assertIn(("keen::BuffType", "duration", "buffs.duration", True), paths)
+            self.assertIn(("keen::actor::ActorSubSequenceResource", "events[spawnimpact#0].time", "abilities.timing.hit", False), paths)
+        finally:
+            shutil.rmtree(root)
+
     def test_gamedata_sections_follow_the_native_table(self):
         # the section -> root type table must name what gamedata_res.cpp builds each section from
         src = (REPO / "native" / "services" / "content" / "gamedata_res.cpp").read_text(encoding="utf-8")
@@ -134,6 +170,9 @@ class HintsTest(unittest.TestCase):
                 continue
             self.assertRegex(src, r'"%s",\s*"%s"' % (re.escape(section), re.escape(root)))
         self.assertEqual([], rg.section_drift(REPO))
+        # and the collections those sections list come from
+        for section, (rtype, array) in rg.SECTION_COLLECTIONS.items():
+            self.assertRegex(src, r'KILN_GD_%s\];[^}]*?build_collection\(r, "%s", "%s"' % (section.upper(), re.escape(rtype), re.escape(array)))
 
     def test_the_committed_table_is_current(self):
         model = rg.load(REPO)
