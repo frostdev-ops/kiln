@@ -338,7 +338,8 @@ internal static class UiCompile
             case "int" or "float":
                 if (v is not double d || !double.IsFinite(d)) throw Fail(ctx, path, $"{b.Name} is a number: give one");
                 if (b.EntryType == "int" && d != Math.Floor(d)) throw Fail(ctx, path, $"{b.Name} takes whole numbers: {d.ToString(CultureInfo.InvariantCulture)} has a fraction");
-                if ((b.Min is { } lo && d < lo) || (b.Max is { } hi && d > hi)) throw Fail(ctx, path, $"{d.ToString(CultureInfo.InvariantCulture)} is outside {b.Name}'s range {b.Min?.ToString(CultureInfo.InvariantCulture) ?? "-"}..{b.Max?.ToString(CultureInfo.InvariantCulture) ?? "-"}");
+                // a soft side of the entry's range (kiln#155) bounds nothing: the config takes a value past it
+                if ((b.HardMin is { } lo && d < lo) || (b.HardMax is { } hi && d > hi)) throw Fail(ctx, path, $"{d.ToString(CultureInfo.InvariantCulture)} is outside {b.Name}'s range {b.HardMin?.ToString(CultureInfo.InvariantCulture) ?? "-"}..{b.HardMax?.ToString(CultureInfo.InvariantCulture) ?? "-"}");
                 return d;
             case "enum":
                 if (v is not string s) throw Fail(ctx, path, $"{b.Name} takes one of: {string.Join(", ", b.Options ?? [])}");
@@ -864,8 +865,9 @@ internal static class UiCompile
         if (lo == null || hi == null)
             throw Fail(ctx, $"{path}.{(lo == null ? "min" : "max")}", $"{b.Name} has no {(lo == null ? "minimum" : "maximum")} of its own (a Range on the config field): give min and max here");
         if (!(double.IsFinite(lo.Value) && double.IsFinite(hi.Value)) || lo >= hi) throw Fail(ctx, $"{path}.min", $"{lo}..{hi} is not a range");
-        if ((b.Min is { } blo && lo < blo) || (b.Max is { } bhi && hi > bhi))
-            throw Fail(ctx, $"{path}.{(s.Min != null && lo < b.Min ? "min" : "max")}", $"{lo}..{hi} is wider than {b.Name}'s own range {b.Min?.ToString(CultureInfo.InvariantCulture) ?? "-"}..{b.Max?.ToString(CultureInfo.InvariantCulture) ?? "-"}");
+        // the slider stops at a soft side by default (s.Min ?? b.Min), and may run past it: the config takes such values
+        if ((b.HardMin is { } blo && lo < blo) || (b.HardMax is { } bhi && hi > bhi))
+            throw Fail(ctx, $"{path}.{(s.Min != null && lo < b.HardMin ? "min" : "max")}", $"{lo}..{hi} is wider than {b.Name}'s own range {b.HardMin?.ToString(CultureInfo.InvariantCulture) ?? "-"}..{b.HardMax?.ToString(CultureInfo.InvariantCulture) ?? "-"}");
         // ImGui's SliderBehavior requires half the integer/float range, even when the endpoints' span is small.
         if (plan.IsInt && (lo != Math.Floor(lo.Value) || hi != Math.Floor(hi.Value) || lo < int.MinValue / 2 || hi > int.MaxValue / 2)) throw Fail(ctx, $"{path}.min", $"{b.Name} takes whole numbers: {lo}..{hi} is not a whole-number range supported by the slider");
         if (!plan.IsInt && (lo < -float.MaxValue / 2 || hi > float.MaxValue / 2 || (float)lo >= (float)hi)) throw Fail(ctx, $"{path}.min", $"{lo}..{hi} is outside the slider's finite decimal range or has no distinct endpoints at its precision");

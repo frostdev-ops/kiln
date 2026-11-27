@@ -12,5 +12,7 @@ KilnResult KILN_CALL kiln_tools_presentation_status(KilnToolPresentationStatus* 
 // once per selector/brush invocation. Production publishes it from client Post and validates session/generation.
 using KilnToolHeldItemProvider=uint32_t(KILN_CALL*)();
 void kiln_tools_presentation_set_held_provider(KilnToolHeldItemProvider provider);
+// kiln.ui.ammo's pick trace (ammo_trace.h), on or off before install: tools.cpp reads its switch once at the start.
+void kiln_tools_presentation_set_ammo_trace(bool on);
 void kiln_tools_presentation_install(const KilnApi* api,KilnOwner parent);
 void kiln_tools_presentation_uninstall();

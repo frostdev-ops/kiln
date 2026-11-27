@@ -12,7 +12,11 @@ static unsigned backpack_reads,backpack_reads_999; // probe calls (all items, it
 static int backpack_fixture(uint32_t,uint32_t item){++backpack_reads;if(item==999)++backpack_reads_999;return backpack_answer;}
 static unsigned equip_calls,finalizer_calls;
 static void KILN_CALL equip_fixture(SelectorGroup*,void*,uint8_t,uint32_t,uint32_t){++equip_calls;}
-static void KILN_CALL finalizer_fixture(SelectorGroup* g,void*,void*,void*,void*,void*){++finalizer_calls;g[0].selected=0;g[0].has_selected=1;}
+static uint32_t finalizer_spell; // the spell the game's finalizer selects (its reconciliation's item), 0: it leaves the spells
+static void KILN_CALL finalizer_fixture(SelectorGroup* g,void*,void*,void*,void*,void*){
+    ++finalizer_calls;g[0].selected=0;g[0].has_selected=1;
+    for(uint64_t i=0;finalizer_spell&&i<g[1].count;++i)if(g[1].data[i].item==finalizer_spell){g[1].selected=i;g[1].has_selected=1;}
+}
 static std::vector<std::pair<int32_t,std::string>> log_lines;
 static void KILN_CALL capture_log(KilnOwner,int32_t level,KilnStr text){log_lines.emplace_back(level,std::string(text.ptr,text.len));}
 static bool game_lists_555; // the arrow group also lists 555, with this count (0: a stack used up, its row kept)
@@ -42,8 +46,23 @@ static void KILN_CALL ammo_selector_fixture(SelectorGroup* groups,void* access,u
     if(readonly_rows)groups[0].data=readonly_rows;
     if(nested_ammo){nested_ammo=false;selector(nested_groups,nullptr,0);}
 }
+// GitHub issue 151 (the flicker 31.21 left): client_cycle_inventory_stock's selection action 0x40cf00 as the game wrote
+// it: the game's reconciliation names the equipped stack (no pending pick of the game's), and when the group lists it the
+// action selects it and returns 4.
+struct ActionResult {uint8_t code;uint8_t pad[3];uint32_t zero,item;};
+static uint32_t equipped_item;
+static unsigned action_calls,draw_calls;
+static void* KILN_CALL action_fixture(void* out,SelectorGroup* g,uint8_t,void*,void*,void*,void*,void*) {
+    ++action_calls;auto* r=static_cast<ActionResult*>(out);*r={};
+    for(uint64_t i=0;i<g->count;++i)if(g->data[i].item==equipped_item){g->has_selected=1;g->selected=i;r->code=4;return out;}
+    return out; // the game: the cursor's row, which its caller then picks (code 0)
+}
+static void KILN_CALL draw_fixture(SelectorGroup*) {++draw_calls;}
+static uintptr_t game_caller; // the pick's call site as kiln.hooks reports it
+static uintptr_t KILN_CALL hook_caller(KilnHandle) {return game_caller;}
 static KilnResult KILN_CALL ammo_raw(KilnOwner,uintptr_t target,const KilnHookOrder*,void*,void** original,KilnHandle* handle) {
-    *original=target==20?reinterpret_cast<void*>(&ammo_selector_fixture):target==21?reinterpret_cast<void*>(&equip_fixture):reinterpret_cast<void*>(&finalizer_fixture);
+    *original=target==20?reinterpret_cast<void*>(&ammo_selector_fixture):target==21?reinterpret_cast<void*>(&equip_fixture):
+        target==23?reinterpret_cast<void*>(&action_fixture):target==24?reinterpret_cast<void*>(&draw_fixture):reinterpret_cast<void*>(&finalizer_fixture);
     *handle=target;return KILN_OK;
 }
 #ifdef _WIN32
@@ -399,6 +418,126 @@ int main() {
         CHECK(ammo::keeps[0].started==false&&ammo::keeps[1].started==false);
         spell_swapped=false;ammo::catalog[1]={999,1257792166u,555};
         ammo::handoff_window={};ammo::report_post(nullptr,nullptr);CHECK(infos()==0);log_lines.clear();
+    }
+    // GitHub issue 151, the flicker 31.21 left (Fuzen777, Grimoire 1.2.3): the picker moved to the new spell, showed the one
+    // before it for a moment, then went back. The game's selection sync (client_cycle_inventory_stock: the action 0x40cf00,
+    // whenever it runs) selects what the game's reconciliation names, the equipped spell until the mod's swap arrives, since
+    // a pick Kiln takes for a mod writes no pending pick of the game's. Kiln holds its pick over it, and over a build.
+    {
+        ammo::catalog[1]={999,1257792166u,555,556};log_lines.clear();
+        CHECK(ammo::action_hook.install(&fake,child,23,reinterpret_cast<void*>(&ammo::select_action),"ammo select action fixture"));
+        auto spell_context=[&] {
+            KilnUiAmmoContext c{};c.size=sizeof c;CHECK(ammo::context(7,KUA_KIND_SPELL,&c)==KILN_OK&&c.ok);return c;
+        };
+        KilnUiAmmoRow book[]={{555,1,0,10},{556,1,0,11},{999,1,0,12}};
+        KilnUiAmmoPublish spells{sizeof spells,KUA_KIND_SPELL,KUA_MODE_REPLACE,3,9,0,0,book};
+        auto bind=[&] {
+            selector(groups,acc,0);spells.serial=spell_context().game_serial;CHECK(ammo::publish(7,&spells)==KILN_OK);selector(groups,acc,0);
+            CHECK(groups[1].count==3&&groups[1].data[0].item==555&&groups[1].data[1].item==556&&groups[1].data[2].item==999);
+        };
+        auto cursor=[&]{return groups[1].has_selected&&groups[1].selected<groups[1].count?groups[1].data[groups[1].selected].item:0u;};
+        ActionResult r{};
+        auto sync=[&]{action_calls=0;ammo::select_action(&r,groups+1,1,nullptr,nullptr,nullptr,nullptr,nullptr);CHECK(action_calls==1);return cursor();};
+        bind();equipped_item=999;
+        CHECK(sync()==999&&r.code==4); // no pick: the sync is the game's own
+        // The player scrolls to 556, a stored spell: the mod's swap (Picked); the game's equip is kept back.
+        equip_calls=0;backpack_answer=0;ammo::pick(groups,nullptr,1,556,900);CHECK(equip_calls==0&&cursor()==556);
+        CHECK(ammo::take_picks(7,picks,64,&written)==KILN_OK&&written==1&&picks[0].item==556);
+        // The sync runs before the swap arrives and names the equipped 999: the cursor stays on 556, and the build keeps it.
+        CHECK(sync()==556&&r.code==4);
+        selector(groups,acc,0);CHECK(cursor()==556);CHECK(sync()==556);
+        // Scrolling on to 555 while the swap is under way: the cursor stays where the player is.
+        ammo::pick(groups,nullptr,1,555,901);CHECK(sync()==555);
+        // The swap of 556 arrives first (the game equips it): not Kiln's last pick, so the cursor stays on 555.
+        equipped_item=556;CHECK(sync()==555);selector(groups,acc,0);CHECK(cursor()==555);
+        // The swap of 555 arrives: the sync names 555 itself, and the hold ends. From then on the sync is the game's again.
+        equipped_item=555;CHECK(sync()==555&&ammo::holds[1].item==0&&!ammo::holding.load());
+        equipped_item=999;CHECK(sync()==999);
+        // A hold lasts 1 s at most: a swap that never comes leaves the equipped spell, as before.
+        ammo::pick(groups,nullptr,1,556,902);CHECK(sync()==556);
+        ammo::holds[1].since-=std::chrono::seconds(2);CHECK(sync()==999&&ammo::holds[1].item==0);
+        // A repeat of the held item keeps the hold's start (the game's own automatic picks of the cursor's row are repeats).
+        ammo::pick(groups,nullptr,1,556,903);const auto since=ammo::holds[1].since;ammo::pick(groups,nullptr,1,556,904);
+        CHECK(ammo::holds[1].since==since);
+        // A pick that goes to the game ends the hold: its own pending pick holds the cursor from there (999 is in the backpack).
+        backpack_answer=1;ammo::pick(groups,nullptr,1,999,905);CHECK(equip_calls==1&&ammo::holds[1].item==0);backpack_answer=0;
+        // So does a pick of a row no mod lists.
+        ammo::pick(groups,nullptr,1,556,906);CHECK(ammo::holds[1].item==556);
+        ammo::pick(groups,nullptr,1,1257792166u,907);CHECK(equip_calls==2&&ammo::holds[1].item==0);
+        // Another client session, a GAME clear, the owner's retirement, the world's client event: no hold.
+        ammo::pick(groups,nullptr,1,556,908);++ammo_client_state.client_session;equipped_item=999;
+        ammo::select_action(&r,groups+1,1,nullptr,nullptr,nullptr,nullptr,nullptr);CHECK(ammo::holds[1].item==0&&cursor()==999);
+        --ammo_client_state.client_session;
+        ammo::pick(groups,nullptr,1,556,909);CHECK(ammo::holds[1].item==556);
+        KilnUiAmmoPublish clear{sizeof clear,KUA_KIND_SPELL,KUA_MODE_GAME,0,0,0,0,nullptr};CHECK(ammo::publish(7,&clear)==KILN_OK);
+        CHECK(ammo::holds[1].item==0);
+        bind();ammo::pick(groups,nullptr,1,556,910);ammo::retire(7);CHECK(ammo::holds[1].item==0);
+        bind();ammo::pick(groups,nullptr,1,556,911);ammo::lifecycle(&world_event,nullptr);CHECK(ammo::holds[1].item==0&&!ammo::holding.load());
+        ammo::catalog[0]={999,1257792166u,555};ammo::catalog[1]={999,1257792166u,555,556};ammo::catalog_session=9;
+        // Nor another world or player in the same client session (review of 0.2.0-dev.31.23).
+        bind();ammo::pick(groups,nullptr,1,556,9111);CHECK(ammo::holds[1].item==556);++ammo_client_state.generation;
+        CHECK(sync()==999&&ammo::holds[1].item==0&&!ammo::holding.load());--ammo_client_state.generation;
+        bind();ammo::pick(groups,nullptr,1,556,9112);CHECK(ammo::holds[1].item==556);++ammo_client_state.local_player;
+        CHECK(sync()==999&&ammo::holds[1].item==0&&!ammo::holding.load());--ammo_client_state.local_player;
+        // Only while Kiln's rows are up: over the game's own rows (no binding) the sync's choice is the game's.
+        bind();ammo::pick(groups,nullptr,1,556,912);spell_swapped=true;selector(groups,acc,0); // kept over the swap's build
+        ammo::keeps[1].since-=std::chrono::seconds(2);selector(groups,acc,0);
+        CHECK(groups[1].count==3&&groups[1].data[2].item==556); // past keep_limit: the game's rows
+        CHECK(sync()==999);
+        // A hold whose rows are gone still ends at hold_limit: the sync goes back to one load (review of 0.2.0-dev.31.23).
+        CHECK(ammo::holds[1].item==556&&ammo::holding.load());ammo::holds[1].since-=std::chrono::seconds(2);
+        CHECK(sync()==999&&ammo::holds[1].item==0&&!ammo::holding.load());spell_swapped=false;
+        // The other list: an arrow pick is held the same way, and a spell sync never touches it.
+        {
+            KilnUiAmmoRow quiver[]={{555,30,0,0},{999,9,0,1}};
+            selector(groups,acc,0);KilnUiAmmoContext a{};a.size=sizeof a;CHECK(ammo::context(7,KUA_KIND_ARROW,&a)==KILN_OK);
+            KilnUiAmmoPublish arrows{sizeof arrows,KUA_KIND_ARROW,KUA_MODE_REPLACE,2,9,0,a.game_serial,quiver};
+            CHECK(ammo::publish(7,&arrows)==KILN_OK);selector(groups,acc,0);CHECK(groups[0].data[0].item==555);
+            ammo::pick(groups,nullptr,0,555,913);CHECK(ammo::holds[0].item==555);
+            ammo::select_action(&r,groups+0,0,nullptr,nullptr,nullptr,nullptr,nullptr);
+            CHECK(groups[0].has_selected&&groups[0].data[groups[0].selected].item==555);
+            KilnUiAmmoPublish none{sizeof none,KUA_KIND_ARROW,KUA_MODE_GAME,0,0,0,0,nullptr};CHECK(ammo::publish(7,&none)==KILN_OK);
+            CHECK(ammo::holds[0].item==0);
+        }
+        // The build keeps a held pick also when the sync ran without Kiln (a build where ui/AmmoSelectAction did not resolve).
+        bind();ammo::pick(groups,nullptr,1,556,914);
+        groups[1].selected=2;CHECK(cursor()==999); // the game's sync, as on a build without the hook
+        selector(groups,acc,0);CHECK(cursor()==556);
+        // A cursor whose item the new rows no longer list takes the game's own selection, never none (which the HUD draws
+        // at its remembered index): the provider's next rows drop 556.
+        {
+            KilnUiAmmoRow fewer[]={{555,1,0,10},{999,1,0,12}};
+            spells.rows=fewer;spells.count=2;spells.serial=spell_context().game_serial;CHECK(ammo::publish(7,&spells)==KILN_OK);
+            selector(groups,acc,0);CHECK(groups[1].count==2&&groups[1].has_selected&&cursor()==999&&ammo::holds[1].item==0);
+            spells.rows=book;spells.count=3;
+        }
+        // The pick trace (ammo_trace.h): off, nothing; on, one line per stage of a pick, under one pick number and frame count.
+        {
+            ammo::trace.reset();bind();ammo::pick(groups,nullptr,1,556,915);sync();ammo::report_post(nullptr,nullptr);
+            CHECK(std::none_of(log_lines.begin(),log_lines.end(),[](const auto& l){return l.second.rfind("ui.ammo trace:",0)==0;}));
+            CHECK(ammo::draw_hook.install(&fake,child,24,reinterpret_cast<void*>(&ammo::draw),"ammo list draw fixture"));
+            ammo::trace.enable(true);ammo::trace.reset();bind();equipped_item=999;log_lines.clear();draw_calls=0;
+            ammo::draw(groups+1);CHECK(draw_calls==1); // before a pick: no line
+            fake_hooks.caller=&hook_caller;game_caller=0xc7c1f;ammo::reveal_sites.cycle=0xc7c1e;ammo::pick(groups,nullptr,1,555,916);sync();selector(groups,acc,0);ammo::draw(groups+1);
+            groups[1].has_selected=0;ammo::draw(groups+1);groups[1].has_selected=1;
+            finalizer_spell=999;ammo::finalizer(groups,nullptr,nullptr,nullptr,nullptr,nullptr);finalizer_spell=0;
+            ammo::report_post(nullptr,nullptr);
+            std::vector<std::string> trace;for(const auto& l:log_lines)if(l.second.rfind("ui.ammo trace:",0)==0)trace.push_back(l.second);
+            CHECK(trace.size()==6);
+            CHECK(trace[0].rfind("ui.ammo trace: spell #1 +0.0 ms frame 1: pick 0x0000022b from elsewhere in the game (not its scroll or direct selection): the mod's "
+                "(Picked; the game's equip kept back); cursor 0x0000022b index 0 of 3",0)==0);
+            CHECK(trace[1].find(" frame 1: sync: before 0x0000022b index 0 of 3; the game's 0x000003e7 index 2 of 3; after 0x0000022b "
+                "index 0 of 3 (Kiln held its pick of ")!=std::string::npos);
+            CHECK(trace[2].find(" frame 1: build: entry 0x0000022b index 0 of 3; the game's 0x000003e7 index 0 of 2; exit 0x0000022b "
+                "index 0 of 3; rows: the mods' (revision ")!=std::string::npos);
+            CHECK(trace[3].find(" frame 2: draw: index 0 of 3, 0x0000022b (the selection)")!=std::string::npos);
+            CHECK(trace[4].find(" frame 3: draw: index 0 of 3, 0x0000022b (the remembered index: no selection)")!=std::string::npos);
+            CHECK(trace[5].find(" frame 3: final: before 0x0000022b index 0 of 3; the game's 0x000003e7 index 2 of 3; after 0x0000022b "
+                "index 0 of 3")!=std::string::npos);
+            ammo::trace.enable(false);ammo::trace.reset();ammo::reveal_sites={};ammo::draw_hook={};fake_hooks.caller=nullptr;
+        }
+        ammo::retire(7);ammo::action_hook={};equipped_item=0;log_lines.clear();
+        ammo::catalog[1]={999,1257792166u,555};
     }
     ammo::retire(7);CHECK(ammo::take_picks(7,picks,64,&written)==KILN_OK&&written==0);
     CHECK(kiln_tools_remove_family(7,tool_handle)==KILN_OK);kiln_tools_presentation_set_held_provider(nullptr);

@@ -1,4 +1,4 @@
-# Kiln mod API index (mod API 0.2.25)
+# Kiln mod API index (mod API 0.2.26)
 
 Every public type and member of the mod API, one line each, to grep: a name (`BlockAt`), a word of what it does (`refusal`), a mod API (`0.2.15` finds what that release added). Then open that assembly's file: its name is the `KilnServices` entry (`Items.md` needs `<KilnServices>Items</KilnServices>`; `Api.md` needs none). A file that was too large is a map (`Blocks.md`) of its parts (`Blocks-items.md`).
 
@@ -10,7 +10,7 @@ Every public type and member of the mod API, one line each, to grep: a name (`Bl
 | Assembly | `KilnServices` | Purpose | Skill guide | `docs/kiln/` page | Types | Members | File |
 |---|---|---|---|---|---:|---:|---|
 | Kiln.Abilities | `Abilities` | Scripted abilities, per-cast spell tweaks, Impact natives, gems | [api-content.md](../api-content.md) | `services/abilities.md`, `services/gems.md`, `modding/impact.md` | 98 | 733 | [Abilities.md](Abilities.md) (77 KB) |
-| Kiln.Api | (always) | The mod base class and context, events, config, mods, capabilities, ids and refs, tasks. Always referenced | [api-contract.md](../api-contract.md), [api-events.md](../api-events.md) | `modding/contract.md`, `modding/lifecycle.md`, `modding/tasks.md` | 174 | 1039 | [Api.md](Api.md) (95 KB) |
+| Kiln.Api | (always) | The mod base class and context, events, config, mods, capabilities, ids and refs, tasks. Always referenced | [api-contract.md](../api-contract.md), [api-events.md](../api-events.md) | `modding/contract.md`, `modding/lifecycle.md`, `modding/tasks.md` | 174 | 1043 | [Api.md](Api.md) (96 KB) |
 | Kiln.Assets | `Assets` | Mod resources, overrides, icons and retextures | [api-content.md](../api-content.md) | `services/assets.md` | 16 | 98 | [Assets.md](Assets.md) (10 KB) |
 | Kiln.Audio | `Audio` | Sounds, music, voice-over and narration | [quests-talents-sounds.md](../quests-talents-sounds.md) | `services/audio.md`, `modding/sounds.md` | 13 | 135 | [Audio.md](Audio.md) (15 KB) |
 | Kiln.Blocks | `Blocks` | Data blocks (items, recipes, props, NPCs, spells, gear rules), stations, bases, crafting, affixes, AI rule helpers | [blocks.md](../blocks.md), [api-gear.md](../api-gear.md), [gameplay.md](../gameplay.md) | `modding/blocks.md`, `modding/item-blocks.md`, `modding/world-blocks.md`, `services/stations.md` | 505 | 3186 | [Blocks.md](Blocks.md) (map of 13 parts) |

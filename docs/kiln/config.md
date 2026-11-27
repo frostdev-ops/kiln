@@ -22,6 +22,7 @@ public sealed class PvpSection
     public bool Enabled { get; set; }
     [Range(0, 10), Synced] public double DamageFactor { get; set; } = 1.0;   // [Synced]: sent to Kiln clients, see docs/kiln/sync.md
     [Range(0, 1, 0.05)] public double Chance { get; set; } = 0.25;          // slider in steps of 0.05 (0, 0.05, 0.1 ...)
+    [Range(0, 1, 0.1, SoftMax = true)] public double CostMultiplier { get; set; } = 1;   // slider 0..1, a typed 2 or 3 is kept
 }
 
 // OnLoad:
@@ -44,11 +45,30 @@ var homes = _cfg.Value.MaxHomes;                    // always the current value 
   `ConfigEntry.Step` and the schemas' `step` carry it only when it suits the entry: an int or float entry (not a list
   or duration), a positive finite step no larger than `max - min` that changes a value of the range, and for whole
   numbers a whole step and a whole `min`. Any other step is ignored and the slider moves as with `[Range(min, max)]`.
+  The step is the third argument only: `Step = 0.1` as a named argument does not compile (`Step` is a `double?`,
+  which C# does not allow in an attribute's named arguments), so write `[Range(0, 1, 0.1, SoftMax = true)]`.
+- `SoftMin = true` / `SoftMax = true` (mod API 0.2.26, kiln#155) make a side of the range soft: the slider of the
+  in-game config page and the launcher still stops there, but a value past it, typed into the number field, read from
+  the file, set with `TrySet` or sent by a server, is kept as it is: no refusal, no clamp, no warning, and the file is
+  not corrected. Only the number's own type still bounds it (an `int` entry stays an int, a `byte` 0..255, a `decimal`
+  about ±7.9e28). The other
+  side stays hard: `[Range(0, 1, 0.1, SoftMax = true)]` refuses a typed -1 (`"costMultiplier" must be in 0..max (got
+  -1)`; the soft side shows the type's bound, `max` for a double) and clamps -1 in the file with the usual warning.
+  The slider is given the real value and puts its grab at its end; dragging it gives a value of `min..max` again.
+  `ConfigEntry.SoftMin` / `SoftMax` and the schemas' `softMin` / `softMax` (written only when true) carry it; the
+  file's meta line reads `Range: 0 .. 1 (slider; higher values allowed)`. Durations and lists of numbers follow the
+  same rule (their meta line names no slider: `Range: 1s .. 1m (higher values allowed)`), a command argument has no
+  bound on a soft side, and a UI block's `set` action or slider may go past it ([ui-blocks.md](modding/ui-blocks.md)).
+  DataAnnotations' `RangeAttribute` has no soft sides.
+  A mod that sets them needs mod API 0.2.26 (the SDK writes it; an older Kiln refuses the mod at load instead of
+  failing on the attribute). An older launcher ignores the flags and keeps enforcing that side. A joined client whose
+  copy of the mod still has that side hard keeps its own value for a `[Synced]` entry the server holds past it (the
+  server's value is in `ConfigSyncedEvent.Errors`, docs/kiln/sync.md).
 
 ## The file
 Commented JSONC, written from the schema: each entry has its comment and a meta line (`Default`, `Range`, options,
 "Requires a restart", "Synced to clients"). On every load Kiln keeps the user's values, clamps out-of-range numbers
-(warning in kiln.log, file corrected), replaces unusable values with the default (warning), adds missing entries,
+(warning in kiln.log, file corrected; a value past a soft side is in range), replaces unusable values with the default (warning), adds missing entries,
 keeps unknown keys (marked "Unknown key"), and rewrites the file in canonical form only when that changes it. A file
 that is not valid JSON is left alone and the previous values stay (`LastError`).
 
@@ -57,7 +77,7 @@ that is not valid JSON is left alone and the previous values stay (`LastError`).
 `schema/config-schema.schema.json`, contracts.md 5.5), so the launcher can edit the file while the game is not
 running. It holds `format`, `source: "kiln"`, `file` (`<id>.json`), `valueFormat: "jsonc"`, `id`, `mod`,
 `modVersion`, `kind`, `kiln`, `sections[]`, `entries[]` (path, type, comment, default, requiresRestart, synced, min,
-max, step, options), `written` and `schemaHash` (sha256 of the rest). Written atomically, and only when the schema changed:
+max, step, softMin, softMax, options), `written` and `schemaHash` (sha256 of the rest). Written atomically, and only when the schema changed:
 a reload of the same mod version with the same class keeps the file; a changed class or mod version rewrites it.
 `ConfigFile.SchemaSnapshot()` / `SnapshotPath` give the same in code.
 

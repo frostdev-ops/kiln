@@ -344,13 +344,20 @@
     "default_tip": "Padrão: {value}",
     "type_here": "Digite o valor aqui.",
     "range": "um número de {min} a {max}",
+    "range_min": "um número a partir de {min}",
+    "range_max": "um número até {max}",
+    "range_any": "um número",
     "describe": {
       "entry": "{path}: {type}, padrão {default}",
       "entry_range": "{path}: {type}, padrão {default}, intervalo {min}..{max}",
       "options": "opções: {options}",
       "synced": "Sincronizado: um servidor envia o valor dele aos clientes.",
       "restart": "Requer reinício: uma mudança vale quando o mod carregar de novo.",
-      "from_server": "Tem o valor do servidor enquanto conectado."
+      "from_server": "Tem o valor do servidor enquanto conectado.",
+      "soft_min": "O controle começa em {min}; você pode digitar um valor menor.",
+      "soft_max": "O controle vai até {max}; você pode digitar um valor maior.",
+      "soft_min_any": "Valores menores que {min} também são aceitos.",
+      "soft_max_any": "Valores maiores que {max} também são aceitos."
     },
     "apply": "Aplicar ({count})",
     "undo": "Desfazer",

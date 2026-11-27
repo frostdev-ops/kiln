@@ -381,6 +381,17 @@ again when `game_serial` or the session changes, and drains the picks at the sta
 index in the publication) is read against the publication that was up when it was queued, and a key that does not name
 that item there is dropped. An owner's retirement or a world's stop clears its snapshots and queued picks.
 
+The cursor of a pick that `take_picks` returns (since 0.2.0-dev.31.23, GitHub issue 151; no table change): kiln-tools
+holds it on the picked row over the game's selection sync (`client_cycle_inventory_stock`, which would put it back on
+the equipped item because such a pick writes no pending pick of the game's) and at the next builds of the list, until the
+game's own choice is that item, a pick of that list goes to the game, the kind is cleared, its owner retires, the client
+session, world or player changes, or 1 s passes (another held weapon keeps it: the equipped arrow or spell is the
+player's slot, as the game's own pending pick holds over a weapon change). Only while the owner's rows are up. A build whose cursor item the new rows do not list takes the
+game's own selection instead of none. On a game build where `ui/AmmoSelectAction` does not resolve only the builds hold
+it, and `kiln.log` says so once at the start. The opt-in pick trace (`kiln.json` `"ui": {"ammoTrace": true}` or
+`KILN_AMMO_TRACE=1`, read at the start; lines `ui.ammo trace: ...`) is described in
+[../ui.md](../ui.md#tracing-a-pick-of-the-list-testers); off, the HUD draw is not hooked at all.
+
 ## Captured item detail (Since 0.2.0-dev.30.5)
 
 `kiln.ui.item_detail` is a **new v1 table**, not an append to `kiln.ui` or `kiln.ui.values`.

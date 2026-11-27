@@ -343,6 +343,60 @@ Static qualification on the exact client 26430625 (`5d9ef2f1…`), read-only; no
   run on one thread in every session (the record of this build saw the client world on the main thread), and the
   event's delivery to a joined client.
 
+- What moves the cursor between builds, and how the HUD list draws it (since 0.2.0-dev.31.23, the flicker GitHub issue
+  151 still showed after 0.2.0-dev.31.21; static, same client, read with objdump; test `ammo_sigdb_test.py`
+  `test_selection_sync_and_list_draw`, host tests `ammo_hook.cpp`). The report: with Grimoire's `Replace` rows the picker
+  moved to the new spell, showed the previous spell for a moment and went back, a little in a hosted world (most in the
+  first switches after a start) and more on a dedicated server; Grimoire returned the same rows every time and the
+  server equipped each pick once.
+  1. The ECS system `client_cycle_inventory_stock` (`0x2b4390`; descriptor `0x141e23120`, its name at `0x141e25c20`;
+     reads CspHackInventoryStockSelection, NetworkFishing, NetworkRangedWeapon and SlotSelection, writes
+     ClientCycleInventoryStock and ClientPlayerInput, with G38UiPlayData among its resources) runs for the local player
+     (`0x3bb740` at `0x2b4415` compares the entity) and calls the selection action `0x40cf00` at `0x2b47e7` on the
+     active group of the play data's first selector state (`[rbp-0x20] + 0x14fd0 + active * 0x648`, none at 7,
+     `0x2b4793`). That is the action's only call. Only when the action returns 0 does the system pick the cursor's row
+     itself (`0x2b484b`: the automatic selection of the notes above).
+  2. The action `0x40cf00` asks the reconciliation `0x40ca70` (`0x40cf45`) for an item, finds its row (`0xe88660`,
+     `0x40cf59`) and, when the group lists it, sets the valid flag `+0x630` and the index `+0x628` and returns 4
+     (`0x40cf65`..`0x40cf8a`). This is outside any list build, so Kiln's two finalizer paths never saw it.
+  3. The reconciliation returns, for arrows, spells and bait (categories 0, 1, 6), the group's pending item `+0x63c`
+     while its version `+0x640` differs from the category's entry of its second argument, else the equipped stack of
+     slot `0xe + category` (`0x3853c0` through `0x40c980`; `0x40cacb`..`0x40cb10`). That argument is
+     `CspHackInventoryStockSelection.versions` (`StaticArray<VersionedDataVersion,7>`, 28 bytes): the server's
+     `0x2cb090` stores each consumed stock-cycle action's version as `consumedInventoryStockCycleAction`
+     (`0x2cb3d4`) and in `versions[category]` (`0x2cb423`), and the client gets it with the component. So the game's
+     own pick (which writes the pending item and version, `0x40c190`/`0x40c19e`) keeps its cursor until the server
+     consumed it: the game's client-side prediction. A pick Kiln takes for a mod row writes neither, so the action put
+     the cursor back on the equipped stack (the previous spell) until the mod's swap reached the client; the next
+     build's entry took that selection as its cursor (`Frame`), and once the swap landed the action named the new spell.
+     The window is the pick-to-equip time: in Fuzen777's Grimoire trace 78 to 141 ms for the first five picks after a
+     start (median 94) and a median of 62 ms later, plus the network round trip on a dedicated server. Why the first
+     swaps of a session take longer is not established here (the mod's and the game's first-use costs are candidates).
+  4. The game's list build has no other trigger to find: player_ui calls the parent `0x40e2b0` at `0x2bd0bc` on each of
+     its runs, in a hosted world and on a dedicated server alike, and rebuilds the first state in full; only the rows'
+     content (the list revision) changes, when the swap's inventory change reaches the client (in the same process for a
+     host, a round trip later for a joined client).
+  5. The HUD list draw `0xbe5150` (called at `0xbed05b` with the active group of `+0x17bc8`, none at 7) keeps a widget
+     state of 0xe0 bytes (`0x1411a06e0` with the id `0x63d31e0f4d77fc72`, `0xbe5419`; `+0x10` zeroed when new,
+     `0xbe5466`). It draws index = the group's `+0x628` when the valid flag `+0x630` is set, else the state's `+0x10`
+     (the remembered index), and stores that index in `+0x10` (`0xbe6234`..`0xbe6269`). The highlight goes only to that
+     row when the flag is set (`0xbe68e0`), the scroll target adds the rows before it only then, and the list scrolls to
+     its target with exponential damping (`0xa42e80` at `0xbe69ec`, rate 20 per second at `0x141527f98`), so a cursor
+     that is back for a few frames shows as a short movement to the previous row and back. Kiln's rows never draw the
+     remembered index while the cursor's item is listed; one Kiln path could (a new publication without the cursor's
+     item, written with no selection), and since this change it takes the game's selection instead.
+
+  kiln-tools now holds a mod row's pick as the game's prediction holds its own: `ui/AmmoSelectAction` (a raw hook on
+  `0x40cf00`) puts the pick back after the action while the action's choice is another item, and a build's entry uses it
+  over what the group shows, from the pick until the action itself chooses it (result 4), a pick of that list goes to the
+  game, the kind is cleared, its owner retires, the client session, world (generation) or player changes, or 1 s
+  passes; only while a binding of the group exists. Another held weapon keeps it: the reconciliation's slot is
+  `0xe + category` (`0x40c980`), the player's, and the game's own pending pick (in the group) holds over a weapon change
+  as well. `ui/AmmoListDraw` is hooked only by the opt-in pick trace (docs/kiln/ui.md). sigdb features `ui.ammo.cursor`,
+  `ui.ammo.trace`. Not established statically: the order of `client_cycle_inventory_stock`, player_ui's build, the input
+  handler (`0x3af670`, called from the client frame at `0x87a94d`) and the HUD draw within one frame, and so whether
+  the previous spell was drawn for every frame of the window; the trace's `sync`, `build` and `draw` lines settle it.
+
 Real menu behaviour, the server half of a swap and controller cycling remain the owner's in-game check.
 
 ### 1.3 Hardness **[dec] [data] [rt]**

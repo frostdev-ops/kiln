@@ -24,7 +24,13 @@ public sealed class CommentAttribute(string text) : Attribute
 }
 
 /// <summary>Allowed range of a number (config entry, command argument). Config values outside are clamped with a
-/// warning; command arguments outside are refused. For <see cref="TimeSpan"/> the bounds are seconds.</summary>
+/// warning; command arguments outside are refused. For <see cref="TimeSpan"/> the bounds are seconds. A side marked
+/// soft (<see cref="SoftMin"/>, <see cref="SoftMax"/>) only ends the config slider: values past it are allowed.</summary>
+/// <example>A cost multiplier whose slider runs from 0 to 1 in steps of 0.1, where a player may still type 2 or 3 (or
+/// write it in the file); below 0 stays refused:
+/// <code>
+/// [Range(0, 1, 0.1, SoftMax = true)] public double CostMultiplier { get; set; } = 1;
+/// </code></example>
 [AttributeUsage(AttributeTargets.Property | AttributeTargets.Field | AttributeTargets.Parameter)]
 public sealed class RangeAttribute(double min, double max) : Attribute
 {
@@ -42,6 +48,18 @@ public sealed class RangeAttribute(double min, double max) : Attribute
     /// <summary>The slider step given to the three-argument constructor, as given; null for <c>[Range(min, max)]</c>.
     /// Config entries carry it on as <see cref="ConfigEntry.Step"/> only when it suits the entry.</summary>
     public double? Step { get; }
+
+    /// <summary>The low end is soft (mod API 0.2.26): the config slider stops at <see cref="Min"/>, but a value below
+    /// it, typed into the number field, read from the file, set with <see cref="ConfigFile.TrySet"/> or sent by a
+    /// server, is kept as it is (no refusal, no clamp, no warning). Only the number's own type still bounds it (an
+    /// <c>int</c> entry stays an int). A command argument has no low bound then. Default false: the bound is
+    /// enforced.</summary>
+    public bool SoftMin { get; set; }
+
+    /// <summary>The high end is soft (mod API 0.2.26): the config slider stops at <see cref="Max"/>, but a value above
+    /// it is kept as it is, wherever it comes from; see <see cref="SoftMin"/>. <c>[Range(0, 1, 0.1, SoftMax = true)]</c>:
+    /// a slider from 0 to 1 in steps of 0.1, a typed 2 or 3 allowed, a typed -1 still refused.</summary>
+    public bool SoftMax { get; set; }
 }
 
 /// <summary>A change of this entry only applies after the mod reloads (or the server restarts): a live edit is

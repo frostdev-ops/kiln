@@ -31,6 +31,15 @@ internal sealed record UiBinding(string Name, UiValueType Type, string? ConfigId
 {
     public bool IsConfig => ConfigId != null;
     public UiSource Source { get; init; } = ConfigId != null ? UiSource.Config : UiSource.Game;
+    /// <summary>A config entry's <see cref="ConfigEntry.SoftMin"/> / <see cref="ConfigEntry.SoftMax"/> (kiln#155): that end
+    /// of <see cref="Min"/>..<see cref="Max"/> is where a slider stops, not a bound of the values the config takes.</summary>
+    public bool SoftMin { get; init; }
+    /// <summary>See <see cref="SoftMin"/>: the high end.</summary>
+    public bool SoftMax { get; init; }
+    /// <summary>The low bound a value is checked against (Kiln.Api's ConfigNode.HardMin): <see cref="Min"/> unless it is soft.</summary>
+    public double? HardMin => SoftMin ? null : Min;
+    /// <summary>The high bound a value is checked against: <see cref="Max"/> unless it is soft.</summary>
+    public double? HardMax => SoftMax ? null : Max;
     /// <summary>The state key, data id, world field, stat key (mod:id), stat part or row/node field.</summary>
     public string? Key { get; init; }
     public string? Part { get; init; }
@@ -220,7 +229,10 @@ internal static class UiBindings
         if (hits.Count > 1)
             throw new FormatException($"config entry \"{path}\" is in more than one of this mod's configs ({string.Join(", ", hits.Select(h => h.Config.Id))}): say config.<config id>/{path}");
         var (cfg, e) = hits[0];
-        return new UiBinding($"config.{cfg.Id}/{e!.Path}", TypeOf(e.Type), cfg.Id, e.Path, e.Type, e.Min, e.Max, e.Options, cfg.ServerKind);
+        return new UiBinding($"config.{cfg.Id}/{e!.Path}", TypeOf(e.Type), cfg.Id, e.Path, e.Type, e.Min, e.Max, e.Options, cfg.ServerKind)
+        {
+            SoftMin = e.SoftMin, SoftMax = e.SoftMax,
+        };
     }
 
     private static UiValueType TypeOf(string entryType) => entryType switch

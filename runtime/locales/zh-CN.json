@@ -341,13 +341,20 @@
     "default_tip": "默认值：{value}",
     "type_here": "在此输入值。",
     "range": "取值范围：{min} 至 {max}",
+    "range_min": "取值范围：不小于 {min}",
+    "range_max": "取值范围：不大于 {max}",
+    "range_any": "任意数字",
     "describe": {
       "entry": "{path}：{type}，默认值 {default}",
       "entry_range": "{path}：{type}，默认值 {default}，范围 {min} 至 {max}",
       "options": "可选值：{options}",
       "synced": "服务器会将此设置同步给客户端。",
       "restart": "模组重新加载后，更改才会生效。",
-      "from_server": "连接服务器期间使用服务器的值。"
+      "from_server": "连接服务器期间使用服务器的值。",
+      "soft_min": "滑块最小为 {min}，可直接输入更小的值。",
+      "soft_max": "滑块最大为 {max}，可直接输入更大的值。",
+      "soft_min_any": "也可以使用小于 {min} 的值。",
+      "soft_max_any": "也可以使用大于 {max} 的值。"
     },
     "apply": "应用（{count}）",
     "undo": "撤销",

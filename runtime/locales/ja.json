@@ -341,13 +341,20 @@
     "default_tip": "既定値: {value}",
     "type_here": "ここに値を入力してください。",
     "range": "{min}～{max} の数値",
+    "range_min": "{min} 以上の数値",
+    "range_max": "{max} 以下の数値",
+    "range_any": "数値",
     "describe": {
       "entry": "{path}: {type}、既定値 {default}",
       "entry_range": "{path}: {type}、既定値 {default}、範囲 {min}..{max}",
       "options": "選択肢: {options}",
       "synced": "同期: サーバーがクライアントに値を送ります。",
       "restart": "再起動が必要: モッドが再び読み込まれたときに反映されます。",
-      "from_server": "接続中はサーバーの値になります。"
+      "from_server": "接続中はサーバーの値になります。",
+      "soft_min": "スライダーは {min} からですが、それより小さい値も入力できます。",
+      "soft_max": "スライダーは {max} までですが、それより大きい値も入力できます。",
+      "soft_min_any": "{min} より小さい値も使えます。",
+      "soft_max_any": "{max} より大きい値も使えます。"
     },
     "apply": "適用 ({count})",
     "undo": "元に戻す",

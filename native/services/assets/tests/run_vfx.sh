@@ -21,7 +21,7 @@ else
 fi
 g++ -std=c++20 -O1 -g -Wall -Wextra -DKILN_ASSETS_CATALOG_TEST "${flags[@]}" \
   -fsanitize=address,undefined -fno-sanitize-recover=undefined \
-  -I"$here/platform" -I"$here/.." -I"$here/../../../core/abi" -I"$out" \
+  -I"$here/platform" -I"$here/.." -I"$here/../../../core/abi" -I"$here/../../../third_party" -I"$out" \
   "$here/test_vfx.cpp" "$source_file" "$here/../catalog.cpp" "$here/../util.cpp" -o "$out/test_vfx" -pthread
 if [[ ${1:-} == baseline ]]; then
   ASAN_OPTIONS=detect_leaks=0 "$out/test_vfx" boundary-any "$out/stock.kfc"

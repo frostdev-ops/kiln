@@ -74,6 +74,22 @@
         }
       ]
     },
+    "ui/AmmoSelectAction": {
+      "comment": "GitHub issue 151: the selection action client_cycle_inventory_stock (system 0x2b4390, its only caller, at 0x2b47e7) runs on the HUD's active group of the play data's first selector state (+ ui/ammo.groups) whenever it runs. It selects the item the reconciliation (0x40ca70) names, the group's pending pick (+0x63c) while its version (+0x640) is not CspHackInventoryStockSelection.versions[category], else the equipped stack, when the group lists it, and returns 4 in its result's first byte. kiln-tools holds a mod row's pick over it (ammo_runtime.inl, holds). Client 0x40cf00",
+      "find": [
+        {
+          "pattern": "48 89 5C 24 08 57 48 83 EC 50 48 8B 84 24 98 00 00 00 4D 8B D1 4C 8B 8C 24 90 00 00 00 48 8B FA 44 88 44 24 30 48 8B D9 4C 8B 84 24 88 00 00 00 49 8B CA 48 89 54 24 28 48 8B 94 24 80 00 00 00 48 89 44 24 20 E8 ?? ?? ?? ?? 85 C0 74 4A 44 8B C0 48 8D 4C 24 40 48 8B D7 E8 ?? ?? ?? ?? 80 7C 24 40 00 75 33 80 BF 30 06 00 00 00 75 07 C6 87 30 06 00 00 01 48 8B 44 24 48 48 89 87 28 06 00 00 33 C0 48 89 43 04 48 8B C3 C6 03 04"
+        }
+      ]
+    },
+    "ui/AmmoListDraw": {
+      "comment": "GitHub issue 151: the HUD's list draw of the active group (called at 0xbed05b with the play data's group of +0x17bc8, null for none). It draws index = the group's selection (+0x628) when the selection-valid flag (+0x630) is set, else its remembered index (widget state +0x10, which it then sets: 0xbe6234..0xbe6269), and scrolls toward that row with exponential damping (rate 20/s, 0xbe69e6). Hooked only while kiln.ui.ammo's pick trace is on. Client 0xbe5150",
+      "find": [
+        {
+          "pattern": "48 89 4C 24 08 55 56 57 41 54 48 8D AC 24 68 F6 FF FF 48 81 EC 98 0A 00 00 48 8B 05 ?? ?? ?? ?? 33 FF 4C 8B E1 48 8B 90 D0 00 00 00 48 8B 32 48 85 F6 75 04 8B F7 EB 04 48 8B 76 38 C7 45 80 06 00 0A 00"
+        }
+      ]
+    },
     "ui/AmmoItemLookup": {
       "find": [
         {
@@ -192,6 +208,16 @@
         "ui/AmmoPick",
         "ui/AmmoItemLookup",
         "ui/AmmoItemMap"
+      ]
+    },
+    "ui.ammo.cursor": {
+      "symbols": [
+        "ui/AmmoSelectAction"
+      ]
+    },
+    "ui.ammo.trace": {
+      "symbols": [
+        "ui/AmmoListDraw"
       ]
     },
     "ui.ammo.reveal": {

@@ -1,6 +1,46 @@
 {
   "released": [
     {
+      "version": "0.2.0-dev.31.23",
+      "date": "2026-11-27",
+      "title": "Spell picker without the flicker",
+      "summary": "A mod's spell or arrow you pick in the HUD list no longer flickers back to the one before it for a moment, and testers can follow each pick in kiln.log.",
+      "patch": true,
+      "features": [
+        {
+          "title": "No flicker after a pick",
+          "text": "A spell or arrow a mod puts in the HUD list (Grimoire, for example) stays under the cursor after you pick it until the mod's swap arrives, instead of showing the previous spell for a moment and coming back, alone and on a dedicated server (thanks Fuzen777).",
+          "area": "content",
+          "kind": "fix"
+        },
+        {
+          "title": "A pick trace for testers",
+          "text": "With \"ammoTrace\": true in kiln.json's \"ui\" section, kiln.log follows each pick of a spell or arrow row frame by frame: the game's choice, each build of the list and what the HUD drew. It is off by default.",
+          "area": "tools"
+        }
+      ]
+    },
+    {
+      "version": "0.2.0-dev.31.22",
+      "date": "2026-11-27",
+      "title": "Settings past the slider and exact asset hashes",
+      "summary": "A mod's setting can go past the end of its slider when the mod allows it, and a mod asset whose hash Kiln cannot read is now an error that names the file instead of content the game never finds.",
+      "patch": true,
+      "features": [
+        {
+          "title": "Settings past the slider's end",
+          "text": "A mod can make one end of a setting's range soft: the number field beside its slider, on the Kiln menu's config page and in the launcher, then takes a value past that end, and the config file keeps it instead of clamping it back (thanks fafawanji).",
+          "area": "api"
+        },
+        {
+          "title": "Mod assets with a hash Kiln cannot read",
+          "text": "A mod asset whose hash is not written the way Kiln reads it is now an error in kiln.log that names the file, instead of loading under another hash the game never asks for, and one whose hash names another size than its file says so. kiln lint flags such a hash, and kiln-vfxcook writes the hash the way Kiln reads it.",
+          "area": "tools",
+          "kind": "fix"
+        }
+      ]
+    },
+    {
       "version": "0.2.0-dev.31.21",
       "date": "2026-11-27",
       "title": "Building tools, spell lists and ShroudForge in multiplayer",

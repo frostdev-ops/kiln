@@ -42,7 +42,9 @@ thread when the list's `AmmoListContext` changes (`Kind`, `Held`, `GameRows`, `S
 `AmmoListRow(item, count)` rows in its order; `Replace` hides the game's rows (and since dev.31.21 keeps its last rows and
 the cursor over the game's new build until Kiln publishes for it, at most 1 s, GitHub #151). `Ui.AmmoList.Picked += pick => ...` gets
 a selection wish (`AmmoListPick`: `Kind`, `Item`, `Count`) for this mod's rows the backpack does not hold: send it to the
-server half, which validates it and swaps the stack in. Rows `ui.ammo.list` and `ui.ammo.pick` (`Available`,
+server half, which validates it and swaps the stack in. Since dev.31.23 the cursor stays on that row until the swap
+arrives (the game's selection sync no longer puts it back on the equipped item for that time), at most 1 s, either mode;
+`kiln.json` `"ui": {"ammoTrace": true}` traces each pick in kiln.log (docs/kiln/ui.md, "Tracing a pick of the list"). Rows `ui.ammo.list` and `ui.ammo.pick` (`Available`,
 `PicksAvailable`); test kit `kiln.AmmoList`. Page `docs/kiln/ui.md`.
 
 **Looks and themes (dev.29.16+; not yet seen in a real game).** `UiStyle.Player` (the look the player chose) is the

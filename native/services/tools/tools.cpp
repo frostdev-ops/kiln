@@ -11,9 +11,14 @@
 #include "hooks/terrain_payment.h"
 #include "history.h"
 #include "action_trace.h"
+#include "ammo_trace_setting.h"
 #include <atomic>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <mutex>
 #include <string>
 
@@ -126,8 +131,27 @@ bool install_history(const KilnApi* a,KilnOwner owner) {
     const bool on=kiln_tools_history_install(a,owner);
     kiln_tools_report_hook(KILN_TOOL_HOOK_HISTORY_COST,on);return on;
 }
+#if KILN_TOOLS_PRESENTATION
+// kiln.ui.ammo's pick trace (ammo_trace.h), read once here: KILN_AMMO_TRACE=1 or =0 wins, else kiln.json's
+// "ui": {"ammoTrace": true} (ammo_trace_setting.h). Off when neither says so or kiln.json cannot be read.
+bool ammo_trace_switch(const KilnApi* a) {
+    int env=-1; // the process environment as the game started (Steam's launch options on Linux)
+#ifdef _MSC_VER
+#pragma warning(suppress:4996)
+#endif
+    if(const char* value=std::getenv("KILN_AMMO_TRACE");value&&(!std::strcmp(value,"0")||!std::strcmp(value,"1")))env=value[0]-'0';
+    std::string text;
+    char buffer[4096]{};size_t length=0;
+    if(env<0&&a&&a->path&&a->path(KILN_PATH_KILN,buffer,sizeof buffer,&length)==KILN_OK&&length&&length<sizeof buffer)try {
+        std::ifstream in(std::filesystem::path(std::u8string(reinterpret_cast<const char8_t*>(buffer),length))/"kiln.json",std::ios::binary);
+        if(in)text.assign(std::istreambuf_iterator<char>(in),std::istreambuf_iterator<char>());
+    } catch(...) {text.clear();}
+    return kiln::tools::ammo_trace_setting(env,text);
+}
+#endif
 bool install_presentation(const KilnApi* a,KilnOwner owner) {
 #if KILN_TOOLS_PRESENTATION
+    kiln_tools_presentation_set_ammo_trace(ammo_trace_switch(a));
     kiln_tools_presentation_install(a,owner);
     return true; // individual authority/presentation hook bits, not this return value, govern each action
 #else

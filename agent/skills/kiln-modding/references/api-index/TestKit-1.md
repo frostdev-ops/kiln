@@ -39,7 +39,7 @@ enum: Real, RecordingFake, Unavailable
 ## TestKit.FakeBlobRegistration `0.2.3` — A content blob a mod registered with the kit's kiln.assets (`Assets.AddBlob`, `OverrideBlob`).
 - `FakeBlobRegistration()`
 - `FakeBlobRegistration(string Hash, ulong Owner, bool Override)`
-- `Hash { get; init; } -> string` — Its content hash as `ContentHash.ToString()` writes it (`size-h0-h1-h2`, hex).
+- `Hash { get; init; } -> string` — Its content hash as `ContentHash.ToString()` writes it (`size-h0-h1-h2`: the size in decimal, the words in hex).
 - `Override { get; init; } -> bool` — True for an override of a hash, false for an added blob.
 - `Owner { get; init; } -> ulong` — The native owner it was registered under (the mod's).
 

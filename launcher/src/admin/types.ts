@@ -285,6 +285,10 @@ export interface ConfigEntry {
   max?: number;
   /** [Range(min, max, step)]: slider step (editor metadata only). */
   step?: number;
+  /** [Range(..., SoftMin = true)]: min ends the slider only, lower values are allowed. */
+  softMin?: boolean;
+  /** [Range(..., SoftMax = true)]: max ends the slider only, higher values are allowed. */
+  softMax?: boolean;
   options?: string[];
 }
 export interface ConfigFile {

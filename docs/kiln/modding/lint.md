@@ -287,7 +287,8 @@ content/x.json:6:15: warning KL105: "Epik" is not a value of ItemRarity (Common,
 Fix: use an allowed value (quick fix when a close match exists).
 
 ### KL106 pattern
-Error. A string of the wrong form: an id, GUID, path or name.
+Error. A string of the wrong form: an id, GUID, path or name, or a blob's `hash` that is not `<decimal size>-<h0>-<h1>-<h2>`
+(kiln.assets refuses that entry).
 ```text
 assets/assets.json:1:204: error KL106: "../outside.bin": a path relative to assets/ (subfolders allowed; no absolute path, no '..')
 ```

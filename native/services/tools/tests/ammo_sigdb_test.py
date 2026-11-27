@@ -21,7 +21,9 @@ EXPECTED = {"tools/MaterialSelector":0x40e5d0,"ui/AmmoFinalizer":0x40dfe0,"ui/Am
             # GitHub issue 140: the HUD list reveal of the stock-cycle count.
             "ui/AmmoCycle":0x40c320,"ui/AmmoCycleReturn":0x3afb07,"ui/AmmoSelectReturn":0x3afa7a,
             "ui/AmmoEventWishReturn":0x2bce29,"ui/AmmoCycleEventCount":0x2bd19a,"ui/AmmoCycleWatch":0xb35d7d,
-            "ui/AmmoListRevealRead":0xbe603f}
+            "ui/AmmoListRevealRead":0xbe603f,
+            # GitHub issue 151 (the flicker 31.21 left): the game's selection sync and the HUD list draw.
+            "ui/AmmoSelectAction":0x40cf00,"ui/AmmoListDraw":0xbe5150}
 CONSTANTS = {"ui/ammo.groups":0x14fd0,"ui/ammo.cycle_count":0x2fe8,"ui/ammo.reveal_time":0x31b48}
 class AmmoQualification(unittest.TestCase):
     @classmethod
@@ -44,6 +46,7 @@ class AmmoQualification(unittest.TestCase):
             self.assertTrue(constants[name]["ok"],name)
             self.assertEqual(constants[name]["value"],value,name)
         self.assertTrue(features["ui.ammo.list"] and features["ui.ammo.pick"] and features["ui.ammo.reveal"])
+        self.assertTrue(features["ui.ammo.cursor"] and features["ui.ammo.trace"])
         source=(ROOT/"native/services/tools/ammo_runtime.inl").read_text()
         for name,rva in EXPECTED.items():
             if name=="tools/MaterialSelector": continue
@@ -51,6 +54,13 @@ class AmmoQualification(unittest.TestCase):
                 pattern=source.split(',"'+name+'","',1)[1].split('"',1)[0]
                 rx,_,length=parse(pattern)
                 self.assertIsNotNone(rx.fullmatch(self.image.img[rva:rva+length]))
+        # The two new hooks qualify the same bytes sigdb declares (their patterns are constants in the runtime).
+        for name,constant in (("ui/AmmoSelectAction","action_pattern"),("ui/AmmoListDraw","draw_pattern")):
+            text=source.split("constexpr char "+constant+"[]=",1)[1].split(";",1)[0]
+            pattern="".join(re.findall(r'"([^"]*)"',text))
+            self.assertEqual(pattern,self.doc["symbols"][name]["find"][0]["pattern"],name)
+            rx,_,length=parse(pattern)
+            self.assertIsNotNone(rx.fullmatch(self.image.img[EXPECTED[name]:EXPECTED[name]+length]),name)
 
     def test_request_convergence_and_no_hidden_call_patch(self):
         image=self.image.img
@@ -155,6 +165,59 @@ class AmmoQualification(unittest.TestCase):
         self.assertEqual(self.pdata_chunk(0xb35d7d)[0],0xb35089)
         at(0xbe6083,"ba0065cd1d");at(0xbe6090,"48c745e0002f6859")
         at(0xbed039,"0fb687c87b0100");at(0xbed05b,"e8f080ffff")
+
+    def test_selection_sync_and_list_draw(self):
+        """GitHub issue 151 (the flicker 31.21 left): what moves the cursor between builds, and how the HUD list draws it."""
+        image=self.image.img
+        def at(rva,hexbytes): self.assertEqual(bytes(image[rva:rva+len(bytes.fromhex(hexbytes))]),bytes.fromhex(hexbytes),f"{rva:#x}")
+        ts=json.loads((ROOT/f"sigdb/types/client/{SHA}.json").read_text())["types"]
+        by={t["qualifiedName"]:t for t in ts}
+        def offset(t,n): return next(f["offset"] for f in by[t]["fields"] if f["name"]==n)
+        def cstr(q): return bytes(image[q:image.index(0,q)]).decode()
+        # 1. The ECS system client_cycle_inventory_stock (descriptor 0x1e23120: its name, then 0x2b4390) reads
+        #    CspHackInventoryStockSelection and SlotSelection among others, and the play data among its resources.
+        self.assertEqual(struct.unpack_from('<Q',image,0x1e23120)[0]-self.image.base,0x2b4390)
+        self.assertEqual(cstr(struct.unpack_from('<Q',image,0x1e23110)[0]-self.image.base),"client_cycle_inventory_stock")
+        names=[cstr(struct.unpack_from('<Q',image,0x1e23050+16*i)[0]-self.image.base) for i in range(12)]
+        self.assertEqual(names[:4],["CspHackInventoryStockSelection","NetworkFishing","NetworkRangedWeapon","SlotSelection"])
+        self.assertIn("G38UiPlayData",names)
+        # 2. For the local player (0x3bb740 compares the entity), it calls the selection action 0x40cf00 on the active group
+        #    of the play data's first selector state ([rbp-0x20] + 0x14fd0 + active * 0x648, none at 7); only when the result
+        #    is 0 does it pick the cursor's row itself (0x2b4846). That call is the action's only one.
+        at(0x2b4415,"e82673100084c0");self.assertEqual(self.call_target(0x2b441a),0x3bb740)
+        at(0x2b4793,"488b7de04881c7d04f0100440fb687f82b0000")
+        self.assertEqual(self.call_target(0x2b47ec),0x40cf00);at(0x2b47ec,"807d00007559")
+        self.assertEqual(self.call_target(0x2b484b),0x40c150)
+        self.assertEqual(self.rel32_sites({0x40cf00})[0x40cf00],[0x2b47ec])
+        self.assertEqual(self.pdata_chunk(0x2b47e7),self.pdata_chunk(0x2b43cd))
+        # 3. The action: the reconciliation 0x40ca70, the row of its item (0xe88660), then selected/valid and result 4.
+        self.assertEqual(self.call_target(0x40cf4a),0x40ca70);self.assertEqual(self.call_target(0x40cf5e),0xe88660)
+        at(0x40cf65,"80bf300600000075 07c687300600000148 8b442448488987280600 00".replace(" ",""))
+        at(0x40cf8a,"c60304")
+        # 4. The reconciliation: the group's pending item (+0x63c) while its version (+0x640) is not the category's entry of
+        #    the second argument, else the equipped stack (0x3853c0). That argument is CspHackInventoryStockSelection's
+        #    versions (StaticArray<VersionedDataVersion,7>), which the server writes with each stock-cycle action it consumes
+        #    (0x2cb090: consumedInventoryStockCycleAction = fromClient's version, then versions[category] = it). A pick that
+        #    writes no pending pick (kiln-tools' for a mod row) is reconciled to the equipped stack until the swap lands.
+        at(0x40cacb,"488b8424980000008b0cbe39884006000074088b803c060000eb5a")
+        self.assertEqual(self.call_target(0x40cb08),0x3853c0)
+        self.assertEqual(by["keen::ecs::CspHackInventoryStockSelection"]["size"],28)
+        self.assertEqual(offset("keen::ecs::CspHackInventoryStockSelection","versions"),0)
+        at(0x2cb3c6,"8b98a0000000");at(0x2cb3d4,"89583c");at(0x2cb41c,"488b86a801000042891ca0")
+        self.assertEqual(offset("keen::ecs::ServerConsumedPlayerInput","consumedInventoryStockCycleAction"),0x3c)
+        # 5. The HUD list draw 0xbe5150 (the HUD calls it with the active group, 0xbed05b) keeps a 0xe0-byte widget state
+        #    (0x1411a06e0 with id 0x63d31e0f4d77fc72; +0x10 zeroed when new). It draws index = the group's +0x628 when its
+        #    valid flag +0x630 is set, else the state's +0x10 (the remembered index), and stores that index there; the
+        #    rows' highlight and the scroll target follow the flag. The list scrolls to its target with exponential damping
+        #    (0xa42e80, rate 20 per second).
+        at(0xbe5419,"4c8d0de069eeff48ba72fc774d0f1ed363c74424200100000041b8e0000000");self.assertEqual(self.call_target(0xbe543d),0x11a06e0)
+        at(0xbe5466,"49897d10")
+        at(0xbe6234,"450fb6be3006000044887c24304584ff7409498b8628060000eb04498b4510")
+        at(0xbe6265,"4889459049894510")
+        at(0xbe68e0,"40387c2430740cc6853201000001493bdd")
+        at(0xbe69e6,"f3410f104508");self.assertEqual(self.call_target(0xbe69f1),0xa42e80)
+        self.assertEqual(struct.unpack_from('<f',image,0x1527f98)[0],20.0)
+        at(0xbed039,"0fb687c87b01004c8be33c0773114c69e0480600004981c4d04f01004c03e7498bcce8f080ffff")
 
     def test_client_component_and_item_semantics(self):
         ts=json.loads((ROOT/f"sigdb/types/client/{SHA}.json").read_text())["types"]
