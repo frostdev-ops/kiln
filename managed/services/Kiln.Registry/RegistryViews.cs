@@ -308,6 +308,7 @@ public sealed class RegistryView
 
     /// <summary>A field by its Kiln path (an index reads as the list's row); null when the view has none.</summary>
     /// <param name="path">The field's Kiln path (<c>"xpReward"</c>, <c>"rewardItems[2].count"</c>).</param>
+    /// <returns>The field's description (type, element, values, whether it reads on this build), or null.</returns>
     /// <exception cref="ArgumentException"><paramref name="path"/> is null or empty.</exception>
     /// <exception cref="KilnUnavailableException">Kiln serves no views here yet.</exception>
     [AnyThread, RequiresCapability(RegistryViews.Service)]
@@ -480,6 +481,8 @@ public sealed class RegistryViewEntry
     /// <param name="field">A Kiln path.</param>
     /// <param name="value">The value.</param>
     /// <param name="reason">Why it did not read, in Kiln words.</param>
+    /// <typeparam name="T">The type to read the value as (see <see cref="Get{T}"/>).</typeparam>
+    /// <returns>True when the field read and converted.</returns>
     [AnyThread, RequiresCapability(RegistryViews.Service)]
     public bool TryGet<T>(string field, [MaybeNullWhen(false)] out T value, [NotNullWhen(false)] out string? reason)
     {

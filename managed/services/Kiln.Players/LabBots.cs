@@ -123,6 +123,7 @@ public static unsafe class LabBots
     public const int Max = 4;
 
     /// <summary>Whether bots can join now, and why not.</summary>
+    /// <returns>The status: whether bots may join, how many are live and the reason when they may not.</returns>
     /// <exception cref="KilnUnavailableException">kiln.labbot is not here (not a server, or not installed).</exception>
     public static LabBotStatus Status()
     {
@@ -184,6 +185,8 @@ public static unsafe class LabBots
 
     /// <summary>Ends a bot's game: a logout (the final save, then the game removes it), or <paramref name="drop"/> as
     /// a lost connection. A bot not yet in game always drops.</summary>
+    /// <param name="id">A live bot's id (from <see cref="Join"/>).</param>
+    /// <param name="drop">True: a lost connection (no final save). False: a logout.</param>
     /// <exception cref="ArgumentException">No live bot of that id.</exception>
     /// <exception cref="KilnUnavailableException"><c>labbot.join</c> is off.</exception>
     [ServerOnly]
@@ -241,6 +244,8 @@ public static unsafe class LabBots
     /// world is loaded): the game marks the bot's actor ready for gameplay only then, and a use of an item, its control
     /// programs and the readiness checks of the game wait for it. A bot says nothing until this is called. Kiln writes it
     /// into the bot's input every server frame from now on while the bot is in game. Since 0.2.0-dev.32 (lab only).</summary>
+    /// <param name="id">A live bot's id.</param>
+    /// <param name="ready">True (the default): it says its client is ready; false: it says it is not.</param>
     /// <exception cref="ArgumentException">No live bot of that id.</exception>
     /// <exception cref="KilnUnavailableException"><c>labbot.join</c> is off, or kiln.labbot cannot write a bot's input on
     /// this build or is older (kiln.log says why).</exception>
