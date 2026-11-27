@@ -1,0 +1,22 @@
+{
+  "format": 1,
+  "part": 0,
+  "edits": [
+    {"kind": "random", "box": {"x": 5960, "y": 1760, "z": 3136, "sizeX": 64, "sizeY": 64, "sizeZ": 64}, "seed": 32110,
+     "palette": [{"material": 0}, {"material": 0}, {"material": 1}, {"material": 2}, {"material": 3},
+                 {"material": 3, "fill": 128}, {"material": 17, "fill": 9}, {"material": 2, "fill": 250},
+                 {"material": 116, "fill": 60}, {"material": 150, "fill": 200}, {"material": 140}]},
+    {"kind": "fill", "box": {"x": 6100, "y": 1700, "z": 3280, "sizeX": 16, "sizeY": 600, "sizeZ": 16},
+     "cell": {"material": 2}},
+    {"kind": "empty", "tile": 1063}
+  ],
+  "checks": [
+    {"name": "random", "box": {"x": 5960, "y": 1760, "z": 3136, "sizeX": 64, "sizeY": 64, "sizeZ": 64}},
+    {"name": "pillar", "box": {"x": 6100, "y": 1700, "z": 3280, "sizeX": 16, "sizeY": 600, "sizeZ": 16}},
+    {"name": "pillar-base", "box": {"x": 6100, "y": 1400, "z": 3280, "sizeX": 16, "sizeY": 300, "sizeZ": 16}},
+    {"name": "untouched-983", "box": {"x": 6048, "y": 0, "z": 3104, "sizeX": 1, "sizeY": 2000, "sizeZ": 1}},
+    {"name": "seam-983-984", "box": {"x": 6136, "y": 1600, "z": 3150, "sizeX": 16, "sizeY": 300, "sizeZ": 16}},
+    {"name": "air-tile-1063", "box": {"x": 6000, "y": 0, "z": 3400, "sizeX": 4, "sizeY": 2000, "sizeZ": 4}},
+    {"name": "control-984", "box": {"x": 6200, "y": 0, "z": 3104, "sizeX": 1, "sizeY": 2000, "sizeZ": 1}}
+  ]
+}

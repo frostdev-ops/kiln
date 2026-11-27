@@ -22,7 +22,8 @@ void keen_hash128(const void* data, size_t len, uint8_t out[16], uint64_t seed =
 // {size, bytes 4..16 of the 128-bit hash}, as a ResourceContentReference stores it.
 ContentHash content_hash(const void* data, size_t len);
 
-// kiln.assets' spelling: <size>-<h0>-<h1>-<h2> in hex.
+// <size>-<h0>-<h1>-<h2>, all four in hex: the cook's own keys and names (carry.cpp parses it back). Not kiln.assets' text
+// (assets.json "hash", ContentHash.ToString), whose size is decimal.
 std::string content_hash_text(const ContentHash& h);
 
 }  // namespace kvb

@@ -261,8 +261,64 @@ has 8×16, 16×8 or 8² (386/194 B), so dimensions are per-tile, not constant fo
 Column: `{u16 verticalBlockCount,u16 controlByteCount,controls[],data[]}`. LSB-first continuation/value run codes;
 uniform material/fill runs or **10-bit compressed-block byte lengths**. The compressed 8³ codec separates material
 and fill runs, reading control bits at the front and literal bytes at the tail; it is not zstd/generic RLE. Output
-X-fastest, then Y, then Z. The independent verifier's decoder matched all 2000 live column cells. Full codec and
-bounded decoder stay in dossier chapter 19f, not a supported terrain encoder.
+X-fastest, then Y, then Z. The independent verifier's decoder matched all 2000 live column cells.
+
+### Kiln's tile codec, checker and lab pack (dev.32) [static] [data] [lab]
+
+Tools only: nothing here reaches mods, and `terrain.baked` stays off. `tools/kfc/kfc/voxeltile.py` reads and writes
+tiles (envelope, column runs, the 8³ block codec; its docstring is the format), `voxelworld.py` the
+VoxelWorldResource root (layout hash `0xce3a352f`, refused otherwise; grid, edge dimensions, reference patching),
+`terraincook.py` a lab qualification pack; `kfc.py terrain info|check|column|cook` runs them. Tests:
+`tools/kfc/tests/test_voxeltile.py` (synthetic) and `test_voxeltile_game.py` (the game's tiles, server or client
+folder). Details the bits settle, beyond the outline above:
+- A column run is `gamma(count)`, then 0 = uniform: a "new value" bit (0: the column's last uniform value, at first
+  air), after a 1 a "fill given" bit; the payload holds the material byte, then the fill byte. Without a fill byte the
+  fill is 0 for air and 255 otherwise: the per-request reader (server 0x8369c0) derives 0xff for any nonzero material,
+  building materials too [static]; the live column proves it for terrain, no lab a building material's, so Kiln's writer
+  always writes a building material's fill byte. 1 = `count` compressed blocks, one 10-bit length each. Payload in run
+  order. The reader fills its window to 25 bits per run header and does not refill inside one. The same reader does not
+  check the block decoder's result (0x8514b0's 9): a corrupt block is served as far as it decoded, so a bad tile is
+  refused offline, never handed to the game.
+- A block's material run takes a literal or the material of the run **before the last one** (at first 0); a fill run
+  a literal or the default (0 air, 255 terrain, the last literal building fill); a terrain partial fill (1..254) is one
+  cell without a run length. A block longer than 1023 bytes cannot be written (10-bit length): Kiln's writer refuses it.
+- **The game stores some one-value blocks compressed** (a 5-byte all-air block, mostly at a column's top; in fog a
+  7-byte material-16/fill-0 block), next to identical blocks it stores uniform: a choice of its encoder the cells do
+  not show. Kiln's writer rebuilds the game's columns byte for byte when it keeps that choice (`Column.compressed`);
+  without it 81.5% of all columns come out the same (solid level 6 97.5%, its coarser levels all but 37 columns; fog
+  59-80% per level, a tile 0-100%) and the rest differ only in those blocks.
+- **Every shipped tile** passes (2026-11-27, the lab2 server's files, game version 1287369 of 2026-11-04;
+  `kfc.py terrain check --all --canonical`, 2.5 h with 3 workers): 18,964 distinct tiles behind 20,268 references,
+  both parts, all seven levels, 5.59 GB; **0 refused**. Every rule the reader relies on holds, every compressed block
+  decodes, every tile's dimension bytes match the root's grid, the structural rebuild is byte-identical, and Kiln's
+  writer rebuilds all 16,295,808 columns byte for byte from their cells and the game's block layout. No shipped column
+  sets the unused bits of its last control byte, and no uniform run of a building material (128 and up) leaves out its
+  fill byte.
+- **Every tile reference's hash is the game's ContentHash of its bytes**: the GT review recomputed it
+  (`kfc.contenthash`) for all 18,964 tiles, 5.59 GB, and every one equals its reference, the key the game reads the
+  tile by (222 s with 3 workers: the pure-Python hash runs at about 7 MB/s, so `--hash` is cheap). The shipped
+  7,170-byte all-air tile (`021c0000 89b408f3 7ff5bfd7 deb84d26`, fog level 6) is exactly `empty_tile(32, 32)`. The
+  review also read 15 tiles (level-0 edge tiles, levels 2 to 6, both parts, 480 million cells) with the dossier's own
+  research decoder (19f `evidence/column_decode.py`): every cell equals `voxeltile`'s.
+- Coarser levels are **not** a simple function of level 6: over 894 mixed level-5 cells of tile 983's area, the fill is
+  within 1 of the mean of its 8 level-6 cells in 80%, the material is the majority of the filled children in 76%, and
+  level 5 keeps materials on empty cells (`0001` over `0000`/`0301`). A cooker's LOD filter has to be derived, not
+  assumed.
+
+[lab] `mods/tests/terrain-tile-test` (a fresh dedicated lab world, Kiln 0.2.0-dev.31.21 with this lane, 2026-11-27):
+the server reads a tile Kiln's writer made, and a reference moved to another shipped blob, exactly as the pack holds
+them. The pack (`kfc.py terrain cook`, the test's `plan.json`): solid level-6 tile 983 with a 64³ box of random cells
+(terrain and building materials, partial fills) and a 16×600×16 pillar through the ground, served by kiln.assets as
+one blob entry under the game's own ContentHash (an explicit `hash`); tile 1063 pointed at the shipped all-air blob (no
+blob entry); the patched root as a boot resource override. Read back through kiln.build: **8 PASS, 0 FAIL**. Both
+edited boxes, the re-encoded ground under the pillar, an untouched column (the dev.28 lab's `fde3693b…`), a box across
+the 983/984 seam, the reused air tile and a column of untouched tile 984 match the pack's cells (one SHA-256 per box),
+and the game's log has no "Could not find content". Server only: the coarser levels, voxelHashes and CPU displacement
+stay stale, and no client joined.
+
+kiln.assets reads a blob's `hash` text as `<size in decimal>-<h0>-<h1>-<h2>` (the words in hex). The first lab run
+wrote the size in hex: kiln.assets could not parse it, served the tile under the key it derives itself with no error,
+and the game logged `Could not find content '368de20f…' in kfc!` (tile 983 did not load).
 
 ### Current native anchors (Win64) [static]; Build calls also [lab]
 

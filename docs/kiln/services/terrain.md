@@ -50,14 +50,16 @@ Call it from mod code on the tick thread, on the server side (a dedicated server
   the measured overlay can make it look absent and allow a refill; naturally matching cells can require adoption.
 - **Large landscapes.** A region is at most 128 m across and 1,048,576 cells; every block it touches is saved in
   full (1 KiB before packing) and sent to every player near it like any edit. Baked terrain (replacing the shipped
-  tiles before the world loads) is not built: `terrain.baked` is off.
+  tiles before the world loads) is not built: `terrain.baked` is off. Its offline groundwork is tools and tests only,
+  and nothing of it reaches mods: a tile codec, a checker that all 18,964 shipped tiles pass, and a lab-only
+  qualification pack (`kfc.py terrain`, [docs/re/build.md](../../re/build.md) section 9).
 - Signed-distance sources, a blend of a heightfield with the ground, props and encounters: not in this version.
 
 ## Game tests
 | Check | What it settles | State |
 |---|---|---|
 | `19f-overlay-client` | an overlay on a world a player hosts, and as a joined player sees it: appears, collides, digs, survives a reload | unconfirmed real-game check |
-| `19f-terrain-client`, `19f-derived-companions` | a cooked terrain tile on a real client (the baked route's qualification) | open; no fixture in the client pass yet |
+| `19f-terrain-client`, `19f-derived-companions` | a cooked terrain tile on a real client (the baked route's qualification) | open on a client; on a dedicated server a Kiln-written tile and a reused shipped tile read back cell for cell (`mods/tests/terrain-tile-test`, 8 PASS in a lab, 2026-11-27); no client fixture yet |
 | `19f-base-exposure`, `19f-outer-tile` | removing a saved block; ground outside the shipped extent | deferred: no qualified primitive |
 
 ## Contract

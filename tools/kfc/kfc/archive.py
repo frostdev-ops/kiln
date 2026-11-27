@@ -21,6 +21,7 @@ Layout (Kiln's own reading of the 1285601 files; EMF re_content.md 1.1 gives the
 The static-map buckets are not needed for reading: the key and value arrays are parallel, so a reader builds its
 own dictionaries. Contents live in `<stem>_<container:03d>.dat` at `offset` (4 KiB aligned), `size` bytes.
 """
+import re
 import struct
 from collections import OrderedDict
 from pathlib import Path
@@ -142,18 +143,27 @@ class ResourceKey(tuple):
         return f"{self.guid}:{self[1]:08x}:{self[2]}"
 
 
+_ASSETS_TEXT = re.compile(r"([0-9]{1,10})-([0-9a-fA-F]{1,8})-([0-9a-fA-F]{1,8})-([0-9a-fA-F]{1,8})")
+_HEX32 = re.compile(r"[0-9a-fA-F]{32}")
+
+
 class ContentHash(tuple):
     """(size, h0, h1, h2): the 16-byte keen::ContentHash. Text forms: 32 hex digits of the 16 bytes, or kiln.assets'
-    "<size>-<h0>-<h1>-<h2>" (hex numbers)."""
+    "<size>-<h0>-<h1>-<h2>": the size in decimal, the hash words in hex (native/services/assets/util.cpp parse_hash,
+    Kiln.Assets ContentHash.ToString). Text is read as strictly as kiln.assets reads it: anything else is a ValueError."""
     __slots__ = ()
 
     def __new__(cls, size, h0=None, h1=None, h2=None):
         if isinstance(size, (bytes, bytearray)):
             return tuple.__new__(cls, struct.unpack("<4I", size[:16]))
         if isinstance(size, str):
-            if "-" in size:  # kiln.assets' spelling: <size>-<h0>-<h1>-<h2> in hex
-                return tuple.__new__(cls, tuple(int(x, 16) for x in size.split("-")))
-            return tuple.__new__(cls, struct.unpack("<4I", bytes.fromhex(size)))
+            m = _ASSETS_TEXT.fullmatch(size)  # kiln.assets' spelling: <decimal size>-<h0>-<h1>-<h2> (hex)
+            if m and int(m[1]) <= 0xFFFFFFFF:
+                return tuple.__new__(cls, (int(m[1]),) + tuple(int(x, 16) for x in m.groups()[1:]))
+            if _HEX32.fullmatch(size):
+                return tuple.__new__(cls, struct.unpack("<4I", bytes.fromhex(size)))
+            raise ValueError(f"{size!r}: a ContentHash is 32 hex digits, or kiln.assets' <size>-<h0>-<h1>-<h2> "
+                             f"(the size in decimal up to 4294967295, each word 1 to 8 hex digits)")
         if isinstance(size, dict):
             return tuple.__new__(cls, (size["size"], size["hash0"], size["hash1"], size["hash2"]))
         return tuple.__new__(cls, (size, h0, h1, h2))
@@ -169,8 +179,8 @@ class ContentHash(tuple):
         return self.raw().hex()
 
     def assets_text(self):
-        """kiln.assets' spelling (dump specs, assets.json): <size>-<h0>-<h1>-<h2> in hex."""
-        return "-".join(f"{x:x}" for x in self)
+        """kiln.assets' spelling (dump specs, assets.json "hash"): <size in decimal>-<h0>-<h1>-<h2> (8 hex digits)."""
+        return f"{self[0]}-{self[1]:08x}-{self[2]:08x}-{self[3]:08x}"
 
     __repr__ = __str__
 

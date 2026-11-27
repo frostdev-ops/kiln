@@ -376,6 +376,39 @@ class ReflectionTests(unittest.TestCase):
 
 
 # ---------------------------------------------------------------- helpers and vertex codecs
+class ContentHashTextTests(unittest.TestCase):
+    """kiln.assets' text form of a ContentHash (assets.json "hash", dump specs): the size in decimal, then the three
+    hash words in hex (native/services/assets/util.cpp parse_hash: "%u-%x-%x-%x"; Kiln.Assets ContentHash.ToString)."""
+
+    @staticmethod
+    def native_parse(text):  # what kiln.assets' sscanf("%u-%x-%x-%x") reads, or None where it reads fewer than 4
+        import re
+        m = re.fullmatch(r"(\d+)-([0-9a-fA-F]+)-([0-9a-fA-F]+)-([0-9a-fA-F]+)", text)
+        return tuple([int(m[1])] + [int(x, 16) for x in m.groups()[1:]]) if m else None
+
+    def test_the_size_is_decimal(self):
+        h = ContentHash(bytes.fromhex("021c000089b408f37ff5bfd7deb84d26"))   # the game's all-air level-6 terrain tile
+        self.assertEqual(h.assets_text(), "7170-f308b489-d7bff57f-264db8de")
+        self.assertEqual(self.native_parse(h.assets_text()), tuple(h))
+        big = ContentHash(760390, 0x22EB737D, 0xEF064FCF, 0x368DE20F)  # a size whose hex starts with a letter
+        self.assertEqual(self.native_parse(big.assets_text()), tuple(big))
+
+    def test_the_text_reads_back(self):
+        for h in (ContentHash(0, 0xE93D8778, 0x6D71D111, 0xFD535C96), ContentHash(760390, 1, 2, 3)):
+            self.assertEqual(ContentHash(h.assets_text()), h)
+
+    def test_text_kiln_assets_refuses_is_refused(self):
+        # the same rule as kiln.assets' parse_hash: digits only for the size (at most 0xffffffff), 1 to 8 hex digits per
+        # word, nothing before or after; the other form is exactly 32 hex digits. A refusal is a ValueError.
+        for text in (" 7170-1-2-3", "+7170-1-2-3", "7_170-1-2-3", "7170-0x1-2-3", "7170-1-2-3 ", "7170-1-2-3\n",
+                     "4294967296-1-2-3", "7170-100000000-2-3", "1c02-89b408f3-7ff5bfd7-deb84d26", "7170-1-2",
+                     "", "0" * 31, "0" * 34, "g" * 32, "021c0000 89b408f3 7ff5bfd7 deb84d26"):
+            with self.assertRaises(ValueError, msg=repr(text)):
+                ContentHash(text)
+        self.assertEqual(ContentHash("4294967295-1-a-FFFFFFFF"), (0xFFFFFFFF, 1, 10, 0xFFFFFFFF))
+        self.assertEqual(ContentHash("021C000089b408f37ff5bfd7deb84d26"), (7170, 0xF308B489, 0xD7BFF57F, 0x264DB8DE))
+
+
 class UtilTests(unittest.TestCase):
     def test_fnv_and_guid(self):
         self.assertEqual(fnv1a32("keen::RenderModel"), 0x177394C7)

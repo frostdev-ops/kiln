@@ -5,7 +5,8 @@ Latin source (its first regular face) and bold face, its other regular faces up 
 font_budget.h admit_default leaves the large CJK fallbacks out) and, for a Chinese, Japanese or Korean LANGUAGE
 (keen::LanguageId; 0, the default, for any other language), the regular faces of its own group. Read from the local game
 with tools/kfc at run time into OUT/ (outside the tree; never commit them),
-the files named as kiln.assets spells a content hash ("<size>-<h0>-<h1>-<h2>.bin", hex). The shim serves them to style.cpp's
+the files named by content hash ("<size>-<h0>-<h1>-<h2>.bin", all four in hex: the shim's own names, not kiln.assets' text,
+whose size is decimal; kfc is asked by the 32-hex-digit form, which reads one way only). The shim serves them to style.cpp's
 real readers (kiln_preview_font_resource). Prints OUT/UiFontResource.bin, or nothing when the game is not there.
 
     game_fonts.py OUT [--language ID] [--game DIR]
@@ -78,7 +79,7 @@ def main():
         name = f"{size:x}-{h0:x}-{h1:x}-{h2:x}"
         path = out / (name + ".bin")
         if not path.is_file() or path.stat().st_size != size:
-            run(*g, "content", name, "-o", str(path))
+            run(*g, "content", struct.pack("<4I", size, h0, h1, h2).hex(), "-o", str(path))
     print(res_file)
     return 0
 

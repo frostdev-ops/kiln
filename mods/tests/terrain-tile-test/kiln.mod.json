@@ -1,0 +1,9 @@
+{
+  "id": "terrain-tile-test",
+  "name": "Baked terrain tile lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "TerrainTileTest.dll",
+  "side": "server",
+  "clients": "none"
+}
