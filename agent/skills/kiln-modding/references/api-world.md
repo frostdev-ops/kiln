@@ -90,6 +90,20 @@ dev.28+: `Build.WriteIfUnchanged` writes only while the cells still are what you
 `Reason`, `Marked` and `Mirrored`, not just queue acceptance. `LimitsAt(level)` reads derived limits. Client UI/fog/placement
 checks remain pending; a failed rollback is explicitly reported and may leave changed state.
 
+## Terrain: overlays, and the baked tiles (dev.32 tooling)
+What a mod can do to the ground is an **overlay**: `Terrain.Apply(new TerrainPatch(...))` (Kiln.Terrain, server, tick thread) writes a
+bounded patch once per world through `Kiln.Build`, so the game saves it and vanilla clients see it. A region is at most 128 m
+across and 1,048,576 cells; it cannot be taken away again (`Forget` does not undo the cells: keep what you replaced yourself or use
+`Transient`); a palette names the game's materials only. Sample `OreVein`, pages `docs/kiln/modding/terrain-tiles.md` (a walkthrough for both), `docs/kiln/services/terrain.md`.
+
+**Baked terrain tiles** are the game's own shipped ground (18,964 tiles, 7 levels of detail), read by the game before a world loads.
+dev.32 adds **tools and tests only** for them (`tools/kfc`: `kfc.py terrain info|check|column|cook`, a tile codec, a checker that
+every shipped tile round-trips byte for byte, a lab qualification pack): **no mod API, no ABI, no format a mod can ship**, and
+`terrain.baked` stays off. So a mod cannot replace ground tiles yet: build an overlay. A lab dedicated server reads a Kiln-written
+tile and a reused shipped tile back cell for cell (`mods/tests/terrain-tile-test`, 8 checks); **no game client has shown** a cooked tile
+(holes, old horizon, seams across levels of detail, collision, a joined or hosted client). Say so, and do not promise "custom
+terrain" in a mod's description.
+
 ## Block queries and controlled breaking (30.6+, mod API 0.2.15)
 `Build.BlockAt`, `Build.FindWall` and `Build.BreakBox` (Kiln.Build). **Server tick, in Pre or Post only**: not from a world
 program or a Kiln task; a dedicated server or a hosting client is authoritative, a joined client cannot read or break the
