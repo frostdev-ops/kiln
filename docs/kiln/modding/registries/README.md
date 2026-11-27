@@ -60,6 +60,10 @@ XHL Unlimited Gifting Range (`limits.giftingRange`), More Flame Altars' altars a
 patches still edit them), and what those mods do beyond a number (Enemy Difficulty Limits' wider perception, More Flame Altars'
 merged bases): those stay their own hooks.
 
+Two paths agree on the difficulty bounds: where a mod set `difficulty.<setting>.min` or `.max`, Kiln's settings service
+(`Kiln.Settings`, kiln.settings) takes that bound in place of its own range, so a value the game keeps at start is one
+`Settings.Set` accepts ([services/settings.md](../../services/settings.md#the-registrys-bounds-since-dev32)).
+
 ## C# authoring (API 0.2.17)
 
 Reference `Registry` in `KilnServices` and opt into experimental diagnostic `KILNX031`. Published entry types remain in

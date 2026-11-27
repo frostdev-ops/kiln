@@ -10,6 +10,8 @@
 //   - the game's own altar check and gifting distance getter (sigdb limits/AltarLimit, limits/GiftRange), called: Kiln's hooks,
 //     installed at start for limits.maxAltars 20 and limits.giftingRange 500, answer 20 (over a scratch balancing table whose
 //     levels hold 255) and 500 m squared.
+//   - dev.32 review: kiln.settings accepts enemyDamageFactor 9 under the registry's bound 10 (and refuses 11; enemyHealthFactor
+//     keeps its own 4).
 using Kiln;
 
 namespace RegistryWorldTest;
@@ -65,6 +67,21 @@ public sealed class RegistryWorldTestMod : Mod
         }
     }
 
+    // dev.32 review (coordinator decision 1): Kiln's own settings write path takes the registry's raised bound (10) in place of
+    // its table's 5, and keeps the table's range where no mod set one (enemyHealthFactor: 4)
+    private void SettingsChecks()
+    {
+        var max = Kiln.Settings.Info("enemyDamageFactor").Max;
+        Check(Math.Abs(max - 10) < 1e-6, $"kiln.settings' range of enemyDamageFactor ends at the registry's 10 ({max}; its table says 5)");
+        var raised = Kiln.Settings.TrySet("enemyDamageFactor", 9.0, out _, out var why, resend: false);
+        Check(raised, $"kiln.settings accepts enemyDamageFactor 9 under the registry's bound 10{(raised ? "" : ": " + why)}");
+        var over = Kiln.Settings.TrySet("enemyDamageFactor", 11.0, out _, out var why2, resend: false);
+        Check(!over && why2.Contains("allowed 0.25 to 10"), $"kiln.settings refuses 11 above the registry's bound: {why2}");
+        var hp = Kiln.Settings.TrySet("enemyHealthFactor", 5.0, out _, out var why3, resend: false);
+        Check(!hp && why3.Contains("allowed 0.25 to 4"), $"control: enemyHealthFactor keeps kiln.settings' own range (no mod set its bound): {why3}");
+        Kiln.Settings.TrySet("enemyDamageFactor", 8.0, out _, out _, resend: false);  // the world's own value again
+    }
+
     private async Task Run()
     {
         try
@@ -89,6 +106,7 @@ public sealed class RegistryWorldTestMod : Mod
                 Check(Math.Abs(hp - 4) < 1e-6, $"difficulty.enemyHealthFactor.max is the game's 4 ({hp})");
             }
             LimitsChecks();
+            if (Kiln.Settings.Status.Ready) SettingsChecks();
             if (Kiln.Settings.Status.Ready)
             {
                 var dmg = Convert.ToDouble(Kiln.Settings.Get("enemyDamageFactor"));

@@ -233,7 +233,7 @@ identically on both builds; it now lives in the core file.)
 - Whether an in-game ban rewrites `enshrouded_server.json` while the server runs (it would write the startup
   `gameSettings`, undoing a `save()`).
 - `GameSettingsPresetsResource` (min/max/preset blocks, a game resource): its reader is the startup config loader (section 8);
-  kiln.settings' ranges still come from the readme.
+  kiln.settings' ranges still come from the readme, except a bound a mod set through the registry (section 8).
 
 ## 8. The settings' bounds and presets (`keen::GameSettingsPresetsResource`; dev.32 world-rules registry)
 
@@ -251,6 +251,7 @@ Server 26430253 (`f0d824be…`), static, capstone over the read-only copy; the r
   are up: a boot override of the resource at resources-ready is what it reads.
 - On this build the bounds are narrower than the server readme's ranges in places (`enemyDamageFactor` max 2.5, the readme and
   kiln.settings' catalog say 5). kiln.settings' own ranges (`native/services/settings/catalog.cpp`) are its own and do not follow
-  this resource.
+  this resource, except where a mod set a bound through the `difficulty` registry: since dev.32 kiln.settings takes that bound in
+  place of its own (`native/services/settings/bounds.cpp`, from the registry's report), so its write path accepts what the game keeps.
 - Kiln: the `difficulty` registry (`difficulty.<setting>.min`/`.max`, boot back-end); XHL Enemy Difficulty Limits raises seven
   `maxValues` to 100 through a resource patch on the same resource.
