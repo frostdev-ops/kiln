@@ -294,6 +294,7 @@ internal sealed partial class PetRoster
         _pets.Clear();
         _online.Clear();
         _receipts.Clear();
+        _retained.Clear();   // a closed world's operation ids never replay in the next one
         _epoch = _world.WorldEpoch;
         OnWorldChanged?.Invoke();
     }

@@ -438,6 +438,24 @@ public sealed class RosterTests : IDisposable
         Assert.Null(Roster.Get(pet.Id));
     }
 
+    // review of dev.32 pets (19d §5.3: closed world ids never replay): the operation ids of the world that ended were still
+    // retained, so the same id in the next world got the old world's answer (here: a pet that does not exist there)
+    [Fact]
+    public void An_operation_id_of_a_world_that_ended_is_a_new_request_in_the_next()
+    {
+        World.Join(A);
+        var id = Guid.NewGuid();
+        PetRoster.Op GrantOp() => new() { Kind = PetRoster.Kind.Grant, OperationId = id, OwnerKey = A, Definition = "mod-a:wolf", Payload = "grant|mod-a:wolf" };
+        var first = Run(Roster.Submit(GrantOp()));
+        Assert.True(first.Ok);
+        World.WorldEpoch = 2;
+        Step();
+        var again = Run(Roster.Submit(GrantOp()));
+        Assert.True(again.Ok, again.Reason);
+        Assert.NotEqual(first.Pet!.Id, again.Pet!.Id);
+        Assert.NotNull(Roster.Get(again.Pet.Id));   // a pet of this world
+    }
+
     // ---- the save ----
 
     [Fact]
