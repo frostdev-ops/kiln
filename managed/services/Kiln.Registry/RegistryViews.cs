@@ -116,7 +116,7 @@ public static class RegistryViews
 
     /// <summary>Kiln serves the views here (they open once the game's resources are loaded: before that, calls throw
     /// <see cref="KilnUnavailableException"/> with the reason).</summary>
-    [AnyThread]
+    [AnyThread, CapabilityGuard(Service)]
     public static bool Available => Backend() is not null;
 
     /// <summary>Every view, stable ones first. <see cref="KilnUnavailableException"/> when there are none yet.</summary>

@@ -64,6 +64,14 @@ public sealed class TablesTests
     [InlineData("P:Kiln.Crosshair.Available", "kiln.client.crosshair")]    // => CrosshairNative.Members != null && Capabilities.Is(...)
     [InlineData("P:Kiln.Crosshair.Available", "client.crosshair")]
     [InlineData("P:Kiln.PadInput.Available", "kiln.ui.input")]             // UiNative.Input == null: false
+    // dev.32 api-shape (docs lane C's C8): guarded the documented way, these still got KILN121
+    [InlineData("P:Kiln.Registry.Registry.Available", "kiln.registry")]       // [CapabilityGuard]: the host's transport
+    [InlineData("P:Kiln.Registry.Registry.Available", "kiln.registry.live")]
+    [InlineData("P:Kiln.Registry.RegistryViews.Available", "kiln.registry.view")]
+    [InlineData("P:Kiln.ItemCosts.StacksAvailable", "items.costs.exact")]  // => Runtime.StacksOn(), a seam asking the row
+    [InlineData("P:Kiln.ItemCosts.WearAvailable", "items.costs.wear")]
+    [InlineData("P:Kiln.Taming.Available", "taming.steps")]                // => TamingCaps.StepsOn() => Is(Capability)
+    [InlineData("P:Kiln.NativeTaming.Available", "taming.native")]
     public void Capability_guards(string property, string row) =>
         Assert.Contains(KilnApis.CapabilityGuards, g => g.StartsWith(property + "=", StringComparison.Ordinal) && g.Substring(property.Length + 1).Split(',').Contains(row));
 
@@ -99,6 +107,65 @@ public sealed class TablesTests
         var folders = Directory.GetDirectories(Path.Combine(repo, "managed/services")).Select(Path.GetFileName)
             .Where(n => n!.StartsWith("Kiln.")).Select(n => n!.Substring(5)).OrderBy(n => n, StringComparer.Ordinal);
         Assert.Equal(folders, KilnApis.Services.OrderBy(n => n, StringComparer.Ordinal));
+    }
+
+    // dev.32 api-shape (C8): every public static bool *Available of Kiln's API is a guard of the table, or named here with why
+    // it is none, so a new one cannot miss the table unseen (KILN121 would warn about code guarded the documented way).
+    private static readonly Dictionary<string, string> NotGuards = new(StringComparer.Ordinal)
+    {
+        ["P:Kiln.Sound.Available"] = "one row on one side, another on the other (ServerSide ? relay : local)",
+        ["P:Kiln.Voiceover.Available"] = "one row on one side, another on the other",
+        ["P:Kiln.Voiceover.NarrationAvailable"] = "one row on one side, another on the other",
+        ["P:Kiln.Vfx.Available"] = "one row on one side, another on the other",
+        ["P:Kiln.ScreenEffects.Available"] = "one row on one side, another on the other",
+        ["P:Kiln.NewContent.Available"] = "its summary names content.new; its code asks a table version, no row",
+        ["P:Kiln.Attributes.Available"] = "reads from a table (Ids(...) is not null), not the table",
+        ["P:Kiln.Arsenals.Available"] = "its code asks no row the scan can show",
+        ["P:Kiln.Bases.Available"] = "its code asks no row the scan can show",
+        ["P:Kiln.ClientSkills.Available"] = "its code asks no row the scan can show",
+        ["P:Kiln.ClientStations.Available"] = "a status read, no row",
+        ["P:Kiln.Content.TextAvailable"] = "a capability state read, not Capabilities.Is",
+        ["P:Kiln.Ecs.Available"] = "via World.Available in Kiln.Game (not scanned)",
+        ["P:Kiln.Factions.Available"] = "its code asks no row the scan can show",
+        ["P:Kiln.GameTree.Available"] = "a table or the SDK's bake (||)",
+        ["P:Kiln.GameTypes.Components.Available"] = "a table's count, no row",
+        ["P:Kiln.Gameplay.EntityEventsAvailable"] = "its code asks no row the scan can show",
+        ["P:Kiln.Network.Available"] = "a test transport or the table (||)",
+        ["P:Kiln.Offers.Available"] = "its code asks no row the scan can show",
+        ["P:Kiln.OriginalCode.Available"] = "the exe image read, no row",
+        ["P:Kiln.Pacing.Available"] = "a count of sites, no row",
+        ["P:Kiln.Quests.Available"] = "always true (the engine is managed)",
+        ["P:Kiln.Render.CameraAvailable"] = "a status read, no row",
+        ["P:Kiln.Saves.SnapshotStagingAvailable"] = "a cached answer before the check",
+        ["P:Kiln.Skills.Available"] = "always true (the tree runtime is managed)",
+        ["P:Kiln.Stations.Available"] = "a backend status read, no row",
+        ["P:Kiln.SteamMessages.Available"] = "its code asks no row the scan can show",
+        ["P:Kiln.Texts.Available"] = "a managed table read, no row",
+        ["P:Kiln.Ui.Menus.Available"] = "its code asks no row the scan can show",
+        ["P:Kiln.Ui.Screens.Available"] = "its code asks no row the scan can show",
+        ["P:Kiln.WorldTables.Available"] = "a merge state read, no row",
+    };
+
+    [Fact]
+    public void Every_public_Available_is_a_guard_or_named_as_none()
+    {
+        var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../.."));
+        var repo = Directory.Exists(Path.Combine(root, "managed/services")) ? root : FindRepo();
+        var available = new SortedSet<string>(StringComparer.Ordinal);
+        var line = new System.Text.RegularExpressions.Regex(@"^(\[[A-Z0-9]+\])?static (?<type>[\w.]+)\.(?<name>\w*Available)\.get -> bool$");
+        foreach (var file in Directory.EnumerateFiles(Path.Combine(repo, "managed"), "PublicAPI.*.txt", SearchOption.AllDirectories))
+        {
+            if (file.Replace('\\', '/').Contains("/tests/", StringComparison.Ordinal)) continue;
+            foreach (var text in File.ReadLines(file))
+                if (line.Match(text.Trim()) is { Success: true } m) available.Add($"P:{m.Groups["type"].Value}.{m.Groups["name"].Value}");
+        }
+        Assert.True(available.Count > 50, $"{available.Count} public *Available properties found under {repo}");
+        var guards = KilnApis.CapabilityGuards.Select(g => g[..g.IndexOf('=')]).ToHashSet(StringComparer.Ordinal);
+        var missing = available.Where(p => !guards.Contains(p) && !NotGuards.ContainsKey(p)).ToList();
+        Assert.True(missing.Count == 0, "public *Available properties neither in KilnApis.CapabilityGuards (regenerate it: gen-apis.sh) nor named " +
+            "in NotGuards with why: " + string.Join(", ", missing));
+        var stale = NotGuards.Keys.Where(p => guards.Contains(p) || !available.Contains(p)).ToList();
+        Assert.True(stale.Count == 0, "NotGuards rows that are guards now, or are no public API: " + string.Join(", ", stale));
     }
 
     private static string FindRepo([System.Runtime.CompilerServices.CallerFilePath] string self = "")

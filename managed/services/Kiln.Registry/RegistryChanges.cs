@@ -102,8 +102,10 @@ public static partial class Registry
         RegistryRuntime.Ready += Publish;
         if (RegistryRuntime.LastReady is { } ready) _lastReady = new(ready.Phase, ready.Generation, ready.World);
     }
-    /// <summary>The Host has the stage and live tables. Per-field availability is still reported by registry field capabilities.</summary>
-    [AnyThread]
+    /// <summary>The Host has the stage and live tables (capabilities <c>kiln.registry</c> and <c>kiln.registry.live</c>: the
+    /// analyzers' KILN121 takes a check of it as a check of both). Per-field availability is still reported by registry field
+    /// capabilities.</summary>
+    [AnyThread, CapabilityGuard("kiln.registry", "kiln.registry.live")]
     public static bool Available => RegistryRuntime.Available?.Invoke() == true;
     /// <summary>Raised after a complete stage/live application. A late subscriber gets a copied notification on its next tick.</summary>
     [TickThreadOnly]

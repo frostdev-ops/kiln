@@ -31,29 +31,88 @@ internal static class ApiScanGuards
         if (model.GetDeclaredSymbol(pd, ct) is not { IsStatic: true, Type.SpecialType: SpecialType.System_Boolean, GetMethod: not null })
             return null;
         var g = new Guard();
+        // dev.32 api-shape: Kiln's own declaration, where the code cannot show the row (a host-installed transport, a managed
+        // backend): [CapabilityGuard("row", ...)] (internal to Kiln, so mods cannot claim one)
+        foreach (var a in model.GetDeclaredSymbol(pd, ct)!.GetAttributes())
+            if (a.AttributeClass?.ToDisplayString() == "Kiln.CapabilityGuardAttribute" && a.ConstructorArguments is [{ Kind: TypedConstantKind.Array } rows])
+                foreach (var r in rows.Values)
+                    if (r.Value is string row && g.Rows.Add(row)) g.Why.Add($"[CapabilityGuard(\"{row}\")]");
         if (Getter(pd) is { } expr)
-        {
             foreach (var term in Terms(expr))
-            {
-                switch (model.GetSymbolInfo(term, ct).Symbol)
-                {
-                    case IMethodSymbol m when term is InvocationExpressionSyntax inv && (IsCapabilitiesIs(m) || WrapsIs(m, model.Compilation, ct)) &&
-                                              Constant(model, inv, ct) is { } row:
-                        if (g.Rows.Add(row)) g.Why.Add($"{m.Name}(\"{row}\")");
-                        break;
-                    case IPropertySymbol { IsStatic: true, Type.SpecialType: SpecialType.System_Boolean } q when q.GetDocumentationCommentId() is { } qid:
-                        g.Via.Add(qid);
-                        break;
-                    default:
-                        if (NotNull(term) is { } table && model.GetSymbolInfo(table, ct).Symbol is { } t && TableRow(t, model.Compilation, ct) is { } service)
-                            if (g.Rows.Add(service)) g.Why.Add($"{table} != null: Services.Get(\"{service}\")");
-                        break;
-                }
-            }
-        }
+                Ask(term, model, g, "", 0, ct);
         // { var t = AiNative.T; if (t == null) return false; ...; return ...; }: every other answer passed the check
         if (NullCheckFirst(pd, model, ct) is { } checkedRow && g.Rows.Add(checkedRow)) g.Why.Add($"returns false first when the table of {checkedRow} is null");
         return g.Rows.Count > 0 || g.Via.Count > 0 ? g : null;
+    }
+
+    // One term of a getter's && chain: the rows it always asks, into g (prefix: the helper calls it was reached through).
+    private static void Ask(ExpressionSyntax term, SemanticModel model, Guard g, string prefix, int depth, CancellationToken ct)
+    {
+        while (term is ParenthesizedExpressionSyntax p) term = p.Expression;
+        switch (model.GetSymbolInfo(term, ct).Symbol)
+        {
+            case IMethodSymbol m when term is InvocationExpressionSyntax inv && (IsCapabilitiesIs(m) || WrapsIs(m, model.Compilation, ct)) &&
+                                      Constant(model, inv, ct) is { } row:
+                if (g.Rows.Add(row)) g.Why.Add($"{prefix}{m.Name}(\"{row}\")");
+                return;
+            case IPropertySymbol { IsStatic: true, Type.SpecialType: SpecialType.System_Boolean } q when q.GetDocumentationCommentId() is { } qid && prefix.Length == 0:
+                g.Via.Add(qid);
+                return;
+        }
+        if (term is InvocationExpressionSyntax call && depth < 3)
+        {
+            // dev.32 api-shape: a test seam, a static delegate of the assembly whose initializer asks the row
+            // (ItemCosts: `Func<bool> StacksOn = () => Capabilities.Is(StacksCapability)`; Taming: `Func<string, bool> Is =
+            // name => Capabilities.Is(name)` called with the row), or a parameterless helper whose expression body does
+            // (Taming: `static bool StepsOn() => Is(Taming.Capability)`)
+            var callee = model.GetSymbolInfo(call.Expression, ct).Symbol;
+            if (callee is IFieldSymbol { IsStatic: true } or IPropertySymbol { IsStatic: true } &&
+                SymbolEqualityComparer.Default.Equals(callee.ContainingAssembly, model.Compilation.Assembly) &&
+                Initializer(callee, model.Compilation, ct) is { } lambda)
+            {
+                var lm = model.Compilation.GetSemanticModel(lambda.SyntaxTree);
+                switch (lambda)
+                {
+                    case ParenthesizedLambdaExpressionSyntax { ParameterList.Parameters.Count: 0, ExpressionBody: { } body } when call.ArgumentList.Arguments.Count == 0:
+                        foreach (var inner in Terms(body)) Ask(inner, lm, g, $"{prefix}{callee.Name}(): ", depth + 1, ct);
+                        return;
+                    case SimpleLambdaExpressionSyntax { ExpressionBody: InvocationExpressionSyntax { ArgumentList.Arguments: [{ Expression: IdentifierNameSyntax arg }] } body } sl
+                        when lm.GetSymbolInfo(body, ct).Symbol is IMethodSymbol inner && IsCapabilitiesIs(inner) && arg.Identifier.ValueText == sl.Parameter.Identifier.ValueText &&
+                             Constant(model, call, ct) is { } row:
+                        if (g.Rows.Add(row)) g.Why.Add($"{prefix}{callee.Name}(\"{row}\")");
+                        return;
+                }
+            }
+            if (callee is IMethodSymbol { IsStatic: true, Parameters.Length: 0, ReturnType.SpecialType: SpecialType.System_Boolean } helper &&
+                SymbolEqualityComparer.Default.Equals(helper.ContainingAssembly, model.Compilation.Assembly))
+                foreach (var r in helper.DeclaringSyntaxReferences)
+                    if (r.GetSyntax(ct) is MethodDeclarationSyntax { ExpressionBody.Expression: { } body } md && model.Compilation.SyntaxTrees.Contains(md.SyntaxTree))
+                    {
+                        var hm = model.Compilation.GetSemanticModel(md.SyntaxTree);
+                        foreach (var inner in Terms(body)) Ask(inner, hm, g, $"{prefix}{helper.Name}(): ", depth + 1, ct);
+                        return;
+                    }
+        }
+        if (prefix.Length == 0 && NotNull(term) is { } table && model.GetSymbolInfo(table, ct).Symbol is { } t && TableRow(t, model.Compilation, ct) is { } service)
+            if (g.Rows.Add(service)) g.Why.Add($"{table} != null: Services.Get(\"{service}\")");
+    }
+
+    // The lambda a static delegate field or property is initialised with (`= () => ...`, `{ get; } = x => ...`); null: none.
+    private static LambdaExpressionSyntax? Initializer(ISymbol member, Compilation compilation, CancellationToken ct)
+    {
+        foreach (var r in member.DeclaringSyntaxReferences)
+        {
+            var decl = r.GetSyntax(ct);
+            if (!compilation.SyntaxTrees.Contains(decl.SyntaxTree)) continue;
+            var value = decl switch
+            {
+                VariableDeclaratorSyntax v => v.Initializer?.Value,
+                PropertyDeclarationSyntax p => p.Initializer?.Value,
+                _ => null,
+            };
+            if (value is LambdaExpressionSyntax l) return l;
+        }
+        return null;
     }
 
     /// <summary>The row of the table a block getter tests first: before <c>if (t == null) return false;</c> (t a table, or

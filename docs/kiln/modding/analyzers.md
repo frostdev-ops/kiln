@@ -726,9 +726,14 @@ table is null before it returns anything else (`{ var t = AiNative.T; if (t == n
 getter that asks one row on a server and another on a client (`ServerSide ? relay : local`, `Sound.Available`,
 `Vfx.Available`) always asks neither, so it is no guard. For example `NoClip.Available` (rules.noclip),
 `Time.WeatherChoiceAvailable` (time.weather_choose), `Items.Fuel.Available` (items.fuel), `Content.GameDataAvailable`
-(kiln.gamedata), `Settings.Ready` (kiln.settings), `World.SupportsTrackedWrites` (world.tracked_writes). A service makes
-a property a guard by writing it that way: there is no attribute for it. `Saves.Available` is not one: it is
-`SavesRuntime.Ensure()`, which answers from a remembered state; ask `Capabilities.Is("kiln.saves")`.
+(kiln.gamedata), `Settings.Ready` (kiln.settings), `World.SupportsTrackedWrites` (world.tracked_writes). Since
+0.2.0-dev.32 a term may also be a test seam, a static delegate of the service whose initializer asks the row
+(`ItemCosts.StacksAvailable` => `Runtime.StacksOn()`, `() => Capabilities.Is(StacksCapability)`), or a parameterless
+helper whose expression body does (`Taming.Available` => `StepsOn()` => `Is(Taming.Capability)`); and where the code cannot
+show the row at all (a transport the host installs: `Registries.Available`, `RegistryViews.Available`), Kiln's own
+internal `[CapabilityGuard("row")]` says it (mods cannot use it). A test (`Every_public_Available_is_a_guard_or_named_as_none`)
+fails when a public `*Available` is neither in the table nor named with why it is none. `Saves.Available` is not one: it
+is `SavesRuntime.Ensure()`, which answers from a remembered state; ask `Capabilities.Is("kiln.saves")`.
 
 **Why.** contract.md: such a member throws `KilnUnavailableException` when its row is off (a game build Kiln does not
 know, a game client in its menu, a server without the service, a hook that faulted). Uncaught in `OnLoad`, a command
