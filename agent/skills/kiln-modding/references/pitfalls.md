@@ -169,3 +169,41 @@
 | `KILN_TASK_RESIDENT` alone, or a second resident task per owner (native) | `INVALID_ARGUMENT` | with `KILN_TASK_LONG_RUNNING`, one per owner; retry without the flag on an older Kiln |
 | `File.ReadAllText` on the harness's kiln.log (Kiln.TestKit) | fails on Windows while the harness writes it | `kiln.ReadLogFile()` (dev.29.19+) |
 | `read_original` / `code_state` on an address in an opened module (native) | `KILN_ERR_INVALID_ARGUMENT`: they cover the exe's `.text` only | `module_scan` for the module; compare its bytes yourself |
+
+## dev.32 additions
+
+Pets, taming, NPC dialogue, the new registries and exact costs are on a test build and have not been seen in a real game: report what
+only a player can see as "needs a client check". Server and client, edit caps and timing are where these bite.
+
+| Mistake | Result | Use instead |
+|---|---|---|
+| `Pets.*` (except `Define`, `Definition`, `Definitions`) or `Taming.*` on a joined client, off the tick thread, or in a Kiln task | `KilnUnavailableException` (a joined client has no server rows) or a wrong-thread error | server mod, tick thread; ask `Capabilities.Is("pets.records")` / `Is(Taming.Capability)` first; `await` the `Task<PetResult>` from a handler |
+| One `PetRequest` (or `Guid` request id of taming) reused for a new action | `RequestConflict`; or the first answer given back for 10 minutes | `PetRequest.New()` and `Guid.NewGuid()` for each action you mean; the same one only to resend a lost request |
+| A pet whose creature is wildlife, a farm animal, a flyer, a template name or a GUID | `CreatureUnsupported` / `CreatureUnknown`; or `ArgumentException` | a creatures-registry id (`game:enemy_...`) or your creature block; only enemies that walk are pets |
+| A pet or taming id with capitals or without your lower-case mod id | `ArgumentException` naming the field | `<mod id>:<name>`, lower case letters, digits, `-`, `_`, `.` |
+| Expecting a pet to fight, assist or defend by itself | it only follows: Kiln never attacks by itself | `Pets.Command(..., PetOrder.Attack, target, ...)` when your rule says so; read `TargetProtected` |
+| `Pvp = ByModRule` and nothing else | players stay protected: no pet fights another player | `Pets.SetHostile(a, b, true)` per character pair, when both agreed; `false` ends it |
+| Keeping a pet's body `EntityRef` | the body is made and retired by summon, down, dismiss and revive | keep the `PetId`; read `PetSnapshot.Body` when you need it (none unless Live) |
+| A revive cost of gear, an item the game lacks, or a count split over two stacks | `CostUnavailable` or nothing paid; the revive is refused with nothing taken | one plain stack item (1..999) and a stack that holds all of it |
+| Defining a taming with `game:` item ids in `OnLoad` of a dedicated server | the definition is not made (`DefinitionUnknown`, or an `ArgumentException` naming `$.steps[1].item`) | a `TamingBlock` (Kiln waits for the catalog), or define from a tick once `Items.Available` |
+| A client or UI that names a slot id for a cost | there is no such call: the server must read the slot | `Taming.Choices(...)` rows or `ItemSelection.Of` of an `Items.Read` slot, built on the server |
+| Calling `Advance` with an old token | `StaleStep`, nothing taken | keep the last `TamingResult.Progress` and build the next token from its `StepChallenge`, `Revision`, `CompletedSteps` |
+| Resubmitting a cost whose receipt is `Uncertain`, or refunding it | it may be paid twice; `Refund` never refunds an uncertain receipt | read `CostReceipt.State`; treat uncertain as paid until you know |
+| Promising a player who left a refund | it is not settled for an owner who is gone | tell players refunds are for players in the game |
+| Reading `NativeTamingState.TamedBy` | always null: the game records no tamer | decide credit in your mod |
+| `Npcs.*` guarded by `Npcs.Available` or `Capabilities.Is("npcspeech.bubble")` | false on a dedicated server, so a guarded mod shows nothing to anyone | call it; the server still sends to Kiln players |
+| A line over 200 characters, 2048 bytes for all languages of one line, 33 `Replace` lines | `ArgumentException` at the call | shorter lines; keep names and timers that change often out of texts (4,096 distinct texts per world) |
+| `SpeechPick.By` reading state that changed, with no `Refresh()` | players see the answer given one open ago | `Refresh()` after the state changes; the callback is on the host's tick thread |
+| `Suppress` on `Farewells` or `MenuLine`, a topic with `Close` and no `Reply`, 17 topics | `Ok: false`; the extra topics are left off until there is room | `Replace`/`Clear`; give `Close` a `Reply`; at most 16 topics per NPC across all mods |
+| An NPC mod that decides on both host and client | two answers, one per side | decide on the host (`Lifecycle.IsServerRunning`); players need Kiln 0.2.0-dev.32 for the menu parts |
+| `Registry.Reauthor` from inside `OnRegistry`, for another entry point, or without a `WorldLoad` point | returns `false` (reason in kiln.log): nothing re-authored | ask from the handler that saw the setting change, for `WorldLoad`, with `[RegistryEntryPoints(RegistryEntryPoint.WorldLoad)]` |
+| A tick-thread API (`Game.AssertTickThread`, a service's own check) inside a re-authored `OnRegistry` | `InvalidOperationException` ("runs off it"); the mod's passes then run on the tick, slower | read settings and game state before asking, in fields; `[AnyThread]` APIs (`Players.All`, `Progression.Get`) are fine |
+| More than the cap of edits of one registry in one call (4,096; `randomLoot` 16,384) | the whole call is refused (kiln.log, `registry.json`), never thrown; your other calls still apply | count fields not entries; split over `Alter` / `Final` or several `Registry.Change` calls; read `RegistrySchema.EditsPerCall` |
+| `world`, `difficulty`, `limits` or `balance` edits with `"clients": "none"` or a server-only mod | joined players' boot values differ from the server's; the join compares and warns | `GameStart` only, `"clients": "mod"`, `"side": "both"`; `kiln lint` says KL213 |
+| A relative edit (`mul`) over creatures with `game:*` | refused whole: most creatures lack sight or an arsenal | select `"has": ["enemy"]` or ids; in C# tell creatures by `Kind`, never by a 0 (`Resist.Fire == 0` means immune) |
+| A random-loot table id copied from another build, or one `game:world_*` id | a table whose first chest changed has a new id; edits naming the old one are refused | select by prefix (`game:labels_*`) and by values (`table.Rarity.Legendary.Mode == RandomLootMode.Set`) |
+| `RegistryViews` first read in a tick | 4 to 11 s for a registry's first read, 0.2 s to list an advanced view | read off the game's thread (`Task.Run`); views never write |
+| Editing the `gear` section through registry fields to "port" it | `levels`, a relative power with `levels`, save checks and pack order can change what the rule means | keep `gear` a data pack; `gearRules` keys are the `balance` fields and Kiln already writes them there |
+| Promising custom terrain tiles | no API: dev.32's tile work is tools only and `terrain.baked` stays off | `Terrain.Apply` overlays |
+| `"native": true` in the manifest of a mod meant for older Kilns | before dev.32 an unknown key warns and the mod is not opted in | keep `"advanced": true` (still works, no removal date) |
+| `LabBots` (Kiln.Players, experimental KILNX001) in a shipped mod | lab API: may change or go in any release | use it on your own test server only |
