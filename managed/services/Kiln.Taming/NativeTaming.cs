@@ -134,8 +134,9 @@ public sealed class NativeBaitEatenEvent : KilnEvent
 }
 
 /// <summary>The result of <see cref="NativeTaming.PetStep"/>. Since 0.2.0-dev.32.</summary>
-/// <param name="Ok">The animal's pet sequence started while it eats its bait: the step follows when its taming event
-/// fires (3.75 s on this build), unless the bait goes first.</param>
+/// <param name="Ok">The animal's pet sequence started while it eats its bait. That the game then counts the step (its
+/// taming event, 3.75 s in on this build, unless the bait goes first) is not proven yet: watch
+/// <see cref="NativeTamingProgressEvent"/> for the step itself.</param>
 /// <param name="Reason">Why not.</param>
 public sealed record NativeStepResult(bool Ok, string? Reason) : IKilnResult;
 
@@ -147,6 +148,13 @@ public static class NativeTaming
 {
     /// <summary>The capability.</summary>
     public const string Capability = "taming.native";
+
+    /// <summary>The capability of <see cref="PlaceBait"/>: a bait Kiln places that the game senses. Off on every build so far
+    /// (not proven).</summary>
+    public const string BaitCapability = "taming.native_bait";
+
+    internal const string BaitUnproven = "not proven: a bait Kiln spawns from its template has no bait marker and no animal sensed it in the lab "
+        + "(docs/re/taming.md 6), while a player could pick it up as a free item; a lab must show a placement the game senses first";
 
     /// <summary>True when the game's taming can be read and driven here.</summary>
     public static bool Available => NativeTamingRuntime.Available();
@@ -171,15 +179,22 @@ public static class NativeTaming
     /// <exception cref="ArgumentException">The creature is no tameable wild animal.</exception>
     /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
     /// <exception cref="KilnUnavailableException">The capability <c>taming.native</c> is off.</exception>
-    /// <remarks>Experimental (KILNX002): in the lab (docs/re/taming.md 6) a bait spawned from its template was not sensed
-    /// by a simulated wild animal 2.5 m away; whether the game senses it as one a player places is not proven yet.</remarks>
+    /// <exception cref="KilnUnavailableException">The capability <c>taming.native_bait</c> is off: on every build so far (see
+    /// remarks).</exception>
+    /// <remarks>Experimental (KILNX002), and refused until proven: in the lab (docs/re/taming.md 6) a bait spawned from its
+    /// template had no FoodBait marker and was not sensed by a simulated wild animal 2.5 m away, while any player could pick
+    /// it up as a free bait item. So <c>taming.native_bait</c> stays off (policy) and this throws, spawning nothing, until a
+    /// lab proves a placement the game senses.</remarks>
     [System.Diagnostics.CodeAnalysis.Experimental("KILNX002", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx002")]
     [TickThreadOnly]
     [RequiresCapability("taming.native")]
+    [RequiresCapability("taming.native_bait")]
     public static Task<EntityId> PlaceBait(EntityId creature, WorldPosition? at = null, double distance = 2.5)
     {
         Services.RequireTickThread("NativeTaming.PlaceBait");
         NativeTamingRuntime.Require("NativeTaming.PlaceBait");
+        if (!NativeTamingRuntime.BaitProven())
+            throw new KilnUnavailableException(NativeTaming.BaitCapability, "NativeTaming.PlaceBait: " + NativeTaming.BaitUnproven);
         if (NativeTamingRuntime.Read(creature) is not { Tameable: true, BaitTemplate: var bait } || bait == Guid.Empty)
             throw new ArgumentException($"{creature} is no tameable wild animal with a bait", nameof(creature));
         if (distance is < 0 or > 8) throw new ArgumentOutOfRangeException(nameof(distance), distance, "0 to 8 m, the game's own placement reach");
@@ -189,8 +204,8 @@ public static class NativeTaming
     }
 
     /// <summary>One step of the game's taming, made by the server: the animal plays its own synced pet sequence, the one a
-    /// player's petting starts, so the game counts the step itself (its TameWildlifeEvent, 3.75 s in, consumes the bait and
-    /// adds one). Refused, nothing played, unless the animal is eating its bait now and below its required steps. A step
+    /// player's petting starts, so the game may count the step itself (its TameWildlifeEvent, 3.75 s in, would consume the
+    /// bait and add one: not proven yet, see remarks). Nothing is written: it only plays the game's own sequence. Refused, nothing played, unless the animal is eating its bait now and below its required steps. A step
     /// costs a bait like the game's own; the step's cost to a player is the mod's.</summary>
     /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
     /// <exception cref="KilnUnavailableException">The capability <c>taming.native</c> is off.</exception>
@@ -271,6 +286,7 @@ internal static class NativeTamingRuntime
 
     internal static INativeTamingWorld World = new GameNativeTamingWorld();
     internal static Func<bool> Available = () => Capabilities.Is(NativeTaming.Capability);
+    internal static Func<bool> BaitProven = () => Capabilities.Is(NativeTaming.BaitCapability);
     internal static Action<KilnEvent> Sink = ev => Events.Post(ev);
 
     internal static void Require(string api)
@@ -355,6 +371,7 @@ internal static class NativeTamingRuntime
     {
         World = new GameNativeTamingWorld();
         Available = () => Capabilities.Is(NativeTaming.Capability);
+        BaitProven = () => Capabilities.Is(NativeTaming.BaitCapability);
         Sink = ev => Events.Post(ev);
         Listening = () => Events.HasSubscribers<NativeTamingProgressEvent>() || Events.HasSubscribers<NativeTamedEvent>() || Events.HasSubscribers<NativeBaitEatenEvent>();
         Watched.Clear();

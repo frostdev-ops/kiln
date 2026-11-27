@@ -177,6 +177,7 @@ public sealed class NativeTamingTests : IDisposable
     [Fact]
     public async Task Its_own_bait_is_placed_in_front_of_it_and_nothing_else_is()
     {
+        NativeTamingRuntime.BaitProven = () => true;   // the day a lab proves a placement the game senses
         _w.YawDeg = 90;  // facing +X
         var bait = await NativeTaming.PlaceBait(Dog);
         var (template, at) = Assert.Single(_w.Spawned);
@@ -243,5 +244,18 @@ public sealed class NativeTamingTests : IDisposable
         _w.Parts.Clear();
         NativeTamingRuntime.Tick(5);  // a Find would see no parts; nothing throws, nothing is posted
         Assert.Empty(_events);
+    }
+
+    // ---- review of dev.32 TAME ----------------------------------------------------------------------------------------
+
+    // PlaceBait spawned the bait template, which the lab showed no simulated animal senses (no FoodBait marker per entity,
+    // docs/re/taming.md 6), and which any player can pick up as a free bait item. Until a lab proves a placement the game
+    // senses, it refuses loudly (its own row, taming.native_bait, off by policy) and spawns nothing.
+    [Fact]
+    public void An_unproven_bait_placement_refuses_loudly_and_spawns_nothing()
+    {
+        var e = Assert.Throws<KilnUnavailableException>(() => { _ = NativeTaming.PlaceBait(Dog); });
+        Assert.Equal("taming.native_bait", e.Capability);
+        Assert.Empty(_w.Spawned);
     }
 }

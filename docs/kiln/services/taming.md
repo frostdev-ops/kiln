@@ -162,8 +162,8 @@ offer.
 | Call or event | What it is |
 |---|---|
 | `NativeTaming.Read(creature)` | the animal's taming now: tameable, progress, required steps, phase (wild, pursuing, eating, tamed, dead), its bait and favourite bait template, sensor range, eat time |
-| `NativeTaming.PlaceBait(creature)` | places its own favourite bait (no item is taken: the cost is the mod's). **Experimental (KILNX002)**: the lab's simulated dog did not sense a bait spawned this way |
-| `NativeTaming.PetStep(creature)` | one step made by the server: the animal plays its own synced pet sequence, so the game counts the step itself (refused unless it eats its bait and needs steps). **Experimental (KILNX002)**: the refusals are lab-proven, the counted step is not yet |
+| `NativeTaming.PlaceBait(creature)` | would place its own favourite bait. **Refused until proven** (`taming.native_bait` off, policy; KILNX002): a bait spawned from its template has no bait marker, the lab's simulated dog did not sense it, and a player could pick it up as a free item, so it throws and spawns nothing |
+| `NativeTaming.PetStep(creature)` | one step made by the server: the animal plays its own synced pet sequence (the game's own, as a player's petting starts it; nothing is written), so the game may count the step itself (refused unless it eats its bait and needs steps). **Experimental (KILNX002)**: the refusals are lab-proven; that the game counts the step is not, so `Ok` means only that the sequence started (watch `NativeTamingProgressEvent`) |
 | `NativeTamingProgressEvent`, `NativeTamedEvent`, `NativeBaitEatenEvent` | the watch, every 5 steps while anyone listens: progress (a step or a startle), the farm transformation, a bait eaten with or without a step |
 | `NativeStep` in a definition | Kiln's attempt waits for the game's own count, so a mod chooses native, Kiln steps, or both |
 

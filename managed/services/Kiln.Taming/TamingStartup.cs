@@ -43,6 +43,7 @@ internal static class TamingCaps
         // the game's taming is a sigdb feature the core reports; Kiln.Taming reads an animal's taming setup through
         // kiln.creatures (the Wildlife template by reflection path), so without that service it is lowered
         ServiceCaps.LowerFeatures("kiln.creatures", NativeTaming.Capability);
+        ServiceCaps.Report(NativeTaming.BaitCapability, CapabilityState.Unavailable, CapabilityReason.Policy, NativeTaming.BaitUnproven);
         ServiceCaps.Report(NativeObserve, CapabilityState.Unavailable, CapabilityReason.Policy,
             "not proven: the game records no player for a taming step; a lab with a signed-in player must show where the petting player is read");
     }

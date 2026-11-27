@@ -324,6 +324,7 @@ Kiln.WeakenStep.MaxHealthFraction.init -> void
 Kiln.WeakenStep.WeakenStep(double MaxHealthFraction) -> void
 abstract Kiln.TamingStep.<Clone>$() -> Kiln.TamingStep!
 abstract Kiln.TamingStep.Kind.get -> string!
+const Kiln.NativeTaming.BaitCapability = "taming.native_bait" -> string!
 const Kiln.NativeTaming.Capability = "taming.native" -> string!
 const Kiln.Taming.Capability = "taming.steps" -> string!
 override Kiln.FeedStep.<Clone>$() -> Kiln.FeedStep!
