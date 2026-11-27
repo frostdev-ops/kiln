@@ -287,6 +287,44 @@ int main() {
         CHECK(at(&r, "recipes[].craftingDuration").covered_by == "recipes.duration" && at(&r, "recipes[].craftingDuration").exact);
     }
 
+    // ---- review-int (J1 x the registry trial merge): a registry of kind "arrays" (randomLoot: the label tables and the world's
+    // scene tables, each source the elements of an array member of its own resource type) covers each source's elements, as
+    // the analyzers' hint table does since the integration (registrygen render_hints, one root per source). cover() looked at
+    // the registry's one resource type only, which an "arrays" registry does not have, so no field of the
+    // defaultLootLabelCollection or sceneRandomLoot views named randomLoot's rows
+    {
+        map::RegMap rl;
+        std::vector<std::string> errs;
+        CHECK(map::load_common(map::json::parse(R"({"regmap": 1, "registry": "randomLoot",
+            "entries": {"kind": "arrays", "sources": [
+              {"resourceType": "keen::DefaultLootLabelCollectionResource", "array": "lootSettings", "id": "id", "unnamed": "labels_%08x"},
+              {"resourceType": "keen::SceneRandomLootResource", "array": "lootSettings",
+               "usedBy": {"array": "lootContainer", "index": "lootSettingsIndex", "id": "nodeId"}, "unnamed": "world_%.8s_%08x"}]},
+            "rows": {
+              "level.mode": {"paths": ["modifier.level.mode"], "conv": "enum", "values": {"set": "Set", "add": "Add"}, "read": "now", "backend": "live"},
+              "level.value": {"paths": ["modifier.level.value"], "conv": "float", "read": "now", "backend": "live"}}})"),
+                               &rl.registries["randomLoot"], &errs) &&
+              errs.empty());
+        const P settings = list(st("keen::LootSettings", {{"id", leaf(TypeKind::Int)},
+                                                         {"modifier", st("keen::LootModifier", {{"level", st("keen::LootValue", {{"mode", en({"Set", "Add"})},
+                                                                                                                                 {"value", leaf(TypeKind::Float)}})}})}}));
+        const views::View lv = views::derive(root("keen::DefaultLootLabelCollectionResource", {{"lootSettings", settings}}), "defaultLootLabelCollection", none, &rl);
+        const views::View sv = views::derive(root("keen::SceneRandomLootResource", {{"lootSettings", settings},
+                                                                                    {"lootContainer", list(st("keen::LootContainer", {{"lootSettingsIndex", leaf(TypeKind::Int)}}))}}),
+                                             "sceneRandomLoot", none, &rl);
+        CHECK(at(&lv, "lootSettings[].modifier.level.value").covered_by == "randomLoot.level.value" && at(&lv, "lootSettings[].modifier.level.value").exact);
+        CHECK(at(&lv, "lootSettings[].modifier.level.mode").covered_by == "randomLoot.level.mode" && !at(&lv, "lootSettings[].modifier.level.mode").exact);
+        CHECK(at(&sv, "lootSettings[].modifier.level.value").covered_by == "randomLoot.level.value" && at(&sv, "lootSettings[].modifier.level.value").exact);
+        CHECK(at(&sv, "lootSettings[].modifier.level.mode").covered_by == "randomLoot.level.mode");
+        // what no row maps stays uncovered: an element's id, the scene's chest list
+        CHECK(at(&lv, "lootSettings[].id").path == "lootSettings[].id" && at(&lv, "lootSettings[].id").covered_by.empty());
+        CHECK(at(&sv, "lootContainer[].lootSettingsIndex").path == "lootContainer[].lootSettingsIndex" && at(&sv, "lootContainer[].lootSettingsIndex").covered_by.empty());
+        // another type with the same array member's name is no source of the registry
+        const views::View other = views::derive(root("keen::OtherLootResource", {{"lootSettings", settings}}), "otherLoot", none, &rl);
+        CHECK(at(&other, "lootSettings[].modifier.level.value").path == "lootSettings[].modifier.level.value" &&
+              at(&other, "lootSettings[].modifier.level.value").covered_by.empty());
+    }
+
     // ---- the catalog: every registry of the schema, a fixture registry with no code of its own, clashes
     {
         Schema schema = generated_schema();

@@ -161,8 +161,17 @@ void cover(View* v, const map::RegMap* rm) {
     if (!rm) return;
     std::vector<int> rank(v->fields.size(), 3);
     for (const auto& [reg, m] : rm->registries) {
-        if (m.entries.resource_type != v->type) continue;
-        const std::string base = m.entries.kind == map::EntryKind::Array ? m.entries.array + "[]." : "";
+        // where the registry's row paths start in this type: its root, or the element of the array member holding its entries;
+        // an "arrays" registry (randomLoot) has one such array per source, each of its own resource type (review-int)
+        std::string base;
+        bool here = false;
+        if (m.entries.kind == map::EntryKind::Arrays) {
+            for (const map::EntrySource& src : m.entries.sources)
+                if (src.resource_type == v->type && !src.array.empty()) base = src.array + "[].", here = true;
+        } else if (m.entries.resource_type == v->type) {
+            base = m.entries.kind == map::EntryKind::Array ? m.entries.array + "[]." : "", here = true;
+        }
+        if (!here) continue;
         for (const auto& [field, row] : m.rows) {
             if (field.find("[]") != std::string::npos) continue;  // element rows: their paths are from the list's element
             const bool exact = row.paths.size() == 1 && std::find(std::begin(kExactConvs), std::end(kExactConvs), row.conv) != std::end(kExactConvs);
