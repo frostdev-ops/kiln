@@ -9,6 +9,7 @@ The hand-made vectors follow the server's reader (0x82f840 envelope, 0x845860 co
 import random
 import struct
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -310,6 +311,55 @@ class WorldTest(unittest.TestCase):
         struct.pack_into("<i", bad, vw.LEVELS_AT + 16, 1 << 30)                   # a tile array outside the bytes
         with self.assertRaises(vw.WorldFormatError):
             vw.VoxelWorld(bytes(bad))
+
+
+class SyntheticArchive:
+    """The few calls terraincook makes of a Kfc, over synthetic_root: every tile is solid ground 32 cells deep."""
+    version = "synthetic"
+    path = "synthetic.kfc"
+
+    def __init__(self):
+        self.raw, _ = synthetic_root()
+        self.bundles = {vw.TYPE_HASH: {"layout": vw.LAYOUT_HASH}}
+        self.tiles = {}
+        for lv in vw.VoxelWorld(self.raw).levels:
+            for i, r in enumerate(lv.tiles):
+                bx, bz = lv.tile_blocks(*lv.tile_xz(i))
+                self.tiles[r.hash] = vt.build_tile(bx, bz, [vt.encode_column([SOLID1] * 4)] * (bx * bz))
+
+    def read(self, key):
+        return self.raw
+
+    def read_content(self, h):
+        return self.tiles[h]
+
+    def content_location(self, h):
+        return "synthetic" if h in self.tiles else None
+
+
+class CookPlanTest(unittest.TestCase):
+    BOX = {"x": 10, "y": 0, "z": 10, "sizeX": 2, "sizeY": 2, "sizeZ": 2}
+
+    def test_plans_with_bad_lists_or_check_boxes_are_refused(self):
+        # a check box is read back by the lab probe through kiln.build: one outside the world is refused like an edit's
+        # (below y = 0 the game's reader gives 0xff01, not the air the pack's tiles hold there)
+        from kfc import terraincook as tc
+        base = {"format": 1, "part": 0, "edits": [{"kind": "fill", "box": self.BOX, "cell": {"material": 2}}]}
+        bad = {
+            "edits not a list": {**base, "edits": 5},
+            "checks not a list": {**base, "checks": 5},
+            "a check not an object": {**base, "checks": [5]},
+            "a check box at x -1": {**base, "checks": [{"name": "c", "box": {**self.BOX, "x": -1}}]},
+            "a check box past the grid": {**base, "checks": [{"name": "c", "box": {**self.BOX, "z": 384}}]},
+            "a check box below y 0": {**base, "checks": [{"name": "c", "box": {**self.BOX, "y": -2}}]},
+            "a check box above the world": {**base, "checks": [{"name": "c", "box": {**self.BOX, "y": 127}}]},
+        }
+        for why, plan in bad.items():
+            with tempfile.TemporaryDirectory() as d, self.assertRaises(tc.PlanError, msg=why):
+                tc.cook(SyntheticArchive(), plan, d)
+        with tempfile.TemporaryDirectory() as d:   # the same plan with a box inside the world is cooked
+            r = tc.cook(SyntheticArchive(), {**base, "checks": [{"name": "c", "box": {**self.BOX, "y": 126}}]}, d)
+            self.assertEqual(r["checks"][0]["cells"], 8)
 
 
 if __name__ == "__main__":

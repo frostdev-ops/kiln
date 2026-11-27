@@ -22,7 +22,8 @@ Plan (JSON, world cells at level 6 as kiln.build's CellBox uses them: x, y, z an
 - `empty`: the whole tile becomes air (height-0 columns). Its bytes are the game's own air tile, so when the game ships
   that blob already (fog level 6 does) the pack reuses it by hash and adds no blob.
 - `checks`: boxes whose cells the receipt records (SHA-256 of the u16 cells, little-endian, x fastest, then y, then z),
-  read back from the pack's own tiles; a lab probe compares the server's reads with them.
+  read back from the pack's own tiles; a lab probe compares the server's reads with them. A box must lie inside the
+  world, as an edit's cells must (below y = 0 the game's reader gives 0xff01, which no tile holds).
 
 Output folder: assets/assets.json (a `resource` override of the root, a `blob` with an explicit `hash` per new tile),
 assets/terrain/*.bin, and receipt.json (game build, base fingerprints, every tile's old and new hash, the checks).
@@ -113,10 +114,21 @@ class Cooker:
         index, lx, lz = self._locate(x, y, z)
         self.tile(index).set(lx, y, lz, value)
 
+    def inside(self, box, where):
+        """Refuses a box that is not wholly inside the world (as the edits' cells are)."""
+        x, y, z, sx, sy, sz = box
+        cells = self.level.cells
+        if min(x, y, z) < 0 or x + sx > cells[0] or y + sy > cells[1] or z + sz > cells[2]:
+            raise PlanError(f"{where}: the box {x}, {y}, {z} + {sx} x {sy} x {sz} is not inside the world's "
+                            f"{cells[0]} x {cells[1]} x {cells[2]} cells")
+        return box
+
     def apply(self, plan):
         if not isinstance(plan, dict) or not set(plan) <= PLAN_KEYS or plan.get("format") != FORMAT:
             raise PlanError(f"a plan is {{format: {FORMAT}, part, edits, checks}}")
-        edits = plan.get("edits") or []
+        edits = plan.get("edits", [])
+        if not isinstance(edits, list):
+            raise PlanError("edits: a list")
         for n, e in enumerate(edits):
             where = f"edit {n}"
             kind = e.get("kind") if isinstance(e, dict) else None
@@ -169,6 +181,17 @@ def cook(kfc, plan, out, exe_sha256=None):
         raise PlanError("part is 0 (solid) or 1 (fog); guid a resource GUID")
     c = Cooker(kfc, part, guid)
     c.apply(plan)
+    plan_checks = plan.get("checks", [])
+    if not isinstance(plan_checks, list):
+        raise PlanError("checks: a list")
+    boxes = []
+    for n, ch in enumerate(plan_checks):
+        if not isinstance(ch, dict) or set(ch) != {"name", "box"} or not isinstance(ch["name"], str):
+            raise PlanError(f"check {n}: {{name, box}}")
+        box = c.inside(_box(ch["box"], f"check {n}"), f"check {n}")
+        if box[3] * box[4] * box[5] > MAX_EDIT_CELLS:
+            raise PlanError(f"check {n}: more than {MAX_EDIT_CELLS} cells")
+        boxes.append((ch["name"], box))
     new = c.tile_bytes()
     if not new:
         raise PlanError("the plan changes no tile")
@@ -207,18 +230,13 @@ def cook(kfc, plan, out, exe_sha256=None):
     # the checks, from the pack's own bytes (not from the plan): a fresh reader over the new tiles
     read = {i: vt.TileCells.from_bytes(b) for i, b in new.items()}
     checks = []
-    for n, ch in enumerate(plan.get("checks") or []):
-        if not isinstance(ch, dict) or set(ch) != {"name", "box"} or not isinstance(ch["name"], str):
-            raise PlanError(f"check {n}: {{name, box}}")
-        box = _box(ch["box"], f"check {n}")
-        if box[3] * box[4] * box[5] > MAX_EDIT_CELLS:
-            raise PlanError(f"check {n}: more than {MAX_EDIT_CELLS} cells")
+    for name, box in boxes:
         vals = []
         for x, y, z in box_cells(box):
             index, lx, lz = c.world.tile_of_cell(x, z)
             t = read.get(index) or c.tile(index)
             vals.append(t.get(lx, y, lz))
-        checks.append({"name": ch["name"], "box": dict(zip(("x", "y", "z", "sizeX", "sizeY", "sizeZ"), box)),
+        checks.append({"name": name, "box": dict(zip(("x", "y", "z", "sizeX", "sizeY", "sizeZ"), box)),
                        "cells": len(vals), "matter": sum(1 for v in vals if v >> 8), "sha256": cells_sha256(vals)})
     receipt = {
         "format": FORMAT, "kind": "kiln terrain qualification pack (lab only)",
