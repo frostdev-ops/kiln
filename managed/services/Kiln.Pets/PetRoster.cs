@@ -124,6 +124,7 @@ internal sealed partial class PetRoster
         public readonly List<PetState> Pets = [];
         public bool Dirty;
         public string? Unread;   // a document Kiln could not read: kept as it is, never overwritten
+        public readonly List<string> Kept = [];   // records of a read document that did not read: written back as they were
     }
 
     public PetRoster(IPetWorld world, IPetStore store)
@@ -407,9 +408,17 @@ internal sealed partial class PetRoster
             foreach (var line in problems) PetsRuntime.Log(LogLevel.Warn, $"Kiln.Pets: character {key}: {line}");
             if (doc is null) o.Unread = json;
             else
+            {
+                o.Kept.AddRange(doc.Kept ?? []);
                 foreach (var r in doc.Pets)
                 {
-                    if (_pets.ContainsKey(r.Id)) continue;  // one PetId, one owner
+                    if (_pets.ContainsKey(r.Id))
+                    {
+                        // one PetId, one owner: a record naming a pet another character holds stays in this document as it is
+                        PetsRuntime.Log(LogLevel.Warn, $"Kiln.Pets: character {key}: pet {r.Id} belongs to another character here; its record is kept, not used");
+                        o.Kept.Add(PetRecordJson.Record(r).ToJsonString());
+                        continue;
+                    }
                     var p = new PetState
                     {
                         Id = r.Id, Owner = key, Definition = r.Definition, Life = r.Life, WantsSummoned = r.WantsSummoned, Order = r.RequestedOrder,
@@ -420,6 +429,7 @@ internal sealed partial class PetRoster
                     o.Pets.Add(p);
                     _pets[p.Id] = p;
                 }
+            }
         }
         _owners[key] = o;
         return o;
@@ -1171,8 +1181,8 @@ internal sealed partial class PetRoster
         foreach (var o in _owners.Values)
         {
             if (!o.Dirty || o.Unread is not null) continue;
-            if (o.Pets.Count == 0) _store.Delete(o.Key);
-            else _store.Write(o.Key, PetRecordJson.Write(new PetRecordDoc(o.Key, o.Pets.Select(x => x.Record()).ToList())));
+            if (o.Pets.Count == 0 && o.Kept.Count == 0) _store.Delete(o.Key);
+            else _store.Write(o.Key, PetRecordJson.Write(new PetRecordDoc(o.Key, o.Pets.Select(x => x.Record()).ToList(), o.Kept)));
             o.Dirty = false;
         }
     }

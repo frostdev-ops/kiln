@@ -8,7 +8,11 @@ using System.Text.Json.Nodes;
 
 namespace Kiln;
 
-internal sealed record PetRecordDoc(CharacterKey Owner, IReadOnlyList<PetRecordData> Pets);
+/// <param name="Owner">The character.</param>
+/// <param name="Pets">The records Kiln read.</param>
+/// <param name="Kept">Records that did not read (or name a pet another character holds), as their JSON: written back as they
+/// were, never dropped by the next write.</param>
+internal sealed record PetRecordDoc(CharacterKey Owner, IReadOnlyList<PetRecordData> Pets, IReadOnlyList<string>? Kept = null);
 
 internal sealed record PetRecordData
 {
@@ -32,24 +36,11 @@ internal static class PetRecordJson
     public static string Write(PetRecordDoc doc)
     {
         var pets = new JsonArray();
-        foreach (var p in doc.Pets)
+        foreach (var p in doc.Pets) pets.Add(Record(p));
+        foreach (var raw in doc.Kept ?? [])
         {
-            var o = new JsonObject
-            {
-                ["id"] = p.Id.Value.ToString("N"),
-                ["definition"] = p.Definition,
-                ["life"] = (int)p.Life,
-                ["wantsSummoned"] = p.WantsSummoned,
-                ["requestedOrder"] = p.RequestedOrder == PetOrder.Stay ? "stay" : "follow",
-                ["level"] = p.Level,
-                ["healthFraction"] = Math.Clamp(double.IsFinite(p.HealthFraction) ? p.HealthFraction : 0, 0, 1),
-                ["lastHealthMax"] = Math.Max(0, p.LastHealthMax),
-                ["stateRevision"] = p.StateRevision,
-            };
-            if (p.RecoveryAnchor is { } a && double.IsFinite(a.X) && double.IsFinite(a.Y) && double.IsFinite(a.Z))
-                o["recoveryAnchor"] = new JsonObject { ["world"] = p.AnchorWorld ?? "", ["x"] = a.X, ["y"] = a.Y, ["z"] = a.Z };
-            else o["recoveryAnchor"] = null;
-            pets.Add(o);
+            try { pets.Add(JsonNode.Parse(raw)); }
+            catch (JsonException) { /* never: it was read from a document */ }
         }
         var root = new JsonObject
         {
@@ -60,8 +51,29 @@ internal static class PetRecordJson
         return root.ToJsonString();
     }
 
-    /// <summary>Reads a document; a record that does not read is skipped (and named in <paramref name="problems"/>), never
-    /// guessed. A document of a newer schema is not read at all.</summary>
+    /// <summary>One record as schema 1 writes it.</summary>
+    internal static JsonObject Record(PetRecordData p)
+    {
+        var o = new JsonObject
+        {
+            ["id"] = p.Id.Value.ToString("N"),
+            ["definition"] = p.Definition,
+            ["life"] = (int)p.Life,
+            ["wantsSummoned"] = p.WantsSummoned,
+            ["requestedOrder"] = p.RequestedOrder == PetOrder.Stay ? "stay" : "follow",
+            ["level"] = p.Level,
+            ["healthFraction"] = Math.Clamp(double.IsFinite(p.HealthFraction) ? p.HealthFraction : 0, 0, 1),
+            ["lastHealthMax"] = Math.Max(0, p.LastHealthMax),
+            ["stateRevision"] = p.StateRevision,
+        };
+        if (p.RecoveryAnchor is { } a && double.IsFinite(a.X) && double.IsFinite(a.Y) && double.IsFinite(a.Z))
+            o["recoveryAnchor"] = new JsonObject { ["world"] = p.AnchorWorld ?? "", ["x"] = a.X, ["y"] = a.Y, ["z"] = a.Z };
+        else o["recoveryAnchor"] = null;
+        return o;
+    }
+
+    /// <summary>Reads a document; a record that does not read is not used (and named in <paramref name="problems"/>), never
+    /// guessed, and comes back in <see cref="PetRecordDoc.Kept"/> as it was. A document of a newer schema is not read at all.</summary>
     public static PetRecordDoc? Read(string json, CharacterKey owner, List<string>? problems = null)
     {
         JsonObject? root;
@@ -72,12 +84,21 @@ internal static class PetRecordJson
             return null;
         }
         if (root is null) return null;
-        if (root["schema"]?.GetValue<int>() is not { } schema || schema > Schema)
+        int? schema;
+        try { schema = root["schema"]?.GetValue<int>(); }
+        catch (Exception e) when (e is InvalidOperationException or FormatException) { schema = null; }
+        if (schema is null || schema > Schema)
         {
-            problems?.Add($"schema {root["schema"]} is newer than this Kiln's {Schema}: kept as it is, not read");
+            problems?.Add($"schema {root["schema"]?.ToJsonString()} is not one this Kiln reads ({Schema}): kept as it is, not read");
+            return null;
+        }
+        if (root["pets"] is not null and not JsonArray)
+        {
+            problems?.Add("pets is not a list: kept as it is, not read");
             return null;
         }
         var list = new List<PetRecordData>();
+        var kept = new List<string>();
         foreach (var n in root["pets"] as JsonArray ?? [])
         {
             try
@@ -113,10 +134,11 @@ internal static class PetRecordJson
             }
             catch (Exception e) when (e is FormatException or InvalidOperationException or NullReferenceException or JsonException or ArgumentException)
             {
-                problems?.Add($"a pet record does not read ({e.Message}): skipped, the document is kept");
+                problems?.Add($"a pet record does not read ({e.Message}): it is kept as it is");
+                if (n is not null) kept.Add(n.ToJsonString());
             }
         }
-        return new PetRecordDoc(owner, list);
+        return new PetRecordDoc(owner, list, kept);
     }
 
     /// <summary>The revisions a staged bundle's bytes hold: pet id to (state revision, life). The receipt reads exactly what

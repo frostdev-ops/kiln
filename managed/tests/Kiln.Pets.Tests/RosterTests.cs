@@ -549,6 +549,39 @@ public sealed class RosterTests : IDisposable
         Store.Stage(1, snapshot: true);
         Assert.Equal("{\"schema\":99,\"pets\":[]}", Store.Docs[A]);
     }
+
+    // review of dev.32 pets: a record that did not read (or named a pet another character holds) was left out of the roster
+    // and so out of the character's next document: the next save of another change erased it for good
+    [Fact]
+    public void A_record_that_does_not_read_is_written_back_as_it_was()
+    {
+        var good = Guid.NewGuid().ToString("N");
+        Store.Docs[A] = "{\"schema\":1,\"pets\":[{\"id\":\"" + good + "\",\"definition\":\"mod-a:wolf\",\"life\":0,\"stateRevision\":3}," +
+                        "{\"id\":\"not-a-guid\",\"definition\":\"mod-a:wolf\",\"life\":0,\"note\":\"kept\"}]}";
+        Store.Docs[B] = "{\"schema\":1,\"pets\":[{\"id\":\"" + good + "\",\"definition\":\"mod-a:wolf\",\"life\":0,\"stateRevision\":9}]}";
+        World.Join(A);
+        World.Join(B);
+        Assert.Single(Roster.Of(A));
+        Assert.Empty(Roster.Of(B));   // one PetId, one owner
+        Grant(A);                      // both documents are written again
+        Grant(B);
+        Store.Stage(1, snapshot: true);
+        Assert.Contains("{\"id\":\"not-a-guid\",\"definition\":\"mod-a:wolf\",\"life\":0,\"note\":\"kept\"}", Store.Docs[A], StringComparison.Ordinal);
+        Assert.Equal(2, PetRecordJson.Read(Store.Docs[A], A)!.Pets.Count);
+        Assert.Contains(good, Store.Docs[B], StringComparison.Ordinal);
+        Assert.Equal(2, PetRecordJson.Read(Store.Docs[B], B)!.Pets.Count);
+    }
+
+    [Fact]
+    public void A_document_with_a_schema_that_is_not_a_number_is_kept_and_never_overwritten()
+    {
+        Store.Docs[A] = "{\"schema\":\"one\",\"pets\":[]}";
+        World.Join(A);
+        Step();
+        Assert.Empty(Roster.Of(A));
+        Store.Stage(1, snapshot: true);
+        Assert.Equal("{\"schema\":\"one\",\"pets\":[]}", Store.Docs[A]);
+    }
 }
 
 public sealed class UnloadTests : IDisposable
