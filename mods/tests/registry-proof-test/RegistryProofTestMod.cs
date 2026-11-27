@@ -35,7 +35,7 @@ public sealed unsafe partial class RegistryProofTestMod : Mod
         public fixed byte Reason[192];
     }
     private const uint Manual = 4, Applied = 0, Refused = 2, Reverted = 5;
-    private static readonly string[] Live = { "items", "recipes", "loot", "drops" };
+    private static readonly string[] Live = { "items", "recipes", "loot", "drops", "lootRules", "randomLoot" };
     private byte* _table;
     private ulong _owner;
     private int _pass, _fail;
@@ -134,8 +134,17 @@ public sealed unsafe partial class RegistryProofTestMod : Mod
     // ---- the game's side ----
     private static ContentRegistry RegistryOf(string name) => name switch
     {
-        "items" => Content.Items, "recipes" => Content.Recipes, "loot" => Content.Loot, _ => Content.Drops,
+        "items" => Content.Items, "recipes" => Content.Recipes, "loot" => Content.Loot,
+        // kiln.content serves the random-loot rules and tables as kinds 5 and 6 (KILN_CONTENT_LOOT_RULES / RANDOM_LOOT); Content
+        // has no public property for them (the registries are their API), so the lab reaches them by kind, as it reaches
+        // kiln.registry.live through the internal bridge
+        "lootRules" => ByKind(5), "randomLoot" => ByKind(6),
+        _ => Content.Drops,
     };
+
+    private static ContentRegistry ByKind(int kind) =>
+        (ContentRegistry)Activator.CreateInstance(typeof(ContentRegistry), BindingFlags.Instance | BindingFlags.NonPublic, null,
+            new object[] { (ContentKind)kind }, CultureInfo.InvariantCulture)!;
 
     private static AssetKey? ResourceOf(string registry, ContentEntry e)
     {
@@ -144,8 +153,18 @@ public sealed unsafe partial class RegistryProofTestMod : Mod
             "items" => new AssetKey(e.Guid, "keen::ItemInfo"),
             "drops" => new AssetKey(e.Guid, "keen::ecs::DefaultInventoryResource"),
             "recipes" => First("keen::RecipeRegistryResource"),
+            // a label table lives in the one label collection; a world table in the scene resource its name starts with
+            "randomLoot" when e.Name.StartsWith("world_", StringComparison.Ordinal) => Scene(e.Name),
+            "randomLoot" => First("keen::DefaultLootLabelCollectionResource"),
             _ => First("keen::LootableItemsResource"),
         };
+        static AssetKey? Scene(string name)
+        {
+            var head = name.Length >= 14 ? name.Substring(6, 8) : "";
+            foreach (var k in Assets.ListResources(Assets.TypeHash("keen::SceneRandomLootResource")))
+                if (k.Guid.ToString().StartsWith(head, StringComparison.OrdinalIgnoreCase)) return k;
+            return null;
+        }
         static AssetKey? First(string type)
         {
             var keys = Assets.ListResources(Assets.TypeHash(type));
