@@ -3,7 +3,7 @@
 #nullable enable
 namespace Kiln.Registry;
 
-/// <summary>An entry of the creatures registry. Every creature the game defines: enemies, wildlife, farm animals and villagers: their level, faction, size, health and damage scaling, resistances, speeds, random loot and the enemy's sight. An edit is global: every creature of the entry, now or later, as the field says.</summary>
+/// <summary>An entry of the creatures registry. Every creature the game defines: enemies, wildlife, farm animals and villagers: their level, faction, size, health and damage scaling, resistances, speeds, random loot, the enemy's sight, and a wild animal's taming (tameable, steps, favourite bait). An edit is global: every creature of the entry, now or later, as the field says.</summary>
 [global::System.Diagnostics.CodeAnalysis.Experimental("KILNX031", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/registries/creatures.md")]
 public sealed partial class CreatureEntry : IRegistryEntry
 {
@@ -62,6 +62,18 @@ public sealed partial class CreatureEntry : IRegistryEntry
 
     /// <summary>What an enemy sees. Read at once by every enemy of the entry, also those already in the world.</summary>
     public CreatureSight Sight => new(_c, _i);
+
+    /// <summary>Whether the game lets the creature be tamed its own way: a wild animal whose template allows taming (a dog, a cat, a goat, a bunny, a catdeer, a turkey, a yak, a capybara, a sanddigger). Null for a creature that is no wild animal. Read only in this release.</summary>
+    [RegistryField("creatures.tameable", RegistryApplies.Now, JoinedClient = "serverOnly")]
+    public bool Tameable => RegistryCells.Bool(_c, CreatureFields.Tameable, _i);
+
+    /// <summary>How many of the game's taming steps (a petting while the animal eats its favourite bait) tame a tameable wild animal into a farm animal. Read at once by every animal of the entry, also those already in the world (the game keeps it in the template only); an animal whose progress already reaches the new number is tamed at its next update. Null for a creature that is no wild animal.</summary>
+    [RegistryField("creatures.tamingSteps", RegistryApplies.Now, JoinedClient = "serverOnly")]
+    public int TamingSteps { get => RegistryCells.Int(_c, CreatureFields.TamingSteps, _i); set => RegistryCells.Set(_c, CreatureFields.TamingSteps, _i, value); }
+
+    /// <summary>The bait a tameable wild animal eats (the template its bait item places, game:foodbait_t2_dog for a dog); none for an animal with no favourite bait. Read only in this release.</summary>
+    [RegistryField("creatures.favoriteBait", RegistryApplies.Now, JoinedClient = "serverOnly")]
+    public RegistryId? FavoriteBait => RegistryCells.OptionalId(_c, CreatureFields.FavoriteBait, _i);
 }
 
 /// <summary>How the creature's health grows. Health itself comes from its level through the game's formulas.</summary>
@@ -351,4 +363,7 @@ internal static class CreatureFields
     internal const int Arsenal = 0x00070023;
     internal const int SightRange = 0x00070024;
     internal const int SightEngageRange = 0x00070025;
+    internal const int Tameable = 0x00070026;
+    internal const int TamingSteps = 0x00070027;
+    internal const int FavoriteBait = 0x00070028;
 }

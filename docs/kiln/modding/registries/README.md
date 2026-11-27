@@ -44,7 +44,7 @@ registry has a breaking step yet: every schema is 0.1.0, and Kiln ships no migra
 | `loot` | random loot per item: stack sizes, rarities | [loot.md](loot.md) |
 | `drops` | the game's drop tables (default inventories) | [drops.md](drops.md) |
 | `balance` | the balance table: experience, levels, flame, durability, sockets, perk costs | [balance.md](balance.md) |
-| `creatures` | every creature (enemies, wildlife, farm animals, villagers): level, faction, size, health and damage scaling, resistances, speeds, random loot, sight; its kind and arsenal read-only (since dev.32) | [creatures.md](creatures.md) |
+| `creatures` | every creature (enemies, wildlife, farm animals, villagers): level, faction, size, health and damage scaling, resistances, speeds, random loot, sight, a wild animal's taming steps; its kind, arsenal, tameable and favourite bait read-only (since dev.32) | [creatures.md](creatures.md) |
 | `arsenals` | the enemies' arsenals: each attack's chance, threat and ranges (since dev.32) | [arsenals.md](arsenals.md) |
 | `perks` | every perk: the value it grants, the armour and damage bonus of the simple perks (since dev.32) | [perks.md](perks.md) |
 

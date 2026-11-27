@@ -167,6 +167,11 @@ offer.
 | `NativeTamingProgressEvent`, `NativeTamedEvent`, `NativeBaitEatenEvent` | the watch, every 5 steps while anyone listens: progress (a step or a startle), the farm transformation, a bait eaten with or without a step |
 | `NativeStep` in a definition | Kiln's attempt waits for the game's own count, so a mod chooses native, Kiln steps, or both |
 
+What is tameable is registry data, the creatures registry's `tameable` (read only), `tamingSteps` (live: every animal of
+the entry, at once) and `favoriteBait` (read only) fields ([registries/creatures.md](../modding/registries/creatures.md),
+[docs/re/taming.md](../../re/taming.md) 8). A mod changes how many pettings an animal takes there, never through a game
+member.
+
 Who tamed a native animal is not known: the game records no player for a step.
 `NativeTamingState.TamedBy` is always null, and `taming.native_observe` stays off until a lab with a signed-in player
 shows where the petting player can be read.

@@ -3,10 +3,10 @@
   "registrySchema": 1,
   "registry": "creatures",
   "typeName": "Creature",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "stability": "experimental",
   "experimentalId": "KILNX031",
-  "doc": "Every creature the game defines: enemies, wildlife, farm animals and villagers: their level, faction, size, health and damage scaling, resistances, speeds, random loot and the enemy's sight. An edit is global: every creature of the entry, now or later, as the field says.",
+  "doc": "Every creature the game defines: enemies, wildlife, farm animals and villagers: their level, faction, size, health and damage scaling, resistances, speeds, random loot, the enemy's sight, and a wild animal's taming (tameable, steps, favourite bait). An edit is global: every creature of the entry, now or later, as the field says.",
   "ids": {
     "game": "game:<the creature's stable name>",
     "mod": "<mod id>:<name>",
@@ -405,6 +405,31 @@
           "unit": "m"
         }
       }
+    },
+    "tameable": {
+      "type": "bool",
+      "readOnly": true,
+      "applies": "now",
+      "doc": "Whether the game lets the creature be tamed its own way: a wild animal whose template allows taming (a dog, a cat, a goat, a bunny, a catdeer, a turkey, a yak, a capybara, a sanddigger). Null for a creature that is no wild animal. Read only in this release.",
+      "joinedClient": "serverOnly"
+    },
+    "tamingSteps": {
+      "type": "int",
+      "min": 1,
+      "max": 255,
+      "ops": "number",
+      "applies": "now",
+      "doc": "How many of the game's taming steps (a petting while the animal eats its favourite bait) tame a tameable wild animal into a farm animal. Read at once by every animal of the entry, also those already in the world (the game keeps it in the template only); an animal whose progress already reaches the new number is tamed at its next update. Null for a creature that is no wild animal.",
+      "joinedClient": "serverOnly"
+    },
+    "favoriteBait": {
+      "type": "ref",
+      "registry": "templates",
+      "readOnly": true,
+      "optional": true,
+      "applies": "now",
+      "doc": "The bait a tameable wild animal eats (the template its bait item places, game:foodbait_t2_dog for a dog); none for an animal with no favourite bait. Read only in this release.",
+      "joinedClient": "serverOnly"
     }
   },
   "entry": {

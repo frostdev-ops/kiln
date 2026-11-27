@@ -38,6 +38,10 @@ public sealed class RegistryEditsMod : Mod
             vukah.Resist.Fire = 2.0;  // takes double fire damage
             view.Arsenals["game:enemy_vukah_melee"].Attacks[0].Chance = 0.5;
             view.Perks["game:perk_max_adder_health_t7"].Value = 150;  // a whole-number value: a fraction would be refused
+            // a wild animal's taming (read at once by every animal of the entry): the white dog takes 3 pettings, not 2;
+            // whether it is tameable and its favourite bait are read only
+            var dog = view.Creatures["game:animal_wildlife_dog_05_white_ag2"];
+            if (dog.Tameable) dog.TamingSteps = 3;
         });
         // A Final helper is explicit. Ordinary assignments target Alter and are ignored in Add/Final.
         // Do not retain context, entries or lists: their operations expire when this callback returns.

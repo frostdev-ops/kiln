@@ -2,9 +2,9 @@
 
 <!-- Generated from schema/registry/creatures.json by tools/registrygen/registrygen.py. Do not edit. -->
 
-Every creature the game defines: enemies, wildlife, farm animals and villagers: their level, faction, size, health and damage scaling, resistances, speeds, random loot and the enemy's sight. An edit is global: every creature of the entry, now or later, as the field says.
+Every creature the game defines: enemies, wildlife, farm animals and villagers: their level, faction, size, health and damage scaling, resistances, speeds, random loot, the enemy's sight, and a wild animal's taming (tameable, steps, favourite bait). An edit is global: every creature of the entry, now or later, as the field says.
 
-Schema version 0.1.0, experimental (KILNX031: may change in any release until it is marked stable). C# entry type `Kiln.Registry.CreatureEntry`. What registries are, the stages, the conflict rules and how ids are made: [README](README.md).
+Schema version 0.1.1, experimental (KILNX031: may change in any release until it is marked stable). C# entry type `Kiln.Registry.CreatureEntry`. What registries are, the stages, the conflict rules and how ids are made: [README](README.md).
 
 ## Ids
 
@@ -64,6 +64,9 @@ Groups of fields:
 | `arsenal` | ref arsenals, optional | now | read-only | 0.1.0 | mapped | serverOnly | The enemy's arsenal: the attacks it chooses from (arsenals registry). Creatures of the same kind share one. |
 | `sight.range` | float m 0..10000 | now | number | 0.1.0 | mapped | serverOnly | How far the enemy sees a target by day, in metres (night shortens it by the game's night factor). |
 | `sight.engageRange` | float m 0..10000 | now | number | 0.1.0 | mapped | serverOnly | Within this distance, in metres, the enemy engages a target it sees at once. |
+| `tameable` | bool | now | read-only | 0.1.1 | mapped | serverOnly | Whether the game lets the creature be tamed its own way: a wild animal whose template allows taming (a dog, a cat, a goat, a bunny, a catdeer, a turkey, a yak, a capybara, a sanddigger). Null for a creature that is no wild animal. Read only in this release. |
+| `tamingSteps` | int 1..255 | now | number | 0.1.1 | mapped | serverOnly | How many of the game's taming steps (a petting while the animal eats its favourite bait) tame a tameable wild animal into a farm animal. Read at once by every animal of the entry, also those already in the world (the game keeps it in the template only); an animal whose progress already reaches the new number is tamed at its next update. Null for a creature that is no wild animal. |
+| `favoriteBait` | ref templates, optional | now | read-only | 0.1.1 | mapped | serverOnly | The bait a tameable wild animal eats (the template its bait item places, game:foodbait_t2_dog for a dog); none for an animal with no favourite bait. Read only in this release. |
 
 ## Traits
 

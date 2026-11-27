@@ -69,6 +69,15 @@
         "ancients": "Ancients"
       }
     },
+    "favoriteBait": {
+      "paths": [
+        "Wildlife.tamingSetup.favoriteFood"
+      ],
+      "conv": "ref",
+      "read": "now",
+      "backend": "none",
+      "evidence": "docs/re/taming.md 2, 3 and 6: Wildlife is a template-only component (lab 11-27: no spawned animal has one); the wildlife program senses a bait of exactly this template within its sensor range at each update (0x220253); lab: Animal_Wildlife_Dog_05_white_AG2 reads FoodBait_T2_Dog (21eb90be) through the template"
+    },
     "health.levelFactor": {
       "paths": [
         "EnemyScaling.enemyLevelScaling.healthScaleFactor"
@@ -365,6 +374,27 @@
       "read": "now",
       "backend": "live",
       "evidence": "docs/re/creatures.md 1.3 and 16: a dynamic component, copied from the template into each creature at its spawn (lab: spawned entities carry the template's value; kiln.gamedata's LifeTime case); nothing reads the template's copy later; attribute slot 3 (AttributeContainerResource debug names, docs/re/creatures.md 16)"
+    },
+    "tameable": {
+      "paths": [
+        "Wildlife.enabledFeatures"
+      ],
+      "conv": "flag",
+      "read": "now",
+      "backend": "none",
+      "values": {
+        "tameable": "Tameable"
+      },
+      "evidence": "docs/re/taming.md 2 and 3: the Tameable bit (3) of the template-only Wildlife's enabledFeatures; the farm transformer (0x21fe70) tames only with it, at each update; lab: the wild dog reads Roaming|Flee|Tameable|RunAway"
+    },
+    "tamingSteps": {
+      "paths": [
+        "Wildlife.tamingSetup.necessaryTamingSteps"
+      ],
+      "conv": "int",
+      "read": "now",
+      "backend": "live",
+      "evidence": "docs/re/taming.md 2, 3 and 6: the template-only Wildlife's tamingSetup (lab 11-27: no spawned animal has a Wildlife component, so every reader reads the template); the wildlife program stops sensing baits at it (0x220269) and caps progress at it (0x21c58e), and the farm transformer tames at it (0x21fe70), each at every update; lab: the dog reads 2 and a progress of 2 made it a farm animal within 40 steps"
     },
     "xp": {
       "paths": [

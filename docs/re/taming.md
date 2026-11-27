@@ -220,3 +220,21 @@ Each is a step a bot player can drive on a dedicated lab server; none needs a ga
 4. **Two bots**: two players pet the same eating animal: one step or two.
 5. **Finalisation on reconnect**: tame to one step short, leave, rejoin; whether the progress stays (and over a server
    restart); then finish and check `IsTame`, faction 12, base registration in a base, and what a rejoining player sees.
+
+## 8. The taming fields of the creatures registry (dev.32 review)
+
+The tameable data is on the creatures registry (schema 0.1.1), mapped onto the template's `Wildlife` (the only copy: section
+6, no spawned animal has a `Wildlife` component, so every reader reads the template):
+
+| Field | Mapping | Read | Writer |
+|---|---|---|---|
+| `creatures.tameable` | the `Tameable` bit of `Wildlife.enabledFeatures` (conv `flag`, new: one named bit of a bitmask) | now: the farm transformer checks it at every update (section 3) | none: read only (Kiln has no writer of one bit yet) |
+| `creatures.tamingSteps` | `Wildlife.tamingSetup.necessaryTamingSteps` (u8; the schema range is 1 to 255) | now: the wildlife program (sensing stops at it, the step is capped at it) and the farm transformer (tames at it), every update | live, kiln.gamedata's templates section, as `sight.range` |
+| `creatures.favoriteBait` | `Wildlife.tamingSetup.favoriteFood` (a template reference: a `templates` id, `game:foodbait_t2_dog`) | now: the bait sensor at every update | none: read only |
+
+`regmap_check.py --exe` on the server exe (read as data): all 171 rows resolve and type-check. **Not proven in a lab yet**: the
+server record was proven on the regmap before these rows, so this branch's edit of `regmap/common` leaves every registry row of
+the build unproven until the dev.32 integration re-proves the merged mapping (`kilnctl regproof`, then the client mirror);
+the three rows then get their own lab evidence (the producer's live round trip of `tamingSteps`, kiln.content's read-only
+samples of `tameable` and `favoriteBait`). What a write of `tamingSteps` does to an animal already partly tamed is the static
+reading above (a progress that reaches the new number tames it at its next update), not a lab result.
