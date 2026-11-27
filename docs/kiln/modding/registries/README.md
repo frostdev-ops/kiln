@@ -16,14 +16,6 @@ catalog (`Kiln.Registry.RegistrySchema`) and these pages ship. The registry stag
 entry operations add items and recipes through Kiln's content definitions and hide items, recipes and loot without deleting the
 game's records. Unsupported or unproven operations are refused with their reason in kiln.log and registry.json. Until a registry is
 marked stable its shape may change in any release; from API 1.0.0 the stable registries' contract is frozen (additive only).
-**Status in this release: experimental (`KILNX031`), schema version 0.1.0.** The schemas, the generated C# types (`Kiln.Registry`), the field
-catalog (`Kiln.Registry.RegistrySchema`) and these pages ship, and the registry stage reads a data pack's `registry` section at
-start (fields that apply now or at world load also follow a pack's hot reload). Since mod API **0.2.17**, C# mods can author
-through `Mod.OnRegistry(RegistryContext)` and use explicit owner-scoped live changes through `Kiln.Registry.Registry.Change`.
-GameStart entry operations add items/recipes through Kiln's content definitions and hide items/recipes/loot without deleting game records.
-Unsupported or unproven operations are refused with their reason in kiln.log and registry.json.
-Until a registry is marked stable its shape may change in any
-release; from API 1.0.0 the stable registries' contract is frozen (additive only).
 
 **Versions.** Experimental schemas are 0.x; a schema reaches 1.0.0 when it is frozen with API 1.0.0. Within one breaking
 line (0.<minor> while experimental, <major> from 1.0.0) a field may only be added, widen its range, get new enum values

@@ -87,7 +87,7 @@ Kiln mode also stands aside (and no ShroudForge mod runs through Kiln) when:
   it cannot. A loaded-resource write changes one such field of a resource in the world a host or a dedicated server
   runs, between frames, only while the resource is still what the mod read; a change another mod or the game made
   meanwhile is kept and the write says so. A template component's `write_field` is such a write to the template
-  resource, with the same rules. Each such write names its mod to Kiln (next release): where it changes a field a Kiln
+  resource, with the same rules. Each such write names its mod to Kiln (since 0.2.0-dev.32): where it changes a field a Kiln
   registry edit writes, the launcher's Conflicts page and `kiln/state/registry.json` name the mod on that field
   (`shroudforge:<mod id>`) instead of "another writer". A resource a Kiln mod overrides is not written
   ("unavailable"): change that mod's copy. The loaded index finds a loaded resource by one 32-bit integer, float or

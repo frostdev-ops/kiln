@@ -7,7 +7,7 @@ five hit and the fix that is in the code now, and when a new registry is done. M
 [modding/registries/README.md](modding/registries/README.md); the native tables are [services/registry.md](services/registry.md);
 the mapping and its proof are [regmap/README.md](../../regmap/README.md) and [sigport.md](sigport.md#the-registry-proof-kilnctl-regproof).
 
-Written against dev.31, including entry operations, the proof producer and the client mirror. `file:line` references
+Written against dev.32, including entry operations, the proof producer, the client mirror, the views and the registry pages' guide files. `file:line` references
 are to that tree; line numbers drift, the function and test names do not.
 
 ## 1. What a registry is, and what is shared
@@ -98,6 +98,13 @@ would change nothing, so it is refused.
   `ir.cpp` `parse_batch` reads every edit through it at run time; it does not keep an `[Obsolete]` C# property under a renamed
   field's old name yet, so add one by hand (PublicAPI is additive).
 - The generated doc page has a Mapping column from regmap; never edit the page by hand.
+- **Write the registry's guide, `schema/registry/<r>.guide.md`.** The page is the schema's reference followed by this file, so every
+  registry page has the same shape. The file has exactly these `##` sections, in this order: *Edit it from a data pack*, *Edit it
+  from C#*, *Views*, *Worked example*, *In multiplayer*, *Known limits*. `registrygen.py` refuses a registry with no guide file or with
+  other sections. Links in it are written from the page's folder (`docs/kiln/modding/registries/`). Take the worked example's
+  data pack from a lab-run fixture (`mods/tests/registry-*`, `mods/samples`), check its JSON against
+  `schema/registry-section.schema.json` (a selector is an object with an `id`) and its C# against the generated entry type, and put
+  into *Known limits* what no real game has shown yet.
 
 Done when `registrygen.py --check` passes and `git status` shows the generated files.
 
@@ -344,7 +351,7 @@ Windows DLLs once (`win1-native`) before calling it done.
 
 ### 2.14 Docs
 
-- The generated page (`docs/kiln/modding/registries/<r>.md`) and a row in the registries README table.
+- The guide `schema/registry/<r>.guide.md` (the page `docs/kiln/modding/registries/<r>.md` is generated from it and the schema) and a row in the registries README table.
 - Capability names for list fields in the README table (names drop `[]`).
 - New limits in [modding/limits.md](modding/limits.md); a new conv or entries kind in regmap/README.md.
 - `tools/docs-site/drift.py` clean for the files you touched.

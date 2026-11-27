@@ -37,7 +37,8 @@ inventory, equipped slots and containers. Recipe removal hides station/all-recip
 candidates without changing direct drops. Item removal also hides dependent recipes and disables affected physical drop
 slots (`chance=0`, `weight=0`, no resize). Unproven required drop/recipe rows, unsafe all-zero groups or failed visibility
 bindings refuse the item removal whole, not just one exclusion path. Later registry chance/weight conflicts cannot reactivate
-removed-item slots. Current build records keep drop rows unproven, so item removal is explicitly refused on those builds.
+removed-item slots. The current build record (server 1287369) proves the drop rows, so item removal applies there; a game build
+whose drop rows are not proven yet refuses item removal whole (`drop tables not proven on this build`).
 
 GameStart intent is retained until restart, even across code-owner retirement and changed/deleted pack entry operations.
 Kiln pins each mod/id/registry's GUID and terminal game-base GUID in `kiln/data/registry/entry-compat.json`, outside per-build
