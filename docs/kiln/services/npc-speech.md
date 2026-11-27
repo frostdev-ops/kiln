@@ -24,7 +24,7 @@ Larder).
 |---|---|
 | C table | `native/core/abi/services/kiln_npcspeech.h` (`kiln.npcspeech` v1, game client only) |
 | Native | `native/services/npcspeech/` → `kiln/services/kiln-npcspeech.dll` (`npcspeech_core.h`: the rule inside the game's calls) |
-| Managed | `managed/services/Kiln.Blocks/Npc/Speech/` (`Npcs`, `NpcSpeech`, `SpeechMode`, `SpeechResult`, `SayOptions`, `SpeechPick`, `NpcLineKind`, `NpcLineContext`, `NpcTopics`, `NpcTopic`, `NpcTopicContext`, `NpcTopicHint`; channels `kiln:npcspeech` v1 and `kiln:npcdialog` v1) |
+| Managed | `managed/services/Kiln.Blocks/Npc/Speech/` (`Npcs`, `NpcSpeech`, `NpcLines`, `SpeechMode`, `SpeechResult`, `SayOptions`, `SpeechPick`, `NpcLineKind`, `NpcLineContext`, `NpcTopics`, `NpcTopic`, `NpcTopicContext`, `NpcTopicHint`; channels `kiln:npcspeech` v1 and `kiln:npcdialog` v1) |
 | Symbols | `sigdb/symbols/client.d/npcspeech.json` (features `npcspeech.bubble`, `npcspeech.voice`), `client.d/npcdialog.json` (`npcspeech.farewell`, `npcspeech.menu_line`, `npcspeech.topics`) |
 | Sample | `mods/samples/HungryCrafter` (`/hunger starve|feed [all]`) |
 | Tests | `native/services/npcspeech/tests/run.sh` (host: the bubble rule, the picks and the voice-over mute on fake structs; `npcdialog_test.cpp`: farewells, the menu's line, replies and topics on a fake dialogue window), `managed/tests/Kiln.Blocks.Tests/NpcSpeechTests.cs`, `NpcDialogTests.cs`, `managed/tests/Kiln.TestKit.Tests/NpcSpeechFakeTests.cs`; lab: `mods/tests/npcspeech-test` (console driver) + `tools/nettest/npcspeechtest.py` and `npcdialogtest.py` (dev.32, 31.21-like and vanilla lab peers, a LABBOT bot) |
@@ -111,8 +111,8 @@ Npcs.Topics(npc).Clear();
 |---|---|---|
 | `SpeechPick NpcSpeech.Pick` | any | how Replace picks per greeting (farewell, menu open): `SpeechPick.Random` (default), `InOrder`, `Seeded(int)`, `By(Func<NpcLineContext, int>)`; set it before Replace |
 | `NpcLineKind NpcSpeech.Kind`, `void NpcSpeech.Refresh()` | any | which line (Greeting, Farewell, MenuLine); ask a `By` callback again for every player now |
-| `NpcSpeech Npcs.Farewells(EntityId npc)` | any | this mod's override of the NPC's farewells: `Replace`, `Clear`, `Pick`, `Priority` (Suppress answers `Ok: false`) |
-| `NpcSpeech Npcs.MenuLine(EntityId npc)` | any | this mod's override of the NPC's own line in its menu: `Replace`, `Clear`, `Pick`, `Priority` |
+| `NpcLines Npcs.Farewells(EntityId npc)` | any | this mod's override of the NPC's farewells: `Replace`, `Clear`, `Pick`, `Priority` (no `Suppress`: the menu's speech box shows a line or the game's) |
+| `NpcLines Npcs.MenuLine(EntityId npc)` | any | this mod's override of the NPC's own line in its menu: `Replace`, `Clear`, `Pick`, `Priority` |
 | `SpeechResult Npcs.MenuSay(EntityId npc, EntityId player, string\|UiText text)` | any | one line in that player's menu with the NPC: now if it is open, else when it opens within 5 s; once |
 | `NpcTopics Npcs.Topics(EntityId npc)` | any | this mod's topics on the NPC's talk page: `Set(params NpcTopic[])`, `Add`, `Remove(id)`, `Clear()`, `List` |
 | `NpcTopic(string id, string\|UiText label)` | any | `Reply` (UiText?), `Hint` (`NpcTopicHint`), `Close` (the dialogue ends after the Reply), `OnPick` (`Action<NpcTopicContext>`) |

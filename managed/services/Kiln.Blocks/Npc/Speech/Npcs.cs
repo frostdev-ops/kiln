@@ -30,8 +30,8 @@ public sealed record SpeechResult(bool Ok, string? Reason) : IKilnResult
 /// mod's. False: refused while another mod's Say shows (the calling mod's own is always replaced).</param>
 public sealed record SayOptions(bool Interrupt = true);
 
-/// <summary>One mod's override of one NPC's greeting bubble (<see cref="Npcs.Speech"/>), farewell
-/// (<see cref="Npcs.Farewells"/>) or menu line (<see cref="Npcs.MenuLine"/>). Several mods can each have one for the same
+/// <summary>One mod's override of one NPC's greeting bubble (<see cref="Npcs.Speech"/>; a farewell or the menu line is an
+/// <see cref="NpcLines"/>). Several mods can each have one for the same
 /// NPC and kind: the highest <see cref="Priority"/> shows, on a tie the most recent <see cref="Suppress"/> or
 /// <see cref="Replace(string[])"/>; when it clears, the next one does, else the game's own lines come back. It ends by
 /// <see cref="Clear"/>, when the mod unloads, or when the world ends.</summary>
@@ -74,7 +74,7 @@ public sealed class NpcSpeech
     private SpeechPick _pick = SpeechPick.Random;
 
     /// <summary>No greeting bubble while this override is on, and no greeting voice-over (a player who presses E still
-    /// gets the NPC's menu). Greetings only: a farewell or a menu line is replaced or the game's (the answer says so).
+    /// gets the NPC's menu). Greetings only: farewells and the menu line are <see cref="NpcLines"/>, which have none.
     /// Any thread.</summary>
     public SpeechResult Suppress() => Kind == NpcLineKind.Greeting
         ? NpcSpeechEngine.Set(Npc, ModId, Kind, SpeechMode.Suppress, [], Priority, Pick)
@@ -116,6 +116,53 @@ public sealed class NpcSpeech
 
     /// <summary>The NPC, the mod, the kind and the mode.</summary>
     public override string ToString() => $"{(Kind == NpcLineKind.Greeting ? "speech" : Kind == NpcLineKind.Farewell ? "farewell" : "menu line")} of {Npc} by {ModId}: {Mode}";
+}
+
+/// <summary>One mod's override of one NPC's farewell (<see cref="Npcs.Farewells"/>) or menu line
+/// (<see cref="Npcs.MenuLine"/>): its lines replace the game's, or <see cref="Clear"/> gives them back. Unlike a greeting
+/// (<see cref="NpcSpeech"/>), these lines cannot be suppressed: the menu's speech box shows a line or the game's, so the
+/// type has no Suppress. Several mods' overrides rank as <see cref="NpcSpeech"/>'s do. Since 0.2.0-dev.32.</summary>
+public sealed class NpcLines
+{
+    private readonly NpcSpeech _speech;
+    internal NpcLines(EntityId npc, string owner, NpcLineKind kind) => _speech = new NpcSpeech(npc, owner, kind);
+
+    /// <summary>The NPC.</summary>
+    public EntityId Npc => _speech.Npc;
+
+    /// <summary>The mod this override belongs to ("kiln" outside a mod).</summary>
+    public string ModId => _speech.ModId;
+
+    /// <summary>Which line it is for: <see cref="NpcLineKind.Farewell"/> or <see cref="NpcLineKind.MenuLine"/>.</summary>
+    public NpcLineKind Kind => _speech.Kind;
+
+    /// <summary>What this override does now (<see cref="SpeechMode.Game"/> when it is clear). Any thread.</summary>
+    public SpeechMode Mode => _speech.Mode;
+
+    /// <summary>Its rank against other mods' overrides of the same NPC and line (higher wins). Set it before
+    /// <see cref="Replace(string[])"/>; a change counts at the next Replace.</summary>
+    public int Priority { get => _speech.Priority; set => _speech.Priority = value; }
+
+    /// <summary>How <see cref="Replace(string[])"/> picks among its lines each time (as <see cref="NpcSpeech.Pick"/>).</summary>
+    public SpeechPick Pick { get => _speech.Pick; set => _speech.Pick = value; }
+
+    /// <summary>The NPC shows one of these lines instead of the game's (1 to 32 lines of up to 200 characters, the same in
+    /// every language). Any thread.</summary>
+    /// <exception cref="ArgumentException">No line, more than 32, or an empty or too long one.</exception>
+    public SpeechResult Replace(params string[] lines) => _speech.Replace(lines);
+
+    /// <summary>As <see cref="Replace(string[])"/>, with a text per language for each line.</summary>
+    /// <exception cref="ArgumentException">No line, more than 32, or an empty or too long one.</exception>
+    public SpeechResult Replace(IEnumerable<UiText> lines) => _speech.Replace(lines);
+
+    /// <summary>Ends this override: the next mod's shows, else the game's own line. Any thread.</summary>
+    public void Clear() => _speech.Clear();
+
+    /// <summary>Asks a <see cref="SpeechPick.By"/> callback again for every player now. Any thread.</summary>
+    public void Refresh() => _speech.Refresh();
+
+    /// <summary>The NPC, the mod, the kind and the mode.</summary>
+    public override string ToString() => _speech.ToString();
 }
 
 /// <summary>Friendly NPCs' speech bubbles: a mod's own lines in the game's bubble over a villager, craftsperson or
@@ -169,31 +216,31 @@ public static class Npcs
     }
 
     /// <summary>The calling mod's override of the NPC's farewell: the line in the dialogue menu's speech box when a
-    /// player leaves the NPC's menu (the game's own: "See you soon!", "Farewell!"). <see cref="NpcSpeech.Replace(string[])"/>
-    /// with its <see cref="NpcSpeech.Pick"/>, or <see cref="NpcSpeech.Clear"/> for the game's; farewells have no
+    /// player leaves the NPC's menu (the game's own: "See you soon!", "Farewell!"). <see cref="NpcLines.Replace(string[])"/>
+    /// with its <see cref="NpcLines.Pick"/>, or <see cref="NpcLines.Clear"/> for the game's; farewells have no
     /// voice-over. Kiln clients since 0.2.0-dev.32 (capability <c>npcspeech.farewell</c>); a vanilla or older client keeps
     /// the game's. Any thread. Since 0.2.0-dev.32.</summary>
     /// <exception cref="ArgumentException"><paramref name="npc"/> is None.</exception>
-    public static NpcSpeech Farewells(EntityId npc)
+    public static NpcLines Farewells(EntityId npc)
     {
         if (npc.IsNone) throw new ArgumentException("no NPC (EntityId.None)", nameof(npc));
         NpcSpeechEngine.Start();
-        return new NpcSpeech(npc, NpcSpeechEngine.Owner(), NpcLineKind.Farewell);
+        return new NpcLines(npc, NpcSpeechEngine.Owner(), NpcLineKind.Farewell);
     }
 
     /// <summary>The calling mod's override of the NPC's own line in its dialogue menu: the speech box's text when a
     /// player opens the menu (E). The game shows none there (the Flame altar's NPC aside); with this, the NPC says your
     /// line first, then the player gets its topics (none: the menu ends when the line is dismissed), and a craftsperson
-    /// opens the menu instead of going straight to crafting. <see cref="NpcSpeech.Replace(string[])"/> with its
-    /// <see cref="NpcSpeech.Pick"/> (a <see cref="SpeechPick.By"/> callback is the condition per player: -1 = no line for
-    /// that player), or <see cref="NpcSpeech.Clear"/>. Kiln clients since 0.2.0-dev.32 (capability
+    /// opens the menu instead of going straight to crafting. <see cref="NpcLines.Replace(string[])"/> with its
+    /// <see cref="NpcLines.Pick"/> (a <see cref="SpeechPick.By"/> callback is the condition per player: -1 = no line for
+    /// that player), or <see cref="NpcLines.Clear"/>. Kiln clients since 0.2.0-dev.32 (capability
     /// <c>npcspeech.menu_line</c>). Any thread. Since 0.2.0-dev.32.</summary>
     /// <exception cref="ArgumentException"><paramref name="npc"/> is None.</exception>
-    public static NpcSpeech MenuLine(EntityId npc)
+    public static NpcLines MenuLine(EntityId npc)
     {
         if (npc.IsNone) throw new ArgumentException("no NPC (EntityId.None)", nameof(npc));
         NpcSpeechEngine.Start();
-        return new NpcSpeech(npc, NpcSpeechEngine.Owner(), NpcLineKind.MenuLine);
+        return new NpcLines(npc, NpcSpeechEngine.Owner(), NpcLineKind.MenuLine);
     }
 
     /// <summary>Shows <paramref name="text"/> in the speech box of <paramref name="player"/>'s dialogue menu with the
