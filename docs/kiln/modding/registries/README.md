@@ -35,7 +35,7 @@ running schema has is never renamed. A glob selector is not renamed. An edit tha
 its new one, is refused (which value it meant is unknown). kiln.log (`registry: migrated ...`) and registry.json
 `migrated` name every rename of a start's edits (a live change's: kiln.log, `registry (live): migrated ...`); a name no migration knows is refused as before ("items has no field ..."). C# mods name fields
 through the generated properties of the Kiln.Registry they run with, so their edits always carry the running names. No
-registry has a breaking step yet: every schema is 0.1.0, and Kiln ships no migration rows.
+registry has a breaking step yet: every schema is 0.1.x (balance 0.1.1 widened a range), and Kiln ships no migration rows.
 
 | Registry | Entries | Page |
 |---|---|---|
