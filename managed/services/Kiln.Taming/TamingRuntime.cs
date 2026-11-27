@@ -22,25 +22,18 @@ internal static class TamingCreatureIds
 /// <summary>The engine's world in a game.</summary>
 internal sealed class GameTamingWorld : ITamingWorld
 {
-    private double _now;
-    private ulong _lastStep;
+    private static double _seconds;
 
     public ulong WorldEpoch => Lifecycle.IsServerRunning ? (ulong)Lifecycle.ServerSession : 0;
 
-    public double Now
-    {
-        get
-        {
-            // simulation seconds from the server step (60 steps a second), as Kiln.Pets counts them
-            var s = ServiceTick.Step;
-            if (s != _lastStep)
-            {
-                _now += (s - _lastStep) / 60.0;
-                _lastStep = s;
-            }
-            return _now;
-        }
-    }
+    /// <summary>Seconds of the game's own 60 Hz world clock, as Kiln.Pets and kiln.creature_control count them: a step adds
+    /// what the game's clock advanced in it (2 to 4 of its ticks on a dedicated server, which steps 15 to 25 times a
+    /// second, never 60). A paused world's clock stands still. One clock for every GameTamingWorld; it holds between
+    /// steps.</summary>
+    public double Now => Volatile.Read(ref _seconds);
+
+    /// <summary>Kiln.Taming's service tick, before the engine's (tick thread).</summary>
+    internal static void Advance(in TickInfo tick) => Volatile.Write(ref _seconds, _seconds + tick.ClockDelta / 60.0);
 
     public TamingOwner? Owner(PlayerRef player, out string? reason)
     {

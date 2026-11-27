@@ -28,7 +28,7 @@ Kiln's sample is only a sample.
 Taming.Define(new TamingDefinition
 {
     Id = "my-mod:wolf",
-    Creatures = ["game:enemy_wildbeast_wolf"],          // creatures registry ids; "game:animal_wildlife_dog_*" for a prefix
+    Creatures = ["game:enemy_wildbeast_wolf_earlygame"],          // creatures registry ids; "game:animal_wildlife_dog_*" for a prefix
     Steps = [new WeakenStep(0.3), new FeedStep(meat, 2), new UseToolStep(whistle, Wear: 5)],
     Pet = "my-mod:wolf-pet",                             // a Kiln.Pets definition: a tame grants a record of it
     Refund = TamingRefundPolicy.Escrow,                  // the default is NonRefundable
@@ -97,7 +97,8 @@ Limits (Kiln's policy, not the game's):
 | `Failed` | a failure, in a word: `BodyGone`, `OwnerLeft`, `WorldEnded`, `DefinitionGone`, `UncertainCommit`, `Refused: ...` |
 | `Expired` | `InactivitySeconds`, `MaxAttemptSeconds` |
 
-**Timeouts** run in server simulation time.
+**Timeouts** run on the game's own 60 Hz world clock (each step adds what the clock advanced in it, as Kiln.Pets' timers:
+a dedicated server steps 15 to 25 times a second, so a step is not 1/60 s; a paused world's clock stands still).
 - Only an applied step refreshes the inactivity timeout. Refusals, replays, `Inspect`, `Choices` and failed retries do not.
 - The earlier deadline wins, in `AwaitingCommit` too.
 - A timeout, cancel or failure that comes while a cost or the bind settles waits for it: the receipt decides what was

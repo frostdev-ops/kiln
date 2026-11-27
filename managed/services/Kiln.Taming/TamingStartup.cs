@@ -60,6 +60,10 @@ internal static class TamingStartup
     {
         if (_tick is not null && _generation == ServiceTick.Generation) return;
         _generation = ServiceTick.Generation;
-        _tick = ServiceTick.Add("kiln.taming", (in TickInfo t) => TamingRuntime.Tick(t.Step));
+        _tick = ServiceTick.Add("kiln.taming", (in TickInfo t) =>
+        {
+            GameTamingWorld.Advance(in t);
+            TamingRuntime.Tick(t.Step);
+        });
     }
 }
