@@ -187,9 +187,10 @@ the entry, at once) and `favoriteBait` (read only) fields ([registries/creatures
 [docs/re/taming.md](../../re/taming.md) 8). A mod changes how many pettings an animal takes there, never through a game
 member.
 
-Who tamed a native animal is not known: the game records no player for a step.
-`NativeTamingState.TamedBy` is always null, and `taming.native_observe` stays off until a lab with a signed-in player
-shows where the petting player can be read.
+Who tamed a native animal is not known yet: the game records no player for a step. `NativeTamingState.TamedBy` is
+unavailable until native attribution is proven: it is marked `[RequiresCapability("taming.native_observe")]`
+(`NativeTaming.ObserveCapability`) and stays null while that row is off, as it is until a lab with a signed-in player shows
+where the petting player can be read. Guard a read with `Capabilities.Is(NativeTaming.ObserveCapability)`.
 
 ## Tests
 

@@ -44,10 +44,12 @@ public sealed record NativeTamingState(EntityId Creature, bool Tameable, int Pro
     /// <summary>The game's raw state byte (wildlife::State), for logs.</summary>
     public int RawState { get; init; }
 
-    /// <summary>Who tamed it: always null on this build. The game records no player for a step (docs/re/taming.md 4), and
-    /// Kiln's attribution (<c>taming.native_observe</c>) stays off until a lab with a player proves where the petting player
-    /// can be read. A mod that needs an owner decides it (the nearest player, its own attempt).</summary>
-    public PlayerRef? TamedBy => null;
+    /// <summary>Who tamed it. Unavailable until native attribution is proven: null while
+    /// <see cref="NativeTaming.ObserveCapability"/> (<c>taming.native_observe</c>) is off, as it is on every build this Kiln
+    /// knows (the game records no player for a step, docs/re/taming.md 4). Kiln fills it once a lab proves where the petting
+    /// player is read; meanwhile a mod that needs an owner decides it (the nearest player, its own attempt).</summary>
+    [RequiresCapability(NativeTaming.ObserveCapability)]
+    public PlayerRef? TamedBy { get; init; }
 }
 
 /// <summary>Why the game's taming progress of an animal changed. Since 0.2.0-dev.32.</summary>
@@ -160,6 +162,10 @@ public static class NativeTaming
     /// <summary>The capability of <see cref="PlaceBait"/>: a bait Kiln places that the game senses. Off on every build so far
     /// (not proven).</summary>
     public const string BaitCapability = "taming.native_bait";
+
+    /// <summary>The capability of who tamed an animal (<see cref="NativeTamingState.TamedBy"/>): off until a lab with a player
+    /// proves where the game's petting player can be read.</summary>
+    public const string ObserveCapability = "taming.native_observe";
 
     internal const string BaitUnproven = "not proven: a bait Kiln spawns from its template has no bait marker and no animal sensed it in the lab "
         + "(docs/re/taming.md 6), while a player could pick it up as a free item; a lab must show a placement the game senses first";

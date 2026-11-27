@@ -155,6 +155,19 @@ public sealed class TamingApiShapeTests
         Assert.Equal(TamingRefusal.AttemptClosed, Done(f.Engine.Cancel(f.A, p.Id, TamingRequest.New())).Refusal);
     }
 
+    // ---- A9: NativeTamingState.TamedBy is filled only once native attribution is on (taming.native_observe) ----
+
+    [Fact]
+    public void TamedBy_names_its_capability_and_is_set_by_Kiln_only()
+    {
+        Assert.Equal("taming.native_observe", NativeTaming.ObserveCapability);
+        var prop = typeof(NativeTamingState).GetProperty(nameof(NativeTamingState.TamedBy))!;
+        Assert.Contains(prop.GetCustomAttributes<RequiresCapabilityAttribute>(), a => a.Name == NativeTaming.ObserveCapability);
+        Assert.NotNull(prop.SetMethod);   // an init the watch fills once attribution is proven (TAME-2), never a constant null
+        var s = new NativeTamingState(new EntityId(5), true, 3, 3, NativeTamingPhase.Tamed, EntityId.None, Guid.Empty, 10, TimeSpan.FromSeconds(8));
+        Assert.Null(s.TamedBy);
+    }
+
     // ---- A11: the definitions are read on any thread, as Kiln.Pets' are ----
 
     [Fact]
