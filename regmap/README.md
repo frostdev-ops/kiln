@@ -39,16 +39,22 @@ Adding a registry (schema, mapping, back-ends, proof, tests, and the pitfalls th
 ```jsonc
 "entries": { "kind": "arrays", "sources": [
   { "resourceType": "keen::DefaultLootLabelCollectionResource", "array": "lootSettings", "id": "id", "unnamed": "labels_%08x" },
-  { "resourceType": "keen::SceneRandomLootResource", "array": "lootSettings", "unnamed": "world_%.8s_%u" } ] }
+  { "resourceType": "keen::SceneRandomLootResource", "array": "lootSettings",
+    "usedBy": { "array": "lootContainer", "index": "lootSettingsIndex", "id": "nodeId" }, "unnamed": "world_%.8s_%08x" } ] }
 ```
 
 Each source is the array member `array` of **every** resource of its `resourceType` (kind array reads only the first), in
-the archive's order, sources in their order. An entry's stable name is its source's `unnamed` pattern: over the element's
-32-bit `id` member (`%08x`), or, for a source without one, over its resource's GUID text (`%.8s`) and its index (`%u`);
-such an entry's 32-bit number (the id tables' `#<number>` key, kiln.content's entry id) is
-`native/services/content/registry/element_num.h` (FNV-1a over the resource's GUID bytes mixed with the index;
-`regmap_entries.py` has its twin). Entries of this kind have no GUID. Every row must resolve on every source's element
-type (`regmap_check.py` refuses a row one source lacks), so the sources' element types share the rows' members.
+the archive's order, sources in their order. An entry's stable name is its source's `unnamed` pattern over a 32-bit key
+(`%08x`), optionally with its resource's GUID text (`%.8s`): the element's own `id` member, or, for a source without one,
+`usedBy`: the smallest `id` among the elements of the resource's `usedBy.array` whose `usedBy.index` points at it (a world
+table is named after the scene node of its first chest). Never an index: a game update that inserts an element moves every
+later index, so an edit naming one would reach another table; a key moves only with its own element (and then the old id
+is refused, loudly). An element nothing uses has no stable name and is not an entry. A `usedBy` entry's 32-bit number (the
+id tables' `#<number>` key, kiln.content's entry id) is `native/services/content/registry/element_num.h` (FNV-1a over the
+resource's GUID bytes mixed with the key; `regmap_entries.py` has its twin). Entries of this kind have no GUID. Every row
+must resolve on every source's element type (`regmap_check.py` refuses a row one source lacks, and a source named by index),
+so the sources' element types share the rows' members. kilnctl's reflection walk (`regproof`, `--mirror`) dumps every
+source's type and compares each row on every source.
 
 A path may index a static array of the game (`globalRarityDropRates[0]`, `modifier.rarities[2].value`), as kiln.content's
 flattened fields name its elements; the index must be below the array's length.

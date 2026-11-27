@@ -702,8 +702,11 @@ keeps what it got. Every regmap row of both registries is `read: now`, `backend:
 **Kiln's live entries.** kiln.content serves the two as store kinds 5 (`KILN_CONTENT_LOOT_RULES`: the resource the loot
 registry reads, `+content/lootreg.data`, else kiln.assets' resident copy) and 6 (`KILN_CONTENT_RANDOM_LOOT`: each table in
 resident resource memory through kiln.assets; one `keen::LootSettingsResource` schema for both table types, checked to share
-the leading layout). A world table has no id of its own: the stage's id table and kiln.content key it by
-`registry/element_num.h` (FNV-1a 32 of its resource's GUID bytes mixed with its index), as `regmap_entries.py` does.
+the leading layout). A world table has no id of its own: it is named after the smallest `nodeId` of the `lootContainer`
+elements whose `lootSettingsIndex` points at it (every one of the 698 is used; 62,055 node ids, all distinct, so the smallest
+per table is unique), never by its index, which a game update that inserts a table would move. The stage's id table and
+kiln.content key it by `registry/element_num.h` (FNV-1a 32 of its resource's GUID bytes mixed with that node id), as
+`regmap_entries.py` does.
 
 ## Boot consumer ordering (dev.28; server 26430253 / client 26430625)
 

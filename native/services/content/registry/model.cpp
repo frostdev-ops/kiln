@@ -109,6 +109,12 @@ bool number_of(const json& j, double* out) {
     return false;
 }
 
+// A 32-bit id as a decoded tree may give it: a number, or a struct with one value ({"value": n}, a node or table id).
+bool id_of(const json& j, double* out) {
+    if (j.is_object() && j.size() == 1) return id_of(j.begin().value(), out);
+    return j.is_number_integer() || j.is_number_unsigned() ? (*out = j.get<double>(), true) : false;
+}
+
 // ---- the live bytes ----
 class LiveSource final : public Source {
    public:
@@ -609,7 +615,8 @@ const std::vector<Entry>* Model::entries(const std::string& registry, std::strin
     std::string w;
     if (s.kind == map::EntryKind::Arrays) {
         // every element of each source's array member, in every resource of the source's type: named by the source's pattern
-        // (its 32-bit id member, else the resource's GUID text and the index: element_num), no GUID of its own
+        // over its 32-bit id member, or over the smallest usedBy id of the elements that use it (a world table: the scene
+        // node of its first chest; element_num gives its number); no GUID of its own, never named by its index
         std::vector<map::GameEntry> game;
         for (const map::EntrySource& one : s.sources) {
             keys.clear();
@@ -618,19 +625,46 @@ const std::vector<Entry>* Model::entries(const std::string& registry, std::strin
                 size_t n = 0;
                 if (!src_.count(Place{k, one.resource_type, one.array, -1}, &n, &w)) return fail(w);
                 const std::string gtext = lc(guid_text(k.guid));
+                std::vector<uint32_t> key(n, 0);
+                std::vector<bool> used(n, false);
+                if (one.id.empty() && n) {
+                    // the users: each points at an element by index; the element's key is the smallest user id
+                    size_t users = 0;
+                    if (!src_.count(Place{k, one.resource_type, one.used_by_array, -1}, &users, &w)) return fail(w);
+                    for (size_t u = 0; u < users; ++u) {
+                        json ji, jk;
+                        std::string e1;
+                        double at = 0, uid = 0;
+                        const Place up{k, one.resource_type, one.used_by_array, static_cast<int32_t>(u)};
+                        if (!src_.member(up, one.used_by_index, &ji, &e1) || !id_of(ji, &at) || !src_.member(up, one.used_by_id, &jk, &e1) ||
+                            !id_of(jk, &uid))
+                            return fail(one.resource_type + " " + one.used_by_array + " element " + std::to_string(u) + " has no index or 32-bit id: " + e1);
+                        if (at < 0 || at >= static_cast<double>(n)) continue;  // points at no element of this resource
+                        const size_t i = static_cast<size_t>(at);
+                        const uint32_t v = static_cast<uint32_t>(uid);
+                        if (!used[i] || v < key[i]) key[i] = v, used[i] = true;
+                    }
+                    size_t unused = 0;
+                    for (size_t i = 0; i < n; ++i) unused += used[i] ? 0 : 1;
+                    if (unused)
+                        d_->note(registry + ": " + std::to_string(unused) + " of " + std::to_string(n) + " elements of " + one.resource_type + " " + gtext.substr(0, 8) +
+                                 " are used by nothing that names them; they are not entries");
+                }
                 for (size_t i = 0; i < n; ++i) {
                     Entry e;
                     e.place = Place{k, one.resource_type, one.array, static_cast<int32_t>(i)};
-                    json j;
-                    std::string e1;
-                    double num = 0;
                     if (!one.id.empty()) {
-                        if (!src_.member(e.place, one.id, &j, &e1) || !number_of(j, &num)) return fail(one.resource_type + " element " + std::to_string(i) + " has no 32-bit id: " + e1);
+                        json j;
+                        std::string e1;
+                        double num = 0;
+                        if (!src_.member(e.place, one.id, &j, &e1) || !id_of(j, &num)) return fail(one.resource_type + " element " + std::to_string(i) + " has no 32-bit id: " + e1);
                         e.num = static_cast<uint32_t>(num);
+                        e.name = map::element_name(one, e.num, gtext);
                     } else {
-                        e.num = map::element_num(k.guid, static_cast<uint32_t>(i));
+                        if (!used[i]) continue;
+                        e.num = map::element_num(k.guid, key[i]);
+                        e.name = map::element_name(one, key[i], gtext);
                     }
-                    e.name = map::element_name(one, e.num, gtext, static_cast<uint32_t>(i));
                     game.push_back({"", e.name, e.num, {}});
                     R.entries.push_back(std::move(e));
                 }

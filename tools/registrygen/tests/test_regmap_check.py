@@ -89,7 +89,10 @@ ARRAY_TYPES = {"types": TYPES["types"] + [
     T("keen::BlobArray<keen::IdTable>", 24, 8, inner="keen::IdTable"),
     T("keen::BlobArray<keen::Table>", 24, 8, inner="keen::Table"),
     T("keen::Collection", 18, 8, fields=[("tables", "keen::BlobArray<keen::IdTable>", 0)]),
-    T("keen::Scene", 18, 8, fields=[("tables", "keen::BlobArray<keen::Table>", 0)]),
+    T("keen::NodeBase", 18, 8, fields=[("nodeId", "keen::uint32", 0)]),
+    T("keen::Chest", 18, 12, inner="keen::NodeBase", fields=[("tableIndex", "keen::uint32", 8)]),
+    T("keen::BlobArray<keen::Chest>", 24, 8, inner="keen::Chest"),
+    T("keen::Scene", 18, 16, fields=[("tables", "keen::BlobArray<keen::Table>", 0), ("chests", "keen::BlobArray<keen::Chest>", 8)]),
 ]}
 ARRAY_SCHEMA = dict(SCHEMA, registry="tables", fields={
     "first": {"type": "struct", "applies": "now", "fields": {
@@ -104,7 +107,8 @@ ARRAY_ROWS = {
 }
 ARRAY_ENTRIES = {"kind": "arrays", "sources": [
     {"resourceType": "keen::Collection", "array": "tables", "id": "id", "unnamed": "labels_%08x"},
-    {"resourceType": "keen::Scene", "array": "tables", "unnamed": "world_%.8s_%u"}]}
+    {"resourceType": "keen::Scene", "array": "tables", "usedBy": {"array": "chests", "index": "tableIndex", "id": "nodeId"},
+     "unnamed": "world_%.8s_%08x"}]}
 
 
 class Tree:
@@ -167,6 +171,18 @@ class Checks(unittest.TestCase):
         bad["sources"][0]["id"] = "nope"
         r = self.run_check(ARRAY_ROWS, ARRAY_SCHEMA, ARRAY_TYPES, bad)
         self.assertTrue(any("entries.sources[0].id" in e for e in r.errors), r.errors)
+        # a source without an id member is named by what uses it (usedBy), never by its index (a game update moves an index)
+        bad = copy.deepcopy(ARRAY_ENTRIES)
+        del bad["sources"][1]["usedBy"]
+        bad["sources"][1]["unnamed"] = "world_%.8s_%u"
+        r = self.run_check(ARRAY_ROWS, ARRAY_SCHEMA, ARRAY_TYPES, bad)
+        self.assertTrue(any("entries.sources[1] names its elements by their id member or by usedBy" in e for e in r.errors), r.errors)
+        self.assertTrue(any("an index is no stable name" in e for e in r.errors), r.errors)
+        for member in ("array", "index", "id"):
+            bad = copy.deepcopy(ARRAY_ENTRIES)
+            bad["sources"][1]["usedBy"][member] = "nope"
+            r = self.run_check(ARRAY_ROWS, ARRAY_SCHEMA, ARRAY_TYPES, bad)
+            self.assertTrue(any(f"entries.sources[1].usedBy.{member} nope" in e for e in r.errors), (member, r.errors))
         # a source type the type source does not have is counted absent
         r = self.run_check(ARRAY_ROWS, ARRAY_SCHEMA, TYPES, ARRAY_ENTRIES)
         self.assertEqual(sorted(r.absent), ["keen::Collection", "keen::Scene"])

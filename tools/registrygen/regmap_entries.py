@@ -34,24 +34,33 @@ def find(value, kind):
             stack.extend(v)
 
 
-def element_num(guid, index):
-    """kiln.content's 32-bit number of an element without an id member (regmap.cpp element_num): FNV-1a over its resource's
-    16 GUID bytes in the game's order, mixed with its index."""
+def element_num(guid, key):
+    """kiln.content's 32-bit number of an element without an id member (registry/element_num.h): FNV-1a over its resource's
+    16 GUID bytes in the game's order, mixed with its key (the usedBy id that names it, never its index)."""
     import uuid
     h = 2166136261
     for c in uuid.UUID(guid).bytes_le:
         h = ((h ^ c) * 16777619) & 0xFFFFFFFF
-    return h ^ (((index + 1) * 0x9E3779B1) & 0xFFFFFFFF)
+    return h ^ (((key + 1) * 0x9E3779B1) & 0xFFFFFFFF)
 
 
-def element_name(pattern, num, guid, index):
-    """regmap.cpp element_name: "%08x" the number, "%.8s" the resource GUID text's first 8 characters, "%u" the index."""
-    return pattern.replace("%08x", "%08x" % num).replace("%.8s", guid.lower()[:8]).replace("%u", str(index))
+def element_name(pattern, key, guid):
+    """regmap.cpp element_name: "%08x" the key (the element's id, or the usedBy id that names it), "%.8s" the resource GUID
+    text's first 8 characters."""
+    return pattern.replace("%08x", "%08x" % key).replace("%.8s", guid.lower()[:8])
+
+
+def _blob_elements(b, at):
+    """(first element's offset, count) of the BlobArray at offset `at` of blob b."""
+    rel, n = b.i32(at), b.u32(at + 4)
+    return (at + rel, n) if rel else (at, 0)
 
 
 def random_loot(src, g):
     """randomLoot's entries (kind arrays): every element of each source's array, in every resource of its type, named by
-    the source's pattern (regmap/common/randomLoot.json); no GUID of their own (id tables key them "#<number>")."""
+    the source's pattern over its id member, or over the smallest usedBy id of the elements that use it (a world table:
+    the scene node of its first chest); an element nothing uses is no entry (regmap/common/randomLoot.json). No GUID of
+    their own (id tables key them "#<number>")."""
     from bootdata import live
     regmap = json.loads((HERE.parents[1] / "regmap" / "common" / "randomLoot.json").read_text(encoding="utf-8"))
     rows = []
@@ -61,14 +70,30 @@ def random_loot(src, g):
         at_t = g.resolved(g.get(f[1]))
         el = g.resolved(g.inner(at_t)) if at_t is not None else None
         idf = g.field(el, source["id"])[2] if source.get("id") else None
+        used_by = source.get("usedBy")
+        if used_by:
+            uf = src.need_field(t, used_by["array"])
+            ut = g.resolved(g.get(uf[1]))
+            uel = g.resolved(g.inner(ut)) if ut is not None else None
+            u_index, u_id = g.field(uel, used_by["index"])[2], g.field(uel, used_by["id"])[2]
         for key in src.keys(source["resourceType"]):
             b = live.Blob(src.kfc.read(key))
-            rel, n = b.i32(f[2]), b.u32(f[2] + 4)
-            count = n if rel else 0
+            first, count = _blob_elements(b, f[2])
+            keys = {}
+            if used_by:
+                ufirst, ucount = _blob_elements(b, uf[2])
+                for u in range(ucount):
+                    o = ufirst + u * uel.size
+                    at, node = b.u32(o + u_index), b.u32(o + u_id)
+                    if at < count and (at not in keys or node < keys[at]):
+                        keys[at] = node
             for i in range(count):
-                o = f[2] + rel + i * el.size
-                num = b.u32(o + idf) if idf is not None else element_num(key.guid, i)
-                rows.append({"guid": "", "name": element_name(source["unnamed"], num, key.guid, i), "id": num})
+                o = first + i * el.size
+                if idf is not None:
+                    num = b.u32(o + idf)
+                    rows.append({"guid": "", "name": element_name(source["unnamed"], num, key.guid), "id": num})
+                elif i in keys:
+                    rows.append({"guid": "", "name": element_name(source["unnamed"], keys[i], key.guid), "id": element_num(key.guid, keys[i])})
     return rows
 
 

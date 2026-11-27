@@ -653,7 +653,7 @@ How a game entry's stable name is made (each registry's page repeats its own rul
 | drops | see "Drop tables" below | 420 tables |
 | balance | `game:balance` (one entry) | 1 |
 | lootRules | `game:loot` (one entry) | 1 |
-| randomLoot | a table of the label collection (enemies, generic containers): `labels_<its 32-bit id, 8 hex>`; a table of a world's scene loot: `world_<the first 8 hex digits of that resource's GUID>_<its index>` | 797 tables: 99 `labels_` (23 set all five rarities) and 698 `world_` (all in `world_509feadb_*`); no clash |
+| randomLoot | a table of the label collection (enemies, generic containers): `labels_<its 32-bit id, 8 hex>`; a table of a world's scene loot: `world_<the first 8 hex digits of that resource's GUID>_<the scene node id of the first chest that uses it (the smallest), 8 hex>`, never its index, so a game update that inserts a table moves no id (a table whose first chest changes gets a new id, and edits naming the old one are refused); a table no chest uses has no id | 797 tables: 99 `labels_` (23 set all five rarities) and 698 `world_` (all in `world_509feadb_*`, every one used by a chest); no clash |
 
 **Two entries with one name.** The entry that held a stable name first keeps it for good; a later entry whose name is the
 same (also when the two differ only in case) gets `game:<name>~<first 8 hex digits of its GUID>` (more digits if those

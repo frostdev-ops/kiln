@@ -8,7 +8,8 @@
 //  - drops:   DefaultInventoryResource blobs, registered by the DefaultInventoryAcquire hook as the game loads them
 //  - loot rules: the one LootableItemsResource's head (globalRarityDropRates), where the loot registry points (+lootreg.data)
 //  - random loot: every loot settings table of the label collection and of each SceneRandomLootResource, in resident
-//             resource memory (kiln.assets resource_data); the game reads both at every roll (docs/re/content.md section 12)
+//             resource memory (kiln.assets resource_data); the game reads both at every roll (docs/re/content.md section 12);
+//             a world table is named after the smallest node id of the chests (lootContainer) that use it
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
@@ -383,7 +384,9 @@ void build_loot_tables(uintptr_t lreg) {
             }
         }
     }
-    // ---- random loot tables: the label collection's (by their id), then each scene resource's (by GUID and index) ----
+    // ---- random loot tables: the label collection's (by their id), then each scene resource's, each named after the
+    // scene node of the first chest (the smallest node id) that uses it, never by its index (regmap/common/randomLoot.json
+    // usedBy; the stage's model.cpp names them the same way) ----
     if (!Tables.schema.fields.empty()) {
         struct Src {
             const char* type;
@@ -394,13 +397,30 @@ void build_loot_tables(uintptr_t lreg) {
         const Src srcs[] = {{"keen::DefaultLootLabelCollectionResource", "keen::DefaultLootSettingsResource", "labels_", true},
                             {"keen::SceneRandomLootResource", "keen::LootSettingsResource", "world_", false}};
         bool ok = true;
-        uint32_t clashes = 0;
+        uint32_t clashes = 0, unused = 0;
+        // a world table's users: the scene resource's chests (index of the table they use, their node id)
+        Schema users;
+        const int64_t users_at = field_offset("keen::SceneRandomLootResource", "lootContainer");
+        const uint32_t user_stride = type_size("keen::LootContainerResource");
+        const Field* user_index = nullptr;
+        const Field* user_node = nullptr;
+        if (users_at >= 0 && user_stride && build_schema("keen::LootContainerResource", {}, &users, &why)) {
+            user_index = users.find("lootSettingsIndex");
+            user_node = users.find("nodeId");
+            if (!user_node) user_node = users.find("nodeId.value");
+        }
         for (const Src& src : srcs) {
             const int64_t member = field_offset(src.type, "lootSettings");
             const uint32_t stride = type_size(src.element);
             const int64_t id_at = src.by_id ? field_offset(src.element, "id") : -1;
             if (member < 0 || stride < Tables.schema.size || (src.by_id && (id_at < 0 || static_cast<uint32_t>(id_at) + 4 > stride))) {
                 LOGW("random loot tables off: %s has no table array Kiln knows on this build", src.type);
+                ok = false;
+                break;
+            }
+            if (!src.by_id && (!user_index || !user_node || user_index->bytes != 4 || user_node->bytes != 4 || user_index->offset + 4 > user_stride ||
+                               user_node->offset + 4 > user_stride)) {
+                LOGW("random loot tables off: %s has no chests Kiln can name its tables after on this build", src.type);
                 ok = false;
                 break;
             }
@@ -416,6 +436,22 @@ void build_loot_tables(uintptr_t lreg) {
                     LOGW("random loot tables: %s %s: its table array lies outside it; left out", src.type, guid_text(r.key.guid).c_str());
                     continue;
                 }
+                std::vector<uint32_t> key(n, 0);
+                std::vector<bool> used(n, false);
+                if (!src.by_id && n) {
+                    uint32_t un = 0;
+                    uintptr_t uf = 0;
+                    if (!elements_of(r, users_at, user_stride, &un, &uf)) {
+                        LOGW("random loot tables: %s %s: its chests lie outside it; left out", src.type, guid_text(r.key.guid).c_str());
+                        continue;
+                    }
+                    for (uint32_t u = 0; u < un; ++u) {
+                        uint32_t at = 0, node = 0;
+                        const uintptr_t ue = uf + static_cast<uintptr_t>(u) * user_stride;
+                        if (!rdv(ue + user_index->offset, at) || !rdv(ue + user_node->offset, node) || at >= n) continue;
+                        if (!used[at] || node < key[at]) key[at] = node, used[at] = true;
+                    }
+                }
                 const std::string gtext = guid_text(r.key.guid);
                 for (uint32_t i = 0; i < n; ++i) {
                     Entry e;
@@ -425,8 +461,12 @@ void build_loot_tables(uintptr_t lreg) {
                         if (!rdv(e.addr + static_cast<uintptr_t>(id_at), e.id)) continue;
                         std::snprintf(name, sizeof name, "%s%08x", src.prefix, e.id);
                     } else {
-                        e.id = registry::element_num(r.key.guid, i);
-                        std::snprintf(name, sizeof name, "%s%.8s_%u", src.prefix, gtext.c_str(), i);
+                        if (!used[i]) {
+                            ++unused;  // no chest uses it: no stable name (the stage leaves it out too)
+                            continue;
+                        }
+                        e.id = registry::element_num(r.key.guid, key[i]);
+                        std::snprintf(name, sizeof name, "%s%.8s_%08x", src.prefix, gtext.c_str(), key[i]);
                     }
                     if (Tables.by_id.count(e.id)) {
                         ++clashes;
@@ -437,6 +477,7 @@ void build_loot_tables(uintptr_t lreg) {
                 }
             }
         }
+        if (unused) LOGI("random loot tables: %u world table(s) no chest uses are left out (nothing names them)", unused);
         if (clashes) LOGW("random loot tables: %u table(s) share a 32-bit number with an earlier one; the earlier one is used", clashes);
         Tables.available = ok && !Tables.entries.empty();
     }

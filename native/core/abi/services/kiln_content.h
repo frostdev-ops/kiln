@@ -17,8 +17,9 @@
  *             lootRules entry game:loot; data packs have no section of their own for it.
  *  - RANDOM_LOOT (0.2.0-dev.31.19): every random loot table (keen::LootSettingsResource fields, "modifier.level.mode",
  *             "modifier.rarities[2].value"): the label collection's tables (id = the table's own 32-bit id, name
- *             "labels_<id as 8 hex digits>"), then each keen::SceneRandomLootResource's (id = FNV-1a-32 of the resource
- *             GUID mixed with the index, registry/element_num.h; name "world_<GUID's first 8 hex digits>_<index>"). The
+ *             "labels_<id as 8 hex digits>"), then each keen::SceneRandomLootResource's, named after the smallest node
+ *             id of the chests (lootContainer) that use the table (id = FNV-1a-32 of the resource GUID mixed with that
+ *             node id, registry/element_num.h; name "world_<GUID's first 8 hex digits>_<node id as 8 hex digits>"). The
  *             registries' randomLoot entries game:labels_* / game:world_*. Server world only (rolled there).
  *
  * Fields: the layout of each registry's struct comes from the game's own reflection (keen::ItemInfo, keen::RecipeInfo,

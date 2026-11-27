@@ -8,8 +8,8 @@ Schema version 0.1.0, experimental (KILNX031: may change in any release until it
 
 ## Ids
 
-- Game entries: `game:labels_<8 hex digits> or game:world_<8 hex digits>_<index>`. Mod entries: `(none: tables are not added)`. All ids are lower case. The mod ids `game` and `kiln` are reserved: no mod's entries use them.
-- Random loot tables have no names in the game. A table that enemies and generic containers use is game:labels_<its 32-bit id as 8 hex digits>; a table of the chests placed in the world is game:world_<the first 8 hex digits of its world's loot GUID>_<its index there, from 0>. Select by those prefixes (game:labels_*, game:world_*) and by the tables' values: a world table's index can move when a game update inserts a table.
+- Game entries: `game:labels_<8 hex digits> or game:world_<8 hex digits>_<8 hex digits>`. Mod entries: `(none: tables are not added)`. All ids are lower case. The mod ids `game` and `kiln` are reserved: no mod's entries use them.
+- Random loot tables have no names in the game. A table that enemies and generic containers use is game:labels_<its 32-bit id as 8 hex digits>; a table of the chests placed in the world is game:world_<the first 8 hex digits of its world's loot GUID>_<the scene node id of the first chest that uses it, as 8 hex digits> (the smallest node id among its chests). Both stay with their table when a game update inserts or moves tables; a table whose first chest changes gets a new id, and edits naming the old one are refused. A world table no chest uses has no id. Select by the prefixes (game:labels_*, game:world_*) and by the tables' values, or by an id read in the same run.
 
 ## Fields
 

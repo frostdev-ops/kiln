@@ -447,6 +447,26 @@ def check_arrays(db, name, e, specs, rows, res):
         res.layouts[el["name"]] = el.get("layout")
         if src.get("id") and db.path(el["name"], src["id"])[1]:
             res.errors.append(f"{name}: entries.sources[{i}].id {src['id']}: {db.path(el['name'], src['id'])[1]}")
+        used = src.get("usedBy")
+        if bool(src.get("id")) == bool(used):
+            res.errors.append(f"{name}: entries.sources[{i}] names its elements by their id member or by usedBy (one of them)")
+        pattern = src.get("unnamed", "")
+        if "%08x" not in pattern or "%u" in pattern:
+            res.errors.append(f"{name}: entries.sources[{i}].unnamed takes its key (%08x: the id, or usedBy's id) and may take its "
+                              "resource's GUID (%.8s); an index is no stable name")
+        if isinstance(used, dict):
+            ut, uerr = db.path(rtype, used.get("array", ""))
+            uel = db.element(ut) if ut else None
+            if uerr or uel is None:
+                res.errors.append(f"{name}: entries.sources[{i}].usedBy.array {used.get('array')}: {uerr or 'not an array'}")
+            else:
+                res.layouts[uel["name"]] = uel.get("layout")
+                for member in ("index", "id"):
+                    err = db.path(uel["name"], used.get(member, ""))[1]
+                    if err:
+                        res.errors.append(f"{name}: entries.sources[{i}].usedBy.{member} {used.get(member)}: {err}")
+        elif used is not None:
+            res.errors.append(f"{name}: entries.sources[{i}].usedBy names the array that uses the elements, its index and its id member")
         per.append(el["name"])
     if any(p is None for p in per):
         for path in specs:

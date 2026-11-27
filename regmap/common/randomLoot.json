@@ -13,7 +13,12 @@
       {
         "resourceType": "keen::SceneRandomLootResource",
         "array": "lootSettings",
-        "unnamed": "world_%.8s_%u"
+        "usedBy": {
+          "array": "lootContainer",
+          "index": "lootSettingsIndex",
+          "id": "nodeId"
+        },
+        "unnamed": "world_%.8s_%08x"
       }
     ]
   },

@@ -234,7 +234,11 @@ std::string regmap_digest(const map::RegMap& rm) {
             rows[f] = {row.paths, row.conv, row.values, row.formula, row.config, static_cast<int>(row.read), static_cast<int>(row.backend),
                        static_cast<int>(row.state), row.client_needs};
         json sources = json::array();
-        for (const map::EntrySource& s : e.sources) sources.push_back({s.resource_type, s.array, s.id, s.unnamed});
+        for (const map::EntrySource& s : e.sources) {
+            json one = {s.resource_type, s.array, s.id, s.unnamed};
+            if (!s.used_by_array.empty()) one.push_back({s.used_by_array, s.used_by_index, s.used_by_id});  // what names the elements
+            sources.push_back(one);
+        }
         j["registries"][n] = {{"entries", {static_cast<int>(e.kind), e.resource_type, e.array, e.resource_guid, e.name, e.guid, e.id, e.unnamed, e.name_from, e.key}},
                               {"rows", rows}};
         if (!sources.empty()) j["registries"][n]["sources"] = sources;  // kind arrays only: other registries' digests stay as they were

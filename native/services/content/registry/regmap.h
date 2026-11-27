@@ -61,17 +61,22 @@ struct EntrySource {
     std::string name_from;      // drop tables: "<component type>.<member>" whose templates name the entry
     std::string key;            // loot: "items": the entry has the id of the items entry with the same 32-bit id
     // kind Arrays: the game sources of one registry's entries, in order, each the array member `array` of every resource of
-    // its resourceType (in the archive's order). An entry is named by its source's "unnamed" pattern: over the element's
-    // 32-bit id member ("labels_%08x") or, without one, over its resource's GUID text and its index ("world_%.8s_%u"), whose
-    // 32-bit number is then element_num(). randomLoot: the creature/container label tables and the world's scene tables.
+    // its resourceType (in the archive's order). An entry is named by its source's "unnamed" pattern over a 32-bit key:
+    // the element's own id member ("labels_%08x"), or, for an element without one, the smallest `used_by_id` among the
+    // elements of the resource's `used_by_array` whose `used_by_index` points at it ("world_%.8s_%08x": the scene node of
+    // the first chest that uses the table, which a game update does not move the way an index moves). The 32-bit number
+    // of such an entry is element_num(); an element nothing uses has no stable name and is not an entry.
+    // randomLoot: the creature/container label tables and the world's scene tables.
     std::vector<EntrySource> sources;
+    std::string used_by_array, used_by_index, used_by_id;  // a source without an id member: what names its elements
 };
 // The 32-bit number of an element without an id member (kind Arrays): FNV-1a over its resource's 16 GUID bytes (the game's
-// byte order), mixed with its index. kiln.content's live registry and the stage's id table must agree on it.
-uint32_t element_num(const uint8_t guid[16], uint32_t index);
-// A kind Arrays entry's stable name from its source's pattern (see EntrySource::sources): "%08x" takes num, "%.8s" the
-// resource's GUID text (lower case, with dashes) and "%u" the element's index.
-std::string element_name(const EntrySource& source, uint32_t num, const std::string& guid_text, uint32_t index);
+// byte order), mixed with its key (the used_by_id that names it). kiln.content's live registry and the stage's id table
+// must agree on it.
+uint32_t element_num(const uint8_t guid[16], uint32_t key);
+// A kind Arrays entry's stable name from its source's pattern (see EntrySource::sources): "%08x" takes the key (the
+// element's id, or the used_by_id that names it), "%.8s" the first 8 characters of the resource's GUID text (lower case).
+std::string element_name(const EntrySource& source, uint32_t key, const std::string& guid_text);
 
 struct RegistryMap {
     std::string registry;
