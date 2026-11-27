@@ -97,6 +97,8 @@ entity from the player template, user-group rights, saves, logout, removal).
 | s1 | published, never logged in | the machine slot and record are made by AddPlayer itself; the bot waited for them (fixed: wait for the sockets) |
 | s2-s4 | logged in, upload taken, "Could not spawn Player Entity" | the upload's second byte is "new character", not "has entity" (fixed) |
 | s5 | in game in 0.27 s, 60 s in the world, 3 saves acked, logout | the whole join and leave work; see below |
+| p1-p4 (lab dev32-labbot-pets, a temporary merge with dev32/review-pets) | the bot typed `/pet give hound` and `/pet summon 1` | owning a pet; the summon's refusal is Kiln.Pets' (below) |
+| s6 | two bots, a drop, a logout, a new name, the first name again | all work but the last (below) |
 
 **The four open points of the first notes, answered:**
 
@@ -119,3 +121,24 @@ entity from the player template, user-group rights, saves, logout, removal).
 id, kiln.characters logs it in game, `Commands.Execute` as the bot runs `/help` (done, 2 lines), the world around the
 spawn streams in (RSS +120 MB at the join), each world save reaches the bot (3 acked in 62 s), and the logout ends
 with "[server] Remove Entity for Player 'Bot Alder'" and "Remove Player", the server's exit code 0.
+
+**Seen in p1-p4 (PetsSample on Kiln.Pets):** the bot's own chat line `/pet give hound` ran PetsSample's admin command with
+the bot as source; `Pets.Of(CharacterData.KeyOf(bot))` then held a Hound whose owner is the bot's derived character key,
+and the records were still there in the next server session (the same name is the same character). `/pet summon 1`
+came back to the bot as "refused: BodyRefused: its faction could not be set (Faction: call it from mod code (changes
+belong to a mod))": Kiln.Pets' `GamePetWorld.CreateBody` sets `Creatures.Of(e).Faction` from Kiln.Pets' own step, where
+Kiln.Creatures finds no mod owner (Creatures.cs `RequireOwner`). That is Kiln.Pets' to fix (lane PETS), not the bot's;
+three more summons in the same step answered "NoSafeGround". Teleporting the bot (`Teleport.To`) moved it 6 m and
+read back.
+
+**Seen in s6:** two bots at once (slots 15 and 14, entities 16 and 15); the one in the group with the fewest rights got
+rights 32 and the game's command check refused it `/kick` ("You may not use /kick."); a drop takes the player out of
+`Players.All` within 3 s; a new name joins at once after another bot's logout and reuses its slot and machine.
+
+**Not working: the same name again in the same server session.** A bot that logs out and joins again under the same
+name (the same character) while the server keeps running stays in record state 1 (the spawn position search) until
+the 60 s limit (p1, p2, s6). The first join of a server session under a name that played there before works (p1-p4:
+"Bot Alder" each time, with its pets). The search (`0x7aded0`) waits while the save system's state (`[gs+0x20]+0x70`)
+is not 2 or 3, but a new name joined right after the logout, so that global check is not it; what the returning
+character waits for is not found yet. Workaround for tests: a new bot name for each join in one server session, or a
+server restart between a logout and the same character's next login.
