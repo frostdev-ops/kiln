@@ -71,7 +71,10 @@ and `libraryWebgl` show the fire on (their style numbers are the real signal; th
   header band (`stageCanvas`, `STAGE_BAND`: 100 px, the header and the sheet's lit edge, the same pixels the whole canvas
   has there), so a frame of the fire repaints that strip and not the page under the sheet; the flicker is written on
   the frames the fire draws. `tests/sheet-perf.spec.ts` counts the writes, the torch's listener and the frames asked
-  for.
+  for. Over Thanksgiving weekend (`shell/thanksgiving.ts`, 0.2.0-dev.31.19) the fire's shader is `FRAG_TURKEY` (about
+  twice every day's Play frame on a GPU; `tests/thanksgiving.spec.ts` measures both) and the flicker also goes onto the
+  greeting over the mouth (`.k-thanks`, a leaf); a driver that cannot build that shader gets every day's `FRAG`, without
+  the greeting (`.k-app[data-turkey]`).
 - **WebKit without compositing** (`.k-app[data-render="flat"]`, `Stage.tsx flatDrawing`): WebKitGTK with hardware
   acceleration off (webkit://gpu says "Policy never"; `WEBKIT_DISABLE_DMABUF_RENDERER=1`, which the launcher set
   every time up to 0.2.0-dev.29.18 and from 29.19 only where the DMA-BUF renderer failed (its marker, `--no-dmabuf`),

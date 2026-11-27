@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: MIT
 // kiln.content registry stage, host test: the registry line review's findings on the stage runner (out/registry-review,
 // R1-R5, moved here). Harness as registry_stage_test.cpp. registry_stage_review_test.sh builds and runs it.
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <cstdio>
 #include <cstring>
+#include <mutex>
 #include <set>
 #include <stdexcept>
 #include <thread>
@@ -10,6 +14,7 @@
 #include "../registry/boot_hooks.h"
 #include "../registry/schema_ir.h"
 #include "../registry/stage.h"
+#include "../registry/report_writer.h"
 #include "../registry/stage_owner.h"
 
 namespace kc {
@@ -286,6 +291,197 @@ void worldload_ready_event(const std::string& dir) {
     std::string value;
     check(r.read(2, "items", "game:plank", "maxStack", &value) == KILN_OK && value == "42", "a late refresh updates the resolved view");
     check(r.generation() == generation && seen.size() == 2, "a late refresh keeps the generation and sends no ready event");
+}
+// Owner 11-26 (registry-followups review Q1): a live report's JSON and state/registry.json are made off the publishing (world
+// tick) thread. With env.post_report set, a live publish only queues; report_json() is already the newest report; the
+// writer writes the newest report once, however many publishes queued before it ran.
+void live_report_written_off_thread(const std::string& dir) {
+    TreeView view = world();
+    Files files;
+    auto env = env_of(&view, &files, dir, &sections);
+    std::vector<std::function<void()>> posted;
+    std::thread::id writer;
+    env.post_report = [&](std::function<void()> fn) { posted.push_back(std::move(fn)); };
+    int writes = 0;
+    auto write = env.write_report;
+    env.write_report = [&, write](const std::string& t) { ++writes; writer = std::this_thread::get_id(); return write(t); };
+    stage::Runner r(env);
+    std::function<void(const Result&, bool)> live_report;
+    const Result* live_result = nullptr;
+    r.set_live([&](const stage::LiveHandoff& h) { live_report = h.report, live_result = h.result; });
+    r.run({});
+    r.finish({});
+    const std::string start_file = files.report;
+    check(writes == 1 && posted.empty() && json::parse(start_file)["phase"] == "start", "the start's report is written at once");
+    live_report(*live_result, true);
+    Result late = *live_result;
+    late.fields.at({"items", "game:plank", "maxStack"}).result = Value::integer(42);
+    live_report(late, false);
+    check(writes == 1 && files.report == start_file, "a live publish neither builds nor writes state/registry.json on its thread (" + std::to_string(writes) + " write(s))");
+    check(posted.size() == 2, "each live publish queues the writer (" + std::to_string(posted.size()) + ")");
+    std::string text;
+    check(r.report_json(&text) == KILN_OK && json::parse(text)["phase"] == "worldLoad" && json::parse(text)["generation"] == r.generation(),
+          "report_json gives the newest report before the writer ran");
+    std::thread([&] { for (auto& fn : posted) fn(); }).join();
+    check(writes == 2, "the writer writes the newest report once for two queued publishes (" + std::to_string(writes) + " write(s))");
+    check(writer != std::this_thread::get_id(), "state/registry.json is written on the writer's thread");
+    check(json::parse(files.report)["phase"] == "worldLoad" && json::parse(files.report)["generation"] == r.generation(),
+          "the file holds the newest report");
+    std::string again;
+    check(r.report_json(&again) == KILN_OK && json::parse(again) == json::parse(files.report), "report_json and the file agree after the writer ran");
+}
+// The service's writer (registry/report_writer.h, Env.post_report in stage_service.cpp): a real thread, the newest report.
+void report_writer_thread(const std::string& dir) {
+    TreeView view = world();
+    Files files;
+    auto env = env_of(&view, &files, dir, &sections);
+    kc::registry::ReportWriter writer;
+    std::mutex mu;
+    std::set<std::thread::id> threads;
+    int writes = 0;
+    env.post_report = [&](std::function<void()> fn) { writer.post(std::move(fn)); };
+    auto write = env.write_report;
+    env.write_report = [&, write](const std::string& t) {
+        std::lock_guard l(mu);
+        ++writes, threads.insert(std::this_thread::get_id());
+        return write(t);
+    };
+    stage::Runner r(env);
+    std::function<void(const Result&, bool)> live_report;
+    const Result* live_result = nullptr;
+    r.set_live([&](const stage::LiveHandoff& h) { live_report = h.report, live_result = h.result; });
+    r.run({});
+    r.finish({});
+    live_report(*live_result, true);
+    for (int i = 0; i < 20; ++i) live_report(*live_result, false);
+    writer.wait_idle();
+    std::lock_guard l(mu);
+    check(writes >= 2 && writes <= 22, "the writer wrote the live reports (" + std::to_string(writes) + " write(s) for 21 publishes)");
+    check(threads.size() == 2 && threads.count(std::this_thread::get_id()), "the start's report on the stage thread, the live ones on the writer's");
+    check(json::parse(files.report)["phase"] == "worldLoad" && json::parse(files.report)["generation"] == r.generation(), "the file holds the newest report");
+}
+// Review of Q1 (11-26): the writer makes the report's text outside the runner's lock. The tick takes that lock every step
+// (kiln.registry status with a runtime author: counts, generation), for reads and for the next publish, so it must never
+// wait while the writer dumps a large report (host bench: 51 ms at 10,000 fields, 87 ms at 40,000). The best of three runs
+// keeps a descheduled poller from failing it; held, every run waits about the whole dump.
+void live_report_text_outside_the_lock(const std::string& dir) {
+    using clk = std::chrono::steady_clock;
+    auto ms_since = [](clk::time_point t) { return std::chrono::duration<double, std::milli>(clk::now() - t).count(); };
+    TreeView view = world();
+    Files files;
+    auto env = env_of(&view, &files, dir, &sections);
+    std::vector<std::function<void()>> posted;
+    env.post_report = [&](std::function<void()> fn) { posted.push_back(std::move(fn)); };
+    stage::Runner r(env);
+    std::function<void(Result, bool)> live_report;
+    const Result* live_result = nullptr;
+    r.set_live([&](const stage::LiveHandoff& h) { live_report = h.report, live_result = h.result; });
+    r.run({});
+    r.finish({});
+    Result big = *live_result;
+    for (int i = 0; i < 3000; ++i) {  // code writers over every field, as BigStacks-like mods write: a report of several MB
+        FieldOutcome fo;
+        fo.base = Value::integer(20);
+        for (int k = 0; k < 4; ++k) {
+            ChainRow c;
+            c.kind = WriterKind::Code, c.mod = "writer" + std::to_string(k), c.who = c.mod + ": " + std::string(400, 'x');
+            c.op.set = true, c.op.value = c.after = Value::integer(100 + k);
+            fo.chain.push_back(std::move(c));
+        }
+        fo.result = Value::integer(103), fo.winner = "writer3";
+        big.fields[{"items", "game:item_" + std::to_string(i), "maxStack"}] = std::move(fo);
+    }
+    const json doc = report_json(generated_schema(), big, {});
+    const auto t = clk::now();
+    const size_t bytes = doc.dump().size();
+    const double dump_ms = ms_since(t);
+    double best = 1e9;
+    for (int run = 0; run < 3; ++run) {
+        posted.clear();
+        live_report(big, false);
+        std::atomic<bool> done{false};
+        std::thread writer([&] {
+            for (auto& fn : posted) fn();
+            done = true;
+        });
+        double longest = 0;
+        while (!done) {
+            const auto g0 = clk::now();
+            (void)r.generation();
+            longest = std::max(longest, ms_since(g0));
+        }
+        writer.join();
+        best = std::min(best, longest);
+    }
+    check(posted.size() == 1 && json::parse(files.report)["generation"] == r.generation(), "the writer wrote the big report");
+    check(best < dump_ms / 3, "a runner call on the tick waits " + std::to_string(best) + " ms while the writer dumps a " +
+                                  std::to_string(bytes / 1024) + " KB report (its dump: " + std::to_string(dump_ms) + " ms)");
+}
+// Review of Q1: a byte that is not UTF-8 in a live report (a code writer's label as a plugin gave it) used to throw from
+// nlohmann's dump on the publishing thread; now report_json (the kiln.registry C ABI getter, Kiln.Host's reload replies)
+// would throw it across the C boundary, and the writer would leave registry.json stale. The report is still made and
+// written, the byte replaced (U+FFFD).
+void live_report_bad_utf8(const std::string& dir) {
+    TreeView view = world();
+    Files files;
+    auto env = env_of(&view, &files, dir, &sections);
+    std::vector<std::function<void()>> posted;
+    env.post_report = [&](std::function<void()> fn) { posted.push_back(std::move(fn)); };
+    stage::Runner r(env);
+    std::function<void(Result, bool)> live_report;
+    const Result* live_result = nullptr;
+    r.set_live([&](const stage::LiveHandoff& h) { live_report = h.report, live_result = h.result; });
+    r.run({});
+    r.finish({});
+    Result late = *live_result;
+    ChainRow c;
+    c.kind = WriterKind::Code, c.mod = "plugin", c.who = "plugin: stacks \xff\xfe x4";
+    c.op.set = true, c.op.value = c.after = Value::integer(80);
+    late.fields.at({"items", "game:plank", "maxStack"}).chain.push_back(c);
+    live_report(late, true);
+    std::string text;
+    KilnResult rc = KILN_ERR_UNAVAILABLE;
+    try {
+        rc = r.report_json(&text);
+    } catch (const std::exception& e) {
+        check(false, std::string("report_json throws: ") + e.what());
+    }
+    check(rc == KILN_OK && text.find("stacks \xEF\xBF\xBD\xEF\xBF\xBD x4") != std::string::npos, "report_json has the report, the bytes replaced");
+    try {
+        for (auto& fn : posted) fn();
+    } catch (const std::exception& e) {
+        check(false, std::string("the writer throws: ") + e.what());
+    }
+    check(json::parse(files.report)["generation"] == r.generation() && files.report.find("\xEF\xBF\xBD") != std::string::npos,
+          "registry.json holds the newest report, the bytes replaced");
+}
+// Review of Q1: the service's writer thread is never joined (a DLL detach at exit never waits), so a report it has not
+// written when the process ends (a server stopped right after a late rebuild or a pack reload) would be lost; kiln.content's
+// exit step (KilnPluginInfo.on_unload, stage_service.cpp flush_reports) waits for it, bounded.
+void report_writer_flush() {
+    kc::registry::ReportWriter writer;
+    std::mutex mu;
+    std::condition_variable cv;
+    bool release = false;
+    int ran = 0;
+    writer.post([&] {
+        std::unique_lock l(mu);
+        cv.wait(l, [&] { return release; });
+        ++ran;
+    });
+    check(!writer.flush(std::chrono::milliseconds(50)), "flush gives up after its time while a write runs");
+    writer.post([&] {
+        std::lock_guard l(mu);
+        ++ran;
+    });
+    {
+        std::lock_guard l(mu);
+        release = true;
+    }
+    cv.notify_all();
+    check(writer.flush(std::chrono::seconds(30)), "flush returns once the running and the pending write are done");
+    std::lock_guard l(mu);
+    check(ran == 2, "both writes ran before flush returned (" + std::to_string(ran) + ")");
 }
 Files warm_id_table(const std::string& dir) {
     TreeView view = world(); Files files;
@@ -908,6 +1104,11 @@ int main(int argc, char** argv) {
         {"R3 submit_unbound_owner", [&] { submit_unbound_owner(dir); }},
         {"R4 worldload_ready_event", [&] { worldload_ready_event(dir); }},
         {"P2 transaction_snapshot_is_not_worldload", [&] { transaction_snapshot_is_not_worldload(dir); }},
+        {"Q1 live_report_written_off_thread", [&] { live_report_written_off_thread(dir); }},
+        {"Q1 report_writer_thread", [&] { report_writer_thread(dir); }},
+        {"Q1r live_report_text_outside_the_lock", [&] { live_report_text_outside_the_lock(dir); }},
+        {"Q1r live_report_bad_utf8", [&] { live_report_bad_utf8(dir); }},
+        {"Q1r report_writer_flush", [&] { report_writer_flush(); }},
         {"P2 unused_live_base_is_lazy", [&] { unused_live_base_is_lazy(dir); }},
         {"NS1 registry_users_decode_at_the_stage", [&] { registry_users_decode_at_the_stage(dir); }},
         {"P2 full_live_base_uses_cache", [&] { full_live_base_uses_cache(dir); }},

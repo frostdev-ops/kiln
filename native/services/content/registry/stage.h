@@ -55,6 +55,9 @@ struct Env {
     std::function<std::vector<std::pair<std::string, std::string>>()> folders;
     // Files: registry.json under state; the id table, the plans and the cache under kiln.content's data folder (rel paths).
     std::function<bool(const std::string& text)> write_report;
+    // Runs fn later on a thread of its own (kiln.content's report writer): a live report's JSON and state/registry.json, so a
+    // world tick that publishes a report never makes either (owner 11-26). Unset: at once, on the publishing thread.
+    std::function<void(std::function<void()> fn)> post_report;
     std::function<bool(const std::string& rel, const std::string& text)> write_data;
     std::function<std::optional<std::string>(const std::string& rel)> read_data;
     // The file is there (one file-system lookup, nothing read; proof-2 N7, as proof.h's exists); unset: read_data decides.
@@ -79,7 +82,7 @@ struct Env {
     std::function<bool(std::string* why)> stack_guard;
     // The registries' schema (tests: a fixture's, with id migrations); unset: the generated one (schema_ir.h).
     std::optional<Schema> schema;
-    std::function<void(int level, const std::string& line)> log;  // 0 info, 1 warn, 2 error
+    std::function<void(int level, const std::string& line)> log;  // -1 debug ("log_level": "debug"), 0 info, 1 warn, 2 error
     std::function<std::string()> now;                              // RFC 3339 UTC
     uint32_t pid = 0;
     std::string kiln_version, side, exe_sha256;
@@ -138,14 +141,14 @@ struct LiveHandoff {
     const std::vector<OldWrite>* old = nullptr;
     const std::vector<ModInput>* inputs = nullptr;  // code batches recorded, code unset
     const std::set<std::string>* decoded = nullptr; // "<registry>.<field>" the base holds values for
-    std::function<void(const Result&, bool application)> report;  // registry.json again, generation + 1 for an application
+    std::function<void(Result, bool application)> report;  // registry.json again, generation + 1 for an application
     // kept across a recompose (review finding 6): the refusals made outside compose, the restart fields as the boot back-end
     // wrote them, and the mapping check for a reloaded batch
     const std::vector<Refusal>* pre_refused = nullptr;
     const std::map<FieldRef, FieldOutcome>* boot_fields = nullptr;
     std::function<void(Batch*, std::vector<Refusal>*)> check;
     // A transaction snapshot advances the report generation without pretending that another world loaded.
-    std::function<void(const Result&, bool world)> changed;
+    std::function<void(Result, bool world)> changed;
     // Empty when the full copied base was prepared during the stage. Serialized and cached otherwise.
     std::function<bool(LiveData*, std::string*)> prepare;
     // Not empty: this start runs on a rolled-back plan (its hash; kiln/data/content/registry/rollback.json). The inputs are the
@@ -233,5 +236,8 @@ std::vector<Env::DataFile> read_sections(const std::string& mod, const std::stri
 Runner& runner();
 // Binds the tables (kiln.registry v1, kiln.internal.registry v1) from kiln_plugin_main.
 void bind_service();
+// kiln.content's exit step (KilnPluginInfo.on_unload): waits up to 2 s for the report writer (Env.post_report), so the newest
+// live report is in state/registry.json before the process ends.
+void flush_reports();
 
 }  // namespace kc::registry::stage

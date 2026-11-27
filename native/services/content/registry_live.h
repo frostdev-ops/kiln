@@ -65,9 +65,9 @@ struct RegistryLive {
     std::map<registry::EntryRef, registry::json> entry_bodies;
     // registry.json (S11 writes it): a world load or pack reload passes true for a new application.
     // A refresh for late drop tables passes false so it does not send another WORLDLOAD event.
-    std::function<void(const registry::Result&, bool application)> report;
+    std::function<void(registry::Result, bool application)> report;
     // A deferred transaction snapshot: generation +1, but never WORLDLOAD. The bool says whether a world exists.
-    std::function<void(const registry::Result&, bool world)> changed;
+    std::function<void(registry::Result, bool world)> changed;
     // Checked under store_mutex against the token/kind that gates all live accesses; false/missing fails closed.
     std::function<bool(uint32_t kind)> on_world_thread;
     std::function<bool(registry::stage::LiveData*, std::string*)> prepare; // optional copied-base preparation on first use

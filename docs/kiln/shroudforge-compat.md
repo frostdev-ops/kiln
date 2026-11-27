@@ -1035,7 +1035,7 @@ column names what a Kiln mod uses today for the same effect. The C# column state
 | Modloader window, World Editor window | starts installed `shroudforge.exe` only; bundled runtime has no helper windows | in-game Mods → ShroudForge handles switches/settings, not the World Editor | helper lifecycle windowless tests; rendering client check |
 | Debug Console window | not started (kiln.log has SF's log as `[sf]`) | Kiln console | by design |
 | SF self-update / repair | not run when hosted | Kiln launcher (pending: SF update source) | by design |
-| notifications feed (`shroudforge.notifications.publish`) | plugin (SF's local feed file) | Kiln.Ui notices | plugin; — |
+| notifications feed (`shroudforge.notifications.publish`) | plugin (SF's state.json `events`); hosted without a ShroudForge window: Kiln.Ui toasts each new notice and lists a mod's newest three in its details (`ShroudForgeNews.cs`, 0.2.0-dev.31.19) | Kiln.Ui toasts | managed tests (`ShroudForgeNewsTests`); client: — |
 | effect reports (`runtime.report_effect`) | plugin; kiln-manage `effects` | mod status in `state/mods.json` | done; lab |
 
 ### 8.2 `shroudforge.*` (mod API, `lua/shroudforge/v1/definitions/mod_api.lua`)
@@ -1044,7 +1044,7 @@ column names what a Kiln mod uses today for the same effect. The C# column state
 |---|---|---|---|
 | `shroudforge.settings.get(key, fallback)` | plugin | `Config.Register<T>()` | lab |
 | `shroudforge.ui.on_action`, `shroudforge.ui.toggle_modloader` | public action request files; toggle event opens installed helper, or Kiln's SF page when hosted without it | `Kiln.Ui` screens | action-file managed tests, event native Wine tests; actual action execution/rendering client check |
-| `shroudforge.notifications.publish` | plugin | Kiln.Ui notices | — |
+| `shroudforge.notifications.publish` | plugin; Kiln.Ui reads state.json `events`: toasts, the mod's details, toggle_modloader() opens the page on the mod that just published | Kiln.Ui toasts | managed tests; client: — |
 | `shroudforge.i18n.get`, `shroudforge.locale`, `shroudforge.clock` | plugin | `Context.Locale`, `Mod.Text`, `Tick` | C# localisation unit tests; SF client text unchecked |
 | `shroudforge.input.is_key_down`, `is_keybind_down`, `was_keybind_pressed`, `keybind_label` | plugin (`is_key_down` raises since SF 1.7.6); held/pressed state from Kiln's host key feed (no `shroudforge.exe` installed), else from an installed `shroudforge.exe` (section 5.6) | `Kiln.Ui.KeyBindings` | feed: real runtime with fed records under Wine, not a game client; before dev.24 bundled-only: always false (player log r1110); installed: client |
 | `shroudforge.log.trace/debug/info/warn/error`, `version`, `mod_id`, `mod_kind` | plugin (also in kiln.log as `[sf]`) | `Mod.Log` | lab (probe's `log.info` lines) |

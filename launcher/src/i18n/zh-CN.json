@@ -4044,6 +4044,7 @@
       "sfStepSave": "保存结果"
     },
     "appShell": {
+      "thanksgiving": "感恩节快乐",
       "headStart": "{progress} · {step}",
       "pct": "{pct}%",
       "labelTime": "{label} {time}",

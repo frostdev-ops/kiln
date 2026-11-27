@@ -408,6 +408,10 @@
       "waits": "NA CO CZEKA",
       "settings": "PRZEŁĄCZNIK I USTAWIENIA"
     },
+    "news": {
+      "label": "WIADOMOŚCI OD TEGO MODA",
+      "keys_after_menu": "Jego klawisze działają w grze po zamknięciu tego menu ({key} lub Esc), tak jak przy oknie ShroudForge."
+    },
     "waits": {
       "restart": "Na następne uruchomienie gry: ShroudForge wczytuje zmienioną konfigurację tego moda dopiero przy ponownym starcie gry.",
       "dependency": "Na mod, którego wymaga: ShroudForge uruchomi go, gdy tamten mod zadziała (powód powyżej go wymienia).",
