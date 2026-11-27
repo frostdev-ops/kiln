@@ -72,6 +72,8 @@ receipt with `Committed` false. Not on the tick thread: `InvalidOperationExcepti
 
 - The game's break notice is not sent for a Kiln wear that breaks a tool (`allowBreak`): `kiln_items_gear` has no
   NotifyEvent output. The tool still breaks (durability 0, the game marks it broken as for its own debits).
+- A wear past 0 with `allowBreak` applies what was left (the game clamps at 0): the receipt's `Taken` is that amount and
+  its disposition `Exact`, since that is what the game does with such a debit (lab: 250 asked of a sword at 245, 245 applied).
 - A wear is the game's helper called from Kiln's own program, not from the game's tool action: the game's per-action
   rules (the hit cap, the projectile spawn) do not apply to it, and kiln.toolwear's rules never change it.
 - A refund is a give: the game's "+N item" popup is not shown and no PickupEvent is sent (a refund must not count as a
