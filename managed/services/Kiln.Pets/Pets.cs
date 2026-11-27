@@ -63,7 +63,23 @@ public static partial class Pets
         return Roster("Pets.Of").Of(owner);
     }
 
-    /// <summary>The pet, or null (unknown here, or its owner's records are not read yet: <see cref="Of"/> reads them).
+    /// <summary>The pets of the player's character, as <see cref="Of(CharacterKey)"/> and as the requests name their owner (a
+    /// <see cref="PlayerRef"/>): the player must be in game. An offline character's pets are read by its key. Server tick
+    /// thread.</summary>
+    /// <exception cref="ArgumentException">No player, or the player is not in game (or has no character id here): the
+    /// message starts with the reason's word (<c>OwnerOffline</c>, <c>NoCharacter</c>).</exception>
+    /// <exception cref="KilnUnavailableException"><c>pets.records</c> is off (a joined client, no server world).</exception>
+    [ServerOnly, TickThreadOnly, RequiresCapability(Caps.Records)]
+    public static IReadOnlyList<PetSnapshot> Of(PlayerRef player)
+    {
+        if (player.IsNone) throw new ArgumentException("no player", nameof(player));
+        var r = Roster("Pets.Of");
+        var who = r.World.Owner(player, out var why)
+                  ?? throw new ArgumentException($"{why ?? "OwnerOffline: the player is not in game"} (an offline character's pets: Pets.Of(CharacterKey))", nameof(player));
+        return r.Of(who.Key);
+    }
+
+    /// <summary>The pet, or null (unknown here, or its owner's records are not read yet: <see cref="Of(CharacterKey)"/> reads them).
     /// A released pet is returned (Life Released) until a committed save holds its release. Server tick thread.</summary>
     [ServerOnly, TickThreadOnly, RequiresCapability(Caps.Records)]
     public static PetSnapshot? Get(PetId pet) => pet.IsNone ? null : Roster("Pets.Get").Get(pet);

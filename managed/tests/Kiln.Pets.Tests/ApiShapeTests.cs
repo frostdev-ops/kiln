@@ -135,3 +135,74 @@ public sealed class ApiShapeTests
     }
 }
 
+/// <summary>Kiln.Pets' facade on a roster of the test's (a fake world and store) and a tick thread that is the test's.</summary>
+public sealed class PetsFacadeShapeTests : IDisposable
+{
+    private sealed class TestBackend : IKilnBackend
+    {
+        public bool Tick = true;
+        public string Version => "test";
+        public bool IsTickThread => Tick;
+        public bool HasFeature(string name) => false;
+        public nint Service(string name, uint minVersion) => 0;
+        public void Log(ulong owner, LogLevel level, string text) { }
+    }
+
+    private readonly IKilnBackend _was = Backend.Current;
+    private readonly TestBackend _backend = new();
+    private readonly FakeWorld _world = new();
+    private readonly FakeStore _store = new();
+    private readonly PetRoster _roster;
+    private readonly CharacterKey _a = new(0xA, new Guid("aaaaaaaa-0000-0000-0000-00000000000a"));
+    private readonly CharacterKey _b = new(0xB, new Guid("bbbbbbbb-0000-0000-0000-00000000000b"));
+
+    public PetsFacadeShapeTests()
+    {
+        Backend.Current = _backend;
+        PetsRuntime.ResetForTests();
+        PetCreatures.ResetForTests();
+        PetCreatures.Source = new FakeCreatures();
+        PetsRuntime.TestRows = true;
+        Pets.DefineAs(new PetDefinition { Id = "mod-a:wolf", Creature = "game:enemy_wildbeast_wolf" }, "mod-a");
+        PetsRuntime.DrainEventsForTests(out _);
+        _roster = PetsRuntime.UseForTests(_world, _store);
+        _roster.Post = _ => { };
+    }
+
+    public void Dispose()
+    {
+        PetsRuntime.StopForTests();
+        PetsRuntime.TestRows = false;
+        PetsRuntime.ResetForTests();
+        PetCreatures.ResetForTests();
+        Backend.Current = _was;
+    }
+
+    private PlayerRef Join(CharacterKey key) => new(key.Account, key.Id, _world.Join(key).Entity);
+
+    private PetResult Run(Task<PetResult> t)
+    {
+        for (var i = 0; i < 20 && !t.IsCompleted; i++)
+        {
+            _roster.Step();
+            _world.Step++;
+            _world.Now += 1 / 60.0;
+        }
+        Assert.True(t.IsCompleted, "the request did not complete");
+        return t.Result;
+    }
+
+    // ---- A12: Pets.Of takes a player too ----
+
+    [Fact]
+    public void Of_takes_the_player_in_game_as_the_commands_do()
+    {
+        var a = Join(_a);
+        Assert.True(Run(Pets.Grant(_a, "mod-a:wolf", PetRequest.New())).Ok);
+        var mine = Pets.Of(a);
+        Assert.Single(mine);
+        Assert.Equal(Pets.Of(_a).Single().Id, mine[0].Id);
+        var offline = new PlayerRef(_b.Account, _b.Id, new EntityRef(new EntityId(99), 1));
+        Assert.Contains("OwnerOffline", Assert.Throws<ArgumentException>(() => Pets.Of(offline)).Message);
+    }
+}
