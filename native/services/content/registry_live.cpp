@@ -2823,7 +2823,8 @@ KilnResult registry_live_read(const std::string& reg_name, const std::string& id
         *out = v.to_json().dump();
         return KILN_OK;
     }
-    if (!g.world || spec->applies == registry::Applies::Restart) {
+    // a read-only field (items.hasDamage, creatures.kind and arsenal) has no live binding: in a world too it reads the base
+    if (!g.world || spec->applies == registry::Applies::Restart || spec->read_only) {
         if (auto it = g.in->result.fields.find(ref); it != g.in->result.fields.end()) { *out = it->second.result.to_json().dump(); return KILN_OK; }
         if (const auto added = g.in->result.definitions.find({reg_name, id}); added != g.in->result.definitions.end()) {
             const auto value = added->second.values.find(field);

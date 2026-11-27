@@ -90,6 +90,7 @@ registry::BaseModel gd_base() {
     v.id = "game:enemy_vukah_melee";
     v.fields["level"] = Value::integer(7), v.fields["faction"] = Value::text("vukah"), v.fields["sight.range"] = Value::number(18);
     v.fields["resist.cut"] = Value::number(1.5), v.fields["scale"] = Value{}, v.fields["kind"] = Value::text("enemy");
+    v.fields["arsenal"] = Value::text("game:enemy_vukah_melee");
     v.traits.insert("enemy");
     registry::BaseModel::Entry w;
     w.id = "game:animal_wildlife_wolf";
@@ -359,6 +360,16 @@ void absent_values_read_null() {
           "a creature with a size reads it");
     check(read("creatures", "game:no_such_creature", "scale") == "ERR", "an id that names no creature is still no value");
 }
+// review registry-r2a: a read-only field (a creature's kind and arsenal: what pets and taming read) reads its value in a world
+// too; no back-end binds it, so the live read takes the base, as it does before a world
+void read_only_fields_read_in_a_world() {
+    gd_world();
+    apply_gd("[]");
+    check(read("creatures", "game:enemy_vukah_melee", "kind") == "\"enemy\"", "kind in a world: " + read("creatures", "game:enemy_vukah_melee", "kind"));
+    check(read("creatures", "game:enemy_vukah_melee", "arsenal") == "\"game:enemy_vukah_melee\"",
+          "arsenal in a world: " + read("creatures", "game:enemy_vukah_melee", "arsenal"));
+    check(read("creatures", "game:no_such_creature", "kind") == "ERR", "an id that names no creature has no kind");
+}
 }  // namespace
 
 int main() {
@@ -382,6 +393,7 @@ int main() {
         {"creature_code_writer_in_kiln_words", creature_code_writer_in_kiln_words},
         {"entry_by_its_number", entry_by_its_number},
         {"absent_values_read_null", absent_values_read_null},
+        {"read_only_fields_read_in_a_world", read_only_fields_read_in_a_world},
     };
     int failed = 0;
     for (auto& [name, fn] : tests) {
