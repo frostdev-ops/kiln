@@ -466,6 +466,13 @@ Each row: the symptom we saw, why, the fix that is in now, and the code or test 
 | P64 | the gamedata live host test died with ASan's index 20 out of bounds for `Registry [5]` | the live test harness's fake `reg(kind)` indexed `g_regs[kind]` unchecked; production's `reg` maps any other kind (a gamedata kind, 16 and up) to an empty registry | the fake clamps as registries.cpp does | `registry_live_test.cpp` `reg` |
 | P65 | (constraint, not fixed; review of 2.8b) an `abilities.timing.*` time moved past a later event of its kind reaches no Kiln client | a slot is named `events[<Type>#<k>]` by its place in the game's order; kiln.gamedata's content sync sends a slot only while that path still names it in the sender's current, sorted order (`gd_export`), so the receiver, which resolves the path in its own order, never lands on another event | keep: sending it could move the wrong event on a receiver whose order is another; the registries README says so to mod authors (the server acts at the new time, Kiln clients keep the old one there) | `gamedata_packs.cpp` `gd_export`; registries README (buffs and abilities paragraph) |
 
+### Registry trial merge (dev.32: five lanes in one tree)
+
+| # | Symptom | Cause | Fix | Where |
+|---|---|---|---|---|
+| P82 | after the five dev.32 lanes were merged, kiln.content no longer built: `static_assert(registries + fields < KILN_CAP_OWNER_MAX)` failed | the stage reports one capability row per registry and per field (`registry.<r>`, `registry.<r>.<field>`) under kiln.content's one kiln.caps owner, which held at most 256 reports; each lane alone stayed under it, together they made 296 (17 registries, 274 fields, 5 entry rows) | the core's per-owner limit is 1,024; a new registry counts its rows against it (the static_assert names the sum) | `kiln_caps.h` `KILN_CAP_OWNER_MAX`; `stage.cpp` static_assert; `registry_stage_test` "fits kiln.caps owner limit" |
+| P83 | after the merge the stations, skills and buffs cases of `registry_model` read nothing ("workshops is not a list here", a skill cost 0) | the lanes' test fixtures gave their resources the same made-up GUIDs (`g(500)`, `g(600)`), and the fixture's later resource replaced the earlier | every fixture resource has a GUID of its own; a lane adding fixture resources picks numbers no other lane uses (the ids that name a resource by its GUID, randomLoot's `world_<guid8>`, pin theirs) | `registry_model_test.cpp` `world()` |
+
 Regmap reasons are player-facing (P31's rule for records): `regmap_check.py:324-330`. A reason must say what is not
 known in Kiln words, without nested parentheses (kiln.content wraps it in parentheses).
 
