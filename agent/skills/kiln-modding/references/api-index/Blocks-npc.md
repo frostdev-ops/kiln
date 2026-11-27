@@ -313,6 +313,18 @@ enum: Target, Self
 ## NpcLineKind `0.2.25` — Which line of an NPC an override is for (since 0.2.0-dev.32).
 enum: Greeting, Farewell, MenuLine
 
+## NpcLines `0.2.25` — One mod's override of one NPC's farewell (`Npcs.Farewells`) or menu line (`Npcs.MenuLine`): its lines replace the game's, or `NpcLines.Clear` gives them back.
+- `Clear() -> void` — Ends this override: the next mod's shows, else the game's own line.
+- `Kind { get; } -> NpcLineKind` — Which line it is for: `NpcLineKind.Farewell` or `NpcLineKind.MenuLine`.
+- `Mode { get; } -> SpeechMode` — What this override does now (`SpeechMode.Game` when it is clear).
+- `ModId { get; } -> string` — The mod this override belongs to ("kiln" outside a mod).
+- `Npc { get; } -> EntityId` — The NPC.
+- `Pick { get; set; } -> SpeechPick` — How `NpcLines.Replace` picks among its lines each time (as `NpcSpeech.Pick`).
+- `Priority { get; set; } -> int` — Its rank against other mods' overrides of the same NPC and line (higher wins).
+- `Refresh() -> void` — Asks a `SpeechPick.By` callback again for every player now.
+- `Replace(IEnumerable<UiText> lines) -> SpeechResult` — As `NpcLines.Replace`, with a text per language for each line.
+- `Replace(params string[] lines) -> SpeechResult` — The NPC shows one of these lines instead of the game's (1 to 32 lines of up to 200 characters, the same in every...
+
 ## NpcMotionBinding `0.2.17` — Binds one chassis motion to an authored graph state.
 - `NpcMotionBinding(NpcMotionRole Role, int Variant, AnimState State, Guid? InteractionKey = null)`
 - `InteractionKey { get; init; } -> Guid?` — For `NpcMotionRole.Interaction`: the chassis interaction key, null to use the chassis's own (an explicit key must...
@@ -360,10 +372,10 @@ enum: DistanceAndFaction, Voxels
 ## Npcs `0.2.23` — Friendly NPCs' speech bubbles: a mod's own lines in the game's bubble over a villager, craftsperson or assistant.
 - `static Available { get; } -> bool` — This game shows Kiln's speech in its own bubbles (a game client whose kiln.npcspeech found the bubble on this build...
 - `static CanSpeak(EntityId npc) -> bool` — The entity is a friendly NPC with dialogue lines, the kind that has a speech bubble (a villager, a craftsperson, an...
-- `static Farewells(EntityId npc) -> NpcSpeech` `0.2.25` — The calling mod's override of the NPC's farewell: the line in the dialogue menu's speech box when a player leaves...
+- `static Farewells(EntityId npc) -> NpcLines` `0.2.25` — The calling mod's override of the NPC's farewell: the line in the dialogue menu's speech box when a player leaves...
 - `static IsSaying(EntityId npc) -> bool` — True when a Say is showing over the NPC now.
 - `static readonly MaxSay -> TimeSpan` — The shortest and longest `Npcs.Say`.
-- `static MenuLine(EntityId npc) -> NpcSpeech` `0.2.25` — The calling mod's override of the NPC's own line in its dialogue menu: the speech box's text when a player opens the...
+- `static MenuLine(EntityId npc) -> NpcLines` `0.2.25` — The calling mod's override of the NPC's own line in its dialogue menu: the speech box's text when a player opens the...
 - `static MenuSay(EntityId npc, EntityId player, UiText text) -> SpeechResult` `0.2.25` — As `Npcs.MenuSay`, with a text per language.
 - `static MenuSay(EntityId npc, EntityId player, string text) -> SpeechResult` `0.2.25` — Shows `text` in the speech box of `player`'s dialogue menu with the NPC: now if it is open, else when the player...
 - `static readonly MinSay -> TimeSpan` — The shortest and longest `Npcs.Say`.
@@ -374,7 +386,7 @@ enum: DistanceAndFaction, Voxels
 - `static StopSaying(EntityId npc) -> void` — Ends the calling mod's Say over the NPC before its time (another mod's Say stays).
 - `static Topics(EntityId npc) -> NpcTopics` `0.2.25` — The calling mod's topics on the NPC's talk page in the game's dialogue menu: rows after the NPC's own (never...
 
-## NpcSpeech `0.2.23` — One mod's override of one NPC's greeting bubble (`Npcs.Speech`), farewell (`Npcs.Farewells`) or menu line (`Npcs.MenuLine`).
+## NpcSpeech `0.2.23` — One mod's override of one NPC's greeting bubble (`Npcs.Speech`; a farewell or the menu line is an `NpcLines`).
 - `Clear() -> void` — Ends this override: the next mod's shows, else the game's own lines.
 - `Kind { get; } -> NpcLineKind` `0.2.25` — Which line it is for: the bubble's greeting, the menu's farewell or the menu's own line.
 - `Mode { get; } -> SpeechMode` — What this override does now (`SpeechMode.Game` when it is clear).

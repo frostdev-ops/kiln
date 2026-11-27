@@ -651,6 +651,8 @@ enum: Common, Uncommon, Rare, Epic, Legendary
 - `GameError { get; init; } -> int` — The game's own error code when its transaction returned one (`ItemsStatus.Refused`); 0 otherwise.
 - `Item { get; init; } -> ItemId` — The item asked for.
 - `Message { get; init; } -> string` — Why it failed or fell short, in words; empty when there is nothing to add.
+- `Ok { get; } -> bool` `0.2.25` — Everything requested was given / taken (`ItemsStatus.Done`), as every Kiln result's Ok says (`IKilnResult`); a...
+- `Reason { get; } -> string?` `0.2.25` — Why it was not `ItemsResult.Ok`: the status and the message; null when Ok.
 - `Requested { get; init; } -> int` — How many were asked for.
 - `Status { get; init; } -> ItemsStatus` — How it ended.
 - `Steps { get; init; } -> int` — How many sim steps passed between the request and the transaction.
