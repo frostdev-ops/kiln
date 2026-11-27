@@ -201,6 +201,32 @@ public sealed class PetBlockTests : IDisposable
         }
     }
 
+    // A dedicated server reads its item catalog (kiln.items) only once its world runs, after content is ready; the game's data
+    // (kiln.content) has the items then, as loot tables use it. PETS-E2E lab a3: PetsSample's duelist got "revive.cost.item: the
+    // game has no item Material_T1_Twigs" at content ready and every revive of it was refused CostUnavailable ("only 0 of 3
+    // there") while its owner held 10 twigs.
+    [Fact]
+    public void A_cost_item_resolves_through_the_games_data_before_the_item_catalog_is_readable()
+    {
+        var (catalog, data) = (PetCompiler.CatalogItem, PetCompiler.DataItem);
+        try
+        {
+            PetCompiler.CatalogItem = _ => null;   // a dedicated server before its world runs
+            PetCompiler.DataItem = n => n == "Material_T1_Twigs" ? new ItemId(77) : null;
+            var block = new PetBlock { Creature = "game:enemy_wildbeast_wolf_earlygame", Revive = new ReviveBlock { Cost = new ReviveCostBlock("Material_T1_Twigs", 3) } };
+            var mod = Mod("pets-cost-server");
+            Compiler.Lower(mod, "p", block).Low.CommitAfter();
+            var problems = new List<string>();
+            foreach (var check in mod.ReadyChecks.ToList()) check(problems.Add);
+            Assert.Empty(problems);
+            Assert.Equal(77u, PetsRuntime.Definition("pets-cost-server:p")!.Revive.Cost!.Item.Value);
+        }
+        finally
+        {
+            (PetCompiler.CatalogItem, PetCompiler.DataItem) = (catalog, data);
+        }
+    }
+
     [Fact]
     public void A_renamed_pet_keeps_its_id()
     {

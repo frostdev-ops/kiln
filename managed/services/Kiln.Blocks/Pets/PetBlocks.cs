@@ -178,10 +178,24 @@ internal static class PetCompiler
     /// <summary>A cost item that is not readable yet (a game client's OnLoad, the SDK's bake): resolved at content ready.</summary>
     internal const uint PendingItem = uint.MaxValue;
 
-    /// <summary>An item by name and whether it is gear; null while items are not readable or it is not there. Tests set
-    /// their own.</summary>
-    internal static Func<string, (ItemId Id, bool Gear)?> FindItem { get; set; } =
+    /// <summary>An item of the item catalog (kiln.items) by name and whether it is gear; null while the catalog is not
+    /// readable or the item is not there. Tests set their own.</summary>
+    internal static Func<string, (ItemId Id, bool Gear)?> CatalogItem { get; set; } =
         name => Items.Available && Items.Lookup(name) is { } i ? (i.Id, i.IsGear) : null;
+
+    /// <summary>An item of the game's data (kiln.content) by name; null when it is not there. Tests set their own.</summary>
+    internal static Func<string, ItemId?> DataItem { get; set; } = name =>
+    {
+        try { return Content.Items.Get(name) is { } e ? new ItemId(e.Id) : null; }
+        catch (Exception e) when (e is NotSupportedException or InvalidOperationException or ArgumentException or KeyNotFoundException) { return null; }
+    };
+
+    /// <summary>An item by name and whether it is gear; null while items are not readable or it is not there. Tests set
+    /// their own. The item catalog first; then the game's data, which a dedicated server has at content ready, before its
+    /// world runs and its catalog is readable (as loot tables resolve their items): such an item is taken as a plain stack,
+    /// since only the catalog tells gear (the SDK's bake and a game that hosts check it while compiling).</summary>
+    internal static Func<string, (ItemId Id, bool Gear)?> FindItem { get; set; } =
+        name => CatalogItem(name) ?? (DataItem(name) is { } id ? (id, false) : null);
 
     /// <summary>At content ready: the cost's item, or the mod's problem (the pending cost then refuses every revive of the
     /// pet as CostUnavailable and takes nothing).</summary>
