@@ -375,6 +375,18 @@ class Safety(Base):
         self.assertTrue(cut.endswith("...") and len(cut) <= 60 and cut.count("`") % 2 == 0, cut)
 
 
+class RegistrySummary(unittest.TestCase):
+    def test_kiln_registry_names_every_shipped_registry(self):
+        """INDEX.md's purpose of Kiln.Registry names every registry schema Kiln ships (it listed the first five only)."""
+        repo = HERE.parents[1]
+        summary = ai.SERVICES["Kiln.Registry"][1]
+        for f in sorted((repo / "schema" / "registry").glob("*.json")):
+            if f.name == "ids.lock.json":
+                continue
+            name = json.loads(f.read_text(encoding="utf-8"))["registry"]
+            self.assertIn(name, re.findall(r"[A-Za-z]+", summary), f"{name} is not in Kiln.Registry's purpose: {summary}")
+
+
 class Determinism(unittest.TestCase):
     def test_same_bytes_whatever_the_order_of_the_record(self):
         with tempfile.TemporaryDirectory() as tmp:

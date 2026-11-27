@@ -63,6 +63,12 @@ NBSP = " "
 # assembly -> (KilnServices entry, purpose, area guides of the skill (references/), pages of the repository's docs/kiln).
 # Every gated assembly needs a row (the generator stops on a missing one): a new service says here where it is explained.
 OWN = "(Kiln's own)"
+def _registries(root=Path(__file__).resolve().parents[2]):
+    """Every registry Kiln ships, in ids.lock.json's order (Kiln.Registry's purpose names them all, not the first five)."""
+    regs = json.loads((root / "schema" / "registry" / "ids.lock.json").read_text(encoding="utf-8"))["registries"]
+    return sorted(regs, key=lambda n: regs[n]["id"])
+
+
 SERVICES = {
     "Kiln.Api": ("(always)", "The mod base class and context, events, config, mods, capabilities, ids and refs, tasks. Always referenced",
                  ["api-contract.md", "api-events.md"], ["modding/contract.md", "modding/lifecycle.md", "modding/tasks.md"]),
@@ -108,7 +114,7 @@ SERVICES = {
     "Kiln.Queries": ("Queries", "Entity and path queries, cancelable", ["gameplay.md", "api-world.md"], ["services/queries.md"]),
     "Kiln.Quests": ("Quests", "The quest engine, world progress, knowledge, dialogues, the journal", ["quests-talents-sounds.md"],
                     ["services/quests.md", "services/knowledge.md", "services/world-progress.md", "modding/quests.md"]),
-    "Kiln.Registry": ("Registry", "Kiln's registries (items, recipes, loot, drops, balance) as typed entries over Kiln-owned field names",
+    "Kiln.Registry": ("Registry", f"Kiln's registries ({', '.join(_registries())}) as typed entries over Kiln-owned field names",
                       [], ["modding/registries/README.md"]),
     "Kiln.Replication": (OWN, "Replication lab; a mod does not list it", [], []),
     "Kiln.Rules": ("Rules", "What players may do and what it costs: rules, NoClip, creative mode", ["api-events.md"], ["services/rules.md"]),
