@@ -13,8 +13,9 @@ public enum PetLevelMode
 {
     /// <summary>Always <see cref="PetLevelPolicy.Level"/>.</summary>
     Fixed = 0,
-    /// <summary>The owner's level when the pet was tamed (taming lands with 19e; a granted pet takes the owner's level at
-    /// the grant).</summary>
+    /// <summary>The owner's level when the pet's record was made: at the tame (a Kiln.Taming tame of a definition that
+    /// names this pet makes its record), or at <see cref="Pets.Grant(CharacterKey, string, PetRequest)"/>. The owner is in
+    /// game then (else the grant is refused <c>LevelUnavailable</c>).</summary>
     OwnerAtTame = 1,
     /// <summary>The owner's level each time a body is made (summon, revive).</summary>
     OwnerAtSummon = 2,
