@@ -85,16 +85,47 @@ public sealed class ApiShapeTests
         context.Close();
     }
 
-    // finding 6: one name for a rarity. RegistryRarity is one rarity (an item's, a loot entry's fixed one: null is none);
-    // RegistryRarities is a set of them (the rarities a drop may roll), its bits in RegistryRarity's order.
+    // finding 6: one name for a rarity. RegistryRarity is one rarity (an item's; a loot entry's fixed one, ItemLootEntry.Rarity:
+    // null is none); RegistryRarities is a set of them (the rarities a drop may roll), its bits in RegistryRarity's order. The
+    // one other rarity type, dev.31's ItemLootRarity, is hidden (TheDev31FixedRarityIsKept).
     [Fact]
     public void OneNameForARarity()
     {
-        var enums = typeof(RegistrySchema).Assembly.GetExportedTypes().Where(t => t.IsEnum && t.Name.Contains("Rarit")).Select(t => t.Name).Order().ToArray();
+        var enums = typeof(RegistrySchema).Assembly.GetExportedTypes().Where(t => t.IsEnum && t.Name.Contains("Rarit") && !Hidden(t)).Select(t => t.Name).Order().ToArray();
         Assert.Equal(new[] { "RegistryRarities", "RegistryRarity" }, enums);
-        Assert.Equal(typeof(RegistryRarity?), typeof(ItemLootEntry).GetProperty("FixedRarity")!.PropertyType);
+        Assert.Equal(typeof(RegistryRarity?), typeof(ItemLootEntry).GetProperty("Rarity")!.PropertyType);
         Assert.Equal(typeof(RegistryRarity), typeof(ItemEntry).GetProperty("Rarity")!.PropertyType);
         foreach (var r in Enum.GetValues<RegistryRarity>())
             Assert.Equal(r.ToString(), ((RegistryRarities)(1u << (int)r)).ToString());
     }
+
+    // review of api-shape, the owner's call (11-27): ItemLootEntry.FixedRarity and ItemLootRarity shipped in 0.2.0-dev.31
+    // (PublicAPI.Shipped.txt), so they stay exactly as shipped, hidden and obsolete with a pointer to the new member: a dev.31
+    // mod keeps building (with a warning) and its compiled calls keep binding (the same names, types and values).
+    [Fact]
+    public void TheDev31FixedRarityIsKept()
+    {
+        var old = typeof(RegistrySchema).Assembly.GetType("Kiln.Registry.ItemLootRarity");
+        Assert.NotNull(old);
+        Assert.True(old!.IsEnum && old.IsPublic && Enum.GetUnderlyingType(old) == typeof(int));
+        Assert.Equal(new[] { "None=0", "Common=1", "Uncommon=2", "Rare=3", "Epic=4", "Legendary=5" },
+            Enum.GetValues(old).Cast<object>().Select(v => $"{v}={(int)v}").ToArray());
+        var fixedRarity = typeof(ItemLootEntry).GetProperty("FixedRarity")!;
+        Assert.Equal(old, fixedRarity.PropertyType);
+        Assert.NotNull(fixedRarity.GetMethod);
+        Assert.NotNull(fixedRarity.SetMethod);
+        foreach (var member in new System.Reflection.MemberInfo[] { old, fixedRarity })
+        {
+            Assert.True(Hidden(member), $"{member.Name} is hidden from completion");
+            var obsolete = member.GetCustomAttributes(typeof(ObsoleteAttribute), false).Cast<ObsoleteAttribute>().SingleOrDefault();
+            Assert.NotNull(obsolete);
+            Assert.False(obsolete!.IsError);  // a warning: the mod still builds
+            Assert.Contains("ItemLootEntry.Rarity", obsolete.Message);
+        }
+        Assert.NotEmpty(old.GetCustomAttributes(typeof(System.Diagnostics.CodeAnalysis.ExperimentalAttribute), false));  // KILNX031, as shipped
+    }
+
+    private static bool Hidden(System.Reflection.MemberInfo member) =>
+        member.GetCustomAttributes(typeof(System.ComponentModel.EditorBrowsableAttribute), false)
+            .Cast<System.ComponentModel.EditorBrowsableAttribute>().Any(a => a.State == System.ComponentModel.EditorBrowsableState.Never);
 }

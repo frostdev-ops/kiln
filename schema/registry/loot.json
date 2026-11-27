@@ -79,9 +79,10 @@
       ],
       "applies": "now",
       "ops": "set",
-      "doc": "A rarity every drop gets (none, in C# null: rolled from rarities).",
+      "doc": "A rarity every drop gets (none: rolled from rarities). In C# ItemLootEntry.Rarity, null for none (0.2.0-dev.31's FixedRarity, an ItemLootRarity, still works).",
       "typeName": "RegistryRarity",
       "nullValue": "none",
+      "csName": "Rarity",
       "joinedClient": "serverOnly"
     }
   },

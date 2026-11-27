@@ -64,22 +64,50 @@ public sealed class ApiShapeNewApiTests
         context.Close();
     }
 
-    // finding 6: a loot entry's fixed rarity is a RegistryRarity, null when the drop rolls one (the data's "none")
+    // finding 6: a loot entry's fixed rarity (loot.fixedRarity) is ItemLootEntry.Rarity, a RegistryRarity, null when the drop
+    // rolls one (the data's "none")
     [Fact]
     public void AFixedRarityIsARarityOrNull()
     {
         var context = Frame();
         using var scope = context.Enter();
         var loot = DataRegistry.For(context).Loot["game:dt"];
-        Assert.Null(loot.FixedRarity);
-        loot.FixedRarity = RegistryRarity.Legendary;
-        Assert.Equal(RegistryRarity.Legendary, loot.FixedRarity);
-        loot.FixedRarity = null;
-        Assert.Null(loot.FixedRarity);
+        Assert.Null(loot.Rarity);
+        loot.Rarity = RegistryRarity.Legendary;
+        Assert.Equal(RegistryRarity.Legendary, loot.Rarity);
+        loot.Rarity = null;
+        Assert.Null(loot.Rarity);
         var edits = Edits(context);
         Assert.Equal(new[] { "legendary", "none" }, edits.Select(e => e!["op"]!.GetValue<string>()).ToArray());
         context.Close();
     }
+
+    // review of api-shape, the owner's call (11-27): dev.31's FixedRarity (an ItemLootRarity, None for none) and the new Rarity
+    // read and write the one field, so a dev.31 mod's edits and reads are the same edits and values as before
+#pragma warning disable CS0618 // the dev.31 shape, on purpose
+    [Fact]
+    public void TheDev31FixedRarityAndRarityAreOneField()
+    {
+        var context = Frame();
+        using var scope = context.Enter();
+        var loot = DataRegistry.For(context).Loot["game:dt"];
+        Assert.Equal(ItemLootRarity.None, loot.FixedRarity);
+        loot.FixedRarity = ItemLootRarity.Epic;
+        Assert.Equal(RegistryRarity.Epic, loot.Rarity);
+        loot.Rarity = RegistryRarity.Common;
+        Assert.Equal(ItemLootRarity.Common, loot.FixedRarity);
+        loot.Rarity = null;
+        Assert.Equal(ItemLootRarity.None, loot.FixedRarity);
+        loot.FixedRarity = ItemLootRarity.Legendary;
+        Assert.Equal(RegistryRarity.Legendary, loot.Rarity);
+        loot.FixedRarity = ItemLootRarity.None;
+        Assert.Null(loot.Rarity);
+        var edits = Edits(context);
+        Assert.All(edits, e => Assert.Equal("fixedRarity", e!["field"]!.GetValue<string>()));
+        Assert.Equal(new[] { "epic", "common", "none", "legendary", "none" }, edits.Select(e => e!["op"]!.GetValue<string>()).ToArray());
+        context.Close();
+    }
+#pragma warning restore CS0618
 }
 
 public sealed class ApiShapeEntryTests

@@ -269,6 +269,39 @@ class SchemaChecks(unittest.TestCase):
         finally:
             t.close()
 
+    def test_cs_name_names_the_property_only(self):
+        """review of api-shape (owner 11-27): a field's C# property may have another name than the field (csName, C# only: the
+        data's name, the lock and the field catalog keep the field's), so a property that shipped with another type keeps its
+        name beside the new one (loot.fixedRarity is ItemLootEntry.Rarity; dev.31's FixedRarity stays, hand-written). It is a C#
+        name, of a leaf, and names no other property of the same type."""
+        s = copy.deepcopy(MINI)
+        s["fields"]["color"]["csName"] = "Hue"
+        s["fields"]["rows"]["of"]["fields"]["n"]["csName"] = "Number"
+        t = Tree(s)
+        try:
+            rg.update_lock(t.root)
+            model = rg.load(t.root)
+            self.assertEqual(model.errors, [])
+            cs = rg.render(model, rg.read_lock(t.root))["managed/services/Kiln.Registry/Generated/Things.gen.cs"]
+            self.assertIn('    [RegistryField("things.color", RegistryApplies.Now)]\n    public ThingColor Hue { get => ', cs)
+            self.assertIn('    [RegistryField("things.rows[].n", RegistryApplies.Now)]\n    public int Number { get => ', cs)
+            self.assertNotIn(" Color { get", cs)
+            self.assertIn("internal const int Color = ", cs)  # the field's id keeps the field's name
+            self.assertIn("color", t.lock()["registries"]["things"]["fields"])
+            self.assertNotIn("csName", json.dumps(t.lock()))
+        finally:
+            t.close()
+        for spec, why in ((dict(s["fields"]["color"], csName="hue"), "csName"), ):
+            bad = copy.deepcopy(MINI)
+            bad["fields"]["color"] = spec
+            self.assertTrue(any(why in e for e in self.errors_of(bad)), why)
+        clash = copy.deepcopy(MINI)
+        clash["fields"]["color"]["csName"] = "Size"     # the property of "size"
+        self.assertTrue(any("csName" in e and "Size" in e for e in self.errors_of(clash)))
+        group = copy.deepcopy(MINI)
+        group["fields"]["parts"]["csName"] = "Pieces"   # a struct's type and property follow its name
+        self.assertTrue(any("csName" in e for e in self.errors_of(group)))
+
     def test_game_member_names_are_refused(self):
         t = Tree(MINI)
         try:

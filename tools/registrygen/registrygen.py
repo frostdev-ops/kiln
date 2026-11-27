@@ -70,7 +70,9 @@ KILN_ID = re.compile(r"^[a-z0-9][a-z0-9_.-]*:[a-z0-9_.-]+(~[0-9a-f]{8,32})?$")
 # Kiln.Registry's hand-written types: no generated type may take their names.
 HANDWRITTEN_TYPES = ("RegistryId", "RegistryValueList", "RegistryEntryList", "RegistryFixedList", "RegistrySchema",
                      "RegistryFieldSpec", "RegistryFieldType", "RegistryOps", "RegistryFieldAttribute", "IRegistryEntry",
-                     "IRegistryCells", "RegistryCells", "RegistryApplies", "RegistryListOp")
+                     "IRegistryCells", "RegistryCells", "RegistryApplies", "RegistryListOp",
+                     # 0.2.0-dev.31 shapes kept by hand beside the generated ones (RegistryLegacy.cs, owner 2026-11-27)
+                     "Registries", "Registry", "ItemLootRarity")
 # Registries a ref may name besides the schemas here: Kiln registries that later phases add (their ids follow the same
 # rules; until they exist, a ref to them is checked as an id's shape only).
 LATER_REGISTRIES = ("inputCategories", "templates")
@@ -362,13 +364,21 @@ def check_registry(d, name):
 
 FIELD_KEYS = {"type", "doc", "applies", "ops", "readOnly", "min", "max", "unit", "values", "registry", "fields", "of",
               "maxItems", "formula", "side", "since", "typeName", "optional", "fixedLength", "lengthField", "lengthOffset", "joinedClient",
-              "nullValue"}
+              "nullValue", "csName"}
 
 
 def walk(reg, fields, prefix, applies, list_path, read_only, errors, known):
     if not isinstance(fields, dict) or not fields:
         errors.append(f"{reg.name}.{prefix or '(root)'}: fields must be a non-empty object")
         return
+    # the C# properties of one type (this object's fields): a csName names no other one
+    props = {}
+    for key, spec in fields.items():
+        if NAME.match(key) and isinstance(spec, dict):
+            name = str(spec.get("csName") or pascal(key))
+            if name in props:
+                errors.append(f"{reg.name}.{prefix}{key}: csName {name} is the C# property of {reg.name}.{prefix}{props[name]} too")
+            props.setdefault(name, key)
     for key, spec in fields.items():
         path = f"{prefix}{key}"
         q = f"{reg.name}.{path}"
@@ -407,6 +417,13 @@ def walk(reg, fields, prefix, applies, list_path, read_only, errors, known):
             errors.append(f"{q}: nullValue is one of an enum field's values")
         if "typeName" in spec and not TYPE_NAME.match(str(spec["typeName"])):
             errors.append(f"{q}: typeName must be a C# type name")
+        # C# only (not the field's contract): the C# property's name when it is not the field's (loot.fixedRarity is
+        # ItemLootEntry.Rarity, so that dev.31's FixedRarity, another type, keeps its name beside it); a leaf's or a list's
+        if "csName" in spec:
+            if t == "struct":
+                errors.append(f"{q}: csName is for a field with a value or a list (a struct's property and type follow its name)")
+            elif not TYPE_NAME.match(str(spec["csName"])):
+                errors.append(f"{q}: csName must be a C# member name")
         if t == "struct":
             if "ops" in spec:
                 errors.append(f"{q}: a struct has no ops (its fields have)")
@@ -1094,7 +1111,7 @@ class CsWriter:
         for key, spec, row, sub in children:
             out.append("")
             if row is not None:
-                out += self.prop(row, pascal(key), indent)
+                out += self.prop(row, spec.get("csName") or pascal(key), indent)
             else:
                 tname = spec.get("typeName") or self.reg.type_name + pascal(key)
                 self.struct_class(tname, sub, spec.get("doc"), False)

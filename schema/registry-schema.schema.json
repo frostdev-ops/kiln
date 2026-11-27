@@ -261,6 +261,11 @@
           "type": "string",
           "description": "An enum: the value its C# property reads as null (the property is the nullable of an enum of the other values, which typeName may share with another field: loot.fixedRarity's none, RegistryRarity?). C# only, not the field's contract."
         },
+        "csName": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Za-z0-9]*$",
+          "description": "The C# property's name when it is not the field's (default: the field's name in Pascal case), for a field with a value or a list: loot.fixedRarity is ItemLootEntry.Rarity, so that the property 0.2.0-dev.31 shipped as FixedRarity, of another type, keeps its name beside it. C# only, not the field's contract: data packs, the lock and the field catalog name the field."
+        },
         "fixedLength": {
           "type": "integer",
           "minimum": 1,
