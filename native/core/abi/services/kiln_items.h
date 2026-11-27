@@ -407,9 +407,11 @@ typedef struct KilnItemsMoveChange {
 typedef struct KilnItemsMoveResult {
     uint32_t size;          /* sizeof(KilnItemsMoveResult) of kiln.items */
     int32_t status;         /* KILN_ITEMS_DONE (all moved), PARTIAL (only `done` of `requested` fit / were allowed),
-                               NO_ROOM (nothing moved: no room, or nothing to move), NOT_ENOUGH (STACK: `count` is more
+                               NO_ROOM (nothing moved: no room, or nothing to move;
+                               CHECKED: the named slot cannot take the whole count), NOT_ENOUGH (STACK: `count` is more
                                than the stack holds), NO_INVENTORY (an entity has no initialized InventorySetup),
-                               SLOT_CHANGED (the slot is not one of `from`'s, or holds nothing), REFUSED (the game
+                               SLOT_CHANGED (the slot is not one of `from`'s, or holds nothing; CHECKED: a slot does
+                               not hold what its witness says), REFUSED (the game
                                refused; an equipped slot without KILN_ITEMS_MOVE_EQUIPPED; a transfer rule or handler
                                canceled it: `canceled`), UNAVAILABLE, DROPPED */
     uint64_t ticket;
@@ -549,7 +551,7 @@ typedef struct KilnItemsStatus2 {
     uint64_t transfers_canceled; /* of them canceled by a rule or handler */
     uint64_t moves_done;         /* move requests that moved something */
     uint32_t names_found;        /* container_name lookups that found a name */
-    uint32_t reserved;
+    uint32_t reserved;           /* KILN_ITEMS_HAS_* bits (KILN_ITEMS_HAS_CHECKED_MOVE); 0 from an older kiln.items */
     char detail[160];            /* the reason when a part is off; NUL-terminated */
 } KilnItemsStatus2;
 

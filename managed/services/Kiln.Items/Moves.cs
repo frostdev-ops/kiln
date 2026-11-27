@@ -45,7 +45,11 @@ public static unsafe partial class Items
 
     // `Can(row) && ...`: the shape KILN121's guard table recognises (tools/ApiScan/CapabilityGuards.cs), so a mod that
     // asks this before Items.MoveChecked has asked for items.move
-    /// <summary>True when the server simulation can validate source and destination witnesses inside a move.</summary>
+    /// <summary>True when <see cref="MoveChecked"/> works right now: moves work (capability <c>items.move</c>, and the
+    /// kiln_items program runs in the server world, as <see cref="MovesAvailable"/>) and this runtime's kiln.items checks
+    /// the witnesses inside the move (since 0.2.0-dev.32; an older one answers false). Gear also needs
+    /// <c>items.instances</c>: without it no read carries a stamp, and <see cref="MoveChecked"/> of gear is
+    /// <see cref="ItemsStatus.Unavailable"/>. Read live.</summary>
     public static bool CheckedMovesAvailable => Can(Caps.Move) && CheckedMovesReported();
 
     // kiln.items' own answer (status2): its moves run, and it sets KILN_ITEMS_HAS_CHECKED_MOVE (an older runtime leaves
@@ -198,10 +202,42 @@ public static unsafe partial class Items
     public static Task<MoveResult> MoveAll(EntityId from, EntityId to, MoveOptions options = MoveOptions.None) =>
         SubmitMove(NewMove(MoveKind.All, from, to, options), "Items.MoveAll");
 
-    /// <summary>Move the selected inventory slot only while its item, count and optional stamped item entity still match.
-    /// When a destination slot is supplied its snapshot must also match and the full count must land in that slot.
-    /// Checks and transfer run together in the server inventory transaction. A stale selection returns SlotChanged.</summary>
+    /// <summary>
+    /// Moves <paramref name="count"/> items of a slot only while it still holds what a read saw, and, with
+    /// <paramref name="destination"/>, only into exactly that slot while it still holds what the read saw: for a drag and
+    /// drop a player made on an old view, a request sent twice, a slot another player emptied meanwhile. Gear keeps its
+    /// item entity, as with <see cref="Move"/>.
+    /// </summary>
+    /// <param name="from">The inventory owner the items leave.</param>
+    /// <param name="expected">The slot of <paramref name="from"/> as <see cref="Read"/> listed it: its item and count must
+    /// still be there, and for gear the same item entity with the same stamp (<see cref="InventorySlot.Ref"/>).</param>
+    /// <param name="to">The inventory owner they enter; not <paramref name="from"/>.</param>
+    /// <param name="count">How many: 1 to the slot's count (gear: 1).</param>
+    /// <param name="destination">null: Kiln's choice, as <see cref="Move"/> without a slot (a part may move:
+    /// <see cref="ItemsStatus.Partial"/>). A slot of <paramref name="to"/> as a read listed it: it must still hold what it
+    /// held (an empty one: still empty), and the whole count lands there or nothing moves.</param>
+    /// <remarks>
+    /// <para>kiln.items checks the slots inside the move's own inventory transaction, in the sim step it runs, so nothing
+    /// can change between the check and the move. <see cref="ItemsStatus.SlotChanged"/>: a slot no longer holds what was
+    /// read (read again). <see cref="ItemsStatus.NoRoom"/>: the destination cannot take the whole count (full, another
+    /// item, or room for only part). <see cref="ItemsStatus.Refused"/>: as <see cref="Move"/>, and anything that would land
+    /// elsewhere. Then nothing moved and both inventories are as before. A request that already ran finds its source
+    /// changed (SlotChanged): it commits once. A plain stack has no identity: one of the same item and count put in its
+    /// place passes.</para>
+    /// <para>No <see cref="MoveOptions"/>: a player's equipped or held items and the action bar are refused, as by
+    /// <see cref="Move"/> without options. <see cref="ItemsStatus.Unavailable"/> (why in <see cref="MoveResult.Message"/>)
+    /// when <see cref="CheckedMovesAvailable"/> is false (an older Kiln: update it), or for gear while
+    /// <c>items.instances</c> is off; <see cref="ItemsStatus.Invalid"/> for a count outside 1 to the slot's, an empty
+    /// <paramref name="expected"/>, or gear whose slot carries no stamp. Runs in the next sim step; the task completes on
+    /// the tick thread one step later.</para>
+    /// </remarks>
     /// <exception cref="ArgumentNullException"><paramref name="expected"/> is null.</exception>
+    /// <example><code>
+    /// var seen = Items.Read(player)!.Slots.First(s => s.Item == flint);   // what the player dragged
+    /// var spot = Items.Read(chest)!.Slots.First(s => s.IsEmpty);          // where they dropped it
+    /// MoveResult r = await Items.MoveChecked(player, seen, chest, 3, spot);
+    /// if (r.Status == ItemsStatus.SlotChanged) { /* the view was old: send the player a fresh one */ }
+    /// </code></example>
     [RequiresCapability(Caps.Move)]
     [TickThreadOnly]
     public static Task<MoveResult> MoveChecked(EntityId from, InventorySlot expected, EntityId to, int count, InventorySlot? destination = null)
