@@ -141,6 +141,26 @@ private:
     uint64_t taken_ = 0, faults_ = 0;
 };
 
+// ------------------------------------------------------------------------------------------ machine indices ----------------
+// The GameServer keeps a machine's sockets until another machine handle takes its index (SyncSockets 0x7bd3c0), and the
+// session's sends to a bot are never acknowledged: what the server sent a bot stays queued on the sockets of its machine
+// index. The next bot on that index (whatever its handles and name) gets its spawn message refused every frame (the
+// GameServer's spawn send 0x7b6460 after the spawn position search), so its record stays in state 1 until the load limit
+// (lab p1: 9,088 of 9,089 tries refused; a fresh index spawned at once, the same character too). kiln.labbot gives each bot
+// a machine index no bot held before in this server session.
+class SpentMachines {
+public:
+    void add(uint32_t index);
+    bool has(uint32_t index) const;
+    size_t size() const { return list_.size(); }
+
+private:
+    std::vector<uint32_t> list_;
+};
+// The highest index in [lowest, count) that is not busy and not spent (spent may be null); -1 when there is none. busy[i]:
+// a real connection, a live bot or the published state holds it (real clients get the low ones from the session).
+int pick_index(uint32_t count, uint32_t lowest, const std::vector<bool>& busy, const SpentMachines* spent);
+
 // ---------------------------------------------------------------------------------- join and leave ----------------
 enum class Phase : uint32_t {
     Free = 0,
@@ -213,7 +233,7 @@ struct Bot {
     uint8_t record_state = 0, permissions = 0;
     bool upload_sent = false, ready_sent = false, final_sent = false;
     bool leave_requested = false, drop = false;
-    bool logged_in = false;        // the game's AddPlayer made the bot's record: the game knows its character now (Played)
+    bool logged_in = false;        // the game's AddPlayer made the bot's record: the game knows its character now
     uint32_t acked = 0;            // newest save version acknowledged
     uint32_t saves_acked = 0;
 
@@ -229,25 +249,6 @@ private:
     void go(Phase p, uint64_t now, std::string why = {});
     void fail(uint64_t now, std::string why) { go(Phase::Failed, now, std::move(why)); }
     void ack_saves(Engine& g);
-};
-
-// The characters (and accounts) that logged in on this server since it started: Bot::logged_in. The game does not spawn
-// one of them again after its logout while the server keeps running (lab p1-p4, s6: the next join of that name stays in
-// the spawn position search, record state 1, until the load limit), so kiln.labbot refuses such a join at once, with the
-// reason, instead of failing it 60 s later. (A new name after a logout stayed there too in lab g1-g3; docs/re/labbot.md.)
-class Played {
-public:
-    void add(const uint8_t character[16], uint64_t account);
-    // The character, or the account, logged in before.
-    bool has(const uint8_t character[16], uint64_t account) const;
-    size_t size() const { return list_.size(); }
-
-private:
-    struct One {
-        uint8_t character[16];
-        uint64_t account;
-    };
-    std::vector<One> list_;
 };
 
 }  // namespace labbot

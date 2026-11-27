@@ -82,7 +82,8 @@ entity from the player template, user-group rights, saves, logout, removal).
 ## What kiln.labbot does
 
 1. join (tick thread): picks the highest player slot and machine index no record, machine slot, published entry or bot
-   uses; the handles are `slot | 0x55 << 6` and `index | 0x55 << 7` (real ones count up from generation 1).
+   uses, the machine index also one no bot held before in this server session (below, "A join after a bot left"); the
+   handles are `slot | 0x55 << 6` and `index | 0x55 << 7` (real ones count up from generation 1).
 2. Every publish (session thread): the bot's entries go in (or come out after it left).
 3. After each `ServerReceive` (GameServer thread): `Bot::step` (bot.cpp): once the current buffer lists the bot and
    SyncSockets made its machine's sockets (the GameServer's socket set, `net/gs.sockets` `+net/sockets.machines`), the
@@ -138,35 +139,39 @@ read back.
 rights 32 and the game's command check refused it `/kick` ("You may not use /kick."); a drop takes the player out of
 `Players.All` within 3 s; a new name joins at once after another bot's logout and reuses its slot and machine.
 
-**Not working: the same name again in the same server session.** A bot that logs out and joins again under the same
-name (the same character) while the server keeps running stays in record state 1 (the spawn position search) until
-the 60 s limit (p1, p2, s6). The first join of a server session under a name that played there before works (p1-p4:
-"Bot Alder" each time, with its pets). The search (`0x7aded0`) waits while the save system's state (`[gs+0x20]+0x70`)
-is not 2 or 3, but a new name joined right after the logout, so that global check is not it; what the returning
-character waits for is not found yet. Workaround for tests: a new bot name for each join in one server session, or a
-server restart between a logout and the same character's next login.
+**A join after a bot left (dev.32 review-labbot, then labbot-2).** A bot that joined after another bot left (a logout or
+a drop) stayed in record state 1 until the 60 s load limit: the same name (lane p1, p2, s6) and, in the review's labs, a
+new name too (g1 to g4: 0.1 s to 60 s after the leave, also with a new machine and player generation in a test build).
+Only the lane's s6 had one spawn (Bot Cedar, after Bot Alder's 4 s in game). The review refused a name that played earlier
+in the session (`labbot::Played`) and told scripts to restart the lab after any leave.
 
-Since the review of the lane (dev.32 review-labbot), kiln.labbot refuses such a join at once instead of failing it after
-the 60 s load limit: `labbot::Played` remembers every character and account that logged in on the server (AddPlayer
-made its record), and `join` answers `KILN_ERR_INVALID_ARGUMENT` for one of them, with the reason in kiln.log; the
-managed `LabBots.Join` throws an `ArgumentException` that says so.
+**The cause [static] [lab].** The record's state-1 step (jump table `0x7c0540`, state 1 at `0x7bffc2`) calls the spawn
+position search `0x7aded0`; on a found position it stores it at record `+0x100` and goes to state 2 only when four checks
+pass: `0xa45c10` (the area at that position, on `[gs+0x1770]`), `0x66c710` (`[[gs+0x1d0]] == 2`), `0x23a180` (on
+`[gs+0x1d8]`) and `0x7b6460`, the **spawn send**: it looks the machine's socket entry up (`[gs+0x30]+0x28`, 32-byte entries
+by machine index, `{u32 handle; ...; +0x10 sockets; +0x18 count}`) and asks the session for a send buffer on it
+(`0xa033b0`, result byte 0 = queued). The session refuses one (result 2) while the socket's backlog is over its budget
+(`0xa03402..0xa03613`: the socket's `+0x24` counts the bytes queued and never acknowledged, `+0x28` the messages, 512 at
+most). A bot never acknowledges anything, so every byte the server sends a bot in game stays counted on the sockets of its
+machine index. And SyncSockets (`0x7bd3c0`) keeps a machine entry's sockets until **another handle takes that index**
+(`0x7b5530` destroys them then; a machine that leaves the published state keeps them). So the next bot on that machine
+index (kiln.labbot gave every bot the highest free one: index 16 again) found its spawn message refused every frame.
 
-**The review's labs (dev32-review-labbot, 2026-11-27) found more: a new name after a logout stays there too.**
+Lab p1 (dev32-labbot-2, a probe build that logged the four checks, the spawn send's results and the bot's sockets every
+3 s; `out/labbot-2/runs/p1-rejoin`):
 
-| Run | Before | The next join | Result |
+| Step | Machine / slot | Result | What the probe showed |
 |---|---|---|---|
-| g1 | Gate Alder 5 min in game, 10 saves acked, logout | Gate Birch (new name), 0.15 s later, slot 15, the same handles | record state 1 until the 60 s limit |
-| g2 (`requireKiln`) | R Ash 30 s in game, logout | R Beech 5 s later; R Cherry at once after Beech failed; R Dogwood 5 s after that | all three: state 1 until the limit |
-| g3 | as g1 | Gate Birch 0.15 s later, slot 15, **new handles** (a test build with a new machine and player generation per join: machine 0x2b10, player 0x158f) | state 1 until the limit |
-| g4 | D Ash 15 s in game, **drop** | D Birch at once | state 1 until the limit; D Ash left Players.All |
+| Exp Alder joins, 20 s in game, logout | 16 / 15 | in game in 1.6 s | its machine sockets' `+0x24` grew while it was in game: channel 11 to 3.9 MB, 16 to 4.7 MB, 26 to 3,601 bytes; none ever went down |
+| Exp Birch (a new name) | 16 / 15, the same handles | record state 1 after 15 s | the same socket objects (entry 16 still held 0x2a90); the search found a position (`+0x100` set), `[[gs+0x1d0]]` 2, `0x23a180` 1, the save state 0x6; **the spawn send refused 9,088 of 9,089 tries**, channel 10's `+0x24` grew to 148 MB with the refused tries |
+| Fresh Cedar (a new name, an index no bot held) | 15 / 14 | in game in 0.5 s | |
+| Fresh Cedar again (the same character) | 14 / 13 | in game in 0.6 s | the same character spawns again: the name was never the cause |
 
-So neither the name, the reused handles nor the way the bot left decide it. Only the lane's s6 had a join after a
-bot left that spawned (Bot Cedar, 3.5 s after Bot Alder's logout, which followed Bot Birch's drop). What the state-1 step waits for **[static]**:
-it calls the search `0x7aded0` each frame. The search itself waits (result 1) while bit 1 of `[[gs+0x20]+0x70]` is
-clear. For the bot's new character (record `+0x140` set, from the login's new-character byte) it then asks the spawn
-point query `0x653930` and computes the position from the spawn entity (`0x7aebf0`). The step stores it at record
-`+0x100` and goes on to state 2 only when four checks pass: `0xa45c10` (on `[gs+0x1770]`, given the position),
-`0x66c710` (`[gs+0x1d0]`), `0x23a180` (`[gs+0x1d8]`), and `0x7b6460`, which reads the machine's socket entry
-(`[gs+0x30]+0x28`, by the record's `+4` peer handle) and calls `0xa033b0` on it. Which of them stays false after a
-bot left is not known yet: the next step is a lab probe that reads them for a stuck bot. Until then: join every bot a
-test needs first, and restart the lab after one leaves (tools/lab/README.md).
+**The fix (dev.32 labbot-2).** kiln.labbot gives each bot a machine index no bot held before in this server session
+(`labbot::SpentMachines`, `pick_index` in bot.cpp: the highest free one; real clients get the low ones from the session),
+and the refusal of a name that played earlier is gone. A server session has 16 machine indices (1 to 16; 0 is the
+server's own), so about 15 joins per server session, less one for each player connected; then `join` answers
+`KILN_ERR_NOT_FOUND` ("no free machine index that no bot held in this server session"), and a restart gives them back.
+Not fixed: the backlog itself. A bot in game keeps adding to its sockets' counters (channel 11 about 0.2 MB a second in
+p1); they are 32-bit, so a bot in game for some hours could wrap them (not seen; the review's 5-minute stays were fine).
+Draining it would mean answering the session's reliable channel as a client does (acknowledgements), not built.

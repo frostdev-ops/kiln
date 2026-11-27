@@ -280,6 +280,24 @@ bool Publisher::apply(Ops& ops) {
     return listed;
 }
 
+// ----------------------------------------------------------------------------------------- machine indices ----------
+void SpentMachines::add(uint32_t index) {
+    if (!has(index)) list_.push_back(index);
+}
+
+bool SpentMachines::has(uint32_t index) const {
+    for (uint32_t i : list_)
+        if (i == index) return true;
+    return false;
+}
+
+int pick_index(uint32_t count, uint32_t lowest, const std::vector<bool>& busy, const SpentMachines* spent) {
+    if (busy.size() < count) return -1;
+    for (uint32_t i = count; i-- > lowest;)
+        if (!busy[i] && !(spent && spent->has(i))) return static_cast<int>(i);
+    return -1;
+}
+
 // ---------------------------------------------------------------------------------- join and leave ----------------
 const char* phase_name(Phase p) {
     switch (p) {
@@ -426,21 +444,6 @@ void Bot::step(Engine& g, uint64_t now, const LoginLayout& L, const Limits& lim)
         }
         default: return;
     }
-}
-
-void Played::add(const uint8_t character[16], uint64_t account) {
-    for (const One& o : list_)
-        if (std::memcmp(o.character, character, 16) == 0 && o.account == account) return;
-    One o;
-    std::memcpy(o.character, character, 16);
-    o.account = account;
-    list_.push_back(o);
-}
-
-bool Played::has(const uint8_t character[16], uint64_t account) const {
-    for (const One& o : list_)
-        if (std::memcmp(o.character, character, 16) == 0 || o.account == account) return true;
-    return false;
 }
 
 }  // namespace labbot

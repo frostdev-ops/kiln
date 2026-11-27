@@ -326,11 +326,10 @@ struct Slot {
     Phase logged = Phase::Free;
     uint64_t last_note = 0;
     uint64_t joined_step = 0, in_game_step = 0;  // server steps (KilnLabBotInfo); the bot itself counts milliseconds
-    bool played = false;                         // its character is in g_played
 };
 std::recursive_mutex g_mu;  // the bots; GameServer thread steps them, any thread reads info/list
 Slot g_slots[KILN_LABBOT_MAX];
-labbot::Played g_played;    // every character that logged in on this server (labbot::Played): refused again at join
+labbot::SpentMachines g_spent;  // every machine index a bot held in this server session: never given again (bot.h)
 uint32_t g_next_id = 1;
 std::atomic<uintptr_t> g_gs{0};
 std::atomic<uint64_t> g_step{0};
@@ -376,10 +375,6 @@ void step_bots(uintptr_t gs) {
         const Phase after = s.bot.phase;
         if (!s.joined_step) s.joined_step = now;
         if (after == Phase::InGame && !s.in_game_step) s.in_game_step = now;
-        if (s.bot.logged_in && !s.played) {
-            g_played.add(s.bot.character, s.bot.account);
-            s.played = true;
-        }
         pub_set(i, s.bot.entry, s.bot.injected());
         if (after == Phase::Loading && s.logged == Phase::LoggingIn) {
             const labbot::SaveView sv = eng.save(s.bot.entry.slot);
@@ -492,14 +487,6 @@ KilnResult KILN_CALL t_join(KilnOwner owner, const KilnLabBotJoin* rq, uint32_t*
     if (zero) labbot::derive_character(name, character);
     else std::memcpy(character, rq->character_id, 16);
     const uint64_t account = rq->account ? rq->account : labbot::derive_account(name);
-    if (g_played.has(character, account)) {
-        // the game would leave it in the spawn position search until the load limit (lab p1, p2, s6; docs/re/labbot.md)
-        logf(KILN_LOG_WARN,
-             "labbot: join of '%s' refused: that character (or account) logged in earlier on this server; the game does not "
-             "spawn it again after its logout until the server restarts: restart the lab (docs/re/labbot.md)",
-             name.c_str());
-        return KILN_ERR_INVALID_ARGUMENT;
-    }
     int free_slot = -1;
     for (uint32_t i = 0; i < KILN_LABBOT_MAX && free_slot < 0; ++i)
         if (!live(g_slots[i])) free_slot = static_cast<int>(i);
@@ -513,23 +500,24 @@ KilnResult KILN_CALL t_join(KilnOwner owner, const KilnLabBotJoin* rq, uint32_t*
     const uintptr_t cur = current_buffer(session_of(gs));
     uint8_t snap[0x2668];
     const bool have_snap = cur && g_snap.size <= sizeof snap && read_mem(cur, snap, g_snap.size);
-    int slot = -1, machine = -1;
-    for (int s = static_cast<int>(g_snap.player_count) - 1; s >= 0 && slot < 0; --s) {
-        const bool used = rd<uint32_t>(record_addr(gs, static_cast<uint32_t>(s))) != 0 ||
-                          (have_snap && labbot::player_in(snap, g_snap, static_cast<uint32_t>(s)) != 0) ||
-                          slot_taken(static_cast<uint32_t>(s), 0xffffffffu);
-        if (!used) slot = s;
-    }
-    for (int m = static_cast<int>(g_snap.machine_count) - 1; m >= 1 && machine < 0; --m) {
-        const bool used = machine_slot_peer(gs, static_cast<uint32_t>(m)) != 0 ||
-                          (have_snap && labbot::machine_in(snap, g_snap, static_cast<uint32_t>(m)) != 0) ||
-                          slot_taken(0xffffffffu, static_cast<uint32_t>(m));
-        if (!used) machine = m;
-    }
+    std::vector<bool> slot_busy(g_snap.player_count), machine_busy(g_snap.machine_count);
+    for (uint32_t s = 0; s < g_snap.player_count; ++s)
+        slot_busy[s] = rd<uint32_t>(record_addr(gs, s)) != 0 || (have_snap && labbot::player_in(snap, g_snap, s) != 0) ||
+                       slot_taken(s, 0xffffffffu);
+    for (uint32_t m = 0; m < g_snap.machine_count; ++m)
+        machine_busy[m] = machine_slot_peer(gs, m) != 0 || (have_snap && labbot::machine_in(snap, g_snap, m) != 0) ||
+                          slot_taken(0xffffffffu, m);
+    // a machine index an earlier bot held keeps what the server sent that bot: the next bot's spawn message there is
+    // refused every frame (lab p1; bot.h SpentMachines), so each bot gets one no bot held in this server session
+    const int slot = labbot::pick_index(g_snap.player_count, 0, slot_busy, nullptr);
+    const int machine = labbot::pick_index(g_snap.machine_count, 1, machine_busy, &g_spent);
     if (slot < 0 || machine < 0) {
-        logf(KILN_LOG_WARN, "labbot: join of '%s' refused: no free %s", name.c_str(), slot < 0 ? "player slot" : "machine");
+        logf(KILN_LOG_WARN, "labbot: join of '%s' refused: %s", name.c_str(),
+             slot < 0 ? "no free player slot"
+                      : "no free machine index that no bot held in this server session (each bot needs a fresh one: restart the lab)");
         return KILN_ERR_NOT_FOUND;
     }
+    g_spent.add(static_cast<uint32_t>(machine));
     Slot& s = g_slots[free_slot];
     s = Slot{};
     s.used = true;

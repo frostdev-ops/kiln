@@ -64,17 +64,16 @@ async command such as `/pet summon` answers there). `wait_told` takes only a lin
 `command` (their replies carry that point as `"told"`; `since=` picks another), so a reply to an earlier command never
 passes for the newest one. Two lines added in the same server step show only the second.
 
-Known limit: **after a bot leaves (a logout or a drop), restart the lab before the next join.** The game does not
-spawn a character again after its logout while the server keeps running (the join stays in the spawn position search,
-record state 1, until the 60 s load limit; `docs/re/labbot.md`), so a join under a name that logged in earlier in that
-session is refused at once: `LabBotError` "... logged in earlier in this server session ...". A new name after a bot
-left stayed in that search too in the review's labs (6 of 6 joins, 0.1 s to 5 s after a logout or a drop, with fresh
-handles as well); only one join in the lane's s6 spawned. Bots that are in the world at the same time are fine (join
-them all first, then end them). The first join of a server session works, with the character's per-character data.
+Joins per server session: each bot gets a machine index no bot held before in that server session (a left bot's index
+stays backed up with what the server sent it, which nothing ever acknowledged: the next bot there stayed in the game's
+spawn search for good, `docs/re/labbot.md` "A join after a bot left"). There are 16 (less one for each player
+connected), so about 15 joins per server session; then `join` refuses with `LabBotError` "... no machine index is free
+that no bot held in this server session ... restart the lab". Bots may leave and join again in any order until then,
+under new names or the same one (the same name is the same character; a bot uploads a new character at each join, so
+its inventory starts empty again: the game keeps a character's save on its client).
 
 From a shell: `python3 -I tools/labbot/labbot.py --port <labPort> status|list|players|spawn NAME|info ID|wait ID|say ID
-TEXT|command ID LINE|move ID X Y Z|position ID|character ID|leave ID [--drop]` (JSON out; exit 1 = the server answered
-an error, 2 = no answer).
+TEXT|command ID LINE|move ID X Y Z|position ID|character ID|leave ID [--drop]` (JSON out; exit 1 = the server answered an error, 2 = no answer).
 
 Tests of the client without a server: `python3 -I tools/labbot/test_labbot.py`; of the native core without a game:
 `native/services/labbot/tests/test-labbot-host.sh`.

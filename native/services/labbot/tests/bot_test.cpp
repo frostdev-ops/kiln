@@ -12,9 +12,11 @@
 //  9 failures, each with its reason: never in the published state, the login refused, the upload refused, no spawn
 //    position, the record taken over; the game removing an in-game bot is Left with the record's state;
 // 10 a leave whose record never frees is dropped after the limit;
-// 11 the characters that logged in on this server (Played): kiln.labbot refuses their next join at once;
+// 11 logged_in: whether the game made the bot's record (it knows the bot's character from then on);
 // 12 the publisher: listed bots in every publish, a left bot cleared from the next ones even when another bot takes its
-//    place at once.
+//    place at once;
+// 13 machine indices: a bot gets the highest free index no bot held before in this server session (a left bot's machine
+//    index keeps its never-acknowledged backlog: lab p1), slots the highest free one.
 #include <cstdio>
 #include <cstring>
 #include <map>
@@ -542,7 +544,7 @@ void t_leave_timeout() {
 
 // ---- 11: a character that logged in on this server is remembered (kiln.labbot refuses its next join at once: the game
 // never spawns it again after its logout while the server runs, lab p1, p2, s6) ----
-void t_played() {
+void t_logged_in() {
     FakeGame g;
     Bot b = make_bot();
     uint64_t step = 0;
@@ -560,28 +562,6 @@ void t_played() {
     Bot d = make_bot();
     d.step(r, 1, r.L);
     CHECK(d.phase == Phase::Failed && d.logged_in, "a record the game refused (state 6) still names the character");
-
-    Played played;
-    uint8_t alder[16], birch[16];
-    derive_character("Bot Alder", alder);
-    derive_character("Bot Birch", birch);
-    CHECK(!played.has(alder, derive_account("Bot Alder")) && played.size() == 0, "empty");
-    played.add(alder, derive_account("Bot Alder"));
-    CHECK(played.has(alder, derive_account("Bot Alder")), "the same name again");
-    CHECK(!played.has(birch, derive_account("Bot Birch")), "another name");
-    CHECK(played.has(alder, 12345) && played.has(birch, derive_account("Bot Alder")), "the character or the account alone");
-    played.add(alder, derive_account("Bot Alder"));
-    CHECK(played.size() == 1, "kept once (%zu)", played.size());
-    for (int i = 0; i < 40; ++i) {
-        const std::string n = "Bot " + std::to_string(i);
-        uint8_t ch[16];
-        derive_character(n, ch);
-        played.add(ch, derive_account(n));
-    }
-    uint8_t last[16];
-    derive_character("Bot 39", last);
-    CHECK(played.size() == 41 && played.has(last, 1) && played.has(alder, 1), "no limit: every name of the session (%zu)",
-          played.size());
 }
 
 // ---- 12: the publisher: a left bot's entries are cleared from the next publishes even when another bot is listed in
@@ -697,6 +677,31 @@ void t_publisher() {
 
 }  // namespace
 
+// ---- 13 ----
+void t_indices() {
+    std::vector<bool> free17(17, false);
+    SpentMachines spent;
+    CHECK(pick_index(17, 1, free17, &spent) == 16, "the highest machine index: %d", pick_index(17, 1, free17, &spent));
+    spent.add(16);
+    spent.add(16);
+    CHECK(spent.size() == 1 && spent.has(16) && !spent.has(15), "spent once");
+    // lab p1: after 'Exp Alder' left machine 16, 'Exp Birch' on 16 stayed in state 1; 'Fresh Cedar' on 15 spawned
+    CHECK(pick_index(17, 1, free17, &spent) == 15, "a left bot's index is not given again: %d", pick_index(17, 1, free17, &spent));
+    auto busy = free17;
+    busy[15] = true;  // a real client or a live bot
+    CHECK(pick_index(17, 1, busy, &spent) == 14, "a busy index is skipped: %d", pick_index(17, 1, busy, &spent));
+    CHECK(pick_index(17, 1, busy, nullptr) == 16, "without a spent set (player slots) only busy counts");
+    for (uint32_t m = 1; m < 17; ++m) spent.add(m);
+    CHECK(pick_index(17, 1, free17, &spent) == -1, "every index spent: none (restart the lab)");
+    std::vector<bool> only0(17, true);
+    only0[0] = false;
+    CHECK(pick_index(17, 1, only0, nullptr) == -1, "machine 0 (the server's own) is never given");
+    std::vector<bool> slots(16, false);
+    slots[15] = true;
+    CHECK(pick_index(16, 0, slots, nullptr) == 14, "player slots: the highest free one");
+    CHECK(pick_index(16, 0, std::vector<bool>(3, false), nullptr) == -1, "a busy list shorter than the count is refused");
+}
+
 int main() {
     t_wire();
     t_login();
@@ -709,8 +714,9 @@ int main() {
     t_failures();
     t_leave_timeout();
     t_limits_are_time();
-    t_played();
+    t_logged_in();
     t_publisher();
+    t_indices();
     std::printf("labbot host: %d checks, %d failed\n", g_checks, g_failures);
     return g_failures ? 1 : 0;
 }

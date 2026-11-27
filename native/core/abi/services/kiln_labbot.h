@@ -20,8 +20,14 @@
  *
  * Identity: a bot's CharacterId and account id are derived from its name (KilnLabBotJoin.character_id and .account
  * zero), so a bot that joins under the same name in a later server session is the same character on that world
- * (per-character data such as pets carries over), and two names never share one. Within one server session a character
- * logs in once: the game does not spawn it again after its logout until the server restarts, so join refuses it.
+ * (per-character data such as pets carries over), and two names never share one; the same name may join again in the
+ * same server session too.
+ *
+ * Machine indices: the GameServer keeps a machine's sockets until another machine takes its index, and nothing ever
+ * acknowledges what the server sent a bot, so a machine index a bot held stays backed up: the next bot there would stay
+ * in the game's spawn search (record state 1) for good. Each bot gets a machine index no bot held before in this server
+ * session (the highest free one; real clients get the low ones): about 15 joins per server session, less one for each
+ * player on it. Then join answers KILN_ERR_NOT_FOUND until the server restarts.
  *
  * Threads: join and leave on the tick thread (they queue; the bot moves inside the next GameServer receive step).
  * status, info and list from any thread (a snapshot of the last step). */
@@ -111,10 +117,11 @@ typedef struct KilnLabBotApi {
     KilnServiceHeader header; /* { sizeof(KilnLabBotApi), KILN_LABBOT_VERSION } */
     /* Any thread. KILN_OK also when bots are unavailable (out->available 0, out->why). */
     KilnResult(KILN_CALL* status)(KilnLabBotStatus* out);
-    /* Starts a bot's join; *out_id names it. Tick thread. KILN_ERR_INVALID_ARGUMENT: a bad name, flags or group, a
-     * name a live bot has, or a character or account that logged in on this server before (kiln.log says which);
-     * KILN_ERR_NOT_FOUND: KILN_LABBOT_MAX bots are live, no free player slot or machine, or no
-     * such user group; KILN_ERR_UNAVAILABLE: not a lab server, the symbols did not resolve, or no server world runs. The join then goes on by itself; info() shows where it is. */
+    /* Starts a bot's join; *out_id names it. Tick thread. KILN_ERR_INVALID_ARGUMENT: a bad name, flags or group, or a
+     * name a live bot has (kiln.log says which); KILN_ERR_NOT_FOUND: KILN_LABBOT_MAX bots are live, no free player slot,
+     * no free machine index that no bot held in this server session (restart the server), or no such user group;
+     * KILN_ERR_UNAVAILABLE: not a lab server, the symbols did not resolve, or no server world runs. The join then goes on
+     * by itself; info() shows where it is. */
     KilnResult(KILN_CALL* join)(KilnOwner owner, const KilnLabBotJoin* request, uint32_t* out_id);
     /* Ends the bot's game (KILN_LABBOT_LEAVE_*): a logout unless DROP. Tick thread. KILN_ERR_NOT_FOUND: no such live bot. */
     KilnResult(KILN_CALL* leave)(uint32_t id, uint32_t flags);
