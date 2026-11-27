@@ -149,6 +149,8 @@ struct GdSectionFake {
     std::set<std::pair<uint32_t, std::string>> absent;             // (entry id, path): the entry has none of it
     std::map<uint32_t, std::string> shown;                         // entry id -> its one value's path, or "none" / "several"
     std::map<std::pair<uint32_t, std::string>, uint32_t> lists;    // (entry id, list path) -> its length
+    // eventTime (gd_event_slots): (entry id, the selector's type) -> the moment's events, the first first
+    std::map<std::pair<uint32_t, std::string>, std::vector<GdValueSlot>> events;
 };
 std::map<uint32_t, GdSectionFake> g_gd_sections;  // by section
 bool gd_section_entry(uint32_t section, const std::string& guid, uint32_t num, Entry* out) {
@@ -176,6 +178,16 @@ bool gd_list_size(uint32_t section, const Entry& e, const std::string& path, uin
     if (it == g_gd_sections[section].lists.end()) return *why = "the arsenal has no member " + path, false;
     return *n = it->second, true;
 }
+bool gd_event_slots(uint32_t section, const Entry& e, const std::string& path, std::vector<GdValueSlot>* out, std::string* why) {
+    out->clear();
+    const size_t open = path.rfind('['), hash = path.rfind("#0]");
+    if (open == std::string::npos || hash == std::string::npos || hash < open) return *why = path + " names no first event of a kind", false;
+    const auto it = g_gd_sections[section].events.find({e.id, path.substr(open + 1, hash - open - 1)});
+    if (it == g_gd_sections[section].events.end() || it->second.empty()) return *why = "none", false;
+    return *out = it->second, true;
+}
+int g_gd_written = 0;  // gd_section_written calls: kiln.gamedata is told after every flush
+void gd_section_written() { ++g_gd_written; }
 // The made-up skill tree (dev.32): two nodes' costs (u16) where kiln.gamedata's skills section has them, the regmap row's "costs",
 // in the gamedata-section fake above (the one writer, R2a's): skill nodes have no GUID, so they are found by their 32-bit id.
 constexpr uint32_t SKILL_NODE = 0x4475e8dd, ROOT_NODE = 0x8efcc472;

@@ -374,31 +374,28 @@ struct GdValueSlot {
     bool absent = false;  // false return: this entry lacks the component / config the path starts at (only some entries have one)
 };
 bool gd_item_config_slot(const Entry& e, const std::string& path, GdValueSlot* out, std::string* why);
-// dev.32 registries over kiln.gamedata's sections (creatures: KILN_GD_TEMPLATES, arsenals, perks, skills), the same shape:
-// the section's entry with this GUID (lower-case text) in this world, else (no GUID: an element entry such as a skill node) with
-// this 32-bit id, as kiln.content's Entry (id, name, address, GUID);
+// dev.32 registries over kiln.gamedata's sections (creatures: KILN_GD_TEMPLATES, arsenals, perks, skills, buffs, abilities:
+// KILN_GD_SEQUENCES), the same shape: the section's entry with this GUID (lower-case text) in this world, else (no GUID: an
+// element entry such as a skill node or a buff record) with this 32-bit id, as kiln.content's Entry (id, name, address, GUID; an
+// ability: its sequence resource, found through its first part; a clone never: the registry names the game's entries);
 bool gd_section_entry(uint32_t section, const std::string& guid, uint32_t num, Entry* out);
-// one value below its root (a template's path starts at a component: "Level.dataStorage[0]") as a store slot of the section,
+// one value below its root (a template's path starts at a component: "Level.dataStorage[0]"; an ability's at its sequence
+// resource: "subSequences[0]...") as a store slot of the section,
 // with its tooltip row when the path names a config's value; false + *why (out->absent: this entry has none of it);
 bool gd_value_slot(uint32_t section, const Entry& e, const std::string& path, GdValueSlot* out, std::string* why);
 // the path of its one whole or fractional config below `configs` ("impactValues.0x0a0c87e7"); false + *why "none" / "several";
 bool gd_shown_config(uint32_t section, const Entry& e, const std::string& configs, std::string* path, std::string* why);
-// how many elements the list at path has.
+// how many elements the list at path has;
 bool gd_list_size(uint32_t section, const Entry& e, const std::string& path, uint32_t* n, std::string* why);
+// eventTime (abilities.timing.*): `path` names the first event of a kind, "<list>[<Type>#0].time", found in the game's own order
+// (Kiln's sorted copy is ignored); out holds it first, then every event of that kind at the same time in the game's data, each
+// a slot named as kiln.gamedata names its own ("events[<Type>#<k>].time" of the sequence part it lists), and kiln.gamedata keeps
+// the list sorted after their writes; false + *why ("none": this entry has no event of the kind, only some have one);
+bool gd_event_slots(uint32_t section, const Entry& e, const std::string& path, std::vector<GdValueSlot>* out, std::string* why);
+// after every flush of the registry's slots (store_mutex held): the events lists the registry moved re-sorted, the buff mirror
+// following the game's records once there are buff clones (kiln.gamedata's after_changes, without its pack bookkeeping).
+void gd_section_written();
 bool gd_ui_scale(uint8_t format, double v, int64_t* out);  // a config value as its tooltip row shows it
-// dev.32: registries whose entries are kiln.gamedata's (buffs: the buff collection's records; abilities: action sequences). The
-// store kind of their slots (GD_KIND_BASE + the section; 0: not such a registry); the game entry of a Kiln id's 32-bit id (buffs)
-// or GUID (abilities) in this world (a clone never: the registry names the game's entries); the value slots of a regmap path over
-// it (paths with [<index>] and [<Type>#<k>] selectors). group (eventTime): the path names the first event of a kind, "<list>[<Type>#0].time",
-// in the game's own order (Kiln's sorted copy is ignored); out holds it first, then every event of that kind with the same time in the
-// game's data, and kiln.gamedata keeps the list sorted after their writes. Each slot is named for the content sync and the report as
-// kiln.gamedata names its own.
-uint32_t gd_registry_kind(const std::string& registry);
-bool gd_registry_entry(const std::string& registry, uint32_t num, const std::string& guid, Entry* out, std::string* why);
-bool gd_registry_slots(const std::string& registry, const Entry& e, const std::string& path, bool group, std::vector<GdValueSlot>* out, std::string* why);
-// After a flush that wrote or took back such slots (store_mutex held): the events lists re-sorted, the buff mirror following the
-// game's records once there are buff clones (kiln.gamedata's after_changes, without its pack bookkeeping).
-void gd_registry_written();
 constexpr int32_t kSubUnlock = 101;  // Slot.sub of a recipe's knowledgeRequirement (registry recipes.unlock)
 
 // ============================================================================================= stack guard =====

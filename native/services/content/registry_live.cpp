@@ -87,8 +87,6 @@ struct LiveState {
     // write or revert is named in Kiln words even after its field was unbound (a removed pack, an ended world)
     std::unordered_map<uintptr_t, std::string> slot_places;
     std::vector<std::string> suspects;  // the drift probe's suspects in this world (drift.h), read at world begin
-    // dev.32: the game name of each kiln.gamedata entry a binding found, by (store kind, id): a code writer's own wording names it
-    std::map<std::pair<uint32_t, uint32_t>, std::string> gd_names;
     std::set<registry::EntryRef> boot_written;  // entries an old boot document wrote (RegistryLive::old's OldPatch rows), per report
     // Writes made after the last report (registry-followups 1): what that report saw, so registry_live_publish can tell, cheaply
     // and never per tick, when a bound field's slot changed since (late_check): the store's generation, a signature of each
@@ -173,13 +171,15 @@ uint32_t kind_of(const std::string& registry) {
 }
 
 // dev.32: registries whose entries are kiln.gamedata's (creatures: the templates; arsenals; perks; skills: the skill tree's
-// nodes, by their 32-bit id): bound through gamedata's value slots (gd_value_slot), their store kind GD_KIND_BASE + the section,
+// nodes and buffs: the buff collection's records, both by their 32-bit id; abilities: sequence resources): bound through gamedata's value slots (gd_value_slot), their store kind GD_KIND_BASE + the section,
 // so a data pack's section layers lie below the registry's and the content sync sends the registry's. 0: not one of them.
 uint32_t gd_section_of(const std::string& registry) {
     if (registry == "creatures") return KILN_GD_TEMPLATES;
     if (registry == "arsenals") return KILN_GD_ARSENALS;
     if (registry == "perks") return KILN_GD_PERKS;
     if (registry == "skills") return KILN_GD_SKILLS;
+    if (registry == "buffs") return KILN_GD_BUFFS;
+    if (registry == "abilities") return KILN_GD_SEQUENCES;  // a sequence resource (its first part is the section's entry)
     return 0;
 }
 const char* entry_word(const std::string& registry) {
@@ -187,6 +187,8 @@ const char* entry_word(const std::string& registry) {
     if (registry == "arsenals") return "arsenal";
     if (registry == "perks") return "perk";
     if (registry == "skills") return "skill node";
+    if (registry == "buffs") return "buff";
+    if (registry == "abilities") return "ability";
     return "entry";
 }
 
@@ -930,87 +932,6 @@ void bind_unlock(const std::shared_ptr<Binding>& b) {
         }});
 }
 
-// ---- dev.32: kiln.gamedata's entries (buffs, abilities) ----
-void refuse_mapping(const registry::FieldRef& fr, const std::vector<const ChainRow*>& rows, const std::string& why, const std::string& member);
-// A registry kiln.gamedata lists (its store kind), else 0.
-uint32_t gd_kind_of(const std::string& registry) { return g.in && g.in->gd_kind ? g.in->gd_kind(registry) : 0; }
-
-// One value slot of a gamedata entry (a buff's duration): an evaluated layer over the value below it, as bind_scalar's.
-void bind_gd_scalar(const std::shared_ptr<Binding>& b, const GdValueSlot& s) {
-    const Field fc = s.f;
-    LayerEval ev = [b, fc](const uint8_t* below, uint8_t, uint8_t* out, std::string* why) {
-        const rmap::Row* row = b->row ? &*b->row : nullptr;
-        const Value under = to_kiln(fc, row, b->spec, below);
-        const Value v = registry::evaluate(b->rows, under, b->spec);
-        if (!in_range(b->spec, v, why) || !save_check(b, under, v, why) || !to_game(fc, row, b->spec, v, out, why, kiln_field_name(b->ref))) return fail(b, *why);
-        return true;
-    };
-    if (!put_at(b, s.kind, s.id, s.field, -1, s.addr, fc.bytes, std::move(ev))) fail(b, "the field is not readable");
-    else track_scalar(b, s.addr, fc);
-}
-
-// eventTime (abilities.timing.*): the first event of a kind is the field's value; every event of that kind at the same time in the
-// game's data takes the value the registry gives the first, evaluated over the first's value below the registry (one value for the
-// moment, so a relative edit moves them together and an event another writer moved below the registry joins them again).
-void bind_event_time(const std::shared_ptr<Binding>& b, const std::vector<GdValueSlot>& slots) {
-    const Field fa = slots[0].f;
-    const uintptr_t anchor = slots[0].addr;
-    for (size_t i = 0; i < slots.size(); ++i) {
-        const GdValueSlot s = slots[i];
-        LayerEval ev = [b, fa, anchor, s, i](const uint8_t* below, uint8_t, uint8_t* out, std::string* why) {
-            uint8_t under_b[kSlotBytes] = {};
-            if (i == 0) std::memcpy(under_b, below, fa.bytes);
-            else if (!store_below_registry(anchor, fa.bytes, under_b)) return fail(b, *why = "the ability's first such moment is not readable");
-            const Value under = to_kiln(fa, nullptr, b->spec, under_b);
-            const Value v = registry::evaluate(b->rows, under, b->spec);
-            if (!in_range(b->spec, v, why) || !to_game(s.f, nullptr, b->spec, v, out, why, kiln_field_name(b->ref))) return fail(b, *why);
-            return true;
-        };
-        if (!put_at(b, s.kind, s.id, s.field, -1, s.addr, s.f.bytes, std::move(ev))) return (void)fail(b, "the field is not readable");
-    }
-    // every event of the moment is the field's slot (the first is its value): a failed write or another writer on any of them is
-    // this field's and its change's (P17, P44), named by the Kiln field (P32), and the later-writes look watches them all
-    std::vector<LiveSlot> all;
-    for (const GdValueSlot& s : slots) all.push_back({s.addr, s.f.bytes});
-    fields_target().insert_or_assign(b->ref, LiveField{b->spec, std::move(all),
-        [b, fa](const std::vector<SlotBytes>& bytes, std::vector<double>*) -> std::optional<Value> { return to_kiln(fa, nullptr, b->spec, bytes[0].data()); }});
-}
-
-void bind_gamedata(const registry::FieldRef& fr, const std::vector<const ChainRow*>& rows, const std::shared_ptr<Binding>& b) {
-    std::string reason;
-    if (g.in->regmap->mapping(fr.registry, fr.field, &reason) != rmap::Mapping::Mapped) return refuse(fr, rows, reason);
-    const auto rm = g.in->regmap->registries.find(fr.registry);
-    if (rm == g.in->regmap->registries.end()) return refuse(fr, rows, "no regmap rows for this registry");
-    const auto row = rm->second.rows.find(fr.field);
-    if (row == rm->second.rows.end()) return refuse(fr, rows, "no regmap row");
-    b->row = row->second;
-    const rmap::Row& rw = row->second;
-    if (rw.backend != rmap::Backend::Live) return refuse(fr, rows, "this field has no live back-end on this game build");
-    const std::string& conv = rw.conv;
-    if (rw.paths.empty() || !(conv == "int" || conv == "float" || conv == "bool" || conv == "time" || conv == "enum" || conv == "eventTime"))
-        return refuse(fr, rows, "the live back-end does not write " + conv + " fields of this registry yet");
-    if (!g.in->gd_entry || !g.in->gd_slots) return refuse(fr, rows, "this registry has no live back-end");
-    const std::string key = fr.registry + "|" + fr.id;
-    const auto num = g.in->nums.find(key);
-    const auto guid = g.in->ids.find(key);
-    std::string why;
-    Entry e;
-    if (!g.in->gd_entry(fr.registry, num == g.in->nums.end() ? 0 : num->second, guid == g.in->ids.end() ? "" : guid->second, &e, &why))
-        return refuse(fr, rows, why.empty() ? "the entry is not in this world" : why);
-    b->entry = e;
-    g.gd_names[{b->kind, e.id}] = e.name;  // a code writer of its slots is named in Kiln words (name_code_writer)
-    std::vector<GdValueSlot> slots;
-    if (!g.in->gd_slots(fr.registry, e, rw.paths[0], conv == "eventTime", &slots, &why) || slots.empty())
-        return refuse_mapping(fr, rows, why.empty() ? "the game's value of this field is missing on this game build" : why, rw.paths[0]);
-    const bool writing = !g.reading || g.initializing_entry;
-    for (const GdValueSlot& s : slots)
-        if (writing && !s.f.writable) return refuse_mapping(fr, rows, "the game's value of this field is not writable on this game build", rw.paths[0]);
-    if (conv == "enum" && (slots[0].f.enum_kind != KILN_CONTENT_ENUM || !slots[0].f.en))
-        return refuse_mapping(fr, rows, std::string("the game's value of this field is not an enum on this game build") + " (Kiln's mapping of it needs an update)", rw.paths[0]);
-    if (conv == "eventTime") return bind_event_time(b, slots);
-    bind_gd_scalar(b, slots[0]);
-}
-
 // ---- one field ----
 // A refusal of the mapping on this build: in Kiln words (the field and entry), the regmap path in kiln.log at debug level for
 // maintainers, never in the refusal (owner's principle; registry-fixes item 5). The words keep the phrases the proof producer
@@ -1022,7 +943,7 @@ void refuse_mapping(const registry::FieldRef& fr, const std::vector<const ChainR
     refuse(fr, rows, why);
 }
 
-// ---- dev.32: gamedata-section registries (creatures, arsenals, perks, skills) ----
+// ---- dev.32: gamedata-section registries (creatures, arsenals, perks, skills, buffs, abilities) ----
 // A value of a gamedata entry: an evaluated layer on gamedata's slot of it (its store kind, so the content sync and the
 // conflict report name it), compare-before-write and rollback as for every registry slot. A refusal names the Kiln field and
 // entry; gamedata's own reason (game members) goes to kiln.log at debug level (P45).
@@ -1170,6 +1091,33 @@ void bind_section_list(const std::shared_ptr<Binding>& b, uint32_t section, cons
         }});
 }
 
+// eventTime (abilities.timing.*): the first event of a kind is the field's value; every event of that kind at the same time in the
+// game's data takes the value the registry gives the first, evaluated over the first's value below the registry (one value for the
+// moment, so a relative edit moves them together and an event another writer moved below the registry joins them again).
+void bind_event_time(const std::shared_ptr<Binding>& b, const std::vector<GdValueSlot>& slots) {
+    const Field fa = slots[0].f;
+    const uintptr_t anchor = slots[0].addr;
+    for (size_t i = 0; i < slots.size(); ++i) {
+        const GdValueSlot s = slots[i];
+        LayerEval ev = [b, fa, anchor, s, i](const uint8_t* below, uint8_t, uint8_t* out, std::string* why) {
+            uint8_t under_b[kSlotBytes] = {};
+            if (i == 0) std::memcpy(under_b, below, fa.bytes);
+            else if (!store_below_registry(anchor, fa.bytes, under_b)) return fail(b, *why = "the ability's first such moment is not readable");
+            const Value under = to_kiln(fa, nullptr, b->spec, under_b);
+            const Value v = registry::evaluate(b->rows, under, b->spec);
+            if (!in_range(b->spec, v, why) || !to_game(s.f, nullptr, b->spec, v, out, why, kiln_field_name(b->ref))) return fail(b, *why);
+            return true;
+        };
+        if (!put_at(b, s.kind, s.id, s.field, -1, s.addr, s.f.bytes, std::move(ev))) return (void)fail(b, "the field is not readable");
+    }
+    // every event of the moment is the field's slot (the first is its value): a failed write or another writer on any of them is
+    // this field's and its change's (P17, P44), named by the Kiln field (P32), and the later-writes look watches them all
+    std::vector<LiveSlot> all;
+    for (const GdValueSlot& s : slots) all.push_back({s.addr, s.f.bytes});
+    fields_target().insert_or_assign(b->ref, LiveField{b->spec, std::move(all),
+        [b, fa](const std::vector<SlotBytes>& bytes, std::vector<double>*) -> std::optional<Value> { return to_kiln(fa, nullptr, b->spec, bytes[0].data()); }});
+}
+
 // One field of a gamedata-section registry's entry: the entry by its GUID in this world, then the row's conversion.
 void bind_section(const std::shared_ptr<Binding>& b, const registry::FieldRef& fr, const registry::FieldOutcome& fo,
              const std::vector<const ChainRow*>& rows, bool raw, uint32_t section) {
@@ -1217,6 +1165,22 @@ void bind_section(const std::shared_ptr<Binding>& b, const registry::FieldRef& f
         return bind_section_impact(b, s);
     }
     if (rw.conv == "list") return bind_section_list(b, section, rm->second, rows);
+    if (rw.conv == "eventTime") {  // abilities.timing.*: the first event of a kind and every event of that kind at its moment
+        std::vector<GdValueSlot> slots;
+        std::string why;
+        if (!gd_event_slots(section, b->entry, rw.paths[0], &slots, &why)) {
+            LOGD("registry (live): %s: %s (regmap path %s)", fr.text().c_str(), why.c_str(), member0.c_str());
+            if (why == "none") {  // this ability has no such event: it alone is refused, and a read of it is null as its base reads it
+                if (g.reading) g.read_absent = true;
+                return refuse(fr, rows, std::string("this ") + entry_word(fr.registry) + " has no such moment on this game build");
+            }
+            return refuse_mapping(fr, rows, std::string("the game's value of this field is missing on this game build") + kMappingUpdate, member0);
+        }
+        for (const GdValueSlot& s2 : slots)
+            if ((!g.reading || g.initializing_entry) && !s2.f.writable)
+                return refuse_mapping(fr, rows, "the game's value of this field is not writable on this game build", member0);
+        return bind_event_time(b, slots);
+    }
     refuse(fr, rows, "the live back-end does not write " + rw.conv + " fields yet");
 }
 
@@ -1234,12 +1198,6 @@ void bind(const registry::FieldRef& fr, const registry::FieldOutcome& fo) {
     b->spec = *spec;
     b->kind = kind_of(fr.registry);
     if (const uint32_t section = b->kind ? 0 : gd_section_of(fr.registry)) return bind_section(b, fr, fo, rows, raw, section);
-    if (!b->kind && !raw) {
-        if (const uint32_t gk = gd_kind_of(fr.registry)) {
-            b->kind = gk;
-            return bind_gamedata(fr, rows, b);
-        }
-    }
     if (!b->kind) return refuse(fr, rows, "this registry has no live back-end");
     std::string guid;
     const Entry* e = find_entry(fr.registry, fr.id, &guid);
@@ -1364,10 +1322,6 @@ void name_code_writer(ChainRow& row, const Layer& layer, const Slot& slot, const
             if (const auto it = g.in->ids.find(ref.registry + "|" + ref.id);
                 gd_section_entry(section, it != g.in->ids.end() ? lower(it->second) : std::string(), slot.id, &gd_entry) && gd_entry.id == slot.id)
                 e = &gd_entry;
-    // dev.32: a registry over kiln.gamedata's entries (buffs, abilities): the entry its binding found ("<label>: buffs buff_<id>.<path>")
-    Entry gd;
-    if (!e && gd_kind_of(ref.registry))
-        if (const auto it = g.gd_names.find({slot.kind, slot.id}); it != g.gd_names.end()) gd.name = it->second, e = &gd;
     const std::string rest = layer.source.substr(head.size());
     const size_t space = rest.find(' ');
     if (!e || e->name.empty() || space == std::string::npos || space == 0 || rest.compare(space + 1, e->name.size(), e->name) != 0 ||
@@ -1981,7 +1935,7 @@ ApplyOutcome apply_changes(uint64_t candidate = 0, bool keep_refused = false, bo
         std::vector<uintptr_t> missed;
         std::string ignored;  // store_flush's text names a process address; reasons name Kiln places instead
         store_flush_checked(&ignored, &missed);
-        if (g.in->gd_written) g.in->gd_written();  // kiln.gamedata's slots: events re-sorted, the buff mirror follows (dev.32)
+        gd_section_written();  // kiln.gamedata's slots: events re-sorted, the buff mirror follows (dev.32 buffs, abilities)
         unwritten = {missed.begin(), missed.end()};
         if (refuse_removals(failed_drop_exclusions(true))) continue;
         const std::string visibility_error = g.in->verify_visibility ? g.in->verify_visibility(missed) : std::string();

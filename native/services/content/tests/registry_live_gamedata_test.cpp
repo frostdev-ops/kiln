@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: MIT
 // kiln.content, host test (dev.32): the registry's live back-end over kiln.gamedata's entries, the buffs and abilities
-// registries (registry_live.cpp bind_gamedata, bind_gd_scalar, bind_event_time) through RegistryLive's gd_* hooks, on the real
-// store, IR and composition and the repository's regmap rows (every build row ok: regmap_fixture.sh). The hooks here stand in
-// for gamedata_packs.cpp's gd_registry_*: a made-up buff record and an ability's events in the test arena.
+// registries, on the one gamedata-section writer (registry_live.cpp bind_section, bind_section_scalar, bind_event_time) through
+// its gd_* seams (content.h), on the real store, IR and composition and the repository's regmap rows (every build row ok:
+// regmap_fixture.sh). registry_live_test.cpp's GdSectionFake stands in for gamedata_packs.cpp: a made-up buff record and an
+// ability's events in the test arena.
 //   - buffs.duration (a time) and buffs.stacking (an enum): write, read back, revert; a relative edit; a pack below the registry;
 //     another writer after Kiln's layer (compare-before-write keeps its bytes); read-only fields refused;
 //   - abilities.timing.release: the first spawn and every spawn at the same moment move together, a later spawn stays; a
-//     relative edit; revert; kiln.gamedata is told after each flush (gd_written);
+//     relative edit; revert; kiln.gamedata is told after each flush (gd_section_written);
 //   - an ability without the moment refuses that entry alone at an entry point, the whole change in a Manual transaction;
-//   - without the hooks the registries have no live back-end and say so.
+//   - without kiln.gamedata's entries in this world the registries refuse, named.
 #define main registry_live_baseline_main
 #include "registry_live_test.cpp"
 #undef main
@@ -22,8 +23,8 @@ const uint8_t G5[16] = {5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5}, G6[16] 
 // the cast's events (each a keen::Time at its address): the first spawn at 0.65 s with a payment at the same moment (another kind),
 // a second spawn at 0.65 s (moves with the first), a third at 0.9 s (stays)
 constexpr size_t SPAWN0 = CAST_AT + 0x00, PAY0 = CAST_AT + 0x20, SPAWN1 = CAST_AT + 0x40, SPAWN2 = CAST_AT + 0x60, TURN_SPAWN = TURN_AT;
-int g_written = 0;
-bool g_hooks = true;
+int& g_written = g_gd_written;  // gd_section_written calls (registry_live_test.cpp's fake)
+bool g_hooks = true;            // kiln.gamedata has the buff and the abilities in this world
 bool g_no_replace_at_end = false;  // a game build whose buffs have no ReplaceAtEnd
 
 std::shared_ptr<EnumInfo> apply_types() {
@@ -48,13 +49,42 @@ GdValueSlot slot(uintptr_t addr, Field f, uint32_t kind, uint32_t id, int32_t fi
     return s;
 }
 
+void gd_sections();
 void gd_world() {
     world();
     g_written = 0;
+    gd_sections();
     mem<uint8_t>(BUFF_AT + 4, 3), mem<uint8_t>(BUFF_AT + 5, 1), mem<int64_t>(BUFF_AT + 8, 10'000'000'000ll), mem<uint8_t>(BUFF_AT + 0x4a, 1);
     for (size_t at : {SPAWN0, PAY0, SPAWN1}) mem<int64_t>(at, 650'000'000ll);
     mem<int64_t>(SPAWN2, 900'000'000ll);
     mem<int64_t>(TURN_SPAWN, 200'000'000ll);
+}
+
+// kiln.gamedata's buffs and sequences sections in this world, as gamedata_packs.cpp gives them to the one writer (the
+// gamedata-section fake of registry_live_test.cpp): the buff by its 32-bit id, the abilities by their GUID, the cast's moments
+void gd_sections() {
+    GdSectionFake& B = g_gd_sections[KILN_GD_BUFFS];
+    GdSectionFake& S = g_gd_sections[KILN_GD_SEQUENCES];
+    B = GdSectionFake{}, S = GdSectionFake{};
+    if (!g_hooks) return;  // no such entries in this world
+    Entry buff;
+    buff.id = BUFF, buff.addr = A(BUFF_AT), buff.name = "buff_cdbe9c80";
+    B.entries["buff:cdbe9c80"] = buff;
+    B.slots[{BUFF, "defaultLifeTime"}] = slot(A(BUFF_AT + 8), time_field(), GD_BUFFS, BUFF, 1);
+    Field apply;
+    apply.bytes = 1, apply.vt = KILN_CV_INT, apply.enum_kind = KILN_CONTENT_ENUM, apply.en = apply_types(), apply.writable = true;
+    B.slots[{BUFF, "applyType"}] = slot(A(BUFF_AT + 5), apply, GD_BUFFS, BUFF, 2);
+    Field kind;
+    kind.bytes = 1, kind.vt = KILN_CV_INT, kind.enum_kind = KILN_CONTENT_ENUM, kind.en = slot_types(), kind.writable = true;
+    B.slots[{BUFF, "slot"}] = slot(A(BUFF_AT + 4), kind, GD_BUFFS, BUFF, 3);
+    Entry cast, turn;
+    cast.id = CAST, cast.addr = A(CAST_AT), cast.name = "Fire_Cast";
+    turn.id = TURN, turn.addr = A(TURN_AT), turn.name = "Turn";
+    S.entries[guid_text(G5)] = cast, S.entries[guid_text(G6)] = turn;
+    S.events[{CAST, "keen::actor::SpawnEntityEvent"}] = {slot(A(SPAWN0), time_field(), GD_SEQUENCES, CAST, 4),
+                                                         slot(A(SPAWN1), time_field(), GD_SEQUENCES, CAST, 5)};
+    S.events[{TURN, "keen::actor::SpawnEntityEvent"}] = {slot(A(TURN_SPAWN), time_field(), GD_SEQUENCES, TURN, 4)};
+    S.events[{CAST, "keen::actor::PayUsageCost"}] = {slot(A(PAY0), time_field(), GD_SEQUENCES, CAST, 6)};
 }
 
 void install_hooks(RegistryLive& in) {
@@ -63,40 +93,6 @@ void install_hooks(RegistryLive& in) {
     in.nums["buffs|game:buff_cdbe9c80"] = BUFF;
     for (const char* f : {"buffs.duration", "buffs.stacking", "buffs.kind", "abilities.timing.release", "abilities.timing.cost", "abilities.timing.hit"})
         in.decoded.insert(f);
-    if (!g_hooks) return;
-    in.gd_kind = [](const std::string& r) -> uint32_t { return r == "buffs" ? GD_BUFFS : r == "abilities" ? GD_SEQUENCES : 0; };
-    in.gd_entry = [](const std::string& r, uint32_t num, const std::string& guid, Entry* out, std::string* why) {
-        if (r == "buffs" && num == BUFF) return out->id = BUFF, out->addr = A(BUFF_AT), out->name = "buff_cdbe9c80", true;
-        if (r == "abilities" && guid == guid_text(G5)) return out->id = CAST, out->addr = A(CAST_AT), out->name = "Fire_Cast", true;
-        if (r == "abilities" && guid == guid_text(G6)) return out->id = TURN, out->addr = A(TURN_AT), out->name = "Turn", true;
-        return *why = "the entry is not in this world", false;
-    };
-    in.gd_slots = [](const std::string& r, const Entry& e, const std::string& path, bool group, std::vector<GdValueSlot>* out, std::string* why) {
-        if (r == "buffs" && path == "defaultLifeTime") return out->push_back(slot(e.addr + 8, time_field(), GD_BUFFS, e.id, 1)), true;
-        if (r == "buffs" && path == "applyType") {
-            Field f;
-            f.bytes = 1, f.vt = KILN_CV_INT, f.enum_kind = KILN_CONTENT_ENUM, f.en = apply_types(), f.writable = true;
-            return out->push_back(slot(e.addr + 5, f, GD_BUFFS, e.id, 2)), true;
-        }
-        if (r == "buffs" && path == "slot") {
-            Field f;
-            f.bytes = 1, f.vt = KILN_CV_INT, f.enum_kind = KILN_CONTENT_ENUM, f.en = slot_types(), f.writable = true;
-            return out->push_back(slot(e.addr + 4, f, GD_BUFFS, e.id, 3)), true;
-        }
-        if (r == "abilities" && group && path.find("SpawnEntityEvent#0") != std::string::npos) {
-            if (e.id == CAST) {
-                out->push_back(slot(A(SPAWN0), time_field(), GD_SEQUENCES, e.id, 4));
-                out->push_back(slot(A(SPAWN1), time_field(), GD_SEQUENCES, e.id, 5));
-            } else {
-                out->push_back(slot(A(TURN_SPAWN), time_field(), GD_SEQUENCES, e.id, 4));
-            }
-            return true;
-        }
-        if (r == "abilities" && group && path.find("PayUsageCost#0") != std::string::npos && e.id == CAST)
-            return out->push_back(slot(A(PAY0), time_field(), GD_SEQUENCES, e.id, 6)), true;
-        return *why = "this ability has no such moment on this game build", false;
-    };
-    in.gd_written = [] { ++g_written; };
 }
 
 registry::BaseModel gd_base() {
@@ -256,6 +252,16 @@ void ability_without_the_moment_refuses_that_entry() {
     registry_live_revert(71, h, &reply);
 }
 
+// registry trial merge: on the one gamedata-section writer an ability without an event of the kind has no value of the field
+// (only some abilities have one), as a creature without a component: a read of it in a world is null, as its base reads it, never
+// an unreadable field that fails a mod's whole pass; a read of one that has it still reads its time
+void ability_without_the_moment_reads_null() {
+    gd_fresh();
+    std::string v;
+    check(registry_live_read("abilities", "game:turn", "timing.cost", &v) == KILN_OK && v == "null", "the turn has no payment: null (" + v + ")");
+    check(read("abilities", "game:fire_cast", "timing.cost") == "0.65", "the cast's payment reads its time");
+}
+
 void data_section_binds_at_world_load() {
     g_files = {{"a/content/spells.json", R"({"registry":{"alter":[
         {"registry":"abilities","select":"game:fire_cast","field":"timing.release","op":0.45},
@@ -305,7 +311,8 @@ void gamedata_code_writers_in_kiln_words() {
 // review of dev.32 (P45): a stacking value this build's buffs lack is refused in Kiln words: the field, never the game's value
 void buff_stacking_value_missing_names_the_kiln_field() {
     gd_fresh();
-    g_no_replace_at_end = true;  // on through the commit (the binding asks for the slot's enum then); install_hooks turns it off
+    g_no_replace_at_end = true;  // a build whose buffs have no ReplaceAtEnd: the slot's enum as kiln.gamedata gives it then
+    g_gd_sections[KILN_GD_BUFFS].slots[{BUFF, "applyType"}].f.en = apply_types();
     RegistryLiveReply reply;
     const auto h = begin_change(71, "a", "[{" + buff + R"("field":"stacking","op":"replaceAtEnd"}])");
     registry_live_commit(71, h, &reply);
@@ -343,15 +350,17 @@ void ability_moment_is_written_whole() {
     g_files.clear();
 }
 
-void without_hooks_no_live_back_end() {
+// (R2b's "without the hooks": on the one writer kiln.gamedata is always linked; what it can lack is this world's entries)
+void without_gamedata_entries_refused() {
     g_hooks = false;
     gd_fresh();
     g_hooks = true;
     RegistryLiveReply reply;
     const auto h = begin_change(71, "a", "[{" + buff + R"("field":"duration","op":5}])");
     registry_live_commit(71, h, &reply);
-    check(reply.outcome == RegistryLiveOutcome::Refused && reply.reason.find("no live back-end") != std::string::npos && at<int64_t>(BUFF_AT + 8) == 10'000'000'000ll,
-          "without kiln.gamedata the registry refuses, named: " + reply.reason);
+    check(reply.outcome == RegistryLiveOutcome::Refused && reply.reason.find("buffs[game:buff_cdbe9c80].duration: the entry is not in this world") != std::string::npos &&
+              at<int64_t>(BUFF_AT + 8) == 10'000'000'000ll,
+          "without kiln.gamedata's buff in this world the registry refuses, named: " + reply.reason);
 }
 }  // namespace
 
@@ -366,9 +375,10 @@ int main() {
         {"buff_pack_below_and_foreign_writer", buff_pack_below_and_foreign_writer},
         {"ability_release_moves_the_moment", ability_release_moves_the_moment},
         {"ability_without_the_moment_refuses_that_entry", ability_without_the_moment_refuses_that_entry},
+        {"ability_without_the_moment_reads_null", ability_without_the_moment_reads_null},
         {"data_section_binds_at_world_load", data_section_binds_at_world_load},
         {"gamedata_code_writers_in_kiln_words", gamedata_code_writers_in_kiln_words},
-        {"without_hooks_no_live_back_end", without_hooks_no_live_back_end},
+        {"without_gamedata_entries_refused", without_gamedata_entries_refused},
         {"buff_stacking_value_missing_names_the_kiln_field", buff_stacking_value_missing_names_the_kiln_field},
         {"ability_moment_is_written_whole", ability_moment_is_written_whole},
     };

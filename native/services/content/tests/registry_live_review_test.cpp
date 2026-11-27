@@ -115,6 +115,8 @@ bool gd_section_entry(uint32_t, const std::string&, uint32_t, Entry*) { return f
 bool gd_value_slot(uint32_t, const Entry&, const std::string&, GdValueSlot*, std::string* why) { return *why = "none here", false; }
 bool gd_shown_config(uint32_t, const Entry&, const std::string&, std::string*, std::string* why) { return *why = "none here", false; }
 bool gd_list_size(uint32_t, const Entry&, const std::string&, uint32_t*, std::string* why) { return *why = "none here", false; }
+bool gd_event_slots(uint32_t, const Entry&, const std::string&, std::vector<GdValueSlot>*, std::string* why) { return *why = "none here", false; }
+void gd_section_written() {}
 bool read_recipe_stacks(const Entry&, uint32_t, std::vector<KilnContentStack>*) { return false; }
 bool nc_is_new(uint32_t, uint32_t) { return false; }
 void nc_pack_add(KilnOwner, uint32_t, const std::string&, const std::string&, ApplyResult*) {}

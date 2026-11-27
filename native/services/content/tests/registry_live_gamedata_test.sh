@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
-# dev.32: the registry's live back-end over kiln.gamedata's entries (buffs, abilities) through RegistryLive's gd_* hooks, over the
+# dev.32: the registry's live back-end over kiln.gamedata's entries (buffs, abilities) on the one gamedata-section writer, over the
 # real store, IR and composition and the repository's regmap rows (every build row ok), ASan/UBSan. No game process.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)

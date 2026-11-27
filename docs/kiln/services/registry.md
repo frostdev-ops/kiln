@@ -27,8 +27,8 @@ A faulted stage turn is dropped; a fault in either callback kind removes its sub
 The stage supports `items`/`recipes` add and `items`/`recipes`/`loot` remove; `loot` add and `drops`/`balance` entry
 operations are unsupported, and so are the dev.32 registries' (`creatures`, `arsenals`, `perks`, `skills`, `stations`, `buffs`,
 `abilities`: fields only; their schemas say `add: false`, `remove: false`: a mod's own buffs and abilities are kiln.gamedata
-clones or blocks). The live back-end writes `buffs` and `abilities` over kiln.gamedata's entries through `RegistryLive`'s `gd_*`
-hooks ([adding-a-registry.md](../adding-a-registry.md) 2.8b). C# uses `RegistryStage.Add` with typed `AddLike` extensions, and typed `Remove(pattern)` in
+clones or blocks). The live back-end writes the dev.32 registries over kiln.gamedata's entries through one gamedata-section writer
+([adding-a-registry.md](../adding-a-registry.md) 2.8b). C# uses `RegistryStage.Add` with typed `AddLike` extensions, and typed `Remove(pattern)` in
 Alter/Final. Each addition clones a present Kiln `like` chain, with stable identity, inherited fields and checked overrides.
 Definitions register through the existing content path; per-world registration failures refuse dependent additions too.
 
