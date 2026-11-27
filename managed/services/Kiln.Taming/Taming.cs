@@ -63,7 +63,9 @@ public static class Taming
     public static IReadOnlyList<TamingDefinitionResult> DefineJson(string json)
     {
         var defs = TamingJson.Read(json, TamingJson.GameItems);
-        return defs.Select(Define).ToArray();
+        var results = new List<TamingDefinitionResult>(defs.Count);
+        foreach (var d in defs) results.Add(Define(d));
+        return results;
     }
 
     /// <summary>The definition registered under <paramref name="id"/>, or null. Any thread, as Kiln.Pets'

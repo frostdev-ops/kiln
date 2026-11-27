@@ -570,8 +570,11 @@ internal static partial class KilnApis
         "M:Kiln.Pets.Dismiss(Kiln.PlayerRef,Kiln.PetId,Kiln.PetRequest)", // Pets.Dismiss(PlayerRef, PetId, PetRequest): via Pets.Request(PetRoster.Kind, string, string, PlayerRef, PetId, PetRequest, Action<PetRoster.Op>?)
         "M:Kiln.Pets.Get(Kiln.PetId)", // Pets.Get(PetId): via Pets.Roster(string)
         "M:Kiln.Pets.Grant(Kiln.CharacterKey,System.String,Kiln.PetRequest)", // Pets.Grant(CharacterKey, string, PetRequest): via Pets.Roster(string)
+        "M:Kiln.Pets.Grant(Kiln.PlayerRef,System.String,Kiln.PetRequest)", // Pets.Grant(PlayerRef, string, PetRequest): via Pets.Roster(string)
+        "M:Kiln.Pets.HostileTo(Kiln.CharacterKey)", // Pets.HostileTo(CharacterKey): via Pets.Roster(string)
         "M:Kiln.Pets.IsHostile(Kiln.CharacterKey,Kiln.CharacterKey)", // Pets.IsHostile(CharacterKey, CharacterKey): via Pets.Roster(string)
         "M:Kiln.Pets.Of(Kiln.CharacterKey)", // Pets.Of(CharacterKey): via Pets.Roster(string)
+        "M:Kiln.Pets.Of(Kiln.PlayerRef)", // Pets.Of(PlayerRef): via Pets.Roster(string)
         "M:Kiln.Pets.Release(Kiln.PlayerRef,Kiln.PetId,Kiln.PetRequest)", // Pets.Release(PlayerRef, PetId, PetRequest): via Pets.Request(PetRoster.Kind, string, string, PlayerRef, PetId, PetRequest, Action<PetRoster.Op>?)
         "M:Kiln.Pets.Revive(Kiln.PlayerRef,Kiln.PetId,Kiln.PetRequest,Kiln.ItemSelection)", // Pets.Revive(PlayerRef, PetId, PetRequest, ItemSelection?): via Pets.Request(PetRoster.Kind, string, string, PlayerRef, PetId, PetRequest, Action<PetRoster.Op>?)
         "M:Kiln.Pets.SetHostile(Kiln.CharacterKey,Kiln.CharacterKey,System.Boolean)", // Pets.SetHostile(CharacterKey, CharacterKey, bool): via Pets.Roster(string)
@@ -788,16 +791,14 @@ internal static partial class KilnApis
         "M:Kiln.Systems.Define``1(System.String,Kiln.ProgramOptions,Kiln.EntityHandler{``0})", // Systems.Define<T>(string, ProgramOptions, EntityHandler<T>): Services.RequireTickThread
         "M:Kiln.Systems.Wrap(System.String,Kiln.WrapOptions)", // Systems.Wrap(string, WrapOptions?): via Systems.Check(string, WrapOptions, string, out SystemsNative.Table*, out int)
         "M:Kiln.Systems.Wrap``1(Kiln.WrapOptions)", // Systems.Wrap<T>(WrapOptions?): via Systems.Check(string, WrapOptions, string, out SystemsNative.Table*, out int)
-        "M:Kiln.Taming.Advance(Kiln.PlayerRef,Kiln.TameAttemptId,Kiln.TamingToken,Kiln.ItemSelection)", // Taming.Advance(PlayerRef, TameAttemptId, TamingToken, ItemSelection?): via Taming.Engine(string)
-        "M:Kiln.Taming.Begin(Kiln.PlayerRef,Kiln.EntityRef,System.String,System.Guid)", // Taming.Begin(PlayerRef, EntityRef, string, Guid): via Taming.Engine(string)
-        "M:Kiln.Taming.Cancel(Kiln.PlayerRef,Kiln.TameAttemptId,Kiln.TamingToken)", // Taming.Cancel(PlayerRef, TameAttemptId, TamingToken): via Taming.Engine(string)
+        "M:Kiln.Taming.Advance(Kiln.PlayerRef,Kiln.TameAttemptId,Kiln.TamingRequest,Kiln.ItemSelection)", // Taming.Advance(PlayerRef, TameAttemptId, TamingRequest, ItemSelection?): via Taming.Engine(string)
+        "M:Kiln.Taming.Begin(Kiln.PlayerRef,Kiln.EntityRef,System.String,Kiln.TamingRequest)", // Taming.Begin(PlayerRef, EntityRef, string, TamingRequest): via Taming.Engine(string)
+        "M:Kiln.Taming.Cancel(Kiln.PlayerRef,Kiln.TameAttemptId,Kiln.TamingRequest)", // Taming.Cancel(PlayerRef, TameAttemptId, TamingRequest): via Taming.Engine(string)
         "M:Kiln.Taming.Choices(Kiln.PlayerRef,Kiln.TameAttemptId)", // Taming.Choices(PlayerRef, TameAttemptId): via Taming.Engine(string)
         "M:Kiln.Taming.Define(Kiln.TamingDefinition)", // Taming.Define(TamingDefinition): Services.RequireTickThread
         "M:Kiln.Taming.DefineJson(System.String)", // Taming.DefineJson(string): via Taming.Define(TamingDefinition)
-        "M:Kiln.Taming.Definition(System.String)", // Taming.Definition(string): via Taming.DefinitionEngine(string)
         "M:Kiln.Taming.Inspect(Kiln.TameAttemptId)", // Taming.Inspect(TameAttemptId): via Taming.Engine(string)
-        "M:Kiln.Taming.Retry(Kiln.PlayerRef,Kiln.TameAttemptId,Kiln.TamingToken)", // Taming.Retry(PlayerRef, TameAttemptId, TamingToken): via Taming.Engine(string)
-        "M:Kiln.Taming.get_Definitions", // Taming.Definitions.get: via Taming.DefinitionEngine(string)
+        "M:Kiln.Taming.Retry(Kiln.PlayerRef,Kiln.TameAttemptId,Kiln.TamingRequest)", // Taming.Retry(PlayerRef, TameAttemptId, TamingRequest): via Taming.Engine(string)
         "M:Kiln.Teleport.To(Kiln.EntityId,Kiln.WorldPosition,Kiln.TeleportOptions)", // Teleport.To(EntityId, WorldPosition, TeleportOptions?): via Teleport.Start(EntityId, WorldPosition, EntityId, TeleportOptions)
         "M:Kiln.Teleport.ToEntity(Kiln.EntityId,Kiln.EntityId,System.Double,Kiln.TeleportOptions)", // Teleport.ToEntity(EntityId, EntityId, double, TeleportOptions?): Services.RequireTickThread
         "M:Kiln.Teleport.ToSpawnPoint(Kiln.EntityId,Kiln.EntityId,Kiln.TeleportOptions)", // Teleport.ToSpawnPoint(EntityId, EntityId, TeleportOptions?): via Teleport.Start(EntityId, WorldPosition, EntityId, TeleportOptions)
@@ -931,6 +932,7 @@ internal static partial class KilnApis
         "M:Kiln.Spawn.Entity(System.String,Kiln.WorldPosition,System.Single,Kiln.SpawnOptions)", // Spawn.Entity(string, WorldPosition, float, SpawnOptions?)
         "M:Kiln.Spawn.Group(System.String,Kiln.WorldPosition,System.Int32,System.Double,Kiln.SpawnOptions)", // Spawn.Group(string, WorldPosition, int, double, SpawnOptions?)
         "M:Kiln.Spawn.Item(System.UInt32,System.Int32,Kiln.WorldPosition,System.Int32,Kiln.SpawnOptions)", // Spawn.Item(uint, int, WorldPosition, int, SpawnOptions?)
+        "M:Kiln.Taming.Begin(Kiln.PlayerRef,Kiln.EntityRef,System.String,Kiln.TamingRequest)", // Taming.Begin(PlayerRef, EntityRef, string, TamingRequest)
     };
 
     /// <summary>Public static bool properties that answer Capabilities.Is for capability rows (KILN121): "documentation
