@@ -15,6 +15,9 @@ internal sealed class RegistryDispatch(ModManager mods) : IDisposable
     private ulong _cleanupWorld = ulong.MaxValue;
     private readonly Dictionary<ModContext, Action> _retirements = [];
     private volatile bool _closed;
+    // Kiln's own native calls off the tick (registry.json builds, review of api-shape): Dispose waits for the ones in flight and
+    // none starts after it began, so none calls a table its owner frees after the dispatch (a test's FakeRegistry, Kiln's teardown)
+    private int _offTickCalls;
     private readonly object _signals = new();
     private readonly List<(RegistryReadyPhase Phase, ulong Generation)> _pendingReady = []; // in arrival order (review4 nit)
     private bool _worldChanged;
@@ -664,8 +667,10 @@ internal sealed class RegistryDispatch(ModManager mods) : IDisposable
         {
             for (var i = 0; i < 5; ++i)
             {
+                if (!OffTickCall()) return;  // the dispatch is closing: no call into its tables now
                 try { if (_native.BuildReport()) return; }
                 catch { return; }  // the tick builds it
+                finally { Interlocked.Decrement(ref _offTickCalls); }
                 await Task.Delay(100);
             }
         });
@@ -857,10 +862,24 @@ internal sealed class RegistryDispatch(ModManager mods) : IDisposable
             catch (Exception e) { Log(owner.Info.Id + " cleanup (core retirement will retry)", e); }
             finally { _scopedChanges.Remove(handle); }
     }
+    // One native call off the tick begins (false: the dispatch is closing; make none). Its caller decrements _offTickCalls after.
+    private bool OffTickCall()
+    {
+        Interlocked.Increment(ref _offTickCalls);
+        if (!_closed) return true;
+        Interlocked.Decrement(ref _offTickCalls);
+        return false;
+    }
     public void Dispose()
     {
         if (_closed) return;
         _closed = true; _ready?.Dispose(); _ready = null;
+        // the native calls Kiln makes off the tick end before the tables can go (review of api-shape): a report build in flight,
+        // and the re-author worker (its pass and kiln-content's preparation), each waited for a moment at most
+        Interlocked.MemoryBarrier();
+        SpinWait.SpinUntil(() => Volatile.Read(ref _offTickCalls) == 0, TimeSpan.FromSeconds(2));
+        try { _reauthor?.Work?.Wait(TimeSpan.FromSeconds(2)); }
+        catch (Exception) { /* Guarded keeps the worker's own failures; nothing to add at teardown */ }
         foreach (var author in _authors.ToArray().Reverse()) Retire(author);
         foreach (var (owner, retirement) in _retirements)
         {

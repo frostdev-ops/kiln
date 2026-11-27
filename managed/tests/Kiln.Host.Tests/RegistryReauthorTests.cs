@@ -446,6 +446,29 @@ public sealed class RegistryReauthorTests : ModsFixture
         }
         finally { WorldConfigs.Reset(); }
     }
+    // review of api-shape: a landed turn's registry.json is built off the tick (up to five tries 100 ms apart), a call into
+    // kiln-content's tables. The dispatch's Dispose waits for such a build and none starts after it, so nothing calls a table
+    // its owner then frees: a rig's FakeRegistry freed under such a build crashed the Host test host at random (0xC0000005).
+    [Fact(Timeout = 30_000)]
+    public async Task NoReportBuildCallsTheTablesAfterDispose()
+    {
+        await Task.Yield();
+        using var rig = new Rig(this);
+        rig.Native.ReportMoves = 1000;  // every try finds the registry moved: the builder tries five times, 100 ms apart
+        var owner = Owner(rig.Native, "leveler");
+        rig.Dispatch.Loaded(new WorldOnlyAuthor(c => { if (c.Phase == RegistryPhase.Alter) Edit(c, 30); }), owner, Root, false);
+        rig.Dispatch.FlushLoads();
+        Assert.Null(RegistryRuntime.Reauthor!(owner, RegistryEntryPoint.WorldLoad));
+        Settle(rig.Dispatch);
+        Assert.Equal(1, rig.Native.Installs);
+        for (var i = 0; i < 200 && Volatile.Read(ref rig.Native.ReportBuilds) == 0; ++i) await Task.Delay(5);
+        Assert.True(Volatile.Read(ref rig.Native.ReportBuilds) > 0, "the turn's report build runs off the tick");
+        rig.Dispatch.Dispose();
+        var builds = Volatile.Read(ref rig.Native.ReportBuilds);
+        await Task.Delay(700);  // longer than the builder's tries
+        Assert.Equal(builds, Volatile.Read(ref rig.Native.ReportBuilds));  // no call into the tables after Dispose returned
+        owner.Retire();
+    }
     // The world ended while the pass ran: its turn is for that world and is not landed.
     [Fact(Timeout = 30_000)]
     public async Task ATurnForAnEndedWorldIsDropped()
