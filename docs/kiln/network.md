@@ -141,7 +141,10 @@ The native stage fingerprints successfully resolved, boot-routed registry fields
 its own copy. It uses Kiln registry/entry/field names and the values actually written, not archive bytes, resource
 addresses, game executable hashes, runtime live layers or report truncation. Server-only fields do not contribute.
 The order hash covers participating mods and their resolved field contributions in registry load order; mods with no
-participating boot edits do not contribute. A field that a mod with side `server` or `client` writes (by any path) is
+participating boot edits do not contribute. A data pack's `gearRules` that the registry's boot back-end writes as a
+front-end (0.2.0-dev.32, [registries README](modding/registries/README.md#older-paths-as-front-ends-020-dev32)) is no
+registry edit here: it does not contribute, so a peer of 0.2.0-dev.31 with the same mods compares equal, and `kiln.boot`
+compares the file as before. A field that a mod with side `server` or `client` writes (by any path) is
 left out, because the other side never runs that mod; `kiln.boot` leaves such mods out too. The immutable start snapshot remains available as `bootSync` in
 `kiln/state/registry.json` after world load and hot reload too. A `reload <id>` (or an `unload` and a `load`) whose new
 `kiln.mod.json` changes the mod's `side` is refused (`RestartRequired: ...`, the running version stays; 0.2.0-dev.31.18), so

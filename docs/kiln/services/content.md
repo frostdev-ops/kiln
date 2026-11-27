@@ -209,6 +209,32 @@ Capability `content.gear` (Kiln.Content's row; off only without kiln.content).
   blocks are then off by that much until Kiln follows).
   Native: `native/services/content/gear.cpp`, managed: `Kiln.Content/GearMath.cs`, the same numbers in both.
 
+### Gear values and the items registry (0.2.0-dev.32)
+Every key of a gear rule is an [items registry](../modding/registries/items.md) field: the same member of the game, solved
+with the same formulas (one solver: `gear.cpp`, which the registry's `gear.power` and `gear.armor` call).
+
+| Gear key | Items field | Gear key | Items field |
+|---|---|---|---|
+| `power` | `power` | `rarity` | `rarity` |
+| `speed` | `speed` | `levels` | `levels.min`, `levels.max` |
+| `damage.<kind>` (`fog` = `shroud`) | `damage.<kind>` | `rolled` | `rolled` |
+| `armor.<kind>` (`fog` = `shroud`) | `armor.<kind>` | `perks` | `perks` |
+| `block` | `block` | `socket` | `socket` |
+| `staminaCost` | `staminaCost` | `maxStack` | `maxStack` |
+| `recipe` | `recipes.inputs`, `recipes.duration` of each recipe that makes the item | other keys | raw item paths (the Advanced tier) |
+
+So a registry section can say what a gear rule says, and in the lab the two give the same item bytes. The `gear` section
+itself still applies as a data pack (a layer below every registry edit, as before): it is not written through the registry,
+because one registry edit per key does not always mean the same as the rule. A relative value of a gear rule is on the
+game's own number at the item's own level (`"power": {"mul": 1.2}` with `"levels"` in the same rule: a fifth more than the
+game's power at the old level, solved at the new one), a registry edit's on the value below it at the item's level then; a
+power with a `speed` the game cannot hold exactly (1.1; the game keeps a float) is solved at the rule's number, the registry
+solves it at the speed the game holds; the registry refuses a narrower level range or a lower max stack where the gear
+section writes it (registry.json "saves"); and a gear rule sits among the other data packs (a later pack on the same field
+wins), a registry edit above them all. `perks` need the references opt-in and can point at another item's list; `recipe`
+selects recipes by what they make and scales their inputs (`{"mul": x}`), which no registry list operation does. The
+numbers in the table are pinned by `native/services/content/tests/gear_frontend_test.sh`.
+
 ### In C#
 ```csharp
 Content.OnReady(_ =>
@@ -260,6 +286,36 @@ the boot (files by name) and turns each file's `gearRules` into one patch of the
   such a mod on both sides (`"clients": "mod"`).
 - Two mods setting the same member are a conflict of resource patches: the later mod in the load order is refused
   ([resource-patches.md](../modding/resource-patches.md#two-mods-on-one-resource)).
+
+### Gear rules on the registry (front-end, 0.2.0-dev.32)
+Each `gearRules` key is a field of the [balance registry](../modding/registries/balance.md) of the same name
+(`rarityDurability.<rarity>`, `socketChance.<rarity>`, `durability.start` / `.growth`, `unlockCost.seed`, `.creep`,
+`.weapons`, `.armor`, `.rings`, `.advanced`, `.advancedFrom`: 19 fields). Since 0.2.0-dev.32 the registry's boot back-end
+writes a `gearRules` file's values itself, through Kiln's mapping of those fields, instead of its resource patch, where that
+gives the same bytes. Nothing changes for the mod: the same file, the same `"boot": true`, the same values in the game.
+
+- **The same bytes, or the old way.** At every start Kiln builds the balancing table both ways, with the file's resource
+  patch and with the registry's write, and serves the registry's copy only when the two are byte for byte the same; else
+  the resource patch's, as before. A copy is served exactly where the resource patch's was (also for a file that sets
+  values the game already has), so kiln.base_rules' `patchedBy` reads as before. A file stays a resource patch, with the
+  reason in registry.json, when a value it sets is not a balance field Kiln has proven on this game build (after a game
+  update, until a Kiln update proves the mapping), when an operation's `min` is above its `max` (a resource patch and the
+  registry clamp such a value differently), or when the two copies differ.
+- **Composition as before.** The file stays an older Kiln path in the registry's composition: below every registry edit
+  (a registry edit of the same field wins, a relative one composes on the file's value), an earlier writer for `exclusive`
+  and `yield`, conflicts with other resource patches decided as before. What changes is who writes the bytes and what
+  registry.json shows: every field the file sets is a row with the file as its writer (`kind: oldPatch`, `frontEnd: true`),
+  even when no registry edit touches it, and `frontEnds` lists each file (`state: registry`, or `resourcePatch` with
+  `reason`). kiln.log: `registry: <mod>'s gearRules@<file> is written by the registry's boot back-end (n field(s), the same
+  bytes as its resource patch)` or `... stays a resource patch: <reason>`.
+- **Joins as before.** The boot content fingerprint of the mod covers the file (`kiln.boot`); the registry's own join part
+  (`kiln.registry.boot`) counts registry edits only, so a server and a player of 0.2.0-dev.31 still compare equal.
+- **Switch.** `<game>/kiln/data/content/registry/front-ends.off` (an empty file) keeps every `gearRules` file a resource
+  patch for the starts while it is there (a lab's before and after, support).
+- Native: `registry/boot_bridge.cpp` (`old_writes`: the front rows), `registry/stage.cpp` (`BootResource::front`),
+  `gamedata_bootpatch.cpp` (`apply`: both ways, compared). Tests: `native/services/content/tests/gear_frontend_test.sh`
+  (generated `gearRules` written both ways: the same bytes), `baserules_test.sh` (the apply's choice), lab:
+  `mods/tests/gear-frontend-test` with `tools/gear-frontend/session.sh`.
 
 ## C#
 Reference the assembly like any Kiln service:
