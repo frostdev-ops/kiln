@@ -577,7 +577,7 @@ internal sealed partial class PetRoster
             s.AnchorWorld = PetsRuntime.WorldId;
             s.Presence = outcome == PetDownedOutcome.RecoveryAnchor && anchor is not null ? PetPresence.RecoveryAnchor : PetPresence.Absent;
             if (outcome == PetDownedOutcome.Release) s.WantsSummoned = false;
-        }, bump: !p.DownCaptured, events.ToArray());
+        }, bump: !p.DownCaptured || outcome == PetDownedOutcome.Release, events.ToArray());
         p.DownOutcome = null;
         p.DownCause = null;
         p.DownCaptured = false;
@@ -1105,16 +1105,20 @@ internal sealed partial class PetRoster
         if (info.Snapshot)
             foreach (var p in _pets.Values)
             {
-                if (p.Body is null || p.Transition is PetTransition.Spawning || p.Presence != PetPresence.Live || p.PendingDown is not null) continue;
+                if (p.Body is null || p.Transition is PetTransition.Spawning || p.PendingDown is not null) continue;
+                if (p.Transition == PetTransition.Downing)
+                {
+                    // a down whose body is still being retired (a rider getting off, a destroy retried): its record is the
+                    // downed one now, never Ready with the health it had (a crash after this save must not bring it back)
+                    if (!p.DownCaptured) CaptureDown(p);
+                    continue;
+                }
+                if (p.Presence != PetPresence.Live) continue;
                 var r = _world.Read(p.Body);
                 if (!r.Exists || r.Lethal || r.ProtectionLost)
                 {
-                    p.Life = PetLife.Downed;
-                    p.HealthFraction = 0;
-                    p.Health = 0;
-                    p.StateRevision++;
+                    CaptureDown(p);
                     p.PendingDown = !r.Exists ? PetChangeCause.BodyLost : r.ProtectionLost ? PetChangeCause.ProtectionLost : PetChangeCause.NativeLethal;
-                    if (_owners.TryGetValue(p.Owner, out var dirty)) dirty.Dirty = true;
                 }
                 else if (r.HealthMax > 0 && (r.Health != p.Health || r.HealthMax != p.HealthMax))
                 {
@@ -1133,6 +1137,20 @@ internal sealed partial class PetRoster
             else _store.Write(o.Key, PetRecordJson.Write(new PetRecordDoc(o.Key, o.Pets.Select(x => x.Record()).ToList())));
             o.Dirty = false;
         }
+    }
+
+    /// <summary>The final staging writes a down that has not settled yet as it will settle (Downed, no health, the anchor
+    /// SettleDown keeps), with its own revision; SettleDown then posts it under that revision.</summary>
+    private void CaptureDown(PetState p)
+    {
+        p.Life = PetLife.Downed;
+        p.HealthFraction = 0;
+        p.Health = 0;
+        p.Anchor = p.LastSafe ?? p.Anchor;
+        p.AnchorWorld = PetsRuntime.WorldId;
+        p.StateRevision++;
+        p.DownCaptured = true;
+        if (_owners.TryGetValue(p.Owner, out var dirty)) dirty.Dirty = true;
     }
 
     private void OnStaged(ServiceCharacters.Receipt receipt)

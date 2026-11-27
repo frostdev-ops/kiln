@@ -164,6 +164,55 @@ public sealed unsafe class SafetyTests : IDisposable
         Assert.Contains("Downed", _t.Names());
     }
 
+    // review of dev.32 pets (19d §4.7): a save while a down was still retiring its body wrote the pet Ready with its old
+    // health, so a crash after that save brought it back alive
+    [Fact]
+    public void A_down_still_retiring_at_the_snapshot_is_written_downed_never_ready()
+    {
+        var p = _t.Summoned(_t.A);
+        _t.Step();
+        _t.World.RetireRefuses = true;   // a rider getting off, a destroy retried: the down takes more than one step
+        _t.BodyOf(p.Id).Health = 0;
+        _t.Step();
+        Assert.Equal(PetTransition.Downing, _t.Roster.Get(p.Id)!.Transition);
+        _t.Store.Stage(4, snapshot: true);
+        var rec = PetRecordJson.Read(_t.Store.Docs[_t.A], _t.A)!.Pets.Single();
+        Assert.Equal(PetLife.Downed, rec.Life);
+        Assert.Equal(0, rec.HealthFraction);
+        Assert.NotNull(rec.RecoveryAnchor);
+        _t.Store.Commit(4);
+        _t.World.RetireRefuses = false;
+        _t.Step();
+        var d = _t.Roster.Get(p.Id)!;
+        Assert.Equal((PetLife.Downed, PetPresence.RecoveryAnchor), (d.Life, d.Presence));
+        Assert.Equal(rec.StateRevision, d.StateRevision);   // the settled down is the revision the save holds
+        Assert.Equal(d.StateRevision, d.DurableRevision);
+        Assert.Equal(rec.RecoveryAnchor, d.RecoveryAnchor);
+        // a crash after that save: the record loads Downed, never Ready
+        var restarted = new PetRoster(new FakeWorld(), _t.Store) { Post = _ => { } };
+        Assert.Equal(PetLife.Downed, restarted.Of(_t.A).Single().Life);
+        restarted.Detach();
+    }
+
+    [Fact]
+    public void A_captured_down_its_definition_releases_gets_a_revision_of_its_own()
+    {
+        _t.World.Join(_t.A, new WorldPosition(10, 0, 10));
+        var pet = _t.Grant(_t.A, "mod-a:loyal");
+        Assert.True(_t.Do(PetRoster.Kind.Summon, _t.A, pet.Id).Ok);
+        _t.BodyOf(pet.Id).Health = 0;            // lethal after this step's Pre, before the save
+        _t.Store.Stage(5, snapshot: true);        // written Downed
+        var rec = PetRecordJson.Read(_t.Store.Docs[_t.A], _t.A)!.Pets.Single();
+        Assert.Equal(PetLife.Downed, rec.Life);
+        _t.Step();                                // the down settles as the definition's release
+        var d = _t.Roster.Get(pet.Id)!;
+        Assert.Equal(PetLife.Released, d.Life);
+        Assert.Equal(rec.StateRevision + 1, d.StateRevision);   // not the Downed state's revision
+        _t.Store.Commit(5);
+        Assert.Equal(rec.StateRevision, _t.Roster.Get(pet.Id)!.DurableRevision);   // the save holds the downed state only
+        Assert.NotNull(_t.Roster.Get(pet.Id));                                       // and the tombstone is not in it yet
+    }
+
     [Fact]
     public void Declared_pairs_reach_the_world_when_they_or_the_owners_change()
     {
