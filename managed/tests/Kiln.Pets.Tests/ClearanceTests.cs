@@ -378,7 +378,7 @@ public sealed class ClearanceTests : IDisposable
         public (PetRoute? Route, string? Refusal)? PollPath(object request) => null;
         public void CancelPath(object request) { }
         public bool Teleport(PetBody body, WorldPosition to) => false;
-        public WorldPosition? SafeGround(WorldPosition near, double min, double max, PetDefinition def) => null;
+        public WorldPosition? SafeGround(WorldPosition near, double min, double max, PetDefinition def, EntityId owner, EntityId pet) => null;
         public void Guard(PetBody body, EntityId owner) { }
         public void Attack(PetBody body, EntityId target) { }
         public bool TargetAlive(EntityRef target) => false;
