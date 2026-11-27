@@ -1507,7 +1507,7 @@ std::vector<BootResource> Runner::run(const OldWritesFn& old_fn, const std::vect
     d.result = std::move(r);
     d.boot = boot;
     d.counts.refused = static_cast<uint32_t>(d.result.refused.size());
-    d.counts.conflicts = static_cast<uint32_t>(d.result.lines.size());
+    d.counts.conflicts = static_cast<uint32_t>(d.result.lines.size() + d.meta.hook_lines.size());
     uint32_t edits = 0;
     for (const auto& [ref, fo] : d.result.fields)
         for (const ChainRow& c : fo.chain) edits += c.kind == WriterKind::Registry;
@@ -1800,7 +1800,7 @@ void Runner::finish(const std::vector<BootOutcome>& outcomes) {
                 }
                 d_->result = r;
                 d_->counts.refused = static_cast<uint32_t>(r.refused.size());
-                d_->counts.conflicts = static_cast<uint32_t>(r.lines.size());
+                d_->counts.conflicts = static_cast<uint32_t>(r.lines.size() + d_->meta.hook_lines.size());
                 d_->counts.edits = static_cast<uint32_t>(r.added.size() + r.removed.size());
                 for (const auto& [ref, field] : r.fields)
                     for (const auto& row : field.chain) d_->counts.edits += row.kind == WriterKind::Registry;
@@ -2088,6 +2088,40 @@ KilnResult Runner::report_json(std::string* out) {
     if (job->seq > d_->report_built) d_->report = std::move(text), d_->report_built = job->seq;
     *out = d_->report;  // this job's text, or a newer one made meanwhile
     return KILN_OK;
+}
+
+void Runner::set_hook_lines(std::vector<Line> lines) {
+    auto same = [](const std::vector<Line>& a, const std::vector<Line>& b) {
+        if (a.size() != b.size()) return false;
+        for (size_t i = 0; i < a.size(); ++i)
+            if (a[i].field != b[i].field || a[i].kind != b[i].kind || a[i].winner != b[i].winner || a[i].loser != b[i].loser ||
+                a[i].certainty != b[i].certainty || a[i].text != b[i].text)
+                return false;
+        return true;
+    };
+    {
+        std::lock_guard lk(d_->mu);
+        if (same(lines, d_->meta.hook_lines)) return;
+        d_->meta.hook_lines = std::move(lines);
+        d_->counts.conflicts = static_cast<uint32_t>(d_->result.lines.size() + d_->meta.hook_lines.size());
+        const Phase ph = phase_.load();
+        if (ph != Phase::Start && ph != Phase::WorldLoad) return;  // the start's report (finish) takes them
+        // the report again, as a live one: this result and meta (written off this thread when the runner has a writer thread)
+        d_->meta.written = d_->env.now ? d_->env.now() : "";
+        auto job = std::make_shared<Impl::ReportJob>();
+        job->seq = ++d_->report_seq;
+        job->meta = d_->meta;
+        job->result = std::make_shared<const Result>(d_->result);
+        d_->report_job = std::move(job);
+    }
+    if (d_->env.post_report) d_->env.post_report([d = d_.get()] { d->write_live_report(); });
+    else d_->write_live_report();
+}
+
+std::string Runner::winner_of(const FieldRef& ref) const {
+    std::lock_guard lk(d_->mu);
+    const auto it = d_->result.fields.find(ref);
+    return it == d_->result.fields.end() ? std::string() : it->second.winner;
 }
 
 }  // namespace kc::registry::stage

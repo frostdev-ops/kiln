@@ -1599,6 +1599,62 @@ void limits_go_to_the_hooks(const std::string& dir) {
     model::set_hook_values(nullptr);
 }
 
+// dev.32 review (coordinator decision): More Flame Altars' own hook of the altar check and limits.maxAltars both present:
+// a conflict line with an older path in registry.json (and the Conflicts view, which reads it), never a refusal. A line known
+// before the start's report is in it; one found later (the mod hooks in its OnLoad, after the stage) writes the report again.
+void limits_hook_lines_are_reported(const std::string& dir) {
+    model::set_hook_values([](const std::string& n, json* out, std::string* why) {
+        if (n == "altarCap") return *out = 16, true;
+        if (n == "giftRange") return *out = 50.0, true;
+        return *why = "no such hook value", false;
+    });
+    Files files;
+    g_stacks = R"({"registry": {"alter": [{"registry": "limits", "select": {"id": "game:limits"}, "field": "maxAltars", "op": 20}]}})";
+    TreeView v = world();
+    stage::Runner r(env_of(&v, &files, dir, &stacks));
+    const auto boot = r.run({});
+    std::vector<stage::BootOutcome> outcomes;
+    for (const auto& b : boot)
+        if (b.type == model::kHooksType)
+            for (const auto& f : b.fields) outcomes.push_back({f.field, true, Value::integer(20), ""});
+    const FieldRef ref{"limits", "game:limits", "maxAltars"};
+    const std::string mod = r.winner_of(ref);
+    check(!mod.empty(), "the registry's writer of limits.maxAltars is named: " + mod);
+    Line before;
+    before.field = ref, before.kind = LineKind::Overridden, before.winner = "early", before.loser = mod;
+    before.text = "limits[game:limits].maxAltars: early hooks the game's altar check too (before the stage)";
+    r.set_hook_lines({before});  // found when Kiln's hooks took their values, before the start's report
+    r.finish(outcomes);
+    json rep = json::parse(files.report);
+    auto has = [](const json& rep, const std::string& text) {
+        for (const json& c : rep["conflicts"])
+            if (c["text"] == text) return true;
+        return false;
+    };
+    check(has(rep, before.text) && rep["counts"]["conflicts"] == 1 && r.counts().conflicts == 1,
+          "a line found before the start's report is in it: " + rep["conflicts"].dump());
+    // found later: the report is written again with it, after the stage's own lines; the same lines again write nothing new
+    Line later;
+    later.field = ref, later.kind = LineKind::Overridden, later.winner = mod, later.loser = "more-flame-altars";
+    later.text = "limits[game:limits].maxAltars: more-flame-altars hooks the game's altar check too, an older path";
+    r.set_hook_lines({later});
+    rep = json::parse(files.report);
+    bool row_ok = false;
+    for (const json& c : rep["conflicts"])
+        if (c["text"] == later.text)
+            row_ok = c["field"] == "limits[game:limits].maxAltars" && c["registry"] == "limits" && c["id"] == "game:limits" && c["kind"] == "overridden" &&
+                     c["winner"] == mod && c["loser"] == "more-flame-altars" && c["certainty"] == "certain";
+    check(row_ok && !has(rep, before.text) && rep["counts"]["conflicts"] == 1 && r.counts().conflicts == 1,
+          "a line found after the start: the report again, the row as the Conflicts view reads it: " + rep["conflicts"].dump());
+    files.report = "(not written again)";
+    r.set_hook_lines({later});
+    check(files.report == "(not written again)", "the same lines again: no new report");
+    r.set_hook_lines({});
+    rep = json::parse(files.report);
+    check(rep["conflicts"].empty() && rep["counts"]["conflicts"] == 0 && r.counts().conflicts == 0, "the other hook gone: no line");
+    model::set_hook_values(nullptr);
+}
+
 // review of the per-field note (31.18 wrote one info line per entry without a value: 34,207 at a start with registry content):
 // kiln.log at info has one note per field; the entries behind it are in kiln.log at debug level (-1: "log_level": "debug"),
 // one line each, so a mod author can still find why one entry has no value
@@ -1629,7 +1685,7 @@ int main(int argc, char** argv) {
     const std::string dir = argc > 1 ? argv[1] : "regmap";
     int failed = 0;
     const std::pair<const char*, std::function<void()>> groups[] = {
-        {"boot_sync", [&] { boot_sync(dir); }}, {"one_start", [&] { one_start(dir); }}, {"host_order_and_code", [&] { host_order_and_code(dir); }}, {"id_table_without_content", [&] { id_table_without_content(dir); }}, {"bridge_write", [] { bridge_write(); }}, {"bridge_resize", [] { bridge_resize(); }}, {"limits_go_to_the_hooks", [&] { limits_go_to_the_hooks(dir); }},
+        {"boot_sync", [&] { boot_sync(dir); }}, {"one_start", [&] { one_start(dir); }}, {"host_order_and_code", [&] { host_order_and_code(dir); }}, {"id_table_without_content", [&] { id_table_without_content(dir); }}, {"bridge_write", [] { bridge_write(); }}, {"bridge_resize", [] { bridge_resize(); }}, {"limits_go_to_the_hooks", [&] { limits_go_to_the_hooks(dir); }}, {"limits_hook_lines_are_reported", [&] { limits_hook_lines_are_reported(dir); }},
         {"registry_caps", [&] { registry_caps(dir); }}, {"other_mapping_report", [&] { other_mapping_report(dir); }},
         {"plans_link_the_last_good_plan", [&] { plans_link_the_last_good_plan(dir); }},
         {"rollback_starts_on_the_previous_plan", [&] { rollback_starts_on_the_previous_plan(dir); }},

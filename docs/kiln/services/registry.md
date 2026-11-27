@@ -51,6 +51,14 @@ from its code (sigdb `limits/*`) and installs its own hook of the game's check o
 start without such an edit touches none of that code. The hook answers on whatever thread the game asks; the value holds for
 the process (later entry points: `RestartRequired`). No ABI member: the values go through the existing stage and report.
 
+Another mod's or plugin's own hook of the same game function (More Flame Altars' `AltarLimitHook` on the altar check) is a link
+of the same kiln.hooks chain, and the first link that answers by itself decides. Kiln refuses nothing there: once its hook of a
+value answers, it looks at kiln.hooks' hook map when the hooks took their values and then from kiln.content's tick (at most
+every 2 s, the map read only when its links changed), and reports each other hook as a conflict line with an older path
+(`registry.json` `conflicts`, `limits[game:limits].maxAltars`, kind `overridden` or `composedOn`, certainty `certain` for a
+kiln.hooks link and `bestEffort` for another module's jump; `limits.cpp` `other_hooks`, `hook_lines`), plus one kiln.log
+warning per line. A line found after the start writes `state/registry.json` again (no new generation, no ready event).
+
 ## Native live changes: kiln.registry.live v1
 
 Since mod API **0.2.17**, this is a separate 56-byte table, not an extension of the stage table. Its header is

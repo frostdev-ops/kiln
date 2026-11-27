@@ -211,6 +211,14 @@ class Runner {
     KilnResult report_json(std::string* out);
     bool on_stage_thread() const;
 
+    // ---- other hooks of the game functions a hooks registry answers through (limits.h hook_lines; dev.32) ----
+    // The conflict lines with them (another mod's or plugin's own hook of the same function: an older path), kept with the
+    // report's meta so every later report (the start's, each live one) has them after the stage's own lines; a change after
+    // the start writes state/registry.json again (no new generation, no ready event). Any thread.
+    void set_hook_lines(std::vector<Line> lines);
+    // The writer that decided a field's result in the stage (registry.json "winner"); empty: none (the base). Any thread.
+    std::string winner_of(const FieldRef& ref) const;
+
    private:
     void prune_plans();  // at the end of a successful start (finish): the plans no start needs any more (registry-fixes item 6)
     bool prepare_live(LiveData* out, std::string* why);
@@ -236,6 +244,9 @@ std::vector<Env::DataFile> read_sections(const std::string& mod, const std::stri
 Runner& runner();
 // Binds the tables (kiln.registry v1, kiln.internal.registry v1) from kiln_plugin_main.
 void bind_service();
+// kiln.content's tick (content.cpp pre): another mod's or plugin's own hook of a function Kiln's limits hooks answer through,
+// looked at every 2 s at most and only while such a hook answers (registry.json conflict lines; limits.h other_hooks).
+void hooks_tick();
 // kiln.content's exit step (KilnPluginInfo.on_unload): waits up to 2 s for the report writer (Env.post_report), so the newest
 // live report is in state/registry.json before the process ends.
 void flush_reports();

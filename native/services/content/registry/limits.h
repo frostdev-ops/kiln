@@ -17,6 +17,7 @@
 #pragma once
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -89,6 +90,31 @@ void probe_clear(const std::string& name);
 // What the game's code gets back from the hooked function now, in the value's Kiln unit (calls the game's function: the
 // gift getter as it is, the altar limit over a scratch balancing table whose levels all hold `table_value`).
 std::optional<double> game_answer(const std::string& name, uint32_t table_value, std::string* why);
+
+// ---- another hook of the same game function (dev.32 review; coordinator decision: warn and report, never refuse) ----
+// A mod or plugin may hook the function Kiln's hook of a value answers through (More Flame Altars' own AltarLimitHook detours
+// the altar check). kiln.hooks keeps every link of one function in one chain, in order, and the first link that answers by
+// itself decides what the game gets. Kiln keeps its hook and says so: one conflict line per other hook in registry.json and
+// the Conflicts view (an older path: certain for a kiln.hooks link, best effort for another module's jump), and a warning in
+// kiln.log.
+struct OtherHook {
+    std::string owner;    // the link's owner as kiln.hooks names it ("mod:more-flame-altars"), or a foreign jump's module
+    bool before = false;  // it runs before Kiln's link
+    bool foreign = false; // another module's jump at the function, not a kiln.hooks link (best effort)
+};
+// The other hooks of the function at `rva` (its offset in the exe) in kiln.hooks' hook map (map_json; state/hooks.json's
+// shape: targets[] {rva, links[] {owner} in chain order, foreignBefore, foreignOver}). Kiln's own links are those whose owner
+// contains `own` ("kiln-content"). Empty: no other hook, no such target, or not a hook map.
+std::vector<OtherHook> other_hooks(const json& map, uint64_t rva, const std::string& own);
+// The hook values Kiln's hooks answer with now (a registry value taken at start that is not the game's): name -> {value,
+// the game's own}.
+std::map<std::string, std::pair<double, double>> answering();
+// The registry field of a hook value ("altarCap" -> "maxAltars").
+std::string field_of_value(const std::string& name);
+// The conflict lines of one hook value (`name`, answered with `value` where the game's own is `game`, set by `registry_mod`)
+// with the other hooks of its function, one line each, in Kiln words (the field, the mods, never the game's function).
+std::vector<Line> hook_lines(const std::string& name, const std::vector<OtherHook>& others, double value, double game,
+                             const std::string& registry_mod);
 
 // ---- what the hooks answer (kiln-content.dll's handlers call these on the game's threads; lock-free) ----
 // The altar limit for the game's call (registry, level) whose own answer is `original`.

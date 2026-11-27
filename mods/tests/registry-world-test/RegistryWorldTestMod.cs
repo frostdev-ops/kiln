@@ -11,7 +11,9 @@
 //     installed at start for limits.maxAltars 20 and limits.giftingRange 500, answer 20 (over a scratch balancing table whose
 //     levels hold 255) and 500 m squared.
 //   - dev.32 review: kiln.settings accepts enemyDamageFactor 9 under the registry's bound 10 (and refuses 11; enemyHealthFactor
-//     keeps its own 4).
+//     keeps its own 4);
+//   - dev.32 review: a pass-through hook of the altar check after Kiln's (as More Flame Altars places its own) leaves Kiln's
+//     answer 20 and makes kiln.content report a conflict line in registry.json.
 using Kiln;
 
 namespace RegistryWorldTest;
@@ -82,6 +84,24 @@ public sealed class RegistryWorldTestMod : Mod
         Kiln.Settings.TrySet("enemyDamageFactor", 8.0, out _, out _, resend: false);  // the world's own value again
     }
 
+    // dev.32 review (coordinator decision 2): another mod's own hook of the altar check, as More Flame Altars' AltarLimitHook
+    // places it in its OnLoad (Hooks.Detour, after the stage): a pass-through link here. Kiln's link runs first and answers by
+    // itself (still 20); kiln.content warns and writes registry.json again with a conflict line (the lab script checks the file).
+    private static HookHandle? _passThrough;
+    private void OtherHookCheck()
+    {
+        try
+        {
+            _passThrough = Hooks.Detour("limits/AltarLimit", call => call.CallOriginal());
+            Log.Info("registry-world-test: a pass-through hook of the game's altar check is in (as More Flame Altars' own)");
+            LimitsChecks();  // Kiln's link is first in the chain: its answer stands
+        }
+        catch (Exception e)
+        {
+            Check(false, $"the pass-through hook of the altar check could not go in: {e.Message}");
+        }
+    }
+
     private async Task Run()
     {
         try
@@ -107,6 +127,7 @@ public sealed class RegistryWorldTestMod : Mod
             }
             LimitsChecks();
             if (Kiln.Settings.Status.Ready) SettingsChecks();
+            OtherHookCheck();
             if (Kiln.Settings.Status.Ready)
             {
                 var dmg = Convert.ToDouble(Kiln.Settings.Get("enemyDamageFactor"));
@@ -123,6 +144,8 @@ public sealed class RegistryWorldTestMod : Mod
         {
             Check(false, $"the test threw: {e.GetType().Name}: {e.Message}");
         }
+        // kiln.content looks at the other hooks from its tick at most every 2 s: give it a few before the summary ends the lab run
+        for (var i = 0; i < 300; i++) await Context.Scheduler.NextTick();
         Log.Info($"registry-world-test: SUMMARY {_pass} passed, {_fail} failed");
     }
 }

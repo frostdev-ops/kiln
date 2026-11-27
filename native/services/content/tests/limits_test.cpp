@@ -258,6 +258,75 @@ int main() {
         lm::probe_clear("altarCap"), lm::probe_clear("giftRange");
         CHECK(lm::game_answer("altarCap", 255, &why) == 16.0 && lm::game_answer("giftRange", 0, &why) == 50.0, "taken back: the game's own again");
     }
+    // ---- another hook of the same game function (dev.32 review): More Flame Altars' own AltarLimitHook is a link of the chain
+    // kiln.hooks keeps on the altar check; the first link that answers by itself decides. Warned and reported, never refused.
+    {
+        const json map = json::parse(R"({"format": 1, "targets": [
+            {"rva": "0x93de70", "links": [{"owner": "service:kiln-content.dll", "kind": "raw", "label": "limits/GiftRange"}], "foreignBefore": null, "foreignOver": null},
+            {"rva": "0x93dea0", "links": [
+                {"owner": "service:kiln-content.dll", "kind": "raw", "priority": 0, "label": "limits/AltarLimit"},
+                {"owner": "mod:more-flame-altars", "kind": "structured", "priority": 0, "label": "more-flame-altars/AltarLimit"}],
+             "foreignBefore": null, "foreignOver": null},
+            {"rva": "0x111111", "links": [{"owner": "mod:more-flame-altars", "kind": "raw"}], "foreignBefore": null, "foreignOver": null},
+            {"rva": "0x222222", "links": [{"owner": "mod:early", "kind": "raw"}, {"owner": "service:kiln-content.dll", "kind": "raw"}],
+             "foreignBefore": {"module": "enshwick.dll", "offset": "0x10"}, "foreignOver": {"module": "xhl.dll", "offset": "0x20"}}]})");
+        auto others = lm::other_hooks(map, 0x93dea0, "kiln-content");
+        CHECK(others.size() == 1 && others[0].owner == "mod:more-flame-altars" && !others[0].before && !others[0].foreign,
+              "the altar check: More Flame Altars' link after Kiln's (Kiln hooked at the stage, the mod in its OnLoad)");
+        CHECK(lm::other_hooks(map, 0x93de70, "kiln-content").empty(), "the gift getter: Kiln's link alone");
+        CHECK(lm::other_hooks(map, 0x111111, "kiln-content").empty(), "a function without Kiln's link: nothing of Kiln's is in conflict");
+        CHECK(lm::other_hooks(map, 0x333333, "kiln-content").empty() && lm::other_hooks(json::array(), 0x93dea0, "kiln-content").empty(),
+              "no such target, or not a hook map: nothing");
+        const auto order = lm::other_hooks(map, 0x222222, "kiln-content");
+        CHECK(order.size() == 3 && order[0].owner == "xhl.dll" && order[0].before && order[0].foreign && order[1].owner == "mod:early" &&
+                  order[1].before && !order[1].foreign && order[2].owner == "enshwick.dll" && !order[2].before && order[2].foreign,
+              "chain order: a jump over Kiln's detour first, a link before Kiln's, a jump Kiln's detour sits in front of last");
+
+        // Kiln runs first above the game's 16: its answer is min(the level's table value, the cap), the other hook's is unused
+        auto lines = lm::hook_lines("altarCap", others, 20, 16, "big-bases");
+        CHECK(lines.size() == 1 && lines[0].field.text() == "limits[game:limits].maxAltars" && lines[0].kind == LineKind::Overridden &&
+                  lines[0].winner == "big-bases" && lines[0].loser == "more-flame-altars" && lines[0].certainty == Certainty::Certain,
+              "one certain line: the registry's mod over More Flame Altars");
+        CHECK(!lines.empty() && lines[0].text.find("more-flame-altars hooks the game's altar check too, an older path, while Kiln's hook answers it with "
+                                                   "limits.maxAltars 20 (big-bases); Kiln's hook runs first and answers by itself, so more-flame-altars's own "
+                                                   "answer is not used") != std::string::npos,
+              "the text: " + (lines.empty() ? std::string() : lines[0].text));
+        CHECK(!lines.empty() && lines[0].text.find("AltarLimit") == std::string::npos && lines[0].text.find("0x") == std::string::npos,
+              "Kiln words: no symbol, no address");
+        // a lower cap: Kiln's hook caps the answer of the rest of the chain
+        lines = lm::hook_lines("altarCap", others, 10, 16, "few-altars");
+        CHECK(lines.size() == 1 && lines[0].kind == LineKind::ComposedOn && lines[0].winner == "few-altars" &&
+                  lines[0].text.find("caps more-flame-altars's answer at 10") != std::string::npos,
+              "a lower cap composes on the other hook's answer: " + (lines.empty() ? std::string() : lines[0].text));
+        // the other hook first (hooked before the stage): it answers by itself
+        lines = lm::hook_lines("giftRange", {{"mod:early", true, false}}, 500, 50, "far-gifts");
+        CHECK(lines.size() == 1 && lines[0].kind == LineKind::Overridden && lines[0].winner == "early" && lines[0].loser == "far-gifts" &&
+                  lines[0].field.field == "giftingRange" &&
+                  lines[0].text.find("early's hook runs first, so limits.giftingRange applies only where it calls on to the game's own answer") != std::string::npos,
+              "another hook first wins: " + (lines.empty() ? std::string() : lines[0].text));
+        // another module's jump: best effort
+        lines = lm::hook_lines("altarCap", {{"xhl.dll", true, true}}, 20, 16, "big-bases");
+        CHECK(lines.size() == 1 && lines[0].certainty == Certainty::BestEffort && lines[0].text.find("xhl.dll changed the game's altar check outside Kiln's hooks (best effort)") != std::string::npos,
+              "a foreign jump is a best-effort line: " + (lines.empty() ? std::string() : lines[0].text));
+        CHECK(lm::hook_lines("altarCap", {}, 20, 16, "big-bases").empty(), "no other hook: no line");
+
+        // what answers now: a value taken that is not the game's, its hook in
+        setup();
+        stage::BootResource rb;
+        rb.type = model::kHooksType;
+        rb.fields = {field("maxAltars", "altarCap", set(Value::integer(20))), field("giftingRange", "giftRange", set(Value::number(50)))};
+        std::vector<stage::BootOutcome> out;
+        std::vector<std::string> notes;
+        lm::apply(rb, &out, &notes);
+        const auto now = lm::answering();
+        CHECK(now.size() == 1 && now.count("altarCap") && now.at("altarCap") == std::make_pair(20.0, 16.0),
+              "answering: the altar cap 20 over the game's 16; the gifting range is the game's 50 (no hook)");
+        CHECK(lm::field_of_value("altarCap") == "maxAltars" && lm::field_of_value("giftRange") == "giftingRange", "the fields of the values");
+        setup();
+        lm::probe_set("altarCap", 17, &why);
+        CHECK(lm::answering().empty(), "a lab probe is no registry value: nothing answers for the registry");
+        lm::probe_clear("altarCap");
+    }
     std::printf("limits-test: %d checks, %d failed\n", checks, failed);
     return failed ? 1 : 0;
 }

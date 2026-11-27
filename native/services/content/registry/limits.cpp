@@ -4,6 +4,7 @@
 
 #include <atomic>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <map>
 #include <mutex>
@@ -259,6 +260,89 @@ std::optional<double> game_answer(const std::string& name, uint32_t table_value,
     std::memcpy(registry + 0x20, &t, sizeof t);
     const uint32_t answer = reinterpret_cast<uint32_t (*)(void*, uint32_t)>(fn)(registry, 0);
     return static_cast<double>(answer);
+}
+
+// ---- another hook of the same game function ----
+std::vector<OtherHook> other_hooks(const json& map, uint64_t rva, const std::string& own) {
+    std::vector<OtherHook> out;
+    if (!map.is_object() || !map.contains("targets") || !map["targets"].is_array()) return out;
+    auto rva_of = [](const json& t, uint64_t* v) {
+        if (!t.contains("rva") || !t["rva"].is_string()) return false;
+        const std::string s = t["rva"].get<std::string>();
+        char* end = nullptr;
+        *v = std::strtoull(s.c_str(), &end, 16);
+        return end && *end == 0 && !s.empty();
+    };
+    auto module_of = [](const json& f) {
+        const std::string m = f.is_object() && f.contains("module") && f["module"].is_string() ? f["module"].get<std::string>() : std::string();
+        return m.empty() ? std::string("another module") : m;
+    };
+    for (const json& t : map["targets"]) {
+        uint64_t at = 0;
+        if (!t.is_object() || !rva_of(t, &at) || at != rva) continue;
+        bool kiln_seen = false;
+        std::vector<OtherHook> links;
+        if (t.contains("links") && t["links"].is_array())
+            for (const json& l : t["links"]) {
+                const std::string owner = l.is_object() && l.contains("owner") && l["owner"].is_string() ? l["owner"].get<std::string>() : std::string();
+                if (!own.empty() && owner.find(own) != std::string::npos) {
+                    kiln_seen = true;
+                    continue;
+                }
+                links.push_back({owner.empty() ? std::string("another owner") : owner, !kiln_seen, false});
+            }
+        if (!kiln_seen) return {};  // no link of Kiln's here: nothing of Kiln's is in conflict
+        // another module's jump: one Kiln's detour sits in front of (foreignBefore) or one over Kiln's detour (foreignOver)
+        if (t.contains("foreignOver") && t["foreignOver"].is_object()) out.push_back({module_of(t["foreignOver"]), true, true});
+        out.insert(out.end(), links.begin(), links.end());
+        if (t.contains("foreignBefore") && t["foreignBefore"].is_object()) out.push_back({module_of(t["foreignBefore"]), false, true});
+        return out;
+    }
+    return out;
+}
+
+std::map<std::string, std::pair<double, double>> answering() {
+    std::lock_guard lk(g_mu);
+    std::map<std::string, std::pair<double, double>> out;
+    for (const auto& [name, t] : g_taken)
+        if (t.have && t.value != t.game && g_hooked.count(name)) out[name] = {t.value, t.game};
+    return out;
+}
+
+std::string field_of_value(const std::string& name) { return field_of(name); }
+
+std::vector<Line> hook_lines(const std::string& name, const std::vector<OtherHook>& others, double value, double game,
+                             const std::string& registry_mod) {
+    std::vector<Line> out;
+    const std::string field = "limits." + field_of(name);
+    const Value v = name == "altarCap" ? Value::integer(std::llround(value)) : Value::number(value);
+    const std::string kiln = field + " " + v.text_of() + (registry_mod.empty() ? std::string() : " (" + registry_mod + ")");
+    const std::string what = name == "altarCap" ? "the game's altar check" : name == "giftRange" ? "the game's gifting distance" : "the game's code";
+    for (const OtherHook& o : others) {
+        std::string who = o.owner;
+        if (!o.foreign)
+            if (const size_t colon = who.find(':'); colon != std::string::npos && colon + 1 < who.size()) who = who.substr(colon + 1);  // "mod:x" -> "x"
+        Line l;
+        l.field = {"limits", "game:limits", field_of(name)};
+        l.certainty = o.foreign ? Certainty::BestEffort : Certainty::Certain;
+        const std::string head = l.field.text() + ": " + who + (o.foreign ? " changed " + what + " outside Kiln's hooks (best effort)" : " hooks " + what + " too") +
+                                 ", an older path, while Kiln's hook answers it with " + kiln + "; ";
+        if (o.before) {
+            // its answer is what the game gets unless it calls on to the rest of the chain
+            l.kind = LineKind::Overridden, l.winner = who, l.loser = registry_mod;
+            l.text = head + who + "'s hook runs first, so " + field + " applies only where it calls on to the game's own answer";
+        } else if (name == "altarCap" && value < game) {
+            // Kiln's hook runs first and caps the answer of the rest of the chain (the other hook's)
+            l.kind = LineKind::ComposedOn, l.winner = registry_mod, l.loser = who;
+            l.text = head + "Kiln's hook runs first and caps " + who + "'s answer at " + v.text_of();
+        } else {
+            // Kiln's hook runs first and answers by itself: the other hook's answer is not used
+            l.kind = LineKind::Overridden, l.winner = registry_mod, l.loser = who;
+            l.text = head + "Kiln's hook runs first and answers by itself, so " + who + "'s own answer is not used";
+        }
+        out.push_back(std::move(l));
+    }
+    return out;
 }
 
 // ---- the hooks (kiln-content.dll installs them through Env.install: stage_service.cpp install_limit_hook) ----

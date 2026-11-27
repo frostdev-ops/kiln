@@ -64,6 +64,11 @@ Two paths agree on the difficulty bounds: where a mod set `difficulty.<setting>.
 (`Kiln.Settings`, kiln.settings) takes that bound in place of its own range, so a value the game keeps at start is one
 `Settings.Set` accepts ([services/settings.md](../../services/settings.md#the-registrys-bounds-since-dev32)).
 
+A mod's own hook of the same game check as a `limits` value (More Flame Altars' altars above 16 with `beyondSixteen`, next to
+`limits.maxAltars`) is never refused: both hooks stay in one chain and the first one answers. Kiln warns in kiln.log and reports
+it in registry.json `conflicts` and the launcher's Conflicts view as a conflict with an older path (certain for a hook made
+through Kiln's hooks, best effort for another module's jump), naming which one answers. Use one of the two.
+
 ## C# authoring (API 0.2.17)
 
 Reference `Registry` in `KilnServices` and opt into experimental diagnostic `KILNX031`. Published entry types remain in
