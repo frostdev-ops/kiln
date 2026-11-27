@@ -447,9 +447,9 @@ public sealed class TamingEngineTests
 
         var f = new TamingFixture().With(FeedTwice());
         f.Begin();
-        f.Engine.Define(FeedTwice(), "mod-a");   // the same by value: fine
-        Assert.Throws<InvalidOperationException>(() => f.Engine.Define(Def(new FeedStep(Bait, 3)), "mod-a"));
-        Assert.Throws<InvalidOperationException>(() => f.Engine.Define(FeedTwice(), "mod-b"));
+        Assert.True(f.Engine.Define(FeedTwice(), "mod-a").Ok);   // the same by value: fine
+        Assert.Equal(TamingRefusal.DefinitionInUse, f.Engine.Define(Def(new FeedStep(Bait, 3)), "mod-a").Refusal);   // a refusal, not a throw (C3)
+        Assert.Equal(TamingRefusal.DefinitionInUse, f.Engine.Define(FeedTwice(), "mod-b").Refusal);
     }
 
     [Fact]
