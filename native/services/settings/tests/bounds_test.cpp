@@ -4,6 +4,7 @@
 // own write path must accept 8 too, and refuse what a lowered bound leaves out (coordinator decision, dev.32 review).
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <string>
 
 #include "../bounds.h"
@@ -89,6 +90,36 @@ int main() {
     up.min = 6;
     kset::effective_range(KILN_SETTING_FLOAT, 0.25, 4, &up, &lo, &hi);
     CHECK(lo == 6 && hi == 6, "a registry min above the table's max: the registry's bound decides");
+
+    // ---- the report's whole text (lab dev32-revr3b: kiln.registry's size query answers BUFFER_TOO_SMALL with the length, and
+    // kiln.settings took that for an error: "the registry's report is not readable (5)", the table's ranges stood)
+    {
+        const std::string report = kReport;
+        size_t calls = 0;
+        auto registry = [&](char* buf, size_t cap, size_t* len) -> KilnResult {  // kiln.registry's copy_out contract
+            ++calls;
+            *len = report.size();
+            if (!buf || cap == 0) return KILN_ERR_BUFFER_TOO_SMALL;
+            const size_t n = report.size() < cap - 1 ? report.size() : cap - 1;
+            std::memcpy(buf, report.data(), n);
+            buf[n] = 0;
+            return n == report.size() ? KILN_OK : KILN_ERR_BUFFER_TOO_SMALL;
+        };
+        std::string text;
+        KilnResult rc = KILN_OK;
+        CHECK(kset::read_all(registry, &text, &rc) && text == report && calls == 2, "a size query that answers BUFFER_TOO_SMALL, then the text: rc " + std::to_string(rc));
+        std::string grow = "{}";
+        auto growing = [&](char* buf, size_t cap, size_t* len) -> KilnResult {  // the text grows between the calls, then stays
+            if (grow.size() < 6) grow.insert(1, " ");
+            *len = grow.size();
+            if (!buf || cap <= grow.size()) return KILN_ERR_BUFFER_TOO_SMALL;
+            std::memcpy(buf, grow.data(), grow.size() + 1);
+            return KILN_OK;
+        };
+        CHECK(kset::read_all(growing, &text, &rc) && text == grow, "a text that grew meanwhile: read again: rc " + std::to_string(rc));
+        auto refusing = [](char*, size_t, size_t*) -> KilnResult { return KILN_ERR_UNAVAILABLE; };
+        CHECK(!kset::read_all(refusing, &text, &rc) && rc == KILN_ERR_UNAVAILABLE, "the member's error is kept");
+    }
 
     std::printf("settings-bounds-test: %d checks, %d failed\n", checks, failed);
     return failed ? 1 : 0;

@@ -362,16 +362,8 @@ void apply_registry_bounds() {
     if (st.phase < KILN_REGISTRY_PHASE_START) return;  // the stage has not ended yet
     g_bounds_pending = false;
     std::string text;
-    size_t len = 0;
-    bool have = false;
-    KilnResult rc = R->report_json(nullptr, 0, &len);
-    for (int i = 0; rc == KILN_OK && i < 4 && !have; ++i) {
-        text.assign(len + 1, '\0');
-        rc = R->report_json(text.data(), text.size(), &len);
-        if (rc == KILN_OK) text.resize(len), have = true;
-        else if (rc == KILN_ERR_BUFFER_TOO_SMALL) rc = KILN_OK;  // it grew meanwhile: again
-    }
-    if (!have) {
+    KilnResult rc = KILN_OK;
+    if (!read_all([R](char* buf, size_t cap, size_t* len) { return R->report_json(buf, cap, len); }, &text, &rc)) {
         logf(KILN_LOG_INFO, "settings: the registry's report is not readable (%d): the table's ranges stand", static_cast<int>(rc));
         return;
     }

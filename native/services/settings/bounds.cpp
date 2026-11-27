@@ -59,4 +59,16 @@ void effective_range(uint32_t kind, double cat_min, double cat_max, const Regist
     else *hi = *lo;
 }
 
+bool read_all(const std::function<KilnResult(char*, size_t, size_t*)>& fn, std::string* out, KilnResult* rc) {
+    size_t len = 0;
+    *rc = fn(nullptr, 0, &len);  // the size query: BUFFER_TOO_SMALL (or OK) with the whole length
+    for (int i = 0; (*rc == KILN_OK || *rc == KILN_ERR_BUFFER_TOO_SMALL) && i < 8; ++i) {
+        out->assign(len + 1, '\0');
+        *rc = fn(out->data(), out->size(), &len);
+        if (*rc == KILN_OK && len < out->size()) return out->resize(len), true;
+    }
+    if (*rc == KILN_OK) *rc = KILN_ERR_BUFFER_TOO_SMALL;  // it kept growing
+    return false;
+}
+
 }  // namespace kset

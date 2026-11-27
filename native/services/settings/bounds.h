@@ -6,12 +6,15 @@
 // registry) set a bound, that bound replaces the table's, so a value the game keeps at start is a value kiln.settings accepts
 // and the other way round. Bounds no mod set keep the table's range (the documented one, as before).
 //
-// Pure (no Windows, no Kiln API): host-tested by tests/bounds_test.sh.
+// Pure (no Windows, no Kiln service; Kiln's result codes only): host-tested by tests/bounds_test.sh.
 #pragma once
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <optional>
 #include <string>
+
+#include "kiln_api.h"
 
 namespace kset {
 
@@ -33,5 +36,10 @@ std::map<std::string, RegistryBound> registry_bounds(const std::string& report);
 // from seconds). Where the two cross (a registry max below the table's min, or a registry min above the table's max) the
 // registry's bound decides: the range shrinks to it. b may be null (no registry bound).
 void effective_range(uint32_t kind, double cat_min, double cat_max, const RegistryBound* b, double* lo, double* hi);
+
+// The whole text of a Kiln reading member (kiln.registry report_json): `fn(buf, cap, &len)` copies at most cap - 1 bytes and
+// answers KILN_ERR_BUFFER_TOO_SMALL with the whole length when the text did not fit; buf may be NULL with cap 0 (a size query);
+// the text can grow between two calls. false + *rc: not read (the member's error, or it kept growing).
+bool read_all(const std::function<KilnResult(char* buf, size_t cap, size_t* len)>& fn, std::string* out, KilnResult* rc);
 
 }  // namespace kset
