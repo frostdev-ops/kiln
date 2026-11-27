@@ -56,6 +56,36 @@ public sealed class RegistryViewTestMod : Mod
             Check(viaView == viaRegistry && viaView > 0, $"{wood.Value}: maxStackSize {viaView} through the advanced view, maxStack {viaRegistry} through the registry");
         }
         else Check(false, $"itemInfo has no {wood.Value}");
+        // a member one field maps one to one and formulas only read is that field (review of J1)
+        var minLevel = itemInfo?.Field("itemLevelRange.minLevel");
+        var speed = itemInfo?.Field("damageSetup.speedMod");
+        Check(minLevel is { CoveredBy: "items.levels.min", Exact: true } && speed is { CoveredBy: "items.speed", Exact: true },
+            $"itemLevelRange.minLevel is covered by {minLevel?.CoveredBy ?? "nothing"}, damageSetup.speedMod by {speed?.CoveredBy ?? "nothing"}");
+        // a stable view selects by an old debug name as a registry edit does (D3)
+        var byName = RegistryViews.Find("items")!.Select("Material_T1_Wood_Logs");
+        Check(byName.Count == 1 && byName[0] == wood, $"items.Select(\"Material_T1_Wood_Logs\") gives {string.Join(", ", byName.Select(i => i.Value))}");
+
+        // a long listing (the template view's thousands of entries, on a worker) holds back no other call: the registries, another
+        // view's fields, the catalog answer meanwhile
+        var templates = advanced.FirstOrDefault(v => v.Name == "template");
+        double listMs = 0, otherMs = 0;
+        if (templates is not null)
+        {
+            var started = Stopwatch.StartNew();
+            var listing = Task.Run(() => templates.Select().Count);
+            Thread.Sleep(200);  // the worker is inside the listing by now
+            var during = Stopwatch.StartNew();
+            var stack = RegistryViews.Find("items")![wood].Get<int>("maxStack");
+            var count = RegistryViews.All.Count;
+            var recipeFields = RegistryViews.Find("recipeRegistry")?.Fields.Count ?? 0;
+            otherMs = during.Elapsed.TotalMilliseconds;
+            var stillListing = !listing.IsCompleted;
+            var listed = listing.GetAwaiter().GetResult();
+            listMs = started.Elapsed.TotalMilliseconds;
+            Check(stack > 0 && count > 0 && recipeFields > 0 && (otherMs < 1000 || !stillListing),
+                $"while template's {listed} entries were listed ({listMs:F0} ms, still listing: {stillListing}), a registry read, the catalog and another view's fields took {otherMs:F0} ms");
+        }
+        else Check(false, "no template view");
 
         // every advanced view: its fields, its entries, the first entry read whole
         clock.Restart();
@@ -105,7 +135,7 @@ public sealed class RegistryViewTestMod : Mod
         var path = Path.Combine(Context.DataDirectory, "views-summary.json");
         Directory.CreateDirectory(Context.DataDirectory);
         File.WriteAllText(path, new JsonObject { ["stable"] = new JsonArray(stable.Order().Select(n => (JsonNode)JsonValue.Create(n)!).ToArray()), ["catalogMs"] = catalogMs,
-            ["walkMs"] = walkMs, ["advanced"] = summary }.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+            ["walkMs"] = walkMs, ["templateListMs"] = listMs, ["otherCallsMs"] = otherMs, ["advanced"] = summary }.ToJsonString(new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
         Log.Info($"registry-view-test: wrote {path}");
     }
 }
