@@ -108,7 +108,7 @@ SERVICES = {
     "Kiln.Queries": ("Queries", "Entity and path queries, cancelable", ["gameplay.md", "api-world.md"], ["services/queries.md"]),
     "Kiln.Quests": ("Quests", "The quest engine, world progress, knowledge, dialogues, the journal", ["quests-talents-sounds.md"],
                     ["services/quests.md", "services/knowledge.md", "services/world-progress.md", "modding/quests.md"]),
-    "Kiln.Registry": ("Registry", "Kiln's registries (items, recipes, loot, drops, balance) as typed entries over Kiln-owned field names",
+    "Kiln.Registry": ("Registry", "Kiln's registries (items, recipes, loot, drops, balance, lootRules, randomLoot) as typed entries over Kiln-owned field names",
                       [], ["modding/registries/README.md"]),
     "Kiln.Replication": (OWN, "Replication lab; a mod does not list it", [], []),
     "Kiln.Rules": ("Rules", "What players may do and what it costs: rules, NoClip, creative mode", ["api-events.md"], ["services/rules.md"]),

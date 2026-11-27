@@ -668,6 +668,43 @@ and LootItems (`0x93d3b0` / `0xe96190`). Listings and the scan's JSON: `dev31/ou
   distinct ids), 57 none. The row reads a stations id, and Kiln has no stations registry (and so no stations id table)
   before dev.32, so every recipe's station decodes as none: the row stays unproven with that reason.
 
+## 12. Random loot tables and the world-wide rarity weights (server 26430253 `f0d824be…`, client 26430625 `5d9ef2f1…`) **[dis] [data] [refl]**
+What the `lootRules` and `randomLoot` registries (0.2.0-dev.31.19) rest on. Source: the Loot Rarity Leveler lane's
+SPEC-core (`dev31/out/lrl/SPEC-core.md` section 2, static analysis of the server exe with client addresses by byte match,
+data decoded with `tools/kfc/kfc.py` from the client's untouched `.kfc.bak` pair), checked against Kiln's reflection on both
+exes (`regmap_check.py --exe`: every row resolves).
+
+**The data (all resident from start; layouts equal on both exes).**
+| Kiln | Game resource | On build 1287369 |
+|---|---|---|
+| `lootRules` `game:loot` | `LootableItemsResource` `3064d35d-…` (one): `globalRarityDropRates` (5 × f32 at `+0x00`, Common..Legendary) before `items` | 40.59, 27.35, 17.06, 9.71, 5.29 |
+| `randomLoot` `game:labels_*` | `DefaultLootLabelCollectionResource` `c6061938-…` (one): `lootSettings` = 104-byte `DefaultLootSettingsResource` (a `LootSettingsResource` plus `id: LootContainerId` at `+0x64`) | 99 tables; 23 set all five rarity modes (the elite, boss and chest tables); level and offset modes all None |
+| `randomLoot` `game:world_*` | `SceneRandomLootResource` × 5: `lootSettings` (100-byte `LootSettingsResource`), `lootContainer` {nodeId, parentId, lootSettingsIndex} | `509feadb-…`: 698 tables used by 62,055 loot nodes; the other four empty |
+
+Both table types start with `modifier: LootModifierInfo` (88 B): `level` {mode u8, f32} `+0x00`, `levelOffset` `+0x08`,
+`levelOffsetRangeMin/Max` f32 `+0x10/+0x14`, `rarities[5]` {mode, f32} `+0x18 + 8i`, shufflebag weights `+0x40` (mode `+0x50`),
+class alignment `+0x54`; `LootModifierMode` Set 0, Add 1, Multiply 2, None 3. A label table's id is the FNV-1a 32 of the 16
+GUID bytes of the `DefaultLootLabelCollection` a template names in `RandomLoot.defaultLabels` (`LootChest_Random_Wood_Sarcophagus`
+-> `9130260c-…` -> `0x80943338`); 89 of the 99 are named by 817 templates.
+
+**When the game reads them: at each roll, nothing cached.** The roll's context build (server `0x16c1d0`, client `0x3c8690`;
+called by the container fill `0x16ccb0` and the single-slot roll `0x16d020`) starts the context with the caller's area level,
+offset 0, range 0..0 and the five rarity weights read through the getter `0x936660` / `0xe8f520` (loot registry `+0x38` ->
+the resource, `float` at `4*i`), then applies up to three tables with `0x16ef20` / `0x3cb230`: the scene loot node's table
+(`lootContainer[node].lootSettingsIndex`), the template's label table (by its id through the label registry's find
+`0x93d310` / `0xe960f0`, a pointer into the resource), and a second label table by another id. Each table's values combine by
+their mode (Set, Add, Multiply, None); a non-zero range replaces the context's range (never summed). The rarity draw
+`0x94efe0` / `0xea7d90` then picks among the allowed rarities by those weights, and the level is
+`round_half_away((u * (max - min) + min) + (offset + level))`, at least 0, then clamped by createPide into the item's level
+range (section 10 of docs/re/items.md). So a write into the resident resources changes the next roll; loot already rolled
+keeps what it got. Every regmap row of both registries is `read: now`, `backend: live`.
+
+**Kiln's live entries.** kiln.content serves the two as store kinds 5 (`KILN_CONTENT_LOOT_RULES`: the resource the loot
+registry reads, `+content/lootreg.data`, else kiln.assets' resident copy) and 6 (`KILN_CONTENT_RANDOM_LOOT`: each table in
+resident resource memory through kiln.assets; one `keen::LootSettingsResource` schema for both table types, checked to share
+the leading layout). A world table has no id of its own: the stage's id table and kiln.content key it by
+`registry/element_num.h` (FNV-1a 32 of its resource's GUID bytes mixed with its index), as `regmap_entries.py` does.
+
 ## Boot consumer ordering (dev.28; server 26430253 / client 26430625)
 
 S `f0d824be…`, C `5d9ef2f1…`. Dossier chapter 08, events REPORT delta/VERIFY; engine contracts [static],

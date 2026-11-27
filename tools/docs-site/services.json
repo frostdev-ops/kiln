@@ -1080,7 +1080,7 @@
     {
       "assembly": "Kiln.Registry",
       "name": "Registry",
-      "summary": "Kiln's registries (items, recipes, loot, drops, balance) as typed C# entries over Kiln-owned field names, generated from schema/registry/*.json by tools/registrygen/registrygen.py (Generated/*.g.cs; never edit those by hand)",
+      "summary": "Kiln's registries (items, recipes, loot, drops, balance, lootRules, randomLoot) as typed C# entries over Kiln-owned field names, generated from schema/registry/*.json by tools/registrygen/registrygen.py (Generated/*.g.cs; never edit those by hand)",
       "guides": [
         "docs/kiln/services/registry.md"
       ],

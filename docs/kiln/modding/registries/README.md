@@ -44,6 +44,8 @@ registry has a breaking step yet: every schema is 0.1.0, and Kiln ships no migra
 | `loot` | random loot per item: stack sizes, rarities | [loot.md](loot.md) |
 | `drops` | the game's drop tables (default inventories) | [drops.md](drops.md) |
 | `balance` | the balance table: experience, levels, flame, durability, sockets, perk costs | [balance.md](balance.md) |
+| `lootRules` | the world-wide random-loot rules: the rarity weights of rolls whose table sets none (one entry, `game:loot`; 0.2.0-dev.31.19) | [lootRules.md](lootRules.md) |
+| `randomLoot` | every random loot table: its level rules (level, offset, random range) and its own rarity weights; `game:labels_*` serve enemies and generic containers, `game:world_*` the chests placed in the world (0.2.0-dev.31.19) | [randomLoot.md](randomLoot.md) |
 
 The per-registry pages are generated from `schema/registry/<registry>.json` by `tools/registrygen/registrygen.py`; edit
 the schema, never the page. Kiln maintainers adding a registry: [adding-a-registry.md](../../adding-a-registry.md).
@@ -218,6 +220,32 @@ Applied or Reverted with no refused edits or skipped foreign bytes. PendingWorld
 changed. RestartRequired, WorldRequired, Refused, Skipped and Unverified stay distinct. A change is not disposable:
 only explicit `Revert()` on the tick thread or owner retirement removes its layer, never leaving a scope. Process ModLoad layers persist across worlds; world-bound layers expire with
 their world. Already committed GameStart layers stay until process restart, including through a runtime hot reload.
+
+**Authoring the WorldLoad point again (0.2.0-dev.31.19).** Edits made from settings or from the game's state (a config file, a
+player's level) can follow a change at once: `Kiln.Registry.Registry.Reauthor(RegistryEntryPoint.WorldLoad)` asks Kiln to run
+the mod's declared WorldLoad pass again on the next host tick, in the same world. The pass runs as at a world load: every
+callback reads the pre-pass values without the mod's own layers (so a value is derived from the game's data and other mods'
+edits again, never from the mod's own last result), entries refuse one by one, and its commits replace the layers that point
+made in this world once they are in, so the game never sees a moment without the mod's values; a pass that throws keeps the
+earlier layers (logged as a fault), a transient refusal asks again on a later tick. Requests before the tick are one pass.
+It returns false, with the reason in kiln.log, for another point (only WorldLoad is authored again on request), a mod that
+declares no WorldLoad point, or no live back-end; with no world loaded the next world's load authors the point anyway.
+Loot Rarity Leveler (Kiln) uses it for its live settings and the character level:
+
+```csharp
+[RegistryEntryPoints(RegistryEntryPoint.WorldLoad)]
+public sealed class Leveler : Mod
+{
+    public override void OnLoad() => Config.Register<Settings>().Changed += _ => Kiln.Registry.Registry.Reauthor(RegistryEntryPoint.WorldLoad);
+    public override void OnRegistry(RegistryContext context)
+    {
+        if (context.Phase != RegistryPhase.Alter) return;
+        var r = Kiln.Registry.Registry.For(context);
+        var w = r.LootRules.RarityWeights;      // the values below this mod: the game's, or other mods' edits
+        w.Legendary = w.Legendary * 4;          // never stacks: each pass reads below its own last edit
+    }
+}
+```
 
 Subscribe to `Registry.Ready` in `OnLoad` for copied stage/live ready notifications; the Host removes the handler at unload.
 Its `RegistryReady.Phase` uses `RegistryReadyPhase.Start` or `WorldLoad`, not the author's `RegistryPhase` passes.
@@ -624,6 +652,8 @@ How a game entry's stable name is made (each registry's page repeats its own rul
 | loot | the id of its item | 4,213 entries |
 | drops | see "Drop tables" below | 420 tables |
 | balance | `game:balance` (one entry) | 1 |
+| lootRules | `game:loot` (one entry) | 1 |
+| randomLoot | a table of the label collection (enemies, generic containers): `labels_<its 32-bit id, 8 hex>`; a table of a world's scene loot: `world_<the first 8 hex digits of that resource's GUID>_<its index>` | 797 tables: 99 `labels_` (23 set all five rarities) and 698 `world_` (all in `world_509feadb_*`); no clash |
 
 **Two entries with one name.** The entry that held a stable name first keeps it for good; a later entry whose name is the
 same (also when the two differ only in case) gets `game:<name>~<first 8 hex digits of its GUID>` (more digits if those

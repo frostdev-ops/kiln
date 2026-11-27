@@ -1,7 +1,7 @@
 # Adding a registry (maintainer guide)
 
-For Kiln maintainers who add the next registry (perks, skills, stations, NPCs, ...) to the five that ship today (items,
-recipes, loot, drops, balance). It says what a new registry gets for free, the steps in order, every pitfall the first
+For Kiln maintainers who add the next registry (perks, skills, stations, NPCs, ...) to the seven that ship today (items,
+recipes, loot, drops, balance, and since 0.2.0-dev.31.19 lootRules and randomLoot). It says what a new registry gets for free, the steps in order, every pitfall the first
 five hit and the fix that is in the code now, and when a new registry is done. Mod-facing docs are
 [modding/registries/README.md](modding/registries/README.md); the native tables are [services/registry.md](services/registry.md);
 the mapping and its proof are [regmap/README.md](../../regmap/README.md) and [sigport.md](sigport.md#the-registry-proof-kilnctl-regproof).
@@ -43,6 +43,16 @@ The path of one edit, and who owns each step:
 So a registry whose fields are plain scalars (int, float, bool), enums and times, with one resource per entry, needs a schema, a
 regmap file, one `kind_of` line and its store kind, one `RegistryStage` property, producer probes and tests. Lists,
 references, per-entry storage kinds, lazily loaded tables and entries without a GUID each add work; section 2 says where.
+
+**The last two, as a worked example (0.2.0-dev.31.19, the Loot Rarity Leveler lane).** `lootRules` (one entry: the five
+world-wide rarity weights) and `randomLoot` (797 tables of two resource types) needed: the schemas; regmap rows with
+fixed-array element paths (`globalRarityDropRates[0]`, `modifier.rarities[2].value`, which `regmap_check.py` now resolves);
+the new entries kind `arrays` for randomLoot's two sources and five scene resources (regmap.cpp, model.cpp `entries()`, the
+Python twin in `regmap_entries.py`; names from each source's pattern, numbers from `registry/element_num.h`); two kiln.content
+store kinds (5 and 6, `registries.cpp` `build_loot_tables`, one reflected schema shared by both table types) and their
+`kind_of` rows; the proof producer's `Live` list, `RegistryOf` (kinds 5 and 6 by kind) and `ResourceOf`; and, because every
+regmap/common edit unbinds the records (P9), a fresh lab proof of all seven registries and a client mirror in the same change.
+All their fields are plain floats and enums, so the generic `bind_scalar` writes them; no new binder or conv.
 
 ## 2. Checklist
 
