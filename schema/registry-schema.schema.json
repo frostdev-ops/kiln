@@ -257,6 +257,10 @@
           "type": "boolean",
           "description": "A ref that may be absent (cleared)."
         },
+        "nullValue": {
+          "type": "string",
+          "description": "An enum: the value its C# property reads as null (the property is the nullable of an enum of the other values, which typeName may share with another field: loot.fixedRarity's none, RegistryRarity?). C# only, not the field's contract."
+        },
         "fixedLength": {
           "type": "integer",
           "minimum": 1,

@@ -222,7 +222,7 @@ def type_names(reg):
     enums = {}
     for r in reg.rows:
         if r.enum_type and r.kind != "list":
-            vals = tuple(r.spec.get("values", []))
+            vals = enum_values(r)
             if r.enum_type in enums and enums[r.enum_type] != vals:
                 out.append((r.enum_type, "enum"))     # the same name with other values: a second type
             elif r.enum_type not in enums:
@@ -231,15 +231,37 @@ def type_names(reg):
     return out
 
 
+def enum_values(row):
+    """An enum or flags field's C# values: its schema values but the one C# reads as null (nullValue), with its kind."""
+    none = row.spec.get("nullValue")
+    return (row.kind, tuple(v for v in row.spec.get("values", []) if v != none))
+
+
+def enum_owners(model_regs, order=None):
+    """Each enum type several fields share (one name for one set of values, dev.32 api-shape: RegistryRarity for items.rarity
+    and loot.fixedRarity): the registry whose file declares it (the first in the lock's order, else by name) and the fields."""
+    owners = {}
+    for reg in (order or sorted(model_regs.values(), key=lambda r: r.name)):
+        for r in reg.rows:
+            if r.enum_type and r.kind != "list":
+                owners.setdefault(r.enum_type, (reg.name, []))[1].append(r.qualified)
+    return owners
+
+
 def check_type_names(regs):
-    errs, seen = [], {}
+    errs, seen, enums = [], {}, {}
     for reg in regs.values():
+        for r in reg.rows:
+            if r.enum_type and r.kind != "list":
+                enums.setdefault(r.enum_type, set()).add(enum_values(r))
         for n, what in type_names(reg):
+            # an enum (and its names) declared once and used by fields of several registries: the same values everywhere
+            shared = what in ("enum", "enum names") and len(enums.get(n.removesuffix("Names") if what == "enum names" else n, ())) == 1
             if n in HANDWRITTEN_TYPES:
                 errs.append(f"{reg.name}: the C# type {n} ({what}) is one of Kiln.Registry's own types")
-            elif n in seen:
+            elif n in seen and not (shared and seen[n].endswith(" " + what)):
                 errs.append(f"{reg.name}: the C# type name {n} is used twice ({seen[n]} and {reg.name} {what})")
-            else:
+            elif n not in seen:
                 seen[n] = f"{reg.name} {what}"
     return errs
 
@@ -339,7 +361,8 @@ def check_registry(d, name):
 
 
 FIELD_KEYS = {"type", "doc", "applies", "ops", "readOnly", "min", "max", "unit", "values", "registry", "fields", "of",
-              "maxItems", "formula", "side", "since", "typeName", "optional", "fixedLength", "lengthField", "lengthOffset", "joinedClient"}
+              "maxItems", "formula", "side", "since", "typeName", "optional", "fixedLength", "lengthField", "lengthOffset", "joinedClient",
+              "nullValue"}
 
 
 def walk(reg, fields, prefix, applies, list_path, read_only, errors, known):
@@ -378,6 +401,10 @@ def walk(reg, fields, prefix, applies, list_path, read_only, errors, known):
         for k in ("fixedLength", "lengthField", "lengthOffset"):
             if k in spec and t != "list":
                 errors.append(f"{q}: {k} is for lists only")
+        # C# only (not the field's contract): the enum value its C# property reads as null, so the property is the nullable of
+        # an enum of the other values (loot.fixedRarity: none, the RegistryRarity? null)
+        if "nullValue" in spec and (t != "enum" or spec["nullValue"] not in (spec.get("values") or [])):
+            errors.append(f"{q}: nullValue is one of an enum field's values")
         if "typeName" in spec and not TYPE_NAME.match(str(spec["typeName"])):
             errors.append(f"{q}: typeName must be a C# type name")
         if t == "struct":
@@ -960,6 +987,7 @@ class CsWriter:
         self.rows = {r.path: r for r in reg.rows}
         self.types, self.enums = [], []
         self.fields_class = f"{reg.type_name}Fields"
+        self.owners = enum_owners(model.registries, ordered(model, lock))
 
     def fid(self, row):
         return f"{self.fields_class}.{pascal(row.path.replace('[]', ' ').replace('.', ' '))}"
@@ -993,13 +1021,24 @@ class CsWriter:
         if row.kind in ("enum", "flags"):
             t = row.enum_type
             names = f"{t}Names.All"
-            if row.kind == "enum":
+            none = row.spec.get("nullValue")
+            if none is not None:
+                getter = f"RegistryCells.OptionalEnum(_c, {fid}, _i, {names}, \"{none}\") is int k ? ({t})k : null"
+                setter = f"RegistryCells.SetOptionalEnum(_c, {fid}, _i, {names}, \"{none}\", (int?)value)"
+            elif row.kind == "enum":
                 getter = f"({t})RegistryCells.Enum(_c, {fid}, _i, {names})"
                 setter = f"RegistryCells.SetEnum(_c, {fid}, _i, {names}, (int)value)"
             else:
                 getter = f"({t})RegistryCells.Flags(_c, {fid}, _i, {names})"
                 setter = f"RegistryCells.SetFlags(_c, {fid}, _i, {names}, (uint)value)"
-            self.enum(t, row.spec.get("values", []), row.kind == "flags", row.spec.get("doc"))
+            owner, fields = self.owners.get(t, (self.reg.name, [row.qualified]))
+            if owner == self.reg.name:
+                # one registry's own enum keeps its first field's doc; one several registries share says whose values it is
+                shared = len({f.split(".", 1)[0] for f in fields}) > 1
+                enum_doc = f"The values of {' and '.join(fields)}." if shared else row.spec.get("doc")
+                self.enum(t, list(enum_values(row)[1]), row.kind == "flags", enum_doc)
+            if none is not None:
+                t += "?"
         elif row.kind == "ref" and row.spec.get("optional"):
             t = "RegistryId?"
             getter = f"RegistryCells.OptionalId(_c, {fid}, _i)"

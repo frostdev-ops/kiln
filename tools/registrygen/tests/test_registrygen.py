@@ -233,6 +233,42 @@ class SchemaChecks(unittest.TestCase):
         s["fields"]["parts"]["typeName"] = "RegistryId"
         self.assertTrue(any("RegistryId" in e for e in self.errors_of(s)))
 
+    def test_one_enum_serves_several_registries(self):
+        """dev.32 api-shape: one name for one set of values. A second registry's field names the first's enum (typeName) with
+        the same values, or the same plus the one C# reads as null (nullValue): the enum is declared once, in the first
+        registry's file, and the nullValue field is its nullable. Other values under the name are a second type: refused."""
+        s = copy.deepcopy(MINI)
+        s["fields"]["color"]["typeName"] = "Hue"
+        o = copy.deepcopy(MINI)
+        o["registry"], o["typeName"] = "others", "Other"
+        o["fields"] = {"tint": {"type": "enum", "values": ["none", "red", "blue"], "nullValue": "none", "typeName": "Hue",
+                                "applies": "now", "ops": "set"}}
+        t = Tree(s)
+        try:
+            rg.update_lock(t.root)        # things first in the lock: its file declares the enum
+            t.write(o, "others")
+            model = rg.load(t.root)
+            self.assertEqual(model.errors, [])
+            rg.update_lock(t.root)
+            out = rg.render(model, rg.read_lock(t.root))
+            things, others = out["managed/services/Kiln.Registry/Generated/Things.gen.cs"], out["managed/services/Kiln.Registry/Generated/Others.gen.cs"]
+            self.assertIn("public enum Hue", things)
+            self.assertNotIn("public enum Hue", others)
+            self.assertIn("/// <summary>The values of things.color and others.tint.</summary>", things)
+            self.assertIn('    internal static readonly string[] All = { "red", "blue" };', things)
+            self.assertIn('public Hue? Tint { get => RegistryCells.OptionalEnum(_c, OtherFields.Tint, _i, HueNames.All, "none") is int k ? (Hue)k : null; '
+                          'set => RegistryCells.SetOptionalEnum(_c, OtherFields.Tint, _i, HueNames.All, "none", (int?)value); }', others)
+            # the lock keeps the field's contract (its values, none included): nullValue is C#'s only
+            self.assertEqual(t.lock()["registries"]["others"]["fields"]["tint"]["values"], ["none", "red", "blue"])
+            o["fields"]["tint"]["values"] = ["none", "red", "green"]
+            t.write(o, "others")
+            self.assertTrue(any("Hue" in e and "twice" in e for e in rg.load(t.root).errors))
+            o["fields"]["tint"]["nullValue"] = "grey"
+            t.write(o, "others")
+            self.assertTrue(any("nullValue" in e for e in rg.load(t.root).errors))
+        finally:
+            t.close()
+
     def test_game_member_names_are_refused(self):
         t = Tree(MINI)
         try:

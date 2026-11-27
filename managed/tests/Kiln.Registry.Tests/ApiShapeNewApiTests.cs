@@ -64,4 +64,20 @@ public sealed class ApiShapeNewApiTests
         context.Close();
     }
 
+    // finding 6: a loot entry's fixed rarity is a RegistryRarity, null when the drop rolls one (the data's "none")
+    [Fact]
+    public void AFixedRarityIsARarityOrNull()
+    {
+        var context = Frame();
+        using var scope = context.Enter();
+        var loot = DataRegistry.For(context).Loot["game:dt"];
+        Assert.Null(loot.FixedRarity);
+        loot.FixedRarity = RegistryRarity.Legendary;
+        Assert.Equal(RegistryRarity.Legendary, loot.FixedRarity);
+        loot.FixedRarity = null;
+        Assert.Null(loot.FixedRarity);
+        var edits = Edits(context);
+        Assert.Equal(new[] { "legendary", "none" }, edits.Select(e => e!["op"]!.GetValue<string>()).ToArray());
+        context.Close();
+    }
 }

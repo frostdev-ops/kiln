@@ -28,7 +28,7 @@ Groups of fields:
 | `stack.scalable` | bool | now | set | 0.1.0 | mapped | serverOnly | The stack grows with the world's loot amount, up to maxScaled. |
 | `stack.maxScaled` | int 0..65535 | now | number | 0.1.0 | mapped | serverOnly | The largest stack a drop has with the world's loot amount applied (when scalable). |
 | `rarities` | flags (common, uncommon, rare, epic, legendary) | now | set | 0.1.0 | mapped | serverOnly | The rarities a drop may roll. |
-| `fixedRarity` | enum (none, common, uncommon, rare, epic, legendary) | now | set | 0.1.0 | mapped | serverOnly | A rarity every drop gets (none: rolled from rarities). |
+| `fixedRarity` | enum (none, common, uncommon, rare, epic, legendary) | now | set | 0.1.0 | mapped | serverOnly | A rarity every drop gets (none, in C# null: rolled from rarities). |
 
 ## Entries
 

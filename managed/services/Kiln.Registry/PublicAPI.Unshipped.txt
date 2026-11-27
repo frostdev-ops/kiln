@@ -649,3 +649,12 @@
 [KILNX031]static Kiln.Registry.RegistryViews.Find(string! name) -> Kiln.Registry.RegistryView?
 [KILNX031]Kiln.Registry.DropEntry.Item.set -> void
 [KILNX031]Kiln.Registry.RegistryValueList<T>.this[int index].set -> void
+*REMOVED*[KILNX031]Kiln.Registry.ItemLootEntry.FixedRarity.get -> Kiln.Registry.ItemLootRarity
+*REMOVED*[KILNX031]Kiln.Registry.ItemLootRarity
+*REMOVED*[KILNX031]Kiln.Registry.ItemLootRarity.Common = 1 -> Kiln.Registry.ItemLootRarity
+*REMOVED*[KILNX031]Kiln.Registry.ItemLootRarity.Epic = 4 -> Kiln.Registry.ItemLootRarity
+*REMOVED*[KILNX031]Kiln.Registry.ItemLootRarity.Legendary = 5 -> Kiln.Registry.ItemLootRarity
+*REMOVED*[KILNX031]Kiln.Registry.ItemLootRarity.None = 0 -> Kiln.Registry.ItemLootRarity
+*REMOVED*[KILNX031]Kiln.Registry.ItemLootRarity.Rare = 3 -> Kiln.Registry.ItemLootRarity
+*REMOVED*[KILNX031]Kiln.Registry.ItemLootRarity.Uncommon = 2 -> Kiln.Registry.ItemLootRarity
+[KILNX031]Kiln.Registry.ItemLootEntry.FixedRarity.get -> Kiln.Registry.RegistryRarity?

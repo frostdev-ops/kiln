@@ -79,8 +79,9 @@
       ],
       "applies": "now",
       "ops": "set",
-      "doc": "A rarity every drop gets (none: rolled from rarities).",
-      "typeName": "ItemLootRarity",
+      "doc": "A rarity every drop gets (none, in C# null: rolled from rarities).",
+      "typeName": "RegistryRarity",
+      "nullValue": "none",
       "joinedClient": "serverOnly"
     }
   },

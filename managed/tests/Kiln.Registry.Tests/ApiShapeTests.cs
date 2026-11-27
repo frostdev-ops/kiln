@@ -85,4 +85,16 @@ public sealed class ApiShapeTests
         context.Close();
     }
 
+    // finding 6: one name for a rarity. RegistryRarity is one rarity (an item's, a loot entry's fixed one: null is none);
+    // RegistryRarities is a set of them (the rarities a drop may roll), its bits in RegistryRarity's order.
+    [Fact]
+    public void OneNameForARarity()
+    {
+        var enums = typeof(RegistrySchema).Assembly.GetExportedTypes().Where(t => t.IsEnum && t.Name.Contains("Rarit")).Select(t => t.Name).Order().ToArray();
+        Assert.Equal(new[] { "RegistryRarities", "RegistryRarity" }, enums);
+        Assert.Equal(typeof(RegistryRarity?), typeof(ItemLootEntry).GetProperty("FixedRarity")!.PropertyType);
+        Assert.Equal(typeof(RegistryRarity), typeof(ItemEntry).GetProperty("Rarity")!.PropertyType);
+        foreach (var r in Enum.GetValues<RegistryRarity>())
+            Assert.Equal(r.ToString(), ((RegistryRarities)(1u << (int)r)).ToString());
+    }
 }

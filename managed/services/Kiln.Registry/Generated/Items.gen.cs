@@ -218,7 +218,7 @@ public sealed partial class ItemFuel
     public global::System.TimeSpan BurnTime { get => RegistryCells.Time(_c, ItemFields.FuelBurnTime, _i); set => RegistryCells.Set(_c, ItemFields.FuelBurnTime, _i, value); }
 }
 
-/// <summary>The rarity a new copy gets when it does not roll one. Copies that exist keep theirs.</summary>
+/// <summary>The values of items.rarity and loot.fixedRarity.</summary>
 [global::System.Diagnostics.CodeAnalysis.Experimental("KILNX031", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/registries/items.md")]
 public enum RegistryRarity
 {
