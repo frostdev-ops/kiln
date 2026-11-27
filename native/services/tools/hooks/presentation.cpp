@@ -196,10 +196,10 @@ void brush_query_frame(KilnRegisters& regs) {
     std::array<uint8_t,16> guid{};
     {std::lock_guard lock(gate);const auto i=identities.find(family->tool);
      if(i==identities.end()){brush_trace.record(BrushFrameExit::NoIdentity);return;}guid=i->second;}
-    std::array<uint32_t,brush_rows_capacity> items{};
-    for(size_t i=0;i<items.size()&&i<family->brushes.size();++i)items[i]=family->brushes[i].item;
-    const auto outcome=patch_brush_frame({regs.rsp,regs.rbp,regs.rcx,regs.rdx,regs.r8,regs.r9},family->tool,guid,
-        {items.data(),family->brushes.size()});
+    // (std::min): brush_frame.h includes <windows.h>, whose min macro the native suites (test-ammo.ps1, no NOMINMAX) keep.
+    std::array<uint32_t,brush_family_capacity> items{};const size_t count=(std::min)(items.size(),family->brushes.size());
+    for(size_t i=0;i<count;++i)items[i]=family->brushes[i].item;
+    const auto outcome=patch_brush_frame({regs.rsp,regs.rbp,regs.rcx,regs.rdx,regs.r8,regs.r9},family->tool,guid,{items.data(),count});
     brush_trace.record(outcome);
     if(outcome.result==BrushFrameResult::WriteFault) {
         regs.rip=resume; // Skip only this query after a partial write; its fresh output remains empty.

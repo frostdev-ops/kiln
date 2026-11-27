@@ -467,6 +467,7 @@
       "failed": "{action} konnte nicht gesendet werden: {error}"
     },
     "binding": "ShroudForge-Mods: Kilns ShroudForge-Seite öffnen",
+    "joined_world_edit": "Eine ShroudForge-Mod wollte Blöcke ändern, aber in einem Spiel, dem du beigetreten bist, kann das nur der Server oder der Host. Lass die Mod dort laufen.",
     "check": {
       "whole": "{setting} braucht eine ganze Zahl",
       "type": "{setting} braucht: {type}, nicht: {given}",

@@ -42,7 +42,12 @@ root tool. The tool owns its brush membership; declaring a brush part alone does
 vanilla Overgrowth's family. A family has at most 64 distinct brushes; the game's picker shows the first **16**, in
 the order the tool lists them (its brush list is a fixed 16-row array). Each brush item is based on vanilla
 `Building_Overgrowth_Shape_Small`; its radius is that item's own impact config `0x5258131e` (BrushRadius, the value the
-tool's programs read), written as the item rule `impactValues.0x5258131e`. `Identity = BlockIdentity.Legacy(guid)` or
+tool's programs read), written as the item rule `impactValues.0x5258131e`. The cursor preview is no radius: it is the
+shape item's own `equipment.cursorVfx`, one fixed effect per vanilla size (Small 0.5 m, Medium 1.5 m, Big 2.5 m). A brush
+takes the effect of the vanilla shape nearest its radius (below 1 m Small, below 2 m Medium, from 2 m Big), so the preview
+shows one of those three sizes while the stroke uses the brush's exact radius. The effect is only in the brush's
+definition: a mod's own content layer on its brush item's `equipment.cursorVfx` applies over it.
+`Identity = BlockIdentity.Legacy(guid)` or
 `Legacy(itemId)` preserves an existing saved item; `Was` preserves the derived identity after a Kiln key rename.
 An input bound to a Remove does not ask the game's build cursor for a selected building material
 (`equipment.cursorConfig.checkRequiredMaterialsOnPrimaryAction` / `...OnSecondaryAction` false on each brush): the base
@@ -58,7 +63,8 @@ magic-chest stock twice, even with a vanilla tool held, so that lowering is forb
 The compiler also emits raw-fill brush entries in the game's blueprint registry, item definitions, and per-action
 Impact programs and action sequences. It does not add terrain entries to `BuildingMaterialPoolBlock`. New table
 metadata and brush definitions can be pending until the next game start. A pending definition is not proof that the
-game has ingested or drawn it.
+game has ingested or drawn it. A tool pool kept for the next start is read back at that start as a tool pool (until
+0.2.0-dev.31.20 it was read as a building pool and refused, so a tool with an Add action never registered: kiln#152).
 
 ## Execution and safety
 
@@ -100,15 +106,23 @@ independently of that held observation. Presentation calls mask any outer impact
 restore it on return, including nested vanilla calls. Failed owned-row reads leave an empty presentation, not an
 unchecked pointer or an inherited selection.
 
-The brush adapter is confined to the qualified frame drawer's call instruction. It requires the selected hotbar root
-and resolved item to match the registered held family. The game's brush query scans only the item list
-`ItemRegistryResource.terraformingTools` in the game's data, never the runtime item registry, so a family's brushes
-(runtime items) are never in it, whatever their tags. On admission the adapter writes the family's own rows (item,
-ratio i+1 over 1) into that call's fresh, empty output and replaces its include/ratio GUID values with the family
+The brush adapter is confined to the qualified frame drawer's call instruction. It requires the selected hotbar item to
+be the held family's root or one of its brushes, and the resolved item to be that hotbar item. Picking a row puts that
+brush in the actionbar slot (the game's `CreateBuildingItemAction`, as a vanilla Overgrowth shape takes its tool's
+place), so after the first pick the slot holds a brush, also after a save and reload; the frame stays the family's. The
+host takes the pick from the client's `createBuildingItemAction` and checks only that the picked item exists and, like
+the item it replaces, carries one of four item flags (`IsTerraformer` for a brush): no tag, game list or family. A
+dedicated server therefore puts a family brush in the slot as a single-player host does (read statically on server
+26430253 and client 26430625, [docs/re/building.md](../../re/building.md) 1.2.2). The game's brush query scans only the
+item list `ItemRegistryResource.terraformingTools` in the game's data, never the runtime item registry, so a family's
+brushes (runtime items) are never in it, whatever their tags. On admission the adapter writes the family's own rows
+(item, ratio i+1 over 1) into that call's fresh, empty output and replaces its include/ratio GUID values with the family
 identity, which no listed item carries: the native query appends nothing and sorts the rows by ratio, which keeps the
 declared order. Brushes carry no family tag. Other query sites, vanilla tools, callbacks and nested unrelated frames
-inherit no admission. If this capability is unavailable, the ordinary picker has no established route to the tool's
-own brushes; do not assume that Add/Remove is usable through the normal menu.
+inherit no admission. The query's three other call sites (`0xd180a0`, `0xd20190`, `0xd6aa05`) sit in functions that no
+code reaches on client 26430625, so the frame drawer's list is the only list of brushes the player sees or picks from.
+If this capability is unavailable, the ordinary picker has no established route to the tool's own brushes; do not assume
+that Add/Remove is usable through the normal menu.
 
 ### Reading the brush picker trace
 
@@ -127,7 +141,7 @@ tools: brush picker: patched (the family's brushes were written into the picker)
 | `no held family` | The picker drew without a registered family in hand: a vanilla tool, or no current held-item sample. Normal while a vanilla tool is held. | Shown while the mod's tool is held: the family was never defined (a `blocks:` error at content ready) or the held-item observer has no sample. |
 | `no identity` | The held family lost its identity record between two lookups (a removal racing the frame). | Mod reloads. |
 | `other frame` | Not the Overgrowth branch's registers (the Decay branch, or another layout). | The root tool's base. |
-| `not selected` / `not resolved` | The picker's selected hotbar item, or its resolved item, is not the held family's root. | Hotbar selection versus the held item. |
+| `not selected` / `not resolved` | The picker's selected hotbar item is neither the held family's root nor one of its brushes, or its resolved item is another. | Hotbar selection versus the held item. |
 | `output not fresh` / `tag mismatch` | The call's brush list or include/ratio tags are not the vanilla Overgrowth frame's. | Another mod patching the picker; a game update. |
 | `read fault` / `write fault` | Reading or writing the frame faulted; a write fault skips that query and retires the adapter. | A crash report next to it. |
 | `patched` | The family's rows were written; `(n rows)` is how many. `truncated to 16 rows` counts families with more brushes. | If the picker still shows no brush after this, the rows reached the query and the miss is past it. |
@@ -240,13 +254,21 @@ KILN_GAME=<game folder> native/services/tools/tests/test-tool-content.sh out/too
 
 The script extracts the game inputs into `out/tool-content/inputs` (`extract_tool_content_inputs.py`, read-only).
 Inputs extracted earlier can be passed instead: `test-tool-content.sh <out> <compiler.json> <types.json> <brush.bin>
-<pool-item.bin> <registry.bin>`.
+<pool-item.bin> <registry.bin> <shape-medium.bin> <shape-big.bin>` (the two vanilla shapes whose cursor preview larger
+brushes take).
 
 Only the player runs the real-game check: confirm root/brush names, independent vanilla Overgrowth choices, all pool
 entries with backpack-only and magic-chest-only supplies, empty stock, switching between tools, inventory changes,
 selection after leaving/rejoining a world, paid placement/removal and the game's normal/remapped undo.
 
 ## Changelog
+
+- **0.2.0-dev.31.21:** picking another brush in the picker keeps the tool's own brushes. The picked brush takes the
+  actionbar slot, and the adapter admitted only the root there, so every later frame listed the vanilla Overgrowth shapes
+  and the next pick handed the player the vanilla Overgrowth Tool (`not selected`, then `no held family` in the trace).
+  Each brush previews at the vanilla size nearest its radius (every brush kept the small shape's preview). A tool pool
+  kept for the next start is read back as a tool pool, so a tool with an Add action registers at the second start
+  (it was refused at every start). Thanks SonjaNemitz (kiln#152, kiln#153).
 
 - **0.2.0-dev.30.8:** a tool stroke reaches the game's terraform. The impact binding took the impact iterator's first
   qword, the engine's program context, for the world, so every stroke was refused as "not the server world"; it now

@@ -139,6 +139,8 @@ export function buildIndex(c: SettingsCtx): SearchItem[] {
   add("general", "language", "language.game", t("languageSettings.game"), t("settings.rows.languageGame"), t("languageSettings.gameHint"), ["language", "ui.language"]);
   const forced = !!info?.noWebgl;
   add("general", "look", "fire", t("settings.appearance.fire"), forced ? fireOff(info) : t("settings.rows.fire"), forced ? undefined : textOr("settings.rows.fireMore", "settings.appearance.fireHint"), ["WebGL", "animation"]);
+  // the festive season's look (shell/season.ts): offered only during the season
+  if (c.festive) add("general", "look", "festive", t("settings.appearance.festive"), t("settings.appearance.festiveHint"), t("settings.appearance.festiveMore"), ["holiday", "winter", "snow", "season", "theme"]);
   add("general", "deck", "deck.startIn", t("deck.modeCard.startIn"), t("settings.rows.deck"), deckLine(info), ["Steam Deck", "Deck mode", "desktop", "SteamOS"]);
   if (info?.desktop) add("general", "computer", "desktop", t("settings.appearance.desktop"), t("settings.rows.desktop"), desktopHint(info.desktop), ["AppImage", "icon", "taskbar"]);
 

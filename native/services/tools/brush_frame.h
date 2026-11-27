@@ -17,8 +17,8 @@ enum class BrushFrameExit : uint8_t {
     NoFamily,       // no registered family is held (a vanilla tool, or no current held-item observation)
     NoIdentity,     // a family is held but its identity record is gone (removed between the two lookups)
     FrameMismatch,  // not the Overgrowth branch's owned temporaries (the Decay branch, another frame)
-    NotSelected,    // the selected hotbar root is another item, or the resolved ItemInfo pointer is missing
-    NotResolved,    // the resolved ItemInfo names another item
+    NotSelected,    // the selected hotbar item is neither the family's root nor one of its brushes, or no ItemInfo resolved
+    NotResolved,    // the resolved ItemInfo names another item than the selected hotbar item
     OutputNotFresh, // the output is not the fresh, empty, capacity-16 inline array
     TagMismatch,    // include/ratio do not hold the vanilla Overgrowth tag
     ReadFault,      // a guarded read faulted
@@ -33,16 +33,27 @@ inline constexpr std::array<uint8_t,16> overgrowth_brush_tag{
 struct BrushRow {uint64_t lead;uint32_t item;uint8_t zero[0x40-0x0c];uint32_t nominator,denominator;};
 static_assert(sizeof(BrushRow)==72&&offsetof(BrushRow,item)==8&&offsetof(BrushRow,nominator)==0x40&&offsetof(BrushRow,denominator)==0x44);
 inline constexpr size_t brush_rows_capacity=16; // the frame's inline SmallDynamicArray; its grow callback may be null
+inline constexpr size_t brush_family_capacity=64; // a family's brushes (presentation.h Registry::valid)
+// Every brush of the held family, in declared order: the first 16 become the picker's rows, all of them are the family's.
 struct BrushFamilyRows {const uint32_t* items;size_t count;};
 struct BrushFrameOutcome {BrushFrameResult result;BrushFrameExit exit;uint32_t rows;bool truncated;};
 // The query scans only ItemRegistryResource.terraformingTools, a list in the game's data, never the runtime registry, so
 // a family's brushes (runtime items) are never in it. Admission therefore writes the family's own rows into the fresh
 // output, in declared order with ratio i+1 over 1, and replaces include/ratio with the family identity: no list item
 // carries it, so the native query appends nothing and only sorts these rows by ratio (ascending: declared order).
+// The frame's selected hotbar item is the family's when it is the root or any of its brushes: picking a row puts that
+// brush in the actionbar slot (CreateBuildingItemAction, as a vanilla Overgrowth shape replaces its tool), so from the
+// first pick on the slot holds a brush. A root-only check sent every later frame to the vanilla query, which lists the
+// vanilla Overgrowth shapes, and the next pick gave the player the vanilla tool (kiln#153).
 inline BrushFrameOutcome patch_brush_frame(const BrushFrame& f,uint32_t root,const std::array<uint8_t,16>& tag,BrushFamilyRows brushes) {
     const auto unchanged=[](BrushFrameExit exit){return BrushFrameOutcome{BrushFrameResult::Unchanged,exit,0,false};};
     const size_t rows=brushes.items?(brushes.count<brush_rows_capacity?brushes.count:brush_rows_capacity):0;
-    if(!root || !rows)return unchanged(BrushFrameExit::NoFamily); // a registered family always has 1..64 brushes
+    if(!root || !rows || brushes.count>brush_family_capacity)return unchanged(BrushFrameExit::NoFamily); // a registered family always has 1..64 brushes
+    const auto in_family=[&](uint32_t item) {
+        if(item==root)return true;
+        for(size_t i=0;i<brushes.count;++i)if(brushes.items[i]==item)return true;
+        return false;
+    };
     // Native prologue: RBP=RSP+0x100. Accept only the Overgrowth branch's distinct owned temporaries.
     if(!f.stack || f.stack>UINTPTR_MAX-0x2b28 || f.frame!=f.stack+0x100 ||
        f.output!=f.frame+0x690 || f.include!=f.stack+0x30 || f.ratio!=f.frame+0x100 || f.exclude!=f.stack+0x40)
@@ -54,9 +65,9 @@ inline BrushFrameOutcome patch_brush_frame(const BrushFrame& f,uint32_t root,con
         uint32_t selected=0,resolved=0;uintptr_t info=0,data=0;uint64_t count=0,capacity=0;
         std::memcpy(&selected,reinterpret_cast<const void*>(f.frame+0x118),4);
         std::memcpy(&info,reinterpret_cast<const void*>(f.frame+0xe0),sizeof info);
-        if(selected!=root || !info)return unchanged(BrushFrameExit::NotSelected);
+        if(!selected || !in_family(selected) || !info)return unchanged(BrushFrameExit::NotSelected);
         std::memcpy(&resolved,reinterpret_cast<const void*>(info),4);
-        if(resolved!=root)return unchanged(BrushFrameExit::NotResolved);
+        if(resolved!=selected)return unchanged(BrushFrameExit::NotResolved);
         std::memcpy(&data,reinterpret_cast<const void*>(f.output),sizeof data);
         std::memcpy(&count,reinterpret_cast<const void*>(f.output+8),8);
         std::memcpy(&capacity,reinterpret_cast<const void*>(f.output+16),8);
