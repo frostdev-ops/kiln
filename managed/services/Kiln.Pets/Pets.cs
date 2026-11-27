@@ -45,7 +45,6 @@ namespace Kiln;
 /// </example>
 /// <seealso cref="PetDefinition"/>
 /// <seealso cref="PetsClient"/>
-/// <seealso cref="Taming"/>
 /// <seealso cref="PetChangeEvent"/>
 /// <seealso href="https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/services/pets.md">Pets service</seealso>
 /// <seealso href="https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/pets.md">Pets: the modder's guide</seealso>
@@ -138,7 +137,7 @@ public static partial class Pets
     public static PetSnapshot? Get(PetId pet) => pet.IsNone ? null : Roster("Pets.Get").Get(pet);
 
     /// <summary>Gives a character a new pet of <paramref name="definition"/>: a Ready record with no body (Summon brings it
-    /// out). The mod's way to hand out pets (a reward, a quest, an admin command); taming (19e) makes records too.</summary>
+    /// out). The mod's way to hand out pets (a reward, a quest, an admin command); a tame of a definition that names a pet (<c>TamingDefinition.Pet</c> of Kiln.Taming) makes records too.</summary>
     /// <param name="owner">The character that gets the pet; it need not be online.</param>
     /// <param name="definition">The id of a registered <see cref="PetDefinition"/>.</param>
     /// <param name="request">The request: a new operation id for each grant (<see cref="PetRequest.New"/>).</param>
@@ -152,8 +151,7 @@ public static partial class Pets
     /// if (!r.Ok) Log.Info($"no pet: {r.Reason}");      // Capacity: the character has all it may keep
     /// </code></example>
     /// <seealso cref="Summon"/>
-    /// <seealso cref="TamingDefinition.Pet"/>
-    [ServerOnly, TickThreadOnly, RequiresCapability(Caps.Records)]
+        [ServerOnly, TickThreadOnly, RequiresCapability(Caps.Records)]
     public static Task<PetResult> Grant(CharacterKey owner, string definition, PetRequest request)
     {
         if (owner.IsNone || owner.IsAccountOnly) throw new ArgumentException("a pet owner is a character (account and character id)", nameof(owner));

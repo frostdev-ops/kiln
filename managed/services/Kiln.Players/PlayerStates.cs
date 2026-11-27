@@ -827,6 +827,7 @@ public static unsafe partial class PlayerStates
         }
 
         /// <summary>One native read of these players, as the watch does it: nanoseconds. World's thread.</summary>
+        /// <param name="players">The players to read (at most 64 are read).</param>
         /// <param name="motion">Also DynamicLocomotion and PlayerState.</param>
         /// <param name="input">Also PlayerInput and ActorInput.</param>
         /// <param name="extra">Also the less frequent sources and the base zones.</param>

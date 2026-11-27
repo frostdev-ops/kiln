@@ -28,7 +28,7 @@ public sealed class ImpactStartedEvent : KilnEvent
 /// </summary>
 /// <remarks>While anyone subscribes, new instances are held for one step so the handlers can run on the tick thread
 /// (about 41 ms on a dedicated server). <see cref="Abilities.HoldPrograms"/> narrows that to some programs; with no
-/// filter every new instance is held. Instances created by Kiln with <see cref="Abilities.RunImpact"/> arrive with
+/// filter every new instance is held. Instances created by Kiln with <see cref="Abilities.RunImpact(string, WorldPosition, ImpactOptions)"/> arrive with
 /// their configs already applied.</remarks>
 public sealed class ImpactStartingEvent : CancelableEvent
 {

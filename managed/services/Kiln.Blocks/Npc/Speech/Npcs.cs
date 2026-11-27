@@ -122,8 +122,27 @@ public sealed class NpcSpeech
     public override string ToString() => $"{(Kind == NpcLineKind.Greeting ? "speech" : Kind == NpcLineKind.Farewell ? "farewell" : "menu line")} of {Npc} by {ModId}: {Mode}";
 }
 
-/// <summary>Friendly NPCs' speech bubbles: a mod's own lines in the game's bubble over a villager, craftsperson or
-/// assistant. The host decides; every Kiln client shows it; vanilla clients keep the game's lines.</summary>
+/// <summary>Friendly NPCs' speech: a mod's own lines in the game's bubble over a villager, craftsperson or assistant, and, since
+/// 0.2.0-dev.32, in the NPC's dialogue menu: a farewell, the NPC's own line when the menu opens, a reply to a player, and the mod's
+/// topics on the NPC's talk page. The host decides; every Kiln client shows it; vanilla clients keep the game's lines.</summary>
+/// <remarks>
+/// <para>Any thread. Every call names an NPC by its entity (<see cref="CanSpeak"/> tells whether it can speak). What a mod sets is
+/// the mod's own: several mods can each have an override for one NPC, the highest <see cref="NpcSpeech.Priority"/> shows, and
+/// Kiln ends a mod's overrides, Says and topics when it unloads or the world ends.</para>
+/// <para>Where it shows: the host (a dedicated server, or the player who hosts) holds the state and sends it to every Kiln client;
+/// a client without Kiln, or an older one, keeps the game's lines (each member says which capability it needs:
+/// <c>npcspeech.farewell</c>, <c>npcspeech.menu_line</c>, <c>npcspeech.topics</c>).</para>
+/// </remarks>
+/// <example><code>
+/// Npcs.Say(npc, new UiText("I'm starving..."), TimeSpan.FromSeconds(8));               // once, over its head
+/// Npcs.Speech(npc).Replace("No food, no work.", "Is there nothing to eat around here?"); // its greetings, until cleared
+/// Npcs.Farewells(npc).Replace("Come back with something to eat.");                      // its farewell in the menu
+/// Npcs.Topics(npc).Add(new NpcTopic("feed", "Here, have some bread.") { Reply = new UiText("Bread! Bless you.") });
+/// </code></example>
+/// <seealso cref="NpcSpeech"/>
+/// <seealso cref="NpcTopics"/>
+/// <seealso href="https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/npc-dialogue.md">NPC dialogue: the modder's guide</seealso>
+/// <seealso href="https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/services/npc-speech.md">NPC speech service</seealso>
 public static class Npcs
 {
     /// <summary>The shortest and longest <see cref="Say(EntityId, UiText, TimeSpan, SayOptions?)"/>.</summary>

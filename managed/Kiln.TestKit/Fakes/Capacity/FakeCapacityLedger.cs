@@ -72,7 +72,7 @@ internal sealed unsafe class FakeCapacityLedger
         }
     }
 
-    /// <summary>The managed result of <see cref="Query"/>.</summary>
+    /// <summary>The managed result of <see cref="Query()"/>.</summary>
     public CapacityQueryResult Query()
     {
         var n = KilnCapacityInfo.New();

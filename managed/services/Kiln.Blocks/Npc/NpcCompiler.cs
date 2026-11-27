@@ -225,6 +225,9 @@ internal static class NpcCompiler
         AiLowering.Check(ctx, a, path);   // npcai's fields (Ai/AiLowering.cs)
     }
 
+    /// <param name="ctx">The block being compiled.</param>
+    /// <param name="b">The behaviour.</param>
+    /// <param name="path">Where it is in the block, for errors.</param>
     /// <param name="used">A creature's behaviour (its rules are checked as it lowers them), or one on its own: its rules only warn, as
     /// 0.2.0-dev.30.6 checked them only where a creature used it.</param>
     private static void CheckBehaviour(BlockContext ctx, BehaviourBlock b, string path, bool used)
@@ -289,6 +292,9 @@ internal static class NpcCompiler
 
     private const string UnusedRule = "; a rule is checked where a creature's behaviour uses it, and that creature is refused";
 
+    /// <param name="ctx">The block being compiled.</param>
+    /// <param name="r">The rule.</param>
+    /// <param name="path">Where it is in the block, for errors.</param>
     /// <param name="used">A creature lowers it: wrong values refuse the creature. A rule (or behaviour) block on its own only warns, as
     /// 0.2.0-dev.30.6 checked a rule only where a creature used it.</param>
     private static void CheckRule(BlockContext ctx, RuleBlock r, string path, bool used)

@@ -64,6 +64,8 @@ public sealed class SpeechPick
 
     /// <summary>The same line for the same greeting everywhere: a mix of <paramref name="seed"/>, the NPC and how many
     /// times the player has seen it, picked by each player's own game with no message per greeting.</summary>
+    /// <param name="seed">Any number: the same seed gives the same sequence for the same NPC, so every player's game agrees.</param>
+    /// <returns>The pick to set as <see cref="NpcSpeech.Pick"/>.</returns>
     public static SpeechPick Seeded(int seed) => new(SpeechNative.PickSeeded, unchecked((uint)seed), null, $"Seeded({seed})");
 
     /// <summary>The host decides for each player: <paramref name="choose"/> runs on the host's tick thread and returns
@@ -71,7 +73,15 @@ public sealed class SpeechPick
     /// greeting ahead: when the override is set, after each greeting of that player, and at
     /// <see cref="NpcSpeech.Refresh"/>; the player's game shows what it was given last. A throwing callback or an index
     /// out of range counts as -1.</summary>
+    /// <param name="choose">Runs on the host's tick thread with the NPC, the player and how many times that player has seen the line
+    /// (<see cref="NpcLineContext"/>); returns the line's index, or -1 for the game's own line.</param>
+    /// <returns>The pick to set as <see cref="NpcSpeech.Pick"/>.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="choose"/> is null.</exception>
+    /// <example><code>
+    /// var line = Npcs.MenuLine(npc);
+    /// line.Pick = SpeechPick.By(ctx =&gt; ctx.Opens == 0 ? 0 : 1);     // the first line the first time each player opens the menu
+    /// line.Replace("Welcome, Flameborn!", "Back again?");
+    /// </code></example>
     public static SpeechPick By(Func<NpcLineContext, int> choose)
     {
         ArgumentNullException.ThrowIfNull(choose);

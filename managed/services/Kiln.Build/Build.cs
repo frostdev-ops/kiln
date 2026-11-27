@@ -8,7 +8,7 @@ namespace Kiln;
 /// <summary>
 /// Changes the world the way the game saves and replicates it, so vanilla clients see the result: voxel cells
 /// (terrain and building blocks), shape edits (dig, add, flatten, smooth, paint, replace), props, schematics
-/// (<see cref="Schematic"/>), a per-session undo journal and <see cref="PlaceOnce"/>.
+/// (<see cref="Schematic"/>), a per-session undo journal and <see cref="PlaceOnce(string, Schematic, WorldPosition, PasteOptions)"/>.
 /// </summary>
 /// <remarks>
 /// Everything that touches the world runs on the tick thread (a mod's handlers, <c>OnLoad</c>, continuations after
@@ -295,8 +295,13 @@ public static partial class Build
     /// ran. If one compared cell differs (a handler, or anything since the caller read the box, changed it), nothing is
     /// written and the result is <see cref="BuildRefusal.Changed"/>. Compared are the cells the write would set: where
     /// <paramref name="mask"/> is true, or every cell without a mask. Since 0.2.0-dev.28.</summary>
+    /// <param name="box">The cells to write.</param>
+    /// <param name="cells">The new value of each cell of <paramref name="box"/>, in the box's order.</param>
     /// <param name="expected">The cells the caller read (<see cref="Read"/>) and based its edit on; same layout as
     /// <paramref name="cells"/>.</param>
+    /// <param name="options">How to write (journal, flags), or null for the defaults.</param>
+    /// <param name="mask">Empty: every cell is written and compared. Otherwise one flag per cell: only the cells where it is true
+    /// are written and compared.</param>
     /// <remarks>The compare and the commit are one step: they run in the same call on the tick thread, where no other
     /// mod's code and no job of the game's world runs between them. The tiles must be loaded (a missing tile is
     /// <see cref="BuildRefusal.NotLoaded"/>, also with <see cref="BuildFlags.Unloaded"/>). A refusal by the compare
@@ -429,6 +434,11 @@ public static partial class Build
 
     // ---- internals shared with schematics ----
 
+    /// <param name="box">The cells to write.</param>
+    /// <param name="cells">The new value of each cell, in the box's order.</param>
+    /// <param name="mask">Empty: every cell. Otherwise one flag per cell: only those that are true are written.</param>
+    /// <param name="o">The options of the write.</param>
+    /// <param name="entry">The undo journal entry to record the change in, or null.</param>
     /// <param name="expected">Empty: write. Otherwise <see cref="WriteIfUnchanged"/>'s guard: compared right before the
     /// commit.</param>
     internal static unsafe BuildResult WriteCore(CellBox box, ReadOnlySpan<Voxel> cells, ReadOnlySpan<bool> mask, BuildOptions o, JournalEntry? entry,

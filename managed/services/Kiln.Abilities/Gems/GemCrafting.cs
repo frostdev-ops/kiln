@@ -690,6 +690,14 @@ internal static unsafe class GemCrafting
     /// <summary>The request for an action, from what the player's (or holder's) inventories hold now: the carrier by its
     /// entity, a loose gem by its slot. Null with a refusal when an item is not there, or its slot holds another item than
     /// the ref names (another type, or the same entity id with another stamp).</summary>
+    /// <param name="action">What the player asked.</param>
+    /// <param name="player">The player whose inventories are read.</param>
+    /// <param name="first">The carrier (a gear item) the action works on.</param>
+    /// <param name="gem">The gem the action socketed or takes out.</param>
+    /// <param name="forge">The forge entity the player stands at.</param>
+    /// <param name="options">The action's options, or null.</param>
+    /// <param name="slots">The slots of the player's (or holder's) inventories now.</param>
+    /// <param name="isGem">Whether an item is a gem.</param>
     /// <param name="isGear">Whether an item has an entity of its own (gear, gems): such an item is no replaced cost.</param>
     /// <exception cref="ArgumentException">The cost is negative, over 100000, or (but for Recycle) an item with an entity
     /// of its own.</exception>

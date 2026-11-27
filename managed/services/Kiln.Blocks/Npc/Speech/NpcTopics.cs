@@ -35,6 +35,7 @@ public enum NpcTopicHint : byte
 /// </code></example>
 /// <seealso cref="NpcTopics"/>
 /// <seealso cref="Npcs.Topics"/>
+/// <seealso href="https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/npc-dialogue.md">NPC dialogue: the modder's guide</seealso>
 public sealed record NpcTopic
 {
     /// <summary>A topic with the same label in every language.</summary>
@@ -145,6 +146,7 @@ public sealed class NpcTopicContext
 /// </code></example>
 /// <seealso cref="Npcs.Topics"/>
 /// <seealso cref="NpcTopic"/>
+/// <seealso href="https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/npc-dialogue.md">NPC dialogue: the modder's guide</seealso>
 public sealed class NpcTopics
 {
     internal NpcTopics(EntityId npc, string owner)

@@ -13,7 +13,7 @@ namespace Kiln.TestKit;
 /// <summary>Which listed component types the write program takes, by kiln.world's rule (write_queue.h
 /// WriteDeclarations add + admit): mods in boot order, each mod's names in its order, a name listed twice counted once; a
 /// name the world has no component type for is refused as unknown and takes no accessor; of the others the first 91 are
-/// the program's and the rest over the limit. Without a way to tell (<paramref name="inWorld"/> null: no Kiln.Game beside
+/// the program's and the rest over the limit. Without a way to tell (the <c>inWorld</c> test null: no Kiln.Game beside
 /// the tests) every name is refused: the kit cannot check one. A mod whose list was not read is refused whole.</summary>
 internal static class WriteLists
 {

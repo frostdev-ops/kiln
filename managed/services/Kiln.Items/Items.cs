@@ -89,6 +89,8 @@ public static unsafe partial class Items
     public static IReadOnlyList<ItemInfo> All => ItemCatalog.Load(T);
 
     /// <summary>The item with this id, or null.</summary>
+    /// <param name="id">The item's id.</param>
+    /// <returns>The catalog entry, or null when the id is not in the world's registry (or it has not loaded its items yet).</returns>
     public static ItemInfo? Get(ItemId id) => ItemCatalog.Get(T, id);
 
     /// <summary>
@@ -96,9 +98,17 @@ public static unsafe partial class Items
     /// ("Wood Logs"), exact match first, then ignoring case. Returns null when nothing matches. Display names come
     /// from the dashboard catalog shipped with Kiln; when several items share one, a non-blueprint wins.
     /// </summary>
+    /// <param name="nameOrId">An id (<c>"0x2b0cf1d5"</c>, <c>"722268629"</c>), a debug name or a display name.</param>
+    /// <returns>The item, or null when nothing matches.</returns>
+    /// <example><code>
+    /// ItemInfo? logs = Items.Lookup("Material_T1_Wood_Logs");
+    /// </code></example>
     public static ItemInfo? Lookup(string nameOrId) => ItemCatalog.Lookup(T, nameOrId);
 
     /// <summary>Items whose debug or display name contains <paramref name="text"/> (ignoring case).</summary>
+    /// <param name="text">The text to look for.</param>
+    /// <param name="max">At most this many items (default 25).</param>
+    /// <returns>The matching items, at most <paramref name="max"/>.</returns>
     public static IReadOnlyList<ItemInfo> Search(string text, int max = 25) => ItemCatalog.Search(T, text, max);
 
     /// <summary>
@@ -109,6 +119,8 @@ public static unsafe partial class Items
     /// and on a client until the game's texts are read (the first call starts that in the background; it takes a fraction
     /// of a second), it is the English name Kiln ships for the game's items. Null for an id Kiln knows no name of.
     /// </summary>
+    /// <param name="item">The item's id.</param>
+    /// <returns>The name, or null for an id Kiln knows no name of.</returns>
     /// <remarks>Any thread, also a draw callback: it never waits for a read. Keep the answer per frame, not per call site,
     /// if you draw many names.</remarks>
     [AnyThread]
@@ -131,6 +143,16 @@ public static unsafe partial class Items
     // ------------------------------------------------------------------------------------------- reading -------
 
     /// <summary>The inventory of <paramref name="entity"/>, or null when it has none (or it does not exist).</summary>
+    /// <param name="entity">The inventory owner: a player, a chest, a villager.</param>
+    /// <returns>A copy of its slots as they are now (at most 256 are read), or null.</returns>
+    /// <exception cref="KilnUnavailableException">The capability <c>kiln.items</c> is off.</exception>
+    /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
+    /// <example><code>
+    /// InventoryContents? bag = Items.Read(player.Entity.Id);
+    /// int logs = bag?.Slots.Where(s =&gt; s.Item == logsId).Sum(s =&gt; s.Count) ?? 0;
+    /// </code></example>
+    /// <seealso cref="Give(EntityId, ItemId, int, Gear?, GiveOptions, SlotId?)"/>
+    /// <seealso cref="ItemSelection.Of"/>
     [RequiresCapability(Caps.Service)]
     [TickThreadOnly]
     public static InventoryContents? Read(EntityId entity)
@@ -164,6 +186,10 @@ public static unsafe partial class Items
 
     /// <summary>Entities with an initialized inventory of these kinds (one pass over the world's entities). Players'
     /// storages only with <see cref="InventoryKinds.PlayerStorage"/> (since 0.2.0-dev.30.7).</summary>
+    /// <param name="kinds">Which kinds of inventory owner to find (default: containers).</param>
+    /// <returns>The entities that hold such an inventory.</returns>
+    /// <exception cref="KilnUnavailableException">The capability <c>kiln.items</c> is off.</exception>
+    /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
     [RequiresCapability(Caps.Service)]
     [TickThreadOnly]
     public static IReadOnlyList<EntityId> FindInventories(InventoryKinds kinds = InventoryKinds.Containers)
@@ -198,6 +224,23 @@ public static unsafe partial class Items
     /// <paramref name="gear"/>'s level and rarity. Completes on the tick thread with what happened (never throws for
     /// game-side outcomes; check <see cref="ItemsResult.Status"/>).
     /// </summary>
+    /// <param name="target">Whose inventory receives it: a player, a chest, a villager.</param>
+    /// <param name="item">The item.</param>
+    /// <param name="count">How many (default 1).</param>
+    /// <param name="gear">For gear: the level (1 to 255), rarity, unlocked upgrades (0 to 5, or 255 for all) and a gem slot it
+    /// comes with; null for the game's defaults.</param>
+    /// <param name="options">Popup, all-or-nothing, no merging, or a dry run (<see cref="GiveOptions"/>).</param>
+    /// <param name="slot">Put it in this slot first, when given.</param>
+    /// <returns>A task that completes on the tick thread with the result: how many were given and which slots changed. A bad
+    /// argument (a level out of range) is a result with <see cref="ItemsStatus.Invalid"/>, not an exception.</returns>
+    /// <exception cref="KilnUnavailableException">The capability <c>kiln.items</c> is off.</exception>
+    /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
+    /// <example><code>
+    /// ItemsResult r = await Items.Give(player.Entity.Id, logsId, 50, options: GiveOptions.Notify | GiveOptions.AllOrNothing);
+    /// if (r.Status != ItemsStatus.Done) Log.Info($"not given: {r.Status} {r.Message}");
+    /// </code></example>
+    /// <seealso cref="Take"/>
+    /// <seealso cref="Move"/>
     [RequiresCapability(Caps.Service)]
     [TickThreadOnly]
     public static Task<ItemsResult> Give(EntityId target, ItemId item, int count = 1, Gear? gear = null,
@@ -249,6 +292,13 @@ public static unsafe partial class Items
     /// <see cref="ItemsResult.Done"/> counts recipe runs,
     /// <see cref="ItemsResult.Changes"/> lists the stacks with their item entities.
     /// </summary>
+    /// <param name="target">Whose inventory receives the outputs.</param>
+    /// <param name="recipeId">The recipe's id.</param>
+    /// <param name="count">How many times the recipe's result is made (default 1).</param>
+    /// <param name="options">Popup, no merging or a dry run (<see cref="GiveOptions"/>).</param>
+    /// <returns>A task that completes on the tick thread with the result.</returns>
+    /// <exception cref="KilnUnavailableException">The capability <c>kiln.items</c> is off.</exception>
+    /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
     [RequiresCapability(Caps.Service)]
     [TickThreadOnly]
     public static Task<ItemsResult> GiveRecipeResult(EntityId target, uint recipeId, int count = 1,
@@ -264,6 +314,13 @@ public static unsafe partial class Items
 
     /// <summary>Give by name or id (see <see cref="Lookup"/>); an unknown name completes with
     /// <see cref="ItemsStatus.UnknownItem"/>.</summary>
+    /// <param name="target">Whose inventory receives it.</param>
+    /// <param name="item">An id, debug name or display name, as <see cref="Lookup"/> takes.</param>
+    /// <param name="count">How many (default 1).</param>
+    /// <param name="gear">As <see cref="Give(EntityId, ItemId, int, Gear?, GiveOptions, SlotId?)"/>'s.</param>
+    /// <param name="options">As <see cref="Give(EntityId, ItemId, int, Gear?, GiveOptions, SlotId?)"/>'s.</param>
+    /// <returns>A task that completes on the tick thread with the result.</returns>
+    /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
     [RequiresCapability(Caps.Service)]
     [TickThreadOnly]
     public static Task<ItemsResult> Give(EntityId target, string item, int count = 1, Gear? gear = null,
@@ -281,6 +338,22 @@ public static unsafe partial class Items
     /// slot (backpack, action bars, equipment); with <paramref name="exactSlot"/> only that slot, and only while it
     /// still holds the item (and <paramref name="itemEntity"/> when given). Gear taken out is destroyed by the game.
     /// </summary>
+    /// <param name="target">Whose inventory to take from.</param>
+    /// <param name="item">The item.</param>
+    /// <param name="count">How many (default 1); if the inventory holds fewer, nothing is taken.</param>
+    /// <param name="from">The slot to try first (and the only one with <paramref name="exactSlot"/>).</param>
+    /// <param name="exactSlot">True: take from <paramref name="from"/> only; it needs a slot.</param>
+    /// <param name="itemEntity">With <paramref name="exactSlot"/>: the slot must hold this item entity (gear).</param>
+    /// <param name="dryRun">True: run the transaction and roll it back; the result says what would happen.</param>
+    /// <returns>A task that completes on the tick thread with the result; <see cref="ItemsResult.Done"/> says how many left.</returns>
+    /// <exception cref="KilnUnavailableException">The capability <c>kiln.items</c> is off.</exception>
+    /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
+    /// <example><code>
+    /// ItemsResult r = await Items.Take(player.Entity.Id, baitId, 2);
+    /// if (r.Status == ItemsStatus.Done) { /* paid */ }
+    /// </code></example>
+    /// <seealso cref="ItemCosts.Take"/>
+    /// <seealso cref="Give(EntityId, ItemId, int, Gear?, GiveOptions, SlotId?)"/>
     [RequiresCapability(Caps.Service)]
     [TickThreadOnly]
     public static Task<ItemsResult> Take(EntityId target, ItemId item, int count = 1, SlotId? from = null,
@@ -299,6 +372,12 @@ public static unsafe partial class Items
     }
 
     /// <summary>Takes everything in one slot as read (exact slot, the same item entity for gear).</summary>
+    /// <param name="target">Whose inventory the slot belongs to.</param>
+    /// <param name="slot">The slot as read (<see cref="Read"/>); an empty one is a result with <see cref="ItemsStatus.Invalid"/>.</param>
+    /// <param name="dryRun">True: roll the transaction back; the result says what would happen.</param>
+    /// <returns>A task that completes on the tick thread with the result.</returns>
+    /// <exception cref="KilnUnavailableException">The capability <c>kiln.items</c> is off.</exception>
+    /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
     [RequiresCapability(Caps.Service)]
     [TickThreadOnly]
     public static Task<ItemsResult> TakeSlot(EntityId target, InventorySlot slot, bool dryRun = false) =>

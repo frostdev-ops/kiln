@@ -20,9 +20,9 @@ public abstract class PetChangeEvent : KilnEvent
     private protected PetChangeEvent(PetChange change) => Change = change;
     /// <summary>The change: before, after, the request, the step.</summary>
     public PetChange Change { get; }
-    /// <summary>The pet.</summary>
+    /// <summary>The pet that changed: its id (<see cref="Change"/> holds the whole before and after).</summary>
     public PetId Pet => Change.After.Id;
-    /// <summary>Its owner.</summary>
+    /// <summary>The character that owns the pet.</summary>
     public CharacterKey Owner => Change.After.Owner;
 }
 

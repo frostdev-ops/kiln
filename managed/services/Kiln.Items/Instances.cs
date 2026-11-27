@@ -170,6 +170,8 @@ public static unsafe partial class Items
     /// <summary>The item in <paramref name="player"/>'s hand: what the running action uses, else the selected
     /// action-bar slot (as the game picks it). <see cref="ItemInstanceRef.None"/> when the hand is empty, holds a plain
     /// stack (no item entity), or the entity is not a player.</summary>
+    /// <param name="player">The player's entity.</param>
+    /// <returns>The held item as an item reference, or <see cref="ItemInstanceRef.None"/>.</returns>
     /// <exception cref="ArgumentException"><paramref name="player"/> is none.</exception>
     /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
     /// <exception cref="KilnUnavailableException">The capability <c>items.instances</c> is off, or the game's type
@@ -188,6 +190,9 @@ public static unsafe partial class Items
 
     /// <summary>The item <paramref name="player"/> wears or holds in an equipment slot.
     /// <see cref="ItemInstanceRef.None"/> when the slot is empty or the entity is not a player.</summary>
+    /// <param name="player">The player's entity.</param>
+    /// <param name="slot">The equipment slot to read.</param>
+    /// <returns>The worn or held item as an item reference, or <see cref="ItemInstanceRef.None"/>.</returns>
     /// <exception cref="ArgumentException"><paramref name="player"/> is none, or <paramref name="slot"/> is not an
     /// <see cref="EquipmentSlot"/>.</exception>
     /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>

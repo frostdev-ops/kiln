@@ -155,6 +155,14 @@ public static unsafe partial class Items
     /// moves with its item entity. Transfer rules and events (<see cref="Transfers"/>) see it, flagged
     /// <see cref="InventoryTransferEvent.ByMod"/>, unless <see cref="MoveOptions.Silent"/>.
     /// </summary>
+    /// <param name="from">The inventory owner the stacks leave.</param>
+    /// <param name="to">The inventory owner that already holds a stack of the item.</param>
+    /// <param name="options">See <see cref="MoveOptions"/>.</param>
+    /// <returns>A task that completes on the tick thread, one step after it ran, with what moved (<see cref="MoveResult.Status"/>).</returns>
+    /// <exception cref="KilnUnavailableException">The capability <c>items.move</c> is off.</exception>
+    /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
+    /// <seealso cref="MoveAll"/>
+    /// <seealso cref="Move"/>
     [RequiresCapability(Caps.Move)]
     [TickThreadOnly]
     public static Task<MoveResult> QuickStack(EntityId from, EntityId to, MoveOptions options = MoveOptions.None) =>
@@ -165,6 +173,14 @@ public static unsafe partial class Items
     /// player's action bar stays unless <see cref="MoveOptions.ActionBar"/>. Gear moves with its item entity. Transfer
     /// rules and events see it, unless <see cref="MoveOptions.Silent"/>.
     /// </summary>
+    /// <param name="from">The inventory owner the stacks leave.</param>
+    /// <param name="to">The inventory owner they enter.</param>
+    /// <param name="options">See <see cref="MoveOptions"/>.</param>
+    /// <returns>A task that completes on the tick thread, one step after it ran, with what moved (<see cref="MoveResult.Status"/>).</returns>
+    /// <exception cref="KilnUnavailableException">The capability <c>items.move</c> is off.</exception>
+    /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
+    /// <seealso cref="QuickStack"/>
+    /// <seealso cref="Move"/>
     [RequiresCapability(Caps.Move)]
     [TickThreadOnly]
     public static Task<MoveResult> MoveAll(EntityId from, EntityId to, MoveOptions options = MoveOptions.None) =>

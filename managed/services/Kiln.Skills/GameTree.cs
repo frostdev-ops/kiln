@@ -320,7 +320,21 @@ public sealed record GameNodeInfo(Guid Guid, uint Id, string Name, string Owner,
 /// <summary>One step of <see cref="GameTree.Simulate"/>.</summary>
 [System.Diagnostics.CodeAnalysis.Experimental("KILNX001", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx001")]
 [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
-public enum GameTreeSimOp : uint { Unlock = 1, UnlockForce = 2, Lock = 3, Check = 4, AddRaw = 5, Strip = 6 }
+public enum GameTreeSimOp : uint
+{
+    /// <summary>The game's reachability check, then its node setter (unlock).</summary>
+    Unlock = 1,
+    /// <summary>The node setter (unlock) without the reachability check.</summary>
+    UnlockForce = 2,
+    /// <summary>The node setter (lock).</summary>
+    Lock = 3,
+    /// <summary>Changes nothing: reports the checks.</summary>
+    Check = 4,
+    /// <summary>Writes the node into a free slot as the save would (an id the tree may not know).</summary>
+    AddRaw = 5,
+    /// <summary>The login guard's strip of nodes the tree does not know.</summary>
+    Strip = 6,
+}
 
 /// <summary>The game's own skill functions' answer after one simulated step.</summary>
 [System.Diagnostics.CodeAnalysis.Experimental("KILNX001", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx001")]
@@ -328,6 +342,7 @@ public enum GameTreeSimOp : uint { Unlock = 1, UnlockForce = 2, Lock = 3, Check 
 public sealed record GameTreeSimResult(GameTreeSimOp Op, uint Node, bool Ok, bool Reachable, bool Rebuild, bool Connected,
     bool LevelsValid, int Level, bool Known, int Spent, int UnlockedNodes, int Stripped, int Index)
 {
+    /// <summary>One line for a lab log: the step, its node and every answer.</summary>
     public override string ToString() =>
         $"{Op} 0x{Node:x8}: ok {Ok}, known {Known} (index {Index}), reachable before {Reachable}, rebuild {Rebuild}, " +
         $"connected {Connected}, levels valid {LevelsValid}, level {Level}, spent {Spent}, nodes {UnlockedNodes}" +

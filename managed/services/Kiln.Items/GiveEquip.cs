@@ -46,7 +46,7 @@ public static unsafe partial class Items
     /// arrows, count 1): created once with its item entity in that Generic cell and selected there, as the game equips
     /// one from the backpack; a replaced eternal keeps its entity (Backpack) or is destroyed (Take). Without the sigdb
     /// feature items.give_equip.instance_ammo an eternal is refused before any change. EquipmentSlotType must fit.
-    /// Count must fit one stack (one for gear and eternal ammo). Backpack items cannot yet be given into the bag slot.
+    /// Count must fit one stack (one for gear and eternal ammo). Backpack items cannot be given into the bag slot.
     /// Since 0.2.0-dev.30.6.</summary>
     /// <returns>One transaction's outcome. A refusal or DryRun changes nothing. A committed change posts
     /// EquipChangedEvent; ReplacedItem and ReplacedCount report the old stack. From is None: no intermediate backpack

@@ -137,9 +137,15 @@ internal static class BlockIcons
     }
 
     /// <summary>A status's or a perk's own PNG: checked now, and once the block is in, served (client) and named (both sides) when content is ready.</summary>
+    /// <param name="ctx">The block being compiled.</param>
+    /// <param name="low">What the block lowers into.</param>
     /// <param name="section"><c>buffs</c> or <c>perks</c>.</param>
     /// <param name="entry">The clone's name.</param>
+    /// <param name="registry">The game-data registry the clone is made in.</param>
     /// <param name="starter">The game entry the clone starts from: its icon is what shows until the PNG is served.</param>
+    /// <param name="icon">The PNG's name in the mod's resources.</param>
+    /// <param name="key">The icon's key (its name in the game's icon table).</param>
+    /// <param name="path">Where the icon is in the block, for errors.</param>
     public static Guid Own(BlockContext ctx, Lowered low, string section, string entry, GameDataRegistry registry, string starter, string icon, string key, string path)
     {
         ctx.Need(ClientsLevel.Mod, path, "a PNG icon has to be on every player's game: nothing can send it (a game " + (section == "buffs" ? "status's icon, a GameBuffs constant," : "perk's icon, a GamePerks constant,") + " asks no more than kiln)");

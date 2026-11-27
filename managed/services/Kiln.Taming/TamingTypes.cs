@@ -402,7 +402,7 @@ public abstract class TamingChangedEvent : KilnEvent
 
     /// <summary>The attempt before the change (null for a start).</summary>
     public TamingProgress? Before { get; }
-    /// <summary>The attempt now.</summary>
+    /// <summary>The attempt now: after the change, with its state, steps, receipts and refunds.</summary>
     public TamingProgress After { get; }
     /// <summary>The request id that changed it (empty for a timeout, or a failure Kiln saw by itself).</summary>
     public Guid RequestId { get; }

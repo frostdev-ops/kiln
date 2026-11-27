@@ -82,7 +82,7 @@ internal readonly record struct LeaseRow(ulong Owner, ulong Lease, KilnTaskState
 /// <para>A C# task is ONE lease: one record against its owner's limits, admitted like a native submit. Each piece of the
 /// method between two <c>await</c>s runs as one <see cref="LeaseWork.Segment"/> on a pool worker; segments of one lease
 /// never overlap. A segment that suspends <see cref="Arm"/>s exactly one resumption before it returns, and that
-/// registration is later spent once by <see cref="Resume"/> or <see cref="ResumeAfterStep"/>; a suspended lease holds no
+/// registration is later spent once by <see cref="Resume"/> or <see cref="ResumeAfterStep(ulong, ulong, ulong)"/>; a suspended lease holds no
 /// worker. The segment in which the task ends calls <see cref="Finish"/> instead of arming. Continuations are never
 /// refused by the owner's limits or by a seal, so a cancelled task can always finish.</para>
 /// <para>Records: the backend drops a lease's record once it is terminal (finished, or cancelled before its first

@@ -155,7 +155,7 @@ public readonly struct ConcurrentCopy
     public int Required { get; }
 }
 
-/// <summary>The outcome of <see cref="WorldConcurrent.Query"/>.</summary>
+/// <summary>The outcome of <see cref="WorldConcurrent.Query(in EntityQuery, Span{ConcurrentEntity})"/>.</summary>
 public readonly struct ConcurrentQueryResult
 {
     internal ConcurrentQueryResult(ReadStatus status, int count, int required)
@@ -175,7 +175,7 @@ public readonly struct ConcurrentQueryResult
     public int Required { get; }
 }
 
-/// <summary>A query for <see cref="WorldConcurrent.Query"/>: the entities of one world that have every listed component,
+/// <summary>A query for <see cref="WorldConcurrent.Query(in EntityQuery, Span{ConcurrentEntity})"/>: the entities of one world that have every listed component,
 /// optionally within <see cref="Radius"/> metres of <see cref="Center"/>.</summary>
 public readonly struct EntityQuery
 {

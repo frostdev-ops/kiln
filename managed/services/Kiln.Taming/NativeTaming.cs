@@ -75,15 +75,15 @@ public sealed class NativeTamingProgressEvent : KilnEvent
         Cause = cause;
     }
 
-    /// <summary>The animal.</summary>
+    /// <summary>The wild animal whose taming progress changed.</summary>
     public EntityId Creature { get; }
-    /// <summary>Progress before.</summary>
+    /// <summary>Its progress before the change, in the game's steps.</summary>
     public int Before { get; }
-    /// <summary>Progress now.</summary>
+    /// <summary>Its progress now, in the game's steps (<see cref="Required"/> is the number that tames it).</summary>
     public int After { get; }
     /// <summary>Steps to the farm transformation.</summary>
     public int Required { get; }
-    /// <summary>Why.</summary>
+    /// <summary>Why the progress changed: a step, a startle, or something else.</summary>
     public NativeTamingCause Cause { get; }
 
     /// <summary>For logs.</summary>

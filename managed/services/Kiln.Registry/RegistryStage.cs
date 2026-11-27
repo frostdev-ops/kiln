@@ -121,7 +121,12 @@ public sealed class RegistryStage
     /// <summary>Any registry of <see cref="RegistrySchema"/> by name (<c>"items"</c>, or one a later schema adds), its fields by Kiln
     /// path: the same edits as the typed properties above. <see cref="ArgumentException"/> when the schema has no such registry.
     /// Since 0.2.0-dev.32.</summary>
-    /// <param name="registry">The registry's name.</param>
+    /// <param name="registry">The registry's name (<see cref="RegistrySchema.Versions"/> lists them).</param>
+    /// <returns>The registry's entries as <see cref="RegistryEntry"/>: look one up by its Kiln id, or <c>Select</c> a pattern.</returns>
+    /// <exception cref="ArgumentException">The name is empty, or the schema has no such registry.</exception>
+    /// <example><code>
+    /// registry.Alter(view =&gt; view.Entries("perks")["game:perk_max_adder_health_t7"].Set("value", 150));
+    /// </code></example>
     public RegistryEntries<RegistryEntry> Entries(string registry)
     {
         Context.Ensure(); ArgumentException.ThrowIfNullOrEmpty(registry);

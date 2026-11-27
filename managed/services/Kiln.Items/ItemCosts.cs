@@ -26,6 +26,14 @@ public sealed record ItemSelection(EntityRef InventoryOwner, SlotId Slot, ItemId
 
     /// <summary>The selection of <paramref name="slot"/> as it was read from <paramref name="owner"/>'s inventory
     /// (<see cref="Items.Read"/>).</summary>
+    /// <param name="owner">Whose inventory the slot was read from.</param>
+    /// <param name="slot">The slot as read: it must not be empty, and gear must carry its stamped ref.</param>
+    /// <returns>The selection: the slot, its item and count as they were when read. The cost checks them again when it runs.</returns>
+    /// <example><code>
+    /// var inventory = Items.Read(player.Entity);
+    /// var slot = inventory!.Slots.First(s => s.Item == baitId &amp;&amp; !s.IsEmpty);
+    /// ItemSelection pick = ItemSelection.Of(EntityRef.Of(player.Entity), slot);
+    /// </code></example>
     /// <exception cref="ArgumentException">The slot is empty, or holds gear without a stamped ref (item instances off).</exception>
     public static ItemSelection Of(EntityRef owner, InventorySlot slot)
     {
@@ -194,6 +202,24 @@ public sealed class ItemCostSettledEvent : KilnEvent
 /// the same receipt (after); another cost under it is refused (<see cref="CostRefusal.RequestConflict"/>). A network
 /// retry sends the same id; a new intended payment takes a new one. Nothing here is atomic with anything else (a pet
 /// record, a save): a committed receipt says the inventory changed in the running world. Since 0.2.0-dev.32.</summary>
+/// <remarks>Server only, tick thread. Pick the slot first (<see cref="Choose"/>, or the one a player selected from
+/// <see cref="Items.Read"/> through <see cref="ItemSelection.Of"/>), optionally ask <see cref="Check"/>, then pay with
+/// <see cref="Take"/> or <see cref="Wear"/> and read the <see cref="CostReceipt"/>. A refusal is a receipt, not an exception: check
+/// <see cref="CostReceipt.Committed"/>. A receipt that is <see cref="CostState.Uncertain"/> may have moved items: never pay again
+/// as if nothing happened, and never refund it automatically. Kiln.Pets' revives and Kiln.Taming's steps pay through it.</remarks>
+/// <example><code>
+/// var slot = ItemCosts.Choose(player.Entity, baitId, 2);                   // the first slot with 2 or more
+/// if (slot is null) return;
+/// CostReceipt paid = await ItemCosts.Take(slot, 2, Guid.NewGuid());
+/// if (!paid.Committed) { Log.Info($"not paid: {paid.Refusal}: {paid.Reason}"); return; }
+/// // the action fails later: give it back, under a request id of its own
+/// CostReceipt back = await ItemCosts.Refund(paid, Guid.NewGuid());
+/// </code></example>
+/// <seealso cref="CostReceipt"/>
+/// <seealso cref="ItemSelection"/>
+/// <seealso cref="ItemCostSettledEvent"/>
+/// <seealso href="https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/item-costs.md">Item costs: the modder's guide</seealso>
+/// <seealso href="https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/services/item-costs.md">Item costs service</seealso>
 [ServerOnly]
 public static unsafe class ItemCosts
 {
@@ -215,6 +241,10 @@ public static unsafe class ItemCosts
     /// <summary>The first slot of <paramref name="owner"/>'s inventories (in their link order) holding a plain stack of
     /// at least <paramref name="count"/> of <paramref name="item"/>, as a selection; null when none does. A server-side
     /// choice for a cost the player did not pick a slot for.</summary>
+    /// <param name="owner">Whose inventories to look in (a player's session entity, a chest).</param>
+    /// <param name="item">The item to find, as a plain stack (gear is skipped).</param>
+    /// <param name="count">At least this many in one stack: 1 to 100000. A cost split over two stacks is not found.</param>
+    /// <returns>The selection of the first matching slot, or null when none holds enough.</returns>
     /// <exception cref="ArgumentException"><paramref name="owner"/> or <paramref name="item"/> is none.</exception>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="count"/> is outside 1..100000.</exception>
     /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
@@ -235,6 +265,11 @@ public static unsafe class ItemCosts
     /// <summary>Whether <paramref name="selection"/> could pay <paramref name="amount"/> now (items for a stack, durability
     /// units for gear): null when it could; else why not, starting with the <see cref="CostRefusal"/> name. A read only:
     /// nothing moves, and the cost is checked again when it runs.</summary>
+    /// <param name="selection">The slot that would pay.</param>
+    /// <param name="amount">Items for a plain stack, durability units for gear.</param>
+    /// <param name="allowBreak">Gear only: let the wear leave the item below 1 durability.</param>
+    /// <returns>Null when it could pay; else a reason that starts with the <see cref="CostRefusal"/> name
+    /// (<c>StaleSelection</c>, <c>NotAStack</c>, <c>NotGear</c>, <c>Broken</c>, <c>WouldBreak</c>).</returns>
     /// <exception cref="ArgumentNullException"><paramref name="selection"/> is null.</exception>
     /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
     [TickThreadOnly]
@@ -292,9 +327,10 @@ public static unsafe class ItemCosts
     /// sends no break notice for Kiln's cost). In a world with durability off the use costs 0
     /// (<see cref="CostDisposition.WearWaivedByWorld"/>).</summary>
     /// <param name="selection">A gear item's selection (its stamped ref).</param>
-    /// <param name="units">0 to 32767 (0: a use that costs nothing, still checked and receipted).</param>
+    /// <param name="units">Durability units to take: 0 to 32767 (0: a use that costs nothing, still checked and receipted).</param>
     /// <param name="requestId">As <see cref="Take"/>'s.</param>
-    /// <param name="allowBreak">Let the wear reach 0.</param>
+    /// <param name="allowBreak">Let the wear reach 0 (the tool may break). False: a wear that would leave less than 1 is refused
+    /// (<see cref="CostRefusal.WouldBreak"/>).</param>
     /// <returns>As <see cref="Take"/>'s; <see cref="CostReceipt.Taken"/> is what the game applied.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="selection"/> is null.</exception>
     /// <exception cref="ArgumentException">An empty request id, a stack selection, no owner, slot or item.</exception>
@@ -321,6 +357,8 @@ public static unsafe class ItemCosts
     /// <see cref="CostDisposition.Partial"/> or <see cref="CostRefusal.NoRoom"/>.</summary>
     /// <param name="receipt">A take's or a wear's receipt.</param>
     /// <param name="requestId">The refund's own id.</param>
+    /// <returns>The refund's receipt (<see cref="CostReceipt.RefundOf"/> names the cost it gives back for), completing on the tick
+    /// thread in the step after the refund ran. A refusal is a receipt with <see cref="CostReceipt.Committed"/> false.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="receipt"/> is null.</exception>
     /// <exception cref="ArgumentException">An empty request id, or a refund's receipt.</exception>
     /// <exception cref="InvalidOperationException">Not on the tick thread, or the calling mod is unloading.</exception>

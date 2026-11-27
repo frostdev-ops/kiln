@@ -108,7 +108,7 @@ public enum AbilityResource
     SpecialAbility,
 }
 
-/// <summary>Options of <see cref="Abilities.RunImpact"/> / <see cref="Abilities.RunProgram"/>.</summary>
+/// <summary>Options of <see cref="Abilities.RunImpact(string, WorldPosition, ImpactOptions)"/> / <see cref="Abilities.RunProgram"/>.</summary>
 public sealed class ImpactOptions
 {
     /// <summary>The caster: the impact's ImpactHierarchy root and parent (kill credit, faction and same-root filters:

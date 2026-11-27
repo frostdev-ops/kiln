@@ -12,7 +12,7 @@ public enum PetLevelMode
 {
     /// <summary>Always <see cref="PetLevelPolicy.Level"/>.</summary>
     Fixed = 0,
-    /// <summary>The owner's level when the pet record was made: at the tame (<see cref="TamingDefinition.Pet"/>), or at the grant for
+    /// <summary>The owner's level when the pet record was made: at the tame (<c>TamingDefinition.Pet</c> of Kiln.Taming), or at the grant for
     /// a pet given with <see cref="Pets.Grant"/>. The owner must be in game then (<c>LevelUnavailable</c> otherwise).</summary>
     OwnerAtTame = 1,
     /// <summary>The owner's level each time a body is made (summon, revive).</summary>
@@ -194,7 +194,6 @@ public sealed record PetHudPolicy
 /// });
 /// </code></example>
 /// <seealso cref="Pets.Define"/>
-/// <seealso cref="TamingDefinition.Pet"/>
 /// <seealso href="https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/pets.md">Pets: the modder's guide</seealso>
 public sealed record PetDefinition
 {

@@ -11,10 +11,14 @@ internal sealed record DeliveryLowered(Guid PlacedEntity, float Speed, EffectEmi
 
 internal static partial class Compiler
 {
+    /// <param name="ctx">The block being compiled.</param>
+    /// <param name="low">What the block lowers into.</param>
     /// <param name="key">The block's oldest name (<c>Was ?? name</c>): ids come from it.</param>
     /// <param name="name">The block's name: the game's debug names come from it.</param>
+    /// <param name="d">The delivery.</param>
     /// <param name="path">Where the delivery is in the block, for errors ("delivery").</param>
     /// <param name="onCast">What happens to the caster the moment it leaves, if anything.</param>
+    /// <param name="onCastPath">Where <paramref name="onCast"/> is in the block, for errors.</param>
     /// <param name="primary">Its first damage is what the item's power stands for: bound to the Damage config a real cast overwrites with the used
     /// item's power. An item has one power, so only one attack of it can be bound; with false, the delivery deals exactly the numbers written.</param>
     internal static DeliveryLowered LowerDelivery(BlockContext ctx, Lowered low, string key, string name, IDeliveryBlock d, string path, IReadOnlyList<EffectRef>? onCast = null, string onCastPath = "onCast", bool primary = true)

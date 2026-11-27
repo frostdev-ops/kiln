@@ -6,7 +6,7 @@ namespace Kiln;
 internal static class GemsCaps
 {
     /// <summary>Managed, session: the read API (<see cref="Gems.Catalog"/>, <see cref="Gems.Get"/>,
-    /// <see cref="Gems.Equipped"/>, <see cref="Gems.Socket"/>) and <see cref="GemSocketChangedEvent"/>.</summary>
+    /// <see cref="Gems.Equipped"/>, <see cref="Gems.Socket(ItemInstanceRef)"/>) and <see cref="GemSocketChangedEvent"/>.</summary>
     public const string Read = "gems.read";
 
     /// <summary>Managed, session: <see cref="GemTriggeredEvent"/> (G1) and gems with their own effects (G2).</summary>

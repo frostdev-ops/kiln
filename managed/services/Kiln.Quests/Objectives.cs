@@ -497,6 +497,9 @@ public static class QuestInput
     /// <summary>The synthetic holders seen so far.</summary>
     public static IReadOnlyCollection<QuestHolder> Known => SyntheticInput.Known;
 
+    /// <summary>Whether the holder is one of the synthetic holders seen so far (see <see cref="Known"/>): a test's stand-in for a player.</summary>
+    /// <param name="h">The holder.</param>
+    /// <returns>True when a synthetic input has named it.</returns>
     public static bool IsSynthetic(QuestHolder h) => SyntheticInput.IsSynthetic(h);
 
     /// <summary>A creature died (or was destroyed, with <paramref name="destroyed"/>): the same path as the game's deaths.</summary>
@@ -539,6 +542,10 @@ public static class QuestInput
         QuestObjectives.OnTalk(h, EntityId.None, def?.Template ?? npc, def, line, node);
     }
 
+    /// <summary>The holder crafted <paramref name="count"/> of an item: credits its Craft objectives for that item.</summary>
+    /// <param name="h">The holder.</param>
+    /// <param name="item">The item's name, as the objective names it (case does not matter).</param>
+    /// <param name="count">How many were crafted (default 1).</param>
     [TickThreadOnly]
     public static void Craft(QuestHolder h, string item, int count = 1)
     {
@@ -547,6 +554,10 @@ public static class QuestInput
         QuestObjectives.OnCraftInput(h, item, count);
     }
 
+    /// <summary>The holder built <paramref name="count"/> of a prop: credits its Build objectives for that prop.</summary>
+    /// <param name="h">The holder.</param>
+    /// <param name="prop">The prop's name, as the objective names it (case does not matter).</param>
+    /// <param name="count">How many were built (default 1).</param>
     [TickThreadOnly]
     public static void Build(QuestHolder h, string prop, int count = 1)
     {

@@ -384,7 +384,7 @@ public sealed record CastBlock
 }
 
 /// <summary>A cast animation with its timing. Premade instances; <c>CastAnimation.Lob with { Animation = …, HitAt = 1.2 }</c> plays another state or moves the release
-/// (in JSON <c>{ "like": "lob", "animation": …, "hitAt": 1.2 }</c>; without <c>like</c>, the quick bolt). A spell takes them; an ability's cast does not yet.</summary>
+/// (in JSON <c>{ "like": "lob", "animation": …, "hitAt": 1.2 }</c>; without <c>like</c>, the quick bolt). A spell takes them; an ability's cast does not.</summary>
 /// <param name="Key">The name JSON gives this animation (<c>"fast-bolt"</c>, <c>"lob"</c>).</param>
 /// <param name="Sequence">The game's own cast sequence it plays, by name.</param>
 /// <param name="ChargeSeconds">The charge time the spell's tooltip shows, in seconds.</param>

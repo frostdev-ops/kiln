@@ -99,11 +99,12 @@ public sealed record PetCommit
 /// <seealso cref="PetChange"/>
 public sealed record PetSnapshot
 {
-    /// <summary>Its id.</summary>
+    /// <summary>The pet's id: stable for the life of its record, whatever bodies it has.</summary>
     public PetId Id { get; init; }
-    /// <summary>Its owner.</summary>
+    /// <summary>The character that owns it (not the player's session: the owner need not be online).</summary>
     public CharacterKey Owner { get; init; }
-    /// <summary>Its definition's id.</summary>
+    /// <summary>The id of its <see cref="PetDefinition"/> (<c>my-mod:hound</c>). A record whose definition is not defined in this
+    /// session stays dormant.</summary>
     public string Definition { get; init; } = "";
     /// <summary>The name its owner reads.</summary>
     public string Label { get; init; } = "";
@@ -115,7 +116,7 @@ public sealed record PetSnapshot
     public EntityRef Body { get; init; }
     /// <summary>Alive, down or released.</summary>
     public PetLife Life { get; init; }
-    /// <summary>Where it is.</summary>
+    /// <summary>Where it is: no body, a live body, a recovery anchor, or a body being removed.</summary>
     public PetPresence Presence { get; init; }
     /// <summary>What is happening to it.</summary>
     public PetTransition Transition { get; init; }
@@ -127,7 +128,7 @@ public sealed record PetSnapshot
     public EntityRef RequestedTarget { get; init; }
     /// <summary>The recovery anchor's spot while it is shown (and the spot kept for it while Downed and Absent).</summary>
     public WorldPosition? RecoveryAnchor { get; init; }
-    /// <summary>Its level.</summary>
+    /// <summary>Its level, 1 to 255 (from the definition's <see cref="PetLevelPolicy"/>).</summary>
     public int Level { get; init; }
     /// <summary>Its health (0 while down; while it has no body, its kept share of <see cref="HealthMax"/>).</summary>
     public int Health { get; init; }
@@ -212,7 +213,7 @@ public enum PetChangeCause
 /// <see cref="PetChangeEvent"/> carries one. Since 0.2.0-dev.32.</summary>
 public sealed record PetChange
 {
-    /// <summary>Unique per change.</summary>
+    /// <summary>A GUID that is new for every change: it names this change in logs and in anything the mod keeps about it.</summary>
     public Guid EventId { get; init; }
     /// <summary>The request's operation id; empty when no request caused it.</summary>
     public Guid OperationId { get; init; }
@@ -222,6 +223,6 @@ public sealed record PetChange
     public PetSnapshot Before { get; init; } = new();
     /// <summary>The pet after.</summary>
     public PetSnapshot After { get; init; } = new();
-    /// <summary>Why.</summary>
+    /// <summary>Why the pet changed: a request, a lost body, a lethal hit, a logout, a revive channel's own course, ...</summary>
     public PetChangeCause Cause { get; init; }
 }
