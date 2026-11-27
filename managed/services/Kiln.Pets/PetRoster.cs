@@ -56,7 +56,7 @@ internal sealed class PetState
         Health = Life == PetLife.Downed ? 0 : Body is not null ? Health : HealthOf(HealthFraction, LastHealthMax),
         HealthMax = Body is not null ? HealthMax : LastHealthMax,
         StateRevision = StateRevision, DurableRevision = DurableRevision, LastCommit = LastCommit,
-        ReviveOperation = ReviveOperation, ReviveElapsed = ReviveElapsed, ReviveDuration = ReviveDuration,
+        ReviveRequest = ReviveOperation, ReviveElapsed = Seconds.Of(ReviveElapsed), ReviveDuration = Seconds.Of(ReviveDuration),
     };
 
     /// <summary>ceil(max x fraction), as revive and summon restore it (a share stored as 0.55 of 100 is 55, not 56).</summary>
@@ -108,6 +108,13 @@ internal sealed partial class PetRoster
     }
 
     internal bool IsHostile(CharacterKey a, CharacterKey b) => _hostile.Contains(PetTargetRule.Pair(a, b));
+
+    /// <summary>The characters declared hostile to <paramref name="c"/>.</summary>
+    internal IReadOnlyList<CharacterKey> HostileTo(CharacterKey c) =>
+        _hostile.Where(p => p.Item1 == c || p.Item2 == c).Select(p => p.Item1 == c ? p.Item2 : p.Item1).ToList();
+
+    /// <summary>Every declared pair, once each (the test kit lists them).</summary>
+    internal IReadOnlyList<(CharacterKey A, CharacterKey B)> HostilePairs => _hostile.ToList();
 
     private string? DefaultTargetCheck(PetState p, EntityRef target)
     {
@@ -171,8 +178,8 @@ internal sealed partial class PetRoster
                 Id = p.Id, Definition = p.Definition, Label = v.Label, Life = v.Life, Presence = v.Presence, Transition = v.Transition,
                 Body = p.Body is { } b ? new PetBodyViewKey(b.Entity.Id.Value, b.Generation) : null,
                 RecoveryAnchor = v.Presence == PetPresence.RecoveryAnchor ? v.RecoveryAnchor : null, RequestedOrder = v.RequestedOrder,
-                Level = v.Level, Current = v.Health, Maximum = v.HealthMax, ReviveOperation = v.ReviveOperation,
-                ReviveElapsedMs = (uint)Math.Clamp(v.ReviveElapsed * 1000, 0, uint.MaxValue), ReviveDurationMs = (uint)Math.Clamp(v.ReviveDuration * 1000, 0, uint.MaxValue),
+                Level = v.Level, Current = v.Health, Maximum = v.HealthMax, ReviveRequest = v.ReviveRequest,
+                ReviveElapsed = PetViewCodec.Millis(v.ReviveElapsed), ReviveDuration = PetViewCodec.Millis(v.ReviveDuration),
                 StateRevision = v.StateRevision, DurableRevision = v.DurableRevision, ShowBar = hud.Bar, ShowMarker = hud.RecoveryMarker,
             });
         }
@@ -1135,7 +1142,7 @@ internal sealed partial class PetRoster
         if (_owners.TryGetValue(p.Owner, out var o)) o.Dirty = true;
         var after = p.View(_epoch);
         foreach (var make in events)
-            _events.Add(make(new PetChange { EventId = Guid.NewGuid(), OperationId = operation, ObservedStep = _world.Step, Before = before, After = after, Cause = cause }));
+            _events.Add(make(new PetChange { EventId = Guid.NewGuid(), RequestId = operation, ObservedStep = _world.Step, Before = before, After = after, Cause = cause }));
         Changes?.Invoke(p);
     }
 

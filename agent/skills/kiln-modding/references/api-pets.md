@@ -33,20 +33,21 @@ public override void OnLoad()
     {
         Id = "my-mod:duelist",
         Creature = "game:enemy_vukah_melee",
-        DisplayName = "Duelist",
+        Name = "Duelist",
         Level = new PetLevelPolicy { Mode = PetLevelMode.OwnerAtSummon },
         Movement = new PetMovementPolicy { FollowDistance = 4, RunDistance = 12 },
         Targets = new PetTargetPolicy { Pvp = PetPvpMode.ByModRule },
         Downed = new PetDownedPolicy { Outcome = PetDownedOutcome.Absent },
-        Revive = new PetRevivePolicy { ChannelSeconds = 5, Cost = new PetCostDefinition(Items.Lookup("Material_T1_Twigs")!.Id, 3) },
-        Caps = new PetCaps { LivePerCharacter = 2 },
+        Revive = new PetRevivePolicy { ChannelDuration = TimeSpan.FromSeconds(5), Cost = new PetCostDefinition(Items.Lookup("Material_T1_Twigs")!.Id, 3) },
+        Limits = new PetLimits { LivePerCharacter = 2 },
         Hud = new PetHudPolicy { RecoveryMarker = false },
     });
     if (!def.Ok) Log.Warn($"pet not defined: {def.Reason}");   // DefinitionInUse, CreatureUnknown, CreatureUnsupported, ...
 }
 ```
 
-The same as data (`blocks/*.json`, section `pets`; names are the camelCase of the C# members; `PetsSample/blocks/pets.json`):
+The same as data (`blocks/*.json`, section `pets`; names are the camelCase of the C# members, durations a number of seconds
+(`channelSeconds` for `ChannelDuration`); `PetsSample/blocks/pets.json`):
 
 ```json
 { "pets": { "duelist": {
@@ -56,19 +57,19 @@ The same as data (`blocks/*.json`, section `pets`; names are the camelCase of th
     "targets": { "pvp": "byModRule", "hostileFactions": ["vukah", "fogger"] },
     "downed": { "outcome": "absent" },
     "revive": { "channelSeconds": 5, "cost": { "item": "Material_T1_Twigs", "count": 3 } },
-    "caps": { "livePerCharacter": 2 }, "hud": { "recoveryMarker": false } } } }
+    "limits": { "livePerCharacter": 2 }, "hud": { "recoveryMarker": false } } } }
 ```
 
 | Choice | Member | Default and range |
 |---|---|---|
 | The body | `Creature`: a creatures-registry id (`game:enemy_...`) or a creature block of a mod (`my-mod:name`, a `CreatureBlock` handle in a `PetBlock`) | required. Never a template name or GUID. **Only enemy creatures that walk** (`CreatureUnsupported` otherwise: no wildlife, farm animals or flyers) |
-| Name | `Name` on the block, `DisplayName` on `PetDefinition` | the creature's own; 1 to 64 UTF-8 bytes |
+| Name | `Name` on the block and on `PetDefinition` | the creature's own; 1 to 64 UTF-8 bytes |
 | Level and size | `PetLevelPolicy`: `Mode` (`Fixed`, `OwnerAtTame`, `OwnerAtSummon`), `Level` 1..255 (not above the creature's highest), `Scale` 0.25..4 | fixed 1, scale 1 |
-| Following | `PetMovementPolicy`: `Mode` (`QueryInput` Kiln's walk-only routes, `EngineGuard` the game's guard), `FollowDistance` 1..10, `RunDistance` up to 30, `CatchUpDistance` 10..160, `StuckSeconds` 1..30, `RepathSeconds` 0.1..5, `GroundSearchMeters` 0.5..8, `AllowCatchUp` | 3 m, run past 10 m, catch up past 60 m or 5 s stuck |
+| Following | `PetMovementPolicy`: `Mode` (`QueryInput` Kiln's walk-only routes, `EngineGuard` the game's guard), `FollowDistance` 1..10, `RunDistance` up to 30, `CatchUpDistance` 10..160, `StuckAfter` 1..30 s, `RepathInterval` 0.1..5 s (TimeSpans; JSON `stuckSeconds`, `repathSeconds`), `GroundSearchMeters` 0.5..8, `AllowCatchUp` | 3 m, run past 10 m, catch up past 60 m or 5 s stuck |
 | Who it fights | `PetTargetPolicy`: `HostileFactions` (never Player, AutomatedPlayer, PlayerAlly, FarmAnimal: `Define` refuses them), `Pvp` (`Off`, `ByModRule`) | Fogger, Vukah, Scavenger, WildBeast, Skeleton, Cyclops, Drak, Ancients; PvP off |
 | Going down | `PetDownedPolicy.Outcome`: `RecoveryAnchor`, `Absent`, `Release`; per pet in `PetDowningEvent` | a recovery anchor where it fell |
-| Revive | `PetRevivePolicy` / `ReviveBlock`: `Allowed`, `ChannelSeconds` 0.1..60, `RangeMeters` 1..8, `HealthFraction` (0, 1], `Cost` (one plain stack item, 1..999), `CancelOnMovement`, `MaxOwnerDisplacement` 0.1..2, `CancelOnObservedOwnerDamage` | allowed, 3 s, 3 m, half health, free, movement and damage cancel |
-| How many | `PetCaps`: `RetainedPerCharacter` 1..128, `LivePerCharacter` 1..16, `LivePerWorld` 1..256 | 32, 1, 16 |
+| Revive | `PetRevivePolicy` / `ReviveBlock`: `Allowed`, `ChannelDuration` 0.1..60 s, `RangeMeters` 1..8, `HealthFraction` (0, 1], `Cost` (one plain stack item, 1..999), `CancelOnMovement`, `MaxOwnerDisplacement` 0.1..2, `CancelOnObservedOwnerDamage` | allowed, 3 s, 3 m, half health, free, movement and damage cancel |
+| How many | `PetLimits` (JSON `limits`): `RetainedPerCharacter` 1..128, `LivePerCharacter` 1..16, `LivePerWorld` 1..256 | 32, 1, 16 |
 | The owner's HUD | `PetHudPolicy`: `Bar`, `RecoveryMarker` | both on |
 
 A bad value throws `ArgumentException` naming the field path (in a blocks file: a `BlockError`). A revive cost's item is checked
@@ -94,14 +95,15 @@ foreach (var p in Pets.Of(key)) Log.Info($"{p.Label}: {p.Life} {p.Presence} {p.H
 
 - **Server, tick thread** (`Pets.Define` is made in `OnLoad`; `Definition` and `Definitions` read from any thread). Every
   request returns `Task<PetResult>`: `await` it from a handler or command. A handler's own request runs at the next step.
-- **`PetRequest.New()`** makes a fresh operation id. The same id again gives the first answer back for 10 minutes (a retry never
+- **`PetRequest.New()`** makes a fresh request id. The same id again gives the first answer back for 10 minutes (a retry never
   does it twice); the same id for another request is `RequestConflict`; a nonzero `ExpectedStateRevision` that moved on is
-  `StaleRevision`. `PetResult` has `Ok`, `Reason`, `Pet` (after it), `Costs` (receipts).
-- **Refusals are results, not exceptions:** `Busy`, `NotOwner`, `OwnerOffline`, `AlreadyReleased`, `Capacity`, `NoSafeGround`,
+  `StaleRevision`. `PetResult` has `Ok`, `Reason`, `Refusal`, `Pet` (after it), `Costs` (receipts), `RequestId`.
+- **Refusals are results, not exceptions:** decide by `r.Refusal == PetRefusal.Capacity` (`PetRefusal`; `Reason` is text for
+  logs): `Busy`, `NotOwner`, `OwnerOffline`, `AlreadyReleased`, `Capacity`, `NoSafeGround`,
   `BodyNotReady`, `ControlRefused`, `ProtectionUnavailable`, `TargetProtected`, `RecoveryNotSummoned`, `OutOfRange`,
-  `CostUnavailable`, `ReviveRefused`, `UncertainCommit`, ... A bad argument throws `ArgumentException`; an off row throws
+  `CostUnavailable`, `RefusedByMod` (a mod's handler), `UncertainCommit`, ... A bad argument throws `ArgumentException`; an off row throws
   `KilnUnavailableException` naming it. A refusal after a cost was taken carries its receipts: Kiln invents no refund.
-- **Rows** (ask first, [api-contract.md](api-contract.md)): `pets.definitions`, `pets.records` (Grant, Of, Release), `pets.summon`
+- **Rows** (ask first, [api-contract.md](api-contract.md); each is a constant, `Pets.SummonCapability` and so on): `pets.definitions`, `pets.records` (Grant, Of, Release), `pets.summon`
   (Summon, Dismiss), `pets.follow` (Command), `pets.fight` (Attack, `SetHostile`), `pets.downed` (Revive), `pets.control`,
   `pets.hud.server`, `pets.hud.client`. `Capabilities.Why(row)` says why one is off (a joined client has no server rows).
 
@@ -128,7 +130,7 @@ Events.On<PetRevivedEvent>(e => Log.Info($"{e.Change.After.Label} is back"));
 ```
 
 `PetDownedEvent` comes only after the combat body is gone. `PetRevivingEvent` has the quoted `Cost` (null: free) and the
-`OperationId` (`Pets.CancelRevive` names it). Also `PetGrantedEvent`, `PetSummonedEvent`, `PetDismissedEvent`,
+`RequestId` (`Pets.CancelRevive` names it). Also `PetGrantedEvent`, `PetSummonedEvent`, `PetDismissedEvent`,
 `PetCommandChangedEvent`, `PetRecoveryAnchorChangedEvent`, `PetBodyRetiredEvent`, `PetBodyLostEvent`, `PetReviveStartedEvent`,
 `PetReviveCanceledEvent`, `PetReleasedEvent`, `PetStatsChangedEvent`, `PetProtectionLostEvent`, `PetRecordCommittedEvent`
 (`DurableRevision` moved: a save holds it), `PetControlChangedEvent`, `PetDefinitionChangedEvent`.

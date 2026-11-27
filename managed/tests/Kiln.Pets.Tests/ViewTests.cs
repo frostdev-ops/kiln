@@ -11,8 +11,18 @@ namespace Kiln.PetsTests;
 
 public sealed class ViewTests : IDisposable
 {
-    public ViewTests() => PetsClient.ResetForTests();
-    public void Dispose() => PetsClient.ResetForTests();
+    // the view's own tests run as a game whose pets.hud.client is on (ApiShapeTests: off, PetsClient refuses)
+    public ViewTests()
+    {
+        PetsClient.ResetForTests();
+        PetsRuntime.TestRows = true;
+    }
+
+    public void Dispose()
+    {
+        PetsRuntime.TestRows = false;
+        PetsClient.ResetForTests();
+    }
 
     private static PetViewEntry Entry(int n, PetPresence presence = PetPresence.Live, PetLife life = PetLife.Ready, int cur = 50, int max = 100) => new()
     {
@@ -27,7 +37,7 @@ public sealed class ViewTests : IDisposable
     [Fact]
     public void The_codec_round_trips_every_field()
     {
-        var e = Entry(1) with { Transition = PetTransition.Reviving, ReviveOperation = Guid.NewGuid(), ReviveElapsedMs = 1500, ReviveDurationMs = 3000, ShowMarker = false };
+        var e = Entry(1) with { Transition = PetTransition.Reviving, ReviveRequest = Guid.NewGuid(), ReviveElapsed = TimeSpan.FromMilliseconds(1500), ReviveDuration = TimeSpan.FromSeconds(3), ShowMarker = false };
         var a = Entry(2, PetPresence.RecoveryAnchor, PetLife.Downed, 0, 100);
         var v = View(5, 77, e, a);
         var back = PetViewCodec.Read(PetViewCodec.Write(v), out var error);

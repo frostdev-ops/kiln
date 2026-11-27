@@ -70,7 +70,7 @@ public sealed class TamingReviewTests
     public void A_cancel_from_the_committing_handler_of_a_retry_never_binds_a_pet_after_the_refund()
     {
         var f = new TamingFixture().With(Def(new FeedStep(Bait)) with { Refund = TamingRefundPolicy.Escrow });
-        f.Binder.Result = new TamingBindResult(false, null, "Cap: the roster is full", true);
+        f.Binder.Result = new TamingBindResult(false, null, "Capacity: the roster is full", true);
         var p = f.Advance(f.Begin().Progress!, f.Stack(Bait)).Progress!;
         Assert.Equal(TamingState.AwaitingCommit, p.State);
         f.Binder.Result = new TamingBindResult(true, null, null, false);

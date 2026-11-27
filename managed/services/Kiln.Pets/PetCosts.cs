@@ -30,7 +30,7 @@ internal sealed class GamePetCosts : IPetCosts
     internal Func<ItemSelection, int, Guid, Task<CostReceipt>> Take { get; init; } = (s, n, id) => ItemCosts.AsService(() => ItemCosts.Take(s, n, id));
 
     /// <summary>The request id of a revive's debit: one per operation and world, so a repeat of the operation in the same
-    /// world is the same debit, and an operation id used again in a later world never answers with an old world's receipt
+    /// world is the same debit, and a request id used again in a later world never answers with an old world's receipt
     /// (kiln.item_costs keeps a request id's receipt for the life of the process).</summary>
     internal static Guid RequestFor(Guid operation, ulong worldEpoch)
     {

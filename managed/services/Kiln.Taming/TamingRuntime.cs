@@ -43,7 +43,7 @@ internal sealed class GameTamingWorld : ITamingWorld
         catch (NotSupportedException) { /* no kiln.players */ }
         if (p is not { InGame: true })
         {
-            reason = "WrongOwner: the player is not in game";
+            reason = "OwnerOffline: the player is not in game";
             return null;
         }
         EntityRef entity;
@@ -101,21 +101,26 @@ internal static class TamingRuntime
             var e = new TamingEngine(new GameTamingWorld(), new GameTamingCosts());
             e.Binder = new PetsTamingBinder();
             e.ResolveCreature = id => PetCreatures.Resolve(id, out _)?.Template;
-            return _engine = e;
+            // Taming.Definition reads on any thread: the first engine made is the one (never two)
+            return Interlocked.CompareExchange(ref _engine, e, null) ?? e;
         }
         set => _engine = value;
     }
 
+    /// <summary>The engine if one was made (never makes one).</summary>
+    internal static TamingEngine? Current => Volatile.Read(ref _engine);
+
     /// <summary>A mod's definition; its definitions go when it unloads (their running attempts fail DefinitionGone).</summary>
-    internal static void Define(TamingDefinition d, string mod)
+    internal static TamingDefinitionResult Define(TamingDefinition d, string mod)
     {
-        Engine.Define(d, mod);
+        var r = Engine.Define(d, mod);
         if (ModContext.CurrentMod is { } ctx && ctx.Info.Id == mod && Watched.Add(mod))
             ctx.Retiring += () =>
             {
                 Watched.Remove(mod);
                 _engine?.RemoveMod(mod);
             };
+        return r;
     }
 
     /// <summary>The service tick (every step).</summary>

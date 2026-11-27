@@ -10,6 +10,10 @@
 //   5. an escrow attempt fed once and canceled gives its meat back once; ItemCosts.Refund of the same paid receipt under a
 //      new request id is AlreadyRefunded and gives nothing more;
 //   6. a roster that fills during an attempt refuses the last step before its cost (nothing taken).
+// Since the review of API-SHAPE-2 (the request shape before mod API 0.2.27): every action takes a TamingRequest; Choices
+// gives the token of its view and says whether it cut the list (Truncated); in 5 a cancel with the stale token of the
+// view before the feed is StaleStep and changes nothing, and the same stale view cancels without a token (by the attempt's
+// id), its replay giving the same answer.
 using Kiln;
 
 namespace TamingReviewTest;
@@ -47,11 +51,13 @@ public sealed class TamingReviewTestMod : Mod
         // 1: a definition is data: no world runs yet
         try
         {
-            Taming.Define(new TamingDefinition
+            var defined = Taming.Define(new TamingDefinition
             {
                 Id = "taming-review-test:onload", Creatures = ["game:enemy_wildbeast_wolf_earlygame"], Steps = [new WeakenStep(1)],
             });
-            _onLoad = $"defined (world running: {Lifecycle.IsServerRunning}, taming.steps {Capabilities.Get(Taming.Capability).State})";
+            _onLoad = defined.Ok
+                ? $"defined (world running: {Lifecycle.IsServerRunning}, taming.steps {Capabilities.Get(Taming.Capability).State})"
+                : $"refused {defined.Refusal}: {defined.Reason}";
         }
         catch (Exception e)
         {
@@ -73,8 +79,6 @@ public sealed class TamingReviewTestMod : Mod
         TryGet(() => { Creatures.Of(e).Faction = Faction.Wildlife; return null; });   // a lab wolf that does not attack the bot
         return e;
     }
-
-    private static TamingToken Token(TamingProgress p) => new(Guid.NewGuid(), p.StepChallenge, p.Revision, p.CompletedSteps);
 
     private async Task Run()
     {
@@ -119,11 +123,11 @@ public sealed class TamingReviewTestMod : Mod
             Check(give.Status == ItemsStatus.Done && Meat() >= 6, $"the bot holds raw lean meat: {Meat()} ({give.Status})");
             var wolf = await Make(Wolf, bot.Position!.Value with { X = bot.Position.Value.X + 2.5f });
             var before = Meat();
-            var begin = Taming.Begin(who, EntityRef.Of(wolf), "taming-review-test:block-wolf", Guid.NewGuid());
+            var begin = await Taming.Begin(who, EntityRef.Of(wolf), "taming-review-test:block-wolf", TamingRequest.New());
             Check(begin.Ok, $"Begin on a wolf with the bot as the tamer: {begin.Reason} {begin.Progress?.State}");
             if (!begin.Ok) return;
             var p = begin.Progress!;
-            var weaken = await Taming.Advance(who, p.Id, Token(p));
+            var weaken = await Taming.Advance(who, p.Id, TamingRequest.New(p.Token));
             Check(weaken is { Ok: true, StepApplied: true }, $"the weaken step applies with no cost: {weaken.Reason}");
             p = weaken.Progress!;
             var choices = Taming.Choices(who, p.Id);
@@ -132,7 +136,9 @@ public sealed class TamingReviewTestMod : Mod
                 Check(false, $"Choices lists the bot's meat: {choices.Reason}");
                 return;
             }
-            var feed = await Taming.Advance(who, p.Id, new TamingToken(Guid.NewGuid(), choices.StepChallenge, choices.Revision, p.CompletedSteps), choices.Choices[0].Selection);
+            Check(choices is { Ok: true, Truncated: false } && choices.Token == p.Token && choices.Refusal == TamingRefusal.None,
+                $"Choices lists {choices.Choices.Count} slot(s) of meat on the current view (token {(choices.Token == p.Token ? "current" : "other")}, truncated {choices.Truncated})");
+            var feed = await Taming.Advance(who, p.Id, TamingRequest.New(choices.Token), choices.Choices[0].Selection);
             Check(feed is { Ok: true, Pet: not null } && feed.Progress!.State == TamingState.Committed && Meat() == before - 2,
                 $"the last step tamed it, took exactly 2 meat ({before} -> {Meat()}) and bound pet {feed.Pet?.Id}: {feed.Reason}");
             PetSnapshot? live = null;
@@ -149,15 +155,23 @@ public sealed class TamingReviewTestMod : Mod
             // 5: escrow given back once
             var wolf2 = await Make(Wolf, bot.Position!.Value with { Z = bot.Position.Value.Z + 2.5f });
             var held = Meat();
-            var b2 = Taming.Begin(who, EntityRef.Of(wolf2), "taming-review-test:block-escrow", Guid.NewGuid());
+            var b2 = await Taming.Begin(who, EntityRef.Of(wolf2), "taming-review-test:block-escrow", TamingRequest.New());
             Check(b2.Ok, $"an escrow attempt begins: {b2.Reason}");
             if (!b2.Ok) return;
             var q = b2.Progress!;
             var c2 = Taming.Choices(who, q.Id);
-            var fed = c2.Choices.Count > 0 ? await Taming.Advance(who, q.Id, new TamingToken(Guid.NewGuid(), c2.StepChallenge, c2.Revision, 0), c2.Choices[0].Selection) : null;
+            var fed = c2.Choices.Count > 0 ? await Taming.Advance(who, q.Id, TamingRequest.New(c2.Token), c2.Choices[0].Selection) : null;
             var spent = Meat();
-            q = fed?.Progress ?? q;
-            var cancel = await Taming.Cancel(who, q.Id, Token(q));
+            // q is the view before the feed: a cancel that names its token is StaleStep and changes nothing
+            var stale = await Taming.Cancel(who, q.Id, TamingRequest.New(q.Token));
+            Check(stale is { Ok: false, Refusal: TamingRefusal.StaleStep } && stale.Progress?.State == TamingState.Active && Meat() == spent,
+                $"a cancel with the stale token of the view before the feed is StaleStep: {stale.Refusal} {stale.Reason}; {stale.Progress?.State}");
+            // the same stale view cancels by the attempt's id (no token), and the same request again is the same answer
+            var byId = TamingRequest.New();
+            var cancel = await Taming.Cancel(who, q.Id, byId);
+            var replay = await Taming.Cancel(who, q.Id, byId);
+            Check(cancel is { Ok: true } && cancel.Progress?.State == TamingState.Canceled && replay == cancel,
+                $"the stale view cancels without a token: {cancel.Reason} {cancel.Progress?.State}; the replay is the same answer: {replay == cancel}");
             for (var i = 0; i < 10 && Meat() != held; i++) await Steps(1);
             var refund = cancel.Progress?.Refunds.SingleOrDefault();
             Check(fed is { StepApplied: true } && spent == held - 1 && cancel.Ok && refund?.Refund is { Committed: true, Taken: 1 } && Meat() == held,
@@ -171,28 +185,28 @@ public sealed class TamingReviewTestMod : Mod
             }
 
             // 6: a roster that fills during the attempt refuses the last step before its cost
-            var cap = Pets.Define(new PetDefinition { Id = "taming-review-test:cap-pet", Creature = "game:enemy_wildbeast_wolf_earlygame", Caps = new PetCaps { RetainedPerCharacter = 1 } });
-            Taming.Define(new TamingDefinition
+            var cap = Pets.Define(new PetDefinition { Id = "taming-review-test:cap-pet", Creature = "game:enemy_wildbeast_wolf_earlygame", Limits = new PetLimits { RetainedPerCharacter = 1 } });
+            var capTaming = Taming.Define(new TamingDefinition
             {
                 Id = "taming-review-test:cap", Creatures = ["game:enemy_wildbeast_wolf_earlygame"], Steps = [new FeedStep(meat, 1), new FeedStep(meat, 1)],
                 Pet = "taming-review-test:cap-pet", RangeMeters = 8,
             });
             var wolf3 = await Make(Wolf, bot.Position!.Value with { X = bot.Position.Value.X - 2.5f });
-            var b3 = Taming.Begin(who, EntityRef.Of(wolf3), "taming-review-test:cap", Guid.NewGuid());
-            Check(b3.Ok, $"a capped attempt begins (its roster slot held): {b3.Reason}; pet definition {cap.Ok}");
+            var b3 = await Taming.Begin(who, EntityRef.Of(wolf3), "taming-review-test:cap", TamingRequest.New());
+            Check(b3.Ok, $"a capped attempt begins (its roster slot held): {b3.Reason}; pet definition {cap.Ok}, taming {capTaming.Ok} {capTaming.Reason}");
             if (!b3.Ok) return;
             var r = b3.Progress!;
             var c3 = Taming.Choices(who, r.Id);
-            var first = c3.Choices.Count > 0 ? await Taming.Advance(who, r.Id, new TamingToken(Guid.NewGuid(), c3.StepChallenge, c3.Revision, 0), c3.Choices[0].Selection) : null;
+            var first = c3.Choices.Count > 0 ? await Taming.Advance(who, r.Id, TamingRequest.New(c3.Token), c3.Choices[0].Selection) : null;
             var grant = await Pets.Grant(character, "taming-review-test:cap-pet", PetRequest.New());   // the roster fills meanwhile
             r = first?.Progress ?? r;
             var c4 = Taming.Choices(who, r.Id);
             var beforeLast = Meat();
-            var last = c4.Choices.Count > 0 ? await Taming.Advance(who, r.Id, new TamingToken(Guid.NewGuid(), c4.StepChallenge, c4.Revision, r.CompletedSteps), c4.Choices[0].Selection) : null;
+            var last = c4.Choices.Count > 0 ? await Taming.Advance(who, r.Id, TamingRequest.New(c4.Token), c4.Choices[0].Selection) : null;
             await Steps(3);
-            Check(first is { StepApplied: true } && grant.Ok && last is { Ok: false, StepApplied: false } && last.Reason!.StartsWith("Cap", StringComparison.Ordinal) && last.Receipts.Count == 0 && Meat() == beforeLast,
+            Check(first is { StepApplied: true } && grant.Ok && last is { Ok: false, StepApplied: false } && last.Refusal == TamingRefusal.Capacity && last.Receipts.Count == 0 && Meat() == beforeLast,
                 $"a roster filled during the attempt refuses the last step before its cost: {last?.Reason}; meat {beforeLast} -> {Meat()}; grant {grant.Ok} {grant.Reason}");
-            var end = await Taming.Cancel(who, r.Id, Token(last?.Progress ?? r));
+            var end = await Taming.Cancel(who, r.Id, TamingRequest.New());
             Obs($"the capped attempt canceled: {end.Reason} {end.Progress?.State}");
         }
         catch (Exception e)

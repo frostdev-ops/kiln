@@ -6,3 +6,22 @@ Kiln.TestKit.HarnessNpcSpeech.MenuLinesOf(Kiln.EntityId npc, string! language = 
 Kiln.TestKit.HarnessNpcSpeech.RepliesTo(Kiln.EntityId player, string! language = "en-us") -> System.Collections.Generic.IReadOnlyList<(Kiln.EntityId Npc, string! Text)>!
 Kiln.TestKit.HarnessNpcSpeech.PickTopic(Kiln.EntityId npc, string! topicId, Kiln.EntityId player) -> bool
 Kiln.TestKit.HarnessNpcSpeech.TopicsOf(Kiln.EntityId npc, string! language = "en-us") -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.TestKit.HarnessPets
+Kiln.TestKit.HarnessPets.Bodies.get -> System.Collections.Generic.IReadOnlyList<Kiln.EntityRef>!
+Kiln.TestKit.HarnessPets.Down(Kiln.PetId pet) -> void
+Kiln.TestKit.HarnessPets.HostilePairs.get -> System.Collections.Generic.IReadOnlyList<(Kiln.CharacterKey A, Kiln.CharacterKey B)>!
+Kiln.TestKit.HarnessPets.Join(Kiln.CharacterKey character, Kiln.WorldPosition at = default(Kiln.WorldPosition), int level = 10) -> Kiln.PlayerRef
+Kiln.TestKit.HarnessPets.Leave(Kiln.CharacterKey character) -> void
+Kiln.TestKit.HarnessPets.Of(Kiln.CharacterKey character) -> System.Collections.Generic.IReadOnlyList<Kiln.PetSnapshot!>!
+Kiln.TestKit.KilnHarness.Pets.get -> Kiln.TestKit.HarnessPets!
+static Kiln.TestKit.HarnessPets.Character(int n) -> Kiln.CharacterKey
+Kiln.TestKit.HarnessTaming
+Kiln.TestKit.HarnessTaming.Count(Kiln.PlayerRef player, Kiln.ItemId item) -> int
+Kiln.TestKit.HarnessTaming.Give(Kiln.PlayerRef player, Kiln.ItemId item, int count) -> Kiln.ItemSelection!
+Kiln.TestKit.HarnessTaming.Hurt(Kiln.EntityRef creature, double healthFraction) -> void
+Kiln.TestKit.HarnessTaming.Join(Kiln.CharacterKey character, Kiln.WorldPosition at = default(Kiln.WorldPosition)) -> Kiln.PlayerRef
+Kiln.TestKit.HarnessTaming.Leave(Kiln.PlayerRef player) -> void
+Kiln.TestKit.HarnessTaming.NativeStep(Kiln.EntityRef creature) -> void
+Kiln.TestKit.HarnessTaming.Place(string! creature, Kiln.WorldPosition at, double healthFraction = 1, bool nativeTameable = false) -> Kiln.EntityRef
+Kiln.TestKit.HarnessTaming.Remove(Kiln.EntityRef creature) -> void
+Kiln.TestKit.KilnHarness.Taming.get -> Kiln.TestKit.HarnessTaming!

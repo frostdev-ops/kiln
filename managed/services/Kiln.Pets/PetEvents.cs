@@ -28,7 +28,7 @@ public abstract class PetChangeEvent : KilnEvent
 
 /// <summary>A pet entered or left a transition (Spawning, Downing, Dismissing, Reviving, Releasing). Since 0.2.0-dev.32.</summary>
 public sealed class PetTransitionChangedEvent : PetChangeEvent { internal PetTransitionChangedEvent(PetChange c) : base(c) { } }
-/// <summary>A character was given a new pet (<see cref="Pets.Grant"/>). Since 0.2.0-dev.32.</summary>
+/// <summary>A character was given a new pet (<see cref="Pets.Grant(CharacterKey, string, PetRequest)"/>). Since 0.2.0-dev.32.</summary>
 public sealed class PetGrantedEvent : PetChangeEvent { internal PetGrantedEvent(PetChange c) : base(c) { } }
 /// <summary>A pet was summoned: a body (Ready) or its recovery anchor next to its owner (Downed). Since 0.2.0-dev.32.</summary>
 public sealed class PetSummonedEvent : PetChangeEvent { internal PetSummonedEvent(PetChange c) : base(c) { } }
@@ -123,20 +123,20 @@ public sealed class PetControlChangedEvent : KilnEvent
 /// <example><code>
 /// Events.On&lt;PetRevivingEvent&gt;(e =&gt;
 /// {
-///     if (InArena(e.Owner)) e.Cancel();      // InArena: the mod's own rule; the answer to Pets.Revive is ReviveRefused
+///     if (InArena(e.Owner)) e.Cancel();      // InArena: the mod's own rule; the answer to Pets.Revive is RefusedByMod
 /// });
 /// </code></example>
 /// <seealso cref="Pets.Revive"/>
 public sealed class PetRevivingEvent : CancelableEvent
 {
-    internal PetRevivingEvent(CharacterKey owner, PetSnapshot pet, Guid operation, PetCostDefinition? cost) =>
-        (Owner, Pet, OperationId, Cost) = (owner, pet, operation, cost);
+    internal PetRevivingEvent(CharacterKey owner, PetSnapshot pet, Guid request, PetCostDefinition? cost) =>
+        (Owner, Pet, RequestId, Cost) = (owner, pet, request, cost);
     /// <summary>The owner.</summary>
     public CharacterKey Owner { get; }
     /// <summary>The downed pet before the channel.</summary>
     public PetSnapshot Pet { get; }
-    /// <summary>The revive's operation id (CancelRevive names it).</summary>
-    public Guid OperationId { get; }
+    /// <summary>The revive's request id (<see cref="Pets.CancelRevive"/> names it).</summary>
+    public Guid RequestId { get; }
     /// <summary>The quoted cost; null: free.</summary>
     public PetCostDefinition? Cost { get; }
 }

@@ -41,14 +41,14 @@ The player weakens a wolf to 40 % health, then feeds it two bait items. A server
        private readonly Dictionary<PlayerRef, TamingProgress> _attempts = [];
 
        [Command("tame begin", Description = "start taming the nearest wolf (3 m)")]
-       private void Begin(CommandContext c)
+       private async Task Begin(CommandContext c)
        {
            var who = PlayerRef.Of(c.Source.Player);
            var at = World.Position(c.Source.Player) ?? throw new CommandException("your position is not known");
            foreach (var wolf in Creatures.Near(at, 3))
            {
-               var r = Taming.Begin(who, EntityRef.Of(wolf), "wolf-tamer:wolf", Guid.NewGuid());
-               if (r.Reason?.StartsWith("TemplateMismatch") == true) continue;           // not a wolf
+               var r = await Taming.Begin(who, EntityRef.Of(wolf), "wolf-tamer:wolf", TamingRequest.New());
+               if (r.Refusal == TamingRefusal.TemplateMismatch) continue;                // not a wolf
                if (r.Progress is { } p) _attempts[who] = p;
                c.Reply(r.Ok ? "taming started: /tame step, then /tame feed" : $"refused: {r.Reason}");
                return;
@@ -61,7 +61,7 @@ The player weakens a wolf to 40 % health, then feeds it two bait items. A server
        {
            var who = PlayerRef.Of(c.Source.Player);
            var p = _attempts[who];
-           var r = await Taming.Advance(who, p.Id, new TamingToken(Guid.NewGuid(), p.StepChallenge, p.Revision, p.CompletedSteps));
+           var r = await Taming.Advance(who, p.Id, TamingRequest.New(p.Token));
            if (r.Progress is { } next) _attempts[who] = next;
            c.Reply(r.Ok ? $"step {r.Progress!.CompletedSteps}/{r.Progress.TotalSteps}" : $"refused: {r.Reason}");
        }
@@ -73,8 +73,7 @@ The player weakens a wolf to 40 % health, then feeds it two bait items. A server
            var p = _attempts[who];
            var choices = Taming.Choices(who, p.Id);
            if (!choices.Ok || choices.Choices.Count == 0) throw new CommandException(choices.Reason ?? "nothing pays this step");
-           var token = new TamingToken(Guid.NewGuid(), choices.StepChallenge, choices.Revision, p.CompletedSteps);
-           var r = await Taming.Advance(who, p.Id, token, choices.Choices[0].Selection);
+           var r = await Taming.Advance(who, p.Id, TamingRequest.New(choices.Token), choices.Choices[0].Selection);
            if (r.Progress is { } next) _attempts[who] = next;
            c.Reply(r.Ok ? (r.Pet is { } pet ? $"tamed: your new pet {pet.Id}" : "fed") : $"refused: {r.Reason}");
        }
@@ -94,7 +93,7 @@ C#, with ids from the registries (creatures by their creatures registry id, item
 
 ```csharp
 Blocks.Define("tame-wolf", new PetBlock { Creature = "game:enemy_wildbeast_wolf_earlygame", Name = "Tamed Wolf" });
-Taming.Define(new TamingDefinition
+var defined = Taming.Define(new TamingDefinition
 {
     Id = "my-mod:wolf",
     Creatures = ["game:enemy_wildbeast_wolf_earlygame"],
@@ -102,6 +101,7 @@ Taming.Define(new TamingDefinition
     Pet = "my-mod:tame-wolf",
     Refund = TamingRefundPolicy.RefundOnFail,
 });
+if (!defined.Ok) Log.Warn($"{defined.Refusal}: {defined.Reason}");   // DefinitionInUse: attempts of the old one run
 ```
 
 JSON, the same definition (`Taming.DefineJson`; one object or an array):
@@ -166,8 +166,9 @@ Blocks.Define("wolf", new TamingBlock
 
 - **Items:** a game item (`Food_T2_Dog_Bait`, a `GameItems` constant) or an item block of this mod (its name) or of
   another (`other-mod:name`). A feed step takes a plain stack item, a tool step a gear item.
-- **Creatures:** a game creature by its creatures registry id (`game:...`, a trailing `*` for a prefix of game ids), or a
-  creature block (its name, or `other-mod:name`).
+- **Creatures:** each named as a `PetBlock`'s `Creature` is (`PartRef<CreatureBlock>`): a game creature by its creatures
+  registry id (`game:...`, a trailing `*` for a prefix of game ids), or a creature block (its handle, its name,
+  `other-mod:name`, or one written in place).
 - **Pet:** a pet block (inline, its name, `other-mod:name`), or the id of a pet a mod defined in code.
 - **Errors** are `BlockError`s naming the field (`steps[1].count`). An item the game's catalog does not have while the
   block compiles (a game client's `OnLoad`, the SDK's bake, a dedicated server before Kiln.Items reads the catalog) is
@@ -177,18 +178,20 @@ Blocks.Define("wolf", new TamingBlock
 
 ## Drive an attempt
 
-Every action sends your request id and the token of the last answer. Use a new id for each intended action, and the same
-id when you resend the same action after a network hiccup.
+Every action sends a `TamingRequest`: your request id and the token of the last answer (`progress.Token`,
+`choices.Token`). `TamingRequest.New(token)` makes a new id for each intended action; send the same request again when you
+resend the same action after a network hiccup. It is the same shape as Kiln.Pets' `PetRequest`.
 
 ```csharp
-var r = Taming.Begin(player, EntityRef.Of(wolf), "my-mod:wolf", Guid.NewGuid());
-var p = r.Progress!;                                        // the token: p.StepChallenge, p.Revision, p.CompletedSteps
-r = await Taming.Advance(player, p.Id, new TamingToken(Guid.NewGuid(), p.StepChallenge, p.Revision, p.CompletedSteps));   // weaken: no selection
+var r = await Taming.Begin(player, EntityRef.Of(wolf), "my-mod:wolf", TamingRequest.New());
+var p = r.Progress!;                                        // p.Token: the challenge, the revision and the step
+r = await Taming.Advance(player, p.Id, TamingRequest.New(p.Token));   // weaken: no selection
 p = r.Progress!;
-var pick = Taming.Choices(player, p.Id).Choices[0].Selection;   // the server's read of the slot the player chose
-r = await Taming.Advance(player, p.Id, new TamingToken(Guid.NewGuid(), p.StepChallenge, p.Revision, p.CompletedSteps), pick);
+var choices = Taming.Choices(player, p.Id);
+var pick = choices.Choices[0].Selection;                    // the server's read of the slot the player chose
+r = await Taming.Advance(player, p.Id, TamingRequest.New(choices.Token), pick);
 if (r.Ok && r.Pet is { } pet) { /* tamed: pet is the new Kiln.Pets record */ }
-else if (r.Reason?.StartsWith("CommitDeferred") == true) { /* every step paid: Taming.Retry later, nothing more is taken */ }
+else if (r.Refusal == TamingRefusal.CommitDeferred) { /* every step paid: Taming.Retry later, nothing more is taken */ }
 ```
 
 - **Feed and tool steps** take a selection: one slot, read by the server (`Taming.Choices`, or `ItemSelection.Of` of
@@ -203,7 +206,7 @@ else if (r.Reason?.StartsWith("CommitDeferred") == true) { /* every step paid: T
 |---|---|
 | the steps and their costs | takes each cost exactly from the selected slot, once per request id, and receipts it |
 | `Refund`: keep paid steps (default), give them back on a failure that is not the player's, or hold them in escrow until the tame | settles the policy at the end, refunds each receipt once, never refunds an uncertain one |
-| `InactivitySeconds`, `MaxAttemptSeconds`, `RangeMeters` | runs them in simulation time, settles a cost in flight before it ends an attempt |
+| `InactivityTimeout`, `MaxAttemptDuration` (JSON `inactivitySeconds`, `maxAttemptSeconds`), `RangeMeters` | runs them in simulation time, settles a cost in flight before it ends an attempt |
 | `Creatures` | refuses others (`TemplateMismatch`) before any cost |
 | `Pet`, `RemoveTarget`, `SummonPet` | holds the roster slot from Begin, refuses a full roster before the last cost, grants the record, then removes the wild body and summons the pet |
 | cancel `TamingBeginningEvent`, `TamingAdvancingEvent`, `TamingCommittingEvent` | spends nothing for a canceled step; the token stays valid |

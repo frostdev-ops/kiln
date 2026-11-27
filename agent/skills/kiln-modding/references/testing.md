@@ -124,8 +124,11 @@ var n = kiln.Run(() => Players.Count);          // Kiln API only through Run/As:
 - `KilnHarness.Registry` (dev.31+, a recording fake: `Seed` values, `Author(mod, point, phase)` runs one pass and returns the edits
   it would send, dev.32+ `Reauthors` lists the mods that asked `Registry.Reauthor(RegistryEntryPoint.WorldLoad)`, in order; it proves your
   callback, never the game's mapping, composition or live application, [api-registry.md](api-registry.md)); `KilnHarness.NpcSpeech`
-  (dev.31.16+; picks, farewells, menu lines, topics and a pick of one, [api-npcs.md](api-npcs.md)). **No fake for pets,
-  taming or `ItemCosts` yet:** test your own rules as plain functions and the flow on a local server.
+  (dev.31.16+; picks, farewells, menu lines, topics and a pick of one, [api-npcs.md](api-npcs.md)); dev.32+ `KilnHarness.Pets`
+  and `KilnHarness.Taming` (Kiln's real roster and attempt engine on the kit's world: `Join` a player, `Place` and `Give`,
+  read `Bodies`, `Of`, `HostilePairs`; one player per character across both, a clean start per harness;
+  [api-pets.md](api-pets.md), [api-taming.md](api-taming.md)). **No fake for `ItemCosts` yet, and the kit's taming wears no
+  tools:** test those rules as plain functions and the flow on a local server.
 - Gaps: a service that caches "no table" (`Kiln.Ui` render, `kiln.net` at the first channel) is asked once per process, so
   a later test can pass where it should be skipped: read the service's `Available` in the test. No client/server pair.
   One harness per process. A blocked test is stopped by the watchdog (Linux tested, Windows not).

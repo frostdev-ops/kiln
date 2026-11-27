@@ -71,9 +71,9 @@ public sealed class DefinitionTests : IDisposable
         Assert.Equal(PetMovementMode.QueryInput, d.Movement.Mode);
         Assert.True(d.Revive.Allowed);
         Assert.Null(d.Revive.Cost);
-        Assert.Equal(1, d.Caps.LivePerCharacter);
-        Assert.Equal(32, d.Caps.RetainedPerCharacter);
-        Assert.Equal(16, d.Caps.LivePerWorld);
+        Assert.Equal(1, d.Limits.LivePerCharacter);
+        Assert.Equal(32, d.Limits.RetainedPerCharacter);
+        Assert.Equal(16, d.Limits.LivePerWorld);
         // the hostile list never names players or their allies
         Assert.DoesNotContain(Faction.Player, PetTargetPolicy.DefaultHostileFactions);
         Assert.DoesNotContain(Faction.PlayerAlly, PetTargetPolicy.DefaultHostileFactions);
@@ -95,14 +95,14 @@ public sealed class DefinitionTests : IDisposable
     public void Another_definition_replaces_it_unless_its_pets_are_in_use()
     {
         Assert.True(Pets.DefineAs(Wolf(), "mod-a").Ok);
-        var changed = Wolf() with { DisplayName = "Rex" };
+        var changed = Wolf() with { Name = "Rex" };
         Assert.True(Pets.DefineAs(changed, "mod-a").Ok);
-        Assert.Equal("Rex", Pets.Definition("mod-a:wolf")!.DisplayName);
+        Assert.Equal("Rex", Pets.Definition("mod-a:wolf")!.Name);
         PetsRuntime.InUse = id => id == "mod-a:wolf";
-        var refused = Pets.DefineAs(Wolf() with { DisplayName = "Max" }, "mod-a");
+        var refused = Pets.DefineAs(Wolf() with { Name = "Max" }, "mod-a");
         Assert.False(refused.Ok);
         Assert.StartsWith("DefinitionInUse", refused.Reason, StringComparison.Ordinal);
-        Assert.Equal("Rex", Pets.Definition("mod-a:wolf")!.DisplayName);
+        Assert.Equal("Rex", Pets.Definition("mod-a:wolf")!.Name);
     }
 
     [Theory]

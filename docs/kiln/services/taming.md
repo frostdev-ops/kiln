@@ -16,7 +16,7 @@ Kiln's sample is only a sample.
 | | |
 |---|---|
 | Side | server (the authoritative world) |
-| Threads | every `Taming.*` and `NativeTaming.*` call on the tick thread |
+| Threads | every `Taming.*` and `NativeTaming.*` call on the tick thread, but `Taming.Definition` and `Taming.Definitions` (any thread, as Kiln.Pets' `Pets.Definition`) |
 | Capabilities | `kiln.taming` (definitions: a mod defines its tamings when it loads, before any world runs), `taming.steps` (Kiln's steps: the attempts, while a server world runs), `taming.native` (the game's taming read and driven: sigdb), `taming.native_observe` (who tamed a native animal: **off**, not proven); an attempt of a definition also needs the rows of its steps: `items.costs.exact` (feed), `items.costs.wear` (tool), `taming.native` (native), `pets.records` (a definition that names a pet) |
 | Costs | [item-costs.md](item-costs.md): `ItemCosts.Take` for feed steps, `ItemCosts.Wear` for tool steps, `ItemCosts.Refund` for refunds |
 | Binds to | [pets.md](pets.md): a tame of a definition with `Pet` grants a Kiln.Pets record |
@@ -25,7 +25,7 @@ Kiln's sample is only a sample.
 ## A taming, as a mod declares it
 
 ```csharp
-Taming.Define(new TamingDefinition
+var defined = Taming.Define(new TamingDefinition
 {
     Id = "my-mod:wolf",
     Creatures = ["game:enemy_wildbeast_wolf_earlygame"],          // creatures registry ids; "game:animal_wildlife_dog_*" for a prefix
@@ -33,6 +33,7 @@ Taming.Define(new TamingDefinition
     Pet = "my-mod:wolf-pet",                             // a Kiln.Pets definition: a tame grants a record of it
     Refund = TamingRefundPolicy.Escrow,                  // the default is NonRefundable
 });
+if (!defined.Ok) Log.Warn($"{defined.Refusal}: {defined.Reason}");   // DefinitionInUse: attempts of the old one run
 ```
 
 The steps run in order; the last one tames.
@@ -52,8 +53,8 @@ Fields and bounds:
 | `Creatures` | - | at least one id |
 | `RangeMeters` | 3 | 1 to 8 |
 | `RequireThresholdUntilCommit` | true | the latest weaken threshold holds for every later step and the tame |
-| `InactivitySeconds` | 30 | 1 to 300 |
-| `MaxAttemptSeconds` | 300 | at least the inactivity, at most 3600 |
+| `InactivityTimeout` (JSON `inactivitySeconds`) | 30 s | 1 to 300 s |
+| `MaxAttemptDuration` (JSON `maxAttemptSeconds`) | 300 s | at least the inactivity, at most 3600 s |
 | `Refund` | `NonRefundable` | `NonRefundable`, `RefundOnFail`, `Escrow` |
 | `Pet` | null | a Kiln.Pets definition id |
 | `RemoveTarget` | true | with a pet |
@@ -65,19 +66,29 @@ The same in JSON: `Taming.DefineJson(json)`, one object or an array ([modding/ta
 
 | Call | What it does |
 |---|---|
-| `Taming.Begin(player, target, definition, requestId)` | Checks the definition, the owner, the target (its creature, alive, in range) and the claim. It posts `TamingBeginningEvent` (cancelable), claims the target (another attempt on it is `Busy`) and holds the pet's roster slot. It then posts `TamingStartedEvent` and answers with the first token. |
-| `Taming.Advance(player, attempt, token, selection)` | Checks the token, range, target and threshold, and posts `TamingAdvancingEvent`. For the last step it also preflights the pet's slot and posts `TamingCommittingEvent`. It takes the exact cost and applies the step (`TamingStepChangedEvent`). After the last step it tames. |
-| `Taming.Retry(player, attempt, token)` | The cost-free retry of a deferred tame (`AwaitingCommit`): it checks again and binds, taking nothing. |
-| `Taming.Cancel(player, attempt, token)` | Ends the attempt; a cost in flight settles first. |
-| `Taming.Inspect(attempt)` / `Taming.Choices(player, attempt)` | Reads only: the attempt now, and the owner's slots that can pay the next step (at most 256, as server selections). |
+| `await Taming.Begin(player, target, definition, request)` | A task, as every action's answer (it takes no cost, so it is complete at once). Checks the definition, the owner, the target (its creature, alive, in range) and the claim. It posts `TamingBeginningEvent` (cancelable), claims the target (another attempt on it is `Busy`) and holds the pet's roster slot. It then posts `TamingStartedEvent` and answers with the first token. |
+| `Taming.Advance(player, attempt, request, selection)` | Checks the token, range, target and threshold, and posts `TamingAdvancingEvent`. For the last step it also preflights the pet's slot and posts `TamingCommittingEvent`. It takes the exact cost and applies the step (`TamingStepChangedEvent`). After the last step it tames. |
+| `Taming.Retry(player, attempt, request)` | The cost-free retry of a deferred tame (`AwaitingCommit`): it checks again and binds, taking nothing. |
+| `Taming.Cancel(player, attempt, request)` | Ends the attempt, by its id: a request without a token cancels from a stale view; one with a token cancels only while it is current (`StaleStep`). Only its owner cancels it, an attempt id is never reused, and a cost in flight settles first. |
+| `Taming.Inspect(attempt)` / `Taming.Choices(player, attempt)` | Reads only: the attempt now, and the owner's slots that can pay the next step (as server selections: the first 256, with `Truncated` when more could pay). |
 
-**Requests and tokens.** Each answer's `Progress` carries the token for the next action: `StepChallenge` (random, rotated
-by every applied step), `Revision` and `CompletedSteps`. A client echoes it with its own request id:
+**Requests and tokens.** Every action takes a `TamingRequest(RequestId, Token)`, the one request shape of Kiln.Pets
+(`PetRequest(RequestId, ExpectedStateRevision)`) and Kiln.Taming: `TamingRequest.New(progress.Token)`. Each answer's
+`Progress.Token` (and `Choices(...).Token`) is the token for the next action: `StepChallenge` (random, rotated by every
+applied step), `ExpectedRevision` and `StepIndex`. A client echoes it with its own request id (`Begin` takes none):
 - **A new id for each intended action**, and **the same id for a network retry**: the same request again returns the
   same task or result and never a second cost.
 - **The same id with another action** is `RequestConflict`.
 - **An old token under a new id** is `StaleStep`, so a completed tool step can never be replayed against an identical
   next one.
+
+**Refusals.** A refused call answers `Ok = false` with a reason for a log, and its first word as a value,
+`TamingResult.Refusal` (`TamingRefusal`: `NotOwner`, `OwnerOffline`, `Busy`, `StaleStep`, `RequestConflict`,
+`OutOfRange`, `Threshold`, `TemplateMismatch`, `Capacity`, `RefusedByMod`, `CommitDeferred`, `AttemptClosed`, ...;
+`Other` for a word a later Kiln adds). Decide by it, never by the text: `if (r.Refusal == TamingRefusal.TemplateMismatch)
+...`. The same meaning has the same word as Kiln.Pets' `PetRefusal` (`Busy`, `Capacity`, `NotOwner`, `OwnerOffline`,
+`RequestConflict`, `RefusedByMod`, `UncertainCommit`, ...). A mod's veto of a before-event is `RefusedByMod` (the attempt
+goes on); `Canceled` is only an attempt that ended canceled.
 
 Limits (Kiln's policy, not the game's):
 - 10 requests a second per player;
@@ -95,7 +106,7 @@ Limits (Kiln's policy, not the game's):
 | `Committed` | tamed |
 | `Canceled` | canceled |
 | `Failed` | a failure, in a word: `BodyGone`, `OwnerLeft`, `WorldEnded`, `DefinitionGone`, `UncertainCommit`, `PartialCostCommitted`, `Refused: ...` |
-| `Expired` | `InactivitySeconds`, `MaxAttemptSeconds` |
+| `Expired` | the cause names what ran out: `InactivitySeconds` (`InactivityTimeout`), `MaxAttemptSeconds` (`MaxAttemptDuration`) |
 
 **Timeouts** run on the game's own 60 Hz world clock (each step adds what the clock advanced in it, as Kiln.Pets' timers:
 a dedicated server steps 15 to 25 times a second, so a step is not 1/60 s; a paused world's clock stands still).
@@ -110,7 +121,8 @@ a dedicated server steps 15 to 25 times a second, so a step is not 1/60 s; a pau
 - Deferred: `TamingStepChangedEvent`, then `TamingCommitDeferredEvent`.
 - The end: `TamingCanceledEvent`, `TamingExpiredEvent` or `TamingFailedEvent`, after the refunds settled.
 
-Before-events carry copied, read-only contexts. A canceled one spends nothing, and the same token stays valid. While a
+Before-events carry copied, read-only contexts. A canceled one spends nothing and answers `RefusedByMod`, and the same
+token stays valid. While a
 before-event runs, its attempt is guarded (19e 4.4): a handler that calls `Taming.Cancel` on it gets the cancel's answer
 once the event is over, and the attempt then ends with nothing new spent (no step's cost, no bind); a handler's `Begin` on
 the same target claims it first, and the `Begin` that posted the event answers `Busy`.
@@ -144,8 +156,8 @@ A step's cost is exact and receipted ([item-costs.md](item-costs.md)): `Progress
 ## The tame and Kiln.Pets
 
 A definition with `Pet` holds a slot of that pet definition from Begin. The slot counts against
-`PetCaps.RetainedPerCharacter` and the roster's 128 records, with the other running tames. It is checked again before the
-last step's cost: a full roster refuses (`Cap`) before anything is taken.
+`PetLimits.RetainedPerCharacter` and the roster's 128 records, with the other running tames. It is checked again before the
+last step's cost: a full roster refuses (`Capacity`) before anything is taken.
 
 At the commit, the owner's character gets a new record (`Pets.Grant`); that is the ownership commit, and it settles at the
 roster's next step. Then, as the definition says, the tamed wild body is removed (`RemoveTarget`) and the pet is summoned
@@ -176,11 +188,17 @@ the entry, at once) and `favoriteBait` (read only) fields ([registries/creatures
 [docs/re/taming.md](../../re/taming.md) 8). A mod changes how many pettings an animal takes there, never through a game
 member.
 
-Who tamed a native animal is not known: the game records no player for a step.
-`NativeTamingState.TamedBy` is always null, and `taming.native_observe` stays off until a lab with a signed-in player
-shows where the petting player can be read.
+Who tamed a native animal is not known yet: the game records no player for a step. `NativeTamingState.TamedBy` is
+unavailable until native attribution is proven: it is marked `[RequiresCapability("taming.native_observe")]`
+(`NativeTaming.ObserveCapability`) and stays null while that row is off, as it is until a lab with a signed-in player shows
+where the petting player can be read. Guard a read with `Capabilities.Is(NativeTaming.ObserveCapability)`.
 
 ## Tests
+
+- A mod's own tests (Kiln.TestKit): `kiln.Taming` is the real attempt engine on the kit's world and item costs.
+  `Join(character)` puts a player in game, `Place(creature, at)` puts a creature there, `Give(player, item, count)` fills
+  a slot (and returns its selection), `Hurt`, `NativeStep` and `Remove` change a creature, `Count` reads what a player
+  holds. Feed steps take and refund exactly; tool wear and the game's own taming are not faked.
 
 - Managed, offline (`managed/tests/Kiln.Taming.Tests`):
   - the engine against chapter 19e section 6's list: selections, replay, before-events and their order, finalization

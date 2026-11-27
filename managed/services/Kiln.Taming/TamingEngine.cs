@@ -79,6 +79,8 @@ internal sealed class TamingEngine
     internal Func<string, Guid?> ResolveCreature = _ => null;
 
     private readonly Dictionary<string, (TamingDefinition Def, string Mod)> _defs = new(StringComparer.Ordinal);
+    // the definitions as any thread reads them (Taming.Definition): a copy the tick thread replaces after each change
+    private volatile IReadOnlyDictionary<string, TamingDefinition> _published = new Dictionary<string, TamingDefinition>(StringComparer.Ordinal);
     private readonly Dictionary<TameAttemptId, Attempt> _attempts = new();
     private readonly Dictionary<EntityId, TameAttemptId> _claims = new();
     private readonly Dictionary<(PlayerRef, Guid), (string Fingerprint, TamingResult Result)> _begins = new();
@@ -122,6 +124,7 @@ internal sealed class TamingEngine
         public Task<CostReceipt>? Cost;
         public TaskCompletionSource<TamingResult>? StepTcs;
         public TamingToken? StepToken;
+        public Guid StepRequest;
         public ItemSelection? StepSelection;
         public TamingProgress? StepBefore;
         // the bind in flight (the last step paid, or a cost-free retry)
@@ -184,21 +187,37 @@ internal sealed class TamingEngine
                 throw new ArgumentException($"\"{c}\" is not a creatures registry id (game:<name>, my-mod:<name>, lower case; a trailing * for a prefix)", nameof(d));
     }
 
-    internal void Define(TamingDefinition d, string mod)
+    internal TamingDefinitionResult Define(TamingDefinition d, string mod)
     {
         Validate(d);
+        d = Owned(d);
         if (_defs.TryGetValue(d.Id, out var old))
         {
-            if (old.Mod != mod) throw new InvalidOperationException($"DefinitionInUse: {d.Id} is mod {old.Mod}'s");
+            if (old.Mod != mod) return new(false, $"DefinitionInUse: {d.Id} is mod {old.Mod}'s", old.Def);
             if (!Same(old.Def, d) && _attempts.Values.Any(a => a.Def.Id == d.Id && !Terminal(a.State)))
-                throw new InvalidOperationException($"DefinitionInUse: {d.Id} has attempts running; it changes when they end");
+                return new(false, $"DefinitionInUse: {d.Id} has attempts running; it changes when they end", old.Def);
         }
         _defs[d.Id] = (d, mod);
+        Publish();
+        return new(true, null, d);
     }
 
-    internal TamingDefinition? Definition(string id) => _defs.TryGetValue(id, out var d) ? d.Def : null;
+    /// <summary>Any thread: the published copy.</summary>
+    internal TamingDefinition? Definition(string id) => _published.TryGetValue(id, out var d) ? d : null;
 
-    internal IReadOnlyList<TamingDefinition> Definitions => _defs.Values.Select(v => v.Def).ToArray();
+    /// <summary>Any thread: the published copy.</summary>
+    internal IReadOnlyList<TamingDefinition> Definitions => _published.Values.ToArray();
+
+    /// <summary>Every definition with the mod it is registered as (tick thread): the test kit carries them over to its engine.</summary>
+    internal IReadOnlyList<(TamingDefinition Def, string Mod)> Registered => _defs.Values.ToArray();
+
+    private void Publish() => _published = _defs.ToDictionary(kv => kv.Key, kv => kv.Value.Def, StringComparer.Ordinal);
+
+    // the definition as Kiln keeps it: its lists copied into read-only lists of Kiln's, so what any thread reads
+    // (Taming.Definition) and what the attempts run never changes when the mod changes a list it kept, and holds nothing of
+    // the mod's (a collection expression's list is a type of the mod's own assembly: it would keep an unloaded mod alive)
+    private static TamingDefinition Owned(TamingDefinition d) =>
+        d with { Steps = Array.AsReadOnly(d.Steps.ToArray()), Creatures = Array.AsReadOnly(d.Creatures.ToArray()) };
 
     /// <summary>The same definition by value (its lists by their items).</summary>
     internal static bool Same(TamingDefinition a, TamingDefinition b) =>
@@ -210,6 +229,7 @@ internal sealed class TamingEngine
         foreach (var id in _defs.Where(kv => kv.Value.Mod == mod).Select(kv => kv.Key).ToList())
         {
             _defs.Remove(id);
+            Publish();
             foreach (var a in _attempts.Values.Where(a => a.Def.Id == id && !Terminal(a.State)).ToList()) Fail(a, "DefinitionGone", Guid.Empty);
         }
     }
@@ -225,8 +245,8 @@ internal sealed class TamingEngine
     // ------------------------------------------------------------------------------------------- views ------------
 
     private TamingProgress View(Attempt a) =>
-        new(a.Id, a.Owner, a.Epoch, a.Session, a.Target, a.Def.Id, a.State, a.Completed, a.Def.Steps.Count, a.Revision, a.Challenge, a.Started,
-            a.LastProgress, Math.Min(a.LastProgress + a.Def.InactivitySeconds, a.Started + a.Def.MaxAttemptSeconds), a.Spent.ToArray())
+        new(a.Id, a.Owner, a.Epoch, a.Session, a.Target, a.Def.Id, a.State, a.Completed, a.Def.Steps.Count, a.Revision, a.Challenge, Seconds.Of(a.Started),
+            Seconds.Of(a.LastProgress), Seconds.Of(Math.Min(a.LastProgress + a.Def.InactivitySeconds, a.Started + a.Def.MaxAttemptSeconds)), a.Spent.ToArray())
         {
             Refunds = a.Refunds.ToArray(),
             CancelRequested = a.CancelRequested,
@@ -275,21 +295,21 @@ internal sealed class TamingEngine
         if (RateLimited(player)) return Refuse(requestId, "TooManyRequests: 10 a second");
         if (!_defs.TryGetValue(definition, out var entry)) return Refuse(requestId, $"DefinitionUnknown: {definition}");
         var def = entry.Def;
-        if (_world.Owner(player, out var why) is not { } owner) return Refuse(requestId, why ?? "WrongOwner: the player is not in game");
+        if (_world.Owner(player, out var why) is not { } owner) return Refuse(requestId, why ?? "OwnerOffline: the player is not in game");
         if (_world.Target(target) is not { Exists: true, Dead: false } t) return Refuse(requestId, "BodyGone: the target is not there");
         if (!Matches(def, t)) return Refuse(requestId, $"TemplateMismatch: {t.CreatureKey} is not one {def.Id} tames");
         if (def.Steps.Any(s => s is NativeStep) && !t.NativeTameable) return Refuse(requestId, "TemplateMismatch: a native step needs a tameable wild animal");
         if (owner.Position.DistanceTo(t.Position) > def.RangeMeters) return Refuse(requestId, $"OutOfRange: within {def.RangeMeters} m");
         if (_claims.TryGetValue(target.Id, out var claimant) && _attempts.TryGetValue(claimant, out var other) && !Terminal(other.State))
             return Refuse(requestId, "Busy: another taming of this target runs");
-        if (_attempts.Values.Count(a => !Terminal(a.State)) >= MaxActive) return Refuse(requestId, "Cap: 512 attempts run in this world");
-        if (_tombstones.Count >= MaxTombstones) return Refuse(requestId, "Cap: this world's closed attempts are at their limit");
+        if (_attempts.Values.Count(a => !Terminal(a.State)) >= MaxActive) return Refuse(requestId, "Capacity: 512 attempts run in this world");
+        if (_tombstones.Count >= MaxTombstones) return Refuse(requestId, "Capacity: this world's closed attempts are at their limit");
         var asked = (TamingBeginningEvent)Ask(new TamingBeginningEvent(new TamingBeginContext(requestId, player, target, def.Id, def.Steps.Count)));
-        if (asked.Canceled) return Refuse(requestId, $"Canceled: {asked.CanceledBy ?? "a mod"} refused it");
+        if (asked.Canceled) return Refuse(requestId, $"RefusedByMod: {asked.CanceledBy ?? "a mod"} refused it");
         // a handler may have begun another attempt on this target meanwhile: one claimant per target, the first one wins
         if (_claims.TryGetValue(target.Id, out claimant) && _attempts.TryGetValue(claimant, out other) && !Terminal(other.State))
             return Refuse(requestId, "Busy: another taming of this target began meanwhile");
-        if (_attempts.Values.Count(x => !Terminal(x.State)) >= MaxActive) return Refuse(requestId, "Cap: 512 attempts run in this world");
+        if (_attempts.Values.Count(x => !Terminal(x.State)) >= MaxActive) return Refuse(requestId, "Capacity: 512 attempts run in this world");
         var a = new Attempt
         {
             Id = new TameAttemptId(NewId()), Owner = player, OwnerEntity = owner.Entity, Session = owner.Session, Epoch = _world.WorldEpoch, Target = target,
@@ -308,38 +328,47 @@ internal sealed class TamingEngine
 
     // ------------------------------------------------------------------------------------------- advance ----------
 
-    private TamingResult? Check(Attempt? a, PlayerRef player, TamingToken token, out TamingOwner owner)
+    private TamingResult? Check(Attempt? a, PlayerRef player, Guid request, out TamingOwner owner)
     {
         owner = default;
-        if (a is null || a.ClosedAt >= 0 && _world.Now - a.ClosedAt > ClosedPayloadSeconds) return Refuse(token.RequestId, "AttemptClosed: no such attempt");
-        if (a.Owner != player) return Refuse(token.RequestId, "WrongOwner: the attempt is another player's");
-        if (_world.Owner(player, out var why) is not { } o) return Refuse(token.RequestId, why ?? "StaleSession: the player is not in game");
-        if (o.Session != a.Session || _world.WorldEpoch != a.Epoch) return Refuse(token.RequestId, "StaleSession: another session or world than the attempt's");
+        if (a is null || a.ClosedAt >= 0 && _world.Now - a.ClosedAt > ClosedPayloadSeconds) return Refuse(request, "AttemptClosed: no such attempt");
+        if (a.Owner != player) return Refuse(request, "NotOwner: the attempt is another player's");
+        if (_world.Owner(player, out var why) is not { } o) return Refuse(request, why ?? "OwnerOffline: the player is not in game");
+        if (o.Session != a.Session || _world.WorldEpoch != a.Epoch) return Refuse(request, "StaleSession: another session or world than the attempt's");
         owner = o;
         return null;
     }
 
-    internal Task<TamingResult> Advance(PlayerRef player, TameAttemptId id, TamingToken token, ItemSelection? selection)
+    // a request's id and, where the action needs one, its token: a programmer's error throws
+    private static TamingToken? Unpack(TamingRequest request, bool needsToken, string action)
     {
-        ArgumentNullException.ThrowIfNull(token);
-        if (token.RequestId == Guid.Empty) throw new ArgumentException("an empty request id", nameof(token));
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.RequestId == Guid.Empty) throw new ArgumentException("an empty request id", nameof(request));
+        if (needsToken && request.Token is null)
+            throw new ArgumentException($"{action} names the step it expects: TamingRequest.New(progress.Token)", nameof(request));
+        return request.Token;
+    }
+
+    internal Task<TamingResult> Advance(PlayerRef player, TameAttemptId id, TamingRequest request, ItemSelection? selection)
+    {
+        var token = Unpack(request, needsToken: true, "an advance")!;
+        var rid = request.RequestId;
         _attempts.TryGetValue(id, out var a);
         var fp = Fp("advance", id.Value, token.StepChallenge, token.ExpectedRevision, token.StepIndex, SelectionFp(selection));
         // the replay cache first: the same request is the same task or result, nothing more
-        if (a is not null && a.Replay.TryGetValue(token.RequestId, out var seen))
-            return seen.Fingerprint == fp ? seen.Task : Task.FromResult(Refuse(token.RequestId, "RequestConflict: the request id was used for another action"));
-        if (_tombstones.Contains(id) && a is null) return Task.FromResult(Refuse(token.RequestId, "AttemptClosed: the attempt is over"));
-        if (Check(a, player, token, out var owner) is { } bad) return Task.FromResult(bad);
-        if (a!.Replay.Count >= MaxReceiptsPerAttempt) return Task.FromResult(Refuse(token.RequestId, "TooManyRequests: 256 requests for this attempt"));
-        if (RateLimited(player)) return Task.FromResult(Refuse(token.RequestId, "TooManyRequests: 10 a second"));
-        var task = AdvanceCore(a, owner, token, selection);
-        a.Replay[token.RequestId] = (fp, task);
+        if (a is not null && a.Replay.TryGetValue(rid, out var seen))
+            return seen.Fingerprint == fp ? seen.Task : Task.FromResult(Refuse(rid, "RequestConflict: the request id was used for another action"));
+        if (_tombstones.Contains(id) && a is null) return Task.FromResult(Refuse(rid, "AttemptClosed: the attempt is over"));
+        if (Check(a, player, rid, out var owner) is { } bad) return Task.FromResult(bad);
+        if (a!.Replay.Count >= MaxReceiptsPerAttempt) return Task.FromResult(Refuse(rid, "TooManyRequests: 256 requests for this attempt"));
+        if (RateLimited(player)) return Task.FromResult(Refuse(rid, "TooManyRequests: 10 a second"));
+        var task = AdvanceCore(a, owner, rid, token, selection);
+        a.Replay[rid] = (fp, task);
         return task;
     }
 
-    private Task<TamingResult> AdvanceCore(Attempt a, TamingOwner owner, TamingToken token, ItemSelection? selection)
+    private Task<TamingResult> AdvanceCore(Attempt a, TamingOwner owner, Guid request, TamingToken token, ItemSelection? selection)
     {
-        var request = token.RequestId;
         switch (a.State)
         {
             case TamingState.CostPending:
@@ -383,12 +412,12 @@ internal sealed class TamingEngine
         a.State = TamingState.CostPending;  // a reentrant request now gets Busy
         var quoted = step is FeedStep q ? q.Count : 0;
         var wear = step is UseToolStep u ? u.Wear : 0;
-        var advancing = (TamingAdvancingEvent)AskGuarded(a, new TamingAdvancingEvent(new TamingAdvanceContext(before, token, a.Completed, step.Kind, selection, quoted, wear, last)));
+        var advancing = (TamingAdvancingEvent)AskGuarded(a, new TamingAdvancingEvent(new TamingAdvanceContext(before, request, token, a.Completed, step.Kind, selection, quoted, wear, last)));
         if (EndedInBefore(a, request) is { } endedA) return Task.FromResult(endedA);
         if (advancing.Canceled)
         {
             a.State = TamingState.Active;
-            return Task.FromResult(Refuse(request, $"Canceled: {advancing.CanceledBy ?? "a mod"} refused the step (nothing was spent)", View(a)));
+            return Task.FromResult(Refuse(request, $"RefusedByMod: {advancing.CanceledBy ?? "a mod"} refused the step (nothing was spent)", View(a)));
         }
         if (last)
         {
@@ -403,10 +432,11 @@ internal sealed class TamingEngine
             if (committing.Canceled)
             {
                 a.State = TamingState.Active;
-                return Task.FromResult(Refuse(request, $"Canceled: {committing.CanceledBy ?? "a mod"} refused the tame (nothing more was spent)", View(a)));
+                return Task.FromResult(Refuse(request, $"RefusedByMod: {committing.CanceledBy ?? "a mod"} refused the tame (nothing more was spent)", View(a)));
             }
         }
         a.StepToken = token;
+        a.StepRequest = request;
         a.StepSelection = selection;
         a.StepBefore = before;
         a.StepTcs = new TaskCompletionSource<TamingResult>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -442,8 +472,7 @@ internal sealed class TamingEngine
     // a step's cost settled (or it had none): apply it, defer, fail, expire or cancel
     private void Settle(Attempt a)
     {
-        var token = a.StepToken!;
-        var request = token.RequestId;
+        var request = a.StepRequest;
         var tcs = a.StepTcs!;
         var before = a.StepBefore!;
         CostReceipt? receipt = null;
@@ -619,73 +648,73 @@ internal sealed class TamingEngine
         tcs.TrySetResult(Fail(a, $"Refused: {bind.Reason}", request, receipts) with { StepApplied = !retry });
     }
 
-    internal Task<TamingResult> Retry(PlayerRef player, TameAttemptId id, TamingToken token)
+    internal Task<TamingResult> Retry(PlayerRef player, TameAttemptId id, TamingRequest request)
     {
-        ArgumentNullException.ThrowIfNull(token);
-        if (token.RequestId == Guid.Empty) throw new ArgumentException("an empty request id", nameof(token));
+        var token = Unpack(request, needsToken: true, "a retry")!;
         _attempts.TryGetValue(id, out var a);
         var fp = Fp("retry", id.Value, token.StepChallenge, token.ExpectedRevision, token.StepIndex);
-        if (a is not null && a.Replay.TryGetValue(token.RequestId, out var seen))
-            return seen.Fingerprint == fp ? seen.Task : Task.FromResult(Refuse(token.RequestId, "RequestConflict: the request id was used for another action"));
-        if (_tombstones.Contains(id) && a is null) return Task.FromResult(Refuse(token.RequestId, "AttemptClosed: the attempt is over"));
-        if (Check(a, player, token, out var owner) is { } bad) return Task.FromResult(bad);
-        if (a!.Replay.Count >= MaxReceiptsPerAttempt) return Task.FromResult(Refuse(token.RequestId, "TooManyRequests: 256 requests for this attempt"));
-        if (RateLimited(player)) return Task.FromResult(Refuse(token.RequestId, "TooManyRequests: 10 a second"));
+        if (a is not null && a.Replay.TryGetValue(request.RequestId, out var seen))
+            return seen.Fingerprint == fp ? seen.Task : Task.FromResult(Refuse(request.RequestId, "RequestConflict: the request id was used for another action"));
+        if (_tombstones.Contains(id) && a is null) return Task.FromResult(Refuse(request.RequestId, "AttemptClosed: the attempt is over"));
+        if (Check(a, player, request.RequestId, out var owner) is { } bad) return Task.FromResult(bad);
+        if (a!.Replay.Count >= MaxReceiptsPerAttempt) return Task.FromResult(Refuse(request.RequestId, "TooManyRequests: 256 requests for this attempt"));
+        if (RateLimited(player)) return Task.FromResult(Refuse(request.RequestId, "TooManyRequests: 10 a second"));
         Task<TamingResult> task;
-        if (a.State != TamingState.AwaitingCommit) task = Task.FromResult(Refuse(token.RequestId, $"WrongState: the attempt is {a.State}", View(a)));
+        if (a.State != TamingState.AwaitingCommit) task = Task.FromResult(Refuse(request.RequestId, $"WrongState: the attempt is {a.State}", View(a)));
         else if (token.StepChallenge != a.Challenge || token.ExpectedRevision != a.Revision || token.StepIndex != a.Completed)
-            task = Task.FromResult(Refuse(token.RequestId, "StaleStep: the token is not the attempt's current one", View(a)));
-        else if (_world.Target(a.Target) is not { Exists: true, Dead: false } t) task = Task.FromResult(Fail(a, "BodyGone", token.RequestId));
-        else if (owner.Position.DistanceTo(t.Position) > a.Def.RangeMeters) task = Task.FromResult(Refuse(token.RequestId, $"OutOfRange: within {a.Def.RangeMeters} m", View(a)));
+            task = Task.FromResult(Refuse(request.RequestId, "StaleStep: the token is not the attempt's current one", View(a)));
+        else if (_world.Target(a.Target) is not { Exists: true, Dead: false } t) task = Task.FromResult(Fail(a, "BodyGone", request.RequestId));
+        else if (owner.Position.DistanceTo(t.Position) > a.Def.RangeMeters) task = Task.FromResult(Refuse(request.RequestId, $"OutOfRange: within {a.Def.RangeMeters} m", View(a)));
         else if (a.Def.RequireThresholdUntilCommit && a.Threshold is { } th && t.HealthFraction > th)
-            task = Task.FromResult(Refuse(token.RequestId, $"Threshold: the target's health must be at most {th:0.###} of its maximum", View(a)));
-        else if (Preflight(a, token.RequestId) is { } pre)
-            task = Task.FromResult(Refuse(token.RequestId, pre.Transient ? $"CommitDeferred: {pre.Reason}" : pre.Reason, View(a)));
+            task = Task.FromResult(Refuse(request.RequestId, $"Threshold: the target's health must be at most {th:0.###} of its maximum", View(a)));
+        else if (Preflight(a, request.RequestId) is { } pre)
+            task = Task.FromResult(Refuse(request.RequestId, pre.Transient ? $"CommitDeferred: {pre.Reason}" : pre.Reason, View(a)));
         else
         {
-            var asked = (TamingCommittingEvent)AskGuarded(a, new TamingCommittingEvent(new TamingCommitContext(a.Id, token.RequestId, a.Owner, a.Target, a.Def.Id, a.Spent.ToArray(), null, 0, 0, true)));
+            var asked = (TamingCommittingEvent)AskGuarded(a, new TamingCommittingEvent(new TamingCommitContext(a.Id, request.RequestId, a.Owner, a.Target, a.Def.Id, a.Spent.ToArray(), null, 0, 0, true)));
             if (a.CancelRequested || a.FailAfterSettle is not null)
             {
                 // a handler canceled (or failed) the attempt: it ends here, cost-free, and binds nothing
                 var end = EndAfterSettle(a, "NoCost")!;
-                task = Task.FromResult(new TamingResult(false, end.Reason, end.Progress, null, token.RequestId, false, a.Spent.ToArray()));
+                task = Task.FromResult(new TamingResult(false, end.Reason, end.Progress, null, request.RequestId, false, a.Spent.ToArray()));
             }
-            else if (asked.Canceled) task = Task.FromResult(Refuse(token.RequestId, $"Canceled: {asked.CanceledBy ?? "a mod"} refused the tame", View(a)));
+            else if (asked.Canceled) task = Task.FromResult(Refuse(request.RequestId, $"RefusedByMod: {asked.CanceledBy ?? "a mod"} refused the tame", View(a)));
             else
             {
                 var tcs = new TaskCompletionSource<TamingResult>(TaskCreationOptions.RunContinuationsAsynchronously);
                 task = tcs.Task;
-                a.Replay[token.RequestId] = (fp, task);
-                StartCommit(a, token.RequestId, View(a), [], retry: true, tcs);
+                a.Replay[request.RequestId] = (fp, task);
+                StartCommit(a, request.RequestId, View(a), [], retry: true, tcs);
                 return task;
             }
         }
-        a.Replay[token.RequestId] = (fp, task);
+        a.Replay[request.RequestId] = (fp, task);
         return task;
     }
 
     // ------------------------------------------------------------------------------------------- cancel -----------
 
-    internal Task<TamingResult> Cancel(PlayerRef player, TameAttemptId id, TamingToken token)
+    internal Task<TamingResult> Cancel(PlayerRef player, TameAttemptId id, TamingRequest request)
     {
-        ArgumentNullException.ThrowIfNull(token);
-        if (token.RequestId == Guid.Empty) throw new ArgumentException("an empty request id", nameof(token));
+        // by the attempt's id: its random id is never reused and only its owner may cancel it, so a cancel made on a stale
+        // view still ends only that attempt; a token, when given, must still be current (cancel only if nothing moved)
+        var token = Unpack(request, needsToken: false, "a cancel");
         _attempts.TryGetValue(id, out var a);
-        var fp = Fp("cancel", id.Value, token.StepChallenge);
-        if (a is not null && a.Replay.TryGetValue(token.RequestId, out var seen))
-            return seen.Fingerprint == fp ? seen.Task : Task.FromResult(Refuse(token.RequestId, "RequestConflict: the request id was used for another action"));
-        if (_tombstones.Contains(id) && a is null) return Task.FromResult(Refuse(token.RequestId, "AttemptClosed: the attempt is over"));
-        if (Check(a, player, token, out _) is { } bad) return Task.FromResult(bad);
-        if (a!.Replay.Count >= MaxReceiptsPerAttempt) return Task.FromResult(Refuse(token.RequestId, "TooManyRequests: 256 requests for this attempt"));
+        var fp = Fp("cancel", id.Value, token?.StepChallenge);
+        if (a is not null && a.Replay.TryGetValue(request.RequestId, out var seen))
+            return seen.Fingerprint == fp ? seen.Task : Task.FromResult(Refuse(request.RequestId, "RequestConflict: the request id was used for another action"));
+        if (_tombstones.Contains(id) && a is null) return Task.FromResult(Refuse(request.RequestId, "AttemptClosed: the attempt is over"));
+        if (Check(a, player, request.RequestId, out _) is { } bad) return Task.FromResult(bad);
+        if (a!.Replay.Count >= MaxReceiptsPerAttempt) return Task.FromResult(Refuse(request.RequestId, "TooManyRequests: 256 requests for this attempt"));
         Task<TamingResult> task;
-        if (Terminal(a.State)) task = Task.FromResult(Refuse(token.RequestId, $"AttemptClosed: the attempt is {a.State}", View(a)));
-        else if (token.StepChallenge != a.Challenge) task = Task.FromResult(Refuse(token.RequestId, "StaleStep: the token is not the attempt's current one", View(a)));
+        if (Terminal(a.State)) task = Task.FromResult(Refuse(request.RequestId, $"AttemptClosed: the attempt is {a.State}", View(a)));
+        else if (token is not null && token.StepChallenge != a.Challenge) task = Task.FromResult(Refuse(request.RequestId, "StaleStep: the token is not the attempt's current one", View(a)));
         else if (a.CancelRequested) task = a.CancelTcs!.Task;   // a cancel is waiting for a settlement already: the same answer
         else if (a.Settling)
         {
             // the cost in flight settles first: its receipt decides what the cancel spent
             a.CancelRequested = true;
-            a.CancelRequest = token.RequestId;
+            a.CancelRequest = request.RequestId;
             a.CancelTcs = new TaskCompletionSource<TamingResult>(TaskCreationOptions.RunContinuationsAsynchronously);
             task = a.CancelTcs.Task;
         }
@@ -693,11 +722,11 @@ internal sealed class TamingEngine
         {
             var tcs = new TaskCompletionSource<TamingResult>(TaskCreationOptions.RunContinuationsAsynchronously);
             a.CancelTcs = tcs;
-            a.CancelRequest = token.RequestId;
-            EndCanceled(a, token.RequestId, "Canceled");
+            a.CancelRequest = request.RequestId;
+            EndCanceled(a, request.RequestId, "Canceled");
             task = tcs.Task;
         }
-        a.Replay[token.RequestId] = (fp, task);
+        a.Replay[request.RequestId] = (fp, task);
         return task;
     }
 
@@ -813,23 +842,34 @@ internal sealed class TamingEngine
 
     internal TamingChoicesResult Choices(PlayerRef player, TameAttemptId id)
     {
-        if (!_attempts.TryGetValue(id, out var a) || a.Owner != player) return new(false, "AttemptClosed: no such attempt of the player's", 0, Guid.Empty, []);
-        if (a.State != TamingState.Active) return new(false, $"WrongState: the attempt is {a.State}", a.Revision, a.Challenge, []);
+        if (!_attempts.TryGetValue(id, out var a)) return new(false, "AttemptClosed: no such attempt", null, []);
+        if (a.Owner != player) return new(false, "NotOwner: the attempt is another player's", null, []);
+        if (a.State != TamingState.Active) return new(false, $"WrongState: the attempt is {a.State}", TokenOf(a), []);
         var step = a.Def.Steps[a.Completed];
-        if (step is WeakenStep or NativeStep) return new(true, null, a.Revision, a.Challenge, []);
+        if (step is WeakenStep or NativeStep) return new(true, null, TokenOf(a), []);
         var item = step is FeedStep f ? f.Item : ((UseToolStep)step).Item;
         var count = step is FeedStep fc ? fc.Count : 1;
         var list = new List<TamingItemChoice>();
+        var truncated = false;
         foreach (var s in _costs.Slots(a.OwnerEntity))
         {
             if (s.Item != item || s.IsEmpty) continue;
             if (step is FeedStep ? !s.ItemEntity.IsNone || s.Count < count : s.ItemEntity.IsNone || s.Ref.IsNone || s.IsBroken) continue;
-            if (list.Count == MaxReceiptsPerAttempt) return new(false, "ChoiceLimit: more than 256 matching slots", a.Revision, a.Challenge, []);
+            if (list.Count == MaxChoices)
+            {
+                truncated = true;   // the first 256 are listed, and the answer says there were more (never a refusal)
+                break;
+            }
             var label = $"{s.Slot} x{s.Count}";
             list.Add(new TamingItemChoice(ItemSelection.Of(a.OwnerEntity, s), label.Length > 64 ? label[..64] : label));
         }
-        return new(true, null, a.Revision, a.Challenge, list);
+        return new(true, null, TokenOf(a), list) { Truncated = truncated };
     }
+
+    /// <summary>The most choices <see cref="Choices"/> lists.</summary>
+    internal const int MaxChoices = 256;
+
+    private static TamingToken TokenOf(Attempt a) => new(a.Challenge, a.Revision, a.Completed);
 
     // ------------------------------------------------------------------------------------------- the tick ---------
 

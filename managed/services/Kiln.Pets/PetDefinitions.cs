@@ -4,6 +4,7 @@
 // default for a mod that does not say (players protected, a bodyless recovery anchor). Kiln.Pets never references
 // Kiln.Blocks: the block lowers onto these records.
 using System.Globalization;
+using System.Text.Json.Serialization;
 
 namespace Kiln;
 
@@ -13,7 +14,7 @@ public enum PetLevelMode
     /// <summary>Always <see cref="PetLevelPolicy.Level"/>.</summary>
     Fixed = 0,
     /// <summary>The owner's level when the pet record was made: at the tame (<c>TamingDefinition.Pet</c> of Kiln.Taming), or at the grant for
-    /// a pet given with <see cref="Pets.Grant"/>. The owner must be in game then (<c>LevelUnavailable</c> otherwise).</summary>
+    /// a pet given with <see cref="Pets.Grant(CharacterKey, string, PetRequest)"/>. The owner must be in game then (<c>LevelUnavailable</c> otherwise).</summary>
     OwnerAtTame = 1,
     /// <summary>The owner's level each time a body is made (summon, revive).</summary>
     OwnerAtSummon = 2,
@@ -47,19 +48,26 @@ public sealed record PetMovementPolicy
     public PetMovementMode Mode { get; init; } = PetMovementMode.QueryInput;
     /// <summary>Metres from the owner where the pet stops, 1..10.</summary>
     public double FollowDistance { get; init; } = 3;
-    /// <summary>Seconds between new routes while the owner moves, 0.1..5.</summary>
-    public double RepathSeconds { get; init; } = 0.5;
+    /// <summary>How often a new route is asked while the owner moves, 0.1..5 s (JSON: <c>repathSeconds</c>).</summary>
+    [JsonPropertyName("repathSeconds"), JsonConverter(typeof(Seconds.Json))]
+    public TimeSpan RepathInterval { get; init; } = TimeSpan.FromSeconds(0.5);
     /// <summary>Farther than this many metres the pet runs instead of walking: at least <see cref="FollowDistance"/>, at most 30.</summary>
     public double RunDistance { get; init; } = 10;
     /// <summary>Farther than this many metres (10..160) the pet is put next to its owner on safe ground, when
     /// <see cref="AllowCatchUp"/>.</summary>
     public double CatchUpDistance { get; init; } = 60;
-    /// <summary>Seconds without progress (1..30) after which a stuck pet catches up, when <see cref="AllowCatchUp"/>.</summary>
-    public double StuckSeconds { get; init; } = 5;
+    /// <summary>How long without progress (1..30 s) before a stuck pet catches up, when <see cref="AllowCatchUp"/> (JSON:
+    /// <c>stuckSeconds</c>).</summary>
+    [JsonPropertyName("stuckSeconds"), JsonConverter(typeof(Seconds.Json))]
+    public TimeSpan StuckAfter { get; init; } = TimeSpan.FromSeconds(5);
     /// <summary>How far, in metres (0.5..8), Kiln looks up and down for ground around a catch-up spot.</summary>
     public double GroundSearchMeters { get; init; } = 4;
     /// <summary>Whether a far or stuck pet is put next to its owner. Off: it stops and waits.</summary>
     public bool AllowCatchUp { get; init; } = true;
+
+    // the follower's and the checks' names, in seconds (internal)
+    internal double RepathSeconds { get => RepathInterval.TotalSeconds; init => RepathInterval = Seconds.Of(value); }
+    internal double StuckSeconds { get => StuckAfter.TotalSeconds; init => StuckAfter = Seconds.Of(value); }
 }
 
 /// <summary>A cost of so many items of one kind. Since 0.2.0-dev.32.</summary>
@@ -74,8 +82,9 @@ public sealed record PetRevivePolicy
     /// <summary>False: a downed pet of this definition cannot be revived by <c>Pets.Revive</c> (the mod releases it,
     /// or revives it its own way). Default true.</summary>
     public bool Allowed { get; init; } = true;
-    /// <summary>Seconds of simulation time the owner channels, 0.1..60.</summary>
-    public double ChannelSeconds { get; init; } = 3;
+    /// <summary>How long, in simulation time, the owner channels: 0.1..60 s (JSON: <c>channelSeconds</c>).</summary>
+    [JsonPropertyName("channelSeconds"), JsonConverter(typeof(Seconds.Json))]
+    public TimeSpan ChannelDuration { get; init; } = TimeSpan.FromSeconds(3);
     /// <summary>Metres between the owner and the recovery anchor during the channel, 1..8.</summary>
     public double RangeMeters { get; init; } = 3;
     /// <summary>The share of its maximum health the pet comes back with, more than 0 and at most 1.</summary>
@@ -88,6 +97,9 @@ public sealed record PetRevivePolicy
     public bool CancelOnMovement { get; init; } = true;
     /// <summary>Metres, 0.1..2.</summary>
     public double MaxOwnerDisplacement { get; init; } = 0.75;
+
+    // the roster's name, in seconds (internal)
+    internal double ChannelSeconds { get => ChannelDuration.TotalSeconds; init => ChannelDuration = Seconds.Of(value); }
 }
 
 /// <summary>Who players may fight through pets. Since 0.2.0-dev.32.</summary>
@@ -149,9 +161,10 @@ public sealed record PetDownedPolicy
     public PetDownedOutcome Outcome { get; init; } = PetDownedOutcome.RecoveryAnchor;
 }
 
-/// <summary>How many pets of a definition there may be. Kiln's own ceilings apply on top (128 records per character, 256
-/// controlled bodies in a world). Since 0.2.0-dev.32.</summary>
-public sealed record PetCaps
+/// <summary>How many pets of a definition there may be: the definition's limits. Kiln's own ceilings apply on top (128
+/// records per character, 256 controlled bodies in a world); a request past a limit is refused as
+/// <c>Capacity</c>. Since 0.2.0-dev.32.</summary>
+public sealed record PetLimits
 {
     /// <summary>Records of this definition one character keeps (released ones not counted), 1..128.</summary>
     public int RetainedPerCharacter { get; init; } = 32;
@@ -187,10 +200,10 @@ public sealed record PetHudPolicy
 /// {
 ///     Id = "my-mod:hound",
 ///     Creature = "game:enemy_wildbeast_wolf_earlygame",
-///     DisplayName = "Hound",
+///     Name = "Hound",
 ///     Level = new PetLevelPolicy { Mode = PetLevelMode.OwnerAtSummon },    // levels with its owner
 ///     Movement = new PetMovementPolicy { FollowDistance = 4 },
-///     Caps = new PetCaps { LivePerCharacter = 2 },
+///     Limits = new PetLimits { LivePerCharacter = 2 },
 /// });
 /// </code></example>
 /// <seealso cref="Pets.Define"/>
@@ -205,8 +218,9 @@ public sealed record PetDefinition
     /// template name or GUID. Bodies are enemy creatures that walk: wildlife, farm animals and bosses are refused
     /// (<c>CreatureUnsupported</c>), and a pet never flies (its routes are walk-only).</summary>
     public required string Creature { get; init; }
-    /// <summary>The name owners read; null: the creature's own.</summary>
-    public string? DisplayName { get; init; }
+    /// <summary>The name owners read (1 to 64 UTF-8 bytes), as a <c>PetBlock</c>'s <c>Name</c> is; null: the creature's own.
+    /// A pet's resolved name is <see cref="PetSnapshot.Label"/>.</summary>
+    public string? Name { get; init; }
     /// <summary>Its level and size.</summary>
     public PetLevelPolicy Level { get; init; } = new();
     /// <summary>How it follows.</summary>
@@ -217,18 +231,29 @@ public sealed record PetDefinition
     public PetTargetPolicy Targets { get; init; } = new();
     /// <summary>What it becomes when it goes down.</summary>
     public PetDownedPolicy Downed { get; init; } = new();
-    /// <summary>How many there may be.</summary>
-    public PetCaps Caps { get; init; } = new();
+    /// <summary>How many there may be (blocks/*.json: <c>limits</c>).</summary>
+    public PetLimits Limits { get; init; } = new();
     /// <summary>What the owner's HUD shows of it.</summary>
     public PetHudPolicy Hud { get; init; } = new();
+
+    // the roster's and the binder's name for the limits (internal: kept so their code reads as it did)
+    internal PetLimits Caps => Limits;
+    // the roster's name for the shown name (internal, as above)
+    internal string? DisplayName => Name;
 }
 
 /// <summary>The answer of <see cref="Pets.Define"/>. Since 0.2.0-dev.32.</summary>
 /// <param name="Ok">True when the definition is registered (or the same one was already).</param>
-/// <param name="Reason">Why not: <c>DefinitionInUse</c> (another one under the id while its pets have bodies or revives),
-/// <c>CreatureUnknown</c>, <c>CreatureUnsupported</c>, ...</param>
+/// <param name="Reason">Why not, in words for a log: its first word is <see cref="Refusal"/> (<c>DefinitionInUse</c>:
+/// another one under the id while its pets have bodies or revives; <c>CreatureUnknown</c>, <c>CreatureUnsupported</c>,
+/// ...).</param>
 /// <param name="Definition">The registered definition.</param>
-public sealed record PetDefinitionResult(bool Ok, string? Reason, PetDefinition? Definition) : IKilnResult;
+public sealed record PetDefinitionResult(bool Ok, string? Reason, PetDefinition? Definition) : IKilnResult
+{
+    /// <summary>Why not, as a value: <see cref="PetRefusal.None"/> when <see cref="Ok"/>, else the first word of
+    /// <see cref="Reason"/>.</summary>
+    public PetRefusal Refusal => RefusalWords.Of(Ok, Reason, PetRefusal.None, PetRefusal.Other);
+}
 
 /// <summary>The checks of a definition, shared by Pets.Define and Kiln.Blocks (which reports them by field path).</summary>
 internal static class PetDefinitionRules
@@ -241,8 +266,8 @@ internal static class PetDefinitionRules
     {
         if (!ValidId(d.Id)) return ("id", $"\"{d.Id}\" is not a Kiln id <mod id>:<name> (lower case letters, digits, '-', '_', '.')");
         if (d.Creature is null || !ValidId(d.Creature)) return ("creature", $"\"{d.Creature}\" is not a creature's Kiln id (game:<name> or <mod id>:<name>)");
-        if (d.DisplayName is { } n && (n.Length == 0 || System.Text.Encoding.UTF8.GetByteCount(n) > 64)) return ("name", "a name is 1 to 64 UTF-8 bytes");
-        return CheckLevel(d.Level, levelMax) ?? CheckMovement(d.Movement) ?? CheckRevive(d.Revive) ?? CheckTargets(d.Targets) ?? CheckCaps(d.Caps)
+        if (d.Name is { } n && (n.Length == 0 || System.Text.Encoding.UTF8.GetByteCount(n) > 64)) return ("name", "a name is 1 to 64 UTF-8 bytes");
+        return CheckLevel(d.Level, levelMax) ?? CheckMovement(d.Movement) ?? CheckRevive(d.Revive) ?? CheckTargets(d.Targets) ?? CheckLimits(d.Limits)
                ?? (Enum.IsDefined(d.Downed.Outcome) ? null : ("downed.outcome", $"{d.Downed.Outcome} is not an outcome"));
     }
 
@@ -292,11 +317,11 @@ internal static class PetDefinitionRules
         return null;
     }
 
-    public static (string, string)? CheckCaps(PetCaps c)
+    public static (string, string)? CheckLimits(PetLimits c)
     {
-        if (c.RetainedPerCharacter is < 1 or > 128) return ("caps.retainedPerCharacter", $"{c.RetainedPerCharacter} is outside 1..128");
-        if (c.LivePerCharacter is < 1 or > 16) return ("caps.livePerCharacter", $"{c.LivePerCharacter} is outside 1..16");
-        if (c.LivePerWorld is < 1 or > 256) return ("caps.livePerWorld", $"{c.LivePerWorld} is outside 1..256");
+        if (c.RetainedPerCharacter is < 1 or > 128) return ("limits.retainedPerCharacter", $"{c.RetainedPerCharacter} is outside 1..128");
+        if (c.LivePerCharacter is < 1 or > 16) return ("limits.livePerCharacter", $"{c.LivePerCharacter} is outside 1..16");
+        if (c.LivePerWorld is < 1 or > 256) return ("limits.livePerWorld", $"{c.LivePerWorld} is outside 1..256");
         return null;
     }
 

@@ -51,7 +51,7 @@ public sealed class TamingBlockTests : IDisposable
     {
         Creatures = ["game:enemy_wildbeast_wolf_earlygame"],
         Steps = [TamingStepBlock.Weaken(0.4), TamingStepBlock.Feed("Food_T2_Dog_Bait", 2), TamingStepBlock.Tool("Tool_T1_Whistle", 3)],
-        Refund = TamingRefundPolicy.Escrow, InactivitySeconds = 60, MaxAttemptSeconds = 600,
+        Refund = TamingRefundPolicy.Escrow, InactivityTimeout = TimeSpan.FromSeconds(60), MaxAttemptDuration = TimeSpan.FromSeconds(600),
     };
 
     [Fact]
@@ -66,7 +66,8 @@ public sealed class TamingBlockTests : IDisposable
         Assert.Equal("tame-a:wolf", d.Id);
         Assert.Equal(["game:enemy_wildbeast_wolf_earlygame"], d.Creatures);
         Assert.Equal(new TamingStep[] { new WeakenStep(0.4), new FeedStep(new ItemId(0xb59dfc2c), 2), new UseToolStep(new ItemId(0x1234), 3) }, d.Steps);
-        Assert.Equal((TamingRefundPolicy.Escrow, 60.0, 600.0, (string?)null), (d.Refund, d.InactivitySeconds, d.MaxAttemptSeconds, d.Pet));
+        Assert.Equal((TamingRefundPolicy.Escrow, TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(600), (string?)null), (d.Refund, d.InactivityTimeout, d.MaxAttemptDuration, d.Pet));
+        Assert.Equal((60.0, 600.0), (json["inactivitySeconds"]!.GetValue<double>(), json["maxAttemptSeconds"]!.GetValue<double>()));   // JSON keeps its seconds
         Assert.Equal("escrow", json["refund"]!.GetValue<string>());
         Assert.Equal("Food_T2_Dog_Bait", json["steps"]![1]!["item"]!.GetValue<string>());
     }
@@ -109,6 +110,27 @@ public sealed class TamingBlockTests : IDisposable
         Assert.Equal(bait.GameName, json["steps"]![0]!["item"]!.GetValue<string>());
     }
 
+    // API-SHAPE-2 A13: a taming names its creatures as a pet names its creature (PartRef<CreatureBlock>): a creatures
+    // registry id, a creature block's handle or name, or one written in place
+    [Fact]
+    public void Creatures_are_creature_references_as_a_pets_creature_is()
+    {
+        var mod = Mod("tame-f");
+        var pup = Compiler.Define(mod, "pup", new CreatureBlock { Body = Bodies.Vukah });
+        var block = Wolf() with
+        {
+            Creatures = ["game:enemy_wildbeast_wolf_earlygame", (BlockHandle<CreatureBlock>)pup, "pup", new CreatureBlock { Body = Bodies.Vukah }, "game:animal_wildlife_dog_*"],
+        };
+        Assert.Equal(typeof(IReadOnlyList<PartRef<CreatureBlock>>), typeof(TamingBlock).GetProperty(nameof(TamingBlock.Creatures))!.PropertyType);
+        Assert.Equal(typeof(PartRef<CreatureBlock>), typeof(PetBlock).GetProperty(nameof(PetBlock.Creature))!.PropertyType);
+        Lower(mod, "wolf", block).Low.CommitAfter();
+        var d = Assert.Single(_defined).Def;
+        Assert.Equal("game:enemy_wildbeast_wolf_earlygame", d.Creatures[0]);
+        Assert.Equal(["tame-f:pup", "tame-f:pup"], d.Creatures.Skip(1).Take(2));
+        Assert.StartsWith("tame-f:", d.Creatures[3]);   // the inline creature, compiled as the taming's own
+        Assert.Equal("game:animal_wildlife_dog_*", d.Creatures[4]);
+    }
+
     [Theory]
     [InlineData("creatures")]
     [InlineData("creatures[0]")]
@@ -138,8 +160,8 @@ public sealed class TamingBlockTests : IDisposable
             "steps[1].maxHealthFraction" => ok with { Steps = [TamingStepBlock.Native(), TamingStepBlock.Weaken(0)] },
             "steps[0].steps" => ok with { Steps = [TamingStepBlock.Native(256)] },
             "rangeMeters" => ok with { RangeMeters = 9 },
-            "inactivitySeconds" => ok with { InactivitySeconds = 0 },
-            "maxAttemptSeconds" => ok with { InactivitySeconds = 60, MaxAttemptSeconds = 30 },
+            "inactivitySeconds" => ok with { InactivityTimeout = TimeSpan.Zero },
+            "maxAttemptSeconds" => ok with { InactivityTimeout = TimeSpan.FromSeconds(60), MaxAttemptDuration = TimeSpan.FromSeconds(30) },
             "pet" => ok with { Pet = "nowhere" },
             _ => throw new ArgumentOutOfRangeException(nameof(field)),
         };

@@ -20,7 +20,7 @@ public sealed class PetsTamingBinderTests
     private PetResult? _grantAnswer;
     private TaskCompletionSource<PetResult>? _grantHold;
 
-    private static PetDefinition Wolf(int cap = 2) => new() { Id = "mod-a:pet-wolf", Creature = "game:enemy_wildbeast_wolf", Caps = new PetCaps { RetainedPerCharacter = cap } };
+    private static PetDefinition Wolf(int cap = 2) => new() { Id = "mod-a:pet-wolf", Creature = "game:enemy_wildbeast_wolf", Limits = new PetLimits { RetainedPerCharacter = cap } };
 
     private PetsTamingBinder Binder(bool character = true) => new()
     {
@@ -29,14 +29,14 @@ public sealed class PetsTamingBinderTests
         PetsOf = _ => _pets,
         Grant = (owner, pet, req) =>
         {
-            _grants.Add((pet, req.OperationId));
+            _grants.Add((pet, req.RequestId));
             if (_grantHold is { } h) return h.Task;
-            return Task.FromResult(_grantAnswer ?? new PetResult(true, null, new PetSnapshot { Id = new PetId(Guid.NewGuid()), Definition = pet }, req.OperationId, []));
+            return Task.FromResult(_grantAnswer ?? new PetResult(true, null, new PetSnapshot { Id = new PetId(Guid.NewGuid()), Definition = pet }, req.RequestId, []));
         },
         Summon = (who, pet, req) =>
         {
             _summons.Add(pet);
-            return Task.FromResult(new PetResult(true, null, null, req.OperationId, []));
+            return Task.FromResult(new PetResult(true, null, null, req.RequestId, []));
         },
         RemoveTarget = t =>
         {
@@ -76,7 +76,7 @@ public sealed class PetsTamingBinderTests
         var first = Request(WithPet());
         Assert.Null(b.Reserve(first));                       // 1 record + 1 hold = the cap of 2
         var second = Request(WithPet());
-        Assert.StartsWith("Cap", b.Reserve(second));
+        Assert.StartsWith("Capacity:", b.Reserve(second));
         Assert.Null(b.Preflight(first));                     // its own hold is not counted against it
         _pets.Add(new PetSnapshot { Id = new PetId(Guid.NewGuid()), Definition = "mod-a:pet-wolf" });   // granted elsewhere meanwhile
         var full = b.Preflight(first);

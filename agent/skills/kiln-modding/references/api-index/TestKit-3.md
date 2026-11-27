@@ -1,12 +1,5 @@
 # TestKit (Kiln.TestKit): part 3 of 3
 
-## TestKit.HarnessStorageCopy `0.2.16` — One storage of a restored copy in a test (`HarnessPlayerStorage.Restore`).
-- `HarnessStorageCopy(string FullKey, int Slots, IReadOnlyList<TestKit.HarnessStorageRecord> Records, bool Parked = false)`
-- `FullKey { get; init; } -> string` — "\<mod id>:\<name>".
-- `Parked { get; init; } -> bool` — Saved as parked (no mod had it registered then) rather than live.
-- `Records { get; init; } -> IReadOnlyList<TestKit.HarnessStorageRecord>` — Its stacks.
-- `Slots { get; init; } -> int` — The slots it had when it was saved.
-
 ## TestKit.HarnessStorageRecord `0.2.16` — One record of a player storage in a test: a stack in a slot.
 - `HarnessStorageRecord()`
 - `HarnessStorageRecord(int Slot, ItemId Item, int Count, int Level = 0)`
@@ -18,6 +11,16 @@
 - `static operator !=(TestKit.HarnessStorageRecord left, TestKit.HarnessStorageRecord right) -> bool`
 - `static operator ==(TestKit.HarnessStorageRecord left, TestKit.HarnessStorageRecord right) -> bool`
 - `Slot { get; init; } -> int` — The slot in the storage (0 to slots - 1).
+
+## TestKit.HarnessTaming `0.2.26` — Kiln.Taming offline: the players in game, the creatures they tame and what their inventories hold.
+- `Count(PlayerRef player, ItemId item) -> int` — How many of `item` the player holds now.
+- `Give(PlayerRef player, ItemId item, int count) -> ItemSelection` — Puts `count` of `item` (a plain stack) in a slot of the player's own and returns its selection, as `Taming.Choices`...
+- `Hurt(EntityRef creature, double healthFraction) -> void` — The creature's health is now `healthFraction` of its maximum (a weaken step reads it).
+- `Join(CharacterKey character, WorldPosition at = default(WorldPosition)) -> PlayerRef` — The player is in game at `at` (a character joined to `HarnessPets` too is the same player there).
+- `Leave(PlayerRef player) -> void` — The player left: their attempts fail OwnerLeft at the next step.
+- `NativeStep(EntityRef creature) -> void` — The game counted one native step on the creature (a petting while it ate its bait).
+- `Place(string creature, WorldPosition at, double healthFraction = 1, bool nativeTameable = false) -> EntityRef` — A creature of `creature` (a creatures registry id or a creature block's) at `at`; `nativeTameable`: a tameable wild...
+- `Remove(EntityRef creature) -> void` — The creature is gone (its attempt fails BodyGone).
 
 ## TestKit.HarnessTasks `0.2.10` — The Kiln tasks of a harness's mods (`KilnHarness.Tasks`).
 - `Live { get; } -> int` — The tasks that have not ended yet (and ended ones with a hop still to run).
@@ -186,6 +189,7 @@ enum: AddBackpackMaterials, Everything, NoTombstone
 - `NpcSpeech { get; } -> TestKit.HarnessNpcSpeech` `0.2.23` — The kit's fake kiln.npcspeech of this harness: what a Kiln client's speech bubble of each NPC would show after the...
 - `OnMainThread(Action work) -> void` `0.2.10` — Runs `work` on the game client's main thread, where the client world steps (#82): a task started there belongs to...
 - `Outlines { get; } -> TestKit.HarnessOutlines` `0.2.13` — The fake kiln.render's outlines of this harness (Ui.World.Outline): what mods outlined, and the game's side of it...
+- `Pets { get; } -> TestKit.HarnessPets` `0.2.26` — The fake of Kiln.Pets' world (created and installed on first use, gone with the harness).
 - `Players { get; } -> TestKit.HarnessPlayers` — The players on this server: `HarnessPlayers.Join` one, `FakePlayer.Leave`.
 - `PlayerStorage { get; } -> TestKit.HarnessPlayerStorage` `0.2.16` — The fake kiln.items.storage of this harness: the game's side of player storage (joins, restores, saves, leaves, deaths).
 - `Programs { get; } -> TestKit.HarnessPrograms` `0.2.4` — The game's ECS programs in the harness's fake server world (kiln.world v4): the ones a test declares, which...
@@ -210,6 +214,7 @@ enum: AddBackpackMaterials, Everything, NoTombstone
 - `Step(int steps = 1) -> void` — Runs `steps` server steps, each in the order of Kiln.Host's Pre: the first one loads the mods waiting in `kiln/mods`...
 - `StepUntil(Func<bool> condition, int maxSteps = 1000, TimeSpan pace = default(TimeSpan)) -> int` — Steps until `condition` (checked on the tick thread before each step) is true; returns the steps it took (0 when it...
 - `Stop(string reason = "SIGINT") -> void` — Stops the server at once, as a stop signal does: `ServerStoppingEvent` with `reason`, then every mod's `OnUnload` in...
+- `Taming { get; } -> TestKit.HarnessTaming` `0.2.26` — The fake of Kiln.Taming's world and item costs (created and installed on first use, gone with the harness).
 - `Tasks { get; } -> TestKit.HarnessTasks` `0.2.10` — Kiln tasks (`ModContext.Tasks`) of the mods under this harness: they run on the kit's task pool, whose workers are...
 - `Terrain { get; } -> TestKit.HarnessTerrain` `0.2.3` — The fake world behind Kiln.Terrain in this harness: its cells, bases and what overlays wrote.
 - `Time { get; } -> TestKit.HarnessTime` `0.2.2` — The server's day/night clock as the kit's fake of kiln.time runs it on the harness's virtual time.

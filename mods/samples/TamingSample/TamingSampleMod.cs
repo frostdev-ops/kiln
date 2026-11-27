@@ -33,17 +33,24 @@ public sealed class TamingSampleMod : Mod
             // once the game's items are readable (a TamingBlock names items, the mod's own too, and needs no wait)
             if (_defined || t.Step % 25 != 0 || !Items.Available) return;
             _defined = true;
-            Taming.DefineJson(Wolf);
-            Taming.Define(new TamingDefinition
+            foreach (var r in Taming.DefineJson(Wolf)) Defined(r);
+            Defined(Taming.Define(new TamingDefinition
             {
                 Id = "taming-sample:dog", Creatures = ["game:animal_wildlife_dog_*"], Steps = [new NativeStep(1), new NativeStep(1)],
-                InactivitySeconds = 120, MaxAttemptSeconds = 600,
-            });
+                InactivityTimeout = TimeSpan.FromSeconds(120), MaxAttemptDuration = TimeSpan.FromMinutes(10),
+            }));
         };
         Events.On<TamingStepChangedEvent>(e => Log.Info($"{e.After.Definition}: step {e.After.CompletedSteps}/{e.After.TotalSteps}, paid {e.Receipts.Sum(r => r.Taken)}"));
         Events.On<TamedEvent>(e => Log.Info($"{e.After.Definition} tamed{(e.Pet is { } p ? $": pet {p.Id}" : "")}"));
         Events.On<TamingFailedEvent>(e => Log.Info($"{e.After.Definition} failed ({e.Cause}); refunds: {e.After.Refunds.Count}"));
         Events.On<NativeTamedEvent>(e => Log.Info($"the game tamed {e.Creature} after {e.Steps} step(s)"));
+    }
+
+    // a definition answers as Pets.Define does: Ok, or why not as a value (DefinitionInUse: another one under the id while
+    // attempts of it run); decide by Refusal, log the text
+    private void Defined(TamingDefinitionResult r)
+    {
+        if (!r.Ok) Log.Warn($"taming {r.Definition?.Id}: {r.Refusal} ({r.Reason})");
     }
 
     private static PlayerRef Player(CommandContext c) =>
@@ -61,15 +68,15 @@ public sealed class TamingSampleMod : Mod
     }
 
     [Command("tame begin", Description = "start taming the nearest wolf or wild dog (3 m)")]
-    private void Begin(CommandContext c)
+    private async Task Begin(CommandContext c)
     {
         var who = Player(c);
         var at = World.Position(c.Source.Player) ?? throw new CommandException("your position is not known");
         foreach (var e in Creatures.Near(at, 3))
             foreach (var def in new[] { "taming-sample:wolf", "taming-sample:dog" })
             {
-                var r = Taming.Begin(who, EntityRef.Of(e), def, Guid.NewGuid());
-                if (r.Reason?.StartsWith("TemplateMismatch", StringComparison.Ordinal) == true) continue;
+                var r = await Taming.Begin(who, EntityRef.Of(e), def, TamingRequest.New());
+                if (r.Refusal == TamingRefusal.TemplateMismatch) continue;
                 c.Reply($"{def}: {Answer(who, r)}");
                 return;
             }
@@ -81,7 +88,7 @@ public sealed class TamingSampleMod : Mod
     {
         var who = Player(c);
         var p = Attempt(who);
-        c.Reply(Answer(who, await Taming.Advance(who, p.Id, new TamingToken(Guid.NewGuid(), p.StepChallenge, p.Revision, p.CompletedSteps))));
+        c.Reply(Answer(who, await Taming.Advance(who, p.Id, TamingRequest.New(p.Token))));
     }
 
     [Command("tame feed", Description = "feed from the first slot that can pay the step")]
@@ -92,7 +99,7 @@ public sealed class TamingSampleMod : Mod
         var choices = Taming.Choices(who, p.Id);
         if (!choices.Ok || choices.Choices.Count == 0) throw new CommandException(choices.Reason ?? "nothing in your inventories can pay this step");
         // a real UI shows the choices and sends back which one; the server revalidates it when the cost runs
-        var token = new TamingToken(Guid.NewGuid(), choices.StepChallenge, choices.Revision, p.CompletedSteps);
+        var token = TamingRequest.New(choices.Token);
         c.Reply(Answer(who, await Taming.Advance(who, p.Id, token, choices.Choices[0].Selection)));
     }
 
@@ -101,7 +108,7 @@ public sealed class TamingSampleMod : Mod
     {
         var who = Player(c);
         var p = Attempt(who);
-        c.Reply(Answer(who, await Taming.Retry(who, p.Id, new TamingToken(Guid.NewGuid(), p.StepChallenge, p.Revision, p.CompletedSteps))));
+        c.Reply(Answer(who, await Taming.Retry(who, p.Id, TamingRequest.New(p.Token))));
     }
 
     [Command("tame cancel", Description = "stop taming (paid steps stay paid: the wolf's refund is for failures only)")]
@@ -109,7 +116,7 @@ public sealed class TamingSampleMod : Mod
     {
         var who = Player(c);
         var p = Attempt(who);
-        c.Reply(Answer(who, await Taming.Cancel(who, p.Id, new TamingToken(Guid.NewGuid(), p.StepChallenge, p.Revision, p.CompletedSteps))));
+        c.Reply(Answer(who, await Taming.Cancel(who, p.Id, TamingRequest.New(p.Token))));
     }
 
     [Command("tame status", Description = "the taming now")]
@@ -117,7 +124,7 @@ public sealed class TamingSampleMod : Mod
     {
         var who = Player(c);
         var p = Taming.Inspect(Attempt(who).Id) ?? throw new CommandException("the taming is over");
-        c.Reply($"{p.Definition}: {p.State}, step {p.CompletedSteps}/{p.TotalSteps}, expires at {p.ExpiresAtSimSeconds:0} s, paid {p.Spent.Count}");
+        c.Reply($"{p.Definition}: {p.State}, step {p.CompletedSteps}/{p.TotalSteps}, expires at {p.ExpiresAt.TotalSeconds:0} s, paid {p.Spent.Count}");
         if (NativeTaming.Available && NativeTaming.Read(p.Target.Id) is { } n)
             c.Reply($"the game: {n.Phase}, {n.Progress}/{n.Required} step(s)");
     }

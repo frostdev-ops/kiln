@@ -42,8 +42,31 @@ public sealed class PetBlockTests : IDisposable
         Assert.Equal("queryInput", pet["movement"]!["mode"]!.GetValue<string>());
         Assert.Equal(3, pet["revive"]!["channelSeconds"]!.GetValue<double>());
         Assert.Null(pet["revive"]!["cost"]);
-        Assert.Equal(1, pet["caps"]!["livePerCharacter"]!.GetValue<int>());
+        Assert.Equal(1, pet["limits"]!["livePerCharacter"]!.GetValue<int>());
         Assert.True(pet["hud"]!["bar"]!.GetValue<bool>());
+    }
+
+    // API-SHAPE-2 A3: a pet's limits are "limits" (PetLimits), never "caps" (capabilities are rows, not counts)
+    [Fact]
+    public void A_pets_limits_are_limits_in_json_and_caps_is_not_a_field()
+    {
+        var p = BlockJson.Parse<PetBlock>("""{ "creature": "game:enemy_wildbeast_wolf", "limits": { "livePerCharacter": 2 } }""");
+        Assert.Equal(2, p.Limits.LivePerCharacter);
+        Assert.ThrowsAny<System.Text.Json.JsonException>(() => BlockJson.Parse<PetBlock>("""{ "creature": "game:enemy_wildbeast_wolf", "caps": { "livePerCharacter": 2 } }"""));
+    }
+
+    // API-SHAPE-2 C2: durations are TimeSpan in C#; blocks/*.json keeps its seconds
+    [Fact]
+    public void Json_seconds_become_TimeSpan_durations()
+    {
+        var p = BlockJson.Parse<PetBlock>("""
+            { "creature": "game:enemy_wildbeast_wolf", "movement": { "repathSeconds": 1.25, "stuckSeconds": 8 }, "revive": { "channelSeconds": 4.5 } }
+            """);
+        Assert.Equal((TimeSpan.FromSeconds(1.25), TimeSpan.FromSeconds(8), TimeSpan.FromSeconds(4.5)), (p.Movement.RepathInterval, p.Movement.StuckAfter, p.Revive.ChannelDuration));
+        Assert.ThrowsAny<System.Text.Json.JsonException>(() => BlockJson.Parse<PetBlock>("""{ "creature": "game:enemy_wildbeast_wolf", "revive": { "channelSeconds": "3" } }"""));
+        Assert.ThrowsAny<System.Text.Json.JsonException>(() => BlockJson.Parse<PetBlock>("""{ "creature": "game:enemy_wildbeast_wolf", "revive": { "channelSeconds": 1e300 } }"""));
+        var t = BlockJson.Parse<TamingBlock>("""{ "creatures": ["game:enemy_wildbeast_wolf"], "steps": [ { "kind": "native" } ], "inactivitySeconds": 45, "maxAttemptSeconds": 90 }""");
+        Assert.Equal((TimeSpan.FromSeconds(45), TimeSpan.FromSeconds(90)), (t.InactivityTimeout, t.MaxAttemptDuration));
     }
 
     [Fact]
@@ -56,7 +79,7 @@ public sealed class PetBlockTests : IDisposable
             Downed = new PetDownedPolicy { Outcome = PetDownedOutcome.Release },
             Movement = new PetMovementPolicy { FollowDistance = 5, RunDistance = 12, AllowCatchUp = false },
             Revive = new ReviveBlock { Allowed = false },
-            Caps = new PetCaps { LivePerCharacter = 3 },
+            Limits = new PetLimits { LivePerCharacter = 3 },
             Hud = new PetHudPolicy { Bar = false },
         });
         Assert.Equal("byModRule", pet["targets"]!["pvp"]!.GetValue<string>());
@@ -64,7 +87,7 @@ public sealed class PetBlockTests : IDisposable
         Assert.Equal("release", pet["downed"]!["outcome"]!.GetValue<string>());
         Assert.False(pet["movement"]!["allowCatchUp"]!.GetValue<bool>());
         Assert.False(pet["revive"]!["allowed"]!.GetValue<bool>());
-        Assert.Equal(3, pet["caps"]!["livePerCharacter"]!.GetValue<int>());
+        Assert.Equal(3, pet["limits"]!["livePerCharacter"]!.GetValue<int>());
         Assert.False(pet["hud"]!["bar"]!.GetValue<bool>());
     }
 
@@ -75,8 +98,8 @@ public sealed class PetBlockTests : IDisposable
         {
             Creature = "game:enemy_wildbeast_wolf", Name = "Companion",
             Level = new PetLevelPolicy { Mode = PetLevelMode.OwnerAtSummon, Level = 4, Scale = 1.5 },
-            Movement = new PetMovementPolicy { FollowDistance = 4, RepathSeconds = 1, RunDistance = 9, CatchUpDistance = 40, StuckSeconds = 6, GroundSearchMeters = 2 },
-            Revive = new ReviveBlock { ChannelSeconds = 5, RangeMeters = 2, HealthFraction = 0.25, CancelOnMovement = false, MaxOwnerDisplacement = 1 },
+            Movement = new PetMovementPolicy { FollowDistance = 4, RepathInterval = TimeSpan.FromSeconds(1), RunDistance = 9, CatchUpDistance = 40, StuckAfter = TimeSpan.FromSeconds(6), GroundSearchMeters = 2 },
+            Revive = new ReviveBlock { ChannelDuration = TimeSpan.FromSeconds(5), RangeMeters = 2, HealthFraction = 0.25, CancelOnMovement = false, MaxOwnerDisplacement = 1 },
             Downed = new PetDownedPolicy { Outcome = PetDownedOutcome.Absent },
         });
         var block = BlockJson.Parse<PetBlock>("""
@@ -132,9 +155,9 @@ public sealed class PetBlockTests : IDisposable
     [InlineData("revive.maxOwnerDisplacement")]
     [InlineData("revive.cost.count")]
     [InlineData("targets.hostileFactions")]
-    [InlineData("caps.retainedPerCharacter")]
-    [InlineData("caps.livePerCharacter")]
-    [InlineData("caps.livePerWorld")]
+    [InlineData("limits.retainedPerCharacter")]
+    [InlineData("limits.livePerCharacter")]
+    [InlineData("limits.livePerWorld")]
     [InlineData("name")]
     public void Wrong_values_are_refused_by_field(string field)
     {
@@ -144,20 +167,20 @@ public sealed class PetBlockTests : IDisposable
             "level.level" => ok with { Level = new PetLevelPolicy { Level = 256 } },
             "level.scale" => ok with { Level = new PetLevelPolicy { Scale = 9 } },
             "movement.followDistance" => ok with { Movement = new PetMovementPolicy { FollowDistance = 0.5 } },
-            "movement.repathSeconds" => ok with { Movement = new PetMovementPolicy { RepathSeconds = 0 } },
+            "movement.repathSeconds" => ok with { Movement = new PetMovementPolicy { RepathInterval = TimeSpan.Zero } },
             "movement.runDistance" => ok with { Movement = new PetMovementPolicy { FollowDistance = 8, RunDistance = 5 } },
             "movement.catchUpDistance" => ok with { Movement = new PetMovementPolicy { CatchUpDistance = 200 } },
-            "movement.stuckSeconds" => ok with { Movement = new PetMovementPolicy { StuckSeconds = double.NaN } },
+            "movement.stuckSeconds" => ok with { Movement = new PetMovementPolicy { StuckAfter = TimeSpan.FromSeconds(31) } },
             "movement.groundSearchMeters" => ok with { Movement = new PetMovementPolicy { GroundSearchMeters = 9 } },
-            "revive.channelSeconds" => ok with { Revive = new ReviveBlock { ChannelSeconds = 61 } },
+            "revive.channelSeconds" => ok with { Revive = new ReviveBlock { ChannelDuration = TimeSpan.FromSeconds(61) } },
             "revive.rangeMeters" => ok with { Revive = new ReviveBlock { RangeMeters = 0.5 } },
             "revive.healthFraction" => ok with { Revive = new ReviveBlock { HealthFraction = 0 } },
             "revive.maxOwnerDisplacement" => ok with { Revive = new ReviveBlock { MaxOwnerDisplacement = 3 } },
             "revive.cost.count" => ok with { Revive = new ReviveBlock { Cost = new ReviveCostBlock("Material_T1_Twigs", 0) } },
             "targets.hostileFactions" => ok with { Targets = new PetTargetPolicy { HostileFactions = [Faction.Player] } },
-            "caps.retainedPerCharacter" => ok with { Caps = new PetCaps { RetainedPerCharacter = 129 } },
-            "caps.livePerCharacter" => ok with { Caps = new PetCaps { LivePerCharacter = 0 } },
-            "caps.livePerWorld" => ok with { Caps = new PetCaps { LivePerWorld = 257 } },
+            "limits.retainedPerCharacter" => ok with { Limits = new PetLimits { RetainedPerCharacter = 129 } },
+            "limits.livePerCharacter" => ok with { Limits = new PetLimits { LivePerCharacter = 0 } },
+            "limits.livePerWorld" => ok with { Limits = new PetLimits { LivePerWorld = 257 } },
             "name" => ok with { Name = new string('x', 65) },
             _ => throw new ArgumentOutOfRangeException(nameof(field)),
         };

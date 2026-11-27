@@ -33,12 +33,14 @@ Blocks.Define("wolf", new TamingBlock
     Refund = TamingRefundPolicy.RefundOnFail,
 });
 
-// 2. code: a TamingDefinition (game item ids resolve once Items.Available)
-Taming.Define(new TamingDefinition
+// 2. code: a TamingDefinition (game item ids resolve once Items.Available); Kiln keeps its own copy
+var defined = Taming.Define(new TamingDefinition
 {
     Id = "my-mod:dog", Creatures = ["game:animal_wildlife_dog_*"],
-    Steps = [new NativeStep(1), new NativeStep(1)], InactivitySeconds = 120, MaxAttemptSeconds = 600,
+    Steps = [new NativeStep(1), new NativeStep(1)],
+    InactivityTimeout = TimeSpan.FromMinutes(2), MaxAttemptDuration = TimeSpan.FromMinutes(10),
 });
+if (!defined.Ok) Log.Warn($"taming not defined: {defined.Reason}");   // DefinitionInUse: attempts of the old one run
 
 // 3. JSON text: Taming.DefineJson(json) takes one object or an array
 Taming.DefineJson("""
@@ -54,7 +56,7 @@ Taming.DefineJson("""
 | `Creatures` | game creatures by creatures-registry id (a trailing `*` takes a prefix: `game:animal_wildlife_dog_*`) or a creature block; others are refused `TemplateMismatch` before any cost |
 | `Steps` (1 to 64, in order, the last one tames) | `FeedStep(ItemId, count 1..999)` a plain stack item; `WeakenStep(maxHealthFraction in (0, 1])`: no cost, the target's health must be at most that; `UseToolStep(ItemId, wear 0..32767, allowBreak)` a gear item; `NativeStep(1..255)` the game's own count (below). JSON kinds: `feed`, `weaken`, `tool`, `native` |
 | `RangeMeters` | 3 (1 to 8): how close the player must be |
-| `InactivitySeconds`, `MaxAttemptSeconds` | 30 (1 to 300), 300 (inactivity to 3600); simulation seconds |
+| `InactivityTimeout`, `MaxAttemptDuration` | 30 s (1 to 300 s), 300 s (inactivity to 3600 s); simulation time. TimeSpans in C#, numbers of seconds in JSON (`inactivitySeconds`, `maxAttemptSeconds`) |
 | `Refund` | `NonRefundable` (default: paid steps stay paid). `RefundOnFail`: a failure that is not the player's (the body gone, the world ended, the owner left) gives paid steps back; a cancel or a timeout does not. `Escrow`: as `RefundOnFail`, and a cancel or a timeout gives them back too |
 | `RequireThresholdUntilCommit` | true: the latest weaken threshold must hold at the tame |
 | `Pet` | the id of a pet definition ([api-pets.md](api-pets.md)); null: no record |
@@ -69,33 +71,38 @@ if it is still unknown the taming is not defined and `Begin` answers `Definition
 
 ## Drive an attempt
 
-Every action carries **your request id** and **the token of the last answer**. A new id for each intended action; the same id
-when you resend after a hiccup (it can never pay twice).
+Every action carries a **`TamingRequest`**: **your request id** and **the token of the last answer** (`TamingRequest.New(progress.Token)`;
+the same request shape as Kiln.Pets' `PetRequest`). A new request for each intended action; the same request when you resend
+after a hiccup (it can never pay twice).
 
 ```csharp
 if (!Capabilities.Is(Taming.Capability)) return;                         // "taming.steps": a server world runs
-var r = Taming.Begin(player, EntityRef.Of(wolf), "my-mod:wolf", Guid.NewGuid());
+var r = await Taming.Begin(player, EntityRef.Of(wolf), "my-mod:wolf", TamingRequest.New());   // a begin takes no token
 if (!r.Ok || r.Progress is not { } p) { Log.Info(r.Reason ?? "refused"); return; }     // Busy, TemplateMismatch, OutOfRange, DefinitionUnknown, ...
-// the token of the last answer: p.StepChallenge, p.Revision, p.CompletedSteps
-r = await Taming.Advance(player, p.Id, new TamingToken(Guid.NewGuid(), p.StepChallenge, p.Revision, p.CompletedSteps));   // weaken: no selection
+r = await Taming.Advance(player, p.Id, TamingRequest.New(p.Token));      // weaken: no selection; p.Token is the last answer's
 if (!r.Ok || r.Progress is not { } q) { Log.Info(r.Reason ?? "refused"); return; }
-var pick = Taming.Choices(player, q.Id).Choices[0].Selection;             // a slot the server read
-r = await Taming.Advance(player, q.Id, new TamingToken(Guid.NewGuid(), q.StepChallenge, q.Revision, q.CompletedSteps), pick);
+var choices = Taming.Choices(player, q.Id);                               // slots the server read, and the view's token
+r = await Taming.Advance(player, q.Id, TamingRequest.New(choices.Token), choices.Choices[0].Selection);
 if (r.Ok && r.Pet is { } tamed) Log.Info($"tamed: {tamed.Id}");            // the new Kiln.Pets record
-else if (r.Reason?.StartsWith("CommitDeferred", StringComparison.Ordinal) == true) { /* every step paid: Taming.Retry later; nothing more is taken */ }
+else if (r.Refusal == TamingRefusal.CommitDeferred) { /* every step paid: Taming.Retry later; nothing more is taken */ }
 ```
 
-- **`Begin` is synchronous; `Advance`, `Retry`, `Cancel` return `Task<TamingResult>`.** Server tick thread; `await` them.
+- **`Begin`, `Advance`, `Retry` and `Cancel` all return `Task<TamingResult>`** (a begin's is complete at once: it takes no
+  cost). Server tick thread; `await` them.
   `Begin` claims the target (another attempt is `Busy`) and holds a roster slot for the pet.
 - **Feed and tool steps take a selection**: one slot, read by the server (`Taming.Choices`, or `ItemSelection.Of` of an
   `Items.Read` slot). Nothing searches when the cost runs; a slot that changed is `StaleSelection` and **nothing** is taken.
   A client never names a slot id: build a picker from `Choices` and send back which row.
 - **Weaken and native steps take none.**
-- **The token rotates.** Keep the last `TamingResult.Progress`; the next call's token is its `StepChallenge`, `Revision`,
-  `CompletedSteps`. A stale one is `StaleStep` / `StaleSession`, with nothing taken. `Taming.Inspect(id)` reads the attempt;
-  it is gone 10 simulation minutes after it closed.
-- **Reasons start with a word**, then the text: `Busy`, `WrongOwner`, `StaleSession`, `StaleStep`, `RequestConflict`,
-  `StaleSelection`, `OutOfRange`, `TemplateMismatch`, `DefinitionUnknown`, `CommitDeferred`, ... Switch on the first word.
+- **The token rotates.** Keep the last `TamingResult.Progress`; the next request is `TamingRequest.New(progress.Token)` (its
+  `StepChallenge`, `Revision`, `CompletedSteps`). A stale one is `StaleStep` / `StaleSession`, with nothing taken.
+  `Taming.Cancel` works by attempt id: `TamingRequest.New()` (no token) cancels from a stale view; with a token it cancels only
+  while that token is current. `Taming.Inspect(id)` reads the attempt; it is gone 10 simulation minutes after it closed.
+- **`Choices` lists the first 256 slots** and sets `Truncated` when more could pay (never a refusal for many slots).
+- **Decide by `r.Refusal`** (`TamingRefusal`, the same words as `PetRefusal` for the same meanings; `Reason` is text for
+  logs): `Busy`, `NotOwner`, `OwnerOffline`, `StaleSession`, `StaleStep`, `RequestConflict`, `StaleSelection`, `OutOfRange`,
+  `TemplateMismatch`, `DefinitionUnknown`, `Capacity`, `RefusedByMod`, `CommitDeferred`, ... (`Other` for a word a later Kiln
+  adds).
 - **Rows:** `taming.steps` (on while a server world runs); a definition also needs the rows of its steps: `items.costs.exact`
   (feed, and any refund), `items.costs.wear` (tool), `taming.native` (native), `pets.records` (names a pet). `Taming.Define*`
   throws `KilnUnavailableException` naming the one that is off.
@@ -125,7 +132,7 @@ near it and it eats it; a player pets it while it eats (one step, about 3.75 s);
 Kiln changes none of that.
 
 - `NativeTaming.Read(entity)` says where an animal is (`NativeTamingState`: `Phase`, `Progress`, `Required`, `Bait`,
-  `BaitTemplate` (the favourite bait's template Guid), `EatSeconds`); `NativeTamedEvent`, `NativeTamingProgressEvent`, `NativeBaitEatenEvent`
+  `BaitTemplate` (the favourite bait's template Guid), `EatDuration`); `NativeTamedEvent`, `NativeTamingProgressEvent`, `NativeBaitEatenEvent`
   report it. Ask `NativeTaming.Available` (`taming.native`).
 - A `NativeStep` in a definition follows the game's count, so a taming can be the game's, Kiln's, or both. The game does **not**
   record who tamed an animal: `NativeTamingState.TamedBy` is always null on this build (`taming.native_observe` is off);

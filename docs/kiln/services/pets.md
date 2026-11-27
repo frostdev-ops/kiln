@@ -21,13 +21,15 @@ Author guide: [modding/pets.md](../modding/pets.md). Sample: `mods/samples/PetsS
 | Who it may harm, who may harm it | `PetTargetPolicy`: the hostile creature factions (never Player, AutomatedPlayer, PlayerAlly or FarmAnimal: `Define` refuses them); PvP off, or by the mod's rule (`Pets.SetHostile` pairs) | PvP off; Fogger, Vukah, Scavenger, WildBeast, Skeleton, Cyclops, Drak, Ancients |
 | What a downed pet is | `PetDownedPolicy.Outcome` (recovery anchor, absent, released); per pet in `PetDowningEvent` | a recovery anchor where it fell |
 | Revive: allowed, channel, range, health, cost, what cancels | `PetRevivePolicy`; a refusal per attempt in `PetRevivingEvent` | allowed, 3 s, 3 m, half health, free, movement and damage cancel |
-| How many | `PetCaps`: records per character, live per character, live per world | 32, 1, 16 |
+| How many | `PetLimits` (`Limits`; JSON `limits`): records per character, live per character, live per world | 32, 1, 16 |
 | What the owner's HUD shows | `PetHudPolicy` (bar row, anchor marker) per definition; `PetsClient.Configure` per player; or a HUD of the mod's own from `PetsClient.Snapshot` | bar and marker on |
 | Who gets a pet | `Pets.Grant` (a reward, a quest, a command); taming (19e) when it lands | none |
 | Attack, assist, defend | `Pets.Command(..., PetOrder.Attack, target, ...)`: the mod decides when; Kiln checks the target rule | Kiln never attacks by itself |
 
 Every time on this page and in a definition (the revive channel, stuck and repath times, a new body's 5 s to get ready,
-the owner's view's rates) is seconds of the game's own world clock, whatever the server's step rate (a dedicated server
+the owner's view's rates) is the game's own world clock. In C# a duration is a `TimeSpan` (`ChannelDuration`,
+`RepathInterval`, `StuckAfter`, `PetSnapshot.ReviveElapsed`), as in Npcs and the registries; blocks/*.json keeps numbers of
+seconds (`channelSeconds`, `repathSeconds`, `stuckSeconds`). It runs on that clock whatever the server's step rate (a dedicated server
 steps 15 to 25 times a second). A paused world's clock stands still. The stuck and no-route times count each step at most
 0.25 s: a server stall (a long save, a loaded host) moves nothing, so it is no stuck time and teleports no pet.
 
@@ -89,29 +91,35 @@ for this pet; the down itself cannot be refused. `PetDownedEvent` comes only aft
 
 ```csharp
 [ServerOnly, TickThreadOnly] public static class Pets {
-    PetDefinitionResult Define(PetDefinition definition);                     // pets.definitions (any thread)
+    PetDefinitionResult Define(PetDefinition definition);                     // pets.definitions (tick thread; any thread before a server world runs)
     PetDefinition? Definition(string id); IReadOnlyList<PetDefinition> Definitions;
-    IReadOnlyList<PetSnapshot> Of(CharacterKey owner);                         // pets.records
+    IReadOnlyList<PetSnapshot> Of(CharacterKey owner); IReadOnlyList<PetSnapshot> Of(PlayerRef player);   // pets.records (a player: in game)
     PetSnapshot? Get(PetId pet);
-    Task<PetResult> Grant(CharacterKey owner, string definition, PetRequest request);
+    Task<PetResult> Grant(PlayerRef owner, string definition, PetRequest request);   // in game, as every request
+    Task<PetResult> Grant(CharacterKey owner, string definition, PetRequest request); // a character, also offline
     Task<PetResult> Summon(PlayerRef owner, PetId pet, PetRequest request);    // pets.summon
     Task<PetResult> Dismiss(PlayerRef owner, PetId pet, PetRequest request);
     Task<PetResult> Command(PlayerRef owner, PetId pet, PetOrder order, EntityRef target, PetRequest request); // pets.follow (+ pets.fight for Attack)
-    Task<PetResult> Revive(PlayerRef owner, PetId pet, PetRequest request, ItemSelection? cost = null);       // pets.downed
-    Task<PetResult> CancelRevive(PlayerRef owner, PetId pet, Guid reviveOperation, PetRequest request);
+    Task<PetResult> Revive(PlayerRef owner, PetId pet, PetRequest request, ItemSelection? selection = null);  // pets.downed
+    Task<PetResult> CancelRevive(PlayerRef owner, PetId pet, Guid reviveRequest, PetRequest request);
     Task<PetResult> Release(PlayerRef owner, PetId pet, PetRequest request);   // pets.records
     void SetHostile(CharacterKey a, CharacterKey b, bool hostile); bool IsHostile(CharacterKey a, CharacterKey b); // pets.fight
+    IReadOnlyList<CharacterKey> HostileTo(CharacterKey character);           // the declared duels of a character
 }
 ```
 
-- **Requests** carry an operation id (`PetRequest.New()`): a retry with the same id gives the first answer for 10
-  minutes; the same id for another request is `RequestConflict`; a nonzero `ExpectedStateRevision` that moved on is
+- **Requests** carry a request id (`PetRequest.New()`, `PetRequest(RequestId, ExpectedStateRevision)`: the one request
+  shape of Kiln.Pets and Kiln.Taming, whose `TamingRequest(RequestId, Token)` is the same idea; Kiln.Items' `ItemCosts`
+  takes the request id beside the `ItemSelection` it expects); `PetResult.RequestId`, `PetChange.RequestId` and
+  `PetSnapshot.ReviveRequest` carry it. A retry with the same id gives the first answer for 10 minutes; the same id for another request is `RequestConflict`; a nonzero `ExpectedStateRevision` that moved on is
   `StaleRevision` (nothing changes). Requests start at the next step and complete when they settled.
 - **The error rule:** a bad argument throws `ArgumentException`; an off row throws `KilnUnavailableException` naming it;
-  a refusal is `Ok = false` with a reason (`Busy`, `NotOwner`, `OwnerOffline`, `AlreadyReleased`, `Capacity`,
-  `NoSafeGround`, `BodyNotReady`, `ControlRefused`, `ProtectionUnavailable`, `TargetProtected`, `RecoveryNotSummoned`,
-  `OutOfRange`, `CostUnavailable`, `ReviveRefused`, `CanceledNoCost`, `CanceledCostCommitted`,
-  `ReviveFailedCostCommitted`, `UncertainCommit`, ...). A refusal after a cost was taken carries its receipts
+  a refusal is `Ok = false` with a reason, and the reason's first word as a value, `PetResult.Refusal` (`PetRefusal`:
+  `Busy`, `NotOwner`, `OwnerOffline`, `AlreadyReleased`, `Capacity`, `NoSafeGround`, `BodyNotReady`, `ControlRefused`,
+  `ProtectionUnavailable`, `TargetProtected`, `RecoveryNotSummoned`, `OutOfRange`, `CostUnavailable`, `RefusedByMod`,
+  `CanceledNoCost`, `CanceledCostCommitted`, `ReviveFailedCostCommitted`, `UncertainCommit`, ...; `Other` for a word a
+  later Kiln adds). Decide by `Refusal`, never by the text: `if (r.Refusal == PetRefusal.Capacity) ...`. Kiln.Taming's
+  `TamingRefusal` uses the same word for the same meaning. A refusal after a cost was taken carries its receipts
   (`PetResult.Costs`, Kiln.Items' `CostReceipt`): no refund is invented.
 - **Revive:** quoted before anything starts (`ItemCosts.Check`, a read: nothing moves); a mod may refuse (`PetRevivingEvent`); the
   channel runs in simulation time (leaving range, the owner leaving or going down always cancel; moving past
@@ -120,8 +128,9 @@ for this pet; the down itself cannot be refused. `PetDownedEvent` comes only aft
   Live. A channel cut by a logout or an unload while its debit settles waits for the exact receipt and answers
   `CanceledCostCommitted` with it. The cost goes through the exact-cost adapter (`kiln.item_costs`, Kiln.Items'
   `ItemCosts`, [item-costs.md](item-costs.md)): `ItemCosts.Take` from one slot, all or nothing, under one request id per
-  revive operation and world. The `cost` selection (Kiln.Items' `ItemSelection`) must be the owner's plain stack of the
-  cost's item holding at least the cost, and only that slot pays; with none, the first slot holding a plain stack of the
+  revive request and world. One way to pay: the definition's `PetRevivePolicy.Cost` says what a revive costs, and the
+  request's `selection` (Kiln.Items' `ItemSelection`) only says which slot pays it (as `Taming.Advance` takes the slot that
+  pays a feed step): the owner's plain stack of the cost's item holding at least the cost, and only that slot pays; with none, the first slot holding a plain stack of the
   whole cost pays (`ItemCosts.Choose`: a cost split over two stacks is not taken). An uncertain receipt (a fault inside the
   game's change) answers `UncertainCommit` with that receipt and the pet stays Downed.
 - **Events:** every change is a `PetChangeEvent` (subscribe to the base for all): Granted, TransitionChanged, Summoned,
@@ -151,7 +160,7 @@ dismiss, release or logout retirement reads the wounds again: a down latched in 
 
 Following (QueryInput): walk-only routes from kiln.queries (Found, reaching the target, every point a walk; never code 0
 with no points, never partial), at most 4 requests in flight, a new route past 2 m of owner movement or each
-`RepathSeconds`; input written only while the broker's `can_drive` says so. **Path clearance is measured, not guessed**
+`RepathInterval` (JSON `repathSeconds`); input written only while the broker's `can_drive` says so. **Path clearance is measured, not guessed**
 (19d §4.3a, gate C6): the HorizontalSpace/VerticalSpace a route asks for come from an accepted profile per creature,
 scale and game build ([below](#measured-clearance-gate-c6)); without one the pet does not walk routes and only catches up
 (`ClearanceMappingUnverified`). Catch-up puts the body on validated ground next to the owner (ground under its centre and
@@ -327,9 +336,13 @@ connection never wins), goes Stale after 3 s without one (the bar hides), and cl
     PetOwnerView? Snapshot { get; }   // pets.hud.client; one immutable snapshot
     PetViewState State { get; }       // Disconnected, Current, Stale
     PetHudOptions Options { get; }
-    void Configure(PetHudOptions options);   // this game only
+    void Configure(PetHudOptions options);   // pets.hud.client; this game only
 }
 ```
+
+`Snapshot` and `Configure` check the row they declare: while `pets.hud.client` (`Pets.HudClientCapability`) is off (a
+dedicated server, a game without Kiln.Network or the renderer) they throw `KilnUnavailableException` naming it. Guard
+them with `Capabilities.Is(Pets.HudClientCapability)`. `State` and `Options` read on every side.
 
 The built-in bar: at (0.03, 0.72) of the screen, 220 x UI scale wide, rows 24 x scale, at most 6 rows (live pets first,
 then anchors), name, health, Ready/Downed/Recovering and the channel's progress; recovery anchors as cyan world circles
@@ -340,21 +353,28 @@ through its own channel (Kiln has no client command path).
 
 ## Capabilities
 
-| Row | Says |
-|---|---|
-| `kiln.pets` | Kiln.Pets is loaded |
-| `pets.definitions` | definitions register |
-| `pets.records` | records are kept (a server world runs) |
-| `pets.summon` | bodies are made and retired (kiln.spawn, a running world, creature_control) |
-| `pets.control` | the broker takes pets' leases (creature_control) |
-| `pets.follow` | pets follow and stay |
-| `pets.fight` | the native target rule and kiln.combat's seam |
-| `pets.downed` | the native death guard (decisions.native_guards) and retirement |
-| `pets.hud.server` | owners' views are sent (Kiln.Network) |
-| `pets.hud.client` | this game shows its owner's pets (the channel and the renderer) |
+Each row's name is a public constant of `Pets` (`Capabilities.Is(Pets.SummonCapability)`; a `KilnUnavailableException`'s
+`Capability` is one of them). A definition's own limits are `PetLimits`, not capabilities.
+
+| Row | Constant | Says |
+|---|---|---|
+| `kiln.pets` | `Pets.ServiceCapability` | Kiln.Pets is loaded |
+| `pets.definitions` | `Pets.DefinitionsCapability` | definitions register |
+| `pets.records` | `Pets.RecordsCapability` | records are kept (a server world runs) |
+| `pets.summon` | `Pets.SummonCapability` | bodies are made and retired (kiln.spawn, a running world, creature_control) |
+| `pets.control` | `Pets.ControlCapability` | the broker takes pets' leases (creature_control) |
+| `pets.follow` | `Pets.FollowCapability` | pets follow and stay |
+| `pets.fight` | `Pets.FightCapability` | the native target rule and kiln.combat's seam |
+| `pets.downed` | `Pets.DownedCapability` | the native death guard (decisions.native_guards) and retirement |
+| `pets.hud.server` | `Pets.HudServerCapability` | owners' views are sent (Kiln.Network) |
+| `pets.hud.client` | `Pets.HudClientCapability` | this game shows its owner's pets (the channel and the renderer) |
 
 ## Tests
 
+- A mod's own tests (Kiln.TestKit): `kiln.Pets` is the real roster on the kit's world. `Join(character)` puts an owner in
+  game and gives the `PlayerRef` its requests name, each step runs the roster, `Bodies` and `Of(character)` read the
+  pets, `Down(pet)` lands a lethal hit, and `HostilePairs` lists the pairs `Pets.SetHostile` declared. There are no game
+  bodies, no walking and no save receipts.
 - Managed, offline: `managed/tests/Kiln.Pets.Tests` (definitions, the life table, receipts, the broker's leases on the
   kit's broker, following, the target rule, revive, the view and the bar); `Kiln.Blocks.Tests/PetBlockTests.cs`;
   `Kiln.Saves.Tests/ServiceCharactersTests.cs`.

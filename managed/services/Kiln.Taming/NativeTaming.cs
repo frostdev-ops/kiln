@@ -34,17 +34,22 @@ public enum NativeTamingPhase
 /// <param name="BaitTemplate">Its favourite bait's template (what <see cref="NativeTaming.PlaceBait"/> places); empty
 /// when it has none.</param>
 /// <param name="SensorRangeMeters">How far it senses a bait.</param>
-/// <param name="EatSeconds">How long it eats one bait (a petting must start before it is done).</param>
+/// <param name="EatDuration">How long it eats one bait (a petting must start before it is done).</param>
 public sealed record NativeTamingState(EntityId Creature, bool Tameable, int Progress, int Required, NativeTamingPhase Phase, EntityId Bait,
-    Guid BaitTemplate, double SensorRangeMeters, double EatSeconds)
+    Guid BaitTemplate, double SensorRangeMeters, TimeSpan EatDuration)
 {
+    // in seconds (internal)
+    internal double EatSeconds => EatDuration.TotalSeconds;
+
     /// <summary>The game's raw state byte (wildlife::State), for logs.</summary>
     public int RawState { get; init; }
 
-    /// <summary>Who tamed it: always null on this build. The game records no player for a step (docs/re/taming.md 4), and
-    /// Kiln's attribution (<c>taming.native_observe</c>) stays off until a lab with a player proves where the petting player
-    /// can be read. A mod that needs an owner decides it (the nearest player, its own attempt).</summary>
-    public PlayerRef? TamedBy => null;
+    /// <summary>Who tamed it. Unavailable until native attribution is proven: null while
+    /// <see cref="NativeTaming.ObserveCapability"/> (<c>taming.native_observe</c>) is off, as it is on every build this Kiln
+    /// knows (the game records no player for a step, docs/re/taming.md 4). Kiln fills it once a lab proves where the petting
+    /// player is read; meanwhile a mod that needs an owner decides it (the nearest player, its own attempt).</summary>
+    [RequiresCapability(NativeTaming.ObserveCapability)]
+    public PlayerRef? TamedBy { get; init; }
 }
 
 /// <summary>Why the game's taming progress of an animal changed. Since 0.2.0-dev.32.</summary>
@@ -137,8 +142,13 @@ public sealed class NativeBaitEatenEvent : KilnEvent
 /// <param name="Ok">The animal's pet sequence started while it eats its bait. That the game then counts the step (its
 /// taming event, 3.75 s in on this build, unless the bait goes first) is not proven yet: watch
 /// <see cref="NativeTamingProgressEvent"/> for the step itself.</param>
-/// <param name="Reason">Why not.</param>
-public sealed record NativeStepResult(bool Ok, string? Reason) : IKilnResult;
+/// <param name="Reason">Why not, in words for a log: its first word is <see cref="Refusal"/>.</param>
+public sealed record NativeStepResult(bool Ok, string? Reason) : IKilnResult
+{
+    /// <summary>Why not, as a value (<see cref="TamingRefusal.NotWild"/>, <see cref="TamingRefusal.NotEating"/>, ...):
+    /// <see cref="TamingRefusal.None"/> when <see cref="Ok"/>.</summary>
+    public TamingRefusal Refusal => RefusalWords.Of(Ok, Reason, TamingRefusal.None, TamingRefusal.Other);
+}
 
 /// <summary>
 /// The game's own taming as mechanism: a wild animal eats a bait of its favourite food and is petted while it eats; each
@@ -170,6 +180,10 @@ public static class NativeTaming
     /// <summary>The capability of <see cref="PlaceBait"/>: a bait Kiln places that the game senses. Off on every build so far
     /// (not proven).</summary>
     public const string BaitCapability = "taming.native_bait";
+
+    /// <summary>The capability of who tamed an animal (<see cref="NativeTamingState.TamedBy"/>): off until a lab with a player
+    /// proves where the game's petting player can be read.</summary>
+    public const string ObserveCapability = "taming.native_observe";
 
     internal const string BaitUnproven = "not proven: a bait Kiln spawns from its template has no bait marker and no animal sensed it in the lab "
         + "(docs/re/taming.md 6), while a player could pick it up as a free item; a lab must show a placement the game senses first";
@@ -373,7 +387,7 @@ internal static class NativeTamingRuntime
             _ => NativeTamingPhase.Wild,
         };
         var bait = BinaryPrimitives.ReadUInt32LittleEndian(d.AsSpan(Bait));
-        return new NativeTamingState(creature, setup.Tameable, d[Progress], steps, phase, new EntityId(bait), setup.Bait, setup.SensorMeters, setup.EatSeconds)
+        return new NativeTamingState(creature, setup.Tameable, d[Progress], steps, phase, new EntityId(bait), setup.Bait, setup.SensorMeters, Seconds.Of(setup.EatSeconds))
         {
             RawState = state,
         };

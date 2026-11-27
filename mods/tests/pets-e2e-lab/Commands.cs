@@ -106,7 +106,7 @@ public sealed partial class PetsE2eLabMod
             Write("attack", o);
             if (r.Ok) _attackWatch = (p.Id, target, _game + 10);
         });
-        c.Reply($"{{\"op\": \"{req.OperationId}\"}}");
+        c.Reply($"{{\"op\": \"{req.RequestId}\"}}");
     }
 
     [Command("e2e lethal", Description = "a lethal engine hit on the pet's body from a creature", Permission = CommandPermission.Admin)]
@@ -202,7 +202,7 @@ public sealed partial class PetsE2eLabMod
             o["gameSeconds"] = R(_game - g0);
             Write("revive", o);
         });
-        c.Reply($"{{\"op\": \"{req.OperationId}\"}}");
+        c.Reply($"{{\"op\": \"{req.RequestId}\"}}");
     }
 
     [Command("e2e cancel", Description = "Pets.CancelRevive of a revive operation", Permission = CommandPermission.Admin)]

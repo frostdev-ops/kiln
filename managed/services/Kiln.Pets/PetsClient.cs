@@ -50,8 +50,17 @@ public static class PetsClient
 
     /// <summary>The latest view, or null (none received, disconnected). One immutable snapshot: read it once per frame. It may be
     /// stale: check <see cref="State"/> before drawing it as current.</summary>
+    /// <exception cref="KilnUnavailableException"><c>pets.hud.client</c> is off (no channel or no renderer here: a
+    /// dedicated server, a game without Kiln.Network).</exception>
     [AnyThread, RequiresCapability(Pets.Caps.HudClient)]
-    public static PetOwnerView? Snapshot => Cache.View;
+    public static PetOwnerView? Snapshot
+    {
+        get
+        {
+            RequireHud("PetsClient.Snapshot");
+            return Cache.View;
+        }
+    }
 
     /// <summary>Whether <see cref="Snapshot"/> is current, stale (no keepalive for 3 s) or there is none. The built-in bar draws
     /// only while it is <see cref="PetViewState.Current"/>.</summary>
@@ -77,6 +86,7 @@ public static class PetsClient
     /// <param name="options">The options: whether the bar and the recovery markers draw, and the bar's place and width.</param>
     /// <exception cref="ArgumentNullException"><paramref name="options"/> is null.</exception>
     /// <exception cref="ArgumentException">An anchor outside 0..1, a width outside 80..600, or a value that is not finite.</exception>
+    /// <exception cref="KilnUnavailableException"><c>pets.hud.client</c> is off (no built-in bar here).</exception>
     /// <example><code>
     /// PetsClient.Configure(new PetHudOptions(AnchorX: 0.02, AnchorY: 0.5, WidthPixels: 260));   // move it left and up
     /// PetsClient.Configure(new PetHudOptions(Enabled: false, RecoveryMarkers: false));         // hide it all
@@ -88,11 +98,19 @@ public static class PetsClient
         if (!double.IsFinite(options.AnchorX) || options.AnchorX is < 0 or > 1) throw new ArgumentException($"AnchorX {options.AnchorX} is outside 0..1", nameof(options));
         if (!double.IsFinite(options.AnchorY) || options.AnchorY is < 0 or > 1) throw new ArgumentException($"AnchorY {options.AnchorY} is outside 0..1", nameof(options));
         if (!double.IsFinite(options.WidthPixels) || options.WidthPixels is < 80 or > 600) throw new ArgumentException($"WidthPixels {options.WidthPixels} is outside 80..600", nameof(options));
+        RequireHud("PetsClient.Configure");
         Volatile.Write(ref _options, options);
         Events.Enqueue(new PetHudOptionsChangedEvent(options));
     }
 
     private static double Now => Clock.Elapsed.TotalSeconds;
+
+    // the row the members declare: any thread (a read of the capability registry; the reason text is the row's own)
+    private static void RequireHud(string api)
+    {
+        if (PetsRuntime.TestRows || Capabilities.Is(Pets.Caps.HudClient)) return;
+        throw ServiceCaps.Unavailable(Pets.Caps.HudClient, $"{api}: this game shows no pets");
+    }
 
     /// <summary>Opens the channel on a game client (server: the publisher's own side) and subscribes the bar.</summary>
     internal static void Start()
@@ -178,9 +196,9 @@ public static class PetsClient
             d.FillRect(row.X, row.Y, row.X + row.Width, row.Y + row.BarHeight, new Color(0, 0, 0, 160), 3);
             var fill = row.Entry.Life == PetLife.Downed ? new Color(150, 60, 60, 220) : new Color(70, 190, 90, 230);
             d.FillRect(row.X, row.Y, row.X + row.Width * row.Fraction, row.Y + row.BarHeight, fill, 3);
-            if (row.Entry.Transition == PetTransition.Reviving && row.Entry.ReviveDurationMs > 0)
+            if (row.Entry.Transition == PetTransition.Reviving && row.Entry.ReviveDuration > TimeSpan.Zero)
             {
-                var p = Math.Clamp((float)row.Entry.ReviveElapsedMs / row.Entry.ReviveDurationMs, 0f, 1f);
+                var p = Math.Clamp((float)(row.Entry.ReviveElapsed / row.Entry.ReviveDuration), 0f, 1f);
                 d.FillRect(row.X, row.Y + row.BarHeight, row.X + row.Width * p, row.Y + row.BarHeight + 2 * f.Scale, new Color(80, 200, 255, 230));
             }
             d.Text(row.X + 4 * f.Scale, row.Y + 1, $"{row.Entry.Label}  {row.Entry.Current}/{row.Entry.Maximum}  {row.Status}", new Color(240, 240, 240, 255), 12 * f.Scale);

@@ -15,7 +15,7 @@ internal sealed class FakeTamingWorld : ITamingWorld
 
     public TamingOwner? Owner(PlayerRef player, out string? reason)
     {
-        reason = Owners.ContainsKey(player) ? null : "WrongOwner: the player is not in game";
+        reason = Owners.ContainsKey(player) ? null : "OwnerOffline: the player is not in game";
         return Owners.TryGetValue(player, out var o) ? o : null;
     }
 
@@ -153,7 +153,8 @@ internal sealed class TamingFixture
     public TamingResult Begin(EntityRef? target = null, PlayerRef? who = null, Guid? id = null, string def = "mod-a:wolf") =>
         Engine.Begin(who ?? A, target ?? Wolf, def, id ?? Guid.NewGuid());
 
-    public static TamingToken Token(TamingProgress p, Guid? id = null) => new(id ?? Guid.NewGuid(), p.StepChallenge, p.Revision, p.CompletedSteps);
+    /// <summary>A request made on <paramref name="p"/>'s view (its token), under <paramref name="id"/> or a new id.</summary>
+    public static TamingRequest Token(TamingProgress p, Guid? id = null) => new(id ?? Guid.NewGuid(), p.Token);
 
     public TamingResult Advance(TamingProgress p, ItemSelection? s = null, Guid? id = null, PlayerRef? who = null) =>
         Done(Engine.Advance(who ?? A, p.Id, Token(p, id), s));

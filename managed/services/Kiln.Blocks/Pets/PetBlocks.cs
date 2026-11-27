@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // A pet, as a block (19d §5.1): PetBlock and ReviveBlock, in C# and in blocks/*.json ("pets" section). It compiles to the
 // immutable Kiln.Pets PetDefinition, the same record Pets.Define takes, so C# and JSON lower to one thing. The policy
-// records (level, movement, targets, downed, caps, HUD) are Kiln.Pets' own, reused here as they are. Every choice in it is
+// records (level, movement, targets, downed, limits, HUD) are Kiln.Pets' own, reused here as they are. Every choice in it is
 // the mod's; Kiln's defaults are only what a block that says nothing gets (players protected, a bodyless recovery anchor).
 // docs/kiln/modding/pets.md.
 using System.Text.Json.Nodes;
@@ -21,7 +21,7 @@ public sealed record ReviveCostBlock(ItemRef Item, int Count = 1);
 /// <summary>How a downed pet is revived: the owner channels next to its recovery anchor. All of it is the mod's choice. It
 /// lowers to <see cref="PetRevivePolicy"/>, field for field. Since 0.2.0-dev.32.</summary>
 /// <example><code>
-/// var revive = new ReviveBlock { ChannelSeconds = 5, Cost = new ReviveCostBlock("Material_T1_Twigs", 3) };
+/// var revive = new ReviveBlock { ChannelDuration = TimeSpan.FromSeconds(5), Cost = new ReviveCostBlock("Material_T1_Twigs", 3) };
 /// Blocks.Define("duelist", new PetBlock { Creature = "game:enemy_vukah_melee", Revive = revive });
 /// </code></example>
 /// <seealso cref="PetBlock.Revive"/>
@@ -29,8 +29,9 @@ public sealed record ReviveBlock
 {
     /// <summary>False: Kiln's revive is off for this pet (the mod releases it, or revives it its own way).</summary>
     public bool Allowed { get; init; } = true;
-    /// <summary>Seconds the owner channels, 0.1..60.</summary>
-    public double ChannelSeconds { get; init; } = 3;
+    /// <summary>How long the owner channels, 0.1..60 s (JSON: <c>channelSeconds</c>, a number of seconds).</summary>
+    [JsonPropertyName("channelSeconds"), JsonConverter(typeof(Seconds.Json))]
+    public TimeSpan ChannelDuration { get; init; } = TimeSpan.FromSeconds(3);
     /// <summary>Metres between owner and anchor while channelling, 1..8.</summary>
     public double RangeMeters { get; init; } = 3;
     /// <summary>The share of its maximum health the pet comes back with, more than 0 and at most 1.</summary>
@@ -43,6 +44,9 @@ public sealed record ReviveBlock
     public bool CancelOnMovement { get; init; } = true;
     /// <summary>Metres, 0.1..2.</summary>
     public double MaxOwnerDisplacement { get; init; } = 0.75;
+
+    // the compiler's name, in seconds (internal)
+    internal double ChannelSeconds { get => ChannelDuration.TotalSeconds; init => ChannelDuration = Seconds.Of(value); }
 }
 
 /// <summary>
@@ -54,11 +58,11 @@ public sealed record ReviveBlock
 /// <remarks>A PetBlock compiles to the immutable <see cref="PetDefinition"/> that <see cref="Pets.Define"/> takes, so C# and
 /// JSON (<c>blocks/*.json</c>, section <c>pets</c>, the same fields) lower to one thing. Only <see cref="Creature"/> is
 /// required; every policy has a safe default. The policy records (<see cref="PetLevelPolicy"/>, <see cref="PetMovementPolicy"/>,
-/// <see cref="PetTargetPolicy"/>, <see cref="PetDownedPolicy"/>, <see cref="PetCaps"/>, <see cref="PetHudPolicy"/>) are
+/// <see cref="PetTargetPolicy"/>, <see cref="PetDownedPolicy"/>, <see cref="PetLimits"/>, <see cref="PetHudPolicy"/>) are
 /// Kiln.Pets' own, used as they are. Define pets in <c>OnLoad</c>, through <c>Blocks.Define</c>.</remarks>
 /// <example><code>
 /// var wolf = Blocks.Define("wolf", new CreatureBlock { Body = Bodies.Vukah });
-/// Blocks.Define("wolf-pet", new PetBlock { Creature = wolf, Name = "Companion", Revive = new ReviveBlock { ChannelSeconds = 3 } });
+/// Blocks.Define("wolf-pet", new PetBlock { Creature = wolf, Name = "Companion", Revive = new ReviveBlock { ChannelDuration = TimeSpan.FromSeconds(3) } });
 /// Blocks.Define("hound", new PetBlock { Creature = "game:enemy_wildbeast_wolf_earlygame" });   // a game creature, by its creatures-registry id
 /// </code>
 /// The same pet as JSON (<c>blocks/pets.json</c>):
@@ -75,7 +79,7 @@ public sealed record PetBlock : IBlock
     /// <summary>The creature its body is: a <see cref="CreatureBlock"/> (inline, a handle, or a block's name) or a game
     /// creature by its <c>creatures</c> registry id (<c>"game:enemy_wildbeast_wolf_earlygame"</c>).</summary>
     public required PartRef<CreatureBlock> Creature { get; init; }
-    /// <summary>The name owners read; default: the creature's own.</summary>
+    /// <summary>The name owners read; default: the creature's own (<see cref="PetDefinition.Name"/>).</summary>
     public string? Name { get; init; }
     /// <summary>The name before a rename: the id comes from the oldest name, so records keep their pets.</summary>
     public string? Was { get; init; }
@@ -89,8 +93,8 @@ public sealed record PetBlock : IBlock
     public PetTargetPolicy Targets { get; init; } = new();
     /// <summary>What it becomes when it goes down. Default: a bodyless recovery anchor.</summary>
     public PetDownedPolicy Downed { get; init; } = new();
-    /// <summary>How many there may be.</summary>
-    public PetCaps Caps { get; init; } = new();
+    /// <summary>How many there may be (in JSON: <c>limits</c>).</summary>
+    public PetLimits Limits { get; init; } = new();
     /// <summary>What the owner's HUD shows of it.</summary>
     public PetHudPolicy Hud { get; init; } = new();
 }
@@ -139,14 +143,14 @@ internal static class PetCompiler
 
         var def = new PetDefinition
         {
-            Id = id, Creature = creatureId, DisplayName = p.Name, Level = p.Level ?? new(), Movement = p.Movement ?? new(),
+            Id = id, Creature = creatureId, Name = p.Name, Level = p.Level ?? new(), Movement = p.Movement ?? new(),
             Revive = new PetRevivePolicy
             {
                 Allowed = p.Revive.Allowed, ChannelSeconds = p.Revive.ChannelSeconds, RangeMeters = p.Revive.RangeMeters, HealthFraction = p.Revive.HealthFraction,
                 Cost = cost, CancelOnObservedOwnerDamage = p.Revive.CancelOnObservedOwnerDamage, CancelOnMovement = p.Revive.CancelOnMovement,
                 MaxOwnerDisplacement = p.Revive.MaxOwnerDisplacement,
             },
-            Targets = p.Targets ?? new(), Downed = p.Downed ?? new(), Caps = p.Caps ?? new(), Hud = p.Hud ?? new(),
+            Targets = p.Targets ?? new(), Downed = p.Downed ?? new(), Limits = p.Limits ?? new(), Hud = p.Hud ?? new(),
         };
         if (PetDefinitionRules.Check(def, block?.LevelMax is > 0 ? block.LevelMax : null) is { } bad)
             throw new BlockError(ctx.Block, bad.Field == "id" ? "name" : bad.Field, bad.Problem);

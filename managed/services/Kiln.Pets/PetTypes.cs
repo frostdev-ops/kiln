@@ -140,32 +140,35 @@ public sealed record PetSnapshot
     public ulong DurableRevision { get; init; }
     /// <summary>The save that holds <see cref="DurableRevision"/>; null before the first.</summary>
     public PetCommit? LastCommit { get; init; }
-    /// <summary>The revive channel running; null when none.</summary>
-    public Guid? ReviveOperation { get; init; }
-    /// <summary>Seconds of the channel done.</summary>
-    public double ReviveElapsed { get; init; }
-    /// <summary>Seconds the channel takes.</summary>
-    public double ReviveDuration { get; init; }
+    /// <summary>The request id of the revive channel running (the one <see cref="Pets.CancelRevive"/> names); null when
+    /// none.</summary>
+    public Guid? ReviveRequest { get; init; }
+    /// <summary>How much of the channel is done (simulation time).</summary>
+    public TimeSpan ReviveElapsed { get; init; }
+    /// <summary>How long the channel takes.</summary>
+    public TimeSpan ReviveDuration { get; init; }
 }
 
-/// <summary>A request that changes a pet: its operation id makes a retry the same request (its first answer is given back
-/// for 10 minutes), and an expected revision refuses a request made on a stale view. Since 0.2.0-dev.32.</summary>
+/// <summary>A request that changes a pet, in the one request shape of Kiln.Pets and Kiln.Taming (<c>TamingRequest</c>): its
+/// request id makes a retry the same request (its first answer is given back for 10 minutes), and an expected revision
+/// refuses a request made on a stale view. Since 0.2.0-dev.32.</summary>
 /// <remarks>Make a new request for every intended action (<see cref="New"/>). To retry after a lost answer, send the same request
-/// again: nothing runs twice. Never reuse an operation id for another action: that is <c>RequestConflict</c>.</remarks>
+/// again: nothing runs twice. Never reuse a request id for another action: that is <c>RequestConflict</c>.</remarks>
 /// <example><code>
-/// PetRequest request = PetRequest.New();                   // a fresh operation id
+/// PetRequest request = PetRequest.New();                   // a fresh request id
 /// PetRequest guarded = PetRequest.New(snapshot.StateRevision);  // refused (StaleRevision) if the pet changed since this PetSnapshot
 /// </code></example>
 /// <seealso cref="Pets.Summon"/>
-/// <param name="OperationId">Unique per request; the same id with another request is <c>RequestConflict</c>.</param>
+/// <param name="RequestId">Unique per request; the same id with another request is <c>RequestConflict</c>. The answer
+/// (<see cref="PetResult.RequestId"/>) and the change it makes (<see cref="PetChange.RequestId"/>) carry it.</param>
 /// <param name="ExpectedStateRevision">0: any; otherwise the pet's <see cref="PetSnapshot.StateRevision"/> the request was
 /// made on (<c>StaleRevision</c> when it moved on).</param>
-public sealed record PetRequest(Guid OperationId, ulong ExpectedStateRevision = 0)
+public sealed record PetRequest(Guid RequestId, ulong ExpectedStateRevision = 0)
 {
-    /// <summary>A new request with a fresh operation id.</summary>
+    /// <summary>A new request with a fresh request id.</summary>
     /// <param name="expectedStateRevision">0 to accept any state; otherwise the <see cref="PetSnapshot.StateRevision"/> the caller
     /// saw (the request is <c>StaleRevision</c> when the pet moved on).</param>
-    /// <returns>A request with a new operation id.</returns>
+    /// <returns>A request with a new request id.</returns>
     public static PetRequest New(ulong expectedStateRevision = 0) => new(Guid.NewGuid(), expectedStateRevision);
 }
 
@@ -173,14 +176,20 @@ public sealed record PetRequest(Guid OperationId, ulong ExpectedStateRevision = 
 /// <see cref="Ok"/> first. Since 0.2.0-dev.32.</summary>
 /// <seealso cref="PetRequest"/>
 /// <param name="Ok">True when the request did what it asked (or found it done: an idempotent repeat).</param>
-/// <param name="Reason">Why not: <c>Busy</c>, <c>StaleRevision</c>, <c>RequestConflict</c>, <c>NotOwner</c>,
-/// <c>AlreadyReleased</c>, <c>Capacity</c>, <c>NoSafeGround</c>, <c>BodyNotReady</c>, <c>TargetProtected</c>,
-/// <c>RecoveryNotSummoned</c>, <c>ReviveFailedCostCommitted</c>, ...</param>
+/// <param name="Reason">Why not, in words for a log: its first word is <see cref="Refusal"/> (<c>Busy</c>,
+/// <c>StaleRevision</c>, <c>RequestConflict</c>, <c>NotOwner</c>, <c>AlreadyReleased</c>, <c>Capacity</c>,
+/// <c>NoSafeGround</c>, <c>BodyNotReady</c>, <c>TargetProtected</c>, <c>RecoveryNotSummoned</c>,
+/// <c>ReviveFailedCostCommitted</c>, ...). Decide by <see cref="Refusal"/>, never by the text.</param>
 /// <param name="Pet">The pet after it (also after a refusal, when Kiln knows it).</param>
-/// <param name="OperationId">The request's operation id.</param>
+/// <param name="RequestId">The request's id (<see cref="PetRequest.RequestId"/>).</param>
 /// <param name="Costs">The receipts (Kiln.Items' <see cref="CostReceipt"/>) of costs that were taken or may have been
 /// (committed or uncertain), also on a refusal that came after a cost was taken.</param>
-public sealed record PetResult(bool Ok, string? Reason, PetSnapshot? Pet, Guid OperationId, IReadOnlyList<CostReceipt> Costs) : IKilnResult;
+public sealed record PetResult(bool Ok, string? Reason, PetSnapshot? Pet, Guid RequestId, IReadOnlyList<CostReceipt> Costs) : IKilnResult
+{
+    /// <summary>Why not, as a value: <see cref="PetRefusal.None"/> when <see cref="Ok"/>, else the first word of
+    /// <see cref="Reason"/> (<see cref="PetRefusal.Other"/> for a word this Kiln has no member for).</summary>
+    public PetRefusal Refusal => RefusalWords.Of(Ok, Reason, PetRefusal.None, PetRefusal.Other);
+}
 
 /// <summary>Why a pet changed. Since 0.2.0-dev.32.</summary>
 public enum PetChangeCause
@@ -215,8 +224,8 @@ public sealed record PetChange
 {
     /// <summary>A GUID that is new for every change: it names this change in logs and in anything the mod keeps about it.</summary>
     public Guid EventId { get; init; }
-    /// <summary>The request's operation id; empty when no request caused it.</summary>
-    public Guid OperationId { get; init; }
+    /// <summary>The id of the request behind it (<see cref="PetRequest.RequestId"/>); empty when no request caused it.</summary>
+    public Guid RequestId { get; init; }
     /// <summary>The server step it was observed at (a later delivery keeps it).</summary>
     public ulong ObservedStep { get; init; }
     /// <summary>The pet before.</summary>

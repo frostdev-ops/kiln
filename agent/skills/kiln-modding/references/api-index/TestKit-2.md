@@ -248,6 +248,15 @@
 - `Setting { get; set; } -> TestKit.FakeOutlineSetting` — The player's kiln.json `"ui": {"outlines": ...}`; applies at the next step.
 - `Showing(EntityId entity) -> TestKit.FakeOutline?` — The request whose colour `entity`'s model shows now, or null.
 
+## TestKit.HarnessPets `0.2.26` — Kiln.Pets offline: the owners in game, the pets' bodies and the hostile pairs a mod declared.
+- `Bodies { get; } -> IReadOnlyList<EntityRef>` — The pets' live bodies (the kit's entities: no game entity stands behind them).
+- `static Character(int n) -> CharacterKey` — A character id for tests: account 0x2222..., id n.
+- `Down(PetId pet) -> void` — The pet's body takes a lethal hit: the roster sees it at the next step and the pet goes down as its definition says.
+- `HostilePairs { get; } -> IReadOnlyList<(CharacterKey A, CharacterKey B)>` — The character pairs a mod declared hostile (`Pets.SetHostile`), each pair once.
+- `Join(CharacterKey character, WorldPosition at = default(WorldPosition), int level = 10) -> PlayerRef` — The character is in game at `at`: the player its requests name (`Pets.Summon(player, ...)`).
+- `Leave(CharacterKey character) -> void` — The character left: its pets' bodies are retired at the next step (records and wishes kept).
+- `Of(CharacterKey character) -> IReadOnlyList<PetSnapshot>` — The character's pets, as `Pets.Of` answers on the tick thread.
+
 ## TestKit.HarnessPlayers `0.2.1` — The players of a harness's server (`KilnHarness.Players`).
 - `All { get; } -> IReadOnlyList<TestKit.FakePlayer>` — The players the test joined that have not left (in game, or joining until the next step).
 - `Join(string name, ulong steamId = 0, PlayerPermissions rights = PlayerPermissions.None, bool isAdmin = false, WorldPosition? position = null, uint userGroupId = 0) -> TestKit.FakePlayer` — A player connects and logs in: in game, with an entity (slot + 1), at the start of the next step.
@@ -329,3 +338,10 @@ enum: DedicatedServer, HostingClient, JoinedClient
 enum: Created, Starting, Running, Stopped, Disposed, Abandoned
 
 ## TestKit.HarnessStoppedException `0.2.1` — The harness's tick thread was given up on (a test blocked it and the watchdog stopped the harness): no call works any more.
+
+## TestKit.HarnessStorageCopy `0.2.16` — One storage of a restored copy in a test (`HarnessPlayerStorage.Restore`).
+- `HarnessStorageCopy(string FullKey, int Slots, IReadOnlyList<TestKit.HarnessStorageRecord> Records, bool Parked = false)`
+- `FullKey { get; init; } -> string` — "\<mod id>:\<name>".
+- `Parked { get; init; } -> bool` — Saved as parked (no mod had it registered then) rather than live.
+- `Records { get; init; } -> IReadOnlyList<TestKit.HarnessStorageRecord>` — Its stacks.
+- `Slots { get; init; } -> int` — The slots it had when it was saved.

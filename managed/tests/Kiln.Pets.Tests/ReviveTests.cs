@@ -126,13 +126,19 @@ public sealed class ReviveTests : IDisposable
         Assert.Equal(PetTransition.None, _t.Roster.Get(d.Id)!.Transition);
     }
 
-    [Fact]
-    public void A_mod_may_refuse_the_attempt_and_nothing_starts()
+    /// <summary>A revive a mod's handler of PetRevivingEvent refused (ApiShapeTests: its refusal value).</summary>
+    internal PetResult Vetoed()
     {
         var d = Downed();
         _refuse = true;
-        var r = _t.Run(Revive(d));
-        Assert.StartsWith("ReviveRefused", r.Reason);
+        return _t.Run(Revive(d));
+    }
+
+    [Fact]
+    public void A_mod_may_refuse_the_attempt_and_nothing_starts()
+    {
+        var r = Vetoed();
+        Assert.StartsWith("RefusedByMod", r.Reason);
         Assert.Empty(_t.Names());
         Assert.Equal(0, _costs.Commits);
     }

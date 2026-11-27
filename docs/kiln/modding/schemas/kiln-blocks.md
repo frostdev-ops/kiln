@@ -1182,31 +1182,21 @@ Type: array of string \| null
 
 ## pet
 
-A pet: its creature, name, level, movement, revive, targets, what it becomes when it goes down, its caps and its HUD. Its id is <mod id>:<name>.
+A pet: its creature, name, level, movement, revive, targets, what it becomes when it goes down, its limits and its HUD. Its id is <mod id>:<name>.
 
 | Key | Type | Required | Notes |
 |---|---|---|---|
-| `caps` | [petCaps](#petcaps) |  |  |
 | `comment` | string |  |  |
 | `creature` | string or [ref](#ref) or [creature](#creature) | yes | The creature its body is: a game creature by its creatures registry id, a creature block of this mod (by name, or "other-mod:name"), or one written here. |
 | `downed` | [petDowned](#petdowned) |  |  |
 | `hud` | [petHud](#pethud) |  |  |
 | `level` | [petLevel](#petlevel) |  |  |
+| `limits` | [petLimits](#petlimits) |  |  |
 | `movement` | [petMovement](#petmovement) |  |  |
 | `name` | string |  | The name owners read; default: the creature's own. min length 1 max length 64 |
 | `revive` | [petRevive](#petrevive) |  |  |
 | `targets` | [petTargets](#pettargets) |  |  |
 | `was` | string |  | The name before a rename: the pet id comes from the oldest name, so records keep their pets. Pattern `^[A-Za-z0-9_.-]+$`. |
-
-## petCaps
-
-How many there may be.
-
-| Key | Type | Required | Notes |
-|---|---|---|---|
-| `livePerCharacter` | integer |  | Live bodies of one character while summoning this pet (default 1). min 1 max 16 |
-| `livePerWorld` | integer |  | Live bodies of this pet in the world (default 16). min 1 max 256 |
-| `retainedPerCharacter` | integer |  | Records of this pet one character keeps (default 32). min 1 max 128 |
 
 ## petDowned
 
@@ -1234,6 +1224,16 @@ Its level and size.
 | `level` | integer |  | The level for fixed: 1 up to the creature's highest level (default 1). min 1 max 255 |
 | `mode` | `"fixed"` \| `"ownerAtTame"` \| `"ownerAtSummon"` |  | Where the level comes from (default fixed). |
 | `scale` | number |  | The body's uniform scale (default 1). min 0.25 max 4 |
+
+## petLimits
+
+How many there may be: the pet's limits.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `livePerCharacter` | integer |  | Live bodies of one character while summoning this pet (default 1). min 1 max 16 |
+| `livePerWorld` | integer |  | Live bodies of this pet in the world (default 16). min 1 max 256 |
+| `retainedPerCharacter` | integer |  | Records of this pet one character keeps (default 32). min 1 max 128 |
 
 ## petMovement
 
@@ -1956,7 +1956,7 @@ A taming: its creatures, its steps (the last one tames), how close, the timeouts
 | Key | Type | Required | Notes |
 |---|---|---|---|
 | `comment` | string |  |  |
-| `creatures` | array of string | yes | Game creatures by their creatures registry id (game:enemy_wildbeast_wolf_earlygame; a trailing * matches a prefix of game ids), or creature blocks of this mod (by name) or of another ("other-mod:name"). min items 1 |
+| `creatures` | array of string or [creature](#creature) | yes | Each named as a pet's creature is: a game creature by its creatures registry id (game:enemy_wildbeast_wolf_earlygame; a trailing * matches a prefix of game ids), a creature block of this mod (by name) or of another ("other-mod:name"), or one written here. min items 1 |
 | `inactivitySeconds` | number |  | Seconds of simulation without an applied step before the attempt expires (default 30). min 1 max 300 |
 | `maxAttemptSeconds` | number |  | The longest an attempt lasts, at least inactivitySeconds (default 300). min 1 max 3600 |
 | `pet` | [ref](#ref) or [pet](#pet) |  | The pet a tame makes: a pet block of this mod (by name) or of another ("other-mod:name"), or one written here. None: no pet. |

@@ -97,14 +97,14 @@ public enum TamingRefundPolicy
 /// <remarks>
 /// <para>A definition is data: declare it when the mod loads. It needs no world and holds for every world of the process until
 /// the mod unloads. Only the attempts (<see cref="Taming.Begin"/> and the calls after it) run on a server's tick thread.</para>
-/// <para>Time is simulation time: <see cref="InactivitySeconds"/> and <see cref="MaxAttemptSeconds"/> stand still while the
+/// <para>Time is simulation time: <see cref="InactivityTimeout"/> and <see cref="MaxAttemptDuration"/> stand still while the
 /// world is paused or stopped.</para>
 /// </remarks>
 /// <example>
 /// A wolf that must be weakened to 40 % health and then fed two lean meat from a slot the player picks. A failure that is
 /// not the player's gives the meat back, and a tame makes the pet <c>my-mod:tame-wolf</c> (defined with <see cref="Pets.Define"/>):
 /// <code>
-/// Taming.Define(new TamingDefinition
+/// TamingDefinitionResult defined = Taming.Define(new TamingDefinition
 /// {
 ///     Id = "my-mod:wolf",
 ///     Creatures = ["game:enemy_wildbeast_wolf_earlygame"],
@@ -112,6 +112,7 @@ public enum TamingRefundPolicy
 ///     Refund = TamingRefundPolicy.RefundOnFail,
 ///     Pet = "my-mod:tame-wolf",
 /// });
+/// if (!defined.Ok) Log.Warn($"taming not defined: {defined.Reason}");
 /// </code>
 /// The same taming as JSON (<see cref="Taming.DefineJson"/>):
 /// <code>
@@ -139,17 +140,21 @@ public sealed record TamingDefinition
     /// <summary>True (the default): the latest <see cref="WeakenStep"/> threshold holds for every later step and for the final
     /// tame, so a target that heals above it is refused (<c>Threshold</c>). False: it counts only when its own step is taken.</summary>
     public bool RequireThresholdUntilCommit { get; init; } = true;
-    /// <summary>Seconds of simulation time without an applied step before the attempt expires: 1 to 300. Default 30.
-    /// The attempt's own deadline is <see cref="TamingProgress.ExpiresAtSimSeconds"/>.</summary>
-    public double InactivitySeconds { get; init; } = 30;
-    /// <summary>The longest an attempt lasts, in seconds of simulation time: at least <see cref="InactivitySeconds"/>, at most
-    /// 3600. Default 300.</summary>
-    public double MaxAttemptSeconds { get; init; } = 300;
+    /// <summary>How long in simulation time without an applied step before the attempt expires: 1 to 300 s. Default 30 s
+    /// (JSON: <c>inactivitySeconds</c>, a number of seconds). The attempt's own deadline is
+    /// <see cref="TamingProgress.ExpiresAt"/>.</summary>
+    public TimeSpan InactivityTimeout { get; init; } = TimeSpan.FromSeconds(30);
+    /// <summary>The longest an attempt lasts in simulation time: at least <see cref="InactivityTimeout"/>, at most 3600 s.
+    /// Default 300 s (JSON: <c>maxAttemptSeconds</c>).</summary>
+    public TimeSpan MaxAttemptDuration { get; init; } = TimeSpan.FromSeconds(300);
+    // the engine's and the JSON reader's names, in seconds (internal)
+    internal double InactivitySeconds { get => InactivityTimeout.TotalSeconds; init => InactivityTimeout = Seconds.Of(value); }
+    internal double MaxAttemptSeconds { get => MaxAttemptDuration.TotalSeconds; init => MaxAttemptDuration = Seconds.Of(value); }
     /// <summary>What happens to paid steps when the attempt ends without a tame. Default
     /// <see cref="TamingRefundPolicy.NonRefundable"/>.</summary>
     public TamingRefundPolicy Refund { get; init; } = TamingRefundPolicy.NonRefundable;
     /// <summary>The Kiln.Pets definition (<see cref="PetDefinition.Id"/>) a tame binds: when the tame commits, the owner's
-    /// character gets a new pet record of it (<see cref="Pets.Grant"/>), and <see cref="TamingResult.Pet"/> is that pet. A
+    /// character gets a new pet record of it (<see cref="Pets.Grant(CharacterKey, string, PetRequest)"/>), and <see cref="TamingResult.Pet"/> is that pet. A
     /// roster slot of it is held from Begin to the end of the attempt, and checked again before the last step's cost
     /// (no cost is taken for a tame the roster cannot hold). Null: no pet; the tame is the attempt's own result and the
     /// mod's handlers decide what it means.</summary>
@@ -172,24 +177,42 @@ public readonly record struct TameAttemptId(Guid Value)
 }
 
 /// <summary>
-/// What a caller echoes to advance, retry or cancel an attempt: its own request id (new for every intended action, the same
-/// for a network retry), and the challenge, revision and step index the server last gave. A token that no longer matches the
-/// attempt is <c>StaleStep</c> and changes nothing. Since 0.2.0-dev.32.
+/// The view of an attempt a request was made on (19e 4.2): the server's challenge (random, rotated by every applied step),
+/// the revision and the step index the server last gave. The last answer gives it (<see cref="TamingProgress.Token"/>,
+/// <see cref="TamingChoicesResult.Token"/>); a request echoes it (<see cref="TamingRequest.Token"/>). A token that no longer
+/// matches the attempt is <c>StaleStep</c> and changes nothing. Since 0.2.0-dev.32.
 /// </summary>
 /// <remarks>
-/// Build the next token from the last answer's <see cref="TamingProgress"/>: <c>new TamingToken(Guid.NewGuid(),
-/// p.StepChallenge, p.Revision, p.CompletedSteps)</c>. <see cref="Taming.Advance"/> and <see cref="Taming.Retry"/> check
-/// all four values; <see cref="Taming.Cancel"/> checks only <see cref="StepChallenge"/>. Repeat the same <see cref="RequestId"/>
-/// for a network retry of one action (the first answer is given again and nothing is taken twice); never reuse it for another
-/// action (<c>RequestConflict</c>).
+/// Make the next request on the last answer's token: <c>TamingRequest.New(progress.Token)</c>. <see cref="Taming.Advance"/>
+/// and <see cref="Taming.Retry"/> check all three values; <see cref="Taming.Cancel"/> with a token cancels only while it is
+/// current (without one it cancels from a stale view). The request id is the request's (<see cref="TamingRequest.RequestId"/>):
+/// repeat the same request for a network retry of one action (the first answer is given again and nothing is taken twice);
+/// never reuse its id for another action (<c>RequestConflict</c>).
 /// </remarks>
-/// <param name="RequestId">The caller's id for this action: a new GUID for every intended action, not empty.</param>
 /// <param name="StepChallenge">The server's random challenge for the current step (<see cref="TamingProgress.StepChallenge"/>);
 /// it changes every time a step applies.</param>
 /// <param name="ExpectedRevision">The attempt's revision the caller saw (<see cref="TamingProgress.Revision"/>).</param>
 /// <param name="StepIndex">The number of steps the caller saw done (<see cref="TamingProgress.CompletedSteps"/>): the index of
 /// the step it asks to take.</param>
-public sealed record TamingToken(Guid RequestId, Guid StepChallenge, ulong ExpectedRevision, int StepIndex);
+public sealed record TamingToken(Guid StepChallenge, ulong ExpectedRevision, int StepIndex);
+
+/// <summary>A taming request, in the one request shape of Kiln.Pets and Kiln.Taming (as <see cref="PetRequest"/>): its id
+/// and what it expects of the view it was made on. The same request again is the same answer and never a second cost;
+/// another action under a used id is <c>RequestConflict</c>; a token the attempt moved on from is <c>StaleStep</c>. Since
+/// 0.2.0-dev.32.</summary>
+/// <param name="RequestId">New for every intended action, the same for a network retry of it; not empty. The answer
+/// (<see cref="TamingResult.RequestId"/>), the events and the cost receipts carry it.</param>
+/// <param name="Token">The attempt's token from the last answer: <see cref="Taming.Advance"/> and <see cref="Taming.Retry"/>
+/// need it; <see cref="Taming.Cancel"/> takes it when it should cancel only an attempt that has not moved on (without one it
+/// cancels from a stale view); <see cref="Taming.Begin"/> takes none.</param>
+public sealed record TamingRequest(Guid RequestId, TamingToken? Token = null)
+{
+    /// <summary>A new request with a fresh request id, made on <paramref name="token"/>'s view.</summary>
+    /// <param name="token">The last answer's token (<see cref="TamingProgress.Token"/>); null for a begin, or a cancel from a
+    /// stale view.</param>
+    /// <returns>A request with a new request id.</returns>
+    public static TamingRequest New(TamingToken? token = null) => new(Guid.NewGuid(), token);
+}
 
 /// <summary>Where an attempt is (<see cref="TamingProgress.State"/>). <see cref="Committed"/>, <see cref="Canceled"/>,
 /// <see cref="Failed"/> and <see cref="Expired"/> are final: the attempt takes no more calls. Since 0.2.0-dev.32.</summary>
@@ -219,11 +242,12 @@ public enum TamingState
 public sealed record TamingRefund(CostReceipt Paid, CostReceipt? Refund);
 
 /// <summary>
-/// An attempt as it is now: an immutable copy, never updated. Read the next token from it, or ask again with
-/// <see cref="Taming.Inspect"/>. Since 0.2.0-dev.32.
+/// An attempt as it is now: an immutable copy, never updated. Make the next request on its <see cref="Token"/>, or ask again
+/// with <see cref="Taming.Inspect"/>. Since 0.2.0-dev.32.
 /// </summary>
-/// <remarks>Times are simulation seconds on the server's clock (the same scale as <see cref="ExpiresAtSimSeconds"/>); they stand
-/// still while the world does not run. An attempt stays readable for 10 minutes of simulation after it closed.</remarks>
+/// <remarks>Its times are simulation time (the game's own world clock, from its zero: the same scale as
+/// <see cref="ExpiresAt"/>); they stand still while the world does not run. An attempt stays readable for 10 minutes of
+/// simulation after it closed.</remarks>
 /// <param name="Id">The attempt's id.</param>
 /// <param name="Owner">The player who began it. Only they may advance, retry or cancel it.</param>
 /// <param name="WorldEpoch">The server world session the attempt belongs to. Another world session ends it (<c>StaleSession</c>).</param>
@@ -234,21 +258,29 @@ public sealed record TamingRefund(CostReceipt Paid, CostReceipt? Refund);
 /// <param name="State">Where the attempt is.</param>
 /// <param name="CompletedSteps">Steps applied so far; also the index of the next step.</param>
 /// <param name="TotalSteps">The definition's number of steps.</param>
-/// <param name="Revision">Starts at 1 and goes up by one each time a step applies; put it in the next <see cref="TamingToken"/>.</param>
-/// <param name="StepChallenge">The server's challenge for the current step; put it in the next <see cref="TamingToken"/>.</param>
-/// <param name="StartedAtSimSeconds">When the attempt began.</param>
-/// <param name="LastProgressAtSimSeconds">When a step last applied (the start, before the first one).</param>
-/// <param name="ExpiresAtSimSeconds">When the attempt expires if nothing changes: the earlier of the last progress plus
-/// <see cref="TamingDefinition.InactivitySeconds"/> and the start plus <see cref="TamingDefinition.MaxAttemptSeconds"/>.</param>
+/// <param name="Revision">Starts at 1 and goes up by one each time a step applies; part of the next <see cref="Token"/>.</param>
+/// <param name="StepChallenge">The server's challenge for the current step; part of the next <see cref="Token"/>.</param>
+/// <param name="StartedAt">When the attempt began.</param>
+/// <param name="LastProgressAt">When a step last applied (the start, before the first one).</param>
+/// <param name="ExpiresAt">When the attempt expires if nothing changes: the earlier of the last progress plus
+/// <see cref="TamingDefinition.InactivityTimeout"/> and the start plus <see cref="TamingDefinition.MaxAttemptDuration"/>.</param>
 /// <param name="Spent">The receipts of the steps paid so far.</param>
 public sealed record TamingProgress(TameAttemptId Id, PlayerRef Owner, ulong WorldEpoch, ulong CharacterSession, EntityRef Target, string Definition,
-    TamingState State, int CompletedSteps, int TotalSteps, ulong Revision, Guid StepChallenge, double StartedAtSimSeconds,
-    double LastProgressAtSimSeconds, double ExpiresAtSimSeconds, IReadOnlyList<CostReceipt> Spent)
+    TamingState State, int CompletedSteps, int TotalSteps, ulong Revision, Guid StepChallenge, TimeSpan StartedAt,
+    TimeSpan LastProgressAt, TimeSpan ExpiresAt, IReadOnlyList<CostReceipt> Spent)
 {
+    // in seconds (internal)
+    internal double StartedAtSimSeconds => StartedAt.TotalSeconds;
+    internal double LastProgressAtSimSeconds => LastProgressAt.TotalSeconds;
+    internal double ExpiresAtSimSeconds => ExpiresAt.TotalSeconds;
+
     /// <summary>The refunds made at the end (empty while it runs, and for a non-refundable definition).</summary>
     public IReadOnlyList<TamingRefund> Refunds { get; init; } = [];
     /// <summary>A cancel was asked while a cost was being paid: it ends when the cost settled.</summary>
     public bool CancelRequested { get; init; }
+    /// <summary>The token the next request echoes (<see cref="TamingRequest.New"/>): the challenge, the revision and the
+    /// steps completed.</summary>
+    public TamingToken Token => new(StepChallenge, Revision, CompletedSteps);
 }
 
 /// <summary>A slot the server offers to pay a step: an inventory slot it read, as an <see cref="ItemSelection"/>, with a
@@ -258,16 +290,27 @@ public sealed record TamingProgress(TameAttemptId Id, PlayerRef Owner, ulong Wor
 /// <param name="Label">A short text for a menu: the slot's name and count (at most 64 characters). It is not localized.</param>
 public sealed record TamingItemChoice(ItemSelection Selection, string Label);
 
-/// <summary>The answer of <see cref="Taming.Choices"/>: the slots that can pay the attempt's next step, with the revision and
-/// challenge to build the next <see cref="TamingToken"/> from. Since 0.2.0-dev.32.</summary>
+/// <summary>The answer of <see cref="Taming.Choices"/>: the slots that can pay the attempt's next step, with the token of the
+/// view they were read on. Since 0.2.0-dev.32.</summary>
 /// <param name="Ok">True when the list is the real one (it may be empty: weaken and native steps take no slot, and a feed
 /// or tool step may have no matching slot). False: <paramref name="Reason"/> says why.</param>
-/// <param name="Reason">Why not: <c>AttemptClosed</c> (no such attempt of this player), <c>WrongState</c> (the attempt is not
-/// waiting for a step) or <c>ChoiceLimit</c> (more than 256 matching slots: none is listed). Null when <paramref name="Ok"/>.</param>
-/// <param name="Revision">The attempt's <see cref="TamingProgress.Revision"/> now; 0 when the attempt is unknown.</param>
-/// <param name="StepChallenge">The attempt's <see cref="TamingProgress.StepChallenge"/> now.</param>
-/// <param name="Choices">The slots that can pay the step, in the order the owner's inventories list them (at most 256).</param>
-public sealed record TamingChoicesResult(bool Ok, string? Reason, ulong Revision, Guid StepChallenge, IReadOnlyList<TamingItemChoice> Choices) : IKilnResult;
+/// <param name="Reason">Why not, in words for a log: <c>AttemptClosed</c> (no such attempt of this player) or
+/// <c>WrongState</c> (the attempt is not waiting for a step); its first word is <see cref="Refusal"/>. Null when
+/// <paramref name="Ok"/>.</param>
+/// <param name="Token">The view the choices were read on: a request for one of them echoes it
+/// (<c>TamingRequest.New(choices.Token)</c>); null when there is no such attempt of the player's.</param>
+/// <param name="Choices">The slots that can pay the step, in the order the owner's inventories list them: the first 256
+/// (<see cref="Truncated"/> when more could pay).</param>
+public sealed record TamingChoicesResult(bool Ok, string? Reason, TamingToken? Token, IReadOnlyList<TamingItemChoice> Choices) : IKilnResult
+{
+    /// <summary>More slots could pay the step than the 256 <see cref="Choices"/> lists: these are the first 256 in the
+    /// owner's inventories' order (a UI says that there are more).</summary>
+    public bool Truncated { get; init; }
+
+    /// <summary>Why not, as a value: <see cref="TamingRefusal.None"/> when <see cref="Ok"/>, else the first word of
+    /// <see cref="Reason"/>.</summary>
+    public TamingRefusal Refusal => RefusalWords.Of(Ok, Reason, TamingRefusal.None, TamingRefusal.Other);
+}
 
 /// <summary>
 /// The answer of <see cref="Taming.Begin"/>, <see cref="Taming.Advance"/>, <see cref="Taming.Retry"/> and
@@ -275,27 +318,35 @@ public sealed record TamingChoicesResult(bool Ok, string? Reason, ulong Revision
 /// tame is <c>Ok</c> false with <see cref="StepApplied"/> true and the reason <c>CommitDeferred</c>: every step is paid and
 /// the tame waits for <see cref="Taming.Retry"/>. Since 0.2.0-dev.32.
 /// </summary>
-/// <remarks>A refusal is a result, never an exception: check <see cref="Ok"/> first. <see cref="Reason"/> starts with a word
-/// to test (<c>reason.StartsWith("Busy")</c>) and may go on with a colon and details for a log. Always read
-/// <see cref="Progress"/> to build the next <see cref="TamingToken"/>, also after a refusal: a refusal leaves the attempt as it was.</remarks>
+/// <remarks>A refusal is a result, never an exception: check <see cref="Ok"/> first, then decide by
+/// <see cref="Refusal"/> (<c>r.Refusal == TamingRefusal.Busy</c>), never by the text: <see cref="Reason"/> starts with that
+/// word and may go on with a colon and details for a log. Always make the next request on <see cref="Progress"/>'s token,
+/// also after a refusal: a refusal leaves the attempt as it was.</remarks>
 /// <param name="Ok">True: the action did what it asked.</param>
-/// <param name="Reason">Why not, as a word first: <c>WrongOwner</c>, <c>StaleSession</c>, <c>Busy</c> (a step's cost is being
-/// paid, or another attempt claims the target), <c>StaleStep</c> (the token does not match: read the attempt again),
-/// <c>RequestConflict</c> (a request id reused for another action), <c>StaleSelection</c>, <c>OutOfRange</c>, <c>Threshold</c>
-/// (the target is above the weaken threshold), <c>BodyGone</c>, <c>TemplateMismatch</c>, <c>DefinitionUnknown</c>, <c>Cap</c>,
-/// <c>DefinitionInUse</c>, <c>CommitDeferred</c>, <c>AttemptClosed</c>, <c>Expired</c>, <c>UncertainCommit</c>,
-/// <c>PartialCostCommitted</c>, <c>Canceled</c> (a mod's handler refused, or the attempt was canceled meanwhile),
-/// <c>NativePending</c> (the game has not counted the native steps yet), <c>TooManyRequests</c>, <c>Refused</c> (the cost or
-/// the bind was refused; its reason follows). Null when <paramref name="Ok"/>.</param>
+/// <param name="Reason">Why not, in words for a log, its first word <see cref="Refusal"/>: <c>NotOwner</c>,
+/// <c>OwnerOffline</c>, <c>StaleSession</c>, <c>Busy</c> (a step's cost is being paid, or another attempt claims the target),
+/// <c>StaleStep</c> (the token does not match: read the attempt again), <c>RequestConflict</c> (a request id reused for
+/// another action), <c>StaleSelection</c>, <c>OutOfRange</c>, <c>Threshold</c> (the target is above the weaken threshold),
+/// <c>BodyGone</c>, <c>TemplateMismatch</c>, <c>DefinitionUnknown</c>, <c>Capacity</c>, <c>DefinitionInUse</c>,
+/// <c>CommitDeferred</c>, <c>AttemptClosed</c>, <c>Expired</c>, <c>UncertainCommit</c>, <c>PartialCostCommitted</c>,
+/// <c>Canceled</c> (the attempt was canceled meanwhile), <c>RefusedByMod</c> (a mod's handler refused), <c>NativePending</c>
+/// (the game has not counted the native steps yet), <c>TooManyRequests</c>, <c>Refused</c> (the cost or the bind was refused;
+/// its reason follows). Null when <paramref name="Ok"/>.</param>
 /// <param name="Progress">The attempt after the call; null only when no such attempt exists.</param>
 /// <param name="Pet">The pet the tame made (a definition with <see cref="TamingDefinition.Pet"/>), as it was made; null
 /// otherwise.</param>
-/// <param name="RequestId">The request id the call ran under (the token's).</param>
+/// <param name="RequestId">The request id the call ran under (the request's).</param>
 /// <param name="StepApplied">True when a step applied, so its cost, if any, is spent.</param>
 /// <param name="Receipts">The receipts of this call's cost (and of every spent step at a final result). Check
 /// <see cref="CostReceipt.Committed"/> and <see cref="CostReceipt.Uncertain"/> before trusting a count.</param>
 public sealed record TamingResult(bool Ok, string? Reason, TamingProgress? Progress, PetSnapshot? Pet, Guid RequestId, bool StepApplied,
-    IReadOnlyList<CostReceipt> Receipts) : IKilnResult;
+    IReadOnlyList<CostReceipt> Receipts) : IKilnResult
+{
+    /// <summary>Why not, as a value: <see cref="TamingRefusal.None"/> when <see cref="Ok"/>, else the first word of
+    /// <see cref="Reason"/> (<see cref="TamingRefusal.Other"/> for a word this Kiln has no member for). A deferred tame is
+    /// <see cref="TamingRefusal.CommitDeferred"/>.</summary>
+    public TamingRefusal Refusal => RefusalWords.Of(Ok, Reason, TamingRefusal.None, TamingRefusal.Other);
+}
 
 // ---- before-events (cancelable; their context is a copy nobody can change) ----
 
@@ -311,6 +362,7 @@ public sealed record TamingBeginContext(Guid RequestId, PlayerRef Player, Entity
 /// <summary>What <see cref="Taming.Advance"/> asks, as <see cref="TamingAdvancingEvent"/> shows it to handlers: the step, what
 /// it would cost and whether it would try the final tame. A copy: changing nothing here changes the attempt.</summary>
 /// <param name="Before">The attempt before the step.</param>
+/// <param name="RequestId">The caller's request id.</param>
 /// <param name="Token">The caller's token.</param>
 /// <param name="StepIndex">The index of the step about to be taken.</param>
 /// <param name="StepKind">The step's <see cref="TamingStep.Kind"/>.</param>
@@ -319,7 +371,7 @@ public sealed record TamingBeginContext(Guid RequestId, PlayerRef Player, Entity
 /// <param name="QuotedWear">The durability the step would take (a tool step); 0 otherwise.</param>
 /// <param name="WillTryFinalCommit">True when this is the last step: after its cost the tame is tried, and
 /// <see cref="TamingCommittingEvent"/> is asked first.</param>
-public sealed record TamingAdvanceContext(TamingProgress Before, TamingToken Token, int StepIndex, string StepKind, ItemSelection? Selection,
+public sealed record TamingAdvanceContext(TamingProgress Before, Guid RequestId, TamingToken Token, int StepIndex, string StepKind, ItemSelection? Selection,
     int QuotedQuantity, int QuotedWear, bool WillTryFinalCommit);
 
 /// <summary>What the final tame asks, as <see cref="TamingCommittingEvent"/> shows it to handlers: before the last step's cost,
@@ -461,8 +513,9 @@ public sealed class TamingCanceledEvent : TamingChangedEvent
     internal TamingCanceledEvent(TamingProgress before, TamingProgress after, Guid requestId, string cause) : base(before, after, requestId, after.Spent, cause) { }
 }
 
-/// <summary>The attempt ran out of time: <see cref="TamingDefinition.InactivitySeconds"/> without a step, or
-/// <see cref="TamingDefinition.MaxAttemptSeconds"/> in all. Since 0.2.0-dev.32.</summary>
+/// <summary>The attempt ran out of time: <see cref="TamingDefinition.InactivityTimeout"/> without a step, or
+/// <see cref="TamingDefinition.MaxAttemptDuration"/> in all (the cause says which: <c>InactivitySeconds</c> or
+/// <c>MaxAttemptSeconds</c>). Since 0.2.0-dev.32.</summary>
 public sealed class TamingExpiredEvent : TamingChangedEvent
 {
     internal TamingExpiredEvent(TamingProgress before, TamingProgress after, string cause) : base(before, after, Guid.Empty, after.Spent, cause) { }

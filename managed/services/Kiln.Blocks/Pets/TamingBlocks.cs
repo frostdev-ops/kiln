@@ -6,6 +6,7 @@
 // service stays as it is; this is a typed front-end over it. Every choice in it is the mod's. docs/kiln/modding/taming.md.
 using System.Globalization;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 
 namespace Kiln;
 
@@ -86,10 +87,11 @@ public sealed record TamingStepBlock
 [BlockClients(ClientsLevel.None)]
 public sealed record TamingBlock : IBlock
 {
-    /// <summary>The creatures it tames: a game creature by its creatures registry id (<c>game:enemy_wildbeast_wolf_earlygame</c>;
-    /// a trailing <c>*</c> matches a prefix of game ids), or a creature block of this mod (its name) or of another
-    /// (<c>other-mod:name</c>). At least one.</summary>
-    public required IReadOnlyList<string> Creatures { get; init; }
+    /// <summary>The creatures it tames, each named as a <see cref="PetBlock.Creature"/> is (one reference type): a game
+    /// creature by its creatures registry id (<c>"game:enemy_wildbeast_wolf_earlygame"</c>; a trailing <c>*</c> matches a
+    /// prefix of game ids), a <see cref="CreatureBlock"/> (inline, a handle, its name, or <c>"other-mod:name"</c>). At least
+    /// one.</summary>
+    public required IReadOnlyList<PartRef<CreatureBlock>> Creatures { get; init; }
     /// <summary>The steps, 1..64, in order.</summary>
     public required IReadOnlyList<TamingStepBlock> Steps { get; init; }
     /// <summary>The pet a tame makes: a <see cref="PetBlock"/> (inline, a handle, its name, or <c>other-mod:name</c>, or the id
@@ -99,10 +101,17 @@ public sealed record TamingBlock : IBlock
     public double RangeMeters { get; init; } = 3;
     /// <summary>The latest weaken threshold holds until the tame (default true).</summary>
     public bool RequireThresholdUntilCommit { get; init; } = true;
-    /// <summary>Seconds of simulation without an applied step before the attempt expires, 1..300 (default 30).</summary>
-    public double InactivitySeconds { get; init; } = 30;
-    /// <summary>The longest an attempt lasts, from <see cref="InactivitySeconds"/> to 3600 s (default 300).</summary>
-    public double MaxAttemptSeconds { get; init; } = 300;
+    /// <summary>How long in simulation without an applied step before the attempt expires, 1..300 s (default 30; JSON:
+    /// <c>inactivitySeconds</c>).</summary>
+    [JsonPropertyName("inactivitySeconds"), JsonConverter(typeof(Seconds.Json))]
+    public TimeSpan InactivityTimeout { get; init; } = TimeSpan.FromSeconds(30);
+    /// <summary>The longest an attempt lasts, from <see cref="InactivityTimeout"/> to 3600 s (default 300; JSON:
+    /// <c>maxAttemptSeconds</c>).</summary>
+    [JsonPropertyName("maxAttemptSeconds"), JsonConverter(typeof(Seconds.Json))]
+    public TimeSpan MaxAttemptDuration { get; init; } = TimeSpan.FromSeconds(300);
+    // the compiler's names, in seconds (internal)
+    internal double InactivitySeconds { get => InactivityTimeout.TotalSeconds; init => InactivityTimeout = Seconds.Of(value); }
+    internal double MaxAttemptSeconds { get => MaxAttemptDuration.TotalSeconds; init => MaxAttemptDuration = Seconds.Of(value); }
     /// <summary>What happens to paid steps when the attempt ends without a tame (default non-refundable).</summary>
     public TamingRefundPolicy Refund { get; init; } = TamingRefundPolicy.NonRefundable;
     /// <summary>With a pet: the tamed wild body is removed once the pet record is made (default true).</summary>
@@ -130,7 +139,11 @@ internal static partial class Compiler
 internal static class TamingCompiler
 {
     /// <summary>Registers a definition with Kiln.Taming as the mod's (tests replace it).</summary>
-    internal static Action<TamingDefinition, string> Register { get; set; } = (d, mod) => TamingRuntime.Define(d, mod);
+    internal static Action<TamingDefinition, string> Register { get; set; } = (d, mod) =>
+    {
+        // a refusal (DefinitionInUse) is logged by Commit as the mod's problem
+        if (TamingRuntime.Define(d, mod) is { Ok: false } r) throw new InvalidOperationException(r.Reason);
+    };
 
     /// <summary>Whether the game's item catalog is readable here now (tests replace it). On a dedicated server content is
     /// ready before Kiln.Items reads the catalog (lab 11-27: a game item was "not there" at content ready and readable 20 s
@@ -182,15 +195,15 @@ internal static class TamingCompiler
         {
             var at = $"creatures[{i}]";
             var c = t.Creatures[i];
-            if (string.IsNullOrWhiteSpace(c)) throw new BlockError(ctx.Block, at, "an empty creature");
-            if (c.StartsWith("game:", StringComparison.Ordinal))
+            if (c is null || c.Inline is null && string.IsNullOrWhiteSpace(c.Name)) throw new BlockError(ctx.Block, at, "an empty creature");
+            if (c.Name is { } game && game.StartsWith("game:", StringComparison.Ordinal))
             {
-                if (c != c.ToLowerInvariant()) throw new BlockError(ctx.Block, at, $"\"{c}\" is not a creatures registry id (lower case)");
-                creatures.Add(c);
+                if (game != game.ToLowerInvariant()) throw new BlockError(ctx.Block, at, $"\"{game}\" is not a creatures registry id (lower case)");
+                creatures.Add(game);
                 continue;
             }
-            if (c.EndsWith('*')) throw new BlockError(ctx.Block, at, $"\"{c}\": a prefix (*) names game creatures only (game:animal_wildlife_dog_*)");
-            var (cid, info) = PetCompiler.CreatureOf(ctx, (PartRef<CreatureBlock>)c, $"{name}.creature{i}", at);
+            if (c.Name is { } prefix && prefix.EndsWith('*')) throw new BlockError(ctx.Block, at, $"\"{prefix}\": a prefix (*) names game creatures only (game:animal_wildlife_dog_*)");
+            var (cid, info) = PetCompiler.CreatureOf(ctx, c, $"{name}.creature{i}", at);
             creatures.Add(cid);
             if (info is not null) blocks.Add(info);
         }

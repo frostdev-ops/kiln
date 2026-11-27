@@ -45,13 +45,13 @@ public sealed class TamingFacadeTests : IDisposable
     {
         var d = TamingFixture.Def(new WeakenStep(0.5)) with { Id = "kiln:wolf" };
         Taming.Define(d);
-        Assert.Same(d, Taming.Definition("kiln:wolf"));
+        Assert.True(TamingEngine.Same(d, Taming.Definition("kiln:wolf")!));   // Kiln's copy of it
         Assert.Single(Taming.Definitions);
         var json = Taming.DefineJson("""{ "id": "kiln:pup", "creatures": ["game:animal_wildlife_dog_*"], "steps": [ { "kind": "native" } ] }""");
-        Assert.Equal("kiln:pup", Assert.Single(json).Id);
+        Assert.Equal("kiln:pup", Assert.Single(json).Definition!.Id);
         // the attempts need the world: Begin names taming.steps
-        var e = Assert.Throws<KilnUnavailableException>(() => Taming.Begin(new PlayerRef(1, Guid.NewGuid(), new EntityRef(new EntityId(10), 1)),
-            new EntityRef(new EntityId(500), 7), "kiln:wolf", Guid.NewGuid()));
+        var e = Assert.Throws<KilnUnavailableException>(() => { _ = Taming.Begin(new PlayerRef(1, Guid.NewGuid(), new EntityRef(new EntityId(10), 1)),
+            new EntityRef(new EntityId(500), 7), "kiln:wolf", TamingRequest.New()); });
         Assert.Equal(Taming.Capability, e.Capability);
     }
 

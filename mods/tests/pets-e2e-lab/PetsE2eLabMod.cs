@@ -217,7 +217,7 @@ public sealed partial class PetsE2eLabMod : Mod
             var o = new JsonObject
             {
                 ["ev"] = e.GetType().Name, ["pet"] = Short(e.Pet), ["petId"] = e.Pet.ToString(), ["owner"] = e.Owner.ToString(),
-                ["def"] = c.After.Definition, ["cause"] = c.Cause.ToString(), ["op"] = c.OperationId.ToString(),
+                ["def"] = c.After.Definition, ["cause"] = c.Cause.ToString(), ["op"] = c.RequestId.ToString(),
                 ["rev"] = c.After.StateRevision, ["durable"] = c.After.DurableRevision, ["observedStep"] = c.ObservedStep,
                 ["before"] = Snap(c.Before), ["after"] = Snap(c.After),
                 ["beforeBodyExists"] = beforeBody.IsNone ? null : World.Exists(beforeBody.Id),
@@ -252,7 +252,7 @@ public sealed partial class PetsE2eLabMod : Mod
         })));
         _subs.Add(Events.On<PetRevivingEvent>(e => Write("reviving", new JsonObject
         {
-            ["pet"] = Short(e.Pet.Id), ["op"] = e.OperationId.ToString(), ["cost"] = e.Cost is { } c ? $"{c.Count} x {c.Item}" : null,
+            ["pet"] = Short(e.Pet.Id), ["op"] = e.RequestId.ToString(), ["cost"] = e.Cost is { } c ? $"{c.Count} x {c.Item}" : null,
             ["canceled"] = e.Canceled,
         }), EventPriority.Monitor));
         _subs.Add(Events.On<PetRecordCommittedEvent>(e =>
@@ -331,7 +331,7 @@ public sealed partial class PetsE2eLabMod : Mod
         ["life"] = s.Life.ToString(), ["presence"] = s.Presence.ToString(), ["transition"] = s.Transition.ToString(),
         ["order"] = s.RequestedOrder.ToString(), ["target"] = s.RequestedTarget.Id.Value, ["body"] = s.Body.Id.Value,
         ["health"] = s.Health, ["healthMax"] = s.HealthMax, ["wants"] = s.WantsSummoned, ["rev"] = s.StateRevision,
-        ["durable"] = s.DurableRevision, ["reviveOp"] = s.ReviveOperation?.ToString(), ["reviveElapsed"] = R(s.ReviveElapsed),
+        ["durable"] = s.DurableRevision, ["reviveOp"] = s.ReviveRequest?.ToString(), ["reviveElapsed"] = R(s.ReviveElapsed.TotalSeconds),
     };
 
     private static Player? OwnerOf(CharacterKey key) =>
@@ -408,7 +408,7 @@ public sealed partial class PetsE2eLabMod : Mod
 
     private static JsonObject Result(PetResult r) => new()
     {
-        ["ok"] = r.Ok, ["reason"] = r.Reason, ["op"] = r.OperationId.ToString(), ["life"] = r.Pet?.Life.ToString(), ["presence"] = r.Pet?.Presence.ToString(),
+        ["ok"] = r.Ok, ["reason"] = r.Reason, ["op"] = r.RequestId.ToString(), ["life"] = r.Pet?.Life.ToString(), ["presence"] = r.Pet?.Presence.ToString(),
         ["costs"] = new JsonArray(r.Costs.Select(c => (JsonNode)new JsonObject { ["item"] = c.Item.Value, ["requested"] = c.Requested, ["taken"] = c.Taken, ["committed"] = c.Committed }).ToArray()),
     };
 
@@ -459,13 +459,13 @@ public sealed partial class PetsE2eLabMod : Mod
         // does not cancel it (the bot stands still anyway)
         var r = Pets.Define(new PetDefinition
         {
-            Id = Mule, Creature = "game:enemy_wildbeast_wolf_earlygame", DisplayName = "Mule",
+            Id = Mule, Creature = "game:enemy_wildbeast_wolf_earlygame", Name = "Mule",
             Revive = new PetRevivePolicy
             {
-                ChannelSeconds = 0.5, RangeMeters = 8, Cost = new PetCostDefinition(twigs.Id, 1),
+                ChannelDuration = TimeSpan.FromSeconds(0.5), RangeMeters = 8, Cost = new PetCostDefinition(twigs.Id, 1),
                 CancelOnMovement = false, CancelOnObservedOwnerDamage = false,
             },
-            Caps = new PetCaps { LivePerCharacter = 3 },
+            Limits = new PetLimits { LivePerCharacter = 3 },
         });
         Write("define", new JsonObject { ["id"] = Mule, ["ok"] = r.Ok, ["reason"] = r.Reason });
     }

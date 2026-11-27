@@ -178,7 +178,7 @@ only a player can see as "needs a client check". Server and client, edit caps an
 | Mistake | Result | Use instead |
 |---|---|---|
 | `Pets.*` (except `Define`, `Definition`, `Definitions`) or `Taming.*` on a joined client, off the tick thread, or in a Kiln task | `KilnUnavailableException` (a joined client has no server rows) or a wrong-thread error | server mod, tick thread; ask `Capabilities.Is("pets.records")` / `Is(Taming.Capability)` first; `await` the `Task<PetResult>` from a handler |
-| One `PetRequest` (or `Guid` request id of taming) reused for a new action | `RequestConflict`; or the first answer given back for 10 minutes | `PetRequest.New()` and `Guid.NewGuid()` for each action you mean; the same one only to resend a lost request |
+| One `PetRequest` or `TamingRequest` reused for a new action | `RequestConflict`; or the first answer given back for 10 minutes | `PetRequest.New()` and `TamingRequest.New(progress.Token)` for each action you mean; the same one only to resend a lost request |
 | A pet whose creature is wildlife, a farm animal, a flyer, a template name or a GUID | `CreatureUnsupported` / `CreatureUnknown`; or `ArgumentException` | a creatures-registry id (`game:enemy_...`) or your creature block; only enemies that walk are pets |
 | A pet or taming id with capitals or without your lower-case mod id | `ArgumentException` naming the field | `<mod id>:<name>`, lower case letters, digits, `-`, `_`, `.` |
 | Expecting a pet to fight, assist or defend by itself | it only follows: Kiln never attacks by itself | `Pets.Command(..., PetOrder.Attack, target, ...)` when your rule says so; read `TargetProtected` |
@@ -187,7 +187,8 @@ only a player can see as "needs a client check". Server and client, edit caps an
 | A revive cost of gear, an item the game lacks, or a count split over two stacks | `CostUnavailable` or nothing paid; the revive is refused with nothing taken | one plain stack item (1..999) and a stack that holds all of it |
 | Defining a taming with `game:` item ids in `OnLoad` of a dedicated server | the definition is not made (`DefinitionUnknown`, or an `ArgumentException` naming `$.steps[1].item`) | a `TamingBlock` (Kiln waits for the catalog), or define from a tick once `Items.Available` |
 | A client or UI that names a slot id for a cost | there is no such call: the server must read the slot | `Taming.Choices(...)` rows or `ItemSelection.Of` of an `Items.Read` slot, built on the server |
-| Calling `Advance` with an old token | `StaleStep`, nothing taken | keep the last `TamingResult.Progress` and build the next token from its `StepChallenge`, `Revision`, `CompletedSteps` |
+| Calling `Advance` with an old token | `StaleStep`, nothing taken | keep the last `TamingResult.Progress` and make the next request on its token: `TamingRequest.New(progress.Token)` |
+| Matching a pet or taming refusal by its text (`Reason.StartsWith("Cap")`) | words change between releases; a new word reads as nothing you know | `r.Refusal == PetRefusal.Capacity` (`TamingRefusal` for taming): the same words in both services, `Other` for a word a later Kiln adds |
 | Resubmitting a cost whose receipt is `Uncertain`, or refunding it | it may be paid twice; `Refund` never refunds an uncertain receipt | read `CostReceipt.State`; treat uncertain as paid until you know |
 | Promising a player who left a refund | it is not settled for an owner who is gone | tell players refunds are for players in the game |
 | Reading `NativeTamingState.TamedBy` | always null: the game records no tamer | decide credit in your mod |

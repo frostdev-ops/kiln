@@ -9,7 +9,7 @@ internal static class TamingCaps
     /// <summary>Kiln.Taming is loaded.</summary>
     public const string Service = "kiln.taming";
     /// <summary>Who tamed a native animal: not proven on any build.</summary>
-    public const string NativeObserve = "taming.native_observe";
+    public const string NativeObserve = NativeTaming.ObserveCapability;
 
     internal static readonly ServiceCapRows Rows = new(Service, Report, everySteps: 25);
 
