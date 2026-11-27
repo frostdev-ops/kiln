@@ -136,4 +136,22 @@ public sealed class TamingApiShapeTests
         Assert.Equal(TamingRefusal.NotOwner, f.Engine.Choices(f.B, p.Id).Refusal);
         Assert.Equal(TamingRefusal.AttemptClosed, f.Engine.Choices(f.A, new TameAttemptId(Guid.NewGuid())).Refusal);
     }
+
+    // ---- A8: Cancel works from a stale view (by attempt id), and a token, when given, must still be current ----
+
+    [Fact]
+    public void Cancel_needs_no_current_challenge_and_a_stale_token_given_still_refuses()
+    {
+        var f = new TamingFixture().With(FeedTwice());
+        var p = f.Begin().Progress!;
+        Assert.True(f.Advance(p, f.Stack(Bait)).Ok);   // the view p is stale now
+        Assert.Equal(TamingRefusal.StaleStep, Done(f.Engine.Cancel(f.A, p.Id, TamingRequest.New(p.Token))).Refusal);
+        Assert.Equal(TamingRefusal.NotOwner, Done(f.Engine.Cancel(f.B, p.Id, TamingRequest.New())).Refusal);
+        var cancel = TamingRequest.New();
+        var c = Done(f.Engine.Cancel(f.A, p.Id, cancel));
+        Assert.True(c.Ok, c.Reason);
+        Assert.Equal(TamingState.Canceled, c.Progress!.State);
+        Assert.Same(f.Engine.Cancel(f.A, p.Id, cancel), f.Engine.Cancel(f.A, p.Id, cancel));   // the same request, the same answer
+        Assert.Equal(TamingRefusal.AttemptClosed, Done(f.Engine.Cancel(f.A, p.Id, TamingRequest.New())).Refusal);
+    }
 }

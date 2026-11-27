@@ -123,7 +123,8 @@ public sealed record TamingToken(Guid StepChallenge, ulong ExpectedRevision, int
 /// <param name="RequestId">New for every intended action, the same for a network retry of it. The answer
 /// (<see cref="TamingResult.RequestId"/>), the events and the cost receipts carry it.</param>
 /// <param name="Token">The attempt's token from the last answer: <see cref="Taming.Advance"/> and <see cref="Taming.Retry"/>
-/// need it; <see cref="Taming.Begin"/> takes none.</param>
+/// need it; <see cref="Taming.Cancel"/> takes it when it should cancel only an attempt that has not moved on (without one it
+/// cancels from a stale view); <see cref="Taming.Begin"/> takes none.</param>
 public sealed record TamingRequest(Guid RequestId, TamingToken? Token = null)
 {
     /// <summary>A new request with a fresh request id, made on <paramref name="token"/>'s view.</summary>

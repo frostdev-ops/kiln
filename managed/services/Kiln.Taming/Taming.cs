@@ -117,8 +117,12 @@ public static class Taming
     public static Task<TamingResult> Retry(PlayerRef player, TameAttemptId attempt, TamingRequest request) =>
         Engine("Taming.Retry").Retry(player, attempt, request);
 
-    /// <summary>Ends the attempt. A cost in flight settles first (its receipt says whether the cancel spent it). Paid steps
-    /// are given back only as the definition's refund policy says (<see cref="TamingRefundPolicy"/>).</summary>
+    /// <summary>Ends the attempt, named by its id: a request without a token (<c>TamingRequest.New()</c>) cancels from a
+    /// stale view (a UI that missed the last step), and one with a token cancels only while that token is current
+    /// (<c>StaleStep</c> otherwise). Only the attempt's owner cancels it, an attempt id is never reused (a late cancel never
+    /// reaches a later attempt), the same request again gives the first answer, and a cost in flight settles first (its
+    /// receipt says whether the cancel spent it). Paid steps are given back only as the definition's refund policy says
+    /// (<see cref="TamingRefundPolicy"/>).</summary>
     [TickThreadOnly]
     [RequiresCapability("taming.steps")]
     public static Task<TamingResult> Cancel(PlayerRef player, TameAttemptId attempt, TamingRequest request) =>

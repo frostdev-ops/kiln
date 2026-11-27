@@ -677,9 +677,11 @@ internal sealed class TamingEngine
 
     internal Task<TamingResult> Cancel(PlayerRef player, TameAttemptId id, TamingRequest request)
     {
-        var token = Unpack(request, needsToken: true, "a cancel")!;
+        // by the attempt's id: its random id is never reused and only its owner may cancel it, so a cancel made on a stale
+        // view still ends only that attempt; a token, when given, must still be current (cancel only if nothing moved)
+        var token = Unpack(request, needsToken: false, "a cancel");
         _attempts.TryGetValue(id, out var a);
-        var fp = Fp("cancel", id.Value, token.StepChallenge);
+        var fp = Fp("cancel", id.Value, token?.StepChallenge);
         if (a is not null && a.Replay.TryGetValue(request.RequestId, out var seen))
             return seen.Fingerprint == fp ? seen.Task : Task.FromResult(Refuse(request.RequestId, "RequestConflict: the request id was used for another action"));
         if (_tombstones.Contains(id) && a is null) return Task.FromResult(Refuse(request.RequestId, "AttemptClosed: the attempt is over"));
@@ -687,7 +689,7 @@ internal sealed class TamingEngine
         if (a!.Replay.Count >= MaxReceiptsPerAttempt) return Task.FromResult(Refuse(request.RequestId, "TooManyRequests: 256 requests for this attempt"));
         Task<TamingResult> task;
         if (Terminal(a.State)) task = Task.FromResult(Refuse(request.RequestId, $"AttemptClosed: the attempt is {a.State}", View(a)));
-        else if (token.StepChallenge != a.Challenge) task = Task.FromResult(Refuse(request.RequestId, "StaleStep: the token is not the attempt's current one", View(a)));
+        else if (token is not null && token.StepChallenge != a.Challenge) task = Task.FromResult(Refuse(request.RequestId, "StaleStep: the token is not the attempt's current one", View(a)));
         else if (a.CancelRequested) task = a.CancelTcs!.Task;   // a cancel is waiting for a settlement already: the same answer
         else if (a.Settling)
         {
