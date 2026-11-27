@@ -1,1 +1,104 @@
 #nullable enable
+[KILNX031]const Kiln.Registry.RegistryViews.Service = "kiln.registry.view" -> string!
+[KILNX031]Kiln.Registry.RegistryEntry
+[KILNX031]Kiln.Registry.RegistryEntry.Count(string! listField) -> int
+[KILNX031]Kiln.Registry.RegistryEntry.Get(string! field) -> object?
+[KILNX031]Kiln.Registry.RegistryEntry.Get<T>(string! field) -> T
+[KILNX031]Kiln.Registry.RegistryEntry.Id.get -> Kiln.Registry.RegistryId
+[KILNX031]Kiln.Registry.RegistryEntry.Registry.get -> string!
+[KILNX031]Kiln.Registry.RegistryEntry.Set(string! field, object? value) -> void
+[KILNX031]Kiln.Registry.RegistryEntry.Spec(string! field) -> Kiln.Registry.RegistryFieldSpec!
+[KILNX031]Kiln.Registry.RegistryStage.Entries(string! registry) -> Kiln.Registry.RegistryEntries<Kiln.Registry.RegistryEntry!>!
+[KILNX031]Kiln.Registry.RegistryView
+[KILNX031]Kiln.Registry.RegistryViewEntry
+[KILNX031]Kiln.Registry.RegistryViewEntry.Get<T>(string! field) -> T
+[KILNX031]Kiln.Registry.RegistryViewEntry.Id.get -> Kiln.Registry.RegistryId
+[KILNX031]Kiln.Registry.RegistryViewEntry.Snapshot() -> Kiln.Registry.RegistryViewSnapshot!
+[KILNX031]Kiln.Registry.RegistryViewEntry.TryGet<T>(string! field, out T value, out string? reason) -> bool
+[KILNX031]Kiln.Registry.RegistryViewEntry.View.get -> Kiln.Registry.RegistryView!
+[KILNX031]Kiln.Registry.RegistryViewField
+[KILNX031]Kiln.Registry.RegistryViewField.<Clone>$() -> Kiln.Registry.RegistryViewField!
+[KILNX031]Kiln.Registry.RegistryViewField.CoveredBy.get -> string?
+[KILNX031]Kiln.Registry.RegistryViewField.CoveredBy.init -> void
+[KILNX031]Kiln.Registry.RegistryViewField.Deconstruct(out string! Path, out Kiln.Registry.RegistryViewFieldType Type, out Kiln.Registry.RegistryViewFieldType? Element, out System.Collections.Generic.IReadOnlyList<string!>! Values, out string? Ref, out bool ReadOnly, out Kiln.Registry.RegistryViewFieldState State, out string? Reason, out string? CoveredBy, out bool Exact) -> void
+[KILNX031]Kiln.Registry.RegistryViewField.Element.get -> Kiln.Registry.RegistryViewFieldType?
+[KILNX031]Kiln.Registry.RegistryViewField.Element.init -> void
+[KILNX031]Kiln.Registry.RegistryViewField.Equals(Kiln.Registry.RegistryViewField? other) -> bool
+[KILNX031]Kiln.Registry.RegistryViewField.Exact.get -> bool
+[KILNX031]Kiln.Registry.RegistryViewField.Exact.init -> void
+[KILNX031]Kiln.Registry.RegistryViewField.Path.get -> string!
+[KILNX031]Kiln.Registry.RegistryViewField.Path.init -> void
+[KILNX031]Kiln.Registry.RegistryViewField.Readable.get -> bool
+[KILNX031]Kiln.Registry.RegistryViewField.ReadOnly.get -> bool
+[KILNX031]Kiln.Registry.RegistryViewField.ReadOnly.init -> void
+[KILNX031]Kiln.Registry.RegistryViewField.Reason.get -> string?
+[KILNX031]Kiln.Registry.RegistryViewField.Reason.init -> void
+[KILNX031]Kiln.Registry.RegistryViewField.Ref.get -> string?
+[KILNX031]Kiln.Registry.RegistryViewField.Ref.init -> void
+[KILNX031]Kiln.Registry.RegistryViewField.RegistryViewField(string! Path, Kiln.Registry.RegistryViewFieldType Type, Kiln.Registry.RegistryViewFieldType? Element, System.Collections.Generic.IReadOnlyList<string!>! Values, string? Ref, bool ReadOnly, Kiln.Registry.RegistryViewFieldState State, string? Reason, string? CoveredBy, bool Exact) -> void
+[KILNX031]Kiln.Registry.RegistryView.Fields.get -> System.Collections.Generic.IReadOnlyList<Kiln.Registry.RegistryViewField!>!
+[KILNX031]Kiln.Registry.RegistryViewFieldState
+[KILNX031]Kiln.Registry.RegistryViewField.State.get -> Kiln.Registry.RegistryViewFieldState
+[KILNX031]Kiln.Registry.RegistryViewField.State.init -> void
+[KILNX031]Kiln.Registry.RegistryViewFieldState.Mapped = 3 -> Kiln.Registry.RegistryViewFieldState
+[KILNX031]Kiln.Registry.RegistryViewFieldState.Readable = 0 -> Kiln.Registry.RegistryViewFieldState
+[KILNX031]Kiln.Registry.RegistryViewFieldState.Removed = 2 -> Kiln.Registry.RegistryViewFieldState
+[KILNX031]Kiln.Registry.RegistryViewFieldState.Unmapped = 4 -> Kiln.Registry.RegistryViewFieldState
+[KILNX031]Kiln.Registry.RegistryViewFieldState.Unproven = 5 -> Kiln.Registry.RegistryViewFieldState
+[KILNX031]Kiln.Registry.RegistryViewFieldState.Unread = 1 -> Kiln.Registry.RegistryViewFieldState
+[KILNX031]Kiln.Registry.RegistryView.Field(string! path) -> Kiln.Registry.RegistryViewField?
+[KILNX031]Kiln.Registry.RegistryViewFieldType
+[KILNX031]Kiln.Registry.RegistryViewFieldType.Bool = 2 -> Kiln.Registry.RegistryViewFieldType
+[KILNX031]Kiln.Registry.RegistryViewFieldType.Enum = 3 -> Kiln.Registry.RegistryViewFieldType
+[KILNX031]Kiln.Registry.RegistryViewFieldType.Flags = 4 -> Kiln.Registry.RegistryViewFieldType
+[KILNX031]Kiln.Registry.RegistryViewFieldType.Float = 1 -> Kiln.Registry.RegistryViewFieldType
+[KILNX031]Kiln.Registry.RegistryViewField.Type.get -> Kiln.Registry.RegistryViewFieldType
+[KILNX031]Kiln.Registry.RegistryViewFieldType.Id = 6 -> Kiln.Registry.RegistryViewFieldType
+[KILNX031]Kiln.Registry.RegistryViewField.Type.init -> void
+[KILNX031]Kiln.Registry.RegistryViewFieldType.Int = 0 -> Kiln.Registry.RegistryViewFieldType
+[KILNX031]Kiln.Registry.RegistryViewFieldType.List = 8 -> Kiln.Registry.RegistryViewFieldType
+[KILNX031]Kiln.Registry.RegistryViewFieldType.Struct = 9 -> Kiln.Registry.RegistryViewFieldType
+[KILNX031]Kiln.Registry.RegistryViewFieldType.Text = 7 -> Kiln.Registry.RegistryViewFieldType
+[KILNX031]Kiln.Registry.RegistryViewFieldType.Time = 5 -> Kiln.Registry.RegistryViewFieldType
+[KILNX031]Kiln.Registry.RegistryViewFieldType.Unread = 10 -> Kiln.Registry.RegistryViewFieldType
+[KILNX031]Kiln.Registry.RegistryViewField.Values.get -> System.Collections.Generic.IReadOnlyList<string!>!
+[KILNX031]Kiln.Registry.RegistryViewField.Values.init -> void
+[KILNX031]Kiln.Registry.RegistryView.Name.get -> string!
+[KILNX031]Kiln.Registry.RegistryViews
+[KILNX031]Kiln.Registry.RegistryView.Select(string! selector = "*") -> System.Collections.Generic.IReadOnlyList<Kiln.Registry.RegistryId>!
+[KILNX031]Kiln.Registry.RegistryViewSnapshot
+[KILNX031]Kiln.Registry.RegistryViewSnapshot.<Clone>$() -> Kiln.Registry.RegistryViewSnapshot!
+[KILNX031]Kiln.Registry.RegistryViewSnapshot.Deconstruct(out string! View, out Kiln.Registry.RegistryId Id, out System.Collections.Generic.IReadOnlyDictionary<string!, System.Text.Json.Nodes.JsonNode?>! Fields, out System.Collections.Generic.IReadOnlyDictionary<string!, string!>! Refused) -> void
+[KILNX031]Kiln.Registry.RegistryViewSnapshot.Equals(Kiln.Registry.RegistryViewSnapshot? other) -> bool
+[KILNX031]Kiln.Registry.RegistryViewSnapshot.Fields.get -> System.Collections.Generic.IReadOnlyDictionary<string!, System.Text.Json.Nodes.JsonNode?>!
+[KILNX031]Kiln.Registry.RegistryViewSnapshot.Fields.init -> void
+[KILNX031]Kiln.Registry.RegistryViewSnapshot.Id.get -> Kiln.Registry.RegistryId
+[KILNX031]Kiln.Registry.RegistryViewSnapshot.Id.init -> void
+[KILNX031]Kiln.Registry.RegistryViewSnapshot.Refused.get -> System.Collections.Generic.IReadOnlyDictionary<string!, string!>!
+[KILNX031]Kiln.Registry.RegistryViewSnapshot.Refused.init -> void
+[KILNX031]Kiln.Registry.RegistryViewSnapshot.RegistryViewSnapshot(string! View, Kiln.Registry.RegistryId Id, System.Collections.Generic.IReadOnlyDictionary<string!, System.Text.Json.Nodes.JsonNode?>! Fields, System.Collections.Generic.IReadOnlyDictionary<string!, string!>! Refused) -> void
+[KILNX031]Kiln.Registry.RegistryViewSnapshot.View.get -> string!
+[KILNX031]Kiln.Registry.RegistryViewSnapshot.View.init -> void
+[KILNX031]Kiln.Registry.RegistryView.this[Kiln.Registry.RegistryId id].get -> Kiln.Registry.RegistryViewEntry!
+[KILNX031]Kiln.Registry.RegistryView.this[string! id].get -> Kiln.Registry.RegistryViewEntry!
+[KILNX031]Kiln.Registry.RegistryViewTier
+[KILNX031]Kiln.Registry.RegistryViewTier.Advanced = 1 -> Kiln.Registry.RegistryViewTier
+[KILNX031]Kiln.Registry.RegistryView.Tier.get -> Kiln.Registry.RegistryViewTier
+[KILNX031]Kiln.Registry.RegistryViewTier.Stable = 0 -> Kiln.Registry.RegistryViewTier
+[KILNX031]Kiln.Registry.RegistryView.TryRead(Kiln.Registry.RegistryId id, string! field, out System.Text.Json.Nodes.JsonNode? value, out string? reason) -> bool
+[KILNX031]override Kiln.Registry.RegistryEntry.ToString() -> string!
+[KILNX031]override Kiln.Registry.RegistryViewEntry.ToString() -> string!
+[KILNX031]override Kiln.Registry.RegistryViewField.Equals(object? obj) -> bool
+[KILNX031]override Kiln.Registry.RegistryViewField.GetHashCode() -> int
+[KILNX031]override Kiln.Registry.RegistryViewField.ToString() -> string!
+[KILNX031]override Kiln.Registry.RegistryViewSnapshot.Equals(object? obj) -> bool
+[KILNX031]override Kiln.Registry.RegistryViewSnapshot.GetHashCode() -> int
+[KILNX031]override Kiln.Registry.RegistryViewSnapshot.ToString() -> string!
+[KILNX031]override Kiln.Registry.RegistryView.ToString() -> string!
+[KILNX031]static Kiln.Registry.RegistryViewField.operator !=(Kiln.Registry.RegistryViewField? left, Kiln.Registry.RegistryViewField? right) -> bool
+[KILNX031]static Kiln.Registry.RegistryViewField.operator ==(Kiln.Registry.RegistryViewField? left, Kiln.Registry.RegistryViewField? right) -> bool
+[KILNX031]static Kiln.Registry.RegistryViews.All.get -> System.Collections.Generic.IReadOnlyList<Kiln.Registry.RegistryView!>!
+[KILNX031]static Kiln.Registry.RegistryViews.Available.get -> bool
+[KILNX031]static Kiln.Registry.RegistryViews.Find(string! name) -> Kiln.Registry.RegistryView?
+[KILNX031]static Kiln.Registry.RegistryViewSnapshot.operator !=(Kiln.Registry.RegistryViewSnapshot? left, Kiln.Registry.RegistryViewSnapshot? right) -> bool
+[KILNX031]static Kiln.Registry.RegistryViewSnapshot.operator ==(Kiln.Registry.RegistryViewSnapshot? left, Kiln.Registry.RegistryViewSnapshot? right) -> bool

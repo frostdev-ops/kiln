@@ -7,6 +7,8 @@
   <PropertyGroup>
     <RootNamespace>Kiln.Registry</RootNamespace>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- kiln.registry.view's native table (RegistryViews.cs) -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- its own types are KILNX031: using them inside the assembly is not an opt-in -->
     <NoWarn>$(NoWarn);CS1591;KILNX031</NoWarn>
   </PropertyGroup>
