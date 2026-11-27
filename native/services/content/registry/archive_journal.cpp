@@ -360,6 +360,20 @@ size_t name_archive_writers(const ArchiveJournal& journal, const std::map<std::s
                 for (const auto& entry : it->second) name(entry, who, nullptr);
         }
         if (p.contents) say("created " + std::to_string(p.contents) + " content(s): assets are not replayed");
+        // a member path that names Kiln fields only by holding their members ("damageSetup" over power's
+        // "damageSetup.dmgMod") changed more than those fields: what else it holds no field proves (review-j3)
+        auto wider = [&](const std::string& reg, const std::string& place, const std::string& path) {
+            const auto& rows = rows_of(reg);
+            const std::set<std::string> named = archive_fields_of(rows, {path});
+            if (named.empty()) return say(place + ": " + path + " is no Kiln field");
+            for (const auto& [field, members] : rows)
+                for (const std::string& m : members)
+                    if (path.compare(0, m.size(), m) == 0 && (path.size() == m.size() || path[m.size()] == '.' || path[m.size()] == '['))
+                        return;  // a field's own member, or a place inside one
+            std::string list;
+            for (const std::string& f : named) list += (list.empty() ? "" : ", ") + f;
+            say(place + ": " + path + " holds more than its Kiln field(s) " + list + " (the rest is no Kiln field)");
+        };
         for (const std::string& g : p.changed) {
             const auto pit = p.paths.find(g);
             bool known = false;  // the resource is some registry's entry, or holds some array registry's elements
@@ -370,8 +384,7 @@ size_t name_archive_writers(const ArchiveJournal& journal, const std::map<std::s
                     else {
                         name_paths(entry, who, pit->second);
                         for (const std::string& path : pit->second)
-                            if (!path.empty() && archive_fields_of(rows_of(entry.first), {path}).empty())
-                                say(entry.first + "[" + entry.second + "]: " + path + " is no Kiln field");
+                            if (!path.empty()) wider(entry.first, entry.first + "[" + entry.second + "]", path);
                     }
                 }
             // an array registry's elements: only from paths, which say which element ("<array>[<i>]...")
@@ -390,10 +403,15 @@ size_t name_archive_writers(const ArchiveJournal& journal, const std::map<std::s
                     if (!under && !holds) say("a member of the " + reg + " resource that is no Kiln field (" + path + ")");
                     if (!under) continue;
                     const size_t close = path.find(']', array.size());
-                    if (close == array.size() + 1) continue;  // the list's membership: the elements in it are named
+                    // the list's membership: an element added (also named by its index, whole) or removed (named nowhere):
+                    // what a replay of field values cannot do (review-j3)
+                    if (close == array.size() + 1) {
+                        say("the " + reg + " list's membership changed (an element added or removed): not replayed");
+                        continue;
+                    }
                     const std::string rest = close == std::string::npos ? std::string() : path.substr(close + 1);
-                    if (rest.size() > 1 && rest[0] == '.' && archive_fields_of(rows_of(reg), {rest.substr(1)}).empty())
-                        say(reg + " element " + path.substr(array.size(), close - array.size() + 1) + ": " + rest.substr(1) + " is no Kiln field");
+                    if (rest.size() > 1 && rest[0] == '.')
+                        wider(reg, reg + " element " + path.substr(array.size(), close - array.size() + 1), rest.substr(1));
                 }
                 std::map<int32_t, std::vector<std::string>> at;  // element -> its paths from the element's root
                 for (const std::string& path : pit->second) {

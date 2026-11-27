@@ -869,8 +869,10 @@ int main(int argc, char** argv) {
             CHECK(wb.registries["recipes"][0].archive.empty() && wb.registries["recipes"][1].archive == std::vector<std::string>({"shroudforge:alpha"}) &&
                       wb.registries["recipes"][2].archive == std::vector<std::string>({"eml:bravo"}),
                   "the recipes by element: alpha's slowed one, bravo's appended one");
-            CHECK(unmatched["shroudforge:alpha"].size() == 1 && unmatched["shroudforge:alpha"][0].find("created a resource") == 0 && unmatched["eml:bravo"].empty(),
-                  "the replay residue: alpha's creation only");
+            CHECK(unmatched["shroudforge:alpha"].size() == 1 && unmatched["shroudforge:alpha"][0].find("created a resource") == 0 &&
+                      unmatched["eml:bravo"] == std::vector<std::string>({"the recipes list's membership changed (an element added or removed): not replayed"}),
+                  "the replay residue: alpha's creation; bravo's appended recipe (the list's membership; the element itself is named whole): " +
+                      json(unmatched).dump());
         }
         // registry.json says whose record was looked at
         ReportMeta hm;
@@ -879,6 +881,60 @@ int main(int argc, char** argv) {
         const json hd = report_json(s, compose(s, base(), {}, {}), hm);
         CHECK(hd["base"]["journal"]["writer"] == "shroudforge" && hd["base"]["journal"]["state"] == "read", "base.journal.writer: " + hd["base"].dump());
         if (argc > 3) std::ofstream(std::string(argv[3]) + ".hosted.json") << hd.dump(2);
+    }
+
+    // ---- review-j3: effect replay's residue (replay.h: a package is replayed whole or not at all, and only where a proven
+    // Kiln field holds what it changed). A list's membership changed (an element removed: "recipes[]" alone, nothing named
+    // by index) and a member path wider than the Kiln fields under it ("damageSetup" holds power's "damageSetup.dmgMod" and
+    // members no field covers) are residue; a path a field's member holds ("input[1].itemStack.count" under inputs' "input")
+    // and a field's own member are not ----
+    {
+        std::string g7;
+        for (int i = 0; i < 32; ++i) g7 += "7c";
+        const std::string stone = "11111111-0000-4000-8000-000000000001", logs = "11111111-0000-4000-8000-000000000002",
+                          recipes = "11111111-0000-4000-8000-0000000000aa";
+        auto pkg = [](const std::string& id, const std::string& guid, std::vector<std::string> paths) {
+            return json{{"id", id}, {"version", "1.0.0"}, {"kind", "shroudforge"}, {"contentSha256", nullptr}, {"settingsSha256", nullptr}, {"truncated", false},
+                        {"changed", json::array({{{"guid", guid}, {"typeHash", "8b4f2d1e"}, {"part", 0}, {"createdBy", nullptr}, {"paths", paths}}})},
+                        {"created", json::array()}, {"contents", json::array()}};
+        };
+        const json doc = {{"format", 2}, {"stem", "enshrouded_server"}, {"generation", g7}, {"receiptSha256", g7}, {"dialect", "shroudforge"},
+                          {"attempt", "first"}, {"truncated", false},
+                          {"packages", json::array({pkg("remover", recipes, {"recipes[]"}), pkg("structy", stone, {"damageSetup"}),
+                                                    pkg("exact", logs, {"maxStackSize"}), pkg("deep", recipes, {"recipes[0].input[1].itemStack.count"})})},
+                          {"unattributed", {{"truncated", false}, {"changed", json::array()}, {"created", json::array()}, {"contents", json::array()}}},
+                          {"writer", "kiln-eml"}};
+        const ArchiveJournal rj = parse_archive_journal(doc.dump(), g7);
+        CHECK(rj.state == "read" && rj.packages.size() == 4, "the residue journal reads: " + rj.state + " " + rj.text);
+        BaseModel rb;
+        auto e1 = [](const std::string& id, std::initializer_list<std::pair<const char*, Value>> f) {
+            BaseModel::Entry x;
+            x.id = id;
+            for (const auto& [n, v] : f) x.fields[n] = v;
+            return x;
+        };
+        rb.registries["items"] = {e1("game:stone", {{"maxStack", Value::integer(100)}, {"power", Value::number(3)}}), e1("game:logs", {{"maxStack", Value::integer(10)}})};
+        rb.registries["recipes"] = {e1("game:a", {{"duration", Value::number(1)}, {"inputs", Value::of_list({})}})};
+        ArchiveFields rf;
+        rf.rows["items"] = {{"maxStack", {"maxStackSize"}}, {"power", {"damageSetup.dmgMod"}}};
+        rf.rows["recipes"] = {{"duration", {"craftingDuration"}}, {"inputs", {"input"}}};
+        rf.array = {{"recipes", "recipes"}};
+        const std::map<int32_t, std::string> rels = {{0, "game:a"}};
+        rf.elements = [&](const std::string& reg, const std::string& guid) -> const std::map<int32_t, std::string>* {
+            return reg == "recipes" && guid == recipes ? &rels : nullptr;
+        };
+        std::map<std::string, std::vector<std::string>> un;
+        name_archive_writers(rj, {{"items|game:stone", stone}, {"items|game:logs", logs}}, {"items"}, &rb, &rf, &un);
+        auto has = [&](const std::string& who, const std::string& part) {
+            for (const std::string& l : un[who])
+                if (l.find(part) != std::string::npos) return true;
+            return false;
+        };
+        CHECK(has("shroudforge:remover", "membership"), "a recipe removed (recipes[] alone) is residue, not a replay without it: " + json(un["shroudforge:remover"]).dump());
+        CHECK(has("shroudforge:structy", "damageSetup") && has("shroudforge:structy", "power"),
+              "a member path wider than its Kiln fields (damageSetup over power's damageSetup.dmgMod) is residue: " + json(un["shroudforge:structy"]).dump());
+        CHECK(un["shroudforge:exact"].empty() && un["shroudforge:deep"].empty(),
+              "a field's own member, and a path inside a field's member, are no residue: " + json(un).dump());
     }
 
     std::printf("registry writers: %d passed, %d failed\n", g_pass, g_fail);
