@@ -146,6 +146,7 @@ FoodBaitPursue, 15 FoodBaitEat.
 | 0752 | 6 PASS, 4 FAIL | `NativeTaming.Read` (now over the template) right in a game; no simulation with no player near |
 | 0756 | 8 PASS, 4 FAIL | the farm transformation and Kiln's native events with no player near |
 | bot 0855 | 17 PASS, 4 FAIL | with a bot near, the dog is simulated; Kiln's own steps end to end with the bot as the tamer (section 6.1) |
+| bot2 1027 | 17 PASS, 4 FAIL | the same on the reviewed LABBOT (dev32/review-labbot ee3b67e4); the dog went RunAway (7) and Roaming (6) near the bot and still sensed no spawned bait |
 
 What the lab settles:
 
