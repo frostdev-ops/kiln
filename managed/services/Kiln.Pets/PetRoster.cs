@@ -307,7 +307,8 @@ internal sealed partial class PetRoster
         {
             if (p.Running is { Kind: Kind.Revive }) CancelChannel(p, PetChangeCause.Unload);
             else if (p.Running is { } op) Complete(op, false, "DefinitionUnloaded: the mod that defined the pet unloaded", p);
-            if (p.Body is not null) RetireForLeave(p, PetChangeCause.Unload);
+            if (p.Body is not null && DownedNow(p, out var downed)) BeginDown(p, downed);
+            else if (p.Body is not null) RetireForLeave(p, PetChangeCause.Unload);
         }
         foreach (var op in _queue.Where(q => _pets.TryGetValue(q.Pet, out var p) && definitions.Contains(p.Definition)).ToList())
         {
@@ -349,7 +350,8 @@ internal sealed partial class PetRoster
             if (p.Running is { Kind: Kind.Revive }) CancelChannel(p, PetChangeCause.Logout);   // its preview goes with it
             else if (p.Running is { } op) Complete(op, false, "OwnerLeft: the owner left the world", p);
             CancelChannel(p, PetChangeCause.Logout);
-            if (p.Body is not null) RetireForLeave(p, PetChangeCause.Logout);
+            if (p.Body is not null && DownedNow(p, out var downed)) BeginDown(p, downed);
+            else if (p.Body is not null) RetireForLeave(p, PetChangeCause.Logout);
             else if (p.Presence == PetPresence.RecoveryAnchor)
                 Mutate(p, Guid.Empty, PetChangeCause.Logout, s => s.Presence = PetPresence.Absent, c => new PetRecoveryAnchorChangedEvent(c));
         }
@@ -424,6 +426,18 @@ internal sealed partial class PetRoster
     }
 
     // ---- live bodies ----
+
+    /// <summary>19d §4.5: current wounds are read again before any voluntary retirement (dismiss, release, logout, an
+    /// unload): a lethal reading or a latched down is a down, never hidden by the voluntary path.</summary>
+    private bool DownedNow(PetState p, out PetChangeCause cause)
+    {
+        cause = PetChangeCause.NativeLethal;
+        if (p.Body is null) return false;
+        var r = _world.Read(p.Body);
+        if (!r.Exists) cause = PetChangeCause.BodyLost;
+        else if (r.ProtectionLost) cause = PetChangeCause.ProtectionLost;
+        return !r.Exists || r.Lethal || r.ProtectionLost;
+    }
 
     private void ReadInto(PetState p)
     {
@@ -914,6 +928,12 @@ internal sealed partial class PetRoster
 
     private void Dismiss(Op op, PetState p)
     {
+        if (p.Body is not null && DownedNow(p, out var downed))
+        {
+            BeginDown(p, downed);
+            Complete(op, false, "BodyDowned: the pet went down before it was dismissed", p);
+            return;
+        }
         if (p.Body is not null)
         {
             ReadInto(p);
@@ -944,6 +964,21 @@ internal sealed partial class PetRoster
 
     private void Release(Op op, PetState p)
     {
+        if (p.Body is not null && DownedNow(p, out var downed))
+        {
+            // the down settles first (with the definition's outcome); the release then finds a downed pet
+            BeginDown(p, downed);
+            if (p.Life == PetLife.Released)
+            {
+                Complete(op, true, null, p);
+                return;
+            }
+            if (p.Transition == PetTransition.Downing)
+            {
+                Complete(op, false, "Busy: the pet is going down; release it once it is down", p);
+                return;
+            }
+        }
         if (p.Body is not null)
         {
             ReadInto(p);

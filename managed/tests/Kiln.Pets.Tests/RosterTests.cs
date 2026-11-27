@@ -584,3 +584,45 @@ public sealed class UnloadTests : IDisposable
         Assert.Single(_t.World.Bodies);
     }
 }
+
+public sealed class VoluntaryRetireTests : IDisposable
+{
+    private readonly RosterTests _t = new();
+
+    public void Dispose() => _t.Dispose();
+
+    [Fact]
+    public void A_lethal_body_is_never_hidden_by_a_logout()
+    {
+        var p = _t.Summoned(_t.A);
+        _t.BodyOf(p.Id).DownPending = true;   // latched after this step's Pre
+        _t.World.Leave(_t.A);
+        _t.Step();
+        var d = _t.Roster.Get(p.Id)!;
+        Assert.Equal(PetLife.Downed, d.Life);
+        Assert.Contains("Downed", _t.Names());
+    }
+
+    [Fact]
+    public void A_lethal_body_is_never_hidden_by_a_dismiss()
+    {
+        var p = _t.Summoned(_t.A);
+        _t.BodyOf(p.Id).Health = 0;
+        var t = _t.Roster.Submit(_t.Op(PetRoster.Kind.Dismiss, _t.A, p.Id));
+        _t.Step();
+        Assert.True(t.IsCompleted);
+        Assert.Equal(PetLife.Downed, _t.Roster.Get(p.Id)!.Life);
+    }
+
+    [Fact]
+    public void A_lethal_body_released_goes_down_first()
+    {
+        var p = _t.Summoned(_t.A);
+        _t.BodyOf(p.Id).Dead = true;
+        var r = _t.Run(_t.Roster.Submit(_t.Op(PetRoster.Kind.Release, _t.A, p.Id)));
+        // the reconcile of that step already downed it; the release then finds a downed pet and releases it
+        Assert.True(r.Ok, r.Reason);
+        Assert.Equal(PetLife.Released, r.Pet!.Life);
+        Assert.Contains("Downed", _t.Names());
+    }
+}
