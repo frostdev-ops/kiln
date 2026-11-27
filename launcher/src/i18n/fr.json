@@ -6384,6 +6384,7 @@
     "certainty": {
       "certain": "Certain",
       "named": "Nommé par le journal",
+      "namedRecords": "Nommé par les relevés d'écriture de Kiln",
       "bestEffort": "Dérive au mieux",
       "unknown": "Inconnu"
     },

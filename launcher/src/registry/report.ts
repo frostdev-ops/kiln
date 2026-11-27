@@ -121,7 +121,9 @@ function replayRows(x: unknown): RegistryReplayRow[] {
     }) };
   });
 }
-function certainty(x: unknown): string {
+// records: named from kiln.assets' write records (a run-time writer of kiln mode, J3b), not from a journal
+function certainty(x: unknown, records = false): string {
+  if (x === "named" && records) return t("registry.certainty.namedRecords");
   return t(`registry.certainty.${x === "certain" || x === "named" || x === "bestEffort" ? x : "unknown"}`);
 }
 const ADVANCED_FIELD = () => t("registry.advancedField");
@@ -198,6 +200,16 @@ export function parseRegistryReport(input: string): RegistryReport {
       const w = object(y);
       if (w.standIn === true && typeof w.mod === "string") standIns.add(w.mod);
     }
+  // a run-time writer's place and name ("<registry>[<id>].<field>|shroudforge:<package>"): a conflict line naming it was
+  // named from kiln.assets' write records (J3b)
+  const runtimeNamed = new Set<string>();
+  for (const x of fields.slice(0, REPORT_LIMITS.rows)) {
+    const f = object(x);
+    for (const y of array(f.writers)) {
+      const w = object(y);
+      if (w.kind === "runtimeWriter" && typeof w.who === "string") runtimeNamed.add(`${text(f.registry)}[${text(f.id)}].${text(f.field)}|${w.who}`);
+    }
+  }
   // the replay rows name each package's stand-in mod id ("mod"): its label is the package's own id, whatever the mod id holds
   const packages = new Map<string, string>();
   for (const x of r.replay === undefined ? [] : array(r.replay).slice(0, REPORT_LIMITS.rows)) {
@@ -234,7 +246,7 @@ export function parseRegistryReport(input: string): RegistryReport {
           // an archive-writer package: kiln-eml's journal names the entry (or the field) it wrote, not what it did there
           operation: kind === "archiveWriter" ? t(w.named === "field" ? "registry.archiveOpField" : "registry.archiveOp")
             : w.list !== undefined ? value(w.list, w.listEntriesLeftOut) : w.op !== undefined ? value(w.op, w.opEntriesLeftOut) : t("registry.referenceOp"),
-          value: value(w.value, w.valueEntriesLeftOut), certainty: certainty(w.certainty), certain: w.certainty === "certain" };
+          value: value(w.value, w.valueEntriesLeftOut), certainty: certainty(w.certainty, kind === "runtimeWriter"), certain: w.certainty === "certain" };
       }),
     };
   });
@@ -260,7 +272,8 @@ export function parseRegistryReport(input: string): RegistryReport {
       const registry = text(c.registry), prefix = `${registry}[${text(c.id)}].`;
       const raw = c.raw === true || !field.startsWith(prefix), unknown = !raw && !isKilnField(registry, field.slice(prefix.length));
       return { field: raw ? ADVANCED_FIELD() : unknown ? unknownField(field) : field, kind: text(c.kind), winner: owner(c.winner), loser: c.loser === null ? t("registry.noOwner") : owner(c.loser),
-        certainty: certainty(c.certainty), certain: c.certainty === "certain", text: raw ? t("registry.advancedConflict") : redactRaw(text(c.text)) };
+        certainty: certainty(c.certainty, [c.winner, c.loser].some(p => typeof p === "string" && runtimeNamed.has(`${field}|${p}`))),
+        certain: c.certainty === "certain", text: raw ? t("registry.advancedConflict") : redactRaw(text(c.text)) };
     }),
     refused: refusedRows,
     entries: [added, removed].flatMap((rows, index) => rows.slice(0, REPORT_LIMITS.rows).map(x => {

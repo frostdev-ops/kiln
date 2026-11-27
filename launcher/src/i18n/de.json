@@ -6384,6 +6384,7 @@
     "certainty": {
       "certain": "Sicher",
       "named": "Aus Journal benannt",
+      "namedRecords": "Aus Kilns Schreibaufzeichnungen benannt",
       "bestEffort": "Abweichung nach bestem Wissen",
       "unknown": "Unbekannt"
     },

@@ -6985,6 +6985,7 @@
     "certainty": {
       "certain": "Certain",
       "named": "Named from journal",
+      "namedRecords": "Named from Kiln's write records",
       "bestEffort": "Best-effort drift",
       "unknown": "Unknown"
     },

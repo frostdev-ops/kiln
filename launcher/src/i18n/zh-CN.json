@@ -6716,6 +6716,7 @@
     "certainty": {
       "certain": "确定",
       "named": "按日志指认",
+      "namedRecords": "按 Kiln 的写入记录指认",
       "bestEffort": "尽力检测的偏差",
       "unknown": "未知"
     },

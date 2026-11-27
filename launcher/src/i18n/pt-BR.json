@@ -6384,6 +6384,7 @@
     "certainty": {
       "certain": "Certo",
       "named": "Nomeado pelo diário",
+      "namedRecords": "Nomeado pelos registros de escrita do Kiln",
       "bestEffort": "Divergência estimada",
       "unknown": "Desconhecido"
     },

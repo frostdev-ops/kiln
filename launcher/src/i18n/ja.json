@@ -6229,6 +6229,7 @@
     "certainty": {
       "certain": "確実",
       "named": "ジャーナルから特定",
+      "namedRecords": "Kiln の書き込み記録から特定",
       "bestEffort": "推定の差分",
       "unknown": "不明"
     },

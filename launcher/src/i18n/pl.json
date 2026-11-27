@@ -6694,6 +6694,7 @@
     "certainty": {
       "certain": "Pewne",
       "named": "Nazwane z dziennika",
+      "namedRecords": "Nazwane z zapisów Kiln o zapisach",
       "bestEffort": "Szacowany dryf",
       "unknown": "Nieznane"
     },

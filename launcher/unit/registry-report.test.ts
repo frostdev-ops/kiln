@@ -184,6 +184,11 @@ describe("untrusted registry report", () => {
     expect([w.owner, w.kind, w.certain]).toEqual(["big_stacks (ShroudForge package)", "Changed at run time (Kiln's interpreter)", false]);
     expect(out.fields[0].winner).toBe("big_stacks (ShroudForge package)");
     expect(out.conflicts[0].winner).toBe("big_stacks (ShroudForge package)");
+    // named from kiln.assets' write records, not a journal (the J3b lab's registry.json said "Named from journal" here)
+    expect(w.certainty).toBe("Named from Kiln's write records");
+    const line = parse({ ...r, fields: [{ ...r.fields[0], winner: "shroudforge:big_stacks" }],
+      conflicts: [{ ...r.conflicts[0], winner: "shroudforge:big_stacks", loser: "stacker", certainty: "named" }] });
+    expect(line.conflicts[0].certainty).toBe("Named from Kiln's write records");
     // a Kiln mod's own id is never read as a package (mod ids have no ':')
     expect(parse({ ...r, fields: [{ ...r.fields[0], winner: "stacker" }] }).fields[0].winner).toBe("stacker");
   });
@@ -397,7 +402,7 @@ test("every locale has the archive-writer texts, the EML pass's field-level ones
     // review-j3: the effect replay card (its toggle writes the opt-in file)
     "replay.row", "replay.title", "replay.sub", "replay.toggle", "replay.toggleFor", "replay.saved", "replay.notSaved", "replay.unavailable", "replay.none",
     // review-j3 (J3b): a run-time writer's kind
-    "kind.runtimeWriter"];
+    "kind.runtimeWriter", "certainty.namedRecords"];
   const at = (o: unknown, k: string) => k.split(".").reduce<unknown>((x, p) => (x as Record<string, unknown> | undefined)?.[p], (o as Record<string, unknown>).registry);
   const ph = (s: unknown) => (String(s).match(/\{[a-z]+\}/gi) ?? []).sort().join();
   const old: Record<string, string> = { de: "Rezept- oder Beute-Eintrag wird nicht benannt", es: "no se nombra ninguna entrada de receta", fr: "recette ou de butin n'est pas nommée",
