@@ -102,9 +102,8 @@ class GameTerrainTest(unittest.TestCase):
                         columns += 1
                         cells._dirty.add(ci)
                     self.assertEqual(cells.to_bytes(), data, f"{where}: whole tile re-encoded")
-                    if len(data) <= 400_000 or lv.index == 6 and i == 983:   # pure-Python hash: ~1 MB/s
-                        self.assertEqual(ContentHash(*content_hash(data)), ref.hash, where)
-                        hashed += 1
+                    self.assertEqual(ContentHash(*content_hash(data)), ref.hash, where)   # pure Python: ~7 MB/s
+                    hashed += 1
         self.assertGreater(hashed, 20)
         # without the game's layout choice most columns still come out the same (the rest differ only in one-value
         # blocks stored uniform instead of compressed)

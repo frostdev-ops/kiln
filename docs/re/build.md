@@ -273,9 +273,12 @@ VoxelWorldResource root (layout hash `0xce3a352f`, refused otherwise; grid, edge
 folder). Details the bits settle, beyond the outline above:
 - A column run is `gamma(count)`, then 0 = uniform: a "new value" bit (0: the column's last uniform value, at first
   air), after a 1 a "fill given" bit; the payload holds the material byte, then the fill byte. Without a fill byte the
-  fill is 0 for air and 255 otherwise (proven for terrain by the live column; a building material's is unproven, so
-  Kiln's writer always writes its fill byte). 1 = `count` compressed blocks, one 10-bit length each. Payload in run
-  order. The reader fills its window to 25 bits per run header and does not refill inside one.
+  fill is 0 for air and 255 otherwise: the per-request reader (server 0x8369c0) derives 0xff for any nonzero material,
+  building materials too [static]; the live column proves it for terrain, no lab a building material's, so Kiln's writer
+  always writes a building material's fill byte. 1 = `count` compressed blocks, one 10-bit length each. Payload in run
+  order. The reader fills its window to 25 bits per run header and does not refill inside one. The same reader does not
+  check the block decoder's result (0x8514b0's 9): a corrupt block is served as far as it decoded, so a bad tile is
+  refused offline, never handed to the game.
 - A block's material run takes a literal or the material of the run **before the last one** (at first 0); a fill run
   a literal or the default (0 air, 255 terrain, the last literal building fill); a terrain partial fill (1..254) is one
   cell without a run length. A block longer than 1023 bytes cannot be written (10-bit length): Kiln's writer refuses it.
@@ -290,9 +293,13 @@ folder). Details the bits settle, beyond the outline above:
   decodes, every tile's dimension bytes match the root's grid, the structural rebuild is byte-identical, and Kiln's
   writer rebuilds all 16,295,808 columns byte for byte from their cells and the game's block layout. No shipped column
   sets the unused bits of its last control byte, and no uniform run of a building material (128 and up) leaves out its
-  fill byte. The ContentHash was recomputed on sampled tiles only (`--hash` is pure Python, about 1 MB/s).
-- Every tile reference's hash is the game's ContentHash of its bytes (checked per tile hashed), and the shipped
-  7,170-byte all-air tile (`021c0000 89b408f3 7ff5bfd7 deb84d26`, fog level 6) is exactly `empty_tile(32, 32)`.
+  fill byte.
+- **Every tile reference's hash is the game's ContentHash of its bytes**: the GT review recomputed it
+  (`kfc.contenthash`) for all 18,964 tiles, 5.59 GB, and every one equals its reference, the key the game reads the
+  tile by (222 s with 3 workers: the pure-Python hash runs at about 7 MB/s, so `--hash` is cheap). The shipped
+  7,170-byte all-air tile (`021c0000 89b408f3 7ff5bfd7 deb84d26`, fog level 6) is exactly `empty_tile(32, 32)`. The
+  review also read 15 tiles (level-0 edge tiles, levels 2 to 6, both parts, 480 million cells) with the dossier's own
+  research decoder (19f `evidence/column_decode.py`): every cell equals `voxeltile`'s.
 - Coarser levels are **not** a simple function of level 6: over 894 mixed level-5 cells of tile 983's area, the fill is
   within 1 of the mean of its 8 level-6 cells in 80%, the material is the majority of the filled children in 76%, and
   level 5 keeps materials on empty cells (`0001` over `0000`/`0301`). A cooker's LOD filter has to be derived, not

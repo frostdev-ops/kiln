@@ -12,7 +12,7 @@ check: every rule the reader relies on, per tile (envelope; every column's runs,
   every compressed block; the tile's dimension bytes against the root's grid), plus a byte-identical structural
   rebuild; --canonical: Kiln's writer must rebuild every column byte for byte from its cells and the game's choice of
   which one-value blocks it stores compressed (it also counts the columns rebuilt without that choice); --hash recomputes
-  the game's ContentHash of each tile (pure Python, about 1 MB/s). Exit 1 on any refused tile.
+  the game's ContentHash of each tile (pure Python, about 7 MB/s). Exit 1 on any refused tile.
 column: one cell-column at world cell (X, Z) of a level (default 6) as the game's tile holds it: height, filled
   cells, highest filled y, SHA-256 of cells 0..1999 (the dev.28 lab's live-read fixture) and of the whole column.
 cook: a lab qualification pack (terraincook.py) from a plan: changed level-6 tiles under the game's ContentHash, the
