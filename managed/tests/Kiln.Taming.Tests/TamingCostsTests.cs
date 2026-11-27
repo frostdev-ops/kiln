@@ -6,6 +6,7 @@ using Xunit;
 
 namespace Kiln.TamingTests;
 
+[Collection("TamingCaps")]   // Backend.Current and the runtimes' seams are process-wide: never two such test classes at once
 public sealed unsafe class TamingCostsTests : IDisposable
 {
     private sealed class Backend : IKilnBackend

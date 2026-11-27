@@ -6,7 +6,7 @@ using Xunit;
 
 namespace Kiln.TamingTests;
 
-[Collection("TamingCaps")]   // TamingCaps.Is and TamingRuntime are process-wide seams
+[Collection("TamingCaps")]   // Backend.Current and the runtimes' seams are process-wide: never two such test classes at once
 public sealed class TamingFacadeTests : IDisposable
 {
     private sealed class Backend : IKilnBackend

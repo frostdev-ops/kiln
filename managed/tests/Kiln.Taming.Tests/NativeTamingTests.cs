@@ -9,6 +9,7 @@ using Xunit;
 
 namespace Kiln.TamingTests;
 
+[Collection("TamingCaps")]   // Backend.Current and the runtimes' seams are process-wide: never two such test classes at once
 public sealed class NativeTamingTests : IDisposable
 {
     private static readonly Guid DogBait = Guid.Parse("21eb90be-0ff2-477d-a804-dee22e9a2623");

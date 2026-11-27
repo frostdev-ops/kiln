@@ -7,7 +7,7 @@ using Xunit;
 
 namespace Kiln.TamingTests;
 
-[Collection("TamingCaps")]   // TamingCaps.Is is one process-wide seam: never two test classes at once
+[Collection("TamingCaps")]   // Backend.Current and the runtimes' seams are process-wide: never two such test classes at once
 public sealed class TamingJsonTests
 {
     private static readonly ItemInfo Bait = new(new ItemId(0xb59dfc2c), "Food_T2_Dog_Bait", "Dog Bait", 50, default, default, false, 1, 1, 0, 0,
