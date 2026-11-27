@@ -20,6 +20,8 @@
     clip GUID [--gltf F] [--model GUID] one keen::JointAnimation: segments, tracks, keys; --gltf writes the skeleton with
                                        the clip as a glTF animation (--model: and that model's skinned mesh, for inspection)
     graph GUID                         one AnimationGraphResource2_0: states, clips, what enters each state
+    terrain info|check|column          the baked terrain's tiles: roots, a validator over every tile, one cell-column
+                                       (kfc/terraincli.py)
 
 Defaults: --game ~/.local/share/Steam/steamapps/common/Enshrouded; --exe the game's exe in --game (it is only read;
 pass a scratch copy if you prefer). Outputs go to $KILN_OUT (default <repo>/.out/models), never into the game.
@@ -381,9 +383,13 @@ def main(argv=None):
     p.add_argument("--model")
     p = sub.add_parser("graph")
     p.add_argument("guid")
+    from . import terraincli
+    terraincli.add_parser(sub)
     a = ap.parse_args(argv)
+    if a.cmd == "terrain":
+        return terraincli.run(a)
     c = Ctx(a)
-    {"info": cmd_info, "types": cmd_types, "list": cmd_list, "get": cmd_get, "decode": cmd_decode,
+    return {"info": cmd_info, "types": cmd_types, "list": cmd_list, "get": cmd_get, "decode": cmd_decode,
      "content": cmd_content, "refs": cmd_refs, "model": cmd_model, "find-items": cmd_find_items,
      "find-templates": cmd_find_templates, "map-markers": cmd_map_markers, "clip": cmd_clip, "graph": cmd_graph}[a.cmd](c)
 
