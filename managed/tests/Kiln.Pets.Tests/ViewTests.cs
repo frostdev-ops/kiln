@@ -157,6 +157,29 @@ public sealed class ViewTests : IDisposable
     }
 
     [Fact]
+    public void An_owner_whose_game_cannot_take_the_view_gets_none_built()
+    {
+        // a game without Kiln or without kiln:pets (a vanilla client, a lab bot) never gets a view: none is built or encoded
+        // for it, where a view kept dirty by its failed sends was built again 5 times a second for as long as it played
+        // (PETS-E2E: the lab's bot owner); once its game can take one, its first view goes out at once
+        using var t = new RosterTestsHost();
+        t.R.Summoned(t.R.A);
+        var p = new PetViewPublisher();
+        var attempts = 0;
+        var reachable = false;
+        for (var i = 0; i < 40; i++)   // 2 s at 20 steps a second, the view dirty all along
+        {
+            p.MarkDirty(t.R.A);
+            p.Step(t.R.Roster, t.R.World.OnlineOwners(), 1, i * 0.05, (_, _) => { attempts++; return false; }, _ => reachable);
+        }
+        Assert.Equal(0, attempts);
+        reachable = true;
+        var sent = new List<PetOwnerView>();
+        p.Step(t.R.Roster, t.R.World.OnlineOwners(), 1, 2.0, (o, b) => { sent.Add(PetViewCodec.Read(b, out _)!); return true; }, _ => reachable);
+        Assert.Equal(1ul, sent.Single().Sequence);
+    }
+
+    [Fact]
     public void An_unsent_view_is_tried_again_and_its_sequence_does_not_skip()
     {
         using var t = new RosterTestsHost();

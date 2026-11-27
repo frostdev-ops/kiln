@@ -40,8 +40,11 @@ internal sealed class PetViewPublisher
     }
 
     /// <summary>One step: each owner in game whose view is due gets it through <paramref name="send"/> (false: it was not
-    /// sent, the owner's game has no channel; tried again at the next due time).</summary>
-    public void Step(PetRoster roster, IReadOnlyList<PetOwner> online, ulong epoch, double now, Func<PetOwner, byte[], bool> send)
+    /// sent; tried again at the next due time). An owner whose game cannot take a view (<paramref name="reachable"/> false: a
+    /// game without Kiln or without the channel, a lab bot) gets none built: its view stays due and goes out at the first
+    /// step its game can take it.</summary>
+    public void Step(PetRoster roster, IReadOnlyList<PetOwner> online, ulong epoch, double now, Func<PetOwner, byte[], bool> send,
+        Func<PetOwner, bool>? reachable = null)
     {
         var seen = new HashSet<CharacterKey>();
         foreach (var o in online)
@@ -49,6 +52,7 @@ internal sealed class PetViewPublisher
             seen.Add(o.Key);
             if (!_links.TryGetValue(o.Key, out var l) || l.Join != o.Session)
                 _links[o.Key] = l = new Link { Join = o.Session, Token = NewToken() };
+            if (reachable is not null && !reachable(o)) continue;
             var due = l.Dirty ? now - l.LastSent >= MinInterval : now - l.LastSent >= Keepalive;
             if (!due) continue;
             var view = new PetOwnerView(epoch, l.Token, l.Sequence + 1, roster.ViewOf(o.Key).Take(PetViewCodec.MaxEntries).ToList());

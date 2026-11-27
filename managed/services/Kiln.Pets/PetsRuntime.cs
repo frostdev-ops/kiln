@@ -213,8 +213,10 @@ internal static partial class PetsRuntime
     private static void Publish(PetRoster r)
     {
         if (PetsClient.Channel is not { } channel || !Network.Available) return;
-        Publisher.Step(r, r.World.OnlineOwners(), r.World.WorldEpoch, r.World.Now, (owner, bytes) =>
-            Network.PeerOf(owner.Entity.Id) is { State: NetPeerState.Ready } peer && channel.SendRaw(peer, PetViewCodec.ViewMessage, bytes));
+        // a game without Kiln, or without kiln:pets, never takes a view: none is built for it
+        Publisher.Step(r, r.World.OnlineOwners(), r.World.WorldEpoch, r.World.Now,
+            (owner, bytes) => Network.PeerOf(owner.Entity.Id) is { State: NetPeerState.Ready } peer && channel.SendRaw(peer, PetViewCodec.ViewMessage, bytes),
+            owner => Network.PeerOf(owner.Entity.Id) is { State: NetPeerState.Ready } peer && peer.HasChannel(channel.Name));
     }
 
     private static PetRoster MakeRoster(IPetWorld world, IPetStore store)
