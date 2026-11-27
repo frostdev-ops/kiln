@@ -1086,6 +1086,10 @@
       ],
       "capabilities": [
         {
+          "name": "kiln.decisions",
+          "members": 9
+        },
+        {
           "name": "kiln.registry",
           "members": 2
         },
