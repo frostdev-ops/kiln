@@ -166,5 +166,24 @@ class AcrossBuilds(unittest.TestCase):
         self.assertEqual(back["items"]["pinned"], al["pinned"])
 
 
+
+class Entries(unittest.TestCase):
+    """regmap_entries.py (the offline entries regmap_check --record and kilnctl regproof read) takes what makes a template a
+    creature from the mapping it proves (regmap/common/creatures.json entries.withComponent), never a list of its own."""
+
+    def test_creature_components_come_from_the_mapping(self):
+        import importlib.util, tempfile
+        spec = importlib.util.spec_from_file_location("regmap_entries", HERE.parent / "regmap_entries.py")
+        re_ = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(re_)
+        want = json.loads((REPO / "regmap" / "common" / "creatures.json").read_text(encoding="utf-8"))["entries"]["withComponent"]
+        self.assertEqual(list(re_.creature_components()), want)
+        with tempfile.TemporaryDirectory() as d:
+            common = Path(d) / "regmap" / "common"
+            common.mkdir(parents=True)
+            (common / "creatures.json").write_text(json.dumps({"registry": "creatures", "entries": {"withComponent": ["Pet", "keen::Mount"]}}))
+            self.assertEqual(re_.creature_components(Path(d)), ("Pet", "Mount"))  # a qualified type matches by its last part
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)

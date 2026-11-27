@@ -34,6 +34,13 @@ def find(value, kind):
             stack.extend(v)
 
 
+def creature_components(root=HERE.parent.parent):
+    """The behaviour components that make a template a creature: the mapping's own list (regmap/common/creatures.json
+    entries.withComponent, of the tree this script is in: the one kilnctl regproof proves), by short type name."""
+    doc = json.loads((root / "regmap" / "common" / "creatures.json").read_text(encoding="utf-8"))
+    return tuple(str(c).rsplit("::", 1)[-1] for c in doc["entries"]["withComponent"])
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--exe", required=True)
@@ -74,7 +81,7 @@ def main(argv=None):
         tids, _ = regmap_ids.derive("templates", {"unnamed": "template_%.8s"}, {}, [{"guid": r.key.guid, "name": r.name, "id": 0} for r in trows])
         # one decode of each template: the drop tables and arsenals it names (they are named after it), and whether it is a
         # creature (regmap/common/creatures.json entries.withComponent: an enemy's, a wild or farm animal's, a villager's behaviour)
-        creature_kinds = ("Enemy01BehaviorState", "Wildlife", "Animal", "ActiveNpcState")
+        creature_kinds = creature_components()
         users, arsenal_users, creatures = {}, {}, []
         for r, tid in zip(trows, tids):
             v = r.value()
