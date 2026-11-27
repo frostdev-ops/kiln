@@ -72,3 +72,5 @@
 [KILNX031]Kiln.Registry.RandomLootRarityUncommon.Mode.set -> void
 [KILNX031]Kiln.Registry.RandomLootRarityUncommon.Weight.get -> double
 [KILNX031]Kiln.Registry.RandomLootRarityUncommon.Weight.set -> void
+[KILNX031]Kiln.Registry.RegistryStage.LootRules.get -> Kiln.Registry.LootRulesEntry!
+[KILNX031]Kiln.Registry.RegistryStage.RandomLoot.get -> Kiln.Registry.RegistryEntries<Kiln.Registry.RandomLootEntry!>!

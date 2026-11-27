@@ -43,6 +43,11 @@ public sealed class RegistryStage
     public RegistryEntries<DropTableEntry> Drops { get { Context.Ensure(); return new(this, "drops", static (id, cells) => new(id, cells)); } }
     /// <summary>The singleton balance table. Its restart fields are editable only at game start.</summary>
     public BalanceEntry Balance { get { Context.Ensure(); return new(new("game:balance"), Cells("balance", "game:balance")); } }
+    /// <summary>The singleton world-wide loot rules (game:loot): the rarity weights of random rolls whose table sets none.</summary>
+    public LootRulesEntry LootRules { get { Context.Ensure(); return new(new("game:loot"), Cells("lootRules", "game:loot")); } }
+    /// <summary>Random loot tables, by Kiln id: game:labels_* (enemies and generic containers), game:world_* (chests placed
+    /// in the world).</summary>
+    public RegistryEntries<RandomLootEntry> RandomLoot { get { Context.Ensure(); return new(this, "randomLoot", static (id, cells) => new(id, cells)); } }
     /// <summary>Authors new entries in the add pass. Entry creation is GameStart-only; later native points report RestartRequired.</summary>
     public void Add(Action<RegistryStage> entries) { ArgumentNullException.ThrowIfNull(entries); In(RegistryPhase.Add, () => entries(this)); }
     /// <summary>Authors ordinary field edits, once in the alter pass.</summary>

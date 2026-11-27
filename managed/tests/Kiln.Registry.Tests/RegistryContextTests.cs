@@ -36,6 +36,33 @@ public sealed class RegistryContextTests
         Assert.Equal(RegistryContextError.Closed, Assert.Throws<RegistryContextException>(() => item.MaxStack = 20).Code);
     }
 
+    // 0.2.0-dev.31.19: the singleton loot rules and the keyed random loot tables record edits in Kiln names and shapes
+    [Fact]
+    public void LootRulesAndRandomLootRecordKilnShapedEdits()
+    {
+        var context = new RegistryContext(Mod(), RegistryEntryPoint.WorldLoad, RegistryPhase.Alter, null, "test-code",
+            (registry, id, field) => field.EndsWith(".mode", StringComparison.Ordinal) ? "\"none\"" : "5.29",
+            (registry, _) => registry == "randomLoot" ? new[] { "game:labels_80943338", "game:world_509feadb_0" } : new[] { "game:loot" });
+        using var scope = context.Enter();
+        var r = DataRegistry.For(context);
+        Assert.Equal(5.29, r.LootRules.RarityWeights.Legendary);
+        r.LootRules.RarityWeights.Legendary = 84.64;
+        Assert.Equal(new[] { "game:labels_80943338", "game:world_509feadb_0" }, r.RandomLoot.Select("*").Select(t => t.Id.Value));
+        var t = r.RandomLoot["game:world_509feadb_0"];
+        Assert.Equal(RandomLootMode.None, t.Level.Mode);
+        t.Level.Mode = RandomLootMode.Set;
+        t.Level.Value = 25;
+        t.Rarity.Epic.Weight = 320;
+        var edits = JsonNode.Parse(context.CaptureIr()!)!["edits"]!.AsArray();
+        Assert.Equal(("lootRules", "game:loot", "rarityWeights.legendary"), Edit(edits[0]!));
+        Assert.Equal(84.64, edits[0]!["op"]!.GetValue<double>());
+        Assert.Equal(("randomLoot", "game:world_509feadb_0", "level.mode"), Edit(edits[1]!));
+        Assert.Equal("set", edits[1]!["op"]!.GetValue<string>());
+        Assert.Equal(("randomLoot", "game:world_509feadb_0", "rarity.epic.weight"), Edit(edits[3]!));
+        context.Close();
+        static (string, string, string) Edit(JsonNode e) => (e["registry"]!.GetValue<string>(), e["select"]!.GetValue<string>(), e["field"]!.GetValue<string>());
+    }
+
     [Fact]
     public void UnloadedOwnerFailsBeforeAnyBackendAccess()
     {
