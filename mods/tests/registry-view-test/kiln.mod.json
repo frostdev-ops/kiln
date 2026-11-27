@@ -1,0 +1,10 @@
+{
+  "id": "registry-view-test",
+  "name": "Registry views check (lab only)",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "RegistryViewTest.dll",
+  "side": "server",
+  "clients": "none",
+  "description": "Lab-only: reads kiln.registry.view on the running server build at the world's first content ready: every view, the item member read through the advanced view and through the items registry, and the first entry of every advanced view (fields read, fields refused and why). PASS/FAIL lines and a SUMMARY in kiln.log; views-summary.json (counts per view, Kiln names only) in its data folder."
+}
