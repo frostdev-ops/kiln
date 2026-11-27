@@ -13,7 +13,8 @@
 //     "horizontalSpace": 1, "verticalSpace": 2,
 //     "body": {"walkerRadius": 0, "walkerHeight": 2, "colliderWidth": 0.8, "colliderHeight": 1.4}, "calibration": {...}}]}
 // "game" is the game's own build number (svn), as Kiln's build record of the running exe names it, so the dedicated server
-// and the client that hosts share it. "calibration" is the evidence summary; the loader does not read it.
+// and the client that hosts share it. "calibration" is the evidence summary; the loader does not read it. A game
+// creature's id matches whatever its case, as the creatures registry resolves it.
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text.Json.Nodes;
@@ -138,8 +139,16 @@ internal static class PetClearance
             all.AddRange(Read(ServerFile(), "the server's kiln/data/kiln.pets"));
             all.AddRange(Shipped());
         }
-        return all.Where(e => e.Creature == def.Creature && Math.Abs(e.Scale - scale) < 1e-6).ToList();
+        return all.Where(e => SameCreature(e.Creature, def.Creature) && Math.Abs(e.Scale - scale) < 1e-6).ToList();
     }
+
+    /// <summary>Whether two creature ids name the same creature: a game creature's whatever its case (the creatures
+    /// registry resolves <c>game:</c> ids so, and the game's own template names are mixed case), a creature block's
+    /// exactly.</summary>
+    internal static bool SameCreature(string a, string b) =>
+        a.StartsWith("game:", StringComparison.Ordinal) && b.StartsWith("game:", StringComparison.Ordinal)
+            ? string.Equals(a, b, StringComparison.OrdinalIgnoreCase)
+            : string.Equals(a, b, StringComparison.Ordinal);
 
     /// <summary>The mod a definition id belongs to: its id up to the first ':' (Pets.Define checks that).</summary>
     private static string? ModOf(string id) => id.IndexOf(':') is var i and > 0 ? id[..i] : null;

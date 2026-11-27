@@ -326,4 +326,20 @@ public sealed class ClearanceTests : IDisposable
         Assert.Empty(m.Asked);
         Assert.StartsWith("ClearanceMappingUnverified: the path clearance for game:enemy_wildbeast_wolf at scale 1 was measured on game build 1287368", f.Limited);
     }
+
+    // ---- the review (dev32 review-pets-clearance) ----
+
+    [Fact]
+    public void A_game_creature_named_in_another_case_gets_its_profile()
+    {
+        // the creatures registry resolves game ids whatever their case, and the game's template names are mixed case
+        Put(ServerFile, File1(Profile(h: 0.5, v: 2)));
+        Assert.Equal(new PetClearanceProfile(0.5, 2), PetClearance.For(_def with { Creature = "game:Enemy_WildBeast_Wolf" }, out var why));
+        Assert.Null(why);
+        // a creature block's id is its mod's, exactly
+        _clock += 11;
+        Put(ServerFile, File1(Profile("mod-a:wolfling")));
+        Assert.NotNull(PetClearance.For(_def with { Creature = "mod-a:wolfling" }, out _));
+        Assert.Null(PetClearance.For(_def with { Creature = "mod-a:Wolfling" }, out _));
+    }
 }
