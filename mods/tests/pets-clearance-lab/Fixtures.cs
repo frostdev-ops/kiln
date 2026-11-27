@@ -13,7 +13,9 @@ internal sealed record FixtureSpec(string Name, string Kind, int Gap, int Head, 
 
     /// <summary>The fixtures of the brief: straight corridors 0.5/1/2 m wide with 1/2/3 m headroom (3 m long), a door-wall
     /// doorway (2 x 2.5 m, as the game's 4 m door wall cuts it, 0.5 m deep), two S-bends (two 90 degree corners) 1 and
-    /// 2 m wide, and the wide/high control (the room's whole 5 m width, open).</summary>
+    /// 2 m wide, and the wide/high control (the room's whole 5 m width, open). Two more close the 0.5 m steps a 2 m body
+    /// needs: a 1.5 m gap under 3 m and 1.5 m of headroom over 2 m (tools/pets-clearance/profiles.py: a pair vouches for
+    /// a body only when no passage one cell narrower or lower than it went unmeasured).</summary>
     public static IReadOnlyList<FixtureSpec> All { get; } = BuildAll();
 
     private static List<FixtureSpec> BuildAll()
@@ -21,13 +23,18 @@ internal sealed record FixtureSpec(string Name, string Kind, int Gap, int Head, 
         var all = new List<FixtureSpec>();
         foreach (var g in new[] { 1, 2, 4 })
             foreach (var h in new[] { 2, 4, 6 })
-                all.Add(new FixtureSpec($"corridor-w{g * Geometry.Cell:0.#}-h{h * Geometry.Cell:0.#}", "corridor", g, h, 6));
+                all.Add(Corridor(g, h));
+        all.Add(Corridor(3, 6));
+        all.Add(Corridor(4, 3));
         all.Add(new FixtureSpec("doorway-w2-h2.5", "doorway", 4, 5, 1));
         all.Add(new FixtureSpec("corner-w1", "corner", 2, 0, 8 + 2));
         all.Add(new FixtureSpec("corner-w2", "corner", 4, 0, 8 + 4));
         all.Add(new FixtureSpec("control-w5-open", "control", Geometry.Interior, 0, 6));
         return all;
     }
+
+    private static FixtureSpec Corridor(int gap, int head) =>
+        new(FormattableString.Invariant($"corridor-w{gap * Geometry.Cell:0.#}-h{head * Geometry.Cell:0.#}"), "corridor", gap, head, 6);
 }
 
 /// <summary>An axis-aligned box in cells, [X0, X1) x [Y0, Y1) x [Z0, Z1).</summary>

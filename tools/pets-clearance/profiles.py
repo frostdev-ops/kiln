@@ -13,12 +13,15 @@ For each creature, scale and game build, every route pair (HorizontalSpace/Verti
   fail          the route was accepted and the walk was not a pass: the pet would take a route its body cannot walk;
   inconclusive  the answer is not known (unloaded/unknown query, an accepted route not walked, a route beside or over the
                 opening, a teleported crossing).
-A pair passes the gate when no fixture failed or stayed inconclusive and the wide/high control passed. The chosen pair
-is the passing pair that walks the most fixtures; on a tie the larger vertical, then the larger horizontal requirement
-(the one that refuses more of what the fixtures did not measure). A body wider than the widest measured gap or taller
-than the highest measured headroom gets no profile: every pair it passes walks the control only, which says nothing
-about the gaps between the two (calibrate it with wider or higher fixtures). Nor does a body whose walker and collider
-Kiln.Pets did not read in the lab (its profile could never be checked).
+A pair passes the gate when no fixture failed or stayed inconclusive and the wide/high control passed. A passing pair
+vouches for the body only where the fixtures measured it: a passage in the world is a whole number of 0.5 m cells, so
+when one cell narrower (or lower) than the body lies between the widest gap (highest headroom) the pair refused and the
+narrowest (lowest) it was walked through, that passage was never measured and the pair might take it; such a pair is not
+chosen. The chosen pair is the passing, vouching pair that walks the most fixtures; on a tie the larger vertical, then
+the larger horizontal requirement (the one that refuses more of what the fixtures did not measure). A body wider than
+the widest measured gap or taller than the highest measured headroom gets no profile: every pair it passes walks the
+control only, which says nothing about the gaps between the two (calibrate it with wider or higher fixtures). Nor does a
+body whose walker and collider Kiln.Pets did not read in the lab (its profile could never be checked).
 Every session's evidence counts: one fail anywhere fails the pair. The profile is keyed by the game build the session
 ran on: a game update invalidates it (Kiln.Pets checks the build and the body it was measured on).
 """
@@ -34,6 +37,7 @@ TOL_HEAD = 0.10     # m the same for a ceiling
 TOL_FLOOR = 0.6     # m off the floor that counts as pushed up or down
 TOL_ROUTE = 0.30    # m a route point may stray outside the free space (path nodes sit on cell centres)
 SAMPLE = 0.05       # m between samples of the free space's boundary and along a route
+STEP = 0.5          # m: the build grid's cell; a passage in the world is a whole number of cells wide and high
 # answers that are not "no route": the game did not say (load the area, ask again); a refusal stands only on a real answer
 UNKNOWN = {"Pending", "NotLoadedOrUnknown", "TimedOut", "NotCompleted", "QueueFull", "OwnerIdentityUnavailable", "OwnerGone",
            "Cancelled", "WorldClosed", "OwnerRetired", "Refused", "Truncated", "MalformedResult", "OutOfGrid"}
@@ -342,7 +346,11 @@ def decide(sessions):
             pairs[pair] = {"passes": why is None, "why": why, "failed": failed, "inconclusive": unknown, "passed": passed,
                            "refused": refused, "row": row}
         good = [p for p, r in pairs.items() if r["passes"]]
-        chosen = max(good, key=lambda p: (len(pairs[p]["passed"]), p[1], p[0])) if good else None
+        for p in good:
+            pairs[p]["unmeasured"] = unmeasured(d["body"], d["fixtures"].values(), pairs[p]["row"])
+        vouching = [p for p in good if not pairs[p]["unmeasured"]]
+        rank = lambda p: (len(pairs[p]["passed"]), p[1], p[0])  # noqa: E731
+        chosen = max(vouching, key=rank) if vouching else None
         why = None
         unjudged = beyond(d["body"], d["fixtures"].values())
         if key[2] is None:
@@ -353,6 +361,9 @@ def decide(sessions):
             why = "no pair passes"
         elif unjudged:
             chosen, why = None, unjudged
+        elif chosen is None:
+            best = max(good, key=rank)
+            why = f"no passing pair vouches for this body: {fmt(best)} {pairs[best]['unmeasured']}"
         result[key] = {"body": d["body"], "pairs": pairs, "chosen": chosen, "why": why, "native": d["native"],
                        "fixtures": d["fixtures"], "sessions": d["sessions"]}
     return result
@@ -371,6 +382,38 @@ def beyond(body, fixtures):
         return f"the fixtures cannot judge this body: {width:g} m wide, the widest measured gap is {max(gaps):g} m"
     if height > max(heads) + 1e-6:
         return f"the fixtures cannot judge this body: {height:g} m tall, the highest measured headroom is {max(heads):g} m"
+    return None
+
+
+def _value(v):
+    return float(v) if isinstance(v, (int, float)) else math.inf      # no headroom: open to the sky
+
+
+def unmeasured(body, fixtures, row):
+    """Why a passing pair cannot vouch for the body, or None. On each axis (gaps: the fixtures with the highest measured
+    headroom or none; headrooms: those with the widest measured gap), the passages between the widest/highest the pair
+    refused and the narrowest/lowest it was walked through were never measured. A passage one 0.5 m cell narrower or
+    lower than the body among them is one the pair might take and the body cannot walk."""
+    fs = [f for f in fixtures if f.get("fixtureKind") != "control"]
+    gaps = [float(f["gap"]) for f in fs if isinstance(f.get("gap"), (int, float))]
+    heads = [float(f["headroom"]) for f in fs if isinstance(f.get("headroom"), (int, float))]
+    if not gaps or not heads:
+        return None   # beyond() says why
+    top, wide = max(heads), max(gaps)
+    eps = 1e-6
+    axes = (
+        ("gap", "wide", body.width, [f for f in fixtures if _value(f.get("headroom")) >= top - eps], lambda f: _value(f.get("gap"))),
+        ("headroom", "tall", body.height, [f for f in fixtures if _value(f.get("gap")) >= wide - eps], lambda f: _value(f.get("headroom"))),
+    )
+    for axis, adj, size, family, value in axes:
+        refused = [value(f) for f in family if row.get(f["name"], ("",))[0] == "refused"]
+        walked = [value(f) for f in family if row.get(f["name"], ("",))[0] == "pass"]
+        r = max(refused, default=0.0)
+        a = min((w for w in walked if w > r + eps), default=math.inf)
+        need = STEP * (math.ceil(size / STEP - eps) - 1)    # the widest/highest whole-cell passage the body cannot walk
+        if r + STEP <= need + eps and r + STEP < a - eps:
+            return (f"leaves a {r + STEP:g} m {axis} unmeasured (it refused {r:g} m and was walked through "
+                    f"{'none narrower than the control' if a == math.inf else format(a, 'g') + ' m'}; the body is {size:g} m {adj})")
     return None
 
 
@@ -439,7 +482,8 @@ def report(result):
         out.append("")
         for p in pairs:
             r = d["pairs"][p]
-            out.append(f"- {fmt(p)}: {'passes' if r['passes'] else r['why']}")
+            out.append(f"- {fmt(p)}: {'passes' if r['passes'] else r['why']}" +
+                       (f"; but it {r['unmeasured']}" if r.get("unmeasured") else ""))
             for n, (v, why) in sorted(r["row"].items()):
                 if v in ("fail", "inconclusive") and why:
                     out.append(f"  - {n}: {v}: {why}")

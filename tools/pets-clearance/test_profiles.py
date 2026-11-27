@@ -252,7 +252,50 @@ class Output(unittest.TestCase):
 
 # ---- the review (dev32 review-pets-clearance) ----
 
+WIDE = [   # gaps 0.5/1/2 m under 3 m, a 1 m and a 2 m ceiling over 2 m, the control
+    lane("corridor-w0.5-h3", "corridor", 0.5, 3, 0),
+    lane("corridor-w1-h3", "corridor", 1, 3, 6),
+    lane("corridor-w2-h3", "corridor", 2, 3, 12),
+    lane("corridor-w2-h1", "corridor", 2, 1, 18),
+    lane("corridor-w2-h2", "corridor", 2, 2, 24),
+    lane("control-w5-open", "control", 5, None, 30),
+]
+
+
+def sweep(fixtures, accepts, creature="game:enemy_wildbeast_wolf", scale=1):
+    """Queries for pairs 0.5/2 and 2/3 over the fixtures (accepts(name, pair) says which are found) and a clean walk of
+    every accepted one."""
+    out = []
+    for f in fixtures:
+        for pair in ((0.5, 2), (2, 3)):
+            ok = accepts(f["name"], pair)
+            out.append(query(f, *pair, accepted=ok, status="Found" if ok else "NoPath", creature=creature, scale=scale))
+            if ok:
+                out.append(walk(f, *pair, creature=creature, scale=scale))
+    return out
+
+
+def half_metre(name, pair):
+    """kiln.queries as the lab measured it: 0.5 finds 2 m gaps, not 1.5 m or less; 2 only the 5 m control; VerticalSpace v
+    finds headroom of at least v."""
+    f = next(x for x in WIDE + EXTRA if x["name"] == name)
+    h, v = pair
+    gap_ok = f["gap"] >= (2 if h == 0.5 else 5)
+    head_ok = f["headroom"] is None or f["headroom"] >= v
+    return gap_ok and head_ok
+
+
+EXTRA = [lane("corridor-w1.5-h3", "corridor", 1.5, 3, 36), lane("corridor-w2-h1.5", "corridor", 2, 1.5, 42)]
+BIG = {"walkerRadius": 0, "walkerHeight": 2, "colliderWidth": 2, "colliderHeight": 1}     # 2 m wide, 1 m tall
+TALL = {"walkerRadius": 0, "walkerHeight": 2, "colliderWidth": 1, "colliderHeight": 2}    # 1 m wide, 2 m tall
+
+
 class Review(unittest.TestCase):
+    def decide(self, fixtures, kiln):
+        recs = [{"kind": "session", "game": GAME}] + fixtures + [body(kiln=kiln)] + sweep(fixtures, half_metre)
+        (key, d), = prof.decide(prof.load_records(recs)).items()
+        return d
+
     def test_a_body_whose_numbers_Kiln_Pets_did_not_read_gets_no_profile(self):
         """No kilnBody: Kiln.Pets could not read the walker and collider, so its check could never apply the profile, and
         the judge would take a 0 m collider (no clipping is ever seen)."""
@@ -264,6 +307,28 @@ class Review(unittest.TestCase):
             self.assertIsNone(d["chosen"])
             self.assertIn("did not read", d["why"])
             self.assertEqual(prof.clearance({key: d}, lab="t")["profiles"], [])
+
+    def test_a_pair_that_leaves_a_gap_one_cell_narrower_than_the_body_unmeasured_is_not_chosen(self):
+        """2 m wide: 0.5/2 refused 1 m and walked 2 m, but a 1.5 m gap was never measured (it might take it): the profile is
+        the pair that refuses every gap narrower than the body (2/3, the control only)."""
+        d = self.decide(WIDE, BIG)
+        self.assertTrue(d["pairs"][(0.5, 2)]["passes"])
+        self.assertIn("1.5 m gap unmeasured", d["pairs"][(0.5, 2)]["unmeasured"])
+        self.assertEqual(d["chosen"], (2, 3))
+        # the 1.5 m gap measured and refused: 0.5/2 vouches for it
+        d = self.decide(WIDE + EXTRA, BIG)
+        self.assertIsNone(d["pairs"][(0.5, 2)]["unmeasured"])
+        self.assertEqual(d["chosen"], (0.5, 2))
+
+    def test_the_same_for_a_headroom_one_cell_lower_than_the_body(self):
+        d = self.decide(WIDE, TALL)        # 2 m tall: 0.5/2 refused 1 m, walked 2 m; 1.5 m never measured
+        self.assertIn("1.5 m headroom unmeasured", d["pairs"][(0.5, 2)]["unmeasured"])
+        self.assertNotEqual(d["chosen"], (0.5, 2))
+        d = self.decide(WIDE + EXTRA, TALL)
+        self.assertEqual(d["chosen"], (0.5, 2))
+        # 1 m wide and 1 m tall: nothing narrower or lower than the body lies between what 0.5/2 refused and walked
+        d = self.decide(WIDE, {**TALL, "colliderHeight": 1})
+        self.assertEqual(d["chosen"], (0.5, 2))
 
 
 if __name__ == "__main__":
