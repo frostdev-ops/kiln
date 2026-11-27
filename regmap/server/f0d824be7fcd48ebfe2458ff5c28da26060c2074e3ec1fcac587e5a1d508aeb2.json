@@ -5,8 +5,8 @@
   "gameBuild": "1287369",
   "steamBuild": "26430253",
   "verified": true,
-  "proof": "kilnctl regproof (2026-11-27 10:29:14Z): first build (no reflection diff); formulas 10/10; round trip 259/274 fields; ids 0 kept, 28516 added, 0 removed, 0 GUID changes; rows ok 259/274 (15 unproven)",
-  "regmapDigest": "a602e4e49e340243abad5b071b1f03535bbe790089695bb7bf56f0d5542a2ed9",
+  "proof": "kilnctl regproof (2026-11-27 13:24:10Z): first build (no reflection diff); formulas 10/10; round trip 262/277 fields; ids 0 kept, 28516 added, 0 removed, 0 GUID changes; rows ok 262/277 (15 unproven)",
+  "regmapDigest": "effd0a09c8ed2063f73f6dd9d7171644774a88a3ab76ae71969e9eb0ee4b4d99",
   "provenBy": "lab",
   "layouts": {
     "keen::BalancingTable": "0xe9f12710",

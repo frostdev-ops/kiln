@@ -5,8 +5,8 @@
   "gameBuild": "1287369",
   "steamBuild": "26430625",
   "verified": true,
-  "proof": "kilnctl regproof --mirror (2026-11-27 10:29:41Z): mirrors the server proof of f0d824be7fcd (owner ruling: no client is run for a proof); layout 274 rows the same as the server build's, 0 differ; rows ok 259/274 (15 unproven)",
-  "regmapDigest": "a602e4e49e340243abad5b071b1f03535bbe790089695bb7bf56f0d5542a2ed9",
+  "proof": "kilnctl regproof --mirror (2026-11-27 13:24:32Z): mirrors the server proof of f0d824be7fcd (owner ruling: no client is run for a proof); layout 277 rows the same as the server build's, 0 differ; rows ok 262/277 (15 unproven)",
+  "regmapDigest": "effd0a09c8ed2063f73f6dd9d7171644774a88a3ab76ae71969e9eb0ee4b4d99",
   "provenBy": "mirror",
   "layouts": {
     "keen::BalancingTable": "0xe9f12710",
