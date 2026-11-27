@@ -176,6 +176,29 @@ public sealed class RegistryReauthorTests : ModsFixture
         Assert.True(rig.Native.Host.Has("calls Progression.UnlockedNodes, which needs the tick thread"), rig.Native.Host.Dump());
         owner.Retire();
     }
+    // review of LOOT-2: a pass that does not catch the off-tick refusal faults because of where Kiln ran it, not because of the
+    // author's code: it is not logged as the mod's fault and its request is not lost; it runs again on the tick and lands.
+    [Fact(Timeout = 30_000)]
+    public async Task APassThatThrowsOnTheOffTickRefusalRunsAgainOnTheTick()
+    {
+        await Task.Yield();
+        using var rig = new Rig(this);
+        var owner = Owner(rig.Native, "leveler"); var threads = new List<int>(); var passes = 0;
+        rig.Dispatch.Loaded(new WorldOnlyAuthor(c => {
+            if (c.Phase != RegistryPhase.Alter) return;
+            lock (threads) threads.Add(Environment.CurrentManagedThreadId);
+            Game.AssertTickThread();  // a mod written when every WorldLoad pass ran on the tick
+            Edit(c, 20 + ++passes);
+        }), owner, Root, false);
+        rig.Dispatch.FlushLoads(); Assert.Equal(21, rig.Native.Value);
+        Assert.Null(RegistryRuntime.Reauthor!(owner, RegistryEntryPoint.WorldLoad));
+        Settle(rig.Dispatch);
+        Assert.Equal(22, rig.Native.Value);  // the request ran again, on the tick, and landed
+        Assert.Equal(rig.Tick, threads[^1]); Assert.Equal(1, rig.Native.Installs); Assert.Equal(1, rig.Native.LayerCount);
+        Assert.False(rig.Native.Host.Has("OnRegistry WorldLoad (Registry.Reauthor)"), rig.Native.Host.Dump());
+        Assert.True(rig.Native.Host.Has("needs the tick thread: its passes run on the world tick"), rig.Native.Host.Dump());
+        owner.Retire();
+    }
     // The registry moved after the pass read it (another mod's commit): that turn is not landed and the pass runs again.
     [Fact(Timeout = 30_000)]
     public async Task AStaleTurnRunsThePassAgain()

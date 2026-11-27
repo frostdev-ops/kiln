@@ -518,6 +518,9 @@ internal sealed class RegistryDispatch(ModManager mods) : IDisposable
             if (job.Ticket != 0) _native.Discard(job.Ticket);
             return;
         }
+        // review of LOOT-2: a pass that threw on the off-tick refusal of a tick-thread call (it did not catch it) faulted because
+        // of where Kiln ran it, not because of the author's code: not logged as a fault, its request runs again on the tick
+        foreach (var record in job.TickOnly.Keys) job.Faults.Remove(record);
         foreach (var (record, e) in job.Faults)
         {
             record.Faulted = true;
