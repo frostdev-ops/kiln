@@ -55,7 +55,9 @@ most rights), `least`, or `index` with `index=n`. The same name is the same char
 bot that joins again finds its per-character data (pets, quests). At most 4 bots at once.
 
 `bot.told(since)` / `bot.wait_told(text)`: the server's chat lines to the bot (a command's replies, "[Server] ..."; an
-async command such as `/pet summon` answers there). Two lines added in the same server step show only the second.
+async command such as `/pet summon` answers there). `wait_told` takes only a line added after the bot's last `say` or
+`command` (their replies carry that point as `"told"`; `since=` picks another), so a reply to an earlier command never
+passes for the newest one. Two lines added in the same server step show only the second.
 
 Known limit: a name joins **once per server session**. The game does not spawn a character again after its logout
 while the server keeps running (it stays in the spawn position search; `docs/re/labbot.md`), so a join under a name

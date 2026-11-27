@@ -125,10 +125,12 @@ class FakeLab(threading.Thread):
             return {"id": i}
         if op == "teleport":
             return {"id": i, "position": [rq["x"], rq["y"], rq["z"]]}
+        told = getattr(self, "told", [])
+        last = max([ln["n"] for ln in told], default=0)
         if op == "told":
-            return {"id": i, "lines": [ln for ln in getattr(self, "told", []) if ln["n"] > rq.get("since", 0)], "last": 3}
-        if op in ("say", "command"):
-            return {"id": i, "echo": rq.get("text") or rq.get("line")}
+            return {"id": i, "lines": [ln for ln in told if ln["n"] > rq.get("since", 0)], "last": last}
+        if op in ("say", "command"):  # "told": the newest line number before the bot's line (labbot-test)
+            return {"id": i, "echo": rq.get("text") or rq.get("line"), "told": last}
         return {"ok": False, "error": f"unknown op '{op}'"}
 
 
@@ -244,6 +246,21 @@ class LabBotTests(unittest.TestCase):
             self.assertEqual(lab.peer.messages, [])
         finally:
             labbot.KEEPALIVE, labbot.IDLE_RECONNECT = saved
+
+    def test_12_wait_told_waits_for_a_reply_to_the_bots_last_line(self):
+        f = self.fake()
+        f.told = [{"n": 3, "text": "Hound: Ready, Absent", "mask": 0xfffeffff}]  # a reply to an earlier command
+        lab = labbot.Lab(f.port, timeout=3)
+        b = lab.spawn("Bot Alder", timeout=10)
+        self.assertEqual(b.say("/pet summon 1")["told"], 3)
+        with self.assertRaisesRegex(labbot.LabBotError, "was not told 'Hound'"):
+            b.wait_told("Hound", timeout=0.5)  # line 3 came before the bot's line
+        f.told.append({"n": 4, "text": "Hound: Summoned", "mask": 0xfffeffff})
+        self.assertEqual(b.wait_told("Hound", timeout=2)["n"], 4)
+        self.assertEqual(b.wait_told("Hound", since=0, timeout=2)["n"], 3)  # since= still picks the start
+        b.command("pet list")
+        with self.assertRaisesRegex(labbot.LabBotError, "was not told"):
+            b.wait_told("Summoned", timeout=0.5)  # the cursor moved with the command
 
     def test_9_cli_exit_codes(self):
         f = self.fake()

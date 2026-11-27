@@ -7,9 +7,9 @@
 //   info {id} / list             one bot / every remembered bot
 //   leave {id, drop?}            a logout, or a drop
 //   say {id, text}               a chat line typed by the bot (kiln.chat's inject: chat subscribers and commands see it
-//                                as the bot's own line)
+//                                as the bot's own line); "told": the newest told line number before it
 //   command {id, line}           Commands.Execute as the bot (no prefix): its result and the output of a handler that
-//                                finished at once (an async handler's later replies are in kiln.log only)
+//                                finished at once (an async handler's later replies: told), and "told" as for say
 //   teleport {id, x, y, z}       Teleport.To the bot's entity; the reply comes when the teleport ended
 //   position {id}                where the bot's entity is
 //   character {id}               the bot's CharacterKey (what per-character data such as pets is keyed by)
@@ -188,25 +188,35 @@ public sealed class LabBotTestMod : Mod
         return new JsonObject { ["id"] = id };
     }
 
+    // the newest captured line number before a bot's own line: every reply to it is numbered after (tools/labbot's
+    // wait_told starts there, so a reply to an earlier command never answers for this one)
+    private long ToldCursor()
+    {
+        PollLines();
+        return _lineNo;
+    }
+
     private JsonObject Say(JsonObject rq)
     {
         var b = InGame(rq);
         var text = rq["text"]?.GetValue<string>() ?? throw new ArgumentException("no text");
+        var told = ToldCursor();
         Chat.Diagnostics.Inject(b.Connection, text);
         Log.Info($"labbot-test: bot {b.Id} '{b.Name}' says: {text}");
-        return new JsonObject { ["id"] = b.Id };
+        return new JsonObject { ["id"] = b.Id, ["told"] = told };
     }
 
     private JsonObject Command(JsonObject rq)
     {
         var b = InGame(rq);
         var line = rq["line"]?.GetValue<string>() ?? throw new ArgumentException("no line");
+        var told = ToldCursor();
         var r = Commands.Execute(CommandSource.ForPlayer(b.Entity, b.Name), line);
         Log.Info($"labbot-test: bot {b.Id} '{b.Name}' ran {line}: {r}");
         return new JsonObject
         {
             ["id"] = b.Id, ["found"] = r.Found, ["denied"] = r.Denied, ["done"] = r.Ok, ["error"] = r.Error,
-            ["output"] = new JsonArray(r.Output.Select(l => (JsonNode)JsonValue.Create(l)!).ToArray()),
+            ["output"] = new JsonArray(r.Output.Select(l => (JsonNode)JsonValue.Create(l)!).ToArray()), ["told"] = told,
         };
     }
 

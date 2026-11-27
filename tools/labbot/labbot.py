@@ -11,7 +11,7 @@ speaks that channel as a lab peer (tools/nettest's codec): no game client, no St
     bot = lab.spawn("Bot Alder")            # join + wait until its player entity exists
     bot.say("/pet give hound")              # a chat line typed by the bot (commands run with the bot as source)
     bot.command("pet list")                 # Commands.Execute as the bot: result and immediate output
-    bot.wait_told("Hound")                  # a line the server told the bot (an async command's reply)
+    bot.wait_told("Hound")                  # a line the server told the bot after its last say/command
     bot.move_to(x, y, z)                    # teleport its entity
     bot.leave()                             # logout (final save), waits until it is gone
 
@@ -166,6 +166,7 @@ class Bot:
     def __init__(self, lab, bot_id, name):
         self.lab, self.id, self.name = lab, bot_id, name
         self.last = None
+        self.told_since = 0  # the newest server chat line before the bot's last say/command (wait_told's start)
 
     def __repr__(self):
         return f"Bot({self.id}, {self.name!r}, {self.last['phase'] if self.last else '?'})"
@@ -196,12 +197,18 @@ class Bot:
         return self.wait_phase(("InGame",), timeout)
 
     def say(self, text):
-        """A chat line typed by the bot: chat subscribers and Kiln's commands ('/...') see it as the bot's own."""
-        return self.lab.call("say", id=self.id, text=text)
+        """A chat line typed by the bot: chat subscribers and Kiln's commands ('/...') see it as the bot's own.
+        The reply's "told" is the newest server line before it: wait_told then waits for a line after it."""
+        rep = self.lab.call("say", id=self.id, text=text)
+        self.told_since = rep.get("told", self.told_since)
+        return rep
 
     def command(self, line):
-        """Kiln's command `line` (no prefix) run as the bot: found, denied, done, error and the immediate output."""
-        return self.lab.call("command", id=self.id, line=line)
+        """Kiln's command `line` (no prefix) run as the bot: found, denied, done, error and the immediate output (and
+        "told", as for say)."""
+        rep = self.lab.call("command", id=self.id, line=line)
+        self.told_since = rep.get("told", self.told_since)
+        return rep
 
     def move_to(self, x, y, z, timeout=20.0):
         """Teleports the bot's entity; returns where it is afterwards."""
@@ -220,8 +227,12 @@ class Bot:
         Two lines the server adds in the same step show only the second (labbot-test reads the newest inbox line)."""
         return self.lab.call("told", id=self.id, since=since)["lines"]
 
-    def wait_told(self, pattern, since=0, timeout=20.0):
-        """Waits for a line to this bot containing `pattern` (a substring); returns it, or raises LabBotError."""
+    def wait_told(self, pattern, since=None, timeout=20.0):
+        """Waits for a line to this bot containing `pattern` (a substring) that the server added after the bot's last
+        say or command (or after line `since`); returns it, or raises LabBotError. So a reply to an earlier command
+        never answers for the newest one."""
+        if since is None:
+            since = self.told_since
         end = time.time() + timeout
         while True:
             for ln in self.told(since):
