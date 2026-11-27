@@ -58,7 +58,7 @@ internal interface IPetWorld
     ulong WorldEpoch { get; }
     /// <summary>The server step.</summary>
     ulong Step { get; }
-    /// <summary>Simulation seconds.</summary>
+    /// <summary>Simulation seconds: the game's world clock in a game (never the step count), the test's in tests.</summary>
     double Now { get; }
     /// <summary>Bodies can be made and retired here (pets.summon); else why not.</summary>
     bool CanMakeBodies(out string reason);

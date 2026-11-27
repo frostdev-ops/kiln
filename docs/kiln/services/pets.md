@@ -15,7 +15,7 @@ Author guide: [modding/pets.md](../modding/pets.md). Sample: `mods/samples/PetsS
 
 | Choice | Where | Kiln's default |
 |---|---|---|
-| Which creature the body is | `PetDefinition.Creature`: a `creatures` registry id (`game:enemy_wildbeast_wolf`) or a creature block (`<mod>:<name>`) | none (required) |
+| Which creature the body is | `PetDefinition.Creature`: a `creatures` registry id (`game:enemy_wildbeast_wolf_earlygame`) or a creature block (`<mod>:<name>`) | none (required) |
 | Level and size | `PetLevelPolicy`: fixed, the owner's at grant/tame, the owner's at each summon; scale 0.25..4 | fixed 1, scale 1 |
 | How it follows | `PetMovementPolicy`: Kiln's walk-only routes or the game's guard; follow, run and catch-up distances, stuck time, catch-up on/off | routes, 3 m, run past 10 m, catch up past 60 m or 5 s stuck |
 | Who it may harm, who may harm it | `PetTargetPolicy`: the hostile creature factions (never Player, AutomatedPlayer, PlayerAlly or FarmAnimal: `Define` refuses them); PvP off, or by the mod's rule (`Pets.SetHostile` pairs) | PvP off; Fogger, Vukah, Scavenger, WildBeast, Skeleton, Cyclops, Drak, Ancients |
@@ -25,6 +25,10 @@ Author guide: [modding/pets.md](../modding/pets.md). Sample: `mods/samples/PetsS
 | What the owner's HUD shows | `PetHudPolicy` (bar row, anchor marker) per definition; `PetsClient.Configure` per player; or a HUD of the mod's own from `PetsClient.Snapshot` | bar and marker on |
 | Who gets a pet | `Pets.Grant` (a reward, a quest, a command); taming (19e) when it lands | none |
 | Attack, assist, defend | `Pets.Command(..., PetOrder.Attack, target, ...)`: the mod decides when; Kiln checks the target rule | Kiln never attacks by itself |
+
+Every time on this page and in a definition (the revive channel, stuck and repath times, a new body's 5 s to get ready,
+the owner's view's rates) is seconds of the game's own world clock, whatever the server's step rate (a dedicated server
+steps 15 to 25 times a second). A paused world's clock stands still.
 
 Not possible yet, with what it would take:
 

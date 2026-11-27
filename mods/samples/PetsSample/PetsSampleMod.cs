@@ -19,7 +19,7 @@ public sealed class PetsSampleMod : Mod
 
     public override void OnLoad()
     {
-        Blocks.Define("hound", new PetBlock { Creature = "game:enemy_wildbeast_wolf", Name = "Hound" });
+        Blocks.Define("hound", new PetBlock { Creature = "game:enemy_wildbeast_wolf_earlygame", Name = "Hound" });
 
         Events.On<PetDowningEvent>(e =>
         {

@@ -10,26 +10,19 @@ internal sealed partial class GamePetWorld : IPetWorld
 {
     private ulong _generations;
     private readonly Dictionary<ulong, PetBody> _live = [];   // bodies made and not yet retired, by generation
-    private double _now;
-    private ulong _lastStep;
+    private static double _seconds;
 
     public ulong WorldEpoch => Lifecycle.IsServerRunning ? (ulong)Lifecycle.ServerSession : 0;
     public ulong Step => ServiceTick.Step;
 
-    public double Now
-    {
-        get
-        {
-            // simulation seconds from the server step (60 steps a second)
-            var s = ServiceTick.Step;
-            if (s != _lastStep)
-            {
-                _now += (s - _lastStep) / 60.0;
-                _lastStep = s;
-            }
-            return _now;
-        }
-    }
+    /// <summary>Seconds of the game's own 60 Hz world clock, as kiln.creature_control's waits count them: a step adds what
+    /// the game's clock advanced in it (2 to 4 of its ticks on a dedicated server, which steps 15 to 25 times a second,
+    /// never 60). A paused world's clock stands still (a hosting client in its menu); after a stall it catches up in the
+    /// next step. The same for every GamePetWorld; it holds between steps.</summary>
+    public double Now => Volatile.Read(ref _seconds);
+
+    /// <summary>kiln.pets' service tick, before the roster's step (tick thread).</summary>
+    internal static void Advance(in TickInfo tick) => Volatile.Write(ref _seconds, _seconds + tick.ClockDelta / 60.0);
 
     public bool CanMakeBodies(out string reason)
     {

@@ -10,7 +10,7 @@ In C# (`OnLoad`), as a block:
 
 ```csharp
 // a game creature, by its creatures-registry id: asks nothing of players' games
-var hound = Blocks.Define("hound", new PetBlock { Creature = "game:enemy_wildbeast_wolf", Name = "Hound" });
+var hound = Blocks.Define("hound", new PetBlock { Creature = "game:enemy_wildbeast_wolf_earlygame", Name = "Hound" });
 
 // a creature block of your own, and every choice spelled out
 var wolf = Blocks.Define("wolf", new CreatureBlock { Body = Bodies.Vukah });
@@ -33,7 +33,7 @@ Or in `blocks/*.json`, section `pets`, the same fields:
 ```json
 {
   "pets": {
-    "hound": { "creature": "game:enemy_wildbeast_wolf", "name": "Hound" },
+    "hound": { "creature": "game:enemy_wildbeast_wolf_earlygame", "name": "Hound" },
     "duelist": {
       "creature": "wolf", "name": "Duelist",
       "targets": { "pvp": "byModRule", "hostileFactions": ["vukah", "fogger"] },
@@ -45,10 +45,10 @@ Or in `blocks/*.json`, section `pets`, the same fields:
 ```
 
 The pet's id is `<mod id>:<name>` (`Was` keeps it through a rename). Without Kiln.Blocks: `Pets.Define(new PetDefinition
-{ Id = "my-mod:hound", Creature = "game:enemy_wildbeast_wolf" })`. A creature is always a Kiln id: never a template name
-or a GUID. Only enemy creatures that walk can be pets in this Kiln. A revive cost's item is checked once the game's
-content is ready: an item the game lacks (or gear) is your mod's error in kiln.log and the launcher, and that pet's revives
-are refused (`CostUnavailable`) with nothing taken.
+{ Id = "my-mod:hound", Creature = "game:enemy_wildbeast_wolf_earlygame" })`. A creature is always a Kiln id: never a
+template name or a GUID. Only enemy creatures that walk can be pets in this Kiln. A revive cost's item is checked once
+the game's content is ready: an item the game lacks (or gear) is your mod's error in kiln.log and the launcher, and that
+pet's revives are refused (`CostUnavailable`) with nothing taken.
 
 ## Give, summon, order, revive, release
 

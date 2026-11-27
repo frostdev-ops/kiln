@@ -182,7 +182,7 @@ public sealed record PetDefinition
     /// Pet records keep it.</summary>
     public required string Id { get; init; }
     /// <summary>The creature the pet's body is, by its Kiln id: a game creature of the <c>creatures</c> registry
-    /// (<c>game:enemy_wildbeast_wolf</c>) or a creature block of a mod (<c>&lt;mod id&gt;:&lt;name&gt;</c>). Never a game
+    /// (<c>game:enemy_wildbeast_wolf_earlygame</c>) or a creature block of a mod (<c>&lt;mod id&gt;:&lt;name&gt;</c>). Never a game
     /// template name or GUID. Bodies are enemy creatures that walk (wildlife and flying bodies are not supported yet).</summary>
     public required string Creature { get; init; }
     /// <summary>The name owners read; null: the creature's own.</summary>
