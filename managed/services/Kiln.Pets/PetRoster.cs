@@ -299,6 +299,24 @@ internal sealed partial class PetRoster
 
     internal event Action? OnWorldChanged;
 
+    /// <summary>The mods that defined <paramref name="definitions"/> unloaded: requests of their pets end, bodies are retired
+    /// (their health and the owner's wish kept), anchors stay. The records stay, dormant until a definition comes back.</summary>
+    internal void Unload(IReadOnlyCollection<string> definitions)
+    {
+        foreach (var p in _pets.Values.Where(p => definitions.Contains(p.Definition)).ToList())
+        {
+            if (p.Running is { Kind: Kind.Revive }) CancelChannel(p, PetChangeCause.Unload);
+            else if (p.Running is { } op) Complete(op, false, "DefinitionUnloaded: the mod that defined the pet unloaded", p);
+            if (p.Body is not null) RetireForLeave(p, PetChangeCause.Unload);
+        }
+        foreach (var op in _queue.Where(q => _pets.TryGetValue(q.Pet, out var p) && definitions.Contains(p.Definition)).ToList())
+        {
+            _queue.Remove(op);
+            Complete(op, false, "DefinitionUnloaded: the mod that defined the pet unloaded", State(op.Pet));
+        }
+        Flush();
+    }
+
     // ---- owners coming and going ----
 
     private void Presence()

@@ -53,8 +53,24 @@ internal static partial class PetsRuntime
             PendingEvents.Enqueue(new PetDefinitionChangedEvent(before, d));
         }
         if (note is not null) Log(LogLevel.Info, $"Kiln.Pets: pet {d.Id}: {note}");
+        // the defining mod unloads: its pets' bodies are retired (records and wishes kept; the definition goes dormant)
+        if (ModContext.CurrentMod is { } owner && Watched.Add(owner)) owner.Retiring += () => ModUnloaded(owner.Info.Id);
         EnsureTick();
         return new PetDefinitionResult(true, null, d);
+    }
+
+    private static readonly HashSet<ModContext> Watched = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>A mod unloaded: its definitions go (records of them stay dormant) and the roster retires their bodies.</summary>
+    internal static void ModUnloaded(string mod)
+    {
+        List<string> ids;
+        lock (Gate)
+        {
+            ids = Defs.Where(kv => string.Equals(kv.Value.Mod, mod, StringComparison.OrdinalIgnoreCase)).Select(kv => kv.Key).ToList();
+            foreach (var id in ids) Defs.Remove(id);
+        }
+        if (ids.Count > 0) Roster?.Unload(ids);
     }
 
     internal static PetDefinition? Definition(string id)

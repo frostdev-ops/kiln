@@ -189,6 +189,8 @@ public enum PetChangeCause
     Control = 8,
     /// <summary>A revive channel's own course (completed, canceled by movement, range or damage).</summary>
     Channel = 9,
+    /// <summary>The mod that defined the pet unloaded: its body was retired (the record and the owner's wish are kept).</summary>
+    Unload = 10,
 }
 
 /// <summary>One change of a pet: before and after, the request behind it and when it happened. Since 0.2.0-dev.32.</summary>

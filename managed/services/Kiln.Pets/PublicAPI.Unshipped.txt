@@ -66,6 +66,7 @@ Kiln.PetChangeCause.NativeLethal = 2 -> Kiln.PetChangeCause
 Kiln.PetChangeCause.ProtectionLost = 3 -> Kiln.PetChangeCause
 Kiln.PetChangeCause.Request = 0 -> Kiln.PetChangeCause
 Kiln.PetChangeCause.Stats = 7 -> Kiln.PetChangeCause
+Kiln.PetChangeCause.Unload = 10 -> Kiln.PetChangeCause
 Kiln.PetChangeCause.WorldEnd = 5 -> Kiln.PetChangeCause
 Kiln.PetChangeEvent
 Kiln.PetChangeEvent.Change.get -> Kiln.PetChange!

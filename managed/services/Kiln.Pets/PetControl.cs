@@ -211,7 +211,7 @@ internal sealed class PetControl
         PetChangeCause.ProtectionLost => 2,
         PetChangeCause.Control => 3,
         PetChangeCause.BodyLost => 4,
-        PetChangeCause.Logout => 7,
+        PetChangeCause.Logout or PetChangeCause.Unload => 7,
         PetChangeCause.WorldEnd => 9,
         _ => release ? 6u : 5u,
     };

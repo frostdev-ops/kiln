@@ -550,3 +550,37 @@ public sealed class RosterTests : IDisposable
         Assert.Equal("{\"schema\":99,\"pets\":[]}", Store.Docs[A]);
     }
 }
+
+public sealed class UnloadTests : IDisposable
+{
+    private readonly RosterTests _t = new();
+
+    public void Dispose() => _t.Dispose();
+
+    [Fact]
+    public void A_definitions_mod_unloading_retires_its_bodies_and_keeps_the_records()
+    {
+        var p = _t.Summoned(_t.A);
+        _t.BodyOf(p.Id).Health = 40;
+        _t.Step();
+        _t.Names();
+        _t.Roster.Unload(["mod-a:wolf"]);
+        var after = _t.Roster.Get(p.Id)!;
+        Assert.Equal((PetLife.Ready, PetPresence.Absent), (after.Life, after.Presence));
+        Assert.True(after.WantsSummoned);
+        Assert.Equal(40, after.Health);
+        Assert.Empty(_t.World.Bodies);
+        Assert.Contains("Unload", _t.World.Log[^1], StringComparison.Ordinal);
+        var ev = Assert.IsType<PetBodyRetiredEvent>(Assert.Single(_t.Events));
+        Assert.Equal(PetChangeCause.Unload, ev.Change.Cause);
+    }
+
+    [Fact]
+    public void Pets_of_other_definitions_are_untouched()
+    {
+        var p = _t.Summoned(_t.A);
+        _t.Roster.Unload(["mod-b:other"]);
+        Assert.Equal(PetPresence.Live, _t.Roster.Get(p.Id)!.Presence);
+        Assert.Single(_t.World.Bodies);
+    }
+}
