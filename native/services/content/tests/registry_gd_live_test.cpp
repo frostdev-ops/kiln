@@ -348,6 +348,17 @@ void entry_by_its_number() {
     g_vukah_by_num = false;
     check(at<uint32_t>(VUKAH_AT) == 21 && g_last_report.refused.empty(), "bound by its 32-bit id" + refusals());
 }
+// review registry-r2a: in a world a creature without the field, and a perk without a value, read null, as the base reads them
+// before a world (a runtime pass reads its cells live: a typed C# read of view.Creatures[...].Scale must not fail the author)
+void absent_values_read_null() {
+    gd_world();
+    apply_gd("[]");
+    check(read("creatures", "game:enemy_vukah_melee", "scale") == "null", "a creature without a size reads null: " + read("creatures", "game:enemy_vukah_melee", "scale"));
+    check(read("perks", "game:perk_armor_fog", "value") == "null", "a perk without a value reads null: " + read("perks", "game:perk_armor_fog", "value"));
+    check(read("creatures", "game:animal_wildlife_wolf", "scale") != "ERR" && std::stod(read("creatures", "game:animal_wildlife_wolf", "scale")) == 1.5,
+          "a creature with a size reads it");
+    check(read("creatures", "game:no_such_creature", "scale") == "ERR", "an id that names no creature is still no value");
+}
 }  // namespace
 
 int main() {
@@ -370,6 +381,7 @@ int main() {
         {"creature_read_only_and_unknown", creature_read_only_and_unknown},
         {"creature_code_writer_in_kiln_words", creature_code_writer_in_kiln_words},
         {"entry_by_its_number", entry_by_its_number},
+        {"absent_values_read_null", absent_values_read_null},
     };
     int failed = 0;
     for (auto& [name, fn] : tests) {

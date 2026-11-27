@@ -130,6 +130,7 @@ struct LiveState {
     std::shared_ptr<const registry::PreparedBase> prepared;
     bool reading = false;
     std::string read_reason;
+    bool read_absent = false;  // the read's entry has none of the field (a creature without the component, a perk without a value)
     std::map<registry::FieldRef, LiveField> read_fields;
     bool read_capture = false;                   // a pass read: put() keeps each slot's evaluation (review4 NS5)
     std::map<uintptr_t, LayerEval> read_evals;
@@ -949,9 +950,10 @@ bool section_slot(const std::shared_ptr<Binding>& b, uint32_t section, const std
         return true;
     }
     LOGD("registry (live): %s: %s (regmap path %s)", b->ref.text().c_str(), why.c_str(), path.c_str());
-    if (s->absent)  // this entry has none (a creature without a size of its own, a perk without a value): only it is refused
+    if (s->absent) {  // this entry has none (a creature without a size of its own, a perk without a value): only it is refused
+        if (g.reading) g.read_absent = true;  // a read of it is null, as the base reads it (registry_live_read)
         refuse(b->ref, rows, std::string("this ") + entry_word(b->ref.registry) + " has no value of this field (only some " + b->ref.registry + " have one)");
-    else
+    } else
         refuse_mapping(b->ref, rows, std::string("the game's value of this field is missing on this game build") + kMappingUpdate, path);
     return false;
 }
@@ -1117,6 +1119,7 @@ void bind_section(const std::shared_ptr<Binding>& b, const registry::FieldRef& f
         std::string path, why;
         if (!gd_shown_config(section, b->entry, rw.paths[0], &path, &why)) {
             LOGD("registry (live): %s: %s (regmap path %s)", fr.text().c_str(), why.c_str(), member0.c_str());
+            if (why == "none" && g.reading) g.read_absent = true;
             if (why == "none" || why == "several")
                 return refuse(fr, rows, std::string("this ") + entry_word(fr.registry) + (why == "none" ? " has no value" : " has more than one value Kiln could mean"));
             return refuse_mapping(fr, rows, std::string("the game's value of this field is missing on this game build") + kMappingUpdate, member0);
@@ -2836,7 +2839,7 @@ KilnResult registry_live_read(const std::string& reg_name, const std::string& id
         return KILN_ERR_NOT_FOUND;
     }
     struct ReadScope {
-        ReadScope() { g.reading = true; g.read_fields.clear(); g.read_reason.clear(); g.read_evals.clear(); }
+        ReadScope() { g.reading = true; g.read_absent = false; g.read_fields.clear(); g.read_reason.clear(); g.read_evals.clear(); }
         ~ReadScope() { g.reading = false; g.read_capture = false; g.read_fields.clear(); g.read_evals.clear(); }
     } scope;
     registry::FieldOutcome identity;
@@ -2849,6 +2852,9 @@ KilnResult registry_live_read(const std::string& reg_name, const std::string& id
     bind(ref, identity);
     const auto it = g.read_fields.find(ref);
     // review2 N6: an id this world does not have is NOT_FOUND, as before a world; UNAVAILABLE is an unreadable field
+    // dev.32 (review registry-r2a): an entry that has none of the field (a creature without the component, a perk without a
+    // value) reads null in a world as its base does before one, so a runtime pass's typed read is 0, never a failed author
+    if (it == g.read_fields.end() && g.read_absent) return *out = "null", KILN_OK;
     if (it == g.read_fields.end()) return g.read_reason == "the entry is not in this world" ? KILN_ERR_NOT_FOUND : KILN_ERR_UNAVAILABLE;
     std::vector<SlotBytes> bytes(it->second.slots.size());
     for (size_t i = 0; i < bytes.size(); ++i) {
