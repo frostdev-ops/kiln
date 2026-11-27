@@ -1,0 +1,570 @@
+#nullable enable
+Kiln.CostReceipt
+Kiln.CostReceipt.<Clone>$() -> Kiln.CostReceipt!
+Kiln.CostReceipt.Committed.get -> bool
+Kiln.CostReceipt.Committed.init -> void
+Kiln.CostReceipt.CostReceipt(Kiln.ItemId Item, int Requested, int Taken, bool Committed) -> void
+Kiln.CostReceipt.Deconstruct(out Kiln.ItemId Item, out int Requested, out int Taken, out bool Committed) -> void
+Kiln.CostReceipt.Equals(Kiln.CostReceipt? other) -> bool
+Kiln.CostReceipt.Item.get -> Kiln.ItemId
+Kiln.CostReceipt.Item.init -> void
+Kiln.CostReceipt.Requested.get -> int
+Kiln.CostReceipt.Requested.init -> void
+Kiln.CostReceipt.Taken.get -> int
+Kiln.CostReceipt.Taken.init -> void
+Kiln.ItemSelection
+Kiln.ItemSelection.<Clone>$() -> Kiln.ItemSelection!
+Kiln.ItemSelection.Deconstruct(out Kiln.SlotId Slot) -> void
+Kiln.ItemSelection.Equals(Kiln.ItemSelection? other) -> bool
+Kiln.ItemSelection.ItemSelection(Kiln.SlotId Slot) -> void
+Kiln.ItemSelection.Slot.get -> Kiln.SlotId
+Kiln.ItemSelection.Slot.init -> void
+Kiln.PetBodyLostEvent
+Kiln.PetBodyRetiredEvent
+Kiln.PetBodyViewKey
+Kiln.PetBodyViewKey.<Clone>$() -> Kiln.PetBodyViewKey!
+Kiln.PetBodyViewKey.BodyGeneration.get -> ulong
+Kiln.PetBodyViewKey.BodyGeneration.init -> void
+Kiln.PetBodyViewKey.Deconstruct(out uint NetworkEntityId, out ulong BodyGeneration) -> void
+Kiln.PetBodyViewKey.Equals(Kiln.PetBodyViewKey? other) -> bool
+Kiln.PetBodyViewKey.NetworkEntityId.get -> uint
+Kiln.PetBodyViewKey.NetworkEntityId.init -> void
+Kiln.PetBodyViewKey.PetBodyViewKey(uint NetworkEntityId, ulong BodyGeneration) -> void
+Kiln.PetCaps
+Kiln.PetCaps.<Clone>$() -> Kiln.PetCaps!
+Kiln.PetCaps.Equals(Kiln.PetCaps? other) -> bool
+Kiln.PetCaps.LivePerCharacter.get -> int
+Kiln.PetCaps.LivePerCharacter.init -> void
+Kiln.PetCaps.LivePerWorld.get -> int
+Kiln.PetCaps.LivePerWorld.init -> void
+Kiln.PetCaps.PetCaps() -> void
+Kiln.PetCaps.RetainedPerCharacter.get -> int
+Kiln.PetCaps.RetainedPerCharacter.init -> void
+Kiln.PetChange
+Kiln.PetChange.<Clone>$() -> Kiln.PetChange!
+Kiln.PetChange.After.get -> Kiln.PetSnapshot!
+Kiln.PetChange.After.init -> void
+Kiln.PetChange.Before.get -> Kiln.PetSnapshot!
+Kiln.PetChange.Before.init -> void
+Kiln.PetChange.Cause.get -> Kiln.PetChangeCause
+Kiln.PetChange.Cause.init -> void
+Kiln.PetChange.Equals(Kiln.PetChange? other) -> bool
+Kiln.PetChange.EventId.get -> System.Guid
+Kiln.PetChange.EventId.init -> void
+Kiln.PetChange.ObservedStep.get -> ulong
+Kiln.PetChange.ObservedStep.init -> void
+Kiln.PetChange.OperationId.get -> System.Guid
+Kiln.PetChange.OperationId.init -> void
+Kiln.PetChange.PetChange() -> void
+Kiln.PetChangeCause
+Kiln.PetChangeCause.BodyLost = 1 -> Kiln.PetChangeCause
+Kiln.PetChangeCause.Channel = 9 -> Kiln.PetChangeCause
+Kiln.PetChangeCause.Control = 8 -> Kiln.PetChangeCause
+Kiln.PetChangeCause.Login = 6 -> Kiln.PetChangeCause
+Kiln.PetChangeCause.Logout = 4 -> Kiln.PetChangeCause
+Kiln.PetChangeCause.NativeLethal = 2 -> Kiln.PetChangeCause
+Kiln.PetChangeCause.ProtectionLost = 3 -> Kiln.PetChangeCause
+Kiln.PetChangeCause.Request = 0 -> Kiln.PetChangeCause
+Kiln.PetChangeCause.Stats = 7 -> Kiln.PetChangeCause
+Kiln.PetChangeCause.Unload = 10 -> Kiln.PetChangeCause
+Kiln.PetChangeCause.WorldEnd = 5 -> Kiln.PetChangeCause
+Kiln.PetChangeEvent
+Kiln.PetChangeEvent.Change.get -> Kiln.PetChange!
+Kiln.PetChangeEvent.Owner.get -> Kiln.CharacterKey
+Kiln.PetChangeEvent.Pet.get -> Kiln.PetId
+Kiln.PetCommandChangedEvent
+Kiln.PetCommit
+Kiln.PetCommit.<Clone>$() -> Kiln.PetCommit!
+Kiln.PetCommit.BundleHash.get -> string!
+Kiln.PetCommit.BundleHash.init -> void
+Kiln.PetCommit.Equals(Kiln.PetCommit? other) -> bool
+Kiln.PetCommit.PetCommit() -> void
+Kiln.PetCommit.StateRevision.get -> ulong
+Kiln.PetCommit.StateRevision.init -> void
+Kiln.PetCommit.WorldEpoch.get -> ulong
+Kiln.PetCommit.WorldEpoch.init -> void
+Kiln.PetCommit.WorldRevision.get -> uint
+Kiln.PetCommit.WorldRevision.init -> void
+Kiln.PetCommit.WorldUnix.get -> uint
+Kiln.PetCommit.WorldUnix.init -> void
+Kiln.PetControlChangedEvent
+Kiln.PetControlChangedEvent.After.get -> Kiln.ControlLeaseSnapshot!
+Kiln.PetControlChangedEvent.Before.get -> Kiln.ControlLeaseSnapshot?
+Kiln.PetControlChangedEvent.Owner.get -> Kiln.CharacterKey
+Kiln.PetControlChangedEvent.Pet.get -> Kiln.PetId
+Kiln.PetCostDefinition
+Kiln.PetCostDefinition.<Clone>$() -> Kiln.PetCostDefinition!
+Kiln.PetCostDefinition.Count.get -> int
+Kiln.PetCostDefinition.Count.init -> void
+Kiln.PetCostDefinition.Deconstruct(out Kiln.ItemId Item, out int Count) -> void
+Kiln.PetCostDefinition.Equals(Kiln.PetCostDefinition? other) -> bool
+Kiln.PetCostDefinition.Item.get -> Kiln.ItemId
+Kiln.PetCostDefinition.Item.init -> void
+Kiln.PetCostDefinition.PetCostDefinition(Kiln.ItemId Item, int Count) -> void
+Kiln.PetDefinition
+Kiln.PetDefinition.<Clone>$() -> Kiln.PetDefinition!
+Kiln.PetDefinition.Caps.get -> Kiln.PetCaps!
+Kiln.PetDefinition.Caps.init -> void
+Kiln.PetDefinition.Creature.get -> string!
+Kiln.PetDefinition.Creature.init -> void
+Kiln.PetDefinition.DisplayName.get -> string?
+Kiln.PetDefinition.DisplayName.init -> void
+Kiln.PetDefinition.Downed.get -> Kiln.PetDownedPolicy!
+Kiln.PetDefinition.Downed.init -> void
+Kiln.PetDefinition.Equals(Kiln.PetDefinition? other) -> bool
+Kiln.PetDefinition.Hud.get -> Kiln.PetHudPolicy!
+Kiln.PetDefinition.Hud.init -> void
+Kiln.PetDefinition.Id.get -> string!
+Kiln.PetDefinition.Id.init -> void
+Kiln.PetDefinition.Level.get -> Kiln.PetLevelPolicy!
+Kiln.PetDefinition.Level.init -> void
+Kiln.PetDefinition.Movement.get -> Kiln.PetMovementPolicy!
+Kiln.PetDefinition.Movement.init -> void
+Kiln.PetDefinition.PetDefinition() -> void
+Kiln.PetDefinition.Revive.get -> Kiln.PetRevivePolicy!
+Kiln.PetDefinition.Revive.init -> void
+Kiln.PetDefinition.Targets.get -> Kiln.PetTargetPolicy!
+Kiln.PetDefinition.Targets.init -> void
+Kiln.PetDefinitionChangedEvent
+Kiln.PetDefinitionChangedEvent.After.get -> Kiln.PetDefinition!
+Kiln.PetDefinitionChangedEvent.Before.get -> Kiln.PetDefinition?
+Kiln.PetDefinitionResult
+Kiln.PetDefinitionResult.<Clone>$() -> Kiln.PetDefinitionResult!
+Kiln.PetDefinitionResult.Deconstruct(out bool Ok, out string? Reason, out Kiln.PetDefinition? Definition) -> void
+Kiln.PetDefinitionResult.Definition.get -> Kiln.PetDefinition?
+Kiln.PetDefinitionResult.Definition.init -> void
+Kiln.PetDefinitionResult.Equals(Kiln.PetDefinitionResult? other) -> bool
+Kiln.PetDefinitionResult.Ok.get -> bool
+Kiln.PetDefinitionResult.Ok.init -> void
+Kiln.PetDefinitionResult.PetDefinitionResult(bool Ok, string? Reason, Kiln.PetDefinition? Definition) -> void
+Kiln.PetDefinitionResult.Reason.get -> string?
+Kiln.PetDefinitionResult.Reason.init -> void
+Kiln.PetDismissedEvent
+Kiln.PetDownedEvent
+Kiln.PetDownedOutcome
+Kiln.PetDownedOutcome.Absent = 1 -> Kiln.PetDownedOutcome
+Kiln.PetDownedOutcome.RecoveryAnchor = 0 -> Kiln.PetDownedOutcome
+Kiln.PetDownedOutcome.Release = 2 -> Kiln.PetDownedOutcome
+Kiln.PetDownedPolicy
+Kiln.PetDownedPolicy.<Clone>$() -> Kiln.PetDownedPolicy!
+Kiln.PetDownedPolicy.Equals(Kiln.PetDownedPolicy? other) -> bool
+Kiln.PetDownedPolicy.Outcome.get -> Kiln.PetDownedOutcome
+Kiln.PetDownedPolicy.Outcome.init -> void
+Kiln.PetDownedPolicy.PetDownedPolicy() -> void
+Kiln.PetDowningEvent
+Kiln.PetDowningEvent.Cause.get -> Kiln.PetChangeCause
+Kiln.PetDowningEvent.Outcome.get -> Kiln.PetDownedOutcome
+Kiln.PetDowningEvent.Outcome.set -> void
+Kiln.PetDowningEvent.Pet.get -> Kiln.PetSnapshot!
+Kiln.PetGrantedEvent
+Kiln.PetHudOptions
+Kiln.PetHudOptions.<Clone>$() -> Kiln.PetHudOptions!
+Kiln.PetHudOptions.AnchorX.get -> double
+Kiln.PetHudOptions.AnchorX.init -> void
+Kiln.PetHudOptions.AnchorY.get -> double
+Kiln.PetHudOptions.AnchorY.init -> void
+Kiln.PetHudOptions.Deconstruct(out bool Enabled, out bool RecoveryMarkers, out double AnchorX, out double AnchorY, out double WidthPixels) -> void
+Kiln.PetHudOptions.Enabled.get -> bool
+Kiln.PetHudOptions.Enabled.init -> void
+Kiln.PetHudOptions.Equals(Kiln.PetHudOptions? other) -> bool
+Kiln.PetHudOptions.PetHudOptions(bool Enabled = true, bool RecoveryMarkers = true, double AnchorX = 0.03, double AnchorY = 0.72, double WidthPixels = 220) -> void
+Kiln.PetHudOptions.RecoveryMarkers.get -> bool
+Kiln.PetHudOptions.RecoveryMarkers.init -> void
+Kiln.PetHudOptions.WidthPixels.get -> double
+Kiln.PetHudOptions.WidthPixels.init -> void
+Kiln.PetHudOptionsChangedEvent
+Kiln.PetHudOptionsChangedEvent.Options.get -> Kiln.PetHudOptions!
+Kiln.PetHudPolicy
+Kiln.PetHudPolicy.<Clone>$() -> Kiln.PetHudPolicy!
+Kiln.PetHudPolicy.Bar.get -> bool
+Kiln.PetHudPolicy.Bar.init -> void
+Kiln.PetHudPolicy.Equals(Kiln.PetHudPolicy? other) -> bool
+Kiln.PetHudPolicy.PetHudPolicy() -> void
+Kiln.PetHudPolicy.RecoveryMarker.get -> bool
+Kiln.PetHudPolicy.RecoveryMarker.init -> void
+Kiln.PetId
+Kiln.PetId.Deconstruct(out System.Guid Value) -> void
+Kiln.PetId.Equals(Kiln.PetId other) -> bool
+Kiln.PetId.IsNone.get -> bool
+Kiln.PetId.PetId() -> void
+Kiln.PetId.PetId(System.Guid Value) -> void
+Kiln.PetId.Value.get -> System.Guid
+Kiln.PetId.Value.init -> void
+Kiln.PetLevelMode
+Kiln.PetLevelMode.Fixed = 0 -> Kiln.PetLevelMode
+Kiln.PetLevelMode.OwnerAtSummon = 2 -> Kiln.PetLevelMode
+Kiln.PetLevelMode.OwnerAtTame = 1 -> Kiln.PetLevelMode
+Kiln.PetLevelPolicy
+Kiln.PetLevelPolicy.<Clone>$() -> Kiln.PetLevelPolicy!
+Kiln.PetLevelPolicy.Equals(Kiln.PetLevelPolicy? other) -> bool
+Kiln.PetLevelPolicy.Level.get -> int
+Kiln.PetLevelPolicy.Level.init -> void
+Kiln.PetLevelPolicy.Mode.get -> Kiln.PetLevelMode
+Kiln.PetLevelPolicy.Mode.init -> void
+Kiln.PetLevelPolicy.PetLevelPolicy() -> void
+Kiln.PetLevelPolicy.Scale.get -> double
+Kiln.PetLevelPolicy.Scale.init -> void
+Kiln.PetLife
+Kiln.PetLife.Downed = 1 -> Kiln.PetLife
+Kiln.PetLife.Ready = 0 -> Kiln.PetLife
+Kiln.PetLife.Released = 2 -> Kiln.PetLife
+Kiln.PetMovementMode
+Kiln.PetMovementMode.EngineGuard = 1 -> Kiln.PetMovementMode
+Kiln.PetMovementMode.QueryInput = 0 -> Kiln.PetMovementMode
+Kiln.PetMovementPolicy
+Kiln.PetMovementPolicy.<Clone>$() -> Kiln.PetMovementPolicy!
+Kiln.PetMovementPolicy.AllowCatchUp.get -> bool
+Kiln.PetMovementPolicy.AllowCatchUp.init -> void
+Kiln.PetMovementPolicy.CatchUpDistance.get -> double
+Kiln.PetMovementPolicy.CatchUpDistance.init -> void
+Kiln.PetMovementPolicy.Equals(Kiln.PetMovementPolicy? other) -> bool
+Kiln.PetMovementPolicy.FollowDistance.get -> double
+Kiln.PetMovementPolicy.FollowDistance.init -> void
+Kiln.PetMovementPolicy.GroundSearchMeters.get -> double
+Kiln.PetMovementPolicy.GroundSearchMeters.init -> void
+Kiln.PetMovementPolicy.Mode.get -> Kiln.PetMovementMode
+Kiln.PetMovementPolicy.Mode.init -> void
+Kiln.PetMovementPolicy.PetMovementPolicy() -> void
+Kiln.PetMovementPolicy.RepathSeconds.get -> double
+Kiln.PetMovementPolicy.RepathSeconds.init -> void
+Kiln.PetMovementPolicy.RunDistance.get -> double
+Kiln.PetMovementPolicy.RunDistance.init -> void
+Kiln.PetMovementPolicy.StuckSeconds.get -> double
+Kiln.PetMovementPolicy.StuckSeconds.init -> void
+Kiln.PetOrder
+Kiln.PetOrder.Attack = 2 -> Kiln.PetOrder
+Kiln.PetOrder.Follow = 0 -> Kiln.PetOrder
+Kiln.PetOrder.Stay = 1 -> Kiln.PetOrder
+Kiln.PetOwnerView
+Kiln.PetOwnerView.<Clone>$() -> Kiln.PetOwnerView!
+Kiln.PetOwnerView.CharacterSession.get -> ulong
+Kiln.PetOwnerView.CharacterSession.init -> void
+Kiln.PetOwnerView.Deconstruct(out ulong WorldEpoch, out ulong CharacterSession, out ulong Sequence, out System.Collections.Generic.IReadOnlyList<Kiln.PetViewEntry!>! Entries) -> void
+Kiln.PetOwnerView.Entries.get -> System.Collections.Generic.IReadOnlyList<Kiln.PetViewEntry!>!
+Kiln.PetOwnerView.Entries.init -> void
+Kiln.PetOwnerView.Equals(Kiln.PetOwnerView? other) -> bool
+Kiln.PetOwnerView.PetOwnerView(ulong WorldEpoch, ulong CharacterSession, ulong Sequence, System.Collections.Generic.IReadOnlyList<Kiln.PetViewEntry!>! Entries) -> void
+Kiln.PetOwnerView.Sequence.get -> ulong
+Kiln.PetOwnerView.Sequence.init -> void
+Kiln.PetOwnerView.WorldEpoch.get -> ulong
+Kiln.PetOwnerView.WorldEpoch.init -> void
+Kiln.PetOwnerViewChangedEvent
+Kiln.PetOwnerViewChangedEvent.View.get -> Kiln.PetOwnerView!
+Kiln.PetPresence
+Kiln.PetPresence.Absent = 0 -> Kiln.PetPresence
+Kiln.PetPresence.Live = 1 -> Kiln.PetPresence
+Kiln.PetPresence.RecoveryAnchor = 2 -> Kiln.PetPresence
+Kiln.PetPresence.Retiring = 3 -> Kiln.PetPresence
+Kiln.PetProtectionLostEvent
+Kiln.PetPvpMode
+Kiln.PetPvpMode.ByModRule = 1 -> Kiln.PetPvpMode
+Kiln.PetPvpMode.Off = 0 -> Kiln.PetPvpMode
+Kiln.PetRecordCommittedEvent
+Kiln.PetRecordCommittedEvent.CapturedStateRevision.get -> ulong
+Kiln.PetRecordCommittedEvent.Commit.get -> Kiln.PetCommit!
+Kiln.PetRecordCommittedEvent.Owner.get -> Kiln.CharacterKey
+Kiln.PetRecordCommittedEvent.Pet.get -> Kiln.PetId
+Kiln.PetRecordCommittedEvent.PreviousDurableRevision.get -> ulong
+Kiln.PetRecoveryAnchorChangedEvent
+Kiln.PetReleasedEvent
+Kiln.PetRequest
+Kiln.PetRequest.<Clone>$() -> Kiln.PetRequest!
+Kiln.PetRequest.Deconstruct(out System.Guid OperationId, out ulong ExpectedStateRevision) -> void
+Kiln.PetRequest.Equals(Kiln.PetRequest? other) -> bool
+Kiln.PetRequest.ExpectedStateRevision.get -> ulong
+Kiln.PetRequest.ExpectedStateRevision.init -> void
+Kiln.PetRequest.OperationId.get -> System.Guid
+Kiln.PetRequest.OperationId.init -> void
+Kiln.PetRequest.PetRequest(System.Guid OperationId, ulong ExpectedStateRevision = 0) -> void
+Kiln.PetResult
+Kiln.PetResult.<Clone>$() -> Kiln.PetResult!
+Kiln.PetResult.Costs.get -> System.Collections.Generic.IReadOnlyList<Kiln.CostReceipt!>!
+Kiln.PetResult.Costs.init -> void
+Kiln.PetResult.Deconstruct(out bool Ok, out string? Reason, out Kiln.PetSnapshot? Pet, out System.Guid OperationId, out System.Collections.Generic.IReadOnlyList<Kiln.CostReceipt!>! Costs) -> void
+Kiln.PetResult.Equals(Kiln.PetResult? other) -> bool
+Kiln.PetResult.Ok.get -> bool
+Kiln.PetResult.Ok.init -> void
+Kiln.PetResult.OperationId.get -> System.Guid
+Kiln.PetResult.OperationId.init -> void
+Kiln.PetResult.Pet.get -> Kiln.PetSnapshot?
+Kiln.PetResult.Pet.init -> void
+Kiln.PetResult.PetResult(bool Ok, string? Reason, Kiln.PetSnapshot? Pet, System.Guid OperationId, System.Collections.Generic.IReadOnlyList<Kiln.CostReceipt!>! Costs) -> void
+Kiln.PetResult.Reason.get -> string?
+Kiln.PetResult.Reason.init -> void
+Kiln.PetReviveCanceledEvent
+Kiln.PetRevivePolicy
+Kiln.PetRevivePolicy.<Clone>$() -> Kiln.PetRevivePolicy!
+Kiln.PetRevivePolicy.Allowed.get -> bool
+Kiln.PetRevivePolicy.Allowed.init -> void
+Kiln.PetRevivePolicy.CancelOnMovement.get -> bool
+Kiln.PetRevivePolicy.CancelOnMovement.init -> void
+Kiln.PetRevivePolicy.CancelOnObservedOwnerDamage.get -> bool
+Kiln.PetRevivePolicy.CancelOnObservedOwnerDamage.init -> void
+Kiln.PetRevivePolicy.ChannelSeconds.get -> double
+Kiln.PetRevivePolicy.ChannelSeconds.init -> void
+Kiln.PetRevivePolicy.Cost.get -> Kiln.PetCostDefinition?
+Kiln.PetRevivePolicy.Cost.init -> void
+Kiln.PetRevivePolicy.Equals(Kiln.PetRevivePolicy? other) -> bool
+Kiln.PetRevivePolicy.HealthFraction.get -> double
+Kiln.PetRevivePolicy.HealthFraction.init -> void
+Kiln.PetRevivePolicy.MaxOwnerDisplacement.get -> double
+Kiln.PetRevivePolicy.MaxOwnerDisplacement.init -> void
+Kiln.PetRevivePolicy.PetRevivePolicy() -> void
+Kiln.PetRevivePolicy.RangeMeters.get -> double
+Kiln.PetRevivePolicy.RangeMeters.init -> void
+Kiln.PetReviveStartedEvent
+Kiln.PetRevivedEvent
+Kiln.PetRevivingEvent
+Kiln.PetRevivingEvent.Cost.get -> Kiln.PetCostDefinition?
+Kiln.PetRevivingEvent.OperationId.get -> System.Guid
+Kiln.PetRevivingEvent.Owner.get -> Kiln.CharacterKey
+Kiln.PetRevivingEvent.Pet.get -> Kiln.PetSnapshot!
+Kiln.PetSnapshot
+Kiln.PetSnapshot.<Clone>$() -> Kiln.PetSnapshot!
+Kiln.PetSnapshot.Body.get -> Kiln.EntityRef
+Kiln.PetSnapshot.Body.init -> void
+Kiln.PetSnapshot.BodyGeneration.get -> ulong
+Kiln.PetSnapshot.BodyGeneration.init -> void
+Kiln.PetSnapshot.Definition.get -> string!
+Kiln.PetSnapshot.Definition.init -> void
+Kiln.PetSnapshot.DurableRevision.get -> ulong
+Kiln.PetSnapshot.DurableRevision.init -> void
+Kiln.PetSnapshot.Equals(Kiln.PetSnapshot? other) -> bool
+Kiln.PetSnapshot.Health.get -> int
+Kiln.PetSnapshot.Health.init -> void
+Kiln.PetSnapshot.HealthMax.get -> int
+Kiln.PetSnapshot.HealthMax.init -> void
+Kiln.PetSnapshot.Id.get -> Kiln.PetId
+Kiln.PetSnapshot.Id.init -> void
+Kiln.PetSnapshot.Label.get -> string!
+Kiln.PetSnapshot.Label.init -> void
+Kiln.PetSnapshot.LastCommit.get -> Kiln.PetCommit?
+Kiln.PetSnapshot.LastCommit.init -> void
+Kiln.PetSnapshot.Level.get -> int
+Kiln.PetSnapshot.Level.init -> void
+Kiln.PetSnapshot.Life.get -> Kiln.PetLife
+Kiln.PetSnapshot.Life.init -> void
+Kiln.PetSnapshot.Owner.get -> Kiln.CharacterKey
+Kiln.PetSnapshot.Owner.init -> void
+Kiln.PetSnapshot.PetSnapshot() -> void
+Kiln.PetSnapshot.Presence.get -> Kiln.PetPresence
+Kiln.PetSnapshot.Presence.init -> void
+Kiln.PetSnapshot.RecoveryAnchor.get -> Kiln.WorldPosition?
+Kiln.PetSnapshot.RecoveryAnchor.init -> void
+Kiln.PetSnapshot.RequestedOrder.get -> Kiln.PetOrder
+Kiln.PetSnapshot.RequestedOrder.init -> void
+Kiln.PetSnapshot.RequestedTarget.get -> Kiln.EntityRef
+Kiln.PetSnapshot.RequestedTarget.init -> void
+Kiln.PetSnapshot.ReviveDuration.get -> double
+Kiln.PetSnapshot.ReviveDuration.init -> void
+Kiln.PetSnapshot.ReviveElapsed.get -> double
+Kiln.PetSnapshot.ReviveElapsed.init -> void
+Kiln.PetSnapshot.ReviveOperation.get -> System.Guid?
+Kiln.PetSnapshot.ReviveOperation.init -> void
+Kiln.PetSnapshot.StateRevision.get -> ulong
+Kiln.PetSnapshot.StateRevision.init -> void
+Kiln.PetSnapshot.Transition.get -> Kiln.PetTransition
+Kiln.PetSnapshot.Transition.init -> void
+Kiln.PetSnapshot.WantsSummoned.get -> bool
+Kiln.PetSnapshot.WantsSummoned.init -> void
+Kiln.PetSnapshot.WorldEpoch.get -> ulong
+Kiln.PetSnapshot.WorldEpoch.init -> void
+Kiln.PetStatsChangedEvent
+Kiln.PetSummonedEvent
+Kiln.PetTargetPolicy
+Kiln.PetTargetPolicy.<Clone>$() -> Kiln.PetTargetPolicy!
+Kiln.PetTargetPolicy.Equals(Kiln.PetTargetPolicy? other) -> bool
+Kiln.PetTargetPolicy.HostileFactions.get -> System.Collections.Generic.IReadOnlyList<Kiln.Faction>?
+Kiln.PetTargetPolicy.HostileFactions.init -> void
+Kiln.PetTargetPolicy.PetTargetPolicy() -> void
+Kiln.PetTargetPolicy.Pvp.get -> Kiln.PetPvpMode
+Kiln.PetTargetPolicy.Pvp.init -> void
+Kiln.PetTransition
+Kiln.PetTransition.Dismissing = 3 -> Kiln.PetTransition
+Kiln.PetTransition.Downing = 2 -> Kiln.PetTransition
+Kiln.PetTransition.None = 0 -> Kiln.PetTransition
+Kiln.PetTransition.Releasing = 5 -> Kiln.PetTransition
+Kiln.PetTransition.Reviving = 4 -> Kiln.PetTransition
+Kiln.PetTransition.Spawning = 1 -> Kiln.PetTransition
+Kiln.PetTransitionChangedEvent
+Kiln.PetViewEntry
+Kiln.PetViewEntry.<Clone>$() -> Kiln.PetViewEntry!
+Kiln.PetViewEntry.Body.get -> Kiln.PetBodyViewKey?
+Kiln.PetViewEntry.Body.init -> void
+Kiln.PetViewEntry.Current.get -> int
+Kiln.PetViewEntry.Current.init -> void
+Kiln.PetViewEntry.Definition.get -> string!
+Kiln.PetViewEntry.Definition.init -> void
+Kiln.PetViewEntry.DurableRevision.get -> ulong
+Kiln.PetViewEntry.DurableRevision.init -> void
+Kiln.PetViewEntry.Equals(Kiln.PetViewEntry? other) -> bool
+Kiln.PetViewEntry.Id.get -> Kiln.PetId
+Kiln.PetViewEntry.Id.init -> void
+Kiln.PetViewEntry.Label.get -> string!
+Kiln.PetViewEntry.Label.init -> void
+Kiln.PetViewEntry.Level.get -> int
+Kiln.PetViewEntry.Level.init -> void
+Kiln.PetViewEntry.Life.get -> Kiln.PetLife
+Kiln.PetViewEntry.Life.init -> void
+Kiln.PetViewEntry.Maximum.get -> int
+Kiln.PetViewEntry.Maximum.init -> void
+Kiln.PetViewEntry.PetViewEntry() -> void
+Kiln.PetViewEntry.Presence.get -> Kiln.PetPresence
+Kiln.PetViewEntry.Presence.init -> void
+Kiln.PetViewEntry.RecoveryAnchor.get -> Kiln.WorldPosition?
+Kiln.PetViewEntry.RecoveryAnchor.init -> void
+Kiln.PetViewEntry.RequestedOrder.get -> Kiln.PetOrder
+Kiln.PetViewEntry.RequestedOrder.init -> void
+Kiln.PetViewEntry.ReviveDurationMs.get -> uint
+Kiln.PetViewEntry.ReviveDurationMs.init -> void
+Kiln.PetViewEntry.ReviveElapsedMs.get -> uint
+Kiln.PetViewEntry.ReviveElapsedMs.init -> void
+Kiln.PetViewEntry.ReviveOperation.get -> System.Guid?
+Kiln.PetViewEntry.ReviveOperation.init -> void
+Kiln.PetViewEntry.ShowBar.get -> bool
+Kiln.PetViewEntry.ShowBar.init -> void
+Kiln.PetViewEntry.ShowMarker.get -> bool
+Kiln.PetViewEntry.ShowMarker.init -> void
+Kiln.PetViewEntry.StateRevision.get -> ulong
+Kiln.PetViewEntry.StateRevision.init -> void
+Kiln.PetViewEntry.Transition.get -> Kiln.PetTransition
+Kiln.PetViewEntry.Transition.init -> void
+Kiln.PetViewState
+Kiln.PetViewState.Current = 1 -> Kiln.PetViewState
+Kiln.PetViewState.Disconnected = 0 -> Kiln.PetViewState
+Kiln.PetViewState.Stale = 2 -> Kiln.PetViewState
+Kiln.PetViewStateChangedEvent
+Kiln.PetViewStateChangedEvent.State.get -> Kiln.PetViewState
+Kiln.Pets
+Kiln.PetsClient
+override Kiln.CostReceipt.Equals(object? obj) -> bool
+override Kiln.CostReceipt.GetHashCode() -> int
+override Kiln.CostReceipt.ToString() -> string!
+override Kiln.ItemSelection.Equals(object? obj) -> bool
+override Kiln.ItemSelection.GetHashCode() -> int
+override Kiln.ItemSelection.ToString() -> string!
+override Kiln.PetBodyViewKey.Equals(object? obj) -> bool
+override Kiln.PetBodyViewKey.GetHashCode() -> int
+override Kiln.PetBodyViewKey.ToString() -> string!
+override Kiln.PetCaps.Equals(object? obj) -> bool
+override Kiln.PetCaps.GetHashCode() -> int
+override Kiln.PetCaps.ToString() -> string!
+override Kiln.PetChange.Equals(object? obj) -> bool
+override Kiln.PetChange.GetHashCode() -> int
+override Kiln.PetChange.ToString() -> string!
+override Kiln.PetCommit.Equals(object? obj) -> bool
+override Kiln.PetCommit.GetHashCode() -> int
+override Kiln.PetCommit.ToString() -> string!
+override Kiln.PetCostDefinition.Equals(object? obj) -> bool
+override Kiln.PetCostDefinition.GetHashCode() -> int
+override Kiln.PetCostDefinition.ToString() -> string!
+override Kiln.PetDefinition.Equals(object? obj) -> bool
+override Kiln.PetDefinition.GetHashCode() -> int
+override Kiln.PetDefinition.ToString() -> string!
+override Kiln.PetDefinitionResult.Equals(object? obj) -> bool
+override Kiln.PetDefinitionResult.GetHashCode() -> int
+override Kiln.PetDefinitionResult.ToString() -> string!
+override Kiln.PetDownedPolicy.Equals(object? obj) -> bool
+override Kiln.PetDownedPolicy.GetHashCode() -> int
+override Kiln.PetDownedPolicy.ToString() -> string!
+override Kiln.PetHudOptions.Equals(object? obj) -> bool
+override Kiln.PetHudOptions.GetHashCode() -> int
+override Kiln.PetHudOptions.ToString() -> string!
+override Kiln.PetHudPolicy.Equals(object? obj) -> bool
+override Kiln.PetHudPolicy.GetHashCode() -> int
+override Kiln.PetHudPolicy.ToString() -> string!
+override Kiln.PetId.GetHashCode() -> int
+override Kiln.PetId.ToString() -> string!
+override Kiln.PetLevelPolicy.Equals(object? obj) -> bool
+override Kiln.PetLevelPolicy.GetHashCode() -> int
+override Kiln.PetLevelPolicy.ToString() -> string!
+override Kiln.PetMovementPolicy.Equals(object? obj) -> bool
+override Kiln.PetMovementPolicy.GetHashCode() -> int
+override Kiln.PetMovementPolicy.ToString() -> string!
+override Kiln.PetOwnerView.Equals(object? obj) -> bool
+override Kiln.PetOwnerView.GetHashCode() -> int
+override Kiln.PetOwnerView.ToString() -> string!
+override Kiln.PetRequest.Equals(object? obj) -> bool
+override Kiln.PetRequest.GetHashCode() -> int
+override Kiln.PetRequest.ToString() -> string!
+override Kiln.PetResult.Equals(object? obj) -> bool
+override Kiln.PetResult.GetHashCode() -> int
+override Kiln.PetResult.ToString() -> string!
+override Kiln.PetRevivePolicy.Equals(object? obj) -> bool
+override Kiln.PetRevivePolicy.GetHashCode() -> int
+override Kiln.PetRevivePolicy.ToString() -> string!
+override Kiln.PetSnapshot.Equals(object? obj) -> bool
+override Kiln.PetSnapshot.GetHashCode() -> int
+override Kiln.PetSnapshot.ToString() -> string!
+override Kiln.PetTargetPolicy.Equals(object? obj) -> bool
+override Kiln.PetTargetPolicy.GetHashCode() -> int
+override Kiln.PetTargetPolicy.ToString() -> string!
+override Kiln.PetViewEntry.Equals(object? obj) -> bool
+override Kiln.PetViewEntry.GetHashCode() -> int
+override Kiln.PetViewEntry.ToString() -> string!
+static Kiln.CostReceipt.operator !=(Kiln.CostReceipt? left, Kiln.CostReceipt? right) -> bool
+static Kiln.CostReceipt.operator ==(Kiln.CostReceipt? left, Kiln.CostReceipt? right) -> bool
+static Kiln.ItemSelection.operator !=(Kiln.ItemSelection? left, Kiln.ItemSelection? right) -> bool
+static Kiln.ItemSelection.operator ==(Kiln.ItemSelection? left, Kiln.ItemSelection? right) -> bool
+static Kiln.PetBodyViewKey.operator !=(Kiln.PetBodyViewKey? left, Kiln.PetBodyViewKey? right) -> bool
+static Kiln.PetBodyViewKey.operator ==(Kiln.PetBodyViewKey? left, Kiln.PetBodyViewKey? right) -> bool
+static Kiln.PetCaps.operator !=(Kiln.PetCaps? left, Kiln.PetCaps? right) -> bool
+static Kiln.PetCaps.operator ==(Kiln.PetCaps? left, Kiln.PetCaps? right) -> bool
+static Kiln.PetChange.operator !=(Kiln.PetChange? left, Kiln.PetChange? right) -> bool
+static Kiln.PetChange.operator ==(Kiln.PetChange? left, Kiln.PetChange? right) -> bool
+static Kiln.PetCommit.operator !=(Kiln.PetCommit? left, Kiln.PetCommit? right) -> bool
+static Kiln.PetCommit.operator ==(Kiln.PetCommit? left, Kiln.PetCommit? right) -> bool
+static Kiln.PetCostDefinition.operator !=(Kiln.PetCostDefinition? left, Kiln.PetCostDefinition? right) -> bool
+static Kiln.PetCostDefinition.operator ==(Kiln.PetCostDefinition? left, Kiln.PetCostDefinition? right) -> bool
+static Kiln.PetDefinition.operator !=(Kiln.PetDefinition? left, Kiln.PetDefinition? right) -> bool
+static Kiln.PetDefinition.operator ==(Kiln.PetDefinition? left, Kiln.PetDefinition? right) -> bool
+static Kiln.PetDefinitionResult.operator !=(Kiln.PetDefinitionResult? left, Kiln.PetDefinitionResult? right) -> bool
+static Kiln.PetDefinitionResult.operator ==(Kiln.PetDefinitionResult? left, Kiln.PetDefinitionResult? right) -> bool
+static Kiln.PetDownedPolicy.operator !=(Kiln.PetDownedPolicy? left, Kiln.PetDownedPolicy? right) -> bool
+static Kiln.PetDownedPolicy.operator ==(Kiln.PetDownedPolicy? left, Kiln.PetDownedPolicy? right) -> bool
+static Kiln.PetHudOptions.operator !=(Kiln.PetHudOptions? left, Kiln.PetHudOptions? right) -> bool
+static Kiln.PetHudOptions.operator ==(Kiln.PetHudOptions? left, Kiln.PetHudOptions? right) -> bool
+static Kiln.PetHudPolicy.operator !=(Kiln.PetHudPolicy? left, Kiln.PetHudPolicy? right) -> bool
+static Kiln.PetHudPolicy.operator ==(Kiln.PetHudPolicy? left, Kiln.PetHudPolicy? right) -> bool
+static Kiln.PetId.None.get -> Kiln.PetId
+static Kiln.PetId.operator !=(Kiln.PetId left, Kiln.PetId right) -> bool
+static Kiln.PetId.operator ==(Kiln.PetId left, Kiln.PetId right) -> bool
+static Kiln.PetLevelPolicy.operator !=(Kiln.PetLevelPolicy? left, Kiln.PetLevelPolicy? right) -> bool
+static Kiln.PetLevelPolicy.operator ==(Kiln.PetLevelPolicy? left, Kiln.PetLevelPolicy? right) -> bool
+static Kiln.PetMovementPolicy.operator !=(Kiln.PetMovementPolicy? left, Kiln.PetMovementPolicy? right) -> bool
+static Kiln.PetMovementPolicy.operator ==(Kiln.PetMovementPolicy? left, Kiln.PetMovementPolicy? right) -> bool
+static Kiln.PetOwnerView.operator !=(Kiln.PetOwnerView? left, Kiln.PetOwnerView? right) -> bool
+static Kiln.PetOwnerView.operator ==(Kiln.PetOwnerView? left, Kiln.PetOwnerView? right) -> bool
+static Kiln.PetRequest.New(ulong expectedStateRevision = 0) -> Kiln.PetRequest!
+static Kiln.PetRequest.operator !=(Kiln.PetRequest? left, Kiln.PetRequest? right) -> bool
+static Kiln.PetRequest.operator ==(Kiln.PetRequest? left, Kiln.PetRequest? right) -> bool
+static Kiln.PetResult.operator !=(Kiln.PetResult? left, Kiln.PetResult? right) -> bool
+static Kiln.PetResult.operator ==(Kiln.PetResult? left, Kiln.PetResult? right) -> bool
+static Kiln.PetRevivePolicy.operator !=(Kiln.PetRevivePolicy? left, Kiln.PetRevivePolicy? right) -> bool
+static Kiln.PetRevivePolicy.operator ==(Kiln.PetRevivePolicy? left, Kiln.PetRevivePolicy? right) -> bool
+static Kiln.PetSnapshot.operator !=(Kiln.PetSnapshot? left, Kiln.PetSnapshot? right) -> bool
+static Kiln.PetSnapshot.operator ==(Kiln.PetSnapshot? left, Kiln.PetSnapshot? right) -> bool
+static Kiln.PetTargetPolicy.DefaultHostileFactions.get -> System.Collections.Generic.IReadOnlyList<Kiln.Faction>!
+static Kiln.PetTargetPolicy.operator !=(Kiln.PetTargetPolicy? left, Kiln.PetTargetPolicy? right) -> bool
+static Kiln.PetTargetPolicy.operator ==(Kiln.PetTargetPolicy? left, Kiln.PetTargetPolicy? right) -> bool
+static Kiln.PetViewEntry.operator !=(Kiln.PetViewEntry? left, Kiln.PetViewEntry? right) -> bool
+static Kiln.PetViewEntry.operator ==(Kiln.PetViewEntry? left, Kiln.PetViewEntry? right) -> bool
+static Kiln.Pets.CancelRevive(Kiln.PlayerRef owner, Kiln.PetId pet, System.Guid reviveOperation, Kiln.PetRequest! request) -> System.Threading.Tasks.Task<Kiln.PetResult!>!
+static Kiln.Pets.Command(Kiln.PlayerRef owner, Kiln.PetId pet, Kiln.PetOrder order, Kiln.EntityRef target, Kiln.PetRequest! request) -> System.Threading.Tasks.Task<Kiln.PetResult!>!
+static Kiln.Pets.Define(Kiln.PetDefinition! definition) -> Kiln.PetDefinitionResult!
+static Kiln.Pets.Definition(string! id) -> Kiln.PetDefinition?
+static Kiln.Pets.Definitions.get -> System.Collections.Generic.IReadOnlyList<Kiln.PetDefinition!>!
+static Kiln.Pets.Dismiss(Kiln.PlayerRef owner, Kiln.PetId pet, Kiln.PetRequest! request) -> System.Threading.Tasks.Task<Kiln.PetResult!>!
+static Kiln.Pets.Get(Kiln.PetId pet) -> Kiln.PetSnapshot?
+static Kiln.Pets.Grant(Kiln.CharacterKey owner, string! definition, Kiln.PetRequest! request) -> System.Threading.Tasks.Task<Kiln.PetResult!>!
+static Kiln.Pets.IsHostile(Kiln.CharacterKey a, Kiln.CharacterKey b) -> bool
+static Kiln.Pets.Of(Kiln.CharacterKey owner) -> System.Collections.Generic.IReadOnlyList<Kiln.PetSnapshot!>!
+static Kiln.Pets.Release(Kiln.PlayerRef owner, Kiln.PetId pet, Kiln.PetRequest! request) -> System.Threading.Tasks.Task<Kiln.PetResult!>!
+static Kiln.Pets.Revive(Kiln.PlayerRef owner, Kiln.PetId pet, Kiln.PetRequest! request, Kiln.ItemSelection? cost = null) -> System.Threading.Tasks.Task<Kiln.PetResult!>!
+static Kiln.Pets.SetHostile(Kiln.CharacterKey a, Kiln.CharacterKey b, bool hostile) -> void
+static Kiln.Pets.Summon(Kiln.PlayerRef owner, Kiln.PetId pet, Kiln.PetRequest! request) -> System.Threading.Tasks.Task<Kiln.PetResult!>!
+static Kiln.PetsClient.Configure(Kiln.PetHudOptions! options) -> void
+static Kiln.PetsClient.Options.get -> Kiln.PetHudOptions!
+static Kiln.PetsClient.Snapshot.get -> Kiln.PetOwnerView?
+static Kiln.PetsClient.State.get -> Kiln.PetViewState
+~override Kiln.PetId.Equals(object obj) -> bool

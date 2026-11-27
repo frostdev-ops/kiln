@@ -39,6 +39,7 @@
 #include "services/kiln_combat.h"
 #include "services/kiln_component_changes.h"
 #include "services/kiln_creature_control.h"
+#include "services/kiln_pets.h"
 #include "services/kiln_spawn.h"
 #include "services/kiln_types.h"
 #include "services/kiln_world.h"
@@ -452,8 +453,76 @@ bool root_denied(const uint8_t* hit) {
     return cc->root_policy(s.sessions[KILN_WORLD_SERVER], root) != 0;
 }
 
+// kiln.pets' target rule (dev.32, 19d §4.4/§5.3): every hit a guarded pet body is part of, as root or target, is asked of
+// the pets' native safety module before any other policy and before kind != entity passes through: one rule for damage,
+// reaction, knockback and aggro, with the final health change and the current health of both ends (an allowed lethal hit on
+// a pet is latched and denied there). What the module needs of the game is read here, at this worker-safe seam: the
+// players' and enemy AI's components and the faction (keen::ecs::Faction, 1 byte), each guarded; nothing is read for a hit
+// no pet is part of. Looked up in on_ready; absent (no kiln-creature-control.dll of dev.32), nothing changes.
+std::atomic<const KilnPetsApi*> g_pets{nullptr};
+std::atomic<uint64_t> c_pet_denied{0};
+constexpr uint32_t kFactionHash = fnv1a("keen::ecs::Faction");                     // 0xA1F30F21, 1 byte: faction +0
+constexpr uint32_t kPlayerInputHash = fnv1a("keen::ecs::PlayerInput");             // 0xFB4F945A
+constexpr uint32_t kEnemyAiHash = fnv1a("keen::ecs::DynamicEnemy01BehaviorState"); // private; the broker's enemy_ai test
+static_assert(kFactionHash == 0xA1F30F21u && kPlayerInputHash == 0xFB4F945Au);
+
+uint8_t pet_class(uintptr_t w, uint32_t e, uint8_t* faction) {
+    *faction = KILN_PET_FACTION_UNKNOWN;
+    if (!w || !e) return 0;
+    uint8_t cls = KILN_PET_CLASS_KNOWN;
+    if (component(w, kPlayerInputHash, e)) cls |= KILN_PET_CLASS_PLAYER;
+    if (component(w, kEnemyAiHash, e)) cls |= KILN_PET_CLASS_ENEMY_AI;
+    uint64_t size = 0;
+    const void* f = component(w, kFactionHash, e, &size);
+    uint8_t v = 0;
+    if (f && size >= 1 && read_u8(f, &v)) *faction = v;
+    return cls;
+}
+
+bool pets_denied(const uint8_t* hit) {
+    const KilnPetsApi* pets = g_pets.load(std::memory_order_acquire);
+    if (!pets) return false;
+    uint32_t root = 0, target = 0, source = 0;
+    if (!read_u32(hit + HitOffsets::root_source, &root) || !read_u32(hit + HitOffsets::target, &target)) return false;
+    KilnSessionInfo s{};
+    s.size = sizeof s;
+    if (g_api->session(&s) != KILN_OK || !s.worlds[KILN_WORLD_SERVER]) return false;
+    const uint64_t epoch = s.sessions[KILN_WORLD_SERVER];
+    if (!pets->involved(epoch, root) && !pets->involved(epoch, target)) return false;
+    read_u32(hit + HitOffsets::source, &source);
+    KilnPetHitQuery q{};
+    q.size = sizeof q;
+    q.world_epoch = epoch;
+    q.root_source = root;
+    q.source = source;
+    q.target = target;
+    uint32_t flags = 0, word = 0, aggro = 0;
+    uint8_t kind = 0xFF;
+    read_u32(hit + H.flags, &flags);
+    q.hit_flags = flags;
+    if (read_u8(hit + H.kind, &kind)) q.hit_kind = kind;
+    else q.hit_kind = 0xFF;
+    if (!read_u32(hit + H.health_change, reinterpret_cast<uint32_t*>(&q.health_change))) q.health_change = 0;
+    if (read_u32(hit + HitOffsets::reaction, &word)) {
+        q.reaction = static_cast<uint16_t>(word & 0xFFFFu);
+        q.pushback = static_cast<uint8_t>((word >> 16) & 0xFFu);
+    }
+    if (flags & kFlagForceInterrupt) q.reaction = q.reaction ? q.reaction : 1;
+    if (read_u32(hit + HitOffsets::aggro, &aggro)) std::memcpy(&q.aggro, &aggro, sizeof q.aggro);
+    int32_t cur = -1, max = -1;
+    q.root_health = root && read_health(world(), registry(), root, &cur, &max) ? cur : -1;
+    cur = -1;
+    q.target_health = target && read_health(world(), registry(), target, &cur, &max) ? cur : -1;
+    q.root_class = pet_class(world(), root, &q.root_faction);
+    q.target_class = pet_class(world(), target, &q.target_faction);
+    return pets->hit_policy(&q) == KILN_PET_HIT_DENY;
+}
+
 void __fastcall hk_apply_hit(uint8_t* prop, void* handle, void* ctx, uint8_t* hit) {
-    if (root_denied(hit)) {
+    const bool retired_root = root_denied(hit);
+    const bool pet_denied = !retired_root && pets_denied(hit);
+    if (pet_denied && c_pet_denied.fetch_add(1, std::memory_order_relaxed) == 0) LOGI("a hit was denied by a pet's target rule");
+    if (retired_root || pet_denied) {
         if (prop) *prop = 0;
         // a Kiln request (Combat.Damage) ends Dropped, as at the god-mode seam: the hit never happened
         uint32_t impact = 0;
@@ -467,7 +536,7 @@ void __fastcall hk_apply_hit(uint8_t* prop, void* handle, void* ctx, uint8_t* hi
                 }
             }
         }
-        if (c_root_denied.fetch_add(1, std::memory_order_relaxed) == 0) LOGI("a hit of a retired or quarantined root was denied");
+        if (retired_root && c_root_denied.fetch_add(1, std::memory_order_relaxed) == 0) LOGI("a hit of a retired or quarantined root was denied");
         return;
     }
     uint32_t target = 0, impact = 0, flags = 0;
@@ -1995,6 +2064,9 @@ void KILN_CALL on_ready(void*) {
             g_api->service(KilnStr{KILN_CREATURE_CONTROL_SERVICE, std::strlen(KILN_CREATURE_CONTROL_SERVICE)}, 1));
         cc && cc->header.size >= offsetof(KilnCreatureControlApi, root_policy) + sizeof(cc->root_policy) && cc->root_policy)
         g_control.store(cc, std::memory_order_release);
+    if (const auto* pets = static_cast<const KilnPetsApi*>(g_api->service(KilnStr{KILN_PETS_SERVICE, std::strlen(KILN_PETS_SERVICE)}, 1));
+        pets && pets->header.size >= offsetof(KilnPetsApi, involved) + sizeof(pets->involved) && pets->hit_policy && pets->involved)
+        g_pets.store(pets, std::memory_order_release);
     g_spawn_api = static_cast<const KilnSpawnApi*>(
         g_api->service(KilnStr{KILN_SPAWN_SERVICE, std::strlen(KILN_SPAWN_SERVICE)}, 1));
     if (g_spawn_api && g_spawn_api->header.size < sizeof(KilnSpawnApi)) g_spawn_api = nullptr;

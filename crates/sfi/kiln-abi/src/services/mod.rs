@@ -42,6 +42,7 @@ pub mod kiln_net;
 pub mod kiln_npcai;
 pub mod kiln_npcspeech;
 pub mod kiln_pacing;
+pub mod kiln_pets;
 pub mod kiln_playeranim;
 pub mod kiln_players;
 pub mod kiln_playerstate;

@@ -1,0 +1,15 @@
+{
+  "comment": "The duelist, written as data: every choice is this mod's (docs/kiln/modding/pets.md).",
+  "pets": {
+    "duelist": {
+      "creature": "game:enemy_vukah_melee",
+      "name": "Duelist",
+      "level": { "mode": "ownerAtSummon" },
+      "movement": { "followDistance": 4, "runDistance": 12 },
+      "targets": { "pvp": "byModRule" },
+      "downed": { "outcome": "absent" },
+      "revive": { "channelSeconds": 5, "cost": { "item": "Material_T1_Twigs", "count": 3 } },
+      "hud": { "recoveryMarker": false }
+    }
+  }
+}

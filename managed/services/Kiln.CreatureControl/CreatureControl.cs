@@ -127,6 +127,24 @@ public static unsafe partial class CreatureControl
     // Kiln's own services: a lease this face tracks ended (its first terminal state), at the service tick (tick thread).
     internal static event Action<ControlLeaseSnapshot>? LeaseEnded;
 
+    // Kiln's own services (Kiln.Pets): latches the body's quarantine (cause 1-9, KILN_CONTROL_CAUSE_*): every lease of it
+    // loses authority at once and its root is denied; the broker retires its rows once the body is gone. Any thread, no
+    // game call. False when the broker has no such body (or no table).
+    internal static bool QuarantineBody(ControlBodyKey body, uint cause)
+    {
+        var t = CreatureControlNative.T;
+        if (t == null) return false;
+        var key = new CreatureControlNative.BodyKey { WorldEpoch = body.WorldEpoch, BodyGeneration = body.BodyGeneration, Entity = body.Entity.Value };
+        return t->Quarantine(key, cause) == CreatureControlNative.Ok;
+    }
+
+    // Kiln's own services: root_policy of the broker (1: the root is quarantined or retired). Any thread.
+    internal static bool RootDenied(ulong worldEpoch, EntityId root)
+    {
+        var t = CreatureControlNative.T;
+        return t != null && t->RootPolicy(worldEpoch, root.Value) != 0;
+    }
+
     private static readonly Dictionary<string, ulong> ServiceOwners = new(StringComparer.Ordinal);
 
     private static ulong ServiceOwner(string service)

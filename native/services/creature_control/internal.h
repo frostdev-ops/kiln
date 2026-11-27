@@ -36,4 +36,12 @@ ProgramCounters program_counters();
 // inject.cpp: the native-only test surface, on only with the lab switch kiln/data/kiln.creature_control/inject.
 void inject_init();
 
+// control.cpp, for the pets module (dev.32): the server world's epoch (0: none) and whether an entity exists in it (tick).
+uint64_t server_epoch();
+bool body_exists(KilnEntity e);
+
+// pets_service.cpp: kiln.pets v1, the native safety module of Kiln.Pets in this same DLL.
+void pets_register(const KilnApi* api, KilnOwner owner);
+void pets_pre(uint64_t epoch, uint64_t step);
+
 }  // namespace kcc

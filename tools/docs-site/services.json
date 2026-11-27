@@ -329,6 +329,7 @@
         "ModelPhysics",
         "NpcBody",
         "NpcSample",
+        "PetsSample",
         "RarityAnvil",
         "ScreenEffects",
         "StationBlocks",
@@ -448,6 +449,7 @@
         "NewItems",
         "NpcSample",
         "OreVein",
+        "PetsSample",
         "QuietServer",
         "QuiverSample",
         "ReplWatch",
@@ -915,6 +917,48 @@
       ]
     },
     {
+      "assembly": "Kiln.Pets",
+      "name": "Pets",
+      "summary": "Pets for mods: owned records per character, bodies held through the creature control broker and guarded natively, follow and attack orders, downed and revive with cost receipts, the owner's HUD; every behaviour choice is the mod's",
+      "guides": [
+        "docs/kiln/services/pets.md",
+        "docs/kiln/modding/pets.md"
+      ],
+      "capabilities": [
+        {
+          "name": "pets.definitions",
+          "members": 1
+        },
+        {
+          "name": "pets.downed",
+          "members": 2
+        },
+        {
+          "name": "pets.fight",
+          "members": 1
+        },
+        {
+          "name": "pets.follow",
+          "members": 1
+        },
+        {
+          "name": "pets.hud.client",
+          "members": 2
+        },
+        {
+          "name": "pets.records",
+          "members": 5
+        },
+        {
+          "name": "pets.summon",
+          "members": 2
+        }
+      ],
+      "samples": [
+        "PetsSample"
+      ]
+    },
+    {
       "assembly": "Kiln.PlayerAnim",
       "name": "PlayerAnim",
       "summary": "Mods' states in the player's animation graph, merged at boot",
@@ -981,6 +1025,7 @@
         "NewItems",
         "NpcSample",
         "OreVein",
+        "PetsSample",
         "QuietServer",
         "ReplWatch",
         "RulesSample",
@@ -1214,6 +1259,7 @@
         "ItemData",
         "Loadouts",
         "ModValues",
+        "PetsSample",
         "SavedData",
         "Schematics",
         "UiBlocks"
