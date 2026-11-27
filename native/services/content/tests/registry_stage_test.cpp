@@ -1483,6 +1483,35 @@ void effect_replay(const std::string& dir) {
         foreign.data[file] = f.dump();
         refused_with(foreign, other, journal(false, "1.0.0"), "another package's");
     }
+    // review-j3: the replayed value stands where the package's archive value stood, below Kiln's older paths (D1: an old boot
+    // document's write wins over the archive). One that sets the field absolutely wins as before (the stand-in yields there and
+    // the rest of the package is replayed); one that changes it relatively composed on the package's own value, which a
+    // replay cannot put under it: the package is refused whole
+    {
+        auto old_write = [](Op op) {
+            OldWrite w;
+            w.kind = WriterKind::OldPatch, w.mod = "oldmod", w.who = "oldmod/stacks", w.field = {"items", "game:plank", "maxStack"}, w.op = op;
+            return std::vector<OldWrite>{w};
+        };
+        Op set40;
+        set40.set = true, set40.value = Value::integer(40);
+        Start a = start(later, other, journal(false, "1.0.0"), &sections, old_write(set40));
+        const json* pa = plank(a.rep);
+        bool stand = false;
+        if (pa)
+            for (const json& w : (*pa)["writers"]) stand = stand || w.value("mod", "") == "replay.sf.betterstacks";
+        check(pa && (*pa)["result"] == 320 && !stand && row0(a.rep).value("state", "") == "replayed",
+              "an old document's absolute value (40) wins over the replayed one, as over the archive's; the mods' x4 x2 compose on it: " + (pa ? pa->dump() : a.rep.dump().substr(0, 600)));
+        Op mul2;
+        mul2.mul = 2.0;
+        Start b2 = start(later, other, journal(false, "1.0.0"), &sections, old_write(mul2));
+        const json* pb = plank(b2.rep);
+        bool stood = false;
+        if (pb)
+            for (const json& w : (*pb)["writers"]) stood = stood || w.value("mod", "") == "replay.sf.betterstacks";
+        check(row0(b2.rep).value("state", "") == "refused" && row0(b2.rep).value("text", "").find("oldmod/stacks") != std::string::npos && !stood,
+              "an old document's relative change of a replayed field: refused whole, named: " + b2.rep.value("replay", json()).dump());
+    }
 }
 
 // Review (registry-writers): the journal lists resources by their key, so only a registry whose entries are each a whole

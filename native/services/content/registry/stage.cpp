@@ -568,6 +568,38 @@ struct Runner::Impl {
         }
         inputs->insert(inputs->begin(), std::make_move_iterator(front.begin()), std::make_move_iterator(front.end()));
     }
+    // After compose (review-j3): a replayed package's edit yields where an old boot document of a Kiln mod writes the field
+    // (replay::replay_batch), as the package's archive value lay below it (D1). Where none of those writes sets the field
+    // (each composes on what lies below), they composed on the package's own value, which a replay cannot put under them: a
+    // refusal of the package, for unreplay. The others are counted (the row says the older path keeps them).
+    std::vector<Refusal> replay_over_old(const Result& r) {
+        std::vector<Refusal> out;
+        replay_kept_old.clear();
+        for (const Line& line : r.lines) {
+            if (line.kind != LineKind::Yielded || !replay_ids.count(line.loser)) continue;
+            const auto fo = r.fields.find(line.field);
+            if (fo == r.fields.end()) continue;
+            const ChainRow* relative = nullptr;
+            bool set = false;
+            for (const ChainRow& c : fo->second.chain) {
+                if (c.kind != WriterKind::OldPatch && c.kind != WriterKind::OldPack && c.kind != WriterKind::Code) continue;
+                const bool absolute = !c.element.on && (c.list == ListOp::None ? c.op.set : (c.list == ListOp::Clear || c.list == ListOp::Replace));
+                set = set || absolute;
+                if (!absolute && !relative) relative = &c;
+            }
+            if (set) {
+                ++replay_kept_old[line.loser];
+                continue;
+            }
+            Refusal x;
+            x.mod = line.loser, x.registry = line.field.registry, x.id = line.field.id, x.field = line.field.field;
+            x.reason = line.field.text() + ": Kiln's older path " + (relative ? relative->who : std::string("(an old boot document)")) +
+                       " changes it relative to the package's own value, which a replay cannot put below it";
+            out.push_back(std::move(x));
+        }
+        return out;
+    }
+    std::map<std::string, size_t> replay_kept_old;  // stand-in mod -> its fields an older path's value keeps (replay_over_old)
     // After compose: a replayed package any of whose edits the stage refused (a conflict, a saves check, an entry this base
     // lacks) is refused whole: its input goes and the caller composes again. true: one went.
     bool unreplay(std::vector<ModInput>* inputs, const std::vector<Refusal>& refused) {
@@ -1468,7 +1500,9 @@ std::vector<BootResource> Runner::run(const OldWritesFn& old_fn, const std::vect
     const std::string world_plan = d.index.contains("world") && d.index["world"].is_object() && d.index["world"].contains("plan") &&
                                            d.index["world"]["plan"].is_string() ? d.index["world"]["plan"].get<std::string>() : "";
     if (src) r = compose_checked(inputs, rolled);
-    // a replayed package is all or nothing: one of its edits refused takes it out, and the stage composes again
+    // a replayed package is all or nothing: one of its edits refused takes it out, and the stage composes again; so does one
+    // below an old boot document's relative change of its field (review-j3)
+    if (src && d.unreplay(&inputs, d.replay_over_old(r))) r = compose_checked(inputs, rolled);
     if (src && d.unreplay(&inputs, r.refused)) r = compose_checked(inputs, rolled);
     if (src && d.unreplay(&inputs, save_refused)) r = compose_checked(inputs, rolled);
     std::string guard_why, plan_why;  // plan_why: the whole plan is refused by a check of all of it (not one edit)
@@ -1662,6 +1696,9 @@ std::vector<BootResource> Runner::run(const OldWritesFn& old_fn, const std::vect
     if (m) m->release();
     std::lock_guard lk(d.mu);
     d.meta.migrated = std::move(migrated);
+    for (replay::Outcome& row : d.replay_rows)  // the fields an old boot document's value keeps, as it kept the package's own
+        if (const auto k = d.replay_kept_old.find(replay::mod_id_of(row.who)); row.state == "replayed" && k != d.replay_kept_old.end() && k->second)
+            row.text += " (" + std::to_string(k->second) + " of them kept at the value an old boot document of a Kiln mod sets there, as over the package's own)";
     d.meta.replay = d.replay_rows.empty() ? json(nullptr) : replay::outcomes_json(d.replay_rows);
     d.meta.rollback = rb;
     if (rolled) {

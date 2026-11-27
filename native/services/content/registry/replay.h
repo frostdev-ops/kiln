@@ -79,7 +79,9 @@ bool parse_description(const std::string& text, Description* out, std::string* w
 Description describe(const ArchiveJournal::Package& p, const std::string& who, const BaseModel& base, const std::vector<std::string>& unmatched,
                      bool truncated);
 
-// One absolute edit per field of `d`, in a batch of stage alter whose edits stand in for the package (Edit::stand_in).
+// One absolute edit per field of `d`, in a batch of stage alter whose edits stand in for the package (Edit::stand_in). Each
+// yields to Kiln's older paths (Edit::yield): the package's value lay below an old boot document's write, as the archive
+// does (D1); where that write is relative it composed on the package's own value, and the stage refuses the package whole.
 // false + *why: an edit the IR refuses (a value that no longer fits its field, a field this schema lacks).
 bool replay_batch(const Description& d, const Schema& schema, Batch* out, std::string* why);
 

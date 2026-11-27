@@ -159,7 +159,10 @@ bool replay_batch(const Description& d, const Schema& schema, Batch* out, std::s
         *why = r.reason + (refused.size() > 1 ? " (and " + std::to_string(refused.size() - 1) + " more)" : std::string());
         return false;
     }
-    for (Edit& e : b.edits) e.stand_in = true;
+    // yield: the package's value stood where the archive is, below Kiln's older paths (D1): a field an old boot document of
+    // a Kiln mod writes keeps that document's value (review-j3; the stage refuses the package whole where that write was
+    // relative, stage.cpp replay_over_old)
+    for (Edit& e : b.edits) e.stand_in = true, e.yield = true;
     *out = std::move(b);
     return true;
 }
