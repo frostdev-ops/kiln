@@ -109,6 +109,27 @@ public sealed class TamingBlockTests : IDisposable
         Assert.Equal(bait.GameName, json["steps"]![0]!["item"]!.GetValue<string>());
     }
 
+    // API-SHAPE-2 A13: a taming names its creatures as a pet names its creature (PartRef<CreatureBlock>): a creatures
+    // registry id, a creature block's handle or name, or one written in place
+    [Fact]
+    public void Creatures_are_creature_references_as_a_pets_creature_is()
+    {
+        var mod = Mod("tame-f");
+        var pup = Compiler.Define(mod, "pup", new CreatureBlock { Body = Bodies.Vukah });
+        var block = Wolf() with
+        {
+            Creatures = ["game:enemy_wildbeast_wolf_earlygame", (BlockHandle<CreatureBlock>)pup, "pup", new CreatureBlock { Body = Bodies.Vukah }, "game:animal_wildlife_dog_*"],
+        };
+        Assert.Equal(typeof(IReadOnlyList<PartRef<CreatureBlock>>), typeof(TamingBlock).GetProperty(nameof(TamingBlock.Creatures))!.PropertyType);
+        Assert.Equal(typeof(PartRef<CreatureBlock>), typeof(PetBlock).GetProperty(nameof(PetBlock.Creature))!.PropertyType);
+        Lower(mod, "wolf", block).Low.CommitAfter();
+        var d = Assert.Single(_defined).Def;
+        Assert.Equal("game:enemy_wildbeast_wolf_earlygame", d.Creatures[0]);
+        Assert.Equal(["tame-f:pup", "tame-f:pup"], d.Creatures.Skip(1).Take(2));
+        Assert.StartsWith("tame-f:", d.Creatures[3]);   // the inline creature, compiled as the taming's own
+        Assert.Equal("game:animal_wildlife_dog_*", d.Creatures[4]);
+    }
+
     [Theory]
     [InlineData("creatures")]
     [InlineData("creatures[0]")]

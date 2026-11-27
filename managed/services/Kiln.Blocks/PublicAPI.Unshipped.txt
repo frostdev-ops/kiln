@@ -154,7 +154,7 @@ static Kiln.ReviveCostBlock.operator !=(Kiln.ReviveCostBlock? left, Kiln.ReviveC
 static Kiln.ReviveCostBlock.operator ==(Kiln.ReviveCostBlock? left, Kiln.ReviveCostBlock? right) -> bool
 Kiln.TamingBlock
 Kiln.TamingBlock.<Clone>$() -> Kiln.TamingBlock!
-Kiln.TamingBlock.Creatures.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.TamingBlock.Creatures.get -> System.Collections.Generic.IReadOnlyList<Kiln.PartRef<Kiln.CreatureBlock!>!>!
 Kiln.TamingBlock.Creatures.init -> void
 Kiln.TamingBlock.Equals(Kiln.TamingBlock? other) -> bool
 Kiln.TamingBlock.InactivitySeconds.get -> double

@@ -61,10 +61,11 @@ public sealed record TamingStepBlock
 [BlockClients(ClientsLevel.None)]
 public sealed record TamingBlock : IBlock
 {
-    /// <summary>The creatures it tames: a game creature by its creatures registry id (<c>game:enemy_wildbeast_wolf_earlygame</c>;
-    /// a trailing <c>*</c> matches a prefix of game ids), or a creature block of this mod (its name) or of another
-    /// (<c>other-mod:name</c>). At least one.</summary>
-    public required IReadOnlyList<string> Creatures { get; init; }
+    /// <summary>The creatures it tames, each named as a <see cref="PetBlock.Creature"/> is (one reference type): a game
+    /// creature by its creatures registry id (<c>"game:enemy_wildbeast_wolf_earlygame"</c>; a trailing <c>*</c> matches a
+    /// prefix of game ids), a <see cref="CreatureBlock"/> (inline, a handle, its name, or <c>"other-mod:name"</c>). At least
+    /// one.</summary>
+    public required IReadOnlyList<PartRef<CreatureBlock>> Creatures { get; init; }
     /// <summary>The steps, 1..64, in order.</summary>
     public required IReadOnlyList<TamingStepBlock> Steps { get; init; }
     /// <summary>The pet a tame makes: a <see cref="PetBlock"/> (inline, a handle, its name, or <c>other-mod:name</c>, or the id
@@ -157,15 +158,15 @@ internal static class TamingCompiler
         {
             var at = $"creatures[{i}]";
             var c = t.Creatures[i];
-            if (string.IsNullOrWhiteSpace(c)) throw new BlockError(ctx.Block, at, "an empty creature");
-            if (c.StartsWith("game:", StringComparison.Ordinal))
+            if (c is null || c.Inline is null && string.IsNullOrWhiteSpace(c.Name)) throw new BlockError(ctx.Block, at, "an empty creature");
+            if (c.Name is { } game && game.StartsWith("game:", StringComparison.Ordinal))
             {
-                if (c != c.ToLowerInvariant()) throw new BlockError(ctx.Block, at, $"\"{c}\" is not a creatures registry id (lower case)");
-                creatures.Add(c);
+                if (game != game.ToLowerInvariant()) throw new BlockError(ctx.Block, at, $"\"{game}\" is not a creatures registry id (lower case)");
+                creatures.Add(game);
                 continue;
             }
-            if (c.EndsWith('*')) throw new BlockError(ctx.Block, at, $"\"{c}\": a prefix (*) names game creatures only (game:animal_wildlife_dog_*)");
-            var (cid, info) = PetCompiler.CreatureOf(ctx, (PartRef<CreatureBlock>)c, $"{name}.creature{i}", at);
+            if (c.Name is { } prefix && prefix.EndsWith('*')) throw new BlockError(ctx.Block, at, $"\"{prefix}\": a prefix (*) names game creatures only (game:animal_wildlife_dog_*)");
+            var (cid, info) = PetCompiler.CreatureOf(ctx, c, $"{name}.creature{i}", at);
             creatures.Add(cid);
             if (info is not null) blocks.Add(info);
         }

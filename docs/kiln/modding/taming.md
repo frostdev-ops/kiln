@@ -88,8 +88,9 @@ Blocks.Define("wolf", new TamingBlock
 
 - **Items:** a game item (`Food_T2_Dog_Bait`, a `GameItems` constant) or an item block of this mod (its name) or of
   another (`other-mod:name`). A feed step takes a plain stack item, a tool step a gear item.
-- **Creatures:** a game creature by its creatures registry id (`game:...`, a trailing `*` for a prefix of game ids), or a
-  creature block (its name, or `other-mod:name`).
+- **Creatures:** each named as a `PetBlock`'s `Creature` is (`PartRef<CreatureBlock>`): a game creature by its creatures
+  registry id (`game:...`, a trailing `*` for a prefix of game ids), or a creature block (its handle, its name,
+  `other-mod:name`, or one written in place).
 - **Pet:** a pet block (inline, its name, `other-mod:name`), or the id of a pet a mod defined in code.
 - **Errors** are `BlockError`s naming the field (`steps[1].count`). An item the game's catalog does not have while the
   block compiles (a game client's `OnLoad`, the SDK's bake, a dedicated server before Kiln.Items reads the catalog) is

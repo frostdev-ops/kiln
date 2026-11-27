@@ -1956,7 +1956,7 @@ A taming: its creatures, its steps (the last one tames), how close, the timeouts
 | Key | Type | Required | Notes |
 |---|---|---|---|
 | `comment` | string |  |  |
-| `creatures` | array of string | yes | Game creatures by their creatures registry id (game:enemy_wildbeast_wolf_earlygame; a trailing * matches a prefix of game ids), or creature blocks of this mod (by name) or of another ("other-mod:name"). min items 1 |
+| `creatures` | array of string or [creature](#creature) | yes | Each named as a pet's creature is: a game creature by its creatures registry id (game:enemy_wildbeast_wolf_earlygame; a trailing * matches a prefix of game ids), a creature block of this mod (by name) or of another ("other-mod:name"), or one written here. min items 1 |
 | `inactivitySeconds` | number |  | Seconds of simulation without an applied step before the attempt expires (default 30). min 1 max 300 |
 | `maxAttemptSeconds` | number |  | The longest an attempt lasts, at least inactivitySeconds (default 300). min 1 max 3600 |
 | `pet` | [ref](#ref) or [pet](#pet) |  | The pet a tame makes: a pet block of this mod (by name) or of another ("other-mod:name"), or one written here. None: no pet. |
