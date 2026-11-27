@@ -393,6 +393,12 @@ public:
             s.seen_game = text;
             s.game_changed = true;
         }
+        // no draw for kReopenMs: the NPC left the HUD's NPC layer (walked off, out of range) and is back
+        if (s.shown && now - s.last_draw >= kReopenMs) {
+            s.shown = false;
+            s.hidden_since = s.last_draw;
+        }
+        s.last_draw = now;
         bool pick = false;
         if (g.pick == KILN_SPEECH_PICK_CHANGE) {
             pick = s.game_changed || g.cur == kUnpicked;
@@ -497,7 +503,7 @@ private:
         uint32_t seen_game = 0;        // the game's last pick in the bubble
         bool game_changed = false;     // ... changed since Kiln last picked
         bool shown = false, ever_shown = false;
-        uint64_t hidden_since = 0;
+        uint64_t hidden_since = 0, last_draw = 0;
         std::vector<Muted> muted;
         bool idle() const {
             for (auto& L : kinds)

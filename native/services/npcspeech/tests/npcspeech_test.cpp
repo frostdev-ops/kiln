@@ -165,6 +165,20 @@ int main() {
         c.set_lines(8, KILN_SPEECH_KIND_GREETING, KILN_SPEECH_REPLACE, one, 1, KILN_SPEECH_PICK_RANDOM, 0);
         CHECK(greet(c, 8, now) == 0xb1 && greet(c, 8, now) == 0xb1, "random with one line: that line");
     }
+    {  // the NPC leaves the HUD's NPC layer (no draws at all) and comes back: a new greeting, as after looking away
+        npcspeech::Core c;
+        c.set_lines(7, KILN_SPEECH_KIND_GREETING, KILN_SPEECH_REPLACE, tags, 3, KILN_SPEECH_PICK_ORDER, 0);
+        Params p;
+        p.set(2262475715u, 1);
+        c.draw(7, p.b, l, 1000);
+        const uint32_t a1 = p.text();
+        p.set(2262475715u, 1);
+        c.draw(7, p.b, l, 1000 + npcspeech::kReopenMs + 500);  // the next draw after a long gap, shown at once
+        CHECK(a1 == 0xa1 && p.text() == 0xa2, "back in the layer after a gap: the next line");
+        p.set(2262475715u, 1);
+        c.draw(7, p.b, l, 1000 + npcspeech::kReopenMs + 550);
+        CHECK(p.text() == 0xa2, "and it stays while it shows");
+    }
     {  // the v1 rule stays for set(): a new pick only when the game's pick changes
         npcspeech::Core c;
         c.set(7, KILN_SPEECH_REPLACE, tags, 3);
