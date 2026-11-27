@@ -249,7 +249,7 @@ public static class Npcs
     /// <exception cref="ArgumentException">The NPC or the player is None, or the text is empty or longer than 200
     /// characters.</exception>
     /// <example><code>
-    /// Npcs.MenuSay(npc, player, "That will be three coins.");
+    /// Npcs.MenuSay(npc, player.Entity.Id, "That will be three coins.");   // player: a PlayerRef; the call takes its entity id
     /// </code></example>
     /// <seealso cref="NpcTopicContext.Reply(string)"/>
     public static SpeechResult MenuSay(EntityId npc, EntityId player, string text) => MenuSay(npc, player, new UiText(text ?? ""));

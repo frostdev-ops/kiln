@@ -154,7 +154,7 @@ public sealed record PetSnapshot
 /// again: nothing runs twice. Never reuse an operation id for another action: that is <c>RequestConflict</c>.</remarks>
 /// <example><code>
 /// PetRequest request = PetRequest.New();                   // a fresh operation id
-/// PetRequest guarded = PetRequest.New(pet.StateRevision);  // refused (StaleRevision) if the pet changed since this snapshot
+/// PetRequest guarded = PetRequest.New(snapshot.StateRevision);  // refused (StaleRevision) if the pet changed since this PetSnapshot
 /// </code></example>
 /// <seealso cref="Pets.Summon"/>
 /// <param name="OperationId">Unique per request; the same id with another request is <c>RequestConflict</c>.</param>
