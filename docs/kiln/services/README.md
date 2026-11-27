@@ -80,6 +80,7 @@ row above and grows its own page.
 | [terrain.md](terrain.md) | `Kiln.Terrain`: bounded terrain overlays (a vein, a mound, a tunnel) applied once per world with a ledger of owned blocks; managed only, over kiln.build |
 | [boot.md](boot.md) | kiln.boot (in-core): `Mod.OnBoot`'s one generation per process; the table, the collector contract (bind, prepare, destroy), `activation_fault`, exit code 0x4B01, `state/boot.json` |
 | [creature-control.md](creature-control.md) | kiln.creature_control / CreatureControl: the one broker that owns a controlled creature body's AI-off layer and SteeringAgent; leases for pets, mounts, vehicles and NPC brains |
+| [pets.md](pets.md) | Kiln.Pets / kiln.pets (dev.32): the pet framework: owned records, bodies through the broker, the native guard and target rule, revive with cost receipts, the owner's view and bar; every behaviour choice is the mod's |
 | [systems.md](systems.md) | `Kiln.Systems` / kiln.world v4: Before, After and Replace on the game's own ECS programs, per slice or per entity; entity views, write events, attribute formulas |
 
 ### Service pages added in dev.29

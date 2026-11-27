@@ -26,7 +26,7 @@ public static partial class Pets
     /// again when a body is first made.</summary>
     /// <exception cref="ArgumentException">A value is out of its range, or the id is not the calling mod's
     /// (<c>&lt;mod id&gt;:&lt;name&gt;</c>).</exception>
-    [RequiresCapability(Caps.Definitions)]
+    [RequiresCapability("pets.definitions")]
     public static PetDefinitionResult Define(PetDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);

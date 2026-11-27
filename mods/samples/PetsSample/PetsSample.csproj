@@ -1,0 +1,16 @@
+<Project>
+  <!-- Sample: Kiln.Pets, the pet framework (docs/kiln/modding/pets.md). Two kinds of pet that make different choices (a
+       loyal hound with Kiln's safe defaults; a duelist that fights other players' duelists by this mod's consent rule,
+       vanishes when downed and costs twigs to revive), a downed-outcome choice per pet, a revive cooldown, and /pet
+       commands for everything. Server side, game creatures: vanilla clients watch; Kiln clients also get the pet bar. -->
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.props" />
+  <PropertyGroup>
+    <KilnModId>pets-sample</KilnModId>
+    <KilnModName>Pets (framework sample)</KilnModName>
+    <Version>0.1.0</Version>
+    <Description>Pets on Kiln.Pets: give, summon, order, revive and release; a consensual duel rule; per-pet choices.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <KilnServices>Blocks;Pets;Players;Saves;Chat</KilnServices>
+  </PropertyGroup>
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.targets" />
+</Project>
