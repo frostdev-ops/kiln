@@ -1363,6 +1363,12 @@ void effect_replay(const std::string& dir) {
           "the field it changed and the value it left: " + d.dump());
     check(one.rep["replay"].is_array() && one.rep["replay"].size() == 1 && one.rep["replay"][0]["state"] == "recorded" && one.rep["replay"][0]["fields"] == 1,
           "registry.json replay: recorded (the package not opted in is not listed): " + one.rep.value("replay", json()).dump());
+    bool said = false, early = false;
+    for (const std::string& l : one.files.log) {
+        said = said || l == "0 registry: replay: betterstacks (ShroudForge package): its Lua ran this start: its effect is recorded (1 field(s)), replayable after a game update";
+        early = early || l.find("recorded from what it changed") != std::string::npos;
+    }
+    check(said && !early, "kiln.log says what was recorded, once it is kept (not before)");
     // 2: another build, its Lua not applied: replayed below every mod; the mods' x4 and x2 compose on its value
     Files later = one.files;
     json rec = json::parse(later.data[file]);

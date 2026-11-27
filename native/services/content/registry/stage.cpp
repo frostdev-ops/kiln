@@ -559,7 +559,9 @@ struct Runner::Impl {
                     }
                 }
             }
-            log(row.state == "replayed" || row.state == "refused" ? 1 : 0, "registry: replay: " + archive_writer_label(who) + ": " + row.text);
+            // a package recorded this start is logged once its record is kept (record_replay) or not (record_none)
+            if (row.state != "recorded")
+                log(row.state == "replayed" || row.state == "refused" ? 1 : 0, "registry: replay: " + archive_writer_label(who) + ": " + row.text);
             replay_rows.push_back(std::move(row));
         }
         inputs->insert(inputs->begin(), std::make_move_iterator(front.begin()), std::make_move_iterator(front.end()));
@@ -599,6 +601,8 @@ struct Runner::Impl {
                                : d.residue.empty() ? "its Lua ran this start: its effect is recorded (" + std::to_string(d.fields.size()) + " field(s)), replayable after a game update"
                                                    : "its Lua ran this start: its effect is recorded, but " + std::to_string(d.residue.size()) +
                                                          " part(s) of it have no proven Kiln field (" + d.residue.front() + "), so it would not be replayed";
+                    // a record that cannot be kept, or could not be replayed, is a warning: the player opted the package in
+                    log(!written || !d.residue.empty() ? 1 : 0, "registry: replay: " + archive_writer_label(who) + ": " + row.text);
                 }
         }
         replay_record.clear();
