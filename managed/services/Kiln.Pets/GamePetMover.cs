@@ -45,10 +45,10 @@ internal sealed class GamePetMover : IPetMover
     {
         // the authority is checked right before the write, never cached
         if (!CanDrive(body) || !Resolve()) return;
-        World.TryWrite(body.Entity.Id, "ActorInput", _move, move);
-        if (_look >= 0 && look != Vector3.Zero) World.TryWrite(body.Entity.Id, "ActorInput", _look, look);
+        World.WriteRaw(body.Entity.Id, "ActorInput", _move, move);
+        if (_look >= 0 && look != Vector3.Zero) World.WriteRaw(body.Entity.Id, "ActorInput", _look, look);
         // locomotionSpeed is one byte (the broker's layout guard checks it): a wider store would overwrite its neighbour
-        if (_speed >= 0) World.TryWrite(body.Entity.Id, "ActorInput", _speed, (byte)speed);
+        if (_speed >= 0) World.WriteRaw(body.Entity.Id, "ActorInput", _speed, (byte)speed);
     }
 
     public object? RequestPath(PetBody body, WorldPosition from, WorldPosition to, PetClearanceProfile clearance)

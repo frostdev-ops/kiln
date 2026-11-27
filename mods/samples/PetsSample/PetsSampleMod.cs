@@ -36,6 +36,9 @@ public sealed class PetsSampleMod : Mod
         Events.On<PetDownedEvent>(e => Log.Info($"{e.Change.After.Label} of {e.Owner} went down ({e.Change.Cause}): {e.Change.After.Life}, {e.Change.After.Presence}"));
     }
 
+    // Kiln's rows say what is there: a command refuses with the row's reason instead of throwing deep inside
+    private static CommandException Off(string row) => new($"{row} is off: {Capabilities.Why(row)}");
+
     private static (PlayerRef Who, CharacterKey Key) Owner(CommandContext c)
     {
         if (c.Source.Player.IsNone) throw new CommandException("only a player in the world can do this");
@@ -52,6 +55,7 @@ public sealed class PetsSampleMod : Mod
     [Command("pet give", Description = "a new pet: hound or duelist", Permission = CommandPermission.Admin)]
     private async Task Give(CommandContext c, string kind = "hound")
     {
+        if (!Capabilities.Is("pets.records")) throw Off("pets.records");
         var (_, key) = Owner(c);
         c.Reply(Line(await Pets.Grant(key, $"pets-sample:{kind}", PetRequest.New())));
     }
@@ -59,6 +63,7 @@ public sealed class PetsSampleMod : Mod
     [Command("pet list", Description = "your pets")]
     private void List(CommandContext c)
     {
+        if (!Capabilities.Is("pets.records")) throw Off("pets.records");
         var (_, key) = Owner(c);
         var n = 0;
         foreach (var p in Pets.Of(key))
@@ -67,26 +72,28 @@ public sealed class PetsSampleMod : Mod
     }
 
     [Command("pet summon", Description = "bring pet n out (a downed one: its recovery anchor)")]
-    private async Task Summon(CommandContext c, int n) { var (who, key) = Owner(c); c.Reply(Line(await Pets.Summon(who, Nth(key, n).Id, PetRequest.New()))); }
+    private async Task Summon(CommandContext c, int n) { if (!Capabilities.Is("pets.records")) throw Off("pets.records"); if (!Capabilities.Is("pets.summon")) throw Off("pets.summon"); var (who, key) = Owner(c); c.Reply(Line(await Pets.Summon(who, Nth(key, n).Id, PetRequest.New()))); }
 
     [Command("pet dismiss", Description = "put pet n away")]
-    private async Task Dismiss(CommandContext c, int n) { var (who, key) = Owner(c); c.Reply(Line(await Pets.Dismiss(who, Nth(key, n).Id, PetRequest.New()))); }
+    private async Task Dismiss(CommandContext c, int n) { if (!Capabilities.Is("pets.records")) throw Off("pets.records"); if (!Capabilities.Is("pets.summon")) throw Off("pets.summon"); var (who, key) = Owner(c); c.Reply(Line(await Pets.Dismiss(who, Nth(key, n).Id, PetRequest.New()))); }
 
     [Command("pet stay", Description = "pet n stays")]
-    private async Task Stay(CommandContext c, int n) { var (who, key) = Owner(c); c.Reply(Line(await Pets.Command(who, Nth(key, n).Id, PetOrder.Stay, EntityRef.None, PetRequest.New()))); }
+    private async Task Stay(CommandContext c, int n) { if (!Capabilities.Is("pets.records")) throw Off("pets.records"); if (!Capabilities.Is("pets.follow")) throw Off("pets.follow"); var (who, key) = Owner(c); c.Reply(Line(await Pets.Command(who, Nth(key, n).Id, PetOrder.Stay, EntityRef.None, PetRequest.New()))); }
 
     [Command("pet follow", Description = "pet n follows")]
-    private async Task Follow(CommandContext c, int n) { var (who, key) = Owner(c); c.Reply(Line(await Pets.Command(who, Nth(key, n).Id, PetOrder.Follow, EntityRef.None, PetRequest.New()))); }
+    private async Task Follow(CommandContext c, int n) { if (!Capabilities.Is("pets.records")) throw Off("pets.records"); if (!Capabilities.Is("pets.follow")) throw Off("pets.follow"); var (who, key) = Owner(c); c.Reply(Line(await Pets.Command(who, Nth(key, n).Id, PetOrder.Follow, EntityRef.None, PetRequest.New()))); }
 
     [Command("pet revive", Description = "revive pet n: stand at its recovery anchor")]
-    private async Task Revive(CommandContext c, int n) { var (who, key) = Owner(c); c.Reply(Line(await Pets.Revive(who, Nth(key, n).Id, PetRequest.New()))); }
+    private async Task Revive(CommandContext c, int n) { if (!Capabilities.Is("pets.records")) throw Off("pets.records"); if (!Capabilities.Is("pets.downed")) throw Off("pets.downed"); var (who, key) = Owner(c); c.Reply(Line(await Pets.Revive(who, Nth(key, n).Id, PetRequest.New()))); }
 
     [Command("pet release", Description = "release pet n for good")]
-    private async Task Release(CommandContext c, int n) { var (who, key) = Owner(c); c.Reply(Line(await Pets.Release(who, Nth(key, n).Id, PetRequest.New()))); }
+    private async Task Release(CommandContext c, int n) { if (!Capabilities.Is("pets.records")) throw Off("pets.records"); var (who, key) = Owner(c); c.Reply(Line(await Pets.Release(who, Nth(key, n).Id, PetRequest.New()))); }
 
     [Command("pet duel", Description = "agree to a duel with a player: both of you ask, then your duelists may fight")]
     private void Duel(CommandContext c, string player)
     {
+        if (!Capabilities.Is("pets.fight")) throw Off("pets.fight");
+        if (!Capabilities.Is("kiln.players")) throw Off("kiln.players");
         var (_, key) = Owner(c);
         var other = Players.Find(player) ?? throw new CommandException($"no player {player}");
         var otherKey = CharacterData.KeyOf(other.Entity);
@@ -104,6 +111,7 @@ public sealed class PetsSampleMod : Mod
     [Command("pet peace", Description = "end your duels")]
     private void Peace(CommandContext c)
     {
+        if (!Capabilities.Is("pets.fight")) throw Off("pets.fight");
         var (_, key) = Owner(c);
         foreach (var (a, b) in _duelAsks.Where(x => x.Item1 == key || x.Item2 == key).ToList())
         {

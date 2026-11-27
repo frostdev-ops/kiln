@@ -15,7 +15,7 @@ namespace Kiln;
 /// <param name="Problem">Why no body may be made of it (null: it may): a creature that is not an enemy, a boss.</param>
 internal sealed record PetCreatureInfo(string Id, Guid Template, string? Variant, int LevelMax, string DisplayName, string? Problem = null);
 
-/// <summary>Resolves creature Kiln ids. Tests replace <see cref="Source"/>.</summary>
+/// <summary>Resolves creature Kiln ids. Tests replace <see cref="PetCreatures.Source"/>.</summary>
 internal interface IPetCreatureSource
 {
     /// <summary>False while the game's creatures are not readable here yet (a client's OnLoad, before content is ready):
