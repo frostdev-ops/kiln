@@ -572,6 +572,24 @@ class Repository(unittest.TestCase):
         """registrygen.py --check on this tree: the schemas are valid, every name is locked, the outputs are fresh."""
         self.assertEqual(rg.main(["--root", str(REPO), "--check"]), 0)
 
+    def test_the_section_schema_has_no_empty_enum(self):
+        """A registry whose every field is read-only (stations) takes no edit's field: the section schema says so with a schema
+        that matches nothing, never "enum": [] (JSON Schema wants at least one value; ajv refuses to compile the whole schema,
+        so kiln-manage's lint test ajv_agrees failed on the merged dev.32 tree)."""
+        s = json.loads((REPO / rg.SECTION).read_text(encoding="utf-8"))
+
+        def empties(o, at):
+            if isinstance(o, dict):
+                if o.get("enum") == []:
+                    yield at
+                for k, v in o.items():
+                    yield from empties(v, f"{at}/{k}")
+            elif isinstance(o, list):
+                for i, v in enumerate(o):
+                    yield from empties(v, f"{at}[{i}]")
+        self.assertEqual(list(empties(s, "")), [])
+        self.assertEqual(s["$defs"]["stations"]["$defs"]["field"].get("not"), {})
+
     def test_r1_registries(self):
         m = rg.load(REPO)
         self.assertEqual(m.errors, [])

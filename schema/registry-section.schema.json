@@ -766,7 +766,8 @@
     "stations": {
       "$defs": {
         "field": {
-          "enum": []
+          "not": {},
+          "description": "Every field of the stations registry is read-only: an edit names none."
         },
         "edit": {
           "type": "object",

@@ -1184,7 +1184,10 @@ def render_section(model, lock):
         indexed = [re.escape(r.path).replace(r"\[\]", r"\[([0-9]+|\*)\]") for r in reg.rows if not r.read_only and "[]" in r.path]
         indexed += [re.escape(r.path) + r"\[([0-9]+|\*)\]" for r in reg.rows if r.kind == "list" and not r.read_only]
         # a field of fixed length takes only indexed edits: "xpPerLevel[2]"
-        rd = {"$defs": {"field": {"enum": writable}}}
+        # a registry whose every field is read-only (stations) takes no field: a schema that matches nothing ("enum": [] is
+        # no valid JSON Schema for ajv, which refuses the whole document)
+        rd = {"$defs": {"field": {"enum": writable} if writable else
+                        {"not": {}, "description": f"Every field of the {name} registry is read-only: an edit names none."}}}
         if indexed:
             rd["$defs"]["fieldIndexed"] = {"type": "string", "pattern": "^(" + "|".join(indexed) + ")$"}
             field_ref = {"anyOf": [{"$ref": f"#/$defs/{name}/$defs/field"}, {"$ref": f"#/$defs/{name}/$defs/fieldIndexed"}]}
