@@ -40,9 +40,14 @@ print(bot.info()["entity"], bot.character())  # its entity and CharacterKey
 bot.say("/pet give hound")                    # a chat line typed by the bot: Kiln's commands run with the bot as source
 print(bot.command("pet list"))                # Commands.Execute as the bot: found/denied/done/error and the output
 bot.move_to(x, y, z)                          # teleport its entity
-bot.stay(30)                                  # it stays where it is
+bot.stay(300)                                 # it stays where it is (its info every 5 s keeps the lab peer)
 bot.leave()                                   # logout: final save, the game removes it; leave(drop=True) = lost connection
 ```
+
+kiln.net forgets a lab peer that sent it nothing for 60 s, and its requests then reach no channel. So `bot.stay`
+asks for the bot's info every 5 s (and raises `LabBotError` when the bot left or failed meanwhile), and a `Lab` call after
+45 s without a frame from it (a script's own `time.sleep`) says HELLO again first: a long stay or pause needs nothing
+of the script.
 
 `labbot.Lab.join(name, group)` starts a join without waiting; `Bot.wait_ready(timeout)` waits for `InGame` and raises
 `LabBotError` with the bot's reason when it failed or left. Groups: `admin` (the userGroups entry with kick/ban and the
