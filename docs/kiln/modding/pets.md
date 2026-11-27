@@ -2,7 +2,43 @@
 
 Since 0.2.0-dev.32. Kiln keeps pets (records, bodies, movement, protection, revive, the owner's HUD); **your mod decides
 what a pet is**. Contract and every rule: [services/pets.md](../services/pets.md). A complete example:
-`mods/samples/PetsSample`.
+`mods/samples/PetsSample`. To make a pet by taming a wild creature: [taming.md](taming.md).
+
+## Make it: a hound that follows its owner
+
+A server mod of one class. A pet on a game creature asks nothing of players' games: vanilla clients see the creature, Kiln clients
+also get a pet bar.
+
+1. Make the project ([mdk.md](mdk.md)): `dotnet new kiln-mod -n HoundMod`, and in the `.csproj`
+   `<KilnModId>hound-mod</KilnModId>` and `<KilnServices>Blocks;Pets;Players;Saves;Chat;World</KilnServices>`.
+2. Define the pet in `OnLoad` and give a command that grants and summons it:
+
+   ```csharp
+   public sealed class HoundMod : Mod
+   {
+       public override void OnLoad() =>
+           Blocks.Define("hound", new PetBlock { Creature = "game:enemy_wildbeast_wolf_earlygame", Name = "Hound" });
+
+       [Command("hound", Description = "get a hound and bring it out", Permission = CommandPermission.Admin)]
+       private async Task Hound(CommandContext c)
+       {
+           if (!Capabilities.Is("pets.records")) throw new CommandException($"pets.records is off: {Capabilities.Why("pets.records")}");
+           var key = CharacterData.KeyOf(c.Source.Player);
+           var given = await Pets.Grant(key, "hound-mod:hound", PetRequest.New());       // the id is <mod id>:<name>
+           if (!given.Ok) throw new CommandException($"refused: {given.Reason}");
+           var summoned = await Pets.Summon(PlayerRef.Of(c.Source.Player), given.Pet!.Id, PetRequest.New());
+           c.Reply(summoned.Ok ? "your hound is out" : $"refused: {summoned.Reason}");
+       }
+   }
+   ```
+
+3. Build and deploy to a server with Kiln (`dotnet build` with `KilnServer` set; [mdk.md](mdk.md)), join, and run `/hound`. A wolf
+   comes out and follows you; `kiln.log` says what Kiln did, and each refusal has its reason (`PetResult.Reason`).
+4. Make choices: what happens when the pet is downed, whether it can fight other players' pets, what a revive costs. Every choice
+   is a field of the block or an event handler below.
+
+Everything else on this page is the reference for step 4. [`mods/samples/PetsSample`](../../../mods/samples/PetsSample) is this mod
+with a second kind of pet (the duelist), `/pet` commands for every call and the events.
 
 ## Define a pet
 
@@ -32,6 +68,7 @@ Or in `blocks/*.json`, section `pets`, the same fields:
 
 ```json
 {
+  "format": 1,
   "pets": {
     "hound": { "creature": "game:enemy_wildbeast_wolf_earlygame", "name": "Hound" },
     "duelist": {

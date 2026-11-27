@@ -9,7 +9,84 @@ pet record when the tame commits. **What taming is in your mod is your choice**:
 - how long an attempt may last;
 - the pet it makes.
 
-The service page is [services/taming.md](../services/taming.md); a whole mod is `mods/samples/TamingSample`.
+The service page is [services/taming.md](../services/taming.md); a whole mod is `mods/samples/TamingSample`. What the pet is after
+the tame: [pets.md](pets.md).
+
+## Make it: a wolf the player tames in two steps
+
+The player weakens a wolf to 40 % health, then feeds it two bait items. A server mod of one data file and one class.
+
+1. Make the project ([mdk.md](mdk.md)): `dotnet new kiln-mod -n WolfTamer`, with `<KilnModId>wolf-tamer</KilnModId>` and
+   `<KilnServices>Taming;Pets;Blocks;Items;Creatures;Players;Chat;World</KilnServices>` in the `.csproj`.
+2. Declare the taming as data, in `blocks/taming.json`: the bait item, the pet and the taming itself.
+
+   ```json
+   {
+     "format": 1,
+     "items": { "wolf-bait": { "name": "Wolf Bait", "stack": 20 } },
+     "pets": { "tame-wolf": { "creature": "game:enemy_wildbeast_wolf_earlygame", "name": "Tamed Wolf" } },
+     "tamings": {
+       "wolf": { "creatures": ["game:enemy_wildbeast_wolf_earlygame"], "pet": "tame-wolf",
+                 "steps": [ { "kind": "weaken", "maxHealthFraction": 0.4 }, { "kind": "feed", "item": "wolf-bait", "count": 2 } ],
+                 "refund": "refundOnFail" } }
+   }
+   ```
+
+3. Drive the attempt from commands. Each action carries a new request id and the token of the last answer
+   ([the details](#drive-an-attempt)):
+
+   ```csharp
+   public sealed class WolfTamerMod : Mod
+   {
+       private readonly Dictionary<PlayerRef, TamingProgress> _attempts = [];
+
+       [Command("tame begin", Description = "start taming the nearest wolf (3 m)")]
+       private void Begin(CommandContext c)
+       {
+           var who = PlayerRef.Of(c.Source.Player);
+           var at = World.Position(c.Source.Player) ?? throw new CommandException("your position is not known");
+           foreach (var wolf in Creatures.Near(at, 3))
+           {
+               var r = Taming.Begin(who, EntityRef.Of(wolf), "wolf-tamer:wolf", Guid.NewGuid());
+               if (r.Reason?.StartsWith("TemplateMismatch") == true) continue;           // not a wolf
+               if (r.Progress is { } p) _attempts[who] = p;
+               c.Reply(r.Ok ? "taming started: /tame step, then /tame feed" : $"refused: {r.Reason}");
+               return;
+           }
+           c.Reply("no wolf within 3 m");
+       }
+
+       [Command("tame step", Description = "the step that takes no item (weaken)")]
+       private async Task Step(CommandContext c)
+       {
+           var who = PlayerRef.Of(c.Source.Player);
+           var p = _attempts[who];
+           var r = await Taming.Advance(who, p.Id, new TamingToken(Guid.NewGuid(), p.StepChallenge, p.Revision, p.CompletedSteps));
+           if (r.Progress is { } next) _attempts[who] = next;
+           c.Reply(r.Ok ? $"step {r.Progress!.CompletedSteps}/{r.Progress.TotalSteps}" : $"refused: {r.Reason}");
+       }
+
+       [Command("tame feed", Description = "pay the feeding step from the first slot that can")]
+       private async Task Feed(CommandContext c)
+       {
+           var who = PlayerRef.Of(c.Source.Player);
+           var p = _attempts[who];
+           var choices = Taming.Choices(who, p.Id);
+           if (!choices.Ok || choices.Choices.Count == 0) throw new CommandException(choices.Reason ?? "nothing pays this step");
+           var token = new TamingToken(Guid.NewGuid(), choices.StepChallenge, choices.Revision, p.CompletedSteps);
+           var r = await Taming.Advance(who, p.Id, token, choices.Choices[0].Selection);
+           if (r.Progress is { } next) _attempts[who] = next;
+           c.Reply(r.Ok ? (r.Pet is { } pet ? $"tamed: your new pet {pet.Id}" : "fed") : $"refused: {r.Reason}");
+       }
+   }
+   ```
+
+4. Build and deploy, join, carry two `Wolf Bait` (your mod's item block: [item-blocks.md](item-blocks.md)), and stand next to a wolf you
+   have hurt to under 40 %. `/tame begin`, `/tame step`, `/tame feed`: the wolf is taken from the world, and a Tamed Wolf stands next to you as a
+   Kiln.Pets record. A failure that is not yours gives the paid bait back (`refundOnFail`).
+
+Everything else on this page is the reference for the choices in step 2: which steps, what they cost, what is refunded, how long
+an attempt lasts, what the pet is. The same choices from C# and every step kind follow.
 
 ## Declare a taming
 
@@ -65,7 +142,8 @@ them, so a mod's own items work in JSON too. It compiles to the `TamingDefinitio
 `<mod id>:<name>`, which `Taming.Begin` takes.
 
 ```json
-{ "items": { "wolf-bait": { "name": "Wolf Bait", "stack": 20 } },
+{ "format": 1,
+  "items": { "wolf-bait": { "name": "Wolf Bait", "stack": 20 } },
   "pets": { "tame-wolf": { "creature": "game:enemy_wildbeast_wolf_earlygame", "name": "Tamed Wolf" } },
   "tamings": {
     "wolf": { "creatures": ["game:enemy_wildbeast_wolf_earlygame"], "pet": "tame-wolf",
