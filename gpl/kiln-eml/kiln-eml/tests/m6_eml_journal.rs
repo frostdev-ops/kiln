@@ -92,6 +92,7 @@ fn an_eml_start_names_each_mod_and_the_members_it_wrote() {
     assert_eq!(j["generation"], generation.as_str());
     assert_eq!(j["receiptSha256"], generation.as_str());
     assert_eq!(j["truncated"], false);
+    assert!(j.get("notApplied").is_none() && j.get("writer").is_none(), "a run where every mod ran writes the record as 0.2.0-dev.31.18 did: {j}");
     let order: Vec<&str> = j["packages"].as_array().unwrap().iter().map(|p| p["id"].as_str().unwrap()).collect();
     assert_eq!(order.len(), 3, "every mod that ran, in run order: {order:?}");
     let alpha = package(&j, "alpha");
@@ -136,6 +137,11 @@ fn a_failed_mods_writes_are_not_in_the_journal() {
     let ids: Vec<&str> = j["packages"].as_array().unwrap().iter().map(|p| p["id"].as_str().unwrap()).collect();
     assert_eq!(ids, ["whole"]);
     assert_eq!(paths(package(&j, "whole"), 0), [""], "the data replaced: the whole resource");
+    // 0.2.0-dev.32: the mod the run went on without is listed as not applied, with its error (effect replay reads it)
+    let not = j["notApplied"].as_array().unwrap_or_else(|| panic!("no notApplied: {j}"));
+    assert_eq!(not.len(), 1, "{j}");
+    assert_eq!((&not[0]["id"], &not[0]["kind"], &not[0]["contentSha256"]), (&serde_json::json!("broken"), &serde_json::json!("eml"), &Value::Null));
+    assert!(not[0]["reason"].as_str().unwrap().contains("broken on purpose"), "{j}");
     assert_eq!(out.generation.as_deref(), Some(receipt_sha256(&f).as_str()));
 }
 

@@ -699,7 +699,7 @@ pub fn run(cfg: &RunConfig, mut mods: Vec<Utf8PathBuf>, entries: Vec<Entry>) -> 
 /// install lock this process holds. `mods`: the run's mods (their manifest versions). Every publication and restore
 /// removes the journal first (mod-loader-lua ownership.rs), so one on disk always belongs to the receipt beside it.
 fn write_journal(cfg: &RunConfig, file: &str, record: &lua::WriteRecord, generation: &str, retried: bool, mods: &[Entry]) -> Result<(), String> {
-    use crate::sf_startup::journal::{Header, Identity, Journal};
+    use crate::sf_startup::journal::{Header, Identity, Journal, NotApplied, Tail};
     let digest = crate::startup::unhex(generation).ok_or("the receipt's SHA-256 is not 64 hex digits")?;
     let header = Header { stem: file, generation: digest, receipt_sha256: digest, dialect: "eml", attempt: if retried { "retry" } else { "first" } };
     let identity = |id: &str| {
@@ -710,7 +710,23 @@ fn write_journal(cfg: &RunConfig, file: &str, record: &lua::WriteRecord, generat
             settings_sha256: [0; 32],
         })
     };
-    let bytes = Journal::from_eml(record).json(&header, &identity);
+    // 0.2.0-dev.32: the mods whose Lua failed (the run went on without them) are listed as not applied (the registry's
+    // effect replay reads it); a run without one writes the record as before
+    let not_applied: Vec<NotApplied> = mods
+        .iter()
+        .filter(|m| m.state == "failed")
+        .filter_map(|m| {
+            Some(NotApplied {
+                id: m.id.clone()?,
+                version: m.version.clone().filter(|v| !v.is_empty() && v.len() <= 64),
+                kind: "eml",
+                content_sha256: [0; 32],
+                reason: m.reason.clone().unwrap_or_else(|| "failed".into()),
+            })
+        })
+        .collect();
+    let tail = Tail { writer: None, not_applied: (!not_applied.is_empty()).then_some(&not_applied[..]) };
+    let bytes = Journal::from_eml(record).json_with(&header, &identity, &tail);
     let lock = held_lock(&cfg.game_dir).ok_or("the install lock is not held")?;
     let journal = lua::startup_host::StartupJournal::bind(cfg.game_dir.as_std_path(), file, &lock).map_err(|e| format!("{e:#}"))?;
     journal.write_for(generation, bytes.as_bytes()).map_err(|e| e.to_string())
