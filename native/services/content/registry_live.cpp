@@ -2864,6 +2864,7 @@ struct Plan {
 std::map<uint64_t, std::shared_ptr<Plan>> g_plans;  // store_mutex
 uint64_t g_next_ticket = 0;
 constexpr size_t kPlanSlice = 512;  // fields or layers per hold of the store's lock while a turn is prepared or its report built
+void (*g_plan_gap)() = nullptr;     // test-only: called before each slice of a preparation's binding, without taking the lock
 
 // What a landed turn replaced (the old composition, bindings, changes): freed on a thread of its own, never on the world tick.
 template <class T>
@@ -2909,12 +2910,14 @@ bool plan_bind(Plan& p) {
     fields.reserve(p.result.fields.size());
     for (const auto& [ref, fo] : p.result.fields) fields.emplace_back(&ref, &fo);
     for (size_t i = 0; i < fields.size(); i += kPlanSlice) {
+        if (g_plan_gap) g_plan_gap();
         std::lock_guard lock(store_mutex());
         if (!plan_current(p)) return false;
         PlanningScope scope(&p.out);
         for (size_t j = i; j < std::min(fields.size(), i + kPlanSlice); ++j) bind(*fields[j].first, *fields[j].second);
     }
     for (size_t i = 0; i < p.out.puts.size(); i += kPlanSlice) {
+        if (g_plan_gap) g_plan_gap();
         std::lock_guard lock(store_mutex());
         if (!plan_current(p)) return false;
         PlanningScope scope(&p.out);
@@ -3007,6 +3010,14 @@ KilnResult registry_live_prepare(const std::vector<RegistryLiveCall>& calls, con
     if (!ticket || !stale) return KILN_ERR_INVALID_ARGUMENT;
     *ticket = 0, *stale = 0;
     if (calls.empty() && replaced.empty()) return KILN_ERR_INVALID_ARGUMENT;
+    // review of LOOT-2: on the world thread (Kiln.Host's turn after three stale ones: pass, preparation and landing in one step)
+    // the preparation holds the store's lock throughout. The tick waits for it either way; held, nothing can move under it (a
+    // drop table a job thread loads between two slices), so the turn it prepares lands. Off it, the slices let the tick in.
+    std::unique_lock<StoreMutex> whole(store_mutex(), std::defer_lock);
+    {
+        std::lock_guard lock(store_mutex());
+        if (g.world && on_live_thread()) whole.lock();
+    }
     auto p = std::make_shared<Plan>();
     {
         std::lock_guard lock(store_mutex());

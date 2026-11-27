@@ -360,6 +360,59 @@ void a_drop_table_loaded_while_a_turn_is_prepared_lands_bound_on_request() {
           "landed bound, not waiting for the table: outcome " + std::to_string(static_cast<int>(l.replies.empty() ? 99 : static_cast<int>(l.replies[0].outcome))));
     registry_live_revert(72, l.handles[0], &reply);
 }
+// review of LOOT-2: after three stale turns Kiln.Host runs the next one whole on the tick (pass, preparation, landing in one
+// step) so that it lands. Off the world thread a preparation lets the tick and the game's job threads take the store's lock
+// between its slices (a drop table loaded there moves its bindings: prepared again); on the world thread it holds the lock
+// throughout, so a job thread's load waits for it and nothing moves under the turn.
+bool g_gap_loaded = false, g_gap_tried = false;
+void load_table_from_a_job_thread() {
+    if (g_gap_tried) return;
+    g_gap_tried = true;
+    std::thread job([] {
+        if (!store_mutex().try_lock()) return;  // the preparation holds the lock: the load waits (here: does not happen)
+        registry_live_table(g_regs[KILN_CONTENT_DROPS].entries[0]);
+        g_gap_loaded = true;
+        store_mutex().unlock();
+    });
+    job.join();
+}
+void a_preparation_on_the_world_thread_lets_nothing_move_under_it() {
+    fresh_live(); RegistryLiveReply reply;
+    const auto pending = change(71, "a", R"([{"registry":"drops","select":"game:dt_wolf","field":"entries[*].count.max","op":{"mul":2}}])");
+    registry_live_commit(71, pending, &reply);  // the live state waits for dt_wolf: its load moves the bindings
+    const uint64_t h1 = draft(72, "b", "[{" + wood + R"("op":50}])");
+    registry_live_commit(72, h1, &reply);
+    add_drop_table();
+    const auto tick = std::this_thread::get_id();
+    g.in->on_world_thread = [tick](uint32_t) { return std::this_thread::get_id() == tick; };
+    g_plan_gap = &load_table_from_a_job_thread;
+    g_gap_loaded = g_gap_tried = false;
+    KilnResult rc = KILN_ERR_UNAVAILABLE; uint32_t stale = 0; uint64_t ticket = 0;
+    std::thread worker([&] { rc = registry_live_prepare({call(72, "b", "[{" + wood + R"("op":60}])")}, {{72, h1}}, registry_live_epoch(), &ticket, &stale); });
+    worker.join();
+    check(g_gap_tried && g_gap_loaded && rc == KILN_ERR_UNAVAILABLE && stale == 2,
+          "off the world thread the load gets in between two slices: prepared again (rc " + std::to_string(rc) + ", stale " + std::to_string(stale) + ")");
+    // a world with the table not loaded again, the preparation on the world thread
+    fresh_live();
+    const auto pending2 = change(71, "a", R"([{"registry":"drops","select":"game:dt_wolf","field":"entries[*].count.max","op":{"mul":2}}])");
+    registry_live_commit(71, pending2, &reply);
+    const uint64_t h2 = draft(72, "b", "[{" + wood + R"("op":50}])");
+    registry_live_commit(72, h2, &reply);
+    add_drop_table();
+    g.in->on_world_thread = [tick](uint32_t) { return std::this_thread::get_id() == tick; };
+    g_gap_loaded = g_gap_tried = false;
+    ticket = prepare({call(72, "b", "[{" + wood + R"("op":60}])")}, {{72, h2}}, 0, &rc, &stale);
+    g_plan_gap = nullptr;
+    check(g_gap_tried && !g_gap_loaded && rc == KILN_OK,
+          "on the world thread the job thread's load waits for the whole preparation (rc " + std::to_string(rc) + ", stale " + std::to_string(stale) + ")");
+    const Landed l = install(ticket);
+    check(l.rc == KILN_OK && l.replies[0].outcome == RegistryLiveOutcome::Applied && at<uint32_t>(WOOD_AT) == 60, "and the turn lands");
+    registry_live_table(g_regs[KILN_CONTENT_DROPS].entries[0]);  // the load after it
+    store_flush(nullptr);
+    check(at<uint32_t>(0x31018) == 6, "the table's own edit binds when it loads");
+    g.in->on_world_thread = [](uint32_t) { return true; };
+    registry_live_revert(72, l.handles[0], &reply), registry_live_revert(71, pending2, &reply);
+}
 // A turn the preparation does not cover (a formula field: its evaluation reads the entry's other values, which the turn itself
 // may change) lands the classic way: composed and written on the world thread, with the turn's rules.
 void a_turn_the_preparation_does_not_cover_lands_the_classic_way() {
@@ -565,6 +618,7 @@ int main() {
         {"a_preparation_stale_only_in_its_bindings_lands_on_request", a_preparation_stale_only_in_its_bindings_lands_on_request},
         {"a_drop_table_loaded_while_a_turn_is_prepared_is_not_left_waiting", a_drop_table_loaded_while_a_turn_is_prepared_is_not_left_waiting},
         {"a_drop_table_loaded_while_a_turn_is_prepared_lands_bound_on_request", a_drop_table_loaded_while_a_turn_is_prepared_lands_bound_on_request},
+        {"a_preparation_on_the_world_thread_lets_nothing_move_under_it", a_preparation_on_the_world_thread_lets_nothing_move_under_it},
         {"a_turn_the_preparation_does_not_cover_lands_the_classic_way", a_turn_the_preparation_does_not_cover_lands_the_classic_way},
         {"a_turn_is_prepared_off_the_world_thread", a_turn_is_prepared_off_the_world_thread},
         {"a_prepared_turn_that_cannot_write_keeps_the_earlier_layers", a_prepared_turn_that_cannot_write_keeps_the_earlier_layers},
