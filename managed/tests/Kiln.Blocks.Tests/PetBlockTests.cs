@@ -42,8 +42,17 @@ public sealed class PetBlockTests : IDisposable
         Assert.Equal("queryInput", pet["movement"]!["mode"]!.GetValue<string>());
         Assert.Equal(3, pet["revive"]!["channelSeconds"]!.GetValue<double>());
         Assert.Null(pet["revive"]!["cost"]);
-        Assert.Equal(1, pet["caps"]!["livePerCharacter"]!.GetValue<int>());
+        Assert.Equal(1, pet["limits"]!["livePerCharacter"]!.GetValue<int>());
         Assert.True(pet["hud"]!["bar"]!.GetValue<bool>());
+    }
+
+    // API-SHAPE-2 A3: a pet's limits are "limits" (PetLimits), never "caps" (capabilities are rows, not counts)
+    [Fact]
+    public void A_pets_limits_are_limits_in_json_and_caps_is_not_a_field()
+    {
+        var p = BlockJson.Parse<PetBlock>("""{ "creature": "game:enemy_wildbeast_wolf", "limits": { "livePerCharacter": 2 } }""");
+        Assert.Equal(2, p.Limits.LivePerCharacter);
+        Assert.ThrowsAny<System.Text.Json.JsonException>(() => BlockJson.Parse<PetBlock>("""{ "creature": "game:enemy_wildbeast_wolf", "caps": { "livePerCharacter": 2 } }"""));
     }
 
     [Fact]
@@ -56,7 +65,7 @@ public sealed class PetBlockTests : IDisposable
             Downed = new PetDownedPolicy { Outcome = PetDownedOutcome.Release },
             Movement = new PetMovementPolicy { FollowDistance = 5, RunDistance = 12, AllowCatchUp = false },
             Revive = new ReviveBlock { Allowed = false },
-            Caps = new PetCaps { LivePerCharacter = 3 },
+            Limits = new PetLimits { LivePerCharacter = 3 },
             Hud = new PetHudPolicy { Bar = false },
         });
         Assert.Equal("byModRule", pet["targets"]!["pvp"]!.GetValue<string>());
@@ -64,7 +73,7 @@ public sealed class PetBlockTests : IDisposable
         Assert.Equal("release", pet["downed"]!["outcome"]!.GetValue<string>());
         Assert.False(pet["movement"]!["allowCatchUp"]!.GetValue<bool>());
         Assert.False(pet["revive"]!["allowed"]!.GetValue<bool>());
-        Assert.Equal(3, pet["caps"]!["livePerCharacter"]!.GetValue<int>());
+        Assert.Equal(3, pet["limits"]!["livePerCharacter"]!.GetValue<int>());
         Assert.False(pet["hud"]!["bar"]!.GetValue<bool>());
     }
 
@@ -132,9 +141,9 @@ public sealed class PetBlockTests : IDisposable
     [InlineData("revive.maxOwnerDisplacement")]
     [InlineData("revive.cost.count")]
     [InlineData("targets.hostileFactions")]
-    [InlineData("caps.retainedPerCharacter")]
-    [InlineData("caps.livePerCharacter")]
-    [InlineData("caps.livePerWorld")]
+    [InlineData("limits.retainedPerCharacter")]
+    [InlineData("limits.livePerCharacter")]
+    [InlineData("limits.livePerWorld")]
     [InlineData("name")]
     public void Wrong_values_are_refused_by_field(string field)
     {
@@ -155,9 +164,9 @@ public sealed class PetBlockTests : IDisposable
             "revive.maxOwnerDisplacement" => ok with { Revive = new ReviveBlock { MaxOwnerDisplacement = 3 } },
             "revive.cost.count" => ok with { Revive = new ReviveBlock { Cost = new ReviveCostBlock("Material_T1_Twigs", 0) } },
             "targets.hostileFactions" => ok with { Targets = new PetTargetPolicy { HostileFactions = [Faction.Player] } },
-            "caps.retainedPerCharacter" => ok with { Caps = new PetCaps { RetainedPerCharacter = 129 } },
-            "caps.livePerCharacter" => ok with { Caps = new PetCaps { LivePerCharacter = 0 } },
-            "caps.livePerWorld" => ok with { Caps = new PetCaps { LivePerWorld = 257 } },
+            "limits.retainedPerCharacter" => ok with { Limits = new PetLimits { RetainedPerCharacter = 129 } },
+            "limits.livePerCharacter" => ok with { Limits = new PetLimits { LivePerCharacter = 0 } },
+            "limits.livePerWorld" => ok with { Limits = new PetLimits { LivePerWorld = 257 } },
             "name" => ok with { Name = new string('x', 65) },
             _ => throw new ArgumentOutOfRangeException(nameof(field)),
         };

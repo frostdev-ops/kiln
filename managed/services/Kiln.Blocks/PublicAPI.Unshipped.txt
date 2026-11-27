@@ -86,8 +86,8 @@ static Kiln.NpcTopic.operator ==(Kiln.NpcTopic? left, Kiln.NpcTopic? right) -> b
 static Kiln.Npcs.Topics(Kiln.EntityId npc) -> Kiln.NpcTopics!
 Kiln.PetBlock
 Kiln.PetBlock.<Clone>$() -> Kiln.PetBlock!
-Kiln.PetBlock.Caps.get -> Kiln.PetCaps!
-Kiln.PetBlock.Caps.init -> void
+Kiln.PetBlock.Limits.get -> Kiln.PetLimits!
+Kiln.PetBlock.Limits.init -> void
 Kiln.PetBlock.Creature.get -> Kiln.PartRef<Kiln.CreatureBlock!>!
 Kiln.PetBlock.Creature.init -> void
 Kiln.PetBlock.Downed.get -> Kiln.PetDownedPolicy!

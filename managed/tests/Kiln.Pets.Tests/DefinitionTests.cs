@@ -71,9 +71,9 @@ public sealed class DefinitionTests : IDisposable
         Assert.Equal(PetMovementMode.QueryInput, d.Movement.Mode);
         Assert.True(d.Revive.Allowed);
         Assert.Null(d.Revive.Cost);
-        Assert.Equal(1, d.Caps.LivePerCharacter);
-        Assert.Equal(32, d.Caps.RetainedPerCharacter);
-        Assert.Equal(16, d.Caps.LivePerWorld);
+        Assert.Equal(1, d.Limits.LivePerCharacter);
+        Assert.Equal(32, d.Limits.RetainedPerCharacter);
+        Assert.Equal(16, d.Limits.LivePerWorld);
         // the hostile list never names players or their allies
         Assert.DoesNotContain(Faction.Player, PetTargetPolicy.DefaultHostileFactions);
         Assert.DoesNotContain(Faction.PlayerAlly, PetTargetPolicy.DefaultHostileFactions);

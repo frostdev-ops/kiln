@@ -144,7 +144,7 @@ A step's cost is exact and receipted ([item-costs.md](item-costs.md)): `Progress
 ## The tame and Kiln.Pets
 
 A definition with `Pet` holds a slot of that pet definition from Begin. The slot counts against
-`PetCaps.RetainedPerCharacter` and the roster's 128 records, with the other running tames. It is checked again before the
+`PetLimits.RetainedPerCharacter` and the roster's 128 records, with the other running tames. It is checked again before the
 last step's cost: a full roster refuses (`Cap`) before anything is taken.
 
 At the commit, the owner's character gets a new record (`Pets.Grant`); that is the ownership commit, and it settles at the

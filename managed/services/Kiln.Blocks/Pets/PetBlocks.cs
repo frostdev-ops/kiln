@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // A pet, as a block (19d §5.1): PetBlock and ReviveBlock, in C# and in blocks/*.json ("pets" section). It compiles to the
 // immutable Kiln.Pets PetDefinition, the same record Pets.Define takes, so C# and JSON lower to one thing. The policy
-// records (level, movement, targets, downed, caps, HUD) are Kiln.Pets' own, reused here as they are. Every choice in it is
+// records (level, movement, targets, downed, limits, HUD) are Kiln.Pets' own, reused here as they are. Every choice in it is
 // the mod's; Kiln's defaults are only what a block that says nothing gets (players protected, a bodyless recovery anchor).
 // docs/kiln/modding/pets.md.
 using System.Text.Json.Nodes;
@@ -65,8 +65,8 @@ public sealed record PetBlock : IBlock
     public PetTargetPolicy Targets { get; init; } = new();
     /// <summary>What it becomes when it goes down. Default: a bodyless recovery anchor.</summary>
     public PetDownedPolicy Downed { get; init; } = new();
-    /// <summary>How many there may be.</summary>
-    public PetCaps Caps { get; init; } = new();
+    /// <summary>How many there may be (in JSON: <c>limits</c>).</summary>
+    public PetLimits Limits { get; init; } = new();
     /// <summary>What the owner's HUD shows of it.</summary>
     public PetHudPolicy Hud { get; init; } = new();
 }
@@ -122,7 +122,7 @@ internal static class PetCompiler
                 Cost = cost, CancelOnObservedOwnerDamage = p.Revive.CancelOnObservedOwnerDamage, CancelOnMovement = p.Revive.CancelOnMovement,
                 MaxOwnerDisplacement = p.Revive.MaxOwnerDisplacement,
             },
-            Targets = p.Targets ?? new(), Downed = p.Downed ?? new(), Caps = p.Caps ?? new(), Hud = p.Hud ?? new(),
+            Targets = p.Targets ?? new(), Downed = p.Downed ?? new(), Limits = p.Limits ?? new(), Hud = p.Hud ?? new(),
         };
         if (PetDefinitionRules.Check(def, block?.LevelMax is > 0 ? block.LevelMax : null) is { } bad)
             throw new BlockError(ctx.Block, bad.Field == "id" ? "name" : bad.Field, bad.Problem);

@@ -465,7 +465,7 @@ public sealed partial class PetsE2eLabMod : Mod
                 ChannelSeconds = 0.5, RangeMeters = 8, Cost = new PetCostDefinition(twigs.Id, 1),
                 CancelOnMovement = false, CancelOnObservedOwnerDamage = false,
             },
-            Caps = new PetCaps { LivePerCharacter = 3 },
+            Limits = new PetLimits { LivePerCharacter = 3 },
         });
         Write("define", new JsonObject { ["id"] = Mule, ["ok"] = r.Ok, ["reason"] = r.Reason });
     }

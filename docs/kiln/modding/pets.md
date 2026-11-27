@@ -23,7 +23,7 @@ Blocks.Define("duelist", new PetBlock
     Targets = new PetTargetPolicy { Pvp = PetPvpMode.ByModRule, HostileFactions = [Faction.Vukah, Faction.Fogger] },
     Downed = new PetDownedPolicy { Outcome = PetDownedOutcome.Absent },
     Revive = new ReviveBlock { ChannelSeconds = 5, Cost = new ReviveCostBlock("Material_T1_Twigs", 3) },
-    Caps = new PetCaps { LivePerCharacter = 2 },
+    Limits = new PetLimits { LivePerCharacter = 2 },
     Hud = new PetHudPolicy { RecoveryMarker = false },
 });
 ```

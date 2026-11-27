@@ -20,7 +20,7 @@ public sealed class PetsTamingBinderTests
     private PetResult? _grantAnswer;
     private TaskCompletionSource<PetResult>? _grantHold;
 
-    private static PetDefinition Wolf(int cap = 2) => new() { Id = "mod-a:pet-wolf", Creature = "game:enemy_wildbeast_wolf", Caps = new PetCaps { RetainedPerCharacter = cap } };
+    private static PetDefinition Wolf(int cap = 2) => new() { Id = "mod-a:pet-wolf", Creature = "game:enemy_wildbeast_wolf", Limits = new PetLimits { RetainedPerCharacter = cap } };
 
     private PetsTamingBinder Binder(bool character = true) => new()
     {

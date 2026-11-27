@@ -105,7 +105,7 @@ public sealed unsafe class SafetyTests : IDisposable
     [Fact]
     public void The_same_owners_pets_never_fight_each_other()
     {
-        Pets.DefineAs(new PetDefinition { Id = "mod-a:pack", Creature = "game:enemy_wildbeast_wolf", Caps = new PetCaps { LivePerCharacter = 2 } }, "mod-a");
+        Pets.DefineAs(new PetDefinition { Id = "mod-a:pack", Creature = "game:enemy_wildbeast_wolf", Limits = new PetLimits { LivePerCharacter = 2 } }, "mod-a");
         _t.World.Join(_t.A, new WorldPosition(10, 0, 10));
         var one = _t.Grant(_t.A, "mod-a:pack");
         var two = _t.Grant(_t.A, "mod-a:pack");

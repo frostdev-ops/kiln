@@ -149,9 +149,10 @@ public sealed record PetDownedPolicy
     public PetDownedOutcome Outcome { get; init; } = PetDownedOutcome.RecoveryAnchor;
 }
 
-/// <summary>How many pets of a definition there may be. Kiln's own ceilings apply on top (128 records per character, 256
-/// controlled bodies in a world). Since 0.2.0-dev.32.</summary>
-public sealed record PetCaps
+/// <summary>How many pets of a definition there may be: the definition's limits. Kiln's own ceilings apply on top (128
+/// records per character, 256 controlled bodies in a world); a request past a limit is refused as
+/// <c>Capacity</c>. Since 0.2.0-dev.32.</summary>
+public sealed record PetLimits
 {
     /// <summary>Records of this definition one character keeps (released ones not counted), 1..128.</summary>
     public int RetainedPerCharacter { get; init; } = 32;
@@ -197,10 +198,13 @@ public sealed record PetDefinition
     public PetTargetPolicy Targets { get; init; } = new();
     /// <summary>What it becomes when it goes down.</summary>
     public PetDownedPolicy Downed { get; init; } = new();
-    /// <summary>How many there may be.</summary>
-    public PetCaps Caps { get; init; } = new();
+    /// <summary>How many there may be (blocks/*.json: <c>limits</c>).</summary>
+    public PetLimits Limits { get; init; } = new();
     /// <summary>What the owner's HUD shows of it.</summary>
     public PetHudPolicy Hud { get; init; } = new();
+
+    // the roster's and the binder's name for the limits (internal: kept so their code reads as it did)
+    internal PetLimits Caps => Limits;
 }
 
 /// <summary>The answer of <see cref="Pets.Define"/>. Since 0.2.0-dev.32.</summary>
@@ -222,7 +226,7 @@ internal static class PetDefinitionRules
         if (!ValidId(d.Id)) return ("id", $"\"{d.Id}\" is not a Kiln id <mod id>:<name> (lower case letters, digits, '-', '_', '.')");
         if (d.Creature is null || !ValidId(d.Creature)) return ("creature", $"\"{d.Creature}\" is not a creature's Kiln id (game:<name> or <mod id>:<name>)");
         if (d.DisplayName is { } n && (n.Length == 0 || System.Text.Encoding.UTF8.GetByteCount(n) > 64)) return ("name", "a name is 1 to 64 UTF-8 bytes");
-        return CheckLevel(d.Level, levelMax) ?? CheckMovement(d.Movement) ?? CheckRevive(d.Revive) ?? CheckTargets(d.Targets) ?? CheckCaps(d.Caps)
+        return CheckLevel(d.Level, levelMax) ?? CheckMovement(d.Movement) ?? CheckRevive(d.Revive) ?? CheckTargets(d.Targets) ?? CheckLimits(d.Limits)
                ?? (Enum.IsDefined(d.Downed.Outcome) ? null : ("downed.outcome", $"{d.Downed.Outcome} is not an outcome"));
     }
 
@@ -272,11 +276,11 @@ internal static class PetDefinitionRules
         return null;
     }
 
-    public static (string, string)? CheckCaps(PetCaps c)
+    public static (string, string)? CheckLimits(PetLimits c)
     {
-        if (c.RetainedPerCharacter is < 1 or > 128) return ("caps.retainedPerCharacter", $"{c.RetainedPerCharacter} is outside 1..128");
-        if (c.LivePerCharacter is < 1 or > 16) return ("caps.livePerCharacter", $"{c.LivePerCharacter} is outside 1..16");
-        if (c.LivePerWorld is < 1 or > 256) return ("caps.livePerWorld", $"{c.LivePerWorld} is outside 1..256");
+        if (c.RetainedPerCharacter is < 1 or > 128) return ("limits.retainedPerCharacter", $"{c.RetainedPerCharacter} is outside 1..128");
+        if (c.LivePerCharacter is < 1 or > 16) return ("limits.livePerCharacter", $"{c.LivePerCharacter} is outside 1..16");
+        if (c.LivePerWorld is < 1 or > 256) return ("limits.livePerWorld", $"{c.LivePerWorld} is outside 1..256");
         return null;
     }
 

@@ -24,7 +24,7 @@ public sealed class RosterTests : IDisposable
         PetCreatures.Source = new FakeCreatures();
         Pets.DefineAs(new PetDefinition { Id = "mod-a:wolf", Creature = "game:enemy_wildbeast_wolf" }, "mod-a");
         Pets.DefineAs(new PetDefinition { Id = "mod-a:loyal", Creature = "game:enemy_wildbeast_wolf", Downed = new PetDownedPolicy { Outcome = PetDownedOutcome.Release } }, "mod-a");
-        Pets.DefineAs(new PetDefinition { Id = "mod-a:few", Creature = "game:enemy_wildbeast_wolf", Caps = new PetCaps { RetainedPerCharacter = 1 } }, "mod-a");
+        Pets.DefineAs(new PetDefinition { Id = "mod-a:few", Creature = "game:enemy_wildbeast_wolf", Limits = new PetLimits { RetainedPerCharacter = 1 } }, "mod-a");
         PetsRuntime.DrainEventsForTests(out _);
         Roster = new PetRoster(World, Store) { Post = Events.Add, AskDowning = e => { if (DowningAnswer is { } a) e.Outcome = a; return e; } };
     }

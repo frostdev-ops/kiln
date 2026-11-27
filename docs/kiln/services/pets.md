@@ -21,7 +21,7 @@ Author guide: [modding/pets.md](../modding/pets.md). Sample: `mods/samples/PetsS
 | Who it may harm, who may harm it | `PetTargetPolicy`: the hostile creature factions (never Player, AutomatedPlayer, PlayerAlly or FarmAnimal: `Define` refuses them); PvP off, or by the mod's rule (`Pets.SetHostile` pairs) | PvP off; Fogger, Vukah, Scavenger, WildBeast, Skeleton, Cyclops, Drak, Ancients |
 | What a downed pet is | `PetDownedPolicy.Outcome` (recovery anchor, absent, released); per pet in `PetDowningEvent` | a recovery anchor where it fell |
 | Revive: allowed, channel, range, health, cost, what cancels | `PetRevivePolicy`; a refusal per attempt in `PetRevivingEvent` | allowed, 3 s, 3 m, half health, free, movement and damage cancel |
-| How many | `PetCaps`: records per character, live per character, live per world | 32, 1, 16 |
+| How many | `PetLimits` (`Limits`; JSON `limits`): records per character, live per character, live per world | 32, 1, 16 |
 | What the owner's HUD shows | `PetHudPolicy` (bar row, anchor marker) per definition; `PetsClient.Configure` per player; or a HUD of the mod's own from `PetsClient.Snapshot` | bar and marker on |
 | Who gets a pet | `Pets.Grant` (a reward, a quest, a command); taming (19e) when it lands | none |
 | Attack, assist, defend | `Pets.Command(..., PetOrder.Attack, target, ...)`: the mod decides when; Kiln checks the target rule | Kiln never attacks by itself |
@@ -340,18 +340,21 @@ through its own channel (Kiln has no client command path).
 
 ## Capabilities
 
-| Row | Says |
-|---|---|
-| `kiln.pets` | Kiln.Pets is loaded |
-| `pets.definitions` | definitions register |
-| `pets.records` | records are kept (a server world runs) |
-| `pets.summon` | bodies are made and retired (kiln.spawn, a running world, creature_control) |
-| `pets.control` | the broker takes pets' leases (creature_control) |
-| `pets.follow` | pets follow and stay |
-| `pets.fight` | the native target rule and kiln.combat's seam |
-| `pets.downed` | the native death guard (decisions.native_guards) and retirement |
-| `pets.hud.server` | owners' views are sent (Kiln.Network) |
-| `pets.hud.client` | this game shows its owner's pets (the channel and the renderer) |
+Each row's name is a public constant of `Pets` (`Capabilities.Is(Pets.SummonCapability)`; a `KilnUnavailableException`'s
+`Capability` is one of them). A definition's own limits are `PetLimits`, not capabilities.
+
+| Row | Constant | Says |
+|---|---|---|
+| `kiln.pets` | `Pets.ServiceCapability` | Kiln.Pets is loaded |
+| `pets.definitions` | `Pets.DefinitionsCapability` | definitions register |
+| `pets.records` | `Pets.RecordsCapability` | records are kept (a server world runs) |
+| `pets.summon` | `Pets.SummonCapability` | bodies are made and retired (kiln.spawn, a running world, creature_control) |
+| `pets.control` | `Pets.ControlCapability` | the broker takes pets' leases (creature_control) |
+| `pets.follow` | `Pets.FollowCapability` | pets follow and stay |
+| `pets.fight` | `Pets.FightCapability` | the native target rule and kiln.combat's seam |
+| `pets.downed` | `Pets.DownedCapability` | the native death guard (decisions.native_guards) and retirement |
+| `pets.hud.server` | `Pets.HudServerCapability` | owners' views are sent (Kiln.Network) |
+| `pets.hud.client` | `Pets.HudClientCapability` | this game shows its owner's pets (the channel and the renderer) |
 
 ## Tests
 

@@ -171,7 +171,7 @@ public sealed class TamingReviewTestMod : Mod
             }
 
             // 6: a roster that fills during the attempt refuses the last step before its cost
-            var cap = Pets.Define(new PetDefinition { Id = "taming-review-test:cap-pet", Creature = "game:enemy_wildbeast_wolf_earlygame", Caps = new PetCaps { RetainedPerCharacter = 1 } });
+            var cap = Pets.Define(new PetDefinition { Id = "taming-review-test:cap-pet", Creature = "game:enemy_wildbeast_wolf_earlygame", Limits = new PetLimits { RetainedPerCharacter = 1 } });
             Taming.Define(new TamingDefinition
             {
                 Id = "taming-review-test:cap", Creatures = ["game:enemy_wildbeast_wolf_earlygame"], Steps = [new FeedStep(meat, 1), new FeedStep(meat, 1)],

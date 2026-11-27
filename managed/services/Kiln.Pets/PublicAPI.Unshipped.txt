@@ -10,16 +10,6 @@ Kiln.PetBodyViewKey.Equals(Kiln.PetBodyViewKey? other) -> bool
 Kiln.PetBodyViewKey.NetworkEntityId.get -> uint
 Kiln.PetBodyViewKey.NetworkEntityId.init -> void
 Kiln.PetBodyViewKey.PetBodyViewKey(uint NetworkEntityId, ulong BodyGeneration) -> void
-Kiln.PetCaps
-Kiln.PetCaps.<Clone>$() -> Kiln.PetCaps!
-Kiln.PetCaps.Equals(Kiln.PetCaps? other) -> bool
-Kiln.PetCaps.LivePerCharacter.get -> int
-Kiln.PetCaps.LivePerCharacter.init -> void
-Kiln.PetCaps.LivePerWorld.get -> int
-Kiln.PetCaps.LivePerWorld.init -> void
-Kiln.PetCaps.PetCaps() -> void
-Kiln.PetCaps.RetainedPerCharacter.get -> int
-Kiln.PetCaps.RetainedPerCharacter.init -> void
 Kiln.PetChange
 Kiln.PetChange.<Clone>$() -> Kiln.PetChange!
 Kiln.PetChange.After.get -> Kiln.PetSnapshot!
@@ -83,8 +73,6 @@ Kiln.PetCostDefinition.Item.init -> void
 Kiln.PetCostDefinition.PetCostDefinition(Kiln.ItemId Item, int Count) -> void
 Kiln.PetDefinition
 Kiln.PetDefinition.<Clone>$() -> Kiln.PetDefinition!
-Kiln.PetDefinition.Caps.get -> Kiln.PetCaps!
-Kiln.PetDefinition.Caps.init -> void
 Kiln.PetDefinition.Creature.get -> string!
 Kiln.PetDefinition.Creature.init -> void
 Kiln.PetDefinition.DisplayName.get -> string?
@@ -98,6 +86,8 @@ Kiln.PetDefinition.Id.get -> string!
 Kiln.PetDefinition.Id.init -> void
 Kiln.PetDefinition.Level.get -> Kiln.PetLevelPolicy!
 Kiln.PetDefinition.Level.init -> void
+Kiln.PetDefinition.Limits.get -> Kiln.PetLimits!
+Kiln.PetDefinition.Limits.init -> void
 Kiln.PetDefinition.Movement.get -> Kiln.PetMovementPolicy!
 Kiln.PetDefinition.Movement.init -> void
 Kiln.PetDefinition.PetDefinition() -> void
@@ -188,6 +178,16 @@ Kiln.PetLife
 Kiln.PetLife.Downed = 1 -> Kiln.PetLife
 Kiln.PetLife.Ready = 0 -> Kiln.PetLife
 Kiln.PetLife.Released = 2 -> Kiln.PetLife
+Kiln.PetLimits
+Kiln.PetLimits.<Clone>$() -> Kiln.PetLimits!
+Kiln.PetLimits.Equals(Kiln.PetLimits? other) -> bool
+Kiln.PetLimits.LivePerCharacter.get -> int
+Kiln.PetLimits.LivePerCharacter.init -> void
+Kiln.PetLimits.LivePerWorld.get -> int
+Kiln.PetLimits.LivePerWorld.init -> void
+Kiln.PetLimits.PetLimits() -> void
+Kiln.PetLimits.RetainedPerCharacter.get -> int
+Kiln.PetLimits.RetainedPerCharacter.init -> void
 Kiln.PetMovementMode
 Kiln.PetMovementMode.EngineGuard = 1 -> Kiln.PetMovementMode
 Kiln.PetMovementMode.QueryInput = 0 -> Kiln.PetMovementMode
@@ -417,12 +417,19 @@ Kiln.PetViewStateChangedEvent
 Kiln.PetViewStateChangedEvent.State.get -> Kiln.PetViewState
 Kiln.Pets
 Kiln.PetsClient
+const Kiln.Pets.ControlCapability = "pets.control" -> string!
+const Kiln.Pets.DefinitionsCapability = "pets.definitions" -> string!
+const Kiln.Pets.DownedCapability = "pets.downed" -> string!
+const Kiln.Pets.FightCapability = "pets.fight" -> string!
+const Kiln.Pets.FollowCapability = "pets.follow" -> string!
+const Kiln.Pets.HudClientCapability = "pets.hud.client" -> string!
+const Kiln.Pets.HudServerCapability = "pets.hud.server" -> string!
+const Kiln.Pets.RecordsCapability = "pets.records" -> string!
+const Kiln.Pets.ServiceCapability = "kiln.pets" -> string!
+const Kiln.Pets.SummonCapability = "pets.summon" -> string!
 override Kiln.PetBodyViewKey.Equals(object? obj) -> bool
 override Kiln.PetBodyViewKey.GetHashCode() -> int
 override Kiln.PetBodyViewKey.ToString() -> string!
-override Kiln.PetCaps.Equals(object? obj) -> bool
-override Kiln.PetCaps.GetHashCode() -> int
-override Kiln.PetCaps.ToString() -> string!
 override Kiln.PetChange.Equals(object? obj) -> bool
 override Kiln.PetChange.GetHashCode() -> int
 override Kiln.PetChange.ToString() -> string!
@@ -452,6 +459,9 @@ override Kiln.PetId.ToString() -> string!
 override Kiln.PetLevelPolicy.Equals(object? obj) -> bool
 override Kiln.PetLevelPolicy.GetHashCode() -> int
 override Kiln.PetLevelPolicy.ToString() -> string!
+override Kiln.PetLimits.Equals(object? obj) -> bool
+override Kiln.PetLimits.GetHashCode() -> int
+override Kiln.PetLimits.ToString() -> string!
 override Kiln.PetMovementPolicy.Equals(object? obj) -> bool
 override Kiln.PetMovementPolicy.GetHashCode() -> int
 override Kiln.PetMovementPolicy.ToString() -> string!
@@ -478,8 +488,6 @@ override Kiln.PetViewEntry.GetHashCode() -> int
 override Kiln.PetViewEntry.ToString() -> string!
 static Kiln.PetBodyViewKey.operator !=(Kiln.PetBodyViewKey? left, Kiln.PetBodyViewKey? right) -> bool
 static Kiln.PetBodyViewKey.operator ==(Kiln.PetBodyViewKey? left, Kiln.PetBodyViewKey? right) -> bool
-static Kiln.PetCaps.operator !=(Kiln.PetCaps? left, Kiln.PetCaps? right) -> bool
-static Kiln.PetCaps.operator ==(Kiln.PetCaps? left, Kiln.PetCaps? right) -> bool
 static Kiln.PetChange.operator !=(Kiln.PetChange? left, Kiln.PetChange? right) -> bool
 static Kiln.PetChange.operator ==(Kiln.PetChange? left, Kiln.PetChange? right) -> bool
 static Kiln.PetCommit.operator !=(Kiln.PetCommit? left, Kiln.PetCommit? right) -> bool
@@ -501,6 +509,8 @@ static Kiln.PetId.operator !=(Kiln.PetId left, Kiln.PetId right) -> bool
 static Kiln.PetId.operator ==(Kiln.PetId left, Kiln.PetId right) -> bool
 static Kiln.PetLevelPolicy.operator !=(Kiln.PetLevelPolicy? left, Kiln.PetLevelPolicy? right) -> bool
 static Kiln.PetLevelPolicy.operator ==(Kiln.PetLevelPolicy? left, Kiln.PetLevelPolicy? right) -> bool
+static Kiln.PetLimits.operator !=(Kiln.PetLimits? left, Kiln.PetLimits? right) -> bool
+static Kiln.PetLimits.operator ==(Kiln.PetLimits? left, Kiln.PetLimits? right) -> bool
 static Kiln.PetMovementPolicy.operator !=(Kiln.PetMovementPolicy? left, Kiln.PetMovementPolicy? right) -> bool
 static Kiln.PetMovementPolicy.operator ==(Kiln.PetMovementPolicy? left, Kiln.PetMovementPolicy? right) -> bool
 static Kiln.PetOwnerView.operator !=(Kiln.PetOwnerView? left, Kiln.PetOwnerView? right) -> bool

@@ -43,8 +43,8 @@ internal sealed class PetsTamingBinder : ITamingBinder
         var have = PetsOf(owner);
         var held = _held.Where(h => !h.Key.Equals(except) && h.Value.Owner == owner).Select(h => h.Value.Pet).ToList();
         var of = have.Count(p => p.Definition == pet) + held.Count(p => p == pet);
-        if (of >= def.Caps.RetainedPerCharacter)
-            return ($"Cap: the character keeps {def.Caps.RetainedPerCharacter} pet(s) of {pet}{(held.Contains(pet) ? " (with the tames running)" : "")}", true);
+        if (of >= def.Limits.RetainedPerCharacter)
+            return ($"Cap: the character keeps {def.Limits.RetainedPerCharacter} pet(s) of {pet}{(held.Contains(pet) ? " (with the tames running)" : "")}", true);
         if (have.Count + held.Count >= MaxRecords) return ($"Cap: a character keeps at most {MaxRecords} pet records", true);
         return null;
     }
