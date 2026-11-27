@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Kiln.Players in the capability registry (Kiln.Capabilities; docs/kiln/services/caps.md). Reported at the service's
 // start (PlayersStartup, the first service tick) and every 25 steps while kiln.players is here: players.positions
-// follows the server world, and labbot.join says why bots cannot join where kiln.labbot is not there. kiln.players,
-// kiln.progression, kiln.playerstate and kiln.characters have only the core's rows; the sigdb features each serves are
-// lowered when its table is missing.
+// follows the server world. kiln.players, kiln.progression, kiln.playerstate and kiln.characters have only the core's
+// rows; the sigdb features each serves are lowered when its table is missing.
 namespace Kiln;
 
 internal static unsafe class PlayersCaps
@@ -39,15 +38,11 @@ internal static unsafe class PlayersCaps
         ServiceCaps.WhenFound(Progression, global::Kiln.Progression.LookAgain);
         ServiceCaps.WhenFound(States, PlayerStates.LookAgain);
         ServiceCaps.WhenFound("kiln.characters", PlayerCharacters.LookAgain);
-        ServiceCaps.WhenFound(LabBotNative.Service, LabBotNative.LookAgain);
     }
 
     private static void Report()
     {
         PlayerAim.ReportCapability();  // players.aim (kiln.playerstate's aim functions)
-#pragma warning disable KILNX001  // LabBots is lab-only API; its row is Kiln.Players'
-        LabBots.ReportCapability();    // labbot.join (lab servers only; why not where kiln.labbot is missing)
-#pragma warning restore KILNX001
         var players = Players.TableHere;
         if (!players) ServiceCaps.LowerFeatures(Service, Features);
         if (!global::Kiln.Progression.TableHere) ServiceCaps.LowerFeatures(Progression, ProgressionFeatures);

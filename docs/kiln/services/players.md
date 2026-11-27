@@ -130,9 +130,7 @@ Kiln.Players follows [the API contract](../modding/contract.md). `Players` and `
 - **Capabilities.** `kiln.players`, `kiln.progression`, `kiln.playerstate` (the core's rows) and the sigdb features
   each serves, lowered at Kiln.Players' start (the first service tick) when that table is missing;
   `players.positions` (managed, session: `Players.PositionOf` works now, pending without a server world);
-  `players.aim` (reported with them); `labbot.join` (lab bots, since 0.2.0-dev.32: unavailable with the reason where
-  kiln.labbot is not there; on a server the core's sigdb row and kiln.labbot's own reports decide it); `players.kick` and
-  `players.bans` are Kiln.Network's rows (above).
+  `players.aim` (reported with them); `players.kick` and `players.bans` are Kiln.Network's rows (above).
 - **Errors.** Without kiln.players the reads (`All`, `Connected`, `Count`, `Find`, `FindBySteamId`, `IsPlayer`,
   `PositionOf`, `Joined`, `Left`) throw `KilnUnavailableException` naming `kiln.players`; `PositionOf` without
   positions names `players.positions`; `Progression`'s calls name `kiln.progression`. All three are

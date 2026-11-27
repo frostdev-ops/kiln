@@ -210,30 +210,6 @@ public static unsafe class LabBots
         return list;
     }
 
-    // the registry binding the row was decided under with kiln.labbot missing: it is looked for once per binding
-    private static long _probedEpoch = -1;
-
-    /// <summary>The row <see cref="Capability"/>, reported with Kiln.Players' rows (PlayersCaps, at the service's start
-    /// and on its refresh). Where kiln.labbot is not there (no game in this process, a game client, a server without
-    /// kiln-labbot.dll) the row is unavailable and says why. Where it is, this report is available, which hides behind
-    /// every other: kiln.labbot reports why bots cannot join on that server (policy off a lab, a symbol, a hook) and the
-    /// core's sigdb row covers the rest. Any thread; never throws.</summary>
-    internal static void ReportCapability()
-    {
-        var epoch = Capabilities.CurrentBinding.Epoch;
-        if (LabBotNative.T == null && Interlocked.Exchange(ref _probedEpoch, epoch) != epoch && ServiceCaps.Probe(LabBotNative.Service))
-            LabBotNative.LookAgain();  // a table now (published late, or a new binding's backend has one)
-        if (LabBotNative.T != null)
-        {
-            ServiceCaps.Report(Capability, CapabilityState.Available);
-            return;
-        }
-        ServiceCaps.NoteMissing(LabBotNative.Service);
-        var (reason, text) = ServiceCaps.Cause(CapabilityReason.ServiceMissing, $"{LabBotNative.Service} is not loaded", LabBotNative.Service);
-        ServiceCaps.Report(Capability, CapabilityState.Unavailable, reason,
-            $"{text} (bot players join dedicated lab servers only: kiln-labbot.dll, kiln.json policy \"any\" and kiln.net's labPort)");
-    }
-
     // kiln.labbot's KILN_ERR_INVALID_ARGUMENT for a join, told apart: its name rules (bot.cpp valid_name), a live bot of
     // that name, else the character logged in on this server before (labbot::Played; the flags and group are this
     // wrapper's own, checked above).
@@ -274,7 +250,6 @@ public static unsafe class LabBots
 // kiln_labbot.h's structs and table (layouts asserted there).
 internal static unsafe class LabBotNative
 {
-    public const string Service = "kiln.labbot";
     public const int Ok = 0, InvalidArgument = 1, NotFound = 2, Unavailable = 3;
     public const uint LeaveDrop = 1;
 
@@ -328,12 +303,6 @@ internal static unsafe class LabBotNative
         _looked = table != null;
     }
 
-    /// <summary>Forgets a miss, so the next read looks the service up again (ServiceCaps.WhenFound, a late table).</summary>
-    internal static void LookAgain()
-    {
-        if (_table == null) _looked = false;
-    }
-
     public static Table* T
     {
         get
@@ -342,7 +311,7 @@ internal static unsafe class LabBotNative
             _looked = true;
             if (sizeof(JoinRequest) != 56 || sizeof(Info) != 328 || sizeof(Status) != 224 || sizeof(Table) != 48)
                 return null;  // layout drift between this assembly and kiln_labbot.h: refuse rather than misread
-            _table = Services.Get<Table>(Service, 1);
+            _table = Services.Get<Table>("kiln.labbot", 1);
             return _table;
         }
     }
