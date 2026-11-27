@@ -92,8 +92,9 @@ Blocks.Define("wolf", new TamingBlock
   creature block (its name, or `other-mod:name`).
 - **Pet:** a pet block (inline, its name, `other-mod:name`), or the id of a pet a mod defined in code.
 - **Errors** are `BlockError`s naming the field (`steps[1].count`). An item the game's catalog does not have while the
-  block compiles (a game client's `OnLoad`, the SDK's bake) is checked once content is ready; if it is still unknown
-  then, the taming is not defined (its `Begin` answers `DefinitionUnknown`) and the mod's problem says why.
+  block compiles (a game client's `OnLoad`, the SDK's bake, a dedicated server before Kiln.Items reads the catalog) is
+  checked once content is ready and the catalog is readable (Kiln waits up to about 2 minutes for it); if it is still
+  unknown then, the taming is not defined (its `Begin` answers `DefinitionUnknown`) and the mod's problem says why.
 - It asks nothing of players' games (server only).
 
 ## Drive an attempt

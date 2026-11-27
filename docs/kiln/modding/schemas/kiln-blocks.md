@@ -77,6 +77,7 @@ A mod's blocks: spells, weapons, wands, armor, items, stations, statuses, effect
 | `surfaces` | object |  | Parts: how building materials look, defined once for materials of this mod to name. |
 | `talentTrees` | object |  | Whole trees of their own, on Kiln's screen. Needs "clients": "mod". |
 | `talents` | object |  | Nodes of a skill tree: in the game's own tree with game, else parts for a talent tree. Needs "clients": "mod". |
+| `tamings` | object |  | Tamings (Kiln.Taming, docs/kiln/modding/taming.md): which creatures, the steps in order (feed, weaken, use a tool, the game's own step), timeouts, the refund policy and the pet a tame makes. Items, creatures and pets are named as every block names them (a game item, an item block of this mod or another). Its id is <mod id>:<name>; Taming.Begin takes it. Server; asks nothing of players' games. |
 | `terrainBrushes` | object |  |  |
 | `terrainMaterials` | object |  | New terrain materials: ground, rock or ore, an id and a GUID in the game's tables. 11 fit across all mods, apart from the building materials. Needs "clients": "mod". |
 | `toolMaterialPools` | object |  |  |
@@ -1947,6 +1948,39 @@ A whole tree on Kiln's screen in the game's look. Kiln keeps each character's un
 | `points` | object |  | Where its points come from (default 1, and 1 more per character level). |
 | `respec` | boolean |  | Everything can be given back for free (default). |
 | `was` | [name](#name) |  |  |
+
+## taming
+
+A taming: its creatures, its steps (the last one tames), how close, the timeouts, the refund policy and the pet a tame makes.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `comment` | string |  |  |
+| `creatures` | array of string | yes | Game creatures by their creatures registry id (game:enemy_wildbeast_wolf_earlygame; a trailing * matches a prefix of game ids), or creature blocks of this mod (by name) or of another ("other-mod:name"). min items 1 |
+| `inactivitySeconds` | number |  | Seconds of simulation without an applied step before the attempt expires (default 30). min 1 max 300 |
+| `maxAttemptSeconds` | number |  | The longest an attempt lasts, at least inactivitySeconds (default 300). min 1 max 3600 |
+| `pet` | [ref](#ref) or [pet](#pet) |  | The pet a tame makes: a pet block of this mod (by name) or of another ("other-mod:name"), or one written here. None: no pet. |
+| `rangeMeters` | number |  | How close the player must be (default 3). min 1 max 8 |
+| `refund` | `"nonRefundable"` \| `"refundOnFail"` \| `"escrow"` |  | What happens to paid steps when the attempt ends without a tame (default nonRefundable). |
+| `removeTarget` | boolean |  | With a pet: the tamed wild body is removed (default true). |
+| `requireThresholdUntilCommit` | boolean |  | The latest weaken threshold holds until the tame (default true). |
+| `steps` | array of [tamingStep](#tamingstep) | yes | The steps, in order. min items 1 max items 64 |
+| `summonPet` | boolean |  | With a pet: the new pet is summoned at once (default true). |
+| `was` | string |  | The name before a rename: the id comes from the oldest name. Pattern `^[A-Za-z0-9_.-]+$`. |
+
+## tamingStep
+
+One step: feed (item, count), weaken (maxHealthFraction), tool (item, wear, allowBreak) or native (steps).
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `allowBreak` | boolean |  | tool: the use may break the tool (default false). |
+| `count` | integer |  | feed: how many of a plain stack item (default 1). min 1 max 999 |
+| `item` | [itemRef](#itemref) |  |  |
+| `kind` | `"feed"` \| `"weaken"` \| `"tool"` \| `"native"` | yes |  |
+| `maxHealthFraction` | number |  | weaken: the target's health is at most this share of its maximum. max 1 |
+| `steps` | integer |  | native: how many of the game's own steps (default 1). min 1 max 255 |
+| `wear` | integer |  | tool: durability one use takes off the selected gear item (default 1). min 0 max 32767 |
 
 ## terrainBrush
 
