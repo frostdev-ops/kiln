@@ -215,6 +215,15 @@ void PetSafety::set_epoch(uint64_t epoch) {
     epoch_.store(epoch, std::memory_order_release);
 }
 
+bool PetSafety::pre(uint64_t epoch, uint64_t step, bool guard_row_off) {
+    set_step(step);
+    if (epoch) set_epoch(epoch);
+    if (!guard_row_off || !guard_installed()) return false;
+    guard_.store(false, std::memory_order_release);   // bind refuses from now on: no pet body without its death guard
+    withdraw();
+    return true;
+}
+
 void PetSafety::latch(Row& r, uint32_t cause) {
     const uint32_t before = r.flags.fetch_or(KILN_PET_SAFETY_DOWN_PENDING, std::memory_order_acq_rel);
     if (before & KILN_PET_SAFETY_DOWN_PENDING) return;

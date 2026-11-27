@@ -312,6 +312,33 @@ void test_collect_and_withdraw() {
     delete s;
 }
 
+void test_guard_loss() {
+    // review of dev.32 pets: decisions.native_guards going off while no pet body was bound left binds open (the Pre withdrew
+    // only when rows existed), so the next pet had no death guard: its hook was gone
+    PetSafety s(&fake_quarantine);
+    s.set_guard_installed(true);
+    CHECK(!s.pre(E, 10, false));
+    CHECK(s.bind(binding(2001, 1, 1)) == KILN_OK);
+    CHECK(s.retire(key(2001), false) == KILN_OK);
+    CHECK(s.rows() == 0);
+    CHECK(s.pre(E, 11, true));                                    // the row went off with no body bound
+    CHECK(s.bind(binding(2002, 1, 1)) == KILN_ERR_UNAVAILABLE);  // no body is admitted without its guard
+    auto next = binding(2003, 1, 1);
+    next.body.world_epoch = E + 1;
+    CHECK(!s.pre(E + 1, 12, true));                               // a later world: still withdrawn, nothing new to do
+    CHECK(s.bind(next) == KILN_ERR_UNAVAILABLE);                  // nor in the next world: the hook is gone
+    // with bodies bound: every row protection-lost at once, still guarded
+    PetSafety t(&fake_quarantine);
+    t.set_guard_installed(true);
+    t.pre(E, 20, false);
+    CHECK(t.bind(binding(2004, 1, 1)) == KILN_OK);
+    CHECK(t.pre(E, 21, true));
+    KilnPetSafetyState st{};
+    st.size = sizeof st;
+    CHECK(t.inspect(key(2004), &st) == KILN_OK && (st.flags & KILN_PET_SAFETY_PROTECTION_LOST) && (st.flags & KILN_PET_SAFETY_GUARDED));
+    CHECK(t.death_policy(E, 2004, 0) == KILN_DEATH_GUARD_SKIP);
+}
+
 void test_threads() {
     // workers read (death and hit policies) while the tick binds and retires: no torn row, no crash under the sanitizers
     PetSafety* s = new PetSafety(&fake_quarantine);
@@ -350,6 +377,7 @@ int main() {
     test_pairs();
     test_lethal();
     test_collect_and_withdraw();
+    test_guard_loss();
     test_threads();
     std::printf("pets_test: %d passed, %d failed\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;

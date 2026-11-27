@@ -111,21 +111,20 @@ void pets_register(const KilnApi* api, KilnOwner owner) {
 }
 
 void pets_pre(uint64_t epoch, uint64_t step) {
-    PetSafety& s = safety();
-    s.set_step(step);
-    if (epoch) s.set_epoch(epoch);
-    if (!g_guard_set || s.rows() == 0) return;
-    // phase 1 of a protection loss: the death hook faulted or was refused after the guard was set
-    if (!Caps) Caps = static_cast<const KilnCapsApi*>(g_api->service(KilnStr{KILN_CAPS_SERVICE, sizeof(KILN_CAPS_SERVICE) - 1}, 1));
-    if (!Caps || !Caps->find) return;
-    KilnCapRow row{};
-    row.size = sizeof row;
-    if (Caps->find(KilnStr{"decisions.native_guards", 23}, &row) == KILN_OK && row.state == KILN_CAP_UNAVAILABLE) {
-        static bool told = false;
-        s.withdraw();
-        if (!told) logf(KILN_LOG_WARN, "kiln.pets: decisions.native_guards went off: every pet body is retired at the next Pre");
-        told = true;
+    // phase 1 of a protection loss: the death hook faulted or was refused after the guard was set. Asked at every Pre once
+    // the guard is set, rows or none: a row going off while no pet body was bound must still close admission (review of
+    // dev.32 pets: the next pet would have had no death guard)
+    bool off = false;
+    if (g_guard_set) {
+        if (!Caps) Caps = static_cast<const KilnCapsApi*>(g_api->service(KilnStr{KILN_CAPS_SERVICE, sizeof(KILN_CAPS_SERVICE) - 1}, 1));
+        if (Caps && Caps->find) {
+            KilnCapRow row{};
+            row.size = sizeof row;
+            off = Caps->find(KilnStr{"decisions.native_guards", 23}, &row) == KILN_OK && row.state == KILN_CAP_UNAVAILABLE;
+        }
     }
+    if (safety().pre(epoch, step, off))
+        logf(KILN_LOG_WARN, "kiln.pets: decisions.native_guards went off: every pet body is retired at the next Pre, and no new one is made");
 }
 
 }  // namespace kcc

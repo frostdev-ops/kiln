@@ -32,6 +32,11 @@ public:
     void set_step(uint64_t step) { step_.store(step, std::memory_order_relaxed); }
     // a server world ended: rows of the old epoch go (their bodies went with it), withdrawal ends
     void set_epoch(uint64_t epoch);
+    // The Pre of each step (tick thread): the step, the server world's epoch (0: none), and whether kiln.decisions'
+    // decisions.native_guards row is off now. Once the guard is installed, that row going off (its death hook faulted, the
+    // service shut down) is the first phase of a protection loss: every row ProtectionLost at once, and no body is admitted
+    // again, also when no row exists at that moment and in a later world (the hook is gone). True when it withdrew now.
+    bool pre(uint64_t epoch, uint64_t step, bool guard_row_off);
     uint32_t rows() const { return count_.load(std::memory_order_acquire); }
 
     // any thread
