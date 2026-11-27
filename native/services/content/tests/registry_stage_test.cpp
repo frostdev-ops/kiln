@@ -174,7 +174,20 @@ TreeView world() {
           {{"recipes", json::array({{{"debugName", "Craft_Planks"}, {"recipeGuid", g(101)}, {"recipeId", 5001}, {"input", json::array({in})},
                                      {"output", json::array({{{"item", 1002}, {"itemRef", g(2)}, {"count", 1}}})}, {"craftingDuration", 2.0}}})},
            {"inputCategories", json::array()}});
-    v.add("keen::LootableItemsResource", g(200), {{"items", json::array({{{"itemId", 1002}, {"stackSizeMin", 1}, {"stackSizeMax", 2}}})}});
+    v.add("keen::LootableItemsResource", g(200), {{"globalRarityDropRates", json::array({40.0, 30.0, 20.0, 8.0, 2.0})},
+                                                  {"items", json::array({{{"itemId", 1002}, {"stackSizeMin", 1}, {"stackSizeMax", 2}}})}});
+    // the random loot tables (lootRules / randomLoot): one label table by its id, one world table named after its first chest
+    auto table = [](const char* mode, double weight) {
+        json r = json::array();
+        for (int i = 0; i < 5; ++i) r.push_back({{"mode", mode}, {"value", weight}});
+        return json{{"modifier", {{"level", {{"mode", "None"}, {"value", 0.0}}}, {"levelOffset", {{"mode", "None"}, {"value", 0.0}}},
+                                  {"levelOffsetRangeMin", 0.0}, {"levelOffsetRangeMax", 0.0}, {"rarities", r}}}};
+    };
+    json labels = json::array({table("Set", 20.0)});
+    labels[0]["id"] = 0x80943338u;
+    v.add("keen::DefaultLootLabelCollectionResource", g(500), {{"lootSettings", labels}});
+    v.add("keen::SceneRandomLootResource", g(600), {{"lootSettings", json::array({table("None", 0.0)})},
+                                                    {"lootContainer", json::array({{{"nodeId", {{"value", 0x38db0fdcu}}}, {"lootSettingsIndex", 0}}})}});
     v.add("keen::ecs::DefaultInventoryResource", g(300), {{"rootGroup", {{"stacks", json::array({{{"item", 1002}, {"itemRef", g(2)}, {"countMin", 1}, {"countMax", 1}, {"spawnProbability", 1.0}, {"weight", 1.0}}})}}}});
     v.add("keen::ecs::TemplateResource", g(400), {{"name", "Chest_A"}, {"components", json::array({{{"$type", "DefaultInventory"}, {"defaultInventory", g(300)}}})}});
     v.add("keen::BalancingTable", kBalance, {{"playerLevelCap", 50}, {"skillPointsPerLevel", 2}, {"genericWeaponSeed", 10.0}, {"powerCreepWeapon", 0.15},
@@ -1333,6 +1346,58 @@ void archive_journal_shared_resources(const std::string& dir) {
           "base.journal says recipes cannot be named from it: " + rep["base"].dump());
 }
 
+// review-registry-loot: lootRules' one entry is the head of the resource the loot registry's entries are elements of (the
+// world-wide weights before the items). A journal that lists the resource by its key alone (format 1) does not say whether a
+// package wrote the weights or an item's stack sizes, so it names no lootRules field (as loot); one with member paths
+// (format 2) names it on the fields its paths reach, never for a write of the items.
+std::vector<stage::Env::DataFile> loot_rules_sections(const Schema& schema) {
+    const std::string more = R"({"registry": {"alter": [{"registry": "lootRules", "select": {"id": "game:loot"}, "field": "rarityWeights.legendary", "op": {"mul": 4}},
+        {"registry": "lootRules", "select": {"id": "game:loot"}, "field": "rarityWeights.common", "op": 10}]}})";
+    return stage::read_sections("bigmod", "2.0.0", {{"content/l.json", more}}, schema);
+}
+void archive_journal_loot_rules_shares_its_resource(const std::string& dir) {
+    const std::string live = std::string(64, 'a');
+    auto journal = [&](int format, json paths) {
+        json changed = {{"guid", g(200)}, {"typeHash", "0badf00d"}, {"part", 0}, {"createdBy", nullptr}};
+        if (format == 2) changed["paths"] = paths;
+        return json{{"format", format}, {"stem", "enshrouded_server"}, {"generation", live}, {"receiptSha256", std::string(64, 'b')},
+                    {"dialect", format == 2 ? "eml" : "shroudforge"}, {"attempt", "first"}, {"truncated", false},
+                    {"packages", json::array({{{"id", "stacks"}, {"version", "1.0.0"}, {"kind", format == 2 ? "eml" : "shroudforge"},
+                                               {"contentSha256", format == 2 ? json(nullptr) : json(std::string(64, '1'))},
+                                               {"settingsSha256", format == 2 ? json(nullptr) : json(std::string(64, '2'))}, {"truncated", false},
+                                               {"changed", json::array({changed})}, {"created", json::array()}, {"contents", json::array()}}})},
+                    {"unattributed", {{"truncated", false}, {"changed", json::array()}, {"created", json::array()}, {"contents", json::array()}}}}
+            .dump();
+    };
+    auto start = [&](const std::string& text) {
+        TreeView view = world();
+        Files files;
+        stage::Env e = env_of(&view, &files, dir, &loot_rules_sections);
+        e.writer = "kiln-eml";
+        e.archive_journal = [&](std::string* generation, std::string*) -> std::optional<std::string> { return *generation = live, text; };
+        stage::Runner r(std::move(e));
+        r.run({});
+        r.finish({});
+        return json::parse(files.report);
+    };
+    auto named = [](const json& rep, const std::string& field) {
+        for (const json& f : rep["fields"])
+            if (f["id"] == "game:loot" && f["field"] == field)
+                for (const json& w : f["writers"])
+                    if (w["kind"] == "archiveWriter") return true;
+        return false;
+    };
+    const json one = start(journal(1, nullptr));
+    check(one["base"]["journal"]["state"] == "read" && !named(one, "rarityWeights.legendary") && !named(one, "rarityWeights.common"),
+          "format 1: a package that changed the loot resource is not named on the world-wide weights: " + one["fields"].dump().substr(0, 600));
+    check(one["base"]["journal"]["text"].get<std::string>().find("lootRules") != std::string::npos, "base.journal says lootRules cannot be named from it: " + one["base"].dump());
+    const json items = start(journal(2, json::array({"items[0].stackSizeMax"})));
+    check(!named(items, "rarityWeights.legendary") && !named(items, "rarityWeights.common"), "format 2: a write of an item's stack sizes names no weight");
+    const json weights = start(journal(2, json::array({"globalRarityDropRates[4]"})));
+    check(named(weights, "rarityWeights.legendary") && !named(weights, "rarityWeights.common"),
+          "format 2: a write of the legendary weight names that field only: " + weights["fields"].dump().substr(0, 600));
+}
+
 // Review (registry-writers): old_writes marks every entry an old boot document writes (an OldPatch row with no field),
 // also where no Kiln field's row covers the path ("[*]" over the recipes, a formula's input): the live drift probe takes a
 // change there for Kiln's own patch. Composition skips the marks; an entry no document writes has none.
@@ -1433,6 +1498,7 @@ int main(int argc, char** argv) {
         {"plans_link_the_last_good_plan", [&] { plans_link_the_last_good_plan(dir); }},
         {"rollback_starts_on_the_previous_plan", [&] { rollback_starts_on_the_previous_plan(dir); }},
         {"rollback_refused_whole", [&] { rollback_refused_whole(dir); }},
+        {"archive_journal_loot_rules_shares_its_resource", [&] { archive_journal_loot_rules_shares_its_resource(dir); }},
         {"save_checks_of_restart_fields", [&] { save_checks_of_restart_fields(dir); }},
         {"stack_guard_against_the_last_world", [&] { stack_guard_against_the_last_world(dir); }},
         {"stack_high_water_mark", [&] { stack_high_water_mark(dir); }},

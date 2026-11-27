@@ -472,7 +472,17 @@ struct Runner::Impl {
         std::set<std::string> whole;
         std::string shared;
         ArchiveFields fields;
+        std::set<std::string> element_types;  // resource types some registry's entries are elements of
         for (const auto& [name, rmap] : rm.registries) {
+            if (rmap.entries.kind == map::EntryKind::Array) element_types.insert(rmap.entries.resource_type);
+            for (const map::EntrySource& src : rmap.entries.sources) element_types.insert(src.resource_type);
+        }
+        for (const auto& [name, rmap] : rm.registries) {
+            // a singleton that is the head of such a resource (lootRules in the loot registry's resource): only from paths
+            if (rmap.entries.kind == map::EntryKind::Single && element_types.count(rmap.entries.resource_type)) {
+                fields.partial.insert(name);
+                shared += (shared.empty() ? "" : ", ") + name;
+            }
             if (rmap.entries.kind != map::EntryKind::Array && rmap.entries.kind != map::EntryKind::Arrays) whole.insert(name);
             else
                 shared += (shared.empty() ? "" : ", ") + name,
@@ -504,7 +514,7 @@ struct Runner::Impl {
         const size_t named = name_archive_writers(*journal, ids, whole, base, &fields);
         std::string text = journal->text;
         if (journal->state == "read" && !shared.empty() && journal->format == 1)
-            text += "; " + shared + " entries are not named (each is an element of a resource its registry's entries share, and this journal does not say which element a package wrote)";
+            text += "; " + shared + " entries are not named (each is an element or a part of a resource other entries share, and this journal does not say which part a package wrote)";
         else if (journal->state == "read" && journal->format == 2)
             text += "; each mod is named on the fields its member paths name (on recipe and loot entries by their element)";
         meta.base.journal = {journal->state, text, journal->packages.size(), named, journal->truncated};

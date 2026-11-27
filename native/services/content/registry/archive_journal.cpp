@@ -261,8 +261,12 @@ size_t name_archive_writers(const ArchiveJournal& journal, const std::map<std::s
             const auto pit = p.paths.find(g);
             if (const auto it = by_guid.find(g); it != by_guid.end())
                 for (const auto& entry : it->second) {
-                    if (pit == p.paths.end() || !fields) name(entry, who, nullptr);
-                    else name_paths(entry, who, pit->second);
+                    if (pit == p.paths.end() || !fields) {
+                        // a part of a shared resource: a key alone does not say the package wrote that part
+                        if (!fields || !fields->partial.count(entry.first)) name(entry, who, nullptr);
+                    } else {
+                        name_paths(entry, who, pit->second);
+                    }
                 }
             // an array registry's elements: only from paths, which say which element ("<array>[<i>]...")
             if (pit == p.paths.end() || !fields || !fields->elements) continue;
