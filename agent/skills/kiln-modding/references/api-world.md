@@ -146,7 +146,8 @@ Blocks.Define("stone-tool", new BuildingToolBlock { Name = "Stone tool", Materia
   the rounded-up added volume divided by it, from the backpack and connected Magic chests (ordinary chests are not a
   source), with the game's undo. A tool with no Add action needs no pool.
 - A **brush** is a sphere of radius 0.25 to 8 m; a tool has up to 64 brushes, and the game's brush picker shows the first 16
-  in the tool's order. The tool owns its brushes. `Identity =
+  in the tool's order. The stroke uses the exact radius; the cursor preview is the nearest vanilla Overgrowth size (0.5,
+  1.5 or 2.5 m; the game draws it as a fixed effect per shape). The tool owns its brushes. `Identity =
   BlockIdentity.Legacy(...)` keeps an existing saved item, `Was` a renamed one, `Icon` a PNG in the mod folder.
 - **`TerrainToolAction`** (Kiln.Tools): `Mode` `TerrainToolMode.Add` or `Remove`; `RemoveMaterials` the terrain cells a Remove
   may clear (an empty list permits none; cell 0 and 128-255 are not valid); `TerrainOnly` must be true. Primary and secondary

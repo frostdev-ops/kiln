@@ -2761,6 +2761,9 @@
       "title": "Aparência",
       "fire": "Fogo animado",
       "fireHint": "O fogo em Jogar (WebGL). Desativado: um botão Jogar simples, mais leve para GPUs fracas.",
+      "festive": "Temporada de festas",
+      "festiveHint": "Uma cornija de inverno sobre o fogo, com neve, até 7 de janeiro.",
+      "festiveMore": "Lamparinas, velas e lanternas de muitas tradições de inverno numa cornija sobre o fogo, neve do lado de fora do arco e guirlandas nas páginas, da segunda-feira depois do fim de semana de Ação de Graças até 7 de janeiro. Desligado: a aparência de sempre pelo resto desta temporada; volta na próxima temporada.",
       "noGpu": "Desenhar o launcher sem a GPU",
       "fireOffSoftware": "Desativado enquanto o launcher desenha sem a GPU.",
       "fireOffEnv": "Desativado neste início: KILN_LAUNCHER_NO_WEBGL está definido.",
@@ -3667,6 +3670,7 @@
     },
     "appShell": {
       "thanksgiving": "Feliz Dia de Ação de Graças",
+      "festive": "Boas festas",
       "headStart": "{progress} · {step}",
       "pct": "{pct}%",
       "labelTime": "{label} {time}",

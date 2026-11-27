@@ -17,6 +17,7 @@ static std::vector<std::pair<int32_t,std::string>> log_lines;
 static void KILN_CALL capture_log(KilnOwner,int32_t level,KilnStr text){log_lines.emplace_back(level,std::string(text.ptr,text.len));}
 static bool game_lists_555; // the arrow group also lists 555, with this count (0: a stack used up, its row kept)
 static uint64_t game_555_count;
+static bool spell_swapped; // GitHub issue 151: the spell group after a swap (999 kept at count 0, 556 in the backpack)
 static void vanilla_selector(SelectorGroup* groups,void*,uint8_t) {
     for(unsigned i=0;i<7;++i) {
         groups[i]={};groups[i].data=groups[i].inline_rows;groups[i].capacity=64;groups[i].count=2;
@@ -24,6 +25,7 @@ static void vanilla_selector(SelectorGroup* groups,void*,uint8_t) {
         groups[i].has_selected=1;groups[i].selected=0;
     }
     if(game_lists_555){groups[0].data[2].item=555;groups[0].data[2].count=game_555_count;groups[0].count=3;}
+    if(spell_swapped){groups[1].data[0].count=0;groups[1].data[2].item=556;groups[1].data[2].count=1;groups[1].count=3;}
 }
 static uint32_t held_ammo_item;
 static uint32_t KILN_CALL ammo_held(){return held_ammo_item;}
@@ -183,7 +185,14 @@ int main() {
         CHECK(ammo::take_picks(7,picks,64,&written)==KILN_OK&&written==0);
         // Between the game's new build (the stack's row kept at count 0) and the mod's next publication there is no
         // binding: the game's own rows show, and its count-0 row of a provided item is decided as in issue 131.
-        backpack_answer=1;republish(mode);game_555_count=0;selector(groups,acc,0);
+        backpack_answer=1;republish(mode);game_555_count=0;
+        // Replace keeps its publication over the new build (GitHub issue 151, below) up to keep_limit; past it, as here,
+        // the game's own rows show until the next publication.
+        if(mode==KUA_MODE_REPLACE) {
+            selector(groups,acc,0);CHECK(groups[0].count==2&&groups[0].data[0].item==555&&groups[0].data[0].count==12);
+            ammo::keeps[0].since-=std::chrono::seconds(2);
+        }
+        selector(groups,acc,0);
         CHECK(groups[0].count==3&&groups[0].data[2].item==555&&groups[0].data[2].count==0);
         equip_calls=0;backpack_answer=0;ammo::pick(groups,nullptr,0,555,504);CHECK(equip_calls==0);
         CHECK(ammo::take_picks(7,picks,64,&written)==KILN_OK&&written==1&&picks[0].item==555&&picks[0].row==3);
@@ -282,7 +291,9 @@ int main() {
     backpack_answer=0;
     // A debug line for every pick of a provided row that went to the game, at most 8 a second, from the client Post tick.
     log_lines.clear();ammo::handoff_window={};ammo::report_post(nullptr,nullptr); // the lines of the cases above
-    CHECK(!log_lines.empty()&&log_lines.size()<=8&&log_lines[0].first==KILN_LOG_DEBUG);log_lines.clear();ammo::handoff_window={};
+    CHECK(!log_lines.empty()&&log_lines[0].first==KILN_LOG_DEBUG);
+    CHECK(std::count_if(log_lines.begin(),log_lines.end(),[](const auto& l){return l.first==KILN_LOG_DEBUG;})<=8);
+    log_lines.clear();ammo::handoff_window={};
     game_555_count=1;backpack_answer=1;republish(KUA_MODE_REPLACE);
     ammo::pick(groups,nullptr,0,555,600);ammo::report_post(nullptr,nullptr);
     CHECK(log_lines.size()==1&&log_lines[0].first==KILN_LOG_DEBUG);
@@ -304,6 +315,91 @@ int main() {
     CHECK(log_lines.size()==8&&log_lines[7].second.find("; 2 more such picks not logged")!=std::string::npos);
     backpack_answer=0;
     game_lists_555=false;
+    // GitHub issue 151 (Grimoire, a spellbook in Replace): the provider's rows and Kiln's cursor stay up over the game's
+    // newer build of the list until Kiln.Ui publishes for it, instead of the game's own rows and its selection (the
+    // equipped spell) for a frame, or on a dedicated server for the round trip of a swap.
+    {
+        ammo::catalog[1]={999,1257792166u,555,556};ammo::handoff_window={};ammo::report_post(nullptr,nullptr);log_lines.clear();
+        KilnUiAmmoPublish arrows{sizeof arrows,KUA_KIND_ARROW,KUA_MODE_GAME,0,0,0,0,nullptr};CHECK(ammo::publish(7,&arrows)==KILN_OK);
+        auto spell_context=[&] {
+            KilnUiAmmoContext c{};c.size=sizeof c;CHECK(ammo::context(7,KUA_KIND_SPELL,&c)==KILN_OK&&c.ok);return c;
+        };
+        auto infos=[&]{return std::count_if(log_lines.begin(),log_lines.end(),[](const auto& l){return l.first==KILN_LOG_INFO;});};
+        selector(groups,acc,0);auto c=spell_context();
+        KilnUiAmmoRow book[]={{555,1,0,10},{556,1,0,11},{999,1,0,12}};
+        KilnUiAmmoPublish spells{sizeof spells,KUA_KIND_SPELL,KUA_MODE_REPLACE,3,9,0,c.game_serial,book};
+        CHECK(ammo::publish(7,&spells)==KILN_OK);selector(groups,acc,0);
+        CHECK(groups[1].count==3&&groups[1].data[0].item==555&&groups[1].data[1].item==556&&groups[1].data[2].item==999);
+        // The player picks 556 (a stored spell: the mod's swap), then scrolls on to 555 while the swap is under way.
+        equip_calls=0;backpack_answer=0;ammo::pick(groups,nullptr,1,556,800);ammo::pick(groups,nullptr,1,555,801);CHECK(equip_calls==0);
+        CHECK(ammo::take_picks(7,picks,64,&written)==KILN_OK&&written==2&&picks[0].item==556&&picks[1].item==555);
+        CHECK(groups[1].has_selected&&groups[1].data[groups[1].selected].item==555);
+        // The swap comes back: 556 is in the backpack, 999 went to the storage (the game keeps its row at 0). The game
+        // builds a new revision and selects its first row; Kiln.Ui has not published for it yet.
+        spell_swapped=true;backpack_answer=1;selector(groups,acc,0);
+        const auto rebuilt=spell_context();CHECK(rebuilt.game_serial>c.game_serial&&rebuilt.game_count==3);
+        CHECK(groups[1].count==3&&groups[1].data[0].item==555&&groups[1].data[1].item==556&&groups[1].data[2].item==999);
+        CHECK(groups[1].has_selected&&groups[1].data[groups[1].selected].item==555); // Kiln's cursor, not the game's selection
+        selector(groups,acc,0); // another frame before the publication
+        CHECK(groups[1].count==3&&groups[1].data[0].item==555&&groups[1].data[groups[1].selected].item==555);
+        // Picks of the kept rows are decided against the new rows (GitHub issue 145): 556 is the game's (the backpack holds
+        // its stack), 999 (kept at 0, in the storage now) the mod's, keyed by the publication that is up.
+        ammo::pick(groups,nullptr,1,556,802);CHECK(equip_calls==1);
+        backpack_answer=0;ammo::pick(groups,nullptr,1,999,803);CHECK(equip_calls==1);
+        CHECK(ammo::take_picks(7,picks,64,&written)==KILN_OK&&written==1&&picks[0].item==999&&picks[0].row==12&&picks[0].kind==KUA_KIND_SPELL);
+        CHECK(groups[1].data[groups[1].selected].item==999);
+        // Kiln.Ui publishes for the new revision: its rows show, and the cursor stays on its item.
+        KilnUiAmmoRow next[]={{556,1,0,20},{555,1,0,21},{999,1,0,22}};
+        spells.rows=next;spells.serial=rebuilt.game_serial;CHECK(ammo::publish(7,&spells)==KILN_OK);selector(groups,acc,0);
+        CHECK(groups[1].count==3&&groups[1].data[0].item==556&&groups[1].data[1].item==555&&groups[1].data[2].item==999);
+        CHECK(groups[1].data[groups[1].selected].item==999);
+        CHECK(groups[0].data[0].item!=556); // the arrow list is not touched
+        // A keep is bounded: past keep_limit without a publication the game's own rows show again, as before, and the
+        // post tick logs it once. The next publication shows the mods' rows again.
+        spell_swapped=false;selector(groups,acc,0);CHECK(groups[1].count==3&&groups[1].data[0].item==556);
+        ammo::keeps[1].since-=std::chrono::seconds(2);selector(groups,acc,0);
+        CHECK(groups[1].count==2&&groups[1].data[0].item==999&&groups[1].data[1].item==1257792166u);
+        selector(groups,acc,0);CHECK(groups[1].count==2&&groups[1].data[0].item==999);
+        ammo::report_post(nullptr,nullptr);CHECK(infos()==1);
+        CHECK(std::any_of(log_lines.begin(),log_lines.end(),[](const auto& l){return l.first==KILN_LOG_INFO&&
+            l.second.rfind("ui.ammo: the spell list shows the game's own rows: the mods' rows of list revision ",0)==0&&
+            l.second.find("for 1000 ms")!=std::string::npos;}));
+        log_lines.clear();ammo::report_post(nullptr,nullptr);CHECK(infos()==0);
+        c=spell_context();spells.serial=c.game_serial;CHECK(ammo::publish(7,&spells)==KILN_OK);selector(groups,acc,0);
+        CHECK(groups[1].count==3&&groups[1].data[0].item==556);
+        spell_swapped=true;selector(groups,acc,0);CHECK(groups[1].count==3&&groups[1].data[0].item==556); // a new window
+        // The line names the revisions the rows were kept over, not a build that ended the keep with rows of its own.
+        {
+            const auto kept=spell_context().game_serial;spell_swapped=false;ammo::keeps[1].since-=std::chrono::seconds(2);
+            selector(groups,acc,0);CHECK(groups[1].count==2&&groups[1].data[0].item==999&&spell_context().game_serial>kept);
+            log_lines.clear();ammo::report_post(nullptr,nullptr);CHECK(infos()==1);
+            const auto range="(revisions "+std::to_string(kept)+" to "+std::to_string(kept)+")";
+            CHECK(std::any_of(log_lines.begin(),log_lines.end(),[&](const auto& l){return l.second.find(range)!=std::string::npos;}));
+            log_lines.clear();
+        }
+        // Not kept: another held weapon, another client generation, an Append publication, a cleared list.
+        auto replace_current=[&](uint32_t mode) {
+            selector(groups,acc,0);c=spell_context();spells.mode=mode;spells.serial=c.game_serial;
+            CHECK(ammo::publish(7,&spells)==KILN_OK);selector(groups,acc,0);
+        };
+        auto game_rows=[&]{return groups[1].data[0].item==999&&std::none_of(groups[1].data,groups[1].data+groups[1].count,[](const SelectorRow& r){return r.item==555;});};
+        replace_current(KUA_MODE_REPLACE);CHECK(groups[1].data[0].item==556);
+        ++item;spell_swapped=!spell_swapped;selector(groups,acc,0);CHECK(game_rows());--item;
+        replace_current(KUA_MODE_REPLACE);
+        ++ammo_client_state.generation;spell_swapped=!spell_swapped;selector(groups,acc,0);CHECK(game_rows());
+        --ammo_client_state.generation;replace_current(KUA_MODE_REPLACE);
+        replace_current(KUA_MODE_APPEND);CHECK(groups[1].count==4&&groups[1].data[3].item==555);
+        spell_swapped=!spell_swapped;selector(groups,acc,0);CHECK(game_rows());
+        replace_current(KUA_MODE_REPLACE);spell_swapped=!spell_swapped;selector(groups,acc,0);CHECK(groups[1].data[0].item==556);
+        KilnUiAmmoPublish clear{sizeof clear,KUA_KIND_SPELL,KUA_MODE_GAME,0,0,0,0,nullptr};CHECK(ammo::publish(7,&clear)==KILN_OK);
+        selector(groups,acc,0);CHECK(game_rows());
+        // A retired owner's kept rows go at the next build too.
+        replace_current(KUA_MODE_REPLACE);spell_swapped=!spell_swapped;selector(groups,acc,0);CHECK(groups[1].data[0].item==556);
+        ammo::retire(7);selector(groups,acc,0);CHECK(game_rows());
+        CHECK(ammo::keeps[0].started==false&&ammo::keeps[1].started==false);
+        spell_swapped=false;ammo::catalog[1]={999,1257792166u,555};
+        ammo::handoff_window={};ammo::report_post(nullptr,nullptr);CHECK(infos()==0);log_lines.clear();
+    }
     ammo::retire(7);CHECK(ammo::take_picks(7,picks,64,&written)==KILN_OK&&written==0);
     CHECK(kiln_tools_remove_family(7,tool_handle)==KILN_OK);kiln_tools_presentation_set_held_provider(nullptr);
     ammo::stop();ammo::backpack_probe=nullptr;api=nullptr;child=retiring=0;
