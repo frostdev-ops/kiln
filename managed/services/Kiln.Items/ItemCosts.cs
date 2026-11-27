@@ -369,6 +369,19 @@ public static unsafe class ItemCosts
         return Submit(c, new Ask(kind, sel, receipt.Item, amount, requestId, receipt.RequestId), "ItemCosts.Refund", world);
     }
 
+    /// <summary>Runs <paramref name="submit"/> as a Kiln service's own cost (Kiln.Taming's attempts, Kiln.Pets' revives):
+    /// the service consumes the receipt itself, so the cost's task completes even after the mod that asked unloaded (its
+    /// events still name that mod). A mod's own call leaves its task incomplete when it unloads: its continuations must not
+    /// run.</summary>
+    internal static T AsService<T>(Func<T> submit)
+    {
+        var was = _service;
+        _service = true;
+        try { return submit(); }
+        finally { _service = was; }
+    }
+
+    [ThreadStatic] private static bool _service;
 
     // ------------------------------------------------------------------------------------------- plumbing ------
 
@@ -421,10 +434,11 @@ public static unsafe class ItemCosts
     /// <summary>What a cost asked, kept with it to build its receipt.</summary>
     internal sealed record Ask(CostKind Kind, ItemSelection Selection, ItemId Item, int Amount, Guid RequestId, Guid? RefundOf);
 
-    private sealed class Pending(TaskCompletionSource<CostReceipt> tcs, ModContext? mod, Ask ask, ItemCostsNative.SelectedCost cost)
+    private sealed class Pending(TaskCompletionSource<CostReceipt> tcs, ModContext? mod, string origin, Ask ask, ItemCostsNative.SelectedCost cost)
     {
         public readonly TaskCompletionSource<CostReceipt> Tcs = tcs;
-        public readonly ModContext? Mod = mod;
+        public readonly ModContext? Mod = mod;   // null: a Kiln service's cost (AsService), completed whoever unloads
+        public readonly string Origin = origin;
         public readonly Ask Ask = ask;
         public readonly ItemCostsNative.SelectedCost Cost = cost;
         public ulong Ticket;
@@ -460,8 +474,11 @@ public static unsafe class ItemCosts
         if (!(stack ? Runtime.StacksOn() : Runtime.WearOn()))
             throw new KilnUnavailableException(stack ? StacksCapability : WearCapability, $"{api}: {(stack ? "stack" : "gear")} costs are not available here");
         var t = Runtime.Table ?? throw new KilnUnavailableException(stack ? StacksCapability : WearCapability, $"{api}: kiln.item_costs is not loaded");
-        var mod = ModContext.CurrentMod;
-        if (mod is { Alive: false }) throw new InvalidOperationException("the mod is unloading");
+        var caller = ModContext.CurrentMod;
+        var service = _service;
+        if (caller is { Alive: false } && !service) throw new InvalidOperationException("the mod is unloading");
+        var mod = service ? null : caller;
+        var origin = caller?.Info.Id ?? "kiln";
         lock (Gate)
         {
             // one debit per request id: the same cost is the same task or receipt; another is a conflict
@@ -497,7 +514,7 @@ public static unsafe class ItemCosts
         lock (Gate)
         {
             if (InFlight.TryGetValue(ticket, out var same)) return same.Tcs.Task;  // the native side had it already
-            var p = new Pending(new TaskCompletionSource<CostReceipt>(TaskCreationOptions.RunContinuationsAsynchronously), mod, ask, c) { Ticket = ticket };
+            var p = new Pending(new TaskCompletionSource<CostReceipt>(TaskCreationOptions.RunContinuationsAsynchronously), mod, origin, ask, c) { Ticket = ticket };
             InFlight[ticket] = p;
             ByRequest[ask.RequestId] = p;
             if (ask.RefundOf is { } of && Ledger.TryGetValue(of, out var paid)) paid.Running = ask.RequestId;
@@ -747,7 +764,7 @@ public static unsafe class ItemCosts
                     while (SettledOrder.Count > SettledKept) Settled.Remove(SettledOrder.Dequeue());
                     Account(receipt, p.Cost.WorldEpoch);
                 }
-                Report(receipt, p.Mod?.Info.Id ?? "kiln");
+                Report(receipt, p.Origin);
                 if (!p.Retired) p.Tcs.TrySetResult(receipt);
             }
         }

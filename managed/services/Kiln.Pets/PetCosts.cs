@@ -25,7 +25,9 @@ internal sealed class GamePetCosts : IPetCosts
     // the adapter's three calls (tests replace them)
     internal Func<EntityRef, ItemId, int, ItemSelection?> Choose { get; init; } = (owner, item, count) => ItemCosts.Choose(owner, item, count);
     internal Func<ItemSelection, int, string?> Check { get; init; } = (selection, count) => ItemCosts.Check(selection, count);
-    internal Func<ItemSelection, int, Guid, Task<CostReceipt>> Take { get; init; } = ItemCosts.Take;
+    // the roster consumes the receipt itself: submitted as Kiln's own, so it settles even when the mod that asked for the
+    // revive unloads meanwhile (ItemCosts.AsService)
+    internal Func<ItemSelection, int, Guid, Task<CostReceipt>> Take { get; init; } = (s, n, id) => ItemCosts.AsService(() => ItemCosts.Take(s, n, id));
 
     /// <summary>The request id of a revive's debit: one per operation and world, so a repeat of the operation in the same
     /// world is the same debit, and an operation id used again in a later world never answers with an old world's receipt

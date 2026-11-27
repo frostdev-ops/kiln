@@ -50,6 +50,9 @@ is `AlreadyRefunded`. A refund that gave nothing (`NoRoom`, `StaleSession`) may 
 (`Partial`) leaves only the rest to give. A refund runs only in the server world the cost was paid in
 (`CostReceipt.WorldEpoch`); in another one it is `WrongWorld`, nothing submitted.
 
+**Kiln's services** (Kiln.Taming's attempts, Kiln.Pets' revives) submit their costs as their own: the receipt reaches them
+even when the mod whose request they pay unloads meanwhile (its events still name that mod). A mod's own call's task is
+left incomplete when the mod unloads (its continuations must not run); the cost still settles and is reported.
 
 ## Receipts
 

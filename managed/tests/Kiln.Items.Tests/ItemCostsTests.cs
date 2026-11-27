@@ -320,6 +320,23 @@ public sealed unsafe class ItemCostsTests : IDisposable
     }
 
     [Fact]
+    public void A_cost_a_Kiln_service_submits_for_a_mod_completes_after_that_mod_unloaded_and_still_names_it()
+    {
+        var t = ItemCosts.AsService(() => ItemCosts.Take(Stack(), 2, Guid.NewGuid()));
+        _mod.Retire();
+        _table.Settle(100, ItemCostsNative.Committed, taken: 2);
+        ItemCosts.Runtime.Pump();
+        Assert.True(t.IsCompletedSuccessfully);                              // the service's receipt, whoever unloaded
+        Assert.Equal("mod-a", Assert.Single(_events.OfType<ItemCostSettledEvent>()).Origin);
+        Assert.Equal(5ul, t.Result.WorldEpoch);
+        // a service's refund of a retired mod's cost still runs (an escrow given back when its mod unloads)
+        var back = ItemCosts.AsService(() => ItemCosts.Refund(t.Result, Guid.NewGuid()));
+        Assert.Equal(2, _table.Submitted.Count);
+        Assert.Equal(5ul, _table.Submitted[1].WorldEpoch);
+        Assert.False(back.IsCompleted);
+    }
+
+    [Fact]
     public void A_selection_is_built_from_a_slot_as_read()
     {
         var slot = new InventorySlot(Slot, new ItemId(Bait), 4, EntityId.None, 0, null, InventoryCategory.Generic, 0, false, false, false, 0);

@@ -76,12 +76,14 @@ internal sealed class GameTamingWorld : ITamingWorld
     }
 }
 
-/// <summary>The engine's costs in a game: kiln.item_costs.</summary>
+/// <summary>The engine's costs in a game: kiln.item_costs, submitted as Kiln's own (the engine consumes every receipt
+/// itself, so a cost settles even when the mod whose request it pays unloads meanwhile; its events still name that mod).</summary>
 internal sealed class GameTamingCosts : ITamingCosts
 {
-    public Task<CostReceipt> Take(ItemSelection selection, int count, Guid requestId) => ItemCosts.Take(selection, count, requestId);
-    public Task<CostReceipt> Wear(ItemSelection selection, int wear, Guid requestId, bool allowBreak) => ItemCosts.Wear(selection, wear, requestId, allowBreak);
-    public Task<CostReceipt> Refund(CostReceipt paid, Guid requestId) => ItemCosts.Refund(paid, requestId);
+    public Task<CostReceipt> Take(ItemSelection selection, int count, Guid requestId) => ItemCosts.AsService(() => ItemCosts.Take(selection, count, requestId));
+    public Task<CostReceipt> Wear(ItemSelection selection, int wear, Guid requestId, bool allowBreak) =>
+        ItemCosts.AsService(() => ItemCosts.Wear(selection, wear, requestId, allowBreak));
+    public Task<CostReceipt> Refund(CostReceipt paid, Guid requestId) => ItemCosts.AsService(() => ItemCosts.Refund(paid, requestId));
     public IReadOnlyList<InventorySlot> Slots(EntityRef owner) => Items.Read(owner.Id)?.Slots ?? [];
 }
 

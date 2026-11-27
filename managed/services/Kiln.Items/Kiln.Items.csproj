@@ -29,6 +29,11 @@
     <InternalsVisibleTo Include="Kiln.Stations.Tests" />
     <!-- the test kit names the upgrades' rolls (HarnessItems.SetUpgradeRolls: ItemUpgrades.Roller) -->
     <InternalsVisibleTo Include="Kiln.TestKit" />
+    <!-- dev.32 TAME review: Kiln.Taming's attempts over the real ItemCosts on a made-up kiln.item_costs table; Kiln.Taming and
+         Kiln.Pets submit their costs as Kiln services (ItemCosts.AsService: the receipt is theirs, whoever unloads) -->
+    <InternalsVisibleTo Include="Kiln.Taming.Tests" />
+    <InternalsVisibleTo Include="Kiln.Taming" />
+    <InternalsVisibleTo Include="Kiln.Pets" />
     <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
     <!-- player storage's client copy (since 0.2.0-dev.30.7): the channel kiln:storage, the players in game, a hosting game's
          own player (PlayerStorageMirror.cs) -->
