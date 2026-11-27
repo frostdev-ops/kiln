@@ -277,7 +277,9 @@ template, the spawn, the user group's rights, character saves and the logout run
 `CharacterData.KeyOf`, chat commands and kiln.net see a player like any other. No Steam account, ticket or password is
 used. How it works: `docs/re/labbot.md`.
 
-1. Make the lab and deploy it with policy `any` and a `labPort` (as for the fake players above).
+1. Make the lab and deploy it with policy `any` and a `labPort` (as for the fake players above). `tools/deploy-server.sh`
+   deploys `kiln-labbot` and the `labbot-test` mod only to a server whose kiln.json policy is `any` (a lab); on any other
+   server it leaves them out and removes an earlier deploy's copy. Release bundles and `tools/client` never carry them.
 2. From a mod (reference `Kiln.Players`, opt in to KILNX001), on the tick thread: `var id = LabBots.Join("Bot Alder");`
    (group `LabBotGroup.Admin` by default), then wait until `LabBots.Info(id)!.InGame` (about a second on a loaded world);
    `Info(id).Entity` is its player entity. `LabBots.Leave(id)` logs it out (final save; `drop: true` = a lost

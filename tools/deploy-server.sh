@@ -97,9 +97,43 @@ fi
 bin=$out/cmake/bin
 k=$server/kiln
 mkdir -p "$k"/{sigdb/builds/server,host,mods,plugins,services,logs,control,data}
+# Lab-only parts: kiln-labbot (bot players, native/services/labbot) and the labbot-test mod (their control channel,
+# mods/tests/labbot-test) go to a lab only: a server whose kiln.json policy is "any" once this deploy is done (the rule
+# kiln.labbot reads: the top level, then the "server" section's). Any other server (tools/live/live.sh deploys the live
+# server with --policy verified-only) never gets them, and an earlier deploy's copy is removed. Release bundles never
+# carry them (tools/package/stage.sh).
+lab_only_services=(kiln-labbot) lab_only_mods=(labbot-test)
+effective_policy=$(python3 - "$k/kiln.json" "$policy" <<'PY'
+import json, sys
+path, given = sys.argv[1:]
+try:
+    cfg = json.load(open(path))
+except FileNotFoundError:
+    cfg = {}  # this deploy writes it: the policy given, else verified-only
+except (OSError, ValueError):
+    cfg = None
+if not isinstance(cfg, dict):
+    print("unreadable")
+else:
+    top = given or cfg.get("policy") or "verified-only"
+    server = cfg.get("server")
+    print(server["policy"] if isinstance(server, dict) and isinstance(server.get("policy"), str) else top)
+PY
+)
+lab=0
+[[ $effective_policy == any ]] && lab=1
 install -m 644 "$bin/dinput8.dll" "$server/dinput8.dll"
 install -m 644 "$bin/kiln-core.dll" "$bin/kiln-core.pdb" "$k/"
-rsync -a --delete --include='*.dll' --include='*.pdb' --exclude='*' "$bin/services/" "$k/services/" 2>/dev/null || true
+lab_only_out=()
+if ((!lab)); then for s in "${lab_only_services[@]}"; do lab_only_out+=(--exclude="$s.*"); done; fi
+rsync -a --delete "${lab_only_out[@]}" --include='*.dll' --include='*.pdb' --exclude='*' "$bin/services/" "$k/services/" 2>/dev/null || true
+if ((!lab)); then
+  for s in "${lab_only_services[@]}"; do rm -f "$k/services/$s.dll" "$k/services/$s.pdb"; done
+  for m in "${lab_only_mods[@]}"; do rm -rf "${k:?}/mods/$m"; done
+  for s in "${lab_only_services[@]}"; do
+    if [[ -f $bin/services/$s.dll ]]; then echo "deploy: not a lab (policy $effective_policy): $s and the lab-only mods left out"; fi
+  done
+fi
 # Kiln's own plugins (native/plugins/*, e.g. kiln-emf.dll); other plugins already in kiln/plugins stay.
 [[ -d $bin/plugins ]] && rsync -a --include='*.dll' --include='*.pdb' --exclude='*' "$bin/plugins/" "$k/plugins/"
 # With a staged build, deploy the same upstream Lua host and notices as the runtime bundle's emf component.
@@ -147,6 +181,7 @@ fi
 for extra in "$out"/mods/*/; do
   [[ -d $extra ]] || continue
   id=$(basename "$extra"); [[ $id == hello || ! -f $extra/kiln.mod.json ]] && continue
+  if ((!lab)) && [[ " ${lab_only_mods[*]} " == *" $id "* ]]; then continue; fi  # lab-only (above)
   mapfile -t keep < <(python3 - "$extra/kiln.mod.json" <<'PY' 2>/dev/null || true
 import json, re, sys
 text = re.sub(r"^\s*//.*$", "", open(sys.argv[1]).read(), flags=re.M)  # kiln.mod.json allows // comments

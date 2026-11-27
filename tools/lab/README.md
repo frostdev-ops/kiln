@@ -24,7 +24,10 @@ replication, and it moves only when something moves it (`move_to`, a teleport). 
 ### Set-up
 
 1. `kiln.json` policy `"any"` (`deploy-server.sh --policy any`) and `kiln/config/network.json` with a `labPort`. Without
-   both, kiln.labbot stays off (capability `labbot.join`, reason "policy") and nothing of it is hooked.
+   both, kiln.labbot stays off (capability `labbot.join`, reason "policy") and nothing of it is hooked. deploy-server.sh
+   deploys `kiln-labbot.dll` and the `labbot-test` mod only where the policy is `"any"` after the deploy (any other
+   server, such as the live one `tools/live/live.sh` deploys with `--policy verified-only`, never gets them and loses an
+   earlier deploy's copy; it prints "deploy: not a lab ...").
 2. The mod `mods/tests/labbot-test` in the lab (`dotnet build mods/tests/labbot-test/LabBotTest.csproj -c Release -o
    $KILN_OUT/mods/labbot-test` before the deploy): it opens the control channel `labbot:control` v1.
 3. A world must be running (the bot joins the server world; on a new lab the first start generates it).
