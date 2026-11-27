@@ -1218,7 +1218,7 @@
           "size": 64
         }
       },
-      "sha256": "c89faa4ae1563704b7b3c4dbaac95bbfe22ab144f9e87b26375c700792a85de3"
+      "sha256": "15e54b552fa1e3e1fa53137df9a354e38ff0faafdacafb3804d415e9768ad134"
     },
     "native/core/abi/services/kiln_chat.h": {
       "function_macros": [],
@@ -10375,7 +10375,7 @@
     "src/services/kiln_build.rs": "92054a5cae61df45406955bfb847d2dee853d54e714cebf53b6f2ece3834b060",
     "src/services/kiln_camera.rs": "ae8af992fc075f61140c42b7864c0391b93a31ea214fe47ac9c8200cd157c0f7",
     "src/services/kiln_capacity.rs": "1fce521cbd490bd4f58c65e527a9c668067d9f909420b7f3d8713b3216af92f5",
-    "src/services/kiln_caps.rs": "98d4b069c4331afcbbdfcadee61e85920bc25cce16fd3134c4b5c5e74fe58c44",
+    "src/services/kiln_caps.rs": "bca47af090c16626fd671ffeb33c09528e1ace89543f4069770c0b4f8e4c1d96",
     "src/services/kiln_chat.rs": "79e3b08c8c6678ece24cdbfd1cc62011acf5501a5185f4b323db61e459c0b4e7",
     "src/services/kiln_client.rs": "76d3a26b8c1dce6a03621ce0d2f10392113fda59a2ac83a5d837939641e73b13",
     "src/services/kiln_client_crosshair.rs": "09a1563a385122b9a6c5952bc016876c03c4c72a31fe41ef76ccff8702a27dda",

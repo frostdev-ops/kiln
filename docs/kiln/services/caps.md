@@ -239,7 +239,7 @@ merges the mods' blocks at boot, so a table published after it would have missed
 - A name that was ever reported pending carries the session flag from then on (`SessionDependent`, `"session": true`
   in the file). A manifest may not require it. Names the core reports itself (sigdb features, `kiln.<service>`) are
   never pending: `report()` refuses that.
-- `report()` takes names of 1 to 96 bytes, cuts the text at 512 bytes, and allows 256 reports per owner.
+- `report()` takes names of 1 to 96 bytes, cuts the text at 512 bytes, and allows 1,024 reports per owner (256 until dev.32: the registry stage reports one row per registry and per field under kiln.content, 296 with dev.32's registries).
 - Every function may be called on any thread. Subscribers run after the registry's lock is released, on the thread
   that caused the change; one that faults is removed.
 

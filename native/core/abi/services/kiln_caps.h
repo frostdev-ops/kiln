@@ -63,7 +63,8 @@ extern "C" {
 
 #define KILN_CAP_NAME_MAX 96u  /* bytes in a name */
 #define KILN_CAP_TEXT_MAX 512u /* bytes in a reason text; report() cuts a longer one at a UTF-8 boundary */
-#define KILN_CAP_OWNER_MAX 256u /* reports one owner may hold (the core's own are not counted) */
+#define KILN_CAP_OWNER_MAX 1024u /* reports one owner may hold (the core's own are not counted); 256 until dev.32, whose registries
+                                   * take kiln.content past it (one row per registry and per field: 17 + 274 + entry rows) */
 #define KILN_CAP_GATE_TEXT "game test pending: " /* how the text of a row held by the client gate begins */
 
 /* KilnCapRow.state. capabilities.json: "unavailable", "available", "pending". */
