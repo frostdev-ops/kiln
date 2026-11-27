@@ -329,6 +329,8 @@ public sealed class RegistryReauthorTests : ModsFixture
         Settle(rig.Dispatch);
         Assert.Equal(new[] { (RegistryPassKind.Point, false, true), (RegistryPassKind.ReauthoredOffTick, true, false),
                              (RegistryPassKind.ReauthoredOffTick, true, false), (RegistryPassKind.ReauthoredOnTick, false, true) }, seen);
+        // the two landed turns build registry.json off the tick: let them finish before the rig's native tables go
+        for (var i = 0; i < 200 && Volatile.Read(ref rig.Native.ReportsBuilt) < 2; ++i) await Task.Delay(20);
         owner.Retire();
     }
     // dev.32 api-shape (LOOT-2 review's open finding): one re-author at a time holds across a world change too. A re-authored
