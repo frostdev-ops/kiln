@@ -313,5 +313,26 @@ else:
         self.assertIn("no api folder", error.stderr)
 
 
+class GuideContent(unittest.TestCase):
+    """The repository's own docfx.json against its own guide pages (no build)."""
+
+    def test_every_guide_page_the_site_stages_is_built(self):
+        # stage-guide.py stages every git-tracked page under docs/kiln/modding, subfolders too, and links between them stay
+        # relative; a staged page docfx.json's build content leaves out is a dead link on the site (registries/ was: 17
+        # InvalidFileLink warnings in the 0.2.0-dev.32 beta 1 build)
+        repo = HERE.parent.parent
+        listed = subprocess.run(["git", "-C", str(repo), "ls-files", "-z", "--", "docs/kiln/modding"], check=True,
+                                capture_output=True).stdout.decode("utf-8").split("\0")
+        pages = sorted(Path(p).relative_to("docs/kiln/modding").as_posix() for p in listed if p.endswith(".md"))
+        self.assertIn("registries/README.md", pages)
+        globs = [g for c in json.loads((HERE / "docfx.json").read_text())["build"]["content"] if c.get("src") == "modding"
+                 for g in c["files"]]
+
+        def built(page):   # docfx globs: "*" stays within one folder
+            return any(len(g.split("/")) == len(page.split("/"))
+                       and all(Path(part).match(pat) for part, pat in zip(page.split("/"), g.split("/"))) for g in globs)
+        self.assertEqual([p for p in pages if not built(p)], [])
+
+
 if __name__ == "__main__":
     unittest.main()

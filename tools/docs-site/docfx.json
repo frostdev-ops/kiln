@@ -42,6 +42,7 @@
         "dest": "modding",
         "files": [
           "*.md",
+          "registries/*.md",
           "schemas/*.md"
         ]
       }
