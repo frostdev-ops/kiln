@@ -501,7 +501,13 @@ internal static partial class NpcSpeechEngine
             throw new ArgumentException("two topics with one id", nameof(topics));
         Start();
         Book.SetTopics(SpeechLayer.Local, npc.Value, owner, topics.Select(t => (t, TopicId(owner, t.Id))).ToArray());
-        return ChangedTopics(npc.Value);
+        var r = ChangedTopics(npc.Value);
+        // a page holds 16 with every mod's: say which of this owner's are left out (they come on when room frees up)
+        var shown = Book.EffectiveTopics(npc.Value, SpeechLayer.Local).Count(e => e.Owner == owner);
+        if (!r.Ok || shown >= topics.Length) return r;
+        var cut = $"{topics.Length - shown} of its {topics.Length} topics are not on {npc}'s page: other mods' topics fill it " +
+                  $"({NpcTopics.MaxTopics} at most); they show when there is room";
+        return new SpeechResult(true, r.Reason is null ? cut : $"{r.Reason}; {cut}");
     }
 
     private static TopicWire[] WireOf(IEnumerable<SpeechBook.TopicEntry> page) =>

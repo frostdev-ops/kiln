@@ -776,4 +776,17 @@ public sealed unsafe class NpcDialogTests : IDisposable
         Assert.StartsWith($"topics {Ramone.Value} [{feed:x8}:", page);
         Assert.Contains(",00007001:", page);
     }
+
+    [Fact]
+    public void A_mod_whose_topics_do_not_fit_on_the_page_is_told()
+    {
+        // review: with other mods' topics on the page, a mod's topics past the 16th were left out and its Set answered a
+        // plain Ok
+        NpcSpeechEngine.SetTopics(Ramone, "a", Enumerable.Range(0, 10).Select(i => new NpcTopic($"a{i}", $"A's {i}")).ToArray());
+        var r = NpcSpeechEngine.SetTopics(Ramone, "b", Enumerable.Range(0, 10).Select(i => new NpcTopic($"b{i}", $"B's {i}")).ToArray());
+        Assert.True(r.Ok);
+        Assert.Contains("4 of its 10 topics", r.Reason ?? "");
+        r = NpcSpeechEngine.SetTopics(Ramone, "b", Enumerable.Range(0, 6).Select(i => new NpcTopic($"b{i}", $"B's {i}")).ToArray());
+        Assert.True(r.Ok && r.Reason is null, r.ToString());
+    }
 }
