@@ -6,6 +6,7 @@
   "version": "0.1.0",
   "stability": "experimental",
   "experimentalId": "KILNX031",
+  "editsPerCall": 4096,
   "doc": "World-wide random loot rules: the rarity weights a random roll uses where its table (randomLoot) has none of its own.",
   "ids": {
     "game": "game:loot",

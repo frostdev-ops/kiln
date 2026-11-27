@@ -74,6 +74,12 @@ public sealed class RegistryStage
     {
         Context.Ensure();
         if (_edits.Count == 0) return null;
+        foreach (var (registry, count) in _counts)
+            if (count > CapOf(registry))
+                Context.Owner.Log.Warn($"registry: {(Context.EntryPoint == RegistryEntryPoint.Manual ? "Registry.Change" : $"OnRegistry {Context.EntryPoint} {Context.Phase}")}: " +
+                    $"{count} {registry} edits in one call, over its cap of " +
+                    $"{CapOf(registry)} edits per call (RegistrySchema.EditsPerCall); Kiln refuses this call whole (registry.json), the other calls apply. " +
+                    "Split the edits over the entry point's phases (Alter, Final) or over several calls.");
         return new JsonObject { ["ir"] = 1, ["mod"] = Context.ModId, ["stage"] = Context.Phase.ToString().ToLowerInvariant(),
             ["source"] = "managed:" + Context.Identity, ["edits"] = _edits.DeepClone() }.ToJsonString();
     }
@@ -122,11 +128,18 @@ public sealed class RegistryStage
         if (!Writable(_target)) return;
         Record(new JsonObject { ["registry"] = registry, ["entry"] = "remove", ["select"] = pattern });
     }
+    // Each registry's cap of edits per call (RegistrySchema.EditsPerCall: the schema's editsPerCall, 4096 by default). An
+    // edit past it is never thrown in the mod's code (owner 2026-11-26): the call keeps one edit past the cap, so Kiln refuses
+    // the call whole at submit with the reason in registry.json, and its log line names the count; later ones are not kept.
     private void Record(JsonObject edit)
     {
-        if (_edits.Count >= 4096) throw new ArgumentException("a registry callback has at most 4096 edits");
+        var registry = edit["registry"]?.GetValue<string>() ?? "";
+        var count = _counts[registry] = _counts.GetValueOrDefault(registry) + 1;
+        if (count > CapOf(registry) + 1) return;
         _edits.Add(edit);
     }
+    private readonly Dictionary<string, int> _counts = new(StringComparer.Ordinal);
+    private static int CapOf(string registry) => RegistrySchema.EditsPerCall.TryGetValue(registry, out var cap) ? cap : 4096;
     private static RegistryFieldSpec Spec(int id) => Specs.TryGetValue(id, out var field) ? field : throw new ArgumentException("unknown registry field id");
     private static JsonNode? Json(object? value) => value switch
     {

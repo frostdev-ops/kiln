@@ -72,6 +72,7 @@ inline Schema generated_schema() {
         reg.add = r.add;
         reg.remove = r.remove[0] != 0;
         reg.raw = r.raw;
+        reg.edits_per_call = r.edits_per_call;
         for (size_t i = r.first; i < r.first + r.count; ++i) {
             const gen::Field& f = gen::kFields[i];
             FieldSpec x;

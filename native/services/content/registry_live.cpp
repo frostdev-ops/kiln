@@ -2209,9 +2209,12 @@ KilnResult registry_live_submit(KilnOwner owner, uint64_t handle, const std::str
     const KilnResult rc = change_of(owner, handle, &change);
     if (rc != KILN_OK) return rc;
     if (change->order) return KILN_ERR_UNAVAILABLE;
-    size_t bytes = 0, edits = change->refused.size();
+    size_t bytes = 0;
+    std::map<std::string, size_t> prior;  // the change's earlier edits by registry (refuse_over_cap: each registry's own cap)
     for (const auto& [h, c] : g.changes) bytes += c.bytes;
-    for (const auto& b : change->batches) edits += b.edits.size();
+    for (const auto& b : change->batches)
+        for (const auto& e : b.edits) ++prior[e.registry];
+    for (const auto& r : change->refused) ++prior[r.registry];
     if (ir.size() > 16u * 1024 * 1024 || bytes + ir.size() > 64u * 1024 * 1024) return KILN_ERR_INVALID_ARGUMENT;
     registry::Batch batch;
     std::vector<registry::Refusal> refused;
@@ -2245,7 +2248,22 @@ KilnResult registry_live_submit(KilnOwner owner, uint64_t handle, const std::str
         return KILN_ERR_INVALID_ARGUMENT;
     }
     refused.insert(refused.end(), std::make_move_iterator(parsed_refusals.begin()), std::make_move_iterator(parsed_refusals.end()));
-    if (batch.mod != change->mod || edits + batch.edits.size() + refused.size() > 4096) return KILN_ERR_INVALID_ARGUMENT;
+    if (batch.mod != change->mod) return KILN_ERR_INVALID_ARGUMENT;
+    // each registry's edits in the change against its own cap (schema editsPerCall): a batch over one is refused whole, with a
+    // row per registry it names, and nothing of it is kept (owner 2026-11-26; before: one 4096 cap per change, INVALID_ARGUMENT)
+    if (auto over = registry::refuse_over_cap(batch, refused, *g.in->schema, prior); !over.empty()) {
+        batch.source = "live:" + std::to_string(handle) + ":" + std::to_string(change->point) + ":" + std::to_string(change->batches.size()) + ":" + batch.source;
+        for (auto& row : over) row.source = batch.source;
+        LOGW("registry (live): %s: %s", change->mod.c_str(), over.front().reason.c_str());
+        if (out) { *out = {}; out->accepted = 0; out->refused = static_cast<uint32_t>(over.size()); out->world = g.world; }
+        if (report_text) {
+            registry::json rows = registry::json::array();
+            for (const auto& r : over) rows.push_back({{"n", r.n}, {"reason", r.reason}});
+            *report_text = registry::json{{"accepted", 0}, {"refused", rows}}.dump();
+        }
+        change->refused.insert(change->refused.end(), over.begin(), over.end());
+        return KILN_OK;
+    }
     if (entry_restart) change->restart = change->entry_restart = true;
     batch.source = "live:" + std::to_string(handle) + ":" + std::to_string(change->point) + ":" + std::to_string(change->batches.size()) + ":" + batch.source;
     for (auto& row : refused) row.source = batch.source;

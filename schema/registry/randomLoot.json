@@ -6,6 +6,7 @@
   "version": "0.1.0",
   "stability": "experimental",
   "experimentalId": "KILNX031",
+  "editsPerCall": 16384,
   "doc": "The random loot tables: for each kind of enemy, generic container (barrels, crates, generic chests) and chest placed in the world, the level its random loot rolls at and its own rarity weights. Which items can drop is the loot registry's; the world-wide rarity weights are lootRules'. Where a table is used shows in its id: game:labels_* tables serve enemies and generic containers, game:world_* tables the chests placed in the world.",
   "ids": {
     "game": "game:labels_<8 hex digits> or game:world_<8 hex digits>_<8 hex digits>",

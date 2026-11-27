@@ -75,3 +75,4 @@
 [KILNX031]Kiln.Registry.RegistryStage.LootRules.get -> Kiln.Registry.LootRulesEntry!
 [KILNX031]Kiln.Registry.RegistryStage.RandomLoot.get -> Kiln.Registry.RegistryEntries<Kiln.Registry.RandomLootEntry!>!
 [KILNX031]static Kiln.Registry.Registry.Reauthor(Kiln.RegistryEntryPoint point) -> bool
+[KILNX031]static Kiln.Registry.RegistrySchema.EditsPerCall.get -> System.Collections.Generic.IReadOnlyDictionary<string!, int>!

@@ -143,4 +143,15 @@ public static partial class RegistrySchema
         ["lootRules"] = "0.1.0",
         ["randomLoot"] = "0.1.0",
     };
+
+    private static readonly global::System.Collections.Generic.Dictionary<string, int> s_editsPerCall = new()
+    {
+        ["items"] = 4096,
+        ["recipes"] = 4096,
+        ["loot"] = 4096,
+        ["drops"] = 4096,
+        ["balance"] = 4096,
+        ["lootRules"] = 4096,
+        ["randomLoot"] = 16384,
+    };
 }

@@ -898,8 +898,13 @@ void refused_edits_share_change_budget() {
     edits += ']';
     check(registry_live_submit(71, h, doc("a", edits), &reply, nullptr) == KILN_OK && reply.refused == 4096,
           "refused edits are retained in the change's budget");
-    check(registry_live_submit(71, h, doc("a", "[{" + wood + R"("op":75}])"), &reply, nullptr) == KILN_ERR_INVALID_ARGUMENT,
-          "the 4096-edit change limit includes prior refused edits");
+    // owner 2026-11-26: the budget is each registry's own (balance's 4,096): the next balance edit is past it and its batch is
+    // refused whole, an items edit still fits items' own
+    check(registry_live_submit(71, h, doc("a", R"([{"registry":"balance","select":"game:balance","field":"levelCap","op":61}])"), &reply, nullptr) == KILN_OK &&
+              reply.accepted == 0 && reply.refused == 1,
+          "the 4096-edit limit of balance includes its prior refused edits");
+    check(registry_live_submit(71, h, doc("a", "[{" + wood + R"("op":75}])"), &reply, nullptr) == KILN_OK && reply.accepted == 1,
+          "another registry's edit has its own limit");
     registry_live_revert(71, h, &reply);
 }
 void restart_is_per_edit_and_begin_is_bounded() {
@@ -1108,6 +1113,108 @@ void random_loot_foreign_and_refusals() {
     registry_live_commit(73, h, &reply);
     check(reply.outcome == RegistryLiveOutcome::Applied && reply.refused == 1 && at<float>(WORLD_AT + 4) == 30.0f,
           "a WorldLoad pass refuses per entry: the table in this world applies");
+}
+// owner 2026-11-26 ("make it a registry"): each registry's schema declares how many edits one call takes (editsPerCall;
+// randomLoot 16,384 for every field of its ~800 tables, lootRules and the shipped five 4,096). A call over a registry's cap is
+// refused whole, loudly (a row per registry it names, kiln.log), never cut and never thrown; the other calls apply.
+std::string many(const std::string& sel, const char* field, int n, int mod = 100) {
+    std::string out;
+    for (int i = 0; i < n; ++i) out += "{" + sel + R"("field":")" + field + R"(","op":)" + std::to_string(i % mod) + "},";
+    return out;
+}
+std::string list_of(std::string edits) { edits.back() = ']'; return "[" + edits; }
+void edit_caps_are_per_registry() {
+    static const registry::Schema schema = registry::generated_schema();
+    check(schema.registry("randomLoot")->edits_per_call == 16384 && schema.registry("lootRules")->edits_per_call == 4096 &&
+              schema.registry("items")->edits_per_call == 4096 && schema.registry("drops")->edits_per_call == 4096,
+          "the generated schema carries each registry's cap");
+    random_loot_world(); RegistryLiveReply reply;
+    // under: a Loot Rarity Leveler sized call (4,000 table edits, more than the 4,096 one call took in all before, with 400
+    // world-wide weights) is taken whole in one WorldLoad call
+    auto h = change(71, "leveler", list_of(many(world_table, "level.value", 6000) + many(loot_rules, "rarityWeights.common", 4096, 500)),
+                    KILN_REGISTRY_LIVE_WORLD_LOAD);
+    registry_live_commit(71, h, &reply);
+    check(reply.outcome == RegistryLiveOutcome::Applied && reply.accepted == 6000 + 4096 && reply.refused == 0 && at<float>(WORLD_AT + 4) == 99.0f &&
+              at<float>(RULES_AT) == 95.0f,
+          "6,000 randomLoot and 4,096 lootRules edits in one call: each registry within its own cap: " + reply.reason);
+    registry_live_revert(71, h, &reply);
+    // over: one edit past randomLoot's cap refuses the whole call, the lootRules edits in it too; nothing is written
+    uint64_t hh = 0;
+    check(registry_live_begin(72, "leveler", KILN_REGISTRY_LIVE_WORLD_LOAD, &hh) == KILN_OK, "begin");
+    std::string report;
+    check(registry_live_submit(72, hh, doc("leveler", list_of(many(world_table, "level.value", 16385) + many(loot_rules, "rarityWeights.common", 3))), &reply,
+                               &report) == KILN_OK && reply.accepted == 0 && reply.refused == 2,
+          "submit takes the call and refuses it whole, a row per registry: " + report);
+    check(report.find("randomLoot: 16385 edits in one call, over this registry's cap of 16384 edits per call") != std::string::npos &&
+              report.find("lootRules: refused with its call, which has more edits of randomLoot than the cap allows") != std::string::npos,
+          "the rows name the registry over its cap, the count and the cap: " + report);
+    registry_live_commit(72, hh, &reply);
+    check(reply.outcome == RegistryLiveOutcome::Refused && reply.reason.find("over this registry's cap of 16384") != std::string::npos &&
+              at<float>(WORLD_AT + 4) == 0 && at<float>(RULES_AT) == 40.59f,
+          "the commit is refused with the reason and nothing of the call is written: " + reply.reason);
+    // a registry without a declared cap keeps 4,096: 4,096 lootRules edits are taken, 4,097 refused
+    h = change(73, "leveler", list_of(many(loot_rules, "rarityWeights.common", 4097, 7)));
+    registry_live_commit(73, h, &reply);
+    check(reply.outcome == RegistryLiveOutcome::Refused && reply.reason.find("lootRules: 4097 edits in one call, over this registry's cap of 4096") != std::string::npos &&
+              at<float>(RULES_AT) == 40.59f,
+          "4,097 lootRules edits: refused whole: " + reply.reason);
+    // the cap counts a change's earlier batches: the batch that goes past it is refused, the earlier one stays
+    check(registry_live_begin(74, "leveler", KILN_REGISTRY_LIVE_WORLD_LOAD, &hh) == KILN_OK, "begin");
+    check(registry_live_submit(74, hh, doc("leveler", list_of(many(world_table, "level.value", 10000, 50))), &reply, nullptr) == KILN_OK && reply.accepted == 10000,
+          "a first batch of 10,000");
+    check(registry_live_submit(74, hh, doc("leveler", list_of(many(world_table, "levelOffset.value", 6385, 60))), &reply, nullptr) == KILN_OK &&
+              reply.accepted == 0 && reply.refused == 1,
+          "a second batch that would make 16,385: refused");
+    registry_live_commit(74, hh, &reply);
+    check(reply.outcome == RegistryLiveOutcome::Applied && at<float>(WORLD_AT + 4) == 49.0f && at<float>(WORLD_AT + 0x0C) == 0,
+          "the first batch applies, nothing of the refused one: " + reply.reason);
+    registry_live_revert(74, hh, &reply);
+}
+// The cap's cost (owner: check memory and the world thread's time before raising it): every field of every table of the real
+// data's size (797 tables x 16 fields = 12,752 edits) in one WorldLoad call, submitted and committed through the real back-end.
+void a_full_random_loot_call_has_bounded_cost() {
+    random_loot_world();
+    constexpr size_t kTables = 797, kAt = 0xA0000, kStride = 0x40;
+    Registry& T = g_regs[KILN_CONTENT_RANDOM_LOOT];
+    RegistryLive installed = *g.in;
+    const registry::BaseModel::Entry model = installed.base.registries.at("randomLoot").back();
+    std::string edits;
+    static const char* const fields[] = {"level.value", "levelOffset.value", "levelOffsetRange.min", "levelOffsetRange.max"};
+    static const char* const rar[5] = {"common", "uncommon", "rare", "epic", "legendary"};
+    for (size_t i = 0; i < kTables; ++i) {
+        const std::string name = "world_cost_" + std::to_string(i), id = "game:" + name;
+        const size_t at = kAt + i * kStride;
+        add_entry(T, static_cast<uint32_t>(0x10000 + i), name.c_str(), at, G3);
+        mem<uint8_t>(at + 0x00, 3), mem<uint8_t>(at + 0x08, 3);
+        for (int r = 0; r < 5; ++r) mem<uint8_t>(at + 0x18 + 8 * r, 3);
+        auto entry = model;
+        entry.id = id;
+        installed.base.registries["randomLoot"].push_back(std::move(entry));
+        installed.ids["randomLoot|" + id] = "", installed.nums["randomLoot|" + id] = static_cast<uint32_t>(0x10000 + i);
+        const std::string sel = R"("registry":"randomLoot","select":")" + id + R"(",)";
+        edits += "{" + sel + R"("field":"level.mode","op":"set"},{)" + sel + R"("field":"levelOffset.mode","op":"add"},)";
+        for (const char* f : fields) edits += "{" + sel + R"("field":")" + f + R"(","op":3},)";
+        for (const char* r : rar)
+            edits += "{" + sel + R"("field":"rarity.)" + r + R"(.mode","op":"multiply"},{)" + sel + R"("field":"rarity.)" + r + R"(.weight","op":2},)";
+    }
+    registry_live_install(std::move(installed)); registry_live_world_begin(); apply_registry_files({});
+    const std::string ir = doc("leveler", list_of(edits));
+    RegistryLiveReply reply; uint64_t h = 0;
+    const auto start = std::chrono::steady_clock::now();
+    check(registry_live_begin(71, "leveler", KILN_REGISTRY_LIVE_WORLD_LOAD, &h) == KILN_OK, "begin");
+    check(registry_live_submit(71, h, ir, &reply, nullptr) == KILN_OK && reply.accepted == kTables * 16, "12,752 edits taken in one call");
+    const auto submitted = std::chrono::steady_clock::now();
+    registry_live_commit(71, h, &reply);
+    const auto end = std::chrono::steady_clock::now();
+    const double sub = std::chrono::duration<double, std::milli>(submitted - start).count(), com = std::chrono::duration<double, std::milli>(end - submitted).count();
+    std::printf("randomLoot: %zu edits (%zu tables x 16 fields, %zu KiB of IR) in one call: submit %.2f ms, commit %.2f ms\n", kTables * 16, kTables, ir.size() / 1024,
+                sub, com);
+    check(reply.outcome == RegistryLiveOutcome::Applied && reply.accepted == kTables * 16 && at<uint8_t>(kAt + 0x08 + 796 * kStride) == 1 &&
+              at<float>(kAt + 0x14 + 796 * kStride) == 3.0f,
+          "every field of every table written: " + reply.reason);
+    check(sub + com < 2000, "a full randomLoot call stays within the 2,000 ms sanitizer-host budget");
+    registry_live_revert(71, h, &reply);
+    check(reply.outcome == RegistryLiveOutcome::Reverted && at<uint8_t>(kAt + 0x08 + 796 * kStride) == 3, "and reverts");
 }
 // review-registry-proof nit: a read-only bitmask is refused as read-only, not as "is not a bitmask"
 void loot_flags_read_only_is_refused_as_read_only() {
@@ -1393,6 +1500,8 @@ int main() {
         {"loot_flags_read_write_revert", loot_flags_read_write_revert},
         {"random_loot_read_write_revert", random_loot_read_write_revert},
         {"random_loot_foreign_and_refusals", random_loot_foreign_and_refusals},
+        {"edit_caps_are_per_registry", edit_caps_are_per_registry},
+        {"a_full_random_loot_call_has_bounded_cost", a_full_random_loot_call_has_bounded_cost},
         {"loot_flags_keep_bits_kiln_has_no_name_for", loot_flags_keep_bits_kiln_has_no_name_for},
         {"loot_flags_value_missing_on_the_build_is_refused", loot_flags_value_missing_on_the_build_is_refused},
         {"loot_flags_foreign_revert_is_skipped", loot_flags_foreign_revert_is_skipped},

@@ -216,6 +216,11 @@ public static partial class RegistrySchema
     /// <summary>The registries' names and schema versions.</summary>
     public static IReadOnlyDictionary<string, string> Versions => s_versions;
 
+    /// <summary>How many edits of each registry one call takes (the schema's editsPerCall, 4096 where it declares none): one
+    /// OnRegistry callback (one phase of one entry point) or one Registry.Change. A call with more edits of a registry is
+    /// refused whole, with the reason in kiln.log and registry.json; the mod's other calls still apply.</summary>
+    public static IReadOnlyDictionary<string, int> EditsPerCall => s_editsPerCall;
+
     /// <summary>A field by its qualified name (<c>items.maxStack</c>); an index in a list path counts as [] (<c>recipes.inputs[2].count</c>).
     /// Null when there is none.</summary>
     public static RegistryFieldSpec? Find(string qualifiedField)

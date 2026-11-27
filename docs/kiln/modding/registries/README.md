@@ -221,7 +221,18 @@ changed. RestartRequired, WorldRequired, Refused, Skipped and Unverified stay di
 only explicit `Revert()` on the tick thread or owner retirement removes its layer, never leaving a scope. Process ModLoad layers persist across worlds; world-bound layers expire with
 their world. Already committed GameStart layers stay until process restart, including through a runtime hot reload.
 
-**Authoring the WorldLoad point again (0.2.0-dev.31.19).** Edits made from settings or from the game's state (a config file, a
+**Edits per call (0.2.0-dev.32).** One call (one `OnRegistry` callback, that is one phase of one entry point, one
+`Registry.Change`, one batch a native plugin submits) takes at most a registry's cap of edits of that registry, declared by
+its schema (`editsPerCall`; each registry page says it; `RegistrySchema.EditsPerCall` in C#): 16,384 for `randomLoot`
+(every field of every table of the current game data, with room), 4,096 for the others. Each registry is counted on its
+own, so a Loot Rarity Leveler pass (about 4,000 table edits, 433 drop chances and the world-wide weights) fits one call. A
+call over a registry's cap is refused whole: nothing of it applies, registry.json has a row for each registry it names (the
+over-cap one with its count and the cap), and the mod's log says so; the mod's other calls (its other phases, its other
+points) still apply. Kiln never throws for it in the mod's code: before 0.2.0-dev.32 an edit past 4,096 threw, so a mod
+that caught the exception kept a cut call and one that did not lost its whole pass. Split edits over the point's phases
+(`Alter`, `Final`) or several `Registry.Change` calls when one registry needs more.
+
+**Authoring the WorldLoad point again (0.2.0-dev.32).** Edits made from settings or from the game's state (a config file, a
 player's level) can follow a change at once: `Kiln.Registry.Registry.Reauthor(RegistryEntryPoint.WorldLoad)` asks Kiln to run
 the mod's declared WorldLoad pass again on the next host tick, in the same world. The pass runs as at a world load: every
 callback reads the pre-pass values without the mod's own layers (so a value is derived from the game's data and other mods'

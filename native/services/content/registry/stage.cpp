@@ -827,6 +827,13 @@ KilnResult Runner::submit(uint64_t owner, const std::string& owner_mod, const st
         b.edits.clear();
         return say(KILN_ERR_INVALID_ARGUMENT);
     }
+    // one call's edits per registry against its cap (schema editsPerCall): over it, the batch is refused whole with a row per
+    // registry it names (owner 2026-11-26: refused loudly, never cut)
+    if (auto over = refuse_over_cap(b, refused, d_->schema); !over.empty()) {
+        d_->log(1, "registry: " + b.mod + ": " + over.front().reason);
+        b.edits.clear();
+        refused = std::move(over);
+    }
     std::lock_guard lk(d_->mu);
     if (!d_->alive(owner)) {
         err = "the caller's owner is revoked: the batch is refused";

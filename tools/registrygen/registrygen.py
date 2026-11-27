@@ -85,6 +85,14 @@ class Row:
         return f"{self.registry}.{self.path}"
 
 
+# The edits one call takes of a registry whose schema declares no "editsPerCall" (items, recipes, loot, drops, balance): the
+# cap one OnRegistry callback had before caps were per registry (owner 2026-11-26: "make it a registry").
+DEFAULT_EDITS_PER_CALL = 4096
+# The largest cap a schema may declare: what one call's copied IR and its commit on the world thread are measured for
+# (limits.md; registry_live_transactions_test cap cases).
+MAX_EDITS_PER_CALL = 16384
+
+
 @dataclass
 class Registry:
     name: str
@@ -103,6 +111,11 @@ class Registry:
     @property
     def version(self):
         return self.doc.get("version", "0.0.0")
+
+    @property
+    def edits_per_call(self):
+        """How many edits of this registry one call (an OnRegistry callback's batch, a Registry.Change draft) takes."""
+        return self.doc.get("editsPerCall", DEFAULT_EDITS_PER_CALL)
 
 
 @dataclass
@@ -268,7 +281,7 @@ def check_registry(d, name):
     for k in need:
         if k not in d:
             errs.append(f"{name}: \"{k}\" is missing")
-    allowed = set(need) | {"$schema", "experimentalId", "traits", "typeName"}
+    allowed = set(need) | {"$schema", "experimentalId", "traits", "typeName", "editsPerCall"}
     for k in d:
         if k not in allowed:
             errs.append(f"{name}: unknown key \"{k}\"")
@@ -282,6 +295,8 @@ def check_registry(d, name):
         errs.append(f"{name}: stability is experimental or stable")
     if d.get("stability") == "experimental" and not re.match(r"^KILNX[0-9]{3}$", str(d.get("experimentalId", ""))):
         errs.append(f"{name}: an experimental registry needs its experimentalId (KILNX0nn)")
+    if "editsPerCall" in d and (type(d["editsPerCall"]) is not int or not DEFAULT_EDITS_PER_CALL <= d["editsPerCall"] <= MAX_EDITS_PER_CALL):
+        errs.append(f"{name}: editsPerCall is a whole number from {DEFAULT_EDITS_PER_CALL} to {MAX_EDITS_PER_CALL}")
     if "typeName" in d and not TYPE_NAME.match(str(d["typeName"])):
         errs.append(f"{name}: typeName must be a C# type name")
     ids = d.get("ids") or {}
@@ -837,6 +852,7 @@ def render_native(model, lock):
            "    const char* remove;    // \"\" (entries cannot be removed), \"hidden\", \"disabled\"",
            "    bool raw;",
            "    size_t first, count;   // its rows in kFields",
+           "    uint32_t edits_per_call;  // edits of this registry one call takes (schema editsPerCall; 4096 when not declared)",
            "};",
            "",
            "inline constexpr uint32_t kRegistrySchema = 1;",
@@ -849,7 +865,7 @@ def render_native(model, lock):
         regs.append(f"    {{{lock['registries'][reg.name]['id']}, {cstr(reg.name)}, {cstr(reg.version)}, "
                     f"{'true' if d.get('stability') == 'experimental' else 'false'}, "
                     f"{'true' if d['entry'].get('add') else 'false'}, {cstr(d['entry'].get('remove') or '')}, "
-                    f"{'true' if d.get('raw') == 'allowed' else 'false'}, {first}, {len(reg.rows)}}},")
+                    f"{'true' if d.get('raw') == 'allowed' else 'false'}, {first}, {len(reg.rows)}, {reg.edits_per_call}u}},")
     out.append("inline constexpr Registry kRegistries[] = {")
     out += regs
     out += ["};", "", "inline constexpr Field kFields[] = {"]
@@ -1078,13 +1094,14 @@ def render_cs_catalog(model, lock):
              "    /// <summary>The registry schema format (registrySchema).</summary>",
              "    public const int Format = 1;", "",
              "    private static readonly RegistryFieldSpec[] s_fields =", "    {"]
-    vers = []
+    vers, caps = [], []
 
     def dn(v):
         return "null" if v is None else cnum(v)
 
     for reg in ordered(model, lock):
         vers.append(f'        ["{reg.name}"] = "{reg.version}",')
+        caps.append(f'        ["{reg.name}"] = {reg.edits_per_call},')
         for r in reg.rows:
             s, el = r.spec, scalar_spec(r)
             values = el.get("values", []) if el.get("type") in ("enum", "flags") else []
@@ -1103,7 +1120,9 @@ def render_cs_catalog(model, lock):
                          f"\"{lock['registries'][reg.name]['fields'][r.path]['since']}\") {{ JoinedClient = \"{s.get('joinedClient', 'unknown')}\" }},")
     lines += ["    };", "",
               "    private static readonly global::System.Collections.Generic.Dictionary<string, string> s_versions = new()",
-              "    {"] + vers + ["    };", "}"]
+              "    {"] + vers + ["    };", "",
+              "    private static readonly global::System.Collections.Generic.Dictionary<string, int> s_editsPerCall = new()",
+              "    {"] + caps + ["    };", "}"]
     return "\n".join(lines) + "\n"
 
 
@@ -1245,6 +1264,12 @@ def render_doc(model, lock, reg):
            "",
            f"Schema version {reg.version}, {stab}. C# entry type {code('Kiln.Registry.' + reg.type_name + 'Entry')}. "
            "What registries are, the stages, the conflict rules and how ids are made: [README](README.md).",
+           "",
+           f"Edits per call: {reg.edits_per_call:,}. One {code('OnRegistry')} callback (one phase of one entry point) or one "
+           f"{code('Registry.Change')} takes at most this many edits of this registry; a call with more is refused whole, with "
+           "the reason in kiln.log and registry.json, and nothing of it applies (the other calls do). "
+           + ("The schema declares it (" + code("editsPerCall") + ") to fit every field of every entry of the current game data."
+              if "editsPerCall" in d else f"The default for a registry whose schema declares none ({DEFAULT_EDITS_PER_CALL:,})."),
            "",
            "## Ids",
            "",

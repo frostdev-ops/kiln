@@ -838,6 +838,46 @@ struct Renamer {
 };
 }  // namespace
 
+std::vector<Refusal> refuse_over_cap(const Batch& b, const std::vector<Refusal>& refused, const Schema& schema,
+                                     const std::map<std::string, size_t>& prior) {
+    std::map<std::string, size_t> count = prior;
+    std::map<std::string, uint32_t> first;  // registry -> the n of its first edit in this batch
+    std::map<std::string, uint32_t> past;   // registry -> the n of its first edit past its cap
+    const auto cap_of = [&](const std::string& r) -> size_t {
+        const RegistrySpec* spec = schema.registry(r);
+        return spec ? spec->edits_per_call : 4096u;
+    };
+    const auto count_one = [&](const std::string& r, uint32_t n) {
+        first.emplace(r, n);
+        if (++count[r] > cap_of(r)) past.emplace(r, n);
+    };
+    for (const Edit& e : b.edits) count_one(e.registry, e.n);
+    for (const Refusal& x : refused) count_one(x.registry, x.n);
+    if (past.empty()) return {};
+    std::string over;
+    for (const auto& [r, n] : past) over += (over.empty() ? "" : ", ") + r;
+    std::vector<Refusal> rows;  // the registries over their cap first (a commit's reason is its first row), then the others
+    std::vector<std::pair<std::string, uint32_t>> order;
+    for (const auto& [r, n] : first)
+        if (past.count(r)) order.emplace_back(r, n);
+    for (const auto& [r, n] : first)
+        if (!past.count(r)) order.emplace_back(r, n);
+    for (const auto& [r, n] : order) {
+        Refusal row;
+        row.mod = b.mod, row.source = b.source, row.stage = b.stage, row.registry = r;
+        const auto p = past.find(r);
+        row.n = p != past.end() ? p->second : n;
+        if (p != past.end())
+            row.reason = r + ": " + std::to_string(count[r]) + " edits in one call, over this registry's cap of " + std::to_string(cap_of(r)) +
+                         " edits per call; the call is refused whole and nothing of it was applied (split the edits over the entry point's "
+                         "phases or over several calls)";
+        else
+            row.reason = r + ": refused with its call, which has more edits of " + over + " than the cap allows; nothing of the call was applied";
+        rows.push_back(std::move(row));
+    }
+    return rows;
+}
+
 bool parse_batch(const std::string& text, const Schema& schema, Batch* out, std::vector<Refusal>* refused, std::string* err) {
     *out = Batch{};
     if (text.size() > kMaxIrBytes) return *err = "the IR document is larger than 16 MiB", false;

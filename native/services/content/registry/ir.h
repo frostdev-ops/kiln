@@ -90,6 +90,7 @@ struct RegistrySpec {
     std::vector<Migration> migrations;
     bool add = true, remove = true;
     bool raw = false;  // "raw": "allowed": edits may name the game's member paths (the Advanced tier, D5)
+    uint32_t edits_per_call = 4096;  // edits of this registry one call takes (schema editsPerCall): refuse_over_cap
     // A field by its path; an element's index ("[3]", "[*]") reads as "[]": "inputs[2].count" is "inputs[].count".
     const FieldSpec* field(const std::string& path) const {
         auto it = fields.find(path);
@@ -228,6 +229,14 @@ struct Refusal {
 // refused edit is one row in *refused, named by its mod, source and ordinal ("n", else its position; an "n" that is not
 // 0..4294967295 or is used twice refuses that edit). No exception leaves either form.
 bool parse_batch(const std::string& text, const Schema& schema, Batch* out, std::vector<Refusal>* refused, std::string* err);
+// One call's edits per registry against each registry's edits-per-call cap (the schema's editsPerCall; 4096 where it declares
+// none): the batch's edits and its refused rows, plus `prior` (a live change's earlier batches, by registry). Empty when every
+// registry fits. Otherwise the whole batch is refused: one row per registry the batch names, the over-cap registries' with
+// the count and the cap, the others' naming the registry that made the call too big (owner 2026-11-26: the cap is per
+// registry; a call over it is refused loudly and whole, never thrown in the mod's code, never cut). Code batches only (a
+// stage submit, a live change); data sections from files are not calls.
+std::vector<Refusal> refuse_over_cap(const Batch& b, const std::vector<Refusal>& refused, const Schema& schema,
+                                     const std::map<std::string, size_t>& prior = {});
 bool parse_batch(const json& doc, const Schema& schema, Batch* out, std::vector<Refusal>* refused, std::string* err);
 
 // A data pack's "registry" section (schema/registry-section.schema.json): {"add": [edits], "alter": [edits], "final":

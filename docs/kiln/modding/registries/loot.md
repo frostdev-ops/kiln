@@ -6,6 +6,8 @@ How an item drops as random loot: its stack size and its rarities. One entry per
 
 Schema version 0.1.0, experimental (KILNX031: may change in any release until it is marked stable). C# entry type `Kiln.Registry.ItemLootEntry`. What registries are, the stages, the conflict rules and how ids are made: [README](README.md).
 
+Edits per call: 4,096. One `OnRegistry` callback (one phase of one entry point) or one `Registry.Change` takes at most this many edits of this registry; a call with more is refused whole, with the reason in kiln.log and registry.json, and nothing of it applies (the other calls do). The default for a registry whose schema declares none (4,096).
+
 ## Ids
 
 - Game entries: `game:<the item's stable name>`. Mod entries: `<mod id>:<the item's name>`. All ids are lower case. The mod ids `game` and `kiln` are reserved: no mod's entries use them.

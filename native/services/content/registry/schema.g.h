@@ -48,18 +48,19 @@ struct Registry {
     const char* remove;    // "" (entries cannot be removed), "hidden", "disabled"
     bool raw;
     size_t first, count;   // its rows in kFields
+    uint32_t edits_per_call;  // edits of this registry one call takes (schema editsPerCall; 4096 when not declared)
 };
 
 inline constexpr uint32_t kRegistrySchema = 1;
 
 inline constexpr Registry kRegistries[] = {
-    {1, "items", "0.1.1", true, true, "hidden", true, 0, 38},
-    {2, "recipes", "0.1.0", true, true, "hidden", true, 38, 10},
-    {3, "loot", "0.1.0", true, false, "disabled", true, 48, 6},
-    {4, "drops", "0.1.0", true, false, "", true, 54, 6},
-    {5, "balance", "0.1.0", true, false, "", true, 60, 40},
-    {6, "lootRules", "0.1.0", true, false, "", true, 100, 5},
-    {7, "randomLoot", "0.1.0", true, false, "", true, 105, 16},
+    {1, "items", "0.1.1", true, true, "hidden", true, 0, 38, 4096u},
+    {2, "recipes", "0.1.0", true, true, "hidden", true, 38, 10, 4096u},
+    {3, "loot", "0.1.0", true, false, "disabled", true, 48, 6, 4096u},
+    {4, "drops", "0.1.0", true, false, "", true, 54, 6, 4096u},
+    {5, "balance", "0.1.0", true, false, "", true, 60, 40, 4096u},
+    {6, "lootRules", "0.1.0", true, false, "", true, 100, 5, 4096u},
+    {7, "randomLoot", "0.1.0", true, false, "", true, 105, 16, 16384u},
 };
 
 inline constexpr Field kFields[] = {

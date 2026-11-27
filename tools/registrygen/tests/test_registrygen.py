@@ -94,6 +94,37 @@ class SchemaChecks(unittest.TestCase):
         s["fields"]["size"]["joinedClient"] = "laterMaybe"
         self.assertTrue(any("joinedClient" in e for e in self.errors_of(s)))
 
+    # owner 2026-11-26 ("make it a registry"): a schema may declare how many edits of it one call takes; registrygen carries
+    # it into the native descriptor, RegistrySchema.EditsPerCall and the page; without it, 4096
+    def test_edits_per_call_is_declared_per_registry_and_generated(self):
+        for value in (16384, 4096):
+            s = copy.deepcopy(MINI)
+            s["editsPerCall"] = value
+            t = Tree(s)
+            try:
+                model = rg.load(t.root)
+                self.assertEqual(model.errors, [])
+                rg.update_lock(t.root)
+                lock = t.lock()
+                self.assertIn(f", {value}u}},", rg.render_native(model, lock))
+                self.assertIn(f'["things"] = {value},', rg.render_cs_catalog(model, lock))
+                self.assertIn(f"Edits per call: {value:,}.", rg.render_doc(model, lock, model.registries["things"]))
+            finally:
+                t.close()
+        t = Tree(MINI)
+        try:
+            model = rg.load(t.root)
+            rg.update_lock(t.root)
+            self.assertIn(", 4096u},", rg.render_native(model, t.lock()))
+            self.assertIn('["things"] = 4096,', rg.render_cs_catalog(model, t.lock()))
+            self.assertIn("Edits per call: 4,096. ", rg.render_doc(model, t.lock(), model.registries["things"]))
+        finally:
+            t.close()
+        for bad in (0, 4095, 16385, 5000.5, "8192", True):
+            s = copy.deepcopy(MINI)
+            s["editsPerCall"] = bad
+            self.assertTrue(any("editsPerCall" in e for e in self.errors_of(s)), bad)
+
     def test_mini_is_valid(self):
         self.assertEqual(self.errors_of(MINI), [])
 

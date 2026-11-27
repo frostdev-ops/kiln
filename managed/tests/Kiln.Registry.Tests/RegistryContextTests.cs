@@ -63,6 +63,64 @@ public sealed class RegistryContextTests
         static (string, string, string) Edit(JsonNode e) => (e["registry"]!.GetValue<string>(), e["select"]!.GetValue<string>(), e["field"]!.GetValue<string>());
     }
 
+    // owner 2026-11-26 ("make it a registry"): one call's cap is per registry (RegistrySchema.EditsPerCall). A call over it is
+    // never thrown in the mod's code (a caught exception used to cut the call at 4096, an uncaught one dropped the whole pass):
+    // the stage keeps one edit past the cap so Kiln refuses the call whole at submit, and the mod's log names the count.
+    private sealed class LogBackend : IKilnBackend
+    {
+        public readonly List<string> Lines = [];
+        public string Version => "test";
+        public bool IsTickThread => true;
+        public bool HasFeature(string name) => false;
+        public void Log(ulong owner, LogLevel level, string text) { lock (Lines) Lines.Add($"{level}: {text}"); }
+        public nint Service(string name, uint minVersion) => 0;
+    }
+    [Fact]
+    public void EditCapsArePerRegistryAndAnOverCapCallIsNeverThrown()
+    {
+        Assert.Equal(16384, RegistrySchema.EditsPerCall["randomLoot"]);
+        Assert.Equal(4096, RegistrySchema.EditsPerCall["lootRules"]);
+        foreach (var shipped in new[] { "items", "recipes", "loot", "drops", "balance" }) Assert.Equal(4096, RegistrySchema.EditsPerCall[shipped]);
+        var backend = Backend.Current; var log = new LogBackend(); Backend.Current = log;
+        try
+        {
+            RegistryContext Context() => new(Mod(), RegistryEntryPoint.WorldLoad, RegistryPhase.Alter, null, "test-code",
+                (registry, id, field) => field.EndsWith(".mode", StringComparison.Ordinal) ? "\"none\"" : "1", (_, _) => new[] { "game:world_509feadb_38db0fdc" });
+            // under: a Loot Rarity Leveler sized call (more than 4096 edits in all, each registry within its own cap)
+            var context = Context();
+            using (context.Enter())
+            {
+                var r = DataRegistry.For(context);
+                var table = r.RandomLoot["game:world_509feadb_38db0fdc"];
+                for (int i = 0; i < 6000; ++i) table.Level.Value = i;
+                for (int i = 0; i < 4096; ++i) r.LootRules.RarityWeights.Common = i;
+                Assert.Equal(10096, JsonNode.Parse(context.CaptureIr()!)!["edits"]!.AsArray().Count);
+            }
+            context.Close();
+            List<string> Mine() { lock (log.Lines) return log.Lines.Where(l => l.Contains("edits in one call", StringComparison.Ordinal)).ToList(); }
+            Assert.Empty(Mine());
+            // over: no exception in the mod's code; the call keeps one edit past randomLoot's cap (Kiln refuses it whole) and
+            // the mod's log names the count and the cap
+            context = Context();
+            using (context.Enter())
+            {
+                var r = DataRegistry.For(context);
+                var table = r.RandomLoot["game:world_509feadb_38db0fdc"];
+                for (int i = 0; i < 20000; ++i) table.Level.Value = i;
+                r.LootRules.RarityWeights.Common = 2;
+                var edits = JsonNode.Parse(context.CaptureIr()!)!["edits"]!.AsArray();
+                Assert.Equal(16385 + 1, edits.Count);
+                Assert.Equal(16385, edits.Count(e => e!["registry"]!.GetValue<string>() == "randomLoot"));
+            }
+            context.Close();
+            var line = Assert.Single(Mine());
+            Assert.Contains("OnRegistry WorldLoad Alter: 20000 randomLoot edits in one call, over its cap of 16384 edits per call", line);
+            Assert.Contains("Kiln refuses this call whole", line);
+            Assert.StartsWith("Warn", line);
+        }
+        finally { Backend.Current = backend; }
+    }
+
     [Fact]
     public void UnloadedOwnerFailsBeforeAnyBackendAccess()
     {
