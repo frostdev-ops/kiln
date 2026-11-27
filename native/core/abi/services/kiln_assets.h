@@ -211,6 +211,35 @@ typedef struct KilnLoadedInfo { /* 24 bytes, align 8 */
     uint64_t bytes;  /* loaded_snapshot: the resource's size; loaded_list: the number of keys */
 } KilnLoadedInfo;
 
+/* ---- named loaded writes (since 0.2.0-dev.32; sfi R3) ----
+ * Who changed a loaded resource's scalar at run time, for Kiln's own reports: kiln.content names a ShroudForge package of
+ * kiln mode on the registry field it wrote (registry.json, the launcher's Conflicts page) instead of "another writer".
+ * A write names its writer with loaded_scalar_compare_exchange_named (kiln-sfi: "shroudforge:<package id>"); a write
+ * made through loaded_scalar_compare_exchange names none. The name is what the caller says it is, not a security claim.
+ *
+ * A place is one scalar of one resource (key, offset, width). kiln.assets keeps one record per place, for the newest
+ * committed write there. Consecutive writes of a place by the same owner and writer, each over the value the one before
+ * left, are one run: the record keeps the value the run began over (before) and the value its newest write left (after).
+ * Any other write there starts a new record (an unnamed one included: the place's newest writer is then unknown).
+ * Records are kept for the process (the game keeps its loaded resources across worlds): at most 16,384 places, the
+ * place written longest ago dropped first. */
+#define KILN_LOADED_WRITE_NAME_MAX 127u /* bytes of a writer or field name (UTF-8, no NUL) */
+#define KILN_LOADED_WRITE_PLACES 16384u /* records kept */
+
+typedef struct KilnLoadedWriteRecord { /* 336 bytes, align 8 */
+    uint32_t size;      /* the bytes of the record kiln.assets wrote: sizeof(KilnLoadedWriteRecord) */
+    uint32_t width;     /* the scalar's width: 1, 2, 4 or 8 */
+    uint64_t id;        /* the newest write's id (kiln.assets' status "loadedWrites", kiln.log) */
+    KilnOwner owner;    /* its caller */
+    uint64_t session;   /* the server world session it was made in */
+    KilnAssetKey key;   /* the resource */
+    uint64_t offset;    /* the scalar's byte offset inside the resource */
+    uint8_t before[8];  /* the scalar the run began over (width bytes, the rest 0) */
+    uint8_t after[8];   /* the scalar the newest write left (width bytes, the rest 0) */
+    char writer[128];   /* who the writes were for, NUL-terminated; "" when the newest write named none */
+    char field[128];    /* the field the caller named (diagnostics: the caller's own words), NUL-terminated; "" none */
+} KilnLoadedWriteRecord;
+
 typedef struct KilnAssetsApi {
     KilnServiceHeader header; /* { sizeof(KilnAssetsApi), KILN_ASSETS_VERSION } */
 
@@ -399,20 +428,57 @@ typedef struct KilnAssetsApi {
     KilnResult(KILN_CALL* loaded_scalar_compare_exchange)(KilnOwner owner, const KilnAssetKey* key, uint64_t expected_session,
                                                           const void* expected_full, size_t resource_size, size_t offset,
                                                           const void* desired, uint32_t width, KilnMutationReply* reply);
+
+    /* ---- since 0.2.0-dev.32 (check header.size >= offsetof(KilnAssetsApi, loaded_write_records) + sizeof(void*);
+     * capability assets.loaded_write; named loaded writes, above KilnAssetsApi) ----
+     * loaded_scalar_compare_exchange_named(owner, key, expected_session, expected_full, resource_size, offset, desired,
+     *   width, writer, field, reply): loaded_scalar_compare_exchange, exactly (the same checks, hold, outcomes and replies),
+     *   whose committed write's record names `writer` and `field`. Each is 0 to KILN_LOADED_WRITE_NAME_MAX bytes of UTF-8
+     *   (shortest forms, no surrogate) without a control character (below 0x20, 0x7f, U+0080 to U+009F); writer.len 0
+     *   names no writer (the write is recorded as one of loaded_scalar_compare_exchange). KILN_ERR_INVALID_ARGUMENT as
+     *   loaded_scalar_compare_exchange's, and a name that is not such text (ptr NULL with len > 0 included): nothing is
+     *   written then, and the reply is not touched.
+     * loaded_write_records(out, record_size, capacity, required): copies the record of every place (oldest newest-write
+     *   first) into out, record_size bytes apart (record_size >= sizeof(KilnLoadedWriteRecord); bytes past it are zeroed),
+     *   and sets *required to how many there are. KILN_OK: out[0..*required) are the records. KILN_ERR_BUFFER_TOO_SMALL:
+     *   capacity < *required, nothing copied (ask again: more can come between calls). KILN_ERR_INVALID_ARGUMENT: required
+     *   NULL, record_size too small, out NULL with capacity > 0. Any thread; a copy under kiln.assets' own lock, no call
+     *   out (callers may hold their own locks). */
+    KilnResult(KILN_CALL* loaded_scalar_compare_exchange_named)(KilnOwner owner, const KilnAssetKey* key,
+                                                                uint64_t expected_session, const void* expected_full,
+                                                                size_t resource_size, size_t offset, const void* desired,
+                                                                uint32_t width, KilnStr writer, KilnStr field,
+                                                                KilnMutationReply* reply);
+    KilnResult(KILN_CALL* loaded_write_records)(KilnLoadedWriteRecord* out, uint32_t record_size, size_t capacity,
+                                                size_t* required);
 } KilnAssetsApi;
 
 #ifdef __cplusplus
 }
 static_assert(offsetof(KilnAssetsApi, blob_read_resident) == 224, "kiln.assets ends its dev.29 members at 232");
 static_assert(offsetof(KilnAssetsApi, loaded_snapshot) == 232 && offsetof(KilnAssetsApi, loaded_list) == 240 &&
-                  offsetof(KilnAssetsApi, loaded_scalar_compare_exchange) == 248 && sizeof(KilnAssetsApi) == 256,
-              "the loaded-resource members are appended at 232 (table 256 bytes, x64)");
+                  offsetof(KilnAssetsApi, loaded_scalar_compare_exchange) == 248,
+              "the loaded-resource members are appended at 232 (x64)");
+static_assert(offsetof(KilnAssetsApi, loaded_scalar_compare_exchange_named) == 256 &&
+                  offsetof(KilnAssetsApi, loaded_write_records) == 264 && sizeof(KilnAssetsApi) == 272,
+              "the named loaded writes are appended at 256 (table 272 bytes, x64)");
 static_assert(sizeof(KilnLoadedInfo) == 24 && offsetof(KilnLoadedInfo, handle) == 12 && offsetof(KilnLoadedInfo, bytes) == 16,
               "KilnLoadedInfo layout");
+static_assert(sizeof(KilnLoadedWriteRecord) == 336 && offsetof(KilnLoadedWriteRecord, key) == 32 &&
+                  offsetof(KilnLoadedWriteRecord, offset) == 56 && offsetof(KilnLoadedWriteRecord, before) == 64 &&
+                  offsetof(KilnLoadedWriteRecord, writer) == 80 && offsetof(KilnLoadedWriteRecord, field) == 208,
+              "KilnLoadedWriteRecord layout");
 #else
 _Static_assert(offsetof(KilnAssetsApi, loaded_snapshot) == 232 && offsetof(KilnAssetsApi, loaded_list) == 240 &&
-                   offsetof(KilnAssetsApi, loaded_scalar_compare_exchange) == 248 && sizeof(KilnAssetsApi) == 256,
-               "the loaded-resource members are appended at 232 (table 256 bytes, x64)");
+                   offsetof(KilnAssetsApi, loaded_scalar_compare_exchange) == 248,
+               "the loaded-resource members are appended at 232 (x64)");
+_Static_assert(offsetof(KilnAssetsApi, loaded_scalar_compare_exchange_named) == 256 &&
+                   offsetof(KilnAssetsApi, loaded_write_records) == 264 && sizeof(KilnAssetsApi) == 272,
+               "the named loaded writes are appended at 256 (table 272 bytes, x64)");
 _Static_assert(sizeof(KilnLoadedInfo) == 24 && offsetof(KilnLoadedInfo, bytes) == 16, "KilnLoadedInfo layout");
+_Static_assert(sizeof(KilnLoadedWriteRecord) == 336 && offsetof(KilnLoadedWriteRecord, key) == 32 &&
+                   offsetof(KilnLoadedWriteRecord, offset) == 56 && offsetof(KilnLoadedWriteRecord, writer) == 80 &&
+                   offsetof(KilnLoadedWriteRecord, field) == 208,
+               "KilnLoadedWriteRecord layout");
 #endif
 #endif

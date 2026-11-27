@@ -739,7 +739,23 @@ bool fake_cas(void*, std::uintptr_t a, std::size_t w, std::uint64_t expected, st
     if (g_after_cas) g_after_cas();
     return true;
 }
-void fake_committed(void*, KilnOwner, const KilnAssetKey&, std::size_t, std::uint32_t, std::uint64_t) { ++g_commits; }
+// The last committed write as the record gets it (names copied: the views are the caller's for the call only).
+struct SeenCommit {
+    KilnOwner owner = 0;
+    std::size_t offset = 0;
+    std::uint32_t width = 0;
+    std::uint64_t session = 0, before = 0, after = 0;
+    std::string writer, field;
+};
+std::mutex g_commit_mu;  // writers commit from several threads (test_write_concurrent)
+SeenCommit g_last_commit;
+ka::loaded::WriteRecords g_commit_records;  // every committed write, as kiln.assets keeps them (TSan: concurrent commits)
+void fake_committed(void*, const ka::loaded::Commit& c) {
+    ++g_commits;
+    g_commit_records.commit(c);
+    std::lock_guard lock(g_commit_mu);
+    g_last_commit = {c.owner, c.offset, c.width, c.session, c.before, c.after, std::string(c.writer), std::string(c.field)};
+}
 
 ka::loaded::Source write_source() {
     auto s = source();
@@ -992,7 +1008,178 @@ void test_write_concurrent() {
     start = static_cast<std::uint32_t>(48 + 8) | static_cast<std::uint32_t>(48 + 9) << 8 | static_cast<std::uint32_t>(48 + 10) << 16 |
             static_cast<std::uint32_t>(48 + 11) << 24;
     CHECK(wins == 200 && end == start + 200 && !ka::loaded::write_latched());
+    // every committed write reached the records, from four threads (each write's record under the records' own lock)
+    std::size_t places = 0;
+    CHECK(g_commit_records.read(nullptr, sizeof(KilnLoadedWriteRecord), 0, &places) != KILN_ERR_INVALID_ARGUMENT && places >= 1);
+    CHECK(g_commit_records.recent().size() == 256 || g_commit_records.recent().size() >= 200);
     std::printf("PASS loaded.write-concurrent (%d writes, no lost update)\n", wins.load());
+}
+
+// ---- named loaded writes (sfi R3: loaded_scalar_compare_exchange_named, loaded_write_records) ----------------------------
+KilnStr str(const char* s) { return KilnStr{s, std::strlen(s)}; }
+KilnResult write_named(const ka::loaded::Source& s, std::size_t i, const std::vector<unsigned char>& expected, std::size_t offset,
+                       std::uint32_t value, KilnStr writer, KilnStr field, KilnMutationReply& r) {
+    return ka::loaded::compare_exchange_named(s, 7, &g_entries[i].key, 77, expected.data(), expected.size(), offset, &value, 4,
+                                              writer, field, &r);
+}
+
+// The write's record gets the caller's names, the scalar it was over and the one it left; the unnamed member records none.
+// A name that is not text of at most 127 bytes is refused before anything (no gate, no reply, nothing written).
+void test_write_named() {
+    build();
+    reset_write_knobs();
+    const auto s = write_source();
+    auto before = current(2);
+    std::uint32_t old = 0;
+    std::memcpy(&old, before.data() + 4, 4);
+    auto r = reply();
+    const int commits = g_commits;
+    CHECK(write_named(s, 2, before, 4, 1234u, str("shroudforge:alpha"), str("maxStackSize"), r) == KILN_OK);
+    CHECK(r.status == KILN_ECS_OK && g_commits == commits + 1);
+    CHECK(g_last_commit.owner == 7 && g_last_commit.offset == 4 && g_last_commit.width == 4 && g_last_commit.session == 77);
+    CHECK(g_last_commit.before == old && g_last_commit.after == 1234u);
+    CHECK(g_last_commit.writer == "shroudforge:alpha" && g_last_commit.field == "maxStackSize");
+    // the unnamed member: the same write, recorded without names
+    before = current(2);
+    r = reply();
+    CHECK(write_u32(s, 2, before, 4, 1235u, r) == KILN_OK && g_commits == commits + 2);
+    CHECK(g_last_commit.writer.empty() && g_last_commit.field.empty() && g_last_commit.before == 1234u && g_last_commit.after == 1235u);
+    // names of 127 bytes, and none at all, are fine
+    const std::string longest(127, 'w');
+    before = current(2);
+    r = reply();
+    CHECK(write_named(s, 2, before, 4, 1236u, KilnStr{longest.data(), longest.size()}, KilnStr{nullptr, 0}, r) == KILN_OK);
+    CHECK(g_last_commit.writer == longest && g_last_commit.field.empty());
+    // refused names: nothing happens, not even the reply
+    const std::string too_long(128, 'w');
+    const char control[] = "shroud\nforge";
+    const char del[] = "a\x7f";
+    const char broken[] = "caf\xc3";
+    const char overlong[] = "\xc0\xaf";
+    const char surrogate[] = "\xed\xa0\x80";
+    const KilnStr bad[] = {KilnStr{too_long.data(), too_long.size()}, str(control), str(del), str(broken), str(overlong), str(surrogate),
+                           KilnStr{nullptr, 3}};
+    before = current(2);
+    const int acquires = g_acquires;
+    for (const KilnStr& name : bad)
+        for (int as_field = 0; as_field < 2; ++as_field) {
+            KilnMutationReply untouched{};
+            untouched.size = sizeof untouched;
+            untouched.status = 0xEEEEu;
+            const KilnResult rc = as_field ? write_named(s, 2, before, 4, 9u, str("shroudforge:alpha"), name, untouched)
+                                           : write_named(s, 2, before, 4, 9u, name, str("hp"), untouched);
+            CHECK(rc == KILN_ERR_INVALID_ARGUMENT && untouched.status == 0xEEEEu);
+        }
+    CHECK(current(2) == before && g_acquires == acquires && g_commits == commits + 3);
+    // UTF-8 beyond ASCII is text
+    before = current(2);
+    r = reply();
+    CHECK(write_named(s, 2, before, 4, 1237u, str("shroudforge:caf\xc3\xa9"), str("\xe2\x82\xac.value"), r) == KILN_OK);
+    CHECK(g_last_commit.writer == "shroudforge:caf\xc3\xa9");
+    std::printf("PASS loaded.write-named (the record's names, before and after; unnamed; refused names touch nothing)\n");
+}
+
+ka::loaded::Commit commit_of(std::size_t entry, std::size_t offset, std::uint64_t before, std::uint64_t after, const char* writer,
+                             KilnOwner owner = 7, const char* field = "hp") {
+    ka::loaded::Commit c{};
+    c.owner = owner;
+    c.key = g_entries[entry].key;
+    c.offset = offset;
+    c.width = 4;
+    c.session = 77;
+    c.before = before;
+    c.after = after;
+    c.writer = writer;
+    c.field = field;
+    return c;
+}
+std::vector<KilnLoadedWriteRecord> read_all(const ka::loaded::WriteRecords& w) {
+    std::size_t n = 0;
+    CHECK(w.read(nullptr, sizeof(KilnLoadedWriteRecord), 0, &n) == (n ? KILN_ERR_BUFFER_TOO_SMALL : KILN_OK));
+    std::vector<KilnLoadedWriteRecord> out(n);
+    std::size_t got = 0;
+    CHECK(w.read(out.data(), sizeof(KilnLoadedWriteRecord), out.size(), &got) == KILN_OK && got == n);
+    return out;
+}
+std::uint32_t u32_of(const std::uint8_t b[8]) {
+    std::uint32_t v = 0;
+    std::memcpy(&v, b, 4);
+    return v;
+}
+
+// One record per place: a run of the same owner and writer, each write over the value the one before left, keeps the value
+// it began over; any other write there begins a new record (an unnamed one too). The place written longest ago goes first
+// when the records are full. The copy: oldest first, record_size apart, its tail zeroed, all or nothing.
+void test_write_records() {
+    build();
+    ka::loaded::WriteRecords w(4);
+    CHECK(read_all(w).empty());
+    const std::uint64_t first = w.commit(commit_of(2, 4, 10, 12, "shroudforge:alpha"));
+    const std::uint64_t second = w.commit(commit_of(2, 4, 12, 13, "shroudforge:alpha"));
+    CHECK(first != 0 && second > first);
+    auto all = read_all(w);
+    CHECK(all.size() == 1);
+    if (all.size() == 1) {
+        const KilnLoadedWriteRecord& r = all[0];
+        CHECK(r.size == sizeof(KilnLoadedWriteRecord) && r.width == 4 && r.id == second && r.owner == 7 && r.session == 77);
+        CHECK(std::memcmp(&r.key, &g_entries[2].key, sizeof r.key) == 0 && r.offset == 4);
+        CHECK(u32_of(r.before) == 10 && u32_of(r.after) == 13 && std::string(r.writer) == "shroudforge:alpha" && std::string(r.field) == "hp");
+        CHECK(std::all_of(r.before + 4, r.before + 8, [](std::uint8_t b) { return b == 0; }));
+    }
+    // another writer, then an unnamed write, then the first writer again over a value it did not leave: new records
+    w.commit(commit_of(2, 4, 13, 20, "shroudforge:beta"));
+    all = read_all(w);
+    CHECK(all.size() == 1 && u32_of(all[0].before) == 13 && u32_of(all[0].after) == 20 && std::string(all[0].writer) == "shroudforge:beta");
+    w.commit(commit_of(2, 4, 20, 21, ""));
+    all = read_all(w);
+    CHECK(all.size() == 1 && u32_of(all[0].before) == 20 && u32_of(all[0].after) == 21 && all[0].writer[0] == 0);
+    w.commit(commit_of(2, 4, 21, 30, "shroudforge:alpha"));
+    w.commit(commit_of(2, 4, 5, 31, "shroudforge:alpha"));  // not over 30: someone else wrote between
+    all = read_all(w);
+    CHECK(all.size() == 1 && u32_of(all[0].before) == 5 && u32_of(all[0].after) == 31);
+    // the same writer name from another owner is another writer
+    w.commit(commit_of(2, 4, 31, 32, "shroudforge:alpha", 8));
+    all = read_all(w);
+    CHECK(all.size() == 1 && u32_of(all[0].before) == 31 && all[0].owner == 8);
+    // other places: another offset of the resource, other resources; the fifth place drops the one written longest ago
+    w.commit(commit_of(2, 8, 1, 2, "shroudforge:alpha"));
+    w.commit(commit_of(3, 4, 1, 2, "shroudforge:alpha"));
+    w.commit(commit_of(4, 4, 1, 2, "shroudforge:alpha"));
+    CHECK(read_all(w).size() == 4 && w.dropped() == 0);
+    w.commit(commit_of(2, 4, 32, 33, "shroudforge:alpha", 8));  // the first place written again: now the newest
+    w.commit(commit_of(5, 4, 1, 2, "shroudforge:gamma"));
+    all = read_all(w);
+    CHECK(all.size() == 4 && w.dropped() == 1);
+    bool has_offset8 = false;
+    for (const auto& r : all) has_offset8 = has_offset8 || (std::memcmp(&r.key, &g_entries[2].key, sizeof r.key) == 0 && r.offset == 8);
+    CHECK(!has_offset8);  // (2, 8) was the place written longest ago
+    for (std::size_t i = 1; i < all.size(); ++i) CHECK(all[i - 1].id < all[i].id);
+    CHECK(std::string(all.back().writer) == "shroudforge:gamma");
+    // the copy's arguments
+    std::size_t n = 0;
+    std::vector<KilnLoadedWriteRecord> one(1);
+    std::memset(one.data(), 0xAB, sizeof one[0]);
+    CHECK(w.read(one.data(), sizeof(KilnLoadedWriteRecord), 1, &n) == KILN_ERR_BUFFER_TOO_SMALL && n == 4);
+    CHECK(reinterpret_cast<const unsigned char*>(one.data())[0] == 0xAB);  // nothing copied
+    CHECK(w.read(one.data(), sizeof(KilnLoadedWriteRecord) - 1, 1, &n) == KILN_ERR_INVALID_ARGUMENT);
+    CHECK(w.read(nullptr, sizeof(KilnLoadedWriteRecord), 4, &n) == KILN_ERR_INVALID_ARGUMENT);
+    CHECK(w.read(one.data(), sizeof(KilnLoadedWriteRecord), 1, nullptr) == KILN_ERR_INVALID_ARGUMENT);
+    const std::size_t wide = sizeof(KilnLoadedWriteRecord) + 40;
+    std::vector<unsigned char> big(wide * 4, 0xCD);
+    CHECK(w.read(reinterpret_cast<KilnLoadedWriteRecord*>(big.data()), static_cast<std::uint32_t>(wide), 4, &n) == KILN_OK && n == 4);
+    for (std::size_t i = 0; i < 4; ++i) {
+        KilnLoadedWriteRecord r;
+        std::memcpy(&r, big.data() + i * wide, sizeof r);
+        CHECK(r.size == sizeof(KilnLoadedWriteRecord) && r.id == all[i].id);
+        CHECK(std::all_of(big.begin() + i * wide + sizeof r, big.begin() + (i + 1) * wide, [](unsigned char b) { return b == 0; }));
+    }
+    // the last 256 writes for status, with their names
+    const auto recent = w.recent();
+    CHECK(recent.size() == 12 && recent.back().writer == "shroudforge:gamma" && recent.back().field == "hp" && recent.back().offset == 4);
+    ka::loaded::WriteRecords many(KILN_LOADED_WRITE_PLACES);
+    for (int i = 0; i < 300; ++i) many.commit(commit_of(2, 4, static_cast<std::uint64_t>(i), static_cast<std::uint64_t>(i + 1), "x"));
+    CHECK(many.recent().size() == 256 && read_all(many).size() == 1);
+    std::printf("PASS loaded.write-records (runs, new records, owners, the oldest place dropped, the copy, recent)\n");
 }
 }  // namespace
 
@@ -1007,6 +1194,8 @@ int main(int argc, char** argv) {
         test_list();
         test_write();
         test_write_refusals();
+        test_write_named();
+        test_write_records();
     }
     test_concurrent();
     test_write_concurrent();

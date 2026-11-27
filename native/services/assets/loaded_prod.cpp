@@ -6,8 +6,6 @@
 #include <intrin.h>
 
 #include <cstring>
-#include <deque>
-#include <mutex>
 #include <string>
 
 #include "assets.h"
@@ -109,31 +107,37 @@ bool cas_scalar(void*, std::uintptr_t address, std::size_t width, std::uint64_t 
     }
 }
 
-// The committed writes (owner-tagged), the last 256, for kiln.assets' status.
-struct WriteRecord {
-    KilnOwner owner;
-    KilnAssetKey key;
-    std::size_t offset;
-    std::uint32_t width;
-    std::uint64_t session, id;
-};
-std::mutex g_writes_mu;
-std::deque<WriteRecord> g_writes;
-std::uint64_t g_write_ids = 0;
-void committed(void*, KilnOwner owner, const KilnAssetKey& key, std::size_t offset, std::uint32_t width, std::uint64_t session) {
-    std::uint64_t id = 0;
-    {
-        std::lock_guard lock(g_writes_mu);
-        id = ++g_write_ids;
-        g_writes.push_back({owner, key, offset, width, session, id});
-        if (g_writes.size() > 256) g_writes.pop_front();
-    }
+// The committed writes (owner-tagged, and named by a named write: sfi R3): one record per place for loaded_write_records,
+// and the last 256 for kiln.assets' status.
+loaded::WriteRecords g_records;
+void committed(void*, const loaded::Commit& c) {
+    const std::size_t dropped = g_records.dropped();
+    const std::uint64_t id = g_records.commit(c);
     Key k;
-    std::memcpy(k.g, key.guid, 16);
-    k.type = key.type;
-    k.part = key.part;
-    LOGI("assets: loaded write %llu by owner %llu: %s offset %zu width %u, session %llu", static_cast<unsigned long long>(id),
-         static_cast<unsigned long long>(owner), key_str(k).c_str(), offset, width, static_cast<unsigned long long>(session));
+    std::memcpy(k.g, c.key.guid, 16);
+    k.type = c.key.type;
+    k.part = c.key.part;
+    if (c.writer.empty())
+        LOGI("assets: loaded write %llu by owner %llu: %s offset %zu width %u, session %llu", static_cast<unsigned long long>(id),
+             static_cast<unsigned long long>(c.owner), key_str(k).c_str(), c.offset, c.width, static_cast<unsigned long long>(c.session));
+    else
+        LOGI("assets: loaded write %llu by owner %llu for %.*s (%.*s): %s offset %zu width %u, session %llu",
+             static_cast<unsigned long long>(id), static_cast<unsigned long long>(c.owner), static_cast<int>(c.writer.size()),
+             c.writer.data(), static_cast<int>(c.field.size()), c.field.data(), key_str(k).c_str(), c.offset, c.width,
+             static_cast<unsigned long long>(c.session));
+    if (dropped == 0 && g_records.dropped() != 0)
+        LOGW("assets: the loaded write records are full (%u places): the place written longest ago is dropped for each new one "
+             "(its writer is no longer named in Kiln's reports)", KILN_LOADED_WRITE_PLACES);
+}
+
+// A JSON string's text (the names are checked text: no control character; quotes and backslashes escaped).
+std::string json_text(const std::string& s) {
+    std::string out;
+    for (const char c : s) {
+        if (c == '"' || c == '\\') out += '\\';
+        out += c;
+    }
+    return out;
 }
 
 // ShroudForge's readable() (resolve_loaded_resource.cpp:6-41): committed, readable protection, no guard page.
@@ -253,19 +257,32 @@ KilnResult op_loaded_scalar_cas(KilnOwner owner, const KilnAssetKey* key, uint64
                                     reply);
 }
 
+KilnResult op_loaded_scalar_cas_named(KilnOwner owner, const KilnAssetKey* key, uint64_t expected_session, const void* expected_full,
+                                     size_t resource_size, size_t offset, const void* desired, uint32_t width, KilnStr writer,
+                                     KilnStr field, KilnMutationReply* reply) {
+    return loaded::compare_exchange_named(source(), owner, key, expected_session, expected_full, resource_size, offset, desired,
+                                          width, writer, field, reply);
+}
+
+KilnResult op_loaded_write_records(KilnLoadedWriteRecord* out, uint32_t record_size, size_t capacity, size_t* required) {
+    return g_records.read(out, record_size, capacity, required);
+}
+
 std::string loaded_writes_json() {
     std::string out = "[";
-    std::lock_guard lock(g_writes_mu);
-    for (const WriteRecord& w : g_writes) {
+    for (const loaded::WriteRecords::Recent& w : g_records.recent()) {
         Key k;
         std::memcpy(k.g, w.key.guid, 16);
         k.type = w.key.type;
         k.part = w.key.part;
         char line[256];
-        std::snprintf(line, sizeof line, "%s{\"id\":%llu,\"owner\":%llu,\"key\":\"%s\",\"offset\":%zu,\"width\":%u,\"session\":%llu}",
+        std::snprintf(line, sizeof line, "%s{\"id\":%llu,\"owner\":%llu,\"key\":\"%s\",\"offset\":%zu,\"width\":%u,\"session\":%llu",
                       out.size() > 1 ? "," : "", static_cast<unsigned long long>(w.id), static_cast<unsigned long long>(w.owner),
                       key_str(k).c_str(), w.offset, w.width, static_cast<unsigned long long>(w.session));
         out += line;
+        if (!w.writer.empty()) out += ",\"writer\":\"" + json_text(w.writer) + "\"";
+        if (!w.field.empty()) out += ",\"field\":\"" + json_text(w.field) + "\"";
+        out += "}";
     }
     return out + "]";
 }

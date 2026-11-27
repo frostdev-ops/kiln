@@ -15,14 +15,32 @@
 //   listing has the mods' new keys after the game's;
 // - a lookup that finds nothing in an index that changed meanwhile answers CHANGED, not MISSING.
 #pragma once
+#include <compare>
 #include <cstddef>
 #include <cstdint>
+#include <deque>
+#include <map>
+#include <mutex>
+#include <string>
+#include <string_view>
 #include <vector>
 
 #include "kiln_engine_native.h"
 #include "services/kiln_assets.h"
 
 namespace ka::loaded {
+
+// A committed scalar write, as kiln.assets records it (after the hold): the caller's names (sfi R3, kiln_assets.h named
+// loaded writes; views of the caller's text for the call only, empty: none), the scalar it was over and the one it left.
+struct Commit {
+    KilnOwner owner = 0;
+    KilnAssetKey key{};
+    std::size_t offset = 0;
+    std::uint32_t width = 0;
+    std::uint64_t session = 0;
+    std::uint64_t before = 0, after = 0;  // the scalar's bits (little end first, width bytes)
+    std::string_view writer, field;
+};
 
 // The resource service as one instant of the engine (ShroudForge's View).
 struct View {
@@ -70,8 +88,7 @@ struct Source {
     bool (*cas)(void* user, std::uintptr_t address, std::size_t width, std::uint64_t expected, std::uint64_t desired,
                 std::uint64_t* observed) = nullptr;
     // A committed write (after the hold, for kiln.assets' record and log).
-    void (*committed)(void* user, KilnOwner owner, const KilnAssetKey& key, std::size_t offset, std::uint32_t width,
-                      std::uint64_t session) = nullptr;
+    void (*committed)(void* user, const Commit& commit) = nullptr;
 };
 
 // ShroudForge's ScalarDataProtection state (the caller's, on its stack).
@@ -98,6 +115,58 @@ KilnResult list(const Source& s, KilnOwner owner, std::uint32_t type, KilnAssetK
 KilnResult compare_exchange(const Source& s, KilnOwner owner, const KilnAssetKey* key, std::uint64_t expected_session,
                             const void* expected_full, std::size_t resource_size, std::size_t offset, const void* desired,
                             std::uint32_t width, KilnMutationReply* reply);
+// The same with the writer and field its record names (loaded_scalar_compare_exchange_named): each valid_name text.
+KilnResult compare_exchange_named(const Source& s, KilnOwner owner, const KilnAssetKey* key, std::uint64_t expected_session,
+                                  const void* expected_full, std::size_t resource_size, std::size_t offset, const void* desired,
+                                  std::uint32_t width, KilnStr writer, KilnStr field, KilnMutationReply* reply);
+// A name a named write may carry: 0 to KILN_LOADED_WRITE_NAME_MAX bytes of UTF-8 (no overlong form, surrogate or code
+// point past U+10FFFF) without a control character (below 0x20, 0x7f, U+0080 to U+009F); ptr may be NULL only when len is 0.
+bool valid_name(KilnStr name);
+
+// kiln.assets' records of the committed writes (kiln_assets.h named loaded writes): one per place (key, offset, width) for
+// its newest write, a run of the same owner and writer (each write over the value the one before left) keeping the value it
+// began over; at most `places` of them, the place written longest ago dropped first. And the last 256 writes, for status.
+// Any thread: one lock, held for copies only.
+class WriteRecords {
+public:
+    struct Recent {  // one write, for kiln.assets' status ("loadedWrites")
+        std::uint64_t id;
+        KilnOwner owner;
+        KilnAssetKey key;
+        std::size_t offset;
+        std::uint32_t width;
+        std::uint64_t session;
+        std::string writer, field;
+    };
+    explicit WriteRecords(std::size_t places = KILN_LOADED_WRITE_PLACES) : places_(places ? places : 1) {}
+    // Records a committed write; returns its id (1, 2, ...).
+    std::uint64_t commit(const Commit& c);
+    // loaded_write_records: the records, oldest newest-write first.
+    KilnResult read(KilnLoadedWriteRecord* out, std::uint32_t record_size, std::size_t capacity, std::size_t* required) const;
+    std::vector<Recent> recent() const;
+    std::size_t dropped() const;  // places dropped for room
+
+private:
+    struct Place {
+        std::uint8_t key[24];  // KilnAssetKey's bytes
+        std::uint64_t offset;
+        std::uint32_t width;
+        auto operator<=>(const Place&) const = default;
+    };
+    struct Record {
+        std::uint64_t id = 0;
+        KilnOwner owner = 0;
+        std::uint64_t session = 0, before = 0, after = 0;
+        std::string writer, field;
+    };
+    mutable std::mutex mu_;
+    std::size_t places_;
+    std::map<Place, Record> records_;
+    std::map<std::uint64_t, Place> by_id_;  // each record's newest write id -> its place (the eviction order)
+    std::deque<Recent> recent_;
+    std::uint64_t ids_ = 0;
+    std::size_t dropped_ = 0;
+};
 // Whether an uncertain write latched every later compare-exchange of this process (and clears it: host tests only).
 bool write_latched();
 void clear_write_latch_for_tests();
