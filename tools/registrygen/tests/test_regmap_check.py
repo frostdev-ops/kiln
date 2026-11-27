@@ -382,6 +382,28 @@ SEQ_ROWS = {"release": {"paths": ["subs[0].events[keen::act::Spawn#0].time"], "c
             "length": {"paths": ["subs[0].length"], "conv": "time", "read": "now", "backend": "live"}}
 
 
+# Registry trial merge (dev.32): the lanes' path forms where they meet. A template's paths start at a component by its type
+# (R2a) and may index a static array (R2a) and pick a variant of a list (R2b) below it.
+COMBINED_TYPES = {"types": TEMPLATE_TYPES["types"] + [t for t in SEQ_TYPES["types"] if t["name"] not in {x["name"] for x in TEMPLATE_TYPES["types"]}] + [
+    T("keen::ecs::Brain", 18, 24, inner="keen::ecs::Component", fields=[("events", "keen::Events", 0), ("slots", "keen::StaticArray<keen::uint32,2>", 8)]),
+]}
+
+
+class CombinedForms(unittest.TestCase):
+    def test_a_component_first_path_with_an_index_and_a_variant_selector(self):
+        db = rc.TypeDb.from_refl(COMBINED_TYPES)
+        for path, leaf in (("Brain.events[keen::act::Spawn#0].time", "keen::Time"), ("Brain.events[keen::act::Spawn#2].radius", "keen::float32"),
+                           ("Brain.slots[1]", "keen::uint32"), ("Level.dataStorage[0]", "keen::uint32")):
+            t, err = db.path(rc.TEMPLATE, path)
+            self.assertIsNone(err, path)
+            self.assertEqual(t["name"], leaf, path)
+        for path, why in (("Brain.events[0].time", "variant"), ("Brain.slots[2]", "2 elements"), ("Brain.slots[keen::act::Spawn#0]", "no variants"),
+                          ("Brains.events[keen::act::Spawn#0].time", "not a component type"), ("Brain.events[keen::ds::Spawn#0].time", "keen::Event")):
+            t, err = db.path(rc.TEMPLATE, path)
+            self.assertIsNotNone(err, path)
+            self.assertIn(why, err, path)
+
+
 class Selectors(unittest.TestCase):
     def check(self, rows=None, name="subs[0].name"):
         t = Tree(rows if rows is not None else SEQ_ROWS, SEQ_SCHEMA)
