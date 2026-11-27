@@ -2269,8 +2269,22 @@ export interface WebPanelInfo {
 }
 /** Opens the server's web panel in the browser, signed in as the owner; the panel as the window shows it.
  *  (0.2.0-dev.31.19) "auto": at the panel's own address on the internet when it has one that passes the check, else on
- *  this computer; "local": on this computer ("Open on this computer instead"). */
+ *  this computer; "local": on this computer ("Open on this computer instead"). (0.2.0-dev.31.20) "auto" is "local"
+ *  while the server's "Always open the web panel on this computer" is on (`WebPanelSettings.alwaysLocal`: no check at
+ *  all). */
 export const adminOpenWebPanel = (serverId: ServerId, route: "auto" | "local" = "auto") => call<WebPanelInfo>("admin_open_web_panel", { serverId, route });
+/** (0.2.0-dev.31.20) A server's web panel settings on the launcher's side (kiln_manage::admin::web_panel::settings,
+ *  the launcher data folder's web-panel-settings.json; local and remote servers alike). */
+export interface WebPanelSettings {
+  /** "Always open the web panel on this computer": Open web panel never checks or uses the panel's own address on the
+   *  internet (Kilnwarden's launcher-endpoint.json `public`) and always opens it through this computer's gateway. */
+  alwaysLocal: boolean;
+}
+/** (0.2.0-dev.31.20) The server's web panel settings. */
+export const adminWebPanelSettings = (serverId: ServerId) => call<WebPanelSettings>("admin_web_panel_settings", { serverId });
+/** (0.2.0-dev.31.20) Saves the server's web panel settings; what they are now. */
+export const adminWebPanelSettingsSet = (serverId: ServerId, settings: WebPanelSettings) =>
+  call<WebPanelSettings>("admin_web_panel_settings_set", { serverId, settings });
 /** Closes the server's web panel gateway: whether one was open. */
 export const adminCloseWebPanel = (serverId: ServerId) => call<boolean>("admin_close_web_panel", { serverId });
 /** The web panels open now. */
@@ -2482,7 +2496,7 @@ export const COMMANDS = [
   "server_restart", "server_update", "server_deploy", "server_settings_get", "server_settings_set", "server_mods",
   "server_mods_sync", "server_mod_enable", "server_backups", "server_backup_create", "server_backup_restore", "server_query",
   "server_modpack_status", "server_modpack_build", "server_modpack_publish",
-  "admin_connect", "admin_open_web_panel", "admin_close_web_panel", "admin_web_panels", "admin_disconnect", "admin_sessions", "admin_call", "admin_subscribe", "admin_unsubscribe",
+  "admin_connect", "admin_open_web_panel", "admin_close_web_panel", "admin_web_panels", "admin_web_panel_settings", "admin_web_panel_settings_set", "admin_disconnect", "admin_sessions", "admin_call", "admin_subscribe", "admin_unsubscribe",
   "modpack_pending", "modpack_inspect", "modpack_install", "modpack_dismiss",
   "config_kiln_read", "config_kiln_set", "config_kiln_reset",
   // Settings' ShroudForge card

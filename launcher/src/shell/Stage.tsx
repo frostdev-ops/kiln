@@ -17,6 +17,12 @@ export type Heat = "unlit" | "idle" | "flare" | "embers" | "low";
 /** Written by the shell as it renders and on pointer moves; read by the loop each frame. */
 export const stageInput = { play: true, heat: "idle" as Heat, hover: false, game: false, mx: 0, my: 0 };
 
+/** The festive season's mantel (shell/Festive.tsx) moves on the fire's frames: called after each frame the festive fire
+ *  draws, with the fire's clock (s), its flicker (F, 0..1; .5 and the clock at 12 when still) and the mouth's spring (k:
+ *  0 Play, 1 the pilot light). Never called by the fire of other days (in the season, a driver that cannot build
+ *  FRAG_FESTIVE draws FRAG and still calls it). */
+export const stageFrame: { fn: ((t: number, F: number, k: number) => void) | null } = { fn: null };
+
 /** How hot the fire burns for each state (1: the hot idle on hover). */
 function target(i: typeof stageInput): number {
   switch (i.heat) {
@@ -33,11 +39,15 @@ export const VERT = "attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}";
 // uR canvas size; uT time; uH heat; uF flicker; uD mouth (centre x, bottom y, half width, height) in canvas px;
 // uM pointer (-1..1); uS canvas px per CSS px; uL floor height (CSS px); uK 0 on Play, 1 as the pilot light; uO the
 // canvas rows below this canvas (the header band behind a sheet: stageCanvas), so it draws the whole picture's top rows.
-// Thanksgiving weekend (thanksgiving.ts) adds the roast turkey: the T(...) lines below. FRAG is the shader without them,
-// line for line the fire of every other day (the same program, the same cost); FRAG_TURKEY is the one with the bird.
-type Line = string | { turkey: string; plain?: string };
-/** A line only the turkey's shader has (`plain`: what the fire of every other day has there instead). */
+// Thanksgiving weekend (thanksgiving.ts) adds the roast turkey: the T(...) lines below; the festive season (season.ts)
+// adds the snow: the X(...) lines. FRAG is the shader without either, line for line the fire of every other day (the
+// same program, the same cost); FRAG_TURKEY is the one with the bird, FRAG_FESTIVE the one with the snow.
+type Variant = "plain" | "turkey" | "festive";
+type Line = string | { turkey?: string; festive?: string; plain?: string };
+/** A line only the turkey's shader has (`plain`: what the other fires have there instead). */
 const T = (turkey: string, plain?: string): Line => ({ turkey, plain });
+/** A line only the festive season's shader has. */
+const X = (festive: string): Line => ({ festive });
 const turkeyOnly = (lines: string[]): Line[] => lines.map((l) => T(l));
 const SRC: Line[] = [
   "#ifdef GL_FRAGMENT_PRECISION_HIGH",
@@ -169,6 +179,8 @@ const SRC: Line[] = [
     "col=mix(col,ramp(fl),smoothstep(.06,.42,fl)*smoothstep(.12,.34,uH));"),
   "vec2 s=vec2(q.x*9.,q.y*9.-uT*2.6);vec2 sid=floor(s);float sp=step(.972,hash(sid))*(1.-smoothstep(0.,.34,length(fract(s)-.5)))*(1.-smoothstep(.4,H,q.y));col+=vec3(1.,.46,.13)*sp*min(uH*1.2,1.2)*smoothstep(.12,.34,uH);",
   "return col;}",
+  // the festive season: a layer of snowflakes (cells of sc px, falling sp cells a second, swaying), soft dots of r cells
+  X("float snow(vec2 w,float sc,float sp,float seed,float r){vec2 p=w/sc;p.y+=uT*sp;p.x+=sin(p.y*.55+seed+uT*.35)*.45;vec2 id=floor(p);float h=hash(id+seed);if(h<.91)return 0.;vec2 f=fract(p)-.5;f+=vec2(hash(id+1.3),hash(id+2.7))*.5-.25;return (.55+.45*hash(id+5.1))*(1.-smoothstep(r*.35,r,length(f)));}"),
   "float embers(vec2 w,float sc,float sp,float seed){vec2 p=w/sc;p.y-=uT*sp;p.x+=sin(p.y*.7+seed)*.35;vec2 id=floor(p);float h=hash(id+seed);if(h<.965)return 0.;vec2 f=fract(p)-.5;f+=vec2(hash(id+1.3),hash(id+2.7))*.6-.3;float tw=.6+.4*sin(uT*3.+h*60.);return tw*(1.-smoothstep(0.,.05,length(f)));}",
   "void main(){vec2 px=gl_FragCoord.xy+vec2(0.,uO);vec2 w=px/uS;float hw=uD.z;float Hd=uD.w/hw;vec2 q=(px-uD.xy)/hw;float d=sdArch(q,Hd);float F=uH*(.72+.28*uF);",
   "vec2 lc=uD.xy+vec2(0.,uD.w*.35);float dist=length((px-lc)/hw);vec3 col;",
@@ -188,14 +200,26 @@ const SRC: Line[] = [
   T("float sm=uK<.5?smoke(q):0.;if(sm>.001){float ins=1.-smoothstep(-.06,.12,d);vec3 sc=mix(vec3(.34,.28,.24)*F*exp(-dist*.22)+vec3(.05,.045,.042),vec3(.86,.66,.5)*F*1.25+vec3(.06,.055,.05),ins);col=mix(col,sc,sm*mix(.5,.58,ins));}"),
   "float band=1.-smoothstep(uL*.4,uL+210.,w.y);if(band>.001&&dist<9.){float hz=fbm(vec2(w.x*.0045+uT*.035,w.y*.013-uT*.018));col+=vec3(1.,.38,.12)*hz*hz*hz*band*exp(-dist*.5)*1.05*F*(1.-uK);}",
   "float ee=exp(-dist*.62);if(ee>.012&&w.y>uL*.8&&d>0.){float e1=embers(w,34.,1.25,1.);float e2=embers(w+17.,52.,.8,4.);col+=vec3(1.,.55,.18)*(e1+e2*.8)*ee*2.2*min(uH+.3,1.4)*smoothstep(.12,.34,uH);}",
+  // the festive season's snow: in front of the wall and the floor, never in the mouth; near the arch it takes the fire's
+  // colour and melts; faint over the text on the left
+  X("if(d>-.02){float sn=snow(w,46.,.55,3.,.085)+snow(w+31.,30.,.38,7.,.1)*.75+snow(w+11.,19.,.24,11.,.11)*.45;" + "\n" +
+    "float warm=exp(-dist*.75);float melt=smoothstep(.02,.32,d)*(1.-.75*exp(-dist*1.6));float side=.3+.7*smoothstep(-2.9,-1.2,q.x);" + "\n" +
+    "col+=mix(vec3(.62,.66,.74)*.55,vec3(1.,.62,.32)*(.6+.5*F),warm)*sn*melt*side;}"),
   "col+=(hash(px+fract(uT))-.5)*.012;gl_FragColor=vec4(col,1.);}",
 ];
-const frag = (turkey: boolean) => SRC.flatMap((l) => (typeof l === "string" ? [l] : turkey ? [l.turkey] : l.plain === undefined ? [] : [l.plain])).join("\n");
+const frag = (v: Variant) => SRC.flatMap((l) => {
+  if (typeof l === "string") return [l];
+  const own = v === "plain" ? undefined : l[v];
+  return own !== undefined ? [own] : l.plain === undefined ? [] : [l.plain];
+}).join("\n");
 /** The fire of every day but Thanksgiving weekend (and of Deck mode, deck/Fire.tsx, which never shows the turkey). */
-export const FRAG = frag(false);
+export const FRAG = frag("plain");
 /** The fire with the Thanksgiving turkey on its spit, the drumstick pilot light and the roast's smoke; one more uniform,
  *  uV (1 moving, 0 the still frame of reduced motion: the bird at rest, no drips). */
-export const FRAG_TURKEY = frag(true);
+export const FRAG_TURKEY = frag("turkey");
+/** The fire of the festive season (season.ts: the Monday after Thanksgiving weekend to 7 January): every day's, with
+ *  snow drifting down outside the arch. No uniform of its own. */
+export const FRAG_FESTIVE = frag("festive");
 
 export const UNIFORMS = ["uR", "uT", "uH", "uF", "uD", "uM", "uS", "uL", "uK", "uO"] as const;
 
@@ -248,9 +272,12 @@ export function wakeStage() {
  *  canvas a new key to turn it back on). `onLit` hears whether the fire burns (the torch follows it).
  *  prefers-reduced-motion is followed while the fire runs (KDE's animation speed "Instant" turns it on): the fire stands
  *  still, writes no flicker and draws only when what it shows changed (wakeStage, a resize), with no timer meanwhile.
- *  `turkey`: Thanksgiving weekend's shader (FRAG_TURKEY; give the canvas a new key to switch); otherwise FRAG, as always.
- *  A driver that cannot build FRAG_TURKEY gets FRAG instead (no `data-turkey` on the app, so no greeting). */
-export function Stage({ root, enabled = true, turkey = false, onLit }: { root: RefObject<HTMLDivElement>; enabled?: boolean; turkey?: boolean; onLit?: (lit: boolean) => void }) {
+ *  `turkey`: Thanksgiving weekend's shader (FRAG_TURKEY; give the canvas a new key to switch); `festive`: the festive
+ *  season's (FRAG_FESTIVE, and stageFrame after each frame; turkey wins); otherwise FRAG, as always.
+ *  A driver that cannot build FRAG_TURKEY or FRAG_FESTIVE gets FRAG instead: the fire never goes out for a season. For the
+ *  turkey no `data-turkey` on the app, so no greeting; for the festive season no snow (it is in the shader), and the
+ *  rest of the season's look stays, the mantel moving on FRAG's frames (stageFrame) as on the festive fire's. */
+export function Stage({ root, enabled = true, turkey = false, festive = false, onLit }: { root: RefObject<HTMLDivElement>; enabled?: boolean; turkey?: boolean; festive?: boolean; onLit?: (lit: boolean) => void }) {
   const ref = useRef<HTMLCanvasElement>(null);
   // the latest callback, without restarting the fire when the parent renders a new one
   const litCb = useRef(onLit);
@@ -302,12 +329,14 @@ export function Stage({ root, enabled = true, turkey = false, onLit }: { root: R
       gl!.attachShader(p, vs); gl!.attachShader(p, fs); gl!.linkProgram(p);
       return gl!.getProgramParameter(p, gl!.LINK_STATUS) ? p : "link";
     };
-    // Thanksgiving weekend: a driver that cannot build the turkey's bigger shader (ANGLE's D3D back-end compiles it only at
-    // the link) keeps every day's fire, and the greeting stays away with the bird (data-turkey, base.css)
+    // Thanksgiving weekend and the festive season: a driver that cannot build the season's bigger shader (ANGLE's D3D
+    // back-end compiles it only at the link) keeps every day's fire. The turkey's greeting stays away with the bird
+    // (data-turkey, base.css); the festive look keeps its mantel, burning on this fire's frames, without the snow
     let roast = turkey;
-    let prog = build(roast ? FRAG_TURKEY : FRAG);
-    if (typeof prog === "string" && roast) {
-      console.warn(`Hearth fire: the Thanksgiving turkey's shader did not build (${prog}); every day's fire instead`);
+    const want = roast ? FRAG_TURKEY : festive ? FRAG_FESTIVE : FRAG;
+    let prog = build(want);
+    if (typeof prog === "string" && want !== FRAG) {
+      console.warn(`Hearth fire: the ${roast ? "Thanksgiving turkey's" : "festive season's"} shader did not build (${prog}); every day's fire instead`);
       roast = false;
       prog = build(FRAG);
     }
@@ -320,6 +349,7 @@ export function Stage({ root, enabled = true, turkey = false, onLit }: { root: R
     gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
     for (const n of UNIFORMS) U[n] = gl.getUniformLocation(prog, n);
     const uV = roast ? gl.getUniformLocation(prog, "uV") : null;
+    const mantel = festive && !turkey;
     const lost = (e: Event) => { e.preventDefault(); off("context lost"); };
     canvas.addEventListener("webglcontextlost", lost);
     app.dataset.gl = "1";
@@ -417,6 +447,7 @@ export function Stage({ root, enabled = true, turkey = false, onLit }: { root: R
       gl.uniform1f(U.uK!, k);
       if (uV) gl.uniform1f(uV, still ? 0 : 1);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
+      if (mantel) stageFrame.fn?.(still ? 12 : t, F, k);
     };
     const resume = () => {
       if (!gl || !parked) return;
@@ -448,6 +479,6 @@ export function Stage({ root, enabled = true, turkey = false, onLit }: { root: R
       unflicker();
       litCb.current?.(false);
     };
-  }, [root, enabled, turkey]);
+  }, [root, enabled, turkey, festive]);
   return <canvas ref={ref} className="k-stage-gl" aria-hidden />;
 }

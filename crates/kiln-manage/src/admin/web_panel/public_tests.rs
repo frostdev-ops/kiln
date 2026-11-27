@@ -1,7 +1,9 @@
 //! (0.2.0-dev.31.19) "Open web panel" at the panel's address on the internet (`launcher-endpoint.json` `public`,
 //! Kilnwarden 0.1.4): the file's new fields (and older launchers' files), the check before a login goes there, the
 //! hosted open (a one-use bootstrap address of its own, no gateway), the fallback to this computer when the check
-//! fails, "Open on this computer instead", and a remote server over ssh.
+//! fails, "Open on this computer instead", and a remote server over ssh. The per-server setting "Always open the web
+//! panel on this computer" (`web-panel-settings.json`): kept across restarts, and while it is on the public address is
+//! never checked or used, for local and remote servers alike.
 
 use super::*;
 use std::io::{Read, Write};
@@ -74,11 +76,12 @@ fn json_answer(status: &str, body: &str) -> Answer {
 
 const READY: &str = r#"{"ownerExists":true,"signedIn":false,"launcherLogin":true,"providers":["local"]}"#;
 
-/// The panel at its address on the internet (TLS on 127.0.0.1, reached as `localhost`): its address, its pin, and how
-/// many requests it saw (each one's first line in `seen`).
+/// The panel at its address on the internet (TLS on 127.0.0.1, reached as `localhost`): its address, its pin, how many
+/// connections it took (`accepts`, any contact at all) and how many requests it saw (each one's first line in `seen`).
 struct PublicPanel {
     addr: SocketAddr,
     pin: String,
+    accepts: Arc<AtomicUsize>,
     requests: Arc<AtomicUsize>,
     seen: Arc<std::sync::Mutex<Vec<String>>>,
 }
@@ -90,11 +93,13 @@ impl PublicPanel {
         let cfg = Arc::new(rustls::ServerConfig::builder_with_provider(provider).with_safe_default_protocol_versions().unwrap().with_no_client_auth().with_single_cert(vec![c], k).unwrap());
         let l = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = l.local_addr().unwrap();
+        let accepts = Arc::new(AtomicUsize::new(0));
         let requests = Arc::new(AtomicUsize::new(0));
         let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
-        let (r2, s2) = (requests.clone(), seen.clone());
+        let (a2, r2, s2) = (accepts.clone(), requests.clone(), seen.clone());
         std::thread::spawn(move || {
             for s in l.incoming().flatten() {
+                a2.fetch_add(1, Ordering::SeqCst);
                 let (cfg, answer, requests, seen) = (cfg.clone(), answer.clone(), r2.clone(), s2.clone());
                 std::thread::spawn(move || {
                     let mut s = s;
@@ -121,7 +126,7 @@ impl PublicPanel {
                 });
             }
         });
-        Some(PublicPanel { addr, pin, requests, seen })
+        Some(PublicPanel { addr, pin, accepts, requests, seen })
     }
 
     fn address(&self) -> endpoint::PublicAddress {
@@ -465,4 +470,144 @@ fn a_remote_server_over_ssh_opens_at_its_public_address_too() {
     assert_eq!(here.info.via, Via::Ssh);
     panels.close_all();
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ------------------------------------------------------------------------------------------------- always on this computer
+
+#[test]
+fn the_always_on_this_computer_setting_is_kept_per_server_and_survives_a_restart() {
+    let dir = temp("settings");
+    let registry = dir.join(origins::FILE);
+    let file = dir.join(settings::FILE);
+    let on = settings::WebPanelSettings { always_local: true };
+    let panels = WebPanels::new(registry.clone());
+    // off by default: the hosted address when it works, as before
+    assert_eq!(panels.settings("lab"), settings::WebPanelSettings::default());
+    assert!(!panels.settings("lab").always_local);
+    assert_eq!(panels.set_settings("lab", on).unwrap(), on);
+    assert_eq!(panels.settings("lab"), on);
+    assert!(!panels.settings("other").always_local, "per server");
+    // in the launcher's data folder, beside the origins
+    let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    assert_eq!(saved, serde_json::json!({"format": 1, "servers": {"lab": {"alwaysLocal": true}}}));
+    // a restart (a new launcher process: new WebPanels on the same folder) keeps it, for a remote server's id too
+    panels.set_settings("remote-box", on).unwrap();
+    drop(panels);
+    let again = WebPanels::new(registry.clone());
+    assert!(again.settings("lab").always_local && again.settings("remote-box").always_local);
+    // off again: the server's entry goes, the others stay
+    assert_eq!(again.set_settings("lab", settings::WebPanelSettings::default()).unwrap(), settings::WebPanelSettings::default());
+    let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    assert_eq!(saved, serde_json::json!({"format": 1, "servers": {"remote-box": {"alwaysLocal": true}}}));
+    assert!(!WebPanels::new(registry.clone()).settings("lab").always_local);
+    // a file that can't be read counts as on for every server (the panel then opens on this computer), and a change
+    // leaves it as it is (a_change_never_replaces_an_unreadable_settings_file_...); a missing file is all off
+    std::fs::write(&file, b"{ not json").unwrap();
+    assert!(settings::get(&file, "lab").always_local && settings::get(&file, "anyone").always_local);
+    std::fs::write(&file, br#"{"format":2,"servers":{}}"#).unwrap();
+    assert!(settings::get(&file, "lab").always_local, "a newer format is not guessed at");
+    assert!(settings::set(&file, "lab", on).is_err());
+    assert!(settings::get(&file, "lab").always_local && settings::get(&file, "anyone").always_local);
+    std::fs::remove_file(&file).unwrap();
+    assert!(!settings::get(&file, "lab").always_local);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A file that is there but can't be read counts as on for every server, so a change must never replace it: that would
+/// turn every other server's "Always open the web panel on this computer" off (as far as the launcher could tell they
+/// were all on), and drop a newer launcher's file. The change is refused, says which file, and leaves it as it was.
+#[test]
+fn a_change_never_replaces_an_unreadable_settings_file_so_no_other_server_loses_the_setting() {
+    let dir = temp("settings-unreadable");
+    let file = dir.join(settings::FILE);
+    let panels = WebPanels::new(dir.join(origins::FILE));
+    let on = settings::WebPanelSettings { always_local: true };
+    let off = settings::WebPanelSettings::default();
+    for bad in [&b"{ not json"[..], br#"{"format":2,"servers":{"lab":{"alwaysLocal":false}}}"#, b""] {
+        std::fs::write(&file, bad).unwrap();
+        for s in [off, on] {
+            let e = panels.set_settings("lab", s).expect_err("a change over a file that can't be read is refused");
+            assert!(e.message.contains(settings::FILE), "{}", e.message);
+            assert_eq!(std::fs::read(&file).unwrap(), bad, "the file stays as it was");
+            assert!(panels.settings("lab").always_local && panels.settings("other").always_local, "still on for every server");
+        }
+    }
+    // once it is fixed or deleted, changes work again
+    std::fs::remove_file(&file).unwrap();
+    assert_eq!(panels.set_settings("lab", on).unwrap(), on);
+    assert!(panels.settings("lab").always_local && !panels.settings("other").always_local);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn with_always_on_this_computer_open_web_panel_never_checks_or_uses_the_public_address() {
+    let (Some((local, local_pin)), Some(public)) = (local_panel(), PublicPanel::start(json_answer("200 OK", READY))) else {
+        eprintln!("skipped: no openssl command");
+        return;
+    };
+    let dir = temp("always-local");
+    let token = [6u8; 32];
+    let kap = crate::admin::tests::Mock::start(token, false);
+    let url = format!("https://localhost:{}/", public.addr.port());
+    write_files(&dir.join("kiln/data"), kap.port, &token, (local, &local_pin), Some((&url, &public.pin)));
+    let s = server("always", &dir);
+    let mut panels = WebPanels::new(dir.join(origins::FILE));
+    panels.set_settings("always", settings::WebPanelSettings { always_local: true }).unwrap();
+    // "auto" (what Open web panel asks for): this computer, and the public address is not even contacted
+    let opened = panels.open(&s).unwrap();
+    assert_eq!((opened.info.via, opened.info.public.clone(), opened.info.fallback), (Via::Local, None, None));
+    assert!(opened.info.origin.starts_with("https://127."), "{}", opened.info.origin);
+    let (_, body) = bootstrap_target(&opened.url);
+    assert!(body.contains(&format!("{}/launcher#secret=", opened.info.origin)) && !body.contains("localhost"), "{body}");
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(public.accepts.load(Ordering::SeqCst), 0, "no check: not even a connection to the public address");
+    // after a restart too
+    panels.close_all();
+    let mut panels = WebPanels::new(dir.join(origins::FILE));
+    assert_eq!(panels.open(&s).unwrap().info.via, Via::Local);
+    assert_eq!(public.accepts.load(Ordering::SeqCst), 0);
+    // off: the hosted address again (the check runs and passes)
+    panels.set_settings("always", settings::WebPanelSettings::default()).unwrap();
+    let opened = panels.open(&s).unwrap();
+    assert_eq!((opened.info.via, opened.info.public.as_deref()), (Via::Hosted, Some(url.as_str())));
+    assert!(public.accepts.load(Ordering::SeqCst) >= 1 && public.requests.load(Ordering::SeqCst) == 1);
+    // the setting is the server's: another server with the same file still opens at its public address
+    panels.set_settings("always", settings::WebPanelSettings { always_local: true }).unwrap();
+    assert_eq!(panels.open(&server("neighbour", &dir)).unwrap().info.via, Via::Hosted);
+    panels.close_all();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A remote server over ssh with the setting on: the panel opens through the ssh tunnel on this computer, and the public
+/// address is never contacted from here.
+#[cfg(unix)]
+#[test]
+fn a_remote_server_with_always_on_this_computer_opens_through_ssh_without_a_check() {
+    let Some(ssh) = super::review_tests::fake_ssh() else {
+        eprintln!("skipped: no python3 for the ssh stand-in");
+        return;
+    };
+    let (Some((local, local_pin)), Some(public)) = (local_panel(), PublicPanel::start(json_answer("200 OK", READY))) else {
+        eprintln!("skipped: no openssl command");
+        return;
+    };
+    let _env = super::review_tests::SshEnv::set(&ssh, 0);
+    let dir = temp("remote-always");
+    let token = [5u8; 32];
+    let kap = crate::admin::tests::Mock::start(token, false);
+    let url = format!("https://localhost:{}/", public.addr.port());
+    write_files(&dir.join("kiln/data"), kap.port, &token, (local, &local_pin), Some((&url, &public.pin)));
+    let mut s = server("remote-always", &dir);
+    s.dir = None;
+    s.remote = Some(crate::server::remote::RemoteSpec { host: "lab-box".into(), port: None, dir: dir.display().to_string(), instance: None });
+    let origins_dir = temp("remote-always-origins");
+    let mut panels = WebPanels::new(origins_dir.join(origins::FILE));
+    panels.set_settings("remote-always", settings::WebPanelSettings { always_local: true }).unwrap();
+    let opened = panels.open(&s).unwrap();
+    assert_eq!((opened.info.via, opened.info.public.clone(), opened.info.fallback), (Via::Ssh, None, None));
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(public.accepts.load(Ordering::SeqCst), 0);
+    panels.close_all();
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&origins_dir);
 }

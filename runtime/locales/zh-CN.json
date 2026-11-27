@@ -460,6 +460,7 @@
       "failed": "无法发送 {action}：{error}"
     },
     "binding": "打开 Kiln 的 ShroudForge 模组页",
+    "joined_world_edit": "一个 ShroudForge 模组试图修改方块，但加入别人的游戏时，只有服务器或房主才能修改。请在服务器或房主那边运行该模组。",
     "check": {
       "whole": "{setting} 必须为整数",
       "type": "{setting} 需要 {type}，当前为 {given}",

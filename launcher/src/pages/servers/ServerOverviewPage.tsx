@@ -11,14 +11,14 @@ import { NavLink, useParams } from "react-router-dom";
 import { useAdminState, useInAdminProvider } from "../../api/admin";
 import * as api from "../../api/commands";
 import type { Task } from "../../api/commands";
-import { Banner, Button, Cone, KeyValue, Sparkline, fmtAgo, useTasks } from "../../ui";
+import { Banner, Button, Cone, KeyValue, Sparkline, Toggle, fmtAgo, toast, useTasks } from "../../ui";
 import { useTicks } from "../ticks";
 import { ServerConsole } from "./ServerConsole";
 import { elapsed, useServerFlow, type Flow } from "./serverActions";
 import { startStep, startTrack, startView } from "./startProgress";
 import { hasKiln, runnerLabel, sk, useDeployDialog, useServer, useServerStatus, type ServerModX } from "./serverApi";
 import { kilnUpdateFor, shortKiln } from "./kilnUpdate";
-import { webPanelLines, webPanelOf } from "./webPanel";
+import { alwaysLocal, offerHere, webPanelLines, webPanelOf } from "./webPanel";
 import { useT } from "../../i18n";
 import { webPanelMod } from "./webPanelMod";
 
@@ -197,12 +197,27 @@ function Steady({ id }: { id: string }) {
  *  then says where it is open and offers to close it (it also closes by itself after its last tab).
  *  (0.2.0-dev.31.19) When the panel's file names its own address on the internet and the launcher's check of it passes,
  *  it opens there instead (no gateway), with "Open on this computer instead" one click away; when the check fails, the
- *  status says why it opened on this computer. */
+ *  status says why it opened on this computer. (0.2.0-dev.31.20) The server's "Always open the web panel on this
+ *  computer" switch sits under the buttons (kept in the launcher's data folder): while it is on, the launcher opens the
+ *  panel here and never checks the address on the internet. */
 function OpenWebPanel({ id }: { id: string }) {
   const t = useT();
   const qc = useQueryClient();
   const panels = useQuery({ queryKey: WEB_PANELS, queryFn: api.adminWebPanels, refetchInterval: 15_000, retry: false });
   const open = webPanelOf(panels.data, id);
+  const settings = useQuery({ queryKey: webPanelSettingsKey(id), queryFn: () => api.adminWebPanelSettings(id), retry: false });
+  const always = alwaysLocal(settings.data);
+  const [saving, setSaving] = useState(false);
+  async function setAlways(on: boolean) {
+    setSaving(true);
+    try {
+      qc.setQueryData(webPanelSettingsKey(id), await api.adminWebPanelSettingsSet(id, { ...settings.data, alwaysLocal: on }));
+    } catch (e) {
+      toast.error(e, t("servers.overview.webPanelSettingNotSaved"));
+    } finally {
+      setSaving(false);
+    }
+  }
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   // the last open's answer: where it went (the hosted address has no gateway to list) and why it fell back, if it did
@@ -224,10 +239,13 @@ function OpenWebPanel({ id }: { id: string }) {
   const shown = hosted ?? (open && { ...open, fallback: last && last.via !== "hosted" ? last.fallback : null });
   return <div className="k-sov-webpanel">
     <div className="k-sov-webpanel-actions">
-      <Button size="s" disabled={busy} onClick={() => void run(() => api.adminOpenWebPanel(id))}>{t("servers.overview.openWebPanel")}</Button>
-      {hosted && <Button size="s" variant="ghost" disabled={busy} onClick={() => void run(() => api.adminOpenWebPanel(id, "local"))}>{t("servers.overview.openWebPanelHere")}</Button>}
+      {/* while the switch is being saved an open waits: the backend reads the setting at every open */}
+      <Button size="s" disabled={busy || saving} onClick={() => void run(() => api.adminOpenWebPanel(id))}>{t("servers.overview.openWebPanel")}</Button>
+      {offerHere(hosted, always) && <Button size="s" variant="ghost" disabled={busy || saving} onClick={() => void run(() => api.adminOpenWebPanel(id, "local"))}>{t("servers.overview.openWebPanelHere")}</Button>}
       {open && <Button size="s" variant="ghost" disabled={busy} onClick={() => void run(() => api.adminCloseWebPanel(id))}>{t("servers.overview.closeWebPanel")}</Button>}
     </div>
+    <Toggle checked={always} disabled={busy || saving || !settings.data} onChange={(on) => void setAlways(on)}
+      label={t("servers.overview.webPanelAlwaysLocal")} hint={t("servers.overview.webPanelAlwaysLocalHint")} />
     {shown && <ul className="k-sov-webpanel-status" aria-label={t("servers.overview.openWebPanel")}>
       {webPanelLines(shown, t).map((line) => <li key={line}>{line}</li>)}
     </ul>}
@@ -235,6 +253,7 @@ function OpenWebPanel({ id }: { id: string }) {
   </div>;
 }
 const WEB_PANELS = ["admin_web_panels"] as const;
+const webPanelSettingsKey = (id: string) => ["admin_web_panel_settings", id] as const;
 
 /** How many are online: Kiln.Admin's list when it is connected, else the status / query count. */
 function OnlineCount({ fallback }: { fallback: number | null }) {

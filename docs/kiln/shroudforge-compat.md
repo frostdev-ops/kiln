@@ -1156,6 +1156,21 @@ ShroudForge's writer: `kiln.build` commits only the 8x8x8 blocks whose cells cha
 are not streamed in (the write is then refused and the mod may try again). Calls go through the game's hooks as the
 game's own do. ShroudForge's own loader, the player's installed ShroudForge, and an older bundle keep upstream's writer.
 
+In a game that joined a server (a client world and no server world) the writer refuses with "this game joined a server,
+and only the server or the player hosting can change the world's blocks; ...", and `runtime.world.voxel.write` is not
+available there (ShroudForge's own rule: a joined client's world is read-only). `src/joined_notice.h` tells it once per
+joined session (the client world's session count): a kiln.log line naming the mod, from the mod's own following `[sf]`
+line or, when none comes within two log-mirror polls, unnamed; and `shroudforge.json` `joinedWorldEdit` `{session, mod,
+at}`, from which Kiln.Ui (`ShroudForgeJoinedNotice.cs`) shows one toast. The log mirror also fires it on a mod's line
+with ShroudForge's grid answer in a joined game ("original registered voxel grid contract is unavailable", status 5 of
+`KfcRuntimeWorldGridGetSpecForSession`: the entity session guard takes only a LocalAuthority world), so a mod that stops
+at the grid is told as well; a mod that never logs that answer is told only when it writes, and one that only reads the
+grid (or edits through its server half) and logs the answer is told too. "Joined" is a client world and no server world
+in kiln-core's session answer, the client world counted only while the session state says a world runs (without the
+core's world destroy hook a left joined game's pointer stays behind at the main menu). Kiln mode has no voxel write yet
+and no notice. ShroudForge's texts to the mod are unchanged. Tests: `tests/test-joined-notice.sh` (Linux) and
+`test-host-chain.sh`'s joined-game cases (Wine).
+
 Tests: `native/plugins/shroudforge/tests/test-voxel-write.sh` (the core over a fake `kiln.build`, Linux),
 `test-host-chain.sh` section "the voxel writer" (posting, the wait and the cancel, the grid's bounds, a changed world,
 no write after an uncertain outcome; Wine), the fork's
