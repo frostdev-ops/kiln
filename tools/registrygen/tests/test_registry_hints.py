@@ -77,9 +77,15 @@ def tree_with(*extra):
     shutil.copytree(REPO / "regmap" / "common", root / "regmap" / "common")
     (root / "native" / "services" / "content").mkdir(parents=True)
     shutil.copy(REPO / "native" / "services" / "content" / "gamedata_res.cpp", root / "native" / "services" / "content")
+    # a fixture stands in for a registry of that name (the merged tree has real creatures, limits, buffs and abilities): its
+    # own lock rows go, so the fixture is locked as the new registry it plays
+    lock_path = root / "schema" / "registry" / "ids.lock.json"
+    lock = json.loads(lock_path.read_text(encoding="utf-8"))
     for schema, mapping in extra:
+        lock["registries"].pop(schema["registry"], None)
         (root / "schema" / "registry" / f"{schema['registry']}.json").write_text(json.dumps(schema))
         (root / "regmap" / "common" / f"{mapping['registry']}.json").write_text(json.dumps(mapping))
+    lock_path.write_text(json.dumps(lock, indent=2) + "\n", encoding="utf-8")
     rg.update_lock(root)
     return root
 
@@ -161,6 +167,21 @@ class HintsTest(unittest.TestCase):
             self.assertIn(("keen::actor::ActorSubSequenceResource", "events[spawnimpact#0].time", "abilities.timing.hit", False), paths)
         finally:
             shutil.rmtree(root)
+
+    def test_a_registry_over_several_collections_covers_each_ones_resource_patches(self):
+        # randomLoot (kind "arrays", LOOT): two sources, the label tables of enemies and containers and the world's chest tables;
+        # a resource patch on either resource names the element through its array, in lower case as the analyzer matches it
+        paths = rows(rg.render_hints(rg.load(REPO), REPO), "Paths")
+        for rtype in ("keen::DefaultLootLabelCollectionResource", "keen::SceneRandomLootResource"):
+            self.assertIn((rtype, "lootsettings[].modifier.level.value", "randomLoot.level.value", True), paths)
+            self.assertIn((f"{rtype}/lootSettings[]", "modifier.level.value", "randomLoot.level.value", True), paths)
+
+    def test_every_registry_of_the_schema_is_in_the_table(self):
+        # the merged tree's registries (17 at dev.32's integration) each cover old paths or hooked functions
+        model = rg.load(REPO)
+        text = rg.render_hints(model, REPO)
+        named = {r[2].split(".", 1)[0] for r in rows(text, "Paths")} | {r[1].split(".", 1)[0] for r in rows(text, "Hooks")}
+        self.assertEqual(sorted(model.registries), sorted(named))
 
     def test_gamedata_sections_follow_the_native_table(self):
         # the section -> root type table must name what gamedata_res.cpp builds each section from

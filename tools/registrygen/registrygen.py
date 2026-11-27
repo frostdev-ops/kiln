@@ -1408,6 +1408,9 @@ def render_hints(model, root):
         base = entry_root(entries)
         if base and name in CONTENT_SECTIONS:
             sections[name] = base
+        # the roots its rows start at: one, or one per source of an "arrays" registry (randomLoot's label and chest tables)
+        bases = [b for b in (entry_root({**s, "kind": "array"}) for s in entries.get("sources") or [] if isinstance(s, dict)) if b] \
+            if entries.get("kind") == "arrays" else [base] if base else []
         fields = {r.path for r in reg.rows}
         for field, row in sorted((m.get("rows") or {}).items()):
             if field not in fields or "[]" in field or not isinstance(row, dict) or row.get("state") == "unmapped":
@@ -1417,7 +1420,7 @@ def render_hints(model, root):
                 for fn in re.findall(r"\bsigdb [a-z][a-z0-9_.-]*/([A-Za-z_][A-Za-z0-9_]*)", str(row.get("evidence", ""))):
                     hooks.append((fn.lower(), f"{name}.{field}"))
                 continue
-            if not base:
+            if not bases:
                 continue
             exact = len(ps) == 1 and row.get("conv") in HINT_EXACT
             # rank: 0 one to one, 1 the field's own member (its first path), 2 an input its formula only reads
@@ -1427,18 +1430,20 @@ def render_hints(model, root):
                 ranked += [(f"{p}.{row['config']}", 1) for p in ps]
             for p, rank in ranked:
                 q = hint_path(p)
-                paths.append((base, q, f"{name}.{field}", exact, rank))
-                if entries.get("kind") == "array":
-                    # a resource patch on the registry's resource names the element through the array
-                    rtype, arr = base.split("/", 1)
-                    paths.append((rtype, f"{arr}.{q}", f"{name}.{field}", exact, rank))
-                    # an old section that lists that array's elements names the member from the element
-                    for section, coll in SECTION_COLLECTIONS.items():
-                        if coll == (rtype, entries.get("array")):
-                            paths.append((GAMEDATA_SECTIONS[section], q, f"{name}.{field}", exact, rank))
-                sub = re.match(r"%s\[\d+\]\.(.+)$" % re.escape(SECTION_SUBSEQUENCES[2].lower()), q)
-                if base == SECTION_SUBSEQUENCES[1] and sub:
-                    paths.append((GAMEDATA_SECTIONS[SECTION_SUBSEQUENCES[0]], sub.group(1), f"{name}.{field}", False, rank))
+                for root_ in bases:
+                    paths.append((root_, q, f"{name}.{field}", exact, rank))
+                    if "/" in root_:
+                        # a resource patch on the registry's resource names the element through the array (lower case, as
+                        # the analyzer matches a patch's path)
+                        rtype, arr = root_.split("/", 1)
+                        paths.append((rtype, f"{arr.lower()}.{q}", f"{name}.{field}", exact, rank))
+                        # an old section that lists that array's elements names the member from the element
+                        for section, coll in SECTION_COLLECTIONS.items():
+                            if coll == (rtype, arr[:-2]):
+                                paths.append((GAMEDATA_SECTIONS[section], q, f"{name}.{field}", exact, rank))
+                    sub = re.match(r"%s\[\d+\]\.(.+)$" % re.escape(SECTION_SUBSEQUENCES[2].lower()), q)
+                    if root_ == SECTION_SUBSEQUENCES[1] and sub:
+                        paths.append((GAMEDATA_SECTIONS[SECTION_SUBSEQUENCES[0]], sub.group(1), f"{name}.{field}", False, rank))
     # a member several fields name is the field(s) of its best rank: itemLevelRange.minLevel is items.levels.min, not the armor
     # or power formula that reads it (views.cpp cover() ranks the same way)
     best = {}
