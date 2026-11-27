@@ -20,6 +20,7 @@
 //                                earlier answer
 // Lab only: LabBots answers KilnUnavailableException off a lab server; the mod then answers every op with that error.
 // Requests count only from a lab peer (ControlPeers): one from a player's game connection is dropped unanswered.
+// A bot that kiln.net would refuse as a client without Kiln is let in (BotPeers; NetVanillaClientEvent).
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Kiln;
@@ -69,6 +70,7 @@ public sealed class LabBotTestMod : Mod
             .Register<Reply>(null, NetDirection.ToClient);
         Context.Tick.Pre += (in TickInfo _) => PollLines();
         Context.Tick.Post += (in TickInfo _) => PollLines();
+        Events.On<NetVanillaClientEvent>(LetBotsIn);
         string state;
         try
         {
@@ -77,6 +79,19 @@ public sealed class LabBotTestMod : Mod
         }
         catch (KilnUnavailableException e) { state = "off: " + e.Message; }
         Log.Info($"labbot-test: control channel labbot:control v1 open; LabBots {state}; capability {Capabilities.Get(LabBots.Capability)}");
+    }
+
+    // kiln.net judges a bot a client without Kiln (it sends no Kiln frame) and refuses it where the lab's mods state
+    // clients "kiln" or "mod" (or requireKiln, or modSync refuse): a bot has no client to crash, so it goes in (BotPeers)
+    private void LetBotsIn(NetVanillaClientEvent e)
+    {
+        if (!e.Kick) return;
+        IReadOnlyList<LabBotInfo> bots;
+        try { bots = LabBots.All(); }
+        catch (KilnUnavailableException) { return; }
+        if (!BotPeers.IsBot(e.Peer.Id, bots)) return;
+        e.Kick = false;
+        Log.Info($"labbot-test: bot '{e.Peer.Name}' (0x{e.Peer.Id:x}) let in: kiln.net would refuse it as a client without Kiln");
     }
 
     private void Handle(string json, NetPeer sender)

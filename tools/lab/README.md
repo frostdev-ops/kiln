@@ -28,6 +28,11 @@ replication, and it moves only when something moves it (`move_to`, a teleport). 
 2. The mod `mods/tests/labbot-test` in the lab (`dotnet build mods/tests/labbot-test/LabBotTest.csproj -c Release -o
    $KILN_OUT/mods/labbot-test` before the deploy): it opens the control channel `labbot:control` v1.
 3. A world must be running (the bot joins the server world; on a new lab the first start generates it).
+4. A bot sends no Kiln frame, so kiln.net judges it a client without Kiln (`docs/kiln/network.md`, "Clients without
+   Kiln"). Where that policy refuses such clients (a loaded mod states `clients: "kiln"` or `"mod"`, as mods with item,
+   spell or creature blocks do; `requireKiln`; `modSync: refuse` with required mods), labbot-test lets a live bot in
+   (`NetVanillaClientEvent`, logged "labbot-test: bot ... let in"): the bot is held at Gameplay Ready for
+   `vanillaHoldSeconds` (5 s) first, and a mod of your own that sets `Kick` on that event may undo it.
 
 ### From a lab script (Python)
 
