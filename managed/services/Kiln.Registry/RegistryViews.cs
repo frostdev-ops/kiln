@@ -393,7 +393,9 @@ public sealed class RegistryViewEntry
     /// <see cref="bool"/>, <see cref="string"/> (text, an enum's Kiln name, an id's text), <see cref="string"/>[] (flags, a list of
     /// names), <see cref="RegistryId"/>, <see cref="TimeSpan"/> (a time), <see cref="JsonNode"/> (anything, lists of structs).
     /// <see cref="KilnUnavailableException"/> with the reason when the field does not read for this entry;
-    /// <see cref="KeyNotFoundException"/> when the view has no such entry or field on this build.</summary>
+    /// <see cref="KeyNotFoundException"/> when the view has no such entry or field on this build. An id that names no entry
+    /// reads as null into a reference or nullable type (<c>RegistryId?</c>, <see cref="string"/>, <see cref="JsonNode"/>) and
+    /// as <see cref="InvalidCastException"/> into a value type.</summary>
     /// <param name="field">A Kiln path (<c>"xpReward"</c>, <c>"rewardItems[0].count"</c>).</param>
     [AnyThread, RequiresCapability(RegistryViews.Service)]
     public T Get<T>(string field)
@@ -450,6 +452,9 @@ public sealed class RegistryViewEntry
 
     private static T Convert<T>(JsonNode? node)
     {
+        // JSON null (an id that names no entry): null for a reference or nullable type, a refusal for a value type
+        if (node is null)
+            return default(T) is null ? default! : throw new InvalidOperationException("no value");
         object? v = typeof(T) switch
         {
             var t when t == typeof(JsonNode) => node,

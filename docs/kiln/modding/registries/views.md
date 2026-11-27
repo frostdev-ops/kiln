@@ -41,7 +41,8 @@ var maxStack = RegistryViews.Find("items")!["game:material_t1_wood_logs"].Get<in
 
 `Get` throws `KilnUnavailableException` (with the reason) when the field does not read for this entry and
 `KeyNotFoundException` when the view has no such entry or field on this build; `TryGet` and `TryRead` return false with the
-reason instead. Any thread. Nothing is cached in the C# objects: each read asks Kiln, so it follows the game's data (a
+reason instead. An id that names no entry reads as `null`: `null` into `RegistryId?`, `string` or `JsonNode`, and
+`InvalidCastException` (`TryGet`: false) into `RegistryId` or another value type. Any thread. Nothing is cached in the C# objects: each read asks Kiln, so it follows the game's data (a
 data pack's or a registry's change shows in the next read).
 
 Writing a registry by name, from code that does not know the registry's typed property (a registry a later schema adds):

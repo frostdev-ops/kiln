@@ -125,6 +125,25 @@ public sealed class RegistryViewsTests : IDisposable
     }
 
     [Fact]
+    public void AnIdThatNamesNoEntryReadsAsNullAndNeverAsAValue()
+    {
+        // an id field's value is null when it names no entry (kiln_registry_view.h): a nullable or JSON read gives null, a
+        // value type is a refusal with the field's name, never a NullReferenceException
+        _fake.Reads["quest|game:quest_main|rewardItems[0].item"] = (0, "null");
+        var e = RegistryViews.Find("quest")!["game:quest_main"];
+        Assert.Null(e.Get<RegistryId?>("rewardItems[0].item"));
+        Assert.Null(e.Get<JsonNode>("rewardItems[0].item"));
+        Assert.Null(e.Get<string>("rewardItems[0].item"));
+        var ex = Assert.Throws<InvalidCastException>(() => e.Get<RegistryId>("rewardItems[0].item"));
+        Assert.Contains("quest[game:quest_main].rewardItems[0].item", ex.Message);
+        Assert.Throws<InvalidCastException>(() => e.Get<int>("rewardItems[0].item"));
+        Assert.Null(e.Get<string[]>("rewardItems[0].item"));
+        Assert.False(e.TryGet<int>("rewardItems[0].item", out _, out var reason));
+        Assert.Contains("is not a Int32", reason);
+        Assert.False(e.TryGet<RegistryId>("rewardItems[0].item", out _, out _));
+    }
+
+    [Fact]
     public void SelectAndSnapshot()
     {
         var quest = RegistryViews.Find("quest")!;
