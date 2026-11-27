@@ -19,12 +19,14 @@ public sealed partial class KilnHarness
 /// <summary>Kiln.Taming offline: the players in game, the creatures they tame and what their inventories hold.</summary>
 public sealed class HarnessTaming
 {
+    private readonly KilnHarness _kiln;
     private readonly KitTamingWorld _world = new();
     private readonly KitTamingCosts _costs = new();
     private readonly Func<string, bool> _caps;
 
     internal HarnessTaming(KilnHarness kiln)
     {
+        _kiln = kiln;
         _caps = TamingCaps.Is;
         TamingCaps.Is = _ => true;   // taming.steps, taming.native and the exact costs: the kit plays them
         var engine = new TamingEngine(_world, _costs)
@@ -44,8 +46,9 @@ public sealed class HarnessTaming
     }
 
     /// <summary>The player is in game at <paramref name="at"/> (a character joined to <see cref="HarnessPets"/> too is the same
-    /// player there). Returns the player its requests name.</summary>
-    public PlayerRef Join(CharacterKey character, WorldPosition at = default) => _world.Join(character, at);
+    /// player there). Returns the player its requests name: the same whichever fake joined the character first, and the same
+    /// again after a <see cref="Leave"/>.</summary>
+    public PlayerRef Join(CharacterKey character, WorldPosition at = default) => _world.Join(_kiln.KitPlayer(character), at);
 
     /// <summary>The player left: their attempts fail OwnerLeft at the next step.</summary>
     public void Leave(PlayerRef player) => _world.Owners.Remove(player);
@@ -89,11 +92,9 @@ internal sealed class KitTamingWorld : ITamingWorld
     public double Now => Clock.Now;
     public ulong WorldEpoch => 1;
 
-    public PlayerRef Join(CharacterKey key, WorldPosition at)
+    public PlayerRef Join(PlayerRef who, WorldPosition at)
     {
-        var entity = new EntityRef(new EntityId(0x6000_0000u + (uint)Owners.Count + 1), 1);
-        var who = new PlayerRef(key.Account, key.Id, entity);
-        Owners[who] = new TamingOwner(who, entity, ++_sessions, at);
+        Owners[who] = new TamingOwner(who, who.Entity, ++_sessions, at);
         return who;
     }
 

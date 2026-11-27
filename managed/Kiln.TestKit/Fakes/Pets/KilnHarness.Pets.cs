@@ -13,6 +13,21 @@ public sealed partial class KilnHarness
     public HarnessPets Pets => _pets ??= new HarnessPets(this);
 
     internal HarnessPets? PetsIfUsed => _pets;
+
+    // the players of the kit's Kiln.Pets and Kiln.Taming: one entity per character for the harness's life, so both fakes name
+    // a character as the same player whichever joined it first, a character that left and joins again is the same player,
+    // and no two characters ever share an entity
+    private readonly Dictionary<CharacterKey, EntityRef> _kitPlayers = [];
+
+    internal PlayerRef KitPlayer(CharacterKey character)
+    {
+        lock (_kitPlayers)
+        {
+            if (!_kitPlayers.TryGetValue(character, out var entity))
+                _kitPlayers[character] = entity = new EntityRef(new EntityId(0x6000_0001u + (uint)_kitPlayers.Count), 1);
+            return new PlayerRef(character.Account, character.Id, entity);
+        }
+    }
 }
 
 /// <summary>Kiln.Pets offline: the owners in game, the pets' bodies and the hostile pairs a mod declared.</summary>
@@ -34,8 +49,13 @@ public sealed class HarnessPets
     public static CharacterKey Character(int n) => new(0x2222333344445555, new Guid(n, 0, 0x4000, 0x80, 0, 0, 0, 0, 0, 0, (byte)n));
 
     /// <summary>The character is in game at <paramref name="at"/>: the player its requests name (<c>Pets.Summon(player,
-    /// ...)</c>). Its records are read when Kiln.Pets first needs them.</summary>
-    public PlayerRef Join(CharacterKey character, WorldPosition at = default, int level = 10) => _world.Join(character, at, level);
+    /// ...)</c>). Its records are read when Kiln.Pets first needs them. It is the same player <see cref="HarnessTaming.Join"/>
+    /// gives for the character, whichever joined it first, and the same again after a <see cref="Leave"/>.</summary>
+    public PlayerRef Join(CharacterKey character, WorldPosition at = default, int level = 10)
+    {
+        if (character.IsNone || character.IsAccountOnly) throw new ArgumentException("a pet owner is a character (account and character id)", nameof(character));
+        return _world.Join(_kiln.KitPlayer(character), at, level);
+    }
 
     /// <summary>The character left: its pets' bodies are retired at the next step (records and wishes kept).</summary>
     public void Leave(CharacterKey character) => _world.Leave(character);
@@ -90,13 +110,11 @@ internal sealed class KitPetWorld : IPetWorld
     public ulong Step => ServiceTick.Step;
     public double Now => Clock.Now;
 
-    public PlayerRef Join(CharacterKey key, WorldPosition at, int level)
+    public PlayerRef Join(PlayerRef who, WorldPosition at, int level)
     {
-        if (key.IsNone || key.IsAccountOnly) throw new ArgumentException("a pet owner is a character (account and character id)", nameof(key));
-        var entity = new EntityRef(new EntityId(0x6000_0000u + (uint)_online.Count + 1), 1);
-        if (_online.TryGetValue(key, out var was)) entity = was.Entity;
-        _online[key] = new PetOwner(key, entity, at, level, ++_sessions);
-        return new PlayerRef(key.Account, key.Id, entity);
+        var key = new CharacterKey(who.SteamId, who.CharacterId);
+        _online[key] = new PetOwner(key, who.Entity, at, level, ++_sessions);
+        return who;
     }
 
     public void Leave(CharacterKey key) => _online.Remove(key);

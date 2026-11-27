@@ -107,4 +107,37 @@ public sealed class PetsFakeTests
         kiln.Unload(mod);
         Assert.Null(Kiln.Taming.Definition("kit-tame:early-wolf"));   // still the mod's: its unload takes it
     }
+
+    [Fact]
+    public void A_character_is_one_player_in_both_fakes_whatever_the_join_order_and_a_tame_summons_its_pet_for_them()
+    {
+        using var kiln = new KilnHarness();
+        kiln.Step();
+        var a = HarnessPets.Character(8);
+        var b = HarnessPets.Character(9);
+        kiln.Pets.Join(a, new WorldPosition(50, 0, 50));
+        var inPets = kiln.Pets.Join(b);
+        var inTaming = kiln.Taming.Join(b);
+        Assert.Equal(inPets, inTaming);
+        // a character that left and joins again is the same player; another character never gets a player's entity
+        var c = kiln.Taming.Join(HarnessPets.Character(10));
+        var e = kiln.Taming.Join(HarnessPets.Character(13));
+        kiln.Taming.Leave(c);
+        var d = kiln.Taming.Join(HarnessPets.Character(11));
+        Assert.NotEqual(e.Entity, d.Entity);
+        Assert.NotEqual(inTaming.Entity, d.Entity);
+        Assert.Equal(c, kiln.Taming.Join(HarnessPets.Character(10)));
+
+        Assert.True(kiln.Run(() => Kiln.Pets.Define(new PetDefinition { Id = "kit-test:tame-pet", Creature = "game:enemy_wildbeast_wolf" })).Ok);
+        var def = new TamingDefinition { Id = "kit-test:tame-wolf", Creatures = ["game:enemy_wildbeast_wolf"], Steps = [new WeakenStep(1)], Pet = "kit-test:tame-pet" };
+        Assert.True(kiln.Run(() => Kiln.Taming.Define(def)).Ok);
+        var wolf = kiln.Taming.Place("game:enemy_wildbeast_wolf", new WorldPosition(1, 0, 0));
+        var p = Settle(kiln, () => Kiln.Taming.Begin(inTaming, wolf, def.Id, TamingRequest.New())).Progress!;
+        var tamed = Settle(kiln, () => Kiln.Taming.Advance(inTaming, p.Id, TamingRequest.New(p.Token)));
+        Assert.True(tamed.Ok, tamed.Reason);
+        Assert.Equal(b, tamed.Pet!.Owner);
+        // SummonPet: the pet comes out for its owner, the tamer (never the character the kit gave the same entity)
+        kiln.StepUntil(() => kiln.Pets.Of(b).Single().Presence == PetPresence.Live, maxSteps: 100);
+        Assert.Empty(kiln.Pets.Of(a));
+    }
 }
