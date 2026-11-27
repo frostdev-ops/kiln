@@ -225,6 +225,61 @@ bool clear_entries(uint8_t* buf, const SnapLayout& L, const SnapEntry& e) {
     return any;
 }
 
+// ------------------------------------------------------------------------------------------ publisher ---------------
+void Publisher::list(uint32_t index, const SnapEntry& e) {
+    if (index >= kBots) return;
+    listed_[index].on = true;
+    listed_[index].e = e;
+}
+
+void Publisher::unlist(uint32_t index) {
+    if (index >= kBots || !listed_[index].on) return;
+    listed_[index].on = false;
+    const SnapEntry& e = listed_[index].e;
+    Pending* to = nullptr;
+    for (Pending& p : pending_)  // the same entries are being cleared already: from the start again
+        if (p.left && p.e.slot == e.slot && p.e.machine_index == e.machine_index && p.e.player == e.player && p.e.machine == e.machine) {
+            to = &p;
+            break;
+        }
+    for (Pending& p : pending_)  // else a free one
+        if (!to && !p.left) to = &p;
+    if (!to) {  // else (kPending bots left within kClears publishes) the one closest to done
+        to = &pending_[0];
+        for (Pending& p : pending_)
+            if (p.left < to->left) to = &p;
+    }
+    to->e = e;
+    to->left = kClears;
+}
+
+bool Publisher::idle() const {
+    for (const Listed& l : listed_)
+        if (l.on) return false;
+    for (const Pending& p : pending_)
+        if (p.left) return false;
+    return true;
+}
+
+bool Publisher::apply(Ops& ops) {
+    // the left bots' entries first: a bot listed in the same slot and machine meanwhile goes back in below
+    for (Pending& p : pending_)
+        if (p.left) {
+            ops.clear(p.e);
+            --p.left;
+        }
+    bool listed = false;
+    for (const Listed& l : listed_) {
+        if (!l.on) continue;
+        Put r = ops.put(l.e);
+        if (r == Put::NeedCapacity) r = ops.grow(l.e) ? ops.put(l.e) : Put::Bad;
+        if (r == Put::Ok) listed = true;
+        else if (r == Put::Taken) ++taken_;
+        else ++faults_;
+    }
+    return listed;
+}
+
 // ---------------------------------------------------------------------------------- join and leave ----------------
 const char* phase_name(Phase p) {
     switch (p) {

@@ -100,6 +100,47 @@ bool clear_entries(uint8_t* buf, const SnapLayout& L, const SnapEntry& e);
 uint32_t player_in(const uint8_t* buf, const SnapLayout& L, uint32_t slot);
 uint32_t machine_in(const uint8_t* buf, const SnapLayout& L, uint32_t index);
 
+// Which entries each publish gets (labbot.cpp's publish hook, the session thread; list/unlist from the GameServer step).
+// A live bot's entries go into every publish. A bot that left has its entries cleared from the next kClears publishes
+// (the session copies the current buffer forward, and a buffer in flight may still hold them), whatever bot is listed
+// in its place meanwhile: the clears run first, then the listed bots go in. Not thread-safe: the caller holds one lock.
+class Publisher {
+public:
+    static constexpr uint32_t kBots = 4;      // KILN_LABBOT_MAX
+    static constexpr uint8_t kClears = 8;
+    static constexpr uint32_t kPending = 16;  // left bots' entries still being cleared
+    // The game's buffer, under labbot.cpp's fault guard.
+    struct Ops {
+        virtual ~Ops() = default;
+        virtual Put put(const SnapEntry& e) = 0;     // put_entries (Bad also for a fault)
+        virtual bool grow(const SnapEntry& e) = 0;   // room for one handle in the machine's player array (ArrayReserve)
+        virtual bool clear(const SnapEntry& e) = 0;  // clear_entries: true = something was removed
+    };
+    // The bot of `index` (0..kBots-1) is live: its entries go into every publish from now on.
+    void list(uint32_t index, const SnapEntry& e);
+    // The bot of `index` left (or never got in): its entries come out of the next kClears publishes.
+    void unlist(uint32_t index);
+    // Nothing to put or clear: the hook leaves the buffer alone.
+    bool idle() const;
+    // One publish into its back buffer: true when a bot was listed in it.
+    bool apply(Ops& ops);
+    uint64_t taken() const { return taken_; }    // publishes where the session itself held a bot's slot or machine
+    uint64_t faults() const { return faults_; }
+
+private:
+    struct Listed {
+        bool on = false;
+        SnapEntry e;
+    };
+    struct Pending {
+        SnapEntry e;
+        uint8_t left = 0;
+    };
+    Listed listed_[kBots];
+    Pending pending_[kPending];
+    uint64_t taken_ = 0, faults_ = 0;
+};
+
 // ---------------------------------------------------------------------------------- join and leave ----------------
 enum class Phase : uint32_t {
     Free = 0,
