@@ -1,7 +1,7 @@
 # Adding a registry (maintainer guide)
 
-For Kiln maintainers who add the next registry (perks, skills, stations, NPCs, ...) to the five that ship today (items,
-recipes, loot, drops, balance). It says what a new registry gets for free, the steps in order, every pitfall the first
+For Kiln maintainers who add the next registry (skills, stations, NPCs, ...) to the ones that ship today (items,
+recipes, loot, drops, balance; since dev.32 creatures, arsenals and perks). It says what a new registry gets for free, the steps in order, every pitfall the first
 five hit and the fix that is in the code now, and when a new registry is done. Mod-facing docs are
 [modding/registries/README.md](modding/registries/README.md); the native tables are [services/registry.md](services/registry.md);
 the mapping and its proof are [regmap/README.md](../../regmap/README.md) and [sigport.md](sigport.md#the-registry-proof-kilnctl-regproof).
@@ -187,6 +187,36 @@ stage (`stage.cpp` `compose_checked`), live scalar fields at each write over the
 `save_check`; a new entry's first values are not judged), and every field of a rollback's plan also against the plan it rolls
 away from (`stage.cpp`, whole plan); a field read only at use or for new copies needs nothing.
 
+### 2.8b Registries over kiln.gamedata's sections (dev.32: creatures, arsenals, perks)
+
+Templates, arsenals, sequences, buffs, perks and skill nodes are kiln.gamedata's sections, not kiln.content store kinds. A
+registry over one needs no kiln.content kind:
+
+- **Live binding**: `gd_section_of` (registry_live.cpp) names the section; `bind_section` finds the entry by its GUID
+  (`gd_section_entry`) and binds each row through `gd_value_slot`: gamedata resolves the row's path below the entry's root
+  (a template's path starts at a component by type name, `Level.dataStorage[0]`; `[i]` indexes an array) and gives the slot
+  in its own store kind (`GD_KIND_BASE + section`) with its SlotInfo, so the content sync and the conflict report name it as
+  they name a pack's write. Scalars and enums bind generically (`bind_section_scalar`); a perk-like entry's one numeric config is
+  `impactConfig` with `"config": "shown"` (`gd_shown_config`, `bind_section_impact`: not_exact and the tooltip row as items'
+  costs); a list of structs whose leaves are the element rows binds with `bind_section_list` and keeps its length. The four
+  `gd_*` seams are declared in content.h and faked by `registry_live_test.cpp`'s GdSectionFake (`registry_gd_live_test`).
+- **An entry without the member** (a creature without the component a field lives in): the model reads `null` (no note per
+  entry), an absolute edit is refused for that entry alone ("this creature has no value of this field"), and a relative op
+  has no number there, so composition refuses the edit whole (an edit is all or nothing; authors select by trait or id).
+  `GdValueSlot::absent` tells it from a mapping that broke ("missing on this game build ... needs an update"); only a
+  template's missing component is absent: a perk's or an arsenal's entries share one type, so a first member it lacks is a
+  broken mapping. In a world such an entry reads `null` through the live read, as its base does before one (a typed C#
+  property reads 0 or false), and a read-only field (`creatures.kind`, `arsenal`) reads the base (P52).
+- **Entries**: `entries.withComponent` keeps only the templates holding one of the listed components (creatures);
+  `entries.key: "templates"` gives each entry its template's id by GUID, so one id names the template everywhere (Python twin:
+  regmap_ids.derive `by_key_guid`, regmap_entries.py, the shared `registry_ids_cases.json` case). `nameFrom` names array
+  entries after the templates that reference them (arsenals, as drop tables).
+- **Proof**: regmap_check.py and kilnctl's reflection walk resolve component-first paths and `[i]` (kilnctl's closure dump
+  adds the components a template registry's rows start at, and its `(entries)` row checks that every `withComponent` type is
+  still a component type, P54); the producer samples gamedata entries through
+  `Content.Templates` / `Arsenals` / `Perks` (`Probed`), with the resource digest of the entry's own resource (a template, a
+  perk) or the shared one (the arsenal registry).
+
 ### 2.9 Managed typed API and analyzers
 
 - Generated: `Kiln.Registry/Generated/<R>.gen.cs` and the catalog. Hand-written: the registry property on `RegistryStage`
@@ -274,6 +304,8 @@ Windows DLLs once (`win1-native`) before calling it done.
 - Capability names for list fields in the README table (names drop `[]`).
 - New limits in [modding/limits.md](modding/limits.md); a new conv or entries kind in regmap/README.md.
 - `tools/docs-site/drift.py` clean for the files you touched.
+- The schema embedded in `crates/kiln-manage/src/lint/registry.rs` (KL213's field table): its test
+  `registry_clients_knows_every_shipped_registry` fails until every `schema/registry/<r>.json` is there (P53).
 
 ## 3. Pitfalls we hit, and the fix in the code
 
@@ -311,6 +343,8 @@ Each row: the symptom we saw, why, the fix that is in now, and the code or test 
 | P37 | a fixed rarity turned on was, for one write, on over the enum it had before (a roll on a game thread could take that rarity); a failed enum write left the switch on over it until the rollback | the switch (+5) and the enum (+6) are two slots of one flush, and write_batch writes in address order: switch first | a gate slot (`store_set_gate`, the switch) is written after the flush's other writes when it opens and before them when it closes; it does not open when another write of its entry failed | `store.cpp` `store_flush_checked`; `bind_optional_enum`; test `loot_fixed_rarity_switch_never_on_over_a_stale_enum` |
 | P38 | the lab round trip of `loot.fixedRarity` wrote the switch alone (`none` -> `common` over an entry whose enum below was already Common), so the enum's write was never seen | the probe took the first rarity, whatever the enum below the switch holds | from `none` the producer takes the first rarity whose game enum differs from the raw enum below, so both members change | `RegistryProofTestMod.cs` `ProbeOf`; host test `An_optional_enum_probe_changes_the_enum_below_too` |
 | P46 | the compat rehearsal's producer (the 31.x registry bundle's tree) gave `items.levels.min` no sample on either build, while the committed record has it ok | the producer probes a whole number with +1; a higher lowest level narrows an item's level range, which the registry's save check (31.x, `registry/saves.h` `levelRange`) refuses, so every entry it tried was refused ("saves: ... this edit was not applied"); the committed record was proven before the save checks landed | a probe a save check refuses is tried the other way on the same entry (one lower, staying at 1 or more), and an entry that cannot go that way is skipped without counting as a failed try. The committed ok stands: it rests on a real round trip of the mapping on that build; the save check is a guard added after it, not a change of what the row maps | `RegistryProofTestMod.cs` `IsSaveCheck`, `SaveCheckProbe`; host test `A_probe_a_save_check_refuses_is_tried_the_other_way` |
+| P48 | (dev.32 creatures) every creature row would be unresolvable for regmap_check.py and kilnctl's reflection diff and client mirror, though kiln.content resolved them | a template's rows start at a component by type name and index an attribute's slots (`Level.dataStorage[0]`); both path walkers knew only member names from the root | regmap_check's `TypeDb.path` and kilnctl's `walk` step into the component type from a template root and into an array's element for `name[i]` (a static array's index within its count); kilnctl's closure dump adds the components a template registry's rows start at | `tools/registrygen/tests/test_regmap_check.py` `TemplateRoots`; kilnctl `template_components_and_attribute_slots_are_walked` (refl.rs) |
+| P54 | (dev.32 review) a game build without one of the creature behaviour components would have kept every creature row ok while that kind's creatures left the registry | kilnctl's `(entries)` row checked the name, GUID and id members, not `entries.withComponent` | each `withComponent` type must still be a component type on the new build, else the registry's entries changed (every row); the closure dump names them | kilnctl `entry_components_are_entry_members` (refl.rs) |
 
 ### Composition, live changes, entry points
 
@@ -335,6 +369,8 @@ Each row: the symptom we saw, why, the fix that is in now, and the code or test 
 | P42 | a bulk WorldLoad/HotReload/Manual author paid a native status call (store lock) per cell; the code identity hashed every DLL when a mod loaded on the tick thread | the registry context asked for the world token on every cell access; the code identity was hashed when the mod loaded | the world check runs once per tick step (`CurrentStep`); the code identity is hashed at the first `Identity` read and each DLL's hash is kept by path, size and write time | tests `AWorldBoundContextChecksItsWorldOncePerStep`, `TheCodeIdentityIsHashedAtFirstUseAndCached` |
 | P43 | (constraint, not fixed) a first-use decode restores only store slots to the game's bytes | `PristineView` takes back what the store wrote; a resident write outside the store (newcontent's crafting-menu header writes) stays | never map a registry field onto memory Kiln writes outside the store; such a field needs its own original copy first | review4 recheck nit |
 | P44 | (kept, lane decision for review) one failed game memory write takes back the whole change for that world, also in an entry-point pass | a write that fails after every retry is rolled back with its change, so the change is all there or not there (`Unverified` if the take-back fails); entry-point passes refuse per entry only at binding and evaluation (DECISIONS NS6) | keep: a per-entry write refusal would leave a change half-written after the store rolled the flush back; the failure is charged to the change that owns the slot only (P17) | review4 recheck nit, registries README "Refusals per entry" |
+| P49 | (dev.32 creatures, kept) a `"game:*"` relative op on `creatures.scale` changed no creature at all | most creatures have no size of their own: their base value is null, the relative op has no number there, and composition refuses an edit whole when any selected entry refuses it (an edit is all or nothing, BRIEF 6.2) | kept: an absolute value is refused per entry by the binder ("this creature has no value of this field"), a relative op needs a selection of creatures that have one (`"has": ["enemy"]`, ids); the README says so. The model reads such a field null, without a note per entry (689 creatures, most fields on some only) | `registry_gd_live_test` `creature_without_the_component`; registries README "Creatures, arsenals and perks" |
+| P52 | (dev.32 review) a WorldLoad, HotReload or Manual pass that read `view.Creatures[x].Scale` of a creature without a size, a perk's value without one, or any creature's `Kind` failed the mod's whole callback (UNAVAILABLE), while the same read at GameStart gave null | a runtime pass reads live; the live read bound the field and took the per-entry refusal ("has no value of this field") or the missing live back-end of a read-only field as an unreadable field | a read of an entry that has none of the field is `null` in a world as before one; a read-only field (no live binding) reads the base in a world too | `registry_live.cpp` `registry_live_read` (`read_absent`); `registry_gd_live_test` `absent_values_read_null`, `read_only_fields_read_in_a_world` |
 
 ### Honesty and privacy
 
@@ -345,6 +381,9 @@ Each row: the symptom we saw, why, the fix that is in now, and the code or test 
 | P32 | `store_skipped` rows named the game's debug and member names ("Material_T1_Wood_Logs.maxStackSize was written by another writer") | older store.cpp text | the report names the Kiln place the slot's bound field had (`registry_live.cpp` `skipped_text`: "items[game:material_t1_wood_logs].maxStack was written by another writer ..."), also for a revert after the field was unbound; `StoreSkipped::what` keeps the game names for diagnostics only. A new registry's messages name Kiln places the same way | review4 nits; closed in registry-hygiene (`registry_live_test` `another_writer_in_the_report`, `skipped_revert_names_the_kiln_place`) |
 | P45 | live refusals named the game's member ("items[game:x].maxStack: the game member maxStackSize is not writable on this game build", "\"legendary\" is not a value of uiRarity", "300 does not fit maxStackSize (...)") | the live binder's mapping checks and refl.cpp's `encode` texts were copied into the reason | refusals name the Kiln field and entry ("the game's value of this field is not writable on this game build", "is not a value of loot.fixedRarity", "does not fit the game's storage of this field", "this game build's items have no perk slots Kiln can write"); the regmap path goes to kiln.log at debug level (`refuse_mapping`, `encode_kiln`). The words keep the phrases the proof producer reads as a disagreement ("is missing on this game build", "is not writable on this game build", " is not a value of "). A raw member (the Advanced tier) keeps the path the mod named. A new binder names Kiln places the same way | `registry_live.cpp` `refuse_mapping`, `encode_kiln`, `bind_perks`; test `live_refusals_name_kiln_fields_never_game_members` (registry-fixes, its review) |
 | P47 | a live enum value the build's game lacks was refused "\"legendary\" is not a value of Legendary on this game build": the game's name of the value, not the Kiln field (P45) | `to_game` looked the value up into a local `name` that shadowed the Kiln field's name its refusal meant | the local is `game`; the refusal names the field ("is not a value of items.rarity") | `registry_live.cpp` `to_game`; `registry_live_test` `enum_refusal_names_the_kiln_field` |
+| P50 | (dev.32) a code writer through kiln.gamedata's set on a creature, arsenal or perk kept the template's name and member path in registry.json's writer row | name_code_writer found the entry only among kiln.content's registries and items' config slots | a gamedata-section registry's entry is found by the Kiln id's GUID (`gd_section_entry`) and its slot's id, so the row names the mod and `creatures[<id>].<field>` | `registry_live.cpp` `name_code_writer`; `registry_gd_live_test` `creature_code_writer_in_kiln_words` |
+| P51 | (dev.32) a format-2 EML journal write into a template went unnamed on every creature field; then (review) every creature field said "<package> wrote this field" for a write of the template's model | the journal names a template's members by their published place (`components[12].value...`), the rows by component type, so no path overlapped; the journal cannot say which component a place is | any write in the component list names the creature whole (`archive_paths_of`, `kTemplateComponents`): "wrote this entry", registry.json `"named": "entry"`, never a miss and never a field it did not write | `registry/archive_journal.cpp` `name_archive_writers`; `registry_writers_test` (creature rows, "the creature is named whole") |
+| P53 | (dev.32 review) a data pack with only creatures, arsenals or perks edits got no KL213 clients guidance | kiln-manage's lint embeds each registry schema by name and knew only the first five | the three schemas embedded; a test reads `schema/registry/` and fails for a schema the lint does not hold | `crates/kiln-manage/src/lint/registry.rs`; lint tests `registry_clients_knows_every_shipped_registry`, `registry_only_clients_guidance_tracks_the_edited_fields` |
 
 Regmap reasons are player-facing (P31's rule for records): `regmap_check.py:324-330`. A reason must say what is not
 known in Kiln words, without nested parentheses (kiln.content wraps it in parentheses).
@@ -390,7 +429,11 @@ A new registry is done when all of this holds, with the counts in the report.
   Unshipped only; `cargo test` in runner/kilnctl if it changed; launcher units if report.ts changed; `abigen --check` if
   a header changed; the Windows DLL build; `drift.py` clean for touched docs.
 - A compat lab run (`tools/registry-compat/session.sh`) if the registry has live fields: old packs alone, registry over
-  old packs, reload, section removed with no residue, byte comparison against a Kiln-off boot.
+  old packs, reload, section removed with no residue, byte comparison against a Kiln-off boot. The run covers the new
+  registry only once its test mods do: an old-path edit of one of its live fields in `registry-compat-test`'s pack, the
+  resource type in its dump (and, for a kiln.gamedata section, the section's changed leaves), a section edit in
+  `registry-mixed-test` with a check at every step, and the field in `session.sh`'s old-vs-full `--allow-field` list
+  (dev.32: creatures, arsenals and perks over the `templates`, `arsenals` and `perks` sections).
 
 **The proof shows:**
 - A committed server record for the current build from a fresh lab: `verified`, `provenBy: lab`, `regmapDigest` equal to

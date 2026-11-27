@@ -96,7 +96,7 @@ bool load_common(const json& doc, RegistryMap* out, std::vector<std::string>* er
     if (out->registry.empty()) return errs->push_back("a regmap file names its \"registry\""), false;
     const std::string& r = out->registry;
     const json e = doc.value("entries", json::object());
-    static const char* const ekeys[] = {"kind", "resourceType", "array", "resourceGuid", "name", "guid", "id", "unnamed", "nameFrom", "key"};
+    static const char* const ekeys[] = {"kind", "resourceType", "array", "resourceGuid", "name", "guid", "id", "unnamed", "nameFrom", "key", "withComponent"};
     for (const auto& [k, v] : e.items())
         if (std::none_of(std::begin(ekeys), std::end(ekeys), [&](const char* x) { return k == x; })) errs->push_back(r + ": entries: unknown member \"" + k + "\"");
     const std::string kind = str(e, "kind");
@@ -108,6 +108,15 @@ bool load_common(const json& doc, RegistryMap* out, std::vector<std::string>* er
     out->entries.name = str(e, "name"), out->entries.guid = str(e, "guid"), out->entries.id = str(e, "id");
     out->entries.unnamed = str(e, "unnamed"), out->entries.name_from = str(e, "nameFrom"), out->entries.key = str(e, "key");
     if (out->entries.kind == EntryKind::Array && out->entries.array.empty()) errs->push_back(r + ": entries.array names the member that holds the entries");
+    if (e.contains("withComponent")) {  // template roots only: the entries are the templates holding one of these components
+        const json& wc = e["withComponent"];
+        if (!wc.is_array() || wc.empty() || out->entries.kind != EntryKind::Resource) errs->push_back(r + ": entries.withComponent is a list of component types (resource entries)");
+        else
+            for (const json& c : wc) {
+                if (c.is_string() && !c.get<std::string>().empty()) out->entries.with_component.push_back(c.get<std::string>());
+                else errs->push_back(r + ": entries.withComponent names component types");
+            }
+    }
     if (out->entries.kind == EntryKind::Single && !is_hex_guid(out->entries.resource_guid)) errs->push_back(r + ": entries.resourceGuid is the one resource's GUID");
     static const char* const rkeys[] = {"paths", "conv", "values", "formula", "config", "read", "backend", "clientNeeds", "state", "reason", "evidence"};
     const json rows = doc.value("rows", json::object());
@@ -154,6 +163,8 @@ bool load_common(const json& doc, RegistryMap* out, std::vector<std::string>* er
         row.formula = str(j, "formula"), row.config = str(j, "config");
         if (row.conv == "formula" && row.formula.empty()) errs->push_back(q + ": a formula row names its formula"), ok = false;
         if (row.conv == "impactConfig" && row.config.empty()) errs->push_back(q + ": an impactConfig row names its config"), ok = false;
+        if (row.conv == "component" && (row.values.size() != row.paths.size() || row.backend != Backend::None))
+            errs->push_back(q + ": a component row is read-only and maps one Kiln name to each of its component types (\"values\")"), ok = false;
         if (ok) out->rows[field] = std::move(row);
     }
     return true;
@@ -389,7 +400,7 @@ std::vector<std::string> check_routing(const RegistryMap& m) {
 
 std::vector<std::string> assign_ids(const std::string& registry, const EntrySource& src, const Aliases& aliases,
                                     const std::vector<GameEntry>& entries, const std::map<uint32_t, std::string>* by_item_id,
-                                    std::vector<std::string>* notes) {
+                                    std::vector<std::string>* notes, const std::map<std::string, std::string>* by_key_guid) {
     std::vector<std::string> ids(entries.size());
     std::set<std::string> taken;
     const std::string prefix = registry + "|";
@@ -418,13 +429,17 @@ std::vector<std::string> assign_ids(const std::string& registry, const EntrySour
             std::snprintf(buf, sizeof buf, "%08x", static_cast<unsigned>(e.id));
             hex = buf;
         }
-        if (src.key == "items" && by_item_id) {
-            const auto it = by_item_id->find(e.id);
-            if (it != by_item_id->end()) {
-                std::string id = it->second;
+        if (!src.key.empty()) {  // the keyed registry's id: by GUID (creatures: their template), else by 32-bit id (loot: its item)
+            const std::string* keyed = nullptr;
+            if (by_key_guid && !e.guid.empty())
+                if (const auto it = by_key_guid->find(lower(e.guid)); it != by_key_guid->end()) keyed = &it->second;
+            if (!keyed && by_item_id)
+                if (const auto it = by_item_id->find(e.id); it != by_item_id->end()) keyed = &it->second;
+            if (keyed) {
+                std::string id = *keyed;
                 if (taken.count(id)) {
                     if (notes) notes->push_back(registry + ": a second entry for " + id + " (" + hex + ") gets a suffix");
-                    id = suffixed(it->second, hex);
+                    id = suffixed(*keyed, hex);
                 }
                 taken.insert(id);
                 ids[i] = id;

@@ -49,6 +49,13 @@ int main() {
     // durability: copies keep their share; nothing lost: report
     CHECK(is(sv::judge("balance", "durability.start", F(100), F(50)), "durability", sv::Decision::Report), "durability.start: report");
     CHECK(is(sv::judge("balance", "rarityDurability.epic", F(1.5), F(2)), "durability", sv::Decision::Report), "rarityDurability: report");
+    // dev.32 creatures: a lower highest level can cut the level of a saved creature (a villager, a farm animal) as it loads: warn;
+    // every other creature, arsenal and perk field is read at use or copied into new creatures only
+    CHECK(is(sv::judge("creatures", "levelMax", I(105), I(50)), "creatureLevel", sv::Decision::Warn), "creatures.levelMax lowered: warn");
+    CHECK(!sv::judge("creatures", "levelMax", I(105), I(200)) && !sv::judge("creatures", "level", I(7), I(12)) &&
+              !sv::judge("creatures", "faction", Value::text("vukah"), Value::text("playerAlly")) && !sv::judge("perks", "value", I(140), I(150)) &&
+              !sv::judge("arsenals", "attacks", Value::of_list({}), Value::of_list({I(1)})),
+          "a higher highest level, a level, a faction, a perk's value, an arsenal change nothing a save holds");
     // progressionCap: level cap or skill points lowered: warn
     CHECK(is(sv::judge("balance", "levelCap", I(50), I(40)), "progressionCap", sv::Decision::Warn), "levelCap lowered: warn");
     CHECK(!sv::judge("balance", "levelCap", I(50), I(60)), "levelCap raised: nothing");

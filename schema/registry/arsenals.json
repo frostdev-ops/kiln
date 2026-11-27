@@ -1,0 +1,80 @@
+{
+  "$schema": "../registry-schema.schema.json",
+  "registrySchema": 1,
+  "registry": "arsenals",
+  "typeName": "Arsenal",
+  "version": "0.1.0",
+  "stability": "experimental",
+  "experimentalId": "KILNX031",
+  "doc": "The enemies' arsenals: the attacks an enemy chooses from, with their chances, threat and ranges. Enemies of one kind share an arsenal, so an edit reaches every enemy that uses it, also those already in the world (an enemy reads its arsenal at each decision).",
+  "ids": {
+    "game": "game:<stable name>",
+    "mod": "<mod id>:<name>",
+    "rule": "Arsenals have no names in the game. An arsenal that creatures use is named after the first of their templates in name order, in lower case (game:enemy_vukah_melee); an arsenal no creature uses is game:arsenal_<first 8 hex digits of its GUID>. When two arsenals would get the same name, the one that held it first keeps it and the other is game:<name>~<first 8 hex digits of its GUID>."
+  },
+  "traits": {},
+  "fields": {
+    "attacks": {
+      "type": "list",
+      "maxItems": 256,
+      "applies": "now",
+      "ops": "list",
+      "doc": "The arsenal's attacks in the game's order. Index i in a field path (attacks[2].chance) is that order. An arsenal keeps its attacks: only their values change (no attack is added or removed).",
+      "of": {
+        "type": "struct",
+        "typeName": "ArsenalAttack",
+        "fields": {
+          "chance": {
+            "type": "float",
+            "min": 0,
+            "max": 1,
+            "ops": "number",
+            "doc": "The chance the enemy picks this attack when it may (0 to 1).",
+            "joinedClient": "serverOnly"
+          },
+          "threat": {
+            "type": "float",
+            "min": 0,
+            "max": 1000,
+            "ops": "number",
+            "doc": "How threatening the attack is to the enemy's choice of target and timing.",
+            "joinedClient": "serverOnly"
+          },
+          "minRange": {
+            "type": "float",
+            "min": 0,
+            "max": 10000,
+            "ops": "number",
+            "doc": "The nearest a target may be for this attack, in metres.",
+            "joinedClient": "serverOnly",
+            "unit": "m"
+          },
+          "maxRange": {
+            "type": "float",
+            "min": 0,
+            "max": 10000,
+            "ops": "number",
+            "doc": "The farthest a target may be for this attack, in metres (0: no limit of its own).",
+            "joinedClient": "serverOnly",
+            "unit": "m"
+          },
+          "maxHeight": {
+            "type": "float",
+            "min": 0,
+            "max": 10000,
+            "ops": "number",
+            "doc": "The most a target may be above or below the enemy for this attack, in metres (0: no limit of its own).",
+            "joinedClient": "serverOnly",
+            "unit": "m"
+          }
+        }
+      },
+      "joinedClient": "serverOnly"
+    }
+  },
+  "entry": {
+    "add": false,
+    "remove": false
+  },
+  "raw": "allowed"
+}

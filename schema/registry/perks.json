@@ -1,0 +1,236 @@
+{
+  "$schema": "../registry-schema.schema.json",
+  "registrySchema": 1,
+  "registry": "perks",
+  "typeName": "Perk",
+  "version": "0.1.0",
+  "stability": "experimental",
+  "experimentalId": "KILNX031",
+  "doc": "The game's perks: what a perk on an item grants. Its value (the number its tooltip shows), the armour and the damage bonus of the simple perks.",
+  "ids": {
+    "game": "game:<stable name>",
+    "mod": "<mod id>:<name>",
+    "rule": "The stable name starts as the perk's debug name in lower case (Perk_Damage_Ice is game:perk_damage_ice), the same ids items.perks holds. A perk without a debug name is game:perk_<first 8 hex digits of its GUID>. When two perks would get the same name, the one that held it first keeps it and the other is game:<name>~<first 8 hex digits of its GUID>."
+  },
+  "traits": {},
+  "fields": {
+    "value": {
+      "type": "float",
+      "min": -100000,
+      "max": 100000,
+      "ops": "number",
+      "applies": "now",
+      "doc": "The amount the perk grants, the number its tooltip shows (a share as a fraction where the tooltip shows a percentage; below 0 for a perk that lowers something, such as a cost). A perk's effect reads it when it starts: equipping the item, unlocking the perk. A perk whose game value is a whole number takes whole numbers only (a fraction is refused, never rounded). The simple armour and damage perks have none.",
+      "joinedClient": "now"
+    },
+    "armor": {
+      "type": "struct",
+      "applies": "now",
+      "typeName": "PerkArmor",
+      "doc": "The armour the perk adds, as a share of the item's armour per kind. Read whenever the wearer's armour is computed.",
+      "fields": {
+        "enabled": {
+          "type": "bool",
+          "ops": "set",
+          "doc": "The perk adds armour (only the simple armour perks do in the game).",
+          "joinedClient": "now"
+        },
+        "physical": {
+          "type": "float",
+          "min": 0,
+          "max": 10,
+          "ops": "number",
+          "doc": "The share of physical armour the perk adds.",
+          "joinedClient": "now"
+        },
+        "magical": {
+          "type": "float",
+          "min": 0,
+          "max": 10,
+          "ops": "number",
+          "doc": "The share of magical armour the perk adds.",
+          "joinedClient": "now"
+        },
+        "cut": {
+          "type": "float",
+          "min": 0,
+          "max": 10,
+          "ops": "number",
+          "doc": "The share of cut armour the perk adds.",
+          "joinedClient": "now"
+        },
+        "pierce": {
+          "type": "float",
+          "min": 0,
+          "max": 10,
+          "ops": "number",
+          "doc": "The share of pierce armour the perk adds.",
+          "joinedClient": "now"
+        },
+        "blunt": {
+          "type": "float",
+          "min": 0,
+          "max": 10,
+          "ops": "number",
+          "doc": "The share of blunt armour the perk adds.",
+          "joinedClient": "now"
+        },
+        "fire": {
+          "type": "float",
+          "min": 0,
+          "max": 10,
+          "ops": "number",
+          "doc": "The share of fire armour the perk adds.",
+          "joinedClient": "now"
+        },
+        "ice": {
+          "type": "float",
+          "min": 0,
+          "max": 10,
+          "ops": "number",
+          "doc": "The share of ice armour the perk adds.",
+          "joinedClient": "now"
+        },
+        "shroud": {
+          "type": "float",
+          "min": 0,
+          "max": 10,
+          "ops": "number",
+          "doc": "The share of shroud armour the perk adds.",
+          "joinedClient": "now"
+        },
+        "lightning": {
+          "type": "float",
+          "min": 0,
+          "max": 10,
+          "ops": "number",
+          "doc": "The share of lightning armour the perk adds.",
+          "joinedClient": "now"
+        }
+      }
+    },
+    "damage": {
+      "type": "struct",
+      "applies": "worldLoad",
+      "typeName": "PerkDamage",
+      "doc": "The damage bonus the perk adds, as a share per kind of damage. When the game reads it is not traced yet: refused until a Kiln update proves it.",
+      "fields": {
+        "enabled": {
+          "type": "bool",
+          "ops": "set",
+          "doc": "The perk adds damage (only the simple damage perks do in the game).",
+          "joinedClient": "unknown"
+        },
+        "cut": {
+          "type": "float",
+          "min": 0,
+          "max": 10,
+          "ops": "number",
+          "doc": "The share of cutting damage the perk adds.",
+          "joinedClient": "unknown"
+        },
+        "pierce": {
+          "type": "float",
+          "min": 0,
+          "max": 10,
+          "ops": "number",
+          "doc": "The share of piercing damage the perk adds.",
+          "joinedClient": "unknown"
+        },
+        "blunt": {
+          "type": "float",
+          "min": 0,
+          "max": 10,
+          "ops": "number",
+          "doc": "The share of blunt damage the perk adds.",
+          "joinedClient": "unknown"
+        },
+        "fire": {
+          "type": "float",
+          "min": 0,
+          "max": 10,
+          "ops": "number",
+          "doc": "The share of fire damage the perk adds.",
+          "joinedClient": "unknown"
+        },
+        "ice": {
+          "type": "float",
+          "min": 0,
+          "max": 10,
+          "ops": "number",
+          "doc": "The share of ice damage the perk adds.",
+          "joinedClient": "unknown"
+        },
+        "shroud": {
+          "type": "float",
+          "min": 0,
+          "max": 10,
+          "ops": "number",
+          "doc": "The share of shroud damage the perk adds.",
+          "joinedClient": "unknown"
+        },
+        "lightning": {
+          "type": "float",
+          "min": 0,
+          "max": 10,
+          "ops": "number",
+          "doc": "The share of lightning damage the perk adds.",
+          "joinedClient": "unknown"
+        },
+        "poison": {
+          "type": "float",
+          "min": 0,
+          "max": 10,
+          "ops": "number",
+          "doc": "The share of poison damage the perk adds.",
+          "joinedClient": "unknown"
+        },
+        "healing": {
+          "type": "float",
+          "min": 0,
+          "max": 10,
+          "ops": "number",
+          "doc": "The share of healing damage the perk adds.",
+          "joinedClient": "unknown"
+        },
+        "wood": {
+          "type": "int",
+          "min": 0,
+          "max": 1000000,
+          "ops": "number",
+          "doc": "The share of wood damage the perk adds.",
+          "joinedClient": "unknown"
+        },
+        "stone": {
+          "type": "int",
+          "min": 0,
+          "max": 1000000,
+          "ops": "number",
+          "doc": "The share of stone damage the perk adds.",
+          "joinedClient": "unknown"
+        },
+        "metal": {
+          "type": "int",
+          "min": 0,
+          "max": 1000000,
+          "ops": "number",
+          "doc": "The share of metal damage the perk adds.",
+          "joinedClient": "unknown"
+        },
+        "explosion": {
+          "type": "int",
+          "min": 0,
+          "max": 1000000,
+          "ops": "number",
+          "doc": "The share of explosion damage the perk adds.",
+          "joinedClient": "unknown"
+        }
+      }
+    }
+  },
+  "entry": {
+    "add": false,
+    "remove": false
+  },
+  "raw": "allowed"
+}

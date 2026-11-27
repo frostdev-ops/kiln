@@ -271,6 +271,90 @@ class Checks(unittest.TestCase):
         self.assertEqual(db.member_type("keen::Row", "n")["name"], "keen::uint32")
 
 
+# dev.32 creatures: a template's paths start at a component by its type name, and an attribute's slot is an index
+TEMPLATE_TYPES = {"types": TYPES["types"] + [
+    T("keen::StaticArray<keen::uint32,2>", 19, 8, inner="keen::uint32", count=2),
+    T("keen::ecs::Component", 18, 0, fields=[]),
+    T("keen::ecs::Level", 18, 16, inner="keen::ecs::Component", fields=[("dataStorage", "keen::StaticArray<keen::uint32,2>", 8)]),
+    T("keen::ecs::Side", 18, 1, inner="keen::ecs::Component", fields=[("side", "keen::Rarity", 0)]),
+    T("keen::ecs::Prowl", 18, 4, inner="keen::ecs::Component", fields=[("range", "keen::float32", 0)]),
+    T("keen::ecs::Herd", 18, 16, inner="keen::ecs::Component", fields=[("home", "keen::ObjectReference<keen::Thing>", 0)]),
+    T("keen::ecs::TemplateResource", 18, 24, fields=[("name", "keen::Guid", 0), ("components", "keen::BlobArray<keen::Row>", 16)]),
+]}
+BEASTS = {
+    "registrySchema": 1, "registry": "beasts", "version": "0.1.0", "stability": "experimental", "experimentalId": "KILNX031",
+    "doc": "Test.", "ids": {"game": "game:<stable name>", "mod": "<mod id>:<name>", "rule": "Lower case."}, "traits": {},
+    "fields": {
+        "kind": {"type": "enum", "values": ["prowler", "herder"], "readOnly": True, "applies": "now"},
+        "level": {"type": "int", "min": 1, "max": 100, "applies": "now", "ops": "number"},
+        "side": {"type": "enum", "values": ["common", "rare"], "applies": "now", "ops": "set"},
+        "home": {"type": "ref", "registry": "beasts", "readOnly": True, "applies": "now"},
+    },
+    "entry": {"add": False, "remove": False}, "raw": "allowed",
+}
+BEAST_ROWS = {
+    "kind": {"paths": ["Prowl", "Herd"], "conv": "component", "values": {"prowler": "Prowl", "herder": "Herd"}, "read": "now", "backend": "none"},
+    "level": {"paths": ["Level.dataStorage[0]"], "conv": "int", "read": "now", "backend": "live"},
+    "side": {"paths": ["Side.side"], "conv": "enum", "values": {"common": "Common", "rare": "Rare"}, "read": "now", "backend": "live"},
+    "home": {"paths": ["Herd.home"], "conv": "ref", "read": "now", "backend": "none"},
+}
+
+
+class TemplateRoots(unittest.TestCase):
+    def run_beasts(self, rows=None, entries=None):
+        root = Path(tempfile.mkdtemp(prefix="regmap-check-"))
+        try:
+            (root / "schema" / "registry").mkdir(parents=True)
+            (root / "schema" / "registry" / "beasts.json").write_text(json.dumps(BEASTS))
+            import registrygen
+            registrygen.update_lock(root)
+            (root / "regmap" / "common").mkdir(parents=True)
+            e = entries or {"kind": "resource", "resourceType": "keen::ecs::TemplateResource", "name": "name", "key": "templates",
+                            "withComponent": ["Prowl", "Herd"]}
+            (root / "regmap" / "common" / "beasts.json").write_text(json.dumps({"regmap": 1, "registry": "beasts", "entries": e,
+                                                                                 "rows": BEAST_ROWS if rows is None else rows}))
+            return rc.check(root, rc.TypeDb.from_refl(TEMPLATE_TYPES))
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
+    def test_component_paths_indexes_and_kind_rows_pass(self):
+        r = self.run_beasts()
+        self.assertEqual(r.errors, [])
+        self.assertEqual(r.resolved, len(BEAST_ROWS))
+
+    def test_an_index_past_a_static_array_fails(self):
+        rows = copy.deepcopy(BEAST_ROWS)
+        rows["level"]["paths"] = ["Level.dataStorage[2]"]
+        errs = self.run_beasts(rows).errors
+        self.assertTrue(any("beasts.level" in e and "2 elements" in e for e in errs), errs)
+
+    def test_a_first_part_that_is_no_component_fails(self):
+        rows = copy.deepcopy(BEAST_ROWS)
+        rows["side"]["paths"] = ["Sides.side"]
+        errs = self.run_beasts(rows).errors
+        self.assertTrue(any("beasts.side" in e and "not a component type" in e for e in errs), errs)
+
+    def test_a_component_row_maps_every_path_and_schema_value(self):
+        rows = copy.deepcopy(BEAST_ROWS)
+        rows["kind"]["values"] = {"prowler": "Prowl"}
+        errs = self.run_beasts(rows).errors
+        self.assertTrue(any("beasts.kind" in e and "one Kiln name to each of its paths" in e for e in errs), errs)
+        self.assertTrue(any("beasts.kind" in e and "herder" in e for e in errs), errs)
+
+    def test_a_one_path_ref_is_the_reference_alone(self):
+        rows = copy.deepcopy(BEAST_ROWS)
+        rows["home"]["paths"] = ["Level.dataStorage[0]"]
+        errs = self.run_beasts(rows).errors
+        self.assertTrue(any("beasts.home" in e and "the reference" in e for e in errs), errs)
+
+    def test_with_component_names_component_types_of_templates(self):
+        errs = self.run_beasts(entries={"kind": "resource", "resourceType": "keen::ecs::TemplateResource", "name": "name",
+                                        "withComponent": ["Prowl", "Nope"]}).errors
+        self.assertTrue(any("withComponent Nope" in e for e in errs), errs)
+        errs = self.run_beasts(entries={"kind": "resource", "resourceType": "keen::Thing", "name": "debugName", "withComponent": ["Prowl"]}).errors
+        self.assertTrue(any("withComponent is a list of component types of template resources" in e for e in errs), errs)
+
+
 class Records(unittest.TestCase):
     """review3 S3: a committed verified record is bound to the tree's regmap/common (regmapDigest), so an edit of
     regmap/common that was not re-proven fails the check (kiln.content would enable no row of that build)."""

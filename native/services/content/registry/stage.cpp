@@ -468,8 +468,8 @@ struct Runner::Impl {
         for (const auto& [name, rmap] : rm.registries) {
             if (rmap.entries.kind != map::EntryKind::Array) whole.insert(name);
             else shared += (shared.empty() ? "" : ", ") + name, fields.array[name] = rmap.entries.array;
-            for (const auto& [field, row] : rmap.rows)
-                if (field.find("[]") == std::string::npos) fields.rows[name][field] = row.paths;
+            for (const auto& [field, row] : rmap.rows)  // a template's: any write in its component list (archive_paths_of)
+                if (field.find("[]") == std::string::npos) fields.rows[name][field] = archive_paths_of(rmap.entries.resource_type, row.paths);
         }
         // an array registry's entries by their resource and element, listed only when a journal path names an element
         std::map<std::string, std::map<std::string, std::map<int32_t, std::string>>> elements;

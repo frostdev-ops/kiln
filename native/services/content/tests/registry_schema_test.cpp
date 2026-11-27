@@ -29,9 +29,19 @@ static std::vector<Refusal> parse(const Schema& s, const char* doc, Batch* b) {
 
 int main() {
     const Schema s = generated_schema();
-    // ---- the five R1 registries, every row
-    CHECK(s.registries.size() == 5);
-    for (const char* r : {"items", "recipes", "loot", "drops", "balance"}) CHECK(s.registry(r) != nullptr);
+    // ---- the five R1 registries and dev.32's creatures, arsenals and perks, every row (later waves add theirs)
+    CHECK(s.registries.size() == std::size(gen::kRegistries));
+    for (const char* r : {"items", "recipes", "loot", "drops", "balance", "creatures", "arsenals", "perks"}) CHECK(s.registry(r) != nullptr);
+    // pets and taming read a creature's kind (read-only) and its template id; an arsenal's attacks are a list of structs
+    const FieldSpec* kind = s.registry("creatures")->field("kind");
+    CHECK(kind && kind->read_only && kind->type == FieldType::Enum && kind->enum_values.size() == 4);
+    const FieldSpec* arsenal = s.registry("creatures")->field("arsenal");
+    CHECK(arsenal && arsenal->read_only && arsenal->ref == "arsenals");
+    const FieldSpec* attacks = s.registry("arsenals")->field("attacks");
+    CHECK(attacks && attacks->type == FieldType::List && attacks->element == FieldType::Struct && attacks->applies == Applies::Now);
+    const FieldSpec* value = s.registry("perks")->field("value");
+    CHECK(value && value->type == FieldType::Float && value->min && *value->min == -100000 && value->applies == Applies::Now);
+    CHECK(s.registry("perks")->field("damage.ice")->applies == Applies::WorldLoad);
     size_t rows = 0;
     for (const auto& g : gen::kRegistries) rows += g.count;
     CHECK(rows == std::size(gen::kFields));

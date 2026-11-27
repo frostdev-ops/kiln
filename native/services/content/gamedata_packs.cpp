@@ -1181,27 +1181,34 @@ bool gd_own_lists(uintptr_t item, bool game_base, std::string* err) {
     return err->empty();
 }
 
-bool gd_item_config_slot(const Entry& e, const std::string& path, GdValueSlot* out, std::string* why) {
-    std::lock_guard lock(store_mutex());
-    const GRegistry& I = greg(KILN_GD_ITEMS);
-    if (!I.type) return *why = "item configurations are not available on this build", false;
+namespace {
+// One value below an entry's root (a path of the section's kind: a template's starts at a component) as a store slot of the
+// section, named for the content sync and the conflict report (SlotInfo), with the tooltip row that shows it when the path
+// names a config's value, found as pair_tooltip finds it. `what`: the entry in messages ("the item").
+bool value_slot(uint32_t section, uint32_t id, const std::string& name, Root root, Node at, const std::string& path, const char* what,
+                GdValueSlot* out, std::string* why) {
     std::vector<Resolved> rs;
     std::string err;
-    if (!resolve(Root::Plain, Node{I.type, e.addr}, path, &rs, &err) || rs.empty())
-        return *why = err.empty() ? "the item has no " + path : err, false;
+    bool first_missing = false;
+    if (!resolve(root, at, path, &rs, &err, &first_missing) || rs.empty()) {
+        // a template lacking the component the path starts at: this entry has none (only some templates have it). A plain
+        // root's entries share one type, so a first member it lacks is a mapping this build broke, not an absent value.
+        out->absent = first_missing && root == Root::Template;
+        return *why = err.empty() ? std::string(what) + " has no " + path : err, false;
+    }
     Resolved r = rs[0];
-    if (!r.node.t) return *why = "the item has no such configuration (Kiln's live back-end does not add one)", false;
+    if (!r.node.t) return out->absent = true, *why = std::string(what) + " has no such configuration (Kiln's live back-end does not add one)", false;
     Field f;
     if (!leaf_of(r.node.t, &f)) {  // the config itself: its value
         std::vector<Resolved> vs;
-        if (!resolve(Root::Plain, Node{I.type, e.addr}, path + ".value", &vs, &err) || vs.empty() || !vs[0].node.t || !leaf_of(vs[0].node.t, &f))
+        if (!resolve(root, at, path + ".value", &vs, &err) || vs.empty() || !vs[0].node.t || !leaf_of(vs[0].node.t, &f))
             return *why = path + " is not a value", false;
         r = vs[0];
     }
-    out->addr = r.node.addr + f.offset, out->f = f, out->kind = GD_KIND_BASE + KILN_GD_ITEMS, out->id = e.id, out->field = path_index(r.path);
+    if (identity_field(last_name(r.path))) f.writable = false;
+    out->addr = r.node.addr + f.offset, out->f = f, out->kind = GD_KIND_BASE + section, out->id = id, out->field = path_index(r.path);
     SlotInfo& si = g_info[out->addr];
-    si.section = KILN_GD_ITEMS, si.id = e.id, si.name = e.name, si.path = r.path, si.f = f, si.sub = -1, si.follow = false;
-    // its tooltip row, found as pair_tooltip finds it
+    si.section = section, si.id = id, si.name = name, si.path = r.path, si.f = f, si.sub = -1, si.follow = false;
     out->tip = 0;
     const TType* ui_t = type_named("keen::ImpactUiValue");
     if (!r.config || !r.uivalues_owner || !r.uivalues_type || !r.config_type || !ui_t) return true;
@@ -1225,15 +1232,79 @@ bool gd_item_config_slot(const Entry& e, const std::string& path, GdValueSlot* o
     if (!blob_array(r.uivalues_owner + uiv->offset, &data, &n)) return true;
     for (uint32_t i = 0; i < n; ++i) {
         const uintptr_t u = data + static_cast<uintptr_t>(i) * ui_t->size;
-        uint32_t id = 0;
-        if (!rdv(u + lid->offset, id) || id != loca) continue;
+        uint32_t lid_v = 0;
+        if (!rdv(u + lid->offset, lid_v) || lid_v != loca) continue;
         out->tip = u + uval->offset, out->tip_format = format;
         SlotInfo& ti = g_info[out->tip];
         Field uf;
         uf.bytes = 4, uf.vt = KILN_CV_INT, uf.is_signed = true, uf.type_name = "keen::sint32", uf.writable = true;
-        ti.section = KILN_GD_ITEMS, ti.id = e.id, ti.name = e.name, ti.path = "uiValues[" + std::to_string(i) + "].value", ti.f = uf, ti.sub = -1, ti.follow = true;
+        ti.section = section, ti.id = id, ti.name = name, ti.path = "uiValues[" + std::to_string(i) + "].value", ti.f = uf, ti.sub = -1, ti.follow = true;
         break;
     }
+    return true;
+}
+const char* entry_noun(uint32_t section) {
+    switch (section) {
+        case KILN_GD_TEMPLATES: return "the template";
+        case KILN_GD_ARSENALS: return "the arsenal";
+        case KILN_GD_PERKS: return "the perk";
+        case KILN_GD_ITEMS: return "the item";
+        default: return "the entry";
+    }
+}
+}  // namespace
+
+bool gd_item_config_slot(const Entry& e, const std::string& path, GdValueSlot* out, std::string* why) {
+    std::lock_guard lock(store_mutex());
+    const GRegistry& I = greg(KILN_GD_ITEMS);
+    if (!I.type) return *why = "item configurations are not available on this build", false;
+    return value_slot(KILN_GD_ITEMS, e.id, e.name, Root::Plain, Node{I.type, e.addr}, path, "the item", out, why);
+}
+
+bool gd_section_entry(uint32_t section, const std::string& guid, uint32_t num, Entry* out) {
+    std::lock_guard lock(store_mutex());
+    if (!valid_section(section) || (guid.size() != 36 && !num)) return false;
+    const GEntry* e = guid.size() == 36 ? greg(section).lookup(guid) : greg(section).get(num);
+    if (!e || e->sub > 0) return false;
+    out->id = e->id, out->name = e->name, out->addr = e->addr;
+    std::memcpy(out->guid, e->guid, 16);
+    return true;
+}
+
+bool gd_value_slot(uint32_t section, const Entry& e, const std::string& path, GdValueSlot* out, std::string* why) {
+    std::lock_guard lock(store_mutex());
+    if (!valid_section(section)) return *why = "no such gamedata section", false;
+    const GRegistry& R = greg(section);
+    if (!R.type || !R.available) return *why = std::string(section_name(section)) + " are not available on this build", false;
+    return value_slot(section, e.id, e.name, R.root, Node{R.type, e.addr}, path, entry_noun(section), out, why);
+}
+
+bool gd_shown_config(uint32_t section, const Entry& e, const std::string& configs, std::string* path, std::string* why) {
+    std::lock_guard lock(store_mutex());
+    if (!valid_section(section)) return *why = "no such gamedata section", false;
+    const GRegistry& R = greg(section);
+    if (!R.type || !R.available) return *why = std::string(section_name(section)) + " are not available on this build", false;
+    std::vector<Resolved> rs;
+    std::string err;
+    if (!resolve(R.root, Node{R.type, e.addr}, configs, &rs, &err) || rs.empty() || !rs[0].node.t)
+        return *why = err.empty() ? std::string(entry_noun(section)) + " has no " + configs : err, false;
+    const std::vector<uint32_t> ids = configs_of_types(rs[0].node, {"Sint32ImpactConfig", "FloatImpactConfig"});
+    if (ids.size() != 1) return *why = ids.empty() ? "none" : "several", false;
+    char b[16];
+    std::snprintf(b, sizeof b, "0x%08x", static_cast<unsigned>(ids[0]));
+    *path = configs + "." + b;
+    return true;
+}
+
+bool gd_list_size(uint32_t section, const Entry& e, const std::string& path, uint32_t* n, std::string* why) {
+    std::lock_guard lock(store_mutex());
+    if (!valid_section(section)) return *why = "no such gamedata section", false;
+    const GRegistry& R = greg(section);
+    if (!R.type || !R.available) return *why = std::string(section_name(section)) + " are not available on this build", false;
+    std::vector<Resolved> rs;
+    std::string err;
+    if (!resolve(R.root, Node{R.type, e.addr}, path + "[*]", &rs, &err) && !err.empty()) return *why = err, false;
+    *n = static_cast<uint32_t>(rs.size());
     return true;
 }
 

@@ -1,9 +1,30 @@
 {
   "format": 1,
-  "comment": "an old data pack: below the registry (D1)",
+  "comment": "an old data pack: below the registry (D1); since dev.32 also old gamedata sections the creatures, arsenals and perks registries layer on",
   "items": {
     "Material_T1_Wood_Logs": {
       "maxStackSize": {
+        "mul": 2
+      }
+    }
+  },
+  "templates": {
+    "Enemy_Vukah_Melee": {
+      "Enemy01BehaviorState.combatCommitmentSetup.view.range": {
+        "mul": 2
+      }
+    }
+  },
+  "arsenals": {
+    "template:Enemy_Vukah_Melee": {
+      "attacks[0].description.maxRange": {
+        "add": 1
+      }
+    }
+  },
+  "perks": {
+    "Perk_Armor_Fog": {
+      "perkArmorSetup.distribution.fog": {
         "mul": 2
       }
     }

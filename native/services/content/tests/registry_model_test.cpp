@@ -368,6 +368,79 @@ void single_scalar_structs(const std::string&) {
     check(model::bytes_member(raw, sizeof raw, "test::Wrapped", "", &out, &why) && out["id"] == 4242,
           "nested in the root too");
 }
+// dev.32 R2a: creatures are the templates with a creature's behaviour, with their template's ids; a field whose component a
+// creature lacks is null; kind is the first behaviour it holds; its arsenal a reference by GUID alone; arsenals named after
+// the creatures that use them; a perk's value is its one whole or fractional configuration.
+void creatures_arsenals_perks(const std::string& dir) {
+    Fixture f(dir);
+    auto tmpl = [&](int n, const std::string& name, json comps) {
+        f.view.add("keen::ecs::TemplateResource", g(n), {{"name", name}, {"components", std::move(comps)}});
+    };
+    tmpl(410, "Enemy_Vukah_Melee", json::array({{{"$type", "Enemy01BehaviorState"}, {"combatCommitmentSetup", {{"view", {{"range", 18.0}}}}}},
+                                                 {{"$type", "Level"}, {"dataStorage", json::array({7, 105})}},
+                                                 {{"$type", "Faction"}, {"faction", "Vukah"}},
+                                                 {{"$type", "EnemyArsenalReference"}, {"arsenal", g(501)}},
+                                                 {{"$type", "DamageSusceptibility"}, {"dataStorage", json::array({0, 1, 1.5, 0.8, 1, 1, 1, 1, 1, 1.2, 2, 0, 0, 0, 0, 1, 1, 1, 1})}}}));
+    tmpl(411, "Animal_Wildlife_Wolf", json::array({{{"$type", "Wildlife"}}, {{"$type", "Level"}, {"dataStorage", json::array({3, 10})}},
+                                                    {{"$type", "Faction"}, {"faction", "Wildlife"}}, {{"$type", "ScaleComponent"}, {"uniformScale", 1.5}}}));
+    tmpl(412, "enemy_vukah_melee", json::array({{{"$type", "ActiveNpcState"}}, {{"$type", "Faction"}, {"faction", "Player"}}}));  // a clash
+    tmpl(413, "Prop_Crate", json::array({{{"$type", "Health"}}, {{"$type", "Faction"}, {"faction", "Environment"}}}));  // no creature
+    json arsenals = json::array();
+    auto attack = [](double chance, double range) { return json{{"guid", "none"}, {"description", {{"selectionChance", chance}, {"maxRange", range}}}}; };
+    arsenals.push_back({{"guid", g(500)}, {"attacks", json::array()}});  // no creature uses it
+    arsenals.push_back({{"guid", g(501)}, {"attacks", json::array({attack(1.0, 2.5), attack(0.5, 8.0)})}});
+    f.view.add("keen::enemy::EnemyArsenalRegistryResource", g(550), {{"arsenals", arsenals}});
+    f.view.add("keen::Perk", g(901), {{"debugName", "Perk_Max_Adder_Health_T7"},
+                                     {"impactValues", {{"0x0a0c87e7", {{"$config", "Sint32ImpactConfig"}, {"value", 140}}},
+                                                       {"0x36f06a47", {{"$config", "AttributeReferenceConfig"}, {"value", g(9)}}}}},
+                                     {"perkArmorSetup", {{"isSet", false}, {"distribution", {{"fog", 0.0}}}}}});
+    f.view.add("keen::Perk", g(902), {{"debugName", "Perk_Armor_Fog"}, {"impactValues", json::object()},
+                                     {"perkArmorSetup", {{"isSet", true}, {"distribution", {{"fog", 0.03}}}}}});
+    f.view.add("keen::Perk", g(903), {{"debugName", "Perk_Two_Values"},
+                                     {"impactValues", {{"0x0a0c87e7", {{"$config", "FloatImpactConfig"}, {"value", 0.1}}},
+                                                       {"0x63d242a0", {{"$config", "keen::impact::Sint32ImpactConfig"}, {"value", 2}}}}}});
+    const std::string clash = "game:enemy_vukah_melee~" + g(412).substr(0, 8);
+    check(ids_of(*f.m, "templates") == "game:lootcontainer_enemy_a,game:chest_b,game:enemy_vukah_melee,game:animal_wildlife_wolf," + clash + ",game:prop_crate",
+          "templates: " + ids_of(*f.m, "templates"));
+    check(ids_of(*f.m, "creatures") == "game:enemy_vukah_melee,game:animal_wildlife_wolf," + clash,
+          "creatures: the templates with a creature's behaviour, each with its template's id (the clash suffix too): " + ids_of(*f.m, "creatures"));
+    check(f.val("creatures", "game:enemy_vukah_melee", "kind") == Value::text("enemy") && f.val("creatures", "game:animal_wildlife_wolf", "kind") == Value::text("wildlife") &&
+              f.val("creatures", clash, "kind") == Value::text("villager"), "kind: the behaviour component the template holds");
+    check(f.val("creatures", "game:enemy_vukah_melee", "level") == Value::integer(7) && f.val("creatures", "game:enemy_vukah_melee", "levelMax") == Value::integer(105),
+          "level and levelMax: the attribute's slots");
+    check(f.val("creatures", "game:enemy_vukah_melee", "faction") == Value::text("vukah") && f.val("creatures", clash, "faction") == Value::text("player"), "faction");
+    check(f.val("creatures", "game:enemy_vukah_melee", "resist.cut") == Value::number(1.5) && f.val("creatures", "game:enemy_vukah_melee", "resist.skillShot") == Value::number(2.0),
+          "resistances by attribute slot");
+    check(f.val("creatures", "game:enemy_vukah_melee", "sight.range") == Value::number(18.0), "sight: a template-only component");
+    check(f.val("creatures", "game:animal_wildlife_wolf", "scale") == Value::number(1.5), "scale where the creature has one");
+    check(f.val("creatures", "game:enemy_vukah_melee", "scale").kind == Value::None && f.val("creatures", clash, "level").kind == Value::None &&
+              f.val("creatures", "game:animal_wildlife_wolf", "arsenal").kind == Value::None,
+          "a field whose component the creature lacks is null, not an error");
+    check(ids_of(*f.m, "arsenals") == "game:arsenal_" + g(500).substr(0, 8) + ",game:enemy_vukah_melee",
+          "arsenals: named after the creature templates that use them, else by GUID: " + ids_of(*f.m, "arsenals"));
+    check(f.val("creatures", "game:enemy_vukah_melee", "arsenal") == Value::text("game:enemy_vukah_melee"), "a creature's arsenal: a reference by GUID alone");
+    const Value attacks = f.val("arsenals", "game:enemy_vukah_melee", "attacks");
+    check(attacks.list.size() == 2 && attacks.list[0].leaf("chance")->d == 1.0 && attacks.list[1].leaf("maxRange")->d == 8.0,
+          "an arsenal's attacks, a list of structs: " + attacks.text_of());
+    check(ids_of(*f.m, "perks") == "game:perk_strong,game:perk_max_adder_health_t7,game:perk_armor_fog,game:perk_two_values",
+          "perks keep the ids items.perks names them by: " + ids_of(*f.m, "perks"));
+    check(f.val("perks", "game:perk_max_adder_health_t7", "value") == Value::number(140), "a perk's value: its one whole or fractional configuration");
+    check(f.val("perks", "game:perk_armor_fog", "value").kind == Value::None, "a perk without one: null");
+    check(f.val("perks", "game:perk_armor_fog", "armor.enabled") == Value::boolean(true) && f.val("perks", "game:perk_armor_fog", "armor.shroud") == Value::number(0.03),
+          "a perk's armour");
+    std::string why;
+    const auto* ps = f.m->entries("perks", &why);
+    check(ps && !f.m->value("perks", 3, "value", &why) && why.find("more than one value") != std::string::npos, "two candidate values: no guess: " + why);
+    // traits: a creature's kind
+    std::vector<ModInput> mods;
+    model::Need need;
+    need.registries.insert("creatures");
+    need.traits.insert("creatures");
+    BaseModel base;
+    f.m->fill(need, &base);
+    check(base.registries["creatures"].size() == 3 && base.registries["creatures"][0].traits.count("enemy") && base.registries["creatures"][1].traits.count("wildlife"),
+          "a creature's kind is its trait (\"@has\": [\"enemy\"])");
+}
 }  // namespace
 
 // 31.18's kiln.log held 34,207 "items.manaCost/staminaCost is not read on this build (... of game:<item> ...)" lines at every
@@ -417,7 +490,7 @@ int main(int argc, char** argv) {
     const std::pair<const char*, void (*)(const std::string&)> groups[] = {
         {"byte_array_bounds", byte_array_bounds}, {"single_scalar_structs", single_scalar_structs}, {"entries_and_ids", entries_and_ids}, {"values", values}, {"needs_and_compose", needs_and_compose},
         {"encode_writes", encode_writes},     {"id_table", id_table}, {"live_bytes", live_bytes}, {"notes_per_field", notes_per_field},
-        {"notes_count_the_entries_read", notes_count_the_entries_read}};
+        {"notes_count_the_entries_read", notes_count_the_entries_read}, {"creatures_arsenals_perks", creatures_arsenals_perks}};
     for (const auto& [name, fn] : groups) {
         try {
             fn(dir);

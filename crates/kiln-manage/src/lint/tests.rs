@@ -384,6 +384,34 @@ fn registry_only_clients_guidance_tracks_the_edited_fields() {
     check("good-item", "kiln", "items", "maxStack", None);
     check("good-balance", "mod", "balance", "levelCap", None);
     check("unknown", "kiln", "unknown", "x", None);
+    // dev.32: creatures and arsenals are server-only; a perk's value and armour follow the content sync to Kiln clients; the
+    // perk damage bonus (unproven) and a read-only field make no claim
+    check("creature", "kiln", "creatures", "sight.range", Some("none"));
+    check("arsenal", "kiln", "arsenals", "attacks[1].chance", Some("none"));
+    check("perk", "none", "perks", "value", Some("kiln"));
+    check("perk-armor", "none", "perks", "armor.shroud", Some("kiln"));
+    check("good-creature", "none", "creatures", "level", None);
+    check("unproven-perk", "kiln", "perks", "damage.ice", None);
+    check("read-only-creature", "kiln", "creatures", "kind", None);
+}
+
+/// Every registry schema Kiln ships is in KL213's field table (a registry left out gives its packs no guidance at all).
+#[test]
+fn registry_clients_knows_every_shipped_registry() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schema/registry");
+    let known = registry::registries();
+    let mut seen = 0;
+    for entry in std::fs::read_dir(&dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") || path.file_name().and_then(|n| n.to_str()) == Some("ids.lock.json") {
+            continue;
+        }
+        let doc: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let name = doc["registry"].as_str().expect("a registry schema names its registry");
+        assert!(known.contains(name), "schema/registry/{name}.json is not in lint/registry.rs's field table: {known:?}");
+        seen += 1;
+    }
+    assert!(seen >= 8, "{seen} registry schemas in {}", dir.display());
 }
 
 #[test]

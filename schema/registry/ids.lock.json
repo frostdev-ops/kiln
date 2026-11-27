@@ -1077,6 +1077,738 @@
         }
       },
       "retired": {}
+    },
+    "arsenals": {
+      "id": 6,
+      "version": "0.1.0",
+      "since": "0.1.0",
+      "history": [
+        {
+          "version": "0.1.0"
+        }
+      ],
+      "fields": {
+        "attacks": {
+          "id": 1,
+          "since": "0.1.0",
+          "kind": "list",
+          "applies": "now",
+          "ops": "list",
+          "readOnly": false,
+          "element": "struct",
+          "maxItems": 256
+        },
+        "attacks[].chance": {
+          "id": 2,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 1
+        },
+        "attacks[].threat": {
+          "id": 3,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 1000
+        },
+        "attacks[].minRange": {
+          "id": 4,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "attacks[].maxRange": {
+          "id": 5,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "attacks[].maxHeight": {
+          "id": 6,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        }
+      },
+      "retired": {}
+    },
+    "creatures": {
+      "id": 7,
+      "version": "0.1.0",
+      "since": "0.1.0",
+      "history": [
+        {
+          "version": "0.1.0"
+        }
+      ],
+      "fields": {
+        "kind": {
+          "id": 1,
+          "since": "0.1.0",
+          "kind": "enum",
+          "applies": "now",
+          "ops": "none",
+          "readOnly": true,
+          "values": [
+            "enemy",
+            "wildlife",
+            "animal",
+            "villager"
+          ]
+        },
+        "level": {
+          "id": 2,
+          "since": "0.1.0",
+          "kind": "int",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 1,
+          "max": 10000
+        },
+        "levelMax": {
+          "id": 3,
+          "since": "0.1.0",
+          "kind": "int",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 1,
+          "max": 10000
+        },
+        "faction": {
+          "id": 4,
+          "since": "0.1.0",
+          "kind": "enum",
+          "applies": "now",
+          "ops": "set",
+          "readOnly": false,
+          "values": [
+            "environment",
+            "hitAll",
+            "fogger",
+            "vukah",
+            "scavenger",
+            "wildlife",
+            "wildBeast",
+            "player",
+            "automatedPlayer",
+            "hitOthers",
+            "skeleton",
+            "playerAlly",
+            "farmAnimal",
+            "cyclops",
+            "drak",
+            "ancients"
+          ]
+        },
+        "scale": {
+          "id": 5,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0.01,
+          "max": 100
+        },
+        "xp": {
+          "id": 6,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 1000
+        },
+        "health.levelFactor": {
+          "id": 7,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 1000
+        },
+        "health.perPlayer": {
+          "id": 8,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 100
+        },
+        "damage.multiplier": {
+          "id": 9,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 1000
+        },
+        "damage.perPlayer": {
+          "id": 10,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 100
+        },
+        "resist.physical": {
+          "id": 11,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 100
+        },
+        "resist.cut": {
+          "id": 12,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 100
+        },
+        "resist.pierce": {
+          "id": 13,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 100
+        },
+        "resist.blunt": {
+          "id": 14,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 100
+        },
+        "resist.wood": {
+          "id": 15,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 100
+        },
+        "resist.stone": {
+          "id": 16,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 100
+        },
+        "resist.metal": {
+          "id": 17,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 100
+        },
+        "resist.poison": {
+          "id": 18,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 100
+        },
+        "resist.explosion": {
+          "id": 19,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 100
+        },
+        "resist.skillShot": {
+          "id": 20,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 100
+        },
+        "resist.fire": {
+          "id": 21,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 100
+        },
+        "resist.shroud": {
+          "id": 22,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 100
+        },
+        "resist.ice": {
+          "id": 23,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 100
+        },
+        "resist.lightning": {
+          "id": 24,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 100
+        },
+        "speed.sneak": {
+          "id": 25,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 1000
+        },
+        "speed.walk": {
+          "id": 26,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 1000
+        },
+        "speed.run": {
+          "id": 27,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 1000
+        },
+        "speed.sprint": {
+          "id": 28,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 1000
+        },
+        "speed.combat": {
+          "id": 29,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 1000
+        },
+        "speed.patrol": {
+          "id": 30,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 1000
+        },
+        "speed.flee": {
+          "id": 31,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 1000
+        },
+        "loot.disabled": {
+          "id": 32,
+          "since": "0.1.0",
+          "kind": "bool",
+          "applies": "now",
+          "ops": "set",
+          "readOnly": false
+        },
+        "loot.slots.min": {
+          "id": 33,
+          "since": "0.1.0",
+          "kind": "int",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 255
+        },
+        "loot.slots.max": {
+          "id": 34,
+          "since": "0.1.0",
+          "kind": "int",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 255
+        },
+        "arsenal": {
+          "id": 35,
+          "since": "0.1.0",
+          "kind": "ref",
+          "applies": "now",
+          "ops": "none",
+          "readOnly": true,
+          "optional": true
+        },
+        "sight.range": {
+          "id": 36,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        },
+        "sight.engageRange": {
+          "id": 37,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10000
+        }
+      },
+      "retired": {}
+    },
+    "perks": {
+      "id": 8,
+      "version": "0.1.0",
+      "since": "0.1.0",
+      "history": [
+        {
+          "version": "0.1.0"
+        }
+      ],
+      "fields": {
+        "value": {
+          "id": 1,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": -100000,
+          "max": 100000
+        },
+        "armor.enabled": {
+          "id": 2,
+          "since": "0.1.0",
+          "kind": "bool",
+          "applies": "now",
+          "ops": "set",
+          "readOnly": false
+        },
+        "armor.physical": {
+          "id": 3,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10
+        },
+        "armor.magical": {
+          "id": 4,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10
+        },
+        "armor.cut": {
+          "id": 5,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10
+        },
+        "armor.pierce": {
+          "id": 6,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10
+        },
+        "armor.blunt": {
+          "id": 7,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10
+        },
+        "armor.fire": {
+          "id": 8,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10
+        },
+        "armor.ice": {
+          "id": 9,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10
+        },
+        "armor.shroud": {
+          "id": 10,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10
+        },
+        "armor.lightning": {
+          "id": 11,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "now",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10
+        },
+        "damage.enabled": {
+          "id": 12,
+          "since": "0.1.0",
+          "kind": "bool",
+          "applies": "worldLoad",
+          "ops": "set",
+          "readOnly": false
+        },
+        "damage.cut": {
+          "id": 13,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "worldLoad",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10
+        },
+        "damage.pierce": {
+          "id": 14,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "worldLoad",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10
+        },
+        "damage.blunt": {
+          "id": 15,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "worldLoad",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10
+        },
+        "damage.fire": {
+          "id": 16,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "worldLoad",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10
+        },
+        "damage.ice": {
+          "id": 17,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "worldLoad",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10
+        },
+        "damage.shroud": {
+          "id": 18,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "worldLoad",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10
+        },
+        "damage.lightning": {
+          "id": 19,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "worldLoad",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10
+        },
+        "damage.poison": {
+          "id": 20,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "worldLoad",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10
+        },
+        "damage.healing": {
+          "id": 21,
+          "since": "0.1.0",
+          "kind": "float",
+          "applies": "worldLoad",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 10
+        },
+        "damage.wood": {
+          "id": 22,
+          "since": "0.1.0",
+          "kind": "int",
+          "applies": "worldLoad",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 1000000
+        },
+        "damage.stone": {
+          "id": 23,
+          "since": "0.1.0",
+          "kind": "int",
+          "applies": "worldLoad",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 1000000
+        },
+        "damage.metal": {
+          "id": 24,
+          "since": "0.1.0",
+          "kind": "int",
+          "applies": "worldLoad",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 1000000
+        },
+        "damage.explosion": {
+          "id": 25,
+          "since": "0.1.0",
+          "kind": "int",
+          "applies": "worldLoad",
+          "ops": "number",
+          "readOnly": false,
+          "min": 0,
+          "max": 1000000
+        }
+      },
+      "retired": {}
     }
   },
   "retiredRegistries": {}

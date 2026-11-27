@@ -120,7 +120,23 @@ public class RegistryTests
             Assert.DoesNotContain("0x", f.Field);
             Assert.InRange((int)f.Applies, 1, 3);
         }
-        Assert.Equal(new[] { "balance", "drops", "items", "loot", "recipes" }, RegistrySchema.Versions.Keys.OrderBy(k => k, StringComparer.Ordinal));
+        // R1's five and dev.32's creatures, arsenals and perks (later waves add theirs)
+        Assert.Superset(new HashSet<string> { "balance", "drops", "items", "loot", "recipes", "creatures", "arsenals", "perks" },
+                        RegistrySchema.Versions.Keys.ToHashSet());
+    }
+
+    [Fact]
+    public void Dev32CreaturesArsenalsAndPerksAreTyped()
+    {
+        // pets and taming read a creature's kind (read-only), level and faction; its arsenal is a read-only reference
+        Assert.True(RegistrySchema.Find("creatures.kind")!.ReadOnly);
+        Assert.True(RegistrySchema.Find("creatures.arsenal")!.ReadOnly);
+        Assert.False(RegistrySchema.Find("creatures.level")!.ReadOnly);
+        Assert.Equal(RegistryApplies.Now, RegistrySchema.Find("creatures.faction")!.Applies);
+        Assert.Equal(RegistryApplies.WorldLoad, RegistrySchema.Find("perks.damage.ice")!.Applies);  // read time not traced: cautious
+        Assert.Equal(typeof(RegistryEntries<CreatureEntry>), typeof(RegistryStage).GetProperty("Creatures")!.PropertyType);
+        Assert.Equal(typeof(RegistryEntries<ArsenalEntry>), typeof(RegistryStage).GetProperty("Arsenals")!.PropertyType);
+        Assert.Equal(typeof(RegistryEntries<PerkEntry>), typeof(RegistryStage).GetProperty("Perks")!.PropertyType);
     }
 
     [Fact]

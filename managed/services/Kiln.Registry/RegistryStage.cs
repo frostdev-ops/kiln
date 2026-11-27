@@ -41,6 +41,13 @@ public sealed class RegistryStage
     public RegistryEntries<ItemLootEntry> Loot { get { Context.Ensure(); return new(this, "loot", static (id, cells) => new(id, cells)); } }
     /// <summary>Drop tables, by Kiln id.</summary>
     public RegistryEntries<DropTableEntry> Drops { get { Context.Ensure(); return new(this, "drops", static (id, cells) => new(id, cells)); } }
+    /// <summary>Creatures (enemies, wildlife, farm animals, villagers), by Kiln id: the id of the creature's template. An edit is
+    /// global to the creature kind; values copied at spawn reach creatures that spawn after it.</summary>
+    public RegistryEntries<CreatureEntry> Creatures { get { Context.Ensure(); return new(this, "creatures", static (id, cells) => new(id, cells)); } }
+    /// <summary>The enemies' arsenals (the attacks they choose from), by Kiln id. Enemies of one kind share an arsenal.</summary>
+    public RegistryEntries<ArsenalEntry> Arsenals { get { Context.Ensure(); return new(this, "arsenals", static (id, cells) => new(id, cells)); } }
+    /// <summary>Perks (what a perk on an item grants), by Kiln id: the ids <see cref="ItemEntry.Perks"/> holds.</summary>
+    public RegistryEntries<PerkEntry> Perks { get { Context.Ensure(); return new(this, "perks", static (id, cells) => new(id, cells)); } }
     /// <summary>The singleton balance table. Its restart fields are editable only at game start.</summary>
     public BalanceEntry Balance { get { Context.Ensure(); return new(new("game:balance"), Cells("balance", "game:balance")); } }
     /// <summary>Authors new entries in the add pass. Entry creation is GameStart-only; later native points report RestartRequired.</summary>

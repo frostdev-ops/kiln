@@ -40,7 +40,8 @@ BITMASKS = (K_BM8, K_BM16, K_BM32, K_BM64)
 ARRAYS = (K_STATIC_ARRAY, K_BLOB_ARRAY)
 READ_RANK = {"now": 0, "worldLoad": 1, "restart": 2}
 CONVS = ("int", "float", "bool", "time", "enum", "flags", "ref", "refList", "formula", "impactConfig", "list", "stackCount",
-         "inventoryWalk", "unlock", "optionalEnum")
+         "inventoryWalk", "unlock", "optionalEnum", "component")
+TEMPLATE = "keen::ecs::TemplateResource"  # a template's paths start at one of its components, by type name (Level.dataStorage[0])
 
 
 class TypeDb:
@@ -99,10 +100,28 @@ class TypeDb:
                 return self.get(f["type"])
         return None
 
+    def component(self, name):
+        """A template's component type by its name without namespaces (Level -> keen::ecs::Level), or None."""
+        t = self.get("keen::ecs::" + name) if name and ":" not in name else None
+        return t if t is not None and self.resolve(t) is not None and self.resolve(t)["kind"] == K_STRUCT else None
+
     def path(self, root, dotted):
-        """The type at a dotted member path from a root type; (type, error)."""
+        """The type at a dotted member path from a root type; (type, error). A part "name[i]" is element i of the array member
+        name (a static array's index within its count); from a template root, the first part names a component by its type."""
         t = self.get(root)
-        for part in dotted.split("."):
+        parts = dotted.split(".")
+        if root == TEMPLATE and parts and parts[0] and not any(f["name"] == parts[0] for f in self.fields(t)):
+            t = self.component(parts[0])
+            if t is None:
+                return None, f"{dotted}: {parts[0]} is not a component type of the type source"
+            parts = parts[1:]
+        for part in parts:
+            index = None
+            if part.endswith("]") and "[" in part:
+                part, _, ix = part[:-1].partition("[")
+                if not ix.isdigit():
+                    return None, f"{dotted}: [{ix}] is not an index"
+                index = int(ix)
             r = self.resolve(t)
             if r is None or r["kind"] != K_STRUCT:
                 return None, f"{dotted}: {t['name'] if t else '?'} has no members"
@@ -116,6 +135,15 @@ class TypeDb:
             if nxt is None:
                 return None, f"{dotted}: {r['name']} has no member {part}"
             t = nxt
+            if index is not None:
+                a = self.resolve(t)
+                if a is None or a["kind"] not in ARRAYS:
+                    return None, f"{dotted}: {part} is not an array"
+                if a["kind"] == K_STATIC_ARRAY and a.get("count") is not None and index >= a["count"]:
+                    return None, f"{dotted}: {part} has {a['count']} elements, not {index + 1}"
+                t = self.element(a)
+                if t is None:
+                    return None, f"{dotted}: the element type of {part} is not in the type source"
         return t, None
 
     def element(self, t):
@@ -247,9 +275,22 @@ def check_conv(db, q, conv, types, row, spec):
             for k in spec.get("values", []):
                 if k not in row.get("values", {}):
                     errs.append(f"{q}: the schema's value {k} has no game name in the row")
+    elif conv == "ref" and len(row.get("paths", [])) == 1:
+        want(0, lambda r: r["kind"] in (K_OBJECT_REF, K_GUID), "the reference (an object reference or a GUID)")
     elif conv == "ref":
         want(0, is_id, "the 32-bit id first")
         want(1, lambda r: r["kind"] in (K_OBJECT_REF, K_GUID), "the reference (an object reference or a GUID) second")
+    elif conv == "component":
+        for i in range(len(rs)):
+            want(i, lambda r: r["kind"] == K_STRUCT, "a component type")
+        values = row.get("values", {})
+        if sorted(values.values()) != sorted(row.get("paths", [])):
+            errs.append(f"{q}: a component row maps one Kiln name to each of its paths (\"values\")")
+        for k in spec.get("values", []):
+            if k not in values:
+                errs.append(f"{q}: the schema's value {k} has no component in the row")
+        if row.get("backend") != "none":
+            errs.append(f"{q}: a component row is read-only (backend none)")
     elif conv == "refList":
         if want(0, lambda r: r["kind"] in ARRAYS, "an array of references first"):
             el = db.resolve(db.element(types[0]))
@@ -349,6 +390,14 @@ def check(root, db):
             for member in ("name", "guid", "id"):
                 if e.get(member) and entry_root and db.path(entry_root, e[member])[1]:
                     res.errors.append(f"{name}: entries.{member} {e[member]}: {db.path(entry_root, e[member])[1]}")
+            if "withComponent" in e:
+                wc = e["withComponent"]
+                if rtype != TEMPLATE or e.get("kind") != "resource" or not isinstance(wc, list) or not wc:
+                    res.errors.append(f"{name}: entries.withComponent is a list of component types of template resources")
+                else:
+                    for c in wc:
+                        if db.component(str(c)) is None:
+                            res.errors.append(f"{name}: entries.withComponent {c}: not a component type of the type source")
         for path, spec_row in specs.items():
             q = f"{name}.{path}"
             row = rows.get(path)
@@ -430,19 +479,26 @@ def compute_aliases(root, entries, previous, previous_table, game_build):
     previous_table = id_table_of(previous_table) if previous_table is not None else None
     prev = regmap_ids.aliases_from_json((previous or {}).get("aliases", {}))
     per, table = {}, {}
-    item_ids = {}
+    item_ids, guid_ids = {}, {}
     # templates have no regmap file (the model's builtin source names them: debug name, else template_<guid8>); their
     # clashes and names outside the grammar are pinned here like any registry's
     builtin = {"templates": {"unnamed": "template_%.8s"}}
-    for name in ("templates", "items", "recipes", "loot", "drops", "balance"):
+    # keyed registries after the registry they take their ids from (loot: items by 32-bit id; creatures: templates by GUID)
+    order = ["templates", "items", "recipes", "loot", "drops", "balance"]
+    order += sorted(n for n in maps if n not in order and maps[n].get("entries", {}).get("key"))
+    order += sorted(n for n in maps if n not in order)
+    for name in order:
         if (name not in maps and name not in builtin) or name not in entries.get("registries", {}):
             continue
         src = maps[name].get("entries", {}) if name in maps else builtin[name]
         es = entries["registries"][name]
-        al, ids, t = regmap_ids.record_aliases(name, src, prev.get(name, {}), (previous_table or {}).get(name, {}), es,
-                                               game_build, item_ids if src.get("key") == "items" else None)
+        key = src.get("key")
+        al, ids, t = regmap_ids.record_aliases(name, src, prev.get(name, {}), (previous_table or {}).get(name, {}), es, game_build,
+                                               item_ids if key == "items" else None,
+                                               guid_ids.get(key) if key and key != "items" else None)
         if name == "items":
             item_ids = {e["id"]: i for e, i in zip(es, ids)}
+        guid_ids[name] = {e["guid"].lower(): i for e, i in zip(es, ids) if e.get("guid")}
         per[name] = al
         table[name] = t
     return regmap_ids.aliases_json(per), table

@@ -7,6 +7,6 @@
   "side": "server",
   "clients": "none",
   "advanced": true,
-  "description": "The older mod of the registry lab's mixed set (an old data pack: Material_T1_Wood_Logs maxStackSize x2; an old boot patch on keen::BalancingTable) and the in-process half of tools/registry-compat: a dump at every content ready (world load, pack reload) in its data folder: the served bytes of every resource of the registries' types (SHA-256), the resources the store changed, the store's changed fields and conflicts (Content.Dump), registry.json.",
+  "description": "The older mod of the registry lab's mixed set (an old data pack: Material_T1_Wood_Logs maxStackSize x2, and since dev.32 a creature template, an arsenal and a perk through the old gamedata sections; an old boot patch on keen::BalancingTable) and the in-process half of tools/registry-compat: a dump at every content ready (world load, pack reload) in its data folder: the served bytes of every resource of the registries' types (SHA-256), the resources the store changed, the store's changed fields and conflicts (Content.Dump), registry.json.",
   "boot": true
 }

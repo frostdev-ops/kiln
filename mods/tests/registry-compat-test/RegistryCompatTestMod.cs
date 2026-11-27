@@ -11,6 +11,7 @@
 //   - "touched": the resources those changed fields live in (the store writes the game's loaded resource bytes: an item's
 //     own resource, the recipe and loot registries' one resource each, a drop table's);
 //   - "registry": state/registry.json as it is then.
+// dev.32: the resources of templates, the arsenal registry and perks too, and kiln.gamedata's changed leaves of those sections.
 // Writes nothing else and changes nothing. "registry-compat-test: DUMP <n> <file> resources=<k>" in kiln.log.
 using System.Security.Cryptography;
 using System.Text.Json.Nodes;
@@ -23,6 +24,13 @@ public sealed class RegistryCompatTestMod : Mod
     private static readonly string[] Types =
     {
         "keen::ItemInfo", "keen::RecipeRegistryResource", "keen::LootableItemsResource", "keen::ecs::DefaultInventoryResource", "keen::BalancingTable",
+        // dev.32: creatures (templates), arsenals, perks
+        "keen::ecs::TemplateResource", "keen::enemy::EnemyArsenalRegistryResource", "keen::Perk",
+    };
+    // the kiln.gamedata sections the dev.32 registries live in, with the resource an entry is in (null: its own, by its GUID)
+    private static readonly (GameDataRegistry Section, string Name, string? Shared)[] Sections =
+    {
+        (Content.Templates, "templates", null), (Content.Arsenals, "arsenals", "keen::enemy::EnemyArsenalRegistryResource"), (Content.Perks, "perks", null),
     };
     private int _n;
 
@@ -74,6 +82,16 @@ public sealed class RegistryCompatTestMod : Mod
             };
             if (g is not null) touched.Add(g);
         }
+        // dev.32: the gamedata entries the store changed (old gamedata sections, the creatures / arsenals / perks registries): their
+        // changed leaves as store fields, their resources as touched
+        foreach (var (section, name, shared) in Sections)
+            foreach (var e in section.Where(x => x.Modified))
+            {
+                foreach (var f in e.Fields())
+                    if (f.Original is not null && !JsonNode.DeepEquals(f.Value, f.Original))  // original: only on leaves the store holds
+                        changed.Add(new JsonObject { ["registry"] = name, ["entry"] = e.Name.Length > 0 ? e.Name : e.Guid.ToString(), ["field"] = f.Path, ["value"] = f.Value?.DeepClone() });
+                if ((shared is null ? e.Guid.ToString() : Single(shared)) is { } g) touched.Add(g);
+            }
         var statePath = Path.GetFullPath(Path.Combine(Context.Info.Directory, "..", "..", "state", "registry.json"));
         var doc = new JsonObject
         {

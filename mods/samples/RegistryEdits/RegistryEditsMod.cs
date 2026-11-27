@@ -29,6 +29,16 @@ public sealed class RegistryEditsMod : Mod
             registry.Alter(view => view.Loot.Remove("game:material_t1_wood_logs"));
         }
         registry.Alter(view => view.Items["game:material_t1_wood_logs"].MaxStack = settings.WoodStack);
+        // dev.32 (experimental): creatures, arsenals and perks. A creature edit is global to its kind (every Vukah warrior);
+        // the level and other values a creature copies as it spawns reach those that spawn after it, its sight at once.
+        registry.Alter(view =>
+        {
+            var vukah = view.Creatures["game:enemy_vukah_melee"];
+            vukah.Sight.Range = vukah.Sight.Range * 1.5;
+            vukah.Resist.Fire = 2.0;  // takes double fire damage
+            view.Arsenals["game:enemy_vukah_melee"].Attacks[0].Chance = 0.5;
+            view.Perks["game:perk_max_adder_health_t7"].Value = 150;  // a whole-number value: a fraction would be refused
+        });
         // A Final helper is explicit. Ordinary assignments target Alter and are ignored in Add/Final.
         // Do not retain context, entries or lists: their operations expire when this callback returns.
     }

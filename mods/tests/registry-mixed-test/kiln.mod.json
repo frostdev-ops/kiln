@@ -8,7 +8,7 @@
   "clients": "none",
   "boot": true,
   "advanced": true,
-  "description": "PASS/FAIL lines: a registry section and a C# registry edit over registry-compat-test's old data pack and old boot patch (D1); live values read back after the world load and after pack hot reloads (an edited section, a removed one, restored).",
+  "description": "PASS/FAIL lines: a registry section (items, recipes, balance; since dev.32 creatures, arsenals and perks too) and a C# registry edit over registry-compat-test's old data pack and old boot patch (D1); live values read back after the world load and after pack hot reloads (an edited section, a removed one, restored).",
   "loadAfter": [
     "registry-compat-test"
   ]

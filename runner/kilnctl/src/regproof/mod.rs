@@ -659,7 +659,8 @@ fn python(tree: &Path, script: &str, args: &[&std::ffi::OsStr], out: &Path, log:
     }
 }
 
-/// The registries' root types (and a drop table's naming component): the closure kilnctl dumps.
+/// The registries' root types (and a drop table's naming component; a template registry's components, which its paths start
+/// at): the closure kilnctl dumps.
 pub fn roots(map: &regmap::RegMap) -> Vec<String> {
     let mut v: BTreeSet<String> = BTreeSet::new();
     for f in map.values() {
@@ -668,6 +669,17 @@ pub fn roots(map: &regmap::RegMap) -> Vec<String> {
         }
         if let Some((ty, _)) = f.entries.name_from.rsplit_once('.') {
             v.insert(ty.to_string());
+        }
+        if f.entries.resource_type == refl::TEMPLATE {
+            v.extend(f.entries.with_component.iter().map(|c| refl::component_type(c)));
+            for row in f.rows.values() {
+                for p in &row.paths {
+                    let first = p.split(['.', '[']).next().unwrap_or_default();
+                    if !first.is_empty() {
+                        v.insert(refl::component_type(first));
+                    }
+                }
+            }
         }
     }
     v.into_iter().collect()

@@ -58,6 +58,9 @@ inline constexpr Registry kRegistries[] = {
     {3, "loot", "0.1.0", true, false, "disabled", true, 48, 6},
     {4, "drops", "0.1.0", true, false, "", true, 54, 6},
     {5, "balance", "0.1.0", true, false, "", true, 60, 40},
+    {6, "arsenals", "0.1.0", true, false, "", true, 100, 6},
+    {7, "creatures", "0.1.0", true, false, "", true, 106, 37},
+    {8, "perks", "0.1.0", true, false, "", true, 143, 25},
 };
 
 inline constexpr Field kFields[] = {
@@ -161,6 +164,74 @@ inline constexpr Field kFields[] = {
     {0x00050026u, "balance", "gear.creep", Kind::Float, Kind::Float, true, true, 0.0, 100.0, 0u, "", "", "", true, Applies::Restart, Ops::None, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
     {0x00050027u, "balance", "gear.armorOffset", Kind::Float, Kind::Float, true, true, 0.0, 100000.0, 0u, "", "", "", true, Applies::Restart, Ops::None, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
     {0x00050028u, "balance", "gear.armorGradient", Kind::Float, Kind::Float, true, true, 0.0, 100000.0, 0u, "", "", "", true, Applies::Restart, Ops::None, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00060001u, "arsenals", "attacks", Kind::List, Kind::Struct, false, false, 0.0, 0.0, 256u, "", "", "", false, Applies::Now, Ops::List, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00060002u, "arsenals", "attacks[].chance", Kind::Float, Kind::Float, true, true, 0.0, 1.0, 0u, "", "", "attacks", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00060003u, "arsenals", "attacks[].threat", Kind::Float, Kind::Float, true, true, 0.0, 1000.0, 0u, "", "", "attacks", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00060004u, "arsenals", "attacks[].minRange", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "attacks", false, Applies::Now, Ops::Number, "m", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00060005u, "arsenals", "attacks[].maxRange", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "attacks", false, Applies::Now, Ops::Number, "m", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00060006u, "arsenals", "attacks[].maxHeight", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "attacks", false, Applies::Now, Ops::Number, "m", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00070001u, "creatures", "kind", Kind::Enum, Kind::Enum, false, false, 0.0, 0.0, 0u, "enemy|wildlife|animal|villager", "", "", true, Applies::Now, Ops::None, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00070002u, "creatures", "level", Kind::Int, Kind::Int, true, true, 1.0, 10000.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00070003u, "creatures", "levelMax", Kind::Int, Kind::Int, true, true, 1.0, 10000.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00070004u, "creatures", "faction", Kind::Enum, Kind::Enum, false, false, 0.0, 0.0, 0u, "environment|hitAll|fogger|vukah|scavenger|wildlife|wildBeast|player|automatedPlayer|hitOthers|skeleton|playerAlly|farmAnimal|cyclops|drak|ancients", "", "", false, Applies::Now, Ops::Set, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00070005u, "creatures", "scale", Kind::Float, Kind::Float, true, true, 0.01, 100.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00070006u, "creatures", "xp", Kind::Float, Kind::Float, true, true, 0.0, 1000.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00070007u, "creatures", "health.levelFactor", Kind::Float, Kind::Float, true, true, 0.0, 1000.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00070008u, "creatures", "health.perPlayer", Kind::Float, Kind::Float, true, true, 0.0, 100.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00070009u, "creatures", "damage.multiplier", Kind::Float, Kind::Float, true, true, 0.0, 1000.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x0007000au, "creatures", "damage.perPlayer", Kind::Float, Kind::Float, true, true, 0.0, 100.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x0007000bu, "creatures", "resist.physical", Kind::Float, Kind::Float, true, true, 0.0, 100.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x0007000cu, "creatures", "resist.cut", Kind::Float, Kind::Float, true, true, 0.0, 100.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x0007000du, "creatures", "resist.pierce", Kind::Float, Kind::Float, true, true, 0.0, 100.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x0007000eu, "creatures", "resist.blunt", Kind::Float, Kind::Float, true, true, 0.0, 100.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x0007000fu, "creatures", "resist.wood", Kind::Float, Kind::Float, true, true, 0.0, 100.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00070010u, "creatures", "resist.stone", Kind::Float, Kind::Float, true, true, 0.0, 100.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00070011u, "creatures", "resist.metal", Kind::Float, Kind::Float, true, true, 0.0, 100.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00070012u, "creatures", "resist.poison", Kind::Float, Kind::Float, true, true, 0.0, 100.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00070013u, "creatures", "resist.explosion", Kind::Float, Kind::Float, true, true, 0.0, 100.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00070014u, "creatures", "resist.skillShot", Kind::Float, Kind::Float, true, true, 0.0, 100.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00070015u, "creatures", "resist.fire", Kind::Float, Kind::Float, true, true, 0.0, 100.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00070016u, "creatures", "resist.shroud", Kind::Float, Kind::Float, true, true, 0.0, 100.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00070017u, "creatures", "resist.ice", Kind::Float, Kind::Float, true, true, 0.0, 100.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00070018u, "creatures", "resist.lightning", Kind::Float, Kind::Float, true, true, 0.0, 100.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00070019u, "creatures", "speed.sneak", Kind::Float, Kind::Float, true, true, 0.0, 1000.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "m/s", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x0007001au, "creatures", "speed.walk", Kind::Float, Kind::Float, true, true, 0.0, 1000.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "m/s", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x0007001bu, "creatures", "speed.run", Kind::Float, Kind::Float, true, true, 0.0, 1000.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "m/s", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x0007001cu, "creatures", "speed.sprint", Kind::Float, Kind::Float, true, true, 0.0, 1000.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "m/s", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x0007001du, "creatures", "speed.combat", Kind::Float, Kind::Float, true, true, 0.0, 1000.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "m/s", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x0007001eu, "creatures", "speed.patrol", Kind::Float, Kind::Float, true, true, 0.0, 1000.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "m/s", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x0007001fu, "creatures", "speed.flee", Kind::Float, Kind::Float, true, true, 0.0, 1000.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "m/s", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00070020u, "creatures", "loot.disabled", Kind::Bool, Kind::Bool, false, false, 0.0, 0.0, 0u, "", "", "", false, Applies::Now, Ops::Set, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00070021u, "creatures", "loot.slots.min", Kind::Int, Kind::Int, true, true, 0.0, 255.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00070022u, "creatures", "loot.slots.max", Kind::Int, Kind::Int, true, true, 0.0, 255.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00070023u, "creatures", "arsenal", Kind::Ref, Kind::Ref, false, false, 0.0, 0.0, 0u, "", "arsenals", "", true, Applies::Now, Ops::None, "", "", true, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00070024u, "creatures", "sight.range", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "m", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00070025u, "creatures", "sight.engageRange", Kind::Float, Kind::Float, true, true, 0.0, 10000.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "m", "", false, 0u, "", 0, Side::Both, "serverOnly"},
+    {0x00080001u, "perks", "value", Kind::Float, Kind::Float, true, true, -100000.0, 100000.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "now"},
+    {0x00080002u, "perks", "armor.enabled", Kind::Bool, Kind::Bool, false, false, 0.0, 0.0, 0u, "", "", "", false, Applies::Now, Ops::Set, "", "", false, 0u, "", 0, Side::Both, "now"},
+    {0x00080003u, "perks", "armor.physical", Kind::Float, Kind::Float, true, true, 0.0, 10.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "now"},
+    {0x00080004u, "perks", "armor.magical", Kind::Float, Kind::Float, true, true, 0.0, 10.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "now"},
+    {0x00080005u, "perks", "armor.cut", Kind::Float, Kind::Float, true, true, 0.0, 10.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "now"},
+    {0x00080006u, "perks", "armor.pierce", Kind::Float, Kind::Float, true, true, 0.0, 10.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "now"},
+    {0x00080007u, "perks", "armor.blunt", Kind::Float, Kind::Float, true, true, 0.0, 10.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "now"},
+    {0x00080008u, "perks", "armor.fire", Kind::Float, Kind::Float, true, true, 0.0, 10.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "now"},
+    {0x00080009u, "perks", "armor.ice", Kind::Float, Kind::Float, true, true, 0.0, 10.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "now"},
+    {0x0008000au, "perks", "armor.shroud", Kind::Float, Kind::Float, true, true, 0.0, 10.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "now"},
+    {0x0008000bu, "perks", "armor.lightning", Kind::Float, Kind::Float, true, true, 0.0, 10.0, 0u, "", "", "", false, Applies::Now, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "now"},
+    {0x0008000cu, "perks", "damage.enabled", Kind::Bool, Kind::Bool, false, false, 0.0, 0.0, 0u, "", "", "", false, Applies::WorldLoad, Ops::Set, "", "", false, 0u, "", 0, Side::Both, "unknown"},
+    {0x0008000du, "perks", "damage.cut", Kind::Float, Kind::Float, true, true, 0.0, 10.0, 0u, "", "", "", false, Applies::WorldLoad, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "unknown"},
+    {0x0008000eu, "perks", "damage.pierce", Kind::Float, Kind::Float, true, true, 0.0, 10.0, 0u, "", "", "", false, Applies::WorldLoad, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "unknown"},
+    {0x0008000fu, "perks", "damage.blunt", Kind::Float, Kind::Float, true, true, 0.0, 10.0, 0u, "", "", "", false, Applies::WorldLoad, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "unknown"},
+    {0x00080010u, "perks", "damage.fire", Kind::Float, Kind::Float, true, true, 0.0, 10.0, 0u, "", "", "", false, Applies::WorldLoad, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "unknown"},
+    {0x00080011u, "perks", "damage.ice", Kind::Float, Kind::Float, true, true, 0.0, 10.0, 0u, "", "", "", false, Applies::WorldLoad, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "unknown"},
+    {0x00080012u, "perks", "damage.shroud", Kind::Float, Kind::Float, true, true, 0.0, 10.0, 0u, "", "", "", false, Applies::WorldLoad, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "unknown"},
+    {0x00080013u, "perks", "damage.lightning", Kind::Float, Kind::Float, true, true, 0.0, 10.0, 0u, "", "", "", false, Applies::WorldLoad, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "unknown"},
+    {0x00080014u, "perks", "damage.poison", Kind::Float, Kind::Float, true, true, 0.0, 10.0, 0u, "", "", "", false, Applies::WorldLoad, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "unknown"},
+    {0x00080015u, "perks", "damage.healing", Kind::Float, Kind::Float, true, true, 0.0, 10.0, 0u, "", "", "", false, Applies::WorldLoad, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "unknown"},
+    {0x00080016u, "perks", "damage.wood", Kind::Int, Kind::Int, true, true, 0.0, 1000000.0, 0u, "", "", "", false, Applies::WorldLoad, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "unknown"},
+    {0x00080017u, "perks", "damage.stone", Kind::Int, Kind::Int, true, true, 0.0, 1000000.0, 0u, "", "", "", false, Applies::WorldLoad, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "unknown"},
+    {0x00080018u, "perks", "damage.metal", Kind::Int, Kind::Int, true, true, 0.0, 1000000.0, 0u, "", "", "", false, Applies::WorldLoad, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "unknown"},
+    {0x00080019u, "perks", "damage.explosion", Kind::Int, Kind::Int, true, true, 0.0, 1000000.0, 0u, "", "", "", false, Applies::WorldLoad, Ops::Number, "", "", false, 0u, "", 0, Side::Both, "unknown"},
 };
 
 // The id migrations of the schemas' breaking steps (schema/registry/migrations/<registry>-<from>-<to>.json), oldest
@@ -281,6 +352,74 @@ inline constexpr uint32_t balance_gear_seed = 0x00050025u;
 inline constexpr uint32_t balance_gear_creep = 0x00050026u;
 inline constexpr uint32_t balance_gear_armorOffset = 0x00050027u;
 inline constexpr uint32_t balance_gear_armorGradient = 0x00050028u;
+inline constexpr uint32_t arsenals_attacks = 0x00060001u;
+inline constexpr uint32_t arsenals_attacks_chance = 0x00060002u;
+inline constexpr uint32_t arsenals_attacks_threat = 0x00060003u;
+inline constexpr uint32_t arsenals_attacks_minRange = 0x00060004u;
+inline constexpr uint32_t arsenals_attacks_maxRange = 0x00060005u;
+inline constexpr uint32_t arsenals_attacks_maxHeight = 0x00060006u;
+inline constexpr uint32_t creatures_kind = 0x00070001u;
+inline constexpr uint32_t creatures_level = 0x00070002u;
+inline constexpr uint32_t creatures_levelMax = 0x00070003u;
+inline constexpr uint32_t creatures_faction = 0x00070004u;
+inline constexpr uint32_t creatures_scale = 0x00070005u;
+inline constexpr uint32_t creatures_xp = 0x00070006u;
+inline constexpr uint32_t creatures_health_levelFactor = 0x00070007u;
+inline constexpr uint32_t creatures_health_perPlayer = 0x00070008u;
+inline constexpr uint32_t creatures_damage_multiplier = 0x00070009u;
+inline constexpr uint32_t creatures_damage_perPlayer = 0x0007000au;
+inline constexpr uint32_t creatures_resist_physical = 0x0007000bu;
+inline constexpr uint32_t creatures_resist_cut = 0x0007000cu;
+inline constexpr uint32_t creatures_resist_pierce = 0x0007000du;
+inline constexpr uint32_t creatures_resist_blunt = 0x0007000eu;
+inline constexpr uint32_t creatures_resist_wood = 0x0007000fu;
+inline constexpr uint32_t creatures_resist_stone = 0x00070010u;
+inline constexpr uint32_t creatures_resist_metal = 0x00070011u;
+inline constexpr uint32_t creatures_resist_poison = 0x00070012u;
+inline constexpr uint32_t creatures_resist_explosion = 0x00070013u;
+inline constexpr uint32_t creatures_resist_skillShot = 0x00070014u;
+inline constexpr uint32_t creatures_resist_fire = 0x00070015u;
+inline constexpr uint32_t creatures_resist_shroud = 0x00070016u;
+inline constexpr uint32_t creatures_resist_ice = 0x00070017u;
+inline constexpr uint32_t creatures_resist_lightning = 0x00070018u;
+inline constexpr uint32_t creatures_speed_sneak = 0x00070019u;
+inline constexpr uint32_t creatures_speed_walk = 0x0007001au;
+inline constexpr uint32_t creatures_speed_run = 0x0007001bu;
+inline constexpr uint32_t creatures_speed_sprint = 0x0007001cu;
+inline constexpr uint32_t creatures_speed_combat = 0x0007001du;
+inline constexpr uint32_t creatures_speed_patrol = 0x0007001eu;
+inline constexpr uint32_t creatures_speed_flee = 0x0007001fu;
+inline constexpr uint32_t creatures_loot_disabled = 0x00070020u;
+inline constexpr uint32_t creatures_loot_slots_min = 0x00070021u;
+inline constexpr uint32_t creatures_loot_slots_max = 0x00070022u;
+inline constexpr uint32_t creatures_arsenal = 0x00070023u;
+inline constexpr uint32_t creatures_sight_range = 0x00070024u;
+inline constexpr uint32_t creatures_sight_engageRange = 0x00070025u;
+inline constexpr uint32_t perks_value = 0x00080001u;
+inline constexpr uint32_t perks_armor_enabled = 0x00080002u;
+inline constexpr uint32_t perks_armor_physical = 0x00080003u;
+inline constexpr uint32_t perks_armor_magical = 0x00080004u;
+inline constexpr uint32_t perks_armor_cut = 0x00080005u;
+inline constexpr uint32_t perks_armor_pierce = 0x00080006u;
+inline constexpr uint32_t perks_armor_blunt = 0x00080007u;
+inline constexpr uint32_t perks_armor_fire = 0x00080008u;
+inline constexpr uint32_t perks_armor_ice = 0x00080009u;
+inline constexpr uint32_t perks_armor_shroud = 0x0008000au;
+inline constexpr uint32_t perks_armor_lightning = 0x0008000bu;
+inline constexpr uint32_t perks_damage_enabled = 0x0008000cu;
+inline constexpr uint32_t perks_damage_cut = 0x0008000du;
+inline constexpr uint32_t perks_damage_pierce = 0x0008000eu;
+inline constexpr uint32_t perks_damage_blunt = 0x0008000fu;
+inline constexpr uint32_t perks_damage_fire = 0x00080010u;
+inline constexpr uint32_t perks_damage_ice = 0x00080011u;
+inline constexpr uint32_t perks_damage_shroud = 0x00080012u;
+inline constexpr uint32_t perks_damage_lightning = 0x00080013u;
+inline constexpr uint32_t perks_damage_poison = 0x00080014u;
+inline constexpr uint32_t perks_damage_healing = 0x00080015u;
+inline constexpr uint32_t perks_damage_wood = 0x00080016u;
+inline constexpr uint32_t perks_damage_stone = 0x00080017u;
+inline constexpr uint32_t perks_damage_metal = 0x00080018u;
+inline constexpr uint32_t perks_damage_explosion = 0x00080019u;
 }  // namespace field
 
 }  // namespace kc::registry::gen

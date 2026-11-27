@@ -80,6 +80,45 @@ public class ProducerTests
         Assert.Equal(expected, (string?)method.Invoke(null, new object?[] { config }));
     }
 
+    // dev.32 perks.value: an impactConfig row's config "shown" is the perk's one whole-number or fractional config, whatever
+    // its id; none or more than one gives no path (no sample, never a guess).
+    [Theory]
+    [InlineData("""{"0x0a0c87e7":{"$config":"Sint32ImpactConfig","value":6},"BuffType":{"$config":"BuffImpactConfig","value":"x"}}""", "0x0a0c87e7")]
+    [InlineData("""{"Damage":{"$config":"keen::impact::FloatImpactConfig","value":0.1}}""", "Damage")]
+    [InlineData("""{"a":{"$config":"FloatImpactConfig","value":0.1},"b":{"$config":"Sint32ImpactConfig","value":2}}""", null)]
+    [InlineData("""{"SkillId":{"$config":"SkillIdConfig","value":3}}""", null)]
+    [InlineData("""[]""", null)]
+    // as GameDataEntry.GetJson gives a path: the member wrapped (lab, f0d824be: every perk read "config kind unreadable" without this)
+    [InlineData("""{"path":"impactValues","type":"keen::impact::Configurations","address":1,"value":{"0x0a0c87e7":{"$config":"Sint32ImpactConfig","value":6}}}""", "0x0a0c87e7")]
+    public void A_perks_value_is_its_one_numeric_config(string configs, string? expected) =>
+        Assert.Equal(expected, (string?)Call("ShownConfig", JsonNode.Parse(configs)));
+
+    // dev.32 perks.value: the kind and raw value come from the config itself ($config, value), never through its name (a name
+    // several config ids share can resolve to another config of the entry: lab f0d824be, two perks of "unknown" kind)
+    [Theory]
+    [InlineData("""{"path":"impactValues","value":{"Amount":{"$config":"Sint32ImpactConfig","value":140},"Amount2":{"$config":"AttributeReferenceConfig","value":"x"}}}""", "Int", "140")]
+    [InlineData("""{"path":"impactValues","value":{"Chance":{"$config":"keen::impact::FloatImpactConfig","value":-0.1}}}""", "Float", "-0.1")]
+    public void A_perks_value_kind_and_raw_come_from_the_config(string configs, string type, string raw)
+    {
+        dynamic? r = Call("ShownEntry", JsonNode.Parse(configs));
+        Assert.NotNull(r);
+        Assert.Equal(type, r!.Item2.ToString());
+        Assert.Equal(raw, ((JsonNode)r.Item3).ToJsonString());
+    }
+
+    // dev.32: the resource each registry's entry is read from for its byte digest (an arsenal shares the arsenal registry's)
+    [Theory]
+    [InlineData("creatures", "keen::ecs::TemplateResource", false)]
+    [InlineData("perks", "keen::Perk", false)]
+    [InlineData("arsenals", "keen::enemy::EnemyArsenalRegistryResource", true)]
+    [InlineData("items", "keen::ItemInfo", false)]
+    [InlineData("loot", "keen::LootableItemsResource", true)]
+    public void Each_registry_names_its_resource(string registry, string type, bool shared)
+    {
+        var r = Call("ResourceTypeOf", registry)!;
+        Assert.Equal((type, shared), ((string, bool))r);
+    }
+
     [Theory]
     [InlineData(2.0)]
     [InlineData(2.5)]

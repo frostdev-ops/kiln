@@ -4,7 +4,8 @@
 // internal bridge as registry-live-native-test, and reads Kiln's regmap, which no mod should.
 //
 // With <kiln>/data/content/registry/proof/request.json, at the world's first content ready, for every mapped field of the live
-// registries (items, recipes, loot, drops) it takes one entry that reads, and:
+// registries (items, recipes, loot, drops; since dev.32 creatures, arsenals and perks, whose entries are kiln.gamedata's) it takes
+// one entry that reads, and:
 //   - reads the value through the schema (kiln.registry.live read), the row's members raw (Content.* by the game's member
 //     paths), and the SHA-256 of the entry's resource bytes (kiln.assets);
 //   - writes a probe value through kiln.registry.live (begin, submit, commit: the public mapping guard), reads it back
@@ -35,7 +36,7 @@ public sealed unsafe partial class RegistryProofTestMod : Mod
         public fixed byte Reason[192];
     }
     private const uint Manual = 4, Applied = 0, Refused = 2, Reverted = 5;
-    private static readonly string[] Live = { "items", "recipes", "loot", "drops" };
+    private static readonly string[] Live = { "items", "recipes", "loot", "drops", "creatures", "arsenals", "perks" };
     private byte* _table;
     private ulong _owner;
     private int _pass, _fail;
@@ -132,20 +133,41 @@ public sealed unsafe partial class RegistryProofTestMod : Mod
     private static string Why(Reply r) => Encoding.UTF8.GetString(r.Reason, 192).TrimEnd('\0');
 
     // ---- the game's side ----
-    private static ContentRegistry RegistryOf(string name) => name switch
+    /// <summary>An entry the producer samples: kiln.content's (items, recipes, loot, drops) or, since dev.32, kiln.gamedata's
+    /// (creatures: the templates; arsenals; perks), read raw by the game's member paths the same way.</summary>
+    private sealed record Probed(Guid Guid, string Name, uint Id, ContentEntry? Content, GameDataEntry? Data)
     {
-        "items" => Content.Items, "recipes" => Content.Recipes, "loot" => Content.Loot, _ => Content.Drops,
+        public static Probed Of(ContentEntry e) => new(e.Guid, e.Name, e.Id, e, null);
+        public static Probed Of(GameDataEntry e) => new(e.Guid, e.Name, e.Id, null, e);
+        public ContentValue Get(string path) => Data is { } d ? d.Get(path) : Content!.Get(path);
+    }
+
+    /// <summary>The kiln.gamedata section of a dev.32 registry, or null for kiln.content's.</summary>
+    private static GameDataRegistry? DataOf(string name) => name switch
+    {
+        "creatures" => Content.Templates, "arsenals" => Content.Arsenals, "perks" => Content.Perks, _ => null,
     };
 
-    private static AssetKey? ResourceOf(string registry, ContentEntry e)
+    private static IEnumerable<Probed> RegistryOf(string name) => DataOf(name) is { } data
+        ? data.Select(Probed.Of)
+        : (name switch { "items" => Content.Items, "recipes" => Content.Recipes, "loot" => Content.Loot, _ => Content.Drops }).Select(Probed.Of);
+
+    /// <summary>The resource type an entry of the registry is in, and whether every entry shares one resource (an array entry).</summary>
+    private static (string Type, bool Shared) ResourceTypeOf(string registry) => registry switch
     {
-        return registry switch
-        {
-            "items" => new AssetKey(e.Guid, "keen::ItemInfo"),
-            "drops" => new AssetKey(e.Guid, "keen::ecs::DefaultInventoryResource"),
-            "recipes" => First("keen::RecipeRegistryResource"),
-            _ => First("keen::LootableItemsResource"),
-        };
+        "items" => ("keen::ItemInfo", false),
+        "drops" => ("keen::ecs::DefaultInventoryResource", false),
+        "recipes" => ("keen::RecipeRegistryResource", true),
+        "creatures" => ("keen::ecs::TemplateResource", false),
+        "perks" => ("keen::Perk", false),
+        "arsenals" => ("keen::enemy::EnemyArsenalRegistryResource", true),
+        _ => ("keen::LootableItemsResource", true),
+    };
+
+    private static AssetKey? ResourceOf(string registry, Probed e)
+    {
+        var (type, shared) = ResourceTypeOf(registry);
+        return shared ? First(type) : new AssetKey(e.Guid, type);
         static AssetKey? First(string type)
         {
             var keys = Assets.ListResources(Assets.TypeHash(type));
@@ -162,7 +184,7 @@ public sealed unsafe partial class RegistryProofTestMod : Mod
 
     /// <summary>A member read raw by the game's path: a number, a bool, an enum's name, a GUID; null when the path is not
     /// a scalar the content reader takes (then the sample says so and kilnctl does not count it as compared).</summary>
-    private static JsonNode? Raw(ContentEntry e, string path)
+    private static JsonNode? Raw(Probed e, string path)
     {
         var tries = RawPaths(path);
         for (var i = 0; i < tries.Count; ++i)
@@ -179,10 +201,11 @@ public sealed unsafe partial class RegistryProofTestMod : Mod
     /// <summary>An item's impact config member (<c>impactValues.0x&lt;config id&gt;.value</c>) as the game has it now, through
     /// kiln.gamedata (kiln.content's flat schema has no config paths): its kind tells a Sint32 config from a float one. Null
     /// when the item has no such config or kiln.gamedata cannot read it (no evidence, never guessed).</summary>
-    private static ContentValue? ConfigValue(ContentEntry e, string path)
+    private static ContentValue? ConfigValue(Probed e, string path)
     {
         try
         {
+            if (e.Data is { } d) return d.Get(path);  // a perk's value: its own config
             foreach (var g in new[] { Content.ItemData.Get(e.Guid), Content.ItemData.Get(e.Name) })
                 if (g is not null && g.Guid == e.Guid) return g.Get(path);
         }
@@ -190,7 +213,45 @@ public sealed unsafe partial class RegistryProofTestMod : Mod
         return null;
     }
 
-    private static JsonNode? ConfigRaw(ContentEntry e, string path) => ConfigValue(e, path) is { } v ? RawValue(v) : null;
+
+    /// <summary>An impactConfig row's config "shown" (perks.value): the entry's one whole-number or fractional config, as the
+    /// key kiln.gamedata gives it in the entry's configurations (<paramref name="configs"/>, GetJson of the row's path: {"name":
+    /// {"$config": "Sint32ImpactConfig", "value": 6}}); null when the entry has none or more than one (no guess).</summary>
+    private static string? ShownConfig(JsonNode? configs) => ShownEntry(configs)?.Key;
+
+    /// <summary>The entry's one whole-number or fractional config as kiln.gamedata gives it: (its key, its type, its value);
+    /// null when there is none or more than one.</summary>
+    private static (string Key, ContentValueType Type, JsonNode? Value)? ShownEntry(JsonNode? configs)
+    {
+        // GetJson of a path gives the member wrapped ({"path", "type", "address", "value": {...}}): its value is the configurations
+        if (configs is JsonObject w && w["value"] is JsonObject inner && w.ContainsKey("path")) configs = inner;
+        if (configs is not JsonObject o) return null;
+        var numeric = o.Where(p => p.Value is JsonObject c && ((string?)c["$config"])?.Split("::")[^1] is "Sint32ImpactConfig" or "FloatImpactConfig").ToList();
+        if (numeric.Count != 1) return null;
+        var (key, node) = (numeric[0].Key, (JsonObject)numeric[0].Value!);
+        var type = ((string?)node["$config"])!.EndsWith("Sint32ImpactConfig", StringComparison.Ordinal) ? ContentValueType.Int : ContentValueType.Float;
+        return (key, type, node["value"]?.DeepClone());
+    }
+
+    /// <summary>A perk's one value, kind and raw value, read from its configurations as kiln.gamedata gives them (never by a
+    /// path through the config's name: a name several config ids share can lead to another config of the same entry; lab,
+    /// f0d824be: two perks).</summary>
+    private static (ContentValueType Type, JsonNode? Value)? ShownOf(Probed e, string configsPath)
+    {
+        try { return e.Data is { } d && ShownEntry(d.GetJson(configsPath)) is { } x ? (x.Type, x.Value) : null; }
+        catch (Exception) { return null; }
+    }
+
+    /// <summary>The member path of an impactConfig row's value on one entry: a named config's (items' costs); null for "shown".</summary>
+    private static string? ConfigPathOf(Probed e, JsonObject row, string configsPath) =>
+        (string?)row["config"] != "shown" && ConfigId((string?)row["config"]) is { } id ? configsPath + "." + id + ".value" : null;
+
+    /// <summary>The kind (Int: Sint32, Float) and raw value of an impactConfig row on one entry.</summary>
+    private static (ContentValueType Type, JsonNode? Raw)? ConfigOf(Probed e, JsonObject row, string configsPath)
+    {
+        if ((string?)row["config"] == "shown") return ShownOf(e, configsPath);
+        return ConfigPathOf(e, row, configsPath) is { } path && ConfigValue(e, path) is { } v ? (v.Type, RawValue(v)) : null;
+    }
 
     /// <summary>The config of an id table entry Content's enumeration does not list: kiln.gamedata by the table's GUID text in
     /// either byte order (kiln.content's guid_text and .NET's).</summary>
@@ -251,10 +312,11 @@ public sealed unsafe partial class RegistryProofTestMod : Mod
     /// <summary>A count of a recipe's first input or output stack (<c>input[0]</c>, <c>output[0]</c>), which Content.Get does
     /// not address: the stacks as the game has them now (ContentEntry.Inputs / Outputs, kiln.content's read of the game's
     /// lists); null for any other member (not read, never guessed).</summary>
-    private static JsonNode? StackRaw(ContentEntry e, string list, string leaf)
+    private static JsonNode? StackRaw(Probed p, string list, string leaf)
     {
         try
         {
+            if (p.Content is not { } e) return null;
             var stacks = list switch { "input" => e.Inputs, "output" => e.Outputs, _ => null };
             return stacks is { Count: > 0 } && leaf == "count" ? JsonValue.Create((long)stacks[0].Count) : null;
         }
@@ -413,7 +475,7 @@ public sealed unsafe partial class RegistryProofTestMod : Mod
             var table = ids[registry]?.AsObject();
             if (table is null) { Log.Info($"registry-proof-test: unproven: {registry}: no id table yet"); return; }
             // the registry's entries with their Kiln ids (GUID, else "#<32-bit id>")
-            var entries = new List<(ContentEntry E, string Id)>();
+            var entries = new List<(Probed E, string Id)>();
             var seen = 0;
             foreach (var e in RegistryOf(registry))
             {
@@ -476,18 +538,18 @@ public sealed unsafe partial class RegistryProofTestMod : Mod
     /// evidence only for the kinds present; an entry that holds the value but whose kind cannot be read is "unknown" (never
     /// assumed absent). An entry the lab's world does not hold and nothing reads is "notInWorld", its id added to
     /// <paramref name="notInWorld"/> under the field: kilnctl checks the counts against the values export (review3 S1).</summary>
-    private JsonObject CountKinds(string registry, string field, JsonObject row, List<string> paths, List<(ContentEntry E, string Id)> entries,
+    private JsonObject CountKinds(string registry, string field, JsonObject row, List<string> paths, List<(Probed E, string Id)> entries,
                                   JsonObject table, JsonObject notInWorld)
     {
         var counts = new SortedDictionary<string, int>(StringComparer.Ordinal) { ["sint32"] = 0, ["float"] = 0, ["unknown"] = 0, ["notInWorld"] = 0 };
         var outside = new JsonArray();
-        if (ConfigId((string?)row["config"]) is not { } configId)
+        var shown = (string?)row["config"] == "shown";
+        if (!shown && ConfigId((string?)row["config"]) is not { } configId)
         {
             Log.Info($"registry-proof-test: {registry}.{field}: Kiln has no config id for {(string?)row["config"]}: its kinds are not counted");
             return new JsonObject { ["unknown"] = table.Count };
         }
-        var path = paths[0] + "." + configId + ".value";
-        var byKey = new Dictionary<string, ContentEntry>(StringComparer.OrdinalIgnoreCase);
+        var byKey = new Dictionary<string, Probed>(StringComparer.OrdinalIgnoreCase);
         foreach (var (e, _) in entries) { byKey[e.Guid.ToString()] = e; byKey[BytesText(e.Guid)] = e; }
         foreach (var (key, idNode) in table)
         {
@@ -495,8 +557,9 @@ public sealed unsafe partial class RegistryProofTestMod : Mod
             var text = Read(registry, id, field);
             var holds = text != null && JsonNode.Parse(text) is JsonValue jv && jv.TryGetValue<double>(out _);
             var inWorld = byKey.TryGetValue(key, out var e);
-            var value = inWorld ? ConfigValue(e!, path) : ConfigValueOf(key, path);
-            if (ConfigKind(value?.Type, holds, inWorld) is not { } kind) continue;
+            var path = inWorld || shown ? null : ConfigPathOf(new Probed(Guid.Empty, "", 0, null, null), row, paths[0]);
+            var type = inWorld ? ConfigOf(e!, row, paths[0])?.Type : path is null ? null : ConfigValueOf(key, path)?.Type;
+            if (ConfigKind(type, holds, inWorld) is not { } kind) continue;
             counts[kind]++;
             if (kind == "notInWorld") outside.Add(id);
         }
@@ -528,7 +591,7 @@ public sealed unsafe partial class RegistryProofTestMod : Mod
 
     /// <summary>One sample of a field: the first entry that reads (and, for a writable field, takes a probe).</summary>
     private JsonObject? SampleOf(string registry, string field, JsonObject row, List<string> paths, string backend,
-                                 List<(ContentEntry E, string Id)> entries, JsonObject rows, JsonObject idTables, string mode = "",
+                                 List<(Probed E, string Id)> entries, JsonObject rows, JsonObject idTables, string mode = "",
                                  JsonObject? unsampled = null)
     {
         var q = $"{registry}.{field}";
@@ -541,23 +604,22 @@ public sealed unsafe partial class RegistryProofTestMod : Mod
         // the table a reference names (the schema's target): items, input categories, perks; others get no probe
         var table = conv is "ref" or "refList" ? leafName switch { "item" => "items", "category" => "inputCategories", "perks" => "perks", _ => "" } : "";
         var ids = table.Length > 0 ? idTables[table]?.AsObject().Select(p => (string?)p.Value).Where(v => v != null).Cast<string>().Take(64).ToList() ?? new() : new List<string>();
-        var configId = ConfigId((string?)row["config"]);
-        if (conv == "impactConfig" && configId is null)
+        if (conv == "impactConfig" && (string?)row["config"] != "shown" && ConfigId((string?)row["config"]) is null)
         {
             Log.Info($"registry-proof-test: no sample of {q}: Kiln has no config id for {(string?)row["config"]}");
             return null;
         }
-        var configPath = paths[0] + "." + configId + ".value";
         // a structured value (list, reference, unlock...) is not one scalar member: its raw view is the entry's resource bytes;
         // a scalar of a recipe's list element (outputs[].count), which Content.Get does not address, from the game's stacks
-        JsonArray RawOf(ContentEntry e, AssetKey? key) =>
-            new(rawPaths.Select((p, i) => FlagsRaw(conv, conv == "impactConfig" ? ConfigRaw(e, configPath) : Raw(e, p)) ?? (registry == "recipes" && element && Compared.Contains(conv) ? StackRaw(e, listPath, paths[i]) : null)
+        JsonArray RawOf(Probed e, AssetKey? key) =>
+            new(rawPaths.Select((p, i) => FlagsRaw(conv, conv == "impactConfig" ? ConfigOf(e, row, paths[0])?.Raw : Raw(e, p)) ?? (registry == "recipes" && element && Compared.Contains(conv) ? StackRaw(e, listPath, paths[i]) : null)
                 ?? (Compared.Contains(conv) ? null : JsonValue.Create("resource:" + BytesSha(key)))).ToArray());
         var tries = 0;
         var why = new SortedDictionary<string, int>(StringComparer.Ordinal); // why the entries tried gave no sample (the log, when none did)
         void Skip(string reason) => why[reason] = why.GetValueOrDefault(reason) + 1;
         // a cost config is on few items (about 150 of 4,213): every entry is looked at for one of each kind
-        var candidates = mode.Length > 0 ? entries : entries.Take(400);
+        // a creature's field is on some creatures only (a size of its own, an enemy's sight): every creature is looked at
+        var candidates = mode.Length > 0 || DataOf(registry) != null ? entries : entries.Take(400);
         // a reference table the id table does not list (perks, input categories: their ids are written only when a model
         // decodes references): other ids of the same table as this field reads them on other entries (Kiln's own ids)
         if (table.Length > 0 && ids.Count == 0 && !element)
@@ -573,7 +635,7 @@ public sealed unsafe partial class RegistryProofTestMod : Mod
             if (mode.Length > 0)
             {
                 ContentValueType kind;
-                if (ConfigValue(e, configPath) is not { } cv) { Skip("config kind unreadable"); continue; }
+                if (ConfigOf(e, row, paths[0]) is not { } cv) { Skip("config kind unreadable"); continue; }
                 kind = cv.Type;
                 if (kind != (mode == "float" ? ContentValueType.Float : ContentValueType.Int)) continue;
             }

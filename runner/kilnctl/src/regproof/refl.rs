@@ -265,11 +265,34 @@ impl Miss {
     }
 }
 
-/// The members a dotted path walks through from a type.
+/// A template's root type: its paths start at one of its components by type name (`Level.dataStorage[0]`).
+pub const TEMPLATE: &str = "keen::ecs::TemplateResource";
+
+/// A template component's type by its name without namespaces (`Level` is `keen::ecs::Level`).
+pub fn component_type(name: &str) -> String {
+    format!("keen::ecs::{name}")
+}
+
+/// The members a dotted path walks through from a type. A part `name[i]` is element i of the array member `name` (a step of
+/// its own, the element's type at i times its size); from a template root the first part names a component by its type (a
+/// step from the template to that component type, offset 0: where a template holds it is the template's, not the build's).
 fn walk(db: &TypeDb, base: &str, path: &str) -> std::result::Result<Vec<Step>, Stop> {
     let mut cur = db.get(base).ok_or_else(|| Stop { at: 0, owner: base.into(), member: String::new(), why: format!("{base} is not in the reflection") })?;
     let mut steps = Vec::new();
-    for part in path.split('.') {
+    let mut parts: Vec<&str> = path.split('.').collect();
+    if base == TEMPLATE && !parts.is_empty() && !db.fields(cur).iter().any(|f| f.name == parts[0]) {
+        let ty = component_type(parts[0]);
+        let comp = db.get(&ty).filter(|t| db.resolve(t).kind == K_STRUCT).ok_or_else(|| Stop {
+            at: 0, owner: base.into(), member: parts[0].into(), why: format!("{} is not a component type in the reflection", parts[0]) })?;
+        steps.push(Step { owner: base.into(), member: parts[0].into(), ty: ty.clone(), offset: 0 });
+        cur = comp;
+        parts.remove(0);
+    }
+    for whole in parts {
+        let (part, index) = match whole.strip_suffix(']').and_then(|x| x.split_once('[')) {
+            Some((n, i)) => (n, Some(i)),
+            None => (whole, None),
+        };
         let owner = db.resolve(cur);
         let stop = |why: String| Stop { at: steps.len(), owner: owner.name.clone(), member: part.into(), why };
         if owner.kind != K_STRUCT {
@@ -281,6 +304,18 @@ fn walk(db: &TypeDb, base: &str, path: &str) -> std::result::Result<Vec<Step>, S
         let next = db.get(&m.ty).ok_or_else(|| stop(format!("the type of {part} ({}) is not in the reflection", m.ty)))?;
         steps.push(Step { owner: owner.name.clone(), member: part.into(), ty: m.ty.clone(), offset: m.offset });
         cur = next;
+        if let Some(i) = index {
+            let at = steps.len();
+            let arr = db.resolve(cur);
+            let stop = |why: String| Stop { at, owner: arr.name.clone(), member: format!("[{i}]"), why };
+            let i: u64 = i.parse().map_err(|_| stop(format!("[{i}] is not an index")))?;
+            let el = db.element(&arr.name).ok_or_else(|| stop(format!("{part} is not an array")))?;
+            if arr.kind == K_STATIC_ARRAY && el.size > 0 && i >= arr.size / el.size {
+                return Err(stop(format!("{part} has {} elements, not {}", arr.size / el.size, i + 1)));
+            }
+            steps.push(Step { owner: arr.name.clone(), member: format!("[{i}]"), ty: el.name.clone(), offset: i * el.size });
+            cur = el;
+        }
     }
     Ok(steps)
 }
@@ -498,7 +533,8 @@ fn row_diff(old: &TypeDb, new: &TypeDb, f: &RegFile, field: &str, row: &Row, oro
     RowDiff::of(changes, notes, proposals)
 }
 
-/// The members a registry's entries are named and keyed by (and a drop table's naming component).
+/// The members a registry's entries are named and keyed by (and a drop table's naming component; a template registry's entry
+/// components, `entries.withComponent`).
 fn entries_diff(old: &TypeDb, new: &TypeDb, f: &RegFile, oroot: &Base, nroot: &Base) -> RowDiff {
     let (ob, nb) = match (oroot, nroot) {
         (Ok(o), Ok(n)) => (o, n),
@@ -518,6 +554,15 @@ fn entries_diff(old: &TypeDb, new: &TypeDb, f: &RegFile, oroot: &Base, nroot: &B
         paths.push((ty.to_string(), ty.to_string(), member.to_string()));
     }
     let (mut changes, mut notes) = (Vec::new(), Vec::new());
+    // a template registry's entries are the templates holding one of these components: each must still be a component type
+    // (its layout may change: the rows that start at it carry or change on their own)
+    if f.entries.resource_type == TEMPLATE {
+        for c in &f.entries.with_component {
+            if let (Ok(_), Err(s)) = (walk(old, ob, c), walk(new, nb, c)) {
+                changes.push(Change::Entries { what: format!("{c}: {}", s.why) });
+            }
+        }
+    }
     for (ot, nt, p) in &paths {
         match (walk(old, ot, p), walk(new, nt, p)) {
             (Ok(os), Ok(ns)) => {
@@ -653,6 +698,86 @@ pub(crate) mod tests {
         assert_eq!(b.types["demo::Hit"].fields[0].offset, 4);
         assert_eq!(b.types["demo::f32"].layout, Some(0xabcd));
         assert!(TypeDb::parse("{\"types\": 3}").is_err());
+    }
+
+    /// dev.32 creatures: a template's paths start at a component by its type name; an attribute's slot is an index into a
+    /// static array. A moved slot is carried, a slot past the array's end and a component the build lacks change the row.
+    fn creature_types(slots: u64) -> Vec<Value> {
+        vec![
+            t("demo::u32", 6, 4), t("demo::f32", 10, 4), t("demo::Guid", 29, 16), t("demo::Text", 30, 8),
+            json!({"name": "demo::Slots", "kind": K_STATIC_ARRAY, "size": 4 * slots, "layout": 0, "inner": "demo::u32"}),
+            st(TEMPLATE, 24, 0x7777, &[("name", "demo::Text", 0), ("components", "demo::PartArray", 16)]),
+            arr("demo::PartArray", "demo::Part"), st("demo::Part", 2, 0x6666, &[]),
+            st("keen::ecs::Level", 16, 0x8888, &[("dataStorage", "demo::Slots", 8)]),
+            st("keen::ecs::Sight", 4, 0x9999, &[("range", "demo::f32", 0)]),
+        ]
+    }
+    fn creature_map() -> RegMap {
+        let creatures = r#"{"regmap": 1, "registry": "beasts",
+            "entries": {"kind": "resource", "resourceType": "keen::ecs::TemplateResource", "name": "name", "key": "templates",
+                        "withComponent": ["Level"]},
+            "rows": {
+              "level":    {"paths": ["Level.dataStorage[0]"], "conv": "int", "read": "now", "backend": "live"},
+              "levelMax": {"paths": ["Level.dataStorage[1]"], "conv": "int", "read": "now", "backend": "live"},
+              "sight":    {"paths": ["Sight.range"], "conv": "float", "read": "now", "backend": "live"}}}"#;
+        let mut m = RegMap::new();
+        m.insert("beasts".into(), crate::regproof::regmap::parse(creatures, "beasts").unwrap());
+        m
+    }
+
+    #[test]
+    fn template_components_and_attribute_slots_are_walked() {
+        let (m, old) = (creature_map(), db(creature_types(2), "a"));
+        let d = diff(&m, &old, &db(creature_types(2), "b"));
+        for q in ["beasts.level", "beasts.levelMax", "beasts.sight", "beasts.(entries)"] {
+            assert_eq!(status(&d, q), Status::Same, "{q}: {:?}", d.rows[q]);
+        }
+        // the slots array shrinks to one: slot 1 is past its end on the new build; slot 0 stays where it was
+        let d = diff(&m, &old, &db(creature_types(1), "b"));
+        assert_eq!(status(&d, "beasts.level"), Status::Same, "{:?}", d.rows["beasts.level"]);
+        assert_eq!(status(&d, "beasts.levelMax"), Status::Changed, "{:?}", d.rows["beasts.levelMax"]);
+        // the component's slots move within it: carried, with the move noted
+        let mut moved = creature_types(2);
+        replace(&mut moved, st("keen::ecs::Level", 20, 0x8888, &[("dataStorage", "demo::Slots", 12)]));
+        let d = diff(&m, &old, &db(moved, "b"));
+        assert_eq!(status(&d, "beasts.levelMax"), Status::Carried, "{:?}", d.rows["beasts.levelMax"]);
+        // the build has no such component any more
+        let mut gone = creature_types(2);
+        gone.retain(|x| x["name"] != "keen::ecs::Sight");
+        assert_eq!(status(&diff(&m, &old, &db(gone, "b")), "beasts.sight"), Status::Changed);
+        // the closure kilnctl dumps names the components the rows start at
+        let r = crate::regproof::roots(&m);
+        assert!(r.contains(&"keen::ecs::Level".to_string()) && r.contains(&"keen::ecs::Sight".to_string()) && r.contains(&TEMPLATE.to_string()), "{r:?}");
+    }
+
+    /// dev.32 creatures: the components that make a template an entry (`entries.withComponent`) define the registry's entries
+    /// like a name or GUID member: a build without one of them changes the registry's entries (every row), and the closure
+    /// kilnctl dumps names them even when no row starts at them.
+    #[test]
+    fn entry_components_are_entry_members() {
+        let creatures = r#"{"regmap": 1, "registry": "beasts",
+            "entries": {"kind": "resource", "resourceType": "keen::ecs::TemplateResource", "name": "name", "key": "templates",
+                        "withComponent": ["Level", "Brain"]},
+            "rows": {"level": {"paths": ["Level.dataStorage[0]"], "conv": "int", "read": "now", "backend": "live"}}}"#;
+        let mut m = RegMap::new();
+        m.insert("beasts".into(), crate::regproof::regmap::parse(creatures, "beasts").unwrap());
+        let with_brain = || {
+            let mut v = creature_types(2);
+            v.push(st("keen::ecs::Brain", 8, 0xbbbb, &[("state", "demo::u32", 0)]));
+            v
+        };
+        let old = db(with_brain(), "a");
+        assert_eq!(status(&diff(&m, &old, &db(with_brain(), "b")), "beasts.(entries)"), Status::Same);
+        // an entry component's layout changes (a member added): the entries are the same templates
+        let mut grown = with_brain();
+        replace(&mut grown, st("keen::ecs::Brain", 12, 0xbbbc, &[("state", "demo::u32", 4)]));
+        assert_eq!(status(&diff(&m, &old, &db(grown, "b")), "beasts.(entries)"), Status::Same);
+        let gone = db(creature_types(2), "b");  // no Brain component type on the new build
+        let d = diff(&m, &old, &gone);
+        assert_eq!(status(&d, "beasts.(entries)"), Status::Changed, "{:?}", d.rows["beasts.(entries)"]);
+        assert_eq!(status(&d, "beasts.level"), Status::Changed, "{:?}", d.rows["beasts.level"]);
+        let r = crate::regproof::roots(&m);
+        assert!(r.contains(&"keen::ecs::Brain".to_string()), "{r:?}");
     }
 
     #[test]

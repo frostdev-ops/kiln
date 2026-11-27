@@ -449,8 +449,8 @@ Fix: add the texts (or leave them to English on purpose and turn the rule off wi
 ### KL213 registry-clients
 
 Warning. A server-loaded, data-only pack containing only `registry` sections declares a `clients` requirement different from the
-fields it edits. The strictest known field wins: server-only `loot`/`drops` need `none`; client-needed live
-item/recipe values suggest `kiln`; boot balance values or client-only fields require `mod` and matching client-side
+fields it edits. The strictest known field wins: server-only `loot`/`drops` (and since dev.32 `creatures`/`arsenals`) need
+`none`; client-needed live item/recipe values (and `perks.value`, `perks.armor.*`) suggest `kiln`; boot balance values or client-only fields require `mod` and matching client-side
 files/settings. Entry operations need at least `kiln`. The diagnostic suggests a value, not an automatic policy
 change: `none` can deliberately admit vanilla clients with their vanilla UI/prediction numbers for existing-item
 and recipe tweaks. See [registry client requirements](registries/README.md#registry-only-packs-choosing-clients).

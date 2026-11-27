@@ -1096,3 +1096,55 @@ A separate weakened Heavy Wolf fixture consumed three exact-slot custom tokens a
 (12 checks); full-health refusal consumed nothing. Token was not verified native bait; tool wear, natural tamer
 attribution, real-player authority and crash-safe cost+ownership commit remain unproved. Byte counters are
 representation widths, not validated 255-step gameplay. Full custom taming/protocol designs stay in chapter 19e.
+
+## 16. The creatures, arsenals and perks registries (dev.32; server 26430253 / client 26430625, svn 1287369)
+
+The evidence regmap/common/creatures.json, arsenals.json and perks.json cite. Offline survey: `tools/kfc` over the server's
+.kfc and exe (the lab base install, read as data), every TemplateResource, the EnemyArsenalRegistryResource, every Perk and the
+AttributeContainerResource **[data]**; code addresses as in §1-§11, items.md and abilities.md.
+
+### Entries [data]
+- **Creatures** are the templates that hold one of `Enemy01BehaviorState`, `Wildlife`, `Animal`, `ActiveNpcState`: 689 of
+  12,269, the same set as kiln.creatures' catalog (§11). That component is also the program that runs the creature (§2), so
+  it is the read-only `creatures.kind` (enemy, wildlife, animal, villager; the first held in that order, as the catalog
+  orders them: 538 enemies, 82 wildlife, 11 animals, 58 villagers; the 40 templates with both `Wildlife` and `Animal`, the
+  tameable animals, are wildlife). A creature's Kiln id is its template's (`key: "templates"`, matched by GUID): pets and taming name a
+  creature by the template it spawns from. Ids of this build: 689, 2 with a clash suffix (both inherited from templates).
+- **Arsenals:** `EnemyArsenalRegistryResource.arsenals` holds 201 arsenals (619 attacks, 13 arsenals empty), each with a
+  `guid`. 188 are named by the creature templates whose `EnemyArsenalReference.arsenal` names them (`nameFrom`, as drop
+  tables); 13 that no template names are `game:arsenal_<guid8>`. An attack's values (`AttackDesscription`): selectionChance
+  0..1, threat 0..10, minRange 0..15 m, maxRange 0..200 m, maxVerticalRange 0..15 m.
+- **Perks:** 365 `keen::Perk` resources, ids as items.perks has named them since dev.31 (debug name, `perk_<guid8>`).
+  350 hold exactly one whole-number or fractional config (222 `Sint32ImpactConfig`, valueFormat Normal; 128
+  `FloatImpactConfig`, Percentage), with a locaTag, and exactly one `uiValues` row whose locaId is FNV-1a of that locaTag: the
+  value the perk's tooltip shows. Its config id differs per perk (12 ids), so `perks.value` is impactConfig `"config":
+  "shown"` (the one numeric config), not one config id. Values range -0.1 (cost reductions) to 140. The other 15 hold none:
+  7 armour perks (`perkArmorSetup.isSet`, 0.03 of one kind) and 8 damage perks (`damageModifier.isSet`, 0.1 of one kind),
+  all without a program.
+
+### Attribute slots [data]
+`AttributeContainerResource` names each attribute structure's slots (`debugNames`), in `dataStorage` order:
+- `Level`: Level, Level_Max (UInt32; the Level calculation clamps to Level_Max, §11).
+- `DamageMod`: DamageMod (= Base x Multiplier + Adder), Base, Multiplier, Adder.
+- `Movement`: Movement, Mod, Sneak 2, Walk 3, Run 4, Sprint 5, Combat 6, Custom 7, Patrol 8, Flee 9, PushbackMod, RotationMod,
+  SwimRun, SwimSprint, DiveRun, DiveSprint, Swim_Mod, SwimDive_Sprint_Mod.
+- `DamageSusceptibility`: the root, Physical 1 (Cut 2, Pierce 3, Blunt 4 below it), Wood 5, Stone 6, Metal 7, Poison 8,
+  Explosion 9, SkillShot 10, Magical 11 (= MagicalBase 12 x MagicalMultiplier 14 + MagicalAdder 13), Fire 15, Fog 16, Ice 17,
+  Lightning 18 (Kiln.Creatures' DamageKind). The registry maps the slots a mod sets; Magical and the root are computed.
+
+### When the game reads each field
+| Fields | Component | Read | Tag |
+|---|---|---|---|
+| level, levelMax, faction, scale, xp, damage.multiplier, resist.*, speed.*, loot.* | dynamic (Level, Faction, ScaleComponent, ExperienceSource, DamageMod, DamageSusceptibility, Movement, RandomLoot, RandomLootSlotCount) | copied from the template into each creature as it spawns (§1.3: per-entity sizes of all nine on a spawned Vukah; gamedata.md: a projectile spawned after a LifeTime change had the new value); the hit, the kill and enemy_scaling read the creature's own copy. A template edit reaches creatures that spawn after it; nothing reads the template's copy later. A spawner's own level (`OverrideLevel`, §5) wins over `level` | rt |
+| health.levelFactor, health.perPlayer, damage.perPlayer | EnemyScaling (template-only) | enemy_scaling reads it through the template slot at each creature's update interval (§1.5: level 1 -> 10 gave 119 -> 417 health within one interval) | rt |
+| sight.range, sight.engageRange | Enemy01BehaviorState (template-only) | read through the template slot at every update, also by creatures already in the world (§1.4: a viewRange write seen by A, B and a later spawn) | rt |
+| arsenal (read-only) | EnemyArsenalReference (template-only) | ArsenalFind by this GUID at every update (§11) | dis, rt |
+| arsenals.attacks[].* | the arsenal registry's resource | ArsenalFind's record is the arsenal's element of the resource data in memory (§2.4: registry +0x78 is the resource data), passed to the attack choice at each update: nothing copied | dis, rt |
+| perks.value | the perk's config | equipment_impacts (0x147330) starts a perk's impact program when its item is equipped and the perk unlocked; impact_initialize (0x197250) copies the config values into that instance as it starts (abilities.md §1, §4). Each start reads the current value; an effect already running keeps the value it started with until it starts again | dis, rt |
+| perks.armor.* | perkArmorSetup | apply_armor, every update, for each unlocked perk of each equipped piece (items.md "Armour", 0x915010 [0xe6dfe0]): isSet and the nine values | dis |
+| perks.damage.* | damageModifier | **not traced**: no reader of a perk's damageModifier was found; the rows ship unproven (worldLoad, refused) | - |
+
+A Kiln client gets the server's template, arsenal and perk layers through the content sync (kiln.gamedata's export carries
+every changed gamedata slot, registry layers included). Faction, level and scale reach any client through the replicated
+components (§1.3); whether a vanilla client's own spawn of a replicated creature reads its own template's ScaleComponent is
+not verified.

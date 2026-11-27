@@ -300,6 +300,10 @@ const map::EntrySource* builtin(const std::string& r) {
     return nullptr;
 }
 
+// An impactConfig row's config "shown" (perks.value): the entry's one configuration of a whole-number or a fractional type,
+// the value its tooltip row shows (the config's id differs per entry). Types by their name without namespaces.
+bool shown_config_type(const std::string& brief) { return brief == "Sint32ImpactConfig" || brief == "FloatImpactConfig"; }
+
 // Kiln's names of the impact configurations the regmap's impactConfig rows name, as the game's config ids (identifiers of
 // Kiln's translation layer, docs/kiln/services/gamedata.md).
 std::string config_path(const std::string& config) {
@@ -396,8 +400,18 @@ std::optional<Value> decode(const map::RegistryMap& reg, const map::Row& row, co
     }
     if (c == "ref") {
         if (!at(0, &a)) return std::nullopt;
-        if (row.paths.size() > 1 && !get(row.paths[1], &b, why)) b = nullptr;
+        if (row.paths.size() == 1) return ref_of(f.ref, json(), a);  // one path: the reference alone (a creature's arsenal)
+        if (!get(row.paths[1], &b, why)) b = nullptr;
         return ref_of(f.ref, a, b);
+    }
+    if (c == "component") {  // the first of the row's component types the entry holds (creatures.kind)
+        for (const std::string& p : row.paths) {
+            std::string w;
+            if (!get(p, &a, &w)) continue;
+            for (const auto& [k, v] : row.values)
+                if (v == p) return Value::text(k);
+        }
+        return *why = "the entry holds none of the row's components", std::nullopt;
     }
     if (c == "refList") {
         if (!at(0, &a)) return std::nullopt;
@@ -422,6 +436,19 @@ std::optional<Value> decode(const map::RegistryMap& reg, const map::Row& row, co
         double v = 0;
         if (!formulas::read(row.formula, in, formulas::constants_of(balance), &v)) return *why = "the formula " + row.formula + " gives no value here", std::nullopt;
         return f.type == FieldType::Int ? Value::integer(static_cast<int64_t>(std::llround(v))) : Value::number(v);
+    }
+    if (c == "impactConfig" && row.config == kShownConfig) {  // perks.value: the entry's one whole or fractional configuration
+        if (row.paths.empty()) return *why = "the row has no path", std::nullopt;
+        if (!get(row.paths[0], &a, why)) return std::nullopt;
+        const json* only = nullptr;
+        size_t n = 0;
+        for (auto it = a.begin(); a.is_object() && it != a.end(); ++it)
+            if (const json* t = it.value().is_object() ? member_ci(it.value(), "$config") : nullptr; t && t->is_string() &&
+                shown_config_type(t->get<std::string>().substr(t->get<std::string>().rfind(':') == std::string::npos ? 0 : t->get<std::string>().rfind(':') + 1)))
+                ++n, only = &it.value();
+        if (n == 0) return Value{};  // a perk without a value (the simple armour and damage perks): null
+        if (n != 1 || !only->contains("value")) return *why = "the entry holds more than one value", std::nullopt;
+        return scalar(f, f.type, (*only)["value"], why);
     }
     if (c == "impactConfig") {
         if (row.paths.empty()) return *why = "the row has no path", std::nullopt;
@@ -610,7 +637,17 @@ const std::vector<Entry>* Model::entries(const std::string& registry, std::strin
     if (!src_.list(s.resource_type, &keys, &w)) return fail(w);
     std::vector<Place> places;
     if (s.kind == map::EntryKind::Resource) {
-        for (const KilnAssetKey& k : keys) places.push_back({k, s.resource_type, "", -1});
+        for (const KilnAssetKey& k : keys) {
+            const Place p{k, s.resource_type, "", -1};
+            // creatures: only the templates that hold one of the source's components (an enemy's, an animal's behaviour)
+            bool holds = s.with_component.empty();
+            for (size_t c = 0; !holds && c < s.with_component.size(); ++c) {
+                json j;
+                std::string w;
+                holds = src_.member(p, s.with_component[c], &j, &w);
+            }
+            if (holds) places.push_back(p);
+        }
     } else if (s.kind == map::EntryKind::Single) {
         for (const KilnAssetKey& k : keys)
             if (lc(guid_text(k.guid)) == lc(s.resource_guid)) places.push_back({k, s.resource_type, "", -1});
@@ -641,11 +678,15 @@ const std::vector<Entry>* Model::entries(const std::string& registry, std::strin
         }
     }
     std::map<uint32_t, std::string> by_item;
-    if (s.key == "items") {
+    std::map<std::string, std::string> by_key_guid;
+    if (!s.key.empty()) {  // loot: its item's id (by 32-bit id); creatures: its template's id (by GUID)
         std::string iw;
-        const std::vector<Entry>* items = entries("items", &iw);
-        if (!items) return fail("its entries are named by items: " + iw);
-        for (const Entry& e : *items) by_item.emplace(e.num, e.id);
+        const std::vector<Entry>* keyed = entries(s.key, &iw);
+        if (!keyed) return fail("its entries are named by " + s.key + ": " + iw);
+        for (const Entry& e : *keyed) {
+            by_item.emplace(e.num, e.id);
+            if (!e.guid.empty()) by_key_guid.emplace(e.guid, e.id);
+        }
     }
     std::vector<map::GameEntry> game;
     for (const Place& p : places) {
@@ -667,7 +708,8 @@ const std::vector<Entry>* Model::entries(const std::string& registry, std::strin
         R.entries.push_back(std::move(e));
     }
     std::vector<std::string> notes;
-    const std::vector<std::string> ids = map::assign_ids(registry, s, d_->rm.build.aliases, game, s.key == "items" ? &by_item : nullptr, &notes);
+    const std::vector<std::string> ids = map::assign_ids(registry, s, d_->rm.build.aliases, game, s.key == "items" ? &by_item : nullptr, &notes,
+                                                         s.key.empty() || s.key == "items" ? nullptr : &by_key_guid);
     for (const std::string& n : notes) d_->note(n);
     for (size_t i = 0; i < R.entries.size() && i < ids.size(); ++i) {
         // every Kiln id is lower case (the id grammar; kiln.registry's select walks ids as stored): a pinned id that is not is
@@ -725,6 +767,14 @@ std::optional<Value> Model::value(const std::string& registry, size_t i, const s
     if (row == R.map->rows.end()) return done(std::nullopt, registry + "." + field + " has no regmap row");
     const Place place = (*es)[i].place;
     MemberFn get = [&](const std::string& path, json* out, std::string* w) { return src_.member(place, path, out, w); };
+    // A creature without the component a field lives in has no value of it: null, never an error or a note (most creatures
+    // have no size of their own, only enemies have an arsenal); a live edit of it is refused for that entry.
+    if (R.src && R.src->resource_type == "keen::ecs::TemplateResource" && row->second.conv != "component" && !row->second.paths.empty()) {
+        const std::string& p0 = row->second.paths[0];
+        json j;
+        std::string w;
+        if (!get(p0.substr(0, p0.find_first_of(".[")), &j, &w)) return done(Value{}, "");
+    }
     RefFn refs = [this](const std::string& reg, const std::string& guid, uint32_t num) -> std::optional<std::string> {
         std::string w;
         if (!entries(reg, &w)) return std::nullopt;
@@ -882,6 +932,8 @@ void Model::fill(const Need& need, BaseModel* out) {
                     json j;
                     if (src_.member((*es)[i].place, "isCookingRecipe", &j, &w) && j.is_boolean() && j.get<bool>()) e.traits.insert("cooking");
                     if (src_.member((*es)[i].place, "isUpgrade", &j, &w) && j.is_boolean() && j.get<bool>()) e.traits.insert("upgrade");
+                } else if (reg == "creatures") {  // its kind is its trait: "@has": ["enemy"]
+                    if (auto v = value(reg, i, "kind", &w); v && v->kind == Value::Text) e.traits.insert(v->t);
                 }
             }
             dst.push_back(std::move(e));

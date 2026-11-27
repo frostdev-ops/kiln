@@ -1,0 +1,68 @@
+{
+  "regmap": 1,
+  "registry": "arsenals",
+  "entries": {
+    "kind": "array",
+    "resourceType": "keen::enemy::EnemyArsenalRegistryResource",
+    "array": "arsenals",
+    "guid": "guid",
+    "nameFrom": "keen::ecs::EnemyArsenalReference.arsenal",
+    "unnamed": "arsenal_%.8s"
+  },
+  "rows": {
+    "attacks": {
+      "paths": [
+        "attacks"
+      ],
+      "conv": "list",
+      "read": "now",
+      "backend": "live",
+      "evidence": "docs/re/creatures.md 2.4 and 11, docs/re/gamedata.md 4: enemy01 looks the arsenal up (ArsenalFind) at every update and passes the record, the element of the resource data in memory, to its attack choice: nothing is copied"
+    },
+    "attacks[].chance": {
+      "paths": [
+        "description.selectionChance"
+      ],
+      "conv": "float",
+      "read": "now",
+      "backend": "live",
+      "evidence": "docs/re/creatures.md 2.4 and 11, docs/re/gamedata.md 4: enemy01 looks the arsenal up (ArsenalFind) at every update and passes the record, the element of the resource data in memory, to its attack choice: nothing is copied"
+    },
+    "attacks[].threat": {
+      "paths": [
+        "description.threat"
+      ],
+      "conv": "float",
+      "read": "now",
+      "backend": "live",
+      "evidence": "docs/re/creatures.md 2.4 and 11, docs/re/gamedata.md 4: enemy01 looks the arsenal up (ArsenalFind) at every update and passes the record, the element of the resource data in memory, to its attack choice: nothing is copied"
+    },
+    "attacks[].minRange": {
+      "paths": [
+        "description.minRange"
+      ],
+      "conv": "float",
+      "read": "now",
+      "backend": "live",
+      "evidence": "docs/re/creatures.md 2.4 and 11, docs/re/gamedata.md 4: enemy01 looks the arsenal up (ArsenalFind) at every update and passes the record, the element of the resource data in memory, to its attack choice: nothing is copied"
+    },
+    "attacks[].maxRange": {
+      "paths": [
+        "description.maxRange"
+      ],
+      "conv": "float",
+      "read": "now",
+      "backend": "live",
+      "evidence": "docs/re/creatures.md 2.4 and 11, docs/re/gamedata.md 4: enemy01 looks the arsenal up (ArsenalFind) at every update and passes the record, the element of the resource data in memory, to its attack choice: nothing is copied"
+    },
+    "attacks[].maxHeight": {
+      "paths": [
+        "description.maxVerticalRange"
+      ],
+      "conv": "float",
+      "read": "now",
+      "backend": "live",
+      "evidence": "docs/re/creatures.md 2.4 and 11, docs/re/gamedata.md 4: enemy01 looks the arsenal up (ArsenalFind) at every update and passes the record, the element of the resource data in memory, to its attack choice: nothing is copied"
+    }
+  }
+}

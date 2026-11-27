@@ -432,6 +432,41 @@ int main(int argc, char** argv) {
                   archive_fields_of(af.rows["items"], {"perkIds[]"}) == std::set<std::string>({"perks"}) &&
                   archive_fields_of(af.rows["items"], {"maxStackSizeX"}).empty() && archive_fields_of(af.rows["items"], {""}).size() == 3,
               "a path names the fields it holds or lies in, at member boundaries only; \"\" names every field");
+        // dev.32 creatures: a template's fields live in its component list, which a journal names by place, not by the
+        // component type the rows start at: any write in the list names every field (never a miss), its name none
+        std::map<std::string, std::vector<std::string>> creature_rows;
+        for (const auto& [f, paths] : std::map<std::string, std::vector<std::string>>{{"level", {"Level.dataStorage[0]"}}, {"scale", {"ScaleComponent.uniformScale"}}})
+            creature_rows[f] = archive_paths_of("keen::ecs::TemplateResource", paths);
+        CHECK(archive_fields_of(creature_rows, {"components[12].value.dataStorage[0]"}) == std::set<std::string>({"level", "scale"}) &&
+                  archive_fields_of(creature_rows, {"components"}).size() == 2 && archive_fields_of(creature_rows, {"name"}).empty() &&
+                  archive_paths_of("keen::ItemInfo", {"maxStackSize"}) == std::vector<std::string>({"maxStackSize"}),
+              "a write in a template's component list names every creature field; other resources keep their rows' paths");
+        // review registry-r2a: the journal cannot tell which of a template's components a write was in, so such a write names
+        // the creature whole ("wrote this entry", registry.json "named": "entry"), never field by field ("wrote this field"
+        // would claim the package wrote the creature's level when it only changed its model); a write outside the component
+        // list (its name) names nothing
+        {
+            const std::string vukah = "d5d05217-52dc-467a-9192-26b4f661d8d9", wolf = "478381c5-585f-4264-b373-dbb1ea596eca";
+            ArchiveJournal cj;
+            cj.state = "read", cj.format = 2, cj.dialect = "eml";
+            ArchiveJournal::Package looks;
+            looks.id = "looks", looks.kind = "eml", looks.changed = {vukah, wolf};
+            looks.paths[vukah] = {"components[3].value.model"};
+            looks.paths[wolf] = {"name"};
+            cj.packages = {looks};
+            BaseModel cbm;
+            cbm.registries["creatures"] = {entry("game:enemy_vukah_melee", {{"level", Value::integer(7)}, {"scale", Value::number(1)}}),
+                                           entry("game:enemy_wildbeast_wolf_earlygame", {{"level", Value::integer(3)}})};
+            ArchiveFields caf;
+            caf.rows["creatures"] = creature_rows;
+            CHECK(name_archive_writers(cj, {{"creatures|game:enemy_vukah_melee", vukah}, {"creatures|game:enemy_wildbeast_wolf_earlygame", wolf}},
+                                       {"creatures"}, &cbm, &caf) == 1,
+                  "one creature named: the one whose component list the package wrote");
+            const BaseModel::Entry& v = cbm.registries["creatures"][0];
+            CHECK(v.archive == std::vector<std::string>({"eml:looks"}) && v.archive_fields.empty(),
+                  "the creature is named whole, not on every field: " + std::to_string(v.archive_fields.size()) + " per-field names");
+            CHECK(cbm.registries["creatures"][1].archive.empty(), "a write of the template's name names no creature");
+        }
         // the same journal without the regmap's fields: per entry as before, never an element
         BaseModel plain = eb;
         for (auto& [reg, es2] : plain.registries)

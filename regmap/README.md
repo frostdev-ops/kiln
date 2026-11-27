@@ -26,7 +26,9 @@ Adding a registry (schema, mapping, back-ends, proof, tests, and the pitfalls th
                "unnamed": "item_%08x",        // the stable name of an entry without a debug name (printf over its id;
                                               // "%.8s" takes the GUID text instead)
                "nameFrom": "",                // drop tables: "<component>.<member>": the templates that use the entry name it
-               "key": "" },                   // loot: "items": the entry has the id of the item with its 32-bit id
+               "key": "",                     // loot: "items": the entry has the id of the item with its 32-bit id;
+                                              // creatures: "templates": the id of the template with its GUID
+               "withComponent": [] },         // creatures: only the templates holding one of these components (by type name)
   "rows": {
     "maxStack": { "paths": ["maxStackSize"], "conv": "int", "read": "worldLoad", "backend": "live", "clientNeeds": true,
                   "evidence": "docs/re/content.md (StackClamp)" },
@@ -34,7 +36,8 @@ Adding a registry (schema, mapping, back-ends, proof, tests, and the pitfalls th
                   "state": "unproven", "reason": "no game code reads an item's burn time on this build, ..." } } }
 ```
 
-A row: `paths` (the game's member paths from the entry's root; for a field of a list's elements, from the element),
+A row: `paths` (the game's member paths from the entry's root; for a field of a list's elements, from the element; from a
+template root the first part names a component by its type, `Level.dataStorage[0]`, and `name[i]` is element i of an array),
 `conv` (below), `read` (when the game reads the member: now, worldLoad, restart, unknown), `backend` (live: kiln.content's
 store at world load; boot: the boot resource patch before the game reads it; none: read-only), `clientNeeds` (a client
 shows or predicts from its own copy), `state` (mapped, unproven, unmapped; the last two with a `reason`), `evidence`.
@@ -46,14 +49,15 @@ shows or predicts from its own copy), `state` (mapped, unproven, unmapped; the l
 | enum | an enum member; `values` maps Kiln names to the game's | one Kiln name |
 | flags | a bitmask member; `values` as enum | a set of Kiln names |
 | optionalEnum | [the switch (bool), the enum]; `values` with `none` for the switch off | one Kiln name |
-| ref | [the 32-bit id, the reference (GUID)], kept in step | an entry's Kiln id |
+| ref | [the 32-bit id, the reference (GUID)], kept in step; or [the reference] alone | an entry's Kiln id |
 | refList | [the array of references, the array of ids], kept in step | a list of Kiln ids |
 | formula | the members the formula reads and writes; `formula` names it (formulas.h) | the Kiln number (tooltip power, armour) |
-| impactConfig | the impact configurations; `config` names the configuration | the number |
+| impactConfig | the impact configurations; `config` names the configuration, or `shown`: the entry's one whole-number or fractional configuration (its tooltip's value; the id differs per entry: perks.value) | the number |
 | list | the array (blob or static) | a list; its elements' fields have rows of their own (`inputs[].count`) |
 | stackCount | the count members of the element's alternatives (item stack, input category) | the count |
 | inventoryWalk | the root group: stacks first, then each child group, depth first | the table's entries in walk order |
 | unlock | the knowledge requirement | game or always |
+| component | template components by type name; `values` maps one Kiln name to each, read-only | the Kiln name of the first one the entry holds (creatures.kind) |
 
 **The routing rule.** The schema's `applies` is the contract. A row's `read` may not be later than its field's
 `applies` (now < worldLoad < restart); a `boot` back-end serves only restart fields and `live` only now and worldLoad

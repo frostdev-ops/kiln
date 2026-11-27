@@ -338,7 +338,8 @@
               "progressionCap",
               "experienceCurve",
               "baseLimits",
-              "listShape"
+              "listShape",
+              "creatureLevel"
             ]
           },
           "decision": {

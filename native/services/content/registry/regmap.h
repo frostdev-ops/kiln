@@ -37,7 +37,7 @@ enum class Mapping : uint8_t { Mapped = 0, Unmapped = 1, Unproven = 2, Removed =
 // The conversions between a Kiln value and the game's (regmap/README.md).
 inline constexpr const char* kConvs[] = {"int",     "float",   "bool",    "time",         "enum",          "flags",
                                          "ref",     "refList", "formula", "impactConfig", "list",          "stackCount",
-                                         "inventoryWalk", "unlock", "optionalEnum"};
+                                         "inventoryWalk", "unlock", "optionalEnum", "component"};
 
 struct Row {
     std::string field;               // the Kiln field ("maxStack", "inputs[].count")
@@ -59,7 +59,10 @@ struct EntrySource {
     std::string name, guid, id; // members: the debug name, the entry's GUID (empty: the resource's), the 32-bit id
     std::string unnamed;        // the stable name of an entry without one: printf over the id ("item_%08x") or the GUID text ("drops_%.8s")
     std::string name_from;      // drop tables: "<component type>.<member>" whose templates name the entry
-    std::string key;            // loot: "items": the entry has the id of the items entry with the same 32-bit id
+    std::string key;            // loot: "items": the entry has the id of the items entry with the same 32-bit id; creatures:
+                                // "templates": the id of the template with the same GUID
+    // creatures: the entries are the resources holding a component of one of these types (template roots), in order
+    std::vector<std::string> with_component;
 };
 
 struct RegistryMap {
@@ -129,12 +132,13 @@ struct GameEntry {
 // where the stable name is the debug name in lower case (an unnamed entry: the source's "unnamed" pattern; a drop table:
 // the first of its templates' names in ordinal order). The entry that holds a name first keeps it; a later one with the
 // same name (also in another case) gets "~<first 8 hex digits of its GUID>", more digits while that is taken.
-// by_item_id: the items registry's ids by 32-bit item id (loot).
+// by_item_id: the items registry's ids by 32-bit item id (loot); by_key_guid: the keyed registry's ids by GUID (lower case;
+// creatures take their template's id). A registry whose source names a "key" takes the keyed id by GUID first, else by id.
 // A name outside the id grammar (spaces, apostrophes, non-ASCII bytes) has each such character as '_' and is named in
 // *notes (the record pins it); so is a second loot entry for one item. Removed ids (aliases.removed) are never given again.
 std::vector<std::string> assign_ids(const std::string& registry, const EntrySource& src, const Aliases& aliases,
                                     const std::vector<GameEntry>& entries, const std::map<uint32_t, std::string>* by_item_id,
-                                    std::vector<std::string>* notes = nullptr);
+                                    std::vector<std::string>* notes = nullptr, const std::map<std::string, std::string>* by_key_guid = nullptr);
 
 // The one id grammar (tools/registrygen KILN_ID, C# RegistryId, the data section's schema): <namespace>:<name>, namespace
 // [a-z0-9][a-z0-9_.-]*, name [a-z0-9_.-]+, then optionally a clash suffix "~" and 8 to 32 lower-case hex digits.

@@ -160,10 +160,13 @@ const char* section_name(uint32_t) { return "templates"; }
 uint32_t section_of(const std::string&) { return 0; }
 uint64_t generation() { return 1; }
 Node root_of(uint32_t, const GEntry&) { return {}; }
-bool resolve(Root, Node, const std::string&, std::vector<Resolved>*, std::string* err, bool*) {
+bool g_first_missing = false;  // value_slot_absent: what resolve says of the path's first segment
+bool resolve(Root, Node, const std::string&, std::vector<Resolved>*, std::string* err, bool* first_missing) {
     *err = "not in this test";
+    if (first_missing) *first_missing = g_first_missing;
     return false;
 }
+bool valid_section(uint32_t s) { return s >= KILN_GD_TEMPLATES && s <= KILN_GD_ITEMS; }
 bool identity_field(const std::string&) { return false; }
 bool leaf_of(const TType*, Field*) { return false; }
 bool blob_array(uintptr_t, uintptr_t*, uint32_t*) { return false; }
@@ -378,9 +381,35 @@ void journal_cost() {
 
 }  // namespace
 
+// review registry-r2a: gd_value_slot's "this entry has none of it" (GdValueSlot::absent, a per-entry refusal in Kiln words) is
+// only for a template's component the entry lacks; a perk's or an arsenal's path whose first member the root type lacks is a
+// mapping this build broke (every entry shares the type): "missing on this game build", for the proof a disagreement
+void value_slot_absent() {
+    static kc::gd::TType root;
+    root.name = "keen::Perk", root.brief = "Perk";
+    kc::gd::g_none.type = &root, kc::gd::g_none.available = true;
+    kc::Entry e;
+    e.id = 7, e.name = "Perk_Armor_Fog", e.addr = 0x1000;
+    kc::gd::g_first_missing = true;
+    for (const auto& [root_kind, section, want] : {std::tuple{kc::gd::Root::Template, uint32_t(KILN_GD_TEMPLATES), true},
+                                                   std::tuple{kc::gd::Root::Plain, uint32_t(KILN_GD_PERKS), false},
+                                                   std::tuple{kc::gd::Root::Plain, uint32_t(KILN_GD_ARSENALS), false}}) {
+        kc::gd::g_none.root = root_kind;
+        kc::GdValueSlot s;
+        std::string why;
+        const bool refused = !kc::gd_value_slot(section, e, "perkArmorSetup.isSet", &s, &why);
+        check(refused && s.absent == want,
+              std::string(want ? "a template without the component: this entry has none" : "a plain root without the member: a broken mapping, not an absent value") +
+                  " (absent " + (s.absent ? "true" : "false") + ")");
+    }
+    kc::gd::g_first_missing = false;
+    kc::gd::g_none = kc::gd::GRegistry{};
+}
+
 int main() {
     run();
     journal_cost();
+    value_slot_absent();
     if (failures) std::printf("gdundo-test: %d check(s) FAILED\n", failures);
     else std::printf("gdundo-test: all checks passed\n");
     return failures ? 1 : 0;
