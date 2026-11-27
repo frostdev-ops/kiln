@@ -2761,6 +2761,9 @@
       "title": "Darstellung",
       "fire": "Animiertes Feuer",
       "fireHint": "Das Feuer auf Spielen (WebGL). Aus: ein schlichter Spielen-Knopf, schonender für schwache GPUs.",
+      "festive": "Festtage",
+      "festiveHint": "Ein winterlicher Kaminsims über dem Feuer, mit Schnee, bis zum 7. Januar.",
+      "festiveMore": "Lampen, Kerzen und Laternen vieler Wintertraditionen auf einem Sims über dem Feuer, Schnee vor dem Bogen und Girlanden auf den Seiten, vom Montag nach dem Thanksgiving-Wochenende bis zum 7. Januar. Aus: das gewohnte Aussehen für den Rest dieser Saison; zur nächsten Saison ist es wieder da.",
       "noGpu": "Launcher ohne GPU zeichnen",
       "fireOffSoftware": "Aus, solange der Launcher ohne GPU zeichnet.",
       "fireOffEnv": "Aus für diesen Start: KILN_LAUNCHER_NO_WEBGL ist gesetzt.",
@@ -3667,6 +3670,7 @@
     },
     "appShell": {
       "thanksgiving": "Schönes Thanksgiving",
+      "festive": "Frohe Festtage",
       "headStart": "{progress} · {step}",
       "pct": "{pct}%",
       "labelTime": "{label} {time}",

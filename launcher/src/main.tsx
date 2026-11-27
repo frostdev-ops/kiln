@@ -16,6 +16,7 @@ import { setLanguage } from "./i18n";
 import "./i18n/locales";
 import { LanguageSync, storedLanguage } from "./i18n/LanguageSync";
 import "./theme/base.css";
+import "./theme/festive.css";
 
 const queryClient = new QueryClient();
 

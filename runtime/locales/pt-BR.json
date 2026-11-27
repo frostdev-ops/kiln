@@ -465,6 +465,7 @@
       "failed": "Não foi possível enviar {action}: {error}"
     },
     "binding": "Mods do ShroudForge: abrir a página do ShroudForge no Kiln",
+    "joined_world_edit": "Um mod do ShroudForge tentou mudar blocos, mas em um jogo em que você entrou só o servidor ou o host pode fazer isso. Rode esse mod lá.",
     "check": {
       "whole": "{setting} aceita um número inteiro",
       "type": "{setting} aceita {type}, não {given}",

@@ -154,6 +154,8 @@ pub const NAMES: &[&str] = &[
     "admin_open_web_panel",
     "admin_close_web_panel",
     "admin_web_panels",
+    "admin_web_panel_settings",
+    "admin_web_panel_settings_set",
     "admin_disconnect",
     "admin_sessions",
     "admin_call",

@@ -39,7 +39,8 @@ the press position in the same pixels (`Ui.Inventory.OnClick`). Page `docs/kiln/
 `Ui.AmmoList.Provide(AmmoListKind.Arrow | AmmoListKind.Spell, ctx => rows, new AmmoListOptions { Mode = AmmoListMode.Append })`
 returns an `AmmoListProvider` (`Refresh()`, `Dispose()`; it also ends at unload). The provider runs on the game's UI
 thread when the list's `AmmoListContext` changes (`Kind`, `Held`, `GameRows`, `Session`, `Revision`) and returns
-`AmmoListRow(item, count)` rows in its order; `Replace` hides the game's rows. `Ui.AmmoList.Picked += pick => ...` gets
+`AmmoListRow(item, count)` rows in its order; `Replace` hides the game's rows (and since dev.31.21 keeps its last rows and
+the cursor over the game's new build until Kiln publishes for it, at most 1 s, GitHub #151). `Ui.AmmoList.Picked += pick => ...` gets
 a selection wish (`AmmoListPick`: `Kind`, `Item`, `Count`) for this mod's rows the backpack does not hold: send it to the
 server half, which validates it and swaps the stack in. Rows `ui.ammo.list` and `ui.ammo.pick` (`Available`,
 `PicksAvailable`); test kit `kiln.AmmoList`. Page `docs/kiln/ui.md`.

@@ -472,8 +472,10 @@ export function MapView({ height }: { height: number }) {
       </aside>
       <div className="ka-map-area">
         <div className="ka-map" ref={box} />
+        {/* map.css places it (above the route panel, in the map area's top column); its z-index stays inline: Kilnwarden
+            hides this banner by `.ka-map-area > div[style*="z-index: 1001"]` (web/src/app.css) */}
         {assets === false && noArt?.title !== null ? (
-          <div className="ka-map-noart" style={{ position: "absolute", left: 56, right: 56, top: 12, zIndex: 1001 }}>
+          <div className="ka-map-noart" style={{ zIndex: 1001 }}>
             {noArt ? (
               <Banner tone="info" title={noArt.title}
                 actions={noArt.action ? <Button size="s" loading={noArt.action.busy} onClick={noArt.action.onClick}>{noArt.action.label}</Button> : undefined}>

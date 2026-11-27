@@ -127,6 +127,7 @@ internal static unsafe class UiEngine
         ShroudForgeMenu.Start();
         // every start prunes ended launches' sfi UI bridge folders once, on a worker
         SfiBridge.Start();
+        ShroudForgeJoinedNotice.Start();  // a ShroudForge mod that changes blocks in a joined game: one toast a session
         GameMenuEntries.Start();  // Kiln's setting for mods' entries in the game's menus (kiln.ui v6)
         Recount();
         Log(LogLevel.Info, $"Kiln.Ui ready; Kiln menu on {KeyBindings.MenuKey}; game UI {(UiNative.HasGameUi && Ui.Screens.Available ? "on" : "off")}, " +

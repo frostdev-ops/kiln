@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <string>
 
+#include "joined_notice.h"
 #include "kiln_api.h"
 
 namespace ksf {
@@ -39,6 +40,13 @@ struct KfcHost;
 const KfcHost* host_table(const KilnApi* api, KilnOwner owner);
 // The table's voxel writer (host_voxels.cpp): ShroudForge's runtime.world.voxel.write through kiln.build.
 void host_voxels_attach(const KilnApi* api, KilnOwner owner, KfcHost* table);
+// The worlds kiln-core reports now (any thread; all false when it cannot say). host_voxels.cpp.
+joined::Worlds session_worlds(const KilnApi* api);
+// A ShroudForge mod changes blocks in a game that joined a server (joined_notice.h): host_voxels.cpp calls `fn` (any thread)
+// for each write it refuses there. plugin.cpp's fn tells it once per joined session, in kiln.log and through
+// shroudforge.json "joinedWorldEdit" (Kiln.Ui's toast), naming the mod from ShroudForge's own line of it when one follows.
+using JoinedRefusalFn = void (*)(const joined::Worlds& worlds);
+void host_voxels_on_joined(JoinedRefusalFn fn);
 
 // Where ShroudForge's mod shortcuts get their key state this start (key_feed.cpp): source "kiln" (Kiln's host key
 // feed passes records), "waiting" (the feed has begun, kiln.ui comes at Kiln's plugin step; nothing is passed yet),
