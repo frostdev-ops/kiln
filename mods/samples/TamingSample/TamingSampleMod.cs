@@ -61,14 +61,14 @@ public sealed class TamingSampleMod : Mod
     }
 
     [Command("tame begin", Description = "start taming the nearest wolf or wild dog (3 m)")]
-    private void Begin(CommandContext c)
+    private async Task Begin(CommandContext c)
     {
         var who = Player(c);
         var at = World.Position(c.Source.Player) ?? throw new CommandException("your position is not known");
         foreach (var e in Creatures.Near(at, 3))
             foreach (var def in new[] { "taming-sample:wolf", "taming-sample:dog" })
             {
-                var r = Taming.Begin(who, EntityRef.Of(e), def, TamingRequest.New());
+                var r = await Taming.Begin(who, EntityRef.Of(e), def, TamingRequest.New());
                 if (r.Refusal == TamingRefusal.TemplateMismatch) continue;
                 c.Reply($"{def}: {Answer(who, r)}");
                 return;

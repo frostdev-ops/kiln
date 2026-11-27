@@ -465,7 +465,7 @@ static Kiln.TameAttemptId.operator !=(Kiln.TameAttemptId left, Kiln.TameAttemptI
 static Kiln.TameAttemptId.operator ==(Kiln.TameAttemptId left, Kiln.TameAttemptId right) -> bool
 static Kiln.Taming.Advance(Kiln.PlayerRef player, Kiln.TameAttemptId attempt, Kiln.TamingRequest! request, Kiln.ItemSelection? selection = null) -> System.Threading.Tasks.Task<Kiln.TamingResult!>!
 static Kiln.Taming.Available.get -> bool
-static Kiln.Taming.Begin(Kiln.PlayerRef player, Kiln.EntityRef target, string! definition, Kiln.TamingRequest! request) -> Kiln.TamingResult!
+static Kiln.Taming.Begin(Kiln.PlayerRef player, Kiln.EntityRef target, string! definition, Kiln.TamingRequest! request) -> System.Threading.Tasks.Task<Kiln.TamingResult!>!
 static Kiln.Taming.Cancel(Kiln.PlayerRef player, Kiln.TameAttemptId attempt, Kiln.TamingRequest! request) -> System.Threading.Tasks.Task<Kiln.TamingResult!>!
 static Kiln.Taming.Choices(Kiln.PlayerRef player, Kiln.TameAttemptId attempt) -> Kiln.TamingChoicesResult!
 static Kiln.Taming.Define(Kiln.TamingDefinition! definition) -> void

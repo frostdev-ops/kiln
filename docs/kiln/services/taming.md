@@ -65,7 +65,7 @@ The same in JSON: `Taming.DefineJson(json)`, one object or an array ([modding/ta
 
 | Call | What it does |
 |---|---|
-| `Taming.Begin(player, target, definition, request)` | Checks the definition, the owner, the target (its creature, alive, in range) and the claim. It posts `TamingBeginningEvent` (cancelable), claims the target (another attempt on it is `Busy`) and holds the pet's roster slot. It then posts `TamingStartedEvent` and answers with the first token. |
+| `await Taming.Begin(player, target, definition, request)` | A task, as every action's answer (it takes no cost, so it is complete at once). Checks the definition, the owner, the target (its creature, alive, in range) and the claim. It posts `TamingBeginningEvent` (cancelable), claims the target (another attempt on it is `Busy`) and holds the pet's roster slot. It then posts `TamingStartedEvent` and answers with the first token. |
 | `Taming.Advance(player, attempt, request, selection)` | Checks the token, range, target and threshold, and posts `TamingAdvancingEvent`. For the last step it also preflights the pet's slot and posts `TamingCommittingEvent`. It takes the exact cost and applies the step (`TamingStepChangedEvent`). After the last step it tames. |
 | `Taming.Retry(player, attempt, request)` | The cost-free retry of a deferred tame (`AwaitingCommit`): it checks again and binds, taking nothing. |
 | `Taming.Cancel(player, attempt, request)` | Ends the attempt; a cost in flight settles first. |

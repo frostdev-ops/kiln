@@ -303,7 +303,7 @@ public sealed class NativeTamingTestMod : Mod
         await Steps(10);
         TryGet(() => { Creatures.Of(wolf).Faction = Faction.Wildlife; return null; });   // a lab wolf that does not attack the bot
         var before = Meat();
-        var begin = Taming.Begin(who, EntityRef.Of(wolf), "native-taming-test:wolf", TamingRequest.New());
+        var begin = await Taming.Begin(who, EntityRef.Of(wolf), "native-taming-test:wolf", TamingRequest.New());
         Check(begin.Ok, $"Begin with the bot as the tamer: {begin.Reason} {begin.Progress?.State}");
         if (!begin.Ok) return;
         var p = begin.Progress!;
@@ -326,7 +326,7 @@ public sealed class NativeTamingTestMod : Mod
         await Steps(10);
         TryGet(() => { Creatures.Of(wolf2).Faction = Faction.Wildlife; return null; });
         var held = Meat();
-        var b2 = Taming.Begin(who, EntityRef.Of(wolf2), "native-taming-test:escrow", TamingRequest.New());
+        var b2 = await Taming.Begin(who, EntityRef.Of(wolf2), "native-taming-test:escrow", TamingRequest.New());
         Check(b2.Ok, $"an escrow attempt begins: {b2.Reason}");
         if (!b2.Ok) return;
         var q = b2.Progress!;

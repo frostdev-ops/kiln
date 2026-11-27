@@ -119,7 +119,7 @@ public sealed class TamingReviewTestMod : Mod
             Check(give.Status == ItemsStatus.Done && Meat() >= 6, $"the bot holds raw lean meat: {Meat()} ({give.Status})");
             var wolf = await Make(Wolf, bot.Position!.Value with { X = bot.Position.Value.X + 2.5f });
             var before = Meat();
-            var begin = Taming.Begin(who, EntityRef.Of(wolf), "taming-review-test:block-wolf", TamingRequest.New());
+            var begin = await Taming.Begin(who, EntityRef.Of(wolf), "taming-review-test:block-wolf", TamingRequest.New());
             Check(begin.Ok, $"Begin on a wolf with the bot as the tamer: {begin.Reason} {begin.Progress?.State}");
             if (!begin.Ok) return;
             var p = begin.Progress!;
@@ -149,7 +149,7 @@ public sealed class TamingReviewTestMod : Mod
             // 5: escrow given back once
             var wolf2 = await Make(Wolf, bot.Position!.Value with { Z = bot.Position.Value.Z + 2.5f });
             var held = Meat();
-            var b2 = Taming.Begin(who, EntityRef.Of(wolf2), "taming-review-test:block-escrow", TamingRequest.New());
+            var b2 = await Taming.Begin(who, EntityRef.Of(wolf2), "taming-review-test:block-escrow", TamingRequest.New());
             Check(b2.Ok, $"an escrow attempt begins: {b2.Reason}");
             if (!b2.Ok) return;
             var q = b2.Progress!;
@@ -178,7 +178,7 @@ public sealed class TamingReviewTestMod : Mod
                 Pet = "taming-review-test:cap-pet", RangeMeters = 8,
             });
             var wolf3 = await Make(Wolf, bot.Position!.Value with { X = bot.Position.Value.X - 2.5f });
-            var b3 = Taming.Begin(who, EntityRef.Of(wolf3), "taming-review-test:cap", TamingRequest.New());
+            var b3 = await Taming.Begin(who, EntityRef.Of(wolf3), "taming-review-test:cap", TamingRequest.New());
             Check(b3.Ok, $"a capped attempt begins (its roster slot held): {b3.Reason}; pet definition {cap.Ok}");
             if (!b3.Ok) return;
             var r = b3.Progress!;

@@ -76,7 +76,8 @@ public static class Taming
     /// <summary>Starts an attempt of <paramref name="definition"/> by <paramref name="player"/> on
     /// <paramref name="target"/>: the target is claimed (another attempt on it is <c>Busy</c>), the pet's roster slot is held
     /// (a definition with <see cref="TamingDefinition.Pet"/>), and the answer's progress carries the first token.</summary>
-    /// <returns>Ok with the attempt; else (<see cref="TamingResult.Refusal"/>) <c>DefinitionUnknown</c>,
+    /// <returns>A task, as <see cref="Advance"/>, <see cref="Retry"/> and <see cref="Cancel"/> answer (a begin takes no cost, so
+    /// it is complete when it returns): Ok with the attempt; else (<see cref="TamingResult.Refusal"/>) <c>DefinitionUnknown</c>,
     /// <c>OwnerOffline</c>, <c>BodyGone</c>, <c>TemplateMismatch</c>, <c>OutOfRange</c>, <c>Busy</c>, <c>Capacity</c>,
     /// <c>RefusedByMod</c> (a mod's <see cref="TamingBeginningEvent"/>), <c>TooManyRequests</c>.</returns>
     /// <exception cref="ArgumentException">No player, no target, an empty definition id, an empty request id, or a request
@@ -86,13 +87,14 @@ public static class Taming
     /// pets.records for a definition that names a pet).</exception>
     [TickThreadOnly]
     [RequiresCapability("taming.steps")]
-    public static TamingResult Begin(PlayerRef player, EntityRef target, string definition, TamingRequest request)
+    public static Task<TamingResult> Begin(PlayerRef player, EntityRef target, string definition, TamingRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
         if (request.Token is not null) throw new ArgumentException("a begin expects no step: TamingRequest.New()", nameof(request));
         var e = Engine("Taming.Begin");
         if (e.Definition(definition) is { } d) TamingCaps.RequireFor(d);
-        return e.Begin(player, target, definition, request.RequestId);
+        // a begin settles at once (it takes no cost): the task is completed, as every other action's answer is a task
+        return Task.FromResult(e.Begin(player, target, definition, request.RequestId));
     }
 
     /// <summary>Takes the attempt's next step: checks the request's token, the range, the target and the weaken threshold, asks the

@@ -104,7 +104,7 @@ Every action sends a `TamingRequest`: your request id and the token of the last 
 resend the same action after a network hiccup. It is the same shape as Kiln.Pets' `PetRequest`.
 
 ```csharp
-var r = Taming.Begin(player, EntityRef.Of(wolf), "my-mod:wolf", TamingRequest.New());
+var r = await Taming.Begin(player, EntityRef.Of(wolf), "my-mod:wolf", TamingRequest.New());
 var p = r.Progress!;                                        // p.Token: the challenge, the revision and the step
 r = await Taming.Advance(player, p.Id, TamingRequest.New(p.Token));   // weaken: no selection
 p = r.Progress!;

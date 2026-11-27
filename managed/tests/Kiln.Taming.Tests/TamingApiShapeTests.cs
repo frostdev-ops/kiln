@@ -106,4 +106,13 @@ public sealed class TamingApiShapeTests
         Assert.Null(typeof(TamingToken).GetProperty("RequestId"));
         Assert.Equal(typeof(TamingRequest), typeof(Taming).GetMethod(nameof(Taming.Advance))!.GetParameters()[2].ParameterType);
     }
+
+    // ---- A6 (and docs-guides B5): Begin answers as a task, as Advance, Retry and Cancel do ----
+
+    [Fact]
+    public void Begin_returns_a_task_like_the_other_actions()
+    {
+        foreach (var name in new[] { nameof(Taming.Begin), nameof(Taming.Advance), nameof(Taming.Retry), nameof(Taming.Cancel) })
+            Assert.Equal(typeof(Task<TamingResult>), typeof(Taming).GetMethod(name)!.ReturnType);
+    }
 }
