@@ -310,8 +310,12 @@ gives the same bytes. Nothing changes for the mod: the same file, the same `"boo
   bytes as its resource patch)` or `... stays a resource patch: <reason>`.
 - **Joins as before.** The boot content fingerprint of the mod covers the file (`kiln.boot`); the registry's own join part
   (`kiln.registry.boot`) counts registry edits only, so a server and a player of 0.2.0-dev.31 still compare equal.
-- **Switch.** `<game>/kiln/data/content/registry/front-ends.off` (an empty file) keeps every `gearRules` file a resource
-  patch for the starts while it is there (a lab's before and after, support).
+- **Switch (support and labs only).** `<game>/kiln/data/content/registry/front-ends.off` (an empty file) keeps every
+  `gearRules` file a resource patch for the starts while it is there: a lab's before and after, or a support step to rule
+  the front-end out. It is no player setting. Kiln reads it once, at each start's resources-ready
+  (kiln.log: `registry: kiln/data/content/registry/front-ends.off: ...`), so making or deleting it while the game runs
+  changes nothing until the next start, and either way is safe: the game gets the same bytes, and the joins compare as
+  above (`kiln.boot` and `kiln.registry.boot` do not depend on it).
 - Native: `registry/boot_bridge.cpp` (`old_writes`: the front rows), `registry/stage.cpp` (`BootResource::front`),
   `gamedata_bootpatch.cpp` (`apply`: both ways, compared). Tests: `native/services/content/tests/gear_frontend_test.sh`
   (generated `gearRules` written both ways: the same bytes), `baserules_test.sh` (the apply's choice), lab:

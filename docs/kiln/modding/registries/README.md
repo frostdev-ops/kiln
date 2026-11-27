@@ -660,7 +660,8 @@ A front-end keeps the older path's place in the composition: below every registr
 `frontEnd: true`) and lists it under `frontEnds` (`state: registry` or `resourcePatch` with a `reason`). It is no registry
 edit: the join's registry part (`kiln.registry.boot`) and the `counts.edits` do not count it, so peers of older Kiln
 versions compare as before. `<game>/kiln/data/content/registry/front-ends.off` switches the front-ends off for the starts
-while it is there.
+while it is there: a support and lab switch, no player setting. It is read once at each start; making or deleting it while
+the game runs takes effect at the next start, and is safe either way (the same bytes, the same join parts).
 
 ## Tiers
 
@@ -680,7 +681,7 @@ while it is there.
 | `schema/registry/migrations/` | id and field renames a breaking schema version ships (applied to every edit, "Versions" above) |
 | `<game>/kiln/data/content/registry/plans/<sha256>.json`, `plans/index.json` | each start's plan (the ones still needed and the newest 10 others are kept: "Which plans are kept"); the last good plan and the plan the last world ran on ("Plans and rollback"); `plans/index.unreadable.json`: an index that could not be read, kept |
 | `<game>/kiln/data/content/registry/rollback.json` | a rollback request (`kilnctl registry rollback`), kept until `--clear` |
-| `<game>/kiln/data/content/registry/front-ends.off` | while it is there, the older paths stay off the registry ("Older paths as front-ends") |
+| `<game>/kiln/data/content/registry/front-ends.off` | support and labs only: while it is there, the older paths stay off the registry from the next start ("Older paths as front-ends") |
 | `schema/registry-section.schema.json` | the data section's schema (generated) |
 | `regmap/` | how each field maps onto the game, per game build (Kiln's part: mods never read it) |
 | `tools/registrygen/registrygen.py` | the generator; `--check` fails on stale output, `lock` and `retire` keep the ids |
