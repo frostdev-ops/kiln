@@ -718,4 +718,36 @@ public sealed unsafe class NpcDialogTests : IDisposable
         NpcSpeechEngine.Tick();
         Assert.Equal((4, 1, P1), (Assert.Single(seen).Opens, seen[0].Last, seen[0].Player));
     }
+
+    [Fact]
+    public void A_peer_whose_player_comes_after_the_override_began_still_gets_its_pick()
+    {
+        // review: an override set (or a Refresh) while a ready peer had no character yet asked the callback for the other
+        // players only; that peer's game showed a line nobody chose until it reported an open
+        var player = EntityId.None;
+        NpcSpeechEngine.PlayerOfHook = p => p.Id == 9 ? player : p.Player;
+        Peers.Add(new SpeechPeer(9, EntityId.None, Dialog: true));
+        var calls = new List<EntityId>();
+        var plea = Npcs.MenuLine(Ramone);
+        plea.Pick = SpeechPick.By(ctx =>
+        {
+            calls.Add(ctx.Player);
+            return -1;
+        });
+        plea.Replace("Feed me first.");
+        NpcSpeechEngine.Tick();
+        Assert.DoesNotContain(ToPeers, x => x.Msg is NextMsg);
+        player = P1;                                                     // its character spawned
+        NpcSpeechEngine.Tick();
+        Assert.Contains((9u, (object)new NextMsg(Ramone.Value, NpcLineKind.MenuLine, -1)), ToPeers);
+        Assert.Contains(P1, calls);
+        Assert.DoesNotContain(EntityId.None, calls);
+        ToPeers.Clear();
+        player = EntityId.None;                                          // the same at a Refresh
+        plea.Refresh();
+        NpcSpeechEngine.Tick();
+        player = P1;
+        NpcSpeechEngine.Tick();
+        Assert.Contains((9u, (object)new NextMsg(Ramone.Value, NpcLineKind.MenuLine, -1)), ToPeers);
+    }
 }

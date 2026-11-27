@@ -387,17 +387,18 @@ internal static partial class NpcSpeechEngine
         var targets = new List<SpeechPeer>();
         if (to is null || to.Local)
             if (SpeechNative.Loaded && LocalPlayer() is { IsNone: false } local) targets.Add(LocalTarget with { Player = local });
-        if (to is null) targets.AddRange(DialogPeers().Where(p => p.Dialog).Select(p => p with { Player = PlayerOf(p) }).Where(p => !p.Player.IsNone));
-        else if (!to.Local)
+        IEnumerable<SpeechPeer> peers = to is null ? DialogPeers().Where(p => p.Dialog) : to.Local ? [] : [to];
+        foreach (var peer in peers)
         {
-            var player = PlayerOf(to);
+            var player = PlayerOf(peer);
             if (player.IsNone)
             {
-                // a client that became ready before its character exists: ask once it does (never for no one)
+                // a client that became ready before its character exists: ask once it does (never for no one), also when
+                // the override began or a Refresh asked while it had none
                 lock (Gate)
-                    if (!Waiting.Any(x => x.Npc == npc && x.Kind == kind && x.To.Id == to.Id)) Waiting.Add((npc, kind, to, Clock() + WaitMs));
+                    if (!Waiting.Any(x => x.Npc == npc && x.Kind == kind && x.To.Id == peer.Id)) Waiting.Add((npc, kind, peer, Clock() + WaitMs));
             }
-            else targets.Add(to with { Player = player });
+            else targets.Add(peer with { Player = player });
         }
         foreach (var t in targets)
         {
