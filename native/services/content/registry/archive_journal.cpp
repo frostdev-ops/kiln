@@ -199,7 +199,7 @@ bool eml_state_generation(const std::string& state_json, std::string* hex, std::
 }
 
 std::vector<std::string> archive_paths_of(const std::string& resource_type, const std::vector<std::string>& row_paths) {
-    if (resource_type == "keen::ecs::TemplateResource") return {"components"};
+    if (resource_type == "keen::ecs::TemplateResource") return {kTemplateComponents};
     return row_paths;
 }
 
@@ -254,8 +254,13 @@ size_t name_archive_writers(const ArchiveJournal& journal, const std::map<std::s
     // An entry named from format-2 paths: whole when a path is "", else on the fields they name (none: not named).
     auto name_paths = [&](const std::pair<std::string, std::string>& entry, const std::string& who, const std::vector<std::string>& paths) {
         if (std::find(paths.begin(), paths.end(), std::string()) != paths.end()) return name(entry, who, nullptr);
-        const std::set<std::string> f = archive_fields_of(rows_of(entry.first), paths);
-        if (!f.empty()) name(entry, who, &f);
+        const auto& rows = rows_of(entry.first);
+        const std::set<std::string> f = archive_fields_of(rows, paths);
+        if (f.empty()) return;
+        // a template registry's fields are all named by its whole component list (archive_paths_of): the journal cannot say
+        // which component a write was in, so it names the entry ("wrote this entry"), never each field ("wrote this field")
+        const bool by_list = std::all_of(rows.begin(), rows.end(), [](const auto& r) { return r.second == std::vector<std::string>{kTemplateComponents}; });
+        name(entry, who, by_list ? nullptr : &f);
     };
     auto note = [&](const ArchiveJournal::Package& p) {
         const std::string who = archive_writer_who(p.kind, p.id);
