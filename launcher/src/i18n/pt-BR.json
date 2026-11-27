@@ -6237,16 +6237,31 @@
     "baseOrigin": "Origem da base: {origin}",
     "archiveWriter": "Gravador do arquivo: {writer}",
     "journal": {
-      "read": "Pacotes do gravador do arquivo nomeados pelo diário de alterações do kiln-eml: {packages} pacotes, {entries} entradas (uma passagem do ShroudForge nomeia itens, drops e balanceamento por entrada; uma passagem do EML nomeia os campos que seus mods gravaram, em receitas e saque pelo elemento).",
-      "truncated": "Pacotes do gravador do arquivo nomeados pelo diário de alterações do kiln-eml: {packages} pacotes, {entries} entradas (uma passagem do ShroudForge nomeia itens, drops e balanceamento por entrada; uma passagem do EML nomeia os campos que seus mods gravaram, em receitas e saque pelo elemento). O diário está truncado, então um pacote pode ter gravado entradas que ele não nomeia.",
+      "read": "Pacotes do gravador do arquivo nomeados pelo diário de alterações do kiln-eml: {packages} pacotes, {entries} entradas (nomeados nos campos que alteraram, em receitas e saque pelo elemento; um diário mais antigo nomeia pacotes do ShroudForge por entrada, só em itens, drops e balanceamento).",
+      "truncated": "Pacotes do gravador do arquivo nomeados pelo diário de alterações do kiln-eml: {packages} pacotes, {entries} entradas (nomeados nos campos que alteraram, em receitas e saque pelo elemento; um diário mais antigo nomeia pacotes do ShroudForge por entrada, só em itens, drops e balanceamento). O diário está truncado, então um pacote pode ter gravado entradas que ele não nomeia.",
       "notNamed": "Os pacotes do gravador do arquivo não são nomeados nesta inicialização: {reason}",
       "none": "o gravador do arquivo desta inicialização não mantém um diário de alterações.",
       "stale": "o diário de alterações pertence a uma inicialização anterior.",
-      "unreadable": "não foi possível ler o diário de alterações."
+      "unreadable": "não foi possível ler o diário de alterações.",
+      "readHosted": "Pacotes do gravador do arquivo nomeados pelo diário de alterações do ShroudForge hospedado: {packages} pacotes, {entries} entradas (nomeados nos campos que alteraram, em receitas e saque pelo elemento).",
+      "truncatedHosted": "Pacotes do gravador do arquivo nomeados pelo diário de alterações do ShroudForge hospedado: {packages} pacotes, {entries} entradas (nomeados nos campos que alteraram, em receitas e saque pelo elemento). O diário está truncado, então um pacote pode ter alterado entradas que ele não nomeia."
     },
     "sfPackage": "{id} (pacote do ShroudForge)",
     "emlPackage": "{id} (pacote do EML)",
     "archiveUnattributed": "Uma gravação na inicialização de nenhum pacote que o Kiln consiga nomear (kiln-eml)",
+    "archiveUnattributedHosted": "Uma gravação na inicialização de nenhum pacote que o Kiln consiga nomear (ShroudForge hospedado)",
+    "replayedSf": "{id} (pacote do ShroudForge, reaplicado do efeito registrado)",
+    "replayedEml": "{id} (pacote do EML, reaplicado do efeito registrado)",
+    "replay": {
+      "row": "Reaplicação de efeito, {who}: {state}. {text}",
+      "optIn": "o arquivo de adesão",
+      "state": {
+        "recorded": "registrado",
+        "replayed": "reaplicado",
+        "refused": "não reaplicado",
+        "none": "nada a fazer"
+      }
+    },
     "archiveOp": "Desconhecida (o diário do kiln-eml nomeia a entrada que este pacote gravou, não este campo)",
     "archiveOpField": "Desconhecida (o diário do kiln-eml nomeia este campo como gravado por este pacote, não o valor)",
     "kind": {

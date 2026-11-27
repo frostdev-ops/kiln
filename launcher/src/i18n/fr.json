@@ -6237,16 +6237,31 @@
     "baseOrigin": "Origine de la base : {origin}",
     "archiveWriter": "Écrivain de l'archive : {writer}",
     "journal": {
-      "read": "Paquets de l'écrivain de l'archive nommés par le journal des modifications de kiln-eml : {packages} paquets, {entries} entrées (une passe ShroudForge nomme les objets, drops et équilibrage par entrée ; une passe EML nomme les champs que ses mods ont écrits, sur les recettes et le butin par leur élément).",
-      "truncated": "Paquets de l'écrivain de l'archive nommés par le journal des modifications de kiln-eml : {packages} paquets, {entries} entrées (une passe ShroudForge nomme les objets, drops et équilibrage par entrée ; une passe EML nomme les champs que ses mods ont écrits, sur les recettes et le butin par leur élément). Le journal est tronqué : un paquet peut avoir écrit des entrées qu'il ne nomme pas.",
+      "read": "Paquets de l'écrivain de l'archive nommés par le journal des modifications de kiln-eml : {packages} paquets, {entries} entrées (nommés sur les champs qu'ils ont modifiés, sur les recettes et le butin par leur élément ; un journal plus ancien nomme les paquets ShroudForge par entrée, uniquement sur les objets, drops et équilibrage).",
+      "truncated": "Paquets de l'écrivain de l'archive nommés par le journal des modifications de kiln-eml : {packages} paquets, {entries} entrées (nommés sur les champs qu'ils ont modifiés, sur les recettes et le butin par leur élément ; un journal plus ancien nomme les paquets ShroudForge par entrée, uniquement sur les objets, drops et équilibrage). Le journal est tronqué : un paquet peut avoir écrit des entrées qu'il ne nomme pas.",
       "notNamed": "Les paquets de l'écrivain de l'archive ne sont pas nommés pour ce démarrage : {reason}",
       "none": "l'écrivain de l'archive de ce démarrage ne tient pas de journal des modifications.",
       "stale": "le journal des modifications appartient à un démarrage précédent.",
-      "unreadable": "le journal des modifications n'a pas pu être lu."
+      "unreadable": "le journal des modifications n'a pas pu être lu.",
+      "readHosted": "Paquets de l'écrivain de l'archive nommés par le journal des modifications du ShroudForge hébergé : {packages} paquets, {entries} entrées (nommés sur les champs qu'ils ont modifiés, sur les recettes et le butin par leur élément).",
+      "truncatedHosted": "Paquets de l'écrivain de l'archive nommés par le journal des modifications du ShroudForge hébergé : {packages} paquets, {entries} entrées (nommés sur les champs qu'ils ont modifiés, sur les recettes et le butin par leur élément). Le journal est tronqué : un paquet peut avoir modifié des entrées qu'il ne nomme pas."
     },
     "sfPackage": "{id} (paquet ShroudForge)",
     "emlPackage": "{id} (paquet EML)",
     "archiveUnattributed": "Une écriture au démarrage d'aucun paquet que Kiln puisse nommer (kiln-eml)",
+    "archiveUnattributedHosted": "Une écriture au démarrage d'aucun paquet que Kiln puisse nommer (ShroudForge hébergé)",
+    "replayedSf": "{id} (paquet ShroudForge, rejoué depuis son effet enregistré)",
+    "replayedEml": "{id} (paquet EML, rejoué depuis son effet enregistré)",
+    "replay": {
+      "row": "Rejeu d'effet, {who} : {state}. {text}",
+      "optIn": "le fichier d'activation",
+      "state": {
+        "recorded": "enregistré",
+        "replayed": "rejoué",
+        "refused": "non rejoué",
+        "none": "rien à faire"
+      }
+    },
     "archiveOp": "Inconnue (le journal de kiln-eml nomme l'entrée que ce paquet a écrite, pas ce champ)",
     "archiveOpField": "Inconnue (le journal de kiln-eml nomme ce champ comme écrit par ce paquet, pas la valeur)",
     "kind": {

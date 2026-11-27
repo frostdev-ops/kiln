@@ -6838,8 +6838,8 @@
     "baseOrigin": "Base origin: {origin}",
     "archiveWriter": "Archive writer: {writer}",
     "journal": {
-      "read": "Archive-writer packages named from kiln-eml's change journal: {packages} packages, {entries} entries (a ShroudForge pass names items, drops and balance per entry; an EML pass names the fields its mods wrote, on recipes and loot by their element).",
-      "truncated": "Archive-writer packages named from kiln-eml's change journal: {packages} packages, {entries} entries (a ShroudForge pass names items, drops and balance per entry; an EML pass names the fields its mods wrote, on recipes and loot by their element). The journal is truncated, so a package may have written entries it does not name.",
+      "read": "Archive-writer packages named from kiln-eml's change journal: {packages} packages, {entries} entries (named on the fields they changed, on recipes and loot by their element; an older journal names ShroudForge packages per entry, on items, drops and balance only).",
+      "truncated": "Archive-writer packages named from kiln-eml's change journal: {packages} packages, {entries} entries (named on the fields they changed, on recipes and loot by their element; an older journal names ShroudForge packages per entry, on items, drops and balance only). The journal is truncated, so a package may have written entries it does not name.",
       "notNamed": "Archive-writer packages are not named in this start: {reason}",
       "none": "this start's archive writer keeps no change journal.",
       "stale": "the change journal belongs to an earlier start.",

@@ -6577,16 +6577,31 @@
     "baseOrigin": "基础来源：{origin}",
     "archiveWriter": "存档写入方：{writer}",
     "journal": {
-      "read": "按 kiln-eml 的变更日志指认的存档写入方包：{packages} 个包，{entries} 个条目（ShroudForge 流程按条目指认物品、掉落和平衡；EML 流程指认其模组写入的字段，配方和战利品按其元素指认）。",
-      "truncated": "按 kiln-eml 的变更日志指认的存档写入方包：{packages} 个包，{entries} 个条目（ShroudForge 流程按条目指认物品、掉落和平衡；EML 流程指认其模组写入的字段，配方和战利品按其元素指认）。日志已被截断，因此某个包可能还写入了未指认的条目。",
+      "read": "按 kiln-eml 的变更日志指认的存档写入方包：{packages} 个包，{entries} 个条目（按其更改的字段指认，配方和战利品按其元素指认；较旧的日志按条目指认 ShroudForge 包，仅限物品、掉落和平衡）。",
+      "truncated": "按 kiln-eml 的变更日志指认的存档写入方包：{packages} 个包，{entries} 个条目（按其更改的字段指认，配方和战利品按其元素指认；较旧的日志按条目指认 ShroudForge 包，仅限物品、掉落和平衡）。日志已被截断，因此某个包可能还写入了未指认的条目。",
       "notNamed": "本次启动未指认存档写入方包：{reason}",
       "none": "本次启动的存档写入方不保留变更日志。",
       "stale": "该变更日志属于更早的一次启动。",
-      "unreadable": "无法读取该变更日志。"
+      "unreadable": "无法读取该变更日志。",
+      "readHosted": "按托管 ShroudForge 的变更日志指认的存档写入方包：{packages} 个包，{entries} 个条目（按其更改的字段指认，配方和战利品按其元素指认）。",
+      "truncatedHosted": "按托管 ShroudForge 的变更日志指认的存档写入方包：{packages} 个包，{entries} 个条目（按其更改的字段指认，配方和战利品按其元素指认）。日志已被截断，因此某个包可能还更改了未指认的条目。"
     },
     "sfPackage": "{id}（ShroudForge 包）",
     "emlPackage": "{id}（EML 包）",
     "archiveUnattributed": "Kiln 无法指认到任何包的启动时写入（kiln-eml）",
+    "archiveUnattributedHosted": "Kiln 无法指认到任何包的启动时写入（托管 ShroudForge）",
+    "replayedSf": "{id}（ShroudForge 包，按其记录的效果重放）",
+    "replayedEml": "{id}（EML 包，按其记录的效果重放）",
+    "replay": {
+      "row": "效果重放，{who}：{state}。{text}",
+      "optIn": "选择加入文件",
+      "state": {
+        "recorded": "已记录",
+        "replayed": "已重放",
+        "refused": "未重放",
+        "none": "无需操作"
+      }
+    },
     "archiveOp": "未知（kiln-eml 的日志只指出此包写入的条目，而非此字段）",
     "archiveOpField": "未知（kiln-eml 的日志只指出此字段由此包写入，而非其值）",
     "kind": {

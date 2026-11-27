@@ -6531,16 +6531,31 @@
     "baseOrigin": "Pochodzenie bazy: {origin}",
     "archiveWriter": "Zapisujący archiwum: {writer}",
     "journal": {
-      "read": "Pakiety zapisującego archiwum nazwane z dziennika zmian kiln-eml: pakiety: {packages}, wpisy: {entries} (przebieg ShroudForge nazywa przedmioty, dropy i balans dla całego wpisu; przebieg EML nazywa pola zapisane przez jego mody, w recepturach i łupach według ich elementu).",
-      "truncated": "Pakiety zapisującego archiwum nazwane z dziennika zmian kiln-eml: pakiety: {packages}, wpisy: {entries} (przebieg ShroudForge nazywa przedmioty, dropy i balans dla całego wpisu; przebieg EML nazywa pola zapisane przez jego mody, w recepturach i łupach według ich elementu). Dziennik jest ucięty, więc pakiet mógł zapisać wpisy, których nie nazywa.",
+      "read": "Pakiety zapisującego archiwum nazwane z dziennika zmian kiln-eml: pakiety: {packages}, wpisy: {entries} (nazwane przy polach, które zmieniły, w recepturach i łupach według ich elementu; starszy dziennik nazywa pakiety ShroudForge dla całego wpisu, tylko przy przedmiotach, dropach i balansie).",
+      "truncated": "Pakiety zapisującego archiwum nazwane z dziennika zmian kiln-eml: pakiety: {packages}, wpisy: {entries} (nazwane przy polach, które zmieniły, w recepturach i łupach według ich elementu; starszy dziennik nazywa pakiety ShroudForge dla całego wpisu, tylko przy przedmiotach, dropach i balansie). Dziennik jest ucięty, więc pakiet mógł zapisać wpisy, których nie nazywa.",
       "notNamed": "Pakiety zapisującego archiwum nie są nazwane w tym uruchomieniu: {reason}",
       "none": "zapisujący archiwum tego uruchomienia nie prowadzi dziennika zmian.",
       "stale": "dziennik zmian należy do wcześniejszego uruchomienia.",
-      "unreadable": "nie udało się odczytać dziennika zmian."
+      "unreadable": "nie udało się odczytać dziennika zmian.",
+      "readHosted": "Pakiety zapisującego archiwum nazwane z dziennika zmian hostowanego ShroudForge: pakiety: {packages}, wpisy: {entries} (nazwane przy polach, które zmieniły, w recepturach i łupach według ich elementu).",
+      "truncatedHosted": "Pakiety zapisującego archiwum nazwane z dziennika zmian hostowanego ShroudForge: pakiety: {packages}, wpisy: {entries} (nazwane przy polach, które zmieniły, w recepturach i łupach według ich elementu). Dziennik jest ucięty, więc pakiet mógł zmienić wpisy, których nie nazywa."
     },
     "sfPackage": "{id} (pakiet ShroudForge)",
     "emlPackage": "{id} (pakiet EML)",
     "archiveUnattributed": "Zapis przy uruchomieniu, którego Kiln nie może przypisać żadnemu pakietowi (kiln-eml)",
+    "archiveUnattributedHosted": "Zapis przy uruchomieniu, którego Kiln nie może przypisać żadnemu pakietowi (hostowany ShroudForge)",
+    "replayedSf": "{id} (pakiet ShroudForge, odtworzony z zapisanego efektu)",
+    "replayedEml": "{id} (pakiet EML, odtworzony z zapisanego efektu)",
+    "replay": {
+      "row": "Odtwarzanie efektu, {who}: {state}. {text}",
+      "optIn": "plik zgody",
+      "state": {
+        "recorded": "zapisano",
+        "replayed": "odtworzono",
+        "refused": "nie odtworzono",
+        "none": "nic do zrobienia"
+      }
+    },
     "archiveOp": "Nieznana (dziennik kiln-eml nazywa wpis zapisany przez ten pakiet, a nie to pole)",
     "archiveOpField": "Nieznana (dziennik kiln-eml nazywa to pole jako zapisane przez ten pakiet, a nie wartość)",
     "kind": {

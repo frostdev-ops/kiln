@@ -6237,16 +6237,31 @@
     "baseOrigin": "Origine della base: {origin}",
     "archiveWriter": "Scrittore dell'archivio: {writer}",
     "journal": {
-      "read": "Pacchetti dello scrittore dell'archivio indicati dal diario delle modifiche di kiln-eml: {packages} pacchetti, {entries} voci (un passaggio ShroudForge indica oggetti, drop e bilanciamento per voce; un passaggio EML indica i campi scritti dalle sue mod, su ricette e bottino tramite il loro elemento).",
-      "truncated": "Pacchetti dello scrittore dell'archivio indicati dal diario delle modifiche di kiln-eml: {packages} pacchetti, {entries} voci (un passaggio ShroudForge indica oggetti, drop e bilanciamento per voce; un passaggio EML indica i campi scritti dalle sue mod, su ricette e bottino tramite il loro elemento). Il diario è troncato, quindi un pacchetto può aver scritto voci che non indica.",
+      "read": "Pacchetti dello scrittore dell'archivio indicati dal diario delle modifiche di kiln-eml: {packages} pacchetti, {entries} voci (indicati sui campi che hanno cambiato, su ricette e bottino tramite il loro elemento; un diario più vecchio indica i pacchetti ShroudForge per voce, solo su oggetti, drop e bilanciamento).",
+      "truncated": "Pacchetti dello scrittore dell'archivio indicati dal diario delle modifiche di kiln-eml: {packages} pacchetti, {entries} voci (indicati sui campi che hanno cambiato, su ricette e bottino tramite il loro elemento; un diario più vecchio indica i pacchetti ShroudForge per voce, solo su oggetti, drop e bilanciamento). Il diario è troncato, quindi un pacchetto può aver scritto voci che non indica.",
       "notNamed": "I pacchetti dello scrittore dell'archivio non sono indicati in questo avvio: {reason}",
       "none": "lo scrittore dell'archivio di questo avvio non tiene un diario delle modifiche.",
       "stale": "il diario delle modifiche appartiene a un avvio precedente.",
-      "unreadable": "non è stato possibile leggere il diario delle modifiche."
+      "unreadable": "non è stato possibile leggere il diario delle modifiche.",
+      "readHosted": "Pacchetti dello scrittore dell'archivio indicati dal diario delle modifiche di ShroudForge ospitato: {packages} pacchetti, {entries} voci (indicati sui campi che hanno cambiato, su ricette e bottino tramite il loro elemento).",
+      "truncatedHosted": "Pacchetti dello scrittore dell'archivio indicati dal diario delle modifiche di ShroudForge ospitato: {packages} pacchetti, {entries} voci (indicati sui campi che hanno cambiato, su ricette e bottino tramite il loro elemento). Il diario è troncato, quindi un pacchetto può aver cambiato voci che non indica."
     },
     "sfPackage": "{id} (pacchetto ShroudForge)",
     "emlPackage": "{id} (pacchetto EML)",
     "archiveUnattributed": "Una scrittura all'avvio di nessun pacchetto che Kiln possa indicare (kiln-eml)",
+    "archiveUnattributedHosted": "Una scrittura all'avvio di nessun pacchetto che Kiln possa indicare (ShroudForge ospitato)",
+    "replayedSf": "{id} (pacchetto ShroudForge, riapplicato dal suo effetto registrato)",
+    "replayedEml": "{id} (pacchetto EML, riapplicato dal suo effetto registrato)",
+    "replay": {
+      "row": "Riapplicazione dell'effetto, {who}: {state}. {text}",
+      "optIn": "il file di adesione",
+      "state": {
+        "recorded": "registrato",
+        "replayed": "riapplicato",
+        "refused": "non riapplicato",
+        "none": "niente da fare"
+      }
+    },
     "archiveOp": "Non nota (il diario di kiln-eml indica la voce scritta da questo pacchetto, non questo campo)",
     "archiveOpField": "Non nota (il diario di kiln-eml indica questo campo come scritto da questo pacchetto, non il valore)",
     "kind": {
