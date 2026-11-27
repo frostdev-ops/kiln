@@ -83,7 +83,7 @@ The project file:
 Not in the manifest:
 | Property | Does |
 |---|---|
-| `KilnServices` | services to reference: Abilities, Assets, Audio, Blocks, Build, Chat, Client, Combat, Content, Creatures, Gameplay, Hooks, Items, Network, Permissions, PlayerAnim, Players, Quests, Rules, Saves, Settings, Skills, Spawn, Time, Ui, Vfx, World; dev.28+ CreatureControl, Queries, Terrain; dev.29+ Systems, Sigs; dev.29.15+ Stations (Kiln.Blocks without Blocks' defaults); `Game` (`Kiln.Ecs` types); and `Testing`. Gems are in Abilities, Bases and Stations in Blocks, tasks in Kiln.Api |
+| `KilnServices` | services to reference: Abilities, Assets, Audio, Blocks, Build, Chat, Client, Combat, Content, Creatures, Gameplay, Hooks, Items, Network, Permissions, PlayerAnim, Players, Quests, Rules, Saves, Settings, Skills, Spawn, Time, Ui, Vfx, World; dev.28+ CreatureControl, Queries, Terrain; dev.29+ Systems, Sigs; dev.29.15+ Stations (Kiln.Blocks without Blocks' defaults); dev.31+ Camera, Markers, ModValues, Registry (with `<NoWarn>$(NoWarn);KILNX031</NoWarn>`); dev.32+ Pets, Taming; `Game` (`Kiln.Ecs` types); and `Testing`. Gems are in Abilities, Bases and Stations in Blocks, tasks in Kiln.Api |
 | `KilnServer`, `KilnModsDir` | deploy target |
 | `KilnReload` | KilnDeploy also reloads the mod |
 | `KilnModFolders` | data folders copied into the mod; includes `blocks`, content, assets, skills, quests, icons, Impact and audio sources; inspect the installed SDK for the full list |

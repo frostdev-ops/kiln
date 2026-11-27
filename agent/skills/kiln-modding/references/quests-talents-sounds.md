@@ -110,6 +110,7 @@ builds them from the mod's files at boot, so changes need a restart).
 - Villagers: `Villagers.Find/Of/List`, `.Teleport`, `.GoTo`, `.Stay`, `.Follow`, `VillagerStateEvent`.
 
 ## NPC speech bubbles (Kiln.Npcs, dev.31.16+, mod API 0.2.23)
+The full guide to bubbles, picks, farewells, menu lines and talk pages is [api-npcs.md](api-npcs.md); this is the short form.
 Your text in the game's own speech bubble over a villager, craftsperson or assistant; the host decides, Kiln clients
 show it, vanilla clients keep the game's lines. `"side": "server"`, `"clients": "none"` is enough (players need Kiln, not the mod).
 ```csharp
