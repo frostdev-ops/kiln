@@ -25,13 +25,16 @@ class FakeLab(threading.Thread):
     scripted bot: each info moves a joining bot one phase on, until `end_phase`."""
 
     def __init__(self, required=None, end_phase="InGame", fail_reason="the game found no spawn position", stale=False,
-                 channel=True):
+                 channel=True, idle=None):
         super().__init__(daemon=True)
         self.s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.s.bind(("127.0.0.1", 0))
         self.s.settimeout(0.05)
         self.port = self.s.getsockname()[1]
         self.required, self.end_phase, self.fail_reason, self.stale, self.channel = required, end_phase, fail_reason, stale, channel
+        # kiln.net forgets a lab peer it heard nothing from for `idle` seconds (kLabIdleMs, 60 s): its later frames come
+        # from a peer without a handshake, so no request of it reaches the channel until it says HELLO again
+        self.idle, self.heard, self.peers, self.forgotten = idle, {}, set(), 0
         self.hellos, self.requests, self.bots = [], [], {}
         self.stop = False
         self.start()
@@ -52,8 +55,14 @@ class FakeLab(threading.Thread):
                 continue
             if len(b) < 4 or b[:2] != nt.MAGIC:
                 continue
+            now = time.time()
+            if self.idle is not None and addr in self.peers and now - self.heard.get(addr, now) > self.idle:
+                self.peers.discard(addr)
+                self.forgotten += 1
+            self.heard[addr] = now
             r = nt.R(b, 4)
             if b[3] == nt.T_HELLO:
+                self.peers.add(addr)
                 r.u16(); r.string(); r.u32()
                 mods = [(r.string(), r.string(), r.u8()) for _ in range(r.varu())]
                 self.hellos.append(mods)
@@ -68,6 +77,8 @@ class FakeLab(threading.Thread):
                 w.varu(0).varu(0)
                 self.send(addr, w)
             elif b[3] == nt.T_DATA:
+                if addr not in self.peers:
+                    continue
                 cid, msg = r.u16(), r.u16()
                 if cid != CID or msg != labbot.M_REQUEST:
                     continue
@@ -114,10 +125,12 @@ class FakeLab(threading.Thread):
             return {"id": i}
         if op == "teleport":
             return {"id": i, "position": [rq["x"], rq["y"], rq["z"]]}
+        told = getattr(self, "told", [])
+        last = max([ln["n"] for ln in told], default=0)
         if op == "told":
-            return {"id": i, "lines": [ln for ln in getattr(self, "told", []) if ln["n"] > rq.get("since", 0)], "last": 3}
-        if op in ("say", "command"):
-            return {"id": i, "echo": rq.get("text") or rq.get("line")}
+            return {"id": i, "lines": [ln for ln in told if ln["n"] > rq.get("since", 0)], "last": last}
+        if op in ("say", "command"):  # "told": the newest line number before the bot's line (labbot-test)
+            return {"id": i, "echo": rq.get("text") or rq.get("line"), "told": last}
         return {"ok": False, "error": f"unknown op '{op}'"}
 
 
@@ -212,6 +225,42 @@ class LabBotTests(unittest.TestCase):
         self.assertEqual(f.requests[-1]["since"], 0)
         with self.assertRaisesRegex(labbot.LabBotError, "was not told 'refused'"):
             b.wait_told("refused", timeout=0.5)
+
+    def test_11_a_long_stay_and_an_idle_script_keep_the_lab_peer(self):
+        # kiln.net drops a lab peer after 60 s without a frame from it (kLabIdleMs); here after 0.6 s
+        f = self.fake(idle=0.6)
+        saved = getattr(labbot, "KEEPALIVE", None), getattr(labbot, "IDLE_RECONNECT", None)
+        labbot.KEEPALIVE, labbot.IDLE_RECONNECT = 0.2, 0.45
+        try:
+            lab = labbot.Lab(f.port, timeout=1)
+            b = lab.spawn("Bot Alder", timeout=10)
+            self.assertEqual(b.stay(2.0)["phase"], "InGame")  # a stay several times the idle limit
+            self.assertEqual(f.forgotten, 0, "stay kept the lab peer")
+            time.sleep(1.0)  # the script's own pause, longer than the idle limit: the next call says HELLO again
+            self.assertEqual(b.info()["phase"], "InGame")
+            self.assertEqual(len(f.hellos), 2)
+            # a reply that came after its request gave up is dropped when the next reply is read, not kept
+            f.stale = True
+            lab.status()
+            lab.status()
+            self.assertEqual(lab.peer.messages, [])
+        finally:
+            labbot.KEEPALIVE, labbot.IDLE_RECONNECT = saved
+
+    def test_12_wait_told_waits_for_a_reply_to_the_bots_last_line(self):
+        f = self.fake()
+        f.told = [{"n": 3, "text": "Hound: Ready, Absent", "mask": 0xfffeffff}]  # a reply to an earlier command
+        lab = labbot.Lab(f.port, timeout=3)
+        b = lab.spawn("Bot Alder", timeout=10)
+        self.assertEqual(b.say("/pet summon 1")["told"], 3)
+        with self.assertRaisesRegex(labbot.LabBotError, "was not told 'Hound'"):
+            b.wait_told("Hound", timeout=0.5)  # line 3 came before the bot's line
+        f.told.append({"n": 4, "text": "Hound: Summoned", "mask": 0xfffeffff})
+        self.assertEqual(b.wait_told("Hound", timeout=2)["n"], 4)
+        self.assertEqual(b.wait_told("Hound", since=0, timeout=2)["n"], 3)  # since= still picks the start
+        b.command("pet list")
+        with self.assertRaisesRegex(labbot.LabBotError, "was not told"):
+            b.wait_told("Summoned", timeout=0.5)  # the cursor moved with the command
 
     def test_9_cli_exit_codes(self):
         f = self.fake()

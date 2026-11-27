@@ -125,7 +125,10 @@ public static unsafe class LabBots
     /// <param name="group">The user group it joins in (its rights).</param>
     /// <param name="groupIndex">With <see cref="LabBotGroup.Index"/>: the entry of userGroups.</param>
     /// <returns>The bot's id.</returns>
-    /// <exception cref="ArgumentException">A bad name, or a live bot has it.</exception>
+    /// <exception cref="ArgumentException">A bad name, a live bot has it, or a bot of that name logged in earlier in this
+    /// server session (the game does not spawn that character again after its logout until the server restarts). The
+    /// message says which.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="group"/> is none of <see cref="LabBotGroup"/>.</exception>
     /// <exception cref="InvalidOperationException"><see cref="Max"/> bots are live, no player slot or machine is free,
     /// or no such user group.</exception>
     /// <exception cref="KilnUnavailableException"><c>labbot.join</c> is off (not a lab server) or no server world runs.</exception>
@@ -135,6 +138,7 @@ public static unsafe class LabBots
     public static int Join(string name, LabBotGroup group = LabBotGroup.Admin, int groupIndex = 0)
     {
         ArgumentNullException.ThrowIfNull(name);
+        if (group is < LabBotGroup.Admin or > LabBotGroup.Index) throw new ArgumentOutOfRangeException(nameof(group), group, "admin, least or index");
         Services.RequireTickThread("LabBots.Join");
         var t = Require("Join");
         var bytes = Encoding.UTF8.GetBytes(name);
@@ -154,7 +158,7 @@ public static unsafe class LabBots
             case LabBotNative.Ok:
                 return (int)id;
             case LabBotNative.InvalidArgument:
-                throw new ArgumentException($"bot name '{name}' is not allowed (1-32 of letters, digits, space, '_', '-', '.'), or a live bot has it", nameof(name));
+                throw new ArgumentException($"bot '{name}': {WhyRefused(name)}", nameof(name));
             case LabBotNative.NotFound:
                 throw new InvalidOperationException($"no room for bot '{name}': {Max} bots are live, no player slot or machine is free, or no such user group");
             case LabBotNative.Unavailable:
@@ -204,6 +208,22 @@ public static unsafe class LabBots
         var list = new List<LabBotInfo>((int)Math.Min(count, (uint)(Max * 2)));
         for (var k = 0; k < count && k < Max * 2; k++) list.Add(Convert(&buf[k]));
         return list;
+    }
+
+    // kiln.labbot's KILN_ERR_INVALID_ARGUMENT for a join, told apart: its name rules (bot.cpp valid_name), a live bot of
+    // that name, else the character logged in on this server before (labbot::Played; the flags and group are this
+    // wrapper's own, checked above).
+    private static string WhyRefused(string name)
+    {
+        var bytes = Encoding.UTF8.GetByteCount(name);
+        if (bytes is 0 or > 32) return "a bot name is 1 to 32 characters";
+        if (name[0] == ' ' || name[^1] == ' ') return "a bot name has no space at either end";
+        if (name.Any(c => c is not ((>= 'a' and <= 'z') or (>= 'A' and <= 'Z') or (>= '0' and <= '9') or ' ' or '_' or '-' or '.')))
+            return "a bot name uses letters, digits, space, '_', '-' and '.' only";
+        if (All().Any(b => !b.Ended && b.Name == name)) return "a live bot has that name";
+        return "a bot of that name (the same character) logged in earlier in this server session; the game does not spawn " +
+               "it again after its logout until the server restarts (a later join under another name may stay in the spawn " +
+               "search too), so restart the lab";
     }
 
     private static LabBotInfo Convert(LabBotNative.Info* i) =>

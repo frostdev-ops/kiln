@@ -143,11 +143,37 @@ class CheckTests(unittest.TestCase):
         self.assertEqual(self.check(str(stage)), 1)
 
 
+def services_step():
+    """stage.sh's native services step: what follows the kiln-core install, up to the host's copy."""
+    script = (ROOT / "tools/package/stage.sh").read_text()
+    anchor = 'install -m 644 "$bin/kiln-core.dll" "$bin/kiln-core.pdb" "$k/"\n'
+    start = script.index(anchor) + len(anchor)
+    return script[start:script.index("\nrsync -a --include='Kiln.*'", start)]
+
+
 class WiringTests(unittest.TestCase):
+    def test_lab_only_services_stay_out_of_the_bundle(self):
+        # kiln-labbot (bot players, native/services/labbot) is for lab servers, which tools/deploy-server.sh deploys:
+        # a release bundle must never carry it, so no player's server or game ever loads it
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            for name in ("kiln-labbot.dll", "kiln-labbot.pdb", "kiln-world.dll", "kiln-world.pdb", "kiln-repl.dll", "readme.txt"):
+                f = root / "bin/services" / name
+                f.parent.mkdir(parents=True, exist_ok=True)
+                f.write_bytes(b"MZ fixture")
+            (root / "stage/core/kiln/services").mkdir(parents=True)
+            r = subprocess.run(["bash", "-c", 'set -euo pipefail; bin=$1/bin; k=$1/stage/core/kiln; '
+                                'miss() { echo "$*" >&2; exit 1; };\n' + services_step(), "test", str(root)],
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            staged = sorted(p.name for p in (root / "stage/core/kiln/services").iterdir())
+            self.assertEqual(staged, ["kiln-repl.dll", "kiln-world.dll", "kiln-world.pdb"])
+        # parity.sh compares a bundle with deploy-server.sh's tree, which keeps it: the comparison leaves it out
+        parity = (ROOT / "tools/package/parity.sh").read_text()
+        self.assertIn("-x 'kiln-labbot.*'", parity)
+
     def test_native_service_copy_errors_are_not_swallowed(self):
-        script = (ROOT / "tools/package/stage.sh").read_text()
-        start = script.index("rsync -a --include='*.dll' --include='*.pdb' --exclude='*' \"$bin/services/\"")
-        command = script[start:script.index("\nrsync -a --include='Kiln.*'", start)]
+        command = services_step()
         r = subprocess.run(["bash", "-c", 'set -euo pipefail; bin=/fixture; k=/stage; '
                             'rsync() { return 23; }; miss() { echo "$*" >&2; exit 1; };\n' + command],
                            capture_output=True, text=True)

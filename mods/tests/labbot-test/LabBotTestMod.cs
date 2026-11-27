@@ -7,9 +7,9 @@
 //   info {id} / list             one bot / every remembered bot
 //   leave {id, drop?}            a logout, or a drop
 //   say {id, text}               a chat line typed by the bot (kiln.chat's inject: chat subscribers and commands see it
-//                                as the bot's own line)
+//                                as the bot's own line); "told": the newest told line number before it
 //   command {id, line}           Commands.Execute as the bot (no prefix): its result and the output of a handler that
-//                                finished at once (an async handler's later replies are in kiln.log only)
+//                                finished at once (an async handler's later replies: told), and "told" as for say
 //   teleport {id, x, y, z}       Teleport.To the bot's entity; the reply comes when the teleport ended
 //   position {id}                where the bot's entity is
 //   character {id}               the bot's CharacterKey (what per-character data such as pets is keyed by)
@@ -19,6 +19,8 @@
 //                                so two lines added in one step show only the second; "since" = a line number from an
 //                                earlier answer
 // Lab only: LabBots answers KilnUnavailableException off a lab server; the mod then answers every op with that error.
+// Requests count only from a lab peer (ControlPeers): one from a player's game connection is dropped unanswered.
+// A bot that kiln.net would refuse as a client without Kiln is let in (BotPeers; NetVanillaClientEvent).
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Kiln;
@@ -42,6 +44,7 @@ public sealed record Reply(string Json) : INetMessage<Reply>
 public sealed class LabBotTestMod : Mod
 {
     private NetChannel? _chan;
+    private readonly HashSet<uint> _refusedPeers = [];
 
     // the server's chat lines as they appear (newest inbox line, polled in Pre and Post): number, reader mask, text
     private readonly List<(long N, uint Mask, uint Connection, string Text)> _lines = [];
@@ -67,6 +70,7 @@ public sealed class LabBotTestMod : Mod
             .Register<Reply>(null, NetDirection.ToClient);
         Context.Tick.Pre += (in TickInfo _) => PollLines();
         Context.Tick.Post += (in TickInfo _) => PollLines();
+        Events.On<NetVanillaClientEvent>(LetBotsIn);
         string state;
         try
         {
@@ -77,8 +81,27 @@ public sealed class LabBotTestMod : Mod
         Log.Info($"labbot-test: control channel labbot:control v1 open; LabBots {state}; capability {Capabilities.Get(LabBots.Capability)}");
     }
 
+    // kiln.net judges a bot a client without Kiln (it sends no Kiln frame) and refuses it where the lab's mods state
+    // clients "kiln" or "mod" (or requireKiln, or modSync refuse): a bot has no client to crash, so it goes in (BotPeers)
+    private void LetBotsIn(NetVanillaClientEvent e)
+    {
+        if (!e.Kick) return;
+        IReadOnlyList<LabBotInfo> bots;
+        try { bots = LabBots.All(); }
+        catch (KilnUnavailableException) { return; }
+        if (!BotPeers.IsBot(e.Peer.Id, bots)) return;
+        e.Kick = false;
+        Log.Info($"labbot-test: bot '{e.Peer.Name}' (0x{e.Peer.Id:x}) let in: kiln.net would refuse it as a client without Kiln");
+    }
+
     private void Handle(string json, NetPeer sender)
     {
+        if (ControlPeers.Refusal(sender) is { } refused)
+        {
+            // never answered (a player learns nothing from it), logged once per connection
+            if (_refusedPeers.Add(sender.Id)) Log.Warn($"labbot-test: request refused: {refused}");
+            return;
+        }
         JsonObject rq;
         try { rq = JsonNode.Parse(json) as JsonObject ?? throw new JsonException("not an object"); }
         catch (JsonException e)
@@ -180,25 +203,35 @@ public sealed class LabBotTestMod : Mod
         return new JsonObject { ["id"] = id };
     }
 
+    // the newest captured line number before a bot's own line: every reply to it is numbered after (tools/labbot's
+    // wait_told starts there, so a reply to an earlier command never answers for this one)
+    private long ToldCursor()
+    {
+        PollLines();
+        return _lineNo;
+    }
+
     private JsonObject Say(JsonObject rq)
     {
         var b = InGame(rq);
         var text = rq["text"]?.GetValue<string>() ?? throw new ArgumentException("no text");
+        var told = ToldCursor();
         Chat.Diagnostics.Inject(b.Connection, text);
         Log.Info($"labbot-test: bot {b.Id} '{b.Name}' says: {text}");
-        return new JsonObject { ["id"] = b.Id };
+        return new JsonObject { ["id"] = b.Id, ["told"] = told };
     }
 
     private JsonObject Command(JsonObject rq)
     {
         var b = InGame(rq);
         var line = rq["line"]?.GetValue<string>() ?? throw new ArgumentException("no line");
+        var told = ToldCursor();
         var r = Commands.Execute(CommandSource.ForPlayer(b.Entity, b.Name), line);
         Log.Info($"labbot-test: bot {b.Id} '{b.Name}' ran {line}: {r}");
         return new JsonObject
         {
             ["id"] = b.Id, ["found"] = r.Found, ["denied"] = r.Denied, ["done"] = r.Ok, ["error"] = r.Error,
-            ["output"] = new JsonArray(r.Output.Select(l => (JsonNode)JsonValue.Create(l)!).ToArray()),
+            ["output"] = new JsonArray(r.Output.Select(l => (JsonNode)JsonValue.Create(l)!).ToArray()), ["told"] = told,
         };
     }
 

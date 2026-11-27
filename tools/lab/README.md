@@ -28,6 +28,11 @@ replication, and it moves only when something moves it (`move_to`, a teleport). 
 2. The mod `mods/tests/labbot-test` in the lab (`dotnet build mods/tests/labbot-test/LabBotTest.csproj -c Release -o
    $KILN_OUT/mods/labbot-test` before the deploy): it opens the control channel `labbot:control` v1.
 3. A world must be running (the bot joins the server world; on a new lab the first start generates it).
+4. A bot sends no Kiln frame, so kiln.net judges it a client without Kiln (`docs/kiln/network.md`, "Clients without
+   Kiln"). Where that policy refuses such clients (a loaded mod states `clients: "kiln"` or `"mod"`, as mods with item,
+   spell or creature blocks do; `requireKiln`; `modSync: refuse` with required mods), labbot-test lets a live bot in
+   (`NetVanillaClientEvent`, logged "labbot-test: bot ... let in"): the bot is held at Gameplay Ready for
+   `vanillaHoldSeconds` (5 s) first, and a mod of your own that sets `Kick` on that event may undo it.
 
 ### From a lab script (Python)
 
@@ -40,9 +45,14 @@ print(bot.info()["entity"], bot.character())  # its entity and CharacterKey
 bot.say("/pet give hound")                    # a chat line typed by the bot: Kiln's commands run with the bot as source
 print(bot.command("pet list"))                # Commands.Execute as the bot: found/denied/done/error and the output
 bot.move_to(x, y, z)                          # teleport its entity
-bot.stay(30)                                  # it stays where it is
+bot.stay(300)                                 # it stays where it is (its info every 5 s keeps the lab peer)
 bot.leave()                                   # logout: final save, the game removes it; leave(drop=True) = lost connection
 ```
+
+kiln.net forgets a lab peer that sent it nothing for 60 s, and its requests then reach no channel. So `bot.stay`
+asks for the bot's info every 5 s (and raises `LabBotError` when the bot left or failed meanwhile), and a `Lab` call after
+45 s without a frame from it (a script's own `time.sleep`) says HELLO again first: a long stay or pause needs nothing
+of the script.
 
 `labbot.Lab.join(name, group)` starts a join without waiting; `Bot.wait_ready(timeout)` waits for `InGame` and raises
 `LabBotError` with the bot's reason when it failed or left. Groups: `admin` (the userGroups entry with kick/ban and the
@@ -50,12 +60,17 @@ most rights), `least`, or `index` with `index=n`. The same name is the same char
 bot that joins again finds its per-character data (pets, quests). At most 4 bots at once.
 
 `bot.told(since)` / `bot.wait_told(text)`: the server's chat lines to the bot (a command's replies, "[Server] ..."; an
-async command such as `/pet summon` answers there). Two lines added in the same server step show only the second.
+async command such as `/pet summon` answers there). `wait_told` takes only a line added after the bot's last `say` or
+`command` (their replies carry that point as `"told"`; `since=` picks another), so a reply to an earlier command never
+passes for the newest one. Two lines added in the same server step show only the second.
 
-Known limit: a bot that logs out cannot join again **under the same name** while the server keeps running (it stays in
-the game's spawn position search until the 60 s limit; `docs/re/labbot.md`). Use a new name for each join in one
-server session, or restart the lab between a logout and the same character's next login (the first join of a session
-works, with the character's per-character data).
+Known limit: **after a bot leaves (a logout or a drop), restart the lab before the next join.** The game does not
+spawn a character again after its logout while the server keeps running (the join stays in the spawn position search,
+record state 1, until the 60 s load limit; `docs/re/labbot.md`), so a join under a name that logged in earlier in that
+session is refused at once: `LabBotError` "... logged in earlier in this server session ...". A new name after a bot
+left stayed in that search too in the review's labs (6 of 6 joins, 0.1 s to 5 s after a logout or a drop, with fresh
+handles as well); only one join in the lane's s6 spawned. Bots that are in the world at the same time are fine (join
+them all first, then end them). The first join of a server session works, with the character's per-character data.
 
 From a shell: `python3 -I tools/labbot/labbot.py --port <labPort> status|list|players|spawn NAME|info ID|wait ID|say ID
 TEXT|command ID LINE|move ID X Y Z|position ID|character ID|leave ID [--drop]` (JSON out; exit 1 = the server answered

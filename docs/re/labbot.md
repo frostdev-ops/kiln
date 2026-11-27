@@ -105,7 +105,10 @@ entity from the player template, user-group rights, saves, logout, removal).
 1. *Messages to a machine the session does not really have* **[lab]**: the GameServer sends to the bot as to any client
    (the session's send allocator peaked at 980,304 bytes with the bot in game, 0 without); the session's per-machine
    table shows 0 bytes sent to every machine: nothing reaches the wire, nothing is logged, nothing piles up (the
-   server's memory was flat for the last 45 s of the stay).
+   server's memory was flat for the last 45 s of the stay). The review's 5-minute stays (g1, g3; `bot.stay(300)`, RSS
+   every 10 s, 10 saves acked each) after the first minute: 1152 to 1157 MB (min 1152, max 1158) and 1081 to 1089 MB,
+   a drift of +1 to +2 MB a minute with plateaus and dips, against 1049 to 1068 MB in the 30 s before the join. Small,
+   but five minutes cannot rule out a slow leak: hours were not measured.
 2. *kiln.net's gate and the bot's Gameplay Ready* **[lab]** with the gate off (kiln.net's default): the bot's
    GameplayReady goes through kiln.net's hook on MachineLogin like a client's and the record reaches state 3. With a
    holding gate the bot is held like any client without Kiln (it never sends Kiln's proof);
@@ -142,3 +145,28 @@ the 60 s limit (p1, p2, s6). The first join of a server session under a name tha
 is not 2 or 3, but a new name joined right after the logout, so that global check is not it; what the returning
 character waits for is not found yet. Workaround for tests: a new bot name for each join in one server session, or a
 server restart between a logout and the same character's next login.
+
+Since the review of the lane (dev.32 review-labbot), kiln.labbot refuses such a join at once instead of failing it after
+the 60 s load limit: `labbot::Played` remembers every character and account that logged in on the server (AddPlayer
+made its record), and `join` answers `KILN_ERR_INVALID_ARGUMENT` for one of them, with the reason in kiln.log; the
+managed `LabBots.Join` throws an `ArgumentException` that says so.
+
+**The review's labs (dev32-review-labbot, 2026-11-27) found more: a new name after a logout stays there too.**
+
+| Run | Before | The next join | Result |
+|---|---|---|---|
+| g1 | Gate Alder 5 min in game, 10 saves acked, logout | Gate Birch (new name), 0.15 s later, slot 15, the same handles | record state 1 until the 60 s limit |
+| g2 (`requireKiln`) | R Ash 30 s in game, logout | R Beech 5 s later; R Cherry at once after Beech failed; R Dogwood 5 s after that | all three: state 1 until the limit |
+| g3 | as g1 | Gate Birch 0.15 s later, slot 15, **new handles** (a test build with a new machine and player generation per join: machine 0x2b10, player 0x158f) | state 1 until the limit |
+| g4 | D Ash 15 s in game, **drop** | D Birch at once | state 1 until the limit; D Ash left Players.All |
+
+So neither the name, the reused handles nor the way the bot left decide it. Only the lane's s6 had a join after a
+bot left that spawned (Bot Cedar, 3.5 s after Bot Alder's logout, which followed Bot Birch's drop). What the state-1 step waits for **[static]**:
+it calls the search `0x7aded0` each frame. The search itself waits (result 1) while bit 1 of `[[gs+0x20]+0x70]` is
+clear. For the bot's new character (record `+0x140` set, from the login's new-character byte) it then asks the spawn
+point query `0x653930` and computes the position from the spawn entity (`0x7aebf0`). The step stores it at record
+`+0x100` and goes on to state 2 only when four checks pass: `0xa45c10` (on `[gs+0x1770]`, given the position),
+`0x66c710` (`[gs+0x1d0]`), `0x23a180` (`[gs+0x1d8]`), and `0x7b6460`, which reads the machine's socket entry
+(`[gs+0x30]+0x28`, by the record's `+4` peer handle) and calls `0xa033b0` on it. Which of them stays false after a
+bot left is not known yet: the next step is a lab probe that reads them for a stuck bot. Until then: join every bot a
+test needs first, and restart the lab after one leaves (tools/lab/README.md).

@@ -11,7 +11,10 @@
 //  8 a drop, and a leave before the bot is in game (always a drop);
 //  9 failures, each with its reason: never in the published state, the login refused, the upload refused, no spawn
 //    position, the record taken over; the game removing an in-game bot is Left with the record's state;
-// 10 a leave whose record never frees is dropped after the limit.
+// 10 a leave whose record never frees is dropped after the limit;
+// 11 the characters that logged in on this server (Played): kiln.labbot refuses their next join at once;
+// 12 the publisher: listed bots in every publish, a left bot cleared from the next ones even when another bot takes its
+//    place at once.
 #include <cstdio>
 #include <cstring>
 #include <map>
@@ -537,6 +540,161 @@ void t_leave_timeout() {
     CHECK(b.reason.find("dropped") != std::string::npos, "reason '%s'", b.reason.c_str());
 }
 
+// ---- 11: a character that logged in on this server is remembered (kiln.labbot refuses its next join at once: the game
+// never spawns it again after its logout while the server runs, lab p1, p2, s6) ----
+void t_played() {
+    FakeGame g;
+    Bot b = make_bot();
+    uint64_t step = 0;
+    b.step(g, ++step, g.L);
+    CHECK(b.phase == Phase::LoggingIn && b.logged_in, "the login made its record: logged in (%s)", phase_name(b.phase));
+    FakeGame h;
+    h.visible = false;
+    Bot c = make_bot();
+    c.step(h, 1, h.L);
+    c.leave(true);
+    c.step(h, 2, h.L);
+    CHECK(c.phase == Phase::Left && !c.logged_in, "never in the published state: the game never saw its character");
+    FakeGame r;
+    r.refuse_login = true;
+    Bot d = make_bot();
+    d.step(r, 1, r.L);
+    CHECK(d.phase == Phase::Failed && d.logged_in, "a record the game refused (state 6) still names the character");
+
+    Played played;
+    uint8_t alder[16], birch[16];
+    derive_character("Bot Alder", alder);
+    derive_character("Bot Birch", birch);
+    CHECK(!played.has(alder, derive_account("Bot Alder")) && played.size() == 0, "empty");
+    played.add(alder, derive_account("Bot Alder"));
+    CHECK(played.has(alder, derive_account("Bot Alder")), "the same name again");
+    CHECK(!played.has(birch, derive_account("Bot Birch")), "another name");
+    CHECK(played.has(alder, 12345) && played.has(birch, derive_account("Bot Alder")), "the character or the account alone");
+    played.add(alder, derive_account("Bot Alder"));
+    CHECK(played.size() == 1, "kept once (%zu)", played.size());
+    for (int i = 0; i < 40; ++i) {
+        const std::string n = "Bot " + std::to_string(i);
+        uint8_t ch[16];
+        derive_character(n, ch);
+        played.add(ch, derive_account(n));
+    }
+    uint8_t last[16];
+    derive_character("Bot 39", last);
+    CHECK(played.size() == 41 && played.has(last, 1) && played.has(alder, 1), "no limit: every name of the session (%zu)",
+          played.size());
+}
+
+// ---- 12: the publisher: a left bot's entries are cleared from the next publishes even when another bot is listed in
+// its place at once (a drop, then a join: the old per-index clear was dropped by the join and the session kept copying
+// the left bot forward, so the game kept its record: a ghost player) ----
+struct SnapOps : Publisher::Ops {
+    Snap& s;
+    std::vector<std::string> log;
+    explicit SnapOps(Snap& snap) : s(snap) {}
+    Put put(const SnapEntry& e) override {
+        log.push_back("put " + std::to_string(e.slot));
+        return put_entries(s.buf.data(), s.L, e);
+    }
+    bool grow(const SnapEntry& e) override {
+        log.push_back("grow " + std::to_string(e.machine_index));
+        s.give(e.machine_index, 1);
+        return true;
+    }
+    bool clear(const SnapEntry& e) override {
+        log.push_back("clear " + std::to_string(e.slot));
+        return clear_entries(s.buf.data(), s.L, e);
+    }
+};
+
+SnapEntry entry_of(uint32_t slot, uint32_t machine_index) {
+    SnapEntry e;
+    e.slot = slot;
+    e.machine_index = machine_index;
+    e.player = player_handle(slot);
+    e.machine = machine_handle(machine_index);
+    e.group = 7;
+    e.account = 0x99;
+    return e;
+}
+
+void t_publisher() {
+    const SnapEntry a = entry_of(15, 16), b = entry_of(14, 15);
+    {   // a bot is listed in every publish, its machine's array grown once through the game's reserve
+        Publisher p;
+        CHECK(p.idle(), "idle at first");
+        Snap s;
+        SnapOps ops(s);
+        p.list(0, a);
+        CHECK(!p.idle() && p.apply(ops) && has_entries(s.buf.data(), s.L, a), "listed");
+        CHECK(ops.log.size() == 3 && ops.log[1] == "grow 16", "grown once (%zu calls)", ops.log.size());
+        p.list(0, a);  // the GameServer step says it again each frame
+        CHECK(p.apply(ops) && has_entries(s.buf.data(), s.L, a), "still listed");
+        // it leaves: cleared from the next kClears publishes, then the publisher is idle
+        p.unlist(0);
+        for (int i = 0; i < Publisher::kClears; ++i) {
+            put_entries(s.buf.data(), s.L, a);  // a buffer in flight still holds it (the session's copy forward)
+            CHECK(!p.apply(ops) && !has_entries(s.buf.data(), s.L, a), "cleared in publish %d", i + 1);
+        }
+        CHECK(p.idle(), "idle after %u clears", Publisher::kClears);
+        put_entries(s.buf.data(), s.L, a);
+        p.apply(ops);
+        CHECK(has_entries(s.buf.data(), s.L, a), "no clear after the last");
+    }
+    {   // A drops and B joins in A's place at once (the same index, another slot): A is still cleared every publish
+        Publisher p;
+        Snap s;
+        SnapOps ops(s);
+        p.list(0, a);
+        p.apply(ops);
+        p.unlist(0);
+        p.list(0, b);
+        for (int i = 0; i < Publisher::kClears; ++i) {
+            put_entries(s.buf.data(), s.L, a);  // the session copied A forward
+            CHECK(p.apply(ops), "B listed");
+            CHECK(!has_entries(s.buf.data(), s.L, a) && player_in(s.buf.data(), s.L, 15) == 0, "A cleared in publish %d", i + 1);
+            CHECK(has_entries(s.buf.data(), s.L, b), "B listed in publish %d", i + 1);
+        }
+    }
+    {   // B gets A's slot and machine (the same handles) while A's clears run: the clear runs first, B ends listed
+        Publisher p;
+        Snap s;
+        SnapOps ops(s);
+        p.list(1, a);
+        p.apply(ops);
+        p.unlist(1);
+        p.list(0, a);  // a lower index, as t_join picks the first free one
+        for (int i = 0; i < 3; ++i) CHECK(p.apply(ops) && has_entries(s.buf.data(), s.L, a), "the new bot listed (%d)", i + 1);
+    }
+    {   // more left bots than one per index: every one is cleared
+        Publisher p;
+        Snap s;
+        SnapOps ops(s);
+        std::vector<SnapEntry> gone;
+        for (uint32_t k = 0; k < 6; ++k) {
+            const SnapEntry e = entry_of(15 - k, 16 - k);
+            gone.push_back(e);
+            p.list(0, e);
+            p.apply(ops);
+            p.unlist(0);
+        }
+        for (const SnapEntry& e : gone) put_entries(s.buf.data(), s.L, e);
+        p.apply(ops);
+        bool any = false;
+        for (const SnapEntry& e : gone) any = any || has_entries(s.buf.data(), s.L, e);
+        CHECK(!any, "six left bots of one index all cleared");
+    }
+    {   // the session took the slot (a real connection): counted, nothing written
+        Publisher p;
+        Snap s;
+        s.give(16, 1);
+        const uint32_t real = 0x40 | 15;
+        std::memcpy(s.p(15), &real, 4);
+        SnapOps ops(s);
+        p.list(0, a);
+        CHECK(!p.apply(ops) && p.taken() == 1 && rd32(s.p(15)) == real, "taken: counted, the real entry kept");
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -551,6 +709,8 @@ int main() {
     t_failures();
     t_leave_timeout();
     t_limits_are_time();
+    t_played();
+    t_publisher();
     std::printf("labbot host: %d checks, %d failed\n", g_checks, g_failures);
     return g_failures ? 1 : 0;
 }
