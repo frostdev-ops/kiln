@@ -254,6 +254,34 @@ class Samples(Fixture):
         self.assertIn(" and 5 more", text)
 
 
+class Tiers(Fixture):
+    def test_each_type_says_its_tier_from_tiers_json(self):
+        (self.repo / "tools/docs-site").mkdir(parents=True)
+        (self.repo / "tools/docs-site/tiers.json").write_text(
+            '{"format": 1, "assemblies": {"Kiln.Chat": "stable", "Kiln.Blocks": "native"}, "types": {"Kiln.Quiet": "advanced"}}')
+        self.write_api(item("Kiln.Chat", "T:Kiln.Chat", "Class", "Kiln.Chat"), item("Kiln.Quiet", "T:Kiln.Quiet", "Class", "Kiln.Chat"),
+                       item("Kiln.Is", "T:Kiln.Is", "Class", "Kiln.Blocks"),
+                       item("Kiln.Chat.Send(System.String)", "M:Kiln.Chat.Send(System.String)", "Method", "Kiln.Chat", parent="Kiln.Chat"))
+        self.write_stage("Kiln.Chat", {"T:Kiln.Chat": "<summary>Chat.</summary>", "T:Kiln.Quiet": "<summary>Quiet.</summary>",
+                                       "M:Kiln.Chat.Send(System.String)": "<summary>Says it.</summary>"})
+        self.write_stage("Kiln.Blocks", {"T:Kiln.Is": "<summary>Is.</summary>"})
+        counts = self.run_annotate()
+        self.assertEqual(counts["tier"], 3)
+        self.assertIn("Tier: Stable", self.text(self.member("Kiln.Chat", "T:Kiln.Chat").find("summary")))
+        self.assertIn("Tier: Advanced", self.text(self.member("Kiln.Chat", "T:Kiln.Quiet").find("summary")))
+        self.assertIn("Tier: Native", self.text(self.member("Kiln.Blocks", "T:Kiln.Is").find("summary")))
+        self.assertNotIn("Tier", self.text(self.member("Kiln.Chat", "M:Kiln.Chat.Send(System.String)").find("summary")))  # types only
+
+    def test_every_assembly_of_the_reference_has_a_tier(self):
+        repo = HERE.parents[1]
+        tiers = annotate.load_tiers(repo)
+        import json as _json
+        services = _json.loads((HERE / "services.json").read_text(encoding="utf-8"))
+        missing = [s["assembly"] for s in services["services"] if s["assembly"] not in tiers["assemblies"]]
+        self.assertEqual(missing, [], "add these assemblies to tools/docs-site/tiers.json (docs/kiln/modding/tiers.md)")
+        self.assertTrue(set(tiers["assemblies"].values()) | set(tiers["types"].values()) <= set(annotate.TIER_TEXT))
+
+
 class SampleScan(unittest.TestCase):
     def test_what_counts_as_a_use(self):
         used = samples.chains('''
