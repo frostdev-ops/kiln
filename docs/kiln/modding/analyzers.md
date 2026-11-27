@@ -83,9 +83,13 @@ When several registry fields name the member, the hint names the one that maps i
 is: `itemLevelRange.minLevel` is `items.levels.min` (the armor and power formulas only read it).
 
 **Fix.** Where the field holds the same value one to one (a whole number, a number, a bool or a time, not a formula or an
-enum whose values have other names), the value is plain or `{"set": v}`, and the entry is named by its key (not a glob), the
-code fix moves it from the old section into the pack's `registry` section (`"registry": {"items": {"Wood": {"maxStack": 500}}}`;
-registry selectors take the old debug names). A relative op stays where it is: an old section's op works on the game's value,
+enum whose values have other names), the value is plain or `{"set": v}`, and the entry is one entry named by its debug name
+(not a glob, not an item number, no `@where` or other condition, only the letters, digits, `_`, `.` and `-` a Kiln id has),
+the code fix moves it from the old section into the pack's `registry` section as one alter edit
+(`"registry": {"alter": [{"registry": "items", "select": {"id": "Wood"}, "field": "maxStack", "op": 500}]}`, the section's
+own form, schema/registry-section.schema.json; a registry selector reads an old debug name as `game:<name in lower case>`).
+It joins an existing `alter` list, and offers nothing when the section already edits that field of that entry or is not a
+registry section. A relative op stays where it is: an old section's op works on the game's value,
 the registry's on the value below it. A registry edit is a layer above every old pack (D1), so another mod's old pack no longer
 wins over this value. Code (`ContentEntry.Set`) has no automatic fix: a registry change is a transaction on the world thread
 (`Registry.Change`) or an `OnRegistry` edit, not a code layer.

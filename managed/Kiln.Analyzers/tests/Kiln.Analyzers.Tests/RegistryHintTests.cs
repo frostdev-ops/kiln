@@ -185,19 +185,62 @@ public class RegistryHintTests
         var doc = JsonSpans.Parse(moved!)!;
         Assert.Null(doc.Find("items")!.Value.Find("Material_T1_Wood_Logs")!.Value.Find("maxStackSize"));
         Assert.Equal("2", doc.Find("items")!.Value.Find("Material_T1_Wood_Logs")!.Value.Find("weight")!.Value.Text);
-        Assert.Equal("500", doc.Find("registry")!.Value.Find("items")!.Value.Find("Material_T1_Wood_Logs")!.Value.Find("maxStack")!.Value.Text);
-        // into an existing registry section, and {"set": v}
+        // the registry section's own form (schema/registry-section.schema.json): {"alter": [edits]}, one edit of the Kiln field
+        var section = RegistrySection(moved!);
+        var edit = Assert.Single(section["alter"]!.AsArray())!;
+        Assert.Equal("items", edit["registry"]!.GetValue<string>());
+        Assert.Equal("Material_T1_Wood_Logs", edit["select"]!["id"]!.GetValue<string>());
+        Assert.Equal("maxStack", edit["field"]!.GetValue<string>());
+        Assert.Equal(500, edit["op"]!.GetValue<int>());
+        // into an existing registry section's alter list, and {"set": v}
         var withRegistry = """
         { "format": 1, "items": { "Wood": { "maxStackSize": { "set": 99 } } },
-          "registry": { "items": { "Wood": { "rarity": "rare" } } } }
+          "registry": { "alter": [ { "registry": "items", "select": { "id": "game:wood" }, "field": "rarity", "op": "rare" } ] } }
         """;
         moved = RegistryHintFix.MoveText(withRegistry, withRegistry.IndexOf("\"maxStackSize\"", StringComparison.Ordinal), "items.maxStack", "items", "Wood");
-        var reg = JsonSpans.Parse(moved!)!.Find("registry")!.Value.Find("items")!.Value.Find("Wood")!.Value;
-        Assert.Equal("99", reg.Find("maxStack")!.Value.Text);
-        Assert.Equal("rare", reg.Find("rarity")!.Value.Text);
-        // the registry section already sets the field: no fix
-        var both = """{ "items": { "Wood": { "maxStackSize": 1 } }, "registry": { "items": { "Wood": { "maxStack": 2 } } } }""";
+        var alter = RegistrySection(moved!)["alter"]!.AsArray();
+        Assert.Equal(2, alter.Count);
+        Assert.Equal("rarity", alter[0]!["field"]!.GetValue<string>());
+        Assert.Equal(99, alter[1]!["op"]!.GetValue<int>());
+        // a section with add only: alter joins it
+        var addOnly = """{ "items": { "Wood": { "maxStackSize": 7 } }, "registry": { "add": [] } }""";
+        Assert.Equal(7, RegistrySection(RegistryHintFix.MoveText(addOnly, addOnly.IndexOf("\"maxStackSize\"", StringComparison.Ordinal), "items.maxStack", "items", "Wood")!)["alter"]![0]!["op"]!.GetValue<int>());
+        // the registry section already edits that field of that entry (by its id or its old name): no fix, both stay
+        var both = """{ "items": { "Wood": { "maxStackSize": 1 } }, "registry": { "alter": [ { "registry": "items", "select": { "id": "game:wood" }, "field": "maxStack", "op": 2 } ] } }""";
         Assert.Null(RegistryHintFix.MoveText(both, both.IndexOf("\"maxStackSize\"", StringComparison.Ordinal), "items.maxStack", "items", "Wood"));
+        // a registry section that does not read as one (a stage it does not have) is left alone
+        var odd = """{ "items": { "Wood": { "maxStackSize": 1 } }, "registry": { "items": {} } }""";
+        Assert.Null(RegistryHintFix.MoveText(odd, odd.IndexOf("\"maxStackSize\"", StringComparison.Ordinal), "items.maxStack", "items", "Wood"));
+        // an entry with conditions, a glob, an item number: not one entry by its key
+        var where = """{ "items": { "Wood": { "@where": { "rarity": "Rare" }, "maxStackSize": 1 } } }""";
+        Assert.Null(RegistryHintFix.MoveText(where, where.IndexOf("\"maxStackSize\"", StringComparison.Ordinal), "items.maxStack", "items", "Wood"));
+        var glob = """{ "items": { "Wood_Log?": { "maxStackSize": 1 } } }""";
+        Assert.Null(RegistryHintFix.MoveText(glob, glob.IndexOf("\"maxStackSize\"", StringComparison.Ordinal), "items.maxStack", "items", "Wood_Log?"));
+    }
+
+    // the "registry" section of a fixed file, checked the way the stage reads it (native ir.cpp lower_section): an object of
+    // add / alter / final lists of edits with registry, select.id, field and op
+    private static System.Text.Json.Nodes.JsonObject RegistrySection(string text)
+    {
+        var doc = System.Text.Json.Nodes.JsonNode.Parse(text, documentOptions: new System.Text.Json.JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = System.Text.Json.JsonCommentHandling.Skip })!;
+        var section = doc["registry"]!.AsObject();
+        Assert.All(section, kv => Assert.Contains(kv.Key, new[] { "add", "alter", "final" }));
+        foreach (var (_, list) in section)
+            Assert.All(list!.AsArray(), e => Assert.True(e!["registry"] is not null && e["select"]?["id"] is not null && e["field"] is not null && e["op"] is not null, e.ToJsonString()));
+        return section;
+    }
+
+    [Fact]
+    public async Task OnlyAnEntryNamedByItsKeyIsFixable()
+    {
+        var pack = """
+        { "items": { "Wood": { "maxStackSize": 1 }, "Wood_Log?": { "maxStackSize": 2 }, "0x1234abcd": { "maxStackSize": 3 }, "4711": { "maxStackSize": 4 },
+                     "Fire Fly Bait": { "maxStackSize": 5 }, "Stone": { "@where": { "rarity": "Rare" }, "maxStackSize": 6 } } }
+        """;
+        var hints = (await Run(Empty, ("/mod/content/stacks.json", pack))).Where(d => d.Id == "KILN124").ToList();
+        Assert.Equal(6, hints.Count);  // every one is a hint
+        Assert.Equal(new[] { "true", null, null, null, null, null },
+            hints.Select(d => d.Properties.TryGetValue(RegistryHintAnalyzer.FixableKey, out var v) ? v : null).ToArray());
     }
 
     [Fact]
@@ -220,8 +263,9 @@ public class RegistryHintTests
         var ops = await action.GetOperationsAsync(CancellationToken.None);
         var changed = ops.OfType<ApplyChangesOperation>().Single().ChangedSolution.GetAdditionalDocument(aid)!;
         var text = (await changed.GetTextAsync()).ToString();
-        Assert.Contains("\"registry\": {\"items\": {\"Wood\": {\"maxStack\": 500}}}", text);
+        Assert.Contains("\"registry\": {\"alter\": [{\"registry\": \"items\", \"select\": {\"id\": \"Wood\"}, \"field\": \"maxStack\", \"op\": 500}]}", text);
         Assert.DoesNotContain("maxStackSize", text);
+        RegistrySection(text);
     }
 
     private sealed class FileText(string path, string text) : AdditionalText

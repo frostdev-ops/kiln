@@ -298,12 +298,14 @@ public sealed class RegistryHintAnalyzer : DiagnosticAnalyzer
             foreach (var entry in top.Value.Members)
             {
                 if (entry.Value.Type != JsonSpans.Kind.Object || entry.Key == "add") continue;
-                Walk(ctx, text, path, entry.Value, "", root, top.Key, entry.Key);
+                // an entry with conditions (@where and the like) is not one entry by its key: hints, never a fix
+                var selector = entry.Value.Members.Any(m => m.Key.StartsWith("@", StringComparison.Ordinal)) ? null : entry.Key;
+                Walk(ctx, text, path, entry.Value, "", root, top.Key, selector);
             }
         }
     }
 
-    private static void Walk(AdditionalFileAnalysisContext ctx, SourceText text, string file, JsonSpans obj, string prefix, string root, string section, string selector)
+    private static void Walk(AdditionalFileAnalysisContext ctx, SourceText text, string file, JsonSpans obj, string prefix, string root, string section, string? selector)
     {
         foreach (var m in obj.Members)
         {
@@ -336,9 +338,23 @@ public sealed class RegistryHintAnalyzer : DiagnosticAnalyzer
                     (m.Value.Type == JsonSpans.Kind.Object && m.Value.Members.Count == 1 && m.Value.Members[0].Key == "set" &&
                      m.Value.Members[0].Value.Type is JsonSpans.Kind.Number or JsonSpans.Kind.Literal);
         if (hit.Exact && plain && section is not null && selector is not null && m.Value.Text != "null" &&
-            hit.Field.StartsWith(section + ".", StringComparison.Ordinal) && !selector.Contains('*'))
+            hit.Field.StartsWith(section + ".", StringComparison.Ordinal) && OneEntry(selector))
             props = props.Add(FixableKey, "true").Add(SectionKey, section).Add(SelectorKey, selector);
         ctx.ReportDiagnostic(Diagnostic.Create(Descriptors.RegistryCovers, Where(text, file, m), props, m.Key, where, hit.Field));
+    }
+
+    /// <summary>An old section's selector that a registry edit's <c>select.id</c> names the same way: a debug name, which the
+    /// registry reads as <c>game:&lt;name in lower case&gt;</c> (D3). Not a glob (an old glob matches debug names, a registry glob
+    /// ids), not an item or recipe number ("0x1234abcd", "4711"), not a name with characters a Kiln id does not have (its id
+    /// has "_" there).</summary>
+    internal static bool OneEntry(string selector)
+    {
+        if (selector.Length == 0 || selector.Length > 200) return false;
+        foreach (var c in selector)
+            if (!(c is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or >= '0' and <= '9' or '_' or '.' or '-')) return false;
+        if (selector.All(char.IsDigit)) return false;
+        return !(selector.StartsWith("0x", StringComparison.OrdinalIgnoreCase) && selector.Length > 2 &&
+                 selector.Substring(2).All(c => Uri.IsHexDigit(c)));
     }
 
     private static Location Where(SourceText text, string file, JsonSpans.Member m)
