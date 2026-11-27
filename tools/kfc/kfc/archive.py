@@ -144,15 +144,19 @@ class ResourceKey(tuple):
 
 class ContentHash(tuple):
     """(size, h0, h1, h2): the 16-byte keen::ContentHash. Text forms: 32 hex digits of the 16 bytes, or kiln.assets'
-    "<size>-<h0>-<h1>-<h2>" (hex numbers)."""
+    "<size>-<h0>-<h1>-<h2>": the size in decimal, the hash words in hex (native/services/assets/util.cpp parse_hash,
+    Kiln.Assets ContentHash.ToString)."""
     __slots__ = ()
 
     def __new__(cls, size, h0=None, h1=None, h2=None):
         if isinstance(size, (bytes, bytearray)):
             return tuple.__new__(cls, struct.unpack("<4I", size[:16]))
         if isinstance(size, str):
-            if "-" in size:  # kiln.assets' spelling: <size>-<h0>-<h1>-<h2> in hex
-                return tuple.__new__(cls, tuple(int(x, 16) for x in size.split("-")))
+            if "-" in size:  # kiln.assets' spelling: <decimal size>-<h0>-<h1>-<h2> (hex)
+                parts = size.split("-")
+                if len(parts) != 4:
+                    raise ValueError(f"{size!r}: kiln.assets' hash text is <size>-<h0>-<h1>-<h2>")
+                return tuple.__new__(cls, (int(parts[0], 10),) + tuple(int(x, 16) for x in parts[1:]))
             return tuple.__new__(cls, struct.unpack("<4I", bytes.fromhex(size)))
         if isinstance(size, dict):
             return tuple.__new__(cls, (size["size"], size["hash0"], size["hash1"], size["hash2"]))
@@ -169,8 +173,8 @@ class ContentHash(tuple):
         return self.raw().hex()
 
     def assets_text(self):
-        """kiln.assets' spelling (dump specs, assets.json): <size>-<h0>-<h1>-<h2> in hex."""
-        return "-".join(f"{x:x}" for x in self)
+        """kiln.assets' spelling (dump specs, assets.json "hash"): <size in decimal>-<h0>-<h1>-<h2> (8 hex digits)."""
+        return f"{self[0]}-{self[1]:08x}-{self[2]:08x}-{self[3]:08x}"
 
     __repr__ = __str__
 

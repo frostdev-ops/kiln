@@ -198,6 +198,10 @@ class GameTerrainTest(unittest.TestCase):
             tile = (Path(d) / "assets" / blobs[0]["file"]).read_bytes()
             vt.check_tile(tile)
             self.assertEqual(ContentHash(blobs[0]["hash"]), ContentHash(*content_hash(tile)))
+            # as kiln.assets reads it (sscanf "%u-%x-%x-%x"): a hex size it does not read, and then serves the blob
+            # under a derived key instead (the first lab run: "Could not find content ... in kfc!")
+            size, h0, h1, h2 = blobs[0]["hash"].split("-")
+            self.assertEqual(ContentHash(int(size, 10), int(h0, 16), int(h1, 16), int(h2, 16)), ContentHash(*content_hash(tile)))
             self.assertEqual(str(ContentHash(blobs[0]["hash"])), rows[983]["new"])
             root = vw.VoxelWorld((Path(d) / "assets/terrain/world-0.bin").read_bytes())
             self.assertEqual(str(root.levels[6].tiles[983].hash), rows[983]["new"])
