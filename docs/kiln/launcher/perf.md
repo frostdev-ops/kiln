@@ -74,7 +74,11 @@ and `libraryWebgl` show the fire on (their style numbers are the real signal; th
   for. Over Thanksgiving weekend (`shell/thanksgiving.ts`, 0.2.0-dev.31.19) the fire's shader is `FRAG_TURKEY` (about
   twice every day's Play frame on a GPU; `tests/thanksgiving.spec.ts` measures both) and the flicker also goes onto the
   greeting over the mouth (`.k-thanks`, a leaf); a driver that cannot build that shader gets every day's `FRAG`, without
-  the greeting (`.k-app[data-turkey]`).
+  the greeting (`.k-app[data-turkey]`). From the Monday after that weekend to 7 January (`shell/season.ts`,
+  0.2.0-dev.31.20) it is `FRAG_FESTIVE` (every day's with snow outside the arch), and the festive mantel and the
+  threshold's diyas (`shell/Festive.tsx`: three SVG layers, the garland's still) move on the fire's frames
+  (`stageFrame`), on Play only; where WebKit composites nothing they are left out while the fire burns. A driver that
+  cannot build `FRAG_FESTIVE` gets `FRAG`: no snow, the mantel still moving on its frames (`tests/festive.spec.ts`).
 - **WebKit without compositing** (`.k-app[data-render="flat"]`, `Stage.tsx flatDrawing`): WebKitGTK with hardware
   acceleration off (webkit://gpu says "Policy never"; `WEBKIT_DISABLE_DMABUF_RENDERER=1`, which the launcher set
   every time up to 0.2.0-dev.29.18 and from 29.19 only where the DMA-BUF renderer failed (its marker, `--no-dmabuf`),

@@ -50,7 +50,8 @@ const info = {
   sandbox: { marker: false, webkit: "unused", why: "default" }, desktop: { on: true, installed: true, file: "/a/kiln.desktop", foreign: false },
   deck: { detected: false, signals: [] },
 } as unknown as AppInfo;
-const full: SettingsCtx = { info, dist: "direct", nexus: true, crucible: true, tauri: true, client: true, schema, values: { graphics: { upscaler: "amd" } } };
+// (festive: the festive season's switch offered, as in the season)
+const full: SettingsCtx = { info, dist: "direct", nexus: true, crucible: true, tauri: true, client: true, schema, values: { graphics: { upscaler: "amd" } }, festive: true };
 
 test("search: every word in the name, the help, the More text or a keyword; accents folded; in the page's order", () => {
   const items = buildIndex(full);

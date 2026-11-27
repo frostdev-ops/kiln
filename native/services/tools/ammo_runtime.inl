@@ -10,6 +10,7 @@ std::mutex mutex;
 thread_local unsigned builder_depth{};
 struct Publication {
     KilnOwner owner{};uint32_t kind{},mode{},session{},count{};uint64_t serial{};
+    uint32_t generation{},local_player{},held{}; // the context it was published for, beside session and serial
     std::array<KilnUiAmmoRow,KUA_CAPACITY> rows{};
 };
 // What the backpack said of a game row with stock when a binding was made from these rows (GitHub issue 145).
@@ -28,6 +29,18 @@ struct Binding {
 };
 Observation observations[2];
 std::shared_ptr<const Publication> publications[2];
+// GitHub issue 151: a Replace publication stays up over the game's newer builds of its list (the same client session,
+// generation, player and held weapon) until Kiln.Ui publishes for them, at most keep_limit from the first such build.
+// Replace takes nothing from the game's rows but a matching row's source, read from the build the rows are composed over,
+// so the HUD keeps the mods' rows and Kiln's cursor instead of the game's rows and its selection (the equipped item) for
+// the frame before the publication: a flash, and on a dedicated server, where a swap's build comes a round trip after
+// the pick, the cursor put back on the equipped item after the player scrolled on. Past the limit the game's own rows
+// show, as before, until the next publication; the post tick logs that once. Append is never kept: its rows go in
+// around the game's and its room follows them.
+constexpr auto keep_limit=std::chrono::milliseconds(1000);
+struct Keep {std::chrono::steady_clock::time_point since{};uint64_t first{},game{};bool started{},expired{},report{};};
+Keep keeps[2]; // reset by every publish and clear of that kind
+std::atomic<bool> keep_report_pending{};
 // An address is only an identity token. Never dereference one kept here: engine views are read only from the
 // current hook's argument, and are copied into owned arrays before leaving that invocation.
 std::map<uintptr_t,Binding> bindings;
@@ -81,7 +94,7 @@ void fault(SelectorGroup* group) {
 // Bindings outlive the session: vanilla enumeration keeps unmatched rows (count zeroed), so a synthetic row stays in
 // its group until that group's next build removes it, and its pick stays suppressed (stale: no event) until then.
 void clear_session() {
-    for(auto& o:observations)o={};for(auto& p:publications)p.reset();pending.clear();
+    for(auto& o:observations)o={};for(auto& p:publications)p.reset();for(auto& k:keeps)k={};pending.clear();
     catalog[0].clear();catalog[1].clear();catalog_session=0;
 }
 void KILN_CALL lifecycle(const KilnWorldEvent* e,void*) {
@@ -90,7 +103,11 @@ void KILN_CALL lifecycle(const KilnWorldEvent* e,void*) {
 KilnHandle lifecycle_handle{},report_tick{};
 std::atomic<bool> fault_reported{};
 void publish_handoffs();
-void KILN_CALL report_post(const KilnTickInfo*,void*) {if(failed()&&!fault_reported.exchange(true))report_caps();publish_handoffs();}
+void publish_keep_reports();
+void KILN_CALL report_post(const KilnTickInfo*,void*) {
+    if(failed()&&!fault_reported.exchange(true))report_caps();
+    publish_handoffs();publish_keep_reports();
+}
 // The exact ItemRegistry lookup at Ce94470 uses map+0x38; Ce86770 gives these map field offsets. Copy only
 // validated ammunition identities/categories, never a borrowed ItemInfo pointer. Refresh on each new client session.
 bool copy_catalog(void* access,uint32_t session) {
@@ -132,6 +149,37 @@ Frame::Frame(SelectorGroup* groups,void*,uint8_t only) {
     }
 }
 Frame::~Frame(){--builder_depth;}
+// Caller holds the mutex. Whether the publication p of list i, made for an earlier build, stays up over the build next
+// (GitHub issue 151; see keeps above).
+bool keep(unsigned i,const Publication& p,const Observation& next) {
+    if(p.mode!=KUA_MODE_REPLACE||p.serial>=next.value.game_serial||p.session!=next.value.session||p.generation!=next.generation||
+       p.local_player!=next.value.local_player||p.held!=next.value.held_item)return false;
+    auto& k=keeps[i];const auto now=std::chrono::steady_clock::now();
+    if(!k.started)k={now,next.value.game_serial,next.value.game_serial,true,false,false};
+    if(k.expired)return false;
+    if(now-k.since<=keep_limit){k.game=next.value.game_serial;return true;} // the last revision the rows were kept over
+    k.expired=k.report=true;keep_report_pending.store(true,std::memory_order_release);return false;
+}
+// One line per expired keep, from the client Post tick (never from the selector hook).
+void publish_keep_reports() {
+    if(!keep_report_pending.exchange(false,std::memory_order_acq_rel)||!api||!api->log)return;
+    struct Line {unsigned kind;uint64_t serial,first,game;};std::array<Line,2> lines{};unsigned n=0;
+    {
+        std::lock_guard lock(mutex);
+        for(unsigned i=0;i<2;++i)if(keeps[i].report) {
+            keeps[i].report=false;lines[n++]={i,publications[i]?publications[i]->serial:0,keeps[i].first,keeps[i].game};
+        }
+    }
+    for(unsigned j=0;j<n;++j)try {
+        char text[360];
+        const int len=std::snprintf(text,sizeof text,"ui.ammo: the %s list shows the game's own rows: the mods' rows of list revision %llu "
+            "were kept over the game's newer builds (revisions %llu to %llu) for %lld ms and no publication for them came; the mods' "
+            "rows show again when Kiln.Ui publishes",lines[j].kind?"spell":"arrow",static_cast<unsigned long long>(lines[j].serial),
+            static_cast<unsigned long long>(lines[j].first),static_cast<unsigned long long>(lines[j].game),
+            static_cast<long long>(keep_limit.count()));
+        if(len>0)api->log(parent_owner,KILN_LOG_INFO,{text,std::min<size_t>(size_t(len),sizeof text-1)});
+    } catch(...) {}
+}
 void after(Frame& frame,SelectorGroup* groups,void* access) try {
     if(!available()||!groups||!access)return;
     KilnClientState before{};if(!state(before))return;
@@ -162,7 +210,10 @@ void after(Frame& frame,SelectorGroup* groups,void* access) try {
         for(uint32_t r=0;r<next.value.game_count;++r)next.value.game_rows[r]={next.rows[r].item,uint32_t(std::min<uint64_t>(next.rows[r].count,UINT32_MAX)),0,r};
         previous=next;
         const auto& p=frame.publication[i];
-        if(!known||!p||p!=publications[i]||p->serial!=next.value.game_serial||p->session!=next.value.session)continue;
+        if(!known||!p||p!=publications[i]||p->session!=next.value.session)continue;
+        // A Replace publication of an earlier build is composed over this one, as if made for it, until the next
+        // publication or keep_limit (GitHub issue 151). Its rows' picks are decided against these rows, as any binding's.
+        if(p->serial!=next.value.game_serial&&!keep(i,*p,next))continue;
         auto composed=compose_ammo(next.rows.data(),next.value.game_count,p->rows.data(),p->count,p->mode,frame.selected[i]?frame.selected[i]:selection(groups+i));
         if(composed.count>capacity){composed.count=uint32_t(std::min<uint64_t>(capacity,KUA_CAPACITY));composed.truncated=true;}
         if(bindings.size()>=16) {
@@ -417,7 +468,7 @@ KilnResult KILN_CALL publish(KilnOwner owner,const KilnUiAmmoPublish* value) {
         std::lock_guard lock(mutex);
         if(!live_owner(owner))return KILN_ERR_REVOKED;
         if(publications[i]&&publications[i]->owner!=owner)return KUA_ERR_BUSY;
-        if(value->mode==KUA_MODE_GAME){publications[i].reset();pending.erase(std::remove_if(pending.begin(),pending.end(),[&](const auto& e){return e.first==owner&&e.second.kind==value->kind;}),pending.end());return KILN_OK;}
+        if(value->mode==KUA_MODE_GAME){publications[i].reset();keeps[i]={};pending.erase(std::remove_if(pending.begin(),pending.end(),[&](const auto& e){return e.first==owner&&e.second.kind==value->kind;}),pending.end());return KILN_OK;}
         KilnClientState s{};const auto& context=observations[i];
         if(!context.value.game_serial)return KILN_ERR_NOT_FOUND;
         if(!state(s)||!same(s,context)||value->session!=s.client_session||value->serial!=context.value.game_serial)return KILN_ERR_INVALID_ARGUMENT;
@@ -426,7 +477,8 @@ KilnResult KILN_CALL publish(KilnOwner owner,const KilnUiAmmoPublish* value) {
         for(uint32_t r=0;r<p->count;++r)if(p->rows[r].flags||!catalog[i].contains(p->rows[r].item)||!seen.insert(p->rows[r].item).second)return KILN_ERR_INVALID_ARGUMENT;
         // Pick keys belong to the old publication. A replacement cannot retarget a queued wish to a new provider.
         pending.erase(std::remove_if(pending.begin(),pending.end(),[&](const auto& e){return e.first==owner&&e.second.kind==value->kind;}),pending.end());
-        publications[i]=std::move(p);return KILN_OK;
+        p->generation=context.generation;p->local_player=context.value.local_player;p->held=context.value.held_item;
+        publications[i]=std::move(p);keeps[i]={};return KILN_OK;
     }catch(...){return KILN_ERR_UNAVAILABLE;}
 }
 KilnResult KILN_CALL context(KilnOwner owner,uint32_t kind,KilnUiAmmoContext* out) {
@@ -457,7 +509,7 @@ KilnResult KILN_CALL take_picks(KilnOwner owner,KilnUiAmmoPick* out,uint32_t cap
 }
 void retire(KilnOwner owner) {
     std::lock_guard lock(mutex);
-    for(auto& p:publications)if(p&&p->owner==owner)p.reset();
+    for(unsigned i=0;i<2;++i)if(publications[i]&&publications[i]->owner==owner){publications[i].reset();keeps[i]={};}
     pending.erase(std::remove_if(pending.begin(),pending.end(),[&](const auto& p){return p.first==owner;}),pending.end());
 }
 bool start() {

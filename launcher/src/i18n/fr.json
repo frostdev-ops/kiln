@@ -2761,6 +2761,9 @@
       "title": "Apparence",
       "fire": "Feu animé",
       "fireHint": "Le feu sur « Jouer » (WebGL). Désactivé : un simple bouton « Jouer », plus léger pour les GPU modestes.",
+      "festive": "Saison des fêtes",
+      "festiveHint": "Un manteau de cheminée d'hiver au-dessus du feu, avec de la neige, jusqu'au 7 janvier.",
+      "festiveMore": "Lampes, bougies et lanternes de nombreuses traditions d'hiver sur un manteau au-dessus du feu, de la neige devant l'arche et des guirlandes sur les pages, du lundi qui suit le week-end de Thanksgiving au 7 janvier. Désactivé : l'aspect habituel pour le reste de cette saison ; il revient à la prochaine saison.",
       "noGpu": "Afficher le lanceur sans le GPU",
       "fireOffSoftware": "Désactivé tant que le lanceur s'affiche sans le GPU.",
       "fireOffEnv": "Désactivé pour ce démarrage : KILN_LAUNCHER_NO_WEBGL est défini.",
@@ -3667,6 +3670,7 @@
     },
     "appShell": {
       "thanksgiving": "Joyeux Thanksgiving",
+      "festive": "Joyeuses fêtes",
       "headStart": "{progress} · {step}",
       "pct": "{pct} %",
       "labelTime": "{label} {time}",
