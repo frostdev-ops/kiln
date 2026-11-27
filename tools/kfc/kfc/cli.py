@@ -20,8 +20,8 @@
     clip GUID [--gltf F] [--model GUID] one keen::JointAnimation: segments, tracks, keys; --gltf writes the skeleton with
                                        the clip as a glTF animation (--model: and that model's skinned mesh, for inspection)
     graph GUID                         one AnimationGraphResource2_0: states, clips, what enters each state
-    terrain info|check|column          the baked terrain's tiles: roots, a validator over every tile, one cell-column
-                                       (kfc/terraincli.py)
+    terrain info|check|column|cook     the baked terrain's tiles: roots, a validator over every tile, one cell-column,
+                                       a lab qualification pack (kfc/terraincli.py)
 
 Defaults: --game ~/.local/share/Steam/steamapps/common/Enshrouded; --exe the game's exe in --game (it is only read;
 pass a scratch copy if you prefer). Outputs go to $KILN_OUT (default <repo>/.out/models), never into the game.

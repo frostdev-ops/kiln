@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""tools/kfc voxeltile / voxelworld on the game's own baked terrain (skipped without an installed game).
+"""tools/kfc voxeltile / voxelworld / terraincook on the game's own baked terrain (skipped without an installed game).
 
     python3 -m unittest discover -s tools/kfc/tests -p 'test_voxel*.py' -v
     KILN_TERRAIN_GAME=~/srv/enshrouded/lab2 ...      a server folder instead of the installed client
@@ -14,12 +14,15 @@ import os
 import random
 import struct
 import sys
+import tempfile
+import json
 import unittest
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 
+from kfc import terraincook as tc  # noqa: E402
 from kfc import voxeltile as vt  # noqa: E402
 from kfc import voxelworld as vw  # noqa: E402
 from kfc.archive import ContentHash, Kfc  # noqa: E402
@@ -160,6 +163,86 @@ class GameTerrainTest(unittest.TestCase):
         for why, bad in cases.items():
             with self.assertRaises(vt.TileFormatError, msg=why):
                 vt.check_tile(bad)
+
+    def test_cook_a_pack(self):
+        """A plan that changes tile 983 (a seeded random box, a pillar above the old ground) and empties tile 1063:
+        the pack's tiles pass the checker, carry the game's ContentHash, the root points at them, the emptied tile
+        reuses the shipped air blob, and the checks are the cells the plan asked for."""
+        plan = {
+            "format": 1, "part": 0,
+            "edits": [
+                {"kind": "random", "box": {"x": 5960, "y": 1780, "z": 3140, "sizeX": 24, "sizeY": 40, "sizeZ": 20},
+                 "seed": 25, "palette": [{"material": 0}, {"material": 3}, {"material": 3, "fill": 128},
+                                         {"material": 17, "fill": 9}, {"material": 150, "fill": 200}]},
+                {"kind": "fill", "box": {"x": 6100, "y": 1700, "z": 3300, "sizeX": 8, "sizeY": 500, "sizeZ": 8},
+                 "cell": {"material": 2}},
+                {"kind": "empty", "tile": 1063},
+            ],
+            "checks": [
+                {"name": "random", "box": {"x": 5960, "y": 1780, "z": 3140, "sizeX": 24, "sizeY": 40, "sizeZ": 20}},
+                {"name": "pillar", "box": {"x": 6100, "y": 1700, "z": 3300, "sizeX": 8, "sizeY": 500, "sizeZ": 8}},
+                {"name": "air", "box": {"x": 5900, "y": 0, "z": 3400, "sizeX": 4, "sizeY": 2000, "sizeZ": 4}},
+                {"name": "control", "box": {"x": 6200, "y": 0, "z": 3104, "sizeX": 1, "sizeY": 2000, "sizeZ": 1}},
+            ],
+        }
+        with tempfile.TemporaryDirectory() as d:
+            r = tc.cook(self.k, plan, d)
+            manifest = json.loads((Path(d) / "assets/assets.json").read_text())
+            rows = {t["index"]: t for t in r["tiles"]}
+            self.assertEqual(sorted(rows), [983, 1063])
+            self.assertTrue(rows[1063]["reusesShippedBlob"])
+            self.assertEqual(rows[1063]["new"], AIR_TILE_NATIVE)
+            self.assertFalse(rows[983]["reusesShippedBlob"])
+            blobs = [e for e in manifest["entries"] if e["kind"] == "blob"]
+            self.assertEqual(len(blobs), 1)
+            tile = (Path(d) / "assets" / blobs[0]["file"]).read_bytes()
+            vt.check_tile(tile)
+            self.assertEqual(ContentHash(blobs[0]["hash"]), ContentHash(*content_hash(tile)))
+            self.assertEqual(str(ContentHash(blobs[0]["hash"])), rows[983]["new"])
+            root = vw.VoxelWorld((Path(d) / "assets/terrain/world-0.bin").read_bytes())
+            self.assertEqual(str(root.levels[6].tiles[983].hash), rows[983]["new"])
+            self.assertEqual(str(root.levels[6].tiles[1063].hash), AIR_TILE_NATIVE)
+            old = self.worlds[vw.SOLID]
+            changed = [(lv, i) for lv, i, ref in root.refs() if ref.hash != old.levels[lv].tiles[i].hash]
+            self.assertEqual(changed, [(6, 983), (6, 1063)])
+            self.assertEqual(sum(a != b for a, b in zip(root.raw, old.raw)) <= 32, True)
+            # the checks: what the plan asked for, read back independently
+            rng = random.Random(25)
+            pal = [0x0000, 0xFF03, 0x8003, 0x0911, 0xC896]
+            want = [pal[rng.randrange(5)] for _ in range(24 * 40 * 20)]
+            got = {c["name"]: c for c in r["checks"]}
+            self.assertEqual(got["random"]["sha256"], tc.cells_sha256(want))
+            self.assertEqual(got["pillar"]["sha256"], tc.cells_sha256([0xFF02] * (8 * 500 * 8)))
+            self.assertEqual(got["air"]["sha256"], tc.cells_sha256([0] * (4 * 2000 * 4)))
+            # the control column is tile 984's, untouched: as the game's tile holds it
+            ctl = vt.TileCells.from_bytes(self.k.read_content(old.levels[6].tiles[984].hash)).column_cells(6200 - 6144, 3104 - 3072)
+            self.assertEqual(got["control"]["sha256"], tc.cells_sha256((ctl + [0] * 2000)[:2000]))
+            self.assertGreater(got["control"]["matter"], 100)
+            # the untouched columns of tile 983 kept their bytes
+            new_t, old_t = vt.parse_tile(tile), vt.parse_tile(self.k.read_content(old.levels[6].tiles[983].hash))
+            same = sum(a == b for a, b in zip(new_t.columns, old_t.columns))
+            self.assertEqual(same, 1024 - rows[983]["changedColumns"])
+
+    def test_plans_the_cooker_refuses(self):
+        base = {"format": 1, "part": 0, "edits": []}
+        bad = [
+            {**base, "edits": [{"kind": "fill", "box": {"x": -1, "y": 0, "z": 0, "sizeX": 1, "sizeY": 1, "sizeZ": 1},
+                                "cell": {"material": 1}}]},
+            {**base, "edits": [{"kind": "fill", "box": {"x": 0, "y": 0, "z": 0, "sizeX": 1, "sizeY": 1, "sizeZ": 1},
+                                "cell": {"material": 300}}]},
+            {**base, "edits": [{"kind": "melt", "box": {}}]},
+            {**base, "edits": [{"kind": "empty", "tile": 6400}]},
+            {**base, "edits": [{"kind": "empty", "tile": 5}, {"kind": "fill", "cell": {"material": 1},
+                                "box": {"x": 1300, "y": 0, "z": 0, "sizeX": 1, "sizeY": 1, "sizeZ": 1}}]},
+            {**base, "edits": [{"kind": "fill", "box": {"x": 6000, "y": 5016, "z": 3100, "sizeX": 1, "sizeY": 1,
+                                                       "sizeZ": 1}, "cell": {"material": 1}}]},   # above the world
+            {**base, "part": 2},
+            {**base, "extra": 1},
+            base,
+        ]
+        for plan in bad:
+            with tempfile.TemporaryDirectory() as d, self.assertRaises(tc.PlanError, msg=json.dumps(plan)):
+                tc.cook(self.k, plan, d)
 
 
 if __name__ == "__main__":

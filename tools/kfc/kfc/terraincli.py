@@ -1,10 +1,11 @@
 # SPDX-License-Identifier: MIT
-"""kfc.py terrain ...: the baked terrain's tiles (kfc/voxeltile.py, kfc/voxelworld.py).
+"""kfc.py terrain ...: the baked terrain's tiles (kfc/voxeltile.py, kfc/voxelworld.py, kfc/terraincook.py).
 
     kfc.py [--game DIR] terrain info [--part P]
     kfc.py [--game DIR] terrain check [--part 0|1|all] [--level L|all] [--tiles I,J|--sample N|--all] [--no-decode]
                                       [--canonical] [--hash] [--jobs N] [-o REPORT.json]
     kfc.py [--game DIR] terrain column X Z [--part P] [--level L] [--cells]
+    kfc.py [--game DIR] terrain cook PLAN.json -o DIR
 
 info: the root of each part: size, levels, tile grids, referenced bytes, the companions' sizes, the layout check.
 check: every rule the reader relies on, per tile (envelope; every column's runs, control bits and payload; with decode
@@ -14,6 +15,8 @@ check: every rule the reader relies on, per tile (envelope; every column's runs,
   the game's ContentHash of each tile (pure Python, about 1 MB/s). Exit 1 on any refused tile.
 column: one cell-column at world cell (X, Z) of a level (default 6) as the game's tile holds it: height, filled
   cells, highest filled y, SHA-256 of cells 0..1999 (the dev.28 lab's live-read fixture) and of the whole column.
+cook: a lab qualification pack (terraincook.py) from a plan: changed level-6 tiles under the game's ContentHash, the
+  patched root, assets/assets.json, receipt.json. Lab servers only: coarser levels and companions stay stale.
 
 --game defaults to the installed client; a folder whose archive a mod loader patched is read through its originals.
 Reads only; writes only under -o / $KILN_OUT.
@@ -193,8 +196,17 @@ def cmd_column(k, a):
     print(json.dumps(out, indent=1))
 
 
+def cmd_cook(k, a):
+    from . import terraincook
+    plan = json.loads(Path(a.plan).read_text())
+    exe = next((p for p in (Path(a.game_path) / n for n in ("enshrouded_server.exe", "enshrouded.exe")) if p.is_file()), None)
+    sha = hashlib.sha256(exe.read_bytes()).hexdigest() if exe else None
+    receipt = terraincook.cook(k, plan, a.o, exe_sha256=sha)
+    print(json.dumps({"out": a.o, "tiles": receipt["tiles"], "checks": receipt["checks"]}, indent=1))
+
+
 def add_parser(sub):
-    p = sub.add_parser("terrain", help="the baked terrain's tiles (info, check, column)")
+    p = sub.add_parser("terrain", help="the baked terrain's tiles (info, check, column, cook)")
     t = p.add_subparsers(dest="terrain_cmd", required=True)
     q = t.add_parser("info")
     q.add_argument("--part", default="all")
@@ -217,9 +229,12 @@ def add_parser(sub):
     q.add_argument("--part", type=int, default=vw.SOLID)
     q.add_argument("--level", type=int, default=vw.FINEST)
     q.add_argument("--cells", action="store_true")
+    q = t.add_parser("cook")
+    q.add_argument("plan")
+    q.add_argument("-o", required=True)
 
 
 def run(args):
     args.game_path = str(Path(args.game).expanduser())
     k = open_game(args.game_path)
-    return {"info": cmd_info, "check": cmd_check, "column": cmd_column}[args.terrain_cmd](k, args)
+    return {"info": cmd_info, "check": cmd_check, "column": cmd_column, "cook": cmd_cook}[args.terrain_cmd](k, args)
