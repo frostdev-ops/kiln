@@ -296,6 +296,12 @@ internal static unsafe class LabBotNative
     private static Table* _table;
     private static bool _looked;
 
+    /// <summary>The rows found the service after a miss: look it up again at the next call.</summary>
+    internal static void LookAgain()
+    {
+        if (_table == null) _looked = false;
+    }
+
     /// <summary>Tests: answer from <paramref name="table"/> (null: look the service up again).</summary>
     internal static void UseTable(Table* table)
     {
