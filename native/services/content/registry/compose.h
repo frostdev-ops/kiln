@@ -107,6 +107,7 @@ struct ChainRow {
     std::string mod;  // the Kiln mod (empty: an archive-writer package)
     std::string who;  // what the report names: the mod, or the old writer
     bool archive_field = false;  // an ArchiveWriter row the journal names on this field (its member paths), not the entry
+    bool stand_in = false;       // a Registry row of a replayed package (Edit::stand_in): not an earlier writer for exclusive/yield
     Stage stage = Stage::Alter;
     std::string source;
     uint32_t n = 0;

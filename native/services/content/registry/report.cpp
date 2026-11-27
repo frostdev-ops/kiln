@@ -35,6 +35,7 @@ json writer_json(const ChainRow& r, size_t list_cap) {
         if (!r.source.empty()) w["source"] = r.source;
         w["n"] = r.n;
         if (r.exclusive) w["exclusive"] = true;
+        if (r.stand_in) w["standIn"] = true;  // a replayed package's recorded value (effect replay, replay.h)
     }
     if (!r.raw.empty()) w["raw"] = r.raw;
     if (r.element.on)
@@ -106,6 +107,7 @@ json report_json(const Schema& schema, const Result& r, const ReportMeta& meta, 
     doc["rollback"] = meta.rollback.is_object() ? meta.rollback : json(nullptr);
     if (meta.saves.is_array() && !meta.saves.empty()) doc["saves"] = meta.saves;
     if (meta.migrated.is_array() && !meta.migrated.empty()) doc["migrated"] = meta.migrated;
+    if (meta.replay.is_array() && !meta.replay.empty()) doc["replay"] = meta.replay;
 
     std::set<EntryRef> added(r.added.begin(), r.added.end());
     size_t writers_cut = 0;

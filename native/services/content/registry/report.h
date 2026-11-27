@@ -59,6 +59,9 @@ struct ReportMeta {
     // registry.json "rollback" (stage.cpp fills it when kiln/data/content/registry/rollback.json asks for one): {plan, from,
     // requested, state applied | refused, reason, changedBack [{field, from, to}], changedBackTotal, leftOut}; null: none asked.
     json rollback;
+    // registry.json "replay" (stage.cpp, effect replay D6, replay.h): what became of each package opted in to effect replay
+    // [{who, state recorded | replayed | refused | none, text, fields, recordedOn}]; null: none is opted in.
+    json replay = nullptr;
     // registry.json "saves": edits that change what existing saves hold (saves.h), one row each; null: none.
     json saves;
     // registry.json "migrated": what the schemas' id migrations renamed in this start's edits ({mod, source, stage, note}).

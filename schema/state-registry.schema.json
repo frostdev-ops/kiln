@@ -355,6 +355,22 @@
         }
       }
     },
+    "replay": {
+      "description": "Effect replay (next release; owner decision D6, opt-in per package): what became of each package opted in by kiln/data/content/registry/replay/opt-in.json. recorded: its Lua ran this start and its effect (the registry fields it changed, with their values) was kept for a later game build; replayed: its Lua was not applied on this game build and its effect recorded on another build was applied through the registry as a stand-in writer below every mod; refused: not replayed, the text says why (a package is replayed whole or not at all); none: this start's journal does not list it. Absent: no package is opted in.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["who", "state", "text", "fields"],
+        "additionalProperties": false,
+        "properties": {
+          "who": { "type": "string", "description": "shroudforge:<id> or eml:<id>; empty for the opt-in file itself when it cannot be read." },
+          "state": { "enum": ["recorded", "replayed", "refused", "none"] },
+          "text": { "type": "string", "description": "One English sentence." },
+          "fields": { "type": "integer", "minimum": 0, "description": "The fields recorded or replayed." },
+          "recordedOn": { "type": "string", "description": "The game build (exe SHA-256) its effect was recorded on, when there is a record." }
+        }
+      }
+    },
     "migrated": {
       "description": "What the schemas' id migrations (schema/registry/migrations) renamed in this start's edits before they were matched. Absent: nothing.",
       "type": "array",
@@ -736,6 +752,10 @@
         },
         "exclusive": {
           "const": true
+        },
+        "standIn": {
+          "const": true,
+          "description": "Effect replay (next release): this registry row is a replayed ShroudForge or EML package's recorded value (mod replay.sf.<id> or replay.eml.<id>), standing in for the write its Lua no longer makes; see the top-level replay list."
         },
         "raw": {
           "type": "string",

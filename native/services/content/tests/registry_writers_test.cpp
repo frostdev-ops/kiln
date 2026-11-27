@@ -825,6 +825,53 @@ int main(int argc, char** argv) {
         why.clear();
         CHECK(!hosted_generation(game, "enshrouded", {}, &hex, &why) && why.find("is a link") != std::string::npos, "a linked <stem>.kfc gives no generation: " + why);
         fs::remove_all(tmp);
+        // the contract with kiln-eml's writer (gpl/kiln-eml/kiln-eml/tests/journal_contract.rs
+        // `the_shroudforge_dialect_with_paths_makes_the_record_kilns_reader_is_tested_on` fails unless this fixture is byte for
+        // byte its record of a fixed kiln-mode pass): read, named per field and per element, its notApplied package
+        {
+            std::ifstream sf(root + "/schema/sfi/eml-journal/fixtures/kiln-eml-writer-sf2.json");
+            std::stringstream ss;
+            ss << sf.rdbuf();
+            const std::string written = ss.str();
+            std::string live;
+            for (int i = 0; i < 32; ++i) live += "7c";
+            const ArchiveJournal w = parse_archive_journal(written, live);
+            CHECK(!written.empty() && w.state == "read" && w.format == 2 && w.dialect == "shroudforge" && w.writer == "kiln-eml",
+                  "kiln-eml's format-2 ShroudForge-dialect record reads: " + w.state + " " + w.text);
+            CHECK(w.packages.size() == 3 && w.packages[1].kind == "eml" && w.not_applied.size() == 1 && w.not_applied[0].id == "broken" &&
+                      w.not_applied[0].reason.find("boom") != std::string::npos && w.not_applied[0].reason.find('\n') == std::string::npos,
+                  "its packages and the one not applied, its reason one line");
+            const std::string stone = "1d622bd9-8170-41b1-822e-d3984b386d95", made = "5d2f8a90-1c3b-4e7f-9a12-6b4c8d0e2f13",
+                              recipes = "3c0a5e77-2f41-4b6a-9e10-5d8c7b6a5f40";
+            BaseModel wb;
+            auto e1 = [](const std::string& id, const char* f, Value v) {
+                BaseModel::Entry x;
+                x.id = id;
+                x.fields[f] = v;
+                return x;
+            };
+            wb.registries["items"] = {e1("game:stone", "maxStack", Value::integer(100)), e1("alpha:1", "maxStack", Value::integer(1))};
+            wb.registries["recipes"] = {e1("game:a", "duration", Value::number(1)), e1("game:b", "duration", Value::number(4)), e1("bravo:new", "duration", Value::number(2))};
+            ArchiveFields wf;
+            wf.rows["items"] = {{"maxStack", {"maxStackSize"}}};
+            wf.rows["recipes"] = {{"duration", {"craftingDuration"}}};
+            wf.array = {{"recipes", "recipes"}};
+            const std::map<int32_t, std::string> els = {{0, "game:a"}, {1, "game:b"}, {2, "bravo:new"}};
+            wf.elements = [&](const std::string& reg, const std::string& guid) -> const std::map<int32_t, std::string>* {
+                return reg == "recipes" && guid == recipes ? &els : nullptr;
+            };
+            std::map<std::string, std::vector<std::string>> unmatched;
+            CHECK(name_archive_writers(w, {{"items|game:stone", stone}, {"items|alpha:1", made}}, {"items"}, &wb, &wf, &unmatched) == 4,
+                  "four entries named: the stone, alpha's creation, the slowed recipe and the appended one");
+            CHECK(wb.registries["items"][0].archive == std::vector<std::string>({"shroudforge:alpha"}) &&
+                      wb.registries["items"][0].archive_fields.at("shroudforge:alpha") == std::set<std::string>({"maxStack"}),
+                  "alpha on the stone's stack size; bravo, which wrote it back as it was, nowhere on it");
+            CHECK(wb.registries["recipes"][0].archive.empty() && wb.registries["recipes"][1].archive == std::vector<std::string>({"shroudforge:alpha"}) &&
+                      wb.registries["recipes"][2].archive == std::vector<std::string>({"eml:bravo"}),
+                  "the recipes by element: alpha's slowed one, bravo's appended one");
+            CHECK(unmatched["shroudforge:alpha"].size() == 1 && unmatched["shroudforge:alpha"][0].find("created a resource") == 0 && unmatched["eml:bravo"].empty(),
+                  "the replay residue: alpha's creation only");
+        }
         // registry.json says whose record was looked at
         ReportMeta hm;
         hm.written = "2026-11-26T20:00:00Z", hm.base.writer = "shroudforge-hosted";

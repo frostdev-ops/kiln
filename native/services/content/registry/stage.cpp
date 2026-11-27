@@ -3,6 +3,7 @@
 #include "stage.h"
 #include "saves.h"
 #include "archive_journal.h"
+#include "replay.h"
 #include "unmapped.h"
 
 #include <algorithm>
@@ -449,9 +450,7 @@ struct Runner::Impl {
     }
     // the archive writer's change journal, read once per start (archive_journal.h)
     std::optional<ArchiveJournal> journal;
-    // Names the journal's packages on base's entries (ids: the model's id table; m: the model, for an array registry's
-    // elements when format 2's paths name them) and records it for registry.json's base.
-    void name_archive(BaseModel* base, const std::map<std::string, std::string>& ids, model::Model* m) {
+    const ArchiveJournal& load_journal() {
         if (!journal) {
             journal.emplace();
             std::string generation, why;
@@ -460,6 +459,165 @@ struct Runner::Impl {
             else journal->text = why.empty() ? "this start's archive writer keeps no change journal: what it changed is part of the base and not named" : why;
             if (journal->state == "stale" || journal->state == "unreadable") log(1, "registry: " + journal->text);
         }
+        return *journal;
+    }
+    // Effect replay (D6, replay.h): the opted-in packages this start records (they ran: who -> their journal row) and what
+    // became of each opted-in package (registry.json "replay").
+    std::map<std::string, ArchiveJournal::Package> replay_record;
+    std::vector<replay::Outcome> replay_rows;
+    std::map<std::string, std::vector<std::string>> replay_unmatched;
+    // the stand-in mods (replay.sf.<id>, replay.eml.<id>) this start composes: a plan marks their inputs "standIn", so a
+    // rollback to it brings them back as stand-ins with the plan (no Kiln mod holds them)
+    std::set<std::string> replay_ids;
+    // Before the base is read: every opted-in package this start's journal lists. One it lists as not applied (its Lua
+    // failed, or it needs one that did) is replayed from its recorded effect when that was recorded on another game build
+    // with the same identity and every part of it maps to a field this build has proven: its batch goes in front of every
+    // mod (a stand-in writer, replay.h). One that ran is recorded after the base is decoded. Nothing when no package is
+    // opted in (no file): no cost.
+    void plan_replay(std::vector<ModInput>* inputs, bool rolled) {
+        if (!env.read_data) return;
+        const auto file = env.read_data(replay::kOptInFile);
+        if (!file) return;
+        const replay::OptIn opt = replay::parse_opt_in(*file);
+        if (!opt.error.empty()) {
+            log(1, "registry: replay: " + opt.error);
+            replay_rows.push_back({"", "refused", opt.error, 0, ""});
+            return;
+        }
+        if (!opt.any()) return;
+        const ArchiveJournal& j = load_journal();
+        std::vector<ModInput> front;
+        for (const auto& [who, on] : opt.packages) {
+            if (!on) continue;
+            replay::Outcome row{who, "none", "", 0, ""};
+            const auto ran = std::find_if(j.packages.begin(), j.packages.end(),
+                                          [&](const ArchiveJournal::Package& p) { return archive_writer_who(p.kind, p.id) == who; });
+            const auto missed = std::find_if(j.not_applied.begin(), j.not_applied.end(),
+                                             [&](const ArchiveJournal::NotApplied& n) { return archive_writer_who(n.kind, n.id) == who; });
+            replay::Description d;
+            std::string why;
+            const auto text = env.read_data(replay::file_of(who));
+            const bool have = text && replay::parse_description(*text, &d, &why);
+            if (have) row.recorded_on = d.exe;
+            if (j.state != "read") {
+                row.text = "this start's change journal names no package (" + j.text + "): nothing is recorded or replayed";
+            } else if (ran != j.packages.end()) {
+                row.state = "recorded";
+                row.text = "its Lua ran this start: its effect is recorded from what it changed";
+                replay_record.emplace(who, *ran);
+            } else if (missed == j.not_applied.end()) {
+                row.text = "this start's change journal does not list it (not installed, switched off, or not in this start's pass): nothing is replayed";
+            } else if (rolled) {
+                row.state = "refused";
+                row.text = "this start runs on a rollback plan: its recorded effect is not replayed (the plan holds it only if the plan's own start replayed it)";
+            } else if (!have) {
+                row.state = "refused";
+                row.text = "its Lua was not applied this start (" + missed->reason + "), and " +
+                           (text ? why : std::string("no effect of it was recorded (it never ran with replay on)")) + ": nothing of it is replayed";
+            } else if (d.exe == env.exe_sha256) {
+                row.state = "refused";
+                row.text = "its Lua was not applied (" + missed->reason + ") on the game build its effect was recorded on: only after a game update is it replayed";
+            } else if (d.side != env.side) {
+                row.state = "refused";
+                row.text = "its effect was recorded on the " + d.side + " side, this is the " + env.side + ": nothing is replayed";
+            } else if (d.version != missed->version || d.content != missed->content) {
+                row.state = "refused";
+                row.text = "the package changed since its effect was recorded (" + (d.version.empty() ? std::string("no version") : d.version) + " -> " +
+                           (missed->version.empty() ? std::string("no version") : missed->version) + "): nothing is replayed";
+            } else if (!d.residue.empty()) {
+                row.state = "refused";
+                row.text = "part of its effect has no proven Kiln field (" + d.residue.front() +
+                           (d.residue.size() > 1 ? "; and " + std::to_string(d.residue.size() - 1) + " more" : std::string()) +
+                           "): a package is replayed whole or not at all";
+            } else if (d.fields.empty()) {
+                row.state = "refused";
+                row.text = "its recorded effect holds no field: nothing to replay";
+            } else if (std::any_of(inputs->begin(), inputs->end(), [&](const ModInput& m) { return m.id == replay::mod_id_of(who); })) {
+                row.state = "refused";
+                row.text = "a Kiln mod has the id its replay would use (" + replay::mod_id_of(who) + "): nothing is replayed";
+            } else {
+                ModInput in;
+                in.id = replay::mod_id_of(who);
+                Batch b;
+                if (!replay::replay_batch(d, schema, &b, &why)) {
+                    row.state = "refused";
+                    row.text = "its recorded effect does not fit this build (" + why + "): nothing is replayed";
+                } else {
+                    std::vector<Refusal> unmapped;
+                    refuse_unmapped(rm, schema, &b, &unmapped, env.entry_support);
+                    if (!unmapped.empty()) {
+                        row.state = "refused";
+                        row.text = "this game build's mapping has not proven all of it (" + unmapped.front().reason + "): nothing is replayed";
+                    } else {
+                        row.state = "replayed";
+                        row.fields = d.fields.size();
+                        row.text = "its Lua was not applied on this game build (" + missed->reason + "); its effect recorded on build " + d.exe.substr(0, 8) +
+                                   " is replayed through the registry: " + std::to_string(d.fields.size()) + " field(s)";
+                        in.batches.push_back(std::move(b));
+                        replay_ids.insert(in.id);
+                        front.push_back(std::move(in));
+                    }
+                }
+            }
+            log(row.state == "replayed" || row.state == "refused" ? 1 : 0, "registry: replay: " + archive_writer_label(who) + ": " + row.text);
+            replay_rows.push_back(std::move(row));
+        }
+        inputs->insert(inputs->begin(), std::make_move_iterator(front.begin()), std::make_move_iterator(front.end()));
+    }
+    // After compose: a replayed package any of whose edits the stage refused (a conflict, a saves check, an entry this base
+    // lacks) is refused whole: its input goes and the caller composes again. true: one went.
+    bool unreplay(std::vector<ModInput>* inputs, const std::vector<Refusal>& refused) {
+        bool gone = false;
+        for (replay::Outcome& row : replay_rows) {
+            if (row.state != "replayed") continue;
+            const std::string id = replay::mod_id_of(row.who);
+            const auto r = std::find_if(refused.begin(), refused.end(), [&](const Refusal& x) { return x.mod == id; });
+            if (r == refused.end()) continue;
+            row.state = "refused";
+            row.text = "the stage refused part of its recorded effect (" + r->reason + "): nothing of it is replayed";
+            row.fields = 0;
+            log(1, "registry: replay: " + archive_writer_label(row.who) + ": " + row.text);
+            replay_ids.erase(id);
+            inputs->erase(std::remove_if(inputs->begin(), inputs->end(), [&](const ModInput& in) { return in.id == id; }), inputs->end());
+            gone = true;
+        }
+        return gone;
+    }
+    // After the base is decoded and named: the description of every opted-in package that ran (replay.h describe), kept in
+    // the data folder for a later game build.
+    void record_replay(const BaseModel& base) {
+        for (const auto& [who, p] : replay_record) {
+            replay::Description d = replay::describe(p, who, base, replay_unmatched[who], p.truncated);
+            d.side = env.side, d.exe = env.exe_sha256, d.kiln = env.kiln_version, d.recorded = env.now ? env.now() : std::string();
+            d.writer = env.archive_journal_writer;
+            const bool written = env.write_data && env.write_data(replay::file_of(who), replay::description_json(d).dump(1));
+            for (replay::Outcome& row : replay_rows)
+                if (row.who == who) {
+                    row.fields = d.fields.size();
+                    row.recorded_on = env.exe_sha256;
+                    row.text = !written ? "its effect could not be kept (the data folder is not writable): nothing can be replayed later"
+                               : d.residue.empty() ? "its Lua ran this start: its effect is recorded (" + std::to_string(d.fields.size()) + " field(s)), replayable after a game update"
+                                                   : "its Lua ran this start: its effect is recorded, but " + std::to_string(d.residue.size()) +
+                                                         " part(s) of it have no proven Kiln field (" + d.residue.front() + "), so it would not be replayed";
+                }
+        }
+        replay_record.clear();
+    }
+    // The stage read no base this start (none could be read): an opted-in package that ran is not recorded, and says so.
+    void record_none() {
+        for (const auto& [who, p] : replay_record)
+            for (replay::Outcome& row : replay_rows)
+                if (row.who == who) {
+                    row.state = "none";
+                    row.text = "its Lua ran this start, but the registry read no base: its effect is not recorded";
+                    log(1, "registry: replay: " + archive_writer_label(who) + ": " + row.text);
+                }
+        replay_record.clear();
+    }
+    // Names the journal's packages on base's entries (ids: the model's id table; m: the model, for an array registry's
+    // elements when format 2's paths name them) and records it for registry.json's base.
+    void name_archive(BaseModel* base, const std::map<std::string, std::string>& ids, model::Model* m) {
+        load_journal();
         // only a registry whose entries are each a whole resource can be named from the journal's resource keys; an array
         // registry's entries (elements of one shared resource) only from format 2's paths, which say which element
         std::set<std::string> whole;
@@ -491,7 +649,7 @@ struct Runner::Impl {
             const auto g = r->second.find(guid);
             return g == r->second.end() ? nullptr : &g->second;
         };
-        const size_t named = name_archive_writers(*journal, ids, whole, base, &fields);
+        const size_t named = name_archive_writers(*journal, ids, whole, base, &fields, replay_record.empty() ? nullptr : &replay_unmatched);
         std::string text = journal->text;
         if (journal->state == "read" && !shared.empty() && journal->format == 1)
             text += "; " + shared + " entries are not named (each is an element of a resource its registry's entries share, and this journal does not say which element a package wrote)";
@@ -558,8 +716,11 @@ struct Runner::Impl {
         if (key.value("side", env.side) != env.side) return *why = name + " is the " + key.value("side", std::string()) + "'s; this is the " + env.side, false;
         if (key.value("exeSha256", env.exe_sha256) != env.exe_sha256) (*rb)["madeOnExe"] = key.value("exeSha256", std::string());
         std::vector<std::string> differ;
+        // a replayed package's recorded effect (effect replay, replay.h): it comes back with the plan as the stand-in it was
+        auto stand_in = [](const json& m) { return m.contains("standIn") && m["standIn"] == true && m.value("mod", std::string()).rfind("replay.", 0) == 0; };
         for (const json& m : p["inputs"]) {
             const std::string mod = m.value("mod", std::string()), version = m.value("version", std::string());
+            if (stand_in(m)) continue;
             if (!loaded.count(mod)) { differ.push_back(mod + " is gone (not loaded in this start)"); continue; }
             const auto v = versions.find(mod);
             const std::string now = v == versions.end() ? std::string() : v->second;
@@ -584,8 +745,11 @@ struct Runner::Impl {
                     const Refusal& x = refused.front();
                     return *why = name + ": " + x.mod + " " + x.source + " #" + std::to_string(x.n) + " is refused on this build: " + x.reason, false;
                 }
+                if (stand_in(m))
+                    for (Edit& e : b.edits) e.stand_in = true;
                 in.batches.push_back(std::move(b));
             }
+            if (stand_in(m)) replay_ids.insert(in.id);
             out->push_back(std::move(in));
         }
         (*rb)["previous"] = p.contains("previous") && p["previous"].is_string() ? p["previous"] : json(nullptr);
@@ -1094,7 +1258,10 @@ std::vector<BootResource> Runner::run(const OldWritesFn& old_fn, const std::vect
         FieldRef ref;
         then_stacks = then_stacks || (field_ref_of(it.key(), &ref) && ref.registry == "items" && ref.field == "maxStack");
     }
-    const bool want_base = !inputs.empty() || !fallback.empty() || then_stacks;
+    // effect replay (D6): opted-in packages this start replays go in front of every mod; those that ran are recorded below
+    d.plan_replay(&inputs, rolled);
+    const bool replay_record = !d.replay_record.empty();
+    const bool want_base = !inputs.empty() || !fallback.empty() || then_stacks || replay_record;
     // A mod whose code uses the registry API (Kiln.Host's set_order flag): decode the stable base here, at resources-ready,
     // before kiln.content writes packs into resident resource pages, rather than at first use (review4 NS1).
     bool users = false;
@@ -1151,6 +1318,7 @@ std::vector<BootResource> Runner::run(const OldWritesFn& old_fn, const std::vect
     model::Need need = model::needs_of(d.schema, named_inputs);
     named_inputs.clear();
     if (then_stacks) need.fields["items"].insert("maxStack"), need.registries.insert("items");
+    if (replay_record) need.all = true;  // an opted-in package's effect is read from every field it changed
     if (d.env.prepare_live && eager) need.all = true;
     bool hit = false;
     if (!src && !want_base) {
@@ -1171,6 +1339,7 @@ std::vector<BootResource> Runner::run(const OldWritesFn& old_fn, const std::vect
         d.meta.base.origin = "none";
     } else if (!src) {
         d.log(2, "registry: the stage has no base to read (" + why + "): nothing of the registry is applied in this start");
+        d.record_none();
         std::lock_guard lk(d.mu);
         d.counts.failed = true;
     } else {
@@ -1198,6 +1367,7 @@ std::vector<BootResource> Runner::run(const OldWritesFn& old_fn, const std::vect
             if (need.raw.empty()) write_base_cache(d.env, family, *src, *inventory, base, d.ids, d.nums, d.decoded);
         }
         d.name_archive(&base, d.ids, m.get());
+        d.record_replay(base);
         if (old_fn) old = old_fn(*m);
         d.log_notes(*m);
     }
@@ -1292,6 +1462,9 @@ std::vector<BootResource> Runner::run(const OldWritesFn& old_fn, const std::vect
     const std::string world_plan = d.index.contains("world") && d.index["world"].is_object() && d.index["world"].contains("plan") &&
                                            d.index["world"]["plan"].is_string() ? d.index["world"]["plan"].get<std::string>() : "";
     if (src) r = compose_checked(inputs, rolled);
+    // a replayed package is all or nothing: one of its edits refused takes it out, and the stage composes again
+    if (src && d.unreplay(&inputs, r.refused)) r = compose_checked(inputs, rolled);
+    if (src && d.unreplay(&inputs, save_refused)) r = compose_checked(inputs, rolled);
     std::string guard_why, plan_why;  // plan_why: the whole plan is refused by a check of all of it (not one edit)
     std::vector<saves::SaveNote> rollback_notes;  // registry.json "saves": what the rollback does to saves against that plan
     if (rolled && src && r.refused.empty() && save_refused.empty()) {
@@ -1483,6 +1656,7 @@ std::vector<BootResource> Runner::run(const OldWritesFn& old_fn, const std::vect
     if (m) m->release();
     std::lock_guard lk(d.mu);
     d.meta.migrated = std::move(migrated);
+    d.meta.replay = d.replay_rows.empty() ? json(nullptr) : replay::outcomes_json(d.replay_rows);
     d.meta.rollback = rb;
     if (rolled) {
         d.rollback = rb.value("plan", std::string());
@@ -1718,7 +1892,9 @@ void Runner::finish(const std::vector<BootOutcome>& outcomes) {
                 if (o.mod == in.id) version = o.version;
             json batches = json::array();
             for (const Batch& b : in.batches) batches.push_back(batch_json(b));
-            inputs.push_back({{"mod", in.id}, {"version", version}, {"batches", std::move(batches)}});
+            json row = {{"mod", in.id}, {"version", version}, {"batches", std::move(batches)}};
+            if (d.replay_ids.count(in.id)) row["standIn"] = true;
+            inputs.push_back(std::move(row));
         }
         json plan_values = json::object();
         for (const auto& [ref, fo] : d.result.fields)

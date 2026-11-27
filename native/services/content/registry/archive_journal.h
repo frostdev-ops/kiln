@@ -70,6 +70,7 @@ struct ArchiveJournal {
         // format 2: the member paths written in each changed resource (GUID -> paths, sorted; "" the whole resource; a
         // GUID listed with several type hashes or parts: all their paths). A GUID without paths (format 1) is named whole.
         std::map<std::string, std::vector<std::string>> paths;
+        size_t contents = 0;  // the contents it created (assets: never a registry entry)
         bool truncated = false;
     };
     std::vector<Package> packages;  // in run order
@@ -163,8 +164,11 @@ std::set<std::string> archive_fields_of(const std::map<std::string, std::vector<
 //    ("<array>[<i>]": the whole element; "<array>[<i>].<member>": the fields that names; "" or "<array>" itself: every
 //    element);
 //  - any other entry is never named.
-// Returns how many entries were named.
+// Returns how many entries were named. `unmatched` (effect replay, replay.h): per package (who), one line for each part of
+// its record that names no Kiln field: a resource that is no registry entry, a member path no field holds, a created
+// resource, created contents.
 size_t name_archive_writers(const ArchiveJournal& journal, const std::map<std::string, std::string>& ids, const std::set<std::string>& whole,
-                            BaseModel* base, const ArchiveFields* fields = nullptr);
+                            BaseModel* base, const ArchiveFields* fields = nullptr,
+                            std::map<std::string, std::vector<std::string>>* unmatched = nullptr);
 
 }  // namespace kc::registry

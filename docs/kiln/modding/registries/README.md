@@ -503,6 +503,43 @@ seen, and a field nobody edits through the registry is not checked. Neither is a
 input, an element of a list of structs, `[*]` over every recipe) have no field row to explain it, so a change there is
 never called another loader's.
 
+### Effect replay of ShroudForge and EML packages (opt-in, next release)
+
+A ShroudForge or EML package edits the game's data by its own Lua, which names the game's types, member paths and GUIDs.
+After a game update that Lua can fail, and the package then changes nothing until its author updates it. **Effect replay**
+keeps such a package's last effect in registry terms and applies it through the registry on a later game build where its
+Lua was not applied. It is off: nothing is recorded or replayed for a package unless the player opts it in (owner decision
+D6: opt-in per package; mechanism, not policy).
+
+- **Opting in:** `kiln/data/content/registry/replay/opt-in.json` (the registry's data folder), on each side that runs the
+  package: `{"format": 1, "packages": {"shroudforge:<id>": true, "eml:<id>": true}}`. `false` (or leaving it out) opts
+  a package out. A file Kiln cannot read opts nothing in, and `registry.json` `replay` says so.
+- **Recording:** in a start whose change journal names an opted-in package as having run (format 2, above), Kiln keeps
+  the registry fields the journal names it on, with the values the base holds there (what its write left in the game's
+  archive), its identity (id, version, content digest), the game build and the side, in
+  `kiln/data/content/registry/replay/replay.sf.<id>.json` (`replay.eml.<id>.json` for an EML package). What of its effect no
+  proven Kiln field holds is listed as the record's residue: a member no field covers, a resource that is no registry
+  entry, an entry or content it created, an entry named whole (a format-1 journal), a field another package changed too, a
+  journal cut short. A start that records reads the whole base (the cost of a registry start with a live registry user).
+- **Replaying:** in a start whose journal lists the package as not applied (`notApplied`: its Lua failed, or it needs a
+  package that did), on another game build than the one its record was made on, with the same id, version and content
+  digest (hosted ShroudForge's journal carries no content digest: id and version), Kiln adds the record's values as
+  absolute registry edits of a stand-in writer, `replay.sf.<id>`, before every mod. Registry mods' edits win over them and relative edits compose on them, as on the package's own archive values
+  (D1); a stand-in edit never makes another mod's `exclusive` edit a conflict or its `yield` edit stand back. kiln.log says
+  so as a warning, and `registry.json` `replay` lists it (`replayed`, its fields, the build its effect was recorded on); its
+  writer rows say `"standIn": true`. The start's plan keeps its edits (the input says `"standIn": true`), so a rollback to
+  that plan brings them back as stand-ins with the plan, with no installed mod needed for them; a rolled-back start
+  replays nothing else.
+- **Refused whole, never in part:** a record with residue, a value that no longer fits its field, an entry or field this
+  build's mapping has not proven, any of its edits the stage refuses, a package that changed since its record, the same
+  game build its record was made on (its Lua failed for another reason than an update), the other side's record, a Kiln
+  mod whose id is the stand-in's (`replay.sf.<id>`), or no record at all: nothing of the package is replayed, and `replay`
+  says why (`refused`). A start that cannot read the base records nothing (`none`).
+- **What it cannot do:** run the package's Lua, create entries, replay contents or anything outside the registries, or
+  follow the game's own new values where the package set a field (the recorded value is set as it was). Each side keeps
+  its own records, so a joined client replays only what it recorded itself; boot fields a replay changes take part in the
+  join's comparison as any registry edit does.
+
 ### Native callback and owner lifetime
 
 `kiln.registry` keeps submitted batches and callbacks under their caller's owner. Revoking that owner removes its queued

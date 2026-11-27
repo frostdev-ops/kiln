@@ -62,6 +62,7 @@ bool member_path(const std::string& p) {
 bool changes_of(const json& c, ArchiveJournal::Package* p, int format, std::string* why) {
     if (!c.is_object()) return *why = "a package is not an object", false;
     if (c.contains("truncated") && c["truncated"].is_boolean()) p->truncated = c["truncated"].get<bool>();
+    if (c.contains("contents") && c["contents"].is_array()) p->contents = c["contents"].size();
     const std::string who = p->id.empty() ? "the unattributed bucket" : p->id;
     std::set<std::string> seen;
     for (const char* list : {"changed", "created"}) {
@@ -311,7 +312,7 @@ std::set<std::string> archive_fields_of(const std::map<std::string, std::vector<
 }
 
 size_t name_archive_writers(const ArchiveJournal& journal, const std::map<std::string, std::string>& ids, const std::set<std::string>& whole,
-                            BaseModel* base, const ArchiveFields* fields) {
+                            BaseModel* base, const ArchiveFields* fields, std::map<std::string, std::vector<std::string>>* unmatched) {
     if (journal.state != "read" || !base) return 0;
     // GUID -> the entries that are that resource (one per registry it is an entry of); an element of a shared resource is
     // not one (its GUID member is no resource key)
@@ -349,21 +350,51 @@ size_t name_archive_writers(const ArchiveJournal& journal, const std::map<std::s
     };
     auto note = [&](const ArchiveJournal::Package& p) {
         const std::string who = archive_writer_who(p.kind, p.id, journal.writer);
-        for (const std::string& g : p.created)
+        std::vector<std::string>* lines = unmatched && !p.id.empty() ? &(*unmatched)[who] : nullptr;
+        auto say = [&](const std::string& line) {
+            if (lines && std::find(lines->begin(), lines->end(), line) == lines->end() && lines->size() < 64) lines->push_back(line);
+        };
+        for (const std::string& g : p.created) {
+            say("created a resource (" + g + "): a created entry is not replayed");
             if (const auto it = by_guid.find(g); it != by_guid.end())
                 for (const auto& entry : it->second) name(entry, who, nullptr);
+        }
+        if (p.contents) say("created " + std::to_string(p.contents) + " content(s): assets are not replayed");
         for (const std::string& g : p.changed) {
             const auto pit = p.paths.find(g);
+            bool known = false;  // the resource is some registry's entry, or holds some array registry's elements
             if (const auto it = by_guid.find(g); it != by_guid.end())
                 for (const auto& entry : it->second) {
+                    known = true;
                     if (pit == p.paths.end() || !fields) name(entry, who, nullptr);
-                    else name_paths(entry, who, pit->second);
+                    else {
+                        name_paths(entry, who, pit->second);
+                        for (const std::string& path : pit->second)
+                            if (!path.empty() && archive_fields_of(rows_of(entry.first), {path}).empty())
+                                say(entry.first + "[" + entry.second + "]: " + path + " is no Kiln field");
+                    }
                 }
             // an array registry's elements: only from paths, which say which element ("<array>[<i>]...")
-            if (pit == p.paths.end() || !fields || !fields->elements) continue;
+            if (pit == p.paths.end() || !fields || !fields->elements) {
+                if (!known) say("a resource that is no registry entry (" + g + ")");
+                continue;
+            }
             for (const auto& [reg, array] : fields->array) {
                 const std::map<int32_t, std::string>* elements = fields->elements(reg, g);
                 if (!elements || elements->empty()) continue;
+                known = true;
+                for (const std::string& path : pit->second) {
+                    const bool under = path.compare(0, array.size() + 1, array + "[") == 0;
+                    const bool holds = path.empty() || (array.compare(0, path.size(), path) == 0 &&
+                                                        (array.size() == path.size() || array[path.size()] == '.' || array[path.size()] == '['));
+                    if (!under && !holds) say("a member of the " + reg + " resource that is no Kiln field (" + path + ")");
+                    if (!under) continue;
+                    const size_t close = path.find(']', array.size());
+                    if (close == array.size() + 1) continue;  // the list's membership: the elements in it are named
+                    const std::string rest = close == std::string::npos ? std::string() : path.substr(close + 1);
+                    if (rest.size() > 1 && rest[0] == '.' && archive_fields_of(rows_of(reg), {rest.substr(1)}).empty())
+                        say(reg + " element " + path.substr(array.size(), close - array.size() + 1) + ": " + rest.substr(1) + " is no Kiln field");
+                }
                 std::map<int32_t, std::vector<std::string>> at;  // element -> its paths from the element's root
                 for (const std::string& path : pit->second) {
                     // the whole resource, or the list itself (or a member holding it) put in place: every element, whole
@@ -386,6 +417,7 @@ size_t name_archive_writers(const ArchiveJournal& journal, const std::map<std::s
                 for (const auto& [i, paths] : at)
                     if (const auto e = elements->find(i); e != elements->end()) name_paths({reg, e->second}, who, paths);
             }
+            if (!known) say("a resource that is no registry entry (" + g + ")");
         }
     };
     note(journal.unattributed);

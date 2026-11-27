@@ -1289,6 +1289,179 @@ void archive_journal_writers(const std::string& dir) {
     }
 }
 
+// Effect replay (D6, registry/replay.h), opt-in per package. A start whose journal (format 2 of the ShroudForge dialect) says
+// betterstacks changed the plank's stack size records that effect for the opted-in package, also with no registry mod at
+// all; a later start on another game build whose journal lists it as not applied replays it through the registry, a
+// stand-in writer below every mod (relative edits compose on it, an exclusive edit is not refused by it); it is refused
+// whole, with the reason, on the build it was recorded on, after the package changed, with residue, or when a value no
+// longer fits; a package not opted in is never recorded or replayed.
+std::vector<stage::Env::DataFile> exclusive_sections(const Schema& schema) {
+    const std::string x = R"({"registry": {"alter": [{"registry": "items", "select": {"id": "game:plank"}, "field": "maxStack", "op": 50, "exclusive": true}]}})";
+    return stage::read_sections("bigmod", "2.0.0", {{"content/x.json", x}}, schema);
+}
+std::vector<stage::Env::DataFile> colliding_sections(const Schema& schema) {  // a Kiln mod whose id a replay would use
+    const std::string x = R"({"registry": {"alter": [{"registry": "items", "select": {"id": "game:material_t1_wood_logs"}, "field": "maxStack", "op": 12}]}})";
+    return stage::read_sections("replay.sf.betterstacks", "1.0.0", {{"content/x.json", x}}, schema);
+}
+void effect_replay(const std::string& dir) {
+    const std::string live = std::string(64, 'a'), other = std::string(64, 'e');
+    const std::string file = "replay/replay.sf.betterstacks.json";
+    auto journal = [&](bool ran, const std::string& version) {
+        json pkg = {{"id", "betterstacks"}, {"version", version}, {"kind", "shroudforge"}, {"contentSha256", std::string(64, '1')},
+                    {"settingsSha256", std::string(64, '2')}, {"truncated", false},
+                    {"changed", json::array({{{"guid", g(2)}, {"typeHash", "8c3dbe3d"}, {"part", 0}, {"createdBy", nullptr}, {"paths", {"maxStackSize"}}}})},
+                    {"created", json::array()}, {"contents", json::array()}};
+        json doc = {{"format", 2}, {"stem", "enshrouded_server"}, {"generation", live}, {"receiptSha256", std::string(64, 'b')},
+                    {"dialect", "shroudforge"}, {"attempt", ran ? "first" : "retry"}, {"truncated", false},
+                    {"packages", ran ? json::array({pkg}) : json::array()},
+                    {"unattributed", {{"truncated", false}, {"changed", json::array()}, {"created", json::array()}, {"contents", json::array()}}}};
+        doc["notApplied"] = ran ? json::array()
+                                : json::array({{{"id", "betterstacks"}, {"version", version}, {"kind", "shroudforge"}, {"contentSha256", std::string(64, '1')},
+                                                {"reason", "attempt to index a nil value (field 'maxStackSize')"}}});
+        return doc.dump();
+    };
+    struct Start {
+        json rep;
+        Files files;
+    };
+    auto start = [&](Files files, const std::string& exe, const std::string& journal_text, std::vector<stage::Env::DataFile> (*data)(const Schema&)) {
+        TreeView view = world();
+        Start s;
+        s.files = std::move(files);
+        stage::Env e = env_of(&view, &s.files, dir, data);
+        e.exe_sha256 = exe;
+        e.writer = "kiln-eml";
+        e.archive_journal = [&](std::string* generation, std::string*) -> std::optional<std::string> { return *generation = live, journal_text; };
+        stage::Runner r(std::move(e));
+        const auto boot = r.run({});
+        std::vector<stage::BootOutcome> outcomes;
+        for (const auto& res : boot)
+            for (const auto& f : res.fields) outcomes.push_back({f.field, true, Value::integer(0), ""});
+        r.finish(outcomes);
+        s.rep = json::parse(s.files.report);
+        return s;
+    };
+    // registry.json "replay"'s first row (an empty object when there is none)
+    auto row0 = [](const json& rep) -> json {
+        return rep.contains("replay") && rep["replay"].is_array() && !rep["replay"].empty() && rep["replay"][0].is_object() ? rep["replay"][0] : json::object();
+    };
+    auto plank = [](const json& rep) -> const json* {
+        for (const json& f : rep["fields"])
+            if (f["id"] == "game:plank" && f["field"] == "maxStack") return &f;
+        return nullptr;
+    };
+    Files opted;
+    opted.data["replay/opt-in.json"] = R"({"format": 1, "packages": {"shroudforge:betterstacks": true, "shroudforge:quiet": false}})";
+    // 1: the package ran: its effect is recorded, with no registry mod in the start
+    Start one = start(opted, kExe, journal(true, "1.0.0"), &no_sections);
+    check(one.files.data.count(file), "the opted-in package's effect is kept: " + one.rep.dump().substr(0, 400));
+    const json d = json::parse(one.files.data[file]);
+    check(d["who"] == "shroudforge:betterstacks" && d["exe"] == kExe && d["side"] == "server" && d["version"] == "1.0.0" && d["contentSha256"] == std::string(64, '1') &&
+              d["writer"] == "kiln-eml",
+          "with its identity and the build it was recorded on: " + d.dump());
+    check(d["fields"] == json::array({{{"registry", "items"}, {"id", "game:plank"}, {"field", "maxStack"}, {"value", 20}}}) && d["residue"] == json::array(),
+          "the field it changed and the value it left: " + d.dump());
+    check(one.rep["replay"].is_array() && one.rep["replay"].size() == 1 && one.rep["replay"][0]["state"] == "recorded" && one.rep["replay"][0]["fields"] == 1,
+          "registry.json replay: recorded (the package not opted in is not listed): " + one.rep.value("replay", json()).dump());
+    // 2: another build, its Lua not applied: replayed below every mod; the mods' x4 and x2 compose on its value
+    Files later = one.files;
+    json rec = json::parse(later.data[file]);
+    rec["fields"][0]["value"] = 33;  // what the package left on the build it was recorded on
+    later.data[file] = rec.dump();
+    Start two = start(later, other, journal(false, "1.0.0"), &sections);
+    const json* p = plank(two.rep);
+    check(p && row0(two.rep).value("state", "") == "replayed" && row0(two.rep).value("fields", 0) == 1, "replayed: " + two.rep.value("replay", json()).dump());
+    check(p && (*p)["result"] == 264, "33 x4 x2: the mods' relative edits compose on the replayed value: " + (p ? p->dump() : std::string()));
+    bool first = false;
+    if (p)
+        for (const json& w : (*p)["writers"])
+            if (w["kind"] == "registry") {
+                first = w.value("mod", "") == "replay.sf.betterstacks" && !w.contains("who") && w.value("standIn", false) && w.value("value", json()) == 33;
+                break;
+            }
+    check(first, "the replayed package is the first registry writer of the field, marked standIn: " + (p ? p->dump() : std::string()));
+    bool warned = false;
+    for (const std::string& l : two.files.log) warned = warned || (l.rfind("1 registry: replay: betterstacks (ShroudForge package)", 0) == 0 && l.find("replayed") != std::string::npos);
+    check(warned, "kiln.log says so, as a warning");
+    check(!two.files.data.count("replay/replay.sf.betterstacks.json") || json::parse(two.files.data[file])["fields"][0]["value"] == 33,
+          "a start that replays never records over the description");
+    // an exclusive edit of the same field is never refused because of the stand-in writer
+    Start ex = start(later, other, journal(false, "1.0.0"), &exclusive_sections);
+    const json* q = plank(ex.rep);
+    bool refused = false;
+    for (const json& x : ex.rep["refused"]) refused = refused || x.value("mod", "") == "bigmod";
+    check(q && (*q)["result"] == 50 && !refused && row0(ex.rep).value("state", "") == "replayed", "an exclusive edit wins over the replay, never refused: " + ex.rep.dump().substr(0, 600));
+    // the replaying start's plan keeps the stand-in's edits (standIn): a rollback to it brings them back as they were, with no
+    // Kiln mod of that id loaded
+    const std::string hash = two.rep.contains("plan") && two.rep["plan"].is_object() ? two.rep["plan"].value("hash", "") : "";
+    check(!hash.empty() && two.files.data.count("plans/" + hash + ".json"), "the replaying start writes its plan: " + two.rep.value("plan", json()).dump());
+    bool kept = false;
+    const json plan_doc = two.files.data.count("plans/" + hash + ".json") ? json::parse(two.files.data["plans/" + hash + ".json"]) : json::object();
+    if (plan_doc.contains("inputs") && plan_doc["inputs"].is_array())
+        for (const json& in : plan_doc["inputs"])
+            kept = kept || (in.value("mod", "") == "replay.sf.betterstacks" && in.value("standIn", false));
+    check(kept, "its plan marks the replay's input standIn");
+    Files back = two.files;
+    back.data["rollback.json"] = json{{"format", 1}, {"plan", hash}}.dump();
+    Start rb = start(back, other, journal(false, "1.0.0"), &sections);
+    const json* rp = plank(rb.rep);
+    bool stood = false;
+    if (rp)
+        for (const json& w : (*rp)["writers"]) stood = stood || (w.value("mod", "") == "replay.sf.betterstacks" && w.value("standIn", false));
+    check(rb.rep.contains("rollback") && rb.rep["rollback"].is_object() && rb.rep["rollback"].value("state", "") == "applied" && rp && (*rp)["result"] == 264 && stood,
+          "a rollback to the replaying start's plan applies, its stand-in included: " + rb.rep.value("rollback", json()).dump());
+    check(row0(rb.rep).value("state", "") == "refused" && row0(rb.rep).value("text", "").find("rollback plan") != std::string::npos,
+          "and replays nothing more itself: " + rb.rep.value("replay", json()).dump());
+    // refused whole, with why
+    auto refused_with =[&](Files f, const std::string& exe, const std::string& text, const std::string& says) {
+        Start s = start(std::move(f), exe, text, &sections);
+        const json* r = plank(s.rep);
+        bool any = false;
+        if (r)
+            for (const json& w : (*r)["writers"]) any = any || w.value("mod", "") == "replay.sf.betterstacks";
+        check(row0(s.rep).value("state", "") == "refused" && row0(s.rep).value("text", "").find(says) != std::string::npos && !any,
+              "refused (" + says + "): " + s.rep.value("replay", json()).dump());
+    };
+    refused_with(later, kExe, journal(false, "1.0.0"), "only after a game update");
+    refused_with(later, other, journal(false, "1.1.0"), "the package changed");
+    Files residue = later;
+    json res = json::parse(residue.data[file]);
+    res["residue"] = json::array({"items[game:plank]: named on the whole entry (its record does not say which fields)"});
+    residue.data[file] = res.dump();
+    refused_with(residue, other, journal(false, "1.0.0"), "no proven Kiln field");
+    Files misfit = later;
+    json mis = json::parse(misfit.data[file]);
+    mis["fields"][0]["value"] = 0;  // below maxStack's minimum on this build
+    misfit.data[file] = mis.dump();
+    refused_with(misfit, other, journal(false, "1.0.0"), "does not fit");
+    {
+        Start s = start(later, other, journal(false, "1.0.0"), &colliding_sections);
+        const json* r = plank(s.rep);
+        bool any = false;
+        if (r)
+            for (const json& w : (*r)["writers"]) any = any || w.value("mod", "") == "replay.sf.betterstacks";
+        check(row0(s.rep).value("state", "") == "refused" && row0(s.rep).value("text", "").find("a Kiln mod has the id") != std::string::npos && !any,
+              "a Kiln mod with the replay's id: refused, the mod's own edit kept: " + s.rep.value("replay", json()).dump());
+    }
+    Files none = later;
+    none.data.erase(file);
+    refused_with(none, other, journal(false, "1.0.0"), "no effect of it was recorded");
+    // not opted in: nothing recorded, nothing listed; an unreadable opt-in file opts nothing in and says so
+    Files off;
+    off.data["replay/opt-in.json"] = R"({"format": 1, "packages": {"shroudforge:betterstacks": false}})";
+    Start o = start(off, kExe, journal(true, "1.0.0"), &no_sections);
+    check(!o.files.data.count(file) && !o.rep.contains("replay"), "a package opted out is never recorded: " + o.rep.value("replay", json()).dump());
+    Files bad;
+    bad.data["replay/opt-in.json"] = R"({"format": 1, "packages": {"betterstacks": true}})";
+    Start b = start(bad, kExe, journal(true, "1.0.0"), &no_sections);
+    check(!b.files.data.count(file) && row0(b.rep).value("state", "") == "refused" && row0(b.rep).contains("who") && row0(b.rep)["who"] == "", "an unreadable opt-in opts nothing in: " + b.rep.value("replay", json()).dump());
+    Files nofile;
+    Start n = start(nofile, kExe, journal(true, "1.0.0"), &no_sections);
+    bool kept_any = false;
+    for (const auto& [k, v] : n.files.data) kept_any = kept_any || k.rfind("replay/", 0) == 0;
+    check(!n.rep.contains("replay") && !kept_any, "no opt-in file: no replay at all (nothing in replay/)");
+}
+
 // Review (registry-writers): the journal lists resources by their key, so only a registry whose entries are each a whole
 // resource (items, drops, balance) can be named from it. A recipe is an element of the shared RecipeRegistryResource: its
 // recipeGuid is a member, not a resource key, so a package that wrote a resource with that GUID never wrote the recipe,
@@ -1446,6 +1619,7 @@ int main(int argc, char** argv) {
         {"plans_are_pruned_at_the_end_of_a_successful_start", [&] { plans_are_pruned_at_the_end_of_a_successful_start(dir); }},
         {"archive_journal_writers", [&] { archive_journal_writers(dir); }},
         {"archive_journal_shared_resources", [&] { archive_journal_shared_resources(dir); }},
+        {"effect_replay", [&] { effect_replay(dir); }},
         {"old_writes_marks", [&] { old_writes_marks(dir); }},
         {"old_writes_element_of_its_resource", [&] { old_writes_element_of_its_resource(dir); }},
         {"per_entry_detail_at_debug", [&] { per_entry_detail_at_debug(dir); }}};
