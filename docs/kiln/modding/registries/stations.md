@@ -54,11 +54,16 @@ registry.Alter(view =>
     foreach (var recipe in view.Recipes.Select())
         if (recipe.Station == forge) recipe.Duration /= 2;           // every forge recipe takes half as long
 });
-foreach (var station in view.Stations.Select()) Log.Info($"{station.Id}: built by {station.Item}, villager's: {station.Npc}");
+
+// reading the stations themselves, outside a pass (on the tick thread, in your mod)
+Kiln.Registry.Registry.Read(view =>
+{
+    foreach (var station in view.Stations.Select())
+        Log.Info($"{station.Id.Value}: built by {station.Item}, villager's: {station.Npc}");
+});
 ```
 
-`view.Stations` is a `RegistryEntries<StationEntry>` (`Item`, `Npc`); assigning is refused. Read it through
-`Registry.Read(view => ...)` outside a pass.
+`view.Stations` is a `RegistryEntries<StationEntry>` (`Item`, `Npc`: read-only properties, no setters).
 
 ## Views
 
