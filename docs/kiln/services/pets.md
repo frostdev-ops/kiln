@@ -108,10 +108,12 @@ for this pet; the down itself cannot be refused. `PetDownedEvent` comes only aft
   minutes; the same id for another request is `RequestConflict`; a nonzero `ExpectedStateRevision` that moved on is
   `StaleRevision` (nothing changes). Requests start at the next step and complete when they settled.
 - **The error rule:** a bad argument throws `ArgumentException`; an off row throws `KilnUnavailableException` naming it;
-  a refusal is `Ok = false` with a reason (`Busy`, `NotOwner`, `OwnerOffline`, `AlreadyReleased`, `Capacity`,
-  `NoSafeGround`, `BodyNotReady`, `ControlRefused`, `ProtectionUnavailable`, `TargetProtected`, `RecoveryNotSummoned`,
-  `OutOfRange`, `CostUnavailable`, `ReviveRefused`, `CanceledNoCost`, `CanceledCostCommitted`,
-  `ReviveFailedCostCommitted`, `UncertainCommit`, ...). A refusal after a cost was taken carries its receipts
+  a refusal is `Ok = false` with a reason, and the reason's first word as a value, `PetResult.Refusal` (`PetRefusal`:
+  `Busy`, `NotOwner`, `OwnerOffline`, `AlreadyReleased`, `Capacity`, `NoSafeGround`, `BodyNotReady`, `ControlRefused`,
+  `ProtectionUnavailable`, `TargetProtected`, `RecoveryNotSummoned`, `OutOfRange`, `CostUnavailable`, `RefusedByMod`,
+  `CanceledNoCost`, `CanceledCostCommitted`, `ReviveFailedCostCommitted`, `UncertainCommit`, ...; `Other` for a word a
+  later Kiln adds). Decide by `Refusal`, never by the text: `if (r.Refusal == PetRefusal.Capacity) ...`. Kiln.Taming's
+  `TamingRefusal` uses the same word for the same meaning. A refusal after a cost was taken carries its receipts
   (`PetResult.Costs`, Kiln.Items' `CostReceipt`): no refund is invented.
 - **Revive:** quoted before anything starts (`ItemCosts.Check`, a read: nothing moves); a mod may refuse (`PetRevivingEvent`); the
   channel runs in simulation time (leaving range, the owner leaving or going down always cancel; moving past

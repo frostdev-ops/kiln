@@ -17,7 +17,9 @@ namespace Kiln;
 /// The same request again is the same answer and never a second cost; another action under a used id is
 /// <c>RequestConflict</c>; an old token under a new id is <c>StaleStep</c>.</para>
 /// <para>Error rule: a bad argument throws <see cref="ArgumentException"/>; an off capability throws
-/// <see cref="KilnUnavailableException"/> naming it; a refusal is <c>Ok = false</c> with its reason and receipts.</para>
+/// <see cref="KilnUnavailableException"/> naming it; a refusal is <c>Ok = false</c> with its reason and receipts, and the
+/// reason's first word as a value, <see cref="TamingResult.Refusal"/> (<see cref="TamingRefusal"/>: the same words as
+/// Kiln.Pets' <see cref="PetRefusal"/> for the same meanings). Decide by it, never by the text.</para>
 /// </remarks>
 [ServerOnly]
 public static class Taming
@@ -73,9 +75,9 @@ public static class Taming
     /// <summary>Starts an attempt of <paramref name="definition"/> by <paramref name="player"/> on
     /// <paramref name="target"/>: the target is claimed (another attempt on it is <c>Busy</c>), the pet's roster slot is held
     /// (a definition with <see cref="TamingDefinition.Pet"/>), and the answer's progress carries the first token.</summary>
-    /// <returns>Ok with the attempt; else <c>DefinitionUnknown</c>, <c>WrongOwner</c>, <c>BodyGone</c>,
-    /// <c>TemplateMismatch</c>, <c>OutOfRange</c>, <c>Busy</c>, <c>Cap</c>, <c>Canceled</c> (a mod),
-    /// <c>TooManyRequests</c>.</returns>
+    /// <returns>Ok with the attempt; else (<see cref="TamingResult.Refusal"/>) <c>DefinitionUnknown</c>,
+    /// <c>OwnerOffline</c>, <c>BodyGone</c>, <c>TemplateMismatch</c>, <c>OutOfRange</c>, <c>Busy</c>, <c>Capacity</c>,
+    /// <c>RefusedByMod</c> (a mod's <see cref="TamingBeginningEvent"/>), <c>TooManyRequests</c>.</returns>
     /// <exception cref="ArgumentException">No player, no target, an empty definition id or an empty request id.</exception>
     /// <exception cref="KilnUnavailableException">A capability the definition's steps need is off (taming.steps,
     /// items.costs.exact for feed steps, items.costs.wear for tool steps with wear, taming.native for native steps,

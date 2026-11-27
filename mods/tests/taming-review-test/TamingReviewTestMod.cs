@@ -190,7 +190,7 @@ public sealed class TamingReviewTestMod : Mod
             var beforeLast = Meat();
             var last = c4.Choices.Count > 0 ? await Taming.Advance(who, r.Id, new TamingToken(Guid.NewGuid(), c4.StepChallenge, c4.Revision, r.CompletedSteps), c4.Choices[0].Selection) : null;
             await Steps(3);
-            Check(first is { StepApplied: true } && grant.Ok && last is { Ok: false, StepApplied: false } && last.Reason!.StartsWith("Cap", StringComparison.Ordinal) && last.Receipts.Count == 0 && Meat() == beforeLast,
+            Check(first is { StepApplied: true } && grant.Ok && last is { Ok: false, StepApplied: false } && last.Refusal == TamingRefusal.Capacity && last.Receipts.Count == 0 && Meat() == beforeLast,
                 $"a roster filled during the attempt refuses the last step before its cost: {last?.Reason}; meat {beforeLast} -> {Meat()}; grant {grant.Ok} {grant.Reason}");
             var end = await Taming.Cancel(who, r.Id, Token(last?.Progress ?? r));
             Obs($"the capped attempt canceled: {end.Reason} {end.Progress?.State}");

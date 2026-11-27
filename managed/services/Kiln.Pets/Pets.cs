@@ -14,7 +14,8 @@ namespace Kiln;
 /// names its definition; a record whose definition is not defined in this session stays dormant, never erased.</para>
 /// <para>Error rule: a bad argument throws <see cref="ArgumentException"/>; an off capability throws
 /// <see cref="KilnUnavailableException"/> naming its row; a refusal by Kiln or the game is <c>Ok = false</c> with a
-/// reason (and its cost receipts, when it came after a cost was taken).</para>
+/// reason (and its cost receipts, when it came after a cost was taken). Decide by the reason as a value,
+/// <see cref="PetResult.Refusal"/> (<see cref="PetRefusal"/>), never by its text.</para>
 /// </remarks>
 public static partial class Pets
 {
@@ -133,7 +134,7 @@ public static partial class Pets
     /// still hold what was read when the cost runs. Null: the first slot of the owner's inventories holding a plain stack of
     /// the whole cost (<see cref="ItemCosts.Choose"/>; a cost split over two stacks is not taken).</param>
     /// <returns>Ok with the revived pet and the cost receipts; else <c>RecoveryNotSummoned</c>, <c>OutOfRange</c>,
-    /// <c>ReviveNotAllowed</c>, <c>CostUnavailable</c>, <c>ReviveRefused</c> (a mod), <c>CanceledNoCost</c>,
+    /// <c>ReviveNotAllowed</c>, <c>CostUnavailable</c>, <c>RefusedByMod</c> (a mod), <c>CanceledNoCost</c>,
     /// <c>CanceledCostCommitted</c> or <c>ReviveFailedCostCommitted</c> (with the receipts of what was taken), or
     /// <c>UncertainCommit</c> (with the receipt of a cost that may have been taken; the pet stays downed).</returns>
     [ServerOnly, TickThreadOnly, RequiresCapability(Caps.Downed)]

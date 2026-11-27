@@ -246,6 +246,64 @@ Kiln.PetRecordCommittedEvent.Owner.get -> Kiln.CharacterKey
 Kiln.PetRecordCommittedEvent.Pet.get -> Kiln.PetId
 Kiln.PetRecordCommittedEvent.PreviousDurableRevision.get -> ulong
 Kiln.PetRecoveryAnchorChangedEvent
+Kiln.PetRefusal
+Kiln.PetRefusal.AlreadyCompleted = 12 -> Kiln.PetRefusal
+Kiln.PetRefusal.AlreadyEnded = 13 -> Kiln.PetRefusal
+Kiln.PetRefusal.AlreadyReleased = 11 -> Kiln.PetRefusal
+Kiln.PetRefusal.BodyDowned = 32 -> Kiln.PetRefusal
+Kiln.PetRefusal.BodyGone = 33 -> Kiln.PetRefusal
+Kiln.PetRefusal.BodyNotReady = 30 -> Kiln.PetRefusal
+Kiln.PetRefusal.BodyRefused = 31 -> Kiln.PetRefusal
+Kiln.PetRefusal.Busy = 2 -> Kiln.PetRefusal
+Kiln.PetRefusal.CanceledCostCommitted = 52 -> Kiln.PetRefusal
+Kiln.PetRefusal.CanceledNoCost = 51 -> Kiln.PetRefusal
+Kiln.PetRefusal.Capacity = 14 -> Kiln.PetRefusal
+Kiln.PetRefusal.ControlFailed = 37 -> Kiln.PetRefusal
+Kiln.PetRefusal.ControlLost = 36 -> Kiln.PetRefusal
+Kiln.PetRefusal.ControlRefused = 35 -> Kiln.PetRefusal
+Kiln.PetRefusal.ControlUnavailable = 34 -> Kiln.PetRefusal
+Kiln.PetRefusal.CostUnavailable = 50 -> Kiln.PetRefusal
+Kiln.PetRefusal.CreatureAmbiguous = 21 -> Kiln.PetRefusal
+Kiln.PetRefusal.CreatureUnknown = 19 -> Kiln.PetRefusal
+Kiln.PetRefusal.CreatureUnsupported = 20 -> Kiln.PetRefusal
+Kiln.PetRefusal.CreaturesUnavailable = 22 -> Kiln.PetRefusal
+Kiln.PetRefusal.DefinitionInUse = 18 -> Kiln.PetRefusal
+Kiln.PetRefusal.DefinitionUnknown = 16 -> Kiln.PetRefusal
+Kiln.PetRefusal.DefinitionUnloaded = 17 -> Kiln.PetRefusal
+Kiln.PetRefusal.LevelUnavailable = 15 -> Kiln.PetRefusal
+Kiln.PetRefusal.NoChannel = 55 -> Kiln.PetRefusal
+Kiln.PetRefusal.NoCharacter = 9 -> Kiln.PetRefusal
+Kiln.PetRefusal.NoOwner = 8 -> Kiln.PetRefusal
+Kiln.PetRefusal.NoSafeGround = 29 -> Kiln.PetRefusal
+Kiln.PetRefusal.None = 0 -> Kiln.PetRefusal
+Kiln.PetRefusal.NotDowned = 45 -> Kiln.PetRefusal
+Kiln.PetRefusal.NotFound = 10 -> Kiln.PetRefusal
+Kiln.PetRefusal.NotOwner = 5 -> Kiln.PetRefusal
+Kiln.PetRefusal.NotSummoned = 42 -> Kiln.PetRefusal
+Kiln.PetRefusal.Other = 1 -> Kiln.PetRefusal
+Kiln.PetRefusal.OutOfRange = 47 -> Kiln.PetRefusal
+Kiln.PetRefusal.OwnerLeft = 7 -> Kiln.PetRefusal
+Kiln.PetRefusal.OwnerOffline = 6 -> Kiln.PetRefusal
+Kiln.PetRefusal.ProtectionLost = 40 -> Kiln.PetRefusal
+Kiln.PetRefusal.ProtectionRefused = 39 -> Kiln.PetRefusal
+Kiln.PetRefusal.ProtectionUnavailable = 38 -> Kiln.PetRefusal
+Kiln.PetRefusal.RecordsUnavailable = 23 -> Kiln.PetRefusal
+Kiln.PetRefusal.RecordsUnreadable = 24 -> Kiln.PetRefusal
+Kiln.PetRefusal.RecoveryNotSummoned = 46 -> Kiln.PetRefusal
+Kiln.PetRefusal.RefusedByMod = 49 -> Kiln.PetRefusal
+Kiln.PetRefusal.RequestConflict = 4 -> Kiln.PetRefusal
+Kiln.PetRefusal.RetireFailed = 41 -> Kiln.PetRefusal
+Kiln.PetRefusal.ReviveFailedCostCommitted = 53 -> Kiln.PetRefusal
+Kiln.PetRefusal.ReviveNotAllowed = 48 -> Kiln.PetRefusal
+Kiln.PetRefusal.SpawnRefused = 28 -> Kiln.PetRefusal
+Kiln.PetRefusal.SpawnUnavailable = 27 -> Kiln.PetRefusal
+Kiln.PetRefusal.StaleRevision = 3 -> Kiln.PetRefusal
+Kiln.PetRefusal.TargetGone = 44 -> Kiln.PetRefusal
+Kiln.PetRefusal.TargetProtected = 43 -> Kiln.PetRefusal
+Kiln.PetRefusal.UncertainCommit = 54 -> Kiln.PetRefusal
+Kiln.PetRefusal.Unsupported = 56 -> Kiln.PetRefusal
+Kiln.PetRefusal.WorldEnded = 26 -> Kiln.PetRefusal
+Kiln.PetRefusal.WorldNotRunning = 25 -> Kiln.PetRefusal
 Kiln.PetReleasedEvent
 Kiln.PetRequest
 Kiln.PetRequest.<Clone>$() -> Kiln.PetRequest!
@@ -271,6 +329,7 @@ Kiln.PetResult.Pet.init -> void
 Kiln.PetResult.PetResult(bool Ok, string? Reason, Kiln.PetSnapshot? Pet, System.Guid OperationId, System.Collections.Generic.IReadOnlyList<Kiln.CostReceipt!>! Costs) -> void
 Kiln.PetResult.Reason.get -> string?
 Kiln.PetResult.Reason.init -> void
+Kiln.PetResult.Refusal.get -> Kiln.PetRefusal
 Kiln.PetReviveCanceledEvent
 Kiln.PetRevivePolicy
 Kiln.PetRevivePolicy.<Clone>$() -> Kiln.PetRevivePolicy!

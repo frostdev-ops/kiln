@@ -146,14 +146,20 @@ public sealed record PetRequest(Guid OperationId, ulong ExpectedStateRevision = 
 
 /// <summary>The answer to a request. Since 0.2.0-dev.32.</summary>
 /// <param name="Ok">True when the request did what it asked (or found it done: an idempotent repeat).</param>
-/// <param name="Reason">Why not: <c>Busy</c>, <c>StaleRevision</c>, <c>RequestConflict</c>, <c>NotOwner</c>,
-/// <c>AlreadyReleased</c>, <c>Capacity</c>, <c>NoSafeGround</c>, <c>BodyNotReady</c>, <c>TargetProtected</c>,
-/// <c>RecoveryNotSummoned</c>, <c>ReviveFailedCostCommitted</c>, ...</param>
+/// <param name="Reason">Why not, in words for a log: its first word is <see cref="Refusal"/> (<c>Busy</c>,
+/// <c>StaleRevision</c>, <c>RequestConflict</c>, <c>NotOwner</c>, <c>AlreadyReleased</c>, <c>Capacity</c>,
+/// <c>NoSafeGround</c>, <c>BodyNotReady</c>, <c>TargetProtected</c>, <c>RecoveryNotSummoned</c>,
+/// <c>ReviveFailedCostCommitted</c>, ...). Decide by <see cref="Refusal"/>, never by the text.</param>
 /// <param name="Pet">The pet after it (also after a refusal, when Kiln knows it).</param>
 /// <param name="OperationId">The request's operation id.</param>
 /// <param name="Costs">The receipts (Kiln.Items' <see cref="CostReceipt"/>) of costs that were taken or may have been
 /// (committed or uncertain), also on a refusal that came after a cost was taken.</param>
-public sealed record PetResult(bool Ok, string? Reason, PetSnapshot? Pet, Guid OperationId, IReadOnlyList<CostReceipt> Costs) : IKilnResult;
+public sealed record PetResult(bool Ok, string? Reason, PetSnapshot? Pet, Guid OperationId, IReadOnlyList<CostReceipt> Costs) : IKilnResult
+{
+    /// <summary>Why not, as a value: <see cref="PetRefusal.None"/> when <see cref="Ok"/>, else the first word of
+    /// <see cref="Reason"/> (<see cref="PetRefusal.Other"/> for a word this Kiln has no member for).</summary>
+    public PetRefusal Refusal => RefusalWords.Of(Ok, Reason, PetRefusal.None, PetRefusal.Other);
+}
 
 /// <summary>Why a pet changed. Since 0.2.0-dev.32.</summary>
 public enum PetChangeCause

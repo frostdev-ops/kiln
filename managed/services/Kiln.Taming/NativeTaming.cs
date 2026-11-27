@@ -137,8 +137,13 @@ public sealed class NativeBaitEatenEvent : KilnEvent
 /// <param name="Ok">The animal's pet sequence started while it eats its bait. That the game then counts the step (its
 /// taming event, 3.75 s in on this build, unless the bait goes first) is not proven yet: watch
 /// <see cref="NativeTamingProgressEvent"/> for the step itself.</param>
-/// <param name="Reason">Why not.</param>
-public sealed record NativeStepResult(bool Ok, string? Reason) : IKilnResult;
+/// <param name="Reason">Why not, in words for a log: its first word is <see cref="Refusal"/>.</param>
+public sealed record NativeStepResult(bool Ok, string? Reason) : IKilnResult
+{
+    /// <summary>Why not, as a value (<see cref="TamingRefusal.NotWild"/>, <see cref="TamingRefusal.NotEating"/>, ...):
+    /// <see cref="TamingRefusal.None"/> when <see cref="Ok"/>.</summary>
+    public TamingRefusal Refusal => RefusalWords.Of(Ok, Reason, TamingRefusal.None, TamingRefusal.Other);
+}
 
 /// <summary>The game's own taming as mechanism (docs/re/taming.md). Server only, tick thread. Capability
 /// <c>taming.native</c> (sigdb: the game's four taming programs and their components' layouts on this build). Since

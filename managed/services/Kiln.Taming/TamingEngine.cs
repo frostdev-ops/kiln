@@ -275,21 +275,21 @@ internal sealed class TamingEngine
         if (RateLimited(player)) return Refuse(requestId, "TooManyRequests: 10 a second");
         if (!_defs.TryGetValue(definition, out var entry)) return Refuse(requestId, $"DefinitionUnknown: {definition}");
         var def = entry.Def;
-        if (_world.Owner(player, out var why) is not { } owner) return Refuse(requestId, why ?? "WrongOwner: the player is not in game");
+        if (_world.Owner(player, out var why) is not { } owner) return Refuse(requestId, why ?? "OwnerOffline: the player is not in game");
         if (_world.Target(target) is not { Exists: true, Dead: false } t) return Refuse(requestId, "BodyGone: the target is not there");
         if (!Matches(def, t)) return Refuse(requestId, $"TemplateMismatch: {t.CreatureKey} is not one {def.Id} tames");
         if (def.Steps.Any(s => s is NativeStep) && !t.NativeTameable) return Refuse(requestId, "TemplateMismatch: a native step needs a tameable wild animal");
         if (owner.Position.DistanceTo(t.Position) > def.RangeMeters) return Refuse(requestId, $"OutOfRange: within {def.RangeMeters} m");
         if (_claims.TryGetValue(target.Id, out var claimant) && _attempts.TryGetValue(claimant, out var other) && !Terminal(other.State))
             return Refuse(requestId, "Busy: another taming of this target runs");
-        if (_attempts.Values.Count(a => !Terminal(a.State)) >= MaxActive) return Refuse(requestId, "Cap: 512 attempts run in this world");
-        if (_tombstones.Count >= MaxTombstones) return Refuse(requestId, "Cap: this world's closed attempts are at their limit");
+        if (_attempts.Values.Count(a => !Terminal(a.State)) >= MaxActive) return Refuse(requestId, "Capacity: 512 attempts run in this world");
+        if (_tombstones.Count >= MaxTombstones) return Refuse(requestId, "Capacity: this world's closed attempts are at their limit");
         var asked = (TamingBeginningEvent)Ask(new TamingBeginningEvent(new TamingBeginContext(requestId, player, target, def.Id, def.Steps.Count)));
-        if (asked.Canceled) return Refuse(requestId, $"Canceled: {asked.CanceledBy ?? "a mod"} refused it");
+        if (asked.Canceled) return Refuse(requestId, $"RefusedByMod: {asked.CanceledBy ?? "a mod"} refused it");
         // a handler may have begun another attempt on this target meanwhile: one claimant per target, the first one wins
         if (_claims.TryGetValue(target.Id, out claimant) && _attempts.TryGetValue(claimant, out other) && !Terminal(other.State))
             return Refuse(requestId, "Busy: another taming of this target began meanwhile");
-        if (_attempts.Values.Count(x => !Terminal(x.State)) >= MaxActive) return Refuse(requestId, "Cap: 512 attempts run in this world");
+        if (_attempts.Values.Count(x => !Terminal(x.State)) >= MaxActive) return Refuse(requestId, "Capacity: 512 attempts run in this world");
         var a = new Attempt
         {
             Id = new TameAttemptId(NewId()), Owner = player, OwnerEntity = owner.Entity, Session = owner.Session, Epoch = _world.WorldEpoch, Target = target,
@@ -312,8 +312,8 @@ internal sealed class TamingEngine
     {
         owner = default;
         if (a is null || a.ClosedAt >= 0 && _world.Now - a.ClosedAt > ClosedPayloadSeconds) return Refuse(token.RequestId, "AttemptClosed: no such attempt");
-        if (a.Owner != player) return Refuse(token.RequestId, "WrongOwner: the attempt is another player's");
-        if (_world.Owner(player, out var why) is not { } o) return Refuse(token.RequestId, why ?? "StaleSession: the player is not in game");
+        if (a.Owner != player) return Refuse(token.RequestId, "NotOwner: the attempt is another player's");
+        if (_world.Owner(player, out var why) is not { } o) return Refuse(token.RequestId, why ?? "OwnerOffline: the player is not in game");
         if (o.Session != a.Session || _world.WorldEpoch != a.Epoch) return Refuse(token.RequestId, "StaleSession: another session or world than the attempt's");
         owner = o;
         return null;
@@ -388,7 +388,7 @@ internal sealed class TamingEngine
         if (advancing.Canceled)
         {
             a.State = TamingState.Active;
-            return Task.FromResult(Refuse(request, $"Canceled: {advancing.CanceledBy ?? "a mod"} refused the step (nothing was spent)", View(a)));
+            return Task.FromResult(Refuse(request, $"RefusedByMod: {advancing.CanceledBy ?? "a mod"} refused the step (nothing was spent)", View(a)));
         }
         if (last)
         {
@@ -403,7 +403,7 @@ internal sealed class TamingEngine
             if (committing.Canceled)
             {
                 a.State = TamingState.Active;
-                return Task.FromResult(Refuse(request, $"Canceled: {committing.CanceledBy ?? "a mod"} refused the tame (nothing more was spent)", View(a)));
+                return Task.FromResult(Refuse(request, $"RefusedByMod: {committing.CanceledBy ?? "a mod"} refused the tame (nothing more was spent)", View(a)));
             }
         }
         a.StepToken = token;
@@ -650,7 +650,7 @@ internal sealed class TamingEngine
                 var end = EndAfterSettle(a, "NoCost")!;
                 task = Task.FromResult(new TamingResult(false, end.Reason, end.Progress, null, token.RequestId, false, a.Spent.ToArray()));
             }
-            else if (asked.Canceled) task = Task.FromResult(Refuse(token.RequestId, $"Canceled: {asked.CanceledBy ?? "a mod"} refused the tame", View(a)));
+            else if (asked.Canceled) task = Task.FromResult(Refuse(token.RequestId, $"RefusedByMod: {asked.CanceledBy ?? "a mod"} refused the tame", View(a)));
             else
             {
                 var tcs = new TaskCompletionSource<TamingResult>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -813,7 +813,8 @@ internal sealed class TamingEngine
 
     internal TamingChoicesResult Choices(PlayerRef player, TameAttemptId id)
     {
-        if (!_attempts.TryGetValue(id, out var a) || a.Owner != player) return new(false, "AttemptClosed: no such attempt of the player's", 0, Guid.Empty, []);
+        if (!_attempts.TryGetValue(id, out var a)) return new(false, "AttemptClosed: no such attempt", 0, Guid.Empty, []);
+        if (a.Owner != player) return new(false, "NotOwner: the attempt is another player's", 0, Guid.Empty, []);
         if (a.State != TamingState.Active) return new(false, $"WrongState: the attempt is {a.State}", a.Revision, a.Challenge, []);
         var step = a.Def.Steps[a.Completed];
         if (step is WeakenStep or NativeStep) return new(true, null, a.Revision, a.Challenge, []);

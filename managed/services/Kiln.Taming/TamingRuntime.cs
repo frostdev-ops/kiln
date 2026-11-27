@@ -43,7 +43,7 @@ internal sealed class GameTamingWorld : ITamingWorld
         catch (NotSupportedException) { /* no kiln.players */ }
         if (p is not { InGame: true })
         {
-            reason = "WrongOwner: the player is not in game";
+            reason = "OwnerOffline: the player is not in game";
             return null;
         }
         EntityRef entity;

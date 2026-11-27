@@ -110,7 +110,7 @@ p = r.Progress!;
 var pick = Taming.Choices(player, p.Id).Choices[0].Selection;   // the server's read of the slot the player chose
 r = await Taming.Advance(player, p.Id, new TamingToken(Guid.NewGuid(), p.StepChallenge, p.Revision, p.CompletedSteps), pick);
 if (r.Ok && r.Pet is { } pet) { /* tamed: pet is the new Kiln.Pets record */ }
-else if (r.Reason?.StartsWith("CommitDeferred") == true) { /* every step paid: Taming.Retry later, nothing more is taken */ }
+else if (r.Refusal == TamingRefusal.CommitDeferred) { /* every step paid: Taming.Retry later, nothing more is taken */ }
 ```
 
 - **Feed and tool steps** take a selection: one slot, read by the server (`Taming.Choices`, or `ItemSelection.Of` of

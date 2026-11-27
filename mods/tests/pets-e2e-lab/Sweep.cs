@@ -106,12 +106,12 @@ public sealed partial class PetsE2eLabMod
             await Wait(1.5);
             var after = Count();
             if (rr.Ok) lastRevived = wall.Elapsed.TotalSeconds;
-            var verdict = rr.Reason switch
+            var verdict = rr.Refusal switch
             {
-                _ when rr.Ok => "late",
-                { } r when r.StartsWith("CanceledCostCommitted", StringComparison.Ordinal) => "during",
-                { } r when r.StartsWith("CanceledNoCost", StringComparison.Ordinal) => "early",
-                { } r when r.StartsWith("ReviveRefused", StringComparison.Ordinal) => "refused",
+                PetRefusal.None => "late",
+                PetRefusal.CanceledCostCommitted => "during",
+                PetRefusal.CanceledNoCost => "early",
+                PetRefusal.RefusedByMod => "refused",
                 _ => "other",
             };
             Write("sweep", new JsonObject

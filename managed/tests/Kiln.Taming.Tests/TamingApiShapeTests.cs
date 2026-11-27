@@ -1,0 +1,88 @@
+// SPDX-License-Identifier: MIT
+// The public shape of Kiln.Taming before mod API 0.2.27 freezes it (dev.32 API-SHAPE-2; findings docs-api-ref A4-A13,
+// docs-guides B5 and docs-skill C2/C3): one test group per finding.
+using System.Reflection;
+using Kiln;
+using Xunit;
+using static Kiln.TamingTests.TamingFixture;
+
+namespace Kiln.TamingTests;
+
+public sealed class TamingApiShapeTests
+{
+    private static TamingDefinition FeedTwice() => Def(new FeedStep(Bait, 2), new FeedStep(Bait, 1));
+
+    // ---- A4: one vocabulary with Kiln.Pets, as a value (TamingResult.Refusal) ----
+
+    [Theory]
+    [InlineData("Capacity: 512 attempts run in this world", TamingRefusal.Capacity)]
+    [InlineData("NotOwner: the attempt is another player's", TamingRefusal.NotOwner)]
+    [InlineData("RefusedByMod: a mod refused it", TamingRefusal.RefusedByMod)]
+    [InlineData("CommitDeferred: Capacity: the roster is full", TamingRefusal.CommitDeferred)]
+    [InlineData("SomethingNew", TamingRefusal.Other)]
+    public void A_refusal_is_a_value_read_from_the_reasons_word(string reason, TamingRefusal refusal)
+    {
+        Assert.Equal(refusal, new TamingResult(false, reason, null, null, Guid.NewGuid(), false, []).Refusal);
+        Assert.Equal(TamingRefusal.None, new TamingResult(true, null, null, null, Guid.NewGuid(), false, []).Refusal);
+        Assert.Equal(refusal, new NativeStepResult(false, reason).Refusal);
+    }
+
+    [Fact]
+    public void The_same_meaning_has_the_same_word_in_Pets_and_Taming()
+    {
+        foreach (var shared in new[] { "Busy", "Capacity", "NotOwner", "OwnerOffline", "OwnerLeft", "RequestConflict", "OutOfRange", "BodyGone",
+                     "DefinitionUnknown", "DefinitionInUse", "UncertainCommit", "NoCharacter", "WorldEnded", "RefusedByMod" })
+        {
+            Assert.True(Enum.TryParse<TamingRefusal>(shared, out _), $"TamingRefusal has no {shared}");
+            Assert.True(Enum.TryParse<PetRefusal>(shared, out _), $"PetRefusal has no {shared}");
+        }
+        Assert.False(Enum.TryParse<TamingRefusal>("Cap", out _));
+        Assert.False(Enum.TryParse<TamingRefusal>("WrongOwner", out _));
+    }
+
+    [Fact]
+    public void Another_players_attempt_is_NotOwner_a_mods_veto_RefusedByMod_and_a_full_world_Capacity()
+    {
+        var f = new TamingFixture().With(FeedTwice());
+        var p = f.Begin().Progress!;
+        Assert.Equal(TamingRefusal.NotOwner, f.Advance(p, f.Stack(Bait, owner: f.B), who: f.B).Refusal);
+        f.Refuse = ev => ev is TamingBeginningEvent;
+        Assert.Equal(TamingRefusal.RefusedByMod, f.Begin(f.Dog).Refusal);
+        f.Refuse = ev => ev is TamingAdvancingEvent;
+        var vetoed = f.Advance(p, f.Stack(Bait));
+        Assert.Equal(TamingRefusal.RefusedByMod, vetoed.Refusal);
+        Assert.Equal(TamingState.Active, vetoed.Progress!.State);   // a veto is not a cancel of the attempt
+        var offline = new PlayerRef(76561198000000009, Guid.NewGuid(), new EntityRef(new EntityId(19), 1));
+        Assert.Equal(TamingRefusal.OwnerOffline, f.Begin(who: offline).Refusal);
+    }
+
+    [Fact]
+    public void A_roster_that_cannot_hold_the_pet_is_Capacity_as_in_Kiln_Pets()
+    {
+        var b = new PetsTamingBinder
+        {
+            CharacterOf = _ => new CharacterKey(1, Guid.NewGuid()),
+            PetDefinition = _ => new PetDefinition { Id = "mod-a:pet-wolf", Creature = "game:enemy_wildbeast_wolf", Limits = new PetLimits { RetainedPerCharacter = 1 } },
+            PetsOf = _ => [new PetSnapshot { Definition = "mod-a:pet-wolf" }],
+        };
+        var reason = b.Reserve(new TamingBindRequest(new TameAttemptId(Guid.NewGuid()), default, default, Def(new WeakenStep(0.5)) with { Pet = "mod-a:pet-wolf" }, Guid.NewGuid()));
+        Assert.StartsWith("Capacity:", reason);
+    }
+
+    [Fact]
+    public void Every_reason_word_Kiln_Taming_writes_is_a_refusal_member()
+    {
+        var notResults = new HashSet<string> { "ItemUnknown", "ChoiceLimit" };   // ItemUnknown: TamingJson's ArgumentException text; ChoiceLimit: until A7
+        var words = SourceWords("Kiln.Taming").Where(w => !notResults.Contains(w)).ToHashSet();
+        Assert.Contains("AttemptClosed", words);
+        Assert.Empty(words.Where(w => !Enum.TryParse<TamingRefusal>(w, out _)).Order());
+    }
+
+    internal static IEnumerable<string> SourceWords(string service, [System.Runtime.CompilerServices.CallerFilePath] string here = "")
+    {
+        var dir = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(here)!, "../../services", service));
+        foreach (var file in Directory.EnumerateFiles(dir, "*.cs"))
+            foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(File.ReadAllText(file), "\\$?\"([A-Z][a-z]+(?:[A-Z][A-Za-z]*)?):"))
+                yield return m.Groups[1].Value;
+    }
+}

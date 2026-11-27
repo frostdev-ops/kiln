@@ -209,10 +209,16 @@ public sealed record PetDefinition
 
 /// <summary>The answer of <see cref="Pets.Define"/>. Since 0.2.0-dev.32.</summary>
 /// <param name="Ok">True when the definition is registered (or the same one was already).</param>
-/// <param name="Reason">Why not: <c>DefinitionInUse</c> (another one under the id while its pets have bodies or revives),
-/// <c>CreatureUnknown</c>, <c>CreatureUnsupported</c>, ...</param>
+/// <param name="Reason">Why not, in words for a log: its first word is <see cref="Refusal"/> (<c>DefinitionInUse</c>:
+/// another one under the id while its pets have bodies or revives; <c>CreatureUnknown</c>, <c>CreatureUnsupported</c>,
+/// ...).</param>
 /// <param name="Definition">The registered definition.</param>
-public sealed record PetDefinitionResult(bool Ok, string? Reason, PetDefinition? Definition) : IKilnResult;
+public sealed record PetDefinitionResult(bool Ok, string? Reason, PetDefinition? Definition) : IKilnResult
+{
+    /// <summary>Why not, as a value: <see cref="PetRefusal.None"/> when <see cref="Ok"/>, else the first word of
+    /// <see cref="Reason"/>.</summary>
+    public PetRefusal Refusal => RefusalWords.Of(Ok, Reason, PetRefusal.None, PetRefusal.Other);
+}
 
 /// <summary>The checks of a definition, shared by Pets.Define and Kiln.Blocks (which reports them by field path).</summary>
 internal static class PetDefinitionRules

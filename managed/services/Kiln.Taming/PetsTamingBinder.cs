@@ -44,8 +44,8 @@ internal sealed class PetsTamingBinder : ITamingBinder
         var held = _held.Where(h => !h.Key.Equals(except) && h.Value.Owner == owner).Select(h => h.Value.Pet).ToList();
         var of = have.Count(p => p.Definition == pet) + held.Count(p => p == pet);
         if (of >= def.Limits.RetainedPerCharacter)
-            return ($"Cap: the character keeps {def.Limits.RetainedPerCharacter} pet(s) of {pet}{(held.Contains(pet) ? " (with the tames running)" : "")}", true);
-        if (have.Count + held.Count >= MaxRecords) return ($"Cap: a character keeps at most {MaxRecords} pet records", true);
+            return ($"Capacity: the character keeps {def.Limits.RetainedPerCharacter} pet(s) of {pet}{(held.Contains(pet) ? " (with the tames running)" : "")}", true);
+        if (have.Count + held.Count >= MaxRecords) return ($"Capacity: a character keeps at most {MaxRecords} pet records", true);
         return null;
     }
 
@@ -81,7 +81,7 @@ internal sealed class PetsTamingBinder : ITamingBinder
         var granted = t.Result;
         if (granted is { Ok: true, Pet: { } snapshot }) return new TamingBindResult(true, snapshot, null, false);
         var why = granted.Reason ?? "Refused";
-        var transient = why.StartsWith("Capacity", StringComparison.Ordinal) || why.StartsWith("LevelUnavailable", StringComparison.Ordinal);
+        var transient = granted.Refusal is PetRefusal.Capacity or PetRefusal.LevelUnavailable;
         return new TamingBindResult(false, null, why, transient);
     }
 

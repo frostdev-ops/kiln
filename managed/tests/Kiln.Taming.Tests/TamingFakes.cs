@@ -15,7 +15,7 @@ internal sealed class FakeTamingWorld : ITamingWorld
 
     public TamingOwner? Owner(PlayerRef player, out string? reason)
     {
-        reason = Owners.ContainsKey(player) ? null : "WrongOwner: the player is not in game";
+        reason = Owners.ContainsKey(player) ? null : "OwnerOffline: the player is not in game";
         return Owners.TryGetValue(player, out var o) ? o : null;
     }
 

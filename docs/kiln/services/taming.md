@@ -79,6 +79,14 @@ by every applied step), `Revision` and `CompletedSteps`. A client echoes it with
 - **An old token under a new id** is `StaleStep`, so a completed tool step can never be replayed against an identical
   next one.
 
+**Refusals.** A refused call answers `Ok = false` with a reason for a log, and its first word as a value,
+`TamingResult.Refusal` (`TamingRefusal`: `NotOwner`, `OwnerOffline`, `Busy`, `StaleStep`, `RequestConflict`,
+`OutOfRange`, `Threshold`, `TemplateMismatch`, `Capacity`, `RefusedByMod`, `CommitDeferred`, `AttemptClosed`, ...;
+`Other` for a word a later Kiln adds). Decide by it, never by the text: `if (r.Refusal == TamingRefusal.TemplateMismatch)
+...`. The same meaning has the same word as Kiln.Pets' `PetRefusal` (`Busy`, `Capacity`, `NotOwner`, `OwnerOffline`,
+`RequestConflict`, `RefusedByMod`, `UncertainCommit`, ...). A mod's veto of a before-event is `RefusedByMod` (the attempt
+goes on); `Canceled` is only an attempt that ended canceled.
+
 Limits (Kiln's policy, not the game's):
 - 10 requests a second per player;
 - 256 requests per attempt;
@@ -110,7 +118,8 @@ a dedicated server steps 15 to 25 times a second, so a step is not 1/60 s; a pau
 - Deferred: `TamingStepChangedEvent`, then `TamingCommitDeferredEvent`.
 - The end: `TamingCanceledEvent`, `TamingExpiredEvent` or `TamingFailedEvent`, after the refunds settled.
 
-Before-events carry copied, read-only contexts. A canceled one spends nothing, and the same token stays valid. While a
+Before-events carry copied, read-only contexts. A canceled one spends nothing and answers `RefusedByMod`, and the same
+token stays valid. While a
 before-event runs, its attempt is guarded (19e 4.4): a handler that calls `Taming.Cancel` on it gets the cancel's answer
 once the event is over, and the attempt then ends with nothing new spent (no step's cost, no bind); a handler's `Begin` on
 the same target claims it first, and the `Begin` that posted the event answers `Busy`.
@@ -145,7 +154,7 @@ A step's cost is exact and receipted ([item-costs.md](item-costs.md)): `Progress
 
 A definition with `Pet` holds a slot of that pet definition from Begin. The slot counts against
 `PetLimits.RetainedPerCharacter` and the roster's 128 records, with the other running tames. It is checked again before the
-last step's cost: a full roster refuses (`Cap`) before anything is taken.
+last step's cost: a full roster refuses (`Capacity`) before anything is taken.
 
 At the commit, the owner's character gets a new record (`Pets.Grant`); that is the ownership commit, and it settles at the
 roster's next step. Then, as the definition says, the tamed wild body is removed (`RemoveTarget`) and the pet is summoned

@@ -50,5 +50,47 @@ public sealed class ApiShapeTests
         Assert.Null(typeof(PetDefinition).GetProperty("Caps", BindingFlags.Public | BindingFlags.Instance));
         Assert.Equal(("limits.livePerWorld", "257 is outside 1..256"), PetDefinitionRules.Check(d with { Limits = new PetLimits { LivePerWorld = 257 } }));
     }
+
+    // ---- A4: one vocabulary of refusals, as a value (PetResult.Refusal), never matched as text ----
+
+    [Theory]
+    [InlineData("Capacity: the character keeps 32 pets of mod-a:wolf already", PetRefusal.Capacity)]
+    [InlineData("OwnerOffline", PetRefusal.OwnerOffline)]
+    [InlineData("RefusedByMod: mod b refused it (nothing was taken)", PetRefusal.RefusedByMod)]
+    [InlineData("CanceledCostCommitted: the owner left while the cost settled", PetRefusal.CanceledCostCommitted)]
+    [InlineData("SomethingNew: a later Kiln's word", PetRefusal.Other)]
+    [InlineData("", PetRefusal.Other)]
+    public void A_refusal_is_a_value_read_from_the_reasons_word(string reason, PetRefusal refusal)
+    {
+        Assert.Equal(refusal, new PetResult(false, reason, null, Guid.NewGuid(), []).Refusal);
+        Assert.Equal(PetRefusal.None, new PetResult(true, null, null, Guid.NewGuid(), []).Refusal);
+        Assert.Equal(refusal, new PetDefinitionResult(false, reason, null).Refusal);
+    }
+
+    [Fact]
+    public void A_mods_veto_of_a_revive_is_RefusedByMod()
+    {
+        using var t = new ReviveTests();
+        Assert.Equal(PetRefusal.RefusedByMod, t.Vetoed().Refusal);
+    }
+
+    /// <summary>Every leading word a reason of Kiln.Pets starts with ("Word: ...") is a <see cref="PetRefusal"/> member, so a
+    /// mod never needs the text. The words of the follower's and the mover's own diagnostics (never a result) are left out.</summary>
+    [Fact]
+    public void Every_reason_word_Kiln_Pets_writes_is_a_refusal_member()
+    {
+        var notResults = new HashSet<string> { "NoRoute", "Stuck", "CatchUpRefused", "CatchUpUnsettled" };
+        var words = SourceWords("Kiln.Pets").Where(w => !notResults.Contains(w)).ToHashSet();
+        Assert.Contains("Capacity", words);
+        Assert.Empty(words.Where(w => !Enum.TryParse<PetRefusal>(w, out _)).Order());
+    }
+
+    internal static IEnumerable<string> SourceWords(string service, [System.Runtime.CompilerServices.CallerFilePath] string here = "")
+    {
+        var dir = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(here)!, "../../services", service));
+        foreach (var file in Directory.EnumerateFiles(dir, "*.cs"))
+            foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(File.ReadAllText(file), "\\$?\"([A-Z][a-z]+(?:[A-Z][A-Za-z]*)?):"))
+                yield return m.Groups[1].Value;
+    }
 }
 

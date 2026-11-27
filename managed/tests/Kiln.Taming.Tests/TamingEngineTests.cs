@@ -119,7 +119,7 @@ public sealed class TamingEngineTests
         var f = new TamingFixture().With(FeedTwice());
         f.Refuse = e => e is TamingBeginningEvent;
         var r = f.Begin();
-        Assert.StartsWith("Canceled", r.Reason);
+        Assert.StartsWith("RefusedByMod", r.Reason);   // a mod's veto, not a canceled attempt
         Assert.DoesNotContain("reserve", f.Binder.Calls);
         f.Refuse = _ => false;
         Assert.True(f.Begin(who: f.B).Ok);   // the target is not claimed
@@ -132,7 +132,7 @@ public sealed class TamingEngineTests
         var p = f.Begin().Progress!;
         f.Refuse = e => e is TamingAdvancingEvent;
         var r = f.Advance(p, f.Stack(Bait));
-        Assert.StartsWith("Canceled", r.Reason);
+        Assert.StartsWith("RefusedByMod", r.Reason);   // a mod's veto, not a canceled attempt
         Assert.Equal((p.Revision, p.StepChallenge, TamingState.Active), (r.Progress!.Revision, r.Progress.StepChallenge, r.Progress.State));
         Assert.Empty(f.Costs.Calls);
     }
@@ -144,7 +144,7 @@ public sealed class TamingEngineTests
         var p = f.Advance(f.Begin().Progress!, f.Stack(Bait)).Progress!;
         f.Refuse = e => e is TamingCommittingEvent;
         var r = f.Advance(p, f.Stack(Bait));
-        Assert.StartsWith("Canceled", r.Reason);
+        Assert.StartsWith("RefusedByMod", r.Reason);   // a mod's veto, not a canceled attempt
         Assert.Single(f.Costs.Calls);
         Assert.Single(r.Progress!.Spent);
         Assert.Equal(TamingState.Active, r.Progress.State);
@@ -170,7 +170,7 @@ public sealed class TamingEngineTests
     {
         var f = new TamingFixture().With(FeedTwice());
         var p = f.Advance(f.Begin().Progress!, f.Stack(Bait)).Progress!;
-        f.Binder.Result = new TamingBindResult(false, null, "Cap: the roster is full", true);
+        f.Binder.Result = new TamingBindResult(false, null, "Capacity: the roster is full", true);
         var r = f.Advance(p, f.Stack(Bait));
         Assert.False(r.Ok);
         Assert.True(r.StepApplied);
@@ -260,7 +260,7 @@ public sealed class TamingEngineTests
     public void The_earlier_deadline_expires_an_awaiting_tame_too()
     {
         var f = new TamingFixture().With(Def(new WeakenStep(1)) with { InactivitySeconds = 30, MaxAttemptSeconds = 40 });
-        f.Binder.Result = new TamingBindResult(false, null, "Cap", true);
+        f.Binder.Result = new TamingBindResult(false, null, "Capacity", true);
         var p = f.Begin().Progress!;
         f.Pass(20);
         var r = f.Advance(p);
@@ -344,7 +344,7 @@ public sealed class TamingEngineTests
     {
         var f = new TamingFixture().With(FeedTwice());
         var p = f.Begin().Progress!;
-        Assert.StartsWith("WrongOwner", f.Advance(p, f.Stack(Bait, owner: f.B), who: f.B).Reason);
+        Assert.StartsWith("NotOwner", f.Advance(p, f.Stack(Bait, owner: f.B), who: f.B).Reason);
         f.World.Owners[f.A] = f.World.Owners[f.A] with { Session = 99 };
         Assert.StartsWith("StaleSession", f.Advance(p, f.Stack(Bait)).Reason);
         Assert.Empty(f.Costs.Calls);

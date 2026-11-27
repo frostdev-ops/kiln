@@ -76,7 +76,7 @@ public sealed class PetsTamingBinderTests
         var first = Request(WithPet());
         Assert.Null(b.Reserve(first));                       // 1 record + 1 hold = the cap of 2
         var second = Request(WithPet());
-        Assert.StartsWith("Cap", b.Reserve(second));
+        Assert.StartsWith("Capacity:", b.Reserve(second));
         Assert.Null(b.Preflight(first));                     // its own hold is not counted against it
         _pets.Add(new PetSnapshot { Id = new PetId(Guid.NewGuid()), Definition = "mod-a:pet-wolf" });   // granted elsewhere meanwhile
         var full = b.Preflight(first);

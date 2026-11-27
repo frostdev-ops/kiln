@@ -89,7 +89,7 @@ internal sealed partial class PetRoster
                 }
                 if (asked.Canceled)
                 {
-                    Complete(op, false, $"ReviveRefused: {(asked.CanceledBy is { } by ? $"mod {by}" : "a mod")} refused it (nothing was taken)", p);
+                    Complete(op, false, $"RefusedByMod: {(asked.CanceledBy is { } by ? $"mod {by}" : "a mod")} refused it (nothing was taken)", p);
                     return;
                 }
                 rv.StartedAt = op.Owner.Position;

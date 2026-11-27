@@ -139,6 +139,7 @@ Kiln.TamingChoicesResult.Ok.get -> bool
 Kiln.TamingChoicesResult.Ok.init -> void
 Kiln.TamingChoicesResult.Reason.get -> string?
 Kiln.TamingChoicesResult.Reason.init -> void
+Kiln.TamingChoicesResult.Refusal.get -> Kiln.TamingRefusal
 Kiln.TamingChoicesResult.Revision.get -> ulong
 Kiln.TamingChoicesResult.Revision.init -> void
 Kiln.TamingChoicesResult.StepChallenge.get -> System.Guid
@@ -262,6 +263,45 @@ Kiln.TamingRefundPolicy
 Kiln.TamingRefundPolicy.Escrow = 2 -> Kiln.TamingRefundPolicy
 Kiln.TamingRefundPolicy.NonRefundable = 0 -> Kiln.TamingRefundPolicy
 Kiln.TamingRefundPolicy.RefundOnFail = 1 -> Kiln.TamingRefundPolicy
+Kiln.TamingRefusal
+Kiln.TamingRefusal.AttemptClosed = 23 -> Kiln.TamingRefusal
+Kiln.TamingRefusal.BodyGone = 14 -> Kiln.TamingRefusal
+Kiln.TamingRefusal.Busy = 7 -> Kiln.TamingRefusal
+Kiln.TamingRefusal.Canceled = 25 -> Kiln.TamingRefusal
+Kiln.TamingRefusal.Capacity = 16 -> Kiln.TamingRefusal
+Kiln.TamingRefusal.CommitDeferred = 22 -> Kiln.TamingRefusal
+Kiln.TamingRefusal.Complete = 34 -> Kiln.TamingRefusal
+Kiln.TamingRefusal.DefinitionGone = 19 -> Kiln.TamingRefusal
+Kiln.TamingRefusal.DefinitionInUse = 18 -> Kiln.TamingRefusal
+Kiln.TamingRefusal.DefinitionUnknown = 17 -> Kiln.TamingRefusal
+Kiln.TamingRefusal.Expired = 24 -> Kiln.TamingRefusal
+Kiln.TamingRefusal.NativePending = 21 -> Kiln.TamingRefusal
+Kiln.TamingRefusal.NoCharacter = 5 -> Kiln.TamingRefusal
+Kiln.TamingRefusal.None = 0 -> Kiln.TamingRefusal
+Kiln.TamingRefusal.NotEating = 35 -> Kiln.TamingRefusal
+Kiln.TamingRefusal.NotOwner = 2 -> Kiln.TamingRefusal
+Kiln.TamingRefusal.NotTameable = 32 -> Kiln.TamingRefusal
+Kiln.TamingRefusal.NotWild = 31 -> Kiln.TamingRefusal
+Kiln.TamingRefusal.Other = 1 -> Kiln.TamingRefusal
+Kiln.TamingRefusal.OtherPetSequence = 36 -> Kiln.TamingRefusal
+Kiln.TamingRefusal.OutOfRange = 12 -> Kiln.TamingRefusal
+Kiln.TamingRefusal.OwnerLeft = 4 -> Kiln.TamingRefusal
+Kiln.TamingRefusal.OwnerOffline = 3 -> Kiln.TamingRefusal
+Kiln.TamingRefusal.PartialCostCommitted = 29 -> Kiln.TamingRefusal
+Kiln.TamingRefusal.Refused = 27 -> Kiln.TamingRefusal
+Kiln.TamingRefusal.RefusedByMod = 26 -> Kiln.TamingRefusal
+Kiln.TamingRefusal.RequestConflict = 9 -> Kiln.TamingRefusal
+Kiln.TamingRefusal.SequenceRefused = 37 -> Kiln.TamingRefusal
+Kiln.TamingRefusal.StaleSelection = 11 -> Kiln.TamingRefusal
+Kiln.TamingRefusal.StaleSession = 6 -> Kiln.TamingRefusal
+Kiln.TamingRefusal.StaleStep = 8 -> Kiln.TamingRefusal
+Kiln.TamingRefusal.Tamed = 33 -> Kiln.TamingRefusal
+Kiln.TamingRefusal.TemplateMismatch = 15 -> Kiln.TamingRefusal
+Kiln.TamingRefusal.Threshold = 13 -> Kiln.TamingRefusal
+Kiln.TamingRefusal.TooManyRequests = 10 -> Kiln.TamingRefusal
+Kiln.TamingRefusal.UncertainCommit = 28 -> Kiln.TamingRefusal
+Kiln.TamingRefusal.WorldEnded = 30 -> Kiln.TamingRefusal
+Kiln.TamingRefusal.WrongState = 20 -> Kiln.TamingRefusal
 Kiln.TamingResult
 Kiln.TamingResult.<Clone>$() -> Kiln.TamingResult!
 Kiln.TamingResult.Deconstruct(out bool Ok, out string? Reason, out Kiln.TamingProgress? Progress, out Kiln.PetSnapshot? Pet, out System.Guid RequestId, out bool StepApplied, out System.Collections.Generic.IReadOnlyList<Kiln.CostReceipt!>! Receipts) -> void
@@ -276,6 +316,7 @@ Kiln.TamingResult.Reason.get -> string?
 Kiln.TamingResult.Reason.init -> void
 Kiln.TamingResult.Receipts.get -> System.Collections.Generic.IReadOnlyList<Kiln.CostReceipt!>!
 Kiln.TamingResult.Receipts.init -> void
+Kiln.TamingResult.Refusal.get -> Kiln.TamingRefusal
 Kiln.TamingResult.RequestId.get -> System.Guid
 Kiln.TamingResult.RequestId.init -> void
 Kiln.TamingResult.StepApplied.get -> bool

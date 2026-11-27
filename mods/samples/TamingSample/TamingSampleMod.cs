@@ -69,7 +69,7 @@ public sealed class TamingSampleMod : Mod
             foreach (var def in new[] { "taming-sample:wolf", "taming-sample:dog" })
             {
                 var r = Taming.Begin(who, EntityRef.Of(e), def, Guid.NewGuid());
-                if (r.Reason?.StartsWith("TemplateMismatch", StringComparison.Ordinal) == true) continue;
+                if (r.Refusal == TamingRefusal.TemplateMismatch) continue;
                 c.Reply($"{def}: {Answer(who, r)}");
                 return;
             }

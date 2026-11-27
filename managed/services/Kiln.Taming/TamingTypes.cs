@@ -150,15 +150,21 @@ public sealed record TamingProgress(TameAttemptId Id, PlayerRef Owner, ulong Wor
 public sealed record TamingItemChoice(ItemSelection Selection, string Label);
 
 /// <summary>The choices for the attempt's next step. Since 0.2.0-dev.32.</summary>
-public sealed record TamingChoicesResult(bool Ok, string? Reason, ulong Revision, Guid StepChallenge, IReadOnlyList<TamingItemChoice> Choices) : IKilnResult;
+public sealed record TamingChoicesResult(bool Ok, string? Reason, ulong Revision, Guid StepChallenge, IReadOnlyList<TamingItemChoice> Choices) : IKilnResult
+{
+    /// <summary>Why not, as a value: <see cref="TamingRefusal.None"/> when <see cref="Ok"/>, else the first word of
+    /// <see cref="Reason"/>.</summary>
+    public TamingRefusal Refusal => RefusalWords.Of(Ok, Reason, TamingRefusal.None, TamingRefusal.Other);
+}
 
 /// <summary>The result of a taming call (19e 5.1, 5.4). <see cref="Ok"/>: a step applied, the tame committed or the cancel
 /// done. A deferred tame is Ok false with <see cref="StepApplied"/> true and the reason <c>CommitDeferred</c>. Since
 /// 0.2.0-dev.32.</summary>
 /// <param name="Ok">See above.</param>
-/// <param name="Reason">Why not (a word first: WrongOwner, StaleSession, Busy, StaleStep, RequestConflict, StaleSelection,
-/// OutOfRange, Threshold, BodyGone, TemplateMismatch, Cap, DefinitionInUse, CommitDeferred, AttemptClosed, Expired,
-/// UncertainCommit, PartialCostCommitted, Canceled, NativePending, TooManyRequests, Refused).</param>
+/// <param name="Reason">Why not, in words for a log: its first word is <see cref="Refusal"/> (NotOwner, OwnerOffline,
+/// StaleSession, Busy, StaleStep, RequestConflict, StaleSelection, OutOfRange, Threshold, BodyGone, TemplateMismatch,
+/// Capacity, DefinitionInUse, CommitDeferred, AttemptClosed, Expired, UncertainCommit, PartialCostCommitted, Canceled,
+/// RefusedByMod, NativePending, TooManyRequests, Refused). Decide by <see cref="Refusal"/>, never by the text.</param>
 /// <param name="Progress">The attempt after the call.</param>
 /// <param name="Pet">The pet the tame made (a definition with <see cref="TamingDefinition.Pet"/>), as it was made; null
 /// otherwise.</param>
@@ -166,7 +172,13 @@ public sealed record TamingChoicesResult(bool Ok, string? Reason, ulong Revision
 /// <param name="StepApplied">A step applied (its cost, if any, is spent).</param>
 /// <param name="Receipts">The receipts of this call's cost (and of every spent step at a terminal result).</param>
 public sealed record TamingResult(bool Ok, string? Reason, TamingProgress? Progress, PetSnapshot? Pet, Guid RequestId, bool StepApplied,
-    IReadOnlyList<CostReceipt> Receipts) : IKilnResult;
+    IReadOnlyList<CostReceipt> Receipts) : IKilnResult
+{
+    /// <summary>Why not, as a value: <see cref="TamingRefusal.None"/> when <see cref="Ok"/>, else the first word of
+    /// <see cref="Reason"/> (<see cref="TamingRefusal.Other"/> for a word this Kiln has no member for). A deferred tame is
+    /// <see cref="TamingRefusal.CommitDeferred"/>.</summary>
+    public TamingRefusal Refusal => RefusalWords.Of(Ok, Reason, TamingRefusal.None, TamingRefusal.Other);
+}
 
 // ---- before-events (cancelable; their context is a copy nobody can change) ----
 
