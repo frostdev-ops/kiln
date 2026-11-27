@@ -227,6 +227,21 @@ public sealed class FollowTests : IDisposable
         Assert.Empty(_m.Requests);
     }
 
+    // review of dev.32 pets: an EngineGuard pet far from its owner was teleported with no check of the broker's authority, so
+    // a pet a rider took (Ridden preempting its lease) was put back beside its owner, rider and all
+    [Fact]
+    public void An_engine_guard_pet_never_catches_up_without_the_brokers_authority()
+    {
+        _def = _def with { Movement = new PetMovementPolicy { Mode = PetMovementMode.EngineGuard } };
+        _owner = _owner with { Position = new WorldPosition(100, 0, 0) };   // past CatchUpDistance 60
+        _m.Drive = false;   // a rider's lease preempts the pet's
+        Step(10);
+        Assert.Empty(_m.Teleports);
+        _m.Drive = true;    // the ride ended: the base lease is the winner again
+        Step();
+        Assert.Single(_m.Teleports);
+    }
+
     [Fact]
     public void Attack_hands_the_body_to_the_AI_once_combat_holds_it_and_ends_with_its_target()
     {

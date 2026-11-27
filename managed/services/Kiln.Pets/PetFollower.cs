@@ -312,6 +312,9 @@ internal sealed class PetFollower
 
     private void CatchUp(PetBody body, PetOwner owner, PetDefinition def, IPetMover m, double now)
     {
+        // a teleport moves the body: only with the broker's authority (never while a rider's lease preempts the pet's, nor
+        // while its base lease is Pending), checked right before it like every input write
+        if (!m.CanDrive(body)) return;
         Forget(m);
         _route = null;
         Halt(body, m);
