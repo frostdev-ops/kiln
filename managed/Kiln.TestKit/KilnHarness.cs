@@ -25,6 +25,15 @@ namespace Kiln.TestKit;
 /// <para><b>Faults.</b> A harness call during which a mod faulted (an exception Kiln's fault policy counts) throws
 /// <see cref="ModFaultException"/> when the call is done; <see cref="KilnHarnessOptions.ThrowOnModFault"/> turns that off.</para>
 /// </remarks>
+/// <example><code>
+/// using var kit = new KilnHarness();
+/// ModHandle mod = kit.Load&lt;HelloMod&gt;();                         // HelloMod: the mod under test
+/// kit.Step(3);                                                    // the first step loads the mod and starts the server
+/// CommandResult r = kit.RunCommand("hello world");                // a console command, as the server console would
+/// Assert.Contains("Hello, world", r.Output);
+/// Assert.True(kit.HasLog("greeted world", mod.Id));
+/// </code></example>
+/// <seealso href="https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/unit-tests.md">Unit tests: the modder's guide</seealso>
 public sealed partial class KilnHarness : IDisposable
 {
     private static readonly SemaphoreSlim Gate = new(1, 1);
@@ -257,6 +266,9 @@ public sealed partial class KilnHarness : IDisposable
     }
 
     /// <summary>Runs <paramref name="action"/> on the tick thread, as Kiln (no mod).</summary>
+    /// <param name="action">What to run: a call of tick-thread API, a read of the world.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="action"/> is null.</exception>
+    /// <exception cref="ObjectDisposedException">The harness is disposed.</exception>
     public void Run(Action action)
     {
         ArgumentNullException.ThrowIfNull(action);
@@ -264,6 +276,10 @@ public sealed partial class KilnHarness : IDisposable
     }
 
     /// <summary>Runs <paramref name="func"/> on the tick thread, as Kiln (no mod), and returns its result.</summary>
+    /// <param name="func">What to run.</param>
+    /// <typeparam name="T">The result's type.</typeparam>
+    /// <returns>What <paramref name="func"/> returned.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="func"/> is null.</exception>
     public T Run<T>(Func<T> func)
     {
         ArgumentNullException.ThrowIfNull(func);
@@ -274,6 +290,9 @@ public sealed partial class KilnHarness : IDisposable
     /// <c>HostAccess.Current</c> and synchronization context are set as Kiln sets them around a mod's handlers, so what it
     /// registers belongs to the mod and an <c>await</c> comes back to the tick thread. An exception goes to the caller (it
     /// is the test's, not counted as the mod's fault).</summary>
+    /// <param name="mod">The mod whose code this is (from <see cref="Load{TMod}(ModManifest?)"/>).</param>
+    /// <param name="action">What to run as that mod.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="action"/> is null.</exception>
     public void As(ModHandle mod, Action action)
     {
         ArgumentNullException.ThrowIfNull(action);

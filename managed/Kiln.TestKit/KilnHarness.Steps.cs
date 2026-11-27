@@ -62,7 +62,9 @@ public sealed partial class KilnHarness
     /// window counts the same time. A mod that reads <see cref="Environment.TickCount64"/>, <see cref="DateTime.UtcNow"/> or
     /// a <see cref="System.Diagnostics.Stopwatch"/> sees real time, which barely moves across many steps; file watchers and
     /// timers run in real time as well (<see cref="StepUntil"/> can pace steps for them).</remarks>
+    /// <param name="steps">How many steps to run (default 1; 0 runs none).</param>
     /// <exception cref="ModLoadException">At the first step, a waiting mod did not load.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="steps"/> is negative.</exception>
     public void Step(int steps = 1)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(steps);
@@ -84,7 +86,7 @@ public sealed partial class KilnHarness
     /// <summary>Steps until <paramref name="condition"/> (checked on the tick thread before each step) is true; returns
     /// the steps it took (0 when it already was).</summary>
     /// <param name="condition">What the test waits for.</param>
-    /// <param name="maxSteps">Then it throws <see cref="TimeoutException"/>.</param>
+    /// <param name="maxSteps">The most steps to run; when the condition is still false after them, it throws <see cref="TimeoutException"/>.</param>
     /// <param name="pace">Real time to wait after each step, for what runs in real time (a file watcher, a timer, a
     /// thread of the mod's own). Default none.</param>
     public int StepUntil(Func<bool> condition, int maxSteps = 1000, TimeSpan pace = default)
@@ -106,6 +108,8 @@ public sealed partial class KilnHarness
     /// <summary>A line of the game's own log, delivered at the next step: to mods' <see cref="ModContext.GameLog"/>
     /// handlers, and to Kiln's lifecycle, which watches for the world-running and shutdown lines. The game writes no
     /// lines here; only the test does.</summary>
+    /// <param name="text">The line.</param>
+    /// <param name="level">Its level (default info).</param>
     public void GameLog(string text, LogLevel level = LogLevel.Info)
     {
         ArgumentNullException.ThrowIfNull(text);

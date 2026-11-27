@@ -35,7 +35,14 @@ public sealed partial class KilnHarness
     /// <see cref="LoadFolder"/>.</para>
     /// <para>The handle gives the instance as <see cref="Kiln.Mod"/>: the copy's types are not the test project's.</para>
     /// </remarks>
+    /// <param name="manifest">The mod's manifest, when the test makes its own; null: the mod's own file (see above).</param>
+    /// <typeparam name="TMod">The mod's class: the assembly that holds it is the one loaded.</typeparam>
+    /// <returns>The handle of the loaded copy.</returns>
     /// <exception cref="ModLoadException">A hot load the loader refused, or whose <c>OnLoad</c> threw.</exception>
+    /// <example><code>
+    /// ModHandle mod = kit.Load&lt;MyMod&gt;();
+    /// kit.Step();       // before the first step the mod waits, then loads with the others
+    /// </code></example>
     public ModHandle Load<TMod>(ModManifest? manifest = null) where TMod : Mod
     {
         ThrowIfDisposed();
@@ -94,6 +101,10 @@ public sealed partial class KilnHarness
     /// <c>kiln/mods/&lt;id&gt;</c> as Kiln's deploy copies one: without <c>*.deps.json</c>, <c>*.runtimeconfig.json</c> and
     /// Kiln's own <c>Kiln.*</c> assemblies, unless the manifest names one as its entry or an export. Before the first step
     /// it waits for the start; after it, a hot load.</summary>
+    /// <param name="path">The folder: it holds the mod's <c>kiln.mod.json</c>.</param>
+    /// <returns>The handle of the loaded mod.</returns>
+    /// <exception cref="DirectoryNotFoundException">There is no such folder.</exception>
+    /// <exception cref="FileNotFoundException">The folder has no <c>kiln.mod.json</c>.</exception>
     /// <exception cref="ModLoadException">A hot load the loader refused, or whose <c>OnLoad</c> threw.</exception>
     public ModHandle LoadFolder(string path)
     {
@@ -122,6 +133,9 @@ public sealed partial class KilnHarness
     }
 
     /// <summary>The handle of a mod this harness was given (by id).</summary>
+    /// <param name="id">The mod's id (its manifest's).</param>
+    /// <returns>The handle.</returns>
+    /// <exception cref="KeyNotFoundException">The harness has no such mod.</exception>
     public ModHandle Mod(string id)
     {
         lock (_handles) return _handles.TryGetValue(id, out var h) ? h : throw new KeyNotFoundException($"the harness has no mod {id}");
@@ -132,6 +146,9 @@ public sealed partial class KilnHarness
     /// <c>unload</c> does. With <paramref name="checkCollected"/> (default) the call then makes sure the load contexts of
     /// everything unloaded are gone, and throws <see cref="ModLeakException"/> naming the mod when one is still alive.
     /// </summary>
+    /// <param name="mod">The mod to unload.</param>
+    /// <param name="checkCollected">True (the default): check that its load contexts are collected.</param>
+    /// <exception cref="ModLeakException">A load context is still alive after the unload (the mod, or something it handed out, holds on).</exception>
     public void Unload(ModHandle mod, bool checkCollected = true)
     {
         ArgumentNullException.ThrowIfNull(mod);
@@ -150,6 +167,9 @@ public sealed partial class KilnHarness
     /// <paramref name="checkCollected"/> (default) the old instances' load contexts must be gone afterwards, else
     /// <see cref="ModLeakException"/>. Returns the same handle, which now reads the new instance.
     /// </summary>
+    /// <param name="mod">The mod to reload.</param>
+    /// <param name="checkCollected">True (the default): check that the old instances' load contexts are collected.</param>
+    /// <returns>The same handle.</returns>
     /// <exception cref="ModLoadException">The mod or a dependent did not load again.</exception>
     public ModHandle Reload(ModHandle mod, bool checkCollected = true)
     {
