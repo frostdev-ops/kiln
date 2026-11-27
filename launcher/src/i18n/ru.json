@@ -3816,6 +3816,7 @@
       "sfStepSave": "сохранение результата"
     },
     "appShell": {
+      "thanksgiving": "С Днём благодарения",
       "headStart": "{progress} · {step}",
       "pct": "{pct}%",
       "labelTime": "{label} {time}",

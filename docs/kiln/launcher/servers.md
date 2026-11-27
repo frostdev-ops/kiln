@@ -124,7 +124,10 @@ local servers). It holds the shared admin session while the server runs.
   opens it in the browser, signed in as the owner. The mod is Kilnwarden (`kilnwarden`) or, before its rename, Kiln
   Web Admin (`kiln-webadmin`, the 0.1.0 test builds; launchers 0.2.0-dev.31.2 to 31.13 know only this id); with both
   enabled the button is the same (Kilnwarden stays off by itself and says so in kiln.log, and the old copy's panel
-  opens). `pages/servers/webPanelMod.ts`.
+  opens). `pages/servers/webPanelMod.ts`. (0.2.0-dev.31.19) When Kilnwarden names its own address on the internet
+  (hosted access `https://<name>.kiln.nexus`, Kilnwarden 0.1.4) and the launcher's quick check of it passes, the panel
+  opens there; the status says so, with "Open on this computer instead" beside it. When the check fails it opens on this
+  computer and the status says why ("didn't answer in time", "isn't ready for the launcher's sign-in").
 - **logs**: the shared LogsFor (kiln.log, the game log, proxy.log, mod logs). **ticks**: the tick stats.
 - **settings**: `enshrouded_server.json`: name, slots, port, chat, preset, every difficulty setting (the game's
   ranges, minutes stored as nanoseconds), user groups (passwords unique, permissions, reserved

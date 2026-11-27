@@ -412,6 +412,12 @@ is tried once for `kiln-webadmin`). Kiln.Admin takes any consumer name, so nothi
   panel's `launcher-endpoint.json` was read from (one boot.json read per open), so it only ever goes to the panel
   beside that Kiln.Admin. The panel's page removes the fragment from the address bar at once;
   a browser's history may still list the used URL, and the secret in it is dead (one use, 60 s).
+- (0.2.0-dev.31.19) When the panel's `launcher-endpoint.json` names its address on the internet (`public`, Kilnwarden
+  0.1.4) and the launcher's check of it passes (the certificate the file names, the owner exists, the launcher's login
+  is on; contracts.md, `admin_open_web_panel`), the bootstrap page sends the browser to `<public>launcher#secret=`
+  instead, and the panel redeems it the same way through the relay. Kilnwarden refuses such a login through the relay
+  while no owner exists (a setup grant works on the server's own computer only), and its threat model for the public
+  address is in its docs/protocol-relay-broker.md §7.1.
 
 ### Commands as forms
 `commands_describe` gives a panel what it needs to turn every command into a form. Per command (unchanged): `name`,

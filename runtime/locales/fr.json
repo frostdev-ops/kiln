@@ -400,6 +400,10 @@
       "waits": "CE QU'IL ATTEND",
       "settings": "INTERRUPTEUR ET PARAMÈTRES"
     },
+    "news": {
+      "label": "NOUVELLES DE CE MOD",
+      "keys_after_menu": "Ses touches agissent dans le jeu une fois ce menu fermé ({key} ou Échap), comme avec la fenêtre de ShroudForge."
+    },
     "waits": {
       "restart": "Le prochain lancement du jeu : ShroudForge ne charge la configuration modifiée de ce mod qu'au redémarrage du jeu.",
       "dependency": "Un mod dont il a besoin : ShroudForge le démarre dès que ce mod tourne (la raison ci-dessus le nomme).",

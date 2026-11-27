@@ -609,12 +609,13 @@ struct Model::Impl {
     std::set<std::string> noted;
     std::set<std::string> decoded;
     std::optional<std::map<std::string, double>> constants;
+    std::vector<std::string> details;  // take_details()
     void note(const std::string& n) {
         if (noted.insert(n).second) notes.push_back(n);
     }
 };
 
-Model::Model(Source& src, const map::RegMap& rm, const Schema& schema) : d_(std::make_unique<Impl>(Impl{rm, schema, {}, {}, {}, {}, {}, {}, {}, {}})), src_(src) {}
+Model::Model(Source& src, const map::RegMap& rm, const Schema& schema) : d_(std::make_unique<Impl>(Impl{rm, schema, {}, {}, {}, {}, {}, {}, {}, {}, {}})), src_(src) {}
 Model::~Model() = default;
 
 const std::vector<Entry>* Model::entries(const std::string& registry, std::string* why) {
@@ -838,6 +839,12 @@ std::vector<std::string> Model::take_notes() {
     return out;
 }
 
+std::vector<std::string> Model::take_details() {
+    std::vector<std::string> out;
+    out.swap(d_->details);
+    return out;
+}
+
 void Model::release() { src_.release(); }
 
 void Model::fill(const Need& need, BaseModel* out) {
@@ -862,18 +869,31 @@ void Model::fill(const Need& need, BaseModel* out) {
         const auto whole = need.whole.find(reg);
         const bool traits = need.all || need.traits.count(reg);
         auto& dst = out->registries[reg];
+        // fields an entry has no value of (an item without a cost or an armor value): one note per field with the count and the
+        // first entry's reason, never one per entry (31.18 logged 34,207 such lines at a start with registry content); out of
+        // the entries the field was read for: every entry for `fields`, else only the entries read whole
+        std::map<std::string, std::pair<size_t, std::string>> missing;
+        size_t read_whole = 0;
         for (size_t i = 0; i < es->size(); ++i) {
             BaseModel::Entry e;
             e.id = (*es)[i].id;
             std::set<std::string> want = fields;
-            if (whole != need.whole.end() && whole->second.count(e.id))
+            if (whole != need.whole.end() && whole->second.count(e.id)) {
+                ++read_whole;
                 for (const auto& [fn, f] : rs->fields)
                     if (fn.find("[]") == std::string::npos) want.insert(fn);
+            }
             for (const std::string& fn : want) {
                 if (!rs->field(fn) || rs->field(fn)->name.find("[]") != std::string::npos) continue;
                 std::string w;
-                if (auto v = value(reg, i, fn, &w)) e.fields[fn] = std::move(*v);
-                else d_->note("registry: " + reg + "." + fn + " is not read on this build (" + w + "); an edit composes over no value");
+                if (auto v = value(reg, i, fn, &w)) {
+                    e.fields[fn] = std::move(*v);
+                    continue;
+                }
+                auto& m = missing[fn];
+                if (m.first++ == 0) m.second = w;
+                else if (w == m.second) continue;  // the field's own reason (no regmap row), the same for every entry: the note's
+                d_->details.push_back(std::move(w));  // the entry's: kiln.log at debug level
             }
             if (reg == "drops" && e.fields.count("entries")) {
                 // Safety metadata only: preserve grouping while the schema's list remains a flat walk.
@@ -918,6 +938,10 @@ void Model::fill(const Need& need, BaseModel* out) {
             }
             dst.push_back(std::move(e));
         }
+        for (const auto& [fn, m] : missing)
+            d_->note(reg + "." + fn + " has no value in " + std::to_string(m.first) + " of " + std::to_string(fields.count(fn) ? es->size() : read_whole) +
+                     " entries on this build (the first: " + m.second + "); an edit of those composes over no value (each is in kiln.log with "
+                     "\"log_level\": \"debug\")");
         // ids the ledger says a game build removed: every edit naming one is refused "removed by game build ..."
         for (const auto& [rid, build] : d_->rm.build.aliases.removed) {
             const size_t bar = rid.find('|');

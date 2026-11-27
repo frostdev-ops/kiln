@@ -131,6 +131,10 @@ class Model {
     std::set<std::string> decoded() const;  // "<registry>.<field>" decoded so far
     // Notes for kiln.log, each once: names outside the id grammar, references that name no entry, rows that do not decode.
     std::vector<std::string> take_notes();
+    // The entries behind fill's per-field notes ("<registry>.<field> has no value in N of M entries"), for kiln.log at debug
+    // level: one reason per entry it read the field of without a value. A reason of the field itself (no regmap row), the
+    // same for every entry, is the note's alone.
+    std::vector<std::string> take_details();
     // The reads are over: the source lets its bytes go; decoded values stay.
     void release();
     // The balance registry's gear constants (formulas.h constants_of), from the base.

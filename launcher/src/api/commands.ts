@@ -2245,22 +2245,32 @@ export const serverConsoleClose = (subscription: string) => call<null>("server_c
 export const adminConnect = (serverId: ServerId, transport: AdminTransport = "auto") => call<AdminSession>("admin_connect", { serverId, transport });
 export const adminDisconnect = (session: string) => call<null>("admin_disconnect", { session });
 /** An open web panel (kiln_manage::admin::web_panel::WebPanelInfo, 0.2.0-dev.31.12): the server's own loopback origin,
- *  reached through the launcher's gateway (a TCP connection on this machine, or ssh -W to a remote server). */
+ *  reached through the launcher's gateway (a TCP connection on this machine, or ssh -W to a remote server).
+ *  (0.2.0-dev.31.19) Or, `via: "hosted"`, the panel's own address on the internet (Kilnwarden's hosted address or an own
+ *  address, from its launcher-endpoint.json `public`), which the browser reaches by itself: no gateway. */
 export interface WebPanelInfo {
   serverId: ServerId;
-  /** `https://127.x.y.z:port` (`http://` for a panel without TLS). */
+  /** `https://127.x.y.z:port` (`http://` for a panel without TLS); `https://<name>` for `via: "hosted"`. */
   origin: string;
   /** The pinned certificate's SHA-256 (hex), null without TLS. */
   fingerprint: string | null;
-  via: "local" | "ssh";
+  via: "local" | "ssh" | "hosted";
   /** False when this system could not give the server its own loopback address (cookies shared on 127.0.0.1). */
   isolated: boolean;
-  /** The gateway closes this long after the panel's last tab. */
+  /** The gateway closes this long after the panel's last tab (0 for `via: "hosted"`). */
   idleCloseS: number;
   connections: number;
+  /** (0.2.0-dev.31.19) The address on the internet this open went to (`via: "hosted"`), else null. */
+  public: string | null;
+  /** (0.2.0-dev.31.19) The panel's file named an address on the internet but the launcher's check of it failed, so it
+   *  opened on this computer: "unreachable" (no answer in time) or "refused" (another certificate, no owner yet, the
+   *  launcher's sign-in off, an error). Null otherwise. */
+  fallback: "unreachable" | "refused" | null;
 }
-/** Opens the server's web panel in the browser, signed in as the owner; the panel as the window shows it. */
-export const adminOpenWebPanel = (serverId: ServerId) => call<WebPanelInfo>("admin_open_web_panel", { serverId });
+/** Opens the server's web panel in the browser, signed in as the owner; the panel as the window shows it.
+ *  (0.2.0-dev.31.19) "auto": at the panel's own address on the internet when it has one that passes the check, else on
+ *  this computer; "local": on this computer ("Open on this computer instead"). */
+export const adminOpenWebPanel = (serverId: ServerId, route: "auto" | "local" = "auto") => call<WebPanelInfo>("admin_open_web_panel", { serverId, route });
 /** Closes the server's web panel gateway: whether one was open. */
 export const adminCloseWebPanel = (serverId: ServerId) => call<boolean>("admin_close_web_panel", { serverId });
 /** The web panels open now. */

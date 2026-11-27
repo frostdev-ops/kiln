@@ -3666,6 +3666,7 @@
       "sfStepSave": "salvando o resultado"
     },
     "appShell": {
+      "thanksgiving": "Feliz Dia de Ação de Graças",
       "headStart": "{progress} · {step}",
       "pct": "{pct}%",
       "labelTime": "{label} {time}",

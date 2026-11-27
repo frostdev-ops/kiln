@@ -402,6 +402,10 @@
       "waits": "WORAUF SIE WARTET",
       "settings": "SCHALTER UND EINSTELLUNGEN"
     },
+    "news": {
+      "label": "NEUIGKEITEN DIESER MOD",
+      "keys_after_menu": "Die Tasten dieser Mod wirken im Spiel, sobald dieses Menü geschlossen ist ({key} oder Esc), wie bei ShroudForges eigenem Fenster."
+    },
     "waits": {
       "restart": "Den nächsten Spielstart: ShroudForge lädt die geänderte Konfiguration dieser Mod erst, wenn das Spiel neu startet.",
       "dependency": "Eine Mod, die sie braucht: ShroudForge startet sie, sobald diese Mod läuft (der Grund oben nennt sie).",

@@ -96,6 +96,11 @@ type MockWebPanel = { serverId: string; origin: string; fingerprint: string | nu
 const webPanels = new Map<string, MockWebPanel>();
 let webAdmin = false;
 let webVia: "local" | "ssh" = "local";
+// (0.2.0-dev.31.19) the panel's own address on the internet in its launcher-endpoint.json (`public`), and how the
+// launcher's check of it goes (kiln_manage::admin::web_panel::public); every open, with its route and where it went
+let webPublic: { url: string; check: "ok" | "unreachable" | "refused" } | null = null;
+const webOpens: { serverId: string; route: string; via: string }[] = [];
+const asInfo = (p: MockWebPanel, fallback: "unreachable" | "refused" | null = null) => ({ ...p, public: null, fallback });
 const webadminMod = { id: "kiln-webadmin", version: "0.1.0", folder: "kiln-webadmin", enabled: true, source: null, clients: "none", state: "loaded", kind: "kiln" };
 const originOf = (id: string) => {
   let h = 2166136261;
@@ -110,20 +115,31 @@ export const webPanelMockHooks = {
   /** The gateway closed by itself (the panel's last tab closed). */
   expire: (serverId: string) => { webPanels.delete(serverId); },
   list: () => [...webPanels.values()],
+  /** (0.2.0-dev.31.19) The panel's own address in its file (null: none) and how the launcher's check of it goes. */
+  setPublic: (url: string | null, check: "ok" | "unreachable" | "refused" = "ok") => { webPublic = url ? { url, check } : null; },
+  /** (0.2.0-dev.31.19) Each admin_open_web_panel: its route ("auto", "local") and where the panel opened. */
+  opens: () => webOpens.map((o) => ({ ...o })),
 };
 
 export const serverMockHandlers: Record<string, (args: Args) => unknown> = {
   admin_open_web_panel: (a) => {
     const id = String(a.serverId);
+    const route = a.route === "local" ? "local" : "auto";
     const mod = listeningPanel();
     if (!mod) throw { code: "admin_unavailable", message: "Kilnwarden is not listening. Check that the current mod is loaded." };
     panelOpens.push({ serverId: id, mod, consumer: mod });
+    // (0.2.0-dev.31.19) the panel's own address when its check passes: the browser goes there, no gateway
+    if (route === "auto" && webPublic?.check === "ok") {
+      webOpens.push({ serverId: id, route, via: "hosted" });
+      return { serverId: id, origin: webPublic.url.replace(/\/$/, ""), fingerprint: "cd".repeat(32), via: "hosted", isolated: true, idleCloseS: 0, connections: 0, public: webPublic.url, fallback: null };
+    }
     const p = webPanels.get(id) ?? { serverId: id, origin: originOf(id), fingerprint: "ab".repeat(32), via: webVia, isolated: true, idleCloseS: 120, connections: 1 };
     webPanels.set(id, p);
-    return p;
+    webOpens.push({ serverId: id, route, via: p.via });
+    return asInfo(p, route === "auto" && webPublic ? (webPublic.check as "unreachable" | "refused") : null);
   },
   admin_close_web_panel: (a) => webPanels.delete(String(a.serverId)),
-  admin_web_panels: () => [...webPanels.values()],
+  admin_web_panels: () => [...webPanels.values()].map((p) => asInfo(p)),
   server_console_open: (a) => ({ subscription: "console-mock", serverId: a.serverId, source: "capture", path: "/home/player/.local/state/kiln/lab.run.log", truncated: false, lines: consoleLines }),
   server_console_close: () => null,
   server_settings_get: () => ({ path: "/home/player/srv/enshrouded/lab/enshrouded_server.json", values: settings, schema, running: false }),

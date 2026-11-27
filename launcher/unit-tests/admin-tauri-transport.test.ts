@@ -96,5 +96,7 @@ describe("the Tauri admin transport", () => {
     expect(cmds()).not.toContain("admin_call");
     expect(await h.crashReportsFromDisk!("lab")).toEqual([{ name: "crash-1.txt", created: "2026-11-23T10:00:00Z", size: 12 }]);
     expect(invoked.at(-1)).toEqual(["logs_crash_reports", { target: { server: "lab" } }]);
+    // the launcher's own words for a map without art (admin.map.*)
+    expect(h.useMapNoArt({ canExtract: false })).toBeUndefined();
   });
 });
