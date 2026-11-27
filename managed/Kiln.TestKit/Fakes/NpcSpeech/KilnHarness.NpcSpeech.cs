@@ -60,6 +60,14 @@ public sealed class HarnessNpcSpeech
                 : null;
     }
 
+    /// <summary>The farewells (<c>Npcs.Farewells</c>) a Kiln client's dialogue menu shows for the NPC, in
+    /// <paramref name="language"/>; empty when it keeps the game's. Since 0.2.0-dev.32.</summary>
+    public IReadOnlyList<string> FarewellsOf(EntityId npc, string language = "en-us")
+    {
+        lock (S.Lock)
+            return S.Lines.TryGetValue((npc.Value, 1u), out var t) ? t.Select(x => TextOf(x, language)).ToArray() : [];
+    }
+
     /// <summary>How many set and say calls reached the fake (a test that expects nothing new compares it).</summary>
     public int Calls
     {

@@ -45,7 +45,7 @@ internal sealed unsafe class NpcSpeechFake : IKitFake
             _table->DialogStatus = &DialogStatus;
         }
         KitBackend.Instance.RegisterTable(Service, (nint)_table);
-        FakeTables.Features([N.BubbleCapability, N.VoiceCapability]);
+        FakeTables.Features([N.BubbleCapability, N.VoiceCapability, N.FarewellCapability]);
     }
 
     public void Start(KilnHarness harness) { }
@@ -53,10 +53,10 @@ internal sealed unsafe class NpcSpeechFake : IKitFake
     public void End(KilnHarness harness) { }
 
     public void AddCoverage(List<CoverageRow> rows) => rows.Add(new("NPC speech (since 0.2.0-dev.31.16)", CoverageKind.RecordingFake,
-        [Service, N.BubbleCapability, N.VoiceCapability],
+        [Service, N.BubbleCapability, N.VoiceCapability, N.FarewellCapability],
         "Kiln.Npcs on the kit's kiln.npcspeech: Npcs.Say, Npcs.Speech(...).Suppress / Replace / Clear with the owners' priorities, " +
         "and what a Kiln client's bubble of each NPC would be told (KilnHarness.NpcSpeech: ModeOf, LinesOf, Saying in a language, " +
-        "since 0.2.0-dev.32 PickOf). " +
+        "since 0.2.0-dev.32 PickOf and FarewellsOf). " +
         "Not modelled: the game's bubble itself (which NPC is the player's target, the 5 m range, its random pick among the lines, " +
         "the voice-overs Kiln mutes) and the network: the kit is the host, nothing is sent."));
 

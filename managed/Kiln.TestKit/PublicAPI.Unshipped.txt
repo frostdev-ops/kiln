@@ -1,2 +1,3 @@
 #nullable enable
 Kiln.TestKit.HarnessNpcSpeech.PickOf(Kiln.EntityId npc, Kiln.NpcLineKind kind = Kiln.NpcLineKind.Greeting) -> string?
+Kiln.TestKit.HarnessNpcSpeech.FarewellsOf(Kiln.EntityId npc, string! language = "en-us") -> System.Collections.Generic.IReadOnlyList<string!>!

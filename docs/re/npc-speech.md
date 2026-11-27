@@ -59,8 +59,8 @@ Everything about the text is **client-side**. The server never sends a line's te
    7.3 step 4).
 
 Not followed: whether `0xb0f2c0`'s event reaches the server as `SelectDialogOptionAction` (so a Suppress may still
-show the talk gesture when a player presses E); where the farewell text of `0xd95ca0` is drawn; the NPC layer's own
-range (which NPCs get an entry).
+show the talk gesture when a player presses E); the NPC layer's own range (which NPCs get an entry). The farewell of
+`0xd95ca0` is drawn in the dialogue window's speech box (section 6).
 
 Review 2026-11-26 **[dis] [data]**: the voice-over events (`0xb0f2c0`, type 0x55 `{+4 entity, +8 line, +0xc Guid}`) carry
 the GUID the slot copied at pick time: the priority line's at the next `PickLines`, the plain greeting's when the
@@ -108,3 +108,53 @@ target/range test.
   the record map's find; callers by rel32 scan. sigdb: `python3 tools/sigport/sigdb_check.py sigdb/symbols/client.json
   <enshrouded.exe>` resolves `npcspeech/*` and both features on 26430625.
 - Usage and status: [docs/kiln/services/npc-speech.md](../kiln/services/npc-speech.md).
+
+## 6. The dialogue menu: farewells, its own line, the talk page (dev.32) **[dis] [data]**
+
+Lane npc-dialogue (2026-11-27), same client build; capstone and read-only Ghidra decompiles of single functions.
+
+**Why a Replace stayed on one line.** NpcBubble's state per NPC (a 0x50-byte slot in the NPC layer plus the UI
+element's state): 1 idle -> 2 when the NPC becomes the target within 5 m (PickLines picks once) -> 3 while the dialogue
+(HUD 26) is open -> 5 after it closes (PickLines again; the transition line from then on). Nothing returns to 1: looking
+away only hides the bubble, so the pick stays until the NPC leaves the layer or a dialogue closes. Ramone has one plain
+greeting and no priority one, so the game's text never changed and 31.16's Replace (a new pick when the game's text
+changes) kept its line. Since dev.32 a greeting is also the bubble showing after 1 s hidden.
+
+**The dialogue window** is the NPC layer's UI element (doNpcUIWindow `0xc48d70`, element hash `0xd9924a0cc74e608a`), W.
+`DialogUpdate` `0xd95ca0`(W) runs every frame of HUD 26 (and for the pre-altar Flame speech window, `0xbc3f70`/`0xc69f50`):
+- close request `W+0x16`: a random farewell id of the record (`+0xf888`, count `+0xf890`), else a default one, through
+  `SetLine` `0xd80a30`(W, tag): `W+0x2b0` = the text, the reveal restarts (`W+0x7e0`), `W+0x3ce0` = 0 (the box shows),
+  the UI's line sound. Its voice event has a null GUID: farewells have no voice-over. SetLine's four call sites are all
+  farewells (two in `0xd8ce30`, which nothing calls).
+- open request `W+0x15` (doNpcUIWindow sets it while not in HUD 26): `W+8` = the record of `play.target` (`ui/play.target`
+  0x2c50, the dialogue partner); none: return 0 and the caller closes the dialogue. `record+4` is `NpcDialog.isFlame`:
+  not Flame, the box is cleared (`W+0x2b0` = 0, `W+0x3ce0` = 1); Flame, a random priority greeting through `SayLine`
+  `0xd80ab0`, none: return 0. Then `BuildTopics` and `W+0x14` (straight to crafting: a crafting entry, no topic, a happy
+  NPC and the player's setting).
+- The box is `flameSpeechBox` in the dialogue window `0xb8f690` (the NPC's name and `W+0x2b0`); dismissing it with no
+  topic ends the dialogue. So the menu's own line exists only for the Flame altar's NPC; for everyone else the box shows
+  a topic's reply and the farewell (31.16's note that "a greeting with a condition shows in the menu" was the bubble's
+  state 2).
+- `SayLine`(W, entry): a random body text of a line entry into the box, its voice event {play.target, line id, GUID};
+  `W+0x1c` keeps the entry (its end action PlayOutro closes the dialogue after the line).
+
+**The talk page.** `BuildTopics` `0xd762b0`(W) copies the record's options (`+0xf8d0`, those whose requirement holds)
+into W's topic list (`W+0x12a8`: ptr, count `+8`, cap `+0x10`, grow callback `+0x18` = bool(list*, -needed, 0)); a topic
+is 0x2a0 bytes: kind byte (0: say the entry; else a HUD screen), the 0x294-byte line entry at +4 (line id, option text
++4, body texts +8, count +0x88, voice-overs +0x8c, count +0x28c, hint +0x290, start/end action +0x291/+0x292), a pointer
+at +0x298. It adds the crafting entry (`W+0x808`, `dialogResource.crafting`) and special topics (`W+0xaa0`, from the
+player's NPC info flags). It runs at an open and every frame doVerticalTopicListDialogMenu (`0xb8ffc0`) draws, which
+**draws no list at all when options, crafting entry and special topics are empty**: Ramone's two options are one-time
+topics gated by named queries (Extern 2239375158 and 1760803964, Equals 0) and his `crafting` text is 0, so E shows his
+plain greeting in the bubble and nothing else. A topic's click: kind 0, SayLine(W, a copy of its entry).
+
+**The server's half.** A reply's voice event becomes `NpcDialogClientSync` and the player's
+`SelectDialogOptionAction {line id, npc}` (creatures.md 7.3): npc_behavior plays the talk sequence;
+`unlock_knowledge_from_dialog_option_input` (`0x1fb380` on 26430253) pushes knowledge only when `FindDialogLine` finds
+the id among the NPC's own lines (an unknown id: nothing).
+
+**What Kiln hooks** (client, `client.d/npcdialog.json`): DialogUpdate (after the game's update: a farewell of Kiln's into
+W's box after a close request; a menu line of Kiln's through SetLine after an open request, W+0x14 cleared), BuildTopics
+(Kiln's topics after the game's, through the list's own grow callback) and SayLine (a Kiln topic's pick by its line id).
+SetLine is called, never hooked. The dialogue's NPC is `play.target` (UiApp -> ui.data -> state -> state.play, as kiln.ui
+reads it). Scripts and decompiles: `/mnt/Dongus/kiln-wave/dev32/out/npc-dialogue/re/`.

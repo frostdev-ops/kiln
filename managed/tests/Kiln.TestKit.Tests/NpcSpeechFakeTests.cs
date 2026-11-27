@@ -70,6 +70,20 @@ public sealed class NpcSpeechFakeTests
     }
 
     [Fact]
+    public void A_farewell_is_recorded_per_language_apart_from_the_greeting()
+    {
+        using var h = new KilnHarness();
+        h.Step();
+        h.Run(() => Npcs.Farewells(Npc).Replace(new[] { UiText.Of(("en", "Eat well!"), ("de", "Guten Appetit!")) }));
+        Assert.Equal(["Eat well!"], h.NpcSpeech.FarewellsOf(Npc));
+        Assert.Equal(["Guten Appetit!"], h.NpcSpeech.FarewellsOf(Npc, "de-de"));
+        Assert.Equal("Random", h.NpcSpeech.PickOf(Npc, NpcLineKind.Farewell));
+        Assert.Equal(SpeechMode.Game, h.NpcSpeech.ModeOf(Npc));
+        h.Run(() => Npcs.Farewells(Npc).Clear());
+        Assert.Empty(h.NpcSpeech.FarewellsOf(Npc));
+    }
+
+    [Fact]
     public void A_second_harness_shows_the_same_texts_and_starts_clear()
     {
         for (var round = 0; round < 2; round++)

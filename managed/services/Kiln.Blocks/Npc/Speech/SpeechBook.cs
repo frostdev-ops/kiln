@@ -23,7 +23,7 @@ public enum NpcLineKind : byte
 {
     /// <summary>The greeting in the speech bubble over its head (<see cref="Npcs.Speech"/>).</summary>
     Greeting = 0,
-    /// <summary>The farewell in the dialogue menu's speech box when the player leaves it (<c>Npcs.Farewells</c>).</summary>
+    /// <summary>The farewell in the dialogue menu's speech box when the player leaves it (<see cref="Npcs.Farewells"/>).</summary>
     Farewell = 1,
     /// <summary>The NPC's own line in the dialogue menu's speech box when the menu opens (<c>Npcs.MenuLine</c>).</summary>
     MenuLine = 2,

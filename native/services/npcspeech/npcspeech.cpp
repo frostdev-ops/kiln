@@ -10,6 +10,10 @@
 //     greeting lists while an override or Say is on (puts them back after);
 //   - BubbleDraw's detour, inside a noted NPC's call only, swaps the tag, hides the bubble (Suppress) or shows it (Say).
 // Kiln's texts are loca tags that kiln.content's loca hooks answer (kc_nc_set_texts). Nothing here runs a managed callback.
+//
+// Since 0.2.0-dev.32 the dialogue menu too (docs/re/npc-speech.md section 6): DialogUpdate's detour lets the game update
+// the window, then puts a farewell of Kiln's in its speech box after a close request. The dialogue's NPC is the UI's
+// play.target (ui/UiApp -> ui.data -> state -> state.play -> play.target, as kiln.ui reads it).
 #include <windows.h>
 
 #include <atomic>
@@ -151,13 +155,111 @@ bool install() {
 }
 
 // ------------------------------------------------------------------------------------------------ dialogue menu --
-// The dialogue window's parts (farewell, the menu's line, topics): docs/re/npc-speech.md section 6. Until they are
-// resolved, the dev.32 kinds other than the greeting answer KILN_ERR_UNAVAILABLE.
-KilnResult dialog_usable(uint32_t) { return KILN_ERR_UNAVAILABLE; }
-bool install_dialog() { return false; }
-uint32_t dialog_resolved() { return 0; }
-uint32_t dialog_installed() { return 0; }
-void dialog_counts(KilnNpcDialogStatus*) {}
+// The dialogue window's parts (farewell, the menu's line, topics): docs/re/npc-speech.md section 6.
+struct UiChain {
+    uintptr_t ui_app = 0;  // ui/UiApp: the global holding the UI frame context
+    int64_t ui_data = 0, state_play = 0, play_target = 0;
+};
+UiChain g_ui;
+uintptr_t g_update_at = 0;
+npcspeech::DialogLayout g_dlay;
+bool g_farewell_ok = false;  // npcspeech.farewell
+kiln::RawHook g_h_update;
+std::atomic<bool> g_dialog_installed{false}, g_dialog_failed{false};
+std::atomic<uint32_t> g_dialog_faults{0};
+
+void resolve_dialog() {
+    int64_t v = 0;
+    const bool chain = g_api->symbol(S("ui/UiApp"), &g_ui.ui_app) == KILN_OK && g_ui.ui_app && constant("ui/ui.data", &v) &&
+                       (g_ui.ui_data = v, true) && constant("ui/state.play", &v) && (g_ui.state_play = v, true) &&
+                       constant("ui/play.target", &v) && (g_ui.play_target = v, true);
+    const bool update = chain && g_api->symbol(S("npcdialog/DialogUpdate"), &g_update_at) == KILN_OK && g_update_at &&
+                        constant("npcdialog/win.line", &v) && (g_dlay.line = v, true) && constant("npcdialog/win.close", &v) &&
+                        (g_dlay.close = v, true) && constant("npcdialog/win.open", &v) && (g_dlay.open = v, true) &&
+                        constant("npcdialog/win.direct", &v) && (g_dlay.direct = v, true) && g_dlay.sane();
+    g_farewell_ok = update && g_api->feature(S("npcspeech.farewell"));
+    if (!g_farewell_ok) NS_W("npcspeech.farewell did not resolve: farewells stay the game's");
+}
+
+// The dialogue's NPC (play.target) while a UI frame runs; 0 when none. No C++ objects in here (__try).
+uint32_t dialog_npc() {
+    __try {
+        const uintptr_t ctx = *reinterpret_cast<const uintptr_t*>(g_ui.ui_app);
+        if (ctx < 0x10000) return 0;
+        const uintptr_t data = *reinterpret_cast<const uintptr_t*>(ctx + g_ui.ui_data);
+        if (data < 0x10000) return 0;
+        const uintptr_t state = *reinterpret_cast<const uintptr_t*>(data);
+        if (state < 0x10000) return 0;
+        const uintptr_t play = *reinterpret_cast<const uintptr_t*>(state + g_ui.state_play);
+        if (play < 0x10000) return 0;
+        return *reinterpret_cast<const uint32_t*>(play + g_ui.play_target);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return 0;
+    }
+}
+
+bool seh_flags(const uint8_t* w, bool* open, bool* close) {
+    __try {
+        *open = w[g_dlay.open] != 0;
+        *close = w[g_dlay.close] != 0;
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+bool seh_dialog(npcspeech::Core* core, uint32_t npc, uint8_t* w, bool open, bool close, bool kept, npcspeech::DialogStep* out) {
+    __try {
+        *out = core->dialog(npc, w, g_dlay, open, close, kept, GetTickCount64());
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+using UpdateFn = uint8_t (*)(void*);
+
+uint8_t hk_update(void* window) {
+    auto* w = static_cast<uint8_t*>(window);
+    bool open = false, close = false;
+    if (!w || !g_core.dialog_active() || g_dialog_faults.load(std::memory_order_relaxed) >= 8 || !seh_flags(w, &open, &close))
+        return g_h_update.original<UpdateFn>()(window);
+    const uint8_t kept = g_h_update.original<UpdateFn>()(window);
+    if (!open && !close) return kept;
+    npcspeech::DialogStep step;
+    if (!seh_dialog(&g_core, dialog_npc(), w, open, close, kept != 0, &step) && g_dialog_faults.fetch_add(1) == 7)
+        NS_W("the dialogue window faulted 8 times: farewells and menu lines are left to the game for this session");
+    return kept;
+}
+
+KilnResult dialog_usable(uint32_t kind) {
+    if (g_dialog_failed.load()) return KILN_ERR_UNAVAILABLE;
+    if (kind == KILN_SPEECH_KIND_FAREWELL) return g_farewell_ok ? KILN_OK : KILN_ERR_UNAVAILABLE;
+    return KILN_ERR_UNAVAILABLE;
+}
+
+std::mutex g_dialog_mu;
+
+bool install_dialog() {
+    if (g_dialog_installed.load()) return true;
+    if (g_dialog_failed.load() || !g_farewell_ok) return false;
+    std::lock_guard lock(g_dialog_mu);
+    if (g_dialog_installed.load()) return true;
+    if (!g_h_update.install(g_api, g_owner, g_update_at, reinterpret_cast<void*>(&hk_update), "npcdialog/DialogUpdate")) {
+        NS_W("the dialogue window's hook could not go in (%s): farewells stay the game's for this session",
+             g_h_update.error() ? g_h_update.error() : "");
+        g_h_update.revoke();
+        g_dialog_failed.store(true);
+        return false;
+    }
+    g_dialog_installed.store(true);
+    NS_I("dialogue window hook in (DialogUpdate 0x%llx)", static_cast<unsigned long long>(g_update_at));
+    return true;
+}
+
+uint32_t dialog_resolved() { return g_farewell_ok ? 1u : 0u; }
+uint32_t dialog_installed() { return g_dialog_installed.load() ? 1u : 0u; }
+void dialog_counts(KilnNpcDialogStatus* out) { out->farewells = g_core.counts().farewells; }
 
 // ------------------------------------------------------------------------------------------------ table ----------
 KilnResult usable() {
@@ -261,7 +363,9 @@ void KILN_CALL on_unload(void*) {
     g_core.clear_all();
     g_h_bubble.revoke();
     g_h_draw.revoke();
+    g_h_update.revoke();
     g_installed.store(false);
+    g_dialog_installed.store(false);
 }
 
 }  // namespace
@@ -281,6 +385,7 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
         return KILN_ERR_UNAVAILABLE;
     }
     resolve();
+    resolve_dialog();
     if (!g_bubble_ok) {
         NS_W("npcspeech.bubble's symbols or layout did not resolve: NPCs keep the game's lines");
         return KILN_ERR_UNAVAILABLE;

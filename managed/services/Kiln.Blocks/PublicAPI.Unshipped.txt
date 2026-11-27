@@ -35,3 +35,4 @@ static Kiln.SpeechPick.By(System.Func<Kiln.NpcLineContext!, int>! choose) -> Kil
 static Kiln.SpeechPick.InOrder.get -> Kiln.SpeechPick!
 static Kiln.SpeechPick.Random.get -> Kiln.SpeechPick!
 static Kiln.SpeechPick.Seeded(int seed) -> Kiln.SpeechPick!
+static Kiln.Npcs.Farewells(Kiln.EntityId npc) -> Kiln.NpcSpeech!

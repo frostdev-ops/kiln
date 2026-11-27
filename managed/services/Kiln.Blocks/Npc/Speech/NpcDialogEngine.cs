@@ -180,7 +180,7 @@ internal static partial class NpcSpeechEngine
         var rc = SpeechNative.SetLines(npc, kind, mode, tags.ToArray(), eff.Pick.Code, eff.Pick.Seed);
         var whole = mode == eff.Mode && rc == SpeechNative.Ok;
         if (rc != SpeechNative.Ok)
-            note ??= Capabilities.Why(kind == NpcLineKind.Farewell ? "npcspeech.farewell" : "npcspeech.menu_line");
+            note ??= Capabilities.Why(kind == NpcLineKind.Farewell ? SpeechNative.FarewellCapability : SpeechNative.MenuLineCapability);
         lock (Gate)
         {
             if (whole && eff.Mode != SpeechMode.Game) AppliedLines[key] = eff;

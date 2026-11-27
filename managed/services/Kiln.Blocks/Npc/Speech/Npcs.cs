@@ -31,7 +31,7 @@ public sealed record SpeechResult(bool Ok, string? Reason) : IKilnResult
 public sealed record SayOptions(bool Interrupt = true);
 
 /// <summary>One mod's override of one NPC's greeting bubble (<see cref="Npcs.Speech"/>), farewell
-/// (<c>Npcs.Farewells</c>) or menu line (<c>Npcs.MenuLine</c>). Several mods can each have one for the same
+/// (<see cref="Npcs.Farewells"/>) or menu line (<c>Npcs.MenuLine</c>). Several mods can each have one for the same
 /// NPC and kind: the highest <see cref="Priority"/> shows, on a tie the most recent <see cref="Suppress"/> or
 /// <see cref="Replace(string[])"/>; when it clears, the next one does, else the game's own lines come back. It ends by
 /// <see cref="Clear"/>, when the mod unloads, or when the world ends.</summary>
@@ -166,6 +166,19 @@ public static class Npcs
         if (npc.IsNone) throw new ArgumentException("no NPC (EntityId.None)", nameof(npc));
         NpcSpeechEngine.Start();
         return new NpcSpeech(npc, NpcSpeechEngine.Owner());
+    }
+
+    /// <summary>The calling mod's override of the NPC's farewell: the line in the dialogue menu's speech box when a
+    /// player leaves the NPC's menu (the game's own: "See you soon!", "Farewell!"). <see cref="NpcSpeech.Replace(string[])"/>
+    /// with its <see cref="NpcSpeech.Pick"/>, or <see cref="NpcSpeech.Clear"/> for the game's; farewells have no
+    /// voice-over. Kiln clients since 0.2.0-dev.32 (capability <c>npcspeech.farewell</c>); a vanilla or older client keeps
+    /// the game's. Any thread. Since 0.2.0-dev.32.</summary>
+    /// <exception cref="ArgumentException"><paramref name="npc"/> is None.</exception>
+    public static NpcSpeech Farewells(EntityId npc)
+    {
+        if (npc.IsNone) throw new ArgumentException("no NPC (EntityId.None)", nameof(npc));
+        NpcSpeechEngine.Start();
+        return new NpcSpeech(npc, NpcSpeechEngine.Owner(), NpcLineKind.Farewell);
     }
 
     /// <summary>What the NPC's greeting bubble does now, from every mod's overrides (a Say aside). Any thread.</summary>

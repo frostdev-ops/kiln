@@ -36,7 +36,25 @@ struct Layout {
 
 struct Counts {
     uint32_t overrides = 0, says = 0, texts = 0, lines = 0, queued = 0;
-    uint64_t bubbles = 0, changed = 0, muted = 0, opens = 0, dropped = 0;
+    uint64_t bubbles = 0, changed = 0, muted = 0, opens = 0, dropped = 0, farewells = 0;
+};
+
+// The dialogue window's offsets (sigdb client.d/npcdialog.json; 26430625's values as defaults for the tests).
+struct DialogLayout {
+    int64_t line = 0x2b0;   // the speech box's text (LocaTagId)
+    int64_t close = 0x16;   // the close request (u8): the farewell
+    int64_t open = 0x15;    // the open request (u8)
+    int64_t direct = 0x14;  // straight to the crafting screen (u8)
+    bool sane() const {
+        return line > 0 && line + 4 <= 0x4000 && close > 0 && close < 0x100 && open > 0 && open < 0x100 && direct >= 0 &&
+               direct < 0x100;
+    }
+};
+
+// What the caller does after the game's DialogUpdate: show a line with the game's SetLine, keep the menu open.
+struct DialogStep {
+    uint32_t set_line = 0;
+    bool clear_direct = false;
 };
 
 constexpr uint64_t kMaxEntries = 256;  // a list longer than this is not a dialogue record: leave it
@@ -121,6 +139,36 @@ public:
 
     // A farewell or menu line is set for some NPC (the dialogue window's hooks have work).
     bool dialog_active() const { return lines_.load(std::memory_order_acquire); }
+
+    // After the game's DialogUpdate(W) for the dialogue with `npc` (play.target): `was_open` / `was_close` are W's
+    // requests at the call's entry, `kept` its answer (false: the caller closes the dialogue). A farewell of Kiln's
+    // replaces the game's in W's box. Faults are the caller's (SEH): this writes W's line only.
+    DialogStep dialog(uint32_t npc, uint8_t* w, const DialogLayout& d, bool was_open, bool was_close, bool kept, uint64_t now) {
+        (void)kept;
+        (void)now;
+        DialogStep out;
+        if (!npc || !w) return out;
+        uint32_t farewell = 0;
+        {
+            std::lock_guard lock(mu_);
+            auto it = npcs_.find(npc);
+            if (it == npcs_.end()) return out;
+            auto& s = it->second;
+            if (was_close && !was_open) {
+                auto& f = s.kinds[KILN_SPEECH_KIND_FAREWELL];
+                if (f.mode == KILN_SPEECH_REPLACE && !f.tags.empty()) {
+                    const int32_t i = choose(npc, KILN_SPEECH_KIND_FAREWELL, f);
+                    if (i >= 0) {
+                        farewell = f.tags[static_cast<size_t>(i) < f.tags.size() ? i : 0];
+                        farewells_++;
+                    }
+                }
+            }
+        }
+        // game memory only outside the lock: a fault (the caller's SEH) must not leave it held
+        if (farewell) std::memcpy(w + d.line, &farewell, 4);
+        return out;
+    }
 
     void say(uint32_t npc, uint32_t tag, uint32_t ms, uint64_t now) {
         std::lock_guard lock(mu_);
@@ -259,6 +307,7 @@ public:
         c.muted = muted_;
         c.opens = opens_;
         c.dropped = dropped_;
+        c.farewells = farewells_;
         c.queued = static_cast<uint32_t>(events_.size());
         return c;
     }
@@ -450,7 +499,7 @@ private:
     std::atomic<bool> any_{false}, lines_{false};
     std::atomic<uint32_t> texts_{0};
     bool prune_later_ = false;
-    uint64_t bubbles_ = 0, changed_ = 0, muted_ = 0, opens_ = 0, dropped_ = 0;
+    uint64_t bubbles_ = 0, changed_ = 0, muted_ = 0, opens_ = 0, dropped_ = 0, farewells_ = 0;
     uint32_t rng_ = 0x9e3779b9u;
 };
 

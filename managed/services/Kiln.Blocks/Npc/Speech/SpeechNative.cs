@@ -13,6 +13,8 @@ internal static unsafe class SpeechNative
     public const int TooManyTexts = -1;
     public const string BubbleCapability = "npcspeech.bubble";
     public const string VoiceCapability = "npcspeech.voice";
+    /// <summary>Since 0.2.0-dev.32: the dialogue menu's farewell, its own line, and Kiln topics on talk pages.</summary>
+    public const string FarewellCapability = "npcspeech.farewell", MenuLineCapability = "npcspeech.menu_line", TopicsCapability = "npcspeech.topics";
 
     [StructLayout(LayoutKind.Sequential)]
     public struct Status
@@ -96,12 +98,12 @@ internal static unsafe class SpeechNative
     internal static void ReportRows()
     {
         if (ServiceCaps.Probe(Name)) return;  // the service is here: sigdb's rows say what works
-        ServiceCaps.LowerFeatures(Name, BubbleCapability, VoiceCapability);
+        ServiceCaps.LowerFeatures(Name, BubbleCapability, VoiceCapability, FarewellCapability, MenuLineCapability, TopicsCapability);
         var server = !Client.IsClient;
-        foreach (var row in new[] { BubbleCapability, VoiceCapability })
+        foreach (var row in new[] { BubbleCapability, VoiceCapability, FarewellCapability, MenuLineCapability, TopicsCapability })
             if (Capabilities.Get(row).Reason == CapabilityReason.Unknown)
                 ServiceCaps.Report(row, CapabilityState.Unavailable, server ? CapabilityReason.WrongSide : CapabilityReason.ServiceMissing,
-                    server ? "the NPC speech bubble is the game client's: a server sends Kiln.Npcs' decisions to its Kiln clients, which show them"
+                    server ? "the NPC speech bubble and dialogue menu are the game client's: a server sends Kiln.Npcs' decisions to its Kiln clients, which show them"
                            : "kiln.npcspeech is not here: this game shows no Kiln speech");
     }
 

@@ -331,4 +331,57 @@ public sealed unsafe class NpcDialogTests : IDisposable
         NpcSpeechEngine.Tick();
         Assert.Empty(ToPeers);                                          // nothing left to pick for
     }
+    // ------------------------------------------------------------------------------------- slice 2: farewells ----
+
+    [Fact]
+    public void Farewells_are_replaced_with_their_pick_on_the_new_channel_only()
+    {
+        var f = Npcs.Farewells(Ramone);
+        Assert.Equal(NpcLineKind.Farewell, f.Kind);
+        f.Pick = SpeechPick.InOrder;
+        Assert.True(f.Replace("Eat well, Flameborn!", "Bring bread next time.").Ok);
+        Assert.Equal(SpeechMode.Replace, f.Mode);
+        Assert.Contains($"lines {Ramone.Value} 1 2 [{Tag("Eat well, Flameborn!"):x8},{Tag("Bring bread next time."):x8}] pick 2 seed 0", Snapshot());
+        var m = Assert.Single(Wire.OfType<LinesMsg>());
+        Assert.Equal((NpcLineKind.Farewell, SpeechMode.Replace, (byte)2), (m.Kind, m.Mode, m.Pick));
+        Assert.Empty(Wire.OfType<SpeechMsg>());                          // 31.16-31.21 clients have no farewells
+        Assert.Equal(SpeechMode.Game, Npcs.SpeechOf(Ramone));            // the greeting is its own
+
+        var no = f.Suppress();
+        Assert.False(no.Ok);
+        Assert.Contains("Replace", no.Reason);
+
+        Wire.Clear();
+        f.Clear();
+        Assert.Contains($"lines {Ramone.Value} 1 0 [] pick 1 seed 0", Snapshot());
+        Assert.Equal(SpeechMode.Game, Assert.Single(Wire.OfType<LinesMsg>()).Mode);
+        Assert.Throws<ArgumentException>(() => Npcs.Farewells(EntityId.None));
+    }
+
+    [Fact]
+    public void A_greeting_and_a_farewell_of_one_npc_are_two_overrides()
+    {
+        Npcs.Speech(Ramone).Suppress();
+        Npcs.Farewells(Ramone).Replace("Bye");
+        Npcs.Speech(Ramone).Clear();
+        Assert.Equal(SpeechMode.Replace, Npcs.Farewells(Ramone).Mode);
+        Assert.DoesNotContain(Snapshot(), c => c.StartsWith($"lines {Ramone.Value} 1 0", StringComparison.Ordinal));
+        lock (Calls) Calls.Clear();
+        NpcSpeechEngine.WorldEnded();
+        Assert.Equal(SpeechMode.Game, Npcs.Farewells(Ramone).Mode);
+        Assert.Contains("clear", Snapshot());
+    }
+
+    [Fact]
+    public void A_joined_client_shows_the_hosts_farewells_and_forgets_them_on_the_dialogue_reset()
+    {
+        _host = false;
+        var bye = SpeechText.Json(UiText.Of(("en", "Bye"), ("de", "Tschuess")));
+        NpcSpeechEngine.Received(new LinesMsg(Ramone.Value, NpcLineKind.Farewell, SpeechMode.Replace, 1, 0, [bye]));
+        Assert.Contains($"lines {Ramone.Value} 1 2 [{SpeechText.Tag(bye):x8}] pick 1 seed 0", Snapshot());
+        NpcSpeechEngine.ReceivedReset();                                 // v1's reset: Says (and v1 greetings) only
+        Assert.DoesNotContain(Snapshot(), c => c.StartsWith($"lines {Ramone.Value} 1 0", StringComparison.Ordinal));
+        NpcSpeechEngine.ReceivedDialogReset();
+        Assert.Contains($"lines {Ramone.Value} 1 0 [] pick 1 seed 0", Snapshot());
+    }
 }
