@@ -65,6 +65,47 @@ internal static partial class NpcSpeechEngine
     private static readonly Dictionary<uint, TopicWire[]> SentTopics = new();
     private static readonly ConcurrentQueue<(uint Npc, uint Id, EntityId Player)> PickWork = new();
     private static int _byWarned;
+    // What a player's game reports (Opened, Picked) is its word: each player has a budget a real game stays far under
+    // (a greeting needs 1 s hidden, a topic's reply box is dismissed before the next pick), and the rest is dropped, so a
+    // modified game cannot run a mod's By callback or OnPick once per message (the network allows 200 a second).
+    internal const int OpenedPerSecond = 10, OpenedBurst = 20, PicksPerSecond = 4, PickBurst = 8;
+    private static readonly Dictionary<(ulong Player, bool Pick), Budget> Budgets = new();
+    private static int _floodWarned;
+
+    private sealed class Budget(int perSecond, int burst, long now)
+    {
+        private double _tokens = burst;
+        private long _at = now;
+
+        public bool Take(long now)
+        {
+            if (now > _at)
+            {
+                _tokens = Math.Min(burst, _tokens + (now - _at) * perSecond / 1000.0);
+                _at = now;
+            }
+            if (_tokens < 1) return false;
+            _tokens -= 1;
+            return true;
+        }
+    }
+
+    /// <summary>Host: one more Opened (or Picked) of this player's game fits its budget; else it is dropped (logged).</summary>
+    private static bool Within(EntityId player, bool pick)
+    {
+        bool ok;
+        lock (Gate)
+        {
+            var now = Clock();
+            if (!Budgets.TryGetValue((player.Value, pick), out var b))
+                Budgets[(player.Value, pick)] = b = pick ? new Budget(PicksPerSecond, PickBurst, now) : new Budget(OpenedPerSecond, OpenedBurst, now);
+            ok = b.Take(now);
+        }
+        if (!ok && Interlocked.Increment(ref _floodWarned) <= 5)
+            ModLog.Warn($"kiln.npcspeech: player {player}'s game reports {(pick ? "topic picks" : "dialogue opens")} faster than a player can " +
+                        $"({(pick ? PicksPerSecond : OpenedPerSecond)} a second): the rest are dropped");
+        return ok;
+    }
 
     internal static bool ServerHasDialog
     {
@@ -324,6 +365,9 @@ internal static partial class NpcSpeechEngine
     {
         if (!IsHost || from.Player.IsNone) return;
         lock (Gate)
+            if (!Deciding.ContainsKey((m.Npc, m.Kind))) return;
+        if (!Within(from.Player, pick: false)) return;
+        lock (Gate)
         {
             if (!Deciding.ContainsKey((m.Npc, m.Kind))) return;
             ByState[(m.Npc, m.Kind, from.Player.Value)] = ((int)Math.Min(m.Opens, int.MaxValue), m.Line);
@@ -529,7 +573,8 @@ internal static partial class NpcSpeechEngine
     internal static void Received(PickedMsg m, SpeechPeer from)
     {
         if (!IsHost || from.Player.IsNone) return;
-        if (Book.EffectiveTopics(m.Npc, SpeechLayer.Local).Any(t => t.Wire == m.Id)) PickWork.Enqueue((m.Npc, m.Id, from.Player));
+        if (Book.EffectiveTopics(m.Npc, SpeechLayer.Local).Any(t => t.Wire == m.Id) && Within(from.Player, pick: true))
+            PickWork.Enqueue((m.Npc, m.Id, from.Player));
     }
 
     /// <summary>Runs a pick's OnPick on the tick thread, as the mod that set the topic.</summary>
@@ -670,6 +715,7 @@ internal static partial class NpcSpeechEngine
             AppliedTopics.Clear();
             SentTopics.Clear();
             Waiting.Clear();
+            Budgets.Clear();
         }
         while (ByWork.TryDequeue(out _)) { }
         while (PickWork.TryDequeue(out _)) { }

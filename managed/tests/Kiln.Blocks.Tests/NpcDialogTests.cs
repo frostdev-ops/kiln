@@ -654,4 +654,41 @@ public sealed unsafe class NpcDialogTests : IDisposable
         Assert.Empty(Npcs.Topics(Ramone).List);
         Assert.Contains("clear", Snapshot());
     }
+
+    [Fact]
+    public void A_players_game_cannot_run_the_hosts_callbacks_faster_than_a_player_could()
+    {
+        // review: Picked and Opened are a player's game's word; a game that floods them ran OnPick and the By callback
+        // once per message (up to the network's 200 messages a second)
+        Picks.Clear();
+        Peers.Add(new SpeechPeer(1, P1, Dialog: true));
+        Peers.Add(new SpeechPeer(2, P2, Dialog: true));
+        Npcs.Topics(Ramone).Set(Feed());
+        var feed = NpcSpeechEngine.TopicId("kiln", "feed");
+        for (var i = 0; i < 100; i++) NpcSpeechEngine.Received(new PickedMsg(Ramone.Value, feed), Peers[0]);
+        NpcSpeechEngine.Received(new PickedMsg(Ramone.Value, feed), Peers[1]);   // another player has a budget of their own
+        NpcSpeechEngine.Tick();
+        Assert.Equal(NpcSpeechEngine.PickBurst, Picks.Count(p => p.Player == P1));
+        Assert.Single(Picks, p => p.Player == P2);
+        _now += 1000;                                                             // a second later: a few more
+        for (var i = 0; i < 100; i++) NpcSpeechEngine.Received(new PickedMsg(Ramone.Value, feed), Peers[0]);
+        NpcSpeechEngine.Tick();
+        Assert.Equal(NpcSpeechEngine.PickBurst + NpcSpeechEngine.PicksPerSecond, Picks.Count(p => p.Player == P1));
+
+        var calls = 0;
+        var speech = Npcs.Speech(Hannah);
+        speech.Pick = SpeechPick.By(_ =>
+        {
+            calls++;
+            return 0;
+        });
+        speech.Replace("first");
+        NpcSpeechEngine.Tick();
+        calls = 0;
+        ToPeers.Clear();
+        for (var i = 0; i < 100; i++) NpcSpeechEngine.Received(new OpenedMsg(Hannah.Value, NpcLineKind.Greeting, 0, (uint)i + 1), Peers[0]);
+        NpcSpeechEngine.Tick();
+        Assert.Equal(NpcSpeechEngine.OpenedBurst, calls);
+        Assert.Equal(NpcSpeechEngine.OpenedBurst, ToPeers.Count(x => x.Peer == 1 && x.Msg is NextMsg));
+    }
 }

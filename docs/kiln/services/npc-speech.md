@@ -196,6 +196,11 @@ out of range, an empty or too long text, no line or more than 32) throw `Argumen
   greeting. `By` lines and topic picks go through the host: the player's game reports each open and pick, the host runs
   your callback or `OnPick` and answers that player only. Players need Kiln 0.2.0-dev.32 for the menu parts and the
   picks; the mod runs on the host only.
+- **A player's game reports, the host checks**: `ctx.Player` is the player the network knows for that connection, never
+  one a game names. The host takes at most 10 opens (bursts of 20) and 4 topic picks (bursts of 8) a second from each
+  player's game and drops the rest (kiln.log says so), so a modified game cannot run your callback or `OnPick` once per
+  message. The host does not check that the player stands at the NPC or has the menu open: guard what a topic gives
+  (items, quest steps) as you would any player's request.
 - Channel `kiln:npcdialog` v1, `required: false` (since 0.2.0-dev.32: Lines, Next, Topics, MenuSay, Reset to clients;
   Opened, Picked to the server). A dev.32 client whose server has it takes greetings from it (with their pick) and
   ignores v1's Speech; a 31.16-31.21 client never sees it and keeps v1 as it was.
