@@ -31,8 +31,10 @@ use crate::{
     startup::{Attempt, Data, PlanPackage, Row, Warning, dialect_word, hex},
 };
 
-/// The record's format; a new key or value shape gets a new number (2: the change journal's SHA-256).
-const FORMAT: u64 = 2;
+/// The record's format; a new key or value shape gets a new number (2: the change journal's SHA-256; 3, 0.2.0-dev.32: the
+/// journal it names is format 2 with the member paths each package changed, so a record of format 2 misses once and the
+/// pass journals its publication anew).
+const FORMAT: u64 = 3;
 /// The SF pass's own schema: what one pass over the same key produces.
 const PASS_SCHEMA: u64 = 1;
 

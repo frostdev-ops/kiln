@@ -86,6 +86,8 @@ pub mod format_adapter;
 pub mod game;
 // The startup change journal (what each package's entrypoint changed), recorded by the asset session.
 pub mod journal;
+// The member paths each package changed in a resource (format 2 of the ShroudForge dialect's journal).
+pub mod journal_paths;
 // One attempt's frozen host selections.
 pub mod plan;
 // The runtime families of the pregame VM (ecs, impact, services, overrides, world, network, patch, functions,

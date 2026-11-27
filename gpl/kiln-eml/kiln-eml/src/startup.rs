@@ -1420,7 +1420,7 @@ impl<'g> Ctx<'_, 'g> {
             Ok(live) => {
                 // the change journal of this generation, under the guard, bound to its receipt, before the cache
                 // record that names it
-                let written = self.write_journal(&journal_file, &journal, &live, attempt);
+                let written = self.write_journal(&journal_file, &journal, &live, attempt, &out.packages);
                 out.state = State::Committed;
                 out.live = Some(live);
                 written
@@ -1473,12 +1473,16 @@ impl<'g> Ctx<'_, 'g> {
     /// The change journal of the generation `live` just published from `journal`, the committed attempt's: written
     /// beside its receipt under the guard, only while that receipt is still the one listing it. Returns the record's
     /// SHA-256 (the startup cache keeps it).
+    /// Format 2 (0.2.0-dev.32: the ShroudForge dialect with the member paths each package changed, and kiln mode's EML
+    /// dialect) lists the plan's packages the committed attempt did not run (`rows`' failed and excluded ones, with their
+    /// texts) as `notApplied`: effect replay (the registry's opt-in D6) reads it.
     fn write_journal(
         &self,
         file: &StartupJournal<'_>,
         journal: &Journal,
         live: &LiveGeneration,
         attempt: Attempt,
+        rows: &[Row],
     ) -> Result<String, String> {
         let receipt = live.receipt_sha256.ok_or("the published generation has no receipt")?;
         let header = journal::Header {
@@ -1488,18 +1492,33 @@ impl<'g> Ctx<'_, 'g> {
             dialect: dialect_word(self.plan.dialect),
             attempt: attempt.word(),
         };
+        let kind = |p: &PlanPackage| match p.kind {
+            PackageKind::Eml => "eml",
+            _ => "shroudforge",
+        };
         let identity = |id: &str| {
             self.plan.package(id).map(|p| journal::Identity {
                 version: version_of(&p.version),
-                kind: match p.kind {
-                    PackageKind::Eml => "eml",
-                    _ => "shroudforge",
-                },
+                kind: kind(p),
                 content_sha256: p.content_sha256,
                 settings_sha256: p.config_sha256,
             })
         };
-        let bytes = journal.json(&header, &identity);
+        let not_applied: Vec<journal::NotApplied> = rows
+            .iter()
+            .filter(|r| matches!(r.data, Data::Failed | Data::Excluded))
+            .filter_map(|r| {
+                let p = self.plan.package(&r.id)?;
+                Some(journal::NotApplied {
+                    id: r.id.clone(),
+                    version: r.version.clone(),
+                    kind: kind(p),
+                    content_sha256: p.content_sha256,
+                    reason: r.text.clone().or_else(|| r.code.clone()).unwrap_or_else(|| "not applied".into()),
+                })
+            })
+            .collect();
+        let bytes = journal.json_with(&header, &identity, &journal::Tail { writer: None, not_applied: Some(&not_applied) });
         file.write_for(&hex(&receipt), bytes.as_bytes())
             .map_err(|e| e.to_string())?;
         Ok(hex(&Sha256::digest(bytes.as_bytes())))
@@ -1594,6 +1613,7 @@ impl<'g> Ctx<'_, 'g> {
     /// The EML pass: dialect `eml` (`listed`: the plan's admitted EML packages), or `none` (the unlisted contributors
     /// only, no rows). One attempt (EML's dialect has no retry); EML's change cache is its cache.
     fn eml_pass(&self, out: &mut StartupOutcome, admission: &admission::Admission, listed: bool) {
+        let record: Option<Journal>;
         let admitted = admission.order.clone();
         let selection = if listed {
             EmlSelection::Admitted(&admitted)
@@ -1653,6 +1673,9 @@ impl<'g> Ctx<'_, 'g> {
                 return;
             }
             Ok(mod_loader::lua::startup_host::PreparedEml::Staged(run)) => {
+                // kiln-eml (0.2.0-dev.32): kiln mode's EML dialect gets a change journal too, from EML's own record of who
+                // wrote what (env/writes.rs), once the generation is published
+                record = run.record().map(crate::sf_startup::journal::Journal::from_eml);
                 let (archive, commit) = run.into_parts();
                 let published = archive.publish();
                 (self.observe)(Point::Published);
@@ -1679,8 +1702,22 @@ impl<'g> Ctx<'_, 'g> {
         {
             Ok(live) => {
                 out.state = State::Committed;
-                out.live = Some(live);
                 out.packages = self.rows(admission, |p| Self::committed(p, Data::Committed));
+                // the dialect's change journal (format 2, dialect eml), bound to this generation (the outcome's
+                // archiveSha256): the plan's EML packages only (dialect none runs unlisted contributors, which the
+                // registry names nowhere); a journal that cannot be saved costs only the names
+                if listed
+                    && let Some(journal) = &record
+                    && let Err(e) = StartupJournal::bind(self.game(), self.stem(), self.guard)
+                        .map_err(|e| format!("{e:#}"))
+                        .and_then(|file| self.write_journal(&file, journal, &live, Attempt::First, &out.packages))
+                {
+                    out.warnings.push(Warning {
+                        code: "startup-journal-not-saved".into(),
+                        text: format!("the EML pass's change journal was not saved ({e}): Kiln's registry names none of its mods this start"),
+                    });
+                }
+                out.live = Some(live);
             }
             Err(text) => self.publication_failed(out, admission, Attempt::First, text),
         }
