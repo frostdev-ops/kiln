@@ -49,7 +49,7 @@ typedef struct KilnNpcSpeechStatus {
 #define KILN_SPEECH_PICK_RANDOM 1u /* a new random line at each greeting (farewell, menu open); not the same twice in a row */
 #define KILN_SPEECH_PICK_ORDER 2u  /* the lines in turn, one per greeting, from seed % n */
 #define KILN_SPEECH_PICK_SEEDED 3u /* the line of a pure mix of seed, the NPC and the open's number (0, 1, ...): the same everywhere */
-#define KILN_SPEECH_PICK_HOST 4u   /* the line next() gave last (KILN_SPEECH_LINE_GAME: the game's own); none yet: as RANDOM */
+#define KILN_SPEECH_PICK_HOST 4u   /* the line next() gave last (KILN_SPEECH_LINE_GAME: the game's own); none yet: the game's own too */
 
 #define KILN_SPEECH_LINE_GAME (-1) /* next(): the game's own line this time (the menu's line: none) */
 

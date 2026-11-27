@@ -213,12 +213,13 @@ int main() {
                   npcspeech::Core::seeded(42, 7, 0, 3) < 3,
               "seeded: a pure function of seed, NPC, open and count");
     }
-    {  // HOST (By): the line next() gave, reported once per open; -1 = the game's line; none yet: random among ours
+    {  // HOST (By): the line next() gave, reported once per open; -1 = the game's line; none yet: the game's line too
         npcspeech::Core c;
         c.set_lines(7, KILN_SPEECH_KIND_GREETING, KILN_SPEECH_REPLACE, tags, 3, KILN_SPEECH_PICK_HOST, 0);
         uint64_t now = 1000;
         const uint32_t before = greet(c, 7, now);
-        CHECK(before == 0xa1 || before == 0xa2 || before == 0xa3, "host pick not there yet: one of ours");
+        // review: a line of ours the host never chose showed (as RANDOM) until its first answer
+        CHECK(before == 2262475715u, "host pick not there yet: the game's own line, not one the host did not choose");
         KilnSpeechEvent ev[8];
         uint32_t n = c.drain(ev, 8);
         CHECK(n == 1 && ev[0].npc == 7 && ev[0].type == KILN_SPEECH_EVENT_OPEN && ev[0].kind == KILN_SPEECH_KIND_GREETING &&

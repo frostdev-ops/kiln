@@ -157,7 +157,8 @@ out of range, an empty or too long text, no line or more than 32) throw `Argumen
 - **`SpeechPick.By`**: the callback runs on the host's tick thread, as your mod, and returns the index of the line the
   player sees next, or -1 for the game's own line (the menu's line: no line). It runs one greeting ahead: for every Kiln
   player when the override begins or at `Refresh()`, then after each of that player's opens (the client reports it);
-  the player's game shows what it was given last (until the first answer: a random line). A throw or an index out of
+  the player's game shows what it was given last (until the first answer: the game's own line, the menu none, so a
+  condition never shows a line you did not choose for that player). A throw or an index out of
   range counts as -1. This is how a condition per player works (a player who fed the NPC gets another line, or none).
 - **Farewells**: when a player leaves the NPC's menu, the game picks one of its farewells for the speech box; Kiln
   puts yours there instead. Farewells have no voice-over.

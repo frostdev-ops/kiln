@@ -169,6 +169,12 @@ int main() {
         CHECK(st.set_line == 0, "another NPC's menu: nothing");
         CHECK(c.counts().menu_lines == 2, "menu lines Kiln showed are counted");
         c.set_lines(9, KILN_SPEECH_KIND_MENU, KILN_SPEECH_REPLACE, say, 2, KILN_SPEECH_PICK_HOST, 0);
+        st = c.dialog(9, w.b.data(), d, true, false, true, 2500);
+        // review: before the host's first answer a menu line meant as a condition per player showed anyway
+        CHECK(st.set_line == 0 && !st.clear_direct, "the host has not answered yet: no line, the game's menu as it is");
+        KilnSpeechEvent ev0[4];
+        CHECK(c.drain(ev0, 4) == 1 && ev0[0].kind == KILN_SPEECH_KIND_MENU && ev0[0].line == -1,
+              "that open is still reported, so the host answers this player");
         c.next(9, KILN_SPEECH_KIND_MENU, KILN_SPEECH_LINE_GAME);
         st = c.dialog(9, w.b.data(), d, true, false, true, 3000);
         CHECK(st.set_line == 0 && !st.clear_direct, "the host said -1 for this player: no line, the game's menu as it is");

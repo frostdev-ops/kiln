@@ -545,11 +545,10 @@ private:
             i = static_cast<int32_t>(seeded(L.seed, npc, L.opens, n));
             break;
         case KILN_SPEECH_PICK_HOST:
-            if (L.next != kUnpicked) {
-                i = L.next;
-                break;
-            }
-            [[fallthrough]];
+            // the host's last answer; none yet: the game's own line (the menu: none). A host pick is often a condition
+            // per player: a line the host never chose for this player does not show.
+            i = L.next != kUnpicked ? L.next : KILN_SPEECH_LINE_GAME;
+            break;
         default:  // RANDOM: never the same line twice in a row
             if (n <= 1) i = 0;
             else if (L.last >= 0 && static_cast<uint32_t>(L.last) < n) {
