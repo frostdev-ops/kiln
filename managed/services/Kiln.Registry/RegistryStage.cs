@@ -20,7 +20,8 @@ public static partial class Registry
     }
 }
 
-/// <summary>A callback's typed data view and buffered edits. Nothing is submitted until the handler succeeds.
+/// <summary>A callback's stage: its typed entries, read as the pass sees the registries, and its buffered edits (the docs' word
+/// for it; RegistryViews' read-only views are another thing). Nothing is submitted until the handler succeeds.
 /// Ordinary assignments and Alter target the alter pass; Final is explicit. The host preserves all-mod pass ordering.</summary>
 [Experimental("KILNX031"), RegistryThreadOnly]
 public sealed class RegistryStage

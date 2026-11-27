@@ -127,10 +127,15 @@ public sealed class Stacks : Mod
     public override void OnRegistry(RegistryContext context)
     {
         var registry = Kiln.Registry.Registry.For(context);
-        registry.Alter(view => view.Items["game:material_t1_wood_logs"].MaxStack = 500);
+        registry.Alter(stage => stage.Items["game:material_t1_wood_logs"].MaxStack = 500);
     }
 }
 ```
+
+`Registry.For(context)` gives the callback's **stage** (`RegistryStage`): its typed entries read the registries as this pass
+sees them, and what you assign is the callback's edits, buffered until it returns. `Add`, `Alter`, `Final`, `Registry.Change` and
+`Registry.Read` hand their lambda the same stage. (The registry *views* of `RegistryViews` are another thing: one read-only view
+of each registry and resource type, [views.md](views.md).)
 
 The class attribute is constant metadata; Kiln reads it without running the mod. No attribute on a real override means
 **GameStart**. Declaring points without an override (`KILN122`), zero/unknown flags, or automatic Manual (`KILN123`) is invalid.
@@ -195,7 +200,7 @@ they return/report `RestartRequired` rather than silently applying them.
 
 Keep copied values, not contexts/entries/lists. Their operations fail with `RegistryContextException.Code` after return
 (`Closed`), unload (`Unloaded`), on another thread (`WrongThread`), or a world switch (`WorldChanged`). Metadata and copied
-results remain snapshots. A resolved `Registry.Read(view => ...)` frame is expiring and read-only.
+results remain snapshots. A resolved `Registry.Read(stage => ...)` frame is expiring and read-only.
 
 ### Entry add and remove (GameStart only)
 
@@ -209,9 +214,9 @@ results remain snapshots. A resolved `Registry.Read(view => ...)` frame is expir
 ```csharp
 if (context.EntryPoint == RegistryEntryPoint.GameStart)
 {
-    registry.Add(view => view.Items.AddLike(new("my-mod:logs"), new("game:material_t1_wood_logs"),
+    registry.Add(stage => stage.Items.AddLike(new("my-mod:logs"), new("game:material_t1_wood_logs"),
         item => item.MaxStack = 100));
-    registry.Alter(view => view.Loot.Remove("game:material_t1_wood_logs"));
+    registry.Alter(stage => stage.Loot.Remove("game:material_t1_wood_logs"));
 }
 ```
 
@@ -268,7 +273,7 @@ clients do not acquire Kiln registry views merely by joining a Kiln server.
 Inside a loaded mod callback on the active world's thread:
 
 ```csharp
-var change = Kiln.Registry.Registry.Change(view =>
+var change = Kiln.Registry.Registry.Change(stage =>
     view.Items["game:material_t1_wood_logs"].MaxStack = 500);
 if (!change.Result.Ok) Log.Warn(change.Result.Reason ?? "registry change not applied");
 // Keep the owner-bound handle if needed. Revert recomposes the remaining layers, not an old memory snapshot.
@@ -452,8 +457,8 @@ Three registries over the game's creature and perk data, experimental (`KILNX031
 
 Data packs with only creatures, arsenals or perks edits: `creatures` and `arsenals` are `serverOnly` (`clients: "none"`);
 `perks.value` and `perks.armor.*` follow the content sync to Kiln clients (`clients: "kiln"` for matching tooltips and
-armour; a vanilla client keeps its own numbers). C# names them `view.Creatures[...]`, `view.Arsenals[...]` and
-`view.Perks[...]` ([RegistryEdits sample](../../../../mods/samples/RegistryEdits/RegistryEditsMod.cs)).
+armour; a vanilla client keeps its own numbers). C# names them `stage.Creatures[...]`, `stage.Arsenals[...]` and
+`stage.Perks[...]` ([RegistryEdits sample](../../../../mods/samples/RegistryEdits/RegistryEditsMod.cs)).
 
 ## When an edit takes effect: applies
 

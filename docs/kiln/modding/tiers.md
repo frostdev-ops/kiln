@@ -59,7 +59,7 @@ default tier; types of another tier are listed by name; a test fails when an ass
 | You use | Move to | How |
 |---|---|---|
 | a data pack path the registry covers (`"maxStackSize": 500` on an item) | the registry field (`items.maxStack`) | KILN124's fix moves a one-to-one value into the pack's `registry` section; relative ops stay where they are, since an old section's op works on the game's value and the registry's on the value below it |
-| `ContentEntry.Set("maxStackSize", ...)` in code | `Registry.Change(view => view.Items[id].MaxStack = ...)` or `OnRegistry` | by hand: a registry change is a transaction on the world thread with a result, not a code layer above every pack |
+| `ContentEntry.Set("maxStackSize", ...)` in code | `Registry.Change(stage => stage.Items[id].MaxStack = ...)` or `OnRegistry` | by hand: a registry change is a transaction on the world thread with a result, not a code layer above every pack |
 | a resource patch on the balancing table | `balance.*` fields | by hand, in the registry section or `OnRegistry` (GameStart) |
 | a member no registry has yet | the advanced view (`RegistryViews.Find("quest")`) to read it under Kiln names, or the old path to write it | a view field that a registry covers says so (`CoveredBy`) |
 | a hook of a game function Kiln owns a rule for (the altar limit) | a hooks registry's field (the limits registry's `maxAltars`, once that registry ships) | KILN125 names the field when the registry's regmap row names the function |
