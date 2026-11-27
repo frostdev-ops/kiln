@@ -41,7 +41,7 @@ public sealed record ReviveBlock
 /// <code>
 /// var wolf = Blocks.Define("wolf", new CreatureBlock { Body = Bodies.Vukah });
 /// Blocks.Define("wolf-pet", new PetBlock { Creature = wolf, Name = "Companion", Revive = new ReviveBlock { ChannelSeconds = 3 } });
-/// Blocks.Define("hound", new PetBlock { Creature = "game:enemy_wildbeast_wolf" });   // a game creature, by its creatures-registry id
+/// Blocks.Define("hound", new PetBlock { Creature = "game:enemy_wildbeast_wolf_earlygame" });   // a game creature, by its creatures-registry id
 /// </code>
 /// Its id is <c>&lt;mod id&gt;:&lt;name&gt;</c>; <see cref="Pets"/> takes it. A pet on a game creature asks nothing of players' games.
 /// </summary>
@@ -49,7 +49,7 @@ public sealed record ReviveBlock
 public sealed record PetBlock : IBlock
 {
     /// <summary>The creature its body is: a <see cref="CreatureBlock"/> (inline, a handle, or a block's name) or a game
-    /// creature by its <c>creatures</c> registry id (<c>"game:enemy_wildbeast_wolf"</c>).</summary>
+    /// creature by its <c>creatures</c> registry id (<c>"game:enemy_wildbeast_wolf_earlygame"</c>).</summary>
     public required PartRef<CreatureBlock> Creature { get; init; }
     /// <summary>The name owners read; default: the creature's own.</summary>
     public string? Name { get; init; }
