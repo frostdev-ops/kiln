@@ -55,6 +55,7 @@ A mod's blocks: spells, weapons, wands, armor, items, stations, statuses, effect
 | `npcs` | object |  | Friendly NPCs: talk, wares, a place in the roster. |
 | `onHits` | object |  | Parts: what an item does to what its wearer hits. |
 | `perks` | object |  | Enhancements for an item's perks: the game's rule applies, so one runs once a player has unlocked its slot. |
+| `pets` | object |  | Pets: creatures an owner keeps, summons, orders and revives (docs/kiln/modding/pets.md). Kiln keeps the records, makes and retires the bodies and protects them; every choice is the block's. A pet on a game creature asks nothing of players' games. |
 | `placements` | object |  | Parts: where and how a player can place something. |
 | `processing` | object |  | Parts: how a station works on its own. |
 | `props` | object |  | Things placed that stand there: furniture, banners, lamps. |
@@ -1177,6 +1178,100 @@ An enhancement on an item, in its perks: it runs while the item is worn or in ha
 Enhancement slots, from the first: a game perk's name or GUID, item:<name> (that item's perk in the same slot), "none", or null to keep the slot's. The game's rule applies: a perk runs once its slot is unlocked. max items 5
 
 Type: array of string \| null
+
+## pet
+
+A pet: its creature, name, level, movement, revive, targets, what it becomes when it goes down, its caps and its HUD. Its id is <mod id>:<name>.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `caps` | [petCaps](#petcaps) |  |  |
+| `comment` | string |  |  |
+| `creature` | string or [ref](#ref) or [creature](#creature) | yes | The creature its body is: a game creature by its creatures registry id, a creature block of this mod (by name, or "other-mod:name"), or one written here. |
+| `downed` | [petDowned](#petdowned) |  |  |
+| `hud` | [petHud](#pethud) |  |  |
+| `level` | [petLevel](#petlevel) |  |  |
+| `movement` | [petMovement](#petmovement) |  |  |
+| `name` | string |  | The name owners read; default: the creature's own. min length 1 max length 64 |
+| `revive` | [petRevive](#petrevive) |  |  |
+| `targets` | [petTargets](#pettargets) |  |  |
+| `was` | string |  | The name before a rename: the pet id comes from the oldest name, so records keep their pets. Pattern `^[A-Za-z0-9_.-]+$`. |
+
+## petCaps
+
+How many there may be.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `livePerCharacter` | integer |  | Live bodies of one character while summoning this pet (default 1). min 1 max 16 |
+| `livePerWorld` | integer |  | Live bodies of this pet in the world (default 16). min 1 max 256 |
+| `retainedPerCharacter` | integer |  | Records of this pet one character keeps (default 32). min 1 max 128 |
+
+## petDowned
+
+What it becomes when it goes down.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `outcome` | `"recoveryAnchor"` \| `"absent"` \| `"release"` |  | recoveryAnchor (default): a bodyless anchor where it fell; absent: no anchor until its owner summons one; release: its record ends. |
+
+## petHud
+
+What the owner's built-in HUD shows of it.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `bar` | boolean |  | A row in the owner's pet bar (default true). |
+| `recoveryMarker` | boolean |  | The recovery anchor's marker (default true). |
+
+## petLevel
+
+Its level and size.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `level` | integer |  | The level for fixed: 1 up to the creature's highest level (default 1). min 1 max 255 |
+| `mode` | `"fixed"` \| `"ownerAtTame"` \| `"ownerAtSummon"` |  | Where the level comes from (default fixed). |
+| `scale` | number |  | The body's uniform scale (default 1). min 0.25 max 4 |
+
+## petMovement
+
+How it follows: the mod's distances and catch-up.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `allowCatchUp` | boolean |  | Whether a far or stuck pet is put next to its owner (default true). |
+| `catchUpDistance` | number |  | Farther than this it is put next to its owner on safe ground, with allowCatchUp (default 60). min 10 max 160 |
+| `followDistance` | number |  | Metres from the owner where it stops (default 3). min 1 max 10 |
+| `groundSearchMeters` | number |  | How far up and down Kiln looks for ground at a catch-up spot (default 4). min 0.5 max 8 |
+| `mode` | `"queryInput"` \| `"engineGuard"` |  | queryInput (default): Kiln walks it along walk-only routes; engineGuard: the game's own guard keeps it near. |
+| `repathSeconds` | number |  | Seconds between new routes (default 0.5). min 0.1 max 5 |
+| `runDistance` | number |  | Farther than this it runs, at least followDistance (default 10). min 1 max 30 |
+| `stuckSeconds` | number |  | Seconds without progress before a stuck pet catches up (default 5). min 1 max 30 |
+
+## petRevive
+
+How a downed pet is revived: the owner channels next to its recovery anchor.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `allowed` | boolean |  | False: Kiln's revive is off for this pet (default true). |
+| `cancelOnMovement` | boolean |  | The owner moving more than maxOwnerDisplacement cancels it (default true). |
+| `cancelOnObservedOwnerDamage` | boolean |  | The owner being hurt cancels the channel (default true). |
+| `channelSeconds` | number |  | Seconds the owner channels (default 3). min 0.1 max 60 |
+| `cost` | null or object |  | What it costs (a plain stack item), taken when the channel completes; null: free. |
+| `healthFraction` | number |  | The share of its maximum health it comes back with (default 0.5). max 1 |
+| `maxOwnerDisplacement` | number |  | Metres (default 0.75). min 0.1 max 2 |
+| `rangeMeters` | number |  | Metres between owner and anchor while channelling (default 3). min 1 max 8 |
+
+## petTargets
+
+Who it may harm and who may harm it: one rule for hits, knockback, aggro, attack orders and defend/assist.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `hostileFactions` | null or array of `"environment"` \| `"hitAll"` \| `"fogger"` \| `"vukah"` \| `"scavenger"` \| `"wildlife"` \| `"wildBeast"` \| `"hitOthers"` \| `"skeleton"` \| `"farmAnimal"` \| `"cyclops"` \| `"drak"` \| `"ancients"` |  | The factions of unowned creatures it may fight; null: Kiln's list (fogger, vukah, scavenger, wildBeast, skeleton, cyclops, drak, ancients). |
+| `pvp` | `"off"` \| `"byModRule"` |  | off (default): every player and every other character's pet is protected; byModRule: protected unless the mod declared the two characters hostile (Pets.SetHostile). |
 
 ## placed
 

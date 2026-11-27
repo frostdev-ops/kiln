@@ -10,5 +10,10 @@ mkdir -p "$out"
 g++ -std=c++20 -O1 -g -Wall -Wextra -pthread -fsanitize=address,undefined -fno-sanitize-recover=undefined \
     -I"$here/.." -I"$here/../../../core/abi" \
     "$here/broker_test.cpp" "$here/../registry.cpp" "$here/../lease.cpp" "$here/../quarantine.cpp" -o "$out/broker-test"
+# kiln.pets' native safety model (dev.32): rows, death and hit policies, pairs, withdrawal, worker reads
+g++ -std=c++20 -O1 -g -Wall -Wextra -pthread -fsanitize=address,undefined -fno-sanitize-recover=undefined \
+    -I"$here/.." -I"$here/../../../core/abi" \
+    "$here/pets_test.cpp" "$here/../pets_safety.cpp" -o "$out/pets-test"
+"$out/pets-test"
 "$out/broker-test"
 python3 "$here/guard_dump_test.py"

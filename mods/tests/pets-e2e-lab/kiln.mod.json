@@ -1,0 +1,11 @@
+{
+  "id": "pets-e2e-lab",
+  "name": "Pets end-to-end (lab)",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "PetsE2eLab.dll",
+  "side": "server",
+  "clients": "none",
+  "advanced": true,
+  "description": "Lab only (dev.32 PETS-E2E): a lab bot (tools/labbot) owns PetsSample's pets on a dedicated lab server; this mod records what Kiln.Pets did (every pet event, the broker's leases, Kiln.Creatures' changes and their origin, deaths and drops, saves, the owners' view publisher, the pets' and owners' positions every step) and does what a bot cannot, through admin commands a lab script runs as the bot (e2e site, enemy, attack, lethal, kill, give, revive, save, downsave, sweep). Evidence in kiln/data/pets-e2e-lab/e2e.jsonl."
+}

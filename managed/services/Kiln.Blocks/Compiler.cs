@@ -163,7 +163,7 @@ internal static partial class Compiler
         AffixNameFree(mod, name, block, label);
         var ctx = new BlockContext(mod, label);
         // a new item or template is drawn by the player's game; an effect alone is nothing a client sees; a VFX or material asks for more, and says so itself
-        if (block is not EffectBlock and not VfxBlock and not MaterialBlock and not AbilityBlock and not TriggerBlock and not MaterialTweakBlock and not StrengthBlock and not SurfaceBlock and not BuildingMaterialBlock and not BuildingMaterialPoolBlock and not TerrainMaterialBlock and not ScreenEffectBlock and not LootTableBlock and not INpcBlock and not IQuestBlock and not IUiBlock and not AffixBlock and not AffixPoolBlock and not RarityRollBlock and not RarityUpgradeBlock) ctx.Need(ClientsLevel.Kiln, null, "vanilla clients cannot show new items, spells or statuses: Kiln clients then get the definitions from the server");
+        if (block is not EffectBlock and not VfxBlock and not MaterialBlock and not AbilityBlock and not TriggerBlock and not MaterialTweakBlock and not StrengthBlock and not SurfaceBlock and not BuildingMaterialBlock and not BuildingMaterialPoolBlock and not TerrainMaterialBlock and not ScreenEffectBlock and not LootTableBlock and not INpcBlock and not IQuestBlock and not IUiBlock and not AffixBlock and not AffixPoolBlock and not RarityRollBlock and not RarityUpgradeBlock and not PetBlock) ctx.Need(ClientsLevel.Kiln, null, "vanilla clients cannot show new items, spells or statuses: Kiln clients then get the definitions from the server");
         var low = new Lowered(mod);
         ctx.Low = low;
         BlockHandle handle = block switch
@@ -187,7 +187,7 @@ internal static partial class Compiler
             RoutineBlock r => DefineRoutine(ctx, low, name, r),
             RarityRollBlock r => DefineRarityRoll(ctx, low, name, r),
             RarityUpgradeBlock u => DefineRarityUpgrade(ctx, low, name, u),
-            _ => DefineItemBlock(ctx, low, name, block) ?? DefineAbilityBlock(ctx, low, name, block) ?? DefineScreenBlock(ctx, low, name, block) ?? DefineNpcBlock(ctx, low, name, block) ?? DefineQuestBlock(ctx, low, name, block) ?? DefineUiBlock(ctx, low, name, block) ?? throw new BlockError(label, null, $"{typeof(T).Name} is not a block Kiln can compile yet"),
+            _ => DefineItemBlock(ctx, low, name, block) ?? DefineAbilityBlock(ctx, low, name, block) ?? DefineScreenBlock(ctx, low, name, block) ?? DefineNpcBlock(ctx, low, name, block) ?? DefineQuestBlock(ctx, low, name, block) ?? DefineUiBlock(ctx, low, name, block) ?? DefinePetBlock(ctx, low, name, block) ?? throw new BlockError(label, null, $"{typeof(T).Name} is not a block Kiln can compile yet"),
         };
         if (block is ITweakable { Tweak.Count: > 0 } tweak) low.Tweak(label, block is StatusBlock ? "buffs" : block is PerkBlock ? "perks" : "items", handle.GameName, tweak.Tweak);
         if (ctx.Tolerated.Count > 0)

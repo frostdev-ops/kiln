@@ -4422,6 +4422,73 @@
       },
       "sha256": "35c5ad11a21a3f990b706089900762d8897c876910051c38667cb85352c8a920"
     },
+    "native/core/abi/services/kiln_labbot.h": {
+      "function_macros": [],
+      "inline_helpers": [],
+      "layouts": {
+        "KilnLabBotApi": {
+          "align": 8,
+          "fields": {
+            "header": 0,
+            "info": 32,
+            "join": 16,
+            "leave": 24,
+            "list": 40,
+            "status": 8
+          },
+          "size": 48
+        },
+        "KilnLabBotInfo": {
+          "align": 8,
+          "fields": {
+            "account": 48,
+            "character_id": 56,
+            "entity": 24,
+            "group": 36,
+            "id": 4,
+            "in_game_step": 80,
+            "joined_step": 72,
+            "machine": 16,
+            "name": 88,
+            "permissions": 32,
+            "phase": 8,
+            "player": 20,
+            "reason": 128,
+            "record_state": 28,
+            "saves_acked": 40,
+            "size": 0,
+            "slot": 12
+          },
+          "size": 328
+        },
+        "KilnLabBotJoin": {
+          "align": 8,
+          "fields": {
+            "account": 40,
+            "character_id": 24,
+            "flags": 4,
+            "group": 48,
+            "group_index": 52,
+            "name": 8,
+            "size": 0
+          },
+          "size": 56
+        },
+        "KilnLabBotStatus": {
+          "align": 8,
+          "fields": {
+            "available": 4,
+            "bots": 8,
+            "groups": 12,
+            "publishes": 16,
+            "size": 0,
+            "why": 24
+          },
+          "size": 224
+        }
+      },
+      "sha256": "104a025d578e9a5851fde2477d27ddb1760a004329365ea51a2c7e17a0082630"
+    },
     "native/core/abi/services/kiln_launch.h": {
       "function_macros": [
         "KILN_LAUNCH_REASON_IDLE",
@@ -5140,6 +5207,102 @@
         }
       },
       "sha256": "d0d9a002ed42da82e6bbfab9e62c7afcae42fe8b02e257158a4b7fd0636d608a"
+    },
+    "native/core/abi/services/kiln_pets.h": {
+      "function_macros": [],
+      "inline_helpers": [],
+      "layouts": {
+        "KilnPetCharacterKey": {
+          "align": 8,
+          "fields": {
+            "account": 0,
+            "character": 8
+          },
+          "size": 24
+        },
+        "KilnPetHitQuery": {
+          "align": 8,
+          "fields": {
+            "aggro": 44,
+            "health_change": 28,
+            "hit_flags": 4,
+            "hit_kind": 43,
+            "pushback": 42,
+            "reaction": 40,
+            "reserved": 52,
+            "root_class": 50,
+            "root_faction": 48,
+            "root_health": 32,
+            "root_source": 16,
+            "size": 0,
+            "source": 20,
+            "target": 24,
+            "target_class": 51,
+            "target_faction": 49,
+            "target_health": 36,
+            "world_epoch": 8
+          },
+          "size": 56
+        },
+        "KilnPetId128": {
+          "align": 8,
+          "fields": {
+            "hi": 8,
+            "lo": 0
+          },
+          "size": 16
+        },
+        "KilnPetSafetyBinding": {
+          "align": 8,
+          "fields": {
+            "body": 8,
+            "character_session": 72,
+            "flags": 4,
+            "hostile_factions": 84,
+            "owner": 48,
+            "owner_entity": 80,
+            "pet": 32,
+            "pvp": 88,
+            "reserved": 92,
+            "size": 0
+          },
+          "size": 96
+        },
+        "KilnPetSafetyState": {
+          "align": 8,
+          "fields": {
+            "body": 8,
+            "cause": 64,
+            "denied_hits": 72,
+            "dirty_sequence": 48,
+            "flags": 4,
+            "observed_step": 56,
+            "pet": 32,
+            "reserved": 68,
+            "size": 0
+          },
+          "size": 80
+        },
+        "KilnPetsApi": {
+          "align": 8,
+          "fields": {
+            "activate": 16,
+            "bind": 8,
+            "collect_dirty": 32,
+            "death_policy": 48,
+            "header": 0,
+            "hit_policy": 56,
+            "inspect_body": 24,
+            "involved": 64,
+            "retire_binding": 40,
+            "set_hostile": 80,
+            "set_owner_entity": 72,
+            "withdraw": 88
+          },
+          "size": 96
+        }
+      },
+      "sha256": "3092110bda74a3ba78193ec471f857e54f5cf4e85d5de58a64e1ce2076dcdee0"
     },
     "native/core/abi/services/kiln_playeranim.h": {
       "function_macros": [],
@@ -10432,7 +10595,7 @@
   },
   "outputs": {
     "src/bindings.rs": "134028a6a9914076cab3f71f98d356141d4fe36c4d7f51bac6a11819501ed935",
-    "src/layout.rs": "632228d4bd1861e2073e8ac722b4981a2f1e55e4d1effce13d9a370ea4f3e2e5",
+    "src/layout.rs": "f1ac1bc9093495101488185fe183fad4c47ecabf4e4f4f3b527a2d2bd55cc44d",
     "src/services/kiln_abilities.rs": "a24dff6123db80e30ed1b2e33f87c772a40982ec3ce379347ca96bb81579f6cb",
     "src/services/kiln_assets.rs": "e7fe4eb1c4d53ad31eeaf05be06f41c551a49362ad5bd4174465ec18a03effe0",
     "src/services/kiln_assets_vfx.rs": "90ed8ce5ad512bbf4f002db3277bc3b439d648ca437a58d4477eac4ce46c3b81",
@@ -10465,6 +10628,7 @@
     "src/services/kiln_items.rs": "997cdc279dc7704128c8d47efff8cd395652e0b93679a9c34848d6c54b6d5519",
     "src/services/kiln_items_inventory_kinds.rs": "8527dd431495bac7067076e59756f8ca82c3113c07e79603247356dee89c3fe2",
     "src/services/kiln_items_storage.rs": "391c254d91450e0f3c935d59c3d4917ce6aafe49fd7b645d1de00ee38f6d1c07",
+    "src/services/kiln_labbot.rs": "6c51ccb0c5653bea45972ff7b62bab431f1b206800cd053655165dbb5738529d",
     "src/services/kiln_launch.rs": "6ffbec313079a115faf49075248fc663d858f91a38d4a804f09c1deeae4dc61b",
     "src/services/kiln_log.rs": "86b18decab13965acd7a5e9d0c3166a80ac5441359f928717b8f4a02cd395df1",
     "src/services/kiln_markers.rs": "396fba83b17be93970b564b4f5bcd5052795c038d78b54ea80fb6c3e3514c9b9",
@@ -10474,6 +10638,7 @@
     "src/services/kiln_npcai.rs": "479ad37b5babfc928b3cbb617ca391a623f64a11f3e4f8cf24e42e8a9241cdfa",
     "src/services/kiln_npcspeech.rs": "4c558200c0f57867b9917ac0fc24f37a04230ec2b56352f01e800f584d731388",
     "src/services/kiln_pacing.rs": "2cc1f9c6c389216b999d3cccf105d3fb348c7605400e76858ec40628e40c04b3",
+    "src/services/kiln_pets.rs": "da744b27425a162b5008fbe1ff2a8efd09f9ac35e44e3b2b99fb47c1cfd2df57",
     "src/services/kiln_playeranim.rs": "6c643167c2d27d84553f2756f7942b58194c8552574e1724980b54b1d7fd5dd8",
     "src/services/kiln_players.rs": "dc3f63ebf4167a06131ce27f55bfc771f00a802eca21fe04ae2541bc5f76a5cd",
     "src/services/kiln_playerstate.rs": "468998db3a9d85c2e9bb900c633a850f433f73493607c918c12498f14453e7cc",
@@ -10519,7 +10684,7 @@
     "src/services/kiln_world.rs": "3cb0272179db9c198f154ce6c008837e4bb95245a2ec62993be78879c4b330b8",
     "src/services/kiln_world_budget.rs": "b196426492d0525df1317c08e4927f3f3ff35817990bed8f2b58c02d174bab98",
     "src/services/kiln_worldtables.rs": "3d423bb8cfd5235f82230a1942bbc334d86b55d343e5e5880c671a57d1469fce",
-    "src/services/mod.rs": "d7cb348575e924e1f19335d09f93f7ab0c25f1ba082e70afb07751ec3e7d5655"
+    "src/services/mod.rs": "f6d62578e25018009f80a693682cde14c346f2d8d1449482b21fc5bd8c559f7e"
   },
   "schema": 1,
   "target": "x86_64-pc-windows-msvc"

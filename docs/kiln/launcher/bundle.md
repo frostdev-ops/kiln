@@ -51,7 +51,8 @@ stage.sh stops, naming the part, when any of them (or a service, Kiln.Admin, Kil
 component for both sides; stage.sh runs it, release.sh runs it right after `bundle create` and again in its checks.
 
 The rsync filters are deploy-server.sh's (services `*.dll|*.pdb`, host `Kiln.*`, mod folders without the shared
-`Kiln.*`, `*.deps.json`, `*.runtimeconfig.json` except the entry assembly and exports). Other mod folders in
+`Kiln.*`, `*.deps.json`, `*.runtimeconfig.json` except the entry assembly and exports), except that lab-only services
+stay out of the bundle: `kiln-labbot` (bot players on lab servers) is deployed to labs only. Other mod folders in
 `$KILN_OUT/mods` are not bundled (stage.sh warns). `abi` comes from `KILN_ABI_VERSION`, `api` from
 `Kiln.Mods.ApiVersion`, `profileReader` from `KILN_PROFILE_READER` (`native/core/src/profile.h`: the profile.json
 forms the core reads; the launcher writes Copy mode's `../mods/` and `../greeneye/` paths only for a runtime that

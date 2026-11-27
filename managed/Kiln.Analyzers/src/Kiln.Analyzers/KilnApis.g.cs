@@ -553,6 +553,17 @@ internal static partial class KilnApis
         "M:Kiln.Permissions.SetGroup(System.String,System.Nullable{System.Boolean},System.Collections.Generic.IEnumerable{System.String})", // Permissions.SetGroup(string, bool?, IEnumerable<string>?): via PermissionStore.Edit(Action<PermissionModel>, string)
         "M:Kiln.Permissions.SetGroupNode(System.String,System.String,System.Nullable{System.Boolean})", // Permissions.SetGroupNode(string, string, bool?): via PermissionStore.Edit(Action<PermissionModel>, string)
         "M:Kiln.Permissions.SetPlayerNode(System.UInt64,System.String,System.Nullable{System.Boolean},System.String)", // Permissions.SetPlayerNode(ulong, string, bool?, string?): via PermissionStore.Edit(Action<PermissionModel>, string)
+        "M:Kiln.Pets.CancelRevive(Kiln.PlayerRef,Kiln.PetId,System.Guid,Kiln.PetRequest)", // Pets.CancelRevive(PlayerRef, PetId, Guid, PetRequest): via Pets.Request(PetRoster.Kind, string, string, PlayerRef, PetId, PetRequest, Action<PetRoster.Op>?)
+        "M:Kiln.Pets.Command(Kiln.PlayerRef,Kiln.PetId,Kiln.PetOrder,Kiln.EntityRef,Kiln.PetRequest)", // Pets.Command(PlayerRef, PetId, PetOrder, EntityRef, PetRequest): via Pets.Request(PetRoster.Kind, string, string, PlayerRef, PetId, PetRequest, Action<PetRoster.Op>?)
+        "M:Kiln.Pets.Dismiss(Kiln.PlayerRef,Kiln.PetId,Kiln.PetRequest)", // Pets.Dismiss(PlayerRef, PetId, PetRequest): via Pets.Request(PetRoster.Kind, string, string, PlayerRef, PetId, PetRequest, Action<PetRoster.Op>?)
+        "M:Kiln.Pets.Get(Kiln.PetId)", // Pets.Get(PetId): via Pets.Roster(string)
+        "M:Kiln.Pets.Grant(Kiln.CharacterKey,System.String,Kiln.PetRequest)", // Pets.Grant(CharacterKey, string, PetRequest): via Pets.Roster(string)
+        "M:Kiln.Pets.IsHostile(Kiln.CharacterKey,Kiln.CharacterKey)", // Pets.IsHostile(CharacterKey, CharacterKey): via Pets.Roster(string)
+        "M:Kiln.Pets.Of(Kiln.CharacterKey)", // Pets.Of(CharacterKey): via Pets.Roster(string)
+        "M:Kiln.Pets.Release(Kiln.PlayerRef,Kiln.PetId,Kiln.PetRequest)", // Pets.Release(PlayerRef, PetId, PetRequest): via Pets.Request(PetRoster.Kind, string, string, PlayerRef, PetId, PetRequest, Action<PetRoster.Op>?)
+        "M:Kiln.Pets.Revive(Kiln.PlayerRef,Kiln.PetId,Kiln.PetRequest,Kiln.ItemSelection)", // Pets.Revive(PlayerRef, PetId, PetRequest, ItemSelection?): via Pets.Request(PetRoster.Kind, string, string, PlayerRef, PetId, PetRequest, Action<PetRoster.Op>?)
+        "M:Kiln.Pets.SetHostile(Kiln.CharacterKey,Kiln.CharacterKey,System.Boolean)", // Pets.SetHostile(CharacterKey, CharacterKey, bool): via Pets.Roster(string)
+        "M:Kiln.Pets.Summon(Kiln.PlayerRef,Kiln.PetId,Kiln.PetRequest)", // Pets.Summon(PlayerRef, PetId, PetRequest): via Pets.Request(PetRoster.Kind, string, string, PlayerRef, PetId, PetRequest, Action<PetRoster.Op>?)
         "M:Kiln.Player.get_Aim", // Player.Aim.get: via PlayerStates.AimOf(EntityId)
         "M:Kiln.PlayerData.Contains(System.UInt64,System.String)", // PlayerData.Contains(ulong, string): via PlayerData.Bundle(ulong, string)
         "M:Kiln.PlayerData.Get``1(System.UInt64,System.String)", // PlayerData.Get<T>(ulong, string): via PlayerData.Bundle(ulong, string)
@@ -1011,6 +1022,7 @@ internal static partial class KilnApis
         "ModValues",
         "Network",
         "Permissions",
+        "Pets",
         "PlayerAnim",
         "Players",
         "Queries",

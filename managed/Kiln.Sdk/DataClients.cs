@@ -31,6 +31,8 @@ internal static class DataClients
         ["affixes"] = None, ["affixPools"] = None,
         // a villager's day plan: only the server chooses tasks
         ["routines"] = None,
+        // a pet: Kiln's records and protection on the server; a pet on a game creature is that creature to every player (a creature block of the mod's own says more)
+        ["pets"] = None,
         // rarity at creation and rarity upgrades: the server's rules (kiln.items); the rarity they give is the game's own item state
         ["rarityRolls"] = None, ["rarityUpgrades"] = None,
         // built by every player's game from the mod's own files

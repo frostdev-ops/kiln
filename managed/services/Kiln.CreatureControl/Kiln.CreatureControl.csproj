@@ -13,5 +13,8 @@
     <InternalsVisibleTo Include="Kiln.CreatureControl.Tests" />
     <!-- Kiln.Blocks' brains lease their bodies under Kiln.Blocks' own owner (AcquireAs, CanDriveNow, ReleaseNow) -->
     <InternalsVisibleTo Include="Kiln.Blocks" />
+    <!-- Kiln.Pets holds its pets' leases under its own service owner (AcquireAs, CanDriveNow, ReleaseNow, QuarantineBody) -->
+    <InternalsVisibleTo Include="Kiln.Pets" />
+    <InternalsVisibleTo Include="Kiln.Pets.Tests" />
   </ItemGroup>
 </Project>

@@ -261,7 +261,10 @@ c=$stage/core k=$stage/core/kiln
 mkdir -p "$k"/{services,plugins,host,dotnet}
 install -m 644 "$bin/dinput8.dll" "$c/dinput8.dll"
 install -m 644 "$bin/kiln-core.dll" "$bin/kiln-core.pdb" "$k/"
-rsync -a --include='*.dll' --include='*.pdb' --exclude='*' "$bin/services/" "$k/services/" \
+# Lab-only native services never go in a bundle: kiln-labbot (bot players on lab servers, native/services/labbot) is
+# built and checked like any service, and tools/deploy-server.sh deploys it to labs, but no player's server or game ever
+# loads it (it refuses off a lab anyway: kiln.json policy "any" and kiln.net's labPort).
+rsync -a --exclude='kiln-labbot.*' --include='*.dll' --include='*.pdb' --exclude='*' "$bin/services/" "$k/services/" \
   || miss "could not stage native services from $bin/services"
 rsync -a --include='Kiln.*' --include='game/***' --exclude='*' "$out/host/" "$k/host/"
 rsync -a "$dotnet_root/" "$k/dotnet/"

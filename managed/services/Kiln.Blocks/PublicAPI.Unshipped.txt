@@ -84,3 +84,71 @@ override Kiln.NpcTopics.ToString() -> string!
 static Kiln.NpcTopic.operator !=(Kiln.NpcTopic? left, Kiln.NpcTopic? right) -> bool
 static Kiln.NpcTopic.operator ==(Kiln.NpcTopic? left, Kiln.NpcTopic? right) -> bool
 static Kiln.Npcs.Topics(Kiln.EntityId npc) -> Kiln.NpcTopics!
+Kiln.PetBlock
+Kiln.PetBlock.<Clone>$() -> Kiln.PetBlock!
+Kiln.PetBlock.Caps.get -> Kiln.PetCaps!
+Kiln.PetBlock.Caps.init -> void
+Kiln.PetBlock.Creature.get -> Kiln.PartRef<Kiln.CreatureBlock!>!
+Kiln.PetBlock.Creature.init -> void
+Kiln.PetBlock.Downed.get -> Kiln.PetDownedPolicy!
+Kiln.PetBlock.Downed.init -> void
+Kiln.PetBlock.Equals(Kiln.PetBlock? other) -> bool
+Kiln.PetBlock.Hud.get -> Kiln.PetHudPolicy!
+Kiln.PetBlock.Hud.init -> void
+Kiln.PetBlock.Level.get -> Kiln.PetLevelPolicy!
+Kiln.PetBlock.Level.init -> void
+Kiln.PetBlock.Movement.get -> Kiln.PetMovementPolicy!
+Kiln.PetBlock.Movement.init -> void
+Kiln.PetBlock.Name.get -> string?
+Kiln.PetBlock.Name.init -> void
+Kiln.PetBlock.PetBlock() -> void
+Kiln.PetBlock.Revive.get -> Kiln.ReviveBlock!
+Kiln.PetBlock.Revive.init -> void
+Kiln.PetBlock.Targets.get -> Kiln.PetTargetPolicy!
+Kiln.PetBlock.Targets.init -> void
+Kiln.PetBlock.Was.get -> string?
+Kiln.PetBlock.Was.init -> void
+Kiln.ReviveBlock
+Kiln.ReviveBlock.<Clone>$() -> Kiln.ReviveBlock!
+Kiln.ReviveBlock.Allowed.get -> bool
+Kiln.ReviveBlock.Allowed.init -> void
+Kiln.ReviveBlock.CancelOnMovement.get -> bool
+Kiln.ReviveBlock.CancelOnMovement.init -> void
+Kiln.ReviveBlock.CancelOnObservedOwnerDamage.get -> bool
+Kiln.ReviveBlock.CancelOnObservedOwnerDamage.init -> void
+Kiln.ReviveBlock.ChannelSeconds.get -> double
+Kiln.ReviveBlock.ChannelSeconds.init -> void
+Kiln.ReviveBlock.Cost.get -> Kiln.ReviveCostBlock?
+Kiln.ReviveBlock.Cost.init -> void
+Kiln.ReviveBlock.Equals(Kiln.ReviveBlock? other) -> bool
+Kiln.ReviveBlock.HealthFraction.get -> double
+Kiln.ReviveBlock.HealthFraction.init -> void
+Kiln.ReviveBlock.MaxOwnerDisplacement.get -> double
+Kiln.ReviveBlock.MaxOwnerDisplacement.init -> void
+Kiln.ReviveBlock.RangeMeters.get -> double
+Kiln.ReviveBlock.RangeMeters.init -> void
+Kiln.ReviveBlock.ReviveBlock() -> void
+Kiln.ReviveCostBlock
+Kiln.ReviveCostBlock.<Clone>$() -> Kiln.ReviveCostBlock!
+Kiln.ReviveCostBlock.Count.get -> int
+Kiln.ReviveCostBlock.Count.init -> void
+Kiln.ReviveCostBlock.Deconstruct(out Kiln.ItemRef Item, out int Count) -> void
+Kiln.ReviveCostBlock.Equals(Kiln.ReviveCostBlock? other) -> bool
+Kiln.ReviveCostBlock.Item.get -> Kiln.ItemRef
+Kiln.ReviveCostBlock.Item.init -> void
+Kiln.ReviveCostBlock.ReviveCostBlock(Kiln.ItemRef Item, int Count = 1) -> void
+override Kiln.PetBlock.Equals(object? obj) -> bool
+override Kiln.PetBlock.GetHashCode() -> int
+override Kiln.PetBlock.ToString() -> string!
+override Kiln.ReviveBlock.Equals(object? obj) -> bool
+override Kiln.ReviveBlock.GetHashCode() -> int
+override Kiln.ReviveBlock.ToString() -> string!
+override Kiln.ReviveCostBlock.Equals(object? obj) -> bool
+override Kiln.ReviveCostBlock.GetHashCode() -> int
+override Kiln.ReviveCostBlock.ToString() -> string!
+static Kiln.PetBlock.operator !=(Kiln.PetBlock? left, Kiln.PetBlock? right) -> bool
+static Kiln.PetBlock.operator ==(Kiln.PetBlock? left, Kiln.PetBlock? right) -> bool
+static Kiln.ReviveBlock.operator !=(Kiln.ReviveBlock? left, Kiln.ReviveBlock? right) -> bool
+static Kiln.ReviveBlock.operator ==(Kiln.ReviveBlock? left, Kiln.ReviveBlock? right) -> bool
+static Kiln.ReviveCostBlock.operator !=(Kiln.ReviveCostBlock? left, Kiln.ReviveCostBlock? right) -> bool
+static Kiln.ReviveCostBlock.operator ==(Kiln.ReviveCostBlock? left, Kiln.ReviveCostBlock? right) -> bool

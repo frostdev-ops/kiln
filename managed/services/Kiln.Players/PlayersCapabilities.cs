@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Kiln.Players in the capability registry (Kiln.Capabilities; docs/kiln/services/caps.md). Reported at the service's
 // start (PlayersStartup, the first service tick) and every 25 steps while kiln.players is here: players.positions
-// follows the server world. kiln.players, kiln.progression, kiln.playerstate and kiln.characters have only the core's
-// rows; the sigdb features each serves are lowered when its table is missing.
+// follows the server world. kiln.players, kiln.progression, kiln.playerstate, kiln.labbot and kiln.characters have only
+// the core's rows; the sigdb features each serves are lowered when its table is missing.
 namespace Kiln;
 
 internal static unsafe class PlayersCaps
@@ -29,15 +29,22 @@ internal static unsafe class PlayersCaps
     public static readonly string[] StateFeatures =
         ["players.reflection", "players.action_cancel", "players.sequence_names", "players.client_action_hold"];
 
+    /// <summary>kiln.labbot's table (lab servers' bot players, Kiln.LabBots) and the sigdb feature it serves
+    /// (LabBots.Capability); release bundles leave it out, so its row says why there.</summary>
+    public const string LabBot = "kiln.labbot";
+
+    public static readonly string[] LabBotFeatures = ["labbot.join"];
+
     internal static readonly ServiceCapRows Rows = new(Service, Report, everySteps: 25, refreshOnlyWithService: true);
 
-    // the three wrappers remember a miss: forgotten when the refresh finds a table (docs/kiln/services/caps.md)
+    // the wrappers remember a miss: forgotten when the refresh finds a table (docs/kiln/services/caps.md)
     static PlayersCaps()
     {
         ServiceCaps.WhenFound(Service, global::Kiln.Players.LookAgain);
         ServiceCaps.WhenFound(Progression, global::Kiln.Progression.LookAgain);
         ServiceCaps.WhenFound(States, PlayerStates.LookAgain);
         ServiceCaps.WhenFound("kiln.characters", PlayerCharacters.LookAgain);
+        ServiceCaps.WhenFound(LabBot, LabBotNative.LookAgain);
     }
 
     private static void Report()
@@ -47,6 +54,7 @@ internal static unsafe class PlayersCaps
         if (!players) ServiceCaps.LowerFeatures(Service, Features);
         if (!global::Kiln.Progression.TableHere) ServiceCaps.LowerFeatures(Progression, ProgressionFeatures);
         if (!PlayerStates.TableHere) ServiceCaps.LowerFeatures(States, StateFeatures);
+        if (LabBotNative.T == null) ServiceCaps.LowerFeatures(LabBot, LabBotFeatures);
         if (!players)
         {
             ServiceCaps.Static(Positions, false, CapabilityReason.ServiceMissing, "kiln.players is not loaded", Service);
