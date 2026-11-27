@@ -4,9 +4,14 @@
 // every registry (a fixture registry too) and every resource type; reads of advanced fields in Kiln form, per entry, an id
 // field naming another view's entry; refusals per entry in Kiln words (no such field, a kind the view cannot read, a member
 // this entry lacks), each logged once; a resource added later; stable views reading through the registry; selectors.
+#include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <functional>
+#include <future>
 #include <string>
+#include <thread>
 
 #include "../registry/schema_ir.h"
 #include "../registry/view_service.h"
@@ -75,27 +80,38 @@ struct Game {
     int member_calls = 0;
     std::vector<std::string> log;
     std::map<std::string, std::string> registry;  // "<registry>|<id>|<field>" -> value JSON
+    std::vector<std::string> selectors;           // what the registry's select was given
+    std::map<uint32_t, int> list_calls;           // listings per type
+    bool describe_next = false;                   // quests have "next", a reference to another quest
+    std::function<void(uint32_t type)> on_list;   // runs before a listing (another thread's mod changing the resources)
+    std::function<void(uint32_t type, const std::string& path)> on_member;  // runs before a member read
 };
 
 views::ServiceEnv env(Game& g, std::optional<Schema> schema = std::nullopt) {
     views::ServiceEnv e;
     e.ready = [&g](std::string* why) { return g.ready || (*why = "the game's resources are not loaded yet", false); };
     e.resource_types = [](std::string*) { return std::vector<std::pair<std::string, uint32_t>>{{"keen::QuestResource", kQuest}, {"keen::ItemInfo", kItem}}; };
-    e.describe = [](const std::string& type) -> std::optional<TypeDesc> {
-        if (type == "keen::QuestResource")
-            return root(type, kQuest,
-                        {{"debugName", leaf(TypeKind::Text)}, {"xpReward", leaf(TypeKind::Int)}, {"kind", en({"Main", "Side_Quest"})},
-                         {"rewardItems", list(st({{"item", ref("keen::ItemInfo")}, {"count", leaf(TypeKind::Int)}}))},
-                         {"events", list(leaf(TypeKind::Variant))}, {"bonus", leaf(TypeKind::Float)}});
+    e.describe = [&g](const std::string& type) -> std::optional<TypeDesc> {
+        if (type == "keen::QuestResource") {
+            TypeDesc q = root(type, kQuest,
+                              {{"debugName", leaf(TypeKind::Text)}, {"xpReward", leaf(TypeKind::Int)}, {"kind", en({"Main", "Side_Quest"})},
+                               {"rewardItems", list(st({{"item", ref("keen::ItemInfo")}, {"count", leaf(TypeKind::Int)}}))},
+                               {"events", list(leaf(TypeKind::Variant))}, {"bonus", leaf(TypeKind::Float)}});
+            if (g.describe_next) q.fields.insert(q.fields.begin() + 1, {"next", ref("keen::QuestResource")});
+            return q;
+        }
         if (type == "keen::ItemInfo") return root(type, kItem, {{"debugName", leaf(TypeKind::Text)}, {"maxStackSize", leaf(TypeKind::Int)}});
         return std::nullopt;
     };
     e.list = [&g](uint32_t type, std::vector<KilnAssetKey>* out) {
+        if (g.on_list) g.on_list(type);
+        ++g.list_calls[type];
         out->clear();
         for (const auto& [k, _] : g.res[type]) out->push_back(k);
         return true;
     };
     e.member = [&g](const KilnAssetKey& k, const std::string&, const std::string& path, json* out, std::string* why) {
+        if (g.on_member) g.on_member(k.type, path);
         ++g.member_calls;
         for (const auto& [kk, doc] : g.res[k.type]) {
             if (std::memcmp(kk.guid, k.guid, 16) != 0) continue;
@@ -135,7 +151,8 @@ views::ServiceEnv env(Game& g, std::optional<Schema> schema = std::nullopt) {
         *out = it->second;
         return KILN_OK;
     };
-    e.registry_select = [](const std::string& r, const std::string& sel, std::string* out) -> KilnResult {
+    e.registry_select = [&g](const std::string& r, const std::string& sel, std::string* out) -> KilnResult {
+        g.selectors.push_back(sel);
         if (r != "items") return KILN_ERR_UNAVAILABLE;
         *out = sel == "\"*\"" ? R"(["game:wood","game:stone"])" : R"(["game:wood"])";
         return KILN_OK;
@@ -260,6 +277,71 @@ int main() {
     CHECK(s.read("items", "game:wood", "nope", &out) == KILN_ERR_NOT_FOUND && out.find("items has no field nope") != std::string::npos);
     CHECK(s.select("items", "*", &out) == KILN_OK && json::parse(out).size() == 2);
     CHECK(s.entry("items", "game:wood", &out) == KILN_OK && json::parse(out)["fields"]["maxStack"] == 500);
+    // ---- one call resolves each other view's ids from one listing, not one listing per id
+    {
+        Game h;
+        quests(h);
+        h.res[kQuest][0].second["rewardItems"] = json::parse(R"([{"item": "00000000-0000-0000-0000-00000000000a", "count": 1},
+            {"item": "00000000-0000-0000-0000-00000000000b", "count": 2}, {"item": "00000000-0000-0000-0000-00000000000a", "count": 3}])");
+        views::Service t(env(h));
+        CHECK(t.entry("quest", "game:quest_main", &out) == KILN_OK);  // lists both views once
+        h.list_calls.clear();
+        CHECK(t.entry("quest", "game:quest_main", &out) == KILN_OK &&
+              json::parse(out)["fields"]["rewardItems"][1]["item"] == "game:stone");
+        CHECK(h.list_calls[kItem] <= 1 && h.list_calls[kQuest] <= 1);
+    }
+
+    // ---- an entry's listing stays whole while a call uses it, whatever another listing finds meanwhile (a resource of its type
+    // gone between two listings: no read past the end, the call ends with what it started on)
+    {
+        Game h;
+        quests(h);
+        h.describe_next = true;  // quests name another quest ("next")
+        h.res[kQuest][2].second["next"] = "00000000-0000-0000-0000-000000000001";
+        views::Service t(env(h));
+        CHECK(t.select("quest", "*", &out) == KILN_OK);
+        // the second listing of quests from here (the first is entry()'s own; the second, while it resolves game:quest_odd's
+        // "next", would find quest 3 gone) and every later one
+        int n = 0;
+        h.on_list = [&h, &n](uint32_t type) {
+            if (type == kQuest && ++n == 2) h.res[kQuest].pop_back();
+        };
+        CHECK(t.entry("quest", "game:quest_odd", &out) == KILN_OK && json::parse(out)["fields"]["next"] == "game:quest_main");
+        CHECK(t.select("quest", "*", &out) == KILN_OK && json::parse(out).size() == 2);  // the next call sees the new listing
+    }
+
+    // ---- a long listing of one view (thousands of entries) never holds back another thread's calls: other views, the
+    // registries, the catalog
+    {
+        Game h;
+        quests(h);
+        std::promise<void> release;
+        std::shared_future<void> gate = release.get_future().share();
+        std::atomic<bool> listing{false};
+        h.on_member = [&](uint32_t type, const std::string& path) {
+            if (type == kQuest && path == "debugName") listing = true, gate.wait();
+        };
+        h.registry["items|game:wood|maxStack"] = "500";
+        views::Service t(env(h));
+        CHECK(t.views(&out) == KILN_OK);  // the catalog first
+        std::thread lister([&] {
+            std::string o;
+            t.select("quest", "*", &o);
+        });
+        for (int i = 0; i < 2000 && !listing; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        CHECK(listing.load());
+        auto other = std::async(std::launch::async, [&] {
+            std::string o;
+            return t.read("items", "game:wood", "maxStack", &o) == KILN_OK && t.read("itemInfo", "game:wood", "maxStackSize", &o) == KILN_OK &&
+                   t.fields("quest", &o) == KILN_OK && t.views(&o) == KILN_OK;
+        });
+        const bool done = other.wait_for(std::chrono::seconds(3)) == std::future_status::ready;
+        CHECK(done);
+        h.on_member = nullptr;
+        release.set_value();
+        lister.join();
+        CHECK(other.get());
+    }
 
     std::printf("registry-view-service-test: %d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;

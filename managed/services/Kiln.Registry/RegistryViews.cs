@@ -102,8 +102,9 @@ public sealed record RegistryViewSnapshot(string View, RegistryId Id, IReadOnlyD
     IReadOnlyDictionary<string, string> Refused);
 
 /// <summary>The views of the running game: every registry (stable) and every other resource type (advanced), under Kiln
-/// names. Read-only; any thread (advanced reads wait for a data-pack application in progress: keep them off hot paths).
-/// Since 0.2.0-dev.32.</summary>
+/// names. Read-only; any thread (advanced reads wait for a data-pack application in progress: keep them off hot paths). The
+/// first call that needs a large advanced view's entries lists them and takes seconds (about 4 s for the server's 4,268 item
+/// infos): make it off the game's thread; it holds back no other call. Since 0.2.0-dev.32.</summary>
 [Experimental("KILNX031")]
 public static class RegistryViews
 {
