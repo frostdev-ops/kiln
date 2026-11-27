@@ -45,10 +45,11 @@ void t_wire() {
     const uint8_t a[] = {'a'};
     CHECK(fnv1a32(a, 1) == 0xe40c292cu, "'a' = %08x", fnv1a32(a, 1));
     const auto up = new_character_upload();
-    // u8 not compressed, u8 no saved entity, u32 38 + the character creator's 38 bytes (u8, 9 x u32, u8: what the spawn
-    // of a new character reads, 0x6ff580), u32 knowledge size 4, u32 no knowledge entries (lab s2: with a 0-byte section
-    // the game logged "Could not spawn Player Entity")
-    std::vector<uint8_t> want = {0, 0, 38, 0, 0, 0};
+    // u8 not compressed, u8 new character 1 (0 = the section is a saved entity: Save2 stores +0x14c = byte == 0 and the
+    // spawn then deserializes it, 0x7a93a0), u32 38 + the character creator's 38 bytes (u8, 9 x u32, u8: what the spawn of
+    // a new character reads, 0x6ff580), u32 knowledge size 4, u32 no knowledge entries (lab s2-s4: "Could not spawn Player
+    // Entity" with byte 1 = 0, the game reading our bytes as a saved entity)
+    std::vector<uint8_t> want = {0, 1, 38, 0, 0, 0};
     want.insert(want.end(), 38, 0);
     for (uint8_t b : {4, 0, 0, 0, 0, 0, 0, 0}) want.push_back(b);
     CHECK(up == want, "upload is %zu bytes", up.size());
@@ -257,7 +258,7 @@ struct FakeGame : Engine {
             if (rd32(&m[1]) != fnv1a32(body.data(), body.size())) return true;
             r.state = 2;
             r.status = refuse_upload ? 9 : 0;
-            r.has_entity = body.size() > 1 && body[1] == 1;
+            r.has_entity = body.size() > 1 && body[1] == 0;  // +0x14c: the section is a saved entity
         } else if (m[0] == 0 && m.size() >= 2) {
             if (m[1] & 2) {
                 calls.push_back("final");

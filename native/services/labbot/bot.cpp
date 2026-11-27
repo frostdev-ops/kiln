@@ -56,7 +56,7 @@ uint32_t fnv1a32(const uint8_t* p, size_t n) {
 std::vector<uint8_t> new_character_upload() {
     std::vector<uint8_t> v;
     v.push_back(0);  // not compressed
-    v.push_back(0);  // no saved entity: the server spawns from the player template
+    v.push_back(1);  // a new character: no saved entity, the server spawns from the player template (0 = the section is one)
     put32(v, uint32_t(kCharacterBytes));  // the section a saved entity would fill: here the character creator's choices
     v.insert(v.end(), kCharacterBytes, 0);  // u8, 9 x u32, u8, all the defaults
     put32(v, 4);     // knowledge sub-stream size
