@@ -26,6 +26,9 @@ public sealed class NativeTamingTests : IDisposable
     internal sealed class FakeWorld : INativeTamingWorld
     {
         public readonly Dictionary<(EntityId, string), byte[]> Parts = new();
+        public readonly Dictionary<EntityId, Dictionary<string, string>> Fields = new();
+        public readonly Dictionary<EntityId, Guid> Templates = new();
+        public int FieldReads;
         public readonly HashSet<EntityId> Alive = new();
         public readonly List<(Guid Template, WorldPosition At)> Spawned = new();
         public readonly List<(EntityId, Guid)> Played = new();
@@ -34,6 +37,14 @@ public sealed class NativeTamingTests : IDisposable
         public bool PlayOk = true;
 
         public byte[]? ReadBytes(EntityId e, string component) => Parts.TryGetValue((e, component), out var b) ? (byte[])b.Clone() : null;
+
+        public string? TemplateField(EntityId e, string path)
+        {
+            FieldReads++;
+            return Fields.TryGetValue(e, out var f) && f.TryGetValue(path, out var v) ? v : null;
+        }
+
+        public Guid? TemplateOf(EntityId e) => Templates.TryGetValue(e, out var g) ? g : null;
         public bool Has(EntityId e, string component) => Parts.ContainsKey((e, component));
         public bool Exists(EntityId e) => Alive.Contains(e);
         public IReadOnlyList<EntityId> Find(string component) => Parts.Keys.Where(k => k.Item2 == component).Select(k => k.Item1).ToList();
@@ -54,18 +65,21 @@ public sealed class NativeTamingTests : IDisposable
             return PlayOk;
         }
 
-        public void AddDog(EntityId e, byte steps = 2, bool tameable = true, Guid? petSequence = null)
+        // as the game has it (lab 11-27): the taming setup in the Wildlife template, read by its reflection paths; the
+        // entity has DynamicWildlife and no Wildlife component
+        public void AddDog(EntityId e, byte steps = 2, bool tameable = true, Guid? petSequence = null, Guid? template = null)
         {
-            var w = new byte[NativeTamingRuntime.WildlifeSize];
-            BinaryPrimitives.WriteUInt16LittleEndian(w.AsSpan(NativeTamingRuntime.Features), (ushort)(tameable ? 0x0f : 0x07));
-            DogBait.TryWriteBytes(w.AsSpan(NativeTamingRuntime.FavoriteFood));
-            w[NativeTamingRuntime.Steps] = steps;
-            BitConverter.TryWriteBytes(w.AsSpan(NativeTamingRuntime.SensorRange), 8.5f);
-            BinaryPrimitives.WriteInt64LittleEndian(w.AsSpan(NativeTamingRuntime.EatMax), 16_000_000_000);
-            (petSequence ?? NativeTamingRuntime.PlayerPetSequence).TryWriteBytes(w.AsSpan(NativeTamingRuntime.PetSequence));
-            Parts[(e, "Wildlife")] = w;
+            Fields[e] = new Dictionary<string, string>
+            {
+                ["Wildlife.enabledFeatures"] = tameable ? "Roaming|Flee|Tameable|RunAway" : "Roaming|Flee|RunAway",
+                ["Wildlife.tamingSetup.favoriteFood"] = DogBait.ToString(),
+                ["Wildlife.tamingSetup.necessaryTamingSteps"] = steps.ToString(),
+                ["Wildlife.tamingSetup.foodBaitSensorRange"] = "8.5",
+                ["Wildlife.tamingSetup.foodBaitEatMaxDuration"] = "16",
+                ["Wildlife.tamingPetInteractionSequence"] = (petSequence ?? NativeTamingRuntime.PlayerPetSequence).ToString(),
+            };
+            Templates[e] = template ?? Guid.NewGuid();
             Parts[(e, "DynamicWildlife")] = new byte[NativeTamingRuntime.DynamicSize];
-            Parts[(e, "Animal")] = new byte[1];
             Alive.Add(e);
         }
 
@@ -114,9 +128,23 @@ public sealed class NativeTamingTests : IDisposable
         Assert.Null(NativeTaming.Read(new EntityId(5)));
         _w.AddDog(new EntityId(7), tameable: false);
         Assert.False(NativeTaming.Read(new EntityId(7))!.Tameable);
-        _w.Parts[(new EntityId(8), "Wildlife")] = new byte[16];  // another build's layout: refused, not misread
-        _w.Parts[(new EntityId(8), "DynamicWildlife")] = new byte[16];
+        _w.AddDog(new EntityId(8));
+        _w.Parts[(new EntityId(8), "DynamicWildlife")] = new byte[16];  // another build's layout: refused, not misread
         Assert.Null(NativeTaming.Read(new EntityId(8)));
+        _w.Parts[(new EntityId(9), "DynamicWildlife")] = new byte[NativeTamingRuntime.DynamicSize];   // no Wildlife template
+        Assert.Null(NativeTaming.Read(new EntityId(9)));
+    }
+
+    [Fact]
+    public void The_taming_setup_is_read_once_per_template()
+    {
+        Assert.NotNull(NativeTaming.Read(Dog));
+        var reads = _w.FieldReads;
+        Assert.True(reads > 0);
+        NativeTaming.Read(Dog);
+        _w.AddDog(new EntityId(30), template: _w.Templates[Dog]);   // another dog of the same template
+        Assert.Equal(2, NativeTaming.Read(new EntityId(30))!.Required);
+        Assert.Equal(reads, _w.FieldReads);
     }
 
     [Fact]

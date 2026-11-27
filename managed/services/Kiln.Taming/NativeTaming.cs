@@ -26,7 +26,7 @@ public enum NativeTamingPhase
 
 /// <summary>One animal's taming as the game has it now. Since 0.2.0-dev.32.</summary>
 /// <param name="Creature">The animal.</param>
-/// <param name="Tameable">Its template allows taming (the Tameable feature and a farm form).</param>
+/// <param name="Tameable">Its template allows taming (the Wildlife template's Tameable feature).</param>
 /// <param name="Progress">Steps so far (the game's byte; it never goes above <paramref name="Required"/>).</param>
 /// <param name="Required">Steps to the farm transformation (its template's).</param>
 /// <param name="Phase">Where it is.</param>
@@ -50,11 +50,13 @@ public sealed record NativeTamingState(EntityId Creature, bool Tameable, int Pro
 /// <summary>Why the game's taming progress of an animal changed. Since 0.2.0-dev.32.</summary>
 public enum NativeTamingCause
 {
-    /// <summary>A step: a petting while it ate its bait (or <see cref="NativeTaming.PetStep"/>).</summary>
+    /// <summary>Progress rose: a step (a petting while it ate its bait, or <see cref="NativeTaming.PetStep"/>). The watch
+    /// sees only the progress, so a mod's raw write of it reads the same (lab 11-27).</summary>
     Step = 0,
-    /// <summary>A startle cost progress (the world setting <c>tamingStartleRepercussion</c>: some, or all).</summary>
+    /// <summary>Progress fell while the animal is wild: a startle (the world setting <c>tamingStartleRepercussion</c>:
+    /// some, or all), or a mod's raw write.</summary>
     Startle = 1,
-    /// <summary>Another change (a mod's raw write, a new animal under the same id).</summary>
+    /// <summary>Progress fell on a tamed animal.</summary>
     Other = 2,
 }
 
@@ -149,8 +151,8 @@ public static class NativeTaming
     /// <summary>True when the game's taming can be read and driven here.</summary>
     public static bool Available => NativeTamingRuntime.Available();
 
-    /// <summary>The animal's taming now; null when it is no wild animal (no Wildlife component: a farm animal that never
-    /// was wild, any other entity) or does not exist.</summary>
+    /// <summary>The animal's taming now; null when it is no wild animal (no DynamicWildlife: a farm animal that never was
+    /// wild, any other entity) or does not exist.</summary>
     /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
     /// <exception cref="KilnUnavailableException">The capability <c>taming.native</c> is off.</exception>
     [TickThreadOnly]
@@ -213,6 +215,11 @@ public static class NativeTaming
 internal interface INativeTamingWorld
 {
     byte[]? ReadBytes(EntityId e, string component);
+    /// <summary>A field of a template component as the entity reads it ("Wildlife.tamingSetup.necessaryTamingSteps"), as
+    /// text; null when it has none. The game keeps Wildlife in the template only: no entity has a Wildlife component.</summary>
+    string? TemplateField(EntityId e, string path);
+    /// <summary>The entity's template (the setup cache's key); null when not known.</summary>
+    Guid? TemplateOf(EntityId e);
     bool Has(EntityId e, string component);
     bool Exists(EntityId e);
     IReadOnlyList<EntityId> Find(string component);
@@ -225,6 +232,14 @@ internal interface INativeTamingWorld
 internal sealed class GameNativeTamingWorld : INativeTamingWorld
 {
     public byte[]? ReadBytes(EntityId e, string component) => Kiln.World.ReadBytes(e, component);
+
+    public string? TemplateField(EntityId e, string path)
+    {
+        try { return Creatures.Available ? Creatures.Of(e).Ai.Get(path) : null; }
+        catch (Exception x) when (x is ArgumentException or NotSupportedException or InvalidOperationException) { return null; }
+    }
+
+    public Guid? TemplateOf(EntityId e) => Spawn.Inspect(e)?.Template;
     public bool Has(EntityId e, string component) => Kiln.World.Has(e, component);
     public bool Exists(EntityId e) => Kiln.World.Exists(e);
     public IReadOnlyList<EntityId> Find(string component) => Kiln.World.Find(component);
@@ -237,12 +252,11 @@ internal sealed class GameNativeTamingWorld : INativeTamingWorld
 /// <summary>The layouts, the reads and the watch behind NativeTaming.</summary>
 internal static class NativeTamingRuntime
 {
-    // keen::ecs::Wildlife (736 bytes) and its TamingSetup at +0x1c0; keen::ecs::DynamicWildlife (176); NetworkWildlife (24):
-    // this build's reflection (sigdb taming/*, docs/re/taming.md 2-3). A build whose sizes differ is refused.
-    internal const int WildlifeSize = 0x2e0, DynamicSize = 0xb0;
-    internal const int Features = 0x80, FavoriteFood = 0x1c4, Steps = 0x1d4, SensorRange = 0x1d8, EatMax = 0x1e0, PetSequence = 0x2c0;
+    // keen::ecs::DynamicWildlife (176 bytes, per entity): this build's reflection (sigdb taming/*, docs/re/taming.md 3). A
+    // build whose size differs is refused. The taming setup is the Wildlife template's (no entity has a Wildlife
+    // component: lab 11-27), read by its reflection paths through kiln.creatures and kept per template.
+    internal const int DynamicSize = 0xb0;
     internal const int State = 0x00, Bait = 0x88, Ate = 0x8d, Progress = 0x8e;
-    internal const ushort TameableBit = 1 << 3;
     internal const byte StateDead = 12, StatePursue = 14, StateEat = 15;
     /// <summary>The player's pet interaction every tameable animal of this build has (Interaction_Pet_Wildlife_Taming).</summary>
     internal static readonly Guid PlayerPetSequence = Guid.Parse("2e70d813-b80a-41e5-a6a2-b3ba526ebe8e");
@@ -258,18 +272,41 @@ internal static class NativeTamingRuntime
         if (!Available()) throw new KilnUnavailableException(NativeTaming.Capability, $"{api}: the game's taming is not readable on this build");
     }
 
-    /// <summary>The GUID of a 16-byte TemplateReference / ObjectReference as the game stores it.</summary>
-    internal static Guid GuidOf(ReadOnlySpan<byte> b) => new(b);
+    /// <summary>A Wildlife template's taming setup.</summary>
+    internal sealed record Setup(bool Tameable, int Steps, Guid Bait, double SensorMeters, double EatSeconds, Guid PetSequence);
+
+    private static readonly Dictionary<Guid, Setup> Setups = new();
+
+    /// <summary>The animal's taming setup (its template's, read once per template); null when it has none.</summary>
+    internal static Setup? SetupOf(EntityId e)
+    {
+        var tpl = World.TemplateOf(e);
+        if (tpl is { } t && Setups.TryGetValue(t, out var known)) return known;
+        var features = World.TemplateField(e, "Wildlife.enabledFeatures");
+        if (features is null) return null;
+        var setup = new Setup(
+            features.Split('|', StringSplitOptions.TrimEntries).Contains("Tameable"),
+            (int)(Number(World.TemplateField(e, "Wildlife.tamingSetup.necessaryTamingSteps")) ?? 0),
+            GuidIn(World.TemplateField(e, "Wildlife.tamingSetup.favoriteFood")),
+            Number(World.TemplateField(e, "Wildlife.tamingSetup.foodBaitSensorRange")) ?? 0,
+            Number(World.TemplateField(e, "Wildlife.tamingSetup.foodBaitEatMaxDuration")) ?? 0,
+            GuidIn(World.TemplateField(e, "Wildlife.tamingPetInteractionSequence")));
+        if (tpl is { } key) Setups[key] = setup;
+        return setup;
+    }
+
+    internal static double? Number(string? text) =>
+        double.TryParse(text?.Trim(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d) ? d : null;
+
+    internal static Guid GuidIn(string? text) => Guid.TryParse(text?.Trim(), out var g) ? g : Guid.Empty;
 
     internal static NativeTamingState? Read(EntityId creature)
     {
         if (creature.IsNone) return null;
-        var w = World.ReadBytes(creature, "Wildlife");
         var d = World.ReadBytes(creature, "DynamicWildlife");
-        if (w is null || d is null || w.Length < WildlifeSize || d.Length < DynamicSize) return null;
-        var features = BinaryPrimitives.ReadUInt16LittleEndian(w.AsSpan(Features));
+        if (d is null || d.Length < DynamicSize) return null;
+        if (SetupOf(creature) is not { } setup) return null;
         var tame = World.Has(creature, "IsTame");
-        var tameable = (features & TameableBit) != 0 && World.Has(creature, "Animal");
         var state = d[State];
         var phase = tame ? NativeTamingPhase.Tamed : state switch
         {
@@ -279,12 +316,13 @@ internal static class NativeTamingRuntime
             _ => NativeTamingPhase.Wild,
         };
         var bait = BinaryPrimitives.ReadUInt32LittleEndian(d.AsSpan(Bait));
-        return new NativeTamingState(creature, tameable, d[Progress], w[Steps], phase, new EntityId(bait), GuidOf(w.AsSpan(FavoriteFood, 16)),
-            BitConverter.ToSingle(w, SensorRange), BinaryPrimitives.ReadInt64LittleEndian(w.AsSpan(EatMax)) / 1e9) { RawState = state };
+        return new NativeTamingState(creature, setup.Tameable, d[Progress], setup.Steps, phase, new EntityId(bait), setup.Bait, setup.SensorMeters, setup.EatSeconds)
+        {
+            RawState = state,
+        };
     }
 
-    internal static bool HasStandardPetSequence(EntityId creature) =>
-        World.ReadBytes(creature, "Wildlife") is { Length: >= WildlifeSize } w && GuidOf(w.AsSpan(PetSequence, 16)) == PlayerPetSequence;
+    internal static bool HasStandardPetSequence(EntityId creature) => SetupOf(creature)?.PetSequence == PlayerPetSequence;
 
     internal static WorldPosition? Before(EntityId creature, double distance)
     {
@@ -314,6 +352,7 @@ internal static class NativeTamingRuntime
         Sink = ev => Events.Post(ev);
         Listening = () => Events.HasSubscribers<NativeTamingProgressEvent>() || Events.HasSubscribers<NativeTamedEvent>() || Events.HasSubscribers<NativeBaitEatenEvent>();
         Watched.Clear();
+        Setups.Clear();
         _wild = [];
         _listed = 0;
     }
@@ -324,7 +363,7 @@ internal static class NativeTamingRuntime
         if (step % 5 != 0 || !Available() || !Listening()) return;
         if (_listed == 0 || step >= _listed + 50)
         {
-            _wild = World.Find("Wildlife");
+            _wild = World.Find("DynamicWildlife");
             _listed = step;
         }
         var alive = new HashSet<EntityId>();
