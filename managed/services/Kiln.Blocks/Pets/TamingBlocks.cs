@@ -13,6 +13,13 @@ namespace Kiln;
 /// (<see cref="MaxHealthFraction"/>), <c>tool</c> (<see cref="Item"/>, <see cref="Wear"/>, <see cref="AllowBreak"/>) or
 /// <c>native</c> (<see cref="Steps"/>, the game's own count). A field another kind has is refused by its path. In JSON:
 /// <c>{ "kind": "feed", "item": "bait", "count": 2 }</c>. Since 0.2.0-dev.32.</summary>
+/// <remarks>Make one with the factories (<see cref="Feed"/>, <see cref="Weaken"/>, <see cref="Tool"/>, <see cref="Native"/>); a block
+/// is checked when the <see cref="TamingBlock"/> compiles, and a field that does not belong to the kind is refused by its path.
+/// It lowers to the Kiln.Taming steps (<c>FeedStep</c>, <c>WeakenStep</c>, <c>UseToolStep</c>, <c>NativeStep</c>).</remarks>
+/// <example><code>
+/// TamingStepBlock[] steps = [TamingStepBlock.Weaken(0.4), TamingStepBlock.Feed("Food_T1_Bait", 2), TamingStepBlock.Native()];
+/// </code></example>
+/// <seealso cref="TamingBlock.Steps"/>
 public sealed record TamingStepBlock
 {
     /// <summary><c>feed</c>, <c>weaken</c>, <c>tool</c> or <c>native</c>.</summary>
@@ -32,20 +39,37 @@ public sealed record TamingStepBlock
     public int? Steps { get; init; }
 
     /// <summary>A feed step.</summary>
+    /// <param name="item">A plain stack item (a game item, or an item block of this mod or another).</param>
+    /// <param name="count">How many are taken from the slot the player selects: 1..999.</param>
+    /// <returns>A <c>feed</c> step block.</returns>
     public static TamingStepBlock Feed(ItemRef item, int count = 1) => new() { Kind = "feed", Item = item, Count = count };
     /// <summary>A weaken step.</summary>
+    /// <param name="maxHealthFraction">The most health the target may have as a share of its maximum, in (0, 1].</param>
+    /// <returns>A <c>weaken</c> step block.</returns>
     public static TamingStepBlock Weaken(double maxHealthFraction) => new() { Kind = "weaken", MaxHealthFraction = maxHealthFraction };
     /// <summary>A tool step.</summary>
+    /// <param name="item">A gear item (a game item, or an item block).</param>
+    /// <param name="wear">The durability one use takes, 0..32767.</param>
+    /// <param name="allowBreak">True: the use may break the tool; false: a use that would leave it below 1 durability is refused.</param>
+    /// <returns>A <c>tool</c> step block.</returns>
     public static TamingStepBlock Tool(ItemRef item, int wear = 1, bool allowBreak = false) => new() { Kind = "tool", Item = item, Wear = wear, AllowBreak = allowBreak };
     /// <summary>A native step (the game's own count).</summary>
+    /// <param name="steps">How many of the game's own steps (a petting while the animal eats its bait) it waits for: 1..255.</param>
+    /// <returns>A <c>native</c> step block.</returns>
     public static TamingStepBlock Native(int steps = 1) => new() { Kind = "native", Steps = steps };
 }
 
 /// <summary>
 /// A taming: which creatures it tames, its steps in order (the last one tames), the timeouts, the refund policy, and the pet
 /// a tame makes. It compiles to a Kiln.Taming <see cref="TamingDefinition"/> with the id <c>&lt;mod id&gt;:&lt;name&gt;</c>;
-/// <see cref="Taming.Begin"/> takes that id.
-/// <code>
+/// <see cref="Taming.Begin"/> takes that id. Server only: it asks nothing of players' games. Since 0.2.0-dev.32.
+/// </summary>
+/// <remarks>Unlike <see cref="Taming.DefineJson"/> (which names the game's items by their items registry ids), a block names items as
+/// every block does: a game item, or an item block of this mod or another; a creature block by its name; and a pet block. The
+/// standalone Kiln.Taming service stays as it is; this is a typed front-end over it. In JSON (<c>blocks/*.json</c>, section
+/// <c>tamings</c>) the fields are the same. Define tamings in <c>OnLoad</c>, through <c>Blocks.Define</c>; an item the game's
+/// catalog does not have yet waits for it (about 2 minutes after content is ready) before it is called missing.</remarks>
+/// <example><code>
 /// var bait = Blocks.Define("wolf-bait", new FoodBlock { ... });
 /// var pet = Blocks.Define("tame-wolf", new PetBlock { Creature = "game:enemy_wildbeast_wolf_earlygame" });
 /// Blocks.Define("wolf", new TamingBlock
@@ -55,9 +79,10 @@ public sealed record TamingStepBlock
 ///     Pet = (BlockHandle&lt;PetBlock&gt;)pet,
 ///     Refund = TamingRefundPolicy.RefundOnFail,
 /// });
-/// </code>
-/// Server only: it asks nothing of players' games. Since 0.2.0-dev.32.
-/// </summary>
+/// </code></example>
+/// <seealso cref="TamingDefinition"/>
+/// <seealso cref="PetBlock"/>
+/// <seealso href="https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/taming.md">Taming: the modder's guide</seealso>
 [BlockClients(ClientsLevel.None)]
 public sealed record TamingBlock : IBlock
 {

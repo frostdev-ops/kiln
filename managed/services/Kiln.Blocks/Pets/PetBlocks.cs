@@ -9,12 +9,21 @@ using System.Text.Json.Serialization;
 
 namespace Kiln;
 
-/// <summary>What a revive costs: so many of a plain stack item.</summary>
-/// <param name="Item">A plain stack item of the game or of a mod (not gear).</param>
-/// <param name="Count">1..999.</param>
+/// <summary>What a revive costs: so many of a plain stack item. Since 0.2.0-dev.32.</summary>
+/// <remarks>The item is checked once the game's content is ready (an item the game lacks, or gear, is an error in kiln.log and
+/// that pet's revives are refused with <c>CostUnavailable</c>, nothing taken). The block lowers to
+/// <see cref="PetCostDefinition"/>.</remarks>
+/// <param name="Item">A plain stack item of the game or of a mod (not gear): an <see cref="ItemRef"/>, or its name as a string
+/// (<c>"Material_T1_Twigs"</c>).</param>
+/// <param name="Count">How many items: 1..999. Default 1.</param>
 public sealed record ReviveCostBlock(ItemRef Item, int Count = 1);
 
-/// <summary>How a downed pet is revived: the owner channels next to its recovery anchor. All of it is the mod's choice.</summary>
+/// <summary>How a downed pet is revived: the owner channels next to its recovery anchor. All of it is the mod's choice. It
+/// lowers to <see cref="PetRevivePolicy"/>, field for field. Since 0.2.0-dev.32.</summary>
+/// <example><code>
+/// new ReviveBlock { ChannelSeconds = 5, Cost = new ReviveCostBlock("Material_T1_Twigs", 3) }
+/// </code></example>
+/// <seealso cref="PetBlock.Revive"/>
 public sealed record ReviveBlock
 {
     /// <summary>False: Kiln's revive is off for this pet (the mod releases it, or revives it its own way).</summary>
@@ -37,14 +46,28 @@ public sealed record ReviveBlock
 
 /// <summary>
 /// A pet: a creature an owner keeps, summons, orders and revives. Kiln keeps its record, makes and retires its body, holds
-/// its movement and protects it; this block says what it is and every choice about it.
-/// <code>
+/// its movement and protects it; this block says what it is and every choice about it. Its id is
+/// <c>&lt;mod id&gt;:&lt;name&gt;</c>; <see cref="Pets"/> takes it. A pet on a game creature asks nothing of players' games.
+/// Since 0.2.0-dev.32.
+/// </summary>
+/// <remarks>A PetBlock compiles to the immutable <see cref="PetDefinition"/> that <see cref="Pets.Define"/> takes, so C# and
+/// JSON (<c>blocks/*.json</c>, section <c>pets</c>, the same fields) lower to one thing. Only <see cref="Creature"/> is
+/// required; every policy has a safe default. The policy records (<see cref="PetLevelPolicy"/>, <see cref="PetMovementPolicy"/>,
+/// <see cref="PetTargetPolicy"/>, <see cref="PetDownedPolicy"/>, <see cref="PetCaps"/>, <see cref="PetHudPolicy"/>) are
+/// Kiln.Pets' own, used as they are. Define pets in <c>OnLoad</c>, through <c>Blocks.Define</c>.</remarks>
+/// <example><code>
 /// var wolf = Blocks.Define("wolf", new CreatureBlock { Body = Bodies.Vukah });
 /// Blocks.Define("wolf-pet", new PetBlock { Creature = wolf, Name = "Companion", Revive = new ReviveBlock { ChannelSeconds = 3 } });
 /// Blocks.Define("hound", new PetBlock { Creature = "game:enemy_wildbeast_wolf_earlygame" });   // a game creature, by its creatures-registry id
 /// </code>
-/// Its id is <c>&lt;mod id&gt;:&lt;name&gt;</c>; <see cref="Pets"/> takes it. A pet on a game creature asks nothing of players' games.
-/// </summary>
+/// The same pet as JSON (<c>blocks/pets.json</c>):
+/// <code>
+/// { "pets": { "hound": { "creature": "game:enemy_wildbeast_wolf_earlygame", "name": "Hound" } } }
+/// </code></example>
+/// <seealso cref="PetDefinition"/>
+/// <seealso cref="Pets.Define"/>
+/// <seealso cref="TamingBlock"/>
+/// <seealso href="https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/pets.md">Pets: the modder's guide</seealso>
 [BlockClients(ClientsLevel.None)]
 public sealed record PetBlock : IBlock
 {

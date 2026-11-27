@@ -112,6 +112,10 @@ public sealed class NpcSpeech
     /// <summary>Asks a <see cref="SpeechPick.By"/> callback again for every player now (its condition changed), instead
     /// of at each player's next greeting. Nothing for the other picks. Any thread; the callback runs on the tick thread.
     /// Since 0.2.0-dev.32.</summary>
+    /// <example><code>
+    /// hungry = false;                 // the condition the SpeechPick.By callback reads
+    /// Npcs.MenuLine(npc).Refresh();   // every player's next menu line is chosen again now
+    /// </code></example>
     public void Refresh() => NpcSpeechEngine.Refresh(Npc.Value, Kind);
 
     /// <summary>The NPC, the mod, the kind and the mode.</summary>
@@ -173,7 +177,17 @@ public static class Npcs
     /// with its <see cref="NpcSpeech.Pick"/>, or <see cref="NpcSpeech.Clear"/> for the game's; farewells have no
     /// voice-over. Kiln clients since 0.2.0-dev.32 (capability <c>npcspeech.farewell</c>); a vanilla or older client keeps
     /// the game's. Any thread. Since 0.2.0-dev.32.</summary>
+    /// <param name="npc">The NPC (a villager, craftsperson or other friendly NPC: <see cref="CanSpeak"/>).</param>
+    /// <returns>The calling mod's farewell override of that NPC; nothing changes until you call
+    /// <see cref="NpcSpeech.Replace(string[])"/> on it.</returns>
     /// <exception cref="ArgumentException"><paramref name="npc"/> is None.</exception>
+    /// <example><code>
+    /// NpcSpeech farewell = Npcs.Farewells(npc);
+    /// farewell.Replace("Come back with something to eat.", "Don't forget me, Flameborn.");   // a new one at random each time
+    /// // later: farewell.Clear();   // the game's lines again
+    /// </code></example>
+    /// <seealso cref="MenuLine"/>
+    /// <seealso cref="Speech"/>
     public static NpcSpeech Farewells(EntityId npc)
     {
         if (npc.IsNone) throw new ArgumentException("no NPC (EntityId.None)", nameof(npc));
@@ -188,7 +202,16 @@ public static class Npcs
     /// <see cref="NpcSpeech.Pick"/> (a <see cref="SpeechPick.By"/> callback is the condition per player: -1 = no line for
     /// that player), or <see cref="NpcSpeech.Clear"/>. Kiln clients since 0.2.0-dev.32 (capability
     /// <c>npcspeech.menu_line</c>). Any thread. Since 0.2.0-dev.32.</summary>
+    /// <param name="npc">The NPC.</param>
+    /// <returns>The calling mod's menu-line override of that NPC.</returns>
     /// <exception cref="ArgumentException"><paramref name="npc"/> is None.</exception>
+    /// <example><code>
+    /// NpcSpeech plea = Npcs.MenuLine(npc);
+    /// plea.Pick = SpeechPick.By(ctx =&gt; ctx.Opens == 0 ? 0 : 1);   // the long line the first time each player opens the menu
+    /// plea.Replace("Please, Flameborn, I haven't eaten in days.", "Still nothing to eat?");
+    /// </code></example>
+    /// <seealso cref="Topics"/>
+    /// <seealso cref="NpcSpeech.Pick"/>
     public static NpcSpeech MenuLine(EntityId npc)
     {
         if (npc.IsNone) throw new ArgumentException("no NPC (EntityId.None)", nameof(npc));
@@ -200,11 +223,23 @@ public static class Npcs
     /// NPC: now if it is open, else when the player opens it within 5 seconds; once. The same text in every language.
     /// On the host: the host's own player, or a joined player whose Kiln has it (0.2.0-dev.32 or later); on a joined
     /// client: this game's own player only. Any thread. Since 0.2.0-dev.32.</summary>
+    /// <param name="npc">The NPC the player is talking with.</param>
+    /// <param name="player">The player whose menu shows it.</param>
+    /// <param name="text">The text: 1 to 200 characters, the same in every language.</param>
+    /// <returns>Ok when it was handed on (its <see cref="SpeechResult.Reason"/> may add a note); else why not.</returns>
     /// <exception cref="ArgumentException">The NPC or the player is None, or the text is empty or longer than 200
     /// characters.</exception>
+    /// <example><code>
+    /// Npcs.MenuSay(npc, player, "That will be three coins.");
+    /// </code></example>
+    /// <seealso cref="NpcTopicContext.Reply(string)"/>
     public static SpeechResult MenuSay(EntityId npc, EntityId player, string text) => MenuSay(npc, player, new UiText(text ?? ""));
 
     /// <summary>As <see cref="MenuSay(EntityId, EntityId, string)"/>, with a text per language.</summary>
+    /// <param name="npc">The NPC the player is talking with.</param>
+    /// <param name="player">The player whose menu shows it.</param>
+    /// <param name="text">The text, per language.</param>
+    /// <returns>As <see cref="MenuSay(EntityId, EntityId, string)"/>.</returns>
     /// <exception cref="ArgumentException">The NPC or the player is None, or a text is empty or too long.</exception>
     public static SpeechResult MenuSay(EntityId npc, EntityId player, UiText text)
     {
@@ -219,7 +254,18 @@ public static class Npcs
     /// <see cref="NpcTopic.Reply"/> and runs its <see cref="NpcTopic.OnPick"/> on the host for that player. Kiln clients
     /// since 0.2.0-dev.32 (capability <c>npcspeech.topics</c>); a vanilla or older client sees the game's page. Any
     /// thread. Since 0.2.0-dev.32.</summary>
+    /// <param name="npc">The NPC whose talk page to add rows to.</param>
+    /// <returns>The calling mod's topics of that NPC (an empty list until you <see cref="NpcTopics.Set"/> some).</returns>
     /// <exception cref="ArgumentException"><paramref name="npc"/> is None.</exception>
+    /// <example><code>
+    /// Npcs.Topics(npc).Set(new NpcTopic("rumor", "Heard any rumors?")
+    /// {
+    ///     Reply = new UiText("They say the Vukah are restless in the north."),
+    ///     OnPick = ctx =&gt; Log.Info($"{ctx.Player} asked {ctx.Npc} for rumors"),
+    /// });
+    /// </code></example>
+    /// <seealso cref="NpcTopic"/>
+    /// <seealso cref="NpcTopics"/>
     public static NpcTopics Topics(EntityId npc)
     {
         if (npc.IsNone) throw new ArgumentException("no NPC (EntityId.None)", nameof(npc));
