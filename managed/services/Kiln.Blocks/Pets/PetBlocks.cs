@@ -21,7 +21,8 @@ public sealed record ReviveCostBlock(ItemRef Item, int Count = 1);
 /// <summary>How a downed pet is revived: the owner channels next to its recovery anchor. All of it is the mod's choice. It
 /// lowers to <see cref="PetRevivePolicy"/>, field for field. Since 0.2.0-dev.32.</summary>
 /// <example><code>
-/// new ReviveBlock { ChannelSeconds = 5, Cost = new ReviveCostBlock("Material_T1_Twigs", 3) }
+/// var revive = new ReviveBlock { ChannelSeconds = 5, Cost = new ReviveCostBlock("Material_T1_Twigs", 3) };
+/// Blocks.Define("duelist", new PetBlock { Creature = "game:enemy_vukah_melee", Revive = revive });
 /// </code></example>
 /// <seealso cref="PetBlock.Revive"/>
 public sealed record ReviveBlock
