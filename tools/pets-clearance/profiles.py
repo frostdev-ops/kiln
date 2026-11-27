@@ -24,6 +24,13 @@ control only, which says nothing about the gaps between the two (calibrate it wi
 body whose walker and collider Kiln.Pets did not read in the lab (its profile could never be checked).
 Every session's evidence counts: one fail anywhere fails the pair. The profile is keyed by the game build the session
 ran on: a game update invalidates it (Kiln.Pets checks the build and the body it was measured on).
+
+Body profiles ("match": "body"): the routes kiln.queries finds do not depend on the creature, and the walk is the
+movement collider's, so creatures with the same body (walker radius and height, collider width and height, the
+template's own scale) walk the same. When at least 1 + SPOT walking creatures of one body were calibrated at a scale on
+a build and every one of them chose the same pair, the file also gets a body profile with that pair: Kiln.Pets applies
+it to every walking creature with that body that has no creature profile. One creature of the body without a profile,
+or with another pair, and the body gets none.
 """
 import argparse
 import datetime
@@ -38,6 +45,7 @@ TOL_FLOOR = 0.6     # m off the floor that counts as pushed up or down
 TOL_ROUTE = 0.30    # m a route point may stray outside the free space (path nodes sit on cell centres)
 SAMPLE = 0.05       # m between samples of the free space's boundary and along a route
 STEP = 0.5          # m: the build grid's cell; a passage in the world is a whole number of cells wide and high
+SPOT = 2            # creatures of one body besides the first that a body profile needs
 # answers that are not "no route": the game did not say (load the area, ask again); a refusal stands only on a real answer
 UNKNOWN = {"Pending", "NotLoadedOrUnknown", "TimedOut", "NotCompleted", "QueueFull", "OwnerIdentityUnavailable", "OwnerGone",
            "Cancelled", "WorldClosed", "OwnerRetired", "Refused", "Truncated", "MalformedResult", "OutOfGrid"}
@@ -101,6 +109,12 @@ class Body:
         read = isinstance(rec.get("kilnBody"), dict) and all(finite(k.get(n)) for n in names)
         return Body(kiln["walkerRadius"], kiln["walkerHeight"], kiln["colliderWidth"], kiln["colliderHeight"], scale, length, kiln,
                     ts, walker, read)
+
+    @property
+    def signature(self):
+        """The body as Kiln.Pets compares it (its Same(): walker, collider, the template's own scale)."""
+        return tuple(round(x, 3) for x in (self.walker_radius, self.walker_height, self.collider_width, self.collider_height,
+                                           self.template_scale))
 
 
 # ---- the fixture's free space ----
@@ -417,14 +431,55 @@ def unmeasured(body, fixtures, row):
     return None
 
 
+# ---- body profiles ----
+
+def body_profiles(result):
+    """{(signature, scale, game): {"body", "chosen", "creatures", "why"}}: per body (Body.signature) at a scale on a build,
+    a pair when at least 1 + SPOT walking creatures with that body were calibrated and every one chose it."""
+    groups = {}
+    for (creature, scale, game), d in result.items():
+        b = d["body"]
+        if game is None or not b.read:
+            continue
+        groups.setdefault((b.signature, scale, game), []).append((creature, d))
+    out = {}
+    for key, members in sorted(groups.items()):
+        creatures = sorted(c for c, _ in members)
+        chosen = {d["chosen"] for _, d in members}
+        why = None
+        if not all(d["body"].walker for _, d in members):
+            why = "a calibrated creature of this body does not walk (no path finding, or it flies): " + \
+                  ", ".join(c for c, d in members if not d["body"].walker)
+        elif None in chosen:
+            why = "a calibrated creature of this body has no profile: " + ", ".join(c for c, d in members if d["chosen"] is None)
+        elif len(chosen) > 1:
+            why = "the calibrated creatures of this body chose different pairs: " + \
+                  ", ".join(f"{c} {fmt(d['chosen'])}" for c, d in sorted(members))
+        elif len(members) < 1 + SPOT:
+            why = f"{len(members)} creature(s) of this body calibrated; a body profile needs {1 + SPOT}"
+        out[key] = {"body": members[0][1]["body"], "chosen": None if why else next(iter(chosen)), "creatures": creatures,
+                    "why": why}
+    return out
+
+
 # ---- the outputs ----
 
 def fmt(p):
     return f"{p[0]}/{p[1]}"
 
 
+def _merge_key(p):
+    if p.get("match") == "body":
+        b = p.get("body") or {}
+        sig = tuple(round(float(b.get(n, 1 if n == "templateScale" else 0)), 3)
+                    for n in ("walkerRadius", "walkerHeight", "colliderWidth", "colliderHeight", "templateScale"))
+        return ("body", sig, float(p.get("scale") or 1), p.get("game"))
+    return (p.get("creature"), float(p.get("scale") or 1), p.get("game"))
+
+
 def clearance(result, lab="lab", merge=None, date=None):
-    """clearance.json format 1 (Kiln.Pets' PetClearance.Parse): the chosen pairs; merged profiles of other keys kept."""
+    """clearance.json format 1 (Kiln.Pets' PetClearance.Parse): the chosen pairs, creature profiles then body profiles;
+    merged profiles of other keys kept."""
     date = date or datetime.date.today().isoformat()
     profiles = []
     for (creature, scale, game), d in sorted(result.items(), key=lambda kv: (kv[0][0], kv[0][1], kv[0][2] or 0)):
@@ -440,12 +495,25 @@ def clearance(result, lab="lab", merge=None, date=None):
                 "bodyLength": round(d["body"].length, 2),
             },
         })
-    done = set(result)
+    bodies = body_profiles(result)
+    for (sig, scale, game), g in bodies.items():
+        if g["chosen"] is None:
+            continue
+        h, v = g["chosen"]
+        profiles.append({
+            "match": "body", "scale": scale, "game": game, "horizontalSpace": h, "verticalSpace": v, "body": g["body"].kiln,
+            "calibration": {
+                "lab": lab, "date": date, "gate": "19d C6, by body", "creatures": g["creatures"],
+                "rule": f"every one of the {len(g['creatures'])} walking creatures of this body calibrated at this scale on this build chose this pair",
+            },
+        })
+    done = {_merge_key({"creature": c, "scale": sc, "game": gm}) for c, sc, gm in result}
+    done |= {("body", sig, sc, gm) for sig, sc, gm in bodies}
     for old in (merge or {}).get("profiles", []):
-        key = (old.get("creature"), float(old.get("scale") or 1), old.get("game"))
-        if key not in done:
+        if _merge_key(old) not in done:
             profiles.append(old)
-    profiles.sort(key=lambda p: (p["creature"], float(p.get("scale") or 1), p.get("game") or 0))
+    profiles.sort(key=lambda p: (p.get("match") == "body", p.get("creature") or "", _merge_key(p)[1] if p.get("match") == "body" else (),
+                                 float(p.get("scale") or 1), p.get("game") or 0))
     return {"format": 1, "generator": "tools/pets-clearance/profiles.py (dossier 19d, gate C6)", "profiles": profiles}
 
 
@@ -488,6 +556,16 @@ def report(result):
                 if v in ("fail", "inconclusive") and why:
                     out.append(f"  - {n}: {v}: {why}")
         out.append("")
+    bodies = body_profiles(result)
+    if bodies:
+        out += ["## Body profiles", "",
+                f"A body profile needs {1 + SPOT} or more walking creatures of one body (walker radius/height, collider "
+                "width/height, template scale) calibrated at the scale on the build, every one with the same pair.", "",
+                "| body (walker r/h, collider w/h, template scale) | scale | build | creatures | profile |", "|---|---|---|---|---|"]
+        for (sig, scale, game), g in bodies.items():
+            out.append(f"| {' / '.join(format(x, 'g') for x in sig)} | {scale:g} | {game} | {', '.join(g['creatures'])} | "
+                       f"{fmt(g['chosen']) if g['chosen'] else 'none: ' + g['why']} |")
+        out.append("")
     return "\n".join(out) + "\n"
 
 
@@ -509,6 +587,9 @@ def main(argv=None):
             fh.write(report(result))
     for (creature, scale, game), d in sorted(result.items(), key=lambda kv: (kv[0][0], kv[0][1], kv[0][2] or 0)):
         print(f"{creature} x{scale:g} build {game}: " + (f"{fmt(d['chosen'])}" if d["chosen"] else f"none ({d['why']})"))
+    for (sig, scale, game), g in body_profiles(result).items():
+        print(f"body {'/'.join(format(x, 'g') for x in sig)} x{scale:g} build {game} ({len(g['creatures'])} creatures): " +
+              (fmt(g["chosen"]) if g["chosen"] else f"none ({g['why']})"))
     return 0
 
 

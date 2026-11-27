@@ -330,6 +330,68 @@ class Review(unittest.TestCase):
         d = self.decide(WIDE, {**TALL, "colliderHeight": 1})
         self.assertEqual(d["chosen"], (0.5, 2))
 
+    def body_records(self, creatures, kiln=WOLF, odd=False, walker=True, template_scale=None, scale=1):
+        """Each creature: Gate.full() (its profile 1/2); odd: the last one stalls in the 1 m corridor at 1/2 and walks the
+        control at 2/3, so its profile is 2/3."""
+        recs = session()
+        for c in creatures:
+            recs += [body(c, scale, kiln, walker, template_scale)]
+            full = Gate().full()
+            if odd and c == creatures[-1]:
+                full = [r for r in full if not (r["kind"] == "walk" and r["horizontalSpace"] == 1 and r["fixture"] == "corridor-w1-h3")]
+                full.append(walk(BY["corridor-w1-h3"], 1, 2, outcome="Stuck",
+                                 trace=[[i * 0.1, 8.5, FLOOR, min(7.5, 3.5 + i * 0.25)] for i in range(30)]))
+                for f in FIXTURES:
+                    ok = f["fixtureKind"] == "control"
+                    full.append(query(f, 2, 3, accepted=ok, status="Found" if ok else "NoPath"))
+                    if ok:
+                        full.append(walk(f, 2, 3))
+            for r in full:
+                r["creature"], r["scale"] = c, scale
+            recs += full
+        return recs
+
+    def test_three_creatures_of_one_body_with_the_same_pair_give_a_body_profile(self):
+        recs = self.body_records(["game:a", "game:b", "game:c"])
+        result = prof.decide(prof.load_records(recs))
+        doc = prof.clearance(result, lab="t")
+        bodies = [p for p in doc["profiles"] if p.get("match") == "body"]
+        self.assertEqual(len(bodies), 1)
+        b = bodies[0]
+        self.assertNotIn("creature", b)
+        self.assertEqual((b["scale"], b["game"], b["horizontalSpace"], b["verticalSpace"]), (1.0, GAME, 1, 2))
+        self.assertEqual(b["body"], {**WOLF, "templateScale": 1})
+        self.assertEqual(b["calibration"]["creatures"], ["game:a", "game:b", "game:c"])
+        self.assertEqual(len([p for p in doc["profiles"] if p.get("creature")]), 3)   # and each creature's own
+        self.assertIn("## Body profiles", prof.report(result))
+
+    def test_no_body_profile_from_two_creatures_a_disagreement_a_non_walker_or_another_template_scale(self):
+        def bodies(recs):
+            return [p for p in prof.clearance(prof.decide(prof.load_records(recs)), lab="t")["profiles"] if p.get("match") == "body"]
+        self.assertEqual(bodies(self.body_records(["game:a", "game:b"])), [])
+        odd = prof.decide(prof.load_records(self.body_records(["game:a", "game:b", "game:c"], odd=True)))
+        self.assertEqual(odd[("game:c", 1.0, GAME)]["chosen"], (2, 3))
+        self.assertEqual(bodies(self.body_records(["game:a", "game:b", "game:c"], odd=True)), [])
+        (g,) = prof.body_profiles(odd).values()
+        self.assertIn("different pairs", g["why"])
+        self.assertEqual(bodies(self.body_records(["game:a", "game:b", "game:c"], walker=False)), [])
+        mixed = self.body_records(["game:a", "game:b"]) + self.body_records(["game:c"], template_scale=1.3)[1 + len(FIXTURES):]
+        groups = prof.body_profiles(prof.decide(prof.load_records(mixed)))
+        self.assertEqual(sorted(len(g["creatures"]) for g in groups.values()), [1, 2])   # template scale 1.3: another body
+        self.assertEqual(bodies(mixed), [])
+        result = prof.decide(prof.load_records(self.body_records(["game:a", "game:b"])))
+        (g,) = prof.body_profiles(result).values()
+        self.assertIn("needs 3", g["why"])
+
+    def test_merging_keeps_body_profiles_of_other_bodies_and_replaces_the_same_one(self):
+        other = {"match": "body", "scale": 1, "game": GAME, "horizontalSpace": 0.5, "verticalSpace": 2,
+                 "body": {**WOLF, "colliderWidth": 2, "templateScale": 1}}
+        same = {"match": "body", "scale": 1, "game": GAME, "horizontalSpace": 2, "verticalSpace": 3, "body": {**WOLF, "templateScale": 1}}
+        doc = prof.clearance(prof.decide(prof.load_records(self.body_records(["game:a", "game:b", "game:c"]))), lab="t",
+                             merge={"format": 1, "profiles": [other, same]})
+        bodies = sorted((p["body"]["colliderWidth"], p["horizontalSpace"]) for p in doc["profiles"] if p.get("match") == "body")
+        self.assertEqual(bodies, [(0.8, 1), (2, 0.5)])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,19 +1,27 @@
 // SPDX-License-Identifier: MIT
 // Measured path clearance (19d §4.3a, gate C6): the HorizontalSpace/VerticalSpace a pet's route asks kiln.queries for.
-// Kiln never derives it from the body's radius: a profile is a calibration's result for one creature (its Kiln id), at one
-// scale, on one game build, measured on one body (the template's walker and movement collider). A game update (another
-// build number) or a changed body invalidates it, and the pet only catches up (ClearanceMappingUnverified).
+// Kiln never derives it from the body's radius: a profile is a calibration's result, at one scale, on one game build,
+// measured on one body (the template's walker, movement collider and own scale). A game update (another build number) or
+// a changed body invalidates it, and the pet only catches up (ClearanceMappingUnverified).
 //
-// Where profiles come from, first match wins:
+// Two kinds of profile:
+//   - a creature profile names one creature (its Kiln id): that creature was calibrated;
+//   - a body profile ("match": "body") names a body: at least three walking creatures with exactly that body were
+//     calibrated on the build at the scale and every one passed with the same pair (the routes kiln.queries finds do not
+//     depend on the creature, and the walk is the movement collider's: tools/pets-clearance, docs/kiln/services/pets.md).
+//     It applies to every walking creature with that body.
+// A creature profile wins over a body profile; where profiles come from, first match wins:
 //   1. the defining mod's own <mod folder>/pets/clearance.json, for that mod's pets only (its creature, its scale);
 //   2. the server's kiln/data/kiln.pets/clearance.json (an operator's or a calibration run's file);
 //   3. Kiln's shipped profiles (clearance.json, embedded in Kiln.Pets.dll; tools/pets-clearance makes them).
 // Format 1 (docs/kiln/services/pets.md):
 //   {"format": 1, "profiles": [{"creature": "game:enemy_wildbeast_wolf", "scale": 1, "game": 1287369,
 //     "horizontalSpace": 1, "verticalSpace": 2,
-//     "body": {"walkerRadius": 0, "walkerHeight": 2, "colliderWidth": 0.8, "colliderHeight": 1.4}, "calibration": {...}}]}
+//     "body": {"walkerRadius": 0, "walkerHeight": 2, "colliderWidth": 0.8, "colliderHeight": 1.4}, "calibration": {...}},
+//    {"match": "body", "scale": 1, "game": 1287369, "horizontalSpace": 0.5, "verticalSpace": 2,
+//     "body": {"walkerRadius": 0, "walkerHeight": 2, "colliderWidth": 1, "colliderHeight": 1, "templateScale": 1}, ...}]}
 // "game" is the game's own build number (svn), as Kiln's build record of the running exe names it, so the dedicated server
-// and the client that hosts share it. "templateScale" (default 1) in "body" is the template's own
+// and the client that hosts share it. "templateScale" (default 1; a body profile states it) is the template's own
 // ScaleComponent.uniformScale, a creature block's Body.Scale. "calibration" is the evidence summary; the loader does not
 // read it. A game creature's id matches whatever its case, as the creatures registry resolves it.
 using System.Reflection;
@@ -36,6 +44,10 @@ internal sealed record PetClearanceBody(double WalkerRadius, double WalkerHeight
     /// has none.</summary>
     public double TemplateScale { get; init; } = 1;
 
+    /// <summary>The template walks: its path walker finds paths and it has no flying component. Only a walker takes a body
+    /// profile; not compared by <see cref="Same"/>.</summary>
+    public bool Walker { get; init; } = true;
+
     public bool Same(PetClearanceBody o) =>
         Math.Abs(WalkerRadius - o.WalkerRadius) <= Tolerance && Math.Abs(WalkerHeight - o.WalkerHeight) <= Tolerance &&
         Math.Abs(ColliderWidth - o.ColliderWidth) <= Tolerance && Math.Abs(ColliderHeight - o.ColliderHeight) <= Tolerance &&
@@ -46,8 +58,12 @@ internal sealed record PetClearanceBody(double WalkerRadius, double WalkerHeight
         (Math.Abs(TemplateScale - 1) > Tolerance ? FormattableString.Invariant($", template scale {TemplateScale:0.###}") : "");
 }
 
-/// <summary>One profile as a file lists it.</summary>
-internal sealed record PetClearanceEntry(string Creature, double Scale, int Game, PetClearanceProfile Profile, PetClearanceBody Body, string Source);
+/// <summary>One profile as a file lists it: a creature's (<paramref name="Creature"/> its Kiln id) or a body's
+/// (<paramref name="Creature"/> null, "match": "body": every walking creature with <paramref name="Body"/>).</summary>
+internal sealed record PetClearanceEntry(string? Creature, double Scale, int Game, PetClearanceProfile Profile, PetClearanceBody Body, string Source)
+{
+    public bool ByBody => Creature is null;
+}
 
 internal static class PetClearance
 {
@@ -123,18 +139,31 @@ internal static class PetClearance
             why = $"{Unverified}: the body of {def.Creature} cannot be read here to check its measured profile; the pet catches up instead of walking";
             return null;
         }
+        // the creature's own profiles first (every source), then the body profiles (walking bodies only)
         foreach (var c in mine)
-            if (c.Body.Same(body))
+            if (!c.ByBody && c.Body.Same(body))
             {
                 why = null;
                 return c.Profile;
             }
-        why = $"{Unverified}: the body of {def.Creature} changed since its path clearance was measured (measured: {mine[0].Body}; now: {body}); the pet catches up instead of walking";
+        if (body.Walker)
+            foreach (var c in mine)
+                if (c.ByBody && c.Body.Same(body))
+                {
+                    why = null;
+                    return c.Profile;
+                }
+        var own = mine.FirstOrDefault(c => !c.ByBody);
+        why = own is not null
+            ? $"{Unverified}: the body of {def.Creature} changed since its path clearance was measured (measured: {own.Body}; now: {body}); the pet catches up instead of walking"
+            : body.Walker
+                ? $"{Unverified}: no measured path clearance for {where}: no profile names it, and no body profile of game build {build.Value} is its body ({body}); the pet catches up instead of walking"
+                : $"{Unverified}: no measured path clearance for {where}: no profile names it, and a body profile is for walking bodies only (its template finds no paths or flies); the pet catches up instead of walking";
         return null;
     }
 
-    /// <summary>Every profile for the creature at the scale, in the order of the sources (the defining mod's, the server's,
-    /// Kiln's).</summary>
+    /// <summary>Every profile at the scale for the creature (its own) or for a body, in the order of the sources (the
+    /// defining mod's, the server's, Kiln's).</summary>
     private static List<PetClearanceEntry> Candidates(PetDefinition def, double scale)
     {
         var all = new List<PetClearanceEntry>();
@@ -146,7 +175,7 @@ internal static class PetClearance
             all.AddRange(Read(ServerFile(), "the server's kiln/data/kiln.pets"));
             all.AddRange(Shipped());
         }
-        return all.Where(e => SameCreature(e.Creature, def.Creature) && Math.Abs(e.Scale - scale) < 1e-6).ToList();
+        return all.Where(e => (e.ByBody || SameCreature(e.Creature!, def.Creature)) && Math.Abs(e.Scale - scale) < 1e-6).ToList();
     }
 
     /// <summary>Whether two creature ids name the same creature: a game creature's whatever its case (the creatures
@@ -237,9 +266,20 @@ internal static class PetClearance
             var p = profiles[i] as JsonObject;
             var name = $"profiles[{i}]";
             if (p is null) { problems.Add($"{name}: not an object"); continue; }
-            var creature = Str(p["creature"]);
-            if (creature is null || creature.IndexOf(':') <= 0) { problems.Add($"{name}: \"creature\" is not a creature's Kiln id"); continue; }
-            name = $"{name} ({creature})";
+            var match = p["match"] is null ? "creature" : Str(p["match"]);
+            if (match is not ("creature" or "body")) { problems.Add($"{name}: \"match\" is \"creature\" (the default) or \"body\""); continue; }
+            string? creature = null;
+            if (match == "body")
+            {
+                if (p["creature"] is not null) { problems.Add($"{name}: a body profile (\"match\": \"body\") names no \"creature\""); continue; }
+                name = $"{name} (body)";
+            }
+            else
+            {
+                creature = Str(p["creature"]);
+                if (creature is null || creature.IndexOf(':') <= 0) { problems.Add($"{name}: \"creature\" is not a creature's Kiln id"); continue; }
+                name = $"{name} ({creature})";
+            }
             var scale = Num(p["scale"]) ?? 1;
             if (!double.IsFinite(scale) || scale < 0.25 || scale > 4) { problems.Add($"{name}: \"scale\" is outside 0.25..4"); continue; }
             if (Int(p["game"]) is not { } game || game <= 0) { problems.Add($"{name}: no \"game\" build number (a profile is measured on one game build)"); continue; }
@@ -257,6 +297,11 @@ internal static class PetClearance
             if (b["templateScale"] is not null && ts is not (> 0 and <= 100))
             {
                 problems.Add($"{name}: the body's \"templateScale\" is not a scale");
+                continue;
+            }
+            if (creature is null && ts is null)
+            {
+                problems.Add($"{name}: a body profile's \"body\" names its \"templateScale\"");
                 continue;
             }
             list.Add(new PetClearanceEntry(creature, Math.Round(scale, 3), game, new PetClearanceProfile(h.Value, v.Value),
@@ -363,6 +408,7 @@ internal static class PetClearance
                 t.GetNumber("MovementColliderConfig.width"), t.GetNumber("MovementColliderConfig.height"))
             {
                 TemplateScale = Optional(t, "ScaleComponent.uniformScale") ?? 1,
+                Walker = Walks(t),
             };
         }
         catch (Exception e) when (e is KeyNotFoundException or InvalidOperationException or NotSupportedException or ArgumentException or FormatException)
@@ -376,6 +422,26 @@ internal static class PetClearance
     {
         try { return t.GetNumber(path); }
         catch (KeyNotFoundException) { return null; }
+    }
+
+    /// <summary>The template's path walker finds paths and it has no flying component; false when that cannot be read.</summary>
+    private static bool Walks(GameDataEntry t)
+    {
+        try
+        {
+            return Optional(t, "PathWalker.usePathFinding") is { } finds && finds != 0 && !Has(t, "Flying") && !Has(t, "FlyingEnemy");
+        }
+        catch (Exception e) when (e is InvalidOperationException or NotSupportedException or ArgumentException or FormatException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Whether the template has the component.</summary>
+    private static bool Has(GameDataEntry t, string component)
+    {
+        try { return t.GetJson(component) is not JsonObject o || o["absent"] is null; }
+        catch (KeyNotFoundException) { return false; }
     }
 
     // ---- tests and the calibration lab ----

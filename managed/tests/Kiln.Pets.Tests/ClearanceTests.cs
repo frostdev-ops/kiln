@@ -52,6 +52,14 @@ public sealed class ClearanceTests : IDisposable
         return o.ToJsonString();
     }
 
+    /// <summary>A body profile ("match": "body"): every walking creature with the body.</summary>
+    private static string BodyProfile(PetClearanceBody body, double scale = 1, int game = Build, double h = 0.5, double v = 2) => new JsonObject
+    {
+        ["match"] = "body", ["scale"] = scale, ["game"] = game, ["horizontalSpace"] = h, ["verticalSpace"] = v,
+        ["body"] = BodyJson(body, true),
+        ["calibration"] = new JsonObject { ["lab"] = "test", ["templates"] = new JsonArray("game:a", "game:b", "game:c") },
+    }.ToJsonString();
+
     private static JsonObject BodyJson(PetClearanceBody b, bool withScale)
     {
         var o = new JsonObject { ["walkerRadius"] = b.WalkerRadius, ["walkerHeight"] = b.WalkerHeight, ["colliderWidth"] = b.ColliderWidth, ["colliderHeight"] = b.ColliderHeight };
@@ -390,5 +398,86 @@ public sealed class ClearanceTests : IDisposable
             Assert.Contains("collider width 2", why);
         }
         finally { PetCreatures.ResetForTests(); }
+    }
+
+    // ---- body profiles ----
+
+    private static readonly PetClearanceBody Beast = new(0, 2, 1, 1);
+
+    [Fact]
+    public void A_body_profile_applies_to_every_walking_creature_with_that_body()
+    {
+        PetClearance.ShippedJson = () => File1(BodyProfile(Beast, h: 0.5, v: 2));
+        PetClearance.BodyOf = _ => Beast;
+        Assert.Equal(new PetClearanceProfile(0.5, 2), PetClearance.For(_def, out var why));
+        Assert.Null(why);
+        Assert.Equal(new PetClearanceProfile(0.5, 2), PetClearance.For(_def with { Creature = "game:enemy_vukah_melee" }, out _));
+        // another body, another template scale, another scale, another build: no
+        PetClearance.BodyOf = _ => Beast with { ColliderHeight = 2 };
+        Assert.Null(PetClearance.For(_def, out why));
+        Assert.Contains("no body profile of game build 1287369 is its body", why);
+        PetClearance.BodyOf = _ => Beast with { TemplateScale = 1.3 };
+        Assert.Null(PetClearance.For(_def, out _));
+        PetClearance.BodyOf = _ => Beast;
+        Assert.Null(PetClearance.For(_def with { Level = new PetLevelPolicy { Scale = 1.5 } }, out _));
+        PetClearance.GameBuild = () => Build + 1;
+        Assert.Null(PetClearance.For(_def, out why));
+        Assert.Contains("was measured on game build 1287369", why);
+    }
+
+    [Fact]
+    public void A_body_profile_is_for_walking_bodies_only()
+    {
+        PetClearance.ShippedJson = () => File1(BodyProfile(Beast));
+        PetClearance.BodyOf = _ => Beast with { Walker = false };
+        Assert.Null(PetClearance.For(_def, out var why));
+        Assert.Contains("walking bodies only", why);
+        // a creature profile still applies: that creature was calibrated
+        Put(ServerFile, File1(Profile(body: Beast, h: 2, v: 3)));
+        _clock += 11;
+        Assert.Equal(new PetClearanceProfile(2, 3), PetClearance.For(_def, out _));
+    }
+
+    [Fact]
+    public void A_creature_profile_wins_over_a_body_profile_from_any_source()
+    {
+        Put(ModFile("mod-a"), File1(BodyProfile(Beast, h: 0.5, v: 1)));
+        PetClearance.ShippedJson = () => File1(Profile(body: Beast, h: 2, v: 3));
+        PetClearance.BodyOf = _ => Beast;
+        Assert.Equal(new PetClearanceProfile(2, 3), PetClearance.For(_def, out _));
+        // another creature of that body takes the defining mod's body profile
+        Assert.Equal(new PetClearanceProfile(0.5, 1), PetClearance.For(_def with { Creature = "game:enemy_wildbeast_boar" }, out _));
+        // and another mod's pet does not
+        Assert.Null(PetClearance.For(_def with { Id = "mod-b:boar", Creature = "game:enemy_wildbeast_boar" }, out _));
+    }
+
+    [Fact]
+    public void A_creature_profile_of_an_old_body_gives_way_to_a_body_profile_of_the_new_one()
+    {
+        // a game update or a data pack changed the creature's body: Kiln's body profile for the new body applies
+        PetClearance.ShippedJson = () => File1(Profile(body: Wolf, h: 1, v: 2), BodyProfile(Beast, h: 0.5, v: 2));
+        PetClearance.BodyOf = _ => Beast;
+        Assert.Equal(new PetClearanceProfile(0.5, 2), PetClearance.For(_def, out _));
+        PetClearance.BodyOf = _ => Beast with { ColliderWidth = 3 };
+        Assert.Null(PetClearance.For(_def, out var why));
+        Assert.Contains("changed since its path clearance was measured", why);
+    }
+
+    [Fact]
+    public void A_body_profile_states_its_template_scale_and_names_no_creature()
+    {
+        var noScale = """{"match": "body", "scale": 1, "game": 5, "horizontalSpace": 0.5, "verticalSpace": 2, "body": {"walkerRadius": 0, "walkerHeight": 2, "colliderWidth": 1, "colliderHeight": 1}}""";
+        var named = """{"match": "body", "creature": "game:a", "scale": 1, "game": 5, "horizontalSpace": 0.5, "verticalSpace": 2, "body": {"walkerRadius": 0, "walkerHeight": 2, "colliderWidth": 1, "colliderHeight": 1, "templateScale": 1}}""";
+        var other = """{"match": "template", "creature": "game:a", "scale": 1, "game": 5, "horizontalSpace": 0.5, "verticalSpace": 2, "body": {"walkerRadius": 0, "walkerHeight": 2, "colliderWidth": 1, "colliderHeight": 1}}""";
+        var badScale = """{"match": "body", "scale": 1, "game": 5, "horizontalSpace": 0.5, "verticalSpace": 2, "body": {"walkerRadius": 0, "walkerHeight": 2, "colliderWidth": 1, "colliderHeight": 1, "templateScale": 0}}""";
+        var list = PetClearance.Parse(File1(noScale, named, other, badScale, BodyProfile(Beast)), "t", out var problems);
+        var e = Assert.Single(list);
+        Assert.True(e.ByBody);
+        Assert.Null(e.Creature);
+        Assert.Equal(4, problems.Count);
+        Assert.Contains(problems, p => p.Contains("profiles[0]") && p.Contains("templateScale"));
+        Assert.Contains(problems, p => p.Contains("profiles[1]") && p.Contains("names no \"creature\""));
+        Assert.Contains(problems, p => p.Contains("profiles[2]") && p.Contains("\"match\""));
+        Assert.Contains(problems, p => p.Contains("profiles[3]") && p.Contains("templateScale"));
     }
 }
