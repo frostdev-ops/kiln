@@ -303,7 +303,7 @@ int main(int argc, char** argv) {
             if (one.build.regmap_digest != one.common_digest)
                 std::printf("  regmap %s: the record's regmapDigest %s is not regmap/common's %s\n", side, one.build.regmap_digest.c_str(), one.common_digest.c_str());
             CHECK(one.build.regmap_digest == one.common_digest);
-            CHECK(one.registries.size() == 5);
+            CHECK(one.registries.size() == 8);  // the five R1 registries, world, difficulty and limits (dev.32)
             for (const auto& [name, reg] : one.registries) {
                 const auto r = map::check_routing(reg);
                 for (const std::string& e : r) std::printf("  routing: %s\n", e.c_str());
@@ -330,6 +330,16 @@ int main(int argc, char** argv) {
                                              {"loot", "stack.scalable"}, {"loot", "stack.maxScaled"}, {"drops", "entries"}, {"drops", "entries[].item"},
                                              {"drops", "entries[].count.min"}, {"drops", "entries[].count.max"}, {"drops", "entries[].chance"},
                                              {"drops", "entries[].weight"}}) {
+                const bool ok = one.mapping(reg, field, &why) == Mapping::Mapped;
+                if (!ok) std::printf("  %s: %s.%s: %s\n", side, reg, field, why.c_str());
+                CHECK(ok);
+            }
+            // dev.32 (registry-r3b): the world rules and limits rows are proven on this build, the durations' bounds (boot time rows,
+            // P55) and the two Kiln hook values (the producer's samples of the game's own functions) included
+            for (const auto& [reg, field] : {std::pair{"world", "noBuildZones"}, {"world", "noBuildZones[].min.x"}, {"world", "playableAreas"},
+                                             {"world", "playableAreas[].max.z"}, {"difficulty", "enemyDamageFactor.max"}, {"difficulty", "dayTimeDuration.min"},
+                                             {"difficulty", "fromHungerToStarving.max"}, {"difficulty", "flameLevelFogRemoval.max"},
+                                             {"limits", "maxAltars"}, {"limits", "giftingRange"}}) {
                 const bool ok = one.mapping(reg, field, &why) == Mapping::Mapped;
                 if (!ok) std::printf("  %s: %s.%s: %s\n", side, reg, field, why.c_str());
                 CHECK(ok);
