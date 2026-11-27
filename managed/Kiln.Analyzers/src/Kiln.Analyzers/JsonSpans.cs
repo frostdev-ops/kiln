@@ -42,9 +42,9 @@ internal sealed class JsonSpans
             p.Skip();
             return p.At == text.Length ? v : null;
         }
-        catch (FormatException)
+        catch (Exception e) when (e is FormatException or ArgumentException or OverflowException)
         {
-            return null;
+            return null;  // not JSON ("\u-001" reaches Convert.ToInt32 as an ArgumentException): no hint, never an analyzer crash
         }
     }
 

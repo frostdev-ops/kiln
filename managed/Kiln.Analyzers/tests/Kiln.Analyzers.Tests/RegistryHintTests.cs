@@ -255,6 +255,12 @@ public class RegistryHintTests
     }
 
     [Fact]
+    public async Task AFileThatIsNotJsonIsNoCrash()
+    {
+        Assert.Empty(await Run(Empty, ("/mod/content/odd.json", """{ "items": { "W\u-001": { "maxStackSize": 1 } } }""")));
+    }
+
+    [Fact]
     public async Task AHookBySymbolNameIsNotAHookByAddress()
     {
         var src = """
