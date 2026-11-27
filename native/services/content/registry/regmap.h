@@ -37,7 +37,7 @@ enum class Mapping : uint8_t { Mapped = 0, Unmapped = 1, Unproven = 2, Removed =
 // The conversions between a Kiln value and the game's (regmap/README.md).
 inline constexpr const char* kConvs[] = {"int",     "float",   "bool",    "time",         "enum",          "flags",
                                          "ref",     "refList", "formula", "impactConfig", "list",          "stackCount",
-                                         "inventoryWalk", "unlock", "optionalEnum", "component"};
+                                         "inventoryWalk", "unlock", "optionalEnum", "component", "flag"};
 
 struct Row {
     std::string field;               // the Kiln field ("maxStack", "inputs[].count")

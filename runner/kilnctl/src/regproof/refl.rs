@@ -420,12 +420,12 @@ fn propose(old: &TypeDb, new: &TypeDb, nbase: &str, path: &str, os: &[Step], sto
 /// The enum (or a bitmask's enum) a row's values map onto.
 fn enum_of<'a>(db: &'a TypeDb, conv: &str, leaves: &[String]) -> Option<&'a Type> {
     let at = match conv {
-        "enum" | "flags" => 0,
+        "enum" | "flags" | "flag" => 0,
         "optionalEnum" => 1,
         _ => return None,
     };
     let t = db.resolve(db.get(leaves.get(at)?)?);
-    if conv == "flags" {
+    if conv == "flags" || conv == "flag" {
         if !(13..=16).contains(&t.kind) {
             return None;
         }

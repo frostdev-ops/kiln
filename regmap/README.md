@@ -58,6 +58,7 @@ shows or predicts from its own copy), `state` (mapped, unproven, unmapped; the l
 | inventoryWalk | the root group: stacks first, then each child group, depth first | the table's entries in walk order |
 | unlock | the knowledge requirement | game or always |
 | component | template components by type name; `values` maps one Kiln name to each, read-only | the Kiln name of the first one the entry holds (creatures.kind) |
+| flag | a bitmask member; `values` maps one Kiln name to one of its bits, read-only (no writer of one bit yet) | true when that bit is set (creatures.tameable) |
 
 **The routing rule.** The schema's `applies` is the contract. A row's `read` may not be later than its field's
 `applies` (now < worldLoad < restart); a `boot` back-end serves only restart fields and `live` only now and worldLoad

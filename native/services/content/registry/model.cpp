@@ -398,6 +398,13 @@ std::optional<Value> decode(const map::RegistryMap& reg, const map::Row& row, co
             if (on.count(n)) out.push_back(Value::text(n));
         return Value::of_list(std::move(out));
     }
+    if (c == "flag") {  // one named bit of a bitmask: whether it is set (creatures.tameable)
+        if (!at(0, &a)) return std::nullopt;
+        bool on = false;
+        for (const auto& x : a.is_array() ? a : json::array())
+            if (kiln_enum(row, x)) on = true;  // the row maps exactly one game name
+        return Value::boolean(on);
+    }
     if (c == "ref") {
         if (!at(0, &a)) return std::nullopt;
         if (row.paths.size() == 1) return ref_of(f.ref, json(), a);  // one path: the reference alone (a creature's arsenal)

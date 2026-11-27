@@ -38,7 +38,7 @@ void read_only(model::Model& m, model::Source& src, const Env& e, const map::Reg
         const std::string field = list.empty() ? f : list;
         const auto wit = reg.rows.find(field);
         if (wit == reg.rows.end() || wit->second.paths.empty()) continue;
-        static const char* const kCompared[] = {"int", "float", "bool", "time", "enum", "flags", "optionalEnum"};
+        static const char* const kCompared[] = {"int", "float", "bool", "time", "enum", "flags", "optionalEnum", "flag"};
         const bool compared = std::find(std::begin(kCompared), std::end(kCompared), row.conv) != std::end(kCompared);
         const bool prefer_true = rs.field(f)->type == FieldType::Bool;
         bool sampled = false;
