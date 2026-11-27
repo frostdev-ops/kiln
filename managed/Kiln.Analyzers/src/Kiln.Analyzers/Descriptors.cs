@@ -199,6 +199,27 @@ public static class Descriptors
         Contract, DiagnosticSeverity.Warning,
         "Unknown bits, zero and Manual are not automatic entry points. Kiln refuses the declaration without executing the mod. Since API 0.2.17.");
 
+    // Tier hints (D5, docs/kiln/modding/tiers.md): info level only, never an error and never a refusal; the old path keeps
+    // working. The table of what covers what is generated (RegistryHints.g.cs).
+    private const string Tiers = "Kiln.Tiers";
+
+    public static readonly DiagnosticDescriptor RegistryCovers = Rule("KILN124",
+        "A registry field covers this old data path",
+        "'{0}' of {1} is the registry field {2}: edit {2} instead (Kiln.Registry, or a data pack's \"registry\" section), and Kiln keeps it working across game updates",
+        Tiers, DiagnosticSeverity.Info,
+        "A data pack path, a resource patch path or a ContentEntry/GameDataEntry path names the game's own member (the Advanced tier: " +
+        "it works while the game's names hold). A Kiln registry field maps the same member onto every game build Kiln proves (the Stable " +
+        "tier). Where the field holds the same value one to one, a code fix moves a data pack's value into its \"registry\" section. " +
+        "Since 0.2.0-dev.32.");
+
+    public static readonly DiagnosticDescriptor NativeTier = Rule("KILN125",
+        "Native-tier code: a hook or a memory write by address",
+        "{0} {1}: Native tier, it can break on every game update{2}",
+        Tiers, DiagnosticSeverity.Info,
+        "Hooks by address (Hooks.Mid(base + rva)), a hook of a game function, and writes into memory by address (Memory.Write, " +
+        "Marshal.Write*) are the mod's own risk on every game update. Where a registry field covers the hooked function (a Kiln-owned " +
+        "hook behind a rule, such as limits.maxAltars), the message names it. Since 0.2.0-dev.32.");
+
     public static readonly DiagnosticDescriptor ExtensionValueType = Rule("KILN199",
         "Replicated extension value type outside the rule",
         "'{0}' cannot be the value of a replicated extension: {1}",
