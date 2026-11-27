@@ -81,6 +81,11 @@ public sealed class RegistryHintAnalyzer : DiagnosticAnalyzer
             var kinds = new Kinds(c);
             start.RegisterAdditionalFileAction(DataFile);
             if (kinds.Any) start.RegisterOperationAction(ctx => Invocation(ctx, kinds), OperationKind.Invocation);
+            if (kinds.Patch is not null)
+            {
+                start.RegisterOperationAction(ctx => PatchCreation(ctx, kinds), OperationKind.ObjectCreation);
+                start.RegisterOperationAction(ctx => PatchIndexer(ctx, kinds), OperationKind.PropertyReference);
+            }
         });
     }
 
@@ -94,8 +99,9 @@ public sealed class RegistryHintAnalyzer : DiagnosticAnalyzer
             Symbols = c.GetTypeByMetadataName("Kiln.Symbols");
             Memory = c.GetTypeByMetadataName("Kiln.Memory");
             Marshal = c.GetTypeByMetadataName("System.Runtime.InteropServices.Marshal");
+            Patch = c.GetTypeByMetadataName("Kiln.ResourcePatchBlock");
         }
-        public INamedTypeSymbol? ContentEntry, GameDataEntry, Hooks, Symbols, Memory, Marshal;
+        public INamedTypeSymbol? ContentEntry, GameDataEntry, Hooks, Symbols, Memory, Marshal, Patch;
         public bool Any => ContentEntry is not null || GameDataEntry is not null || Hooks is not null || Memory is not null || Marshal is not null;
         public bool IsEntry(ITypeSymbol? t) => t is not null && (Same(t, ContentEntry) || Same(t, GameDataEntry));
         public static bool Same(ISymbol? a, ISymbol? b) => a is not null && b is not null && SymbolEqualityComparer.Default.Equals(a, b);
@@ -120,7 +126,7 @@ public sealed class RegistryHintAnalyzer : DiagnosticAnalyzer
                 ctx.ReportDiagnostic(Diagnostic.Create(Descriptors.RegistryCovers, arg.Value.Syntax.GetLocation(), path, section, hit.Field));
             return;
         }
-        if (Kinds.Same(type, kinds.Hooks) && m.Name is "Mid" or "Detour" or "Patch" && inv.Arguments.Length > 0)
+        if (Kinds.Same(type, kinds.Hooks) && m.Name is "Mid" or "Detour" && inv.Arguments.Length > 0)
         {
             var first = inv.Arguments[0].Value;
             if (first.ConstantValue is { HasValue: true, Value: string symbol })
@@ -154,6 +160,48 @@ public sealed class RegistryHintAnalyzer : DiagnosticAnalyzer
             ctx.ReportDiagnostic(Diagnostic.Create(Descriptors.NativeTier, inv.Syntax.GetLocation(), $"Marshal.{m.Name}",
                 "writes into memory by address (if that address is the game's)", Advice));
         }
+    }
+
+    // ---- C# resource patches (OnBoot): new ResourcePatchBlock { Type = "keen::BalancingTable", Set = { ["path"] = v } }, and
+    // block.Set["path"] = v on a local made that way
+
+    private static void PatchCreation(OperationAnalysisContext ctx, Kinds kinds)
+    {
+        var create = (IObjectCreationOperation)ctx.Operation;
+        if (!Kinds.Same(create.Type, kinds.Patch) || create.Initializer is null || PatchType(create) is not { } type) return;
+        foreach (var init in create.Initializer.Initializers)
+            if (init is IMemberInitializerOperation { InitializedMember: IPropertyReferenceOperation { Property.Name: "Set" }, Initializer: { } set })
+                foreach (var e in set.Initializers)
+                    if (e is ISimpleAssignmentOperation { Target: IPropertyReferenceOperation { Property.IsIndexer: true, Arguments.Length: 1 } target })
+                        PatchKey(ctx, type, target.Arguments[0].Value);
+    }
+
+    private static void PatchIndexer(OperationAnalysisContext ctx, Kinds kinds)
+    {
+        var p = (IPropertyReferenceOperation)ctx.Operation;
+        if (!p.Property.IsIndexer || p.Arguments.Length != 1 || p.Instance is not IPropertyReferenceOperation { Property.Name: "Set" } set ||
+            !Kinds.Same(set.Property.ContainingType, kinds.Patch)) return;
+        var owner = set.Instance;
+        while (owner is IConversionOperation c) owner = c.Operand;
+        if (owner is not ILocalReferenceOperation local || local.SemanticModel is not { } model) return;
+        foreach (var r in local.Local.DeclaringSyntaxReferences)
+            if (r.GetSyntax() is VariableDeclaratorSyntax { Initializer.Value: { } init } && init.SyntaxTree == model.SyntaxTree &&
+                model.GetOperation(init) is IObjectCreationOperation create && Kinds.Same(create.Type, kinds.Patch) && PatchType(create) is { } type)
+                PatchKey(ctx, type, p.Arguments[0].Value);
+    }
+
+    private static string? PatchType(IObjectCreationOperation create)
+    {
+        foreach (var init in create.Initializer?.Initializers ?? ImmutableArray<IOperation>.Empty)
+            if (init is ISimpleAssignmentOperation { Target: IPropertyReferenceOperation { Property.Name: "Type" }, Value.ConstantValue: { HasValue: true, Value: string t } })
+                return t;
+        return null;
+    }
+
+    private static void PatchKey(OperationAnalysisContext ctx, string type, IOperation key)
+    {
+        if (key.ConstantValue is not { HasValue: true, Value: string path } || Covering(type, path) is not { } hit) return;
+        ctx.ReportDiagnostic(Diagnostic.Create(Descriptors.RegistryCovers, key.Syntax.GetLocation(), path, "a resource patch of " + Short(type), hit.Field));
     }
 
     private const string Advice = "; a Kiln registry field or service covers much of the game's data and rules (docs/kiln/modding/tiers.md), and Kiln keeps those working across game updates";

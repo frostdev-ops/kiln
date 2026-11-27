@@ -12,5 +12,7 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="4.14.0" PrivateAssets="all" />
     <ProjectReference Include="../Kiln.Analyzers.csproj" />
+    <!-- RegistryHintFix.MoveText, tested on its own (RegistryHintTests) -->
+    <InternalsVisibleTo Include="Kiln.Analyzers.Tests" />
   </ItemGroup>
 </Project>

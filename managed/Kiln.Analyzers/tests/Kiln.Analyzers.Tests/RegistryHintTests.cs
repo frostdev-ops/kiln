@@ -31,12 +31,12 @@ public class RegistryHintTests
     {
         Assert.Contains(RegistryHints.Registries, r => r.Name == "items");
         Assert.Contains(RegistryHints.Paths, p => p is { Root: "keen::ItemInfo", Path: "maxstacksize", Field: "items.maxStack", Exact: true });
-        Assert.Equal(("items.maxStack", true), RegistryHintAnalyzer.Covering("keen::ItemInfo", "maxStackSize"));
+        Assert.Equal<(string, bool)?>(("items.maxStack", true), RegistryHintAnalyzer.Covering("keen::ItemInfo", "maxStackSize"));
         Assert.Equal("items.power", RegistryHintAnalyzer.Covering("keen::ItemInfo", "damageSetup.dmgMod")?.Field);
         Assert.False(RegistryHintAnalyzer.Covering("keen::ItemInfo", "damageSetup.dmgMod")!.Value.Exact);  // through a formula
         Assert.Null(RegistryHintAnalyzer.Covering("keen::ItemInfo", "noSuchMember"));
         // a list's element is covered by the list, never one to one
-        Assert.Equal(("balance.altarsPerFlameLevel", false), RegistryHintAnalyzer.Covering("keen::BalancingTable", "altarsPerFlameLevel[*]"));
+        Assert.Equal<(string, bool)?>(("balance.altarsPerFlameLevel", false), RegistryHintAnalyzer.Covering("keen::BalancingTable", "altarsPerFlameLevel[*]"));
     }
 
     [Fact]
@@ -76,6 +76,30 @@ public class RegistryHintTests
     }
 
     [Fact]
+    public async Task ResourcePatchesInOnBootCode()
+    {
+        var src = """
+        public sealed class M : Mod
+        {
+            private static readonly Guid Table = Guid.Parse("82706b40-61b1-4b8f-8b23-dcec6971bda1");
+            public override void OnBoot(BootContext boot)
+            {
+                var block = new ResourcePatchBlock { Resource = Table, Type = "keen::BalancingTable" };
+                block.Set["altarsPerFlameLevel[*]"] = new ResourceValue { Min = 16 };
+                var other = new ResourcePatchBlock { Resource = Table, Type = "keen::BalancingTable", Set = { ["playerLevelCap"] = new ResourceValue { Min = 30 } } };
+                BootDefinitions.For(boot).Define("altars", block);
+                BootDefinitions.For(boot).Define("cap", other);
+            }
+        }
+        """;
+        var diags = (await Run(src)).Where(d => d.Id == "KILN124").ToList();
+        Assert.Equal(2, diags.Count);
+        Assert.Contains("balance.altarsPerFlameLevel", diags[0].GetMessage());
+        Assert.Contains("balance.levelCap", diags[1].GetMessage());
+        Assert.All(diags, d => Assert.Contains("a resource patch of BalancingTable", d.GetMessage()));
+    }
+
+    [Fact]
     public async Task ContentEntryPathsInCode()
     {
         var src = """
@@ -106,7 +130,8 @@ public class RegistryHintTests
             private static void Handler(ref Registers regs) { }
             public override void OnLoad()
             {
-                nuint b = 0x140000000;
+                ulong image = 0x140000000;
+                nuint b = (nuint)image;
                 Hooks.Mid(b + 0x93dea0, Handler);
                 Memory.Write<int>(b + 16, 5);
                 var own = Marshal.AllocHGlobal(16);
